@@ -18,22 +18,22 @@ the owner explicitly accepts bounded residual risk.
 
 Loaded source artifacts:
 
-- `spec.md` lines 1-1124
-- `review-protocol.md` lines 1-458
-- `worktree-file-surface-protocol.md` lines 1-483
+- `spec.md` lines 1-1160
+- `review-protocol.md` lines 1-471
+- `worktree-file-surface-protocol.md` lines 1-535
 - `spec-review-report.md` lines 1-295
 - `review-1.6.29/spec-review-report.md` lines 1-138
 - current plan package:
-  - `implementation-plan.md` lines 1-325
+  - `implementation-plan.md` lines 1-376
   - `file-organization.md` lines 1-392
-  - `plan-ledger.md` lines 1-162
+  - `plan-ledger.md` lines 1-187
   - historical `plan-review-report.md` lines 1-319
   - `slices/00-carrier-proof.md` lines 1-143
-  - `slices/01-transport-contracts.md` lines 1-133
-  - `slices/02-review-protocol-vertical.md` lines 1-255
-  - `slices/03-worktree-file-native-provider.md` lines 1-145
-  - `slices/04-worktree-file-browser-surface.md` lines 1-159
-  - `slices/05-hard-cutover-cleanup.md` lines 1-122
+  - `slices/01-transport-contracts.md` lines 1-157
+  - `slices/02-review-protocol-vertical.md` lines 1-323
+  - `slices/03-worktree-file-native-provider.md` lines 1-185
+  - `slices/04-worktree-file-browser-surface.md` lines 1-209
+  - `slices/05-hard-cutover-cleanup.md` lines 1-130
   - `lanes/codebase-boundary.md` lines 1-70
   - `lanes/validation-proof.md` lines 1-69
   - `lanes/execution-order-security-reliability.md` lines 1-67
@@ -126,11 +126,16 @@ for a separately scoped fix or final milestone proof.
 | Privileged RPC cannot be invoked from page-world events | `spec.md` 7.2; plan review B2 | 01 | security integration, browser integration | negative page-world tests for `__bridge_command`/`__bridge_ready`; content-world path works |
 | Resource URL grammar, descriptor refs, leases, and integrity agree across TS/Swift | `spec.md` 6-7, 12-13; plan review I1/I5 | 01 | unit, Swift/WebKit boundary, fixture sync | shared accept/reject corpus, focused Bridge Swift/WebKit gates, and `scripts/bridge-web-sync-fixtures.sh` after fixture edits; broad Swift health remains a milestone/final guard when unrelated suites fail outside ticket scope |
 | Demand scheduler is generic and does not learn Review package authority | `spec.md` 9; plan review B3/I2 | 02 | unit, architecture, integration | `core/demand` tests plus import checks; no raw Review resource URL authority in generic modules |
-| Review frames attach descriptors before demand uses them | `review-protocol.md` 6-7; spec review addendum | 02 | unit, browser integration, Swift fixture parity | Review frame schema/materializer tests; source reset drops stale work |
+| Review frames attach descriptors before demand uses them | `review-protocol.md` 6-7; spec review addendum | 02 | unit, browser integration, Swift fixture parity | Review frame schema/materializer tests; shared TS/Swift fixture parity for snapshot/delta/invalidate/reset and descriptor registration order; source reset drops stale work |
+| Review frames are app-internal transport; native leases remain byte authority | `spec.md` 7.1-7.2, 12-13; `review-protocol.md` 6, 11; user decision 2026-06-23 | 02 | browser/app integration, Swift/WebKit lease boundary, scheme-handler security tests | forged/stale/foreign page-world Review frames may not make unauthorized `agentstudio://resource/...` fetches succeed; native lease validation rejects cross-pane, old-generation, revoked, wrong-descriptor, or over-limit fetches; HMAC/encryption is deferred hardening, not a Ticket 02 gate |
+| Bridge/provider errors are source-scrubbed before crossing into browser-visible surfaces | `spec.md` 7.2, 12, provider-scope validation | 01, 03 | Swift unit/integration, browser security unit | scheme-handler lease rejections and Worktree/File selector/canonicalization failures expose allowlisted reason codes only; no raw paths, cwd scopes, handle ids, capability URLs, or unsanitized provider error text cross the boundary |
+| Review deltas support partial descriptor attachment without stale lineage reuse | `review-protocol.md` 6, 11; events 32-34 regression history | 02 | unit, integration, fixture parity | `review.delta` accepts optional `contentDescriptors`, merges unchanged same-lineage handles, and rejects omitted handles whose lineage changed; fixtures cover unchanged handle reuse and stale changed-handle rejection |
 | Review changeset metadata remains flexible and non-authoritative | `review-protocol.md` 4, 10-11 | 02 | schema/materializer unit | live/closed/pinned, degraded confidence, overflow/fresh-scan fixtures; metadata cannot become content authority |
-| Existing Review UX remains functional after migration | Review protocol proof expectations; current user bug context | 02 | browser/dev-server | browser integration and `test:dev-server`; search/regex/filter controls included |
+| Existing Review UX remains functional after migration | Review protocol proof expectations; current user bug context | 02 | browser/dev-server | browser integration and dev-server load smoke; `test:dev-server:worktree` remains green; the current full `test:dev-server` bounded scroll canary is ticket 03/04 stable-extent proof once provider size facts exist |
 | Worktree/File provider mints source identity, descriptors, invalidations, and resets outside Review package lineage | `worktree-file-surface-protocol.md` 2, 5, 8; plan review B5 | 03 | Swift unit/integration | native tests prove non-Review host surface and provider-issued identity |
 | Worktree/File provider canonicalizes and contains browser selectors | `spec.md` provider-scope validation; `worktree-file-surface-protocol.md` 5 | 03 | Swift security unit/integration | malicious path/cwd scopes, path hints, symlinks, traversal, and root tokens are rejected provider-side |
+| Worktree/File provider publishes stable virtualized-size facts on earliest authoritative frames | `spec.md` 11; `worktree-file-surface-protocol.md` 6, 8, 10, 14; DiffsHub/Pierre research in workflow state | 03 | schema/model unit, Swift provider integration, fixture parity, telemetry schema fixture | `worktree.snapshot` and `worktree.treeWindow` carry `treeSizeFacts` with exact row count or conservative estimated total extent before tree row bodies hydrate; every `worktree.fileDescriptor` carries explicit `virtualizedExtentKind` plus exact `lineCount` or conservative `estimatedContentHeightPixels` before file content bytes are fetched/streamed; diagnostics schema is source-scrubbed |
+| Browser Worktree/File surface preserves anchor-stable scroll extent from provider facts | `spec.md` 11; `worktree-file-surface-protocol.md` 10, 14; DiffsHub/Pierre research in workflow state | 04 | browser integration, browser benchmark, dev-server, telemetry canary | browser reserves tree/file extent from provider facts before hydrated body measurement; measured reconciliation preserves anchor item/offset; canary records scrollTop before/after, `scrollHeight` or virtualizer `totalSize` before/after, visible range, anchor item/offset, measured item ids, and reconciliation reason; canary fails on non-reset anchor identity change, drift over one row/line height, exact-count total-size change over tolerance, or unattributed estimated-height delta |
 | Open file invalidation marks stale and does not auto-fetch until explicit refresh | `worktree-file-surface-protocol.md` 4, 9, OD-W1; plan review I4 | 04 | unit, browser/dev-server | stale marker -> no auto-fetch -> manual refresh fetches latest descriptor |
 | Renderer adapters receive prepared render inputs only | `spec.md` 11 and proof expectations | 02, 04 | integration/browser | Pierre-facing adapters/rendered DOM contain prepared items/paths only, never fetchable Bridge URLs or descriptor authority |
 | Comments/comms reserved resource kinds and flags fail closed | `spec.md` OD8; Worktree/File section 12; plan review I3 | 01, 04, 05 | schema/security unit | registry/parser tests reject disabled kinds/flags until a future schema slice exists |
@@ -143,10 +148,21 @@ for a separately scoped fix or final milestone proof.
 - No ticket 01 until ticket 00 has real WKWebView carrier proof.
 - No ticket 02 while privileged stream/open/refresh/cancel/reset RPC can still
   cross page-world events.
+- No ticket 02 checkpoint, commit, or Worktree/File advancement while native
+  lease/scheme-handler proof can be bypassed by a forged, stale, foreign, or
+  over-limit Review descriptor/content URL. Page-message provenance is not a
+  Ticket 02 security gate for the closed Swift app.
 - No generic descriptor-backed demand authority before Review frames attach
   accepted descriptors.
 - No removal of old Review-package Worktree dev scaffolding while
   `test:dev-server:worktree` still depends on it.
+- No ticket 04 browser surface before ticket 03 publishes Worktree/File
+  virtualized-size facts and proves schema/model, provider integration,
+  provider/frame, and telemetry-schema fixture coverage for tree row count or
+  estimated extent and file/code line count or estimated extent metadata.
+- No ticket 04 checkpoint before browser proof consumes those provider facts and
+  passes an anchor-preserving scroll-extent canary on the huge-worktree/dev-server
+  path.
 - No ticket 04 before ticket 03 proves provider-owned Worktree/File source
   identity outside Review package lineage.
 - No ticket 05 until Review and Worktree/File replacement proofs both pass.
@@ -162,8 +178,9 @@ for a separately scoped fix or final milestone proof.
   changes the trust boundary.
 - Ticket 02: checkpoint commit and mandatory implementation review before
   Worktree/File work starts.
-- Ticket 03: checkpoint commit; review if provider/native authority changes
-  materially from the plan.
+- Ticket 03: checkpoint commit and mandatory implementation review before ticket
+  04, focused on source identity, selector/path containment, descriptor
+  issuance, reset/invalidation authority, and scrubbed extent diagnostics.
 - Ticket 04: checkpoint commit and mandatory implementation review before
   cleanup.
 - Ticket 05: checkpoint commit after final gates, then run final
@@ -210,9 +227,19 @@ than independent editing: 00/01 both touch transport-adjacent files, and 02/04
 both touch app routing. Ticket 00 gates the carrier. Ticket 01 gates authority
 and content-world security. Ticket 02 creates the first protocol router and the
 first end-to-end app proof; it also provides descriptor-backed demand runtime
-that ticket 04 reuses. Ticket 03 can begin only after the shared transport
-contract is stable. Ticket 04 must follow ticket 03 because browser
-Worktree/File cannot mint provider authority itself.
+that ticket 04 reuses. Ticket 02 is not checkpoint-ready until native
+lease/scheme-handler tests prove that forged, stale, foreign, or over-limit
+Review descriptor/content URLs cannot fetch bytes. Page-world frame provenance
+is treated as internal app transport for this closed Swift app. Ticket 02
+is not the scroll-extent fix and must not be claimed complete by this design
+delta. Ticket 03 can begin only after the shared
+transport contract is stable, and it owns the DiffsHub-style stable
+virtualized-size contract for Worktree/File: provider/materializer facts must
+carry tree row/count/window metadata plus file/code extent kind, exact line
+count, or conservative estimated-height metadata before hydrated body bytes are
+fetched, streamed, or measured. Ticket 04 must follow ticket 03 because browser
+Worktree/File cannot mint provider authority or invent stable virtualized
+extents itself.
 
 ## Write Surfaces
 
@@ -259,6 +286,9 @@ Swift target layout:
 - Resource URLs are opaque capabilities backed by host-side lease validation.
 - Ranged/chunked reads are preview-only until chunk manifests exist.
 - Binary or oversized files degrade to metadata-only or bounded preview.
+- Virtualized-size facts are stable metadata, not hydrated bodies; providers and
+  protocol materializers publish them before renderer body measurement and, for
+  Worktree/File, before tree/file content bytes are fetched or streamed.
 - Comments/comms flags and resource kinds stay disabled/fail-closed in this epic.
 - Telemetry is allowlisted and must not export raw path, text, prompt, handle,
   capability URL, comment, or comms seeds.
@@ -277,14 +307,29 @@ Each implementation checkpoint handoff must include:
   generation/revision/cursor as applicable
 - scheduler/backpressure constants in force
 - whether Worktree dev proof still uses Review scaffolding
-- whether page-world ingress is removed or temporarily fenced
+- whether page-world ingress for descriptor-registering frames is removed from
+  the authority path; temporary fences are not ticket-02 checkpoint proof
 - telemetry/canary coverage completed so far and what is deferred
+- for ticket 02, forged page-world Review frame proof and admitted host-origin
+  frame proof for descriptor registration, package lineage replacement, demand,
+  and fetch behavior, including the exact Swift/WebKit suite and browser/app
+  integration cases used
+- for ticket 03, sample `treeSizeFacts` and file-descriptor
+  `virtualizedExtentKind` outputs that show exact and conservative estimated
+  extent cases before content bytes, plus source-scrubbed diagnostics schema
+- for ticket 04, scroll-extent telemetry canary output including scrollTop
+  before/after, `scrollHeight` or virtualizer `totalSize` before/after, visible
+  range, anchor item/offset, measured item ids, reconciliation reason, and
+  pass/fail result for the stable-anchor/bounded-drift/exact-size-tolerance/
+  attributed-height-delta contract
 
 ## Stop / Replan Triggers
 
 - Existing push/event path cannot prove real WKWebView ordered/bounded delivery.
 - Content-world-only privileged RPC cannot be represented without a new host
   bridge surface.
+- Native descriptor/lease authority cannot reject forged, stale, foreign, or
+  over-limit Review content fetches at the `BridgeSchemeHandler` boundary.
 - Descriptor/lease authority cannot be enforced by `BridgeSchemeHandler`.
 - Review materialization still requires CodeView remount on same-lineage deltas.
 - Worktree/File provider cannot mint stable source identity outside Review
@@ -306,6 +351,8 @@ pnpm --dir BridgeWeb run test:browser:integration -- \
   src/worktree-file-surface/test-support/worktree-file-surface.browser.integration.browser.test.tsx
 pnpm --dir BridgeWeb run test:dev-server
 pnpm --dir BridgeWeb run test:dev-server:worktree
+pnpm --dir BridgeWeb run benchmark:viewer
+pnpm --dir BridgeWeb run test:benchmark:browser
 mise run lint
 mise run test
 ```

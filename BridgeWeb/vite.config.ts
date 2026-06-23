@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -5,6 +6,11 @@ import { fileURLToPath } from 'node:url';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 
+import {
+	createBridgeDevTelemetrySink,
+	type BridgeDevTelemetrySink,
+	type BridgeDevTelemetrySnapshot,
+} from './scripts/dev-server/bridge-dev-telemetry.js';
 import {
 	createBridgeWorktreeDevProvider,
 	resolveBridgeWorktreeDevProviderConfig,
@@ -28,6 +34,7 @@ export default defineConfig({
 		{
 			name: 'bridge-worktree-dev-provider',
 			configureServer(server) {
+				const telemetrySink = createBridgeDevTelemetrySink();
 				const providerPromisesByConfig = new Map<string, BridgeWorktreeDevProviderPromise>();
 				const getProvider = async (requestUrl: string | null): BridgeWorktreeDevProviderPromise => {
 					const config = await resolveBridgeWorktreeDevProviderConfig({
@@ -50,6 +57,12 @@ export default defineConfig({
 				server.middlewares.use('/__bridge-worktree/content', (request, response) => {
 					void handleBridgeWorktreeContentRequest({ getProvider, request, response });
 				});
+				server.middlewares.use('/__bridge-dev-telemetry/batch', (request, response) => {
+					void handleBridgeDevTelemetryBatchRequest({ request, response, telemetrySink });
+				});
+				server.middlewares.use('/__bridge-dev-telemetry/status', (request, response) => {
+					handleBridgeDevTelemetryStatusRequest({ request, response, telemetrySink });
+				});
 			},
 		},
 	],
@@ -62,6 +75,46 @@ export default defineConfig({
 		sourcemap: false,
 	},
 });
+
+const bridgeDevTelemetryMaxBodyBytes = 256 * 1024;
+
+async function handleBridgeDevTelemetryBatchRequest(props: {
+	readonly request: IncomingMessage;
+	readonly response: ServerResponse;
+	readonly telemetrySink: BridgeDevTelemetrySink;
+}): Promise<void> {
+	if (props.request.method !== 'POST') {
+		props.response.statusCode = 405;
+		props.response.end('Method Not Allowed');
+		return;
+	}
+	try {
+		const body = await readJsonRequestBody(props.request, bridgeDevTelemetryMaxBodyBytes);
+		const accepted = await props.telemetrySink.ingest(body);
+		writeJsonResponse(props.response, 202, {
+			accepted,
+			snapshot: props.telemetrySink.snapshot(),
+		});
+	} catch (error: unknown) {
+		writeJsonResponse(props.response, 400, {
+			error: error instanceof Error ? error.message : 'invalid_telemetry_request',
+			snapshot: props.telemetrySink.snapshot(),
+		});
+	}
+}
+
+function handleBridgeDevTelemetryStatusRequest(props: {
+	readonly request: IncomingMessage;
+	readonly response: ServerResponse;
+	readonly telemetrySink: BridgeDevTelemetrySink;
+}): void {
+	if (props.request.method !== 'GET') {
+		props.response.statusCode = 405;
+		props.response.end('Method Not Allowed');
+		return;
+	}
+	writeJsonResponse(props.response, 200, props.telemetrySink.snapshot());
+}
 
 async function handleBridgeWorktreePackageRequest(props: {
 	readonly getProvider: (requestUrl: string | null) => BridgeWorktreeDevProviderPromise;
@@ -150,6 +203,34 @@ export function decodeBridgeWorktreeContentHandle(pathname: string): string | nu
 	} catch {
 		return null;
 	}
+}
+
+async function readJsonRequestBody(request: IncomingMessage, maxBytes: number): Promise<unknown> {
+	let byteCount = 0;
+	const chunks: Buffer[] = [];
+	for await (const chunk of request) {
+		const buffer = typeof chunk === 'string' ? Buffer.from(chunk) : chunk;
+		byteCount += buffer.byteLength;
+		if (byteCount > maxBytes) {
+			throw new Error('telemetry_request_too_large');
+		}
+		chunks.push(buffer);
+	}
+	try {
+		return JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
+	} catch {
+		throw new Error('invalid_telemetry_json');
+	}
+}
+
+function writeJsonResponse(
+	response: ServerResponse,
+	statusCode: number,
+	body: BridgeDevTelemetrySnapshot | Readonly<Record<string, unknown>>,
+): void {
+	response.statusCode = statusCode;
+	response.setHeader('Content-Type', 'application/json; charset=utf-8');
+	response.end(JSON.stringify(body));
 }
 
 function parseNonnegativeIntegerSearchParam(url: URL, name: string): number | null {

@@ -132,6 +132,20 @@ final class BridgeBootstrapTests {
     }
 
     @Test
+    func test_script_publishes_review_frame_authority_attributes() {
+        let script = BridgeBootstrap.generateScript(
+            bridgeNonce: "test-nonce",
+            pushNonce: "push-nonce",
+            reviewPaneId: "pane-123",
+            reviewStreamId: "review:pane-123"
+        )
+        #expect(script.contains("const REVIEW_PANE_ID = \"pane-123\""))
+        #expect(script.contains("const REVIEW_STREAM_ID = \"review:pane-123\""))
+        #expect(script.contains("data-bridge-review-pane-id"))
+        #expect(script.contains("data-bridge-review-stream-id"))
+    }
+
+    @Test
     func test_applyEnvelope_preserves_trace_context_at_detail_level() {
         let script = BridgeBootstrap.generateScript(bridgeNonce: "test-nonce", pushNonce: "push-nonce")
         #expect(script.contains("envelope.__traceContext"))

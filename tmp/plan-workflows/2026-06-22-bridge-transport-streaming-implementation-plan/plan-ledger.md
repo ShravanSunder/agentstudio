@@ -10,9 +10,12 @@ Input spec commit: ebad06d2
   - commit: `ebad06d2`
   - message: `docs: add bridge transport streaming spec`
 - Fully loaded accepted spec packet before planning:
-  - `spec.md` lines 1-1124 after 1.6.29 lifecycle metadata sync
-  - `review-protocol.md` lines 1-458
-  - `worktree-file-surface-protocol.md` lines 1-483
+  - original planning load: `spec.md` lines 1-1124 after 1.6.29 lifecycle
+    metadata sync, `review-protocol.md` lines 1-458,
+    `worktree-file-surface-protocol.md` lines 1-483
+  - current 2026-06-23 plan-review load after host-admission and scroll-extent
+    revisions: `spec.md` lines 1-1160, `review-protocol.md` lines 1-471,
+    `worktree-file-surface-protocol.md` lines 1-535
   - `spec-review-report.md` lines 1-295
   - `review-1.6.29/spec-review-report.md` lines 1-138
   - `swarm-ledger.md` lines 1-148

@@ -32,7 +32,7 @@ export default defineConfig({
 		},
 	},
 	optimizeDeps: {
-		include: ['react-dom/client'],
+		include: ['@pierre/diffs/worker', 'react-dom/client'],
 	},
 	test: {
 		globals: true,

@@ -68,17 +68,19 @@ describe('bridge viewer mocked backend', () => {
 		expect(fileClassCounts['test']).toBeGreaterThan(0);
 	});
 
-	test('records Bridge push events only after the handshake request', async () => {
+	test('records Bridge pushes without emitting protocol frames through page events', async () => {
 		const fixture = makeBridgeViewerBrowserFixture();
 		const backend = installBridgeViewerMockedBackend(fixture);
-		const pushDetails: unknown[] = [];
+		const pageEventDetails: unknown[] = [];
 		document.addEventListener('__bridge_push', (event: Event): void => {
-			pushDetails.push('detail' in event ? event.detail : null);
+			pageEventDetails.push('detail' in event ? event.detail : null);
 		});
 
 		document.dispatchEvent(new CustomEvent('__bridge_handshake_request'));
 		await backend.pushPackage();
 		await backend.pushDelta();
+		await Promise.resolve();
+		await Promise.resolve();
 
 		expect(backend.pushRecords).toEqual([
 			{
@@ -94,11 +96,7 @@ describe('bridge viewer mocked backend', () => {
 				payloadKind: 'delta',
 			},
 		]);
-		expect(pushDetails).toHaveLength(2);
-		expect(pushDetails).toEqual([
-			expect.objectContaining({ op: 'replace', nonce: 'browser-push-nonce' }),
-			expect.objectContaining({ op: 'merge', nonce: 'browser-push-nonce' }),
-		]);
+		expect(pageEventDetails).toEqual([]);
 	});
 
 	test('records semantic command payloads sent through the Bridge command event', () => {
@@ -131,6 +129,16 @@ describe('bridge viewer mocked backend', () => {
 		]);
 		failedBackend.dispose();
 
+		const unsafeBackend = installBridgeViewerMockedBackend(fixture);
+		const unsafeResponse = await unsafeBackend.fetchContent(
+			`agentstudio://resource/review/content/${fixture.expected.secondHeadHandleId}?generation=338&unsafe=1`,
+		);
+		expect(unsafeResponse.status).toBe(404);
+		expect(unsafeBackend.requestedUrls).toEqual([
+			`agentstudio://resource/review/content/${fixture.expected.secondHeadHandleId}?generation=338&unsafe=1`,
+		]);
+		unsafeBackend.dispose();
+
 		const deferredBackend = installBridgeViewerMockedBackend(fixture, {
 			deferContentHandleIds: [fixture.expected.secondHeadHandleId],
 		});
@@ -143,6 +151,27 @@ describe('bridge viewer mocked backend', () => {
 		await expect(
 			deferredResponsePromise.then((response): Promise<string> => response.text()),
 		).resolves.toContain(fixture.expected.secondText);
+	});
+
+	test('removes deferred content responses when their fetch is aborted', async () => {
+		const fixture = makeBridgeViewerBrowserFixture();
+		const backend = installBridgeViewerMockedBackend(fixture, {
+			deferContentHandleIds: [fixture.expected.secondHeadHandleId],
+		});
+		const abortController = new AbortController();
+
+		const deferredResponsePromise = backend.fetchContent(
+			`agentstudio://resource/review/content/${fixture.expected.secondHeadHandleId}?generation=338`,
+			{ signal: abortController.signal },
+		);
+		await flushMockedBackendMicrotasks();
+		expect(backend.pendingContentResponses).toHaveLength(1);
+
+		abortController.abort();
+		await flushMockedBackendMicrotasks();
+
+		expect(backend.pendingContentResponses).toHaveLength(0);
+		await expect(deferredResponsePromise).resolves.toMatchObject({ status: 499 });
 	});
 
 	test('records deferred projection worker requests and resolves them through the mock transport', async () => {

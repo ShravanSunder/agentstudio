@@ -140,6 +140,21 @@ export const WorktreeTreeProjectionIdentity = z.object({
   treeWindowKey: z.string().min(1).optional(),
 }).strict();
 
+export const WorktreeTreeVirtualizedSizeFacts = z.object({
+  pathCount: z.number().int().nonnegative(),
+  windowStartIndex: z.number().int().nonnegative().optional(),
+  windowRowCount: z.number().int().nonnegative().optional(),
+  rowHeightPixels: z.number().positive(),
+  estimatedTotalHeightPixels: z.number().nonnegative().optional(),
+}).strict();
+
+export const WorktreeFileVirtualizedExtentKind = z.enum([
+  'exactLineCount',
+  'estimatedHeight',
+  'previewBounded',
+  'unavailable',
+]);
+
 export const WorktreeFileSurfaceResourceKind = z.enum([
   'worktree.treeWindow',
   'worktree.treeDeltaOperations',
@@ -174,6 +189,9 @@ export const WorktreeFileDescriptor = z.object({
   contentHash: z.string().min(1).optional(),
   sourceIdentity: WorktreeFileSurfaceSourceIdentity,
   sizeBytes: z.number().int().nonnegative(),
+  virtualizedExtentKind: WorktreeFileVirtualizedExtentKind,
+  lineCount: z.number().int().nonnegative().optional(),
+  estimatedContentHeightPixels: z.number().nonnegative().optional(),
   isBinary: z.boolean(),
   language: z.string().min(1).optional(),
   fileExtension: z.string().min(1).optional(),
@@ -193,6 +211,14 @@ export const WorktreeOpenFileSession = z.object({
 Contract:
 
 - Open content sessions are reader-continuity objects.
+- `virtualizedExtentKind`, `lineCount`, and `estimatedContentHeightPixels` are
+  stable virtualization facts, not proof that the content body has hydrated.
+  Unknown extent is explicit: the descriptor must say whether the extent is an
+  exact line count, an estimated height, a preview-bounded range, or unavailable.
+  For text files, the provider should send either an exact line count or a
+  conservative estimated height before file content bytes are fetched. Use
+  `unavailable` only for binary, oversized, unreadable, or explicitly
+  metadata-only content where neither exact nor estimated extent can be trusted.
 - Provider invalidation does not automatically replace open rendered content.
 - Refresh creates a new content fetch intent using the latest descriptor.
 - Stale completions cannot commit if their descriptor/source identity is no
@@ -235,6 +261,7 @@ export const WorktreeSnapshotFrame = BridgeIntakeFrameBase.extend({
   source: WorktreeFileSurfaceSourceIdentity,
   requestSelector: WorktreeFileSurfaceSourceSpec.optional(),
   treeDescriptor: BridgeAttachedResourceDescriptor,
+  treeSizeFacts: WorktreeTreeVirtualizedSizeFacts.optional(),
   statusDescriptor: BridgeAttachedResourceDescriptor.optional(),
 }).strict();
 
@@ -242,6 +269,7 @@ export const WorktreeTreeWindowFrame = BridgeIntakeFrameBase.extend({
   frameKind: z.literal('worktree.treeWindow'),
   projectionIdentity: WorktreeTreeProjectionIdentity,
   windowDescriptor: BridgeAttachedResourceDescriptor,
+  treeSizeFacts: WorktreeTreeVirtualizedSizeFacts.optional(),
 }).strict();
 
 export const WorktreeTreeDeltaFrame = BridgeIntakeFrameBase.extend({
@@ -277,6 +305,17 @@ export const WorktreeResetFrame = BridgeIntakeFrameBase.extend({
 `worktree.snapshot` is the first authoritative source-identity handoff for the
 surface. `requestSelector` may echo the browser request for diagnostics, but it
 is not authority for stale-drop, demand keys, or resource fetches.
+
+Tree/file virtualization facts should arrive with the earliest authoritative
+frame that knows them. Providers should expose tree row/count/window facts and
+file `virtualizedExtentKind`, `lineCount`, or `estimatedContentHeightPixels`
+early enough for the browser virtualizer to reserve a stable scroll extent
+before fetching, streaming, or rendering hydrated file bodies. These facts can
+be estimates, but they must be labeled as provider/materializer facts and
+reconciled later by anchor-preserving measured updates rather than by
+scrollbar-jumping full-body discovery. The stable extent contract is not
+satisfied by a later content stream that reveals the total line count after the
+browser has already sized the virtualizer.
 
 ## 9. Demand Policy Stimuli
 
@@ -348,6 +387,15 @@ hidden changes
   provider emits compact stale/invalidation facts
   hidden descendants are not fetched until demanded
 ```
+
+Tree windows carry stable size metadata separately from row bodies. At minimum,
+the first provider snapshot or first demanded window should tell the browser the
+current `pathCount`, fixed or declared row height, and any known visible-window
+row range so the tree can reserve extent before all descendants or file bodies
+are hydrated. If the exact `pathCount` is not yet available, the provider must
+send a conservative estimated total extent and later reconcile it through a
+measured, attributed update instead of allowing the tree body stream to resize
+the scrollbar silently.
 
 ## 11. Surface Flow
 
@@ -447,6 +495,20 @@ export const OpenReviewComparisonIntent = z.object({
   browser selector
 - worktree frames attach descriptors instead of exposing raw descriptor strings
 - huge tree expansion fetches bounded tree windows
+- initial tree/file facts expose row/count/window metadata and file line-count or
+  estimated extent metadata before content bytes arrive for virtualization
+- tree scroll extent follows the DiffsHub-style model: provider `pathCount`,
+  declared row height, and bounded window range, or a conservative estimated
+  total extent, are available before hidden descendants or file bodies hydrate
+- file/code scroll extent is explicit for every opened descriptor:
+  `exactLineCount`, `estimatedHeight`, `previewBounded`, or `unavailable`
+- scroll-extent canary records scrollTop before/after, total content height
+  before/after, visible range, anchor item/offset, measured item ids, and
+  reconciliation reason; it fails if a non-reset reconciliation changes anchor
+  item identity, drifts the anchor offset by more than one declared row/line
+  height after compensation, changes exact-count `scrollHeight`/virtualizer
+  `totalSize` by more than one declared row/line height, or changes estimated
+  total height without attributing the delta to measured-versus-estimated items
 - hidden subtree changes do not hydrate hidden descendants
 - comments/comms anchors are scoped by source/file/range identity
 - stale content completions are dropped if descriptor/source identity changed

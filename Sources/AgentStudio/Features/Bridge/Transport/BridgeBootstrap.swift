@@ -22,8 +22,12 @@ enum BridgeBootstrap {
     static func generateScript(
         bridgeNonce: String,
         pushNonce: String,
+        reviewPaneId: String? = nil,
+        reviewStreamId: String? = nil,
         telemetryConfig: BridgeTelemetryBootstrapConfig? = nil
     ) -> String {
+        let reviewPaneIdJSON = encodedOptionalJSONString(reviewPaneId)
+        let reviewStreamIdJSON = encodedOptionalJSONString(reviewStreamId)
         let telemetryConfigJSON = encodedTelemetryConfigJSON(telemetryConfig)
         return """
             // Bridge Bootstrap — injected at document start in bridge content world.
@@ -33,11 +37,34 @@ enum BridgeBootstrap {
 
                 const BRIDGE_NONCE = '\(bridgeNonce)';
                 const PUSH_NONCE = '\(pushNonce)';
+                const REVIEW_PANE_ID = \(reviewPaneIdJSON);
+                const REVIEW_STREAM_ID = \(reviewStreamIdJSON);
                 const TELEMETRY_CONFIG = \(telemetryConfigJSON);
                 const PAGE_WORLD_ALLOWED_COMMAND_METHODS = new Set([
                     'review.markFileViewed',
                     'system.bridgeTelemetry'
                 ]);
+                const HOST_PUSH_PORTS = new Set();
+
+                function publishHostPushPort() {
+                    const channel = new MessageChannel();
+                    HOST_PUSH_PORTS.add(channel.port1);
+                    channel.port1.start();
+                    window.postMessage({
+                        type: 'agentstudio.bridge.hostPushPort',
+                        version: 1
+                    }, '*', [channel.port2]);
+                }
+
+                function postHostEnvelopeJSON(envelopeJSON) {
+                    for (const port of HOST_PUSH_PORTS) {
+                        port.postMessage({
+                            type: 'agentstudio.bridge.hostPushEnvelopeJSON',
+                            version: 1,
+                            json: envelopeJSON
+                        });
+                    }
+                }
 
                 // Install bridge internal API in bridge world only.
                 // Page world cannot access this (content world isolation).
@@ -93,6 +120,7 @@ enum BridgeBootstrap {
                         }
                     },
                     applyEnvelopeJSON: function(envelopeJSON) {
+                        postHostEnvelopeJSON(envelopeJSON);
                         document.dispatchEvent(new CustomEvent('__bridge_push_json', {
                             detail: { json: envelopeJSON, nonce: PUSH_NONCE }
                         }));
@@ -175,11 +203,35 @@ enum BridgeBootstrap {
                         detail: { pushNonce: PUSH_NONCE, telemetryConfig: TELEMETRY_CONFIG }
                     }));
                 });
+                document.addEventListener('__bridge_host_push_port_request', function() {
+                    publishHostPushPort();
+                });
+                publishHostPushPort();
 
                 // Set nonce attribute on documentElement for page world command sender
                 document.documentElement.setAttribute('data-bridge-nonce', BRIDGE_NONCE);
+                if (typeof REVIEW_PANE_ID === 'string' && typeof REVIEW_STREAM_ID === 'string') {
+                    document.documentElement.setAttribute('data-bridge-review-pane-id', REVIEW_PANE_ID);
+                    document.documentElement.setAttribute('data-bridge-review-stream-id', REVIEW_STREAM_ID);
+                }
             })();
             """
+    }
+
+    private static func encodedOptionalJSONString(_ value: String?) -> String {
+        guard let value else {
+            return "null"
+        }
+        return encodedJSONString(value)
+    }
+
+    private static func encodedJSONString(_ value: String) -> String {
+        guard let data = try? JSONEncoder().encode(value),
+            let json = String(data: data, encoding: .utf8)
+        else {
+            return "null"
+        }
+        return json
     }
 
     private static func encodedTelemetryConfigJSON(_ telemetryConfig: BridgeTelemetryBootstrapConfig?) -> String {

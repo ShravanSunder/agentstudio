@@ -9,10 +9,19 @@ Deliverable:
 
 - provider-issued `WorktreeFileSurfaceSourceIdentity`
 - `worktree.snapshot` host frame with tree/status descriptors
+- earliest-authoritative `treeSizeFacts` on snapshot and tree-window frames
+  carrying exact row count or conservative estimated total extent before tree row
+  bodies hydrate
 - file descriptors with content handles and attached content descriptors
+- file descriptors with explicit virtualization facts:
+  `virtualizedExtentKind`, plus `lineCount` or
+  `estimatedContentHeightPixels` before file content bytes are fetched or
+  streamed
 - provider-owned filesystem/watch and git-status classification seams
 - invalidation and reset decisions
 - binary/oversized metadata decisions
+- source-scrubbed extent-diagnostics schema or fixture for ticket 04 canary
+  reuse
 - native proof that Worktree/File does not instantiate Review package lineage
 
 ## Source References
@@ -51,8 +60,24 @@ replacement browser/dev-server route.
 - Worktree source request is a selector; provider mints source identity.
 - Worktree snapshot carries source identity and attached tree/status
   descriptors.
+- Worktree snapshot and tree-window frames expose `treeSizeFacts` with exact
+  row count or conservative estimated total extent before any browser hydration,
+  content-byte fetch, content stream, or DOM measurement dependency.
 - File descriptor carries file id, content handle, size, binary flag, optional
   hash, and attached content descriptor.
+- Every file descriptor exposes explicit `virtualizedExtentKind`; unknown extent
+  is labeled, not inferred.
+- Text file descriptors expose exact `lineCount` when cheaply known, otherwise a
+  conservative `estimatedContentHeightPixels`; `unavailable` is reserved for
+  binary, oversized, unreadable, or metadata-only content where the provider
+  cannot trust either exact or estimated extent.
+- Extent facts remain metadata when body content is stale, preview-only, binary,
+  oversized, or unavailable.
+- Provider extent diagnostics emit only allowlisted fields and reject raw path,
+  source text, handle ids, capability URLs, comments, and comms seeds.
+- Provider selector/canonicalization and scheme-handler rejection errors expose
+  only allowlisted reason codes and grammar-safe metadata, never raw path/cwd
+  scopes, handle ids, capability URLs, or unsanitized provider error text.
 - Invalidation carries path/file/content-handle facts without replacing open
   browser content by default.
 - Source reset revokes old descriptors and stale completions cannot commit.
@@ -77,8 +102,12 @@ replacement browser/dev-server route.
    seams instead of Review query kinds.
 4. Add provider-side selector canonicalization and containment checks before
    tree/file/status descriptors are issued.
-5. Add frame builder and method registration for opening a Worktree/File source.
-6. Keep compatibility with old Review-shaped browse/open-file until ticket 04
+5. Publish tree/file virtualized-size facts from provider/materializer frames,
+   not from browser measurement or hydrated body streams.
+6. Add source-scrubbed extent diagnostics fixture/schema for ticket 04 browser
+   canary reuse.
+7. Add frame builder and method registration for opening a Worktree/File source.
+8. Keep compatibility with old Review-shaped browse/open-file until ticket 04
    replaces the user-facing route.
 
 ## Proof Gates
@@ -86,7 +115,9 @@ replacement browser/dev-server route.
 Swift focused:
 
 ```bash
-mise run test-fast
+SWIFT_TEST_TIMEOUT_SECONDS=120 \
+SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180 \
+mise run test-fast -- --filter 'BridgeWorktreeFileSurfaceTests|BridgeWorktreeFileSourceProviderTests|BridgeWorktreeFileSurfaceNativeTests|BridgeReviewPipelineTests|BridgeSchemeHandlerTests|BridgeTransportIntegrationTests'
 ```
 
 Focused suites should include or add:
@@ -94,8 +125,20 @@ Focused suites should include or add:
 - `BridgeWorktreeFileSurfaceTests`
 - `BridgeWorktreeFileSourceProviderTests`
 - `BridgeWorktreeFileSurfaceNativeTests`
+- schema/model tests that reject descriptors missing
+  `virtualizedExtentKind`, accept exact line-count and conservative estimated
+  extent variants, and reserve `unavailable` for binary/oversized/unreadable
+  cases
+- provider integration tests proving `treeSizeFacts` and file/code extent facts
+  are present before the first tree-window body or file-content body fetch
 - Worktree/File provider canonicalization cases for malicious path/cwd scopes,
   path hints, symlinks, traversal, and root-token containment
+- source-scrubbed provider/scheme rejection cases for raw path/cwd scopes,
+  handle ids, capability URLs, and unsanitized provider error text
+- earliest-frame `treeSizeFacts` on snapshots/tree windows and explicit file
+  `virtualizedExtentKind` coverage for exact line count, estimated height,
+  preview bounded, and unavailable cases
+- source-scrubbed extent diagnostics allowlist/leak-negative coverage
 - `BridgeReviewPipelineTests` browseTree/openFile preservation cases when
   transition edits touch the existing ReviewFoundation seams
 - `BridgeSchemeHandlerTests` cases for Worktree/File resource kinds
@@ -125,10 +168,23 @@ mise run lint
 
 Run if Swift files changed enough to require lint proof at the checkpoint.
 
+Implementation review:
+
+- mandatory `shravan-dev-workflow:implementation-review-swarm` before ticket 04,
+  focused on source identity minting, selector/path containment, descriptor
+  issuance, reset/invalidation authority, and scrubbed extent diagnostics
+
 ## Handoff Output
 
 - source identity example
 - descriptor examples for tree/status/file content
+- sample `worktree.snapshot` or `worktree.treeWindow` carrying `treeSizeFacts`
+- sample file descriptors for each `virtualizedExtentKind`
+- explicit note showing which sample facts arrive before content bytes and which
+  proof asserted that ordering
+- extent diagnostics allowlist example and leak-negative proof
+- source-scrubbed rejection/error payload proof for provider containment and
+  scheme-handler authority failures
 - invalidation/reset proof
 - binary/oversized behavior proof
 - canonicalization/containment rejection proof for malicious selectors

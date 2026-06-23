@@ -10,6 +10,7 @@ import {
 } from '../../foundation/telemetry/bridge-trace-context.js';
 import {
 	recordBridgeCodeViewHydrationTelemetrySamples,
+	recordBridgeViewerContentFetchTelemetrySample,
 	recordBridgeProjectionBuildTelemetrySample,
 	recordBridgeViewerContentQueueTelemetrySample,
 } from '../../foundation/telemetry/bridge-viewer-telemetry-adapter.js';
@@ -33,6 +34,17 @@ export interface RecordBridgeViewerContentQueueTelemetryProps {
 	readonly telemetryRecorder: BridgeTelemetryRecorder;
 	readonly parentTraceContext: BridgeTraceContext | null;
 	readonly item: BridgeReviewItemDescriptor;
+	readonly interest: 'selected' | 'visible' | 'nearby' | 'speculative';
+}
+
+export interface RecordBridgeViewerContentFetchTelemetryProps {
+	readonly telemetryRecorder: BridgeTelemetryRecorder;
+	readonly traceContext: BridgeTraceContext | null;
+	readonly contentRole: BridgeContentRole | 'unknown';
+	readonly durationMilliseconds: number;
+	readonly interest: 'selected' | 'visible' | 'nearby' | 'speculative';
+	readonly result: 'success' | 'deferred' | 'failed';
+	readonly resultReason: string | null;
 }
 
 export interface RecordBridgeCodeViewHydrationTelemetryProps {
@@ -69,6 +81,21 @@ export function recordBridgeViewerContentQueueTelemetry(
 		telemetryRecorder: props.telemetryRecorder,
 		traceContext: childTraceContext(props.parentTraceContext),
 		contentRole: preferredContentRole(props.item),
+		interest: props.interest,
+	});
+}
+
+export function recordBridgeViewerContentFetchTelemetry(
+	props: RecordBridgeViewerContentFetchTelemetryProps,
+): void {
+	recordBridgeViewerContentFetchTelemetrySample({
+		telemetryRecorder: props.telemetryRecorder,
+		traceContext: props.traceContext,
+		contentRole: props.contentRole,
+		durationMilliseconds: props.durationMilliseconds,
+		interest: props.interest,
+		result: props.result,
+		resultReason: props.resultReason,
 	});
 }
 

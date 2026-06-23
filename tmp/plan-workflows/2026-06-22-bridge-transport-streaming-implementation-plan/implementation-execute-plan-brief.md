@@ -21,7 +21,9 @@ Ticket 00 status:
 
 Current ticket:
 
-- ticket 01: core transport contracts and security boundary
+- ticket 02: review protocol vertical, current post-review fix pass is ready
+  for renewed implementation-review-swarm reduction, not checkpoint acceptance
+  yet
 
 ## Source Coverage In This Controller Run
 
@@ -97,6 +99,180 @@ Untracked ticket-01 files:
 The diff is ticket-01-shaped: protocol-scoped resource URLs, core resource
 models, descriptor/resource registries, content-world privileged RPC ingress,
 host-side lease registry, fixture parity, and focused transport/security tests.
+
+## Current Ticket 02 Review-Fix Pass
+
+Latest implementation-review verdict addressed in this pass:
+
+- not ready
+- accepted blockers:
+  - Review protocol still emitted snapshot-only frames instead of real
+    `review.delta`, `review.invalidate`, and standalone `review.reset`
+  - frame authority was self-authenticated from incoming pane/stream fields
+    instead of host-published local pane/stream authority
+  - standalone reset did not revoke descriptor authority before later loads
+  - delta materialization could fail open and reuse stale descriptor refs
+- accepted important findings from that review were carried into the current
+  proof slice: scheduler/executor queue and cancel ownership, changeset-cluster
+  metadata parity, Swift frame failure surfacing, demand-runtime proof
+  accounting, and markdown security proof accounting.
+
+Fixed in the current working tree:
+
+- `review.delta` now has a real end-to-end protocol path:
+  Swift frame builder/controller, browser dev/test helpers, Zod schema, TS frame
+  builder, materializer, descriptor registration, app admission, and telemetry
+  parent refresh.
+- `review.invalidate` is schema/materializer/Swift-builder covered as a
+  metadata-only invalidation fact.
+- standalone `review.reset` is schema/materializer/Swift-builder covered and
+  BridgeApp revokes descriptor refs before the next selected load when
+  authority matches.
+- BridgeApp accepts Review frames only against host-published
+  `data-bridge-review-pane-id` and `data-bridge-review-stream-id`; incoming
+  frame authority is no longer enough to self-authorize descriptors.
+- Delta materialization failure clears/cancels current descriptor refs instead
+  of falling back to stale refs.
+- Scheduler/executor pressure now keeps foreground and active demand queueable
+  under transient pressure while visible, nearby, and speculative demand stay
+  opportunistic/deferred.
+- Selected content demand preserves retryable deferred state instead of turning
+  transient pressure into terminal content unavailable.
+- Mocked deferred content fetches remove pending responses when aborted, so
+  stale visible-lane requests cannot mask later foreground selected requests.
+- Browser invalidation keeps bypassing stale cached bodies until a refetch
+  succeeds, so one aborted retry cannot replay old content.
+- Swift Review package publication now builds snapshot/delta protocol frames
+  before content authority activation and stores those frames with the package
+  facts in `DiffState`; package/delta push slices no longer silently downgrade
+  frame-builder failures to `protocolFrame: nil`.
+- TS and Swift descriptor `maxBytes` for root package and delta operation
+  metadata are aligned at the 768 KiB IPC payload budget.
+- Content queue/fetch telemetry now labels selected versus visible demand,
+  records success/deferred/failed result facts, and no longer force-flushes
+  every content fetch sample.
+- Normal dev-server verification now waits for `domcontentloaded` plus explicit
+  app-state probes instead of `networkidle`, which was brittle once Vite OTEL
+  traffic was enabled.
+- Browser benchmark worker-backed cold package push now waits for the Pierre
+  loading status to disappear inside the measured duration before asserting.
+
+Fresh proof after current review-fix pass:
+
+```bash
+pnpm --dir BridgeWeb run fmt
+```
+
+Result: exit 0.
+
+```bash
+pnpm --dir BridgeWeb run check
+```
+
+Result: exit 0.
+
+```bash
+pnpm --dir BridgeWeb exec vitest run \
+  src/core/models/bridge-demand-models.unit.test.ts \
+  src/core/demand/bridge-demand-scheduler.unit.test.ts \
+  src/core/demand/bridge-body-registry.unit.test.ts \
+  src/core/demand/bridge-resource-executor.unit.test.ts \
+  src/features/review/models/review-protocol-models.unit.test.ts \
+  src/features/review/materialization/review-materializer.unit.test.ts \
+  src/features/review/demand/review-demand-policy.unit.test.ts \
+  src/features/review/protocol/review-snapshot-frame-builder.unit.test.ts \
+  src/review-viewer/content/review-content-demand-loader.unit.test.ts \
+  src/review-viewer/content/visible-review-content-hydration.unit.test.tsx \
+  src/review-viewer/test-support/bridge-viewer-mocked-backend.unit.test.ts \
+  src/app/bridge-app.integration.test.tsx
+```
+
+Result: exit 0, 12 files passed, 107 tests passed. Existing jsdom
+ResizeManager warnings remain.
+
+```bash
+pnpm --dir BridgeWeb exec vitest run \
+  src/review-viewer/markdown/bridge-markdown-preview.unit.test.tsx \
+  src/review-viewer/markdown/bridge-markdown-render-mode.unit.test.ts \
+  src/review-viewer/workers/markdown/bridge-markdown-render-worker-rpc.unit.test.ts \
+  --reporter verbose
+```
+
+Result: exit 0, 3 files passed, 16 tests passed.
+
+```bash
+pnpm --dir BridgeWeb run test:browser:integration -- \
+  src/review-viewer/test-support/bridge-viewer-browser.integration.browser.test.tsx
+```
+
+Result: exit 0, 1 file passed, 30 tests passed. One immediately preceding full
+run failed once on the content-unavailable browser case staying `loading`; a
+single-case rerun and a full rerun both passed, so this is recorded as a
+transient browser retry unless it recurs. Existing React `flushSync` warnings
+remain in two filter tests.
+
+```bash
+pnpm --dir BridgeWeb run test:dev-server
+```
+
+Result: exit 0 for the large-diffshub mock URL. The verifier originally timed
+out at `networkidle` on the telemetry-enabled markdown URL; the harness now uses
+`domcontentloaded` plus explicit app-state probes, matching the worktree
+verifier.
+
+```bash
+BRIDGE_VIEWER_WORKTREE_DEV_SERVER_URL='http://127.0.0.1:5173/?fixture=worktree&workers=on&scenario=current-worktree' \
+pnpm --dir BridgeWeb run test:dev-server:worktree
+```
+
+Result: exit 0; selected `.github/workflows/ci.yml` reached ready, worker pool
+was ready, and the exact current-worktree URL loaded.
+
+```bash
+pnpm --dir BridgeWeb run test:benchmark:browser
+```
+
+Result: exit 0, 1 browser benchmark file passed. Artifact:
+`tmp/bridge-viewer-browser-benchmark/2026-06-23T14-14-04-892Z`.
+
+```bash
+mise run format
+```
+
+Result: exit 0.
+
+```bash
+SWIFT_TEST_TIMEOUT_SECONDS=60 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180 \
+mise run test-fast -- --filter BridgeReviewProtocolFrameBuilderTests
+```
+
+Result: exit 0, 11 Swift tests passed.
+
+```bash
+mise run lint
+```
+
+Result: exit 0; SwiftLint found 0 violations, architecture lint OK, release
+script verification passed.
+
+```bash
+git diff --check
+```
+
+Result: exit 0.
+
+Dev server status:
+
+- `node` PID `84893` is listening on `127.0.0.1:5173`.
+- `curl http://127.0.0.1:5173/__bridge-dev-telemetry/status` returned
+  `acceptedBatchCount=6466`, `acceptedSampleCount=27859`,
+  `failedBatchCount=0`, marker `vite-dev-ticket02-1782220582`.
+
+Next safe action:
+
+- reduce the renewed `implementation-review-swarm` lanes against the current
+  worktree; fix accepted findings if any. Do not checkpoint, commit, or advance
+  to Worktree/File until that review is ready.
 
 ## Ticket 01 Delta In This Controller Run
 
@@ -1232,3 +1408,386 @@ recommended_next_workflow: shravan-dev-workflow:implementation-execute-plan
 recommended_transition_reason: Ticket 01 implementation review is complete;
 checkpoint 2 / ticket 02 can begin while the unrelated CommandBar title mismatch
 remains tracked as a broad Swift health blocker.
+
+## Ticket 02 In-Progress Contract Slice
+
+Scope completed so far:
+
+- Added generic BridgeWeb demand contracts and runtime primitives:
+  `BridgeWeb/src/core/models/bridge-demand-models.ts`,
+  `BridgeWeb/src/core/demand/bridge-demand-scheduler.ts`,
+  `BridgeWeb/src/core/demand/bridge-resource-executor.ts`, and
+  `BridgeWeb/src/core/demand/bridge-body-registry.ts`.
+- Added Review protocol schemas, Review demand policy, and Review
+  materializer:
+  `BridgeWeb/src/features/review/models/review-protocol-models.ts`,
+  `BridgeWeb/src/features/review/demand/review-demand-policy.ts`, and
+  `BridgeWeb/src/features/review/materialization/review-materializer.ts`.
+- Added a descriptor-backed Review content demand adapter:
+  `BridgeWeb/src/review-viewer/content/review-content-demand-loader.ts`.
+  It requires an app-owned handle-to-descriptor-ref resolver and fails closed
+  with zero fetches when a descriptor ref is missing.
+- Added Swift transport descriptor models and ReviewProtocol snapshot frame
+  builder:
+  `Sources/AgentStudio/Features/Bridge/Models/Transport/BridgeResourceDescriptor.swift`,
+  `Sources/AgentStudio/Features/Bridge/Models/ReviewProtocol/BridgeReviewProtocolFrame.swift`,
+  and
+  `Sources/AgentStudio/Features/Bridge/Runtime/ReviewProtocol/BridgeReviewProtocolFrameBuilder.swift`.
+
+Important boundary decision:
+
+- Current Review runtime still has legacy `BridgeReviewPackage` content handles.
+  The new generic demand runtime does not manufacture descriptor refs from page
+  or UI data. Browser demand can run only after Review frames attach accepted
+  descriptors and the app-owned materializer registers them. This avoids the
+  ticket 02 stop condition where generic demand would read old Review package
+  resource URLs as authority.
+- Review snapshot frames now support `contentDescriptors` in addition to the
+  package `rootDescriptor`, because selected/visible content demand needs
+  schedulable descriptor refs for individual content handles.
+
+Proof:
+
+```bash
+pnpm --dir BridgeWeb exec vitest run \
+  src/core/models/bridge-demand-models.unit.test.ts \
+  src/core/demand/bridge-demand-scheduler.unit.test.ts \
+  src/core/demand/bridge-body-registry.unit.test.ts \
+  src/core/demand/bridge-resource-executor.unit.test.ts \
+  src/features/review/models/review-protocol-models.unit.test.ts \
+  src/features/review/materialization/review-materializer.unit.test.ts \
+  src/features/review/demand/review-demand-policy.unit.test.ts \
+  src/review-viewer/content/review-content-demand-loader.unit.test.ts
+```
+
+Result: exit 0, 8 files passed, 20 tests passed.
+
+```bash
+pnpm --dir BridgeWeb run fmt
+pnpm --dir BridgeWeb run check
+```
+
+Result: both exit 0. `check` completed `oxlint --type-aware`,
+BridgeWeb architecture check, `oxfmt --check .`, and `tsc --noEmit` with no
+warnings after cleanup.
+
+```bash
+mise run format
+SWIFT_TEST_TIMEOUT_SECONDS=60 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180 \
+  mise run test-fast -- --filter BridgeReviewProtocolFrameBuilderTests
+```
+
+Result: both exit 0. Focused Swift proof passed 1 test in 1 suite after
+formatting.
+
+Completed by the following live cutover pass:
+
+- The live `BridgeApp` selected/visible content effects are cut over to
+  descriptor-backed demand and now have jsdom, browser integration, and
+  dev-server proof.
+- The old package and delta push paths now carry ReviewProtocol snapshot frames,
+  so newly added delta handles are registered before selected demand runs.
+- Browser/dev-server proof is no longer the open blocker for ticket 02.
+
+## Ticket 02 In-Progress Live Review Stream Cutover
+
+Scope completed in this pass:
+
+- Swift diff package metadata pushes now attach a ReviewProtocol snapshot frame
+  alongside the existing Review package metadata. The snapshot frame is built
+  from host-owned package/content handles before the browser demand runtime
+  becomes authoritative.
+- `BridgeApp` now owns a descriptor registry plus a current
+  handle-id-to-descriptor-ref map populated only from accepted Review snapshot
+  frames.
+- Selected and visible Review content hydration now call
+  `loadReviewItemContentResourcesThroughDemand` instead of the legacy direct
+  loader. Missing descriptor refs fail closed with no raw package URL fallback.
+- Browser dev/test package push helpers now attach Review snapshot frames, so
+  local mocks exercise the same descriptor authority shape as Swift.
+- Browser dev/test delta pushes now attach Review snapshot frames for the
+  resulting revision, and `BridgeApp` applies those frames only after the delta
+  passes package/generation/revision validation.
+- Swift `DiffPackageDeltaSlice` now mirrors the metadata slice by carrying the
+  resulting revision's ReviewProtocol snapshot frame.
+- Selected content unavailability is owned by selected content demand. A
+  visible-lane hydration miss can no longer poison the selected canvas before
+  the selected lane has a chance to load.
+- Selected critical content demand now starts from a layout-timed effect, and
+  CodeView reveal is deferred until after selection/command dispatch. This
+  removes the failure-path delay where a synchronous reveal could hold selected
+  failure materialization behind visible/scroll work.
+- Demand content fetch telemetry now flows through the existing review-viewer
+  telemetry adapter boundary.
+- Browser benchmark URL-scope proof now recognizes the actual
+  `agentstudio://resource/review/content/...` contract.
+
+Important boundary decision:
+
+- React selection/visibility effect aborts now gate completion into React state
+  but do not directly cancel shared executor loads. Executor cancellation
+  remains a scheduler/backpressure responsibility so a selected item moving out
+  from under one effect does not kill an in-flight content load still useful to
+  another lane.
+
+Proof:
+
+```bash
+pnpm --dir BridgeWeb exec vitest run \
+  src/core/models/bridge-demand-models.unit.test.ts \
+  src/core/demand/bridge-demand-scheduler.unit.test.ts \
+  src/core/demand/bridge-body-registry.unit.test.ts \
+  src/core/demand/bridge-resource-executor.unit.test.ts \
+  src/features/review/models/review-protocol-models.unit.test.ts \
+  src/features/review/materialization/review-materializer.unit.test.ts \
+  src/features/review/demand/review-demand-policy.unit.test.ts \
+  src/features/review/protocol/review-snapshot-frame-builder.unit.test.ts \
+  src/review-viewer/content/review-content-demand-loader.unit.test.ts \
+  src/review-viewer/content/visible-review-content-hydration.unit.test.tsx \
+  src/app/bridge-app.integration.test.tsx
+```
+
+Result: exit 0, 11 files passed, 59 tests passed. Existing jsdom warnings
+remain: ResizeManager observed-node warnings and one React `flushSync` warning
+in the filter reconciliation test.
+
+The focused suite now includes a telemetry canary asserting raw paths, prompts,
+comments, comms text, handle ids, and content URLs do not leak through the
+BridgeWeb telemetry adapter.
+
+```bash
+pnpm --dir BridgeWeb run test:browser:integration -- \
+  src/review-viewer/test-support/bridge-viewer-browser.integration.browser.test.tsx
+```
+
+Result: exit 0, 1 browser file passed, 30 tests passed. Existing React
+`flushSync` warnings still appear in two filter/chip tests.
+
+This browser suite covers markdown selection/reveal, stale markdown worker
+responses, markdown preview-to-file selection restoration, streaming append
+delta, large fixture reveal, and independent scroll ownership.
+
+```bash
+pnpm --dir BridgeWeb run test:dev-server
+```
+
+Result: exit 0 for
+`http://127.0.0.1:5173/?fixture=large-diffshub&workers=on&scenario=scroll`.
+Selected content reached `ready`, worker pool was `ready`, and scroll motion
+proof passed.
+
+```bash
+BRIDGE_VIEWER_WORKTREE_DEV_SERVER_URL='http://127.0.0.1:5173/?fixture=worktree&workers=on&scenario=current-worktree' \
+  pnpm --dir BridgeWeb run test:dev-server:worktree
+```
+
+Result: exit 0 for the exact current-worktree URL. Selected content reached
+`ready` for `.github/workflows/ci.yml`; worker pool was `ready`.
+
+```bash
+pnpm --dir BridgeWeb run benchmark:viewer
+```
+
+Result: exit 0, 1 benchmark file passed, 1 test passed.
+
+```bash
+pnpm --dir BridgeWeb run test:benchmark:browser
+```
+
+Result: exit 0, 1 browser benchmark file passed, 1 test passed. Proof artifact:
+`tmp/bridge-viewer-browser-benchmark/2026-06-23T08-59-28-072Z`.
+
+Notable browser benchmark canary: `failure-content-unavailable` now reports
+p95 `24.899999976158142ms` against a `1500ms` budget after selected demand moved
+ahead of CodeView reveal work.
+
+```bash
+pnpm --dir BridgeWeb run check
+```
+
+Result: exit 0. `oxlint --type-aware`, BridgeWeb architecture check,
+`oxfmt --check .`, and `tsc --noEmit` passed.
+
+```bash
+SWIFT_TEST_TIMEOUT_SECONDS=60 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180 \
+  mise run test-fast -- --filter BridgeReviewProtocolFrameBuilderTests
+```
+
+Result: exit 0. Focused Swift proof passed 3 tests in 1 suite. The lane also
+rebuilt BridgeWeb assets and wrote `tmp/bridge-web-assets/latest-app-asset-audit.json`.
+
+```bash
+pnpm --dir BridgeWeb run fmt
+pnpm --dir BridgeWeb run check
+mise run format
+mise run lint
+git diff --check
+```
+
+Result: all exit 0. `mise run lint` reported SwiftLint 0 violations,
+AgentStudio architecture lint OK, and release script verification passed.
+
+Still not complete:
+
+- Need implementation-review-swarm before moving to Worktree/File.
+
+## Ticket 02 Review-Fix Pass After Implementation Review
+
+Accepted review findings fixed in this pass:
+
+- In-flight selected content is freshness-keyed by accepted descriptor lineage,
+  so stale package revisions cannot replay selected body results into newer
+  Review packages.
+- Transient executor pressure now queues only user-facing lanes
+  (`foreground` and `active`). Low-priority `visible`, `nearby`, and
+  `speculative` demand remains opportunistic and returns typed pressure instead
+  of building a backlog that can block selected demand.
+- Resource load failures return typed `load_failed` results instead of rejected
+  promises, so selected content failure materializes through the normal failed
+  state path.
+- Review snapshot frames are admitted only when package id, source/query id,
+  generation, and revision match the accepted Review package.
+- Browser mocked-backend resource URL handling now uses the real Bridge resource
+  parser, and metadata/delta push slices use distinct slice identities.
+- The failure-content-unavailable benchmark no longer waits through a generic
+  shadow-DOM text scan; it waits for the dedicated unavailable-state element
+  while still asserting the rendered text.
+
+Root cause of the final browser benchmark tail:
+
+- The executor queue change originally let visible hydration build a large
+  pending backlog in the same executor used by selected demand.
+- The failure scenario clicked a file whose failing head handle had already
+  been touched by visible hydration. Some samples therefore waited until the
+  selected failure escaped the low-priority backlog, producing about 2.0s p95
+  despite only 6ms mocked backend latency.
+- The final contract is now: selected/open demand may queue under pressure;
+  visible/nearby/speculative demand is best-effort and must not create
+  long-tail interference for foreground selection.
+
+Fresh proof after these review fixes:
+
+```bash
+pnpm --dir BridgeWeb run fmt
+pnpm --dir BridgeWeb run check
+```
+
+Result: both exit 0.
+
+```bash
+pnpm --dir BridgeWeb exec vitest run \
+  src/core/models/bridge-demand-models.unit.test.ts \
+  src/core/demand/bridge-demand-scheduler.unit.test.ts \
+  src/core/demand/bridge-body-registry.unit.test.ts \
+  src/core/demand/bridge-resource-executor.unit.test.ts \
+  src/features/review/models/review-protocol-models.unit.test.ts \
+  src/features/review/materialization/review-materializer.unit.test.ts \
+  src/features/review/demand/review-demand-policy.unit.test.ts \
+  src/features/review/protocol/review-snapshot-frame-builder.unit.test.ts \
+  src/review-viewer/content/review-content-demand-loader.unit.test.ts \
+  src/review-viewer/content/visible-review-content-hydration.unit.test.tsx \
+  src/review-viewer/test-support/bridge-viewer-mocked-backend.unit.test.ts \
+  src/app/bridge-app.integration.test.tsx
+```
+
+Result: exit 0, 12 files passed, 78 tests passed. Existing jsdom
+ResizeManager observed-node warnings remain non-fatal.
+
+```bash
+pnpm --dir BridgeWeb run test:browser:integration -- \
+  src/review-viewer/test-support/bridge-viewer-browser.integration.browser.test.tsx
+```
+
+Result: exit 0, 1 browser file passed, 30 tests passed.
+
+```bash
+pnpm --dir BridgeWeb run test:dev-server
+```
+
+Result: exit 0 for
+`http://127.0.0.1:5173/?fixture=large-diffshub&workers=on&scenario=scroll`.
+Selected content was `ready`, worker pool was `ready`, and visible hydrated
+cache count was bounded at 8.
+
+```bash
+BRIDGE_VIEWER_WORKTREE_DEV_SERVER_URL='http://127.0.0.1:5173/?fixture=worktree&workers=on&scenario=current-worktree' \
+  pnpm --dir BridgeWeb run test:dev-server:worktree
+```
+
+Result: exit 0 for the exact current-worktree URL. Selected content was `ready`
+for `.github/workflows/ci.yml`, worker pool was `ready`, revision was `39`, and
+visible hydrated cache count was bounded at 3.
+
+```bash
+pnpm --dir BridgeWeb run test:benchmark:browser
+```
+
+Result: exit 0, 1 browser benchmark file passed, 1 test passed. Proof artifact:
+`tmp/bridge-viewer-browser-benchmark/2026-06-23T13-18-32-488Z`.
+
+Notable benchmark recovery:
+
+- `failure-content-unavailable` passed with p95 `20.2ms` against a `1500ms`
+  budget.
+- `large-cold-package-push` passed with p95 `247.6ms` against a `3000ms`
+  budget.
+- `scroll-ownership` passed with p95 `124.2ms` against a `1500ms` budget.
+
+Vite dev-server telemetry fast loop:
+
+- running Vite URL: `http://127.0.0.1:5173/`
+- status endpoint:
+  `http://127.0.0.1:5173/__bridge-dev-telemetry/status`
+- status after worktree smoke: `acceptedBatchCount=248`,
+  `acceptedSampleCount=441`, `failedBatchCount=0`
+- VictoriaLogs marker `vite-dev-ticket02-1782220582`:
+  `vite-dev-worktree-default` rows `374`,
+  `vite-dev-worktree-current-worktree` rows `67`
+- exact URL loaded:
+  `http://127.0.0.1:5173/?fixture=worktree&workers=on&scenario=current-worktree`
+- `bash scripts/verify-bridge-web-no-direct-otlp.sh`: exit 0
+- after manual current-worktree fresh-load, scroll, and click pressure, the same
+  status endpoint reported `acceptedBatchCount=4304`,
+  `acceptedSampleCount=7713`, and `failedBatchCount=0` for marker
+  `vite-dev-ticket02-1782220582`
+- VictoriaLogs for that manual pressure window were dominated by demand/content
+  work in `vite-dev-worktree-current-worktree`: `content_fetch=4061`,
+  `content_queue=3204`, with only `projection_build=5`, `worker_task=11`,
+  `item_update=11`, and `shiki_highlight=11`
+- current telemetry can prove demand churn and content-fetch volume, but it
+  does not yet carry enough virtualizer-specific fields to directly explain
+  scrollbar jump: missing fields include scrollTop before/after, total content
+  height, visible range, anchor item/offset, and layout reconciliation reason
+- DiffsHub/Pierre source research in
+  `/Users/shravansunder/Documents/dev/open-source/libs-react/pierre` found two
+  relevant smoothness contracts:
+  - file-tree sizing is fixed-height and row-count based: app snapshots carry a
+    bounded `pathCount`, tree rows use fixed `24px` item height, and the tree
+    package computes total height from visible row count rather than content
+    body size
+  - diff/code sizing is patch-metadata based: streamed patch chunks are parsed
+    into `FileDiffMetadata` with file/hunk line counts, CodeView reserves
+    estimated item heights before DOM render, then sparse measurement deltas are
+    reconciled with scroll anchoring
+- Ticket 02 therefore has one known follow-up risk before Ticket 03 planning:
+  Bridge currently proves content availability and bounded demand queues, but
+  does not yet expose a DiffsHub-like virtualized-size contract or telemetry
+  canary for scroll extent stability on huge worktrees
+
+```bash
+mise run test -- --filter 'BridgeReviewProtocolFrameBuilderTests|BridgeBootstrapTests'
+mise run lint
+```
+
+Result: all exit 0. The Swift focused lane rebuilt BridgeWeb assets and passed
+28 Swift tests across `BridgeReviewProtocolFrameBuilderTests` and
+`BridgeBootstrapTests`. `mise run lint`
+reported SwiftLint 0 violations, AgentStudio architecture lint OK, and release
+script verification passed.
+
+Next required action:
+
+- Rerun `shravan-dev-workflow:implementation-review-swarm` against the current
+  worktree. Ticket 02 implementation proof is refreshed, but checkpoint 2 is
+  not accepted and the plan must not advance to Worktree/File until review is
+  ready or accepted findings are resolved.

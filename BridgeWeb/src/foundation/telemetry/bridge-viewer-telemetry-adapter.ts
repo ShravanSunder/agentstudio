@@ -16,6 +16,17 @@ export interface BridgeViewerContentQueueTelemetrySampleProps {
 	readonly telemetryRecorder: BridgeTelemetryRecorder;
 	readonly traceContext: BridgeTraceContext | null;
 	readonly contentRole: 'base' | 'head' | 'diff' | 'file' | 'unknown';
+	readonly interest: 'selected' | 'visible' | 'nearby' | 'speculative';
+}
+
+export interface BridgeViewerContentFetchTelemetrySampleProps {
+	readonly telemetryRecorder: BridgeTelemetryRecorder;
+	readonly traceContext: BridgeTraceContext | null;
+	readonly contentRole: 'base' | 'head' | 'diff' | 'file' | 'unknown';
+	readonly durationMilliseconds: number;
+	readonly interest: 'selected' | 'visible' | 'nearby' | 'speculative';
+	readonly result: 'success' | 'deferred' | 'failed';
+	readonly resultReason: string | null;
 }
 
 export interface BridgeCodeViewHydrationTelemetrySampleProps {
@@ -65,7 +76,8 @@ export function recordBridgeViewerContentQueueTelemetrySample(
 			durationMilliseconds: null,
 			traceContext: props.traceContext,
 			stringAttributes: {
-				'agentstudio.bridge.content.priority': 'selected',
+				'agentstudio.bridge.content.interest': props.interest,
+				'agentstudio.bridge.content.priority': props.interest,
 				'agentstudio.bridge.content.role': props.contentRole,
 				'agentstudio.bridge.phase': 'content_queue',
 				'agentstudio.bridge.plane': 'data',
@@ -78,6 +90,37 @@ export function recordBridgeViewerContentQueueTelemetrySample(
 			numericAttributes: {},
 			booleanAttributes: {},
 		});
+	});
+}
+
+export function recordBridgeViewerContentFetchTelemetrySample(
+	props: BridgeViewerContentFetchTelemetrySampleProps,
+): void {
+	recordWhenEnabled(props.telemetryRecorder, () => {
+		props.telemetryRecorder.record({
+			scope: 'web',
+			name: 'performance.bridge.web.content_fetch',
+			durationMilliseconds: props.durationMilliseconds,
+			traceContext: props.traceContext,
+			stringAttributes: {
+				'agentstudio.bridge.content.correlation_mode': 'summary',
+				'agentstudio.bridge.content.interest': props.interest,
+				'agentstudio.bridge.content.role': props.contentRole,
+				'agentstudio.bridge.phase': 'fetch',
+				'agentstudio.bridge.plane': 'data',
+				'agentstudio.bridge.priority': 'hot',
+				'agentstudio.bridge.result': props.result,
+				'agentstudio.bridge.result_reason': props.resultReason ?? 'none',
+				'agentstudio.bridge.slice': 'content_fetch',
+				'agentstudio.bridge.transport': 'content',
+			},
+			numericAttributes: {},
+			booleanAttributes: {
+				'agentstudio.bridge.header_missing': true,
+				'agentstudio.bridge.header_supported': false,
+			},
+		});
+		props.telemetryRecorder.flush();
 	});
 }
 

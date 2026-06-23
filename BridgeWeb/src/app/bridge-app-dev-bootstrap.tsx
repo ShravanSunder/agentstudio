@@ -23,6 +23,10 @@ import {
 	reviewPackageForBridgeAppDevFixtureScenario,
 	type BridgeAppDevFixtureScenario,
 } from './bridge-app-dev-fixture.js';
+import {
+	createBridgeAppDevTelemetryBootstrapConfig,
+	installBridgeAppDevTelemetryHost,
+} from './bridge-app-dev-telemetry.js';
 import { installBridgeAppDevWorktreeBackend } from './bridge-app-dev-worktree.js';
 import { BridgeApp } from './bridge-app.js';
 
@@ -32,7 +36,17 @@ import './bridge-app.css';
 const rootElement = document.querySelector('#root');
 
 if (rootElement !== null) {
-	const options = parseBridgeAppDevFixtureOptions(new URLSearchParams(window.location.search));
+	const searchParams = new URLSearchParams(window.location.search);
+	const options = parseBridgeAppDevFixtureOptions(searchParams);
+	const telemetryScenario = bridgeAppDevTelemetryScenario({
+		fixtureClass: options.fixtureClass,
+		scenario: searchParams.get('scenario') ?? options.scenario,
+	});
+	const telemetryConfig = createBridgeAppDevTelemetryBootstrapConfig(telemetryScenario);
+	const telemetryHost = installBridgeAppDevTelemetryHost({
+		respondToHandshakeRequests: false,
+		scenario: telemetryScenario,
+	});
 	const fixtureClass = fixtureClassForMockedBackend(options.fixtureClass);
 	const workerFactory = options.workersEnabled
 		? createBridgePierrePortableBlobWorkerFactory()
@@ -53,14 +67,18 @@ if (rootElement !== null) {
 			? null
 			: installBridgeViewerMockedBackend(fixture, {
 					latencyProfile: latencyProfileForMockedBackend(options.latencyProfile),
+					telemetryConfig,
 				});
 	const worktreeBackend =
-		options.fixtureClass === 'worktree' ? installBridgeAppDevWorktreeBackend() : null;
+		options.fixtureClass === 'worktree'
+			? installBridgeAppDevWorktreeBackend({ telemetryConfig })
+			: null;
 
 	window.addEventListener(
 		'beforeunload',
 		(): void => {
 			backend?.dispose();
+			telemetryHost.dispose();
 			workerFactory?.revoke();
 		},
 		{ once: true },
@@ -93,6 +111,13 @@ if (rootElement !== null) {
 	} else {
 		void worktreeBackend.pushPackage();
 	}
+}
+
+function bridgeAppDevTelemetryScenario(props: {
+	readonly fixtureClass: string;
+	readonly scenario: string;
+}): string {
+	return `vite-dev-${props.fixtureClass}-${props.scenario}`;
 }
 
 async function pushDevFixture(props: {

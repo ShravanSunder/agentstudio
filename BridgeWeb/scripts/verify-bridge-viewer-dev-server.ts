@@ -148,7 +148,7 @@ try {
 async function verifyDirectMarkdownInitialSelection(): Promise<DirectMarkdownSelectionState> {
 	const page = await makeVerificationPage();
 	try {
-		await page.goto(devServerUrl, { waitUntil: 'networkidle', timeout: 30_000 });
+		await page.goto(devServerUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
 		await waitForReviewViewerReady(page);
 		const initialResult = await readVerificationResult(page);
 		const scrollMotion = await clickFileTreePathAndMeasureScrollMotion(page, targetMarkdownPath);
@@ -185,7 +185,7 @@ async function verifyDirectMarkdownInitialSelection(): Promise<DirectMarkdownSel
 async function verifyScrollScenario(): Promise<DevServerVerificationResult> {
 	const page = await makeVerificationPage();
 	try {
-		await page.goto(devServerUrl, { waitUntil: 'networkidle', timeout: 30_000 });
+		await page.goto(devServerUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
 		await waitForReviewViewerReady(page);
 		const initialResult = await readVerificationResult(page);
 		assertTopScopeStateRemoved(initialResult.topScopeState);
@@ -304,7 +304,7 @@ interface MarkdownScenarioResult {
 async function verifyMarkdownScenario(): Promise<MarkdownScenarioResult> {
 	const page = await makeVerificationPage();
 	try {
-		await page.goto(markdownDevServerUrl, { waitUntil: 'networkidle', timeout: 30_000 });
+		await page.goto(markdownDevServerUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
 		await waitForSelectedPath(page, targetMarkdownPath);
 		await dispatchMarkdownPreviewCommand(page);
 		await waitForMarkdownPreview(page);

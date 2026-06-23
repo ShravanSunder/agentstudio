@@ -11,6 +11,10 @@ Deliverable:
 - browser Worktree/File schemas, materializer, demand policy, and state
 - tree surface with bounded tree-window demand
 - file content panel with open-file session state
+- initial tree/file scroll extent reserved from provider virtualized-size facts
+  before body bytes, body hydration, or DOM measurement
+- measured reconciliation preserves anchor item/offset and records objective
+  extent diagnostics
 - stale marker and manual refresh behavior
 - dev-server worktree URL uses Worktree/File protocol instead of fabricated
   Review packages
@@ -46,9 +50,21 @@ Swift:
 
 - Worktree snapshot registers tree/status descriptors before demand.
 - Tree viewport stimulus maps demanded refs to `visible`.
+- Initial tree render uses provider `pathCount`, declared row height, and window
+  facts, or conservative estimated total extent, before hidden descendants or
+  tree row bodies hydrate.
 - Tree expansion maps visible windows to `visible` and optional nearby windows
   to `nearby`.
 - File selected maps content descriptor to `foreground`.
+- Open-file render uses descriptor `virtualizedExtentKind`, `lineCount`, or
+  `estimatedContentHeightPixels` before file content bytes are fetched, streamed,
+  hydrated, or measured.
+- Non-reset measured reconciliation preserves anchor item identity.
+- Compensated anchor drift stays within one declared row/line height.
+- Total-height deltas are logged as measured-versus-estimated reconciliation,
+  never silent jumps.
+- Exact-count cases keep `scrollHeight` or virtualizer `totalSize` stable within
+  one declared row/line height before versus after hydration.
 - Open file invalidation marks open session stale and emits no auto-fetch in
   the first implementation.
 - Explicit refresh maps latest descriptor to `foreground`.
@@ -66,7 +82,8 @@ Swift:
 - Pierre/renderer inputs are prepared items/paths and render deltas only, never
   fetchable Bridge URLs or descriptor authority.
 - Worktree/File telemetry canary excludes raw paths, source text, handles,
-  capability URLs, comments, and comms while retaining allowlisted audit fields.
+  capability URLs, comments, and comms while retaining allowlisted audit and
+  extent-diagnostic fields.
 
 ## Implementation Notes
 
@@ -74,16 +91,20 @@ Swift:
    `src/features/worktree-file/models/**`.
 2. Add Worktree/File materializer and demand policy.
 3. Add minimal Worktree/File state surface with open file sessions.
-4. Add UI/runtime surface under `src/worktree-file-surface/**`.
-5. Update app routing to select Review or Worktree/File by app protocol/surface.
+4. Add a virtualized extent adapter that consumes ticket 03 provider facts before
+   hydrated bodies are available.
+5. Add anchor-preserving measured reconciliation and objective scroll-extent
+   diagnostics.
+6. Add UI/runtime surface under `src/worktree-file-surface/**`.
+7. Update app routing to select Review or Worktree/File by app protocol/surface.
    This extends the router introduced in ticket 02 instead of creating a second
    root app shell.
-6. Replace Vite worktree dev provider Review package fabrication with
+8. Replace Vite worktree dev provider Review package fabrication with
    Worktree/File protocol frames and descriptors.
-7. Keep optional Review handoff as an intent only; do not make Worktree/File a
+9. Keep optional Review handoff as an intent only; do not make Worktree/File a
    diff engine. Full `OpenReviewComparisonIntent` implementation is deferred
    unless the owner explicitly pulls that handoff into this epic.
-8. Remove raw URL/handle authority from the Worktree/File replacement path
+10. Remove raw URL/handle authority from the Worktree/File replacement path
    before declaring the ticket cut over; raw URL parsing may remain only in
    explicitly named legacy fixtures until ticket 05 deletes or quarantines them.
 
@@ -134,9 +155,47 @@ source-reset stale-drop, raw URL/handle rejection, renderer-boundary checks,
 telemetry canary, and large/binary file behavior. Do not label jsdom/unit proof
 as browser proof.
 
+Benchmark/canary proof:
+
+```bash
+pnpm --dir BridgeWeb run benchmark:viewer
+pnpm --dir BridgeWeb run test:benchmark:browser
+```
+
+These commands must include Worktree/File huge-tree window churn and open-file
+extent reconciliation scenarios, or the handoff must name the exact replacement
+benchmark command and artifact path. The benchmark cannot replace correctness
+canaries; it records repeated viewport/load behavior under pressure.
+
+The browser suite and dev-server proof must include:
+
+- huge-worktree tree extent reserved from provider `treeSizeFacts` before the
+  first tree-window body resolves
+- open-file extent reserved for `exactLineCount`, `estimatedHeight`,
+  `previewBounded`, and `unavailable` before the first content body resolves
+- scroll-extent canary fields:
+  `scrollTopBefore`, `scrollTopAfter`, `totalContentHeightBefore`,
+  `totalContentHeightAfter`, `virtualizerTotalSizeBefore`,
+  `virtualizerTotalSizeAfter`, `scrollHeightBefore`, `scrollHeightAfter`,
+  `visibleRange`, `anchorItemId`, `anchorOffset`, `measuredItemIds`, and
+  `reconciliationReason`
+- canary pass/fail rules matching `worktree-file-surface-protocol.md` section
+  14: stable anchor across non-reset reconciliation, drift within one declared
+  row/line height after compensation, exact-count `scrollHeight` or
+  `virtualizerTotalSize` drift within one declared row/line height before versus
+  after hydration, and every estimated total-height delta attributed to
+  measured-versus-estimated items
+- benchmark artifacts must carry the same stable-anchor, bounded-drift, and
+  exact-size-tolerance or attributed-height-delta fields for huge-worktree tree
+  and open-file extent cases
+
 ## Handoff Output
 
 - Worktree/File source identity and descriptor examples
+- huge-worktree tree scroll canary sample
+- open-file extent reconciliation canary sample
+- explicit pass/fail readout for stable-anchor, bounded-drift, and
+  exact-size-tolerance or attributed-height-delta rules
 - stale marker -> no auto-fetch -> manual refresh proof
 - dev-server URL and command result
 - raw URL/handle rejection and descriptor/lease-backed fetch proof

@@ -7,6 +7,7 @@ import {
 import { makeBridgeViewerProjectionFixture } from '../test-support/review-viewer-fixtures.js';
 import { fingerprintBridgeReviewProjectionRequest } from '../workers/projection/review-projection-worker-rpc.js';
 import {
+	type BridgeReviewViewerStoreState,
 	createBridgeReviewViewerStore,
 	selectBridgeReviewViewerRootSnapshot,
 } from './review-viewer-store.js';
@@ -121,4 +122,71 @@ describe('Bridge review viewer Zustand store', () => {
 		).toBe(true);
 		expect(store.getState().projection?.orderedItemIds).toEqual(['docs-plan']);
 	});
+
+	test('keeps hydrated bodies and runtime controls out of the Zustand snapshot', () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const projectionInput = makeBridgeReviewProjectionInput(reviewPackage);
+		const projectionRequest = {
+			mode: { kind: 'normalReview' },
+			facets: [],
+		} as const;
+		const projectionIdentity = {
+			requestId: 'request-normal',
+			packageId: projectionInput.packageId,
+			reviewGeneration: projectionInput.reviewGeneration,
+			revision: projectionInput.revision,
+			projectionRequestFingerprint: fingerprintBridgeReviewProjectionRequest(projectionRequest),
+			abortKey: 'projection',
+		};
+		const store = createBridgeReviewViewerStore();
+
+		store.getState().actions.startProjectionRequest(projectionIdentity);
+		store.getState().actions.applyProjectionWorkerResult({
+			identity: projectionIdentity,
+			result: buildBridgeReviewProjection({ reviewPackage, request: projectionRequest }),
+		});
+		store.getState().actions.setSelectedItemId('source-high');
+		store.getState().actions.setContentHydrationStatus({
+			itemId: 'source-high',
+			status: 'ready',
+			contentHandleId: 'handle-source-high-head',
+		});
+
+		const snapshot = serializableViewerStateForBodyBoundary(store.getState());
+		const snapshotJSON = JSON.stringify(snapshot);
+
+		expect(snapshot.contentHydrationByItemId['source-high']).toEqual({
+			itemId: 'source-high',
+			status: 'ready',
+			contentHandleId: 'handle-source-high-head',
+		});
+		expect(snapshotJSON).not.toContain('large base text');
+		expect(snapshotJSON).not.toContain('large head text');
+		expect(snapshotJSON).not.toContain('agentstudio://resource');
+		expect(containsRuntimeControlObject(snapshot)).toBe(false);
+	});
 });
+
+function serializableViewerStateForBodyBoundary(
+	state: BridgeReviewViewerStoreState,
+): Omit<BridgeReviewViewerStoreState, 'actions'> {
+	const { actions, ...snapshot } = state;
+	void actions;
+	return snapshot;
+}
+
+function containsRuntimeControlObject(value: unknown): boolean {
+	if (value instanceof Promise || value instanceof AbortController) {
+		return true;
+	}
+	if (typeof Worker !== 'undefined' && value instanceof Worker) {
+		return true;
+	}
+	if (Array.isArray(value)) {
+		return value.some(containsRuntimeControlObject);
+	}
+	if (typeof value !== 'object' || value === null) {
+		return false;
+	}
+	return Object.values(value).some(containsRuntimeControlObject);
+}

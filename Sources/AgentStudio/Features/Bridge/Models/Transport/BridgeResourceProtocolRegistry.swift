@@ -6,7 +6,7 @@ enum BridgeResourceProtocolRegistry {
     ]
 
     static let reviewViewerAllowedResourceKinds: [String: Set<String>] = [
-        "review": Set(["content", "review-package"]),
+        "review": Set(["content", "review-package", "review-delta"]),
         "worktree-file": Set(["tree"]),
     ]
 }

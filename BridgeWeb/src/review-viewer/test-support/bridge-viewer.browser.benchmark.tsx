@@ -6,6 +6,7 @@ import { cleanup, render } from 'vitest-browser-react';
 import '../../app/bridge-app.css';
 import type { BridgeAppControlProbe } from '../../app/bridge-app-control.js';
 import { BridgeApp } from '../../app/bridge-app.js';
+import { parseBridgeCoreResourceUrl } from '../../core/resources/bridge-resource-url.js';
 import type { BridgeMarkdownRenderWorkerClient } from '../workers/markdown/bridge-markdown-render-worker-client.js';
 import {
 	bridgeViewerVisibleCodeTextContent,
@@ -43,6 +44,7 @@ import {
 	disposeBridgeViewerMockedBackends,
 	installBridgeViewerMockedBackend,
 	makeBridgeViewerBrowserFixture,
+	makeBridgeViewerContentUnavailableFixture,
 } from './bridge-viewer-mocked-backend.js';
 
 interface BridgeViewerBrowserPerformanceScenario {
@@ -217,9 +219,11 @@ const browserPerformanceScenarios: readonly BridgeViewerBrowserPerformanceScenar
 	},
 ];
 
-afterEach(() => {
+afterEach(async () => {
 	disposeBridgeViewerMockedBackends();
 	cleanup();
+	await Promise.resolve();
+	await waitForBridgeViewerAnimationFrame();
 	document.body.replaceChildren();
 	document.documentElement.removeAttribute('data-bridge-nonce');
 	delete window.bridgeReviewControlProbe;
@@ -451,6 +455,7 @@ async function measureWarmProjectionChipSwitch(): Promise<BridgeViewerBrowserPer
 	});
 	await waitForBridgeViewerAppliedProjectionMode('plansAndSpecs');
 	const railScroll = await waitForBridgeViewerTreeScrollOwner();
+	await waitForBridgeViewerVisibleTreeItemPathAbsent(railScroll, fixture.expected.initialPath);
 	const visibleTreePaths = bridgeViewerVisibleTreeItemPaths(railScroll);
 	const durationMilliseconds = performance.now() - startedAt;
 	expect(visibleTreePaths).toContain(fixture.expected.docsPath);
@@ -558,9 +563,9 @@ async function measureWorkerBackedColdPackagePush(): Promise<BridgeViewerBrowser
 		await backend.pushPackage();
 		await waitForBridgeViewerElement('[data-testid="review-viewer-shell"]');
 		await waitForBridgeViewerText(fixture.expected.initialText);
+		await waitForBridgeViewerSelectorAbsent('[data-testid="bridge-pierre-worker-pool-loading"]');
 		const durationMilliseconds = performance.now() - startedAt;
 		expect(document.querySelector('[data-testid="bridge-pierre-worker-pool-failed"]')).toBeNull();
-		expect(document.querySelector('[data-testid="bridge-pierre-worker-pool-loading"]')).toBeNull();
 		expect(backend.pushRecords).toContainEqual({
 			op: 'replace',
 			revision: fixture.reviewPackage.revision,
@@ -605,7 +610,7 @@ async function measureWarmMarkdownPreview(): Promise<BridgeViewerBrowserPerforma
 }
 
 async function measureContentUnavailable(): Promise<BridgeViewerBrowserPerformanceSample> {
-	const fixture = makeBridgeViewerBrowserFixture();
+	const fixture = makeBridgeViewerContentUnavailableFixture();
 	const backend = installBridgeViewerMockedBackend(fixture, {
 		contentFailures: [fixture.expected.secondHeadHandleId],
 		latencyProfile: 'small',
@@ -615,14 +620,29 @@ async function measureContentUnavailable(): Promise<BridgeViewerBrowserPerforman
 	await waitForBridgeViewerText(fixture.expected.initialText);
 	const secondButton = await waitForBridgeViewerTreeItemButton(fixture.expected.secondPath);
 	const beforeAction = snapshotBackendLedgerCounts(backend);
+	const requestedFailureHandleCountBeforeClick = requestedContentUrlCount(
+		backend,
+		fixture.expected.secondHeadHandleId,
+	);
 	const startedAt = performance.now();
 	secondButton.click();
-	await waitForBridgeViewerText('Content unavailable');
+	await waitForRequestedContentUrlCountGreaterThan(
+		backend,
+		fixture.expected.secondHeadHandleId,
+		requestedFailureHandleCountBeforeClick,
+	);
+	await waitForBridgeViewerSelectedContentState('failed');
+	const unavailableElement = await waitForBridgeViewerElement(
+		'[data-testid="bridge-review-content-unavailable"]',
+	);
+	expect(unavailableElement.textContent ?? '').toContain('Content unavailable');
 	const durationMilliseconds = performance.now() - startedAt;
-	expectBackendLedgerDelta(backend, beforeAction, {
-		contentHandleId: fixture.expected.secondHeadHandleId,
-		commandItemId: 'browser-source-b',
-	});
+	expect(
+		backend.requestedUrls.some((url: string): boolean =>
+			url.includes(fixture.expected.secondHeadHandleId),
+		),
+	).toBe(true);
+	expectBackendCommandLedgerDelta(backend, beforeAction, 'browser-source-b');
 	return finishPerformanceSample({ durationMilliseconds, fixture, backend });
 }
 
@@ -867,17 +887,19 @@ function renderBridgeApp(props: {
 	);
 }
 
-function finishPerformanceSample(props: {
+async function finishPerformanceSample(props: {
 	readonly durationMilliseconds: number;
 	readonly fixture: BridgeViewerBrowserFixture;
 	readonly backend: BridgeViewerMockedBackend;
 	readonly deliveryMode?: BridgeViewerMockedBackendDeliveryMode;
 	readonly codeViewWorkerPoolEnabled?: boolean;
-}): BridgeViewerBrowserPerformanceSample {
+}): Promise<BridgeViewerBrowserPerformanceSample> {
 	expect(props.durationMilliseconds).toBeGreaterThan(0);
 	expect(props.backend.projectionRequests.length).toBeGreaterThan(0);
 	props.backend.dispose();
 	cleanup();
+	await Promise.resolve();
+	await waitForBridgeViewerAnimationFrame();
 	document.body.replaceChildren();
 	document.documentElement.removeAttribute('data-bridge-nonce');
 	delete window.bridgeReviewControlProbe;
@@ -930,22 +952,59 @@ function snapshotBackendLedgerCounts(backend: BridgeViewerMockedBackend): Backen
 	};
 }
 
-function expectBackendLedgerDelta(
+function requestedContentUrlCount(backend: BridgeViewerMockedBackend, handleId: string): number {
+	return backend.requestedUrls.filter((url: string): boolean => url.includes(handleId)).length;
+}
+
+async function waitForRequestedContentUrlCountGreaterThan(
 	backend: BridgeViewerMockedBackend,
-	beforeAction: BackendLedgerCounts,
-	props: {
-		readonly contentHandleId: string;
-		readonly commandItemId: string;
-	},
-): void {
-	const actionUrls = backend.requestedUrls.slice(beforeAction.requestedUrlCount);
-	const actionCommands = backend.commandDetails.slice(beforeAction.commandCount);
-	expect(actionUrls.some((url: string): boolean => url.includes(props.contentHandleId))).toBe(true);
-	expect(
-		actionCommands.some((detail: unknown): boolean =>
-			isBridgeCommandForItem(detail, 'review.markFileViewed', props.commandItemId),
-		),
-	).toBe(true);
+	handleId: string,
+	count: number,
+	remainingAttempts = 180,
+): Promise<void> {
+	if (requestedContentUrlCount(backend, handleId) > count) {
+		return;
+	}
+	if (remainingAttempts <= 0) {
+		throw new Error(
+			`expected Bridge viewer content request count for ${handleId} to exceed ${count}; requested=${backend.requestedUrls.join(',')}`,
+		);
+	}
+	await waitForBridgeViewerAnimationFrame();
+	await waitForRequestedContentUrlCountGreaterThan(backend, handleId, count, remainingAttempts - 1);
+}
+
+async function waitForBridgeViewerSelectorAbsent(
+	selector: string,
+	remainingAttempts = 180,
+): Promise<void> {
+	if (document.querySelector(selector) === null) {
+		return;
+	}
+	if (remainingAttempts <= 0) {
+		throw new Error(`expected Bridge viewer selector to be absent: ${selector}`);
+	}
+	await waitForBridgeViewerAnimationFrame();
+	await waitForBridgeViewerSelectorAbsent(selector, remainingAttempts - 1);
+}
+
+async function waitForBridgeViewerSelectedContentState(
+	state: string,
+	remainingAttempts = 180,
+): Promise<void> {
+	const shell = document.querySelector('[data-testid="review-viewer-shell"]');
+	const currentState = shell?.getAttribute('data-selected-content-state') ?? 'missing';
+	if (currentState === state) {
+		return;
+	}
+	if (remainingAttempts <= 0) {
+		const panel = document.querySelector('[data-testid="bridge-code-view-panel"]');
+		throw new Error(
+			`expected selected content state ${state}; current=${currentState}; panel=${panel?.getAttribute('data-selected-content-state') ?? 'missing'}; text=${(document.body.textContent ?? '').slice(0, 300)}`,
+		);
+	}
+	await waitForBridgeViewerAnimationFrame();
+	await waitForBridgeViewerSelectedContentState(state, remainingAttempts - 1);
 }
 
 function expectBackendCommandLedgerDelta(
@@ -962,16 +1021,10 @@ function expectBackendCommandLedgerDelta(
 }
 
 function isBridgeContentResourceUrl(url: string): boolean {
-	try {
-		const parsedUrl = new URL(url);
-		return (
-			parsedUrl.protocol === 'agentstudio:' &&
-			parsedUrl.hostname === 'resource' &&
-			parsedUrl.pathname.startsWith('/content/')
-		);
-	} catch {
-		return false;
-	}
+	const parsedUrl = parseBridgeCoreResourceUrl(url, {
+		allowedResourceKindsByProtocol: { review: new Set(['content']) },
+	});
+	return parsedUrl?.protocol === 'review' && parsedUrl.resourceKind === 'content';
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

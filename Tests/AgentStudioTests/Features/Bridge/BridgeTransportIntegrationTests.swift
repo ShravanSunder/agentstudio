@@ -4,6 +4,83 @@ import WebKit
 
 @testable import AgentStudio
 
+private actor TraceparentHeaderCapture {
+    private var didRecordResourceRequest = false
+    private var traceparentHeader: String?
+
+    func recordResourceRequest(_ request: URLRequest) {
+        didRecordResourceRequest = true
+        traceparentHeader = request.value(forHTTPHeaderField: "traceparent")
+    }
+
+    func didRecord() -> Bool {
+        didRecordResourceRequest
+    }
+
+    func traceparent() -> String? {
+        traceparentHeader
+    }
+}
+
+private struct TraceparentCaptureSchemeHandler: URLSchemeHandler {
+    let capture: TraceparentHeaderCapture
+
+    func reply(for request: URLRequest) -> some AsyncSequence<URLSchemeTaskResult, any Error> {
+        AsyncThrowingStream<URLSchemeTaskResult, any Error> { continuation in
+            guard let url = request.url else {
+                continuation.finish(throwing: BridgeSchemeError.invalidRequest("Missing URL"))
+                return
+            }
+
+            if url.host() == "resource" {
+                Task {
+                    await capture.recordResourceRequest(request)
+                }
+                let data = Data("content".utf8)
+                continuation.yield(
+                    .response(
+                        BridgeSchemeHandler.response(
+                            url: url,
+                            mimeType: "text/plain",
+                            expectedContentLength: data.count
+                        )))
+                continuation.yield(.data(data))
+                continuation.finish()
+                return
+            }
+
+            let html = """
+                <html>
+                  <head><title>Traceparent Fetch</title></head>
+                  <body>
+                    <script>
+                      fetch('agentstudio://resource/review/content/handle?generation=1', {
+                        headers: {
+                          traceparent: '00-11111111111111111111111111111111-2222222222222222-01'
+                        }
+                      }).then(function() {
+                        document.title = 'Traceparent Fetch Done';
+                      }).catch(function() {
+                        document.title = 'Traceparent Fetch Failed';
+                      });
+                    </script>
+                  </body>
+                </html>
+                """
+            let data = Data(html.utf8)
+            continuation.yield(
+                .response(
+                    BridgeSchemeHandler.response(
+                        url: url,
+                        mimeType: "text/html",
+                        expectedContentLength: data.count
+                    )))
+            continuation.yield(.data(data))
+            continuation.finish()
+        }
+    }
+}
+
 /// Integration tests for the BridgePaneController's assembled transport pipeline.
 ///
 /// These tests verify that the controller's components (WebPage, BridgeSchemeHandler,
@@ -20,83 +97,6 @@ extension WebKitSerializedTests {
     final class BridgeTransportIntegrationTests {
         init() {
             installTestAtomRegistryIfNeeded()
-        }
-
-        private actor TraceparentHeaderCapture {
-            private var didRecordResourceRequest = false
-            private var traceparentHeader: String?
-
-            func recordResourceRequest(_ request: URLRequest) {
-                didRecordResourceRequest = true
-                traceparentHeader = request.value(forHTTPHeaderField: "traceparent")
-            }
-
-            func didRecord() -> Bool {
-                didRecordResourceRequest
-            }
-
-            func traceparent() -> String? {
-                traceparentHeader
-            }
-        }
-
-        private struct TraceparentCaptureSchemeHandler: URLSchemeHandler {
-            let capture: TraceparentHeaderCapture
-
-            func reply(for request: URLRequest) -> some AsyncSequence<URLSchemeTaskResult, any Error> {
-                AsyncThrowingStream<URLSchemeTaskResult, any Error> { continuation in
-                    guard let url = request.url else {
-                        continuation.finish(throwing: BridgeSchemeError.invalidRequest("Missing URL"))
-                        return
-                    }
-
-                    if url.host() == "resource" {
-                        Task {
-                            await capture.recordResourceRequest(request)
-                        }
-                        let data = Data("content".utf8)
-                        continuation.yield(
-                            .response(
-                                BridgeSchemeHandler.response(
-                                    url: url,
-                                    mimeType: "text/plain",
-                                    expectedContentLength: data.count
-                                )))
-                        continuation.yield(.data(data))
-                        continuation.finish()
-                        return
-                    }
-
-                    let html = """
-                        <html>
-                          <head><title>Traceparent Fetch</title></head>
-                          <body>
-                            <script>
-                              fetch('agentstudio://resource/review/content/handle?generation=1', {
-                                headers: {
-                                  traceparent: '00-11111111111111111111111111111111-2222222222222222-01'
-                                }
-                              }).then(function() {
-                                document.title = 'Traceparent Fetch Done';
-                              }).catch(function() {
-                                document.title = 'Traceparent Fetch Failed';
-                              });
-                            </script>
-                          </body>
-                        </html>
-                        """
-                    let data = Data(html.utf8)
-                    continuation.yield(
-                        .response(
-                            BridgeSchemeHandler.response(
-                                url: url,
-                                mimeType: "text/html",
-                                expectedContentLength: data.count
-                            )))
-                    continuation.yield(.data(data))
-                    continuation.finish()
-                }
-            }
         }
 
         // MARK: - Test 1: Bridge.ready handshake gating
@@ -337,7 +337,12 @@ extension WebKitSerializedTests {
                 paneId: paneId,
                 handles: [baseHandle, headHandle]
             )
-            let payload = try JSONEncoder().encode(DiffPackageMetadataSlice(package: package))
+            let snapshotFrame = try makeReviewSnapshotProtocolFrame(
+                package: package,
+                paneId: paneId
+            )
+            let payload = try JSONEncoder().encode(
+                DiffPackageMetadataSlice(package: package, protocolFrame: snapshotFrame))
 
             try await WebPageTestHarness.withManagedPage(controller.page) { page in
                 controller.loadApp()
@@ -349,7 +354,7 @@ extension WebKitSerializedTests {
                     didCompleteBridgeReadyHandshake,
                     "Bridge app JavaScript should send bridge.ready before package pushes")
                 let didRenderEmptyShell = await waitUntil(timeout: .seconds(1)) {
-                    await self.pageContainsEmptyReviewShell(page)
+                    await pageContainsEmptyReviewShell(page)
                 }
                 #expect(didRenderEmptyShell, "Bridge app should render its empty shell before package pushes")
                 try await installPageDiagnosticsProbe(page)
@@ -425,7 +430,7 @@ extension WebKitSerializedTests {
                 }
 
                 let didObserveBurst = await waitUntil(timeout: .seconds(1)) {
-                    await self.bridgePushProbeRevisionOrder(page, burstToken: burstToken).count == 8
+                    await bridgePushProbeRevisionOrder(page, burstToken: burstToken).count == 8
                 }
                 let observedRevisions = await bridgePushProbeRevisionOrder(page, burstToken: burstToken)
                 let pageState = await describeBridgePageState(page)
@@ -539,7 +544,12 @@ extension WebKitSerializedTests {
                 paneId: paneId,
                 handles: [baseHandle, headHandle]
             )
-            let payload = try JSONEncoder().encode(DiffPackageMetadataSlice(package: package))
+            let snapshotFrame = try makeReviewSnapshotProtocolFrame(
+                package: package,
+                paneId: paneId
+            )
+            let payload = try JSONEncoder().encode(
+                DiffPackageMetadataSlice(package: package, protocolFrame: snapshotFrame))
             let baseResourceURLJSON = try #require(
                 String(data: JSONEncoder().encode(baseHandle.resourceUrl), encoding: .utf8))
             let headResourceURLJSON = try #require(
@@ -605,7 +615,7 @@ extension WebKitSerializedTests {
                 )
 
                 let didKeepReviewShellStable = await waitUntil(timeout: .seconds(1)) {
-                    await self.pageContainsReviewShell(page)
+                    await pageContainsReviewShell(page)
                 }
                 let pageState = await describeBridgePageState(page)
                 let errorProbe = await pageErrorProbeDescription(page)
@@ -617,323 +627,354 @@ extension WebKitSerializedTests {
             }
         }
 
-        // MARK: - Helpers
-
-        private func waitForTitle(
-            _ page: WebPage,
-            equals expectedTitle: String,
-            timeout: Duration = .seconds(2)
-        ) async -> Bool {
-            let deadline = ContinuousClock.now + timeout
-            while ContinuousClock.now < deadline {
-                if page.title == expectedTitle {
-                    return true
-                }
-                await Task.yield()
-            }
-            return page.title == expectedTitle
-        }
-
-        private func waitForPageLoad(_ page: WebPage, timeout: Duration = .seconds(2)) async throws {
-            let deadline = ContinuousClock.now + timeout
-            while ContinuousClock.now < deadline {
-                if !page.isLoading { break }
-                await Task.yield()
-            }
-            try #require(!page.isLoading, "Page did not finish loading within \(timeout)")
-            await settleAsyncCallbacks(turns: 40)
-        }
-
-        private func waitUntil(
-            timeout: Duration = .seconds(2),
-            _ condition: @escaping () async -> Bool
-        ) async -> Bool {
-            let deadline = ContinuousClock.now + timeout
-            while ContinuousClock.now < deadline {
-                if await condition() {
-                    return true
-                }
-                await Task.yield()
-            }
-            return await condition()
-        }
-
-        private func settleAsyncCallbacks(turns: Int = 40) async {
-            for _ in 0..<turns {
-                await Task.yield()
-            }
-        }
-
-        private func isTraceparentFetchProofEnabled() -> Bool {
-            ProcessInfo.processInfo.environment["AGENT_STUDIO_WEBKIT_TRACEPARENT_FETCH_PROOF"] == "on"
-        }
-
-        private func decodeBridgeReviewPackageFixture() throws -> BridgeReviewPackage {
-            let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
-            let fixtureURL = projectRoot.appending(
-                path: "Tests/BridgeContractFixtures/valid/bridge-review-package.json"
-            )
-            let data = try Data(contentsOf: fixtureURL)
-            return try JSONDecoder().decode(BridgeReviewPackage.self, from: data)
-        }
-
-        private func makeTransportContentPackage(
-            baseHandle: BridgeContentHandle?,
-            headHandle: BridgeContentHandle,
-            worktreeId: UUID
-        ) -> BridgeReviewPackage {
-            let baseEndpoint = makeTransportSourceEndpoint(
-                endpointId: "transport-base",
-                kind: .gitRef,
-                worktreeId: worktreeId,
-                label: "Base"
-            )
-            let headEndpoint = makeTransportSourceEndpoint(
-                endpointId: headHandle.endpointId,
-                kind: .workingTree,
-                worktreeId: worktreeId,
-                label: "Head"
-            )
-            let item = makeBridgeReviewItemDescriptor(
-                itemId: headHandle.itemId,
-                path: "Sources/RealContent.swift",
-                fileClass: .source,
-                contentRoles: BridgeReviewItemDescriptor.ContentRoles(
-                    base: baseHandle,
-                    head: headHandle
-                )
-            )
-            return BridgeReviewPackage(
-                packageId: "package-real-content",
-                schemaVersion: 1,
-                reviewGeneration: headHandle.reviewGeneration,
-                revision: 0,
-                query: BridgeReviewQuery(
-                    queryId: "query-real-content",
-                    queryKind: .compare,
-                    repoId: worktreeId,
-                    worktreeId: worktreeId,
-                    baseEndpointId: baseEndpoint.endpointId,
-                    headEndpointId: headEndpoint.endpointId,
-                    comparisonSemantics: .workingTreeDelta,
-                    pathScope: [],
-                    fileTarget: nil,
-                    viewFilter: BridgeViewFilter(),
-                    grouping: BridgeChangeGrouping(kind: .flat),
-                    provenanceFilter: BridgeProvenanceFilter()
-                ),
-                baseEndpoint: baseEndpoint,
-                headEndpoint: headEndpoint,
-                orderedItemIds: [item.itemId],
-                itemsById: [item.itemId: item],
-                groups: [],
-                summary: BridgeReviewPackageSummary(
-                    filesChanged: 1,
-                    additions: 1,
-                    deletions: 0,
-                    visibleFileCount: 1,
-                    hiddenFileCount: 0
-                ),
-                filterState: BridgeViewFilter(),
-                generatedAtUnixMilliseconds: 200
-            )
-        }
-
-        private func makeTransportSourceEndpoint(
-            endpointId: String,
-            kind: BridgeSourceEndpoint.Kind,
-            worktreeId: UUID,
-            label: String
-        ) -> BridgeSourceEndpoint {
-            BridgeSourceEndpoint(
-                endpointId: endpointId,
-                kind: kind,
-                repoId: worktreeId,
-                worktreeId: worktreeId,
-                label: label,
-                createdAtUnixMilliseconds: 100,
-                contentSetHash: nil,
-                providerIdentity: "transport-test"
-            )
-        }
-
-        private func pageContainsEmptyReviewShell(_ page: WebPage) async -> Bool {
-            do {
-                let result = try await page.callJavaScript(
-                    """
-                    return document.querySelector('[data-testid="bridge-review-empty-shell"]') !== null &&
-                      document.body.innerText.includes('Waiting for review package')
-                    """
-                )
-                return (result as? Bool) == true
-            } catch {
-                return false
-            }
-        }
-
-        private func pageContainsReviewShell(_ page: WebPage) async -> Bool {
-            do {
-                let result = try await page.callJavaScript(
-                    """
-                    return document.querySelector('[data-testid="review-viewer-shell"]') !== null
-                    """
-                )
-                return (result as? Bool) == true
-            } catch {
-                return false
-            }
-        }
-
-        private func pageErrorProbeDescription(_ page: WebPage) async -> String {
-            do {
-                let result = try await page.callJavaScript(
-                    """
-                    return JSON.stringify(window.__bridgeErrorProbe ?? [])
-                    """
-                )
-                return (result as? String) ?? String(describing: result)
-            } catch {
-                return String(describing: error)
-            }
-        }
-
-        private func installPageDiagnosticsProbe(_ page: WebPage) async throws {
-            _ = try await page.callJavaScript(
-                """
-                window.__bridgePushProbe = [];
-                window.__bridgeErrorProbe = [];
-                window.addEventListener('error', function(event) {
-                  window.__bridgeErrorProbe.push({
-                    kind: 'error',
-                    message: String(event.message),
-                    filename: String(event.filename || ''),
-                    line: event.lineno,
-                    column: event.colno,
-                    stack: event.error?.stack ? String(event.error.stack).slice(0, 800) : null
-                  });
-                });
-                window.addEventListener('unhandledrejection', function(event) {
-                  window.__bridgeErrorProbe.push({
-                    kind: 'unhandledrejection',
-                    message: String(event.reason?.message || event.reason),
-                    stack: event.reason?.stack ? String(event.reason.stack).slice(0, 800) : null
-                  });
-                });
-                document.addEventListener('__bridge_push_json', function(event) {
-                  var revision = null;
-                  var burstToken = null;
-                  try {
-                    var parsedEnvelope = JSON.parse(event.detail?.json || '{}');
-                    revision = parsedEnvelope.__revision ?? null;
-                    burstToken = parsedEnvelope.payload?.burstToken ?? null;
-                  } catch (error) {
-                    revision = null;
-                    burstToken = null;
-                  }
-                  window.__bridgePushProbe.push({
-                    hasDetail: Boolean(event.detail),
-                    hasJson: typeof event.detail?.json === 'string',
-                    jsonLength: typeof event.detail?.json === 'string' ? event.detail.json.length : -1,
-                    nonceLength: typeof event.detail?.nonce === 'string' ? event.detail.nonce.length : -1,
-                    revision: revision,
-                    burstToken: burstToken
-                  });
-                });
-                """
-            )
-        }
-
-        private func bridgePushProbeRevisionOrder(_ page: WebPage, burstToken: String) async -> [Int] {
-            let burstTokenJSON = (try? String(data: JSONEncoder().encode(burstToken), encoding: .utf8)) ?? #""""#
-            do {
-                let result = try await page.callJavaScript(
-                    """
-                    return JSON.stringify((window.__bridgePushProbe ?? []).filter(function(entry) {
-                      return entry.burstToken === \(burstTokenJSON);
-                    }).map(function(entry) {
-                      return entry.revision;
-                    }).filter(function(revision) {
-                      return typeof revision === 'number';
-                    }))
-                    """
-                )
-                guard let json = result as? String,
-                    let data = json.data(using: .utf8)
-                else {
-                    return []
-                }
-                return (try? JSONDecoder().decode([Int].self, from: data)) ?? []
-            } catch {
-                return []
-            }
-        }
-
-        private func describeBridgePageState(_ page: WebPage) async -> String {
-            do {
-                let result = try await page.callJavaScript(
-                    """
-                    return JSON.stringify({
-                      title: document.title,
-                      hasAppRoot: document.querySelector('[data-testid="bridge-app-root"]') !== null,
-                      hasEmptyShell: document.querySelector('[data-testid="bridge-review-empty-shell"]') !== null,
-                      hasReviewShell: document.querySelector('[data-testid="review-viewer-shell"]') !== null,
-                      bridgeInternalType: typeof window.__bridgeInternal,
-                      pushProbe: window.__bridgePushProbe ?? [],
-                      errorProbe: window.__bridgeErrorProbe ?? [],
-                      text: document.body.innerText.slice(0, 240)
-                    })
-                    """
-                )
-                return (result as? String) ?? String(describing: result)
-            } catch {
-                return "page-state-error=\(String(describing: error))"
-            }
-        }
-
-        private func registerContentHandleLeases(
-            controller: BridgePaneController,
-            paneId: UUID,
-            handles: [BridgeContentHandle]
-        ) async throws {
-            for handle in handles {
-                let resource = try #require(
-                    BridgeTransportResourceURL.parse(
-                        handle.resourceUrl,
-                        allowedResourceKindsByProtocol: ["review": Set(["content"])]
-                    ))
-                await controller.resourceLeaseRegistry.register(
-                    resource,
-                    paneId: paneId,
-                    descriptorId: resource.opaqueId,
-                    maxBytes: handle.sizeBytes,
-                    expectedRevocationRevision: 0
-                )
-            }
-        }
-
-        private func makeRealDiffContentHandles() -> (
-            base: BridgeContentHandle,
-            head: BridgeContentHandle
-        ) {
-            (
-                base: makeBridgeContentHandle(
-                    itemId: "item-real-diff",
-                    role: .base,
-                    endpointId: "transport-base",
-                    reviewGeneration: BridgeReviewGeneration(7),
-                    contentHash: bridgeSHA256ContentHash("base content"),
-                    sizeBytes: 12
-                ),
-                head: makeBridgeContentHandle(
-                    itemId: "item-real-diff",
-                    role: .head,
-                    endpointId: "transport-head",
-                    reviewGeneration: BridgeReviewGeneration(7),
-                    contentHash: bridgeSHA256ContentHash("head content"),
-                    sizeBytes: 12
-                )
-            )
-        }
     }
+}
 
+@MainActor
+private func waitForTitle(
+    _ page: WebPage,
+    equals expectedTitle: String,
+    timeout: Duration = .seconds(2)
+) async -> Bool {
+    let deadline = ContinuousClock.now + timeout
+    while ContinuousClock.now < deadline {
+        if page.title == expectedTitle {
+            return true
+        }
+        await Task.yield()
+    }
+    return page.title == expectedTitle
+}
+
+@MainActor
+private func waitForPageLoad(_ page: WebPage, timeout: Duration = .seconds(2)) async throws {
+    let deadline = ContinuousClock.now + timeout
+    while ContinuousClock.now < deadline {
+        if !page.isLoading { break }
+        await Task.yield()
+    }
+    try #require(!page.isLoading, "Page did not finish loading within \(timeout)")
+    await settleAsyncCallbacks(turns: 40)
+}
+
+@MainActor
+private func waitUntil(
+    timeout: Duration = .seconds(2),
+    _ condition: @escaping () async -> Bool
+) async -> Bool {
+    let deadline = ContinuousClock.now + timeout
+    while ContinuousClock.now < deadline {
+        if await condition() {
+            return true
+        }
+        await Task.yield()
+    }
+    return await condition()
+}
+
+@MainActor
+private func settleAsyncCallbacks(turns: Int = 40) async {
+    for _ in 0..<turns {
+        await Task.yield()
+    }
+}
+
+@MainActor
+private func isTraceparentFetchProofEnabled() -> Bool {
+    ProcessInfo.processInfo.environment["AGENT_STUDIO_WEBKIT_TRACEPARENT_FETCH_PROOF"] == "on"
+}
+
+@MainActor
+private func decodeBridgeReviewPackageFixture() throws -> BridgeReviewPackage {
+    let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+    let fixtureURL = projectRoot.appending(
+        path: "Tests/BridgeContractFixtures/valid/bridge-review-package.json"
+    )
+    let data = try Data(contentsOf: fixtureURL)
+    return try JSONDecoder().decode(BridgeReviewPackage.self, from: data)
+}
+
+@MainActor
+private func makeTransportContentPackage(
+    baseHandle: BridgeContentHandle?,
+    headHandle: BridgeContentHandle,
+    worktreeId: UUID
+) -> BridgeReviewPackage {
+    let baseEndpoint = makeTransportSourceEndpoint(
+        endpointId: "transport-base",
+        kind: .gitRef,
+        worktreeId: worktreeId,
+        label: "Base"
+    )
+    let headEndpoint = makeTransportSourceEndpoint(
+        endpointId: headHandle.endpointId,
+        kind: .workingTree,
+        worktreeId: worktreeId,
+        label: "Head"
+    )
+    let item = makeBridgeReviewItemDescriptor(
+        itemId: headHandle.itemId,
+        path: "Sources/RealContent.swift",
+        fileClass: .source,
+        contentRoles: BridgeReviewItemDescriptor.ContentRoles(
+            base: baseHandle,
+            head: headHandle
+        )
+    )
+    return BridgeReviewPackage(
+        packageId: "package-real-content",
+        schemaVersion: 1,
+        reviewGeneration: headHandle.reviewGeneration,
+        revision: 0,
+        query: BridgeReviewQuery(
+            queryId: "query-real-content",
+            queryKind: .compare,
+            repoId: worktreeId,
+            worktreeId: worktreeId,
+            baseEndpointId: baseEndpoint.endpointId,
+            headEndpointId: headEndpoint.endpointId,
+            comparisonSemantics: .workingTreeDelta,
+            pathScope: [],
+            fileTarget: nil,
+            viewFilter: BridgeViewFilter(),
+            grouping: BridgeChangeGrouping(kind: .flat),
+            provenanceFilter: BridgeProvenanceFilter()
+        ),
+        baseEndpoint: baseEndpoint,
+        headEndpoint: headEndpoint,
+        orderedItemIds: [item.itemId],
+        itemsById: [item.itemId: item],
+        groups: [],
+        summary: BridgeReviewPackageSummary(
+            filesChanged: 1,
+            additions: 1,
+            deletions: 0,
+            visibleFileCount: 1,
+            hiddenFileCount: 0
+        ),
+        filterState: BridgeViewFilter(),
+        generatedAtUnixMilliseconds: 200
+    )
+}
+
+@MainActor
+private func makeTransportSourceEndpoint(
+    endpointId: String,
+    kind: BridgeSourceEndpoint.Kind,
+    worktreeId: UUID,
+    label: String
+) -> BridgeSourceEndpoint {
+    BridgeSourceEndpoint(
+        endpointId: endpointId,
+        kind: kind,
+        repoId: worktreeId,
+        worktreeId: worktreeId,
+        label: label,
+        createdAtUnixMilliseconds: 100,
+        contentSetHash: nil,
+        providerIdentity: "transport-test"
+    )
+}
+
+@MainActor
+private func makeReviewSnapshotProtocolFrame(
+    package: BridgeReviewPackage,
+    paneId: UUID
+) throws -> BridgeReviewSnapshotFrame {
+    try BridgeReviewProtocolFrameBuilder.snapshot(
+        request: BridgeReviewProtocolSnapshotBuildRequest(
+            paneId: paneId.uuidString,
+            sourceIdentity: package.query.queryId,
+            streamId: "review:\(paneId.uuidString)",
+            sequence: package.revision,
+            package: package,
+            changesetCluster: package.changesetCluster
+        )
+    )
+}
+
+@MainActor
+private func pageContainsEmptyReviewShell(_ page: WebPage) async -> Bool {
+    do {
+        let result = try await page.callJavaScript(
+            """
+            return document.querySelector('[data-testid="bridge-review-empty-shell"]') !== null &&
+              document.body.innerText.includes('Waiting for review package')
+            """
+        )
+        return (result as? Bool) == true
+    } catch {
+        return false
+    }
+}
+
+@MainActor
+private func pageContainsReviewShell(_ page: WebPage) async -> Bool {
+    do {
+        let result = try await page.callJavaScript(
+            """
+            return document.querySelector('[data-testid="review-viewer-shell"]') !== null
+            """
+        )
+        return (result as? Bool) == true
+    } catch {
+        return false
+    }
+}
+
+@MainActor
+private func pageErrorProbeDescription(_ page: WebPage) async -> String {
+    do {
+        let result = try await page.callJavaScript(
+            """
+            return JSON.stringify(window.__bridgeErrorProbe ?? [])
+            """
+        )
+        return (result as? String) ?? String(describing: result)
+    } catch {
+        return String(describing: error)
+    }
+}
+
+@MainActor
+private func installPageDiagnosticsProbe(_ page: WebPage) async throws {
+    _ = try await page.callJavaScript(
+        """
+        window.__bridgePushProbe = [];
+        window.__bridgeErrorProbe = [];
+        window.addEventListener('error', function(event) {
+          window.__bridgeErrorProbe.push({
+            kind: 'error',
+            message: String(event.message),
+            filename: String(event.filename || ''),
+            line: event.lineno,
+            column: event.colno,
+            stack: event.error?.stack ? String(event.error.stack).slice(0, 800) : null
+          });
+        });
+        window.addEventListener('unhandledrejection', function(event) {
+          window.__bridgeErrorProbe.push({
+            kind: 'unhandledrejection',
+            message: String(event.reason?.message || event.reason),
+            stack: event.reason?.stack ? String(event.reason.stack).slice(0, 800) : null
+          });
+        });
+        document.addEventListener('__bridge_push_json', function(event) {
+          var revision = null;
+          var burstToken = null;
+          try {
+            var parsedEnvelope = JSON.parse(event.detail?.json || '{}');
+            revision = parsedEnvelope.__revision ?? null;
+            burstToken = parsedEnvelope.payload?.burstToken ?? null;
+          } catch (error) {
+            revision = null;
+            burstToken = null;
+          }
+          window.__bridgePushProbe.push({
+            hasDetail: Boolean(event.detail),
+            hasJson: typeof event.detail?.json === 'string',
+            jsonLength: typeof event.detail?.json === 'string' ? event.detail.json.length : -1,
+            nonceLength: typeof event.detail?.nonce === 'string' ? event.detail.nonce.length : -1,
+            revision: revision,
+            burstToken: burstToken
+          });
+        });
+        """
+    )
+}
+
+@MainActor
+private func bridgePushProbeRevisionOrder(_ page: WebPage, burstToken: String) async -> [Int] {
+    let burstTokenJSON = (try? String(data: JSONEncoder().encode(burstToken), encoding: .utf8)) ?? #""""#
+    do {
+        let result = try await page.callJavaScript(
+            """
+            return JSON.stringify((window.__bridgePushProbe ?? []).filter(function(entry) {
+              return entry.burstToken === \(burstTokenJSON);
+            }).map(function(entry) {
+              return entry.revision;
+            }).filter(function(revision) {
+              return typeof revision === 'number';
+            }))
+            """
+        )
+        guard let json = result as? String,
+            let data = json.data(using: .utf8)
+        else {
+            return []
+        }
+        return (try? JSONDecoder().decode([Int].self, from: data)) ?? []
+    } catch {
+        return []
+    }
+}
+
+@MainActor
+private func describeBridgePageState(_ page: WebPage) async -> String {
+    do {
+        let result = try await page.callJavaScript(
+            """
+            return JSON.stringify({
+              title: document.title,
+              hasAppRoot: document.querySelector('[data-testid="bridge-app-root"]') !== null,
+              hasEmptyShell: document.querySelector('[data-testid="bridge-review-empty-shell"]') !== null,
+              hasReviewShell: document.querySelector('[data-testid="review-viewer-shell"]') !== null,
+              bridgeInternalType: typeof window.__bridgeInternal,
+              pushProbe: window.__bridgePushProbe ?? [],
+              errorProbe: window.__bridgeErrorProbe ?? [],
+              text: document.body.innerText.slice(0, 240)
+            })
+            """
+        )
+        return (result as? String) ?? String(describing: result)
+    } catch {
+        return "page-state-error=\(String(describing: error))"
+    }
+}
+
+@MainActor
+private func registerContentHandleLeases(
+    controller: BridgePaneController,
+    paneId: UUID,
+    handles: [BridgeContentHandle]
+) async throws {
+    for handle in handles {
+        let resource = try #require(
+            BridgeTransportResourceURL.parse(
+                handle.resourceUrl,
+                allowedResourceKindsByProtocol: ["review": Set(["content"])]
+            ))
+        await controller.resourceLeaseRegistry.register(
+            resource,
+            paneId: paneId,
+            descriptorId: resource.opaqueId,
+            maxBytes: handle.sizeBytes,
+            expectedRevocationRevision: 0
+        )
+    }
+}
+
+@MainActor
+private func makeRealDiffContentHandles() -> (
+    base: BridgeContentHandle,
+    head: BridgeContentHandle
+) {
+    (
+        base: makeBridgeContentHandle(
+            itemId: "item-real-diff",
+            role: .base,
+            endpointId: "transport-base",
+            reviewGeneration: BridgeReviewGeneration(7),
+            contentHash: bridgeSHA256ContentHash("base content"),
+            sizeBytes: 12
+        ),
+        head: makeBridgeContentHandle(
+            itemId: "item-real-diff",
+            role: .head,
+            endpointId: "transport-head",
+            reviewGeneration: BridgeReviewGeneration(7),
+            contentHash: bridgeSHA256ContentHash("head content"),
+            sizeBytes: 12
+        )
+    )
 }

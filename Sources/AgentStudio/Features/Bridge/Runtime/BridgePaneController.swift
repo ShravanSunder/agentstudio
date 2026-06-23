@@ -172,6 +172,8 @@ final class BridgePaneController {
         // sets up nonce-validated command forwarding, and dispatches handshake event.
         let bridgeNonce = UUID().uuidString
         let pushNonce = UUID().uuidString
+        let reviewPaneId = paneId.uuidString
+        let reviewStreamId = "review:\(reviewPaneId)"
         self.pushNonce = pushNonce
         self.pushEnvelopeSink = pushEnvelopeSink
         let webTelemetryScopes = resolvedTelemetryScopeGate.browserExposedScopes
@@ -182,15 +184,13 @@ final class BridgePaneController {
                 scenario: BridgeTelemetryBootstrapConfig.packageApplyContentFetchScenario
             )
             : nil
-        let bootstrapScript = WKUserScript(
-            source: BridgeBootstrap.generateScript(
-                bridgeNonce: bridgeNonce,
-                pushNonce: pushNonce,
-                telemetryConfig: telemetryConfig
-            ),
-            injectionTime: .atDocumentStart,
-            forMainFrameOnly: true,
-            in: bridgeWorld
+        let bootstrapScript = Self.makeBootstrapScript(
+            bridgeNonce: bridgeNonce,
+            pushNonce: pushNonce,
+            reviewPaneId: reviewPaneId,
+            reviewStreamId: reviewStreamId,
+            telemetryConfig: telemetryConfig,
+            bridgeWorld: bridgeWorld
         )
         self.bootstrapScript = bootstrapScript
         userContentController.addUserScript(bootstrapScript)
@@ -263,6 +263,28 @@ final class BridgePaneController {
                 })
             : nil
         return (resolvedScopeGate, resolvedRecorder, resolvedIngestor)
+    }
+
+    private static func makeBootstrapScript(
+        bridgeNonce: String,
+        pushNonce: String,
+        reviewPaneId: String,
+        reviewStreamId: String,
+        telemetryConfig: BridgeTelemetryBootstrapConfig?,
+        bridgeWorld: WKContentWorld
+    ) -> WKUserScript {
+        WKUserScript(
+            source: BridgeBootstrap.generateScript(
+                bridgeNonce: bridgeNonce,
+                pushNonce: pushNonce,
+                reviewPaneId: reviewPaneId,
+                reviewStreamId: reviewStreamId,
+                telemetryConfig: telemetryConfig
+            ),
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true,
+            in: bridgeWorld
+        )
     }
 
     private func configureRouter(
@@ -610,7 +632,10 @@ final class BridgePaneController {
                     level: .cold,
                     op: .replace
                 ) { state in
-                    DiffPackageMetadataSlice(package: state.packageMetadata)
+                    DiffPackageMetadataSlice(
+                        package: state.packageMetadata,
+                        protocolFrame: state.packageSnapshotProtocolFrame
+                    )
                 }
                 Slice(
                     "diffPackageDelta",
@@ -619,7 +644,19 @@ final class BridgePaneController {
                     level: .warm,
                     op: .merge
                 ) { state in
-                    DiffPackageDeltaSlice(delta: state.packageDelta)
+                    DiffPackageDeltaSlice(
+                        delta: state.packageDelta,
+                        protocolFrame: state.packageDeltaProtocolFrame
+                    )
+                }
+                Slice(
+                    "diffPackageProtocolFrame",
+                    telemetrySlice: .diffPackageDelta,
+                    store: .diff,
+                    level: .hot,
+                    op: .merge
+                ) { state in
+                    DiffPackageProtocolFrameSlice(protocolFrame: state.packageProtocolFrame)
                 }
                 EntitySlice(
                     "diffFiles", telemetrySlice: .diffFiles, store: .diff, level: .cold,
@@ -734,17 +771,14 @@ final class BridgePaneController {
     private static func dispatchPushEnvelope(
         page: WebPage,
         envelopeString: String,
-        pushNonce: String
+        _: String
     ) async throws {
         let envelopeLiteral = try makeJavaScriptStringLiteral(envelopeString)
-        let nonceLiteral = try makeJavaScriptStringLiteral(pushNonce)
         try await page.callJavaScript(
             """
-            document.dispatchEvent(new CustomEvent('__bridge_push_json', {
-                detail: { json: \(envelopeLiteral), nonce: \(nonceLiteral) }
-            }));
+            window.__bridgeInternal.applyEnvelopeJSON(\(envelopeLiteral));
             """,
-            contentWorld: .page
+            contentWorld: WKContentWorld.world(name: "agentStudioBridge")
         )
     }
 

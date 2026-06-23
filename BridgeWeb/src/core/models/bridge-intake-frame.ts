@@ -1,25 +1,25 @@
 import { z } from 'zod';
 
-const bridgeIntakeFrameIdentitySchema = z.object({
+export const bridgeIntakeFrameBaseSchema = z.object({
 	streamId: z.string().min(1),
 	generation: z.number().int().nonnegative(),
 	sequence: z.number().int().nonnegative(),
 });
 
-const bridgeIntakePayloadFrameSchema = bridgeIntakeFrameIdentitySchema.extend({
+const bridgeIntakePayloadFrameSchema = bridgeIntakeFrameBaseSchema.extend({
 	kind: z.enum(['snapshot', 'delta', 'invalidate']),
 	payload: z.unknown(),
 });
 
-const bridgeIntakeResetFrameSchema = bridgeIntakeFrameIdentitySchema.extend({
+const bridgeIntakeResetFrameSchema = bridgeIntakeFrameBaseSchema.extend({
 	kind: z.literal('reset'),
 });
 
-const bridgeIntakeCloseFrameSchema = bridgeIntakeFrameIdentitySchema.extend({
+const bridgeIntakeCloseFrameSchema = bridgeIntakeFrameBaseSchema.extend({
 	kind: z.literal('close'),
 });
 
-const bridgeIntakeErrorFrameSchema = bridgeIntakeFrameIdentitySchema.extend({
+const bridgeIntakeErrorFrameSchema = bridgeIntakeFrameBaseSchema.extend({
 	kind: z.literal('error'),
 	message: z.string().min(1),
 });

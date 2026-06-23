@@ -273,11 +273,8 @@ export const BridgeRpcRequest = z.object({
 
 export const BridgeIntakeFrameBase = z.object({
   streamId: z.string().min(1),
+  generation: z.number().int().nonnegative(),
   sequence: z.number().int().nonnegative(),
-  cursor: z.string().min(1),
-  protocol: BridgeProtocolId,
-  identity: BridgeIdentity,
-  trace: BridgeTraceContext.optional(),
 }).strict();
 
 export const BridgeEventFrame = z.object({
@@ -422,6 +419,23 @@ Required rejection cases:
 Bridge APIs exist only in the isolated Bridge content world. Page-world data,
 markdown, comments, and agent communications are untrusted content. They cannot
 directly invoke privileged RPC or resource fetches.
+
+BridgeWeb runs as bundled application code inside the Swift app. Page-world
+Review frames are app-internal transport and projection input, not the security
+authority for bytes. Descriptor registration in the browser may create demand
+refs and rendering facts, but native resource serving remains authoritative only
+through the host-side lease table in section 7.1.
+
+A page-visible nonce, DOM attribute, internally consistent sibling payload, or
+MessagePort transfer is not native content authority. A forged, stale, or
+foreign page-world Review frame may at worst corrupt local UI projection state;
+it must not make `agentstudio://resource/...` fetches succeed unless Swift has
+already issued a matching lease for that pane, source/package identity,
+generation/revision/cursor, descriptor id, and byte/window limits.
+
+Future hardening may add HMAC or encryption for frame tamper/replay detection.
+That hardening only earns authority if the secret and verifier stay outside
+page-world; it is not required for the current closed-app Ticket 02 boundary.
 
 RPC dispatch requires:
 
@@ -832,7 +846,10 @@ Pierre inputs:
 
 - prepared tree paths
 - tree status patches
-- placeholder/loading/hydrated CodeView items
+- stable virtualized-size facts that are metadata, not hydrated bodies: tree row
+  count/row height, code item line or hunk counts, estimated item heights, and
+  known total extent when available
+- placeholder/loading/hydrated CodeView item bodies
 - fully materialized CodeView items
 - scroll/reveal/selection/collapse commands
 - worker/highlighter config
@@ -841,11 +858,47 @@ Pierre outputs:
 
 - rendered item ids
 - sticky header/render readiness
+- scroll-extent observations: scrollTop before/after materialization, visible
+  range, total content height, anchor item/offset, and reconciliation reason
 - tree selection/search events
 - imperative handle readiness
 
 Pierre must not fetch Bridge resources, interpret app descriptors, or become
 the authority for source state.
+
+Virtualized-size contract:
+
+- Providers or protocol materializers must publish enough size facts for the
+  renderer adapter to reserve stable scroll extent before content bytes arrive
+  for the visible tree/file rows. These facts are a separate contract from
+  content body hydration: bodies may still be loading, stale, preview-only,
+  binary-unavailable, or demand-scheduled while the virtualizer already knows
+  its best stable extent.
+- The contract is DiffsHub-style because smooth scrolling comes from knowing
+  enough patch/file structure and line extent early. A body stream, DOM render,
+  or measured row cannot be the first source of total scroll extent; otherwise
+  scrollbars jump as streams hydrate.
+- Review can use parsed patch metadata such as file, hunk, and line counts.
+  Worktree/File can use tree `pathCount`/window counts and fixed tree row
+  height, plus CodeView/file-content line counts or conservative estimated
+  extent metadata when exact counts are unavailable.
+- Ticket 03 owns the Worktree/File provider side of this contract. It must expose
+  tree row/count/window facts and CodeView/file-content line-count or estimated
+  extent facts early enough for Ticket 04's browser surface to virtualize before
+  any hydrated content body is fetched, streamed, or measured.
+- Ticket 04 owns consuming the provider facts and proving that the browser
+  virtualizer's `scrollHeight` or `totalSize` remains within the declared
+  tolerance before and after hydration.
+- The renderer adapter may reconcile sparse measured deltas after DOM render,
+  but reconciliation must preserve scroll anchoring by item id and offset.
+- Ticket proof must include a telemetry canary for scroll jumps with
+  scrollTop before/after, total content height before/after, visible range,
+  anchor item/offset, reconciliation reason, and measured item ids. The canary
+  passes only when the anchor item remains stable across non-reset
+  reconciliation, anchor-offset drift stays within one declared row/line height
+  after compensation, and every total-height change is attributable to logged
+  estimated-versus-measured deltas. A subjective manual scroll check is not
+  enough.
 
 ## 12. Security And Integrity
 
@@ -932,11 +985,13 @@ Proof expectations feed a later plan. They are not task order.
 | Integrity | security fixture | tampered/truncated body and preview range | whole-body mismatch rejects; range is preview-only | authoritative unverified range |
 | Zustand boundary | state fixture | store snapshot inspection | bodies/controllers/promises absent | content cache in Zustand |
 | Descriptor handoff | protocol fixture | app frame with attached descriptor | registered `BridgeDescriptorRef` available before policy | raw string descriptor lookup |
+| Native lease authority | security fixture | forged or stale page-world Review frame plus content fetch | UI projection may be inert/bogus, but unauthorized content fetch is rejected by native lease validation | page-visible nonce, DOM identity, MessagePort provenance, or URL text treated as byte authority |
 | Demand stimulus ingress | security fixture | page-world synthetic selection/hover with descriptor-like data | no demand and no fetch | trusting page-world descriptor refs |
 | Demand policy table | unit fixture | synthetic stimulus + read-context matrix | exact lane or no-demand result | ad hoc UI conditionals |
 | Scheduler pressure | integration fixture | package invalidation under viewport | facts then bounded intents | hydrate-all |
 | Priority | scheduler fixture | foreground/active versus visible queue | foreground/active preempts | FIFO-only queue |
 | Source reset demand | scheduler/executor fixture | source reset with queued/in-flight work | queued work dropped, stale completion rejected | late commit after reset |
+| Stable scroll extent | schema/provider/browser canary fixture | huge tree and opened file before content bytes hydrate | provider emits exact row/line count or conservative estimated extent; browser `scrollHeight`/virtualizer `totalSize` stays within tolerance after hydration or logs attributed measured deltas | accepting scrollbar jump as manual UX judgment |
 | Renderer boundary | integration fixture | Pierre adapter input | prepared items/paths only | Bridge URL in renderer |
 | Telemetry safety | canary fixture | seeded path/content/prompt/URL/comment plus demand audit trace | exported telemetry excludes all seeds and retains safe scheduler audit fields | denylist-only claim |
 | Review ownership | protocol fixture | comparison open | provider emits package frames | browser computes repo diff |

@@ -43,12 +43,14 @@ import {
 	disposeBridgeViewerMockedBackends,
 	installBridgeViewerMockedBackend,
 	makeBridgeViewerBrowserFixture,
+	makeBridgeViewerContentUnavailableFixture,
 } from './bridge-viewer-mocked-backend.js';
 
 describe('Bridge viewer Browser Mode mocked backend', () => {
 	afterEach(async () => {
 		cleanup();
 		await Promise.resolve();
+		await waitForBridgeViewerAnimationFrame();
 		await waitForBridgeViewerAnimationFrame();
 		disposeBridgeViewerMockedBackends();
 		document.body.replaceChildren();
@@ -114,9 +116,9 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 				expect(
 					document.querySelector('[data-testid="bridge-pierre-worker-pool-failed"]'),
 				).toBeNull();
-				expect(
-					document.querySelector('[data-testid="bridge-pierre-worker-pool-loading"]'),
-				).toBeNull();
+				await waitForBridgeViewerSelectorAbsent(
+					'[data-testid="bridge-pierre-worker-pool-loading"]',
+				);
 				expect(
 					backend.requestedUrls.some((url: string): boolean => url.includes('browser-source-a')),
 				).toBe(true);
@@ -184,14 +186,23 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		addedButton.click();
 		await waitForBridgeViewerText(fixture.expected.addedText);
 
-		backend.pendingContentResponses[0]?.resolve();
+		await waitForBridgeViewerAnimationFrame();
 		await waitForBridgeViewerAnimationFrame();
 		await waitForBridgeViewerAnimationFrame();
 
 		expect(bridgeViewerCodeTextContent()).toContain(fixture.expected.addedText);
 		expect(selectedBridgeViewerDisplayPath()).toBe(fixture.expected.addedPath);
 		expect(selectedBridgeViewerContentState()).toBe('ready');
-		expect(backend.pendingContentResponses[0]?.handleId).toBe(fixture.expected.secondHeadHandleId);
+		const pendingStaleResponse = backend.pendingContentResponses[0] ?? null;
+		if (pendingStaleResponse !== null) {
+			expect(pendingStaleResponse.handleId).toBe(fixture.expected.secondHeadHandleId);
+			pendingStaleResponse.resolve();
+			await waitForBridgeViewerAnimationFrame();
+			await waitForBridgeViewerAnimationFrame();
+			expect(bridgeViewerCodeTextContent()).toContain(fixture.expected.addedText);
+			expect(selectedBridgeViewerDisplayPath()).toBe(fixture.expected.addedPath);
+			expect(selectedBridgeViewerContentState()).toBe('ready');
+		}
 		expect(
 			backend.requestedUrls.some((url: string): boolean =>
 				url.includes(fixture.expected.secondHeadHandleId),
@@ -415,7 +426,7 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 	});
 
 	test('content fetch failure records the request and renders unavailable state', async () => {
-		const fixture = makeBridgeViewerBrowserFixture();
+		const fixture = makeBridgeViewerContentUnavailableFixture();
 		const backend = installBridgeViewerMockedBackend(fixture, {
 			contentFailures: [fixture.expected.secondHeadHandleId],
 			latencyProfile: 'small',
@@ -433,8 +444,21 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		await waitForBridgeViewerText(fixture.expected.initialText);
 
 		const secondButton = await waitForBridgeViewerTreeItemButton(fixture.expected.secondPath);
+		const requestedFailureHandleCountBeforeClick = requestedContentUrlCount(
+			backend,
+			fixture.expected.secondHeadHandleId,
+		);
 		secondButton.click();
-		await waitForBridgeViewerText('Content unavailable');
+		await waitForRequestedContentUrlCountGreaterThan(
+			backend,
+			fixture.expected.secondHeadHandleId,
+			requestedFailureHandleCountBeforeClick,
+		);
+		await waitForBridgeViewerSelectedContentState('failed');
+		const unavailableElement = await waitForBridgeViewerElement(
+			'[data-testid="bridge-review-content-unavailable"]',
+		);
+		expect(unavailableElement.textContent ?? '').toContain('Content unavailable');
 
 		expect(
 			backend.requestedUrls.some((url: string): boolean =>
@@ -668,6 +692,9 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 			addedButton.click();
 			await waitForSelectedBridgeViewerDisplayPath(fixture.expected.addedPath);
 			await waitForPendingContentResponseCount(backend, 1);
+			expect(backend.pendingContentResponses.map((response) => response.handleId)).toEqual([
+				fixture.expected.addedHeadHandleId,
+			]);
 			const selectedHeaderButton =
 				await waitForBridgeCodeHeaderCollapseButtonForItem(selectedItemId);
 			const offsetBeforeHydration = await waitForBridgeCodeHeaderOffsetFromScrollOwner({
@@ -1612,6 +1639,64 @@ async function waitForPendingContentResponseCount(
 	await waitForPendingContentResponseCount(backend, count, remainingAttempts - 1);
 }
 
+function requestedContentUrlCount(
+	backend: ReturnType<typeof installBridgeViewerMockedBackend>,
+	handleId: string,
+): number {
+	return backend.requestedUrls.filter((url: string): boolean => url.includes(handleId)).length;
+}
+
+async function waitForRequestedContentUrlCountGreaterThan(
+	backend: ReturnType<typeof installBridgeViewerMockedBackend>,
+	handleId: string,
+	count: number,
+	remainingAttempts = 180,
+): Promise<void> {
+	if (requestedContentUrlCount(backend, handleId) > count) {
+		return;
+	}
+	if (remainingAttempts <= 0) {
+		throw new Error(
+			`expected Bridge viewer content request count for ${handleId} to exceed ${count}; requested=${backend.requestedUrls.join(',')}`,
+		);
+	}
+	await waitForBridgeViewerAnimationFrame();
+	await waitForRequestedContentUrlCountGreaterThan(backend, handleId, count, remainingAttempts - 1);
+}
+
+async function waitForBridgeViewerSelectedContentState(
+	state: string,
+	remainingAttempts = 180,
+): Promise<void> {
+	const shell = document.querySelector('[data-testid="review-viewer-shell"]');
+	const currentState = shell?.getAttribute('data-selected-content-state') ?? 'missing';
+	if (currentState === state) {
+		return;
+	}
+	if (remainingAttempts <= 0) {
+		const panel = document.querySelector('[data-testid="bridge-code-view-panel"]');
+		throw new Error(
+			`expected selected content state ${state}; current=${currentState}; panel=${panel?.getAttribute('data-selected-content-state') ?? 'missing'}; text=${(document.body.textContent ?? '').slice(0, 300)}`,
+		);
+	}
+	await waitForBridgeViewerAnimationFrame();
+	await waitForBridgeViewerSelectedContentState(state, remainingAttempts - 1);
+}
+
+async function waitForBridgeViewerSelectorAbsent(
+	selector: string,
+	remainingAttempts = 180,
+): Promise<void> {
+	if (document.querySelector(selector) === null) {
+		return;
+	}
+	if (remainingAttempts <= 0) {
+		throw new Error(`expected Bridge viewer selector to be absent: ${selector}`);
+	}
+	await waitForBridgeViewerAnimationFrame();
+	await waitForBridgeViewerSelectorAbsent(selector, remainingAttempts - 1);
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null;
 }
@@ -1832,7 +1917,26 @@ async function waitForBridgeCodeHeaderCollapseButtonForItem(
 		}
 	}
 	if (remainingAttempts <= 0) {
-		throw new Error(`expected Bridge CodeView header collapse button for ${itemId}`);
+		const renderedHeaderItemIds = bridgeCodeHeaderCollapseButtons().map(
+			(collapseButton: HTMLButtonElement): string | undefined =>
+				collapseButton.dataset['bridgeCodeViewItemId'],
+		);
+		const appRoot = document.querySelector<HTMLElement>('[data-testid="bridge-app-root"]');
+		const codeViewRoot = document.querySelector<HTMLElement>(
+			'[data-testid="bridge-code-view-panel"]',
+		);
+		throw new Error(
+			`expected Bridge CodeView header collapse button for ${itemId}; diagnostics=${JSON.stringify({
+				renderedHeaderItemIds,
+				selectedDisplayPath:
+					document.documentElement.dataset['bridgeViewerSelectedDisplayPath'] ?? null,
+				selectedContentState:
+					document.documentElement.dataset['bridgeViewerSelectedContentState'] ?? null,
+				appTextPreview: appRoot?.textContent?.slice(0, 240) ?? null,
+				codeViewDataset:
+					codeViewRoot === null ? null : Object.fromEntries(Object.entries(codeViewRoot.dataset)),
+			})}`,
+		);
 	}
 	await Promise.resolve();
 	await waitForBridgeViewerAnimationFrame();

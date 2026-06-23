@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { Dispatch, SetStateAction } from 'react';
 
-import type { BridgeContentFetch } from '../../foundation/content/content-resource-loader.js';
 import type {
 	BridgeReviewItemDescriptor,
 	BridgeReviewPackage,
@@ -12,16 +12,20 @@ import {
 } from '../../foundation/telemetry/bridge-trace-context.js';
 import type { BridgeCodeViewContentResources } from '../code-view/bridge-code-view-materialization.js';
 import { recordBridgeViewerContentQueueTelemetry } from '../telemetry/bridge-review-viewer-telemetry.js';
-import { loadReviewItemContentResources } from './review-content-loader.js';
+import type { ReviewContentDemandLoadResult } from './review-content-demand-loader.js';
+import type { LoadReviewItemContentResourcesProps } from './review-content-loader.js';
 import type { BridgeReviewContentRegistry } from './review-content-registry.js';
 
 export interface UseVisibleReviewContentHydrationProps {
 	readonly contentRegistry: BridgeReviewContentRegistry;
-	readonly fetchContent?: BridgeContentFetch;
+	readonly loadContentResources: (
+		props: LoadReviewItemContentResourcesProps,
+	) => Promise<VisibleReviewContentLoadResult>;
 	readonly reviewPackage: BridgeReviewPackage | null;
 	readonly selectedItemId: string | null;
 	readonly telemetryParentTraceContext: BridgeTraceContext | null;
 	readonly telemetryRecorder: BridgeTelemetryRecorder;
+	readonly contentInvalidationVersion: number;
 }
 
 export interface UseVisibleReviewContentHydrationResult {
@@ -36,10 +40,16 @@ export interface UseVisibleReviewContentHydrationResult {
 interface VisibleContentResourcesState {
 	readonly contentKey: string;
 	readonly itemId: string;
-	readonly status: 'loading' | 'ready' | 'failed';
+	readonly retryAfterVersion?: number;
+	readonly status: 'deferred' | 'loading' | 'ready' | 'failed';
 }
 
 const visibleContentHydrationItemLimit = 96;
+
+export type VisibleReviewContentLoadResult =
+	| ReviewContentDemandLoadResult
+	| BridgeCodeViewContentResources
+	| null;
 
 export function useVisibleReviewContentHydration(
 	props: UseVisibleReviewContentHydrationProps,
@@ -55,6 +65,7 @@ export function useVisibleReviewContentHydration(
 	const loadAbortControllersByContentKeyRef = useRef<Map<string, AbortController>>(
 		new Map<string, AbortController>(),
 	);
+	const loadContentResources = props.loadContentResources;
 
 	const packageIdentityKey =
 		props.reviewPackage === null
@@ -105,6 +116,8 @@ export function useVisibleReviewContentHydration(
 		},
 		[],
 	);
+	const [deferredRetryVersion, setDeferredRetryVersion] = useState(0);
+	const deferredRetryScheduledRef = useRef(false);
 
 	useEffect((): void => {
 		if (props.reviewPackage === null || visibleItemIds.length === 0) {
@@ -116,7 +129,8 @@ export function useVisibleReviewContentHydration(
 			if (item === undefined) {
 				return [];
 			}
-			const contentKey = makeReviewItemContentResourcesKey({
+			const contentKey = makeVisibleReviewItemContentResourcesKey({
+				contentInvalidationVersion: props.contentInvalidationVersion,
 				item,
 				reviewPackage: currentReviewPackage,
 			});
@@ -125,7 +139,10 @@ export function useVisibleReviewContentHydration(
 				currentState?.contentKey === contentKey &&
 				(currentState.status === 'loading' ||
 					currentState.status === 'ready' ||
-					currentState.status === 'failed')
+					currentState.status === 'failed' ||
+					(currentState.status === 'deferred' &&
+						currentState.retryAfterVersion !== undefined &&
+						currentState.retryAfterVersion > deferredRetryVersion))
 			) {
 				return [];
 			}
@@ -154,55 +171,54 @@ export function useVisibleReviewContentHydration(
 				telemetryRecorder: props.telemetryRecorder,
 				parentTraceContext: props.telemetryParentTraceContext,
 				item: loadPlan.item,
+				interest: 'visible',
 			});
 			const traceContext =
 				props.telemetryRecorder.isEnabled('web') && props.telemetryParentTraceContext !== null
 					? createBridgeChildTraceContext(props.telemetryParentTraceContext)
 					: null;
-			const loadProps =
-				props.fetchContent === undefined
-					? {
-							reviewPackage: currentReviewPackage,
-							itemId: loadPlan.itemId,
-							signal: loadAbortController.signal,
-							traceContext,
-							contentRegistry: props.contentRegistry,
-							telemetryRecorder: props.telemetryRecorder,
-						}
-					: {
-							reviewPackage: currentReviewPackage,
-							itemId: loadPlan.itemId,
-							fetchContent: props.fetchContent,
-							signal: loadAbortController.signal,
-							traceContext,
-							contentRegistry: props.contentRegistry,
-							telemetryRecorder: props.telemetryRecorder,
-						};
-			void loadReviewItemContentResources(loadProps)
-				.then((resources): void => {
+			void loadContentResources({
+				reviewPackage: currentReviewPackage,
+				itemId: loadPlan.itemId,
+				signal: loadAbortController.signal,
+				traceContext,
+				contentRegistry: props.contentRegistry,
+				telemetryRecorder: props.telemetryRecorder,
+			})
+				.then((loadResult): void => {
 					if (loadAbortController.signal.aborted) {
 						return;
 					}
+					const normalizedLoadResult = normalizeVisibleReviewContentLoadResult(loadResult);
 					setContentStateByItemId(
 						(currentStateByItemId: ReadonlyMap<string, VisibleContentResourcesState>) => {
 							const currentState = currentStateByItemId.get(loadPlan.itemId);
 							if (currentState?.contentKey !== loadPlan.contentKey) {
 								return currentStateByItemId;
 							}
-							if (resources !== null) {
+							if (normalizedLoadResult.status === 'ready') {
 								const nextResourcesByItemId = new Map(resourcesByItemIdRef.current);
-								nextResourcesByItemId.set(loadPlan.itemId, resources);
+								nextResourcesByItemId.set(loadPlan.itemId, normalizedLoadResult.resources);
 								resourcesByItemIdRef.current = nextResourcesByItemId;
 							}
 							const nextStateByItemId = new Map(currentStateByItemId);
 							nextStateByItemId.set(loadPlan.itemId, {
 								contentKey: loadPlan.contentKey,
 								itemId: loadPlan.itemId,
-								status: resources === null ? 'failed' : 'ready',
+								...(normalizedLoadResult.status === 'deferred'
+									? { retryAfterVersion: deferredRetryVersion + 1 }
+									: {}),
+								status: normalizedLoadResult.status,
 							});
 							return nextStateByItemId;
 						},
 					);
+					if (normalizedLoadResult.status === 'deferred') {
+						scheduleVisibleHydrationRetry({
+							scheduledRef: deferredRetryScheduledRef,
+							setDeferredRetryVersion,
+						});
+					}
 				})
 				.catch((): void => {
 					if (loadAbortController.signal.aborted) {
@@ -235,8 +251,11 @@ export function useVisibleReviewContentHydration(
 		}
 	}, [
 		contentStateByItemId,
+		deferredRetryVersion,
+		setDeferredRetryVersion,
 		props.contentRegistry,
-		props.fetchContent,
+		props.contentInvalidationVersion,
+		loadContentResources,
 		props.reviewPackage,
 		props.telemetryParentTraceContext,
 		props.telemetryRecorder,
@@ -251,7 +270,8 @@ export function useVisibleReviewContentHydration(
 				const item = props.reviewPackage.itemsById[itemId];
 				if (item !== undefined) {
 					retainedContentKeys.add(
-						makeReviewItemContentResourcesKey({
+						makeVisibleReviewItemContentResourcesKey({
+							contentInvalidationVersion: props.contentInvalidationVersion,
 							item,
 							reviewPackage: props.reviewPackage,
 						}),
@@ -285,7 +305,7 @@ export function useVisibleReviewContentHydration(
 		if (!mapEntriesEqual(resourcesByItemIdRef.current, nextResourcesByItemId)) {
 			resourcesByItemIdRef.current = nextResourcesByItemId;
 		}
-	}, [props.reviewPackage, visibleItemIds]);
+	}, [props.contentInvalidationVersion, props.reviewPackage, visibleItemIds]);
 
 	return useMemo((): UseVisibleReviewContentHydrationResult => {
 		const visibleContentResourcesByItemId = new Map<string, BridgeCodeViewContentResources>();
@@ -350,6 +370,21 @@ export function makeReviewItemContentResourcesKey(props: {
 	].join(':');
 }
 
+function makeVisibleReviewItemContentResourcesKey(props: {
+	readonly contentInvalidationVersion: number;
+	readonly item: BridgeReviewItemDescriptor;
+	readonly reviewPackage: BridgeReviewPackage;
+}): string {
+	return [
+		makeReviewItemContentResourcesKey({
+			item: props.item,
+			reviewPackage: props.reviewPackage,
+		}),
+		'visibleInvalidation',
+		String(props.contentInvalidationVersion),
+	].join(':');
+}
+
 function normalizeVisibleReviewItemIds(props: {
 	readonly itemIds: readonly string[];
 	readonly reviewPackage: BridgeReviewPackage | null;
@@ -366,7 +401,11 @@ function normalizeVisibleReviewItemIds(props: {
 	const uniqueItemIds: string[] = [];
 	const seenItemIds = new Set<string>();
 	for (const itemId of normalizedItemIds) {
-		if (seenItemIds.has(itemId) || props.reviewPackage.itemsById[itemId] === undefined) {
+		if (
+			itemId === props.selectedItemId ||
+			seenItemIds.has(itemId) ||
+			props.reviewPackage.itemsById[itemId] === undefined
+		) {
 			continue;
 		}
 		seenItemIds.add(itemId);
@@ -437,4 +476,38 @@ function abortVisibleContentLoadsExcept(
 		loadAbortController.abort();
 		loadAbortControllersByContentKey.delete(contentKey);
 	}
+}
+
+function normalizeVisibleReviewContentLoadResult(
+	result: VisibleReviewContentLoadResult,
+): ReviewContentDemandLoadResult {
+	if (result === null) {
+		return { status: 'failed', reason: 'load_failed' };
+	}
+	if ('status' in result) {
+		return result;
+	}
+	return { status: 'ready', resources: result };
+}
+
+function scheduleVisibleHydrationRetry(props: {
+	readonly scheduledRef: { current: boolean };
+	readonly setDeferredRetryVersion: Dispatch<SetStateAction<number>>;
+}): void {
+	if (props.scheduledRef.current) {
+		return;
+	}
+	props.scheduledRef.current = true;
+	const scheduleRetry =
+		typeof requestAnimationFrame === 'function'
+			? (callback: () => void): void => {
+					requestAnimationFrame(callback);
+				}
+			: (callback: () => void): void => {
+					queueMicrotask(callback);
+				};
+	scheduleRetry((): void => {
+		props.scheduledRef.current = false;
+		props.setDeferredRetryVersion((currentVersion: number): number => currentVersion + 1);
+	});
 }

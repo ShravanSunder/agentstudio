@@ -35,10 +35,20 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
         case .loadDiff(let artifact):
             paneState.diff.setStatus(.loading)
             paneState.diff.advanceEpoch()
-            paneState.diff.setPackageMetadata(nil)
-            paneState.diff.setPackageDelta(nil)
             let reviewGeneration = nextReviewGeneration.next()
             nextReviewGeneration = reviewGeneration
+            if let currentPackage = paneState.diff.packageMetadata {
+                paneState.diff.setPackageProtocolFrame(
+                    makeReviewProtocolResetFrame(
+                        currentPackage: currentPackage,
+                        generation: reviewGeneration,
+                        sequence: reviewGeneration.rawValue,
+                        reason: "authorityChanged"
+                    )
+                )
+            }
+            paneState.diff.setPackageMetadata(nil)
+            paneState.diff.setPackageDelta(nil)
             let contentAuthorityLifetime = revokeReviewContentAuthoritySynchronously()
             await clearReviewContentAuthority(revokeAuthority: false)
             let expectedRevocationRevision = reviewContentRevocationRevision()
@@ -74,6 +84,9 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                         from: deltaBuildStart.duration(to: ContinuousClock.now)
                     )
                 )
+                let package = result.package.withRevision(delta?.revision ?? result.package.revision)
+                let snapshotFrame = try makeReviewProtocolSnapshotFrame(package: package)
+                let deltaFrame = try delta.map { try makeReviewProtocolDeltaFrame(package: package, delta: $0) }
                 let contentRegisterStart = ContinuousClock.now
                 try await activateReviewContentHandles(
                     handles: result.registeredContentHandles,
@@ -90,10 +103,8 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                         from: contentRegisterStart.duration(to: ContinuousClock.now)
                     )
                 )
-                paneState.diff.setPackageMetadata(
-                    result.package.withRevision(delta?.revision ?? result.package.revision)
-                )
-                paneState.diff.setPackageDelta(delta)
+                paneState.diff.setPackageMetadata(package, protocolFrame: .snapshot(snapshotFrame))
+                paneState.diff.setPackageDelta(delta, protocolFrame: deltaFrame.map(BridgeReviewProtocolFrame.delta))
                 paneState.diff.setStatus(.ready)
                 ingestRuntimeEvent(
                     .diff(.diffLoaded(stats: Self.diffStats(from: result.package.summary))),
@@ -217,6 +228,11 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
     func handlePaneFilesystemContextEvent(_ event: PaneFilesystemContextEvent) async {
         guard shouldRefreshReviewPackage(for: event) else { return }
 
+        if let currentPackage = paneState.diff.packageMetadata {
+            paneState.diff.setPackageProtocolFrame(
+                makeReviewProtocolInvalidationFrame(currentPackage: currentPackage, event: event)
+            )
+        }
         hasPendingReviewRefresh = true
         if let activeReviewRefreshTask {
             await activeReviewRefreshTask.value
@@ -285,6 +301,9 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                     from: deltaBuildStart.duration(to: ContinuousClock.now)
                 )
             )
+            let package = result.package.withRevision(delta?.revision ?? currentPackage.revision)
+            let snapshotFrame = try makeReviewProtocolSnapshotFrame(package: package)
+            let deltaFrame = try delta.map { try makeReviewProtocolDeltaFrame(package: package, delta: $0) }
             let contentRegisterStart = ContinuousClock.now
             try await activateReviewContentHandles(
                 handles: result.registeredContentHandles,
@@ -301,10 +320,8 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                     from: contentRegisterStart.duration(to: ContinuousClock.now)
                 )
             )
-            paneState.diff.setPackageMetadata(
-                result.package.withRevision(delta?.revision ?? currentPackage.revision)
-            )
-            paneState.diff.setPackageDelta(delta)
+            paneState.diff.setPackageMetadata(package, protocolFrame: .snapshot(snapshotFrame))
+            paneState.diff.setPackageDelta(delta, protocolFrame: deltaFrame.map(BridgeReviewProtocolFrame.delta))
             paneState.diff.setStatus(.ready)
         } catch BridgeProviderFailure.providerUnavailable {
             bridgeDiffCommandLogger.debug("Skipped bridge review refresh: provider unavailable")
@@ -320,6 +337,92 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             filesChanged: summary.filesChanged,
             insertions: summary.additions,
             deletions: summary.deletions
+        )
+    }
+
+    private func makeReviewProtocolResetFrame(
+        currentPackage: BridgeReviewPackage,
+        generation: BridgeReviewGeneration,
+        sequence: Int,
+        reason: String
+    ) -> BridgeReviewProtocolFrame {
+        .reset(
+            BridgeReviewProtocolFrameBuilder.reset(
+                request: BridgeReviewProtocolResetBuildRequest(
+                    sourceIdentity: currentPackage.query.queryId,
+                    streamId: "review:\(paneId.uuidString)",
+                    generation: generation.rawValue,
+                    sequence: sequence,
+                    reason: reason,
+                    packageId: currentPackage.packageId,
+                    replacementDescriptor: nil
+                )
+            )
+        )
+    }
+
+    private func makeReviewProtocolSnapshotFrame(
+        package: BridgeReviewPackage
+    ) throws -> BridgeReviewSnapshotFrame {
+        try BridgeReviewProtocolFrameBuilder.snapshot(
+            request: BridgeReviewProtocolSnapshotBuildRequest(
+                paneId: paneId.uuidString,
+                sourceIdentity: package.query.queryId,
+                streamId: "review:\(paneId.uuidString)",
+                sequence: package.revision,
+                package: package,
+                changesetCluster: package.changesetCluster
+            )
+        )
+    }
+
+    private func makeReviewProtocolDeltaFrame(
+        package: BridgeReviewPackage,
+        delta: BridgeReviewDelta
+    ) throws -> BridgeReviewDeltaFrame {
+        try BridgeReviewProtocolFrameBuilder.delta(
+            request: BridgeReviewProtocolDeltaBuildRequest(
+                paneId: paneId.uuidString,
+                sourceIdentity: package.query.queryId,
+                streamId: "review:\(paneId.uuidString)",
+                sequence: delta.revision,
+                fromRevision: max(delta.revision - 1, 0),
+                toRevision: delta.revision,
+                package: package
+            )
+        )
+    }
+
+    private func makeReviewProtocolInvalidationFrame(
+        currentPackage: BridgeReviewPackage,
+        event: PaneFilesystemContextEvent
+    ) -> BridgeReviewProtocolFrame {
+        let sequence: Int
+        let scope: String
+        let pathHints: [String]?
+        switch event {
+        case .cwdSubtreeChanged(_, let paths, let batchSeq):
+            sequence = Int(clamping: batchSeq)
+            let sortedPaths = paths.sorted()
+            scope = sortedPaths.isEmpty ? "package" : "paths"
+            pathHints = sortedPaths.isEmpty ? nil : sortedPaths
+        case .gitWorkingTreeInCwd:
+            sequence = currentPackage.revision + 1
+            scope = "package"
+            pathHints = nil
+        }
+        return .invalidation(
+            BridgeReviewProtocolFrameBuilder.invalidation(
+                request: BridgeReviewProtocolInvalidationBuildRequest(
+                    streamId: "review:\(paneId.uuidString)",
+                    generation: currentPackage.reviewGeneration.rawValue,
+                    sequence: sequence,
+                    scope: scope,
+                    itemIds: nil,
+                    pathHints: pathHints,
+                    reason: "watchEvent"
+                )
+            )
         )
     }
 

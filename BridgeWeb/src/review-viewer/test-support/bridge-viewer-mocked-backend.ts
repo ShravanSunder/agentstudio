@@ -1,5 +1,14 @@
+import { dispatchBridgeDevHostAdmittedEnvelope } from '../../bridge/bridge-dev-host-push-carrier.js';
+import { parseBridgeCoreResourceUrl } from '../../core/resources/bridge-resource-url.js';
+import {
+	buildReviewDeltaFrame,
+	buildReviewSnapshotFrame,
+} from '../../features/review/protocol/review-snapshot-frame-builder.js';
 import type { BridgeContentFetch } from '../../foundation/content/content-resource-loader.js';
-import type { BridgeReviewDelta } from '../../foundation/review-package/bridge-review-delta.js';
+import {
+	applyBridgeReviewDelta,
+	type BridgeReviewDelta,
+} from '../../foundation/review-package/bridge-review-delta.js';
 import {
 	makeBridgeContentHandle,
 	makeBridgeReviewItem,
@@ -12,6 +21,7 @@ import type {
 	BridgeReviewItemDescriptor,
 	BridgeReviewPackage,
 } from '../../foundation/review-package/bridge-review-package.js';
+import type { BridgeTelemetryBootstrapHandshakeConfig } from '../../foundation/telemetry/bridge-telemetry-bootstrap-config.js';
 import {
 	createBridgeReviewProjectionWorkerClient,
 	type BridgeReviewProjectionWorkerClient,
@@ -37,6 +47,7 @@ export interface InstallBridgeViewerMockedBackendOptions {
 	readonly deferContentHandleIds?: readonly string[];
 	readonly projectionFailure?: boolean;
 	readonly deferProjectionResponses?: boolean;
+	readonly telemetryConfig?: BridgeTelemetryBootstrapHandshakeConfig;
 }
 
 export interface BridgeViewerMockedBackendPushRecord {
@@ -130,6 +141,8 @@ export interface BridgeViewerBrowserFixture {
 
 const bridgeViewerPushNonce = 'browser-push-nonce';
 const bridgeViewerCommandNonce = 'browser-command-nonce';
+const bridgeViewerReviewPaneId = 'bridge-viewer-dev-pane';
+const bridgeViewerReviewStreamId = `review:${bridgeViewerReviewPaneId}`;
 
 export function makeBridgeViewerBrowserFixture(
 	props: {
@@ -369,11 +382,58 @@ export function makeBridgeViewerBrowserFixture(
 	};
 }
 
+export function makeBridgeViewerContentUnavailableFixture(): BridgeViewerBrowserFixture {
+	const fixture = makeBridgeViewerBrowserFixture();
+	const secondItem = fixture.reviewPackage.itemsById['browser-source-b'];
+	const secondHeadHandle = secondItem?.contentRoles.head ?? null;
+	if (secondItem === undefined || secondHeadHandle === null) {
+		throw new Error('expected content-unavailable fixture second item head handle');
+	}
+	const isolatedSecondHeadHandleId = `${secondHeadHandle.handleId}-failure-content-unavailable`;
+	const isolatedSecondHeadHandle = {
+		...secondHeadHandle,
+		handleId: isolatedSecondHeadHandleId,
+		cacheKey: `${secondHeadHandle.cacheKey}:failure-content-unavailable`,
+		contentHash: `${secondHeadHandle.contentHash}:failure-content-unavailable`,
+		resourceUrl: `agentstudio://resource/review/content/${isolatedSecondHeadHandleId}?generation=${secondHeadHandle.reviewGeneration}`,
+	};
+	const isolatedSecondItem = {
+		...secondItem,
+		contentRoles: {
+			...secondItem.contentRoles,
+			head: isolatedSecondHeadHandle,
+		},
+		cacheKey: `${secondItem.cacheKey}|failure-content-unavailable`,
+	};
+	const contentByHandleId = new Map(fixture.contentByHandleId);
+	const secondHeadContent = fixture.contentByHandleId.get(secondHeadHandle.handleId);
+	if (secondHeadContent !== undefined) {
+		contentByHandleId.set(isolatedSecondHeadHandle.handleId, secondHeadContent);
+	}
+	return {
+		...fixture,
+		contentByHandleId,
+		reviewPackage: {
+			...fixture.reviewPackage,
+			itemsById: {
+				...fixture.reviewPackage.itemsById,
+				[isolatedSecondItem.itemId]: isolatedSecondItem,
+			},
+		},
+		expected: {
+			...fixture.expected,
+			secondHeadHandleId: isolatedSecondHeadHandle.handleId,
+		},
+	};
+}
+
 export function installBridgeViewerMockedBackend(
 	fixture: BridgeViewerBrowserFixture = makeBridgeViewerBrowserFixture(),
 	options: InstallBridgeViewerMockedBackendOptions = {},
 ): BridgeViewerMockedBackend {
 	document.documentElement.setAttribute('data-bridge-nonce', bridgeViewerCommandNonce);
+	document.documentElement.setAttribute('data-bridge-review-pane-id', bridgeViewerReviewPaneId);
+	document.documentElement.setAttribute('data-bridge-review-stream-id', bridgeViewerReviewStreamId);
 	const commandDetails: unknown[] = [];
 	const projectionRequests: BridgeReviewProjectionWorkerRequest[] = [];
 	const projectionAbortKeys: string[] = [];
@@ -384,6 +444,7 @@ export function installBridgeViewerMockedBackend(
 	const contentFailures = new Set(options.contentFailures ?? []);
 	const deferredContentHandleIds = new Set(options.deferContentHandleIds ?? []);
 	const latencyProfile = options.latencyProfile ?? 'zero';
+	let currentReviewPackage = fixture.reviewPackage;
 	let didReceiveHandshakeRequest = false;
 	const commandListener = (event: Event): void => {
 		commandDetails.push('detail' in event ? event.detail : null);
@@ -392,7 +453,12 @@ export function installBridgeViewerMockedBackend(
 		didReceiveHandshakeRequest = true;
 		document.dispatchEvent(
 			new CustomEvent('__bridge_handshake', {
-				detail: { pushNonce: bridgeViewerPushNonce },
+				detail: {
+					pushNonce: bridgeViewerPushNonce,
+					...(options.telemetryConfig === undefined
+						? {}
+						: { telemetryConfig: options.telemetryConfig }),
+				},
 			}),
 		);
 	};
@@ -474,6 +540,8 @@ export function installBridgeViewerMockedBackend(
 		document.removeEventListener('__bridge_command', commandListener);
 		document.removeEventListener('__bridge_handshake_request', handshakeRequestListener);
 		document.documentElement.removeAttribute('data-bridge-nonce');
+		document.documentElement.removeAttribute('data-bridge-review-pane-id');
+		document.documentElement.removeAttribute('data-bridge-review-stream-id');
 		activeMockedBackendDisposers.delete(dispose);
 	};
 	activeMockedBackendDisposers.add(dispose);
@@ -506,13 +574,36 @@ export function installBridgeViewerMockedBackend(
 				init?.signal?.aborted === true ? new Response('', { status: 499 }) : new Response(content);
 			if (handleId !== null && deferredContentHandleIds.has(handleId)) {
 				return await new Promise<Response>((resolve): void => {
-					pendingContentResponses.push({
+					let didSettle = false;
+					const pendingResponse: BridgeViewerDeferredContentResponse = {
 						url,
 						handleId,
 						resolve: (): void => {
+							if (didSettle) {
+								return;
+							}
+							didSettle = true;
+							init?.signal?.removeEventListener('abort', resolveAbort);
 							resolve(response());
 						},
-					});
+					};
+					const resolveAbort = (): void => {
+						if (didSettle) {
+							return;
+						}
+						didSettle = true;
+						const pendingIndex = pendingContentResponses.indexOf(pendingResponse);
+						if (pendingIndex >= 0) {
+							pendingContentResponses.splice(pendingIndex, 1);
+						}
+						resolve(response());
+					};
+					if (init?.signal?.aborted === true) {
+						resolveAbort();
+						return;
+					}
+					init?.signal?.addEventListener('abort', resolveAbort, { once: true });
+					pendingContentResponses.push(pendingResponse);
 				});
 			}
 			return response();
@@ -521,55 +612,69 @@ export function installBridgeViewerMockedBackend(
 			reviewPackage: BridgeReviewPackage = fixture.reviewPackage,
 		): Promise<void> => {
 			await waitForBridgeHandshakeRequest((): boolean => didReceiveHandshakeRequest);
+			currentReviewPackage = reviewPackage;
 			pushRecords.push({
 				op: 'replace',
 				revision: reviewPackage.revision,
 				reviewGeneration: reviewPackage.reviewGeneration,
 				payloadKind: 'package',
 			});
-			document.dispatchEvent(
-				new CustomEvent('__bridge_push', {
-					detail: {
-						__v: 1,
-						__pushId: `push-${reviewPackage.packageId}-${reviewPackage.revision}`,
-						__revision: reviewPackage.revision,
-						__epoch: reviewPackage.reviewGeneration,
-						store: 'diff',
-						op: 'replace',
-						level: 'cold',
-						slice: 'diff_package_metadata',
-						nonce: bridgeViewerPushNonce,
-						data: { package: reviewPackage },
-					},
-				}),
-			);
+			dispatchBridgeDevHostAdmittedEnvelope({
+				__v: 1,
+				__pushId: `push-${reviewPackage.packageId}-${reviewPackage.revision}`,
+				__revision: reviewPackage.revision,
+				__epoch: reviewPackage.reviewGeneration,
+				store: 'diff',
+				op: 'replace',
+				level: 'cold',
+				slice: 'diff_package_metadata',
+				data: {
+					package: reviewPackage,
+					protocolFrame: buildReviewSnapshotFrame({
+						package: reviewPackage,
+						paneId: bridgeViewerReviewPaneId,
+						sourceIdentity: reviewPackage.query.queryId,
+						streamId: bridgeViewerReviewStreamId,
+						sequence: reviewPackage.revision,
+					}),
+				},
+			});
 			await Promise.resolve();
 			await Promise.resolve();
 		},
 		pushDelta: async (delta: BridgeReviewDelta = fixture.streamingAppendDelta): Promise<void> => {
 			await waitForBridgeHandshakeRequest((): boolean => didReceiveHandshakeRequest);
+			const previousReviewPackage = currentReviewPackage;
+			const nextReviewPackage = applyBridgeReviewDelta(previousReviewPackage, delta);
+			currentReviewPackage = nextReviewPackage;
 			pushRecords.push({
 				op: 'merge',
 				revision: delta.revision,
 				reviewGeneration: delta.reviewGeneration,
 				payloadKind: 'delta',
 			});
-			document.dispatchEvent(
-				new CustomEvent('__bridge_push', {
-					detail: {
-						__v: 1,
-						__pushId: `push-${delta.packageId}-delta-${delta.revision}`,
-						__revision: delta.revision,
-						__epoch: delta.reviewGeneration,
-						store: 'diff',
-						op: 'merge',
-						level: 'hot',
-						slice: 'diff_package_metadata',
-						nonce: bridgeViewerPushNonce,
-						data: { delta },
-					},
-				}),
-			);
+			dispatchBridgeDevHostAdmittedEnvelope({
+				__v: 1,
+				__pushId: `push-${delta.packageId}-delta-${delta.revision}`,
+				__revision: delta.revision,
+				__epoch: delta.reviewGeneration,
+				store: 'diff',
+				op: 'merge',
+				level: 'hot',
+				slice: 'diff_package_delta',
+				data: {
+					delta,
+					protocolFrame: buildReviewDeltaFrame({
+						package: nextReviewPackage,
+						paneId: bridgeViewerReviewPaneId,
+						sourceIdentity: nextReviewPackage.query.queryId,
+						streamId: bridgeViewerReviewStreamId,
+						sequence: nextReviewPackage.revision,
+						fromRevision: previousReviewPackage.revision,
+						toRevision: nextReviewPackage.revision,
+					}),
+				},
+			});
 			await Promise.resolve();
 			await Promise.resolve();
 		},
@@ -784,17 +889,13 @@ function hunkedBrowserDiffText(label: 'base' | 'head'): string {
 }
 
 function handleIdFromResourceUrl(url: string): string | null {
-	const parsedUrl = new URL(url);
-	const [, protocolId, resourceKind, handleId] = parsedUrl.pathname.split('/');
-	if (
-		parsedUrl.protocol !== 'agentstudio:' ||
-		parsedUrl.hostname !== 'resource' ||
-		protocolId !== 'review' ||
-		resourceKind !== 'content'
-	) {
+	const parsedUrl = parseBridgeCoreResourceUrl(url, {
+		allowedResourceKindsByProtocol: { review: new Set(['content']) },
+	});
+	if (parsedUrl?.protocol !== 'review' || parsedUrl.resourceKind !== 'content') {
 		return null;
 	}
-	return handleId ?? null;
+	return parsedUrl.opaqueId;
 }
 
 function countChangeKinds(

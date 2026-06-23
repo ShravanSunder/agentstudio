@@ -89,6 +89,13 @@ pnpm --dir BridgeWeb run test:dev-server
 pnpm --dir BridgeWeb run test:dev-server:worktree
 ```
 
+Benchmark/browser pressure:
+
+```bash
+pnpm --dir BridgeWeb run benchmark:viewer
+pnpm --dir BridgeWeb run test:benchmark:browser
+```
+
 Telemetry/canary:
 
 - run the focused Bridge telemetry validator/canary suite added by tickets 02
@@ -105,7 +112,8 @@ Benchmark/pressure:
 
 - rerun targeted browser or push benchmark scenarios if tickets 00, 02, or 04
   changed carrier pressure, queue ceilings, viewport churn, invalidation storms,
-  or foreground preemption.
+  foreground preemption, tree extent reservation, or open-file extent
+  reconciliation.
 
 ## Handoff Output
 

@@ -173,19 +173,19 @@ export const ReviewChangesetClusterMetadata = z.object({
 }).strict();
 
 export const ReviewResourceKind = z.enum([
-  'review.package',
-  'review.items',
-  'review.deltaOperations',
-  'review.itemSkeletons',
-  'review.diffContent',
-  'review.markdownSource',
+  'content',
+  'review-package',
+  'review-delta',
 ]);
 
 export const ProviderIssuedReviewPackageIdentity = z.object({
   packageId: z.string().min(1),
-  reviewGeneration: z.number().int().nonnegative(),
+  sourceIdentity: z.string().min(1),
+  generation: z.number().int().nonnegative(),
   revision: z.number().int().nonnegative(),
-  sourceCursor: z.string().min(1),
+  rootDescriptor: BridgeAttachedResourceDescriptor,
+  contentDescriptors: z.array(BridgeAttachedResourceDescriptor).optional(),
+  changesetCluster: ReviewChangesetClusterMetadata.optional(),
 }).strict();
 ```
 
@@ -246,22 +246,23 @@ Live source examples:
 
 ```ts
 export const ReviewSnapshotFrame = BridgeIntakeFrameBase.extend({
+  kind: z.literal('snapshot'),
   frameKind: z.literal('review.snapshot'),
-  package: ProviderIssuedReviewPackageIdentity.extend({
-    rootDescriptor: BridgeAttachedResourceDescriptor,
-    changesetCluster: ReviewChangesetClusterMetadata.optional(),
-  }).strict(),
+  package: ProviderIssuedReviewPackageIdentity,
 }).strict();
 
 export const ReviewDeltaFrame = BridgeIntakeFrameBase.extend({
+  kind: z.literal('delta'),
   frameKind: z.literal('review.delta'),
   packageId: z.string().min(1),
   fromRevision: z.number().int().nonnegative(),
   toRevision: z.number().int().nonnegative(),
   operationsDescriptor: BridgeAttachedResourceDescriptor,
+  contentDescriptors: z.array(BridgeAttachedResourceDescriptor).optional(),
 }).strict();
 
 export const ReviewInvalidationFrame = BridgeIntakeFrameBase.extend({
+  kind: z.literal('delta'),
   frameKind: z.literal('review.invalidate'),
   invalidation: z.object({
     scope: z.enum(['package', 'items', 'paths', 'treeWindow']),
@@ -272,8 +273,11 @@ export const ReviewInvalidationFrame = BridgeIntakeFrameBase.extend({
 }).strict();
 
 export const ReviewResetFrame = BridgeIntakeFrameBase.extend({
+  kind: z.literal('reset'),
   frameKind: z.literal('review.reset'),
   reason: z.enum(['sourceChanged', 'subscriptionReset', 'providerRestart', 'authorityChanged']),
+  sourceIdentity: z.string().min(1),
+  packageId: z.string().min(1).optional(),
   replacementDescriptor: BridgeAttachedResourceDescriptor.optional(),
 }).strict();
 ```
@@ -281,10 +285,20 @@ export const ReviewResetFrame = BridgeIntakeFrameBase.extend({
 Review intake streams must:
 
 - carry ordered frames with provider-issued package/generation/revision identity
+- treat page-world frame delivery as bundled app-internal transport, not native
+  byte-serving authority
 - use descriptors for package roots and delta operation bodies
 - register attached descriptors before demand policy receives descriptor refs
 - allow same-lineage deltas without CodeView remount
 - fail closed on package/source authority replacement
+
+Page-world push nonce checks, DOM attributes, MessagePort provenance, and
+agreement between a package payload and sibling `protocolFrame` are not native
+content authority. Browser descriptor refs may drive local projection and demand
+policy, but bytes are served only when Swift has already issued a matching
+descriptor lease. A forged, stale, or foreign page-world `__bridge_push` or
+`__bridge_intake_json` must not make unauthorized
+`agentstudio://resource/...` fetches succeed.
 
 ## 7. Demand Policy Stimuli
 
@@ -367,8 +381,11 @@ sequenceDiagram
 
 ## 9. DiffsHub Pressure Test
 
-DiffsHub-like smoothness comes from incremental patch intake and renderer
-batching. Agent Studio should preserve that shape, but the authority differs:
+DiffsHub-like smoothness comes from incremental patch intake, early file/hunk
+structure, line-count metadata, and renderer batching. The important lesson for
+Bridge is that the virtualizer knows enough extent before content bytes finish
+hydrating; scrollbars do not discover total size from late body render. Agent
+Studio should preserve that shape, but the authority differs:
 
 ```text
 DiffsHub-like:
@@ -388,6 +405,8 @@ What we borrow:
 - append/replace/reset renderer deltas
 - viewport-driven hydration
 - avoiding full CodeView remount for same-lineage updates
+- early structure/line extent metadata that lets Pierre reserve scroll extent
+  before diff/file content bytes fully hydrate
 
 What we do not borrow:
 
@@ -433,6 +452,8 @@ Required future properties:
 - selected review item maps to the generic `foreground` lane
 - demand policy inputs are discriminated stimuli, not loose boolean bags
 - review frames attach descriptors instead of exposing raw descriptor strings
+- native descriptor leases reject forged, stale, foreign, revoked, or over-limit
+  Review content fetches
 - selected invalidated review content maps to `foreground`
 - changeset metadata can be present without becoming transport authority
 - closed/pinned changeset behaves as immutable input
