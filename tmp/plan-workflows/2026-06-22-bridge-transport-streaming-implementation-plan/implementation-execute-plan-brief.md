@@ -319,3 +319,109 @@ Next workflow after parent verification:
 
 - run `shravan-dev-workflow:implementation-review-swarm` for ticket 01 because
   the slice changes the Bridge trust/transport boundary
+
+## Ticket 01 Review-Fix Checkpoint
+
+Commit:
+
+- `f09d768a fix: close bridge transport review findings`
+
+Review findings addressed:
+
+- Page-world method-only privileged RPC names are fenced in bootstrap and
+  rejected again in `RPCRouter` when marked `__bridgeOrigin:
+  "pageWorldLegacy"`.
+- Descriptor registry registration now validates the descriptor resource URL
+  against descriptor protocol/kind/generation/revision/cursor and exposes
+  `revoke` plus `resetIdentity`.
+- Lease authority is descriptor/pane-bound instead of a bare canonical URL set;
+  leased content is rechecked before response and before data emission.
+- Core contract drift was corrected: protocol/resource ids use the accepted
+  dotted/hyphenated grammar, integrity uses `wholeHash`/`chunkManifest`/
+  `previewOnly`, the default app protocol registry was removed, and shared
+  fixtures cover encoded and double-encoded slashes.
+- Legacy scheme routes now reject non-read methods and duplicate/unknown
+  generation query shapes before loading content.
+
+Fresh proof after review-fix patch:
+
+```bash
+pnpm --dir BridgeWeb exec vitest run \
+  src/core/models/bridge-core-models.unit.test.ts \
+  src/core/models/bridge-protocol-registry.unit.test.ts \
+  src/core/resources/bridge-resource-url.unit.test.ts \
+  src/core/resources/bridge-resource-descriptor.unit.test.ts \
+  src/core/resources/bridge-resource-registry.unit.test.ts \
+  src/core/resources/bridge-integrity.unit.test.ts \
+  src/core/bridge-host/bridge-content-world-rpc.integration.test.ts \
+  src/bridge/bridge-resource-url.unit.test.ts \
+  src/foundation/content/content-resource-loader.integration.test.ts
+```
+
+Result: exit 0, 9 files passed, 42 tests passed.
+
+```bash
+bash scripts/bridge-web-sync-fixtures.sh --check
+```
+
+Result: exit 0, BridgeWeb fixtures in sync, 17 files.
+
+```bash
+pnpm --dir BridgeWeb run check
+```
+
+Result: exit 0, oxlint, BridgeWeb architecture check, oxfmt, and TypeScript
+passed.
+
+```bash
+SWIFT_TEST_TIMEOUT_SECONDS=60 \
+SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180 \
+mise run test-webkit
+```
+
+Result: exit 0, real WebKit serialized lane passed. The lane is defined by
+`.mise.toml` as `Run real WebKit runtime tests in isolated serial processes
+with crash retry`; the runner executed the configured serialized filters,
+including `BridgeContentWorldIsolationTests`.
+
+```bash
+SWIFT_TEST_TIMEOUT_SECONDS=60 \
+SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180 \
+mise run test-fast -- --filter \
+  'BridgeSchemeHandlerTests|BridgeBootstrapTests|RPCRouterTests|RPCRouterPrivilegedIngressTests|BridgeContentWorldIsolationTests'
+```
+
+Result: exit 0, 96 tests in 4 suites passed. `BridgeContentWorldIsolationTests`
+is a WebKit suite and is covered by `mise run test-webkit`; the fast-lane filter
+ran the non-WebKit Bridge suites plus `RPCRouterPrivilegedIngressTests`.
+
+```bash
+mise run format
+```
+
+Result: exit 0, Swift sources formatted.
+
+```bash
+mise run lint
+```
+
+Result: exit 0, swift-format OK, SwiftLint 0 violations / 0 serious across
+1304 files, AgentStudio architecture lint OK, release script verification
+passed.
+
+Broad Swift health:
+
+- Not claimed as green for ticket 01.
+- Existing external blocker remains `CommandBarDataSourceTests/
+  test_commandsScope_includesOpenBridgeReview`, expected `Open Bridge Review`
+  versus actual `Review`.
+- This remains outside the ticket-01 transport/security write scope and should
+  not be fixed as part of the ticket-01 review-finding patch.
+
+phase_result: complete
+evidence: `f09d768a`, the commands and results above, and
+`tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/implementation-review-ticket-01-report.md`
+recommended_next_workflow: shravan-dev-workflow:implementation-review-swarm
+recommended_transition_reason: Ticket 01 accepted implementation-review
+findings are addressed with fresh scoped proof; the fixed trust/transport
+boundary needs review again before ticket 02 begins.
