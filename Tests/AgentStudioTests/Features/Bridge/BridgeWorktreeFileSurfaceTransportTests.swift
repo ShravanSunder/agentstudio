@@ -11,25 +11,17 @@ struct BridgeWorktreeFileSurfaceTransportTests {
 
     @Test("open source stream returns native Worktree/File snapshot without Review lineage")
     func openSourceStreamReturnsNativeSnapshotWithoutReviewLineage() async throws {
-        let paneId = UUIDv7.generate()
-        let repoId = UUIDv7.generate()
-        let worktreeId = UUIDv7.generate()
-        let fixtureDirectoryName = "agentstudio-worktree-file-transport-\(UUIDv7.generate().uuidString)"
-        let rootURL = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appending(path: fixtureDirectoryName)
-        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        let fixture = try makeControllerFixture()
+        let paneId = fixture.paneId
+        let repoId = fixture.repoId
+        let worktreeId = fixture.worktreeId
+        let rootURL = fixture.rootURL
         defer { try? FileManager.default.removeItem(at: rootURL) }
-        let worktree = Worktree(
-            id: worktreeId,
-            repoId: repoId,
-            name: "transport-worktree",
-            path: rootURL
-        )
         let sourceSpec = BridgeWorktreeFileSurfaceSourceSpec(
             clientRequestId: "request-1",
             repoId: repoId,
             worktreeId: worktreeId,
-            rootPathToken: worktree.stableKey,
+            rootPathToken: fixture.worktree.stableKey,
             cwdScope: nil,
             pathScope: ["Sources"],
             includeStatuses: true,
@@ -38,23 +30,7 @@ struct BridgeWorktreeFileSurfaceTransportTests {
             includeAgentComms: false,
             freshness: .live
         )
-        let state = BridgePaneState(
-            panelKind: .diffViewer,
-            source: .workspace(rootPath: rootURL.path, baseline: .headMinusOne)
-        )
-        let metadata = PaneMetadata(
-            paneId: PaneId(uuid: paneId),
-            contentType: .diff,
-            launchDirectory: rootURL,
-            title: "Worktree",
-            facets: PaneContextFacets(
-                repoId: repoId,
-                worktreeId: worktreeId,
-                worktreeName: "transport-worktree",
-                cwd: rootURL
-            )
-        )
-        let controller = BridgePaneController(paneId: paneId, state: state, metadata: metadata)
+        let controller = fixture.controller
         let capturedResponse = BridgeWorktreeFileSurfaceResponseCapture()
         controller.router.onResponse = { responseJSON in
             await capturedResponse.set(responseJSON)
@@ -98,6 +74,162 @@ struct BridgeWorktreeFileSurfaceTransportTests {
 
         controller.teardown()
     }
+
+    @Test("file scoped open source reports one tree row and revokes stale Worktree/File leases")
+    func fileScopedOpenSourceReportsOneRowAndRevokesStaleLeases() async throws {
+        let fixture = try makeControllerFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.rootURL) }
+        let fileURL = fixture.rootURL
+            .appending(path: "Sources")
+            .appending(path: "App")
+            .appending(path: "View.swift")
+        try FileManager.default.createDirectory(
+            at: fileURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try "struct View {}\n".write(to: fileURL, atomically: true, encoding: .utf8)
+        let firstResponseCapture = BridgeWorktreeFileSurfaceResponseCapture()
+        fixture.controller.router.onResponse = { responseJSON in
+            await firstResponseCapture.set(responseJSON)
+        }
+        await fixture.controller.handleIncomingRPC(
+            #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
+        )
+
+        let firstSpec = sourceSpec(
+            fixture: fixture,
+            clientRequestId: "request-file",
+            pathScope: ["Sources/App/View.swift"]
+        )
+        await fixture.controller.handleIncomingRPC(
+            try BridgeWorktreeFileSurfaceRPCRequest(
+                id: "open-file",
+                method: "worktreeFileSurface.openSourceStream",
+                params: firstSpec
+            ).jsonString()
+        )
+
+        let firstResponse = try await decodedResponse(from: firstResponseCapture)
+        #expect(firstResponse.result.treeSizeFacts.extentKind == .exactPathCount)
+        #expect(firstResponse.result.treeSizeFacts.pathCount == 1)
+        let firstTreeResource = try #require(
+            BridgeTransportResourceURL.parse(
+                firstResponse.result.treeDescriptor.descriptor.resourceUrl,
+                allowedResourceKindsByProtocol: BridgeResourceProtocolRegistry.reviewViewerAllowedResourceKinds
+            )
+        )
+        #expect(await fixture.controller.resourceLeaseRegistry.contains(firstTreeResource, paneId: fixture.paneId))
+
+        let secondResponseCapture = BridgeWorktreeFileSurfaceResponseCapture()
+        fixture.controller.router.onResponse = { responseJSON in
+            await secondResponseCapture.set(responseJSON)
+        }
+        let secondSpec = sourceSpec(
+            fixture: fixture,
+            clientRequestId: "request-root",
+            pathScope: []
+        )
+        await fixture.controller.handleIncomingRPC(
+            try BridgeWorktreeFileSurfaceRPCRequest(
+                id: "open-root",
+                method: "worktreeFileSurface.openSourceStream",
+                params: secondSpec
+            ).jsonString()
+        )
+
+        _ = try await decodedResponse(from: secondResponseCapture)
+        #expect(
+            await fixture.controller.resourceLeaseRegistry.contains(
+                firstTreeResource,
+                paneId: fixture.paneId
+            ) == false
+        )
+        fixture.controller.teardown()
+        #expect(
+            await fixture.controller.resourceLeaseRegistry.contains(
+                firstTreeResource,
+                paneId: fixture.paneId
+            ) == false
+        )
+    }
+
+    private func makeControllerFixture() throws -> BridgeWorktreeFileSurfaceControllerFixture {
+        let paneId = UUIDv7.generate()
+        let repoId = UUIDv7.generate()
+        let worktreeId = UUIDv7.generate()
+        let fixtureDirectoryName = "agentstudio-worktree-file-transport-\(UUIDv7.generate().uuidString)"
+        let rootURL = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appending(path: fixtureDirectoryName)
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        let worktree = Worktree(
+            id: worktreeId,
+            repoId: repoId,
+            name: "transport-worktree",
+            path: rootURL
+        )
+        let state = BridgePaneState(
+            panelKind: .diffViewer,
+            source: .workspace(rootPath: rootURL.path, baseline: .headMinusOne)
+        )
+        let metadata = PaneMetadata(
+            paneId: PaneId(uuid: paneId),
+            contentType: .diff,
+            launchDirectory: rootURL,
+            title: "Worktree",
+            facets: PaneContextFacets(
+                repoId: repoId,
+                worktreeId: worktreeId,
+                worktreeName: "transport-worktree",
+                cwd: rootURL
+            )
+        )
+        let controller = BridgePaneController(paneId: paneId, state: state, metadata: metadata)
+        return BridgeWorktreeFileSurfaceControllerFixture(
+            paneId: paneId,
+            repoId: repoId,
+            worktreeId: worktreeId,
+            rootURL: rootURL,
+            worktree: worktree,
+            controller: controller
+        )
+    }
+
+    private func sourceSpec(
+        fixture: BridgeWorktreeFileSurfaceControllerFixture,
+        clientRequestId: String,
+        pathScope: [String]
+    ) -> BridgeWorktreeFileSurfaceSourceSpec {
+        BridgeWorktreeFileSurfaceSourceSpec(
+            clientRequestId: clientRequestId,
+            repoId: fixture.repoId,
+            worktreeId: fixture.worktreeId,
+            rootPathToken: fixture.worktree.stableKey,
+            cwdScope: nil,
+            pathScope: pathScope,
+            includeStatuses: true,
+            includeFileDescriptors: false,
+            includeComments: false,
+            includeAgentComms: false,
+            freshness: .live
+        )
+    }
+
+    private func decodedResponse(
+        from capture: BridgeWorktreeFileSurfaceResponseCapture
+    ) async throws -> BridgeWorktreeFileSurfaceSuccessResponse {
+        let responseJSON = try #require(await capture.get())
+        let responseData = try #require(responseJSON.data(using: .utf8))
+        return try JSONDecoder().decode(BridgeWorktreeFileSurfaceSuccessResponse.self, from: responseData)
+    }
+}
+
+private struct BridgeWorktreeFileSurfaceControllerFixture {
+    let paneId: UUID
+    let repoId: UUID
+    let worktreeId: UUID
+    let rootURL: URL
+    let worktree: Worktree
+    let controller: BridgePaneController
 }
 
 private struct BridgeWorktreeFileSurfaceRPCRequest<Params: Encodable>: Encodable {

@@ -93,19 +93,25 @@ struct BridgeWorktreeFileSurfaceSourceSpec: Codable, Equatable, Sendable {
         }
 
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.clientRequestId = try container.decode(String.self, forKey: .clientRequestId)
+        self.clientRequestId = try Self.decodeNonBlankString(
+            from: container,
+            forKey: .clientRequestId
+        )
         self.repoId = try container.decode(UUID.self, forKey: .repoId)
         self.worktreeId = try container.decode(UUID.self, forKey: .worktreeId)
-        self.rootPathToken = try container.decode(String.self, forKey: .rootPathToken)
+        self.rootPathToken = try Self.decodeNonBlankString(
+            from: container,
+            forKey: .rootPathToken
+        )
         self.cwdScope =
             if container.contains(.cwdScope) {
-                try container.decode(String.self, forKey: .cwdScope)
+                try Self.decodeNonBlankString(from: container, forKey: .cwdScope)
             } else {
                 nil
             }
         self.pathScope =
             if container.contains(.pathScope) {
-                try container.decode([String].self, forKey: .pathScope)
+                try Self.decodeNonBlankStringArray(from: container, forKey: .pathScope)
             } else {
                 []
             }
@@ -134,6 +140,36 @@ struct BridgeWorktreeFileSurfaceSourceSpec: Codable, Equatable, Sendable {
                 false
             }
         self.freshness = try container.decode(BridgeWorktreeFileSurfaceFreshness.self, forKey: .freshness)
+    }
+
+    private static func decodeNonBlankString(
+        from container: KeyedDecodingContainer<CodingKeys>,
+        forKey key: CodingKeys
+    ) throws -> String {
+        let value = try container.decode(String.self, forKey: key)
+        guard value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+            throw DecodingError.dataCorruptedError(
+                forKey: key,
+                in: container,
+                debugDescription: "Worktree/File source-spec string must be non-empty"
+            )
+        }
+        return value
+    }
+
+    private static func decodeNonBlankStringArray(
+        from container: KeyedDecodingContainer<CodingKeys>,
+        forKey key: CodingKeys
+    ) throws -> [String] {
+        let values = try container.decode([String].self, forKey: key)
+        for value in values where value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            throw DecodingError.dataCorruptedError(
+                forKey: key,
+                in: container,
+                debugDescription: "Worktree/File source-spec path scope entries must be non-empty"
+            )
+        }
+        return values
     }
 }
 

@@ -1,5 +1,14 @@
 import Foundation
 
+private struct BridgeWorktreeOpenTreeExtent: Sendable {
+    let pathCount: Int?
+    let estimatedTotalHeightPixels: Double?
+}
+
+private let worktreeFileTreeRowHeightPixels: Double = 24
+private let estimatedRowsPerScopedDirectory = 1000
+private let estimatedRowsForRootDirectory = 10_000
+
 @MainActor
 extension BridgePaneController {
     func handleWorktreeFileSurfaceOpenSourceStream(
@@ -25,10 +34,14 @@ extension BridgePaneController {
             throw RPCMethodDispatchError.invalidParams("Worktree/File selector requests unsupported reserved streams")
         }
 
-        let treePathCount = await Self.countCurrentTreePaths(
+        let treeExtent = await Self.resolveOpenTreeExtent(
             rootURL: worktree.path,
             scopedPaths: openedSource.canonicalPathScope
         )
+        guard generation == nextWorktreeFileSurfaceGeneration else {
+            throw RPCMethodDispatchError.handlerFailure("Stale Worktree/File source generation")
+        }
+        await resourceLeaseRegistry.reset(paneId: paneId, protocolId: "worktree-file")
         let snapshotFrame = BridgeWorktreeFileSurfaceFrameBuilder.snapshot(
             request: BridgeWorktreeFileSnapshotBuildRequest(
                 paneId: paneId.uuidString,
@@ -36,11 +49,11 @@ extension BridgePaneController {
                 requestSelector: params,
                 streamId: "worktree-file:\(paneId.uuidString)",
                 sequence: 0,
-                treePathCount: treePathCount,
-                treeEstimatedTotalHeightPixels: nil,
+                treePathCount: treeExtent.pathCount,
+                treeEstimatedTotalHeightPixels: treeExtent.estimatedTotalHeightPixels,
                 treeWindowStartIndex: 0,
                 treeWindowRowCount: 0,
-                treeRowHeightPixels: 24,
+                treeRowHeightPixels: worktreeFileTreeRowHeightPixels,
                 includeStatusDescriptor: openedSource.includeStatuses
             )
         )
@@ -73,44 +86,45 @@ extension BridgePaneController {
         throw RPCMethodDispatchError.invalidParams("Worktree/File pane is missing a root path")
     }
 
-    private nonisolated static func countCurrentTreePaths(
+    private nonisolated static func resolveOpenTreeExtent(
         rootURL: URL,
         scopedPaths: [String]
-    ) async -> Int {
+    ) async -> BridgeWorktreeOpenTreeExtent {
         // swiftlint:disable:next no_task_detached
         await Task.detached(priority: .utility) {
             let targetPaths =
                 scopedPaths.isEmpty || scopedPaths == ["."]
                 ? [rootURL]
                 : scopedPaths.map { rootURL.appending(path: $0) }
-            var pathCount = 0
+            var fileCount = 0
+            var missingCount = 0
+            var directoryCount = 0
             for targetPath in targetPaths {
-                pathCount += Self.countCurrentTreePaths(rootURL: targetPath)
+                let values = try? targetPath.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey])
+                if values?.isRegularFile == true {
+                    fileCount += 1
+                } else if values?.isDirectory == true {
+                    directoryCount += 1
+                } else {
+                    missingCount += 1
+                }
             }
-            return pathCount
-        }.value
-    }
-
-    private nonisolated static func countCurrentTreePaths(rootURL: URL) -> Int {
-        guard
-            let enumerator = FileManager.default.enumerator(
-                at: rootURL,
-                includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey],
-                options: [.skipsHiddenFiles]
+            if directoryCount == 0 {
+                return BridgeWorktreeOpenTreeExtent(pathCount: fileCount, estimatedTotalHeightPixels: nil)
+            }
+            let estimatedRowsPerDirectory =
+                scopedPaths.isEmpty || scopedPaths == ["."]
+                ? estimatedRowsForRootDirectory
+                : estimatedRowsPerScopedDirectory
+            let estimatedRows =
+                fileCount
+                + missingCount
+                + (directoryCount * estimatedRowsPerDirectory)
+            return BridgeWorktreeOpenTreeExtent(
+                pathCount: nil,
+                estimatedTotalHeightPixels: Double(estimatedRows) * worktreeFileTreeRowHeightPixels
             )
-        else {
-            return 0
-        }
-        var pathCount = 0
-        for case let url as URL in enumerator {
-            guard let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey]),
-                values.isDirectory == true || values.isRegularFile == true
-            else {
-                continue
-            }
-            pathCount += 1
-        }
-        return pathCount
+        }.value
     }
 
     private func activateWorktreeFileSurfaceLeases(_ snapshotFrame: BridgeWorktreeSnapshotFrame) async throws {

@@ -61,6 +61,45 @@ struct BridgeWorktreeFileSourceProviderTests {
         }
     }
 
+    @Test("source spec rejects blank browser selector authority fields")
+    func sourceSpecRejectsBlankBrowserSelectorAuthorityFields() throws {
+        let worktree = makeWorktree(rootPath: "/tmp/repo")
+        let blankClientRequestId = sourceSpecPayload(
+            worktree: worktree,
+            clientRequestId: "",
+            rootPathToken: worktree.stableKey,
+            cwdScope: nil,
+            pathScope: []
+        )
+        let blankRootPathToken = sourceSpecPayload(
+            worktree: worktree,
+            clientRequestId: "request-1",
+            rootPathToken: "",
+            cwdScope: nil,
+            pathScope: []
+        )
+        let whitespaceCwdScope = sourceSpecPayload(
+            worktree: worktree,
+            clientRequestId: "request-1",
+            rootPathToken: worktree.stableKey,
+            cwdScope: "   ",
+            pathScope: []
+        )
+        let blankPathScope = sourceSpecPayload(
+            worktree: worktree,
+            clientRequestId: "request-1",
+            rootPathToken: worktree.stableKey,
+            cwdScope: nil,
+            pathScope: [""]
+        )
+
+        for payload in [blankClientRequestId, blankRootPathToken, whitespaceCwdScope, blankPathScope] {
+            #expect(throws: DecodingError.self) {
+                _ = try JSONDecoder().decode(BridgeWorktreeFileSurfaceSourceSpec.self, from: payload)
+            }
+        }
+    }
+
     @Test("open source mints provider identity and canonical path scope")
     func openSourceMintsProviderIdentityAndCanonicalPathScope() throws {
         let worktree = makeWorktree(rootPath: "/tmp/repo")
@@ -237,5 +276,26 @@ struct BridgeWorktreeFileSourceProviderTests {
             name: "repo",
             path: URL(fileURLWithPath: rootPath)
         )
+    }
+
+    private func sourceSpecPayload(
+        worktree: Worktree,
+        clientRequestId: String,
+        rootPathToken: String,
+        cwdScope: String?,
+        pathScope: [String]
+    ) -> Data {
+        var payload: [String: Any] = [
+            "clientRequestId": clientRequestId,
+            "repoId": worktree.repoId.uuidString,
+            "worktreeId": worktree.id.uuidString,
+            "rootPathToken": rootPathToken,
+            "pathScope": pathScope,
+            "freshness": "live",
+        ]
+        if let cwdScope {
+            payload["cwdScope"] = cwdScope
+        }
+        return try! JSONSerialization.data(withJSONObject: payload)
     }
 }

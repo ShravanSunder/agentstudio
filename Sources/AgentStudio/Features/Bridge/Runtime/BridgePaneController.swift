@@ -543,6 +543,7 @@ final class BridgePaneController {
         activeReviewRefreshTask = nil
         hasPendingReviewRefresh = false
         revokeReviewContentAuthoritySynchronously()
+        resourceLeaseRegistry.revokeSynchronously(paneId: paneId, protocolId: "worktree-file")
         let reviewContentStore = reviewContentStore
         let resourceLeaseRegistry = resourceLeaseRegistry
         let paneId = paneId
@@ -554,6 +555,7 @@ final class BridgePaneController {
                 resourceKind: "content",
                 revokeAuthority: false
             )
+            await resourceLeaseRegistry.reset(paneId: paneId, protocolId: "worktree-file")
         }
         runtime.resetForControllerTeardown()
         lastPushed.removeAll()

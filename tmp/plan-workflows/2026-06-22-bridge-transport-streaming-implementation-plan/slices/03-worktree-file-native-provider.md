@@ -151,6 +151,33 @@ Proof captured 2026-06-23:
 - fixtures: `bash scripts/bridge-web-sync-fixtures.sh --check` passed with 17
   files in sync
 
+Review-fix proof captured 2026-06-23 after current implementation review:
+
+- accepted/fixed: file-scoped `pathScope` returned `treeSizeFacts.pathCount`
+  `0`; direct file scopes now report exact count `1`
+- accepted/fixed: Worktree/File tree/status descriptor leases survived source
+  reopen; `openSourceStream` now resets pane-scoped `worktree-file` leases
+  before registering the next generation
+- accepted/fixed: teardown now synchronously revokes Worktree/File authority and
+  asynchronously clears remaining `worktree-file` leases
+- accepted/fixed: blank selector authority fields are rejected during
+  `BridgeWorktreeFileSurfaceSourceSpec` decode
+- accepted/fixed: readable text `estimatedHeight` file descriptors now have a
+  positive contract test
+- red:
+  `SWIFT_TEST_TIMEOUT_SECONDS=120 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180 mise run test-fast -- --filter 'BridgeWorktreeFileSurfaceTransportTests|BridgeWorktreeFileSourceProviderTests|BridgeWorktreeFileSurfaceTests'`
+  exited 1 before fixes with 7 issues across blank selector decode,
+  file-scope count, and stale lease survival
+- green:
+  same command exited 0 after fixes with 27 tests in 3 suites passing
+- changed-file lint:
+  `swiftlint lint --strict <six changed Swift files>` exited 0 with 0
+  violations
+- quality:
+  `mise run lint` exited 0; swift-format OK, SwiftLint 0 violations,
+  architecture lint OK, release script verification passed
+- diff hygiene: `git diff --check` exited 0
+
 Focused suites should include or add:
 
 - `BridgeWorktreeFileSurfaceTests`
@@ -224,6 +251,30 @@ Implementation review:
   preserved until ticket 04 replacement, or exact blocker if not
 - remaining dev-only/provider limitations
 - changed paths and commit hash if checkpoint committed
+
+## Current Review Status
+
+Current implementation review reducer:
+
+- `tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/implementation-review-ticket-03-current/report.md`
+
+Verdict: `not_ready`.
+
+Open accepted blockers before Ticket 04:
+
+- production runtime still stops at `worktree.snapshot`; it does not yet retain
+  an active Worktree/File subscription or emit live `worktree.statusPatch`,
+  `worktree.fileInvalidated`, `worktree.reset`, or real file-descriptor frames
+  from filesystem/status updates
+- `agentstudio://resource/worktree-file/...` descriptors are parseable and
+  leased, but `BridgeSchemeHandler` still rejects non-`review/content` resources
+  before bytes; Ticket 04 cannot consume tree/status/file descriptor URLs until
+  native Worktree/File body serving exists
+
+Open accepted important item:
+
+- reconcile Swift frame shape with the written Worktree/File protocol spec and
+  add shared strict frame fixtures before browser Zod schemas consume it
 
 ## Stop / Replan
 

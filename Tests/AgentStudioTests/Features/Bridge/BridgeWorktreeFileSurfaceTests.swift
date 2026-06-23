@@ -269,6 +269,34 @@ struct BridgeWorktreeFileSurfaceTests {
         )
     }
 
+    @Test("estimated-height file descriptor carries conservative extent before content bytes")
+    func estimatedHeightFileDescriptorCarriesConservativeExtentBeforeContentBytes() throws {
+        let frame = try BridgeWorktreeFileSurfaceFrameBuilder.fileDescriptor(
+            request: BridgeWorktreeFileDescriptorBuildRequest(
+                paneId: "pane-1",
+                source: makeSourceIdentity(),
+                streamId: "worktree:pane-1",
+                sequence: 6,
+                path: "Sources/App/Generated.swift",
+                fileId: "file-generated-swift",
+                contentHandle: "content-generated-swift",
+                sizeBytes: 96_000,
+                isBinary: false,
+                contentAvailability: .readable,
+                language: "swift",
+                fileExtension: "swift",
+                virtualizedExtentKind: .estimatedHeight,
+                lineCount: nil,
+                estimatedContentHeightPixels: 18_000
+            )
+        )
+
+        #expect(frame.descriptor.virtualizedExtentKind == .estimatedHeight)
+        #expect(frame.descriptor.lineCount == nil)
+        #expect(frame.descriptor.estimatedContentHeightPixels == 18_000)
+        #expect(frame.descriptor.contentDescriptor.descriptor.resourceKind == "worktree.fileContent")
+    }
+
     @Test("unavailable file extent accepts unreadable text and metadata-only content")
     func unavailableFileExtentAcceptsUnreadableTextAndMetadataOnlyContent() throws {
         let unreadableText = try BridgeWorktreeFileSurfaceFrameBuilder.fileDescriptor(
