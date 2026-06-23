@@ -201,6 +201,8 @@ Evidence:
   `acb4bd3f fix: close bridge content authority gaps`
 - ticket 01 third-review follow-up commit:
   `60fb99d7 fix: harden bridge content authority revocation`
+- ticket 01 fourth-review follow-up commit:
+  `e076fc4b fix: fence bridge content authority after teardown`
 - ticket 01 fourth-review follow-up report:
   `tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/implementation-review-ticket-01-fourth-review-fix/report.md`
 - ticket 01 review-fix report:
