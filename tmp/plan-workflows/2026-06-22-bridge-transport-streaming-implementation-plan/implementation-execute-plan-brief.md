@@ -1055,3 +1055,81 @@ recommended_next_workflow: shravan-dev-workflow:implementation-review-swarm
 recommended_transition_reason: Ticket 01 fifth-review third post-review
 findings are fixed with fresh scoped proof; the Bridge trust/transport boundary
 needs another review before ticket 02 begins.
+
+## Ticket 01 Fifth Review Fourth Post-Review Follow-Up Fix
+
+Review verdict:
+
+- The review of `55c2689c` / `7bed47d9` returned `not_ready`.
+- Accepted findings were fixed in `2d55eef2`.
+
+Accepted findings addressed:
+
+- Final-emission proof still missed GET body authority loss after the response
+  emitted and HEAD authority loss after metadata lookup.
+- Filtered-reset tombstone/revision protection lacked permanent stale
+  re-registration proof.
+- `replace` cleared exact tombstones for the whole scope without advancing the
+  revision, allowing a removed resource to be directly registered again with
+  the same revision token.
+
+Implementation:
+
+- `BridgeTransportResourceLeaseRegistry.replace` clears exact tombstones only
+  for the resources being installed and advances the scope revocation revision
+  after a successful replacement.
+- `BridgeSchemeHandlerLeaseAuthorityTests` now proves stale registration fails
+  after filtered reset and after replacement advances the revision.
+- `BridgeSchemeHandlerContentAuthorityTests` now proves GET body authority loss
+  after response emission and HEAD authority loss after metadata lookup using
+  continuation-backed gates.
+
+Fresh proof:
+
+```bash
+mise run format
+```
+
+Result: exit 0, Swift sources formatted.
+
+```bash
+SWIFT_TEST_TIMEOUT_SECONDS=60 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180 \
+  mise run test-fast -- --filter \
+  'BridgeSchemeHandlerLeaseAuthorityTests|BridgeSchemeHandlerContentAuthorityTests'
+```
+
+Result: exit 0, 14 tests in 2 suites passed.
+
+```bash
+SWIFT_TEST_TIMEOUT_SECONDS=60 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180 \
+  mise run test-fast -- --filter \
+  'BridgeContentStoreTests|BridgeSchemeHandlerTests|BridgeSchemeHandlerLeaseAuthorityTests|BridgeSchemeHandlerContentAuthorityTests'
+```
+
+Result: exit 0, 85 tests in 4 suites passed.
+
+```bash
+mise run lint
+```
+
+Result: exit 0; swift-format OK, SwiftLint reported 0 violations in 1308 files,
+architecture lint passed, and release script verification passed.
+
+```bash
+SWIFT_TEST_TIMEOUT_SECONDS=120 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=240 \
+  mise run test-webkit
+```
+
+Result: exit 0, WebKit serialized lane passed in 84.55s and included
+`BridgePaneControllerContentAuthorityTests`,
+`BridgePaneControllerIPCProjectionTests`, real diff content fetches, and
+`WebviewPaneControllerTests`.
+
+phase_result: complete
+evidence:
+`2d55eef2 fix: close bridge lease proof gaps`
+`tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/implementation-review-ticket-01-fifth-review-fix/report.md`
+recommended_next_workflow: shravan-dev-workflow:implementation-review-swarm
+recommended_transition_reason: Ticket 01 fifth-review fourth post-review
+findings are fixed with fresh scoped proof; the Bridge trust/transport boundary
+needs another review before ticket 02 begins.

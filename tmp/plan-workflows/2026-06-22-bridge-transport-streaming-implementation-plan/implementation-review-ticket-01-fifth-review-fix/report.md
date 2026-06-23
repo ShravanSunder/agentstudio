@@ -51,6 +51,16 @@ Additional accepted findings from review of `4c4c7773` / `aa6fd8da`:
 - P2: the HEAD path had no no-emission proof for authority loss between
   metadata lookup and response emission.
 
+Additional accepted findings from review of `55c2689c` / `7bed47d9`:
+
+- P2: final-emission proof still missed the GET body branch after the response
+  had already emitted and the HEAD authority-loss branch after metadata lookup.
+- P2: filtered-reset tombstone/revision protection was implemented but not
+  permanently proven against stale re-registration.
+- P2: `replace` cleared exact tombstones for the whole scope without advancing
+  the revocation revision, so a later direct register could re-grant removed
+  authority with the same revision token.
+
 Non-blocking follow-up from review of `b68c70ea`:
 
 - Cache hits and coalesced content reads now rehash full payloads when active
@@ -121,6 +131,21 @@ Follow-up implementation in `55c2689c`:
   `BridgeSchemeHandlerContentAuthorityTests` and now cover targeted stale
   re-registration, replaced-lease no-emission, revoked-lease no-emission,
   oversized GET no-emission, and oversized HEAD no-emission.
+
+Follow-up implementation in `2d55eef2`:
+
+- `replace` now clears exact resource tombstones only for resources it installs
+  and advances the scope revocation revision after a successful replacement.
+  That makes the previous replacement revision stale for any removed resource
+  re-registration.
+- Lease authority tests now prove stale direct registration fails after
+  filtered reset and after replacement advances the revision.
+- Scheme-handler content authority tests now prove authority loss before GET
+  body emission after the response has already emitted, and authority loss
+  before HEAD response emission after metadata lookup.
+- The GET response/body split uses a continuation-backed step gate; no
+  wall-clock sleeps were introduced.
+
 
 ## Red / Green Notes
 
@@ -229,7 +254,31 @@ Post-review follow-up proof for `55c2689c`:
     `BridgePaneControllerIPCProjectionTests`, real diff content fetches, and
     `WebviewPaneControllerTests`.
 
+Post-review follow-up proof for `2d55eef2`:
+
+- `mise run format`
+  - exit 0
+  - Swift sources formatted.
+- `SWIFT_TEST_TIMEOUT_SECONDS=60 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180 mise run test-fast -- --filter 'BridgeSchemeHandlerLeaseAuthorityTests|BridgeSchemeHandlerContentAuthorityTests'`
+  - exit 0
+  - 14 tests in 2 suites passed.
+- `SWIFT_TEST_TIMEOUT_SECONDS=60 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180 mise run test-fast -- --filter 'BridgeContentStoreTests|BridgeSchemeHandlerTests|BridgeSchemeHandlerLeaseAuthorityTests|BridgeSchemeHandlerContentAuthorityTests'`
+  - exit 0
+  - 85 tests in 4 suites passed.
+- `mise run lint`
+  - exit 0
+  - swift-format: OK.
+  - SwiftLint: 0 violations in 1308 files.
+  - AgentStudio architecture lint: OK.
+  - release script verification: passed.
+- `SWIFT_TEST_TIMEOUT_SECONDS=120 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=240 mise run test-webkit`
+  - exit 0
+  - WebKit serialized lane passed in 84.55s.
+  - Included `BridgePaneControllerContentAuthorityTests`,
+    `BridgePaneControllerIPCProjectionTests`, real diff content fetches, and
+    `WebviewPaneControllerTests`.
+
 ## Next Step
 
-Route `55c2689c` back to `shravan-dev-workflow:implementation-review-swarm`
+Route `2d55eef2` back to `shravan-dev-workflow:implementation-review-swarm`
 before starting ticket 02.

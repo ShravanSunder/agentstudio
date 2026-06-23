@@ -5,7 +5,7 @@ Created: 2026-06-22
 
 ## Current State
 
-Current workflow: ticket-01-fifth-review-third-post-review-fix-complete
+Current workflow: ticket-01-fifth-review-fourth-post-review-fix-complete
 Next workflow: `shravan-dev-workflow:implementation-review-swarm`
 
 Reason:
@@ -121,7 +121,16 @@ Reason:
   revision, gates response/body/HEAD emission through actor-isolated
   `performWhileLeased`, removes the superseded sync helper, and splits
   scheme-handler content authority tests.
-- Next step is to route `55c2689c` back to implementation-review-swarm before
+- Review of `55c2689c` / `7bed47d9` returned `not_ready`. Accepted findings
+  covered missing GET-body and HEAD authority-loss proof, missing filtered-reset
+  stale re-registration proof, and `replace` clearing exact tombstones without
+  advancing the revision.
+- The fourth post-review follow-up is committed at
+  `2d55eef2 fix: close bridge lease proof gaps`. It preserves non-installed
+  exact tombstones across replacement, advances the scope revision after
+  replacement, proves stale registration after filtered reset and replacement,
+  and proves GET body / HEAD response authority loss with bounded gates.
+- Next step is to route `2d55eef2` back to implementation-review-swarm before
   ticket 02 begins.
 
 ## Key Artifacts
@@ -232,7 +241,7 @@ Status: ticket 00 committed; ticket 01 original checkpoint committed; first
 ticket 01 review-fix checkpoint committed but review returned `not_ready`;
 second ticket 01 review-fix pass is committed and proven; third ticket 01
 review-fix pass returned `not_ready`; fourth and fifth follow-up fixes are
-committed; the fifth-review third post-review follow-up is proven and ready for
+committed; the fifth-review fourth post-review follow-up is proven and ready for
 re-review.
 
 Evidence:
@@ -257,6 +266,8 @@ Evidence:
   `4c4c7773 fix: close bridge authority races`
 - ticket 01 fifth-review third post-review follow-up commit:
   `55c2689c fix: harden bridge lease emission authority`
+- ticket 01 fifth-review fourth post-review follow-up commit:
+  `2d55eef2 fix: close bridge lease proof gaps`
 - ticket 01 fourth-review follow-up report:
   `tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/implementation-review-ticket-01-fourth-review-fix/report.md`
 - ticket 01 fifth-review follow-up report:
@@ -273,7 +284,7 @@ Evidence:
 Open before ticket 02:
 
 - re-review the fixed ticket-01 trust/transport boundary after the
-  fifth-review third post-review follow-up fix
+  fifth-review fourth post-review follow-up fix
 - keep broad Swift health open until the unrelated CommandBar title mismatch is
   fixed in a separate scope or final milestone proof passes
 
