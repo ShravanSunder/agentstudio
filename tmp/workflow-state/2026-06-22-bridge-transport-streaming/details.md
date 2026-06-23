@@ -28,9 +28,13 @@ Current Ticket 03 checkpoint status:
   invalidations, reset frames, replacement descriptors, resource body serving,
   and automatic filesystem/status watcher fanout are implemented and covered by
   focused Swift tests.
-- The current code should route next to mandatory
-  `shravan-dev-workflow:implementation-review-swarm` for Ticket 03 before
-  Ticket 04 browser Worktree/File materializer/dev-server work starts.
+- Ticket 03 fanout implementation review is recorded at
+  `tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/implementation-review-ticket-03-fanout/report.md`
+  with verdict `ready_with_fixes`.
+- The current code should route next to
+  `shravan-dev-workflow:implementation-execute-plan` for Ticket 04 browser
+  Worktree/File materializer/dev-server work, carrying the accepted follow-up
+  for negative fanout proof.
 - Ticket 04 still owns browser-side Worktree/File response seeding,
   materialization, strict shared frame fixtures/Zod schemas, and the scroll
   extent canary against the dev server.

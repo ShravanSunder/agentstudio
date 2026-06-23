@@ -406,15 +406,13 @@ Implementation review:
 
 Current implementation review reducer:
 
-- `tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/implementation-review-ticket-03-current/report.md`
+- `tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/implementation-review-ticket-03-fanout/report.md`
 
-Verdict: `not_ready`.
+Verdict: `ready_with_fixes`.
 
 Open accepted blockers before Ticket 04:
 
-- automatic filesystem/status watcher fanout into the native Worktree/File live
-  publish methods is now implemented and covered by coordinator tests
-- mandatory implementation review remains before Ticket 04 can start
+- none accepted in the fanout review.
 
 Open accepted important item:
 
@@ -424,6 +422,11 @@ Open accepted important item:
   04 concern; Ticket 03 native proof only asserts response-before-intake ordering
   through the injected sink and does not claim the full browser Worktree/File
   materializer exists yet
+
+Open accepted follow-up:
+
+- add coordinator negative fanout tests proving non-matching Bridge panes do not
+  receive filesystem invalidation or git status patch intake frames
 
 ## Stop / Replan
 
