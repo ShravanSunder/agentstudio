@@ -5,7 +5,7 @@ Created: 2026-06-22
 
 ## Current State
 
-Current workflow: ticket-01-fifth-review-fix-complete
+Current workflow: ticket-01-fifth-review-second-post-review-fix-complete
 Next workflow: `shravan-dev-workflow:implementation-review-swarm`
 
 Reason:
@@ -98,7 +98,18 @@ Reason:
   review-content authority lifetime fence, normalizes returned content onto the
   active handle and active policy, makes lease replacement require an expected
   revision, and proves in-flight IPC teardown plus active byte-cap invalidation.
-- Next step is to route `b68c70ea` back to implementation-review-swarm before
+- Review of `b68c70ea` returned `not_ready`. Accepted findings covered
+  superseding review loads not synchronously revoking previous authority before
+  provider comparison, scheme-handler check/yield revocation races, and an
+  oversized-content proof gap that did not prove zero emitted response/body
+  events.
+- The second post-review follow-up is committed at
+  `4c4c7773 fix: close bridge authority races`. It synchronously revokes
+  review/content authority before superseding review loads can suspend, gates
+  scheme-handler response/body yields under the same synchronous authority lock
+  used by revocation, and proves zero scheme events before oversized-content
+  rejection plus in-flight reload revocation.
+- Next step is to route `4c4c7773` back to implementation-review-swarm before
   ticket 02 begins.
 
 ## Key Artifacts
@@ -209,8 +220,8 @@ Status: ticket 00 committed; ticket 01 original checkpoint committed; first
 ticket 01 review-fix checkpoint committed but review returned `not_ready`;
 second ticket 01 review-fix pass is committed and proven; third ticket 01
 review-fix pass returned `not_ready`; fourth and fifth follow-up fixes are
-committed; the fifth-review post-review follow-up is proven and ready for
-re-review.
+committed; the fifth-review second post-review follow-up is proven and ready
+for re-review.
 
 Evidence:
 
@@ -230,6 +241,8 @@ Evidence:
   `57601c5b fix: close bridge content authority race`
 - ticket 01 fifth-review post-review follow-up commit:
   `b68c70ea fix: harden bridge content authority after review`
+- ticket 01 fifth-review second post-review follow-up commit:
+  `4c4c7773 fix: close bridge authority races`
 - ticket 01 fourth-review follow-up report:
   `tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/implementation-review-ticket-01-fourth-review-fix/report.md`
 - ticket 01 fifth-review follow-up report:
@@ -246,7 +259,7 @@ Evidence:
 Open before ticket 02:
 
 - re-review the fixed ticket-01 trust/transport boundary after the
-  fifth-review post-review follow-up fix
+  fifth-review second post-review follow-up fix
 - keep broad Swift health open until the unrelated CommandBar title mismatch is
   fixed in a separate scope or final milestone proof passes
 

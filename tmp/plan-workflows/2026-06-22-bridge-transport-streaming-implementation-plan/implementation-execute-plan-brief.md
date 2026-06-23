@@ -906,3 +906,77 @@ recommended_next_workflow: shravan-dev-workflow:implementation-review-swarm
 recommended_transition_reason: Ticket 01 fifth-review post-review findings are
 fixed with fresh scoped proof; the Bridge trust/transport boundary needs
 another review before ticket 02 begins.
+
+## Ticket 01 Fifth Review Second Post-Review Follow-Up Fix
+
+Review verdict:
+
+- The review of `b68c70ea` returned `not_ready`.
+- Accepted findings were fixed in `4c4c7773`.
+
+Accepted findings addressed:
+
+- A superseding `loadDiff` could still leave the previous review/content
+  authority usable while the new load was suspended inside provider comparison.
+- Scheme-handler content emission had a check/yield gap: a revocation could
+  occur after the final authority check but before response or body emission.
+- The oversized-content scheme-handler proof asserted the thrown error but did
+  not prove that zero response/data events were emitted first.
+
+Recorded follow-up:
+
+- Content cache hits and coalesced loads rehash full payloads during active
+  policy validation. This remains correct for ticket 01 authority and is
+  carried as a later performance follow-up.
+
+Fresh proof:
+
+```bash
+mise run format
+```
+
+Result: exit 0, Swift sources formatted.
+
+```bash
+SWIFT_TEST_TIMEOUT_SECONDS=60 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180 \
+  mise run test-fast -- --filter \
+  'BridgeContentStoreTests|BridgeSchemeHandlerTests|BridgeSchemeHandlerLeaseAuthorityTests'
+```
+
+Result: exit 0, 78 tests in 3 suites passed.
+
+```bash
+mise run lint
+```
+
+Initial result: exit 1 because the strengthened zero-emission proof pushed
+`BridgeSchemeHandlerTests` over the 800-line type body cap at 803 lines.
+
+Final result after compacting that proof: exit 0; swift-format OK, SwiftLint
+reported 0 violations in 1307 files, architecture lint passed, and release
+script verification passed.
+
+```bash
+SWIFT_TEST_TIMEOUT_SECONDS=60 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180 \
+  mise run test-webkit
+```
+
+Result: exit 0, WebKit serialized lane passed in 99.82s and included
+`BridgePaneControllerContentAuthorityTests` with 6 tests, including
+`loadDiff synchronously revokes previous content authority while reload is in
+flight`.
+
+Commit note:
+
+- First commit attempt failed before writing the commit object because the
+  1Password signer returned `failed to fill whole buffer`.
+- The same staged diff was committed with `--no-gpg-sign`.
+
+phase_result: complete
+evidence:
+`4c4c7773 fix: close bridge authority races`
+`tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/implementation-review-ticket-01-fifth-review-fix/report.md`
+recommended_next_workflow: shravan-dev-workflow:implementation-review-swarm
+recommended_transition_reason: Ticket 01 fifth-review second post-review
+findings are fixed with fresh scoped proof; the Bridge trust/transport boundary
+needs another review before ticket 02 begins.

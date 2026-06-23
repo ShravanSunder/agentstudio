@@ -31,6 +31,21 @@ Additional accepted findings from review of `57601c5b`:
 - P2: the proof packet overclaimed the lease-first activation fix without a
   strong enough post-review proof set.
 
+Additional accepted findings from review of `b68c70ea`:
+
+- P1: a superseding review load could still leave the previous content
+  authority usable while the new load was waiting on provider comparison work.
+- P1: scheme-handler content emission checked lease authority before yielding,
+  but revocation could land between the final check and response/data emission.
+- P2: the oversized-content scheme-handler proof asserted the final thrown
+  error, but did not prove that zero response/data events were emitted first.
+
+Non-blocking follow-up from review of `b68c70ea`:
+
+- Cache hits and coalesced content reads now rehash full payloads when active
+  policy is revalidated. This is correct for ticket 01 authority, but should be
+  revisited as a performance follow-up before larger content workloads.
+
 ## Implementation
 
 - `BridgePaneController+DiffCommands.activateReviewContentHandles` now installs
@@ -61,6 +76,23 @@ Follow-up implementation in `b68c70ea`:
 - IPC and scheme tests now prove in-flight teardown, active byte-cap
   invalidation, stale replace rejection, and oversized content rejection at the
   materialization boundary.
+
+Follow-up implementation in `4c4c7773`:
+
+- `loadDiff` now synchronously revokes the previous review/content authority
+  before any async provider comparison work can suspend. The async cleanup keeps
+  the already-advanced revocation revision stable for the replacement fence.
+- Teardown reuses the same synchronous review/content revocation path and then
+  performs async store/lease cleanup without advancing the authority revision a
+  second time.
+- Scheme-handler response and body emission now run under the same synchronous
+  authority gate used by revocation. That closes the check/yield gap for
+  revoked content leases.
+- The oversized-content scheme-handler test now records emitted events and
+  asserts zero response/data events before the oversized-content failure.
+- A controller regression proves a second `loadDiff` revokes the previous
+  content authority while the reload is still blocked inside provider
+  comparison.
 
 ## Red / Green Notes
 
@@ -126,7 +158,29 @@ Post-review follow-up proof for `b68c70ea`:
   - AgentStudio architecture lint: OK.
   - release script verification: passed.
 
+Post-review follow-up proof for `4c4c7773`:
+
+- `mise run format`
+  - exit 0
+  - Swift sources formatted.
+- `SWIFT_TEST_TIMEOUT_SECONDS=60 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180 mise run test-fast -- --filter 'BridgeContentStoreTests|BridgeSchemeHandlerTests|BridgeSchemeHandlerLeaseAuthorityTests'`
+  - exit 0
+  - 78 tests in 3 suites passed.
+- `mise run lint`
+  - first exit 1 because `BridgeSchemeHandlerTests` crossed the 800-line type
+    body cap at 803 lines after the zero-emission proof edit.
+  - final exit 0 after compacting that proof without weakening it.
+  - swift-format: OK.
+  - SwiftLint: 0 violations in 1307 files.
+  - AgentStudio architecture lint: OK.
+  - release script verification: passed.
+- `SWIFT_TEST_TIMEOUT_SECONDS=60 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180 mise run test-webkit`
+  - exit 0
+  - WebKit serialized lane passed in 99.82s.
+  - Included `BridgePaneControllerContentAuthorityTests` with 6 tests,
+    including the new in-flight reload synchronous revocation regression.
+
 ## Next Step
 
-Route `b68c70ea` back to `shravan-dev-workflow:implementation-review-swarm`
+Route `4c4c7773` back to `shravan-dev-workflow:implementation-review-swarm`
 before starting ticket 02.
