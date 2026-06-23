@@ -425,3 +425,107 @@ recommended_next_workflow: shravan-dev-workflow:implementation-review-swarm
 recommended_transition_reason: Ticket 01 accepted implementation-review
 findings are addressed with fresh scoped proof; the fixed trust/transport
 boundary needs review again before ticket 02 begins.
+
+## Ticket 01 Second Review-Fix Checkpoint
+
+Commit:
+
+- `10d2b075 fix: bind bridge resource leases to descriptors`
+
+Review findings addressed:
+
+- Swift lease authority now rejects descriptor ids that do not match the URL
+  opaque resource authority, stores max byte limits, supports scoped reset, and
+  rechecks the lease with loaded byte count before response/data emission.
+- The legacy `agentstudio://resource/content/...` route no longer classifies as
+  content and is covered by fail-closed tests for missing, duplicate, unknown,
+  negative, and overflow generation shapes.
+- Content handles now mint protocol-scoped URLs:
+  `agentstudio://resource/review/content/<handle>?generation=<n>`.
+- The browser review content parser and mocks now use the same
+  `agentstudio://resource/{protocol}/{kind}/{opaqueId}` shape, so real Swift
+  handles and browser materialization agree.
+- Descriptor registration now requires the parsed URL opaque id to match the
+  descriptor id.
+- OPTIONS returns a no-body preflight response without loading content; HEAD
+  emits response metadata without a body.
+- The Swift scheme handler receives an injected protocol/kind registry from an
+  app-owned registry value instead of owning the registry inline.
+
+Fresh proof after second review-fix patch:
+
+```bash
+pnpm --dir BridgeWeb exec vitest run \
+  src/core/resources/bridge-resource-registry.unit.test.ts \
+  src/bridge/bridge-resource-url.unit.test.ts \
+  src/review-viewer/content/review-content-registry.unit.test.ts \
+  src/review-viewer/content/review-content-loader.unit.test.ts \
+  src/review-viewer/projections/review-item-window-registry.unit.test.ts \
+  src/review-viewer/test-support/bridge-viewer-mocked-backend.unit.test.ts
+```
+
+Result: exit 0, 6 files passed, 55 tests passed.
+
+```bash
+pnpm --dir BridgeWeb run check
+```
+
+Result: exit 0, oxlint, BridgeWeb architecture check, oxfmt, and TypeScript
+passed.
+
+```bash
+bash scripts/bridge-web-sync-fixtures.sh --check
+```
+
+Result: exit 0, BridgeWeb fixtures in sync, 17 files.
+
+```bash
+SWIFT_TEST_TIMEOUT_SECONDS=60 \
+SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180 \
+mise run test-fast -- --filter \
+  'BridgeSchemeHandlerTests|BridgeGitReviewSourceProviderTests|BridgeReviewDeltaBuilderTests|BridgePushEnvelopeEncoderTests'
+```
+
+Result: exit 0, 68 tests in 4 suites passed.
+
+```bash
+SWIFT_TEST_TIMEOUT_SECONDS=60 \
+SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180 \
+mise run test-webkit
+```
+
+Result: exit 0, real WebKit serialized lane passed. The first run exposed a
+test setup gap in `test_pushPackageMetadata_rendersReviewViewerShell`; after
+registering the test content leases, the rerun passed the full serial WebKit
+lane including real diff content fetches.
+
+```bash
+mise run format
+```
+
+Result: exit 0, Swift sources formatted.
+
+```bash
+mise run lint
+```
+
+Result: exit 0, swift-format OK, SwiftLint 0 violations / 0 serious across
+1305 files, AgentStudio architecture lint OK, release script verification
+passed.
+
+Broad Swift health:
+
+- Not claimed as green for ticket 01.
+- Existing external blocker remains `CommandBarDataSourceTests/
+  test_commandsScope_includesOpenBridgeReview`, expected `Open Bridge Review`
+  versus actual `Review`.
+- This remains outside the ticket-01 transport/security write scope and should
+  not be fixed as part of the ticket-01 review-finding patch.
+
+phase_result: complete
+evidence: `10d2b075`, the commands and results above, and
+`tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/implementation-review-ticket-01-review-fix-report.md`
+recommended_next_workflow: shravan-dev-workflow:implementation-review-swarm
+recommended_transition_reason: Ticket 01 second review-fix findings are
+addressed with fresh scoped proof; the fixed trust/transport boundary needs
+review again before ticket 02 begins.
