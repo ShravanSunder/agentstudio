@@ -57,6 +57,24 @@ private final class BridgeTransportResourceLeaseAuthorityGate: @unchecked Sendab
         }
     }
 
+    func performWhileNotRevoked(
+        resource: BridgeTransportResourceURL,
+        paneId: UUID,
+        _ operation: () -> Void
+    ) -> Bool {
+        lock.withLock {
+            guard
+                !revokedKeys.contains(where: { key in
+                    key.matches(resource: resource, paneId: paneId)
+                })
+            else {
+                return false
+            }
+            operation()
+            return true
+        }
+    }
+
     func isRevoked(paneId: UUID, protocolId: String, resourceKind: String) -> Bool {
         lock.withLock {
             revokedKeys.contains { key in
@@ -120,6 +138,14 @@ actor BridgeTransportResourceLeaseRegistry {
         authorityGate.isRevoked(paneId: paneId, protocolId: protocolId, resourceKind: resourceKind)
     }
 
+    nonisolated func performWhileNotRevokedSynchronously(
+        resource: BridgeTransportResourceURL,
+        paneId: UUID,
+        _ operation: () -> Void
+    ) -> Bool {
+        authorityGate.performWhileNotRevoked(resource: resource, paneId: paneId, operation)
+    }
+
     nonisolated func revocationRevision(
         paneId: UUID,
         protocolId: String,
@@ -181,9 +207,10 @@ actor BridgeTransportResourceLeaseRegistry {
         resourceKind: String? = nil,
         generation: Int? = nil,
         revision: Int? = nil,
-        cursor: String? = nil
+        cursor: String? = nil,
+        revokeAuthority: Bool = true
     ) {
-        if generation == nil, revision == nil, cursor == nil {
+        if revokeAuthority, generation == nil, revision == nil, cursor == nil {
             authorityGate.revoke(paneId: paneId, protocolId: protocolId, resourceKind: resourceKind)
         }
         leasesByCanonicalURL = leasesByCanonicalURL.filter { _, lease in

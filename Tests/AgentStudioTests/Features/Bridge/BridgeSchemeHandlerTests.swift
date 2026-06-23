@@ -612,9 +612,12 @@ final class BridgeSchemeHandlerTests {
         await contentStore.activate(handles: [handle], reviewGeneration: 7)
         let handler = await makeLeasedBridgeSchemeHandler(contentStore: contentStore, handle: handle)
         let request = URLRequest(url: URL(string: handle.resourceUrl)!)
+        var emittedEventCount = 0
 
         do {
-            for try await _ in handler.reply(for: request) {}
+            for try await _ in handler.reply(for: request) {
+                emittedEventCount += 1
+            }
             Issue.record("Expected oversized leased content to fail")
         } catch BridgeProviderFailure.oversizedContent(let handleId, let sizeBytes) {
             #expect(handleId == handle.handleId)
@@ -622,6 +625,7 @@ final class BridgeSchemeHandlerTests {
         } catch {
             Issue.record("Expected oversizedContent, got \(error)")
         }
+        #expect(emittedEventCount == 0)
     }
 
     @Test

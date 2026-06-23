@@ -126,6 +126,115 @@ extension WebKitSerializedTests {
             #expect(await controller.resourceLeaseRegistry.contains(headResource, paneId: controller.paneId) == false)
         }
 
+        @Test("loadDiff synchronously revokes previous content authority while reload is in flight")
+        func loadDiff_synchronously_revokes_previous_content_authority_while_reload_is_in_flight() async throws {
+            let baseEndpoint = makeBridgeEndpoint(endpointId: "baseline-headMinusOne", kind: .gitRef)
+            let headEndpoint = makeBridgeEndpoint(endpointId: "working-tree", kind: .workingTree)
+            let initialFile = makeBridgeEndpointChangedFile(
+                fileId: "old",
+                path: "Sources/App/Old.swift",
+                sizeBytes: 11,
+                newContentHash: bridgeSHA256ContentHash("old content")
+            )
+            let nextFile = makeBridgeEndpointChangedFile(
+                fileId: "new",
+                path: "Sources/App/New.swift",
+                sizeBytes: 100
+            )
+            let initialHandle = BridgeReviewPackageBuilder.contentHandle(
+                for: initialFile,
+                endpoint: headEndpoint,
+                role: .head,
+                reviewGeneration: 1
+            )
+            let initialResource = try #require(
+                BridgeTransportResourceURL.parse(
+                    initialHandle.resourceUrl,
+                    allowedResourceKindsByProtocol: ["review": Set(["content"])]
+                ))
+            let provider = BridgeReviewSourceProviderFake(
+                comparison: BridgeEndpointComparison(
+                    baseEndpoint: baseEndpoint,
+                    headEndpoint: headEndpoint,
+                    changedFiles: [initialFile]
+                ),
+                contentByHandleId: [
+                    initialHandle.handleId: makeContentResult(handle: initialHandle, data: "old content")
+                ]
+            )
+            let controller = makeController(
+                state: BridgePaneState(
+                    panelKind: .diffViewer,
+                    source: .workspace(rootPath: "Sources", baseline: .headMinusOne)
+                ),
+                reviewSourceProvider: provider
+            )
+            defer { controller.teardown() }
+            let firstCommandId = UUID()
+            let secondCommandId = UUID()
+
+            let firstResult = await controller.handleDiffCommand(
+                .loadDiff(
+                    DiffArtifact(
+                        diffId: UUIDv7.generate(),
+                        worktreeId: headEndpoint.worktreeId,
+                        patchData: Data()
+                    )
+                ),
+                commandId: firstCommandId,
+                correlationId: nil
+            )
+            #expect(firstResult == .success(commandId: firstCommandId))
+            #expect(await controller.resourceLeaseRegistry.contains(initialResource, paneId: controller.paneId))
+            _ = try await controller.loadContentForIPC(
+                contentHandleId: initialHandle.handleId,
+                reviewGeneration: 1
+            )
+
+            let reloadGate = BridgeComparisonGate()
+            await provider.setComparisonGate(reloadGate)
+            await provider.setComparison(
+                BridgeEndpointComparison(
+                    baseEndpoint: baseEndpoint,
+                    headEndpoint: headEndpoint,
+                    changedFiles: [nextFile]
+                ))
+            let reloadTask = Task { @MainActor in
+                await controller.handleDiffCommand(
+                    .loadDiff(
+                        DiffArtifact(
+                            diffId: UUIDv7.generate(),
+                            worktreeId: headEndpoint.worktreeId,
+                            patchData: Data()
+                        )
+                    ),
+                    commandId: secondCommandId,
+                    correlationId: nil
+                )
+            }
+            await reloadGate.waitForStartedComparisonCount(1)
+
+            #expect(
+                controller.resourceLeaseRegistry.isRevokedSynchronously(
+                    paneId: controller.paneId,
+                    protocolId: "review",
+                    resourceKind: "content"
+                ))
+            #expect(
+                await controller.resourceLeaseRegistry.contains(initialResource, paneId: controller.paneId) == false)
+            await #expect(throws: BridgeIPCProjectionError.self) {
+                _ = try await controller.loadContentForIPC(
+                    contentHandleId: initialHandle.handleId,
+                    reviewGeneration: 1
+                )
+            }
+
+            await reloadGate.releaseAll()
+            let reloadResult = await reloadTask.value
+
+            #expect(reloadResult == .success(commandId: secondCommandId))
+        }
+
         @Test("refresh preserves previous content authority when new metadata is invalid")
         func refresh_preserves_previous_content_authority_when_new_metadata_is_invalid() async throws {
             let fixture = makeRefreshRevisionFixture()

@@ -259,13 +259,24 @@ struct BridgeSchemeHandler: URLSchemeHandler {
                 return
             }
             try Task.checkCancellation()
-            continuation.yield(
-                .response(
-                    Self.response(
-                        url: emissionRequest.url,
-                        mimeType: result.mimeType,
-                        expectedContentLength: result.data.count
-                    )))
+            guard
+                resourceLeaseRegistry.performWhileNotRevokedSynchronously(
+                    resource: emissionRequest.leasedResource,
+                    paneId: paneId,
+                    {
+                        continuation.yield(
+                            .response(
+                                Self.response(
+                                    url: emissionRequest.url,
+                                    mimeType: result.mimeType,
+                                    expectedContentLength: result.data.count
+                                )))
+                    }
+                )
+            else {
+                continuation.finish(throwing: BridgeSchemeError.invalidRoute(emissionRequest.url.absoluteString))
+                return
+            }
             if emissionRequest.readMethod == .get {
                 guard
                     await resourceLeaseRegistry.contains(
@@ -279,7 +290,18 @@ struct BridgeSchemeHandler: URLSchemeHandler {
                     return
                 }
                 try Task.checkCancellation()
-                continuation.yield(.data(result.data))
+                guard
+                    resourceLeaseRegistry.performWhileNotRevokedSynchronously(
+                        resource: emissionRequest.leasedResource,
+                        paneId: paneId,
+                        {
+                            continuation.yield(.data(result.data))
+                        }
+                    )
+                else {
+                    continuation.finish(throwing: BridgeSchemeError.invalidRoute(emissionRequest.url.absoluteString))
+                    return
+                }
             }
             continuation.finish()
         } catch let failure as BridgeContentLoadObservedFailure {
@@ -315,13 +337,24 @@ struct BridgeSchemeHandler: URLSchemeHandler {
                 continuation.finish(throwing: BridgeSchemeError.invalidRoute(emissionRequest.url.absoluteString))
                 return
             }
-            continuation.yield(
-                .response(
-                    Self.response(
-                        url: emissionRequest.url,
-                        mimeType: handle.mimeType,
-                        expectedContentLength: handle.sizeBytes
-                    )))
+            guard
+                resourceLeaseRegistry.performWhileNotRevokedSynchronously(
+                    resource: emissionRequest.leasedResource,
+                    paneId: paneId,
+                    {
+                        continuation.yield(
+                            .response(
+                                Self.response(
+                                    url: emissionRequest.url,
+                                    mimeType: handle.mimeType,
+                                    expectedContentLength: handle.sizeBytes
+                                )))
+                    }
+                )
+            else {
+                continuation.finish(throwing: BridgeSchemeError.invalidRoute(emissionRequest.url.absoluteString))
+                return
+            }
             continuation.finish()
         } catch {
             continuation.finish(throwing: error)

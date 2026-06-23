@@ -514,14 +514,18 @@ final class BridgePaneController {
         agentPushPlan = nil
         activeReviewRefreshTask = nil
         hasPendingReviewRefresh = false
-        reviewContentAuthorityLifetime += 1
+        revokeReviewContentAuthoritySynchronously()
         let reviewContentStore = reviewContentStore
         let resourceLeaseRegistry = resourceLeaseRegistry
         let paneId = paneId
-        resourceLeaseRegistry.revokeSynchronously(paneId: paneId, protocolId: "review", resourceKind: "content")
         Task {
             await reviewContentStore.deactivate()
-            await resourceLeaseRegistry.reset(paneId: paneId, protocolId: "review", resourceKind: "content")
+            await resourceLeaseRegistry.reset(
+                paneId: paneId,
+                protocolId: "review",
+                resourceKind: "content",
+                revokeAuthority: false
+            )
         }
         runtime.resetForControllerTeardown()
         lastPushed.removeAll()

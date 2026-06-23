@@ -39,8 +39,8 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             paneState.diff.setPackageDelta(nil)
             let reviewGeneration = nextReviewGeneration.next()
             nextReviewGeneration = reviewGeneration
-            let contentAuthorityLifetime = reviewContentAuthorityLifetime
-            await clearReviewContentAuthority()
+            let contentAuthorityLifetime = revokeReviewContentAuthoritySynchronously()
+            await clearReviewContentAuthority(revokeAuthority: false)
             let expectedRevocationRevision = reviewContentRevocationRevision()
             do {
                 let request = makeReviewPipelineRequest(
@@ -175,9 +175,24 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
         return leases
     }
 
-    func clearReviewContentAuthority() async {
+    @discardableResult
+    func revokeReviewContentAuthoritySynchronously() -> Int {
+        reviewContentAuthorityLifetime += 1
+        resourceLeaseRegistry.revokeSynchronously(paneId: paneId, protocolId: "review", resourceKind: "content")
+        return reviewContentAuthorityLifetime
+    }
+
+    func clearReviewContentAuthority(revokeAuthority: Bool = true) async {
+        if revokeAuthority {
+            revokeReviewContentAuthoritySynchronously()
+        }
         await reviewContentStore.deactivate()
-        await resourceLeaseRegistry.reset(paneId: paneId, protocolId: "review", resourceKind: "content")
+        await resourceLeaseRegistry.reset(
+            paneId: paneId,
+            protocolId: "review",
+            resourceKind: "content",
+            revokeAuthority: false
+        )
     }
 
     private func reviewContentRevocationRevision() -> UInt64 {
