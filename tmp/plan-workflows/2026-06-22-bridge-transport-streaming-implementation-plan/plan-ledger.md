@@ -153,7 +153,29 @@ Accepted into revised plan:
   handoff output.
 - Next recommended skill is `shravan-dev-workflow:plan-review-swarm`.
 
-## Not Done
+## Execution-Time Proof Split
+
+Date: 2026-06-22
+Status: accepted by parent controller during ticket 01 execution
+
+Reason:
+
+- Ticket 01 transport/security proof passed focused BridgeWeb, fixture sync,
+  focused Swift Bridge, WebKit, and lint gates.
+- The broad `mise run test-fast` gate failed in
+  `CommandBarDataSourceTests/test_commandsScope_includesOpenBridgeReview`.
+- That failure is outside ticket 01's approved transport/security write scope.
+
+Decision:
+
+- Ticket 01 uses ticket-scoped BridgeWeb, fixture sync, focused Swift Bridge,
+  WebKit, and quality gates as its checkpoint proof.
+- Broad Swift health remains a milestone/final freshness guard.
+- A broad Swift failure outside the ticket write scope must be isolated and
+  recorded in the checkpoint handoff instead of pulling unrelated CommandBar
+  edits into the transport checkpoint.
+
+## Not Done At Plan-Creation Close
 
 - No product code changed.
 - No plan-review-swarm rerun on the revised package yet.

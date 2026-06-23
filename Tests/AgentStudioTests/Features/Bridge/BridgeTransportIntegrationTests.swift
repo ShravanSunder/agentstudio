@@ -343,7 +343,7 @@ extension WebKitSerializedTests {
                 #expect(
                     didCompleteBridgeReadyHandshake,
                     "Bridge app JavaScript should send bridge.ready before package pushes")
-                let didRenderEmptyShell = await waitUntil(timeout: .seconds(5)) {
+                let didRenderEmptyShell = await waitUntil(timeout: .seconds(1)) {
                     await self.pageContainsEmptyReviewShell(page)
                 }
                 #expect(didRenderEmptyShell, "Bridge app should render its empty shell before package pushes")
@@ -361,7 +361,7 @@ extension WebKitSerializedTests {
                     json: payload
                 )
 
-                let didRenderReviewShell = await waitUntil(timeout: .seconds(5)) {
+                let didRenderReviewShell = await waitUntil(timeout: .seconds(1)) {
                     (try? await controller.renderStateForIPC().summary.hasReviewShell) == true
                 }
                 let pageState = await describeBridgePageState(page)
@@ -419,7 +419,7 @@ extension WebKitSerializedTests {
                     await pushTask.value
                 }
 
-                let didObserveBurst = await waitUntil(timeout: .seconds(5)) {
+                let didObserveBurst = await waitUntil(timeout: .seconds(1)) {
                     await self.bridgePushProbeRevisionOrder(page, burstToken: burstToken).count == 8
                 }
                 let observedRevisions = await bridgePushProbeRevisionOrder(page, burstToken: burstToken)
@@ -469,7 +469,7 @@ extension WebKitSerializedTests {
                     return
                 }
 
-                let didRenderReviewShell = await waitUntil(timeout: .seconds(5)) {
+                let didRenderReviewShell = await waitUntil(timeout: .seconds(1)) {
                     (try? await controller.renderStateForIPC().summary.hasReviewShell) == true
                 }
                 let renderState = try await controller.renderStateForIPC()
@@ -609,7 +609,7 @@ extension WebKitSerializedTests {
                     json: payload
                 )
 
-                let didKeepReviewShellStable = await waitUntil(timeout: .seconds(5)) {
+                let didKeepReviewShellStable = await waitUntil(timeout: .seconds(1)) {
                     await self.pageContainsReviewShell(page)
                 }
                 let pageState = await describeBridgePageState(page)
@@ -639,7 +639,7 @@ extension WebKitSerializedTests {
             return page.title == expectedTitle
         }
 
-        private func waitForPageLoad(_ page: WebPage, timeout: Duration = .seconds(5)) async throws {
+        private func waitForPageLoad(_ page: WebPage, timeout: Duration = .seconds(2)) async throws {
             let deadline = ContinuousClock.now + timeout
             while ContinuousClock.now < deadline {
                 if !page.isLoading { break }

@@ -10,17 +10,20 @@ struct BridgeSchemeHandler: URLSchemeHandler {
     let paneId: UUID
     let contentStore: BridgeContentStore
     let appAssetStore: BridgeAppAssetStore
+    let resourceLeaseRegistry: BridgeTransportResourceLeaseRegistry
     let telemetryRecorder: (any BridgePerformanceTraceRecording)?
 
     init(
         paneId: UUID,
         contentStore: BridgeContentStore = BridgeContentStore(),
         appAssetStore: BridgeAppAssetStore = BridgeAppAssetStore(),
+        resourceLeaseRegistry: BridgeTransportResourceLeaseRegistry = BridgeTransportResourceLeaseRegistry(),
         telemetryRecorder: (any BridgePerformanceTraceRecording)? = nil
     ) {
         self.paneId = paneId
         self.contentStore = contentStore
         self.appAssetStore = appAssetStore
+        self.resourceLeaseRegistry = resourceLeaseRegistry
         self.telemetryRecorder = telemetryRecorder
     }
 
@@ -60,45 +63,35 @@ struct BridgeSchemeHandler: URLSchemeHandler {
 
             case .content(let handleId, let generation):
                 let task = Task {
-                    let traceContext = Self.traceContext(from: request)
-                    let hasTraceparentHeader = Self.traceparentHeader(from: request) != nil
-                    let loadStart = ContinuousClock.now
-                    do {
-                        let observed = try await contentStore.loadObserved(
-                            handleId: handleId,
-                            requestedGeneration: generation
-                        )
-                        let result = observed.result
-                        await recordContentLoadTelemetry(
-                            observation: observed.observation,
-                            traceContext: traceContext,
-                            hasTraceparentHeader: hasTraceparentHeader,
-                            phase: "success",
-                            durationMilliseconds: Self.milliseconds(from: loadStart.duration(to: ContinuousClock.now))
-                        )
-                        try Task.checkCancellation()
-                        continuation.yield(
-                            .response(
-                                Self.response(
-                                    url: url,
-                                    mimeType: result.mimeType,
-                                    expectedContentLength: result.data.count
-                                )))
-                        try Task.checkCancellation()
-                        continuation.yield(.data(result.data))
-                        continuation.finish()
-                    } catch let failure as BridgeContentLoadObservedFailure {
-                        await recordContentLoadTelemetry(
-                            observation: failure.observation,
-                            traceContext: traceContext,
-                            hasTraceparentHeader: hasTraceparentHeader,
-                            phase: "error",
-                            durationMilliseconds: Self.milliseconds(from: loadStart.duration(to: ContinuousClock.now))
-                        )
-                        continuation.finish(throwing: failure.underlyingError)
-                    } catch {
-                        continuation.finish(throwing: error)
+                    await emitContent(
+                        handleId: handleId,
+                        generation: generation,
+                        url: url,
+                        request: request,
+                        continuation: continuation
+                    )
+                }
+                continuation.onTermination = { _ in
+                    task.cancel()
+                }
+
+            case .leasedContent(let resource):
+                let task = Task {
+                    guard resource.protocolId == "review",
+                        resource.resourceKind == "content",
+                        let generation = resource.generation,
+                        await resourceLeaseRegistry.contains(resource)
+                    else {
+                        continuation.finish(throwing: BridgeSchemeError.invalidRoute(url.absoluteString))
+                        return
                     }
+                    await emitContent(
+                        handleId: resource.opaqueId,
+                        generation: BridgeReviewGeneration(generation),
+                        url: url,
+                        request: request,
+                        continuation: continuation
+                    )
                 }
                 continuation.onTermination = { _ in
                     task.cancel()
@@ -118,6 +111,8 @@ struct BridgeSchemeHandler: URLSchemeHandler {
         case app(String)
         /// Content resource request with a scoped handle and package generation guard.
         case content(handleId: String, generation: BridgeReviewGeneration)
+        /// Protocol-scoped content request that must match an active transport lease.
+        case leasedContent(BridgeTransportResourceURL)
         /// Unrecognized or malicious route (e.g. path traversal, wrong host).
         case invalid
     }
@@ -159,7 +154,14 @@ struct BridgeSchemeHandler: URLSchemeHandler {
             return .app(relativePath)
 
         case "resource":
-            // Expected: /content/<handleId>?generation=<n>
+            if let resource = BridgeTransportResourceURL.parse(
+                urlString,
+                allowedResourceKindsByProtocol: allowedResourceKindsByProtocol
+            ) {
+                return .leasedContent(resource)
+            }
+
+            // Legacy review route. Expected: /content/<handleId>?generation=<n>
             let components = path.split(separator: "/")
             guard components.count == 2,
                 components[0] == "content",
@@ -174,6 +176,11 @@ struct BridgeSchemeHandler: URLSchemeHandler {
             return .invalid
         }
     }
+
+    private static let allowedResourceKindsByProtocol: [String: Set<String>] = [
+        "review": Set(["content", "review-package"]),
+        "worktree-file": Set(["tree", "file-content"]),
+    ]
 
     private static func generationValue(from url: URL) -> Int? {
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
@@ -195,6 +202,54 @@ struct BridgeSchemeHandler: URLSchemeHandler {
 
     private static func traceparentHeader(from request: URLRequest) -> String? {
         request.value(forHTTPHeaderField: "traceparent")
+    }
+
+    private func emitContent(
+        handleId: String,
+        generation: BridgeReviewGeneration,
+        url: URL,
+        request: URLRequest,
+        continuation: AsyncThrowingStream<URLSchemeTaskResult, any Error>.Continuation
+    ) async {
+        let traceContext = Self.traceContext(from: request)
+        let hasTraceparentHeader = Self.traceparentHeader(from: request) != nil
+        let loadStart = ContinuousClock.now
+        do {
+            let observed = try await contentStore.loadObserved(
+                handleId: handleId,
+                requestedGeneration: generation
+            )
+            let result = observed.result
+            await recordContentLoadTelemetry(
+                observation: observed.observation,
+                traceContext: traceContext,
+                hasTraceparentHeader: hasTraceparentHeader,
+                phase: "success",
+                durationMilliseconds: Self.milliseconds(from: loadStart.duration(to: ContinuousClock.now))
+            )
+            try Task.checkCancellation()
+            continuation.yield(
+                .response(
+                    Self.response(
+                        url: url,
+                        mimeType: result.mimeType,
+                        expectedContentLength: result.data.count
+                    )))
+            try Task.checkCancellation()
+            continuation.yield(.data(result.data))
+            continuation.finish()
+        } catch let failure as BridgeContentLoadObservedFailure {
+            await recordContentLoadTelemetry(
+                observation: failure.observation,
+                traceContext: traceContext,
+                hasTraceparentHeader: hasTraceparentHeader,
+                phase: "error",
+                durationMilliseconds: Self.milliseconds(from: loadStart.duration(to: ContinuousClock.now))
+            )
+            continuation.finish(throwing: failure.underlyingError)
+        } catch {
+            continuation.finish(throwing: error)
+        }
     }
 
     private func recordContentLoadTelemetry(

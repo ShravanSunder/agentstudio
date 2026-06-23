@@ -98,6 +98,13 @@ enum BridgeBootstrap {
                             detail: { json: frameJSON, nonce: PUSH_NONCE }
                         }));
                     },
+                    sendCommandJSON: function(commandJSON) {
+                        if (typeof commandJSON !== 'string' || commandJSON.length === 0) {
+                            console.warn('[BridgeInternal] sendCommandJSON: commandJSON must be a non-empty string');
+                            return;
+                        }
+                        window.webkit.messageHandlers.rpc.postMessage(commandJSON);
+                    },
                     appendAgentEvents: function(events) {
                         document.dispatchEvent(new CustomEvent('__bridge_agent', {
                             detail: { events: events, nonce: PUSH_NONCE }
@@ -129,6 +136,10 @@ enum BridgeBootstrap {
                     }
                     // Strip nonce before forwarding to Swift
                     const { __nonce, ...payload } = detail;
+                    if (payload.protocol !== undefined) {
+                        console.warn('[BridgeBootstrap] Rejected __bridge_command: protocol RPC must use bridge world');
+                        return;
+                    }
                     window.webkit.messageHandlers.rpc.postMessage(JSON.stringify(payload));
                 });
 

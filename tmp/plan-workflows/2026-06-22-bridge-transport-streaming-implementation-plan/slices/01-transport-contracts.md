@@ -98,10 +98,12 @@ Fixture sync:
 bash scripts/bridge-web-sync-fixtures.sh --check
 ```
 
-Swift focused gate:
+Scoped Swift checkpoint gate:
 
 ```bash
-mise run test-fast
+SWIFT_TEST_TIMEOUT_SECONDS=60 \
+SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180 \
+mise run test-fast -- --filter 'BridgeSchemeHandlerTests|BridgeBootstrapTests'
 ```
 
 Use focused Bridge suites first, including `BridgeSchemeHandlerTests`,
@@ -110,6 +112,28 @@ Use focused Bridge suites first, including `BridgeSchemeHandlerTests`,
 applicable. Add `BridgePrivilegedRPCIngressTests.swift` if existing isolation
 tests do not prove that page-world `__bridge_command` and `__bridge_ready`
 cannot open streams, fetch resources, or reach Swift privileged methods.
+
+Real WebKit/content-world boundary:
+
+```bash
+SWIFT_TEST_TIMEOUT_SECONDS=60 \
+SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180 \
+mise run test-webkit
+```
+
+Broad Swift health:
+
+```bash
+SWIFT_TEST_TIMEOUT_SECONDS=120 \
+SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180 \
+mise run test-fast
+```
+
+Broad Swift health is a milestone/final freshness guard for ticket 01, not a
+license to edit unrelated suites during the transport checkpoint. If it fails
+outside the ticket-01 write scope, stop product edits, isolate the failing suite,
+record the blocker in the checkpoint handoff, and keep the broad gate open for a
+separately scoped fix or final milestone proof.
 
 Quality:
 

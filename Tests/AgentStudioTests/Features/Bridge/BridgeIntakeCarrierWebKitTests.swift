@@ -33,7 +33,7 @@ extension WebKitSerializedTests {
                 try await dispatchIntakeFrame(page, frameJSON: makeFrame(kind: .close, generation: 2, sequence: 2))
                 try await dispatchIntakeFrame(page, frameJSON: makeFrame(kind: .delta, generation: 2, sequence: 3))
 
-                let didObserveClosedDrop = await waitUntil(timeout: .seconds(5)) {
+                let didObserveClosedDrop = await waitUntilCarrierObservation {
                     await self.probeDropReasons(page).contains("closed")
                 }
                 let acceptedKinds = await probeAcceptedKinds(page)
@@ -57,7 +57,7 @@ extension WebKitSerializedTests {
                     )
                 )
 
-                let didObserveError = await waitUntil(timeout: .seconds(5)) {
+                let didObserveError = await waitUntilCarrierObservation {
                     await self.probeAcceptedMessages(page).contains("backend stream failed")
                 }
                 let errorProbeState = await probeDescription(page)
@@ -76,7 +76,7 @@ extension WebKitSerializedTests {
 
                 try await dispatchIntakeFrame(page, frameJSON: frameJSON)
 
-                let didObserveFrameLimit = await waitUntil(timeout: .seconds(5)) {
+                let didObserveFrameLimit = await waitUntilCarrierObservation {
                     await self.probeDropReasons(page).contains("frame_too_large")
                 }
                 let byteLengths = await probeDroppedByteLengths(page)
@@ -152,7 +152,7 @@ extension WebKitSerializedTests {
             )
         }
 
-        private func waitForPageLoad(_ page: WebPage, timeout: Duration = .seconds(5)) async throws {
+        private func waitForPageLoad(_ page: WebPage, timeout: Duration = .seconds(2)) async throws {
             let deadline = ContinuousClock.now + timeout
             while ContinuousClock.now < deadline {
                 if !page.isLoading { break }
@@ -174,6 +174,10 @@ extension WebKitSerializedTests {
                 await Task.yield()
             }
             return await condition()
+        }
+
+        private func waitUntilCarrierObservation(_ condition: @escaping () async -> Bool) async -> Bool {
+            await waitUntil(timeout: .milliseconds(500), condition)
         }
 
         private func settleAsyncCallbacks(turns: Int) async {

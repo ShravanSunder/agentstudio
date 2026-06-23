@@ -13,18 +13,17 @@ extension WebKitSerializedTests {
         }
 
         @Test
-        func test_pageWorld_cannotAccessBridgeInternal() async throws {
-            let bridgeWorld = WKContentWorld.world(name: "agentStudioBridgeIsolationTest")
+        func test_contentWorldIsolationAndPrivilegedProtocolRPC() async throws {
+            let bridgeWorld = WKContentWorld.world(name: "agentStudioBridgeProtocolRPCTest")
             let pageProbe = ContentWorldIsolationMessageHandler()
+            let rpcRecorder = ContentWorldIsolationMessageHandler()
             let config = WebPageTestHarness.makeConfiguration()
 
-            let messageHandler = RPCMessageHandler()
             config.userContentController.add(
-                messageHandler,
+                rpcRecorder,
                 contentWorld: bridgeWorld,
                 name: "rpc"
             )
-
             config.userContentController.add(pageProbe, contentWorld: .page, name: "pageProbe")
             defer {
                 config.userContentController.removeScriptMessageHandler(forName: "rpc", contentWorld: bridgeWorld)
@@ -39,20 +38,58 @@ extension WebKitSerializedTests {
                     dialogPresenter: WebviewDialogHandler()
                 )
             ) { page in
+                _ = page.load(URL(string: "about:blank")!)
+                try await waitForPageLoad(page)
+
                 _ = try await page.callJavaScript(
-                    BridgeBootstrap.generateScript(bridgeNonce: UUID().uuidString, pushNonce: UUID().uuidString),
+                    BridgeBootstrap.generateScript(bridgeNonce: "bridge-nonce", pushNonce: "push-nonce"),
                     contentWorld: bridgeWorld
                 )
+
                 _ = try await page.callJavaScript(
                     "window.webkit.messageHandlers.pageProbe.postMessage(typeof window.__bridgeInternal)"
                 )
                 let sawProbeMessage = await waitForMessageCount(pageProbe, atLeast: 1)
                 #expect(sawProbeMessage, "Expected page-world probe callback")
-
                 #expect(pageProbe.receivedMessages.count == 1, "Page world probe should receive exactly one message")
                 #expect(
                     pageProbe.receivedMessages.first as? String == "undefined",
                     "window.__bridgeInternal should be 'undefined' in page world")
+
+                _ = try await page.callJavaScript(
+                    """
+                    document.dispatchEvent(new CustomEvent('__bridge_command', {
+                      detail: {
+                        jsonrpc: '2.0',
+                        id: 'page-protocol-rpc',
+                        protocol: 'review',
+                        method: 'stream.open',
+                        params: {},
+                        __nonce: 'bridge-nonce'
+                      }
+                    }));
+                    """
+                )
+                await settleAsyncCallbacks(turns: 20)
+                #expect(rpcRecorder.receivedMessages.isEmpty)
+
+                _ = try await page.callJavaScript(
+                    """
+                    window.__bridgeInternal.sendCommandJSON(JSON.stringify({
+                      jsonrpc: '2.0',
+                      id: 'bridge-protocol-rpc',
+                      protocol: 'review',
+                      method: 'stream.open',
+                      params: {}
+                    }));
+                    """,
+                    contentWorld: bridgeWorld
+                )
+
+                let didReceiveBridgeWorldRPC = await waitForMessageCount(rpcRecorder, atLeast: 1)
+                #expect(didReceiveBridgeWorldRPC, "Expected bridge-world protocol RPC to reach Swift")
+                #expect(rpcRecorder.receivedMessages.count == 1)
+                #expect((rpcRecorder.receivedMessages.first as? String)?.contains("bridge-protocol-rpc") == true)
             }
         }
 
@@ -67,6 +104,24 @@ extension WebKitSerializedTests {
                 await Task.yield()
             }
             return handler.receivedMessages.count >= expectedCount
+        }
+
+        private func waitForPageLoad(_ page: WebPage, timeout: Duration = .seconds(1)) async throws {
+            let deadline = ContinuousClock.now + timeout
+            while ContinuousClock.now < deadline {
+                if !page.isLoading {
+                    break
+                }
+                await Task.yield()
+            }
+            try #require(!page.isLoading, "Page did not finish loading within \(timeout)")
+            await settleAsyncCallbacks(turns: 8)
+        }
+
+        private func settleAsyncCallbacks(turns: Int) async {
+            for _ in 0..<turns {
+                await Task.yield()
+            }
         }
     }
 }

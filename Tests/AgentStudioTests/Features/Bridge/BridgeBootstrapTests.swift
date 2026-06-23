@@ -164,4 +164,14 @@ final class BridgeBootstrapTests {
         #expect(script.contains("__bridge_intake_json"))
         #expect(script.contains("detail: { json: frameJSON, nonce: PUSH_NONCE }"))
     }
+
+    @Test
+    func test_protocolRPC_uses_bridgeWorld_internal_sender_not_pageWorldCommandRelay() {
+        let script = BridgeBootstrap.generateScript(bridgeNonce: "test-nonce", pushNonce: "push-nonce")
+
+        #expect(script.contains("sendCommandJSON: function(commandJSON)"))
+        #expect(script.contains("window.webkit.messageHandlers.rpc.postMessage(commandJSON)"))
+        #expect(script.contains("payload.protocol !== undefined"))
+        #expect(script.contains("Rejected __bridge_command: protocol RPC must use bridge world"))
+    }
 }

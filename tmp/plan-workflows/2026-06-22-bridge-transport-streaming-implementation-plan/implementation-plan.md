@@ -112,13 +112,19 @@ Do not stage unrelated files. If artifacts remain under ignored `tmp/`, either
 force-add the accepted plan artifacts for the checkpoint or promote them to a
 tracked docs location before committing.
 
+If a broad repo-health gate fails outside a ticket's approved write scope, do
+not edit unrelated infrastructure or product surfaces as part of that ticket.
+Split the proof: require the ticket-scoped unit/integration/WebKit/quality gates
+to pass, isolate and record the external blocker, and keep the broad gate open
+for a separately scoped fix or final milestone proof.
+
 ## Requirements / Proof Matrix
 
 | requirement or claim | source | owner | proof layer | evidence and freshness guard |
 | --- | --- | --- | --- | --- |
 | Carrier supports ordered intake frames before protocol migration | `spec.md` OD1 and stream lifecycle; plan review B1 | 00 | Swift/WebKit boundary, unit | real WKWebView burst/cancel/reset/stale-close proof from current worktree; no Review migration until it passes |
 | Privileged RPC cannot be invoked from page-world events | `spec.md` 7.2; plan review B2 | 01 | security integration, browser integration | negative page-world tests for `__bridge_command`/`__bridge_ready`; content-world path works |
-| Resource URL grammar, descriptor refs, leases, and integrity agree across TS/Swift | `spec.md` 6-7, 12-13; plan review I1/I5 | 01 | unit, Swift boundary, fixture sync | shared accept/reject corpus and `scripts/bridge-web-sync-fixtures.sh` after fixture edits |
+| Resource URL grammar, descriptor refs, leases, and integrity agree across TS/Swift | `spec.md` 6-7, 12-13; plan review I1/I5 | 01 | unit, Swift/WebKit boundary, fixture sync | shared accept/reject corpus, focused Bridge Swift/WebKit gates, and `scripts/bridge-web-sync-fixtures.sh` after fixture edits; broad Swift health remains a milestone/final guard when unrelated suites fail outside ticket scope |
 | Demand scheduler is generic and does not learn Review package authority | `spec.md` 9; plan review B3/I2 | 02 | unit, architecture, integration | `core/demand` tests plus import checks; no raw Review resource URL authority in generic modules |
 | Review frames attach descriptors before demand uses them | `review-protocol.md` 6-7; spec review addendum | 02 | unit, browser integration, Swift fixture parity | Review frame schema/materializer tests; source reset drops stale work |
 | Review changeset metadata remains flexible and non-authoritative | `review-protocol.md` 4, 10-11 | 02 | schema/materializer unit | live/closed/pinned, degraded confidence, overflow/fresh-scan fixtures; metadata cannot become content authority |
@@ -283,8 +289,9 @@ Each implementation checkpoint handoff must include:
 - Review materialization still requires CodeView remount on same-lineage deltas.
 - Worktree/File provider cannot mint stable source identity outside Review
   package lineage.
-- A proof gate fails outside the ticket scope. Stop code edits and report the
-  external blocker before changing infrastructure.
+- A proof gate fails outside the ticket scope. Stop code edits, split scoped
+  checkpoint proof from broad repo health, and report the external blocker
+  before changing infrastructure.
 
 ## Final Done Gate
 
