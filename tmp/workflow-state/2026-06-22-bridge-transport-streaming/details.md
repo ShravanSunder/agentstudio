@@ -88,8 +88,18 @@ Reason:
   checkpoint proof notes. A red-proof attempt against `e076fc4b` was blocked by
   the scratch checkout missing `Frameworks/GhosttyKit.xcframework`; that blocker
   is recorded instead of overclaiming red proof.
-- Next step is to route the fixed ticket 01 authority follow-up back to
-  implementation-review-swarm before ticket 02 begins.
+- Review of `57601c5b` returned `not_ready`. Accepted findings covered teardown
+  being able to advance the expected revocation revision while `loadDiff` was
+  in flight, cached/coalesced content not being normalized onto the current
+  active handle, optional `replace` revocation revisions, and missing in-flight
+  IPC stale-content proof.
+- The post-review follow-up is committed at
+  `b68c70ea fix: harden bridge content authority after review`. It adds a
+  review-content authority lifetime fence, normalizes returned content onto the
+  active handle and active policy, makes lease replacement require an expected
+  revision, and proves in-flight IPC teardown plus active byte-cap invalidation.
+- Next step is to route `b68c70ea` back to implementation-review-swarm before
+  ticket 02 begins.
 
 ## Key Artifacts
 
@@ -199,7 +209,8 @@ Status: ticket 00 committed; ticket 01 original checkpoint committed; first
 ticket 01 review-fix checkpoint committed but review returned `not_ready`;
 second ticket 01 review-fix pass is committed and proven; third ticket 01
 review-fix pass returned `not_ready`; fourth and fifth follow-up fixes are
-proven and ready for re-review.
+committed; the fifth-review post-review follow-up is proven and ready for
+re-review.
 
 Evidence:
 
@@ -217,6 +228,8 @@ Evidence:
   `e076fc4b fix: fence bridge content authority after teardown`
 - ticket 01 fifth-review follow-up commit:
   `57601c5b fix: close bridge content authority race`
+- ticket 01 fifth-review post-review follow-up commit:
+  `b68c70ea fix: harden bridge content authority after review`
 - ticket 01 fourth-review follow-up report:
   `tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/implementation-review-ticket-01-fourth-review-fix/report.md`
 - ticket 01 fifth-review follow-up report:
@@ -232,8 +245,8 @@ Evidence:
 
 Open before ticket 02:
 
-- re-review the fixed ticket-01 trust/transport boundary after the fifth-review
-  follow-up fix
+- re-review the fixed ticket-01 trust/transport boundary after the
+  fifth-review post-review follow-up fix
 - keep broad Swift health open until the unrelated CommandBar title mismatch is
   fixed in a separate scope or final milestone proof passes
 

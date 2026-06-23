@@ -827,3 +827,82 @@ recommended_next_workflow: shravan-dev-workflow:implementation-review-swarm
 recommended_transition_reason: Ticket 01 fifth-review findings are fixed with
 fresh scoped proof; the Bridge trust/transport boundary needs another review
 before ticket 02 begins.
+
+## Ticket 01 Fifth Review Post-Review Follow-Up Fix
+
+Review verdict:
+
+- The review of `57601c5b` returned `not_ready`.
+- Accepted findings were fixed in `b68c70ea`.
+
+Accepted findings addressed:
+
+- Teardown could still be captured as the expected revocation revision by an
+  in-flight `loadDiff` after `clearReviewContentAuthority()` suspended.
+- Cached/coalesced content bytes were not normalized onto the current active
+  handle before returning, leaving stale active policy and metadata gaps.
+- `BridgeTransportResourceLeaseRegistry.replace` still allowed callers to omit
+  the expected revocation revision.
+- IPC proof covered teardown before a call, but not teardown while a
+  provider-backed content load was in flight.
+- The previous proof packet needed stronger controller/IPC/store evidence.
+
+Fresh proof:
+
+```bash
+mise run format
+```
+
+Result: exit 0, Swift sources formatted.
+
+```bash
+SWIFT_TEST_TIMEOUT_SECONDS=60 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180 \
+  mise run test-fast -- --filter \
+  'BridgeContentStoreTests|BridgeSchemeHandlerLeaseAuthorityTests'
+```
+
+Result: exit 0, 27 tests in 2 suites passed.
+
+```bash
+SWIFT_TEST_TIMEOUT_SECONDS=60 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180 \
+  mise run test-webkit
+```
+
+Result: exit 0, WebKit serialized lane passed in 99.44s and included
+`BridgePaneControllerIPCProjectionTests` with 8 tests.
+
+```bash
+SWIFT_TEST_TIMEOUT_SECONDS=60 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180 \
+  mise run test-fast -- --filter \
+  'BridgeContentStoreTests|BridgeSchemeHandlerTests|BridgeSchemeHandlerLeaseAuthorityTests'
+```
+
+Initial result: exit 1 because
+`test_protocolScopedContentRouteRejectsOversizedLeaseBeforeEmittingBytes`
+expected `.invalidRoute` after active byte-cap enforcement correctly moved the
+failure to `.oversizedContent`.
+
+Final result after correcting the test boundary: exit 0, 78 tests in 3 suites
+passed.
+
+```bash
+mise run lint
+```
+
+Result: exit 0; swift-format OK, SwiftLint reported 0 violations in 1307 files,
+architecture lint passed, and release script verification passed.
+
+Commit note:
+
+- First commit attempt failed before writing the commit object because the
+  1Password signer returned `failed to fill whole buffer`.
+- The same staged diff was committed with `--no-gpg-sign`.
+
+phase_result: complete
+evidence:
+`b68c70ea fix: harden bridge content authority after review`
+`tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/implementation-review-ticket-01-fifth-review-fix/report.md`
+recommended_next_workflow: shravan-dev-workflow:implementation-review-swarm
+recommended_transition_reason: Ticket 01 fifth-review post-review findings are
+fixed with fresh scoped proof; the Bridge trust/transport boundary needs
+another review before ticket 02 begins.
