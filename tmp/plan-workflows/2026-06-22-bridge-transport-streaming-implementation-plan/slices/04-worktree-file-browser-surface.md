@@ -120,6 +120,30 @@ pnpm --dir BridgeWeb vitest run \
   src/features/worktree-file/state/worktree-file-state.unit.test.ts
 ```
 
+Initial browser contract proof captured 2026-06-23:
+
+- added Worktree/File browser Zod schemas and `z.infer` types under
+  `BridgeWeb/src/features/worktree-file/models`
+- added Worktree/File demand policy under
+  `BridgeWeb/src/features/worktree-file/demand`
+- added open-file session state primitives under
+  `BridgeWeb/src/features/worktree-file/state`
+- proved strict Worktree/File frame parsing, provider tree/file extent facts,
+  no Review package lineage in Worktree/File invalidation frames, discriminated
+  demand stimuli, generic lane mapping, stale-without-auto-fetch, manual refresh
+  demand, and no file bodies stored in state
+- red:
+  `pnpm --dir BridgeWeb exec vitest run src/features/worktree-file/models/worktree-file-protocol-models.unit.test.ts src/features/worktree-file/demand/worktree-file-demand-policy.unit.test.ts src/features/worktree-file/state/worktree-file-state.unit.test.ts --reporter verbose`
+  exited 1 before implementation because the Worktree/File model, demand, and
+  state modules did not exist
+- green:
+  same command exited 0 with 3 files passed and 11 tests passed
+- quality:
+  `pnpm --dir BridgeWeb run check` exited 0 after formatting and type fixes
+- hygiene:
+  `rg -n "\\bas\\b|any|@ts-|eslint-disable|JSON\\.parse" BridgeWeb/src/features/worktree-file`
+  found no matches, and `git diff --check` exited 0
+
 Surface integration:
 
 ```bash

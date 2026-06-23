@@ -38,6 +38,12 @@ Current Ticket 03 checkpoint status:
 - Ticket 04 still owns browser-side Worktree/File response seeding,
   materialization, strict shared frame fixtures/Zod schemas, and the scroll
   extent canary against the dev server.
+- Ticket 04 initial browser contracts are now in progress: Worktree/File
+  browser schemas, demand policy, and open-file session state primitives are
+  implemented with focused unit proof and BridgeWeb quality proof. Remaining
+  Ticket 04 work includes materializer/body registry integration, app routing,
+  surface UI, dev-server replacement, browser integration, benchmark/canary, and
+  the accepted negative fanout proof follow-up before PR readiness.
 
 Historical context:
 
