@@ -206,6 +206,36 @@ Resource body-serving proof captured 2026-06-23:
   violations
 - diff hygiene: `git diff --check` exited 0
 
+Initial file descriptor/content proof captured 2026-06-23:
+
+- accepted/fixed: `includeFileDescriptors` no longer stops at selector
+  validation; file-scoped `openSourceStream` now materializes an initial
+  provider-owned `worktree.fileDescriptor` frame for selected file scopes
+- `RPCRouter` now exposes a post-success-response callback; `BridgePaneController`
+  uses it to flush pending Worktree/File intake frames only after the
+  `openSourceStream` JSON-RPC response has been emitted, preserving snapshot
+  before-delta ordering
+- added `BridgeWorktreeFileMaterializer` to compute provider-owned content
+  handles, content descriptors, exact text line counts, language/extension facts,
+  and bounded file-content bodies without routing Worktree/File bytes through
+  Review content stores
+- file content descriptors are leased and registered in
+  `BridgeWorktreeFileResourceStore`; the scheme handler can fetch
+  `worktree.fileContent` bodies through native lease authority
+- red:
+  `SWIFT_TEST_TIMEOUT_SECONDS=120 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180 mise run test-fast -- --filter BridgeWorktreeFileSurfaceTransportTests`
+  exited 1 before fixes with compile/test failures around the new
+  post-response descriptor proof scaffolding
+- green:
+  same command exited 0 with 3 tests in 1 suite passing
+- green:
+  `SWIFT_TEST_TIMEOUT_SECONDS=120 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180 mise run test-fast -- --filter 'BridgeWorktreeFileSurfaceTransportTests|BridgeSchemeHandlerWorktreeFileResourceTests|BridgeWorktreeFileSourceProviderTests|BridgeWorktreeFileSurfaceTests'`
+  exited 0 with 30 tests in 4 suites passing
+- changed-file lint:
+  `swiftlint lint --strict <five changed Swift files>` exited 0 with 0
+  violations
+- diff hygiene: `git diff --check` exited 0
+
 Focused suites should include or add:
 
 - `BridgeWorktreeFileSurfaceTests`
@@ -291,19 +321,20 @@ Verdict: `not_ready`.
 
 Open accepted blockers before Ticket 04:
 
-- production runtime still stops at `worktree.snapshot`; it does not yet retain
-  an active Worktree/File subscription or emit live `worktree.statusPatch`,
-  `worktree.fileInvalidated`, `worktree.reset`, or real file-descriptor frames
+- production runtime now materializes initial selected-file descriptors and
+  content for scoped file opens, but it does not yet retain an active
+  Worktree/File subscription or emit live `worktree.statusPatch`,
+  `worktree.fileInvalidated`, `worktree.reset`, or descriptor replacement frames
   from filesystem/status updates
-- `agentstudio://resource/worktree-file/...` descriptors are parseable and
-  leased, but `BridgeSchemeHandler` still rejects non-`review/content` resources
-  before bytes; Ticket 04 cannot consume tree/status/file descriptor URLs until
-  native Worktree/File body serving exists
 
 Open accepted important item:
 
 - reconcile Swift frame shape with the written Worktree/File protocol spec and
   add shared strict frame fixtures before browser Zod schemas consume it
+- browser-side Worktree/File response seeding/materialization remains a Ticket
+  04 concern; Ticket 03 native proof only asserts response-before-intake ordering
+  through the injected sink and does not claim the full browser Worktree/File
+  materializer exists yet
 
 ## Stop / Replan
 

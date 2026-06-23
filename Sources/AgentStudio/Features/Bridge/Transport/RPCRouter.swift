@@ -55,6 +55,7 @@ final class RPCRouter {
     var onResponse: (@MainActor @Sendable (String) async -> Void) = { responseJSON in
         rpcRouterLogger.warning("RPC response dropped because onResponse is not configured: \(responseJSON)")
     }
+    var onSuccessResponseDelivered: (@MainActor @Sendable (String) async -> Void) = { _ in }
     var telemetryIngestor: (any BridgeTelemetryBatchIngesting)?
     var telemetryRecorder: (any BridgePerformanceTraceRecording)?
 
@@ -158,7 +159,11 @@ final class RPCRouter {
                 status: CommandAck.Status.ok,
                 reason: nil
             )
-            await emitSuccessResponseIfNeeded(id: request.requestId, resultData: resultData)
+            await emitSuccessResponseIfNeeded(
+                id: request.requestId,
+                resultData: resultData,
+                method: request.method
+            )
             if shouldRecordRPC {
                 await recordGenericRPCTelemetry(
                     name: "performance.bridge.webkit.rpc_response",
@@ -360,7 +365,11 @@ final class RPCRouter {
             result: result,
             durationMilliseconds: Self.milliseconds(from: start.duration(to: ContinuousClock.now))
         )
-        await emitSuccessResponseIfNeeded(id: request.requestId, resultData: nil)
+        await emitSuccessResponseIfNeeded(
+            id: request.requestId,
+            resultData: nil,
+            method: request.method
+        )
     }
 
     private func shouldSkip(commandId: String?) -> Bool {
@@ -463,13 +472,18 @@ final class RPCRouter {
         await emitErrorResponseIfNeeded(id: id, code: code.rawValue, message: message)
     }
 
-    private func emitSuccessResponseIfNeeded(id: RPCIdentifier?, resultData: Data?) async {
+    private func emitSuccessResponseIfNeeded(
+        id: RPCIdentifier?,
+        resultData: Data?,
+        method: String
+    ) async {
         guard let id else {
             return
         }
         do {
             let responseJSON = try makeSuccessResponseJSON(id: id, resultData: resultData)
             await onResponse(responseJSON)
+            await onSuccessResponseDelivered(method)
         } catch {
             let message = "Internal error: failed to encode response: \(self.errorMessage(from: error))"
             onError(RPCErrorCode.internalError.rawValue, message, id)

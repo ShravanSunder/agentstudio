@@ -41,6 +41,8 @@ extension BridgePaneController {
         guard generation == nextWorktreeFileSurfaceGeneration else {
             throw RPCMethodDispatchError.handlerFailure("Stale Worktree/File source generation")
         }
+        let streamId = "worktree-file:\(paneId.uuidString)"
+        pendingWorktreeFileIntakeFrames.removeAll(keepingCapacity: true)
         await resourceLeaseRegistry.reset(paneId: paneId, protocolId: "worktree-file")
         await worktreeFileResourceStore.reset(protocolId: "worktree-file")
         let snapshotFrame = BridgeWorktreeFileSurfaceFrameBuilder.snapshot(
@@ -48,7 +50,7 @@ extension BridgePaneController {
                 paneId: paneId.uuidString,
                 source: openedSource.source,
                 requestSelector: params,
-                streamId: "worktree-file:\(paneId.uuidString)",
+                streamId: streamId,
                 sequence: 0,
                 treePathCount: treeExtent.pathCount,
                 treeEstimatedTotalHeightPixels: treeExtent.estimatedTotalHeightPixels,
@@ -59,10 +61,31 @@ extension BridgePaneController {
             )
         )
         let resourceBodies = try Self.makeSnapshotResourceBodies(snapshotFrame)
+        let fileDescriptors = try await BridgeWorktreeFileMaterializer.materializeInitialFileDescriptors(
+            request: BridgeWorktreeFileMaterializationRequest(
+                rootURL: worktree.path,
+                paneId: paneId,
+                openedSource: openedSource,
+                streamId: streamId,
+                firstSequence: 1
+            )
+        )
+        guard generation == nextWorktreeFileSurfaceGeneration else {
+            throw RPCMethodDispatchError.handlerFailure("Stale Worktree/File source generation")
+        }
         try await activateWorktreeFileSurfaceLeases(snapshotFrame)
+        try await activateWorktreeFileSurfaceLeases(
+            fileDescriptors.map { $0.frame.descriptor.contentDescriptor.descriptor }
+        )
         for resourceBody in resourceBodies {
             await worktreeFileResourceStore.register(resourceBody.resource, body: resourceBody.body)
         }
+        for fileDescriptor in fileDescriptors {
+            await worktreeFileResourceStore.register(fileDescriptor.resource, body: fileDescriptor.body)
+        }
+        pendingWorktreeFileIntakeFrames = try Self.makeIntakeFrameStrings(
+            fileDescriptors.map(\.frame)
+        )
         return snapshotFrame
     }
 
@@ -137,6 +160,12 @@ extension BridgePaneController {
         if let statusDescriptor = snapshotFrame.statusDescriptor?.descriptor {
             descriptors.append(statusDescriptor)
         }
+        try await activateWorktreeFileSurfaceLeases(descriptors)
+    }
+
+    private func activateWorktreeFileSurfaceLeases(
+        _ descriptors: [BridgeResourceDescriptor]
+    ) async throws {
         for descriptor in descriptors {
             guard
                 let resource = BridgeTransportResourceURL.parse(
@@ -161,6 +190,25 @@ extension BridgePaneController {
             guard registered else {
                 throw RPCMethodDispatchError.handlerFailure("Failed to register Worktree/File descriptor lease")
             }
+        }
+    }
+
+    private nonisolated static func makeIntakeFrameStrings(
+        _ frames: [BridgeWorktreeFileDescriptorFrame]
+    ) throws -> [String] {
+        let encoder = JSONEncoder()
+        let envelopeEncoder = BridgePushEnvelopeEncoder()
+        return try frames.map { frame in
+            try envelopeEncoder.encodeIntakeFrame(
+                metadata: BridgeIntakeFrameMetadata(
+                    kind: .delta,
+                    streamId: frame.streamId,
+                    generation: frame.generation,
+                    sequence: frame.sequence
+                ),
+                payload: encoder.encode(frame),
+                traceContext: nil
+            )
         }
     }
 

@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import WebKit
 
 @testable import AgentStudio
 
@@ -169,7 +170,93 @@ struct BridgeWorktreeFileSurfaceTransportTests {
         )
     }
 
+    @Test("file scoped open source queues descriptor frame after response and serves content")
+    func fileScopedOpenSourceQueuesDescriptorAfterResponseAndServesContent() async throws {
+        let eventCapture = BridgeWorktreeFileSurfaceEventCapture()
+        let fixture = try makeControllerFixtureWithIntakeSink(
+            intakeFrameSink: { _, frameJSON, _ in
+                await eventCapture.recordIntake(frameJSON)
+            }
+        )
+        defer { try? FileManager.default.removeItem(at: fixture.rootURL) }
+        let fileURL = fixture.rootURL
+            .appending(path: "Sources")
+            .appending(path: "App")
+            .appending(path: "View.swift")
+        let fileText = "struct View {}\nlet value = 1"
+        try FileManager.default.createDirectory(
+            at: fileURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try fileText.write(to: fileURL, atomically: true, encoding: .utf8)
+        let responseCapture = BridgeWorktreeFileSurfaceResponseCapture()
+        fixture.controller.router.onResponse = { responseJSON in
+            await eventCapture.recordResponse()
+            await responseCapture.set(responseJSON)
+        }
+        await fixture.controller.handleIncomingRPC(
+            #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
+        )
+        let spec = sourceSpec(
+            fixture: fixture,
+            clientRequestId: "request-file-descriptor",
+            pathScope: ["Sources/App/View.swift"],
+            includeFileDescriptors: true
+        )
+
+        await fixture.controller.handleIncomingRPC(
+            try BridgeWorktreeFileSurfaceRPCRequest(
+                id: "open-file-descriptor",
+                method: "worktreeFileSurface.openSourceStream",
+                params: spec
+            ).jsonString()
+        )
+
+        let response = try await decodedResponse(from: responseCapture)
+        let events = await eventCapture.events()
+        #expect(events == ["response", "intake"])
+        let intakeFrameJSON = try #require(await eventCapture.intakeFrames().first)
+        let intakeFrameData = try #require(intakeFrameJSON.data(using: .utf8))
+        let intakeFrame = try JSONDecoder().decode(
+            BridgeWorktreeFileSurfaceIntakeFrameEnvelope.self,
+            from: intakeFrameData
+        )
+        #expect(intakeFrame.kind == "delta")
+        #expect(intakeFrame.streamId == response.result.streamId)
+        #expect(intakeFrame.generation == response.result.generation)
+        #expect(intakeFrame.sequence == 1)
+        #expect(intakeFrame.payload.frameKind == "worktree.fileDescriptor")
+        #expect(intakeFrame.payload.descriptor.path == "Sources/App/View.swift")
+        #expect(intakeFrame.payload.descriptor.virtualizedExtentKind == .exactLineCount)
+        #expect(intakeFrame.payload.descriptor.lineCount == 2)
+        #expect(intakeFrame.payload.descriptor.contentDescriptor.descriptor.resourceKind == "worktree.fileContent")
+        let contentResource = try #require(
+            BridgeTransportResourceURL.parse(
+                intakeFrame.payload.descriptor.contentDescriptor.descriptor.resourceUrl,
+                allowedResourceKindsByProtocol: BridgeResourceProtocolRegistry.reviewViewerAllowedResourceKinds
+            )
+        )
+        #expect(await fixture.controller.resourceLeaseRegistry.contains(contentResource, paneId: fixture.paneId))
+        let schemeHandler = BridgeSchemeHandler(
+            paneId: fixture.paneId,
+            worktreeFileResourceStore: fixture.controller.worktreeFileResourceStore,
+            resourceLeaseRegistry: fixture.controller.resourceLeaseRegistry
+        )
+        let contentBody = try await resourceBody(
+            url: intakeFrame.payload.descriptor.contentDescriptor.descriptor.resourceUrl,
+            handler: schemeHandler
+        )
+        #expect(String(data: contentBody, encoding: .utf8) == fileText)
+        fixture.controller.teardown()
+    }
+
     private func makeControllerFixture() throws -> BridgeWorktreeFileSurfaceControllerFixture {
+        try makeControllerFixtureWithIntakeSink(intakeFrameSink: nil)
+    }
+
+    private func makeControllerFixtureWithIntakeSink(
+        intakeFrameSink: (@MainActor (WebPage, String, String) async throws -> Void)?
+    ) throws -> BridgeWorktreeFileSurfaceControllerFixture {
         let paneId = UUIDv7.generate()
         let repoId = UUIDv7.generate()
         let worktreeId = UUIDv7.generate()
@@ -199,7 +286,17 @@ struct BridgeWorktreeFileSurfaceTransportTests {
                 cwd: rootURL
             )
         )
-        let controller = BridgePaneController(paneId: paneId, state: state, metadata: metadata)
+        let controller =
+            if let intakeFrameSink {
+                BridgePaneController(
+                    paneId: paneId,
+                    state: state,
+                    metadata: metadata,
+                    intakeFrameSink: intakeFrameSink
+                )
+            } else {
+                BridgePaneController(paneId: paneId, state: state, metadata: metadata)
+            }
         return BridgeWorktreeFileSurfaceControllerFixture(
             paneId: paneId,
             repoId: repoId,
@@ -213,7 +310,8 @@ struct BridgeWorktreeFileSurfaceTransportTests {
     private func sourceSpec(
         fixture: BridgeWorktreeFileSurfaceControllerFixture,
         clientRequestId: String,
-        pathScope: [String]
+        pathScope: [String],
+        includeFileDescriptors: Bool = false
     ) -> BridgeWorktreeFileSurfaceSourceSpec {
         BridgeWorktreeFileSurfaceSourceSpec(
             clientRequestId: clientRequestId,
@@ -223,7 +321,7 @@ struct BridgeWorktreeFileSurfaceTransportTests {
             cwdScope: nil,
             pathScope: pathScope,
             includeStatuses: true,
-            includeFileDescriptors: false,
+            includeFileDescriptors: includeFileDescriptors,
             includeComments: false,
             includeAgentComms: false,
             freshness: .live
@@ -285,6 +383,14 @@ private struct BridgeWorktreeFileSurfaceSuccessResponse: Decodable {
     let result: BridgeWorktreeSnapshotFrame
 }
 
+private struct BridgeWorktreeFileSurfaceIntakeFrameEnvelope: Decodable {
+    let kind: String
+    let streamId: String
+    let generation: Int
+    let sequence: Int
+    let payload: BridgeWorktreeFileDescriptorFrame
+}
+
 private actor BridgeWorktreeFileSurfaceResponseCapture {
     private var payload: String?
 
@@ -294,5 +400,27 @@ private actor BridgeWorktreeFileSurfaceResponseCapture {
 
     func get() -> String? {
         payload
+    }
+}
+
+private actor BridgeWorktreeFileSurfaceEventCapture {
+    private var recordedEvents: [String] = []
+    private var recordedIntakeFrames: [String] = []
+
+    func recordResponse() {
+        recordedEvents.append("response")
+    }
+
+    func recordIntake(_ frameJSON: String) {
+        recordedEvents.append("intake")
+        recordedIntakeFrames.append(frameJSON)
+    }
+
+    func events() -> [String] {
+        recordedEvents
+    }
+
+    func intakeFrames() -> [String] {
+        recordedIntakeFrames
     }
 }

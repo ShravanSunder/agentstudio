@@ -78,12 +78,14 @@ final class BridgePaneController {
     private let bridgeWorld = WKContentWorld.world(name: "agentStudioBridge")
     let pushNonce: String
     let pushEnvelopeSink: @MainActor (WebPage, String, String) async throws -> Void
+    let intakeFrameSink: @MainActor (WebPage, String, String) async throws -> Void
     private let userContentController: WKUserContentController
     private let bootstrapScript: WKUserScript
     private var managementScript: WKUserScript
     private(set) var isContentInteractionEnabled: Bool
     private var interactionApplyTask: Task<Void, Never>?
     var pushDeliveryTail: Task<Void, Never>?
+    var pendingWorktreeFileIntakeFrames: [String] = []
     private var inboxPostTimestamps: [Date] = []
     let telemetryScopeGate: BridgeTelemetryScopeGate
     let telemetryRecorder: (any BridgePerformanceTraceRecording)?
@@ -117,7 +119,9 @@ final class BridgePaneController {
         telemetryIngestor: (any BridgeTelemetryBatchIngesting)? = nil,
         traceContextFactory: BridgeTraceContextFactory = .live,
         pushEnvelopeSink: @escaping @MainActor (WebPage, String, String) async throws -> Void =
-            BridgePaneController.dispatchPushEnvelope
+            BridgePaneController.dispatchPushEnvelope,
+        intakeFrameSink: @escaping @MainActor (WebPage, String, String) async throws -> Void =
+            BridgePaneController.dispatchIntakeFrame
     ) {
         self.paneId = paneId
         self.bridgePaneState = state
@@ -178,6 +182,7 @@ final class BridgePaneController {
         let reviewStreamId = "review:\(reviewPaneId)"
         self.pushNonce = pushNonce
         self.pushEnvelopeSink = pushEnvelopeSink
+        self.intakeFrameSink = intakeFrameSink
         let webTelemetryScopes = resolvedTelemetryScopeGate.browserExposedScopes
         let telemetryConfig =
             !webTelemetryScopes.isEmpty
@@ -328,6 +333,9 @@ final class BridgePaneController {
         }
         router.onResponse = { [weak self] responseJSON in
             await self?.emitRPCResponse(responseJSON)
+        }
+        router.onSuccessResponseDelivered = { [weak self] method in
+            await self?.handleRPCSuccessResponseDelivered(method: method)
         }
 
         // Wire message handler → router: validated JSON from postMessage is dispatched to handlers.
@@ -632,6 +640,29 @@ final class BridgePaneController {
         await router.dispatch(json: json, isBridgeReady: isBridgeReady)
     }
 
+    private func handleRPCSuccessResponseDelivered(method: String) async {
+        guard method == WorktreeFileSurfaceMethods.OpenSourceStreamMethod.method else {
+            return
+        }
+        await flushPendingWorktreeFileIntakeFrames()
+    }
+
+    func flushPendingWorktreeFileIntakeFrames() async {
+        let frames = pendingWorktreeFileIntakeFrames
+        pendingWorktreeFileIntakeFrames.removeAll(keepingCapacity: true)
+        for frame in frames {
+            do {
+                try await intakeFrameSink(page, frame, pushNonce)
+            } catch {
+                bridgeControllerLogger.warning(
+                    "[Bridge] Worktree/File intake transport failed pane=\(self.paneId.uuidString, privacy: .public): \(error.localizedDescription, privacy: .private)"
+                )
+                paneState.connection.setHealth(.error)
+                return
+            }
+        }
+    }
+
     /// Runtime-facing typed event ingress for bridge domain events.
     func ingestRuntimeEvent(
         _ event: PaneRuntimeEvent,
@@ -805,6 +836,20 @@ final class BridgePaneController {
         try await page.callJavaScript(
             """
             window.__bridgeInternal.applyEnvelopeJSON(\(envelopeLiteral));
+            """,
+            contentWorld: WKContentWorld.world(name: "agentStudioBridge")
+        )
+    }
+
+    private static func dispatchIntakeFrame(
+        page: WebPage,
+        frameString: String,
+        _: String
+    ) async throws {
+        let frameLiteral = try makeJavaScriptStringLiteral(frameString)
+        try await page.callJavaScript(
+            """
+            window.__bridgeInternal.applyIntakeFrameJSON(\(frameLiteral));
             """,
             contentWorld: WKContentWorld.world(name: "agentStudioBridge")
         )
