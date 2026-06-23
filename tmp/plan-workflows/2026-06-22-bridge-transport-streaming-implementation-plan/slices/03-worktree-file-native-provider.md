@@ -236,6 +236,29 @@ Initial file descriptor/content proof captured 2026-06-23:
   violations
 - diff hygiene: `git diff --check` exited 0
 
+Live source/status/invalidation proof captured 2026-06-23:
+
+- accepted/fixed: `openSourceStream` now retains the active Worktree/File
+  source identity, stream id, and next sequence after the initial snapshot and
+  optional file-descriptor frames
+- `BridgePaneController.publishWorktreeFileSurfaceStatus` emits
+  `worktree.statusPatch` frames for the current generation only
+- `BridgePaneController.publishWorktreeFileSurfaceChangeset` emits
+  `worktree.fileInvalidated` frames for user-file changes, filters `.git`
+  internals from file invalidation delivery, and can emit a status
+  invalidation when the changeset only touches git internals
+- live frames are dispatched through the same native intake envelope path as
+  post-response file descriptors, preserving monotonic stream sequence numbers
+- green:
+  `SWIFT_TEST_TIMEOUT_SECONDS=120 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180 mise run test-fast -- --filter BridgeWorktreeFileSurfaceTransportTests`
+  exited 0 with 4 tests in 1 suite passing
+- green:
+  `SWIFT_TEST_TIMEOUT_SECONDS=120 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180 mise run test-fast -- --filter 'BridgeWorktreeFileSurfaceTransportTests|BridgeSchemeHandlerWorktreeFileResourceTests|BridgeWorktreeFileSourceProviderTests|BridgeWorktreeFileSurfaceTests|BridgeWorktreeFileSurfaceNativeTests'`
+  exited 0 with 35 tests in 5 suites passing
+- changed-file lint:
+  `swiftlint lint --strict <three changed Swift files>` exited 0 with 0
+  violations
+
 Focused suites should include or add:
 
 - `BridgeWorktreeFileSurfaceTests`
@@ -321,11 +344,12 @@ Verdict: `not_ready`.
 
 Open accepted blockers before Ticket 04:
 
-- production runtime now materializes initial selected-file descriptors and
-  content for scoped file opens, but it does not yet retain an active
-  Worktree/File subscription or emit live `worktree.statusPatch`,
-  `worktree.fileInvalidated`, `worktree.reset`, or descriptor replacement frames
-  from filesystem/status updates
+- production runtime now retains an active Worktree/File source and has native
+  methods to emit live `worktree.statusPatch` and `worktree.fileInvalidated`
+  frames, but full filesystem/status watcher wiring still has to call those
+  methods automatically
+- live `worktree.reset` and descriptor replacement frames from filesystem/status
+  updates remain open
 
 Open accepted important item:
 

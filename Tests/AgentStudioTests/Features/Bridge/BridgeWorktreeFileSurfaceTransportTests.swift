@@ -250,6 +250,94 @@ struct BridgeWorktreeFileSurfaceTransportTests {
         fixture.controller.teardown()
     }
 
+    @Test("active Worktree/File source emits live status and invalidation frames in sequence")
+    func activeWorktreeFileSourceEmitsLiveStatusAndInvalidationsInSequence() async throws {
+        let eventCapture = BridgeWorktreeFileSurfaceEventCapture()
+        let fixture = try makeControllerFixtureWithIntakeSink(
+            intakeFrameSink: { _, frameJSON, _ in
+                await eventCapture.recordIntake(frameJSON)
+            }
+        )
+        defer { try? FileManager.default.removeItem(at: fixture.rootURL) }
+        let responseCapture = BridgeWorktreeFileSurfaceResponseCapture()
+        fixture.controller.router.onResponse = { responseJSON in
+            await eventCapture.recordResponse()
+            await responseCapture.set(responseJSON)
+        }
+        await fixture.controller.handleIncomingRPC(
+            #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
+        )
+        let spec = sourceSpec(
+            fixture: fixture,
+            clientRequestId: "request-live",
+            pathScope: [],
+            includeFileDescriptors: false
+        )
+
+        await fixture.controller.handleIncomingRPC(
+            try BridgeWorktreeFileSurfaceRPCRequest(
+                id: "open-live",
+                method: "worktreeFileSurface.openSourceStream",
+                params: spec
+            ).jsonString()
+        )
+        let response = try await decodedResponse(from: responseCapture)
+        let status = GitWorkingTreeStatus(
+            summary: GitWorkingTreeSummary(
+                changed: 2,
+                staged: 1,
+                untracked: 3,
+                aheadCount: 5,
+                behindCount: 8
+            ),
+            branch: "ticket-03",
+            origin: "git@example.com:repo/project.git"
+        )
+        try await fixture.controller.publishWorktreeFileSurfaceStatus(status)
+        try await fixture.controller.publishWorktreeFileSurfaceChangeset(
+            FileChangeset(
+                worktreeId: fixture.worktreeId,
+                rootPath: fixture.rootURL,
+                paths: ["Sources/App/View.swift", ".git/index", "README.md"],
+                containsGitInternalChanges: true,
+                timestamp: .now,
+                batchSeq: 42
+            )
+        )
+
+        let events = await eventCapture.events()
+        #expect(events == ["response", "intake", "intake", "intake"])
+        let intakeFrames = await eventCapture.intakeFrames()
+        #expect(intakeFrames.count == 3)
+        let statusEnvelope = try decodeIntakeEnvelope(
+            intakeFrames[0],
+            as: BridgeWorktreeStatusPatchFrame.self
+        )
+        #expect(statusEnvelope.streamId == response.result.streamId)
+        #expect(statusEnvelope.generation == response.result.generation)
+        #expect(statusEnvelope.sequence == 1)
+        #expect(statusEnvelope.payload.frameKind == "worktree.statusPatch")
+        #expect(statusEnvelope.payload.patch.branchName == "ticket-03")
+        #expect(statusEnvelope.payload.patch.staged == 1)
+        #expect(statusEnvelope.payload.patch.unstaged == 2)
+        #expect(statusEnvelope.payload.patch.untracked == 3)
+        let firstInvalidation = try decodeIntakeEnvelope(
+            intakeFrames[1],
+            as: BridgeWorktreeFileInvalidatedFrame.self
+        )
+        let secondInvalidation = try decodeIntakeEnvelope(
+            intakeFrames[2],
+            as: BridgeWorktreeFileInvalidatedFrame.self
+        )
+        #expect(firstInvalidation.sequence == 2)
+        #expect(secondInvalidation.sequence == 3)
+        #expect(firstInvalidation.payload.invalidation.path == "Sources/App/View.swift")
+        #expect(secondInvalidation.payload.invalidation.path == "README.md")
+        #expect(firstInvalidation.payload.invalidation.reason == .contentChanged)
+        #expect(secondInvalidation.payload.invalidation.reason == .contentChanged)
+        fixture.controller.teardown()
+    }
+
     private func makeControllerFixture() throws -> BridgeWorktreeFileSurfaceControllerFixture {
         try makeControllerFixtureWithIntakeSink(intakeFrameSink: nil)
     }
@@ -354,6 +442,17 @@ struct BridgeWorktreeFileSurfaceTransportTests {
         }
         return body
     }
+
+    private func decodeIntakeEnvelope<Payload: Decodable>(
+        _ json: String,
+        as _: Payload.Type
+    ) throws -> WorktreeFileIntakeEnvelope<Payload> {
+        let data = try #require(json.data(using: .utf8))
+        return try JSONDecoder().decode(
+            WorktreeFileIntakeEnvelope<Payload>.self,
+            from: data
+        )
+    }
 }
 
 private struct BridgeWorktreeFileSurfaceControllerFixture {
@@ -389,6 +488,14 @@ private struct BridgeWorktreeFileSurfaceIntakeFrameEnvelope: Decodable {
     let generation: Int
     let sequence: Int
     let payload: BridgeWorktreeFileDescriptorFrame
+}
+
+private struct WorktreeFileIntakeEnvelope<Payload: Decodable>: Decodable {
+    let kind: String
+    let streamId: String
+    let generation: Int
+    let sequence: Int
+    let payload: Payload
 }
 
 private actor BridgeWorktreeFileSurfaceResponseCapture {

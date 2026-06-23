@@ -60,6 +60,7 @@ final class BridgePaneController {
     let bridgePaneState: BridgePaneState
     var nextReviewGeneration: BridgeReviewGeneration = 0
     var nextWorktreeFileSurfaceGeneration = 0
+    var activeWorktreeFileSurfaceSource: BridgeWorktreeFileSurfaceActiveSourceState?
     var selectedReviewItemId: String?
     var activeReviewRefreshTask: Task<Void, Never>?
     var hasPendingReviewRefresh = false
@@ -568,6 +569,8 @@ final class BridgePaneController {
         agentPushPlan = nil
         activeReviewRefreshTask = nil
         hasPendingReviewRefresh = false
+        activeWorktreeFileSurfaceSource = nil
+        pendingWorktreeFileIntakeFrames.removeAll(keepingCapacity: false)
         revokeReviewContentAuthoritySynchronously()
         resourceLeaseRegistry.revokeSynchronously(paneId: paneId, protocolId: "worktree-file")
         let reviewContentStore = reviewContentStore

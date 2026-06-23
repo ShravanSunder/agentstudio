@@ -9,6 +9,18 @@ private let worktreeFileTreeRowHeightPixels: Double = 24
 private let estimatedRowsPerScopedDirectory = 1000
 private let estimatedRowsForRootDirectory = 10_000
 
+struct BridgeWorktreeFileSurfaceActiveSourceState: Sendable {
+    let source: BridgeWorktreeFileSurfaceSourceIdentity
+    let streamId: String
+    var nextSequence: Int
+}
+
+private struct BridgeWorktreeFileSurfaceFrameIdentity: Decodable {
+    let streamId: String
+    let generation: Int
+    let sequence: Int
+}
+
 @MainActor
 extension BridgePaneController {
     func handleWorktreeFileSurfaceOpenSourceStream(
@@ -86,7 +98,69 @@ extension BridgePaneController {
         pendingWorktreeFileIntakeFrames = try Self.makeIntakeFrameStrings(
             fileDescriptors.map(\.frame)
         )
+        activeWorktreeFileSurfaceSource = BridgeWorktreeFileSurfaceActiveSourceState(
+            source: openedSource.source,
+            streamId: streamId,
+            nextSequence: 1 + fileDescriptors.count
+        )
         return snapshotFrame
+    }
+
+    func publishWorktreeFileSurfaceStatus(_ status: GitWorkingTreeStatus) async throws {
+        guard var activeSource = activeWorktreeFileSurfaceSource else {
+            return
+        }
+        guard activeSource.source.subscriptionGeneration == nextWorktreeFileSurfaceGeneration else {
+            return
+        }
+        let frame = BridgeWorktreeFileSurfaceClassifier.statusPatchFrame(
+            request: BridgeWorktreeStatusPatchBuildRequest(
+                source: activeSource.source,
+                streamId: activeSource.streamId,
+                sequence: activeSource.nextSequence,
+                status: status
+            )
+        )
+        activeSource.nextSequence += 1
+        activeWorktreeFileSurfaceSource = activeSource
+        try await dispatchWorktreeFileIntakeFrames([frame])
+    }
+
+    func publishWorktreeFileSurfaceChangeset(_ changeset: FileChangeset) async throws {
+        guard var activeSource = activeWorktreeFileSurfaceSource else {
+            return
+        }
+        guard activeSource.source.subscriptionGeneration == nextWorktreeFileSurfaceGeneration else {
+            return
+        }
+        let invalidationFrames = BridgeWorktreeFileSurfaceClassifier.fileInvalidationFrames(
+            request: BridgeWorktreeFileChangesetClassificationRequest(
+                source: activeSource.source,
+                streamId: activeSource.streamId,
+                firstSequence: activeSource.nextSequence,
+                changeset: changeset
+            )
+        )
+        guard !invalidationFrames.isEmpty else {
+            if changeset.containsGitInternalChanges {
+                let statusFrame = BridgeWorktreeFileSurfaceClassifier.statusInvalidatedFrame(
+                    request: BridgeWorktreeStatusInvalidationBuildRequest(
+                        source: activeSource.source,
+                        streamId: activeSource.streamId,
+                        sequence: activeSource.nextSequence,
+                        changeset: changeset
+                    )
+                )
+                activeSource.nextSequence += 1
+                activeWorktreeFileSurfaceSource = activeSource
+                try await dispatchWorktreeFileIntakeFrames([statusFrame])
+            }
+            return
+        }
+
+        activeSource.nextSequence += invalidationFrames.count
+        activeWorktreeFileSurfaceSource = activeSource
+        try await dispatchWorktreeFileIntakeFrames(invalidationFrames)
     }
 
     private func makeWorktreeFileSurfaceAuthority() throws -> Worktree {
@@ -196,20 +270,35 @@ extension BridgePaneController {
     private nonisolated static func makeIntakeFrameStrings(
         _ frames: [BridgeWorktreeFileDescriptorFrame]
     ) throws -> [String] {
+        try frames.map { try makeIntakeFrameString($0) }
+    }
+
+    private func dispatchWorktreeFileIntakeFrames<Frame: Encodable>(
+        _ frames: [Frame]
+    ) async throws {
+        let encodedFrames = try frames.map { try Self.makeIntakeFrameString($0) }
+        for encodedFrame in encodedFrames {
+            try await intakeFrameSink(page, encodedFrame, pushNonce)
+        }
+    }
+
+    private nonisolated static func makeIntakeFrameString<Frame: Encodable>(
+        _ frame: Frame
+    ) throws -> String {
         let encoder = JSONEncoder()
         let envelopeEncoder = BridgePushEnvelopeEncoder()
-        return try frames.map { frame in
-            try envelopeEncoder.encodeIntakeFrame(
-                metadata: BridgeIntakeFrameMetadata(
-                    kind: .delta,
-                    streamId: frame.streamId,
-                    generation: frame.generation,
-                    sequence: frame.sequence
-                ),
-                payload: encoder.encode(frame),
-                traceContext: nil
-            )
-        }
+        let frameData = try encoder.encode(frame)
+        let object = try JSONDecoder().decode(BridgeWorktreeFileSurfaceFrameIdentity.self, from: frameData)
+        return try envelopeEncoder.encodeIntakeFrame(
+            metadata: BridgeIntakeFrameMetadata(
+                kind: .delta,
+                streamId: object.streamId,
+                generation: object.generation,
+                sequence: object.sequence
+            ),
+            payload: frameData,
+            traceContext: nil
+        )
     }
 
     private struct WorktreeFileSurfaceResourceBodyRegistration: Sendable {
