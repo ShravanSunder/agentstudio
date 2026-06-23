@@ -6,9 +6,23 @@ Created: 2026-06-22
 ## Current State
 
 Current workflow: `shravan-dev-workflow:implementation-execute-plan`
-Next workflow: `shravan-dev-workflow:implementation-review-swarm`
+Next workflow: `shravan-dev-workflow:implementation-execute-plan`
 
 Reason:
+
+- Ticket 02 Review protocol/demand vertical is checkpoint-committed at
+  `996b7464`. The post-review reducer accepted the corrected closed-app native
+  lease authority boundary, addressed accepted review findings, and recorded
+  split WebKit proof plus the Ticket 03/04 scroll canary caveat.
+- Next implementation checkpoint is Ticket 03: Worktree/File native provider
+  boundary, especially provider-owned source identity, descriptors,
+  invalidations/resets, and stable virtualized-size facts for tree/file extent
+  before Ticket 04 browser scroll canary work.
+- Latest official orchestrator route should advance from
+  `shravan-dev-workflow:implementation-review-swarm` to
+  `shravan-dev-workflow:implementation-execute-plan` for Ticket 03.
+
+Historical context:
 
 - Latest transition after authority-boundary reconvergence routes from
   `shravan-dev-workflow:implementation-execute-plan` to
