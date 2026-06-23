@@ -5,8 +5,8 @@ Created: 2026-06-22
 
 ## Current State
 
-Current workflow: ticket-01-fifth-review-fifth-post-review-fix-complete
-Next workflow: `shravan-dev-workflow:implementation-review-swarm`
+Current workflow: ticket-01-implementation-review-complete
+Next workflow: `shravan-dev-workflow:implementation-execute-plan`
 
 Reason:
 
@@ -137,8 +137,11 @@ Reason:
   `f892f007 test: bound bridge body emission proof`. It makes the emission step
   gate stream-finished aware and makes the GET-body test fail immediately if
   the body hook is not reached.
-- Next step is to route `f892f007` back to implementation-review-swarm before
-  ticket 02 begins.
+- Re-review of `f892f007` / `29955968` returned `ready` with no accepted
+  findings across proof-helper reliability, docs/workflow-state mapping, and
+  trust-boundary regression smoke lanes.
+- Next step is to start checkpoint 2 / ticket 02 through
+  `shravan-dev-workflow:implementation-execute-plan`.
 
 ## Key Artifacts
 
@@ -248,8 +251,8 @@ Status: ticket 00 committed; ticket 01 original checkpoint committed; first
 ticket 01 review-fix checkpoint committed but review returned `not_ready`;
 second ticket 01 review-fix pass is committed and proven; third ticket 01
 review-fix pass returned `not_ready`; fourth and fifth follow-up fixes are
-committed; the fifth-review fifth post-review follow-up is proven and ready for
-re-review.
+committed; the fifth-review fifth post-review follow-up is proven and reviewed
+ready.
 
 Evidence:
 
@@ -277,6 +280,8 @@ Evidence:
   `2d55eef2 fix: close bridge lease proof gaps`
 - ticket 01 fifth-review fifth post-review follow-up commit:
   `f892f007 test: bound bridge body emission proof`
+- ticket 01 final bounded-proof docs commit:
+  `29955968 docs: record bounded bridge proof fix`
 - ticket 01 fourth-review follow-up report:
   `tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/implementation-review-ticket-01-fourth-review-fix/report.md`
 - ticket 01 fifth-review follow-up report:
@@ -292,8 +297,7 @@ Evidence:
 
 Open before ticket 02:
 
-- re-review the fixed ticket-01 trust/transport boundary after the
-  fifth-review fifth post-review follow-up fix
+- none for ticket 01 review; checkpoint 2 / ticket 02 can begin
 - keep broad Swift health open until the unrelated CommandBar title mismatch is
   fixed in a separate scope or final milestone proof passes
 
