@@ -91,6 +91,12 @@ final class BridgeSchemeHandlerLeaseAuthorityTests {
                 protocolId: "review",
                 resourceKind: "content"
             ) == false)
+        #expect(
+            resourceLeaseRegistry.revocationRevision(
+                paneId: paneId,
+                protocolId: "review",
+                resourceKind: "content"
+            ) == 1)
     }
 
     @Test
@@ -109,6 +115,47 @@ final class BridgeSchemeHandlerLeaseAuthorityTests {
         )
 
         await resourceLeaseRegistry.reset(paneId: paneId, protocolId: "review", resourceKind: "content")
+        let staleRegistered = await resourceLeaseRegistry.register(
+            resource,
+            paneId: paneId,
+            expectedRevocationRevision: initialRevision
+        )
+        let currentRegistered = await resourceLeaseRegistry.register(
+            resource,
+            paneId: paneId,
+            expectedRevocationRevision: resourceLeaseRegistry.revocationRevision(
+                paneId: paneId,
+                protocolId: "review",
+                resourceKind: "content"
+            )
+        )
+
+        #expect(staleRegistered == false)
+        #expect(currentRegistered == true)
+        #expect(await resourceLeaseRegistry.contains(resource, paneId: paneId) == true)
+    }
+
+    @Test
+    func test_transportResourceLeaseRegisterRejectsStaleRevisionAfterTargetedRevoke() async throws {
+        let resource = try #require(
+            BridgeTransportResourceURL.parse(
+                "agentstudio://resource/review/content/handle-old?generation=7",
+                allowedResourceKindsByProtocol: ["review": Set(["content"])]
+            ))
+        let paneId = UUID()
+        let resourceLeaseRegistry = BridgeTransportResourceLeaseRegistry()
+        let initialRevision = resourceLeaseRegistry.revocationRevision(
+            paneId: paneId,
+            protocolId: "review",
+            resourceKind: "content"
+        )
+        await resourceLeaseRegistry.register(
+            resource,
+            paneId: paneId,
+            expectedRevocationRevision: initialRevision
+        )
+
+        await resourceLeaseRegistry.revoke(resource)
         let staleRegistered = await resourceLeaseRegistry.register(
             resource,
             paneId: paneId,

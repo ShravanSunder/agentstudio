@@ -14,8 +14,31 @@ private final class BridgeTransportResourceLeaseAuthorityGate: @unchecked Sendab
         }
     }
 
+    private struct ResourceRevocationKey: Hashable {
+        let paneId: UUID
+        let protocolId: String
+        let resourceKind: String
+        let canonicalURL: String
+
+        init(resource: BridgeTransportResourceURL, paneId: UUID) {
+            self.paneId = paneId
+            protocolId = resource.protocolId
+            resourceKind = resource.resourceKind
+            canonicalURL = resource.canonicalURL
+        }
+
+        func matches(resource: BridgeTransportResourceURL, paneId: UUID) -> Bool {
+            self.paneId == paneId && canonicalURL == resource.canonicalURL
+        }
+
+        func matches(paneId: UUID, protocolId: String, resourceKind: String) -> Bool {
+            self.paneId == paneId && self.protocolId == protocolId && self.resourceKind == resourceKind
+        }
+    }
+
     private let lock = NSLock()
     private var revokedKeys: Set<RevocationKey> = []
+    private var revokedResourceKeys: Set<ResourceRevocationKey> = []
     private var revocationRevisionByKey: [RevocationKey: UInt64] = [:]
 
     func revoke(paneId: UUID, protocolId: String?, resourceKind: String?) {
@@ -26,11 +49,25 @@ private final class BridgeTransportResourceLeaseAuthorityGate: @unchecked Sendab
         }
     }
 
+    func revoke(resource: BridgeTransportResourceURL, paneId: UUID) {
+        lock.withLock {
+            let resourceKey = ResourceRevocationKey(resource: resource, paneId: paneId)
+            _ = revokedResourceKeys.insert(resourceKey)
+            let revisionKey = RevocationKey(
+                paneId: paneId,
+                protocolId: resource.protocolId,
+                resourceKind: resource.resourceKind
+            )
+            revocationRevisionByKey[revisionKey, default: 0] += 1
+        }
+    }
+
     func authorize(
         paneId: UUID,
         protocolId: String,
         resourceKind: String,
-        expectedRevocationRevision: UInt64? = nil
+        expectedRevocationRevision: UInt64? = nil,
+        resource: BridgeTransportResourceURL? = nil
     ) -> Bool {
         lock.withLock {
             if let expectedRevocationRevision,
@@ -45,33 +82,47 @@ private final class BridgeTransportResourceLeaseAuthorityGate: @unchecked Sendab
                 guard key.resourceKind.map({ $0 == resourceKind }) ?? true else { return true }
                 return false
             }
+            if let resource {
+                revokedResourceKeys.remove(
+                    ResourceRevocationKey(resource: resource, paneId: paneId)
+                )
+            } else {
+                revokedResourceKeys = revokedResourceKeys.filter { key in
+                    !key.matches(paneId: paneId, protocolId: protocolId, resourceKind: resourceKind)
+                }
+            }
             return true
         }
     }
 
     func isRevoked(resource: BridgeTransportResourceURL, paneId: UUID) -> Bool {
         lock.withLock {
-            revokedKeys.contains { key in
+            revokedResourceKeys.contains { key in
                 key.matches(resource: resource, paneId: paneId)
             }
+                || revokedKeys.contains { key in
+                    key.matches(resource: resource, paneId: paneId)
+                }
         }
     }
 
     func performWhileNotRevoked(
         resource: BridgeTransportResourceURL,
         paneId: UUID,
-        _ operation: () -> Void
+        _ operation: () -> Bool
     ) -> Bool {
         lock.withLock {
             guard
+                !revokedResourceKeys.contains(where: { key in
+                    key.matches(resource: resource, paneId: paneId)
+                }),
                 !revokedKeys.contains(where: { key in
                     key.matches(resource: resource, paneId: paneId)
                 })
             else {
                 return false
             }
-            operation()
-            return true
+            return operation()
         }
     }
 
@@ -138,14 +189,6 @@ actor BridgeTransportResourceLeaseRegistry {
         authorityGate.isRevoked(paneId: paneId, protocolId: protocolId, resourceKind: resourceKind)
     }
 
-    nonisolated func performWhileNotRevokedSynchronously(
-        resource: BridgeTransportResourceURL,
-        paneId: UUID,
-        _ operation: () -> Void
-    ) -> Bool {
-        authorityGate.performWhileNotRevoked(resource: resource, paneId: paneId, operation)
-    }
-
     nonisolated func revocationRevision(
         paneId: UUID,
         protocolId: String,
@@ -188,7 +231,8 @@ actor BridgeTransportResourceLeaseRegistry {
                 paneId: lease.paneId,
                 protocolId: lease.resource.protocolId,
                 resourceKind: lease.resource.resourceKind,
-                expectedRevocationRevision: expectedRevocationRevision
+                expectedRevocationRevision: expectedRevocationRevision,
+                resource: lease.resource
             )
         else {
             return false
@@ -198,7 +242,10 @@ actor BridgeTransportResourceLeaseRegistry {
     }
 
     func revoke(_ resource: BridgeTransportResourceURL) {
-        leasesByCanonicalURL.removeValue(forKey: resource.canonicalURL)
+        guard let lease = leasesByCanonicalURL.removeValue(forKey: resource.canonicalURL) else {
+            return
+        }
+        authorityGate.revoke(resource: lease.resource, paneId: lease.paneId)
     }
 
     func reset(
@@ -213,15 +260,24 @@ actor BridgeTransportResourceLeaseRegistry {
         if revokeAuthority, generation == nil, revision == nil, cursor == nil {
             authorityGate.revoke(paneId: paneId, protocolId: protocolId, resourceKind: resourceKind)
         }
-        leasesByCanonicalURL = leasesByCanonicalURL.filter { _, lease in
-            guard lease.paneId == paneId else { return true }
-            guard protocolId.map({ lease.resource.protocolId == $0 }) ?? true else { return true }
-            guard resourceKind.map({ lease.resource.resourceKind == $0 }) ?? true else { return true }
-            guard generation.map({ lease.resource.generation == $0 }) ?? true else { return true }
-            guard revision.map({ lease.resource.revision == $0 }) ?? true else { return true }
-            guard cursor.map({ lease.resource.cursor == $0 }) ?? true else { return true }
-            return false
+        let isFilteredReset = generation != nil || revision != nil || cursor != nil
+        var retainedLeasesByCanonicalURL: [String: BridgeTransportResourceLease] = [:]
+        for (canonicalURL, lease) in leasesByCanonicalURL {
+            let shouldRemove =
+                lease.paneId == paneId
+                && (protocolId.map({ lease.resource.protocolId == $0 }) ?? true)
+                && (resourceKind.map({ lease.resource.resourceKind == $0 }) ?? true)
+                && (generation.map({ lease.resource.generation == $0 }) ?? true)
+                && (revision.map({ lease.resource.revision == $0 }) ?? true)
+                && (cursor.map({ lease.resource.cursor == $0 }) ?? true)
+            if shouldRemove, revokeAuthority, isFilteredReset {
+                authorityGate.revoke(resource: lease.resource, paneId: lease.paneId)
+            }
+            if !shouldRemove {
+                retainedLeasesByCanonicalURL[canonicalURL] = lease
+            }
         }
+        leasesByCanonicalURL = retainedLeasesByCanonicalURL
     }
 
     @discardableResult
@@ -267,6 +323,29 @@ actor BridgeTransportResourceLeaseRegistry {
         guard !authorityGate.isRevoked(resource: resource, paneId: paneId) else {
             return false
         }
+        return containsActiveLease(resource, paneId: paneId, contentLength: contentLength)
+    }
+
+    func performWhileLeased(
+        _ resource: BridgeTransportResourceURL,
+        paneId: UUID,
+        contentLength: Int? = nil,
+        _ operation: () -> Void
+    ) -> Bool {
+        authorityGate.performWhileNotRevoked(resource: resource, paneId: paneId) {
+            guard containsActiveLease(resource, paneId: paneId, contentLength: contentLength) else {
+                return false
+            }
+            operation()
+            return true
+        }
+    }
+
+    private func containsActiveLease(
+        _ resource: BridgeTransportResourceURL,
+        paneId: UUID,
+        contentLength: Int?
+    ) -> Bool {
         guard let lease = leasesByCanonicalURL[resource.canonicalURL] else {
             return false
         }

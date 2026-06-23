@@ -22,6 +22,7 @@ struct BridgeSchemeHandler: URLSchemeHandler {
     let resourceLeaseRegistry: BridgeTransportResourceLeaseRegistry
     let allowedResourceKindsByProtocol: [String: Set<String>]
     let telemetryRecorder: (any BridgePerformanceTraceRecording)?
+    let beforeContentEmission: (@Sendable () async -> Void)?
 
     init(
         paneId: UUID,
@@ -30,7 +31,8 @@ struct BridgeSchemeHandler: URLSchemeHandler {
         resourceLeaseRegistry: BridgeTransportResourceLeaseRegistry = BridgeTransportResourceLeaseRegistry(),
         allowedResourceKindsByProtocol: [String: Set<String>] =
             BridgeResourceProtocolRegistry.reviewViewerAllowedResourceKinds,
-        telemetryRecorder: (any BridgePerformanceTraceRecording)? = nil
+        telemetryRecorder: (any BridgePerformanceTraceRecording)? = nil,
+        beforeContentEmission: (@Sendable () async -> Void)? = nil
     ) {
         self.paneId = paneId
         self.contentStore = contentStore
@@ -38,6 +40,7 @@ struct BridgeSchemeHandler: URLSchemeHandler {
         self.resourceLeaseRegistry = resourceLeaseRegistry
         self.allowedResourceKindsByProtocol = allowedResourceKindsByProtocol
         self.telemetryRecorder = telemetryRecorder
+        self.beforeContentEmission = beforeContentEmission
     }
 
     // MARK: - URLSchemeHandler
@@ -259,10 +262,12 @@ struct BridgeSchemeHandler: URLSchemeHandler {
                 return
             }
             try Task.checkCancellation()
+            await beforeContentEmission?()
             guard
-                resourceLeaseRegistry.performWhileNotRevokedSynchronously(
-                    resource: emissionRequest.leasedResource,
+                await resourceLeaseRegistry.performWhileLeased(
+                    emissionRequest.leasedResource,
                     paneId: paneId,
+                    contentLength: result.data.count,
                     {
                         continuation.yield(
                             .response(
@@ -290,10 +295,12 @@ struct BridgeSchemeHandler: URLSchemeHandler {
                     return
                 }
                 try Task.checkCancellation()
+                await beforeContentEmission?()
                 guard
-                    resourceLeaseRegistry.performWhileNotRevokedSynchronously(
-                        resource: emissionRequest.leasedResource,
+                    await resourceLeaseRegistry.performWhileLeased(
+                        emissionRequest.leasedResource,
                         paneId: paneId,
+                        contentLength: result.data.count,
                         {
                             continuation.yield(.data(result.data))
                         }
@@ -337,10 +344,12 @@ struct BridgeSchemeHandler: URLSchemeHandler {
                 continuation.finish(throwing: BridgeSchemeError.invalidRoute(emissionRequest.url.absoluteString))
                 return
             }
+            await beforeContentEmission?()
             guard
-                resourceLeaseRegistry.performWhileNotRevokedSynchronously(
-                    resource: emissionRequest.leasedResource,
+                await resourceLeaseRegistry.performWhileLeased(
+                    emissionRequest.leasedResource,
                     paneId: paneId,
+                    contentLength: handle.sizeBytes,
                     {
                         continuation.yield(
                             .response(
