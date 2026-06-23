@@ -338,6 +338,152 @@ struct BridgeWorktreeFileSurfaceTransportTests {
         fixture.controller.teardown()
     }
 
+    @Test("live Worktree/File invalidation carries latest descriptor and serves replacement bytes")
+    func liveWorktreeFileInvalidationCarriesLatestDescriptorAndServesReplacementBytes() async throws {
+        let eventCapture = BridgeWorktreeFileSurfaceEventCapture()
+        let fixture = try makeControllerFixtureWithIntakeSink(
+            intakeFrameSink: { _, frameJSON, _ in
+                await eventCapture.recordIntake(frameJSON)
+            }
+        )
+        defer { try? FileManager.default.removeItem(at: fixture.rootURL) }
+        let fileURL = fixture.rootURL
+            .appending(path: "Sources")
+            .appending(path: "App")
+            .appending(path: "View.swift")
+        let updatedText = "struct View {}\nlet updated = true\n"
+        try FileManager.default.createDirectory(
+            at: fileURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try updatedText.write(to: fileURL, atomically: true, encoding: .utf8)
+        let responseCapture = BridgeWorktreeFileSurfaceResponseCapture()
+        fixture.controller.router.onResponse = { responseJSON in
+            await eventCapture.recordResponse()
+            await responseCapture.set(responseJSON)
+        }
+        await fixture.controller.handleIncomingRPC(
+            #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
+        )
+        let spec = sourceSpec(
+            fixture: fixture,
+            clientRequestId: "request-replacement",
+            pathScope: [],
+            includeFileDescriptors: false
+        )
+
+        await fixture.controller.handleIncomingRPC(
+            try BridgeWorktreeFileSurfaceRPCRequest(
+                id: "open-replacement",
+                method: "worktreeFileSurface.openSourceStream",
+                params: spec
+            ).jsonString()
+        )
+        let response = try await decodedResponse(from: responseCapture)
+        try await fixture.controller.publishWorktreeFileSurfaceChangeset(
+            FileChangeset(
+                worktreeId: fixture.worktreeId,
+                rootPath: fixture.rootURL,
+                paths: ["Sources/App/View.swift"],
+                timestamp: .now,
+                batchSeq: 43
+            )
+        )
+
+        let intakeFrame = try #require(await eventCapture.intakeFrames().first)
+        let invalidation = try decodeIntakeEnvelope(
+            intakeFrame,
+            as: BridgeWorktreeFileInvalidatedFrame.self
+        )
+        let latestDescriptor = try #require(invalidation.payload.invalidation.latestDescriptor)
+        #expect(invalidation.streamId == response.result.streamId)
+        #expect(invalidation.sequence == 1)
+        #expect(latestDescriptor.path == "Sources/App/View.swift")
+        #expect(latestDescriptor.virtualizedExtentKind == .exactLineCount)
+        #expect(latestDescriptor.lineCount == 3)
+        let contentResource = try #require(
+            BridgeTransportResourceURL.parse(
+                latestDescriptor.contentDescriptor.descriptor.resourceUrl,
+                allowedResourceKindsByProtocol: BridgeResourceProtocolRegistry.reviewViewerAllowedResourceKinds
+            )
+        )
+        #expect(await fixture.controller.resourceLeaseRegistry.contains(contentResource, paneId: fixture.paneId))
+        let schemeHandler = BridgeSchemeHandler(
+            paneId: fixture.paneId,
+            worktreeFileResourceStore: fixture.controller.worktreeFileResourceStore,
+            resourceLeaseRegistry: fixture.controller.resourceLeaseRegistry
+        )
+        let contentBody = try await resourceBody(
+            url: latestDescriptor.contentDescriptor.descriptor.resourceUrl,
+            handler: schemeHandler
+        )
+        #expect(String(data: contentBody, encoding: .utf8) == updatedText)
+        fixture.controller.teardown()
+    }
+
+    @Test("live Worktree/File reset revokes source leases and suppresses stale frames")
+    func liveWorktreeFileResetRevokesSourceLeasesAndSuppressesStaleFrames() async throws {
+        let eventCapture = BridgeWorktreeFileSurfaceEventCapture()
+        let fixture = try makeControllerFixtureWithIntakeSink(
+            intakeFrameSink: { _, frameJSON, _ in
+                await eventCapture.recordIntake(frameJSON)
+            }
+        )
+        defer { try? FileManager.default.removeItem(at: fixture.rootURL) }
+        let responseCapture = BridgeWorktreeFileSurfaceResponseCapture()
+        fixture.controller.router.onResponse = { responseJSON in
+            await eventCapture.recordResponse()
+            await responseCapture.set(responseJSON)
+        }
+        await fixture.controller.handleIncomingRPC(
+            #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
+        )
+
+        await fixture.controller.handleIncomingRPC(
+            try BridgeWorktreeFileSurfaceRPCRequest(
+                id: "open-reset",
+                method: "worktreeFileSurface.openSourceStream",
+                params: sourceSpec(
+                    fixture: fixture,
+                    clientRequestId: "request-reset",
+                    pathScope: [],
+                    includeFileDescriptors: false
+                )
+            ).jsonString()
+        )
+        let response = try await decodedResponse(from: responseCapture)
+        let treeResource = try #require(
+            BridgeTransportResourceURL.parse(
+                response.result.treeDescriptor.descriptor.resourceUrl,
+                allowedResourceKindsByProtocol: BridgeResourceProtocolRegistry.reviewViewerAllowedResourceKinds
+            )
+        )
+        #expect(await fixture.controller.resourceLeaseRegistry.contains(treeResource, paneId: fixture.paneId))
+
+        try await fixture.controller.publishWorktreeFileSurfaceReset(reason: .providerRestart)
+        try await fixture.controller.publishWorktreeFileSurfaceStatus(
+            GitWorkingTreeStatus(
+                summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
+                branch: "stale",
+                origin: nil
+            )
+        )
+
+        let intakeFrames = await eventCapture.intakeFrames()
+        #expect(intakeFrames.count == 1)
+        let reset = try decodeIntakeEnvelope(
+            intakeFrames[0],
+            as: BridgeWorktreeResetFrame.self
+        )
+        #expect(reset.streamId == response.result.streamId)
+        #expect(reset.sequence == 1)
+        #expect(reset.payload.frameKind == "worktree.reset")
+        #expect(reset.payload.reason == .providerRestart)
+        #expect(reset.payload.source == response.result.source)
+        #expect(await fixture.controller.resourceLeaseRegistry.contains(treeResource, paneId: fixture.paneId) == false)
+        fixture.controller.teardown()
+    }
+
     private func makeControllerFixture() throws -> BridgeWorktreeFileSurfaceControllerFixture {
         try makeControllerFixtureWithIntakeSink(intakeFrameSink: nil)
     }

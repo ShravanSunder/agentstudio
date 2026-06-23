@@ -1010,10 +1010,10 @@ Checkpoint 3: Worktree/File native provider boundary
 - Current native progress:
   source identity, snapshot descriptor leases, tree/status body serving,
   selected-file descriptor/content materialization, active source retention, and
-  live status/file-invalidation frame dispatch are proven by focused Swift
-  gates. Remaining native gaps are automatic watcher/status wiring into those
-  dispatch methods, live reset frames, descriptor replacement frames, and the
-  mandatory Ticket 03 implementation review.
+  live status/file-invalidation/reset frame dispatch with replacement
+  descriptor materialization are proven by focused Swift gates. Remaining
+  native gaps are automatic watcher/status wiring into those dispatch methods
+  and the mandatory Ticket 03 implementation review.
 - Commit only after native/provider proof passes.
 - Review before browser surface work if provider authority changed.
 

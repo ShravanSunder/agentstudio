@@ -259,6 +259,41 @@ Live source/status/invalidation proof captured 2026-06-23:
   `swiftlint lint --strict <three changed Swift files>` exited 0 with 0
   violations
 
+Live reset/descriptor replacement proof captured 2026-06-23:
+
+- accepted/fixed: `BridgePaneController.publishWorktreeFileSurfaceReset` now
+  emits a live `worktree.reset` frame for the current generation, clears active
+  source state, drops pending Worktree/File intake frames, revokes pane-scoped
+  `worktree-file` leases, and resets the Worktree/File resource store before
+  stale updates can publish
+- accepted/fixed: live `worktree.fileInvalidated` frames can now carry a
+  `latestDescriptor` for changed regular files, including a replacement content
+  descriptor, exact text line count, content handle, native resource lease, and
+  fetchable `worktree.fileContent` bytes through `BridgeSchemeHandler`
+- changed-file materialization filters `.git` internals before descriptor
+  creation; non-regular changed paths still invalidate by path without
+  replacement content authority
+- red:
+  `SWIFT_TEST_TIMEOUT_SECONDS=120 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180 mise run test-fast -- --filter BridgeWorktreeFileSurfaceTransportTests`
+  exited 1 before implementation because `publishWorktreeFileSurfaceReset` did
+  not exist and the invalidation path did not materialize replacement
+  descriptors
+- green:
+  same command exited 0 with 6 tests in 1 suite passing
+- green:
+  `SWIFT_TEST_TIMEOUT_SECONDS=120 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180 mise run test-fast -- --filter 'BridgeWorktreeFileSurfaceTransportTests|BridgeSchemeHandlerWorktreeFileResourceTests|BridgeWorktreeFileSourceProviderTests|BridgeWorktreeFileSurfaceTests|BridgeWorktreeFileSurfaceNativeTests'`
+  exited 0 with 37 tests in 5 suites passing
+- changed-file lint:
+  `swiftlint lint --strict <five changed Swift files>` exited 0 with 0
+  violations
+- diff hygiene:
+  `git diff --check` exited 0
+- workflow log:
+  `events.jsonl` validated as JSONL with 52 lines after the proof event
+- quality:
+  `mise run lint` exited 0; swift-format OK, SwiftLint 0 violations,
+  architecture lint OK, release script verification passed
+
 Focused suites should include or add:
 
 - `BridgeWorktreeFileSurfaceTests`
@@ -345,11 +380,10 @@ Verdict: `not_ready`.
 Open accepted blockers before Ticket 04:
 
 - production runtime now retains an active Worktree/File source and has native
-  methods to emit live `worktree.statusPatch` and `worktree.fileInvalidated`
-  frames, but full filesystem/status watcher wiring still has to call those
-  methods automatically
-- live `worktree.reset` and descriptor replacement frames from filesystem/status
-  updates remain open
+  methods to emit live `worktree.statusPatch`, `worktree.fileInvalidated`, and
+  `worktree.reset` frames with replacement descriptor support, but full
+  filesystem/status watcher wiring still has to call those methods
+  automatically
 
 Open accepted important item:
 

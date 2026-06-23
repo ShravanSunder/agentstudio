@@ -133,12 +133,38 @@ extension BridgePaneController {
         guard activeSource.source.subscriptionGeneration == nextWorktreeFileSurfaceGeneration else {
             return
         }
+        let rootURL = try worktreeFileSurfaceRootURL()
+        let materializedDescriptors = try await BridgeWorktreeFileMaterializer.materializeChangedFileDescriptors(
+            request: BridgeWorktreeChangedFileMaterializationRequest(
+                rootURL: rootURL,
+                paneId: paneId,
+                source: activeSource.source,
+                streamId: activeSource.streamId,
+                firstSequence: activeSource.nextSequence,
+                relativePaths: changeset.paths.filter { !Self.isWorktreeFileGitInternalPath($0) }
+            )
+        )
+        guard activeSource.source.subscriptionGeneration == nextWorktreeFileSurfaceGeneration else {
+            return
+        }
+        try await activateWorktreeFileSurfaceLeases(
+            materializedDescriptors.map { $0.frame.descriptor.contentDescriptor.descriptor }
+        )
+        for descriptor in materializedDescriptors {
+            await worktreeFileResourceStore.register(descriptor.resource, body: descriptor.body)
+        }
+        let latestDescriptorsByPath = Dictionary(
+            uniqueKeysWithValues: materializedDescriptors.map {
+                ($0.frame.descriptor.path, $0.frame.descriptor)
+            }
+        )
         let invalidationFrames = BridgeWorktreeFileSurfaceClassifier.fileInvalidationFrames(
             request: BridgeWorktreeFileChangesetClassificationRequest(
                 source: activeSource.source,
                 streamId: activeSource.streamId,
                 firstSequence: activeSource.nextSequence,
-                changeset: changeset
+                changeset: changeset,
+                latestDescriptorsByPath: latestDescriptorsByPath
             )
         )
         guard !invalidationFrames.isEmpty else {
@@ -161,6 +187,30 @@ extension BridgePaneController {
         activeSource.nextSequence += invalidationFrames.count
         activeWorktreeFileSurfaceSource = activeSource
         try await dispatchWorktreeFileIntakeFrames(invalidationFrames)
+    }
+
+    func publishWorktreeFileSurfaceReset(reason: BridgeWorktreeResetReason) async throws {
+        guard let activeSource = activeWorktreeFileSurfaceSource else {
+            return
+        }
+        guard activeSource.source.subscriptionGeneration == nextWorktreeFileSurfaceGeneration else {
+            return
+        }
+        let frame = BridgeWorktreeFileSurfaceFrameBuilder.reset(
+            request: BridgeWorktreeResetBuildRequest(
+                streamId: activeSource.streamId,
+                sequence: activeSource.nextSequence,
+                reason: reason,
+                source: activeSource.source,
+                replacementDescriptor: nil
+            )
+        )
+        activeWorktreeFileSurfaceSource = nil
+        nextWorktreeFileSurfaceGeneration += 1
+        pendingWorktreeFileIntakeFrames.removeAll(keepingCapacity: false)
+        resourceLeaseRegistry.revokeSynchronously(paneId: paneId, protocolId: "worktree-file")
+        await worktreeFileResourceStore.reset(protocolId: "worktree-file")
+        try await dispatchWorktreeFileIntakeFrames([frame])
     }
 
     private func makeWorktreeFileSurfaceAuthority() throws -> Worktree {
@@ -227,6 +277,10 @@ extension BridgePaneController {
                 estimatedTotalHeightPixels: Double(estimatedRows) * worktreeFileTreeRowHeightPixels
             )
         }.value
+    }
+
+    private nonisolated static func isWorktreeFileGitInternalPath(_ path: String) -> Bool {
+        path == ".git" || path.hasPrefix(".git/")
     }
 
     private func activateWorktreeFileSurfaceLeases(_ snapshotFrame: BridgeWorktreeSnapshotFrame) async throws {

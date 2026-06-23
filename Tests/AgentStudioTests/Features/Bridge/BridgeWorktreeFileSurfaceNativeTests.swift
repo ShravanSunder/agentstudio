@@ -56,7 +56,8 @@ struct BridgeWorktreeFileSurfaceNativeTests {
                 source: sourceIdentity,
                 streamId: "worktree:pane-1",
                 firstSequence: 9,
-                changeset: changeset
+                changeset: changeset,
+                latestDescriptorsByPath: [:]
             )
         )
 
@@ -83,7 +84,8 @@ struct BridgeWorktreeFileSurfaceNativeTests {
                 source: sourceIdentity,
                 streamId: "worktree:pane-1",
                 firstSequence: 10,
-                changeset: changeset
+                changeset: changeset,
+                latestDescriptorsByPath: [:]
             )
         )
 

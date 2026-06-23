@@ -15,6 +15,24 @@ struct BridgeWorktreeFileMaterializationRequest: Sendable {
     let firstSequence: Int
 }
 
+struct BridgeWorktreeChangedFileMaterializationRequest: Sendable {
+    let rootURL: URL
+    let paneId: UUID
+    let source: BridgeWorktreeFileSurfaceSourceIdentity
+    let streamId: String
+    let firstSequence: Int
+    let relativePaths: [String]
+}
+
+private struct BridgeWorktreeFileDescriptorMaterializationProps: Sendable {
+    let paneId: UUID
+    let source: BridgeWorktreeFileSurfaceSourceIdentity
+    let streamId: String
+    let fileURL: URL
+    let relativePath: String
+    let sequence: Int
+}
+
 enum BridgeWorktreeFileMaterializer {
     static func materializeInitialFileDescriptors(
         request: BridgeWorktreeFileMaterializationRequest
@@ -26,6 +44,15 @@ enum BridgeWorktreeFileMaterializer {
         // swiftlint:disable:next no_task_detached
         return try await Task.detached(priority: .utility) {
             try materializeInitialFileDescriptorsSynchronously(request: request)
+        }.value
+    }
+
+    static func materializeChangedFileDescriptors(
+        request: BridgeWorktreeChangedFileMaterializationRequest
+    ) async throws -> [BridgeWorktreeMaterializedFileDescriptor] {
+        // swiftlint:disable:next no_task_detached
+        try await Task.detached(priority: .utility) {
+            try materializeChangedFileDescriptorsSynchronously(request: request)
         }.value
     }
 
@@ -55,19 +82,78 @@ enum BridgeWorktreeFileMaterializer {
         return materializedDescriptors
     }
 
+    private static func materializeChangedFileDescriptorsSynchronously(
+        request: BridgeWorktreeChangedFileMaterializationRequest
+    ) throws -> [BridgeWorktreeMaterializedFileDescriptor] {
+        var materializedDescriptors: [BridgeWorktreeMaterializedFileDescriptor] = []
+        var nextSequence = request.firstSequence
+
+        for relativePath in request.relativePaths where relativePath != "." {
+            let fileURL = request.rootURL.appending(path: relativePath)
+            let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey])
+            guard values?.isRegularFile == true else {
+                continue
+            }
+
+            let materializedDescriptor = try materializeFileDescriptor(
+                request: request,
+                fileURL: fileURL,
+                relativePath: relativePath,
+                sequence: nextSequence
+            )
+            materializedDescriptors.append(materializedDescriptor)
+            nextSequence += 1
+        }
+
+        return materializedDescriptors
+    }
+
     private static func materializeFileDescriptor(
         request: BridgeWorktreeFileMaterializationRequest,
         fileURL: URL,
         relativePath: String,
         sequence: Int
     ) throws -> BridgeWorktreeMaterializedFileDescriptor {
-        let data = try Data(contentsOf: fileURL)
+        try materializeFileDescriptor(
+            props: BridgeWorktreeFileDescriptorMaterializationProps(
+                paneId: request.paneId,
+                source: request.openedSource.source,
+                streamId: request.streamId,
+                fileURL: fileURL,
+                relativePath: relativePath,
+                sequence: sequence
+            )
+        )
+    }
+
+    private static func materializeFileDescriptor(
+        request: BridgeWorktreeChangedFileMaterializationRequest,
+        fileURL: URL,
+        relativePath: String,
+        sequence: Int
+    ) throws -> BridgeWorktreeMaterializedFileDescriptor {
+        try materializeFileDescriptor(
+            props: BridgeWorktreeFileDescriptorMaterializationProps(
+                paneId: request.paneId,
+                source: request.source,
+                streamId: request.streamId,
+                fileURL: fileURL,
+                relativePath: relativePath,
+                sequence: sequence
+            )
+        )
+    }
+
+    private static func materializeFileDescriptor(
+        props: BridgeWorktreeFileDescriptorMaterializationProps
+    ) throws -> BridgeWorktreeMaterializedFileDescriptor {
+        let data = try Data(contentsOf: props.fileURL)
         let text = String(data: data, encoding: .utf8)
         let isBinary = text == nil
-        let fileExtension = nonEmpty(fileURL.pathExtension)
+        let fileExtension = nonEmpty(props.fileURL.pathExtension)
         let contentHash = sha256Hex(data)
         let contentHandle = "worktree-file-content-\(contentHash.prefix(32))"
-        let fileId = "worktree-file-\(sha256Hex(Data(relativePath.utf8)).prefix(32))"
+        let fileId = "worktree-file-\(sha256Hex(Data(props.relativePath.utf8)).prefix(32))"
         let virtualizedExtentKind = virtualizedExtentKind(
             isBinary: isBinary,
             sizeBytes: data.count
@@ -76,11 +162,11 @@ enum BridgeWorktreeFileMaterializer {
         let bodyData = boundedBodyData(data)
         let frame = try BridgeWorktreeFileSurfaceFrameBuilder.fileDescriptor(
             request: BridgeWorktreeFileDescriptorBuildRequest(
-                paneId: request.paneId.uuidString,
-                source: request.openedSource.source,
-                streamId: request.streamId,
-                sequence: sequence,
-                path: relativePath,
+                paneId: props.paneId.uuidString,
+                source: props.source,
+                streamId: props.streamId,
+                sequence: props.sequence,
+                path: props.relativePath,
                 fileId: String(fileId),
                 contentHandle: String(contentHandle),
                 sizeBytes: data.count,

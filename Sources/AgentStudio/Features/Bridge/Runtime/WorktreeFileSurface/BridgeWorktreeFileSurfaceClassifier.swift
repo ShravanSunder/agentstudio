@@ -12,6 +12,7 @@ struct BridgeWorktreeFileChangesetClassificationRequest: Sendable {
     let streamId: String
     let firstSequence: Int
     let changeset: FileChangeset
+    let latestDescriptorsByPath: [String: BridgeWorktreeFileDescriptor]
 }
 
 struct BridgeWorktreeStatusInvalidationBuildRequest: Sendable {
@@ -51,16 +52,17 @@ enum BridgeWorktreeFileSurfaceClassifier {
             .filter { !isGitInternalPath($0) }
             .enumerated()
             .map { offset, path in
-                BridgeWorktreeFileSurfaceFrameBuilder.fileInvalidated(
+                let latestDescriptor = request.latestDescriptorsByPath[path]
+                return BridgeWorktreeFileSurfaceFrameBuilder.fileInvalidated(
                     request: BridgeWorktreeFileInvalidationBuildRequest(
                         source: request.source,
                         streamId: request.streamId,
                         sequence: request.firstSequence + offset,
                         path: path,
-                        fileId: nil,
+                        fileId: latestDescriptor?.fileId,
                         reason: .contentChanged,
-                        contentHandleIds: nil,
-                        latestDescriptor: nil
+                        contentHandleIds: latestDescriptor.map { [$0.contentHandle] },
+                        latestDescriptor: latestDescriptor
                     )
                 )
             }
