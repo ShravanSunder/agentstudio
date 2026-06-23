@@ -1,6 +1,18 @@
 import { z } from 'zod';
 
-export const bridgeResourceKindSchema = z.enum(['reviewPackage', 'reviewItems', 'content', 'tree']);
+export const bridgeResourceKindSchema = z.enum([
+	'reviewPackage',
+	'reviewItems',
+	'content',
+	'worktreeResource',
+]);
+export const bridgeWorktreeResourceKindSchema = z.enum([
+	'worktree.treeWindow',
+	'worktree.treeDeltaOperations',
+	'worktree.status',
+	'worktree.fileContent',
+	'worktree.fileRange',
+]);
 
 export const bridgeWholeResourceRangeSchema = z.object({ kind: z.literal('whole') }).strict();
 export const bridgeItemWindowResourceRangeSchema = z
@@ -39,6 +51,7 @@ export const bridgeResourceRangeSchema = z.discriminatedUnion('kind', [
 ]);
 
 export type BridgeResourceKind = z.infer<typeof bridgeResourceKindSchema>;
+export type BridgeWorktreeResourceKind = z.infer<typeof bridgeWorktreeResourceKindSchema>;
 export type BridgeResourceRange = z.infer<typeof bridgeResourceRangeSchema>;
 export type BridgeWholeResourceRange = z.infer<typeof bridgeWholeResourceRangeSchema>;
 export type BridgeItemWindowResourceRange = z.infer<typeof bridgeItemWindowResourceRangeSchema>;
@@ -81,12 +94,12 @@ export interface BridgeParsedContentResourceUrl {
 	readonly canonicalUrl: string;
 }
 
-export interface BridgeTreeResourceUrl {
-	readonly kind: 'tree';
-	readonly treeId: string;
+export interface BridgeWorktreeResourceUrl {
+	readonly kind: 'worktreeResource';
+	readonly resourceKind: BridgeWorktreeResourceKind;
+	readonly resourceId: string;
 	readonly generation: number;
-	readonly revision: number;
-	readonly range: BridgeCursorResourceRange;
+	readonly cursor: string;
 	readonly canonicalUrl: string;
 }
 
@@ -94,7 +107,7 @@ export type BridgeResourceUrl =
 	| BridgeReviewPackageResourceUrl
 	| BridgeReviewItemsResourceUrl
 	| BridgeParsedContentResourceUrl
-	| BridgeTreeResourceUrl;
+	| BridgeWorktreeResourceUrl;
 
 export interface ParseBridgeResourceUrlOptions {
 	readonly reviewItemsBudget?: BridgeReviewItemsResourceBudget;
@@ -137,8 +150,12 @@ export function parseBridgeResourceUrl(
 			return parseReviewItemsResource(resourceId, queryEntries, options.reviewItemsBudget);
 		case 'content':
 			return parseContentResource(resourceId, queryEntries);
-		case 'tree':
-			return parseTreeResource(resourceId, queryEntries);
+		case 'worktree.treeWindow':
+		case 'worktree.treeDeltaOperations':
+		case 'worktree.status':
+		case 'worktree.fileContent':
+		case 'worktree.fileRange':
+			return parseWorktreeResource(resourceKind, resourceId, queryEntries);
 		default:
 			return null;
 	}
@@ -418,46 +435,36 @@ function parseContentResource(
 	};
 }
 
-function parseTreeResource(
-	treeId: string,
+function parseWorktreeResource(
+	resourceKind: BridgeWorktreeResourceKind,
+	resourceId: string,
 	queryEntries: QueryEntries,
-): BridgeTreeResourceUrl | null {
-	if (!hasOnlyQueryKeys(queryEntries, ['generation', 'revision', 'cursor', 'depth'])) {
+): BridgeWorktreeResourceUrl | null {
+	if (!hasOnlyQueryKeys(queryEntries, ['generation', 'cursor'])) {
 		return null;
 	}
 	const generationText = scalarQueryValue(queryEntries, 'generation');
-	const revisionText = scalarQueryValue(queryEntries, 'revision');
 	const cursor = scalarQueryValue(queryEntries, 'cursor');
-	const depthText = scalarQueryValue(queryEntries, 'depth');
-	if (generationText === null || revisionText === null || cursor === null || depthText === null) {
+	if (generationText === null || cursor === null) {
 		return null;
 	}
 	const generation = nonnegativeInteger(generationText);
-	const revision = nonnegativeInteger(revisionText);
-	const depth = nonnegativeInteger(depthText);
-	if (generation === null || revision === null || depth === null) {
+	if (generation === null) {
 		return null;
 	}
-	const range = bridgeCursorResourceRangeSchema.parse({
-		kind: 'cursor',
-		cursor,
-		depth,
-	});
 	return {
-		kind: 'tree',
-		treeId,
+		kind: 'worktreeResource',
+		resourceKind,
+		resourceId,
 		generation,
-		revision,
-		range,
+		cursor,
 		canonicalUrl: canonicalResourceUrl({
-			resourceKind: 'tree',
+			resourceKind,
 			protocolId: 'worktree-file',
-			resourceId: treeId,
+			resourceId,
 			queryPairs: [
 				['generation', String(generation)],
-				['revision', String(revision)],
-				['cursor', range.cursor],
-				['depth', String(range.depth)],
+				['cursor', cursor],
 			],
 		}),
 	};
@@ -509,7 +516,13 @@ function isAllowedResourceRoute(protocolId: string, resourceKind: string): boole
 		);
 	}
 	if (protocolId === 'worktree-file') {
-		return resourceKind === 'tree';
+		return (
+			resourceKind === 'worktree.treeWindow' ||
+			resourceKind === 'worktree.treeDeltaOperations' ||
+			resourceKind === 'worktree.status' ||
+			resourceKind === 'worktree.fileContent' ||
+			resourceKind === 'worktree.fileRange'
+		);
 	}
 	return false;
 }

@@ -10,7 +10,13 @@ import type { BridgeAllowedResourceKindsByProtocol } from './bridge-resource-url
 describe('bridge resource descriptor registry', () => {
 	const allowedResourceKindsByProtocol: BridgeAllowedResourceKindsByProtocol = {
 		review: new Set(['content']),
-		'worktree-file': new Set(['tree']),
+		'worktree-file': new Set([
+			'worktree.treeWindow',
+			'worktree.treeDeltaOperations',
+			'worktree.status',
+			'worktree.fileContent',
+			'worktree.fileRange',
+		]),
 	};
 
 	test('registers attached descriptors before demand lookup by descriptor ref', () => {

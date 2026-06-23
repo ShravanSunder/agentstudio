@@ -105,24 +105,28 @@ describe('bridge resource URL', () => {
 		expect(parsed).toBeNull();
 	});
 
-	test('parses tree cursor resources', () => {
+	test('parses worktree tree window resources', () => {
+		const parsed = parseBridgeResourceUrl(
+			'agentstudio://resource/worktree-file/worktree.treeWindow/tree-window-1?generation=7&cursor=cursor-1',
+		);
+
+		expect(parsed).toEqual({
+			kind: 'worktreeResource',
+			resourceKind: 'worktree.treeWindow',
+			resourceId: 'tree-window-1',
+			generation: 7,
+			cursor: 'cursor-1',
+			canonicalUrl:
+				'agentstudio://resource/worktree-file/worktree.treeWindow/tree-window-1?cursor=cursor-1&generation=7',
+		});
+	});
+
+	test('rejects old worktree tree cursor routes', () => {
 		const parsed = parseBridgeResourceUrl(
 			'agentstudio://resource/worktree-file/tree/tree-1?generation=7&revision=3&cursor=cursor-1&depth=2',
 		);
 
-		expect(parsed).toEqual({
-			kind: 'tree',
-			treeId: 'tree-1',
-			generation: 7,
-			revision: 3,
-			range: {
-				kind: 'cursor',
-				cursor: 'cursor-1',
-				depth: 2,
-			},
-			canonicalUrl:
-				'agentstudio://resource/worktree-file/tree/tree-1?cursor=cursor-1&depth=2&generation=7&revision=3',
-		});
+		expect(parsed).toBeNull();
 	});
 
 	test('rejects duplicate singleton query keys', () => {

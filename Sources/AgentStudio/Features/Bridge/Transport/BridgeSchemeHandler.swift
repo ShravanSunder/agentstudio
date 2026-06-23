@@ -23,6 +23,7 @@ struct BridgeSchemeHandler: URLSchemeHandler {
     let allowedResourceKindsByProtocol: [String: Set<String>]
     let telemetryRecorder: (any BridgePerformanceTraceRecording)?
     let beforeContentEmission: (@Sendable () async -> Void)?
+    private static let invalidRouteReason = "invalid-route"
 
     init(
         paneId: UUID,
@@ -62,7 +63,7 @@ struct BridgeSchemeHandler: URLSchemeHandler {
             )
             if readMethod == .options {
                 guard classification != .invalid else {
-                    continuation.finish(throwing: BridgeSchemeError.invalidRoute(url.absoluteString))
+                    continuation.finish(throwing: BridgeSchemeError.invalidRoute(Self.invalidRouteReason))
                     return
                 }
                 continuation.yield(
@@ -108,7 +109,7 @@ struct BridgeSchemeHandler: URLSchemeHandler {
                         let generation = resource.generation,
                         await resourceLeaseRegistry.contains(resource, paneId: paneId)
                     else {
-                        continuation.finish(throwing: BridgeSchemeError.invalidRoute(url.absoluteString))
+                        continuation.finish(throwing: BridgeSchemeError.invalidRoute(Self.invalidRouteReason))
                         return
                     }
                     await emitContent(
@@ -128,7 +129,7 @@ struct BridgeSchemeHandler: URLSchemeHandler {
                 }
 
             case .invalid:
-                continuation.finish(throwing: BridgeSchemeError.invalidRoute(url.absoluteString))
+                continuation.finish(throwing: BridgeSchemeError.invalidRoute(Self.invalidRouteReason))
             }
         }
     }
@@ -258,7 +259,7 @@ struct BridgeSchemeHandler: URLSchemeHandler {
                     contentLength: result.data.count
                 )
             else {
-                continuation.finish(throwing: BridgeSchemeError.invalidRoute(emissionRequest.url.absoluteString))
+                continuation.finish(throwing: BridgeSchemeError.invalidRoute(Self.invalidRouteReason))
                 return
             }
             try Task.checkCancellation()
@@ -279,7 +280,7 @@ struct BridgeSchemeHandler: URLSchemeHandler {
                     }
                 )
             else {
-                continuation.finish(throwing: BridgeSchemeError.invalidRoute(emissionRequest.url.absoluteString))
+                continuation.finish(throwing: BridgeSchemeError.invalidRoute(Self.invalidRouteReason))
                 return
             }
             if emissionRequest.readMethod == .get {
@@ -291,7 +292,7 @@ struct BridgeSchemeHandler: URLSchemeHandler {
                     )
                 else {
                     continuation.finish(
-                        throwing: BridgeSchemeError.invalidRoute(emissionRequest.url.absoluteString))
+                        throwing: BridgeSchemeError.invalidRoute(Self.invalidRouteReason))
                     return
                 }
                 try Task.checkCancellation()
@@ -306,7 +307,7 @@ struct BridgeSchemeHandler: URLSchemeHandler {
                         }
                     )
                 else {
-                    continuation.finish(throwing: BridgeSchemeError.invalidRoute(emissionRequest.url.absoluteString))
+                    continuation.finish(throwing: BridgeSchemeError.invalidRoute(Self.invalidRouteReason))
                     return
                 }
             }
@@ -341,7 +342,7 @@ struct BridgeSchemeHandler: URLSchemeHandler {
                     contentLength: handle.sizeBytes
                 )
             else {
-                continuation.finish(throwing: BridgeSchemeError.invalidRoute(emissionRequest.url.absoluteString))
+                continuation.finish(throwing: BridgeSchemeError.invalidRoute(Self.invalidRouteReason))
                 return
             }
             await beforeContentEmission?()
@@ -361,7 +362,7 @@ struct BridgeSchemeHandler: URLSchemeHandler {
                     }
                 )
             else {
-                continuation.finish(throwing: BridgeSchemeError.invalidRoute(emissionRequest.url.absoluteString))
+                continuation.finish(throwing: BridgeSchemeError.invalidRoute(Self.invalidRouteReason))
                 return
             }
             continuation.finish()

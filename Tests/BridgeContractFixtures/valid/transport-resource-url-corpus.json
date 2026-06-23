@@ -1,7 +1,13 @@
 {
   "allowedResourceKindsByProtocol": {
     "review": ["content", "review-package"],
-    "worktree-file": ["tree", "file-content"]
+    "worktree-file": [
+      "worktree.treeWindow",
+      "worktree.treeDeltaOperations",
+      "worktree.status",
+      "worktree.fileContent",
+      "worktree.fileRange"
+    ]
   },
   "valid": [
     {
@@ -15,6 +21,32 @@
         "revision": 4,
         "cursor": "cursor_abc-1",
         "canonicalUrl": "agentstudio://resource/review/content/content-123?generation=2&revision=4&cursor=cursor_abc-1"
+      }
+    },
+    {
+      "name": "worktree file content with generation cursor",
+      "url": "agentstudio://resource/worktree-file/worktree.fileContent/file-abc?generation=42&cursor=cursor-42",
+      "expected": {
+        "protocol": "worktree-file",
+        "resourceKind": "worktree.fileContent",
+        "opaqueId": "file-abc",
+        "generation": 42,
+        "revision": null,
+        "cursor": "cursor-42",
+        "canonicalUrl": "agentstudio://resource/worktree-file/worktree.fileContent/file-abc?generation=42&cursor=cursor-42"
+      }
+    },
+    {
+      "name": "worktree tree window with generation cursor",
+      "url": "agentstudio://resource/worktree-file/worktree.treeWindow/tree-window-abc?generation=42&cursor=cursor-42",
+      "expected": {
+        "protocol": "worktree-file",
+        "resourceKind": "worktree.treeWindow",
+        "opaqueId": "tree-window-abc",
+        "generation": 42,
+        "revision": null,
+        "cursor": "cursor-42",
+        "canonicalUrl": "agentstudio://resource/worktree-file/worktree.treeWindow/tree-window-abc?generation=42&cursor=cursor-42"
       }
     }
   ],

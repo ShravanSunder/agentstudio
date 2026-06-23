@@ -93,7 +93,9 @@ final class BridgeSchemeHandlerContentAuthorityTests {
             }
             Issue.record("Expected oversized leased content to fail")
         } catch BridgeSchemeError.invalidRoute(let route) {
-            #expect(route == handle.resourceUrl)
+            #expect(route != handle.resourceUrl)
+            #expect(route.contains(handle.handleId) == false)
+            #expect(route.contains("agentstudio://resource") == false)
         } catch {
             Issue.record("Expected invalidRoute, got \(error)")
         }

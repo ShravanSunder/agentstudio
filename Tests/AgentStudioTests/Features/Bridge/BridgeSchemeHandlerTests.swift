@@ -202,6 +202,40 @@ final class BridgeSchemeHandlerTests {
         #expect(classified == .invalid)
     }
 
+    @Test
+    func test_pathType_worktreeFileProtocolScopedResourceKind() throws {
+        let resourceURL =
+            "agentstudio://resource/worktree-file/worktree.fileContent/file-abc?generation=42&cursor=cursor-42"
+        let expected = try #require(
+            BridgeTransportResourceURL.parse(
+                resourceURL,
+                allowedResourceKindsByProtocol: BridgeResourceProtocolRegistry.reviewViewerAllowedResourceKinds
+            ))
+        let result = BridgeSchemeHandler.classifyPath(resourceURL)
+
+        #expect(result == .leasedContent(expected))
+    }
+
+    @Test
+    func test_worktreeFileResourceRejectionDoesNotLeakCapabilityURL() async throws {
+        let resourceURL =
+            "agentstudio://resource/worktree-file/worktree.fileContent/file-abc?generation=42&cursor=cursor-42"
+        let handler = BridgeSchemeHandler(paneId: UUID())
+        let request = URLRequest(url: URL(string: resourceURL)!)
+
+        do {
+            for try await _ in handler.reply(for: request) {}
+            Issue.record("Expected worktree-file resource request to fail before bytes")
+        } catch BridgeSchemeError.invalidRoute(let route) {
+            #expect(route != resourceURL)
+            #expect(route.contains("file-abc") == false)
+            #expect(route.contains("cursor-42") == false)
+            #expect(route.contains("agentstudio://resource") == false)
+        } catch {
+            Issue.record("Expected invalidRoute, got \(error)")
+        }
+    }
+
     // MARK: - Path classification — invalid routes
 
     @Test
@@ -416,7 +450,9 @@ final class BridgeSchemeHandlerTests {
             for try await _ in handler.reply(for: request) {}
             Issue.record("Expected unleased protocol-scoped content to fail")
         } catch BridgeSchemeError.invalidRoute(let route) {
-            #expect(route == resourceURL)
+            #expect(route != resourceURL)
+            #expect(route.contains(handle.handleId) == false)
+            #expect(route.contains("agentstudio://resource") == false)
         } catch {
             Issue.record("Expected invalidRoute, got \(error)")
         }
