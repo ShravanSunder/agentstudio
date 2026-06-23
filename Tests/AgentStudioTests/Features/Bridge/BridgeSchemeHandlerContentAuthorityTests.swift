@@ -274,6 +274,151 @@ final class BridgeSchemeHandlerContentAuthorityTests {
         #expect(await eventRecorder.recordedErrorCount() == 1)
     }
 
+    @Test
+    func test_protocolScopedContentRouteDropsRevokedLeaseBeforeEmittingBody() async throws {
+        let handle = makeBridgeContentHandle(
+            itemId: "item-1",
+            role: .head,
+            reviewGeneration: 7,
+            contentHash: bridgeSHA256ContentHash("body")
+        )
+        let provider = BridgeReviewSourceProviderFake(
+            comparison: BridgeEndpointComparison(
+                baseEndpoint: makeBridgeEndpoint(endpointId: "base", kind: .gitRef),
+                headEndpoint: makeBridgeEndpoint(endpointId: "head", kind: .workingTree),
+                changedFiles: []
+            ),
+            contentByHandleId: [
+                handle.handleId: makeContentResult(handle: handle, data: "body")
+            ]
+        )
+        let contentStore = BridgeContentStore(provider: provider)
+        await contentStore.activate(handles: [handle], reviewGeneration: 7)
+        let resourceLeaseRegistry = BridgeTransportResourceLeaseRegistry()
+        let paneId = UUID()
+        let resource = try #require(
+            BridgeTransportResourceURL.parse(
+                handle.resourceUrl,
+                allowedResourceKindsByProtocol: ["review": Set(["content"])]
+            ))
+        await resourceLeaseRegistry.register(
+            resource,
+            paneId: paneId,
+            maxBytes: handle.sizeBytes,
+            expectedRevocationRevision: 0
+        )
+        let emissionGate = BridgeSchemeHandlerContentEmissionStepGate()
+        let handler = BridgeSchemeHandler(
+            paneId: paneId,
+            contentStore: contentStore,
+            resourceLeaseRegistry: resourceLeaseRegistry,
+            beforeContentEmission: {
+                await emissionGate.waitUntilReleased()
+            }
+        )
+        let request = URLRequest(url: URL(string: handle.resourceUrl)!)
+        let eventRecorder = BridgeSchemeHandlerContentAuthorityEventRecorder()
+        let stream = handler.reply(for: request)
+
+        let consumerTask = Task {
+            do {
+                for try await result in stream {
+                    switch result {
+                    case .response:
+                        await eventRecorder.recordEvent()
+                    case .data:
+                        await eventRecorder.recordEvent()
+                    @unknown default:
+                        await eventRecorder.recordEvent()
+                    }
+                }
+            } catch {
+                await eventRecorder.recordError()
+            }
+        }
+        await emissionGate.waitForStartedEmissionCount(1)
+        await emissionGate.releaseNext()
+        await emissionGate.waitForStartedEmissionCount(2)
+        await resourceLeaseRegistry.revoke(resource)
+        await emissionGate.releaseNext()
+        _ = await consumerTask.result
+
+        #expect(await eventRecorder.recordedEventCount() == 1)
+        #expect(await eventRecorder.recordedErrorCount() == 1)
+    }
+
+    @Test
+    func test_protocolScopedContentRouteHeadDropsRevokedLeaseBeforeEmittingResponse() async throws {
+        let handle = makeBridgeContentHandle(
+            itemId: "item-1",
+            role: .head,
+            reviewGeneration: 7,
+            contentHash: bridgeSHA256ContentHash("head")
+        )
+        let provider = BridgeReviewSourceProviderFake(
+            comparison: BridgeEndpointComparison(
+                baseEndpoint: makeBridgeEndpoint(endpointId: "base", kind: .gitRef),
+                headEndpoint: makeBridgeEndpoint(endpointId: "head", kind: .workingTree),
+                changedFiles: []
+            ),
+            contentByHandleId: [
+                handle.handleId: makeContentResult(handle: handle, data: "head")
+            ]
+        )
+        let contentStore = BridgeContentStore(provider: provider)
+        await contentStore.activate(handles: [handle], reviewGeneration: 7)
+        let resourceLeaseRegistry = BridgeTransportResourceLeaseRegistry()
+        let paneId = UUID()
+        let resource = try #require(
+            BridgeTransportResourceURL.parse(
+                handle.resourceUrl,
+                allowedResourceKindsByProtocol: ["review": Set(["content"])]
+            ))
+        await resourceLeaseRegistry.register(
+            resource,
+            paneId: paneId,
+            maxBytes: handle.sizeBytes,
+            expectedRevocationRevision: 0
+        )
+        let emissionGate = BridgeContentLoadGate()
+        let handler = BridgeSchemeHandler(
+            paneId: paneId,
+            contentStore: contentStore,
+            resourceLeaseRegistry: resourceLeaseRegistry,
+            beforeContentEmission: {
+                await emissionGate.waitUntilReleased()
+            }
+        )
+        var request = URLRequest(url: URL(string: handle.resourceUrl)!)
+        request.httpMethod = "HEAD"
+        let eventRecorder = BridgeSchemeHandlerContentAuthorityEventRecorder()
+        let stream = handler.reply(for: request)
+
+        let consumerTask = Task {
+            do {
+                for try await result in stream {
+                    switch result {
+                    case .response:
+                        await eventRecorder.recordEvent()
+                    case .data:
+                        await eventRecorder.recordEvent()
+                    @unknown default:
+                        await eventRecorder.recordEvent()
+                    }
+                }
+            } catch {
+                await eventRecorder.recordError()
+            }
+        }
+        await emissionGate.waitForStartedLoadCount(1)
+        await resourceLeaseRegistry.revoke(resource)
+        await emissionGate.releaseAll()
+        _ = await consumerTask.result
+
+        #expect(await eventRecorder.recordedEventCount() == 0)
+        #expect(await eventRecorder.recordedErrorCount() == 1)
+    }
+
     private func makeLeasedBridgeSchemeHandler(
         contentStore: BridgeContentStore,
         handle: BridgeContentHandle
@@ -297,6 +442,59 @@ final class BridgeSchemeHandlerContentAuthorityTests {
             contentStore: contentStore,
             resourceLeaseRegistry: resourceLeaseRegistry
         )
+    }
+}
+
+private actor BridgeSchemeHandlerContentEmissionStepGate {
+    private struct StartedEmissionWaiter {
+        let requestedCount: Int
+        let continuation: CheckedContinuation<Void, Never>
+    }
+
+    private var startedEmissionCount = 0
+    private var releaseCreditCount = 0
+    private var releaseContinuations: [CheckedContinuation<Void, Never>] = []
+    private var startedEmissionWaiters: [StartedEmissionWaiter] = []
+
+    func waitUntilReleased() async {
+        startedEmissionCount += 1
+        resumeSatisfiedStartedEmissionWaiters()
+        guard releaseCreditCount == 0 else {
+            releaseCreditCount -= 1
+            return
+        }
+        await withCheckedContinuation { continuation in
+            releaseContinuations.append(continuation)
+        }
+    }
+
+    func waitForStartedEmissionCount(_ requestedCount: Int) async {
+        guard startedEmissionCount < requestedCount else { return }
+        await withCheckedContinuation { continuation in
+            startedEmissionWaiters.append(
+                StartedEmissionWaiter(requestedCount: requestedCount, continuation: continuation)
+            )
+        }
+    }
+
+    func releaseNext() {
+        guard !releaseContinuations.isEmpty else {
+            releaseCreditCount += 1
+            return
+        }
+        releaseContinuations.removeFirst().resume()
+    }
+
+    private func resumeSatisfiedStartedEmissionWaiters() {
+        var pendingWaiters: [StartedEmissionWaiter] = []
+        for waiter in startedEmissionWaiters {
+            if startedEmissionCount >= waiter.requestedCount {
+                waiter.continuation.resume()
+            } else {
+                pendingWaiters.append(waiter)
+            }
+        }
+        startedEmissionWaiters = pendingWaiters
     }
 }
 

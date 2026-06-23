@@ -177,6 +177,50 @@ final class BridgeSchemeHandlerLeaseAuthorityTests {
     }
 
     @Test
+    func test_transportResourceLeaseRegisterRejectsStaleRevisionAfterFilteredReset() async throws {
+        let oldResource = try #require(
+            BridgeTransportResourceURL.parse(
+                "agentstudio://resource/review/content/handle-old?generation=7",
+                allowedResourceKindsByProtocol: ["review": Set(["content"])]
+            ))
+        let newResource = try #require(
+            BridgeTransportResourceURL.parse(
+                "agentstudio://resource/review/content/handle-new?generation=8",
+                allowedResourceKindsByProtocol: ["review": Set(["content"])]
+            ))
+        let paneId = UUID()
+        let resourceLeaseRegistry = BridgeTransportResourceLeaseRegistry()
+        let initialRevision = resourceLeaseRegistry.revocationRevision(
+            paneId: paneId,
+            protocolId: "review",
+            resourceKind: "content"
+        )
+        await resourceLeaseRegistry.register(oldResource, paneId: paneId, expectedRevocationRevision: initialRevision)
+        await resourceLeaseRegistry.register(newResource, paneId: paneId, expectedRevocationRevision: initialRevision)
+
+        await resourceLeaseRegistry.reset(paneId: paneId, protocolId: "review", resourceKind: "content", generation: 7)
+        let staleRegistered = await resourceLeaseRegistry.register(
+            oldResource,
+            paneId: paneId,
+            expectedRevocationRevision: initialRevision
+        )
+        let currentRegistered = await resourceLeaseRegistry.register(
+            oldResource,
+            paneId: paneId,
+            expectedRevocationRevision: resourceLeaseRegistry.revocationRevision(
+                paneId: paneId,
+                protocolId: "review",
+                resourceKind: "content"
+            )
+        )
+
+        #expect(staleRegistered == false)
+        #expect(currentRegistered == true)
+        #expect(await resourceLeaseRegistry.contains(oldResource, paneId: paneId) == true)
+        #expect(await resourceLeaseRegistry.contains(newResource, paneId: paneId) == true)
+    }
+
+    @Test
     func test_transportResourceLeaseReplaceRejectsStaleRevocationRevision() async throws {
         let resource = try #require(
             BridgeTransportResourceURL.parse(
@@ -208,5 +252,58 @@ final class BridgeSchemeHandlerLeaseAuthorityTests {
 
         #expect(staleReplaced == false)
         #expect(await resourceLeaseRegistry.contains(resource, paneId: paneId) == false)
+    }
+
+    @Test
+    func test_transportResourceLeaseReplaceAdvancesRevisionBeforeRemovedResourceCanRegister() async throws {
+        let oldResource = try #require(
+            BridgeTransportResourceURL.parse(
+                "agentstudio://resource/review/content/handle-old?generation=7",
+                allowedResourceKindsByProtocol: ["review": Set(["content"])]
+            ))
+        let newResource = try #require(
+            BridgeTransportResourceURL.parse(
+                "agentstudio://resource/review/content/handle-new?generation=8",
+                allowedResourceKindsByProtocol: ["review": Set(["content"])]
+            ))
+        let paneId = UUID()
+        let resourceLeaseRegistry = BridgeTransportResourceLeaseRegistry()
+        await resourceLeaseRegistry.register(oldResource, paneId: paneId, expectedRevocationRevision: 0)
+        await resourceLeaseRegistry.revoke(oldResource)
+        let replacementRevision = resourceLeaseRegistry.revocationRevision(
+            paneId: paneId,
+            protocolId: "review",
+            resourceKind: "content"
+        )
+
+        let replaced = await resourceLeaseRegistry.replace(
+            paneId: paneId,
+            protocolId: "review",
+            resourceKind: "content",
+            leases: [
+                BridgeTransportResourceLease(
+                    paneId: paneId,
+                    descriptorId: newResource.opaqueId,
+                    resource: newResource
+                )
+            ],
+            expectedRevocationRevision: replacementRevision
+        )
+        let staleRegistered = await resourceLeaseRegistry.register(
+            oldResource,
+            paneId: paneId,
+            expectedRevocationRevision: replacementRevision
+        )
+
+        #expect(replaced == true)
+        #expect(staleRegistered == false)
+        #expect(await resourceLeaseRegistry.contains(oldResource, paneId: paneId) == false)
+        #expect(await resourceLeaseRegistry.contains(newResource, paneId: paneId) == true)
+        #expect(
+            resourceLeaseRegistry.revocationRevision(
+                paneId: paneId,
+                protocolId: "review",
+                resourceKind: "content"
+            ) == replacementRevision + 1)
     }
 }

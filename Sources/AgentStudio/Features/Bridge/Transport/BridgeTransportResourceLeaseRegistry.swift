@@ -67,7 +67,8 @@ private final class BridgeTransportResourceLeaseAuthorityGate: @unchecked Sendab
         protocolId: String,
         resourceKind: String,
         expectedRevocationRevision: UInt64? = nil,
-        resource: BridgeTransportResourceURL? = nil
+        resource: BridgeTransportResourceURL? = nil,
+        resources: [BridgeTransportResourceURL]? = nil
     ) -> Bool {
         lock.withLock {
             if let expectedRevocationRevision,
@@ -82,7 +83,13 @@ private final class BridgeTransportResourceLeaseAuthorityGate: @unchecked Sendab
                 guard key.resourceKind.map({ $0 == resourceKind }) ?? true else { return true }
                 return false
             }
-            if let resource {
+            if let resources {
+                for resource in resources {
+                    revokedResourceKeys.remove(
+                        ResourceRevocationKey(resource: resource, paneId: paneId)
+                    )
+                }
+            } else if let resource {
                 revokedResourceKeys.remove(
                     ResourceRevocationKey(resource: resource, paneId: paneId)
                 )
@@ -92,6 +99,13 @@ private final class BridgeTransportResourceLeaseAuthorityGate: @unchecked Sendab
                 }
             }
             return true
+        }
+    }
+
+    func advanceRevision(paneId: UUID, protocolId: String, resourceKind: String) {
+        lock.withLock {
+            let key = RevocationKey(paneId: paneId, protocolId: protocolId, resourceKind: resourceKind)
+            revocationRevisionByKey[key, default: 0] += 1
         }
     }
 
@@ -303,11 +317,13 @@ actor BridgeTransportResourceLeaseRegistry {
                 paneId: paneId,
                 protocolId: protocolId,
                 resourceKind: resourceKind,
-                expectedRevocationRevision: expectedRevocationRevision
+                expectedRevocationRevision: expectedRevocationRevision,
+                resources: leases.map(\.resource)
             )
         else {
             return false
         }
+        authorityGate.advanceRevision(paneId: paneId, protocolId: protocolId, resourceKind: resourceKind)
         leasesByCanonicalURL = leasesByCanonicalURL.filter { _, lease in
             !(lease.paneId == paneId
                 && lease.resource.protocolId == protocolId
