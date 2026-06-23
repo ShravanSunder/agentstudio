@@ -61,6 +61,13 @@ Additional accepted findings from review of `55c2689c` / `7bed47d9`:
   the revocation revision, so a later direct register could re-grant removed
   authority with the same revision token.
 
+Additional accepted finding from review of `2d55eef2` / `00e68163`:
+
+- P2: the new GET-body proof used a continuation-backed gate, but
+  `waitForStartedEmissionCount(2)` had no stream-finished escape hatch. A
+  regression that exited after response emission but before the body hook would
+  hang until the suite timeout instead of failing promptly.
+
 Non-blocking follow-up from review of `b68c70ea`:
 
 - Cache hits and coalesced content reads now rehash full payloads when active
@@ -146,6 +153,14 @@ Follow-up implementation in `2d55eef2`:
 - The GET response/body split uses a continuation-backed step gate; no
   wall-clock sleeps were introduced.
 
+Follow-up implementation in `f892f007`:
+
+- `BridgeSchemeHandlerContentEmissionStepGate` now records stream completion and
+  resumes pending started-emission waiters with `false` instead of leaving them
+  parked.
+- The GET-body authority-loss proof asserts that both the response hook and body
+  hook were reached before revocation. If the stream exits early, the test fails
+  immediately via assertion rather than waiting for the outer suite timeout.
 
 ## Red / Green Notes
 
@@ -278,7 +293,33 @@ Post-review follow-up proof for `2d55eef2`:
     `BridgePaneControllerIPCProjectionTests`, real diff content fetches, and
     `WebviewPaneControllerTests`.
 
+Post-review follow-up proof for `f892f007`:
+
+- `mise run format`
+  - exit 0
+  - Swift sources formatted.
+- `SWIFT_TEST_TIMEOUT_SECONDS=60 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180 mise run test-fast -- --filter 'BridgeSchemeHandlerLeaseAuthorityTests|BridgeSchemeHandlerContentAuthorityTests'`
+  - first exit 1 because the new bool-returning gate missed `return await
+    withCheckedContinuation`.
+  - final exit 0 after correcting the helper return.
+  - 14 tests in 2 suites passed.
+- `SWIFT_TEST_TIMEOUT_SECONDS=60 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180 mise run test-fast -- --filter 'BridgeContentStoreTests|BridgeSchemeHandlerTests|BridgeSchemeHandlerLeaseAuthorityTests|BridgeSchemeHandlerContentAuthorityTests'`
+  - exit 0
+  - 85 tests in 4 suites passed.
+- `mise run lint`
+  - exit 0
+  - swift-format: OK.
+  - SwiftLint: 0 violations in 1308 files.
+  - AgentStudio architecture lint: OK.
+  - release script verification: passed.
+- `SWIFT_TEST_TIMEOUT_SECONDS=120 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=240 mise run test-webkit`
+  - exit 0
+  - WebKit serialized lane passed in 86.69s.
+  - Included `BridgePaneControllerContentAuthorityTests`,
+    `BridgePaneControllerIPCProjectionTests`, real diff content fetches, and
+    `WebviewPaneControllerTests`.
+
 ## Next Step
 
-Route `2d55eef2` back to `shravan-dev-workflow:implementation-review-swarm`
+Route `f892f007` back to `shravan-dev-workflow:implementation-review-swarm`
 before starting ticket 02.

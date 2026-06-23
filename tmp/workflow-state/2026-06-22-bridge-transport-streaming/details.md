@@ -5,7 +5,7 @@ Created: 2026-06-22
 
 ## Current State
 
-Current workflow: ticket-01-fifth-review-fourth-post-review-fix-complete
+Current workflow: ticket-01-fifth-review-fifth-post-review-fix-complete
 Next workflow: `shravan-dev-workflow:implementation-review-swarm`
 
 Reason:
@@ -130,7 +130,14 @@ Reason:
   exact tombstones across replacement, advances the scope revision after
   replacement, proves stale registration after filtered reset and replacement,
   and proves GET body / HEAD response authority loss with bounded gates.
-- Next step is to route `2d55eef2` back to implementation-review-swarm before
+- Review of `2d55eef2` / `00e68163` returned `not_ready` with one accepted P2
+  proof robustness finding: the GET-body proof could hang if the stream exited
+  after response emission but before the body hook.
+- The fifth post-review follow-up is committed at
+  `f892f007 test: bound bridge body emission proof`. It makes the emission step
+  gate stream-finished aware and makes the GET-body test fail immediately if
+  the body hook is not reached.
+- Next step is to route `f892f007` back to implementation-review-swarm before
   ticket 02 begins.
 
 ## Key Artifacts
@@ -241,7 +248,7 @@ Status: ticket 00 committed; ticket 01 original checkpoint committed; first
 ticket 01 review-fix checkpoint committed but review returned `not_ready`;
 second ticket 01 review-fix pass is committed and proven; third ticket 01
 review-fix pass returned `not_ready`; fourth and fifth follow-up fixes are
-committed; the fifth-review fourth post-review follow-up is proven and ready for
+committed; the fifth-review fifth post-review follow-up is proven and ready for
 re-review.
 
 Evidence:
@@ -268,6 +275,8 @@ Evidence:
   `55c2689c fix: harden bridge lease emission authority`
 - ticket 01 fifth-review fourth post-review follow-up commit:
   `2d55eef2 fix: close bridge lease proof gaps`
+- ticket 01 fifth-review fifth post-review follow-up commit:
+  `f892f007 test: bound bridge body emission proof`
 - ticket 01 fourth-review follow-up report:
   `tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/implementation-review-ticket-01-fourth-review-fix/report.md`
 - ticket 01 fifth-review follow-up report:
@@ -284,7 +293,7 @@ Evidence:
 Open before ticket 02:
 
 - re-review the fixed ticket-01 trust/transport boundary after the
-  fifth-review fourth post-review follow-up fix
+  fifth-review fifth post-review follow-up fix
 - keep broad Swift health open until the unrelated CommandBar title mismatch is
   fixed in a separate scope or final milestone proof passes
 

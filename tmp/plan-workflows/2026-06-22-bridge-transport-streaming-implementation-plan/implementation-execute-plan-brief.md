@@ -1133,3 +1133,76 @@ recommended_next_workflow: shravan-dev-workflow:implementation-review-swarm
 recommended_transition_reason: Ticket 01 fifth-review fourth post-review
 findings are fixed with fresh scoped proof; the Bridge trust/transport boundary
 needs another review before ticket 02 begins.
+
+## Ticket 01 Fifth Review Fifth Post-Review Follow-Up Fix
+
+Review verdict:
+
+- The review of `2d55eef2` / `00e68163` returned `not_ready`.
+- Four lanes had no findings.
+- One accepted P2 proof finding was fixed in `f892f007`.
+
+Accepted finding addressed:
+
+- The GET-body proof gate waited for the second emission hook with no
+  stream-finished escape hatch. A regression that exited after response
+  emission but before the body hook would hang until the suite timeout instead
+  of failing promptly.
+
+Implementation:
+
+- `BridgeSchemeHandlerContentEmissionStepGate` now tracks stream completion and
+  resumes pending started-emission waiters with `false`.
+- The GET-body proof asserts both response and body hook reachability and exits
+  promptly if the stream finishes early.
+
+Fresh proof:
+
+```bash
+mise run format
+```
+
+Result: exit 0, Swift sources formatted.
+
+```bash
+SWIFT_TEST_TIMEOUT_SECONDS=60 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180 \
+  mise run test-fast -- --filter \
+  'BridgeSchemeHandlerLeaseAuthorityTests|BridgeSchemeHandlerContentAuthorityTests'
+```
+
+Result: first exit 1 for a missing `return await withCheckedContinuation` in the
+new bool-returning helper; final exit 0, 14 tests in 2 suites passed.
+
+```bash
+SWIFT_TEST_TIMEOUT_SECONDS=60 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180 \
+  mise run test-fast -- --filter \
+  'BridgeContentStoreTests|BridgeSchemeHandlerTests|BridgeSchemeHandlerLeaseAuthorityTests|BridgeSchemeHandlerContentAuthorityTests'
+```
+
+Result: exit 0, 85 tests in 4 suites passed.
+
+```bash
+mise run lint
+```
+
+Result: exit 0; swift-format OK, SwiftLint reported 0 violations in 1308 files,
+architecture lint passed, and release script verification passed.
+
+```bash
+SWIFT_TEST_TIMEOUT_SECONDS=120 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=240 \
+  mise run test-webkit
+```
+
+Result: exit 0, WebKit serialized lane passed in 86.69s and included
+`BridgePaneControllerContentAuthorityTests`,
+`BridgePaneControllerIPCProjectionTests`, real diff content fetches, and
+`WebviewPaneControllerTests`.
+
+phase_result: complete
+evidence:
+`f892f007 test: bound bridge body emission proof`
+`tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/implementation-review-ticket-01-fifth-review-fix/report.md`
+recommended_next_workflow: shravan-dev-workflow:implementation-review-swarm
+recommended_transition_reason: Ticket 01 fifth-review fifth post-review finding
+is fixed with fresh scoped proof; the Bridge trust/transport boundary needs
+another review before ticket 02 begins.
