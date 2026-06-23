@@ -178,7 +178,7 @@ enum AppStyles {
         }
 
         enum TabBar {
-            static let height: CGFloat = 28
+            static let height: CGFloat = 36
             static let titlebarBackground = NSColor(white: 0.12, alpha: 1.0)
         }
 

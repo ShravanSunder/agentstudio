@@ -100,8 +100,16 @@ struct CustomTabBar: View {
     var body: some View {
         GeometryReader { geometry in
             HStack(spacing: 0) {
-                // MARK: - Left-side controls (management layer, arrangement)
+                // MARK: - Left-side controls (sidebar surfaces, workspace, management, arrangement)
                 HStack(spacing: AppStyles.General.Spacing.standard) {
+                    SidebarSurfaceTabBarControls()
+
+                    TabBarDivider()
+
+                    WatchFolderTabBarMenu()
+
+                    TabBarDivider()
+
                     TabBarManagementLayerButton()
 
                     TabBarArrangementButton(

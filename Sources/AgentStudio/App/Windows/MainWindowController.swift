@@ -102,9 +102,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         self.splitViewController = splitVC
         window.contentViewController = splitVC
 
-        // Set up titlebar and toolbar
-        setupTitlebarAccessory()
-        setupToolbar()
+        // MainSplitViewController owns the shell-spanning top strip.
     }
 
     // MARK: - NSWindowDelegate (frame persistence)

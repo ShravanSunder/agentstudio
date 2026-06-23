@@ -18,6 +18,8 @@ struct SidebarRootViewDependencies {
 class MainSplitViewController: NSSplitViewController {
     typealias SidebarRootViewBuilder = @MainActor (SidebarRootViewDependencies) -> AnyView
     private static let inboxFocusRetryTurns = 20
+    private static let shellChromeLeadingInset: CGFloat = 166
+    private static let shellChromeTopInset: CGFloat = 12
 
     @MainActor
     private static func defaultSidebarRootViewBuilder(
@@ -41,6 +43,7 @@ class MainSplitViewController: NSSplitViewController {
 
     private var sidebarHostingController: NSHostingController<AnyView>?
     private var paneTabViewController: PaneTabViewController?
+    private let shellChromeContainerView = NSView()
     private var sidebarFocusTask: Task<Void, Never>?
     private var sidebarWidthRestoreTask: Task<Void, Never>?
     private var shouldExpandSidebarOnLoad = false
@@ -127,6 +130,34 @@ class MainSplitViewController: NSSplitViewController {
         fatalError("init(coder:) not supported")
     }
 
+    override func loadView() {
+        let rootView = NSView()
+        rootView.wantsLayer = true
+
+        shellChromeContainerView.translatesAutoresizingMaskIntoConstraints = false
+        shellChromeContainerView.wantsLayer = true
+        rootView.addSubview(shellChromeContainerView)
+
+        splitView.translatesAutoresizingMaskIntoConstraints = false
+        rootView.addSubview(splitView)
+
+        NSLayoutConstraint.activate([
+            shellChromeContainerView.topAnchor.constraint(equalTo: rootView.topAnchor),
+            shellChromeContainerView.leadingAnchor.constraint(equalTo: rootView.leadingAnchor),
+            shellChromeContainerView.trailingAnchor.constraint(equalTo: rootView.trailingAnchor),
+            shellChromeContainerView.heightAnchor.constraint(
+                equalToConstant: AppStyles.Shell.TabBar.height + Self.shellChromeTopInset
+            ),
+
+            splitView.topAnchor.constraint(equalTo: shellChromeContainerView.bottomAnchor),
+            splitView.leadingAnchor.constraint(equalTo: rootView.leadingAnchor),
+            splitView.trailingAnchor.constraint(equalTo: rootView.trailingAnchor),
+            splitView.bottomAnchor.constraint(equalTo: rootView.bottomAnchor),
+        ])
+
+        view = rootView
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
 
@@ -144,9 +175,11 @@ class MainSplitViewController: NSSplitViewController {
             paneInboxPresentation: makePaneInboxPresentation(),
             closeTransitionCoordinator: closeTransitionCoordinator,
             performanceTraceRecorder: performanceTraceRecorder,
-            registersAsCommandHandler: paneTabRegistersAsCommandHandler
+            registersAsCommandHandler: paneTabRegistersAsCommandHandler,
+            embedsTabBarInView: false
         )
         self.paneTabViewController = paneTabVC
+        installShellChrome(paneTabVC.makeTabBarHostingView())
 
         // Configure split view
         splitView.isVertical = true
@@ -199,6 +232,25 @@ class MainSplitViewController: NSSplitViewController {
         }
 
         scheduleSidebarWidthRestore()
+    }
+
+    private func installShellChrome(_ tabBarHostingView: DraggableTabBarHostingView) {
+        tabBarHostingView.translatesAutoresizingMaskIntoConstraints = false
+        tabBarHostingView.wantsLayer = true
+        shellChromeContainerView.addSubview(tabBarHostingView)
+
+        NSLayoutConstraint.activate([
+            tabBarHostingView.topAnchor.constraint(
+                equalTo: shellChromeContainerView.topAnchor,
+                constant: Self.shellChromeTopInset
+            ),
+            tabBarHostingView.leadingAnchor.constraint(
+                equalTo: shellChromeContainerView.leadingAnchor,
+                constant: Self.shellChromeLeadingInset
+            ),
+            tabBarHostingView.trailingAnchor.constraint(equalTo: shellChromeContainerView.trailingAnchor),
+            tabBarHostingView.heightAnchor.constraint(equalToConstant: AppStyles.Shell.TabBar.height),
+        ])
     }
 
     override func viewDidAppear() {
