@@ -22,6 +22,19 @@ Reason:
   `shravan-dev-workflow:implementation-review-swarm` to
   `shravan-dev-workflow:implementation-execute-plan` for Ticket 03.
 
+Current Ticket 03 checkpoint status:
+
+- Native Worktree/File active-source retention, live status patches, live file
+  invalidations, reset frames, replacement descriptors, resource body serving,
+  and automatic filesystem/status watcher fanout are implemented and covered by
+  focused Swift tests.
+- The current code should route next to mandatory
+  `shravan-dev-workflow:implementation-review-swarm` for Ticket 03 before
+  Ticket 04 browser Worktree/File materializer/dev-server work starts.
+- Ticket 04 still owns browser-side Worktree/File response seeding,
+  materialization, strict shared frame fixtures/Zod schemas, and the scroll
+  extent canary against the dev server.
+
 Historical context:
 
 - Latest transition after authority-boundary reconvergence routes from
