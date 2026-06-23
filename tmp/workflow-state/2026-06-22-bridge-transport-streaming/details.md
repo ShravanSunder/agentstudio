@@ -44,6 +44,12 @@ Current Ticket 03 checkpoint status:
   Ticket 04 work includes materializer/body registry integration, app routing,
   surface UI, dev-server replacement, browser integration, benchmark/canary, and
   the accepted negative fanout proof follow-up before PR readiness.
+- Ticket 04 browser materializer descriptor-registration/reset semantics are now
+  implemented and proven with focused unit proof and BridgeWeb quality proof.
+  Remaining Ticket 04 work includes body registry/executor integration into the
+  surface runtime, app routing, surface UI, dev-server replacement, browser
+  integration, benchmark/canary, and the accepted negative fanout proof follow-up
+  before PR readiness.
 
 Historical context:
 

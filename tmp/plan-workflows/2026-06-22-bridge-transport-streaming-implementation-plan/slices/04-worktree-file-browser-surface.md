@@ -144,6 +144,31 @@ Initial browser contract proof captured 2026-06-23:
   `rg -n "\\bas\\b|any|@ts-|eslint-disable|JSON\\.parse" BridgeWeb/src/features/worktree-file`
   found no matches, and `git diff --check` exited 0
 
+Materializer descriptor-registration proof captured 2026-06-23:
+
+- added Worktree/File browser materializer under
+  `BridgeWeb/src/features/worktree-file/materialization`
+- proved `worktree.snapshot` registers tree/status descriptors before publishing
+  source facts
+- proved rejected later snapshot descriptors roll back earlier registrations
+- proved `worktree.fileDescriptor` registers content authority without storing
+  body content in materialized deltas
+- proved `worktree.fileInvalidated` remains stale metadata and does not
+  register replacement content descriptors before explicit demand/refresh
+- proved `worktree.reset` revokes Worktree/File source descriptors by native
+  source identity
+- red:
+  `pnpm --dir BridgeWeb exec vitest run src/features/worktree-file/models/worktree-file-protocol-models.unit.test.ts src/features/worktree-file/materialization/worktree-file-materializer.unit.test.ts src/features/worktree-file/demand/worktree-file-demand-policy.unit.test.ts src/features/worktree-file/state/worktree-file-state.unit.test.ts --reporter verbose`
+  exited 1 before implementation because `worktree-file-materializer.js` did not
+  exist
+- green:
+  same command exited 0 with 4 files passed and 16 tests passed
+- quality:
+  `pnpm --dir BridgeWeb run check` exited 0 after formatting and type fixes
+- hygiene:
+  `rg -n "\\bas\\s+(const|[A-Z][A-Za-z0-9_]*|Readonly|Record|unknown|any|\\{)|@ts-|eslint-disable|JSON\\.parse" BridgeWeb/src/features/worktree-file`
+  found no matches, and `git diff --check` exited 0
+
 Surface integration:
 
 ```bash
