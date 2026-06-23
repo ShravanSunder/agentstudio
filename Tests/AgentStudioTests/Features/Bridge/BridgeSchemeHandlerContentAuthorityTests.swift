@@ -335,10 +335,21 @@ final class BridgeSchemeHandlerContentAuthorityTests {
             } catch {
                 await eventRecorder.recordError()
             }
+            await emissionGate.finish()
         }
-        await emissionGate.waitForStartedEmissionCount(1)
+        let reachedResponseEmission = await emissionGate.waitForStartedEmissionCount(1)
+        #expect(reachedResponseEmission == true)
+        guard reachedResponseEmission else {
+            _ = await consumerTask.result
+            return
+        }
         await emissionGate.releaseNext()
-        await emissionGate.waitForStartedEmissionCount(2)
+        let reachedBodyEmission = await emissionGate.waitForStartedEmissionCount(2)
+        #expect(reachedBodyEmission == true)
+        guard reachedBodyEmission else {
+            _ = await consumerTask.result
+            return
+        }
         await resourceLeaseRegistry.revoke(resource)
         await emissionGate.releaseNext()
         _ = await consumerTask.result
@@ -448,17 +459,20 @@ final class BridgeSchemeHandlerContentAuthorityTests {
 private actor BridgeSchemeHandlerContentEmissionStepGate {
     private struct StartedEmissionWaiter {
         let requestedCount: Int
-        let continuation: CheckedContinuation<Void, Never>
+        let continuation: CheckedContinuation<Bool, Never>
     }
 
     private var startedEmissionCount = 0
     private var releaseCreditCount = 0
     private var releaseContinuations: [CheckedContinuation<Void, Never>] = []
     private var startedEmissionWaiters: [StartedEmissionWaiter] = []
+    private var isFinished = false
 
     func waitUntilReleased() async {
+        guard !isFinished else { return }
         startedEmissionCount += 1
         resumeSatisfiedStartedEmissionWaiters()
+        guard !isFinished else { return }
         guard releaseCreditCount == 0 else {
             releaseCreditCount -= 1
             return
@@ -468,9 +482,10 @@ private actor BridgeSchemeHandlerContentEmissionStepGate {
         }
     }
 
-    func waitForStartedEmissionCount(_ requestedCount: Int) async {
-        guard startedEmissionCount < requestedCount else { return }
-        await withCheckedContinuation { continuation in
+    func waitForStartedEmissionCount(_ requestedCount: Int) async -> Bool {
+        guard startedEmissionCount < requestedCount else { return true }
+        guard !isFinished else { return false }
+        return await withCheckedContinuation { continuation in
             startedEmissionWaiters.append(
                 StartedEmissionWaiter(requestedCount: requestedCount, continuation: continuation)
             )
@@ -478,6 +493,7 @@ private actor BridgeSchemeHandlerContentEmissionStepGate {
     }
 
     func releaseNext() {
+        guard !isFinished else { return }
         guard !releaseContinuations.isEmpty else {
             releaseCreditCount += 1
             return
@@ -485,11 +501,25 @@ private actor BridgeSchemeHandlerContentEmissionStepGate {
         releaseContinuations.removeFirst().resume()
     }
 
+    func finish() {
+        isFinished = true
+        let startedWaiters = startedEmissionWaiters
+        startedEmissionWaiters.removeAll()
+        for waiter in startedWaiters {
+            waiter.continuation.resume(returning: false)
+        }
+        let releaseWaiters = releaseContinuations
+        releaseContinuations.removeAll()
+        for waiter in releaseWaiters {
+            waiter.resume()
+        }
+    }
+
     private func resumeSatisfiedStartedEmissionWaiters() {
         var pendingWaiters: [StartedEmissionWaiter] = []
         for waiter in startedEmissionWaiters {
             if startedEmissionCount >= waiter.requestedCount {
-                waiter.continuation.resume()
+                waiter.continuation.resume(returning: true)
             } else {
                 pendingWaiters.append(waiter)
             }
