@@ -55,6 +55,49 @@ struct BridgePushEnvelopeEncoder: Sendable {
         return envelope
     }
 
+    func encodeIntakeFrame(
+        metadata: BridgeIntakeFrameMetadata,
+        payload: Data,
+        traceContext: BridgeTraceContext?
+    ) throws -> String {
+        let traceContextData = try traceContext.map { try JSONEncoder().encode($0) }
+        var frame = Data()
+        frame.reserveCapacity(payload.count + 192 + (traceContextData?.count ?? 0))
+
+        append("{", to: &frame)
+        append(#""kind":"#, to: &frame)
+        try appendJSONString(metadata.kind.rawValue, to: &frame)
+        append(#","streamId":"#, to: &frame)
+        try appendJSONString(metadata.streamId, to: &frame)
+        append(#","generation":"#, to: &frame)
+        append(String(metadata.generation), to: &frame)
+        append(#","sequence":"#, to: &frame)
+        append(String(metadata.sequence), to: &frame)
+        switch metadata.kind {
+        case .snapshot, .delta, .invalidate:
+            append(#","payload":"#, to: &frame)
+            frame.append(payload)
+        case .reset, .close:
+            break
+        case .error:
+            guard let message = metadata.message, !message.isEmpty else {
+                throw BridgePushEnvelopeEncodingError.missingIntakeFrameMessage
+            }
+            append(#","message":"#, to: &frame)
+            try appendJSONString(message, to: &frame)
+        }
+        if let traceContextData {
+            append(#","__traceContext":"#, to: &frame)
+            frame.append(traceContextData)
+        }
+        append("}", to: &frame)
+
+        guard let frameString = String(data: frame, encoding: .utf8) else {
+            throw BridgePushEnvelopeEncodingError.invalidEnvelopeUTF8
+        }
+        return frameString
+    }
+
     private func append(_ string: String, to data: inout Data) {
         data.append(contentsOf: string.utf8)
     }
@@ -65,13 +108,47 @@ struct BridgePushEnvelopeEncoder: Sendable {
     }
 }
 
+enum BridgeIntakeFrameKind: String, Sendable {
+    case snapshot
+    case delta
+    case invalidate
+    case reset
+    case close
+    case error
+}
+
+struct BridgeIntakeFrameMetadata: Sendable {
+    let kind: BridgeIntakeFrameKind
+    let streamId: String
+    let generation: Int
+    let sequence: Int
+    let message: String?
+
+    init(
+        kind: BridgeIntakeFrameKind,
+        streamId: String,
+        generation: Int,
+        sequence: Int,
+        message: String? = nil
+    ) {
+        self.kind = kind
+        self.streamId = streamId
+        self.generation = generation
+        self.sequence = sequence
+        self.message = message
+    }
+}
+
 enum BridgePushEnvelopeEncodingError: Error, LocalizedError, Sendable {
     case invalidEnvelopeUTF8
+    case missingIntakeFrameMessage
 
     var errorDescription: String? {
         switch self {
         case .invalidEnvelopeUTF8:
             "Unable to encode push envelope as UTF-8"
+        case .missingIntakeFrameMessage:
+            "Unable to encode error intake frame without a non-empty message"
         }
     }
 }

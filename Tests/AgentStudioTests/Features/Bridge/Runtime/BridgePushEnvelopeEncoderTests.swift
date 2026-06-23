@@ -96,4 +96,113 @@ struct BridgePushEnvelopeEncoderTests {
             )
         }
     }
+
+    @Test("encodes intake frame identity outside payload without authority fields")
+    func encodesIntakeFrameIdentityOutsidePayloadWithoutAuthorityFields() throws {
+        let traceContext = try BridgeTraceContext(
+            traceId: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            spanId: "bbbbbbbbbbbbbbbb",
+            parentSpanId: nil,
+            sampled: true
+        )
+
+        let frame = try BridgePushEnvelopeEncoder().encodeIntakeFrame(
+            metadata: BridgeIntakeFrameMetadata(
+                kind: .snapshot,
+                streamId: "stream-1",
+                generation: 4,
+                sequence: 9
+            ),
+            payload: Data(
+                #"{"resourceUrl":"agentstudio://resource/content/leak","path":"/private/tmp/leak.swift"}"#.utf8),
+            traceContext: traceContext
+        )
+
+        let frameData = try #require(frame.data(using: .utf8))
+        let object = try #require(JSONSerialization.jsonObject(with: frameData) as? [String: Any])
+
+        #expect(object["kind"] as? String == "snapshot")
+        #expect(object["streamId"] as? String == "stream-1")
+        #expect(object["generation"] as? Int == 4)
+        #expect(object["sequence"] as? Int == 9)
+        #expect(object["path"] == nil)
+        #expect(object["resourceUrl"] == nil)
+        #expect(object["capabilityHandle"] == nil)
+
+        let decodedTraceContext = try #require(object["__traceContext"] as? [String: Any])
+        let decodedPayload = try #require(object["payload"] as? [String: Any])
+        #expect(decodedTraceContext["traceId"] as? String == traceContext.traceId)
+        #expect(decodedPayload["resourceUrl"] as? String == "agentstudio://resource/content/leak")
+        #expect(decodedPayload["path"] as? String == "/private/tmp/leak.swift")
+    }
+
+    @Test("encodes intake lifecycle frames with schema-compatible shapes")
+    func encodesIntakeLifecycleFramesWithSchemaCompatibleShapes() throws {
+        let encoder = BridgePushEnvelopeEncoder()
+
+        let errorFrame = try encoder.encodeIntakeFrame(
+            metadata: BridgeIntakeFrameMetadata(
+                kind: .error,
+                streamId: "stream-1",
+                generation: 4,
+                sequence: 10,
+                message: "backend stream failed"
+            ),
+            payload: Data(#"{"ignored":true}"#.utf8),
+            traceContext: nil
+        )
+        let closeFrame = try encoder.encodeIntakeFrame(
+            metadata: BridgeIntakeFrameMetadata(
+                kind: .close,
+                streamId: "stream-1",
+                generation: 4,
+                sequence: 11
+            ),
+            payload: Data(#"{"ignored":true}"#.utf8),
+            traceContext: nil
+        )
+        let resetFrame = try encoder.encodeIntakeFrame(
+            metadata: BridgeIntakeFrameMetadata(
+                kind: .reset,
+                streamId: "stream-1",
+                generation: 5,
+                sequence: 0
+            ),
+            payload: Data(#"{"ignored":true}"#.utf8),
+            traceContext: nil
+        )
+
+        let errorObject = try decodeJSONObject(errorFrame)
+        let closeObject = try decodeJSONObject(closeFrame)
+        let resetObject = try decodeJSONObject(resetFrame)
+
+        #expect(errorObject["kind"] as? String == "error")
+        #expect(errorObject["message"] as? String == "backend stream failed")
+        #expect(errorObject["payload"] == nil)
+        #expect(closeObject["kind"] as? String == "close")
+        #expect(closeObject["payload"] == nil)
+        #expect(resetObject["kind"] as? String == "reset")
+        #expect(resetObject["payload"] == nil)
+    }
+
+    @Test("rejects error intake frames without a message")
+    func rejectsErrorIntakeFramesWithoutMessage() {
+        #expect(throws: BridgePushEnvelopeEncodingError.self) {
+            _ = try BridgePushEnvelopeEncoder().encodeIntakeFrame(
+                metadata: BridgeIntakeFrameMetadata(
+                    kind: .error,
+                    streamId: "stream-1",
+                    generation: 4,
+                    sequence: 10
+                ),
+                payload: Data(#"{}"#.utf8),
+                traceContext: nil
+            )
+        }
+    }
+
+    private func decodeJSONObject(_ json: String) throws -> [String: Any] {
+        let data = try #require(json.data(using: .utf8))
+        return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    }
 }

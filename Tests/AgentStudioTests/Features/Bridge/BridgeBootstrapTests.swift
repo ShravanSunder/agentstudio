@@ -156,4 +156,12 @@ final class BridgeBootstrapTests {
         #expect(script.contains("__bridge_push_json"))
         #expect(script.contains("detail: { json: envelopeJSON, nonce: PUSH_NONCE }"))
     }
+
+    @Test
+    func test_applyIntakeFrameJSON_dispatches_string_payload_with_push_nonce() {
+        let script = BridgeBootstrap.generateScript(bridgeNonce: "test-nonce", pushNonce: "push-nonce")
+        #expect(script.contains("applyIntakeFrameJSON: function(frameJSON)"))
+        #expect(script.contains("__bridge_intake_json"))
+        #expect(script.contains("detail: { json: frameJSON, nonce: PUSH_NONCE }"))
+    }
 }

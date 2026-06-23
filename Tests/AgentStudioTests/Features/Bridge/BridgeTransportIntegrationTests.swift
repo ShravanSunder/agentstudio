@@ -307,7 +307,31 @@ extension WebKitSerializedTests {
             let controller = BridgePaneController(paneId: paneId, state: state)
             defer { controller.teardown() }
 
-            let package = try decodeBridgeReviewPackageFixture()
+            let baseHandle = makeBridgeContentHandle(
+                itemId: "item-shell",
+                role: .base,
+                endpointId: "shell-base",
+                reviewGeneration: BridgeReviewGeneration(7),
+                contentHash: bridgeSHA256ContentHash("base content"),
+                sizeBytes: 12
+            )
+            let headHandle = makeBridgeContentHandle(
+                itemId: "item-shell",
+                role: .head,
+                endpointId: "shell-head",
+                reviewGeneration: BridgeReviewGeneration(7),
+                contentHash: bridgeSHA256ContentHash("head content"),
+                sizeBytes: 12
+            )
+            let package = makeTransportContentPackage(
+                baseHandle: baseHandle,
+                headHandle: headHandle,
+                worktreeId: paneId
+            )
+            try await controller.reviewContentStore.register(
+                makeContentResult(handle: baseHandle, data: "base content"))
+            try await controller.reviewContentStore.register(
+                makeContentResult(handle: headHandle, data: "head content"))
             let payload = try JSONEncoder().encode(DiffPackageMetadataSlice(package: package))
 
             try await WebPageTestHarness.withManagedPage(controller.page) { page in
@@ -351,6 +375,58 @@ extension WebKitSerializedTests {
                 #expect(renderState.diagnostics.evaluateSucceeded)
                 #expect(renderState.diagnostics.pageErrorCount == 0)
                 #expect(renderState.diagnostics.pageErrorKinds.isEmpty)
+            }
+        }
+
+        @Test
+        func test_pushJSON_concurrentBurstDeliversOrderedPageEvents() async throws {
+            let paneId = UUIDv7.generate()
+            let state = BridgePaneState(panelKind: .diffViewer, source: nil)
+            let controller = BridgePaneController(paneId: paneId, state: state)
+            defer { controller.teardown() }
+
+            try await WebPageTestHarness.withManagedPage(controller.page) { page in
+                let burstToken = UUID().uuidString
+                controller.loadApp()
+                try await waitForPageLoad(page)
+                let didCompleteBridgeReadyHandshake = await waitUntil {
+                    controller.isBridgeReady
+                }
+                #expect(
+                    didCompleteBridgeReadyHandshake,
+                    "Bridge app JavaScript should send bridge.ready before burst pushes")
+                try await installPageDiagnosticsProbe(page)
+
+                let pushTasks = (1...8).map { revision in
+                    Task { @MainActor in
+                        await controller.pushJSON(
+                            metadata: BridgePushEnvelopeMetadata(
+                                store: .diff,
+                                op: .replace,
+                                level: .hot,
+                                slice: .diffStatus,
+                                revision: revision,
+                                epoch: 1
+                            ),
+                            json: Data(
+                                #"{"status":"ready","error":null,"epoch":\#(revision),"burstToken":"\#(burstToken)"}"#
+                                    .utf8
+                            )
+                        )
+                    }
+                }
+                for pushTask in pushTasks {
+                    await pushTask.value
+                }
+
+                let didObserveBurst = await waitUntil(timeout: .seconds(5)) {
+                    await self.bridgePushProbeRevisionOrder(page, burstToken: burstToken).count == 8
+                }
+                let observedRevisions = await bridgePushProbeRevisionOrder(page, burstToken: burstToken)
+                let pageState = await describeBridgePageState(page)
+
+                #expect(didObserveBurst, "Expected all burst push events in page probe: \(pageState)")
+                #expect(observedRevisions == Array(1...8), "Expected ordered burst delivery: \(pageState)")
             }
         }
 
@@ -749,15 +825,52 @@ extension WebKitSerializedTests {
                   });
                 });
                 document.addEventListener('__bridge_push_json', function(event) {
+                  var revision = null;
+                  var burstToken = null;
+                  try {
+                    var parsedEnvelope = JSON.parse(event.detail?.json || '{}');
+                    revision = parsedEnvelope.__revision ?? null;
+                    burstToken = parsedEnvelope.payload?.burstToken ?? null;
+                  } catch (error) {
+                    revision = null;
+                    burstToken = null;
+                  }
                   window.__bridgePushProbe.push({
                     hasDetail: Boolean(event.detail),
                     hasJson: typeof event.detail?.json === 'string',
                     jsonLength: typeof event.detail?.json === 'string' ? event.detail.json.length : -1,
-                    nonceLength: typeof event.detail?.nonce === 'string' ? event.detail.nonce.length : -1
+                    nonceLength: typeof event.detail?.nonce === 'string' ? event.detail.nonce.length : -1,
+                    revision: revision,
+                    burstToken: burstToken
                   });
                 });
                 """
             )
+        }
+
+        private func bridgePushProbeRevisionOrder(_ page: WebPage, burstToken: String) async -> [Int] {
+            let burstTokenJSON = (try? String(data: JSONEncoder().encode(burstToken), encoding: .utf8)) ?? #""""#
+            do {
+                let result = try await page.callJavaScript(
+                    """
+                    return JSON.stringify((window.__bridgePushProbe ?? []).filter(function(entry) {
+                      return entry.burstToken === \(burstTokenJSON);
+                    }).map(function(entry) {
+                      return entry.revision;
+                    }).filter(function(revision) {
+                      return typeof revision === 'number';
+                    }))
+                    """
+                )
+                guard let json = result as? String,
+                    let data = json.data(using: .utf8)
+                else {
+                    return []
+                }
+                return (try? JSONDecoder().decode([Int].self, from: data)) ?? []
+            } catch {
+                return []
+            }
         }
 
         private func describeBridgePageState(_ page: WebPage) async -> String {

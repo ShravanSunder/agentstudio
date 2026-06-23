@@ -93,6 +93,11 @@ enum BridgeBootstrap {
                             detail: { json: envelopeJSON, nonce: PUSH_NONCE }
                         }));
                     },
+                    applyIntakeFrameJSON: function(frameJSON) {
+                        document.dispatchEvent(new CustomEvent('__bridge_intake_json', {
+                            detail: { json: frameJSON, nonce: PUSH_NONCE }
+                        }));
+                    },
                     appendAgentEvents: function(events) {
                         document.dispatchEvent(new CustomEvent('__bridge_agent', {
                             detail: { events: events, nonce: PUSH_NONCE }
