@@ -691,6 +691,7 @@ Result: exit 0, WebKit serialized lane passed in 90.70s and explicitly ran 3
 
 phase_result: complete
 evidence:
+`60fb99d7 fix: harden bridge content authority revocation`
 `tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/implementation-review-ticket-01-third-review-fix/report.md`
 recommended_next_workflow: shravan-dev-workflow:implementation-review-swarm
 recommended_transition_reason: Ticket 01 third-review findings are fixed with

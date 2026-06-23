@@ -191,6 +191,8 @@ Evidence:
   `10d2b075 fix: bind bridge resource leases to descriptors`
 - ticket 01 third review-fix commit:
   `acb4bd3f fix: close bridge content authority gaps`
+- ticket 01 third-review follow-up commit:
+  `60fb99d7 fix: harden bridge content authority revocation`
 - ticket 01 review-fix report:
   `tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/implementation-review-ticket-01-review-fix-report.md`
 - ticket 01 second-review-fix response report:
