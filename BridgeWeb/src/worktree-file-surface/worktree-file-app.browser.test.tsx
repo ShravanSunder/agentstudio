@@ -153,6 +153,7 @@ describe('WorktreeFileApp Browser Mode', () => {
 		]);
 		expect(document.body.textContent).toContain('export const value = 3;');
 		expect(document.body.textContent).not.toContain('export const value = 2;');
+		expect(document.body.innerHTML).not.toContain('agentstudio://resource');
 	});
 });
 
