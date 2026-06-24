@@ -82,3 +82,39 @@ implementation plan. That is no longer current. User-visible dev-server evidence
 showed the Worktree route proof could pass while still not proving the intended
 Worktree/File product surface. The current route is back through the parent spec
 and Worktree/File slice for product E2E correction before plan creation.
+
+## 2026-06-24 Local Review After Product E2E Correction
+
+Status: local parent review only. The attempted spec-review-swarm subagent
+disconnected before completion, so this is not a completed swarm reduction.
+
+Reviewed artifacts:
+
+- [spec.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/spec-workflows/2026-06-22-bridge-transport-streaming-spec/spec.md:1)
+- [review-protocol.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/spec-workflows/2026-06-22-bridge-transport-streaming-spec/review-protocol.md:1)
+- [worktree-file-surface-protocol.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/spec-workflows/2026-06-22-bridge-transport-streaming-spec/worktree-file-surface-protocol.md:1)
+- [reconciliation-plan-2026-06-24.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/reconciliation-plan-2026-06-24.md:1)
+- [worktree-devserver-product-e2e-precursor-plan.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/worktree-devserver-product-e2e-precursor-plan.md:1)
+
+Local finding:
+
+- The corrected spec and Worktree/File slice are internally aligned on the main
+  requirement: the exact current-worktree dev URL must prove the intended
+  product surface, and a minimal file list plus `<pre>` is not sufficient.
+- The reconciliation plan now names 06P as the blocking precursor and links the
+  detailed ticket plan.
+- The current browser evidence is intentionally red: the route loads data and
+  renders tree/content after wait, but has no required search, regex, or
+  filter/status controls.
+
+Current red proof:
+
+- `tmp/bridge-worktree-devserver-proof-recovery/current-worktree-route-after-3s.png`
+- `tmp/bridge-worktree-devserver-proof-recovery/current-worktree-route-diagnostics.json`
+
+Decision:
+
+The spec correction is ready for a real spec-review-swarm retry when the agent
+transport is stable. Until then, do not claim the spec has completed swarm
+review. Planning may proceed only as draft precursor planning, with 06P still a
+blocking gate before downstream implementation resumes.

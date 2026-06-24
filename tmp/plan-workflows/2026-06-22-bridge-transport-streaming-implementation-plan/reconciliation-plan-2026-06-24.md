@@ -10,6 +10,14 @@ Source spec:
 [review-protocol.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/spec-workflows/2026-06-22-bridge-transport-streaming-spec/review-protocol.md:1),
 [worktree-file-surface-protocol.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/spec-workflows/2026-06-22-bridge-transport-streaming-spec/worktree-file-surface-protocol.md:1)
 
+Current precursor ticket plan:
+[worktree-devserver-product-e2e-precursor-plan.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/worktree-devserver-product-e2e-precursor-plan.md:1)
+
+Current red proof artifacts:
+
+- `tmp/bridge-worktree-devserver-proof-recovery/current-worktree-route-after-3s.png`
+- `tmp/bridge-worktree-devserver-proof-recovery/current-worktree-route-diagnostics.json`
+
 This is not a replacement implementation plan yet. It records why the original
 00-05 plan cannot be treated as fully satisfying the reopened spec and names
 the next critical plan slices.
@@ -46,6 +54,9 @@ the next critical plan slices.
 ### 06P Worktree Dev-Server Product E2E Precursor
 
 Status: blocking precursor.
+
+Detailed ticket plan:
+[worktree-devserver-product-e2e-precursor-plan.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/worktree-devserver-product-e2e-precursor-plan.md:1)
 
 Deliverable:
 Make the exact dev-server URL render and operate the intended Worktree/File
