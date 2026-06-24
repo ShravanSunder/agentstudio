@@ -1,7 +1,8 @@
 # Review Protocol Spec
 
 Date: 2026-06-22
-Status: Reviewed by `shravan-dev-workflow:spec-review-swarm` 1.6.29; ready for plan review
+Status: Reopened for 2026-06-24 reconciliation. This slice is not plan-ready
+until the current spec-review findings are reduced in the parent spec.
 Parent: [spec.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/spec-workflows/2026-06-22-bridge-transport-streaming-spec/spec.md:1)
 
 This file owns the Review application protocol. Review is one app protocol
@@ -77,8 +78,10 @@ Changeset cluster sources can be:
 - touched-file accumulation
 - future manual grouping
 
-The clustering algorithm is provider-owned and deferred. The protocol must
-carry enough metadata to keep future algorithms flexible.
+The clustering algorithm is provider-owned, but the runtime contract is not
+deferred. The protocol must carry enough metadata to represent live, closed,
+pinned, degraded, and reset clusters without making the browser the grouping
+authority.
 
 ## 4. Changeset Cluster Contract
 
@@ -226,6 +229,26 @@ export const ReviewOpenComparisonRequest = z.object({
   clientRequestId: z.string().min(1),
   comparison: ReviewComparisonSpec,
 }).strict();
+
+export const ReviewOpenComparisonOutcome = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('accepted'),
+    comparisonId: z.string().min(1),
+    eventStreamId: z.string().min(1),
+    intakeStreamId: z.string().min(1),
+    initialCursor: z.string().min(1),
+  }).strict(),
+  z.object({
+    kind: z.literal('rejected'),
+    reason: z.enum(['invalidSource', 'staleSource', 'unsupportedComparison', 'permissionDenied']),
+    userFacingReason: z.string().min(1).optional(),
+  }).strict(),
+  z.object({
+    kind: z.literal('deferred'),
+    reason: z.enum(['needsUserInput', 'providerBusy', 'sourceNotReady']),
+    requestedInput: z.array(z.string().min(1)).optional(),
+  }).strict(),
+]);
 ```
 
 Finite source examples:
@@ -241,6 +264,25 @@ Live source examples:
 - base branch versus live worktree
 - pinned baseline versus current dirty worktree
 - live agent edit cluster before the provider closes the cluster
+
+Review subscription binding to the parent continuous event stream:
+
+- `review.openComparison` is a command. It validates the comparison and returns a
+  typed `ReviewOpenComparisonOutcome`.
+- An accepted outcome binds the Review comparison to the pane-scoped
+  `ContinuousEventStreamPath` through `eventStreamId`, `intakeStreamId`, and
+  `initialCursor`.
+- Compact lifecycle facts for the comparison ride the continuous event stream:
+  ready/heartbeat, source status, descriptor availability, invalidation notice,
+  gap, reset, and close.
+- Review intake frames carry projection materialization: snapshots, deltas,
+  rich invalidation detail, resets with replacement descriptors, and package
+  metadata. They may attach descriptors, but they are not a replacement for the
+  continuous event stream.
+- A `bridge.invalidated`, `bridge.gap`, `bridge.reset`, or `bridge.closed` event
+  for a Review identity gates the matching Review intake/content work. Old intake
+  frames and resource completions must stale-drop unless the provider rebinds the
+  source with a new baseline/cursor.
 
 ## 6. Intake Frames
 
@@ -285,12 +327,17 @@ export const ReviewResetFrame = BridgeIntakeFrameBase.extend({
 Review intake streams must:
 
 - carry ordered frames with provider-issued package/generation/revision identity
+- bind to an accepted continuous-event-stream lineage for the same pane,
+  comparison, source identity, generation, and cursor
 - treat page-world frame delivery as bundled app-internal transport, not native
   byte-serving authority
 - use descriptors for package roots and delta operation bodies
 - register attached descriptors before demand policy receives descriptor refs
 - allow same-lineage deltas without CodeView remount
 - fail closed on package/source authority replacement
+- treat `review.invalidate` and `review.reset` frames as Review projection detail
+  that must agree with the authoritative `bridge.invalidated` or `bridge.reset`
+  lifecycle event for the same identity
 
 Page-world push nonce checks, DOM attributes, MessagePort provenance, and
 agreement between a package payload and sibling `protocolFrame` are not native
@@ -360,10 +407,12 @@ sequenceDiagram
   participant Exec as Resource Executor
   participant Pierre as Pierre
 
-  Browser->>Bridge: RPC(review.openComparisonStream, ReviewOpenComparisonRequest)
+  Browser->>Bridge: open ContinuousEventStreamPath on pane mount
+  Browser->>Bridge: RPC(review.openComparison, ReviewOpenComparisonRequest)
   Bridge->>Provider: validate scope and open subscription
   Provider->>Provider: resolve endpoints
   Provider->>Provider: compute/materialize comparison package
+  Provider->>Bridge: bridge.ready(eventStreamId, cursor)
   Provider->>Bridge: review.snapshot(rootDescriptor)
   Bridge->>Mat: applyFrame(review.snapshot)
   Mat->>Policy: projection facts and descriptor refs
@@ -374,8 +423,9 @@ sequenceDiagram
   Mat->>Pierre: append/replace/reset render deltas
   loop live source
     Provider->>Provider: debounce/coalesce source changes
-    Provider->>Bridge: review.delta or review.invalidate or review.reset
-    Bridge->>Mat: applyFrame(update)
+    Provider->>Bridge: bridge.invalidated or bridge.reset
+    Provider->>Bridge: review.delta/invalidate/reset projection detail
+    Bridge->>Mat: applyFrame(detail after event lineage matches)
   end
 ```
 
@@ -415,8 +465,9 @@ What we do not borrow:
 
 ## 10. Deferred Changeset Algorithm
 
-The first implementation does not need to implement automatic changeset
-clustering. The spec must keep the contract flexible for it.
+The exact first automatic clustering algorithm can be selected by a plan, but
+the Review protocol contract must be able to represent provider-owned
+changesets from the first Review implementation.
 
 Provider-compatible clustering families:
 
@@ -442,6 +493,23 @@ Required future properties:
 - materialized package descriptor
 - reset behavior when provider cannot continue same lineage
 
+Required runtime contract:
+
+- every changeset-backed comparison has a stable provider-issued cluster id
+- cluster metadata declares lifecycle: live, closed, or pinned
+- live clusters carry source cursors or checkpoint ids sufficient for stale-drop
+  and reset decisions
+- provider emits deltas for same-lineage live changes
+- provider emits reset when the comparison authority, baseline, source cursor,
+  or clustering authority changes
+- degraded states such as overflow recovery, fresh scan, excluded shell edits,
+  or partial confidence are explicit metadata
+- browser materializes changeset metadata and renderer deltas but never creates
+  the authoritative cluster id, source cursor, or package identity
+- a plan may defer choosing idle/debounce versus time-window versus
+  session/checkpoint grouping, but it must not defer the wire/runtime fields
+  required to represent those options
+
 ## 11. Proof Expectations
 
 - provider-owned comparison: browser never computes repo diffs
@@ -459,6 +527,12 @@ Required future properties:
 - closed/pinned changeset behaves as immutable input
 - live changeset can update with bounded debounce/coalescing
 - overflow/fresh-scan changesets expose degraded confidence
+- live changeset runtime proof covers live to closed/pinned lifecycle,
+  provider-issued cluster id stability, stale-drop cursors/checkpoints, degraded
+  confidence, and provider reset when comparison authority, baseline, source
+  cursor, or clustering authority changes
+- schema-only changeset metadata is not enough to satisfy the first Review
+  runtime contract
 
 ## 12. Open Decisions
 
@@ -475,5 +549,6 @@ authority changes.
 
 OD-R3. First clustering algorithm.
 
-Deferred. The protocol supports multiple clustering algorithms; plan creation
-can choose the smallest first implementation after review.
+Open. The protocol supports multiple clustering algorithms; plan creation can
+choose the smallest first implementation after review. This open algorithm
+choice does not remove the required runtime contract in section 10.

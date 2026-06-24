@@ -1,7 +1,8 @@
 # Worktree/File Surface Protocol Spec
 
 Date: 2026-06-22
-Status: Reviewed by `shravan-dev-workflow:spec-review-swarm` 1.6.29; ready for plan review
+Status: Reopened for 2026-06-24 reconciliation. This slice is not plan-ready
+until the current spec-review findings are reduced in the parent spec.
 Parent: [spec.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/spec-workflows/2026-06-22-bridge-transport-streaming-spec/spec.md:1)
 
 This file owns the Worktree/File Surface protocol family. The user-facing
@@ -22,7 +23,9 @@ The Worktree/File Surface lets a user inspect a live checkout:
 - reserve future review comments and agent communications on files/ranges
 - optionally open Review comparison mode from the same surface
 
-The surface should feel live without yanking content under the reader.
+The surface should feel live without yanking content under the reader. A file
+change must be visible to the user even when the open body is not automatically
+replaced.
 
 ## 2. Ownership
 
@@ -85,18 +88,21 @@ If a file is not open:
 If a file is open:
 
 - backing source changes mark the open content session stale
+- the surface shows an update/stale notification or equivalent visible state
 - current rendered content remains stable by default
 - user can refresh/update to the latest descriptor
 - comment/range anchors must not silently retarget without an app decision
 
+This means update notification is required; silent body replacement is not.
 Future auto-refresh policy may exist, but only for cases that preserve reader
-and comment continuity.
+and comment continuity and only after an explicit app-policy contract says when
+`openFileInvalidated` may schedule active content demand.
 
 ```mermaid
 stateDiagram-v2
   [*] --> Closed
   Closed --> OpenFresh: user opens file descriptor
-  OpenFresh --> OpenStale: provider emits fileInvalidated
+  OpenFresh --> OpenStale: provider emits fileInvalidated and UI marks updated
   OpenStale --> RefreshQueued: user requests refresh
   RefreshQueued --> OpenFresh: current descriptor fetched
   OpenStale --> Closed: user closes file
@@ -317,6 +323,24 @@ scrollbar-jumping full-body discovery. The stable extent contract is not
 satisfied by a later content stream that reveals the total line count after the
 browser has already sized the virtualizer.
 
+Worktree/File subscription binding to the parent continuous event stream:
+
+- `worktreeFileSurface.openSourceStream` is a command. It validates the source
+  and returns source metadata plus event/intake stream ids.
+- Compact lifecycle facts for the source ride the continuous event stream:
+  ready/heartbeat, source status, descriptor availability, file/tree/status
+  invalidation notice, gap, reset, and close.
+- Worktree/File intake frames carry projection materialization: source snapshot,
+  tree window, tree delta operations, status patches, file descriptors, rich file
+  invalidation details, and reset replacement descriptors.
+- `worktree.fileInvalidated` and `worktree.reset` frames are app projection
+  detail that must agree with the authoritative `bridge.invalidated` or
+  `bridge.reset` event for the same source identity, generation, and cursor.
+- If the continuous event stream gaps, resets, or closes for a Worktree/File
+  identity, matching intake and content work must rebind or fail closed. Polling,
+  one-off pushes, or a Worktree-only local push stream do not satisfy live source
+  proof.
+
 ## 9. Demand Policy Stimuli
 
 Worktree/File demand policy consumes app-specific stimuli and emits generic
@@ -410,8 +434,10 @@ sequenceDiagram
   participant Exec as Resource Executor
   participant Pierre as Pierre
 
+  Browser->>Bridge: open ContinuousEventStreamPath on pane mount
   Browser->>Bridge: RPC(worktreeFileSurface.openSourceStream, sourceSpec)
   Bridge->>Provider: validate scope and open subscription
+  Provider->>Bridge: bridge.ready(eventStreamId, cursor)
   Provider->>Bridge: worktree.snapshot(treeDescriptor)
   Bridge->>Mat: applyFrame(snapshot)
   Mat->>Policy: projection facts and descriptor refs
@@ -426,6 +452,7 @@ sequenceDiagram
   Exec->>Bridge: fetch file content
   Exec->>Mat: content result
   Mat->>Pierre: code item replace/append
+  Provider->>Bridge: bridge.invalidated(file)
   Provider->>Bridge: worktree.fileInvalidated
   Bridge->>Mat: mark open file stale, keep rendered content
 ```
@@ -457,10 +484,11 @@ Deferred exact schemas must define:
 - telemetry scrub rules
 - how anchors behave when open file content is stale
 
-## 13. Optional Review Handoff
+## 13. Review Handoff
 
-The Worktree/File Surface can ask app composition to open Review mode, but
-Review remains a separate comparison protocol:
+The Worktree/File Surface can ask app composition to open Review mode, and any
+product surface that exposes "review these changes" behavior must use this
+typed handoff. Review remains a separate comparison protocol:
 
 ```text
 Worktree/File Surface selection
@@ -480,13 +508,47 @@ export const OpenReviewComparisonIntent = z.object({
   selectedPaths: z.array(z.string().min(1)),
   comparisonHint: z.enum(['baseBranch', 'commit', 'tag', 'timeWindow', 'manual']).optional(),
 }).strict();
+
+export const WorktreeOpenReviewComparisonOutcome = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('accepted'),
+    comparisonId: z.string().min(1),
+    reviewPaneId: z.string().min(1).optional(),
+  }).strict(),
+  z.object({
+    kind: z.literal('rejected'),
+    reason: z.enum(['invalidSource', 'staleSource', 'unsupportedComparison', 'permissionDenied']),
+    userFacingReason: z.string().min(1).optional(),
+  }).strict(),
+  z.object({
+    kind: z.literal('deferred'),
+    reason: z.enum(['needsUserInput', 'providerBusy', 'sourceNotReady']),
+    requestedInput: z.array(z.string().min(1)).optional(),
+  }).strict(),
+]);
 ```
+
+Contract:
+
+- Worktree/File owns the user selection, source identity, and path hints.
+- `selectedPaths` are validation hints scoped by `sourceIdentity`; they are not
+  comparison authority.
+- Review owns validation of the comparison request and construction of
+  `ReviewComparisonSpec`.
+- The Review provider owns Git diff calculation and package materialization.
+- Review or app composition returns a typed accepted/rejected/deferred outcome.
+  Rejection/defer UX may be surfaced by app composition, but Worktree/File must
+  not recover by minting Review endpoints, package identity, or diff authority.
+- The handoff is required for any Worktree/File UX that opens review mode. If a
+  plan excludes that UX, the plan must say so explicitly instead of leaving the
+  handoff as an invisible optional gap.
 
 ## 14. Proof Expectations
 
 - worktree tree/status updates do not instantiate Review package lineage
 - file descriptor replacement does not silently replace open rendered content
-- open file invalidation marks stale and exposes refresh
+- open file invalidation marks stale, exposes a visible update notification, and
+  exposes refresh
 - closed/unopened file descriptors can update live
 - selected file content maps to `foreground`; open stale file invalidation emits
   no content demand until explicit refresh
@@ -510,7 +572,17 @@ export const OpenReviewComparisonIntent = z.object({
   `totalSize` by more than one declared row/line height, or changes estimated
   total height without attributing the delta to measured-versus-estimated items
 - hidden subtree changes do not hydrate hidden descendants
-- comments/comms anchors are scoped by source/file/range identity
+- current-scope visible Worktree route proof uses the real browser/dev-server
+  `current-worktree` scenario and fails if app root/tree pane/file pane lack
+  visible non-zero rects, sampled tree entries do not occupy distinct row boxes,
+  selected exact-line fixtures lose visible line structure, packaged styling does
+  not affect the mounted surface, or raw frame fields/serialized payload/path
+  corpus dumps appear outside intentional tree/content UI
+- current-scope comments/comms proof is fail-closed: `includeComments`,
+  `includeAgentComms`, `commentThreadWindow`, and `agentCommsWindow` are rejected
+  or unsupported and are not fetchable
+- future comments/comms anchor proof applies only after the schema slice is in
+  scope; then anchors must be scoped by source/file/range identity
 - stale content completions are dropped if descriptor/source identity changed
 - binary or oversized files render metadata-only or unavailable state without
   placing bodies in Zustand

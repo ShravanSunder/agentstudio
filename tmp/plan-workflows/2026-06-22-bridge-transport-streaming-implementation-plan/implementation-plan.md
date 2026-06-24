@@ -3,7 +3,12 @@
 Date: 2026-06-22
 Branch: luna-338-pierreshikitrees-review-viewer-2
 Spec commit: ebad06d2
-Plan status: Revised for `shravan-dev-workflow:plan-review-swarm`
+Plan status: Superseded for 2026-06-24 reconciliation. The original tickets
+00-05 remain useful historical implementation slices, but they no longer fully
+satisfy the reopened spec because mandatory continuous-event-stream,
+visible-app proof, renderer-cutover, Review-handoff, and Victoria tuning
+requirements were clarified after implementation. Use
+`reconciliation-plan-2026-06-24.md` for the next plan direction.
 
 This is an epic plan made of independently provable vertical tickets. Each
 ticket must produce a real deliverable, not a half-change. Each ticket uses

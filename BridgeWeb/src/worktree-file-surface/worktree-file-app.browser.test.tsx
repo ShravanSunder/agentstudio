@@ -20,6 +20,35 @@ import {
 import { WorktreeFileApp } from './worktree-file-app.js';
 
 describe('WorktreeFileApp Browser Mode', () => {
+	test('auto-opens the initial fetchable file when requested', async () => {
+		const descriptor = makeFileDescriptor();
+		const fetchedResourceUrls: string[] = [];
+
+		render(
+			<WorktreeFileApp
+				autoOpenInitialFile
+				fetchResource={async ({ resourceUrl }) => {
+					fetchedResourceUrls.push(resourceUrl);
+					return 'export const value = 2;\nexport const other = 3;\n';
+				}}
+				initialFrames={makeFrames(descriptor)}
+			/>,
+		);
+
+		await waitForWorktreeFileState('ready');
+		await waitForBridgeViewerAnimationFrame();
+
+		const contentPanel = requireBridgeViewerHTMLElement(
+			document.querySelector('[data-testid="worktree-file-content"]'),
+		);
+		expect(contentPanel.getAttribute('data-worktree-open-file-path')).toBe('src/app.ts');
+		expect(contentPanel.getAttribute('data-worktree-open-file-total-size')).toBe('40');
+		expect(fetchedResourceUrls).toEqual([
+			'agentstudio://resource/worktree-file/worktree.fileContent/file-content-1?generation=1',
+		]);
+		expect(document.body.textContent).toContain('export const value = 2;');
+	});
+
 	test('reserves tree and file extents before descriptor-backed content hydrates', async () => {
 		const descriptor = makeFileDescriptor();
 		const deferredContent = makeDeferred<string>();
@@ -50,9 +79,12 @@ describe('WorktreeFileApp Browser Mode', () => {
 		const contentPanel = requireBridgeViewerHTMLElement(
 			document.querySelector('[data-testid="worktree-file-content"]'),
 		);
-		const contentScrollHeightBefore = contentPanel.scrollHeight;
+		const contentExtent = requireBridgeViewerHTMLElement(
+			document.querySelector('[data-testid="worktree-file-content-extent"]'),
+		);
+		const contentExtentHeightBefore = contentExtent.getBoundingClientRect().height;
 		expect(contentPanel.getAttribute('data-worktree-open-file-total-size')).toBe('40');
-		expect(Math.abs(contentScrollHeightBefore - 40)).toBeLessThanOrEqual(1);
+		expect(Math.abs(contentExtentHeightBefore - 40)).toBeLessThanOrEqual(1);
 		expect(fetchedResourceUrls).toEqual([
 			'agentstudio://resource/worktree-file/worktree.fileContent/file-content-1?generation=1',
 		]);
@@ -61,8 +93,8 @@ describe('WorktreeFileApp Browser Mode', () => {
 		await waitForWorktreeFileState('ready');
 		await waitForBridgeViewerAnimationFrame();
 
-		const contentScrollHeightAfter = contentPanel.scrollHeight;
-		expect(Math.abs(contentScrollHeightAfter - contentScrollHeightBefore)).toBeLessThanOrEqual(1);
+		const contentExtentHeightAfter = contentExtent.getBoundingClientRect().height;
+		expect(Math.abs(contentExtentHeightAfter - contentExtentHeightBefore)).toBeLessThanOrEqual(1);
 		expect(document.body.textContent).toContain('export const value = 2;');
 		expect(document.body.innerHTML).not.toContain('agentstudio://resource');
 	});

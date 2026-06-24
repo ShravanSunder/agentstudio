@@ -1,7 +1,9 @@
 # Bridge Transport And App Protocol Architecture Spec
 
 Date: 2026-06-22
-Status: Reviewed by `shravan-dev-workflow:spec-review-swarm` 1.6.29; ready for plan review
+Status: Reopened for 2026-06-24 reconciliation. This artifact is under
+spec-review refinement and is not plan-ready until the current review findings
+are reduced and the Next Workflow section says so.
 Audience: product/design reviewers, Bridge implementers, Review Viewer maintainers, Worktree/File Surface maintainers, future agents
 
 This is a product and architecture spec. It aligns the design before
@@ -29,6 +31,13 @@ The system must support:
 - future comments and agent communications anchored to the same Worktree/File
   Surface once their schema/permission slice exists
 - demand-driven hydration of huge repos, huge diffs, and huge files
+- a startup continuous event stream, similar in role to SSE or MCP-style server
+  notifications, that carries source facts, invalidations, cursors, gaps,
+  resets, and descriptor availability while heavy bodies stay on bounded
+  resource/content paths
+- real user-visible Worktree/File proof, not only schema or test-harness proof:
+  the dev-server route must render a usable tree/file surface rather than raw
+  transport payloads or concatenated path dumps
 
 The design succeeds when large or live review/worktree/file surfaces can update
 without whole-pane resets, eager full-data fetches, or unclear ownership.
@@ -87,6 +96,45 @@ R9. Specs must feed a later implementation plan.
 This spec defines boundaries, contracts, invariants, proof expectations, and
 open decisions. It does not define task order or exact test commands.
 
+R10. A continuous event stream is mandatory.
+
+Bridge must establish one pane-scoped continuous event stream at startup or pane
+mount for provider-to-browser facts. This stream is the default carrier for
+compact source updates: subscription ready, invalidation, cursor, gap, reset,
+descriptor availability, status, and heartbeat frames. It is SSE-like in
+product role and MCP-like in command/event separation: browser commands remain
+request/response, while provider facts arrive over the stream. The event stream
+must not carry heavy file/diff/tree bodies; those remain descriptor-backed
+content/resource transfers.
+
+R11. Runtime proof must verify the actual visible app, not only payload shape.
+
+A Worktree/File proof is invalid if the route renders raw frame text,
+concatenated paths, missing CSS, or an unstructured payload dump while tests
+still pass. Browser/dev-server proof must assert machine-checkable visible
+signals: app root, tree pane, and file pane all have non-zero visible client
+rects; sampled tree entries occupy distinct row boxes; selected file content
+preserves visible line structure for exact-line-count fixtures; packaged styling
+affects the mounted surface; and no raw transport payload, serialized frame
+field, or raw path corpus is visible outside intentional tree/content UI.
+
+R12. Renderer cutover is a first-class architecture requirement.
+
+The new transport/materialization system is not complete if Pierre, CodeView,
+or tree rendering remain on an incompatible identity/remount model that defeats
+same-lineage updates, stable scroll extent, or descriptor-backed hydration.
+Plans may slice the renderer cutover, but they must explicitly prove either the
+new renderer path or a named residual gap approved by the owner.
+
+R13. Review handoff from Worktree/File must be explicit.
+
+If the user can initiate review from a Worktree/File source, the handoff must be
+a typed app-composition contract: Worktree/File emits an
+`OpenReviewComparisonIntent`, Review validates and builds a
+`ReviewComparisonSpec`, and the Review provider computes/materializes the
+comparison. Worktree/File must not become the diff engine, but the handoff
+cannot remain an invisible optional idea when product behavior depends on it.
+
 ## 3. Non-Goals
 
 This spec does not:
@@ -100,12 +148,15 @@ This spec does not:
 - force worktree exploration through the Review package/diff model
 - split Worktree and FileView into separate user-facing apps
 - define implementation task order
-- choose exact concurrency numbers before implementation profiling
+- choose exact concurrency numbers before implementation profiling, but it does
+  require a profiling and telemetry gate before production tuning is called
+  complete
 
 ## 4. Architecture Spine
 
-Bridge carries typed application protocols through bounded RPC, compact signal
-streams, typed intake streams, and finite content/resource streams.
+Bridge carries typed application protocols through bounded RPC, a mandatory
+continuous event stream, typed intake streams, and finite content/resource
+streams.
 Application projection materializers turn intake frames into projection facts,
 references, and render deltas. Application demand policies decide what is
 useful now and map app-specific interest onto generic urgency lanes. A generic
@@ -124,7 +175,7 @@ Native Host / Provider
 Generic Bridge
   owns: RPC/event/intake/resource carriers, stream ids, cursor checks,
         cancellation, parser limits, source-scrubbed errors
-  exposes: Command RPC Path, Signal Stream Path, Intake Stream Path,
+  exposes: Command RPC Path, Continuous Event Stream Path, Intake Stream Path,
            Content Stream Path
   does not own: review/worktree/file/comment semantics
 
@@ -184,17 +235,25 @@ flowchart TD
   for "open stream", "select item", "get descriptor", "refresh content", and
   "cancel". It must not carry large bodies.
 
-`SignalStreamPath`
+`ContinuousEventStreamPath`
 
-: Continuous compact stream for facts, invalidations, cursors, heartbeats, gap
-  notices, and reset notices. It says something changed; it does not fetch the
-  changed body itself.
+: Mandatory pane-scoped stream established at startup or pane mount. It carries
+  compact provider-to-browser facts: subscription readiness, invalidations,
+  cursors, heartbeats, gap notices, reset notices, descriptor availability,
+  source status, and stream lifecycle events. It says something changed or a
+  descriptor is available; it does not fetch the changed body itself.
+
+  This path is SSE-like in role: one long-lived server-to-client notification
+  lane that updates app facts and wakes demand. It is not a universal heavy-data
+  pipe. Browser commands still use `CommandRPCPath`; large bodies still use
+  `ContentStreamPath`.
 
 `IntakeStreamPath`
 
 : Typed application stream into a projection materializer. It carries ordered
-  frames such as review snapshots/deltas or worktree tree/status/file
-  invalidations. It can be finite or continuous.
+  frames such as review snapshots/deltas, worktree snapshots/tree windows/status
+  patches/file descriptors, or rich app-specific invalidation/reset details. It
+  can be finite or continuous.
 
 `ContentStreamPath`
 
@@ -205,9 +264,57 @@ flowchart TD
 `AppSourceSubscription`
 
 : App protocol pattern for a source that can change over time. It is built over
-  the signal, intake, and content pathways. Review and Worktree/File Surface
-  subscriptions use the same Bridge transport primitives but own different app
-  semantics.
+  the continuous event, intake, and content pathways. Review and Worktree/File
+  Surface subscriptions use the same Bridge transport primitives but own
+  different app semantics.
+
+Source subscription control flow:
+
+```text
+Browser starts pane
+  -> Bridge opens ContinuousEventStreamPath
+  -> browser sends CommandRPCPath open/subscribe request
+  -> provider validates and returns source metadata / stream ids / descriptor refs
+  -> provider publishes compact lifecycle/update facts on ContinuousEventStreamPath
+  -> provider publishes typed projection frames on IntakeStreamPath when state
+     materialization changes
+  -> app demand policy schedules only demanded descriptors
+  -> ResourceExecutor fetches bodies/windows over ContentStreamPath
+```
+
+The continuous event stream must define:
+
+- stream id and pane/source identity
+- ready and heartbeat frames
+- monotonically ordered cursor or sequence semantics
+- gap/reset frames and recovery rules
+- cancellation/close behavior
+- bounded buffer and memory rules
+- source-scrubbed error frames
+- parser fixture parity between Swift and TypeScript
+
+Normative event-versus-intake split:
+
+- `ContinuousEventStreamPath` is the only carrier for compact provider
+  lifecycle/update facts: ready, heartbeat, source status, descriptor available,
+  invalidation notice, gap, reset, and close. These events wake app policy,
+  update small facts, and define cursor lineage. They do not carry file bodies,
+  diff bodies, tree windows, or operation lists.
+- `IntakeStreamPath` carries app projection frames: Review snapshots/deltas and
+  Worktree/File snapshots/tree windows/tree deltas/status patches/file
+  descriptors. Intake frames may attach resource descriptors and may be finite or
+  continuous, but they are not a substitute for the pane-scoped event stream.
+- `descriptorAvailable` on the event stream points at a registered descriptor or
+  at the next intake frame that attaches the descriptor. It does not duplicate
+  descriptor bodies or app projection payloads.
+- `invalidation`, `gap`, `reset`, and `close` events on the continuous stream
+  are the authoritative lifecycle facts. App-specific intake frames may carry
+  richer invalidation/reset details only after the event stream has established
+  the same `streamId`, `sourceId`, `generation`, and `cursor` lineage.
+- If the continuous event stream gaps, resets, or closes, app intake and content
+  work for the affected identity must rebind or fail closed. A one-off push
+  helper, polling refresh, or protocol-local stream without this lifecycle
+  binding fails the spec even if it can render data.
 
 ## 6. Generic Contracts
 
@@ -277,16 +384,82 @@ export const BridgeIntakeFrameBase = z.object({
   sequence: z.number().int().nonnegative(),
 }).strict();
 
-export const BridgeEventFrame = z.object({
+export const BridgeDescriptorRef = z.object({
+  descriptorId: z.string().min(1),
+  expectedProtocol: BridgeProtocolId,
+  expectedResourceKind: BridgeResourceKind,
+  expectedIdentity: BridgeIdentity,
+}).strict();
+
+export const BridgeEventFrameBase = z.object({
   streamId: z.string().min(1),
   sequence: z.number().int().nonnegative(),
   cursor: z.string().min(1),
   protocol: BridgeProtocolId,
-  eventType: z.string().min(1),
   identity: BridgeIdentity,
-  payload: z.unknown(),
   trace: BridgeTraceContext.optional(),
 }).strict();
+
+export const BridgeEventFrame = z.discriminatedUnion('eventType', [
+  BridgeEventFrameBase.extend({
+    eventType: z.literal('bridge.ready'),
+    payload: z.object({
+      acceptedProtocolIds: z.array(BridgeProtocolId),
+      serverCursor: z.string().min(1),
+    }).strict(),
+  }).strict(),
+  BridgeEventFrameBase.extend({
+    eventType: z.literal('bridge.heartbeat'),
+    payload: z.object({
+      observedCursor: z.string().min(1),
+    }).strict(),
+  }).strict(),
+  BridgeEventFrameBase.extend({
+    eventType: z.literal('bridge.sourceStatus'),
+    payload: z.object({
+      status: z.enum(['current', 'stale', 'degraded', 'recovering']),
+      reason: z.string().min(1).optional(),
+    }).strict(),
+  }).strict(),
+  BridgeEventFrameBase.extend({
+    eventType: z.literal('bridge.descriptorAvailable'),
+    payload: z.object({
+      descriptorRef: BridgeDescriptorRef.optional(),
+      intakeStreamId: z.string().min(1).optional(),
+      intakeSequence: z.number().int().nonnegative().optional(),
+    }).strict(),
+  }).strict(),
+  BridgeEventFrameBase.extend({
+    eventType: z.literal('bridge.invalidated'),
+    payload: z.object({
+      scope: z.enum(['source', 'projection', 'descriptor', 'file', 'status']),
+      descriptorRef: BridgeDescriptorRef.optional(),
+      reason: z.enum(['sourceChanged', 'watchEvent', 'lineageReplaced', 'unknown']),
+    }).strict(),
+  }).strict(),
+  BridgeEventFrameBase.extend({
+    eventType: z.literal('bridge.gap'),
+    payload: z.object({
+      expectedSequence: z.number().int().nonnegative(),
+      observedSequence: z.number().int().nonnegative(),
+      recovery: z.enum(['resetRequired', 'boundedReplayAvailable']),
+    }).strict(),
+  }).strict(),
+  BridgeEventFrameBase.extend({
+    eventType: z.literal('bridge.reset'),
+    payload: z.object({
+      reason: z.enum(['sourceChanged', 'subscriptionReset', 'providerRestart', 'authorityChanged']),
+      replacementCursor: z.string().min(1).optional(),
+      replacementStreamId: z.string().min(1).optional(),
+    }).strict(),
+  }).strict(),
+  BridgeEventFrameBase.extend({
+    eventType: z.literal('bridge.closed'),
+    payload: z.object({
+      reason: z.enum(['normal', 'cancelled', 'stale', 'error']),
+    }).strict(),
+  }).strict(),
+]);
 
 export const BridgeResourceDescriptor = z.object({
   descriptorId: z.string().min(1),
@@ -308,13 +481,6 @@ export const BridgeResourceDescriptor = z.object({
   }).strict().optional(),
 }).strict();
 
-export const BridgeDescriptorRef = z.object({
-  descriptorId: z.string().min(1),
-  expectedProtocol: BridgeProtocolId,
-  expectedResourceKind: BridgeResourceKind,
-  expectedIdentity: BridgeIdentity,
-}).strict();
-
 export const BridgeAttachedResourceDescriptor = z.object({
   ref: BridgeDescriptorRef,
   descriptor: BridgeResourceDescriptor,
@@ -333,7 +499,8 @@ Generic contract invariants:
   before dispatch.
 - RPC returns descriptors for large data.
 - Intake and event streams preserve order with `streamId`, `sequence`, and
-  `cursor`.
+  `cursor`; app intake for a source must bind to the same source identity and
+  generation as the continuous event lineage.
 - Sequence gaps fail closed into gap/reset recovery.
 - Resource descriptors include stale-drop identity and hard size/window limits.
 - Descriptor refs must bind expected protocol, kind, pane/source/package
@@ -435,7 +602,8 @@ generation/revision/cursor, descriptor id, and byte/window limits.
 
 Future hardening may add HMAC or encryption for frame tamper/replay detection.
 That hardening only earns authority if the secret and verifier stay outside
-page-world; it is not required for the current closed-app Ticket 02 boundary.
+page-world; it is not required for the current closed Swift app boundary where
+native lease validation remains byte authority.
 
 RPC dispatch requires:
 
@@ -838,9 +1006,11 @@ identity by default.
 
 ## 11. Pierre And Renderer Boundary
 
-Pierre receives prepared render inputs through a Bridge-owned adapter. Raw
-Pierre instances and DOM structure are implementation details unless Pierre
-explicitly promotes them to a public API.
+Pierre receives prepared render inputs through app/protocol-owned renderer
+adapters in the browser runtime. Generic Bridge may carry descriptors, stream
+identity, and prepared transport frames, but it must not interpret Review or
+Worktree/File render semantics. Raw Pierre instances and DOM structure are
+implementation details unless Pierre explicitly promotes them to a public API.
 
 Pierre inputs:
 
@@ -882,16 +1052,16 @@ Virtualized-size contract:
   Worktree/File can use tree `pathCount`/window counts and fixed tree row
   height, plus CodeView/file-content line counts or conservative estimated
   extent metadata when exact counts are unavailable.
-- Ticket 03 owns the Worktree/File provider side of this contract. It must expose
-  tree row/count/window facts and CodeView/file-content line-count or estimated
-  extent facts early enough for Ticket 04's browser surface to virtualize before
-  any hydrated content body is fetched, streamed, or measured.
-- Ticket 04 owns consuming the provider facts and proving that the browser
-  virtualizer's `scrollHeight` or `totalSize` remains within the declared
-  tolerance before and after hydration.
+- The Worktree/File provider side of this contract must expose tree
+  row/count/window facts and CodeView/file-content line-count or estimated extent
+  facts early enough for the browser surface to virtualize before any hydrated
+  content body is fetched, streamed, or measured.
+- The browser surface owns consuming the provider facts and proving that the
+  browser virtualizer's `scrollHeight` or `totalSize` remains within the
+  declared tolerance before and after hydration.
 - The renderer adapter may reconcile sparse measured deltas after DOM render,
   but reconciliation must preserve scroll anchoring by item id and offset.
-- Ticket proof must include a telemetry canary for scroll jumps with
+- Proof must include a telemetry canary for scroll jumps with
   scrollTop before/after, total content height before/after, visible range,
   anchor item/offset, reconciliation reason, and measured item ids. The canary
   passes only when the anchor item remains stable across non-reset
@@ -980,6 +1150,7 @@ Proof expectations feed a later plan. They are not task order.
 | --- | --- | --- | --- | --- |
 | Generic Bridge | protocol fixture | app command under registered protocol | command routes by app protocol id | generic Bridge IPC method names |
 | RPC limits | protocol fixture | oversized body in RPC | rejected and replaced by descriptor flow | accepting body payload |
+| Continuous event stream | WKWebView/transport fixture | startup stream with ready, heartbeat, source-status, descriptor-available, invalidated, gap, reset, and closed frames | browser observes ordered compact provider facts without body transfer; events bind source identity/cursor lineage used by app intake and content work; gap/reset lifecycle activates | one-off push helper, polling-only refresh, body fetch as notification, or protocol-local stream without event lineage binding |
 | Stream safety | protocol fixture | duplicate, missing, out-of-order frames | gap/reset lifecycle activates | silent skip |
 | Resource safety | security fixture | cross-pane/old-generation capability URL | fetch rejected | URL text treated as authority |
 | Integrity | security fixture | tampered/truncated body and preview range | whole-body mismatch rejects; range is preview-only | authoritative unverified range |
@@ -992,11 +1163,14 @@ Proof expectations feed a later plan. They are not task order.
 | Priority | scheduler fixture | foreground/active versus visible queue | foreground/active preempts | FIFO-only queue |
 | Source reset demand | scheduler/executor fixture | source reset with queued/in-flight work | queued work dropped, stale completion rejected | late commit after reset |
 | Stable scroll extent | schema/provider/browser canary fixture | huge tree and opened file before content bytes hydrate | provider emits exact row/line count or conservative estimated extent; browser `scrollHeight`/virtualizer `totalSize` stays within tolerance after hydration or logs attributed measured deltas | accepting scrollbar jump as manual UX judgment |
-| Renderer boundary | integration fixture | Pierre adapter input | prepared items/paths only | Bridge URL in renderer |
+| Worktree visible app proof | browser/dev-server fixture | current-worktree route in a real browser | app root/tree pane/file pane have non-zero visible rects; sampled tree entries occupy distinct row boxes; selected exact-line fixture preserves visible line structure; packaged styling affects the surface; raw frame fields, serialized payloads, and raw path corpus dumps are absent outside intentional tree/content UI | schema-only proof, hidden DOM text, hardcoded pass flag, or screenshot with concatenated paths |
+| Renderer boundary and cutover | integration/browser fixture | Pierre/CodeView/tree adapter input and update lifecycle | app/protocol-owned renderer adapters receive prepared items/paths only; same-lineage updates avoid incompatible full remount; stable extent is consumed by renderer path | Bridge URL in renderer, generic Bridge interpreting app render semantics, or old renderer path bypassing the materializer contract |
 | Telemetry safety | canary fixture | seeded path/content/prompt/URL/comment plus demand audit trace | exported telemetry excludes all seeds and retains safe scheduler audit fields | denylist-only claim |
 | Review ownership | protocol fixture | comparison open | provider emits package frames | browser computes repo diff |
 | Worktree/File ownership | UX/state fixture | open file invalidated | content marks stale and refresh is explicit | silent content replacement |
-| Changeset clustering | schema fixture now; runtime if implemented | cluster metadata fixture | stable id, lifecycle, confidence, limitations | browser-owned clustering authority |
+| Worktree/File to Review handoff | browser/integration fixture | Worktree/File selection opens Review comparison | Worktree emits typed intent; Review returns accepted/rejected/deferred outcome; accepted path builds `ReviewComparisonSpec`; provider materializes comparison; Worktree remains hint source, not diff authority | ad hoc route state, Worktree-built diff request, or Review-only isolated fixture |
+| Changeset clustering | protocol/runtime fixture | live, closed, pinned, degraded, and reset cluster cases | stable provider id; live->closed/pinned lifecycle; cursors/checkpoints stale-drop; reset on authority/baseline/source-cursor/clustering-authority change; degraded confidence surfaces | schema-only metadata fixture or browser-owned clustering authority |
+| Scheduler/transport tuning | Victoria-backed runtime fixture | large worktree scroll/click plus Review/Worktree live updates in dev-server and Swift/WKWebView | lane counts, queue depth, in-flight work, stale drops, aborts, byte-budget outcomes, content latency, event-stream gaps/resets, and scroll canary are marker-correlated before production constants graduate | ad hoc logs, single-harness trace, or subjective tuning |
 
 ## 14. Design Decisions
 
@@ -1004,9 +1178,13 @@ D1. Application UX control is protocol-specific.
 
 Generic Bridge carries commands; app protocols define command meaning.
 
-D2. Events are facts, not data transfer.
+D2. Continuous events are facts, not data transfer.
 
-Events update facts and invalidations. Content/resource streams move bodies.
+The startup continuous event stream updates facts, invalidations, cursors,
+source status, gap/reset lifecycle, and descriptor availability.
+Content/resource streams move bodies. App intake streams move projection frames
+and descriptor attachments; they do not replace the continuous lifecycle/event
+stream.
 
 D3. Reducers do not own effects.
 
@@ -1038,10 +1216,13 @@ Review's stable wire/materialization vocabulary is snapshot, delta,
 invalidation, reset, package identity, generation, and revision. A changeset is
 a provider-owned review lens that materializes through those primitives.
 
-D9. Source subscriptions are application-level.
+D9. Source subscriptions are application-level but ride the mandatory event
+stream.
 
 Live Review and Worktree/File Surface sources open app-level source
-subscriptions over Bridge. They are not generic event stream payloads.
+subscriptions over Bridge. Their domain meaning is not generic, but their
+compact lifecycle/update facts must flow through the pane-scoped continuous
+event stream.
 
 D10. Review provider computes/materializes comparisons.
 
@@ -1057,7 +1238,12 @@ Surface.
 
 ## 15. Open Decisions
 
-OD1. Continuous stream carrier.
+OD1. Concrete continuous event-stream carrier.
+
+Decision already made: a continuous event stream is mandatory.
+
+Still open: the concrete WKWebView carrier. The event vocabulary,
+event-versus-intake split, and lifecycle binding to app protocols are not open.
 
 Options:
 
@@ -1067,10 +1253,12 @@ Options:
 
 Planning gate:
 
-Before implementation chooses a carrier, a proof spike must demonstrate
-cancellation, chunk ordering, bounded memory, backpressure behavior, error
-propagation, stale close behavior, WKWebView support, and Swift/TypeScript
-parser fixture parity.
+Before implementation chooses or finalizes the concrete carrier, a proof spike
+must demonstrate startup establishment, cancellation, chunk/frame ordering,
+bounded memory, backpressure behavior, error propagation, stale close behavior,
+WKWebView support, and Swift/TypeScript parser fixture parity. A plan may ship
+an interim carrier only if it still exposes the mandatory continuous-stream
+contract and names the remaining carrier gap.
 
 OD2. Partial content integrity.
 
@@ -1078,6 +1266,17 @@ Decision for first implementation:
 
 - authoritative resources use whole-body validation when integrity is issued
 - ranges/chunks are preview-only until chunk manifests exist
+
+Plain-language boundary:
+
+- whole-body integrity means the provider can prove the fetched body matches the
+  descriptor's expected identity
+- ranged or chunked integrity means the provider can prove a partial byte range
+  belongs to a specific whole body
+- this spec does not require authoritative ranged reads for the first product
+  vertical
+- chunk manifests stay future integrity work unless a plan explicitly needs
+  authoritative partial reads for very large files/diffs
 
 OD3. Selected neighborhood order.
 
@@ -1089,10 +1288,12 @@ Options:
 
 OD4. First implementation concurrency and lane budgets.
 
-Options:
+Decision: exact production numbers must be evidence-driven.
 
-- spec only says bounded concurrency
-- implementation chooses explicit per-lane counts and byte/work budgets
+The plan must include a telemetry/profiling gate that exercises dev-server and
+Swift/WKWebView paths with Victoria-backed metrics before production tuning is
+called complete. Until then, default limits are provisional implementation
+constants, not validated product budgets.
 
 OD5. Provider-owned changeset clustering algorithm.
 
@@ -1114,11 +1315,15 @@ expansion and large windows use descriptors fetched by the scheduler.
 
 OD8. Comment and agent-comms schema depth.
 
-This spec reserves the Worktree/File Surface substreams. A later spec slice
-should define exact comment thread and agent communication contracts.
+This spec reserves the Worktree/File Surface substreams so future comments and
+agent communications anchor to the same source/file/range identity. They are not
+part of the current implementation scope unless a later plan explicitly pulls
+them in.
 
 Until that slice exists, comment/comms flags and resource kinds are disabled and
-must fail closed.
+must fail closed. The future schema must define anchors, permissions, redaction,
+pagination, stale behavior, and telemetry scrub rules before any comment/comms
+resource becomes fetchable.
 
 ## 16. Current Gaps To Carry Into Planning
 
@@ -1166,14 +1371,15 @@ Prior-art evidence used for changeset flexibility:
 
 ## 18. Next Workflow
 
-This spec has completed `shravan-dev-workflow:spec-review-swarm` 1.6.29. The
-1.6.29 refresh found and fixed one wording contradiction around reserved
-comment/comms resources; no validated spec blocker remains before plan review.
+This spec has been reopened because new requirements changed the contract. The
+current 2026-06-24 spec-review findings must be reduced before plan creation
+resumes.
 
 Current workflow route:
 
-- next phase: `shravan-dev-workflow:plan-review-swarm`
-- if plan review finds a spec-boundary blocker: route back to
-  `spec-creation-swarm`
-- if plan review passes or only accepted tiny plan edits remain: route to
-  implementation checkpoint execution under the orchestrator goal
+- next phase: finish `shravan-dev-workflow:spec-review-swarm` reduction for the
+  reopened spec
+- after accepted spec edits land: run plan creation/reconciliation from this
+  spec
+- after plan review passes: route to checkpoint execution under the orchestrator
+  goal

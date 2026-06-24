@@ -60,6 +60,9 @@ type WorktreeFileDescriptor = z.infer<typeof worktreeFileDescriptorFrameSchema>[
 interface WorktreeDevServerVerificationResult {
 	readonly descriptorCount: number;
 	readonly frameCount: number;
+	readonly firstLoadContentState: string | null;
+	readonly firstLoadDisplayPath: string | null;
+	readonly firstLoadLineCount: number;
 	readonly packageForbiddenTextAbsent: boolean;
 	readonly proofArtifactPath: string;
 	readonly scenarioName: string;
@@ -72,6 +75,31 @@ interface WorktreeDevServerVerificationResult {
 	readonly sourceId: string;
 	readonly targetPath: string;
 	readonly treePathCount: number | null;
+	readonly treeTotalSizePixels: number | null;
+	readonly visibleAppProof: WorktreeFileVisibleAppProof;
+}
+
+interface WorktreeFileVisibleAppProof {
+	readonly appRootRect: WorktreeFileVisibleRect;
+	readonly contentPaneRect: WorktreeFileVisibleRect;
+	readonly contentVisibleLineCount: number;
+	readonly cssLayoutApplied: boolean;
+	readonly forbiddenTextAbsentOutsideIntentionalUi: boolean;
+	readonly sampledTreeRowCount: number;
+	readonly sampledTreeRowsHaveDistinctVerticalPositions: boolean;
+	readonly treePaneRect: WorktreeFileVisibleRect;
+}
+
+interface WorktreeFileVisibleRect {
+	readonly height: number;
+	readonly width: number;
+}
+
+interface WorktreeRenderedContentState {
+	readonly selectedCharacterCount: number;
+	readonly selectedContentState: string | null;
+	readonly selectedDisplayPath: string | null;
+	readonly selectedLineCount: number;
 	readonly treeTotalSizePixels: number | null;
 }
 
@@ -184,7 +212,9 @@ try {
 async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationResult> {
 	const surface = await fetchWorktreeSurface();
 	const descriptors = worktreeFileDescriptors(surface.frames);
+	const initialDescriptor = firstFetchableDescriptor(descriptors);
 	const targetDescriptor = resolveTargetDescriptor(descriptors);
+	const initialContent = await fetchWorktreeFileContent(initialDescriptor);
 	const content = await fetchWorktreeFileContent(targetDescriptor);
 	const surfaceText = JSON.stringify(surface);
 	if (content.length > 0 && surfaceText.includes(content.slice(0, Math.min(80, content.length)))) {
@@ -193,10 +223,32 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 
 	const page = await makeVerificationPage();
 	try {
-		const contentRouteGate = makeDeferred<void>();
-		await installFileContentRouteGate({ gate: contentRouteGate, page });
 		await page.goto(worktreeDevServerUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
 		await page.waitForSelector('[data-testid="worktree-file-app"]', { timeout: 30_000 });
+		await page.waitForFunction(
+			(path: string): boolean =>
+				document
+					.querySelector('[data-worktree-open-file-path]')
+					?.getAttribute('data-worktree-open-file-path') === path,
+			initialDescriptor.path,
+			{ timeout: 10_000 },
+		);
+		await page.waitForFunction(
+			(): boolean =>
+				document
+					.querySelector('[data-worktree-open-file-state]')
+					?.getAttribute('data-worktree-open-file-state') === 'ready',
+			{ timeout: 20_000 },
+		);
+		const firstLoadRendered = await readWorktreeRenderedContentState(page);
+		assertRenderedWorktreeContent({
+			content: initialContent,
+			label: 'first-load Worktree/File content',
+			rendered: firstLoadRendered,
+			targetPath: initialDescriptor.path,
+		});
+		const contentRouteGate = makeDeferred<void>();
+		await installFileContentRouteGate({ gate: contentRouteGate, page });
 		await scrollTreeToFilePath(page, targetDescriptor.path);
 		const scrollExtentBeforeSelection = await readWorktreeFileScrollExtentSnapshot(page);
 		const treeAnchorBeforeSelection = await readWorktreeFileTreeAnchorSnapshot(
@@ -233,46 +285,18 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 			page,
 			targetDescriptor.path,
 		);
-		const rendered = await page.evaluate(
-			(): Pick<
-				WorktreeDevServerVerificationResult,
-				| 'selectedCharacterCount'
-				| 'selectedContentState'
-				| 'selectedDisplayPath'
-				| 'selectedLineCount'
-				| 'treeTotalSizePixels'
-			> => {
-				const contentPanel = document.querySelector('[data-testid="worktree-file-content"]');
-				const treePanel = document.querySelector('[data-testid="worktree-file-tree"]');
-				const text = contentPanel?.textContent ?? '';
-				const selectedDisplayPath =
-					contentPanel?.getAttribute('data-worktree-open-file-path') ?? null;
-				const renderedText = text.endsWith('\n') ? text.slice(0, -1) : text;
-				return {
-					selectedCharacterCount: text.length,
-					selectedContentState: contentPanel?.getAttribute('data-worktree-open-file-state') ?? null,
-					selectedDisplayPath,
-					selectedLineCount: text.length === 0 ? 0 : renderedText.split('\n').length,
-					treeTotalSizePixels: Number(
-						treePanel?.getAttribute('data-worktree-tree-total-size') ?? '0',
-					),
-				};
-			},
-		);
-		if (rendered.selectedDisplayPath !== targetDescriptor.path) {
-			throw new Error(`Expected selected display path ${targetDescriptor.path}`);
-		}
-		if (rendered.selectedContentState !== 'ready') {
-			throw new Error(`Expected selected Worktree/File content ready for ${targetDescriptor.path}`);
-		}
-		if (rendered.selectedCharacterCount !== content.length) {
-			throw new Error(
-				`Expected materialized Worktree/File content length for ${targetDescriptor.path}`,
-			);
-		}
+		const rendered = await readWorktreeRenderedContentState(page);
+		assertRenderedWorktreeContent({
+			content,
+			label: 'selected Worktree/File content',
+			rendered,
+			targetPath: targetDescriptor.path,
+		});
 		if (rendered.treeTotalSizePixels === null || rendered.treeTotalSizePixels <= 0) {
 			throw new Error('Expected Worktree/File tree extent to be reserved from provider facts');
 		}
+		const visibleAppProof = await readWorktreeFileVisibleAppProof(page);
+		assertWorktreeFileVisibleAppProof(visibleAppProof);
 		const scrollExtentCanary = makeScrollExtentCanary({
 			afterReady: scrollExtentAfterReady,
 			afterSelection: scrollExtentAfterSelection,
@@ -285,6 +309,9 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 		return {
 			...rendered,
 			descriptorCount: descriptors.length,
+			firstLoadContentState: firstLoadRendered.selectedContentState,
+			firstLoadDisplayPath: firstLoadRendered.selectedDisplayPath,
+			firstLoadLineCount: firstLoadRendered.selectedLineCount,
 			frameCount: surface.frames.length,
 			packageForbiddenTextAbsent: true,
 			proofArtifactPath: '',
@@ -294,6 +321,7 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 			sourceId: surface.source.sourceId,
 			targetPath: targetDescriptor.path,
 			treePathCount: surface.treeSizeFacts.pathCount ?? null,
+			visibleAppProof,
 		};
 	} finally {
 		await page.close();
@@ -336,6 +364,19 @@ function resolveTargetDescriptor(
 				? 'Expected at least one Worktree/File descriptor'
 				: `Expected Worktree/File descriptor for ${targetPathOverride}`,
 		);
+	}
+	return descriptor;
+}
+
+function firstFetchableDescriptor(
+	descriptors: readonly WorktreeFileDescriptor[],
+): WorktreeFileDescriptor {
+	const descriptor = descriptors.find(
+		(candidate) =>
+			!candidate['isBinary'] && candidate['virtualizedExtentKind'] === 'exactLineCount',
+	);
+	if (descriptor === undefined) {
+		throw new Error('Expected at least one fetchable Worktree/File descriptor');
 	}
 	return descriptor;
 }
@@ -412,6 +453,46 @@ async function installFileContentRouteGate(props: {
 		await props.gate.promise;
 		await route.continue();
 	});
+}
+
+async function readWorktreeRenderedContentState(page: Page): Promise<WorktreeRenderedContentState> {
+	return await page.evaluate((): WorktreeRenderedContentState => {
+		const contentPanel = document.querySelector('[data-testid="worktree-file-content"]');
+		const treePanel = document.querySelector('[data-testid="worktree-file-tree"]');
+		const text = contentPanel?.textContent ?? '';
+		const selectedDisplayPath = contentPanel?.getAttribute('data-worktree-open-file-path') ?? null;
+		const renderedText = text.endsWith('\n') ? text.slice(0, -1) : text;
+		return {
+			selectedCharacterCount: text.length,
+			selectedContentState: contentPanel?.getAttribute('data-worktree-open-file-state') ?? null,
+			selectedDisplayPath,
+			selectedLineCount: text.length === 0 ? 0 : renderedText.split('\n').length,
+			treeTotalSizePixels: Number(treePanel?.getAttribute('data-worktree-tree-total-size') ?? '0'),
+		};
+	});
+}
+
+function assertRenderedWorktreeContent(props: {
+	readonly content: string;
+	readonly label: string;
+	readonly rendered: WorktreeRenderedContentState;
+	readonly targetPath: string;
+}): void {
+	if (props.rendered.selectedDisplayPath !== props.targetPath) {
+		throw new Error(`Expected ${props.label} path ${props.targetPath}`);
+	}
+	if (props.rendered.selectedContentState !== 'ready') {
+		throw new Error(`Expected ${props.label} to be ready for ${props.targetPath}`);
+	}
+	if (props.rendered.selectedCharacterCount !== props.content.length) {
+		throw new Error(`Expected ${props.label} length for ${props.targetPath}`);
+	}
+	const expectedLineCount = countTextLines(props.content);
+	if (props.rendered.selectedLineCount !== expectedLineCount) {
+		throw new Error(
+			`Expected ${props.label} line count ${expectedLineCount}, got ${props.rendered.selectedLineCount}`,
+		);
+	}
 }
 
 async function scrollTreeToFilePath(page: Page, path: string): Promise<void> {
@@ -640,6 +721,106 @@ function assertWorktreeScrollExtentCanary(canary: WorktreeFileScrollExtentCanary
 	if (!canary.stableAnchorPass || !canary.exactSizeTolerancePass) {
 		throw new Error(`Expected Worktree/File scroll extent pass readout: ${JSON.stringify(canary)}`);
 	}
+}
+
+async function readWorktreeFileVisibleAppProof(page: Page): Promise<WorktreeFileVisibleAppProof> {
+	return await page.evaluate((): WorktreeFileVisibleAppProof => {
+		// oxlint-disable-next-line unicorn/consistent-function-scoping -- Runs inside the Playwright page context.
+		const visibleRectForPageElement = (element: HTMLElement): WorktreeFileVisibleRect => {
+			const rect = element.getBoundingClientRect();
+			return {
+				height: rect.height,
+				width: rect.width,
+			};
+		};
+		// oxlint-disable-next-line unicorn/consistent-function-scoping -- Runs inside the Playwright page context.
+		const countPageTextLines = (text: string): number => {
+			const trimmedText = text.endsWith('\n') ? text.slice(0, -1) : text;
+			return trimmedText.length === 0 ? 0 : trimmedText.split('\n').length;
+		};
+		const appRoot = document.querySelector('[data-testid="worktree-file-app"]');
+		const treePane = document.querySelector('[data-testid="worktree-file-tree"]');
+		const contentPane = document.querySelector('[data-testid="worktree-file-content"]');
+		if (!(appRoot instanceof HTMLElement)) {
+			throw new Error('Expected visible Worktree/File app root');
+		}
+		if (!(treePane instanceof HTMLElement)) {
+			throw new Error('Expected visible Worktree/File tree pane');
+		}
+		if (!(contentPane instanceof HTMLElement)) {
+			throw new Error('Expected visible Worktree/File content pane');
+		}
+		const sampledRows = [...treePane.querySelectorAll('[data-worktree-file-path]')]
+			.filter((candidate): candidate is HTMLElement => candidate instanceof HTMLElement)
+			.slice(0, 24);
+		const sampledRowTops = sampledRows.map((row) => Math.round(row.getBoundingClientRect().top));
+		const distinctSampledRowTops = new Set(sampledRowTops);
+		const contentPre = contentPane.querySelector('pre');
+		const outsideIntentionalUi = document.body.cloneNode(true);
+		if (!(outsideIntentionalUi instanceof HTMLElement)) {
+			throw new Error('Expected cloneable page body');
+		}
+		outsideIntentionalUi
+			.querySelectorAll('[data-testid="worktree-file-tree"], [data-testid="worktree-file-content"]')
+			.forEach((node) => {
+				node.remove();
+			});
+		const outsideText = outsideIntentionalUi.textContent ?? '';
+		const appRootStyle = window.getComputedStyle(appRoot);
+		return {
+			appRootRect: visibleRectForPageElement(appRoot),
+			contentPaneRect: visibleRectForPageElement(contentPane),
+			contentVisibleLineCount: countPageTextLines(contentPre?.textContent ?? ''),
+			cssLayoutApplied:
+				appRootStyle.display === 'grid' &&
+				appRootStyle.getPropertyValue('--bridge-worktree-file-layout-proof').trim() === 'applied',
+			forbiddenTextAbsentOutsideIntentionalUi:
+				!outsideText.includes('"frames"') &&
+				!outsideText.includes('frameKind') &&
+				!outsideText.includes('resourceUrl') &&
+				!outsideText.includes('agentstudio://resource/') &&
+				!outsideText.includes('BridgeWeb/src/'),
+			sampledTreeRowCount: sampledRows.length,
+			sampledTreeRowsHaveDistinctVerticalPositions:
+				sampledRows.length >= 8 && distinctSampledRowTops.size === sampledRows.length,
+			treePaneRect: visibleRectForPageElement(treePane),
+		};
+	});
+}
+
+function assertWorktreeFileVisibleAppProof(proof: WorktreeFileVisibleAppProof): void {
+	assertVisibleRect('Worktree/File app root', proof.appRootRect);
+	assertVisibleRect('Worktree/File tree pane', proof.treePaneRect);
+	assertVisibleRect('Worktree/File content pane', proof.contentPaneRect);
+	if (!proof.cssLayoutApplied) {
+		throw new Error(`Expected Worktree/File packaged CSS layout proof: ${JSON.stringify(proof)}`);
+	}
+	if (!proof.sampledTreeRowsHaveDistinctVerticalPositions) {
+		throw new Error(
+			`Expected Worktree/File tree rows to occupy distinct rows: ${JSON.stringify(proof)}`,
+		);
+	}
+	if (proof.contentVisibleLineCount <= 1) {
+		throw new Error(
+			`Expected Worktree/File selected content to preserve line structure: ${JSON.stringify(proof)}`,
+		);
+	}
+	if (!proof.forbiddenTextAbsentOutsideIntentionalUi) {
+		throw new Error(
+			`Expected no raw Worktree/File payload text outside intended UI: ${JSON.stringify(proof)}`,
+		);
+	}
+}
+
+function assertVisibleRect(label: string, rect: WorktreeFileVisibleRect): void {
+	if (rect.width <= 0 || rect.height <= 0) {
+		throw new Error(`Expected visible ${label} rect: ${JSON.stringify(rect)}`);
+	}
+}
+
+function countTextLines(text: string): number {
+	const trimmedText = text.endsWith('\n') ? text.slice(0, -1) : text;
+	return trimmedText.length === 0 ? 0 : trimmedText.split('\n').length;
 }
 
 async function writeWorktreeDevServerProofArtifact(

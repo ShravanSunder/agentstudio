@@ -19,6 +19,7 @@ import {
 } from './worktree-file-surface-runtime.js';
 
 export interface WorktreeFileAppProps {
+	readonly autoOpenInitialFile?: boolean;
 	readonly fetchResource?: (props: WorktreeFileSurfaceRuntimeFetchResourceProps) => Promise<string>;
 	readonly initialFrames?: readonly WorktreeFileProtocolFrame[];
 	readonly loadInitialFrames?: () => Promise<readonly WorktreeFileProtocolFrame[]>;
@@ -65,6 +66,7 @@ const initialRenderState: WorktreeFileSurfaceRenderState = {
 };
 
 export function WorktreeFileApp({
+	autoOpenInitialFile = false,
 	fetchResource,
 	initialFrames,
 	loadInitialFrames,
@@ -85,36 +87,6 @@ export function WorktreeFileApp({
 			fetchResource: fetchResource ?? defaultFetchWorktreeFileResource,
 		});
 	}
-
-	useEffect((): (() => void) => {
-		let isCancelled = false;
-		const loadFrames = async (): Promise<void> => {
-			const frames =
-				initialFrames ?? (loadInitialFrames === undefined ? [] : await loadInitialFrames());
-			if (isCancelled) {
-				return;
-			}
-			const nextState = applyFramesToRuntime({
-				currentRenderState: renderStateRef.current,
-				frames,
-				runtime: runtimeRef.current,
-			});
-			renderStateRef.current = nextState;
-			setRenderState(nextState);
-			setOpenFileState((currentOpenFileState) =>
-				reconcileOpenFileStateWithFrames({
-					currentOpenFileState,
-					frames,
-					openFileBodyRef,
-					openFileRequestIdRef,
-				}),
-			);
-		};
-		void loadFrames();
-		return (): void => {
-			isCancelled = true;
-		};
-	}, [initialFrames, loadInitialFrames]);
 
 	const openFile = useCallback(async (descriptor: WorktreeFileDescriptor): Promise<void> => {
 		const requestId = openFileRequestIdRef.current + 1;
@@ -152,6 +124,44 @@ export function WorktreeFileApp({
 		}
 		setOpenFileState({ status: 'failed', path: descriptor.path, descriptor });
 	}, []);
+
+	useEffect((): (() => void) => {
+		let isCancelled = false;
+		const loadFrames = async (): Promise<void> => {
+			const frames =
+				initialFrames ?? (loadInitialFrames === undefined ? [] : await loadInitialFrames());
+			if (isCancelled) {
+				return;
+			}
+			const nextState = applyFramesToRuntime({
+				currentRenderState: renderStateRef.current,
+				frames,
+				runtime: runtimeRef.current,
+			});
+			renderStateRef.current = nextState;
+			setRenderState(nextState);
+			setOpenFileState((currentOpenFileState) =>
+				reconcileOpenFileStateWithFrames({
+					currentOpenFileState,
+					frames,
+					openFileBodyRef,
+					openFileRequestIdRef,
+				}),
+			);
+			if (autoOpenInitialFile && openFileRequestIdRef.current === 0) {
+				const initialDescriptor = nextState.descriptors.find(
+					(descriptor) => !descriptor.isBinary && descriptor.contentDescriptor !== null,
+				);
+				if (initialDescriptor !== undefined) {
+					void openFile(initialDescriptor);
+				}
+			}
+		};
+		void loadFrames();
+		return (): void => {
+			isCancelled = true;
+		};
+	}, [autoOpenInitialFile, initialFrames, loadInitialFrames, openFile]);
 
 	const refreshOpenFile = useCallback(async (state: WorktreeFileOpenRenderState): Promise<void> => {
 		if (state.status !== 'stale') {
@@ -198,19 +208,20 @@ export function WorktreeFileApp({
 	return (
 		<main className="bridge-worktree-file-app" data-testid="worktree-file-app">
 			<section
-				className="bridge-worktree-file-tree"
+				className="bridge-worktree-file-tree bridge-scrollbar"
 				data-testid="worktree-file-tree"
-				style={{ maxHeight: 320, overflow: 'auto' }}
 				{...(totalTreeHeightPixels === null
 					? {}
 					: { 'data-worktree-tree-total-size': String(totalTreeHeightPixels) })}
 			>
 				<div
+					className="bridge-worktree-file-tree-extent"
 					data-testid="worktree-file-tree-extent"
 					style={totalTreeHeightPixels === null ? undefined : { minHeight: totalTreeHeightPixels }}
 				>
 					{renderState.descriptors.map((descriptor) => (
 						<button
+							className="bridge-worktree-file-tree-row"
 							data-worktree-file-path={descriptor.path}
 							key={descriptor.fileId}
 							onClick={() => {
@@ -224,9 +235,8 @@ export function WorktreeFileApp({
 				</div>
 			</section>
 			<section
-				className="bridge-worktree-file-content"
+				className="bridge-worktree-file-content bridge-scrollbar"
 				data-testid="worktree-file-content"
-				style={{ maxHeight: 320, overflow: 'auto' }}
 				{...(openFileState.status === 'idle'
 					? {}
 					: {
@@ -238,6 +248,7 @@ export function WorktreeFileApp({
 					: { 'data-worktree-open-file-total-size': String(totalOpenFileHeightPixels) })}
 			>
 				<div
+					className="bridge-worktree-file-content-extent"
 					data-testid="worktree-file-content-extent"
 					style={
 						totalOpenFileHeightPixels === null
