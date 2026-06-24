@@ -31,7 +31,6 @@
         "resourceKind": "worktree.fileContent",
         "opaqueId": "file-abc",
         "generation": 42,
-        "revision": null,
         "cursor": "cursor-42",
         "canonicalUrl": "agentstudio://resource/worktree-file/worktree.fileContent/file-abc?generation=42&cursor=cursor-42"
       }
@@ -44,7 +43,6 @@
         "resourceKind": "worktree.treeWindow",
         "opaqueId": "tree-window-abc",
         "generation": 42,
-        "revision": null,
         "cursor": "cursor-42",
         "canonicalUrl": "agentstudio://resource/worktree-file/worktree.treeWindow/tree-window-abc?generation=42&cursor=cursor-42"
       }
