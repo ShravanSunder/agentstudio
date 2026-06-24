@@ -197,7 +197,7 @@ describe('WorktreeFileApp', () => {
 		expect(document.body.textContent).not.toContain('slow content must stay stale');
 	});
 
-	test('marks an open file stale and adopts replacement extent after invalidation frames', async () => {
+	test('marks an open file stale while preserving tree, visible body, and explicit refresh', async () => {
 		const descriptor = makeFileDescriptor({ lineCount: 1 });
 		const replacementDescriptor = makeFileDescriptor({
 			contentHandle: 'file-content-2',
@@ -205,6 +205,7 @@ describe('WorktreeFileApp', () => {
 			lineCount: 7,
 			path: descriptor.path,
 		});
+		const fetchedResourceUrls: string[] = [];
 		const container = document.createElement('div');
 		document.body.append(container);
 		mountedRoot = createRoot(container);
@@ -212,7 +213,12 @@ describe('WorktreeFileApp', () => {
 		await act(async (): Promise<void> => {
 			mountedRoot?.render(
 				<WorktreeFileApp
-					fetchResource={async () => 'export const value = 2;\n'}
+					fetchResource={async ({ resourceUrl }) => {
+						fetchedResourceUrls.push(resourceUrl);
+						return resourceUrl.includes('file-content-2')
+							? 'export const value = 3;\n'
+							: 'export const value = 2;\n';
+					}}
 					initialFrames={makeFrames(descriptor)}
 				/>,
 			);
@@ -239,6 +245,12 @@ describe('WorktreeFileApp', () => {
 			await nextMicrotask();
 		});
 
+		expect(document.querySelector('[data-worktree-file-path="src/app.ts"]')).not.toBeNull();
+		expect(
+			document
+				.querySelector('[data-worktree-tree-total-size]')
+				?.getAttribute('data-worktree-tree-total-size'),
+		).toBe('480');
 		expect(
 			document
 				.querySelector('[data-worktree-open-file-state]')
@@ -250,7 +262,86 @@ describe('WorktreeFileApp', () => {
 				?.getAttribute('data-worktree-open-file-total-size'),
 		).toBe('140');
 		expect(document.body.textContent).toContain('Content changed');
-		expect(document.body.textContent).not.toContain('export const value = 2');
+		expect(document.body.textContent).toContain('export const value = 2');
+
+		await act(async (): Promise<void> => {
+			document.querySelector<HTMLButtonElement>('[data-testid="worktree-file-refresh"]')?.click();
+			await nextMicrotask();
+		});
+
+		expect(fetchedResourceUrls).toEqual([
+			'agentstudio://resource/worktree-file/worktree.fileContent/file-content-1?generation=1',
+			'agentstudio://resource/worktree-file/worktree.fileContent/file-content-2?generation=1',
+		]);
+		expect(
+			document
+				.querySelector('[data-worktree-open-file-state]')
+				?.getAttribute('data-worktree-open-file-state'),
+		).toBe('ready');
+		expect(document.body.textContent).toContain('export const value = 3');
+		expect(document.body.textContent).not.toContain('export const value = 2;');
+	});
+
+	test('keeps an invalidated in-flight open stale after the old content resolves', async () => {
+		const descriptor = makeFileDescriptor({ lineCount: 1 });
+		const replacementDescriptor = makeFileDescriptor({
+			contentHandle: 'file-content-2',
+			fileId: descriptor.fileId,
+			lineCount: 7,
+			path: descriptor.path,
+		});
+		const slowContent = makeDeferred<string>();
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<WorktreeFileApp
+					fetchResource={async () => await slowContent.promise}
+					initialFrames={makeFrames(descriptor)}
+				/>,
+			);
+		});
+		await act(async (): Promise<void> => {
+			document.querySelector<HTMLButtonElement>('[data-worktree-file-path="src/app.ts"]')?.click();
+			await nextMicrotask();
+		});
+		expect(
+			document
+				.querySelector('[data-worktree-open-file-state]')
+				?.getAttribute('data-worktree-open-file-state'),
+		).toBe('loading');
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<WorktreeFileApp initialFrames={[makeInvalidationFrame(replacementDescriptor)]} />,
+			);
+			await nextMicrotask();
+		});
+		expect(
+			document
+				.querySelector('[data-worktree-open-file-state]')
+				?.getAttribute('data-worktree-open-file-state'),
+		).toBe('stale');
+		expect(
+			document
+				.querySelector('[data-worktree-open-file-total-size]')
+				?.getAttribute('data-worktree-open-file-total-size'),
+		).toBe('140');
+
+		await act(async (): Promise<void> => {
+			slowContent.resolve('old content must not render\n');
+			await slowContent.promise;
+			await nextMicrotask();
+		});
+
+		expect(
+			document
+				.querySelector('[data-worktree-open-file-state]')
+				?.getAttribute('data-worktree-open-file-state'),
+		).toBe('stale');
+		expect(document.body.textContent).not.toContain('old content must not render');
 	});
 });
 

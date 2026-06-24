@@ -59,6 +59,10 @@ type WorktreeFileOpenRenderState =
 
 const defaultPaneId = 'bridge-worktree-dev-pane';
 const defaultFileLineHeightPixels = 20;
+const initialRenderState: WorktreeFileSurfaceRenderState = {
+	descriptors: [],
+	treeSizeFacts: null,
+};
 
 export function WorktreeFileApp({
 	fetchResource,
@@ -68,10 +72,9 @@ export function WorktreeFileApp({
 	const runtimeRef = useRef<WorktreeFileSurfaceRuntime | null>(null);
 	const openFileBodyRef = useRef<string | null>(null);
 	const openFileRequestIdRef = useRef(0);
-	const [renderState, setRenderState] = useState<WorktreeFileSurfaceRenderState>({
-		descriptors: [],
-		treeSizeFacts: null,
-	});
+	const renderStateRef = useRef<WorktreeFileSurfaceRenderState>(initialRenderState);
+	const [renderState, setRenderState] =
+		useState<WorktreeFileSurfaceRenderState>(initialRenderState);
 	const [openFileState, setOpenFileState] = useState<WorktreeFileOpenRenderState>({
 		status: 'idle',
 	});
@@ -92,15 +95,18 @@ export function WorktreeFileApp({
 				return;
 			}
 			const nextState = applyFramesToRuntime({
+				currentRenderState: renderStateRef.current,
 				frames,
 				runtime: runtimeRef.current,
 			});
+			renderStateRef.current = nextState;
 			setRenderState(nextState);
 			setOpenFileState((currentOpenFileState) =>
 				reconcileOpenFileStateWithFrames({
 					currentOpenFileState,
 					frames,
 					openFileBodyRef,
+					openFileRequestIdRef,
 				}),
 			);
 		};
@@ -147,9 +153,48 @@ export function WorktreeFileApp({
 		setOpenFileState({ status: 'failed', path: descriptor.path, descriptor });
 	}, []);
 
+	const refreshOpenFile = useCallback(async (state: WorktreeFileOpenRenderState): Promise<void> => {
+		if (state.status !== 'stale') {
+			return;
+		}
+		const requestId = openFileRequestIdRef.current + 1;
+		openFileRequestIdRef.current = requestId;
+		const runtime = runtimeRef.current;
+		if (runtime === null) {
+			if (openFileRequestIdRef.current === requestId) {
+				setOpenFileState({ status: 'failed', path: state.path, descriptor: state.descriptor });
+			}
+			return;
+		}
+		const result = await runtime.refreshOpenFile({
+			openFileSessionId: state.descriptor.fileId,
+		});
+		if (openFileRequestIdRef.current !== requestId) {
+			return;
+		}
+		if (result.ok) {
+			openFileBodyRef.current = result.body;
+			setOpenFileState({
+				status: 'ready',
+				path: state.path,
+				descriptor: state.descriptor,
+			});
+			return;
+		}
+		if (result.reason === 'content_unavailable') {
+			openFileBodyRef.current = null;
+			setOpenFileState({ status: 'unavailable', path: state.path, descriptor: state.descriptor });
+			return;
+		}
+		setOpenFileState({ status: 'failed', path: state.path, descriptor: state.descriptor });
+	}, []);
+
 	const totalTreeHeightPixels = totalTreeHeightForSizeFacts(renderState.treeSizeFacts);
 	const totalOpenFileHeightPixels = totalOpenFileHeightForState(openFileState);
-	const openFileBody = openFileState.status === 'ready' ? (openFileBodyRef.current ?? '') : null;
+	const openFileBody =
+		openFileState.status === 'ready' || openFileState.status === 'stale'
+			? openFileBodyRef.current
+			: null;
 	return (
 		<main className="bridge-worktree-file-app" data-testid="worktree-file-app">
 			<section
@@ -200,7 +245,7 @@ export function WorktreeFileApp({
 							: { minHeight: totalOpenFileHeightPixels }
 					}
 				>
-					{openFileState.status === 'ready' ? (
+					{openFileBody === null ? null : (
 						<pre
 							style={{
 								lineHeight: `${defaultFileLineHeightPixels}px`,
@@ -210,9 +255,20 @@ export function WorktreeFileApp({
 						>
 							{openFileBody}
 						</pre>
-					) : null}
+					)}
 					{openFileState.status === 'stale' ? (
-						<div data-testid="worktree-file-content-stale">Content changed</div>
+						<div data-testid="worktree-file-content-stale">
+							Content changed
+							<button
+								data-testid="worktree-file-refresh"
+								onClick={() => {
+									void refreshOpenFile(openFileState);
+								}}
+								type="button"
+							>
+								Refresh
+							</button>
+						</div>
 					) : null}
 					{openFileState.status === 'unavailable' ? (
 						<div data-testid="worktree-file-content-unavailable">Content unavailable</div>
@@ -224,27 +280,41 @@ export function WorktreeFileApp({
 }
 
 function applyFramesToRuntime(props: {
+	readonly currentRenderState: WorktreeFileSurfaceRenderState;
 	readonly frames: readonly WorktreeFileProtocolFrame[];
 	readonly runtime: WorktreeFileSurfaceRuntime | null;
 }): WorktreeFileSurfaceRenderState {
-	const descriptors: WorktreeFileDescriptor[] = [];
-	let treeSizeFacts: WorktreeTreeVirtualizedSizeFacts | null = null;
+	const descriptorsByFileId = new Map(
+		props.currentRenderState.descriptors.map((descriptor) => [descriptor.fileId, descriptor]),
+	);
+	let treeSizeFacts = props.currentRenderState.treeSizeFacts;
 	for (const frame of props.frames) {
 		props.runtime?.applyFrame(frame);
 		if (frame.frameKind === 'worktree.snapshot' || frame.frameKind === 'worktree.treeWindow') {
 			treeSizeFacts = frame.treeSizeFacts ?? treeSizeFacts;
 		}
 		if (frame.frameKind === 'worktree.fileDescriptor') {
-			descriptors.push(frame.descriptor);
+			descriptorsByFileId.set(frame.descriptor.fileId, frame.descriptor);
+		}
+		if (frame.frameKind === 'worktree.fileInvalidated') {
+			const latestDescriptor = frame.invalidation.latestDescriptor;
+			if (latestDescriptor !== undefined) {
+				descriptorsByFileId.set(latestDescriptor.fileId, latestDescriptor);
+			}
+		}
+		if (frame.frameKind === 'worktree.reset') {
+			descriptorsByFileId.clear();
+			treeSizeFacts = null;
 		}
 	}
-	return { descriptors, treeSizeFacts };
+	return { descriptors: [...descriptorsByFileId.values()], treeSizeFacts };
 }
 
 function reconcileOpenFileStateWithFrames(props: {
 	readonly currentOpenFileState: WorktreeFileOpenRenderState;
 	readonly frames: readonly WorktreeFileProtocolFrame[];
 	readonly openFileBodyRef: MutableRefObject<string | null>;
+	readonly openFileRequestIdRef: MutableRefObject<number>;
 }): WorktreeFileOpenRenderState {
 	if (props.currentOpenFileState.status === 'idle') {
 		return props.currentOpenFileState;
@@ -259,7 +329,7 @@ function reconcileOpenFileStateWithFrames(props: {
 	if (matchedInvalidation?.frameKind !== 'worktree.fileInvalidated') {
 		return currentOpenFileState;
 	}
-	props.openFileBodyRef.current = null;
+	props.openFileRequestIdRef.current += 1;
 	return {
 		status: 'stale',
 		path: currentOpenFileState.path,

@@ -773,15 +773,24 @@ async function readWorktreeFileText(props: {
 	readonly worktreeRoot: string;
 }): Promise<string> {
 	const absolutePath = resolve(props.worktreeRoot, props.path);
-	const relativePath = relative(props.worktreeRoot, absolutePath);
-	if (
-		relativePath.startsWith('..') ||
-		relativePath === '' ||
-		relativePath.split(sep).includes('..')
-	) {
+	if (!isPathInsideRoot({ absolutePath, rootPath: props.worktreeRoot })) {
 		throw new Error(`Bridge worktree path escapes root: ${props.path}`);
 	}
-	return await readFile(absolutePath, 'utf8');
+	const realAbsolutePath = await realpath(absolutePath);
+	if (!isPathInsideRoot({ absolutePath: realAbsolutePath, rootPath: props.worktreeRoot })) {
+		throw new Error(`Bridge worktree path escapes root: ${props.path}`);
+	}
+	return await readFile(realAbsolutePath, 'utf8');
+}
+
+function isPathInsideRoot(props: {
+	readonly absolutePath: string;
+	readonly rootPath: string;
+}): boolean {
+	const relativePath = relative(props.rootPath, props.absolutePath);
+	return (
+		!relativePath.startsWith('..') && relativePath !== '' && !relativePath.split(sep).includes('..')
+	);
 }
 
 async function gitShowOrNull(

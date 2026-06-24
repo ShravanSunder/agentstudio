@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -246,6 +246,25 @@ describe('Bridge worktree dev provider', () => {
 			);
 		} finally {
 			await rm(repoRoot, { force: true, recursive: true });
+		}
+	});
+
+	test('rejects changed-file symlinks that resolve outside the worktree root', async () => {
+		const repoRoot = await makeGitFixtureWorktree();
+		const externalRoot = await mkdtemp(join(tmpdir(), 'bridge-worktree-provider-secret-'));
+		try {
+			await writeFile(join(externalRoot, 'secret.txt'), 'external secret must not load\n');
+			await symlink(join(externalRoot, 'secret.txt'), join(repoRoot, 'linked-secret.txt'));
+			const provider = await createBridgeWorktreeDevProvider({
+				baseRef: 'HEAD',
+				scenarioName: 'current-worktree',
+				worktreeRoot: repoRoot,
+			});
+
+			await expect(provider.loadWorktreeFileSurface()).rejects.toThrow(/escapes root/);
+		} finally {
+			await rm(repoRoot, { force: true, recursive: true });
+			await rm(externalRoot, { force: true, recursive: true });
 		}
 	});
 

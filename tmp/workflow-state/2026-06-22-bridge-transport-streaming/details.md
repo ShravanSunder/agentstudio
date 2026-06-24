@@ -6,22 +6,21 @@ Created: 2026-06-22
 ## Current State
 
 Current workflow: `shravan-dev-workflow:implementation-review-swarm`
-Next workflow: `shravan-dev-workflow:implementation-execute-plan`
+Next workflow: `shravan-dev-workflow:implementation-review-swarm`
 
 Reason:
 
 - Ticket 04 Worktree/File browser/dev-server implementation reached mandatory
   implementation review at `f5701c94`.
-- The review accepted a review-fix batch before Ticket 04 could be called
-  ready: the dev-server scroll canary had to exercise a non-zero scrolled tree
-  anchor, loading-to-ready extent proof had to be deterministic, provider line
-  counts had to match painted `<pre>` rows for trailing-newline content, stale
-  async open-file completions had to be ignored, proof artifacts had to avoid
-  absolute local paths, and this workflow header had to match the latest event
-  route.
-- That review-fix patch is now implemented and proven. Route back to
-  `shravan-dev-workflow:implementation-review-swarm` for Ticket 04 re-review
-  before PR readiness or handoff.
+- The first review-fix pass at `6724fae3` closed the original scroll/loading
+  proof issues, but Ticket 04 re-review returned `not_ready`.
+- Accepted re-review findings were in-flight invalidation stale completion,
+  invalidation-only tree state loss, stale flow missing explicit refresh/body
+  continuity, changed-file symlink escape in the Vite dev provider, and missing
+  ticket-local red proof.
+- Those accepted findings are now patched and proven in the current worktree.
+  Route back to `shravan-dev-workflow:implementation-review-swarm` for another
+  Ticket 04 re-review before cleanup, PR readiness, or handoff.
 
 Current Ticket 03 checkpoint status:
 
@@ -1169,15 +1168,29 @@ Checkpoint 4: Worktree/File browser surface
 - Commit only after proof gates pass.
 - Review before cleanup.
 
-Current Ticket 04 review-fix proof:
+Current Ticket 04 review-fix follow-through proof:
 
+- Re-review reducer report:
+  `tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/implementation-review-ticket-04-review-fix/report.md`.
+- Red proof:
+  `pnpm --dir BridgeWeb exec vitest run
+  src/worktree-file-surface/worktree-file-app.integration.test.tsx
+  scripts/dev-server/bridge-worktree-dev-provider.integration.test.ts
+  --reporter verbose`: exit 1 before the follow-through fix, with expected
+  failures for symlink escape, invalidation-only tree loss, and in-flight
+  invalidation stale completion.
+- Focused red-to-green gate:
+  `pnpm --dir BridgeWeb exec vitest run
+  src/worktree-file-surface/worktree-file-app.integration.test.tsx
+  scripts/dev-server/bridge-worktree-dev-provider.integration.test.ts
+  --reporter verbose`: exit 0, 2 files passed, 16 tests passed.
 - Focused Worktree/File gate:
   `pnpm --dir BridgeWeb exec vitest run
   src/worktree-file-surface/worktree-file-app.integration.test.tsx
   src/worktree-file-surface/worktree-file-surface-runtime.integration.test.ts
   scripts/dev-server/bridge-worktree-dev-provider.integration.test.ts
   scripts/dev-server/bridge-dev-telemetry.unit.test.ts --reporter verbose`:
-  exit 0, 4 files passed, 24 tests passed.
+  exit 0, 4 files passed, 26 tests passed.
 - Browser integration gate:
   `pnpm --dir BridgeWeb run test:browser:integration --
   src/worktree-file-surface/worktree-file-app.browser.test.tsx --reporter
@@ -1186,7 +1199,7 @@ Current Ticket 04 review-fix proof:
   `BRIDGE_VIEWER_WORKTREE_DEV_SERVER_URL='http://127.0.0.1:5173/?fixture=worktree&workers=on&scenario=current-worktree'
   pnpm --dir BridgeWeb run test:dev-server:worktree`: exit 0.
   Latest artifact:
-  `tmp/bridge-viewer-worktree-dev-server/2026-06-24T01-11-16-655Z/worktree-dev-server-proof.json`.
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-24T01-32-58-887Z/worktree-dev-server-proof.json`.
   Key canary values: `descriptorCount=419`, `targetPath=Sources/AgentStudioIPCClientCore/AgentStudioIPCClientArguments.swift`,
   `treeScrollTopBeforeSelection=2372`, `treeScrollTopAfterReady=2372`,
   `treeHeightDeltaPixels=0`, `contentHeightDeltaPixels=0`,
@@ -1194,10 +1207,12 @@ Current Ticket 04 review-fix proof:
   `stableAnchorPass=true`, `exactSizeTolerancePass=true`.
 - Artifact leakage check:
   `rg -n "/Users/|agentstudio://resource"
-  tmp/bridge-viewer-worktree-dev-server/2026-06-24T01-11-16-655Z/worktree-dev-server-proof.json || true`:
+  tmp/bridge-viewer-worktree-dev-server/2026-06-24T01-32-58-887Z/worktree-dev-server-proof.json || true`:
   exit 0 with no matches.
 - Quality gate:
   `pnpm --dir BridgeWeb run check`: exit 0.
+- Repo lint gate:
+  `mise run lint`: exit 0.
 
 Checkpoint 5: hard cutover cleanup
 
