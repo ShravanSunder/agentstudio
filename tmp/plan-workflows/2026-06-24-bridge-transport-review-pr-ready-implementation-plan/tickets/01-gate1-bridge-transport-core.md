@@ -62,10 +62,20 @@ Required:
 - integration tests for transport/resource boundaries
 - typecheck/lint for touched BridgeWeb paths
 - no app-semantics imports into generic core
+- Gate 0 current-worktree product proof remains green before this ticket closes
 
 Blocked until:
 
 - Ticket 00 product route proof is green and committed.
+
+## Required Commands
+
+```bash
+pnpm --dir BridgeWeb run test -- <focused transport/core tests>
+pnpm --dir BridgeWeb run check
+pnpm --dir BridgeWeb run test:dev-server:worktree
+mise run lint
+```
 
 phase_result: complete
 evidence: Gate 1 ticket drafted with ownership boundary and proof gates.

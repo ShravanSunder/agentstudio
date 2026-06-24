@@ -2,7 +2,8 @@
 
 Goal id: `2026-06-24-bridge-transport-review-pr-ready`
 Review workflow: `shravan-dev-workflow:spec-review-swarm`
-Status: ready to send to spec reviewers
+Status: accepted on 2026-06-24 after post-fix review; retained as reviewer
+context for later phases
 
 ## Review Objective
 

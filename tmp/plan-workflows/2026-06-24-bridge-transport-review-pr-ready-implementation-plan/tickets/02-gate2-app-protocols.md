@@ -57,6 +57,17 @@ Required:
 - integration tests for source reset and stale resource completion
 - browser fixture for live worktree/change-set behavior where applicable
 - no large bodies in Zustand snapshots
+- Gate 0 current-worktree product proof remains green before this ticket closes
+
+## Required Commands
+
+```bash
+pnpm --dir BridgeWeb run test -- <focused app protocol tests>
+pnpm --dir BridgeWeb run test:browser:integration -- <focused browser tests>
+pnpm --dir BridgeWeb run check
+pnpm --dir BridgeWeb run test:dev-server:worktree
+mise run lint
+```
 
 phase_result: complete
 evidence: Gate 2 ticket drafted with app ownership and proof gates.

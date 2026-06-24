@@ -123,9 +123,35 @@ reported.
 | 3 | renderer adapters and update lifecycle | Pierre/CodeView/tree integration | static diff, live update, change-set comparison, scroll canary | performance/scroll telemetry | renderer hard-cutover review |
 | 4 | focused regressions | package/native bridge smoke | final dev-server/browser proof | Agent Studio Bridge/WKWebView + Victoria proof | implementation review + PR wrapup |
 
+## Proof Surface Contract
+
+This epic has two real product proof surfaces. They are complementary, not
+substitutes:
+
+1. Vite dev-server/browser proof
+   - owns the fast product loop for the exact Worktree/File and Review URLs
+   - must exercise visible controls, interactions, content, scroll, stale state,
+     screenshots, and negative substitute assertions
+   - must fail when the route renders a mock, raw dump, minimal list, or old
+     narrow verifier surface
+
+2. Agent Studio Bridge/WKWebView proof
+   - owns native host integration for the same in-scope product routes
+   - must prove native route boot, page/host handshake, protocol/source/resource
+     identity, event stream readiness, resource/content requests, visual product
+     state, and Victoria/log marker correlation
+   - must include Worktree/File, Review/Pierre, and any Gate 3 in-scope
+     change-set/native comparison route before PR-ready
+
+No gate may be closed by unit, integration, mock, route bootstrap, telemetry, or
+subagent claims alone when user-visible product behavior is in scope.
+
 ## Execution Rules
 
 - Do not proceed past a gate until its blocking proof is captured and committed.
+- Carry Gate 0 forward as a standing regression gate. Tickets 01-03 must rerun
+  the Gate 0 current-worktree product proof before closing if they touch shared
+  BridgeWeb transport, protocol, scheduler, or renderer wiring.
 - Do not use a lower proof layer as a substitute for visible product behavior.
 - Do not use Vite/dev-server proof as final native Agent Studio Bridge proof.
 - Do not count failed/disconnected subagent review as accepted review.

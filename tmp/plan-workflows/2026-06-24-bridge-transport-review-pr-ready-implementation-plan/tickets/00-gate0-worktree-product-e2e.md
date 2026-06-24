@@ -16,6 +16,17 @@ http://127.0.0.1:5173/?fixture=worktree&workers=on&scenario=current-worktree
 The route must not pass as a Review mock route, raw frame dump, concatenated
 path dump, or minimal two-pane list plus `<pre>` renderer.
 
+## Proof Surface Boundary
+
+This ticket proves the Vite dev-server/browser product loop only. It is still a
+real product proof gate, not a mock gate: the verifier must launch or attach to
+the dev server, open the exact URL, interact with the rendered page, capture
+screenshots and JSON diagnostics, and assert visible product behavior.
+
+Native Agent Studio Bridge/WKWebView proof is deliberately not satisfied here.
+Ticket 04 must rerun equivalent product behavior through the native app-hosted
+Bridge path before PR-ready.
+
 ## Current Red Evidence
 
 - `tmp/bridge-worktree-devserver-proof-recovery/current-worktree-route-after-3s.png`

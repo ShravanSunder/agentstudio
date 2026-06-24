@@ -21,11 +21,15 @@ Bridge/WKWebView proof, not only green lower-layer checks.
    - Review/Pierre browser proof passes
 
 2. Native Agent Studio Bridge/WKWebView proof
-   - app-hosted Bridge route boots through native host
-   - protocol/source/resource identity agrees with browser surface
+   - Worktree/File native route boots through native host
+   - Review/Pierre native route boots through native host
+   - in-scope change-set/native comparison route boots when included by Gate 3
+   - protocol/source/resource identity agrees with each browser surface
    - visible product checks, interaction assertions, stale/refresh where
      applicable, screenshots, scroll canaries, and negative-substitute checks
      are included
+   - Ticket 03 legacy-bypass negative assertion is rerun for native covered
+     routes
    - Victoria/log markers correlate route boot, event stream readiness, and
      resource/content requests
 
@@ -44,6 +48,37 @@ Bridge/WKWebView proof, not only green lower-layer checks.
    - accepted findings addressed or explicitly rejected
    - PR opened or updated
    - checks, review comments, and mergeability freshly reported
+
+## Native Proof Artifact Requirements
+
+Native proof must produce inspectable artifacts, not only command success:
+
+- exact native route or scenario identifier for every covered surface
+- app bundle identity and launch method
+- marker id used for Victoria/log correlation
+- page/host handshake facts
+- protocol/source/resource identity facts
+- event stream ready marker and resource/content request markers
+- visible product assertions and screenshots for each surface
+- scroll canary and stale/refresh evidence where applicable
+- negative-substitute and legacy-bypass assertions
+
+## Required Commands
+
+```bash
+pnpm --dir BridgeWeb run test
+pnpm --dir BridgeWeb run test:browser:integration
+pnpm --dir BridgeWeb run test:dev-server:worktree
+pnpm --dir BridgeWeb run test:benchmark:browser
+pnpm --dir BridgeWeb run check
+mise run observability:up
+mise run run-debug-observability -- --detach
+mise run verify-debug-observability
+mise run verify-bridge-observability
+mise run bridge-web-browser-benchmark
+mise run lint
+mise run test
+```
 
 ## Non-Goals
 

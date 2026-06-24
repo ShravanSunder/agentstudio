@@ -2,8 +2,8 @@
 
 Goal id: `2026-06-24-bridge-transport-review-pr-ready`
 Status: active
-Current workflow: spec/design reconciliation for expanded epic scope
-Next workflow: `shravan-dev-workflow:spec-creation-swarm`
+Current workflow: plan-creation-swarm draft complete
+Next workflow: `shravan-dev-workflow:plan-review-swarm`
 
 ## Durable Objective
 

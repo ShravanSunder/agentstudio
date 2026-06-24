@@ -48,6 +48,19 @@ Required:
 - scroll canary for large tree/diff/file content
 - performance/telemetry proof where required by the spec
 - implementation review focused on renderer hard cutover
+- Gate 0 current-worktree product proof remains green before this ticket closes
+
+## Required Commands
+
+```bash
+pnpm --dir BridgeWeb run test -- <focused renderer/materialization tests>
+pnpm --dir BridgeWeb run test:browser:integration -- <focused renderer browser tests>
+pnpm --dir BridgeWeb run test:benchmark:browser
+pnpm --dir BridgeWeb run check
+pnpm --dir BridgeWeb run test:dev-server:worktree
+mise run bridge-web-browser-benchmark
+mise run lint
+```
 
 phase_result: complete
 evidence: Gate 3 ticket drafted with hard-cutover and negative-bypass proof.
