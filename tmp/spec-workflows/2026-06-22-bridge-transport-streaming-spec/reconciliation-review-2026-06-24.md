@@ -1,6 +1,8 @@
 # 2026-06-24 Reconciliation Review Reducer
 
-Status: reduced.
+Status: superseded by the later 2026-06-24 Worktree dev-server product E2E
+proof-gap correction. This reducer remains historical evidence only; do not use
+its "ready" conclusion as current plan-readiness.
 
 Scope:
 
@@ -73,6 +75,10 @@ Resolution:
 
 ## Result
 
-The spec set is ready to feed a real checkpointed implementation plan. The old
-00-05 implementation plan remains historical. Slice 07 is a standing verifier
-gate; slices 06 and 08-11 remain implementation-plan work.
+Superseded result:
+
+The earlier result said the spec set was ready to feed a real checkpointed
+implementation plan. That is no longer current. User-visible dev-server evidence
+showed the Worktree route proof could pass while still not proving the intended
+Worktree/File product surface. The current route is back through the parent spec
+and Worktree/File slice for product E2E correction before plan creation.

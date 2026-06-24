@@ -1,9 +1,9 @@
 # Worktree/File Surface Protocol Spec
 
 Date: 2026-06-22
-Status: Reconciliation review reduced on 2026-06-24. This slice is ready to
-feed plan creation/reconciliation; Worktree/File runtime implementation remains
-open plan work.
+Status: Reopened for 2026-06-24 Worktree dev-server product E2E correction.
+This slice is not plan-ready until the exact `current-worktree` dev URL has a
+reviewed product-surface proof contract and precursor ticket.
 Parent: [spec.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/spec-workflows/2026-06-22-bridge-transport-streaming-spec/spec.md:1)
 
 This file owns the Worktree/File Surface protocol family. The user-facing
@@ -27,6 +27,12 @@ The Worktree/File Surface lets a user inspect a live checkout:
 The surface should feel live without yanking content under the reader. A file
 change must be visible to the user even when the open body is not automatically
 replaced.
+
+The development route for this surface is part of the product contract, not a
+throwaway fixture. The exact URL
+`?fixture=worktree&workers=on&scenario=current-worktree` must render and operate
+the intended Worktree/File product surface. A bare file-list plus `<pre>` body
+view, even when it has content, is not enough proof.
 
 ## 2. Ownership
 
@@ -77,6 +83,32 @@ Worktree/File Surface
 
 Tree and file content can use separate substreams and descriptors, but they are
 part of one app protocol family and one user-facing surface.
+
+## 3.1 Required Product Surface Behavior
+
+The Worktree/File product surface must expose these user-visible regions and
+controls before it can be called working:
+
+- source/status header or equivalent provenance surface that identifies the
+  active Worktree/File source, not a Review package fixture
+- tree/navigation region with selectable file rows and stable selection state
+- file content region with open-file identity, loading/ready/stale/unavailable
+  states, and reader-stable content
+- tree/file search text input
+- regex search toggle or mode control
+- filter/status controls for narrowing the visible tree/file set
+- refresh/update affordance when an open file is stale
+- large-tree and large-file scroll surfaces with stable declared extent
+
+These controls may be visually compact, but they must be discoverable in the DOM
+with product-specific selectors and must produce observable state changes under
+Playwright. Hidden test-only flags, DOM text concatenation, and content-ready
+markers do not satisfy the product-surface contract by themselves.
+
+The root Review/mock route is useful reference behavior, but it is not proof for
+this surface. A passing Worktree/File proof must fail if the app accidentally
+routes through Review package/query lineage, or if it renders a minimal raw
+Worktree fixture rather than the intended product surface.
 
 ## 4. Live Update Policy
 
@@ -625,6 +657,18 @@ Contract:
   identity plus event/intake lineage, proof is driven by Review package/query
   lineage, or raw frame fields/serialized payload/path corpus dumps appear
   outside intentional tree/content UI
+- current-scope product E2E proof uses Playwright against the exact dev-server
+  URL and must exercise file click/open, content render, search input, regex
+  toggle, filter/status controls, large-tree scroll, large-file scroll, and
+  source/protocol provenance assertions
+- current-scope product E2E proof emits screenshot artifacts before/after
+  interaction plus a JSON artifact that records route identity, protocol/source
+  lineage, selected file path, open content state, control state changes, scroll
+  extent canaries, and negative assertions against Review/mock lineage and raw
+  minimal rendering
+- current-scope product E2E proof is a blocker for later transport, scheduler,
+  renderer, and telemetry claims; lower-level unit/component/browser tests may
+  support it but cannot replace it
 - current-scope comments/comms proof is fail-closed: `includeComments`,
   `includeAgentComms`, `commentThreadWindow`, and `agentCommsWindow` are rejected
   or unsupported and are not fetchable

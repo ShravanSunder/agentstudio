@@ -1,9 +1,10 @@
 # Bridge Transport And App Protocol Architecture Spec
 
 Date: 2026-06-22
-Status: Reconciliation review reduced on 2026-06-24. This artifact is ready
-to feed plan creation/reconciliation. Slice 07 is proved in the current
-worktree; slices 06 and 08-11 remain implementation-plan work.
+Status: Reopened for 2026-06-24 Worktree dev-server product E2E correction.
+This artifact is not plan-ready until the Worktree/File product-surface proof
+contract is reviewed and the reconciliation plan contains a blocking precursor
+ticket for the exact `current-worktree` dev URL.
 Audience: product/design reviewers, Bridge implementers, Review Viewer maintainers, Worktree/File Surface maintainers, future agents
 
 This is a product and architecture spec. It aligns the design before
@@ -117,6 +118,16 @@ rects; sampled tree entries occupy distinct row boxes; selected file content
 preserves visible line structure for exact-line-count fixtures; packaged styling
 affects the mounted surface; and no raw transport payload, serialized frame
 field, or raw path corpus is visible outside intentional tree/content UI.
+
+R11 is not satisfied by a minimal two-pane file list plus `<pre>` content. The
+dev-server proof for `?fixture=worktree&workers=on&scenario=current-worktree`
+must exercise the intended Worktree/File product surface: route/protocol identity,
+provider/source provenance, file click/open behavior, content render, tree
+filtering controls, search text input, regex toggle behavior, status/filter
+controls, refresh/stale affordance when applicable, large-tree scroll stability,
+large-file scroll stability, and screenshot/DOM artifacts reviewed against the
+visible product surface. The root mock Review route and Review package fixtures
+are prohibited substitutes for this Worktree/File proof.
 
 R12. Renderer cutover is a first-class architecture requirement.
 
@@ -1164,6 +1175,7 @@ Proof expectations feed a later plan. They are not task order.
 | Source reset demand | scheduler/executor fixture | source reset with queued/in-flight work | queued work dropped, stale completion rejected | late commit after reset |
 | Stable scroll extent | schema/provider/browser canary fixture | huge tree and opened file before content bytes hydrate | provider emits exact row/line count or conservative estimated extent; browser `scrollHeight`/virtualizer `totalSize` stays within tolerance after hydration or logs attributed measured deltas | accepting scrollbar jump as manual UX judgment |
 | Worktree visible app proof | browser/dev-server fixture | current-worktree route in a real browser | app root/tree pane/file pane have non-zero visible rects; sampled tree entries occupy distinct row boxes; selected exact-line fixture preserves visible line structure; packaged styling affects the surface; proof records Worktree/File source identity, event/intake lineage, and Worktree frame provenance; raw frame fields, serialized payloads, and raw path corpus dumps are absent outside intentional tree/content UI | schema-only proof, hidden DOM text, Review package/query lineage, hardcoded pass flag, or screenshot with concatenated paths |
+| Worktree product E2E proof | Playwright/dev-server fixture plus parent-inspected screenshot artifact | exact `?fixture=worktree&workers=on&scenario=current-worktree` URL | route identifies the Worktree/File product surface; tree/file/status controls are visible; file click changes the open content; search, regex toggle, and filter controls produce observable state changes; large tree and large file scroll preserve stable extents; proof artifact records source/protocol provenance and screenshots before/after interaction | root mock Review route, minimal file-list plus `<pre>` renderer, DOM text-only assertion, content-ready flag, or screenshot that was not tied to Playwright interaction |
 | Renderer boundary and cutover | integration/browser fixture | Pierre/CodeView/tree adapter input and update lifecycle | app/protocol-owned renderer adapters receive prepared items/paths only; same-lineage updates avoid incompatible full remount; stable extent is consumed by renderer path | Bridge URL in renderer, generic Bridge interpreting app render semantics, or old renderer path bypassing the materializer contract |
 | Telemetry safety | canary fixture | seeded path/content/prompt/URL/comment plus demand audit trace | exported telemetry excludes all seeds and retains safe scheduler audit fields | denylist-only claim |
 | Review ownership | protocol fixture | comparison open | provider emits package frames | browser computes repo diff |
@@ -1341,6 +1353,10 @@ These are current-state observations, not design goals:
 - Current tree/file browsing capability is implemented under Review query and
   provider contracts, even though runtime filesystem events are already
   worktree-native.
+- The 2026-06-24 Worktree dev-server verifier proved file text rendered in a
+  two-pane route, but did not prove the intended Worktree/File product surface:
+  search/regex/filter controls, route identity, product chrome, and interactive
+  file/tree behavior were not blocking proof gates.
 
 ## 17. Evidence Anchors
 
@@ -1371,15 +1387,17 @@ Prior-art evidence used for changeset flexibility:
 
 ## 18. Next Workflow
 
-This spec has been reconciled against the 2026-06-24 recovery objective and
-fresh spec-review findings.
+This spec is reopened because the 2026-06-24 Worktree dev-server proof was too
+weak: it could pass while the exact Worktree URL rendered a minimal/raw-looking
+tree plus file-content surface rather than the intended product app.
 
 Current workflow route:
 
-- next phase: convert the reconciliation artifact into a real checkpointed
-  implementation plan
-- first implementation slice: slice 06 Continuous Event Stream Backbone, or a
-  smaller precursor that proves the startup event stream carrier
-- standing gate: keep slice 07 Worktree dev-server visible-app verifier in the
-  proof loop
-- after plan review passes: route execution under the orchestrator goal
+- next phase: update the Worktree/File product E2E spec and run
+  `shravan-dev-workflow:spec-review-swarm`
+- after accepted spec edits land: update the reconciliation plan with a
+  blocking precursor ticket for the exact current-worktree dev-server URL
+- after plan review passes: implement the precursor before resuming slice 06
+  Continuous Event Stream Backbone
+- standing gate: every later transport/scheduler/renderer ticket keeps the
+  current-worktree product E2E Playwright proof in the loop

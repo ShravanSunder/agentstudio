@@ -1,9 +1,10 @@
 # Bridge Transport Streaming Reconciliation Plan
 
 Date: 2026-06-24
-Status: checkpoint reconciliation plan after 2026-06-24 spec-review reduction.
-Slice 07 is completed and proved in the current worktree; slices 06 and 08-11
-remain open plan work.
+Status: reopened after 2026-06-24 Worktree dev-server product E2E proof gap.
+The prior slice 07 proof is invalid for product readiness. A blocking precursor
+ticket must make the exact `current-worktree` dev URL work as the intended
+Worktree/File product surface before slice 06 resumes.
 Source spec:
 [spec.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/spec-workflows/2026-06-22-bridge-transport-streaming-spec/spec.md:1),
 [review-protocol.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/spec-workflows/2026-06-22-bridge-transport-streaming-spec/review-protocol.md:1),
@@ -15,14 +16,17 @@ the next critical plan slices.
 
 ## Current Truth
 
-- The branch is green on the narrowed 00-05 implementation scope plus the
-  2026-06-24 slice 07 visible-app proof repair.
+- The branch is green on the narrowed 00-05 implementation scope plus a weak
+  2026-06-24 slice 07 visible-text proof.
 - The reopened spec is broader than that scope.
 - The worktree dev-server route previously rendered raw/gibberish path text even
   though earlier proof passed. That proved the prior proof contract was
   insufficient.
-- The current worktree dev-server route now renders the Worktree/File app and
-  has a standing machine-checkable visible-app verifier.
+- The current worktree dev-server route can render a tree and file text, but the
+  proof does not establish the intended Worktree/File product surface. The
+  verifier did not block a minimal/raw-looking file-list plus `<pre>` surface and
+  did not exercise search, regex, filters, route provenance, or visual product
+  behavior.
 - The old plan's "PR ready" proof is no longer enough to claim architecture
   satisfaction.
 
@@ -34,10 +38,47 @@ the next critical plan slices.
 | 01 core transport contracts | useful base contracts | must be extended with continuous-event-stream contract and fixtures |
 | 02 review protocol vertical | useful Review vertical | must be audited for live changeset runtime contract and renderer cutover |
 | 03 worktree/file native provider | useful provider boundary | must be audited against continuous event stream and visible-app proof |
-| 04 worktree/file browser surface | useful browser surface | extended by slice 07 visible-app proof repair |
+| 04 worktree/file browser surface | useful browser surface | blocked by precursor product E2E proof; current surface/proof is too weak |
 | 05 hard-cutover cleanup | useful cleanup | not final cleanup against reopened spec |
 
 ## New Critical Plan Slices
+
+### 06P Worktree Dev-Server Product E2E Precursor
+
+Status: blocking precursor.
+
+Deliverable:
+Make the exact dev-server URL render and operate the intended Worktree/File
+product surface, not a Review mock route and not a minimal raw file-list plus
+`<pre>` body renderer.
+
+URL:
+`http://127.0.0.1:5173/?fixture=worktree&workers=on&scenario=current-worktree`
+
+Required behavior:
+
+- Product surface exposes Worktree/File source or status provenance.
+- Tree rows are selectable and selection changes the open content.
+- Open file content renders ready/loading/stale/unavailable states.
+- Search text input exists and changes visible/search state.
+- Regex toggle or mode control exists and changes search interpretation/state.
+- Filter/status controls exist and change visible tree/file state.
+- Large-tree scroll and large-file scroll preserve stable extents.
+- Screenshots show the intended product surface before and after interaction.
+- Proof artifact records route identity, protocol/source lineage, selected file,
+  open content state, control state changes, scroll canaries, and negative
+  assertions against Review/mock lineage and raw/minimal rendering.
+
+Proof:
+
+- Playwright/dev-server E2E against the exact URL above.
+- Parent-inspected screenshot artifacts from that run.
+- JSON proof artifact with provenance, controls, interactions, scroll canaries,
+  and negative assertions.
+- A visual subagent/reviewer lane checks the screenshots against the product
+  expectation before the ticket is marked complete.
+- Unit/component tests may support this ticket, but cannot replace the
+  dev-server E2E proof.
 
 ### 06 Continuous Event Stream Backbone
 
@@ -63,7 +104,7 @@ Proof:
 
 ### 07 Worktree Dev-Server Visible-App Proof And Fix
 
-Status: completed in current worktree.
+Status: superseded by blocking precursor 06P.
 
 Deliverable:
 Fix the current worktree dev-server route so it renders the actual
@@ -100,6 +141,13 @@ Current proof:
   tree scroll extent canaries.
 - `mise run bridge-web-check` exited 0.
 - `mise run lint` exited 0.
+
+Correction:
+
+This proof is not enough. It proved content and some layout facts, but not the
+intended Worktree/File product surface. Do not use it as a completion gate for
+the reopened spec. Keep only the useful lower-level assertions and replace the
+completion gate with precursor 06P.
 
 ### 08 Victoria Scheduler And Transport Tuning
 
@@ -169,14 +217,15 @@ Proof:
 
 ## Plan Decision
 
-Do not keep executing the old 00-05 plan as if it is current. The
-spec-review reduction is complete for this recovery checkpoint. The right next
-step is:
+Do not keep executing the old 00-05 plan as if it is current. The prior
+spec-review reduction is reopened by the Worktree dev-server product E2E proof
+gap. The right next step is:
 
-1. Convert this reconciliation file into a real checkpointed implementation
-   plan.
-2. Resume implementation with slice 06 or split a smaller precursor slice for
-   the continuous event stream backbone.
-3. Keep slice 07's verifier as a standing gate while later transport,
-   scheduler, renderer, and telemetry slices are implemented.
-4. After plan review passes, route execution under the orchestrator goal.
+1. Run spec-review-swarm on the corrected Worktree/File product E2E contract.
+2. Convert this reconciliation file into a real checkpointed implementation
+   plan only after the spec review accepts the blocker language.
+3. Execute precursor 06P before slice 06.
+4. Keep precursor 06P's Playwright/dev-server product E2E proof as a standing
+   gate while later transport, scheduler, renderer, and telemetry slices are
+   implemented.
+5. After plan review passes, route execution under the orchestrator goal.
