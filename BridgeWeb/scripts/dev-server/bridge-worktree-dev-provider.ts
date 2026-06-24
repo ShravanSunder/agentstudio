@@ -387,7 +387,7 @@ function worktreeFileDescriptorForChangedFile(props: {
 			sourceIdentity: props.sourceIdentity,
 			sizeBytes: byteLength(content),
 			virtualizedExtentKind: 'exactLineCount',
-			lineCount: lineCount(content),
+			lineCount: renderLineCount(content),
 			isBinary: false,
 			language: languageForExtension(extension),
 			fileExtension: extension,
@@ -825,6 +825,10 @@ function linesForDiff(content: string): readonly string[] {
 
 function lineCount(content: string | null | undefined): number {
 	return linesForDiff(content ?? '').length;
+}
+
+function renderLineCount(content: string): number {
+	return content.length === 0 ? 0 : content.split('\n').length;
 }
 
 function extensionForPath(path: string): string {

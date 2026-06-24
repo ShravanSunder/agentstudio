@@ -54,6 +54,7 @@ interface WorktreeDevServerVerificationResult {
 	readonly frameCount: number;
 	readonly packageForbiddenTextAbsent: boolean;
 	readonly scenarioName: string;
+	readonly scrollExtentCanary: WorktreeFileScrollExtentCanary;
 	readonly selectedCharacterCount: number;
 	readonly selectedContentState: string | null;
 	readonly selectedDisplayPath: string | null;
@@ -64,6 +65,34 @@ interface WorktreeDevServerVerificationResult {
 	readonly treePathCount: number | null;
 	readonly treeTotalSizePixels: number | null;
 }
+
+interface WorktreeFileScrollExtentCanary {
+	readonly contentDeclaredTotalSizePixelsAfterReady: number | null;
+	readonly contentDeclaredTotalSizePixelsAfterSelection: number | null;
+	readonly contentHeightDeltaPixels: number;
+	readonly contentScrollHeightAfterReady: number;
+	readonly contentScrollHeightAfterSelection: number;
+	readonly contentScrollTopAfterReady: number;
+	readonly contentScrollTopAfterSelection: number;
+	readonly selectedAnchorPath: string;
+	readonly treeDeclaredTotalSizePixels: number | null;
+	readonly treeHeightDeltaPixels: number;
+	readonly treeScrollHeightAfterReady: number;
+	readonly treeScrollHeightBeforeSelection: number;
+	readonly treeScrollTopAfterReady: number;
+	readonly treeScrollTopBeforeSelection: number;
+}
+
+interface WorktreeFileScrollExtentSnapshot {
+	readonly contentDeclaredTotalSizePixels: number | null;
+	readonly contentScrollHeight: number;
+	readonly contentScrollTop: number;
+	readonly treeDeclaredTotalSizePixels: number | null;
+	readonly treeScrollHeight: number;
+	readonly treeScrollTop: number;
+}
+
+const defaultFileLineHeightPixels = 20;
 
 const browser = await chromium.launch({ headless: true });
 
@@ -101,6 +130,7 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 	try {
 		await page.goto(worktreeDevServerUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
 		await page.waitForSelector('[data-testid="worktree-file-app"]', { timeout: 30_000 });
+		const scrollExtentBeforeSelection = await readWorktreeFileScrollExtentSnapshot(page);
 		await clickWorktreeFilePath(page, targetDescriptor.path);
 		await page.waitForFunction(
 			(path: string): boolean =>
@@ -110,6 +140,7 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 			targetDescriptor.path,
 			{ timeout: 10_000 },
 		);
+		const scrollExtentAfterSelection = await readWorktreeFileScrollExtentSnapshot(page);
 		await page.waitForFunction(
 			(): boolean =>
 				document
@@ -117,6 +148,7 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 					?.getAttribute('data-worktree-open-file-state') === 'ready',
 			{ timeout: 20_000 },
 		);
+		const scrollExtentAfterReady = await readWorktreeFileScrollExtentSnapshot(page);
 		const rendered = await page.evaluate(
 			(): Pick<
 				WorktreeDevServerVerificationResult,
@@ -154,11 +186,19 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 		if (rendered.treeTotalSizePixels === null || rendered.treeTotalSizePixels <= 0) {
 			throw new Error('Expected Worktree/File tree extent to be reserved from provider facts');
 		}
+		const scrollExtentCanary = makeScrollExtentCanary({
+			afterReady: scrollExtentAfterReady,
+			afterSelection: scrollExtentAfterSelection,
+			beforeSelection: scrollExtentBeforeSelection,
+			selectedAnchorPath: targetDescriptor.path,
+		});
+		assertWorktreeScrollExtentCanary(scrollExtentCanary);
 		return {
 			...rendered,
 			descriptorCount: descriptors.length,
 			frameCount: surface.frames.length,
 			packageForbiddenTextAbsent: true,
+			scrollExtentCanary,
 			scenarioName: scenarioNameFromDevServerUrl(worktreeDevServerUrl),
 			sourceCursor: surface.source.sourceCursor,
 			sourceId: surface.source.sourceId,
@@ -271,6 +311,103 @@ async function clickWorktreeFilePath(page: Page, path: string): Promise<void> {
 	}, path);
 	if (!didClick) {
 		throw new Error(`Expected Worktree/File row for ${path}`);
+	}
+}
+
+async function readWorktreeFileScrollExtentSnapshot(
+	page: Page,
+): Promise<WorktreeFileScrollExtentSnapshot> {
+	return await page.evaluate((): WorktreeFileScrollExtentSnapshot => {
+		const treePanel = document.querySelector('[data-testid="worktree-file-tree"]');
+		const contentPanel = document.querySelector('[data-testid="worktree-file-content"]');
+		if (!(treePanel instanceof HTMLElement)) {
+			throw new Error('Expected Worktree/File tree panel for extent canary');
+		}
+		if (!(contentPanel instanceof HTMLElement)) {
+			throw new Error('Expected Worktree/File content panel for extent canary');
+		}
+		const contentDeclaredTotalSizeRaw = contentPanel.getAttribute(
+			'data-worktree-open-file-total-size',
+		);
+		const contentDeclaredTotalSize =
+			contentDeclaredTotalSizeRaw === null ? null : Number(contentDeclaredTotalSizeRaw);
+		const treeDeclaredTotalSizeRaw = treePanel.getAttribute('data-worktree-tree-total-size');
+		const treeDeclaredTotalSize =
+			treeDeclaredTotalSizeRaw === null ? null : Number(treeDeclaredTotalSizeRaw);
+		return {
+			contentDeclaredTotalSizePixels:
+				contentDeclaredTotalSize === null || Number.isFinite(contentDeclaredTotalSize)
+					? contentDeclaredTotalSize
+					: null,
+			contentScrollHeight: contentPanel.scrollHeight,
+			contentScrollTop: contentPanel.scrollTop,
+			treeDeclaredTotalSizePixels:
+				treeDeclaredTotalSize === null || Number.isFinite(treeDeclaredTotalSize)
+					? treeDeclaredTotalSize
+					: null,
+			treeScrollHeight: treePanel.scrollHeight,
+			treeScrollTop: treePanel.scrollTop,
+		};
+	});
+}
+
+function makeScrollExtentCanary(props: {
+	readonly afterReady: WorktreeFileScrollExtentSnapshot;
+	readonly afterSelection: WorktreeFileScrollExtentSnapshot;
+	readonly beforeSelection: WorktreeFileScrollExtentSnapshot;
+	readonly selectedAnchorPath: string;
+}): WorktreeFileScrollExtentCanary {
+	return {
+		contentDeclaredTotalSizePixelsAfterReady: props.afterReady.contentDeclaredTotalSizePixels,
+		contentDeclaredTotalSizePixelsAfterSelection:
+			props.afterSelection.contentDeclaredTotalSizePixels,
+		contentHeightDeltaPixels:
+			props.afterReady.contentScrollHeight - props.afterSelection.contentScrollHeight,
+		contentScrollHeightAfterReady: props.afterReady.contentScrollHeight,
+		contentScrollHeightAfterSelection: props.afterSelection.contentScrollHeight,
+		contentScrollTopAfterReady: props.afterReady.contentScrollTop,
+		contentScrollTopAfterSelection: props.afterSelection.contentScrollTop,
+		selectedAnchorPath: props.selectedAnchorPath,
+		treeDeclaredTotalSizePixels: props.afterReady.treeDeclaredTotalSizePixels,
+		treeHeightDeltaPixels:
+			props.afterReady.treeScrollHeight - props.beforeSelection.treeScrollHeight,
+		treeScrollHeightAfterReady: props.afterReady.treeScrollHeight,
+		treeScrollHeightBeforeSelection: props.beforeSelection.treeScrollHeight,
+		treeScrollTopAfterReady: props.afterReady.treeScrollTop,
+		treeScrollTopBeforeSelection: props.beforeSelection.treeScrollTop,
+	};
+}
+
+function assertWorktreeScrollExtentCanary(canary: WorktreeFileScrollExtentCanary): void {
+	if (canary.treeDeclaredTotalSizePixels === null || canary.treeDeclaredTotalSizePixels <= 0) {
+		throw new Error('Expected Worktree/File tree declared extent in scroll canary');
+	}
+	if (
+		Math.abs(canary.treeScrollHeightAfterReady - canary.treeDeclaredTotalSizePixels) >
+		defaultFileLineHeightPixels
+	) {
+		throw new Error(
+			`Expected Worktree/File tree scroll extent near declared size: ${JSON.stringify(canary)}`,
+		);
+	}
+	if (
+		canary.contentDeclaredTotalSizePixelsAfterSelection === null ||
+		canary.contentDeclaredTotalSizePixelsAfterReady === null
+	) {
+		throw new Error('Expected Worktree/File content declared extent in scroll canary');
+	}
+	if (
+		canary.contentDeclaredTotalSizePixelsAfterSelection !==
+		canary.contentDeclaredTotalSizePixelsAfterReady
+	) {
+		throw new Error(
+			`Expected Worktree/File declared content extent to stay stable: ${JSON.stringify(canary)}`,
+		);
+	}
+	if (Math.abs(canary.contentHeightDeltaPixels) > defaultFileLineHeightPixels) {
+		throw new Error(
+			`Expected Worktree/File content hydration to keep scroll extent bounded: ${JSON.stringify(canary)}`,
+		);
 	}
 }
 

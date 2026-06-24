@@ -1096,6 +1096,16 @@ Checkpoint 4: Worktree/File browser surface
   verbose`: exit 0, 2 browser files passed, 32 tests passed. This includes
   Worktree/File binary unavailable metadata-only behavior and the existing
   Review browser suite.
+- Current live scroll-extent proof:
+  `BRIDGE_VIEWER_WORKTREE_DEV_SERVER_URL='http://127.0.0.1:5173/?fixture=worktree&workers=on&scenario=current-worktree'
+  pnpm --dir BridgeWeb run test:dev-server:worktree`: exit 0 with 419
+  descriptors, 420 frames, selected `.github/workflows/ci.yml` ready,
+  `treeTotalSizePixels=10056`, and `scrollExtentCanary` reporting
+  `treeHeightDeltaPixels=0` and `contentHeightDeltaPixels=0`. The red run
+  before the provider/render-line fix failed with
+  `contentHeightDeltaPixels=1900`, then `800`, proving the scrollbar jump was
+  caused by Worktree/File provider line-count facts using non-empty diff lines
+  instead of renderer row lines plus renderer line-box mismatch.
 - Current quality proof:
   `pnpm --dir BridgeWeb run check`: exit 0.
 - Current hygiene proof:
@@ -1136,9 +1146,8 @@ Checkpoint 4: Worktree/File browser surface
   worktree URL, and the exact current-worktree URL has been proven with
   descriptor-backed content.
 - Remaining Ticket 04 gaps:
-  huge-worktree churn/anchor diagnostics, benchmark artifacts,
-  renderer-boundary telemetry proof, and implementation review before PR
-  readiness.
+  benchmark artifacts, renderer-boundary telemetry proof, and implementation
+  review before PR readiness.
 - Commit only after proof gates pass.
 - Review before cleanup.
 

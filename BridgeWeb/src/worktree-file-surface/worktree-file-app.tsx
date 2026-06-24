@@ -169,7 +169,17 @@ export function WorktreeFileApp({
 							: { minHeight: totalOpenFileHeightPixels }
 					}
 				>
-					{openFileState.status === 'ready' ? <pre>{openFileState.body}</pre> : null}
+					{openFileState.status === 'ready' ? (
+						<pre
+							style={{
+								lineHeight: `${defaultFileLineHeightPixels}px`,
+								margin: 0,
+								whiteSpace: 'pre',
+							}}
+						>
+							{openFileState.body}
+						</pre>
+					) : null}
 					{openFileState.status === 'unavailable' ? (
 						<div data-testid="worktree-file-content-unavailable">Content unavailable</div>
 					) : null}
