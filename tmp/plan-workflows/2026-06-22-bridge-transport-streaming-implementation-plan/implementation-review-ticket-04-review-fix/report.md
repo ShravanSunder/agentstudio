@@ -47,6 +47,11 @@ containment gaps that still blocked Ticket 04 readiness.
   path is not present in before/after measured tree item ids. The current live
   artifacts do include the selected path and non-zero scroll, so this is proof
   hardening rather than a Ticket 04 blocker.
+- follow-up: `realpath` containment still has a theoretical local
+  time-of-check/time-of-use race if another local writer swaps a checked parent
+  directory between validation and read. Static outside-root symlink escape is
+  fixed and proven for Ticket 04; descriptor-safe traversal/openat-style
+  hardening is deferred.
 
 ## Follow-through Fix
 
@@ -64,6 +69,14 @@ verification:
   refresh button that calls `runtime.refreshOpenFile`.
 - Updated the dev provider to check both lexical containment and `realpath`
   target containment before reading changed files.
+
+Second re-review follow-through:
+
+- A second focused review accepted one remaining blocker: stale invalidation and
+  explicit refresh were proven only in jsdom, while the Ticket 04 matrix calls
+  for browser/dev-server proof.
+- Added browser-mode coverage for stale-with-body, no auto-fetch, explicit
+  Refresh, latest content commit, and preserved tree row after invalidation.
 
 ## Review Proof
 
@@ -92,16 +105,16 @@ Green proof after the follow-through fix:
 - `pnpm --dir BridgeWeb run check`: exit 0.
 - `pnpm --dir BridgeWeb run test:browser:integration --
   src/worktree-file-surface/worktree-file-app.browser.test.tsx --reporter
-  verbose`: exit 0, 2 files passed, 32 tests passed.
+  verbose`: exit 0, 2 files passed, 33 tests passed.
 - `BRIDGE_VIEWER_WORKTREE_DEV_SERVER_URL='http://127.0.0.1:5173/?fixture=worktree&workers=on&scenario=current-worktree'
   pnpm --dir BridgeWeb run test:dev-server:worktree`: exit 0 with artifact
-  `tmp/bridge-viewer-worktree-dev-server/2026-06-24T01-32-58-887Z/worktree-dev-server-proof.json`,
-  `descriptorCount=419`, `treeScrollTopBeforeSelection=2372`,
-  `treeScrollTopAfterReady=2372`, `treeHeightDeltaPixels=0`,
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-24T01-45-24-843Z/worktree-dev-server-proof.json`,
+  `descriptorCount=421`, `treeScrollTopBeforeSelection=2396`,
+  `treeScrollTopAfterReady=2396`, `treeHeightDeltaPixels=0`,
   `contentHeightDeltaPixels=0`, `stableAnchorPass=true`, and
   `exactSizeTolerancePass=true`.
 - `rg -n "/Users/|agentstudio://resource"
-  tmp/bridge-viewer-worktree-dev-server/2026-06-24T01-32-58-887Z/worktree-dev-server-proof.json || true`:
+  tmp/bridge-viewer-worktree-dev-server/2026-06-24T01-45-24-843Z/worktree-dev-server-proof.json || true`:
   exit 0 with no matches.
 - `git diff --check`: exit 0.
 - touched Worktree/File TS hygiene grep for casual casts, `any`, suppressions,

@@ -19,8 +19,11 @@ Reason:
   continuity, changed-file symlink escape in the Vite dev provider, and missing
   ticket-local red proof.
 - Those accepted findings are now patched and proven in the current worktree.
-  Route back to `shravan-dev-workflow:implementation-review-swarm` for another
-  Ticket 04 re-review before cleanup, PR readiness, or handoff.
+  A second focused re-review then accepted one proof-only blocker: stale
+  invalidation and explicit refresh needed browser-level proof, not jsdom only.
+  That browser proof is now added and green. Route back to
+  `shravan-dev-workflow:implementation-review-swarm` for another Ticket 04
+  re-review before cleanup, PR readiness, or handoff.
 
 Current Ticket 03 checkpoint status:
 
@@ -1194,20 +1197,22 @@ Current Ticket 04 review-fix follow-through proof:
 - Browser integration gate:
   `pnpm --dir BridgeWeb run test:browser:integration --
   src/worktree-file-surface/worktree-file-app.browser.test.tsx --reporter
-  verbose`: exit 0, 2 files passed, 32 tests passed.
+  verbose`: exit 0, 2 files passed, 33 tests passed. This now includes
+  browser-mode stale-with-body, no auto-fetch, explicit Refresh, latest content
+  commit, and preserved tree row after invalidation.
 - Live current-worktree dev-server gate:
   `BRIDGE_VIEWER_WORKTREE_DEV_SERVER_URL='http://127.0.0.1:5173/?fixture=worktree&workers=on&scenario=current-worktree'
   pnpm --dir BridgeWeb run test:dev-server:worktree`: exit 0.
   Latest artifact:
-  `tmp/bridge-viewer-worktree-dev-server/2026-06-24T01-32-58-887Z/worktree-dev-server-proof.json`.
-  Key canary values: `descriptorCount=419`, `targetPath=Sources/AgentStudioIPCClientCore/AgentStudioIPCClientArguments.swift`,
-  `treeScrollTopBeforeSelection=2372`, `treeScrollTopAfterReady=2372`,
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-24T01-45-24-843Z/worktree-dev-server-proof.json`.
+  Key canary values: `descriptorCount=421`, `targetPath=Sources/AgentStudioIPCClientCore/AgentStudioIPCClientCore.swift`,
+  `treeScrollTopBeforeSelection=2396`, `treeScrollTopAfterReady=2396`,
   `treeHeightDeltaPixels=0`, `contentHeightDeltaPixels=0`,
-  `contentDeclaredTotalSizePixelsAfterReady=6340`, `selectedLineCount=317`,
+  `contentDeclaredTotalSizePixelsAfterReady=9300`, `selectedLineCount=465`,
   `stableAnchorPass=true`, `exactSizeTolerancePass=true`.
 - Artifact leakage check:
   `rg -n "/Users/|agentstudio://resource"
-  tmp/bridge-viewer-worktree-dev-server/2026-06-24T01-32-58-887Z/worktree-dev-server-proof.json || true`:
+  tmp/bridge-viewer-worktree-dev-server/2026-06-24T01-45-24-843Z/worktree-dev-server-proof.json || true`:
   exit 0 with no matches.
 - Quality gate:
   `pnpm --dir BridgeWeb run check`: exit 0.
