@@ -1,15 +1,32 @@
+import { z } from 'zod';
+
 import { dispatchBridgeDevHostAdmittedEnvelope } from '../bridge/bridge-dev-host-push-carrier.js';
 import { parseBridgeContentResourceUrl } from '../bridge/bridge-resource-url.js';
+import {
+	parseBridgeCoreResourceUrl,
+	type BridgeCoreResourceUrl,
+} from '../core/resources/bridge-resource-url.js';
 import { buildReviewSnapshotFrame } from '../features/review/protocol/review-snapshot-frame-builder.js';
+import {
+	worktreeFileProtocolFrameSchema,
+	worktreeFileSurfaceSourceIdentitySchema,
+	worktreeTreeVirtualizedSizeFactsSchema,
+	type WorktreeFileProtocolFrame,
+} from '../features/worktree-file/models/worktree-file-protocol-models.js';
 import type { BridgeContentFetch } from '../foundation/content/content-resource-loader.js';
 import {
 	bridgeReviewPackageSchema,
 	type BridgeReviewPackageFromSchema,
 } from '../foundation/review-package/bridge-review-package-schema.js';
 import type { BridgeTelemetryBootstrapHandshakeConfig } from '../foundation/telemetry/bridge-telemetry-bootstrap-config.js';
+import type { WorktreeFileSurfaceRuntimeFetchResourceProps } from '../worktree-file-surface/worktree-file-surface-runtime.js';
 
 export interface BridgeAppDevWorktreeBackend {
 	readonly fetchContent: BridgeContentFetch;
+	readonly fetchWorktreeFileResource: (
+		props: WorktreeFileSurfaceRuntimeFetchResourceProps,
+	) => Promise<string>;
+	readonly loadWorktreeFileFrames: () => Promise<readonly WorktreeFileProtocolFrame[]>;
 	readonly pushPackage: () => Promise<void>;
 }
 
@@ -23,7 +40,20 @@ const bridgeWorktreeReviewPaneId = 'bridge-worktree-dev-pane';
 const bridgeWorktreeReviewStreamId = `review:${bridgeWorktreeReviewPaneId}`;
 const worktreePackageEndpoint = '/__bridge-worktree/package';
 const worktreeContentEndpointPrefix = '/__bridge-worktree/content/';
-const worktreeForwardedSearchParamNames = ['scenario'] as const;
+const worktreeFileContentEndpointPrefix = '/__bridge-worktree/file-content/';
+const worktreeSurfaceEndpoint = '/__bridge-worktree/surface';
+const worktreeForwardedSearchParamNames: readonly string[] = ['scenario'];
+const bridgeWorktreeAllowedResourceKindsByProtocol = {
+	'worktree-file': new Set(['worktree.fileContent', 'worktree.treeWindow']),
+};
+
+const bridgeWorktreeSurfaceResponseSchema = z
+	.object({
+		frames: z.array(worktreeFileProtocolFrameSchema),
+		source: worktreeFileSurfaceSourceIdentitySchema,
+		treeSizeFacts: worktreeTreeVirtualizedSizeFactsSchema,
+	})
+	.strict();
 
 export function installBridgeAppDevWorktreeBackend(
 	props: InstallBridgeAppDevWorktreeBackendProps = {},
@@ -36,6 +66,7 @@ export function installBridgeAppDevWorktreeBackend(
 		'data-bridge-review-stream-id',
 		bridgeWorktreeReviewStreamId,
 	);
+	document.documentElement.setAttribute('data-bridge-app-protocol', 'worktree-file');
 	const handshakeRequestListener = (): void => {
 		didReceiveHandshakeRequest = true;
 		document.dispatchEvent(
@@ -55,6 +86,7 @@ export function installBridgeAppDevWorktreeBackend(
 		(): void => {
 			document.removeEventListener('__bridge_handshake_request', handshakeRequestListener);
 			document.documentElement.removeAttribute('data-bridge-nonce');
+			document.documentElement.removeAttribute('data-bridge-app-protocol');
 			document.documentElement.removeAttribute('data-bridge-review-pane-id');
 			document.documentElement.removeAttribute('data-bridge-review-stream-id');
 		},
@@ -76,6 +108,40 @@ export function installBridgeAppDevWorktreeBackend(
 				),
 				init,
 			);
+		},
+		fetchWorktreeFileResource: async (
+			resourceProps: WorktreeFileSurfaceRuntimeFetchResourceProps,
+		): Promise<string> => {
+			const parsedResourceUrl = parseBridgeCoreResourceUrl(resourceProps.resourceUrl, {
+				allowedResourceKindsByProtocol: bridgeWorktreeAllowedResourceKindsByProtocol,
+			});
+			if (parsedResourceUrl === null || parsedResourceUrl.resourceKind !== 'worktree.fileContent') {
+				throw new Error('Invalid Bridge worktree file resource URL');
+			}
+			const response = await fetch(
+				bridgeWorktreeEndpoint(
+					`${worktreeFileContentEndpointPrefix}${encodeURIComponent(parsedResourceUrl.opaqueId)}`,
+					bridgeWorktreeFileContentSearchParams({
+						forwardedSearchParams,
+						parsedResourceUrl,
+					}),
+				),
+				{ signal: resourceProps.signal },
+			);
+			if (!response.ok) {
+				throw new Error(`Bridge worktree file content request failed: ${response.status}`);
+			}
+			return await response.text();
+		},
+		loadWorktreeFileFrames: async (): Promise<readonly WorktreeFileProtocolFrame[]> => {
+			const response = await fetch(
+				bridgeWorktreeEndpoint(worktreeSurfaceEndpoint, forwardedSearchParams),
+			);
+			if (!response.ok) {
+				throw new Error(`Bridge worktree surface request failed: ${response.status}`);
+			}
+			const surfaceResponse = bridgeWorktreeSurfaceResponseSchema.parse(await response.json());
+			return surfaceResponse.frames;
 		},
 		pushPackage: async (): Promise<void> => {
 			await waitForBridgeHandshakeRequest((): boolean => didReceiveHandshakeRequest);
@@ -137,6 +203,20 @@ function bridgeWorktreeContentSearchParams(props: {
 	}
 	if (revision !== null) {
 		contentSearchParams.set('revision', revision);
+	}
+	return contentSearchParams;
+}
+
+function bridgeWorktreeFileContentSearchParams(props: {
+	readonly forwardedSearchParams: URLSearchParams;
+	readonly parsedResourceUrl: BridgeCoreResourceUrl;
+}): URLSearchParams {
+	const contentSearchParams = new URLSearchParams(props.forwardedSearchParams);
+	if (props.parsedResourceUrl.generation !== undefined) {
+		contentSearchParams.set('generation', String(props.parsedResourceUrl.generation));
+	}
+	if (props.parsedResourceUrl.cursor !== undefined) {
+		contentSearchParams.set('cursor', props.parsedResourceUrl.cursor);
 	}
 	return contentSearchParams;
 }

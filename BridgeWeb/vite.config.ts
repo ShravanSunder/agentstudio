@@ -16,6 +16,7 @@ import {
 	resolveBridgeWorktreeDevProviderConfig,
 	type BridgeWorktreeDevProvider,
 	type BridgeWorktreeDevProviderContentRequest,
+	type BridgeWorktreeDevProviderWorktreeFileContentRequest,
 } from './scripts/dev-server/bridge-worktree-dev-provider.js';
 
 type BridgeWorktreeDevProviderPromise = Promise<BridgeWorktreeDevProvider>;
@@ -54,8 +55,14 @@ export default defineConfig({
 				server.middlewares.use('/__bridge-worktree/package', (request, response) => {
 					void handleBridgeWorktreePackageRequest({ getProvider, request, response });
 				});
+				server.middlewares.use('/__bridge-worktree/surface', (request, response) => {
+					void handleBridgeWorktreeSurfaceRequest({ getProvider, request, response });
+				});
 				server.middlewares.use('/__bridge-worktree/content', (request, response) => {
 					void handleBridgeWorktreeContentRequest({ getProvider, request, response });
+				});
+				server.middlewares.use('/__bridge-worktree/file-content', (request, response) => {
+					void handleBridgeWorktreeFileContentRequest({ getProvider, request, response });
 				});
 				server.middlewares.use('/__bridge-dev-telemetry/batch', (request, response) => {
 					void handleBridgeDevTelemetryBatchRequest({ request, response, telemetrySink });
@@ -137,6 +144,29 @@ async function handleBridgeWorktreePackageRequest(props: {
 	}
 }
 
+async function handleBridgeWorktreeSurfaceRequest(props: {
+	readonly getProvider: (requestUrl: string | null) => BridgeWorktreeDevProviderPromise;
+	readonly request: IncomingMessage;
+	readonly response: ServerResponse;
+}): Promise<void> {
+	if (props.request.method !== 'GET') {
+		props.response.statusCode = 405;
+		props.response.end('Method Not Allowed');
+		return;
+	}
+	try {
+		const provider = await props.getProvider(props.request.url ?? null);
+		const surface = await provider.loadWorktreeFileSurface();
+		props.response.setHeader('Content-Type', 'application/json; charset=utf-8');
+		props.response.end(JSON.stringify(surface));
+	} catch (error: unknown) {
+		props.response.statusCode = 500;
+		props.response.end(
+			error instanceof Error ? error.message : 'Bridge worktree surface provider failed',
+		);
+	}
+}
+
 async function handleBridgeWorktreeContentRequest(props: {
 	readonly getProvider: (requestUrl: string | null) => BridgeWorktreeDevProviderPromise;
 	readonly request: IncomingMessage;
@@ -172,6 +202,46 @@ async function handleBridgeWorktreeContentRequest(props: {
 	}
 }
 
+async function handleBridgeWorktreeFileContentRequest(props: {
+	readonly getProvider: (requestUrl: string | null) => BridgeWorktreeDevProviderPromise;
+	readonly request: IncomingMessage;
+	readonly response: ServerResponse;
+}): Promise<void> {
+	if (props.request.method !== 'GET') {
+		props.response.statusCode = 405;
+		props.response.end('Method Not Allowed');
+		return;
+	}
+	const requestUrl = props.request.url ?? null;
+	const contentUrl = new URL(requestUrl ?? '/', 'http://127.0.0.1');
+	const descriptorId = decodeBridgeWorktreeContentHandle(contentUrl.pathname);
+	if (descriptorId === null) {
+		props.response.statusCode = 400;
+		props.response.end('Invalid Bridge worktree file content descriptor');
+		return;
+	}
+	const contentRequest = parseBridgeWorktreeFileContentRequest({
+		contentUrl,
+		descriptorId,
+	});
+	if (contentRequest === null) {
+		props.response.statusCode = 400;
+		props.response.end('Invalid Bridge worktree file content generation or cursor');
+		return;
+	}
+	try {
+		const provider = await props.getProvider(requestUrl);
+		const content = await provider.loadWorktreeFileContent(contentRequest);
+		props.response.setHeader('Content-Type', 'text/plain; charset=utf-8');
+		props.response.end(content);
+	} catch (error: unknown) {
+		props.response.statusCode = 404;
+		props.response.end(
+			error instanceof Error ? error.message : 'Bridge worktree file content missing',
+		);
+	}
+}
+
 export function parseBridgeWorktreeContentRequest(props: {
 	readonly contentUrl: URL;
 	readonly handleId: string;
@@ -196,6 +266,30 @@ export function parseBridgeWorktreeContentRequest(props: {
 	};
 }
 
+export function parseBridgeWorktreeFileContentRequest(props: {
+	readonly contentUrl: URL;
+	readonly descriptorId: string;
+}): BridgeWorktreeDevProviderWorktreeFileContentRequest | null {
+	if (
+		!hasOnlySearchParams(props.contentUrl, {
+			allowedNames: ['cursor', 'generation', 'scenario'],
+			requiredNames: ['cursor', 'generation'],
+		})
+	) {
+		return null;
+	}
+	const subscriptionGeneration = parseNonnegativeIntegerSearchParam(props.contentUrl, 'generation');
+	const sourceCursor = singleSearchParamValue(props.contentUrl, 'cursor');
+	if (subscriptionGeneration === null || sourceCursor === null || sourceCursor.length === 0) {
+		return null;
+	}
+	return {
+		descriptorId: props.descriptorId,
+		sourceCursor,
+		subscriptionGeneration,
+	};
+}
+
 export function decodeBridgeWorktreeContentHandle(pathname: string): string | null {
 	try {
 		const handleId = decodeURIComponent(pathname.replace(/^\//u, ''));
@@ -203,6 +297,11 @@ export function decodeBridgeWorktreeContentHandle(pathname: string): string | nu
 	} catch {
 		return null;
 	}
+}
+
+function singleSearchParamValue(url: URL, name: string): string | null {
+	const values = url.searchParams.getAll(name);
+	return values.length === 1 ? (values[0] ?? null) : null;
 }
 
 async function readJsonRequestBody(request: IncomingMessage, maxBytes: number): Promise<unknown> {
@@ -217,7 +316,8 @@ async function readJsonRequestBody(request: IncomingMessage, maxBytes: number): 
 		chunks.push(buffer);
 	}
 	try {
-		return JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
+		const parsedJson: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+		return parsedJson;
 	} catch {
 		throw new Error('invalid_telemetry_json');
 	}

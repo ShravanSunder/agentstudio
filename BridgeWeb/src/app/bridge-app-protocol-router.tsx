@@ -1,7 +1,10 @@
 import type { ReactElement } from 'react';
 import { z } from 'zod';
 
-import { WorktreeFileApp } from '../worktree-file-surface/worktree-file-app.js';
+import {
+	WorktreeFileApp,
+	type WorktreeFileAppProps,
+} from '../worktree-file-surface/worktree-file-app.js';
 import { BridgeApp, type BridgeAppProps } from './bridge-app.js';
 
 export const bridgeAppProtocolSchema = z.enum(['review', 'worktree-file']);
@@ -9,19 +12,22 @@ export type BridgeAppProtocol = z.infer<typeof bridgeAppProtocolSchema>;
 
 export interface BridgeAppProtocolRouterProps extends BridgeAppProps {
 	readonly protocol?: BridgeAppProtocol;
+	readonly worktreeFileAppProps?: WorktreeFileAppProps;
 }
 
 const bridgeAppProtocolAttributeName = 'data-bridge-app-protocol';
 
 export function BridgeAppProtocolRouter(props: BridgeAppProtocolRouterProps = {}): ReactElement {
-	const protocol = props.protocol ?? resolveBridgeAppProtocolFromElement(document.documentElement);
+	const { protocol: explicitProtocol, worktreeFileAppProps, ...reviewAppProps } = props;
+	const protocol =
+		explicitProtocol ?? resolveBridgeAppProtocolFromElement(document.documentElement);
 	switch (protocol) {
 		case 'review':
-			return <BridgeApp {...props} />;
+			return <BridgeApp {...reviewAppProps} />;
 		case 'worktree-file':
-			return <WorktreeFileApp />;
+			return <WorktreeFileApp {...worktreeFileAppProps} />;
 	}
-	return <BridgeApp {...props} />;
+	return <BridgeApp {...reviewAppProps} />;
 }
 
 export function resolveBridgeAppProtocolFromElement(element: Element): BridgeAppProtocol {

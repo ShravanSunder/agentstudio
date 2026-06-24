@@ -28,7 +28,7 @@ import {
 	installBridgeAppDevTelemetryHost,
 } from './bridge-app-dev-telemetry.js';
 import { installBridgeAppDevWorktreeBackend } from './bridge-app-dev-worktree.js';
-import { BridgeApp } from './bridge-app.js';
+import { BridgeAppProtocolRouter } from './bridge-app-protocol-router.js';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Dev server must load the same app CSS as packaged BridgeWeb.
 import './bridge-app.css';
@@ -85,9 +85,18 @@ if (rootElement !== null) {
 	);
 
 	createRoot(rootElement).render(
-		<BridgeApp
+		<BridgeAppProtocolRouter
 			codeViewWorkerPoolEnabled={options.workersEnabled}
 			markdownWorkerClient={markdownWorkerClient}
+			protocol={worktreeBackend === null ? 'review' : 'worktree-file'}
+			{...(worktreeBackend === null
+				? {}
+				: {
+						worktreeFileAppProps: {
+							fetchResource: worktreeBackend.fetchWorktreeFileResource,
+							loadInitialFrames: worktreeBackend.loadWorktreeFileFrames,
+						},
+					})}
 			{...(workerFactory === null ? {} : { codeViewWorkerFactory: workerFactory.workerFactory })}
 			{...(backend === null
 				? projectionWorkerClient === null
@@ -97,20 +106,15 @@ if (rootElement !== null) {
 						fetchContent: backend.fetchContent,
 						projectionWorkerClient: backend.projectionWorkerClient,
 					})}
-			{...(worktreeBackend === null ? {} : { fetchContent: worktreeBackend.fetchContent })}
 		/>,
 	);
 
-	if (worktreeBackend === null) {
-		void pushDevFixture({
-			backend,
-			deliveryMode: deliveryModeForMockedBackend(options.deliveryMode),
-			fixture,
-			scenario: options.scenario,
-		});
-	} else {
-		void worktreeBackend.pushPackage();
-	}
+	void pushDevFixture({
+		backend,
+		deliveryMode: deliveryModeForMockedBackend(options.deliveryMode),
+		fixture,
+		scenario: options.scenario,
+	});
 }
 
 function bridgeAppDevTelemetryScenario(props: {

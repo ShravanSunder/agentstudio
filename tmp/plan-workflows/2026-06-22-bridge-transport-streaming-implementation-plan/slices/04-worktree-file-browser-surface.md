@@ -243,6 +243,31 @@ Dev-provider Worktree/File frame proof captured 2026-06-24:
   `rg -n "\\bas\\s+(const|[A-Z][A-Za-z0-9_]*|Readonly|Record|unknown|any|\\{)|\\bany\\b|@ts-|eslint-disable|JSON\\.parse" BridgeWeb/scripts/dev-server/bridge-worktree-dev-provider.ts BridgeWeb/scripts/dev-server/bridge-worktree-dev-provider.integration.test.ts BridgeWeb/src/features/worktree-file BridgeWeb/src/worktree-file-surface`
   found no matches
 
+Dev-server Worktree/File cutover proof captured 2026-06-24:
+
+- updated Vite worktree dev endpoints to expose Worktree/File surface frames at
+  `/__bridge-worktree/surface` and descriptor-backed content at
+  `/__bridge-worktree/file-content/:descriptorId`
+- updated the worktree fixture bootstrap to route through
+  `BridgeAppProtocolRouter` with `worktree-file`, load initial Worktree/File
+  frames, and open selected files through the Worktree/File runtime fetch path
+- extended `WorktreeFileApp` to render provider tree extent facts before content
+  hydration and to materialize selected file bodies through descriptor demand
+- rewrote `scripts/verify-bridge-viewer-worktree-dev-server.ts` as a
+  Worktree/File verifier with local Zod validation for the observed dev-server
+  contract, so the direct Node script does not import bundled app schemas
+- live dev-server proof:
+  `BRIDGE_VIEWER_WORKTREE_DEV_SERVER_URL='http://127.0.0.1:5173/?fixture=worktree&workers=on&scenario=current-worktree' pnpm --dir BridgeWeb run test:dev-server:worktree`
+  exited 0 with 418 descriptors, 419 frames, `treePathCount` 418,
+  `treeTotalSizePixels` 10032, selected path `.github/workflows/ci.yml`,
+  selected state `ready`, 235 rendered lines, and
+  `packageForbiddenTextAbsent: true`
+- focused browser/provider proof:
+  `pnpm --dir BridgeWeb exec vitest run src/worktree-file-surface/worktree-file-app.integration.test.tsx src/app/bridge-app-protocol-router.unit.test.tsx scripts/dev-server/bridge-worktree-dev-provider.integration.test.ts --reporter verbose`
+  exited 0 with 3 files passed and 14 tests passed
+- quality:
+  `pnpm --dir BridgeWeb run check` exited 0 after verifier type/format fixes
+
 Surface integration:
 
 ```bash

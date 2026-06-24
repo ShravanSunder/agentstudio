@@ -50,6 +50,15 @@ Current Ticket 03 checkpoint status:
   surface runtime, app routing, surface UI, dev-server replacement, browser
   integration, benchmark/canary, and the accepted negative fanout proof follow-up
   before PR readiness.
+- Ticket 04 Worktree/File surface runtime, app routing, dev-provider frame
+  projection, and Vite worktree dev URL cutover are now implemented and proven.
+  The live worktree URL loads Worktree/File frames, reserves tree extent from
+  provider facts, and fetches selected file content through descriptor-backed
+  Worktree/File resources with no file bodies in surface metadata. Remaining
+  Ticket 04 work includes the full browser integration suite, objective scroll
+  extent canary/benchmark proof, binary/oversized behavior, renderer-boundary
+  telemetry proof, accepted negative fanout follow-up, and implementation review
+  before PR readiness.
 
 Historical context:
 
