@@ -14,6 +14,34 @@
 # shellcheck source=scripts/xcb-helpers.sh
 source "$(dirname "${BASH_SOURCE[0]}")/xcb-helpers.sh"
 
+large_non_webkit_filter_pattern() {
+  local patterns=(
+    Script
+    Smoke
+    Integration
+    ZmxStartupTraceAnalyzerTests
+    WorkspaceSurfaceCoordinatorFilesystemSourceTests
+    TerminalActivityAgentSettledHeuristicTests
+    MainWindowControllerInboxToolbarButtonTests
+    ProcessExecutorTests
+    AgentStudioAppIPCServiceAuthModeTests
+    AgentStudioAppIPCServiceContributionTests
+    AgentStudioIPCBridgeServiceTests
+    AgentStudioAppIPCCommandExecuteContractTests
+  )
+  local IFS="|"
+  echo "${patterns[*]}"
+}
+
+large_serial_non_webkit_filter_pattern() {
+  local patterns=(
+    AgentStudioAppIPCServiceCommandTests
+    PaneAgentLaunchOwnerTests
+  )
+  local IFS="|"
+  echo "${patterns[*]}"
+}
+
 prebuild_swift_tests() {
   # shellcheck disable=SC2086
   run_swift_with_timeout \
@@ -55,14 +83,14 @@ run_fast_non_webkit_swift_tests() {
       env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
       --parallel --num-workers "$SWIFT_TEST_WORKERS" \
       --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests \
-      --skip 'Script|Smoke|Integration|Benchmark|ZmxStartupTraceAnalyzerTests|WorkspaceSurfaceCoordinatorFilesystemSourceTests|TerminalActivityAgentSettledHeuristicTests|MainWindowControllerInboxToolbarButtonTests|ProcessExecutorTests|AgentStudioAppIPCServiceTests' --build-path "$BUILD_PATH"
+      --skip "Benchmark|AgentStudioAppIPCServiceTests|$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)" --build-path "$BUILD_PATH"
   else
     run_swift_with_timeout \
       "serial fast non-WebKit suites" \
       "$TIMEOUT_SECONDS" \
       env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
       --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests \
-      --skip 'Script|Smoke|Integration|Benchmark|ZmxStartupTraceAnalyzerTests|WorkspaceSurfaceCoordinatorFilesystemSourceTests|TerminalActivityAgentSettledHeuristicTests|MainWindowControllerInboxToolbarButtonTests|ProcessExecutorTests|AgentStudioAppIPCServiceTests' --build-path "$BUILD_PATH"
+      --skip "Benchmark|AgentStudioAppIPCServiceTests|$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)" --build-path "$BUILD_PATH"
   fi
 
   run_swift_with_timeout \
@@ -82,14 +110,21 @@ run_large_non_webkit_swift_tests() {
       "$TIMEOUT_SECONDS" \
       env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
       --parallel --num-workers "$SWIFT_TEST_WORKERS" \
-      --filter 'Script|Smoke|Integration|ZmxStartupTraceAnalyzerTests|WorkspaceSurfaceCoordinatorFilesystemSourceTests|TerminalActivityAgentSettledHeuristicTests|MainWindowControllerInboxToolbarButtonTests|ProcessExecutorTests' \
+      --filter "$(large_non_webkit_filter_pattern)" \
+      --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
+
+    run_swift_with_timeout \
+      "serial large process suites" \
+      "$TIMEOUT_SECONDS" \
+      env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
+      --filter "$(large_serial_non_webkit_filter_pattern)" \
       --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
   else
     run_swift_with_timeout \
       "serial large non-WebKit suites" \
       "$TIMEOUT_SECONDS" \
       env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
-      --filter 'Script|Smoke|Integration|ZmxStartupTraceAnalyzerTests|WorkspaceSurfaceCoordinatorFilesystemSourceTests|TerminalActivityAgentSettledHeuristicTests|MainWindowControllerInboxToolbarButtonTests|ProcessExecutorTests' \
+      --filter "$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)" \
       --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
   fi
 }
@@ -97,9 +132,20 @@ run_large_non_webkit_swift_tests() {
 webkit_suite_filters() {
   cat <<'EOF'
 WebKitSerializedTests/BridgePaneControllerTests
+WebKitSerializedTests/BridgePaneControllerContentAuthorityTests
 WebKitSerializedTests/BridgeSchemeHandlerSpikeTests
 WebKitSerializedTests/BridgeContentWorldIsolationTests
-WebKitSerializedTests/BridgeTransportIntegrationTests
+WebKitSerializedTests/BridgePaneControllerIPCProjectionTests
+WebKitSerializedTests/BridgeTransportIntegrationTests/test_bridgeReady_gatesAndIsIdempotent
+WebKitSerializedTests/BridgeTransportIntegrationTests/test_teardown_resetsBridgeReady
+WebKitSerializedTests/BridgeTransportIntegrationTests/test_pushJSON_transportFailure_setsConnectionHealthError
+WebKitSerializedTests/BridgeTransportIntegrationTests/test_requestWithId_emitsBridgeResponseEvent
+WebKitSerializedTests/BridgeTransportIntegrationTests/test_schemeHandler_servesAppHtml
+WebKitSerializedTests/BridgeTransportIntegrationTests/test_pushPackageMetadata_rendersReviewViewerShell
+WebKitSerializedTests/BridgeTransportIntegrationTests/test_pushJSON_concurrentBurstDeliversOrderedPageEvents
+WebKitSerializedTests/BridgeIntakeCarrierWebKitTests
+WebKitSerializedTests/BridgeTransportIntegrationTests/test_contentFetch_traceparentHeaderReachesCustomSchemeHandler
+WebKitSerializedTests/BridgeTransportIntegrationTests/test_contentFetch_realDiffHandlesResolveAndDoNotRejectThroughReviewViewer
 WebKitSerializedTests/BridgeWebKitSpikeTests
 WebKitSerializedTests/InboxPostHandlerTests
 WebKitSerializedTests/InboxNotificationBridgeWebKitIntegrationTests

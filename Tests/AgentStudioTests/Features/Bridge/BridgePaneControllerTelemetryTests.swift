@@ -118,12 +118,33 @@ extension WebKitSerializedTests {
             #expect(errorCode == -32_601)
             #expect(await recorder.samples().isEmpty)
         }
+
+        @Test("IPC telemetry flush failure does not return a flushed success result")
+        func ipcTelemetryFlushFailure_doesNotReturnFlushedSuccessResult() async {
+            let recorder = BridgeTelemetryRecorderSpy()
+            await recorder.setDrainFailure()
+            let controller = BridgePaneController(
+                paneId: UUIDv7.generate(),
+                state: BridgePaneState(panelKind: .diffViewer, source: nil),
+                telemetryRecorder: recorder
+            )
+            defer { controller.teardown() }
+
+            await #expect(throws: BridgeTelemetryRecorderSpy.Failure.self) {
+                _ = try await controller.flushTelemetryForIPC()
+            }
+        }
     }
 }
 
 private actor BridgeTelemetryRecorderSpy: BridgePerformanceTraceRecording {
+    enum Failure: Error {
+        case drainFailed
+    }
+
     private var recordedSamples: [BridgeTelemetrySample] = []
     private var recordedDrops: [BridgeTelemetryDropReason] = []
+    private var shouldFailDrain = false
 
     func record(sample: BridgeTelemetrySample, receivedAtUnixNano: UInt64) async {
         recordedSamples.append(sample)
@@ -139,5 +160,15 @@ private actor BridgeTelemetryRecorderSpy: BridgePerformanceTraceRecording {
 
     func samples() -> [BridgeTelemetrySample] {
         recordedSamples
+    }
+
+    func setDrainFailure() {
+        shouldFailDrain = true
+    }
+
+    func drain() async throws {
+        if shouldFailDrain {
+            throw Failure.drainFailed
+        }
     }
 }

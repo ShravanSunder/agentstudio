@@ -7,7 +7,7 @@ import WebKit
 /// Tests for BridgeSchemeHandler static helpers: MIME type resolution and path classification.
 ///
 /// The scheme handler serves bundled React app assets via `agentstudio://app/*` and
-/// file contents via `agentstudio://resource/content/<handleId>?generation=<n>`. These tests verify the
+/// file contents via leased protocol-scoped `agentstudio://resource/review/content/*` URLs. These tests verify the
 /// pure logic layer without requiring a live WebKit instance.
 @Suite(.serialized)
 final class BridgeSchemeHandlerTests {
@@ -27,6 +27,8 @@ final class BridgeSchemeHandlerTests {
         func samples() -> [BridgeTelemetrySample] {
             recordedSamples
         }
+
+        func drain() async throws {}
     }
 
     // MARK: - MIME type resolution
@@ -125,16 +127,113 @@ final class BridgeSchemeHandlerTests {
     // MARK: - Path classification — resource routes
 
     @Test
-    func test_pathType_resourceContentRoute() {
+    func test_pathType_legacyResourceContentRoute_invalid() {
         let result = BridgeSchemeHandler.classifyPath("agentstudio://resource/content/handle-abc?generation=42")
-        #expect(result == .content(handleId: "handle-abc", generation: 42))
+        #expect(result == .invalid)
     }
 
     @Test
-    func test_pathType_resourceRoute_uuidHandleId() {
+    func test_pathType_legacyResourceRoute_uuidHandleId_invalid() {
         let result = BridgeSchemeHandler.classifyPath(
             "agentstudio://resource/content/550e8400-e29b-41d4-a716-446655440000?generation=7")
-        #expect(result == .content(handleId: "550e8400-e29b-41d4-a716-446655440000", generation: 7))
+        #expect(result == .invalid)
+    }
+
+    @Test
+    func test_pathType_protocolScopedContentRoute() throws {
+        let resourceURL = "agentstudio://resource/review/content/handle-abc?generation=42"
+        let expected = try #require(
+            BridgeTransportResourceURL.parse(
+                resourceURL,
+                allowedResourceKindsByProtocol: ["review": Set(["content", "review-package"])]
+            ))
+        let result = BridgeSchemeHandler.classifyPath(resourceURL)
+        #expect(result == .leasedContent(expected))
+    }
+
+    @Test
+    func test_transportResourceURL_acceptsProtocolScopedCanonicalURL() throws {
+        let corpus = try transportResourceURLCorpusFixture()
+
+        for fixtureCase in corpus.valid {
+            let parsed = try #require(
+                BridgeTransportResourceURL.parse(
+                    fixtureCase.url,
+                    allowedResourceKindsByProtocol: corpus.allowedResourceKindsByProtocol.mapValues(Set.init)
+                ),
+                "Expected valid resource URL case to parse: \(fixtureCase.name)"
+            )
+
+            #expect(parsed.protocolId == fixtureCase.expected.protocolId)
+            #expect(parsed.resourceKind == fixtureCase.expected.resourceKind)
+            #expect(parsed.opaqueId == fixtureCase.expected.opaqueId)
+            #expect(parsed.generation == fixtureCase.expected.generation)
+            #expect(parsed.revision == fixtureCase.expected.revision)
+            #expect(parsed.cursor == fixtureCase.expected.cursor)
+            #expect(parsed.canonicalURL == fixtureCase.expected.canonicalUrl)
+        }
+    }
+
+    @Test
+    func test_transportResourceURL_rejectsInvalidProtocolScopedURL() throws {
+        let corpus = try transportResourceURLCorpusFixture()
+
+        for fixtureCase in corpus.invalid {
+            let parsed = BridgeTransportResourceURL.parse(
+                fixtureCase.url,
+                allowedResourceKindsByProtocol: corpus.allowedResourceKindsByProtocol.mapValues(Set.init)
+            )
+
+            #expect(parsed == nil, "Expected invalid resource URL case to reject: \(fixtureCase.name)")
+        }
+    }
+
+    @Test
+    func test_reviewViewerResourceAllowlistRejectsWorktreeFileContent() {
+        let resourceURL = "agentstudio://resource/worktree-file/file-content/file-abc?generation=42"
+
+        let parsed = BridgeTransportResourceURL.parse(
+            resourceURL,
+            allowedResourceKindsByProtocol: BridgeResourceProtocolRegistry.reviewViewerAllowedResourceKinds
+        )
+        let classified = BridgeSchemeHandler.classifyPath(resourceURL)
+
+        #expect(parsed == nil)
+        #expect(classified == .invalid)
+    }
+
+    @Test
+    func test_pathType_worktreeFileProtocolScopedResourceKind() throws {
+        let resourceURL =
+            "agentstudio://resource/worktree-file/worktree.fileContent/file-abc?generation=42&cursor=cursor-42"
+        let expected = try #require(
+            BridgeTransportResourceURL.parse(
+                resourceURL,
+                allowedResourceKindsByProtocol: BridgeResourceProtocolRegistry.reviewViewerAllowedResourceKinds
+            ))
+        let result = BridgeSchemeHandler.classifyPath(resourceURL)
+
+        #expect(result == .leasedContent(expected))
+    }
+
+    @Test
+    func test_worktreeFileResourceRejectionDoesNotLeakCapabilityURL() async throws {
+        let resourceURL =
+            "agentstudio://resource/worktree-file/worktree.fileContent/file-abc?generation=42&cursor=cursor-42"
+        let handler = BridgeSchemeHandler(paneId: UUID())
+        let request = URLRequest(url: URL(string: resourceURL)!)
+
+        do {
+            for try await _ in handler.reply(for: request) {}
+            Issue.record("Expected worktree-file resource request to fail before bytes")
+        } catch BridgeSchemeError.invalidRoute(let route) {
+            #expect(route != resourceURL)
+            #expect(route.contains("file-abc") == false)
+            #expect(route.contains("cursor-42") == false)
+            #expect(route.contains("agentstudio://resource") == false)
+        } catch {
+            Issue.record("Expected invalidRoute, got \(error)")
+        }
     }
 
     // MARK: - Path classification — invalid routes
@@ -185,6 +284,20 @@ final class BridgeSchemeHandlerTests {
     func test_pathType_resourceOverflowGeneration_invalid() {
         let result = BridgeSchemeHandler.classifyPath(
             "agentstudio://resource/content/handle-abc?generation=99999999999999999999")
+        #expect(result == .invalid)
+    }
+
+    @Test
+    func test_pathType_legacyResourceDuplicateGeneration_invalid() {
+        let result = BridgeSchemeHandler.classifyPath(
+            "agentstudio://resource/content/handle-abc?generation=7&generation=8")
+        #expect(result == .invalid)
+    }
+
+    @Test
+    func test_pathType_legacyResourceUnknownQuery_invalid() {
+        let result = BridgeSchemeHandler.classifyPath(
+            "agentstudio://resource/content/handle-abc?generation=7&extra=1")
         #expect(result == .invalid)
     }
 
@@ -283,7 +396,7 @@ final class BridgeSchemeHandlerTests {
         )
         let contentStore = BridgeContentStore(provider: provider)
         await contentStore.activate(handles: [handle], reviewGeneration: 7)
-        let handler = BridgeSchemeHandler(paneId: UUID(), contentStore: contentStore)
+        let handler = await makeLeasedBridgeSchemeHandler(contentStore: contentStore, handle: handle)
         let request = URLRequest(url: URL(string: handle.resourceUrl)!)
 
         var response: URLResponse?
@@ -310,6 +423,226 @@ final class BridgeSchemeHandlerTests {
     }
 
     @Test
+    func test_protocolScopedContentRouteRejectsUnleasedContentHandle() async throws {
+        let handle = makeBridgeContentHandle(
+            itemId: "item-1",
+            role: .head,
+            reviewGeneration: 7,
+            contentHash: bridgeSHA256ContentHash("hello bridge")
+        )
+        let provider = BridgeReviewSourceProviderFake(
+            comparison: BridgeEndpointComparison(
+                baseEndpoint: makeBridgeEndpoint(endpointId: "base", kind: .gitRef),
+                headEndpoint: makeBridgeEndpoint(endpointId: "head", kind: .workingTree),
+                changedFiles: []
+            ),
+            contentByHandleId: [
+                handle.handleId: makeContentResult(handle: handle, data: "hello bridge")
+            ]
+        )
+        let contentStore = BridgeContentStore(provider: provider)
+        await contentStore.activate(handles: [handle], reviewGeneration: 7)
+        let handler = BridgeSchemeHandler(paneId: UUID(), contentStore: contentStore)
+        let resourceURL = "agentstudio://resource/review/content/\(handle.handleId)?generation=7&revision=1"
+        let request = URLRequest(url: URL(string: resourceURL)!)
+
+        do {
+            for try await _ in handler.reply(for: request) {}
+            Issue.record("Expected unleased protocol-scoped content to fail")
+        } catch BridgeSchemeError.invalidRoute(let route) {
+            #expect(route != resourceURL)
+            #expect(route.contains(handle.handleId) == false)
+            #expect(route.contains("agentstudio://resource") == false)
+        } catch {
+            Issue.record("Expected invalidRoute, got \(error)")
+        }
+
+        #expect(await provider.recordedContentRequestsCount() == 0)
+    }
+
+    @Test
+    func test_protocolScopedContentRouteLoadsOnlyAfterExactLeaseRegistration() async throws {
+        let handle = makeBridgeContentHandle(
+            itemId: "item-1",
+            role: .head,
+            reviewGeneration: 7,
+            contentHash: bridgeSHA256ContentHash("hello bridge")
+        )
+        let provider = BridgeReviewSourceProviderFake(
+            comparison: BridgeEndpointComparison(
+                baseEndpoint: makeBridgeEndpoint(endpointId: "base", kind: .gitRef),
+                headEndpoint: makeBridgeEndpoint(endpointId: "head", kind: .workingTree),
+                changedFiles: []
+            ),
+            contentByHandleId: [
+                handle.handleId: makeContentResult(handle: handle, data: "hello bridge")
+            ]
+        )
+        let contentStore = BridgeContentStore(provider: provider)
+        await contentStore.activate(handles: [handle], reviewGeneration: 7)
+        let resourceLeaseRegistry = BridgeTransportResourceLeaseRegistry()
+        let paneId = UUID()
+        let resourceURL = "agentstudio://resource/review/content/\(handle.handleId)?generation=7&revision=1"
+        let resource = try #require(
+            BridgeTransportResourceURL.parse(
+                resourceURL,
+                allowedResourceKindsByProtocol: ["review": Set(["content"])]
+            ))
+        await resourceLeaseRegistry.register(resource, paneId: paneId, expectedRevocationRevision: 0)
+        let handler = BridgeSchemeHandler(
+            paneId: paneId,
+            contentStore: contentStore,
+            resourceLeaseRegistry: resourceLeaseRegistry
+        )
+        let request = URLRequest(url: URL(string: resourceURL)!)
+
+        var data = Data()
+        for try await result in handler.reply(for: request) {
+            if case .data(let chunk) = result {
+                data.append(chunk)
+            }
+        }
+
+        #expect(data == Data("hello bridge".utf8))
+        #expect(await provider.recordedContentRequestsCount() == 1)
+    }
+
+    @Test
+    func test_contentRouteRejectsNonReadMethod() async throws {
+        let handle = makeBridgeContentHandle(
+            itemId: "item-1",
+            role: .head,
+            reviewGeneration: 7,
+            contentHash: bridgeSHA256ContentHash("hello bridge")
+        )
+        let provider = BridgeReviewSourceProviderFake(
+            comparison: BridgeEndpointComparison(
+                baseEndpoint: makeBridgeEndpoint(endpointId: "base", kind: .gitRef),
+                headEndpoint: makeBridgeEndpoint(endpointId: "head", kind: .workingTree),
+                changedFiles: []
+            ),
+            contentByHandleId: [
+                handle.handleId: makeContentResult(handle: handle, data: "hello bridge")
+            ]
+        )
+        let contentStore = BridgeContentStore(provider: provider)
+        await contentStore.activate(handles: [handle], reviewGeneration: 7)
+        let handler = await makeLeasedBridgeSchemeHandler(contentStore: contentStore, handle: handle)
+        var request = URLRequest(url: URL(string: handle.resourceUrl)!)
+        request.httpMethod = "POST"
+
+        do {
+            for try await _ in handler.reply(for: request) {}
+            Issue.record("Expected non-read content request to fail")
+        } catch BridgeSchemeError.invalidRequest {
+        } catch {
+            Issue.record("Expected invalidRequest, got \(error)")
+        }
+
+        #expect(await provider.recordedContentRequestsCount() == 0)
+    }
+
+    @Test
+    func test_protocolScopedContentRouteHeadEmitsResponseWithoutBody() async throws {
+        let handle = makeBridgeContentHandle(
+            itemId: "item-1",
+            role: .head,
+            reviewGeneration: 7,
+            contentHash: bridgeSHA256ContentHash("hello bridge")
+        )
+        let provider = BridgeReviewSourceProviderFake(
+            comparison: BridgeEndpointComparison(
+                baseEndpoint: makeBridgeEndpoint(endpointId: "base", kind: .gitRef),
+                headEndpoint: makeBridgeEndpoint(endpointId: "head", kind: .workingTree),
+                changedFiles: []
+            ),
+            contentByHandleId: [
+                handle.handleId: makeContentResult(handle: handle, data: "hello bridge")
+            ]
+        )
+        let contentStore = BridgeContentStore(provider: provider)
+        await contentStore.activate(handles: [handle], reviewGeneration: 7)
+        let resourceLeaseRegistry = BridgeTransportResourceLeaseRegistry()
+        let paneId = UUID()
+        let resource = try #require(
+            BridgeTransportResourceURL.parse(
+                handle.resourceUrl,
+                allowedResourceKindsByProtocol: ["review": Set(["content"])]
+            ))
+        await resourceLeaseRegistry.register(
+            resource,
+            paneId: paneId,
+            maxBytes: handle.sizeBytes,
+            expectedRevocationRevision: 0
+        )
+        let handler = BridgeSchemeHandler(
+            paneId: paneId,
+            contentStore: contentStore,
+            resourceLeaseRegistry: resourceLeaseRegistry
+        )
+        var request = URLRequest(url: URL(string: handle.resourceUrl)!)
+        request.httpMethod = "HEAD"
+
+        var eventOrder: [String] = []
+        for try await result in handler.reply(for: request) {
+            switch result {
+            case .response:
+                eventOrder.append("response")
+            case .data:
+                eventOrder.append("data")
+            @unknown default:
+                Issue.record("Unexpected URL scheme task result")
+            }
+        }
+
+        #expect(eventOrder == ["response"])
+        #expect(await provider.recordedContentRequestsCount() == 0)
+    }
+
+    @Test
+    func test_protocolScopedContentRouteOptionsDoesNotLoadProvider() async throws {
+        let handle = makeBridgeContentHandle(
+            itemId: "item-1",
+            role: .head,
+            reviewGeneration: 7,
+            contentHash: bridgeSHA256ContentHash("hello bridge")
+        )
+        let provider = BridgeReviewSourceProviderFake(
+            comparison: BridgeEndpointComparison(
+                baseEndpoint: makeBridgeEndpoint(endpointId: "base", kind: .gitRef),
+                headEndpoint: makeBridgeEndpoint(endpointId: "head", kind: .workingTree),
+                changedFiles: []
+            ),
+            contentByHandleId: [
+                handle.handleId: makeContentResult(handle: handle, data: "hello bridge")
+            ]
+        )
+        let contentStore = BridgeContentStore(provider: provider)
+        await contentStore.activate(handles: [handle], reviewGeneration: 7)
+        let handler = BridgeSchemeHandler(paneId: UUID(), contentStore: contentStore)
+        var request = URLRequest(url: URL(string: handle.resourceUrl)!)
+        request.httpMethod = "OPTIONS"
+
+        var eventOrder: [String] = []
+        var response: HTTPURLResponse?
+        for try await result in handler.reply(for: request) {
+            switch result {
+            case .response(let emittedResponse):
+                response = emittedResponse as? HTTPURLResponse
+                eventOrder.append("response")
+            case .data:
+                eventOrder.append("data")
+            @unknown default:
+                Issue.record("Unexpected URL scheme task result")
+            }
+        }
+
+        #expect(eventOrder == ["response"])
+        #expect(response?.value(forHTTPHeaderField: "Access-Control-Allow-Methods") == "GET, HEAD, OPTIONS")
+        #expect(await provider.recordedContentRequestsCount() == 0)
+    }
+
+    @Test
     func test_contentRoute_recordsTraceparentCorrelatedTelemetry() async throws {
         let handle = makeBridgeContentHandle(
             itemId: "item-1",
@@ -330,9 +663,9 @@ final class BridgeSchemeHandlerTests {
         let contentStore = BridgeContentStore(provider: provider)
         let recorder = BridgeTelemetryRecorderSpy()
         await contentStore.activate(handles: [handle], reviewGeneration: 7)
-        let handler = BridgeSchemeHandler(
-            paneId: UUID(),
+        let handler = await makeLeasedBridgeSchemeHandler(
             contentStore: contentStore,
+            handle: handle,
             telemetryRecorder: recorder
         )
         var request = URLRequest(url: URL(string: handle.resourceUrl)!)
@@ -378,9 +711,9 @@ final class BridgeSchemeHandlerTests {
         let contentStore = BridgeContentStore(provider: provider)
         let recorder = BridgeTelemetryRecorderSpy()
         await contentStore.activate(handles: [handle], reviewGeneration: 7)
-        let handler = BridgeSchemeHandler(
-            paneId: UUID(),
+        let handler = await makeLeasedBridgeSchemeHandler(
             contentStore: contentStore,
+            handle: handle,
             telemetryRecorder: recorder
         )
         let request = URLRequest(url: URL(string: handle.resourceUrl)!)
@@ -398,12 +731,22 @@ final class BridgeSchemeHandlerTests {
     func test_contentRouteUnknownHandleFailsThroughSchemeHandler() async throws {
         let contentStore = BridgeContentStore()
         let recorder = BridgeTelemetryRecorderSpy()
+        let paneId = UUID()
+        let resourceLeaseRegistry = BridgeTransportResourceLeaseRegistry()
+        let resourceURL = "agentstudio://resource/review/content/missing?generation=7"
+        let resource = try #require(
+            BridgeTransportResourceURL.parse(
+                resourceURL,
+                allowedResourceKindsByProtocol: ["review": Set(["content"])]
+            ))
+        await resourceLeaseRegistry.register(resource, paneId: paneId, expectedRevocationRevision: 0)
         let handler = BridgeSchemeHandler(
-            paneId: UUID(),
+            paneId: paneId,
             contentStore: contentStore,
+            resourceLeaseRegistry: resourceLeaseRegistry,
             telemetryRecorder: recorder
         )
-        let request = URLRequest(url: URL(string: "agentstudio://resource/content/missing?generation=7")!)
+        let request = URLRequest(url: URL(string: resourceURL)!)
 
         do {
             for try await _ in handler.reply(for: request) {}
@@ -441,7 +784,7 @@ final class BridgeSchemeHandlerTests {
         )
         let contentStore = BridgeContentStore(provider: provider)
         await contentStore.activate(handles: [handle], reviewGeneration: 7)
-        let handler = BridgeSchemeHandler(paneId: UUID(), contentStore: contentStore)
+        let handler = await makeLeasedBridgeSchemeHandler(contentStore: contentStore, handle: handle)
         let request = URLRequest(url: URL(string: handle.resourceUrl)!)
         let eventRecorder = BridgeSchemeHandlerEventRecorder()
         let stream = handler.reply(for: request)
@@ -473,6 +816,33 @@ final class BridgeSchemeHandlerTests {
         #expect(await eventRecorder.recordedEventCount() == 0)
         #expect(await eventRecorder.recordedErrorCount() == 0)
     }
+
+    private func makeLeasedBridgeSchemeHandler(
+        contentStore: BridgeContentStore,
+        handle: BridgeContentHandle,
+        telemetryRecorder: (any BridgePerformanceTraceRecording)? = nil
+    ) async -> BridgeSchemeHandler {
+        let resourceLeaseRegistry = BridgeTransportResourceLeaseRegistry()
+        let paneId = UUID()
+        if let resource = BridgeTransportResourceURL.parse(
+            handle.resourceUrl,
+            allowedResourceKindsByProtocol: ["review": Set(["content"])]
+        ) {
+            await resourceLeaseRegistry.register(
+                resource,
+                paneId: paneId,
+                descriptorId: resource.opaqueId,
+                maxBytes: handle.sizeBytes,
+                expectedRevocationRevision: 0
+            )
+        }
+        return BridgeSchemeHandler(
+            paneId: paneId,
+            contentStore: contentStore,
+            resourceLeaseRegistry: resourceLeaseRegistry,
+            telemetryRecorder: telemetryRecorder
+        )
+    }
 }
 
 private actor BridgeSchemeHandlerEventRecorder {
@@ -494,4 +864,49 @@ private actor BridgeSchemeHandlerEventRecorder {
     func recordedErrorCount() -> Int {
         errorCount
     }
+}
+
+private struct TransportResourceURLCorpusFixture: Decodable {
+    let allowedResourceKindsByProtocol: [String: [String]]
+    let valid: [TransportResourceURLValidFixture]
+    let invalid: [TransportResourceURLInvalidFixture]
+}
+
+private struct TransportResourceURLValidFixture: Decodable {
+    let name: String
+    let url: String
+    let expected: TransportResourceURLExpectedFixture
+}
+
+private struct TransportResourceURLExpectedFixture: Decodable {
+    let protocolId: String
+    let resourceKind: String
+    let opaqueId: String
+    let generation: Int?
+    let revision: Int?
+    let cursor: String?
+    let canonicalUrl: String
+
+    enum CodingKeys: String, CodingKey {
+        case protocolId = "protocol"
+        case resourceKind
+        case opaqueId
+        case generation
+        case revision
+        case cursor
+        case canonicalUrl
+    }
+}
+
+private struct TransportResourceURLInvalidFixture: Decodable {
+    let name: String
+    let url: String
+}
+
+private func transportResourceURLCorpusFixture() throws -> TransportResourceURLCorpusFixture {
+    let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+    let fixtureURL = projectRoot.appending(
+        path: "Tests/BridgeContractFixtures/valid/transport-resource-url-corpus.json")
+    let data = try Data(contentsOf: fixtureURL)
+    return try JSONDecoder().decode(TransportResourceURLCorpusFixture.self, from: data)
 }

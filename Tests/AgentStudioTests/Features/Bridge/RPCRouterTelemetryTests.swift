@@ -22,6 +22,8 @@ final class RPCRouterTelemetryTests {
         func samples() -> [BridgeTelemetrySample] {
             recordedSamples
         }
+
+        func drain() async throws {}
     }
 
     private actor BridgeTelemetryIngestorSpy: BridgeTelemetryBatchIngesting {

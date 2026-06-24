@@ -129,7 +129,27 @@ extension BridgeReviewPackage {
             groups: groups,
             summary: summary,
             filterState: filterState,
-            generatedAtUnixMilliseconds: generatedAtUnixMilliseconds
+            generatedAtUnixMilliseconds: generatedAtUnixMilliseconds,
+            changesetCluster: changesetCluster
+        )
+    }
+
+    func withChangesetCluster(_ changesetCluster: BridgeReviewChangesetClusterMetadata?) -> BridgeReviewPackage {
+        BridgeReviewPackage(
+            packageId: packageId,
+            schemaVersion: schemaVersion,
+            reviewGeneration: reviewGeneration,
+            revision: revision,
+            query: query,
+            baseEndpoint: baseEndpoint,
+            headEndpoint: headEndpoint,
+            orderedItemIds: orderedItemIds,
+            itemsById: itemsById,
+            groups: groups,
+            summary: summary,
+            filterState: filterState,
+            generatedAtUnixMilliseconds: generatedAtUnixMilliseconds,
+            changesetCluster: changesetCluster
         )
     }
 }

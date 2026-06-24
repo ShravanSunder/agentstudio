@@ -1,0 +1,216 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
+
+@source "../**/*.ts";
+@source "../**/*.tsx";
+
+@custom-variant dark (&:is(.dark *, .dark));
+
+@theme inline {
+	--font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif;
+	--font-heading: var(--font-sans);
+	--font-mono: 'SF Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+	--radius-sm: calc(var(--radius) * 0.6);
+	--radius-md: calc(var(--radius) * 0.8);
+	--radius-lg: var(--radius);
+	--radius-xl: calc(var(--radius) * 1.4);
+	--radius-2xl: calc(var(--radius) * 1.8);
+	--radius-3xl: calc(var(--radius) * 2.2);
+	--radius-4xl: calc(var(--radius) * 2.6);
+	--color-background: var(--background);
+	--color-foreground: var(--foreground);
+	--color-card: var(--card);
+	--color-card-foreground: var(--card-foreground);
+	--color-popover: var(--popover);
+	--color-popover-foreground: var(--popover-foreground);
+	--color-primary: var(--primary);
+	--color-primary-foreground: var(--primary-foreground);
+	--color-secondary: var(--secondary);
+	--color-secondary-foreground: var(--secondary-foreground);
+	--color-muted: var(--muted);
+	--color-muted-foreground: var(--muted-foreground);
+	--color-accent: var(--accent);
+	--color-accent-foreground: var(--accent-foreground);
+	--color-destructive: var(--destructive);
+	--color-border: var(--border);
+	--color-input: var(--input);
+	--color-ring: var(--ring);
+	--color-chart-1: var(--chart-1);
+	--color-chart-2: var(--chart-2);
+	--color-chart-3: var(--chart-3);
+	--color-chart-4: var(--chart-4);
+	--color-chart-5: var(--chart-5);
+	--color-sidebar: var(--sidebar);
+	--color-sidebar-foreground: var(--sidebar-foreground);
+	--color-sidebar-primary: var(--sidebar-primary);
+	--color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+	--color-sidebar-accent: var(--sidebar-accent);
+	--color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+	--color-sidebar-border: var(--sidebar-border);
+	--color-sidebar-ring: var(--sidebar-ring);
+}
+
+:root {
+	color-scheme: dark;
+	--radius: 0.45rem;
+	--background: #101010;
+	--foreground: #cdd6f4;
+	--card: #1e1e2e;
+	--card-foreground: #cdd6f4;
+	--popover: #252338;
+	--popover-foreground: #cdd6f4;
+	--primary: #89b4fa;
+	--primary-foreground: #11111b;
+	--secondary: #313244;
+	--secondary-foreground: #cdd6f4;
+	--muted: #313244;
+	--muted-foreground: #bac2de;
+	--accent: #313244;
+	--accent-foreground: #cdd6f4;
+	--destructive: #f38ba8;
+	--border: rgb(205 214 244 / 0.12);
+	--input: rgb(205 214 244 / 0.12);
+	--ring: #89b4fa;
+	--chart-1: #89b4fa;
+	--chart-2: #a6e3a1;
+	--chart-3: #f9e2af;
+	--chart-4: #cba6f7;
+	--chart-5: #f38ba8;
+	--sidebar: #181825;
+	--sidebar-foreground: #cdd6f4;
+	--sidebar-primary: #89b4fa;
+	--sidebar-primary-foreground: #11111b;
+	--sidebar-accent: #1e1e2e;
+	--sidebar-accent-foreground: #cdd6f4;
+	--sidebar-border: #45475a;
+	--sidebar-ring: #89b4fa;
+	--bridge-app-bg: #101010;
+	--bridge-canvas-bg: #1e1e2e;
+	--bridge-header-bg: #1e1e2e;
+	--bridge-header-control-bg: #181825;
+	--bridge-header-control-active-bg: #313244;
+	--bridge-surface-bg: #1e1e2e;
+	--bridge-surface-raised-bg: #313244;
+	--bridge-menu-bg: #252338;
+	--bridge-surface-muted-bg: #313244;
+	--bridge-border-subtle: rgb(205 214 244 / 0.1);
+	--bridge-border-opaque: rgb(205 214 244 / 0.18);
+	--bridge-text-primary: #cdd6f4;
+	--bridge-text-secondary: #bac2de;
+	--bridge-text-muted: #6c7086;
+	--bridge-accent: #89b4fa;
+	--bridge-accent-soft: rgb(137 180 250 / 0.16);
+	--bridge-added: #a6e3a1;
+	--bridge-deleted: #f38ba8;
+	--bridge-warning: #f9e2af;
+	--bridge-code-view-file-separator: rgb(205 214 244 / 0.14);
+	--diffs-foreground: var(--bridge-text-primary);
+	--diffs-background: var(--bridge-canvas-bg);
+	--diffs-ansi-black: #11111b;
+	--diffs-ansi-red: var(--bridge-deleted);
+	--diffs-ansi-green: var(--bridge-added);
+	--diffs-ansi-yellow: var(--bridge-warning);
+	--diffs-ansi-blue: var(--bridge-accent);
+	--diffs-ansi-magenta: #cba6f7;
+	--diffs-ansi-cyan: #89dceb;
+	--diffs-ansi-white: var(--bridge-text-primary);
+	--diffs-ansi-bright-black: var(--bridge-text-muted);
+	--diffs-ansi-bright-red: #eba0ac;
+	--diffs-ansi-bright-green: #a6e3a1;
+	--diffs-ansi-bright-yellow: #f9e2af;
+	--diffs-ansi-bright-blue: #89b4fa;
+	--diffs-ansi-bright-magenta: #cba6f7;
+	--diffs-ansi-bright-cyan: #94e2d5;
+	--diffs-ansi-bright-white: #f5e0dc;
+	--diffs-token-link: #89b4fa;
+	--diffs-token-string: var(--bridge-added);
+	--diffs-token-comment: var(--bridge-text-muted);
+	--diffs-token-constant: #fab387;
+	--diffs-token-keyword: #cba6f7;
+	--diffs-token-parameter: #f9e2af;
+	--diffs-token-function: var(--bridge-accent);
+	--diffs-token-string-expression: #94e2d5;
+	--diffs-token-punctuation: #bac2de;
+	--diffs-token-inserted: var(--bridge-added);
+	--diffs-token-deleted: var(--bridge-deleted);
+	--diffs-token-changed: var(--bridge-warning);
+}
+
+html,
+body,
+#root {
+	width: 100%;
+	height: 100%;
+	margin: 0;
+	overflow: hidden;
+	background: var(--bridge-app-bg);
+	color: var(--bridge-text-primary);
+	font-family: var(--font-sans);
+}
+
+* {
+	box-sizing: border-box;
+}
+
+button,
+input,
+select {
+	font: inherit;
+}
+
+button {
+	color: inherit;
+}
+
+button:not(:disabled),
+[role='button']:not([aria-disabled='true']) {
+	cursor: pointer;
+}
+
+button:disabled,
+[role='button'][aria-disabled='true'] {
+	cursor: default;
+}
+
+.bridge-scrollbar {
+	scrollbar-width: thin;
+	scrollbar-color: rgb(205 214 244 / 0.24) transparent;
+}
+
+.bridge-scrollbar::-webkit-scrollbar {
+	width: 4px;
+	height: 4px;
+}
+
+.bridge-scrollbar::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+.bridge-scrollbar::-webkit-scrollbar-thumb {
+	border: 1px solid transparent;
+	border-radius: 999px;
+	background: rgb(205 214 244 / 0.22);
+	background-clip: content-box;
+}
+
+.bridge-review-projection-button {
+	font-size: 11px;
+	line-height: 1;
+}
+
+.bridge-code-view-panel :where(.cm-scroller, .cm-editor, pre, code) {
+	font-family: var(--font-mono);
+}
+
+@layer base {
+	* {
+		@apply border-border outline-ring/50;
+	}
+	body {
+		@apply bg-background text-foreground;
+	}
+	html {
+		@apply font-sans;
+	}
+}

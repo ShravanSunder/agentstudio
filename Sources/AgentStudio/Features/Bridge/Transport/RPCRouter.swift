@@ -55,6 +55,7 @@ final class RPCRouter {
     var onResponse: (@MainActor @Sendable (String) async -> Void) = { responseJSON in
         rpcRouterLogger.warning("RPC response dropped because onResponse is not configured: \(responseJSON)")
     }
+    var onSuccessResponseDelivered: (@MainActor @Sendable (String) async -> Void) = { _ in }
     var telemetryIngestor: (any BridgeTelemetryBatchIngesting)?
     var telemetryRecorder: (any BridgePerformanceTraceRecording)?
 
@@ -116,6 +117,12 @@ final class RPCRouter {
             return
         }
 
+        guard !Self.isRejectedPageWorldPrivilegedMethod(request) else {
+            await reportError(
+                .invalidRequest, "Invalid request: privileged method requires bridge world", id: request.requestId)
+            return
+        }
+
         if request.method == SystemMethods.BridgeTelemetryMethod.method {
             await dispatchBridgeTelemetryBatch(request)
             return
@@ -152,7 +159,11 @@ final class RPCRouter {
                 status: CommandAck.Status.ok,
                 reason: nil
             )
-            await emitSuccessResponseIfNeeded(id: request.requestId, resultData: resultData)
+            await emitSuccessResponseIfNeeded(
+                id: request.requestId,
+                resultData: resultData,
+                method: request.method
+            )
             if shouldRecordRPC {
                 await recordGenericRPCTelemetry(
                     name: "performance.bridge.webkit.rpc_response",
@@ -204,6 +215,7 @@ final class RPCRouter {
         let requestId: RPCIdentifier?
         let method: String
         let commandId: String?
+        let bridgeOrigin: String?
         let traceContext: BridgeTraceContext?
         let params: JSONRPCValue?
     }
@@ -275,15 +287,36 @@ final class RPCRouter {
         } else {
             commandId = nil
         }
+        let bridgeOrigin: String?
+        if case .string(let rawBridgeOrigin)? = dict["__bridgeOrigin"] {
+            bridgeOrigin = rawBridgeOrigin
+        } else {
+            bridgeOrigin = nil
+        }
         let traceContext = parseTraceContext(dict["__traceContext"])
 
         return ParsedRPCRequest(
             requestId: requestId,
             method: method,
             commandId: commandId,
+            bridgeOrigin: bridgeOrigin,
             traceContext: traceContext,
             params: dict["params"]
         )
+    }
+
+    private nonisolated static func isRejectedPageWorldPrivilegedMethod(_ request: ParsedRPCRequest) -> Bool {
+        guard request.bridgeOrigin == "pageWorldLegacy" else {
+            return false
+        }
+        return isPrivilegedProtocolMethod(request.method)
+    }
+
+    private nonisolated static func isPrivilegedProtocolMethod(_ method: String) -> Bool {
+        method.hasSuffix(".openStream")
+            || method.hasSuffix(".refreshStream")
+            || method.hasSuffix(".cancelStream")
+            || method.hasSuffix(".resetStream")
     }
 
     private func dispatchBridgeTelemetryBatch(_ request: ParsedRPCRequest) async {
@@ -332,7 +365,11 @@ final class RPCRouter {
             result: result,
             durationMilliseconds: Self.milliseconds(from: start.duration(to: ContinuousClock.now))
         )
-        await emitSuccessResponseIfNeeded(id: request.requestId, resultData: nil)
+        await emitSuccessResponseIfNeeded(
+            id: request.requestId,
+            resultData: nil,
+            method: request.method
+        )
     }
 
     private func shouldSkip(commandId: String?) -> Bool {
@@ -435,13 +472,18 @@ final class RPCRouter {
         await emitErrorResponseIfNeeded(id: id, code: code.rawValue, message: message)
     }
 
-    private func emitSuccessResponseIfNeeded(id: RPCIdentifier?, resultData: Data?) async {
+    private func emitSuccessResponseIfNeeded(
+        id: RPCIdentifier?,
+        resultData: Data?,
+        method: String
+    ) async {
         guard let id else {
             return
         }
         do {
             let responseJSON = try makeSuccessResponseJSON(id: id, resultData: resultData)
             await onResponse(responseJSON)
+            await onSuccessResponseDelivered(method)
         } catch {
             let message = "Internal error: failed to encode response: \(self.errorMessage(from: error))"
             onError(RPCErrorCode.internalError.rawValue, message, id)

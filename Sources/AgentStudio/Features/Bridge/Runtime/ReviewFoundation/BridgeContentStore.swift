@@ -9,12 +9,33 @@ actor BridgeContentStore {
         let role: BridgeContentHandle.Role
         let endpointId: String
         let contentHash: String
+        let contentHashAlgorithm: String
+        let isBinary: Bool
+    }
+
+    private struct ContentHandleAuthority: Equatable {
+        let handleId: String
+        let reviewGeneration: BridgeReviewGeneration
+        let itemId: String
+        let role: BridgeContentHandle.Role
+        let endpointId: String
+        let contentHash: String
+        let contentHashAlgorithm: String
+        let isBinary: Bool
+    }
+
+    private struct ActiveContentHandleLookup {
+        let key: ContentKey
+        let handle: BridgeContentHandle
+        let handleAuthority: ContentHandleAuthority
+        let authorityRevision: Int
     }
 
     private let provider: (any BridgeReviewSourceProvider)?
     private let contentCacheMaxBytes: Int
     private let contentMaxBytesPerItem: Int
     private var activeReviewGeneration: BridgeReviewGeneration?
+    private var activeAuthorityRevision = 0
     private var handleByKey: [ContentKey: BridgeContentHandle] = [:]
     private var contentByKey: [ContentKey: BridgeContentLoadResult] = [:]
     private var keyByHandleId: [String: ContentKey] = [:]
@@ -35,6 +56,7 @@ actor BridgeContentStore {
     }
 
     func activate(handles: [BridgeContentHandle], reviewGeneration: BridgeReviewGeneration) {
+        activeAuthorityRevision += 1
         activeReviewGeneration = reviewGeneration
 
         var activeKeys: Set<ContentKey> = []
@@ -54,6 +76,20 @@ actor BridgeContentStore {
             task.cancel()
             inFlightLoadByKey[key] = nil
         }
+    }
+
+    func deactivate() {
+        activeAuthorityRevision += 1
+        activeReviewGeneration = nil
+        handleByKey.removeAll(keepingCapacity: true)
+        keyByHandleId.removeAll(keepingCapacity: true)
+        for key in contentByKey.keys {
+            removeCachedContent(for: key)
+        }
+        for (_, task) in inFlightLoadByKey {
+            task.cancel()
+        }
+        inFlightLoadByKey.removeAll(keepingCapacity: true)
     }
 
     func register(_ handle: BridgeContentHandle) {
@@ -85,6 +121,85 @@ actor BridgeContentStore {
         handleId: String,
         requestedGeneration: BridgeReviewGeneration
     ) async throws -> BridgeContentLoadObservedResult {
+        let lookup = try activeContentHandleLookup(
+            handleId: handleId,
+            requestedGeneration: requestedGeneration
+        )
+        let key = lookup.key
+        let handle = lookup.handle
+
+        if let result = contentByKey[key] {
+            let normalizedResult = try normalizeActiveResult(
+                result,
+                lookup: lookup,
+                requestedGeneration: requestedGeneration
+            )
+            cache(normalizedResult, for: key)
+            return observedResult(normalizedResult, cacheResult: .cacheHit)
+        }
+
+        if let task = inFlightLoadByKey[key] {
+            do {
+                let result = try await task.value
+                let normalizedResult = try normalizeActiveResult(
+                    result,
+                    lookup: lookup,
+                    requestedGeneration: requestedGeneration
+                )
+                return observedResult(normalizedResult, cacheResult: .inFlightCoalesced)
+            } catch {
+                try throwObservedStaleGenerationIfInvalidated(
+                    error,
+                    lookup: lookup,
+                    requestedGeneration: requestedGeneration,
+                    cacheResult: .inFlightCoalesced
+                )
+            }
+        }
+
+        guard let provider else {
+            throw observedFailure(
+                BridgeProviderFailure.providerUnavailable,
+                handle: handle,
+                requestedGeneration: requestedGeneration,
+                cacheResult: .rejected
+            )
+        }
+        let task = Task {
+            try await provider.loadContent(
+                BridgeContentLoadRequest(handle: handle, requestedGeneration: requestedGeneration)
+            )
+        }
+        inFlightLoadByKey[key] = task
+        do {
+            let result = try await withTaskCancellationHandler {
+                try await task.value
+            } onCancel: {
+                task.cancel()
+            }
+            inFlightLoadByKey[key] = nil
+            let normalizedResult = try normalizeActiveResult(
+                result,
+                lookup: lookup,
+                requestedGeneration: requestedGeneration
+            )
+            cache(normalizedResult, for: key)
+            return observedResult(normalizedResult, cacheResult: .providerLoad)
+        } catch {
+            inFlightLoadByKey[key] = nil
+            try throwObservedStaleGenerationIfInvalidated(
+                error,
+                lookup: lookup,
+                requestedGeneration: requestedGeneration,
+                cacheResult: .providerLoad
+            )
+        }
+    }
+
+    private func activeContentHandleLookup(
+        handleId: String,
+        requestedGeneration: BridgeReviewGeneration
+    ) throws -> ActiveContentHandleLookup {
         do {
             try validateActiveGeneration(requestedGeneration)
         } catch {
@@ -124,62 +239,27 @@ actor BridgeContentStore {
                 cacheResult: .rejected
             )
         }
+        return ActiveContentHandleLookup(
+            key: key,
+            handle: handle,
+            handleAuthority: contentHandleAuthority(for: handle),
+            authorityRevision: activeAuthorityRevision
+        )
+    }
 
-        if let result = contentByKey[key] {
-            touchCachedContent(for: key)
-            return observedResult(result, cacheResult: .cacheHit)
+    func metadata(handleId: String, requestedGeneration: BridgeReviewGeneration) throws -> BridgeContentHandle {
+        try validateActiveGeneration(requestedGeneration)
+        guard let key = keyByHandleId[handleId], let handle = handleByKey[key] else {
+            throw BridgeProviderFailure.missingContent(handleId: handleId)
         }
-
-        if let task = inFlightLoadByKey[key] {
-            do {
-                let result = try await task.value
-                try validateActiveGeneration(requestedGeneration)
-                try validateResult(result, for: handle)
-                return observedResult(result, cacheResult: .inFlightCoalesced)
-            } catch {
-                try throwObservedStaleGenerationIfInvalidated(
-                    error,
-                    handle: handle,
-                    requestedGeneration: requestedGeneration,
-                    cacheResult: .inFlightCoalesced
-                )
-            }
-        }
-
-        guard let provider else {
-            throw observedFailure(
-                BridgeProviderFailure.providerUnavailable,
-                handle: handle,
-                requestedGeneration: requestedGeneration,
-                cacheResult: .rejected
+        try validateHandleCanLoad(handle)
+        guard key.reviewGeneration == requestedGeneration else {
+            throw BridgeProviderFailure.staleReviewGeneration(
+                storedGeneration: key.reviewGeneration,
+                requestedGeneration: requestedGeneration
             )
         }
-        let task = Task {
-            try await provider.loadContent(
-                BridgeContentLoadRequest(handle: handle, requestedGeneration: requestedGeneration)
-            )
-        }
-        inFlightLoadByKey[key] = task
-        do {
-            let result = try await withTaskCancellationHandler {
-                try await task.value
-            } onCancel: {
-                task.cancel()
-            }
-            inFlightLoadByKey[key] = nil
-            try validateActiveGeneration(requestedGeneration)
-            try validateResult(result, for: handle)
-            cache(result, for: key)
-            return observedResult(result, cacheResult: .providerLoad)
-        } catch {
-            inFlightLoadByKey[key] = nil
-            try throwObservedStaleGenerationIfInvalidated(
-                error,
-                handle: handle,
-                requestedGeneration: requestedGeneration,
-                cacheResult: .providerLoad
-            )
-        }
+        return handle
     }
 
     private func validateActiveGeneration(_ requestedGeneration: BridgeReviewGeneration) throws {
@@ -190,12 +270,49 @@ actor BridgeContentStore {
         )
     }
 
+    private func validateActiveContentHandle(
+        _ lookup: ActiveContentHandleLookup,
+        requestedGeneration: BridgeReviewGeneration
+    ) throws -> BridgeContentHandle {
+        try validateActiveGeneration(requestedGeneration)
+        guard lookup.authorityRevision != activeAuthorityRevision else { return lookup.handle }
+        guard let activeHandle = handleByKey[lookup.key],
+            contentHandleAuthority(for: activeHandle) == lookup.handleAuthority,
+            keyByHandleId[lookup.handle.handleId] == lookup.key
+        else {
+            throw BridgeProviderFailure.missingContent(handleId: lookup.handle.handleId)
+        }
+        return activeHandle
+    }
+
+    private func normalizeActiveResult(
+        _ result: BridgeContentLoadResult,
+        lookup: ActiveContentHandleLookup,
+        requestedGeneration: BridgeReviewGeneration
+    ) throws -> BridgeContentLoadResult {
+        let activeHandle = try validateActiveContentHandle(lookup, requestedGeneration: requestedGeneration)
+        try validateResult(result, for: activeHandle)
+        return BridgeContentLoadResult(
+            handle: activeHandle,
+            data: result.data,
+            mimeType: activeHandle.mimeType,
+            contentHash: activeHandle.contentHash,
+            contentHashAlgorithm: activeHandle.contentHashAlgorithm
+        )
+    }
+
     private func validateResult(
         _ result: BridgeContentLoadResult,
         for handle: BridgeContentHandle
     ) throws {
         try validateHandleCanLoad(handle)
         guard result.data.count <= contentMaxBytesPerItem else {
+            throw BridgeProviderFailure.oversizedContent(
+                handleId: handle.handleId,
+                sizeBytes: result.data.count
+            )
+        }
+        guard result.data.count <= handle.sizeBytes else {
             throw BridgeProviderFailure.oversizedContent(
                 handleId: handle.handleId,
                 sizeBytes: result.data.count
@@ -255,23 +372,23 @@ actor BridgeContentStore {
 
     private func throwObservedStaleGenerationIfInvalidated(
         _ error: any Error,
-        handle: BridgeContentHandle?,
+        lookup: ActiveContentHandleLookup,
         requestedGeneration: BridgeReviewGeneration,
         cacheResult: BridgeContentLoadObservation.CacheResult
     ) throws -> Never {
         do {
-            try validateActiveGeneration(requestedGeneration)
-        } catch {
+            _ = try validateActiveContentHandle(lookup, requestedGeneration: requestedGeneration)
+        } catch let invalidationError {
             throw observedFailure(
-                error,
-                handle: handle,
+                invalidationError,
+                handle: lookup.handle,
                 requestedGeneration: requestedGeneration,
                 cacheResult: .rejected
             )
         }
         throw observedFailure(
             error,
-            handle: handle,
+            handle: lookup.handle,
             requestedGeneration: requestedGeneration,
             cacheResult: cacheResult
         )
@@ -437,7 +554,22 @@ actor BridgeContentStore {
             itemId: handle.itemId,
             role: handle.role,
             endpointId: handle.endpointId,
-            contentHash: handle.contentHash
+            contentHash: handle.contentHash,
+            contentHashAlgorithm: handle.contentHashAlgorithm,
+            isBinary: handle.isBinary
+        )
+    }
+
+    private func contentHandleAuthority(for handle: BridgeContentHandle) -> ContentHandleAuthority {
+        ContentHandleAuthority(
+            handleId: handle.handleId,
+            reviewGeneration: handle.reviewGeneration,
+            itemId: handle.itemId,
+            role: handle.role,
+            endpointId: handle.endpointId,
+            contentHash: handle.contentHash,
+            contentHashAlgorithm: handle.contentHashAlgorithm,
+            isBinary: handle.isBinary
         )
     }
 }

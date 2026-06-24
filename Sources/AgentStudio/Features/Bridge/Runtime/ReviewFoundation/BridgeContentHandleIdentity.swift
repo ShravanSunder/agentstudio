@@ -16,7 +16,7 @@ enum BridgeContentHandleIdentity {
         handleId: String,
         reviewGeneration: BridgeReviewGeneration
     ) -> String {
-        "agentstudio://resource/content/\(handleId)?generation=\(reviewGeneration.rawValue)"
+        "agentstudio://resource/review/content/\(handleId)?generation=\(reviewGeneration.rawValue)"
     }
 
     private static func sha256Hex(_ value: String) -> String {

@@ -186,6 +186,13 @@ final class ViewRegistry {
         }
     }
 
+    /// All registered bridge pane views, keyed by pane ID.
+    var allBridgeViews: [UUID: BridgePaneMountView] {
+        slots.compactMapValues { slot in
+            slot.host?.mountedContent(as: BridgePaneMountView.self)
+        }
+    }
+
     /// All registered terminal pane views, keyed by pane ID.
     var allTerminalViews: [UUID: TerminalPaneMountView] {
         slots.compactMapValues { slot in

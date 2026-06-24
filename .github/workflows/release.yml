@@ -162,6 +162,23 @@ jobs:
           fi
           echo "build_version=${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
 
+      - name: Enable pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.33.0 --activate
+
+      - name: Setup Node for BridgeWeb
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: BridgeWeb/pnpm-lock.yaml
+
+      - name: Build BridgeWeb packaged resources
+        run: |
+          mise run bridge-web-build
+          test -f Sources/AgentStudio/Resources/BridgeWeb/app/index.html
+
       - name: Cache Swift build
         uses: actions/cache@v4
         with:

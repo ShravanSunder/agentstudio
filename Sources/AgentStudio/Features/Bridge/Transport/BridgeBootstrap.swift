@@ -22,8 +22,12 @@ enum BridgeBootstrap {
     static func generateScript(
         bridgeNonce: String,
         pushNonce: String,
+        reviewPaneId: String? = nil,
+        reviewStreamId: String? = nil,
         telemetryConfig: BridgeTelemetryBootstrapConfig? = nil
     ) -> String {
+        let reviewPaneIdJSON = encodedOptionalJSONString(reviewPaneId)
+        let reviewStreamIdJSON = encodedOptionalJSONString(reviewStreamId)
         let telemetryConfigJSON = encodedTelemetryConfigJSON(telemetryConfig)
         return """
             // Bridge Bootstrap — injected at document start in bridge content world.
@@ -33,7 +37,34 @@ enum BridgeBootstrap {
 
                 const BRIDGE_NONCE = '\(bridgeNonce)';
                 const PUSH_NONCE = '\(pushNonce)';
+                const REVIEW_PANE_ID = \(reviewPaneIdJSON);
+                const REVIEW_STREAM_ID = \(reviewStreamIdJSON);
                 const TELEMETRY_CONFIG = \(telemetryConfigJSON);
+                const PAGE_WORLD_ALLOWED_COMMAND_METHODS = new Set([
+                    'review.markFileViewed',
+                    'system.bridgeTelemetry'
+                ]);
+                const HOST_PUSH_PORTS = new Set();
+
+                function publishHostPushPort() {
+                    const channel = new MessageChannel();
+                    HOST_PUSH_PORTS.add(channel.port1);
+                    channel.port1.start();
+                    window.postMessage({
+                        type: 'agentstudio.bridge.hostPushPort',
+                        version: 1
+                    }, '*', [channel.port2]);
+                }
+
+                function postHostEnvelopeJSON(envelopeJSON) {
+                    for (const port of HOST_PUSH_PORTS) {
+                        port.postMessage({
+                            type: 'agentstudio.bridge.hostPushEnvelopeJSON',
+                            version: 1,
+                            json: envelopeJSON
+                        });
+                    }
+                }
 
                 // Install bridge internal API in bridge world only.
                 // Page world cannot access this (content world isolation).
@@ -88,6 +119,24 @@ enum BridgeBootstrap {
                             this.replace(store, payload, revision, epoch, slice, traceContext);
                         }
                     },
+                    applyEnvelopeJSON: function(envelopeJSON) {
+                        postHostEnvelopeJSON(envelopeJSON);
+                        document.dispatchEvent(new CustomEvent('__bridge_push_json', {
+                            detail: { json: envelopeJSON, nonce: PUSH_NONCE }
+                        }));
+                    },
+                    applyIntakeFrameJSON: function(frameJSON) {
+                        document.dispatchEvent(new CustomEvent('__bridge_intake_json', {
+                            detail: { json: frameJSON, nonce: PUSH_NONCE }
+                        }));
+                    },
+                    sendCommandJSON: function(commandJSON) {
+                        if (typeof commandJSON !== 'string' || commandJSON.length === 0) {
+                            console.warn('[BridgeInternal] sendCommandJSON: commandJSON must be a non-empty string');
+                            return;
+                        }
+                        window.webkit.messageHandlers.rpc.postMessage(commandJSON);
+                    },
                     appendAgentEvents: function(events) {
                         document.dispatchEvent(new CustomEvent('__bridge_agent', {
                             detail: { events: events, nonce: PUSH_NONCE }
@@ -119,6 +168,15 @@ enum BridgeBootstrap {
                     }
                     // Strip nonce before forwarding to Swift
                     const { __nonce, ...payload } = detail;
+                    if (payload.protocol !== undefined) {
+                        console.warn('[BridgeBootstrap] Rejected __bridge_command: protocol RPC must use bridge world');
+                        return;
+                    }
+                    if (typeof payload.method !== 'string' || !PAGE_WORLD_ALLOWED_COMMAND_METHODS.has(payload.method)) {
+                        console.warn('[BridgeBootstrap] Rejected __bridge_command: method is not allowed from page world');
+                        return;
+                    }
+                    payload.__bridgeOrigin = 'pageWorldLegacy';
                     window.webkit.messageHandlers.rpc.postMessage(JSON.stringify(payload));
                 });
 
@@ -145,11 +203,35 @@ enum BridgeBootstrap {
                         detail: { pushNonce: PUSH_NONCE, telemetryConfig: TELEMETRY_CONFIG }
                     }));
                 });
+                document.addEventListener('__bridge_host_push_port_request', function() {
+                    publishHostPushPort();
+                });
+                publishHostPushPort();
 
                 // Set nonce attribute on documentElement for page world command sender
                 document.documentElement.setAttribute('data-bridge-nonce', BRIDGE_NONCE);
+                if (typeof REVIEW_PANE_ID === 'string' && typeof REVIEW_STREAM_ID === 'string') {
+                    document.documentElement.setAttribute('data-bridge-review-pane-id', REVIEW_PANE_ID);
+                    document.documentElement.setAttribute('data-bridge-review-stream-id', REVIEW_STREAM_ID);
+                }
             })();
             """
+    }
+
+    private static func encodedOptionalJSONString(_ value: String?) -> String {
+        guard let value else {
+            return "null"
+        }
+        return encodedJSONString(value)
+    }
+
+    private static func encodedJSONString(_ value: String) -> String {
+        guard let data = try? JSONEncoder().encode(value),
+            let json = String(data: data, encoding: .utf8)
+        else {
+            return "null"
+        }
+        return json
     }
 
     private static func encodedTelemetryConfigJSON(_ telemetryConfig: BridgeTelemetryBootstrapConfig?) -> String {

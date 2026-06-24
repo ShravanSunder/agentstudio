@@ -52,13 +52,19 @@ final class BridgePaneController {
     // MARK: - Domain State
 
     let revisionClock = RevisionClock()
+    let resourceLeaseRegistry = BridgeTransportResourceLeaseRegistry()
     let reviewContentStore: BridgeContentStore
+    let worktreeFileResourceStore = BridgeWorktreeFileResourceStore()
     let reviewPipeline: BridgeReviewPipeline
     let reviewChangeIndex = BridgeChangeIndex()
     let bridgePaneState: BridgePaneState
     var nextReviewGeneration: BridgeReviewGeneration = 0
+    var nextWorktreeFileSurfaceGeneration = 0
+    var activeWorktreeFileSurfaceSource: BridgeWorktreeFileSurfaceActiveSourceState?
+    var selectedReviewItemId: String?
     var activeReviewRefreshTask: Task<Void, Never>?
     var hasPendingReviewRefresh = false
+    var reviewContentAuthorityLifetime = 0
 
     // MARK: - Push Plans
 
@@ -71,15 +77,20 @@ final class BridgePaneController {
 
     let router: RPCRouter
     private let bridgeWorld = WKContentWorld.world(name: "agentStudioBridge")
+    let pushNonce: String
+    let pushEnvelopeSink: @MainActor (WebPage, String, String) async throws -> Void
+    let intakeFrameSink: @MainActor (WebPage, String, String) async throws -> Void
     private let userContentController: WKUserContentController
     private let bootstrapScript: WKUserScript
     private var managementScript: WKUserScript
     private(set) var isContentInteractionEnabled: Bool
     private var interactionApplyTask: Task<Void, Never>?
+    var pushDeliveryTail: Task<Void, Never>?
+    var pendingWorktreeFileIntakeFrames: [String] = []
     private var inboxPostTimestamps: [Date] = []
-    private let telemetryScopeGate: BridgeTelemetryScopeGate
-    private let telemetryRecorder: (any BridgePerformanceTraceRecording)?
-    private let traceContextFactory: BridgeTraceContextFactory
+    let telemetryScopeGate: BridgeTelemetryScopeGate
+    let telemetryRecorder: (any BridgePerformanceTraceRecording)?
+    let traceContextFactory: BridgeTraceContextFactory
     var lastReviewPackageTraceContext: BridgeTraceContext?
 
     /// Per store+op dedup cache. Bounded at O(StoreKey × PushOp) — currently 8 entries max.
@@ -87,7 +98,7 @@ final class BridgePaneController {
     /// within the same epoch — a new epoch always goes through even with identical bytes.
     /// This avoids cross-store thrash that a global epoch tracker would cause (connection
     /// uses epoch=0, diff uses diff.epoch, etc.)
-    private var lastPushed: [String: DedupEntry] = [:]
+    var lastPushed: [String: BridgePushDedupEntry] = [:]
 
     // MARK: - Init
 
@@ -107,7 +118,11 @@ final class BridgePaneController {
         telemetryScopeGate: BridgeTelemetryScopeGate? = nil,
         telemetryRecorder: (any BridgePerformanceTraceRecording)? = nil,
         telemetryIngestor: (any BridgeTelemetryBatchIngesting)? = nil,
-        traceContextFactory: BridgeTraceContextFactory = .live
+        traceContextFactory: BridgeTraceContextFactory = .live,
+        pushEnvelopeSink: @escaping @MainActor (WebPage, String, String) async throws -> Void =
+            BridgePaneController.dispatchPushEnvelope,
+        intakeFrameSink: @escaping @MainActor (WebPage, String, String) async throws -> Void =
+            BridgePaneController.dispatchIntakeFrame
     ) {
         self.paneId = paneId
         self.bridgePaneState = state
@@ -164,6 +179,11 @@ final class BridgePaneController {
         // sets up nonce-validated command forwarding, and dispatches handshake event.
         let bridgeNonce = UUID().uuidString
         let pushNonce = UUID().uuidString
+        let reviewPaneId = paneId.uuidString
+        let reviewStreamId = "review:\(reviewPaneId)"
+        self.pushNonce = pushNonce
+        self.pushEnvelopeSink = pushEnvelopeSink
+        self.intakeFrameSink = intakeFrameSink
         let webTelemetryScopes = resolvedTelemetryScopeGate.browserExposedScopes
         let telemetryConfig =
             !webTelemetryScopes.isEmpty
@@ -172,28 +192,29 @@ final class BridgePaneController {
                 scenario: BridgeTelemetryBootstrapConfig.packageApplyContentFetchScenario
             )
             : nil
-        let bootstrapScript = WKUserScript(
-            source: BridgeBootstrap.generateScript(
-                bridgeNonce: bridgeNonce,
-                pushNonce: pushNonce,
-                telemetryConfig: telemetryConfig
-            ),
-            injectionTime: .atDocumentStart,
-            forMainFrameOnly: true,
-            in: bridgeWorld
+        let bootstrapScript = Self.makeBootstrapScript(
+            bridgeNonce: bridgeNonce,
+            pushNonce: pushNonce,
+            reviewPaneId: reviewPaneId,
+            reviewStreamId: reviewStreamId,
+            telemetryConfig: telemetryConfig,
+            bridgeWorld: bridgeWorld
         )
         self.bootstrapScript = bootstrapScript
         userContentController.addUserScript(bootstrapScript)
+        #if DEBUG
+            userContentController.addUserScript(Self.makePageDiagnosticsProbeScript())
+        #endif
         userContentController.addUserScript(initialManagementScript)
 
-        // Register scheme handler for agentstudio:// URLs (bundled React app assets + resources).
-        if let scheme = URLScheme("agentstudio") {
-            config.urlSchemeHandlers[scheme] = BridgeSchemeHandler(
-                paneId: paneId,
-                contentStore: reviewContentStore,
-                telemetryRecorder: resolvedTelemetryRecorder
-            )
-        }
+        Self.registerAgentStudioSchemeHandler(
+            in: &config,
+            paneId: paneId,
+            reviewContentStore: reviewContentStore,
+            worktreeFileResourceStore: worktreeFileResourceStore,
+            resourceLeaseRegistry: resourceLeaseRegistry,
+            telemetryRecorder: resolvedTelemetryRecorder
+        )
 
         // Create WebPage with bridge-specific navigation and dialog policies.
         self.page = WebPage(
@@ -219,6 +240,25 @@ final class BridgePaneController {
         runtime.commandHandler = self
 
         registerNamespaceHandlers()
+    }
+
+    private static func registerAgentStudioSchemeHandler(
+        in config: inout WebPage.Configuration,
+        paneId: UUID,
+        reviewContentStore: BridgeContentStore,
+        worktreeFileResourceStore: BridgeWorktreeFileResourceStore,
+        resourceLeaseRegistry: BridgeTransportResourceLeaseRegistry,
+        telemetryRecorder: (any BridgePerformanceTraceRecording)?
+    ) {
+        guard let scheme = URLScheme("agentstudio") else { return }
+        config.urlSchemeHandlers[scheme] = BridgeSchemeHandler(
+            paneId: paneId,
+            contentStore: reviewContentStore,
+            worktreeFileResourceStore: worktreeFileResourceStore,
+            resourceLeaseRegistry: resourceLeaseRegistry,
+            allowedResourceKindsByProtocol: BridgeResourceProtocolRegistry.reviewViewerAllowedResourceKinds,
+            telemetryRecorder: telemetryRecorder
+        )
     }
 
     private nonisolated static func resolveTelemetryDependencies(
@@ -250,6 +290,28 @@ final class BridgePaneController {
         return (resolvedScopeGate, resolvedRecorder, resolvedIngestor)
     }
 
+    private static func makeBootstrapScript(
+        bridgeNonce: String,
+        pushNonce: String,
+        reviewPaneId: String,
+        reviewStreamId: String,
+        telemetryConfig: BridgeTelemetryBootstrapConfig?,
+        bridgeWorld: WKContentWorld
+    ) -> WKUserScript {
+        WKUserScript(
+            source: BridgeBootstrap.generateScript(
+                bridgeNonce: bridgeNonce,
+                pushNonce: pushNonce,
+                reviewPaneId: reviewPaneId,
+                reviewStreamId: reviewStreamId,
+                telemetryConfig: telemetryConfig
+            ),
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true,
+            in: bridgeWorld
+        )
+    }
+
     private func configureRouter(
         _ router: RPCRouter,
         messageHandler: RPCMessageHandler,
@@ -272,6 +334,9 @@ final class BridgePaneController {
         }
         router.onResponse = { [weak self] responseJSON in
             await self?.emitRPCResponse(responseJSON)
+        }
+        router.onSuccessResponseDelivered = { [weak self] method in
+            await self?.handleRPCSuccessResponseDelivered(method: method)
         }
 
         // Wire message handler → router: validated JSON from postMessage is dispatched to handlers.
@@ -360,6 +425,11 @@ final class BridgePaneController {
         router.register(method: DiffMethods.LoadDiffMethod.self) { @MainActor [weak self] params in
             try await self?.handleLoadDiffRPC(params)
             return nil
+        }
+        typealias OpenWorktreeFileSurface = WorktreeFileSurfaceMethods.OpenSourceStreamMethod
+        router.register(method: OpenWorktreeFileSurface.self) { @MainActor [weak self] params in
+            guard let self else { return nil }
+            return try await self.handleWorktreeFileSurfaceOpenSourceStream(params)
         }
 
         // review namespace
@@ -499,6 +569,25 @@ final class BridgePaneController {
         agentPushPlan = nil
         activeReviewRefreshTask = nil
         hasPendingReviewRefresh = false
+        activeWorktreeFileSurfaceSource = nil
+        pendingWorktreeFileIntakeFrames.removeAll(keepingCapacity: false)
+        revokeReviewContentAuthoritySynchronously()
+        resourceLeaseRegistry.revokeSynchronously(paneId: paneId, protocolId: "worktree-file")
+        let reviewContentStore = reviewContentStore
+        let worktreeFileResourceStore = worktreeFileResourceStore
+        let resourceLeaseRegistry = resourceLeaseRegistry
+        let paneId = paneId
+        Task {
+            await reviewContentStore.deactivate()
+            await worktreeFileResourceStore.reset(protocolId: "worktree-file")
+            await resourceLeaseRegistry.reset(
+                paneId: paneId,
+                protocolId: "review",
+                resourceKind: "content",
+                revokeAuthority: false
+            )
+            await resourceLeaseRegistry.reset(paneId: paneId, protocolId: "worktree-file")
+        }
         runtime.resetForControllerTeardown()
         lastPushed.removeAll()
         isBridgeReady = false
@@ -554,6 +643,29 @@ final class BridgePaneController {
         await router.dispatch(json: json, isBridgeReady: isBridgeReady)
     }
 
+    private func handleRPCSuccessResponseDelivered(method: String) async {
+        guard method == WorktreeFileSurfaceMethods.OpenSourceStreamMethod.method else {
+            return
+        }
+        await flushPendingWorktreeFileIntakeFrames()
+    }
+
+    func flushPendingWorktreeFileIntakeFrames() async {
+        let frames = pendingWorktreeFileIntakeFrames
+        pendingWorktreeFileIntakeFrames.removeAll(keepingCapacity: true)
+        for frame in frames {
+            do {
+                try await intakeFrameSink(page, frame, pushNonce)
+            } catch {
+                bridgeControllerLogger.warning(
+                    "[Bridge] Worktree/File intake transport failed pane=\(self.paneId.uuidString, privacy: .public): \(error.localizedDescription, privacy: .private)"
+                )
+                paneState.connection.setHealth(.error)
+                return
+            }
+        }
+    }
+
     /// Runtime-facing typed event ingress for bridge domain events.
     func ingestRuntimeEvent(
         _ event: PaneRuntimeEvent,
@@ -582,7 +694,10 @@ final class BridgePaneController {
                     level: .cold,
                     op: .replace
                 ) { state in
-                    DiffPackageMetadataSlice(package: state.packageMetadata)
+                    DiffPackageMetadataSlice(
+                        package: state.packageMetadata,
+                        protocolFrame: state.packageSnapshotProtocolFrame
+                    )
                 }
                 Slice(
                     "diffPackageDelta",
@@ -591,7 +706,19 @@ final class BridgePaneController {
                     level: .warm,
                     op: .merge
                 ) { state in
-                    DiffPackageDeltaSlice(delta: state.packageDelta)
+                    DiffPackageDeltaSlice(
+                        delta: state.packageDelta,
+                        protocolFrame: state.packageDeltaProtocolFrame
+                    )
+                }
+                Slice(
+                    "diffPackageProtocolFrame",
+                    telemetrySlice: .diffPackageDelta,
+                    store: .diff,
+                    level: .hot,
+                    op: .merge
+                ) { state in
+                    DiffPackageProtocolFrameSlice(protocolFrame: state.packageProtocolFrame)
                 }
                 EntitySlice(
                     "diffFiles", telemetrySlice: .diffFiles, store: .diff, level: .cold,
@@ -703,258 +830,111 @@ final class BridgePaneController {
         }
     }
 
-}
-
-// MARK: - DedupEntry
-
-/// Cache entry for transport-level content dedup.
-/// Stores the epoch + payload for a given store+op key.
-/// Dedup only matches within the same epoch — epoch transitions always push through.
-private struct DedupEntry {
-    let epoch: Int
-    let payload: Data
-}
-
-// MARK: - PushTransport Conformance
-
-extension BridgePaneController: PushTransport {
-    func pushJSON(
-        metadata: BridgePushEnvelopeMetadata,
-        json: Data
-    ) async {
-        // Content guard — skip identical pushes to same store+op within the same epoch.
-        // Keyed by store+op (not epoch) so the cache is bounded at O(StoreKey × PushOp).
-        // Epoch is stored in the entry value — a new epoch always goes through even with
-        // identical bytes, because React needs to see epoch transitions for tracking.
-        // Including op ensures .replace and .merge with identical bytes are not
-        // deduplicated (they have different semantics).
-        let dedupKey = "\(metadata.store.rawValue):\(metadata.op.rawValue)"
-        if let previous = lastPushed[dedupKey],
-            previous.epoch == metadata.epoch,
-            previous.payload == json
-        {
-            return
-        }
-
-        // Phase 1: encode the push envelope (encoding bugs are NOT connection errors).
-        let envelopeString: String
-        let traceContext = makePushTraceContext(for: metadata.store)
-        do {
-            let payload = try JSONSerialization.jsonObject(with: json)
-            var envelope: [String: Any] = [
-                "__v": 1,
-                "__revision": metadata.revision,
-                "__epoch": metadata.epoch,
-                "__pushId": UUID().uuidString,
-                "store": metadata.store.rawValue,
-                "op": metadata.op.rawValue,
-                "level": metadata.level.rawValue,
-                "slice": metadata.slice.rawValue,
-                "payload": payload,
-            ]
-            if let traceContext {
-                let traceContextData = try JSONEncoder().encode(traceContext)
-                envelope["__traceContext"] = try JSONSerialization.jsonObject(with: traceContextData)
-            }
-            let envelopeJSON = try JSONSerialization.data(withJSONObject: envelope, options: [.sortedKeys])
-            guard let encoded = String(data: envelopeJSON, encoding: .utf8) else {
-                throw BridgeError.encoding("Unable to encode push envelope as UTF-8")
-            }
-            envelopeString = encoded
-        } catch {
-            bridgeControllerLogger.error(
-                "[Bridge] envelope encoding bug store=\(metadata.store.rawValue) rev=\(metadata.revision): \(error)"
-            )
-            return
-        }
-        // Transport the envelope to React; transport failures are connection errors.
-        let pushStart = ContinuousClock.now
-        do {
-            try await page.callJavaScript(
-                "window.__bridgeInternal.applyEnvelope(JSON.parse(json))",
-                arguments: ["json": envelopeString],
-                contentWorld: bridgeWorld
-            )
-            lastPushed[dedupKey] = DedupEntry(epoch: metadata.epoch, payload: json)
-            await recordPackagePushTelemetry(
-                slice: metadata.slice,
-                traceContext: traceContext,
-                durationMilliseconds: AgentStudioPerformanceTraceRecorder.milliseconds(
-                    from: pushStart.duration(to: ContinuousClock.now)
-                )
-            )
-            bridgeControllerLogger.debug(
-                "[BridgePaneController] pushJSON store=\(metadata.store.rawValue) op=\(metadata.op.rawValue) level=\(String(describing: metadata.level)) rev=\(metadata.revision) epoch=\(metadata.epoch) bytes=\(json.count)"
-            )
-        } catch {
-            bridgeControllerLogger.warning(
-                "[Bridge] JS transport failed store=\(metadata.store.rawValue) rev=\(metadata.revision) epoch=\(metadata.epoch): \(error)"
-            )
-            paneState.connection.setHealth(.error)
-        }
-    }
-
-    func makeRootTraceContext() -> BridgeTraceContext? {
-        guard telemetryScopeGate.isEnabled else {
-            return nil
-        }
-        return traceContextFactory.makeRootContext()
-    }
-
-    func makeChildTraceContext(parent: BridgeTraceContext?) -> BridgeTraceContext? {
-        guard telemetryScopeGate.isEnabled else {
-            return nil
-        }
-        return traceContextFactory.makeChildContext(parent: parent)
-    }
-
-    private func makePushTraceContext(for store: StoreKey) -> BridgeTraceContext? {
-        guard telemetryScopeGate.isEnabled else {
-            return nil
-        }
-        guard store == .diff else {
-            return traceContextFactory.makeRootContext()
-        }
-        return traceContextFactory.makeChildContext(parent: lastReviewPackageTraceContext)
-    }
-
-    func recordSwiftTelemetry(
-        name: String,
-        phase: String,
-        priorityHint: PushLevel,
-        traceContext: BridgeTraceContext?,
-        durationMilliseconds: Double?
-    ) async {
-        guard let telemetryRecorder else {
-            return
-        }
-        await telemetryRecorder.record(
-            sample: BridgeTelemetrySample(
-                scope: .swift,
-                name: name,
-                durationMilliseconds: durationMilliseconds,
-                traceContext: traceContext,
-                stringAttributes: [
-                    "agentstudio.bridge.phase": phase,
-                    "agentstudio.bridge.plane": nativeTelemetryPlane(
-                        for: name
-                    ).rawValue,
-                    "agentstudio.bridge.priority": nativeTelemetryPriority(
-                        for: name,
-                        fallback: priorityHint
-                    ).rawValue,
-                    "agentstudio.bridge.slice": nativeTelemetrySlice(for: name).rawValue,
-                    "agentstudio.bridge.transport": "swift",
-                ],
-                numericAttributes: [:],
-                booleanAttributes: [:]
-            ),
-            receivedAtUnixNano: UInt64(Date().timeIntervalSince1970 * 1_000_000_000)
+    private static func dispatchPushEnvelope(
+        page: WebPage,
+        envelopeString: String,
+        _: String
+    ) async throws {
+        let envelopeLiteral = try makeJavaScriptStringLiteral(envelopeString)
+        try await page.callJavaScript(
+            """
+            window.__bridgeInternal.applyEnvelopeJSON(\(envelopeLiteral));
+            """,
+            contentWorld: WKContentWorld.world(name: "agentStudioBridge")
         )
     }
 
-    private func recordPackagePushTelemetry(
-        slice: BridgeTelemetrySlice,
-        traceContext: BridgeTraceContext?,
-        durationMilliseconds: Double
-    ) async {
-        guard let telemetryRecorder else {
-            return
-        }
-        await telemetryRecorder.record(
-            sample: BridgeTelemetrySample(
-                scope: .webKit,
-                name: "performance.bridge.webkit.package_push",
-                durationMilliseconds: durationMilliseconds,
-                traceContext: traceContext,
-                stringAttributes: [
-                    "agentstudio.bridge.phase": "transport",
-                    "agentstudio.bridge.plane": pushTelemetryPlane(for: slice).rawValue,
-                    "agentstudio.bridge.priority": pushTelemetryPriority(for: slice).rawValue,
-                    "agentstudio.bridge.slice": slice.rawValue,
-                    "agentstudio.bridge.transport": "push",
-                ],
-                numericAttributes: [:],
-                booleanAttributes: [:]
-            ),
-            receivedAtUnixNano: UInt64(Date().timeIntervalSince1970 * 1_000_000_000)
+    private static func dispatchIntakeFrame(
+        page: WebPage,
+        frameString: String,
+        _: String
+    ) async throws {
+        let frameLiteral = try makeJavaScriptStringLiteral(frameString)
+        try await page.callJavaScript(
+            """
+            window.__bridgeInternal.applyIntakeFrameJSON(\(frameLiteral));
+            """,
+            contentWorld: WKContentWorld.world(name: "agentStudioBridge")
         )
     }
 
-    private func nativeTelemetryPlane(for name: String) -> BridgeTelemetryPlane {
-        switch name {
-        case "performance.bridge.swift.telemetry_ingest":
-            .observability
-        default:
-            .data
+    #if DEBUG
+        private static func makePageDiagnosticsProbeScript() -> WKUserScript {
+            WKUserScript(
+                source: """
+                    (() => {
+                      const maxEntries = 40;
+                      const clip = (value, limit) => String(value ?? '').slice(0, limit);
+                      const pushBounded = (target, entry) => {
+                        target.push(entry);
+                        if (target.length > maxEntries) {
+                          target.splice(0, target.length - maxEntries);
+                        }
+                      };
+                      window.__bridgeErrorProbe = [];
+                      window.__bridgePushProbe = [];
+                      const requestLabel = (input) => {
+                        if (typeof input === 'string') { return input; }
+                        if (input instanceof URL) { return input.href; }
+                        return input?.url ?? String(input);
+                      };
+                      window.addEventListener('error', (event) => {
+                        pushBounded(window.__bridgeErrorProbe, {
+                          kind: 'error',
+                          message: clip(event.message, 300),
+                          stack: clip(event.error?.stack, 800)
+                        });
+                      });
+                      window.addEventListener('unhandledrejection', (event) => {
+                        pushBounded(window.__bridgeErrorProbe, {
+                          kind: 'unhandledrejection',
+                          message: clip(event.reason?.message ?? event.reason, 300),
+                          stack: clip(event.reason?.stack, 800)
+                        });
+                      });
+                      if (typeof window.fetch === 'function') {
+                        const originalFetch = window.fetch.bind(window);
+                        window.fetch = (input, init) => {
+                          const url = requestLabel(input);
+                          return originalFetch(input, init).catch((error) => {
+                            pushBounded(window.__bridgeErrorProbe, {
+                              kind: 'fetch_error',
+                              message: clip(url + ': ' + (error?.message ?? error), 300),
+                              stack: clip(error?.stack, 800)
+                            });
+                            throw error;
+                          });
+                        };
+                      }
+                      document.addEventListener('__bridge_push_json', (event) => {
+                        pushBounded(window.__bridgePushProbe, {
+                          hasDetail: Boolean(event.detail),
+                          hasJson: typeof event.detail?.json === 'string',
+                          jsonLength: typeof event.detail?.json === 'string'
+                            ? event.detail.json.length
+                            : -1,
+                          nonceLength: typeof event.detail?.nonce === 'string'
+                            ? event.detail.nonce.length
+                            : -1
+                        });
+                      });
+                    })();
+                    """,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: true,
+                in: .page
+            )
         }
+    #endif
+
+    private static func makeJavaScriptStringLiteral(_ value: String) throws -> String {
+        let data = try JSONEncoder().encode(value)
+        guard let literal = String(data: data, encoding: .utf8) else {
+            throw BridgeError.encoding("Unable to encode push envelope as JavaScript string literal")
+        }
+        return literal
     }
 
-    private func nativeTelemetryPriority(
-        for name: String,
-        fallback: PushLevel
-    ) -> BridgeTelemetryPriority {
-        switch name {
-        case "performance.bridge.swift.content_load":
-            .hot
-        case "performance.bridge.swift.delta_build":
-            .warm
-        case "performance.bridge.swift.package_build",
-            "performance.bridge.swift.content_register":
-            .cold
-        case "performance.bridge.swift.telemetry_ingest":
-            .bestEffort
-        default:
-            switch fallback {
-            case .hot:
-                .hot
-            case .warm:
-                .warm
-            case .cold:
-                .cold
-            }
-        }
-    }
-
-    private func nativeTelemetrySlice(for name: String) -> BridgeTelemetrySlice {
-        switch name {
-        case "performance.bridge.swift.package_build",
-            "performance.bridge.swift.content_register":
-            .diffPackageMetadata
-        case "performance.bridge.swift.delta_build":
-            .diffPackageDelta
-        case "performance.bridge.swift.content_load":
-            .contentFetch
-        case "performance.bridge.swift.telemetry_ingest":
-            .telemetryIngest
-        default:
-            .unknown
-        }
-    }
-
-    private func pushTelemetryPlane(for slice: BridgeTelemetrySlice) -> BridgeTelemetryPlane {
-        switch slice {
-        case .connectionHealth, .commandAcks, .reviewRPC:
-            .control
-        case .telemetryBatch, .telemetryDrop, .telemetryIngest:
-            .observability
-        default:
-            .data
-        }
-    }
-
-    private func pushTelemetryPriority(for slice: BridgeTelemetrySlice) -> BridgeTelemetryPriority {
-        switch slice {
-        case .diffStatus, .connectionHealth:
-            .hot
-        case .diffPackageDelta, .reviewThreads, .reviewViewedFiles, .commandAcks, .reviewRPC:
-            .warm
-        case .diffPackageMetadata, .diffFiles, .contentFetch, .unknown:
-            .cold
-        case .telemetryBatch, .telemetryDrop, .telemetryIngest:
-            .bestEffort
-        }
-    }
 }
 
 private enum BridgeError: Error, LocalizedError, Sendable {

@@ -11,6 +11,15 @@ export interface BridgeTelemetryBootstrapConfig {
 	readonly scenario: string;
 }
 
+export interface BridgeTelemetryBootstrapHandshakeConfig {
+	readonly enabledScopes: readonly BridgeTelemetryScope[];
+	readonly maxSamplesPerBatch: number;
+	readonly maxEncodedBatchBytes: number;
+	readonly minimumFlushIntervalMilliseconds: number;
+	readonly rpcMethodName: 'system.bridgeTelemetry';
+	readonly scenario: string;
+}
+
 const bridgeTelemetryBootstrapConfigSchema = z.object({
 	enabledScopes: z.array(bridgeTelemetryScopeSchema),
 	maxSamplesPerBatch: z.number().int().positive(),

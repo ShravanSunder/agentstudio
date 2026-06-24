@@ -19,6 +19,18 @@ struct BridgeReviewFoundationContractTests {
         #expect(package.orderedItemIds == ["item-file-source-1"])
         #expect(package.itemsById["item-file-source-1"]?.fileClass == .source)
         #expect(package.itemsById["item-file-generated-1"]?.isHiddenByDefault == true)
+        #expect(
+            package.itemsById["item-file-source-1"]?.contentRoles.base?.resourceUrl
+                == "agentstudio://resource/review/content/handle-source-base?generation=42"
+        )
+        #expect(
+            package.itemsById["item-file-source-1"]?.contentRoles.head?.resourceUrl
+                == "agentstudio://resource/review/content/handle-source-head?generation=42"
+        )
+        #expect(
+            package.itemsById["item-file-generated-1"]?.contentRoles.head?.resourceUrl
+                == "agentstudio://resource/review/content/handle-generated-head?generation=42"
+        )
         try assertRoundTrip(package)
     }
 

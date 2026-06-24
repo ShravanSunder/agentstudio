@@ -136,14 +136,14 @@ enum AppStyles {
                 static let contentSpacing: CGFloat = AppStyles.General.Spacing.standard
                 static let iconSize: CGFloat = AppStyles.General.Typography.textXs
                 static let textSize: CGFloat = AppStyles.General.Typography.textSm
-                static let horizontalPadding: CGFloat = 10
-                static let verticalPadding: CGFloat = 6
+                static let horizontalPadding: CGFloat = AppStyles.General.Spacing.loose
+                static let verticalPadding: CGFloat = AppStyles.General.Spacing.tight
                 static let outerHorizontalPadding: CGFloat = 8
                 static let outerVerticalPadding: CGFloat = 6
-                static let cornerRadius: CGFloat = AppStyles.General.CornerRadius.panel
-                static let backgroundOpacity: CGFloat = AppStyles.General.Fill.muted
-                static let borderOpacity: CGFloat = AppStyles.General.Stroke.subtle
-                static let borderWidth: CGFloat = 1
+                static let cornerRadius: CGFloat = AppStyles.General.CornerRadius.bar
+                static let backgroundOpacity: CGFloat = AppStyles.General.Fill.subtle
+                static let borderOpacity: CGFloat = 0
+                static let borderWidth: CGFloat = 0
                 static let clearTransitionDuration: Double = 0.10
             }
 

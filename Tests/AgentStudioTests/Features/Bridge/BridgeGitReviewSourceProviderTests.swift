@@ -85,10 +85,12 @@ struct BridgeGitReviewSourceProviderTests {
         #expect(comparison.changedFiles.first?.newContentHash == gitBlobSHA1ContentHash(headContent))
         #expect(comparison.changedFiles.first?.contentHashAlgorithm == "git-blob-sha1")
         #expect(!headHandle.handleId.contains("/"))
-        #expect(
-            BridgeSchemeHandler.classifyPath(headHandle.resourceUrl)
-                == .content(handleId: headHandle.handleId, generation: 9)
-        )
+        let resource = try #require(
+            BridgeTransportResourceURL.parse(
+                headHandle.resourceUrl,
+                allowedResourceKindsByProtocol: ["review": Set(["content"])]
+            ))
+        #expect(BridgeSchemeHandler.classifyPath(headHandle.resourceUrl) == .leasedContent(resource))
         #expect(loadedContent.data == Data(headContent.utf8))
         #expect(loadedContent.contentHash == gitBlobSHA1ContentHash(headContent))
         #expect(loadedContent.contentHashAlgorithm == "git-blob-sha1")

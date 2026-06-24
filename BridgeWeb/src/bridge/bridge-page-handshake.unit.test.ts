@@ -6,7 +6,7 @@ import {
 } from './bridge-page-handshake.js';
 
 describe('bridge page handshake', () => {
-	test('requests handshake replay and emits bridge ready after handshake with nonce arrives', () => {
+	test('requests handshake replay and emits bridge ready after handshake with nonce arrives', async () => {
 		const target = new EventTarget();
 		const eventNames: string[] = [];
 
@@ -21,6 +21,8 @@ describe('bridge page handshake', () => {
 		});
 
 		const uninstall = installBridgePageHandshake(target);
+		expect(eventNames).toEqual(['__bridge_handshake_request']);
+		await Promise.resolve();
 		target.dispatchEvent(
 			new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-2' } }),
 		);
@@ -29,7 +31,7 @@ describe('bridge page handshake', () => {
 		expect(eventNames).toEqual(['__bridge_handshake_request', '__bridge_ready']);
 	});
 
-	test('does not emit bridge ready until the handshake carries a push nonce', () => {
+	test('does not emit bridge ready until the handshake carries a push nonce', async () => {
 		const target = new EventTarget();
 		const eventNames: string[] = [];
 
@@ -44,6 +46,8 @@ describe('bridge page handshake', () => {
 		target.dispatchEvent(
 			new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-1' } }),
 		);
+		expect(eventNames).toEqual([]);
+		await Promise.resolve();
 		session.uninstall();
 
 		expect(session.getPushNonce()).toBe('push-1');

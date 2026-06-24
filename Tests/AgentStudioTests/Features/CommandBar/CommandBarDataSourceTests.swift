@@ -154,7 +154,7 @@ struct CommandBarDataSourceTests {
         let bridgeItem = items.first { $0.id == "cmd-openBridgeReview" }
 
         #expect(bridgeItem != nil)
-        #expect(bridgeItem?.title == "Open Bridge Review")
+        #expect(bridgeItem?.title == "Review")
         #expect(bridgeItem?.group == "Bridge")
         #expect(bridgeItem?.hasChildren == false)
     }

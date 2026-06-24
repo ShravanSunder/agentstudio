@@ -39,6 +39,12 @@ struct CIFastLaneWorkflowTests {
         #expect(testHelperScript.contains("print_timeout_process_diagnostics \"$label\" \"$command_pid\""))
         #expect(testHelperScript.contains("process tree for timed out"))
         #expect(testHelperScript.contains("sampled stuck Swift test process"))
+        #expect(testHelperScript.contains("large_non_webkit_filter_pattern()"))
+        #expect(testHelperScript.contains("large_serial_non_webkit_filter_pattern()"))
+        #expect(testHelperScript.contains("AgentStudioIPCBridgeServiceTests"))
+        #expect(testHelperScript.contains("AgentStudioAppIPCServiceCommandTests"))
+        #expect(testHelperScript.contains("AgentStudioAppIPCServiceContributionTests"))
+        #expect(testHelperScript.contains("PaneAgentLaunchOwnerTests"))
         #expect(fastLaneMode.contains("run_fast_non_webkit_swift_tests"))
         #expect(largeLaneMode.contains("run_large_non_webkit_swift_tests"))
         #expect(nonSerializedRunner.contains("--parallel --num-workers \"$SWIFT_TEST_WORKERS\""))
@@ -48,17 +54,15 @@ struct CIFastLaneWorkflowTests {
         #expect(fastRunner.contains("--parallel --num-workers \"$SWIFT_TEST_WORKERS\""))
         #expect(
             fastRunner.contains(
-                "--skip 'Script|Smoke|Integration|Benchmark|ZmxStartupTraceAnalyzerTests|WorkspaceSurfaceCoordinatorFilesystemSourceTests|TerminalActivityAgentSettledHeuristicTests|MainWindowControllerInboxToolbarButtonTests|ProcessExecutorTests|AgentStudioAppIPCServiceTests'"
+                "--skip \"Benchmark|AgentStudioAppIPCServiceTests|$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)\""
             )
         )
         #expect(fastRunner.contains("serial App IPC service live socket suite"))
         #expect(fastRunner.contains("--filter AgentStudioAppIPCServiceTests"))
         #expect(largeRunner.contains("--parallel --num-workers \"$SWIFT_TEST_WORKERS\""))
-        #expect(
-            largeRunner.contains(
-                "--filter 'Script|Smoke|Integration|ZmxStartupTraceAnalyzerTests|WorkspaceSurfaceCoordinatorFilesystemSourceTests|TerminalActivityAgentSettledHeuristicTests|MainWindowControllerInboxToolbarButtonTests|ProcessExecutorTests'"
-            )
-        )
+        #expect(largeRunner.contains("--filter \"$(large_non_webkit_filter_pattern)\""))
+        #expect(largeRunner.contains("serial large process suites"))
+        #expect(largeRunner.contains("--filter \"$(large_serial_non_webkit_filter_pattern)\""))
         #expect(largeRunner.contains("--skip WebKitSerializedTests"))
         #expect(largeRunner.contains("--skip E2ESerializedTests"))
         #expect(largeRunner.contains("--skip ZmxE2ETests"))

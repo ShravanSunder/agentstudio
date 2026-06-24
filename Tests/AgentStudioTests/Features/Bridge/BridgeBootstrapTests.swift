@@ -132,6 +132,20 @@ final class BridgeBootstrapTests {
     }
 
     @Test
+    func test_script_publishes_review_frame_authority_attributes() {
+        let script = BridgeBootstrap.generateScript(
+            bridgeNonce: "test-nonce",
+            pushNonce: "push-nonce",
+            reviewPaneId: "pane-123",
+            reviewStreamId: "review:pane-123"
+        )
+        #expect(script.contains("const REVIEW_PANE_ID = \"pane-123\""))
+        #expect(script.contains("const REVIEW_STREAM_ID = \"review:pane-123\""))
+        #expect(script.contains("data-bridge-review-pane-id"))
+        #expect(script.contains("data-bridge-review-stream-id"))
+    }
+
+    @Test
     func test_applyEnvelope_preserves_trace_context_at_detail_level() {
         let script = BridgeBootstrap.generateScript(bridgeNonce: "test-nonce", pushNonce: "push-nonce")
         #expect(script.contains("envelope.__traceContext"))
@@ -147,5 +161,34 @@ final class BridgeBootstrapTests {
         #expect(script.contains("slice: slice"))
         #expect(script.contains("merge: function(store, data, revision, epoch, slice, traceContext)"))
         #expect(script.contains("replace: function(store, data, revision, epoch, slice, traceContext)"))
+    }
+
+    @Test
+    func test_applyEnvelopeJSON_dispatches_string_payload_with_push_nonce() {
+        let script = BridgeBootstrap.generateScript(bridgeNonce: "test-nonce", pushNonce: "push-nonce")
+        #expect(script.contains("applyEnvelopeJSON: function(envelopeJSON)"))
+        #expect(script.contains("__bridge_push_json"))
+        #expect(script.contains("detail: { json: envelopeJSON, nonce: PUSH_NONCE }"))
+    }
+
+    @Test
+    func test_applyIntakeFrameJSON_dispatches_string_payload_with_push_nonce() {
+        let script = BridgeBootstrap.generateScript(bridgeNonce: "test-nonce", pushNonce: "push-nonce")
+        #expect(script.contains("applyIntakeFrameJSON: function(frameJSON)"))
+        #expect(script.contains("__bridge_intake_json"))
+        #expect(script.contains("detail: { json: frameJSON, nonce: PUSH_NONCE }"))
+    }
+
+    @Test
+    func test_protocolRPC_uses_bridgeWorld_internal_sender_not_pageWorldCommandRelay() {
+        let script = BridgeBootstrap.generateScript(bridgeNonce: "test-nonce", pushNonce: "push-nonce")
+
+        #expect(script.contains("sendCommandJSON: function(commandJSON)"))
+        #expect(script.contains("window.webkit.messageHandlers.rpc.postMessage(commandJSON)"))
+        #expect(script.contains("payload.protocol !== undefined"))
+        #expect(script.contains("Rejected __bridge_command: protocol RPC must use bridge world"))
+        #expect(script.contains("PAGE_WORLD_ALLOWED_COMMAND_METHODS"))
+        #expect(script.contains("payload.__bridgeOrigin = 'pageWorldLegacy'"))
+        #expect(script.contains("Rejected __bridge_command: method is not allowed from page world"))
     }
 }

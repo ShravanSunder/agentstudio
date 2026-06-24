@@ -1,49 +1,6 @@
 import AppKit
 import Foundation
 
-private struct CrossTabMoveGeometrySmokeFixture {
-    let sourceTabId: UUID
-    let destinationTabId: UUID
-    let movedPaneId: UUID
-    let sourceLeftPaneId: UUID
-    let targetPaneId: UUID
-    let otherDestinationPaneId: UUID
-
-    var paneIds: [UUID] {
-        [movedPaneId, sourceLeftPaneId, targetPaneId, otherDestinationPaneId]
-    }
-
-    var expectedVisiblePaneIdsAfterMove: [UUID] {
-        [movedPaneId, targetPaneId, otherDestinationPaneId]
-    }
-}
-
-struct CrossTabMoveGeometrySmokeRenderProof: Equatable {
-    let expectedVisiblePaneCount: Int
-    let terminalViewCount: Int
-    let surfaceIdCount: Int
-    let mountedSurfaceCount: Int
-    let validGeometryCount: Int
-
-    var succeeded: Bool {
-        expectedVisiblePaneCount > 0
-            && terminalViewCount == expectedVisiblePaneCount
-            && mountedSurfaceCount == expectedVisiblePaneCount
-            && validGeometryCount == expectedVisiblePaneCount
-    }
-
-    var attributes: [String: AgentStudioTraceValue] {
-        [
-            "agentstudio.startup_diagnostic.expected_visible_pane.count": .int(expectedVisiblePaneCount),
-            "agentstudio.startup_diagnostic.fixture.terminal_view.count": .int(terminalViewCount),
-            "agentstudio.startup_diagnostic.fixture.surface_reference.count": .int(surfaceIdCount),
-            "agentstudio.startup_diagnostic.fixture.surface.count": .int(mountedSurfaceCount),
-            "agentstudio.startup_diagnostic.fixture.valid_geometry.count": .int(validGeometryCount),
-            "agentstudio.startup_diagnostic.render_proof.succeeded": .bool(succeeded),
-        ]
-    }
-}
-
 @MainActor
 extension AppDelegate {
     func runStartupDiagnosticActionIfRequested() {
@@ -56,7 +13,6 @@ extension AppDelegate {
 
         Task { @MainActor [weak self] in
             guard let self else { return }
-            await Task.yield()
             self.startupTraceRecorder.recordAppStartup(
                 "app.startup_diagnostic_action.dispatched",
                 phase: "startup_diagnostic_action",
@@ -182,6 +138,37 @@ extension AppDelegate {
         private func runBridgeReviewObservabilitySmokeDiagnostic(
             action: AgentStudioStartupDiagnosticAction
         ) async {
+            recordBridgeReviewObservabilitySmokePhase("activation_started", action: action)
+            NSApp.activate(ignoringOtherApps: true)
+            mainWindowController?.window?.makeKeyAndOrderFront(nil)
+            recordBridgeReviewObservabilitySmokePhase("window_ordered", action: action)
+            await waitForStartupDiagnosticAppActivation()
+            recordBridgeReviewObservabilitySmokePhase("activation_wait_finished", action: action)
+            recordBridgeReviewObservabilitySmokePhase("bounds_wait_started", action: action)
+
+            guard let terminalContainerBounds = await startupDiagnosticLaunchRestoreBounds() else {
+                startupTraceRecorder.recordAppStartup(
+                    "app.startup_diagnostic_action.skipped",
+                    phase: "startup_diagnostic_action",
+                    outcome: "skipped",
+                    attributes: startupDiagnosticTraceAttributes(for: action).merging([
+                        "agentstudio.startup_diagnostic.skip_reason": .string("missing_bounds")
+                    ]) { _, newValue in newValue }
+                )
+                return
+            }
+            recordBridgeReviewObservabilitySmokePhase("bounds_ready", action: action)
+
+            if !launchRestoreObservationState.didComplete {
+                recordBridgeReviewObservabilitySmokePhase("launch_restore_started", action: action)
+                await finishLaunchRestore(
+                    using: terminalContainerBounds,
+                    source: "bridgeReviewObservabilitySmokePreflight"
+                )
+                recordBridgeReviewObservabilitySmokePhase("launch_restore_finished", action: action)
+            }
+
+            recordBridgeReviewObservabilitySmokePhase("pane_open_started", action: action)
             guard let pane = workspaceSurfaceCoordinator.openBridgeReviewObservabilitySmoke() else {
                 startupTraceRecorder.recordAppStartup(
                     "app.startup_diagnostic_action.blocked",
@@ -193,6 +180,12 @@ extension AppDelegate {
                 )
                 return
             }
+            recordBridgeReviewObservabilitySmokePhase("pane_opened", action: action)
+
+            recordBridgeReviewObservabilitySmokePhase("restore_views_started", action: action)
+            workspaceSurfaceCoordinator.restoreVisiblePaneIfNeeded(pane.id, forceWhenBoundsExist: true)
+            await Task.yield()
+            recordBridgeReviewObservabilitySmokePhase("restore_views_finished", action: action)
 
             guard
                 let bridgeView = viewRegistry.view(for: pane.id)?
@@ -208,8 +201,10 @@ extension AppDelegate {
                 )
                 return
             }
+            recordBridgeReviewObservabilitySmokePhase("bridge_view_mounted", action: action)
 
             let commandId = UUIDv7.generate()
+            recordBridgeReviewObservabilitySmokePhase("load_diff_started", action: action)
             let result = await bridgeView.controller.handleDiffCommand(
                 .loadDiff(
                     DiffArtifact(
@@ -221,21 +216,57 @@ extension AppDelegate {
                 commandId: commandId,
                 correlationId: nil
             )
+            recordBridgeReviewObservabilitySmokePhase("load_diff_finished", action: action)
             let outcome: String
             switch result {
             case .success:
-                outcome = "succeeded"
+                recordBridgeReviewObservabilitySmokePhase("render_proof_started", action: action)
+                let renderProof = await waitForBridgeReviewObservabilitySmokeRenderProof(
+                    for: bridgeView.controller
+                )
+                recordBridgeReviewObservabilitySmokePhase("render_proof_finished", action: action)
+                outcome = renderProof.succeeded ? "succeeded" : "blocked"
+                recordBridgeReviewObservabilitySmokeDiagnosticResult(
+                    action: action,
+                    outcome: outcome,
+                    renderProof: renderProof
+                )
+                return
             case .queued:
                 outcome = "queued"
             case .failure:
                 outcome = "blocked"
             }
+            let renderProof = BridgeReviewObservabilitySmokeRenderProof.unavailable()
+            recordBridgeReviewObservabilitySmokeDiagnosticResult(
+                action: action,
+                outcome: outcome,
+                renderProof: renderProof
+            )
+        }
+
+        private func recordBridgeReviewObservabilitySmokePhase(
+            _ phase: String,
+            action: AgentStudioStartupDiagnosticAction
+        ) {
+            startupTraceRecorder.recordAppStartup(
+                "app.startup_diagnostic_action.bridge_smoke.\(phase)",
+                phase: "startup_diagnostic_action",
+                attributes: startupDiagnosticTraceAttributes(for: action)
+            )
+        }
+
+        private func recordBridgeReviewObservabilitySmokeDiagnosticResult(
+            action: AgentStudioStartupDiagnosticAction,
+            outcome: String,
+            renderProof: BridgeReviewObservabilitySmokeRenderProof
+        ) {
             startupTraceRecorder.recordAppStartup(
                 "app.startup_diagnostic_action.command_exercised",
                 phase: "startup_diagnostic_action",
                 outcome: outcome,
                 attributes: startupDiagnosticTraceAttributes(for: action).merging(
-                    bridgeReviewObservabilitySmokeTraceAttributes(succeeded: outcome == "succeeded")
+                    renderProof.attributes
                 ) { _, newValue in newValue }
             )
             startupTraceRecorder.recordAppStartup(
@@ -245,18 +276,360 @@ extension AppDelegate {
                 phase: "startup_diagnostic_action",
                 outcome: outcome,
                 attributes: startupDiagnosticTraceAttributes(for: action).merging(
-                    bridgeReviewObservabilitySmokeTraceAttributes(succeeded: outcome == "succeeded")
+                    renderProof.attributes
                 ) { _, newValue in newValue }
             )
         }
 
-        private func bridgeReviewObservabilitySmokeTraceAttributes(
-            succeeded: Bool
-        ) -> [String: AgentStudioTraceValue] {
-            [
-                "agentstudio.startup_diagnostic.expected_visible_pane.count": .int(1),
-                "agentstudio.startup_diagnostic.render_proof.succeeded": .bool(succeeded),
-            ]
+        private func waitForBridgeReviewObservabilitySmokeRenderProof(
+            for controller: BridgePaneController
+        ) async -> BridgeReviewObservabilitySmokeRenderProof {
+            let clock = ContinuousClock()
+            let start = clock.now
+            var proof = await bridgeReviewObservabilitySmokeRenderProof(for: controller)
+            while !proof.succeeded
+                && start.duration(to: clock.now) < AppPolicies.StartupDiagnostic.ipcTerminalSmokeReadinessTimeout
+            {
+                try? await Task.sleep(nanoseconds: Duration.milliseconds(50).nanosecondsForTaskSleep)
+                proof = await bridgeReviewObservabilitySmokeRenderProof(for: controller)
+            }
+            return proof
+        }
+
+        private func bridgeReviewObservabilitySmokeRenderProof(
+            for controller: BridgePaneController
+        ) async -> BridgeReviewObservabilitySmokeRenderProof {
+            do {
+                let result = try await controller.page.callJavaScript(
+                    Self.bridgeReviewObservabilitySmokeRenderStateJavaScript)
+                guard let json = result as? String,
+                    let data = json.data(using: .utf8)
+                else {
+                    return .unavailable()
+                }
+                let snapshot = try JSONDecoder().decode(
+                    BridgeReviewObservabilitySmokeRenderSnapshot.self,
+                    from: data
+                )
+                return BridgeReviewObservabilitySmokeRenderProof(
+                    expectedVisiblePaneCount: 1,
+                    hasReviewShell: snapshot.hasReviewShell,
+                    hasCodeViewPanel: snapshot.hasCodeViewPanel,
+                    hasSelectedItem: snapshot.hasSelectedItem,
+                    hasSelectedDisplayPath: snapshot.hasSelectedDisplayPath,
+                    hasSelectedContentText: snapshot.hasSelectedContentText,
+                    selectedContentState: snapshot.selectedContentState,
+                    selectedContentRoleCount: snapshot.selectedContentRoleCount,
+                    selectedContentCacheKeyCount: snapshot.selectedContentCacheKeyCount,
+                    selectedContentCharacterCount: snapshot.selectedContentCharacterCount,
+                    selectedContentLineCount: snapshot.selectedContentLineCount,
+                    selectedMaterializedUpdateResult: snapshot.selectedMaterializedUpdateResult,
+                    selectedMaterializedItemType: snapshot.selectedMaterializedItemType,
+                    selectedMaterializedItemVersion: snapshot.selectedMaterializedItemVersion,
+                    selectedMaterializedAdditionLineCount: snapshot.selectedMaterializedAdditionLineCount,
+                    selectedMaterializedDeletionLineCount: snapshot.selectedMaterializedDeletionLineCount,
+                    selectedMaterializedFileLineCount: snapshot.selectedMaterializedFileLineCount,
+                    pageErrorCount: snapshot.pageErrorCount,
+                    diffContainerCount: snapshot.diffContainerCount,
+                    codeLineCount: snapshot.codeLineCount,
+                    codeViewPanelWidth: snapshot.codeViewPanelWidth,
+                    codeViewPanelHeight: snapshot.codeViewPanelHeight,
+                    firstDiffContainerWidth: snapshot.firstDiffContainerWidth,
+                    firstDiffContainerHeight: snapshot.firstDiffContainerHeight,
+                    codeViewScrollOwnerHeight: snapshot.codeViewScrollOwnerHeight,
+                    codeViewScrollOwnerScrollHeight: snapshot.codeViewScrollOwnerScrollHeight,
+                    codeViewScrollOwnerChildCount: snapshot.codeViewScrollOwnerChildCount,
+                    codeViewScrollOwnerFirstChildTag: snapshot.codeViewScrollOwnerFirstChildTag,
+                    codeViewInstanceHeight: snapshot.codeViewInstanceHeight,
+                    codeViewInstanceScrollHeight: snapshot.codeViewInstanceScrollHeight,
+                    codeViewInstanceItemCount: snapshot.codeViewInstanceItemCount,
+                    codeViewInstanceWindowTop: snapshot.codeViewInstanceWindowTop,
+                    codeViewInstanceWindowBottom: snapshot.codeViewInstanceWindowBottom,
+                    codeViewInstanceFirstRenderedIndex: snapshot.codeViewInstanceFirstRenderedIndex,
+                    codeViewInstanceLastRenderedIndex: snapshot.codeViewInstanceLastRenderedIndex,
+                    codeViewInstanceFirstItemHeight: snapshot.codeViewInstanceFirstItemHeight,
+                    codeViewInstanceFirstItemTop: snapshot.codeViewInstanceFirstItemTop,
+                    codeViewRenderedItemCount: snapshot.codeViewRenderedItemCount,
+                    codeViewRenderedItemElementHeight: snapshot.codeViewRenderedItemElementHeight,
+                    codeViewRenderedItemElementChildCount: snapshot.codeViewRenderedItemElementChildCount,
+                    codeViewRenderedItemElementFirstChildTag: snapshot.codeViewRenderedItemElementFirstChildTag,
+                    codeViewRenderedItemType: snapshot.codeViewRenderedItemType,
+                    codeViewRenderedItemVersion: snapshot.codeViewRenderedItemVersion,
+                    firstDiffContainerShadowChildCount: snapshot.firstDiffContainerShadowChildCount,
+                    firstDiffContainerPreCount: snapshot.firstDiffContainerPreCount,
+                    firstDiffContainerOffsetHeight: snapshot.firstDiffContainerOffsetHeight,
+                    firstDiffContainerScrollHeight: snapshot.firstDiffContainerScrollHeight,
+                    firstDiffContainerPreHeight: snapshot.firstDiffContainerPreHeight,
+                    firstDiffContainerPreTextLength: snapshot.firstDiffContainerPreTextLength,
+                    codeLineWithDataLineCount: snapshot.codeLineWithDataLineCount,
+                    firstDiffContainerDisplay: snapshot.firstDiffContainerDisplay,
+                    workerPoolState: snapshot.workerPoolState,
+                    workerPoolManagerState: snapshot.workerPoolManagerState,
+                    workerPoolWorkersFailed: snapshot.workerPoolWorkersFailed,
+                    workerPoolTotalWorkers: snapshot.workerPoolTotalWorkers,
+                    workerPoolBusyWorkers: snapshot.workerPoolBusyWorkers,
+                    workerPoolQueuedTasks: snapshot.workerPoolQueuedTasks,
+                    workerPoolActiveTasks: snapshot.workerPoolActiveTasks,
+                    workerPoolFileCacheSize: snapshot.workerPoolFileCacheSize,
+                    workerPoolDiffCacheSize: snapshot.workerPoolDiffCacheSize,
+                    workerPoolInitializationProbeStage: snapshot.workerPoolInitializationProbeStage,
+                    workerPoolInitializationProbeThemeCount: snapshot.workerPoolInitializationProbeThemeCount,
+                    workerPoolInitializationProbeLanguageCount: snapshot.workerPoolInitializationProbeLanguageCount,
+                    workerPoolInitializationProbeFailureReason: snapshot.workerPoolInitializationProbeFailureReason,
+                    workerDiagnosticBootstrapState: snapshot.workerDiagnosticBootstrapState,
+                    workerDiagnosticInitializeRequestIdState: snapshot.workerDiagnosticInitializeRequestIdState,
+                    workerDiagnosticLastMessageType: snapshot.workerDiagnosticLastMessageType,
+                    workerDiagnosticLastRequestType: snapshot.workerDiagnosticLastRequestType,
+                    workerDiagnosticLastSuccessMatchesInitializeRequest: snapshot
+                        .workerDiagnosticLastSuccessMatchesInitializeRequest,
+                    workerDiagnosticLastSuccessIdState: snapshot.workerDiagnosticLastSuccessIdState,
+                    workerDiagnosticLastSuccessIdPrefix: snapshot.workerDiagnosticLastSuccessIdPrefix,
+                    workerDiagnosticLastSuccessRequestType: snapshot.workerDiagnosticLastSuccessRequestType,
+                    workerDiagnosticSuccessCount: snapshot.workerDiagnosticSuccessCount,
+                    workerDiagnosticInitializeSuccessCount: snapshot.workerDiagnosticInitializeSuccessCount,
+                    workerDiagnosticDiffSuccessCount: snapshot.workerDiagnosticDiffSuccessCount,
+                    workerDiagnosticFileSuccessCount: snapshot.workerDiagnosticFileSuccessCount,
+                    workerDiagnosticForwardedMessageCount: snapshot.workerDiagnosticForwardedMessageCount,
+                    workerDiagnosticLastForwardResult: snapshot.workerDiagnosticLastForwardResult,
+                    workerDiagnosticErrorCount: snapshot.workerDiagnosticErrorCount,
+                    workerDiagnosticLastErrorKind: snapshot.workerDiagnosticLastErrorKind,
+                    codeTextLength: snapshot.codeTextLength,
+                    codeShadowTextLength: snapshot.codeShadowTextLength
+                )
+            } catch {
+                return .unavailable()
+            }
+        }
+
+        nonisolated static var bridgeReviewObservabilitySmokeRenderStateJavaScript: String {
+            """
+            return JSON.stringify((() => {
+              const reviewShell = document.querySelector('[data-testid="review-viewer-shell"]');
+              const codeViewPanel = document.querySelector('[data-testid="bridge-code-view-panel"]');
+              const codeViewScrollOwner = document.querySelector('.bridge-code-view-scroll-owner');
+              const codeViewInstance = window.__INSTANCE || null;
+              const codeViewWindowSpecs = codeViewInstance?.getWindowSpecs?.() || null;
+              const codeViewRenderState = codeViewInstance?.renderState || null;
+              const firstCodeViewInstanceItem = codeViewInstance?.items?.[0] || null;
+              const codeViewRenderedItems = codeViewInstance?.getRenderedItems?.() || [];
+              const firstCodeViewRenderedItem = codeViewRenderedItems[0] || null;
+              const firstCodeViewRenderedItemElement = firstCodeViewRenderedItem?.element || null;
+              const firstCodeViewRenderedItemElementRect = firstCodeViewRenderedItemElement?.getBoundingClientRect();
+              const selectedItemId = codeViewPanel?.getAttribute('data-selected-item-id') || '';
+              const selectedDisplayPath = codeViewPanel?.getAttribute('data-selected-display-path') || '';
+              const selectedContentState = codeViewPanel?.getAttribute('data-selected-content-state') || 'missing';
+              const selectedContentRoleCount = Number(codeViewPanel?.getAttribute('data-selected-content-role-count') || '0');
+              const selectedContentCacheKeyCount = Number(codeViewPanel?.getAttribute('data-selected-content-cache-key-count') || '0');
+              const selectedContentCharacterCount = Number(codeViewPanel?.getAttribute('data-selected-content-character-count') || '0');
+              const selectedContentLineCount = Number(codeViewPanel?.getAttribute('data-selected-content-line-count') || '0');
+              const selectedMaterializedUpdateResult = codeViewPanel?.getAttribute('data-selected-materialized-update-result') || 'missing';
+              const selectedMaterializedItemType = codeViewPanel?.getAttribute('data-selected-materialized-item-type') || 'missing';
+              const selectedMaterializedItemVersion = Number(codeViewPanel?.getAttribute('data-selected-materialized-item-version') || '0');
+              const selectedMaterializedAdditionLineCount = Number(codeViewPanel?.getAttribute('data-selected-materialized-addition-line-count') || '0');
+              const selectedMaterializedDeletionLineCount = Number(codeViewPanel?.getAttribute('data-selected-materialized-deletion-line-count') || '0');
+              const selectedMaterializedFileLineCount = Number(codeViewPanel?.getAttribute('data-selected-materialized-file-line-count') || '0');
+              const panelRect = codeViewPanel?.getBoundingClientRect();
+              const codeViewScrollOwnerRect = codeViewScrollOwner?.getBoundingClientRect();
+              const diffContainers = [...document.querySelectorAll('diffs-container')];
+              const firstDiffContainer = diffContainers[0] || null;
+              const firstDiffContainerRect = diffContainers[0]?.getBoundingClientRect();
+              const firstDiffContainerPre = firstDiffContainer?.shadowRoot?.querySelector('pre') || null;
+              const firstDiffContainerPreRect = firstDiffContainerPre?.getBoundingClientRect();
+              const codeLineElements = diffContainers.flatMap((element) =>
+                element.shadowRoot === null ? [] : [...element.shadowRoot.querySelectorAll('[data-line-index]')]
+              );
+              const codeLineWithDataLineElements = diffContainers.flatMap((element) =>
+                element.shadowRoot === null ? [] : [...element.shadowRoot.querySelectorAll('[data-line][data-line-index]')]
+              );
+              const firstShadowRoot = firstDiffContainer?.shadowRoot || null;
+              const codeViewPanelWidth = Math.round(panelRect?.width || 0);
+              const codeViewPanelHeight = Math.round(panelRect?.height || 0);
+              const codeViewScrollOwnerHeight = Math.round(codeViewScrollOwnerRect?.height || 0);
+              const codeViewScrollOwnerScrollHeight = Math.round(codeViewScrollOwner?.scrollHeight || 0);
+              const codeViewScrollOwnerChildCount = codeViewScrollOwner?.children.length || 0;
+              const codeViewScrollOwnerFirstChildTag =
+                codeViewScrollOwner?.firstElementChild?.tagName?.toLowerCase() || 'missing';
+              const codeViewInstanceHeight = Math.round(codeViewInstance?.getHeight?.() || 0);
+              const codeViewInstanceScrollHeight = Math.round(codeViewInstance?.getScrollHeight?.() || 0);
+              const codeViewInstanceItemCount = codeViewInstance?.items?.length || 0;
+              const codeViewInstanceWindowTop = Math.round(codeViewWindowSpecs?.top || 0);
+              const codeViewInstanceWindowBottom = Math.round(codeViewWindowSpecs?.bottom || 0);
+              const codeViewInstanceFirstRenderedIndex = Number(codeViewRenderState?.firstIndex ?? -1);
+              const codeViewInstanceLastRenderedIndex = Number(codeViewRenderState?.lastIndex ?? -1);
+              const codeViewInstanceFirstItemHeight = Math.round(firstCodeViewInstanceItem?.height || 0);
+              const codeViewInstanceFirstItemTop = Math.round(firstCodeViewInstanceItem?.top || 0);
+              const codeViewRenderedItemCount = codeViewRenderedItems.length;
+              const codeViewRenderedItemElementHeight = Math.round(firstCodeViewRenderedItemElementRect?.height || 0);
+              const codeViewRenderedItemElementChildCount = firstCodeViewRenderedItemElement?.children.length || 0;
+              const codeViewRenderedItemElementFirstChildTag =
+                firstCodeViewRenderedItemElement?.firstElementChild?.tagName?.toLowerCase() || 'missing';
+              const codeViewRenderedItemType = firstCodeViewRenderedItem?.type || 'missing';
+              const codeViewRenderedItemVersion = Number(firstCodeViewRenderedItem?.version || 0);
+              const firstDiffContainerWidth = Math.round(firstDiffContainerRect?.width || 0);
+              const firstDiffContainerHeight = Math.round(firstDiffContainerRect?.height || 0);
+              const firstDiffContainerOffsetHeight = Math.round(firstDiffContainer?.offsetHeight || 0);
+              const firstDiffContainerScrollHeight = Math.round(firstDiffContainer?.scrollHeight || 0);
+              const firstDiffContainerShadowChildCount = firstShadowRoot?.children.length || 0;
+              const firstDiffContainerPreCount = firstShadowRoot?.querySelectorAll('pre').length || 0;
+              const firstDiffContainerPreHeight = Math.round(firstDiffContainerPreRect?.height || 0);
+              const firstDiffContainerPreTextLength = firstDiffContainerPre?.textContent?.length || 0;
+              const firstDiffContainerDisplay =
+                firstDiffContainer === null ? 'missing' : window.getComputedStyle(firstDiffContainer).display;
+              const workerPoolState =
+                document.documentElement.getAttribute('data-bridge-pierre-worker-pool-state') || 'missing';
+              const workerPoolManagerState =
+                document.documentElement.getAttribute('data-bridge-pierre-worker-pool-manager-state') || 'missing';
+              const workerPoolWorkersFailed =
+                document.documentElement.getAttribute('data-bridge-pierre-worker-pool-workers-failed') === 'true';
+              const workerPoolTotalWorkers =
+                Number(document.documentElement.getAttribute('data-bridge-pierre-worker-pool-total-workers') || '0');
+              const workerPoolBusyWorkers =
+                Number(document.documentElement.getAttribute('data-bridge-pierre-worker-pool-busy-workers') || '0');
+              const workerPoolQueuedTasks =
+                Number(document.documentElement.getAttribute('data-bridge-pierre-worker-pool-queued-tasks') || '0');
+              const workerPoolActiveTasks =
+                Number(document.documentElement.getAttribute('data-bridge-pierre-worker-pool-active-tasks') || '0');
+              const workerPoolFileCacheSize =
+                Number(document.documentElement.getAttribute('data-bridge-pierre-worker-pool-file-cache-size') || '0');
+              const workerPoolDiffCacheSize =
+                Number(document.documentElement.getAttribute('data-bridge-pierre-worker-pool-diff-cache-size') || '0');
+              const workerPoolInitializationProbeStage =
+                document.documentElement.getAttribute('data-bridge-pierre-worker-pool-init-probe-stage') || 'missing';
+              const workerPoolInitializationProbeThemeCount =
+                Number(document.documentElement.getAttribute('data-bridge-pierre-worker-pool-init-probe-theme-count') || '0');
+              const workerPoolInitializationProbeLanguageCount =
+                Number(document.documentElement.getAttribute('data-bridge-pierre-worker-pool-init-probe-language-count') || '0');
+              const workerPoolInitializationProbeFailureReason =
+                document.documentElement.getAttribute('data-bridge-pierre-worker-pool-init-probe-failure-reason') || '';
+              const workerDiagnosticBootstrapState =
+                document.documentElement.getAttribute('data-bridge-pierre-worker-diagnostic-bootstrap-state') || 'missing';
+              const workerDiagnosticInitializeRequestIdState =
+                document.documentElement.getAttribute('data-bridge-pierre-worker-diagnostic-initialize-request-id-state') || 'missing';
+              const workerDiagnosticLastMessageType =
+                document.documentElement.getAttribute('data-bridge-pierre-worker-diagnostic-last-message-type') || 'missing';
+              const workerDiagnosticLastRequestType =
+                document.documentElement.getAttribute('data-bridge-pierre-worker-diagnostic-last-request-type') || 'missing';
+              const workerDiagnosticLastSuccessMatchesInitializeRequest =
+                document.documentElement.getAttribute('data-bridge-pierre-worker-diagnostic-last-success-matches-initialize-request') || 'missing';
+              const workerDiagnosticLastSuccessIdState =
+                document.documentElement.getAttribute('data-bridge-pierre-worker-diagnostic-last-success-id-state') || 'missing';
+              const workerDiagnosticLastSuccessIdPrefix =
+                document.documentElement.getAttribute('data-bridge-pierre-worker-diagnostic-last-success-id-prefix') || 'none';
+              const workerDiagnosticLastSuccessRequestType =
+                document.documentElement.getAttribute('data-bridge-pierre-worker-diagnostic-last-success-request-type') || 'missing';
+              const workerDiagnosticSuccessCount =
+                Number(document.documentElement.getAttribute('data-bridge-pierre-worker-diagnostic-success-count') || '0');
+              const workerDiagnosticInitializeSuccessCount =
+                Number(document.documentElement.getAttribute('data-bridge-pierre-worker-diagnostic-initialize-success-count') || '0');
+              const workerDiagnosticDiffSuccessCount =
+                Number(document.documentElement.getAttribute('data-bridge-pierre-worker-diagnostic-diff-success-count') || '0');
+              const workerDiagnosticFileSuccessCount =
+                Number(document.documentElement.getAttribute('data-bridge-pierre-worker-diagnostic-file-success-count') || '0');
+              const workerDiagnosticForwardedMessageCount =
+                Number(document.documentElement.getAttribute('data-bridge-pierre-worker-diagnostic-forwarded-message-count') || '0');
+              const workerDiagnosticLastForwardResult =
+                document.documentElement.getAttribute('data-bridge-pierre-worker-diagnostic-last-forward-result') || 'missing';
+              const workerDiagnosticErrorCount =
+                Number(document.documentElement.getAttribute('data-bridge-pierre-worker-diagnostic-error-count') || '0');
+              const workerDiagnosticLastErrorKind =
+                document.documentElement.getAttribute('data-bridge-pierre-worker-diagnostic-last-error-kind') || 'none';
+              const codeViewShadowText = diffContainers
+                .map((element) => element.shadowRoot?.textContent || '')
+                .join(' ');
+              const codeText = `${codeViewPanel?.textContent || ''} ${codeViewShadowText}`;
+              const errorProbe = Array.isArray(window.__bridgeErrorProbe)
+                ? window.__bridgeErrorProbe
+                : [];
+              return {
+                hasReviewShell: reviewShell !== null,
+                hasCodeViewPanel: codeViewPanel !== null,
+                hasSelectedItem: selectedItemId.length > 0,
+                hasSelectedDisplayPath: selectedDisplayPath.length > 0,
+                hasSelectedContentText:
+                  selectedContentState === 'ready' &&
+                  selectedContentRoleCount > 0 &&
+                  codeLineElements.length > 0 &&
+                  firstDiffContainerWidth > 0 &&
+                  firstDiffContainerHeight > 0,
+                selectedContentState,
+                selectedContentRoleCount,
+                selectedContentCacheKeyCount,
+                selectedContentCharacterCount,
+                selectedContentLineCount,
+                selectedMaterializedUpdateResult,
+                selectedMaterializedItemType,
+                selectedMaterializedItemVersion,
+                selectedMaterializedAdditionLineCount,
+                selectedMaterializedDeletionLineCount,
+                selectedMaterializedFileLineCount,
+                pageErrorCount: errorProbe.length,
+                diffContainerCount: diffContainers.length,
+                codeLineCount: codeLineElements.length,
+                codeViewPanelWidth,
+                codeViewPanelHeight,
+                firstDiffContainerWidth,
+                firstDiffContainerHeight,
+                codeViewScrollOwnerHeight,
+                codeViewScrollOwnerScrollHeight,
+                codeViewScrollOwnerChildCount,
+                codeViewScrollOwnerFirstChildTag,
+                codeViewInstanceHeight,
+                codeViewInstanceScrollHeight,
+                codeViewInstanceItemCount,
+                codeViewInstanceWindowTop,
+                codeViewInstanceWindowBottom,
+                codeViewInstanceFirstRenderedIndex,
+                codeViewInstanceLastRenderedIndex,
+                codeViewInstanceFirstItemHeight,
+                codeViewInstanceFirstItemTop,
+                codeViewRenderedItemCount,
+                codeViewRenderedItemElementHeight,
+                codeViewRenderedItemElementChildCount,
+                codeViewRenderedItemElementFirstChildTag,
+                codeViewRenderedItemType,
+                codeViewRenderedItemVersion,
+                firstDiffContainerShadowChildCount,
+                firstDiffContainerPreCount,
+                firstDiffContainerOffsetHeight,
+                firstDiffContainerScrollHeight,
+                firstDiffContainerPreHeight,
+                firstDiffContainerPreTextLength,
+                codeLineWithDataLineCount: codeLineWithDataLineElements.length,
+                firstDiffContainerDisplay,
+                workerPoolState,
+                workerPoolManagerState,
+                workerPoolWorkersFailed,
+                workerPoolTotalWorkers,
+                workerPoolBusyWorkers,
+                workerPoolQueuedTasks,
+                workerPoolActiveTasks,
+                workerPoolFileCacheSize,
+                workerPoolDiffCacheSize,
+                workerPoolInitializationProbeStage,
+                workerPoolInitializationProbeThemeCount,
+                workerPoolInitializationProbeLanguageCount,
+                workerPoolInitializationProbeFailureReason,
+                workerDiagnosticBootstrapState,
+                workerDiagnosticInitializeRequestIdState,
+                workerDiagnosticLastMessageType,
+                workerDiagnosticLastRequestType,
+                workerDiagnosticLastSuccessMatchesInitializeRequest,
+                workerDiagnosticLastSuccessIdState,
+                workerDiagnosticLastSuccessIdPrefix,
+                workerDiagnosticLastSuccessRequestType,
+                workerDiagnosticSuccessCount,
+                workerDiagnosticInitializeSuccessCount,
+                workerDiagnosticDiffSuccessCount,
+                workerDiagnosticFileSuccessCount,
+                workerDiagnosticForwardedMessageCount,
+                workerDiagnosticLastForwardResult,
+                workerDiagnosticErrorCount,
+                workerDiagnosticLastErrorKind,
+                codeTextLength: codeText.length,
+                codeShadowTextLength: codeViewShadowText.length
+              };
+            })())
+            """
         }
     #endif
 

@@ -96,6 +96,55 @@ struct BridgeTelemetryBatchValidatorTests {
     }
 
     @Test
+    func validatorAcceptsViewerTelemetryContracts() {
+        let validator = BridgeTelemetryBatchValidator(
+            scopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web])
+        )
+        let batch = BridgeTelemetryBatch(
+            schemaVersion: 1,
+            scenario: "package_apply_content_fetch_v1",
+            samples: bridgeViewerTelemetryContractSamples
+        )
+
+        #expect(validator.validate(batch) == .accepted(batch))
+    }
+
+    @Test
+    func validatorAcceptsCurrentReviewProjectionModeTelemetry() {
+        let validator = BridgeTelemetryBatchValidator(
+            scopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web])
+        )
+        let projectionKinds = [
+            "normal_review",
+            "guided_review",
+            "plans_and_specs",
+        ]
+
+        for projectionKind in projectionKinds {
+            let batch = batchWithWebSample(
+                WebSampleProps(
+                    name: "performance.bridge.trees.projection_build",
+                    phase: "projection_build",
+                    plane: "data",
+                    priority: "warm",
+                    slice: "review_projection",
+                    transport: "worker",
+                    extraStrings: [
+                        "agentstudio.bridge.fixture_class": "large",
+                        "agentstudio.bridge.item_count_bucket": "large",
+                        "agentstudio.bridge.projection.kind": projectionKind,
+                        "agentstudio.bridge.result": "success",
+                        "agentstudio.bridge.tree_path_count_bucket": "large",
+                        "agentstudio.bridge.worker.lane": "projection",
+                    ]
+                )
+            )
+
+            #expect(validator.validate(batch) == .accepted(batch))
+        }
+    }
+
+    @Test
     func validatorRejectsEventInappropriateAuxiliaryAttributes() {
         let validator = BridgeTelemetryBatchValidator(
             scopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web])
@@ -421,6 +470,129 @@ struct BridgeTelemetryBatchValidatorTests {
         #expect(validator.validate(batch) == .dropped(.tooManySamples))
     }
 
+    private var bridgeViewerTelemetryContractSamples: [BridgeTelemetrySample] {
+        [
+            viewerSample(
+                name: "performance.bridge.trees.projection_build",
+                phase: "projection_build",
+                priority: "warm",
+                slice: "review_projection",
+                transport: "worker",
+                extraStrings: [
+                    "agentstudio.bridge.fixture_class": "smoke",
+                    "agentstudio.bridge.item_count_bucket": "small",
+                    "agentstudio.bridge.projection.kind": "all_files",
+                    "agentstudio.bridge.result": "success",
+                    "agentstudio.bridge.tree_path_count_bucket": "small",
+                    "agentstudio.bridge.worker.lane": "none",
+                ]
+            ),
+            viewerSample(
+                name: "performance.bridge.viewer.content_queue",
+                phase: "content_queue",
+                priority: "hot",
+                slice: "content_fetch",
+                transport: "content",
+                extraStrings: [
+                    "agentstudio.bridge.content.priority": "visible",
+                    "agentstudio.bridge.content.role": "head",
+                    "agentstudio.bridge.queue.depth_bucket": "small",
+                    "agentstudio.bridge.result": "success",
+                ]
+            ),
+            viewerSample(
+                name: "performance.bridge.pierre.item_update",
+                phase: "item_update",
+                priority: "hot",
+                slice: "code_view_item",
+                transport: "swift",
+                extraStrings: [
+                    "agentstudio.bridge.item_count_bucket": "small",
+                    "agentstudio.bridge.item_update.kind": "hydrate",
+                    "agentstudio.bridge.result": "success",
+                ]
+            ),
+            viewerSample(
+                name: "performance.bridge.shiki.highlight",
+                phase: "highlight",
+                priority: "hot",
+                slice: "shiki_highlight",
+                transport: "worker",
+                extraStrings: [
+                    "agentstudio.bridge.content_bytes_bucket": "small",
+                    "agentstudio.bridge.language_class": "swift",
+                    "agentstudio.bridge.result": "success",
+                    "agentstudio.bridge.worker.lane": "pierre",
+                ]
+            ),
+            viewerSample(
+                name: "performance.bridge.worker.task",
+                phase: "worker_task",
+                priority: "warm",
+                slice: "worker_task",
+                transport: "worker",
+                extraStrings: [
+                    "agentstudio.bridge.item_count_bucket": "small",
+                    "agentstudio.bridge.result": "success",
+                    "agentstudio.bridge.worker.lane": "pierre",
+                    "agentstudio.bridge.worker.task_kind": "highlight",
+                ]
+            ),
+            viewerSample(
+                name: "performance.bridge.markdown.render_queue",
+                phase: "markdown_queue",
+                priority: "warm",
+                slice: "markdown_preview",
+                transport: "worker",
+                extraStrings: [
+                    "agentstudio.bridge.result": "queued",
+                    "agentstudio.bridge.worker.lane": "markdown",
+                ]
+            ),
+            viewerSample(
+                name: "performance.bridge.markdown.render",
+                phase: "markdown_render",
+                priority: "warm",
+                slice: "markdown_preview",
+                transport: "worker",
+                extraStrings: [
+                    "agentstudio.bridge.content_bytes_bucket": "small",
+                    "agentstudio.bridge.result": "success",
+                    "agentstudio.bridge.worker.lane": "markdown",
+                ],
+                extraNumbers: [
+                    "agentstudio.bridge.markdown.input_bytes": 120,
+                    "agentstudio.bridge.markdown.output_bytes": 240,
+                ]
+            ),
+            viewerSample(
+                name: "performance.bridge.markdown.fallback",
+                phase: "markdown_decision",
+                priority: "warm",
+                slice: "markdown_preview",
+                transport: "worker",
+                extraStrings: [
+                    "agentstudio.bridge.markdown.fallback_reason": "notMarkdown",
+                    "agentstudio.bridge.result": "fallback",
+                    "agentstudio.bridge.worker.lane": "markdown",
+                ]
+            ),
+            viewerSample(
+                name: "performance.bridge.worker.task",
+                phase: "worker_task",
+                priority: "warm",
+                slice: "worker_task",
+                transport: "worker",
+                extraStrings: [
+                    "agentstudio.bridge.item_count_bucket": "small",
+                    "agentstudio.bridge.result": "success",
+                    "agentstudio.bridge.worker.lane": "markdown",
+                    "agentstudio.bridge.worker.task_kind": "markdown_render",
+                ]
+            ),
+        ]
+    }
+
     private struct WebSampleProps {
         let name: String
         let phase: String
@@ -456,6 +628,34 @@ struct BridgeTelemetryBatchValidatorTests {
                     booleanAttributes: props.extraBooleans
                 )
             ]
+        )
+    }
+
+    private func viewerSample(
+        name: String,
+        phase: String,
+        priority: String,
+        slice: String,
+        transport: String,
+        extraStrings: [String: String],
+        extraNumbers: [String: Double] = [:]
+    ) -> BridgeTelemetrySample {
+        var stringAttributes = [
+            "agentstudio.bridge.phase": phase,
+            "agentstudio.bridge.plane": "data",
+            "agentstudio.bridge.priority": priority,
+            "agentstudio.bridge.slice": slice,
+            "agentstudio.bridge.transport": transport,
+        ]
+        stringAttributes.merge(extraStrings) { _, new in new }
+        return BridgeTelemetrySample(
+            scope: .web,
+            name: name,
+            durationMilliseconds: 1,
+            traceContext: nil,
+            stringAttributes: stringAttributes,
+            numericAttributes: extraNumbers,
+            booleanAttributes: [:]
         )
     }
 }

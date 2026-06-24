@@ -30,6 +30,9 @@ final class DiffState {
     private(set) var files: [String: FileManifest] = [:]
     private(set) var packageMetadata: BridgeReviewPackage?
     private(set) var packageDelta: BridgeReviewDelta?
+    private(set) var packageSnapshotProtocolFrame: BridgeReviewProtocolFrame?
+    private(set) var packageDeltaProtocolFrame: BridgeReviewProtocolFrame?
+    private(set) var packageProtocolFrame: BridgeReviewProtocolFrame?
 
     func setStatus(_ status: DiffStatus, error: String? = nil) {
         self.status = status
@@ -55,10 +58,32 @@ final class DiffState {
 
     func setPackageMetadata(_ packageMetadata: BridgeReviewPackage?) {
         self.packageMetadata = packageMetadata
+        packageSnapshotProtocolFrame = nil
+    }
+
+    func setPackageMetadata(
+        _ packageMetadata: BridgeReviewPackage?,
+        protocolFrame: BridgeReviewProtocolFrame?
+    ) {
+        self.packageMetadata = packageMetadata
+        packageSnapshotProtocolFrame = protocolFrame
     }
 
     func setPackageDelta(_ packageDelta: BridgeReviewDelta?) {
         self.packageDelta = packageDelta
+        packageDeltaProtocolFrame = nil
+    }
+
+    func setPackageDelta(
+        _ packageDelta: BridgeReviewDelta?,
+        protocolFrame: BridgeReviewProtocolFrame?
+    ) {
+        self.packageDelta = packageDelta
+        packageDeltaProtocolFrame = protocolFrame
+    }
+
+    func setPackageProtocolFrame(_ packageProtocolFrame: BridgeReviewProtocolFrame?) {
+        self.packageProtocolFrame = packageProtocolFrame
     }
 
     func setFile(_ file: FileManifest) {

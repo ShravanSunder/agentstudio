@@ -130,6 +130,337 @@ struct AgentStudioStartupDiagnosticActionTests {
         #expect(proof.attributes["agentstudio.startup_diagnostic.render_proof.succeeded"] == .bool(false))
     }
 
+    @Test("Bridge smoke render proof requires hydrated selected content")
+    func bridgeSmokeRenderProofRequiresHydratedSelectedContent() {
+        let proof = BridgeReviewObservabilitySmokeRenderProof(
+            expectedVisiblePaneCount: 1,
+            hasReviewShell: true,
+            hasCodeViewPanel: true,
+            hasSelectedItem: true,
+            hasSelectedDisplayPath: true,
+            hasSelectedContentText: true,
+            selectedContentState: "ready",
+            selectedContentRoleCount: 2,
+            selectedContentCacheKeyCount: 2,
+            selectedContentCharacterCount: 180,
+            selectedContentLineCount: 12,
+            selectedMaterializedUpdateResult: "updated",
+            selectedMaterializedItemType: "diff",
+            selectedMaterializedItemVersion: 3,
+            selectedMaterializedAdditionLineCount: 4,
+            selectedMaterializedDeletionLineCount: 2,
+            selectedMaterializedFileLineCount: 0,
+            pageErrorCount: 0,
+            diffContainerCount: 1,
+            codeLineCount: 4,
+            codeViewPanelWidth: 900,
+            codeViewPanelHeight: 700,
+            firstDiffContainerWidth: 880,
+            firstDiffContainerHeight: 600,
+            codeViewScrollOwnerHeight: 700,
+            codeViewScrollOwnerScrollHeight: 1200,
+            codeViewScrollOwnerChildCount: 1,
+            codeViewScrollOwnerFirstChildTag: "diffs-container",
+            codeViewInstanceHeight: 700,
+            codeViewInstanceScrollHeight: 1200,
+            codeViewInstanceItemCount: 1,
+            codeViewInstanceWindowTop: 0,
+            codeViewInstanceWindowBottom: 700,
+            codeViewInstanceFirstRenderedIndex: 0,
+            codeViewInstanceLastRenderedIndex: 0,
+            codeViewInstanceFirstItemHeight: 600,
+            codeViewInstanceFirstItemTop: 0,
+            codeViewRenderedItemCount: 1,
+            codeViewRenderedItemElementHeight: 600,
+            codeViewRenderedItemElementChildCount: 1,
+            codeViewRenderedItemElementFirstChildTag: "diffs-container",
+            codeViewRenderedItemType: "diff",
+            codeViewRenderedItemVersion: 3,
+            firstDiffContainerShadowChildCount: 3,
+            firstDiffContainerPreCount: 1,
+            firstDiffContainerOffsetHeight: 600,
+            firstDiffContainerScrollHeight: 1200,
+            firstDiffContainerPreHeight: 560,
+            firstDiffContainerPreTextLength: 88,
+            codeLineWithDataLineCount: 4,
+            firstDiffContainerDisplay: "block",
+            workerPoolState: "ready",
+            workerPoolManagerState: "initialized",
+            workerPoolWorkersFailed: false,
+            workerPoolTotalWorkers: 2,
+            workerPoolBusyWorkers: 0,
+            workerPoolQueuedTasks: 0,
+            workerPoolActiveTasks: 0,
+            workerPoolFileCacheSize: 1,
+            workerPoolDiffCacheSize: 1,
+            workerPoolInitializationProbeStage: "idle",
+            workerPoolInitializationProbeThemeCount: 0,
+            workerPoolInitializationProbeLanguageCount: 0,
+            workerPoolInitializationProbeFailureReason: "",
+            workerDiagnosticBootstrapState: "started",
+            workerDiagnosticInitializeRequestIdState: "present",
+            workerDiagnosticLastMessageType: "success",
+            workerDiagnosticLastRequestType: "initialize",
+            workerDiagnosticLastSuccessMatchesInitializeRequest: "yes",
+            workerDiagnosticLastSuccessIdState: "present",
+            workerDiagnosticLastSuccessIdPrefix: "req",
+            workerDiagnosticLastSuccessRequestType: "diff",
+            workerDiagnosticSuccessCount: 2,
+            workerDiagnosticInitializeSuccessCount: 1,
+            workerDiagnosticDiffSuccessCount: 1,
+            workerDiagnosticFileSuccessCount: 0,
+            workerDiagnosticForwardedMessageCount: 2,
+            workerDiagnosticLastForwardResult: "ok",
+            workerDiagnosticErrorCount: 0,
+            workerDiagnosticLastErrorKind: "none",
+            codeTextLength: 120,
+            codeShadowTextLength: 88
+        )
+
+        #expect(proof.succeeded)
+        assertHydratedBridgeContentAttributes(proof.attributes)
+        assertHydratedBridgeGeometryAttributes(proof.attributes)
+        assertHydratedBridgeWorkerAttributes(proof.attributes)
+        #expect(proof.attributes["agentstudio.startup_diagnostic.render_proof.succeeded"] == .bool(true))
+    }
+
+    @Test("Bridge smoke render proof fails before selected content is visible")
+    func bridgeSmokeRenderProofFailsBeforeSelectedContentIsVisible() {
+        let proof = BridgeReviewObservabilitySmokeRenderProof(
+            expectedVisiblePaneCount: 1,
+            hasReviewShell: true,
+            hasCodeViewPanel: true,
+            hasSelectedItem: true,
+            hasSelectedDisplayPath: true,
+            hasSelectedContentText: false,
+            selectedContentState: "pending",
+            selectedContentRoleCount: 0,
+            selectedContentCacheKeyCount: 0,
+            selectedContentCharacterCount: 0,
+            selectedContentLineCount: 0,
+            selectedMaterializedUpdateResult: "not-run",
+            selectedMaterializedItemType: "none",
+            selectedMaterializedItemVersion: 0,
+            selectedMaterializedAdditionLineCount: 0,
+            selectedMaterializedDeletionLineCount: 0,
+            selectedMaterializedFileLineCount: 0,
+            pageErrorCount: 0,
+            diffContainerCount: 1,
+            codeLineCount: 0,
+            codeViewPanelWidth: 900,
+            codeViewPanelHeight: 700,
+            firstDiffContainerWidth: 880,
+            firstDiffContainerHeight: 0,
+            codeViewScrollOwnerHeight: 700,
+            codeViewScrollOwnerScrollHeight: 700,
+            codeViewScrollOwnerChildCount: 1,
+            codeViewScrollOwnerFirstChildTag: "diffs-container",
+            codeViewInstanceHeight: 700,
+            codeViewInstanceScrollHeight: 0,
+            codeViewInstanceItemCount: 0,
+            codeViewInstanceWindowTop: 0,
+            codeViewInstanceWindowBottom: 700,
+            codeViewInstanceFirstRenderedIndex: -1,
+            codeViewInstanceLastRenderedIndex: -1,
+            codeViewInstanceFirstItemHeight: 0,
+            codeViewInstanceFirstItemTop: 0,
+            codeViewRenderedItemCount: 0,
+            codeViewRenderedItemElementHeight: 0,
+            codeViewRenderedItemElementChildCount: 0,
+            codeViewRenderedItemElementFirstChildTag: "missing",
+            codeViewRenderedItemType: "missing",
+            codeViewRenderedItemVersion: 0,
+            firstDiffContainerShadowChildCount: 1,
+            firstDiffContainerPreCount: 0,
+            firstDiffContainerOffsetHeight: 0,
+            firstDiffContainerScrollHeight: 0,
+            firstDiffContainerPreHeight: 0,
+            firstDiffContainerPreTextLength: 0,
+            codeLineWithDataLineCount: 0,
+            firstDiffContainerDisplay: "block",
+            workerPoolState: "loading",
+            workerPoolManagerState: "waiting",
+            workerPoolWorkersFailed: false,
+            workerPoolTotalWorkers: 0,
+            workerPoolBusyWorkers: 0,
+            workerPoolQueuedTasks: 0,
+            workerPoolActiveTasks: 0,
+            workerPoolFileCacheSize: 0,
+            workerPoolDiffCacheSize: 0,
+            workerPoolInitializationProbeStage: "idle",
+            workerPoolInitializationProbeThemeCount: 0,
+            workerPoolInitializationProbeLanguageCount: 0,
+            workerPoolInitializationProbeFailureReason: "",
+            workerDiagnosticBootstrapState: "missing",
+            workerDiagnosticInitializeRequestIdState: "missing",
+            workerDiagnosticLastMessageType: "missing",
+            workerDiagnosticLastRequestType: "missing",
+            workerDiagnosticLastSuccessMatchesInitializeRequest: "missing",
+            workerDiagnosticLastSuccessIdState: "missing",
+            workerDiagnosticLastSuccessIdPrefix: "none",
+            workerDiagnosticLastSuccessRequestType: "missing",
+            workerDiagnosticSuccessCount: 0,
+            workerDiagnosticInitializeSuccessCount: 0,
+            workerDiagnosticDiffSuccessCount: 0,
+            workerDiagnosticFileSuccessCount: 0,
+            workerDiagnosticForwardedMessageCount: 0,
+            workerDiagnosticLastForwardResult: "none",
+            workerDiagnosticErrorCount: 0,
+            workerDiagnosticLastErrorKind: "none",
+            codeTextLength: 0,
+            codeShadowTextLength: 0
+        )
+
+        #expect(!proof.succeeded)
+        #expect(proof.attributes["agentstudio.startup_diagnostic.bridge.selected_content.visible"] == .bool(false))
+        #expect(proof.attributes["agentstudio.startup_diagnostic.render_proof.succeeded"] == .bool(false))
+    }
+
+    @Test("Bridge smoke render probe reads Pierre CodeView shadow DOM")
+    func bridgeSmokeRenderProbeReadsPierreCodeViewShadowDOM() {
+        let probe = AppDelegate.bridgeReviewObservabilitySmokeRenderStateJavaScript
+
+        #expect(probe.contains("diffs-container"))
+        #expect(probe.contains("shadowRoot"))
+        #expect(probe.contains("[data-line-index]"))
+        #expect(probe.contains("data-selected-content-state"))
+        #expect(probe.contains("data-selected-content-character-count"))
+        #expect(probe.contains("data-selected-materialized-update-result"))
+        #expect(probe.contains("selectedContentRoleCount > 0"))
+        #expect(probe.contains("firstDiffContainerHeight > 0"))
+        #expect(probe.contains("codeViewScrollOwner"))
+        #expect(probe.contains("window.__INSTANCE"))
+        #expect(probe.contains("codeViewInstanceItemCount"))
+        #expect(probe.contains("codeViewInstanceFirstRenderedIndex"))
+        #expect(probe.contains("codeViewInstanceFirstItemHeight"))
+        #expect(probe.contains("getRenderedItems"))
+        #expect(probe.contains("codeViewRenderedItemElementHeight"))
+        #expect(probe.contains("codeViewRenderedItemElementFirstChildTag"))
+        #expect(probe.contains("firstDiffContainerPreCount"))
+        #expect(probe.contains("firstDiffContainerPreHeight"))
+        #expect(probe.contains("workerPoolState"))
+        #expect(probe.contains("data-bridge-pierre-worker-pool-state"))
+        #expect(probe.contains("workerPoolManagerState"))
+        #expect(probe.contains("data-bridge-pierre-worker-pool-manager-state"))
+        #expect(probe.contains("workerPoolQueuedTasks"))
+        #expect(probe.contains("data-bridge-pierre-worker-pool-queued-tasks"))
+        #expect(probe.contains("workerPoolInitializationProbeStage"))
+        #expect(probe.contains("data-bridge-pierre-worker-pool-init-probe-stage"))
+        #expect(probe.contains("workerDiagnosticBootstrapState"))
+        #expect(probe.contains("data-bridge-pierre-worker-diagnostic-bootstrap-state"))
+        #expect(probe.contains("workerDiagnosticInitializeRequestIdState"))
+        #expect(probe.contains("data-bridge-pierre-worker-diagnostic-initialize-request-id-state"))
+        #expect(probe.contains("workerDiagnosticLastRequestType"))
+        #expect(probe.contains("data-bridge-pierre-worker-diagnostic-last-request-type"))
+        #expect(probe.contains("workerDiagnosticLastSuccessMatchesInitializeRequest"))
+        #expect(
+            probe.contains(
+                "data-bridge-pierre-worker-diagnostic-last-success-matches-initialize-request"))
+        #expect(probe.contains("workerDiagnosticLastSuccessIdState"))
+        #expect(probe.contains("data-bridge-pierre-worker-diagnostic-last-success-id-state"))
+        #expect(probe.contains("workerDiagnosticLastSuccessIdPrefix"))
+        #expect(probe.contains("data-bridge-pierre-worker-diagnostic-last-success-id-prefix"))
+        #expect(probe.contains("workerDiagnosticLastSuccessRequestType"))
+        #expect(probe.contains("data-bridge-pierre-worker-diagnostic-last-success-request-type"))
+        #expect(probe.contains("workerDiagnosticDiffSuccessCount"))
+        #expect(probe.contains("data-bridge-pierre-worker-diagnostic-diff-success-count"))
+        #expect(probe.contains("workerDiagnosticErrorCount"))
+        #expect(probe.contains("data-bridge-pierre-worker-diagnostic-error-count"))
+        #expect(probe.contains("[data-line][data-line-index]"))
+        #expect(probe.contains("getComputedStyle"))
+        #expect(probe.contains("getBoundingClientRect"))
+    }
+
+    @Test("Bridge smoke render proof requires positive rendered line geometry")
+    func bridgeSmokeRenderProofRequiresPositiveRenderedLineGeometry() {
+        let proof = BridgeReviewObservabilitySmokeRenderProof(
+            expectedVisiblePaneCount: 1,
+            hasReviewShell: true,
+            hasCodeViewPanel: true,
+            hasSelectedItem: true,
+            hasSelectedDisplayPath: true,
+            hasSelectedContentText: true,
+            selectedContentState: "ready",
+            selectedContentRoleCount: 2,
+            selectedContentCacheKeyCount: 2,
+            selectedContentCharacterCount: 180,
+            selectedContentLineCount: 12,
+            selectedMaterializedUpdateResult: "updated",
+            selectedMaterializedItemType: "diff",
+            selectedMaterializedItemVersion: 3,
+            selectedMaterializedAdditionLineCount: 4,
+            selectedMaterializedDeletionLineCount: 2,
+            selectedMaterializedFileLineCount: 0,
+            pageErrorCount: 0,
+            diffContainerCount: 1,
+            codeLineCount: 0,
+            codeViewPanelWidth: 900,
+            codeViewPanelHeight: 700,
+            firstDiffContainerWidth: 880,
+            firstDiffContainerHeight: 0,
+            codeViewScrollOwnerHeight: 700,
+            codeViewScrollOwnerScrollHeight: 700,
+            codeViewScrollOwnerChildCount: 1,
+            codeViewScrollOwnerFirstChildTag: "diffs-container",
+            codeViewInstanceHeight: 700,
+            codeViewInstanceScrollHeight: 0,
+            codeViewInstanceItemCount: 1,
+            codeViewInstanceWindowTop: 0,
+            codeViewInstanceWindowBottom: 700,
+            codeViewInstanceFirstRenderedIndex: -1,
+            codeViewInstanceLastRenderedIndex: -1,
+            codeViewInstanceFirstItemHeight: 0,
+            codeViewInstanceFirstItemTop: 0,
+            codeViewRenderedItemCount: 1,
+            codeViewRenderedItemElementHeight: 0,
+            codeViewRenderedItemElementChildCount: 1,
+            codeViewRenderedItemElementFirstChildTag: "diffs-container",
+            codeViewRenderedItemType: "diff",
+            codeViewRenderedItemVersion: 3,
+            firstDiffContainerShadowChildCount: 1,
+            firstDiffContainerPreCount: 0,
+            firstDiffContainerOffsetHeight: 0,
+            firstDiffContainerScrollHeight: 0,
+            firstDiffContainerPreHeight: 0,
+            firstDiffContainerPreTextLength: 0,
+            codeLineWithDataLineCount: 0,
+            firstDiffContainerDisplay: "block",
+            workerPoolState: "ready",
+            workerPoolManagerState: "initialized",
+            workerPoolWorkersFailed: false,
+            workerPoolTotalWorkers: 2,
+            workerPoolBusyWorkers: 0,
+            workerPoolQueuedTasks: 0,
+            workerPoolActiveTasks: 1,
+            workerPoolFileCacheSize: 0,
+            workerPoolDiffCacheSize: 0,
+            workerPoolInitializationProbeStage: "idle",
+            workerPoolInitializationProbeThemeCount: 0,
+            workerPoolInitializationProbeLanguageCount: 0,
+            workerPoolInitializationProbeFailureReason: "",
+            workerDiagnosticBootstrapState: "started",
+            workerDiagnosticInitializeRequestIdState: "present",
+            workerDiagnosticLastMessageType: "success",
+            workerDiagnosticLastRequestType: "initialize",
+            workerDiagnosticLastSuccessMatchesInitializeRequest: "invalid",
+            workerDiagnosticLastSuccessIdState: "missing",
+            workerDiagnosticLastSuccessIdPrefix: "none",
+            workerDiagnosticLastSuccessRequestType: "initialize",
+            workerDiagnosticSuccessCount: 1,
+            workerDiagnosticInitializeSuccessCount: 1,
+            workerDiagnosticDiffSuccessCount: 0,
+            workerDiagnosticFileSuccessCount: 0,
+            workerDiagnosticForwardedMessageCount: 1,
+            workerDiagnosticLastForwardResult: "ok",
+            workerDiagnosticErrorCount: 0,
+            workerDiagnosticLastErrorKind: "none",
+            codeTextLength: 120,
+            codeShadowTextLength: 88
+        )
+
+        #expect(!proof.succeeded)
+    }
+
     @Test("startup diagnostic finite frame check rejects invalid bounds")
     func finiteFrameCheckRejectsInvalidBounds() {
         #expect(AppDelegate.frameIsFiniteAndPositive(CGRect(x: 0, y: 0, width: 100, height: 50)))
@@ -161,4 +492,117 @@ struct AgentStudioStartupDiagnosticActionTests {
 
         #expect(bounds == nil)
     }
+}
+
+private func assertHydratedBridgeContentAttributes(
+    _ attributes: [String: AgentStudioTraceValue]
+) {
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.review_shell.visible"] == .bool(true))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.code_view.visible"] == .bool(true))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.selected_content.visible"] == .bool(true))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.selected_content.state"] == .string("ready"))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.selected_content_role.count"] == .int(2))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.selected_content_cache_key.count"] == .int(2))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.selected_content_character.count"] == .int(180))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.selected_content_line.count"] == .int(12))
+    #expect(
+        attributes["agentstudio.startup_diagnostic.bridge.selected_materialized.update_result"] == .string("updated"))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.selected_materialized.item_type"] == .string("diff"))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.selected_materialized.item_version"] == .int(3))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.selected_materialized.addition_line.count"] == .int(4))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.selected_materialized.deletion_line.count"] == .int(2))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.selected_materialized.file_line.count"] == .int(0))
+}
+
+private func assertHydratedBridgeGeometryAttributes(
+    _ attributes: [String: AgentStudioTraceValue]
+) {
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.diff_container.count"] == .int(1))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.code_line.count"] == .int(4))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.code_view_panel.width_px"] == .int(900))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.code_view_panel.height_px"] == .int(700))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.diff_container.width_px"] == .int(880))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.diff_container.height_px"] == .int(600))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.code_view_scroll_owner.height_px"] == .int(700))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.code_view_scroll_owner.scroll_height_px"] == .int(1200))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.code_view_scroll_owner.child.count"] == .int(1))
+    #expect(
+        attributes["agentstudio.startup_diagnostic.bridge.code_view_scroll_owner.first_child.tag"]
+            == .string("diffs-container"))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.code_view.instance.height_px"] == .int(700))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.code_view.instance.scroll_height_px"] == .int(1200))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.code_view.instance.item.count"] == .int(1))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.code_view.instance.window.top_px"] == .int(0))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.code_view.instance.window.bottom_px"] == .int(700))
+    #expect(
+        attributes["agentstudio.startup_diagnostic.bridge.code_view.instance.render_state.first_index"] == .int(0))
+    #expect(
+        attributes["agentstudio.startup_diagnostic.bridge.code_view.instance.render_state.last_index"] == .int(0))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.code_view.instance.first_item.height_px"] == .int(600))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.code_view.instance.first_item.top_px"] == .int(0))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.code_view.rendered_item.count"] == .int(1))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.code_view.rendered_item.element.height_px"] == .int(600))
+    #expect(
+        attributes["agentstudio.startup_diagnostic.bridge.code_view.rendered_item.element.child.count"] == .int(1))
+    #expect(
+        attributes["agentstudio.startup_diagnostic.bridge.code_view.rendered_item.element.first_child.tag"]
+            == .string("diffs-container"))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.code_view.rendered_item.type"] == .string("diff"))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.code_view.rendered_item.version"] == .int(3))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.diff_container.shadow_child.count"] == .int(3))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.diff_container.pre.count"] == .int(1))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.diff_container.offset_height_px"] == .int(600))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.diff_container.scroll_height_px"] == .int(1200))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.diff_container.pre.height_px"] == .int(560))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.diff_container.pre_text.length"] == .int(88))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.code_line_with_data_line.count"] == .int(4))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.diff_container.display"] == .string("block"))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.code_text.length"] == .int(120))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.code_shadow_text.length"] == .int(88))
+}
+
+private func assertHydratedBridgeWorkerAttributes(
+    _ attributes: [String: AgentStudioTraceValue]
+) {
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.worker_pool.state"] == .string("ready"))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.worker_pool.manager_state"] == .string("initialized"))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.worker_pool.workers_failed"] == .bool(false))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.worker_pool.total_workers"] == .int(2))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.worker_pool.busy_workers"] == .int(0))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.worker_pool.queued_tasks"] == .int(0))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.worker_pool.active_tasks"] == .int(0))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.worker_pool.file_cache_size"] == .int(1))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.worker_pool.diff_cache_size"] == .int(1))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.worker_pool.init_probe.stage"] == .string("idle"))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.worker_pool.init_probe.theme_count"] == .int(0))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.worker_pool.init_probe.language_count"] == .int(0))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.worker_pool.init_probe.failure_reason"] == .string(""))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.worker_diagnostic.bootstrap_state"] == .string("started"))
+    #expect(
+        attributes["agentstudio.startup_diagnostic.bridge.worker_diagnostic.initialize_request_id_state"]
+            == .string("present"))
+    #expect(
+        attributes["agentstudio.startup_diagnostic.bridge.worker_diagnostic.last_message_type"] == .string("success"))
+    #expect(
+        attributes["agentstudio.startup_diagnostic.bridge.worker_diagnostic.last_request_type"] == .string("initialize")
+    )
+    #expect(
+        attributes["agentstudio.startup_diagnostic.bridge.worker_diagnostic.last_success_matches_initialize_request"]
+            == .string("yes"))
+    #expect(
+        attributes["agentstudio.startup_diagnostic.bridge.worker_diagnostic.last_success_id_state"]
+            == .string("present"))
+    #expect(
+        attributes["agentstudio.startup_diagnostic.bridge.worker_diagnostic.last_success_id_prefix"] == .string("req"))
+    #expect(
+        attributes["agentstudio.startup_diagnostic.bridge.worker_diagnostic.last_success_request_type"]
+            == .string("diff"))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.worker_diagnostic.success_count"] == .int(2))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.worker_diagnostic.initialize_success_count"] == .int(1))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.worker_diagnostic.diff_success_count"] == .int(1))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.worker_diagnostic.file_success_count"] == .int(0))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.worker_diagnostic.forwarded_message_count"] == .int(2))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.worker_diagnostic.last_forward_result"] == .string("ok"))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.worker_diagnostic.failure_count"] == .int(0))
+    #expect(attributes["agentstudio.startup_diagnostic.bridge.worker_diagnostic.last_failure_kind"] == .string("none"))
 }

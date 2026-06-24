@@ -44,10 +44,12 @@ final class StoreVisibilityTierResolver: TerminalRestoreVisibilityResolving {
     }
 
     func tier(for paneId: PaneId) -> VisibilityTier {
-        isVisible(paneId) ? .p0Visible : .p1Hidden
+        guard hasActiveResidency(paneId) else { return .p1Hidden }
+        return isVisible(paneId) ? .p0Visible : .p1Hidden
     }
 
     func isActive(_ paneId: PaneId) -> Bool {
+        guard hasActiveResidency(paneId) else { return false }
         guard let store, let activeTab = store.tabLayoutAtom.activeTab else { return false }
         if activeTab.activePaneId == paneId.uuid {
             return true
@@ -81,6 +83,11 @@ final class StoreVisibilityTierResolver: TerminalRestoreVisibilityResolving {
         }
 
         return true
+    }
+
+    private func hasActiveResidency(_ paneId: PaneId) -> Bool {
+        guard let store, let pane = store.paneAtom.pane(paneId.uuid) else { return false }
+        return pane.residency == .active
     }
 
     private func expandedDrawerActivePaneIds(in store: WorkspaceStore, activeTab: Tab) -> Set<UUID> {

@@ -103,6 +103,8 @@ final class RPCRouterTests {
         func drops() -> [BridgeTelemetryDropReason] {
             recordedDrops
         }
+
+        func drain() async throws {}
     }
 
     private actor BridgeTelemetryIngestorSpy: BridgeTelemetryBatchIngesting {

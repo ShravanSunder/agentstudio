@@ -9,6 +9,7 @@ import type { BridgeTelemetryScope } from '../foundation/telemetry/bridge-teleme
 import commandNotificationFixture from '../test-fixtures/bridge-contract-fixtures/valid/rpc-command-notification.json' with { type: 'json' };
 import commandWithIdFixture from '../test-fixtures/bridge-contract-fixtures/valid/rpc-command-with-id.json' with { type: 'json' };
 import { createBridgeRPCClient } from './bridge-rpc-client.js';
+import { bridgeRPCCommandSchema } from './bridge-rpc-client.js';
 
 describe('bridge RPC client', () => {
 	test('dispatches JSON-RPC commands with bridge nonce and command id', () => {
@@ -25,7 +26,7 @@ describe('bridge RPC client', () => {
 
 		const didSend = client.sendCommand({
 			id: commandWithIdFixture.id,
-			method: commandWithIdFixture.method,
+			method: 'review.markFileViewed',
 			params: commandWithIdFixture.params,
 		});
 
@@ -52,7 +53,7 @@ describe('bridge RPC client', () => {
 		});
 
 		const didSend = client.sendCommand({
-			method: commandNotificationFixture.method,
+			method: 'review.markFileViewed',
 			params: commandNotificationFixture.params,
 		});
 
@@ -78,10 +79,22 @@ describe('bridge RPC client', () => {
 			createCommandId: () => 'cmd-fixed',
 		});
 
-		const didSend = client.sendCommand({ method: 'inbox.post' });
+		const didSend = client.sendCommand({
+			method: 'review.markFileViewed',
+			params: { fileId: 'item-source' },
+		});
 
 		expect(didSend).toBe(false);
 		expect(sentDetails).toEqual([]);
+	});
+
+	test('rejects non-Bridge RPC methods at the schema boundary', () => {
+		expect(() =>
+			bridgeRPCCommandSchema.parse({
+				method: 'inbox.post',
+				params: { title: 'wrong lane' },
+			}),
+		).toThrow();
 	});
 
 	test('attaches trace context outside params and records generic RPC telemetry', () => {

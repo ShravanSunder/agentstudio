@@ -1,0 +1,105 @@
+{
+  "allowedResourceKindsByProtocol": {
+    "review": ["content", "review-package"],
+    "worktree-file": [
+      "worktree.treeWindow",
+      "worktree.treeDeltaOperations",
+      "worktree.status",
+      "worktree.fileContent",
+      "worktree.fileRange"
+    ]
+  },
+  "valid": [
+    {
+      "name": "review content with generation revision cursor",
+      "url": "agentstudio://resource/review/content/content-123?generation=2&revision=4&cursor=cursor_abc-1",
+      "expected": {
+        "protocol": "review",
+        "resourceKind": "content",
+        "opaqueId": "content-123",
+        "generation": 2,
+        "revision": 4,
+        "cursor": "cursor_abc-1",
+        "canonicalUrl": "agentstudio://resource/review/content/content-123?generation=2&revision=4&cursor=cursor_abc-1"
+      }
+    },
+    {
+      "name": "worktree file content with generation cursor",
+      "url": "agentstudio://resource/worktree-file/worktree.fileContent/file-abc?generation=42&cursor=cursor-42",
+      "expected": {
+        "protocol": "worktree-file",
+        "resourceKind": "worktree.fileContent",
+        "opaqueId": "file-abc",
+        "generation": 42,
+        "cursor": "cursor-42",
+        "canonicalUrl": "agentstudio://resource/worktree-file/worktree.fileContent/file-abc?generation=42&cursor=cursor-42"
+      }
+    },
+    {
+      "name": "worktree tree window with generation cursor",
+      "url": "agentstudio://resource/worktree-file/worktree.treeWindow/tree-window-abc?generation=42&cursor=cursor-42",
+      "expected": {
+        "protocol": "worktree-file",
+        "resourceKind": "worktree.treeWindow",
+        "opaqueId": "tree-window-abc",
+        "generation": 42,
+        "cursor": "cursor-42",
+        "canonicalUrl": "agentstudio://resource/worktree-file/worktree.treeWindow/tree-window-abc?generation=42&cursor=cursor-42"
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "unknown protocol",
+      "url": "agentstudio://resource/comments/content/content-123?generation=2&revision=4&cursor=cursor_abc-1"
+    },
+    {
+      "name": "unknown resource kind",
+      "url": "agentstudio://resource/review/comment-thread/thread-123?generation=2&revision=4&cursor=cursor_abc-1"
+    },
+    {
+      "name": "duplicate query key",
+      "url": "agentstudio://resource/review/content/content-123?generation=2&generation=3&revision=4&cursor=cursor_abc-1"
+    },
+    {
+      "name": "unknown query key",
+      "url": "agentstudio://resource/review/content/content-123?generation=2&revision=4&cursor=cursor_abc-1&path=/tmp/a"
+    },
+    {
+      "name": "traversal segment",
+      "url": "agentstudio://resource/review/content/../content-123?generation=2&revision=4&cursor=cursor_abc-1"
+    },
+    {
+      "name": "double encoded traversal segment",
+      "url": "agentstudio://resource/review/content/%252e%252e?generation=2&revision=4&cursor=cursor_abc-1"
+    },
+    {
+      "name": "malformed percent encoding",
+      "url": "agentstudio://resource/review/content/%E0%A4%A?generation=2&revision=4&cursor=cursor_abc-1"
+    },
+    {
+      "name": "encoded slash segment",
+      "url": "agentstudio://resource/review/content/content%2F123?generation=2&revision=4&cursor=cursor_abc-1"
+    },
+    {
+      "name": "double encoded slash segment",
+      "url": "agentstudio://resource/review/content/content%252F123?generation=2&revision=4&cursor=cursor_abc-1"
+    },
+    {
+      "name": "invalid generation",
+      "url": "agentstudio://resource/review/content/content-123?generation=-1&revision=4&cursor=cursor_abc-1"
+    },
+    {
+      "name": "invalid revision",
+      "url": "agentstudio://resource/review/content/content-123?generation=2&revision=4.5&cursor=cursor_abc-1"
+    },
+    {
+      "name": "bad cursor",
+      "url": "agentstudio://resource/review/content/content-123?generation=2&revision=4&cursor=cursor%20abc"
+    },
+    {
+      "name": "empty cursor",
+      "url": "agentstudio://resource/review/content/content-123?generation=2&revision=4&cursor="
+    }
+  ]
+}

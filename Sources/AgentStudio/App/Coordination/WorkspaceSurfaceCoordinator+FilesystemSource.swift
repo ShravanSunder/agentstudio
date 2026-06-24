@@ -127,6 +127,7 @@ extension WorkspaceSurfaceCoordinator {
                 to: paneEventBus
             )
         }
+        await publishWorktreeFileSurfaceEnvelopeIfNeeded(envelope)
         return true
     }
 
@@ -149,6 +150,44 @@ extension WorkspaceSurfaceCoordinator {
             return "git_snapshot_projection"
         default:
             return "unknown"
+        }
+    }
+
+    private func publishWorktreeFileSurfaceEnvelopeIfNeeded(_ envelope: RuntimeEnvelope) async {
+        guard case .worktree(let worktreeEnvelope) = envelope else { return }
+        guard let worktreeId = worktreeEnvelope.worktreeId else { return }
+
+        for bridgeView in viewRegistry.allBridgeViews.values {
+            let controller = bridgeView.controller
+            guard controller.runtime.metadata.repoId == worktreeEnvelope.repoId,
+                controller.runtime.metadata.worktreeId == worktreeId
+            else {
+                continue
+            }
+
+            do {
+                switch worktreeEnvelope.event {
+                case .filesystem(.filesChanged(let changeset)):
+                    try await controller.publishWorktreeFileSurfaceChangeset(changeset)
+                case .gitWorkingDirectory(.snapshotChanged(let snapshot)):
+                    guard snapshot.worktreeId == worktreeId, snapshot.repoId == worktreeEnvelope.repoId else {
+                        continue
+                    }
+                    try await controller.publishWorktreeFileSurfaceStatus(
+                        GitWorkingTreeStatus(
+                            summary: snapshot.summary,
+                            branch: snapshot.branch,
+                            origin: nil
+                        )
+                    )
+                case .filesystem, .gitWorkingDirectory, .forge, .security:
+                    continue
+                }
+            } catch {
+                Self.logger.warning(
+                    "Worktree/File Bridge publish failed for pane \(controller.paneId.uuidString, privacy: .public): \(error.localizedDescription, privacy: .private)"
+                )
+            }
         }
     }
 
