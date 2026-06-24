@@ -175,8 +175,20 @@ Accepted findings:
    and states that failed/disconnected subagent review does not satisfy or
    invalidate the gate by itself.
 
+Post-fix review:
+
+- `Tesla` read the full packet and required artifacts after the accepted
+  finding patches.
+- Remaining P0-P2 blockers: none.
+- Applied prior-failure question: under the current spec/plan contract, proof
+  cannot pass while the user-visible product is still wrong because the contract
+  now requires visible product checks, stale/refresh assertions, provenance,
+  negative substitutes, native-runtime proof, and query/filter result deltas.
+- Recommendation: `plan-creation-swarm` can proceed from a spec-readiness
+  standpoint.
+
 Residual status:
 
-The spec still requires a final post-fix review pass before plan creation is
-called accepted. Current reducer status is "findings addressed", not "spec
-review complete."
+Spec review is accepted for plan creation. Gate 0 remains intentionally red
+until 06P is implemented; that is execution work, not a remaining spec-review
+blocker.
