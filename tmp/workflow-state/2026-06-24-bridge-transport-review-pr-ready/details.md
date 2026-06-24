@@ -2,8 +2,8 @@
 
 Goal id: `2026-06-24-bridge-transport-review-pr-ready`
 Status: active
-Current workflow: plan-review-swarm accepted
-Next workflow: `shravan-dev-workflow:implementation-execute-plan`
+Current workflow: implementation-execute-plan Ticket 00 Vite/dev-server proof complete
+Next workflow: `shravan-dev-workflow:implementation-review-swarm`
 
 ## Durable Objective
 
@@ -182,26 +182,30 @@ Former product red proof:
 
 Current product recovery checkpoint:
 
-- Commit: `0efbec01 Add worktree devserver product controls proof`
+- Commits:
+  - `0efbec01 Add worktree devserver product controls proof`
+  - `9371d635 Prove worktree devserver stale refresh`
 - `pnpm --dir BridgeWeb run test:dev-server:worktree`
 - Passed on 2026-06-24.
 - Proof artifact:
-  `tmp/bridge-viewer-worktree-dev-server/2026-06-24T23-07-35-886Z/worktree-dev-server-proof.json`
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-24T23-21-47-787Z/worktree-dev-server-proof.json`
 - Screenshots:
-  - `tmp/bridge-viewer-worktree-dev-server/2026-06-24T23-07-35-886Z/worktree-file-ready.png`
-  - `tmp/bridge-viewer-worktree-dev-server/2026-06-24T23-07-35-886Z/worktree-file-search-result.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-24T23-21-47-787Z/worktree-file-ready.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-24T23-21-47-787Z/worktree-file-search-result.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-24T23-21-47-787Z/worktree-file-stale-refresh.png`
 - This proves the exact current-worktree URL renders the Worktree/File product
   shell, real file content, search input, regex toggle, filter/status controls,
-  negative raw-package text assertions, and tree/content scroll canaries.
+  negative raw-package text assertions, tree/content scroll canaries, and real
+  route-level open-file invalidation plus explicit refresh:
+  ready -> stale/update -> user refresh -> ready.
 
-Remaining Gate 0 gap:
+Vite/dev-server Gate 0 status:
 
-- Dev-server proof still needs the real route-level open-file invalidation and
-  explicit refresh transition: ready -> stale/update -> user refresh -> ready.
-- Browser component proof covers the stale/refresh state machine, but that is
-  not a substitute for the exact current-worktree dev-server product proof.
-- Do not advance to Gate 1 until this remaining Gate 0 proof row is satisfied or
-  explicitly replanned with user approval.
+- The exact URL proof row is complete from implementation-evidence standpoint.
+- Native Agent Studio Bridge/WKWebView proof is still not satisfied by this and
+  remains required before PR-ready.
+- Downstream Gate 1 work may begin only after this implementation slice is
+  reviewed or the parent explicitly accepts the proof without another review.
 
 ## Required Reviewer Packet Contents
 
