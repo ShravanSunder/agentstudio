@@ -1,17 +1,19 @@
 # Ticket 04 Review-Fix Implementation Review
 
 Date: 2026-06-24
-Reviewed commit: `6724fae3`
-Review range: `f5701c94..HEAD`
-Mode: implementation re-review
+Reviewed commits: `6724fae3`, `66f03af5`, `4d1cfe6f`, `9141c177`
+Review ranges: `f5701c94..6724fae3`, `4d1cfe6f..HEAD`
+Mode: implementation re-review with focused proof addendum
 
 ## Verdict
 
-`not_ready`
+`ready`
 
-Reason: the first Ticket 04 review-fix pass closed the original scroll/loading
-proof issues, but re-review found live-stream correctness and provider
-containment gaps that still blocked Ticket 04 readiness.
+Reason: the original Ticket 04 review-fix pass returned `not_ready`, but all
+accepted blocker/important findings have now been patched and proven. The final
+focused addendum at `9141c177` closes the remaining browser proof uncertainty
+for post-refresh rendered-DOM capability URL scrubbing, and two focused
+re-review lanes found no blocker or important findings.
 
 ## Accepted Findings
 
@@ -77,6 +79,21 @@ Second re-review follow-through:
   for browser/dev-server proof.
 - Added browser-mode coverage for stale-with-body, no auto-fetch, explicit
   Refresh, latest content commit, and preserved tree row after invalidation.
+- Added post-refresh rendered-DOM scrubbing proof so the same browser flow
+  asserts `document.body.innerHTML` does not expose `agentstudio://resource`
+  after the refreshed content is visible.
+
+Final focused re-review addendum:
+
+- Proof closure lane reviewed `4d1cfe6f..HEAD` and reported no findings with
+  high confidence. It verified the new assertion is post-Refresh, post-ready,
+  checks rendered DOM, and does not weaken stale invalidation / no-auto-fetch /
+  explicit Refresh coverage.
+- Security/trust-boundary lane reviewed the same addendum and reported no
+  findings with high confidence. It confirmed `document.body.innerHTML` is the
+  widest rendered DOM/body surface this browser test exercises and that the
+  assertion placement after refresh is meaningful for the bounded capability URL
+  leakage claim.
 
 ## Review Proof
 
@@ -136,5 +153,5 @@ Green proof after the follow-through fix:
 ## Routing Follow-through
 
 Official workflow should route back to
-`shravan-dev-workflow:implementation-review-swarm` for another Ticket 04
-re-review before Ticket 04 can advance to cleanup or PR-ready wrapup.
+`shravan-dev-workflow:implementation-execute-plan` for Ticket 05 cleanup / hard
+cutover before PR-ready wrapup.

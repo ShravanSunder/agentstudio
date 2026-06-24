@@ -5,8 +5,8 @@ Created: 2026-06-22
 
 ## Current State
 
-Current workflow: `shravan-dev-workflow:implementation-review-swarm`
-Next workflow: `shravan-dev-workflow:implementation-review-swarm`
+Current workflow: `shravan-dev-workflow:implementation-execute-plan`
+Next workflow: `shravan-dev-workflow:implementation-execute-plan`
 
 Reason:
 
@@ -18,12 +18,14 @@ Reason:
   invalidation-only tree state loss, stale flow missing explicit refresh/body
   continuity, changed-file symlink escape in the Vite dev provider, and missing
   ticket-local red proof.
-- Those accepted findings are now patched and proven in the current worktree.
-  A second focused re-review then accepted one proof-only blocker: stale
-  invalidation and explicit refresh needed browser-level proof, not jsdom only.
-  That browser proof is now added and green. Route back to
-  `shravan-dev-workflow:implementation-review-swarm` for another Ticket 04
-  re-review before cleanup, PR readiness, or handoff.
+- Those accepted findings were patched and proven. A second focused re-review
+  then accepted one proof-only blocker: stale invalidation and explicit refresh
+  needed browser-level proof, not jsdom only.
+- Browser proof is now added and green, including post-refresh rendered-DOM
+  scrubbing for `agentstudio://resource` capability URLs at `9141c177`.
+  Two focused re-review lanes found no blocker or important findings. Route to
+  `shravan-dev-workflow:implementation-execute-plan` for Ticket 05 cleanup /
+  hard cutover before PR readiness or final goal closeout.
 
 Current Ticket 03 checkpoint status:
 
