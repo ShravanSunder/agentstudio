@@ -25,10 +25,17 @@ large_non_webkit_filter_pattern() {
     MainWindowControllerInboxToolbarButtonTests
     ProcessExecutorTests
     AgentStudioAppIPCServiceAuthModeTests
-    AgentStudioAppIPCServiceCommandTests
     AgentStudioAppIPCServiceContributionTests
     AgentStudioIPCBridgeServiceTests
     AgentStudioAppIPCCommandExecuteContractTests
+  )
+  local IFS="|"
+  echo "${patterns[*]}"
+}
+
+large_serial_non_webkit_filter_pattern() {
+  local patterns=(
+    AgentStudioAppIPCServiceCommandTests
     PaneAgentLaunchOwnerTests
   )
   local IFS="|"
@@ -76,14 +83,14 @@ run_fast_non_webkit_swift_tests() {
       env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
       --parallel --num-workers "$SWIFT_TEST_WORKERS" \
       --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests \
-      --skip "Benchmark|AgentStudioAppIPCServiceTests|$(large_non_webkit_filter_pattern)" --build-path "$BUILD_PATH"
+      --skip "Benchmark|AgentStudioAppIPCServiceTests|$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)" --build-path "$BUILD_PATH"
   else
     run_swift_with_timeout \
       "serial fast non-WebKit suites" \
       "$TIMEOUT_SECONDS" \
       env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
       --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests \
-      --skip "Benchmark|AgentStudioAppIPCServiceTests|$(large_non_webkit_filter_pattern)" --build-path "$BUILD_PATH"
+      --skip "Benchmark|AgentStudioAppIPCServiceTests|$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)" --build-path "$BUILD_PATH"
   fi
 
   run_swift_with_timeout \
@@ -105,12 +112,19 @@ run_large_non_webkit_swift_tests() {
       --parallel --num-workers "$SWIFT_TEST_WORKERS" \
       --filter "$(large_non_webkit_filter_pattern)" \
       --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
+
+    run_swift_with_timeout \
+      "serial large process suites" \
+      "$TIMEOUT_SECONDS" \
+      env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
+      --filter "$(large_serial_non_webkit_filter_pattern)" \
+      --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
   else
     run_swift_with_timeout \
       "serial large non-WebKit suites" \
       "$TIMEOUT_SECONDS" \
       env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
-      --filter "$(large_non_webkit_filter_pattern)" \
+      --filter "$(large_non_webkit_filter_pattern)|$(large_serial_non_webkit_filter_pattern)" \
       --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests --build-path "$BUILD_PATH"
   fi
 }

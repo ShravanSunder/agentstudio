@@ -89,9 +89,7 @@ struct PaneAgentLaunchOwnerTests {
 
             let handle = try owner.launchPaneAgent(boundPaneId: fixture.boundPaneId, boundWorkspaceId: nil)
 
-            var status: Int32 = 0
-            let waited = waitpid(handle.processIdentifier, &status, 0)
-            #expect(waited == handle.processIdentifier)
+            let status = try #require(waitForProcessExit(processIdentifier: handle.processIdentifier))
             #expect(status == 0)
         #endif
     }
@@ -113,6 +111,37 @@ struct PaneAgentLaunchOwnerTests {
         #expect(!target.contains(#""AgentStudioAppIPC""#))
     }
 }
+
+#if canImport(Darwin)
+    private func waitForProcessExit(
+        processIdentifier: pid_t,
+        timeout: DispatchTimeInterval = .seconds(10)
+    ) -> Int32? {
+        let semaphore = DispatchSemaphore(value: 0)
+        let source = DispatchSource.makeProcessSource(
+            identifier: processIdentifier,
+            eventMask: .exit,
+            queue: DispatchQueue.global(qos: .userInitiated)
+        )
+        source.setEventHandler {
+            semaphore.signal()
+        }
+        source.resume()
+
+        let waitResult = semaphore.wait(timeout: .now() + timeout)
+        source.cancel()
+
+        var status: Int32 = 0
+        if waitResult == .timedOut {
+            _ = kill(processIdentifier, SIGKILL)
+            _ = waitpid(processIdentifier, &status, 0)
+            return nil
+        }
+
+        let waited = waitpid(processIdentifier, &status, 0)
+        return waited == processIdentifier ? status : nil
+    }
+#endif
 
 private final class RecordingPaneAgentBootstrapProvider: PaneAgentBootstrapProviding {
     let bootstrap: AgentStudioIPCPaneBootstrap
