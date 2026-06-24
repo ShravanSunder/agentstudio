@@ -1,9 +1,10 @@
 # Worktree/File Surface Protocol Spec
 
 Date: 2026-06-22
-Status: Reopened for 2026-06-24 Worktree dev-server product E2E correction.
-This slice is not plan-ready until the exact `current-worktree` dev URL has a
-reviewed product-surface proof contract and precursor ticket.
+Status: Reopened for 2026-06-24 expanded PR-ready epic reconciliation.
+This slice owns Gate 0's first product proof: the exact `current-worktree` dev
+URL must have a reviewed product-surface proof contract and precursor ticket
+before downstream transport, Review, renderer, and PR-ready gates resume.
 Parent: [spec.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/spec-workflows/2026-06-22-bridge-transport-streaming-spec/spec.md:1)
 
 This file owns the Worktree/File Surface protocol family. The user-facing

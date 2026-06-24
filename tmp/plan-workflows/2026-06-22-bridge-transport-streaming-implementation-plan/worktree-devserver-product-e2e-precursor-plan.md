@@ -50,6 +50,12 @@ Worktree/File product surface with browser proof.
 The precursor is complete only when Playwright evidence proves all required
 behaviors and fails if the route regresses to a mock/raw/minimal substitute.
 
+This precursor is the fast-loop Vite/dev-server product proof. It does not
+replace Agent Studio Bridge/WKWebView runtime proof for the full PR-ready epic.
+The later implementation plan must add native app-hosted Bridge proof with
+marker-correlated evidence that the same protocol/source/resource behavior works
+through Swift, WKWebView, the Bridge host wiring, and packaged app assets.
+
 ## Scope
 
 In scope:
@@ -213,6 +219,14 @@ Browser/E2E:
 - scroll extent canary
 - screenshots and JSON artifact
 - negative substitute guard
+
+Native runtime:
+
+- later PR-ready gate runs Agent Studio Bridge/WKWebView proof for the same
+  protocol path
+- proof includes bridge route boot, source/protocol identity, resource/content
+  requests, event stream readiness, and Victoria/log marker correlation
+- Vite-only proof must not be used as the final native Bridge proof
 
 Quality:
 

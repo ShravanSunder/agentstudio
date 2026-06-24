@@ -1,10 +1,11 @@
 # Bridge Transport Streaming Reconciliation Plan
 
 Date: 2026-06-24
-Status: reopened after 2026-06-24 Worktree dev-server product E2E proof gap.
-The prior slice 07 proof is invalid for product readiness. A blocking precursor
-ticket must make the exact `current-worktree` dev URL work as the intended
-Worktree/File product surface before slice 06 resumes.
+Status: reopened for the 2026-06-24 expanded Bridge transport/review PR-ready
+epic. The prior slice 07 proof is invalid for product readiness. Gate 0 is the
+first mandatory gate: a blocking precursor ticket must make the exact
+`current-worktree` dev URL work as the intended Worktree/File product surface
+before downstream transport, Review, renderer, and PR-ready gates resume.
 Source spec:
 [spec.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/spec-workflows/2026-06-22-bridge-transport-streaming-spec/spec.md:1),
 [review-protocol.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/spec-workflows/2026-06-22-bridge-transport-streaming-spec/review-protocol.md:1),
@@ -18,9 +19,20 @@ Current red proof artifacts:
 - `tmp/bridge-worktree-devserver-proof-recovery/current-worktree-route-after-3s.png`
 - `tmp/bridge-worktree-devserver-proof-recovery/current-worktree-route-diagnostics.json`
 
+Goal state:
+
+- [details.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/workflow-state/2026-06-24-bridge-transport-review-pr-ready/details.md:1)
+- [events.jsonl](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/workflow-state/2026-06-24-bridge-transport-review-pr-ready/events.jsonl:1)
+
 This is not a replacement implementation plan yet. It records why the original
 00-05 plan cannot be treated as fully satisfying the reopened spec and names
 the next critical plan slices.
+
+This reconciliation is not the whole epic plan. It must feed a checkpointed
+plan that covers Gate 0 Worktree/File product proof, Gate 1 generic Bridge
+transport/protocol/scheduler implementation, Gate 2 Worktree/File and Review
+app protocol implementation, Gate 3 Pierre/Review renderer rewrite/integration,
+and Gate 4 PR-ready non-merge wrapup.
 
 ## Current Truth
 
@@ -90,6 +102,10 @@ Proof:
   expectation before the ticket is marked complete.
 - Unit/component tests may support this ticket, but cannot replace the
   dev-server E2E proof.
+- This Vite/dev-server proof is required first but is not the final native
+  proof. The full PR-ready plan must add Agent Studio Bridge/WKWebView runtime
+  proof with marker-correlated bridge route, stream/resource, and product-surface
+  evidence.
 
 ### 06 Continuous Event Stream Backbone
 
@@ -229,14 +245,17 @@ Proof:
 ## Plan Decision
 
 Do not keep executing the old 00-05 plan as if it is current. The prior
-spec-review reduction is reopened by the Worktree dev-server product E2E proof
-gap. The right next step is:
+spec-review reduction is reopened by the expanded PR-ready epic scope and the
+Worktree dev-server product E2E proof gap. The right next step is:
 
-1. Run spec-review-swarm on the corrected Worktree/File product E2E contract.
+1. Run spec-review-swarm on the corrected full epic contract, with the reviewer
+   failure context from the goal-state details.
 2. Convert this reconciliation file into a real checkpointed implementation
-   plan only after the spec review accepts the blocker language.
-3. Execute precursor 06P before slice 06.
+   plan only after the spec review accepts the Gate 0 blocker language and the
+   downstream Gate 1-4 scope.
+3. Execute precursor 06P before slice 06 or any downstream implementation claim.
 4. Keep precursor 06P's Playwright/dev-server product E2E proof as a standing
    gate while later transport, scheduler, renderer, and telemetry slices are
    implemented.
-5. After plan review passes, route execution under the orchestrator goal.
+5. Add Agent Studio Bridge/WKWebView runtime proof before PR-ready wrapup.
+6. After plan review passes, route execution under the orchestrator goal.

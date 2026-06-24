@@ -1,9 +1,10 @@
 # Review Protocol Spec
 
 Date: 2026-06-22
-Status: Reopened only for parent workflow alignment after the 2026-06-24
-Worktree dev-server product E2E proof correction. Review runtime implementation
-remains open plan work, but this slice has no new Review-specific blocker.
+Status: Reopened for parent workflow alignment after the 2026-06-24 expanded
+PR-ready epic reset. Review runtime implementation and Pierre/Review renderer
+cutover are required downstream gates; Gate 0 Worktree/File product proof is the
+first blocker before those gates resume.
 Parent: [spec.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/spec-workflows/2026-06-22-bridge-transport-streaming-spec/spec.md:1)
 
 This file owns the Review application protocol. Review is one app protocol

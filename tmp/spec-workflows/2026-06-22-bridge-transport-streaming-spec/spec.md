@@ -1,10 +1,12 @@
 # Bridge Transport And App Protocol Architecture Spec
 
 Date: 2026-06-22
-Status: Reopened for 2026-06-24 Worktree dev-server product E2E correction.
-This artifact is not plan-ready until the Worktree/File product-surface proof
-contract is reviewed and the reconciliation plan contains a blocking precursor
-ticket for the exact `current-worktree` dev URL.
+Status: Reopened for 2026-06-24 expanded PR-ready epic reconciliation.
+Gate 0 is still the first mandatory blocker: the Worktree/File product-surface
+proof contract and precursor ticket must close before downstream implementation
+claims. The full goal now continues through transport/protocol/scheduler
+implementation, Worktree/File and Review protocol implementation, Pierre/Review
+renderer cutover, and PR-ready non-merge wrapup.
 Audience: product/design reviewers, Bridge implementers, Review Viewer maintainers, Worktree/File Surface maintainers, future agents
 
 This is a product and architecture spec. It aligns the design before
@@ -15,6 +17,38 @@ Application-owned protocol details live in:
 
 - [review-protocol.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/spec-workflows/2026-06-22-bridge-transport-streaming-spec/review-protocol.md:1)
 - [worktree-file-surface-protocol.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/spec-workflows/2026-06-22-bridge-transport-streaming-spec/worktree-file-surface-protocol.md:1)
+
+Goal-state context lives in:
+
+- [details.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/workflow-state/2026-06-24-bridge-transport-review-pr-ready/details.md:1)
+- [events.jsonl](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/workflow-state/2026-06-24-bridge-transport-review-pr-ready/events.jsonl:1)
+
+## 0. Epic Gates And Review Context
+
+This spec feeds a full PR-ready epic. Gate 0 is the first gate, not the final
+scope.
+
+Gate order:
+
+1. Gate 0: Worktree/File dev-server product proof for the exact
+   `?fixture=worktree&workers=on&scenario=current-worktree` URL. This must
+   prove the intended product surface with browser-visible controls and
+   negative-substitute assertions. Gate 0 also records the native Agent Studio
+   Bridge/WKWebView proof requirement: dev-server proof gets the product route
+   honest first, but final PR-ready proof must show the same Bridge protocol
+   behavior through the app-hosted Bridge surface.
+2. Gate 1: generic Bridge transport/protocol/scheduler implementation.
+3. Gate 2: Worktree/File and Review application protocol implementation.
+4. Gate 3: Pierre/Review renderer rewrite/integration on the new
+   transport/materialization/scheduler model.
+5. Gate 4: PR-ready non-merge wrapup with proof pyramid, implementation review,
+   checks, PR state, review-thread state, and mergeability freshly reported.
+
+Every reviewer packet for this epic must include prior failure context. A
+reviewer must be able to distinguish the old narrow green proof from the current
+product red proof and must explicitly ask whether the submitted proof can pass
+while the user-visible product is still wrong. Reviewer packets that omit this
+context are incomplete.
 
 ## 1. Product Intent
 
@@ -1176,6 +1210,7 @@ Proof expectations feed a later plan. They are not task order.
 | Stable scroll extent | schema/provider/browser canary fixture | huge tree and opened file before content bytes hydrate | provider emits exact row/line count or conservative estimated extent; browser `scrollHeight`/virtualizer `totalSize` stays within tolerance after hydration or logs attributed measured deltas | accepting scrollbar jump as manual UX judgment |
 | Worktree visible app proof | browser/dev-server fixture | current-worktree route in a real browser | app root/tree pane/file pane have non-zero visible rects; sampled tree entries occupy distinct row boxes; selected exact-line fixture preserves visible line structure; packaged styling affects the surface; proof records Worktree/File source identity, event/intake lineage, and Worktree frame provenance; raw frame fields, serialized payloads, and raw path corpus dumps are absent outside intentional tree/content UI | schema-only proof, hidden DOM text, Review package/query lineage, hardcoded pass flag, or screenshot with concatenated paths |
 | Worktree product E2E proof | Playwright/dev-server fixture plus parent-inspected screenshot artifact | exact `?fixture=worktree&workers=on&scenario=current-worktree` URL | route identifies the Worktree/File product surface; tree/file/status controls are visible; file click changes the open content; search, regex toggle, and filter controls produce observable state changes; large tree and large file scroll preserve stable extents; proof artifact records source/protocol provenance and screenshots before/after interaction | root mock Review route, minimal file-list plus `<pre>` renderer, DOM text-only assertion, content-ready flag, or screenshot that was not tied to Playwright interaction |
+| Agent Studio Bridge runtime proof | native app / WKWebView / Victoria-backed fixture | app-hosted Bridge surface opens the same Worktree/File or Review protocol path through native Bridge wiring | Swift host, bridge protocol, app assets, stream/RPC/resource descriptors, and browser surface agree on protocol/source identity; marker-scoped logs/metrics prove route boot, content/resource requests, event stream readiness, and absence of mock-only dev-server shortcuts | Vite-only proof, mocked backend, packaged asset existence, screenshot without bridge markers, or uncorrelated logs |
 | Renderer boundary and cutover | integration/browser fixture | Pierre/CodeView/tree adapter input and update lifecycle | app/protocol-owned renderer adapters receive prepared items/paths only; same-lineage updates avoid incompatible full remount; stable extent is consumed by renderer path | Bridge URL in renderer, generic Bridge interpreting app render semantics, or old renderer path bypassing the materializer contract |
 | Telemetry safety | canary fixture | seeded path/content/prompt/URL/comment plus demand audit trace | exported telemetry excludes all seeds and retains safe scheduler audit fields | denylist-only claim |
 | Review ownership | protocol fixture | comparison open | provider emits package frames | browser computes repo diff |

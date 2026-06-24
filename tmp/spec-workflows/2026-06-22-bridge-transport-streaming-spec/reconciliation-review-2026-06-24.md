@@ -118,3 +118,20 @@ The spec correction is ready for a real spec-review-swarm retry when the agent
 transport is stable. Until then, do not claim the spec has completed swarm
 review. Planning may proceed only as draft precursor planning, with 06P still a
 blocking gate before downstream implementation resumes.
+
+## 2026-06-24 Expanded Goal Reset Note
+
+The active goal is no longer Gate-0-only recovery. Gate 0 is the first blocker
+inside a full PR-ready epic. Reviewers must evaluate whether the current spec
+and plan preserve:
+
+- Gate 0 Worktree/File product proof
+- Gate 1 generic Bridge transport/protocol/scheduler implementation
+- Gate 2 Worktree/File and Review app protocol implementation
+- Gate 3 Pierre/Review renderer rewrite/integration
+- Gate 4 PR-ready non-merge wrapup
+
+Future review packets must include the prior failure context from
+[details.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/workflow-state/2026-06-24-bridge-transport-review-pr-ready/details.md:1).
+The reviewer should explicitly ask whether the submitted proof can pass while
+the user-visible product is still wrong.

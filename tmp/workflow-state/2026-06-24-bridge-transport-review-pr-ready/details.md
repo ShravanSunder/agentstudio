@@ -45,6 +45,12 @@ Must prove:
 - JSON proof artifact
 - negative assertions against mock/raw/minimal substitutes
 
+Gate 0 starts with Vite/dev-server proof because that is the fastest loop for
+the broken Worktree/File product surface. It does not replace native proof for
+PR-ready. Before the epic can close, the same protocol behavior must also be
+proven through Agent Studio's app-hosted Bridge/WKWebView path with
+marker-correlated evidence.
+
 Gate 0 source plan:
 
 - [worktree-devserver-product-e2e-precursor-plan.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/worktree-devserver-product-e2e-precursor-plan.md:1)
@@ -91,6 +97,8 @@ PR-ready means:
 - implementation complete
 - required proof pyramid passing or explicitly not applicable
 - dev-server/browser E2E and visual proof captured
+- Agent Studio Bridge/WKWebView runtime proof captured for the relevant product
+  path, not only Vite/dev-server proof
 - performance/observability proof captured where required
 - implementation review findings addressed or explicitly rejected
 - lint/typecheck/tests green for agreed scope
