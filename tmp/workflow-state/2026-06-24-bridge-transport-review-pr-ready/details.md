@@ -10,6 +10,13 @@ Next workflow: `shravan-dev-workflow:implementation-execute-plan`
 Finish the full Bridge transport/review epic to PR-ready state. Gate 0 is the
 first mandatory prerequisite, not the final PR objective.
 
+The main product focus is a functional, performant Review app on the accepted
+Bridge transport/materialization/scheduler architecture. Worktree/File Gate 0
+exists to restore trustworthy product proof and prevent raw/mock/minimal routes
+from passing, but it must not become the destination. Gates 1-3 are the path to
+the Review/Pierre app that works smoothly for large static diffs, live updates,
+and change-set comparison.
+
 The work is complete only when:
 
 - Gate 0 proves the Worktree/File dev-server product surface.
@@ -161,7 +168,7 @@ Old narrow green proof:
 - This proves route/data/scroll/text behavior only.
 - It does not satisfy Gate 0.
 
-Current product red proof:
+Former product red proof:
 
 - `tmp/bridge-worktree-devserver-proof-recovery/current-worktree-route-after-3s.png`
 - `tmp/bridge-worktree-devserver-proof-recovery/current-worktree-route-diagnostics.json`
@@ -172,6 +179,29 @@ Current product red proof:
   - search input: 0
   - regex toggle: 0
   - filter/status controls: 0
+
+Current product recovery checkpoint:
+
+- Commit: `0efbec01 Add worktree devserver product controls proof`
+- `pnpm --dir BridgeWeb run test:dev-server:worktree`
+- Passed on 2026-06-24.
+- Proof artifact:
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-24T23-07-35-886Z/worktree-dev-server-proof.json`
+- Screenshots:
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-24T23-07-35-886Z/worktree-file-ready.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-24T23-07-35-886Z/worktree-file-search-result.png`
+- This proves the exact current-worktree URL renders the Worktree/File product
+  shell, real file content, search input, regex toggle, filter/status controls,
+  negative raw-package text assertions, and tree/content scroll canaries.
+
+Remaining Gate 0 gap:
+
+- Dev-server proof still needs the real route-level open-file invalidation and
+  explicit refresh transition: ready -> stale/update -> user refresh -> ready.
+- Browser component proof covers the stale/refresh state machine, but that is
+  not a substitute for the exact current-worktree dev-server product proof.
+- Do not advance to Gate 1 until this remaining Gate 0 proof row is satisfied or
+  explicitly replanned with user approval.
 
 ## Required Reviewer Packet Contents
 
