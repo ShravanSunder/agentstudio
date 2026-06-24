@@ -118,9 +118,145 @@ describe('WorktreeFileApp', () => {
 		expect(document.body.textContent).toContain('src/app.ts');
 		expect(document.body.textContent).not.toContain('must-not-fetch');
 	});
+
+	test('keeps latest selection when an older content request resolves later', async () => {
+		const slowDescriptor = makeFileDescriptor({
+			contentHandle: 'slow-content',
+			fileId: 'file-slow',
+			path: 'src/slow.ts',
+		});
+		const unavailableDescriptor = makeFileDescriptor({
+			contentHandle: 'binary-content',
+			fileId: 'file-binary',
+			isBinary: true,
+			path: 'assets/logo.png',
+			virtualizedExtentKind: 'unavailable',
+		});
+		const slowContent = makeDeferred<string>();
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<WorktreeFileApp
+					fetchResource={async ({ resourceUrl }) => {
+						if (resourceUrl.includes('slow-content')) {
+							return await slowContent.promise;
+						}
+						throw new Error(`Unexpected resource fetch ${resourceUrl}`);
+					}}
+					initialFrames={makeFrames(slowDescriptor, unavailableDescriptor)}
+				/>,
+			);
+		});
+
+		await act(async (): Promise<void> => {
+			document.querySelector<HTMLButtonElement>('[data-worktree-file-path="src/slow.ts"]')?.click();
+			await nextMicrotask();
+		});
+		expect(
+			document
+				.querySelector('[data-worktree-open-file-state]')
+				?.getAttribute('data-worktree-open-file-state'),
+		).toBe('loading');
+
+		await act(async (): Promise<void> => {
+			document
+				.querySelector<HTMLButtonElement>('[data-worktree-file-path="assets/logo.png"]')
+				?.click();
+			await nextMicrotask();
+		});
+		expect(
+			document
+				.querySelector('[data-worktree-open-file-state]')
+				?.getAttribute('data-worktree-open-file-state'),
+		).toBe('unavailable');
+		expect(
+			document
+				.querySelector('[data-worktree-open-file-path]')
+				?.getAttribute('data-worktree-open-file-path'),
+		).toBe('assets/logo.png');
+
+		await act(async (): Promise<void> => {
+			slowContent.resolve('slow content must stay stale\n');
+			await slowContent.promise;
+			await nextMicrotask();
+		});
+
+		expect(
+			document
+				.querySelector('[data-worktree-open-file-state]')
+				?.getAttribute('data-worktree-open-file-state'),
+		).toBe('unavailable');
+		expect(
+			document
+				.querySelector('[data-worktree-open-file-path]')
+				?.getAttribute('data-worktree-open-file-path'),
+		).toBe('assets/logo.png');
+		expect(document.body.textContent).not.toContain('slow content must stay stale');
+	});
+
+	test('marks an open file stale and adopts replacement extent after invalidation frames', async () => {
+		const descriptor = makeFileDescriptor({ lineCount: 1 });
+		const replacementDescriptor = makeFileDescriptor({
+			contentHandle: 'file-content-2',
+			fileId: descriptor.fileId,
+			lineCount: 7,
+			path: descriptor.path,
+		});
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<WorktreeFileApp
+					fetchResource={async () => 'export const value = 2;\n'}
+					initialFrames={makeFrames(descriptor)}
+				/>,
+			);
+		});
+		await act(async (): Promise<void> => {
+			document.querySelector<HTMLButtonElement>('[data-worktree-file-path="src/app.ts"]')?.click();
+			await nextMicrotask();
+		});
+		expect(
+			document
+				.querySelector('[data-worktree-open-file-state]')
+				?.getAttribute('data-worktree-open-file-state'),
+		).toBe('ready');
+		expect(
+			document
+				.querySelector('[data-worktree-open-file-total-size]')
+				?.getAttribute('data-worktree-open-file-total-size'),
+		).toBe('20');
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<WorktreeFileApp initialFrames={[makeInvalidationFrame(replacementDescriptor)]} />,
+			);
+			await nextMicrotask();
+		});
+
+		expect(
+			document
+				.querySelector('[data-worktree-open-file-state]')
+				?.getAttribute('data-worktree-open-file-state'),
+		).toBe('stale');
+		expect(
+			document
+				.querySelector('[data-worktree-open-file-total-size]')
+				?.getAttribute('data-worktree-open-file-total-size'),
+		).toBe('140');
+		expect(document.body.textContent).toContain('Content changed');
+		expect(document.body.textContent).not.toContain('export const value = 2');
+	});
 });
 
-function makeFrames(descriptor: WorktreeFileDescriptor): readonly WorktreeFileProtocolFrame[] {
+function makeFrames(
+	...descriptors: readonly WorktreeFileDescriptor[]
+): readonly WorktreeFileProtocolFrame[] {
 	return [
 		{
 			kind: 'snapshot',
@@ -140,39 +276,62 @@ function makeFrames(descriptor: WorktreeFileDescriptor): readonly WorktreeFilePr
 				rowHeightPixels: 24,
 			},
 		},
-		{
-			kind: 'delta',
-			streamId: 'worktree-file:pane-1',
-			generation: 1,
-			sequence: 1,
-			frameKind: 'worktree.fileDescriptor',
-			descriptor,
-		},
+		...descriptors.map(
+			(descriptor): WorktreeFileProtocolFrame => ({
+				kind: 'delta',
+				streamId: 'worktree-file:pane-1',
+				generation: 1,
+				sequence: 1,
+				frameKind: 'worktree.fileDescriptor',
+				descriptor,
+			}),
+		),
 	];
 }
 
 interface MakeFileDescriptorProps {
+	readonly contentHandle?: string;
+	readonly fileId?: string;
 	readonly isBinary?: boolean;
+	readonly lineCount?: number;
+	readonly path?: string;
 	readonly virtualizedExtentKind?: WorktreeFileDescriptor['virtualizedExtentKind'];
 }
 
 function makeFileDescriptor(props: MakeFileDescriptorProps = {}): WorktreeFileDescriptor {
 	const virtualizedExtentKind = props.virtualizedExtentKind ?? 'exactLineCount';
+	const contentHandle = props.contentHandle ?? 'file-content-1';
 	return {
-		path: 'src/app.ts',
-		fileId: 'file-1',
-		contentHandle: 'file-content-1',
+		path: props.path ?? 'src/app.ts',
+		fileId: props.fileId ?? 'file-1',
+		contentHandle,
 		contentDescriptor: makeAttachedDescriptor({
-			descriptorId: 'file-content-1',
+			descriptorId: contentHandle,
 			resourceKind: 'worktree.fileContent',
 		}),
 		sourceIdentity: makeSourceIdentity(),
 		sizeBytes: 24,
 		virtualizedExtentKind,
-		...(virtualizedExtentKind === 'exactLineCount' ? { lineCount: 1 } : {}),
+		...(virtualizedExtentKind === 'exactLineCount' ? { lineCount: props.lineCount ?? 1 } : {}),
 		isBinary: props.isBinary ?? false,
 		language: 'typescript',
 		fileExtension: 'ts',
+	};
+}
+
+function makeInvalidationFrame(descriptor: WorktreeFileDescriptor): WorktreeFileProtocolFrame {
+	return {
+		kind: 'delta',
+		streamId: 'worktree-file:pane-1',
+		generation: 2,
+		sequence: 2,
+		frameKind: 'worktree.fileInvalidated',
+		invalidation: {
+			path: descriptor.path,
+			fileId: descriptor.fileId,
+			reason: 'contentChanged',
+			latestDescriptor: descriptor,
+		},
 	};
 }
 
@@ -219,4 +378,24 @@ function makeAttachedDescriptor(props: {
 		},
 		descriptor,
 	});
+}
+
+async function nextMicrotask(): Promise<void> {
+	await Promise.resolve();
+}
+
+interface Deferred<TValue> {
+	readonly promise: Promise<TValue>;
+	readonly resolve: (value: TValue) => void;
+}
+
+function makeDeferred<TValue>(): Deferred<TValue> {
+	let resolve: ((value: TValue) => void) | null = null;
+	const promise = new Promise<TValue>((promiseResolve) => {
+		resolve = promiseResolve;
+	});
+	if (resolve === null) {
+		throw new Error('Deferred promise did not initialize');
+	}
+	return { promise, resolve };
 }

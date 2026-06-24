@@ -1,5 +1,5 @@
 import { mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { chromium, type Page } from 'playwright';
@@ -89,6 +89,7 @@ interface WorktreeFileScrollExtentCanary {
 	readonly stableAnchorPass: boolean;
 	readonly stableAnchorReadout: WorktreeFileScrollExtentReadout;
 	readonly selectedAnchorPath: string;
+	readonly treeAnchorReadout: WorktreeFileTreeAnchorReadout;
 	readonly treeDeclaredTotalSizePixels: number | null;
 	readonly treeHeightDeltaPixels: number;
 	readonly treeScrollClientHeightAfterReady: number;
@@ -96,6 +97,35 @@ interface WorktreeFileScrollExtentCanary {
 	readonly treeScrollHeightBeforeSelection: number;
 	readonly treeScrollTopAfterReady: number;
 	readonly treeScrollTopBeforeSelection: number;
+}
+
+interface WorktreeFileTreeAnchorReadout {
+	readonly anchorItemId: string;
+	readonly anchorOffsetAfterReady: number;
+	readonly anchorOffsetBeforeSelection: number;
+	readonly measuredItemIdsAfterReady: readonly string[];
+	readonly measuredItemIdsBeforeSelection: readonly string[];
+	readonly scrollTopAfterReady: number;
+	readonly scrollTopBeforeSelection: number;
+	readonly visibleRangeAfterReady: {
+		readonly endIndex: number;
+		readonly startIndex: number;
+	};
+	readonly visibleRangeBeforeSelection: {
+		readonly endIndex: number;
+		readonly startIndex: number;
+	};
+}
+
+interface WorktreeFileTreeAnchorSnapshot {
+	readonly anchorItemId: string;
+	readonly anchorOffset: number;
+	readonly measuredItemIds: readonly string[];
+	readonly scrollTop: number;
+	readonly visibleRange: {
+		readonly endIndex: number;
+		readonly startIndex: number;
+	};
 }
 
 interface WorktreeFileScrollExtentReadout {
@@ -157,18 +187,22 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 	const targetDescriptor = resolveTargetDescriptor(descriptors);
 	const content = await fetchWorktreeFileContent(targetDescriptor);
 	const surfaceText = JSON.stringify(surface);
-	if (content.length === 0) {
-		throw new Error(`Expected non-empty Worktree/File content for ${targetDescriptor.path}`);
-	}
-	if (surfaceText.includes(content.slice(0, Math.min(80, content.length)))) {
+	if (content.length > 0 && surfaceText.includes(content.slice(0, Math.min(80, content.length)))) {
 		throw new Error('Expected Worktree/File surface metadata to omit file body content');
 	}
 
 	const page = await makeVerificationPage();
 	try {
+		const contentRouteGate = makeDeferred<void>();
+		await installFileContentRouteGate({ gate: contentRouteGate, page });
 		await page.goto(worktreeDevServerUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
 		await page.waitForSelector('[data-testid="worktree-file-app"]', { timeout: 30_000 });
+		await scrollTreeToFilePath(page, targetDescriptor.path);
 		const scrollExtentBeforeSelection = await readWorktreeFileScrollExtentSnapshot(page);
+		const treeAnchorBeforeSelection = await readWorktreeFileTreeAnchorSnapshot(
+			page,
+			targetDescriptor.path,
+		);
 		await clickWorktreeFilePath(page, targetDescriptor.path);
 		await page.waitForFunction(
 			(path: string): boolean =>
@@ -178,7 +212,15 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 			targetDescriptor.path,
 			{ timeout: 10_000 },
 		);
+		await page.waitForFunction(
+			(): boolean =>
+				document
+					.querySelector('[data-worktree-open-file-state]')
+					?.getAttribute('data-worktree-open-file-state') === 'loading',
+			{ timeout: 10_000 },
+		);
 		const scrollExtentAfterSelection = await readWorktreeFileScrollExtentSnapshot(page);
+		contentRouteGate.resolve();
 		await page.waitForFunction(
 			(): boolean =>
 				document
@@ -187,6 +229,10 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 			{ timeout: 20_000 },
 		);
 		const scrollExtentAfterReady = await readWorktreeFileScrollExtentSnapshot(page);
+		const treeAnchorAfterReady = await readWorktreeFileTreeAnchorSnapshot(
+			page,
+			targetDescriptor.path,
+		);
 		const rendered = await page.evaluate(
 			(): Pick<
 				WorktreeDevServerVerificationResult,
@@ -201,11 +247,12 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 				const text = contentPanel?.textContent ?? '';
 				const selectedDisplayPath =
 					contentPanel?.getAttribute('data-worktree-open-file-path') ?? null;
+				const renderedText = text.endsWith('\n') ? text.slice(0, -1) : text;
 				return {
 					selectedCharacterCount: text.length,
 					selectedContentState: contentPanel?.getAttribute('data-worktree-open-file-state') ?? null,
 					selectedDisplayPath,
-					selectedLineCount: text.split('\n').filter((line) => line.length > 0).length,
+					selectedLineCount: text.length === 0 ? 0 : renderedText.split('\n').length,
 					treeTotalSizePixels: Number(
 						treePanel?.getAttribute('data-worktree-tree-total-size') ?? '0',
 					),
@@ -218,8 +265,10 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 		if (rendered.selectedContentState !== 'ready') {
 			throw new Error(`Expected selected Worktree/File content ready for ${targetDescriptor.path}`);
 		}
-		if (rendered.selectedCharacterCount <= 0 || rendered.selectedLineCount <= 0) {
-			throw new Error(`Expected materialized Worktree/File content for ${targetDescriptor.path}`);
+		if (rendered.selectedCharacterCount !== content.length) {
+			throw new Error(
+				`Expected materialized Worktree/File content length for ${targetDescriptor.path}`,
+			);
 		}
 		if (rendered.treeTotalSizePixels === null || rendered.treeTotalSizePixels <= 0) {
 			throw new Error('Expected Worktree/File tree extent to be reserved from provider facts');
@@ -229,6 +278,8 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 			afterSelection: scrollExtentAfterSelection,
 			beforeSelection: scrollExtentBeforeSelection,
 			selectedAnchorPath: targetDescriptor.path,
+			treeAnchorAfterReady,
+			treeAnchorBeforeSelection,
 		});
 		assertWorktreeScrollExtentCanary(scrollExtentCanary);
 		return {
@@ -276,9 +327,9 @@ function resolveTargetDescriptor(
 	descriptors: readonly WorktreeFileDescriptor[],
 ): WorktreeFileDescriptor {
 	const descriptor =
-		descriptors.find((candidate) =>
-			targetPathOverride === null ? true : candidate.path === targetPathOverride,
-		) ?? null;
+		targetPathOverride === null
+			? deepFetchableDescriptor(descriptors)
+			: (descriptors.find((candidate) => candidate.path === targetPathOverride) ?? null);
 	if (descriptor === null) {
 		throw new Error(
 			targetPathOverride === null
@@ -287,6 +338,23 @@ function resolveTargetDescriptor(
 		);
 	}
 	return descriptor;
+}
+
+function deepFetchableDescriptor(
+	descriptors: readonly WorktreeFileDescriptor[],
+): WorktreeFileDescriptor | null {
+	const fetchableDescriptors = descriptors.filter(
+		(descriptor) =>
+			!descriptor['isBinary'] && descriptor['virtualizedExtentKind'] === 'exactLineCount',
+	);
+	if (fetchableDescriptors.length === 0) {
+		return null;
+	}
+	const targetIndex = Math.min(
+		fetchableDescriptors.length - 1,
+		Math.floor(fetchableDescriptors.length * 0.75),
+	);
+	return fetchableDescriptors[targetIndex] ?? null;
 }
 
 async function fetchWorktreeFileContent(descriptor: WorktreeFileDescriptor): Promise<string> {
@@ -336,6 +404,33 @@ async function makeVerificationPage(): Promise<Page> {
 	});
 }
 
+async function installFileContentRouteGate(props: {
+	readonly gate: Deferred<void>;
+	readonly page: Page;
+}): Promise<void> {
+	await props.page.route('**/__bridge-worktree/file-content/**', async (route) => {
+		await props.gate.promise;
+		await route.continue();
+	});
+}
+
+async function scrollTreeToFilePath(page: Page, path: string): Promise<void> {
+	await page.waitForSelector(`[data-worktree-file-path="${cssAttributeEscape(path)}"]`, {
+		timeout: 30_000,
+	});
+	await page.evaluate((targetPath: string): void => {
+		const button = document.querySelector(`[data-worktree-file-path="${CSS.escape(targetPath)}"]`);
+		const treePanel = document.querySelector('[data-testid="worktree-file-tree"]');
+		if (!(button instanceof HTMLElement) || !(treePanel instanceof HTMLElement)) {
+			throw new Error(`Expected Worktree/File tree row for ${targetPath}`);
+		}
+		button.scrollIntoView({ block: 'center' });
+		if (treePanel.scrollTop <= 0) {
+			treePanel.scrollTop = Math.min(treePanel.scrollHeight - treePanel.clientHeight, 160);
+		}
+	}, path);
+}
+
 async function clickWorktreeFilePath(page: Page, path: string): Promise<void> {
 	await page.waitForSelector(`[data-worktree-file-path="${cssAttributeEscape(path)}"]`, {
 		timeout: 30_000,
@@ -351,6 +446,44 @@ async function clickWorktreeFilePath(page: Page, path: string): Promise<void> {
 	if (!didClick) {
 		throw new Error(`Expected Worktree/File row for ${path}`);
 	}
+}
+
+async function readWorktreeFileTreeAnchorSnapshot(
+	page: Page,
+	path: string,
+): Promise<WorktreeFileTreeAnchorSnapshot> {
+	return await page.evaluate((targetPath: string): WorktreeFileTreeAnchorSnapshot => {
+		const treePanel = document.querySelector('[data-testid="worktree-file-tree"]');
+		const anchor = document.querySelector(`[data-worktree-file-path="${CSS.escape(targetPath)}"]`);
+		if (!(treePanel instanceof HTMLElement) || !(anchor instanceof HTMLElement)) {
+			throw new Error(`Expected Worktree/File anchor row for ${targetPath}`);
+		}
+		const treeRect = treePanel.getBoundingClientRect();
+		const anchorRect = anchor.getBoundingClientRect();
+		const visibleButtons = [...treePanel.querySelectorAll('[data-worktree-file-path]')].filter(
+			(candidate): candidate is HTMLElement => {
+				if (!(candidate instanceof HTMLElement)) {
+					return false;
+				}
+				const candidateRect = candidate.getBoundingClientRect();
+				return candidateRect.bottom >= treeRect.top && candidateRect.top <= treeRect.bottom;
+			},
+		);
+		const allButtons = [...treePanel.querySelectorAll('[data-worktree-file-path]')];
+		const visibleIndexes = visibleButtons.map((button) => allButtons.indexOf(button));
+		return {
+			anchorItemId: targetPath,
+			anchorOffset: anchorRect.top - treeRect.top,
+			measuredItemIds: visibleButtons.map(
+				(button) => button.getAttribute('data-worktree-file-path') ?? '',
+			),
+			scrollTop: treePanel.scrollTop,
+			visibleRange: {
+				startIndex: Math.min(...visibleIndexes),
+				endIndex: Math.max(...visibleIndexes),
+			},
+		};
+	}, path);
 }
 
 async function readWorktreeFileScrollExtentSnapshot(
@@ -397,7 +530,11 @@ function makeScrollExtentCanary(props: {
 	readonly afterSelection: WorktreeFileScrollExtentSnapshot;
 	readonly beforeSelection: WorktreeFileScrollExtentSnapshot;
 	readonly selectedAnchorPath: string;
+	readonly treeAnchorAfterReady: WorktreeFileTreeAnchorSnapshot;
+	readonly treeAnchorBeforeSelection: WorktreeFileTreeAnchorSnapshot;
 }): WorktreeFileScrollExtentCanary {
+	const treeAnchorOffsetDelta =
+		props.treeAnchorAfterReady.anchorOffset - props.treeAnchorBeforeSelection.anchorOffset;
 	return {
 		contentDeclaredTotalSizePixelsAfterReady: props.afterReady.contentDeclaredTotalSizePixels,
 		contentDeclaredTotalSizePixelsAfterSelection:
@@ -412,12 +549,16 @@ function makeScrollExtentCanary(props: {
 		contentScrollTopAfterSelection: props.afterSelection.contentScrollTop,
 		exactSizeTolerancePass:
 			Math.abs(props.afterReady.contentScrollHeight - props.afterSelection.contentScrollHeight) <=
-			defaultFileLineHeightPixels,
-		stableAnchorPass: props.afterReady.contentScrollTop === props.afterSelection.contentScrollTop,
+			1,
+		stableAnchorPass:
+			Math.abs(treeAnchorOffsetDelta) <= 1 &&
+			Math.abs(props.treeAnchorAfterReady.scrollTop - props.treeAnchorBeforeSelection.scrollTop) <=
+				1 &&
+			props.afterReady.contentScrollTop === props.afterSelection.contentScrollTop,
 		stableAnchorReadout: {
 			anchorItemId: props.selectedAnchorPath,
-			anchorOffset: 0,
-			measuredItemIds: [props.selectedAnchorPath],
+			anchorOffset: props.treeAnchorBeforeSelection.anchorOffset,
+			measuredItemIds: props.treeAnchorBeforeSelection.measuredItemIds,
 			reconciliationReason: 'exactLineCount',
 			scrollHeightAfter: props.afterReady.contentScrollHeight,
 			scrollHeightBefore: props.afterSelection.contentScrollHeight,
@@ -436,6 +577,17 @@ function makeScrollExtentCanary(props: {
 			},
 		},
 		selectedAnchorPath: props.selectedAnchorPath,
+		treeAnchorReadout: {
+			anchorItemId: props.selectedAnchorPath,
+			anchorOffsetAfterReady: props.treeAnchorAfterReady.anchorOffset,
+			anchorOffsetBeforeSelection: props.treeAnchorBeforeSelection.anchorOffset,
+			measuredItemIdsAfterReady: props.treeAnchorAfterReady.measuredItemIds,
+			measuredItemIdsBeforeSelection: props.treeAnchorBeforeSelection.measuredItemIds,
+			scrollTopAfterReady: props.treeAnchorAfterReady.scrollTop,
+			scrollTopBeforeSelection: props.treeAnchorBeforeSelection.scrollTop,
+			visibleRangeAfterReady: props.treeAnchorAfterReady.visibleRange,
+			visibleRangeBeforeSelection: props.treeAnchorBeforeSelection.visibleRange,
+		},
 		treeDeclaredTotalSizePixels: props.afterReady.treeDeclaredTotalSizePixels,
 		treeHeightDeltaPixels:
 			props.afterReady.treeScrollHeight - props.beforeSelection.treeScrollHeight,
@@ -451,10 +603,7 @@ function assertWorktreeScrollExtentCanary(canary: WorktreeFileScrollExtentCanary
 	if (canary.treeDeclaredTotalSizePixels === null || canary.treeDeclaredTotalSizePixels <= 0) {
 		throw new Error('Expected Worktree/File tree declared extent in scroll canary');
 	}
-	if (
-		Math.abs(canary.treeScrollHeightAfterReady - canary.treeDeclaredTotalSizePixels) >
-		defaultFileLineHeightPixels
-	) {
+	if (Math.abs(canary.treeScrollHeightAfterReady - canary.treeDeclaredTotalSizePixels) > 1) {
 		throw new Error(
 			`Expected Worktree/File tree scroll extent near declared size: ${JSON.stringify(canary)}`,
 		);
@@ -473,7 +622,17 @@ function assertWorktreeScrollExtentCanary(canary: WorktreeFileScrollExtentCanary
 			`Expected Worktree/File declared content extent to stay stable: ${JSON.stringify(canary)}`,
 		);
 	}
-	if (Math.abs(canary.contentHeightDeltaPixels) > defaultFileLineHeightPixels) {
+	if (Math.abs(canary.treeHeightDeltaPixels) > 1) {
+		throw new Error(
+			`Expected Worktree/File tree hydration to keep scroll extent bounded: ${JSON.stringify(canary)}`,
+		);
+	}
+	if (canary.treeScrollTopBeforeSelection <= 0 || canary.treeScrollTopAfterReady <= 0) {
+		throw new Error(
+			`Expected Worktree/File tree canary to exercise non-zero scroll: ${JSON.stringify(canary)}`,
+		);
+	}
+	if (Math.abs(canary.contentHeightDeltaPixels) > 1) {
 		throw new Error(
 			`Expected Worktree/File content hydration to keep scroll extent bounded: ${JSON.stringify(canary)}`,
 		);
@@ -489,6 +648,7 @@ async function writeWorktreeDevServerProofArtifact(
 	const proofDirectoryPath = join(proofRootPath, timestampForPath(new Date()));
 	await mkdir(proofDirectoryPath, { recursive: true });
 	const proofArtifactPath = join(proofDirectoryPath, 'worktree-dev-server-proof.json');
+	const proofArtifactDisplayPath = relative(repoRootPath, proofArtifactPath);
 	await writeFile(
 		proofArtifactPath,
 		`${JSON.stringify(
@@ -498,14 +658,14 @@ async function writeWorktreeDevServerProofArtifact(
 				devServerUrl: worktreeDevServerUrl,
 				result: {
 					...result,
-					proofArtifactPath,
+					proofArtifactPath: proofArtifactDisplayPath,
 				},
 			},
 			null,
 			2,
 		)}\n`,
 	);
-	return proofArtifactPath;
+	return proofArtifactDisplayPath;
 }
 
 function cssAttributeEscape(value: string): string {
@@ -519,4 +679,20 @@ function scenarioNameFromDevServerUrl(url: string): string {
 
 function timestampForPath(date: Date): string {
 	return date.toISOString().replace(/[:.]/gu, '-');
+}
+
+interface Deferred<TValue> {
+	readonly promise: Promise<TValue>;
+	readonly resolve: (value: TValue) => void;
+}
+
+function makeDeferred<TValue>(): Deferred<TValue> {
+	let resolve: ((value: TValue) => void) | null = null;
+	const promise = new Promise<TValue>((promiseResolve) => {
+		resolve = promiseResolve;
+	});
+	if (resolve === null) {
+		throw new Error('Deferred promise did not initialize');
+	}
+	return { promise, resolve };
 }

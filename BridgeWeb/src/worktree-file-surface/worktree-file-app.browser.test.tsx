@@ -51,8 +51,8 @@ describe('WorktreeFileApp Browser Mode', () => {
 			document.querySelector('[data-testid="worktree-file-content"]'),
 		);
 		const contentScrollHeightBefore = contentPanel.scrollHeight;
-		expect(contentPanel.getAttribute('data-worktree-open-file-total-size')).toBe('80');
-		expect(contentScrollHeightBefore).toBeGreaterThanOrEqual(80);
+		expect(contentPanel.getAttribute('data-worktree-open-file-total-size')).toBe('40');
+		expect(Math.abs(contentScrollHeightBefore - 40)).toBeLessThanOrEqual(1);
 		expect(fetchedResourceUrls).toEqual([
 			'agentstudio://resource/worktree-file/worktree.fileContent/file-content-1?generation=1',
 		]);
@@ -62,7 +62,7 @@ describe('WorktreeFileApp Browser Mode', () => {
 		await waitForBridgeViewerAnimationFrame();
 
 		const contentScrollHeightAfter = contentPanel.scrollHeight;
-		expect(Math.abs(contentScrollHeightAfter - contentScrollHeightBefore)).toBeLessThanOrEqual(20);
+		expect(Math.abs(contentScrollHeightAfter - contentScrollHeightBefore)).toBeLessThanOrEqual(1);
 		expect(document.body.textContent).toContain('export const value = 2;');
 		expect(document.body.innerHTML).not.toContain('agentstudio://resource');
 	});
@@ -151,7 +151,7 @@ function makeFileDescriptor(props: MakeFileDescriptorProps = {}): WorktreeFileDe
 		sourceIdentity: makeSourceIdentity(),
 		sizeBytes: 64,
 		virtualizedExtentKind,
-		...(virtualizedExtentKind === 'exactLineCount' ? { lineCount: 4 } : {}),
+		...(virtualizedExtentKind === 'exactLineCount' ? { lineCount: 2 } : {}),
 		isBinary: props.isBinary ?? false,
 		language: 'typescript',
 		fileExtension: 'ts',

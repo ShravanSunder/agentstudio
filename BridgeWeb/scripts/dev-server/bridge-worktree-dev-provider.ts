@@ -828,7 +828,11 @@ function lineCount(content: string | null | undefined): number {
 }
 
 function renderLineCount(content: string): number {
-	return content.length === 0 ? 0 : content.split('\n').length;
+	if (content.length === 0) {
+		return 0;
+	}
+	const renderedContent = content.endsWith('\n') ? content.slice(0, -1) : content;
+	return renderedContent.split('\n').length;
 }
 
 function extensionForPath(path: string): string {

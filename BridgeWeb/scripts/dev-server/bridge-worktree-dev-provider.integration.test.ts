@@ -53,6 +53,12 @@ describe('Bridge worktree dev provider', () => {
 			const sourceContent = await provider.loadWorktreeFileContent(
 				worktreeFileContentRequestForDescriptor(sourceDescriptor),
 			);
+			expect(renderLineCount('')).toBe(0);
+			expect(renderLineCount('\n')).toBe(1);
+			expect(renderLineCount('line 1\nline 2\n')).toBe(2);
+			expect(renderLineCount('line 1\n\nline 3\n')).toBe(3);
+			expect(docsDescriptor.lineCount).toBe(3);
+			expect(sourceDescriptor.lineCount).toBe(1);
 			expect(docsDescriptor.lineCount).toBe(renderLineCount(docsContent));
 			expect(sourceDescriptor.lineCount).toBe(renderLineCount(sourceContent));
 			expect(docsContent).toContain('new docs body');
@@ -325,7 +331,11 @@ function findWorktreeFileDescriptor(
 }
 
 function renderLineCount(content: string): number {
-	return content.length === 0 ? 0 : content.split('\n').length;
+	if (content.length === 0) {
+		return 0;
+	}
+	const renderedContent = content.endsWith('\n') ? content.slice(0, -1) : content;
+	return renderedContent.split('\n').length;
 }
 
 function worktreeFileContentRequestForDescriptor(
