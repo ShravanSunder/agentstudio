@@ -24,15 +24,25 @@ interface WorktreeFileSurfaceRenderState {
 
 type WorktreeFileOpenRenderState =
 	| { readonly status: 'idle' }
-	| { readonly status: 'loading'; readonly path: string }
+	| {
+			readonly descriptor: WorktreeFileDescriptor;
+			readonly status: 'loading';
+			readonly path: string;
+	  }
 	| {
 			readonly body: string;
+			readonly descriptor: WorktreeFileDescriptor;
 			readonly path: string;
 			readonly status: 'ready';
 	  }
-	| { readonly path: string; readonly status: 'failed' };
+	| {
+			readonly descriptor: WorktreeFileDescriptor;
+			readonly path: string;
+			readonly status: 'failed';
+	  };
 
 const defaultPaneId = 'bridge-worktree-dev-pane';
+const defaultFileLineHeightPixels = 20;
 
 export function WorktreeFileApp({
 	fetchResource,
@@ -76,10 +86,10 @@ export function WorktreeFileApp({
 	}, [initialFrames, loadInitialFrames]);
 
 	const openFile = useCallback(async (descriptor: WorktreeFileDescriptor): Promise<void> => {
-		setOpenFileState({ status: 'loading', path: descriptor.path });
+		setOpenFileState({ status: 'loading', path: descriptor.path, descriptor });
 		const runtime = runtimeRef.current;
 		if (runtime === null) {
-			setOpenFileState({ status: 'failed', path: descriptor.path });
+			setOpenFileState({ status: 'failed', path: descriptor.path, descriptor });
 			return;
 		}
 		const result = await runtime.openFile({
@@ -91,46 +101,67 @@ export function WorktreeFileApp({
 				status: 'ready',
 				path: descriptor.path,
 				body: result.body,
+				descriptor,
 			});
 			return;
 		}
-		setOpenFileState({ status: 'failed', path: descriptor.path });
+		setOpenFileState({ status: 'failed', path: descriptor.path, descriptor });
 	}, []);
 
 	const totalTreeHeightPixels = totalTreeHeightForSizeFacts(renderState.treeSizeFacts);
+	const totalOpenFileHeightPixels = totalOpenFileHeightForState(openFileState);
 	return (
 		<main className="bridge-worktree-file-app" data-testid="worktree-file-app">
 			<section
 				className="bridge-worktree-file-tree"
 				data-testid="worktree-file-tree"
+				style={{ maxHeight: 320, overflow: 'auto' }}
 				{...(totalTreeHeightPixels === null
 					? {}
 					: { 'data-worktree-tree-total-size': String(totalTreeHeightPixels) })}
 			>
-				{renderState.descriptors.map((descriptor) => (
-					<button
-						data-worktree-file-path={descriptor.path}
-						key={descriptor.fileId}
-						onClick={() => {
-							void openFile(descriptor);
-						}}
-						type="button"
-					>
-						{descriptor.path}
-					</button>
-				))}
+				<div
+					data-testid="worktree-file-tree-extent"
+					style={totalTreeHeightPixels === null ? undefined : { minHeight: totalTreeHeightPixels }}
+				>
+					{renderState.descriptors.map((descriptor) => (
+						<button
+							data-worktree-file-path={descriptor.path}
+							key={descriptor.fileId}
+							onClick={() => {
+								void openFile(descriptor);
+							}}
+							type="button"
+						>
+							{descriptor.path}
+						</button>
+					))}
+				</div>
 			</section>
 			<section
 				className="bridge-worktree-file-content"
 				data-testid="worktree-file-content"
+				style={{ maxHeight: 320, overflow: 'auto' }}
 				{...(openFileState.status === 'idle'
 					? {}
 					: {
 							'data-worktree-open-file-path': openFileState.path,
 							'data-worktree-open-file-state': openFileState.status,
 						})}
+				{...(totalOpenFileHeightPixels === null
+					? {}
+					: { 'data-worktree-open-file-total-size': String(totalOpenFileHeightPixels) })}
 			>
-				{openFileState.status === 'ready' ? <pre>{openFileState.body}</pre> : null}
+				<div
+					data-testid="worktree-file-content-extent"
+					style={
+						totalOpenFileHeightPixels === null
+							? undefined
+							: { minHeight: totalOpenFileHeightPixels }
+					}
+				>
+					{openFileState.status === 'ready' ? <pre>{openFileState.body}</pre> : null}
+				</div>
 			</section>
 		</main>
 	);
@@ -164,6 +195,25 @@ function totalTreeHeightForSizeFacts(
 		return treeSizeFacts.pathCount * treeSizeFacts.rowHeightPixels;
 	}
 	return treeSizeFacts.estimatedTotalHeightPixels ?? null;
+}
+
+function totalOpenFileHeightForState(openFileState: WorktreeFileOpenRenderState): number | null {
+	if (openFileState.status === 'idle') {
+		return null;
+	}
+	const descriptor = openFileState.descriptor;
+	switch (descriptor.virtualizedExtentKind) {
+		case 'exactLineCount':
+			return descriptor.lineCount === undefined
+				? null
+				: descriptor.lineCount * defaultFileLineHeightPixels;
+		case 'estimatedHeight':
+			return descriptor.estimatedContentHeightPixels ?? null;
+		case 'previewBounded':
+		case 'unavailable':
+			return null;
+	}
+	return null;
 }
 
 async function defaultFetchWorktreeFileResource(

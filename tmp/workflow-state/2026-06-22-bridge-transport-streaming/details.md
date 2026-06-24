@@ -59,6 +59,13 @@ Current Ticket 03 checkpoint status:
   extent canary/benchmark proof, binary/oversized behavior, renderer-boundary
   telemetry proof, accepted negative fanout follow-up, and implementation review
   before PR readiness.
+- Ticket 04 now also has the first real browser scroll-extent canary for the
+  Worktree/File surface. The canary failed red when the tree exposed provider
+  size metadata but did not reserve real browser scroll extent, then passed
+  after `WorktreeFileApp` rendered bounded tree/file scroll owners with inner
+  extent elements sized from provider facts and file descriptor extent metadata.
+  Remaining extent work still includes huge-worktree churn, anchor preservation
+  diagnostics, benchmark artifacts, and binary/oversized cases.
 
 Historical context:
 

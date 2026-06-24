@@ -268,6 +268,33 @@ Dev-server Worktree/File cutover proof captured 2026-06-24:
 - quality:
   `pnpm --dir BridgeWeb run check` exited 0 after verifier type/format fixes
 
+Browser scroll-extent canary proof captured 2026-06-24:
+
+- added a Browser Mode Worktree/File canary that defers descriptor-backed file
+  body fetches and verifies tree/file scroll extent before hydration commits
+- implemented actual tree and file extent owners in `WorktreeFileApp`: bounded
+  scroll containers plus inner extent elements sized from provider
+  `treeSizeFacts` and file descriptor `virtualizedExtentKind`
+- red:
+  `pnpm --dir BridgeWeb run test:browser:integration -- src/worktree-file-surface/worktree-file-app.browser.test.tsx --reporter verbose`
+  exited 1 before implementation because the tree metadata said 480px but the
+  real browser `scrollHeight` was only one row, with a 456px gap
+- green:
+  same command exited 0 with 2 browser files passed and 31 tests passed
+  (the Worktree/File canary plus the existing Review browser suite selected by
+  the current Vitest Browser project invocation)
+- focused regression:
+  `pnpm --dir BridgeWeb exec vitest run src/worktree-file-surface/worktree-file-app.integration.test.tsx src/app/bridge-app-protocol-router.unit.test.tsx scripts/dev-server/bridge-worktree-dev-provider.integration.test.ts --reporter verbose`
+  exited 0 with 3 files passed and 14 tests passed
+- live dev-server refresh:
+  `BRIDGE_VIEWER_WORKTREE_DEV_SERVER_URL='http://127.0.0.1:5173/?fixture=worktree&workers=on&scenario=current-worktree' pnpm --dir BridgeWeb run test:dev-server:worktree`
+  exited 0 with 419 descriptors, 420 frames, `treePathCount` 419,
+  `treeTotalSizePixels` 10056, selected path `.github/workflows/ci.yml`,
+  selected state `ready`, 235 rendered lines, and
+  `packageForbiddenTextAbsent: true`
+- quality:
+  `pnpm --dir BridgeWeb run check` exited 0 after formatting and type fixes
+
 Surface integration:
 
 ```bash
