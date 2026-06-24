@@ -1087,6 +1087,24 @@ Checkpoint 4: Worktree/File browser surface
   --reporter verbose`: exit 0, 6 files passed, 23 tests passed.
 - Current app routing quality proof:
   `pnpm --dir BridgeWeb run check`: exit 0.
+- Current dev-provider progress:
+  The Vite worktree dev provider now builds Worktree/File protocol data beside
+  the transition Review package path: `worktree.snapshot` plus
+  `worktree.fileDescriptor` frames with provider source identity, tree size
+  facts, file exact-line-count extent facts, and descriptor-backed content.
+  File bodies stay out of metadata frames and are served by
+  `loadWorktreeFileContent` using descriptor id, subscription generation, and
+  source cursor.
+- Current dev-provider proof:
+  `pnpm --dir BridgeWeb exec vitest run
+  scripts/dev-server/bridge-worktree-dev-provider.integration.test.ts
+  --reporter verbose`: exit 0, 1 file passed, 10 tests passed.
+- Current dev-provider quality proof:
+  `pnpm --dir BridgeWeb run check`: exit 0.
+- Remaining dev-server cutover gap:
+  Vite middleware and browser dev bootstrap still need to consume these
+  Worktree/File frames instead of pushing a fabricated Review package for the
+  worktree URL.
 - Prove dev-server worktree URL works without Review package scaffolding.
 - Commit only after proof gates pass.
 - Review before cleanup.

@@ -219,6 +219,30 @@ App routing proof captured 2026-06-23:
   `rg -n "\\bas\\s+(const|[A-Z][A-Za-z0-9_]*|Readonly|Record|unknown|any|\\{)|\\bany\\b|@ts-|eslint-disable|JSON\\.parse" BridgeWeb/src/app/bridge-app-protocol-router.tsx BridgeWeb/src/app/bridge-app-protocol-router.unit.test.tsx BridgeWeb/src/worktree-file-surface BridgeWeb/src/features/worktree-file`
   found no matches
 
+Dev-provider Worktree/File frame proof captured 2026-06-24:
+
+- added Worktree/File surface projection to
+  `BridgeWeb/scripts/dev-server/bridge-worktree-dev-provider.ts`
+- proved the dev provider emits `worktree.snapshot` plus
+  `worktree.fileDescriptor` frames with provider source identity, tree size
+  facts, file line-count extent facts, and descriptor-backed file content
+- proved Worktree/File metadata frames omit file body text while
+  `loadWorktreeFileContent` serves content only through descriptor identity,
+  subscription generation, and source cursor
+- kept the existing Review package dev path passing during the transition; it
+  remains to be removed from the worktree URL before Ticket 04 cutover proof
+- red:
+  `pnpm --dir BridgeWeb exec vitest run scripts/dev-server/bridge-worktree-dev-provider.integration.test.ts --reporter verbose`
+  exited 1 before implementation because `provider.loadWorktreeFileSurface` was
+  not a function
+- green:
+  same command exited 0 with 1 file passed and 10 tests passed
+- quality:
+  `pnpm --dir BridgeWeb run check` exited 0 after formatting
+- hygiene:
+  `rg -n "\\bas\\s+(const|[A-Z][A-Za-z0-9_]*|Readonly|Record|unknown|any|\\{)|\\bany\\b|@ts-|eslint-disable|JSON\\.parse" BridgeWeb/scripts/dev-server/bridge-worktree-dev-provider.ts BridgeWeb/scripts/dev-server/bridge-worktree-dev-provider.integration.test.ts BridgeWeb/src/features/worktree-file BridgeWeb/src/worktree-file-surface`
+  found no matches
+
 Surface integration:
 
 ```bash

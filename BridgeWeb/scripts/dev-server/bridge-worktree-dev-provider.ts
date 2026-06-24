@@ -7,6 +7,17 @@ import { promisify } from 'node:util';
 import { z } from 'zod';
 
 import type {
+	BridgeAttachedResourceDescriptor,
+	BridgeResourceDescriptor,
+} from '../../src/core/models/bridge-resource-descriptor.js';
+import { bridgeAttachedResourceDescriptorSchema } from '../../src/core/models/bridge-resource-descriptor.js';
+import type {
+	WorktreeFileDescriptor,
+	WorktreeFileProtocolFrame,
+	WorktreeFileSurfaceSourceIdentity,
+	WorktreeTreeVirtualizedSizeFacts,
+} from '../../src/features/worktree-file/models/worktree-file-protocol-models.js';
+import type {
 	BridgeContentHandle,
 	BridgeContentRole,
 	BridgeFileChangeKind,
@@ -21,6 +32,11 @@ import type {
 const execFileAsync = promisify(execFile);
 const reviewGeneration = 1;
 const schemaVersion = 1;
+const worktreeFileProtocol = 'worktree-file';
+const worktreeFilePaneId = 'bridge-worktree-dev-pane';
+const worktreeFileSourceId = 'dev-worktree-source';
+const worktreeFileStreamId = `${worktreeFileProtocol}:${worktreeFilePaneId}`;
+const worktreeFileRowHeightPixels = 24;
 
 export const bridgeWorktreeDevScenarioNameSchema = z.enum(['current-worktree']);
 export type BridgeWorktreeDevScenarioName = z.infer<typeof bridgeWorktreeDevScenarioNameSchema>;
@@ -47,9 +63,25 @@ export interface BridgeWorktreeDevProviderContentRequest {
 	readonly revision: number;
 }
 
+export interface BridgeWorktreeDevProviderWorktreeFileContentRequest {
+	readonly descriptorId: string;
+	readonly sourceCursor: string;
+	readonly subscriptionGeneration: number;
+}
+
+export interface BridgeWorktreeDevProviderWorktreeFileSurface {
+	readonly frames: readonly WorktreeFileProtocolFrame[];
+	readonly source: WorktreeFileSurfaceSourceIdentity;
+	readonly treeSizeFacts: WorktreeTreeVirtualizedSizeFacts;
+}
+
 export interface BridgeWorktreeDevProvider {
 	readonly loadContent: (request: BridgeWorktreeDevProviderContentRequest) => Promise<string>;
 	readonly loadReviewPackage: () => Promise<BridgeReviewPackage>;
+	readonly loadWorktreeFileContent: (
+		request: BridgeWorktreeDevProviderWorktreeFileContentRequest,
+	) => Promise<string>;
+	readonly loadWorktreeFileSurface: () => Promise<BridgeWorktreeDevProviderWorktreeFileSurface>;
 }
 
 interface WorktreeChangedFile {
@@ -65,6 +97,8 @@ interface ProviderState {
 	readonly contentByHandleId: ReadonlyMap<string, string>;
 	readonly fingerprint: string;
 	readonly reviewPackage: BridgeReviewPackage;
+	readonly worktreeFileContentByDescriptorId: ReadonlyMap<string, string>;
+	readonly worktreeFileSurface: BridgeWorktreeDevProviderWorktreeFileSurface;
 }
 
 interface ProviderSnapshot {
@@ -150,6 +184,31 @@ export async function createBridgeWorktreeDevProvider(
 			const currentState = await loadCurrentState();
 			return currentState.reviewPackage;
 		},
+		loadWorktreeFileContent: async (
+			request: BridgeWorktreeDevProviderWorktreeFileContentRequest,
+		): Promise<string> => {
+			const currentState = state ?? (await loadCurrentState());
+			const currentSource = currentState.worktreeFileSurface.source;
+			if (request.subscriptionGeneration !== currentSource.subscriptionGeneration) {
+				throw new Error(
+					`Rejected stale Bridge worktree file content generation: ${request.subscriptionGeneration}`,
+				);
+			}
+			if (request.sourceCursor !== currentSource.sourceCursor) {
+				throw new Error(
+					`Rejected stale Bridge worktree file content cursor: ${request.sourceCursor}`,
+				);
+			}
+			const content = currentState.worktreeFileContentByDescriptorId.get(request.descriptorId);
+			if (content === undefined) {
+				throw new Error(`Unknown Bridge worktree file content descriptor: ${request.descriptorId}`);
+			}
+			return content;
+		},
+		loadWorktreeFileSurface: async (): Promise<BridgeWorktreeDevProviderWorktreeFileSurface> => {
+			const currentState = await loadCurrentState();
+			return currentState.worktreeFileSurface;
+		},
 	};
 }
 
@@ -181,6 +240,67 @@ function makeProviderState(props: {
 	);
 	const itemsById = Object.fromEntries(items.map((item) => [item.itemId, item]));
 	const summary = summarizeItems(items);
+	const sourceCursor = `cursor-${props.snapshot.fingerprint.slice(0, 32)}`;
+	const sourceIdentity: WorktreeFileSurfaceSourceIdentity = {
+		sourceId: worktreeFileSourceId,
+		repoId: 'dev-worktree-repo',
+		worktreeId: 'dev-worktree',
+		subscriptionGeneration: reviewGeneration,
+		sourceCursor,
+		rootRevisionToken: props.snapshot.fingerprint,
+	};
+	const worktreeFileContentByDescriptorId = new Map<string, string>();
+	const treeSizeFacts: WorktreeTreeVirtualizedSizeFacts = {
+		pathCount: props.snapshot.changedFiles.length,
+		windowStartIndex: 0,
+		windowRowCount: props.snapshot.changedFiles.length,
+		rowHeightPixels: worktreeFileRowHeightPixels,
+	};
+	const treeDescriptor = makeWorktreeAttachedDescriptor({
+		content: {
+			expectedBytes: byteLength(
+				JSON.stringify(props.snapshot.changedFiles.map((changedFile) => changedFile.path)),
+			),
+			mediaType: 'application/json',
+		},
+		descriptorId: `dev-tree-window-${props.revision}`,
+		resourceKind: 'worktree.treeWindow',
+		sourceIdentity,
+	});
+	const worktreeFileDescriptors = props.snapshot.changedFiles.flatMap(
+		(changedFile): readonly WorktreeFileDescriptor[] =>
+			worktreeFileDescriptorForChangedFile({
+				changedFile,
+				sourceIdentity,
+				worktreeFileContentByDescriptorId,
+			}),
+	);
+	const worktreeFileSurface: BridgeWorktreeDevProviderWorktreeFileSurface = {
+		frames: [
+			{
+				kind: 'snapshot',
+				streamId: worktreeFileStreamId,
+				generation: sourceIdentity.subscriptionGeneration,
+				sequence: 0,
+				frameKind: 'worktree.snapshot',
+				source: sourceIdentity,
+				treeDescriptor,
+				treeSizeFacts,
+			},
+			...worktreeFileDescriptors.map(
+				(descriptor, index): WorktreeFileProtocolFrame => ({
+					kind: 'delta',
+					streamId: worktreeFileStreamId,
+					generation: sourceIdentity.subscriptionGeneration,
+					sequence: index + 1,
+					frameKind: 'worktree.fileDescriptor',
+					descriptor,
+				}),
+			),
+		],
+		source: sourceIdentity,
+		treeSizeFacts,
+	};
 	const reviewPackage: BridgeReviewPackage = {
 		packageId: 'dev-worktree',
 		schemaVersion,
@@ -227,7 +347,93 @@ function makeProviderState(props: {
 		filterState: defaultViewFilter(),
 		generatedAtUnixMilliseconds: Date.now(),
 	};
-	return { contentByHandleId, fingerprint: props.snapshot.fingerprint, reviewPackage };
+	return {
+		contentByHandleId,
+		fingerprint: props.snapshot.fingerprint,
+		reviewPackage,
+		worktreeFileContentByDescriptorId,
+		worktreeFileSurface,
+	};
+}
+
+function worktreeFileDescriptorForChangedFile(props: {
+	readonly changedFile: WorktreeChangedFile;
+	readonly sourceIdentity: WorktreeFileSurfaceSourceIdentity;
+	readonly worktreeFileContentByDescriptorId: Map<string, string>;
+}): readonly WorktreeFileDescriptor[] {
+	const content = props.changedFile.headContent ?? props.changedFile.baseContent;
+	if (content === null) {
+		return [];
+	}
+	const pathHash = hashText(props.changedFile.path).slice(0, 16);
+	const descriptorId = `dev-file-${pathHash}`;
+	props.worktreeFileContentByDescriptorId.set(descriptorId, content);
+	const extension = extensionForPath(props.changedFile.path);
+	return [
+		{
+			path: props.changedFile.path,
+			fileId: `dev-file-id-${pathHash}`,
+			contentHandle: descriptorId,
+			contentDescriptor: makeWorktreeAttachedDescriptor({
+				content: {
+					expectedBytes: byteLength(content),
+					mediaType: mimeTypeForExtension(extension),
+				},
+				descriptorId,
+				resourceKind: 'worktree.fileContent',
+				sourceIdentity: props.sourceIdentity,
+			}),
+			contentHash: `sha256:${hashText(content)}`,
+			sourceIdentity: props.sourceIdentity,
+			sizeBytes: byteLength(content),
+			virtualizedExtentKind: 'exactLineCount',
+			lineCount: lineCount(content),
+			isBinary: false,
+			language: languageForExtension(extension),
+			fileExtension: extension,
+		},
+	];
+}
+
+function makeWorktreeAttachedDescriptor(props: {
+	readonly content: {
+		readonly expectedBytes: number;
+		readonly mediaType: string;
+	};
+	readonly descriptorId: string;
+	readonly resourceKind: 'worktree.fileContent' | 'worktree.treeWindow';
+	readonly sourceIdentity: WorktreeFileSurfaceSourceIdentity;
+}): BridgeAttachedResourceDescriptor {
+	const identity = {
+		paneId: worktreeFilePaneId,
+		protocol: worktreeFileProtocol,
+		sourceId: props.sourceIdentity.sourceId,
+		generation: props.sourceIdentity.subscriptionGeneration,
+		streamId: worktreeFileStreamId,
+		cursor: props.sourceIdentity.sourceCursor,
+	};
+	const descriptor = {
+		descriptorId: props.descriptorId,
+		protocol: worktreeFileProtocol,
+		resourceKind: props.resourceKind,
+		resourceUrl: `agentstudio://resource/${worktreeFileProtocol}/${props.resourceKind}/${props.descriptorId}?generation=${props.sourceIdentity.subscriptionGeneration}&cursor=${props.sourceIdentity.sourceCursor}`,
+		identity,
+		content: {
+			mediaType: props.content.mediaType,
+			encoding: 'utf-8',
+			expectedBytes: props.content.expectedBytes,
+			maxBytes: Math.max(props.content.expectedBytes, 1),
+		},
+	} satisfies BridgeResourceDescriptor;
+	return bridgeAttachedResourceDescriptorSchema.parse({
+		ref: {
+			descriptorId: descriptor.descriptorId,
+			expectedProtocol: descriptor.protocol,
+			expectedResourceKind: descriptor.resourceKind,
+			expectedIdentity: descriptor.identity,
+		},
+		descriptor,
+	});
 }
 
 async function readChangedFiles(props: {

@@ -6,17 +6,60 @@ import { promisify } from 'node:util';
 
 import { describe, expect, test } from 'vitest';
 
+import type { WorktreeFileDescriptor } from '../../src/features/worktree-file/models/worktree-file-protocol-models.js';
 import type { BridgeReviewItemDescriptor } from '../../src/foundation/review-package/bridge-review-package.js';
 import {
 	createBridgeWorktreeDevProvider,
 	resolveBridgeWorktreeDevProviderConfig,
 	type BridgeWorktreeDevProvider,
 	type BridgeWorktreeDevProviderContentRequest,
+	type BridgeWorktreeDevProviderWorktreeFileContentRequest,
+	type BridgeWorktreeDevProviderWorktreeFileSurface,
 } from './bridge-worktree-dev-provider.js';
 
 const execFileAsync = promisify(execFile);
 
 describe('Bridge worktree dev provider', () => {
+	test('projects an allowlisted git worktree into Worktree/File frames and descriptor-backed content', async () => {
+		const repoRoot = await makeGitFixtureWorktree();
+		try {
+			const provider = await createBridgeWorktreeDevProvider({
+				baseRef: 'HEAD',
+				scenarioName: 'current-worktree',
+				worktreeRoot: repoRoot,
+			});
+
+			const surface = await provider.loadWorktreeFileSurface();
+			const frameKinds = surface.frames.map((frame) => frame.frameKind);
+			const surfaceJson = JSON.stringify(surface);
+			const sourceDescriptor = findWorktreeFileDescriptor(surface, 'src/app.ts');
+			const docsDescriptor = findWorktreeFileDescriptor(surface, 'docs/bridge-plan.md');
+
+			expect(frameKinds[0]).toBe('worktree.snapshot');
+			expect(frameKinds).toContain('worktree.fileDescriptor');
+			expect(surface.source.sourceId).toBe('dev-worktree-source');
+			expect(surface.treeSizeFacts.pathCount).toBeGreaterThanOrEqual(2);
+			expect(sourceDescriptor.virtualizedExtentKind).toBe('exactLineCount');
+			expect(sourceDescriptor.lineCount).toBeGreaterThan(0);
+			expect(sourceDescriptor.contentDescriptor.descriptor.resourceUrl).toContain(
+				'agentstudio://resource/worktree-file/worktree.fileContent/',
+			);
+			expect(surfaceJson).not.toContain('new docs body');
+			expect(surfaceJson).not.toContain('export const value = 2');
+
+			const docsContent = await provider.loadWorktreeFileContent(
+				worktreeFileContentRequestForDescriptor(docsDescriptor),
+			);
+			const sourceContent = await provider.loadWorktreeFileContent(
+				worktreeFileContentRequestForDescriptor(sourceDescriptor),
+			);
+			expect(docsContent).toContain('new docs body');
+			expect(sourceContent).toContain('export const value = 2');
+		} finally {
+			await rm(repoRoot, { force: true, recursive: true });
+		}
+	});
+
 	test('projects an allowlisted git worktree into Bridge metadata and lazy content handles', async () => {
 		const repoRoot = await makeGitFixtureWorktree();
 		try {
@@ -263,6 +306,34 @@ function findItemByPath(
 		throw new Error(`Expected Bridge review item for ${path}`);
 	}
 	return item;
+}
+
+function findWorktreeFileDescriptor(
+	surface: BridgeWorktreeDevProviderWorktreeFileSurface,
+	path: string,
+): WorktreeFileDescriptor {
+	const descriptor = surface.frames
+		.filter((frame) => frame.frameKind === 'worktree.fileDescriptor')
+		.map((frame) => frame.descriptor)
+		.find((candidate) => candidate.path === path);
+	if (descriptor === undefined) {
+		throw new Error(`Expected Worktree/File descriptor for ${path}`);
+	}
+	return descriptor;
+}
+
+function worktreeFileContentRequestForDescriptor(
+	descriptor: WorktreeFileDescriptor,
+): BridgeWorktreeDevProviderWorktreeFileContentRequest {
+	const identity = descriptor.contentDescriptor.ref.expectedIdentity;
+	if (identity.generation === undefined || identity.cursor === undefined) {
+		throw new Error('Expected Worktree/File descriptor identity generation and cursor');
+	}
+	return {
+		descriptorId: descriptor.contentDescriptor.ref.descriptorId,
+		sourceCursor: identity.cursor,
+		subscriptionGeneration: identity.generation,
+	};
 }
 
 function contentRequestForHandle(
