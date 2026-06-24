@@ -120,6 +120,119 @@ describe('BridgeWeb architecture checker', () => {
 		);
 	});
 
+	test('reports generic core imports of app protocol and viewer modules', async () => {
+		await withFixtureTree(
+			{
+				'src/core/demand/bad-review-policy-import.ts': `
+					import { mapReviewDemandStimulusToIntents } from '../../features/review/demand/review-demand-policy.js';
+					export const value = mapReviewDemandStimulusToIntents;
+				`,
+				'src/core/resources/bad-worktree-import.ts': `
+					import type { WorktreeFileDescriptor } from '../../features/worktree-file/models/worktree-file-protocol-models.js';
+					export type Value = WorktreeFileDescriptor;
+				`,
+				'src/core/intake/bad-viewer-import.ts': `
+					import { createBridgeReviewViewerStore } from '../../review-viewer/state/review-viewer-store.js';
+					export const value = createBridgeReviewViewerStore;
+				`,
+				'src/core/models/bad-legacy-package-import.ts': `
+					import type { BridgeReviewPackage } from '../../foundation/review-package/bridge-review-package.js';
+					export type Value = BridgeReviewPackage;
+				`,
+			},
+			async (packageRootPath: string): Promise<void> => {
+				const report = await checkBridgeWebArchitecture({ packageRootPath });
+
+				expect(report.ok).toBe(false);
+				expect(report.violations).toEqual([
+					expect.objectContaining({
+						ruleId: 'core-imports-app-protocol',
+						relativePath: 'src/core/demand/bad-review-policy-import.ts',
+					}),
+					expect.objectContaining({
+						ruleId: 'core-imports-app-protocol',
+						relativePath: 'src/core/intake/bad-viewer-import.ts',
+					}),
+					expect.objectContaining({
+						ruleId: 'core-imports-app-protocol',
+						relativePath: 'src/core/models/bad-legacy-package-import.ts',
+					}),
+					expect.objectContaining({
+						ruleId: 'core-imports-app-protocol',
+						relativePath: 'src/core/resources/bad-worktree-import.ts',
+					}),
+				]);
+			},
+		);
+	});
+
+	test('reports raw bodies and runtime handles in Worktree/File state', async () => {
+		await withFixtureTree(
+			{
+				'src/features/worktree-file/state/worktree-file-state.ts': `
+					export interface WorktreeFileSurfaceState {
+						readonly selectedContentText: string;
+						readonly contentPromise: Promise<string>;
+						readonly abortController: AbortController;
+						readonly workerHandle: Worker;
+						readonly pierreInstance: object;
+					}
+				`,
+			},
+			async (packageRootPath: string): Promise<void> => {
+				const report = await checkBridgeWebArchitecture({ packageRootPath });
+
+				expect(report.ok).toBe(false);
+				expect(report.violations).toEqual([
+					expect.objectContaining({
+						ruleId: 'no-raw-file-bodies-in-state',
+						relativePath: 'src/features/worktree-file/state/worktree-file-state.ts',
+					}),
+				]);
+			},
+		);
+	});
+
+	test('reports Worktree dev Review-package scaffolding', async () => {
+		await withFixtureTree(
+			{
+				'src/app/bridge-app-dev-worktree.ts': `
+					import { dispatchBridgeDevHostAdmittedEnvelope } from '../bridge/bridge-dev-host-push-carrier.js';
+					import { buildReviewSnapshotFrame } from '../features/review/protocol/review-snapshot-frame-builder.js';
+					import { bridgeReviewPackageSchema } from '../foundation/review-package/bridge-review-package-schema.js';
+					const worktreePackageEndpoint = '/__bridge-worktree/package';
+					export const pushPackage = (): void => {
+						dispatchBridgeDevHostAdmittedEnvelope(buildReviewSnapshotFrame(bridgeReviewPackageSchema));
+					};
+					export const endpoint = worktreePackageEndpoint;
+				`,
+				'scripts/dev-server/bridge-worktree-dev-provider.ts': `
+					import type { BridgeReviewPackage } from '../../src/foundation/review-package/bridge-review-package.js';
+					export interface BridgeWorktreeDevProvider {
+						readonly loadReviewPackage: () => Promise<BridgeReviewPackage>;
+						readonly loadContent: () => Promise<string>;
+					}
+					export const reviewContentEndpoint = '/__bridge-worktree/content/';
+				`,
+			},
+			async (packageRootPath: string): Promise<void> => {
+				const report = await checkBridgeWebArchitecture({ packageRootPath });
+
+				expect(report.ok).toBe(false);
+				expect(report.violations).toEqual([
+					expect.objectContaining({
+						ruleId: 'worktree-dev-review-package-scaffolding',
+						relativePath: 'scripts/dev-server/bridge-worktree-dev-provider.ts',
+					}),
+					expect.objectContaining({
+						ruleId: 'worktree-dev-review-package-scaffolding',
+						relativePath: 'src/app/bridge-app-dev-worktree.ts',
+					}),
+				]);
+			},
+		);
+	});
+
 	test('reports vague review-viewer runtime and workers/rpc folders', async () => {
 		await withFixtureTree(
 			{

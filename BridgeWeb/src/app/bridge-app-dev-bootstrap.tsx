@@ -70,9 +70,7 @@ if (rootElement !== null) {
 					telemetryConfig,
 				});
 	const worktreeBackend =
-		options.fixtureClass === 'worktree'
-			? installBridgeAppDevWorktreeBackend({ telemetryConfig })
-			: null;
+		options.fixtureClass === 'worktree' ? installBridgeAppDevWorktreeBackend() : null;
 
 	window.addEventListener(
 		'beforeunload',

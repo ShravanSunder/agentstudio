@@ -7,12 +7,9 @@ import { promisify } from 'node:util';
 import { describe, expect, test } from 'vitest';
 
 import type { WorktreeFileDescriptor } from '../../src/features/worktree-file/models/worktree-file-protocol-models.js';
-import type { BridgeReviewItemDescriptor } from '../../src/foundation/review-package/bridge-review-package.js';
 import {
 	createBridgeWorktreeDevProvider,
 	resolveBridgeWorktreeDevProviderConfig,
-	type BridgeWorktreeDevProvider,
-	type BridgeWorktreeDevProviderContentRequest,
 	type BridgeWorktreeDevProviderWorktreeFileContentRequest,
 	type BridgeWorktreeDevProviderWorktreeFileSurface,
 } from './bridge-worktree-dev-provider.js';
@@ -68,45 +65,6 @@ describe('Bridge worktree dev provider', () => {
 		}
 	});
 
-	test('projects an allowlisted git worktree into Bridge metadata and lazy content handles', async () => {
-		const repoRoot = await makeGitFixtureWorktree();
-		try {
-			const provider = await createBridgeWorktreeDevProvider({
-				baseRef: 'HEAD',
-				scenarioName: 'current-worktree',
-				worktreeRoot: repoRoot,
-			});
-
-			const reviewPackage = await provider.loadReviewPackage();
-			const items = Object.values(reviewPackage.itemsById);
-			const packageJson = JSON.stringify(reviewPackage);
-			const addedDocsItem = findItemByPath(provider, reviewPackage, 'docs/bridge-plan.md');
-			const modifiedSourceItem = findItemByPath(provider, reviewPackage, 'src/app.ts');
-			const docsHeadHandle = addedDocsItem.contentRoles.head;
-			const sourceHeadHandle = modifiedSourceItem.contentRoles.head;
-
-			expect(reviewPackage.packageId).toBe('dev-worktree');
-			expect(reviewPackage.summary.filesChanged).toBe(2);
-			expect(items.map((item) => item.changeKind).toSorted()).toEqual(['added', 'modified']);
-			expect(addedDocsItem.fileClass).toBe('docs');
-			expect(addedDocsItem.language).toBe('markdown');
-			expect(modifiedSourceItem.fileClass).toBe('source');
-			expect(modifiedSourceItem.language).toBe('typescript');
-			expect(packageJson).not.toContain('new docs body');
-			expect(packageJson).not.toContain('export const value = 2');
-			expect(docsHeadHandle?.resourceUrl).toContain('agentstudio://resource/review/content/');
-			expect(sourceHeadHandle?.resourceUrl).toContain('agentstudio://resource/review/content/');
-			expect(docsHeadHandle?.sizeBytes).toBeGreaterThan(0);
-
-			const docsContent = await provider.loadContent(contentRequestForHandle(docsHeadHandle));
-			const sourceContent = await provider.loadContent(contentRequestForHandle(sourceHeadHandle));
-			expect(docsContent).toContain('new docs body');
-			expect(sourceContent).toContain('export const value = 2');
-		} finally {
-			await rm(repoRoot, { force: true, recursive: true });
-		}
-	});
-
 	test('resolves the package-local default worktree and compares against the main merge base', async () => {
 		const repoRoot = await makeGitFixtureWorktree();
 		try {
@@ -123,24 +81,26 @@ describe('Bridge worktree dev provider', () => {
 				requestUrl: null,
 			});
 			const provider = await createBridgeWorktreeDevProvider(config);
-			const reviewPackage = await provider.loadReviewPackage();
+			const surface = await provider.loadWorktreeFileSurface();
+			const featureDescriptor = findWorktreeFileDescriptor(surface, 'src/feature.ts');
+			const appDescriptor = findWorktreeFileDescriptor(surface, 'src/app.ts');
 
 			expect(config.worktreeRoot).toBe(await realpath(repoRoot));
 			expect(config.baseRef).not.toBe('HEAD');
-			expect(findItemByPath(provider, reviewPackage, 'src/feature.ts').changeKind).toBe('added');
-			expect(findItemByPath(provider, reviewPackage, 'src/app.ts').changeKind).toBe('modified');
+			expect(featureDescriptor.language).toBe('typescript');
+			expect(appDescriptor.language).toBe('typescript');
 		} finally {
 			await rm(repoRoot, { force: true, recursive: true });
 		}
 	});
 
-	test('accepts request query overrides for dev-only worktree package routes', async () => {
+	test('accepts request query overrides for dev-only worktree surface routes', async () => {
 		const repoRoot = await makeGitFixtureWorktree();
 		try {
 			const config = await resolveBridgeWorktreeDevProviderConfig({
 				env: { BRIDGE_WEB_DEV_BASE: 'HEAD', BRIDGE_WEB_DEV_WORKTREE: repoRoot },
 				packageRoot: join(repoRoot, 'BridgeWeb'),
-				requestUrl: '/__bridge-worktree/package?scenario=current-worktree',
+				requestUrl: '/__bridge-worktree/surface?scenario=current-worktree',
 			});
 
 			expect(config).toEqual({
@@ -160,7 +120,7 @@ describe('Bridge worktree dev provider', () => {
 				resolveBridgeWorktreeDevProviderConfig({
 					env: { BRIDGE_WEB_DEV_BASE: 'HEAD', BRIDGE_WEB_DEV_WORKTREE: repoRoot },
 					packageRoot: join(repoRoot, 'BridgeWeb'),
-					requestUrl: '/__bridge-worktree/package?scenario=/tmp/raw-path',
+					requestUrl: '/__bridge-worktree/surface?scenario=/tmp/raw-path',
 				}),
 			).rejects.toThrow(/Invalid Bridge worktree dev provider config/);
 		} finally {
@@ -175,7 +135,7 @@ describe('Bridge worktree dev provider', () => {
 				resolveBridgeWorktreeDevProviderConfig({
 					env: { BRIDGE_WEB_DEV_BASE: 'HEAD', BRIDGE_WEB_DEV_WORKTREE: repoRoot },
 					packageRoot: join(repoRoot, 'BridgeWeb'),
-					requestUrl: 'https://example.test/__bridge-worktree/package?scenario=current-worktree',
+					requestUrl: 'https://example.test/__bridge-worktree/surface?scenario=current-worktree',
 				}),
 			).rejects.toThrow(/loopback/);
 		} finally {
@@ -195,7 +155,7 @@ describe('Bridge worktree dev provider', () => {
 					resolveBridgeWorktreeDevProviderConfig({
 						env: { BRIDGE_WEB_DEV_BASE: 'HEAD', BRIDGE_WEB_DEV_WORKTREE: repoRoot },
 						packageRoot: join(repoRoot, 'BridgeWeb'),
-						requestUrl: `/__bridge-worktree/package?scenario=current-worktree&${query}`,
+						requestUrl: `/__bridge-worktree/surface?scenario=current-worktree&${query}`,
 					}),
 				).rejects.toThrow(/raw worktree, repo, or base query parameters/);
 			});
@@ -212,7 +172,7 @@ describe('Bridge worktree dev provider', () => {
 				resolveBridgeWorktreeDevProviderConfig({
 					env: { BRIDGE_WEB_DEV_BASE: 'HEAD', BRIDGE_WEB_DEV_WORKTREE: join(repoRoot, 'src') },
 					packageRoot: join(repoRoot, 'BridgeWeb'),
-					requestUrl: '/__bridge-worktree/package?scenario=current-worktree',
+					requestUrl: '/__bridge-worktree/surface?scenario=current-worktree',
 				}),
 			).rejects.toThrow(/must be the git root/);
 		} finally {
@@ -220,7 +180,7 @@ describe('Bridge worktree dev provider', () => {
 		}
 	});
 
-	test('rejects stale generation and revision content resource requests', async () => {
+	test('rejects stale generation and cursor content resource requests', async () => {
 		const repoRoot = await makeGitFixtureWorktree();
 		try {
 			const provider = await createBridgeWorktreeDevProvider({
@@ -228,22 +188,25 @@ describe('Bridge worktree dev provider', () => {
 				scenarioName: 'current-worktree',
 				worktreeRoot: repoRoot,
 			});
-			const reviewPackage = await provider.loadReviewPackage();
-			const addedDocsItem = findItemByPath(provider, reviewPackage, 'docs/bridge-plan.md');
-			const docsHeadHandle = addedDocsItem.contentRoles.head;
-			const validContentRequest: BridgeWorktreeDevProviderContentRequest = {
-				handleId: requiredHandleId(docsHeadHandle),
-				reviewGeneration: reviewPackage.reviewGeneration,
-				revision: reviewPackage.revision,
-			};
+			const surface = await provider.loadWorktreeFileSurface();
+			const docsDescriptor = findWorktreeFileDescriptor(surface, 'docs/bridge-plan.md');
+			const validContentRequest = worktreeFileContentRequestForDescriptor(docsDescriptor);
 
-			await expect(provider.loadContent(validContentRequest)).resolves.toContain('new docs body');
-			await expect(
-				provider.loadContent({ ...validContentRequest, reviewGeneration: 0 }),
-			).rejects.toThrow(/stale Bridge worktree content generation/);
-			await expect(provider.loadContent({ ...validContentRequest, revision: 0 })).rejects.toThrow(
-				/stale Bridge worktree content revision/,
+			await expect(provider.loadWorktreeFileContent(validContentRequest)).resolves.toContain(
+				'new docs body',
 			);
+			await expect(
+				provider.loadWorktreeFileContent({ ...validContentRequest, subscriptionGeneration: 0 }),
+			).rejects.toThrow(/stale Bridge worktree file content generation/);
+			await expect(
+				provider.loadWorktreeFileContent({ ...validContentRequest, sourceCursor: 'old-cursor' }),
+			).rejects.toThrow(/stale Bridge worktree file content cursor/);
+			await expect(
+				provider.loadWorktreeFileContent({
+					...validContentRequest,
+					descriptorId: 'missing-descriptor',
+				}),
+			).rejects.toThrow(/Unknown Bridge worktree file content descriptor: missing-descriptor/);
 		} finally {
 			await rm(repoRoot, { force: true, recursive: true });
 		}
@@ -268,7 +231,7 @@ describe('Bridge worktree dev provider', () => {
 		}
 	});
 
-	test('increments revision when the worktree snapshot changes and rejects old content URLs', async () => {
+	test('changes source cursor when the worktree snapshot changes and rejects old content URLs', async () => {
 		const repoRoot = await makeGitFixtureWorktree();
 		try {
 			const provider = await createBridgeWorktreeDevProvider({
@@ -276,23 +239,22 @@ describe('Bridge worktree dev provider', () => {
 				scenarioName: 'current-worktree',
 				worktreeRoot: repoRoot,
 			});
-			const firstPackage = await provider.loadReviewPackage();
-			const firstDocsItem = findItemByPath(provider, firstPackage, 'docs/bridge-plan.md');
-			const firstHandle = firstDocsItem.contentRoles.head;
-			const firstRequest = contentRequestForHandle(firstHandle);
+			const firstSurface = await provider.loadWorktreeFileSurface();
+			const firstDocsDescriptor = findWorktreeFileDescriptor(firstSurface, 'docs/bridge-plan.md');
+			const firstRequest = worktreeFileContentRequestForDescriptor(firstDocsDescriptor);
 
 			await writeFile(join(repoRoot, 'docs/bridge-plan.md'), '# Plan\n\nupdated docs body\n');
 
-			const secondPackage = await provider.loadReviewPackage();
-			const secondDocsItem = findItemByPath(provider, secondPackage, 'docs/bridge-plan.md');
-			const secondHandle = secondDocsItem.contentRoles.head;
+			const secondSurface = await provider.loadWorktreeFileSurface();
+			const secondDocsDescriptor = findWorktreeFileDescriptor(secondSurface, 'docs/bridge-plan.md');
+			const secondRequest = worktreeFileContentRequestForDescriptor(secondDocsDescriptor);
 
-			expect(secondPackage.revision).toBe(firstPackage.revision + 1);
-			expect(secondHandle?.resourceUrl).toContain(`revision=${secondPackage.revision}`);
-			await expect(provider.loadContent(firstRequest)).rejects.toThrow(
-				/stale Bridge worktree content revision/,
+			expect(secondSurface.source.sourceCursor).not.toBe(firstSurface.source.sourceCursor);
+			expect(secondRequest.sourceCursor).toBe(secondSurface.source.sourceCursor);
+			await expect(provider.loadWorktreeFileContent(firstRequest)).rejects.toThrow(
+				/stale Bridge worktree file content cursor/,
 			);
-			await expect(provider.loadContent(contentRequestForHandle(secondHandle))).resolves.toContain(
+			await expect(provider.loadWorktreeFileContent(secondRequest)).resolves.toContain(
 				'updated docs body',
 			);
 		} finally {
@@ -319,20 +281,6 @@ async function makeGitFixtureWorktree(): Promise<string> {
 
 async function git(cwd: string, ...args: readonly string[]): Promise<void> {
 	await execFileAsync('git', args, { cwd });
-}
-
-function findItemByPath(
-	_provider: BridgeWorktreeDevProvider,
-	reviewPackage: Awaited<ReturnType<BridgeWorktreeDevProvider['loadReviewPackage']>>,
-	path: string,
-): BridgeReviewItemDescriptor {
-	const item = Object.values(reviewPackage.itemsById).find(
-		(candidate) => candidate.headPath === path || candidate.basePath === path,
-	);
-	if (item === undefined) {
-		throw new Error(`Expected Bridge review item for ${path}`);
-	}
-	return item;
 }
 
 function findWorktreeFileDescriptor(
@@ -369,37 +317,4 @@ function worktreeFileContentRequestForDescriptor(
 		sourceCursor: identity.cursor,
 		subscriptionGeneration: identity.generation,
 	};
-}
-
-function contentRequestForHandle(
-	handle:
-		| {
-				readonly handleId: string;
-				readonly reviewGeneration?: number;
-				readonly resourceUrl?: string;
-		  }
-		| null
-		| undefined,
-): BridgeWorktreeDevProviderContentRequest {
-	const handleId = requiredHandleId(handle);
-	const parsedUrl = new URL(requiredResourceUrl(handle));
-	return {
-		handleId,
-		reviewGeneration: Number(parsedUrl.searchParams.get('generation')),
-		revision: Number(parsedUrl.searchParams.get('revision')),
-	};
-}
-
-function requiredHandleId(handle: { readonly handleId: string } | null | undefined): string {
-	if (handle === null || handle === undefined) {
-		throw new Error('Expected Bridge content handle');
-	}
-	return handle.handleId;
-}
-
-function requiredResourceUrl(handle: { readonly resourceUrl?: string } | null | undefined): string {
-	if (handle === null || handle === undefined || handle.resourceUrl === undefined) {
-		throw new Error('Expected Bridge content resource URL');
-	}
-	return handle.resourceUrl;
 }

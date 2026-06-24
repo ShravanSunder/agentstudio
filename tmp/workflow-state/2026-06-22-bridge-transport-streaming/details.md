@@ -1227,6 +1227,52 @@ Checkpoint 5: hard cutover cleanup
 - Re-run final proof gates.
 - Commit cleanup only after regression/canary gates pass.
 
+Current Ticket 05 cleanup proof:
+
+- Red proof:
+  `pnpm --dir BridgeWeb exec vitest run
+  scripts/check-bridgeweb-architecture.unit.test.ts --reporter verbose`:
+  exit 1 before the checker update, with the expected failure that Worktree dev
+  Review-package scaffolding was not reported.
+- Architecture guard:
+  `scripts/check-bridgeweb-architecture.ts` now rejects generic core imports of
+  app protocol/viewer modules, raw bodies/runtime handles in state modules, and
+  Worktree dev Review-package scaffolding in the dev backend/provider/Vite route.
+- Hard cutover:
+  Worktree dev provider and Vite route now expose Worktree/File surface frames
+  and descriptor-backed file content only. The Worktree dev path no longer
+  exports or consumes Review package push/package/content routes.
+- Focused proof:
+  `pnpm --dir BridgeWeb exec vitest run
+  scripts/check-bridgeweb-architecture.unit.test.ts
+  scripts/dev-server/bridge-worktree-dev-provider.integration.test.ts
+  scripts/bridge-worktree-vite-route.unit.test.ts --reporter verbose`:
+  exit 0, 3 files passed, 29 tests passed.
+- Quality gate:
+  `pnpm --dir BridgeWeb run check`: exit 0.
+- Repo lint gate:
+  `git diff --check && mise run lint`: exit 0. SwiftLint found 0
+  violations, AgentStudio architecture lint passed, and release script
+  verification passed.
+- Live current-worktree dev-server gate:
+  `pnpm --dir BridgeWeb run test:dev-server:worktree`: exit 0.
+  Latest artifact:
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-24T02-27-09-000Z/worktree-dev-server-proof.json`.
+  Key canary values: `descriptorCount=423`,
+  `targetPath=Sources/AgentStudioProgrammaticControl/IPCContracts.swift`,
+  `selectedContentState=ready`, `selectedLineCount=381`,
+  `treePathCount=423`, `treeTotalSizePixels=10152`,
+  `treeHeightDeltaPixels=0`, `contentHeightDeltaPixels=0`,
+  `stableAnchorPass=true`, `exactSizeTolerancePass=true`,
+  `packageForbiddenTextAbsent=true`.
+- Live port check:
+  `lsof -nP -iTCP:5173 -sTCP:LISTEN || true`: exit 0, node PID 35384
+  listening on `127.0.0.1:5173`.
+- Live route shape check:
+  `/__bridge-worktree/surface?scenario=current-worktree` returns Worktree/File
+  frames, while `/__bridge-worktree/package?scenario=current-worktree` no longer
+  returns a Review JSON package.
+
 Checkpoint 6: implementation review and PR-ready wrapup
 
 - Run implementation review swarm.

@@ -1,6 +1,6 @@
 import type { Dirent } from 'node:fs';
 import { readdir, readFile } from 'node:fs/promises';
-import { extname, join, relative } from 'node:path';
+import { dirname, extname, join, relative } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import ts from 'typescript';
@@ -16,7 +16,9 @@ type RuleId =
 	| 'review-viewer-shell-has-content-effects'
 	| 'telemetry-boundary'
 	| 'worker-boundary'
-	| 'no-raw-file-bodies-in-state';
+	| 'no-raw-file-bodies-in-state'
+	| 'core-imports-app-protocol'
+	| 'worktree-dev-review-package-scaffolding';
 
 export interface ArchitectureViolation {
 	readonly ruleId: RuleId;
@@ -155,6 +157,7 @@ async function checkSourceFile(
 		checkTelemetryEmit(context, node);
 	});
 	checkRawBodyStateFields(context);
+	checkWorktreeDevReviewPackageScaffolding(context);
 
 	return context.violations;
 }
@@ -202,6 +205,14 @@ function checkImportSource(context: SourceContext, node: ts.Node): void {
 	}
 
 	const importSource = normalizeImportSpecifier(rawImportSource);
+
+	if (isCorePath(context.relativePath) && isAppProtocolOrViewerImport(context, importSource)) {
+		addViolation(context, {
+			ruleId: 'core-imports-app-protocol',
+			node,
+			message: `generic core modules must not import app protocol or viewer modules: ${importSource}`,
+		});
+	}
 
 	if (
 		importSource.startsWith('@pierre/trees') &&
@@ -329,7 +340,7 @@ function checkStateEffects(context: SourceContext, node: ts.Node): void {
 		addViolation(context, {
 			ruleId: 'review-viewer-state-has-effects',
 			node,
-			message: 'review-viewer/state must not fetch content directly',
+			message: 'state modules must not fetch content directly',
 		});
 	}
 
@@ -345,7 +356,7 @@ function checkStateEffects(context: SourceContext, node: ts.Node): void {
 		addViolation(context, {
 			ruleId: 'review-viewer-state-has-effects',
 			node,
-			message: `review-viewer/state must not own Bridge transport strings: ${node.text}`,
+			message: `state modules must not own Bridge transport strings: ${node.text}`,
 		});
 	}
 }
@@ -378,9 +389,10 @@ function checkRawBodyStateFields(context: SourceContext): void {
 		return;
 	}
 
-	const match = /\b(?:loadedFileBody|rawFileBody|fileBody|contentText|selectedContentText)\b/u.exec(
-		context.sourceText,
-	);
+	const match =
+		/\b(?:loadedFileBody|rawFileBody|fileBody|bodyText|fileText|sourceText|contentText|selectedContentText|contentPromise|bodyPromise|abortController|workerHandle|pierreInstance)\b/u.exec(
+			context.sourceText,
+		);
 
 	if (match === null) {
 		return;
@@ -389,7 +401,30 @@ function checkRawBodyStateFields(context: SourceContext): void {
 	addViolation(context, {
 		ruleId: 'no-raw-file-bodies-in-state',
 		position: match.index,
-		message: 'review-viewer/state must store content handles/status, not raw loaded file bodies',
+		message:
+			'state modules must store refs/status/facts, not raw bodies, promises, controllers, workers, or Pierre instances',
+	});
+}
+
+function checkWorktreeDevReviewPackageScaffolding(context: SourceContext): void {
+	if (!isWorktreeDevPath(context.relativePath) || isTestPath(context.relativePath)) {
+		return;
+	}
+
+	const match =
+		/\b(?:loadReviewPackage|pushPackage|BridgeReviewPackage|bridgeReviewPackageSchema|buildReviewSnapshotFrame|dispatchBridgeDevHostAdmittedEnvelope)\b|\/__bridge-worktree\/(?:package|content)\b|foundation\/review-package/u.exec(
+			context.sourceText,
+		);
+
+	if (match === null) {
+		return;
+	}
+
+	addViolation(context, {
+		ruleId: 'worktree-dev-review-package-scaffolding',
+		position: match.index,
+		message:
+			'Worktree dev route must use Worktree/File frames and descriptor content, not Review-package scaffolding',
 	});
 }
 
@@ -499,7 +534,7 @@ function isStateEffectImport(importSource: string): boolean {
 		importSource.startsWith('@pierre/') ||
 		importSource.includes('/bridge/') ||
 		importSource.includes('bridge-rpc') ||
-		importSource.includes('bridge-resource') ||
+		importSource.includes('bridge-resource-url') ||
 		importSource.includes('/foundation/content') ||
 		importSource.includes('/foundation/telemetry') ||
 		importSource.includes('/review-viewer/workers') ||
@@ -508,12 +543,45 @@ function isStateEffectImport(importSource: string): boolean {
 	);
 }
 
+function isAppProtocolOrViewerImport(context: SourceContext, importSource: string): boolean {
+	const targetPath = resolveImportTargetPath(context.relativePath, importSource) ?? importSource;
+	return (
+		isPathInside(targetPath, 'src/features/review/') ||
+		isPathInside(targetPath, 'src/features/worktree-file/') ||
+		isPathInside(targetPath, 'src/review-viewer/') ||
+		isPathInside(targetPath, 'src/foundation/review-package/')
+	);
+}
+
+function resolveImportTargetPath(relativePath: string, importSource: string): string | null {
+	if (!importSource.startsWith('.')) {
+		return null;
+	}
+	return normalizePath(join(dirname(relativePath), importSource));
+}
+
+function isCorePath(relativePath: string): boolean {
+	return isPathInside(relativePath, 'src/core/');
+}
+
+function isWorktreeDevPath(relativePath: string): boolean {
+	return (
+		relativePath === 'src/app/bridge-app-dev-worktree.ts' ||
+		relativePath === 'scripts/dev-server/bridge-worktree-dev-provider.ts' ||
+		relativePath === 'vite.config.ts'
+	);
+}
+
 function isContentEffectImport(importSource: string): boolean {
 	return importSource.includes('/foundation/content');
 }
 
 function isStatePath(relativePath: string): boolean {
-	return isPathInside(relativePath, 'src/review-viewer/state/');
+	return (
+		isPathInside(relativePath, 'src/review-viewer/state/') ||
+		isPathInside(relativePath, 'src/features/review/state/') ||
+		isPathInside(relativePath, 'src/features/worktree-file/state/')
+	);
 }
 
 function isShellPath(relativePath: string): boolean {

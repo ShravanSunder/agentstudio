@@ -17,21 +17,9 @@ import type {
 	WorktreeFileSurfaceSourceIdentity,
 	WorktreeTreeVirtualizedSizeFacts,
 } from '../../src/features/worktree-file/models/worktree-file-protocol-models.js';
-import type {
-	BridgeContentHandle,
-	BridgeContentRole,
-	BridgeFileChangeKind,
-	BridgeFileClass,
-	BridgeReviewItemDescriptor,
-	BridgeReviewPackage,
-	BridgeReviewPackageSummary,
-	BridgeSourceEndpoint,
-	BridgeViewFilter,
-} from '../../src/foundation/review-package/bridge-review-package.js';
 
 const execFileAsync = promisify(execFile);
-const reviewGeneration = 1;
-const schemaVersion = 1;
+const worktreeFileSubscriptionGeneration = 1;
 const worktreeFileProtocol = 'worktree-file';
 const worktreeFilePaneId = 'bridge-worktree-dev-pane';
 const worktreeFileSourceId = 'dev-worktree-source';
@@ -57,12 +45,6 @@ export interface ResolveBridgeWorktreeDevProviderConfigProps {
 	readonly requestUrl: string | null;
 }
 
-export interface BridgeWorktreeDevProviderContentRequest {
-	readonly handleId: string;
-	readonly reviewGeneration: number;
-	readonly revision: number;
-}
-
 export interface BridgeWorktreeDevProviderWorktreeFileContentRequest {
 	readonly descriptorId: string;
 	readonly sourceCursor: string;
@@ -76,27 +58,26 @@ export interface BridgeWorktreeDevProviderWorktreeFileSurface {
 }
 
 export interface BridgeWorktreeDevProvider {
-	readonly loadContent: (request: BridgeWorktreeDevProviderContentRequest) => Promise<string>;
-	readonly loadReviewPackage: () => Promise<BridgeReviewPackage>;
 	readonly loadWorktreeFileContent: (
 		request: BridgeWorktreeDevProviderWorktreeFileContentRequest,
 	) => Promise<string>;
 	readonly loadWorktreeFileSurface: () => Promise<BridgeWorktreeDevProviderWorktreeFileSurface>;
 }
 
+type WorktreeFileChangeKind = 'added' | 'copied' | 'deleted' | 'modified' | 'renamed';
+
 interface WorktreeChangedFile {
 	readonly additions: number;
 	readonly baseContent: string | null;
-	readonly changeKind: BridgeFileChangeKind;
+	readonly changeKind: WorktreeFileChangeKind;
 	readonly deletions: number;
 	readonly headContent: string | null;
 	readonly path: string;
 }
 
 interface ProviderState {
-	readonly contentByHandleId: ReadonlyMap<string, string>;
 	readonly fingerprint: string;
-	readonly reviewPackage: BridgeReviewPackage;
+	readonly revision: number;
 	readonly worktreeFileContentByDescriptorId: ReadonlyMap<string, string>;
 	readonly worktreeFileSurface: BridgeWorktreeDevProviderWorktreeFileSurface;
 }
@@ -107,7 +88,7 @@ interface ProviderSnapshot {
 }
 
 interface GitNameStatusRecord {
-	readonly changeKind: BridgeFileChangeKind;
+	readonly changeKind: WorktreeFileChangeKind;
 	readonly path: string;
 }
 
@@ -151,39 +132,17 @@ export async function createBridgeWorktreeDevProvider(
 			state === null
 				? 1
 				: state.fingerprint === snapshot.fingerprint
-					? state.reviewPackage.revision
-					: state.reviewPackage.revision + 1;
+					? state.revision
+					: state.revision + 1;
 		const currentState = makeProviderState({
-			baseRef: parsedConfig.baseRef,
 			revision,
 			snapshot,
-			worktreeRoot,
 		});
 		state = currentState;
 		return currentState;
 	};
 
 	return {
-		loadContent: async (request: BridgeWorktreeDevProviderContentRequest): Promise<string> => {
-			const currentState = state ?? (await loadCurrentState());
-			if (request.reviewGeneration !== currentState.reviewPackage.reviewGeneration) {
-				throw new Error(
-					`Rejected stale Bridge worktree content generation: ${request.reviewGeneration}`,
-				);
-			}
-			if (request.revision !== currentState.reviewPackage.revision) {
-				throw new Error(`Rejected stale Bridge worktree content revision: ${request.revision}`);
-			}
-			const content = currentState.contentByHandleId.get(request.handleId);
-			if (content === undefined) {
-				throw new Error(`Unknown Bridge worktree content handle: ${request.handleId}`);
-			}
-			return content;
-		},
-		loadReviewPackage: async (): Promise<BridgeReviewPackage> => {
-			const currentState = await loadCurrentState();
-			return currentState.reviewPackage;
-		},
 		loadWorktreeFileContent: async (
 			request: BridgeWorktreeDevProviderWorktreeFileContentRequest,
 		): Promise<string> => {
@@ -224,28 +183,15 @@ async function loadSnapshot(props: {
 }
 
 function makeProviderState(props: {
-	readonly baseRef: string;
 	readonly revision: number;
 	readonly snapshot: ProviderSnapshot;
-	readonly worktreeRoot: string;
 }): ProviderState {
-	const contentByHandleId = new Map<string, string>();
-	const items = props.snapshot.changedFiles.map((changedFile) =>
-		makeReviewItem({
-			changedFile,
-			contentByHandleId,
-			revision: props.revision,
-			worktreeRoot: props.worktreeRoot,
-		}),
-	);
-	const itemsById = Object.fromEntries(items.map((item) => [item.itemId, item]));
-	const summary = summarizeItems(items);
 	const sourceCursor = `cursor-${props.snapshot.fingerprint.slice(0, 32)}`;
 	const sourceIdentity: WorktreeFileSurfaceSourceIdentity = {
 		sourceId: worktreeFileSourceId,
 		repoId: 'dev-worktree-repo',
 		worktreeId: 'dev-worktree',
-		subscriptionGeneration: reviewGeneration,
+		subscriptionGeneration: worktreeFileSubscriptionGeneration,
 		sourceCursor,
 		rootRevisionToken: props.snapshot.fingerprint,
 	};
@@ -301,56 +247,9 @@ function makeProviderState(props: {
 		source: sourceIdentity,
 		treeSizeFacts,
 	};
-	const reviewPackage: BridgeReviewPackage = {
-		packageId: 'dev-worktree',
-		schemaVersion,
-		reviewGeneration,
-		revision: props.revision,
-		query: {
-			queryId: 'dev-worktree-query',
-			queryKind: 'compare',
-			repoId: 'dev-worktree-repo',
-			worktreeId: 'dev-worktree',
-			baseEndpointId: 'dev-base',
-			headEndpointId: 'dev-head',
-			comparisonSemantics: 'workingTreeDelta',
-			pathScope: [],
-			fileTarget: null,
-			viewFilter: defaultViewFilter(),
-			grouping: { kind: 'flat', label: null },
-			provenanceFilter: {
-				paneIds: [],
-				agentSessionIds: [],
-				promptIds: [],
-				operationIds: [],
-				createdAfterUnixMilliseconds: null,
-				createdBeforeUnixMilliseconds: null,
-				sourceKinds: [],
-			},
-		},
-		baseEndpoint: makeSourceEndpoint({
-			endpointId: 'dev-base',
-			kind: 'gitRef',
-			label: props.baseRef,
-			providerIdentity: props.baseRef,
-		}),
-		headEndpoint: makeSourceEndpoint({
-			endpointId: 'dev-head',
-			kind: 'workingTree',
-			label: 'Working tree',
-			providerIdentity: props.worktreeRoot,
-		}),
-		orderedItemIds: items.map((item) => item.itemId),
-		itemsById,
-		groups: [],
-		summary,
-		filterState: defaultViewFilter(),
-		generatedAtUnixMilliseconds: Date.now(),
-	};
 	return {
-		contentByHandleId,
 		fingerprint: props.snapshot.fingerprint,
-		reviewPackage,
+		revision: props.revision,
 		worktreeFileContentByDescriptorId,
 		worktreeFileSurface,
 	};
@@ -528,7 +427,7 @@ function parseNameStatusLine(line: string): GitNameStatusRecord {
 	};
 }
 
-function changeKindForGitStatus(status: string): BridgeFileChangeKind {
+function changeKindForGitStatus(status: string): WorktreeFileChangeKind {
 	const statusKind = status[0] ?? '';
 	switch (statusKind) {
 		case 'A':
@@ -544,150 +443,6 @@ function changeKindForGitStatus(status: string): BridgeFileChangeKind {
 		default:
 			return 'modified';
 	}
-}
-
-function makeReviewItem(props: {
-	readonly changedFile: WorktreeChangedFile;
-	readonly contentByHandleId: Map<string, string>;
-	readonly revision: number;
-	readonly worktreeRoot: string;
-}): BridgeReviewItemDescriptor {
-	const itemId = `dev-${hashText(props.changedFile.path).slice(0, 16)}`;
-	const extension = extensionForPath(props.changedFile.path);
-	const language = languageForExtension(extension);
-	const fileClass = fileClassForPath(props.changedFile.path, extension);
-	const baseHandle = makeHandleForContent({
-		content: props.changedFile.baseContent,
-		contentByHandleId: props.contentByHandleId,
-		endpointId: 'dev-base',
-		extension,
-		itemId,
-		language,
-		path: props.changedFile.path,
-		revision: props.revision,
-		role: 'base',
-	});
-	const headHandle = makeHandleForContent({
-		content: props.changedFile.headContent,
-		contentByHandleId: props.contentByHandleId,
-		endpointId: 'dev-head',
-		extension,
-		itemId,
-		language,
-		path: props.changedFile.path,
-		revision: props.revision,
-		role: 'head',
-	});
-	return {
-		itemId,
-		itemKind: 'diff',
-		itemVersion: 1,
-		basePath: props.changedFile.changeKind === 'added' ? null : props.changedFile.path,
-		headPath: props.changedFile.changeKind === 'deleted' ? null : props.changedFile.path,
-		changeKind: props.changedFile.changeKind,
-		fileClass,
-		language,
-		extension,
-		sizeBytes: byteLength(props.changedFile.headContent ?? props.changedFile.baseContent ?? ''),
-		baseContentHash: baseHandle?.contentHash ?? null,
-		headContentHash: headHandle?.contentHash ?? null,
-		contentHashAlgorithm: 'sha256',
-		additions: props.changedFile.additions,
-		deletions: props.changedFile.deletions,
-		isHiddenByDefault: false,
-		hiddenReason: null,
-		reviewPriority: 'normal',
-		contentRoles: { base: baseHandle, head: headHandle, diff: null, file: null },
-		cacheKey: `${baseHandle?.cacheKey ?? 'none'}|${headHandle?.cacheKey ?? 'none'}`,
-		provenance: {
-			paneIds: [],
-			agentSessionIds: [],
-			promptIds: [],
-			operationIds: [],
-			sourceKinds: ['dev-worktree'],
-		},
-		annotationSummary: { threadCount: 0, unresolvedThreadCount: 0, commentCount: 0 },
-		reviewState: 'unreviewed',
-		collapsed: false,
-	};
-}
-
-function makeHandleForContent(props: {
-	readonly content: string | null;
-	readonly contentByHandleId: Map<string, string>;
-	readonly endpointId: string;
-	readonly extension: string;
-	readonly itemId: string;
-	readonly language: string;
-	readonly path: string;
-	readonly revision: number;
-	readonly role: BridgeContentRole;
-}): BridgeContentHandle | null {
-	if (props.content === null) {
-		return null;
-	}
-	const contentHash = `sha256:${hashText(props.content)}`;
-	const handleId = `dev-${props.itemId}-${props.role}`;
-	props.contentByHandleId.set(handleId, props.content);
-	return {
-		handleId,
-		itemId: props.itemId,
-		role: props.role,
-		endpointId: props.endpointId,
-		reviewGeneration,
-		resourceUrl: `agentstudio://resource/review/content/${handleId}?generation=${reviewGeneration}&revision=${props.revision}`,
-		contentHash,
-		contentHashAlgorithm: 'sha256',
-		cacheKey: `${props.itemId}:${props.role}:${contentHash}`,
-		mimeType: mimeTypeForExtension(props.extension),
-		language: props.language,
-		sizeBytes: byteLength(props.content),
-		isBinary: false,
-	};
-}
-
-function summarizeItems(items: readonly BridgeReviewItemDescriptor[]): BridgeReviewPackageSummary {
-	return {
-		filesChanged: items.length,
-		additions: items.reduce((total, item) => total + item.additions, 0),
-		deletions: items.reduce((total, item) => total + item.deletions, 0),
-		visibleFileCount: items.length,
-		hiddenFileCount: 0,
-	};
-}
-
-function makeSourceEndpoint(props: {
-	readonly endpointId: string;
-	readonly kind: BridgeSourceEndpoint['kind'];
-	readonly label: string;
-	readonly providerIdentity: string;
-}): BridgeSourceEndpoint {
-	return {
-		endpointId: props.endpointId,
-		kind: props.kind,
-		repoId: 'dev-worktree-repo',
-		worktreeId: 'dev-worktree',
-		label: props.label,
-		createdAtUnixMilliseconds: Date.now(),
-		contentSetHash: null,
-		providerIdentity: props.providerIdentity,
-	};
-}
-
-function defaultViewFilter(): BridgeViewFilter {
-	return {
-		includedPathGlobs: [],
-		excludedPathGlobs: [],
-		includedFileClasses: [],
-		excludedFileClasses: [],
-		includedExtensions: [],
-		excludedExtensions: [],
-		changeKinds: [],
-		reviewStates: [],
-		showHiddenFiles: false,
-		showBinaryFiles: false,
-		showLargeFiles: true,
-	};
 }
 
 async function resolveAllowedWorktreeRoot(rawWorktreeRoot: string): Promise<string> {
@@ -847,19 +602,6 @@ function renderLineCount(content: string): number {
 function extensionForPath(path: string): string {
 	const extension = extname(path).replace(/^\./u, '');
 	return extension.length === 0 ? 'txt' : extension;
-}
-
-function fileClassForPath(path: string, extension: string): BridgeFileClass {
-	if (path.startsWith('docs/') || extension === 'md' || extension === 'mdx') {
-		return 'docs';
-	}
-	if (path.includes('/test/') || path.includes('/tests/') || path.endsWith('.test.ts')) {
-		return 'test';
-	}
-	if (['json', 'yml', 'yaml', 'toml', 'lock'].includes(extension)) {
-		return 'config';
-	}
-	return 'source';
 }
 
 function languageForExtension(extension: string): string {
