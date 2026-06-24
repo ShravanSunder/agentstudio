@@ -199,6 +199,14 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 	});
 
 	test('defers selected item scrolling out of the React effect flush', async () => {
+		const animationFrameCallbacks: FrameRequestCallback[] = [];
+		vi.spyOn(window, 'requestAnimationFrame').mockImplementation(
+			(callback: FrameRequestCallback): number => {
+				animationFrameCallbacks.push(callback);
+				return animationFrameCallbacks.length;
+			},
+		);
+		vi.spyOn(window, 'cancelAnimationFrame').mockImplementation((): void => {});
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const projection = buildBridgeReviewProjection({
 			reviewPackage,
@@ -222,9 +230,10 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		});
 
 		expect(codeViewDoubles.scrollTo).not.toHaveBeenCalled();
+		expect(animationFrameCallbacks.length).toBeGreaterThan(0);
 
 		await act(async (): Promise<void> => {
-			await waitForAnimationFrame();
+			animationFrameCallbacks.shift()?.(performance.now());
 		});
 
 		expect(codeViewDoubles.scrollTo).toHaveBeenCalledWith({
