@@ -146,6 +146,8 @@ Proof:
   status/filter composition.
 - Browser proof types a query, toggles regex, changes a filter, and observes a
   stable state/result transition.
+- Browser proof records before/after visible row counts or sampled visible path
+  sets for each query/filter interaction so decorative controls cannot pass.
 
 ### Slice 06P.4: Open File State And Refresh Contract
 
@@ -185,6 +187,9 @@ Proof artifact must include:
 - protocol/source facts
 - selected file and open state
 - search/regex/filter states
+- per-interaction result deltas: before/after visible row count or sampled
+  visible path set, active filter tokens, regex-valid or regex-error state, and
+  the expected fixture-specific visible result change
 - tree/content scroll canaries
 - screenshot paths
 - explicit negative-substitute assertions

@@ -98,8 +98,11 @@ Proof:
 - Parent-inspected screenshot artifacts from that run.
 - JSON proof artifact with provenance, controls, interactions, scroll canaries,
   and negative assertions.
-- A visual subagent/reviewer lane checks the screenshots against the product
+- Parent/human/reviewer inspection checks the screenshots against the product
   expectation before the ticket is marked complete.
+- A failed or disconnected subagent review does not satisfy or invalidate this
+  gate by itself; the gate is satisfied by inspectable artifacts plus an
+  accepted review result.
 - Unit/component tests may support this ticket, but cannot replace the
   dev-server E2E proof.
 - This Vite/dev-server proof is required first but is not the final native
@@ -225,6 +228,10 @@ Proof:
 - Stable extent facts are consumed by renderer path before content body hydrate.
 - Bridge URLs/descriptors are absent from renderer-visible DOM.
 - Scroll canary remains stable under large fixture and current worktree.
+- PR-ready requires hard cutover for every in-scope renderer entry path.
+  A named residual renderer gap can justify non-PR-ready status only.
+- Proof includes a negative assertion that covered routes cannot reach the
+  legacy renderer/remount bypass.
 
 ### 11 Changeset Runtime Contract
 

@@ -36,6 +36,8 @@ Must prove:
 - provenance/source assertions
 - file click/open
 - content render
+- open-file invalidation shows stale/update state
+- refresh is user-invoked and returns content to ready
 - search input
 - regex toggle
 - filter/status controls
@@ -57,18 +59,21 @@ Gate 0 source plan:
 
 ### Gate 1: Generic Bridge Transport/Core
 
-Implement all accepted transport/protocol/scheduler items:
+Implement generic Bridge carriers and runtime primitives only:
 
 - Bridge host/core boundaries
 - stream and RPC contracts
 - Zod/TypeScript schemas
 - resource descriptors
-- demand lanes and policies
+- generic lane vocabulary and scheduling primitives
 - backpressure
-- materialization
-- invalidation
+- descriptor registry and resource executor
+- shared validation and telemetry
 - telemetry
 - Victoria proof where required
+
+Gate 1 must not own Review or Worktree semantics. Concrete projection
+materializers and app demand policies belong to Gate 2.
 
 ### Gate 2: App Protocols
 
@@ -78,6 +83,8 @@ Implement Worktree/File and Review application protocols:
 - change-set semantics
 - source/version/provenance contracts
 - descriptor/content separation
+- app-specific projection materializers
+- app-specific demand policies that map protocol interest to generic lanes
 - large-data-out-of-Zustand invariant
 - bounded stream/request behavior
 

@@ -135,3 +135,48 @@ Future review packets must include the prior failure context from
 [details.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/workflow-state/2026-06-24-bridge-transport-review-pr-ready/details.md:1).
 The reviewer should explicitly ask whether the submitted proof can pass while
 the user-visible product is still wrong.
+
+## 2026-06-24 Expanded Epic Spec Review Reduction
+
+Status: accepted findings addressed.
+
+Review packet:
+
+- [spec-review-packet-2026-06-24.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/workflow-state/2026-06-24-bridge-transport-review-pr-ready/spec-review-packet-2026-06-24.md:1)
+
+Reviewer lanes:
+
+- `Huygens`: full-scope contract and ownership.
+- `Socrates`: proof gates and plan readiness.
+
+Accepted findings:
+
+1. Native Agent Studio Bridge/WKWebView proof was too transport-centric.
+   Resolution: parent spec now requires native proof to inherit visible product
+   surface checks, interaction assertions, stale/refresh path when applicable,
+   scroll canaries, screenshots, and negative-substitute checks.
+2. Renderer cutover allowed an owner-approved residual bypass.
+   Resolution: parent spec and reconciliation plan now require hard cutover for
+   every in-scope renderer entry path before PR-ready, with negative proof that
+   covered routes cannot reach the legacy renderer/remount bypass.
+3. Gate 1 / Gate 2 ownership was blurred in goal details.
+   Resolution: goal details now keep generic carriers/runtime primitives in Gate
+   1 and move concrete materializers/app demand policies to Gate 2.
+4. Gate 0 proof omitted stale/update and refresh interaction at the parent
+   checklist level.
+   Resolution: parent spec and goal details now require open-file invalidation,
+   visible stale/update state, user-invoked refresh, and return to ready.
+5. Query/filter proof artifacts did not require inspectable result deltas.
+   Resolution: 06P plan now requires before/after visible row counts or sampled
+   visible path sets, active filter tokens, regex-valid/error state, and
+   expected fixture-specific visible result changes.
+6. The 06P proof gate hard-coded a visual subagent lane.
+   Resolution: plan now requires parent/human/reviewer inspection of artifacts
+   and states that failed/disconnected subagent review does not satisfy or
+   invalidate the gate by itself.
+
+Residual status:
+
+The spec still requires a final post-fix review pass before plan creation is
+called accepted. Current reducer status is "findings addressed", not "spec
+review complete."
