@@ -24,7 +24,16 @@ export interface WorktreeFileAppProps {
 	readonly fetchResource?: (props: WorktreeFileSurfaceRuntimeFetchResourceProps) => Promise<string>;
 	readonly initialFrames?: readonly WorktreeFileProtocolFrame[];
 	readonly loadInitialFrames?: () => Promise<readonly WorktreeFileProtocolFrame[]>;
+	readonly subscribeFrames?: WorktreeFileFrameSubscriptionFactory;
 }
+
+export type WorktreeFileFrameSubscriber = (frames: readonly WorktreeFileProtocolFrame[]) => void;
+
+export type WorktreeFileFrameSubscriptionDispose = () => void;
+
+export type WorktreeFileFrameSubscriptionFactory = (
+	subscriber: WorktreeFileFrameSubscriber,
+) => WorktreeFileFrameSubscriptionDispose;
 
 interface WorktreeFileSurfaceRenderState {
 	readonly descriptors: readonly WorktreeFileDescriptor[];
@@ -73,6 +82,7 @@ export function WorktreeFileApp({
 	fetchResource,
 	initialFrames,
 	loadInitialFrames,
+	subscribeFrames,
 }: WorktreeFileAppProps = {}): ReactElement {
 	const runtimeRef = useRef<WorktreeFileSurfaceRuntime | null>(null);
 	const openFileBodyRef = useRef<string | null>(null);
@@ -131,14 +141,8 @@ export function WorktreeFileApp({
 		setOpenFileState({ status: 'failed', path: descriptor.path, descriptor });
 	}, []);
 
-	useEffect((): (() => void) => {
-		let isCancelled = false;
-		const loadFrames = async (): Promise<void> => {
-			const frames =
-				initialFrames ?? (loadInitialFrames === undefined ? [] : await loadInitialFrames());
-			if (isCancelled) {
-				return;
-			}
+	const applyIncomingFrames = useCallback(
+		(frames: readonly WorktreeFileProtocolFrame[]): WorktreeFileSurfaceRenderState => {
 			const nextState = applyFramesToRuntime({
 				currentRenderState: renderStateRef.current,
 				frames,
@@ -154,6 +158,20 @@ export function WorktreeFileApp({
 					openFileRequestIdRef,
 				}),
 			);
+			return nextState;
+		},
+		[],
+	);
+
+	useEffect((): (() => void) => {
+		let isCancelled = false;
+		const loadFrames = async (): Promise<void> => {
+			const frames =
+				initialFrames ?? (loadInitialFrames === undefined ? [] : await loadInitialFrames());
+			if (isCancelled) {
+				return;
+			}
+			const nextState = applyIncomingFrames(frames);
 			if (autoOpenInitialFile && openFileRequestIdRef.current === 0) {
 				const initialDescriptor = nextState.descriptors.find(
 					(descriptor) => !descriptor.isBinary && descriptor.contentDescriptor !== null,
@@ -167,7 +185,16 @@ export function WorktreeFileApp({
 		return (): void => {
 			isCancelled = true;
 		};
-	}, [autoOpenInitialFile, initialFrames, loadInitialFrames, openFile]);
+	}, [applyIncomingFrames, autoOpenInitialFile, initialFrames, loadInitialFrames, openFile]);
+
+	useEffect((): WorktreeFileFrameSubscriptionDispose | undefined => {
+		if (subscribeFrames === undefined) {
+			return undefined;
+		}
+		return subscribeFrames((frames) => {
+			applyIncomingFrames(frames);
+		});
+	}, [applyIncomingFrames, subscribeFrames]);
 
 	const refreshOpenFile = useCallback(async (state: WorktreeFileOpenRenderState): Promise<void> => {
 		if (state.status !== 'stale') {

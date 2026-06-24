@@ -94,6 +94,7 @@ if (rootElement !== null) {
 							autoOpenInitialFile: true,
 							fetchResource: worktreeBackend.fetchWorktreeFileResource,
 							loadInitialFrames: worktreeBackend.loadWorktreeFileFrames,
+							subscribeFrames: worktreeBackend.subscribeWorktreeFileFrames,
 						},
 					})}
 			{...(workerFactory === null ? {} : { codeViewWorkerFactory: workerFactory.workerFactory })}

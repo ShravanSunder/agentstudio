@@ -8,8 +8,13 @@ import {
 	worktreeFileProtocolFrameSchema,
 	worktreeFileSurfaceSourceIdentitySchema,
 	worktreeTreeVirtualizedSizeFactsSchema,
+	type WorktreeFileDescriptor,
 	type WorktreeFileProtocolFrame,
 } from '../features/worktree-file/models/worktree-file-protocol-models.js';
+import type {
+	WorktreeFileFrameSubscriber,
+	WorktreeFileFrameSubscriptionDispose,
+} from '../worktree-file-surface/worktree-file-app.js';
 import type { WorktreeFileSurfaceRuntimeFetchResourceProps } from '../worktree-file-surface/worktree-file-surface-runtime.js';
 
 export interface BridgeAppDevWorktreeBackend {
@@ -17,10 +22,15 @@ export interface BridgeAppDevWorktreeBackend {
 		props: WorktreeFileSurfaceRuntimeFetchResourceProps,
 	) => Promise<string>;
 	readonly loadWorktreeFileFrames: () => Promise<readonly WorktreeFileProtocolFrame[]>;
+	readonly subscribeWorktreeFileFrames: (
+		subscriber: WorktreeFileFrameSubscriber,
+	) => WorktreeFileFrameSubscriptionDispose;
 }
 
 const worktreeFileContentEndpointPrefix = '/__bridge-worktree/file-content/';
 const worktreeSurfaceEndpoint = '/__bridge-worktree/surface';
+const worktreeDevReloadEventType = 'bridge-worktree-dev-reload';
+const worktreeDevPollIntervalMilliseconds = 1_000;
 const worktreeForwardedSearchParamNames: readonly string[] = ['scenario'];
 const bridgeWorktreeAllowedResourceKindsByProtocol = {
 	'worktree-file': new Set(['worktree.fileContent', 'worktree.treeWindow']),
@@ -36,6 +46,7 @@ const bridgeWorktreeSurfaceResponseSchema = z
 
 export function installBridgeAppDevWorktreeBackend(): BridgeAppDevWorktreeBackend {
 	const forwardedSearchParams = bridgeWorktreeForwardedSearchParams(window.location.search);
+	let lastAcceptedSurfaceFrames: readonly WorktreeFileProtocolFrame[] | null = null;
 	document.documentElement.setAttribute('data-bridge-app-protocol', 'worktree-file');
 	window.addEventListener(
 		'beforeunload',
@@ -44,6 +55,17 @@ export function installBridgeAppDevWorktreeBackend(): BridgeAppDevWorktreeBacken
 		},
 		{ once: true },
 	);
+	const loadSurfaceFrames = async (): Promise<readonly WorktreeFileProtocolFrame[]> => {
+		const response = await fetch(
+			bridgeWorktreeEndpoint(worktreeSurfaceEndpoint, forwardedSearchParams),
+		);
+		if (!response.ok) {
+			throw new Error(`Bridge worktree surface request failed: ${response.status}`);
+		}
+		const surfaceResponse = bridgeWorktreeSurfaceResponseSchema.parse(await response.json());
+		return surfaceResponse.frames;
+	};
+
 	return {
 		fetchWorktreeFileResource: async (
 			resourceProps: WorktreeFileSurfaceRuntimeFetchResourceProps,
@@ -70,16 +92,83 @@ export function installBridgeAppDevWorktreeBackend(): BridgeAppDevWorktreeBacken
 			return await response.text();
 		},
 		loadWorktreeFileFrames: async (): Promise<readonly WorktreeFileProtocolFrame[]> => {
-			const response = await fetch(
-				bridgeWorktreeEndpoint(worktreeSurfaceEndpoint, forwardedSearchParams),
-			);
-			if (!response.ok) {
-				throw new Error(`Bridge worktree surface request failed: ${response.status}`);
-			}
-			const surfaceResponse = bridgeWorktreeSurfaceResponseSchema.parse(await response.json());
-			return surfaceResponse.frames;
+			const frames = await loadSurfaceFrames();
+			lastAcceptedSurfaceFrames = frames;
+			return frames;
+		},
+		subscribeWorktreeFileFrames: (
+			subscriber: WorktreeFileFrameSubscriber,
+		): WorktreeFileFrameSubscriptionDispose => {
+			let isDisposed = false;
+			let isReloading = false;
+			const reloadFrames = async (): Promise<void> => {
+				if (isDisposed || isReloading) {
+					return;
+				}
+				isReloading = true;
+				try {
+					const nextFrames = await loadSurfaceFrames();
+					const incrementalFrames = worktreeFileIncrementalFramesFromSurfaces({
+						nextFrames,
+						previousFrames: lastAcceptedSurfaceFrames,
+					});
+					lastAcceptedSurfaceFrames = nextFrames;
+					if (!isDisposed && incrementalFrames.length > 0) {
+						subscriber(incrementalFrames);
+					}
+				} finally {
+					isReloading = false;
+				}
+			};
+			const handleReloadEvent = (): void => {
+				void reloadFrames();
+			};
+			window.addEventListener(worktreeDevReloadEventType, handleReloadEvent);
+			const intervalId = window.setInterval((): void => {
+				void reloadFrames();
+			}, worktreeDevPollIntervalMilliseconds);
+			return (): void => {
+				isDisposed = true;
+				window.clearInterval(intervalId);
+				window.removeEventListener(worktreeDevReloadEventType, handleReloadEvent);
+			};
 		},
 	};
+}
+
+export function worktreeFileIncrementalFramesFromSurfaces(props: {
+	readonly nextFrames: readonly WorktreeFileProtocolFrame[];
+	readonly previousFrames: readonly WorktreeFileProtocolFrame[] | null;
+}): readonly WorktreeFileProtocolFrame[] {
+	if (props.previousFrames === null) {
+		return props.nextFrames;
+	}
+	const previousDescriptorsByFileId = worktreeFileDescriptorsByFileId(props.previousFrames);
+	const nextDescriptorsByFileId = worktreeFileDescriptorsByFileId(props.nextFrames);
+	const nextSequence = maxWorktreeFrameSequence(props.nextFrames) + 1;
+	const incrementalFrames: WorktreeFileProtocolFrame[] = [];
+	let sequenceOffset = 0;
+	for (const nextDescriptor of nextDescriptorsByFileId.values()) {
+		const previousDescriptor = previousDescriptorsByFileId.get(nextDescriptor.fileId);
+		if (previousDescriptor === undefined) {
+			incrementalFrames.push(
+				worktreeFileDescriptorFrame(nextDescriptor, nextSequence + sequenceOffset),
+			);
+			sequenceOffset += 1;
+			continue;
+		}
+		if (previousDescriptor.contentHash !== nextDescriptor.contentHash) {
+			incrementalFrames.push(
+				worktreeFileInvalidatedFrame({
+					latestDescriptor: nextDescriptor,
+					previousDescriptor,
+					sequence: nextSequence + sequenceOffset,
+				}),
+			);
+			sequenceOffset += 1;
+		}
+	}
+	return incrementalFrames;
 }
 
 export function bridgeWorktreeForwardedSearchParams(search: string): URLSearchParams {
@@ -106,6 +195,58 @@ function bridgeWorktreeFileContentSearchParams(props: {
 		contentSearchParams.set('cursor', props.parsedResourceUrl.cursor);
 	}
 	return contentSearchParams;
+}
+
+function worktreeFileDescriptorsByFileId(
+	frames: readonly WorktreeFileProtocolFrame[],
+): ReadonlyMap<string, WorktreeFileDescriptor> {
+	const descriptorsByFileId = new Map<string, WorktreeFileDescriptor>();
+	for (const frame of frames) {
+		if (frame.frameKind === 'worktree.fileDescriptor') {
+			descriptorsByFileId.set(frame.descriptor.fileId, frame.descriptor);
+		}
+	}
+	return descriptorsByFileId;
+}
+
+function worktreeFileDescriptorFrame(
+	descriptor: WorktreeFileDescriptor,
+	sequence: number,
+): WorktreeFileProtocolFrame {
+	return {
+		kind: 'delta',
+		streamId: descriptor.contentDescriptor.ref.expectedIdentity.streamId ?? 'worktree-file',
+		generation: descriptor.sourceIdentity.subscriptionGeneration,
+		sequence,
+		frameKind: 'worktree.fileDescriptor',
+		descriptor,
+	};
+}
+
+function worktreeFileInvalidatedFrame(props: {
+	readonly latestDescriptor: WorktreeFileDescriptor;
+	readonly previousDescriptor: WorktreeFileDescriptor;
+	readonly sequence: number;
+}): WorktreeFileProtocolFrame {
+	return {
+		kind: 'delta',
+		streamId:
+			props.latestDescriptor.contentDescriptor.ref.expectedIdentity.streamId ?? 'worktree-file',
+		generation: props.latestDescriptor.sourceIdentity.subscriptionGeneration,
+		sequence: props.sequence,
+		frameKind: 'worktree.fileInvalidated',
+		invalidation: {
+			path: props.latestDescriptor.path,
+			fileId: props.latestDescriptor.fileId,
+			reason: 'contentChanged',
+			contentHandleIds: [props.previousDescriptor.contentHandle],
+			latestDescriptor: props.latestDescriptor,
+		},
+	};
+}
+
+function maxWorktreeFrameSequence(frames: readonly WorktreeFileProtocolFrame[]): number {
+	return frames.reduce((maxSequence, frame) => Math.max(maxSequence, frame.sequence), 0);
 }
 
 function bridgeWorktreeEndpoint(path: string, searchParams: URLSearchParams): string {

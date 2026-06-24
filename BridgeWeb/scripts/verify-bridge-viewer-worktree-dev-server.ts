@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, unlink, writeFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -79,6 +79,7 @@ interface WorktreeDevServerVerificationResult {
 	readonly screenshotPaths: WorktreeDevServerScreenshotPaths;
 	readonly sourceCursor: string;
 	readonly sourceId: string;
+	readonly staleRefreshProof: WorktreeFileStaleRefreshProof;
 	readonly targetPath: string;
 	readonly treePathCount: number | null;
 	readonly treeTotalSizePixels: number | null;
@@ -89,6 +90,17 @@ interface WorktreeDevServerVerificationResult {
 interface WorktreeDevServerScreenshotPaths {
 	readonly ready: string;
 	readonly search: string;
+	readonly stale: string;
+}
+
+interface WorktreeFileStaleRefreshProof {
+	readonly initialContentStillVisibleWhileStale: boolean;
+	readonly proofPath: string;
+	readonly refreshReturnedReady: boolean;
+	readonly refreshedContentVisible: boolean;
+	readonly staleContentState: string | null;
+	readonly staleMessageVisible: boolean;
+	readonly staleScreenshotPath: string;
 }
 
 interface WorktreeFileProductControlsProof {
@@ -241,19 +253,27 @@ try {
 }
 
 async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationResult> {
-	const surface = await fetchWorktreeSurface();
-	const descriptors = worktreeFileDescriptors(surface.frames);
-	const initialDescriptor = firstFetchableDescriptor(descriptors);
-	const targetDescriptor = resolveTargetDescriptor(descriptors);
-	const initialContent = await fetchWorktreeFileContent(initialDescriptor);
-	const content = await fetchWorktreeFileContent(targetDescriptor);
-	const surfaceText = JSON.stringify(surface);
-	if (content.length > 0 && surfaceText.includes(content.slice(0, Math.min(80, content.length)))) {
-		throw new Error('Expected Worktree/File surface metadata to omit file body content');
-	}
-
+	const staleRefreshFixture = worktreeFileStaleRefreshFixture();
+	await writeFile(staleRefreshFixture.absolutePath, staleRefreshFixture.initialContent);
 	const page = await makeVerificationPage();
 	try {
+		const surface = await fetchWorktreeSurface();
+		const descriptors = worktreeFileDescriptors(surface.frames);
+		const initialDescriptor = firstFetchableDescriptor(descriptors);
+		const targetDescriptor = resolveTargetDescriptor(descriptors);
+		const staleRefreshDescriptor = descriptorForPath({
+			descriptors,
+			path: staleRefreshFixture.relativePath,
+		});
+		const initialContent = await fetchWorktreeFileContent(initialDescriptor);
+		const content = await fetchWorktreeFileContent(targetDescriptor);
+		const surfaceText = JSON.stringify(surface);
+		if (
+			content.length > 0 &&
+			surfaceText.includes(content.slice(0, Math.min(80, content.length)))
+		) {
+			throw new Error('Expected Worktree/File surface metadata to omit file body content');
+		}
 		await page.goto(worktreeDevServerUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
 		await page.waitForSelector('[data-testid="worktree-file-app"]', { timeout: 30_000 });
 		await page.waitForFunction(
@@ -337,6 +357,11 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 			page,
 			targetPath: targetDescriptor.path,
 		});
+		const staleRefreshProof = await verifyWorktreeFileStaleRefresh({
+			descriptor: staleRefreshDescriptor,
+			fixture: staleRefreshFixture,
+			page,
+		});
 		const scrollExtentCanary = makeScrollExtentCanary({
 			afterReady: scrollExtentAfterReady,
 			afterSelection: scrollExtentAfterSelection,
@@ -360,9 +385,11 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 			screenshotPaths: {
 				ready: readyScreenshotPath,
 				search: productControlsProof.searchScreenshotPath,
+				stale: staleRefreshProof.staleScreenshotPath,
 			},
 			sourceCursor: surface.source.sourceCursor,
 			sourceId: surface.source.sourceId,
+			staleRefreshProof,
 			targetPath: targetDescriptor.path,
 			treePathCount: surface.treeSizeFacts.pathCount ?? null,
 			visibleAppProof,
@@ -370,6 +397,7 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 		};
 	} finally {
 		await page.close();
+		await unlink(staleRefreshFixture.absolutePath).catch(() => undefined);
 	}
 }
 
@@ -441,6 +469,35 @@ function deepFetchableDescriptor(
 		Math.floor(fetchableDescriptors.length * 0.75),
 	);
 	return fetchableDescriptors[targetIndex] ?? null;
+}
+
+interface WorktreeFileStaleRefreshFixture {
+	readonly absolutePath: string;
+	readonly initialContent: string;
+	readonly relativePath: string;
+	readonly updatedContent: string;
+}
+
+function worktreeFileStaleRefreshFixture(): WorktreeFileStaleRefreshFixture {
+	const fileStem = `zzzz_bridge_worktree_devserver_proof_${proofRunCreatedAtUnixMilliseconds}`;
+	const relativePath = `${fileStem}.ts`;
+	return {
+		absolutePath: join(repoRootPath, relativePath),
+		initialContent: `export const ${fileStem} = 'initial';\n`,
+		relativePath,
+		updatedContent: `export const ${fileStem} = 'updated';\nexport const ${fileStem}_line2 = true;\n`,
+	};
+}
+
+function descriptorForPath(props: {
+	readonly descriptors: readonly WorktreeFileDescriptor[];
+	readonly path: string;
+}): WorktreeFileDescriptor {
+	const descriptor = props.descriptors.find((candidate) => candidate.path === props.path);
+	if (descriptor === undefined) {
+		throw new Error(`Expected Worktree/File descriptor for ${props.path}`);
+	}
+	return descriptor;
 }
 
 async function fetchWorktreeFileContent(descriptor: WorktreeFileDescriptor): Promise<string> {
@@ -939,6 +996,74 @@ async function verifyWorktreeFileProductControls(props: {
 	return proof;
 }
 
+async function verifyWorktreeFileStaleRefresh(props: {
+	readonly descriptor: WorktreeFileDescriptor;
+	readonly fixture: WorktreeFileStaleRefreshFixture;
+	readonly page: Page;
+}): Promise<WorktreeFileStaleRefreshProof> {
+	await fillWorktreeFileSearch(props.page, props.fixture.relativePath);
+	await waitForVisibleWorktreeFileRowCount(props.page, 1);
+	await clickWorktreeFilePath(props.page, props.fixture.relativePath);
+	await waitForWorktreeOpenFileState({
+		page: props.page,
+		path: props.fixture.relativePath,
+		state: 'ready',
+	});
+	await assertWorktreeVisibleContentText({
+		expectedText: props.fixture.initialContent,
+		label: 'initial stale-refresh proof content',
+		page: props.page,
+	});
+	await writeFile(props.fixture.absolutePath, props.fixture.updatedContent);
+	await dispatchWorktreeDevReload(props.page);
+	await waitForWorktreeOpenFileState({
+		page: props.page,
+		path: props.fixture.relativePath,
+		state: 'stale',
+	});
+	const staleText = await worktreeVisibleContentText(props.page);
+	const staleScreenshotPath = await captureWorktreeDevServerScreenshot({
+		name: 'worktree-file-stale-refresh.png',
+		page: props.page,
+	});
+	await clickWorktreeFileControl(props.page, 'worktree-file-refresh');
+	await waitForWorktreeOpenFileState({
+		page: props.page,
+		path: props.fixture.relativePath,
+		state: 'ready',
+	});
+	const refreshedText = await worktreeVisibleContentText(props.page);
+	const proof: WorktreeFileStaleRefreshProof = {
+		initialContentStillVisibleWhileStale: staleText.includes(props.fixture.initialContent.trim()),
+		proofPath: props.descriptor.path,
+		refreshReturnedReady: true,
+		refreshedContentVisible: refreshedText.includes(props.fixture.updatedContent.trim()),
+		staleContentState: 'stale',
+		staleMessageVisible: staleText.includes('Content changed'),
+		staleScreenshotPath,
+	};
+	assertWorktreeFileStaleRefreshProof(proof);
+	return proof;
+}
+
+function assertWorktreeFileStaleRefreshProof(proof: WorktreeFileStaleRefreshProof): void {
+	if (proof.proofPath.length === 0) {
+		throw new Error(`Expected Worktree/File stale-refresh proof path: ${JSON.stringify(proof)}`);
+	}
+	if (
+		!proof.initialContentStillVisibleWhileStale ||
+		!proof.staleMessageVisible ||
+		proof.staleContentState !== 'stale'
+	) {
+		throw new Error(`Expected Worktree/File stale state before refresh: ${JSON.stringify(proof)}`);
+	}
+	if (!proof.refreshReturnedReady || !proof.refreshedContentVisible) {
+		throw new Error(
+			`Expected Worktree/File explicit refresh to render update: ${JSON.stringify(proof)}`,
+		);
+	}
+}
+
 async function captureWorktreeDevServerScreenshot(props: {
 	readonly name: string;
 	readonly page: Page;
@@ -1030,6 +1155,48 @@ async function worktreeFileFilterStatusText(page: Page): Promise<string> {
 		(): string =>
 			document.querySelector('[data-testid="worktree-file-filter-status"]')?.textContent ?? '',
 	);
+}
+
+async function waitForWorktreeOpenFileState(props: {
+	readonly page: Page;
+	readonly path: string;
+	readonly state: 'loading' | 'ready' | 'stale' | 'unavailable';
+}): Promise<void> {
+	await props.page.waitForFunction(
+		(expected: { readonly path: string; readonly state: string }): boolean => {
+			const contentPanel = document.querySelector('[data-testid="worktree-file-content"]');
+			return (
+				contentPanel?.getAttribute('data-worktree-open-file-path') === expected.path &&
+				contentPanel?.getAttribute('data-worktree-open-file-state') === expected.state
+			);
+		},
+		{ path: props.path, state: props.state },
+		{ timeout: 20_000 },
+	);
+}
+
+async function dispatchWorktreeDevReload(page: Page): Promise<void> {
+	await page.evaluate((): void => {
+		window.dispatchEvent(new Event('bridge-worktree-dev-reload'));
+	});
+}
+
+async function worktreeVisibleContentText(page: Page): Promise<string> {
+	return await page.evaluate(
+		(): string =>
+			document.querySelector('[data-testid="worktree-file-content"]')?.textContent ?? '',
+	);
+}
+
+async function assertWorktreeVisibleContentText(props: {
+	readonly expectedText: string;
+	readonly label: string;
+	readonly page: Page;
+}): Promise<void> {
+	const text = await worktreeVisibleContentText(props.page);
+	if (!text.includes(props.expectedText.trim())) {
+		throw new Error(`Expected ${props.label} to be visible`);
+	}
 }
 
 function countTextLines(text: string): number {
