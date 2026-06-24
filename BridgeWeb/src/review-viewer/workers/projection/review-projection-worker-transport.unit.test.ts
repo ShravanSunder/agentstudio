@@ -11,6 +11,7 @@ describe('Bridge review projection web worker transport', () => {
 	afterEach(() => {
 		vi.unstubAllGlobals();
 		RecordingProjectionWorker.constructedUrls = [];
+		RecordingProjectionWorker.pendingConstructionResolvers = [];
 	});
 
 	test('creates the default module worker from the packaged app asset', async () => {
@@ -34,12 +35,10 @@ describe('Bridge review projection web worker transport', () => {
 			visibleItemIds: [],
 			workloadId: 'interactive',
 		});
-		await flushProjectionWorkerTransportMicrotasks();
+		const constructedUrl = await RecordingProjectionWorker.waitForNextConstruction();
 
 		expect(fetchMock).toHaveBeenCalledWith(bridgeReviewProjectionDefaultWorkerScriptUrl);
-		expect(RecordingProjectionWorker.constructedUrls[0]?.href).toBe(
-			'blob:bridge-review-projection-worker',
-		);
+		expect(constructedUrl.href).toBe('blob:bridge-review-projection-worker');
 	});
 
 	test('rejects pending projection requests when the worker posts a malformed response', async () => {
@@ -157,9 +156,23 @@ class FakeProjectionWorker extends EventTarget implements Worker {
 
 class RecordingProjectionWorker extends FakeProjectionWorker {
 	static constructedUrls: URL[] = [];
+	static pendingConstructionResolvers: Array<(url: URL) => void> = [];
+
+	static waitForNextConstruction(): Promise<URL> {
+		const latestConstructedUrl = this.constructedUrls.at(-1);
+		if (latestConstructedUrl !== undefined) {
+			return Promise.resolve(latestConstructedUrl);
+		}
+		return new Promise<URL>((resolve): void => {
+			this.pendingConstructionResolvers.push(resolve);
+		});
+	}
 
 	constructor(scriptURL: string | URL, _options?: WorkerOptions) {
 		super();
-		RecordingProjectionWorker.constructedUrls.push(new URL(scriptURL));
+		const constructedUrl = new URL(scriptURL);
+		RecordingProjectionWorker.constructedUrls.push(constructedUrl);
+		const resolveConstruction = RecordingProjectionWorker.pendingConstructionResolvers.shift();
+		resolveConstruction?.(constructedUrl);
 	}
 }
