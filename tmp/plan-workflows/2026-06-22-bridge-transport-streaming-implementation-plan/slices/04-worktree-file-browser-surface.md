@@ -295,6 +295,21 @@ Browser scroll-extent canary proof captured 2026-06-24:
 - quality:
   `pnpm --dir BridgeWeb run check` exited 0 after formatting and type fixes
 
+Accepted negative fanout proof captured 2026-06-24:
+
+- closed the Ticket 03 review follow-up carried into Ticket 04 by adding
+  Worktree/File coordinator negative proof in
+  `Tests/AgentStudioTests/App/WorkspaceSurfaceCoordinatorBridgeFilesystemRefreshTests.swift`
+- mounted matching and nonmatching Worktree/File Bridge controllers, posted
+  filesystem and git snapshot events for the matching worktree, and proved the
+  nonmatching controller received no intake frames
+- focused Swift proof:
+  `SWIFT_TEST_TIMEOUT_SECONDS=120 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=180 mise run test-fast -- --filter 'AgentStudioTests.WebKitSerializedTests/WorkspaceSurfaceBridgeFilesystemRefreshTests'`
+  exited 0 with 4 Swift Testing tests in 2 suites passing
+- changed-file lint:
+  `swiftlint lint --strict Tests/AgentStudioTests/App/WorkspaceSurfaceCoordinatorBridgeFilesystemRefreshTests.swift`
+  exited 0 with 0 violations
+
 Surface integration:
 
 ```bash

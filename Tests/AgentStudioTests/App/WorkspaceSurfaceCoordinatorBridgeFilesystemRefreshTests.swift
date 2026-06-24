@@ -317,6 +317,112 @@ extension WebKitSerializedTests {
             #expect(statusPatch.patch.branchName == "feature/worktree-file")
             await coordinator.shutdown()
         }
+
+        @Test("coordinator does not fan out Worktree/File events to nonmatching Bridge controllers")
+        func coordinatorDoesNotFanOutWorktreeFileEventsToNonmatchingBridgeControllers() async throws {
+            let tempDir = FileManager.default.temporaryDirectory
+                .appending(path: "agentstudio-bridge-worktree-negative-\(UUID().uuidString)")
+            try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+            let store = WorkspaceStore(persistor: WorkspacePersistor(workspacesDir: tempDir.appending(path: "store")))
+            store.restore()
+            let paneEventBus = makeTestPaneRuntimeEventBus()
+            let viewRegistry = ViewRegistry()
+            let coordinator = makeTestWorkspaceSurfaceCoordinator(
+                store: store,
+                viewRegistry: viewRegistry,
+                runtime: SessionRuntime(store: store),
+                surfaceManager: BridgeFilesystemRefreshSurfaceManager(),
+                runtimeRegistry: RuntimeRegistry(),
+                paneEventBus: paneEventBus
+            )
+            defer { try? FileManager.default.removeItem(at: tempDir) }
+
+            let rootURL = tempDir.appending(path: "repo")
+            let fileURL = rootURL.appending(path: "Sources").appending(path: "App").appending(path: "View.swift")
+            try FileManager.default.createDirectory(
+                at: fileURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try "struct View {}\n".write(to: fileURL, atomically: true, encoding: .utf8)
+            let repoId = UUID(uuidString: "00000000-0000-0000-0000-000000000601")!
+            let matchingWorktree = Worktree(
+                id: UUID(uuidString: "00000000-0000-0000-0000-000000000602")!,
+                repoId: repoId,
+                name: "repo",
+                path: rootURL
+            )
+            let nonmatchingWorktree = Worktree(
+                id: UUID(uuidString: "00000000-0000-0000-0000-000000000603")!,
+                repoId: repoId,
+                name: "repo-other",
+                path: rootURL
+            )
+            let matchingCapture = BridgeWorktreeFileCoordinatorIntakeCapture()
+            let nonmatchingCapture = BridgeWorktreeFileCoordinatorIntakeCapture()
+            let matchingController = makeWorktreeFileBridgeController(
+                capture: matchingCapture,
+                repoId: repoId,
+                rootURL: rootURL,
+                title: "Matching",
+                worktree: matchingWorktree
+            )
+            let nonmatchingController = makeWorktreeFileBridgeController(
+                capture: nonmatchingCapture,
+                repoId: repoId,
+                rootURL: rootURL,
+                title: "Nonmatching",
+                worktree: nonmatchingWorktree
+            )
+            coordinator.registerHostedView(
+                mountedView: BridgePaneMountView(paneId: matchingController.paneId, controller: matchingController),
+                for: matchingController.paneId
+            )
+            coordinator.registerHostedView(
+                mountedView: BridgePaneMountView(
+                    paneId: nonmatchingController.paneId,
+                    controller: nonmatchingController
+                ),
+                for: nonmatchingController.paneId
+            )
+            defer {
+                matchingController.teardown()
+                nonmatchingController.teardown()
+            }
+
+            _ = try await matchingController.handleWorktreeFileSurfaceOpenSourceStream(
+                makeCoordinatorWorktreeFileSourceSpec(
+                    clientRequestId: "matching",
+                    repoId: repoId,
+                    rootPathToken: matchingWorktree.stableKey,
+                    worktreeId: matchingWorktree.id
+                )
+            )
+            _ = try await nonmatchingController.handleWorktreeFileSurfaceOpenSourceStream(
+                makeCoordinatorWorktreeFileSourceSpec(
+                    clientRequestId: "nonmatching",
+                    repoId: repoId,
+                    rootPathToken: nonmatchingWorktree.stableKey,
+                    worktreeId: nonmatchingWorktree.id
+                )
+            )
+
+            try "struct View {}\nlet updated = true\n".write(to: fileURL, atomically: true, encoding: .utf8)
+            await postCoordinatorWorktreeFileFilesystemAndGitEvents(
+                paneEventBus: paneEventBus,
+                repoId: repoId,
+                rootURL: rootURL,
+                worktreeId: matchingWorktree.id
+            )
+
+            await assertEventuallyAsync(
+                "matching Worktree/File controller should receive both frames", maxTurns: 200_000
+            ) {
+                await matchingCapture.count() == 2
+            }
+
+            #expect(await nonmatchingCapture.frames().isEmpty)
+            await coordinator.shutdown()
+        }
     }
 }
 
@@ -329,6 +435,10 @@ private actor BridgeWorktreeFileCoordinatorIntakeCapture {
 
     func frames() -> [String] {
         capturedFrames
+    }
+
+    func count() -> Int {
+        capturedFrames.count
     }
 }
 
@@ -354,6 +464,99 @@ private func decodeCoordinatorWorktreeFileStatusPatchFrame(
         BridgeWorktreeFileCoordinatorIntakeEnvelope<BridgeWorktreeStatusPatchFrame>.self,
         from: frameData
     ).payload
+}
+
+@MainActor
+private func makeWorktreeFileBridgeController(
+    capture: BridgeWorktreeFileCoordinatorIntakeCapture,
+    repoId: UUID,
+    rootURL: URL,
+    title: String,
+    worktree: Worktree
+) -> BridgePaneController {
+    let paneId = UUIDv7.generate()
+    return BridgePaneController(
+        paneId: paneId,
+        state: BridgePaneState(
+            panelKind: .diffViewer,
+            source: .workspace(rootPath: rootURL.path, baseline: .headMinusOne)
+        ),
+        metadata: PaneMetadata(
+            paneId: PaneId(uuid: paneId),
+            contentType: .diff,
+            launchDirectory: rootURL,
+            title: title,
+            facets: PaneContextFacets(
+                repoId: repoId,
+                worktreeId: worktree.id,
+                worktreeName: worktree.name,
+                cwd: rootURL
+            )
+        ),
+        intakeFrameSink: { _, frameJSON, _ in
+            await capture.record(frameJSON)
+        }
+    )
+}
+
+private func makeCoordinatorWorktreeFileSourceSpec(
+    clientRequestId: String,
+    repoId: UUID,
+    rootPathToken: String,
+    worktreeId: UUID
+) -> BridgeWorktreeFileSurfaceSourceSpec {
+    BridgeWorktreeFileSurfaceSourceSpec(
+        clientRequestId: clientRequestId,
+        repoId: repoId,
+        worktreeId: worktreeId,
+        rootPathToken: rootPathToken,
+        cwdScope: nil,
+        pathScope: [],
+        includeStatuses: true,
+        includeFileDescriptors: false,
+        includeComments: false,
+        includeAgentComms: false,
+        freshness: .live
+    )
+}
+
+private func postCoordinatorWorktreeFileFilesystemAndGitEvents(
+    paneEventBus: EventBus<RuntimeEnvelope>,
+    repoId: UUID,
+    rootURL: URL,
+    worktreeId: UUID
+) async {
+    _ = await paneEventBus.post(
+        RuntimeEnvelopeHarness.filesystemEnvelope(
+            event: .filesChanged(
+                changeset: FileChangeset(
+                    worktreeId: worktreeId,
+                    repoId: repoId,
+                    rootPath: rootURL,
+                    paths: ["Sources/App/View.swift"],
+                    timestamp: ContinuousClock().now,
+                    batchSeq: 12
+                )
+            ),
+            repoId: repoId,
+            worktreeId: worktreeId
+        )
+    )
+    _ = await paneEventBus.post(
+        RuntimeEnvelopeHarness.gitEnvelope(
+            event: .snapshotChanged(
+                snapshot: GitWorkingTreeSnapshot(
+                    worktreeId: worktreeId,
+                    repoId: repoId,
+                    rootPath: rootURL,
+                    summary: GitWorkingTreeSummary(changed: 4, staged: 2, untracked: 1),
+                    branch: "feature/matching"
+                )
+            ),
+            repoId: repoId,
+            worktreeId: worktreeId
+        )
+    )
 }
 
 @MainActor

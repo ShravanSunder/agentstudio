@@ -66,6 +66,10 @@ Current Ticket 03 checkpoint status:
   extent elements sized from provider facts and file descriptor extent metadata.
   Remaining extent work still includes huge-worktree churn, anchor preservation
   diagnostics, benchmark artifacts, and binary/oversized cases.
+- The accepted Ticket 03 review follow-up for negative coordinator fanout proof
+  is now closed in Ticket 04. The focused Swift suite proves nonmatching
+  Worktree/File Bridge controllers do not receive filesystem invalidation or
+  git status intake frames for another worktree.
 
 Historical context:
 
