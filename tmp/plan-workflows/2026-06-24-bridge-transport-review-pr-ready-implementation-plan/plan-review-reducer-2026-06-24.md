@@ -2,7 +2,7 @@
 
 Date: 2026-06-24
 Goal id: `2026-06-24-bridge-transport-review-pr-ready`
-Status: findings addressed; post-fix plan review still required
+Status: post-fix parent review accepted; Ticket 00 may begin
 
 ## Review Lanes
 
@@ -43,11 +43,20 @@ Status: findings addressed; post-fix plan review still required
 
 ## Residual Status
 
-Plan review is not yet accepted. A post-fix plan review should verify the four
-accepted findings are addressed and decide whether implementation may begin at
-Ticket 00.
+Post-fix parent verification accepted the plan for Ticket 00 execution on
+2026-06-24. The attempted read-only reviewer lane was unavailable on resume
+(`not_found`), so it is not counted as completed review. Parent verification
+checked the four accepted findings against current files:
 
-phase_result: needs_revision
-evidence: accepted findings patched in implementation plan and ticket files
-recommended_next_workflow: shravan-dev-workflow:plan-review-swarm
-recommended_transition_reason: Post-fix plan review is required before execution.
+- workflow state now points to plan-review then implementation execution
+- Gate 0 is carried forward into Tickets 01-03
+- native proof is mapped per product surface in Ticket 04
+- Tickets 01-04 include concrete repo commands
+
+Ticket 00 may begin. Later implementation review is still required before
+PR-ready.
+
+phase_result: complete
+evidence: accepted findings patched in implementation plan and ticket files; parent verification grep and JSONL validation passed
+recommended_next_workflow: shravan-dev-workflow:implementation-execute-plan
+recommended_transition_reason: Plan-review fixes are present and Ticket 00 is the next executable gate.

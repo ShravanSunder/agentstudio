@@ -2,8 +2,8 @@
 
 Goal id: `2026-06-24-bridge-transport-review-pr-ready`
 Status: active
-Current workflow: plan-creation-swarm draft complete
-Next workflow: `shravan-dev-workflow:plan-review-swarm`
+Current workflow: plan-review-swarm accepted
+Next workflow: `shravan-dev-workflow:implementation-execute-plan`
 
 ## Durable Objective
 
