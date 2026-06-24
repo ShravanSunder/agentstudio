@@ -139,6 +139,10 @@ describe('BridgeWeb architecture checker', () => {
 					import type { BridgeReviewPackage } from '../../foundation/review-package/bridge-review-package.js';
 					export type Value = BridgeReviewPackage;
 				`,
+				'src/core/models/bad-aliased-worktree-import.ts': `
+					import type { WorktreeFileDescriptor } from '@/features/worktree-file/models/worktree-file-protocol-models.js';
+					export type Value = WorktreeFileDescriptor;
+				`,
 			},
 			async (packageRootPath: string): Promise<void> => {
 				const report = await checkBridgeWebArchitecture({ packageRootPath });
@@ -152,6 +156,10 @@ describe('BridgeWeb architecture checker', () => {
 					expect.objectContaining({
 						ruleId: 'core-imports-app-protocol',
 						relativePath: 'src/core/intake/bad-viewer-import.ts',
+					}),
+					expect.objectContaining({
+						ruleId: 'core-imports-app-protocol',
+						relativePath: 'src/core/models/bad-aliased-worktree-import.ts',
 					}),
 					expect.objectContaining({
 						ruleId: 'core-imports-app-protocol',
@@ -214,6 +222,10 @@ describe('BridgeWeb architecture checker', () => {
 					}
 					export const reviewContentEndpoint = '/__bridge-worktree/content/';
 				`,
+				'src/app/bridge-app-dev-bootstrap.tsx': `
+					const worktreePackageEndpoint = '/__bridge-worktree/package';
+					export const value = worktreePackageEndpoint;
+				`,
 			},
 			async (packageRootPath: string): Promise<void> => {
 				const report = await checkBridgeWebArchitecture({ packageRootPath });
@@ -223,6 +235,10 @@ describe('BridgeWeb architecture checker', () => {
 					expect.objectContaining({
 						ruleId: 'worktree-dev-review-package-scaffolding',
 						relativePath: 'scripts/dev-server/bridge-worktree-dev-provider.ts',
+					}),
+					expect.objectContaining({
+						ruleId: 'worktree-dev-review-package-scaffolding',
+						relativePath: 'src/app/bridge-app-dev-bootstrap.tsx',
 					}),
 					expect.objectContaining({
 						ruleId: 'worktree-dev-review-package-scaffolding',

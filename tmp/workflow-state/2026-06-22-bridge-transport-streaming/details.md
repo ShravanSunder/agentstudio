@@ -1284,7 +1284,7 @@ Current Ticket 05 review attempt:
 
 - Report:
   `tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/implementation-review-ticket-05-cleanup/report.md`.
-- Result: `not_ready`.
+- Initial result: `not_ready`.
 - Cause: reviewer lanes did not return. Two broad read-only lanes timed out
   after 5 minutes, remained running after another 2 minute wait, and were
   closed. A focused fallback reviewer also timed out after 5 minutes and was
@@ -1296,6 +1296,49 @@ Current Ticket 05 review attempt:
   test, and provider integration test exited 0 with no matches.
 - Next route: re-run Ticket 05 implementation review in a fresh or
   lower-concurrency context before PR-ready wrapup.
+
+Current Ticket 05 review-fix proof:
+
+- Focused reviewer `019ef787-9bca-7e50-af8f-edd23f365be4` completed and
+  returned two findings:
+  - `important`: content cursor staleness was only enforced after a surface
+    refresh.
+  - `follow-up`: architecture guard bypasses existed for `@/` alias imports and
+    bootstrap-level Worktree dev route scaffolding.
+- Both findings were accepted and fixed.
+- Red proof:
+  `pnpm --dir BridgeWeb exec vitest run
+  scripts/check-bridgeweb-architecture.unit.test.ts
+  scripts/dev-server/bridge-worktree-dev-provider.integration.test.ts
+  --reporter verbose`: exit 1 before the fix with expected failures for
+  alias-import guard, bootstrap Worktree route guard, and stale content served
+  before surface refresh.
+- Focused green proof:
+  `pnpm --dir BridgeWeb exec vitest run
+  scripts/check-bridgeweb-architecture.unit.test.ts
+  scripts/dev-server/bridge-worktree-dev-provider.integration.test.ts
+  scripts/bridge-worktree-vite-route.unit.test.ts --reporter verbose`:
+  exit 0, 3 files passed, 30 tests passed.
+- Quality gate:
+  `pnpm --dir BridgeWeb run check`: exit 0.
+- Live current-worktree dev-server gate:
+  `pnpm --dir BridgeWeb run test:dev-server:worktree`: exit 0.
+  Latest artifact:
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-24T02-56-48-524Z/worktree-dev-server-proof.json`.
+  Key canary values: `descriptorCount=424`,
+  `targetPath=Sources/AgentStudioProgrammaticControl/IPCEventContracts.swift`,
+  `selectedContentState=ready`, `selectedLineCount=193`,
+  `treePathCount=424`, `treeTotalSizePixels=10176`,
+  `treeHeightDeltaPixels=0`, `contentHeightDeltaPixels=0`,
+  `stableAnchorPass=true`, `exactSizeTolerancePass=true`,
+  `packageForbiddenTextAbsent=true`.
+- Repo lint gate:
+  `git diff --check && mise run lint`: exit 0. SwiftLint found 0
+  violations, AgentStudio architecture lint passed, and release script
+  verification passed.
+- Next route: Ticket 05 implementation review findings are addressed. Advance
+  to `implementation-pr-wrapup` for PR-ready proof unless a fresh review rerun
+  is requested.
 
 ## Stop Conditions
 

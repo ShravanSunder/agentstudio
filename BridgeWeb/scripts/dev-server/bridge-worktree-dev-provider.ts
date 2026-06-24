@@ -146,7 +146,7 @@ export async function createBridgeWorktreeDevProvider(
 		loadWorktreeFileContent: async (
 			request: BridgeWorktreeDevProviderWorktreeFileContentRequest,
 		): Promise<string> => {
-			const currentState = state ?? (await loadCurrentState());
+			const currentState = await loadCurrentState();
 			const currentSource = currentState.worktreeFileSurface.source;
 			if (request.subscriptionGeneration !== currentSource.subscriptionGeneration) {
 				throw new Error(

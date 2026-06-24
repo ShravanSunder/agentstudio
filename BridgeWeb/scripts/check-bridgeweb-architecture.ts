@@ -411,10 +411,11 @@ function checkWorktreeDevReviewPackageScaffolding(context: SourceContext): void 
 		return;
 	}
 
-	const match =
-		/\b(?:loadReviewPackage|pushPackage|BridgeReviewPackage|bridgeReviewPackageSchema|buildReviewSnapshotFrame|dispatchBridgeDevHostAdmittedEnvelope)\b|\/__bridge-worktree\/(?:package|content)\b|foundation\/review-package/u.exec(
-			context.sourceText,
-		);
+	const forbiddenPattern =
+		context.relativePath === 'src/app/bridge-app-dev-bootstrap.tsx'
+			? /\/__bridge-worktree\/(?:package|content)\b/u
+			: /\b(?:loadReviewPackage|pushPackage|BridgeReviewPackage|bridgeReviewPackageSchema|buildReviewSnapshotFrame|dispatchBridgeDevHostAdmittedEnvelope)\b|\/__bridge-worktree\/(?:package|content)\b|foundation\/review-package/u;
+	const match = forbiddenPattern.exec(context.sourceText);
 
 	if (match === null) {
 		return;
@@ -554,6 +555,9 @@ function isAppProtocolOrViewerImport(context: SourceContext, importSource: strin
 }
 
 function resolveImportTargetPath(relativePath: string, importSource: string): string | null {
+	if (importSource.startsWith('@/')) {
+		return normalizePath(join('src', importSource.slice(2)));
+	}
 	if (!importSource.startsWith('.')) {
 		return null;
 	}
@@ -566,6 +570,7 @@ function isCorePath(relativePath: string): boolean {
 
 function isWorktreeDevPath(relativePath: string): boolean {
 	return (
+		relativePath === 'src/app/bridge-app-dev-bootstrap.tsx' ||
 		relativePath === 'src/app/bridge-app-dev-worktree.ts' ||
 		relativePath === 'scripts/dev-server/bridge-worktree-dev-provider.ts' ||
 		relativePath === 'vite.config.ts'

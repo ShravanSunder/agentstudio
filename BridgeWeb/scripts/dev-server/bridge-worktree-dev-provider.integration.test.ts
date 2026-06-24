@@ -261,6 +261,28 @@ describe('Bridge worktree dev provider', () => {
 			await rm(repoRoot, { force: true, recursive: true });
 		}
 	});
+
+	test('rejects old content URLs after worktree changes before another surface refresh', async () => {
+		const repoRoot = await makeGitFixtureWorktree();
+		try {
+			const provider = await createBridgeWorktreeDevProvider({
+				baseRef: 'HEAD',
+				scenarioName: 'current-worktree',
+				worktreeRoot: repoRoot,
+			});
+			const firstSurface = await provider.loadWorktreeFileSurface();
+			const firstDocsDescriptor = findWorktreeFileDescriptor(firstSurface, 'docs/bridge-plan.md');
+			const firstRequest = worktreeFileContentRequestForDescriptor(firstDocsDescriptor);
+
+			await writeFile(join(repoRoot, 'docs/bridge-plan.md'), '# Plan\n\nupdated docs body\n');
+
+			await expect(provider.loadWorktreeFileContent(firstRequest)).rejects.toThrow(
+				/stale Bridge worktree file content cursor/,
+			);
+		} finally {
+			await rm(repoRoot, { force: true, recursive: true });
+		}
+	});
 });
 
 async function makeGitFixtureWorktree(): Promise<string> {
