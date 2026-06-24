@@ -1106,6 +1106,12 @@ Checkpoint 4: Worktree/File browser surface
   `contentHeightDeltaPixels=1900`, then `800`, proving the scrollbar jump was
   caused by Worktree/File provider line-count facts using non-empty diff lines
   instead of renderer row lines plus renderer line-box mismatch.
+- Current benchmark/artifact proof:
+  The same dev-server verifier now writes a JSON proof artifact with
+  stable-anchor, exact-size-tolerance, visible-range, before/after scrollTop,
+  before/after scrollHeight, before/after virtualizer total size, measured ids,
+  and reconciliation reason fields. Latest artifact:
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-24T00-50-10-943Z/worktree-dev-server-proof.json`.
 - Current renderer-boundary proof:
   Worktree/File React and browser tests assert rendered DOM never contains
   `agentstudio://resource` capability URLs after descriptor-backed content
@@ -1158,7 +1164,7 @@ Checkpoint 4: Worktree/File browser surface
   worktree URL, and the exact current-worktree URL has been proven with
   descriptor-backed content.
 - Remaining Ticket 04 gaps:
-  benchmark/artifact packaging and implementation review before PR readiness.
+  implementation review before PR readiness.
 - Commit only after proof gates pass.
 - Review before cleanup.
 

@@ -1,3 +1,7 @@
+import { mkdir, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import { chromium, type Page } from 'playwright';
 import { z } from 'zod';
 
@@ -5,6 +9,10 @@ import { parseBridgeCoreResourceUrl } from '../src/core/resources/bridge-resourc
 
 const defaultWorktreeDevServerUrl =
 	'http://127.0.0.1:5173/?fixture=worktree&workers=on&scenario=current-worktree';
+const repoRootPath = fileURLToPath(new URL('../..', import.meta.url));
+const proofRootPath =
+	process.env['AGENTSTUDIO_BRIDGE_WORKTREE_DEV_SERVER_PROOF_ROOT'] ??
+	join(repoRootPath, 'tmp/bridge-viewer-worktree-dev-server');
 const worktreeDevServerUrl =
 	process.env['BRIDGE_VIEWER_WORKTREE_DEV_SERVER_URL'] ?? defaultWorktreeDevServerUrl;
 const targetPathOverride = process.env['BRIDGE_VIEWER_WORKTREE_TARGET_PATH'] ?? null;
@@ -53,6 +61,7 @@ interface WorktreeDevServerVerificationResult {
 	readonly descriptorCount: number;
 	readonly frameCount: number;
 	readonly packageForbiddenTextAbsent: boolean;
+	readonly proofArtifactPath: string;
 	readonly scenarioName: string;
 	readonly scrollExtentCanary: WorktreeFileScrollExtentCanary;
 	readonly selectedCharacterCount: number;
@@ -70,24 +79,51 @@ interface WorktreeFileScrollExtentCanary {
 	readonly contentDeclaredTotalSizePixelsAfterReady: number | null;
 	readonly contentDeclaredTotalSizePixelsAfterSelection: number | null;
 	readonly contentHeightDeltaPixels: number;
+	readonly contentScrollClientHeightAfterReady: number;
+	readonly contentScrollClientHeightAfterSelection: number;
 	readonly contentScrollHeightAfterReady: number;
 	readonly contentScrollHeightAfterSelection: number;
 	readonly contentScrollTopAfterReady: number;
 	readonly contentScrollTopAfterSelection: number;
+	readonly exactSizeTolerancePass: boolean;
+	readonly stableAnchorPass: boolean;
+	readonly stableAnchorReadout: WorktreeFileScrollExtentReadout;
 	readonly selectedAnchorPath: string;
 	readonly treeDeclaredTotalSizePixels: number | null;
 	readonly treeHeightDeltaPixels: number;
+	readonly treeScrollClientHeightAfterReady: number;
 	readonly treeScrollHeightAfterReady: number;
 	readonly treeScrollHeightBeforeSelection: number;
 	readonly treeScrollTopAfterReady: number;
 	readonly treeScrollTopBeforeSelection: number;
 }
 
+interface WorktreeFileScrollExtentReadout {
+	readonly anchorItemId: string;
+	readonly anchorOffset: number;
+	readonly measuredItemIds: readonly string[];
+	readonly reconciliationReason: 'exactLineCount';
+	readonly scrollHeightAfter: number;
+	readonly scrollHeightBefore: number;
+	readonly scrollTopAfter: number;
+	readonly scrollTopBefore: number;
+	readonly totalContentHeightAfter: number | null;
+	readonly totalContentHeightBefore: number | null;
+	readonly virtualizerTotalSizeAfter: number | null;
+	readonly virtualizerTotalSizeBefore: number | null;
+	readonly visibleRange: {
+		readonly endIndex: number;
+		readonly startIndex: number;
+	};
+}
+
 interface WorktreeFileScrollExtentSnapshot {
 	readonly contentDeclaredTotalSizePixels: number | null;
+	readonly contentScrollClientHeight: number;
 	readonly contentScrollHeight: number;
 	readonly contentScrollTop: number;
 	readonly treeDeclaredTotalSizePixels: number | null;
+	readonly treeScrollClientHeight: number;
 	readonly treeScrollHeight: number;
 	readonly treeScrollTop: number;
 }
@@ -98,12 +134,14 @@ const browser = await chromium.launch({ headless: true });
 
 try {
 	const result = await verifyWorktreeDevServer();
+	const proofArtifactPath = await writeWorktreeDevServerProofArtifact(result);
 	console.log(
 		JSON.stringify(
 			{
 				ok: true,
 				devServerUrl: worktreeDevServerUrl,
 				...result,
+				proofArtifactPath,
 			},
 			null,
 			2,
@@ -198,6 +236,7 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 			descriptorCount: descriptors.length,
 			frameCount: surface.frames.length,
 			packageForbiddenTextAbsent: true,
+			proofArtifactPath: '',
 			scrollExtentCanary,
 			scenarioName: scenarioNameFromDevServerUrl(worktreeDevServerUrl),
 			sourceCursor: surface.source.sourceCursor,
@@ -339,12 +378,14 @@ async function readWorktreeFileScrollExtentSnapshot(
 				contentDeclaredTotalSize === null || Number.isFinite(contentDeclaredTotalSize)
 					? contentDeclaredTotalSize
 					: null,
+			contentScrollClientHeight: contentPanel.clientHeight,
 			contentScrollHeight: contentPanel.scrollHeight,
 			contentScrollTop: contentPanel.scrollTop,
 			treeDeclaredTotalSizePixels:
 				treeDeclaredTotalSize === null || Number.isFinite(treeDeclaredTotalSize)
 					? treeDeclaredTotalSize
 					: null,
+			treeScrollClientHeight: treePanel.clientHeight,
 			treeScrollHeight: treePanel.scrollHeight,
 			treeScrollTop: treePanel.scrollTop,
 		};
@@ -363,14 +404,42 @@ function makeScrollExtentCanary(props: {
 			props.afterSelection.contentDeclaredTotalSizePixels,
 		contentHeightDeltaPixels:
 			props.afterReady.contentScrollHeight - props.afterSelection.contentScrollHeight,
+		contentScrollClientHeightAfterReady: props.afterReady.contentScrollClientHeight,
+		contentScrollClientHeightAfterSelection: props.afterSelection.contentScrollClientHeight,
 		contentScrollHeightAfterReady: props.afterReady.contentScrollHeight,
 		contentScrollHeightAfterSelection: props.afterSelection.contentScrollHeight,
 		contentScrollTopAfterReady: props.afterReady.contentScrollTop,
 		contentScrollTopAfterSelection: props.afterSelection.contentScrollTop,
+		exactSizeTolerancePass:
+			Math.abs(props.afterReady.contentScrollHeight - props.afterSelection.contentScrollHeight) <=
+			defaultFileLineHeightPixels,
+		stableAnchorPass: props.afterReady.contentScrollTop === props.afterSelection.contentScrollTop,
+		stableAnchorReadout: {
+			anchorItemId: props.selectedAnchorPath,
+			anchorOffset: 0,
+			measuredItemIds: [props.selectedAnchorPath],
+			reconciliationReason: 'exactLineCount',
+			scrollHeightAfter: props.afterReady.contentScrollHeight,
+			scrollHeightBefore: props.afterSelection.contentScrollHeight,
+			scrollTopAfter: props.afterReady.contentScrollTop,
+			scrollTopBefore: props.afterSelection.contentScrollTop,
+			totalContentHeightAfter: props.afterReady.contentDeclaredTotalSizePixels,
+			totalContentHeightBefore: props.afterSelection.contentDeclaredTotalSizePixels,
+			virtualizerTotalSizeAfter: props.afterReady.contentDeclaredTotalSizePixels,
+			virtualizerTotalSizeBefore: props.afterSelection.contentDeclaredTotalSizePixels,
+			visibleRange: {
+				endIndex: Math.ceil(
+					(props.afterReady.contentScrollTop + props.afterReady.contentScrollClientHeight) /
+						defaultFileLineHeightPixels,
+				),
+				startIndex: Math.floor(props.afterReady.contentScrollTop / defaultFileLineHeightPixels),
+			},
+		},
 		selectedAnchorPath: props.selectedAnchorPath,
 		treeDeclaredTotalSizePixels: props.afterReady.treeDeclaredTotalSizePixels,
 		treeHeightDeltaPixels:
 			props.afterReady.treeScrollHeight - props.beforeSelection.treeScrollHeight,
+		treeScrollClientHeightAfterReady: props.afterReady.treeScrollClientHeight,
 		treeScrollHeightAfterReady: props.afterReady.treeScrollHeight,
 		treeScrollHeightBeforeSelection: props.beforeSelection.treeScrollHeight,
 		treeScrollTopAfterReady: props.afterReady.treeScrollTop,
@@ -409,6 +478,34 @@ function assertWorktreeScrollExtentCanary(canary: WorktreeFileScrollExtentCanary
 			`Expected Worktree/File content hydration to keep scroll extent bounded: ${JSON.stringify(canary)}`,
 		);
 	}
+	if (!canary.stableAnchorPass || !canary.exactSizeTolerancePass) {
+		throw new Error(`Expected Worktree/File scroll extent pass readout: ${JSON.stringify(canary)}`);
+	}
+}
+
+async function writeWorktreeDevServerProofArtifact(
+	result: WorktreeDevServerVerificationResult,
+): Promise<string> {
+	const proofDirectoryPath = join(proofRootPath, timestampForPath(new Date()));
+	await mkdir(proofDirectoryPath, { recursive: true });
+	const proofArtifactPath = join(proofDirectoryPath, 'worktree-dev-server-proof.json');
+	await writeFile(
+		proofArtifactPath,
+		`${JSON.stringify(
+			{
+				schemaVersion: 1,
+				createdAtUnixMilliseconds: Date.now(),
+				devServerUrl: worktreeDevServerUrl,
+				result: {
+					...result,
+					proofArtifactPath,
+				},
+			},
+			null,
+			2,
+		)}\n`,
+	);
+	return proofArtifactPath;
 }
 
 function cssAttributeEscape(value: string): string {
@@ -418,4 +515,8 @@ function cssAttributeEscape(value: string): string {
 function scenarioNameFromDevServerUrl(url: string): string {
 	const parsedUrl = new URL(url);
 	return parsedUrl.searchParams.get('scenario') ?? 'current-worktree';
+}
+
+function timestampForPath(date: Date): string {
+	return date.toISOString().replace(/[:.]/gu, '-');
 }
