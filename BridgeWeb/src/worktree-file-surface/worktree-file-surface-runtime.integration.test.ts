@@ -116,6 +116,39 @@ describe('worktree file surface runtime', () => {
 		expect(fetchCount).toBe(0);
 	});
 
+	test('keeps binary unavailable descriptors metadata-only without fetching bodies', async () => {
+		const descriptor = makeFileDescriptor({
+			descriptorId: 'binary-content',
+			isBinary: true,
+			virtualizedExtentKind: 'unavailable',
+		});
+		let fetchCount = 0;
+		const runtime = createWorktreeFileSurfaceRuntime({
+			paneId: 'pane-1',
+			fetchResource: async () => {
+				fetchCount += 1;
+				return 'must-not-fetch';
+			},
+		});
+
+		expect(runtime.applyFrame(makeFileDescriptorFrame(descriptor))).toEqual({
+			ok: true,
+			deltaKind: 'fileDescriptor',
+		});
+		const loadResult = await runtime.openFile({
+			descriptor,
+			openFileSessionId: 'session-1',
+		});
+
+		expect(loadResult).toEqual({ ok: false, reason: 'content_unavailable' });
+		expect(fetchCount).toBe(0);
+		expect(runtime.getBodyRegistrySnapshot()).toEqual({ entryCount: 0, totalBytes: 0 });
+		expect(runtime.getState().openFileSessionsById['session-1']).toMatchObject({
+			status: 'failed',
+			descriptorRef: descriptor.contentDescriptor.ref,
+		});
+	});
+
 	test('source reset cancels queued source work and rejects stale refresh commits', async () => {
 		const firstDescriptor = makeFileDescriptor({ descriptorId: 'file-content-1' });
 		const latestDescriptor = makeFileDescriptor({
@@ -193,9 +226,12 @@ function makeResetFrame(): WorktreeResetFrame {
 interface MakeFileDescriptorProps {
 	readonly descriptorId: string;
 	readonly contentHandle?: string;
+	readonly isBinary?: boolean;
+	readonly virtualizedExtentKind?: WorktreeFileDescriptor['virtualizedExtentKind'];
 }
 
 function makeFileDescriptor(props: MakeFileDescriptorProps): WorktreeFileDescriptor {
+	const virtualizedExtentKind = props.virtualizedExtentKind ?? 'exactLineCount';
 	return {
 		path: 'Sources/App/View.swift',
 		fileId: 'file-1',
@@ -206,9 +242,9 @@ function makeFileDescriptor(props: MakeFileDescriptorProps): WorktreeFileDescrip
 		}),
 		sourceIdentity: makeSourceIdentity(),
 		sizeBytes: 64,
-		virtualizedExtentKind: 'exactLineCount',
-		lineCount: 4,
-		isBinary: false,
+		virtualizedExtentKind,
+		...(virtualizedExtentKind === 'exactLineCount' ? { lineCount: 4 } : {}),
+		isBinary: props.isBinary ?? false,
 		language: 'swift',
 		fileExtension: 'swift',
 	};

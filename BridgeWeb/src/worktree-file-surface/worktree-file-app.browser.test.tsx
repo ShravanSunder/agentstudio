@@ -65,6 +65,40 @@ describe('WorktreeFileApp Browser Mode', () => {
 		expect(Math.abs(contentScrollHeightAfter - contentScrollHeightBefore)).toBeLessThanOrEqual(20);
 		expect(document.body.textContent).toContain('export const value = 2;');
 	});
+
+	test('renders binary unavailable descriptors without fetching content in the browser', async () => {
+		const descriptor = makeFileDescriptor({
+			isBinary: true,
+			virtualizedExtentKind: 'unavailable',
+		});
+		let fetchCount = 0;
+
+		render(
+			<WorktreeFileApp
+				fetchResource={async () => {
+					fetchCount += 1;
+					return 'must-not-fetch';
+				}}
+				initialFrames={makeFrames(descriptor)}
+			/>,
+		);
+
+		await waitForBridgeViewerAnimationFrame();
+		requireBridgeViewerHTMLElement(
+			document.querySelector('[data-worktree-file-path="src/app.ts"]'),
+		).click();
+
+		await waitForWorktreeFileState('unavailable');
+
+		const contentPanel = requireBridgeViewerHTMLElement(
+			document.querySelector('[data-testid="worktree-file-content"]'),
+		);
+		expect(fetchCount).toBe(0);
+		expect(contentPanel.getAttribute('data-worktree-open-file-path')).toBe('src/app.ts');
+		expect(contentPanel.getAttribute('data-worktree-open-file-total-size')).toBeNull();
+		expect(document.body.textContent).toContain('Content unavailable');
+		expect(document.body.textContent).not.toContain('must-not-fetch');
+	});
 });
 
 function makeFrames(descriptor: WorktreeFileDescriptor): readonly WorktreeFileProtocolFrame[] {
@@ -98,7 +132,13 @@ function makeFrames(descriptor: WorktreeFileDescriptor): readonly WorktreeFilePr
 	];
 }
 
-function makeFileDescriptor(): WorktreeFileDescriptor {
+interface MakeFileDescriptorProps {
+	readonly isBinary?: boolean;
+	readonly virtualizedExtentKind?: WorktreeFileDescriptor['virtualizedExtentKind'];
+}
+
+function makeFileDescriptor(props: MakeFileDescriptorProps = {}): WorktreeFileDescriptor {
+	const virtualizedExtentKind = props.virtualizedExtentKind ?? 'exactLineCount';
 	return {
 		path: 'src/app.ts',
 		fileId: 'file-1',
@@ -109,9 +149,9 @@ function makeFileDescriptor(): WorktreeFileDescriptor {
 		}),
 		sourceIdentity: makeSourceIdentity(),
 		sizeBytes: 64,
-		virtualizedExtentKind: 'exactLineCount',
-		lineCount: 4,
-		isBinary: false,
+		virtualizedExtentKind,
+		...(virtualizedExtentKind === 'exactLineCount' ? { lineCount: 4 } : {}),
+		isBinary: props.isBinary ?? false,
 		language: 'typescript',
 		fileExtension: 'ts',
 	};
@@ -179,7 +219,7 @@ function makeDeferred<TValue>(): Deferred<TValue> {
 }
 
 async function waitForWorktreeFileState(
-	status: 'loading' | 'ready',
+	status: 'loading' | 'ready' | 'unavailable',
 	remainingAttempts = 120,
 ): Promise<void> {
 	const contentPanel = document.querySelector('[data-testid="worktree-file-content"]');

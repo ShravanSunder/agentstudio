@@ -80,6 +80,7 @@ export type WorktreeFileSurfaceLoadResult =
 				| 'aborted'
 				| 'byte_budget_exceeded'
 				| 'concurrency_exceeded'
+				| 'content_unavailable'
 				| 'descriptor_missing'
 				| 'descriptor_rejected'
 				| 'load_failed'
@@ -240,6 +241,14 @@ export function createWorktreeFileSurfaceRuntime(
 			descriptor: openProps.descriptor,
 			openFileSessionId: openProps.openFileSessionId,
 		});
+		if (!canFetchWorktreeFileBody(openProps.descriptor)) {
+			state = stateWithOpenSessionStatus({
+				state,
+				openFileSessionId: openProps.openFileSessionId,
+				status: 'failed',
+			});
+			return { ok: false, reason: 'content_unavailable' };
+		}
 		const loadResult = await loadStimulus({
 			scheduler,
 			executor,
@@ -264,6 +273,9 @@ export function createWorktreeFileSurfaceRuntime(
 		}
 		if (resetSourceIds.has(session.latestDescriptor.sourceIdentity.sourceId)) {
 			return { ok: false, reason: 'source_reset' };
+		}
+		if (!canFetchWorktreeFileBody(session.latestDescriptor)) {
+			return { ok: false, reason: 'content_unavailable' };
 		}
 		const registerResult = registry.register(session.latestDescriptor.contentDescriptor);
 		if (!registerResult.ok) {
@@ -467,4 +479,8 @@ function demandCancellationGroupForSource(props: {
 
 function encodedByteLength(value: string): number {
 	return new TextEncoder().encode(value).byteLength;
+}
+
+function canFetchWorktreeFileBody(descriptor: WorktreeFileDescriptor): boolean {
+	return !descriptor.isBinary && descriptor.virtualizedExtentKind !== 'unavailable';
 }

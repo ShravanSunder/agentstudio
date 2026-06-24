@@ -39,6 +39,11 @@ type WorktreeFileOpenRenderState =
 			readonly descriptor: WorktreeFileDescriptor;
 			readonly path: string;
 			readonly status: 'failed';
+	  }
+	| {
+			readonly descriptor: WorktreeFileDescriptor;
+			readonly path: string;
+			readonly status: 'unavailable';
 	  };
 
 const defaultPaneId = 'bridge-worktree-dev-pane';
@@ -105,6 +110,10 @@ export function WorktreeFileApp({
 			});
 			return;
 		}
+		if (result.reason === 'content_unavailable') {
+			setOpenFileState({ status: 'unavailable', path: descriptor.path, descriptor });
+			return;
+		}
 		setOpenFileState({ status: 'failed', path: descriptor.path, descriptor });
 	}, []);
 
@@ -161,6 +170,9 @@ export function WorktreeFileApp({
 					}
 				>
 					{openFileState.status === 'ready' ? <pre>{openFileState.body}</pre> : null}
+					{openFileState.status === 'unavailable' ? (
+						<div data-testid="worktree-file-content-unavailable">Content unavailable</div>
+					) : null}
 				</div>
 			</section>
 		</main>

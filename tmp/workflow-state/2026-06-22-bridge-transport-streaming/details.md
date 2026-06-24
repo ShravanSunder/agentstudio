@@ -1076,8 +1076,9 @@ Checkpoint 4: Worktree/File browser surface
   body registry; selected-file demand fetches descriptor-backed content without
   putting bodies in state; invalidation marks open files stale without
   auto-fetching; explicit refresh fetches only the latest descriptor; forged
-  unmaterialized descriptors fail closed before fetch; and source reset prevents
-  stale refresh commits.
+  unmaterialized descriptors fail closed before fetch; source reset prevents
+  stale refresh commits; and binary/unavailable descriptors stop at
+  metadata-only UI without fetching body bytes.
 - Current browser proof:
   `pnpm --dir BridgeWeb exec vitest run
   src/features/worktree-file/models/worktree-file-protocol-models.unit.test.ts
@@ -1085,7 +1086,16 @@ Checkpoint 4: Worktree/File browser surface
   src/features/worktree-file/demand/worktree-file-demand-policy.unit.test.ts
   src/features/worktree-file/state/worktree-file-state.unit.test.ts
   src/worktree-file-surface/worktree-file-surface-runtime.integration.test.ts
-  --reporter verbose`: exit 0, 5 files passed, 20 tests passed.
+  src/worktree-file-surface/worktree-file-app.integration.test.tsx
+  src/app/bridge-app-protocol-router.unit.test.tsx
+  scripts/dev-server/bridge-worktree-dev-provider.integration.test.ts
+  --reporter verbose`: exit 0, 8 files passed, 36 tests passed.
+- Current browser-mode proof:
+  `pnpm --dir BridgeWeb run test:browser:integration --
+  src/worktree-file-surface/worktree-file-app.browser.test.tsx --reporter
+  verbose`: exit 0, 2 browser files passed, 32 tests passed. This includes
+  Worktree/File binary unavailable metadata-only behavior and the existing
+  Review browser suite.
 - Current quality proof:
   `pnpm --dir BridgeWeb run check`: exit 0.
 - Current hygiene proof:
@@ -1121,11 +1131,14 @@ Checkpoint 4: Worktree/File browser surface
   --reporter verbose`: exit 0, 1 file passed, 10 tests passed.
 - Current dev-provider quality proof:
   `pnpm --dir BridgeWeb run check`: exit 0.
-- Remaining dev-server cutover gap:
-  Vite middleware and browser dev bootstrap still need to consume these
-  Worktree/File frames instead of pushing a fabricated Review package for the
-  worktree URL.
-- Prove dev-server worktree URL works without Review package scaffolding.
+- Current dev-server cutover status:
+  Vite middleware and browser dev bootstrap consume Worktree/File frames for the
+  worktree URL, and the exact current-worktree URL has been proven with
+  descriptor-backed content.
+- Remaining Ticket 04 gaps:
+  huge-worktree churn/anchor diagnostics, benchmark artifacts,
+  renderer-boundary telemetry proof, and implementation review before PR
+  readiness.
 - Commit only after proof gates pass.
 - Review before cleanup.
 

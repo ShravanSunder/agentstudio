@@ -76,6 +76,47 @@ describe('WorktreeFileApp', () => {
 		).toBe('src/app.ts');
 		expect(document.body.textContent).toContain('export const value = 2;');
 	});
+
+	test('renders binary unavailable descriptors as metadata-only without fetching body bytes', async () => {
+		const descriptor = makeFileDescriptor({
+			isBinary: true,
+			virtualizedExtentKind: 'unavailable',
+		});
+		let fetchCount = 0;
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<WorktreeFileApp
+					fetchResource={async () => {
+						fetchCount += 1;
+						return 'must-not-fetch';
+					}}
+					initialFrames={makeFrames(descriptor)}
+				/>,
+			);
+		});
+
+		await act(async (): Promise<void> => {
+			document.querySelector<HTMLButtonElement>('[data-worktree-file-path="src/app.ts"]')?.click();
+		});
+
+		expect(fetchCount).toBe(0);
+		expect(
+			document
+				.querySelector('[data-worktree-open-file-state]')
+				?.getAttribute('data-worktree-open-file-state'),
+		).toBe('unavailable');
+		expect(
+			document
+				.querySelector('[data-worktree-open-file-path]')
+				?.getAttribute('data-worktree-open-file-path'),
+		).toBe('src/app.ts');
+		expect(document.body.textContent).toContain('src/app.ts');
+		expect(document.body.textContent).not.toContain('must-not-fetch');
+	});
 });
 
 function makeFrames(descriptor: WorktreeFileDescriptor): readonly WorktreeFileProtocolFrame[] {
@@ -109,7 +150,13 @@ function makeFrames(descriptor: WorktreeFileDescriptor): readonly WorktreeFilePr
 	];
 }
 
-function makeFileDescriptor(): WorktreeFileDescriptor {
+interface MakeFileDescriptorProps {
+	readonly isBinary?: boolean;
+	readonly virtualizedExtentKind?: WorktreeFileDescriptor['virtualizedExtentKind'];
+}
+
+function makeFileDescriptor(props: MakeFileDescriptorProps = {}): WorktreeFileDescriptor {
+	const virtualizedExtentKind = props.virtualizedExtentKind ?? 'exactLineCount';
 	return {
 		path: 'src/app.ts',
 		fileId: 'file-1',
@@ -120,9 +167,9 @@ function makeFileDescriptor(): WorktreeFileDescriptor {
 		}),
 		sourceIdentity: makeSourceIdentity(),
 		sizeBytes: 24,
-		virtualizedExtentKind: 'exactLineCount',
-		lineCount: 1,
-		isBinary: false,
+		virtualizedExtentKind,
+		...(virtualizedExtentKind === 'exactLineCount' ? { lineCount: 1 } : {}),
+		isBinary: props.isBinary ?? false,
 		language: 'typescript',
 		fileExtension: 'ts',
 	};
