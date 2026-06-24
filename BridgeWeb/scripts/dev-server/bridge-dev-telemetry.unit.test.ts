@@ -146,6 +146,65 @@ describe('Bridge dev telemetry sink', () => {
 			lastError: null,
 		});
 	});
+
+	test('accepts scrubbed Worktree/File extent canary telemetry without path or capability fields', async () => {
+		const postedBodies: string[] = [];
+		const fetchImpl = vi.fn(
+			async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+				const body = init?.body;
+				postedBodies.push(typeof body === 'string' ? body : '');
+				return new Response('', { status: 200 });
+			},
+		);
+		const sink = createBridgeDevTelemetrySink({
+			fetchImpl,
+			marker: 'vite-dev-proof-1',
+			nowUnixNano: () => '1782218790000000000',
+			serviceVersion: 'vite-dev',
+			worktreeHash: 'wt-hash',
+		});
+		const extentBatch = {
+			...makeTelemetryBatch(),
+			samples: [
+				{
+					...makeTelemetryBatch().samples[0],
+					name: 'performance.bridge.web.worktree_file_scroll_extent',
+					stringAttributes: {
+						'agentstudio.bridge.phase': 'render',
+						'agentstudio.bridge.plane': 'data',
+						'agentstudio.bridge.priority': 'hot',
+						'agentstudio.bridge.projection.kind': 'worktree_file',
+						'agentstudio.bridge.result': 'stable_extent',
+						'agentstudio.bridge.slice': 'worktree_file_scroll_extent',
+						'agentstudio.bridge.transport': 'push',
+					},
+					numericAttributes: {
+						'agentstudio.bridge.worktree.content_height_delta_px': 0,
+						'agentstudio.bridge.worktree.content_total_size_px': 5520,
+						'agentstudio.bridge.worktree.descriptor_count': 419,
+						'agentstudio.bridge.worktree.frame_count': 420,
+						'agentstudio.bridge.worktree.tree_height_delta_px': 0,
+						'agentstudio.bridge.worktree.tree_total_size_px': 10056,
+					},
+				},
+			],
+		};
+
+		await expect(sink.ingest(extentBatch)).resolves.toBe(true);
+
+		expect(fetchImpl).toHaveBeenCalledOnce();
+		const postedBody = postedBodies[0] ?? '';
+		expect(postedBody).toContain('performance.bridge.web.worktree_file_scroll_extent');
+		expect(postedBody).not.toContain('/Users/');
+		expect(postedBody).not.toContain('agentstudio://resource/');
+		expect(postedBody).not.toContain('.github/workflows/ci.yml');
+		expect(sink.snapshot()).toMatchObject({
+			acceptedBatchCount: 1,
+			acceptedSampleCount: 1,
+			failedBatchCount: 0,
+			lastError: null,
+		});
+	});
 });
 
 function makeTelemetryBatch(): {

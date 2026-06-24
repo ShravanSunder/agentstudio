@@ -1106,6 +1106,18 @@ Checkpoint 4: Worktree/File browser surface
   `contentHeightDeltaPixels=1900`, then `800`, proving the scrollbar jump was
   caused by Worktree/File provider line-count facts using non-empty diff lines
   instead of renderer row lines plus renderer line-box mismatch.
+- Current renderer-boundary proof:
+  Worktree/File React and browser tests assert rendered DOM never contains
+  `agentstudio://resource` capability URLs after descriptor-backed content
+  opens. Runtime/fetch code may handle resource URLs; renderer markup receives
+  paths and body text only.
+- Current telemetry canary proof:
+  `pnpm --dir BridgeWeb exec vitest run
+  scripts/dev-server/bridge-dev-telemetry.unit.test.ts
+  src/worktree-file-surface/worktree-file-app.integration.test.tsx --reporter
+  verbose`: exit 0, 2 files passed, 7 tests passed. The telemetry sink accepts
+  scrubbed Worktree/File extent metrics and rejects raw paths/capability URLs
+  before OTLP export.
 - Current quality proof:
   `pnpm --dir BridgeWeb run check`: exit 0.
 - Current hygiene proof:
@@ -1146,8 +1158,7 @@ Checkpoint 4: Worktree/File browser surface
   worktree URL, and the exact current-worktree URL has been proven with
   descriptor-backed content.
 - Remaining Ticket 04 gaps:
-  benchmark artifacts, renderer-boundary telemetry proof, and implementation
-  review before PR readiness.
+  benchmark/artifact packaging and implementation review before PR readiness.
 - Commit only after proof gates pass.
 - Review before cleanup.
 

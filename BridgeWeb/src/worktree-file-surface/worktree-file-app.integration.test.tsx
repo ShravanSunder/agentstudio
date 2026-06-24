@@ -75,6 +75,7 @@ describe('WorktreeFileApp', () => {
 				?.getAttribute('data-worktree-open-file-path'),
 		).toBe('src/app.ts');
 		expect(document.body.textContent).toContain('export const value = 2;');
+		expect(container.innerHTML).not.toContain('agentstudio://resource');
 	});
 
 	test('renders binary unavailable descriptors as metadata-only without fetching body bytes', async () => {

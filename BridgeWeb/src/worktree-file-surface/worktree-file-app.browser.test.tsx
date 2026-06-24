@@ -64,6 +64,7 @@ describe('WorktreeFileApp Browser Mode', () => {
 		const contentScrollHeightAfter = contentPanel.scrollHeight;
 		expect(Math.abs(contentScrollHeightAfter - contentScrollHeightBefore)).toBeLessThanOrEqual(20);
 		expect(document.body.textContent).toContain('export const value = 2;');
+		expect(document.body.innerHTML).not.toContain('agentstudio://resource');
 	});
 
 	test('renders binary unavailable descriptors without fetching content in the browser', async () => {

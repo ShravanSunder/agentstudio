@@ -240,6 +240,12 @@ const bridgeDevNumericAttributeKeys = new Set<string>([
 	'agentstudio.bridge.markdown.input_bytes',
 	'agentstudio.bridge.markdown.output_bytes',
 	'agentstudio.bridge.telemetry.dropped_count',
+	'agentstudio.bridge.worktree.content_height_delta_px',
+	'agentstudio.bridge.worktree.content_total_size_px',
+	'agentstudio.bridge.worktree.descriptor_count',
+	'agentstudio.bridge.worktree.frame_count',
+	'agentstudio.bridge.worktree.tree_height_delta_px',
+	'agentstudio.bridge.worktree.tree_total_size_px',
 ]);
 
 const bridgeDevBooleanAttributeKeys = new Set<string>([]);
