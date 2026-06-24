@@ -1,8 +1,9 @@
 # Worktree/File Surface Protocol Spec
 
 Date: 2026-06-22
-Status: Reopened for 2026-06-24 reconciliation. This slice is not plan-ready
-until the current spec-review findings are reduced in the parent spec.
+Status: Reconciliation review reduced on 2026-06-24. This slice is ready to
+feed plan creation/reconciliation; Worktree/File runtime implementation remains
+open plan work.
 Parent: [spec.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/spec-workflows/2026-06-22-bridge-transport-streaming-spec/spec.md:1)
 
 This file owns the Worktree/File Surface protocol family. The user-facing
@@ -170,6 +171,40 @@ export const WorktreeFileSurfaceResourceKind = z.enum([
   'worktree.commentThreadWindow',
   'worktree.agentCommsWindow',
 ]);
+
+export const WorktreeFileSurfaceOpenSourceAccepted = z.object({
+  kind: z.literal('accepted'),
+  source: WorktreeFileSurfaceSourceIdentity,
+  eventStreamId: z.string().min(1),
+  intakeStreamId: z.string().min(1),
+  initialCursor: z.string().min(1),
+  treeRootDescriptor: BridgeAttachedResourceDescriptor.optional(),
+}).strict();
+
+export const WorktreeFileSurfaceOpenSourceRejected = z.object({
+  kind: z.literal('rejected'),
+  reason: z.enum([
+    'notFound',
+    'unauthorized',
+    'outsideScope',
+    'unsupportedSource',
+    'providerUnavailable',
+    'invalidRequest',
+  ]),
+  message: z.string().min(1).optional(),
+}).strict();
+
+export const WorktreeFileSurfaceOpenSourceDeferred = z.object({
+  kind: z.literal('deferred'),
+  reason: z.enum(['providerStarting', 'indexing', 'backpressure']),
+  retryAfterMilliseconds: z.number().int().positive().optional(),
+}).strict();
+
+export const WorktreeFileSurfaceOpenSourceOutcome = z.discriminatedUnion('kind', [
+  WorktreeFileSurfaceOpenSourceAccepted,
+  WorktreeFileSurfaceOpenSourceRejected,
+  WorktreeFileSurfaceOpenSourceDeferred,
+]);
 ```
 
 Contract:
@@ -180,6 +215,10 @@ Contract:
   descriptors.
 - Browser-supplied path/cwd scopes are selectors that must be canonicalized and
   containment-checked provider-side.
+- `worktreeFileSurface.openSourceStream` returns
+  `WorktreeFileSurfaceOpenSourceOutcome`. Only `accepted` establishes source
+  identity, event-stream lineage, intake-stream lineage, and the initial cursor.
+  `rejected` and `deferred` do not create descriptor or content authority.
 
 ## 6. File Descriptor And Content Session
 
@@ -308,9 +347,11 @@ export const WorktreeResetFrame = BridgeIntakeFrameBase.extend({
 }).strict();
 ```
 
-`worktree.snapshot` is the first authoritative source-identity handoff for the
-surface. `requestSelector` may echo the browser request for diagnostics, but it
-is not authority for stale-drop, demand keys, or resource fetches.
+An accepted `worktreeFileSurface.openSourceStream` outcome is the first
+authoritative source-identity handoff for the surface. `worktree.snapshot` is
+the first authoritative intake/projection frame for that accepted source.
+`requestSelector` may echo the browser request for diagnostics, but it is not
+authority for stale-drop, demand keys, or resource fetches.
 
 Tree/file virtualization facts should arrive with the earliest authoritative
 frame that knows them. Providers should expose tree row/count/window facts and
@@ -326,7 +367,10 @@ browser has already sized the virtualizer.
 Worktree/File subscription binding to the parent continuous event stream:
 
 - `worktreeFileSurface.openSourceStream` is a command. It validates the source
-  and returns source metadata plus event/intake stream ids.
+  and returns `WorktreeFileSurfaceOpenSourceOutcome`.
+- File selection is browser-local open-session state over a provider descriptor.
+  It is not a Swift/Bridge `openFile` RPC in this contract. Selecting or
+  refreshing a file emits app demand stimuli for descriptor-backed content.
 - Compact lifecycle facts for the source ride the continuous event stream:
   ready/heartbeat, source status, descriptor availability, file/tree/status
   invalidation notice, gap, reset, and close.
@@ -446,7 +490,8 @@ sequenceDiagram
   Exec->>Bridge: fetch tree window
   Exec->>Mat: tree window result
   Mat->>Pierre: tree render delta
-  Browser->>Bridge: RPC(worktreeFileSurface.openFile, descriptor)
+  Browser->>Mat: select descriptor and create open file session
+  Mat->>Policy: fileSelected(descriptorRef)
   Policy->>Sched: foreground file-content demand intent
   Sched->>Exec: ordered demand intent
   Exec->>Bridge: fetch file content
@@ -576,8 +621,10 @@ Contract:
   `current-worktree` scenario and fails if app root/tree pane/file pane lack
   visible non-zero rects, sampled tree entries do not occupy distinct row boxes,
   selected exact-line fixtures lose visible line structure, packaged styling does
-  not affect the mounted surface, or raw frame fields/serialized payload/path
-  corpus dumps appear outside intentional tree/content UI
+  not affect the mounted surface, proof cannot identify Worktree/File source
+  identity plus event/intake lineage, proof is driven by Review package/query
+  lineage, or raw frame fields/serialized payload/path corpus dumps appear
+  outside intentional tree/content UI
 - current-scope comments/comms proof is fail-closed: `includeComments`,
   `includeAgentComms`, `commentThreadWindow`, and `agentCommsWindow` are rejected
   or unsupported and are not fetchable

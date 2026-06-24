@@ -1,9 +1,9 @@
 # Bridge Transport And App Protocol Architecture Spec
 
 Date: 2026-06-22
-Status: Reopened for 2026-06-24 reconciliation. This artifact is under
-spec-review refinement and is not plan-ready until the current review findings
-are reduced and the Next Workflow section says so.
+Status: Reconciliation review reduced on 2026-06-24. This artifact is ready
+to feed plan creation/reconciliation. Slice 07 is proved in the current
+worktree; slices 06 and 08-11 remain implementation-plan work.
 Audience: product/design reviewers, Bridge implementers, Review Viewer maintainers, Worktree/File Surface maintainers, future agents
 
 This is a product and architecture spec. It aligns the design before
@@ -1163,7 +1163,7 @@ Proof expectations feed a later plan. They are not task order.
 | Priority | scheduler fixture | foreground/active versus visible queue | foreground/active preempts | FIFO-only queue |
 | Source reset demand | scheduler/executor fixture | source reset with queued/in-flight work | queued work dropped, stale completion rejected | late commit after reset |
 | Stable scroll extent | schema/provider/browser canary fixture | huge tree and opened file before content bytes hydrate | provider emits exact row/line count or conservative estimated extent; browser `scrollHeight`/virtualizer `totalSize` stays within tolerance after hydration or logs attributed measured deltas | accepting scrollbar jump as manual UX judgment |
-| Worktree visible app proof | browser/dev-server fixture | current-worktree route in a real browser | app root/tree pane/file pane have non-zero visible rects; sampled tree entries occupy distinct row boxes; selected exact-line fixture preserves visible line structure; packaged styling affects the surface; raw frame fields, serialized payloads, and raw path corpus dumps are absent outside intentional tree/content UI | schema-only proof, hidden DOM text, hardcoded pass flag, or screenshot with concatenated paths |
+| Worktree visible app proof | browser/dev-server fixture | current-worktree route in a real browser | app root/tree pane/file pane have non-zero visible rects; sampled tree entries occupy distinct row boxes; selected exact-line fixture preserves visible line structure; packaged styling affects the surface; proof records Worktree/File source identity, event/intake lineage, and Worktree frame provenance; raw frame fields, serialized payloads, and raw path corpus dumps are absent outside intentional tree/content UI | schema-only proof, hidden DOM text, Review package/query lineage, hardcoded pass flag, or screenshot with concatenated paths |
 | Renderer boundary and cutover | integration/browser fixture | Pierre/CodeView/tree adapter input and update lifecycle | app/protocol-owned renderer adapters receive prepared items/paths only; same-lineage updates avoid incompatible full remount; stable extent is consumed by renderer path | Bridge URL in renderer, generic Bridge interpreting app render semantics, or old renderer path bypassing the materializer contract |
 | Telemetry safety | canary fixture | seeded path/content/prompt/URL/comment plus demand audit trace | exported telemetry excludes all seeds and retains safe scheduler audit fields | denylist-only claim |
 | Review ownership | protocol fixture | comparison open | provider emits package frames | browser computes repo diff |
@@ -1371,15 +1371,15 @@ Prior-art evidence used for changeset flexibility:
 
 ## 18. Next Workflow
 
-This spec has been reopened because new requirements changed the contract. The
-current 2026-06-24 spec-review findings must be reduced before plan creation
-resumes.
+This spec has been reconciled against the 2026-06-24 recovery objective and
+fresh spec-review findings.
 
 Current workflow route:
 
-- next phase: finish `shravan-dev-workflow:spec-review-swarm` reduction for the
-  reopened spec
-- after accepted spec edits land: run plan creation/reconciliation from this
-  spec
-- after plan review passes: route to checkpoint execution under the orchestrator
-  goal
+- next phase: convert the reconciliation artifact into a real checkpointed
+  implementation plan
+- first implementation slice: slice 06 Continuous Event Stream Backbone, or a
+  smaller precursor that proves the startup event stream carrier
+- standing gate: keep slice 07 Worktree dev-server visible-app verifier in the
+  proof loop
+- after plan review passes: route execution under the orchestrator goal

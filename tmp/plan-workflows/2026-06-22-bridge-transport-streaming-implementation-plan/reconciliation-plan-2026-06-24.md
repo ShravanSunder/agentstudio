@@ -88,15 +88,16 @@ Proof:
 Current proof:
 
 - `mise exec -- pnpm --dir BridgeWeb run test:browser:integration -- src/worktree-file-surface/worktree-file-app.browser.test.tsx`
-  exited 0 with 2 browser files passed and 33 tests passed.
+  exited 0 with 2 browser files passed and 34 tests passed.
 - `mise exec -- pnpm --dir BridgeWeb run test:dev-server:worktree` exited 0.
   The proof reported first-load ready content for `.github/workflows/ci.yml`
   with 275 lines before any verifier click; visible app, tree pane, and content
-  pane rects; 429 descriptors; selected deep file
-  `Tests/AgentStudioAppIPCTests/AgentStudioAppIPCServiceTests.swift`; 757
+  pane rects; 430 descriptors; selected deep file
+  `Tests/AgentStudioAppIPCTests/AgentStudioAppIPCServiceTestSupport.swift`; 968
   visible selected-file lines; distinct sampled tree rows; packaged CSS layout
-  proof; no raw frame/resource/path-corpus text outside intentional UI; stable
-  content and tree scroll extent canaries.
+  proof; Worktree/File source identity and cursor proof; no raw
+  frame/resource/path-corpus text outside intentional UI; stable content and
+  tree scroll extent canaries.
 - `mise run bridge-web-check` exited 0.
 - `mise run lint` exited 0.
 
@@ -168,13 +169,14 @@ Proof:
 
 ## Plan Decision
 
-Do not keep executing the old 00-05 plan as if it is current. The right next
+Do not keep executing the old 00-05 plan as if it is current. The
+spec-review reduction is complete for this recovery checkpoint. The right next
 step is:
 
-1. Finish owner review of the reopened spec.
-2. Run spec-review-swarm on the reopened spec.
-3. Convert this reconciliation file into a real checkpointed implementation
+1. Convert this reconciliation file into a real checkpointed implementation
    plan.
-4. Resume implementation with slice 06 or split a smaller precursor slice for
-   the continuous event stream backbone. Slice 07 no longer blocks progress, but
-   its verifier should remain a standing gate.
+2. Resume implementation with slice 06 or split a smaller precursor slice for
+   the continuous event stream backbone.
+3. Keep slice 07's verifier as a standing gate while later transport,
+   scheduler, renderer, and telemetry slices are implemented.
+4. After plan review passes, route execution under the orchestrator goal.

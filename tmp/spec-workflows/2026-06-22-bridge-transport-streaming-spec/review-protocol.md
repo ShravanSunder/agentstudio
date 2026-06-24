@@ -1,8 +1,9 @@
 # Review Protocol Spec
 
 Date: 2026-06-22
-Status: Reopened for 2026-06-24 reconciliation. This slice is not plan-ready
-until the current spec-review findings are reduced in the parent spec.
+Status: Reconciliation review reduced on 2026-06-24. This slice is ready to
+feed plan creation/reconciliation; Review runtime implementation remains open
+plan work.
 Parent: [spec.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/spec-workflows/2026-06-22-bridge-transport-streaming-spec/spec.md:1)
 
 This file owns the Review application protocol. Review is one app protocol
