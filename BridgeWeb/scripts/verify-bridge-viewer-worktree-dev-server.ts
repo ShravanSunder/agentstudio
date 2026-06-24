@@ -13,6 +13,11 @@ const repoRootPath = fileURLToPath(new URL('../..', import.meta.url));
 const proofRootPath =
 	process.env['AGENTSTUDIO_BRIDGE_WORKTREE_DEV_SERVER_PROOF_ROOT'] ??
 	join(repoRootPath, 'tmp/bridge-viewer-worktree-dev-server');
+const proofRunCreatedAtUnixMilliseconds = Date.now();
+const proofRunDirectoryPath = join(
+	proofRootPath,
+	timestampForPath(new Date(proofRunCreatedAtUnixMilliseconds)),
+);
 const worktreeDevServerUrl =
 	process.env['BRIDGE_VIEWER_WORKTREE_DEV_SERVER_URL'] ?? defaultWorktreeDevServerUrl;
 const targetPathOverride = process.env['BRIDGE_VIEWER_WORKTREE_TARGET_PATH'] ?? null;
@@ -71,12 +76,35 @@ interface WorktreeDevServerVerificationResult {
 	readonly selectedContentState: string | null;
 	readonly selectedDisplayPath: string | null;
 	readonly selectedLineCount: number;
+	readonly screenshotPaths: WorktreeDevServerScreenshotPaths;
 	readonly sourceCursor: string;
 	readonly sourceId: string;
 	readonly targetPath: string;
 	readonly treePathCount: number | null;
 	readonly treeTotalSizePixels: number | null;
+	readonly productControlsProof: WorktreeFileProductControlsProof;
 	readonly visibleAppProof: WorktreeFileVisibleAppProof;
+}
+
+interface WorktreeDevServerScreenshotPaths {
+	readonly ready: string;
+	readonly search: string;
+}
+
+interface WorktreeFileProductControlsProof {
+	readonly allFilterVisibleCount: number;
+	readonly fetchableFilterActive: boolean;
+	readonly fetchableFilterVisibleCount: number;
+	readonly initialVisibleCount: number;
+	readonly regexModeActive: boolean;
+	readonly regexVisibleCount: number;
+	readonly searchScreenshotPath: string;
+	readonly searchResultIncludesTarget: boolean;
+	readonly searchStatusText: string;
+	readonly searchVisibleCount: number;
+	readonly targetPath: string;
+	readonly unavailableFilterActive: boolean;
+	readonly unavailableFilterVisibleCount: number;
 }
 
 interface WorktreeFileVisibleAppProof {
@@ -84,9 +112,12 @@ interface WorktreeFileVisibleAppProof {
 	readonly contentPaneRect: WorktreeFileVisibleRect;
 	readonly contentVisibleLineCount: number;
 	readonly cssLayoutApplied: boolean;
+	readonly filterControlCount: number;
 	readonly forbiddenTextAbsentOutsideIntentionalUi: boolean;
+	readonly regexToggleCount: number;
 	readonly sampledTreeRowCount: number;
 	readonly sampledTreeRowsHaveDistinctVerticalPositions: boolean;
+	readonly searchInputCount: number;
 	readonly treePaneRect: WorktreeFileVisibleRect;
 }
 
@@ -297,6 +328,15 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 		}
 		const visibleAppProof = await readWorktreeFileVisibleAppProof(page);
 		assertWorktreeFileVisibleAppProof(visibleAppProof);
+		const readyScreenshotPath = await captureWorktreeDevServerScreenshot({
+			name: 'worktree-file-ready.png',
+			page,
+		});
+		const productControlsProof = await verifyWorktreeFileProductControls({
+			descriptorCount: descriptors.length,
+			page,
+			targetPath: targetDescriptor.path,
+		});
 		const scrollExtentCanary = makeScrollExtentCanary({
 			afterReady: scrollExtentAfterReady,
 			afterSelection: scrollExtentAfterSelection,
@@ -317,11 +357,16 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 			proofArtifactPath: '',
 			scrollExtentCanary,
 			scenarioName: scenarioNameFromDevServerUrl(worktreeDevServerUrl),
+			screenshotPaths: {
+				ready: readyScreenshotPath,
+				search: productControlsProof.searchScreenshotPath,
+			},
 			sourceCursor: surface.source.sourceCursor,
 			sourceId: surface.source.sourceId,
 			targetPath: targetDescriptor.path,
 			treePathCount: surface.treeSizeFacts.pathCount ?? null,
 			visibleAppProof,
+			productControlsProof,
 		};
 	} finally {
 		await page.close();
@@ -774,15 +819,20 @@ async function readWorktreeFileVisibleAppProof(page: Page): Promise<WorktreeFile
 			cssLayoutApplied:
 				appRootStyle.display === 'grid' &&
 				appRootStyle.getPropertyValue('--bridge-worktree-file-layout-proof').trim() === 'applied',
+			filterControlCount: appRoot.querySelectorAll('[data-testid^="worktree-file-filter-"]').length,
 			forbiddenTextAbsentOutsideIntentionalUi:
 				!outsideText.includes('"frames"') &&
 				!outsideText.includes('frameKind') &&
 				!outsideText.includes('resourceUrl') &&
 				!outsideText.includes('agentstudio://resource/') &&
 				!outsideText.includes('BridgeWeb/src/'),
+			regexToggleCount: appRoot.querySelectorAll('[data-testid="worktree-file-regex-toggle"]')
+				.length,
 			sampledTreeRowCount: sampledRows.length,
 			sampledTreeRowsHaveDistinctVerticalPositions:
 				sampledRows.length >= 8 && distinctSampledRowTops.size === sampledRows.length,
+			searchInputCount: appRoot.querySelectorAll('[data-testid="worktree-file-search-input"]')
+				.length,
 			treePaneRect: visibleRectForPageElement(treePane),
 		};
 	});
@@ -794,6 +844,15 @@ function assertWorktreeFileVisibleAppProof(proof: WorktreeFileVisibleAppProof): 
 	assertVisibleRect('Worktree/File content pane', proof.contentPaneRect);
 	if (!proof.cssLayoutApplied) {
 		throw new Error(`Expected Worktree/File packaged CSS layout proof: ${JSON.stringify(proof)}`);
+	}
+	if (proof.searchInputCount !== 1) {
+		throw new Error(`Expected Worktree/File product search input: ${JSON.stringify(proof)}`);
+	}
+	if (proof.regexToggleCount !== 1) {
+		throw new Error(`Expected Worktree/File regex toggle: ${JSON.stringify(proof)}`);
+	}
+	if (proof.filterControlCount < 3) {
+		throw new Error(`Expected Worktree/File filter/status controls: ${JSON.stringify(proof)}`);
 	}
 	if (!proof.sampledTreeRowsHaveDistinctVerticalPositions) {
 		throw new Error(
@@ -818,6 +877,161 @@ function assertVisibleRect(label: string, rect: WorktreeFileVisibleRect): void {
 	}
 }
 
+async function verifyWorktreeFileProductControls(props: {
+	readonly descriptorCount: number;
+	readonly page: Page;
+	readonly targetPath: string;
+}): Promise<WorktreeFileProductControlsProof> {
+	const initialVisibleCount = await visibleWorktreeFileRowCount(props.page);
+	await fillWorktreeFileSearch(props.page, props.targetPath);
+	await waitForVisibleWorktreeFileRowCount(props.page, 1);
+	const searchStatusText = await worktreeFileFilterStatusText(props.page);
+	const searchResultIncludesTarget = await worktreeFileRowExists(props.page, props.targetPath);
+	const searchScreenshotPath = await captureWorktreeDevServerScreenshot({
+		name: 'worktree-file-search-result.png',
+		page: props.page,
+	});
+	await clickWorktreeFileControl(props.page, 'worktree-file-regex-toggle');
+	await fillWorktreeFileSearch(props.page, `^${escapeRegExp(props.targetPath)}$`);
+	await waitForVisibleWorktreeFileRowCount(props.page, 1);
+	const regexModeActive = await worktreeFileControlPressed(
+		props.page,
+		'worktree-file-regex-toggle',
+	);
+	const regexVisibleCount = await visibleWorktreeFileRowCount(props.page);
+	await clickWorktreeFileControl(props.page, 'worktree-file-filter-fetchable');
+	const fetchableFilterActive = await worktreeFileControlPressed(
+		props.page,
+		'worktree-file-filter-fetchable',
+	);
+	const fetchableFilterVisibleCount = await visibleWorktreeFileRowCount(props.page);
+	await clickWorktreeFileControl(props.page, 'worktree-file-filter-unavailable');
+	const unavailableFilterActive = await worktreeFileControlPressed(
+		props.page,
+		'worktree-file-filter-unavailable',
+	);
+	const unavailableFilterVisibleCount = await visibleWorktreeFileRowCount(props.page);
+	await clickWorktreeFileControl(props.page, 'worktree-file-filter-all');
+	await fillWorktreeFileSearch(props.page, '');
+	await props.page.waitForFunction(
+		(expectedMinimumCount: number): boolean =>
+			document.querySelectorAll('[data-worktree-file-path]').length >= expectedMinimumCount,
+		Math.min(8, props.descriptorCount),
+		{ timeout: 10_000 },
+	);
+	const allFilterVisibleCount = await visibleWorktreeFileRowCount(props.page);
+	const proof: WorktreeFileProductControlsProof = {
+		allFilterVisibleCount,
+		fetchableFilterActive,
+		fetchableFilterVisibleCount,
+		initialVisibleCount,
+		regexModeActive,
+		regexVisibleCount,
+		searchScreenshotPath,
+		searchResultIncludesTarget,
+		searchStatusText,
+		searchVisibleCount: 1,
+		targetPath: props.targetPath,
+		unavailableFilterActive,
+		unavailableFilterVisibleCount,
+	};
+	assertWorktreeFileProductControlsProof(proof);
+	return proof;
+}
+
+async function captureWorktreeDevServerScreenshot(props: {
+	readonly name: string;
+	readonly page: Page;
+}): Promise<string> {
+	await mkdir(proofRunDirectoryPath, { recursive: true });
+	const screenshotPath = join(proofRunDirectoryPath, props.name);
+	await props.page.screenshot({ fullPage: true, path: screenshotPath });
+	return relative(repoRootPath, screenshotPath);
+}
+
+function assertWorktreeFileProductControlsProof(proof: WorktreeFileProductControlsProof): void {
+	if (proof.initialVisibleCount <= 1) {
+		throw new Error(
+			`Expected Worktree/File initial tree to have multiple rows: ${JSON.stringify(proof)}`,
+		);
+	}
+	if (!proof.searchResultIncludesTarget || proof.searchVisibleCount !== 1) {
+		throw new Error(
+			`Expected Worktree/File search to isolate target path: ${JSON.stringify(proof)}`,
+		);
+	}
+	if (!proof.searchStatusText.startsWith('1/')) {
+		throw new Error(
+			`Expected Worktree/File search status to show result delta: ${JSON.stringify(proof)}`,
+		);
+	}
+	if (!proof.regexModeActive || proof.regexVisibleCount !== 1) {
+		throw new Error(
+			`Expected Worktree/File regex search to isolate target path: ${JSON.stringify(proof)}`,
+		);
+	}
+	if (!proof.fetchableFilterActive || proof.fetchableFilterVisibleCount !== 1) {
+		throw new Error(
+			`Expected Worktree/File fetchable filter to stay active with target: ${JSON.stringify(proof)}`,
+		);
+	}
+	if (!proof.unavailableFilterActive || proof.unavailableFilterVisibleCount !== 0) {
+		throw new Error(
+			`Expected Worktree/File unavailable filter to hide text target: ${JSON.stringify(proof)}`,
+		);
+	}
+	if (proof.allFilterVisibleCount < proof.initialVisibleCount) {
+		throw new Error(
+			`Expected Worktree/File all filter reset to restore visible rows: ${JSON.stringify(proof)}`,
+		);
+	}
+}
+
+async function fillWorktreeFileSearch(page: Page, value: string): Promise<void> {
+	await page.locator('[data-testid="worktree-file-search-input"]').fill(value);
+}
+
+async function clickWorktreeFileControl(page: Page, testId: string): Promise<void> {
+	await page.locator(`[data-testid="${testId}"]`).click();
+}
+
+async function visibleWorktreeFileRowCount(page: Page): Promise<number> {
+	return await page.evaluate(
+		(): number => document.querySelectorAll('[data-worktree-file-path]').length,
+	);
+}
+
+async function waitForVisibleWorktreeFileRowCount(page: Page, count: number): Promise<void> {
+	await page.waitForFunction(
+		(expectedCount: number): boolean =>
+			document.querySelectorAll('[data-worktree-file-path]').length === expectedCount,
+		count,
+		{ timeout: 10_000 },
+	);
+}
+
+async function worktreeFileRowExists(page: Page, path: string): Promise<boolean> {
+	return await page.evaluate(
+		(targetPath: string): boolean =>
+			document.querySelector(`[data-worktree-file-path="${CSS.escape(targetPath)}"]`) !== null,
+		path,
+	);
+}
+
+async function worktreeFileControlPressed(page: Page, testId: string): Promise<boolean> {
+	return await page.evaluate((targetTestId: string): boolean => {
+		const control = document.querySelector(`[data-testid="${CSS.escape(targetTestId)}"]`);
+		return control?.getAttribute('aria-pressed') === 'true';
+	}, testId);
+}
+
+async function worktreeFileFilterStatusText(page: Page): Promise<string> {
+	return await page.evaluate(
+		(): string =>
+			document.querySelector('[data-testid="worktree-file-filter-status"]')?.textContent ?? '',
+	);
+}
+
 function countTextLines(text: string): number {
 	const trimmedText = text.endsWith('\n') ? text.slice(0, -1) : text;
 	return trimmedText.length === 0 ? 0 : trimmedText.split('\n').length;
@@ -826,16 +1040,15 @@ function countTextLines(text: string): number {
 async function writeWorktreeDevServerProofArtifact(
 	result: WorktreeDevServerVerificationResult,
 ): Promise<string> {
-	const proofDirectoryPath = join(proofRootPath, timestampForPath(new Date()));
-	await mkdir(proofDirectoryPath, { recursive: true });
-	const proofArtifactPath = join(proofDirectoryPath, 'worktree-dev-server-proof.json');
+	await mkdir(proofRunDirectoryPath, { recursive: true });
+	const proofArtifactPath = join(proofRunDirectoryPath, 'worktree-dev-server-proof.json');
 	const proofArtifactDisplayPath = relative(repoRootPath, proofArtifactPath);
 	await writeFile(
 		proofArtifactPath,
 		`${JSON.stringify(
 			{
 				schemaVersion: 1,
-				createdAtUnixMilliseconds: Date.now(),
+				createdAtUnixMilliseconds: proofRunCreatedAtUnixMilliseconds,
 				devServerUrl: worktreeDevServerUrl,
 				result: {
 					...result,
@@ -851,6 +1064,10 @@ async function writeWorktreeDevServerProofArtifact(
 
 function cssAttributeEscape(value: string): string {
 	return value.replace(/["\\]/gu, '\\$&');
+}
+
+function escapeRegExp(value: string): string {
+	return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
 }
 
 function scenarioNameFromDevServerUrl(url: string): string {
