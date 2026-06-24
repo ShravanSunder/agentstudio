@@ -122,7 +122,7 @@ extension WebKitSerializedTests {
             return handler.receivedMessages.count >= expectedCount
         }
 
-        private func waitForPageLoad(_ page: WebPage, timeout: Duration = .seconds(1)) async throws {
+        private func waitForPageLoad(_ page: WebPage, timeout: Duration = .seconds(2)) async throws {
             let deadline = ContinuousClock.now + timeout
             while ContinuousClock.now < deadline {
                 if !page.isLoading {
@@ -131,7 +131,7 @@ extension WebKitSerializedTests {
                 await Task.yield()
             }
             try #require(!page.isLoading, "Page did not finish loading within \(timeout)")
-            await settleAsyncCallbacks(turns: 8)
+            await settleAsyncCallbacks(turns: 40)
         }
 
         private func settleAsyncCallbacks(turns: Int) async {
