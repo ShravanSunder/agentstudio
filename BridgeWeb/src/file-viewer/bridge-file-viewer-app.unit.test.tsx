@@ -69,29 +69,42 @@ describe('BridgeFileViewerApp', () => {
 			await nextMicrotask();
 		});
 
+		const toolbar = document.querySelector('[data-testid="bridge-file-viewer-rail-toolbar"]');
+		expect(toolbar?.getAttribute('data-bridge-shared-rail-toolbar')).toBe('true');
+		expect(
+			document.querySelector('[data-testid="bridge-file-viewer-rail-toolbar-leading"]'),
+		).not.toBeNull();
+		expect(
+			document.querySelector('[data-testid="bridge-file-viewer-rail-toolbar-trailing"]'),
+		).not.toBeNull();
+		expect(document.querySelector('[data-testid="worktree-file-search-input"]')).toBeNull();
 		expect(
 			document
-				.querySelector('[data-testid="worktree-file-search-input"]')
-				?.getAttribute('data-slot'),
-		).toBe('input');
-		expect(
-			document
-				.querySelector('[data-testid="worktree-file-regex-toggle"]')
+				.querySelector('[data-testid="bridge-review-search-toggle"]')
 				?.getAttribute('data-slot'),
 		).toBe('button');
-		for (const filterMode of ['all', 'fetchable', 'unavailable']) {
-			expect(
-				document
-					.querySelector(`[data-testid="worktree-file-filter-${filterMode}"]`)
-					?.getAttribute('data-slot'),
-			).toBe('button');
-		}
+		expect(
+			document
+				.querySelector('[data-testid="bridge-review-regex-toggle"]')
+				?.getAttribute('data-slot'),
+		).toBe('button');
+		expect(
+			document
+				.querySelector('[data-testid="worktree-file-filter-menu"]')
+				?.getAttribute('data-slot'),
+		).toBe('dropdown-menu-trigger');
 		expect(
 			document
 				.querySelector('[data-testid="worktree-file-open-review-comparison"]')
 				?.getAttribute('data-slot'),
 		).toBe('button');
 
+		await clickControl('bridge-review-search-toggle');
+		expect(
+			document
+				.querySelector('[data-testid="worktree-file-search-input"]')
+				?.getAttribute('data-slot'),
+		).toBe('input');
 		await clickControl('worktree-file-open-review-comparison');
 
 		expect(openReviewComparison).toHaveBeenCalledWith(descriptor);
@@ -135,17 +148,17 @@ describe('BridgeFileViewerApp', () => {
 		expect(document.body.textContent).toContain('export const live = true');
 		expect(filterCount()).toBe('2/2');
 
-		await clickControl('worktree-file-filter-fetchable');
+		await selectFileFilter('Text files');
 		expect(filterCount()).toBe('1/2');
 
-		await clickControl('worktree-file-filter-unavailable');
+		await selectFileFilter('Unavailable files');
 		expect(filterCount()).toBe('1/2');
 
-		await clickControl('worktree-file-filter-all');
+		await selectFileFilter('All files');
 		await setSearchText('live');
 		expect(filterCount()).toBe('1/2');
 
-		await clickControl('worktree-file-regex-toggle');
+		await clickControl('bridge-review-regex-toggle');
 		await setSearchText('[');
 		expect(filterCount()).toBe('Invalid regex');
 		expect(fetches).toEqual([
@@ -739,6 +752,9 @@ async function clickControl(testId: string): Promise<void> {
 }
 
 async function setSearchText(value: string): Promise<void> {
+	if (document.querySelector('[data-testid="worktree-file-search-input"]') === null) {
+		await clickControl('bridge-review-search-toggle');
+	}
 	const input = document.querySelector<HTMLInputElement>(
 		'[data-testid="worktree-file-search-input"]',
 	);
@@ -754,6 +770,55 @@ async function setSearchText(value: string): Promise<void> {
 		Reflect.apply(valueDescriptor.set, input, [value]);
 		input.dispatchEvent(new Event('input', { bubbles: true }));
 		input.dispatchEvent(new Event('change', { bubbles: true }));
+		await nextMicrotask();
+	});
+}
+
+async function selectFileFilter(label: string): Promise<void> {
+	await openFileFilterMenu();
+	const option = Array.from(
+		document.querySelectorAll<HTMLElement>('[data-testid="bridge-review-filter-option"]'),
+	).find(
+		(candidate): boolean =>
+			candidate.querySelector('[data-testid="bridge-review-filter-option-label"]')?.textContent ===
+			label,
+	);
+	if (option === undefined) {
+		const availableLabels = Array.from(
+			document.querySelectorAll('[data-testid="bridge-review-filter-option-label"]'),
+		).map((element): string => element.textContent ?? '');
+		throw new Error(
+			`Expected worktree file filter option: ${label}. Available: ${availableLabels.join(', ')}`,
+		);
+	}
+	await act(async (): Promise<void> => {
+		option.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+		option.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+		option.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		await nextMicrotask();
+	});
+}
+
+async function openFileFilterMenu(): Promise<void> {
+	await dispatchFileFilterMenuOpen();
+	if (document.querySelector('[data-testid="bridge-review-filter-option"]') !== null) {
+		return;
+	}
+	await dispatchFileFilterMenuOpen();
+}
+
+async function dispatchFileFilterMenuOpen(): Promise<void> {
+	await act(async (): Promise<void> => {
+		const trigger = document.querySelector<HTMLElement>(
+			'[data-testid="worktree-file-filter-menu"]',
+		);
+		if (trigger === null) {
+			throw new Error('Expected worktree file filter menu trigger');
+		}
+		trigger.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+		trigger.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+		trigger.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		await nextMicrotask();
 		await nextMicrotask();
 	});
 }

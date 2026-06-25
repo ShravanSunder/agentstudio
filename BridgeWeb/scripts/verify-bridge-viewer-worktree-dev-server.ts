@@ -425,14 +425,17 @@ interface WorktreeFileVisibleAppProof {
 	readonly contentPaneRect: WorktreeFileVisibleRect;
 	readonly contentVisibleLineCount: number;
 	readonly cssLayoutApplied: boolean;
-	readonly filterControlCount: number;
+	readonly filterMenuCount: number;
 	readonly forbiddenTextAbsentOutsideIntentionalUi: boolean;
 	readonly regexToggleCount: number;
 	readonly sourceProvenanceRect: WorktreeFileVisibleRect;
 	readonly sourceProvenanceText: string;
 	readonly sampledTreeRowCount: number;
 	readonly sampledTreeRowsHaveDistinctVerticalPositions: boolean;
+	readonly searchControlCount: number;
 	readonly searchInputCount: number;
+	readonly sharedRailToolbarCount: number;
+	readonly sharedRailToolbarUsesSharedAttr: boolean;
 	readonly sourceBaseRef: string | null;
 	readonly sourceCursor: string | null;
 	readonly sourceId: string | null;
@@ -2227,6 +2230,31 @@ async function clickWorktreeFilePath(page: Page, path: string): Promise<void> {
 		if (selected) {
 			return;
 		}
+		await page.evaluate((targetPath: string): void => {
+			const button = window.bridgeWorktreeVerifier.getPierreFileTreeItem(targetPath);
+			if (!(button instanceof HTMLElement)) {
+				throw new Error(`Expected Worktree/File row for ${targetPath}`);
+			}
+			button.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+			button.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+			button.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		}, path);
+		const elementClicked = await page
+			.waitForFunction(
+				(targetPath: string): boolean =>
+					document
+						.querySelector('[data-testid="bridge-file-viewer-shell"]')
+						?.getAttribute('data-selected-display-path') === targetPath,
+				path,
+				{ timeout: 1_000 },
+			)
+			.then(
+				() => true,
+				() => false,
+			);
+		if (elementClicked) {
+			return;
+		}
 	}
 	const selectedPath = await page.evaluate(
 		(): string | null =>
@@ -2534,20 +2562,29 @@ async function readWorktreeFileVisibleAppProof(page: Page): Promise<WorktreeFile
 				shellStyle.display === 'flex' &&
 				shell.getAttribute('data-sidebar-position') === 'right' &&
 				contentRect.left < treeRect.left,
-			filterControlCount: shell.querySelectorAll('[data-testid^="worktree-file-filter-"]').length,
+			filterMenuCount: shell.querySelectorAll('[data-testid="worktree-file-filter-menu"]').length,
 			forbiddenTextAbsentOutsideIntentionalUi:
 				!outsideText.includes('"frames"') &&
 				!outsideText.includes('frameKind') &&
 				!outsideText.includes('resourceUrl') &&
 				!outsideText.includes('agentstudio://resource/') &&
 				!outsideText.includes('BridgeWeb/src/'),
-			regexToggleCount: shell.querySelectorAll('[data-testid="worktree-file-regex-toggle"]').length,
+			regexToggleCount: shell.querySelectorAll('[data-testid="bridge-review-regex-toggle"]').length,
 			sourceProvenanceRect: visibleRectForPageElement(sourceProvenance),
 			sourceProvenanceText: sourceProvenance.textContent ?? '',
 			sampledTreeRowCount: sampledRows.length,
 			sampledTreeRowsHaveDistinctVerticalPositions:
 				sampledRows.length >= 8 && distinctSampledRowTops.size === sampledRows.length,
+			searchControlCount: shell.querySelectorAll('[data-testid="bridge-review-search-control"]')
+				.length,
 			searchInputCount: shell.querySelectorAll('[data-testid="worktree-file-search-input"]').length,
+			sharedRailToolbarCount: shell.querySelectorAll(
+				'[data-testid="bridge-file-viewer-rail-toolbar"]',
+			).length,
+			sharedRailToolbarUsesSharedAttr:
+				shell
+					.querySelector('[data-testid="bridge-file-viewer-rail-toolbar"]')
+					?.getAttribute('data-bridge-shared-rail-toolbar') === 'true',
 			sourceBaseRef: shell.getAttribute('data-worktree-base-ref'),
 			sourceCursor: shell.getAttribute('data-worktree-source-cursor'),
 			sourceId: shell.getAttribute('data-worktree-source-id'),
@@ -2575,14 +2612,22 @@ function assertWorktreeFileVisibleAppProof(props: {
 	if (!proof.cssLayoutApplied) {
 		throw new Error(`Expected Worktree/File packaged CSS layout proof: ${JSON.stringify(proof)}`);
 	}
-	if (proof.searchInputCount !== 1) {
-		throw new Error(`Expected Worktree/File product search input: ${JSON.stringify(proof)}`);
+	if (proof.sharedRailToolbarCount !== 1 || !proof.sharedRailToolbarUsesSharedAttr) {
+		throw new Error(`Expected Worktree/File shared rail toolbar: ${JSON.stringify(proof)}`);
+	}
+	if (proof.searchControlCount !== 1) {
+		throw new Error(`Expected Worktree/File shared search control: ${JSON.stringify(proof)}`);
+	}
+	if (proof.searchInputCount !== 0) {
+		throw new Error(
+			`Expected Worktree/File search input to start closed: ${JSON.stringify(proof)}`,
+		);
 	}
 	if (proof.regexToggleCount !== 1) {
-		throw new Error(`Expected Worktree/File regex toggle: ${JSON.stringify(proof)}`);
+		throw new Error(`Expected Worktree/File shared regex toggle: ${JSON.stringify(proof)}`);
 	}
-	if (proof.filterControlCount < 3) {
-		throw new Error(`Expected Worktree/File filter/status controls: ${JSON.stringify(proof)}`);
+	if (proof.filterMenuCount !== 1) {
+		throw new Error(`Expected Worktree/File shadcn filter menu: ${JSON.stringify(proof)}`);
 	}
 	if (!proof.sampledTreeRowsHaveDistinctVerticalPositions) {
 		throw new Error(
@@ -2674,12 +2719,12 @@ async function verifyWorktreeFileProductControls(props: {
 		name: 'worktree-file-search-result.png',
 		page: props.page,
 	});
-	await clickWorktreeFileControl(props.page, 'worktree-file-regex-toggle');
+	await clickWorktreeFileControl(props.page, 'bridge-review-regex-toggle');
 	await fillWorktreeFileSearch(props.page, `^${escapeRegExp(props.targetPath)}$`);
 	await waitForWorktreeFileFilterStatus(props.page, 1, props.descriptors.length);
 	const regexModeActive = await worktreeFileControlPressed(
 		props.page,
-		'worktree-file-regex-toggle',
+		'bridge-review-regex-toggle',
 	);
 	const regexVisibleCount = await worktreeFileFilterStatusVisibleCount(props.page);
 	await waitForWorktreeRenderedFilePathSample(props.page, [props.targetPath]);
@@ -2690,7 +2735,7 @@ async function verifyWorktreeFileProductControls(props: {
 	await waitForWorktreeFileInvalidRegexStatus(props.page);
 	const invalidRegexModeActive = await worktreeFileControlPressed(
 		props.page,
-		'worktree-file-regex-toggle',
+		'bridge-review-regex-toggle',
 	);
 	const invalidRegexStatusText = await worktreeFileFilterStatusText(props.page);
 	const invalidRegexRenderedPathSample = await visibleWorktreeFilePathSample(props.page);
@@ -2702,30 +2747,24 @@ async function verifyWorktreeFileProductControls(props: {
 		props.descriptors.length,
 		props.descriptors.length,
 	);
-	await clickWorktreeFileControl(props.page, 'worktree-file-filter-fetchable');
+	await selectWorktreeFileFilter(props.page, 'Text files');
 	await waitForWorktreeFileFilterStatus(
 		props.page,
 		expectedFetchableFilterCount,
 		props.descriptors.length,
 	);
-	const fetchableFilterActive = await worktreeFileControlPressed(
-		props.page,
-		'worktree-file-filter-fetchable',
-	);
+	const fetchableFilterActive = await worktreeFileFilterMenuContains(props.page, 'Text');
 	const fetchableFilterVisibleCount = await worktreeFileFilterStatusVisibleCount(props.page);
 	const fetchableRenderedPathSample = await visibleWorktreeFilePathSample(props.page);
 	const fetchableTreeSizePixels = await worktreeFileTreeTotalSizePixels(props.page);
 	const fetchableTreeSizeSource = await worktreeFileTreeTotalSizeSource(props.page);
-	await clickWorktreeFileControl(props.page, 'worktree-file-filter-unavailable');
+	await selectWorktreeFileFilter(props.page, 'Unavailable files');
 	await waitForWorktreeFileFilterStatus(
 		props.page,
 		expectedUnavailableFilterCount,
 		props.descriptors.length,
 	);
-	const unavailableFilterActive = await worktreeFileControlPressed(
-		props.page,
-		'worktree-file-filter-unavailable',
-	);
+	const unavailableFilterActive = await worktreeFileFilterMenuContains(props.page, 'Unavailable');
 	const unavailableFilterVisibleCount = await worktreeFileFilterStatusVisibleCount(props.page);
 	await scrollTreeToFilePath(props.page, unavailableFilterFixtureRelativePath);
 	await waitForPierreFileTreeAnchorSettled(props.page, unavailableFilterFixtureRelativePath);
@@ -2736,7 +2775,7 @@ async function verifyWorktreeFileProductControls(props: {
 		descriptor: expectedUnavailableDescriptor,
 		page: props.page,
 	});
-	await clickWorktreeFileControl(props.page, 'worktree-file-filter-all');
+	await selectWorktreeFileFilter(props.page, 'All files');
 	await fillWorktreeFileSearch(props.page, '');
 	await waitForWorktreeFileFilterStatus(
 		props.page,
@@ -3429,11 +3468,50 @@ function assertWorktreeProjectedTreeSize(props: {
 }
 
 async function fillWorktreeFileSearch(page: Page, value: string): Promise<void> {
+	if ((await page.locator('[data-testid="worktree-file-search-input"]').count()) === 0) {
+		await page.locator('[data-testid="bridge-review-search-toggle"]').click();
+	}
 	await page.locator('[data-testid="worktree-file-search-input"]').fill(value);
 }
 
 async function clickWorktreeFileControl(page: Page, testId: string): Promise<void> {
 	await page.locator(`[data-testid="${testId}"]`).click();
+}
+
+async function selectWorktreeFileFilter(page: Page, label: string): Promise<void> {
+	await page.locator('[data-testid="worktree-file-filter-menu"]').click();
+	await page.waitForSelector('[data-testid="bridge-review-filter-option-label"]');
+	const didClick = await page.evaluate((expectedLabel: string): boolean => {
+		const option = Array.from(
+			document.querySelectorAll<HTMLElement>('[data-testid="bridge-review-filter-option"]'),
+		).find(
+			(candidate): boolean =>
+				candidate.querySelector('[data-testid="bridge-review-filter-option-label"]')
+					?.textContent === expectedLabel,
+		);
+		if (option === undefined) {
+			return false;
+		}
+		option.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+		option.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+		option.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		return true;
+	}, label);
+	if (!didClick) {
+		const availableLabels = await page
+			.locator('[data-testid="bridge-review-filter-option-label"]')
+			.allTextContents();
+		throw new Error(
+			`Expected Worktree/File filter option ${label}; available options: ${availableLabels.join(', ')}`,
+		);
+	}
+}
+
+async function worktreeFileFilterMenuContains(page: Page, label: string): Promise<boolean> {
+	return await page.evaluate((expectedLabel: string): boolean => {
+		const trigger = document.querySelector('[data-testid="worktree-file-filter-menu"]');
+		return trigger?.textContent?.includes(expectedLabel) ?? false;
+	}, label);
 }
 
 async function visibleWorktreeFileRowCount(page: Page): Promise<number> {

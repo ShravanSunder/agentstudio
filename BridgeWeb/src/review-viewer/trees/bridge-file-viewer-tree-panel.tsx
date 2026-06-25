@@ -1,7 +1,7 @@
 import { prepareFileTreeInput } from '@pierre/trees';
 import { FileTree, useFileTree } from '@pierre/trees/react';
-import { GitCompareArrowsIcon, RegexIcon } from 'lucide-react';
-import { useEffect, useMemo, useRef, type ReactElement } from 'react';
+import { GitCompareArrowsIcon } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 
 import { Input } from '../../components/ui/input.js';
 import type {
@@ -10,6 +10,11 @@ import type {
 } from '../../features/worktree-file/models/worktree-file-protocol-models.js';
 import { countFlattenedWorktreeFileTreeRows } from '../../features/worktree-file/models/worktree-file-tree-size.js';
 import { BridgeReviewButton, BridgeReviewIcon } from '../chrome/bridge-review-button.js';
+import {
+	BridgeReviewFilterMenu,
+	type BridgeReviewFilterOption,
+} from '../chrome/bridge-review-filter-menu.js';
+import { BridgeReviewSearchControl } from '../chrome/bridge-review-search-control.js';
 import { bridgeReviewTreeStyle, bridgeReviewTreeUnsafeCSS } from './bridge-tree-theme.js';
 
 export type BridgeFileViewerFilterMode = 'all' | 'fetchable' | 'unavailable';
@@ -39,11 +44,32 @@ export interface BridgeFileViewerTreePanelProps {
 }
 
 const bridgeFileViewerTreeRowHeightPixels = 24;
+const bridgeFileViewerFilterOptions = [
+	{
+		value: 'all',
+		label: 'All files',
+		selectedLabel: 'All',
+		icon: '*',
+	},
+	{
+		value: 'fetchable',
+		label: 'Text files',
+		selectedLabel: 'Text',
+		icon: 'T',
+	},
+	{
+		value: 'unavailable',
+		label: 'Unavailable files',
+		selectedLabel: 'Unavailable',
+		icon: '!',
+	},
+] satisfies readonly BridgeReviewFilterOption<BridgeFileViewerFilterMode>[];
 
 export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps): ReactElement {
 	const fileDescriptorByPathRef = useRef(props.fileDescriptorByPath);
 	const onOpenFileRef = useRef(props.onOpenFile);
 	const isSyncingSelectedPathRef = useRef(false);
+	const [isSearchOpen, setIsSearchOpen] = useState(false);
 	const paths = useMemo(
 		(): readonly string[] =>
 			props.descriptorProjection.descriptors.map((descriptor) => descriptor.path),
@@ -83,6 +109,10 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 		props.selectedPath === null
 			? null
 			: (props.fileDescriptorByPath.get(props.selectedPath) ?? null);
+	const shouldShowSearchInput =
+		isSearchOpen ||
+		props.searchText.trim().length > 0 ||
+		props.descriptorProjection.searchError !== null;
 
 	useEffect((): void => {
 		fileDescriptorByPathRef.current = props.fileDescriptorByPath;
@@ -121,7 +151,67 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 				className="grid gap-2 border-b border-[var(--bridge-border-subtle)] p-2"
 				data-testid="bridge-file-viewer-toolbar"
 			>
-				<div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2">
+				<div
+					className="flex min-w-0 items-center justify-between gap-2"
+					data-bridge-shared-rail-toolbar="true"
+					data-testid="bridge-file-viewer-rail-toolbar"
+				>
+					<div
+						className="flex min-w-0 items-baseline gap-2 text-xs text-[var(--bridge-text-secondary)]"
+						data-testid="bridge-file-viewer-rail-toolbar-leading"
+					>
+						<span className="shrink-0" data-testid="worktree-file-filter-count">
+							{props.descriptorProjection.searchError === null
+								? `${props.descriptorProjection.descriptors.length}/${props.totalDescriptorCount}`
+								: 'Invalid regex'}
+						</span>
+						<span className="min-w-0 truncate" data-testid="worktree-file-provenance">
+							{props.sourceIdentity === null ? 'Source pending' : props.sourceIdentity.sourceId}
+						</span>
+					</div>
+					<div
+						className="flex shrink-0 items-center gap-1 rounded-[10px] border border-[var(--bridge-border-subtle)] bg-[var(--bridge-surface-raised-bg)] p-1"
+						data-testid="bridge-file-viewer-rail-toolbar-trailing"
+					>
+						<BridgeReviewFilterMenu
+							label="File class filter"
+							onChange={props.onFilterModeChange}
+							options={bridgeFileViewerFilterOptions}
+							testId="worktree-file-filter-menu"
+							value={props.filterMode}
+						/>
+						<BridgeReviewSearchControl
+							isActive={shouldShowSearchInput}
+							onOpenSearch={() => {
+								setIsSearchOpen(true);
+							}}
+							onSearchModeChange={(searchMode) => {
+								setIsSearchOpen(true);
+								props.onSearchModeChange(searchMode.kind);
+							}}
+							searchMode={{ kind: props.searchMode }}
+						/>
+						{props.onOpenReviewComparison === undefined ? null : (
+							<BridgeReviewButton
+								ariaLabel="Open selected file in review"
+								className="h-7 w-7 rounded-md border-transparent bg-transparent px-0"
+								data-testid="worktree-file-open-review-comparison"
+								disabled={selectedDescriptor === null}
+								onClick={() => {
+									if (selectedDescriptor !== null) {
+										props.onOpenReviewComparison?.(selectedDescriptor);
+									}
+								}}
+								title="Open selected file in review"
+							>
+								<BridgeReviewIcon>
+									<GitCompareArrowsIcon aria-hidden="true" className="size-4" />
+								</BridgeReviewIcon>
+							</BridgeReviewButton>
+						)}
+					</div>
+				</div>
+				{shouldShowSearchInput ? (
 					<Input
 						aria-label="Search files"
 						className="h-7 border-[var(--bridge-border-opaque)] bg-[var(--bridge-header-control-bg)] text-xs"
@@ -134,71 +224,11 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 						type="search"
 						value={props.searchText}
 					/>
-					<BridgeReviewButton
-						ariaLabel={props.searchMode === 'regex' ? 'Use text search' : 'Use regex search'}
-						ariaPressed={props.searchMode === 'regex'}
-						className="h-7 w-7 border-[var(--bridge-border-opaque)] bg-[var(--bridge-header-control-bg)] px-0"
-						data-testid="worktree-file-regex-toggle"
-						onClick={() => {
-							props.onSearchModeChange(props.searchMode === 'regex' ? 'text' : 'regex');
-						}}
-						title={props.searchMode === 'regex' ? 'Use text search' : 'Use regex search'}
-					>
-						<BridgeReviewIcon>
-							<RegexIcon aria-hidden="true" className="size-4" />
-						</BridgeReviewIcon>
-					</BridgeReviewButton>
-					{props.onOpenReviewComparison === undefined ? null : (
-						<BridgeReviewButton
-							ariaLabel="Open selected file in review"
-							className="h-7 w-7 border-[var(--bridge-border-opaque)] bg-[var(--bridge-header-control-bg)] px-0"
-							data-testid="worktree-file-open-review-comparison"
-							disabled={selectedDescriptor === null}
-							onClick={() => {
-								if (selectedDescriptor !== null) {
-									props.onOpenReviewComparison?.(selectedDescriptor);
-								}
-							}}
-							title="Open selected file in review"
-						>
-							<BridgeReviewIcon>
-								<GitCompareArrowsIcon aria-hidden="true" className="size-4" />
-							</BridgeReviewIcon>
-						</BridgeReviewButton>
-					)}
-				</div>
-				<div className="flex flex-wrap items-center gap-1" role="group">
-					<BridgeFileViewerFilterButton
-						filterMode="all"
-						isActive={props.filterMode === 'all'}
-						label="All"
-						onSelect={props.onFilterModeChange}
-					/>
-					<BridgeFileViewerFilterButton
-						filterMode="fetchable"
-						isActive={props.filterMode === 'fetchable'}
-						label="Text"
-						onSelect={props.onFilterModeChange}
-					/>
-					<BridgeFileViewerFilterButton
-						filterMode="unavailable"
-						isActive={props.filterMode === 'unavailable'}
-						label="Unavailable"
-						onSelect={props.onFilterModeChange}
-					/>
-				</div>
-				<div
-					className="flex items-center justify-between gap-2 text-xs text-[var(--bridge-text-secondary)]"
-					data-testid="worktree-file-filter-status"
-				>
-					<span data-testid="worktree-file-filter-count">
-						{props.descriptorProjection.searchError === null
-							? `${props.descriptorProjection.descriptors.length}/${props.totalDescriptorCount}`
-							: 'Invalid regex'}
-					</span>
-					<span data-testid="worktree-file-provenance">
-						{props.sourceIdentity === null ? 'Source pending' : props.sourceIdentity.sourceId}
-					</span>
+				) : null}
+				<div className="sr-only" data-testid="worktree-file-filter-status">
+					{props.descriptorProjection.searchError === null
+						? `${props.descriptorProjection.descriptors.length}/${props.totalDescriptorCount}`
+						: 'Invalid regex'}
 				</div>
 			</header>
 			<section
@@ -210,25 +240,5 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 				<FileTree className="h-full min-h-full" model={model} style={bridgeReviewTreeStyle} />
 			</section>
 		</aside>
-	);
-}
-
-function BridgeFileViewerFilterButton(props: {
-	readonly filterMode: BridgeFileViewerFilterMode;
-	readonly isActive: boolean;
-	readonly label: string;
-	readonly onSelect: (filterMode: BridgeFileViewerFilterMode) => void;
-}): ReactElement {
-	return (
-		<BridgeReviewButton
-			ariaPressed={props.isActive}
-			className="h-7 border-[var(--bridge-border-opaque)] bg-[var(--bridge-header-control-bg)] px-2 text-xs"
-			data-testid={`worktree-file-filter-${props.filterMode}`}
-			onClick={() => {
-				props.onSelect(props.filterMode);
-			}}
-		>
-			{props.label}
-		</BridgeReviewButton>
 	);
 }

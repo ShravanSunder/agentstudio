@@ -534,6 +534,31 @@ Proof:
 - Checkpoint commit is blocked until the parent has inspected the screenshot
   artifacts and the subagent/onlook report, not only the JSON proof file.
 
+Current checkpoint note, 2026-06-25:
+
+- Implemented FileViewer rail chrome cutover to shared `BridgeReviewSearchControl`
+  and `BridgeReviewFilterMenu`; search input starts closed and opens through the
+  shared search control.
+- Added Vitest Browser proof at
+  `BridgeWeb/src/file-viewer/bridge-file-viewer-app.browser.test.tsx`.
+- Fresh dev-server proof passed:
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-25T23-35-53-157Z/worktree-dev-server-proof.json`.
+  The proof asserts `BridgeViewerAppShell`, FileViewer mode, `CodeView.file`,
+  right-side `FileTree`, Pierre/Shiki workers ready, zero standalone
+  `WorktreeFileApp`, one shared rail toolbar, one shared search control, one
+  shadcn filter menu, and zero visible search input at initial load.
+- Browser/onlook screenshots:
+  `/tmp/bridgeviewer-verification/final-1.png`,
+  `/tmp/bridgeviewer-verification/final-2.png`,
+  `/tmp/bridgeviewer-verification/final-3.png`.
+  The onlook passed the shared-shell/left-canvas/right-rail/search-closed/no
+  standalone-app checks.
+- Non-blocking observation for a later telemetry/transport audit: the browser
+  onlook saw aborted `__bridge-worktree/review-content/...` requests on review
+  routes while selected content still rendered ready. This does not block 0.a.3
+  shell/chrome acceptance, but it should be kept visible for the review-route
+  fetch/cancellation follow-up.
+
 ### Slice 06P.4 / 0.a.4: Pierre CodeView/File, Shiki, And Worker Proof
 
 Render opened worktree files through Pierre CodeView/File. Shiki highlighting
