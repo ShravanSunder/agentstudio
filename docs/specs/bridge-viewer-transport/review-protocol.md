@@ -7,7 +7,7 @@ cutover are required downstream gates; Gate 0.a shared BridgeViewer
 current-worktree proof is the first blocker before those gates resume. Gate 0.a
 already includes current-worktree Review diff and Review file-target routes; it
 is not a Worktree/File-only proof.
-Parent: [spec.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/spec-workflows/2026-06-22-bridge-transport-streaming-spec/spec.md:1)
+Parent: [spec.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/docs/specs/bridge-viewer-transport/spec.md:1)
 
 This file owns the Review application protocol. Review is one app protocol
 family over generic Bridge transport. Bridge carries frames, commands, and

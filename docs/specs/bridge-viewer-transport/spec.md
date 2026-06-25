@@ -18,8 +18,8 @@ implementation. It is not an implementation plan.
 This parent file owns the generic Bridge contract and cross-protocol invariants.
 Application-owned protocol details live in:
 
-- [review-protocol.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/spec-workflows/2026-06-22-bridge-transport-streaming-spec/review-protocol.md:1)
-- [worktree-file-surface-protocol.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/spec-workflows/2026-06-22-bridge-transport-streaming-spec/worktree-file-surface-protocol.md:1)
+- [review-protocol.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/docs/specs/bridge-viewer-transport/review-protocol.md:1)
+- [worktree-file-surface-protocol.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/docs/specs/bridge-viewer-transport/worktree-file-surface-protocol.md:1)
 
 Goal-state context lives in:
 
@@ -1552,8 +1552,9 @@ These are current-state observations, not design goals:
 
 ## 17. Evidence Anchors
 
-Current local Bridge evidence is recorded in the lane files under `lanes/`.
-The most relevant accepted evidence:
+Historical local Bridge evidence is recorded in workflow lane files under
+`tmp/spec-workflows/.../lanes/`. Those files are evidence anchors, not the durable
+spec source of truth. The most relevant accepted evidence:
 
 - [review-source-subscription-contract.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/spec-workflows/2026-06-22-bridge-transport-streaming-spec/lanes/review-source-subscription-contract.md:1)
 - [worktree-source-subscription-contract.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/spec-workflows/2026-06-22-bridge-transport-streaming-spec/lanes/worktree-source-subscription-contract.md:1)

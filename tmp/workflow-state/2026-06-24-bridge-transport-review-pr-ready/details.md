@@ -1,9 +1,23 @@
 # Bridge Transport Review PR-Ready Goal Details
 
 Goal id: `2026-06-24-bridge-transport-review-pr-ready`
-Status: active
-Current workflow: implementation-execute-plan Gate 0.a fresh restarted dev-server proof passed; review/human acceptance pending
-Next workflow: `shravan-dev-workflow:implementation-review-swarm`
+Status: superseded
+Current workflow: historical stuck lane; do not resume
+Next workflow: superseded by `2026-06-25-bridgeviewer-shared-app-pr-ready`
+
+Supersession note, 2026-06-25:
+
+This workflow state remains as historical context only. It must not be used as
+the active restart lane because its Gate 0.a status treated FileViewer visible
+shell proof as the next boundary. The accepted correction is a new goal:
+
+- [new workflow details](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/workflow-state/2026-06-25-bridgeviewer-shared-app-pr-ready/details.md:1)
+- [new goal contract](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/orchestrator-goal-2026-06-25-bridgeviewer-shared-app-pr-ready.md:1)
+
+The new Gate 0.a first proves shared BridgeViewer navigation/store state, then
+current-worktree Files context, current-worktree Review context, Review file
+target, shared chrome/layout, dev-server proof, and Agent Studio
+Bridge/WKWebView proof.
 
 ## Durable Objective
 
