@@ -4,10 +4,15 @@ import { act, type Dispatch, type SetStateAction } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
+import { bridgeAttachedResourceDescriptorSchema } from '../core/models/bridge-resource-descriptor.js';
 import {
 	buildReviewDeltaFrame,
 	buildReviewSnapshotFrame,
 } from '../features/review/protocol/review-snapshot-frame-builder.js';
+import {
+	worktreeFileDescriptorSchema,
+	type WorktreeFileDescriptor,
+} from '../features/worktree-file/models/worktree-file-protocol-models.js';
 import {
 	makeBridgeReviewItem,
 	makeBridgeReviewPackage,
@@ -39,6 +44,7 @@ import {
 import type { BridgeAppControlCommand } from './bridge-app-control.js';
 import {
 	BridgeApp,
+	bridgeReviewNavigationCommandForWorktreeDescriptor,
 	scheduleSelectedContentRetry,
 	selectedContentResourcesStateFromDemandLoadResult,
 	selectedContentResourcesStateFromLoadResult,
@@ -84,6 +90,40 @@ describe('BridgeApp', () => {
 		expect(document.querySelector('[data-testid="bridge-review-empty-shell"]')).not.toBeNull();
 		expect(document.body.textContent).toContain('Bridge Review');
 		expect(document.body.textContent).toContain('Waiting for review package');
+	});
+
+	test('builds a typed review file-target command from a worktree descriptor', () => {
+		const descriptor = makeWorktreeNavigationDescriptor();
+
+		const navigationCommand = bridgeReviewNavigationCommandForWorktreeDescriptor({
+			descriptor,
+			reviewSource: {
+				sourceKind: 'reviewComparison',
+				sourceId: 'review-source-1',
+				comparisonId: 'comparison-1',
+			},
+		});
+
+		expect(navigationCommand).toEqual({
+			commandId: 'bridge:worktree:review:file:worktree-source-1:file-1:sha256:abcdef',
+			commandKind: 'activateTarget',
+			context: 'review',
+			restoreMemory: true,
+			source: {
+				sourceKind: 'reviewComparison',
+				sourceId: 'review-source-1',
+				comparisonId: 'comparison-1',
+			},
+			target: {
+				targetKind: 'file',
+				comparisonId: 'comparison-1',
+				fileRef: {
+					sourceId: 'review-source-1',
+					path: 'src/app.ts',
+				},
+				version: 'current',
+			},
+		});
 	});
 
 	test('selected unavailable state is owned by selected content demand', () => {
@@ -3533,6 +3573,57 @@ function makeUpdatedSelectedContentPackageWithStableHandleIds(
 			'item-source': updatedItem,
 		},
 	};
+}
+
+function makeWorktreeNavigationDescriptor(): WorktreeFileDescriptor {
+	const identity = {
+		paneId: 'pane-1',
+		protocol: 'worktree-file',
+		sourceId: 'worktree-source-1',
+		generation: 1,
+		streamId: 'worktree-file:pane-1',
+	};
+	const contentDescriptor = {
+		descriptorId: 'content-1',
+		protocol: 'worktree-file',
+		resourceKind: 'worktree.fileContent',
+		resourceUrl: 'agentstudio://resource/worktree-file/worktree.fileContent/content-1?generation=1',
+		identity,
+		content: {
+			mediaType: 'text/plain',
+			encoding: 'utf-8',
+			expectedBytes: 24,
+			maxBytes: 1024,
+		},
+	};
+	return worktreeFileDescriptorSchema.parse({
+		path: 'src/app.ts',
+		fileId: 'file-1',
+		contentHandle: 'content-1',
+		contentHash: 'sha256:abcdef',
+		contentDescriptor: bridgeAttachedResourceDescriptorSchema.parse({
+			ref: {
+				descriptorId: contentDescriptor.descriptorId,
+				expectedProtocol: contentDescriptor.protocol,
+				expectedResourceKind: contentDescriptor.resourceKind,
+				expectedIdentity: contentDescriptor.identity,
+			},
+			descriptor: contentDescriptor,
+		}),
+		sourceIdentity: {
+			sourceId: 'worktree-source-1',
+			repoId: 'repo-1',
+			worktreeId: 'worktree-1',
+			subscriptionGeneration: 1,
+			sourceCursor: 'cursor-1',
+		},
+		sizeBytes: 24,
+		virtualizedExtentKind: 'exactLineCount',
+		lineCount: 1,
+		isBinary: false,
+		language: 'typescript',
+		fileExtension: 'ts',
+	});
 }
 
 function isMissingContentHandle(

@@ -43,6 +43,7 @@ import {
 	type ReviewResetFrame,
 	type ReviewSnapshotFrame,
 } from '../features/review/models/review-protocol-models.js';
+import type { WorktreeFileDescriptor } from '../features/worktree-file/models/worktree-file-protocol-models.js';
 import {
 	BridgeFileViewerApp,
 	type BridgeFileViewerAppProps,
@@ -135,7 +136,10 @@ import {
 	type BridgeAppControlProbe,
 } from './bridge-app-control.js';
 import { BridgeViewerAppShell } from './bridge-viewer-app-shell.js';
-import type { BridgeViewerNavigationCommand } from './bridge-viewer-navigation-models.js';
+import type {
+	BridgeViewerNavigationCommand,
+	BridgeViewerSource,
+} from './bridge-viewer-navigation-models.js';
 
 export interface BridgeAppProps {
 	readonly target?: EventTarget;
@@ -147,6 +151,10 @@ export interface BridgeAppProps {
 	readonly viewerMode?: 'file' | 'review';
 	readonly fileViewerProps?: BridgeFileViewerAppProps;
 	readonly navigationCommand?: BridgeViewerNavigationCommand;
+	readonly reviewNavigationSource?: Extract<
+		BridgeViewerSource,
+		{ readonly sourceKind: 'reviewComparison' }
+	>;
 }
 
 declare global {
@@ -180,6 +188,11 @@ type BridgeReviewFileNavigationTarget = Extract<
 	NonNullable<BridgeViewerNavigationCommand['target']>,
 	{ readonly targetKind: 'file' }
 >;
+
+interface BridgeActiveViewerState {
+	readonly navigationCommand: BridgeViewerNavigationCommand | undefined;
+	readonly viewerMode: 'file' | 'review';
+}
 
 export interface SelectedContentResourcesState {
 	readonly itemId: string;
@@ -325,14 +338,149 @@ function encodedByteLength(value: string): number {
 	return new TextEncoder().encode(value).byteLength;
 }
 
-export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
-	if (props.viewerMode === 'file') {
-		return <BridgeFileViewerMode {...props} />;
+function activeViewerStateForBridgeInputs(props: {
+	readonly navigationCommand: BridgeViewerNavigationCommand | undefined;
+	readonly viewerMode: 'file' | 'review' | undefined;
+}): BridgeActiveViewerState {
+	if (props.navigationCommand !== undefined) {
+		return {
+			navigationCommand: props.navigationCommand,
+			viewerMode: viewerModeForBridgeNavigationCommand(props.navigationCommand),
+		};
 	}
-	return <BridgeReviewViewerMode {...props} />;
+	return {
+		navigationCommand: undefined,
+		viewerMode: props.viewerMode ?? 'review',
+	};
 }
 
-function BridgeFileViewerMode(props: BridgeAppProps): ReactElement {
+function viewerModeForBridgeNavigationCommand(
+	navigationCommand: BridgeViewerNavigationCommand,
+): 'file' | 'review' {
+	switch (navigationCommand.context) {
+		case 'files':
+			return 'file';
+		case 'review':
+			return 'review';
+	}
+	return 'review';
+}
+
+export function bridgeReviewNavigationCommandForWorktreeDescriptor(props: {
+	readonly descriptor: WorktreeFileDescriptor;
+	readonly reviewSource?: Extract<BridgeViewerSource, { readonly sourceKind: 'reviewComparison' }>;
+}): BridgeViewerNavigationCommand {
+	const reviewSource =
+		props.reviewSource ??
+		defaultReviewSourceForWorktreeDescriptor({
+			descriptor: props.descriptor,
+		});
+	return {
+		commandId: [
+			'bridge',
+			'worktree',
+			'review',
+			'file',
+			props.descriptor.sourceIdentity.sourceId,
+			props.descriptor.fileId,
+			props.descriptor.contentHash ?? props.descriptor.contentHandle,
+		].join(':'),
+		commandKind: 'activateTarget',
+		context: 'review',
+		restoreMemory: true,
+		source: reviewSource,
+		target: {
+			targetKind: 'file',
+			comparisonId: reviewSource.comparisonId,
+			fileRef: {
+				sourceId: reviewSource.sourceId,
+				path: props.descriptor.path,
+			},
+			version: 'current',
+		},
+	};
+}
+
+function defaultReviewSourceForWorktreeDescriptor(props: {
+	readonly descriptor: WorktreeFileDescriptor;
+}): Extract<BridgeViewerSource, { readonly sourceKind: 'reviewComparison' }> {
+	return {
+		sourceKind: 'reviewComparison',
+		sourceId: `${props.descriptor.sourceIdentity.sourceId}:review`,
+		comparisonId: `worktree:${props.descriptor.sourceIdentity.worktreeId}:${props.descriptor.sourceIdentity.subscriptionGeneration}`,
+	};
+}
+
+export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
+	const incomingNavigationCommand = props.navigationCommand;
+	const incomingViewerMode = props.viewerMode;
+	const [activeViewerState, setActiveViewerState] = useState<BridgeActiveViewerState>(() =>
+		activeViewerStateForBridgeInputs({
+			navigationCommand: incomingNavigationCommand,
+			viewerMode: incomingViewerMode,
+		}),
+	);
+	useEffect((): void => {
+		setActiveViewerState(
+			activeViewerStateForBridgeInputs({
+				navigationCommand: incomingNavigationCommand,
+				viewerMode: incomingViewerMode,
+			}),
+		);
+	}, [incomingNavigationCommand, incomingViewerMode]);
+	const activateNavigationCommand = useCallback(
+		(navigationCommand: BridgeViewerNavigationCommand) => {
+			setActiveViewerState({
+				navigationCommand,
+				viewerMode: viewerModeForBridgeNavigationCommand(navigationCommand),
+			});
+		},
+		[],
+	);
+
+	if (activeViewerState.viewerMode === 'file') {
+		return (
+			<BridgeFileViewerMode
+				{...props}
+				onActivateNavigationCommand={activateNavigationCommand}
+				{...(activeViewerState.navigationCommand === undefined
+					? {}
+					: { navigationCommand: activeViewerState.navigationCommand })}
+			/>
+		);
+	}
+	return (
+		<BridgeReviewViewerMode
+			{...props}
+			{...(activeViewerState.navigationCommand === undefined
+				? {}
+				: { navigationCommand: activeViewerState.navigationCommand })}
+		/>
+	);
+}
+
+function BridgeFileViewerMode(
+	props: BridgeAppProps & {
+		readonly onActivateNavigationCommand: (
+			navigationCommand: BridgeViewerNavigationCommand,
+		) => void;
+	},
+): ReactElement {
+	const existingOpenReviewComparison = props.fileViewerProps?.onOpenReviewComparison;
+	const onActivateNavigationCommand = props.onActivateNavigationCommand;
+	const reviewNavigationSource = props.reviewNavigationSource;
+	const openReviewComparison = useCallback(
+		(descriptor: WorktreeFileDescriptor): void => {
+			existingOpenReviewComparison?.(descriptor);
+			onActivateNavigationCommand(
+				bridgeReviewNavigationCommandForWorktreeDescriptor({
+					descriptor,
+					...(reviewNavigationSource === undefined ? {} : { reviewSource: reviewNavigationSource }),
+				}),
+			);
+		},
+		[existingOpenReviewComparison, onActivateNavigationCommand, reviewNavigationSource],
+	);
 	return (
 		<BridgeViewerAppShell appOwner="BridgeApp" mode="file">
 			<BridgeFileViewerApp
@@ -343,6 +491,7 @@ function BridgeFileViewerMode(props: BridgeAppProps): ReactElement {
 					? {}
 					: { codeViewWorkerPoolEnabled: props.codeViewWorkerPoolEnabled })}
 				{...props.fileViewerProps}
+				onOpenReviewComparison={openReviewComparison}
 			/>
 		</BridgeViewerAppShell>
 	);

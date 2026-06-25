@@ -52,6 +52,7 @@ describe('BridgeFileViewerApp', () => {
 			contentHandle: 'live-content',
 			path: 'src/live.ts',
 		});
+		const openReviewComparison = vi.fn();
 		const container = document.createElement('div');
 		document.body.append(container);
 		mountedRoot = createRoot(container);
@@ -62,6 +63,7 @@ describe('BridgeFileViewerApp', () => {
 					autoOpenInitialFile={true}
 					fetchResource={async (): Promise<string> => 'export const live = true;\n'}
 					initialFrames={makeFrames(descriptor)}
+					onOpenReviewComparison={openReviewComparison}
 				/>,
 			);
 			await nextMicrotask();
@@ -84,6 +86,15 @@ describe('BridgeFileViewerApp', () => {
 					?.getAttribute('data-slot'),
 			).toBe('button');
 		}
+		expect(
+			document
+				.querySelector('[data-testid="worktree-file-open-review-comparison"]')
+				?.getAttribute('data-slot'),
+		).toBe('button');
+
+		await clickControl('worktree-file-open-review-comparison');
+
+		expect(openReviewComparison).toHaveBeenCalledWith(descriptor);
 	});
 
 	test('keeps unavailable text descriptors metadata-only in auto-open and filters', async () => {

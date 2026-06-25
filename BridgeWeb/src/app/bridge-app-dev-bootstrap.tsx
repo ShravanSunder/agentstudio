@@ -20,6 +20,8 @@ import {
 	fixtureClassForMockedBackend,
 	latencyProfileForMockedBackend,
 	parseBridgeAppDevFixtureOptions,
+	bridgeAppDevWorktreeReviewComparisonId,
+	bridgeAppDevWorktreeReviewSourceId,
 	reviewPackageForBridgeAppDevFixtureScenario,
 	type BridgeAppDevFixtureScenario,
 } from './bridge-app-dev-fixture.js';
@@ -74,13 +76,9 @@ if (rootElement !== null) {
 					telemetryConfig,
 				});
 	const worktreeBackend =
-		options.fixtureClass === 'worktree' && options.navigationCommand.context === 'files'
-			? installBridgeAppDevWorktreeBackend()
-			: null;
+		options.fixtureClass === 'worktree' ? installBridgeAppDevWorktreeBackend() : null;
 	const worktreeReviewBackend =
-		options.fixtureClass === 'worktree' && options.navigationCommand.context === 'review'
-			? installBridgeAppDevWorktreeReviewBackend()
-			: null;
+		options.fixtureClass === 'worktree' ? installBridgeAppDevWorktreeReviewBackend() : null;
 
 	window.addEventListener(
 		'beforeunload',
@@ -97,6 +95,15 @@ if (rootElement !== null) {
 			codeViewWorkerPoolEnabled={options.workersEnabled}
 			markdownWorkerClient={markdownWorkerClient}
 			navigationCommand={options.navigationCommand}
+			{...(worktreeReviewBackend === null
+				? {}
+				: {
+						reviewNavigationSource: {
+							sourceKind: 'reviewComparison',
+							sourceId: bridgeAppDevWorktreeReviewSourceId,
+							comparisonId: bridgeAppDevWorktreeReviewComparisonId,
+						},
+					})}
 			{...(worktreeBackend === null
 				? {}
 				: {

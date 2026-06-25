@@ -98,9 +98,9 @@ export function parseBridgeAppDevFixtureOptions(
 	return parsed.data;
 }
 
-const bridgeAppDevWorktreeSourceId = 'dev-worktree-source';
-const bridgeAppDevWorktreeReviewSourceId = 'dev-current-worktree-review';
-const bridgeAppDevWorktreeReviewComparisonId = 'dev-current-worktree-comparison';
+export const bridgeAppDevWorktreeSourceId = 'dev-worktree-source';
+export const bridgeAppDevWorktreeReviewSourceId = 'dev-current-worktree-review';
+export const bridgeAppDevWorktreeReviewComparisonId = 'dev-current-worktree-comparison';
 
 function bridgeViewerNavigationCommandForDevQuery(props: {
 	readonly fixtureClass: BridgeAppDevFixtureClass;

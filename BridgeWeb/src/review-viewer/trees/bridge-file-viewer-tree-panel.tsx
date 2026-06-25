@@ -1,6 +1,6 @@
 import { prepareFileTreeInput } from '@pierre/trees';
 import { FileTree, useFileTree } from '@pierre/trees/react';
-import { RegexIcon } from 'lucide-react';
+import { GitCompareArrowsIcon, RegexIcon } from 'lucide-react';
 import { useEffect, useMemo, useRef, type ReactElement } from 'react';
 
 import { Input } from '../../components/ui/input.js';
@@ -26,6 +26,7 @@ export interface BridgeFileViewerTreePanelProps {
 	readonly filterMode: BridgeFileViewerFilterMode;
 	readonly onFilterModeChange: (filterMode: BridgeFileViewerFilterMode) => void;
 	readonly onOpenFile: (descriptor: WorktreeFileDescriptor) => Promise<void>;
+	readonly onOpenReviewComparison?: (descriptor: WorktreeFileDescriptor) => void;
 	readonly onSearchModeChange: (searchMode: BridgeFileViewerSearchMode) => void;
 	readonly onSearchTextChange: (searchText: string) => void;
 	readonly searchMode: BridgeFileViewerSearchMode;
@@ -78,6 +79,10 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 		countFlattenedWorktreeFileTreeRows(paths) * bridgeFileViewerTreeRowHeightPixels;
 	const declaredTreeHeightPixels = props.totalTreeHeightPixels ?? fallbackRenderedTreeHeightPixels;
 	const declaredTreeHeightSource = props.totalTreeHeightSource ?? 'localProjection';
+	const selectedDescriptor =
+		props.selectedPath === null
+			? null
+			: (props.fileDescriptorByPath.get(props.selectedPath) ?? null);
 
 	useEffect((): void => {
 		fileDescriptorByPathRef.current = props.fileDescriptorByPath;
@@ -116,7 +121,7 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 				className="grid gap-2 border-b border-[var(--bridge-border-subtle)] p-2"
 				data-testid="bridge-file-viewer-toolbar"
 			>
-				<div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
+				<div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2">
 					<Input
 						aria-label="Search files"
 						className="h-7 border-[var(--bridge-border-opaque)] bg-[var(--bridge-header-control-bg)] text-xs"
@@ -143,6 +148,24 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 							<RegexIcon aria-hidden="true" className="size-4" />
 						</BridgeReviewIcon>
 					</BridgeReviewButton>
+					{props.onOpenReviewComparison === undefined ? null : (
+						<BridgeReviewButton
+							ariaLabel="Open selected file in review"
+							className="h-7 w-7 border-[var(--bridge-border-opaque)] bg-[var(--bridge-header-control-bg)] px-0"
+							data-testid="worktree-file-open-review-comparison"
+							disabled={selectedDescriptor === null}
+							onClick={() => {
+								if (selectedDescriptor !== null) {
+									props.onOpenReviewComparison?.(selectedDescriptor);
+								}
+							}}
+							title="Open selected file in review"
+						>
+							<BridgeReviewIcon>
+								<GitCompareArrowsIcon aria-hidden="true" className="size-4" />
+							</BridgeReviewIcon>
+						</BridgeReviewButton>
+					)}
 				</div>
 				<div className="flex flex-wrap items-center gap-1" role="group">
 					<BridgeFileViewerFilterButton

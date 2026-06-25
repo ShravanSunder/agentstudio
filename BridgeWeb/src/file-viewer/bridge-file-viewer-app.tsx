@@ -47,6 +47,7 @@ export interface BridgeFileViewerAppProps {
 	readonly initialFrames?: readonly WorktreeFileProtocolFrame[];
 	readonly loadInitialFrames?: () => Promise<readonly WorktreeFileProtocolFrame[]>;
 	readonly loadInitialSurface?: () => Promise<WorktreeFileInitialSurface>;
+	readonly onOpenReviewComparison?: (descriptor: WorktreeFileDescriptor) => void;
 	readonly subscribeFrames?: WorktreeFileFrameSubscriptionFactory;
 }
 
@@ -96,6 +97,7 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 		initialFrames,
 		loadInitialFrames,
 		loadInitialSurface,
+		onOpenReviewComparison,
 		subscribeFrames,
 	} = props;
 	const runtimeRef = useRef<WorktreeFileSurfaceRuntime | null>(null);
@@ -387,6 +389,7 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 					filterMode={filterMode}
 					onFilterModeChange={setFilterMode}
 					onOpenFile={openFile}
+					{...(onOpenReviewComparison === undefined ? {} : { onOpenReviewComparison })}
 					onSearchModeChange={setSearchMode}
 					onSearchTextChange={setSearchText}
 					searchMode={searchMode}

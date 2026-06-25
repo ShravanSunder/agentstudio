@@ -39,12 +39,17 @@ export function installBridgeAppDevWorktreeReviewBackend(): BridgeAppDevWorktree
 		bridgeReviewStreamIdAttribute,
 		bridgeWorktreeReviewStreamId,
 	);
-	let didReceiveHandshakeRequest = false;
+	let resolveHandshakeRequest: (() => void) | null = null;
+	const handshakeRequestPromise = new Promise<void>((resolve): void => {
+		resolveHandshakeRequest = resolve;
+	});
+	let packagePushPromise: Promise<void> | null = null;
 	const handleHandshakeRequest = (): void => {
-		didReceiveHandshakeRequest = true;
 		document.dispatchEvent(
 			new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push' } }),
 		);
+		resolveHandshakeRequest?.();
+		resolveHandshakeRequest = null;
 	};
 	document.addEventListener('__bridge_handshake_request', handleHandshakeRequest);
 	window.addEventListener(
@@ -79,32 +84,43 @@ export function installBridgeAppDevWorktreeReviewBackend(): BridgeAppDevWorktree
 			);
 		},
 		pushPackage: async (): Promise<void> => {
-			await waitForBridgeWorktreeReviewHandshake((): boolean => didReceiveHandshakeRequest);
-			const reviewPackage = await loadWorktreeReviewPackage(forwardedSearchParams);
-			dispatchBridgeDevHostAdmittedEnvelope({
-				__v: 1,
-				__pushId: `push-${reviewPackage.packageId}-${reviewPackage.revision}`,
-				__revision: reviewPackage.revision,
-				__epoch: reviewPackage.reviewGeneration,
-				store: 'diff',
-				op: 'replace',
-				level: 'cold',
-				slice: 'diff_package_metadata',
-				data: {
-					package: reviewPackage,
-					protocolFrame: buildReviewSnapshotFrame({
-						package: reviewPackage,
-						paneId: bridgeWorktreeReviewPaneId,
-						sourceIdentity: reviewPackage.query.queryId,
-						streamId: bridgeWorktreeReviewStreamId,
-						sequence: reviewPackage.revision,
-					}),
-				},
+			packagePushPromise ??= pushWorktreeReviewPackageAfterHandshake({
+				forwardedSearchParams,
+				handshakeRequestPromise,
 			});
-			await Promise.resolve();
-			await Promise.resolve();
+			await packagePushPromise;
 		},
 	};
+}
+
+async function pushWorktreeReviewPackageAfterHandshake(props: {
+	readonly forwardedSearchParams: URLSearchParams;
+	readonly handshakeRequestPromise: Promise<void>;
+}): Promise<void> {
+	await props.handshakeRequestPromise;
+	const reviewPackage = await loadWorktreeReviewPackage(props.forwardedSearchParams);
+	dispatchBridgeDevHostAdmittedEnvelope({
+		__v: 1,
+		__pushId: `push-${reviewPackage.packageId}-${reviewPackage.revision}`,
+		__revision: reviewPackage.revision,
+		__epoch: reviewPackage.reviewGeneration,
+		store: 'diff',
+		op: 'replace',
+		level: 'cold',
+		slice: 'diff_package_metadata',
+		data: {
+			package: reviewPackage,
+			protocolFrame: buildReviewSnapshotFrame({
+				package: reviewPackage,
+				paneId: bridgeWorktreeReviewPaneId,
+				sourceIdentity: reviewPackage.query.queryId,
+				streamId: bridgeWorktreeReviewStreamId,
+				sequence: reviewPackage.revision,
+			}),
+		},
+	});
+	await Promise.resolve();
+	await Promise.resolve();
 }
 
 async function loadWorktreeReviewPackage(
@@ -159,23 +175,4 @@ function restoreDocumentElementAttribute(name: string, previousValue: string | n
 		return;
 	}
 	document.documentElement.setAttribute(name, previousValue);
-}
-
-async function waitForBridgeWorktreeReviewHandshake(
-	didReceiveHandshakeRequest: () => boolean,
-	remainingAttempts = 180,
-): Promise<void> {
-	if (didReceiveHandshakeRequest()) {
-		return;
-	}
-	if (remainingAttempts <= 0) {
-		throw new Error('Expected Bridge handshake request before Worktree Review package push');
-	}
-	await Promise.resolve();
-	await new Promise<void>((resolve): void => {
-		window.requestAnimationFrame((): void => {
-			resolve();
-		});
-	});
-	await waitForBridgeWorktreeReviewHandshake(didReceiveHandshakeRequest, remainingAttempts - 1);
 }
