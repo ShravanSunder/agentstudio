@@ -41,13 +41,24 @@ export interface BridgeCodeViewContentResources {
 	readonly file?: BridgeContentResource;
 }
 
+export type BridgeCodeViewFilePresentationVersion = 'base' | 'current' | 'head';
+
+export type BridgeCodeViewItemPresentation =
+	| {
+			readonly kind: 'file';
+			readonly version: BridgeCodeViewFilePresentationVersion;
+	  }
+	| { readonly kind: 'diff' };
+
 export interface CreateBridgeCodeViewInitialItemsProps {
+	readonly itemPresentationsByItemId?: ReadonlyMap<string, BridgeCodeViewItemPresentation>;
 	readonly reviewPackage: BridgeReviewPackage;
 	readonly projection: BridgeReviewProjectionResult;
 }
 
 export interface MaterializeBridgeCodeViewItemProps {
 	readonly item: BridgeReviewItemDescriptor;
+	readonly presentation?: BridgeCodeViewItemPresentation | null;
 	readonly resources: BridgeCodeViewContentResources;
 }
 
@@ -61,7 +72,12 @@ export function createBridgeCodeViewInitialItems(
 		if (item === undefined) {
 			continue;
 		}
-		items.push(createPlaceholderItem(item));
+		items.push(
+			createPlaceholderItem({
+				item,
+				presentation: props.itemPresentationsByItemId?.get(item.itemId) ?? null,
+			}),
+		);
 	}
 
 	return items;
@@ -71,6 +87,21 @@ export function materializeBridgeCodeViewItem(
 	props: MaterializeBridgeCodeViewItemProps,
 ): BridgeCodeViewItem | null {
 	const { item, resources } = props;
+	if (props.presentation?.kind === 'file') {
+		const preferredResource = resourceForFilePresentation({
+			resources,
+			version: props.presentation.version,
+		});
+		return preferredResource === null
+			? null
+			: createFileItem({
+					item,
+					resource: preferredResource,
+					version: item.itemVersion,
+					contentState: 'hydrated',
+				});
+	}
+
 	if (
 		shouldUseDiffPlaceholder(item) &&
 		(resources.base !== undefined || resources.head !== undefined)
@@ -156,12 +187,23 @@ function createLoadingDiffItem(item: BridgeReviewItemDescriptor): BridgeCodeView
 	};
 }
 
-function createPlaceholderItem(item: BridgeReviewItemDescriptor): BridgeCodeViewItem {
-	if (shouldUseDiffPlaceholder(item)) {
-		return createPlaceholderDiffItem(item);
+function createPlaceholderItem(props: {
+	readonly item: BridgeReviewItemDescriptor;
+	readonly presentation: BridgeCodeViewItemPresentation | null;
+}): BridgeCodeViewItem {
+	if (props.presentation?.kind === 'file') {
+		return createFileItem({
+			item: props.item,
+			resource: null,
+			version: 0,
+			contentState: 'placeholder',
+		});
+	}
+	if (shouldUseDiffPlaceholder(props.item)) {
+		return createPlaceholderDiffItem(props.item);
 	}
 	return createFileItem({
-		item,
+		item: props.item,
 		resource: null,
 		version: 0,
 		contentState: 'placeholder',
@@ -277,6 +319,23 @@ function createDiffItem(props: CreateDiffItemProps): BridgeCodeViewDiffItem {
 			cacheKey: `${props.base?.handle.cacheKey ?? 'placeholder'}|${props.head?.handle.cacheKey ?? 'placeholder'}`,
 		}),
 	};
+}
+
+function resourceForFilePresentation(props: {
+	readonly resources: BridgeCodeViewContentResources;
+	readonly version: BridgeCodeViewFilePresentationVersion;
+}): BridgeContentResource | null {
+	switch (props.version) {
+		case 'base':
+			return props.resources.base ?? null;
+		case 'head':
+			return props.resources.head ?? props.resources.file ?? null;
+		case 'current':
+			return props.resources.head ?? props.resources.file ?? props.resources.base ?? null;
+	}
+	const exhaustiveVersion: never = props.version;
+	void exhaustiveVersion;
+	throw new Error('Unhandled Bridge CodeView file presentation version');
 }
 
 function codeViewRenderVersion(props: {

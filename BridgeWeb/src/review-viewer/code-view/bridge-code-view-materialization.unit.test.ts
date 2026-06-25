@@ -71,6 +71,32 @@ describe('Bridge CodeView materialization', () => {
 		expect(placeholderDiff.collapsed).toBe(true);
 	});
 
+	test('creates a file placeholder for the selected review file-target presentation', () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const projection = buildBridgeReviewProjection({
+			reviewPackage,
+			request: { mode: { kind: 'normalReview' }, facets: [] },
+		});
+
+		const items = createBridgeCodeViewInitialItems({
+			itemPresentationsByItemId: new Map([['source-high', { kind: 'file', version: 'current' }]]),
+			reviewPackage,
+			projection,
+		});
+		const placeholder = items.find(
+			(item: BridgeCodeViewItem): boolean => item.id === 'source-high',
+		);
+
+		if (placeholder?.type !== 'file') {
+			throw new Error('expected selected file-target placeholder item');
+		}
+		expect(placeholder.bridgeMetadata).toMatchObject({
+			contentState: 'placeholder',
+			itemId: 'source-high',
+		});
+		expect(placeholder.file.contents).toBe('');
+	});
+
 	test('materializes a visible one-sided loading item with non-empty CodeView body text', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const item = reviewPackage.itemsById['hidden-binary'];
@@ -306,6 +332,83 @@ describe('Bridge CodeView materialization', () => {
 			itemId: 'source-high',
 		});
 		expectTypeOf(materialized).toMatchTypeOf<BridgeCodeViewDiffItem>();
+	});
+
+	test('renders a review file target as a Pierre file item from the requested head version', () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const item = reviewPackage.itemsById['source-high'];
+		const baseHandle = item?.contentRoles.base;
+		const headHandle = item?.contentRoles.head;
+		if (
+			item === undefined ||
+			baseHandle === null ||
+			baseHandle === undefined ||
+			headHandle === null ||
+			headHandle === undefined
+		) {
+			throw new Error('expected source fixture with base and head handles');
+		}
+
+		const materialized = materializeBridgeCodeViewItem({
+			item: { ...item, itemVersion: 11 },
+			presentation: { kind: 'file', version: 'current' },
+			resources: {
+				base: makeContentResource(baseHandle, 'let value = 1\n'),
+				head: makeContentResource(headHandle, 'let value = 2\n'),
+			},
+		});
+
+		if (materialized?.type !== 'file') {
+			throw new Error('expected file presentation materialization');
+		}
+
+		expect(materialized).toMatchObject({
+			id: 'source-high',
+			type: 'file',
+			version: 35,
+			file: {
+				name: 'Sources/App/Core.swift',
+				contents: 'let value = 2\n',
+				cacheKey: headHandle.cacheKey,
+			},
+			bridgeMetadata: {
+				contentState: 'hydrated',
+				contentRoles: ['head'],
+				itemId: 'source-high',
+			},
+		});
+	});
+
+	test('renders a review file target as a Pierre file item from the requested base version', () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const item = reviewPackage.itemsById['source-high'];
+		const baseHandle = item?.contentRoles.base;
+		const headHandle = item?.contentRoles.head;
+		if (
+			item === undefined ||
+			baseHandle === null ||
+			baseHandle === undefined ||
+			headHandle === null ||
+			headHandle === undefined
+		) {
+			throw new Error('expected source fixture with base and head handles');
+		}
+
+		const materialized = materializeBridgeCodeViewItem({
+			item,
+			presentation: { kind: 'file', version: 'base' },
+			resources: {
+				base: makeContentResource(baseHandle, 'let value = 1\n'),
+				head: makeContentResource(headHandle, 'let value = 2\n'),
+			},
+		});
+
+		if (materialized?.type !== 'file') {
+			throw new Error('expected file presentation materialization');
+		}
+
+		expect(materialized.file.contents).toBe('let value = 1\n');
+		expect(materialized.bridgeMetadata.contentRoles).toEqual(['base']);
 	});
 });
 

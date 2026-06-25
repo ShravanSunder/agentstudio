@@ -49,6 +49,7 @@ export const bridgeViewerFileTargetSchema = z
 		fileRef: bridgeViewerFileRefSchema,
 		version: bridgeViewerFileVersionSchema,
 		comparisonId: z.string().min(1).optional(),
+		reviewItemId: z.string().min(1).optional(),
 	})
 	.strict();
 

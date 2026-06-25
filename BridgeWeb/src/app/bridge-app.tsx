@@ -135,6 +135,7 @@ import {
 	type BridgeAppControlProbe,
 } from './bridge-app-control.js';
 import { BridgeViewerAppShell } from './bridge-viewer-app-shell.js';
+import type { BridgeViewerNavigationCommand } from './bridge-viewer-navigation-models.js';
 
 export interface BridgeAppProps {
 	readonly target?: EventTarget;
@@ -145,6 +146,7 @@ export interface BridgeAppProps {
 	readonly codeViewWorkerFactory?: () => Worker;
 	readonly viewerMode?: 'file' | 'review';
 	readonly fileViewerProps?: BridgeFileViewerAppProps;
+	readonly navigationCommand?: BridgeViewerNavigationCommand;
 }
 
 declare global {
@@ -173,6 +175,11 @@ interface BridgeReviewFrameAuthority {
 	readonly paneId: string;
 	readonly streamId: string;
 }
+
+type BridgeReviewFileNavigationTarget = Extract<
+	NonNullable<BridgeViewerNavigationCommand['target']>,
+	{ readonly targetKind: 'file' }
+>;
 
 export interface SelectedContentResourcesState {
 	readonly itemId: string;
@@ -523,6 +530,36 @@ function BridgeReviewViewerMode(props: BridgeAppProps): ReactElement {
 		},
 		[resourceExecutor, reviewDemandScheduler, rpcClient, viewerActions],
 	);
+	const appliedNavigationCommandIdRef = useRef<string | null>(null);
+	const initialReviewFileTarget = useMemo(
+		() => reviewFileTargetForNavigationCommand(props.navigationCommand),
+		[props.navigationCommand],
+	);
+	useEffect((): void => {
+		if (reviewPackage === null || projection === null || initialReviewFileTarget === null) {
+			return;
+		}
+		if (appliedNavigationCommandIdRef.current === props.navigationCommand?.commandId) {
+			return;
+		}
+		const itemId = itemIdForReviewFileNavigationTarget({
+			reviewPackage,
+			target: initialReviewFileTarget,
+		});
+		if (itemId === null || !projection.orderedItemIds.includes(itemId)) {
+			return;
+		}
+		appliedNavigationCommandIdRef.current = props.navigationCommand?.commandId ?? null;
+		selectReviewItem(itemId, {
+			revealBehavior: 'instant',
+		});
+	}, [
+		initialReviewFileTarget,
+		projection,
+		props.navigationCommand?.commandId,
+		reviewPackage,
+		selectReviewItem,
+	]);
 	useBridgeReviewProjectionCoordinator({
 		store: viewerStore,
 		reviewPackage,
@@ -1054,6 +1091,15 @@ function BridgeReviewViewerMode(props: BridgeAppProps): ReactElement {
 	});
 	const selectedContentLoadingItemId =
 		selectedCanvasLoadingReason === 'content' ? rootSnapshot.selectedItemId : null;
+	const selectedItemPresentation = useMemo(
+		() =>
+			selectedItemPresentationForReviewFileTarget({
+				reviewPackage,
+				selectedItemId: rootSnapshot.selectedItemId,
+				target: initialReviewFileTarget,
+			}),
+		[initialReviewFileTarget, reviewPackage, rootSnapshot.selectedItemId],
+	);
 
 	return (
 		<BridgeViewerAppShell appOwner="BridgeApp" mode="review">
@@ -1086,6 +1132,7 @@ function BridgeReviewViewerMode(props: BridgeAppProps): ReactElement {
 					reviewPackage={reviewPackage}
 					selectedContentResources={selectedContentResources}
 					selectedContentLoadingItemId={selectedContentLoadingItemId}
+					selectedItemPresentation={selectedItemPresentation}
 					selectedContentUnavailablePath={selectedContentUnavailablePathForCurrentSelection({
 						reviewPackage,
 						selectedItemId: rootSnapshot.selectedItemId,
@@ -1367,6 +1414,51 @@ function selectedContentResourcesForCurrentSelection(
 	return props.selectedContentResourcesState.contentKey === selectedContentKey
 		? props.selectedContentResourcesState.resources
 		: null;
+}
+
+function reviewFileTargetForNavigationCommand(
+	navigationCommand: BridgeViewerNavigationCommand | undefined,
+): BridgeReviewFileNavigationTarget | null {
+	if (navigationCommand?.context !== 'review' || navigationCommand.target?.targetKind !== 'file') {
+		return null;
+	}
+	return navigationCommand.target;
+}
+
+function itemIdForReviewFileNavigationTarget(props: {
+	readonly reviewPackage: BridgeReviewPackage;
+	readonly target: BridgeReviewFileNavigationTarget;
+}): string | null {
+	const matchedItem = Object.values(props.reviewPackage.itemsById).find(
+		(item: BridgeReviewItemDescriptor): boolean =>
+			item.headPath === props.target.fileRef.path || item.basePath === props.target.fileRef.path,
+	);
+	return matchedItem?.itemId ?? null;
+}
+
+function selectedItemPresentationForReviewFileTarget(props: {
+	readonly reviewPackage: BridgeReviewPackage | null;
+	readonly selectedItemId: string | null;
+	readonly target: BridgeReviewFileNavigationTarget | null;
+}): {
+	readonly kind: 'file';
+	readonly version: BridgeReviewFileNavigationTarget['version'];
+} | null {
+	if (props.reviewPackage === null || props.selectedItemId === null || props.target === null) {
+		return null;
+	}
+	const selectedItem = props.reviewPackage.itemsById[props.selectedItemId];
+	if (
+		selectedItem === undefined ||
+		(selectedItem.headPath !== props.target.fileRef.path &&
+			selectedItem.basePath !== props.target.fileRef.path)
+	) {
+		return null;
+	}
+	return {
+		kind: 'file',
+		version: props.target.version,
+	};
 }
 
 export function selectedContentResourcesStateFromLoadResult(props: {

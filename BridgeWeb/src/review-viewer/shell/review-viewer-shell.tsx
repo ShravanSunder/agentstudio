@@ -19,7 +19,10 @@ import {
 	type BridgeReviewFacetMenuOption,
 } from '../chrome/bridge-review-facet-menu.js';
 import { BridgeReviewSearchControl } from '../chrome/bridge-review-search-control.js';
-import type { BridgeCodeViewContentResources } from '../code-view/bridge-code-view-materialization.js';
+import type {
+	BridgeCodeViewContentResources,
+	BridgeCodeViewItemPresentation,
+} from '../code-view/bridge-code-view-materialization.js';
 import {
 	BridgeCodeViewPanel,
 	type BridgeCodeViewControlHandle,
@@ -40,6 +43,7 @@ export interface ReviewViewerShellProps {
 	readonly onSelectItem: (itemId: string) => void;
 	readonly selectedContentText?: string | null;
 	readonly selectedContentResources?: BridgeCodeViewContentResources | null;
+	readonly selectedItemPresentation?: BridgeCodeViewItemPresentation | null;
 	readonly selectedContentUnavailablePath?: string | null;
 	readonly selectedCanvasLoadingReason?: BridgeReviewCanvasLoadingReason | null;
 	readonly selectedMarkdownPreviewHtml?: string | null;
@@ -222,6 +226,7 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 								selectedContentLoadingItemId={props.selectedContentLoadingItemId ?? null}
 								selectedContentResources={props.selectedContentResources ?? null}
 								selectedItemId={props.selectedItemId}
+								selectedItemPresentation={props.selectedItemPresentation ?? null}
 								telemetryParentTraceContext={props.telemetryParentTraceContext ?? null}
 								{...(props.visibleLoadingItemIds === undefined
 									? {}

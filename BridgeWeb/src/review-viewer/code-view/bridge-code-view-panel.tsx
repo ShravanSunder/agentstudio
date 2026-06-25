@@ -25,6 +25,7 @@ import {
 	materializeBridgeCodeViewLoadingItem,
 	type BridgeCodeViewContentResources,
 	type BridgeCodeViewItem,
+	type BridgeCodeViewItemPresentation,
 } from './bridge-code-view-materialization.js';
 import { bridgePierreDarkThemeName } from './bridge-code-view-theme.js';
 
@@ -34,6 +35,7 @@ export interface BridgeCodeViewPanelProps {
 	readonly selectedItemId: string | null;
 	readonly selectedContentLoadingItemId?: string | null;
 	readonly selectedContentResources?: BridgeCodeViewContentResources | null;
+	readonly selectedItemPresentation?: BridgeCodeViewItemPresentation | null;
 	readonly visibleContentResourcesByItemId?: ReadonlyMap<string, BridgeCodeViewContentResources>;
 	readonly visibleLoadingItemIds?: ReadonlySet<string>;
 	readonly visibleLoadingItemCount?: number;
@@ -465,14 +467,21 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 			}),
 		[collapsedItemIds, handleHeaderVisibilityChange, props.reviewPackage, toggleItemCollapse],
 	);
-	const initialItems = useMemo(
-		() =>
-			createBridgeCodeViewInitialItems({
-				reviewPackage: props.reviewPackage,
-				projection: props.projection,
-			}),
-		[props.projection, props.reviewPackage],
-	);
+	const initialItems = useMemo(() => {
+		const itemPresentationsByItemId =
+			props.selectedItemId === null ||
+			props.selectedItemPresentation === null ||
+			props.selectedItemPresentation === undefined
+				? undefined
+				: new Map<string, BridgeCodeViewItemPresentation>([
+						[props.selectedItemId, props.selectedItemPresentation],
+					]);
+		return createBridgeCodeViewInitialItems({
+			...(itemPresentationsByItemId === undefined ? {} : { itemPresentationsByItemId }),
+			reviewPackage: props.reviewPackage,
+			projection: props.projection,
+		});
+	}, [props.projection, props.reviewPackage, props.selectedItemId, props.selectedItemPresentation]);
 	const materializationResourceEntries = useMemo((): readonly (readonly [
 		string,
 		BridgeCodeViewContentResources,
@@ -490,6 +499,10 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		}
 		return [...resourceEntriesByItemId.entries()];
 	}, [props.selectedContentResources, props.selectedItemId, props.visibleContentResourcesByItemId]);
+	const materializationResourceEntryItemIds = useMemo(
+		(): string => materializationResourceEntries.map(([itemId]): string => itemId).join(','),
+		[materializationResourceEntries],
+	);
 	const loadingMaterializationItemIds = useMemo((): readonly string[] => {
 		const loadedItemIds = new Set(materializationResourceEntries.map(([itemId]): string => itemId));
 		const loadingItemIds = new Set(props.visibleLoadingItemIds ?? []);
@@ -709,6 +722,8 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 				}
 				const materializedItem = materializeBridgeCodeViewItem({
 					item: selectedItem,
+					presentation:
+						itemId === props.selectedItemId ? (props.selectedItemPresentation ?? null) : null,
 					resources,
 				});
 				if (materializedItem === null) {
@@ -801,6 +816,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		props.projection,
 		props.reviewPackage,
 		props.selectedItemId,
+		props.selectedItemPresentation,
 		props.telemetryParentTraceContext,
 		props.telemetryRecorder,
 		props.workerPoolEnabled,
@@ -814,6 +830,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 			className="bridge-code-view-panel relative h-full min-h-0 bg-[var(--bridge-canvas-bg)]"
 			data-code-view-item-count={initialItems.length}
 			data-code-view-rendered-content-resource-count={materializationResourceEntries.length}
+			data-code-view-rendered-content-resource-item-ids={materializationResourceEntryItemIds}
 			data-code-view-visible-loading-item-count={props.visibleLoadingItemCount ?? 0}
 			data-code-view-visible-ready-item-count={props.visibleReadyItemCount ?? 0}
 			data-selected-content-cache-key-count={selectedContentSummary.cacheKeyCount}
@@ -829,6 +846,12 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 			data-selected-materialized-model-content-state={materializationDiagnostic.modelContentState}
 			data-selected-materialized-model-item-version={materializationDiagnostic.modelItemVersion}
 			data-selected-materialized-update-result={materializationDiagnostic.updateResult}
+			data-selected-presentation-kind={props.selectedItemPresentation?.kind ?? 'none'}
+			data-selected-presentation-version={
+				props.selectedItemPresentation?.kind === 'file'
+					? props.selectedItemPresentation.version
+					: 'none'
+			}
 			data-selected-display-path={selectedDisplayPath ?? undefined}
 			data-selected-item-id={props.selectedItemId ?? undefined}
 			data-testid="bridge-code-view-panel"
@@ -1395,10 +1418,22 @@ function codeViewHandleHasInstance(handle: CodeViewHandle<undefined>): boolean {
 }
 
 function makeViewerKey(props: BridgeCodeViewPanelProps): string {
+	let selectedPresentationKey = 'presentation:none';
+	if (
+		props.selectedItemId !== null &&
+		props.selectedItemPresentation !== null &&
+		props.selectedItemPresentation !== undefined
+	) {
+		selectedPresentationKey =
+			props.selectedItemPresentation.kind === 'file'
+				? `presentation:file:${props.selectedItemId}:${props.selectedItemPresentation.version}`
+				: `presentation:diff:${props.selectedItemId}`;
+	}
 	return [
 		props.reviewPackage.packageId,
 		props.reviewPackage.reviewGeneration,
 		props.reviewPackage.revision,
 		props.projection.projectionId,
+		selectedPresentationKey,
 	].join(':');
 }

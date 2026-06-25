@@ -8,13 +8,20 @@ import type { BridgeViewerNavigationCommand } from './bridge-viewer-navigation-m
 
 const bridgeAppRouterContractMock = vi.hoisted(() => ({
 	calls: [] as Array<{
+		readonly navigationCommand: BridgeViewerNavigationCommand | undefined;
 		readonly viewerMode: 'file' | 'review' | undefined;
 	}>,
 }));
 
 vi.mock('./bridge-app.js', () => ({
-	BridgeApp: (props: { readonly viewerMode?: 'file' | 'review' }) => {
-		bridgeAppRouterContractMock.calls.push({ viewerMode: props.viewerMode });
+	BridgeApp: (props: {
+		readonly navigationCommand?: BridgeViewerNavigationCommand;
+		readonly viewerMode?: 'file' | 'review';
+	}) => {
+		bridgeAppRouterContractMock.calls.push({
+			navigationCommand: props.navigationCommand,
+			viewerMode: props.viewerMode,
+		});
 		return <div data-testid="bridge-app-contract-mock" data-viewer-mode={props.viewerMode} />;
 	},
 }));
@@ -47,7 +54,9 @@ describe('BridgeAppProtocolRouter contract', () => {
 			mountedRoot?.render(<BridgeAppProtocolRouter protocol="worktree-file" />);
 		});
 
-		expect(bridgeAppRouterContractMock.calls).toEqual([{ viewerMode: 'file' }]);
+		expect(bridgeAppRouterContractMock.calls).toEqual([
+			{ navigationCommand: undefined, viewerMode: 'file' },
+		]);
 		expect(
 			document
 				.querySelector('[data-testid="bridge-app-contract-mock"]')
@@ -64,7 +73,9 @@ describe('BridgeAppProtocolRouter contract', () => {
 			mountedRoot?.render(<BridgeAppProtocolRouter protocol="review" />);
 		});
 
-		expect(bridgeAppRouterContractMock.calls).toEqual([{ viewerMode: 'review' }]);
+		expect(bridgeAppRouterContractMock.calls).toEqual([
+			{ navigationCommand: undefined, viewerMode: 'review' },
+		]);
 		expect(
 			document
 				.querySelector('[data-testid="bridge-app-contract-mock"]')
@@ -91,7 +102,7 @@ describe('BridgeAppProtocolRouter contract', () => {
 			mountedRoot?.render(<BridgeAppProtocolRouter navigationCommand={navigationCommand} />);
 		});
 
-		expect(bridgeAppRouterContractMock.calls).toEqual([{ viewerMode: 'file' }]);
+		expect(bridgeAppRouterContractMock.calls).toEqual([{ navigationCommand, viewerMode: 'file' }]);
 	});
 
 	test('routes Review navigation commands by entering BridgeApp review mode', async () => {
@@ -114,6 +125,8 @@ describe('BridgeAppProtocolRouter contract', () => {
 			mountedRoot?.render(<BridgeAppProtocolRouter navigationCommand={navigationCommand} />);
 		});
 
-		expect(bridgeAppRouterContractMock.calls).toEqual([{ viewerMode: 'review' }]);
+		expect(bridgeAppRouterContractMock.calls).toEqual([
+			{ navigationCommand, viewerMode: 'review' },
+		]);
 	});
 });

@@ -129,6 +129,7 @@ interface WorktreeDevServerVerificationResult {
 	readonly positiveAssertions: readonly string[];
 	readonly negativeAssertions: readonly string[];
 	readonly productControlsProof: WorktreeFileProductControlsProof;
+	readonly reviewFileTargetRouteProof: WorktreeReviewFileTargetRouteProof;
 	readonly reviewRouteProof: WorktreeReviewRouteProof;
 	readonly sharedShellProof: WorktreeFileSharedShellProof;
 	readonly selectedContentRouteProof: WorktreeFileSelectedContentRouteProof;
@@ -342,6 +343,27 @@ interface WorktreeReviewRouteProof {
 	readonly reviewPackageShellCount: number;
 	readonly reviewSelectedContentState: string | null;
 	readonly reviewSelectedDisplayPath: string | null;
+	readonly sharedShellMode: string | null;
+	readonly sharedShellOwner: string | null;
+	readonly standaloneWorktreeFileAppCount: number;
+}
+
+interface WorktreeReviewFileTargetRouteProof {
+	readonly appOwner: string | null;
+	readonly expectedDisplayPath: string;
+	readonly expectedReviewItemId: string;
+	readonly expectedVersion: 'base' | 'current' | 'head';
+	readonly locationHref: string;
+	readonly pageUrl: string;
+	readonly reviewContentRouteHitCount: number;
+	readonly reviewContentRouteHitUrls: readonly string[];
+	readonly reviewPackageRouteHitCount: number;
+	readonly selectedContentRoleCount: number;
+	readonly selectedContentState: string | null;
+	readonly selectedDisplayPath: string | null;
+	readonly selectedItemId: string | null;
+	readonly selectedMaterializedFileLineCount: number;
+	readonly selectedMaterializedItemType: string | null;
 	readonly sharedShellMode: string | null;
 	readonly sharedShellOwner: string | null;
 	readonly standaloneWorktreeFileAppCount: number;
@@ -566,6 +588,7 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 			throw new Error('Expected Worktree/File surface metadata to omit file body content');
 		}
 		const reviewRouteProof = await verifyWorktreeReviewRoute();
+		const reviewFileTargetRouteProof = await verifyWorktreeReviewFileTargetRoute();
 		await page.goto(worktreeDevServerUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
 		await page.waitForSelector('[data-testid="bridge-file-viewer-shell"]', { timeout: 30_000 });
 		const observedRoute = await assertObservedWorktreeDevServerUrl(page);
@@ -756,6 +779,7 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 			substituteGuardProof,
 			visibleAppProof,
 			productControlsProof,
+			reviewFileTargetRouteProof,
 			reviewRouteProof,
 		};
 	} finally {
@@ -902,6 +926,145 @@ async function verifyWorktreeReviewRoute(): Promise<WorktreeReviewRouteProof> {
 		) {
 			throw new Error(
 				`Expected worktree Review URL to load a real shared review package without FileViewer substitute: ${JSON.stringify(routeProof)}`,
+			);
+		}
+		return routeProof;
+	} finally {
+		await routeProbe.dispose();
+		await page.close();
+	}
+}
+
+async function verifyWorktreeReviewFileTargetRoute(): Promise<WorktreeReviewFileTargetRouteProof> {
+	const page = await makeVerificationPage();
+	const routeProbe = await installReviewRouteProbe(page);
+	try {
+		const expectedDisplayPath = reviewExtensionlessFixtureRelativePath;
+		const expectedReviewItemId = await fetchWorktreeReviewItemIdForDisplayPath(expectedDisplayPath);
+		const expectedVersion = 'current';
+		const reviewFileTargetUrl = reviewFileTargetUrlFromWorktreeDevServerUrl({
+			path: expectedDisplayPath,
+			url: worktreeDevServerUrl,
+			version: expectedVersion,
+		});
+		await page.goto(reviewFileTargetUrl, {
+			waitUntil: 'domcontentloaded',
+			timeout: 30_000,
+		});
+		await page.waitForSelector('[data-testid="bridge-app-root"]', { timeout: 30_000 });
+		await page.waitForSelector('[data-testid="review-viewer-shell"]', { timeout: 30_000 });
+		await waitForReviewSelectedContentState({
+			displayPath: expectedDisplayPath,
+			page,
+			state: 'ready',
+		});
+		try {
+			await page.waitForFunction(
+				(expected: { readonly itemId: string }): boolean => {
+					const codePanel = document.querySelector('[data-testid="bridge-code-view-panel"]');
+					return (
+						codePanel?.getAttribute('data-selected-item-id') === expected.itemId &&
+						codePanel?.getAttribute('data-selected-materialized-item-type') === 'file'
+					);
+				},
+				{ itemId: expectedReviewItemId },
+				{ timeout: 30_000 },
+			);
+		} catch (error) {
+			const debugState = await page.evaluate(() => {
+				const codePanel = document.querySelector('[data-testid="bridge-code-view-panel"]');
+				const reviewShell = document.querySelector('[data-testid="review-viewer-shell"]');
+				const attributes =
+					codePanel instanceof HTMLElement
+						? Object.fromEntries(
+								[...codePanel.attributes].map((attribute) => [attribute.name, attribute.value]),
+							)
+						: {};
+				return {
+					codePanelAttributes: attributes,
+					reviewSelectedContentState:
+						reviewShell instanceof HTMLElement
+							? reviewShell.getAttribute('data-selected-content-state')
+							: null,
+					reviewSelectedDisplayPath:
+						reviewShell instanceof HTMLElement
+							? reviewShell.getAttribute('data-selected-display-path')
+							: null,
+				};
+			});
+			throw new Error(
+				`Timed out waiting for Review file-target route to materialize a file item: ${JSON.stringify(debugState)}`,
+				{ cause: error },
+			);
+		}
+		const proof = await page.evaluate(() => {
+			const appRoot = document.querySelector('[data-testid="bridge-app-root"]');
+			const reviewShell = document.querySelector('[data-testid="review-viewer-shell"]');
+			const codePanel = document.querySelector('[data-testid="bridge-code-view-panel"]');
+			return {
+				appOwner:
+					appRoot instanceof HTMLElement ? appRoot.getAttribute('data-bridge-app-owner') : null,
+				selectedContentRoleCount:
+					codePanel instanceof HTMLElement
+						? Number(codePanel.getAttribute('data-selected-content-role-count') ?? '0')
+						: 0,
+				selectedContentState:
+					reviewShell instanceof HTMLElement
+						? reviewShell.getAttribute('data-selected-content-state')
+						: null,
+				selectedDisplayPath:
+					reviewShell instanceof HTMLElement
+						? reviewShell.getAttribute('data-selected-display-path')
+						: null,
+				selectedItemId:
+					codePanel instanceof HTMLElement ? codePanel.getAttribute('data-selected-item-id') : null,
+				selectedMaterializedFileLineCount:
+					codePanel instanceof HTMLElement
+						? Number(codePanel.getAttribute('data-selected-materialized-file-line-count') ?? '0')
+						: 0,
+				selectedMaterializedItemType:
+					codePanel instanceof HTMLElement
+						? codePanel.getAttribute('data-selected-materialized-item-type')
+						: null,
+				sharedShellMode:
+					appRoot instanceof HTMLElement ? appRoot.getAttribute('data-bridge-viewer-mode') : null,
+				sharedShellOwner:
+					appRoot instanceof HTMLElement
+						? appRoot.getAttribute('data-bridge-viewer-shell-owner')
+						: null,
+				standaloneWorktreeFileAppCount: document.querySelectorAll(
+					'[data-testid="worktree-file-app"]',
+				).length,
+			};
+		});
+		const routeProof = {
+			...proof,
+			expectedDisplayPath,
+			expectedReviewItemId,
+			expectedVersion,
+			locationHref: await page.evaluate(() => window.location.href),
+			pageUrl: page.url(),
+			reviewContentRouteHitCount: routeProbe.contentHitCount(),
+			reviewContentRouteHitUrls: routeProbe.contentHitUrls(),
+			reviewPackageRouteHitCount: routeProbe.packageHitCount(),
+		} satisfies WorktreeReviewFileTargetRouteProof;
+		if (
+			routeProof.appOwner !== 'BridgeApp' ||
+			routeProof.locationHref !== reviewFileTargetUrl ||
+			routeProof.pageUrl !== reviewFileTargetUrl ||
+			routeProof.sharedShellMode !== 'review' ||
+			routeProof.sharedShellOwner !== 'BridgeViewerAppShell' ||
+			routeProof.selectedContentState !== 'ready' ||
+			routeProof.selectedDisplayPath !== expectedDisplayPath ||
+			routeProof.selectedItemId !== expectedReviewItemId ||
+			routeProof.selectedMaterializedItemType !== 'file' ||
+			routeProof.selectedMaterializedFileLineCount <= 0 ||
+			routeProof.standaloneWorktreeFileAppCount !== 0 ||
+			routeProof.reviewPackageRouteHitCount !== 1 ||
+			routeProof.reviewContentRouteHitCount <= 0
+		) {
+			throw new Error(
+				`Expected worktree Review file-target URL to render a typed Pierre file target in Review context: ${JSON.stringify(routeProof)}`,
 			);
 		}
 		return routeProof;
@@ -3735,6 +3898,7 @@ function worktreeDevServerConsoleProof(
 		selectedDisplayPath: result.selectedDisplayPath,
 		selectedLineCount: result.selectedLineCount,
 		sharedShellProof: result.sharedShellProof,
+		reviewFileTargetRouteProof: result.reviewFileTargetRouteProof,
 		reviewRouteProof: result.reviewRouteProof,
 		splitResetReplacementProof: {
 			devReloadFrameCount: result.splitResetReplacementProof.devReloadFrameCount,
@@ -3781,6 +3945,19 @@ function scenarioNameFromDevServerUrl(url: string): string {
 function reviewModeUrlFromWorktreeDevServerUrl(url: string): string {
 	const parsedUrl = new URL(url);
 	parsedUrl.searchParams.set('viewer', 'review');
+	return parsedUrl.toString();
+}
+
+function reviewFileTargetUrlFromWorktreeDevServerUrl(props: {
+	readonly path: string;
+	readonly url: string;
+	readonly version: 'base' | 'current' | 'head';
+}): string {
+	const parsedUrl = new URL(props.url);
+	parsedUrl.searchParams.set('viewer', 'review');
+	parsedUrl.searchParams.set('presentation', 'file');
+	parsedUrl.searchParams.set('path', props.path);
+	parsedUrl.searchParams.set('version', props.version);
 	return parsedUrl.toString();
 }
 

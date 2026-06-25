@@ -20,6 +20,7 @@ export function BridgeAppProtocolRouter(props: BridgeAppProtocolRouterProps = {}
 		return (
 			<BridgeApp
 				{...appProps}
+				navigationCommand={navigationCommand}
 				viewerMode={viewerModeForBridgeViewerNavigationCommand(navigationCommand)}
 			/>
 		);
