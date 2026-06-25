@@ -2,8 +2,8 @@
 
 Goal id: `2026-06-24-bridge-transport-review-pr-ready`
 Status: active
-Current workflow: implementation-execute-plan Gate 0.a stale-refresh route observer fix complete
-Next workflow: `shravan-dev-workflow:implementation-review-swarm`
+Current workflow: implementation-execute-plan Gate 0.a shared BridgeViewer/FileViewer correction active
+Next workflow: `shravan-dev-workflow:implementation-execute-plan`
 
 ## Durable Objective
 
@@ -73,6 +73,26 @@ it made the worktree route more usable while preserving the wrong application
 boundary. The current target is not "make WorktreeFileApp look better"; it is
 "remove/bypass the second app path and prove FileViewer uses the shared
 BridgeViewer shell with Pierre FileTree + Pierre CodeView/File + Shiki workers."
+The UX contract is one Bridge Viewer App with two modes:
+
+```text
+Bridge Viewer App
+  ReviewViewer: diffs / changesets / review package
+  FileViewer: worktree file browsing / single file / live file view
+
+Shared UX:
+  left  = primary Pierre CodeView/File canvas
+  right = Pierre FileTree/right rail
+  renderer = Pierre + Shiki + workers when enabled
+```
+
+The user's latest live-dev-server observation shows the FileViewer surface still
+presenting the file tree/search area on the left and file content on the right.
+That means the next checkpoint must revalidate the current live dev server and
+fix the layout/composition if the observed page still violates the shared UX
+contract. Do not advance to Gate 1 from a mock route, a stale Vite process, a
+raw/minimal surface, or a proof artifact that was not tied to the exact live
+URL after this correction.
 
 Gate 0 source plan:
 
@@ -161,9 +181,13 @@ Reviewers must attack:
 
 1. The worktree dev URL previously showed raw/gibberish path text in the browser.
 2. A narrow verifier could pass while the product surface remained insufficient.
-3. The current route can load Worktree/File data and render tree/content, yet it
-   can do so through a standalone `WorktreeFileApp` mini-app and raw `<pre>`
-   content path instead of the shared BridgeViewer/FileViewer/Pierre path.
+3. Historical Worktree/File proofs could load data and render tree/content
+   through a standalone `WorktreeFileApp` mini-app and raw `<pre>` content path
+   instead of the shared BridgeViewer/FileViewer/Pierre path.
+   Current code routes `worktree-file` through `BridgeApp viewerMode="file"`,
+   so current review must focus on the live visible surface: wrong left/right
+   composition, stale Vite output, custom non-Pierre substitutes, or proof that
+   can pass while the user-visible product is still wrong.
 4. Prior spec/review docs used readiness language that was too strong.
 5. Subagent review attempts failed due local process/file-descriptor issues and
    must not be counted as completed review.
@@ -209,9 +233,8 @@ Superseded product recovery checkpoint:
   - `tmp/bridge-viewer-worktree-dev-server/2026-06-24T23-21-47-787Z/worktree-file-search-result.png`
   - `tmp/bridge-viewer-worktree-dev-server/2026-06-24T23-21-47-787Z/worktree-file-stale-refresh.png`
 - This proof is superseded. It proves useful route/data/control behavior, but it
-  does not prove Gate 0.a because the worktree route still reaches
-  `WorktreeFileApp`, a standalone shell that owns a custom file list and raw
-  `<pre>` content path.
+  does not prove Gate 0.a because it predates the shared BridgeViewer/FileViewer
+  correction and did not prove the visible shared-shell/Pierre layout contract.
 
 Former Gate 0.a red proof:
 
@@ -232,7 +255,13 @@ Former Gate 0.a red proof:
   file rendering uses Shiki; worker pool support exists through
   `WorkerPoolContextProvider`.
 
-Vite/dev-server Gate 0.a status:
+Superseded Vite/dev-server Gate 0.a green proof history:
+
+These proof blocks are historical evidence only. They are superseded by
+`gate0a_shared_viewer_shell_correction_active` because the active blocker is
+the live visible shared-shell FileViewer contract, including left/right layout.
+They must not authorize Gate 1 or PR-ready progress until a fresh exact-URL
+browser proof is captured after the correction.
 
 - The exact URL proof row is green as of 2026-06-25 02:49 -04:00 after the
   shared-app boundary proof pass, implementation-review reduction fixes,
@@ -412,9 +441,10 @@ Each spec, plan, implementation, or PR reviewer must receive:
 
 ## 2026-06-25 Second Split Reset Reduction
 
-Status: Gate 0.a Vite/dev-server product proof is green again after the second
-re-review reduction. Gate 1 remains blocked on implementation re-review or
-explicit human acceptance.
+Historical status, superseded by
+`gate0a_shared_viewer_shell_correction_active`: Gate 0.a Vite/dev-server
+product proof was green again after the second re-review reduction. Gate 1
+remains blocked.
 
 Accepted findings addressed:
 
@@ -489,9 +519,10 @@ Fresh proof:
 
 ## 2026-06-25 Force-Lineage And Retry Reduction
 
-Status: Gate 0.a Vite/dev-server product proof is green again after fixing the
-latest force-lineage and stale-retry issues. Gate 1 remains blocked on
-implementation re-review or explicit human acceptance.
+Historical status, superseded by
+`gate0a_shared_viewer_shell_correction_active`: Gate 0.a Vite/dev-server
+product proof was green again after fixing the latest force-lineage and
+stale-retry issues. Gate 1 remains blocked.
 
 Accepted findings addressed:
 
@@ -570,10 +601,10 @@ Proof surface contract:
 
 ## 2026-06-25 Reset Lineage Re-Review Follow-Up
 
-Status: Gate 0.a Vite/dev-server product proof is green after addressing the
-latest implementation re-review blockers. Gate 1 remains blocked until this
-follow-up receives implementation re-review or the human explicitly accepts the
-remaining risk.
+Historical status, superseded by
+`gate0a_shared_viewer_shell_correction_active`: Gate 0.a Vite/dev-server
+product proof was green after addressing the latest implementation re-review
+blockers. Gate 1 remains blocked.
 
 Accepted findings addressed:
 
@@ -664,11 +695,11 @@ Proof surface contract:
 
 ## 2026-06-25 Stale-Refresh Route Observer Follow-Up
 
-Status: Gate 0.a Vite/dev-server product proof is green after accepting
-Feynman's focused re-review finding that stale-refresh still observed only the
-replacement handle and could miss foreign-origin traffic for other handles.
-Gate 1 remains blocked until implementation re-review passes or the human
-explicitly accepts the residual risk.
+Historical status, superseded by
+`gate0a_shared_viewer_shell_correction_active`: Gate 0.a Vite/dev-server
+product proof was green after accepting Feynman's focused re-review finding
+that stale-refresh still observed only the replacement handle and could miss
+foreign-origin traffic for other handles. Gate 1 remains blocked.
 
 Accepted findings addressed:
 
@@ -730,10 +761,10 @@ Proof surface contract:
 
 ## 2026-06-25 Origin-Aware Route Proof Follow-Up
 
-Status: Gate 0.a Vite/dev-server product proof is green after accepting Plato's
-focused re-review finding that file-content route proof was still
-origin-blind. Gate 1 remains blocked until implementation re-review passes or
-the human explicitly accepts the residual risk.
+Historical status, superseded by
+`gate0a_shared_viewer_shell_correction_active`: Gate 0.a Vite/dev-server
+product proof was green after accepting Plato's focused re-review finding that
+file-content route proof was still origin-blind. Gate 1 remains blocked.
 
 Accepted finding addressed:
 
@@ -788,10 +819,10 @@ Proof surface contract:
 
 ## 2026-06-25 Force-Reset Lineage And Quiescence Follow-Up
 
-Status: Gate 0.a Vite/dev-server product proof is green after addressing the
-latest implementation re-review findings from Russell, Nash, Schrodinger, and
-Turing. Gate 1 remains blocked until implementation re-review passes or the
-human explicitly accepts the residual risk.
+Historical status, superseded by
+`gate0a_shared_viewer_shell_correction_active`: Gate 0.a Vite/dev-server
+product proof was green after addressing the latest implementation re-review
+findings from Russell, Nash, Schrodinger, and Turing. Gate 1 remains blocked.
 
 Accepted findings addressed:
 
@@ -864,10 +895,11 @@ Proof surface contract:
 
 ## 2026-06-25 Force-Lineage Review Reduction Follow-Up
 
-Status: Gate 0.a Vite/dev-server product proof is green after addressing the
-latest implementation re-review findings around forced split-reset proof
-authority and refresh readiness. Gate 1 remains blocked until implementation
-re-review passes or the human explicitly accepts the residual risk.
+Historical status, superseded by
+`gate0a_shared_viewer_shell_correction_active`: Gate 0.a Vite/dev-server
+product proof was green after addressing the latest implementation re-review
+findings around forced split-reset proof authority and refresh readiness. Gate
+1 remains blocked.
 
 Accepted findings addressed:
 

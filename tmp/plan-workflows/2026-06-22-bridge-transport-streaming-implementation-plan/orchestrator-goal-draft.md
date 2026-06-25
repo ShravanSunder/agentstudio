@@ -1,32 +1,37 @@
 # Orchestrator Goal Draft
 
-Use this as the current `/goal` contract seed after the plan revision and
-1.6.29 spec refresh.
+Use this as the current `/goal` contract seed after the Gate 0.a shared
+BridgeViewer/FileViewer correction.
 
 ```text
-goal_id: 2026-06-22-bridge-transport-streaming
+goal_id: 2026-06-24-bridge-transport-review-pr-ready
 
 Required workflow skill: shravan-dev-workflow:orchestrator-goal
 
 Objective:
-Deliver the Bridge transport streaming architecture from accepted spec through
-plan review, implementation, proof, implementation review, and PR-ready handoff
-without merging.
+Finish the full Bridge transport/review epic to PR-ready state without merging.
+Gate 0.a is the active first blocker: the exact worktree dev-server URL must
+render FileViewer inside the shared BridgeViewer shell, not a second app path.
+The required surface is one Bridge Viewer App with ReviewViewer and FileViewer
+modes. FileViewer uses primary Pierre CodeView/File canvas on the left, Pierre
+FileTree/right rail on the right, Pierre/Shiki rendering, and worker-backed
+highlighting when workers are enabled.
 
 Required reading:
 - tmp/spec-workflows/2026-06-22-bridge-transport-streaming-spec/spec.md
 - tmp/spec-workflows/2026-06-22-bridge-transport-streaming-spec/review-protocol.md
 - tmp/spec-workflows/2026-06-22-bridge-transport-streaming-spec/worktree-file-surface-protocol.md
 - tmp/spec-workflows/2026-06-22-bridge-transport-streaming-spec/spec-review-report.md
+- tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/worktree-devserver-product-e2e-precursor-plan.md
 - tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/implementation-plan.md
 - tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/file-organization.md
 - tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/plan-review-report.md
 
 Current workflow:
-plan-review-ready
+implementation-execute-plan Gate 0.a shared BridgeViewer/FileViewer correction active
 
 Next workflow:
-shravan-dev-workflow:plan-review-swarm
+shravan-dev-workflow:implementation-execute-plan
 
 Terminal condition:
 PR is opened or updated and proven ready, with implementation complete,
@@ -35,10 +40,10 @@ findings addressed or explicitly rejected, CI/check/review-thread/readiness stat
 freshly reported, and no merge performed unless separately authorized.
 
 State details:
-tmp/workflow-state/2026-06-22-bridge-transport-streaming/details.md
+tmp/workflow-state/2026-06-24-bridge-transport-review-pr-ready/details.md
 
 Transition log:
-tmp/workflow-state/2026-06-22-bridge-transport-streaming/events.jsonl
+tmp/workflow-state/2026-06-24-bridge-transport-review-pr-ready/events.jsonl
 
 Scope:
 - BridgeWeb common runtime/models under BridgeWeb/src/core/**
@@ -62,11 +67,19 @@ Non-goals:
   after a ticket cuts over.
 
 Required plan-review gate before implementation:
-- Run `shravan-dev-workflow:plan-review-swarm` on the revised plan package.
-- If accepted blocker or important findings remain, route back to
-  `plan-creation-swarm` or `spec-creation-swarm` by finding owner.
-- If the plan review passes or only accepted tiny plan edits remain, route to
-  implementation checkpoint execution.
+- Gate 0.a plan/spec correction is active now.
+- The first implementation checkpoint must repair the live dev-server product
+  surface for
+  `http://127.0.0.1:5173/?fixture=worktree&workers=on&scenario=current-worktree`.
+- It must prove the shared BridgeViewer shell, primary code/file canvas on the
+  left, Pierre FileTree/right rail on the right, Pierre CodeView/File, Shiki,
+  worker path, search/regex/filter controls, stale refresh, and scroll extent
+  canaries.
+- It must fail against `WorktreeFileApp`, route-local custom shells, custom tree
+  rendering, raw `<pre>` body rendering, mock routes, stale Vite output, and
+  DOM-only content-ready markers.
+- After Gate 0.a implementation proof passes, run implementation review before
+  advancing to Gate 1.
 
 Execution rules:
 - At each ticket, read current code first, then add/adjust failing tests before

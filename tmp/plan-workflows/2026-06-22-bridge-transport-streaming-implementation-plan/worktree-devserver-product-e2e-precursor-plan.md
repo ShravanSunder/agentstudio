@@ -1,53 +1,46 @@
 # Worktree Dev-Server Product E2E Precursor Plan
 
 Date: 2026-06-24
-Status: Gate 0.a Vite/dev-server proof complete after shared-app boundary proof pass; pending implementation re-review
+Status: Gate 0.a reopened; shared BridgeViewer/FileViewer correction is the
+active blocker before downstream gates
 Ticket: 06P / Gate 0.a Shared FileViewer Renderer Precursor
 
 ## Current Proof Status
 
-Gate 0.a Vite/dev-server proof is green as of 2026-06-25 00:04 -04:00 after
-the shared-app boundary proof pass.
+Gate 0.a is not closed. Earlier proof artifacts and reviewer fixes are useful
+history, but the live product contract is stronger than "make WorktreeFileApp
+product-like." The blocking outcome is now:
+
+```text
+remove or bypass the second app path and prove FileViewer uses the shared
+BridgeViewer shell with Pierre FileTree + Pierre CodeView/File + Shiki workers
+```
+
+The exact dev-server URL must be re-proved against the current live app before
+this precursor can advance again.
 
 - Canonical command:
   `pnpm --dir BridgeWeb run test:dev-server:worktree`
 - Exact URL:
   `http://127.0.0.1:5173/?fixture=worktree&workers=on&scenario=current-worktree`
-- JSON artifact:
-  `tmp/bridge-viewer-worktree-dev-server/2026-06-25T04-04-26-634Z/worktree-dev-server-proof.json`
-- Screenshots:
-  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T04-04-26-634Z/worktree-file-ready.png`
-  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T04-04-26-634Z/worktree-file-search-result.png`
-  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T04-04-26-634Z/worktree-file-stale-refresh.png`
-- Supporting proof:
-  - `pnpm --dir BridgeWeb exec vitest run scripts/dev-server/bridge-worktree-dev-provider.integration.test.ts src/worktree-file-surface/worktree-file-surface-runtime.integration.test.ts src/file-viewer/bridge-file-viewer-app.unit.test.tsx src/app/bridge-app-protocol-router.unit.test.tsx src/review-viewer/workers/pierre/bridge-pierre-worker-pool.unit.test.tsx scripts/verify-bridge-viewer-worktree-dev-server-paths.unit.test.ts --reporter verbose`
-    passed: 6 files, 46 tests
-  - `pnpm --dir BridgeWeb exec tsc --noEmit` passed
-  - `pnpm --dir BridgeWeb run check` passed with existing verifier
-    `no-await-in-loop` warnings only
-  - `pnpm --dir BridgeWeb run test:browser:integration -- src/review-viewer/test-support/bridge-viewer-browser.integration.browser.test.tsx -t "large fixture programmatic file reveal uses bounded CodeView motion"`
-    passed: 2 files, 34 tests
+- Required fresh proof artifact:
+  a new `tmp/bridge-viewer-worktree-dev-server/<timestamp>/worktree-dev-server-proof.json`
+  plus screenshots captured after this correction.
 
-The verifier now fails closed against the old second-app path and proves the
-exact worktree URL renders FileViewer inside the shared BridgeViewer shell with
-Pierre FileTree/right rail, Pierre CodeView/File, Shiki rendering, worker-backed
-highlighting request, product controls, stale/refresh, and stable tree/content
-scroll extents. It also asserts the observed browser URL, shared-shell DOM
-containment, `BridgeApp` ownership, no router-local direct FileViewer mount,
-worker file-success baseline and selected-descriptor cache key, descriptor-path
-containment before verifier writes, collision-safe verifier restore, nontrivial
-available/unavailable filter behavior, visible stale notice geometry, and
-retryable stale state after a failed explicit refresh with request counts
-`0 -> 1 -> 2`.
+Historical green artifacts are not terminal proof for the reopened gate unless
+they are rerun and visually/reviewer-validated against the current live dev
+server. The proof must fail if the page renders the file tree/search on the
+left and file content on the right, because the shared UX contract is primary
+code/file canvas on the left and Pierre FileTree/right rail on the right.
 
 Native Agent Studio Bridge/WKWebView proof remains outside this precursor and
 is still required before PR-ready.
 
-## Historical Problem
+## Historical Problem And Current Blocker
 
-The current worktree dev URL boots a Worktree/File protocol route, but it is
-reaching a second app path instead of the shared BridgeViewer shell. The exact
-URL is:
+The original worktree dev URL booted a Worktree/File protocol route, but it
+reached a second app path instead of the shared BridgeViewer shell. The exact
+URL remains the required proof URL:
 
 ```text
 http://127.0.0.1:5173/?fixture=worktree&workers=on&scenario=current-worktree
@@ -69,7 +62,7 @@ Original red evidence captured on 2026-06-24:
 - JSON artifact:
   `tmp/bridge-worktree-devserver-proof-recovery/current-worktree-route-diagnostics.json`
 
-Latest Gate 0.a red evidence:
+Former Gate 0.a red evidence:
 
 - Worktree exact URL renders `.worktree-file-tree` on the left and
   `.worktree-file-content` on the right.
@@ -83,6 +76,19 @@ Latest Gate 0.a red evidence:
   File rendering uses Shiki, and file rendering uses the worker pool when
   `WorkerPoolContextProvider` is active.
 
+Current 2026-06-25 blocker:
+
+- Local code now routes `worktree-file` through `BridgeApp viewerMode="file"`,
+  but that does not close Gate 0.a by itself.
+- The user's live dev-server screenshots show the file tree/search surface on
+  the left and file content on the right.
+- That visible layout violates the shared UX contract even if hidden ownership
+  markers say `BridgeApp`.
+- The next implementation checkpoint must restart/reload the Vite dev server,
+  run the exact URL in a real browser, and prove the visible surface has the
+  primary Pierre CodeView/File canvas on the left and Pierre FileTree/right rail
+  on the right.
+
 Fresh contrast proof:
 
 - `pnpm --dir BridgeWeb run test:dev-server:worktree` passed on 2026-06-24 and
@@ -94,7 +100,8 @@ Fresh contrast proof:
 
 This means prior proof only establishes a narrow route/data-loading regression.
 It does not prove FileViewer product readiness because it can pass while the
-exact worktree URL is still a standalone mini-app with custom rendering.
+exact worktree URL still violates the shared-shell visible UX contract or uses
+stale/mock/raw/custom-renderer substitutes.
 
 ## Blocking Outcome
 
@@ -142,6 +149,15 @@ Out of scope:
 
 The Worktree/File product route must expose these observable regions:
 
+0. Bridge Viewer App model
+   - One app owns both viewer modes.
+   - `ReviewViewer` handles diffs, changesets, and review packages.
+   - `FileViewer` handles worktree file browsing, single-file reading, and live
+     file view.
+   - Worktree, mock fixture, live changeset stream, static review package, and
+     file content stream are data sources or protocol inputs, not separate
+     product apps.
+
 1. Source/status header
    - Shows route identity and source provenance.
    - DOM exposes protocol/source facts for Playwright:
@@ -184,19 +200,24 @@ The Worktree/File product route must expose these observable regions:
 ### Slice 06P.1 / 0.a.1: Red Shared Renderer Contract
 
 Add or tighten the Playwright verifier so it fails against the current route for
-the right reason: the exact worktree URL mounts the standalone `WorktreeFileApp`
-path and bypasses Pierre FileTree, Pierre CodeView/File, Shiki, and workers.
+the right current reason. The exact worktree URL must fail if the live page
+shows tree/search on the left and file content on the right, if the dev server
+is serving stale output, or if the route reaches any mock/raw/custom substitute
+instead of the shared BridgeViewer FileViewer surface.
 
 Proof:
 
 - Run the verifier before implementation and capture failure.
-- Failure message names the second-app/custom-renderer violation or at least one
-  missing shared-shell/Pierre renderer requirement.
+- Failure message names the visible shared-shell violation: wrong left/right
+  composition, missing Pierre FileTree/right rail, missing Pierre CodeView/File
+  canvas, missing Shiki/worker path, stale dev-server output, or mock/raw/custom
+  substitute.
 - Failure is not a timeout-only assertion.
-- Add a focused router/bootstrap composition assertion showing the
-  `worktree-file` route currently reaches the forbidden second-app path; this
-  proof must go green only when the route resolves directly to shared
-  BridgeViewer FileViewer ownership.
+- Keep a focused router/bootstrap composition assertion that
+  `worktree-file` resolves through `BridgeApp viewerMode="file"`, but do not use
+  that as sufficient proof. The browser proof must validate the visible surface
+  and fail if `WorktreeFileApp`, a route-local custom shell, custom tree
+  rendering, raw `<pre>` content, or a stale Vite bundle is visible or reachable.
 
 ### Slice 06P.2 / 0.a.2: Source Adapter Into Shared FileViewer
 
@@ -350,12 +371,10 @@ Vite dev bootstrap
         ├─ installs Worktree dev backend
         │
         ▼
-Worktree/File product shell
+BridgeViewerApp(mode = FileViewer)
         │
-        ├─ source/status header
-        ├─ query/filter controls
-        ├─ tree pane from descriptors + tree size facts
-        └─ file pane from selected descriptor + materialized content
+        ├─ left: Pierre CodeView/File canvas
+        └─ right: Pierre FileTree rail with search/regex/filter chrome
               │
               ▼
       descriptor resource fetch
