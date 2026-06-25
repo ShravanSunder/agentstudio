@@ -44,6 +44,8 @@ const worktreeFileContentEndpointPrefix = '/__bridge-worktree/file-content/';
 const worktreeSurfaceEndpoint = '/__bridge-worktree/surface';
 const worktreeDevReloadEventType = 'bridge-worktree-dev-reload';
 const worktreeDevForceSplitResetReloadEventType = 'bridge-worktree-dev-force-split-reset-reload';
+const worktreeDevPausePollingEventType = 'bridge-worktree-dev-pause-polling';
+const worktreeDevResumePollingEventType = 'bridge-worktree-dev-resume-polling';
 const worktreeDevPollIntervalMilliseconds = 1_000;
 const worktreeForwardedSearchParamNames: readonly string[] = ['scenario'];
 const bridgeWorktreeAllowedResourceKindsByProtocol = {
@@ -125,6 +127,7 @@ export function installBridgeAppDevWorktreeBackend(): BridgeAppDevWorktreeBacken
 			subscriber: WorktreeFileFrameSubscriber,
 		): WorktreeFileFrameSubscriptionDispose => {
 			let isDisposed = false;
+			let isPollingEnabled = true;
 			let isReloading = false;
 			let hasPendingForceSplitResetReload = false;
 			const pendingFrameDeliveryTimeoutIds = new Set<number>();
@@ -157,10 +160,13 @@ export function installBridgeAppDevWorktreeBackend(): BridgeAppDevWorktreeBacken
 					}
 					lastAcceptedSurfaceFrames = nextSurface.frames;
 					const frameKinds = incrementalFrames.map((frame) => frame.frameKind).join(',');
+					const frameSequences = incrementalFrames.map((frame) => frame.sequence).join(',');
 					document.documentElement.dataset['bridgeWorktreeDevLastReloadFrameCount'] = String(
 						incrementalFrames.length,
 					);
 					document.documentElement.dataset['bridgeWorktreeDevLastReloadFrameKinds'] = frameKinds;
+					document.documentElement.dataset['bridgeWorktreeDevLastReloadFrameSequences'] =
+						frameSequences;
 					document.documentElement.dataset['bridgeWorktreeDevLastReloadSourceCursor'] =
 						nextSurface.source.sourceCursor;
 					document.documentElement.dataset['bridgeWorktreeDevLastReloadStatus'] = 'delivered';
@@ -169,6 +175,9 @@ export function installBridgeAppDevWorktreeBackend(): BridgeAppDevWorktreeBacken
 							String(incrementalFrames.length);
 						document.documentElement.dataset['bridgeWorktreeDevLastForceSplitReloadFrameKinds'] =
 							frameKinds;
+						document.documentElement.dataset[
+							'bridgeWorktreeDevLastForceSplitReloadFrameSequences'
+						] = frameSequences;
 						document.documentElement.dataset['bridgeWorktreeDevLastForceSplitReloadSourceCursor'] =
 							nextSurface.source.sourceCursor;
 						document.documentElement.dataset['bridgeWorktreeDevLastForceSplitReloadStatus'] =
@@ -210,13 +219,25 @@ export function installBridgeAppDevWorktreeBackend(): BridgeAppDevWorktreeBacken
 					'force-split-reset';
 				void reloadFrames({ forceSplitReset: true });
 			};
+			const handlePausePollingEvent = (): void => {
+				isPollingEnabled = false;
+				document.documentElement.dataset['bridgeWorktreeDevPollingState'] = 'paused';
+			};
+			const handleResumePollingEvent = (): void => {
+				isPollingEnabled = true;
+				document.documentElement.dataset['bridgeWorktreeDevPollingState'] = 'running';
+			};
 			window.addEventListener(worktreeDevReloadEventType, handleReloadEvent);
 			window.addEventListener(
 				worktreeDevForceSplitResetReloadEventType,
 				handleForceSplitResetReloadEvent,
 			);
+			window.addEventListener(worktreeDevPausePollingEventType, handlePausePollingEvent);
+			window.addEventListener(worktreeDevResumePollingEventType, handleResumePollingEvent);
 			const intervalId = window.setInterval((): void => {
-				void reloadFrames();
+				if (isPollingEnabled) {
+					void reloadFrames();
+				}
 			}, worktreeDevPollIntervalMilliseconds);
 			return (): void => {
 				isDisposed = true;
@@ -229,6 +250,8 @@ export function installBridgeAppDevWorktreeBackend(): BridgeAppDevWorktreeBacken
 					worktreeDevForceSplitResetReloadEventType,
 					handleForceSplitResetReloadEvent,
 				);
+				window.removeEventListener(worktreeDevPausePollingEventType, handlePausePollingEvent);
+				window.removeEventListener(worktreeDevResumePollingEventType, handleResumePollingEvent);
 			};
 		},
 	};
@@ -237,16 +260,20 @@ export function installBridgeAppDevWorktreeBackend(): BridgeAppDevWorktreeBacken
 export function worktreeFileSourceLessResetFramesFromSurface(
 	nextFrames: readonly WorktreeFileProtocolFrame[],
 ): readonly WorktreeFileProtocolFrame[] {
+	const resetSequence = maxWorktreeFrameSequence(nextFrames) + 1;
 	return [
 		{
 			kind: 'reset',
 			streamId: 'worktree-file',
 			generation: 0,
-			sequence: maxWorktreeFrameSequence(nextFrames) + 1,
+			sequence: resetSequence,
 			frameKind: 'worktree.reset',
 			reason: 'sourceChanged',
 		},
-		...nextFrames,
+		...rebaseWorktreeFileFrameSequences({
+			frames: nextFrames,
+			startSequence: resetSequence + 1,
+		}),
 	];
 }
 
@@ -273,7 +300,10 @@ export function worktreeFileIncrementalFramesFromSurfaces(props: {
 				frameKind: 'worktree.reset',
 				reason: 'sourceChanged',
 			},
-			...props.nextFrames,
+			...rebaseWorktreeFileFrameSequences({
+				frames: props.nextFrames,
+				startSequence: nextSequence + 1,
+			}),
 		];
 	}
 	const incrementalFrames: WorktreeFileProtocolFrame[] = [];
@@ -377,6 +407,18 @@ function worktreeFileInvalidatedFrame(props: {
 
 function maxWorktreeFrameSequence(frames: readonly WorktreeFileProtocolFrame[]): number {
 	return frames.reduce((maxSequence, frame) => Math.max(maxSequence, frame.sequence), 0);
+}
+
+function rebaseWorktreeFileFrameSequences(props: {
+	readonly frames: readonly WorktreeFileProtocolFrame[];
+	readonly startSequence: number;
+}): readonly WorktreeFileProtocolFrame[] {
+	return props.frames.map(
+		(frame, index): WorktreeFileProtocolFrame => ({
+			...frame,
+			sequence: props.startSequence + index,
+		}),
+	);
 }
 
 function bridgeWorktreeEndpoint(path: string, searchParams: URLSearchParams): string {

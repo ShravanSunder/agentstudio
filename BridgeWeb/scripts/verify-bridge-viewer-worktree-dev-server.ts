@@ -151,6 +151,7 @@ interface WorktreeFileStaleRefreshProof {
 interface WorktreeFileSplitResetReplacementProof {
 	readonly devReloadFrameCount: number;
 	readonly devReloadFrameKinds: readonly string[];
+	readonly devReloadFrameSequences: readonly number[];
 	readonly devReloadRequest: string | null;
 	readonly devReloadSourceCursor: string | null;
 	readonly devReloadStatus: string | null;
@@ -178,6 +179,7 @@ interface WorktreeFileContentRouteProbe {
 interface WorktreeDevReloadProof {
 	readonly frameCount: number;
 	readonly frameKinds: readonly string[];
+	readonly frameSequences: readonly number[];
 	readonly request: string | null;
 	readonly sourceCursor: string | null;
 	readonly status: string | null;
@@ -428,18 +430,7 @@ const browser = await chromium.launch({ headless: true });
 try {
 	const result = await verifyWorktreeDevServer();
 	const proofArtifactPath = await writeWorktreeDevServerProofArtifact(result);
-	console.log(
-		JSON.stringify(
-			{
-				ok: true,
-				devServerUrl: worktreeDevServerUrl,
-				...result,
-				proofArtifactPath,
-			},
-			null,
-			2,
-		),
-	);
+	console.log(JSON.stringify(worktreeDevServerConsoleProof(result, proofArtifactPath), null, 2));
 } finally {
 	await browser.close();
 }
@@ -577,6 +568,8 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 			rendered,
 			targetPath: targetDescriptor.path,
 		});
+		const { selectedText: _selectedText, ...renderedResult }: WorktreeRenderedContentState =
+			rendered;
 		if (rendered.treeTotalSizePixels === null || rendered.treeTotalSizePixels <= 0) {
 			throw new Error('Expected Worktree/File tree extent to be reserved from provider facts');
 		}
@@ -633,7 +626,7 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 		});
 		assertWorktreeScrollExtentCanary(scrollExtentCanary);
 		return {
-			...rendered,
+			...renderedResult,
 			browserProof: await readBrowserProof(page),
 			descriptorCount: descriptors.length,
 			firstLoadContentState: firstLoadRendered.selectedContentState,
@@ -2314,98 +2307,110 @@ async function verifyWorktreeFileSplitResetReplacement(props: {
 		label: 'initial split-reset proof content',
 		page: props.page,
 	});
-	await writeFile(props.fixture.absolutePath, props.fixture.updatedContent);
-	const replacementSurface = await fetchWorktreeSurface();
-	const replacementDescriptor = worktreeFileDescriptors(replacementSurface.frames).find(
-		(candidate) => candidate.path === props.fixture.relativePath,
-	);
-	if (replacementDescriptor === undefined) {
-		throw new Error(
-			`Expected replacement descriptor for split-reset proof path ${props.fixture.relativePath}`,
-		);
-	}
-	if (replacementDescriptor.contentHandle === props.descriptor.contentHandle) {
-		throw new Error(
-			`Expected split-reset proof to create a replacement content handle for ${props.fixture.relativePath}`,
-		);
-	}
-	const refreshGate = makeDeferred<void>();
-	refreshGate.resolve();
-	const refreshRouteProbe = await installFileContentRouteGate({
-		gate: refreshGate,
-		page: props.page,
-	});
-	let staleText = '';
-	let staleMessageVisible = false;
+	await setWorktreeDevPollingEnabled({ enabled: false, page: props.page });
 	try {
-		const preDispatchContentRouteHitCount = refreshRouteProbe.hitCount();
-		await dispatchWorktreeDevForceSplitResetReload(props.page);
-		await waitForWorktreeOpenFileState({
-			page: props.page,
-			path: props.fixture.relativePath,
-			state: 'stale',
-		});
-		await waitForWorktreeDevForceSplitReloadDelivered({
-			page: props.page,
-			sourceCursor: replacementSurface.source.sourceCursor,
-		});
-		const devReloadProof = await readWorktreeDevReloadProof(props.page);
-		const staleNotice = props.page.locator('[data-testid="worktree-file-content-stale"]');
-		await staleNotice.getByText('Content changed').waitFor({ state: 'visible', timeout: 10_000 });
-		staleMessageVisible = await staleNotice.isVisible();
-		staleText = await worktreeVisibleContentText(props.page);
-		const postReplacementContentRouteHitCount = refreshRouteProbe.hitCount();
-		await clickWorktreeFileControl(props.page, 'worktree-file-refresh');
-		await waitForWorktreeOpenFileState({
-			page: props.page,
-			path: props.fixture.relativePath,
-			state: 'refreshing',
-		});
-		await waitForWorktreeOpenFileState({
-			page: props.page,
-			path: props.fixture.relativePath,
-			state: 'ready',
-		});
-		const postRefreshContentRouteHitCount = refreshRouteProbe.hitCount();
-		const refreshedText = await waitForWorktreeVisibleContentText({
-			expectedText: props.fixture.updatedContent,
-			label: 'split-reset replacement proof content',
+		await writeFile(props.fixture.absolutePath, props.fixture.updatedContent);
+		const replacementSurface = await fetchWorktreeSurface();
+		const replacementDescriptor = worktreeFileDescriptors(replacementSurface.frames).find(
+			(candidate) => candidate.path === props.fixture.relativePath,
+		);
+		if (replacementDescriptor === undefined) {
+			throw new Error(
+				`Expected replacement descriptor for split-reset proof path ${props.fixture.relativePath}`,
+			);
+		}
+		if (replacementDescriptor.contentHandle === props.descriptor.contentHandle) {
+			throw new Error(
+				`Expected split-reset proof to create a replacement content handle for ${props.fixture.relativePath}`,
+			);
+		}
+		const refreshGate = makeDeferred<void>();
+		refreshGate.resolve();
+		const refreshRouteProbe = await installFileContentRouteGate({
+			gate: refreshGate,
 			page: props.page,
 		});
-		const hitUrls = refreshRouteProbe.hitUrls();
-		const replacementContentRouteHitCount = hitUrls.filter((hitUrl) =>
-			hitUrl.includes(encodeURIComponent(replacementDescriptor.contentHandle)),
-		).length;
-		const proof: WorktreeFileSplitResetReplacementProof = {
-			devReloadFrameCount: devReloadProof.frameCount,
-			devReloadFrameKinds: devReloadProof.frameKinds,
-			devReloadRequest: devReloadProof.request,
-			devReloadSourceCursor: devReloadProof.sourceCursor,
-			devReloadStatus: devReloadProof.status,
-			initialContentStillVisibleWhileStale: renderedTextIncludesContent(
-				staleText,
-				props.fixture.initialContent,
-			),
-			oldContentHandle: props.descriptor.contentHandle,
-			postRefreshContentRouteHitCount,
-			postReplacementContentRouteHitCount,
-			preDispatchContentRouteHitCount,
-			proofPath: props.fixture.relativePath,
-			refreshedContentVisible: renderedTextIncludesContent(
-				refreshedText,
-				props.fixture.updatedContent,
-			),
-			replacementContentHandle: replacementDescriptor.contentHandle,
-			replacementContentHash: replacementDescriptor.contentHash ?? null,
-			replacementContentRouteHitCount,
-			replacementSourceCursor: replacementSurface.source.sourceCursor,
-			selectedContentStateAfterReset: 'stale',
-			staleMessageVisible,
-		};
-		assertWorktreeFileSplitResetReplacementProof(proof);
-		return proof;
+		let staleText = '';
+		let staleMessageVisible = false;
+		try {
+			const preDispatchContentRouteHitCount = refreshRouteProbe.hitCount();
+			await waitForWorktreeOpenFileState({
+				page: props.page,
+				path: props.fixture.relativePath,
+				state: 'ready',
+			});
+			await dispatchWorktreeDevForceSplitResetReload(props.page);
+			await waitForWorktreeOpenFileState({
+				page: props.page,
+				path: props.fixture.relativePath,
+				state: 'stale',
+			});
+			await waitForWorktreeDevForceSplitReloadDelivered({
+				page: props.page,
+				sourceCursor: replacementSurface.source.sourceCursor,
+			});
+			const devReloadProof = await readWorktreeDevReloadProof(props.page);
+			const staleNotice = props.page.locator('[data-testid="worktree-file-content-stale"]');
+			await staleNotice.getByText('Content changed').waitFor({ state: 'visible', timeout: 10_000 });
+			await waitForWorktreeRefreshButtonEnabled(props.page);
+			staleMessageVisible = await staleNotice.isVisible();
+			staleText = await worktreeVisibleContentText(props.page);
+			const postReplacementContentRouteHitCount = refreshRouteProbe.hitCount();
+			await clickWorktreeFileControl(props.page, 'worktree-file-refresh');
+			await waitForWorktreeOpenFileState({
+				page: props.page,
+				path: props.fixture.relativePath,
+				state: 'refreshing',
+			});
+			await waitForWorktreeOpenFileState({
+				page: props.page,
+				path: props.fixture.relativePath,
+				state: 'ready',
+			});
+			const postRefreshContentRouteHitCount = refreshRouteProbe.hitCount();
+			const refreshedText = await waitForWorktreeVisibleContentText({
+				expectedText: props.fixture.updatedContent,
+				label: 'split-reset replacement proof content',
+				page: props.page,
+			});
+			const hitUrls = refreshRouteProbe.hitUrls();
+			const replacementContentRouteHitCount = hitUrls.filter((hitUrl) =>
+				hitUrl.includes(encodeURIComponent(replacementDescriptor.contentHandle)),
+			).length;
+			const proof: WorktreeFileSplitResetReplacementProof = {
+				devReloadFrameCount: devReloadProof.frameCount,
+				devReloadFrameKinds: devReloadProof.frameKinds,
+				devReloadFrameSequences: devReloadProof.frameSequences,
+				devReloadRequest: devReloadProof.request,
+				devReloadSourceCursor: devReloadProof.sourceCursor,
+				devReloadStatus: devReloadProof.status,
+				initialContentStillVisibleWhileStale: renderedTextIncludesContent(
+					staleText,
+					props.fixture.initialContent,
+				),
+				oldContentHandle: props.descriptor.contentHandle,
+				postRefreshContentRouteHitCount,
+				postReplacementContentRouteHitCount,
+				preDispatchContentRouteHitCount,
+				proofPath: props.fixture.relativePath,
+				refreshedContentVisible: renderedTextIncludesContent(
+					refreshedText,
+					props.fixture.updatedContent,
+				),
+				replacementContentHandle: replacementDescriptor.contentHandle,
+				replacementContentHash: replacementDescriptor.contentHash ?? null,
+				replacementContentRouteHitCount,
+				replacementSourceCursor: replacementSurface.source.sourceCursor,
+				selectedContentStateAfterReset: 'stale',
+				staleMessageVisible,
+			};
+			assertWorktreeFileSplitResetReplacementProof(proof);
+			return proof;
+		} finally {
+			await refreshRouteProbe.dispose();
+		}
 	} finally {
-		await refreshRouteProbe.dispose();
+		await setWorktreeDevPollingEnabled({ enabled: true, page: props.page });
 	}
 }
 
@@ -2449,6 +2454,7 @@ function assertWorktreeFileSplitResetReplacementProof(
 		proof.devReloadStatus !== 'delivered' ||
 		proof.devReloadSourceCursor !== proof.replacementSourceCursor ||
 		proof.devReloadFrameCount !== proof.devReloadFrameKinds.length ||
+		proof.devReloadFrameCount !== proof.devReloadFrameSequences.length ||
 		proof.devReloadFrameKinds[0] !== 'worktree.reset' ||
 		proof.devReloadFrameKinds[1] !== 'worktree.snapshot'
 	) {
@@ -2456,6 +2462,26 @@ function assertWorktreeFileSplitResetReplacementProof(
 			`Expected Worktree/File split reset proof to use forced reset/snapshot lineage: ${JSON.stringify(proof)}`,
 		);
 	}
+	if (!numberListIsStrictlyIncreasing(proof.devReloadFrameSequences)) {
+		throw new Error(
+			`Expected Worktree/File split reset frames to use increasing sequence lineage: ${JSON.stringify(proof)}`,
+		);
+	}
+}
+
+function numberListIsStrictlyIncreasing(values: readonly number[]): boolean {
+	for (let index = 1; index < values.length; index += 1) {
+		const currentValue = values[index];
+		const previousValue = values[index - 1];
+		if (
+			currentValue === undefined ||
+			previousValue === undefined ||
+			currentValue <= previousValue
+		) {
+			return false;
+		}
+	}
+	return true;
 }
 
 function assertWorktreeFileStaleRefreshProof(proof: WorktreeFileStaleRefreshProof): void {
@@ -2950,6 +2976,37 @@ async function waitForWorktreeDevForceSplitReloadDelivered(props: {
 	);
 }
 
+async function setWorktreeDevPollingEnabled(props: {
+	readonly enabled: boolean;
+	readonly page: Page;
+}): Promise<void> {
+	const eventType = props.enabled
+		? 'bridge-worktree-dev-resume-polling'
+		: 'bridge-worktree-dev-pause-polling';
+	const expectedState = props.enabled ? 'running' : 'paused';
+	await props.page.evaluate((nextEventType: string): void => {
+		window.dispatchEvent(new Event(nextEventType));
+	}, eventType);
+	await props.page.waitForFunction(
+		(nextState: string): boolean =>
+			document.documentElement.dataset['bridgeWorktreeDevPollingState'] === nextState,
+		expectedState,
+		{ timeout: 5_000 },
+	);
+}
+
+async function waitForWorktreeRefreshButtonEnabled(page: Page): Promise<void> {
+	await page.waitForFunction(
+		(): boolean => {
+			const refreshButton = document.querySelector<HTMLButtonElement>(
+				'[data-testid="worktree-file-refresh"]',
+			);
+			return refreshButton !== null && !refreshButton.disabled;
+		},
+		{ timeout: 10_000 },
+	);
+}
+
 async function readWorktreeDevReloadProof(page: Page): Promise<WorktreeDevReloadProof> {
 	return await page.evaluate((): WorktreeDevReloadProof => {
 		const frameKindsText =
@@ -2958,11 +3015,21 @@ async function readWorktreeDevReloadProof(page: Page): Promise<WorktreeDevReload
 			frameKindsText.length === 0
 				? []
 				: frameKindsText.split(',').filter((frameKind) => frameKind.length > 0);
+		const frameSequencesText =
+			document.documentElement.dataset['bridgeWorktreeDevLastForceSplitReloadFrameSequences'] ?? '';
+		const frameSequences =
+			frameSequencesText.length === 0
+				? []
+				: frameSequencesText
+						.split(',')
+						.filter((sequenceText) => sequenceText.length > 0)
+						.map((sequenceText) => Number.parseInt(sequenceText, 10));
 		const frameCountText =
 			document.documentElement.dataset['bridgeWorktreeDevLastForceSplitReloadFrameCount'] ?? null;
 		return {
 			frameCount: frameCountText === null ? 0 : Number.parseInt(frameCountText, 10),
 			frameKinds,
+			frameSequences,
 			request: document.documentElement.dataset['bridgeWorktreeDevLastReloadRequest'] ?? null,
 			sourceCursor:
 				document.documentElement.dataset['bridgeWorktreeDevLastForceSplitReloadSourceCursor'] ??
@@ -3047,6 +3114,45 @@ async function writeWorktreeDevServerProofArtifact(
 		)}\n`,
 	);
 	return proofArtifactDisplayPath;
+}
+
+function worktreeDevServerConsoleProof(
+	result: WorktreeDevServerVerificationResult,
+	proofArtifactPath: string,
+): Record<string, unknown> {
+	return {
+		ok: true,
+		devServerUrl: worktreeDevServerUrl,
+		observedLocationHref: result.observedLocationHref,
+		observedPageUrl: result.observedPageUrl,
+		proofArtifactPath,
+		scenarioName: result.scenarioName,
+		selectedContentState: result.selectedContentState,
+		selectedDisplayPath: result.selectedDisplayPath,
+		selectedLineCount: result.selectedLineCount,
+		sharedShellProof: result.sharedShellProof,
+		splitResetReplacementProof: {
+			devReloadFrameCount: result.splitResetReplacementProof.devReloadFrameCount,
+			devReloadFrameKindSample: result.splitResetReplacementProof.devReloadFrameKinds.slice(0, 8),
+			devReloadFrameSequenceHead: result.splitResetReplacementProof.devReloadFrameSequences.slice(
+				0,
+				8,
+			),
+			devReloadFrameSequenceTail:
+				result.splitResetReplacementProof.devReloadFrameSequences.slice(-8),
+			devReloadRequest: result.splitResetReplacementProof.devReloadRequest,
+			devReloadStatus: result.splitResetReplacementProof.devReloadStatus,
+			postRefreshContentRouteHitCount:
+				result.splitResetReplacementProof.postRefreshContentRouteHitCount,
+			postReplacementContentRouteHitCount:
+				result.splitResetReplacementProof.postReplacementContentRouteHitCount,
+			replacementContentRouteHitCount:
+				result.splitResetReplacementProof.replacementContentRouteHitCount,
+		},
+		substituteGuardProof: result.substituteGuardProof,
+		treePathCount: result.treePathCount,
+		visibleAppProof: result.visibleAppProof,
+	};
 }
 
 function escapeRegExp(value: string): string {

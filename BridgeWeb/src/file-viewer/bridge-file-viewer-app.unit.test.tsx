@@ -220,7 +220,7 @@ describe('BridgeFileViewerApp', () => {
 		expect(openFileState()).toBe('stale');
 		expect(document.body.textContent).toContain('Content changed');
 		expect(document.body.textContent).toContain('export const value = 1');
-		expect(document.querySelector('[data-testid="worktree-file-refresh"]')).not.toBeNull();
+		expect(refreshButton()?.disabled).toBe(true);
 
 		await act(async (): Promise<void> => {
 			frameSubscriber?.([makeFileDescriptorFrame(replacementDescriptor)]);
@@ -229,6 +229,7 @@ describe('BridgeFileViewerApp', () => {
 
 		expect(openFileState()).toBe('stale');
 		expect(document.body.textContent).toContain('export const value = 1');
+		expect(refreshButton()?.disabled).toBe(false);
 
 		await act(async (): Promise<void> => {
 			document.querySelector<HTMLButtonElement>('[data-testid="worktree-file-refresh"]')?.click();
@@ -434,6 +435,7 @@ describe('BridgeFileViewerApp', () => {
 
 		expect(openFileState()).toBe('stale');
 		expect(document.body.textContent).toContain('export const value = 1');
+		expect(refreshButton()?.disabled).toBe(true);
 
 		await act(async (): Promise<void> => {
 			document.querySelector<HTMLButtonElement>('[data-testid="worktree-file-refresh"]')?.click();
@@ -491,11 +493,16 @@ describe('BridgeFileViewerApp', () => {
 		expect(openFileState()).toBe('stale');
 		expect(document.body.textContent).toContain('Content changed');
 		expect(document.body.textContent).toContain('export const value = 1');
+		expect(refreshButton()?.disabled).toBe(false);
 		expect(fetchedResourceUrls).toEqual([
 			'agentstudio://resource/worktree-file/worktree.fileContent/file-content-1?generation=1',
 		]);
 	});
 });
+
+function refreshButton(): HTMLButtonElement | null {
+	return document.querySelector<HTMLButtonElement>('[data-testid="worktree-file-refresh"]');
+}
 
 function makeFrames(
 	...descriptors: readonly WorktreeFileDescriptor[]

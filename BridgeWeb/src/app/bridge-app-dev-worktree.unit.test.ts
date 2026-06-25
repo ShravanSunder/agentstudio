@@ -110,6 +110,7 @@ describe('bridge app dev worktree frame subscription', () => {
 				.filter((frame) => frame.frameKind === 'worktree.fileDescriptor')
 				.map((frame) => frame.descriptor.path),
 		).toEqual(['src/surviving.ts']);
+		expect(frames.map((frame) => frame.sequence)).toEqual([2, 3, 4]);
 	});
 
 	test('builds a source-less reset followed by the replacement surface for forced split proof', () => {
@@ -139,6 +140,35 @@ describe('bridge app dev worktree frame subscription', () => {
 				contentHash: 'sha256:replacement',
 			},
 		});
+		expect(frames.map((frame) => frame.sequence)).toEqual([2, 3, 4]);
+	});
+
+	test('pauses polling reloads while forced split reset proof owns the surface', async () => {
+		vi.useFakeTimers();
+		const descriptor = makeFileDescriptor();
+		let fetchCount = 0;
+		vi.spyOn(globalThis, 'fetch').mockImplementation(async (): Promise<Response> => {
+			fetchCount += 1;
+			return makeSurfaceResponse(makeFrames(descriptor), 'cursor-1');
+		});
+		const backend = installBridgeAppDevWorktreeBackend();
+		await backend.loadWorktreeFileSurface();
+		const dispose = backend.subscribeWorktreeFileFrames(() => {});
+
+		window.dispatchEvent(new Event('bridge-worktree-dev-pause-polling'));
+		await vi.advanceTimersByTimeAsync(1_000);
+		await nextMicrotask();
+
+		expect(fetchCount).toBe(1);
+		expect(document.documentElement.dataset['bridgeWorktreeDevPollingState']).toBe('paused');
+
+		window.dispatchEvent(new Event('bridge-worktree-dev-resume-polling'));
+		await vi.advanceTimersByTimeAsync(1_000);
+		await nextMicrotask();
+
+		expect(fetchCount).toBe(2);
+		expect(document.documentElement.dataset['bridgeWorktreeDevPollingState']).toBe('running');
+		dispose();
 	});
 
 	test('suppresses ordinary poll frames when a forced split reset is queued during reload', async () => {
@@ -193,6 +223,9 @@ describe('bridge app dev worktree frame subscription', () => {
 		expect(
 			document.documentElement.dataset['bridgeWorktreeDevLastForceSplitReloadFrameKinds'],
 		).toBe('worktree.reset,worktree.snapshot,worktree.fileDescriptor');
+		expect(
+			document.documentElement.dataset['bridgeWorktreeDevLastForceSplitReloadFrameSequences'],
+		).toBe('2,3,4');
 		expect(
 			document.documentElement.dataset['bridgeWorktreeDevLastForceSplitReloadSourceCursor'],
 		).toBe('cursor-new');

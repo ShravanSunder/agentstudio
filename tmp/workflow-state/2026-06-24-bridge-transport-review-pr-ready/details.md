@@ -563,3 +563,83 @@ Proof surface contract:
 - This remains Vite/dev-server product proof only.
 - Native Agent Studio Bridge/WKWebView proof is still required before PR-ready.
 - Vite remains live at `127.0.0.1:5173` for human inspection.
+
+## 2026-06-25 Force-Lineage Review Reduction Follow-Up
+
+Status: Gate 0.a Vite/dev-server product proof is green after addressing the
+latest implementation re-review findings around forced split-reset proof
+authority and refresh readiness. Gate 1 remains blocked until implementation
+re-review passes or the human explicitly accepts the residual risk.
+
+Accepted findings addressed:
+
+1. Forced split-reset frames were protocol-invalid after a source-less reset.
+   - Fixed normal and forced reset paths to rebase replacement frame sequences
+     after the reset frame.
+   - Added unit proof that reset/snapshot/descriptor sequence lineage is
+     strictly increasing for replacement surfaces.
+
+2. Forced split-reset proof could still be satisfied by the ordinary dev
+   poller.
+   - Added dev-server pause/resume proof controls around the forced split-reset
+     verifier path.
+   - The verifier now pauses polling before mutating the proof file and resumes
+     it in `finally`.
+
+3. Stale refresh could be clicked before the replacement descriptor was
+   refreshable.
+   - FileViewer still shows the stale notification immediately, but disables
+     Refresh until the latest descriptor for the open file is materialized.
+   - The exact URL verifier waits for the Refresh button to become enabled
+     before clicking it.
+
+4. Dev-server proof output was too large for quick review.
+   - The result no longer leaks full rendered file text through the verifier
+     result object.
+   - Console output now reports bounded frame-kind and sequence samples; the
+     full artifact remains on disk for detailed review.
+
+Fresh proof:
+
+- `pnpm --dir BridgeWeb exec vitest run src/app/bridge-app-dev-worktree.unit.test.ts src/file-viewer/bridge-file-viewer-app.unit.test.tsx src/worktree-file-surface/worktree-file-surface-runtime.integration.test.ts --reporter verbose`
+  - exit: 0
+  - result: 3 files passed, 25 tests passed
+- `pnpm --dir BridgeWeb exec tsc --noEmit`
+  - exit: 0
+- `pnpm --dir BridgeWeb run check`
+  - exit: 0
+  - note: existing verifier `no-await-in-loop` warnings remain warnings only
+- `pnpm --dir BridgeWeb run test:dev-server:worktree`
+  - exit: 0
+  - artifact:
+    `tmp/bridge-viewer-worktree-dev-server/2026-06-25T07-21-13-935Z/worktree-dev-server-proof.json`
+  - key facts:
+    - exact URL:
+      `http://127.0.0.1:5173/?fixture=worktree&workers=on&scenario=current-worktree`
+    - selected file: `BridgeWeb/pnpm-lock.yaml`
+    - selected line count: 6658
+    - shared shell owner: `BridgeViewerAppShell`
+    - app owner: `BridgeApp`
+    - shell owner: `BridgeViewerApp.FileViewer`
+    - code owner: `CodeView.file`
+    - tree owner: `FileTree`
+    - Shiki rendering: `pierre`
+    - worker pool state: `ready`
+    - standalone `WorktreeFileApp` count: 0
+    - review empty shell count: 0
+    - forced split reset status: `delivered`
+    - forced frame lineage sample starts with
+      `worktree.reset`, `worktree.snapshot`
+    - forced frame sequence head: `458,459,460,461,462,463,464,465`
+    - forced frame sequence tail: `909,910,911,912,913,914,915,916`
+    - split reset body route hits: `0 -> 0 -> 1`
+- `mise run lint`
+  - exit: 0
+  - result: swift-format OK, SwiftLint 0 violations, AgentStudio architecture
+    lint OK, release script verification passed
+
+Proof surface contract:
+
+- This remains Vite/dev-server product proof only.
+- Native Agent Studio Bridge/WKWebView proof is still required before PR-ready.
+- Vite remains live at `127.0.0.1:5173` for human inspection.
