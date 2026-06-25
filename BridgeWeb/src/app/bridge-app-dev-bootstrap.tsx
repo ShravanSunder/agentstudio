@@ -93,7 +93,7 @@ if (rootElement !== null) {
 						worktreeFileAppProps: {
 							autoOpenInitialFile: true,
 							fetchResource: worktreeBackend.fetchWorktreeFileResource,
-							loadInitialFrames: worktreeBackend.loadWorktreeFileFrames,
+							loadInitialSurface: worktreeBackend.loadWorktreeFileSurface,
 							subscribeFrames: worktreeBackend.subscribeWorktreeFileFrames,
 						},
 					})}

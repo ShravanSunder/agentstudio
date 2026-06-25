@@ -2,9 +2,9 @@ import type { ReactElement } from 'react';
 import { z } from 'zod';
 
 import {
-	WorktreeFileApp,
-	type WorktreeFileAppProps,
-} from '../worktree-file-surface/worktree-file-app.js';
+	BridgeFileViewerApp,
+	type BridgeFileViewerAppProps,
+} from '../file-viewer/bridge-file-viewer-app.js';
 import { BridgeApp, type BridgeAppProps } from './bridge-app.js';
 
 export const bridgeAppProtocolSchema = z.enum(['review', 'worktree-file']);
@@ -12,7 +12,7 @@ export type BridgeAppProtocol = z.infer<typeof bridgeAppProtocolSchema>;
 
 export interface BridgeAppProtocolRouterProps extends BridgeAppProps {
 	readonly protocol?: BridgeAppProtocol;
-	readonly worktreeFileAppProps?: WorktreeFileAppProps;
+	readonly worktreeFileAppProps?: BridgeFileViewerAppProps;
 }
 
 const bridgeAppProtocolAttributeName = 'data-bridge-app-protocol';
@@ -25,7 +25,17 @@ export function BridgeAppProtocolRouter(props: BridgeAppProtocolRouterProps = {}
 		case 'review':
 			return <BridgeApp {...reviewAppProps} />;
 		case 'worktree-file':
-			return <WorktreeFileApp {...worktreeFileAppProps} />;
+			return (
+				<BridgeFileViewerApp
+					{...(reviewAppProps.codeViewWorkerFactory === undefined
+						? {}
+						: { codeViewWorkerFactory: reviewAppProps.codeViewWorkerFactory })}
+					{...(reviewAppProps.codeViewWorkerPoolEnabled === undefined
+						? {}
+						: { codeViewWorkerPoolEnabled: reviewAppProps.codeViewWorkerPoolEnabled })}
+					{...worktreeFileAppProps}
+				/>
+			);
 	}
 	return <BridgeApp {...reviewAppProps} />;
 }

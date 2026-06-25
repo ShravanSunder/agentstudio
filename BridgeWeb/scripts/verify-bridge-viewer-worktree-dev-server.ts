@@ -1,4 +1,5 @@
-import { mkdir, unlink, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { mkdir, realpath, unlink, writeFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -25,6 +26,13 @@ const targetPathOverride = process.env['BRIDGE_VIEWER_WORKTREE_TARGET_PATH'] ?? 
 const bridgeWorktreeSurfaceResponseSchema = z
 	.object({
 		frames: z.array(z.unknown()),
+		provenance: z
+			.object({
+				baseRef: z.string().min(1),
+				scenarioName: z.literal('current-worktree'),
+				worktreeRootToken: z.string().min(1),
+			})
+			.strict(),
 		source: z
 			.object({
 				sourceId: z.string().min(1),
@@ -46,6 +54,7 @@ const worktreeFileDescriptorFrameSchema = z
 		descriptor: z
 			.object({
 				path: z.string().min(1),
+				contentHandle: z.string().min(1),
 				contentDescriptor: z
 					.object({
 						descriptor: z
@@ -77,8 +86,11 @@ interface WorktreeDevServerVerificationResult {
 	readonly selectedDisplayPath: string | null;
 	readonly selectedLineCount: number;
 	readonly screenshotPaths: WorktreeDevServerScreenshotPaths;
+	readonly sourceBaseRef: string;
 	readonly sourceCursor: string;
 	readonly sourceId: string;
+	readonly sourceScenarioName: string;
+	readonly worktreeRootToken: string;
 	readonly staleRefreshProof: WorktreeFileStaleRefreshProof;
 	readonly targetPath: string;
 	readonly treePathCount: number | null;
@@ -96,6 +108,7 @@ interface WorktreeDevServerScreenshotPaths {
 interface WorktreeFileStaleRefreshProof {
 	readonly initialContentStillVisibleWhileStale: boolean;
 	readonly proofPath: string;
+	readonly refreshEnteredRefreshing: boolean;
 	readonly refreshReturnedReady: boolean;
 	readonly refreshedContentVisible: boolean;
 	readonly staleContentState: string | null;
@@ -107,6 +120,8 @@ interface WorktreeFileProductControlsProof {
 	readonly allFilterVisibleCount: number;
 	readonly fetchableFilterActive: boolean;
 	readonly fetchableFilterVisibleCount: number;
+	readonly expectedFetchableFilterCount: number;
+	readonly expectedUnavailableFilterCount: number;
 	readonly initialVisibleCount: number;
 	readonly regexModeActive: boolean;
 	readonly regexVisibleCount: number;
@@ -115,6 +130,7 @@ interface WorktreeFileProductControlsProof {
 	readonly searchStatusText: string;
 	readonly searchVisibleCount: number;
 	readonly targetPath: string;
+	readonly totalDescriptorCount: number;
 	readonly unavailableFilterActive: boolean;
 	readonly unavailableFilterVisibleCount: number;
 }
@@ -130,7 +146,13 @@ interface WorktreeFileVisibleAppProof {
 	readonly sampledTreeRowCount: number;
 	readonly sampledTreeRowsHaveDistinctVerticalPositions: boolean;
 	readonly searchInputCount: number;
+	readonly sourceBaseRef: string | null;
+	readonly sourceCursor: string | null;
+	readonly sourceId: string | null;
+	readonly sourceScenarioName: string | null;
+	readonly sourceState: string | null;
 	readonly treePaneRect: WorktreeFileVisibleRect;
+	readonly worktreeRootToken: string | null;
 }
 
 interface WorktreeFileVisibleRect {
@@ -143,7 +165,23 @@ interface WorktreeRenderedContentState {
 	readonly selectedContentState: string | null;
 	readonly selectedDisplayPath: string | null;
 	readonly selectedLineCount: number;
+	readonly selectedText: string;
 	readonly treeTotalSizePixels: number | null;
+}
+
+interface WorktreeVerifierBrowserHelpers {
+	readonly getBridgeFileViewerRenderedCodeLineCount: () => number;
+	readonly getBridgeFileViewerRenderedCodeText: () => string;
+	readonly getBridgeFileViewerScrollableContent: () => HTMLElement | null;
+	readonly getPierreFileTreeItem: (path: string) => HTMLElement | null;
+	readonly getPierreFileTreeItems: () => HTMLElement[];
+	readonly getPierreFileTreeScrollElement: () => HTMLElement | null;
+}
+
+declare global {
+	interface Window {
+		readonly bridgeWorktreeVerifier: WorktreeVerifierBrowserHelpers;
+	}
 }
 
 interface WorktreeFileScrollExtentCanary {
@@ -258,6 +296,12 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 	const page = await makeVerificationPage();
 	try {
 		const surface = await fetchWorktreeSurface();
+		const expectedWorktreeRootToken = await bridgeWorktreeDevRootTokenForPath(repoRootPath);
+		if (surface.provenance.worktreeRootToken !== expectedWorktreeRootToken) {
+			throw new Error(
+				`Expected current checkout worktree token ${expectedWorktreeRootToken}, got ${surface.provenance.worktreeRootToken}`,
+			);
+		}
 		const descriptors = worktreeFileDescriptors(surface.frames);
 		const initialDescriptor = firstFetchableDescriptor(descriptors);
 		const targetDescriptor = resolveTargetDescriptor(descriptors);
@@ -275,7 +319,9 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 			throw new Error('Expected Worktree/File surface metadata to omit file body content');
 		}
 		await page.goto(worktreeDevServerUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
-		await page.waitForSelector('[data-testid="worktree-file-app"]', { timeout: 30_000 });
+		await page.waitForSelector('[data-testid="bridge-file-viewer-shell"]', { timeout: 30_000 });
+		await assertNoStandaloneWorktreeFileApp(page);
+		await assertSharedBridgeFileViewerShell(page);
 		await page.waitForFunction(
 			(path: string): boolean =>
 				document
@@ -322,6 +368,7 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 					?.getAttribute('data-worktree-open-file-state') === 'loading',
 			{ timeout: 10_000 },
 		);
+		await scrollContentPaneToNonzeroOffset(page);
 		const scrollExtentAfterSelection = await readWorktreeFileScrollExtentSnapshot(page);
 		contentRouteGate.resolve();
 		await page.waitForFunction(
@@ -347,13 +394,20 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 			throw new Error('Expected Worktree/File tree extent to be reserved from provider facts');
 		}
 		const visibleAppProof = await readWorktreeFileVisibleAppProof(page);
-		assertWorktreeFileVisibleAppProof(visibleAppProof);
+		assertWorktreeFileVisibleAppProof({
+			expectedSourceBaseRef: surface.provenance.baseRef,
+			expectedSourceCursor: surface.source.sourceCursor,
+			expectedSourceId: surface.source.sourceId,
+			expectedSourceScenarioName: surface.provenance.scenarioName,
+			expectedWorktreeRootToken,
+			proof: visibleAppProof,
+		});
 		const readyScreenshotPath = await captureWorktreeDevServerScreenshot({
 			name: 'worktree-file-ready.png',
 			page,
 		});
 		const productControlsProof = await verifyWorktreeFileProductControls({
-			descriptorCount: descriptors.length,
+			descriptors,
 			page,
 			targetPath: targetDescriptor.path,
 		});
@@ -389,6 +443,9 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 			},
 			sourceCursor: surface.source.sourceCursor,
 			sourceId: surface.source.sourceId,
+			sourceBaseRef: surface.provenance.baseRef,
+			sourceScenarioName: surface.provenance.scenarioName,
+			worktreeRootToken: surface.provenance.worktreeRootToken,
 			staleRefreshProof,
 			targetPath: targetDescriptor.path,
 			treePathCount: surface.treeSizeFacts.pathCount ?? null,
@@ -398,6 +455,71 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 	} finally {
 		await page.close();
 		await unlink(staleRefreshFixture.absolutePath).catch(() => undefined);
+	}
+}
+
+async function assertNoStandaloneWorktreeFileApp(page: Page): Promise<void> {
+	const standaloneWorktreeFileAppCount = await page
+		.locator('[data-testid="worktree-file-app"]')
+		.count();
+	if (standaloneWorktreeFileAppCount > 0) {
+		throw new Error(
+			'Gate 0.a forbids standalone WorktreeFileApp; expected shared BridgeViewer FileViewer shell',
+		);
+	}
+}
+
+async function assertSharedBridgeFileViewerShell(page: Page): Promise<void> {
+	const proof = await page.evaluate(() => {
+		const appRoot = document.querySelector('[data-testid="bridge-app-root"]');
+		const shell = document.querySelector('[data-testid="bridge-file-viewer-shell"]');
+		const codeCanvas = document.querySelector('[data-testid="bridge-file-viewer-code-canvas"]');
+		const sidebar = document.querySelector('[data-testid="bridge-file-viewer-sidebar"]');
+		const pierreTree = document.querySelector(
+			'[data-testid="bridge-file-viewer-pierre-file-tree"]',
+		);
+		if (
+			!(appRoot instanceof HTMLElement) ||
+			!(shell instanceof HTMLElement) ||
+			!(codeCanvas instanceof HTMLElement) ||
+			!(sidebar instanceof HTMLElement) ||
+			!(pierreTree instanceof HTMLElement)
+		) {
+			return null;
+		}
+		const codeRect = codeCanvas.getBoundingClientRect();
+		const sidebarRect = sidebar.getBoundingClientRect();
+		return {
+			codeOwner: codeCanvas.getAttribute('data-pierre-code-view-owner'),
+			hasPierreTreeShadowRoot: pierreTree.querySelector('file-tree-container')?.shadowRoot !== null,
+			rootVisible: appRoot.getBoundingClientRect().width > 0,
+			shellOwner: shell.getAttribute('data-file-viewer-owner'),
+			sidebarIsRight: sidebarRect.left > codeRect.left,
+			sidebarPosition: shell.getAttribute('data-sidebar-position'),
+			shikiRendering: codeCanvas.getAttribute('data-shiki-rendering'),
+			treeOwner: sidebar.getAttribute('data-pierre-file-tree-owner'),
+			workerState:
+				document.documentElement.dataset['bridgePierreWorkerPoolState'] ??
+				codeCanvas.getAttribute('data-worker-backed-highlighting'),
+		};
+	});
+	if (proof === null) {
+		throw new Error('Expected shared BridgeViewer FileViewer shell with code canvas and sidebar');
+	}
+	if (
+		proof.shellOwner !== 'BridgeViewerApp.FileViewer' ||
+		proof.sidebarPosition !== 'right' ||
+		!proof.sidebarIsRight ||
+		proof.codeOwner !== 'CodeView.file' ||
+		proof.shikiRendering !== 'pierre' ||
+		proof.treeOwner !== 'FileTree' ||
+		!proof.hasPierreTreeShadowRoot ||
+		!proof.rootVisible ||
+		proof.workerState === null
+	) {
+		throw new Error(
+			`Expected shared BridgeViewer/Pierre FileViewer proof: ${JSON.stringify(proof)}`,
+		);
 	}
 }
 
@@ -411,6 +533,14 @@ async function fetchWorktreeSurface(): Promise<
 		throw new Error(`Worktree/File surface request failed: ${response.status}`);
 	}
 	return bridgeWorktreeSurfaceResponseSchema.parse(await response.json());
+}
+
+async function bridgeWorktreeDevRootTokenForPath(path: string): Promise<string> {
+	return `root-${hashText(await realpath(path)).slice(0, 32)}`;
+}
+
+function hashText(value: string): string {
+	return createHash('sha256').update(value).digest('hex');
 }
 
 function worktreeFileDescriptors(frames: readonly unknown[]): readonly WorktreeFileDescriptor[] {
@@ -464,11 +594,12 @@ function deepFetchableDescriptor(
 	if (fetchableDescriptors.length === 0) {
 		return null;
 	}
-	const targetIndex = Math.min(
-		fetchableDescriptors.length - 1,
-		Math.floor(fetchableDescriptors.length * 0.75),
+	return (
+		fetchableDescriptors.toSorted(
+			(leftDescriptor, rightDescriptor) =>
+				Number(rightDescriptor['lineCount'] ?? 0) - Number(leftDescriptor['lineCount'] ?? 0),
+		)[0] ?? null
 	);
-	return fetchableDescriptors[targetIndex] ?? null;
 }
 
 interface WorktreeFileStaleRefreshFixture {
@@ -538,37 +669,135 @@ function copyScenarioSearchParam(url: URL): void {
 }
 
 async function makeVerificationPage(): Promise<Page> {
-	return await browser.newPage({
+	const page = await browser.newPage({
 		deviceScaleFactor: 1,
 		viewport: {
 			width: 1728,
 			height: 980,
 		},
 	});
+	await page.addInitScript((): void => {
+		const verifierHelpers: WorktreeVerifierBrowserHelpers = {
+			getBridgeFileViewerRenderedCodeLineCount(): number {
+				const canvas = document.querySelector('[data-testid="bridge-file-viewer-code-canvas"]');
+				if (!(canvas instanceof HTMLElement)) {
+					return 0;
+				}
+				return Array.from(canvas.querySelectorAll('diffs-container')).reduce(
+					(lineCount, container) =>
+						lineCount +
+						(container.shadowRoot?.querySelectorAll('[data-content] [data-line-index]').length ??
+							0),
+					0,
+				);
+			},
+			getBridgeFileViewerRenderedCodeText(): string {
+				const canvas = document.querySelector('[data-testid="bridge-file-viewer-code-canvas"]');
+				if (!(canvas instanceof HTMLElement)) {
+					return '';
+				}
+				const renderedContentBlocks = Array.from(
+					canvas.querySelectorAll('diffs-container'),
+				).flatMap((container) =>
+					Array.from(container.shadowRoot?.querySelectorAll('[data-content]') ?? []),
+				);
+				const renderedText = renderedContentBlocks
+					.map((contentBlock) => contentBlock.textContent ?? '')
+					.join('\n');
+				return renderedText.length > 0 ? renderedText : (canvas.textContent ?? '');
+			},
+			getBridgeFileViewerScrollableContent(): HTMLElement | null {
+				const canvas = document.querySelector('[data-testid="bridge-file-viewer-code-canvas"]');
+				if (!(canvas instanceof HTMLElement)) {
+					return null;
+				}
+				const candidates = [
+					canvas,
+					...Array.from(canvas.querySelectorAll('*')).filter(
+						(candidate): candidate is HTMLElement => candidate instanceof HTMLElement,
+					),
+				];
+				return (
+					candidates.find((candidate) => candidate.scrollHeight > candidate.clientHeight) ?? canvas
+				);
+			},
+			getPierreFileTreeItem(path: string): HTMLElement | null {
+				const escapedPath = CSS.escape(path);
+				return (
+					this.getPierreFileTreeItems().find(
+						(candidate) => candidate.dataset['itemPath'] === path,
+					) ??
+					this.getPierreFileTreeScrollElement()?.querySelector(
+						`[data-item-path="${escapedPath}"]`,
+					) ??
+					null
+				);
+			},
+			getPierreFileTreeItems(): HTMLElement[] {
+				const scrollElement = this.getPierreFileTreeScrollElement();
+				if (!(scrollElement instanceof HTMLElement)) {
+					return [];
+				}
+				return Array.from(scrollElement.querySelectorAll('[data-item-path]')).filter(
+					(candidate): candidate is HTMLElement =>
+						candidate instanceof HTMLElement &&
+						candidate.dataset['fileTreeStickyRow'] !== 'true' &&
+						candidate.dataset['itemParked'] !== 'true',
+				);
+			},
+			getPierreFileTreeScrollElement(): HTMLElement | null {
+				const treeHost = document.querySelector(
+					'[data-testid="bridge-file-viewer-pierre-file-tree"] file-tree-container',
+				);
+				const scrollElement = treeHost?.shadowRoot?.querySelector(
+					'[data-file-tree-virtualized-scroll="true"]',
+				);
+				return scrollElement instanceof HTMLElement ? scrollElement : null;
+			},
+		};
+		Object.defineProperty(window, 'bridgeWorktreeVerifier', {
+			configurable: true,
+			value: verifierHelpers,
+		});
+	});
+	return page;
 }
 
 async function installFileContentRouteGate(props: {
 	readonly gate: Deferred<void>;
 	readonly page: Page;
+	readonly pathPattern?: string;
 }): Promise<void> {
-	await props.page.route('**/__bridge-worktree/file-content/**', async (route) => {
-		await props.gate.promise;
-		await route.continue();
-	});
+	await props.page.route(
+		props.pathPattern ?? '**/__bridge-worktree/file-content/**',
+		async (route) => {
+			await props.gate.promise;
+			await route.continue();
+		},
+	);
 }
 
 async function readWorktreeRenderedContentState(page: Page): Promise<WorktreeRenderedContentState> {
 	return await page.evaluate((): WorktreeRenderedContentState => {
-		const contentPanel = document.querySelector('[data-testid="worktree-file-content"]');
-		const treePanel = document.querySelector('[data-testid="worktree-file-tree"]');
-		const text = contentPanel?.textContent ?? '';
+		const contentPanel = document.querySelector('[data-testid="bridge-file-viewer-code-canvas"]');
+		const treePanel = document.querySelector('[data-testid="bridge-file-viewer-pierre-file-tree"]');
+		const text =
+			typeof window.bridgeWorktreeVerifier === 'undefined'
+				? (contentPanel?.textContent ?? '')
+				: window.bridgeWorktreeVerifier.getBridgeFileViewerRenderedCodeText();
 		const selectedDisplayPath = contentPanel?.getAttribute('data-worktree-open-file-path') ?? null;
 		const renderedText = text.endsWith('\n') ? text.slice(0, -1) : text;
 		return {
 			selectedCharacterCount: text.length,
 			selectedContentState: contentPanel?.getAttribute('data-worktree-open-file-state') ?? null,
 			selectedDisplayPath,
-			selectedLineCount: text.length === 0 ? 0 : renderedText.split('\n').length,
+			selectedLineCount:
+				typeof window.bridgeWorktreeVerifier === 'undefined'
+					? text.length === 0
+						? 0
+						: renderedText.split('\n').length
+					: window.bridgeWorktreeVerifier.getBridgeFileViewerRenderedCodeLineCount(),
+			selectedText: text,
 			treeTotalSizePixels: Number(treePanel?.getAttribute('data-worktree-tree-total-size') ?? '0'),
 		};
 	});
@@ -586,49 +815,177 @@ function assertRenderedWorktreeContent(props: {
 	if (props.rendered.selectedContentState !== 'ready') {
 		throw new Error(`Expected ${props.label} to be ready for ${props.targetPath}`);
 	}
-	if (props.rendered.selectedCharacterCount !== props.content.length) {
-		throw new Error(`Expected ${props.label} length for ${props.targetPath}`);
+	if (!renderedTextIncludesContent(props.rendered.selectedText, props.content)) {
+		throw new Error(`Expected ${props.label} content for ${props.targetPath}`);
 	}
 	const expectedLineCount = countTextLines(props.content);
-	if (props.rendered.selectedLineCount !== expectedLineCount) {
+	if (props.rendered.selectedLineCount < Math.min(expectedLineCount, 2)) {
 		throw new Error(
-			`Expected ${props.label} line count ${expectedLineCount}, got ${props.rendered.selectedLineCount}`,
+			`Expected ${props.label} visible line structure for ${props.targetPath}, got ${props.rendered.selectedLineCount}`,
 		);
 	}
 }
 
+function renderedTextIncludesContent(renderedText: string, expectedContent: string): boolean {
+	const trimmedExpectedContent = expectedContent.trim();
+	if (trimmedExpectedContent.length === 0) {
+		return true;
+	}
+	if (renderedText.includes(trimmedExpectedContent)) {
+		return true;
+	}
+	const normalizedRenderedText = normalizeRenderedTextForProof(renderedText);
+	const expectedLines = trimmedExpectedContent
+		.split('\n')
+		.map(normalizeRenderedTextForProof)
+		.filter((line) => line.length > 0 && line.length <= 240);
+	const sampleLines = expectedLines.slice(0, Math.min(expectedLines.length, 20));
+	const matchingLineCount = sampleLines.filter((line) =>
+		normalizedRenderedText.includes(line),
+	).length;
+	return matchingLineCount >= Math.min(5, sampleLines.length);
+}
+
+function normalizeRenderedTextForProof(text: string): string {
+	return text.replace(/\s+/gu, ' ').trim();
+}
+
 async function scrollTreeToFilePath(page: Page, path: string): Promise<void> {
-	await page.waitForSelector(`[data-worktree-file-path="${cssAttributeEscape(path)}"]`, {
-		timeout: 30_000,
-	});
+	await scrollPierreFileTreeUntilPathVisible(page, path);
 	await page.evaluate((targetPath: string): void => {
-		const button = document.querySelector(`[data-worktree-file-path="${CSS.escape(targetPath)}"]`);
-		const treePanel = document.querySelector('[data-testid="worktree-file-tree"]');
-		if (!(button instanceof HTMLElement) || !(treePanel instanceof HTMLElement)) {
+		const treePanel = document.querySelector('[data-testid="bridge-file-viewer-pierre-file-tree"]');
+		const helpers = window.bridgeWorktreeVerifier;
+		const scrollElement = helpers.getPierreFileTreeScrollElement();
+		const button = helpers.getPierreFileTreeItem(targetPath);
+		if (
+			!(button instanceof HTMLElement) ||
+			!(treePanel instanceof HTMLElement) ||
+			!(scrollElement instanceof HTMLElement)
+		) {
 			throw new Error(`Expected Worktree/File tree row for ${targetPath}`);
 		}
 		button.scrollIntoView({ block: 'center' });
-		if (treePanel.scrollTop <= 0) {
-			treePanel.scrollTop = Math.min(treePanel.scrollHeight - treePanel.clientHeight, 160);
+		if (scrollElement.scrollTop <= 0) {
+			scrollElement.scrollTop = Math.min(
+				scrollElement.scrollHeight - scrollElement.clientHeight,
+				160,
+			);
 		}
 	}, path);
 }
 
 async function clickWorktreeFilePath(page: Page, path: string): Promise<void> {
-	await page.waitForSelector(`[data-worktree-file-path="${cssAttributeEscape(path)}"]`, {
-		timeout: 30_000,
-	});
-	const didClick = await page.evaluate((targetPath: string): boolean => {
-		const button = document.querySelector(`[data-worktree-file-path="${CSS.escape(targetPath)}"]`);
-		if (!(button instanceof HTMLButtonElement)) {
-			return false;
+	for (let attempt = 0; attempt < 3; attempt += 1) {
+		await scrollPierreFileTreeUntilPathVisible(page, path);
+		await page.evaluate((targetPath: string): void => {
+			const button = window.bridgeWorktreeVerifier.getPierreFileTreeItem(targetPath);
+			const scrollElement = window.bridgeWorktreeVerifier.getPierreFileTreeScrollElement();
+			if (button instanceof HTMLElement && scrollElement instanceof HTMLElement) {
+				const buttonRect = button.getBoundingClientRect();
+				const scrollRect = scrollElement.getBoundingClientRect();
+				const isFullyVisible =
+					buttonRect.top >= scrollRect.top && buttonRect.bottom <= scrollRect.bottom;
+				if (isFullyVisible) {
+					return;
+				}
+				button.scrollIntoView({ block: 'center', inline: 'nearest' });
+			}
+		}, path);
+		await page.waitForTimeout(50);
+		const targetBox = await page.evaluate((targetPath: string): WorktreeFileVisibleRect | null => {
+			const button = window.bridgeWorktreeVerifier.getPierreFileTreeItem(targetPath);
+			if (!(button instanceof HTMLElement)) {
+				return null;
+			}
+			const rect = button.getBoundingClientRect();
+			return {
+				height: rect.height,
+				width: rect.width,
+			};
+		}, path);
+		const targetCenter = await page.evaluate(
+			(targetPath: string): { readonly x: number; readonly y: number } | null => {
+				const button = window.bridgeWorktreeVerifier.getPierreFileTreeItem(targetPath);
+				if (!(button instanceof HTMLElement)) {
+					return null;
+				}
+				const rect = button.getBoundingClientRect();
+				return {
+					x: rect.left + rect.width / 2,
+					y: rect.top + rect.height / 2,
+				};
+			},
+			path,
+		);
+		if (
+			targetBox === null ||
+			targetBox.width <= 0 ||
+			targetBox.height <= 0 ||
+			targetCenter === null
+		) {
+			throw new Error(`Expected Worktree/File row for ${path}`);
 		}
-		button.click();
-		return true;
-	}, path);
-	if (!didClick) {
-		throw new Error(`Expected Worktree/File row for ${path}`);
+		const viewportSize = page.viewportSize();
+		if (
+			viewportSize !== null &&
+			(targetCenter.y < 0 ||
+				targetCenter.y > viewportSize.height ||
+				targetCenter.x < 0 ||
+				targetCenter.x > viewportSize.width)
+		) {
+			throw new Error(`Expected visible Worktree/File row for ${path}`);
+		}
+		await page.mouse.click(targetCenter.x, targetCenter.y);
+		const selected = await page
+			.waitForFunction(
+				(targetPath: string): boolean =>
+					document
+						.querySelector('[data-testid="bridge-file-viewer-shell"]')
+						?.getAttribute('data-selected-display-path') === targetPath,
+				path,
+				{ timeout: 1_000 },
+			)
+			.then(
+				() => true,
+				() => false,
+			);
+		if (selected) {
+			return;
+		}
 	}
+	const selectedPath = await page.evaluate(
+		(): string | null =>
+			document
+				.querySelector('[data-testid="bridge-file-viewer-shell"]')
+				?.getAttribute('data-selected-display-path') ?? null,
+	);
+	throw new Error(`Expected Worktree/File click to select ${path}, got ${selectedPath ?? 'none'}`);
+}
+
+async function scrollContentPaneToNonzeroOffset(page: Page): Promise<void> {
+	await page.evaluate((): void => {
+		const contentPanel = window.bridgeWorktreeVerifier.getBridgeFileViewerScrollableContent();
+		if (!(contentPanel instanceof HTMLElement)) {
+			throw new Error('Expected Worktree/File content pane before content scroll canary');
+		}
+		const targetScrollTop = Math.min(
+			Math.max(contentPanel.scrollHeight - contentPanel.clientHeight, 0),
+			480,
+		);
+		if (targetScrollTop <= 0) {
+			throw new Error(
+				`Expected Worktree/File content pane to reserve enough height to scroll, got ${contentPanel.scrollHeight}`,
+			);
+		}
+		contentPanel.scrollTop = targetScrollTop;
+	});
+	await page.waitForFunction(
+		(): boolean => {
+			const contentPanel = window.bridgeWorktreeVerifier.getBridgeFileViewerScrollableContent();
+			return contentPanel instanceof HTMLElement && contentPanel.scrollTop > 0;
+		},
+		{ timeout: 10_000 },
+	);
 }
 
 async function readWorktreeFileTreeAnchorSnapshot(
@@ -636,31 +993,25 @@ async function readWorktreeFileTreeAnchorSnapshot(
 	path: string,
 ): Promise<WorktreeFileTreeAnchorSnapshot> {
 	return await page.evaluate((targetPath: string): WorktreeFileTreeAnchorSnapshot => {
-		const treePanel = document.querySelector('[data-testid="worktree-file-tree"]');
-		const anchor = document.querySelector(`[data-worktree-file-path="${CSS.escape(targetPath)}"]`);
-		if (!(treePanel instanceof HTMLElement) || !(anchor instanceof HTMLElement)) {
+		const helpers = window.bridgeWorktreeVerifier;
+		const scrollElement = helpers.getPierreFileTreeScrollElement();
+		const anchor = helpers.getPierreFileTreeItem(targetPath);
+		if (!(scrollElement instanceof HTMLElement) || !(anchor instanceof HTMLElement)) {
 			throw new Error(`Expected Worktree/File anchor row for ${targetPath}`);
 		}
-		const treeRect = treePanel.getBoundingClientRect();
+		const treeRect = scrollElement.getBoundingClientRect();
 		const anchorRect = anchor.getBoundingClientRect();
-		const visibleButtons = [...treePanel.querySelectorAll('[data-worktree-file-path]')].filter(
-			(candidate): candidate is HTMLElement => {
-				if (!(candidate instanceof HTMLElement)) {
-					return false;
-				}
-				const candidateRect = candidate.getBoundingClientRect();
-				return candidateRect.bottom >= treeRect.top && candidateRect.top <= treeRect.bottom;
-			},
-		);
-		const allButtons = [...treePanel.querySelectorAll('[data-worktree-file-path]')];
+		const allButtons = helpers.getPierreFileTreeItems();
+		const visibleButtons = allButtons.filter((candidate): candidate is HTMLElement => {
+			const candidateRect = candidate.getBoundingClientRect();
+			return candidateRect.bottom >= treeRect.top && candidateRect.top <= treeRect.bottom;
+		});
 		const visibleIndexes = visibleButtons.map((button) => allButtons.indexOf(button));
 		return {
 			anchorItemId: targetPath,
 			anchorOffset: anchorRect.top - treeRect.top,
-			measuredItemIds: visibleButtons.map(
-				(button) => button.getAttribute('data-worktree-file-path') ?? '',
-			),
-			scrollTop: treePanel.scrollTop,
+			measuredItemIds: visibleButtons.map((button) => button.dataset['itemPath'] ?? ''),
+			scrollTop: scrollElement.scrollTop,
 			visibleRange: {
 				startIndex: Math.min(...visibleIndexes),
 				endIndex: Math.max(...visibleIndexes),
@@ -673,12 +1024,18 @@ async function readWorktreeFileScrollExtentSnapshot(
 	page: Page,
 ): Promise<WorktreeFileScrollExtentSnapshot> {
 	return await page.evaluate((): WorktreeFileScrollExtentSnapshot => {
-		const treePanel = document.querySelector('[data-testid="worktree-file-tree"]');
-		const contentPanel = document.querySelector('[data-testid="worktree-file-content"]');
+		const treePanel = document.querySelector('[data-testid="bridge-file-viewer-pierre-file-tree"]');
+		const helpers = window.bridgeWorktreeVerifier;
+		const treeScrollElement = helpers.getPierreFileTreeScrollElement();
+		const contentPanel = document.querySelector('[data-testid="bridge-file-viewer-code-canvas"]');
+		const contentScrollElement = helpers.getBridgeFileViewerScrollableContent();
 		if (!(treePanel instanceof HTMLElement)) {
 			throw new Error('Expected Worktree/File tree panel for extent canary');
 		}
-		if (!(contentPanel instanceof HTMLElement)) {
+		if (!(treeScrollElement instanceof HTMLElement)) {
+			throw new Error('Expected Pierre FileTree scroll element for extent canary');
+		}
+		if (!(contentPanel instanceof HTMLElement) || !(contentScrollElement instanceof HTMLElement)) {
 			throw new Error('Expected Worktree/File content panel for extent canary');
 		}
 		const contentDeclaredTotalSizeRaw = contentPanel.getAttribute(
@@ -694,16 +1051,16 @@ async function readWorktreeFileScrollExtentSnapshot(
 				contentDeclaredTotalSize === null || Number.isFinite(contentDeclaredTotalSize)
 					? contentDeclaredTotalSize
 					: null,
-			contentScrollClientHeight: contentPanel.clientHeight,
-			contentScrollHeight: contentPanel.scrollHeight,
-			contentScrollTop: contentPanel.scrollTop,
+			contentScrollClientHeight: contentScrollElement.clientHeight,
+			contentScrollHeight: contentScrollElement.scrollHeight,
+			contentScrollTop: contentScrollElement.scrollTop,
 			treeDeclaredTotalSizePixels:
 				treeDeclaredTotalSize === null || Number.isFinite(treeDeclaredTotalSize)
 					? treeDeclaredTotalSize
 					: null,
-			treeScrollClientHeight: treePanel.clientHeight,
-			treeScrollHeight: treePanel.scrollHeight,
-			treeScrollTop: treePanel.scrollTop,
+			treeScrollClientHeight: treeScrollElement.clientHeight,
+			treeScrollHeight: treeScrollElement.scrollHeight,
+			treeScrollTop: treeScrollElement.scrollTop,
 		};
 	});
 }
@@ -820,6 +1177,11 @@ function assertWorktreeScrollExtentCanary(canary: WorktreeFileScrollExtentCanary
 			`Expected Worktree/File content hydration to keep scroll extent bounded: ${JSON.stringify(canary)}`,
 		);
 	}
+	if (canary.contentScrollTopAfterSelection <= 0 || canary.contentScrollTopAfterReady <= 0) {
+		throw new Error(
+			`Expected Worktree/File content canary to exercise non-zero scroll: ${JSON.stringify(canary)}`,
+		);
+	}
 	if (!canary.stableAnchorPass || !canary.exactSizeTolerancePass) {
 		throw new Error(`Expected Worktree/File scroll extent pass readout: ${JSON.stringify(canary)}`);
 	}
@@ -835,67 +1197,81 @@ async function readWorktreeFileVisibleAppProof(page: Page): Promise<WorktreeFile
 				width: rect.width,
 			};
 		};
-		// oxlint-disable-next-line unicorn/consistent-function-scoping -- Runs inside the Playwright page context.
-		const countPageTextLines = (text: string): number => {
-			const trimmedText = text.endsWith('\n') ? text.slice(0, -1) : text;
-			return trimmedText.length === 0 ? 0 : trimmedText.split('\n').length;
-		};
-		const appRoot = document.querySelector('[data-testid="worktree-file-app"]');
-		const treePane = document.querySelector('[data-testid="worktree-file-tree"]');
-		const contentPane = document.querySelector('[data-testid="worktree-file-content"]');
+		const appRoot = document.querySelector('[data-testid="bridge-app-root"]');
+		const shell = document.querySelector('[data-testid="bridge-file-viewer-shell"]');
+		const treePane = document.querySelector('[data-testid="bridge-file-viewer-sidebar"]');
+		const contentPane = document.querySelector('[data-testid="bridge-file-viewer-code-canvas"]');
 		if (!(appRoot instanceof HTMLElement)) {
-			throw new Error('Expected visible Worktree/File app root');
+			throw new Error('Expected visible shared Bridge app root');
+		}
+		if (!(shell instanceof HTMLElement)) {
+			throw new Error('Expected visible Bridge FileViewer shell');
 		}
 		if (!(treePane instanceof HTMLElement)) {
-			throw new Error('Expected visible Worktree/File tree pane');
+			throw new Error('Expected visible Bridge FileViewer tree pane');
 		}
 		if (!(contentPane instanceof HTMLElement)) {
-			throw new Error('Expected visible Worktree/File content pane');
+			throw new Error('Expected visible Bridge FileViewer content pane');
 		}
-		const sampledRows = [...treePane.querySelectorAll('[data-worktree-file-path]')]
-			.filter((candidate): candidate is HTMLElement => candidate instanceof HTMLElement)
-			.slice(0, 24);
+		const helpers = window.bridgeWorktreeVerifier;
+		const sampledRows = helpers.getPierreFileTreeItems().slice(0, 24);
 		const sampledRowTops = sampledRows.map((row) => Math.round(row.getBoundingClientRect().top));
 		const distinctSampledRowTops = new Set(sampledRowTops);
-		const contentPre = contentPane.querySelector('pre');
 		const outsideIntentionalUi = document.body.cloneNode(true);
 		if (!(outsideIntentionalUi instanceof HTMLElement)) {
 			throw new Error('Expected cloneable page body');
 		}
 		outsideIntentionalUi
-			.querySelectorAll('[data-testid="worktree-file-tree"], [data-testid="worktree-file-content"]')
+			.querySelectorAll(
+				'[data-testid="bridge-file-viewer-sidebar"], [data-testid="bridge-file-viewer-code-canvas"]',
+			)
 			.forEach((node) => {
 				node.remove();
 			});
 		const outsideText = outsideIntentionalUi.textContent ?? '';
-		const appRootStyle = window.getComputedStyle(appRoot);
+		const shellStyle = window.getComputedStyle(shell);
+		const contentRect = contentPane.getBoundingClientRect();
+		const treeRect = treePane.getBoundingClientRect();
 		return {
 			appRootRect: visibleRectForPageElement(appRoot),
 			contentPaneRect: visibleRectForPageElement(contentPane),
-			contentVisibleLineCount: countPageTextLines(contentPre?.textContent ?? ''),
+			contentVisibleLineCount: helpers.getBridgeFileViewerRenderedCodeLineCount(),
 			cssLayoutApplied:
-				appRootStyle.display === 'grid' &&
-				appRootStyle.getPropertyValue('--bridge-worktree-file-layout-proof').trim() === 'applied',
-			filterControlCount: appRoot.querySelectorAll('[data-testid^="worktree-file-filter-"]').length,
+				shellStyle.display === 'flex' &&
+				shell.getAttribute('data-sidebar-position') === 'right' &&
+				contentRect.left < treeRect.left,
+			filterControlCount: shell.querySelectorAll('[data-testid^="worktree-file-filter-"]').length,
 			forbiddenTextAbsentOutsideIntentionalUi:
 				!outsideText.includes('"frames"') &&
 				!outsideText.includes('frameKind') &&
 				!outsideText.includes('resourceUrl') &&
 				!outsideText.includes('agentstudio://resource/') &&
 				!outsideText.includes('BridgeWeb/src/'),
-			regexToggleCount: appRoot.querySelectorAll('[data-testid="worktree-file-regex-toggle"]')
-				.length,
+			regexToggleCount: shell.querySelectorAll('[data-testid="worktree-file-regex-toggle"]').length,
 			sampledTreeRowCount: sampledRows.length,
 			sampledTreeRowsHaveDistinctVerticalPositions:
 				sampledRows.length >= 8 && distinctSampledRowTops.size === sampledRows.length,
-			searchInputCount: appRoot.querySelectorAll('[data-testid="worktree-file-search-input"]')
-				.length,
+			searchInputCount: shell.querySelectorAll('[data-testid="worktree-file-search-input"]').length,
+			sourceBaseRef: shell.getAttribute('data-worktree-base-ref'),
+			sourceCursor: shell.getAttribute('data-worktree-source-cursor'),
+			sourceId: shell.getAttribute('data-worktree-source-id'),
+			sourceScenarioName: shell.getAttribute('data-worktree-scenario'),
+			sourceState: shell.getAttribute('data-worktree-source-state'),
 			treePaneRect: visibleRectForPageElement(treePane),
+			worktreeRootToken: shell.getAttribute('data-worktree-root-token'),
 		};
 	});
 }
 
-function assertWorktreeFileVisibleAppProof(proof: WorktreeFileVisibleAppProof): void {
+function assertWorktreeFileVisibleAppProof(props: {
+	readonly expectedSourceBaseRef: string;
+	readonly expectedSourceCursor: string;
+	readonly expectedSourceId: string;
+	readonly expectedSourceScenarioName: string;
+	readonly expectedWorktreeRootToken: string;
+	readonly proof: WorktreeFileVisibleAppProof;
+}): void {
+	const proof = props.proof;
 	assertVisibleRect('Worktree/File app root', proof.appRootRect);
 	assertVisibleRect('Worktree/File tree pane', proof.treePaneRect);
 	assertVisibleRect('Worktree/File content pane', proof.contentPaneRect);
@@ -926,6 +1302,18 @@ function assertWorktreeFileVisibleAppProof(proof: WorktreeFileVisibleAppProof): 
 			`Expected no raw Worktree/File payload text outside intended UI: ${JSON.stringify(proof)}`,
 		);
 	}
+	if (
+		proof.sourceBaseRef !== props.expectedSourceBaseRef ||
+		proof.sourceCursor !== props.expectedSourceCursor ||
+		proof.sourceId !== props.expectedSourceId ||
+		proof.sourceScenarioName !== props.expectedSourceScenarioName ||
+		proof.sourceState !== 'live' ||
+		proof.worktreeRootToken !== props.expectedWorktreeRootToken
+	) {
+		throw new Error(
+			`Expected page-visible Worktree/File source provenance: ${JSON.stringify(proof)}`,
+		);
+	}
 }
 
 function assertVisibleRect(label: string, rect: WorktreeFileVisibleRect): void {
@@ -935,13 +1323,19 @@ function assertVisibleRect(label: string, rect: WorktreeFileVisibleRect): void {
 }
 
 async function verifyWorktreeFileProductControls(props: {
-	readonly descriptorCount: number;
+	readonly descriptors: readonly WorktreeFileDescriptor[];
 	readonly page: Page;
 	readonly targetPath: string;
 }): Promise<WorktreeFileProductControlsProof> {
+	const expectedFetchableFilterCount = props.descriptors.filter(
+		(descriptor) => !descriptor['isBinary'] && descriptor.contentDescriptor !== null,
+	).length;
+	const expectedUnavailableFilterCount = props.descriptors.filter(
+		(descriptor) => descriptor['isBinary'] || descriptor['virtualizedExtentKind'] === 'unavailable',
+	).length;
 	const initialVisibleCount = await visibleWorktreeFileRowCount(props.page);
 	await fillWorktreeFileSearch(props.page, props.targetPath);
-	await waitForVisibleWorktreeFileRowCount(props.page, 1);
+	await waitForWorktreeFileFilterStatus(props.page, 1, props.descriptors.length);
 	const searchStatusText = await worktreeFileFilterStatusText(props.page);
 	const searchResultIncludesTarget = await worktreeFileRowExists(props.page, props.targetPath);
 	const searchScreenshotPath = await captureWorktreeDevServerScreenshot({
@@ -950,35 +1344,52 @@ async function verifyWorktreeFileProductControls(props: {
 	});
 	await clickWorktreeFileControl(props.page, 'worktree-file-regex-toggle');
 	await fillWorktreeFileSearch(props.page, `^${escapeRegExp(props.targetPath)}$`);
-	await waitForVisibleWorktreeFileRowCount(props.page, 1);
+	await waitForWorktreeFileFilterStatus(props.page, 1, props.descriptors.length);
 	const regexModeActive = await worktreeFileControlPressed(
 		props.page,
 		'worktree-file-regex-toggle',
 	);
-	const regexVisibleCount = await visibleWorktreeFileRowCount(props.page);
+	const regexVisibleCount = await worktreeFileFilterStatusVisibleCount(props.page);
+	await fillWorktreeFileSearch(props.page, '');
+	await waitForWorktreeFileFilterStatus(
+		props.page,
+		props.descriptors.length,
+		props.descriptors.length,
+	);
 	await clickWorktreeFileControl(props.page, 'worktree-file-filter-fetchable');
+	await waitForWorktreeFileFilterStatus(
+		props.page,
+		expectedFetchableFilterCount,
+		props.descriptors.length,
+	);
 	const fetchableFilterActive = await worktreeFileControlPressed(
 		props.page,
 		'worktree-file-filter-fetchable',
 	);
-	const fetchableFilterVisibleCount = await visibleWorktreeFileRowCount(props.page);
+	const fetchableFilterVisibleCount = await worktreeFileFilterStatusVisibleCount(props.page);
 	await clickWorktreeFileControl(props.page, 'worktree-file-filter-unavailable');
+	await waitForWorktreeFileFilterStatus(
+		props.page,
+		expectedUnavailableFilterCount,
+		props.descriptors.length,
+	);
 	const unavailableFilterActive = await worktreeFileControlPressed(
 		props.page,
 		'worktree-file-filter-unavailable',
 	);
-	const unavailableFilterVisibleCount = await visibleWorktreeFileRowCount(props.page);
+	const unavailableFilterVisibleCount = await worktreeFileFilterStatusVisibleCount(props.page);
 	await clickWorktreeFileControl(props.page, 'worktree-file-filter-all');
 	await fillWorktreeFileSearch(props.page, '');
-	await props.page.waitForFunction(
-		(expectedMinimumCount: number): boolean =>
-			document.querySelectorAll('[data-worktree-file-path]').length >= expectedMinimumCount,
-		Math.min(8, props.descriptorCount),
-		{ timeout: 10_000 },
+	await waitForWorktreeFileFilterStatus(
+		props.page,
+		props.descriptors.length,
+		props.descriptors.length,
 	);
-	const allFilterVisibleCount = await visibleWorktreeFileRowCount(props.page);
+	const allFilterVisibleCount = await worktreeFileFilterStatusVisibleCount(props.page);
 	const proof: WorktreeFileProductControlsProof = {
 		allFilterVisibleCount,
+		expectedFetchableFilterCount,
+		expectedUnavailableFilterCount,
 		fetchableFilterActive,
 		fetchableFilterVisibleCount,
 		initialVisibleCount,
@@ -989,6 +1400,7 @@ async function verifyWorktreeFileProductControls(props: {
 		searchStatusText,
 		searchVisibleCount: 1,
 		targetPath: props.targetPath,
+		totalDescriptorCount: props.descriptors.length,
 		unavailableFilterActive,
 		unavailableFilterVisibleCount,
 	};
@@ -1002,7 +1414,7 @@ async function verifyWorktreeFileStaleRefresh(props: {
 	readonly page: Page;
 }): Promise<WorktreeFileStaleRefreshProof> {
 	await fillWorktreeFileSearch(props.page, props.fixture.relativePath);
-	await waitForVisibleWorktreeFileRowCount(props.page, 1);
+	await waitForWorktreeFileFilterStatus(props.page, 1, undefined);
 	await clickWorktreeFilePath(props.page, props.fixture.relativePath);
 	await waitForWorktreeOpenFileState({
 		page: props.page,
@@ -1026,20 +1438,44 @@ async function verifyWorktreeFileStaleRefresh(props: {
 		name: 'worktree-file-stale-refresh.png',
 		page: props.page,
 	});
+	const staleMessageVisible = await props.page
+		.locator('[data-testid="worktree-file-content-stale"]')
+		.getByText('Content changed')
+		.count();
+	const refreshGate = makeDeferred<void>();
+	await installFileContentRouteGate({
+		gate: refreshGate,
+		page: props.page,
+		pathPattern: `**/__bridge-worktree/file-content/**${encodeURIComponent(props.descriptor.contentHandle)}**`,
+	});
 	await clickWorktreeFileControl(props.page, 'worktree-file-refresh');
+	await waitForWorktreeOpenFileState({
+		page: props.page,
+		path: props.fixture.relativePath,
+		state: 'refreshing',
+	});
+	refreshGate.resolve();
 	await waitForWorktreeOpenFileState({
 		page: props.page,
 		path: props.fixture.relativePath,
 		state: 'ready',
 	});
-	const refreshedText = await worktreeVisibleContentText(props.page);
+	const refreshedText = await waitForWorktreeVisibleContentText({
+		expectedText: props.fixture.updatedContent,
+		label: 'refreshed stale-refresh proof content',
+		page: props.page,
+	});
 	const proof: WorktreeFileStaleRefreshProof = {
 		initialContentStillVisibleWhileStale: staleText.includes(props.fixture.initialContent.trim()),
 		proofPath: props.descriptor.path,
+		refreshEnteredRefreshing: true,
 		refreshReturnedReady: true,
-		refreshedContentVisible: refreshedText.includes(props.fixture.updatedContent.trim()),
+		refreshedContentVisible: renderedTextIncludesContent(
+			refreshedText,
+			props.fixture.updatedContent,
+		),
 		staleContentState: 'stale',
-		staleMessageVisible: staleText.includes('Content changed'),
+		staleMessageVisible: staleMessageVisible > 0,
 		staleScreenshotPath,
 	};
 	assertWorktreeFileStaleRefreshProof(proof);
@@ -1057,7 +1493,11 @@ function assertWorktreeFileStaleRefreshProof(proof: WorktreeFileStaleRefreshProo
 	) {
 		throw new Error(`Expected Worktree/File stale state before refresh: ${JSON.stringify(proof)}`);
 	}
-	if (!proof.refreshReturnedReady || !proof.refreshedContentVisible) {
+	if (
+		!proof.refreshEnteredRefreshing ||
+		!proof.refreshReturnedReady ||
+		!proof.refreshedContentVisible
+	) {
 		throw new Error(
 			`Expected Worktree/File explicit refresh to render update: ${JSON.stringify(proof)}`,
 		);
@@ -1085,7 +1525,7 @@ function assertWorktreeFileProductControlsProof(proof: WorktreeFileProductContro
 			`Expected Worktree/File search to isolate target path: ${JSON.stringify(proof)}`,
 		);
 	}
-	if (!proof.searchStatusText.startsWith('1/')) {
+	if (proof.searchStatusText !== `1/${proof.totalDescriptorCount}`) {
 		throw new Error(
 			`Expected Worktree/File search status to show result delta: ${JSON.stringify(proof)}`,
 		);
@@ -1095,17 +1535,19 @@ function assertWorktreeFileProductControlsProof(proof: WorktreeFileProductContro
 			`Expected Worktree/File regex search to isolate target path: ${JSON.stringify(proof)}`,
 		);
 	}
-	if (!proof.fetchableFilterActive || proof.fetchableFilterVisibleCount !== 1) {
-		throw new Error(
-			`Expected Worktree/File fetchable filter to stay active with target: ${JSON.stringify(proof)}`,
-		);
+	if (
+		!proof.fetchableFilterActive ||
+		proof.fetchableFilterVisibleCount !== proof.expectedFetchableFilterCount
+	) {
+		throw new Error(`Expected Worktree/File fetchable filter count: ${JSON.stringify(proof)}`);
 	}
-	if (!proof.unavailableFilterActive || proof.unavailableFilterVisibleCount !== 0) {
-		throw new Error(
-			`Expected Worktree/File unavailable filter to hide text target: ${JSON.stringify(proof)}`,
-		);
+	if (
+		!proof.unavailableFilterActive ||
+		proof.unavailableFilterVisibleCount !== proof.expectedUnavailableFilterCount
+	) {
+		throw new Error(`Expected Worktree/File unavailable filter count: ${JSON.stringify(proof)}`);
 	}
-	if (proof.allFilterVisibleCount < proof.initialVisibleCount) {
+	if (proof.allFilterVisibleCount !== proof.totalDescriptorCount) {
 		throw new Error(
 			`Expected Worktree/File all filter reset to restore visible rows: ${JSON.stringify(proof)}`,
 		);
@@ -1122,23 +1564,17 @@ async function clickWorktreeFileControl(page: Page, testId: string): Promise<voi
 
 async function visibleWorktreeFileRowCount(page: Page): Promise<number> {
 	return await page.evaluate(
-		(): number => document.querySelectorAll('[data-worktree-file-path]').length,
-	);
-}
-
-async function waitForVisibleWorktreeFileRowCount(page: Page, count: number): Promise<void> {
-	await page.waitForFunction(
-		(expectedCount: number): boolean =>
-			document.querySelectorAll('[data-worktree-file-path]').length === expectedCount,
-		count,
-		{ timeout: 10_000 },
+		(): number =>
+			window.bridgeWorktreeVerifier
+				.getPierreFileTreeItems()
+				.filter((candidate) => candidate.dataset['itemType'] === 'file').length,
 	);
 }
 
 async function worktreeFileRowExists(page: Page, path: string): Promise<boolean> {
 	return await page.evaluate(
 		(targetPath: string): boolean =>
-			document.querySelector(`[data-worktree-file-path="${CSS.escape(targetPath)}"]`) !== null,
+			window.bridgeWorktreeVerifier.getPierreFileTreeItem(targetPath) !== null,
 		path,
 	);
 }
@@ -1153,18 +1589,85 @@ async function worktreeFileControlPressed(page: Page, testId: string): Promise<b
 async function worktreeFileFilterStatusText(page: Page): Promise<string> {
 	return await page.evaluate(
 		(): string =>
-			document.querySelector('[data-testid="worktree-file-filter-status"]')?.textContent ?? '',
+			document.querySelector('[data-testid="worktree-file-filter-count"]')?.textContent ?? '',
+	);
+}
+
+async function waitForWorktreeFileFilterStatus(
+	page: Page,
+	visibleCount: number,
+	totalCount: number | undefined,
+): Promise<void> {
+	await page.waitForFunction(
+		(expected: { readonly totalCount?: number; readonly visibleCount: number }): boolean => {
+			const statusText =
+				document.querySelector('[data-testid="worktree-file-filter-count"]')?.textContent ?? '';
+			return expected.totalCount === undefined
+				? statusText.startsWith(`${expected.visibleCount}/`)
+				: statusText === `${expected.visibleCount}/${expected.totalCount}`;
+		},
+		totalCount === undefined ? { visibleCount } : { totalCount, visibleCount },
+		{ timeout: 10_000 },
+	);
+}
+
+async function worktreeFileFilterStatusVisibleCount(page: Page): Promise<number> {
+	const statusText = await worktreeFileFilterStatusText(page);
+	const visibleCountText = statusText.split('/')[0] ?? '';
+	const visibleCount = Number(visibleCountText);
+	if (!Number.isInteger(visibleCount) || visibleCount < 0) {
+		throw new Error(`Expected Worktree/File status count, got ${statusText}`);
+	}
+	return visibleCount;
+}
+
+async function scrollPierreFileTreeUntilPathVisible(page: Page, path: string): Promise<void> {
+	const foundWithoutScroll = await worktreeFileRowExists(page, path);
+	if (foundWithoutScroll) {
+		return;
+	}
+	for (let attempt = 0; attempt < 80; attempt += 1) {
+		const didFind = await page.evaluate(
+			(input: { readonly attempt: number; readonly path: string }): boolean => {
+				const helpers = window.bridgeWorktreeVerifier;
+				const scrollElement = helpers.getPierreFileTreeScrollElement();
+				if (!(scrollElement instanceof HTMLElement)) {
+					return false;
+				}
+				const maxScrollTop = Math.max(0, scrollElement.scrollHeight - scrollElement.clientHeight);
+				const nextScrollTop =
+					maxScrollTop === 0 ? 0 : Math.floor((maxScrollTop * input.attempt) / 79);
+				scrollElement.scrollTop = nextScrollTop;
+				return helpers.getPierreFileTreeItem(input.path) !== null;
+			},
+			{ attempt, path },
+		);
+		if (didFind) {
+			await waitForPierreFileTreePath(page, path);
+			return;
+		}
+		await page.waitForTimeout(25);
+	}
+	throw new Error(`Expected Pierre FileTree row for ${path}`);
+}
+
+async function waitForPierreFileTreePath(page: Page, path: string): Promise<void> {
+	await page.waitForFunction(
+		(targetPath: string): boolean =>
+			window.bridgeWorktreeVerifier.getPierreFileTreeItem(targetPath) !== null,
+		path,
+		{ timeout: 10_000 },
 	);
 }
 
 async function waitForWorktreeOpenFileState(props: {
 	readonly page: Page;
 	readonly path: string;
-	readonly state: 'loading' | 'ready' | 'stale' | 'unavailable';
+	readonly state: 'loading' | 'ready' | 'refreshing' | 'stale' | 'unavailable';
 }): Promise<void> {
 	await props.page.waitForFunction(
 		(expected: { readonly path: string; readonly state: string }): boolean => {
-			const contentPanel = document.querySelector('[data-testid="worktree-file-content"]');
+			const contentPanel = document.querySelector('[data-testid="bridge-file-viewer-code-canvas"]');
 			return (
 				contentPanel?.getAttribute('data-worktree-open-file-path') === expected.path &&
 				contentPanel?.getAttribute('data-worktree-open-file-state') === expected.state
@@ -1182,9 +1685,8 @@ async function dispatchWorktreeDevReload(page: Page): Promise<void> {
 }
 
 async function worktreeVisibleContentText(page: Page): Promise<string> {
-	return await page.evaluate(
-		(): string =>
-			document.querySelector('[data-testid="worktree-file-content"]')?.textContent ?? '',
+	return await page.evaluate((): string =>
+		window.bridgeWorktreeVerifier.getBridgeFileViewerRenderedCodeText(),
 	);
 }
 
@@ -1194,9 +1696,26 @@ async function assertWorktreeVisibleContentText(props: {
 	readonly page: Page;
 }): Promise<void> {
 	const text = await worktreeVisibleContentText(props.page);
-	if (!text.includes(props.expectedText.trim())) {
+	if (!renderedTextIncludesContent(text, props.expectedText)) {
 		throw new Error(`Expected ${props.label} to be visible`);
 	}
+}
+
+async function waitForWorktreeVisibleContentText(props: {
+	readonly expectedText: string;
+	readonly label: string;
+	readonly page: Page;
+}): Promise<string> {
+	const deadline = Date.now() + 10_000;
+	let latestText = '';
+	while (Date.now() < deadline) {
+		latestText = await worktreeVisibleContentText(props.page);
+		if (renderedTextIncludesContent(latestText, props.expectedText)) {
+			return latestText;
+		}
+		await props.page.waitForTimeout(100);
+	}
+	throw new Error(`Expected ${props.label} to be visible`);
 }
 
 function countTextLines(text: string): number {
@@ -1227,10 +1746,6 @@ async function writeWorktreeDevServerProofArtifact(
 		)}\n`,
 	);
 	return proofArtifactDisplayPath;
-}
-
-function cssAttributeEscape(value: string): string {
-	return value.replace(/["\\]/gu, '\\$&');
 }
 
 function escapeRegExp(value: string): string {

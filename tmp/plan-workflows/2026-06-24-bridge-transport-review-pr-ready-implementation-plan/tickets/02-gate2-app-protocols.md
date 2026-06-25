@@ -11,6 +11,9 @@ Implement application protocols on top of generic Bridge:
   refresh, file/tree/status metadata, and bounded content requests
 - Review protocol comparison lifecycle, static diffs, live worktree comparisons,
   changeset clusters, and descriptor-backed content
+- source adapters that feed viewer modes rather than standalone apps:
+  Worktree/File feeds FileViewer and Review feeds ReviewViewer inside the shared
+  BridgeViewer app
 - app-specific materializers
 - app-specific demand policies that map protocol interest to generic lanes
 - large-data-out-of-Zustand invariants
@@ -19,18 +22,26 @@ Implement application protocols on top of generic Bridge:
 
 Review this ticket against the prior false-green failure mode. Ask whether app
 protocol proof could pass while the user-visible Worktree/File or Review product
-surface is still wrong, or while large bodies silently enter Zustand.
+surface is still wrong, while the worktree URL still reaches `WorktreeFileApp`,
+or while large bodies silently enter Zustand.
 
 ## Ownership Boundary
 
 Worktree/File and Review own domain semantics. Generic Bridge owns carriers,
 descriptor mechanics, scheduling primitives, and bounded execution.
 
+The protocols do not own application shells. Worktree/File produces FileViewer
+source identity, tree/file descriptors, invalidation facts, and content streams.
+Review produces ReviewViewer comparison/package/changset facts. The shared
+BridgeViewer shell and renderer adapters own conversion into Pierre FileTree and
+Pierre CodeView/File or diff items.
+
 ## Vertical Slices
 
 1. Worktree/File materializer and state
    - unit/component proof for source reset, descriptor update, open-file stale
      state, and refresh
+   - produces FileViewer input for the shared BridgeViewer shell
    - no file bodies in Zustand
 
 2. Worktree/File demand policy
@@ -57,9 +68,16 @@ Required:
 - integration tests for source reset and stale resource completion
 - browser fixture for live worktree/change-set behavior where applicable
 - no large bodies in Zustand snapshots
-- Gate 0 current-worktree product proof remains green before this ticket closes
+- Gate 0.a current-worktree shared FileViewer/Pierre product proof remains green
+  before this ticket closes
 
 ## Required Commands
+
+Standing Gate 0.a regression command consumed from Ticket 00:
+
+```bash
+pnpm --dir BridgeWeb run test:dev-server:worktree
+```
 
 ```bash
 pnpm --dir BridgeWeb run test -- <focused app protocol tests>

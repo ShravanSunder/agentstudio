@@ -20,7 +20,10 @@ Goal state:
 
 Reviewer context packet:
 
-- [spec-review-packet-2026-06-24.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/workflow-state/2026-06-24-bridge-transport-review-pr-ready/spec-review-packet-2026-06-24.md:1)
+- Current Gate 0.a packet:
+  [spec-review-packet-gate0a-2026-06-24.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/workflow-state/2026-06-24-bridge-transport-review-pr-ready/spec-review-packet-gate0a-2026-06-24.md:1)
+- Historical pre-reopen packet:
+  [spec-review-packet-2026-06-24.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/workflow-state/2026-06-24-bridge-transport-review-pr-ready/spec-review-packet-2026-06-24.md:1)
 
 Every future implementation/review packet must include the prior failure
 context: old narrow green proof versus current product red proof, and the
@@ -31,13 +34,16 @@ question "Can this proof pass while the user-visible product is still wrong?"
 Do not implement this epic as one unbroken blob. Execute it as checkpointed
 vertical tickets. Each ticket must produce its own proof and checkpoint commit.
 
-Gate 0 is the first executable blocker. Gates 1-4 remain in scope for this epic
-and cannot be silently deferred from PR-ready.
+Gate 0.a is the first executable blocker inside Gate 0: the exact worktree dev
+URL must render FileViewer inside the shared BridgeViewer shell with Pierre
+FileTree/right rail, Pierre CodeView/File, Shiki, and worker-backed rendering
+when `workers=on`. Gates 1-4 remain in scope for this epic and cannot be
+silently deferred from PR-ready.
 
 ## Gate Sequence
 
 ```text
-Gate 0  Worktree/File product proof
+Gate 0.a  Shared FileViewer/Pierre product proof
    │
    ▼
 Gate 1  Generic Bridge transport/core runtime
@@ -60,8 +66,8 @@ Path:
 [00-gate0-worktree-product-e2e.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/plan-workflows/2026-06-24-bridge-transport-review-pr-ready-implementation-plan/tickets/00-gate0-worktree-product-e2e.md:1)
 
 Deliverable:
-The exact Vite dev-server URL renders and operates the intended Worktree/File
-product surface and cannot pass as a mock/raw/minimal substitute.
+The exact Vite dev-server URL renders and operates FileViewer inside the shared
+BridgeViewer shell and cannot pass as a mock/raw/minimal/second-app substitute.
 
 Blocking:
 No downstream implementation claim may proceed until this ticket proves the
@@ -117,7 +123,7 @@ reported.
 
 | Gate | Unit | Integration | Browser/E2E | Native/Observability | Review |
 | --- | --- | --- | --- | --- | --- |
-| 0 | filter/regex/provenance/stale state | provider descriptors/resources | exact current-worktree URL, controls, content, stale-refresh, scroll, screenshots, negative substitutes | not final native proof; native proof is carried to Gate 4 | parent/human/reviewer artifact inspection |
+| 0 | filter/regex/provenance/stale state, FileViewer route contract | provider descriptors/resources | exact current-worktree URL, shared BridgeViewer shell, Pierre FileTree/right rail, Pierre CodeView/File content, Shiki/worker markers, controls, content, stale-refresh, scroll, screenshots, negative substitutes | not final native proof; native proof is carried to Gate 4 | parent/human/reviewer artifact inspection |
 | 1 | schemas, scheduler state, descriptor registry | RPC/event/intake/resource boundaries, executor/backpressure | focused smoke only if route wiring changes | Victoria-safe telemetry and marker seams | implementation review for generic/app boundary |
 | 2 | app materializers and demand policies | Worktree/File and Review protocol streams/resources | live worktree/change-set protocol surfaces | source/version/provenance markers where required | app-ownership review |
 | 3 | renderer adapters and update lifecycle | Pierre/CodeView/tree integration | static diff, live update, change-set comparison, scroll canary | performance/scroll telemetry | renderer hard-cutover review |
@@ -132,8 +138,9 @@ substitutes:
    - owns the fast product loop for the exact Worktree/File and Review URLs
    - must exercise visible controls, interactions, content, scroll, stale state,
      screenshots, and negative substitute assertions
-   - must fail when the route renders a mock, raw dump, minimal list, or old
-     narrow verifier surface
+   - must fail when the route renders a mock, raw dump, minimal list, standalone
+     `WorktreeFileApp`, raw `<pre>` body renderer, route-local custom shell, or
+     old narrow verifier surface
 
 2. Agent Studio Bridge/WKWebView proof
    - owns native host integration for the same in-scope product routes
@@ -149,6 +156,10 @@ subagent claims alone when user-visible product behavior is in scope.
 ## Execution Rules
 
 - Do not proceed past a gate until its blocking proof is captured and committed.
+- The canonical Gate 0.a regression command is
+  `pnpm --dir BridgeWeb run test:dev-server:worktree`; Ticket 00 must upgrade
+  that command in place so downstream gates cannot rerun a stale narrow
+  verifier.
 - Carry Gate 0 forward as a standing regression gate. Tickets 01-03 must rerun
   the Gate 0 current-worktree product proof before closing if they touch shared
   BridgeWeb transport, protocol, scheduler, or renderer wiring.

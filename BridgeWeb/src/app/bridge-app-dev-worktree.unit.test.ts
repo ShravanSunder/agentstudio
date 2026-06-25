@@ -72,6 +72,32 @@ describe('bridge app dev worktree frame subscription', () => {
 			},
 		});
 	});
+
+	test('emits a reset and replacement surface when a previous descriptor disappears', () => {
+		const previousDescriptor = makeFileDescriptor();
+		const survivingDescriptor = makeFileDescriptor({
+			contentHandle: 'file-content-surviving',
+			fileId: 'file-surviving',
+			path: 'src/surviving.ts',
+		});
+
+		const frames = worktreeFileIncrementalFramesFromSurfaces({
+			previousFrames: makeFrames(previousDescriptor, survivingDescriptor),
+			nextFrames: makeFrames(survivingDescriptor),
+		});
+
+		expect(frames[0]).toMatchObject({
+			kind: 'reset',
+			frameKind: 'worktree.reset',
+			reason: 'sourceChanged',
+		});
+		expect(frames.some((frame) => frame.frameKind === 'worktree.snapshot')).toBe(true);
+		expect(
+			frames
+				.filter((frame) => frame.frameKind === 'worktree.fileDescriptor')
+				.map((frame) => frame.descriptor.path),
+		).toEqual(['src/surviving.ts']);
+	});
 });
 
 function makeFrames(

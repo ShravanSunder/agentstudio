@@ -119,6 +119,73 @@ describe('WorktreeFileApp', () => {
 		expect(document.body.textContent).not.toContain('must-not-fetch');
 	});
 
+	test('renders source provenance and applies search, regex, filters, and invalid regex status', async () => {
+		const textDescriptor = makeFileDescriptor({ path: 'src/app.ts' });
+		const binaryDescriptor = makeFileDescriptor({
+			fileId: 'file-binary',
+			isBinary: true,
+			path: 'assets/logo.png',
+			virtualizedExtentKind: 'unavailable',
+		});
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<WorktreeFileApp
+					loadInitialSurface={async () => ({
+						frames: makeFrames(textDescriptor, binaryDescriptor),
+						provenance: {
+							baseRef: 'main',
+							scenarioName: 'current-worktree',
+							worktreeRootToken: 'root-token-1',
+						},
+						source: makeSourceIdentity(),
+					})}
+				/>,
+			);
+			await nextMicrotask();
+		});
+
+		const appRoot = document.querySelector('[data-testid="worktree-file-app"]');
+		expect(appRoot?.getAttribute('data-worktree-source-id')).toBe('source-1');
+		expect(appRoot?.getAttribute('data-worktree-source-cursor')).toBe('cursor-1');
+		expect(appRoot?.getAttribute('data-worktree-source-state')).toBe('live');
+		expect(appRoot?.getAttribute('data-worktree-root-token')).toBe('root-token-1');
+		expect(appRoot?.getAttribute('data-worktree-base-ref')).toBe('main');
+		expect(appRoot?.getAttribute('data-worktree-scenario')).toBe('current-worktree');
+		expect(document.body.textContent).toContain('current-worktree · source-1');
+		expect(visibleRowPaths()).toEqual(['src/app.ts', 'assets/logo.png']);
+		expect(filterStatusText()).toBe('2/2');
+
+		await setSearchInputValue('app');
+		expect(visibleRowPaths()).toEqual(['src/app.ts']);
+		expect(filterStatusText()).toBe('1/2');
+
+		await clickControl('worktree-file-regex-toggle');
+		await setSearchInputValue('^assets/.*\\.png$');
+		expect(visibleRowPaths()).toEqual(['assets/logo.png']);
+		expect(filterStatusText()).toBe('1/2');
+
+		await setSearchInputValue('[');
+		expect(visibleRowPaths()).toEqual([]);
+		expect(filterStatusText()).toBe('Invalid regex');
+
+		await setSearchInputValue('');
+		await clickControl('worktree-file-filter-fetchable');
+		expect(visibleRowPaths()).toEqual(['src/app.ts']);
+		expect(filterStatusText()).toBe('1/2');
+
+		await clickControl('worktree-file-filter-unavailable');
+		expect(visibleRowPaths()).toEqual(['assets/logo.png']);
+		expect(filterStatusText()).toBe('1/2');
+
+		await clickControl('worktree-file-filter-all');
+		expect(visibleRowPaths()).toEqual(['src/app.ts', 'assets/logo.png']);
+		expect(filterStatusText()).toBe('2/2');
+	});
+
 	test('keeps latest selection when an older content request resolves later', async () => {
 		const slowDescriptor = makeFileDescriptor({
 			contentHandle: 'slow-content',
@@ -355,6 +422,96 @@ describe('WorktreeFileApp', () => {
 		expect(document.body.textContent).toContain('export const value = 3;');
 	});
 
+	test('shows refreshing while explicit refresh is in flight', async () => {
+		const descriptor = makeFileDescriptor({ lineCount: 1 });
+		const replacementDescriptor = makeFileDescriptor({
+			contentHandle: 'file-content-2',
+			fileId: descriptor.fileId,
+			lineCount: 2,
+			path: descriptor.path,
+		});
+		const refreshContent = makeDeferred<string>();
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<WorktreeFileApp
+					fetchResource={async ({ resourceUrl }) =>
+						resourceUrl.includes('file-content-2')
+							? await refreshContent.promise
+							: 'export const value = 2;\n'
+					}
+					initialFrames={makeFrames(descriptor)}
+				/>,
+			);
+		});
+		await act(async (): Promise<void> => {
+			document.querySelector<HTMLButtonElement>('[data-worktree-file-path="src/app.ts"]')?.click();
+			await nextMicrotask();
+		});
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<WorktreeFileApp initialFrames={[makeInvalidationFrame(replacementDescriptor)]} />,
+			);
+			await nextMicrotask();
+		});
+		expect(openFileState()).toBe('stale');
+
+		await act(async (): Promise<void> => {
+			document.querySelector<HTMLButtonElement>('[data-testid="worktree-file-refresh"]')?.click();
+			await nextMicrotask();
+		});
+		expect(openFileState()).toBe('refreshing');
+		expect(document.body.textContent).toContain('export const value = 2;');
+
+		await act(async (): Promise<void> => {
+			refreshContent.resolve('export const value = 3;\n');
+			await refreshContent.promise;
+			await nextMicrotask();
+		});
+		expect(openFileState()).toBe('ready');
+		expect(document.body.textContent).toContain('export const value = 3;');
+	});
+
+	test('clears an open file and tree rows when subscribed frames reset after removal', async () => {
+		const descriptor = makeFileDescriptor({ lineCount: 1 });
+		let subscribedFrames: ((frames: readonly WorktreeFileProtocolFrame[]) => void) | null = null;
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<WorktreeFileApp
+					fetchResource={async () => 'export const value = 2;\n'}
+					initialFrames={makeFrames(descriptor)}
+					subscribeFrames={(subscriber) => {
+						subscribedFrames = subscriber;
+						return () => {
+							subscribedFrames = null;
+						};
+					}}
+				/>,
+			);
+		});
+		await act(async (): Promise<void> => {
+			document.querySelector<HTMLButtonElement>('[data-worktree-file-path="src/app.ts"]')?.click();
+			await nextMicrotask();
+		});
+		expect(openFileState()).toBe('ready');
+
+		await act(async (): Promise<void> => {
+			subscribedFrames?.([makeResetFrame()]);
+			await nextMicrotask();
+		});
+
+		expect(visibleRowPaths()).toEqual([]);
+		expect(openFileState()).toBe('unavailable');
+		expect(document.body.textContent).toContain('Content unavailable');
+	});
+
 	test('keeps an invalidated in-flight open stale after the old content resolves', async () => {
 		const descriptor = makeFileDescriptor({ lineCount: 1 });
 		const replacementDescriptor = makeFileDescriptor({
@@ -499,6 +656,17 @@ function makeInvalidationFrame(descriptor: WorktreeFileDescriptor): WorktreeFile
 	};
 }
 
+function makeResetFrame(): WorktreeFileProtocolFrame {
+	return {
+		kind: 'reset',
+		streamId: 'worktree-file:pane-1',
+		generation: 2,
+		sequence: 2,
+		frameKind: 'worktree.reset',
+		reason: 'sourceChanged',
+	};
+}
+
 function makeSourceIdentity(): WorktreeFileSurfaceSourceIdentity {
 	return {
 		sourceId: 'source-1',
@@ -542,6 +710,57 @@ function makeAttachedDescriptor(props: {
 		},
 		descriptor,
 	});
+}
+
+async function setSearchInputValue(value: string): Promise<void> {
+	await act(async (): Promise<void> => {
+		const input = document.querySelector<HTMLInputElement>(
+			'[data-testid="worktree-file-search-input"]',
+		);
+		if (input === null) {
+			throw new Error('Expected Worktree/File search input');
+		}
+		const valueDescriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+		if (valueDescriptor?.set === undefined) {
+			throw new Error('Expected native input value setter');
+		}
+		// oxlint-disable-next-line typescript/unbound-method -- Test helper needs the native input setter with an explicit receiver.
+		Reflect.apply(valueDescriptor.set, input, [value]);
+		input.dispatchEvent(new Event('input', { bubbles: true }));
+		input.dispatchEvent(new Event('change', { bubbles: true }));
+		await nextMicrotask();
+	});
+}
+
+async function clickControl(testId: string): Promise<void> {
+	await act(async (): Promise<void> => {
+		const button = document.querySelector<HTMLButtonElement>(`[data-testid="${testId}"]`);
+		if (button === null) {
+			throw new Error(`Expected Worktree/File control ${testId}`);
+		}
+		button.click();
+		await nextMicrotask();
+	});
+}
+
+function filterStatusText(): string {
+	return (
+		document.querySelector('[data-testid="worktree-file-filter-status"]')?.textContent?.trim() ?? ''
+	);
+}
+
+function openFileState(): string | null {
+	return (
+		document
+			.querySelector('[data-worktree-open-file-state]')
+			?.getAttribute('data-worktree-open-file-state') ?? null
+	);
+}
+
+function visibleRowPaths(): readonly string[] {
+	return [...document.querySelectorAll('[data-worktree-file-path]')].map(
+		(row) => row.getAttribute('data-worktree-file-path') ?? '',
+	);
 }
 
 async function nextMicrotask(): Promise<void> {

@@ -34,6 +34,11 @@ describe('Bridge worktree dev provider', () => {
 
 			expect(frameKinds[0]).toBe('worktree.snapshot');
 			expect(frameKinds).toContain('worktree.fileDescriptor');
+			expect(surface.provenance).toEqual({
+				baseRef: 'HEAD',
+				scenarioName: 'current-worktree',
+				worktreeRootToken: expect.stringMatching(/^root-[a-f0-9]{32}$/u),
+			});
 			expect(surface.source.sourceId).toBe('dev-worktree-source');
 			expect(surface.treeSizeFacts.pathCount).toBeGreaterThanOrEqual(2);
 			expect(sourceDescriptor.virtualizedExtentKind).toBe('exactLineCount');

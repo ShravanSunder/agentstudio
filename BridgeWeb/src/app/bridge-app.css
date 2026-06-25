@@ -318,6 +318,15 @@ button:disabled,
 	font-size: 12px;
 }
 
+.bridge-worktree-file-stale-notice {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	padding: 8px 12px;
+	color: var(--bridge-text-secondary);
+	font-size: 12px;
+}
+
 @layer base {
 	* {
 		@apply border-border outline-ring/50;

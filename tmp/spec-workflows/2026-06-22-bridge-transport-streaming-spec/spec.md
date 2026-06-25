@@ -2,11 +2,12 @@
 
 Date: 2026-06-22
 Status: Reopened for 2026-06-24 expanded PR-ready epic reconciliation.
-Gate 0 is still the first mandatory blocker: the Worktree/File product-surface
-proof contract and precursor ticket must close before downstream implementation
-claims. The full goal now continues through transport/protocol/scheduler
-implementation, Worktree/File and Review protocol implementation, Pierre/Review
-renderer cutover, and PR-ready non-merge wrapup.
+Gate 0 is still the first mandatory blocker: the Worktree/File proof contract
+must prove the shared Bridge viewer shell and renderer path, not a separate
+Worktree/File mini-app. The full goal now continues through
+transport/protocol/scheduler implementation, Worktree/File and Review protocol
+implementation, Pierre renderer cutover for both ReviewViewer and FileViewer,
+and PR-ready non-merge wrapup.
 Audience: product/design reviewers, Bridge implementers, Review Viewer maintainers, Worktree/File Surface maintainers, future agents
 
 This is a product and architecture spec. It aligns the design before
@@ -30,13 +31,15 @@ scope.
 
 Gate order:
 
-1. Gate 0: Worktree/File dev-server product proof for the exact
+1. Gate 0: Worktree-backed FileViewer dev-server product proof for the exact
    `?fixture=worktree&workers=on&scenario=current-worktree` URL. This must
-   prove the intended product surface with browser-visible controls and
-   negative-substitute assertions. Gate 0 also records the native Agent Studio
-   Bridge/WKWebView proof requirement: dev-server proof gets the product route
-   honest first, but final PR-ready proof must show the same Bridge protocol
-   behavior through the app-hosted Bridge surface.
+   prove the shared BridgeViewer shell: primary Pierre CodeView/File canvas on
+   the left, Pierre FileTree/right rail on the right, Shiki syntax highlighting,
+   worker-backed highlighting path when workers are enabled, browser-visible
+   controls, and negative-substitute assertions. Gate 0 also records the native
+   Agent Studio Bridge/WKWebView proof requirement: dev-server proof gets the
+   product route honest first, but final PR-ready proof must show the same
+   Bridge protocol behavior through the app-hosted Bridge surface.
 2. Gate 1: generic Bridge transport/protocol/scheduler implementation.
 3. Gate 2: Worktree/File and Review application protocol implementation.
 4. Gate 3: Pierre/Review renderer rewrite/integration on the new
@@ -61,8 +64,8 @@ The system must support:
 - static DiffsHub-style review packages
 - live review comparisons, such as base branch versus live worktree
 - provider-owned changeset clusters, such as agent/session/time-window batches
-- live worktree exploration with tree, file content, and git status in one
-  surface
+- live worktree exploration through FileViewer with tree, file content, and git
+  status in the same BridgeViewer shell
 - future comments and agent communications anchored to the same Worktree/File
   Surface once their schema/permission slice exists
 - demand-driven hydration of huge repos, huge diffs, and huge files
@@ -70,9 +73,11 @@ The system must support:
   notifications, that carries source facts, invalidations, cursors, gaps,
   resets, and descriptor availability while heavy bodies stay on bounded
   resource/content paths
-- real user-visible Worktree/File proof, not only schema or test-harness proof:
-  the dev-server route must render a usable tree/file surface rather than raw
-  transport payloads or concatenated path dumps
+- real user-visible FileViewer proof, not only schema or test-harness proof:
+  the dev-server route must render the same BridgeViewer UX shell and Pierre
+  renderer stack as ReviewViewer, driven by a worktree source adapter rather
+  than raw transport payloads, concatenated path dumps, or a custom `<pre>`
+  mini-app
 
 The design succeeds when large or live review/worktree/file surfaces can update
 without whole-pane resets, eager full-data fetches, or unclear ownership.
@@ -153,26 +158,43 @@ preserves visible line structure for exact-line-count fixtures; packaged styling
 affects the mounted surface; and no raw transport payload, serialized frame
 field, or raw path corpus is visible outside intentional tree/content UI.
 
-R11 is not satisfied by a minimal two-pane file list plus `<pre>` content. The
-dev-server proof for `?fixture=worktree&workers=on&scenario=current-worktree`
-must exercise the intended Worktree/File product surface: route/protocol identity,
-provider/source provenance, file click/open behavior, content render, tree
-filtering controls, search text input, regex toggle behavior, status/filter
-controls, refresh/stale affordance when applicable, large-tree scroll stability,
-large-file scroll stability, and screenshot/DOM artifacts reviewed against the
-visible product surface. The root mock Review route and Review package fixtures
-are prohibited substitutes for this Worktree/File proof.
+R11 is not satisfied by a minimal two-pane file list plus `<pre>` content, even
+if the file tree and content load correctly. The dev-server proof for
+`?fixture=worktree&workers=on&scenario=current-worktree` must exercise the
+intended FileViewer mode inside the shared BridgeViewer shell: route/protocol
+identity, provider/source provenance, file click/open behavior, Pierre FileTree
+right rail, Pierre CodeView/File item rendering, Shiki-highlighted file content,
+worker-backed highlighting path when `workers=on`, tree filtering controls,
+search text input, regex toggle behavior, status/filter controls, refresh/stale
+affordance when applicable, large-tree scroll stability, large-file scroll
+stability, and screenshot/DOM artifacts reviewed against the visible product
+surface. The root mock Review route, Review package fixtures, custom
+WorktreeFileApp scaffolds, raw `<pre>` renderers, and DOM-only content-ready
+markers are prohibited substitutes for this FileViewer proof.
 
 R12. Renderer cutover is a first-class architecture requirement.
 
 The new transport/materialization system is not complete if Pierre, CodeView,
-or tree rendering remain on an incompatible identity/remount model that defeats
-same-lineage updates, stable scroll extent, or descriptor-backed hydration.
-Plans may slice the renderer cutover, but PR-ready status requires hard cutover
-for every in-scope renderer entry path. A named residual gap can justify
-non-PR-ready status only; it cannot satisfy the PR-ready gate. Cutover proof
-must include a negative assertion that covered routes cannot reach the legacy
-renderer/remount bypass.
+File, or tree rendering remain on an incompatible identity/remount model that
+defeats same-lineage updates, stable scroll extent, descriptor-backed
+hydration, Shiki highlighting, or worker-backed rendering. Plans may slice the
+renderer cutover, but PR-ready status requires hard cutover for every in-scope
+renderer entry path. A named residual gap can justify non-PR-ready status only;
+it cannot satisfy the PR-ready gate. Cutover proof must include negative
+assertions that covered ReviewViewer/FileViewer routes cannot reach the legacy
+renderer/remount bypass or a custom `<pre>` file viewer bypass.
+
+R14. Bridge viewer modes must share one product shell.
+
+`ReviewViewer` and `FileViewer` are viewer modes inside the same
+`BridgeViewerApp`. `worktree`, `mock`, `reviewPackage`, `changeset`, and future
+native providers are source adapters, not separate apps. FileViewer and
+ReviewViewer may use different app protocols and materializers, but they must
+share the product UX shell, Pierre FileTree/right rail, Pierre CodeView/File
+renderer, Shiki theme/highlighting system, worker-pool integration, and
+scroll/proof contract unless a later accepted spec explicitly splits a new
+viewer mode. A route switch that mounts a standalone Worktree/File app is a
+contract violation.
 
 R13. Review handoff from Worktree/File must be explicit.
 
@@ -195,6 +217,8 @@ This spec does not:
 - make the browser calculate Git diffs
 - force worktree exploration through the Review package/diff model
 - split Worktree and FileView into separate user-facing apps
+- split FileViewer from the shared BridgeViewer shell or reimplement file
+  rendering outside Pierre/Shiki/workers
 - define implementation task order
 - choose exact concurrency numbers before implementation profiling, but it does
   require a profiling and telemetry gate before production tuning is called
@@ -236,14 +260,16 @@ Application Protocol Family
     Worktree/File Surface Protocol
   owns: source specs, domain commands, intake frame schemas,
         materialization identity, app-specific invalidation semantics
-  exposes: projection materializer, app demand policy, descriptors
+  exposes: projection materializer, app demand policy, descriptors,
+           viewer-mode input
 
         │ facts, references, render deltas, resource intents
         ▼
 
 Browser Runtime
   owns: Zustand facts/refs, registries, demand scheduler,
-        resource executor, renderer adapters, Pierre integration
+        resource executor, shared BridgeViewer shell, renderer adapters,
+        Pierre integration
 ```
 
 ```mermaid
@@ -1212,7 +1238,7 @@ Proof expectations feed a later plan. They are not task order.
 | Source reset demand | scheduler/executor fixture | source reset with queued/in-flight work | queued work dropped, stale completion rejected | late commit after reset |
 | Stable scroll extent | schema/provider/browser canary fixture | huge tree and opened file before content bytes hydrate | provider emits exact row/line count or conservative estimated extent; browser `scrollHeight`/virtualizer `totalSize` stays within tolerance after hydration or logs attributed measured deltas | accepting scrollbar jump as manual UX judgment |
 | Worktree visible app proof | browser/dev-server fixture | current-worktree route in a real browser | app root/tree pane/file pane have non-zero visible rects; sampled tree entries occupy distinct row boxes; selected exact-line fixture preserves visible line structure; packaged styling affects the surface; proof records Worktree/File source identity, event/intake lineage, and Worktree frame provenance; raw frame fields, serialized payloads, and raw path corpus dumps are absent outside intentional tree/content UI | schema-only proof, hidden DOM text, Review package/query lineage, hardcoded pass flag, or screenshot with concatenated paths |
-| Worktree product E2E proof | Playwright/dev-server fixture plus parent-inspected screenshot artifact | exact `?fixture=worktree&workers=on&scenario=current-worktree` URL | route identifies the Worktree/File product surface; tree/file/status controls are visible; file click changes the open content; search, regex toggle, and filter controls produce observable state/result changes; open-file invalidation produces visible stale/update state; refresh is user-invoked rather than silent replacement; refresh returns the surface to ready; large tree and large file scroll preserve stable extents; proof artifact records source/protocol provenance and screenshots before/after interaction | root mock Review route, minimal file-list plus `<pre>` renderer, DOM text-only assertion, content-ready flag, silent content replacement, or screenshot that was not tied to Playwright interaction |
+| Worktree/FileViewer product E2E proof | Playwright/dev-server fixture plus parent-inspected screenshot artifact | exact `?fixture=worktree&workers=on&scenario=current-worktree` URL | route identifies FileViewer inside the shared BridgeViewer shell; primary Pierre CodeView/File canvas is on the left; Pierre FileTree/right rail is on the right; Shiki and worker-backed rendering are active when `workers=on`; tree/file/status controls are visible; file click changes the open content; search, regex toggle, and filter controls produce observable state/result changes; open-file invalidation produces visible stale/update state; refresh is user-invoked rather than silent replacement; refresh returns the surface to ready; large tree and large file scroll preserve stable extents; proof artifact records source/protocol provenance and screenshots before/after interaction | root mock Review route, standalone `WorktreeFileApp`, route-local custom shell, custom tree, minimal file-list plus `<pre>` renderer, DOM text-only assertion, content-ready flag, silent content replacement, or screenshot that was not tied to Playwright interaction |
 | Agent Studio Bridge runtime proof | native app / WKWebView / Victoria-backed fixture | app-hosted Bridge surface opens the same Worktree/File or Review protocol path through native Bridge wiring | Swift host, bridge protocol, app assets, stream/RPC/resource descriptors, and browser surface agree on protocol/source identity; marker-scoped logs/metrics prove route boot, content/resource requests, and event stream readiness; native proof inherits the product-surface contract for visible regions, controls, before/after screenshots, interaction assertions, stale/refresh path when applicable, scroll canaries, and negative-substitute checks | Vite-only proof, mocked backend, packaged asset existence, healthy markers with wrong/minimal visible product surface, screenshot without bridge markers, or uncorrelated logs |
 | Renderer boundary and cutover | integration/browser fixture | Pierre/CodeView/tree adapter input and update lifecycle | app/protocol-owned renderer adapters receive prepared items/paths only; same-lineage updates avoid incompatible full remount; stable extent is consumed by renderer path | Bridge URL in renderer, generic Bridge interpreting app render semantics, or old renderer path bypassing the materializer contract |
 | Telemetry safety | canary fixture | seeded path/content/prompt/URL/comment plus demand audit trace | exported telemetry excludes all seeds and retains safe scheduler audit fields | denylist-only claim |
@@ -1392,9 +1418,10 @@ These are current-state observations, not design goals:
   provider contracts, even though runtime filesystem events are already
   worktree-native.
 - The 2026-06-24 Worktree dev-server verifier proved file text rendered in a
-  two-pane route, but did not prove the intended Worktree/File product surface:
-  search/regex/filter controls, route identity, product chrome, and interactive
-  file/tree behavior were not blocking proof gates.
+  two-pane route, but did not prove FileViewer inside the shared BridgeViewer
+  shell: the exact route could still reach `WorktreeFileApp`, raw `<pre>`
+  rendering, and custom tree/content UI while bypassing Pierre FileTree, Pierre
+  CodeView/File, Shiki, and workers.
 
 ## 17. Evidence Anchors
 
@@ -1426,15 +1453,16 @@ Prior-art evidence used for changeset flexibility:
 ## 18. Next Workflow
 
 This spec is reopened because the 2026-06-24 Worktree dev-server proof was too
-weak: it could pass while the exact Worktree URL rendered a minimal/raw-looking
-tree plus file-content surface rather than the intended product app.
+weak: it could pass while the exact Worktree URL reached `WorktreeFileApp` and
+rendered a minimal/raw-looking tree plus file-content surface rather than
+FileViewer inside the shared BridgeViewer shell.
 
 Current workflow route:
 
-- next phase: update the Worktree/File product E2E spec and run
-  `shravan-dev-workflow:spec-review-swarm`
-- after accepted spec edits land: update the reconciliation plan with a
-  blocking precursor ticket for the exact current-worktree dev-server URL
+- next phase: run `shravan-dev-workflow:spec-review-swarm` on the Gate 0.a
+  shared FileViewer renderer correction packet
+- after accepted spec edits land: implement the blocking precursor ticket for
+  the exact current-worktree dev-server URL
 - after plan review passes: implement the precursor before resuming slice 06
   Continuous Event Stream Backbone
 - standing gate: every later transport/scheduler/renderer ticket keeps the

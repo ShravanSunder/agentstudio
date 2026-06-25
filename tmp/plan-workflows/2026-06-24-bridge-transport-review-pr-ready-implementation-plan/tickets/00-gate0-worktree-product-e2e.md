@@ -1,20 +1,21 @@
 # Ticket 00: Gate 0 Worktree/File Product E2E
 
-Status: draft for plan-review-swarm
+Status: Gate 0.a Vite/dev-server proof complete; pending implementation-review-swarm
 Depends on: accepted Bridge transport spec review
 Blocks: Gates 1-4 implementation claims
 
 ## Deliverable
 
-Make the exact Vite dev-server URL render and operate the intended Worktree/File
-product surface:
+Make the exact Vite dev-server URL render and operate FileViewer inside the
+shared BridgeViewer shell:
 
 ```text
 http://127.0.0.1:5173/?fixture=worktree&workers=on&scenario=current-worktree
 ```
 
 The route must not pass as a Review mock route, raw frame dump, concatenated
-path dump, or minimal two-pane list plus `<pre>` renderer.
+path dump, standalone `WorktreeFileApp`, route-local custom shell, custom file
+tree, or minimal two-pane list plus `<pre>` renderer.
 
 ## Proof Surface Boundary
 
@@ -27,7 +28,38 @@ Native Agent Studio Bridge/WKWebView proof is deliberately not satisfied here.
 Ticket 04 must rerun equivalent product behavior through the native app-hosted
 Bridge path before PR-ready.
 
-## Current Red Evidence
+## Current Proof Status
+
+Gate 0.a Vite/dev-server proof is green as of 2026-06-24 21:45 -04:00.
+
+Proof:
+
+- `pnpm --dir BridgeWeb run test:dev-server:worktree`
+  - exit: 0
+  - exact URL:
+    `http://127.0.0.1:5173/?fixture=worktree&workers=on&scenario=current-worktree`
+  - artifact:
+    `tmp/bridge-viewer-worktree-dev-server/2026-06-25T01-45-02-791Z/worktree-dev-server-proof.json`
+  - screenshots:
+    - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T01-45-02-791Z/worktree-file-ready.png`
+    - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T01-45-02-791Z/worktree-file-search-result.png`
+    - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T01-45-02-791Z/worktree-file-stale-refresh.png`
+- `pnpm --dir BridgeWeb exec vitest run src/app/bridge-app-protocol-router.unit.test.tsx`
+  passed: 1 file, 3 tests.
+- `pnpm --dir BridgeWeb run check` passed with existing verifier
+  `no-await-in-loop` warnings only.
+
+The canonical verifier now proves shared BridgeViewer FileViewer ownership,
+Pierre FileTree/right rail ownership, Pierre CodeView/File ownership, Shiki
+rendering, worker-backed highlighting request, search/regex/filter controls,
+stale/refresh, tree/content scroll extent stability, and negative substitute
+guards against `WorktreeFileApp`, route-local custom shell/tree, raw `<pre>`
+content, mock/review lineage, and DOM-only content-ready markers.
+
+This does not satisfy native Agent Studio Bridge/WKWebView proof. That remains
+required before PR-ready.
+
+## Historical Red Evidence
 
 - `tmp/bridge-worktree-devserver-proof-recovery/current-worktree-route-after-3s.png`
 - `tmp/bridge-worktree-devserver-proof-recovery/current-worktree-route-diagnostics.json`
@@ -38,6 +70,9 @@ Bridge path before PR-ready.
   - search input: 0
   - regex toggle: 0
   - filter/status controls: 0
+- Current Gate 0.a failure is sharper than missing controls: the exact route
+  reaches `WorktreeFileApp`, which owns a custom file list and raw `<pre>`
+  content path instead of the shared BridgeViewer/Pierre FileViewer path.
 
 Old narrow green proof:
 
@@ -51,46 +86,61 @@ Old narrow green proof:
 ### 00.1 Red Product Verifier
 
 Add or tighten the browser verifier so it fails against the current route for
-missing product behavior.
+missing shared FileViewer/Pierre behavior.
 
 Proof:
 
 - Verifier fails before product implementation.
-- Failure names missing product controls or product contract violation.
+- Failure names missing product controls, second-app route violation,
+  Pierre/Shiki/worker bypass, or shared-shell contract violation.
 - Failure is not a timeout-only failure.
-- Negative assertions reject Review mock route, raw payload/frame dump, and
+- Unit/component proof asserts the `worktree-file` router/bootstrap composition
+  resolves to the shared BridgeViewer FileViewer owner, not `WorktreeFileApp`
+  and not an equivalent wrapper around `WorktreeFileApp`.
+- Negative assertions reject Review mock route, raw payload/frame dump,
+  standalone `WorktreeFileApp`, route-local custom shell, custom tree, and
   minimal list plus `<pre>`.
 
-### 00.2 Product Shell And Provenance
+### 00.2 Source Adapter Into Shared FileViewer
 
-Render source/status provenance and product shell around the Worktree/File
-surface.
+Route worktree data through FileViewer inside the shared BridgeViewer shell.
+Worktree remains a source adapter/provider, not a UI app. Render source/status
+provenance from Worktree/File protocol frames and keep large bodies out of
+Zustand.
 
 Proof:
 
 - Unit/component proof for provenance derivation.
+- Router/bootstrap composition proof that the exact `worktree-file` protocol
+  path cannot dispatch through `WorktreeFileApp`.
 - Browser proof for protocol/source DOM attributes.
-- Screenshot shows product shell, not raw/minimal route.
+- Screenshot shows shared BridgeViewer/FileViewer shell, not raw/minimal or
+  second-app route.
 
-### 00.3 Query, Regex, And Filter Controls
+### 00.3 Shared Shell, Right Rail, Query, Regex, And Filter Controls
 
-Implement tree/file search, regex mode, and filter/status controls over
-descriptors and metadata, not file bodies.
+Implement or reuse tree/file search, regex mode, and filter/status controls over
+descriptors and metadata, not file bodies. The visible shell must place the
+primary code/file canvas on the left and Pierre FileTree/right rail on the right.
 
 Proof:
 
 - Unit tests for plain search, regex search, invalid regex, and status/filter
   composition.
+- Positive composition or browser proof for the right rail identity: the rail is
+  the shared Pierre FileTree path with a machine-checkable marker, not a custom
+  tree that merely looks similar.
 - Browser proof changes query, regex mode, and filters.
 - JSON artifact records before/after visible row count or sampled visible path
   set, active filter tokens, regex-valid/error state, and fixture-specific
   visible result deltas.
 
-### 00.4 Open File State, Stale, And Refresh
+### 00.4 Pierre CodeView/File, Shiki, Workers, Stale, And Refresh
 
-Make open-file states visible: loading, ready, stale, unavailable, refreshing.
-If an open file is invalidated, show stale/update state and require explicit
-refresh before replacing content.
+Render open worktree files through Pierre CodeView/File with Shiki highlighting
+and worker-backed highlighting when `workers=on`. Make open-file states visible:
+loading, ready, stale, unavailable, refreshing. If an open file is invalidated,
+show stale/update state and require explicit refresh before replacing content.
 
 Proof:
 
@@ -98,6 +148,8 @@ Proof:
 - Browser proof records ready -> stale/update -> refresh -> ready.
 - Screenshot/JSON evidence proves refresh is user-invoked, not silent
   replacement.
+- Browser proof rejects raw `<pre>` file rendering and records Pierre
+  CodeView/File plus worker-ready markers.
 
 ### 00.5 Stable Scroll Extent
 
@@ -129,6 +181,12 @@ Proof artifact includes:
 - tree/content scroll canaries
 - screenshot paths
 - explicit negative-substitute assertions
+- explicit assertion that `WorktreeFileApp`, route-local custom shell, route-local
+  custom tree, and raw `<pre>` body rendering were not reached
+- explicit positive assertions that the FileViewer route used shared
+  BridgeViewer ownership, Pierre FileTree/right rail ownership, Pierre
+  CodeView/File ownership, Shiki rendering, and worker-backed highlighting when
+  `workers=on`
 
 Completion requires parent/human/reviewer inspection of the artifacts. A failed
 or disconnected subagent review does not satisfy or invalidate this gate by
@@ -136,15 +194,27 @@ itself.
 
 ## Required Commands
 
+Canonical Gate 0.a regression command:
+
+```bash
+pnpm --dir BridgeWeb run test:dev-server:worktree
+```
+
+Ticket 00 must upgrade this command in place so the old narrow green route can
+no longer pass. Downstream tickets consume this command as the standing Gate
+0.a regression gate.
+
 Red/green browser verifier:
 
 ```bash
 pnpm --dir BridgeWeb run test:dev-server:worktree
 ```
 
-New or updated Gate 0 verifier command must be named in the implementation
-commit. If the existing command remains the entry point, it must be upgraded so
-the old narrow green route can no longer pass.
+Focused route/composition proof:
+
+```bash
+pnpm --dir BridgeWeb run test -- <focused router/bootstrap/FileViewer composition tests>
+```
 
 Focused supporting tests:
 
@@ -168,6 +238,6 @@ mise run lint
   Gate 0.
 
 phase_result: complete
-evidence: Gate 0 ticket drafted with red/current proof, vertical slices, and proof gates.
-recommended_next_workflow: shravan-dev-workflow:plan-review-swarm
-recommended_transition_reason: Gate 0 has a reviewable implementation ticket.
+evidence: Gate 0.a Vite/dev-server proof is green with exact URL artifact and screenshots; native proof remains out of this ticket.
+recommended_next_workflow: shravan-dev-workflow:implementation-review-swarm
+recommended_transition_reason: Gate 0.a implementation should be reviewed before Gate 1 execution.

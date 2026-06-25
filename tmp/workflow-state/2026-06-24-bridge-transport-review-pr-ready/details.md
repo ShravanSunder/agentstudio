@@ -2,7 +2,7 @@
 
 Goal id: `2026-06-24-bridge-transport-review-pr-ready`
 Status: active
-Current workflow: implementation-execute-plan Ticket 00 Vite/dev-server proof complete
+Current workflow: implementation-execute-plan Gate 0.a proof complete
 Next workflow: `shravan-dev-workflow:implementation-review-swarm`
 
 ## Durable Objective
@@ -19,7 +19,8 @@ and change-set comparison.
 
 The work is complete only when:
 
-- Gate 0 proves the Worktree/File dev-server product surface.
+- Gate 0.a proves the Worktree/File dev-server route renders FileViewer inside
+  the shared BridgeViewer shell.
 - The full Bridge transport/protocol/scheduler spec is implemented.
 - Worktree/File and Review app protocols are implemented against the accepted
   contracts.
@@ -29,7 +30,7 @@ The work is complete only when:
 
 ## Gates
 
-### Gate 0: Worktree/File Dev-Server Product Proof
+### Gate 0.a: Shared FileViewer/Pierre Dev-Server Product Proof
 
 Exact URL:
 
@@ -39,7 +40,12 @@ http://127.0.0.1:5173/?fixture=worktree&workers=on&scenario=current-worktree
 
 Must prove:
 
-- intended Worktree/File product surface, not Review mock route
+- FileViewer inside the shared BridgeViewer shell, not Review mock route and
+  not standalone `WorktreeFileApp`
+- primary Pierre CodeView/File canvas on the left
+- Pierre FileTree/right rail on the right
+- Shiki-highlighted file content
+- worker-backed highlighting path when `workers=on`
 - provenance/source assertions
 - file click/open
 - content render
@@ -52,13 +58,21 @@ Must prove:
 - large file scroll stability
 - screenshot artifacts
 - JSON proof artifact
-- negative assertions against mock/raw/minimal substitutes
+- negative assertions against mock/raw/minimal/second-app substitutes,
+  including `WorktreeFileApp`, route-local custom shells, custom tree rendering,
+  raw `<pre>` body rendering, and DOM-only content-ready markers
 
 Gate 0 starts with Vite/dev-server proof because that is the fastest loop for
 the broken Worktree/File product surface. It does not replace native proof for
 PR-ready. Before the epic can close, the same protocol behavior must also be
 proven through Agent Studio's app-hosted Bridge/WKWebView path with
 marker-correlated evidence.
+
+Gate 0 is reopened. The earlier Ticket 00 proof cannot close this gate because
+it made the worktree route more usable while preserving the wrong application
+boundary. The current target is not "make WorktreeFileApp look better"; it is
+"remove/bypass the second app path and prove FileViewer uses the shared
+BridgeViewer shell with Pierre FileTree + Pierre CodeView/File + Shiki workers."
 
 Gate 0 source plan:
 
@@ -148,7 +162,8 @@ Reviewers must attack:
 1. The worktree dev URL previously showed raw/gibberish path text in the browser.
 2. A narrow verifier could pass while the product surface remained insufficient.
 3. The current route can load Worktree/File data and render tree/content, yet it
-   lacks required search, regex, and filter/status controls.
+   can do so through a standalone `WorktreeFileApp` mini-app and raw `<pre>`
+   content path instead of the shared BridgeViewer/FileViewer/Pierre path.
 4. Prior spec/review docs used readiness language that was too strong.
 5. Subagent review attempts failed due local process/file-descriptor issues and
    must not be counted as completed review.
@@ -180,7 +195,7 @@ Former product red proof:
   - regex toggle: 0
   - filter/status controls: 0
 
-Current product recovery checkpoint:
+Superseded product recovery checkpoint:
 
 - Commits:
   - `0efbec01 Add worktree devserver product controls proof`
@@ -193,19 +208,58 @@ Current product recovery checkpoint:
   - `tmp/bridge-viewer-worktree-dev-server/2026-06-24T23-21-47-787Z/worktree-file-ready.png`
   - `tmp/bridge-viewer-worktree-dev-server/2026-06-24T23-21-47-787Z/worktree-file-search-result.png`
   - `tmp/bridge-viewer-worktree-dev-server/2026-06-24T23-21-47-787Z/worktree-file-stale-refresh.png`
-- This proves the exact current-worktree URL renders the Worktree/File product
-  shell, real file content, search input, regex toggle, filter/status controls,
-  negative raw-package text assertions, tree/content scroll canaries, and real
-  route-level open-file invalidation plus explicit refresh:
-  ready -> stale/update -> user refresh -> ready.
+- This proof is superseded. It proves useful route/data/control behavior, but it
+  does not prove Gate 0.a because the worktree route still reaches
+  `WorktreeFileApp`, a standalone shell that owns a custom file list and raw
+  `<pre>` content path.
 
-Vite/dev-server Gate 0 status:
+Former Gate 0.a red proof:
 
-- The exact URL proof row is complete from implementation-evidence standpoint.
+- Exact worktree URL:
+  `http://127.0.0.1:5173/?fixture=worktree&workers=on&scenario=current-worktree`
+- Worktree route renders `.worktree-file-tree` on the left and
+  `.worktree-file-content` on the right.
+- Mock/root route renders the intended Bridge/Pierre shell with CodeView on the
+  left and right rail on the right.
+- `BridgeWeb/src/app/bridge-app-protocol-router.tsx` routes `worktree-file` to
+  `WorktreeFileApp`.
+- `BridgeWeb/src/app/bridge-app-dev-bootstrap.tsx` maps `fixture=worktree` to
+  protocol `worktree-file`.
+- `BridgeWeb/src/worktree-file-surface/worktree-file-app.tsx` owns a custom
+  file list/search/filter surface and renders opened content in raw `<pre>`.
+- Local Pierre source proof confirms Pierre supports the desired path:
+  `CodeViewItem` includes file and diff items; CodeView renders file items;
+  file rendering uses Shiki; worker pool support exists through
+  `WorkerPoolContextProvider`.
+
+Vite/dev-server Gate 0.a status:
+
+- The exact URL proof row is green as of 2026-06-24 21:45 -04:00.
+- Canonical proof command:
+  `pnpm --dir BridgeWeb run test:dev-server:worktree`
+- Proof artifact:
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-25T01-45-02-791Z/worktree-dev-server-proof.json`
+- Screenshots:
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T01-45-02-791Z/worktree-file-ready.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T01-45-02-791Z/worktree-file-search-result.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T01-45-02-791Z/worktree-file-stale-refresh.png`
+- Focused supporting proof:
+  - `pnpm --dir BridgeWeb exec vitest run src/app/bridge-app-protocol-router.unit.test.tsx`
+    passed: 1 file, 3 tests
+  - `pnpm --dir BridgeWeb run check` passed with existing
+    `no-await-in-loop` verifier warnings only
+- The proof now asserts shared BridgeViewer FileViewer ownership, Pierre
+  FileTree/right rail, Pierre CodeView/File ownership, Shiki rendering,
+  worker-backed highlighting request, product controls, stale/refresh,
+  scroll extent canaries, and negative substitute guards against
+  `WorktreeFileApp`, route-local custom tree/shell, and raw `<pre>` content.
+- Vite dev server remained live on `127.0.0.1:5173` with node PID `77037`
+  during this proof.
+- Prior 2026-06-24 proof remains lower-level regression evidence only.
 - Native Agent Studio Bridge/WKWebView proof is still not satisfied by this and
   remains required before PR-ready.
-- Downstream Gate 1 work may begin only after this implementation slice is
-  reviewed or the parent explicitly accepts the proof without another review.
+- Gate 1 work should not begin until Gate 0.a implementation review is
+  complete or explicitly accepted.
 
 ## Required Reviewer Packet Contents
 
@@ -231,7 +285,10 @@ Each spec, plan, implementation, or PR reviewer must receive:
 
 ## Review Packets
 
-- [spec-review-packet-2026-06-24.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/workflow-state/2026-06-24-bridge-transport-review-pr-ready/spec-review-packet-2026-06-24.md:1)
+- Current Gate 0.a packet:
+  [spec-review-packet-gate0a-2026-06-24.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/workflow-state/2026-06-24-bridge-transport-review-pr-ready/spec-review-packet-gate0a-2026-06-24.md:1)
+- Historical pre-reopen packet:
+  [spec-review-packet-2026-06-24.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/workflow-state/2026-06-24-bridge-transport-review-pr-ready/spec-review-packet-2026-06-24.md:1)
 
 ## Implementation Plans
 

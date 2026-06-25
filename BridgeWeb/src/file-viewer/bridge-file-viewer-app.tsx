@@ -1,3 +1,4 @@
+import { RefreshCwIcon } from 'lucide-react';
 import {
 	useCallback,
 	useEffect,
@@ -14,112 +15,92 @@ import type {
 	WorktreeFileSurfaceSourceIdentity,
 	WorktreeTreeVirtualizedSizeFacts,
 } from '../features/worktree-file/models/worktree-file-protocol-models.js';
+import { BridgeFileViewerCodePanel } from '../review-viewer/code-view/bridge-file-viewer-code-panel.js';
+import {
+	BridgeFileViewerTreePanel,
+	type BridgeFileViewerDescriptorProjection,
+	type BridgeFileViewerFilterMode,
+	type BridgeFileViewerSearchMode,
+} from '../review-viewer/trees/bridge-file-viewer-tree-panel.js';
+import type {
+	WorktreeFileFrameSubscriptionFactory,
+	WorktreeFileInitialSurface,
+	WorktreeFileSurfaceProvenance,
+} from '../worktree-file-surface/worktree-file-app.js';
 import {
 	createWorktreeFileSurfaceRuntime,
 	type WorktreeFileSurfaceRuntime,
 	type WorktreeFileSurfaceRuntimeFetchResourceProps,
-} from './worktree-file-surface-runtime.js';
+} from '../worktree-file-surface/worktree-file-surface-runtime.js';
 
-export interface WorktreeFileAppProps {
+export interface BridgeFileViewerAppProps {
 	readonly autoOpenInitialFile?: boolean;
+	readonly codeViewWorkerFactory?: () => Worker;
+	readonly codeViewWorkerPoolEnabled?: boolean;
 	readonly fetchResource?: (props: WorktreeFileSurfaceRuntimeFetchResourceProps) => Promise<string>;
 	readonly initialFrames?: readonly WorktreeFileProtocolFrame[];
-	readonly loadInitialSurface?: () => Promise<WorktreeFileInitialSurface>;
 	readonly loadInitialFrames?: () => Promise<readonly WorktreeFileProtocolFrame[]>;
+	readonly loadInitialSurface?: () => Promise<WorktreeFileInitialSurface>;
 	readonly subscribeFrames?: WorktreeFileFrameSubscriptionFactory;
 }
 
-export interface WorktreeFileInitialSurface {
-	readonly frames: readonly WorktreeFileProtocolFrame[];
-	readonly provenance?: WorktreeFileSurfaceProvenance;
-	readonly source?: WorktreeFileSurfaceSourceIdentity;
-}
-
-export interface WorktreeFileSurfaceProvenance {
-	readonly baseRef: string;
-	readonly scenarioName: string;
-	readonly worktreeRootToken: string;
-}
-
-export type WorktreeFileFrameSubscriber = (frames: readonly WorktreeFileProtocolFrame[]) => void;
-
-export type WorktreeFileFrameSubscriptionDispose = () => void;
-
-export type WorktreeFileFrameSubscriptionFactory = (
-	subscriber: WorktreeFileFrameSubscriber,
-) => WorktreeFileFrameSubscriptionDispose;
-
-interface WorktreeFileSurfaceRenderState {
+interface BridgeFileViewerRenderState {
 	readonly descriptors: readonly WorktreeFileDescriptor[];
 	readonly provenance: WorktreeFileSurfaceProvenance | null;
 	readonly sourceIdentity: WorktreeFileSurfaceSourceIdentity | null;
 	readonly treeSizeFacts: WorktreeTreeVirtualizedSizeFacts | null;
 }
 
-type WorktreeFileOpenRenderState =
+type BridgeFileViewerOpenState =
 	| { readonly status: 'idle' }
 	| {
 			readonly descriptor: WorktreeFileDescriptor;
-			readonly status: 'loading';
 			readonly path: string;
-	  }
-	| {
-			readonly descriptor: WorktreeFileDescriptor;
-			readonly path: string;
-			readonly status: 'ready';
-	  }
-	| {
-			readonly descriptor: WorktreeFileDescriptor;
-			readonly path: string;
-			readonly status: 'stale';
-	  }
-	| {
-			readonly descriptor: WorktreeFileDescriptor;
-			readonly path: string;
-			readonly status: 'refreshing';
-	  }
-	| {
-			readonly descriptor: WorktreeFileDescriptor;
-			readonly path: string;
-			readonly status: 'failed';
-	  }
-	| {
-			readonly descriptor: WorktreeFileDescriptor;
-			readonly path: string;
-			readonly status: 'unavailable';
+			readonly status: 'failed' | 'loading' | 'ready' | 'refreshing' | 'stale' | 'unavailable';
 	  };
 
-type WorktreeFileFilterMode = 'all' | 'fetchable' | 'unavailable';
+type BridgeFileViewerSearchPattern =
+	| { readonly ok: true; readonly pattern: RegExp }
+	| { readonly ok: false; readonly message: string };
 
 const defaultPaneId = 'bridge-worktree-dev-pane';
 const defaultFileLineHeightPixels = 20;
-const initialRenderState: WorktreeFileSurfaceRenderState = {
+const pierreCodeViewFileChromeHeightPixels = 52;
+const emptyRenderState: BridgeFileViewerRenderState = {
 	descriptors: [],
 	provenance: null,
 	sourceIdentity: null,
 	treeSizeFacts: null,
 };
 
-export function WorktreeFileApp({
-	autoOpenInitialFile = false,
-	fetchResource,
-	initialFrames,
-	loadInitialSurface,
-	loadInitialFrames,
-	subscribeFrames,
-}: WorktreeFileAppProps = {}): ReactElement {
+export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): ReactElement {
+	const {
+		autoOpenInitialFile = false,
+		codeViewWorkerFactory,
+		codeViewWorkerPoolEnabled,
+		fetchResource,
+		initialFrames,
+		loadInitialFrames,
+		loadInitialSurface,
+		subscribeFrames,
+	} = props;
 	const runtimeRef = useRef<WorktreeFileSurfaceRuntime | null>(null);
 	const openFileBodyRef = useRef<string | null>(null);
 	const openFileRequestIdRef = useRef(0);
-	const renderStateRef = useRef<WorktreeFileSurfaceRenderState>(initialRenderState);
-	const [renderState, setRenderState] =
-		useState<WorktreeFileSurfaceRenderState>(initialRenderState);
-	const [openFileState, setOpenFileState] = useState<WorktreeFileOpenRenderState>({
+	const renderStateRef = useRef<BridgeFileViewerRenderState>(emptyRenderState);
+	const [renderState, setRenderState] = useState<BridgeFileViewerRenderState>(emptyRenderState);
+	const [openFileState, setOpenFileState] = useState<BridgeFileViewerOpenState>({
 		status: 'idle',
 	});
 	const [searchText, setSearchText] = useState('');
-	const [searchMode, setSearchMode] = useState<'text' | 'regex'>('text');
-	const [filterMode, setFilterMode] = useState<WorktreeFileFilterMode>('all');
+	const [searchMode, setSearchMode] = useState<BridgeFileViewerSearchMode>('text');
+	const [filterMode, setFilterMode] = useState<BridgeFileViewerFilterMode>('all');
+	const selectedPath = openFileState.status === 'idle' ? null : openFileState.path;
+	const fileDescriptorByPath = useMemo(
+		(): ReadonlyMap<string, WorktreeFileDescriptor> =>
+			new Map(renderState.descriptors.map((descriptor) => [descriptor.path, descriptor])),
+		[renderState.descriptors],
+	);
 
 	if (runtimeRef.current === null) {
 		runtimeRef.current = createWorktreeFileSurfaceRuntime({
@@ -135,10 +116,9 @@ export function WorktreeFileApp({
 		setOpenFileState({ status: 'loading', path: descriptor.path, descriptor });
 		const runtime = runtimeRef.current;
 		if (runtime === null) {
-			if (openFileRequestIdRef.current !== requestId) {
-				return;
+			if (openFileRequestIdRef.current === requestId) {
+				setOpenFileState({ status: 'failed', path: descriptor.path, descriptor });
 			}
-			setOpenFileState({ status: 'failed', path: descriptor.path, descriptor });
 			return;
 		}
 		const result = await runtime.openFile({
@@ -150,19 +130,15 @@ export function WorktreeFileApp({
 		}
 		if (result.ok) {
 			openFileBodyRef.current = result.body;
-			setOpenFileState({
-				status: 'ready',
-				path: descriptor.path,
-				descriptor,
-			});
+			setOpenFileState({ status: 'ready', path: descriptor.path, descriptor });
 			return;
 		}
 		openFileBodyRef.current = null;
-		if (result.reason === 'content_unavailable') {
-			setOpenFileState({ status: 'unavailable', path: descriptor.path, descriptor });
-			return;
-		}
-		setOpenFileState({ status: 'failed', path: descriptor.path, descriptor });
+		setOpenFileState({
+			status: result.reason === 'content_unavailable' ? 'unavailable' : 'failed',
+			path: descriptor.path,
+			descriptor,
+		});
 	}, []);
 
 	const applyIncomingFrames = useCallback(
@@ -172,7 +148,7 @@ export function WorktreeFileApp({
 				readonly provenance: WorktreeFileSurfaceProvenance | null;
 				readonly sourceIdentity: WorktreeFileSurfaceSourceIdentity | null;
 			},
-		): WorktreeFileSurfaceRenderState => {
+		): BridgeFileViewerRenderState => {
 			const nextState = applyFramesToRuntime({
 				currentRenderState: renderStateRef.current,
 				frames,
@@ -212,8 +188,8 @@ export function WorktreeFileApp({
 				sourceIdentity: initialSurface.source ?? null,
 			});
 			if (autoOpenInitialFile && openFileRequestIdRef.current === 0) {
-				const initialDescriptor = nextState.descriptors.find(
-					(descriptor) => !descriptor.isBinary && descriptor.contentDescriptor !== null,
+				const initialDescriptor = nextState.descriptors.find((descriptor) =>
+					canFetchDescriptorContent(descriptor),
 				);
 				if (initialDescriptor !== undefined) {
 					void openFile(initialDescriptor);
@@ -233,7 +209,7 @@ export function WorktreeFileApp({
 		openFile,
 	]);
 
-	useEffect((): WorktreeFileFrameSubscriptionDispose | undefined => {
+	useEffect((): ReturnType<WorktreeFileFrameSubscriptionFactory> | undefined => {
 		if (subscribeFrames === undefined) {
 			return undefined;
 		}
@@ -242,7 +218,7 @@ export function WorktreeFileApp({
 		});
 	}, [applyIncomingFrames, subscribeFrames]);
 
-	const refreshOpenFile = useCallback(async (state: WorktreeFileOpenRenderState): Promise<void> => {
+	const refreshOpenFile = useCallback(async (state: BridgeFileViewerOpenState): Promise<void> => {
 		if (state.status !== 'stale') {
 			return;
 		}
@@ -268,24 +244,30 @@ export function WorktreeFileApp({
 		}
 		if (result.ok) {
 			openFileBodyRef.current = result.body;
+			const refreshedDescriptor =
+				findLatestDescriptorForOpenFile({
+					descriptor: state.descriptor,
+					renderState: renderStateRef.current,
+				}) ?? state.descriptor;
 			setOpenFileState({
 				status: 'ready',
-				path: state.path,
-				descriptor: state.descriptor,
+				path: refreshedDescriptor.path,
+				descriptor: refreshedDescriptor,
 			});
 			return;
 		}
-		if (result.reason === 'content_unavailable') {
-			openFileBodyRef.current = null;
-			setOpenFileState({ status: 'unavailable', path: state.path, descriptor: state.descriptor });
-			return;
-		}
-		setOpenFileState({ status: 'failed', path: state.path, descriptor: state.descriptor });
+		openFileBodyRef.current =
+			result.reason === 'content_unavailable' ? null : openFileBodyRef.current;
+		setOpenFileState({
+			status: result.reason === 'content_unavailable' ? 'unavailable' : 'failed',
+			path: state.path,
+			descriptor: state.descriptor,
+		});
 	}, []);
 
 	const descriptorProjection = useMemo(
-		() =>
-			projectWorktreeFileDescriptors({
+		(): BridgeFileViewerDescriptorProjection =>
+			projectBridgeFileViewerDescriptors({
 				descriptors: renderState.descriptors,
 				filterMode,
 				searchMode,
@@ -294,271 +276,154 @@ export function WorktreeFileApp({
 		[filterMode, renderState.descriptors, searchMode, searchText],
 	);
 	const totalTreeHeightPixels = totalTreeHeightForSizeFacts({
+		filteredDescriptorCount: descriptorProjection.descriptors.length,
 		hasActiveProjection:
 			filterMode !== 'all' ||
 			searchText.trim().length > 0 ||
 			descriptorProjection.searchError !== null,
-		filteredDescriptorCount: descriptorProjection.descriptors.length,
 		sizeFacts: renderState.treeSizeFacts,
 	});
-	const totalOpenFileHeightPixels = totalOpenFileHeightForState(openFileState);
 	const openFileBody =
 		openFileState.status === 'ready' ||
 		openFileState.status === 'stale' ||
 		openFileState.status === 'refreshing'
 			? openFileBodyRef.current
 			: null;
+	const openFileTotalHeightPixels = totalOpenFileHeightForState(openFileState);
+
 	return (
-		<main
-			className="bridge-worktree-file-app"
-			data-testid="worktree-file-app"
-			{...(renderState.sourceIdentity === null
-				? {}
-				: {
-						'data-worktree-source-cursor': renderState.sourceIdentity.sourceCursor,
-						'data-worktree-source-id': renderState.sourceIdentity.sourceId,
-						'data-worktree-source-state': 'live',
-					})}
-			{...(renderState.provenance === null
-				? {}
-				: {
-						'data-worktree-base-ref': renderState.provenance.baseRef,
-						'data-worktree-root-token': renderState.provenance.worktreeRootToken,
-						'data-worktree-scenario': renderState.provenance.scenarioName,
-					})}
+		<div
+			className="dark h-screen min-h-screen w-full overflow-hidden bg-[var(--bridge-app-bg)] text-[var(--bridge-text-primary)] antialiased"
+			data-testid="bridge-app-root"
 		>
-			<aside className="bridge-worktree-file-sidebar">
-				<header className="bridge-worktree-file-toolbar" data-testid="worktree-file-toolbar">
-					<input
-						aria-label="Search files"
-						className="bridge-worktree-file-search-input"
-						data-testid="worktree-file-search-input"
-						onChange={(event) => {
-							setSearchText(event.currentTarget.value);
-						}}
-						placeholder="Search files"
-						spellCheck={false}
-						type="search"
-						value={searchText}
-					/>
-					<button
-						aria-pressed={searchMode === 'regex'}
-						className="bridge-worktree-file-toolbar-button"
-						data-testid="worktree-file-regex-toggle"
-						onClick={() => {
-							setSearchMode((currentSearchMode) =>
-								currentSearchMode === 'regex' ? 'text' : 'regex',
-							);
-						}}
-						title={searchMode === 'regex' ? 'Use text search' : 'Use regex search'}
-						type="button"
-					>
-						.*
-					</button>
-					<div className="bridge-worktree-file-filter-group" role="group">
-						<WorktreeFileFilterButton
-							filterMode="all"
-							isActive={filterMode === 'all'}
-							label="All"
-							onSelect={setFilterMode}
-						/>
-						<WorktreeFileFilterButton
-							filterMode="fetchable"
-							isActive={filterMode === 'fetchable'}
-							label="Text"
-							onSelect={setFilterMode}
-						/>
-						<WorktreeFileFilterButton
-							filterMode="unavailable"
-							isActive={filterMode === 'unavailable'}
-							label="Unavailable"
-							onSelect={setFilterMode}
-						/>
-					</div>
-					<div
-						className="bridge-worktree-file-query-status"
-						data-testid="worktree-file-filter-status"
-					>
-						{descriptorProjection.searchError === null
-							? `${descriptorProjection.descriptors.length}/${renderState.descriptors.length}`
-							: 'Invalid regex'}
-					</div>
-					<div className="bridge-worktree-file-provenance" data-testid="worktree-file-provenance">
-						{renderState.sourceIdentity === null || renderState.provenance === null
-							? 'Source pending'
-							: `${renderState.provenance.scenarioName} · ${renderState.sourceIdentity.sourceId}`}
-					</div>
-				</header>
-				<section
-					className="bridge-worktree-file-tree bridge-scrollbar"
-					data-testid="worktree-file-tree"
-					{...(totalTreeHeightPixels === null
-						? {}
-						: { 'data-worktree-tree-total-size': String(totalTreeHeightPixels) })}
-				>
-					<div
-						className="bridge-worktree-file-tree-extent"
-						data-testid="worktree-file-tree-extent"
-						style={
-							totalTreeHeightPixels === null ? undefined : { minHeight: totalTreeHeightPixels }
-						}
-					>
-						{descriptorProjection.descriptors.map((descriptor) => (
-							<button
-								className="bridge-worktree-file-tree-row"
-								data-worktree-file-path={descriptor.path}
-								key={descriptor.fileId}
-								onClick={() => {
-									void openFile(descriptor);
-								}}
-								type="button"
-							>
-								{descriptor.path}
-							</button>
-						))}
-					</div>
-				</section>
-			</aside>
-			<section
-				className="bridge-worktree-file-content bridge-scrollbar"
-				data-testid="worktree-file-content"
-				{...(openFileState.status === 'idle'
+			<main
+				className="flex h-screen min-h-screen w-full flex-col overflow-hidden bg-[var(--bridge-app-bg)]"
+				data-file-viewer-owner="BridgeViewerApp.FileViewer"
+				data-selected-display-path={selectedPath ?? undefined}
+				data-sidebar-position="right"
+				data-testid="bridge-file-viewer-shell"
+				{...(renderState.sourceIdentity === null
 					? {}
 					: {
-							'data-worktree-open-file-path': openFileState.path,
-							'data-worktree-open-file-state': openFileState.status,
+							'data-worktree-source-cursor': renderState.sourceIdentity.sourceCursor,
+							'data-worktree-source-id': renderState.sourceIdentity.sourceId,
+							'data-worktree-source-state': 'live',
 						})}
-				{...(totalOpenFileHeightPixels === null
+				{...(renderState.provenance === null
 					? {}
-					: { 'data-worktree-open-file-total-size': String(totalOpenFileHeightPixels) })}
+					: {
+							'data-worktree-base-ref': renderState.provenance.baseRef,
+							'data-worktree-root-token': renderState.provenance.worktreeRootToken,
+							'data-worktree-scenario': renderState.provenance.scenarioName,
+						})}
 			>
-				<div
-					className="bridge-worktree-file-content-extent"
-					data-testid="worktree-file-content-extent"
-					style={
-						totalOpenFileHeightPixels === null
-							? undefined
-							: { minHeight: totalOpenFileHeightPixels }
-					}
-				>
-					{openFileBody === null ? null : (
-						<pre
-							style={{
-								lineHeight: `${defaultFileLineHeightPixels}px`,
-								margin: 0,
-								whiteSpace: 'pre',
-							}}
-						>
-							{openFileBody}
-						</pre>
-					)}
-					{openFileState.status === 'stale' ? (
-						<div
-							className="bridge-worktree-file-stale-notice"
-							data-testid="worktree-file-content-stale"
-						>
-							<span>Content changed</span>
-							<button
-								className="bridge-worktree-file-toolbar-button"
-								data-testid="worktree-file-refresh"
-								onClick={() => {
-									void refreshOpenFile(openFileState);
-								}}
-								type="button"
-							>
-								Refresh
-							</button>
-						</div>
-					) : null}
-					{openFileState.status === 'unavailable' ? (
-						<div data-testid="worktree-file-content-unavailable">Content unavailable</div>
-					) : null}
+				<div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(260px,340px)]">
+					<BridgeFileViewerCodePanel
+						openFileBody={openFileBody}
+						openFileState={openFileState}
+						staleNotice={
+							openFileState.status === 'stale' ? (
+								<BridgeFileViewerStaleNotice
+									onRefresh={() => {
+										void refreshOpenFile(openFileState);
+									}}
+								/>
+							) : null
+						}
+						totalHeightPixels={openFileTotalHeightPixels}
+						{...(codeViewWorkerFactory === undefined ? {} : { codeViewWorkerFactory })}
+						{...(codeViewWorkerPoolEnabled === undefined ? {} : { codeViewWorkerPoolEnabled })}
+					/>
+					<BridgeFileViewerTreePanel
+						descriptorProjection={descriptorProjection}
+						fileDescriptorByPath={fileDescriptorByPath}
+						filterMode={filterMode}
+						onFilterModeChange={setFilterMode}
+						onOpenFile={openFile}
+						onSearchModeChange={setSearchMode}
+						onSearchTextChange={setSearchText}
+						searchMode={searchMode}
+						searchText={searchText}
+						selectedPath={selectedPath}
+						sourceIdentity={renderState.sourceIdentity}
+						totalDescriptorCount={renderState.descriptors.length}
+						totalTreeHeightPixels={totalTreeHeightPixels}
+					/>
 				</div>
-			</section>
-		</main>
+			</main>
+		</div>
 	);
 }
 
-interface WorktreeFileFilterButtonProps {
-	readonly filterMode: WorktreeFileFilterMode;
-	readonly isActive: boolean;
-	readonly label: string;
-	readonly onSelect: (filterMode: WorktreeFileFilterMode) => void;
-}
-
-function WorktreeFileFilterButton(props: WorktreeFileFilterButtonProps): ReactElement {
+function BridgeFileViewerStaleNotice(props: { readonly onRefresh: () => void }): ReactElement {
 	return (
-		<button
-			aria-pressed={props.isActive}
-			className="bridge-worktree-file-toolbar-button"
-			data-testid={`worktree-file-filter-${props.filterMode}`}
-			onClick={() => {
-				props.onSelect(props.filterMode);
-			}}
-			type="button"
+		<div
+			className="absolute right-3 top-3 flex items-center gap-2 rounded-md border border-[var(--bridge-border-opaque)] bg-[var(--bridge-menu-bg)] px-3 py-2 text-xs shadow-lg"
+			data-testid="worktree-file-content-stale"
 		>
-			{props.label}
-		</button>
+			<span>Content changed</span>
+			<button
+				className="inline-flex items-center gap-1 rounded-md border border-[var(--bridge-border-opaque)] bg-[var(--bridge-header-control-bg)] px-2 py-1"
+				data-testid="worktree-file-refresh"
+				onClick={props.onRefresh}
+				type="button"
+			>
+				<RefreshCwIcon aria-hidden="true" size={12} />
+				Refresh
+			</button>
+		</div>
 	);
 }
 
-interface WorktreeFileDescriptorProjection {
+function projectBridgeFileViewerDescriptors(props: {
 	readonly descriptors: readonly WorktreeFileDescriptor[];
-	readonly searchError: string | null;
-}
-
-function projectWorktreeFileDescriptors(props: {
-	readonly descriptors: readonly WorktreeFileDescriptor[];
-	readonly filterMode: WorktreeFileFilterMode;
-	readonly searchMode: 'text' | 'regex';
+	readonly filterMode: BridgeFileViewerFilterMode;
+	readonly searchMode: BridgeFileViewerSearchMode;
 	readonly searchText: string;
-}): WorktreeFileDescriptorProjection {
+}): BridgeFileViewerDescriptorProjection {
 	const trimmedSearchText = props.searchText.trim();
 	const searchPattern =
 		trimmedSearchText.length === 0
 			? null
-			: makeWorktreeFileSearchPattern({
+			: makeBridgeFileViewerSearchPattern({
 					searchMode: props.searchMode,
 					searchText: trimmedSearchText,
 				});
 	if (searchPattern?.ok === false) {
 		return { descriptors: [], searchError: searchPattern.message };
 	}
-	const descriptors = props.descriptors.filter((descriptor) => {
+	const descriptors = props.descriptors.filter((descriptor): boolean => {
 		if (!descriptorMatchesFilterMode({ descriptor, filterMode: props.filterMode })) {
 			return false;
 		}
-		if (searchPattern === null) {
-			return true;
-		}
-		return searchPattern.pattern.test(descriptor.path);
+		return searchPattern === null ? true : searchPattern.pattern.test(descriptor.path);
 	});
 	return { descriptors, searchError: null };
 }
 
 function descriptorMatchesFilterMode(props: {
 	readonly descriptor: WorktreeFileDescriptor;
-	readonly filterMode: WorktreeFileFilterMode;
+	readonly filterMode: BridgeFileViewerFilterMode;
 }): boolean {
 	switch (props.filterMode) {
 		case 'all':
 			return true;
 		case 'fetchable':
-			return !props.descriptor.isBinary && props.descriptor.contentDescriptor !== null;
+			return canFetchDescriptorContent(props.descriptor);
 		case 'unavailable':
 			return props.descriptor.isBinary || props.descriptor.virtualizedExtentKind === 'unavailable';
 	}
 	return false;
 }
 
-type WorktreeFileSearchPattern =
-	| { readonly ok: true; readonly pattern: RegExp }
-	| { readonly ok: false; readonly message: string };
+function canFetchDescriptorContent(descriptor: WorktreeFileDescriptor): boolean {
+	return !descriptor.isBinary && descriptor.contentDescriptor !== null;
+}
 
-function makeWorktreeFileSearchPattern(props: {
-	readonly searchMode: 'text' | 'regex';
+function makeBridgeFileViewerSearchPattern(props: {
+	readonly searchMode: BridgeFileViewerSearchMode;
 	readonly searchText: string;
-}): WorktreeFileSearchPattern {
+}): BridgeFileViewerSearchPattern {
 	if (props.searchMode === 'text') {
 		return { ok: true, pattern: new RegExp(escapeRegExp(props.searchText), 'iu') };
 	}
@@ -574,12 +439,12 @@ function escapeRegExp(value: string): string {
 }
 
 function applyFramesToRuntime(props: {
-	readonly currentRenderState: WorktreeFileSurfaceRenderState;
+	readonly currentRenderState: BridgeFileViewerRenderState;
 	readonly frames: readonly WorktreeFileProtocolFrame[];
 	readonly provenance?: WorktreeFileSurfaceProvenance | null;
 	readonly runtime: WorktreeFileSurfaceRuntime | null;
 	readonly sourceIdentity?: WorktreeFileSurfaceSourceIdentity | null;
-}): WorktreeFileSurfaceRenderState {
+}): BridgeFileViewerRenderState {
 	const descriptorsByFileId = new Map(
 		props.currentRenderState.descriptors.map((descriptor) => [descriptor.fileId, descriptor]),
 	);
@@ -623,11 +488,11 @@ function applyFramesToRuntime(props: {
 }
 
 function reconcileOpenFileStateWithFrames(props: {
-	readonly currentOpenFileState: WorktreeFileOpenRenderState;
+	readonly currentOpenFileState: BridgeFileViewerOpenState;
 	readonly frames: readonly WorktreeFileProtocolFrame[];
 	readonly openFileBodyRef: MutableRefObject<string | null>;
 	readonly openFileRequestIdRef: MutableRefObject<number>;
-}): WorktreeFileOpenRenderState {
+}): BridgeFileViewerOpenState {
 	if (props.currentOpenFileState.status === 'idle') {
 		return props.currentOpenFileState;
 	}
@@ -668,9 +533,20 @@ function reconcileOpenFileStateWithFrames(props: {
 	return {
 		status: 'stale',
 		path: currentOpenFileState.path,
-		descriptor:
-			matchedInvalidation.invalidation.latestDescriptor ?? currentOpenFileState.descriptor,
+		descriptor: currentOpenFileState.descriptor,
 	};
+}
+
+function findLatestDescriptorForOpenFile(props: {
+	readonly descriptor: WorktreeFileDescriptor;
+	readonly renderState: BridgeFileViewerRenderState;
+}): WorktreeFileDescriptor | null {
+	return (
+		props.renderState.descriptors.find(
+			(descriptor) =>
+				descriptor.fileId === props.descriptor.fileId || descriptor.path === props.descriptor.path,
+		) ?? null
+	);
 }
 
 function totalTreeHeightForSizeFacts(props: {
@@ -687,7 +563,7 @@ function totalTreeHeightForSizeFacts(props: {
 	return Math.max(1, props.filteredDescriptorCount) * props.sizeFacts.rowHeightPixels;
 }
 
-function totalOpenFileHeightForState(openFileState: WorktreeFileOpenRenderState): number | null {
+function totalOpenFileHeightForState(openFileState: BridgeFileViewerOpenState): number | null {
 	if (openFileState.status === 'idle') {
 		return null;
 	}
@@ -699,7 +575,7 @@ function totalOpenFileHeightForState(openFileState: WorktreeFileOpenRenderState)
 		case 'exactLineCount':
 			return descriptor.lineCount === undefined
 				? null
-				: descriptor.lineCount * defaultFileLineHeightPixels;
+				: descriptor.lineCount * defaultFileLineHeightPixels + pierreCodeViewFileChromeHeightPixels;
 		case 'estimatedHeight':
 			return descriptor.estimatedContentHeightPixels ?? null;
 		case 'previewBounded':

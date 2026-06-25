@@ -1,21 +1,34 @@
 # Worktree/File Surface Protocol Spec
 
 Date: 2026-06-22
-Status: Reopened for 2026-06-24 expanded PR-ready epic reconciliation.
+Status: Gate 0.a Vite/dev-server proof implemented; native proof remains required.
 This slice owns Gate 0's first product proof: the exact `current-worktree` dev
 URL must have a reviewed product-surface proof contract and precursor ticket
 before downstream transport, Review, renderer, and PR-ready gates resume.
 Parent: [spec.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/spec-workflows/2026-06-22-bridge-transport-streaming-spec/spec.md:1)
 
-This file owns the Worktree/File Surface protocol family. The user-facing
-surface is one app surface: file tree, file content, and git status belong
-together. Future comments and agent communications belong in this surface once
-their schema slice exists. File content is not a separate user-facing app from
+Current Gate 0.a status: Vite/dev-server proof is implemented as of
+2026-06-24 21:45 -04:00. The canonical proof artifact is
+`tmp/bridge-viewer-worktree-dev-server/2026-06-25T01-45-02-791Z/worktree-dev-server-proof.json`.
+That proof covers the exact worktree URL, shared BridgeViewer FileViewer shell,
+Pierre FileTree/right rail, Pierre CodeView/File, Shiki rendering,
+worker-backed highlighting request, product controls, stale/refresh, and stable
+tree/content scroll extents. Native Agent Studio Bridge/WKWebView proof remains
+required before PR-ready.
+
+This file owns the Worktree/File protocol family for FileViewer data. FileViewer
+is a viewer mode inside the shared BridgeViewer app, not a separate app. The
+user-facing surface is one BridgeViewer shell: primary Pierre CodeView/File
+canvas on the left, Pierre FileTree/right rail on the right, shared search and
+selection chrome, and the same Shiki/worker rendering path used by ReviewViewer.
+Future comments and agent communications belong in this surface once their
+schema slice exists. File content is not a separate user-facing app from
 worktree browsing.
 
 ## 1. Product Intent
 
-The Worktree/File Surface lets a user inspect a live checkout:
+The Worktree/File Surface lets a user inspect a live checkout through
+FileViewer:
 
 - browse a huge file tree
 - open and read files
@@ -32,8 +45,9 @@ replaced.
 The development route for this surface is part of the product contract, not a
 throwaway fixture. The exact URL
 `?fixture=worktree&workers=on&scenario=current-worktree` must render and operate
-the intended Worktree/File product surface. A bare file-list plus `<pre>` body
-view, even when it has content, is not enough proof.
+FileViewer inside the shared BridgeViewer shell. A bare file-list plus `<pre>`
+body view, even when it has content, is invalid proof because it bypasses Pierre
+CodeView/File, Pierre FileTree, Shiki highlighting, and worker-backed rendering.
 
 ## 2. Ownership
 
@@ -56,7 +70,9 @@ Browser surface owns:
 - reserved future comments/comms projection state once enabled
 - app demand policy that maps selected, open, visible, and nearby resources onto
   generic Bridge demand lanes
-- renderer deltas into Pierre
+- adaptation from Worktree/File frames and descriptors into shared FileViewer
+  item/tree input
+- renderer deltas into Pierre CodeView/File and Pierre FileTree
 
 Generic Bridge owns:
 
@@ -69,21 +85,45 @@ The boundary is not:
 
 ```text
 Worktree app versus FileView app
+WorktreeFileApp versus ReviewViewer app
 ```
 
 The boundary is:
 
 ```text
-Worktree/File Surface
-  tree contract
-  file content contract
-  status contract
-  comment/comms contract
-  optional Review handoff contract
+BridgeViewerApp
+  ReviewViewer mode
+    review protocol data
+    Pierre CodeView diff/file items
+    Pierre FileTree/right rail
+
+  FileViewer mode
+    Worktree/File protocol data
+    Pierre CodeView file items
+    Pierre FileTree/right rail
+
+Source adapters
+  mock fixture
+  current worktree
+  live changeset stream
+  static review package
+  file content stream
+
+Worktree/File protocol
+  owns: tree contract, file content contract, status contract,
+        comment/comms contract, optional Review handoff contract
+  exposes: source identity, descriptors, invalidation facts,
+           bounded resource/data streams
 ```
 
 Tree and file content can use separate substreams and descriptors, but they are
 part of one app protocol family and one user-facing surface.
+
+The Worktree/File protocol can have its own source provider, materializer, and
+demand policy, but it must not own a parallel application shell, a custom
+renderer, a custom tree UI, or a raw `<pre>` content path. A standalone
+`WorktreeFileApp` route is a migration scaffold at most; it is not an acceptable
+end-state or Gate 0 proof path.
 
 ## 3.1 Required Product Surface Behavior
 
@@ -92,9 +132,11 @@ controls before it can be called working:
 
 - source/status header or equivalent provenance surface that identifies the
   active Worktree/File source, not a Review package fixture
-- tree/navigation region with selectable file rows and stable selection state
-- file content region with open-file identity, loading/ready/stale/unavailable
-  states, and reader-stable content
+- Pierre FileTree/right rail with selectable file rows and stable selection
+  state
+- primary Pierre CodeView/File region with open-file identity,
+  loading/ready/stale/unavailable states, reader-stable content, Shiki
+  highlighting, and worker-backed highlighting when `workers=on`
 - tree/file search text input
 - regex search toggle or mode control
 - filter/status controls for narrowing the visible tree/file set
@@ -108,8 +150,9 @@ markers do not satisfy the product-surface contract by themselves.
 
 The root Review/mock route is useful reference behavior, but it is not proof for
 this surface. A passing Worktree/File proof must fail if the app accidentally
-routes through Review package/query lineage, or if it renders a minimal raw
-Worktree fixture rather than the intended product surface.
+routes through Review package/query lineage, if it mounts a standalone
+Worktree/File mini-app, or if it renders a minimal raw Worktree fixture rather
+than FileViewer inside the shared BridgeViewer product shell.
 
 ## 4. Live Update Policy
 
@@ -502,14 +545,14 @@ the scrollbar silently.
 
 ```mermaid
 sequenceDiagram
-  participant Browser as Worktree/File Surface
+  participant Browser as BridgeViewer FileViewer
   participant Bridge as Generic Bridge
   participant Provider as Worktree Provider
   participant Mat as Surface Materializer
   participant Policy as Surface Demand Policy
   participant Sched as Demand Scheduler
   participant Exec as Resource Executor
-  participant Pierre as Pierre
+  participant Pierre as Pierre FileTree + CodeView/File
 
   Browser->>Bridge: open ContinuousEventStreamPath on pane mount
   Browser->>Bridge: RPC(worktreeFileSurface.openSourceStream, sourceSpec)
@@ -522,14 +565,14 @@ sequenceDiagram
   Sched->>Exec: ordered demand intent
   Exec->>Bridge: fetch tree window
   Exec->>Mat: tree window result
-  Mat->>Pierre: tree render delta
+  Mat->>Pierre: FileTree render delta
   Browser->>Mat: select descriptor and create open file session
   Mat->>Policy: fileSelected(descriptorRef)
   Policy->>Sched: foreground file-content demand intent
   Sched->>Exec: ordered demand intent
   Exec->>Bridge: fetch file content
   Exec->>Mat: content result
-  Mat->>Pierre: code item replace/append
+  Mat->>Pierre: CodeView file item replace/append
   Provider->>Bridge: bridge.invalidated(file)
   Provider->>Bridge: worktree.fileInvalidated
   Bridge->>Mat: mark open file stale, keep rendered content
@@ -642,6 +685,13 @@ Contract:
   total extent, are available before hidden descendants or file bodies hydrate
 - file/code scroll extent is explicit for every opened descriptor:
   `exactLineCount`, `estimatedHeight`, `previewBounded`, or `unavailable`
+- current-scope FileViewer proof must show that opened file content is rendered
+  through Pierre CodeView/File with Shiki highlighting and worker-backed
+  highlighting when `workers=on`; raw `<pre>` file rendering is a failing
+  substitute even if the text is correct
+- current-scope FileViewer proof must show the tree/navigation surface is the
+  shared Pierre FileTree/right rail, not a custom left-pane list owned by a
+  standalone Worktree/File app
 - scroll-extent canary records scrollTop before/after, total content height
   before/after, visible range, anchor item/offset, measured item ids, and
   reconciliation reason; it fails if a non-reset reconciliation changes anchor
@@ -667,6 +717,10 @@ Contract:
   lineage, selected file path, open content state, control state changes, scroll
   extent canaries, and negative assertions against Review/mock lineage and raw
   minimal rendering
+- current-scope product E2E proof fails if the exact URL can reach
+  `WorktreeFileApp`, a route-local custom shell, a route-local custom file tree,
+  a raw `<pre>` body renderer, or any DOM-only content-ready marker that bypasses
+  Pierre/Shiki/workers
 - current-scope product E2E proof is a blocker for later transport, scheduler,
   renderer, and telemetry claims; lower-level unit/component/browser tests may
   support it but cannot replace it

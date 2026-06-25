@@ -53,8 +53,15 @@ export interface BridgeWorktreeDevProviderWorktreeFileContentRequest {
 
 export interface BridgeWorktreeDevProviderWorktreeFileSurface {
 	readonly frames: readonly WorktreeFileProtocolFrame[];
+	readonly provenance: BridgeWorktreeDevProviderProvenance;
 	readonly source: WorktreeFileSurfaceSourceIdentity;
 	readonly treeSizeFacts: WorktreeTreeVirtualizedSizeFacts;
+}
+
+export interface BridgeWorktreeDevProviderProvenance {
+	readonly baseRef: string;
+	readonly scenarioName: BridgeWorktreeDevScenarioName;
+	readonly worktreeRootToken: string;
 }
 
 export interface BridgeWorktreeDevProvider {
@@ -124,6 +131,7 @@ export async function createBridgeWorktreeDevProvider(
 ): Promise<BridgeWorktreeDevProvider> {
 	const parsedConfig = bridgeWorktreeDevProviderConfigSchema.parse(config);
 	const worktreeRoot = await resolveAllowedWorktreeRoot(parsedConfig.worktreeRoot);
+	const worktreeRootToken = await bridgeWorktreeDevRootTokenForPath(worktreeRoot);
 	let state: ProviderState | null = null;
 
 	const loadCurrentState = async (): Promise<ProviderState> => {
@@ -135,8 +143,10 @@ export async function createBridgeWorktreeDevProvider(
 					? state.revision
 					: state.revision + 1;
 		const currentState = makeProviderState({
+			config: parsedConfig,
 			revision,
 			snapshot,
+			worktreeRootToken,
 		});
 		state = currentState;
 		return currentState;
@@ -183,8 +193,10 @@ async function loadSnapshot(props: {
 }
 
 function makeProviderState(props: {
+	readonly config: BridgeWorktreeDevProviderConfig;
 	readonly revision: number;
 	readonly snapshot: ProviderSnapshot;
+	readonly worktreeRootToken: string;
 }): ProviderState {
 	const sourceCursor = `cursor-${props.snapshot.fingerprint.slice(0, 32)}`;
 	const sourceIdentity: WorktreeFileSurfaceSourceIdentity = {
@@ -244,6 +256,11 @@ function makeProviderState(props: {
 				}),
 			),
 		],
+		provenance: {
+			baseRef: props.config.baseRef,
+			scenarioName: props.config.scenarioName,
+			worktreeRootToken: props.worktreeRootToken,
+		},
 		source: sourceIdentity,
 		treeSizeFacts,
 	};
@@ -253,6 +270,10 @@ function makeProviderState(props: {
 		worktreeFileContentByDescriptorId,
 		worktreeFileSurface,
 	};
+}
+
+export async function bridgeWorktreeDevRootTokenForPath(path: string): Promise<string> {
+	return `root-${hashText(await realpath(path)).slice(0, 32)}`;
 }
 
 function worktreeFileDescriptorForChangedFile(props: {

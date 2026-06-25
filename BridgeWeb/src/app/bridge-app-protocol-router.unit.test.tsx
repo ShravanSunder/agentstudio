@@ -38,7 +38,7 @@ describe('BridgeAppProtocolRouter', () => {
 		expect(document.querySelector('[data-testid="worktree-file-app"]')).toBeNull();
 	});
 
-	test('routes Worktree/File protocol to the Worktree/File surface', async () => {
+	test('routes Worktree/File protocol through the shared Bridge app shell', async () => {
 		const container = document.createElement('div');
 		document.body.append(container);
 		mountedRoot = createRoot(container);
@@ -47,8 +47,8 @@ describe('BridgeAppProtocolRouter', () => {
 			mountedRoot?.render(<BridgeAppProtocolRouter protocol="worktree-file" />);
 		});
 
-		expect(document.querySelector('[data-testid="worktree-file-app"]')).not.toBeNull();
-		expect(document.querySelector('[data-testid="bridge-review-empty-shell"]')).toBeNull();
+		expect(document.querySelector('[data-testid="worktree-file-app"]')).toBeNull();
+		expect(document.querySelector('[data-testid="bridge-app-root"]')).not.toBeNull();
 	});
 
 	test('parses document protocol metadata with Review as the fail-closed fallback', () => {

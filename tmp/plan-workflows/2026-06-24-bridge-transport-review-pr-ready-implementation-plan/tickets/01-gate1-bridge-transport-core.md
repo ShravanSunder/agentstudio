@@ -62,13 +62,21 @@ Required:
 - integration tests for transport/resource boundaries
 - typecheck/lint for touched BridgeWeb paths
 - no app-semantics imports into generic core
-- Gate 0 current-worktree product proof remains green before this ticket closes
+- Gate 0.a current-worktree shared FileViewer/Pierre product proof remains green
+  before this ticket closes
 
 Blocked until:
 
-- Ticket 00 product route proof is green and committed.
+- Ticket 00/Gate 0.a shared FileViewer/Pierre route proof is green and
+  committed.
 
 ## Required Commands
+
+Standing Gate 0.a regression command consumed from Ticket 00:
+
+```bash
+pnpm --dir BridgeWeb run test:dev-server:worktree
+```
 
 ```bash
 pnpm --dir BridgeWeb run test -- <focused transport/core tests>

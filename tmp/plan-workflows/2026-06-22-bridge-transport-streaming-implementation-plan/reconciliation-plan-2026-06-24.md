@@ -4,8 +4,8 @@ Date: 2026-06-24
 Status: reopened for the 2026-06-24 expanded Bridge transport/review PR-ready
 epic. The prior slice 07 proof is invalid for product readiness. Gate 0 is the
 first mandatory gate: a blocking precursor ticket must make the exact
-`current-worktree` dev URL work as the intended Worktree/File product surface
-before downstream transport, Review, renderer, and PR-ready gates resume.
+`current-worktree` dev URL work as FileViewer inside the shared BridgeViewer
+shell before downstream transport, Review, renderer, and PR-ready gates resume.
 Source spec:
 [spec.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/spec-workflows/2026-06-22-bridge-transport-streaming-spec/spec.md:1),
 [review-protocol.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/spec-workflows/2026-06-22-bridge-transport-streaming-spec/review-protocol.md:1),
@@ -43,10 +43,11 @@ and Gate 4 PR-ready non-merge wrapup.
   though earlier proof passed. That proved the prior proof contract was
   insufficient.
 - The current worktree dev-server route can render a tree and file text, but the
-  proof does not establish the intended Worktree/File product surface. The
-  verifier did not block a minimal/raw-looking file-list plus `<pre>` surface and
-  did not exercise search, regex, filters, route provenance, or visual product
-  behavior.
+  proof does not establish the intended FileViewer product surface. The verifier
+  did not block a standalone `WorktreeFileApp` route, a minimal/raw-looking
+  file-list plus `<pre>` surface, or a custom renderer that bypasses Pierre
+  CodeView/File, Pierre FileTree, Shiki, and workers. It also did not exercise
+  search, regex, filters, route provenance, or visual product behavior.
 - The old plan's "PR ready" proof is no longer enough to claim architecture
   satisfaction.
 
@@ -63,7 +64,7 @@ and Gate 4 PR-ready non-merge wrapup.
 
 ## New Critical Plan Slices
 
-### 06P Worktree Dev-Server Product E2E Precursor
+### 06P / Gate 0.a Shared FileViewer Renderer Precursor
 
 Status: blocking precursor.
 
@@ -71,9 +72,9 @@ Detailed ticket plan:
 [worktree-devserver-product-e2e-precursor-plan.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/worktree-devserver-product-e2e-precursor-plan.md:1)
 
 Deliverable:
-Make the exact dev-server URL render and operate the intended Worktree/File
-product surface, not a Review mock route and not a minimal raw file-list plus
-`<pre>` body renderer.
+Make the exact dev-server URL render and operate FileViewer inside the shared
+BridgeViewer shell, not a Review mock route, not a standalone `WorktreeFileApp`,
+and not a minimal raw file-list plus `<pre>` body renderer.
 
 URL:
 `http://127.0.0.1:5173/?fixture=worktree&workers=on&scenario=current-worktree`
@@ -81,7 +82,12 @@ URL:
 Required behavior:
 
 - Product surface exposes Worktree/File source or status provenance.
-- Tree rows are selectable and selection changes the open content.
+- Primary file/code canvas is on the left and Pierre FileTree/right rail is on
+  the right.
+- Tree rows are selectable through the shared Pierre FileTree/right rail and
+  selection changes the open content.
+- Open file content renders through Pierre CodeView/File with Shiki highlighting
+  and worker-backed highlighting when `workers=on`.
 - Open file content renders ready/loading/stale/unavailable states.
 - Search text input exists and changes visible/search state.
 - Regex toggle or mode control exists and changes search interpretation/state.
@@ -90,7 +96,8 @@ Required behavior:
 - Screenshots show the intended product surface before and after interaction.
 - Proof artifact records route identity, protocol/source lineage, selected file,
   open content state, control state changes, scroll canaries, and negative
-  assertions against Review/mock lineage and raw/minimal rendering.
+  assertions against Review/mock lineage, `WorktreeFileApp`, route-local custom
+  shells, and raw/minimal rendering.
 
 Proof:
 
@@ -98,6 +105,8 @@ Proof:
 - Parent-inspected screenshot artifacts from that run.
 - JSON proof artifact with provenance, controls, interactions, scroll canaries,
   and negative assertions.
+- Negative assertions that the route did not mount `WorktreeFileApp`, did not
+  render raw `<pre>` content, and did not bypass Pierre/Shiki/workers.
 - Parent/human/reviewer inspection checks the screenshots against the product
   expectation before the ticket is marked complete.
 - A failed or disconnected subagent review does not satisfy or invalidate this
@@ -175,9 +184,9 @@ Current proof:
 Correction:
 
 This proof is not enough. It proved content and some layout facts, but not the
-intended Worktree/File product surface. Do not use it as a completion gate for
-the reopened spec. Keep only the useful lower-level assertions and replace the
-completion gate with precursor 06P.
+intended FileViewer surface inside the shared BridgeViewer shell. Do not use it
+as a completion gate for the reopened spec. Keep only the useful lower-level
+assertions and replace the completion gate with Gate 0.a precursor 06P.
 
 ### 08 Victoria Scheduler And Transport Tuning
 
