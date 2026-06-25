@@ -72,6 +72,7 @@ const bridgeWorktreeSurfaceResponseSchema = z
 export function installBridgeAppDevWorktreeBackend(): BridgeAppDevWorktreeBackend {
 	const forwardedSearchParams = bridgeWorktreeForwardedSearchParams(window.location.search);
 	let lastAcceptedSurfaceFrames: readonly WorktreeFileProtocolFrame[] | null = null;
+	let lastAcceptedLineageFrames: readonly WorktreeFileProtocolFrame[] | null = null;
 	document.documentElement.setAttribute('data-bridge-app-protocol', 'worktree-file');
 	window.addEventListener(
 		'beforeunload',
@@ -123,6 +124,7 @@ export function installBridgeAppDevWorktreeBackend(): BridgeAppDevWorktreeBacken
 		loadWorktreeFileSurface: async (): Promise<BridgeAppDevWorktreeSurface> => {
 			const surface = await loadSurface();
 			lastAcceptedSurfaceFrames = surface.frames;
+			lastAcceptedLineageFrames = surface.frames;
 			return surface;
 		},
 		subscribeWorktreeFileFrames: (
@@ -153,15 +155,17 @@ export function installBridgeAppDevWorktreeBackend(): BridgeAppDevWorktreeBacken
 				isReloading = true;
 				try {
 					const nextSurface = await loadSurface();
+					const previousLineageFrames = lastAcceptedLineageFrames ?? lastAcceptedSurfaceFrames;
 					const incrementalFrames =
 						options.forceSplitReset === true
 							? worktreeFileSourceLessResetFramesFromSurface({
 									nextFrames: nextSurface.frames,
-									previousFrames: lastAcceptedSurfaceFrames,
+									previousFrames: previousLineageFrames,
 								})
 							: worktreeFileIncrementalFramesFromSurfaces({
 									nextFrames: nextSurface.frames,
 									previousFrames: lastAcceptedSurfaceFrames,
+									previousLineageFrames,
 								});
 					if (options.forceSplitReset !== true && hasPendingForceSplitResetReload) {
 						document.documentElement.dataset['bridgeWorktreeDevLastReloadStatus'] =
@@ -169,6 +173,9 @@ export function installBridgeAppDevWorktreeBackend(): BridgeAppDevWorktreeBacken
 						return;
 					}
 					lastAcceptedSurfaceFrames = nextSurface.frames;
+					if (incrementalFrames.length > 0) {
+						lastAcceptedLineageFrames = incrementalFrames;
+					}
 					const frameGenerations = incrementalFrames.map((frame) => frame.generation).join(',');
 					const frameKinds = incrementalFrames.map((frame) => frame.frameKind).join(',');
 					const frameSequences = incrementalFrames.map((frame) => frame.sequence).join(',');
@@ -312,13 +319,17 @@ export function worktreeFileSourceLessResetFramesFromSurface(props: {
 export function worktreeFileIncrementalFramesFromSurfaces(props: {
 	readonly nextFrames: readonly WorktreeFileProtocolFrame[];
 	readonly previousFrames: readonly WorktreeFileProtocolFrame[] | null;
+	readonly previousLineageFrames?: readonly WorktreeFileProtocolFrame[] | null;
 }): readonly WorktreeFileProtocolFrame[] {
 	if (props.previousFrames === null) {
 		return props.nextFrames;
 	}
 	const previousDescriptorsByFileId = worktreeFileDescriptorsByFileId(props.previousFrames);
 	const nextDescriptorsByFileId = worktreeFileDescriptorsByFileId(props.nextFrames);
-	const nextSequence = maxWorktreeFrameSequence(props.previousFrames) + 1;
+	const continuationLineage = worktreeFileContinuationLineage({
+		nextFrames: props.nextFrames,
+		previousFrames: props.previousLineageFrames ?? props.previousFrames,
+	});
 	const hasRemovedDescriptor = [...previousDescriptorsByFileId.keys()].some(
 		(fileId) => !nextDescriptorsByFileId.has(fileId),
 	);
@@ -350,7 +361,12 @@ export function worktreeFileIncrementalFramesFromSurfaces(props: {
 		const previousDescriptor = previousDescriptorsByFileId.get(nextDescriptor.fileId);
 		if (previousDescriptor === undefined) {
 			incrementalFrames.push(
-				worktreeFileDescriptorFrame(nextDescriptor, nextSequence + sequenceOffset),
+				worktreeFileDescriptorFrame({
+					descriptor: nextDescriptor,
+					generation: continuationLineage.generation,
+					sequence: continuationLineage.sequence + sequenceOffset,
+					streamId: continuationLineage.streamId,
+				}),
 			);
 			sequenceOffset += 1;
 			continue;
@@ -358,9 +374,11 @@ export function worktreeFileIncrementalFramesFromSurfaces(props: {
 		if (previousDescriptor.contentHash !== nextDescriptor.contentHash) {
 			incrementalFrames.push(
 				worktreeFileInvalidatedFrame({
+					generation: continuationLineage.generation,
 					latestDescriptor: nextDescriptor,
 					previousDescriptor,
-					sequence: nextSequence + sequenceOffset,
+					sequence: continuationLineage.sequence + sequenceOffset,
+					streamId: continuationLineage.streamId,
 				}),
 			);
 			sequenceOffset += 1;
@@ -407,30 +425,33 @@ function worktreeFileDescriptorsByFileId(
 	return descriptorsByFileId;
 }
 
-function worktreeFileDescriptorFrame(
-	descriptor: WorktreeFileDescriptor,
-	sequence: number,
-): WorktreeFileProtocolFrame {
+function worktreeFileDescriptorFrame(props: {
+	readonly descriptor: WorktreeFileDescriptor;
+	readonly generation: number;
+	readonly sequence: number;
+	readonly streamId: string;
+}): WorktreeFileProtocolFrame {
 	return {
 		kind: 'delta',
-		streamId: descriptor.contentDescriptor.ref.expectedIdentity.streamId ?? 'worktree-file',
-		generation: descriptor.sourceIdentity.subscriptionGeneration,
-		sequence,
+		streamId: props.streamId,
+		generation: props.generation,
+		sequence: props.sequence,
 		frameKind: 'worktree.fileDescriptor',
-		descriptor,
+		descriptor: props.descriptor,
 	};
 }
 
 function worktreeFileInvalidatedFrame(props: {
+	readonly generation: number;
 	readonly latestDescriptor: WorktreeFileDescriptor;
 	readonly previousDescriptor: WorktreeFileDescriptor;
 	readonly sequence: number;
+	readonly streamId: string;
 }): WorktreeFileProtocolFrame {
 	return {
 		kind: 'delta',
-		streamId:
-			props.latestDescriptor.contentDescriptor.ref.expectedIdentity.streamId ?? 'worktree-file',
-		generation: props.latestDescriptor.sourceIdentity.subscriptionGeneration,
+		streamId: props.streamId,
+		generation: props.generation,
 		sequence: props.sequence,
 		frameKind: 'worktree.fileInvalidated',
 		invalidation: {
@@ -440,6 +461,23 @@ function worktreeFileInvalidatedFrame(props: {
 			contentHandleIds: [props.previousDescriptor.contentHandle],
 			latestDescriptor: props.latestDescriptor,
 		},
+	};
+}
+
+function worktreeFileContinuationLineage(props: {
+	readonly nextFrames: readonly WorktreeFileProtocolFrame[];
+	readonly previousFrames: readonly WorktreeFileProtocolFrame[] | null;
+}): {
+	readonly generation: number;
+	readonly sequence: number;
+	readonly streamId: string;
+} {
+	const lineageFrames = props.previousFrames ?? props.nextFrames;
+	const streamId = lineageFrames[0]?.streamId ?? props.nextFrames[0]?.streamId ?? 'worktree-file';
+	return {
+		generation: maxWorktreeFrameGeneration(lineageFrames),
+		sequence: maxWorktreeFrameSequence(lineageFrames) + 1,
+		streamId,
 	};
 }
 

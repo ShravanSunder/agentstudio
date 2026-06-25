@@ -346,6 +346,78 @@ describe('bridge app dev worktree frame subscription', () => {
 		]);
 		dispose();
 	});
+
+	test('continues accepted emitted lineage across repeated force resets and later reloads', async () => {
+		vi.useFakeTimers();
+		const previousDescriptor = makeFileDescriptor({
+			contentHash: 'sha256:one',
+			contentHandle: 'file-content-one',
+			cursor: 'cursor-one',
+		});
+		const secondDescriptor = makeFileDescriptor({
+			contentHash: 'sha256:two',
+			contentHandle: 'file-content-two',
+			cursor: 'cursor-two',
+		});
+		const thirdDescriptor = makeFileDescriptor({
+			contentHash: 'sha256:three',
+			contentHandle: 'file-content-three',
+			cursor: 'cursor-three',
+		});
+		const fourthDescriptor = makeFileDescriptor({
+			contentHash: 'sha256:four',
+			contentHandle: 'file-content-four',
+			cursor: 'cursor-four',
+		});
+		const surfaceResponses: Promise<Response>[] = [
+			Promise.resolve(makeSurfaceResponse(makeFrames(previousDescriptor), 'cursor-one')),
+			Promise.resolve(makeSurfaceResponse(makeFrames(secondDescriptor), 'cursor-two')),
+			Promise.resolve(makeSurfaceResponse(makeFrames(thirdDescriptor), 'cursor-three')),
+			Promise.resolve(makeSurfaceResponse(makeFrames(fourthDescriptor), 'cursor-four')),
+		];
+		vi.spyOn(globalThis, 'fetch').mockImplementation(async (): Promise<Response> => {
+			const nextResponse = surfaceResponses.shift();
+			if (nextResponse === undefined) {
+				throw new Error('Unexpected worktree surface fetch');
+			}
+			return await nextResponse;
+		});
+		const backend = installBridgeAppDevWorktreeBackend();
+		await backend.loadWorktreeFileSurface();
+		const deliveredFrameBatches: Array<readonly WorktreeFileProtocolFrame[]> = [];
+		const dispose = backend.subscribeWorktreeFileFrames((frames) => {
+			deliveredFrameBatches.push(frames);
+		});
+
+		window.dispatchEvent(new Event('bridge-worktree-dev-force-split-reset-reload'));
+		await flushMicrotasks();
+		await vi.advanceTimersByTimeAsync(0);
+		await flushMicrotasks();
+		window.dispatchEvent(new Event('bridge-worktree-dev-force-split-reset-reload'));
+		await flushMicrotasks();
+		await vi.advanceTimersByTimeAsync(0);
+		await flushMicrotasks();
+		window.dispatchEvent(new Event('bridge-worktree-dev-reload'));
+		await flushMicrotasks();
+
+		const deliveredFrames = deliveredFrameBatches.flat();
+		expect(deliveredFrames.map((frame) => frame.frameKind)).toEqual([
+			'worktree.reset',
+			'worktree.snapshot',
+			'worktree.fileDescriptor',
+			'worktree.reset',
+			'worktree.snapshot',
+			'worktree.fileDescriptor',
+			'worktree.fileInvalidated',
+		]);
+		expect(deliveredFrames.map((frame) => frame.sequence)).toEqual([2, 3, 4, 5, 6, 7, 8]);
+		expect(deliveredFrames.map((frame) => frame.generation)).toEqual([2, 2, 2, 3, 3, 3, 3]);
+		expect(deliveredFrames.map((frame) => frame.streamId)).toEqual(
+			Array.from({ length: 7 }, () => 'worktree-file:pane-1'),
+		);
+		expect(document.documentElement.dataset['bridgeWorktreeDevLastReloadFrameSequences']).toBe('8');
+		dispose();
+	});
 });
 
 function makeFrames(

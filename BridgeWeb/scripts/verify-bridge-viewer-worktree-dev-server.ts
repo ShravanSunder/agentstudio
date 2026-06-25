@@ -257,14 +257,22 @@ interface WorktreeFileProductControlsProof {
 
 interface WorktreeFileSharedShellProof {
 	readonly appOwner: string | null;
+	readonly appRootCount: number;
+	readonly appRootOwnsCenterPoint: boolean;
+	readonly codeCanvasCount: number;
+	readonly codeCanvasOwnsCenterPoint: boolean;
 	readonly codeOwner: string | null;
 	readonly hasPierreTreeShadowRoot: boolean;
 	readonly rootVisible: boolean;
 	readonly sharedShellMode: string | null;
 	readonly sharedShellOwner: string | null;
+	readonly shellCount: number;
+	readonly shellOwnsCenterPoint: boolean;
 	readonly shellParentIsSharedRoot: boolean;
 	readonly shellOwner: string | null;
+	readonly sidebarCount: number;
 	readonly sidebarIsRight: boolean;
+	readonly sidebarOwnsCenterPoint: boolean;
 	readonly sidebarPosition: string | null;
 	readonly shikiRendering: string | null;
 	readonly treeOwner: string | null;
@@ -775,10 +783,16 @@ async function assertSharedBridgeFileViewerShell(props: {
 		{ timeout: 20_000 },
 	);
 	const proof = await props.page.evaluate(() => {
-		const appRoot = document.querySelector('[data-testid="bridge-app-root"]');
-		const shell = document.querySelector('[data-testid="bridge-file-viewer-shell"]');
-		const codeCanvas = document.querySelector('[data-testid="bridge-file-viewer-code-canvas"]');
-		const sidebar = document.querySelector('[data-testid="bridge-file-viewer-sidebar"]');
+		const appRoots = [...document.querySelectorAll('[data-testid="bridge-app-root"]')];
+		const shells = [...document.querySelectorAll('[data-testid="bridge-file-viewer-shell"]')];
+		const codeCanvases = [
+			...document.querySelectorAll('[data-testid="bridge-file-viewer-code-canvas"]'),
+		];
+		const sidebars = [...document.querySelectorAll('[data-testid="bridge-file-viewer-sidebar"]')];
+		const appRoot = appRoots[0];
+		const shell = shells[0];
+		const codeCanvas = codeCanvases[0];
+		const sidebar = sidebars[0];
 		const pierreTree = document.querySelector(
 			'[data-testid="bridge-file-viewer-pierre-file-tree"]',
 		);
@@ -791,18 +805,34 @@ async function assertSharedBridgeFileViewerShell(props: {
 		) {
 			return null;
 		}
+		// oxlint-disable-next-line unicorn/consistent-function-scoping -- this helper must execute inside the browser context.
+		const elementOwnsCenterPoint = (element: HTMLElement): boolean => {
+			const rect = element.getBoundingClientRect();
+			const centerX = rect.left + rect.width / 2;
+			const centerY = rect.top + rect.height / 2;
+			const topElement = document.elementFromPoint(centerX, centerY);
+			return topElement !== null && (topElement === element || element.contains(topElement));
+		};
 		const codeRect = codeCanvas.getBoundingClientRect();
 		const sidebarRect = sidebar.getBoundingClientRect();
 		return {
 			appOwner: appRoot.getAttribute('data-bridge-app-owner'),
+			appRootCount: appRoots.length,
+			appRootOwnsCenterPoint: elementOwnsCenterPoint(appRoot),
+			codeCanvasCount: codeCanvases.length,
+			codeCanvasOwnsCenterPoint: elementOwnsCenterPoint(codeCanvas),
 			codeOwner: codeCanvas.getAttribute('data-pierre-code-view-owner'),
 			hasPierreTreeShadowRoot: pierreTree.querySelector('file-tree-container')?.shadowRoot !== null,
 			rootVisible: appRoot.getBoundingClientRect().width > 0,
 			sharedShellMode: appRoot.getAttribute('data-bridge-viewer-mode'),
 			sharedShellOwner: appRoot.getAttribute('data-bridge-viewer-shell-owner'),
+			shellCount: shells.length,
+			shellOwnsCenterPoint: elementOwnsCenterPoint(shell),
 			shellParentIsSharedRoot: shell.parentElement === appRoot,
 			shellOwner: shell.getAttribute('data-file-viewer-owner'),
+			sidebarCount: sidebars.length,
 			sidebarIsRight: sidebarRect.left > codeRect.left,
+			sidebarOwnsCenterPoint: elementOwnsCenterPoint(sidebar),
 			sidebarPosition: shell.getAttribute('data-sidebar-position'),
 			shikiRendering: codeCanvas.getAttribute('data-shiki-rendering'),
 			treeOwner: sidebar.getAttribute('data-pierre-file-tree-owner'),
@@ -839,6 +869,14 @@ async function assertSharedBridgeFileViewerShell(props: {
 		proofWithWorkerBaseline.sharedShellOwner !== 'BridgeViewerAppShell' ||
 		proofWithWorkerBaseline.appOwner !== 'BridgeApp' ||
 		proofWithWorkerBaseline.sharedShellMode !== 'file' ||
+		proofWithWorkerBaseline.appRootCount !== 1 ||
+		!proofWithWorkerBaseline.appRootOwnsCenterPoint ||
+		proofWithWorkerBaseline.shellCount !== 1 ||
+		!proofWithWorkerBaseline.shellOwnsCenterPoint ||
+		proofWithWorkerBaseline.codeCanvasCount !== 1 ||
+		!proofWithWorkerBaseline.codeCanvasOwnsCenterPoint ||
+		proofWithWorkerBaseline.sidebarCount !== 1 ||
+		!proofWithWorkerBaseline.sidebarOwnsCenterPoint ||
 		!proofWithWorkerBaseline.shellParentIsSharedRoot ||
 		proofWithWorkerBaseline.shellOwner !== 'BridgeViewerApp.FileViewer' ||
 		proofWithWorkerBaseline.sidebarPosition !== 'right' ||
@@ -1295,12 +1333,15 @@ function assertSelectedContentRouteProof(props: {
 	readonly probe: WorktreeFileContentRouteProbe;
 }): WorktreeFileSelectedContentRouteProof {
 	const hitUrls = props.probe.hitUrls();
-	const selectedResourceUrlContainsHandle = hitUrls.some((hitUrl) =>
-		hitUrl.includes(encodeURIComponent(props.expectedContentHandle)),
-	);
-	const selectedResourceUrlUsesDevServerFrontDoor = hitUrls.some((hitUrl) =>
-		hitUrl.includes('/__bridge-worktree/file-content/'),
-	);
+	const selectedHitUrl = hitUrls[0];
+	const expectedPathname = `/__bridge-worktree/file-content/${encodeURIComponent(
+		props.expectedContentHandle,
+	)}`;
+	const selectedHitPathname =
+		hitUrls.length === 1 && selectedHitUrl !== undefined ? new URL(selectedHitUrl).pathname : null;
+	const selectedResourceUrlContainsHandle = selectedHitPathname === expectedPathname;
+	const selectedResourceUrlUsesDevServerFrontDoor =
+		selectedHitPathname?.startsWith('/__bridge-worktree/file-content/') === true;
 	const proof: WorktreeFileSelectedContentRouteProof = {
 		expectedContentHandle: props.expectedContentHandle,
 		hitCount: props.probe.hitCount(),
@@ -1309,7 +1350,7 @@ function assertSelectedContentRouteProof(props: {
 		selectedResourceUrlUsesDevServerFrontDoor,
 	};
 	if (
-		proof.hitCount <= 0 ||
+		proof.hitCount !== 1 ||
 		!proof.selectedResourceUrlContainsHandle ||
 		!proof.selectedResourceUrlUsesDevServerFrontDoor
 	) {
@@ -3086,46 +3127,24 @@ async function readWorktreeRefreshButtonDisabled(page: Page): Promise<boolean> {
 }
 
 async function readWorktreeDevReloadProof(page: Page): Promise<WorktreeDevReloadProof> {
-	return await page.evaluate((): WorktreeDevReloadProof => {
+	const rawProof = await page.evaluate(() => {
 		const frameGenerationsText =
 			document.documentElement.dataset['bridgeWorktreeDevLastForceSplitReloadFrameGenerations'] ??
 			'';
-		const frameGenerations =
-			frameGenerationsText.length === 0
-				? []
-				: frameGenerationsText
-						.split(',')
-						.filter((generationText) => generationText.length > 0)
-						.map((generationText) => Number.parseInt(generationText, 10));
 		const frameKindsText =
 			document.documentElement.dataset['bridgeWorktreeDevLastForceSplitReloadFrameKinds'] ?? '';
-		const frameKinds =
-			frameKindsText.length === 0
-				? []
-				: frameKindsText.split(',').filter((frameKind) => frameKind.length > 0);
 		const frameSequencesText =
 			document.documentElement.dataset['bridgeWorktreeDevLastForceSplitReloadFrameSequences'] ?? '';
-		const frameSequences =
-			frameSequencesText.length === 0
-				? []
-				: frameSequencesText
-						.split(',')
-						.filter((sequenceText) => sequenceText.length > 0)
-						.map((sequenceText) => Number.parseInt(sequenceText, 10));
 		const frameStreamIdsText =
 			document.documentElement.dataset['bridgeWorktreeDevLastForceSplitReloadFrameStreamIds'] ?? '';
-		const frameStreamIds =
-			frameStreamIdsText.length === 0
-				? []
-				: frameStreamIdsText.split(',').filter((streamId) => streamId.length > 0);
 		const frameCountText =
 			document.documentElement.dataset['bridgeWorktreeDevLastForceSplitReloadFrameCount'] ?? null;
 		return {
-			frameCount: frameCountText === null ? 0 : Number.parseInt(frameCountText, 10),
-			frameGenerations,
-			frameKinds,
-			frameSequences,
-			frameStreamIds,
+			frameCountText,
+			frameGenerationsText,
+			frameKindsText,
+			frameSequencesText,
+			frameStreamIdsText,
 			request: document.documentElement.dataset['bridgeWorktreeDevLastReloadRequest'] ?? null,
 			sourceCursor:
 				document.documentElement.dataset['bridgeWorktreeDevLastForceSplitReloadSourceCursor'] ??
@@ -3134,6 +3153,52 @@ async function readWorktreeDevReloadProof(page: Page): Promise<WorktreeDevReload
 				document.documentElement.dataset['bridgeWorktreeDevLastForceSplitReloadStatus'] ?? null,
 		};
 	});
+	return {
+		frameCount:
+			rawProof.frameCountText === null
+				? 0
+				: strictWorktreeDevReloadIntegerToken(rawProof.frameCountText, 'frame count'),
+		frameGenerations: strictWorktreeDevReloadIntegerList(
+			rawProof.frameGenerationsText,
+			'frame generations',
+		),
+		frameKinds: strictWorktreeDevReloadStringList(rawProof.frameKindsText),
+		frameSequences: strictWorktreeDevReloadIntegerList(
+			rawProof.frameSequencesText,
+			'frame sequences',
+		),
+		frameStreamIds: strictWorktreeDevReloadStringList(rawProof.frameStreamIdsText),
+		request: rawProof.request,
+		sourceCursor: rawProof.sourceCursor,
+		status: rawProof.status,
+	};
+}
+
+function strictWorktreeDevReloadIntegerList(text: string, label: string): readonly number[] {
+	if (text.length === 0) {
+		return [];
+	}
+	return text
+		.split(',')
+		.filter((token) => token.length > 0)
+		.map((token) => strictWorktreeDevReloadIntegerToken(token, label));
+}
+
+function strictWorktreeDevReloadIntegerToken(token: string, label: string): number {
+	if (!/^\d+$/u.test(token)) {
+		throw new Error(
+			`Expected strict nonnegative integer ${label} token, got ${JSON.stringify(token)}`,
+		);
+	}
+	const value = Number(token);
+	if (!Number.isSafeInteger(value)) {
+		throw new Error(`Expected safe integer ${label} token, got ${JSON.stringify(token)}`);
+	}
+	return value;
+}
+
+function strictWorktreeDevReloadStringList(text: string): readonly string[] {
+	return text.length === 0 ? [] : text.split(',').filter((token) => token.length > 0);
 }
 
 async function dispatchWorktreeDevForceSplitResetReload(page: Page): Promise<void> {

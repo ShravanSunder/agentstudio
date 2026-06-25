@@ -104,9 +104,9 @@ Relevant prior files to inspect because they define the Gate 0.a product route:
 - `BridgeWeb/src/app/bridge-app-protocol-router.tsx`
 - `BridgeWeb/src/app/bridge-app-dev-worktree.ts`
 - `BridgeWeb/src/file-viewer/bridge-file-viewer-app.tsx`
-- `BridgeWeb/src/review-viewer/bridge-viewer-app-shell.tsx`
-- `BridgeWeb/src/review-viewer/code-view/bridge-code-view-panel.tsx`
-- `BridgeWeb/src/review-viewer/trees/bridge-trees-panel.tsx`
+- `BridgeWeb/src/app/bridge-viewer-app-shell.tsx`
+- `BridgeWeb/src/review-viewer/code-view/bridge-file-viewer-code-panel.tsx`
+- `BridgeWeb/src/review-viewer/trees/bridge-file-viewer-tree-panel.tsx`
 - `BridgeWeb/src/worktree-file-surface/worktree-file-surface-runtime.ts`
 - `BridgeWeb/src/review-viewer/workers/pierre/bridge-pierre-worker-pool.tsx`
 
@@ -164,7 +164,7 @@ Claimed result: exit 0.
 Artifact:
 
 ```text
-tmp/bridge-viewer-worktree-dev-server/2026-06-25T07-57-34-636Z/worktree-dev-server-proof.json
+tmp/bridge-viewer-worktree-dev-server/2026-06-25T08-14-48-622Z/worktree-dev-server-proof.json
 ```
 
 Repo lint:
@@ -187,7 +187,21 @@ Freshness update after packet creation:
 pnpm --dir BridgeWeb run test:dev-server:worktree
 exit 0
 proofArtifactPath =
-  tmp/bridge-viewer-worktree-dev-server/2026-06-25T07-57-34-636Z/worktree-dev-server-proof.json
+  tmp/bridge-viewer-worktree-dev-server/2026-06-25T08-14-48-622Z/worktree-dev-server-proof.json
+```
+
+Post-review fix update:
+
+```text
+The implementation now stores raw provider frames for descriptor comparison and
+accepted emitted frames for lineage continuation.
+
+The exact URL verifier now requires:
+  - exactly one selected-content route hit during target selection
+  - exactly one app root, shell, code canvas, and sidebar
+  - center-point ownership for the visible app root, shell, code canvas, and
+    sidebar
+  - strict integer parsing for reset generation/sequence/count diagnostics
 ```
 
 ## Artifact Facts To Verify
