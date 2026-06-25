@@ -2,7 +2,7 @@
 
 Goal id: `2026-06-24-bridge-transport-review-pr-ready`
 Status: active
-Current workflow: implementation-execute-plan Gate 0.a split-reset review fixes complete
+Current workflow: implementation-execute-plan Gate 0.a force-lineage and retry fixes complete
 Next workflow: `shravan-dev-workflow:implementation-review-swarm`
 
 ## Durable Objective
@@ -234,20 +234,24 @@ Former Gate 0.a red proof:
 
 Vite/dev-server Gate 0.a status:
 
-- The exact URL proof row is green as of 2026-06-25 01:16 -04:00 after the
-  shared-app boundary proof pass, implementation-review reduction fixes, and
-  split reset/replacement false-green fixes.
+- The exact URL proof row is green as of 2026-06-25 02:49 -04:00 after the
+  shared-app boundary proof pass, implementation-review reduction fixes,
+  split reset/replacement false-green fixes, forced split-reset lineage proof,
+  and duplicate replacement-frame retry fixes.
 - Canonical proof command:
   `pnpm --dir BridgeWeb run test:dev-server:worktree`
 - Proof artifact:
-  `tmp/bridge-viewer-worktree-dev-server/2026-06-25T05-16-01-036Z/worktree-dev-server-proof.json`
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-25T06-49-27-224Z/worktree-dev-server-proof.json`
 - Screenshots:
-  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T05-16-01-036Z/worktree-file-ready.png`
-  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T05-16-01-036Z/worktree-file-search-result.png`
-  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T05-16-01-036Z/worktree-file-stale-refresh.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T06-49-27-224Z/worktree-file-ready.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T06-49-27-224Z/worktree-file-search-result.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T06-49-27-224Z/worktree-file-stale-refresh.png`
 - Focused reviewer-fix proof:
   - `pnpm --dir BridgeWeb exec vitest run src/app/bridge-app-protocol-router.contract.unit.test.tsx src/file-viewer/bridge-file-viewer-app.unit.test.tsx src/worktree-file-surface/worktree-file-surface-runtime.integration.test.ts scripts/dev-server/bridge-worktree-dev-provider.integration.test.ts --reporter verbose`
     passed: 4 files, 27 tests
+- Focused force-lineage/retry proof:
+  - `pnpm --dir BridgeWeb exec vitest run src/app/bridge-app-dev-worktree.unit.test.ts src/file-viewer/bridge-file-viewer-app.unit.test.tsx src/worktree-file-surface/worktree-file-surface-runtime.integration.test.ts --reporter verbose`
+    passed: 3 files, 24 tests
 - Type proof:
   - `pnpm --dir BridgeWeb exec tsc --noEmit` passed
 - Focused supporting proof:
@@ -328,6 +332,13 @@ Vite/dev-server Gate 0.a status:
     schema
   - unavailable-file proof now probes the entire dev-server file-content front
     door, so any body request during unavailable open fails the proof
+  - forced split-reset proof now waits for the explicit force request to deliver
+    `worktree.reset -> worktree.snapshot` and the expected source cursor instead
+    of letting an ordinary poll reload satisfy the proof
+  - stale refresh proof now isolates normal incremental invalidation from forced
+    split-reset lineage, so retry behavior is proved without reset-stream races
+  - duplicate replacement descriptors with the same content version no longer
+    regress an already refreshed file back to stale during retry
 - Independent browser subagent visual/DOM proof passed on the exact URL and
   produced `tmp/bridge-viewer-worktree-dev-server/2026-06-25T04-40-15-000Z/worktree-dev-server-proof.json`
   with `standaloneWorktreeFileAppCount=0`,
@@ -340,7 +351,7 @@ Vite/dev-server Gate 0.a status:
 - Native Agent Studio Bridge/WKWebView proof is still not satisfied by this and
   remains required before PR-ready.
 - Gate 1 work should not begin until Gate 0.a implementation re-review is
-  complete or explicitly accepted after the split reset/replacement fixes.
+  complete or explicitly accepted after the force-lineage/retry fixes.
 
 ## Required Reviewer Packet Contents
 
@@ -367,6 +378,10 @@ Each spec, plan, implementation, or PR reviewer must receive:
 ## Review Packets
 
 - Current Gate 0.a implementation re-review packet:
+  [implementation-review-packet-gate0a-force-lineage-retry-2026-06-25.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/workflow-state/2026-06-24-bridge-transport-review-pr-ready/implementation-review-packet-gate0a-force-lineage-retry-2026-06-25.md:1)
+- Previous Gate 0.a implementation re-review packet:
+  [implementation-review-packet-gate0a-second-split-reset-2026-06-25.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/workflow-state/2026-06-24-bridge-transport-review-pr-ready/implementation-review-packet-gate0a-second-split-reset-2026-06-25.md:1)
+- Historical shared-app boundary packet:
   [implementation-review-packet-gate0a-shared-app-2026-06-25.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/workflow-state/2026-06-24-bridge-transport-review-pr-ready/implementation-review-packet-gate0a-shared-app-2026-06-25.md:1)
 - Current Gate 0.a packet:
   [spec-review-packet-gate0a-2026-06-24.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/workflow-state/2026-06-24-bridge-transport-review-pr-ready/spec-review-packet-gate0a-2026-06-24.md:1)
@@ -467,3 +482,84 @@ Fresh proof:
     lint OK, release script verification passed
 - `git diff --check`
   - exit: 0
+
+## 2026-06-25 Force-Lineage And Retry Reduction
+
+Status: Gate 0.a Vite/dev-server product proof is green again after fixing the
+latest force-lineage and stale-retry issues. Gate 1 remains blocked on
+implementation re-review or explicit human acceptance.
+
+Accepted findings addressed:
+
+1. Forced split-reset proof could still be satisfied by an ordinary poll reload.
+   - Fixed the verifier to wait for force-specific delivery diagnostics:
+     request `force-split-reset`, status `delivered`, and the expected source
+     cursor.
+   - The exact URL proof now records forced frame kinds beginning with
+     `worktree.reset` and `worktree.snapshot`.
+
+2. Stale refresh retry could race against forced split-reset streams.
+   - Fixed the stale-refresh verifier path to use ordinary incremental reloads
+     while keeping forced split-reset proof separate.
+   - The stale retry proof still records body-route hits `0 -> 1 -> 2` and
+     visible stale body preservation.
+
+3. Duplicate replacement frames could regress a successful retry back to stale.
+   - Fixed `BridgeFileViewerApp` to keep the latest known descriptor during
+     explicit refresh and ignore duplicate invalidation/replacement frames for
+     the same content version.
+   - Added regression proof that a duplicate same-version replacement after a
+     successful retry does not discard the ready state.
+
+4. BridgeWeb type-aware lint failed on Base UI menu namespace prop aliases.
+   - Fixed `DropdownMenu` prop typing to derive props from the actual React
+     components with `ComponentProps<typeof ...>` instead of `.Props` namespace
+     aliases. No casts were added.
+
+Fresh proof:
+
+- `pnpm --dir BridgeWeb exec vitest run src/app/bridge-app-dev-worktree.unit.test.ts src/file-viewer/bridge-file-viewer-app.unit.test.tsx src/worktree-file-surface/worktree-file-surface-runtime.integration.test.ts --reporter verbose`
+  - exit: 0
+  - result: 3 files passed, 24 tests passed
+- `pnpm --dir BridgeWeb exec tsc --noEmit`
+  - exit: 0
+- `pnpm --dir BridgeWeb run check`
+  - exit: 0
+  - note: existing verifier `no-await-in-loop` warnings remain warnings only
+- `pnpm --dir BridgeWeb run test:dev-server:worktree`
+  - exit: 0
+  - artifact:
+    `tmp/bridge-viewer-worktree-dev-server/2026-06-25T06-49-27-224Z/worktree-dev-server-proof.json`
+  - key artifact facts:
+    - exact URL:
+      `http://127.0.0.1:5173/?fixture=worktree&workers=on&scenario=current-worktree`
+    - descriptor count: 456
+    - selected file: `BridgeWeb/pnpm-lock.yaml`
+    - selected line count: 6658
+    - shared shell owner: `BridgeViewerAppShell`
+    - app owner: `BridgeApp`
+    - shell owner: `BridgeViewerApp.FileViewer`
+    - code owner: `CodeView.file`
+    - tree owner: `FileTree`
+    - Shiki rendering: `pierre`
+    - worker pool state: `ready`
+    - worker file success count: 2
+    - standalone `WorktreeFileApp` count: 0
+    - review empty shell count: 0
+    - split reset proof path: `.mise.toml`
+    - forced split reset status: `delivered`
+    - forced frame lineage begins with `worktree.reset` then
+      `worktree.snapshot`
+    - split reset body route hits: `0 -> 0 -> 1`
+    - stale retry proof path: `.gitignore`
+    - stale retry body route hits: `0 -> 1 -> 2`
+  - screenshots:
+    - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T06-49-27-224Z/worktree-file-ready.png`
+    - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T06-49-27-224Z/worktree-file-search-result.png`
+    - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T06-49-27-224Z/worktree-file-stale-refresh.png`
+
+Proof surface contract:
+
+- This remains Vite/dev-server product proof only.
+- Native Agent Studio Bridge/WKWebView proof is still required before PR-ready.
+- Vite remains live at `127.0.0.1:5173` for human inspection.

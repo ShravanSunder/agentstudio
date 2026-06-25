@@ -243,6 +243,155 @@ describe('BridgeFileViewerApp', () => {
 		]);
 	});
 
+	test('keeps source-less reset replacement retryable after a failed explicit refresh', async () => {
+		const firstDescriptor = makeFileDescriptor({ contentHandle: 'file-content-1' });
+		const replacementDescriptor = makeFileDescriptor({
+			contentHandle: 'file-content-2',
+			fileId: firstDescriptor.fileId,
+			path: firstDescriptor.path,
+		});
+		let frameSubscriber: ((frames: readonly WorktreeFileProtocolFrame[]) => void) | undefined;
+		let replacementFetchCount = 0;
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeFileViewerApp
+					autoOpenInitialFile={true}
+					fetchResource={async (props): Promise<string> => {
+						if (props.resourceUrl.includes('file-content-2')) {
+							replacementFetchCount += 1;
+							if (replacementFetchCount === 1) {
+								throw new Error('refresh failed');
+							}
+							return 'export const value = 2;\n';
+						}
+						return 'export const value = 1;\n';
+					}}
+					initialFrames={makeFrames(firstDescriptor)}
+					subscribeFrames={(onFrames) => {
+						frameSubscriber = onFrames;
+						return () => {};
+					}}
+				/>,
+			);
+			await nextMicrotask();
+		});
+
+		await act(async (): Promise<void> => {
+			frameSubscriber?.([makeResetFrame({})]);
+			await nextMicrotask();
+		});
+		const replacementSnapshotFrame = makeFrames(replacementDescriptor)[0];
+		if (replacementSnapshotFrame === undefined) {
+			throw new Error('Expected replacement snapshot frame');
+		}
+		await act(async (): Promise<void> => {
+			frameSubscriber?.([replacementSnapshotFrame, makeFileDescriptorFrame(replacementDescriptor)]);
+			await nextMicrotask();
+		});
+
+		await act(async (): Promise<void> => {
+			document.querySelector<HTMLButtonElement>('[data-testid="worktree-file-refresh"]')?.click();
+			await nextMicrotask();
+		});
+
+		expect(openFileState()).toBe('stale');
+		expect(document.body.textContent).toContain('export const value = 1');
+		expect(replacementFetchCount).toBe(1);
+
+		await act(async (): Promise<void> => {
+			document.querySelector<HTMLButtonElement>('[data-testid="worktree-file-refresh"]')?.click();
+			await nextMicrotask();
+		});
+
+		expect(openFileState()).toBe('ready');
+		expect(document.body.textContent).toContain('export const value = 2');
+		expect(replacementFetchCount).toBe(2);
+
+		await act(async (): Promise<void> => {
+			frameSubscriber?.([makeFileDescriptorFrame(replacementDescriptor)]);
+			await nextMicrotask();
+		});
+
+		expect(openFileState()).toBe('ready');
+	});
+
+	test('does not discard a successful retry when duplicate replacement frames arrive during refresh', async () => {
+		const firstDescriptor = makeFileDescriptor({ contentHandle: 'file-content-1' });
+		const replacementDescriptor = makeFileDescriptor({
+			contentHandle: 'file-content-2',
+			fileId: firstDescriptor.fileId,
+			path: firstDescriptor.path,
+		});
+		let frameSubscriber: ((frames: readonly WorktreeFileProtocolFrame[]) => void) | undefined;
+		let replacementFetchCount = 0;
+		const retryFetch = makeDeferred<string>();
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeFileViewerApp
+					autoOpenInitialFile={true}
+					fetchResource={async (props): Promise<string> => {
+						if (props.resourceUrl.includes('file-content-2')) {
+							replacementFetchCount += 1;
+							if (replacementFetchCount === 1) {
+								throw new Error('refresh failed');
+							}
+							return await retryFetch.promise;
+						}
+						return 'export const value = 1;\n';
+					}}
+					initialFrames={makeFrames(firstDescriptor)}
+					subscribeFrames={(onFrames) => {
+						frameSubscriber = onFrames;
+						return () => {};
+					}}
+				/>,
+			);
+			await nextMicrotask();
+		});
+
+		await act(async (): Promise<void> => {
+			frameSubscriber?.([makeResetFrame({})]);
+			await nextMicrotask();
+		});
+		const replacementSnapshotFrame = makeFrames(replacementDescriptor)[0];
+		if (replacementSnapshotFrame === undefined) {
+			throw new Error('Expected replacement snapshot frame');
+		}
+		await act(async (): Promise<void> => {
+			frameSubscriber?.([replacementSnapshotFrame, makeFileDescriptorFrame(replacementDescriptor)]);
+			await nextMicrotask();
+		});
+		await act(async (): Promise<void> => {
+			document.querySelector<HTMLButtonElement>('[data-testid="worktree-file-refresh"]')?.click();
+			await nextMicrotask();
+		});
+		expect(openFileState()).toBe('stale');
+
+		await act(async (): Promise<void> => {
+			document.querySelector<HTMLButtonElement>('[data-testid="worktree-file-refresh"]')?.click();
+			await nextMicrotask();
+		});
+		expect(openFileState()).toBe('refreshing');
+
+		await act(async (): Promise<void> => {
+			frameSubscriber?.([makeFileDescriptorFrame(replacementDescriptor)]);
+			retryFetch.resolve('export const value = 2;\n');
+			await nextMicrotask();
+		});
+
+		expect(openFileState()).toBe('ready');
+		expect(document.body.textContent).toContain('export const value = 2');
+		expect(replacementFetchCount).toBe(2);
+	});
+
 	test('does not let unrelated split replacement descriptor unblock reset-stale content', async () => {
 		const firstDescriptor = makeFileDescriptor({ contentHandle: 'file-content-1' });
 		const unrelatedDescriptor = makeFileDescriptor({
@@ -506,6 +655,23 @@ function openFileState(): string | null {
 
 async function nextMicrotask(): Promise<void> {
 	await Promise.resolve();
+}
+
+function makeDeferred<TValue>(): {
+	readonly promise: Promise<TValue>;
+	readonly resolve: (value: TValue | PromiseLike<TValue>) => void;
+} {
+	let resolvePromise: ((value: TValue | PromiseLike<TValue>) => void) | undefined;
+	const promise = new Promise<TValue>((resolve) => {
+		resolvePromise = resolve;
+	});
+	if (resolvePromise === undefined) {
+		throw new Error('Expected deferred promise resolver');
+	}
+	return {
+		promise,
+		resolve: resolvePromise,
+	};
 }
 
 async function clickControl(testId: string): Promise<void> {

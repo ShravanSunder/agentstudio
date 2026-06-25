@@ -1,4 +1,6 @@
-import { describe, expect, test } from 'vitest';
+// @vitest-environment jsdom
+
+import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import type {
 	BridgeAttachedResourceDescriptor,
@@ -11,11 +13,19 @@ import type {
 	WorktreeFileSurfaceSourceIdentity,
 } from '../features/worktree-file/models/worktree-file-protocol-models.js';
 import {
+	installBridgeAppDevWorktreeBackend,
 	worktreeFileIncrementalFramesFromSurfaces,
 	worktreeFileSourceLessResetFramesFromSurface,
 } from './bridge-app-dev-worktree.js';
 
 describe('bridge app dev worktree frame subscription', () => {
+	afterEach(() => {
+		vi.restoreAllMocks();
+		vi.useRealTimers();
+		document.documentElement.removeAttribute('data-bridge-app-protocol');
+		document.documentElement.removeAttribute('data-bridge-worktree-dev-last-reload-status');
+	});
+
 	test('derives file invalidation frames when a descriptor content hash changes', () => {
 		const previousDescriptor = makeFileDescriptor({
 			contentHash: 'sha256:old',
@@ -129,6 +139,64 @@ describe('bridge app dev worktree frame subscription', () => {
 				contentHash: 'sha256:replacement',
 			},
 		});
+	});
+
+	test('suppresses ordinary poll frames when a forced split reset is queued during reload', async () => {
+		vi.useFakeTimers();
+		const previousDescriptor = makeFileDescriptor({
+			contentHash: 'sha256:old',
+			contentHandle: 'file-content-old',
+			cursor: 'cursor-old',
+		});
+		const nextDescriptor = makeFileDescriptor({
+			contentHash: 'sha256:new',
+			contentHandle: 'file-content-new',
+			cursor: 'cursor-new',
+		});
+		const normalReload = makeDeferred<Response>();
+		const forceReload = makeDeferred<Response>();
+		const surfaceResponses: Promise<Response>[] = [
+			Promise.resolve(makeSurfaceResponse(makeFrames(previousDescriptor), 'cursor-old')),
+			normalReload.promise,
+			forceReload.promise,
+		];
+		vi.spyOn(globalThis, 'fetch').mockImplementation(async (): Promise<Response> => {
+			const nextResponse = surfaceResponses.shift();
+			if (nextResponse === undefined) {
+				throw new Error('Unexpected worktree surface fetch');
+			}
+			return await nextResponse;
+		});
+		const backend = installBridgeAppDevWorktreeBackend();
+		await backend.loadWorktreeFileSurface();
+		const deliveredFrameBatches: Array<readonly WorktreeFileProtocolFrame[]> = [];
+		const dispose = backend.subscribeWorktreeFileFrames((frames) => {
+			deliveredFrameBatches.push(frames);
+		});
+
+		window.dispatchEvent(new Event('bridge-worktree-dev-reload'));
+		window.dispatchEvent(new Event('bridge-worktree-dev-force-split-reset-reload'));
+		normalReload.resolve(makeSurfaceResponse(makeFrames(nextDescriptor), 'cursor-new'));
+		await nextMicrotask();
+
+		expect(deliveredFrameBatches).toEqual([]);
+
+		forceReload.resolve(makeSurfaceResponse(makeFrames(nextDescriptor), 'cursor-new'));
+		await nextMicrotask();
+		await vi.advanceTimersByTimeAsync(0);
+		await nextMicrotask();
+
+		expect(deliveredFrameBatches.map((batch) => batch.map((frame) => frame.frameKind))).toEqual([
+			['worktree.reset'],
+			['worktree.snapshot', 'worktree.fileDescriptor'],
+		]);
+		expect(
+			document.documentElement.dataset['bridgeWorktreeDevLastForceSplitReloadFrameKinds'],
+		).toBe('worktree.reset,worktree.snapshot,worktree.fileDescriptor');
+		expect(
+			document.documentElement.dataset['bridgeWorktreeDevLastForceSplitReloadSourceCursor'],
+		).toBe('cursor-new');
+		dispose();
 	});
 });
 
@@ -245,4 +313,54 @@ function makeAttachedDescriptor(props: {
 		},
 		descriptor,
 	});
+}
+
+function makeSurfaceResponse(
+	frames: readonly WorktreeFileProtocolFrame[],
+	sourceCursor: string,
+): Response {
+	return new Response(
+		JSON.stringify({
+			frames,
+			provenance: {
+				baseRef: 'HEAD',
+				scenarioName: 'current-worktree',
+				worktreeRootToken: 'worktree-root-token',
+			},
+			source: makeSourceIdentity(sourceCursor),
+			treeSizeFacts: {
+				pathCount: worktreeFileDescriptorCount(frames),
+				rowHeightPixels: 24,
+			},
+		}),
+		{
+			headers: { 'content-type': 'application/json' },
+			status: 200,
+		},
+	);
+}
+
+function worktreeFileDescriptorCount(frames: readonly WorktreeFileProtocolFrame[]): number {
+	return frames.filter((frame) => frame.frameKind === 'worktree.fileDescriptor').length;
+}
+
+function makeDeferred<TValue>(): {
+	readonly promise: Promise<TValue>;
+	readonly resolve: (value: TValue) => void;
+} {
+	let resolveValue: ((value: TValue) => void) | undefined;
+	const promise = new Promise<TValue>((resolve) => {
+		resolveValue = resolve;
+	});
+	if (resolveValue === undefined) {
+		throw new Error('Expected deferred resolver to be initialized');
+	}
+	return {
+		promise,
+		resolve: resolveValue,
+	};
+}
+
+async function nextMicrotask(): Promise<void> {
+	await Promise.resolve();
 }

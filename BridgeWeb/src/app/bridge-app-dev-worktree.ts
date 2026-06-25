@@ -150,15 +150,30 @@ export function installBridgeAppDevWorktreeBackend(): BridgeAppDevWorktreeBacken
 									nextFrames: nextSurface.frames,
 									previousFrames: lastAcceptedSurfaceFrames,
 								});
+					if (options.forceSplitReset !== true && hasPendingForceSplitResetReload) {
+						document.documentElement.dataset['bridgeWorktreeDevLastReloadStatus'] =
+							'force-split-pending';
+						return;
+					}
 					lastAcceptedSurfaceFrames = nextSurface.frames;
+					const frameKinds = incrementalFrames.map((frame) => frame.frameKind).join(',');
 					document.documentElement.dataset['bridgeWorktreeDevLastReloadFrameCount'] = String(
 						incrementalFrames.length,
 					);
-					document.documentElement.dataset['bridgeWorktreeDevLastReloadFrameKinds'] =
-						incrementalFrames.map((frame) => frame.frameKind).join(',');
+					document.documentElement.dataset['bridgeWorktreeDevLastReloadFrameKinds'] = frameKinds;
 					document.documentElement.dataset['bridgeWorktreeDevLastReloadSourceCursor'] =
 						nextSurface.source.sourceCursor;
 					document.documentElement.dataset['bridgeWorktreeDevLastReloadStatus'] = 'delivered';
+					if (options.forceSplitReset === true) {
+						document.documentElement.dataset['bridgeWorktreeDevLastForceSplitReloadFrameCount'] =
+							String(incrementalFrames.length);
+						document.documentElement.dataset['bridgeWorktreeDevLastForceSplitReloadFrameKinds'] =
+							frameKinds;
+						document.documentElement.dataset['bridgeWorktreeDevLastForceSplitReloadSourceCursor'] =
+							nextSurface.source.sourceCursor;
+						document.documentElement.dataset['bridgeWorktreeDevLastForceSplitReloadStatus'] =
+							'delivered';
+					}
 					if (!isDisposed && incrementalFrames.length > 0) {
 						if (options.forceSplitReset === true && incrementalFrames.length > 1) {
 							const resetFrame = incrementalFrames[0];
