@@ -2069,16 +2069,19 @@ async function verifyUnavailableWorktreeFileOpen(props: {
 	const unavailableRouteProbe = await installFileContentRouteGate({
 		gate: unavailableGate,
 		page: props.page,
-		pathPattern: `**/__bridge-worktree/file-content/**${encodeURIComponent(props.descriptor.contentHandle)}**`,
 	});
-	await clickWorktreeFilePath(props.page, props.descriptor.path);
-	await waitForWorktreeOpenFileState({
-		page: props.page,
-		path: props.descriptor.path,
-		state: 'unavailable',
-	});
-	const renderedState = await readWorktreeRenderedContentState(props.page);
-	await unavailableRouteProbe.dispose();
+	let renderedState: WorktreeRenderedContentState;
+	try {
+		await clickWorktreeFilePath(props.page, props.descriptor.path);
+		await waitForWorktreeOpenFileState({
+			page: props.page,
+			path: props.descriptor.path,
+			state: 'unavailable',
+		});
+		renderedState = await readWorktreeRenderedContentState(props.page);
+	} finally {
+		await unavailableRouteProbe.dispose();
+	}
 	const proof: WorktreeFileUnavailableOpenProof = {
 		contentRouteHitCount: unavailableRouteProbe.hitCount(),
 		expectedContentHandle: props.descriptor.contentHandle,

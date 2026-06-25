@@ -108,6 +108,7 @@ const worktreeFileResourceExecutorMaxQueuedLoads = 128;
 const worktreeFileResourceExecutorMaxQueuedBytes = 8 * 1024 * 1024;
 const worktreeFileDemandMaxQueuedIntentsPerLane = 128;
 const worktreeFileDemandMaxQueuedEstimatedBytes = 8 * 1024 * 1024;
+const sourceLessResetIdentity = 'source-less-reset';
 
 export function createWorktreeFileSurfaceRuntime(
 	props: WorktreeFileSurfaceRuntimeProps,
@@ -128,6 +129,7 @@ export function createWorktreeFileSurfaceRuntime(
 	});
 	const resetSourceIds = new Set<string>();
 	const resetReplacementDescriptorKeys = new Set<string>();
+	const resetScope = { hasSourceLessReset: false };
 	let state = createWorktreeFileSurfaceState();
 	const scheduler = createBridgeDemandScheduler({
 		maxQueuedIntentsPerLane: worktreeFileDemandMaxQueuedIntentsPerLane,
@@ -140,8 +142,14 @@ export function createWorktreeFileSurfaceRuntime(
 		maxQueuedLoads: worktreeFileResourceExecutorMaxQueuedLoads,
 		maxQueuedBytes: worktreeFileResourceExecutorMaxQueuedBytes,
 		isFresh: (intent): boolean => {
-			const sourceId = intent.descriptorRef.expectedIdentity.sourceId;
-			if (sourceId === undefined || !resetSourceIds.has(sourceId)) {
+			if (
+				!isDescriptorRefBlockedByReset({
+					ref: intent.descriptorRef,
+					resetReplacementDescriptorKeys,
+					resetScope,
+					resetSourceIds,
+				})
+			) {
 				return true;
 			}
 			return resetReplacementDescriptorKeys.has(
@@ -176,6 +184,7 @@ export function createWorktreeFileSurfaceRuntime(
 	});
 	const readContext = makeWorktreeFileDemandReadContext({
 		registry,
+		resetScope,
 		resetSourceIds,
 		resetReplacementDescriptorKeys,
 	});
@@ -226,6 +235,10 @@ export function createWorktreeFileSurfaceRuntime(
 						source: delta.source,
 						state,
 					});
+				} else {
+					resetScope.hasSourceLessReset = true;
+					resetReplacementDescriptorKeys.clear();
+					state = markAllOpenSessionsStale({ state });
 				}
 				return {
 					ok: true,
@@ -234,7 +247,10 @@ export function createWorktreeFileSurfaceRuntime(
 				};
 			}
 			case 'fileDescriptor':
-				if (resetSourceIds.has(delta.descriptor.sourceIdentity.sourceId)) {
+				if (
+					resetScope.hasSourceLessReset ||
+					resetSourceIds.has(delta.descriptor.sourceIdentity.sourceId)
+				) {
 					resetReplacementDescriptorKeys.add(
 						resetDescriptorKeyForBridgeDescriptorRef(delta.descriptor.contentDescriptor.ref),
 					);
@@ -298,7 +314,12 @@ export function createWorktreeFileSurfaceRuntime(
 			return { ok: false, reason: 'no_demand' };
 		}
 		if (
-			resetSourceIds.has(session.latestDescriptor.sourceIdentity.sourceId) &&
+			isDescriptorRefBlockedByReset({
+				ref: session.latestDescriptor.contentDescriptor.ref,
+				resetReplacementDescriptorKeys,
+				resetScope,
+				resetSourceIds,
+			}) &&
 			!resetReplacementDescriptorKeys.has(
 				resetDescriptorKeyForBridgeDescriptorRef(session.latestDescriptor.contentDescriptor.ref),
 			)
@@ -412,19 +433,26 @@ function areBridgeDescriptorRefsEqual(
 
 function makeWorktreeFileDemandReadContext(props: {
 	readonly registry: BridgeResourceDescriptorRegistry;
+	readonly resetScope: { readonly hasSourceLessReset: boolean };
 	readonly resetSourceIds: ReadonlySet<string>;
 	readonly resetReplacementDescriptorKeys: ReadonlySet<string>;
 }): WorktreeFileDemandReadContext {
 	return {
 		getDescriptorState: (ref: BridgeDescriptorRef) => {
-			const sourceId = ref.expectedIdentity.sourceId;
 			const resetDescriptorKey = resetDescriptorKeyForBridgeDescriptorRef(ref);
 			if (
-				sourceId !== undefined &&
-				props.resetSourceIds.has(sourceId) &&
+				isDescriptorRefBlockedByReset({
+					ref,
+					resetReplacementDescriptorKeys: props.resetReplacementDescriptorKeys,
+					resetScope: props.resetScope,
+					resetSourceIds: props.resetSourceIds,
+				}) &&
 				!props.resetReplacementDescriptorKeys.has(resetDescriptorKey)
 			) {
-				return { kind: 'reset', sourceIdentity: sourceId };
+				return {
+					kind: 'reset',
+					sourceIdentity: ref.expectedIdentity.sourceId ?? sourceLessResetIdentity,
+				};
 			}
 			const descriptor = props.registry.lookup(ref);
 			if (descriptor === null) {
@@ -444,6 +472,24 @@ function makeWorktreeFileDemandReadContext(props: {
 			cancellationGroup: demandCancellationGroupForWorktreeDescriptorRef(ref),
 		}),
 	};
+}
+
+function isDescriptorRefBlockedByReset(props: {
+	readonly ref: BridgeDescriptorRef;
+	readonly resetReplacementDescriptorKeys: ReadonlySet<string>;
+	readonly resetScope: { readonly hasSourceLessReset: boolean };
+	readonly resetSourceIds: ReadonlySet<string>;
+}): boolean {
+	const sourceId = props.ref.expectedIdentity.sourceId;
+	if (sourceId !== undefined && props.resetSourceIds.has(sourceId)) {
+		return true;
+	}
+	if (!props.resetScope.hasSourceLessReset) {
+		return false;
+	}
+	return !props.resetReplacementDescriptorKeys.has(
+		resetDescriptorKeyForBridgeDescriptorRef(props.ref),
+	);
 }
 
 function deleteResetReplacementDescriptorKeysForSource(props: {
@@ -551,6 +597,24 @@ function markSourceOpenSessionsStale(props: {
 					},
 				];
 			}),
+		),
+	};
+}
+
+function markAllOpenSessionsStale(props: {
+	readonly state: WorktreeFileSurfaceState;
+}): WorktreeFileSurfaceState {
+	return {
+		...props.state,
+		openFileSessionsById: Object.fromEntries(
+			Object.entries(props.state.openFileSessionsById).map(([sessionId, session]) => [
+				sessionId,
+				{
+					...session,
+					status: 'stale',
+					staleReason: 'sourceReset',
+				},
+			]),
 		),
 	};
 }

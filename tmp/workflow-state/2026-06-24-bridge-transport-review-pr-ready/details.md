@@ -2,7 +2,7 @@
 
 Goal id: `2026-06-24-bridge-transport-review-pr-ready`
 Status: active
-Current workflow: implementation-execute-plan Gate 0.a shared-app review-reduction fixes complete
+Current workflow: implementation-execute-plan Gate 0.a split-reset review fixes complete
 Next workflow: `shravan-dev-workflow:implementation-review-swarm`
 
 ## Durable Objective
@@ -234,19 +234,20 @@ Former Gate 0.a red proof:
 
 Vite/dev-server Gate 0.a status:
 
-- The exact URL proof row is green as of 2026-06-25 00:46 -04:00 after the
-  shared-app boundary proof pass and implementation-review reduction fixes.
+- The exact URL proof row is green as of 2026-06-25 01:16 -04:00 after the
+  shared-app boundary proof pass, implementation-review reduction fixes, and
+  split reset/replacement false-green fixes.
 - Canonical proof command:
   `pnpm --dir BridgeWeb run test:dev-server:worktree`
 - Proof artifact:
-  `tmp/bridge-viewer-worktree-dev-server/2026-06-25T04-46-20-464Z/worktree-dev-server-proof.json`
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-25T05-16-01-036Z/worktree-dev-server-proof.json`
 - Screenshots:
-  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T04-46-20-464Z/worktree-file-ready.png`
-  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T04-46-20-464Z/worktree-file-search-result.png`
-  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T04-46-20-464Z/worktree-file-stale-refresh.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T05-16-01-036Z/worktree-file-ready.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T05-16-01-036Z/worktree-file-search-result.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T05-16-01-036Z/worktree-file-stale-refresh.png`
 - Focused reviewer-fix proof:
   - `pnpm --dir BridgeWeb exec vitest run src/app/bridge-app-protocol-router.contract.unit.test.tsx src/file-viewer/bridge-file-viewer-app.unit.test.tsx src/worktree-file-surface/worktree-file-surface-runtime.integration.test.ts scripts/dev-server/bridge-worktree-dev-provider.integration.test.ts --reporter verbose`
-    passed: 4 files, 24 tests
+    passed: 4 files, 27 tests
 - Type proof:
   - `pnpm --dir BridgeWeb exec tsc --noEmit` passed
 - Focused supporting proof:
@@ -318,6 +319,15 @@ Vite/dev-server Gate 0.a status:
     latest descriptor so explicit refresh remains possible
   - source reset plus unrelated post-reset descriptor does not unblock a stale
     pre-reset descriptor for another file
+  - split reset/replacement callbacks preserve the open file as stale instead of
+    hiding the old body as unavailable
+  - Pierre FileTree selected-path synchronization no longer reopens the file
+    when replacement descriptors arrive; only user selection opens files
+  - source-less reset frames mark open sessions stale and matching replacement
+    descriptors make them refreshable, matching the optional-source protocol
+    schema
+  - unavailable-file proof now probes the entire dev-server file-content front
+    door, so any body request during unavailable open fails the proof
 - Independent browser subagent visual/DOM proof passed on the exact URL and
   produced `tmp/bridge-viewer-worktree-dev-server/2026-06-25T04-40-15-000Z/worktree-dev-server-proof.json`
   with `standaloneWorktreeFileAppCount=0`,
@@ -329,8 +339,8 @@ Vite/dev-server Gate 0.a status:
 - Prior 2026-06-24 proof remains lower-level regression evidence only.
 - Native Agent Studio Bridge/WKWebView proof is still not satisfied by this and
   remains required before PR-ready.
-- Gate 1 work should not begin until Gate 0.a implementation review is
-  complete or explicitly accepted.
+- Gate 1 work should not begin until Gate 0.a implementation re-review is
+  complete or explicitly accepted after the split reset/replacement fixes.
 
 ## Required Reviewer Packet Contents
 

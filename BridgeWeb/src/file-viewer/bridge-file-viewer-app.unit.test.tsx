@@ -175,6 +175,128 @@ describe('BridgeFileViewerApp', () => {
 		expect(document.body.textContent).toContain('export const value = 2');
 		expect(latestContentFetchCount).toBe(2);
 	});
+
+	test('keeps reset-stale body visible across split replacement descriptor callbacks', async () => {
+		const firstDescriptor = makeFileDescriptor({ contentHandle: 'file-content-1' });
+		const replacementDescriptor = makeFileDescriptor({
+			contentHandle: 'file-content-2',
+			fileId: firstDescriptor.fileId,
+			path: firstDescriptor.path,
+		});
+		let frameSubscriber: ((frames: readonly WorktreeFileProtocolFrame[]) => void) | undefined;
+		const fetchedResourceUrls: string[] = [];
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeFileViewerApp
+					autoOpenInitialFile={true}
+					fetchResource={async (props): Promise<string> => {
+						fetchedResourceUrls.push(props.resourceUrl);
+						return props.resourceUrl.includes('file-content-2')
+							? 'export const value = 2;\n'
+							: 'export const value = 1;\n';
+					}}
+					initialFrames={makeFrames(firstDescriptor)}
+					subscribeFrames={(onFrames) => {
+						frameSubscriber = onFrames;
+						return () => {};
+					}}
+				/>,
+			);
+			await nextMicrotask();
+		});
+
+		expect(openFileState()).toBe('ready');
+		expect(document.body.textContent).toContain('export const value = 1');
+
+		await act(async (): Promise<void> => {
+			frameSubscriber?.([makeResetFrame({ source: makeSourceIdentity() })]);
+			await nextMicrotask();
+		});
+
+		expect(openFileState()).toBe('stale');
+		expect(document.body.textContent).toContain('Content changed');
+		expect(document.body.textContent).toContain('export const value = 1');
+		expect(document.querySelector('[data-testid="worktree-file-refresh"]')).not.toBeNull();
+
+		await act(async (): Promise<void> => {
+			frameSubscriber?.([makeFileDescriptorFrame(replacementDescriptor)]);
+			await nextMicrotask();
+		});
+
+		expect(openFileState()).toBe('stale');
+		expect(document.body.textContent).toContain('export const value = 1');
+
+		await act(async (): Promise<void> => {
+			document.querySelector<HTMLButtonElement>('[data-testid="worktree-file-refresh"]')?.click();
+			await nextMicrotask();
+		});
+
+		expect(openFileState()).toBe('ready');
+		expect(document.body.textContent).toContain('export const value = 2');
+		expect(fetchedResourceUrls).toEqual([
+			'agentstudio://resource/worktree-file/worktree.fileContent/file-content-1?generation=1',
+			'agentstudio://resource/worktree-file/worktree.fileContent/file-content-2?generation=1',
+		]);
+	});
+
+	test('does not let unrelated split replacement descriptor unblock reset-stale content', async () => {
+		const firstDescriptor = makeFileDescriptor({ contentHandle: 'file-content-1' });
+		const unrelatedDescriptor = makeFileDescriptor({
+			contentHandle: 'other-content-1',
+			fileId: 'file-2',
+			path: 'src/other.ts',
+		});
+		let frameSubscriber: ((frames: readonly WorktreeFileProtocolFrame[]) => void) | undefined;
+		const fetchedResourceUrls: string[] = [];
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeFileViewerApp
+					autoOpenInitialFile={true}
+					fetchResource={async (props): Promise<string> => {
+						fetchedResourceUrls.push(props.resourceUrl);
+						return 'export const value = 1;\n';
+					}}
+					initialFrames={makeFrames(firstDescriptor)}
+					subscribeFrames={(onFrames) => {
+						frameSubscriber = onFrames;
+						return () => {};
+					}}
+				/>,
+			);
+			await nextMicrotask();
+		});
+
+		await act(async (): Promise<void> => {
+			frameSubscriber?.([makeResetFrame({ source: makeSourceIdentity() })]);
+			await nextMicrotask();
+		});
+		await act(async (): Promise<void> => {
+			frameSubscriber?.([makeFileDescriptorFrame(unrelatedDescriptor)]);
+			await nextMicrotask();
+		});
+
+		expect(openFileState()).toBe('stale');
+		expect(document.body.textContent).toContain('export const value = 1');
+
+		await act(async (): Promise<void> => {
+			document.querySelector<HTMLButtonElement>('[data-testid="worktree-file-refresh"]')?.click();
+			await nextMicrotask();
+		});
+
+		expect(openFileState()).toBe('stale');
+		expect(document.body.textContent).toContain('export const value = 1');
+		expect(fetchedResourceUrls).toEqual([
+			'agentstudio://resource/worktree-file/worktree.fileContent/file-content-1?generation=1',
+		]);
+	});
 });
 
 function makeFrames(
@@ -226,6 +348,31 @@ function makeInvalidationFrame(descriptor: WorktreeFileDescriptor): WorktreeFile
 			reason: 'contentChanged',
 			latestDescriptor: descriptor,
 		},
+	};
+}
+
+function makeFileDescriptorFrame(descriptor: WorktreeFileDescriptor): WorktreeFileProtocolFrame {
+	return {
+		kind: 'delta',
+		streamId: 'worktree-file:pane-1',
+		generation: 2,
+		sequence: 3,
+		frameKind: 'worktree.fileDescriptor',
+		descriptor,
+	};
+}
+
+function makeResetFrame(props: {
+	readonly source?: WorktreeFileSurfaceSourceIdentity;
+}): WorktreeFileProtocolFrame {
+	return {
+		kind: 'reset',
+		streamId: 'worktree-file:pane-1',
+		generation: 2,
+		sequence: 2,
+		frameKind: 'worktree.reset',
+		reason: 'sourceChanged',
+		...(props.source === undefined ? {} : { source: props.source }),
 	};
 }
 

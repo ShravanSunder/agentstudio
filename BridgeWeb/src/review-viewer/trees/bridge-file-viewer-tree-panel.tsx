@@ -39,6 +39,7 @@ const bridgeFileViewerTreeRowHeightPixels = 24;
 export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps): ReactElement {
 	const fileDescriptorByPathRef = useRef(props.fileDescriptorByPath);
 	const onOpenFileRef = useRef(props.onOpenFile);
+	const isSyncingSelectedPathRef = useRef(false);
 	const paths = useMemo(
 		(): readonly string[] =>
 			props.descriptorProjection.descriptors.map((descriptor) => descriptor.path),
@@ -55,6 +56,9 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 		initialSelectedPaths: props.selectedPath === null ? [] : [props.selectedPath],
 		itemHeight: bridgeFileViewerTreeRowHeightPixels,
 		onSelectionChange: (selectedPaths): void => {
+			if (isSyncingSelectedPathRef.current) {
+				return;
+			}
 			const selectedPath = selectedPaths[0];
 			if (selectedPath === undefined) {
 				return;
@@ -89,7 +93,12 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 		if (item === null || item.isSelected()) {
 			return;
 		}
-		item.select();
+		isSyncingSelectedPathRef.current = true;
+		try {
+			item.select();
+		} finally {
+			isSyncingSelectedPathRef.current = false;
+		}
 		model.scrollToPath(props.selectedPath, { focus: true, offset: 'nearest' });
 	}, [model, props.selectedPath, paths]);
 

@@ -117,6 +117,78 @@ http://127.0.0.1:5173/?fixture=worktree&workers=on&scenario=current-worktree
   - exit: 0
   - result: 2 files passed, 34 tests passed
 
+## 2026-06-25 Split Reset Re-Review Reduction
+
+Status: accepted implementation-review findings fixed; pending re-review.
+
+Accepted findings addressed:
+
+1. Reset/replacement proof was false-green at the FileViewer app layer.
+   - Fixed `BridgeFileViewerApp` so `worktree.reset` preserves the open file as
+     stale instead of moving it to unavailable when the replacement descriptor is
+     delivered in a later callback.
+   - Added a regression that split reset then matching replacement leaves the
+     old body visible, keeps the refresh affordance, and fetches only after the
+     user clicks refresh.
+   - Added a negative regression that an unrelated post-reset descriptor does
+     not unblock the stale pre-reset file.
+
+2. Pierre FileTree selected-path synchronization silently reopened files.
+   - Fixed `BridgeFileViewerTreePanel` so programmatic selection sync does not
+     call `onOpenFile`; only user selection opens a file.
+   - This prevents replacement descriptors from silently fetching and flipping a
+     stale open file back to ready.
+
+3. Source-less reset frames were not refreshable even though the protocol schema
+   permits optional `source`.
+   - Fixed `worktree-file-surface-runtime.ts` with a source-less reset scope:
+     all open sessions become stale, and later matching descriptors make refresh
+     possible.
+   - Added runtime integration proof for source-less reset plus matching
+     replacement descriptor.
+
+4. Unavailable-file verifier watched only the expected content handle.
+   - Fixed the product verifier to probe all
+     `/__bridge-worktree/file-content/**` requests while opening an unavailable
+     descriptor.
+   - The proof now fails if any body fetch occurs during unavailable open, even
+     for the wrong handle.
+
+Fresh proof:
+
+- `pnpm --dir BridgeWeb exec vitest run src/file-viewer/bridge-file-viewer-app.unit.test.tsx --reporter verbose`
+  - red before fix: 2 tests failed because reset produced `unavailable`
+  - green after fix: 1 file passed, 4 tests passed
+- `pnpm --dir BridgeWeb exec vitest run src/worktree-file-surface/worktree-file-surface-runtime.integration.test.ts --reporter verbose`
+  - red before fix: source-less reset replacement test failed because session
+    stayed `fresh`
+  - green after fix: 1 file passed, 10 tests passed
+- `pnpm --dir BridgeWeb exec vitest run src/app/bridge-app-protocol-router.contract.unit.test.tsx src/file-viewer/bridge-file-viewer-app.unit.test.tsx src/worktree-file-surface/worktree-file-surface-runtime.integration.test.ts scripts/dev-server/bridge-worktree-dev-provider.integration.test.ts --reporter verbose`
+  - exit: 0
+  - result: 4 files passed, 27 tests passed
+- `pnpm --dir BridgeWeb exec tsc --noEmit`
+  - exit: 0
+- `pnpm --dir BridgeWeb run check`
+  - exit: 0
+  - note: existing verifier `no-await-in-loop` warnings remain warnings only
+- `pnpm --dir BridgeWeb run test:dev-server:worktree`
+  - exit: 0
+  - artifact:
+    `tmp/bridge-viewer-worktree-dev-server/2026-06-25T05-16-01-036Z/worktree-dev-server-proof.json`
+  - screenshots:
+    - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T05-16-01-036Z/worktree-file-ready.png`
+    - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T05-16-01-036Z/worktree-file-search-result.png`
+    - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T05-16-01-036Z/worktree-file-stale-refresh.png`
+- `pnpm --dir BridgeWeb run test:browser:integration -- src/review-viewer/test-support/bridge-viewer-browser.integration.browser.test.tsx -t "large fixture programmatic file reveal uses bounded CodeView motion"`
+  - exit: 0
+  - result: 2 files passed, 34 tests passed
+- `mise run lint`
+  - exit: 0
+  - result: swift-format OK, SwiftLint 0 violations, architecture lint OK,
+    release script verification passed
+- `git diff --check`
+  - exit: 0
+
 - `git status --short`
   - result: `.github/workflows/ci.yml` and `.gitignore` restored clean; only
     intentional Gate 0.a implementation/doc changes remain

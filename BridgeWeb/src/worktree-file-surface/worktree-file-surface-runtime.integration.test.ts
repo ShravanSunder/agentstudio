@@ -357,6 +357,49 @@ describe('worktree file surface runtime', () => {
 			latestDescriptorRef: staleLatestDescriptor.contentDescriptor.ref,
 		});
 	});
+
+	test('source-less reset replacement descriptors keep matching open sessions refreshable', async () => {
+		const firstDescriptor = makeFileDescriptor({ descriptorId: 'file-content-1' });
+		const replacementDescriptor = makeFileDescriptor({
+			descriptorId: 'file-content-2',
+			contentHandle: 'handle-2',
+		});
+		const fetchedDescriptorIds: string[] = [];
+		const runtime = createWorktreeFileSurfaceRuntime({
+			paneId: 'pane-1',
+			fetchResource: async ({ descriptor }) => {
+				fetchedDescriptorIds.push(descriptor.descriptorId);
+				return `${descriptor.descriptorId}:body`;
+			},
+		});
+		runtime.applyFrame(makeFileDescriptorFrame(firstDescriptor));
+		await runtime.openFile({
+			descriptor: firstDescriptor,
+			openFileSessionId: 'session-1',
+		});
+
+		runtime.applyFrame(makeResetFrame({ source: null }));
+		runtime.applyFrame(makeFileDescriptorFrame(replacementDescriptor));
+
+		expect(runtime.getState().openFileSessionsById['session-1']).toMatchObject({
+			status: 'stale',
+			staleReason: 'sourceReset',
+			latestDescriptorRef: replacementDescriptor.contentDescriptor.ref,
+		});
+
+		const refreshResult = await runtime.refreshOpenFile({ openFileSessionId: 'session-1' });
+
+		expect(refreshResult).toEqual({
+			ok: true,
+			body: 'file-content-2:body',
+			descriptorId: 'file-content-2',
+		});
+		expect(fetchedDescriptorIds).toEqual(['file-content-1', 'file-content-2']);
+		expect(runtime.getState().openFileSessionsById['session-1']).toMatchObject({
+			status: 'fresh',
+			descriptorRef: replacementDescriptor.contentDescriptor.ref,
+		});
+	});
 });
 
 function makeFileDescriptorFrame(descriptor: WorktreeFileDescriptor): WorktreeFileDescriptorFrame {
@@ -389,7 +432,10 @@ function makeInvalidationFrame(props: {
 	};
 }
 
-function makeResetFrame(): WorktreeResetFrame {
+function makeResetFrame(props?: {
+	readonly source?: WorktreeFileSurfaceSourceIdentity | null;
+}): WorktreeResetFrame {
+	const source = props?.source === undefined ? makeSourceIdentity() : props.source;
 	return {
 		kind: 'reset',
 		streamId: 'worktree-file:pane-1',
@@ -397,7 +443,7 @@ function makeResetFrame(): WorktreeResetFrame {
 		sequence: 3,
 		frameKind: 'worktree.reset',
 		reason: 'sourceChanged',
-		source: makeSourceIdentity(),
+		...(source === null ? {} : { source }),
 	};
 }
 

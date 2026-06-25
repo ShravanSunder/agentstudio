@@ -500,26 +500,12 @@ function reconcileOpenFileStateWithFrames(props: {
 	const currentOpenFileState = props.currentOpenFileState;
 	const resetFrame = props.frames.find((frame) => frame.frameKind === 'worktree.reset');
 	if (resetFrame !== undefined) {
-		const replacementDescriptor = props.frames
-			.filter((frame) => frame.frameKind === 'worktree.fileDescriptor')
-			.map((frame) => frame.descriptor)
-			.find(
-				(descriptor) =>
-					descriptor.fileId === currentOpenFileState.descriptor.fileId ||
-					descriptor.path === currentOpenFileState.path,
-			);
 		props.openFileRequestIdRef.current += 1;
-		return replacementDescriptor === undefined
-			? {
-					status: 'unavailable',
-					path: currentOpenFileState.path,
-					descriptor: currentOpenFileState.descriptor,
-				}
-			: {
-					status: 'stale',
-					path: currentOpenFileState.path,
-					descriptor: currentOpenFileState.descriptor,
-				};
+		return {
+			status: 'stale',
+			path: currentOpenFileState.path,
+			descriptor: currentOpenFileState.descriptor,
+		};
 	}
 	const matchedInvalidation = props.frames.find(
 		(frame) =>
