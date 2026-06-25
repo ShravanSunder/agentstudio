@@ -7,7 +7,8 @@ Next workflow: `shravan-dev-workflow:implementation-execute-plan`
 
 Workflow precedence note: the latest valid `shravan-dev-workflow:orchestrator-goal`
 event in `events.jsonl` owns current/next workflow. This header reflects the
-2026-06-25T10:30:00-04:00 needs-revision transition back to implementation.
+2026-06-25T19:45:00-04:00 checkpoint transition to implementation review after
+the shared FileViewer chrome/browser proof commit.
 
 ## Durable Objective
 
@@ -393,6 +394,96 @@ Checkpoint proof rule:
 - jsdom, DOM-only attributes, route state, JSON-only artifacts, or screenshots
   without interaction/provenance cannot close a UX checkpoint unless the user
   explicitly requested that narrow proof layer.
+
+## 2026-06-25 Checkpoint: Shared FileViewer Chrome And Browser UX Proof
+
+Status:
+the Gate 0.a shared FileViewer chrome correction is implemented and committed in
+`44423afa` (`Unify FileViewer rail chrome`). This closes the specific
+needs-revision item that FileViewer was still presenting a second-app-looking
+rail with route-local search/filter controls. It does not close Gate 0.a as a
+whole.
+
+Implemented/proven:
+
+- FileViewer keeps using the shared `BridgeViewerAppShell` and `viewer=file`
+  mode.
+- FileViewer uses the shared Review rail primitives for visible chrome:
+  `BridgeReviewSearchControl`, `BridgeReviewFilterMenu`, shadcn dropdown
+  trigger, and shared review-style action buttons.
+- The visible search input starts closed, matching the shared compact rail
+  chrome instead of the old full-width FileViewer-only search field.
+- The rail still proves Pierre ownership: Pierre FileTree on the right, Pierre
+  `CodeView.file`/Shiki rendering on the left, and the worker pool ready when
+  `workers=on`.
+- The dev-server verifier covers Files, Review, and Review file-target URLs and
+  rejects standalone `WorktreeFileApp`/second-app substitutes.
+
+Proof:
+
+- `pnpm --dir BridgeWeb exec vitest --config vitest.browser.config.ts run --project integration-browser src/file-viewer/bridge-file-viewer-app.browser.test.tsx --reporter verbose`
+  - Exit: 0
+  - Result: 1 browser test passed
+- `pnpm --dir BridgeWeb exec vitest run src/file-viewer/bridge-file-viewer-app.unit.test.tsx src/worktree-file-surface/worktree-file-app.integration.test.tsx --reporter verbose`
+  - Exit: 0
+  - Result: 2 files passed, 17 tests passed
+- `pnpm --dir BridgeWeb run test:dev-server:worktree`
+  - Exit: 0
+  - Artifact:
+    `tmp/bridge-viewer-worktree-dev-server/2026-06-25T23-35-53-157Z/worktree-dev-server-proof.json`
+  - Key artifact facts:
+    `sharedShellProof.sharedShellOwner = BridgeViewerAppShell`,
+    `sharedShellProof.sharedShellMode = file`,
+    `shellOwner = BridgeViewerApp.FileViewer`,
+    `codeOwner = CodeView.file`,
+    `treeOwner = FileTree`,
+    `sidebarIsRight = true`,
+    `shikiRendering = pierre`,
+    `workerPoolState = ready`,
+    `substituteGuardProof.standaloneWorktreeFileAppCount = 0`,
+    `visibleAppProof.searchInputCount = 0`,
+    `visibleAppProof.searchControlCount = 1`,
+    `visibleAppProof.filterMenuCount = 1`,
+    `visibleAppProof.sharedRailToolbarCount = 1`,
+    `visibleAppProof.sharedRailToolbarUsesSharedAttr = true`.
+- `pnpm --dir BridgeWeb run check`
+  - Exit: 0
+  - Result: type-aware oxlint, architecture check, oxfmt, and `tsc --noEmit`
+    passed. Existing non-fatal `no-await-in-loop` warnings remain in the
+    dev-server verifier script.
+- `git diff --check`
+  - Exit: 0
+- Browser/onlook artifacts:
+  `/tmp/bridgeviewer-verification/final-1.png`,
+  `/tmp/bridgeviewer-verification/final-2.png`,
+  `/tmp/bridgeviewer-verification/final-3.png`.
+  The onlook passed the shared-shell, left-canvas/right-rail,
+  search-closed, and no-standalone-app checks against the current dev server.
+- Architecture onlook:
+  passed the current-code check that FileViewer imports/reuses the shared review
+  rail primitives and is still composed under the shared Bridge app path.
+
+Disposition of prior findings:
+
+- Addressed: jsdom is no longer the UX proof for this visible checkpoint. The
+  accepted proof is Vitest Browser plus Playwright/dev-server/onlook evidence.
+- Addressed: FileViewer rail chrome no longer uses its old full-width visible
+  search and route-local filter buttons for the shared shell path.
+- Still open: hidden inactive ReviewViewer side effects need review/fix before
+  the active/inactive context contract can be called production-ready.
+- Still open: review-route aborted `__bridge-worktree/review-content/...`
+  requests were seen by the browser onlook while selected content still rendered
+  ready. Keep this visible for review-route fetch/cancellation analysis.
+- Still open: file-click responsiveness and scroll extent stability remain
+  performance/backpressure proof items, especially for large current-worktree
+  fixtures.
+- Still open: Agent Studio Swift-hosted Bridge/WKWebView proof has not yet been
+  captured for the current checkpoint.
+
+Recommended next workflow:
+`shravan-dev-workflow:implementation-review-swarm` for source-backed review of
+`44423afa`, the visible UX proof, and the remaining Gate 0.a blockers before the
+next implementation slice.
 
 Phase skills must return:
 
