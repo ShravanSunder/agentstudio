@@ -186,6 +186,21 @@ proofs. The root mock Review route, Review package fixtures, custom
 WorktreeFileApp scaffolds, raw `<pre>` renderers, and DOM-only content-ready
 markers are prohibited substitutes for this FileViewer proof.
 
+R11.a. UX checkpoint proof must be browser/native visible proof.
+
+For BridgeViewer UX work, jsdom is not an accepted proof layer unless the user
+explicitly requests a narrow lower-level state guard. It may supplement tests,
+but it must not be cited as proving visible UX, layout, Pierre/Shiki rendering,
+worker-backed behavior, search/filter controls, context switching, or scroll
+behavior. UX checkpoint proof must use Vitest Browser, Playwright/dev-server,
+or native Agent Studio/WKWebView proof as appropriate. Each visible-behavior
+checkpoint must include screenshot or video artifacts, real interaction
+assertions, and a second-agent visual/code onlook against the product contract.
+The onlook must inspect both screenshots and relevant source paths before a
+checkpoint can be accepted. A checkpoint that changes visible UI but has no
+browser/native screenshot artifact and no independent onlook remains open even
+if lower-level tests pass.
+
 R12. Renderer cutover is a first-class architecture requirement.
 
 The new transport/materialization system is not complete if Pierre, CodeView,
@@ -209,6 +224,32 @@ renderer, Shiki theme/highlighting system, worker-pool integration, and
 scroll/proof contract unless a later accepted spec explicitly splits a new
 viewer mode. A route switch that mounts a standalone Worktree/File app is a
 contract violation.
+
+The shared shell has one visual contract for both viewer modes. The source can
+change and the active target can change, but the product surface must still feel
+like one BridgeViewer app:
+
+```text
+BridgeViewerAppShell
+  ┌──────────────────────────────────────────────────────────────┬─────────────┐
+  │ shared top chrome                                            │ right rail  │
+  │   context toggle: Files | Review                             │             │
+  │   search / regex / filters / active source identity          │ Pierre      │
+  ├──────────────────────────────────────────────────────────────┤ FileTree    │
+  │ primary Pierre CodeView/File canvas                          │             │
+  │   Review diff target  -> Pierre diff items                   │ selection   │
+  │   Review file target  -> Pierre/Shiki file item              │ status      │
+  │   Files file target   -> Pierre/Shiki file item              │ expansion   │
+  └──────────────────────────────────────────────────────────────┴─────────────┘
+```
+
+The top chrome and rail controls must use the same shared UI primitive layer
+that ReviewViewer uses where applicable. A FileViewer-only search row, raw
+buttons, custom icon buttons, or route-local chrome can exist only as an
+explicit temporary failing state while the checkpoint is being developed; it
+cannot satisfy Gate 0.a. Review mode and Files mode may expose different
+enabled actions, but the placement, primitive layer, and visual language must
+be coherent with each other and with the DiffsHub/Pierre reference behavior.
 
 R15. Bridge viewer navigation state is app state, not route shape.
 
@@ -1366,6 +1407,7 @@ Proof expectations feed a later plan. They are not task order.
 | Stable scroll extent | schema/provider/browser canary fixture | huge tree and opened file before content bytes hydrate | provider emits exact row/line count or conservative estimated extent; browser `scrollHeight`/virtualizer `totalSize` stays within tolerance after hydration or logs attributed measured deltas | accepting scrollbar jump as manual UX judgment |
 | Worktree visible app proof | browser/dev-server fixture | current-worktree route in a real browser | app root/tree pane/file pane have non-zero visible rects; sampled tree entries occupy distinct row boxes; selected exact-line fixture preserves visible line structure; packaged styling affects the surface; proof records Worktree/File source identity, event/intake lineage, and Worktree frame provenance; raw frame fields, serialized payloads, and raw path corpus dumps are absent outside intentional tree/content UI | schema-only proof, hidden DOM text, Review package/query lineage, hardcoded pass flag, or screenshot with concatenated paths |
 | BridgeViewer shared app dev E2E proof | Playwright/dev-server fixture plus parent-inspected screenshot artifact | Files URL, Review diff URL, and Review file-target URL from Gate 0.a | each route identifies the same BridgeViewer app and shared navigation/store model; Files context renders local worktree files through Pierre/Shiki workers; Review context renders current-worktree review diffs; Review file target renders through Pierre/Shiki while Review context remains active; primary Pierre CodeView/File canvas is on the left; Pierre FileTree/right rail is on the right; tree/file/status controls are visible; file click changes the open content; search, regex toggle, and filter controls produce observable state/result changes; open-file invalidation produces visible stale/update state; refresh is user-invoked rather than silent replacement; refresh returns the surface to ready; large tree and large file scroll preserve stable extents; proof artifact records source/protocol provenance and screenshots before/after interaction | legacy URL only, root mock Review route, standalone `WorktreeFileApp`, route-local custom shell, custom tree, minimal file-list plus `<pre>` renderer, DOM text-only assertion, content-ready flag, silent content replacement, or screenshot that was not tied to Playwright interaction |
+| BridgeViewer UX checkpoint proof | Vitest Browser, Playwright/dev-server, or native WKWebView fixture plus screenshot/video artifact and second-agent critique | any checkpoint that changes visible BridgeViewer UX, chrome, search/filter controls, mode switching, file loading, or scroll behavior | screenshots or video demonstrate the actual visible surface; a browser/native test asserts real interaction outcomes; a second agent reviews screenshots and relevant source paths for UX parity with ReviewViewer/DiffsHub/Pierre expectations; defects are either fixed or recorded in the active plan before commit | jsdom, DOM attributes only, JSON proof only, route state, screenshot without interaction/provenance, or no independent visual/code critique |
 | Agent Studio Bridge runtime proof | native app / WKWebView / Victoria-backed fixture | app-hosted Bridge surface opens the Files context, Review diff context, and Review file-target scenario through native Bridge wiring against the local worktree | Swift host, bridge protocol, app assets, stream/RPC/resource descriptors, internal BridgeViewer intents/commands, and browser surface agree on protocol/source identity; marker-scoped logs/metrics prove route boot, content/resource requests, event stream readiness, Files-to-Review handoff when applicable, Review file target, stale/refresh path, and scroll canaries; native proof inherits the product-surface contract for visible regions, controls, before/after screenshots, interaction assertions, and negative-substitute checks | Vite-only proof, mocked backend, packaged asset existence, healthy markers with wrong/minimal visible product surface, screenshot without bridge markers, one-scenario-only native proof, or uncorrelated logs |
 | Renderer boundary and cutover | integration/browser fixture | Pierre/CodeView/tree adapter input and update lifecycle | app/protocol-owned renderer adapters receive prepared items/paths only; same-lineage updates avoid incompatible full remount; stable extent is consumed by renderer path | Bridge URL in renderer, generic Bridge interpreting app render semantics, or old renderer path bypassing the materializer contract |
 | Telemetry safety | canary fixture | seeded path/content/prompt/URL/comment plus demand audit trace | exported telemetry excludes all seeds and retains safe scheduler audit fields | denylist-only claim |

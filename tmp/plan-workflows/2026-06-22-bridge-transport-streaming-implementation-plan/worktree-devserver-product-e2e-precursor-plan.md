@@ -9,13 +9,15 @@ Ticket: 06P / Gate 0.a Shared BridgeViewer Navigation And Renderer Precursor
 
 Gate 0.a is not closed. Earlier proof artifacts and reviewer fixes are useful
 history, but the live product contract is stronger than "make WorktreeFileApp
-product-like." Three implementation checkpoints are now proven:
+product-like." Three implementation checkpoints are now historical proof only
+until the browser UX proof gaps below are fixed:
 
 - `47933c48` proves direct current-worktree Review file-target routing in the
   shared Review shell.
 - `6ce7ef9d` proves Files context can hand off a selected worktree file to
   Review context inside the same BridgeViewer app root.
-- Pending commit proves the shared context toggle and per-context memory:
+- `85b1faa0` proves the shared context toggle and per-context memory at the
+  dev-server verifier layer:
   `BridgeApp` owns one `BridgeViewerAppShell`, FileViewer and ReviewViewer are
   mounted as mode bodies, and a Files-to-Review-to-Files-to-Review round trip
   preserves the selected file/review target.
@@ -35,7 +37,43 @@ The remaining blocking outcome is now:
 ```text
 remove or bypass the second app path and prove FileViewer uses the shared
 BridgeViewer shell with Pierre FileTree + Pierre CodeView/File + Shiki workers
-and prove shared context navigation/memory plus native Agent Studio Bridge proof
+and prove shared context navigation/memory, DiffsHub-like top chrome/search UX,
+responsive file-load behavior, and native Agent Studio Bridge proof
+```
+
+New checkpoint rule from the 2026-06-25 UX review:
+
+- UX behavior must be proved at every implementation checkpoint that changes
+  visible app behavior.
+- jsdom is not an accepted UX proof layer for this project unless explicitly
+  requested by the user for a narrow lower-level state guard.
+- New UX proof must use Vitest Browser, Playwright/dev-server, or native
+  Agent Studio/WKWebView proof as appropriate.
+- Each UX checkpoint must include screenshot or video artifacts plus a
+  second-agent browser/code onlook that compares the visible surface against
+  the intended product contract. The onlook must inspect both screenshots and
+  relevant source paths before the checkpoint is accepted.
+- A checkpoint is not accepted if it proves only DOM attributes, JSON output,
+  route state, or jsdom behavior while the visible UX is broken.
+- Before implementing visible chrome changes, capture or inspect the current
+  FileViewer, ReviewViewer, and DiffsHub/Pierre screenshots/source and draw the
+  intended shared shell state in the plan or proof packet. The design target is
+  a gate input, not something inferred from a passing DOM test.
+
+Shared shell design target for Gate 0.a:
+
+```text
+BridgeViewerAppShell
+  ┌──────────────────────────────────────────────────────────────┬─────────────┐
+  │ shared top chrome                                            │ right rail  │
+  │   Files | Review context toggle                              │             │
+  │   search / regex / filters / active source identity          │ Pierre      │
+  ├──────────────────────────────────────────────────────────────┤ FileTree    │
+  │ primary Pierre CodeView/File canvas                          │             │
+  │   Review diff target  -> Pierre diff items                   │ selection   │
+  │   Review file target  -> Pierre/Shiki file item              │ status      │
+  │   Files file target   -> Pierre/Shiki file item              │ expansion   │
+  └──────────────────────────────────────────────────────────────┴─────────────┘
 ```
 
 The blocker now starts with understandable dev navigation for both current
@@ -58,14 +96,28 @@ Plan sequence changed after the 2026-06-25 navigation decision:
   -> status: dev-server proof passed in commits 47933c48 and 6ce7ef9d
 
 0.a.3 shared chrome/layout proof
-  -> proves shadcn/shared primitives, context toggle, and per-context memory
-  -> status: dev-server/component proof passed; native host proof still pending
+  -> proves DiffsHub-like top chrome, shared shadcn primitives, context toggle,
+     search/filter placement, and per-context memory
+  -> status: needs revision; current toggle exists but visible UX does not yet
+     match the expected top-bar/search contract and jsdom proof must be removed
+     or demoted from the UX gate
+  -> first action: use a browser/subagent onlook to compare current FileViewer,
+     current ReviewViewer, and DiffsHub/Pierre screenshots/source, then update
+     implementation against the shared-shell design target above
 
 0.a.4 visual/e2e/negative-substitute proof
   -> proves live dev-server behavior, Pierre/Shiki/worker ownership, and no
      standalone second app or stale bundle substitute
-  -> status: dev-server proof passed with context toggle/per-context memory;
-     native host proof still pending
+  -> status: needs revision; dev-server proof passed mechanically but must be
+     extended with screenshot review, subagent visual critique, and browser
+     coverage for top chrome/search and Review memory identity after toggle-back
+
+0.a.5 file-load responsiveness/performance proof
+  -> proves clicking files does not feel slow under the large worktree fixture,
+     or records measured latency/backpressure defects as the next performance
+     ticket
+  -> status: pending; must be tied to Victoria/browser metrics or a browser
+     performance canary before tuning constants are called ready
 ```
 
 This order is mandatory for Gate 0.a. Later gates must not treat a FileViewer
@@ -94,6 +146,11 @@ they are rerun and visually/reviewer-validated against the current live dev
 server. The proof must fail if the page renders the file tree/search on the
 left and file content on the right, because the shared UX contract is primary
 code/file canvas on the left and Pierre FileTree/right rail on the right.
+The proof must also fail if the context switch/search/filter UX is visually
+inconsistent with the ReviewViewer/DiffsHub-style top chrome, if the search
+bar appears only as a route-local right-rail control when the shared product
+chrome expects top-bar search, or if file-click content loading lacks measured
+latency/backpressure evidence.
 
 Native Agent Studio Bridge/WKWebView proof remains outside this precursor and
 is still required before PR-ready.
@@ -447,13 +504,21 @@ content left, Pierre FileTree/right rail right.
 All controls should use shared `components/ui` primitives and the existing
 Bridge design system where applicable. Do not add route-local raw buttons,
 inputs, or one-off styling when a shared primitive exists or should be extended.
+The visible chrome should be reconciled against DiffsHub/Pierre and the existing
+ReviewViewer chrome before implementation. In particular, the context switcher,
+search affordance, filter buttons, and regex toggle must feel like one app
+surface, not a bolted-on FileViewer rail. The top-bar layout must be decided and
+proved from screenshots before this slice can close.
 
 Proof:
 
 - Unit tests cover plain text search, regex search, invalid regex handling, and
   status/filter composition.
-- Component proof covers the context toggle and per-context remembered
-  rail/canvas location.
+- Browser/subagent design-onlook proof captures current FileViewer,
+  ReviewViewer, and DiffsHub/Pierre screenshots/source before the chrome fix and
+  records the intended target layout from the shared-shell sketch.
+- Vitest Browser proof covers the context toggle and per-context remembered
+  rail/canvas location. jsdom-only proof is not accepted for this UX contract.
 - Positive proof that the right rail is Pierre FileTree: use a composition test
   or a browser-visible marker from the shared Pierre tree path. A custom tree
   with equivalent row counts does not satisfy this slice.
@@ -463,6 +528,11 @@ Proof:
   sets for each query/filter interaction so decorative controls cannot pass.
 - Browser proof toggles Review <-> Files and verifies each context restores its
   selected target and scroll/rail location.
+- Screenshot proof compares FileViewer, ReviewViewer, and DiffsHub/Pierre chrome
+  placement. A subagent must inspect the screenshots and relevant source paths
+  and report UX mismatches before this checkpoint can be accepted.
+- Checkpoint commit is blocked until the parent has inspected the screenshot
+  artifacts and the subagent/onlook report, not only the JSON proof file.
 
 ### Slice 06P.4 / 0.a.4: Pierre CodeView/File, Shiki, And Worker Proof
 

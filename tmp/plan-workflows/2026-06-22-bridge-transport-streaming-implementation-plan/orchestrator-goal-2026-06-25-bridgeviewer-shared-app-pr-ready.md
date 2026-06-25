@@ -36,10 +36,10 @@ Required reading:
   (historical stuck-lane context only)
 
 Current workflow:
-shravan-dev-workflow:orchestrator-goal
+shravan-dev-workflow:implementation-review-swarm
 
 Next workflow:
-shravan-dev-workflow:spec-review-swarm
+shravan-dev-workflow:implementation-execute-plan
 
 Terminal condition:
 PR is opened or updated and proven ready, with implementation complete, required
@@ -78,6 +78,16 @@ Proof gates:
 - plan-creation-swarm rewrite of the implementation plan around the corrected
   sequence
 - plan-review-swarm before code resumes
+- every checkpoint that changes visible BridgeViewer UX must have real
+  browser/native proof, screenshot or video artifacts, and a second-agent
+  visual/code onlook that inspects screenshots plus relevant source paths before
+  the checkpoint can close
+- jsdom is not accepted as UX proof unless the user explicitly requests a narrow
+  lower-level state guard; replace or demote any jsdom-only shared-context
+  memory proof before claiming Gate 0.a progress
+- before visible chrome work resumes, compare current FileViewer, current
+  ReviewViewer, and DiffsHub/Pierre source/screenshots and keep the shared
+  BridgeViewer shell design target in the proof packet
 - unit/component/integration proof for navigation store, query adapter, Swift
   intent adapter, no-large-body state, and protocol contracts
 - dev-server Playwright proof for:
@@ -104,7 +114,8 @@ blank proof placeholders.
 Stop condition:
 Stop only when the terminal condition is satisfied, or when a real blocker meets
 the blocked condition below. Do not stop at spec review, plan review, subagent
-completion, dev-server-only proof, or a single green test.
+completion, dev-server-only proof, jsdom proof, screenshot-only proof, or a
+single green test.
 
 Blocked condition:
 The same material blocker recurs under host blocked-state rules, or a required
@@ -116,7 +127,9 @@ Checkpoint rhythm:
 Checkpoint after accepted spec revision, accepted plan revision, each proven
 implementation slice, accepted implementation-review fixes, and PR-ready wrapup.
 Commit scoped files at verified checkpoints when repo policy permits. Never
-stage unrelated files, and never treat a commit as proof.
+stage unrelated files, and never treat a commit as proof. For visible UX slices,
+the checkpoint is not verified until the browser/native proof artifacts and the
+second-agent onlook report have both been inspected by the parent agent.
 
 Orchestration rules applied:
 default implementation terminal; mutable starting point; pr-ready non-merge

@@ -2,8 +2,12 @@
 
 Goal id: `2026-06-25-bridgeviewer-shared-app-pr-ready`
 Status: active
-Current workflow: `shravan-dev-workflow:orchestrator-goal`
-Next workflow: `shravan-dev-workflow:spec-review-swarm`
+Current workflow: `shravan-dev-workflow:implementation-review-swarm`
+Next workflow: `shravan-dev-workflow:implementation-execute-plan`
+
+Workflow precedence note: the latest valid `shravan-dev-workflow:orchestrator-goal`
+event in `events.jsonl` owns current/next workflow. This header reflects the
+2026-06-25T10:30:00-04:00 needs-revision transition back to implementation.
 
 ## Durable Objective
 
@@ -32,6 +36,9 @@ The goal is complete only when:
 - Search, regex, filter/status controls, selection, context toggle, per-context
   memory, scroll anchoring, stale refresh, and worker readiness are covered by
   proof.
+- Every visible UX checkpoint is covered by real browser/native proof,
+  screenshot or video artifacts, and a second-agent visual/code onlook against
+  current FileViewer, ReviewViewer, and DiffsHub/Pierre expectations.
 - Dev-server proof and Agent Studio Bridge/WKWebView proof are both captured from
   the current worktree with fresh artifacts.
 - Required implementation review findings are addressed or explicitly rejected.
@@ -114,7 +121,8 @@ The first implementation sequence after plan review is:
   proves current worktree as review diff and Review file target
 
 0.a.3 shared chrome and context-memory proof
-  proves shadcn/shared primitives, toggle, controls, and state restoration
+  proves shadcn/shared primitives, DiffsHub-like top chrome, toggle, controls,
+  state restoration, and second-agent screenshot/source onlook
 
 0.a.4 live dev-server e2e proof
   proves exact URLs, visible layout, Pierre/Shiki/worker ownership, and negative
@@ -236,12 +244,16 @@ authority, and direct Review-only fixture shortcuts.
 Requirement / claim:
 Shared UI chrome uses the existing shared primitive/design system layer.
 Proof source:
-component tests, architecture/static import checks where feasible, and visual
-browser proof.
+component tests, architecture/static import checks where feasible, Vitest
+Browser or Playwright proof, screenshot/video artifacts, and second-agent
+visual/code onlook against FileViewer, ReviewViewer, and DiffsHub/Pierre
+source/screenshots.
 Proof owner:
 implementation-execute-plan and implementation-review-swarm.
 Stale-proof guard:
-must cover buttons, inputs, toggles/icons, filters, and context toggle.
+must cover buttons, inputs, toggles/icons, filters, context toggle, search
+placement, active source identity, and the top-chrome/right-rail design target.
+jsdom-only proof is not accepted.
 
 Requirement / claim:
 Scroll extent is stable enough for large worktrees and large files.
@@ -308,7 +320,10 @@ Checkpoint rhythm:
 Status:
 dev-server and focused BridgeWeb checks passed for the shared app context
 toggle/memory slice. Gate 0.a remains open for native Agent Studio
-Bridge/WKWebView proof and implementation review disposition.
+Bridge/WKWebView proof and implementation review disposition. After the
+2026-06-25 UX review, this checkpoint is historical proof only and must be
+followed by a browser-visible UX correction checkpoint before Gate 0.a can
+advance.
 
 Implemented/proven:
 
@@ -346,6 +361,38 @@ Proof:
     `fileToReviewHandoffProof.fileViewerSelectedPathAfterReturnToFile = .gitignore`,
     `fileToReviewHandoffProof.reviewSelectedDisplayPathAfterReturnToReview = .gitignore`,
     `fileToReviewHandoffProof.standaloneWorktreeFileAppCount = 0`.
+
+Review findings to fix before the next checkpoint:
+
+- P1: Hidden ReviewViewer stays live while Files is active. Gate user-visible
+  side effects such as `review.markFileViewed` on active Review mode and decide
+  whether review-only listeners should suspend while inactive.
+- P2: Replace/demote the jsdom shared-context memory proof. The UX contract must
+  be proved with Vitest Browser or Playwright/dev-server; jsdom can remain only
+  as an explicitly lower-level state guard if it still earns its keep.
+- P2: Browser proof must re-sample Review item identity and materialization
+  after toggling Files -> Review -> Files -> Review, not only display path.
+- UX: FileViewer chrome/search/filter placement does not yet match the intended
+  ReviewViewer/DiffsHub-like top-bar contract. Use subagents to compare
+  DiffsHub/Pierre source and screenshots against current FileViewer/ReviewViewer
+  before changing the visible chrome. The next implementation checkpoint must
+  draw or attach the intended shared shell design before coding the fix.
+- Performance: file-click loading in the large current-worktree fixture feels
+  slow. Add measured browser/Victoria evidence or explicitly carry this as the
+  next performance/backpressure ticket before claiming readiness.
+
+Checkpoint proof rule:
+
+- Every implementation checkpoint that changes visible BridgeViewer behavior
+  must prove the UX works in a real browser or native WKWebView.
+- Required proof includes screenshot or video artifacts, real interaction
+  assertions, source/protocol provenance, and a second-agent visual/code critique.
+- The second-agent onlook must inspect both screenshots and source paths, and
+  its accepted findings must be fixed or explicitly carried in the active plan
+  before a checkpoint commit.
+- jsdom, DOM-only attributes, route state, JSON-only artifacts, or screenshots
+  without interaction/provenance cannot close a UX checkpoint unless the user
+  explicitly requested that narrow proof layer.
 
 Phase skills must return:
 
