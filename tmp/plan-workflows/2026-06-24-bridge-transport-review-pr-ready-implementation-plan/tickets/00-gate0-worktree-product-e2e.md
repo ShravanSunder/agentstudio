@@ -1,6 +1,6 @@
 # Ticket 00: Gate 0 Worktree/File Product E2E
 
-Status: Gate 0.a Vite/dev-server proof complete; pending implementation-review-swarm
+Status: Gate 0.a Vite/dev-server reviewer fixes complete; pending implementation-review-swarm
 Depends on: accepted Bridge transport spec review
 Blocks: Gates 1-4 implementation claims
 
@@ -30,7 +30,8 @@ Bridge path before PR-ready.
 
 ## Current Proof Status
 
-Gate 0.a Vite/dev-server proof is green as of 2026-06-24 22:16 -04:00.
+Gate 0.a Vite/dev-server proof is green as of 2026-06-24 22:49 -04:00
+after reviewer finding fixes.
 
 Proof:
 
@@ -39,11 +40,15 @@ Proof:
   - exact URL:
     `http://127.0.0.1:5173/?fixture=worktree&workers=on&scenario=current-worktree`
   - artifact:
-    `tmp/bridge-viewer-worktree-dev-server/2026-06-25T02-16-36-219Z/worktree-dev-server-proof.json`
+    `tmp/bridge-viewer-worktree-dev-server/2026-06-25T02-49-34-424Z/worktree-dev-server-proof.json`
   - screenshots:
-    - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T02-16-36-219Z/worktree-file-ready.png`
-    - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T02-16-36-219Z/worktree-file-search-result.png`
-    - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T02-16-36-219Z/worktree-file-stale-refresh.png`
+    - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T02-49-34-424Z/worktree-file-ready.png`
+    - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T02-49-34-424Z/worktree-file-search-result.png`
+    - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T02-49-34-424Z/worktree-file-stale-refresh.png`
+- `pnpm --dir BridgeWeb exec vitest run src/file-viewer/bridge-file-viewer-app.unit.test.tsx --reporter verbose`
+  passed: 1 file, 1 test.
+- `pnpm --dir BridgeWeb exec vitest run scripts/dev-server/bridge-worktree-dev-provider.integration.test.ts src/app/bridge-app-protocol-router.unit.test.tsx --reporter verbose`
+  passed: 2 files, 14 tests.
 - `pnpm --dir BridgeWeb exec vitest run src/app/bridge-app-protocol-router.unit.test.tsx`
   passed: 1 file, 3 tests.
 - `pnpm --dir BridgeWeb run check` passed with existing verifier
@@ -61,6 +66,13 @@ DOM-only content-ready markers.
 The earlier `2026-06-25T01-45-02-791Z` artifact is superseded because
 implementation reviewers found worker, row-filter, and provider-extent
 false-green gaps.
+
+The later `2026-06-25T02-16-36-219Z` artifact is also superseded because
+reviewers found two remaining gaps: stale-refresh proof mutated the worktree by
+creating its own untracked file, and failed explicit refresh could blank stale
+content into failed state. The current artifact uses an existing tracked file
+and restores it, and the added FileViewer unit regression proves failed refresh
+keeps stale content visible and retryable.
 
 This does not satisfy native Agent Studio Bridge/WKWebView proof. That remains
 required before PR-ready.
@@ -243,7 +255,7 @@ mise run lint
 - Generic transport core rewrite beyond what the product route needs to prove
   Gate 0.
 
-phase_result: complete
-evidence: Gate 0.a Vite/dev-server proof is green with exact URL artifact and screenshots; native proof remains out of this ticket.
+phase_result: complete_pending_re_review
+evidence: Gate 0.a Vite/dev-server proof is green with exact URL artifact, screenshots, reviewer-fix focused tests, provider-backed extent proof, worker file-success proof, rendered-row control proof, and stale refresh regression proof; native proof remains out of this ticket.
 recommended_next_workflow: shravan-dev-workflow:implementation-review-swarm
-recommended_transition_reason: Gate 0.a implementation should be reviewed before Gate 1 execution.
+recommended_transition_reason: Gate 0.a reviewer fixes should be re-reviewed before Gate 1 execution.

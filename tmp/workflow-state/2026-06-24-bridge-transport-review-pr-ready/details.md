@@ -2,7 +2,7 @@
 
 Goal id: `2026-06-24-bridge-transport-review-pr-ready`
 Status: active
-Current workflow: implementation-execute-plan Gate 0.a proof complete
+Current workflow: implementation-execute-plan Gate 0.a reviewer finding fixes complete
 Next workflow: `shravan-dev-workflow:implementation-review-swarm`
 
 ## Durable Objective
@@ -234,15 +234,21 @@ Former Gate 0.a red proof:
 
 Vite/dev-server Gate 0.a status:
 
-- The exact URL proof row is green as of 2026-06-24 22:16 -04:00.
+- The exact URL proof row is green as of 2026-06-24 22:49 -04:00 after
+  reviewer finding fixes.
 - Canonical proof command:
   `pnpm --dir BridgeWeb run test:dev-server:worktree`
 - Proof artifact:
-  `tmp/bridge-viewer-worktree-dev-server/2026-06-25T02-16-36-219Z/worktree-dev-server-proof.json`
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-25T02-49-34-424Z/worktree-dev-server-proof.json`
 - Screenshots:
-  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T02-16-36-219Z/worktree-file-ready.png`
-  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T02-16-36-219Z/worktree-file-search-result.png`
-  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T02-16-36-219Z/worktree-file-stale-refresh.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T02-49-34-424Z/worktree-file-ready.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T02-49-34-424Z/worktree-file-search-result.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T02-49-34-424Z/worktree-file-stale-refresh.png`
+- Focused reviewer-fix proof:
+  - `pnpm --dir BridgeWeb exec vitest run src/file-viewer/bridge-file-viewer-app.unit.test.tsx --reporter verbose`
+    passed: 1 file, 1 test
+  - `pnpm --dir BridgeWeb exec vitest run scripts/dev-server/bridge-worktree-dev-provider.integration.test.ts src/app/bridge-app-protocol-router.unit.test.tsx --reporter verbose`
+    passed: 2 files, 14 tests
 - Focused supporting proof:
   - `pnpm --dir BridgeWeb exec vitest run src/app/bridge-app-protocol-router.unit.test.tsx`
     passed: 1 file, 3 tests
@@ -258,6 +264,19 @@ Vite/dev-server Gate 0.a status:
 - The prior `2026-06-25T01-45-02-791Z` proof is superseded: implementation
   reviewers found it could pass with disabled workers, status-text-only
   controls, and locally synthesized tree extents.
+- The prior `2026-06-25T02-16-36-219Z` proof is superseded: implementation
+  reviewers found additional false-green gaps around failed refresh state and
+  verifier-created worktree mutations.
+- Latest reviewer finding fixes:
+  - provider-backed tree extent source is asserted instead of accepting local
+    `pathCount * rowHeight` synthesis
+  - product controls prove actual rendered Pierre rows, invalid regex state,
+    and source labels
+  - worker proof requires actual Pierre worker file success/cache state
+  - stale refresh proof mutates and restores an existing tracked file instead
+    of creating an untracked verifier file
+  - failed explicit refresh keeps stale body visible and retryable instead of
+    blanking into failed state
 - Vite dev server remained live on `127.0.0.1:5173` with node PID `27192`
   during this proof.
 - Prior 2026-06-24 proof remains lower-level regression evidence only.

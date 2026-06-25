@@ -7,6 +7,7 @@ import { promisify } from 'node:util';
 import { describe, expect, test } from 'vitest';
 
 import type { WorktreeFileDescriptor } from '../../src/features/worktree-file/models/worktree-file-protocol-models.js';
+import { countFlattenedWorktreeFileTreeRows } from '../../src/features/worktree-file/models/worktree-file-tree-size.js';
 import {
 	createBridgeWorktreeDevProvider,
 	resolveBridgeWorktreeDevProviderConfig,
@@ -41,6 +42,17 @@ describe('Bridge worktree dev provider', () => {
 			});
 			expect(surface.source.sourceId).toBe('dev-worktree-source');
 			expect(surface.treeSizeFacts.pathCount).toBeGreaterThanOrEqual(2);
+			const expectedFlattenedRowCount = countFlattenedWorktreeFileTreeRows([
+				'src/app.ts',
+				'docs/bridge-plan.md',
+			]);
+			expect(surface.treeSizeFacts.estimatedTotalHeightPixels).toBe(
+				expectedFlattenedRowCount * surface.treeSizeFacts.rowHeightPixels,
+			);
+			expect(surface.treeSizeFacts.pathCount).toBeDefined();
+			expect(surface.treeSizeFacts.estimatedTotalHeightPixels).not.toBe(
+				Number(surface.treeSizeFacts.pathCount) * surface.treeSizeFacts.rowHeightPixels,
+			);
 			expect(sourceDescriptor.virtualizedExtentKind).toBe('exactLineCount');
 			expect(sourceDescriptor.lineCount).toBeGreaterThan(0);
 			expect(sourceDescriptor.contentDescriptor.descriptor.resourceUrl).toContain(

@@ -31,6 +31,7 @@ export interface BridgeFileViewerTreePanelProps {
 	readonly sourceIdentity: WorktreeFileSurfaceSourceIdentity | null;
 	readonly totalDescriptorCount: number;
 	readonly totalTreeHeightPixels: number | null;
+	readonly totalTreeHeightSource: 'localProjection' | 'providerFacts' | null;
 }
 
 const bridgeFileViewerTreeRowHeightPixels = 24;
@@ -69,6 +70,7 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 	const fallbackRenderedTreeHeightPixels =
 		countFlattenedWorktreeFileTreeRows(paths) * bridgeFileViewerTreeRowHeightPixels;
 	const declaredTreeHeightPixels = props.totalTreeHeightPixels ?? fallbackRenderedTreeHeightPixels;
+	const declaredTreeHeightSource = props.totalTreeHeightSource ?? 'localProjection';
 
 	useEffect((): void => {
 		fileDescriptorByPathRef.current = props.fileDescriptorByPath;
@@ -166,9 +168,7 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 				className="min-h-0 overflow-auto bridge-scrollbar"
 				data-testid="bridge-file-viewer-pierre-file-tree"
 				data-worktree-tree-total-size={String(declaredTreeHeightPixels)}
-				data-worktree-tree-total-size-source={
-					props.totalTreeHeightPixels === null ? 'localProjection' : 'providerFacts'
-				}
+				data-worktree-tree-total-size-source={declaredTreeHeightSource}
 			>
 				<FileTree className="h-full min-h-full" model={model} style={bridgeReviewTreeStyle} />
 			</section>

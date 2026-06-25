@@ -259,7 +259,7 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 		openFileBodyRef.current =
 			result.reason === 'content_unavailable' ? null : openFileBodyRef.current;
 		setOpenFileState({
-			status: result.reason === 'content_unavailable' ? 'unavailable' : 'failed',
+			status: result.reason === 'content_unavailable' ? 'unavailable' : 'stale',
 			path: state.path,
 			descriptor: state.descriptor,
 		});
@@ -275,7 +275,7 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 			}),
 		[filterMode, renderState.descriptors, searchMode, searchText],
 	);
-	const totalTreeHeightPixels = totalTreeHeightForSizeFacts({
+	const totalTreeHeight = totalTreeHeightForSizeFacts({
 		filteredDescriptorCount: descriptorProjection.descriptors.length,
 		hasActiveProjection:
 			filterMode !== 'all' ||
@@ -347,7 +347,8 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 						selectedPath={selectedPath}
 						sourceIdentity={renderState.sourceIdentity}
 						totalDescriptorCount={renderState.descriptors.length}
-						totalTreeHeightPixels={totalTreeHeightPixels}
+						totalTreeHeightPixels={totalTreeHeight.heightPixels}
+						totalTreeHeightSource={totalTreeHeight.source}
 					/>
 				</div>
 			</main>
@@ -553,17 +554,20 @@ function totalTreeHeightForSizeFacts(props: {
 	readonly filteredDescriptorCount: number;
 	readonly hasActiveProjection: boolean;
 	readonly sizeFacts: WorktreeTreeVirtualizedSizeFacts | null;
-}): number | null {
+}): {
+	readonly heightPixels: number | null;
+	readonly source: 'localProjection' | 'providerFacts' | null;
+} {
 	if (props.sizeFacts === null) {
-		return null;
+		return { heightPixels: null, source: null };
 	}
 	if (!props.hasActiveProjection && props.sizeFacts.estimatedTotalHeightPixels !== undefined) {
-		return props.sizeFacts.estimatedTotalHeightPixels;
+		return { heightPixels: props.sizeFacts.estimatedTotalHeightPixels, source: 'providerFacts' };
 	}
-	if (!props.hasActiveProjection && props.sizeFacts.pathCount !== undefined) {
-		return props.sizeFacts.pathCount * props.sizeFacts.rowHeightPixels;
-	}
-	return Math.max(1, props.filteredDescriptorCount) * props.sizeFacts.rowHeightPixels;
+	return {
+		heightPixels: Math.max(1, props.filteredDescriptorCount) * props.sizeFacts.rowHeightPixels,
+		source: 'localProjection',
+	};
 }
 
 function totalOpenFileHeightForState(openFileState: BridgeFileViewerOpenState): number | null {
