@@ -32,6 +32,7 @@ const proofRunDirectoryPath = join(
 );
 const worktreeDevServerUrl =
 	process.env['BRIDGE_VIEWER_WORKTREE_DEV_SERVER_URL'] ?? defaultWorktreeDevServerUrl;
+const worktreeReviewDevServerUrl = reviewModeUrlFromWorktreeDevServerUrl(worktreeDevServerUrl);
 const worktreeDevServerOrigin = new URL(worktreeDevServerUrl).origin;
 const targetPathOverride = process.env['BRIDGE_VIEWER_WORKTREE_TARGET_PATH'] ?? null;
 const execFileAsync = promisify(execFile);
@@ -120,6 +121,7 @@ interface WorktreeDevServerVerificationResult {
 	readonly positiveAssertions: readonly string[];
 	readonly negativeAssertions: readonly string[];
 	readonly productControlsProof: WorktreeFileProductControlsProof;
+	readonly reviewRouteProof: WorktreeReviewRouteProof;
 	readonly sharedShellProof: WorktreeFileSharedShellProof;
 	readonly selectedContentRouteProof: WorktreeFileSelectedContentRouteProof;
 	readonly substituteGuardProof: WorktreeFileSubstituteGuardProof;
@@ -307,6 +309,22 @@ interface WorktreeFileSharedShellProof {
 
 interface WorktreeFileSubstituteGuardProof {
 	readonly reviewEmptyShellCount: number;
+	readonly standaloneWorktreeFileAppCount: number;
+}
+
+interface WorktreeReviewRouteProof {
+	readonly appOwner: string | null;
+	readonly appRootCount: number;
+	readonly appRootVisible: boolean;
+	readonly fileViewerCodeCanvasCount: number;
+	readonly fileViewerShellCount: number;
+	readonly fileViewerSidebarCount: number;
+	readonly locationHref: string;
+	readonly pageUrl: string;
+	readonly reviewEmptyShellCount: number;
+	readonly reviewPackageShellCount: number;
+	readonly sharedShellMode: string | null;
+	readonly sharedShellOwner: string | null;
 	readonly standaloneWorktreeFileAppCount: number;
 }
 
@@ -657,6 +675,7 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 			treeAnchorBeforeSelection,
 		});
 		assertWorktreeScrollExtentCanary(scrollExtentCanary);
+		const reviewRouteProof = await verifyWorktreeReviewRoute();
 		return {
 			...renderedResult,
 			browserProof: await readBrowserProof(page),
@@ -705,6 +724,7 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 			substituteGuardProof,
 			visibleAppProof,
 			productControlsProof,
+			reviewRouteProof,
 		};
 	} finally {
 		await page.close();
@@ -717,6 +737,73 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 		if (unavailableFilterFixture !== null) {
 			await restoreWorktreeFileDeletedUnavailableFixture(unavailableFilterFixture);
 		}
+	}
+}
+
+async function verifyWorktreeReviewRoute(): Promise<WorktreeReviewRouteProof> {
+	const page = await makeVerificationPage();
+	try {
+		await page.goto(worktreeReviewDevServerUrl, {
+			waitUntil: 'domcontentloaded',
+			timeout: 30_000,
+		});
+		await page.waitForSelector('[data-testid="bridge-app-root"]', { timeout: 30_000 });
+		const proof = await page.evaluate(() => {
+			const appRoots = [...document.querySelectorAll('[data-testid="bridge-app-root"]')];
+			const appRoot = appRoots[0];
+			return {
+				appOwner:
+					appRoot instanceof HTMLElement ? appRoot.getAttribute('data-bridge-app-owner') : null,
+				appRootCount: appRoots.length,
+				appRootVisible: appRoot instanceof HTMLElement && appRoot.getBoundingClientRect().width > 0,
+				fileViewerCodeCanvasCount: document.querySelectorAll(
+					'[data-testid="bridge-file-viewer-code-canvas"]',
+				).length,
+				fileViewerShellCount: document.querySelectorAll('[data-testid="bridge-file-viewer-shell"]')
+					.length,
+				fileViewerSidebarCount: document.querySelectorAll(
+					'[data-testid="bridge-file-viewer-sidebar"]',
+				).length,
+				reviewEmptyShellCount: document.querySelectorAll(
+					'[data-testid="bridge-review-empty-shell"]',
+				).length,
+				reviewPackageShellCount: document.querySelectorAll('[data-testid="review-viewer-shell"]')
+					.length,
+				sharedShellMode:
+					appRoot instanceof HTMLElement ? appRoot.getAttribute('data-bridge-viewer-mode') : null,
+				sharedShellOwner:
+					appRoot instanceof HTMLElement
+						? appRoot.getAttribute('data-bridge-viewer-shell-owner')
+						: null,
+				standaloneWorktreeFileAppCount: document.querySelectorAll(
+					'[data-testid="worktree-file-app"]',
+				).length,
+			};
+		});
+		const routeProof = {
+			...proof,
+			locationHref: await page.evaluate(() => window.location.href),
+			pageUrl: page.url(),
+		} satisfies WorktreeReviewRouteProof;
+		if (
+			routeProof.appOwner !== 'BridgeApp' ||
+			routeProof.appRootCount !== 1 ||
+			!routeProof.appRootVisible ||
+			routeProof.sharedShellMode !== 'review' ||
+			routeProof.sharedShellOwner !== 'BridgeViewerAppShell' ||
+			routeProof.fileViewerShellCount !== 0 ||
+			routeProof.fileViewerSidebarCount !== 0 ||
+			routeProof.fileViewerCodeCanvasCount !== 0 ||
+			routeProof.standaloneWorktreeFileAppCount !== 0 ||
+			routeProof.reviewEmptyShellCount !== 1
+		) {
+			throw new Error(
+				`Expected worktree Review URL to enter shared review shell without FileViewer substitute: ${JSON.stringify(routeProof)}`,
+			);
+		}
+		return routeProof;
+	} finally {
+		await page.close();
 	}
 }
 
@@ -3335,6 +3422,7 @@ function worktreeDevServerConsoleProof(
 		selectedDisplayPath: result.selectedDisplayPath,
 		selectedLineCount: result.selectedLineCount,
 		sharedShellProof: result.sharedShellProof,
+		reviewRouteProof: result.reviewRouteProof,
 		splitResetReplacementProof: {
 			devReloadFrameCount: result.splitResetReplacementProof.devReloadFrameCount,
 			devReloadFrameGenerationSample:
@@ -3375,6 +3463,12 @@ function escapeRegExp(value: string): string {
 function scenarioNameFromDevServerUrl(url: string): string {
 	const parsedUrl = new URL(url);
 	return parsedUrl.searchParams.get('scenario') ?? 'current-worktree';
+}
+
+function reviewModeUrlFromWorktreeDevServerUrl(url: string): string {
+	const parsedUrl = new URL(url);
+	parsedUrl.searchParams.set('viewer', 'review');
+	return parsedUrl.toString();
 }
 
 function timestampForPath(date: Date): string {
