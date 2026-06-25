@@ -2,7 +2,7 @@
 
 Date: 2026-06-24
 Goal id: `2026-06-24-bridge-transport-review-pr-ready`
-Status: reviewer findings fixed; pending implementation-review-swarm re-review
+Status: second reviewer findings fixed; pending implementation-review-swarm re-review
 
 ## Scope
 
@@ -43,11 +43,35 @@ http://127.0.0.1:5173/?fixture=worktree&workers=on&scenario=current-worktree
    - Fixed with a FileViewer unit regression: failed explicit refresh keeps the
      old body visible, keeps stale state, and leaves refresh retryable.
 
+6. The dev-server proof self-reported the configured URL instead of recording
+   what the browser actually loaded.
+   - Fixed by asserting and recording both `page.url()` and
+     `window.location.href` for the exact current-worktree URL.
+
+7. Shared-shell proof could pass on marker strings without proving containment.
+   - Fixed by requiring `bridge-file-viewer-shell` to be a direct child of the
+     shared `BridgeViewerAppShell` root.
+
+8. Stale-refresh proof did not fail closed on unsafe or unrestored verifier
+   writes.
+   - Fixed by resolving descriptor paths through lexical and realpath
+     containment checks, rejecting absolute/parent/symlink escapes, requiring
+     git-tracked files, and verifying the original file hash after restore.
+
+9. Worker proof was not bound to the selected-file render.
+   - Fixed by recording the worker file-success count before target selection
+     and requiring a post-selection increment plus `file` last-success type.
+
+10. Retryability after a failed explicit refresh was only partially covered.
+    - Fixed at the runtime state-machine level and the FileViewer UI level:
+      failed explicit refresh keeps the session stale, a second refresh reaches
+      ready, and the stale body remains visible until success.
+
 ## Proof
 
-- `pnpm --dir BridgeWeb exec vitest run src/file-viewer/bridge-file-viewer-app.unit.test.tsx --reporter verbose`
+- `pnpm --dir BridgeWeb exec vitest run scripts/verify-bridge-viewer-worktree-dev-server-paths.unit.test.ts src/worktree-file-surface/worktree-file-surface-runtime.integration.test.ts src/file-viewer/bridge-file-viewer-app.unit.test.tsx src/app/bridge-app-protocol-router.unit.test.tsx --reporter verbose`
   - exit: 0
-  - result: 1 file passed, 1 test passed
+  - result: 4 files passed, 14 tests passed
 
 - `pnpm --dir BridgeWeb exec vitest run scripts/dev-server/bridge-worktree-dev-provider.integration.test.ts src/app/bridge-app-protocol-router.unit.test.tsx --reporter verbose`
   - exit: 0
@@ -63,11 +87,20 @@ http://127.0.0.1:5173/?fixture=worktree&workers=on&scenario=current-worktree
 - `pnpm --dir BridgeWeb run test:dev-server:worktree`
   - exit: 0
   - artifact:
-    `tmp/bridge-viewer-worktree-dev-server/2026-06-25T02-49-34-424Z/worktree-dev-server-proof.json`
+    `tmp/bridge-viewer-worktree-dev-server/2026-06-25T03-25-29-946Z/worktree-dev-server-proof.json`
   - screenshots:
-    - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T02-49-34-424Z/worktree-file-ready.png`
-    - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T02-49-34-424Z/worktree-file-search-result.png`
-    - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T02-49-34-424Z/worktree-file-stale-refresh.png`
+    - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T03-25-29-946Z/worktree-file-ready.png`
+    - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T03-25-29-946Z/worktree-file-search-result.png`
+    - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T03-25-29-946Z/worktree-file-stale-refresh.png`
+
+- `git status --short`
+  - result: no stale-refresh proof file left dirty; only intentional Gate 0.a
+    implementation/doc changes remain
+
+- `mise run lint`
+  - exit: 0
+  - result: swift-format OK, SwiftLint 0 violations, AgentStudio architecture
+    lint OK, release script verification passed
 
 ## Re-Review Packet Reminder
 
@@ -75,4 +108,5 @@ Implementation reviewers must still ask whether the exact URL can pass while
 the user-visible product is wrong. In particular, re-review must attack
 `WorktreeFileApp`, route-local custom shell/tree, raw `<pre>` content,
 Review/mock lineage, DOM-only ready markers, local extent synthesis, worker
-bootstrap-only evidence, and verifier-created worktree mutations.
+bootstrap-only evidence, verifier-created worktree mutations, self-reported
+URLs, and marker-only shared-shell assertions.

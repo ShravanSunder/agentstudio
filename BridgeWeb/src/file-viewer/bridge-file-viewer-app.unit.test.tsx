@@ -57,17 +57,23 @@ describe('BridgeFileViewerApp', () => {
 		const container = document.createElement('div');
 		document.body.append(container);
 		mountedRoot = createRoot(container);
+		let latestContentFetchCount = 0;
+		const fetchResource = async (props: { readonly resourceUrl: string }): Promise<string> => {
+			if (props.resourceUrl.includes('file-content-2')) {
+				latestContentFetchCount += 1;
+				if (latestContentFetchCount === 1) {
+					throw new Error('refresh failed');
+				}
+				return 'export const value = 2;\n';
+			}
+			return 'export const value = 1;\n';
+		};
 
 		await act(async (): Promise<void> => {
 			mountedRoot?.render(
 				<BridgeFileViewerApp
 					autoOpenInitialFile={true}
-					fetchResource={async ({ resourceUrl }) => {
-						if (resourceUrl.includes('file-content-2')) {
-							throw new Error('refresh failed');
-						}
-						return 'export const value = 1;\n';
-					}}
+					fetchResource={fetchResource}
 					initialFrames={makeFrames(firstDescriptor)}
 				/>,
 			);
@@ -81,12 +87,7 @@ describe('BridgeFileViewerApp', () => {
 			mountedRoot?.render(
 				<BridgeFileViewerApp
 					autoOpenInitialFile={true}
-					fetchResource={async ({ resourceUrl }) => {
-						if (resourceUrl.includes('file-content-2')) {
-							throw new Error('refresh failed');
-						}
-						return 'export const value = 1;\n';
-					}}
+					fetchResource={fetchResource}
 					initialFrames={[makeInvalidationFrame(latestDescriptor)]}
 				/>,
 			);
@@ -106,6 +107,17 @@ describe('BridgeFileViewerApp', () => {
 		expect(document.body.textContent).toContain('Content changed');
 		expect(document.body.textContent).toContain('export const value = 1');
 		expect(document.querySelector('[data-testid="worktree-file-refresh"]')).not.toBeNull();
+		expect(latestContentFetchCount).toBe(1);
+
+		await act(async (): Promise<void> => {
+			document.querySelector<HTMLButtonElement>('[data-testid="worktree-file-refresh"]')?.click();
+			await nextMicrotask();
+		});
+
+		expect(openFileState()).toBe('ready');
+		expect(document.body.textContent).not.toContain('Content changed');
+		expect(document.body.textContent).toContain('export const value = 2');
+		expect(latestContentFetchCount).toBe(2);
 	});
 });
 

@@ -6,6 +6,7 @@ import {
 	type BridgeFileViewerAppProps,
 } from '../file-viewer/bridge-file-viewer-app.js';
 import { BridgeApp, type BridgeAppProps } from './bridge-app.js';
+import { BridgeViewerAppShell } from './bridge-viewer-app-shell.js';
 
 export const bridgeAppProtocolSchema = z.enum(['review', 'worktree-file']);
 export type BridgeAppProtocol = z.infer<typeof bridgeAppProtocolSchema>;
@@ -26,15 +27,17 @@ export function BridgeAppProtocolRouter(props: BridgeAppProtocolRouterProps = {}
 			return <BridgeApp {...reviewAppProps} />;
 		case 'worktree-file':
 			return (
-				<BridgeFileViewerApp
-					{...(reviewAppProps.codeViewWorkerFactory === undefined
-						? {}
-						: { codeViewWorkerFactory: reviewAppProps.codeViewWorkerFactory })}
-					{...(reviewAppProps.codeViewWorkerPoolEnabled === undefined
-						? {}
-						: { codeViewWorkerPoolEnabled: reviewAppProps.codeViewWorkerPoolEnabled })}
-					{...worktreeFileAppProps}
-				/>
+				<BridgeViewerAppShell mode="file">
+					<BridgeFileViewerApp
+						{...(reviewAppProps.codeViewWorkerFactory === undefined
+							? {}
+							: { codeViewWorkerFactory: reviewAppProps.codeViewWorkerFactory })}
+						{...(reviewAppProps.codeViewWorkerPoolEnabled === undefined
+							? {}
+							: { codeViewWorkerPoolEnabled: reviewAppProps.codeViewWorkerPoolEnabled })}
+						{...worktreeFileAppProps}
+					/>
+				</BridgeViewerAppShell>
 			);
 	}
 	return <BridgeApp {...reviewAppProps} />;

@@ -1,26 +1,30 @@
 # Worktree Dev-Server Product E2E Precursor Plan
 
 Date: 2026-06-24
-Status: Gate 0.a Vite/dev-server proof complete; pending implementation review
+Status: Gate 0.a Vite/dev-server proof complete after second reviewer-fix pass; pending implementation re-review
 Ticket: 06P / Gate 0.a Shared FileViewer Renderer Precursor
 
 ## Current Proof Status
 
-Gate 0.a Vite/dev-server proof is green as of 2026-06-24 21:45 -04:00.
+Gate 0.a Vite/dev-server proof is green as of 2026-06-24 23:25 -04:00 after
+the second reviewer-fix pass.
 
 - Canonical command:
   `pnpm --dir BridgeWeb run test:dev-server:worktree`
 - Exact URL:
   `http://127.0.0.1:5173/?fixture=worktree&workers=on&scenario=current-worktree`
 - JSON artifact:
-  `tmp/bridge-viewer-worktree-dev-server/2026-06-25T01-45-02-791Z/worktree-dev-server-proof.json`
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-25T03-25-29-946Z/worktree-dev-server-proof.json`
 - Screenshots:
-  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T01-45-02-791Z/worktree-file-ready.png`
-  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T01-45-02-791Z/worktree-file-search-result.png`
-  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T01-45-02-791Z/worktree-file-stale-refresh.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T03-25-29-946Z/worktree-file-ready.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T03-25-29-946Z/worktree-file-search-result.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T03-25-29-946Z/worktree-file-stale-refresh.png`
 - Supporting proof:
-  - `pnpm --dir BridgeWeb exec vitest run src/app/bridge-app-protocol-router.unit.test.tsx`
-    passed: 1 file, 3 tests
+  - `pnpm --dir BridgeWeb exec vitest run scripts/verify-bridge-viewer-worktree-dev-server-paths.unit.test.ts src/worktree-file-surface/worktree-file-surface-runtime.integration.test.ts src/file-viewer/bridge-file-viewer-app.unit.test.tsx src/app/bridge-app-protocol-router.unit.test.tsx --reporter verbose`
+    passed: 4 files, 14 tests
+  - `pnpm --dir BridgeWeb exec vitest run scripts/dev-server/bridge-worktree-dev-provider.integration.test.ts src/app/bridge-app-protocol-router.unit.test.tsx --reporter verbose`
+    passed: 2 files, 14 tests
+  - `pnpm --dir BridgeWeb exec tsc --noEmit` passed
   - `pnpm --dir BridgeWeb run check` passed with existing verifier
     `no-await-in-loop` warnings only
 
@@ -28,7 +32,11 @@ The verifier now fails closed against the old second-app path and proves the
 exact worktree URL renders FileViewer inside the shared BridgeViewer shell with
 Pierre FileTree/right rail, Pierre CodeView/File, Shiki rendering, worker-backed
 highlighting request, product controls, stale/refresh, and stable tree/content
-scroll extents.
+scroll extents. It also asserts the observed browser URL, shared-shell DOM
+containment, worker file-success baseline and post-selection increment,
+descriptor-path containment before verifier writes, git-tracked stale-refresh
+fixture mutation plus fail-closed restore, and retryable stale state after a
+failed explicit refresh.
 
 Native Agent Studio Bridge/WKWebView proof remains outside this precursor and
 is still required before PR-ready.
@@ -356,6 +364,7 @@ Worktree/File product shell
 
 ## Gate
 
-This precursor remains open until a reviewer can inspect the proof artifacts and
-confirm that the exact dev-server URL is the intended Worktree/File product
-surface. Passing the old narrow verifier is not enough.
+This precursor remains implementation-review pending until a reviewer can
+inspect the proof artifacts and confirm that the exact dev-server URL is the
+intended Worktree/File product surface. Passing the old narrow verifier is not
+enough.

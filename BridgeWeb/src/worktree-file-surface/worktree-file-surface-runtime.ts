@@ -299,7 +299,7 @@ export function createWorktreeFileSurfaceRuntime(
 		state = stateWithOpenSessionStatus({
 			state,
 			openFileSessionId: refreshProps.openFileSessionId,
-			status: loadResult.ok ? 'fresh' : 'failed',
+			status: loadResult.ok ? 'fresh' : 'stale',
 		});
 		return loadResult;
 	};
@@ -436,7 +436,7 @@ function markSourceOpenSessionsStale(props: {
 function stateWithOpenSessionStatus(props: {
 	readonly state: WorktreeFileSurfaceState;
 	readonly openFileSessionId: string;
-	readonly status: 'fresh' | 'failed';
+	readonly status: 'failed' | 'fresh' | 'stale';
 }): WorktreeFileSurfaceState {
 	const session = props.state.openFileSessionsById[props.openFileSessionId];
 	if (session === undefined) {

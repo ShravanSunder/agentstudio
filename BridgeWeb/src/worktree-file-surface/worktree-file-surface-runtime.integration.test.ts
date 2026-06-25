@@ -96,6 +96,55 @@ describe('worktree file surface runtime', () => {
 		});
 	});
 
+	test('keeps failed explicit refresh sessions stale and retryable', async () => {
+		const firstDescriptor = makeFileDescriptor({ descriptorId: 'file-content-1' });
+		const latestDescriptor = makeFileDescriptor({
+			descriptorId: 'file-content-2',
+			contentHandle: 'handle-2',
+		});
+		let latestFetchCount = 0;
+		const runtime = createWorktreeFileSurfaceRuntime({
+			paneId: 'pane-1',
+			fetchResource: async ({ descriptor }) => {
+				if (descriptor.descriptorId !== 'file-content-2') {
+					return `${descriptor.descriptorId}:body`;
+				}
+				latestFetchCount += 1;
+				if (latestFetchCount === 1) {
+					throw new Error('transient refresh failure');
+				}
+				return 'file-content-2:body';
+			},
+		});
+		runtime.applyFrame(makeFileDescriptorFrame(firstDescriptor));
+		await runtime.openFile({
+			descriptor: firstDescriptor,
+			openFileSessionId: 'session-1',
+		});
+		runtime.applyFrame(makeInvalidationFrame({ firstDescriptor, latestDescriptor }));
+
+		const failedRefreshResult = await runtime.refreshOpenFile({ openFileSessionId: 'session-1' });
+
+		expect(failedRefreshResult).toEqual({ ok: false, reason: 'load_failed' });
+		expect(runtime.getState().openFileSessionsById['session-1']).toMatchObject({
+			status: 'stale',
+			latestDescriptorRef: latestDescriptor.contentDescriptor.ref,
+		});
+
+		const retryRefreshResult = await runtime.refreshOpenFile({ openFileSessionId: 'session-1' });
+
+		expect(retryRefreshResult).toEqual({
+			ok: true,
+			body: 'file-content-2:body',
+			descriptorId: 'file-content-2',
+		});
+		expect(latestFetchCount).toBe(2);
+		expect(runtime.getState().openFileSessionsById['session-1']).toMatchObject({
+			status: 'fresh',
+			descriptorRef: latestDescriptor.contentDescriptor.ref,
+		});
+	});
+
 	test('fails closed when file selection references a descriptor that was never materialized', async () => {
 		const descriptor = makeFileDescriptor({ descriptorId: 'forged-content' });
 		let fetchCount = 0;

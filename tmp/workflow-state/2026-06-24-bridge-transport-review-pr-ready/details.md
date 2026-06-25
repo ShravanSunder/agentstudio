@@ -2,7 +2,7 @@
 
 Goal id: `2026-06-24-bridge-transport-review-pr-ready`
 Status: active
-Current workflow: implementation-execute-plan Gate 0.a reviewer finding fixes complete
+Current workflow: implementation-execute-plan Gate 0.a second reviewer finding fixes complete
 Next workflow: `shravan-dev-workflow:implementation-review-swarm`
 
 ## Durable Objective
@@ -234,21 +234,23 @@ Former Gate 0.a red proof:
 
 Vite/dev-server Gate 0.a status:
 
-- The exact URL proof row is green as of 2026-06-24 22:49 -04:00 after
-  reviewer finding fixes.
+- The exact URL proof row is green as of 2026-06-24 23:25 -04:00 after the
+  second reviewer finding fix pass.
 - Canonical proof command:
   `pnpm --dir BridgeWeb run test:dev-server:worktree`
 - Proof artifact:
-  `tmp/bridge-viewer-worktree-dev-server/2026-06-25T02-49-34-424Z/worktree-dev-server-proof.json`
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-25T03-25-29-946Z/worktree-dev-server-proof.json`
 - Screenshots:
-  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T02-49-34-424Z/worktree-file-ready.png`
-  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T02-49-34-424Z/worktree-file-search-result.png`
-  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T02-49-34-424Z/worktree-file-stale-refresh.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T03-25-29-946Z/worktree-file-ready.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T03-25-29-946Z/worktree-file-search-result.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T03-25-29-946Z/worktree-file-stale-refresh.png`
 - Focused reviewer-fix proof:
-  - `pnpm --dir BridgeWeb exec vitest run src/file-viewer/bridge-file-viewer-app.unit.test.tsx --reporter verbose`
-    passed: 1 file, 1 test
+  - `pnpm --dir BridgeWeb exec vitest run scripts/verify-bridge-viewer-worktree-dev-server-paths.unit.test.ts src/worktree-file-surface/worktree-file-surface-runtime.integration.test.ts src/file-viewer/bridge-file-viewer-app.unit.test.tsx src/app/bridge-app-protocol-router.unit.test.tsx --reporter verbose`
+    passed: 4 files, 14 tests
   - `pnpm --dir BridgeWeb exec vitest run scripts/dev-server/bridge-worktree-dev-provider.integration.test.ts src/app/bridge-app-protocol-router.unit.test.tsx --reporter verbose`
     passed: 2 files, 14 tests
+- Type proof:
+  - `pnpm --dir BridgeWeb exec tsc --noEmit` passed
 - Focused supporting proof:
   - `pnpm --dir BridgeWeb exec vitest run src/app/bridge-app-protocol-router.unit.test.tsx`
     passed: 1 file, 3 tests
@@ -267,17 +269,28 @@ Vite/dev-server Gate 0.a status:
 - The prior `2026-06-25T02-16-36-219Z` proof is superseded: implementation
   reviewers found additional false-green gaps around failed refresh state and
   verifier-created worktree mutations.
+- The prior `2026-06-25T02-49-34-424Z` proof is superseded: implementation
+  reviewers found the verifier still needed observed URL proof, explicit
+  shared-shell DOM containment, tracked-file restore fail-closed behavior,
+  worker file-success baseline proof, and retry-after-refresh-failure proof.
 - Latest reviewer finding fixes:
+  - exact browser URL and `window.location.href` are observed and recorded
+    rather than self-reported from the configured constant
+  - FileViewer shell must be a direct child of shared `BridgeViewerAppShell`
   - provider-backed tree extent source is asserted instead of accepting local
     `pathCount * rowHeight` synthesis
   - product controls prove actual rendered Pierre rows, invalid regex state,
     and source labels
-  - worker proof requires actual Pierre worker file success/cache state
+  - worker proof requires actual Pierre worker file success/cache state and a
+    post-selection increment over the pre-selection baseline
   - stale refresh proof mutates and restores an existing tracked file instead
     of creating an untracked verifier file
+  - stale refresh verifier writes reject absolute, parent-directory, and
+    symlink-escape paths before mutation
   - failed explicit refresh keeps stale body visible and retryable instead of
-    blanking into failed state
-- Vite dev server remained live on `127.0.0.1:5173` with node PID `27192`
+    blanking into failed state; the runtime state machine now keeps failed
+    explicit refresh sessions stale so a second refresh can succeed
+- Vite dev server remained live on `127.0.0.1:5173` with node PID `65785`
   during this proof.
 - Prior 2026-06-24 proof remains lower-level regression evidence only.
 - Native Agent Studio Bridge/WKWebView proof is still not satisfied by this and

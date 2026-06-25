@@ -15,6 +15,7 @@ import type {
 	WorktreeFileSurfaceSourceIdentity,
 	WorktreeTreeVirtualizedSizeFacts,
 } from '../features/worktree-file/models/worktree-file-protocol-models.js';
+import { countFlattenedWorktreeFileTreeRows } from '../features/worktree-file/models/worktree-file-tree-size.js';
 import { BridgeFileViewerCodePanel } from '../review-viewer/code-view/bridge-file-viewer-code-panel.js';
 import {
 	BridgeFileViewerTreePanel,
@@ -277,11 +278,15 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 	);
 	const totalTreeHeight = totalTreeHeightForSizeFacts({
 		filteredDescriptorCount: descriptorProjection.descriptors.length,
+		filteredTreeRowCount: countFlattenedWorktreeFileTreeRows(
+			descriptorProjection.descriptors.map((descriptor) => descriptor.path),
+		),
 		hasActiveProjection:
 			filterMode !== 'all' ||
 			searchText.trim().length > 0 ||
 			descriptorProjection.searchError !== null,
 		sizeFacts: renderState.treeSizeFacts,
+		totalDescriptorCount: renderState.descriptors.length,
 	});
 	const openFileBody =
 		openFileState.status === 'ready' ||
@@ -292,67 +297,62 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 	const openFileTotalHeightPixels = totalOpenFileHeightForState(openFileState);
 
 	return (
-		<div
-			className="dark h-screen min-h-screen w-full overflow-hidden bg-[var(--bridge-app-bg)] text-[var(--bridge-text-primary)] antialiased"
-			data-testid="bridge-app-root"
+		<main
+			className="flex h-screen min-h-screen w-full flex-col overflow-hidden bg-[var(--bridge-app-bg)]"
+			data-file-viewer-owner="BridgeViewerApp.FileViewer"
+			data-selected-display-path={selectedPath ?? undefined}
+			data-sidebar-position="right"
+			data-testid="bridge-file-viewer-shell"
+			{...(renderState.sourceIdentity === null
+				? {}
+				: {
+						'data-worktree-source-cursor': renderState.sourceIdentity.sourceCursor,
+						'data-worktree-source-id': renderState.sourceIdentity.sourceId,
+						'data-worktree-source-state': 'live',
+					})}
+			{...(renderState.provenance === null
+				? {}
+				: {
+						'data-worktree-base-ref': renderState.provenance.baseRef,
+						'data-worktree-root-token': renderState.provenance.worktreeRootToken,
+						'data-worktree-scenario': renderState.provenance.scenarioName,
+					})}
 		>
-			<main
-				className="flex h-screen min-h-screen w-full flex-col overflow-hidden bg-[var(--bridge-app-bg)]"
-				data-file-viewer-owner="BridgeViewerApp.FileViewer"
-				data-selected-display-path={selectedPath ?? undefined}
-				data-sidebar-position="right"
-				data-testid="bridge-file-viewer-shell"
-				{...(renderState.sourceIdentity === null
-					? {}
-					: {
-							'data-worktree-source-cursor': renderState.sourceIdentity.sourceCursor,
-							'data-worktree-source-id': renderState.sourceIdentity.sourceId,
-							'data-worktree-source-state': 'live',
-						})}
-				{...(renderState.provenance === null
-					? {}
-					: {
-							'data-worktree-base-ref': renderState.provenance.baseRef,
-							'data-worktree-root-token': renderState.provenance.worktreeRootToken,
-							'data-worktree-scenario': renderState.provenance.scenarioName,
-						})}
-			>
-				<div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(260px,340px)]">
-					<BridgeFileViewerCodePanel
-						openFileBody={openFileBody}
-						openFileState={openFileState}
-						staleNotice={
-							openFileState.status === 'stale' ? (
-								<BridgeFileViewerStaleNotice
-									onRefresh={() => {
-										void refreshOpenFile(openFileState);
-									}}
-								/>
-							) : null
-						}
-						totalHeightPixels={openFileTotalHeightPixels}
-						{...(codeViewWorkerFactory === undefined ? {} : { codeViewWorkerFactory })}
-						{...(codeViewWorkerPoolEnabled === undefined ? {} : { codeViewWorkerPoolEnabled })}
-					/>
-					<BridgeFileViewerTreePanel
-						descriptorProjection={descriptorProjection}
-						fileDescriptorByPath={fileDescriptorByPath}
-						filterMode={filterMode}
-						onFilterModeChange={setFilterMode}
-						onOpenFile={openFile}
-						onSearchModeChange={setSearchMode}
-						onSearchTextChange={setSearchText}
-						searchMode={searchMode}
-						searchText={searchText}
-						selectedPath={selectedPath}
-						sourceIdentity={renderState.sourceIdentity}
-						totalDescriptorCount={renderState.descriptors.length}
-						totalTreeHeightPixels={totalTreeHeight.heightPixels}
-						totalTreeHeightSource={totalTreeHeight.source}
-					/>
-				</div>
-			</main>
-		</div>
+			<div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(260px,340px)]">
+				<BridgeFileViewerCodePanel
+					openFileBody={openFileBody}
+					openFileState={openFileState}
+					staleNotice={
+						openFileState.status === 'stale' ? (
+							<BridgeFileViewerStaleNotice
+								onRefresh={() => {
+									void refreshOpenFile(openFileState);
+								}}
+							/>
+						) : null
+					}
+					totalHeightPixels={openFileTotalHeightPixels}
+					{...(codeViewWorkerFactory === undefined ? {} : { codeViewWorkerFactory })}
+					{...(codeViewWorkerPoolEnabled === undefined ? {} : { codeViewWorkerPoolEnabled })}
+				/>
+				<BridgeFileViewerTreePanel
+					descriptorProjection={descriptorProjection}
+					fileDescriptorByPath={fileDescriptorByPath}
+					filterMode={filterMode}
+					onFilterModeChange={setFilterMode}
+					onOpenFile={openFile}
+					onSearchModeChange={setSearchMode}
+					onSearchTextChange={setSearchText}
+					searchMode={searchMode}
+					searchText={searchText}
+					selectedPath={selectedPath}
+					sourceIdentity={renderState.sourceIdentity}
+					totalDescriptorCount={renderState.descriptors.length}
+					totalTreeHeightPixels={totalTreeHeight.heightPixels}
+					totalTreeHeightSource={totalTreeHeight.source}
+				/>
+			</div>
+		</main>
 	);
 }
 
@@ -552,8 +552,10 @@ function findLatestDescriptorForOpenFile(props: {
 
 function totalTreeHeightForSizeFacts(props: {
 	readonly filteredDescriptorCount: number;
+	readonly filteredTreeRowCount: number;
 	readonly hasActiveProjection: boolean;
 	readonly sizeFacts: WorktreeTreeVirtualizedSizeFacts | null;
+	readonly totalDescriptorCount: number;
 }): {
 	readonly heightPixels: number | null;
 	readonly source: 'localProjection' | 'providerFacts' | null;
@@ -564,8 +566,15 @@ function totalTreeHeightForSizeFacts(props: {
 	if (!props.hasActiveProjection && props.sizeFacts.estimatedTotalHeightPixels !== undefined) {
 		return { heightPixels: props.sizeFacts.estimatedTotalHeightPixels, source: 'providerFacts' };
 	}
+	if (
+		props.hasActiveProjection &&
+		props.filteredDescriptorCount === props.totalDescriptorCount &&
+		props.sizeFacts.estimatedTotalHeightPixels !== undefined
+	) {
+		return { heightPixels: props.sizeFacts.estimatedTotalHeightPixels, source: 'providerFacts' };
+	}
 	return {
-		heightPixels: Math.max(1, props.filteredDescriptorCount) * props.sizeFacts.rowHeightPixels,
+		heightPixels: Math.max(1, props.filteredTreeRowCount) * props.sizeFacts.rowHeightPixels,
 		source: 'localProjection',
 	};
 }

@@ -1,12 +1,16 @@
+import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdir, realpath, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 
 import { chromium, type Page } from 'playwright';
 import { z } from 'zod';
 
 import { parseBridgeCoreResourceUrl } from '../src/core/resources/bridge-resource-url.ts';
+import { countFlattenedWorktreeFileTreeRows } from '../src/features/worktree-file/models/worktree-file-tree-size.ts';
+import { resolveBridgeWorktreeVerifierWritePath } from './verify-bridge-viewer-worktree-dev-server-paths.ts';
 
 const defaultWorktreeDevServerUrl =
 	'http://127.0.0.1:5173/?fixture=worktree&workers=on&scenario=current-worktree';
@@ -22,6 +26,7 @@ const proofRunDirectoryPath = join(
 const worktreeDevServerUrl =
 	process.env['BRIDGE_VIEWER_WORKTREE_DEV_SERVER_URL'] ?? defaultWorktreeDevServerUrl;
 const targetPathOverride = process.env['BRIDGE_VIEWER_WORKTREE_TARGET_PATH'] ?? null;
+const execFileAsync = promisify(execFile);
 
 const bridgeWorktreeSurfaceResponseSchema = z
 	.object({
@@ -80,6 +85,8 @@ interface WorktreeDevServerVerificationResult {
 	readonly firstLoadContentState: string | null;
 	readonly firstLoadDisplayPath: string | null;
 	readonly firstLoadLineCount: number;
+	readonly observedLocationHref: string;
+	readonly observedPageUrl: string;
 	readonly packageForbiddenTextAbsent: boolean;
 	readonly proofArtifactPath: string;
 	readonly scenarioName: string;
@@ -135,10 +142,17 @@ interface WorktreeFileStaleRefreshProof {
 interface WorktreeFileProductControlsProof {
 	readonly allFilterVisibleCount: number;
 	readonly allRenderedPathSample: readonly string[];
+	readonly allTreeSizePixels: number | null;
 	readonly allTreeSizeSource: WorktreeFileTreeExtentSource | null;
+	readonly expectedFetchableTreeSizePixels: number | null;
+	readonly expectedInvalidRegexTreeSizePixels: number;
+	readonly expectedRegexTreeSizePixels: number;
+	readonly expectedSearchTreeSizePixels: number;
+	readonly expectedUnavailableTreeSizePixels: number;
 	readonly fetchableFilterActive: boolean;
 	readonly fetchableFilterVisibleCount: number;
 	readonly fetchableRenderedPathSample: readonly string[];
+	readonly fetchableTreeSizePixels: number | null;
 	readonly fetchableTreeSizeSource: WorktreeFileTreeExtentSource | null;
 	readonly expectedFetchableFilterCount: number;
 	readonly expectedUnavailableFilterCount: number;
@@ -148,15 +162,18 @@ interface WorktreeFileProductControlsProof {
 	readonly invalidRegexModeActive: boolean;
 	readonly invalidRegexRenderedPathSample: readonly string[];
 	readonly invalidRegexStatusText: string;
+	readonly invalidRegexTreeSizePixels: number | null;
 	readonly invalidRegexTreeSizeSource: WorktreeFileTreeExtentSource | null;
 	readonly regexModeActive: boolean;
 	readonly regexVisibleCount: number;
 	readonly regexRenderedPathSample: readonly string[];
+	readonly regexTreeSizePixels: number | null;
 	readonly regexTreeSizeSource: WorktreeFileTreeExtentSource | null;
 	readonly searchScreenshotPath: string;
 	readonly searchResultIncludesTarget: boolean;
 	readonly searchRenderedPathSample: readonly string[];
 	readonly searchStatusText: string;
+	readonly searchTreeSizePixels: number | null;
 	readonly searchTreeSizeSource: WorktreeFileTreeExtentSource | null;
 	readonly searchVisibleCount: number;
 	readonly targetPath: string;
@@ -164,6 +181,7 @@ interface WorktreeFileProductControlsProof {
 	readonly unavailableFilterActive: boolean;
 	readonly unavailableFilterVisibleCount: number;
 	readonly unavailableRenderedPathSample: readonly string[];
+	readonly unavailableTreeSizePixels: number | null;
 	readonly unavailableTreeSizeSource: WorktreeFileTreeExtentSource | null;
 }
 
@@ -171,6 +189,9 @@ interface WorktreeFileSharedShellProof {
 	readonly codeOwner: string | null;
 	readonly hasPierreTreeShadowRoot: boolean;
 	readonly rootVisible: boolean;
+	readonly sharedShellMode: string | null;
+	readonly sharedShellOwner: string | null;
+	readonly shellParentIsSharedRoot: boolean;
 	readonly shellOwner: string | null;
 	readonly sidebarIsRight: boolean;
 	readonly sidebarPosition: string | null;
@@ -178,6 +199,7 @@ interface WorktreeFileSharedShellProof {
 	readonly treeOwner: string | null;
 	readonly workerRequestedState: string | null;
 	readonly workerDiagnosticFileSuccessCount: number;
+	readonly workerDiagnosticFileSuccessCountBeforeTargetSelection: number;
 	readonly workerDiagnosticLastSuccessRequestType: string | null;
 	readonly workerPoolFileCacheSize: number;
 	readonly workerPoolManagerState: string | null;
@@ -328,6 +350,7 @@ interface WorktreeFileScrollExtentSnapshot {
 }
 
 const defaultFileLineHeightPixels = 20;
+const bridgeFileViewerTreeRowHeightPixels = 24;
 
 const browser = await chromium.launch({ headless: true });
 
@@ -371,7 +394,7 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 			excludedPaths: new Set([initialDescriptor.path, targetDescriptor.path]),
 		});
 		const staleRefreshInitialContent = await fetchWorktreeFileContent(staleRefreshDescriptor);
-		staleRefreshFixture = worktreeFileStaleRefreshFixture({
+		staleRefreshFixture = await worktreeFileStaleRefreshFixture({
 			descriptor: staleRefreshDescriptor,
 			initialContent: staleRefreshInitialContent,
 		});
@@ -384,6 +407,7 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 		}
 		await page.goto(worktreeDevServerUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
 		await page.waitForSelector('[data-testid="bridge-file-viewer-shell"]', { timeout: 30_000 });
+		const observedRoute = await assertObservedWorktreeDevServerUrl(page);
 		const substituteGuardProof = await assertNoStandaloneWorktreeFileApp(page);
 		await page.waitForFunction(
 			(path: string): boolean =>
@@ -434,6 +458,8 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 		);
 		await scrollContentPaneToNonzeroOffset(page);
 		const scrollExtentAfterSelection = await readWorktreeFileScrollExtentSnapshot(page);
+		const workerFileSuccessCountBeforeTargetSelection =
+			await readBridgePierreWorkerFileSuccessCount(page);
 		contentRouteGate.resolve();
 		await page.waitForFunction(
 			(): boolean =>
@@ -442,6 +468,10 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 					?.getAttribute('data-worktree-open-file-state') === 'ready',
 			{ timeout: 20_000 },
 		);
+		await waitForBridgePierreWorkerFileSuccessCountAbove({
+			page,
+			previousFileSuccessCount: workerFileSuccessCountBeforeTargetSelection,
+		});
 		const scrollExtentAfterReady = await readWorktreeFileScrollExtentSnapshot(page);
 		await waitForPierreFileTreeAnchorSettled(page, targetDescriptor.path);
 		const treeAnchorAfterReady = await readWorktreeFileTreeAnchorSnapshot(
@@ -467,7 +497,10 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 			renderedTreeTotalSizePixels: rendered.treeTotalSizePixels,
 			surfaceTreeSizeFacts: surface.treeSizeFacts,
 		});
-		const sharedShellProof = await assertSharedBridgeFileViewerShell(page);
+		const sharedShellProof = await assertSharedBridgeFileViewerShell({
+			page,
+			workerFileSuccessCountBeforeTargetSelection,
+		});
 		const visibleAppProof = await readWorktreeFileVisibleAppProof(page);
 		assertWorktreeFileVisibleAppProof({
 			expectedSourceBaseRef: surface.provenance.baseRef,
@@ -508,6 +541,8 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 			firstLoadDisplayPath: firstLoadRendered.selectedDisplayPath,
 			firstLoadLineCount: firstLoadRendered.selectedLineCount,
 			frameCount: surface.frames.length,
+			observedLocationHref: observedRoute.locationHref,
+			observedPageUrl: observedRoute.pageUrl,
 			packageForbiddenTextAbsent: true,
 			positiveAssertions: [
 				'shared BridgeViewer FileViewer shell rendered',
@@ -547,9 +582,7 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 	} finally {
 		await page.close();
 		if (staleRefreshFixture !== null) {
-			await writeFile(staleRefreshFixture.absolutePath, staleRefreshFixture.initialContent).catch(
-				() => undefined,
-			);
+			await restoreWorktreeFileStaleRefreshFixture(staleRefreshFixture);
 		}
 	}
 }
@@ -577,10 +610,48 @@ async function assertNoStandaloneWorktreeFileApp(
 	};
 }
 
-async function assertSharedBridgeFileViewerShell(
-	page: Page,
-): Promise<WorktreeFileSharedShellProof> {
-	await page.waitForFunction(
+async function assertObservedWorktreeDevServerUrl(page: Page): Promise<{
+	readonly locationHref: string;
+	readonly pageUrl: string;
+}> {
+	const pageUrl = page.url();
+	const locationHref = await page.evaluate(() => window.location.href);
+	const expectedUrl = new URL(worktreeDevServerUrl).href;
+	if (pageUrl !== expectedUrl || locationHref !== expectedUrl) {
+		throw new Error(
+			`Expected exact Worktree/File dev-server URL ${expectedUrl}, got page=${pageUrl} location=${locationHref}`,
+		);
+	}
+	return { locationHref, pageUrl };
+}
+
+async function readBridgePierreWorkerFileSuccessCount(page: Page): Promise<number> {
+	return await page.evaluate(() =>
+		Number(document.documentElement.dataset['bridgePierreWorkerDiagnosticFileSuccessCount'] ?? '0'),
+	);
+}
+
+async function waitForBridgePierreWorkerFileSuccessCountAbove(props: {
+	readonly page: Page;
+	readonly previousFileSuccessCount: number;
+}): Promise<void> {
+	await props.page.waitForFunction(
+		(previousFileSuccessCount: number): boolean => {
+			const fileSuccessCount = Number(
+				document.documentElement.dataset['bridgePierreWorkerDiagnosticFileSuccessCount'] ?? '0',
+			);
+			return Number.isInteger(fileSuccessCount) && fileSuccessCount > previousFileSuccessCount;
+		},
+		props.previousFileSuccessCount,
+		{ timeout: 20_000 },
+	);
+}
+
+async function assertSharedBridgeFileViewerShell(props: {
+	readonly page: Page;
+	readonly workerFileSuccessCountBeforeTargetSelection: number;
+}): Promise<WorktreeFileSharedShellProof> {
+	await props.page.waitForFunction(
 		(): boolean => {
 			const fileSuccessCount = Number(
 				document.documentElement.dataset['bridgePierreWorkerDiagnosticFileSuccessCount'] ?? '0',
@@ -589,7 +660,7 @@ async function assertSharedBridgeFileViewerShell(
 		},
 		{ timeout: 20_000 },
 	);
-	const proof = await page.evaluate(() => {
+	const proof = await props.page.evaluate(() => {
 		const appRoot = document.querySelector('[data-testid="bridge-app-root"]');
 		const shell = document.querySelector('[data-testid="bridge-file-viewer-shell"]');
 		const codeCanvas = document.querySelector('[data-testid="bridge-file-viewer-code-canvas"]');
@@ -612,6 +683,9 @@ async function assertSharedBridgeFileViewerShell(
 			codeOwner: codeCanvas.getAttribute('data-pierre-code-view-owner'),
 			hasPierreTreeShadowRoot: pierreTree.querySelector('file-tree-container')?.shadowRoot !== null,
 			rootVisible: appRoot.getBoundingClientRect().width > 0,
+			sharedShellMode: appRoot.getAttribute('data-bridge-viewer-mode'),
+			sharedShellOwner: appRoot.getAttribute('data-bridge-viewer-shell-owner'),
+			shellParentIsSharedRoot: shell.parentElement === appRoot,
 			shellOwner: shell.getAttribute('data-file-viewer-owner'),
 			sidebarIsRight: sidebarRect.left > codeRect.left,
 			sidebarPosition: shell.getAttribute('data-sidebar-position'),
@@ -637,28 +711,37 @@ async function assertSharedBridgeFileViewerShell(
 	if (proof === null) {
 		throw new Error('Expected shared BridgeViewer FileViewer shell with code canvas and sidebar');
 	}
+	const proofWithWorkerBaseline = {
+		...proof,
+		workerDiagnosticFileSuccessCountBeforeTargetSelection:
+			props.workerFileSuccessCountBeforeTargetSelection,
+	} satisfies WorktreeFileSharedShellProof;
 	if (
-		proof.shellOwner !== 'BridgeViewerApp.FileViewer' ||
-		proof.sidebarPosition !== 'right' ||
-		!proof.sidebarIsRight ||
-		proof.codeOwner !== 'CodeView.file' ||
-		proof.shikiRendering !== 'pierre' ||
-		proof.treeOwner !== 'FileTree' ||
-		!proof.hasPierreTreeShadowRoot ||
-		!proof.rootVisible ||
-		proof.workerRequestedState !== 'requested' ||
-		proof.workerDiagnosticFileSuccessCount <= 0 ||
-		proof.workerDiagnosticLastSuccessRequestType !== 'file' ||
-		proof.workerPoolFileCacheSize <= 0 ||
-		proof.workerPoolManagerState !== 'initialized' ||
-		proof.workerPoolState !== 'ready' ||
-		proof.codeViewThemeState !== 'ready'
+		proofWithWorkerBaseline.sharedShellOwner !== 'BridgeViewerAppShell' ||
+		proofWithWorkerBaseline.sharedShellMode !== 'file' ||
+		!proofWithWorkerBaseline.shellParentIsSharedRoot ||
+		proofWithWorkerBaseline.shellOwner !== 'BridgeViewerApp.FileViewer' ||
+		proofWithWorkerBaseline.sidebarPosition !== 'right' ||
+		!proofWithWorkerBaseline.sidebarIsRight ||
+		proofWithWorkerBaseline.codeOwner !== 'CodeView.file' ||
+		proofWithWorkerBaseline.shikiRendering !== 'pierre' ||
+		proofWithWorkerBaseline.treeOwner !== 'FileTree' ||
+		!proofWithWorkerBaseline.hasPierreTreeShadowRoot ||
+		!proofWithWorkerBaseline.rootVisible ||
+		proofWithWorkerBaseline.workerRequestedState !== 'requested' ||
+		proofWithWorkerBaseline.workerDiagnosticFileSuccessCount <=
+			props.workerFileSuccessCountBeforeTargetSelection ||
+		proofWithWorkerBaseline.workerDiagnosticLastSuccessRequestType !== 'file' ||
+		proofWithWorkerBaseline.workerPoolFileCacheSize <= 0 ||
+		proofWithWorkerBaseline.workerPoolManagerState !== 'initialized' ||
+		proofWithWorkerBaseline.workerPoolState !== 'ready' ||
+		proofWithWorkerBaseline.codeViewThemeState !== 'ready'
 	) {
 		throw new Error(
-			`Expected shared BridgeViewer/Pierre FileViewer proof: ${JSON.stringify(proof)}`,
+			`Expected shared BridgeViewer/Pierre FileViewer proof: ${JSON.stringify(proofWithWorkerBaseline)}`,
 		);
 	}
-	return proof;
+	return proofWithWorkerBaseline;
 }
 
 async function fetchWorktreeSurface(): Promise<
@@ -777,6 +860,7 @@ function deepFetchableDescriptor(
 interface WorktreeFileStaleRefreshFixture {
 	readonly absolutePath: string;
 	readonly initialContent: string;
+	readonly initialContentHash: string;
 	readonly relativePath: string;
 	readonly updatedContent: string;
 }
@@ -797,17 +881,51 @@ function resolveStaleRefreshDescriptor(props: {
 	return descriptor;
 }
 
-function worktreeFileStaleRefreshFixture(props: {
+async function worktreeFileStaleRefreshFixture(props: {
 	readonly descriptor: WorktreeFileDescriptor;
 	readonly initialContent: string;
-}): WorktreeFileStaleRefreshFixture {
+}): Promise<WorktreeFileStaleRefreshFixture> {
 	const marker = `bridge_worktree_devserver_proof_${proofRunCreatedAtUnixMilliseconds}`;
+	const absolutePath = await resolveBridgeWorktreeVerifierWritePath({
+		descriptorPath: props.descriptor.path,
+		rootPath: repoRootPath,
+	});
+	await assertGitTrackedWorktreeVerifierPath(props.descriptor.path);
+	const initialContent = await readFile(absolutePath, 'utf8');
 	return {
-		absolutePath: join(repoRootPath, props.descriptor.path),
-		initialContent: props.initialContent,
+		absolutePath,
+		initialContent,
+		initialContentHash: hashText(initialContent),
 		relativePath: props.descriptor.path,
-		updatedContent: `${props.initialContent}\n// ${marker}: updated content\n`,
+		updatedContent: `${initialContent}\n// ${marker}: updated content\n`,
 	};
+}
+
+async function assertGitTrackedWorktreeVerifierPath(relativePath: string): Promise<void> {
+	try {
+		await execFileAsync('git', [
+			'-C',
+			repoRootPath,
+			'ls-files',
+			'--error-unmatch',
+			'--',
+			relativePath,
+		]);
+	} catch (error) {
+		throw new Error(`Bridge worktree verifier path must be git-tracked: ${relativePath}`, {
+			cause: error,
+		});
+	}
+}
+
+async function restoreWorktreeFileStaleRefreshFixture(
+	fixture: WorktreeFileStaleRefreshFixture,
+): Promise<void> {
+	await writeFile(fixture.absolutePath, fixture.initialContent);
+	const restoredContent = await readFile(fixture.absolutePath, 'utf8');
+	if (hashText(restoredContent) !== fixture.initialContentHash) {
+		throw new Error(`Failed to restore stale-refresh proof file: ${fixture.relativePath}`);
+	}
 }
 
 async function fetchWorktreeFileContent(descriptor: WorktreeFileDescriptor): Promise<string> {
@@ -1574,6 +1692,7 @@ async function verifyWorktreeFileProductControls(props: {
 			.filter((descriptor) => !descriptor['isBinary'] && descriptor.contentDescriptor !== null)
 			.map((descriptor) => descriptor.path),
 	);
+	const fetchablePaths = [...fetchablePathSet];
 	const unavailablePathSet = new Set(
 		props.descriptors
 			.filter(
@@ -1582,6 +1701,15 @@ async function verifyWorktreeFileProductControls(props: {
 			)
 			.map((descriptor) => descriptor.path),
 	);
+	const unavailablePaths = [...unavailablePathSet];
+	const expectedSearchTreeSizePixels = projectedTreeSizePixels([props.targetPath]);
+	const expectedRegexTreeSizePixels = projectedTreeSizePixels([props.targetPath]);
+	const expectedInvalidRegexTreeSizePixels = projectedTreeSizePixels([]);
+	const expectedFetchableTreeSizePixels =
+		fetchablePaths.length === props.descriptors.length
+			? null
+			: projectedTreeSizePixels(fetchablePaths);
+	const expectedUnavailableTreeSizePixels = projectedTreeSizePixels(unavailablePaths);
 	const initialVisibleCount = await visibleWorktreeFileRowCount(props.page);
 	const initialRenderedPathSample = await visibleWorktreeFilePathSample(props.page);
 	const initialTreeSizeSource = await worktreeFileTreeTotalSizeSource(props.page);
@@ -1591,6 +1719,7 @@ async function verifyWorktreeFileProductControls(props: {
 	const searchStatusText = await worktreeFileFilterStatusText(props.page);
 	const searchResultIncludesTarget = await worktreeFileRowExists(props.page, props.targetPath);
 	const searchRenderedPathSample = await visibleWorktreeFilePathSample(props.page);
+	const searchTreeSizePixels = await worktreeFileTreeTotalSizePixels(props.page);
 	const searchTreeSizeSource = await worktreeFileTreeTotalSizeSource(props.page);
 	const searchScreenshotPath = await captureWorktreeDevServerScreenshot({
 		name: 'worktree-file-search-result.png',
@@ -1606,6 +1735,7 @@ async function verifyWorktreeFileProductControls(props: {
 	const regexVisibleCount = await worktreeFileFilterStatusVisibleCount(props.page);
 	await waitForWorktreeRenderedFilePathSample(props.page, [props.targetPath]);
 	const regexRenderedPathSample = await visibleWorktreeFilePathSample(props.page);
+	const regexTreeSizePixels = await worktreeFileTreeTotalSizePixels(props.page);
 	const regexTreeSizeSource = await worktreeFileTreeTotalSizeSource(props.page);
 	await fillWorktreeFileSearch(props.page, '(');
 	await waitForWorktreeFileInvalidRegexStatus(props.page);
@@ -1615,6 +1745,7 @@ async function verifyWorktreeFileProductControls(props: {
 	);
 	const invalidRegexStatusText = await worktreeFileFilterStatusText(props.page);
 	const invalidRegexRenderedPathSample = await visibleWorktreeFilePathSample(props.page);
+	const invalidRegexTreeSizePixels = await worktreeFileTreeTotalSizePixels(props.page);
 	const invalidRegexTreeSizeSource = await worktreeFileTreeTotalSizeSource(props.page);
 	await fillWorktreeFileSearch(props.page, '');
 	await waitForWorktreeFileFilterStatus(
@@ -1634,6 +1765,7 @@ async function verifyWorktreeFileProductControls(props: {
 	);
 	const fetchableFilterVisibleCount = await worktreeFileFilterStatusVisibleCount(props.page);
 	const fetchableRenderedPathSample = await visibleWorktreeFilePathSample(props.page);
+	const fetchableTreeSizePixels = await worktreeFileTreeTotalSizePixels(props.page);
 	const fetchableTreeSizeSource = await worktreeFileTreeTotalSizeSource(props.page);
 	await clickWorktreeFileControl(props.page, 'worktree-file-filter-unavailable');
 	await waitForWorktreeFileFilterStatus(
@@ -1647,6 +1779,7 @@ async function verifyWorktreeFileProductControls(props: {
 	);
 	const unavailableFilterVisibleCount = await worktreeFileFilterStatusVisibleCount(props.page);
 	const unavailableRenderedPathSample = await visibleWorktreeFilePathSample(props.page);
+	const unavailableTreeSizePixels = await worktreeFileTreeTotalSizePixels(props.page);
 	const unavailableTreeSizeSource = await worktreeFileTreeTotalSizeSource(props.page);
 	await clickWorktreeFileControl(props.page, 'worktree-file-filter-all');
 	await fillWorktreeFileSearch(props.page, '');
@@ -1657,16 +1790,24 @@ async function verifyWorktreeFileProductControls(props: {
 	);
 	const allFilterVisibleCount = await worktreeFileFilterStatusVisibleCount(props.page);
 	const allRenderedPathSample = await visibleWorktreeFilePathSample(props.page);
+	const allTreeSizePixels = await worktreeFileTreeTotalSizePixels(props.page);
 	const allTreeSizeSource = await worktreeFileTreeTotalSizeSource(props.page);
 	const proof: WorktreeFileProductControlsProof = {
 		allFilterVisibleCount,
 		allRenderedPathSample,
+		allTreeSizePixels,
 		allTreeSizeSource,
 		expectedFetchableFilterCount,
+		expectedFetchableTreeSizePixels,
+		expectedInvalidRegexTreeSizePixels,
+		expectedRegexTreeSizePixels,
+		expectedSearchTreeSizePixels,
+		expectedUnavailableTreeSizePixels,
 		expectedUnavailableFilterCount,
 		fetchableFilterActive,
 		fetchableFilterVisibleCount,
 		fetchableRenderedPathSample,
+		fetchableTreeSizePixels,
 		fetchableTreeSizeSource,
 		initialVisibleCount,
 		initialRenderedPathSample,
@@ -1674,15 +1815,18 @@ async function verifyWorktreeFileProductControls(props: {
 		invalidRegexModeActive,
 		invalidRegexRenderedPathSample,
 		invalidRegexStatusText,
+		invalidRegexTreeSizePixels,
 		invalidRegexTreeSizeSource,
 		regexModeActive,
 		regexVisibleCount,
 		regexRenderedPathSample,
+		regexTreeSizePixels,
 		regexTreeSizeSource,
 		searchScreenshotPath,
 		searchResultIncludesTarget,
 		searchRenderedPathSample,
 		searchStatusText,
+		searchTreeSizePixels,
 		searchTreeSizeSource,
 		searchVisibleCount: searchRenderedPathSample.length,
 		targetPath: props.targetPath,
@@ -1690,6 +1834,7 @@ async function verifyWorktreeFileProductControls(props: {
 		unavailableFilterActive,
 		unavailableFilterVisibleCount,
 		unavailableRenderedPathSample,
+		unavailableTreeSizePixels,
 		unavailableTreeSizeSource,
 	};
 	assertWorktreeFileProductControlsProof({
@@ -1845,6 +1990,12 @@ function assertWorktreeFileProductControlsProof(props: {
 			`Expected Worktree/File search projection extent source to be localProjection: ${JSON.stringify(proof)}`,
 		);
 	}
+	assertWorktreeProjectedTreeSize({
+		actualSizePixels: proof.searchTreeSizePixels,
+		expectedSizePixels: proof.expectedSearchTreeSizePixels,
+		label: 'search',
+		proof,
+	});
 	if (
 		!proof.regexModeActive ||
 		proof.regexVisibleCount !== 1 ||
@@ -1860,6 +2011,12 @@ function assertWorktreeFileProductControlsProof(props: {
 			`Expected Worktree/File regex projection extent source to be localProjection: ${JSON.stringify(proof)}`,
 		);
 	}
+	assertWorktreeProjectedTreeSize({
+		actualSizePixels: proof.regexTreeSizePixels,
+		expectedSizePixels: proof.expectedRegexTreeSizePixels,
+		label: 'regex',
+		proof,
+	});
 	if (
 		!proof.invalidRegexModeActive ||
 		proof.invalidRegexStatusText !== 'Invalid regex' ||
@@ -1870,6 +2027,12 @@ function assertWorktreeFileProductControlsProof(props: {
 			`Expected Worktree/File invalid regex state to be visible and locally projected: ${JSON.stringify(proof)}`,
 		);
 	}
+	assertWorktreeProjectedTreeSize({
+		actualSizePixels: proof.invalidRegexTreeSizePixels,
+		expectedSizePixels: proof.expectedInvalidRegexTreeSizePixels,
+		label: 'invalid regex',
+		proof,
+	});
 	if (
 		!proof.fetchableFilterActive ||
 		proof.fetchableFilterVisibleCount !== proof.expectedFetchableFilterCount ||
@@ -1879,10 +2042,31 @@ function assertWorktreeFileProductControlsProof(props: {
 	) {
 		throw new Error(`Expected Worktree/File fetchable filter count: ${JSON.stringify(proof)}`);
 	}
-	if (proof.fetchableTreeSizeSource !== 'localProjection') {
+	if (proof.expectedFetchableTreeSizePixels === null) {
+		if (proof.fetchableTreeSizeSource !== 'providerFacts') {
+			throw new Error(
+				`Expected no-op Worktree/File fetchable filter to preserve provider extent: ${JSON.stringify(proof)}`,
+			);
+		}
+		if (
+			proof.allTreeSizePixels !== null &&
+			proof.fetchableTreeSizePixels !== proof.allTreeSizePixels
+		) {
+			throw new Error(
+				`Expected no-op Worktree/File fetchable filter to preserve tree size: ${JSON.stringify(proof)}`,
+			);
+		}
+	} else if (proof.fetchableTreeSizeSource !== 'localProjection') {
 		throw new Error(
 			`Expected Worktree/File fetchable projection extent source to be localProjection: ${JSON.stringify(proof)}`,
 		);
+	} else {
+		assertWorktreeProjectedTreeSize({
+			actualSizePixels: proof.fetchableTreeSizePixels,
+			expectedSizePixels: proof.expectedFetchableTreeSizePixels,
+			label: 'fetchable',
+			proof,
+		});
 	}
 	if (
 		!proof.unavailableFilterActive ||
@@ -1900,6 +2084,12 @@ function assertWorktreeFileProductControlsProof(props: {
 			`Expected Worktree/File unavailable projection extent source to be localProjection: ${JSON.stringify(proof)}`,
 		);
 	}
+	assertWorktreeProjectedTreeSize({
+		actualSizePixels: proof.unavailableTreeSizePixels,
+		expectedSizePixels: proof.expectedUnavailableTreeSizePixels,
+		label: 'unavailable',
+		proof,
+	});
 	if (
 		proof.allFilterVisibleCount !== proof.totalDescriptorCount ||
 		proof.allRenderedPathSample.length <= proof.searchRenderedPathSample.length
@@ -1911,6 +2101,22 @@ function assertWorktreeFileProductControlsProof(props: {
 	if (proof.allTreeSizeSource !== 'providerFacts') {
 		throw new Error(
 			`Expected Worktree/File all reset extent source to be providerFacts: ${JSON.stringify(proof)}`,
+		);
+	}
+}
+
+function assertWorktreeProjectedTreeSize(props: {
+	readonly actualSizePixels: number | null;
+	readonly expectedSizePixels: number;
+	readonly label: string;
+	readonly proof: WorktreeFileProductControlsProof;
+}): void {
+	if (
+		props.actualSizePixels === null ||
+		Math.abs(props.actualSizePixels - props.expectedSizePixels) > 1
+	) {
+		throw new Error(
+			`Expected Worktree/File ${props.label} tree extent to match flattened rendered rows: ${JSON.stringify(props.proof)}`,
 		);
 	}
 }
@@ -2003,6 +2209,25 @@ async function worktreeFileTreeTotalSizeSource(
 			?.getAttribute('data-worktree-tree-total-size-source');
 		return rawSource === 'providerFacts' || rawSource === 'localProjection' ? rawSource : null;
 	});
+}
+
+async function worktreeFileTreeTotalSizePixels(page: Page): Promise<number | null> {
+	return await page.evaluate((): number | null => {
+		const rawSize = document
+			.querySelector('[data-testid="bridge-file-viewer-pierre-file-tree"]')
+			?.getAttribute('data-worktree-tree-total-size');
+		if (rawSize === undefined || rawSize === null) {
+			return null;
+		}
+		const parsedSize = Number(rawSize);
+		return Number.isFinite(parsedSize) ? parsedSize : null;
+	});
+}
+
+function projectedTreeSizePixels(paths: readonly string[]): number {
+	return (
+		Math.max(1, countFlattenedWorktreeFileTreeRows(paths)) * bridgeFileViewerTreeRowHeightPixels
+	);
 }
 
 async function waitForWorktreeFileFilterStatus(
