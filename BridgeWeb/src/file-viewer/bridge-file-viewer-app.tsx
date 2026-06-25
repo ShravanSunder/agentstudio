@@ -516,8 +516,8 @@ function reconcileOpenFileStateWithFrames(props: {
 				}
 			: {
 					status: 'stale',
-					path: replacementDescriptor.path,
-					descriptor: replacementDescriptor,
+					path: currentOpenFileState.path,
+					descriptor: currentOpenFileState.descriptor,
 				};
 	}
 	const matchedInvalidation = props.frames.find(
@@ -556,6 +556,9 @@ function totalTreeHeightForSizeFacts(props: {
 }): number | null {
 	if (props.sizeFacts === null) {
 		return null;
+	}
+	if (!props.hasActiveProjection && props.sizeFacts.estimatedTotalHeightPixels !== undefined) {
+		return props.sizeFacts.estimatedTotalHeightPixels;
 	}
 	if (!props.hasActiveProjection && props.sizeFacts.pathCount !== undefined) {
 		return props.sizeFacts.pathCount * props.sizeFacts.rowHeightPixels;

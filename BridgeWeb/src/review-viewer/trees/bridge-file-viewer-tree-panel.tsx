@@ -6,6 +6,8 @@ import type {
 	WorktreeFileDescriptor,
 	WorktreeFileSurfaceSourceIdentity,
 } from '../../features/worktree-file/models/worktree-file-protocol-models.js';
+import { countFlattenedWorktreeFileTreeRows } from '../../features/worktree-file/models/worktree-file-tree-size.js';
+import { bridgeReviewTreeStyle, bridgeReviewTreeUnsafeCSS } from './bridge-tree-theme.js';
 
 export type BridgeFileViewerFilterMode = 'all' | 'fetchable' | 'unavailable';
 export type BridgeFileViewerSearchMode = 'text' | 'regex';
@@ -62,9 +64,11 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 			}
 		},
 		search: false,
+		unsafeCSS: bridgeReviewTreeUnsafeCSS,
 	});
-	const renderedTreeHeightPixels =
-		countPierreFileTreeRows(paths) * bridgeFileViewerTreeRowHeightPixels;
+	const fallbackRenderedTreeHeightPixels =
+		countFlattenedWorktreeFileTreeRows(paths) * bridgeFileViewerTreeRowHeightPixels;
+	const declaredTreeHeightPixels = props.totalTreeHeightPixels ?? fallbackRenderedTreeHeightPixels;
 
 	useEffect((): void => {
 		fileDescriptorByPathRef.current = props.fileDescriptorByPath;
@@ -161,61 +165,15 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 			<section
 				className="min-h-0 overflow-auto bridge-scrollbar"
 				data-testid="bridge-file-viewer-pierre-file-tree"
-				data-worktree-tree-total-size={String(renderedTreeHeightPixels)}
+				data-worktree-tree-total-size={String(declaredTreeHeightPixels)}
+				data-worktree-tree-total-size-source={
+					props.totalTreeHeightPixels === null ? 'localProjection' : 'providerFacts'
+				}
 			>
-				<FileTree className="h-full min-h-full" model={model} />
+				<FileTree className="h-full min-h-full" model={model} style={bridgeReviewTreeStyle} />
 			</section>
 		</aside>
 	);
-}
-
-function countPierreFileTreeRows(paths: readonly string[]): number {
-	const rootNode: BridgeFileViewerTreeDirectoryNode = { directories: new Map(), fileCount: 0 };
-	for (const path of paths) {
-		const parts = path.split('/').filter((part) => part.length > 0);
-		if (parts.length === 0) {
-			continue;
-		}
-		let currentNode = rootNode;
-		for (let index = 0; index < parts.length - 1; index += 1) {
-			const directoryName = parts[index];
-			if (directoryName === undefined) {
-				continue;
-			}
-			let childNode = currentNode.directories.get(directoryName);
-			if (childNode === undefined) {
-				childNode = { directories: new Map(), fileCount: 0 };
-				currentNode.directories.set(directoryName, childNode);
-			}
-			currentNode = childNode;
-		}
-		currentNode.fileCount += 1;
-	}
-	return countPierreVisibleRowsForDirectory(rootNode, true);
-}
-
-interface BridgeFileViewerTreeDirectoryNode {
-	readonly directories: Map<string, BridgeFileViewerTreeDirectoryNode>;
-	fileCount: number;
-}
-
-function countPierreVisibleRowsForDirectory(
-	node: BridgeFileViewerTreeDirectoryNode,
-	isRoot: boolean,
-): number {
-	let visibleChildRows = node.fileCount;
-	for (const childNode of node.directories.values()) {
-		visibleChildRows += countPierreVisibleRowsForDirectory(childNode, false);
-	}
-	if (isRoot) {
-		return visibleChildRows;
-	}
-	const childCount = node.fileCount + node.directories.size;
-	const onlyChildIsDirectory = node.fileCount === 0 && node.directories.size === 1;
-	if (childCount === 1 && onlyChildIsDirectory) {
-		return visibleChildRows;
-	}
-	return 1 + visibleChildRows;
 }
 
 function BridgeFileViewerFilterButton(props: {

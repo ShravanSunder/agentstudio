@@ -17,6 +17,7 @@ import type {
 	WorktreeFileSurfaceSourceIdentity,
 	WorktreeTreeVirtualizedSizeFacts,
 } from '../../src/features/worktree-file/models/worktree-file-protocol-models.js';
+import { countFlattenedWorktreeFileTreeRows } from '../../src/features/worktree-file/models/worktree-file-tree-size.js';
 
 const execFileAsync = promisify(execFile);
 const worktreeFileSubscriptionGeneration = 1;
@@ -208,10 +209,14 @@ function makeProviderState(props: {
 		rootRevisionToken: props.snapshot.fingerprint,
 	};
 	const worktreeFileContentByDescriptorId = new Map<string, string>();
+	const flattenedTreeRowCount = countFlattenedWorktreeFileTreeRows(
+		props.snapshot.changedFiles.map((changedFile) => changedFile.path),
+	);
 	const treeSizeFacts: WorktreeTreeVirtualizedSizeFacts = {
 		pathCount: props.snapshot.changedFiles.length,
+		estimatedTotalHeightPixels: flattenedTreeRowCount * worktreeFileRowHeightPixels,
 		windowStartIndex: 0,
-		windowRowCount: props.snapshot.changedFiles.length,
+		windowRowCount: flattenedTreeRowCount,
 		rowHeightPixels: worktreeFileRowHeightPixels,
 	};
 	const treeDescriptor = makeWorktreeAttachedDescriptor({

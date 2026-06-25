@@ -234,26 +234,31 @@ Former Gate 0.a red proof:
 
 Vite/dev-server Gate 0.a status:
 
-- The exact URL proof row is green as of 2026-06-24 21:45 -04:00.
+- The exact URL proof row is green as of 2026-06-24 22:16 -04:00.
 - Canonical proof command:
   `pnpm --dir BridgeWeb run test:dev-server:worktree`
 - Proof artifact:
-  `tmp/bridge-viewer-worktree-dev-server/2026-06-25T01-45-02-791Z/worktree-dev-server-proof.json`
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-25T02-16-36-219Z/worktree-dev-server-proof.json`
 - Screenshots:
-  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T01-45-02-791Z/worktree-file-ready.png`
-  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T01-45-02-791Z/worktree-file-search-result.png`
-  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T01-45-02-791Z/worktree-file-stale-refresh.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T02-16-36-219Z/worktree-file-ready.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T02-16-36-219Z/worktree-file-search-result.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T02-16-36-219Z/worktree-file-stale-refresh.png`
 - Focused supporting proof:
   - `pnpm --dir BridgeWeb exec vitest run src/app/bridge-app-protocol-router.unit.test.tsx`
     passed: 1 file, 3 tests
-  - `pnpm --dir BridgeWeb run check` passed with existing
+- `pnpm --dir BridgeWeb run check` passed with existing
     `no-await-in-loop` verifier warnings only
 - The proof now asserts shared BridgeViewer FileViewer ownership, Pierre
   FileTree/right rail, Pierre CodeView/File ownership, Shiki rendering,
-  worker-backed highlighting request, product controls, stale/refresh,
-  scroll extent canaries, and negative substitute guards against
+  worker-backed highlighting request plus ready worker pool/theme state,
+  product controls against actual rendered Pierre rows, provider-backed tree
+  visual extent facts, stale/refresh, scroll extent canaries, and negative
+  substitute guards against
   `WorktreeFileApp`, route-local custom tree/shell, and raw `<pre>` content.
-- Vite dev server remained live on `127.0.0.1:5173` with node PID `77037`
+- The prior `2026-06-25T01-45-02-791Z` proof is superseded: implementation
+  reviewers found it could pass with disabled workers, status-text-only
+  controls, and locally synthesized tree extents.
+- Vite dev server remained live on `127.0.0.1:5173` with node PID `27192`
   during this proof.
 - Prior 2026-06-24 proof remains lower-level regression evidence only.
 - Native Agent Studio Bridge/WKWebView proof is still not satisfied by this and

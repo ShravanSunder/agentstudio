@@ -48,7 +48,14 @@ describe('BridgeAppProtocolRouter', () => {
 		});
 
 		expect(document.querySelector('[data-testid="worktree-file-app"]')).toBeNull();
-		expect(document.querySelector('[data-testid="bridge-app-root"]')).not.toBeNull();
+		expect(document.querySelector('[data-testid="bridge-review-empty-shell"]')).toBeNull();
+		const shell = document.querySelector('[data-testid="bridge-file-viewer-shell"]');
+		const codeCanvas = document.querySelector('[data-testid="bridge-file-viewer-code-canvas"]');
+		const treeSidebar = document.querySelector('[data-testid="bridge-file-viewer-sidebar"]');
+		expect(shell?.getAttribute('data-file-viewer-owner')).toBe('BridgeViewerApp.FileViewer');
+		expect(shell?.getAttribute('data-sidebar-position')).toBe('right');
+		expect(codeCanvas?.getAttribute('data-pierre-code-view-owner')).toBe('CodeView.file');
+		expect(treeSidebar?.getAttribute('data-pierre-file-tree-owner')).toBe('FileTree');
 	});
 
 	test('parses document protocol metadata with Review as the fail-closed fallback', () => {

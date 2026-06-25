@@ -30,7 +30,7 @@ Bridge path before PR-ready.
 
 ## Current Proof Status
 
-Gate 0.a Vite/dev-server proof is green as of 2026-06-24 21:45 -04:00.
+Gate 0.a Vite/dev-server proof is green as of 2026-06-24 22:16 -04:00.
 
 Proof:
 
@@ -39,11 +39,11 @@ Proof:
   - exact URL:
     `http://127.0.0.1:5173/?fixture=worktree&workers=on&scenario=current-worktree`
   - artifact:
-    `tmp/bridge-viewer-worktree-dev-server/2026-06-25T01-45-02-791Z/worktree-dev-server-proof.json`
+    `tmp/bridge-viewer-worktree-dev-server/2026-06-25T02-16-36-219Z/worktree-dev-server-proof.json`
   - screenshots:
-    - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T01-45-02-791Z/worktree-file-ready.png`
-    - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T01-45-02-791Z/worktree-file-search-result.png`
-    - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T01-45-02-791Z/worktree-file-stale-refresh.png`
+    - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T02-16-36-219Z/worktree-file-ready.png`
+    - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T02-16-36-219Z/worktree-file-search-result.png`
+    - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T02-16-36-219Z/worktree-file-stale-refresh.png`
 - `pnpm --dir BridgeWeb exec vitest run src/app/bridge-app-protocol-router.unit.test.tsx`
   passed: 1 file, 3 tests.
 - `pnpm --dir BridgeWeb run check` passed with existing verifier
@@ -51,10 +51,16 @@ Proof:
 
 The canonical verifier now proves shared BridgeViewer FileViewer ownership,
 Pierre FileTree/right rail ownership, Pierre CodeView/File ownership, Shiki
-rendering, worker-backed highlighting request, search/regex/filter controls,
-stale/refresh, tree/content scroll extent stability, and negative substitute
-guards against `WorktreeFileApp`, route-local custom shell/tree, raw `<pre>`
-content, mock/review lineage, and DOM-only content-ready markers.
+rendering, worker-backed highlighting request plus ready worker pool/theme
+state, search/regex/filter controls against actual rendered Pierre rows,
+provider-backed tree visual extent facts, stale/refresh, tree/content scroll
+extent stability, and negative substitute guards against `WorktreeFileApp`,
+route-local custom shell/tree, raw `<pre>` content, mock/review lineage, and
+DOM-only content-ready markers.
+
+The earlier `2026-06-25T01-45-02-791Z` artifact is superseded because
+implementation reviewers found worker, row-filter, and provider-extent
+false-green gaps.
 
 This does not satisfy native Agent Studio Bridge/WKWebView proof. That remains
 required before PR-ready.

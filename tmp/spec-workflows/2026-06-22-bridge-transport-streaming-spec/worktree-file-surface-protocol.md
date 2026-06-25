@@ -8,13 +8,16 @@ before downstream transport, Review, renderer, and PR-ready gates resume.
 Parent: [spec.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/spec-workflows/2026-06-22-bridge-transport-streaming-spec/spec.md:1)
 
 Current Gate 0.a status: Vite/dev-server proof is implemented as of
-2026-06-24 21:45 -04:00. The canonical proof artifact is
-`tmp/bridge-viewer-worktree-dev-server/2026-06-25T01-45-02-791Z/worktree-dev-server-proof.json`.
+2026-06-24 22:16 -04:00. The canonical proof artifact is
+`tmp/bridge-viewer-worktree-dev-server/2026-06-25T02-16-36-219Z/worktree-dev-server-proof.json`.
 That proof covers the exact worktree URL, shared BridgeViewer FileViewer shell,
 Pierre FileTree/right rail, Pierre CodeView/File, Shiki rendering,
-worker-backed highlighting request, product controls, stale/refresh, and stable
-tree/content scroll extents. Native Agent Studio Bridge/WKWebView proof remains
-required before PR-ready.
+worker-backed highlighting request plus ready worker pool/theme state, product
+controls against actual rendered Pierre rows, provider-backed tree visual extent
+facts, stale/refresh, and stable tree/content scroll extents. The prior
+`2026-06-25T01-45-02-791Z` proof is superseded because it did not bind these
+reviewer-identified proof gaps. Native Agent Studio Bridge/WKWebView proof
+remains required before PR-ready.
 
 This file owns the Worktree/File protocol family for FileViewer data. FileViewer
 is a viewer mode inside the shared BridgeViewer app, not a separate app. The
