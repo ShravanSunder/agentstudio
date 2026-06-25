@@ -10,6 +10,12 @@ import type {
 	BridgeViewerMockedBackendDeliveryMode,
 	BridgeViewerMockedBackendLatencyProfile,
 } from '../review-viewer/test-support/bridge-viewer-mocked-backend.js';
+import {
+	bridgeViewerFileVersionSchema,
+	bridgeViewerNavigationCommandSchema,
+	type BridgeViewerFileVersion,
+	type BridgeViewerNavigationCommand,
+} from './bridge-viewer-navigation-models.js';
 
 export const bridgeAppDevFixtureClassSchema = z.enum([
 	'small-mixed',
@@ -44,11 +50,20 @@ export const bridgeAppDevFixtureWorkersModeSchema = z.enum(['on', 'off']);
 
 export type BridgeAppDevFixtureWorkersMode = z.infer<typeof bridgeAppDevFixtureWorkersModeSchema>;
 
+export const bridgeAppDevViewerModeSchema = z.enum(['file', 'review']);
+
+export type BridgeAppDevViewerMode = z.infer<typeof bridgeAppDevViewerModeSchema>;
+
+export const bridgeAppDevPresentationModeSchema = z.enum(['diff', 'file']);
+
+export type BridgeAppDevPresentationMode = z.infer<typeof bridgeAppDevPresentationModeSchema>;
+
 export const bridgeAppDevFixtureOptionsSchema = z
 	.object({
 		fixtureClass: bridgeAppDevFixtureClassSchema,
 		deliveryMode: bridgeAppDevFixtureDeliveryModeSchema,
 		latencyProfile: bridgeAppDevFixtureLatencyProfileSchema,
+		navigationCommand: bridgeViewerNavigationCommandSchema,
 		scenario: bridgeAppDevFixtureScenarioSchema,
 		workersEnabled: z.boolean(),
 	})
@@ -59,12 +74,20 @@ export type BridgeAppDevFixtureOptions = z.infer<typeof bridgeAppDevFixtureOptio
 export function parseBridgeAppDevFixtureOptions(
 	searchParams: URLSearchParams,
 ): BridgeAppDevFixtureOptions {
-	const fixtureClass = searchParams.get('fixture') ?? 'large-diffshub';
+	const fixtureClass = parseRequiredQueryValue({
+		name: 'fixture',
+		rawValue: searchParams.get('fixture') ?? 'large-diffshub',
+		schema: bridgeAppDevFixtureClassSchema,
+	});
 	const parsed = bridgeAppDevFixtureOptionsSchema.safeParse({
 		fixtureClass,
 		deliveryMode: searchParams.get('delivery') ?? 'full-load',
 		latencyProfile: searchParams.get('latency') ?? 'zero',
 		scenario: fixtureClass === 'worktree' ? 'default' : (searchParams.get('scenario') ?? 'default'),
+		navigationCommand: bridgeViewerNavigationCommandForDevQuery({
+			fixtureClass,
+			searchParams,
+		}),
 		workersEnabled: parseWorkersEnabled(searchParams.get('workers') ?? 'on'),
 	});
 
@@ -73,6 +96,141 @@ export function parseBridgeAppDevFixtureOptions(
 	}
 
 	return parsed.data;
+}
+
+const bridgeAppDevWorktreeSourceId = 'dev-worktree-source';
+const bridgeAppDevWorktreeReviewSourceId = 'dev-current-worktree-review';
+const bridgeAppDevWorktreeReviewComparisonId = 'dev-current-worktree-comparison';
+
+function bridgeViewerNavigationCommandForDevQuery(props: {
+	readonly fixtureClass: BridgeAppDevFixtureClass;
+	readonly searchParams: URLSearchParams;
+}): BridgeViewerNavigationCommand {
+	if (props.fixtureClass !== 'worktree') {
+		return bridgeViewerNavigationCommandSchema.parse({
+			commandId: `dev:fixture:${props.fixtureClass}:review`,
+			commandKind: 'initialize',
+			context: 'review',
+			restoreMemory: true,
+			source: {
+				sourceKind: 'fixture',
+				sourceId: props.fixtureClass,
+			},
+		});
+	}
+
+	const viewerMode = parseOptionalQueryValue<BridgeAppDevViewerMode>({
+		defaultValue: 'file',
+		name: 'viewer',
+		rawValue: props.searchParams.get('viewer'),
+		schema: bridgeAppDevViewerModeSchema,
+	});
+	const presentationMode = parseOptionalQueryValue<BridgeAppDevPresentationMode>({
+		defaultValue: 'diff',
+		name: 'presentation',
+		rawValue: props.searchParams.get('presentation'),
+		schema: bridgeAppDevPresentationModeSchema,
+	});
+	const selectedPath = props.searchParams.get('path');
+	const selectedVersion = parseOptionalFileVersion(props.searchParams.get('version'));
+
+	if (viewerMode === 'file') {
+		return bridgeViewerFileNavigationCommand({
+			selectedPath,
+			selectedVersion,
+		});
+	}
+
+	return bridgeViewerReviewNavigationCommand({
+		presentationMode,
+		selectedPath,
+		selectedVersion,
+	});
+}
+
+function bridgeViewerFileNavigationCommand(props: {
+	readonly selectedPath: string | null;
+	readonly selectedVersion: BridgeViewerFileVersion | null;
+}): BridgeViewerNavigationCommand {
+	if (props.selectedPath === null) {
+		return bridgeViewerNavigationCommandSchema.parse({
+			commandId: 'dev:worktree:files',
+			commandKind: 'initialize',
+			context: 'files',
+			restoreMemory: true,
+			source: {
+				sourceKind: 'worktree',
+				sourceId: bridgeAppDevWorktreeSourceId,
+			},
+		});
+	}
+
+	return bridgeViewerNavigationCommandSchema.parse({
+		commandId: `dev:worktree:files:file:${props.selectedPath}:${
+			props.selectedVersion ?? 'current'
+		}`,
+		commandKind: 'initialize',
+		context: 'files',
+		restoreMemory: true,
+		source: {
+			sourceKind: 'worktree',
+			sourceId: bridgeAppDevWorktreeSourceId,
+		},
+		target: {
+			targetKind: 'file',
+			fileRef: {
+				sourceId: bridgeAppDevWorktreeSourceId,
+				path: props.selectedPath,
+			},
+			version: props.selectedVersion ?? 'current',
+		},
+	});
+}
+
+function bridgeViewerReviewNavigationCommand(props: {
+	readonly presentationMode: BridgeAppDevPresentationMode;
+	readonly selectedPath: string | null;
+	readonly selectedVersion: BridgeViewerFileVersion | null;
+}): BridgeViewerNavigationCommand {
+	if (props.presentationMode === 'file') {
+		if (props.selectedPath === null || props.selectedVersion === null) {
+			throw new Error(
+				'Invalid BridgeWeb dev fixture query: presentation=file requires path and version',
+			);
+		}
+		return bridgeViewerNavigationCommandSchema.parse({
+			commandId: `dev:worktree:review:file:${props.selectedPath}:${props.selectedVersion}`,
+			commandKind: 'initialize',
+			context: 'review',
+			restoreMemory: true,
+			source: {
+				sourceKind: 'reviewComparison',
+				sourceId: bridgeAppDevWorktreeReviewSourceId,
+				comparisonId: bridgeAppDevWorktreeReviewComparisonId,
+			},
+			target: {
+				targetKind: 'file',
+				comparisonId: bridgeAppDevWorktreeReviewComparisonId,
+				fileRef: {
+					sourceId: bridgeAppDevWorktreeReviewSourceId,
+					path: props.selectedPath,
+				},
+				version: props.selectedVersion,
+			},
+		});
+	}
+
+	return bridgeViewerNavigationCommandSchema.parse({
+		commandId: 'dev:worktree:review',
+		commandKind: 'initialize',
+		context: 'review',
+		restoreMemory: true,
+		source: {
+			sourceKind: 'reviewComparison',
+			sourceId: bridgeAppDevWorktreeReviewSourceId,
+			comparisonId: bridgeAppDevWorktreeReviewComparisonId,
+		},
+	});
 }
 
 export function fixtureClassForMockedBackend(
@@ -144,4 +302,43 @@ function parseWorkersEnabled(workersMode: string): boolean {
 		throw new Error(`Invalid BridgeWeb dev fixture query: workers=${workersMode}`);
 	}
 	return parsed.data === 'on';
+}
+
+function parseOptionalFileVersion(rawValue: string | null): BridgeViewerFileVersion | null {
+	if (rawValue === null) {
+		return null;
+	}
+	return parseRequiredQueryValue({
+		name: 'version',
+		rawValue,
+		schema: bridgeViewerFileVersionSchema,
+	});
+}
+
+function parseOptionalQueryValue<TValue>(props: {
+	readonly defaultValue: TValue;
+	readonly name: string;
+	readonly rawValue: string | null;
+	readonly schema: z.ZodType<TValue>;
+}): TValue {
+	if (props.rawValue === null) {
+		return props.defaultValue;
+	}
+	return parseRequiredQueryValue({
+		name: props.name,
+		rawValue: props.rawValue,
+		schema: props.schema,
+	});
+}
+
+function parseRequiredQueryValue<TValue>(props: {
+	readonly name: string;
+	readonly rawValue: string;
+	readonly schema: z.ZodType<TValue>;
+}): TValue {
+	const parsed = props.schema.safeParse(props.rawValue);
+	if (!parsed.success) {
+		throw new Error(`Invalid BridgeWeb dev fixture query: ${props.name}=${props.rawValue}`);
+	}
+	return parsed.data;
 }
