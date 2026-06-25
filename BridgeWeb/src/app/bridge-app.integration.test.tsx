@@ -12,6 +12,7 @@ import {
 import {
 	worktreeFileDescriptorSchema,
 	type WorktreeFileDescriptor,
+	type WorktreeFileProtocolFrame,
 } from '../features/worktree-file/models/worktree-file-protocol-models.js';
 import {
 	makeBridgeReviewItem,
@@ -124,6 +125,67 @@ describe('BridgeApp', () => {
 				version: 'current',
 			},
 		});
+	});
+
+	test('preserves FileViewer memory when switching through the shared context control', async () => {
+		const descriptor = makeWorktreeNavigationDescriptor();
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeApp
+					fileViewerProps={{
+						autoOpenInitialFile: true,
+						initialFrames: makeWorktreeNavigationFrames(descriptor),
+						fetchResource: async (): Promise<string> => 'export const selectedFile = true;\n',
+					}}
+					viewerMode="file"
+				/>,
+			);
+		});
+
+		await waitForFileViewerOpenPath('src/app.ts');
+		const appRoot = document.querySelector('[data-testid="bridge-app-root"]');
+		const fileModeHost = document.querySelector('[data-testid="bridge-viewer-mode-host-file"]');
+		const fileShell = document.querySelector('[data-testid="bridge-file-viewer-shell"]');
+		expect(appRoot?.getAttribute('data-bridge-viewer-mode')).toBe('file');
+		expect(fileModeHost?.getAttribute('data-bridge-viewer-mode-active')).toBe('true');
+		expect(fileModeHost?.hasAttribute('hidden')).toBe(false);
+		expect(fileShell?.getAttribute('data-selected-display-path')).toBe('src/app.ts');
+
+		const reviewContextButton = requireHTMLElement(
+			document.querySelector('[data-testid="bridge-viewer-context-review"]'),
+		);
+		await act(async (): Promise<void> => {
+			reviewContextButton.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		});
+
+		expect(appRoot?.getAttribute('data-bridge-viewer-mode')).toBe('review');
+		expect(fileModeHost?.getAttribute('data-bridge-viewer-mode-active')).toBe('false');
+		expect(fileModeHost?.hasAttribute('hidden')).toBe(true);
+		expect(fileShell?.getAttribute('data-selected-display-path')).toBe('src/app.ts');
+		expect(document.querySelector('[data-testid="bridge-review-empty-shell"]')).not.toBeNull();
+		expect(document.querySelectorAll('[data-testid="bridge-app-root"]')).toHaveLength(1);
+		expect(document.querySelector('[data-testid="worktree-file-app"]')).toBeNull();
+
+		const fileContextButton = requireHTMLElement(
+			document.querySelector('[data-testid="bridge-viewer-context-file"]'),
+		);
+		await act(async (): Promise<void> => {
+			fileContextButton.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		});
+
+		expect(appRoot?.getAttribute('data-bridge-viewer-mode')).toBe('file');
+		expect(fileModeHost?.getAttribute('data-bridge-viewer-mode-active')).toBe('true');
+		expect(fileModeHost?.hasAttribute('hidden')).toBe(false);
+		expect(fileShell?.getAttribute('data-selected-display-path')).toBe('src/app.ts');
+		expect(
+			document
+				.querySelector('[data-testid="bridge-viewer-context-file"]')
+				?.getAttribute('data-slot'),
+		).toBe('button');
 	});
 
 	test('selected unavailable state is owned by selected content demand', () => {
@@ -2876,6 +2938,28 @@ async function waitForSelectedItemId(itemId: string, remainingAttempts = 20): Pr
 	await waitForSelectedItemId(itemId, remainingAttempts - 1);
 }
 
+async function waitForFileViewerOpenPath(path: string, remainingAttempts = 20): Promise<void> {
+	if (
+		document
+			.querySelector('[data-worktree-open-file-path]')
+			?.getAttribute('data-worktree-open-file-path') === path
+	) {
+		return;
+	}
+	if (remainingAttempts <= 0) {
+		throw new Error(
+			`expected FileViewer open path ${path}; selected=${
+				document
+					.querySelector('[data-worktree-open-file-path]')
+					?.getAttribute('data-worktree-open-file-path') ?? 'null'
+			}`,
+		);
+	}
+	await Promise.resolve();
+	await waitForAnimationFrame();
+	await waitForFileViewerOpenPath(path, remainingAttempts - 1);
+}
+
 function selectedBridgeViewerPanelAttribute(attributeName: string): string | null {
 	return (
 		document.querySelector('[data-testid="bridge-code-view-panel"]')?.getAttribute(attributeName) ??
@@ -3624,6 +3708,70 @@ function makeWorktreeNavigationDescriptor(): WorktreeFileDescriptor {
 		language: 'typescript',
 		fileExtension: 'ts',
 	});
+}
+
+function makeWorktreeNavigationFrames(
+	descriptor: WorktreeFileDescriptor,
+): readonly WorktreeFileProtocolFrame[] {
+	return [
+		{
+			kind: 'snapshot',
+			streamId: 'worktree-file:pane-1',
+			generation: 1,
+			sequence: 0,
+			frameKind: 'worktree.snapshot',
+			source: descriptor.sourceIdentity,
+			treeDescriptor: bridgeAttachedResourceDescriptorSchema.parse({
+				ref: {
+					descriptorId: 'tree-window-1',
+					expectedProtocol: 'worktree-file',
+					expectedResourceKind: 'worktree.treeWindow',
+					expectedIdentity: {
+						paneId: 'pane-1',
+						protocol: 'worktree-file',
+						sourceId: descriptor.sourceIdentity.sourceId,
+						generation: 1,
+						streamId: 'worktree-file:pane-1',
+					},
+				},
+				descriptor: {
+					descriptorId: 'tree-window-1',
+					protocol: 'worktree-file',
+					resourceKind: 'worktree.treeWindow',
+					resourceUrl:
+						'agentstudio://resource/worktree-file/worktree.treeWindow/tree-window-1?generation=1',
+					identity: {
+						paneId: 'pane-1',
+						protocol: 'worktree-file',
+						sourceId: descriptor.sourceIdentity.sourceId,
+						generation: 1,
+						streamId: 'worktree-file:pane-1',
+					},
+					content: {
+						mediaType: 'application/json',
+						encoding: 'utf-8',
+						expectedBytes: 2,
+						maxBytes: 1024,
+					},
+				},
+			}),
+			treeSizeFacts: {
+				pathCount: 1,
+				estimatedTotalHeightPixels: 24,
+				rowHeightPixels: 24,
+				windowRowCount: 1,
+				windowStartIndex: 0,
+			},
+		},
+		{
+			kind: 'delta',
+			streamId: 'worktree-file:pane-1',
+			generation: 1,
+			sequence: 1,
+			frameKind: 'worktree.fileDescriptor',
+			descriptor,
+		},
+	];
 }
 
 function isMissingContentHandle(

@@ -303,6 +303,50 @@ Checkpoint rhythm:
 - checkpoint after PR-ready wrapup
 - commit scoped files at verified checkpoints when repo policy permits
 
+## 2026-06-25 Checkpoint: Shared Context Toggle And Memory
+
+Status:
+dev-server and focused BridgeWeb checks passed for the shared app context
+toggle/memory slice. Gate 0.a remains open for native Agent Studio
+Bridge/WKWebView proof and implementation review disposition.
+
+Implemented/proven:
+
+- `BridgeApp` owns one `BridgeViewerAppShell`.
+- FileViewer and ReviewViewer are mode bodies under the shared shell, not
+  separate apps.
+- The context switcher uses the shared shadcn `Button` primitive and records
+  selected Files/Review state.
+- The inactive FileViewer remains mounted but hidden after Files-to-Review
+  handoff so per-context memory can be restored.
+- Dev-server proof toggles Files -> Review -> Files -> Review and verifies
+  `.gitignore` remains selected in both contexts.
+- Negative guard still proves zero standalone `WorktreeFileApp` roots.
+
+Proof:
+
+- `pnpm --dir BridgeWeb exec vitest run src/app/bridge-app-protocol-router.unit.test.tsx src/app/bridge-app.integration.test.tsx --reporter verbose`
+  - Exit: 0
+  - Result: 2 files passed, 53 tests passed
+- `pnpm --dir BridgeWeb run check`
+  - Exit: 0
+  - Result: passed with existing `no-await-in-loop` warnings in
+    `scripts/verify-bridge-viewer-worktree-dev-server.ts`
+- `pnpm --dir BridgeWeb run test:dev-server:worktree`
+  - Exit: 0
+  - Artifact:
+    `tmp/bridge-viewer-worktree-dev-server/2026-06-25T13-48-26-677Z/worktree-dev-server-proof.json`
+  - Key artifact facts:
+    `sharedShellProof.appRootCount = 1`,
+    `sharedShellProof.shellParentIsModeHost = true`,
+    `sharedShellProof.fileContextButtonSelected = true`,
+    `sharedShellProof.workerPoolState = ready`,
+    `fileToReviewHandoffProof.fileViewerShellCountAfterSwitch = 1`,
+    `fileToReviewHandoffProof.fileViewerShellHiddenAfterSwitch = true`,
+    `fileToReviewHandoffProof.fileViewerSelectedPathAfterReturnToFile = .gitignore`,
+    `fileToReviewHandoffProof.reviewSelectedDisplayPathAfterReturnToReview = .gitignore`,
+    `fileToReviewHandoffProof.standaloneWorktreeFileAppCount = 0`.
+
 Phase skills must return:
 
 ```text

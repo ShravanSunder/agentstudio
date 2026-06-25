@@ -292,13 +292,18 @@ interface WorktreeFileSharedShellProof {
 	readonly codeCanvasCount: number;
 	readonly codeCanvasOwnsCenterPoint: boolean;
 	readonly codeOwner: string | null;
+	readonly fileContextButtonSelected: string | null;
 	readonly hasPierreTreeShadowRoot: boolean;
+	readonly modeHostActive: string | null;
+	readonly modeHostCount: number;
+	readonly modeHostParentIsSharedRoot: boolean;
 	readonly rootVisible: boolean;
+	readonly reviewContextButtonSelected: string | null;
 	readonly sharedShellMode: string | null;
 	readonly sharedShellOwner: string | null;
 	readonly shellCount: number;
 	readonly shellOwnsCenterPoint: boolean;
-	readonly shellParentIsSharedRoot: boolean;
+	readonly shellParentIsModeHost: boolean;
 	readonly shellOwner: string | null;
 	readonly sidebarCount: number;
 	readonly sidebarIsRight: boolean;
@@ -326,6 +331,7 @@ interface WorktreeReviewRouteProof {
 	readonly appOwner: string | null;
 	readonly appRootCount: number;
 	readonly appRootVisible: boolean;
+	readonly fileContextButtonSelected: string | null;
 	readonly fileViewerCodeCanvasCount: number;
 	readonly fileViewerShellCount: number;
 	readonly fileViewerSidebarCount: number;
@@ -333,6 +339,7 @@ interface WorktreeReviewRouteProof {
 	readonly pageUrl: string;
 	readonly reviewCanvasCount: number;
 	readonly reviewCodeScrollCount: number;
+	readonly reviewContextButtonSelected: string | null;
 	readonly reviewContentRouteHitCount: number;
 	readonly reviewContentRouteHitUrls: readonly string[];
 	readonly reviewEmptyShellCount: number;
@@ -377,10 +384,24 @@ interface WorktreeFileToReviewHandoffProof {
 	readonly afterLocationHref: string;
 	readonly expectedDisplayPath: string;
 	readonly expectedReviewItemId: string;
+	readonly fileContextButtonSelectedAfterSwitch: string | null;
+	readonly fileModeHostHiddenAfterSwitch: boolean;
+	readonly fileModeHostHiddenAfterReturnToFile: boolean;
+	readonly fileModeHostHiddenAfterReturnToReview: boolean;
+	readonly fileModeHostActiveAfterReturnToFile: string | null;
+	readonly fileModeHostActiveAfterReturnToReview: string | null;
 	readonly fileViewerShellCountAfterSwitch: number;
+	readonly fileViewerShellHiddenAfterSwitch: boolean;
+	readonly fileViewerSelectedPathAfterReturnToFile: string | null;
+	readonly fileViewerSelectedPathAfterSwitch: string | null;
 	readonly reviewContentRouteHitCount: number;
 	readonly reviewContentRouteHitUrls: readonly string[];
+	readonly reviewContextButtonSelectedAfterSwitch: string | null;
+	readonly reviewContextButtonSelectedAfterReturnToReview: string | null;
+	readonly reviewModeAfterReturnToFile: string | null;
+	readonly reviewModeAfterReturnToReview: string | null;
 	readonly reviewPackageRouteHitCount: number;
+	readonly reviewSelectedDisplayPathAfterReturnToReview: string | null;
 	readonly selectedContentState: string | null;
 	readonly selectedDisplayPath: string | null;
 	readonly selectedItemId: string | null;
@@ -864,6 +885,10 @@ async function verifyWorktreeReviewRoute(): Promise<WorktreeReviewRouteProof> {
 				fileViewerCodeCanvasCount: document.querySelectorAll(
 					'[data-testid="bridge-file-viewer-code-canvas"]',
 				).length,
+				fileContextButtonSelected:
+					document
+						.querySelector('[data-testid="bridge-viewer-context-file"]')
+						?.getAttribute('data-bridge-viewer-context-selected') ?? null,
 				fileViewerShellCount: document.querySelectorAll('[data-testid="bridge-file-viewer-shell"]')
 					.length,
 				fileViewerSidebarCount: document.querySelectorAll(
@@ -876,6 +901,10 @@ async function verifyWorktreeReviewRoute(): Promise<WorktreeReviewRouteProof> {
 				reviewCodeScrollCount: document.querySelectorAll(
 					'[data-testid="bridge-review-code-scroll"]',
 				).length,
+				reviewContextButtonSelected:
+					document
+						.querySelector('[data-testid="bridge-viewer-context-review"]')
+						?.getAttribute('data-bridge-viewer-context-selected') ?? null,
 				reviewPackageShellCount: document.querySelectorAll('[data-testid="review-viewer-shell"]')
 					.length,
 				reviewSelectedContentState:
@@ -933,6 +962,8 @@ async function verifyWorktreeReviewRoute(): Promise<WorktreeReviewRouteProof> {
 			routeProof.pageUrl !== expectedReviewUrl ||
 			routeProof.sharedShellMode !== 'review' ||
 			routeProof.sharedShellOwner !== 'BridgeViewerAppShell' ||
+			routeProof.fileContextButtonSelected !== 'false' ||
+			routeProof.reviewContextButtonSelected !== 'true' ||
 			routeProof.fileViewerShellCount !== 0 ||
 			routeProof.fileViewerSidebarCount !== 0 ||
 			routeProof.fileViewerCodeCanvasCount !== 0 ||
@@ -1187,6 +1218,7 @@ async function assertSharedBridgeFileViewerShell(props: {
 		];
 		const sidebars = [...document.querySelectorAll('[data-testid="bridge-file-viewer-sidebar"]')];
 		const appRoot = appRoots[0];
+		const modeHost = document.querySelector('[data-testid="bridge-viewer-mode-host-file"]');
 		const shell = shells[0];
 		const codeCanvas = codeCanvases[0];
 		const sidebar = sidebars[0];
@@ -1195,6 +1227,7 @@ async function assertSharedBridgeFileViewerShell(props: {
 		);
 		if (
 			!(appRoot instanceof HTMLElement) ||
+			!(modeHost instanceof HTMLElement) ||
 			!(shell instanceof HTMLElement) ||
 			!(codeCanvas instanceof HTMLElement) ||
 			!(sidebar instanceof HTMLElement) ||
@@ -1219,13 +1252,25 @@ async function assertSharedBridgeFileViewerShell(props: {
 			codeCanvasCount: codeCanvases.length,
 			codeCanvasOwnsCenterPoint: elementOwnsCenterPoint(codeCanvas),
 			codeOwner: codeCanvas.getAttribute('data-pierre-code-view-owner'),
+			fileContextButtonSelected:
+				document
+					.querySelector('[data-testid="bridge-viewer-context-file"]')
+					?.getAttribute('data-bridge-viewer-context-selected') ?? null,
 			hasPierreTreeShadowRoot: pierreTree.querySelector('file-tree-container')?.shadowRoot !== null,
+			modeHostActive: modeHost.getAttribute('data-bridge-viewer-mode-active'),
+			modeHostCount: document.querySelectorAll('[data-testid="bridge-viewer-mode-host-file"]')
+				.length,
+			modeHostParentIsSharedRoot: modeHost.parentElement === appRoot,
 			rootVisible: appRoot.getBoundingClientRect().width > 0,
+			reviewContextButtonSelected:
+				document
+					.querySelector('[data-testid="bridge-viewer-context-review"]')
+					?.getAttribute('data-bridge-viewer-context-selected') ?? null,
 			sharedShellMode: appRoot.getAttribute('data-bridge-viewer-mode'),
 			sharedShellOwner: appRoot.getAttribute('data-bridge-viewer-shell-owner'),
 			shellCount: shells.length,
 			shellOwnsCenterPoint: elementOwnsCenterPoint(shell),
-			shellParentIsSharedRoot: shell.parentElement === appRoot,
+			shellParentIsModeHost: shell.parentElement === modeHost,
 			shellOwner: shell.getAttribute('data-file-viewer-owner'),
 			sidebarCount: sidebars.length,
 			sidebarIsRight: sidebarRect.left > codeRect.left,
@@ -1268,13 +1313,18 @@ async function assertSharedBridgeFileViewerShell(props: {
 		proofWithWorkerBaseline.sharedShellMode !== 'file' ||
 		proofWithWorkerBaseline.appRootCount !== 1 ||
 		!proofWithWorkerBaseline.appRootOwnsCenterPoint ||
+		proofWithWorkerBaseline.modeHostCount !== 1 ||
+		proofWithWorkerBaseline.modeHostActive !== 'true' ||
+		!proofWithWorkerBaseline.modeHostParentIsSharedRoot ||
+		proofWithWorkerBaseline.fileContextButtonSelected !== 'true' ||
+		proofWithWorkerBaseline.reviewContextButtonSelected !== 'false' ||
 		proofWithWorkerBaseline.shellCount !== 1 ||
 		!proofWithWorkerBaseline.shellOwnsCenterPoint ||
 		proofWithWorkerBaseline.codeCanvasCount !== 1 ||
 		!proofWithWorkerBaseline.codeCanvasOwnsCenterPoint ||
 		proofWithWorkerBaseline.sidebarCount !== 1 ||
 		!proofWithWorkerBaseline.sidebarOwnsCenterPoint ||
-		!proofWithWorkerBaseline.shellParentIsSharedRoot ||
+		!proofWithWorkerBaseline.shellParentIsModeHost ||
 		proofWithWorkerBaseline.shellOwner !== 'BridgeViewerApp.FileViewer' ||
 		proofWithWorkerBaseline.sidebarPosition !== 'right' ||
 		!proofWithWorkerBaseline.sidebarIsRight ||
@@ -3695,14 +3745,32 @@ async function verifyWorktreeFileToReviewHandoff(): Promise<WorktreeFileToReview
 			const appRoot = appRoots[0];
 			const reviewShell = document.querySelector('[data-testid="review-viewer-shell"]');
 			const codePanel = document.querySelector('[data-testid="bridge-code-view-panel"]');
+			const fileModeHost = document.querySelector('[data-testid="bridge-viewer-mode-host-file"]');
+			const fileViewerShell = document.querySelector('[data-testid="bridge-file-viewer-shell"]');
 			return {
 				afterLocationHref: window.location.href,
 				appOwner:
 					appRoot instanceof HTMLElement ? appRoot.getAttribute('data-bridge-app-owner') : null,
 				appRootCount: appRoots.length,
+				fileContextButtonSelectedAfterSwitch:
+					document
+						.querySelector('[data-testid="bridge-viewer-context-file"]')
+						?.getAttribute('data-bridge-viewer-context-selected') ?? null,
+				fileModeHostHiddenAfterSwitch:
+					fileModeHost instanceof HTMLElement && fileModeHost.hasAttribute('hidden'),
 				fileViewerShellCountAfterSwitch: document.querySelectorAll(
 					'[data-testid="bridge-file-viewer-shell"]',
 				).length,
+				fileViewerShellHiddenAfterSwitch:
+					fileViewerShell instanceof HTMLElement && fileViewerShell.closest('[hidden]') !== null,
+				fileViewerSelectedPathAfterSwitch:
+					fileViewerShell instanceof HTMLElement
+						? fileViewerShell.getAttribute('data-selected-display-path')
+						: null,
+				reviewContextButtonSelectedAfterSwitch:
+					document
+						.querySelector('[data-testid="bridge-viewer-context-review"]')
+						?.getAttribute('data-bridge-viewer-context-selected') ?? null,
 				selectedContentState:
 					reviewShell instanceof HTMLElement
 						? reviewShell.getAttribute('data-selected-content-state')
@@ -3732,8 +3800,71 @@ async function verifyWorktreeFileToReviewHandoff(): Promise<WorktreeFileToReview
 				).length,
 			};
 		});
+		await page.click('[data-testid="bridge-viewer-context-file"]');
+		await page.waitForFunction(
+			(expected: { readonly displayPath: string }): boolean => {
+				const appRoot = document.querySelector('[data-testid="bridge-app-root"]');
+				const contentPanel = document.querySelector('[data-worktree-open-file-path]');
+				return (
+					appRoot?.getAttribute('data-bridge-viewer-mode') === 'file' &&
+					contentPanel?.getAttribute('data-worktree-open-file-path') === expected.displayPath
+				);
+			},
+			{ displayPath: expectedDisplayPath },
+			{ timeout: 20_000 },
+		);
+		const returnToFileProof = await page.evaluate(() => {
+			const appRoot = document.querySelector('[data-testid="bridge-app-root"]');
+			const fileModeHost = document.querySelector('[data-testid="bridge-viewer-mode-host-file"]');
+			const fileViewerShell = document.querySelector('[data-testid="bridge-file-viewer-shell"]');
+			return {
+				fileModeHostActiveAfterReturnToFile:
+					fileModeHost instanceof HTMLElement
+						? fileModeHost.getAttribute('data-bridge-viewer-mode-active')
+						: null,
+				fileModeHostHiddenAfterReturnToFile:
+					fileModeHost instanceof HTMLElement && fileModeHost.hasAttribute('hidden'),
+				fileViewerSelectedPathAfterReturnToFile:
+					fileViewerShell instanceof HTMLElement
+						? fileViewerShell.getAttribute('data-selected-display-path')
+						: null,
+				reviewModeAfterReturnToFile:
+					appRoot instanceof HTMLElement ? appRoot.getAttribute('data-bridge-viewer-mode') : null,
+			};
+		});
+		await page.click('[data-testid="bridge-viewer-context-review"]');
+		await waitForReviewSelectedContentState({
+			displayPath: expectedDisplayPath,
+			page,
+			state: 'ready',
+		});
+		const returnToReviewProof = await page.evaluate(() => {
+			const appRoot = document.querySelector('[data-testid="bridge-app-root"]');
+			const fileModeHost = document.querySelector('[data-testid="bridge-viewer-mode-host-file"]');
+			const reviewShell = document.querySelector('[data-testid="review-viewer-shell"]');
+			return {
+				fileModeHostActiveAfterReturnToReview:
+					fileModeHost instanceof HTMLElement
+						? fileModeHost.getAttribute('data-bridge-viewer-mode-active')
+						: null,
+				fileModeHostHiddenAfterReturnToReview:
+					fileModeHost instanceof HTMLElement && fileModeHost.hasAttribute('hidden'),
+				reviewContextButtonSelectedAfterReturnToReview:
+					document
+						.querySelector('[data-testid="bridge-viewer-context-review"]')
+						?.getAttribute('data-bridge-viewer-context-selected') ?? null,
+				reviewModeAfterReturnToReview:
+					appRoot instanceof HTMLElement ? appRoot.getAttribute('data-bridge-viewer-mode') : null,
+				reviewSelectedDisplayPathAfterReturnToReview:
+					reviewShell instanceof HTMLElement
+						? reviewShell.getAttribute('data-selected-display-path')
+						: null,
+			};
+		});
 		const handoffProof = {
 			...proof,
+			...returnToFileProof,
+			...returnToReviewProof,
 			beforeLocationHref,
 			expectedDisplayPath,
 			expectedReviewItemId,
@@ -3748,7 +3879,21 @@ async function verifyWorktreeFileToReviewHandoff(): Promise<WorktreeFileToReview
 			handoffProof.afterLocationHref !== worktreeDevServerUrl ||
 			handoffProof.sharedShellMode !== 'review' ||
 			handoffProof.sharedShellOwner !== 'BridgeViewerAppShell' ||
-			handoffProof.fileViewerShellCountAfterSwitch !== 0 ||
+			handoffProof.fileContextButtonSelectedAfterSwitch !== 'false' ||
+			handoffProof.reviewContextButtonSelectedAfterSwitch !== 'true' ||
+			handoffProof.fileViewerShellCountAfterSwitch !== 1 ||
+			!handoffProof.fileModeHostHiddenAfterSwitch ||
+			!handoffProof.fileViewerShellHiddenAfterSwitch ||
+			handoffProof.fileViewerSelectedPathAfterSwitch !== expectedDisplayPath ||
+			handoffProof.reviewModeAfterReturnToFile !== 'file' ||
+			handoffProof.fileModeHostActiveAfterReturnToFile !== 'true' ||
+			handoffProof.fileModeHostHiddenAfterReturnToFile ||
+			handoffProof.fileViewerSelectedPathAfterReturnToFile !== expectedDisplayPath ||
+			handoffProof.reviewModeAfterReturnToReview !== 'review' ||
+			handoffProof.fileModeHostActiveAfterReturnToReview !== 'false' ||
+			!handoffProof.fileModeHostHiddenAfterReturnToReview ||
+			handoffProof.reviewContextButtonSelectedAfterReturnToReview !== 'true' ||
+			handoffProof.reviewSelectedDisplayPathAfterReturnToReview !== expectedDisplayPath ||
 			handoffProof.selectedContentState !== 'ready' ||
 			handoffProof.selectedDisplayPath !== expectedDisplayPath ||
 			handoffProof.selectedItemId !== expectedReviewItemId ||

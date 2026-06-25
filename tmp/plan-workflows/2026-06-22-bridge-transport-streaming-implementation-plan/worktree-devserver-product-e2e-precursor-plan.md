@@ -9,21 +9,26 @@ Ticket: 06P / Gate 0.a Shared BridgeViewer Navigation And Renderer Precursor
 
 Gate 0.a is not closed. Earlier proof artifacts and reviewer fixes are useful
 history, but the live product contract is stronger than "make WorktreeFileApp
-product-like." Two implementation checkpoints are now proven:
+product-like." Three implementation checkpoints are now proven:
 
 - `47933c48` proves direct current-worktree Review file-target routing in the
   shared Review shell.
 - `6ce7ef9d` proves Files context can hand off a selected worktree file to
   Review context inside the same BridgeViewer app root.
+- Pending commit proves the shared context toggle and per-context memory:
+  `BridgeApp` owns one `BridgeViewerAppShell`, FileViewer and ReviewViewer are
+  mounted as mode bodies, and a Files-to-Review-to-Files-to-Review round trip
+  preserves the selected file/review target.
 - Fresh proof command:
   `pnpm --dir BridgeWeb run test:dev-server:worktree`
 - Fresh proof artifact:
-  `tmp/bridge-viewer-worktree-dev-server/2026-06-25T13-32-08-430Z/worktree-dev-server-proof.json`
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-25T13-48-26-677Z/worktree-dev-server-proof.json`
 - Critical artifact row:
   `fileToReviewHandoffProof` records one app root, unchanged dev URL,
   Review mode, `.gitignore`, Pierre materialized item type `file`, 92 rendered
-  lines, zero FileViewer shells after switch, one review package route hit, and
-  24 review content route hits.
+  lines, one hidden preserved FileViewer shell after switch, toggle-back to
+  Files with `.gitignore` still selected, toggle-back to Review with `.gitignore`
+  still selected, one review package route hit, and 17 review content route hits.
 
 The remaining blocking outcome is now:
 
@@ -54,13 +59,13 @@ Plan sequence changed after the 2026-06-25 navigation decision:
 
 0.a.3 shared chrome/layout proof
   -> proves shadcn/shared primitives, context toggle, and per-context memory
-  -> status: remaining
+  -> status: dev-server/component proof passed; native host proof still pending
 
 0.a.4 visual/e2e/negative-substitute proof
   -> proves live dev-server behavior, Pierre/Shiki/worker ownership, and no
      standalone second app or stale bundle substitute
-  -> status: partially proven by the 2026-06-25 dev-server artifact; still
-     needs explicit context toggle/per-context memory proof and native host proof
+  -> status: dev-server proof passed with context toggle/per-context memory;
+     native host proof still pending
 ```
 
 This order is mandatory for Gate 0.a. Later gates must not treat a FileViewer

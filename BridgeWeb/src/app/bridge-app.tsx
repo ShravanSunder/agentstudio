@@ -194,6 +194,13 @@ interface BridgeActiveViewerState {
 	readonly viewerMode: 'file' | 'review';
 }
 
+type BridgeViewerMode = BridgeActiveViewerState['viewerMode'];
+
+type BridgeRememberedNavigationCommands = Record<
+	BridgeViewerMode,
+	BridgeViewerNavigationCommand | undefined
+>;
+
 export interface SelectedContentResourcesState {
 	readonly itemId: string;
 	readonly contentKey: string;
@@ -420,42 +427,107 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			viewerMode: incomingViewerMode,
 		}),
 	);
+	const rememberedNavigationCommandsRef = useRef<BridgeRememberedNavigationCommands>({
+		file: activeViewerState.viewerMode === 'file' ? activeViewerState.navigationCommand : undefined,
+		review:
+			activeViewerState.viewerMode === 'review' ? activeViewerState.navigationCommand : undefined,
+	});
+	const [mountedViewerModes, setMountedViewerModes] = useState<ReadonlySet<BridgeViewerMode>>(
+		() => new Set<BridgeViewerMode>([activeViewerState.viewerMode]),
+	);
 	useEffect((): void => {
-		setActiveViewerState(
-			activeViewerStateForBridgeInputs({
-				navigationCommand: incomingNavigationCommand,
-				viewerMode: incomingViewerMode,
-			}),
-		);
+		const nextViewerState = activeViewerStateForBridgeInputs({
+			navigationCommand: incomingNavigationCommand,
+			viewerMode: incomingViewerMode,
+		});
+		if (nextViewerState.navigationCommand !== undefined) {
+			rememberedNavigationCommandsRef.current[nextViewerState.viewerMode] =
+				nextViewerState.navigationCommand;
+		}
+		setMountedViewerModes((currentMountedViewerModes): ReadonlySet<BridgeViewerMode> => {
+			if (currentMountedViewerModes.has(nextViewerState.viewerMode)) {
+				return currentMountedViewerModes;
+			}
+			return new Set<BridgeViewerMode>([...currentMountedViewerModes, nextViewerState.viewerMode]);
+		});
+		setActiveViewerState(nextViewerState);
 	}, [incomingNavigationCommand, incomingViewerMode]);
+	const activateViewerMode = useCallback((viewerMode: BridgeViewerMode): void => {
+		setMountedViewerModes((currentMountedViewerModes): ReadonlySet<BridgeViewerMode> => {
+			if (currentMountedViewerModes.has(viewerMode)) {
+				return currentMountedViewerModes;
+			}
+			return new Set<BridgeViewerMode>([...currentMountedViewerModes, viewerMode]);
+		});
+		setActiveViewerState({
+			navigationCommand: rememberedNavigationCommandsRef.current[viewerMode],
+			viewerMode,
+		});
+	}, []);
 	const activateNavigationCommand = useCallback(
 		(navigationCommand: BridgeViewerNavigationCommand) => {
+			const viewerMode = viewerModeForBridgeNavigationCommand(navigationCommand);
+			rememberedNavigationCommandsRef.current[viewerMode] = navigationCommand;
+			setMountedViewerModes((currentMountedViewerModes): ReadonlySet<BridgeViewerMode> => {
+				if (currentMountedViewerModes.has(viewerMode)) {
+					return currentMountedViewerModes;
+				}
+				return new Set<BridgeViewerMode>([...currentMountedViewerModes, viewerMode]);
+			});
 			setActiveViewerState({
 				navigationCommand,
-				viewerMode: viewerModeForBridgeNavigationCommand(navigationCommand),
+				viewerMode,
 			});
 		},
 		[],
 	);
+	const rememberedFileNavigationCommand = rememberedNavigationCommandsRef.current.file;
+	const rememberedReviewNavigationCommand = rememberedNavigationCommandsRef.current.review;
 
-	if (activeViewerState.viewerMode === 'file') {
-		return (
-			<BridgeFileViewerMode
-				{...props}
-				onActivateNavigationCommand={activateNavigationCommand}
-				{...(activeViewerState.navigationCommand === undefined
-					? {}
-					: { navigationCommand: activeViewerState.navigationCommand })}
-			/>
-		);
-	}
 	return (
-		<BridgeReviewViewerMode
-			{...props}
-			{...(activeViewerState.navigationCommand === undefined
-				? {}
-				: { navigationCommand: activeViewerState.navigationCommand })}
-		/>
+		<BridgeViewerAppShell
+			appOwner="BridgeApp"
+			mode={activeViewerState.viewerMode}
+			onModeChange={activateViewerMode}
+		>
+			{mountedViewerModes.has('file') ? (
+				<div
+					className="h-full min-h-0"
+					data-bridge-viewer-mode-active={
+						activeViewerState.viewerMode === 'file' ? 'true' : 'false'
+					}
+					data-bridge-viewer-mode-host="file"
+					data-testid="bridge-viewer-mode-host-file"
+					hidden={activeViewerState.viewerMode !== 'file'}
+				>
+					<BridgeFileViewerMode
+						{...props}
+						onActivateNavigationCommand={activateNavigationCommand}
+						{...(rememberedFileNavigationCommand === undefined
+							? {}
+							: { navigationCommand: rememberedFileNavigationCommand })}
+					/>
+				</div>
+			) : null}
+			{mountedViewerModes.has('review') ? (
+				<div
+					className="h-full min-h-0"
+					data-bridge-viewer-mode-active={
+						activeViewerState.viewerMode === 'review' ? 'true' : 'false'
+					}
+					data-bridge-viewer-mode-host="review"
+					data-testid="bridge-viewer-mode-host-review"
+					hidden={activeViewerState.viewerMode !== 'review'}
+				>
+					<BridgeReviewViewerMode
+						{...props}
+						{...(rememberedReviewNavigationCommand === undefined
+							? {}
+							: { navigationCommand: rememberedReviewNavigationCommand })}
+					/>
+				</div>
+			) : null}
+		</BridgeViewerAppShell>
 	);
 }
 
@@ -482,18 +554,16 @@ function BridgeFileViewerMode(
 		[existingOpenReviewComparison, onActivateNavigationCommand, reviewNavigationSource],
 	);
 	return (
-		<BridgeViewerAppShell appOwner="BridgeApp" mode="file">
-			<BridgeFileViewerApp
-				{...(props.codeViewWorkerFactory === undefined
-					? {}
-					: { codeViewWorkerFactory: props.codeViewWorkerFactory })}
-				{...(props.codeViewWorkerPoolEnabled === undefined
-					? {}
-					: { codeViewWorkerPoolEnabled: props.codeViewWorkerPoolEnabled })}
-				{...props.fileViewerProps}
-				onOpenReviewComparison={openReviewComparison}
-			/>
-		</BridgeViewerAppShell>
+		<BridgeFileViewerApp
+			{...(props.codeViewWorkerFactory === undefined
+				? {}
+				: { codeViewWorkerFactory: props.codeViewWorkerFactory })}
+			{...(props.codeViewWorkerPoolEnabled === undefined
+				? {}
+				: { codeViewWorkerPoolEnabled: props.codeViewWorkerPoolEnabled })}
+			{...props.fileViewerProps}
+			onOpenReviewComparison={openReviewComparison}
+		/>
 	);
 }
 
@@ -1250,84 +1320,80 @@ function BridgeReviewViewerMode(props: BridgeAppProps): ReactElement {
 		[initialReviewFileTarget, reviewPackage, rootSnapshot.selectedItemId],
 	);
 
-	return (
-		<BridgeViewerAppShell appOwner="BridgeApp" mode="review">
-			{reviewPackage === null && diffStatus.status === 'loading' ? (
-				<BridgeReviewPackageLoadingShell />
-			) : reviewPackage === null && diffStatus.status === 'error' ? (
-				<BridgeReviewPackageFailedShell error={diffStatus.error} />
-			) : reviewPackage === null ? (
-				<BridgeReviewEmptyShell />
-			) : rootSnapshot.projectionStatus === 'failed' ? (
-				<BridgeReviewProjectionFailedShell />
-			) : projection === null ? (
-				<BridgeReviewProjectionPendingShell />
-			) : (
-				<ReviewViewerShell
-					fileClassFilter={rootSnapshot.fileClassFilter}
-					gitStatusFilter={rootSnapshot.gitStatusFilter}
-					onCodeViewControlHandleChange={(handle): void => {
-						codeViewControlHandleRef.current = handle;
-					}}
-					onFileClassFilterChange={viewerActions.setFileClassFilter}
-					onGitStatusFilterChange={viewerActions.setGitStatusFilter}
-					onProjectionModeChange={viewerActions.setProjectionMode}
-					onSelectItem={selectReviewItem}
-					onTreeSearchOpen={(): void => setIsTreeSearchOpen(true)}
-					onTreeSearchModeChange={viewerActions.setTreeSearchMode}
-					onTreeSearchTextChange={viewerActions.setTreeSearchText}
-					projection={projection}
-					projectionMode={rootSnapshot.projectionMode}
-					reviewPackage={reviewPackage}
-					selectedContentResources={selectedContentResources}
-					selectedContentLoadingItemId={selectedContentLoadingItemId}
-					selectedItemPresentation={selectedItemPresentation}
-					selectedContentUnavailablePath={selectedContentUnavailablePathForCurrentSelection({
-						reviewPackage,
-						selectedItemId: rootSnapshot.selectedItemId,
-						selectedContentResourcesState,
-					})}
-					selectedCanvasLoadingReason={selectedCanvasLoadingReason}
-					selectedItemId={rootSnapshot.selectedItemId}
-					visibleContentResourcesByItemId={visibleContentHydration.visibleContentResourcesByItemId}
-					visibleLoadingItemIds={visibleContentHydration.visibleLoadingItemIds}
-					visibleLoadingItemCount={visibleContentHydration.visibleLoadingItemCount}
-					visibleReadyItemCount={visibleContentHydration.visibleReadyItemCount}
-					onCodeViewVisibleItemIdsChange={visibleContentHydration.setVisibleItemIds}
-					{...(props.codeViewWorkerPoolEnabled === undefined
-						? {}
-						: { codeViewWorkerPoolEnabled: props.codeViewWorkerPoolEnabled })}
-					{...(props.codeViewWorkerFactory === undefined
-						? {}
-						: { codeViewWorkerFactory: props.codeViewWorkerFactory })}
-					selectedMarkdownPreviewHtml={
-						rootSnapshot.renderMode.kind === 'markdownPreview' &&
-						selectedMarkdownPreviewState !== null &&
-						selectedMarkdownPreviewState.status === 'ready' &&
-						selectedMarkdownPreviewState.itemId === rootSnapshot.selectedItemId &&
-						selectedMarkdownPreviewState.contentKey === currentSelectedContentKey
-							? selectedMarkdownPreviewState.html
-							: null
-					}
-					selectedMarkdownPreviewSourcePath={
-						rootSnapshot.renderMode.kind === 'markdownPreview' &&
-						selectedMarkdownPreviewState !== null &&
-						selectedMarkdownPreviewState.status === 'ready' &&
-						selectedMarkdownPreviewState.itemId === rootSnapshot.selectedItemId &&
-						selectedMarkdownPreviewState.contentKey === currentSelectedContentKey
-							? selectedMarkdownPreviewState.sourcePath
-							: null
-					}
-					telemetryParentTraceContext={
-						currentReviewPackageTelemetryContextRef.current?.traceContext ?? null
-					}
-					telemetryRecorder={telemetryRecorderRef.current}
-					treeSearchOpen={isTreeSearchOpen}
-					treeSearchMode={rootSnapshot.treeSearchMode}
-					treeSearchText={rootSnapshot.treeSearchText}
-				/>
-			)}
-		</BridgeViewerAppShell>
+	return reviewPackage === null && diffStatus.status === 'loading' ? (
+		<BridgeReviewPackageLoadingShell />
+	) : reviewPackage === null && diffStatus.status === 'error' ? (
+		<BridgeReviewPackageFailedShell error={diffStatus.error} />
+	) : reviewPackage === null ? (
+		<BridgeReviewEmptyShell />
+	) : rootSnapshot.projectionStatus === 'failed' ? (
+		<BridgeReviewProjectionFailedShell />
+	) : projection === null ? (
+		<BridgeReviewProjectionPendingShell />
+	) : (
+		<ReviewViewerShell
+			fileClassFilter={rootSnapshot.fileClassFilter}
+			gitStatusFilter={rootSnapshot.gitStatusFilter}
+			onCodeViewControlHandleChange={(handle): void => {
+				codeViewControlHandleRef.current = handle;
+			}}
+			onFileClassFilterChange={viewerActions.setFileClassFilter}
+			onGitStatusFilterChange={viewerActions.setGitStatusFilter}
+			onProjectionModeChange={viewerActions.setProjectionMode}
+			onSelectItem={selectReviewItem}
+			onTreeSearchOpen={(): void => setIsTreeSearchOpen(true)}
+			onTreeSearchModeChange={viewerActions.setTreeSearchMode}
+			onTreeSearchTextChange={viewerActions.setTreeSearchText}
+			projection={projection}
+			projectionMode={rootSnapshot.projectionMode}
+			reviewPackage={reviewPackage}
+			selectedContentResources={selectedContentResources}
+			selectedContentLoadingItemId={selectedContentLoadingItemId}
+			selectedItemPresentation={selectedItemPresentation}
+			selectedContentUnavailablePath={selectedContentUnavailablePathForCurrentSelection({
+				reviewPackage,
+				selectedItemId: rootSnapshot.selectedItemId,
+				selectedContentResourcesState,
+			})}
+			selectedCanvasLoadingReason={selectedCanvasLoadingReason}
+			selectedItemId={rootSnapshot.selectedItemId}
+			visibleContentResourcesByItemId={visibleContentHydration.visibleContentResourcesByItemId}
+			visibleLoadingItemIds={visibleContentHydration.visibleLoadingItemIds}
+			visibleLoadingItemCount={visibleContentHydration.visibleLoadingItemCount}
+			visibleReadyItemCount={visibleContentHydration.visibleReadyItemCount}
+			onCodeViewVisibleItemIdsChange={visibleContentHydration.setVisibleItemIds}
+			{...(props.codeViewWorkerPoolEnabled === undefined
+				? {}
+				: { codeViewWorkerPoolEnabled: props.codeViewWorkerPoolEnabled })}
+			{...(props.codeViewWorkerFactory === undefined
+				? {}
+				: { codeViewWorkerFactory: props.codeViewWorkerFactory })}
+			selectedMarkdownPreviewHtml={
+				rootSnapshot.renderMode.kind === 'markdownPreview' &&
+				selectedMarkdownPreviewState !== null &&
+				selectedMarkdownPreviewState.status === 'ready' &&
+				selectedMarkdownPreviewState.itemId === rootSnapshot.selectedItemId &&
+				selectedMarkdownPreviewState.contentKey === currentSelectedContentKey
+					? selectedMarkdownPreviewState.html
+					: null
+			}
+			selectedMarkdownPreviewSourcePath={
+				rootSnapshot.renderMode.kind === 'markdownPreview' &&
+				selectedMarkdownPreviewState !== null &&
+				selectedMarkdownPreviewState.status === 'ready' &&
+				selectedMarkdownPreviewState.itemId === rootSnapshot.selectedItemId &&
+				selectedMarkdownPreviewState.contentKey === currentSelectedContentKey
+					? selectedMarkdownPreviewState.sourcePath
+					: null
+			}
+			telemetryParentTraceContext={
+				currentReviewPackageTelemetryContextRef.current?.traceContext ?? null
+			}
+			telemetryRecorder={telemetryRecorderRef.current}
+			treeSearchOpen={isTreeSearchOpen}
+			treeSearchMode={rootSnapshot.treeSearchMode}
+			treeSearchText={rootSnapshot.treeSearchText}
+		/>
 	);
 }
 
