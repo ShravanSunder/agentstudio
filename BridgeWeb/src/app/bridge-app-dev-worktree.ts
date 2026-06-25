@@ -43,6 +43,7 @@ export interface BridgeAppDevWorktreeSurfaceProvenance {
 const worktreeFileContentEndpointPrefix = '/__bridge-worktree/file-content/';
 const worktreeSurfaceEndpoint = '/__bridge-worktree/surface';
 const worktreeDevReloadEventType = 'bridge-worktree-dev-reload';
+const worktreeDevForceSplitResetReloadEventType = 'bridge-worktree-dev-force-split-reset-reload';
 const worktreeDevPollIntervalMilliseconds = 1_000;
 const worktreeForwardedSearchParamNames: readonly string[] = ['scenario'];
 const bridgeWorktreeAllowedResourceKindsByProtocol = {
@@ -125,39 +126,113 @@ export function installBridgeAppDevWorktreeBackend(): BridgeAppDevWorktreeBacken
 		): WorktreeFileFrameSubscriptionDispose => {
 			let isDisposed = false;
 			let isReloading = false;
-			const reloadFrames = async (): Promise<void> => {
+			let hasPendingForceSplitResetReload = false;
+			const pendingFrameDeliveryTimeoutIds = new Set<number>();
+			const reloadFrames = async (
+				options: {
+					readonly forceSplitReset?: boolean;
+				} = {},
+			): Promise<void> => {
 				if (isDisposed || isReloading) {
+					if (!isDisposed && options.forceSplitReset === true) {
+						hasPendingForceSplitResetReload = true;
+					}
+					document.documentElement.dataset['bridgeWorktreeDevLastReloadStatus'] = 'is-reloading';
 					return;
 				}
 				isReloading = true;
 				try {
 					const nextSurface = await loadSurface();
-					const incrementalFrames = worktreeFileIncrementalFramesFromSurfaces({
-						nextFrames: nextSurface.frames,
-						previousFrames: lastAcceptedSurfaceFrames,
-					});
+					const incrementalFrames =
+						options.forceSplitReset === true
+							? worktreeFileSourceLessResetFramesFromSurface(nextSurface.frames)
+							: worktreeFileIncrementalFramesFromSurfaces({
+									nextFrames: nextSurface.frames,
+									previousFrames: lastAcceptedSurfaceFrames,
+								});
 					lastAcceptedSurfaceFrames = nextSurface.frames;
+					document.documentElement.dataset['bridgeWorktreeDevLastReloadFrameCount'] = String(
+						incrementalFrames.length,
+					);
+					document.documentElement.dataset['bridgeWorktreeDevLastReloadFrameKinds'] =
+						incrementalFrames.map((frame) => frame.frameKind).join(',');
+					document.documentElement.dataset['bridgeWorktreeDevLastReloadSourceCursor'] =
+						nextSurface.source.sourceCursor;
+					document.documentElement.dataset['bridgeWorktreeDevLastReloadStatus'] = 'delivered';
 					if (!isDisposed && incrementalFrames.length > 0) {
-						subscriber(incrementalFrames);
+						if (options.forceSplitReset === true && incrementalFrames.length > 1) {
+							const resetFrame = incrementalFrames[0];
+							const replacementFrames = incrementalFrames.slice(1);
+							if (resetFrame === undefined) {
+								return;
+							}
+							subscriber([resetFrame]);
+							const timeoutId = window.setTimeout((): void => {
+								pendingFrameDeliveryTimeoutIds.delete(timeoutId);
+								if (!isDisposed) {
+									subscriber(replacementFrames);
+								}
+							}, 0);
+							pendingFrameDeliveryTimeoutIds.add(timeoutId);
+						} else {
+							subscriber(incrementalFrames);
+						}
 					}
 				} finally {
 					isReloading = false;
+					if (!isDisposed && hasPendingForceSplitResetReload) {
+						hasPendingForceSplitResetReload = false;
+						void reloadFrames({ forceSplitReset: true });
+					}
 				}
 			};
 			const handleReloadEvent = (): void => {
+				document.documentElement.dataset['bridgeWorktreeDevLastReloadRequest'] = 'normal';
 				void reloadFrames();
 			};
+			const handleForceSplitResetReloadEvent = (): void => {
+				document.documentElement.dataset['bridgeWorktreeDevLastReloadRequest'] =
+					'force-split-reset';
+				void reloadFrames({ forceSplitReset: true });
+			};
 			window.addEventListener(worktreeDevReloadEventType, handleReloadEvent);
+			window.addEventListener(
+				worktreeDevForceSplitResetReloadEventType,
+				handleForceSplitResetReloadEvent,
+			);
 			const intervalId = window.setInterval((): void => {
 				void reloadFrames();
 			}, worktreeDevPollIntervalMilliseconds);
 			return (): void => {
 				isDisposed = true;
 				window.clearInterval(intervalId);
+				for (const timeoutId of pendingFrameDeliveryTimeoutIds) {
+					window.clearTimeout(timeoutId);
+				}
 				window.removeEventListener(worktreeDevReloadEventType, handleReloadEvent);
+				window.removeEventListener(
+					worktreeDevForceSplitResetReloadEventType,
+					handleForceSplitResetReloadEvent,
+				);
 			};
 		},
 	};
+}
+
+export function worktreeFileSourceLessResetFramesFromSurface(
+	nextFrames: readonly WorktreeFileProtocolFrame[],
+): readonly WorktreeFileProtocolFrame[] {
+	return [
+		{
+			kind: 'reset',
+			streamId: 'worktree-file',
+			generation: 0,
+			sequence: maxWorktreeFrameSequence(nextFrames) + 1,
+			frameKind: 'worktree.reset',
+			reason: 'sourceChanged',
+		},
+		...nextFrames,
+	];
 }
 
 export function worktreeFileIncrementalFramesFromSurfaces(props: {

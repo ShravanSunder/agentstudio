@@ -513,7 +513,16 @@ function reconcileOpenFileStateWithFrames(props: {
 			(frame.invalidation.fileId === currentOpenFileState.descriptor.fileId ||
 				frame.invalidation.path === currentOpenFileState.path),
 	);
-	if (matchedInvalidation?.frameKind !== 'worktree.fileInvalidated') {
+	const matchedReplacementDescriptor = props.frames.find(
+		(frame) =>
+			frame.frameKind === 'worktree.fileDescriptor' &&
+			(frame.descriptor.fileId === currentOpenFileState.descriptor.fileId ||
+				frame.descriptor.path === currentOpenFileState.path),
+	);
+	if (
+		matchedInvalidation?.frameKind !== 'worktree.fileInvalidated' &&
+		matchedReplacementDescriptor?.frameKind !== 'worktree.fileDescriptor'
+	) {
 		return currentOpenFileState;
 	}
 	props.openFileRequestIdRef.current += 1;

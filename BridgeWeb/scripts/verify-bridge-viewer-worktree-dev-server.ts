@@ -103,6 +103,7 @@ interface WorktreeDevServerVerificationResult {
 	readonly sourceId: string;
 	readonly sourceScenarioName: string;
 	readonly worktreeRootToken: string;
+	readonly splitResetReplacementProof: WorktreeFileSplitResetReplacementProof;
 	readonly staleRefreshProof: WorktreeFileStaleRefreshProof;
 	readonly targetPath: string;
 	readonly treePathCount: number | null;
@@ -145,6 +146,22 @@ interface WorktreeFileStaleRefreshProof {
 	readonly staleMessageRect: WorktreeFileVisibleBox;
 	readonly staleMessageVisible: boolean;
 	readonly staleScreenshotPath: string;
+}
+
+interface WorktreeFileSplitResetReplacementProof {
+	readonly initialContentStillVisibleWhileStale: boolean;
+	readonly oldContentHandle: string;
+	readonly postRefreshContentRouteHitCount: number;
+	readonly postReplacementContentRouteHitCount: number;
+	readonly preDispatchContentRouteHitCount: number;
+	readonly proofPath: string;
+	readonly refreshedContentVisible: boolean;
+	readonly replacementContentHandle: string;
+	readonly replacementContentHash: string | null;
+	readonly replacementContentRouteHitCount: number;
+	readonly replacementSourceCursor: string;
+	readonly selectedContentStateAfterReset: string | null;
+	readonly staleMessageVisible: boolean;
 }
 
 interface WorktreeFileContentRouteProbe {
@@ -418,6 +435,7 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 	const page = await makeVerificationPage();
 	let unavailableFilterFixture: WorktreeFileDeletedUnavailableFixture | null = null;
 	let staleRefreshFixture: WorktreeFileStaleRefreshFixture | null = null;
+	let splitResetFixture: WorktreeFileStaleRefreshFixture | null = null;
 	try {
 		unavailableFilterFixture = await worktreeFileDeletedUnavailableFixture();
 		const surface = await fetchWorktreeSurface();
@@ -436,10 +454,23 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 			descriptors,
 			excludedPaths: new Set([initialDescriptor.path, targetDescriptor.path]),
 		});
+		const splitResetDescriptor = resolveStaleRefreshDescriptor({
+			descriptors,
+			excludedPaths: new Set([
+				initialDescriptor.path,
+				targetDescriptor.path,
+				staleRefreshDescriptor.path,
+			]),
+		});
 		const staleRefreshInitialContent = await fetchWorktreeFileContent(staleRefreshDescriptor);
+		const splitResetInitialContent = await fetchWorktreeFileContent(splitResetDescriptor);
 		staleRefreshFixture = await worktreeFileStaleRefreshFixture({
 			descriptor: staleRefreshDescriptor,
 			initialContent: staleRefreshInitialContent,
+		});
+		splitResetFixture = await worktreeFileStaleRefreshFixture({
+			descriptor: splitResetDescriptor,
+			initialContent: splitResetInitialContent,
 		});
 		const surfaceText = JSON.stringify(surface);
 		if (
@@ -568,6 +599,12 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 			page,
 			targetPath: targetDescriptor.path,
 		});
+		const splitResetReplacementProof = await verifyWorktreeFileSplitResetReplacement({
+			descriptor: splitResetDescriptor,
+			fixture: splitResetFixture,
+			page,
+		});
+		await reloadWorktreeDevServerPage(page);
 		const staleRefreshProof = await verifyWorktreeFileStaleRefresh({
 			descriptor: staleRefreshDescriptor,
 			fixture: staleRefreshFixture,
@@ -600,6 +637,7 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 				'Shiki/Pierre worker-backed path requested and ready for workers=on',
 				'provider tree extent facts reached DOM',
 				'search, regex, and filters changed rendered Pierre rows',
+				'source-less split reset preserved stale body and fetched replacement only on refresh',
 			],
 			proofArtifactPath: '',
 			negativeAssertions: [
@@ -620,6 +658,7 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 			sourceBaseRef: surface.provenance.baseRef,
 			sourceScenarioName: surface.provenance.scenarioName,
 			worktreeRootToken: surface.provenance.worktreeRootToken,
+			splitResetReplacementProof,
 			staleRefreshProof,
 			targetPath: targetDescriptor.path,
 			treePathCount: surface.treeSizeFacts.pathCount ?? null,
@@ -631,6 +670,9 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 		};
 	} finally {
 		await page.close();
+		if (splitResetFixture !== null) {
+			await restoreWorktreeFileStaleRefreshFixture(splitResetFixture);
+		}
 		if (staleRefreshFixture !== null) {
 			await restoreWorktreeFileStaleRefreshFixture(staleRefreshFixture);
 		}
@@ -676,6 +718,12 @@ async function assertObservedWorktreeDevServerUrl(page: Page): Promise<{
 		);
 	}
 	return { locationHref, pageUrl };
+}
+
+async function reloadWorktreeDevServerPage(page: Page): Promise<void> {
+	await page.goto(worktreeDevServerUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+	await page.waitForSelector('[data-testid="bridge-file-viewer-shell"]', { timeout: 30_000 });
+	await assertObservedWorktreeDevServerUrl(page);
 }
 
 async function readBridgePierreWorkerFileSuccessCount(page: Page): Promise<number> {
@@ -2120,11 +2168,29 @@ async function verifyWorktreeFileStaleRefresh(props: {
 		page: props.page,
 	});
 	await writeFile(props.fixture.absolutePath, props.fixture.updatedContent);
-	await dispatchWorktreeDevReload(props.page);
+	const replacementSurface = await fetchWorktreeSurface();
+	const replacementDescriptor = worktreeFileDescriptors(replacementSurface.frames).find(
+		(candidate) => candidate.path === props.fixture.relativePath,
+	);
+	if (replacementDescriptor === undefined) {
+		throw new Error(
+			`Expected replacement descriptor for stale-refresh proof path ${props.fixture.relativePath}`,
+		);
+	}
+	if (replacementDescriptor.contentHandle === props.descriptor.contentHandle) {
+		throw new Error(
+			`Expected stale-refresh proof to use replacement content handle for ${props.fixture.relativePath}`,
+		);
+	}
+	await dispatchWorktreeDevForceSplitResetReload(props.page);
 	await waitForWorktreeOpenFileState({
 		page: props.page,
 		path: props.fixture.relativePath,
 		state: 'stale',
+	});
+	await waitForWorktreeSourceCursor({
+		page: props.page,
+		sourceCursor: replacementSurface.source.sourceCursor,
 	});
 	const staleNotice = props.page.locator('[data-testid="worktree-file-content-stale"]');
 	await staleNotice.getByText('Content changed').waitFor({ state: 'visible', timeout: 10_000 });
@@ -2143,7 +2209,7 @@ async function verifyWorktreeFileStaleRefresh(props: {
 		failFirstHit: true,
 		gate: refreshGate,
 		page: props.page,
-		pathPattern: `**/__bridge-worktree/file-content/**${encodeURIComponent(props.descriptor.contentHandle)}**`,
+		pathPattern: `**/__bridge-worktree/file-content/**${encodeURIComponent(replacementDescriptor.contentHandle)}**`,
 	});
 	refreshGate.resolve();
 	const refreshFetchHitsBeforeClick = refreshRouteProbe.hitCount();
@@ -2201,6 +2267,150 @@ async function verifyWorktreeFileStaleRefresh(props: {
 	};
 	assertWorktreeFileStaleRefreshProof(proof);
 	return proof;
+}
+
+async function verifyWorktreeFileSplitResetReplacement(props: {
+	readonly descriptor: WorktreeFileDescriptor;
+	readonly fixture: WorktreeFileStaleRefreshFixture;
+	readonly page: Page;
+}): Promise<WorktreeFileSplitResetReplacementProof> {
+	await fillWorktreeFileSearch(props.page, props.fixture.relativePath);
+	await waitForWorktreeFileFilterStatus(props.page, 1, undefined);
+	await clickWorktreeFilePath(props.page, props.fixture.relativePath);
+	await waitForWorktreeOpenFileState({
+		page: props.page,
+		path: props.fixture.relativePath,
+		state: 'ready',
+	});
+	await assertWorktreeVisibleContentText({
+		expectedText: props.fixture.initialContent,
+		label: 'initial split-reset proof content',
+		page: props.page,
+	});
+	await writeFile(props.fixture.absolutePath, props.fixture.updatedContent);
+	const replacementSurface = await fetchWorktreeSurface();
+	const replacementDescriptor = worktreeFileDescriptors(replacementSurface.frames).find(
+		(candidate) => candidate.path === props.fixture.relativePath,
+	);
+	if (replacementDescriptor === undefined) {
+		throw new Error(
+			`Expected replacement descriptor for split-reset proof path ${props.fixture.relativePath}`,
+		);
+	}
+	if (replacementDescriptor.contentHandle === props.descriptor.contentHandle) {
+		throw new Error(
+			`Expected split-reset proof to create a replacement content handle for ${props.fixture.relativePath}`,
+		);
+	}
+	const refreshGate = makeDeferred<void>();
+	refreshGate.resolve();
+	const refreshRouteProbe = await installFileContentRouteGate({
+		gate: refreshGate,
+		page: props.page,
+	});
+	let staleText = '';
+	let staleMessageVisible = false;
+	try {
+		const preDispatchContentRouteHitCount = refreshRouteProbe.hitCount();
+		await dispatchWorktreeDevForceSplitResetReload(props.page);
+		await waitForWorktreeOpenFileState({
+			page: props.page,
+			path: props.fixture.relativePath,
+			state: 'stale',
+		});
+		await waitForWorktreeSourceCursor({
+			page: props.page,
+			sourceCursor: replacementSurface.source.sourceCursor,
+		});
+		const staleNotice = props.page.locator('[data-testid="worktree-file-content-stale"]');
+		await staleNotice.getByText('Content changed').waitFor({ state: 'visible', timeout: 10_000 });
+		staleMessageVisible = await staleNotice.isVisible();
+		staleText = await worktreeVisibleContentText(props.page);
+		const postReplacementContentRouteHitCount = refreshRouteProbe.hitCount();
+		await clickWorktreeFileControl(props.page, 'worktree-file-refresh');
+		await waitForWorktreeOpenFileState({
+			page: props.page,
+			path: props.fixture.relativePath,
+			state: 'refreshing',
+		});
+		await waitForWorktreeOpenFileState({
+			page: props.page,
+			path: props.fixture.relativePath,
+			state: 'ready',
+		});
+		const postRefreshContentRouteHitCount = refreshRouteProbe.hitCount();
+		const refreshedText = await waitForWorktreeVisibleContentText({
+			expectedText: props.fixture.updatedContent,
+			label: 'split-reset replacement proof content',
+			page: props.page,
+		});
+		const hitUrls = refreshRouteProbe.hitUrls();
+		const replacementContentRouteHitCount = hitUrls.filter((hitUrl) =>
+			hitUrl.includes(encodeURIComponent(replacementDescriptor.contentHandle)),
+		).length;
+		const proof: WorktreeFileSplitResetReplacementProof = {
+			initialContentStillVisibleWhileStale: renderedTextIncludesContent(
+				staleText,
+				props.fixture.initialContent,
+			),
+			oldContentHandle: props.descriptor.contentHandle,
+			postRefreshContentRouteHitCount,
+			postReplacementContentRouteHitCount,
+			preDispatchContentRouteHitCount,
+			proofPath: props.fixture.relativePath,
+			refreshedContentVisible: renderedTextIncludesContent(
+				refreshedText,
+				props.fixture.updatedContent,
+			),
+			replacementContentHandle: replacementDescriptor.contentHandle,
+			replacementContentHash: replacementDescriptor.contentHash ?? null,
+			replacementContentRouteHitCount,
+			replacementSourceCursor: replacementSurface.source.sourceCursor,
+			selectedContentStateAfterReset: 'stale',
+			staleMessageVisible,
+		};
+		assertWorktreeFileSplitResetReplacementProof(proof);
+		return proof;
+	} finally {
+		await refreshRouteProbe.dispose();
+	}
+}
+
+function assertWorktreeFileSplitResetReplacementProof(
+	proof: WorktreeFileSplitResetReplacementProof,
+): void {
+	if (proof.proofPath.length === 0) {
+		throw new Error(`Expected Worktree/File split-reset proof path: ${JSON.stringify(proof)}`);
+	}
+	if (
+		proof.oldContentHandle === proof.replacementContentHandle ||
+		proof.replacementContentHash === null ||
+		proof.replacementSourceCursor.length === 0
+	) {
+		throw new Error(
+			`Expected Worktree/File split reset to expose replacement metadata: ${JSON.stringify(proof)}`,
+		);
+	}
+	if (
+		!proof.initialContentStillVisibleWhileStale ||
+		!proof.staleMessageVisible ||
+		proof.selectedContentStateAfterReset !== 'stale'
+	) {
+		throw new Error(
+			`Expected Worktree/File split reset to preserve stale body before refresh: ${JSON.stringify(proof)}`,
+		);
+	}
+	if (
+		proof.preDispatchContentRouteHitCount !== 0 ||
+		proof.postReplacementContentRouteHitCount !== 0 ||
+		proof.postRefreshContentRouteHitCount !== 1 ||
+		proof.replacementContentRouteHitCount !== 1 ||
+		!proof.refreshedContentVisible
+	) {
+		throw new Error(
+			`Expected Worktree/File split reset to fetch only the replacement content handle on explicit refresh: ${JSON.stringify(proof)}`,
+		);
+	}
 }
 
 function assertWorktreeFileStaleRefreshProof(proof: WorktreeFileStaleRefreshProof): void {
@@ -2578,22 +2788,78 @@ async function waitForWorktreeOpenFileState(props: {
 	readonly path: string;
 	readonly state: 'loading' | 'ready' | 'refreshing' | 'stale' | 'unavailable';
 }): Promise<void> {
-	await props.page.waitForFunction(
-		(expected: { readonly path: string; readonly state: string }): boolean => {
+	try {
+		await props.page.waitForFunction(
+			(expected: { readonly path: string; readonly state: string }): boolean => {
+				const contentPanel = document.querySelector(
+					'[data-testid="bridge-file-viewer-code-canvas"]',
+				);
+				return (
+					contentPanel?.getAttribute('data-worktree-open-file-path') === expected.path &&
+					contentPanel?.getAttribute('data-worktree-open-file-state') === expected.state
+				);
+			},
+			{ path: props.path, state: props.state },
+			{ timeout: 20_000 },
+		);
+	} catch (error) {
+		const debugState = await props.page.evaluate((targetPath: string) => {
 			const contentPanel = document.querySelector('[data-testid="bridge-file-viewer-code-canvas"]');
-			return (
-				contentPanel?.getAttribute('data-worktree-open-file-path') === expected.path &&
-				contentPanel?.getAttribute('data-worktree-open-file-state') === expected.state
-			);
-		},
-		{ path: props.path, state: props.state },
+			return {
+				currentPath: contentPanel?.getAttribute('data-worktree-open-file-path') ?? null,
+				currentState: contentPanel?.getAttribute('data-worktree-open-file-state') ?? null,
+				filterStatus:
+					document.querySelector('[data-testid="worktree-file-filter-count"]')?.textContent ?? null,
+				searchValue:
+					document.querySelector<HTMLInputElement>('[data-testid="worktree-file-search-input"]')
+						?.value ?? null,
+				sourceCursor:
+					document
+						.querySelector('[data-testid="bridge-file-viewer-shell"]')
+						?.getAttribute('data-worktree-source-cursor') ?? null,
+				devReloadFrameCount:
+					document.documentElement.dataset['bridgeWorktreeDevLastReloadFrameCount'] ?? null,
+				devReloadFrameKinds:
+					document.documentElement.dataset['bridgeWorktreeDevLastReloadFrameKinds'] ?? null,
+				devReloadRequest:
+					document.documentElement.dataset['bridgeWorktreeDevLastReloadRequest'] ?? null,
+				devReloadSourceCursor:
+					document.documentElement.dataset['bridgeWorktreeDevLastReloadSourceCursor'] ?? null,
+				devReloadStatus:
+					document.documentElement.dataset['bridgeWorktreeDevLastReloadStatus'] ?? null,
+				targetPath,
+				targetTreeRowExists:
+					window.bridgeWorktreeVerifier.getPierreFileTreeItem(targetPath) !== null,
+				visiblePathSample: window.bridgeWorktreeVerifier
+					.getPierreFileTreeItems()
+					.slice(0, 8)
+					.map((candidate) => candidate.dataset['itemPath'] ?? ''),
+			};
+		}, props.path);
+		throw new Error(
+			`Timed out waiting for Worktree/File open state ${props.state} for ${props.path}: ${JSON.stringify(debugState)}`,
+			{ cause: error },
+		);
+	}
+}
+
+async function waitForWorktreeSourceCursor(props: {
+	readonly page: Page;
+	readonly sourceCursor: string;
+}): Promise<void> {
+	await props.page.waitForFunction(
+		(expectedSourceCursor: string): boolean =>
+			document
+				.querySelector('[data-testid="bridge-file-viewer-shell"]')
+				?.getAttribute('data-worktree-source-cursor') === expectedSourceCursor,
+		props.sourceCursor,
 		{ timeout: 20_000 },
 	);
 }
 
-async function dispatchWorktreeDevReload(page: Page): Promise<void> {
+async function dispatchWorktreeDevForceSplitResetReload(page: Page): Promise<void> {
 	await page.evaluate((): void => {
-		window.dispatchEvent(new Event('bridge-worktree-dev-reload'));
+		window.dispatchEvent(new Event('bridge-worktree-dev-force-split-reset-reload'));
 	});
 }
 

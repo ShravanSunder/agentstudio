@@ -297,6 +297,55 @@ describe('BridgeFileViewerApp', () => {
 			'agentstudio://resource/worktree-file/worktree.fileContent/file-content-1?generation=1',
 		]);
 	});
+
+	test('keeps open file stale when a matching replacement descriptor arrives without invalidation', async () => {
+		const firstDescriptor = makeFileDescriptor({ contentHandle: 'file-content-1' });
+		const replacementDescriptor = makeFileDescriptor({
+			contentHandle: 'file-content-2',
+			fileId: firstDescriptor.fileId,
+			path: firstDescriptor.path,
+		});
+		let frameSubscriber: ((frames: readonly WorktreeFileProtocolFrame[]) => void) | undefined;
+		const fetchedResourceUrls: string[] = [];
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeFileViewerApp
+					autoOpenInitialFile={true}
+					fetchResource={async (props): Promise<string> => {
+						fetchedResourceUrls.push(props.resourceUrl);
+						return props.resourceUrl.includes('file-content-2')
+							? 'export const value = 2;\n'
+							: 'export const value = 1;\n';
+					}}
+					initialFrames={makeFrames(firstDescriptor)}
+					subscribeFrames={(onFrames) => {
+						frameSubscriber = onFrames;
+						return () => {};
+					}}
+				/>,
+			);
+			await nextMicrotask();
+		});
+
+		expect(openFileState()).toBe('ready');
+		expect(document.body.textContent).toContain('export const value = 1');
+
+		await act(async (): Promise<void> => {
+			frameSubscriber?.([makeFileDescriptorFrame(replacementDescriptor)]);
+			await nextMicrotask();
+		});
+
+		expect(openFileState()).toBe('stale');
+		expect(document.body.textContent).toContain('Content changed');
+		expect(document.body.textContent).toContain('export const value = 1');
+		expect(fetchedResourceUrls).toEqual([
+			'agentstudio://resource/worktree-file/worktree.fileContent/file-content-1?generation=1',
+		]);
+	});
 });
 
 function makeFrames(

@@ -10,7 +10,10 @@ import type {
 	WorktreeFileProtocolFrame,
 	WorktreeFileSurfaceSourceIdentity,
 } from '../features/worktree-file/models/worktree-file-protocol-models.js';
-import { worktreeFileIncrementalFramesFromSurfaces } from './bridge-app-dev-worktree.js';
+import {
+	worktreeFileIncrementalFramesFromSurfaces,
+	worktreeFileSourceLessResetFramesFromSurface,
+} from './bridge-app-dev-worktree.js';
 
 describe('bridge app dev worktree frame subscription', () => {
 	test('derives file invalidation frames when a descriptor content hash changes', () => {
@@ -97,6 +100,35 @@ describe('bridge app dev worktree frame subscription', () => {
 				.filter((frame) => frame.frameKind === 'worktree.fileDescriptor')
 				.map((frame) => frame.descriptor.path),
 		).toEqual(['src/surviving.ts']);
+	});
+
+	test('builds a source-less reset followed by the replacement surface for forced split proof', () => {
+		const descriptor = makeFileDescriptor({
+			contentHash: 'sha256:replacement',
+			contentHandle: 'file-content-replacement',
+			cursor: 'cursor-replacement',
+		});
+
+		const frames = worktreeFileSourceLessResetFramesFromSurface(makeFrames(descriptor));
+
+		expect(frames[0]).toMatchObject({
+			kind: 'reset',
+			frameKind: 'worktree.reset',
+			reason: 'sourceChanged',
+		});
+		expect(frames[0]).not.toHaveProperty('source');
+		expect(frames[1]).toMatchObject({
+			kind: 'snapshot',
+			frameKind: 'worktree.snapshot',
+			source: { sourceCursor: 'cursor-1' },
+		});
+		expect(frames.at(-1)).toMatchObject({
+			frameKind: 'worktree.fileDescriptor',
+			descriptor: {
+				contentHandle: 'file-content-replacement',
+				contentHash: 'sha256:replacement',
+			},
+		});
 	});
 });
 

@@ -110,6 +110,11 @@ const worktreeFileDemandMaxQueuedIntentsPerLane = 128;
 const worktreeFileDemandMaxQueuedEstimatedBytes = 8 * 1024 * 1024;
 const sourceLessResetIdentity = 'source-less-reset';
 
+interface WorktreeFileSourceLessResetScope {
+	hasSourceLessReset: boolean;
+	postResetAnchorSource: WorktreeFileSurfaceSourceIdentity | null;
+}
+
 export function createWorktreeFileSurfaceRuntime(
 	props: WorktreeFileSurfaceRuntimeProps,
 ): WorktreeFileSurfaceRuntime {
@@ -129,7 +134,10 @@ export function createWorktreeFileSurfaceRuntime(
 	});
 	const resetSourceIds = new Set<string>();
 	const resetReplacementDescriptorKeys = new Set<string>();
-	const resetScope = { hasSourceLessReset: false };
+	const resetScope: WorktreeFileSourceLessResetScope = {
+		hasSourceLessReset: false,
+		postResetAnchorSource: null,
+	};
 	let state = createWorktreeFileSurfaceState();
 	const scheduler = createBridgeDemandScheduler({
 		maxQueuedIntentsPerLane: worktreeFileDemandMaxQueuedIntentsPerLane,
@@ -237,6 +245,7 @@ export function createWorktreeFileSurfaceRuntime(
 					});
 				} else {
 					resetScope.hasSourceLessReset = true;
+					resetScope.postResetAnchorSource = null;
 					resetReplacementDescriptorKeys.clear();
 					state = markAllOpenSessionsStale({ state });
 				}
@@ -246,24 +255,40 @@ export function createWorktreeFileSurfaceRuntime(
 					cancelledDemandCount,
 				};
 			}
-			case 'fileDescriptor':
-				if (
-					resetScope.hasSourceLessReset ||
-					resetSourceIds.has(delta.descriptor.sourceIdentity.sourceId)
-				) {
+			case 'fileDescriptor': {
+				const isSourceResetReplacement = resetSourceIds.has(
+					delta.descriptor.sourceIdentity.sourceId,
+				);
+				const isSourceLessResetReplacement =
+					resetScope.hasSourceLessReset &&
+					isDescriptorFromSourceLessResetAnchor({
+						descriptor: delta.descriptor,
+						resetScope,
+					});
+				if (isSourceResetReplacement || isSourceLessResetReplacement) {
 					resetReplacementDescriptorKeys.add(
 						resetDescriptorKeyForBridgeDescriptorRef(delta.descriptor.contentDescriptor.ref),
 					);
 				}
-				state = applyReplacementDescriptorToOpenSessions({
-					descriptor: delta.descriptor,
-					state,
-				});
+				if (!resetScope.hasSourceLessReset || isSourceLessResetReplacement) {
+					state = applyReplacementDescriptorToOpenSessions({
+						descriptor: delta.descriptor,
+						state,
+					});
+				}
 				return {
 					ok: true,
 					deltaKind: delta.kind,
 				};
+			}
 			case 'snapshot':
+				if (resetScope.hasSourceLessReset) {
+					resetScope.postResetAnchorSource = delta.source;
+				}
+				return {
+					ok: true,
+					deltaKind: delta.kind,
+				};
 			case 'statusPatch':
 			case 'treeDelta':
 			case 'treeWindow':
@@ -311,6 +336,9 @@ export function createWorktreeFileSurfaceRuntime(
 	): Promise<WorktreeFileSurfaceLoadResult> => {
 		const session = state.openFileSessionsById[refreshProps.openFileSessionId];
 		if (session?.latestDescriptor === undefined) {
+			if (session?.status === 'stale' && session.staleReason === 'sourceReset') {
+				return { ok: false, reason: 'source_reset' };
+			}
 			return { ok: false, reason: 'no_demand' };
 		}
 		if (
@@ -377,6 +405,33 @@ export function createWorktreeFileSurfaceRuntime(
 	};
 }
 
+function isDescriptorFromSourceLessResetAnchor(props: {
+	readonly descriptor: WorktreeFileDescriptor;
+	readonly resetScope: WorktreeFileSourceLessResetScope;
+}): boolean {
+	return (
+		props.resetScope.postResetAnchorSource !== null &&
+		areWorktreeFileSourceIdentitiesEqual(
+			props.descriptor.sourceIdentity,
+			props.resetScope.postResetAnchorSource,
+		)
+	);
+}
+
+function areWorktreeFileSourceIdentitiesEqual(
+	left: WorktreeFileSurfaceSourceIdentity,
+	right: WorktreeFileSurfaceSourceIdentity,
+): boolean {
+	return (
+		left.sourceId === right.sourceId &&
+		left.repoId === right.repoId &&
+		left.worktreeId === right.worktreeId &&
+		left.subscriptionGeneration === right.subscriptionGeneration &&
+		left.sourceCursor === right.sourceCursor &&
+		left.rootRevisionToken === right.rootRevisionToken
+	);
+}
+
 function applyReplacementDescriptorToOpenSessions(props: {
 	readonly descriptor: WorktreeFileDescriptor;
 	readonly state: WorktreeFileSurfaceState;
@@ -433,7 +488,7 @@ function areBridgeDescriptorRefsEqual(
 
 function makeWorktreeFileDemandReadContext(props: {
 	readonly registry: BridgeResourceDescriptorRegistry;
-	readonly resetScope: { readonly hasSourceLessReset: boolean };
+	readonly resetScope: WorktreeFileSourceLessResetScope;
 	readonly resetSourceIds: ReadonlySet<string>;
 	readonly resetReplacementDescriptorKeys: ReadonlySet<string>;
 }): WorktreeFileDemandReadContext {
@@ -477,7 +532,7 @@ function makeWorktreeFileDemandReadContext(props: {
 function isDescriptorRefBlockedByReset(props: {
 	readonly ref: BridgeDescriptorRef;
 	readonly resetReplacementDescriptorKeys: ReadonlySet<string>;
-	readonly resetScope: { readonly hasSourceLessReset: boolean };
+	readonly resetScope: WorktreeFileSourceLessResetScope;
 	readonly resetSourceIds: ReadonlySet<string>;
 }): boolean {
 	const sourceId = props.ref.expectedIdentity.sourceId;

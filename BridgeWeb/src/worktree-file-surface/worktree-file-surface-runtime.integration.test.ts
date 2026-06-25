@@ -10,6 +10,7 @@ import type {
 	WorktreeFileDescriptorFrame,
 	WorktreeFileInvalidatedFrame,
 	WorktreeFileSurfaceSourceIdentity,
+	WorktreeSnapshotFrame,
 	WorktreeResetFrame,
 } from '../features/worktree-file/models/worktree-file-protocol-models.js';
 import { createWorktreeFileSurfaceRuntime } from './worktree-file-surface-runtime.js';
@@ -41,7 +42,7 @@ describe('worktree file surface runtime', () => {
 			descriptorId: 'file-content-1',
 		});
 		expect(fetches).toEqual([
-			'agentstudio://resource/worktree-file/worktree.fileContent/file-content-1?generation=1',
+			'agentstudio://resource/worktree-file/worktree.fileContent/file-content-1?generation=1&cursor=cursor-1',
 		]);
 		expect(JSON.stringify(runtime.getState())).not.toContain('struct View');
 		expect(runtime.getBodyRegistrySnapshot()).toEqual({ entryCount: 1, totalBytes: 14 });
@@ -358,9 +359,9 @@ describe('worktree file surface runtime', () => {
 		});
 	});
 
-	test('source-less reset replacement descriptors keep matching open sessions refreshable', async () => {
+	test('source-less reset blocks unanchored old-stream descriptors', async () => {
 		const firstDescriptor = makeFileDescriptor({ descriptorId: 'file-content-1' });
-		const replacementDescriptor = makeFileDescriptor({
+		const oldStreamReplacementDescriptor = makeFileDescriptor({
 			descriptorId: 'file-content-2',
 			contentHandle: 'handle-2',
 		});
@@ -379,6 +380,48 @@ describe('worktree file surface runtime', () => {
 		});
 
 		runtime.applyFrame(makeResetFrame({ source: null }));
+		runtime.applyFrame(makeFileDescriptorFrame(oldStreamReplacementDescriptor));
+		const refreshResult = await runtime.refreshOpenFile({ openFileSessionId: 'session-1' });
+
+		expect(refreshResult).toEqual({ ok: false, reason: 'source_reset' });
+		expect(fetchedDescriptorIds).toEqual(['file-content-1']);
+		expect(runtime.getState().openFileSessionsById['session-1']).toMatchObject({
+			status: 'stale',
+			staleReason: 'sourceReset',
+		});
+		expect(
+			runtime.getState().openFileSessionsById['session-1']?.latestDescriptorRef,
+		).toBeUndefined();
+	});
+
+	test('source-less reset replacement descriptors require a post-reset snapshot anchor', async () => {
+		const firstDescriptor = makeFileDescriptor({ descriptorId: 'file-content-1' });
+		const replacementSource = makeSourceIdentity({
+			sourceId: 'source-2',
+			sourceCursor: 'cursor-2',
+			subscriptionGeneration: 2,
+		});
+		const replacementDescriptor = makeFileDescriptor({
+			descriptorId: 'file-content-2',
+			contentHandle: 'handle-2',
+			sourceIdentity: replacementSource,
+		});
+		const fetchedDescriptorIds: string[] = [];
+		const runtime = createWorktreeFileSurfaceRuntime({
+			paneId: 'pane-1',
+			fetchResource: async ({ descriptor }) => {
+				fetchedDescriptorIds.push(descriptor.descriptorId);
+				return `${descriptor.descriptorId}:body`;
+			},
+		});
+		runtime.applyFrame(makeFileDescriptorFrame(firstDescriptor));
+		await runtime.openFile({
+			descriptor: firstDescriptor,
+			openFileSessionId: 'session-1',
+		});
+
+		runtime.applyFrame(makeResetFrame({ source: null }));
+		runtime.applyFrame(makeSnapshotFrame(replacementSource));
 		runtime.applyFrame(makeFileDescriptorFrame(replacementDescriptor));
 
 		expect(runtime.getState().openFileSessionsById['session-1']).toMatchObject({
@@ -399,6 +442,50 @@ describe('worktree file surface runtime', () => {
 			status: 'fresh',
 			descriptorRef: replacementDescriptor.contentDescriptor.ref,
 		});
+	});
+
+	test('source-less reset anchored descriptors can open files that were not open during reset', async () => {
+		const firstDescriptor = makeFileDescriptor({ descriptorId: 'file-content-1' });
+		const replacementSource = makeSourceIdentity({
+			sourceId: 'source-2',
+			sourceCursor: 'cursor-2',
+			subscriptionGeneration: 2,
+		});
+		const secondDescriptor = makeFileDescriptor({
+			descriptorId: 'file-content-2',
+			contentHandle: 'handle-2',
+			fileId: 'file-2',
+			path: 'Sources/App/OtherView.swift',
+			sourceIdentity: replacementSource,
+		});
+		const fetchedDescriptorIds: string[] = [];
+		const runtime = createWorktreeFileSurfaceRuntime({
+			paneId: 'pane-1',
+			fetchResource: async ({ descriptor }) => {
+				fetchedDescriptorIds.push(descriptor.descriptorId);
+				return `${descriptor.descriptorId}:body`;
+			},
+		});
+		runtime.applyFrame(makeFileDescriptorFrame(firstDescriptor));
+		await runtime.openFile({
+			descriptor: firstDescriptor,
+			openFileSessionId: 'session-1',
+		});
+
+		runtime.applyFrame(makeResetFrame({ source: null }));
+		runtime.applyFrame(makeSnapshotFrame(replacementSource));
+		runtime.applyFrame(makeFileDescriptorFrame(secondDescriptor));
+		const openSecondResult = await runtime.openFile({
+			descriptor: secondDescriptor,
+			openFileSessionId: 'session-2',
+		});
+
+		expect(openSecondResult).toEqual({
+			ok: true,
+			body: 'file-content-2:body',
+			descriptorId: 'file-content-2',
+		});
+		expect(fetchedDescriptorIds).toEqual(['file-content-1', 'file-content-2']);
 	});
 });
 
@@ -447,6 +534,26 @@ function makeResetFrame(props?: {
 	};
 }
 
+function makeSnapshotFrame(source: WorktreeFileSurfaceSourceIdentity): WorktreeSnapshotFrame {
+	return {
+		kind: 'snapshot',
+		streamId: 'worktree-file:pane-1',
+		generation: source.subscriptionGeneration,
+		sequence: 4,
+		frameKind: 'worktree.snapshot',
+		source,
+		treeDescriptor: makeAttachedDescriptor({
+			descriptorId: `tree-window-${source.sourceCursor}`,
+			resourceKind: 'worktree.treeWindow',
+			sourceIdentity: source,
+		}),
+		treeSizeFacts: {
+			pathCount: 1,
+			rowHeightPixels: 24,
+		},
+	};
+}
+
 function makeDeferred<TValue>(): {
 	readonly promise: Promise<TValue>;
 	readonly resolve: (value: TValue | PromiseLike<TValue>) => void;
@@ -474,11 +581,13 @@ interface MakeFileDescriptorProps {
 	readonly fileId?: string;
 	readonly isBinary?: boolean;
 	readonly path?: string;
+	readonly sourceIdentity?: WorktreeFileSurfaceSourceIdentity;
 	readonly virtualizedExtentKind?: WorktreeFileDescriptor['virtualizedExtentKind'];
 }
 
 function makeFileDescriptor(props: MakeFileDescriptorProps): WorktreeFileDescriptor {
 	const virtualizedExtentKind = props.virtualizedExtentKind ?? 'exactLineCount';
+	const sourceIdentity = props.sourceIdentity ?? makeSourceIdentity();
 	return {
 		path: props.path ?? 'Sources/App/View.swift',
 		fileId: props.fileId ?? 'file-1',
@@ -486,8 +595,9 @@ function makeFileDescriptor(props: MakeFileDescriptorProps): WorktreeFileDescrip
 		contentDescriptor: makeAttachedDescriptor({
 			descriptorId: props.descriptorId,
 			resourceKind: 'worktree.fileContent',
+			sourceIdentity,
 		}),
-		sourceIdentity: makeSourceIdentity(),
+		sourceIdentity,
 		sizeBytes: 64,
 		virtualizedExtentKind,
 		...(virtualizedExtentKind === 'exactLineCount' ? { lineCount: 4 } : {}),
@@ -497,19 +607,25 @@ function makeFileDescriptor(props: MakeFileDescriptorProps): WorktreeFileDescrip
 	};
 }
 
-function makeSourceIdentity(): WorktreeFileSurfaceSourceIdentity {
+function makeSourceIdentity(
+	props: Partial<WorktreeFileSurfaceSourceIdentity> = {},
+): WorktreeFileSurfaceSourceIdentity {
 	return {
-		sourceId: 'source-1',
-		repoId: 'repo-1',
-		worktreeId: 'worktree-1',
-		subscriptionGeneration: 1,
-		sourceCursor: 'cursor-1',
+		sourceId: props.sourceId ?? 'source-1',
+		repoId: props.repoId ?? 'repo-1',
+		worktreeId: props.worktreeId ?? 'worktree-1',
+		subscriptionGeneration: props.subscriptionGeneration ?? 1,
+		sourceCursor: props.sourceCursor ?? 'cursor-1',
+		...(props.rootRevisionToken === undefined
+			? {}
+			: { rootRevisionToken: props.rootRevisionToken }),
 	};
 }
 
 interface MakeAttachedDescriptorProps {
 	readonly descriptorId: string;
 	readonly resourceKind: string;
+	readonly sourceIdentity: WorktreeFileSurfaceSourceIdentity;
 }
 
 function makeAttachedDescriptor(
@@ -518,15 +634,16 @@ function makeAttachedDescriptor(
 	const identity = {
 		paneId: 'pane-1',
 		protocol: 'worktree-file',
-		sourceId: 'source-1',
-		generation: 1,
+		sourceId: props.sourceIdentity.sourceId,
+		generation: props.sourceIdentity.subscriptionGeneration,
+		cursor: props.sourceIdentity.sourceCursor,
 		streamId: 'worktree-file:pane-1',
 	};
 	const descriptor = {
 		descriptorId: props.descriptorId,
 		protocol: 'worktree-file',
 		resourceKind: props.resourceKind,
-		resourceUrl: `agentstudio://resource/worktree-file/${props.resourceKind}/${props.descriptorId}?generation=1`,
+		resourceUrl: `agentstudio://resource/worktree-file/${props.resourceKind}/${props.descriptorId}?generation=${props.sourceIdentity.subscriptionGeneration}&cursor=${encodeURIComponent(props.sourceIdentity.sourceCursor)}`,
 		identity,
 		content: {
 			mediaType: 'text/plain',

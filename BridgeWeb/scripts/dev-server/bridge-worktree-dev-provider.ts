@@ -299,7 +299,8 @@ function worktreeFileDescriptorForChangedFile(props: {
 		return [];
 	}
 	const pathHash = hashText(props.changedFile.path).slice(0, 16);
-	const descriptorId = `dev-file-${pathHash}`;
+	const contentHash = hashText(content);
+	const descriptorId = `dev-file-${pathHash}-${contentHash.slice(0, 16)}`;
 	props.worktreeFileContentByDescriptorId.set(descriptorId, content);
 	const extension = extensionForPath(props.changedFile.path);
 	return [

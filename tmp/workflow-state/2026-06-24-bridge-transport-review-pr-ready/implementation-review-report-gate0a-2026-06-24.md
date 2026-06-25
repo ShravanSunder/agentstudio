@@ -259,6 +259,76 @@ Fresh proof:
   - result: 4 files passed, 24 tests passed
 - `pnpm --dir BridgeWeb exec tsc --noEmit`
   - exit: 0
+
+## 2026-06-25 Second Split Reset Re-Review Reduction
+
+Status: accepted implementation-review findings fixed; pending re-review or
+explicit human acceptance before Gate 1.
+
+Accepted findings addressed:
+
+1. Exact URL proof only proved same-handle stale refresh and did not prove
+   source-less split reset with a replacement content handle.
+   - Fixed the dev provider to version content handles by content hash.
+   - Added exact URL proof for old/replacement handles, replacement hash,
+     source cursor, zero body fetch before user refresh, and one replacement
+     body fetch after user refresh.
+
+2. Source-less reset over-accepted later descriptors.
+   - Fixed runtime admission so source-less reset replacements require a
+     post-reset snapshot source anchor.
+   - Added negative and positive runtime tests for old-stream descriptors,
+     anchored refresh, and anchored open.
+
+3. Matching replacement descriptors could update metadata while leaving the
+   open file `ready`.
+   - Fixed FileViewer reconciliation so matching `worktree.fileDescriptor`
+     frames mark the open file stale and keep the stale body visible.
+   - Added FileViewer UI proof for descriptor replacement without invalidation.
+
+4. Force split reset verifier events could be dropped behind the dev poller.
+   - Fixed the dev backend so force split reset reloads are sticky until the
+     in-flight reload completes.
+   - Added browser-visible dev reload diagnostics used by verifier failures.
+
+Fresh proof:
+
+- `pnpm --dir BridgeWeb exec vitest run src/app/bridge-app-dev-worktree.unit.test.ts src/file-viewer/bridge-file-viewer-app.unit.test.tsx src/worktree-file-surface/worktree-file-surface-runtime.integration.test.ts --reporter verbose`
+  - exit: 0
+  - result: 3 files passed, 21 tests passed
+- `pnpm --dir BridgeWeb exec tsc --noEmit`
+  - exit: 0
+- `pnpm --dir BridgeWeb run test:dev-server:worktree`
+  - exit: 0
+  - artifact:
+    `tmp/bridge-viewer-worktree-dev-server/2026-06-25T05-53-31-358Z/worktree-dev-server-proof.json`
+  - key artifact facts:
+    - exact URL:
+      `http://127.0.0.1:5173/?fixture=worktree&workers=on&scenario=current-worktree`
+    - descriptor count: 456
+    - shared shell owner: `BridgeViewerAppShell`
+    - app owner: `BridgeApp`
+    - shell owner: `BridgeViewerApp.FileViewer`
+    - code owner: `CodeView.file`
+    - tree owner: `FileTree`
+    - standalone `WorktreeFileApp` count: 0
+    - review empty shell count: 0
+    - split reset proof path: `.mise.toml`
+    - split reset body route hits: `0 -> 0 -> 1`
+    - stale retry proof path: `.gitignore`
+    - stale retry body route hits: `0 -> 1 -> 2`
+- `pnpm --dir BridgeWeb run check`
+  - exit: 0
+  - note: existing verifier `no-await-in-loop` warnings remain warnings only
+- `pnpm --dir BridgeWeb run test:browser:integration -- src/review-viewer/test-support/bridge-viewer-browser.integration.browser.test.tsx -t "large fixture programmatic file reveal uses bounded CodeView motion"`
+  - exit: 0
+  - result: 2 files passed, 34 tests passed
+- `mise run lint`
+  - exit: 0
+  - result: swift-format OK, SwiftLint 0 violations, architecture lint OK,
+    release script verification passed
+- `git diff --check`
+  - exit: 0
 - `pnpm --dir BridgeWeb run test:dev-server:worktree`
   - exit: 0
   - artifact:
