@@ -272,6 +272,91 @@ describe('worktree file surface runtime', () => {
 			staleReason: 'sourceReset',
 		});
 	});
+
+	test('source reset replacement descriptors keep open sessions refreshable', async () => {
+		const firstDescriptor = makeFileDescriptor({ descriptorId: 'file-content-1' });
+		const replacementDescriptor = makeFileDescriptor({
+			descriptorId: 'file-content-2',
+			contentHandle: 'handle-2',
+		});
+		const fetchedDescriptorIds: string[] = [];
+		const runtime = createWorktreeFileSurfaceRuntime({
+			paneId: 'pane-1',
+			fetchResource: async ({ descriptor }) => {
+				fetchedDescriptorIds.push(descriptor.descriptorId);
+				return `${descriptor.descriptorId}:body`;
+			},
+		});
+		runtime.applyFrame(makeFileDescriptorFrame(firstDescriptor));
+		await runtime.openFile({
+			descriptor: firstDescriptor,
+			openFileSessionId: 'session-1',
+		});
+
+		runtime.applyFrame(makeResetFrame());
+		runtime.applyFrame(makeFileDescriptorFrame(replacementDescriptor));
+
+		expect(runtime.getState().openFileSessionsById['session-1']).toMatchObject({
+			status: 'stale',
+			staleReason: 'sourceReset',
+			latestDescriptorRef: replacementDescriptor.contentDescriptor.ref,
+		});
+
+		const refreshResult = await runtime.refreshOpenFile({ openFileSessionId: 'session-1' });
+
+		expect(refreshResult).toEqual({
+			ok: true,
+			body: 'file-content-2:body',
+			descriptorId: 'file-content-2',
+		});
+		expect(fetchedDescriptorIds).toEqual(['file-content-1', 'file-content-2']);
+		expect(runtime.getState().openFileSessionsById['session-1']).toMatchObject({
+			status: 'fresh',
+			descriptorRef: replacementDescriptor.contentDescriptor.ref,
+		});
+	});
+
+	test('source reset replacement descriptors do not unblock stale descriptors for other files', async () => {
+		const firstDescriptor = makeFileDescriptor({ descriptorId: 'file-content-1' });
+		const staleLatestDescriptor = makeFileDescriptor({
+			descriptorId: 'file-content-2',
+			contentHandle: 'handle-2',
+		});
+		const unrelatedReplacementDescriptor = makeFileDescriptor({
+			descriptorId: 'unrelated-content-1',
+			contentHandle: 'unrelated-handle-1',
+			fileId: 'file-2',
+			path: 'Sources/App/OtherView.swift',
+		});
+		const fetchedDescriptorIds: string[] = [];
+		const runtime = createWorktreeFileSurfaceRuntime({
+			paneId: 'pane-1',
+			fetchResource: async ({ descriptor }) => {
+				fetchedDescriptorIds.push(descriptor.descriptorId);
+				return `${descriptor.descriptorId}:body`;
+			},
+		});
+		runtime.applyFrame(makeFileDescriptorFrame(firstDescriptor));
+		await runtime.openFile({
+			descriptor: firstDescriptor,
+			openFileSessionId: 'session-1',
+		});
+		runtime.applyFrame(
+			makeInvalidationFrame({ firstDescriptor, latestDescriptor: staleLatestDescriptor }),
+		);
+
+		runtime.applyFrame(makeResetFrame());
+		runtime.applyFrame(makeFileDescriptorFrame(unrelatedReplacementDescriptor));
+		const refreshResult = await runtime.refreshOpenFile({ openFileSessionId: 'session-1' });
+
+		expect(refreshResult).toEqual({ ok: false, reason: 'source_reset' });
+		expect(fetchedDescriptorIds).toEqual(['file-content-1']);
+		expect(runtime.getState().openFileSessionsById['session-1']).toMatchObject({
+			status: 'stale',
+			staleReason: 'sourceReset',
+			latestDescriptorRef: staleLatestDescriptor.contentDescriptor.ref,
+		});
+	});
 });
 
 function makeFileDescriptorFrame(descriptor: WorktreeFileDescriptor): WorktreeFileDescriptorFrame {
@@ -340,15 +425,17 @@ function makeDeferred<TValue>(): {
 interface MakeFileDescriptorProps {
 	readonly descriptorId: string;
 	readonly contentHandle?: string;
+	readonly fileId?: string;
 	readonly isBinary?: boolean;
+	readonly path?: string;
 	readonly virtualizedExtentKind?: WorktreeFileDescriptor['virtualizedExtentKind'];
 }
 
 function makeFileDescriptor(props: MakeFileDescriptorProps): WorktreeFileDescriptor {
 	const virtualizedExtentKind = props.virtualizedExtentKind ?? 'exactLineCount';
 	return {
-		path: 'Sources/App/View.swift',
-		fileId: 'file-1',
+		path: props.path ?? 'Sources/App/View.swift',
+		fileId: props.fileId ?? 'file-1',
 		contentHandle: props.contentHandle ?? 'handle-1',
 		contentDescriptor: makeAttachedDescriptor({
 			descriptorId: props.descriptorId,

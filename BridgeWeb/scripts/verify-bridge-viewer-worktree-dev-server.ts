@@ -112,6 +112,7 @@ interface WorktreeDevServerVerificationResult {
 	readonly negativeAssertions: readonly string[];
 	readonly productControlsProof: WorktreeFileProductControlsProof;
 	readonly sharedShellProof: WorktreeFileSharedShellProof;
+	readonly selectedContentRouteProof: WorktreeFileSelectedContentRouteProof;
 	readonly substituteGuardProof: WorktreeFileSubstituteGuardProof;
 	readonly visibleAppProof: WorktreeFileVisibleAppProof;
 }
@@ -150,6 +151,22 @@ interface WorktreeFileContentRouteProbe {
 	readonly dispose: () => Promise<void>;
 	readonly hitCount: () => number;
 	readonly hitUrls: () => readonly string[];
+}
+
+interface WorktreeFileSelectedContentRouteProof {
+	readonly expectedContentHandle: string;
+	readonly hitCount: number;
+	readonly hitUrls: readonly string[];
+	readonly selectedResourceUrlContainsHandle: boolean;
+	readonly selectedResourceUrlUsesDevServerFrontDoor: boolean;
+}
+
+interface WorktreeFileUnavailableOpenProof {
+	readonly contentRouteHitCount: number;
+	readonly expectedContentHandle: string;
+	readonly openedPath: string;
+	readonly selectedContentState: string | null;
+	readonly selectedLineCount: number;
 }
 
 interface WorktreeFileProductControlsProof {
@@ -194,6 +211,7 @@ interface WorktreeFileProductControlsProof {
 	readonly totalDescriptorCount: number;
 	readonly unavailableFilterActive: boolean;
 	readonly unavailableFilterVisibleCount: number;
+	readonly unavailableOpenProof: WorktreeFileUnavailableOpenProof;
 	readonly unavailableRenderedPathSample: readonly string[];
 	readonly unavailableTreeSizePixels: number | null;
 	readonly unavailableTreeSizeSource: WorktreeFileTreeExtentSource | null;
@@ -236,6 +254,8 @@ interface WorktreeFileVisibleAppProof {
 	readonly filterControlCount: number;
 	readonly forbiddenTextAbsentOutsideIntentionalUi: boolean;
 	readonly regexToggleCount: number;
+	readonly sourceProvenanceRect: WorktreeFileVisibleRect;
+	readonly sourceProvenanceText: string;
 	readonly sampledTreeRowCount: number;
 	readonly sampledTreeRowsHaveDistinctVerticalPositions: boolean;
 	readonly searchInputCount: number;
@@ -495,6 +515,10 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 			page,
 			previousFileSuccessCount: workerFileSuccessCountBeforeTargetSelection,
 		});
+		const selectedContentRouteProof = assertSelectedContentRouteProof({
+			expectedContentHandle: targetDescriptor.contentHandle,
+			probe: contentRouteProbe,
+		});
 		await contentRouteProbe.dispose();
 		const scrollExtentAfterReady = await readWorktreeFileScrollExtentSnapshot(page);
 		await waitForPierreFileTreeAnchorSettled(page, targetDescriptor.path);
@@ -568,7 +592,7 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 			frameCount: surface.frames.length,
 			observedLocationHref: observedRoute.locationHref,
 			observedPageUrl: observedRoute.pageUrl,
-			packageForbiddenTextAbsent: true,
+			packageForbiddenTextAbsent: visibleAppProof.forbiddenTextAbsentOutsideIntentionalUi,
 			positiveAssertions: [
 				'shared BridgeViewer FileViewer shell rendered',
 				'Pierre FileTree rendered in right rail',
@@ -584,6 +608,7 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 				'raw worktree payload text absent outside intended UI',
 			],
 			scrollExtentCanary,
+			selectedContentRouteProof,
 			scenarioName: scenarioNameFromDevServerUrl(worktreeDevServerUrl),
 			screenshotPaths: {
 				ready: readyScreenshotPath,
@@ -1205,6 +1230,36 @@ async function installFileContentRouteGate(props: {
 	};
 }
 
+function assertSelectedContentRouteProof(props: {
+	readonly expectedContentHandle: string;
+	readonly probe: WorktreeFileContentRouteProbe;
+}): WorktreeFileSelectedContentRouteProof {
+	const hitUrls = props.probe.hitUrls();
+	const selectedResourceUrlContainsHandle = hitUrls.some((hitUrl) =>
+		hitUrl.includes(encodeURIComponent(props.expectedContentHandle)),
+	);
+	const selectedResourceUrlUsesDevServerFrontDoor = hitUrls.some((hitUrl) =>
+		hitUrl.includes('/__bridge-worktree/file-content/'),
+	);
+	const proof: WorktreeFileSelectedContentRouteProof = {
+		expectedContentHandle: props.expectedContentHandle,
+		hitCount: props.probe.hitCount(),
+		hitUrls,
+		selectedResourceUrlContainsHandle,
+		selectedResourceUrlUsesDevServerFrontDoor,
+	};
+	if (
+		proof.hitCount <= 0 ||
+		!proof.selectedResourceUrlContainsHandle ||
+		!proof.selectedResourceUrlUsesDevServerFrontDoor
+	) {
+		throw new Error(
+			`Expected selected Worktree/File content to request dev-server content route: ${JSON.stringify(proof)}`,
+		);
+	}
+	return proof;
+}
+
 async function readWorktreeRenderedContentState(page: Page): Promise<WorktreeRenderedContentState> {
 	return await page.evaluate((): WorktreeRenderedContentState => {
 		const contentPanel = document.querySelector('[data-testid="bridge-file-viewer-code-canvas"]');
@@ -1686,6 +1741,7 @@ async function readWorktreeFileVisibleAppProof(page: Page): Promise<WorktreeFile
 		const shell = document.querySelector('[data-testid="bridge-file-viewer-shell"]');
 		const treePane = document.querySelector('[data-testid="bridge-file-viewer-sidebar"]');
 		const contentPane = document.querySelector('[data-testid="bridge-file-viewer-code-canvas"]');
+		const sourceProvenance = document.querySelector('[data-testid="worktree-file-provenance"]');
 		if (!(appRoot instanceof HTMLElement)) {
 			throw new Error('Expected visible shared Bridge app root');
 		}
@@ -1697,6 +1753,9 @@ async function readWorktreeFileVisibleAppProof(page: Page): Promise<WorktreeFile
 		}
 		if (!(contentPane instanceof HTMLElement)) {
 			throw new Error('Expected visible Bridge FileViewer content pane');
+		}
+		if (!(sourceProvenance instanceof HTMLElement)) {
+			throw new Error('Expected visible Worktree/File provenance element');
 		}
 		const helpers = window.bridgeWorktreeVerifier;
 		const sampledRows = helpers.getPierreFileTreeItems().slice(0, 24);
@@ -1733,6 +1792,8 @@ async function readWorktreeFileVisibleAppProof(page: Page): Promise<WorktreeFile
 				!outsideText.includes('agentstudio://resource/') &&
 				!outsideText.includes('BridgeWeb/src/'),
 			regexToggleCount: shell.querySelectorAll('[data-testid="worktree-file-regex-toggle"]').length,
+			sourceProvenanceRect: visibleRectForPageElement(sourceProvenance),
+			sourceProvenanceText: sourceProvenance.textContent ?? '',
 			sampledTreeRowCount: sampledRows.length,
 			sampledTreeRowsHaveDistinctVerticalPositions:
 				sampledRows.length >= 8 && distinctSampledRowTops.size === sampledRows.length,
@@ -1760,6 +1821,7 @@ function assertWorktreeFileVisibleAppProof(props: {
 	assertVisibleRect('Worktree/File app root', proof.appRootRect);
 	assertVisibleRect('Worktree/File tree pane', proof.treePaneRect);
 	assertVisibleRect('Worktree/File content pane', proof.contentPaneRect);
+	assertVisibleRect('Worktree/File provenance', proof.sourceProvenanceRect);
 	if (!proof.cssLayoutApplied) {
 		throw new Error(`Expected Worktree/File packaged CSS layout proof: ${JSON.stringify(proof)}`);
 	}
@@ -1791,6 +1853,7 @@ function assertWorktreeFileVisibleAppProof(props: {
 		proof.sourceBaseRef !== props.expectedSourceBaseRef ||
 		proof.sourceCursor !== props.expectedSourceCursor ||
 		proof.sourceId !== props.expectedSourceId ||
+		proof.sourceProvenanceText !== props.expectedSourceId ||
 		proof.sourceScenarioName !== props.expectedSourceScenarioName ||
 		proof.sourceState !== 'live' ||
 		proof.worktreeRootToken !== props.expectedWorktreeRootToken
@@ -1812,27 +1875,32 @@ async function verifyWorktreeFileProductControls(props: {
 	readonly page: Page;
 	readonly targetPath: string;
 }): Promise<WorktreeFileProductControlsProof> {
-	const expectedFetchableFilterCount = props.descriptors.filter(
-		(descriptor) => !descriptor['isBinary'] && descriptor.contentDescriptor !== null,
+	const expectedFetchableFilterCount = props.descriptors.filter((descriptor) =>
+		isFetchableWorktreeFileDescriptor(descriptor),
 	).length;
-	const expectedUnavailableFilterCount = props.descriptors.filter(
-		(descriptor) => descriptor['isBinary'] || descriptor['virtualizedExtentKind'] === 'unavailable',
+	const expectedUnavailableFilterCount = props.descriptors.filter((descriptor) =>
+		isUnavailableWorktreeFileDescriptor(descriptor),
 	).length;
 	const fetchablePathSet = new Set(
 		props.descriptors
-			.filter((descriptor) => !descriptor['isBinary'] && descriptor.contentDescriptor !== null)
+			.filter((descriptor) => isFetchableWorktreeFileDescriptor(descriptor))
 			.map((descriptor) => descriptor.path),
 	);
 	const fetchablePaths = [...fetchablePathSet];
 	const unavailablePathSet = new Set(
 		props.descriptors
-			.filter(
-				(descriptor) =>
-					descriptor['isBinary'] || descriptor['virtualizedExtentKind'] === 'unavailable',
-			)
+			.filter((descriptor) => isUnavailableWorktreeFileDescriptor(descriptor))
 			.map((descriptor) => descriptor.path),
 	);
 	const unavailablePaths = [...unavailablePathSet];
+	const expectedUnavailableDescriptor = props.descriptors.find(
+		(descriptor) => descriptor.path === unavailableFilterFixtureRelativePath,
+	);
+	if (expectedUnavailableDescriptor === undefined) {
+		throw new Error(
+			`Expected unavailable filter fixture descriptor ${unavailableFilterFixtureRelativePath}`,
+		);
+	}
 	const expectedSearchTreeSizePixels = projectedTreeSizePixels([props.targetPath]);
 	const expectedRegexTreeSizePixels = projectedTreeSizePixels([props.targetPath]);
 	const expectedInvalidRegexTreeSizePixels = projectedTreeSizePixels([]);
@@ -1914,6 +1982,10 @@ async function verifyWorktreeFileProductControls(props: {
 	const unavailableRenderedPathSample = await visibleWorktreeFilePathSample(props.page);
 	const unavailableTreeSizePixels = await worktreeFileTreeTotalSizePixels(props.page);
 	const unavailableTreeSizeSource = await worktreeFileTreeTotalSizeSource(props.page);
+	const unavailableOpenProof = await verifyUnavailableWorktreeFileOpen({
+		descriptor: expectedUnavailableDescriptor,
+		page: props.page,
+	});
 	await clickWorktreeFileControl(props.page, 'worktree-file-filter-all');
 	await fillWorktreeFileSearch(props.page, '');
 	await waitForWorktreeFileFilterStatus(
@@ -1967,6 +2039,7 @@ async function verifyWorktreeFileProductControls(props: {
 		totalDescriptorCount: props.descriptors.length,
 		unavailableFilterActive,
 		unavailableFilterVisibleCount,
+		unavailableOpenProof,
 		unavailableRenderedPathSample,
 		unavailableTreeSizePixels,
 		unavailableTreeSizeSource,
@@ -1976,6 +2049,52 @@ async function verifyWorktreeFileProductControls(props: {
 		proof,
 		unavailablePathSet,
 	});
+	return proof;
+}
+
+function isFetchableWorktreeFileDescriptor(descriptor: WorktreeFileDescriptor): boolean {
+	return descriptor['isBinary'] !== true && descriptor['virtualizedExtentKind'] !== 'unavailable';
+}
+
+function isUnavailableWorktreeFileDescriptor(descriptor: WorktreeFileDescriptor): boolean {
+	return descriptor['isBinary'] === true || descriptor['virtualizedExtentKind'] === 'unavailable';
+}
+
+async function verifyUnavailableWorktreeFileOpen(props: {
+	readonly descriptor: WorktreeFileDescriptor;
+	readonly page: Page;
+}): Promise<WorktreeFileUnavailableOpenProof> {
+	const unavailableGate = makeDeferred<void>();
+	unavailableGate.resolve();
+	const unavailableRouteProbe = await installFileContentRouteGate({
+		gate: unavailableGate,
+		page: props.page,
+		pathPattern: `**/__bridge-worktree/file-content/**${encodeURIComponent(props.descriptor.contentHandle)}**`,
+	});
+	await clickWorktreeFilePath(props.page, props.descriptor.path);
+	await waitForWorktreeOpenFileState({
+		page: props.page,
+		path: props.descriptor.path,
+		state: 'unavailable',
+	});
+	const renderedState = await readWorktreeRenderedContentState(props.page);
+	await unavailableRouteProbe.dispose();
+	const proof: WorktreeFileUnavailableOpenProof = {
+		contentRouteHitCount: unavailableRouteProbe.hitCount(),
+		expectedContentHandle: props.descriptor.contentHandle,
+		openedPath: props.descriptor.path,
+		selectedContentState: renderedState.selectedContentState,
+		selectedLineCount: renderedState.selectedLineCount,
+	};
+	if (
+		proof.contentRouteHitCount !== 0 ||
+		proof.selectedContentState !== 'unavailable' ||
+		proof.selectedLineCount !== 0
+	) {
+		throw new Error(
+			`Expected unavailable Worktree/File descriptor to open metadata-only without fetching body: ${JSON.stringify(proof)}`,
+		);
+	}
 	return proof;
 }
 

@@ -30,8 +30,8 @@ Bridge path before PR-ready.
 
 ## Current Proof Status
 
-Gate 0.a Vite/dev-server proof is green as of 2026-06-24 22:49 -04:00
-after reviewer finding fixes.
+Gate 0.a Vite/dev-server proof is green as of 2026-06-25 00:46 -04:00
+after shared-app implementation-review reduction fixes.
 
 Proof:
 
@@ -40,17 +40,14 @@ Proof:
   - exact URL:
     `http://127.0.0.1:5173/?fixture=worktree&workers=on&scenario=current-worktree`
   - artifact:
-    `tmp/bridge-viewer-worktree-dev-server/2026-06-25T02-49-34-424Z/worktree-dev-server-proof.json`
+    `tmp/bridge-viewer-worktree-dev-server/2026-06-25T04-46-20-464Z/worktree-dev-server-proof.json`
   - screenshots:
-    - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T02-49-34-424Z/worktree-file-ready.png`
-    - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T02-49-34-424Z/worktree-file-search-result.png`
-    - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T02-49-34-424Z/worktree-file-stale-refresh.png`
-- `pnpm --dir BridgeWeb exec vitest run src/file-viewer/bridge-file-viewer-app.unit.test.tsx --reporter verbose`
-  passed: 1 file, 1 test.
-- `pnpm --dir BridgeWeb exec vitest run scripts/dev-server/bridge-worktree-dev-provider.integration.test.ts src/app/bridge-app-protocol-router.unit.test.tsx --reporter verbose`
-  passed: 2 files, 14 tests.
-- `pnpm --dir BridgeWeb exec vitest run src/app/bridge-app-protocol-router.unit.test.tsx`
-  passed: 1 file, 3 tests.
+    - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T04-46-20-464Z/worktree-file-ready.png`
+    - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T04-46-20-464Z/worktree-file-search-result.png`
+    - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T04-46-20-464Z/worktree-file-stale-refresh.png`
+- `pnpm --dir BridgeWeb exec vitest run src/app/bridge-app-protocol-router.contract.unit.test.tsx src/file-viewer/bridge-file-viewer-app.unit.test.tsx src/worktree-file-surface/worktree-file-surface-runtime.integration.test.ts scripts/dev-server/bridge-worktree-dev-provider.integration.test.ts --reporter verbose`
+  passed: 4 files, 24 tests.
+- `pnpm --dir BridgeWeb exec tsc --noEmit` passed.
 - `pnpm --dir BridgeWeb run check` passed with existing verifier
   `no-await-in-loop` warnings only.
 
@@ -59,7 +56,9 @@ Pierre FileTree/right rail ownership, Pierre CodeView/File ownership, Shiki
 rendering, worker-backed highlighting request plus ready worker pool/theme
 state, search/regex/filter controls against actual rendered Pierre rows,
 provider-backed tree visual extent facts, stale/refresh, tree/content scroll
-extent stability, and negative substitute guards against `WorktreeFileApp`,
+extent stability, selected content requests through the dev-server content
+front door, visible source provenance, unavailable descriptor opens without
+content fetches, and negative substitute guards against `WorktreeFileApp`,
 route-local custom shell/tree, raw `<pre>` content, mock/review lineage, and
 DOM-only content-ready markers.
 
@@ -73,6 +72,17 @@ creating its own untracked file, and failed explicit refresh could blank stale
 content into failed state. The current artifact uses an existing tracked file
 and restores it, and the added FileViewer unit regression proves failed refresh
 keeps stale content visible and retryable.
+
+The `2026-06-25T04-04-26-634Z` and `2026-06-25T04-33-31-259Z` artifacts are
+superseded because implementation
+re-review found remaining proof gaps: router entry could be inferred from DOM
+markers instead of proving `BridgeApp viewerMode="file"` directly; selected
+content route hits were not asserted; visible provenance was hidden in
+attributes only; unavailable opens were not clicked/proven; unavailable deleted
+text descriptors were mislabeled as binary; and source-reset replacement
+descriptors could leave an open session non-refreshable. The latest focused
+runtime test also proves unrelated post-reset descriptors cannot unblock stale
+pre-reset content. The current artifact and focused tests close those gaps.
 
 This does not satisfy native Agent Studio Bridge/WKWebView proof. That remains
 required before PR-ready.

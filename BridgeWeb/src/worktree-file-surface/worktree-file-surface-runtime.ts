@@ -127,6 +127,7 @@ export function createWorktreeFileSurfaceRuntime(
 		maxBytes: worktreeFileBodyRegistryMaxBytes,
 	});
 	const resetSourceIds = new Set<string>();
+	const resetReplacementDescriptorKeys = new Set<string>();
 	let state = createWorktreeFileSurfaceState();
 	const scheduler = createBridgeDemandScheduler({
 		maxQueuedIntentsPerLane: worktreeFileDemandMaxQueuedIntentsPerLane,
@@ -138,8 +139,15 @@ export function createWorktreeFileSurfaceRuntime(
 		maxInFlightBytes: worktreeFileResourceExecutorMaxInFlightBytes,
 		maxQueuedLoads: worktreeFileResourceExecutorMaxQueuedLoads,
 		maxQueuedBytes: worktreeFileResourceExecutorMaxQueuedBytes,
-		isFresh: (intent): boolean =>
-			!resetSourceIds.has(intent.descriptorRef.expectedIdentity.sourceId ?? ''),
+		isFresh: (intent): boolean => {
+			const sourceId = intent.descriptorRef.expectedIdentity.sourceId;
+			if (sourceId === undefined || !resetSourceIds.has(sourceId)) {
+				return true;
+			}
+			return resetReplacementDescriptorKeys.has(
+				resetDescriptorKeyForBridgeDescriptorRef(intent.descriptorRef),
+			);
+		},
 		loadResource: async ({ descriptor, intent, signal }) => {
 			const cachedBody = bodyRegistry.get({
 				cacheKey: descriptor.resourceUrl,
@@ -169,6 +177,7 @@ export function createWorktreeFileSurfaceRuntime(
 	const readContext = makeWorktreeFileDemandReadContext({
 		registry,
 		resetSourceIds,
+		resetReplacementDescriptorKeys,
 	});
 
 	const applyFrame = (frame: WorktreeFileProtocolFrame): WorktreeFileSurfaceApplyFrameResult => {
@@ -209,6 +218,10 @@ export function createWorktreeFileSurfaceRuntime(
 							});
 				if (delta.source !== undefined) {
 					resetSourceIds.add(delta.source.sourceId);
+					deleteResetReplacementDescriptorKeysForSource({
+						resetReplacementDescriptorKeys,
+						sourceId: delta.source.sourceId,
+					});
 					state = markSourceOpenSessionsStale({
 						source: delta.source,
 						state,
@@ -221,6 +234,19 @@ export function createWorktreeFileSurfaceRuntime(
 				};
 			}
 			case 'fileDescriptor':
+				if (resetSourceIds.has(delta.descriptor.sourceIdentity.sourceId)) {
+					resetReplacementDescriptorKeys.add(
+						resetDescriptorKeyForBridgeDescriptorRef(delta.descriptor.contentDescriptor.ref),
+					);
+				}
+				state = applyReplacementDescriptorToOpenSessions({
+					descriptor: delta.descriptor,
+					state,
+				});
+				return {
+					ok: true,
+					deltaKind: delta.kind,
+				};
 			case 'snapshot':
 			case 'statusPatch':
 			case 'treeDelta':
@@ -271,7 +297,12 @@ export function createWorktreeFileSurfaceRuntime(
 		if (session?.latestDescriptor === undefined) {
 			return { ok: false, reason: 'no_demand' };
 		}
-		if (resetSourceIds.has(session.latestDescriptor.sourceIdentity.sourceId)) {
+		if (
+			resetSourceIds.has(session.latestDescriptor.sourceIdentity.sourceId) &&
+			!resetReplacementDescriptorKeys.has(
+				resetDescriptorKeyForBridgeDescriptorRef(session.latestDescriptor.contentDescriptor.ref),
+			)
+		) {
 			return { ok: false, reason: 'source_reset' };
 		}
 		if (!canFetchWorktreeFileBody(session.latestDescriptor)) {
@@ -325,6 +356,30 @@ export function createWorktreeFileSurfaceRuntime(
 	};
 }
 
+function applyReplacementDescriptorToOpenSessions(props: {
+	readonly descriptor: WorktreeFileDescriptor;
+	readonly state: WorktreeFileSurfaceState;
+}): WorktreeFileSurfaceState {
+	return {
+		...props.state,
+		openFileSessionsById: Object.fromEntries(
+			Object.entries(props.state.openFileSessionsById).map(([sessionId, session]) => {
+				if (session.fileId !== props.descriptor.fileId && session.path !== props.descriptor.path) {
+					return [sessionId, session];
+				}
+				return [
+					sessionId,
+					{
+						...session,
+						latestDescriptor: props.descriptor,
+						latestDescriptorRef: props.descriptor.contentDescriptor.ref,
+					},
+				];
+			}),
+		),
+	};
+}
+
 function isOpenFileRefreshStillCurrent(props: {
 	readonly state: WorktreeFileSurfaceState;
 	readonly openFileSessionId: string;
@@ -358,11 +413,17 @@ function areBridgeDescriptorRefsEqual(
 function makeWorktreeFileDemandReadContext(props: {
 	readonly registry: BridgeResourceDescriptorRegistry;
 	readonly resetSourceIds: ReadonlySet<string>;
+	readonly resetReplacementDescriptorKeys: ReadonlySet<string>;
 }): WorktreeFileDemandReadContext {
 	return {
 		getDescriptorState: (ref: BridgeDescriptorRef) => {
 			const sourceId = ref.expectedIdentity.sourceId;
-			if (sourceId !== undefined && props.resetSourceIds.has(sourceId)) {
+			const resetDescriptorKey = resetDescriptorKeyForBridgeDescriptorRef(ref);
+			if (
+				sourceId !== undefined &&
+				props.resetSourceIds.has(sourceId) &&
+				!props.resetReplacementDescriptorKeys.has(resetDescriptorKey)
+			) {
 				return { kind: 'reset', sourceIdentity: sourceId };
 			}
 			const descriptor = props.registry.lookup(ref);
@@ -383,6 +444,22 @@ function makeWorktreeFileDemandReadContext(props: {
 			cancellationGroup: demandCancellationGroupForWorktreeDescriptorRef(ref),
 		}),
 	};
+}
+
+function deleteResetReplacementDescriptorKeysForSource(props: {
+	readonly resetReplacementDescriptorKeys: Set<string>;
+	readonly sourceId: string;
+}): void {
+	const sourcePrefix = `${props.sourceId}:`;
+	for (const descriptorKey of props.resetReplacementDescriptorKeys) {
+		if (descriptorKey.startsWith(sourcePrefix)) {
+			props.resetReplacementDescriptorKeys.delete(descriptorKey);
+		}
+	}
+}
+
+function resetDescriptorKeyForBridgeDescriptorRef(ref: BridgeDescriptorRef): string {
+	return `${ref.expectedIdentity.sourceId ?? 'source-none'}:${demandFreshnessKeyForWorktreeDescriptorRef(ref)}`;
 }
 
 async function loadStimulus(props: {
@@ -459,7 +536,10 @@ function markSourceOpenSessionsStale(props: {
 		...props.state,
 		openFileSessionsById: Object.fromEntries(
 			Object.entries(props.state.openFileSessionsById).map(([sessionId, session]) => {
-				if (session.latestDescriptor?.sourceIdentity.sourceId !== props.source.sourceId) {
+				const sessionSourceId =
+					session.latestDescriptor?.sourceIdentity.sourceId ??
+					session.descriptorRef.expectedIdentity.sourceId;
+				if (sessionSourceId !== props.source.sourceId) {
 					return [sessionId, session];
 				}
 				return [

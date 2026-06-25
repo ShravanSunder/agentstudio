@@ -134,3 +134,74 @@ the user-visible product is wrong. In particular, re-review must attack
 Review/mock lineage, DOM-only ready markers, local extent synthesis, worker
 bootstrap-only evidence, verifier-created worktree mutations, self-reported
 URLs, and marker-only shared-shell assertions.
+
+## 2026-06-25 Re-Review Reduction
+
+Status: accepted implementation-review findings fixed; pending re-review.
+
+Accepted findings addressed:
+
+1. Router entry proof could be spoofed by shared-shell DOM markers.
+   - Fixed with `bridge-app-protocol-router.contract.unit.test.tsx`, which
+     mocks `BridgeApp` and asserts `worktree-file -> viewerMode="file"` and
+     `review -> viewerMode="review"` directly.
+
+2. Selected-file content proof did not assert the dev-server content front door.
+   - Fixed by recording `selectedContentRouteProof` in the canonical artifact.
+     Current proof records one
+     `/__bridge-worktree/file-content/<selected-handle>` request for
+     `BridgeWeb/pnpm-lock.yaml`.
+
+3. Visible provenance was only hidden attribute proof.
+   - Fixed by recording `visibleAppProof.sourceProvenanceText` and
+     `sourceProvenanceRect`. Current proof records
+     `sourceProvenanceText=dev-worktree-source`.
+
+4. Unavailable rows were not opened in the product proof.
+   - Fixed by clicking `.github/workflows/ci.yml` under the unavailable filter
+     and recording `unavailableOpenProof`: `selectedContentState=unavailable`,
+     `selectedLineCount=0`, and `contentRouteHitCount=0`.
+
+5. Deleted unavailable text descriptors were mislabeled as binary.
+   - Fixed in the dev provider and FileViewer filter/open contract:
+     deleted metadata-only descriptors use `virtualizedExtentKind=unavailable`
+     and `isBinary=false`; FileViewer fetchability excludes unavailable
+     descriptors.
+
+6. Source reset replacement descriptors did not update runtime open sessions.
+   - Fixed in `worktree-file-surface-runtime.ts`: matching
+     `worktree.fileDescriptor` frames update an open session's latest
+     descriptor/ref, and source reset staleness also matches the original
+     descriptor source. Added runtime proof that reset plus replacement remains
+     refreshable, plus a negative regression that an unrelated post-reset
+     descriptor does not unblock stale pre-reset content.
+
+7. `packageForbiddenTextAbsent` was hardcoded in the artifact.
+   - Fixed by deriving it from
+     `visibleAppProof.forbiddenTextAbsentOutsideIntentionalUi`.
+
+Fresh proof:
+
+- `pnpm --dir BridgeWeb exec vitest run src/app/bridge-app-protocol-router.contract.unit.test.tsx src/file-viewer/bridge-file-viewer-app.unit.test.tsx src/worktree-file-surface/worktree-file-surface-runtime.integration.test.ts scripts/dev-server/bridge-worktree-dev-provider.integration.test.ts --reporter verbose`
+  - exit: 0
+  - result: 4 files passed, 24 tests passed
+- `pnpm --dir BridgeWeb exec tsc --noEmit`
+  - exit: 0
+- `pnpm --dir BridgeWeb run test:dev-server:worktree`
+  - exit: 0
+  - artifact:
+    `tmp/bridge-viewer-worktree-dev-server/2026-06-25T04-46-20-464Z/worktree-dev-server-proof.json`
+  - screenshots:
+    - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T04-46-20-464Z/worktree-file-ready.png`
+    - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T04-46-20-464Z/worktree-file-search-result.png`
+    - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T04-46-20-464Z/worktree-file-stale-refresh.png`
+- `pnpm --dir BridgeWeb run check`
+  - exit: 0
+  - note: existing verifier `no-await-in-loop` warnings remain warnings only
+- `mise run lint`
+  - exit: 0
+  - result: swift-format OK, SwiftLint 0 violations, architecture lint OK,
+    release script verification passed
+- `pnpm --dir BridgeWeb run test:browser:integration -- src/review-viewer/test-support/bridge-viewer-browser.integration.browser.test.tsx -t "large fixture programmatic file reveal uses bounded CodeView motion"`
+  - exit: 0
+  - result: 2 files passed, 34 tests passed

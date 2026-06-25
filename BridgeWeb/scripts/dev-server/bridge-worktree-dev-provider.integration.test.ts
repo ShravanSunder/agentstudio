@@ -58,7 +58,7 @@ describe('Bridge worktree dev provider', () => {
 			expect(sourceDescriptor.virtualizedExtentKind).toBe('exactLineCount');
 			expect(sourceDescriptor.lineCount).toBeGreaterThan(0);
 			expect(deletedDescriptor.virtualizedExtentKind).toBe('unavailable');
-			expect(deletedDescriptor.isBinary).toBe(true);
+			expect(deletedDescriptor.isBinary).toBe(false);
 			expect(sourceDescriptor.contentDescriptor.descriptor.resourceUrl).toContain(
 				'agentstudio://resource/worktree-file/worktree.fileContent/',
 			);

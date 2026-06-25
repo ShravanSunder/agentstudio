@@ -2,7 +2,7 @@
 
 Goal id: `2026-06-24-bridge-transport-review-pr-ready`
 Status: active
-Current workflow: implementation-execute-plan Gate 0.a shared-app boundary fixes complete
+Current workflow: implementation-execute-plan Gate 0.a shared-app review-reduction fixes complete
 Next workflow: `shravan-dev-workflow:implementation-review-swarm`
 
 ## Durable Objective
@@ -234,21 +234,19 @@ Former Gate 0.a red proof:
 
 Vite/dev-server Gate 0.a status:
 
-- The exact URL proof row is green as of 2026-06-25 00:04 -04:00 after the
-  shared-app boundary proof pass.
+- The exact URL proof row is green as of 2026-06-25 00:46 -04:00 after the
+  shared-app boundary proof pass and implementation-review reduction fixes.
 - Canonical proof command:
   `pnpm --dir BridgeWeb run test:dev-server:worktree`
 - Proof artifact:
-  `tmp/bridge-viewer-worktree-dev-server/2026-06-25T04-04-26-634Z/worktree-dev-server-proof.json`
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-25T04-46-20-464Z/worktree-dev-server-proof.json`
 - Screenshots:
-  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T04-04-26-634Z/worktree-file-ready.png`
-  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T04-04-26-634Z/worktree-file-search-result.png`
-  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T04-04-26-634Z/worktree-file-stale-refresh.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T04-46-20-464Z/worktree-file-ready.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T04-46-20-464Z/worktree-file-search-result.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T04-46-20-464Z/worktree-file-stale-refresh.png`
 - Focused reviewer-fix proof:
-  - `pnpm --dir BridgeWeb exec vitest run scripts/verify-bridge-viewer-worktree-dev-server-paths.unit.test.ts src/worktree-file-surface/worktree-file-surface-runtime.integration.test.ts src/file-viewer/bridge-file-viewer-app.unit.test.tsx src/app/bridge-app-protocol-router.unit.test.tsx --reporter verbose`
-    passed: 4 files, 14 tests
-  - `pnpm --dir BridgeWeb exec vitest run scripts/dev-server/bridge-worktree-dev-provider.integration.test.ts src/app/bridge-app-protocol-router.unit.test.tsx --reporter verbose`
-    passed: 2 files, 14 tests
+  - `pnpm --dir BridgeWeb exec vitest run src/app/bridge-app-protocol-router.contract.unit.test.tsx src/file-viewer/bridge-file-viewer-app.unit.test.tsx src/worktree-file-surface/worktree-file-surface-runtime.integration.test.ts scripts/dev-server/bridge-worktree-dev-provider.integration.test.ts --reporter verbose`
+    passed: 4 files, 24 tests
 - Type proof:
   - `pnpm --dir BridgeWeb exec tsc --noEmit` passed
 - Focused supporting proof:
@@ -303,6 +301,29 @@ Vite/dev-server Gate 0.a status:
     explicit refresh sessions stale so a second refresh can succeed
   - stale refresh proof records content-route hit counts before first refresh,
     after failed refresh, and after successful retry as `0 -> 1 -> 2`
+  - router contract proof now spies on `BridgeApp` and asserts
+    `worktree-file -> viewerMode="file"` directly instead of relying only on
+    DOM markers
+  - selected file proof records a dev-server
+    `/__bridge-worktree/file-content` hit for the selected descriptor content
+    handle
+  - visible provenance proof records the rendered
+    `worktree-file-provenance` text and visible rect, not just hidden shell
+    attributes
+  - unavailable descriptor proof clicks `.github/workflows/ci.yml`, reaches
+    `selectedContentState="unavailable"`, and records zero content-route hits
+  - unavailable deleted text descriptors are no longer mislabeled as binary;
+    `virtualizedExtentKind="unavailable"` carries availability
+  - source reset plus replacement file descriptor updates the open session's
+    latest descriptor so explicit refresh remains possible
+  - source reset plus unrelated post-reset descriptor does not unblock a stale
+    pre-reset descriptor for another file
+- Independent browser subagent visual/DOM proof passed on the exact URL and
+  produced `tmp/bridge-viewer-worktree-dev-server/2026-06-25T04-40-15-000Z/worktree-dev-server-proof.json`
+  with `standaloneWorktreeFileAppCount=0`,
+  `shellOwner=BridgeViewerApp.FileViewer`, `codeOwner=CodeView.file`,
+  `treeOwner=FileTree`, `sidebarIsRight=true`, visible provenance, search/regex
+  controls, and unavailable zero-fetch behavior.
 - Vite dev server remained live on `127.0.0.1:5173` with node PID `65785`
   during this proof.
 - Prior 2026-06-24 proof remains lower-level regression evidence only.

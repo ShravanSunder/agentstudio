@@ -353,7 +353,7 @@ function unavailableWorktreeFileDescriptorForChangedFile(props: {
 		sourceIdentity: props.sourceIdentity,
 		sizeBytes: byteLength(content),
 		virtualizedExtentKind: 'unavailable',
-		isBinary: true,
+		isBinary: false,
 		language: languageForExtension(extension),
 		fileExtension: extension,
 	};

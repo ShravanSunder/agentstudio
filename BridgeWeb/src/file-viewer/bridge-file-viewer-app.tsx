@@ -418,7 +418,7 @@ function descriptorMatchesFilterMode(props: {
 }
 
 function canFetchDescriptorContent(descriptor: WorktreeFileDescriptor): boolean {
-	return !descriptor.isBinary && descriptor.contentDescriptor !== null;
+	return !descriptor.isBinary && descriptor.virtualizedExtentKind !== 'unavailable';
 }
 
 function makeBridgeFileViewerSearchPattern(props: {

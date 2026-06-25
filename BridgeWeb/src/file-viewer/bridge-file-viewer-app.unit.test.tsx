@@ -47,6 +47,62 @@ describe('BridgeFileViewerApp', () => {
 		document.body.replaceChildren();
 	});
 
+	test('keeps unavailable text descriptors metadata-only in auto-open and filters', async () => {
+		const unavailableDescriptor = makeFileDescriptor({
+			contentHandle: 'deleted-content',
+			fileId: 'file-deleted',
+			path: 'docs/deleted-plan.md',
+			virtualizedExtentKind: 'unavailable',
+		});
+		const liveDescriptor = makeFileDescriptor({
+			contentHandle: 'live-content',
+			fileId: 'file-live',
+			path: 'src/live.ts',
+		});
+		const fetches: string[] = [];
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeFileViewerApp
+					autoOpenInitialFile={true}
+					fetchResource={async (props): Promise<string> => {
+						fetches.push(props.resourceUrl);
+						return 'export const live = true;\n';
+					}}
+					initialFrames={makeFrames(unavailableDescriptor, liveDescriptor)}
+				/>,
+			);
+			await nextMicrotask();
+		});
+
+		expect(openFileState()).toBe('ready');
+		expect(fetches).toEqual([
+			'agentstudio://resource/worktree-file/worktree.fileContent/live-content?generation=1',
+		]);
+		expect(document.body.textContent).toContain('export const live = true');
+		expect(filterCount()).toBe('2/2');
+
+		await clickControl('worktree-file-filter-fetchable');
+		expect(filterCount()).toBe('1/2');
+
+		await clickControl('worktree-file-filter-unavailable');
+		expect(filterCount()).toBe('1/2');
+
+		await clickControl('worktree-file-filter-all');
+		await setSearchText('live');
+		expect(filterCount()).toBe('1/2');
+
+		await clickControl('worktree-file-regex-toggle');
+		await setSearchText('[');
+		expect(filterCount()).toBe('Invalid regex');
+		expect(fetches).toEqual([
+			'agentstudio://resource/worktree-file/worktree.fileContent/live-content?generation=1',
+		]);
+	});
+
 	test('keeps stale body visible and retryable when explicit refresh fails', async () => {
 		const firstDescriptor = makeFileDescriptor({ contentHandle: 'file-content-1' });
 		const latestDescriptor = makeFileDescriptor({
@@ -121,7 +177,9 @@ describe('BridgeFileViewerApp', () => {
 	});
 });
 
-function makeFrames(descriptor: WorktreeFileDescriptor): readonly WorktreeFileProtocolFrame[] {
+function makeFrames(
+	...descriptors: readonly WorktreeFileDescriptor[]
+): readonly WorktreeFileProtocolFrame[] {
 	return [
 		{
 			kind: 'snapshot',
@@ -135,21 +193,23 @@ function makeFrames(descriptor: WorktreeFileDescriptor): readonly WorktreeFilePr
 				resourceKind: 'worktree.treeWindow',
 			}),
 			treeSizeFacts: {
-				pathCount: 1,
-				estimatedTotalHeightPixels: 24,
+				pathCount: descriptors.length,
+				estimatedTotalHeightPixels: Math.max(1, descriptors.length) * 24,
 				rowHeightPixels: 24,
-				windowRowCount: 1,
+				windowRowCount: descriptors.length,
 				windowStartIndex: 0,
 			},
 		},
-		{
-			kind: 'delta',
-			streamId: 'worktree-file:pane-1',
-			generation: 1,
-			sequence: 1,
-			frameKind: 'worktree.fileDescriptor',
-			descriptor,
-		},
+		...descriptors.map(
+			(descriptor, descriptorIndex): WorktreeFileProtocolFrame => ({
+				kind: 'delta',
+				streamId: 'worktree-file:pane-1',
+				generation: 1,
+				sequence: descriptorIndex + 1,
+				frameKind: 'worktree.fileDescriptor',
+				descriptor,
+			}),
+		),
 	];
 }
 
@@ -173,7 +233,10 @@ function makeFileDescriptor(props: {
 	readonly contentHandle: string;
 	readonly fileId?: string;
 	readonly path?: string;
+	readonly isBinary?: boolean;
+	readonly virtualizedExtentKind?: WorktreeFileDescriptor['virtualizedExtentKind'];
 }): WorktreeFileDescriptor {
+	const virtualizedExtentKind = props.virtualizedExtentKind ?? 'exactLineCount';
 	return {
 		path: props.path ?? 'src/app.ts',
 		fileId: props.fileId ?? 'file-1',
@@ -184,9 +247,9 @@ function makeFileDescriptor(props: {
 		}),
 		sourceIdentity: makeSourceIdentity(),
 		sizeBytes: 24,
-		virtualizedExtentKind: 'exactLineCount',
-		lineCount: 1,
-		isBinary: false,
+		virtualizedExtentKind,
+		...(virtualizedExtentKind === 'exactLineCount' ? { lineCount: 1 } : {}),
+		isBinary: props.isBinary ?? false,
 		language: 'typescript',
 		fileExtension: 'ts',
 	};
@@ -247,4 +310,35 @@ function openFileState(): string | null {
 
 async function nextMicrotask(): Promise<void> {
 	await Promise.resolve();
+}
+
+async function clickControl(testId: string): Promise<void> {
+	await act(async (): Promise<void> => {
+		document.querySelector<HTMLButtonElement>(`[data-testid="${testId}"]`)?.click();
+		await nextMicrotask();
+	});
+}
+
+async function setSearchText(value: string): Promise<void> {
+	const input = document.querySelector<HTMLInputElement>(
+		'[data-testid="worktree-file-search-input"]',
+	);
+	if (input === null) {
+		throw new Error('Expected worktree file search input');
+	}
+	await act(async (): Promise<void> => {
+		const valueDescriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+		if (valueDescriptor?.set === undefined) {
+			throw new Error('Expected native input value setter');
+		}
+		// oxlint-disable-next-line typescript/unbound-method -- Test helper needs the native input setter with an explicit receiver.
+		Reflect.apply(valueDescriptor.set, input, [value]);
+		input.dispatchEvent(new Event('input', { bubbles: true }));
+		input.dispatchEvent(new Event('change', { bubbles: true }));
+		await nextMicrotask();
+	});
+}
+
+function filterCount(): string | null {
+	return document.querySelector('[data-testid="worktree-file-filter-count"]')?.textContent ?? null;
 }
