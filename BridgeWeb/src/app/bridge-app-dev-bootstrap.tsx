@@ -86,7 +86,7 @@ if (rootElement !== null) {
 		<BridgeAppProtocolRouter
 			codeViewWorkerPoolEnabled={options.workersEnabled}
 			markdownWorkerClient={markdownWorkerClient}
-			protocol={worktreeBackend === null ? 'review' : 'worktree-file'}
+			navigationCommand={options.navigationCommand}
 			{...(worktreeBackend === null
 				? {}
 				: {
