@@ -47,6 +47,45 @@ describe('BridgeFileViewerApp', () => {
 		document.body.replaceChildren();
 	});
 
+	test('renders file viewer chrome with the shared input and button primitives', async () => {
+		const descriptor = makeFileDescriptor({
+			contentHandle: 'live-content',
+			path: 'src/live.ts',
+		});
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeFileViewerApp
+					autoOpenInitialFile={true}
+					fetchResource={async (): Promise<string> => 'export const live = true;\n'}
+					initialFrames={makeFrames(descriptor)}
+				/>,
+			);
+			await nextMicrotask();
+		});
+
+		expect(
+			document
+				.querySelector('[data-testid="worktree-file-search-input"]')
+				?.getAttribute('data-slot'),
+		).toBe('input');
+		expect(
+			document
+				.querySelector('[data-testid="worktree-file-regex-toggle"]')
+				?.getAttribute('data-slot'),
+		).toBe('button');
+		for (const filterMode of ['all', 'fetchable', 'unavailable']) {
+			expect(
+				document
+					.querySelector(`[data-testid="worktree-file-filter-${filterMode}"]`)
+					?.getAttribute('data-slot'),
+			).toBe('button');
+		}
+	});
+
 	test('keeps unavailable text descriptors metadata-only in auto-open and filters', async () => {
 		const unavailableDescriptor = makeFileDescriptor({
 			contentHandle: 'deleted-content',

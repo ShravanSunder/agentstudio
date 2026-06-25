@@ -1,12 +1,15 @@
 import { prepareFileTreeInput } from '@pierre/trees';
 import { FileTree, useFileTree } from '@pierre/trees/react';
+import { RegexIcon } from 'lucide-react';
 import { useEffect, useMemo, useRef, type ReactElement } from 'react';
 
+import { Input } from '../../components/ui/input.js';
 import type {
 	WorktreeFileDescriptor,
 	WorktreeFileSurfaceSourceIdentity,
 } from '../../features/worktree-file/models/worktree-file-protocol-models.js';
 import { countFlattenedWorktreeFileTreeRows } from '../../features/worktree-file/models/worktree-file-tree-size.js';
+import { BridgeReviewButton, BridgeReviewIcon } from '../chrome/bridge-review-button.js';
 import { bridgeReviewTreeStyle, bridgeReviewTreeUnsafeCSS } from './bridge-tree-theme.js';
 
 export type BridgeFileViewerFilterMode = 'all' | 'fetchable' | 'unavailable';
@@ -114,9 +117,9 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 				data-testid="bridge-file-viewer-toolbar"
 			>
 				<div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2">
-					<input
+					<Input
 						aria-label="Search files"
-						className="min-w-0 rounded-md border border-[var(--bridge-border-opaque)] bg-[var(--bridge-header-control-bg)] px-2 py-1 text-xs outline-none"
+						className="h-7 border-[var(--bridge-border-opaque)] bg-[var(--bridge-header-control-bg)] text-xs"
 						data-testid="worktree-file-search-input"
 						onChange={(event) => {
 							props.onSearchTextChange(event.currentTarget.value);
@@ -126,18 +129,20 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 						type="search"
 						value={props.searchText}
 					/>
-					<button
-						aria-pressed={props.searchMode === 'regex'}
-						className="rounded-md border border-[var(--bridge-border-opaque)] bg-[var(--bridge-header-control-bg)] px-2 py-1 text-xs"
+					<BridgeReviewButton
+						ariaLabel={props.searchMode === 'regex' ? 'Use text search' : 'Use regex search'}
+						ariaPressed={props.searchMode === 'regex'}
+						className="h-7 w-7 border-[var(--bridge-border-opaque)] bg-[var(--bridge-header-control-bg)] px-0"
 						data-testid="worktree-file-regex-toggle"
 						onClick={() => {
 							props.onSearchModeChange(props.searchMode === 'regex' ? 'text' : 'regex');
 						}}
 						title={props.searchMode === 'regex' ? 'Use text search' : 'Use regex search'}
-						type="button"
 					>
-						.*
-					</button>
+						<BridgeReviewIcon>
+							<RegexIcon aria-hidden="true" className="size-4" />
+						</BridgeReviewIcon>
+					</BridgeReviewButton>
 				</div>
 				<div className="flex flex-wrap items-center gap-1" role="group">
 					<BridgeFileViewerFilterButton
@@ -192,17 +197,15 @@ function BridgeFileViewerFilterButton(props: {
 	readonly onSelect: (filterMode: BridgeFileViewerFilterMode) => void;
 }): ReactElement {
 	return (
-		<button
-			aria-pressed={props.isActive}
-			className="rounded-md border border-[var(--bridge-border-opaque)] bg-[var(--bridge-header-control-bg)] px-2 py-1 text-xs data-[active=true]:bg-[var(--bridge-header-control-active-bg)]"
-			data-active={props.isActive}
+		<BridgeReviewButton
+			ariaPressed={props.isActive}
+			className="h-7 border-[var(--bridge-border-opaque)] bg-[var(--bridge-header-control-bg)] px-2 text-xs"
 			data-testid={`worktree-file-filter-${props.filterMode}`}
 			onClick={() => {
 				props.onSelect(props.filterMode);
 			}}
-			type="button"
 		>
 			{props.label}
-		</button>
+		</BridgeReviewButton>
 	);
 }

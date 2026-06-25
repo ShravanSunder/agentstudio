@@ -16,6 +16,10 @@ import type {
 	WorktreeTreeVirtualizedSizeFacts,
 } from '../features/worktree-file/models/worktree-file-protocol-models.js';
 import { countFlattenedWorktreeFileTreeRows } from '../features/worktree-file/models/worktree-file-tree-size.js';
+import {
+	BridgeReviewButton,
+	BridgeReviewIcon,
+} from '../review-viewer/chrome/bridge-review-button.js';
 import { BridgeFileViewerCodePanel } from '../review-viewer/code-view/bridge-file-viewer-code-panel.js';
 import {
 	BridgeFileViewerTreePanel,
@@ -408,16 +412,17 @@ function BridgeFileViewerStaleNotice(props: {
 			data-testid="worktree-file-content-stale"
 		>
 			<span>Content changed</span>
-			<button
-				className="inline-flex items-center gap-1 rounded-md border border-[var(--bridge-border-opaque)] bg-[var(--bridge-header-control-bg)] px-2 py-1"
+			<BridgeReviewButton
+				className="h-7 border-[var(--bridge-border-opaque)] bg-[var(--bridge-header-control-bg)] px-2"
 				data-testid="worktree-file-refresh"
 				disabled={!props.canRefresh}
 				onClick={props.onRefresh}
-				type="button"
 			>
-				<RefreshCwIcon aria-hidden="true" size={12} />
+				<BridgeReviewIcon>
+					<RefreshCwIcon aria-hidden="true" className="size-3" />
+				</BridgeReviewIcon>
 				Refresh
-			</button>
+			</BridgeReviewButton>
 		</div>
 	);
 }
