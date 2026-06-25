@@ -38,3 +38,37 @@ export function parseBridgeWorktreeDevReloadIntegerToken(props: {
 export function parseBridgeWorktreeDevReloadStringList(text: string): readonly string[] {
 	return text.length === 0 ? [] : text.split(',').filter((token) => token.length > 0);
 }
+
+export function bridgeWorktreeDevFileContentRouteUsesOrigin(props: {
+	readonly expectedOrigin: string;
+	readonly url: string;
+}): boolean {
+	const parsedUrl = parseBridgeWorktreeDevUrl(props.url);
+	return (
+		parsedUrl !== null &&
+		parsedUrl.origin === props.expectedOrigin &&
+		parsedUrl.pathname.startsWith('/__bridge-worktree/file-content/')
+	);
+}
+
+export function bridgeWorktreeDevFileContentRouteMatchesHandle(props: {
+	readonly expectedContentHandle: string;
+	readonly expectedOrigin: string;
+	readonly url: string;
+}): boolean {
+	const parsedUrl = parseBridgeWorktreeDevUrl(props.url);
+	return (
+		parsedUrl !== null &&
+		parsedUrl.origin === props.expectedOrigin &&
+		parsedUrl.pathname ===
+			`/__bridge-worktree/file-content/${encodeURIComponent(props.expectedContentHandle)}`
+	);
+}
+
+function parseBridgeWorktreeDevUrl(url: string): URL | null {
+	try {
+		return new URL(url);
+	} catch {
+		return null;
+	}
+}

@@ -11,6 +11,8 @@ import { z } from 'zod';
 import { parseBridgeCoreResourceUrl } from '../src/core/resources/bridge-resource-url.ts';
 import { countFlattenedWorktreeFileTreeRows } from '../src/features/worktree-file/models/worktree-file-tree-size.ts';
 import {
+	bridgeWorktreeDevFileContentRouteMatchesHandle,
+	bridgeWorktreeDevFileContentRouteUsesOrigin,
 	parseBridgeWorktreeDevReloadIntegerList,
 	parseBridgeWorktreeDevReloadIntegerToken,
 	parseBridgeWorktreeDevReloadStringList,
@@ -30,6 +32,7 @@ const proofRunDirectoryPath = join(
 );
 const worktreeDevServerUrl =
 	process.env['BRIDGE_VIEWER_WORKTREE_DEV_SERVER_URL'] ?? defaultWorktreeDevServerUrl;
+const worktreeDevServerOrigin = new URL(worktreeDevServerUrl).origin;
 const targetPathOverride = process.env['BRIDGE_VIEWER_WORKTREE_TARGET_PATH'] ?? null;
 const execFileAsync = promisify(execFile);
 const unavailableFilterFixtureRelativePath = '.github/workflows/ci.yml';
@@ -139,6 +142,8 @@ interface WorktreeDevServerScreenshotPaths {
 
 interface WorktreeFileStaleRefreshProof {
 	readonly failedRefreshReturnedStale: boolean;
+	readonly foreignContentRouteHitCount: number;
+	readonly foreignContentRouteHitUrls: readonly string[];
 	readonly initialContentStillVisibleWhileStale: boolean;
 	readonly proofPath: string;
 	readonly refreshFetchHitsAfterFirstClick: number;
@@ -162,6 +167,8 @@ interface WorktreeFileSplitResetReplacementProof {
 	readonly devReloadRequest: string | null;
 	readonly devReloadSourceCursor: string | null;
 	readonly devReloadStatus: string | null;
+	readonly foreignContentRouteHitCount: number;
+	readonly foreignContentRouteHitUrls: readonly string[];
 	readonly initialContentStillVisibleWhileStale: boolean;
 	readonly oldContentHandle: string;
 	readonly postRefreshContentRouteHitCount: number;
@@ -181,6 +188,8 @@ interface WorktreeFileSplitResetReplacementProof {
 
 interface WorktreeFileContentRouteProbe {
 	readonly dispose: () => Promise<void>;
+	readonly foreignHitCount: () => number;
+	readonly foreignHitUrls: () => readonly string[];
 	readonly hitCount: () => number;
 	readonly hitUrls: () => readonly string[];
 }
@@ -198,6 +207,8 @@ interface WorktreeDevReloadProof {
 
 interface WorktreeFileSelectedContentRouteProof {
 	readonly expectedContentHandle: string;
+	readonly foreignHitCount: number;
+	readonly foreignHitUrls: readonly string[];
 	readonly hitCount: number;
 	readonly hitUrls: readonly string[];
 	readonly selectedResourceUrlContainsHandle: boolean;
@@ -207,6 +218,8 @@ interface WorktreeFileSelectedContentRouteProof {
 interface WorktreeFileUnavailableOpenProof {
 	readonly contentRouteHitCount: number;
 	readonly expectedContentHandle: string;
+	readonly foreignContentRouteHitCount: number;
+	readonly foreignContentRouteHitUrls: readonly string[];
 	readonly openedPath: string;
 	readonly selectedContentState: string | null;
 	readonly selectedLineCount: number;
@@ -1309,9 +1322,25 @@ async function installFileContentRouteGate(props: {
 	readonly pathPattern?: string;
 }): Promise<WorktreeFileContentRouteProbe> {
 	const hitUrls: string[] = [];
+	const foreignHitUrls: string[] = [];
 	const pathPattern = props.pathPattern ?? '**/__bridge-worktree/file-content/**';
 	const routeHandler = async (route: Route): Promise<void> => {
-		hitUrls.push(route.request().url());
+		const requestUrl = route.request().url();
+		if (
+			!bridgeWorktreeDevFileContentRouteUsesOrigin({
+				expectedOrigin: worktreeDevServerOrigin,
+				url: requestUrl,
+			})
+		) {
+			foreignHitUrls.push(requestUrl);
+			await route.fulfill({
+				status: 599,
+				contentType: 'text/plain',
+				body: `foreign Worktree/File content route origin rejected: ${requestUrl}`,
+			});
+			return;
+		}
+		hitUrls.push(requestUrl);
 		if (props.failFirstHit === true && hitUrls.length === 1) {
 			await route.fulfill({
 				status: 503,
@@ -1328,6 +1357,8 @@ async function installFileContentRouteGate(props: {
 		dispose: async (): Promise<void> => {
 			await props.page.unroute(pathPattern, routeHandler);
 		},
+		foreignHitCount: (): number => foreignHitUrls.length,
+		foreignHitUrls: (): readonly string[] => foreignHitUrls,
 		hitCount: (): number => hitUrls.length,
 		hitUrls: (): readonly string[] => hitUrls,
 	};
@@ -1338,23 +1369,34 @@ function assertSelectedContentRouteProof(props: {
 	readonly probe: WorktreeFileContentRouteProbe;
 }): WorktreeFileSelectedContentRouteProof {
 	const hitUrls = props.probe.hitUrls();
+	const foreignHitUrls = props.probe.foreignHitUrls();
 	const selectedHitUrl = hitUrls[0];
-	const expectedPathname = `/__bridge-worktree/file-content/${encodeURIComponent(
-		props.expectedContentHandle,
-	)}`;
-	const selectedHitPathname =
-		hitUrls.length === 1 && selectedHitUrl !== undefined ? new URL(selectedHitUrl).pathname : null;
-	const selectedResourceUrlContainsHandle = selectedHitPathname === expectedPathname;
+	const selectedResourceUrlContainsHandle =
+		hitUrls.length === 1 &&
+		selectedHitUrl !== undefined &&
+		bridgeWorktreeDevFileContentRouteMatchesHandle({
+			expectedContentHandle: props.expectedContentHandle,
+			expectedOrigin: worktreeDevServerOrigin,
+			url: selectedHitUrl,
+		});
 	const selectedResourceUrlUsesDevServerFrontDoor =
-		selectedHitPathname?.startsWith('/__bridge-worktree/file-content/') === true;
+		hitUrls.length === 1 &&
+		selectedHitUrl !== undefined &&
+		bridgeWorktreeDevFileContentRouteUsesOrigin({
+			expectedOrigin: worktreeDevServerOrigin,
+			url: selectedHitUrl,
+		});
 	const proof: WorktreeFileSelectedContentRouteProof = {
 		expectedContentHandle: props.expectedContentHandle,
+		foreignHitCount: props.probe.foreignHitCount(),
+		foreignHitUrls,
 		hitCount: props.probe.hitCount(),
 		hitUrls,
 		selectedResourceUrlContainsHandle,
 		selectedResourceUrlUsesDevServerFrontDoor,
 	};
 	if (
+		proof.foreignHitCount !== 0 ||
 		proof.hitCount !== 1 ||
 		!proof.selectedResourceUrlContainsHandle ||
 		!proof.selectedResourceUrlUsesDevServerFrontDoor
@@ -2191,12 +2233,15 @@ async function verifyUnavailableWorktreeFileOpen(props: {
 	const proof: WorktreeFileUnavailableOpenProof = {
 		contentRouteHitCount: unavailableRouteProbe.hitCount(),
 		expectedContentHandle: props.descriptor.contentHandle,
+		foreignContentRouteHitCount: unavailableRouteProbe.foreignHitCount(),
+		foreignContentRouteHitUrls: unavailableRouteProbe.foreignHitUrls(),
 		openedPath: props.descriptor.path,
 		selectedContentState: renderedState.selectedContentState,
 		selectedLineCount: renderedState.selectedLineCount,
 	};
 	if (
 		proof.contentRouteHitCount !== 0 ||
+		proof.foreignContentRouteHitCount !== 0 ||
 		proof.selectedContentState !== 'unavailable' ||
 		proof.selectedLineCount !== 0
 	) {
@@ -2319,6 +2364,8 @@ async function verifyWorktreeFileStaleRefresh(props: {
 	});
 	const proof: WorktreeFileStaleRefreshProof = {
 		failedRefreshReturnedStale: true,
+		foreignContentRouteHitCount: refreshRouteProbe.foreignHitCount(),
+		foreignContentRouteHitUrls: refreshRouteProbe.foreignHitUrls(),
 		initialContentStillVisibleWhileStale: renderedTextIncludesContent(
 			staleText,
 			props.fixture.initialContent,
@@ -2445,6 +2492,8 @@ async function verifyWorktreeFileSplitResetReplacement(props: {
 				devReloadRequest: devReloadProof.request,
 				devReloadSourceCursor: devReloadProof.sourceCursor,
 				devReloadStatus: devReloadProof.status,
+				foreignContentRouteHitCount: refreshRouteProbe.foreignHitCount(),
+				foreignContentRouteHitUrls: refreshRouteProbe.foreignHitUrls(),
 				initialContentStillVisibleWhileStale: renderedTextIncludesContent(
 					staleText,
 					props.fixture.initialContent,
@@ -2508,6 +2557,7 @@ function assertWorktreeFileSplitResetReplacementProof(
 		);
 	}
 	if (
+		proof.foreignContentRouteHitCount !== 0 ||
 		proof.preDispatchContentRouteHitCount !== 0 ||
 		proof.postReplacementContentRouteHitCount !== 0 ||
 		proof.postRefreshContentRouteHitCount !== 1 ||
@@ -2599,6 +2649,7 @@ function assertWorktreeFileStaleRefreshProof(proof: WorktreeFileStaleRefreshProo
 		!proof.refreshReturnedReady ||
 		!proof.refreshedContentVisible ||
 		!proof.failedRefreshReturnedStale ||
+		proof.foreignContentRouteHitCount !== 0 ||
 		proof.refreshFetchHitsBeforeClick !== 0 ||
 		proof.refreshFetchHitsAfterFirstClick !== 1 ||
 		proof.refreshFetchHitsAfterSecondClick !== 2

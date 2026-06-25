@@ -164,7 +164,7 @@ Claimed result: exit 0.
 Artifact:
 
 ```text
-tmp/bridge-viewer-worktree-dev-server/2026-06-25T08-25-40-405Z/worktree-dev-server-proof.json
+tmp/bridge-viewer-worktree-dev-server/2026-06-25T08-47-08-058Z/worktree-dev-server-proof.json
 ```
 
 Repo lint:
@@ -187,7 +187,7 @@ Freshness update after packet creation:
 pnpm --dir BridgeWeb run test:dev-server:worktree
 exit 0
 proofArtifactPath =
-  tmp/bridge-viewer-worktree-dev-server/2026-06-25T08-25-40-405Z/worktree-dev-server-proof.json
+  tmp/bridge-viewer-worktree-dev-server/2026-06-25T08-47-08-058Z/worktree-dev-server-proof.json
 ```
 
 Post-review fix update:
@@ -207,6 +207,8 @@ Additional follow-up after focused re-review:
   - removal-reset lineage now also derives from accepted emitted lineage
   - malformed comma lists such as "2,,3" and "2," are rejected by a unit-tested
     parser module
+  - file-content route proof now counts only requests whose origin matches the
+    exact dev-server origin and asserts zero foreign-origin route hits
 ```
 
 ## Artifact Facts To Verify
@@ -302,6 +304,8 @@ Obligations:
    - Exact URL proof must be headless-browser proof against the real Vite route,
      not unit-only proof, mock-only proof, marker-only proof, self-reported URL
      strings, or raw payload text.
+   - File-content proof must prove the real dev-server front door, not only a
+     same-path route on a different origin.
 
 ## Non-Goals And Known Deferred Work
 
