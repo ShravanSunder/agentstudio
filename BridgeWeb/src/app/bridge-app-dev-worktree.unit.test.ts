@@ -24,6 +24,7 @@ describe('bridge app dev worktree frame subscription', () => {
 		vi.useRealTimers();
 		document.documentElement.removeAttribute('data-bridge-app-protocol');
 		document.documentElement.removeAttribute('data-bridge-worktree-dev-last-reload-status');
+		delete document.documentElement.dataset['bridgeWorktreeDevSplitResetReplacementDelayMs'];
 	});
 
 	test('derives file invalidation frames when a descriptor content hash changes', () => {
@@ -110,31 +111,54 @@ describe('bridge app dev worktree frame subscription', () => {
 				.filter((frame) => frame.frameKind === 'worktree.fileDescriptor')
 				.map((frame) => frame.descriptor.path),
 		).toEqual(['src/surviving.ts']);
-		expect(frames.map((frame) => frame.sequence)).toEqual([2, 3, 4]);
+		expect(frames.map((frame) => frame.sequence)).toEqual([3, 4, 5]);
+		expect(frames.map((frame) => frame.generation)).toEqual([2, 2, 2]);
+		expect(frames.map((frame) => frame.streamId)).toEqual([
+			'worktree-file:pane-1',
+			'worktree-file:pane-1',
+			'worktree-file:pane-1',
+		]);
 	});
 
 	test('builds a source-less reset followed by the replacement surface for forced split proof', () => {
+		const previousDescriptor = makeFileDescriptor({
+			contentHash: 'sha256:old',
+			contentHandle: 'file-content-old',
+			cursor: 'cursor-old',
+		});
 		const descriptor = makeFileDescriptor({
 			contentHash: 'sha256:replacement',
 			contentHandle: 'file-content-replacement',
 			cursor: 'cursor-replacement',
 		});
 
-		const frames = worktreeFileSourceLessResetFramesFromSurface(makeFrames(descriptor));
+		const frames = worktreeFileSourceLessResetFramesFromSurface({
+			nextFrames: makeFrames(descriptor),
+			previousFrames: makeFrames(previousDescriptor),
+		});
 
 		expect(frames[0]).toMatchObject({
 			kind: 'reset',
 			frameKind: 'worktree.reset',
 			reason: 'sourceChanged',
+			streamId: 'worktree-file:pane-1',
+			generation: 2,
+			sequence: 2,
 		});
 		expect(frames[0]).not.toHaveProperty('source');
 		expect(frames[1]).toMatchObject({
 			kind: 'snapshot',
 			frameKind: 'worktree.snapshot',
+			streamId: 'worktree-file:pane-1',
+			generation: 2,
+			sequence: 3,
 			source: { sourceCursor: 'cursor-1' },
 		});
 		expect(frames.at(-1)).toMatchObject({
 			frameKind: 'worktree.fileDescriptor',
+			streamId: 'worktree-file:pane-1',
+			generation: 2,
+			sequence: 4,
 			descriptor: {
 				contentHandle: 'file-content-replacement',
 				contentHash: 'sha256:replacement',
@@ -168,6 +192,38 @@ describe('bridge app dev worktree frame subscription', () => {
 
 		expect(fetchCount).toBe(2);
 		expect(document.documentElement.dataset['bridgeWorktreeDevPollingState']).toBe('running');
+		dispose();
+	});
+
+	test('acknowledges paused polling only after an in-flight poll reload settles', async () => {
+		vi.useFakeTimers();
+		const descriptor = makeFileDescriptor();
+		const pollReload = makeDeferred<Response>();
+		const surfaceResponses: Promise<Response>[] = [
+			Promise.resolve(makeSurfaceResponse(makeFrames(descriptor), 'cursor-1')),
+			pollReload.promise,
+		];
+		vi.spyOn(globalThis, 'fetch').mockImplementation(async (): Promise<Response> => {
+			const nextResponse = surfaceResponses.shift();
+			if (nextResponse === undefined) {
+				throw new Error('Unexpected worktree surface fetch');
+			}
+			return await nextResponse;
+		});
+		const backend = installBridgeAppDevWorktreeBackend();
+		await backend.loadWorktreeFileSurface();
+		const dispose = backend.subscribeWorktreeFileFrames(() => {});
+
+		await vi.advanceTimersByTimeAsync(1_000);
+		window.dispatchEvent(new Event('bridge-worktree-dev-pause-polling'));
+		await nextMicrotask();
+
+		expect(document.documentElement.dataset['bridgeWorktreeDevPollingState']).toBe('pausing');
+
+		pollReload.resolve(makeSurfaceResponse(makeFrames(descriptor), 'cursor-1'));
+		await flushMicrotasks();
+
+		expect(document.documentElement.dataset['bridgeWorktreeDevPollingState']).toBe('paused');
 		dispose();
 	});
 
@@ -207,14 +263,14 @@ describe('bridge app dev worktree frame subscription', () => {
 		window.dispatchEvent(new Event('bridge-worktree-dev-reload'));
 		window.dispatchEvent(new Event('bridge-worktree-dev-force-split-reset-reload'));
 		normalReload.resolve(makeSurfaceResponse(makeFrames(nextDescriptor), 'cursor-new'));
-		await nextMicrotask();
+		await flushMicrotasks();
 
 		expect(deliveredFrameBatches).toEqual([]);
 
 		forceReload.resolve(makeSurfaceResponse(makeFrames(nextDescriptor), 'cursor-new'));
-		await nextMicrotask();
+		await flushMicrotasks();
 		await vi.advanceTimersByTimeAsync(0);
-		await nextMicrotask();
+		await flushMicrotasks();
 
 		expect(deliveredFrameBatches.map((batch) => batch.map((frame) => frame.frameKind))).toEqual([
 			['worktree.reset'],
@@ -226,9 +282,68 @@ describe('bridge app dev worktree frame subscription', () => {
 		expect(
 			document.documentElement.dataset['bridgeWorktreeDevLastForceSplitReloadFrameSequences'],
 		).toBe('2,3,4');
+		expect(deliveredFrameBatches.flat().map((frame) => frame.generation)).toEqual([2, 2, 2]);
+		expect(deliveredFrameBatches.flat().map((frame) => frame.streamId)).toEqual([
+			'worktree-file:pane-1',
+			'worktree-file:pane-1',
+			'worktree-file:pane-1',
+		]);
 		expect(
 			document.documentElement.dataset['bridgeWorktreeDevLastForceSplitReloadSourceCursor'],
 		).toBe('cursor-new');
+		dispose();
+	});
+
+	test('can delay split reset replacement delivery for deterministic dev proof', async () => {
+		vi.useFakeTimers();
+		const previousDescriptor = makeFileDescriptor({
+			contentHash: 'sha256:old',
+			contentHandle: 'file-content-old',
+			cursor: 'cursor-old',
+		});
+		const nextDescriptor = makeFileDescriptor({
+			contentHash: 'sha256:new',
+			contentHandle: 'file-content-new',
+			cursor: 'cursor-new',
+		});
+		const surfaceResponses: Promise<Response>[] = [
+			Promise.resolve(makeSurfaceResponse(makeFrames(previousDescriptor), 'cursor-old')),
+			Promise.resolve(makeSurfaceResponse(makeFrames(nextDescriptor), 'cursor-new')),
+		];
+		vi.spyOn(globalThis, 'fetch').mockImplementation(async (): Promise<Response> => {
+			const nextResponse = surfaceResponses.shift();
+			if (nextResponse === undefined) {
+				throw new Error('Unexpected worktree surface fetch');
+			}
+			return await nextResponse;
+		});
+		document.documentElement.dataset['bridgeWorktreeDevSplitResetReplacementDelayMs'] = '250';
+		const backend = installBridgeAppDevWorktreeBackend();
+		await backend.loadWorktreeFileSurface();
+		const deliveredFrameBatches: Array<readonly WorktreeFileProtocolFrame[]> = [];
+		const dispose = backend.subscribeWorktreeFileFrames((frames) => {
+			deliveredFrameBatches.push(frames);
+		});
+
+		window.dispatchEvent(new Event('bridge-worktree-dev-force-split-reset-reload'));
+		await flushMicrotasks();
+
+		expect(deliveredFrameBatches.map((batch) => batch.map((frame) => frame.frameKind))).toEqual([
+			['worktree.reset'],
+		]);
+
+		await vi.advanceTimersByTimeAsync(249);
+		await flushMicrotasks();
+
+		expect(deliveredFrameBatches).toHaveLength(1);
+
+		await vi.advanceTimersByTimeAsync(1);
+		await flushMicrotasks();
+
+		expect(deliveredFrameBatches.map((batch) => batch.map((frame) => frame.frameKind))).toEqual([
+			['worktree.reset'],
+			['worktree.snapshot', 'worktree.fileDescriptor'],
+		]);
 		dispose();
 	});
 });
@@ -396,4 +511,10 @@ function makeDeferred<TValue>(): {
 
 async function nextMicrotask(): Promise<void> {
 	await Promise.resolve();
+}
+
+async function flushMicrotasks(): Promise<void> {
+	await nextMicrotask();
+	await nextMicrotask();
+	await nextMicrotask();
 }

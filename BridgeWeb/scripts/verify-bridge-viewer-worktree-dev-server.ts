@@ -150,8 +150,10 @@ interface WorktreeFileStaleRefreshProof {
 
 interface WorktreeFileSplitResetReplacementProof {
 	readonly devReloadFrameCount: number;
+	readonly devReloadFrameGenerations: readonly number[];
 	readonly devReloadFrameKinds: readonly string[];
 	readonly devReloadFrameSequences: readonly number[];
+	readonly devReloadFrameStreamIds: readonly string[];
 	readonly devReloadRequest: string | null;
 	readonly devReloadSourceCursor: string | null;
 	readonly devReloadStatus: string | null;
@@ -161,6 +163,8 @@ interface WorktreeFileSplitResetReplacementProof {
 	readonly postReplacementContentRouteHitCount: number;
 	readonly preDispatchContentRouteHitCount: number;
 	readonly proofPath: string;
+	readonly refreshDisabledAtFirstStale: boolean;
+	readonly refreshEnabledAfterReplacement: boolean;
 	readonly refreshedContentVisible: boolean;
 	readonly replacementContentHandle: string;
 	readonly replacementContentHash: string | null;
@@ -178,8 +182,10 @@ interface WorktreeFileContentRouteProbe {
 
 interface WorktreeDevReloadProof {
 	readonly frameCount: number;
+	readonly frameGenerations: readonly number[];
 	readonly frameKinds: readonly string[];
 	readonly frameSequences: readonly number[];
+	readonly frameStreamIds: readonly string[];
 	readonly request: string | null;
 	readonly sourceCursor: string | null;
 	readonly status: string | null;
@@ -2339,20 +2345,26 @@ async function verifyWorktreeFileSplitResetReplacement(props: {
 				path: props.fixture.relativePath,
 				state: 'ready',
 			});
+			await setWorktreeDevSplitResetReplacementDelay({
+				delayMilliseconds: 250,
+				page: props.page,
+			});
 			await dispatchWorktreeDevForceSplitResetReload(props.page);
 			await waitForWorktreeOpenFileState({
 				page: props.page,
 				path: props.fixture.relativePath,
 				state: 'stale',
 			});
+			const staleNotice = props.page.locator('[data-testid="worktree-file-content-stale"]');
+			await staleNotice.getByText('Content changed').waitFor({ state: 'visible', timeout: 10_000 });
+			const refreshDisabledAtFirstStale = await readWorktreeRefreshButtonDisabled(props.page);
 			await waitForWorktreeDevForceSplitReloadDelivered({
 				page: props.page,
 				sourceCursor: replacementSurface.source.sourceCursor,
 			});
 			const devReloadProof = await readWorktreeDevReloadProof(props.page);
-			const staleNotice = props.page.locator('[data-testid="worktree-file-content-stale"]');
-			await staleNotice.getByText('Content changed').waitFor({ state: 'visible', timeout: 10_000 });
 			await waitForWorktreeRefreshButtonEnabled(props.page);
+			const refreshEnabledAfterReplacement = !(await readWorktreeRefreshButtonDisabled(props.page));
 			staleMessageVisible = await staleNotice.isVisible();
 			staleText = await worktreeVisibleContentText(props.page);
 			const postReplacementContentRouteHitCount = refreshRouteProbe.hitCount();
@@ -2379,8 +2391,10 @@ async function verifyWorktreeFileSplitResetReplacement(props: {
 			).length;
 			const proof: WorktreeFileSplitResetReplacementProof = {
 				devReloadFrameCount: devReloadProof.frameCount,
+				devReloadFrameGenerations: devReloadProof.frameGenerations,
 				devReloadFrameKinds: devReloadProof.frameKinds,
 				devReloadFrameSequences: devReloadProof.frameSequences,
+				devReloadFrameStreamIds: devReloadProof.frameStreamIds,
 				devReloadRequest: devReloadProof.request,
 				devReloadSourceCursor: devReloadProof.sourceCursor,
 				devReloadStatus: devReloadProof.status,
@@ -2393,6 +2407,8 @@ async function verifyWorktreeFileSplitResetReplacement(props: {
 				postReplacementContentRouteHitCount,
 				preDispatchContentRouteHitCount,
 				proofPath: props.fixture.relativePath,
+				refreshDisabledAtFirstStale,
+				refreshEnabledAfterReplacement,
 				refreshedContentVisible: renderedTextIncludesContent(
 					refreshedText,
 					props.fixture.updatedContent,
@@ -2407,6 +2423,10 @@ async function verifyWorktreeFileSplitResetReplacement(props: {
 			assertWorktreeFileSplitResetReplacementProof(proof);
 			return proof;
 		} finally {
+			await setWorktreeDevSplitResetReplacementDelay({
+				delayMilliseconds: null,
+				page: props.page,
+			});
 			await refreshRouteProbe.dispose();
 		}
 	} finally {
@@ -2432,10 +2452,12 @@ function assertWorktreeFileSplitResetReplacementProof(
 	if (
 		!proof.initialContentStillVisibleWhileStale ||
 		!proof.staleMessageVisible ||
-		proof.selectedContentStateAfterReset !== 'stale'
+		proof.selectedContentStateAfterReset !== 'stale' ||
+		!proof.refreshDisabledAtFirstStale ||
+		!proof.refreshEnabledAfterReplacement
 	) {
 		throw new Error(
-			`Expected Worktree/File split reset to preserve stale body before refresh: ${JSON.stringify(proof)}`,
+			`Expected Worktree/File split reset to preserve stale body and disable refresh until replacement readiness: ${JSON.stringify(proof)}`,
 		);
 	}
 	if (
@@ -2455,6 +2477,8 @@ function assertWorktreeFileSplitResetReplacementProof(
 		proof.devReloadSourceCursor !== proof.replacementSourceCursor ||
 		proof.devReloadFrameCount !== proof.devReloadFrameKinds.length ||
 		proof.devReloadFrameCount !== proof.devReloadFrameSequences.length ||
+		proof.devReloadFrameCount !== proof.devReloadFrameGenerations.length ||
+		proof.devReloadFrameCount !== proof.devReloadFrameStreamIds.length ||
 		proof.devReloadFrameKinds[0] !== 'worktree.reset' ||
 		proof.devReloadFrameKinds[1] !== 'worktree.snapshot'
 	) {
@@ -2467,6 +2491,16 @@ function assertWorktreeFileSplitResetReplacementProof(
 			`Expected Worktree/File split reset frames to use increasing sequence lineage: ${JSON.stringify(proof)}`,
 		);
 	}
+	if (!numberListUsesOneSafeInteger(proof.devReloadFrameGenerations)) {
+		throw new Error(
+			`Expected Worktree/File split reset frames to use one generation lineage: ${JSON.stringify(proof)}`,
+		);
+	}
+	if (!stringListUsesOneValue(proof.devReloadFrameStreamIds)) {
+		throw new Error(
+			`Expected Worktree/File split reset frames to use one stream lineage: ${JSON.stringify(proof)}`,
+		);
+	}
 }
 
 function numberListIsStrictlyIncreasing(values: readonly number[]): boolean {
@@ -2476,12 +2510,30 @@ function numberListIsStrictlyIncreasing(values: readonly number[]): boolean {
 		if (
 			currentValue === undefined ||
 			previousValue === undefined ||
+			!Number.isSafeInteger(currentValue) ||
+			!Number.isSafeInteger(previousValue) ||
 			currentValue <= previousValue
 		) {
 			return false;
 		}
 	}
 	return true;
+}
+
+function numberListUsesOneSafeInteger(values: readonly number[]): boolean {
+	const firstValue = values[0];
+	if (firstValue === undefined || !Number.isSafeInteger(firstValue)) {
+		return false;
+	}
+	return values.every((value) => value === firstValue && Number.isSafeInteger(value));
+}
+
+function stringListUsesOneValue(values: readonly string[]): boolean {
+	const firstValue = values[0];
+	if (firstValue === undefined || firstValue.length === 0) {
+		return false;
+	}
+	return values.every((value) => value === firstValue);
 }
 
 function assertWorktreeFileStaleRefreshProof(proof: WorktreeFileStaleRefreshProof): void {
@@ -2995,6 +3047,20 @@ async function setWorktreeDevPollingEnabled(props: {
 	);
 }
 
+async function setWorktreeDevSplitResetReplacementDelay(props: {
+	readonly delayMilliseconds: number | null;
+	readonly page: Page;
+}): Promise<void> {
+	await props.page.evaluate((delayMilliseconds: number | null): void => {
+		if (delayMilliseconds === null) {
+			delete document.documentElement.dataset['bridgeWorktreeDevSplitResetReplacementDelayMs'];
+			return;
+		}
+		document.documentElement.dataset['bridgeWorktreeDevSplitResetReplacementDelayMs'] =
+			String(delayMilliseconds);
+	}, props.delayMilliseconds);
+}
+
 async function waitForWorktreeRefreshButtonEnabled(page: Page): Promise<void> {
 	await page.waitForFunction(
 		(): boolean => {
@@ -3007,8 +3073,30 @@ async function waitForWorktreeRefreshButtonEnabled(page: Page): Promise<void> {
 	);
 }
 
+async function readWorktreeRefreshButtonDisabled(page: Page): Promise<boolean> {
+	return await page.evaluate((): boolean => {
+		const refreshButton = document.querySelector<HTMLButtonElement>(
+			'[data-testid="worktree-file-refresh"]',
+		);
+		if (refreshButton === null) {
+			throw new Error('Expected Worktree/File refresh button to be present');
+		}
+		return refreshButton.disabled;
+	});
+}
+
 async function readWorktreeDevReloadProof(page: Page): Promise<WorktreeDevReloadProof> {
 	return await page.evaluate((): WorktreeDevReloadProof => {
+		const frameGenerationsText =
+			document.documentElement.dataset['bridgeWorktreeDevLastForceSplitReloadFrameGenerations'] ??
+			'';
+		const frameGenerations =
+			frameGenerationsText.length === 0
+				? []
+				: frameGenerationsText
+						.split(',')
+						.filter((generationText) => generationText.length > 0)
+						.map((generationText) => Number.parseInt(generationText, 10));
 		const frameKindsText =
 			document.documentElement.dataset['bridgeWorktreeDevLastForceSplitReloadFrameKinds'] ?? '';
 		const frameKinds =
@@ -3024,12 +3112,20 @@ async function readWorktreeDevReloadProof(page: Page): Promise<WorktreeDevReload
 						.split(',')
 						.filter((sequenceText) => sequenceText.length > 0)
 						.map((sequenceText) => Number.parseInt(sequenceText, 10));
+		const frameStreamIdsText =
+			document.documentElement.dataset['bridgeWorktreeDevLastForceSplitReloadFrameStreamIds'] ?? '';
+		const frameStreamIds =
+			frameStreamIdsText.length === 0
+				? []
+				: frameStreamIdsText.split(',').filter((streamId) => streamId.length > 0);
 		const frameCountText =
 			document.documentElement.dataset['bridgeWorktreeDevLastForceSplitReloadFrameCount'] ?? null;
 		return {
 			frameCount: frameCountText === null ? 0 : Number.parseInt(frameCountText, 10),
+			frameGenerations,
 			frameKinds,
 			frameSequences,
+			frameStreamIds,
 			request: document.documentElement.dataset['bridgeWorktreeDevLastReloadRequest'] ?? null,
 			sourceCursor:
 				document.documentElement.dataset['bridgeWorktreeDevLastForceSplitReloadSourceCursor'] ??
@@ -3133,6 +3229,8 @@ function worktreeDevServerConsoleProof(
 		sharedShellProof: result.sharedShellProof,
 		splitResetReplacementProof: {
 			devReloadFrameCount: result.splitResetReplacementProof.devReloadFrameCount,
+			devReloadFrameGenerationSample:
+				result.splitResetReplacementProof.devReloadFrameGenerations.slice(0, 8),
 			devReloadFrameKindSample: result.splitResetReplacementProof.devReloadFrameKinds.slice(0, 8),
 			devReloadFrameSequenceHead: result.splitResetReplacementProof.devReloadFrameSequences.slice(
 				0,
@@ -3140,12 +3238,19 @@ function worktreeDevServerConsoleProof(
 			),
 			devReloadFrameSequenceTail:
 				result.splitResetReplacementProof.devReloadFrameSequences.slice(-8),
+			devReloadFrameStreamIdSample: result.splitResetReplacementProof.devReloadFrameStreamIds.slice(
+				0,
+				3,
+			),
 			devReloadRequest: result.splitResetReplacementProof.devReloadRequest,
 			devReloadStatus: result.splitResetReplacementProof.devReloadStatus,
 			postRefreshContentRouteHitCount:
 				result.splitResetReplacementProof.postRefreshContentRouteHitCount,
 			postReplacementContentRouteHitCount:
 				result.splitResetReplacementProof.postReplacementContentRouteHitCount,
+			refreshDisabledAtFirstStale: result.splitResetReplacementProof.refreshDisabledAtFirstStale,
+			refreshEnabledAfterReplacement:
+				result.splitResetReplacementProof.refreshEnabledAfterReplacement,
 			replacementContentRouteHitCount:
 				result.splitResetReplacementProof.replacementContentRouteHitCount,
 		},
