@@ -78,20 +78,22 @@ accept summary claims without tracing source, tests, and the artifact.
 
 ## Implementation Scope
 
-Latest commit under review:
+Latest checkpoint under review:
 
 ```text
-412be0bf Fix Gate 0a reset lineage quiescence
+19655ca0..HEAD
 ```
 
-Review the latest fix relative to the previously reviewed authority packet:
+Current committed base before the latest follow-up:
 
 ```text
-1072ea43..412be0bf
+19655ca0 Fix Gate 0a route origin proof
 ```
 
-Changed files in the latest fix:
+Changed files in the current Gate 0.a follow-up series:
 
+- `BridgeWeb/scripts/bridge-worktree-dev-reload-diagnostics.ts`
+- `BridgeWeb/scripts/bridge-worktree-dev-reload-diagnostics.unit.test.ts`
 - `BridgeWeb/scripts/verify-bridge-viewer-worktree-dev-server.ts`
 - `BridgeWeb/src/app/bridge-app-dev-worktree.ts`
 - `BridgeWeb/src/app/bridge-app-dev-worktree.unit.test.ts`
@@ -112,6 +114,16 @@ Relevant prior files to inspect because they define the Gate 0.a product route:
 
 Key latest changes to verify against source, not summary:
 
+- File-content route proof counts only requests whose origin matches the exact
+  dev-server origin.
+- Stale-refresh observes all file-content traffic while force-failing only the
+  first replacement-handle refresh request.
+- Selected-content, unavailable-open, stale-refresh, and split-reset proof paths
+  assert zero foreign-origin file-content hits.
+- Origin/handle diagnostic helpers are unit-tested alongside strict reset
+  integer-list parsing.
+- Removal-triggered reset derives lineage from accepted emitted frames after
+  repeated forced resets.
 - Dev backend pause reports `pausing` while a reload is in flight and publishes
   `paused` only after the in-flight reload is idle.
 - Forced split-reset replacement frames derive `streamId`, `generation`, and
@@ -131,10 +143,18 @@ Key latest changes to verify against source, not summary:
 Focused tests:
 
 ```bash
-pnpm --dir BridgeWeb exec vitest run src/app/bridge-app-dev-worktree.unit.test.ts src/file-viewer/bridge-file-viewer-app.unit.test.tsx src/worktree-file-surface/worktree-file-surface-runtime.integration.test.ts --reporter verbose
+pnpm --dir BridgeWeb exec vitest run scripts/bridge-worktree-dev-reload-diagnostics.unit.test.ts --reporter verbose
 ```
 
-Claimed result: exit 0, 3 files passed, 27 tests passed.
+Claimed result: exit 0, 1 file passed, 3 tests passed.
+
+Focused Gate 0.a suite:
+
+```bash
+pnpm --dir BridgeWeb exec vitest run src/app/bridge-app-dev-worktree.unit.test.ts src/file-viewer/bridge-file-viewer-app.unit.test.tsx src/worktree-file-surface/worktree-file-surface-runtime.integration.test.ts scripts/bridge-worktree-dev-reload-diagnostics.unit.test.ts --reporter verbose
+```
+
+Claimed result: exit 0, 4 files passed, 32 tests passed.
 
 Typecheck:
 
@@ -164,7 +184,7 @@ Claimed result: exit 0.
 Artifact:
 
 ```text
-tmp/bridge-viewer-worktree-dev-server/2026-06-25T08-47-08-058Z/worktree-dev-server-proof.json
+tmp/bridge-viewer-worktree-dev-server/2026-06-25T08-57-29-240Z/worktree-dev-server-proof.json
 ```
 
 Repo lint:
@@ -187,7 +207,7 @@ Freshness update after packet creation:
 pnpm --dir BridgeWeb run test:dev-server:worktree
 exit 0
 proofArtifactPath =
-  tmp/bridge-viewer-worktree-dev-server/2026-06-25T08-47-08-058Z/worktree-dev-server-proof.json
+  tmp/bridge-viewer-worktree-dev-server/2026-06-25T08-57-29-240Z/worktree-dev-server-proof.json
 ```
 
 Post-review fix update:
@@ -209,6 +229,8 @@ Additional follow-up after focused re-review:
     parser module
   - file-content route proof now counts only requests whose origin matches the
     exact dev-server origin and asserts zero foreign-origin route hits
+  - stale-refresh now observes all file-content traffic while force-failing only
+    the first replacement-handle refresh request
 ```
 
 ## Artifact Facts To Verify

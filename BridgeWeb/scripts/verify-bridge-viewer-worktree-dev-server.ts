@@ -1318,12 +1318,14 @@ async function makeVerificationPage(): Promise<Page> {
 async function installFileContentRouteGate(props: {
 	readonly gate: Deferred<void>;
 	readonly failFirstHit?: boolean;
+	readonly failFirstHitContentHandle?: string;
 	readonly page: Page;
 	readonly pathPattern?: string;
 }): Promise<WorktreeFileContentRouteProbe> {
 	const hitUrls: string[] = [];
 	const foreignHitUrls: string[] = [];
 	const pathPattern = props.pathPattern ?? '**/__bridge-worktree/file-content/**';
+	let failedFirstHit = false;
 	const routeHandler = async (route: Route): Promise<void> => {
 		const requestUrl = route.request().url();
 		if (
@@ -1341,7 +1343,15 @@ async function installFileContentRouteGate(props: {
 			return;
 		}
 		hitUrls.push(requestUrl);
-		if (props.failFirstHit === true && hitUrls.length === 1) {
+		const failFirstHitMatchesRequest =
+			props.failFirstHitContentHandle === undefined ||
+			bridgeWorktreeDevFileContentRouteMatchesHandle({
+				expectedContentHandle: props.failFirstHitContentHandle,
+				expectedOrigin: worktreeDevServerOrigin,
+				url: requestUrl,
+			});
+		if (props.failFirstHit === true && !failedFirstHit && failFirstHitMatchesRequest) {
+			failedFirstHit = true;
 			await route.fulfill({
 				status: 503,
 				contentType: 'text/plain',
@@ -2310,9 +2320,9 @@ async function verifyWorktreeFileStaleRefresh(props: {
 	const refreshGate = makeDeferred<void>();
 	const refreshRouteProbe = await installFileContentRouteGate({
 		failFirstHit: true,
+		failFirstHitContentHandle: replacementDescriptor.contentHandle,
 		gate: refreshGate,
 		page: props.page,
-		pathPattern: `**/__bridge-worktree/file-content/**${encodeURIComponent(replacementDescriptor.contentHandle)}**`,
 	});
 	refreshGate.resolve();
 	const refreshFetchHitsBeforeClick = refreshRouteProbe.hitCount();

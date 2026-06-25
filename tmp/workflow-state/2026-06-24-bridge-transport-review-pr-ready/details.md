@@ -662,6 +662,72 @@ Proof surface contract:
 - Re-review is required before Gate 1 unless the human explicitly accepts this
   checkpoint.
 
+## 2026-06-25 Stale-Refresh Route Observer Follow-Up
+
+Status: Gate 0.a Vite/dev-server product proof is green after accepting
+Feynman's focused re-review finding that stale-refresh still observed only the
+replacement handle and could miss foreign-origin traffic for other handles.
+Gate 1 remains blocked until implementation re-review passes or the human
+explicitly accepts the residual risk.
+
+Accepted findings addressed:
+
+1. Stale-refresh origin guard missed foreign file-content traffic for other
+   handles.
+   - Stale-refresh now installs the all-file-content route observer.
+   - The verifier still force-fails only the first replacement-handle refresh
+     request, preserving the retry proof while observing other content traffic.
+   - The stale-refresh proof asserts zero foreign-origin file-content hits and
+     still records retry body hits `0 -> 1 -> 2`.
+
+2. The re-review packet metadata was stale.
+   - The packet now describes the current Gate 0.a checkpoint shape, including
+     the diagnostics helper files, origin-aware route proof, and the latest
+     proof artifact.
+
+Fresh proof:
+
+- `pnpm --dir BridgeWeb exec vitest run scripts/bridge-worktree-dev-reload-diagnostics.unit.test.ts --reporter verbose`
+  - exit: 0
+  - result: 1 file passed, 3 tests passed
+- `pnpm --dir BridgeWeb exec tsc --noEmit`
+  - exit: 0
+- `pnpm --dir BridgeWeb exec vitest run src/app/bridge-app-dev-worktree.unit.test.ts src/file-viewer/bridge-file-viewer-app.unit.test.tsx src/worktree-file-surface/worktree-file-surface-runtime.integration.test.ts scripts/bridge-worktree-dev-reload-diagnostics.unit.test.ts --reporter verbose`
+  - exit: 0
+  - result: 4 files passed, 32 tests passed
+- `pnpm --dir BridgeWeb run test:dev-server:worktree`
+  - exit: 0
+  - artifact:
+    `tmp/bridge-viewer-worktree-dev-server/2026-06-25T08-57-29-240Z/worktree-dev-server-proof.json`
+  - key facts:
+    - exact URL:
+      `http://127.0.0.1:5173/?fixture=worktree&workers=on&scenario=current-worktree`
+    - selected file: `BridgeWeb/pnpm-lock.yaml`
+    - selected line count: 6658
+    - app owner: `BridgeApp`
+    - shared shell owner: `BridgeViewerAppShell`
+    - shell owner: `BridgeViewerApp.FileViewer`
+    - code owner: `CodeView.file`
+    - tree owner: `FileTree`
+    - Shiki rendering: `pierre`
+    - worker pool state: `ready`
+    - standalone `WorktreeFileApp` count: 0
+    - review empty shell count: 0
+    - selected-content route hit count: 1
+    - selected-content foreign-origin hit count: 0
+    - split-reset foreign-origin hit count: 0
+    - stale-refresh foreign-origin hit count: 0
+    - unavailable-open foreign-origin hit count: 0
+    - split reset body route hits: `0 -> 0 -> 1`
+    - stale retry body route hits: `0 -> 1 -> 2`
+
+Proof surface contract:
+
+- This remains Vite/dev-server product proof only.
+- Native Agent Studio Bridge/WKWebView proof is still required before PR-ready.
+- Re-review is required before Gate 1 unless the human explicitly accepts this
+  checkpoint.
+
 ## 2026-06-25 Origin-Aware Route Proof Follow-Up
 
 Status: Gate 0.a Vite/dev-server product proof is green after accepting Plato's
