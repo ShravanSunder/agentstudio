@@ -1,42 +1,44 @@
 # Worktree Dev-Server Product E2E Precursor Plan
 
 Date: 2026-06-24
-Status: Gate 0.a Vite/dev-server proof complete after second reviewer-fix pass; pending implementation re-review
+Status: Gate 0.a Vite/dev-server proof complete after shared-app boundary proof pass; pending implementation re-review
 Ticket: 06P / Gate 0.a Shared FileViewer Renderer Precursor
 
 ## Current Proof Status
 
-Gate 0.a Vite/dev-server proof is green as of 2026-06-24 23:25 -04:00 after
-the second reviewer-fix pass.
+Gate 0.a Vite/dev-server proof is green as of 2026-06-25 00:04 -04:00 after
+the shared-app boundary proof pass.
 
 - Canonical command:
   `pnpm --dir BridgeWeb run test:dev-server:worktree`
 - Exact URL:
   `http://127.0.0.1:5173/?fixture=worktree&workers=on&scenario=current-worktree`
 - JSON artifact:
-  `tmp/bridge-viewer-worktree-dev-server/2026-06-25T03-25-29-946Z/worktree-dev-server-proof.json`
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-25T04-04-26-634Z/worktree-dev-server-proof.json`
 - Screenshots:
-  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T03-25-29-946Z/worktree-file-ready.png`
-  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T03-25-29-946Z/worktree-file-search-result.png`
-  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T03-25-29-946Z/worktree-file-stale-refresh.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T04-04-26-634Z/worktree-file-ready.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T04-04-26-634Z/worktree-file-search-result.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T04-04-26-634Z/worktree-file-stale-refresh.png`
 - Supporting proof:
-  - `pnpm --dir BridgeWeb exec vitest run scripts/verify-bridge-viewer-worktree-dev-server-paths.unit.test.ts src/worktree-file-surface/worktree-file-surface-runtime.integration.test.ts src/file-viewer/bridge-file-viewer-app.unit.test.tsx src/app/bridge-app-protocol-router.unit.test.tsx --reporter verbose`
-    passed: 4 files, 14 tests
-  - `pnpm --dir BridgeWeb exec vitest run scripts/dev-server/bridge-worktree-dev-provider.integration.test.ts src/app/bridge-app-protocol-router.unit.test.tsx --reporter verbose`
-    passed: 2 files, 14 tests
+  - `pnpm --dir BridgeWeb exec vitest run scripts/dev-server/bridge-worktree-dev-provider.integration.test.ts src/worktree-file-surface/worktree-file-surface-runtime.integration.test.ts src/file-viewer/bridge-file-viewer-app.unit.test.tsx src/app/bridge-app-protocol-router.unit.test.tsx src/review-viewer/workers/pierre/bridge-pierre-worker-pool.unit.test.tsx scripts/verify-bridge-viewer-worktree-dev-server-paths.unit.test.ts --reporter verbose`
+    passed: 6 files, 46 tests
   - `pnpm --dir BridgeWeb exec tsc --noEmit` passed
   - `pnpm --dir BridgeWeb run check` passed with existing verifier
     `no-await-in-loop` warnings only
+  - `pnpm --dir BridgeWeb run test:browser:integration -- src/review-viewer/test-support/bridge-viewer-browser.integration.browser.test.tsx -t "large fixture programmatic file reveal uses bounded CodeView motion"`
+    passed: 2 files, 34 tests
 
 The verifier now fails closed against the old second-app path and proves the
 exact worktree URL renders FileViewer inside the shared BridgeViewer shell with
 Pierre FileTree/right rail, Pierre CodeView/File, Shiki rendering, worker-backed
 highlighting request, product controls, stale/refresh, and stable tree/content
 scroll extents. It also asserts the observed browser URL, shared-shell DOM
-containment, worker file-success baseline and post-selection increment,
-descriptor-path containment before verifier writes, git-tracked stale-refresh
-fixture mutation plus fail-closed restore, and retryable stale state after a
-failed explicit refresh.
+containment, `BridgeApp` ownership, no router-local direct FileViewer mount,
+worker file-success baseline and selected-descriptor cache key, descriptor-path
+containment before verifier writes, collision-safe verifier restore, nontrivial
+available/unavailable filter behavior, visible stale notice geometry, and
+retryable stale state after a failed explicit refresh with request counts
+`0 -> 1 -> 2`.
 
 Native Agent Studio Bridge/WKWebView proof remains outside this precursor and
 is still required before PR-ready.

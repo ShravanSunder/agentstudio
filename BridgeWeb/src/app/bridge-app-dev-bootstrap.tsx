@@ -90,7 +90,7 @@ if (rootElement !== null) {
 			{...(worktreeBackend === null
 				? {}
 				: {
-						worktreeFileAppProps: {
+						fileViewerProps: {
 							autoOpenInitialFile: true,
 							fetchResource: worktreeBackend.fetchWorktreeFileResource,
 							loadInitialSurface: worktreeBackend.loadWorktreeFileSurface,

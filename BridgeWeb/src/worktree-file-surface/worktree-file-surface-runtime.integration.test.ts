@@ -145,6 +145,50 @@ describe('worktree file surface runtime', () => {
 		});
 	});
 
+	test('rejects a refresh completion superseded by a newer invalidation', async () => {
+		const firstDescriptor = makeFileDescriptor({ descriptorId: 'file-content-1' });
+		const refreshDescriptor = makeFileDescriptor({
+			descriptorId: 'file-content-2',
+			contentHandle: 'handle-2',
+		});
+		const supersedingDescriptor = makeFileDescriptor({
+			descriptorId: 'file-content-3',
+			contentHandle: 'handle-3',
+		});
+		const refreshGate = makeDeferred<void>();
+		const runtime = createWorktreeFileSurfaceRuntime({
+			paneId: 'pane-1',
+			fetchResource: async ({ descriptor }) => {
+				if (descriptor.descriptorId === 'file-content-2') {
+					await refreshGate.promise;
+				}
+				return `${descriptor.descriptorId}:body`;
+			},
+		});
+		runtime.applyFrame(makeFileDescriptorFrame(firstDescriptor));
+		await runtime.openFile({
+			descriptor: firstDescriptor,
+			openFileSessionId: 'session-1',
+		});
+		runtime.applyFrame(
+			makeInvalidationFrame({ firstDescriptor, latestDescriptor: refreshDescriptor }),
+		);
+
+		const refreshResultPromise = runtime.refreshOpenFile({ openFileSessionId: 'session-1' });
+		runtime.applyFrame(
+			makeInvalidationFrame({ firstDescriptor, latestDescriptor: supersedingDescriptor }),
+		);
+		refreshGate.resolve();
+		const refreshResult = await refreshResultPromise;
+
+		expect(refreshResult).toEqual({ ok: false, reason: 'stale_completion' });
+		expect(runtime.getState().openFileSessionsById['session-1']).toMatchObject({
+			status: 'stale',
+			descriptorRef: refreshDescriptor.contentDescriptor.ref,
+			latestDescriptorRef: supersedingDescriptor.contentDescriptor.ref,
+		});
+	});
+
 	test('fails closed when file selection references a descriptor that was never materialized', async () => {
 		const descriptor = makeFileDescriptor({ descriptorId: 'forged-content' });
 		let fetchCount = 0;
@@ -269,6 +313,27 @@ function makeResetFrame(): WorktreeResetFrame {
 		frameKind: 'worktree.reset',
 		reason: 'sourceChanged',
 		source: makeSourceIdentity(),
+	};
+}
+
+function makeDeferred<TValue>(): {
+	readonly promise: Promise<TValue>;
+	readonly resolve: (value: TValue | PromiseLike<TValue>) => void;
+	readonly reject: (reason?: unknown) => void;
+} {
+	let resolvePromise: ((value: TValue | PromiseLike<TValue>) => void) | undefined;
+	let rejectPromise: ((reason?: unknown) => void) | undefined;
+	const promise = new Promise<TValue>((resolve, reject) => {
+		resolvePromise = resolve;
+		rejectPromise = reject;
+	});
+	if (resolvePromise === undefined || rejectPromise === undefined) {
+		throw new Error('Expected deferred callbacks to initialize synchronously');
+	}
+	return {
+		promise,
+		resolve: resolvePromise,
+		reject: rejectPromise,
 	};
 }
 

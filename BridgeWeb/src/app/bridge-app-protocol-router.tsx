@@ -1,46 +1,28 @@
 import type { ReactElement } from 'react';
 import { z } from 'zod';
 
-import {
-	BridgeFileViewerApp,
-	type BridgeFileViewerAppProps,
-} from '../file-viewer/bridge-file-viewer-app.js';
 import { BridgeApp, type BridgeAppProps } from './bridge-app.js';
-import { BridgeViewerAppShell } from './bridge-viewer-app-shell.js';
 
 export const bridgeAppProtocolSchema = z.enum(['review', 'worktree-file']);
 export type BridgeAppProtocol = z.infer<typeof bridgeAppProtocolSchema>;
 
-export interface BridgeAppProtocolRouterProps extends BridgeAppProps {
+export type BridgeAppProtocolRouterProps = BridgeAppProps & {
 	readonly protocol?: BridgeAppProtocol;
-	readonly worktreeFileAppProps?: BridgeFileViewerAppProps;
-}
+};
 
 const bridgeAppProtocolAttributeName = 'data-bridge-app-protocol';
 
 export function BridgeAppProtocolRouter(props: BridgeAppProtocolRouterProps = {}): ReactElement {
-	const { protocol: explicitProtocol, worktreeFileAppProps, ...reviewAppProps } = props;
+	const { protocol: explicitProtocol, ...appProps } = props;
 	const protocol =
 		explicitProtocol ?? resolveBridgeAppProtocolFromElement(document.documentElement);
 	switch (protocol) {
 		case 'review':
-			return <BridgeApp {...reviewAppProps} />;
+			return <BridgeApp {...appProps} viewerMode="review" />;
 		case 'worktree-file':
-			return (
-				<BridgeViewerAppShell mode="file">
-					<BridgeFileViewerApp
-						{...(reviewAppProps.codeViewWorkerFactory === undefined
-							? {}
-							: { codeViewWorkerFactory: reviewAppProps.codeViewWorkerFactory })}
-						{...(reviewAppProps.codeViewWorkerPoolEnabled === undefined
-							? {}
-							: { codeViewWorkerPoolEnabled: reviewAppProps.codeViewWorkerPoolEnabled })}
-						{...worktreeFileAppProps}
-					/>
-				</BridgeViewerAppShell>
-			);
+			return <BridgeApp {...appProps} viewerMode="file" />;
 	}
-	return <BridgeApp {...reviewAppProps} />;
+	return <BridgeApp {...appProps} viewerMode="review" />;
 }
 
 export function resolveBridgeAppProtocolFromElement(element: Element): BridgeAppProtocol {

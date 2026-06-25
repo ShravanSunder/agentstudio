@@ -43,6 +43,10 @@ import {
 	type ReviewResetFrame,
 	type ReviewSnapshotFrame,
 } from '../features/review/models/review-protocol-models.js';
+import {
+	BridgeFileViewerApp,
+	type BridgeFileViewerAppProps,
+} from '../file-viewer/bridge-file-viewer-app.js';
 import type { BridgeContentFetch } from '../foundation/content/content-resource-loader.js';
 import type { BridgeReviewDelta } from '../foundation/review-package/bridge-review-delta.js';
 import {
@@ -139,6 +143,8 @@ export interface BridgeAppProps {
 	readonly markdownWorkerClient?: BridgeMarkdownRenderWorkerClient | null;
 	readonly codeViewWorkerPoolEnabled?: boolean;
 	readonly codeViewWorkerFactory?: () => Worker;
+	readonly viewerMode?: 'file' | 'review';
+	readonly fileViewerProps?: BridgeFileViewerAppProps;
 }
 
 declare global {
@@ -313,6 +319,29 @@ function encodedByteLength(value: string): number {
 }
 
 export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
+	if (props.viewerMode === 'file') {
+		return <BridgeFileViewerMode {...props} />;
+	}
+	return <BridgeReviewViewerMode {...props} />;
+}
+
+function BridgeFileViewerMode(props: BridgeAppProps): ReactElement {
+	return (
+		<BridgeViewerAppShell appOwner="BridgeApp" mode="file">
+			<BridgeFileViewerApp
+				{...(props.codeViewWorkerFactory === undefined
+					? {}
+					: { codeViewWorkerFactory: props.codeViewWorkerFactory })}
+				{...(props.codeViewWorkerPoolEnabled === undefined
+					? {}
+					: { codeViewWorkerPoolEnabled: props.codeViewWorkerPoolEnabled })}
+				{...props.fileViewerProps}
+			/>
+		</BridgeViewerAppShell>
+	);
+}
+
+function BridgeReviewViewerMode(props: BridgeAppProps): ReactElement {
 	const target = props.target ?? document;
 	const reviewFrameAuthorityRef = useRef<BridgeReviewFrameAuthority | null>(
 		readBridgeReviewFrameAuthority(),
@@ -1027,7 +1056,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 		selectedCanvasLoadingReason === 'content' ? rootSnapshot.selectedItemId : null;
 
 	return (
-		<BridgeViewerAppShell mode="review">
+		<BridgeViewerAppShell appOwner="BridgeApp" mode="review">
 			{reviewPackage === null && diffStatus.status === 'loading' ? (
 				<BridgeReviewPackageLoadingShell />
 			) : reviewPackage === null && diffStatus.status === 'error' ? (

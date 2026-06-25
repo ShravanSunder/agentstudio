@@ -2,7 +2,7 @@
 
 Date: 2026-06-24
 Goal id: `2026-06-24-bridge-transport-review-pr-ready`
-Status: second reviewer findings fixed; pending implementation-review-swarm re-review
+Status: shared-app boundary findings fixed; pending implementation-review-swarm re-review
 
 ## Scope
 
@@ -67,15 +67,35 @@ http://127.0.0.1:5173/?fixture=worktree&workers=on&scenario=current-worktree
       failed explicit refresh keeps the session stale, a second refresh reaches
       ready, and the stale body remains visible until success.
 
+11. The protocol router still owned a direct FileViewer shell path.
+    - Fixed by routing `worktree-file` through `BridgeApp viewerMode="file"`.
+      `BridgeApp` now owns both ReviewViewer and FileViewer modes, and the
+      shared shell records `data-bridge-app-owner="BridgeApp"`.
+
+12. Worker proof was not tied to the selected descriptor identity.
+    - Fixed by recording Pierre worker file request/success cache keys and
+      asserting the last file success matches the selected descriptor cache key.
+
+13. Available/unavailable filter proof could be decorative or degenerate.
+    - Fixed by deleting a tracked file fixture, proving it appears under the
+      unavailable filter, proving fetchable/unavailable counts differ, and
+      proving unavailable content fetch rejects because no body is registered.
+
+14. Stale refresh proof did not prove the browser actually retried after a
+    failed content request.
+    - Fixed by routing content requests through a Playwright probe and asserting
+      request counts `0 -> 1 -> 2` across stale, failed refresh, and successful
+      retry.
+
 ## Proof
 
 - `pnpm --dir BridgeWeb exec vitest run scripts/verify-bridge-viewer-worktree-dev-server-paths.unit.test.ts src/worktree-file-surface/worktree-file-surface-runtime.integration.test.ts src/file-viewer/bridge-file-viewer-app.unit.test.tsx src/app/bridge-app-protocol-router.unit.test.tsx --reporter verbose`
   - exit: 0
-  - result: 4 files passed, 14 tests passed
+  - result: superseded by the combined focused proof below
 
-- `pnpm --dir BridgeWeb exec vitest run scripts/dev-server/bridge-worktree-dev-provider.integration.test.ts src/app/bridge-app-protocol-router.unit.test.tsx --reporter verbose`
+- `pnpm --dir BridgeWeb exec vitest run scripts/dev-server/bridge-worktree-dev-provider.integration.test.ts src/worktree-file-surface/worktree-file-surface-runtime.integration.test.ts src/file-viewer/bridge-file-viewer-app.unit.test.tsx src/app/bridge-app-protocol-router.unit.test.tsx src/review-viewer/workers/pierre/bridge-pierre-worker-pool.unit.test.tsx scripts/verify-bridge-viewer-worktree-dev-server-paths.unit.test.ts --reporter verbose`
   - exit: 0
-  - result: 2 files passed, 14 tests passed
+  - result: 6 files passed, 46 tests passed
 
 - `pnpm --dir BridgeWeb exec tsc --noEmit`
   - exit: 0
@@ -87,15 +107,19 @@ http://127.0.0.1:5173/?fixture=worktree&workers=on&scenario=current-worktree
 - `pnpm --dir BridgeWeb run test:dev-server:worktree`
   - exit: 0
   - artifact:
-    `tmp/bridge-viewer-worktree-dev-server/2026-06-25T03-25-29-946Z/worktree-dev-server-proof.json`
+    `tmp/bridge-viewer-worktree-dev-server/2026-06-25T04-04-26-634Z/worktree-dev-server-proof.json`
   - screenshots:
-    - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T03-25-29-946Z/worktree-file-ready.png`
-    - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T03-25-29-946Z/worktree-file-search-result.png`
-    - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T03-25-29-946Z/worktree-file-stale-refresh.png`
+    - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T04-04-26-634Z/worktree-file-ready.png`
+    - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T04-04-26-634Z/worktree-file-search-result.png`
+    - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T04-04-26-634Z/worktree-file-stale-refresh.png`
+
+- `pnpm --dir BridgeWeb run test:browser:integration -- src/review-viewer/test-support/bridge-viewer-browser.integration.browser.test.tsx -t "large fixture programmatic file reveal uses bounded CodeView motion"`
+  - exit: 0
+  - result: 2 files passed, 34 tests passed
 
 - `git status --short`
-  - result: no stale-refresh proof file left dirty; only intentional Gate 0.a
-    implementation/doc changes remain
+  - result: `.github/workflows/ci.yml` and `.gitignore` restored clean; only
+    intentional Gate 0.a implementation/doc changes remain
 
 - `mise run lint`
   - exit: 0

@@ -2,7 +2,7 @@
 
 Goal id: `2026-06-24-bridge-transport-review-pr-ready`
 Status: active
-Current workflow: implementation-execute-plan Gate 0.a second reviewer finding fixes complete
+Current workflow: implementation-execute-plan Gate 0.a shared-app boundary fixes complete
 Next workflow: `shravan-dev-workflow:implementation-review-swarm`
 
 ## Durable Objective
@@ -234,16 +234,16 @@ Former Gate 0.a red proof:
 
 Vite/dev-server Gate 0.a status:
 
-- The exact URL proof row is green as of 2026-06-24 23:25 -04:00 after the
-  second reviewer finding fix pass.
+- The exact URL proof row is green as of 2026-06-25 00:04 -04:00 after the
+  shared-app boundary proof pass.
 - Canonical proof command:
   `pnpm --dir BridgeWeb run test:dev-server:worktree`
 - Proof artifact:
-  `tmp/bridge-viewer-worktree-dev-server/2026-06-25T03-25-29-946Z/worktree-dev-server-proof.json`
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-25T04-04-26-634Z/worktree-dev-server-proof.json`
 - Screenshots:
-  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T03-25-29-946Z/worktree-file-ready.png`
-  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T03-25-29-946Z/worktree-file-search-result.png`
-  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T03-25-29-946Z/worktree-file-stale-refresh.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T04-04-26-634Z/worktree-file-ready.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T04-04-26-634Z/worktree-file-search-result.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-25T04-04-26-634Z/worktree-file-stale-refresh.png`
 - Focused reviewer-fix proof:
   - `pnpm --dir BridgeWeb exec vitest run scripts/verify-bridge-viewer-worktree-dev-server-paths.unit.test.ts src/worktree-file-surface/worktree-file-surface-runtime.integration.test.ts src/file-viewer/bridge-file-viewer-app.unit.test.tsx src/app/bridge-app-protocol-router.unit.test.tsx --reporter verbose`
     passed: 4 files, 14 tests
@@ -259,9 +259,10 @@ Vite/dev-server Gate 0.a status:
 - The proof now asserts shared BridgeViewer FileViewer ownership, Pierre
   FileTree/right rail, Pierre CodeView/File ownership, Shiki rendering,
   worker-backed highlighting request plus ready worker pool/theme state,
-  product controls against actual rendered Pierre rows, provider-backed tree
-  visual extent facts, stale/refresh, scroll extent canaries, and negative
-  substitute guards against
+  product controls against actual rendered Pierre rows, provider-backed top-level
+  tree visual extent facts, nontrivial descriptor-backed available/unavailable
+  filter results, stale/refresh, scroll extent canaries, and negative substitute
+  guards against
   `WorktreeFileApp`, route-local custom tree/shell, and raw `<pre>` content.
 - The prior `2026-06-25T01-45-02-791Z` proof is superseded: implementation
   reviewers found it could pass with disabled workers, status-text-only
@@ -273,16 +274,26 @@ Vite/dev-server Gate 0.a status:
   reviewers found the verifier still needed observed URL proof, explicit
   shared-shell DOM containment, tracked-file restore fail-closed behavior,
   worker file-success baseline proof, and retry-after-refresh-failure proof.
+- The prior `2026-06-25T03-25-29-946Z` proof is superseded: the shared
+  application boundary needed to be made explicit in code and proof. The router
+  must dispatch worktree-file to `BridgeApp viewerMode="file"` instead of owning
+  a direct file-app shell, and the proof must record `appOwner=BridgeApp`.
 - Latest reviewer finding fixes:
   - exact browser URL and `window.location.href` are observed and recorded
     rather than self-reported from the configured constant
   - FileViewer shell must be a direct child of shared `BridgeViewerAppShell`
-  - provider-backed tree extent source is asserted instead of accepting local
-    `pathCount * rowHeight` synthesis
+  - `worktree-file` protocol routing now enters `BridgeApp` file mode; the
+    protocol router no longer mounts a direct FileViewer app/shell path
+  - shared-shell proof records `appOwner=BridgeApp`
+  - provider-backed top-level tree extent source is asserted instead of accepting
+    local `pathCount * rowHeight` synthesis
   - product controls prove actual rendered Pierre rows, invalid regex state,
-    and source labels
-  - worker proof requires actual Pierre worker file success/cache state and a
-    post-selection increment over the pre-selection baseline
+    source labels, and nontrivial available/unavailable filter results
+  - unavailable filter proof deletes and restores `.github/workflows/ci.yml` as
+    a tracked metadata-only descriptor and verifies content request rejection
+  - worker proof requires actual Pierre worker file success/cache state, a
+    post-selection increment over the pre-selection baseline, and the selected
+    descriptor cache key
   - stale refresh proof mutates and restores an existing tracked file instead
     of creating an untracked verifier file
   - stale refresh verifier writes reject absolute, parent-directory, and
@@ -290,6 +301,8 @@ Vite/dev-server Gate 0.a status:
   - failed explicit refresh keeps stale body visible and retryable instead of
     blanking into failed state; the runtime state machine now keeps failed
     explicit refresh sessions stale so a second refresh can succeed
+  - stale refresh proof records content-route hit counts before first refresh,
+    after failed refresh, and after successful retry as `0 -> 1 -> 2`
 - Vite dev server remained live on `127.0.0.1:5173` with node PID `65785`
   during this proof.
 - Prior 2026-06-24 proof remains lower-level regression evidence only.

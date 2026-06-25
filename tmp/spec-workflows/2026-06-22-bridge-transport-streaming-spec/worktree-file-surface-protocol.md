@@ -8,21 +8,26 @@ before downstream transport, Review, renderer, and PR-ready gates resume.
 Parent: [spec.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/spec-workflows/2026-06-22-bridge-transport-streaming-spec/spec.md:1)
 
 Current Gate 0.a status: Vite/dev-server proof is implemented as of
-2026-06-24 23:25 -04:00 after the second reviewer finding fix pass. The
+2026-06-25 00:04 -04:00 after the shared-app boundary proof pass. The
 canonical proof artifact is
-`tmp/bridge-viewer-worktree-dev-server/2026-06-25T03-25-29-946Z/worktree-dev-server-proof.json`.
+`tmp/bridge-viewer-worktree-dev-server/2026-06-25T04-04-26-634Z/worktree-dev-server-proof.json`.
 That proof covers the exact worktree URL, shared BridgeViewer FileViewer shell,
 Pierre FileTree/right rail, Pierre CodeView/File, Shiki rendering,
 worker-backed highlighting request plus ready worker pool/theme state, product
 controls against actual rendered Pierre rows, provider-backed tree visual extent
 facts, stale/refresh, and stable tree/content scroll extents. The prior
 `2026-06-25T01-45-02-791Z`, `2026-06-25T02-16-36-219Z`, and
-`2026-06-25T02-49-34-424Z` proofs are superseded because they did not bind all
-reviewer-identified proof gaps. The current proof additionally records observed
-browser URL equality, shared-shell DOM containment, worker-success baseline and
-post-selection increment, tracked-file containment before verifier mutation,
-fail-closed stale fixture restore, and retryable failed refresh state. Native
-Agent Studio Bridge/WKWebView proof remains required before PR-ready.
+`2026-06-25T02-49-34-424Z`, `2026-06-25T03-25-29-946Z`, and
+`2026-06-25T03-55-15-489Z` proofs are superseded because they did not bind all
+reviewer-identified proof gaps or are older reruns of the same fix set. The
+current proof additionally records observed browser URL equality, shared-shell
+DOM containment, `appOwner=BridgeApp`, no router-local FileViewer mount, worker
+success bound to the selected descriptor cache key, tracked-file containment
+before verifier mutation, collision-safe restore behavior, nontrivial
+available/unavailable filter proof using a deleted tracked fixture, visible
+stale notice geometry, and retryable failed refresh request counts
+`0 -> 1 -> 2`. Native Agent Studio Bridge/WKWebView proof remains required
+before PR-ready.
 
 This file owns the Worktree/File protocol family for FileViewer data. FileViewer
 is a viewer mode inside the shared BridgeViewer app, not a separate app. The

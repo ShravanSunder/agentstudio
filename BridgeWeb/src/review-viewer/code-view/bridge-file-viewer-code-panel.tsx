@@ -24,7 +24,7 @@ export interface BridgeFileViewerCodePanelProps {
 }
 
 export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps): ReactElement {
-	const scrollContainerRef = useRef<HTMLElement | null>(null);
+	const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 	const lastScrollTopRef = useRef(0);
 	const previousOpenStateRef = useRef<{
 		readonly path: string | null;
@@ -56,7 +56,7 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 	return (
 		<section
 			aria-label="Selected file"
-			className="bridge-scrollbar min-h-0 min-w-0 overflow-auto overscroll-contain bg-[var(--bridge-canvas-bg)]"
+			className="relative min-h-0 min-w-0 overflow-hidden bg-[var(--bridge-canvas-bg)]"
 			data-pierre-code-view-owner="CodeView.file"
 			data-shiki-rendering="pierre"
 			data-testid="bridge-file-viewer-code-canvas"
@@ -72,12 +72,15 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 			{...(props.totalHeightPixels === null
 				? {}
 				: { 'data-worktree-open-file-total-size': String(props.totalHeightPixels) })}
-			onScroll={(event) => {
-				lastScrollTopRef.current = event.currentTarget.scrollTop;
-			}}
-			ref={scrollContainerRef}
 		>
-			<div className="relative h-full min-h-0 min-w-0" data-testid="bridge-file-viewer-code-view">
+			<div
+				className="bridge-scrollbar h-full min-h-0 min-w-0 overflow-auto overscroll-contain"
+				data-testid="bridge-file-viewer-code-view"
+				onScroll={(event) => {
+					lastScrollTopRef.current = event.currentTarget.scrollTop;
+				}}
+				ref={scrollContainerRef}
+			>
 				<BridgePierreWorkerPoolProvider
 					{...(props.codeViewWorkerPoolEnabled === undefined
 						? {}
@@ -95,8 +98,8 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 						<CodeView items={codeViewItems} options={bridgeCodeViewOptions} />
 					)}
 				</BridgePierreWorkerPoolProvider>
-				{props.staleNotice ?? null}
 			</div>
+			{props.staleNotice ?? null}
 		</section>
 	);
 }

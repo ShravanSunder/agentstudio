@@ -391,6 +391,47 @@ describe('Bridge Pierre worker pool', () => {
 		).toBe('no');
 	});
 
+	test('records the file cache key for the matching Pierre worker file success', async () => {
+		const workerFactory = createBridgePierreWorkerFactory({
+			workerScriptUrl: 'blob:bridge-pierre-worker',
+			createWorker: (url: string | URL, options?: WorkerOptions): Worker =>
+				new TestWorker(url, options),
+		});
+		const worker = workerFactory();
+		worker.addEventListener('message', consumerMessageListenerSentinel);
+
+		worker.postMessage(
+			{
+				id: 'req_99',
+				type: 'file',
+				file: {
+					name: 'Sources/App/View.swift',
+					contents: 'struct View {}',
+					cacheKey: 'handle-99:sha256-abc',
+				},
+			},
+			[],
+		);
+		await Promise.resolve();
+		worker.dispatchEvent(
+			new MessageEvent('message', {
+				data: {
+					id: 'req_99',
+					type: 'success',
+					requestType: 'file',
+				},
+			}),
+		);
+
+		expect(
+			document.documentElement.dataset['bridgePierreWorkerDiagnosticLastFileRequestCacheKey'],
+		).toBe('handle-99:sha256-abc');
+		expect(
+			document.documentElement.dataset['bridgePierreWorkerDiagnosticLastFileSuccessCacheKey'],
+		).toBe('handle-99:sha256-abc');
+		expect(JSON.stringify(document.documentElement.dataset)).not.toContain('req_99');
+	});
+
 	test('records worker error diagnostics without raw error text', () => {
 		const worker = new TestWorker('blob:bridge-pierre-worker');
 

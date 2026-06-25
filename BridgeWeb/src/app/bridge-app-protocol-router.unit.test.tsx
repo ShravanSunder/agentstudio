@@ -53,6 +53,7 @@ describe('BridgeAppProtocolRouter', () => {
 		const shell = document.querySelector('[data-testid="bridge-file-viewer-shell"]');
 		const codeCanvas = document.querySelector('[data-testid="bridge-file-viewer-code-canvas"]');
 		const treeSidebar = document.querySelector('[data-testid="bridge-file-viewer-sidebar"]');
+		expect(appRoot?.getAttribute('data-bridge-app-owner')).toBe('BridgeApp');
 		expect(appRoot?.getAttribute('data-bridge-viewer-shell-owner')).toBe('BridgeViewerAppShell');
 		expect(appRoot?.getAttribute('data-bridge-viewer-mode')).toBe('file');
 		expect(shell?.parentElement).toBe(appRoot);

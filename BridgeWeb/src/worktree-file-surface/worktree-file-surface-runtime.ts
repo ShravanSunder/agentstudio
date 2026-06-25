@@ -277,7 +277,9 @@ export function createWorktreeFileSurfaceRuntime(
 		if (!canFetchWorktreeFileBody(session.latestDescriptor)) {
 			return { ok: false, reason: 'content_unavailable' };
 		}
-		const registerResult = registry.register(session.latestDescriptor.contentDescriptor);
+		const refreshDescriptor = session.latestDescriptor;
+		const refreshDescriptorRef = refreshDescriptor.contentDescriptor.ref;
+		const registerResult = registry.register(refreshDescriptor.contentDescriptor);
 		if (!registerResult.ok) {
 			return { ok: false, reason: 'descriptor_rejected' };
 		}
@@ -293,9 +295,19 @@ export function createWorktreeFileSurfaceRuntime(
 			scheduler,
 			executor,
 			readContext,
-			stimulusDescriptor: session.latestDescriptor,
+			stimulusDescriptor: refreshDescriptor,
 			stimulusKind: 'explicitRefresh',
 		});
+		if (
+			loadResult.ok &&
+			!isOpenFileRefreshStillCurrent({
+				state,
+				openFileSessionId: refreshProps.openFileSessionId,
+				refreshDescriptorRef,
+			})
+		) {
+			return { ok: false, reason: 'stale_completion' };
+		}
 		state = stateWithOpenSessionStatus({
 			state,
 			openFileSessionId: refreshProps.openFileSessionId,
@@ -311,6 +323,36 @@ export function createWorktreeFileSurfaceRuntime(
 		getState: (): WorktreeFileSurfaceState => state,
 		getBodyRegistrySnapshot: () => bodyRegistry.snapshot(),
 	};
+}
+
+function isOpenFileRefreshStillCurrent(props: {
+	readonly state: WorktreeFileSurfaceState;
+	readonly openFileSessionId: string;
+	readonly refreshDescriptorRef: BridgeDescriptorRef;
+}): boolean {
+	const session = props.state.openFileSessionsById[props.openFileSessionId];
+	return (
+		session !== undefined &&
+		session.status === 'refreshing' &&
+		areBridgeDescriptorRefsEqual(session.descriptorRef, props.refreshDescriptorRef) &&
+		(session.latestDescriptorRef === undefined ||
+			areBridgeDescriptorRefsEqual(session.latestDescriptorRef, props.refreshDescriptorRef))
+	);
+}
+
+function areBridgeDescriptorRefsEqual(
+	left: BridgeDescriptorRef,
+	right: BridgeDescriptorRef,
+): boolean {
+	return (
+		left.descriptorId === right.descriptorId &&
+		left.expectedProtocol === right.expectedProtocol &&
+		left.expectedResourceKind === right.expectedResourceKind &&
+		left.expectedIdentity.paneId === right.expectedIdentity.paneId &&
+		left.expectedIdentity.sourceId === right.expectedIdentity.sourceId &&
+		left.expectedIdentity.generation === right.expectedIdentity.generation &&
+		left.expectedIdentity.cursor === right.expectedIdentity.cursor
+	);
 }
 
 function makeWorktreeFileDemandReadContext(props: {

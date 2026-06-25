@@ -77,6 +77,8 @@ export interface BridgePierreWorkerDiagnosticDataset {
 	bridgePierreWorkerDiagnosticLastForwardResult?: string;
 	bridgePierreWorkerDiagnosticLastMessageType?: string;
 	bridgePierreWorkerDiagnosticLastRequestType?: string;
+	bridgePierreWorkerDiagnosticLastFileRequestCacheKey?: string;
+	bridgePierreWorkerDiagnosticLastFileSuccessCacheKey?: string;
 	bridgePierreWorkerDiagnosticLastSuccessMatchesInitializeRequest?: string;
 	bridgePierreWorkerDiagnosticLastSuccessIdPrefix?: string;
 	bridgePierreWorkerDiagnosticLastSuccessIdState?: string;
@@ -132,7 +134,22 @@ const bridgePierreWorkerDiagnosticInitializeRequestSchema = z
 		type: z.literal('initialize'),
 	})
 	.passthrough();
+const bridgePierreWorkerDiagnosticFileRequestSchema = z
+	.object({
+		id: z.string().min(1).max(80),
+		type: z.literal('file'),
+		file: z
+			.object({
+				cacheKey: z.string().min(1).max(240).optional(),
+			})
+			.passthrough(),
+	})
+	.passthrough();
 const bridgePierreWorkerDiagnosticInitializeRequestIdByWorker = new WeakMap<Worker, string>();
+const bridgePierreWorkerDiagnosticFileRequestByWorker = new WeakMap<
+	Worker,
+	Map<string, { readonly cacheKey: string }>
+>();
 const bridgePierreWorkerDiagnosticEventListenerWrappedWorkers = new WeakSet<Worker>();
 const bridgePierreWorkerDiagnosticPostMessageWrappedWorkers = new WeakSet<Worker>();
 
@@ -814,15 +831,35 @@ function recordBridgePierreWorkerRequestDiagnostic(props: {
 	readonly rootElement: BridgePierreWorkerDiagnosticDatasetTarget;
 	readonly messageData: unknown;
 }): void {
-	const parsedMessage = bridgePierreWorkerDiagnosticInitializeRequestSchema.safeParse(
+	const parsedInitializeMessage = bridgePierreWorkerDiagnosticInitializeRequestSchema.safeParse(
 		props.messageData,
 	);
-	if (!parsedMessage.success) {
+	if (parsedInitializeMessage.success) {
+		bridgePierreWorkerDiagnosticInitializeRequestIdByWorker.set(
+			props.worker,
+			parsedInitializeMessage.data.id,
+		);
+		props.rootElement.dataset.bridgePierreWorkerDiagnosticInitializeRequestIdState = 'present';
 		return;
 	}
 
-	bridgePierreWorkerDiagnosticInitializeRequestIdByWorker.set(props.worker, parsedMessage.data.id);
-	props.rootElement.dataset.bridgePierreWorkerDiagnosticInitializeRequestIdState = 'present';
+	const parsedFileMessage = bridgePierreWorkerDiagnosticFileRequestSchema.safeParse(
+		props.messageData,
+	);
+	if (!parsedFileMessage.success || parsedFileMessage.data.file.cacheKey === undefined) {
+		return;
+	}
+
+	let fileRequestById = bridgePierreWorkerDiagnosticFileRequestByWorker.get(props.worker);
+	if (fileRequestById === undefined) {
+		fileRequestById = new Map();
+		bridgePierreWorkerDiagnosticFileRequestByWorker.set(props.worker, fileRequestById);
+	}
+	fileRequestById.set(parsedFileMessage.data.id, {
+		cacheKey: parsedFileMessage.data.file.cacheKey,
+	});
+	props.rootElement.dataset.bridgePierreWorkerDiagnosticLastFileRequestCacheKey =
+		parsedFileMessage.data.file.cacheKey;
 }
 
 function recordBridgePierreWorkerMessageForwardDiagnostic(props: {
@@ -879,6 +916,13 @@ function recordBridgePierreWorkerSuccessDiagnostic(props: {
 	}
 
 	if (requestType === 'file') {
+		const fileRequest =
+			typeof props.responseId === 'string'
+				? bridgePierreWorkerDiagnosticFileRequestByWorker.get(props.worker)?.get(props.responseId)
+				: undefined;
+		if (fileRequest !== undefined) {
+			dataset.bridgePierreWorkerDiagnosticLastFileSuccessCacheKey = fileRequest.cacheKey;
+		}
 		incrementBridgePierreWorkerDiagnosticCounter({
 			dataset,
 			key: 'bridgePierreWorkerDiagnosticFileSuccessCount',

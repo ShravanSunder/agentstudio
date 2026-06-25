@@ -1,11 +1,11 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, realpath, unlink, writeFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 
-import { chromium, type Page } from 'playwright';
+import { chromium, type Page, type Route } from 'playwright';
 import { z } from 'zod';
 
 import { parseBridgeCoreResourceUrl } from '../src/core/resources/bridge-resource-url.ts';
@@ -27,6 +27,7 @@ const worktreeDevServerUrl =
 	process.env['BRIDGE_VIEWER_WORKTREE_DEV_SERVER_URL'] ?? defaultWorktreeDevServerUrl;
 const targetPathOverride = process.env['BRIDGE_VIEWER_WORKTREE_TARGET_PATH'] ?? null;
 const execFileAsync = promisify(execFile);
+const unavailableFilterFixtureRelativePath = '.github/workflows/ci.yml';
 
 const bridgeWorktreeSurfaceResponseSchema = z
 	.object({
@@ -61,6 +62,7 @@ const worktreeFileDescriptorFrameSchema = z
 			.object({
 				path: z.string().min(1),
 				contentHandle: z.string().min(1),
+				contentHash: z.string().min(1).optional(),
 				contentDescriptor: z
 					.object({
 						descriptor: z
@@ -129,14 +131,25 @@ interface WorktreeDevServerScreenshotPaths {
 }
 
 interface WorktreeFileStaleRefreshProof {
+	readonly failedRefreshReturnedStale: boolean;
 	readonly initialContentStillVisibleWhileStale: boolean;
 	readonly proofPath: string;
+	readonly refreshFetchHitsAfterFirstClick: number;
+	readonly refreshFetchHitsAfterSecondClick: number;
+	readonly refreshFetchHitsBeforeClick: number;
 	readonly refreshEnteredRefreshing: boolean;
 	readonly refreshReturnedReady: boolean;
 	readonly refreshedContentVisible: boolean;
 	readonly staleContentState: string | null;
+	readonly staleMessageRect: WorktreeFileVisibleBox;
 	readonly staleMessageVisible: boolean;
 	readonly staleScreenshotPath: string;
+}
+
+interface WorktreeFileContentRouteProbe {
+	readonly dispose: () => Promise<void>;
+	readonly hitCount: () => number;
+	readonly hitUrls: () => readonly string[];
 }
 
 interface WorktreeFileProductControlsProof {
@@ -156,6 +169,7 @@ interface WorktreeFileProductControlsProof {
 	readonly fetchableTreeSizeSource: WorktreeFileTreeExtentSource | null;
 	readonly expectedFetchableFilterCount: number;
 	readonly expectedUnavailableFilterCount: number;
+	readonly expectedUnavailablePath: string;
 	readonly initialVisibleCount: number;
 	readonly initialRenderedPathSample: readonly string[];
 	readonly initialTreeSizeSource: WorktreeFileTreeExtentSource | null;
@@ -186,6 +200,7 @@ interface WorktreeFileProductControlsProof {
 }
 
 interface WorktreeFileSharedShellProof {
+	readonly appOwner: string | null;
 	readonly codeOwner: string | null;
 	readonly hasPierreTreeShadowRoot: boolean;
 	readonly rootVisible: boolean;
@@ -200,6 +215,7 @@ interface WorktreeFileSharedShellProof {
 	readonly workerRequestedState: string | null;
 	readonly workerDiagnosticFileSuccessCount: number;
 	readonly workerDiagnosticFileSuccessCountBeforeTargetSelection: number;
+	readonly workerDiagnosticLastFileSuccessCacheKey: string | null;
 	readonly workerDiagnosticLastSuccessRequestType: string | null;
 	readonly workerPoolFileCacheSize: number;
 	readonly workerPoolManagerState: string | null;
@@ -235,6 +251,11 @@ interface WorktreeFileVisibleAppProof {
 interface WorktreeFileVisibleRect {
 	readonly height: number;
 	readonly width: number;
+}
+
+interface WorktreeFileVisibleBox extends WorktreeFileVisibleRect {
+	readonly x: number;
+	readonly y: number;
 }
 
 interface WorktreeRenderedContentState {
@@ -375,8 +396,10 @@ try {
 
 async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationResult> {
 	const page = await makeVerificationPage();
+	let unavailableFilterFixture: WorktreeFileDeletedUnavailableFixture | null = null;
 	let staleRefreshFixture: WorktreeFileStaleRefreshFixture | null = null;
 	try {
+		unavailableFilterFixture = await worktreeFileDeletedUnavailableFixture();
 		const surface = await fetchWorktreeSurface();
 		const expectedWorktreeRootToken = await bridgeWorktreeDevRootTokenForPath(repoRootPath);
 		if (surface.provenance.worktreeRootToken !== expectedWorktreeRootToken) {
@@ -432,7 +455,7 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 			targetPath: initialDescriptor.path,
 		});
 		const contentRouteGate = makeDeferred<void>();
-		await installFileContentRouteGate({ gate: contentRouteGate, page });
+		const contentRouteProbe = await installFileContentRouteGate({ gate: contentRouteGate, page });
 		await scrollTreeToFilePath(page, targetDescriptor.path);
 		await waitForPierreFileTreeAnchorSettled(page, targetDescriptor.path);
 		const scrollExtentBeforeSelection = await readWorktreeFileScrollExtentSnapshot(page);
@@ -472,6 +495,7 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 			page,
 			previousFileSuccessCount: workerFileSuccessCountBeforeTargetSelection,
 		});
+		await contentRouteProbe.dispose();
 		const scrollExtentAfterReady = await readWorktreeFileScrollExtentSnapshot(page);
 		await waitForPierreFileTreeAnchorSettled(page, targetDescriptor.path);
 		const treeAnchorAfterReady = await readWorktreeFileTreeAnchorSnapshot(
@@ -499,6 +523,7 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 		});
 		const sharedShellProof = await assertSharedBridgeFileViewerShell({
 			page,
+			targetDescriptor,
 			workerFileSuccessCountBeforeTargetSelection,
 		});
 		const visibleAppProof = await readWorktreeFileVisibleAppProof(page);
@@ -584,6 +609,9 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 		if (staleRefreshFixture !== null) {
 			await restoreWorktreeFileStaleRefreshFixture(staleRefreshFixture);
 		}
+		if (unavailableFilterFixture !== null) {
+			await restoreWorktreeFileDeletedUnavailableFixture(unavailableFilterFixture);
+		}
 	}
 }
 
@@ -649,6 +677,7 @@ async function waitForBridgePierreWorkerFileSuccessCountAbove(props: {
 
 async function assertSharedBridgeFileViewerShell(props: {
 	readonly page: Page;
+	readonly targetDescriptor: WorktreeFileDescriptor;
 	readonly workerFileSuccessCountBeforeTargetSelection: number;
 }): Promise<WorktreeFileSharedShellProof> {
 	await props.page.waitForFunction(
@@ -680,6 +709,7 @@ async function assertSharedBridgeFileViewerShell(props: {
 		const codeRect = codeCanvas.getBoundingClientRect();
 		const sidebarRect = sidebar.getBoundingClientRect();
 		return {
+			appOwner: appRoot.getAttribute('data-bridge-app-owner'),
 			codeOwner: codeCanvas.getAttribute('data-pierre-code-view-owner'),
 			hasPierreTreeShadowRoot: pierreTree.querySelector('file-tree-container')?.shadowRoot !== null,
 			rootVisible: appRoot.getBoundingClientRect().width > 0,
@@ -697,6 +727,9 @@ async function assertSharedBridgeFileViewerShell(props: {
 			),
 			workerDiagnosticLastSuccessRequestType:
 				document.documentElement.dataset['bridgePierreWorkerDiagnosticLastSuccessRequestType'] ??
+				null,
+			workerDiagnosticLastFileSuccessCacheKey:
+				document.documentElement.dataset['bridgePierreWorkerDiagnosticLastFileSuccessCacheKey'] ??
 				null,
 			workerPoolFileCacheSize: Number(
 				document.documentElement.dataset['bridgePierreWorkerPoolFileCacheSize'] ?? '0',
@@ -716,8 +749,10 @@ async function assertSharedBridgeFileViewerShell(props: {
 		workerDiagnosticFileSuccessCountBeforeTargetSelection:
 			props.workerFileSuccessCountBeforeTargetSelection,
 	} satisfies WorktreeFileSharedShellProof;
+	const expectedTargetWorkerCacheKey = worktreeFilePierreCacheKey(props.targetDescriptor);
 	if (
 		proofWithWorkerBaseline.sharedShellOwner !== 'BridgeViewerAppShell' ||
+		proofWithWorkerBaseline.appOwner !== 'BridgeApp' ||
 		proofWithWorkerBaseline.sharedShellMode !== 'file' ||
 		!proofWithWorkerBaseline.shellParentIsSharedRoot ||
 		proofWithWorkerBaseline.shellOwner !== 'BridgeViewerApp.FileViewer' ||
@@ -732,6 +767,8 @@ async function assertSharedBridgeFileViewerShell(props: {
 		proofWithWorkerBaseline.workerDiagnosticFileSuccessCount <=
 			props.workerFileSuccessCountBeforeTargetSelection ||
 		proofWithWorkerBaseline.workerDiagnosticLastSuccessRequestType !== 'file' ||
+		proofWithWorkerBaseline.workerDiagnosticLastFileSuccessCacheKey !==
+			expectedTargetWorkerCacheKey ||
 		proofWithWorkerBaseline.workerPoolFileCacheSize <= 0 ||
 		proofWithWorkerBaseline.workerPoolManagerState !== 'initialized' ||
 		proofWithWorkerBaseline.workerPoolState !== 'ready' ||
@@ -742,6 +779,10 @@ async function assertSharedBridgeFileViewerShell(props: {
 		);
 	}
 	return proofWithWorkerBaseline;
+}
+
+function worktreeFilePierreCacheKey(descriptor: WorktreeFileDescriptor): string {
+	return `${descriptor.contentHandle}:${descriptor['contentHash'] ?? 'unknown'}`;
 }
 
 async function fetchWorktreeSurface(): Promise<
@@ -863,6 +904,31 @@ interface WorktreeFileStaleRefreshFixture {
 	readonly initialContentHash: string;
 	readonly relativePath: string;
 	readonly updatedContent: string;
+	readonly updatedContentHash: string;
+}
+
+interface WorktreeFileDeletedUnavailableFixture {
+	readonly absolutePath: string;
+	readonly initialContent: string;
+	readonly initialContentHash: string;
+	readonly relativePath: string;
+}
+
+async function worktreeFileDeletedUnavailableFixture(): Promise<WorktreeFileDeletedUnavailableFixture> {
+	const absolutePath = await resolveBridgeWorktreeVerifierWritePath({
+		descriptorPath: unavailableFilterFixtureRelativePath,
+		rootPath: repoRootPath,
+	});
+	await assertGitTrackedWorktreeVerifierPath(unavailableFilterFixtureRelativePath);
+	const initialContent = await readFile(absolutePath, 'utf8');
+	const fixture: WorktreeFileDeletedUnavailableFixture = {
+		absolutePath,
+		initialContent,
+		initialContentHash: hashText(initialContent),
+		relativePath: unavailableFilterFixtureRelativePath,
+	};
+	await unlink(absolutePath);
+	return fixture;
 }
 
 function resolveStaleRefreshDescriptor(props: {
@@ -892,12 +958,14 @@ async function worktreeFileStaleRefreshFixture(props: {
 	});
 	await assertGitTrackedWorktreeVerifierPath(props.descriptor.path);
 	const initialContent = await readFile(absolutePath, 'utf8');
+	const updatedContent = `${initialContent}\n// ${marker}: updated content\n`;
 	return {
 		absolutePath,
 		initialContent,
 		initialContentHash: hashText(initialContent),
 		relativePath: props.descriptor.path,
-		updatedContent: `${initialContent}\n// ${marker}: updated content\n`,
+		updatedContent,
+		updatedContentHash: hashText(updatedContent),
 	};
 }
 
@@ -921,11 +989,57 @@ async function assertGitTrackedWorktreeVerifierPath(relativePath: string): Promi
 async function restoreWorktreeFileStaleRefreshFixture(
 	fixture: WorktreeFileStaleRefreshFixture,
 ): Promise<void> {
-	await writeFile(fixture.absolutePath, fixture.initialContent);
+	const currentHash = await readTextFileHashOrNull(fixture.absolutePath);
+	if (currentHash !== fixture.initialContentHash && currentHash !== fixture.updatedContentHash) {
+		throw new Error(
+			`Refusing to restore stale-refresh proof file after external edit: ${fixture.relativePath}`,
+		);
+	}
+	if (currentHash === fixture.updatedContentHash) {
+		await writeFile(fixture.absolutePath, fixture.initialContent);
+	}
 	const restoredContent = await readFile(fixture.absolutePath, 'utf8');
 	if (hashText(restoredContent) !== fixture.initialContentHash) {
 		throw new Error(`Failed to restore stale-refresh proof file: ${fixture.relativePath}`);
 	}
+}
+
+async function restoreWorktreeFileDeletedUnavailableFixture(
+	fixture: WorktreeFileDeletedUnavailableFixture,
+): Promise<void> {
+	const currentHash = await readTextFileHashOrNull(fixture.absolutePath);
+	if (currentHash !== null && currentHash !== fixture.initialContentHash) {
+		throw new Error(
+			`Refusing to restore deleted unavailable-filter proof file after external edit: ${fixture.relativePath}`,
+		);
+	}
+	if (currentHash === null) {
+		await writeFile(fixture.absolutePath, fixture.initialContent);
+	}
+	const restoredContent = await readFile(fixture.absolutePath, 'utf8');
+	if (hashText(restoredContent) !== fixture.initialContentHash) {
+		throw new Error(
+			`Failed to restore deleted unavailable-filter proof file: ${fixture.relativePath}`,
+		);
+	}
+}
+
+async function readTextFileHashOrNull(absolutePath: string): Promise<string | null> {
+	try {
+		return hashText(await readFile(absolutePath, 'utf8'));
+	} catch (error) {
+		if (isNodeErrorWithCode(error, 'ENOENT')) {
+			return null;
+		}
+		throw error;
+	}
+}
+
+function isNodeErrorWithCode(
+	error: unknown,
+	code: string,
+): error is Error & { readonly code: string } {
+	return error instanceof Error && 'code' in error && error.code === code;
 }
 
 async function fetchWorktreeFileContent(descriptor: WorktreeFileDescriptor): Promise<string> {
@@ -1062,16 +1176,33 @@ async function makeVerificationPage(): Promise<Page> {
 
 async function installFileContentRouteGate(props: {
 	readonly gate: Deferred<void>;
+	readonly failFirstHit?: boolean;
 	readonly page: Page;
 	readonly pathPattern?: string;
-}): Promise<void> {
-	await props.page.route(
-		props.pathPattern ?? '**/__bridge-worktree/file-content/**',
-		async (route) => {
-			await props.gate.promise;
-			await route.continue();
+}): Promise<WorktreeFileContentRouteProbe> {
+	const hitUrls: string[] = [];
+	const pathPattern = props.pathPattern ?? '**/__bridge-worktree/file-content/**';
+	const routeHandler = async (route: Route): Promise<void> => {
+		hitUrls.push(route.request().url());
+		if (props.failFirstHit === true && hitUrls.length === 1) {
+			await route.fulfill({
+				status: 503,
+				contentType: 'text/plain',
+				body: 'forced refresh failure for Gate 0.a retry proof',
+			});
+			return;
+		}
+		await props.gate.promise;
+		await route.continue();
+	};
+	await props.page.route(pathPattern, routeHandler);
+	return {
+		dispose: async (): Promise<void> => {
+			await props.page.unroute(pathPattern, routeHandler);
 		},
-	);
+		hitCount: (): number => hitUrls.length,
+		hitUrls: (): readonly string[] => hitUrls,
+	};
 }
 
 async function readWorktreeRenderedContentState(page: Page): Promise<WorktreeRenderedContentState> {
@@ -1778,6 +1909,8 @@ async function verifyWorktreeFileProductControls(props: {
 		'worktree-file-filter-unavailable',
 	);
 	const unavailableFilterVisibleCount = await worktreeFileFilterStatusVisibleCount(props.page);
+	await scrollTreeToFilePath(props.page, unavailableFilterFixtureRelativePath);
+	await waitForPierreFileTreeAnchorSettled(props.page, unavailableFilterFixtureRelativePath);
 	const unavailableRenderedPathSample = await visibleWorktreeFilePathSample(props.page);
 	const unavailableTreeSizePixels = await worktreeFileTreeTotalSizePixels(props.page);
 	const unavailableTreeSizeSource = await worktreeFileTreeTotalSizeSource(props.page);
@@ -1804,6 +1937,7 @@ async function verifyWorktreeFileProductControls(props: {
 		expectedSearchTreeSizePixels,
 		expectedUnavailableTreeSizePixels,
 		expectedUnavailableFilterCount,
+		expectedUnavailablePath: unavailableFilterFixtureRelativePath,
 		fetchableFilterActive,
 		fetchableFilterVisibleCount,
 		fetchableRenderedPathSample,
@@ -1870,44 +2004,68 @@ async function verifyWorktreeFileStaleRefresh(props: {
 		path: props.fixture.relativePath,
 		state: 'stale',
 	});
+	const staleNotice = props.page.locator('[data-testid="worktree-file-content-stale"]');
+	await staleNotice.getByText('Content changed').waitFor({ state: 'visible', timeout: 10_000 });
+	const staleMessageRect = await staleNotice.boundingBox();
+	if (staleMessageRect === null) {
+		throw new Error('Expected visible Worktree/File stale notice bounding box');
+	}
 	const staleText = await worktreeVisibleContentText(props.page);
 	const staleScreenshotPath = await captureWorktreeDevServerScreenshot({
 		name: 'worktree-file-stale-refresh.png',
 		page: props.page,
 	});
-	const staleMessageVisible = await props.page
-		.locator('[data-testid="worktree-file-content-stale"]')
-		.getByText('Content changed')
-		.count();
+	const staleMessageVisible = await staleNotice.isVisible();
 	const refreshGate = makeDeferred<void>();
-	await installFileContentRouteGate({
+	const refreshRouteProbe = await installFileContentRouteGate({
+		failFirstHit: true,
 		gate: refreshGate,
 		page: props.page,
 		pathPattern: `**/__bridge-worktree/file-content/**${encodeURIComponent(props.descriptor.contentHandle)}**`,
 	});
+	refreshGate.resolve();
+	const refreshFetchHitsBeforeClick = refreshRouteProbe.hitCount();
 	await clickWorktreeFileControl(props.page, 'worktree-file-refresh');
 	await waitForWorktreeOpenFileState({
 		page: props.page,
 		path: props.fixture.relativePath,
 		state: 'refreshing',
 	});
-	refreshGate.resolve();
+	await waitForWorktreeOpenFileState({
+		page: props.page,
+		path: props.fixture.relativePath,
+		state: 'stale',
+	});
+	const refreshFetchHitsAfterFirstClick = refreshRouteProbe.hitCount();
+	await staleNotice.getByText('Content changed').waitFor({ state: 'visible', timeout: 10_000 });
+	await clickWorktreeFileControl(props.page, 'worktree-file-refresh');
+	await waitForWorktreeOpenFileState({
+		page: props.page,
+		path: props.fixture.relativePath,
+		state: 'refreshing',
+	});
 	await waitForWorktreeOpenFileState({
 		page: props.page,
 		path: props.fixture.relativePath,
 		state: 'ready',
 	});
+	const refreshFetchHitsAfterSecondClick = refreshRouteProbe.hitCount();
+	await refreshRouteProbe.dispose();
 	const refreshedText = await waitForWorktreeVisibleContentText({
 		expectedText: props.fixture.updatedContent,
 		label: 'refreshed stale-refresh proof content',
 		page: props.page,
 	});
 	const proof: WorktreeFileStaleRefreshProof = {
+		failedRefreshReturnedStale: true,
 		initialContentStillVisibleWhileStale: renderedTextIncludesContent(
 			staleText,
 			props.fixture.initialContent,
 		),
 		proofPath: props.descriptor.path,
+		refreshFetchHitsAfterFirstClick,
+		refreshFetchHitsAfterSecondClick,
+		refreshFetchHitsBeforeClick,
 		refreshEnteredRefreshing: true,
 		refreshReturnedReady: true,
 		refreshedContentVisible: renderedTextIncludesContent(
@@ -1915,7 +2073,8 @@ async function verifyWorktreeFileStaleRefresh(props: {
 			props.fixture.updatedContent,
 		),
 		staleContentState: 'stale',
-		staleMessageVisible: staleMessageVisible > 0,
+		staleMessageRect,
+		staleMessageVisible,
 		staleScreenshotPath,
 	};
 	assertWorktreeFileStaleRefreshProof(proof);
@@ -1936,7 +2095,11 @@ function assertWorktreeFileStaleRefreshProof(proof: WorktreeFileStaleRefreshProo
 	if (
 		!proof.refreshEnteredRefreshing ||
 		!proof.refreshReturnedReady ||
-		!proof.refreshedContentVisible
+		!proof.refreshedContentVisible ||
+		!proof.failedRefreshReturnedStale ||
+		proof.refreshFetchHitsBeforeClick !== 0 ||
+		proof.refreshFetchHitsAfterFirstClick !== 1 ||
+		proof.refreshFetchHitsAfterSecondClick !== 2
 	) {
 		throw new Error(
 			`Expected Worktree/File explicit refresh to render update: ${JSON.stringify(proof)}`,
@@ -2036,27 +2199,17 @@ function assertWorktreeFileProductControlsProof(props: {
 	if (
 		!proof.fetchableFilterActive ||
 		proof.fetchableFilterVisibleCount !== proof.expectedFetchableFilterCount ||
+		proof.expectedFetchableTreeSizePixels === null ||
+		proof.expectedFetchableFilterCount >= proof.totalDescriptorCount ||
 		(proof.expectedFetchableFilterCount > 0 &&
 			(proof.fetchableRenderedPathSample.length === 0 ||
 				!proof.fetchableRenderedPathSample.every((path) => props.fetchablePathSet.has(path))))
 	) {
-		throw new Error(`Expected Worktree/File fetchable filter count: ${JSON.stringify(proof)}`);
+		throw new Error(
+			`Expected nontrivial Worktree/File fetchable filter count: ${JSON.stringify(proof)}`,
+		);
 	}
-	if (proof.expectedFetchableTreeSizePixels === null) {
-		if (proof.fetchableTreeSizeSource !== 'providerFacts') {
-			throw new Error(
-				`Expected no-op Worktree/File fetchable filter to preserve provider extent: ${JSON.stringify(proof)}`,
-			);
-		}
-		if (
-			proof.allTreeSizePixels !== null &&
-			proof.fetchableTreeSizePixels !== proof.allTreeSizePixels
-		) {
-			throw new Error(
-				`Expected no-op Worktree/File fetchable filter to preserve tree size: ${JSON.stringify(proof)}`,
-			);
-		}
-	} else if (proof.fetchableTreeSizeSource !== 'localProjection') {
+	if (proof.fetchableTreeSizeSource !== 'localProjection') {
 		throw new Error(
 			`Expected Worktree/File fetchable projection extent source to be localProjection: ${JSON.stringify(proof)}`,
 		);
@@ -2070,14 +2223,15 @@ function assertWorktreeFileProductControlsProof(props: {
 	}
 	if (
 		!proof.unavailableFilterActive ||
+		proof.expectedUnavailableFilterCount <= 0 ||
 		proof.unavailableFilterVisibleCount !== proof.expectedUnavailableFilterCount ||
-		(proof.expectedUnavailableFilterCount === 0 &&
-			proof.unavailableRenderedPathSample.length !== 0) ||
-		(proof.expectedUnavailableFilterCount > 0 &&
-			(proof.unavailableRenderedPathSample.length === 0 ||
-				!proof.unavailableRenderedPathSample.every((path) => props.unavailablePathSet.has(path))))
+		proof.unavailableRenderedPathSample.length === 0 ||
+		!proof.unavailableRenderedPathSample.every((path) => props.unavailablePathSet.has(path)) ||
+		!proof.unavailableRenderedPathSample.includes(proof.expectedUnavailablePath)
 	) {
-		throw new Error(`Expected Worktree/File unavailable filter count: ${JSON.stringify(proof)}`);
+		throw new Error(
+			`Expected nontrivial Worktree/File unavailable filter count: ${JSON.stringify(proof)}`,
+		);
 	}
 	if (proof.unavailableTreeSizeSource !== 'localProjection') {
 		throw new Error(

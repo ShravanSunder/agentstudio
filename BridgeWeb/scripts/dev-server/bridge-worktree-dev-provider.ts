@@ -286,6 +286,14 @@ function worktreeFileDescriptorForChangedFile(props: {
 	readonly sourceIdentity: WorktreeFileSurfaceSourceIdentity;
 	readonly worktreeFileContentByDescriptorId: Map<string, string>;
 }): readonly WorktreeFileDescriptor[] {
+	if (props.changedFile.changeKind === 'deleted') {
+		return [
+			unavailableWorktreeFileDescriptorForChangedFile({
+				changedFile: props.changedFile,
+				sourceIdentity: props.sourceIdentity,
+			}),
+		];
+	}
 	const content = props.changedFile.headContent ?? props.changedFile.baseContent;
 	if (content === null) {
 		return [];
@@ -318,6 +326,37 @@ function worktreeFileDescriptorForChangedFile(props: {
 			fileExtension: extension,
 		},
 	];
+}
+
+function unavailableWorktreeFileDescriptorForChangedFile(props: {
+	readonly changedFile: WorktreeChangedFile;
+	readonly sourceIdentity: WorktreeFileSurfaceSourceIdentity;
+}): WorktreeFileDescriptor {
+	const pathHash = hashText(props.changedFile.path).slice(0, 16);
+	const descriptorId = `dev-file-unavailable-${pathHash}`;
+	const extension = extensionForPath(props.changedFile.path);
+	const content = props.changedFile.baseContent ?? '';
+	return {
+		path: props.changedFile.path,
+		fileId: `dev-file-id-${pathHash}`,
+		contentHandle: descriptorId,
+		contentDescriptor: makeWorktreeAttachedDescriptor({
+			content: {
+				expectedBytes: byteLength(content),
+				mediaType: mimeTypeForExtension(extension),
+			},
+			descriptorId,
+			resourceKind: 'worktree.fileContent',
+			sourceIdentity: props.sourceIdentity,
+		}),
+		contentHash: `sha256:${hashText(content)}`,
+		sourceIdentity: props.sourceIdentity,
+		sizeBytes: byteLength(content),
+		virtualizedExtentKind: 'unavailable',
+		isBinary: true,
+		language: languageForExtension(extension),
+		fileExtension: extension,
+	};
 }
 
 function makeWorktreeAttachedDescriptor(props: {

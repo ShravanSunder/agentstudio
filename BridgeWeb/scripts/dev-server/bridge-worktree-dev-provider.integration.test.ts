@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, realpath, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -32,6 +32,7 @@ describe('Bridge worktree dev provider', () => {
 			const surfaceJson = JSON.stringify(surface);
 			const sourceDescriptor = findWorktreeFileDescriptor(surface, 'src/app.ts');
 			const docsDescriptor = findWorktreeFileDescriptor(surface, 'docs/bridge-plan.md');
+			const deletedDescriptor = findWorktreeFileDescriptor(surface, 'docs/deleted-plan.md');
 
 			expect(frameKinds[0]).toBe('worktree.snapshot');
 			expect(frameKinds).toContain('worktree.fileDescriptor');
@@ -45,6 +46,7 @@ describe('Bridge worktree dev provider', () => {
 			const expectedFlattenedRowCount = countFlattenedWorktreeFileTreeRows([
 				'src/app.ts',
 				'docs/bridge-plan.md',
+				'docs/deleted-plan.md',
 			]);
 			expect(surface.treeSizeFacts.estimatedTotalHeightPixels).toBe(
 				expectedFlattenedRowCount * surface.treeSizeFacts.rowHeightPixels,
@@ -55,6 +57,8 @@ describe('Bridge worktree dev provider', () => {
 			);
 			expect(sourceDescriptor.virtualizedExtentKind).toBe('exactLineCount');
 			expect(sourceDescriptor.lineCount).toBeGreaterThan(0);
+			expect(deletedDescriptor.virtualizedExtentKind).toBe('unavailable');
+			expect(deletedDescriptor.isBinary).toBe(true);
 			expect(sourceDescriptor.contentDescriptor.descriptor.resourceUrl).toContain(
 				'agentstudio://resource/worktree-file/worktree.fileContent/',
 			);
@@ -77,6 +81,11 @@ describe('Bridge worktree dev provider', () => {
 			expect(sourceDescriptor.lineCount).toBe(renderLineCount(sourceContent));
 			expect(docsContent).toContain('new docs body');
 			expect(sourceContent).toContain('export const value = 2');
+			await expect(
+				provider.loadWorktreeFileContent(
+					worktreeFileContentRequestForDescriptor(deletedDescriptor),
+				),
+			).rejects.toThrow(/Unknown Bridge worktree file content descriptor/);
 		} finally {
 			await rm(repoRoot, { force: true, recursive: true });
 		}
@@ -309,12 +318,14 @@ async function makeGitFixtureWorktree(): Promise<string> {
 	await git(repoRoot, 'config', 'user.email', 'bridge@example.test');
 	await git(repoRoot, 'config', 'commit.gpgsign', 'false');
 	await mkdir(join(repoRoot, 'src'), { recursive: true });
+	await mkdir(join(repoRoot, 'docs'), { recursive: true });
 	await writeFile(join(repoRoot, 'src/app.ts'), 'export const value = 1;\n');
+	await writeFile(join(repoRoot, 'docs/deleted-plan.md'), '# Deleted\n\nold docs body\n');
 	await git(repoRoot, 'add', '.');
 	await git(repoRoot, 'commit', '-m', 'base');
-	await mkdir(join(repoRoot, 'docs'), { recursive: true });
 	await writeFile(join(repoRoot, 'src/app.ts'), 'export const value = 2;\n');
 	await writeFile(join(repoRoot, 'docs/bridge-plan.md'), '# Plan\n\nnew docs body\n');
+	await unlink(join(repoRoot, 'docs/deleted-plan.md'));
 	return repoRoot;
 }
 

@@ -359,7 +359,7 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 function BridgeFileViewerStaleNotice(props: { readonly onRefresh: () => void }): ReactElement {
 	return (
 		<div
-			className="absolute right-3 top-3 flex items-center gap-2 rounded-md border border-[var(--bridge-border-opaque)] bg-[var(--bridge-menu-bg)] px-3 py-2 text-xs shadow-lg"
+			className="absolute right-3 top-3 z-10 flex items-center gap-2 rounded-md border border-[var(--bridge-border-opaque)] bg-[var(--bridge-menu-bg)] px-3 py-2 text-xs shadow-lg"
 			data-testid="worktree-file-content-stale"
 		>
 			<span>Content changed</span>
