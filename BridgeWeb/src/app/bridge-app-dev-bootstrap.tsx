@@ -27,6 +27,10 @@ import {
 	createBridgeAppDevTelemetryBootstrapConfig,
 	installBridgeAppDevTelemetryHost,
 } from './bridge-app-dev-telemetry.js';
+import {
+	installBridgeAppDevWorktreeReviewBackend,
+	type BridgeAppDevWorktreeReviewBackend,
+} from './bridge-app-dev-worktree-review.js';
 import { installBridgeAppDevWorktreeBackend } from './bridge-app-dev-worktree.js';
 import { BridgeAppProtocolRouter } from './bridge-app-protocol-router.js';
 
@@ -70,7 +74,13 @@ if (rootElement !== null) {
 					telemetryConfig,
 				});
 	const worktreeBackend =
-		options.fixtureClass === 'worktree' ? installBridgeAppDevWorktreeBackend() : null;
+		options.fixtureClass === 'worktree' && options.navigationCommand.context === 'files'
+			? installBridgeAppDevWorktreeBackend()
+			: null;
+	const worktreeReviewBackend =
+		options.fixtureClass === 'worktree' && options.navigationCommand.context === 'review'
+			? installBridgeAppDevWorktreeReviewBackend()
+			: null;
 
 	window.addEventListener(
 		'beforeunload',
@@ -99,9 +109,14 @@ if (rootElement !== null) {
 					})}
 			{...(workerFactory === null ? {} : { codeViewWorkerFactory: workerFactory.workerFactory })}
 			{...(backend === null
-				? projectionWorkerClient === null
-					? {}
-					: { projectionWorkerClient }
+				? worktreeReviewBackend !== null
+					? {
+							fetchContent: worktreeReviewBackend.fetchContent,
+							...(projectionWorkerClient === null ? {} : { projectionWorkerClient }),
+						}
+					: projectionWorkerClient === null
+						? {}
+						: { projectionWorkerClient }
 				: {
 						fetchContent: backend.fetchContent,
 						projectionWorkerClient: backend.projectionWorkerClient,
@@ -114,6 +129,7 @@ if (rootElement !== null) {
 		deliveryMode: deliveryModeForMockedBackend(options.deliveryMode),
 		fixture,
 		scenario: options.scenario,
+		worktreeReviewBackend,
 	});
 }
 
@@ -129,7 +145,12 @@ async function pushDevFixture(props: {
 	readonly deliveryMode: 'full-load' | 'streaming-append';
 	readonly fixture: BridgeViewerBrowserFixture | null;
 	readonly scenario: BridgeAppDevFixtureScenario;
+	readonly worktreeReviewBackend: BridgeAppDevWorktreeReviewBackend | null;
 }): Promise<void> {
+	if (props.worktreeReviewBackend !== null) {
+		await props.worktreeReviewBackend.pushPackage();
+		return;
+	}
 	if (props.backend === null || props.fixture === null) {
 		return;
 	}

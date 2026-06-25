@@ -321,8 +321,12 @@ interface WorktreeReviewRouteProof {
 	readonly fileViewerSidebarCount: number;
 	readonly locationHref: string;
 	readonly pageUrl: string;
+	readonly reviewCanvasCount: number;
+	readonly reviewCodeScrollCount: number;
 	readonly reviewEmptyShellCount: number;
 	readonly reviewPackageShellCount: number;
+	readonly reviewSelectedContentState: string | null;
+	readonly reviewSelectedDisplayPath: string | null;
 	readonly sharedShellMode: string | null;
 	readonly sharedShellOwner: string | null;
 	readonly standaloneWorktreeFileAppCount: number;
@@ -748,9 +752,11 @@ async function verifyWorktreeReviewRoute(): Promise<WorktreeReviewRouteProof> {
 			timeout: 30_000,
 		});
 		await page.waitForSelector('[data-testid="bridge-app-root"]', { timeout: 30_000 });
+		await page.waitForSelector('[data-testid="review-viewer-shell"]', { timeout: 30_000 });
 		const proof = await page.evaluate(() => {
 			const appRoots = [...document.querySelectorAll('[data-testid="bridge-app-root"]')];
 			const appRoot = appRoots[0];
+			const reviewShell = document.querySelector('[data-testid="review-viewer-shell"]');
 			return {
 				appOwner:
 					appRoot instanceof HTMLElement ? appRoot.getAttribute('data-bridge-app-owner') : null,
@@ -767,8 +773,20 @@ async function verifyWorktreeReviewRoute(): Promise<WorktreeReviewRouteProof> {
 				reviewEmptyShellCount: document.querySelectorAll(
 					'[data-testid="bridge-review-empty-shell"]',
 				).length,
+				reviewCanvasCount: document.querySelectorAll('[data-testid="bridge-review-canvas"]').length,
+				reviewCodeScrollCount: document.querySelectorAll(
+					'[data-testid="bridge-review-code-scroll"]',
+				).length,
 				reviewPackageShellCount: document.querySelectorAll('[data-testid="review-viewer-shell"]')
 					.length,
+				reviewSelectedContentState:
+					reviewShell instanceof HTMLElement
+						? reviewShell.getAttribute('data-selected-content-state')
+						: null,
+				reviewSelectedDisplayPath:
+					reviewShell instanceof HTMLElement
+						? reviewShell.getAttribute('data-selected-display-path')
+						: null,
 				sharedShellMode:
 					appRoot instanceof HTMLElement ? appRoot.getAttribute('data-bridge-viewer-mode') : null,
 				sharedShellOwner:
@@ -795,10 +813,14 @@ async function verifyWorktreeReviewRoute(): Promise<WorktreeReviewRouteProof> {
 			routeProof.fileViewerSidebarCount !== 0 ||
 			routeProof.fileViewerCodeCanvasCount !== 0 ||
 			routeProof.standaloneWorktreeFileAppCount !== 0 ||
-			routeProof.reviewEmptyShellCount !== 1
+			routeProof.reviewEmptyShellCount !== 0 ||
+			routeProof.reviewPackageShellCount !== 1 ||
+			routeProof.reviewCanvasCount !== 1 ||
+			routeProof.reviewCodeScrollCount !== 1 ||
+			routeProof.reviewSelectedDisplayPath === null
 		) {
 			throw new Error(
-				`Expected worktree Review URL to enter shared review shell without FileViewer substitute: ${JSON.stringify(routeProof)}`,
+				`Expected worktree Review URL to load a real shared review package without FileViewer substitute: ${JSON.stringify(routeProof)}`,
 			);
 		}
 		return routeProof;
@@ -1459,6 +1481,30 @@ async function installFileContentRouteGate(props: {
 		hitCount: (): number => hitUrls.length,
 		hitUrls: (): readonly string[] => hitUrls,
 	};
+}
+
+async function waitForRouteProbeHitCountAbove(props: {
+	readonly minHitCount: number;
+	readonly probe: WorktreeFileContentRouteProbe;
+	readonly remainingAttempts?: number;
+}): Promise<void> {
+	const remainingAttempts = props.remainingAttempts ?? 1_000;
+	if (props.probe.hitCount() >= props.minHitCount) {
+		return;
+	}
+	if (remainingAttempts <= 0) {
+		throw new Error(
+			`Timed out waiting for Worktree/File content route hit count ${props.minHitCount}; observed ${props.probe.hitCount()}: ${JSON.stringify(props.probe.hitUrls())}`,
+		);
+	}
+	await new Promise<void>((resolve): void => {
+		setTimeout(resolve, 10);
+	});
+	await waitForRouteProbeHitCountAbove({
+		minHitCount: props.minHitCount,
+		probe: props.probe,
+		remainingAttempts: remainingAttempts - 1,
+	});
 }
 
 function assertSelectedContentRouteProof(props: {
@@ -2414,10 +2460,9 @@ async function verifyWorktreeFileStaleRefresh(props: {
 	refreshGate.resolve();
 	const refreshFetchHitsBeforeClick = refreshRouteProbe.hitCount();
 	await clickWorktreeFileControl(props.page, 'worktree-file-refresh');
-	await waitForWorktreeOpenFileState({
-		page: props.page,
-		path: props.fixture.relativePath,
-		state: 'refreshing',
+	await waitForRouteProbeHitCountAbove({
+		minHitCount: refreshFetchHitsBeforeClick + 1,
+		probe: refreshRouteProbe,
 	});
 	await waitForWorktreeOpenFileState({
 		page: props.page,
@@ -2428,10 +2473,9 @@ async function verifyWorktreeFileStaleRefresh(props: {
 	await staleNotice.getByText('Content changed').waitFor({ state: 'visible', timeout: 10_000 });
 	await waitForWorktreeRefreshButtonEnabled(props.page);
 	await clickWorktreeFileControl(props.page, 'worktree-file-refresh');
-	await waitForWorktreeOpenFileState({
-		page: props.page,
-		path: props.fixture.relativePath,
-		state: 'refreshing',
+	await waitForRouteProbeHitCountAbove({
+		minHitCount: refreshFetchHitsAfterFirstClick + 1,
+		probe: refreshRouteProbe,
 	});
 	try {
 		await waitForWorktreeOpenFileState({

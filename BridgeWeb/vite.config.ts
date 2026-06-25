@@ -17,8 +17,13 @@ import {
 	type BridgeWorktreeDevProvider,
 	type BridgeWorktreeDevProviderWorktreeFileContentRequest,
 } from './scripts/dev-server/bridge-worktree-dev-provider.js';
+import {
+	createBridgeWorktreeReviewDevProvider,
+	type BridgeWorktreeReviewDevProvider,
+} from './scripts/dev-server/bridge-worktree-review-dev-provider.js';
 
 type BridgeWorktreeDevProviderPromise = Promise<BridgeWorktreeDevProvider>;
+type BridgeWorktreeReviewDevProviderPromise = Promise<BridgeWorktreeReviewDevProvider>;
 
 const bridgeWebPackageRoot = dirname(fileURLToPath(import.meta.url));
 
@@ -36,6 +41,10 @@ export default defineConfig({
 			configureServer(server) {
 				const telemetrySink = createBridgeDevTelemetrySink();
 				const providerPromisesByConfig = new Map<string, BridgeWorktreeDevProviderPromise>();
+				const reviewProviderPromisesByConfig = new Map<
+					string,
+					BridgeWorktreeReviewDevProviderPromise
+				>();
 				const getProvider = async (requestUrl: string | null): BridgeWorktreeDevProviderPromise => {
 					const config = await resolveBridgeWorktreeDevProviderConfig({
 						env: process.env,
@@ -51,11 +60,42 @@ export default defineConfig({
 					providerPromisesByConfig.set(configKey, providerPromise);
 					return providerPromise;
 				};
+				const getReviewProvider = async (
+					requestUrl: string | null,
+				): BridgeWorktreeReviewDevProviderPromise => {
+					const config = await resolveBridgeWorktreeDevProviderConfig({
+						env: process.env,
+						packageRoot: bridgeWebPackageRoot,
+						requestUrl,
+					});
+					const configKey = `${config.scenarioName}\u0000${config.worktreeRoot}\u0000${config.baseRef}`;
+					const existingProviderPromise = reviewProviderPromisesByConfig.get(configKey);
+					if (existingProviderPromise !== undefined) {
+						return existingProviderPromise;
+					}
+					const providerPromise = Promise.resolve(createBridgeWorktreeReviewDevProvider(config));
+					reviewProviderPromisesByConfig.set(configKey, providerPromise);
+					return providerPromise;
+				};
 				server.middlewares.use('/__bridge-worktree/surface', (request, response) => {
 					void handleBridgeWorktreeSurfaceRequest({ getProvider, request, response });
 				});
 				server.middlewares.use('/__bridge-worktree/file-content', (request, response) => {
 					void handleBridgeWorktreeFileContentRequest({ getProvider, request, response });
+				});
+				server.middlewares.use('/__bridge-worktree/review-package', (request, response) => {
+					void handleBridgeWorktreeReviewPackageRequest({
+						getReviewProvider,
+						request,
+						response,
+					});
+				});
+				server.middlewares.use('/__bridge-worktree/review-content', (request, response) => {
+					void handleBridgeWorktreeReviewContentRequest({
+						getReviewProvider,
+						request,
+						response,
+					});
 				});
 				server.middlewares.use('/__bridge-dev-telemetry/batch', (request, response) => {
 					void handleBridgeDevTelemetryBatchRequest({ request, response, telemetrySink });
@@ -175,6 +215,69 @@ async function handleBridgeWorktreeFileContentRequest(props: {
 		props.response.statusCode = 404;
 		props.response.end(
 			error instanceof Error ? error.message : 'Bridge worktree file content missing',
+		);
+	}
+}
+
+async function handleBridgeWorktreeReviewPackageRequest(props: {
+	readonly getReviewProvider: (requestUrl: string | null) => BridgeWorktreeReviewDevProviderPromise;
+	readonly request: IncomingMessage;
+	readonly response: ServerResponse;
+}): Promise<void> {
+	if (props.request.method !== 'GET') {
+		props.response.statusCode = 405;
+		props.response.end('Method Not Allowed');
+		return;
+	}
+	try {
+		const provider = await props.getReviewProvider(props.request.url ?? null);
+		const packageResult = await provider.loadReviewPackage();
+		writeJsonResponse(props.response, 200, { reviewPackage: packageResult.reviewPackage });
+	} catch (error: unknown) {
+		props.response.statusCode = 500;
+		props.response.end(
+			error instanceof Error ? error.message : 'Bridge worktree review package failed',
+		);
+	}
+}
+
+async function handleBridgeWorktreeReviewContentRequest(props: {
+	readonly getReviewProvider: (requestUrl: string | null) => BridgeWorktreeReviewDevProviderPromise;
+	readonly request: IncomingMessage;
+	readonly response: ServerResponse;
+}): Promise<void> {
+	if (props.request.method !== 'GET') {
+		props.response.statusCode = 405;
+		props.response.end('Method Not Allowed');
+		return;
+	}
+	const requestUrl = props.request.url ?? null;
+	const contentUrl = new URL(requestUrl ?? '/', 'http://127.0.0.1');
+	const handleId = decodeBridgeWorktreeContentHandle(contentUrl.pathname);
+	if (handleId === null) {
+		props.response.statusCode = 400;
+		props.response.end('Invalid Bridge worktree review content handle');
+		return;
+	}
+	if (
+		!hasOnlySearchParams(contentUrl, {
+			allowedNames: ['generation', 'scenario'],
+			requiredNames: ['generation'],
+		})
+	) {
+		props.response.statusCode = 400;
+		props.response.end('Invalid Bridge worktree review content query');
+		return;
+	}
+	try {
+		const provider = await props.getReviewProvider(requestUrl);
+		const content = await provider.loadReviewContent(handleId);
+		props.response.setHeader('Content-Type', 'text/plain; charset=utf-8');
+		props.response.end(content);
+	} catch (error: unknown) {
+		props.response.statusCode = 404;
+		props.response.end(
+			error instanceof Error ? error.message : 'Bridge worktree review content missing',
 		);
 	}
 }

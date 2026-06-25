@@ -74,7 +74,7 @@ export interface BridgeWorktreeDevProvider {
 
 type WorktreeFileChangeKind = 'added' | 'copied' | 'deleted' | 'modified' | 'renamed';
 
-interface WorktreeChangedFile {
+export interface BridgeWorktreeChangedFile {
 	readonly additions: number;
 	readonly baseContent: string | null;
 	readonly changeKind: WorktreeFileChangeKind;
@@ -90,8 +90,8 @@ interface ProviderState {
 	readonly worktreeFileSurface: BridgeWorktreeDevProviderWorktreeFileSurface;
 }
 
-interface ProviderSnapshot {
-	readonly changedFiles: readonly WorktreeChangedFile[];
+export interface BridgeWorktreeDevSnapshot {
+	readonly changedFiles: readonly BridgeWorktreeChangedFile[];
 	readonly fingerprint: string;
 }
 
@@ -136,7 +136,10 @@ export async function createBridgeWorktreeDevProvider(
 	let state: ProviderState | null = null;
 
 	const loadCurrentState = async (): Promise<ProviderState> => {
-		const snapshot = await loadSnapshot({ baseRef: parsedConfig.baseRef, worktreeRoot });
+		const snapshot = await loadBridgeWorktreeDevSnapshot({
+			baseRef: parsedConfig.baseRef,
+			worktreeRoot,
+		});
 		const revision =
 			state === null
 				? 1
@@ -182,10 +185,10 @@ export async function createBridgeWorktreeDevProvider(
 	};
 }
 
-async function loadSnapshot(props: {
+export async function loadBridgeWorktreeDevSnapshot(props: {
 	readonly baseRef: string;
 	readonly worktreeRoot: string;
-}): Promise<ProviderSnapshot> {
+}): Promise<BridgeWorktreeDevSnapshot> {
 	const changedFiles = await readChangedFiles(props);
 	return {
 		changedFiles,
@@ -196,7 +199,7 @@ async function loadSnapshot(props: {
 function makeProviderState(props: {
 	readonly config: BridgeWorktreeDevProviderConfig;
 	readonly revision: number;
-	readonly snapshot: ProviderSnapshot;
+	readonly snapshot: BridgeWorktreeDevSnapshot;
 	readonly worktreeRootToken: string;
 }): ProviderState {
 	const sourceCursor = `cursor-${props.snapshot.fingerprint.slice(0, 32)}`;
@@ -282,7 +285,7 @@ export async function bridgeWorktreeDevRootTokenForPath(path: string): Promise<s
 }
 
 function worktreeFileDescriptorForChangedFile(props: {
-	readonly changedFile: WorktreeChangedFile;
+	readonly changedFile: BridgeWorktreeChangedFile;
 	readonly sourceIdentity: WorktreeFileSurfaceSourceIdentity;
 	readonly worktreeFileContentByDescriptorId: Map<string, string>;
 }): readonly WorktreeFileDescriptor[] {
@@ -330,7 +333,7 @@ function worktreeFileDescriptorForChangedFile(props: {
 }
 
 function unavailableWorktreeFileDescriptorForChangedFile(props: {
-	readonly changedFile: WorktreeChangedFile;
+	readonly changedFile: BridgeWorktreeChangedFile;
 	readonly sourceIdentity: WorktreeFileSurfaceSourceIdentity;
 }): WorktreeFileDescriptor {
 	const pathHash = hashText(props.changedFile.path).slice(0, 16);
@@ -404,10 +407,10 @@ function makeWorktreeAttachedDescriptor(props: {
 async function readChangedFiles(props: {
 	readonly baseRef: string;
 	readonly worktreeRoot: string;
-}): Promise<readonly WorktreeChangedFile[]> {
+}): Promise<readonly BridgeWorktreeChangedFile[]> {
 	const records = await gitNameStatusRecords(props);
 	const changedFiles = await Promise.all(
-		records.map(async (record): Promise<WorktreeChangedFile> => {
+		records.map(async (record): Promise<BridgeWorktreeChangedFile> => {
 			const [baseContent, headContent] = await Promise.all([
 				record.changeKind === 'added'
 					? Promise.resolve(null)
@@ -430,7 +433,7 @@ async function readChangedFiles(props: {
 	return changedFiles;
 }
 
-function fingerprintChangedFiles(changedFiles: readonly WorktreeChangedFile[]): string {
+function fingerprintChangedFiles(changedFiles: readonly BridgeWorktreeChangedFile[]): string {
 	return hashText(
 		JSON.stringify(
 			changedFiles.map((changedFile) => ({
