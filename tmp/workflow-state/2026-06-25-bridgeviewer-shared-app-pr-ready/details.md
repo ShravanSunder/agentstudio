@@ -126,6 +126,36 @@ The first implementation sequence after plan review is:
   marker-correlated logs/metrics/traces where available
 ```
 
+## Implementation Checkpoints
+
+2026-06-25 checkpoint:
+
+- Commit `47933c48` proves the current-worktree Review file-target URL route:
+  `viewer=review&presentation=file&path=.gitignore&version=current` renders
+  `.gitignore` as a Pierre `file` item inside Review context, not a standalone
+  FileViewer app.
+- Commit `6ce7ef9d` proves the Files-to-Review in-app handoff. FileViewer emits
+  a typed selected-file review intent; BridgeApp switches the same app root from
+  Files context to Review context; the URL remains the dev Files URL; Review
+  materializes `.gitignore` as a Pierre `file` item.
+- Fresh dev-server proof:
+  `pnpm --dir BridgeWeb run test:dev-server:worktree`
+  exited 0 and wrote
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-25T13-32-08-430Z/worktree-dev-server-proof.json`.
+- Artifact highlights:
+  `fileToReviewHandoffProof.appRootCount = 1`,
+  `sharedShellMode = review`,
+  `selectedDisplayPath = .gitignore`,
+  `selectedMaterializedItemType = file`,
+  `selectedMaterializedFileLineCount = 92`,
+  `fileViewerShellCountAfterSwitch = 0`,
+  `reviewPackageRouteHitCount = 1`,
+  `reviewContentRouteHitCount = 24`.
+
+Gate 0.a is not complete yet. Remaining proof must still cover context toggle
+and per-context memory explicitly, then Agent Studio Bridge/WKWebView proof
+against the local worktree.
+
 ## Required Dev URLs
 
 The dev server must support and prove:

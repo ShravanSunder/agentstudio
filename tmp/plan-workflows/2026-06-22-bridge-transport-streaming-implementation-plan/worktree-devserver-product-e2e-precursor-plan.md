@@ -9,11 +9,28 @@ Ticket: 06P / Gate 0.a Shared BridgeViewer Navigation And Renderer Precursor
 
 Gate 0.a is not closed. Earlier proof artifacts and reviewer fixes are useful
 history, but the live product contract is stronger than "make WorktreeFileApp
-product-like." The blocking outcome is now:
+product-like." Two implementation checkpoints are now proven:
+
+- `47933c48` proves direct current-worktree Review file-target routing in the
+  shared Review shell.
+- `6ce7ef9d` proves Files context can hand off a selected worktree file to
+  Review context inside the same BridgeViewer app root.
+- Fresh proof command:
+  `pnpm --dir BridgeWeb run test:dev-server:worktree`
+- Fresh proof artifact:
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-25T13-32-08-430Z/worktree-dev-server-proof.json`
+- Critical artifact row:
+  `fileToReviewHandoffProof` records one app root, unchanged dev URL,
+  Review mode, `.gitignore`, Pierre materialized item type `file`, 92 rendered
+  lines, zero FileViewer shells after switch, one review package route hit, and
+  24 review content route hits.
+
+The remaining blocking outcome is now:
 
 ```text
 remove or bypass the second app path and prove FileViewer uses the shared
 BridgeViewer shell with Pierre FileTree + Pierre CodeView/File + Shiki workers
+and prove shared context navigation/memory plus native Agent Studio Bridge proof
 ```
 
 The blocker now starts with understandable dev navigation for both current
@@ -33,13 +50,17 @@ Plan sequence changed after the 2026-06-25 navigation decision:
 
 0.a.2a Review context dev route proof
   -> proves current-worktree review comparison and Review file target
+  -> status: dev-server proof passed in commits 47933c48 and 6ce7ef9d
 
 0.a.3 shared chrome/layout proof
   -> proves shadcn/shared primitives, context toggle, and per-context memory
+  -> status: remaining
 
 0.a.4 visual/e2e/negative-substitute proof
   -> proves live dev-server behavior, Pierre/Shiki/worker ownership, and no
      standalone second app or stale bundle substitute
+  -> status: partially proven by the 2026-06-25 dev-server artifact; still
+     needs explicit context toggle/per-context memory proof and native host proof
 ```
 
 This order is mandatory for Gate 0.a. Later gates must not treat a FileViewer
