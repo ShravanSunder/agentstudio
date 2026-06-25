@@ -10,6 +10,7 @@ import { z } from 'zod';
 
 import { parseBridgeCoreResourceUrl } from '../src/core/resources/bridge-resource-url.ts';
 import { countFlattenedWorktreeFileTreeRows } from '../src/features/worktree-file/models/worktree-file-tree-size.ts';
+import { bridgeReviewPackageSchema } from '../src/foundation/review-package/bridge-review-package-schema.ts';
 import {
 	bridgeWorktreeDevFileContentRouteMatchesHandle,
 	bridgeWorktreeDevFileContentRouteUsesOrigin,
@@ -37,6 +38,7 @@ const worktreeDevServerOrigin = new URL(worktreeDevServerUrl).origin;
 const targetPathOverride = process.env['BRIDGE_VIEWER_WORKTREE_TARGET_PATH'] ?? null;
 const execFileAsync = promisify(execFile);
 const unavailableFilterFixtureRelativePath = '.github/workflows/ci.yml';
+const reviewExtensionlessFixtureRelativePath = '.gitignore';
 
 const bridgeWorktreeSurfaceResponseSchema = z
 	.object({
@@ -85,6 +87,12 @@ const worktreeFileDescriptorFrameSchema = z
 			.passthrough(),
 	})
 	.passthrough();
+
+const worktreeReviewPackageRouteResponseSchema = z
+	.object({
+		reviewPackage: bridgeReviewPackageSchema,
+	})
+	.strict();
 
 type WorktreeFileDescriptor = z.infer<typeof worktreeFileDescriptorFrameSchema>['descriptor'];
 type WorktreeFileTreeExtentSource = 'localProjection' | 'providerFacts';
@@ -323,13 +331,28 @@ interface WorktreeReviewRouteProof {
 	readonly pageUrl: string;
 	readonly reviewCanvasCount: number;
 	readonly reviewCodeScrollCount: number;
+	readonly reviewContentRouteHitCount: number;
+	readonly reviewContentRouteHitUrls: readonly string[];
 	readonly reviewEmptyShellCount: number;
+	readonly reviewExtensionlessContentRouteHitCount: number;
+	readonly reviewExtensionlessSelectedContentState: string | null;
+	readonly reviewExtensionlessSelectedDisplayPath: string | null;
+	readonly reviewPackageRouteHitCount: number;
+	readonly reviewPackageRouteHitUrls: readonly string[];
 	readonly reviewPackageShellCount: number;
 	readonly reviewSelectedContentState: string | null;
 	readonly reviewSelectedDisplayPath: string | null;
 	readonly sharedShellMode: string | null;
 	readonly sharedShellOwner: string | null;
 	readonly standaloneWorktreeFileAppCount: number;
+}
+
+interface ReviewRouteProbe {
+	readonly contentHitCount: () => number;
+	readonly contentHitUrls: () => readonly string[];
+	readonly dispose: () => Promise<void>;
+	readonly packageHitCount: () => number;
+	readonly packageHitUrls: () => readonly string[];
 }
 
 interface WorktreeFileVisibleAppProof {
@@ -492,10 +515,15 @@ try {
 async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationResult> {
 	const page = await makeVerificationPage();
 	let unavailableFilterFixture: WorktreeFileDeletedUnavailableFixture | null = null;
+	let reviewExtensionlessFixture: WorktreeFileModifiedFixture | null = null;
 	let staleRefreshFixture: WorktreeFileStaleRefreshFixture | null = null;
 	let splitResetFixture: WorktreeFileStaleRefreshFixture | null = null;
 	try {
 		unavailableFilterFixture = await worktreeFileDeletedUnavailableFixture();
+		reviewExtensionlessFixture = await worktreeFileModifiedFixture({
+			relativePath: reviewExtensionlessFixtureRelativePath,
+			tag: 'review_extensionless',
+		});
 		const surface = await fetchWorktreeSurface();
 		const expectedWorktreeRootToken = await bridgeWorktreeDevRootTokenForPath(repoRootPath);
 		if (surface.provenance.worktreeRootToken !== expectedWorktreeRootToken) {
@@ -537,6 +565,7 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 		) {
 			throw new Error('Expected Worktree/File surface metadata to omit file body content');
 		}
+		const reviewRouteProof = await verifyWorktreeReviewRoute();
 		await page.goto(worktreeDevServerUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
 		await page.waitForSelector('[data-testid="bridge-file-viewer-shell"]', { timeout: 30_000 });
 		const observedRoute = await assertObservedWorktreeDevServerUrl(page);
@@ -679,7 +708,6 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 			treeAnchorBeforeSelection,
 		});
 		assertWorktreeScrollExtentCanary(scrollExtentCanary);
-		const reviewRouteProof = await verifyWorktreeReviewRoute();
 		return {
 			...renderedResult,
 			browserProof: await readBrowserProof(page),
@@ -741,18 +769,40 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 		if (unavailableFilterFixture !== null) {
 			await restoreWorktreeFileDeletedUnavailableFixture(unavailableFilterFixture);
 		}
+		if (reviewExtensionlessFixture !== null) {
+			await restoreWorktreeFileModifiedFixture(reviewExtensionlessFixture);
+		}
 	}
 }
 
 async function verifyWorktreeReviewRoute(): Promise<WorktreeReviewRouteProof> {
 	const page = await makeVerificationPage();
+	const routeProbe = await installReviewRouteProbe(page);
 	try {
+		const extensionlessItemId = await fetchWorktreeReviewItemIdForDisplayPath(
+			reviewExtensionlessFixtureRelativePath,
+		);
 		await page.goto(worktreeReviewDevServerUrl, {
 			waitUntil: 'domcontentloaded',
 			timeout: 30_000,
 		});
 		await page.waitForSelector('[data-testid="bridge-app-root"]', { timeout: 30_000 });
 		await page.waitForSelector('[data-testid="review-viewer-shell"]', { timeout: 30_000 });
+		await waitForReviewSelectedContentState({
+			displayPath: '.github/workflows/ci.yml',
+			page,
+			state: 'ready',
+		});
+		await selectReviewItem(page, extensionlessItemId);
+		await waitForReviewSelectedContentState({
+			displayPath: reviewExtensionlessFixtureRelativePath,
+			page,
+			state: 'ready',
+		});
+		await waitForReviewContentRouteHitContaining({
+			needle: extensionlessItemId,
+			routeProbe,
+		});
 		const proof = await page.evaluate(() => {
 			const appRoots = [...document.querySelectorAll('[data-testid="bridge-app-root"]')];
 			const appRoot = appRoots[0];
@@ -798,15 +848,40 @@ async function verifyWorktreeReviewRoute(): Promise<WorktreeReviewRouteProof> {
 				).length,
 			};
 		});
+		const extensionlessState = await page.evaluate(() => {
+			const reviewShell = document.querySelector('[data-testid="review-viewer-shell"]');
+			return {
+				selectedContentState:
+					reviewShell instanceof HTMLElement
+						? reviewShell.getAttribute('data-selected-content-state')
+						: null,
+				selectedDisplayPath:
+					reviewShell instanceof HTMLElement
+						? reviewShell.getAttribute('data-selected-display-path')
+						: null,
+			};
+		});
 		const routeProof = {
 			...proof,
+			reviewContentRouteHitCount: routeProbe.contentHitCount(),
+			reviewContentRouteHitUrls: routeProbe.contentHitUrls(),
+			reviewExtensionlessContentRouteHitCount: routeProbe
+				.contentHitUrls()
+				.filter((url) => url.includes(extensionlessItemId)).length,
+			reviewExtensionlessSelectedContentState: extensionlessState.selectedContentState,
+			reviewExtensionlessSelectedDisplayPath: extensionlessState.selectedDisplayPath,
+			reviewPackageRouteHitCount: routeProbe.packageHitCount(),
+			reviewPackageRouteHitUrls: routeProbe.packageHitUrls(),
 			locationHref: await page.evaluate(() => window.location.href),
 			pageUrl: page.url(),
 		} satisfies WorktreeReviewRouteProof;
+		const expectedReviewUrl = new URL(worktreeReviewDevServerUrl).href;
 		if (
 			routeProof.appOwner !== 'BridgeApp' ||
 			routeProof.appRootCount !== 1 ||
 			!routeProof.appRootVisible ||
+			routeProof.locationHref !== expectedReviewUrl ||
+			routeProof.pageUrl !== expectedReviewUrl ||
 			routeProof.sharedShellMode !== 'review' ||
 			routeProof.sharedShellOwner !== 'BridgeViewerAppShell' ||
 			routeProof.fileViewerShellCount !== 0 ||
@@ -817,7 +892,13 @@ async function verifyWorktreeReviewRoute(): Promise<WorktreeReviewRouteProof> {
 			routeProof.reviewPackageShellCount !== 1 ||
 			routeProof.reviewCanvasCount !== 1 ||
 			routeProof.reviewCodeScrollCount !== 1 ||
-			routeProof.reviewSelectedDisplayPath === null
+			routeProof.reviewSelectedContentState !== 'ready' ||
+			routeProof.reviewSelectedDisplayPath === null ||
+			routeProof.reviewPackageRouteHitCount !== 1 ||
+			routeProof.reviewContentRouteHitCount <= 0 ||
+			routeProof.reviewExtensionlessContentRouteHitCount <= 0 ||
+			routeProof.reviewExtensionlessSelectedContentState !== 'ready' ||
+			routeProof.reviewExtensionlessSelectedDisplayPath !== reviewExtensionlessFixtureRelativePath
 		) {
 			throw new Error(
 				`Expected worktree Review URL to load a real shared review package without FileViewer substitute: ${JSON.stringify(routeProof)}`,
@@ -825,6 +906,7 @@ async function verifyWorktreeReviewRoute(): Promise<WorktreeReviewRouteProof> {
 		}
 		return routeProof;
 	} finally {
+		await routeProbe.dispose();
 		await page.close();
 	}
 }
@@ -1148,7 +1230,7 @@ function deepFetchableDescriptor(
 	);
 }
 
-interface WorktreeFileStaleRefreshFixture {
+interface WorktreeFileModifiedFixture {
 	readonly absolutePath: string;
 	readonly initialContent: string;
 	readonly initialContentHash: string;
@@ -1156,6 +1238,8 @@ interface WorktreeFileStaleRefreshFixture {
 	readonly updatedContent: string;
 	readonly updatedContentHash: string;
 }
+
+interface WorktreeFileStaleRefreshFixture extends WorktreeFileModifiedFixture {}
 
 interface WorktreeFileDeletedUnavailableFixture {
 	readonly absolutePath: string;
@@ -1178,6 +1262,32 @@ async function worktreeFileDeletedUnavailableFixture(): Promise<WorktreeFileDele
 		relativePath: unavailableFilterFixtureRelativePath,
 	};
 	await unlink(absolutePath);
+	return fixture;
+}
+
+async function worktreeFileModifiedFixture(props: {
+	readonly relativePath: string;
+	readonly tag: string;
+}): Promise<WorktreeFileModifiedFixture> {
+	const absolutePath = await resolveBridgeWorktreeVerifierWritePath({
+		descriptorPath: props.relativePath,
+		rootPath: repoRootPath,
+	});
+	await assertGitTrackedWorktreeVerifierPath(props.relativePath);
+	const initialContent = await readFile(absolutePath, 'utf8');
+	const marker = `bridge_worktree_devserver_${props.tag}_${proofRunCreatedAtUnixMilliseconds}`;
+	const updatedContent = initialContent.endsWith('\n')
+		? `${initialContent}${marker}\n`
+		: `${initialContent}\n${marker}\n`;
+	const fixture = {
+		absolutePath,
+		initialContent,
+		initialContentHash: hashText(initialContent),
+		relativePath: props.relativePath,
+		updatedContent,
+		updatedContentHash: hashText(updatedContent),
+	};
+	await writeFile(absolutePath, updatedContent);
 	return fixture;
 }
 
@@ -1239,10 +1349,16 @@ async function assertGitTrackedWorktreeVerifierPath(relativePath: string): Promi
 async function restoreWorktreeFileStaleRefreshFixture(
 	fixture: WorktreeFileStaleRefreshFixture,
 ): Promise<void> {
+	await restoreWorktreeFileModifiedFixture(fixture);
+}
+
+async function restoreWorktreeFileModifiedFixture(
+	fixture: WorktreeFileModifiedFixture,
+): Promise<void> {
 	const currentHash = await readTextFileHashOrNull(fixture.absolutePath);
 	if (currentHash !== fixture.initialContentHash && currentHash !== fixture.updatedContentHash) {
 		throw new Error(
-			`Refusing to restore stale-refresh proof file after external edit: ${fixture.relativePath}`,
+			`Refusing to restore modified proof file after external edit: ${fixture.relativePath}`,
 		);
 	}
 	if (currentHash === fixture.updatedContentHash) {
@@ -1250,7 +1366,7 @@ async function restoreWorktreeFileStaleRefreshFixture(
 	}
 	const restoredContent = await readFile(fixture.absolutePath, 'utf8');
 	if (hashText(restoredContent) !== fixture.initialContentHash) {
-		throw new Error(`Failed to restore stale-refresh proof file: ${fixture.relativePath}`);
+		throw new Error(`Failed to restore modified proof file: ${fixture.relativePath}`);
 	}
 }
 
@@ -1483,6 +1599,87 @@ async function installFileContentRouteGate(props: {
 	};
 }
 
+async function installReviewRouteProbe(page: Page): Promise<ReviewRouteProbe> {
+	const packageHitUrls: string[] = [];
+	const contentHitUrls: string[] = [];
+	const packageRoutePattern = '**/__bridge-worktree/review-package**';
+	const contentRoutePattern = '**/__bridge-worktree/review-content/**';
+	const assertReviewRouteOrigin = async (route: Route): Promise<boolean> => {
+		const requestUrl = route.request().url();
+		if (bridgeWorktreeDevReviewRouteUsesOrigin(requestUrl)) {
+			return true;
+		}
+		await route.fulfill({
+			status: 599,
+			contentType: 'text/plain',
+			body: `foreign Worktree/Review route origin rejected: ${requestUrl}`,
+		});
+		return false;
+	};
+	const packageRouteHandler = async (route: Route): Promise<void> => {
+		if (!(await assertReviewRouteOrigin(route))) {
+			return;
+		}
+		packageHitUrls.push(route.request().url());
+		await route.continue();
+	};
+	const contentRouteHandler = async (route: Route): Promise<void> => {
+		if (!(await assertReviewRouteOrigin(route))) {
+			return;
+		}
+		contentHitUrls.push(route.request().url());
+		await route.continue();
+	};
+	await page.route(packageRoutePattern, packageRouteHandler);
+	await page.route(contentRoutePattern, contentRouteHandler);
+	return {
+		contentHitCount: (): number => contentHitUrls.length,
+		contentHitUrls: (): readonly string[] => contentHitUrls,
+		dispose: async (): Promise<void> => {
+			await page.unroute(packageRoutePattern, packageRouteHandler);
+			await page.unroute(contentRoutePattern, contentRouteHandler);
+		},
+		packageHitCount: (): number => packageHitUrls.length,
+		packageHitUrls: (): readonly string[] => packageHitUrls,
+	};
+}
+
+async function fetchWorktreeReviewItemIdForDisplayPath(displayPath: string): Promise<string> {
+	const packageUrl = new URL('/__bridge-worktree/review-package', worktreeReviewDevServerUrl);
+	packageUrl.searchParams.set('scenario', scenarioNameFromDevServerUrl(worktreeReviewDevServerUrl));
+	const response = await fetch(packageUrl);
+	if (!response.ok) {
+		throw new Error(
+			`Expected Worktree/Review package route for ${displayPath}, got ${response.status}`,
+		);
+	}
+	const { reviewPackage } = worktreeReviewPackageRouteResponseSchema.parse(await response.json());
+	const item = Object.values(reviewPackage.itemsById).find(
+		(candidate): boolean =>
+			candidate.basePath === displayPath || candidate.headPath === displayPath,
+	);
+	if (item === undefined) {
+		throw new Error(
+			`Expected Worktree/Review package to include ${displayPath}; got ${reviewPackage.orderedItemIds.length} items`,
+		);
+	}
+	return item.itemId;
+}
+
+function bridgeWorktreeDevReviewRouteUsesOrigin(url: string): boolean {
+	let parsedUrl: URL;
+	try {
+		parsedUrl = new URL(url);
+	} catch {
+		return false;
+	}
+	return (
+		parsedUrl.origin === worktreeDevServerOrigin &&
+		(parsedUrl.pathname === '/__bridge-worktree/review-package' ||
+			parsedUrl.pathname.startsWith('/__bridge-worktree/review-content/'))
+	);
+}
+
 async function waitForRouteProbeHitCountAbove(props: {
 	readonly minHitCount: number;
 	readonly probe: WorktreeFileContentRouteProbe;
@@ -1504,6 +1701,30 @@ async function waitForRouteProbeHitCountAbove(props: {
 		minHitCount: props.minHitCount,
 		probe: props.probe,
 		remainingAttempts: remainingAttempts - 1,
+	});
+}
+
+async function waitForReviewContentRouteHitContaining(props: {
+	readonly needle: string;
+	readonly remainingAttempts?: number;
+	readonly routeProbe: ReviewRouteProbe;
+}): Promise<void> {
+	const remainingAttempts = props.remainingAttempts ?? 1_000;
+	if (props.routeProbe.contentHitUrls().some((url) => url.includes(props.needle))) {
+		return;
+	}
+	if (remainingAttempts <= 0) {
+		throw new Error(
+			`Timed out waiting for Worktree/Review content route hit containing ${props.needle}: ${JSON.stringify(props.routeProbe.contentHitUrls())}`,
+		);
+	}
+	await new Promise<void>((resolve): void => {
+		setTimeout(resolve, 10);
+	});
+	await waitForReviewContentRouteHitContaining({
+		needle: props.needle,
+		remainingAttempts: remainingAttempts - 1,
+		routeProbe: props.routeProbe,
 	});
 }
 
@@ -3231,6 +3452,54 @@ async function waitForWorktreeOpenFileState(props: {
 		}, props.path);
 		throw new Error(
 			`Timed out waiting for Worktree/File open state ${props.state} for ${props.path}: ${JSON.stringify(debugState)}`,
+			{ cause: error },
+		);
+	}
+}
+
+async function selectReviewItem(page: Page, itemId: string): Promise<void> {
+	await page.evaluate(
+		(props: { readonly itemId: string }): void => {
+			document.dispatchEvent(
+				new CustomEvent('__bridge_select_review_item', {
+					detail: { itemId: props.itemId },
+				}),
+			);
+		},
+		{ itemId },
+	);
+}
+
+async function waitForReviewSelectedContentState(props: {
+	readonly displayPath: string;
+	readonly page: Page;
+	readonly state: 'failed' | 'loading' | 'ready';
+}): Promise<void> {
+	try {
+		await props.page.waitForFunction(
+			(expected: { readonly displayPath: string; readonly state: string }): boolean => {
+				const reviewShell = document.querySelector('[data-testid="review-viewer-shell"]');
+				return (
+					reviewShell?.getAttribute('data-selected-display-path') === expected.displayPath &&
+					reviewShell?.getAttribute('data-selected-content-state') === expected.state
+				);
+			},
+			{ displayPath: props.displayPath, state: props.state },
+			{ timeout: 30_000 },
+		);
+	} catch (error) {
+		const debugState = await props.page.evaluate((targetPath: string) => {
+			const reviewShell = document.querySelector('[data-testid="review-viewer-shell"]');
+			const codePanel = document.querySelector('[data-testid="bridge-code-view-panel"]');
+			return {
+				currentDisplayPath: reviewShell?.getAttribute('data-selected-display-path') ?? null,
+				currentState: reviewShell?.getAttribute('data-selected-content-state') ?? null,
+				selectedItemId: codePanel?.getAttribute('data-selected-item-id') ?? null,
+				targetPath,
+			};
+		}, props.displayPath);
+		throw new Error(
+			`Timed out waiting for Worktree/Review selected content ${props.state} for ${props.displayPath}: ${JSON.stringify(debugState)}`,
 			{ cause: error },
 		);
 	}

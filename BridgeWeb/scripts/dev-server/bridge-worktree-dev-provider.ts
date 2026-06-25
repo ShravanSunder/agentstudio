@@ -77,9 +77,11 @@ type WorktreeFileChangeKind = 'added' | 'copied' | 'deleted' | 'modified' | 'ren
 export interface BridgeWorktreeChangedFile {
 	readonly additions: number;
 	readonly baseContent: string | null;
+	readonly basePath: string | null;
 	readonly changeKind: WorktreeFileChangeKind;
 	readonly deletions: number;
 	readonly headContent: string | null;
+	readonly headPath: string | null;
 	readonly path: string;
 }
 
@@ -96,7 +98,9 @@ export interface BridgeWorktreeDevSnapshot {
 }
 
 interface GitNameStatusRecord {
+	readonly basePath: string | null;
 	readonly changeKind: WorktreeFileChangeKind;
+	readonly headPath: string | null;
 	readonly path: string;
 }
 
@@ -189,7 +193,11 @@ export async function loadBridgeWorktreeDevSnapshot(props: {
 	readonly baseRef: string;
 	readonly worktreeRoot: string;
 }): Promise<BridgeWorktreeDevSnapshot> {
-	const changedFiles = await readChangedFiles(props);
+	const worktreeRoot = await realpath(props.worktreeRoot);
+	const changedFiles = await readChangedFiles({
+		baseRef: props.baseRef,
+		worktreeRoot,
+	});
 	return {
 		changedFiles,
 		fingerprint: fingerprintChangedFiles(changedFiles),
@@ -414,7 +422,7 @@ async function readChangedFiles(props: {
 			const [baseContent, headContent] = await Promise.all([
 				record.changeKind === 'added'
 					? Promise.resolve(null)
-					: gitShowOrNull(props.worktreeRoot, props.baseRef, record.path),
+					: gitShowOrNull(props.worktreeRoot, props.baseRef, record.basePath ?? record.path),
 				record.changeKind === 'deleted'
 					? Promise.resolve(null)
 					: readWorktreeFileText({ path: record.path, worktreeRoot: props.worktreeRoot }),
@@ -423,9 +431,11 @@ async function readChangedFiles(props: {
 			return {
 				additions: lineDelta.additions,
 				baseContent,
+				basePath: record.basePath,
 				changeKind: record.changeKind,
 				deletions: lineDelta.deletions,
 				headContent,
+				headPath: record.headPath,
 				path: record.path,
 			};
 		}),
@@ -442,8 +452,10 @@ function fingerprintChangedFiles(changedFiles: readonly BridgeWorktreeChangedFil
 					changedFile.baseContent === null ? null : hashText(changedFile.baseContent),
 				changeKind: changedFile.changeKind,
 				deletions: changedFile.deletions,
+				basePath: changedFile.basePath,
 				headContentHash:
 					changedFile.headContent === null ? null : hashText(changedFile.headContent),
+				headPath: changedFile.headPath,
 				path: changedFile.path,
 			})),
 		),
@@ -458,6 +470,7 @@ async function gitNameStatusRecords(props: {
 		'diff',
 		'--name-status',
 		'--find-renames',
+		'--find-copies',
 		props.baseRef,
 		'--',
 	]);
@@ -475,7 +488,14 @@ async function gitNameStatusRecords(props: {
 		.split('\n')
 		.map((line) => line.trim())
 		.filter((path) => path.length > 0)
-		.map((path): GitNameStatusRecord => ({ changeKind: 'added', path }));
+		.map(
+			(path): GitNameStatusRecord => ({
+				basePath: null,
+				changeKind: 'added',
+				headPath: path,
+				path,
+			}),
+		);
 	const recordByPath = new Map<string, GitNameStatusRecord>();
 	for (const record of [...diffRecords, ...untrackedRecords]) {
 		recordByPath.set(record.path, record);
@@ -486,12 +506,16 @@ async function gitNameStatusRecords(props: {
 function parseNameStatusLine(line: string): GitNameStatusRecord {
 	const columns = line.split('\t');
 	const status = columns[0] ?? '';
+	const oldPath = status.startsWith('R') || status.startsWith('C') ? columns[1] : null;
 	const path = status.startsWith('R') || status.startsWith('C') ? columns[2] : columns[1];
-	if (path === undefined || path.length === 0) {
+	if (path === undefined || path.length === 0 || oldPath === undefined) {
 		throw new Error(`Invalid git name-status line: ${line}`);
 	}
+	const changeKind = changeKindForGitStatus(status);
 	return {
-		changeKind: changeKindForGitStatus(status),
+		basePath: changeKind === 'added' ? null : (oldPath ?? path),
+		changeKind,
+		headPath: changeKind === 'deleted' ? null : path,
 		path,
 	};
 }

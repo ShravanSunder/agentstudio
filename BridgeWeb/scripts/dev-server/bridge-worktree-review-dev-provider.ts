@@ -29,8 +29,15 @@ export interface BridgeWorktreeReviewDevPackageResult {
 	readonly reviewPackage: BridgeReviewPackage;
 }
 
+export interface BridgeWorktreeReviewContentRequest {
+	readonly generation: number;
+	readonly handleId: string;
+	readonly packageId: string;
+	readonly revision: number;
+}
+
 export interface BridgeWorktreeReviewDevProvider {
-	readonly loadReviewContent: (handleId: string) => Promise<string>;
+	readonly loadReviewContent: (request: BridgeWorktreeReviewContentRequest) => Promise<string>;
 	readonly loadReviewPackage: () => Promise<BridgeWorktreeReviewDevPackageResult>;
 }
 
@@ -44,7 +51,7 @@ const worktreeReviewHeadEndpointId = 'dev-worktree-review-head';
 export function createBridgeWorktreeReviewDevProvider(
 	config: BridgeWorktreeDevProviderConfig,
 ): BridgeWorktreeReviewDevProvider {
-	let lastPackageResult: BridgeWorktreeReviewDevPackageResult | null = null;
+	const packageResultsById = new Map<string, BridgeWorktreeReviewDevPackageResult>();
 	const loadReviewPackage = async (): Promise<BridgeWorktreeReviewDevPackageResult> => {
 		const snapshot = await loadBridgeWorktreeDevSnapshot({
 			baseRef: config.baseRef,
@@ -54,16 +61,28 @@ export function createBridgeWorktreeReviewDevProvider(
 			baseRef: config.baseRef,
 			snapshot,
 		});
-		lastPackageResult = result;
+		packageResultsById.set(result.reviewPackage.packageId, result);
 		return result;
 	};
 	return {
 		loadReviewPackage,
-		loadReviewContent: async (handleId: string): Promise<string> => {
-			const packageResult = lastPackageResult ?? (await loadReviewPackage());
-			const content = packageResult.contentByHandleId.get(handleId);
+		loadReviewContent: async (request: BridgeWorktreeReviewContentRequest): Promise<string> => {
+			let packageResult = packageResultsById.get(request.packageId);
+			if (packageResult === undefined) {
+				packageResult = await loadReviewPackage();
+			}
+			if (
+				packageResult.reviewPackage.packageId !== request.packageId ||
+				packageResult.reviewPackage.reviewGeneration !== request.generation ||
+				packageResult.reviewPackage.revision !== request.revision
+			) {
+				throw new Error(
+					`Bridge worktree review content request does not match loaded package: ${request.packageId}`,
+				);
+			}
+			const content = packageResult.contentByHandleId.get(request.handleId);
 			if (content === undefined) {
-				throw new Error(`Unknown Bridge worktree review content handle: ${handleId}`);
+				throw new Error(`Unknown Bridge worktree review content handle: ${request.handleId}`);
 			}
 			return content;
 		},
@@ -80,8 +99,10 @@ export function createBridgeWorktreeReviewDevPackage(
 			reviewItemForChangedFile({
 				changedFile,
 				contentByHandleId,
+				packageId,
 			}),
 	);
+	assertUniqueItemIds(items);
 	const itemsById = Object.fromEntries(
 		items.map((item): readonly [string, BridgeReviewItemDescriptor] => [item.itemId, item]),
 	);
@@ -146,8 +167,9 @@ export function createBridgeWorktreeReviewDevPackage(
 function reviewItemForChangedFile(props: {
 	readonly changedFile: BridgeWorktreeChangedFile;
 	readonly contentByHandleId: Map<string, string>;
+	readonly packageId: string;
 }): BridgeReviewItemDescriptor {
-	const itemId = `worktree-review-${slugForPath(props.changedFile.path)}`;
+	const itemId = itemIdForChangedFile(props.changedFile);
 	const extension = extensionForPath(props.changedFile.path);
 	const language = languageForExtension(extension);
 	const fileClass = fileClassForPath(props.changedFile.path);
@@ -160,6 +182,7 @@ function reviewItemForChangedFile(props: {
 					endpointId: worktreeReviewBaseEndpointId,
 					itemId,
 					language,
+					packageId: props.packageId,
 					role: 'base',
 				});
 	const head =
@@ -171,6 +194,7 @@ function reviewItemForChangedFile(props: {
 					endpointId: worktreeReviewHeadEndpointId,
 					itemId,
 					language,
+					packageId: props.packageId,
 					role: props.changedFile.baseContent === null ? 'file' : 'head',
 				});
 	const contentHashAlgorithm = 'sha256';
@@ -178,8 +202,8 @@ function reviewItemForChangedFile(props: {
 		itemId,
 		itemKind: props.changedFile.baseContent === null ? 'file' : 'diff',
 		itemVersion: 1,
-		basePath: props.changedFile.baseContent === null ? null : props.changedFile.path,
-		headPath: props.changedFile.headContent === null ? null : props.changedFile.path,
+		basePath: props.changedFile.baseContent === null ? null : props.changedFile.basePath,
+		headPath: props.changedFile.headContent === null ? null : props.changedFile.headPath,
 		changeKind: props.changedFile.changeKind,
 		fileClass,
 		language,
@@ -219,6 +243,7 @@ function makeContentHandle(props: {
 	readonly endpointId: string;
 	readonly itemId: string;
 	readonly language: string;
+	readonly packageId: string;
 	readonly role: 'base' | 'head' | 'file';
 }): BridgeContentHandle {
 	const handleId = `${props.itemId}-${props.role}`;
@@ -230,7 +255,7 @@ function makeContentHandle(props: {
 		role: props.role,
 		endpointId: props.endpointId,
 		reviewGeneration: worktreeReviewGeneration,
-		resourceUrl: `agentstudio://resource/review/content/${handleId}?generation=${worktreeReviewGeneration}`,
+		resourceUrl: `agentstudio://resource/review/content/${handleId}?generation=${worktreeReviewGeneration}&revision=${worktreeReviewRevision}&cursor=${props.packageId}`,
 		contentHash,
 		contentHashAlgorithm: 'sha256',
 		cacheKey: `${handleId}:${contentHash}`,
@@ -274,6 +299,26 @@ function sumItems(
 	value: (item: BridgeReviewItemDescriptor) => number,
 ): number {
 	return items.reduce((total, item): number => total + value(item), 0);
+}
+
+function assertUniqueItemIds(items: readonly BridgeReviewItemDescriptor[]): void {
+	const seenIds = new Set<string>();
+	for (const item of items) {
+		if (seenIds.has(item.itemId)) {
+			throw new Error(`Duplicate Bridge worktree review item id: ${item.itemId}`);
+		}
+		seenIds.add(item.itemId);
+	}
+}
+
+function itemIdForChangedFile(changedFile: BridgeWorktreeChangedFile): string {
+	const identity = [
+		changedFile.basePath ?? '',
+		changedFile.headPath ?? '',
+		changedFile.path,
+		changedFile.changeKind,
+	].join('\0');
+	return `worktree-review-${hashText(identity).slice(0, 12)}-${slugForPath(changedFile.path)}`;
 }
 
 function slugForPath(path: string): string {

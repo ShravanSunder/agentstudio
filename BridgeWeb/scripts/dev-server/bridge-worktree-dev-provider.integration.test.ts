@@ -10,6 +10,7 @@ import type { WorktreeFileDescriptor } from '../../src/features/worktree-file/mo
 import { countFlattenedWorktreeFileTreeRows } from '../../src/features/worktree-file/models/worktree-file-tree-size.js';
 import {
 	createBridgeWorktreeDevProvider,
+	loadBridgeWorktreeDevSnapshot,
 	resolveBridgeWorktreeDevProviderConfig,
 	type BridgeWorktreeDevProviderWorktreeFileContentRequest,
 	type BridgeWorktreeDevProviderWorktreeFileSurface,
@@ -115,6 +116,41 @@ describe('Bridge worktree dev provider', () => {
 			expect(config.baseRef).not.toBe('HEAD');
 			expect(featureDescriptor.language).toBe('typescript');
 			expect(appDescriptor.language).toBe('typescript');
+		} finally {
+			await rm(repoRoot, { force: true, recursive: true });
+		}
+	});
+
+	test('preserves real git rename and copy paths in the changed-file snapshot', async () => {
+		const repoRoot = await makeGitRenameCopyFixtureWorktree();
+		try {
+			await git(repoRoot, 'mv', 'src/source.ts', 'src/renamed.ts');
+			await writeFile(join(repoRoot, 'src/copied.ts'), sourceFixtureContent());
+			await git(repoRoot, 'add', 'src/copied.ts', 'src/renamed.ts');
+
+			const snapshot = await loadBridgeWorktreeDevSnapshot({
+				baseRef: 'HEAD',
+				worktreeRoot: repoRoot,
+			});
+			const renamedFile = findChangedFile(snapshot.changedFiles, 'src/renamed.ts');
+			const copiedFile = findChangedFile(snapshot.changedFiles, 'src/copied.ts');
+
+			expect(renamedFile).toMatchObject({
+				baseContent: sourceFixtureContent(),
+				basePath: 'src/source.ts',
+				changeKind: 'renamed',
+				headContent: sourceFixtureContent(),
+				headPath: 'src/renamed.ts',
+				path: 'src/renamed.ts',
+			});
+			expect(copiedFile).toMatchObject({
+				baseContent: sourceFixtureContent(),
+				basePath: 'src/source.ts',
+				changeKind: 'copied',
+				headContent: sourceFixtureContent(),
+				headPath: 'src/copied.ts',
+				path: 'src/copied.ts',
+			});
 		} finally {
 			await rm(repoRoot, { force: true, recursive: true });
 		}
@@ -329,6 +365,30 @@ async function makeGitFixtureWorktree(): Promise<string> {
 	return repoRoot;
 }
 
+async function makeGitRenameCopyFixtureWorktree(): Promise<string> {
+	const repoRoot = await mkdtemp(join(tmpdir(), 'bridge-worktree-provider-rename-copy-'));
+	await git(repoRoot, 'init');
+	await git(repoRoot, 'config', 'user.name', 'Bridge Test');
+	await git(repoRoot, 'config', 'user.email', 'bridge@example.test');
+	await git(repoRoot, 'config', 'commit.gpgsign', 'false');
+	await mkdir(join(repoRoot, 'src'), { recursive: true });
+	await writeFile(join(repoRoot, 'src/source.ts'), sourceFixtureContent());
+	await git(repoRoot, 'add', '.');
+	await git(repoRoot, 'commit', '-m', 'base');
+	return repoRoot;
+}
+
+function sourceFixtureContent(): string {
+	return [
+		'export function sourceFixture(): string {',
+		"  const name = 'bridge';",
+		"  const mode = 'review';",
+		'  return `${name}:${mode}`;',
+		'}',
+		'',
+	].join('\n');
+}
+
 async function git(cwd: string, ...args: readonly string[]): Promise<void> {
 	await execFileAsync('git', args, { cwd });
 }
@@ -345,6 +405,17 @@ function findWorktreeFileDescriptor(
 		throw new Error(`Expected Worktree/File descriptor for ${path}`);
 	}
 	return descriptor;
+}
+
+function findChangedFile(
+	changedFiles: Awaited<ReturnType<typeof loadBridgeWorktreeDevSnapshot>>['changedFiles'],
+	path: string,
+): Awaited<ReturnType<typeof loadBridgeWorktreeDevSnapshot>>['changedFiles'][number] {
+	const changedFile = changedFiles.find((candidate) => candidate.path === path);
+	if (changedFile === undefined) {
+		throw new Error(`Expected changed file for ${path}`);
+	}
+	return changedFile;
 }
 
 function renderLineCount(content: string): number {

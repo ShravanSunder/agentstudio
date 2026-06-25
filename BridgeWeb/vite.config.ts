@@ -20,6 +20,7 @@ import {
 import {
 	createBridgeWorktreeReviewDevProvider,
 	type BridgeWorktreeReviewDevProvider,
+	type BridgeWorktreeReviewContentRequest,
 } from './scripts/dev-server/bridge-worktree-review-dev-provider.js';
 
 type BridgeWorktreeDevProviderPromise = Promise<BridgeWorktreeDevProvider>;
@@ -261,17 +262,27 @@ async function handleBridgeWorktreeReviewContentRequest(props: {
 	}
 	if (
 		!hasOnlySearchParams(contentUrl, {
-			allowedNames: ['generation', 'scenario'],
-			requiredNames: ['generation'],
+			allowedNames: ['cursor', 'generation', 'revision', 'scenario'],
+			requiredNames: ['cursor', 'generation', 'revision'],
 		})
 	) {
 		props.response.statusCode = 400;
 		props.response.end('Invalid Bridge worktree review content query');
 		return;
 	}
+	const contentRequest = parseBridgeWorktreeReviewContentRequest({
+		contentUrl,
+		handleId,
+	});
+	if (contentRequest === null) {
+		props.response.statusCode = 400;
+		props.response.end('Invalid Bridge worktree review content identity');
+		return;
+	}
 	try {
 		const provider = await props.getReviewProvider(requestUrl);
-		const content = await provider.loadReviewContent(handleId);
+		const content = await provider.loadReviewContent(contentRequest);
+		props.response.setHeader('Cache-Control', 'no-store');
 		props.response.setHeader('Content-Type', 'text/plain; charset=utf-8');
 		props.response.end(content);
 	} catch (error: unknown) {
@@ -280,6 +291,24 @@ async function handleBridgeWorktreeReviewContentRequest(props: {
 			error instanceof Error ? error.message : 'Bridge worktree review content missing',
 		);
 	}
+}
+
+function parseBridgeWorktreeReviewContentRequest(props: {
+	readonly contentUrl: URL;
+	readonly handleId: string;
+}): BridgeWorktreeReviewContentRequest | null {
+	const generation = parseNonnegativeIntegerSearchParam(props.contentUrl, 'generation');
+	const revision = parseNonnegativeIntegerSearchParam(props.contentUrl, 'revision');
+	const packageId = singleSearchParamValue(props.contentUrl, 'cursor');
+	if (generation === null || revision === null || packageId === null || packageId.length === 0) {
+		return null;
+	}
+	return {
+		generation,
+		handleId: props.handleId,
+		packageId,
+		revision,
+	};
 }
 
 export function parseBridgeWorktreeFileContentRequest(props: {

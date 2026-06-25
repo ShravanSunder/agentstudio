@@ -69,8 +69,10 @@ export function installBridgeAppDevWorktreeReviewBackend(): BridgeAppDevWorktree
 				bridgeWorktreeReviewEndpoint(
 					`${worktreeReviewContentEndpointPrefix}${encodeURIComponent(parsedResourceUrl.opaqueId)}`,
 					bridgeWorktreeReviewContentSearchParams({
+						cursor: parsedResourceUrl.cursor,
 						forwardedSearchParams,
 						generation: parsedResourceUrl.generation,
+						revision: parsedResourceUrl.revision,
 					}),
 				),
 				init,
@@ -128,12 +130,20 @@ function bridgeWorktreeReviewForwardedSearchParams(search: string): URLSearchPar
 }
 
 function bridgeWorktreeReviewContentSearchParams(props: {
+	readonly cursor: string | undefined;
 	readonly forwardedSearchParams: URLSearchParams;
 	readonly generation: number | undefined;
+	readonly revision: number | undefined;
 }): URLSearchParams {
 	const searchParams = new URLSearchParams(props.forwardedSearchParams);
+	if (props.cursor !== undefined) {
+		searchParams.set('cursor', props.cursor);
+	}
 	if (props.generation !== undefined) {
 		searchParams.set('generation', String(props.generation));
+	}
+	if (props.revision !== undefined) {
+		searchParams.set('revision', String(props.revision));
 	}
 	return searchParams;
 }
