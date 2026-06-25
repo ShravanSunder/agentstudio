@@ -335,6 +335,8 @@ Each spec, plan, implementation, or PR reviewer must receive:
 
 ## Review Packets
 
+- Current Gate 0.a implementation re-review packet:
+  [implementation-review-packet-gate0a-shared-app-2026-06-25.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/workflow-state/2026-06-24-bridge-transport-review-pr-ready/implementation-review-packet-gate0a-shared-app-2026-06-25.md:1)
 - Current Gate 0.a packet:
   [spec-review-packet-gate0a-2026-06-24.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/workflow-state/2026-06-24-bridge-transport-review-pr-ready/spec-review-packet-gate0a-2026-06-24.md:1)
 - Historical pre-reopen packet:
