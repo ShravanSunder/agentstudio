@@ -81,7 +81,7 @@ accept summary claims without tracing source, tests, and the artifact.
 Latest checkpoint under review:
 
 ```text
-19655ca0..HEAD
+19655ca0..cfdd6068
 ```
 
 Current committed base before the latest follow-up:
@@ -90,15 +90,19 @@ Current committed base before the latest follow-up:
 19655ca0 Fix Gate 0a route origin proof
 ```
 
-Changed files in the current Gate 0.a follow-up series:
+Changed files in the current Gate 0.a stale-refresh observer follow-up:
+
+- `BridgeWeb/scripts/verify-bridge-viewer-worktree-dev-server.ts`
+- `tmp/workflow-state/2026-06-24-bridge-transport-review-pr-ready/details.md`
+- `tmp/workflow-state/2026-06-24-bridge-transport-review-pr-ready/events.jsonl`
+- `tmp/workflow-state/2026-06-24-bridge-transport-review-pr-ready/implementation-review-packet-gate0a-reset-lineage-quiescence-2026-06-25.md`
+
+Relevant prior Gate 0.a checkpoint files to keep in context:
 
 - `BridgeWeb/scripts/bridge-worktree-dev-reload-diagnostics.ts`
 - `BridgeWeb/scripts/bridge-worktree-dev-reload-diagnostics.unit.test.ts`
-- `BridgeWeb/scripts/verify-bridge-viewer-worktree-dev-server.ts`
 - `BridgeWeb/src/app/bridge-app-dev-worktree.ts`
 - `BridgeWeb/src/app/bridge-app-dev-worktree.unit.test.ts`
-- `tmp/workflow-state/2026-06-24-bridge-transport-review-pr-ready/details.md`
-- `tmp/workflow-state/2026-06-24-bridge-transport-review-pr-ready/events.jsonl`
 
 Relevant prior files to inspect because they define the Gate 0.a product route:
 
