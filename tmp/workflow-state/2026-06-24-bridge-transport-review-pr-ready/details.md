@@ -2,8 +2,8 @@
 
 Goal id: `2026-06-24-bridge-transport-review-pr-ready`
 Status: active
-Current workflow: implementation-execute-plan Gate 0.a shared BridgeViewer/FileViewer correction active
-Next workflow: `shravan-dev-workflow:implementation-execute-plan`
+Current workflow: implementation-execute-plan Gate 0.a fresh restarted dev-server proof passed; review/human acceptance pending
+Next workflow: `shravan-dev-workflow:implementation-review-swarm`
 
 ## Durable Objective
 
@@ -86,13 +86,37 @@ Shared UX:
   renderer = Pierre + Shiki + workers when enabled
 ```
 
-The user's latest live-dev-server observation shows the FileViewer surface still
+The user's latest live-dev-server observation showed the FileViewer surface
 presenting the file tree/search area on the left and file content on the right.
-That means the next checkpoint must revalidate the current live dev server and
-fix the layout/composition if the observed page still violates the shared UX
-contract. Do not advance to Gate 1 from a mock route, a stale Vite process, a
-raw/minimal surface, or a proof artifact that was not tied to the exact live
-URL after this correction.
+After restarting the Vite dev server, the exact URL proof passed and screenshot
+inspection showed the corrected layout: primary Pierre CodeView/File canvas on
+the left, Pierre FileTree/right rail on the right. This suggests the observed
+wrong-side output was stale dev-server/browser state rather than the current
+checked-in layout. Do not advance to Gate 1 from a mock route, a stale Vite
+process, a raw/minimal surface, or a proof artifact that was not tied to the
+exact live URL after this correction. Gate 1 remains blocked until this fresh
+Gate 0.a proof is reviewed or explicitly accepted.
+
+Fresh restarted-server proof:
+
+- command: `pnpm --dir BridgeWeb run test:dev-server:worktree`
+- exit: 0
+- exact URL:
+  `http://127.0.0.1:5173/?fixture=worktree&workers=on&scenario=current-worktree`
+- JSON artifact:
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-25T09-29-09-986Z/worktree-dev-server-proof.json`
+- screenshot:
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-25T09-29-09-986Z/worktree-file-ready.png`
+- proof highlights:
+  - `appOwner=BridgeApp`
+  - `sharedShellOwner=BridgeViewerAppShell`
+  - `shellOwner=BridgeViewerApp.FileViewer`
+  - `codeOwner=CodeView.file`
+  - `treeOwner=FileTree`
+  - `sidebarIsRight=true`
+  - `shikiRendering=pierre`
+  - `workerPoolState=ready`
+  - `standaloneWorktreeFileAppCount=0`
 
 Gate 0 source plan:
 
