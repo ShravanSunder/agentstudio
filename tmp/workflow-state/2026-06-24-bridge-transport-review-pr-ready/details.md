@@ -378,8 +378,12 @@ Each spec, plan, implementation, or PR reviewer must receive:
 ## Review Packets
 
 - Current Gate 0.a implementation re-review packet:
-  [implementation-review-packet-gate0a-force-lineage-retry-2026-06-25.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/workflow-state/2026-06-24-bridge-transport-review-pr-ready/implementation-review-packet-gate0a-force-lineage-retry-2026-06-25.md:1)
+  [implementation-review-packet-gate0a-reset-lineage-quiescence-2026-06-25.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/workflow-state/2026-06-24-bridge-transport-review-pr-ready/implementation-review-packet-gate0a-reset-lineage-quiescence-2026-06-25.md:1)
 - Previous Gate 0.a implementation re-review packet:
+  [implementation-review-packet-gate0a-force-reset-authority-2026-06-25.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/workflow-state/2026-06-24-bridge-transport-review-pr-ready/implementation-review-packet-gate0a-force-reset-authority-2026-06-25.md:1)
+- Historical Gate 0.a force-lineage packet:
+  [implementation-review-packet-gate0a-force-lineage-retry-2026-06-25.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/workflow-state/2026-06-24-bridge-transport-review-pr-ready/implementation-review-packet-gate0a-force-lineage-retry-2026-06-25.md:1)
+- Historical Gate 0.a second split-reset packet:
   [implementation-review-packet-gate0a-second-split-reset-2026-06-25.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/workflow-state/2026-06-24-bridge-transport-review-pr-ready/implementation-review-packet-gate0a-second-split-reset-2026-06-25.md:1)
 - Historical shared-app boundary packet:
   [implementation-review-packet-gate0a-shared-app-2026-06-25.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/workflow-state/2026-06-24-bridge-transport-review-pr-ready/implementation-review-packet-gate0a-shared-app-2026-06-25.md:1)
