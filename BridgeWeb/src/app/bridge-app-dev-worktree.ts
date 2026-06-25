@@ -336,7 +336,7 @@ export function worktreeFileIncrementalFramesFromSurfaces(props: {
 	if (hasRemovedDescriptor) {
 		const resetLineage = worktreeFileResetLineage({
 			nextFrames: props.nextFrames,
-			previousFrames: props.previousFrames,
+			previousFrames: props.previousLineageFrames ?? props.previousFrames,
 		});
 		return [
 			{

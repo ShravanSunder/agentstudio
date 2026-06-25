@@ -164,7 +164,7 @@ Claimed result: exit 0.
 Artifact:
 
 ```text
-tmp/bridge-viewer-worktree-dev-server/2026-06-25T08-14-48-622Z/worktree-dev-server-proof.json
+tmp/bridge-viewer-worktree-dev-server/2026-06-25T08-25-40-405Z/worktree-dev-server-proof.json
 ```
 
 Repo lint:
@@ -187,7 +187,7 @@ Freshness update after packet creation:
 pnpm --dir BridgeWeb run test:dev-server:worktree
 exit 0
 proofArtifactPath =
-  tmp/bridge-viewer-worktree-dev-server/2026-06-25T08-14-48-622Z/worktree-dev-server-proof.json
+  tmp/bridge-viewer-worktree-dev-server/2026-06-25T08-25-40-405Z/worktree-dev-server-proof.json
 ```
 
 Post-review fix update:
@@ -201,7 +201,12 @@ The exact URL verifier now requires:
   - exactly one app root, shell, code canvas, and sidebar
   - center-point ownership for the visible app root, shell, code canvas, and
     sidebar
-  - strict integer parsing for reset generation/sequence/count diagnostics
+  - strict integer/list parsing for reset generation/sequence/count diagnostics
+
+Additional follow-up after focused re-review:
+  - removal-reset lineage now also derives from accepted emitted lineage
+  - malformed comma lists such as "2,,3" and "2," are rejected by a unit-tested
+    parser module
 ```
 
 ## Artifact Facts To Verify

@@ -10,6 +10,11 @@ import { z } from 'zod';
 
 import { parseBridgeCoreResourceUrl } from '../src/core/resources/bridge-resource-url.ts';
 import { countFlattenedWorktreeFileTreeRows } from '../src/features/worktree-file/models/worktree-file-tree-size.ts';
+import {
+	parseBridgeWorktreeDevReloadIntegerList,
+	parseBridgeWorktreeDevReloadIntegerToken,
+	parseBridgeWorktreeDevReloadStringList,
+} from './bridge-worktree-dev-reload-diagnostics.ts';
 import { resolveBridgeWorktreeVerifierWritePath } from './verify-bridge-viewer-worktree-dev-server-paths.ts';
 
 const defaultWorktreeDevServerUrl =
@@ -2279,6 +2284,7 @@ async function verifyWorktreeFileStaleRefresh(props: {
 	});
 	const refreshFetchHitsAfterFirstClick = refreshRouteProbe.hitCount();
 	await staleNotice.getByText('Content changed').waitFor({ state: 'visible', timeout: 10_000 });
+	await waitForWorktreeRefreshButtonEnabled(props.page);
 	await clickWorktreeFileControl(props.page, 'worktree-file-refresh');
 	await waitForWorktreeOpenFileState({
 		page: props.page,
@@ -3157,48 +3163,24 @@ async function readWorktreeDevReloadProof(page: Page): Promise<WorktreeDevReload
 		frameCount:
 			rawProof.frameCountText === null
 				? 0
-				: strictWorktreeDevReloadIntegerToken(rawProof.frameCountText, 'frame count'),
-		frameGenerations: strictWorktreeDevReloadIntegerList(
-			rawProof.frameGenerationsText,
-			'frame generations',
-		),
-		frameKinds: strictWorktreeDevReloadStringList(rawProof.frameKindsText),
-		frameSequences: strictWorktreeDevReloadIntegerList(
-			rawProof.frameSequencesText,
-			'frame sequences',
-		),
-		frameStreamIds: strictWorktreeDevReloadStringList(rawProof.frameStreamIdsText),
+				: parseBridgeWorktreeDevReloadIntegerToken({
+						label: 'frame count',
+						token: rawProof.frameCountText,
+					}),
+		frameGenerations: parseBridgeWorktreeDevReloadIntegerList({
+			label: 'frame generations',
+			text: rawProof.frameGenerationsText,
+		}),
+		frameKinds: parseBridgeWorktreeDevReloadStringList(rawProof.frameKindsText),
+		frameSequences: parseBridgeWorktreeDevReloadIntegerList({
+			label: 'frame sequences',
+			text: rawProof.frameSequencesText,
+		}),
+		frameStreamIds: parseBridgeWorktreeDevReloadStringList(rawProof.frameStreamIdsText),
 		request: rawProof.request,
 		sourceCursor: rawProof.sourceCursor,
 		status: rawProof.status,
 	};
-}
-
-function strictWorktreeDevReloadIntegerList(text: string, label: string): readonly number[] {
-	if (text.length === 0) {
-		return [];
-	}
-	return text
-		.split(',')
-		.filter((token) => token.length > 0)
-		.map((token) => strictWorktreeDevReloadIntegerToken(token, label));
-}
-
-function strictWorktreeDevReloadIntegerToken(token: string, label: string): number {
-	if (!/^\d+$/u.test(token)) {
-		throw new Error(
-			`Expected strict nonnegative integer ${label} token, got ${JSON.stringify(token)}`,
-		);
-	}
-	const value = Number(token);
-	if (!Number.isSafeInteger(value)) {
-		throw new Error(`Expected safe integer ${label} token, got ${JSON.stringify(token)}`);
-	}
-	return value;
-}
-
-function strictWorktreeDevReloadStringList(text: string): readonly string[] {
-	return text.length === 0 ? [] : text.split(',').filter((token) => token.length > 0);
 }
 
 async function dispatchWorktreeDevForceSplitResetReload(page: Page): Promise<void> {

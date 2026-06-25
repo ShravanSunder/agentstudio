@@ -607,6 +607,9 @@ Fresh proof:
 - `pnpm --dir BridgeWeb exec vitest run src/app/bridge-app-dev-worktree.unit.test.ts src/file-viewer/bridge-file-viewer-app.unit.test.tsx src/worktree-file-surface/worktree-file-surface-runtime.integration.test.ts --reporter verbose`
   - exit: 0
   - result: 3 files passed, 28 tests passed
+- `pnpm --dir BridgeWeb exec vitest run src/app/bridge-app-dev-worktree.unit.test.ts src/file-viewer/bridge-file-viewer-app.unit.test.tsx src/worktree-file-surface/worktree-file-surface-runtime.integration.test.ts scripts/bridge-worktree-dev-reload-diagnostics.unit.test.ts --reporter verbose`
+  - exit: 0
+  - result: 4 files passed, 31 tests passed
 - `pnpm --dir BridgeWeb exec tsc --noEmit`
   - exit: 0
 - `pnpm --dir BridgeWeb run check`
@@ -615,7 +618,7 @@ Fresh proof:
 - `pnpm --dir BridgeWeb run test:dev-server:worktree`
   - exit: 0
   - artifact:
-    `tmp/bridge-viewer-worktree-dev-server/2026-06-25T08-14-48-622Z/worktree-dev-server-proof.json`
+    `tmp/bridge-viewer-worktree-dev-server/2026-06-25T08-25-40-405Z/worktree-dev-server-proof.json`
   - key facts:
     - exact URL:
       `http://127.0.0.1:5173/?fixture=worktree&workers=on&scenario=current-worktree`
@@ -642,6 +645,15 @@ Fresh proof:
     - stale Refresh disabled before replacement readiness: true
     - stale Refresh enabled after replacement readiness: true
     - split reset body route hits: `0 -> 0 -> 1`
+
+Focused re-review follow-up:
+
+- Removal-triggered reset now uses accepted emitted lineage after repeated
+  forced resets.
+- Strict reset diagnostic parsing now rejects malformed comma lists such as
+  `2,,3`, `2,`, and `,2`.
+- The stale-refresh proof now waits for Refresh to become enabled before the
+  retry click after the intentionally failed first refresh.
 
 Proof surface contract:
 

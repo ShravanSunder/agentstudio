@@ -418,6 +418,124 @@ describe('bridge app dev worktree frame subscription', () => {
 		expect(document.documentElement.dataset['bridgeWorktreeDevLastReloadFrameSequences']).toBe('8');
 		dispose();
 	});
+
+	test('continues accepted emitted lineage when a later reload removes a descriptor', async () => {
+		vi.useFakeTimers();
+		const firstPrimaryDescriptor = makeFileDescriptor({
+			contentHash: 'sha256:primary-one',
+			contentHandle: 'file-content-primary-one',
+			cursor: 'cursor-one',
+		});
+		const secondPrimaryDescriptor = makeFileDescriptor({
+			contentHash: 'sha256:primary-two',
+			contentHandle: 'file-content-primary-two',
+			cursor: 'cursor-two',
+		});
+		const thirdPrimaryDescriptor = makeFileDescriptor({
+			contentHash: 'sha256:primary-three',
+			contentHandle: 'file-content-primary-three',
+			cursor: 'cursor-three',
+		});
+		const fourthPrimaryDescriptor = makeFileDescriptor({
+			contentHash: 'sha256:primary-four',
+			contentHandle: 'file-content-primary-four',
+			cursor: 'cursor-four',
+		});
+		const firstRemovedDescriptor = makeFileDescriptor({
+			contentHash: 'sha256:removed-one',
+			contentHandle: 'file-content-removed-one',
+			cursor: 'cursor-one',
+			fileId: 'file-removed',
+			path: 'src/removed.ts',
+		});
+		const secondRemovedDescriptor = makeFileDescriptor({
+			contentHash: 'sha256:removed-two',
+			contentHandle: 'file-content-removed-two',
+			cursor: 'cursor-two',
+			fileId: 'file-removed',
+			path: 'src/removed.ts',
+		});
+		const thirdRemovedDescriptor = makeFileDescriptor({
+			contentHash: 'sha256:removed-three',
+			contentHandle: 'file-content-removed-three',
+			cursor: 'cursor-three',
+			fileId: 'file-removed',
+			path: 'src/removed.ts',
+		});
+		const surfaceResponses: Promise<Response>[] = [
+			Promise.resolve(
+				makeSurfaceResponse(
+					makeFrames(firstPrimaryDescriptor, firstRemovedDescriptor),
+					'cursor-one',
+				),
+			),
+			Promise.resolve(
+				makeSurfaceResponse(
+					makeFrames(secondPrimaryDescriptor, secondRemovedDescriptor),
+					'cursor-two',
+				),
+			),
+			Promise.resolve(
+				makeSurfaceResponse(
+					makeFrames(thirdPrimaryDescriptor, thirdRemovedDescriptor),
+					'cursor-three',
+				),
+			),
+			Promise.resolve(makeSurfaceResponse(makeFrames(fourthPrimaryDescriptor), 'cursor-four')),
+		];
+		vi.spyOn(globalThis, 'fetch').mockImplementation(async (): Promise<Response> => {
+			const nextResponse = surfaceResponses.shift();
+			if (nextResponse === undefined) {
+				throw new Error('Unexpected worktree surface fetch');
+			}
+			return await nextResponse;
+		});
+		const backend = installBridgeAppDevWorktreeBackend();
+		await backend.loadWorktreeFileSurface();
+		const deliveredFrameBatches: Array<readonly WorktreeFileProtocolFrame[]> = [];
+		const dispose = backend.subscribeWorktreeFileFrames((frames) => {
+			deliveredFrameBatches.push(frames);
+		});
+
+		window.dispatchEvent(new Event('bridge-worktree-dev-force-split-reset-reload'));
+		await flushMicrotasks();
+		await vi.advanceTimersByTimeAsync(0);
+		await flushMicrotasks();
+		window.dispatchEvent(new Event('bridge-worktree-dev-force-split-reset-reload'));
+		await flushMicrotasks();
+		await vi.advanceTimersByTimeAsync(0);
+		await flushMicrotasks();
+		window.dispatchEvent(new Event('bridge-worktree-dev-reload'));
+		await flushMicrotasks();
+
+		const deliveredFrames = deliveredFrameBatches.flat();
+		expect(deliveredFrames.map((frame) => frame.frameKind)).toEqual([
+			'worktree.reset',
+			'worktree.snapshot',
+			'worktree.fileDescriptor',
+			'worktree.fileDescriptor',
+			'worktree.reset',
+			'worktree.snapshot',
+			'worktree.fileDescriptor',
+			'worktree.fileDescriptor',
+			'worktree.reset',
+			'worktree.snapshot',
+			'worktree.fileDescriptor',
+		]);
+		expect(deliveredFrames.map((frame) => frame.sequence)).toEqual([
+			3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,
+		]);
+		expect(deliveredFrames.map((frame) => frame.generation)).toEqual([
+			2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4,
+		]);
+		expect(deliveredFrames.map((frame) => frame.streamId)).toEqual(
+			Array.from({ length: 11 }, () => 'worktree-file:pane-1'),
+		);
+		expect(document.documentElement.dataset['bridgeWorktreeDevLastReloadFrameSequences']).toBe(
+			'11,12,13',
+		);
+		dispose();
+	});
 });
 
 function makeFrames(
