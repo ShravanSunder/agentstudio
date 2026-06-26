@@ -17,6 +17,7 @@ struct RepoPresentationItem: Identifiable, Hashable {
     let name: String
     let repoPath: URL
     let stableKey: String
+    let tags: [String]
     var worktrees: [Worktree]
 
     init(
@@ -24,12 +25,14 @@ struct RepoPresentationItem: Identifiable, Hashable {
         name: String,
         repoPath: URL,
         stableKey: String,
+        tags: [String] = [],
         worktrees: [Worktree]
     ) {
         self.id = id
         self.name = name
         self.repoPath = repoPath
         self.stableKey = stableKey
+        self.tags = tags
         self.worktrees = worktrees
     }
 
@@ -39,6 +42,7 @@ struct RepoPresentationItem: Identifiable, Hashable {
             name: repo.name,
             repoPath: repo.repoPath,
             stableKey: repo.stableKey,
+            tags: repo.tags,
             worktrees: repo.worktrees
         )
     }

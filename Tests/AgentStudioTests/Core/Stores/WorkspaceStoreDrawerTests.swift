@@ -40,7 +40,7 @@ final class WorkspaceStoreDrawerTests {
                 WorkspaceLocalRepository(workspaceId: workspaceId, databaseWriter: localQueue)
             }
         )
-        let snapshot = WorkspacePersistenceTransformer.makeLiveSQLiteSnapshot(
+        let bundle = WorkspacePersistenceTransformer.makeLiveSQLiteSaveBundle(
             identityAtom: store.identityAtom,
             windowMemoryAtom: store.windowMemoryAtom,
             repositoryTopologyAtom: store.repositoryTopologyAtom,
@@ -48,7 +48,7 @@ final class WorkspaceStoreDrawerTests {
             workspaceTabLayoutAtom: store.tabLayoutAtom,
             persistedAt: Date(timeIntervalSince1970: 1_780_000_000)
         )
-        try await datastore.saveWorkspaceSnapshot(snapshot)
+        try await datastore.saveWorkspaceSnapshotBundle(bundle)
     }
 
     // MARK: - addDrawerPane

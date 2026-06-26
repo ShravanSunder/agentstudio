@@ -269,8 +269,10 @@ struct WorkspaceSQLiteStoreBackendFactoryTests {
             coreDatabaseURL: coreSQLiteURL,
             localDatabaseURL: { _ in localSQLiteURL }
         )
-        try await factory.makeDatastore().saveWorkspaceSnapshot(
-            .emptyFixture(id: workspaceId, name: "Store Recovery Source")
+        try await factory.makeDatastore().saveWorkspaceSnapshotBundle(
+            .emptyTopologyFixture(
+                workspace: .emptyFixture(id: workspaceId, name: "Store Recovery Source")
+            )
         )
         try Data("not a sqlite database".utf8).write(to: localSQLiteURL)
         var recoveryEvents: [PersistenceRecoveryEvent] = []

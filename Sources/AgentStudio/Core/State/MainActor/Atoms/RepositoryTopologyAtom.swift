@@ -315,10 +315,6 @@ final class RepositoryTopologyAtom {
     }
 
     private static func isValidRepositoryTag(_ tag: String) -> Bool {
-        guard tag == tag.trimmingCharacters(in: .whitespacesAndNewlines) else { return false }
-        guard (1...64).contains(tag.count) else { return false }
-        return tag.unicodeScalars.allSatisfy { scalar in
-            !CharacterSet.controlCharacters.contains(scalar)
-        }
+        RepositoryTagValidation.isValid(tag)
     }
 }

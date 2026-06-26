@@ -101,6 +101,43 @@ struct CommandBarWorktreeRowBuilderTests {
     }
 
     @Test
+    func test_unifiedWorktreeItem_keywordsIncludeRepoAndWorktreeTags() {
+        let repoId = UUID()
+        let worktree = Worktree(
+            repoId: repoId,
+            name: "branch-a",
+            path: URL(filePath: "/tmp/tagged-row/branch-a"),
+            tags: ["hotfix"]
+        )
+        let repo = Repo(
+            id: repoId,
+            name: "tagged-row",
+            repoPath: URL(filePath: "/tmp/tagged-row"),
+            worktrees: [worktree],
+            tags: ["customer-one"]
+        )
+        let presence = WorktreePresence(
+            worktreeId: worktree.id,
+            repoId: repo.id,
+            worktreeName: worktree.name,
+            repoName: repo.name,
+            isMainWorktree: false,
+            openPanes: []
+        )
+
+        let item = CommandBarDataSource.unifiedWorktreeItem(
+            worktree: worktree,
+            repo: repo,
+            presence: presence,
+            group: "Worktrees",
+            groupPriority: 1
+        )
+
+        #expect(item.keywords.contains("customer-one"))
+        #expect(item.keywords.contains("hotfix"))
+    }
+
+    @Test
     func test_buildWorktreeActionsLevel_pathActionsUsePanePathShortcuts() {
         let presence = makeWorktreePresence(paneCount: 0)
 

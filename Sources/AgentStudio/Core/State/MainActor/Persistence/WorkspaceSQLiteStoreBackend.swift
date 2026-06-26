@@ -159,26 +159,6 @@ struct WorkspaceSQLiteStoreBackend {
         }
     }
 
-    func save(_ snapshot: WorkspaceSQLiteSnapshot) throws {
-        let bundle = WorkspaceSQLiteSaveBundle(
-            workspace: snapshot,
-            repositoryTopology: .init(id: snapshot.id, updatedAt: snapshot.updatedAt)
-        )
-        try replaceWorkspaceSnapshotStaged(bundle, updatesActiveSelection: true)
-        let localRepository = try localBackend.repository(for: snapshot.id)
-        try writeLocalSnapshotAndCommit(snapshot, localRepository: localRepository)
-    }
-
-    func save(_ snapshot: WorkspaceSQLiteSnapshot, localRepository: WorkspaceLocalRepository) throws {
-        let state = WorkspacePersistenceTransformer.persistableState(from: snapshot)
-        let bundle = WorkspaceSQLiteSaveBundle(
-            workspace: snapshot,
-            repositoryTopology: .init(id: snapshot.id, updatedAt: snapshot.updatedAt)
-        )
-        try replaceWorkspaceSnapshotStaged(bundle, updatesActiveSelection: true)
-        try writeLocalSnapshotAndCommit(snapshot, state: state, localRepository: localRepository)
-    }
-
     func save(_ bundle: WorkspaceSQLiteSaveBundle) throws {
         try replaceWorkspaceSnapshotStaged(bundle, updatesActiveSelection: true)
         let localRepository = try localBackend.repository(for: bundle.id)
@@ -195,14 +175,6 @@ struct WorkspaceSQLiteStoreBackend {
         try writeLocalSnapshotAndCommit(bundle.workspace, state: state, localRepository: localRepository)
     }
 
-    private func writeLocalSnapshotAndCommit(
-        _ snapshot: WorkspaceSQLiteSnapshot,
-        localRepository: WorkspaceLocalRepository
-    ) throws {
-        let state = WorkspacePersistenceTransformer.persistableState(from: snapshot)
-        try writeLocalSnapshotAndCommit(snapshot, state: state, localRepository: localRepository)
-    }
-
     func writeLocalSnapshotAndCommit(
         _ snapshot: WorkspaceSQLiteSnapshot,
         state: WorkspacePersistor.PersistableState,
@@ -216,17 +188,6 @@ struct WorkspaceSQLiteStoreBackend {
             completedAt: snapshot.updatedAt
         )
         try markWorkspaceSnapshotCommitted(workspaceId: snapshot.id, committedAt: snapshot.updatedAt)
-    }
-
-    func replaceWorkspaceSnapshotStaged(
-        _ snapshot: WorkspaceSQLiteSnapshot,
-        updatesActiveSelection: Bool
-    ) throws {
-        let bundle = WorkspaceSQLiteSaveBundle(
-            workspace: snapshot,
-            repositoryTopology: .init(id: snapshot.id, updatedAt: snapshot.updatedAt)
-        )
-        try replaceWorkspaceSnapshotStaged(bundle, updatesActiveSelection: updatesActiveSelection)
     }
 
     func replaceWorkspaceSnapshotStaged(
@@ -267,44 +228,6 @@ struct WorkspaceSQLiteStoreBackend {
         } catch {
             return false
         }
-    }
-
-    func saveImportedLegacySnapshot(
-        _ snapshot: WorkspaceSQLiteSnapshot,
-        sourceStatePath: String
-    ) throws {
-        let bundle = WorkspaceSQLiteSaveBundle(
-            workspace: snapshot,
-            repositoryTopology: .init(id: snapshot.id, updatedAt: snapshot.updatedAt)
-        )
-        let state = WorkspacePersistenceTransformer.persistableState(from: bundle)
-        try replaceWorkspaceSnapshotStaged(bundle, updatesActiveSelection: false)
-        let localRepository = try localBackend.repository(for: snapshot.id)
-        try writeImportedLegacySnapshot(
-            snapshot,
-            state: state,
-            sourceStatePath: sourceStatePath,
-            localRepository: localRepository
-        )
-    }
-
-    func saveImportedLegacySnapshot(
-        _ snapshot: WorkspaceSQLiteSnapshot,
-        sourceStatePath: String,
-        localRepository: WorkspaceLocalRepository
-    ) throws {
-        let bundle = WorkspaceSQLiteSaveBundle(
-            workspace: snapshot,
-            repositoryTopology: .init(id: snapshot.id, updatedAt: snapshot.updatedAt)
-        )
-        let state = WorkspacePersistenceTransformer.persistableState(from: bundle)
-        try replaceWorkspaceSnapshotStaged(bundle, updatesActiveSelection: false)
-        try writeImportedLegacySnapshot(
-            snapshot,
-            state: state,
-            sourceStatePath: sourceStatePath,
-            localRepository: localRepository
-        )
     }
 
     func writeImportedLegacySnapshotLocalStateAndCommit(

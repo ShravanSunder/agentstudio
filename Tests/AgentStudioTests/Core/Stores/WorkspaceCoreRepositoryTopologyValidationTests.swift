@@ -709,6 +709,25 @@ struct WorkspaceCoreRepositoryTopologyValidationTests {
                 )
             )
         }
+        #expect(throws: WorkspaceCoreRepositoryError.invalidRepositoryTag("spoof\u{2066}tag")) {
+            try repository.replaceRepositoryTopology(
+                workspaceId: workspaceId,
+                topology: .init(
+                    watchedPaths: [],
+                    repos: [
+                        .init(
+                            id: repoId,
+                            name: "repo",
+                            repoPath: URL(fileURLWithPath: "/tmp/agentstudio/invalid-repo-tag"),
+                            createdAt: Date(timeIntervalSince1970: 200),
+                            worktrees: [],
+                            tags: ["spoof\u{2066}tag"]
+                        )
+                    ],
+                    unavailableRepoIds: []
+                )
+            )
+        }
     }
 
     @Test("repository topology replace rejects duplicate worktree tags")

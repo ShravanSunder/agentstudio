@@ -20,6 +20,8 @@ actor WorkspaceSQLiteDatastore {
     private var restoreLocalRepositoryCache: [UUID: WorkspaceLocalRepository] = [:]
     private var pendingGlobalRecoveryEvents: [PersistenceRecoveryEvent] = []
     private var pendingRecoveryEventsByWorkspaceId: [UUID: [PersistenceRecoveryEvent]] = [:]
+    private var workspaceSaveTail: Task<Void, Error>?
+    private var workspaceSaveTailGeneration: UInt64 = 0
 
     init(
         configuration: WorkspaceSQLiteDatastoreConfiguration,
@@ -58,15 +60,35 @@ actor WorkspaceSQLiteDatastore {
         self.traceRecorder = WorkspaceSQLiteTraceRecorder(traceRuntime: traceRuntime)
     }
 
-    func saveWorkspaceSnapshot(_ snapshot: WorkspaceSQLiteSnapshot) async throws {
-        let bundle = WorkspaceSQLiteSaveBundle(
-            workspace: snapshot,
-            repositoryTopology: .init(id: snapshot.id, updatedAt: snapshot.updatedAt)
-        )
-        try await saveWorkspaceSnapshotBundle(bundle)
+    func saveWorkspaceSnapshotBundle(_ bundle: WorkspaceSQLiteSaveBundle) async throws {
+        let previousTail = workspaceSaveTail
+        workspaceSaveTailGeneration &+= 1
+        let tailGeneration = workspaceSaveTailGeneration
+        let saveTask = Task { [self] in
+            if let previousTail {
+                do {
+                    try await previousTail.value
+                } catch {
+                    // Preserve save ordering without letting one failed flush poison the next queued save.
+                }
+            }
+            try await performWorkspaceSnapshotBundleSave(bundle)
+        }
+        workspaceSaveTail = saveTask
+        do {
+            try await saveTask.value
+            if workspaceSaveTailGeneration == tailGeneration {
+                workspaceSaveTail = nil
+            }
+        } catch {
+            if workspaceSaveTailGeneration == tailGeneration {
+                workspaceSaveTail = nil
+            }
+            throw error
+        }
     }
 
-    func saveWorkspaceSnapshotBundle(_ bundle: WorkspaceSQLiteSaveBundle) async throws {
+    private func performWorkspaceSnapshotBundleSave(_ bundle: WorkspaceSQLiteSaveBundle) async throws {
         let snapshot = bundle.workspace
         await recordProbe(.saveWorkspaceSnapshot)
         var failurePhase = WorkspaceSQLiteTracePhase.openCore
@@ -328,14 +350,6 @@ actor WorkspaceSQLiteDatastore {
 
     func markLegacyWorkspaceArchived(workspaceId: UUID, archivedAt: Date) async throws {
         try resolvedBackend().markLegacyWorkspaceArchived(workspaceId: workspaceId, archivedAt: archivedAt)
-    }
-
-    func saveImportedLegacySnapshot(_ snapshot: WorkspaceSQLiteSnapshot, sourceStatePath: String) async throws {
-        let bundle = WorkspaceSQLiteSaveBundle(
-            workspace: snapshot,
-            repositoryTopology: .init(id: snapshot.id, updatedAt: snapshot.updatedAt)
-        )
-        try await saveImportedLegacySnapshot(bundle, sourceStatePath: sourceStatePath)
     }
 
     func saveImportedLegacySnapshot(_ bundle: WorkspaceSQLiteSaveBundle, sourceStatePath: String) async throws {

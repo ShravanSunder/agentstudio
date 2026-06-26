@@ -436,7 +436,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
         let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceId)
         let createdAt = Date(timeIntervalSince1970: 1_700_000_220)
         try fixture.backend.save(
-            .init(
+            .emptyFixture(
                 id: workspaceId,
                 name: "Repairable SQLite Workspace",
                 createdAt: createdAt,
@@ -459,7 +459,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
         let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceId)
         let createdAt = Date(timeIntervalSince1970: 1_700_000_240)
         try fixture.backend.save(
-            .init(
+            .emptyFixture(
                 id: workspaceId,
                 name: "Missing Selection Workspace",
                 createdAt: createdAt,
@@ -481,7 +481,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
         let newerWorkspaceId = UUID()
         let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: preferredWorkspaceId)
         try fixture.backend.save(
-            .init(
+            .emptyFixture(
                 id: preferredWorkspaceId,
                 name: "Preferred Workspace",
                 createdAt: Date(timeIntervalSince1970: 1_700_000_250),
@@ -489,7 +489,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
             )
         )
         try fixture.backend.save(
-            .init(
+            .emptyFixture(
                 id: newerWorkspaceId,
                 name: "Newer Fallback Workspace",
                 createdAt: Date(timeIntervalSince1970: 1_700_000_270),
@@ -778,7 +778,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
         #expect(persistor.ensureDirectory())
         let createdAt = Date(timeIntervalSince1970: 1_700_000_500)
         try fixture.backend.save(
-            .init(
+            .emptyFixture(
                 id: workspaceId,
                 name: "SQLite Authoritative Workspace",
                 createdAt: createdAt,

@@ -62,6 +62,9 @@ struct RepositoryTopologyAtomTests {
         #expect(throws: RepositoryTopologyAtomError.invalidRepositoryTag(" leading")) {
             try atom.setRepoTags([" leading"], repoId: repo.id)
         }
+        #expect(throws: RepositoryTopologyAtomError.invalidRepositoryTag("spoof\u{202E}tag")) {
+            try atom.setRepoTags(["spoof\u{202E}tag"], repoId: repo.id)
+        }
         #expect(throws: RepositoryTopologyAtomError.duplicateRepositoryTag("wip")) {
             try atom.setRepoTags(["wip", "wip"], repoId: repo.id)
         }

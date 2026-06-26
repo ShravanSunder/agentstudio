@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 @testable import AgentStudio
@@ -107,4 +108,39 @@ extension WorkspaceSQLiteSnapshot {
         )
     }
 
+}
+
+extension WorkspaceSQLiteSaveBundle {
+    static func emptyTopologyFixture(workspace: WorkspaceSQLiteSnapshot) -> Self {
+        Self(
+            workspace: workspace,
+            repositoryTopology: .init(id: workspace.id, updatedAt: workspace.updatedAt)
+        )
+    }
+
+    static func emptyFixture(
+        id: UUID = UUID(),
+        name: String = "Workspace",
+        panes: [Pane] = [],
+        tabs: [Tab] = [],
+        activeTabId: UUID? = nil,
+        sidebarWidth: CGFloat = 250,
+        windowFrame: CGRect? = nil,
+        createdAt: Date = Date(timeIntervalSince1970: 1),
+        updatedAt: Date = Date(timeIntervalSince1970: 2)
+    ) -> Self {
+        .emptyTopologyFixture(
+            workspace: .init(
+                id: id,
+                name: name,
+                panes: panes,
+                tabs: tabs,
+                activeTabId: activeTabId,
+                sidebarWidth: sidebarWidth,
+                windowFrame: windowFrame,
+                createdAt: createdAt,
+                updatedAt: updatedAt
+            )
+        )
+    }
 }
