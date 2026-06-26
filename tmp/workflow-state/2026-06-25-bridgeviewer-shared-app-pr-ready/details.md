@@ -143,6 +143,28 @@ The first implementation sequence after plan review is:
 
 ## Implementation Checkpoints
 
+2026-06-26 design/spec checkpoint:
+
+- The shared chrome contract now explicitly requires the content header to live
+  only over the left content region. It must not span over the right rail, create
+  a full-window top strip, push the right rail toolbar down, or leave a
+  centered/floating `Files | Review` switcher.
+- FileViewer and ReviewViewer controls for the same interaction semantics must
+  use the shared BridgeViewer primitive layer over shadcn/base UI. A
+  FileViewer-only raw toolbar/search visual language is a blocker even if it is
+  built from shadcn/base primitives underneath.
+- Fresh Playwright screenshots were captured from the running Vite dev server:
+  - [Files screenshot](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/bridge-viewer-design-proof/2026-06-26T03-43-59-852Z-shared-chrome-c-final/files.png:1)
+  - [Review diff screenshot](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/bridge-viewer-design-proof/2026-06-26T03-43-59-852Z-shared-chrome-c-final/review-diff.png:1)
+  - [Review file-target screenshot](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/bridge-viewer-design-proof/2026-06-26T03-43-59-852Z-shared-chrome-c-final/review-file-target.png:1)
+  - [Design proof JSON](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/bridge-viewer-design-proof/2026-06-26T03-43-59-852Z-shared-chrome-c-final/design-proof.json:1)
+- The proof JSON records all three routes with
+  `contentHeaderEndsBeforeRail=true`, `railStartsAtTop=true`,
+  `canvasBelowHeader=true`, and `switcherInsideTopbar=true`.
+- The Files screenshot still shows `Loading file`, so this checkpoint is only
+  design/chrome geometry proof. It does not close FileViewer content-load,
+  preload, scheduler, or latency proof.
+
 2026-06-25 checkpoint:
 
 - Commit `47933c48` proves the current-worktree Review file-target URL route:

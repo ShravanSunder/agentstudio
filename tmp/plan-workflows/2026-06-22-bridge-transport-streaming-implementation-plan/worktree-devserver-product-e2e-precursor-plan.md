@@ -94,6 +94,27 @@ the ReviewViewer/DiffsHub-like compact primitive sizing. ReviewViewer's right
 rail is the styling baseline for FileViewer's right rail: only functionality may
 differ.
 
+The accepted header placement is:
+
+```text
+viewer width
+┌──────────────────────────────────────────────────────────────┬─────────────┐
+│ content header                                               │ right rail  │
+│  left: source / target                                       │ y starts 0  │
+│  right: Files | Review plus content actions                  │ own toolbar │
+├──────────────────────────────────────────────────────────────┤             │
+│ Pierre CodeView/File canvas                                  │ Pierre tree │
+└──────────────────────────────────────────────────────────────┴─────────────┘
+```
+
+It is a failure if the next visible checkpoint shows a full-width black/header
+strip over the right rail, a centered/floating mode switcher, route-local
+FileViewer buttons/search styling that is larger than ReviewViewer rail chrome,
+or different primitive families for the same button/input/toggle interactions.
+The implementation may use the existing ReviewViewer chrome wrappers during the
+refactor, but the proof target is a neutral BridgeViewer shared chrome contract
+over shadcn/base UI primitives, not a second FileViewer design language.
+
 The blocker now starts with understandable dev navigation for both current
 worktree contexts. Dev-server query params are allowed because they are a test
 harness, but they must initialize or mutate the same BridgeViewer navigation
@@ -116,15 +137,20 @@ Plan sequence changed after the 2026-06-25 navigation decision:
 0.a.3 shared chrome/layout proof
   -> proves DiffsHub-like top chrome, shared shadcn primitives, context toggle,
      search/filter placement, and per-context memory
-  -> status: checkpointed in 85e98cd6 for the content-only header/title-C/right-
-     rail alignment; still implementation-review pending before the next slice
+  -> status: reopened for exact visual parity after fresh screenshots:
+     content header must be left-content-only, title/source left, Files/Review
+     plus actions right, right rail top-aligned and independent, and FileViewer
+     controls must reuse the shared BridgeViewer primitive layer instead of
+     route-local oversized toolbar/search controls
 
 0.a.4 visual/e2e/negative-substitute proof
   -> proves live dev-server behavior, Pierre/Shiki/worker ownership, and no
      standalone second app or stale bundle substitute
   -> status: checkpointed for the shared visual shell in artifact
-     2026-06-26T02-32-00-284Z; remains open for implementation review and later
-     native Agent Studio Bridge/WKWebView proof
+     2026-06-26T02-32-00-284Z; reopened for a fresh screenshot set after the
+     chrome parity correction. Required pictures: Files context, Review diff
+     context, Review file-target context, and a geometry/topbar/right-rail
+     record showing the header stops at the rail and the rail starts at y=0.
 
 0.a.5 file-load responsiveness/performance proof
   -> proves clicking files does not feel slow under the large worktree fixture,
@@ -171,8 +197,10 @@ The proof must also fail if the context switch/search/filter UX is visually
 inconsistent with the accepted shared-shell contract: content-only left header
 with context controls, right rail top-aligned outside that header, and rail-owned
 compact search/filter/status controls using the ReviewViewer primitive style.
-It must also fail if file-click content loading lacks measured
-latency/backpressure evidence.
+It must also fail if visible FileViewer search/filter/action controls are still
+owned by route-local toolbar classes or raw/custom controls instead of the shared
+BridgeViewer/shadcn primitive layer. It must also fail if file-click content
+loading lacks measured latency/backpressure evidence.
 
 Native Agent Studio Bridge/WKWebView proof remains outside this precursor and
 is still required before PR-ready.
@@ -368,6 +396,11 @@ The shared BridgeViewer product route set must expose these observable regions:
    - Does not add a second Files-only header row. Extra provenance/status, if
      needed, must live in the same content header slot or in the right-rail
      toolbar.
+   - The header row exists only over the left content/canvas region. It does not
+     span over the right rail, create a full-window top strip, or push the right
+     rail toolbar down.
+   - The mode switcher and content actions live in the content header's right
+     slot. They must not float in the middle of the viewport.
    - DOM exposes protocol/source facts for Playwright:
      `worktree-file`, source id, worktree/repo id, generation or revision token.
 
@@ -395,6 +428,10 @@ The shared BridgeViewer product route set must expose these observable regions:
    - Regex toggle with product-specific selector.
    - Filter/status controls with product-specific selector.
    - User interaction must change observable state and visible results.
+   - FileViewer and ReviewViewer controls for the same interaction semantics use
+     the same BridgeViewer shared primitive layer and compact sizing. A
+     FileViewer-only raw toolbar/search design is a blocker, even if it is built
+     on shadcn/base UI underneath.
 
 6. Provenance and negative-substitute guard
    - Verifier must reject the root Review mock route.
