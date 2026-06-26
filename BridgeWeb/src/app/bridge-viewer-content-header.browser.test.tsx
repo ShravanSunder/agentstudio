@@ -37,7 +37,14 @@ describe('BridgeViewerContextSwitcher Browser Mode', () => {
 		expect(switcher.closest('[data-testid="bridge-viewer-content-topbar"]')).toBe(topbar);
 		expect(switcher.getAttribute('data-slot')).toBe('toggle-group');
 		expect(switcher.getAttribute('aria-label')).toBe('Bridge viewer context');
-		expect(switcher.className).toContain('h-6');
+		const switcherBox = switcher.getBoundingClientRect();
+		const fileButtonBox = fileButton.getBoundingClientRect();
+		const reviewButtonBox = reviewButton.getBoundingClientRect();
+		const railToolbarButtonTokenHeight = 24;
+
+		expect(Math.round(switcherBox.height)).toBe(railToolbarButtonTokenHeight);
+		expect(Math.round(fileButtonBox.height)).toBe(railToolbarButtonTokenHeight);
+		expect(Math.round(reviewButtonBox.height)).toBe(railToolbarButtonTokenHeight);
 		expect(fileButton.getAttribute('data-slot')).toBe('button');
 		expect(fileButton.getAttribute('data-toggle-group-slot')).toBe('toggle-group-item');
 		expect(reviewButton.getAttribute('data-slot')).toBe('button');
@@ -48,14 +55,12 @@ describe('BridgeViewerContextSwitcher Browser Mode', () => {
 		expect(reviewButton.getAttribute('aria-pressed')).toBe('false');
 		expect(fileButton.getAttribute('data-bridge-viewer-context-selected')).toBe('true');
 		expect(reviewButton.getAttribute('data-bridge-viewer-context-selected')).toBe('false');
-		expect(fileButton.className).toContain('h-5');
-		expect(fileButton.className).toContain('w-5');
-		expect(reviewButton.className).toContain('h-5');
-		expect(reviewButton.className).toContain('w-5');
-		expect(fileButton.className).not.toContain('h-6');
-		expect(reviewButton.className).not.toContain('h-6');
-		expect(fileButton.textContent).toBe('');
-		expect(reviewButton.textContent).toBe('');
+		expect(fileButton.className).toContain('h-6');
+		expect(reviewButton.className).toContain('h-6');
+		expect(fileButton.className).not.toContain('h-5');
+		expect(reviewButton.className).not.toContain('h-5');
+		expect(fileButton.textContent).toBe('Files');
+		expect(reviewButton.textContent).toBe('Review');
 
 		fileButton.click();
 		expect(modeChanges).not.toHaveBeenCalled();

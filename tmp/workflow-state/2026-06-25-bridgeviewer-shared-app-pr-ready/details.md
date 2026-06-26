@@ -1267,15 +1267,18 @@ Open implementation blockers remain:
 
 2026-06-26 compact shared toggle / dev-server geometry checkpoint:
 
-- Replaced the visible oversized Files/Review control with an owned compact
+- Replaced the visible oversized Files/Review control with the owned
   `ToggleGroup` primitive composed over the existing BridgeWeb `Button`
-  primitive. The shared context switcher is icon-only, accessible through
-  `aria-label`, and uses the shared BridgeViewer chrome tokens instead of
-  Review-local text buttons.
+  primitive. The shared context switcher now keeps visible icon + label text,
+  uses `Button size="sm"` for the same 24px control scale as the right-rail
+  toolbar, preserves `aria-label`/`aria-pressed`, and avoids route-local
+  bespoke toggle sizing.
 - Added browser-mode proof for the context switcher. The regression now runs
   under Vitest Browser, not a new jsdom file:
   `pnpm --dir BridgeWeb exec vitest --config vitest.browser.config.ts run --project integration-browser src/app/bridge-viewer-content-header.browser.test.tsx --reporter verbose`
-  with 1 file passed, 1 test passed.
+  with 1 file passed, 1 test passed. Red proof before the fix failed with
+  `expected 20 to be 24`, proving the test catches the undersized/stale toggle
+  item geometry.
 - Tightened the worktree dev-server verifier so the real browser route proof
   fails unless the Files content header, Review content header, and Review
   right-rail toolbar use the same shared chrome geometry.
@@ -1284,14 +1287,14 @@ Open implementation blockers remain:
 - Full worktree dev-server browser proof passed:
   `pnpm --dir BridgeWeb run test:dev-server:worktree`.
 - Fresh proof artifact:
-  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T12-29-12-241Z/worktree-dev-server-proof.json`.
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T12-47-35-774Z/worktree-dev-server-proof.json`.
 - Fresh proof fields:
   `sharedShellProof.contentHeaderHeight=36`,
   `sharedShellProof.railToolbarHeight=36`,
   `sharedShellProof.contentHeaderMatchesRailToolbarHeight=true`,
   `sharedShellProof.contextSwitcherHeight=24`,
-  `sharedShellProof.contextFileButtonHeight=20`,
-  `sharedShellProof.contextReviewButtonHeight=20`,
+  `sharedShellProof.contextFileButtonHeight=24`,
+  `sharedShellProof.contextReviewButtonHeight=24`,
   `sharedShellProof.contextSegmentMatchesRailButtonHeight=true`,
   `reviewRouteProof.reviewHeaderMatchesRailToolbarHeight=true`,
   `reviewRouteProof.reviewRailToolbarUsesSharedAttr=true`,

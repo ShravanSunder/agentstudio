@@ -5,8 +5,6 @@ import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group.js';
 import {
 	bridgeViewerChromeHeaderClassName,
 	bridgeViewerChromeLucideIconClassName,
-	bridgeViewerChromeSegmentIconButtonClassName,
-	bridgeViewerChromeSegmentedControlClassName,
 } from './bridge-viewer-chrome.js';
 import { cn } from './class-name.js';
 
@@ -54,7 +52,6 @@ export function BridgeViewerContextSwitcher(props: {
 	return (
 		<ToggleGroup
 			aria-label="Bridge viewer context"
-			className={bridgeViewerChromeSegmentedControlClassName}
 			data-bridge-segmented-control="viewer-context"
 			data-testid="bridge-viewer-context-switcher"
 			role="group"
@@ -85,10 +82,7 @@ function BridgeViewerContextButton(props: {
 	return (
 		<ToggleGroupItem
 			aria-label={props.label}
-			className={cn(
-				bridgeViewerChromeSegmentIconButtonClassName,
-				props.isSelected && 'shadow-none',
-			)}
+			className={props.isSelected ? 'shadow-none' : undefined}
 			data-bridge-viewer-context-selected={props.isSelected ? 'true' : 'false'}
 			data-bridge-viewer-context-target={props.mode}
 			data-testid={`bridge-viewer-context-${props.mode}`}
@@ -98,7 +92,7 @@ function BridgeViewerContextButton(props: {
 				}
 			}}
 			pressed={props.isSelected}
-			size="icon-xs"
+			size="sm"
 			title={props.label}
 		>
 			{props.mode === 'file' ? (
@@ -106,6 +100,7 @@ function BridgeViewerContextButton(props: {
 			) : (
 				<ListChecksIcon aria-hidden="true" className={bridgeViewerChromeLucideIconClassName} />
 			)}
+			<span>{props.label}</span>
 		</ToggleGroupItem>
 	);
 }
