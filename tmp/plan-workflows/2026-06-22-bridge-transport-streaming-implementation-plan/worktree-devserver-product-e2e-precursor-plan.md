@@ -110,10 +110,20 @@ viewer width
 └──────────────────────────────────────────────────────────────┴─────────────┘
 ```
 
+Accepted decision C uses "top right" to mean the right slot of the left content
+header, not the top right of the full viewport. The switcher belongs beside
+content actions in that slot. It must not be centered, detached into a separate
+strip, or placed over/in the right rail. The title/source belongs in the left
+slot. The right rail starts at y=0 and owns its own toolbar.
+
 It is a failure if the next visible checkpoint shows a full-width black/header
 strip over the right rail, a centered/floating mode switcher, route-local
 FileViewer buttons/search styling that is larger than ReviewViewer rail chrome,
 or different primitive families for the same button/input/toggle interactions.
+The visual proof must compare FileViewer and ReviewViewer control size,
+selected state, focus ring, icon box, border treatment, and spacing from
+screenshots, not only DOM attributes. Controls may expose different actions per
+mode, but shared interactions must look interchangeable at the same zoom level.
 Review-namespaced wrappers may appear only as an explicitly tracked failing
 intermediate state during a local refactor. They cannot close a visible UX
 checkpoint. The proof target is neutral BridgeViewer shared chrome over the
@@ -157,7 +167,7 @@ Plan sequence changed after the 2026-06-25 navigation decision:
      context, Review file-target context, and a geometry/topbar/right-rail
      record showing the header stops at the rail and the rail starts at y=0.
      Fresh accepted-C refresh:
-     `tmp/bridge-viewer-design-proof/2026-06-26T06-10-55-797Z-accepted-c-refresh/accepted-c-design-proof.json`
+     `tmp/bridge-viewer-design-proof/2026-06-26T07-56-40-567Z-accepted-c-user-refresh-ready/accepted-c-design-proof.json`
      plus `files.png`, `review-diff.png`, and `review-file-target.png`.
      Browser/onlook agent `019f028e-c7a5-7732-b06e-7f65a0601fb9` passed this
      visual/layout proof with no Accepted-C mismatches. This pass is scoped to
@@ -822,10 +832,10 @@ Current visual/layout note, 2026-06-26 accepted-C refresh:
 - Fresh dev-server proof passed:
   `tmp/bridge-viewer-worktree-dev-server/2026-06-26T06-06-36-494Z/worktree-dev-server-proof.json`.
 - Fresh accepted-C screenshots and geometry:
-  - `tmp/bridge-viewer-design-proof/2026-06-26T06-10-55-797Z-accepted-c-refresh/files.png`
-  - `tmp/bridge-viewer-design-proof/2026-06-26T06-10-55-797Z-accepted-c-refresh/review-diff.png`
-  - `tmp/bridge-viewer-design-proof/2026-06-26T06-10-55-797Z-accepted-c-refresh/review-file-target.png`
-  - `tmp/bridge-viewer-design-proof/2026-06-26T06-10-55-797Z-accepted-c-refresh/accepted-c-design-proof.json`
+  - `tmp/bridge-viewer-design-proof/2026-06-26T07-56-40-567Z-accepted-c-user-refresh-ready/files.png`
+  - `tmp/bridge-viewer-design-proof/2026-06-26T07-56-40-567Z-accepted-c-user-refresh-ready/review-diff.png`
+  - `tmp/bridge-viewer-design-proof/2026-06-26T07-56-40-567Z-accepted-c-user-refresh-ready/review-file-target.png`
+  - `tmp/bridge-viewer-design-proof/2026-06-26T07-56-40-567Z-accepted-c-user-refresh-ready/accepted-c-design-proof.json`
 - The geometry artifact records all three routes with content topbar `left=0`,
   `right=1708`, `height=36`; right rail `left=1708`, `width=340`, `top=0`;
   code canvas `top=36`; and all accepted-C predicates true:

@@ -1045,3 +1045,31 @@ Open implementation blockers remain:
   `src/app/bridge-app.tsx`; `pnpm --dir BridgeWeb exec oxfmt --write
   src/app/bridge-app.tsx` fixed that. Re-run `pnpm --dir BridgeWeb run check`
   before committing.
+
+2026-06-26 accepted-C design clarification refresh:
+
+- Parent and tmp specs now clarify that accepted decision C uses "top right" to
+  mean the right slot of the left content header, not the top right of the full
+  viewport. The title/source belongs in the left slot; `Files | Review` and
+  content actions belong in the right slot; the right rail starts at y=0 and is
+  not covered or pushed by the header.
+- The plan now requires screenshot comparison of shared control size, selected
+  state, focus ring, icon box, border treatment, and spacing. DOM-only proof is
+  not enough for this chrome parity item.
+- Fresh pictures captured from the live dev server:
+  `tmp/bridge-viewer-design-proof/2026-06-26T07-56-40-567Z-accepted-c-user-refresh-ready/files.png`,
+  `tmp/bridge-viewer-design-proof/2026-06-26T07-56-40-567Z-accepted-c-user-refresh-ready/review-diff.png`,
+  and
+  `tmp/bridge-viewer-design-proof/2026-06-26T07-56-40-567Z-accepted-c-user-refresh-ready/review-file-target.png`.
+- Fresh geometry artifact:
+  `tmp/bridge-viewer-design-proof/2026-06-26T07-56-40-567Z-accepted-c-user-refresh-ready/accepted-c-design-proof.json`.
+- The geometry artifact records all three routes with content topbar `left=0`,
+  `right=1708`, `height=36`; right rail `left=1708`, `width=340`, `top=0`;
+  code canvas `top=36`; and `contentHeaderEndsBeforeRail=true`,
+  `railStartsAtTop=true`, `canvasBelowHeader=true`,
+  `switcherInsideTopbar=true`, `controlsInsideTopbar=true`, and
+  `switcherRightAlignedInContentHeader=true`.
+- This is a design/spec proof refresh only. It does not close remaining
+  implementation gates: real Review tree interaction proof, neutral shared
+  chrome ownership, route fanout/content pressure, file-load/preload telemetry,
+  or native Agent Studio Bridge/WKWebView proof.

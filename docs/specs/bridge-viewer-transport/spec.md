@@ -281,11 +281,13 @@ The content header has two slots:
 - right slot: the shared context switcher (`Files | Review`) plus mode-specific
   content actions, sized like the ReviewViewer/DiffsHub controls.
 
-The mode switcher belongs in the content header, not floating in the middle of
-the viewport and not inside the right rail. It may be visually right-aligned in
-the content header, but the containing header still ends at the left edge of the
-right rail. The current accepted layout is therefore: title left, switcher and
-content actions right, right rail independent and top-aligned.
+Accepted decision C uses "top right" to mean the right slot of the left content
+header, not the top right of the full viewport. The mode switcher belongs beside
+the content actions in that right slot. It must not float in the middle of the
+viewport, sit in a separate full-width strip, or move into the right rail. The
+containing header still ends at the left edge of the right rail. The current
+accepted layout is therefore: title/source left, switcher and content actions
+right inside the content header, right rail independent and top-aligned.
 
 The header/canvas/rail geometry is part of the proof contract:
 
@@ -311,6 +313,12 @@ UI is a primitive substrate, not permission for route-local visual language.
 FileViewer must not introduce route-local raw buttons, custom oversized icon
 buttons, separate input chrome, or a separate visual scale for the same
 interaction semantics.
+A shared control should be visually interchangeable across FileViewer and
+ReviewViewer at the same zoom level: button heights, icon box sizes, selected
+state, focus ring, border treatment, and spacing should match unless a mode has
+a concrete interaction that the other mode does not expose. The proof should
+compare controls in screenshots, not only DOM attributes, because a component
+can technically share a primitive while still rendering at the wrong scale.
 A FileViewer-only search row, raw buttons, oversized custom icon buttons, or
 route-local chrome can exist only as an explicit temporary failing state while
 the checkpoint is being developed; it cannot satisfy Gate 0.a. Review mode and
@@ -1844,10 +1852,10 @@ Latest accepted visible-shell checkpoint:
 Latest design-geometry refresh:
 
 - Screenshot/geometry artifacts:
-  - `tmp/bridge-viewer-design-proof/2026-06-26T06-10-55-797Z-accepted-c-refresh/files.png`
-  - `tmp/bridge-viewer-design-proof/2026-06-26T06-10-55-797Z-accepted-c-refresh/review-diff.png`
-  - `tmp/bridge-viewer-design-proof/2026-06-26T06-10-55-797Z-accepted-c-refresh/review-file-target.png`
-  - `tmp/bridge-viewer-design-proof/2026-06-26T06-10-55-797Z-accepted-c-refresh/accepted-c-design-proof.json`
+  - `tmp/bridge-viewer-design-proof/2026-06-26T07-56-40-567Z-accepted-c-user-refresh-ready/files.png`
+  - `tmp/bridge-viewer-design-proof/2026-06-26T07-56-40-567Z-accepted-c-user-refresh-ready/review-diff.png`
+  - `tmp/bridge-viewer-design-proof/2026-06-26T07-56-40-567Z-accepted-c-user-refresh-ready/review-file-target.png`
+  - `tmp/bridge-viewer-design-proof/2026-06-26T07-56-40-567Z-accepted-c-user-refresh-ready/accepted-c-design-proof.json`
 - The geometry artifact records, for Files, Review diff, and Review file-target
   routes, content topbar `left=0`, `right=1708`, `height=36`; right rail
   `left=1708`, `width=340`, `top=0`; code canvas `top=36`; and
