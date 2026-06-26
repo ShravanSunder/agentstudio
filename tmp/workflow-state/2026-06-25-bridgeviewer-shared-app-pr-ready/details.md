@@ -1677,3 +1677,64 @@ Open implementation blockers remain:
   routes, because their route patterns intentionally include broader visible
   fanout and need their own contract rather than reusing the exact Review route
   predicate blindly.
+
+2026-06-26 0.a.5 FileViewer visible-preload pressure checkpoint:
+
+- Implemented FileViewer visible demand telemetry as a first-class dev-server
+  proof row in `BridgeWeb/scripts/verify-bridge-viewer-worktree-dev-server.ts`.
+  The verifier now reads and gates visible preload lane/disposition, failed
+  counts by lane/reason, and post-dispatch queue/executor drain state.
+- Added proof predicate and explicit pressure-accounting contract in
+  `BridgeWeb/scripts/verify-bridge-viewer-worktree-review-proof.ts`.
+  `worktreeFileVisibleDemandTelemetrySatisfied` accepts bounded visible-lane
+  pressure only when failures are attributed by lane and reason and both the
+  scheduler and executor drain to zero.
+- Added red/green verifier coverage in
+  `BridgeWeb/scripts/verify-bridge-viewer-worktree-dev-server.unit.test.ts`.
+  The focused test first failed because the verifier source did not contain
+  `fileViewerVisibleDemandTelemetry`; after the verifier/runtime patch it
+  passed. A later dev-server run exposed aggregate-only failures, so the test
+  was tightened to reject `failedCount > 0` without `failedCountByLane` and
+  `failedCountByReason`.
+- Added DOM publication in
+  `BridgeWeb/src/file-viewer/bridge-file-viewer-app.tsx` for visible demand
+  failure buckets and drained queue/executor counters.
+- Focused verifier proof passed:
+  `pnpm --dir BridgeWeb exec vitest run scripts/verify-bridge-viewer-worktree-dev-server.unit.test.ts -t "FileViewer visible preload" --reporter verbose`
+  with 1 file, 1 test passed, 16 skipped.
+- Full verifier proof passed:
+  `pnpm --dir BridgeWeb exec vitest run scripts/verify-bridge-viewer-worktree-dev-server.unit.test.ts --reporter verbose`
+  with 1 file, 17 tests passed.
+- FileViewer browser proof passed:
+  `pnpm --dir BridgeWeb exec vitest --config vitest.browser.config.ts run --project integration-browser src/file-viewer/bridge-file-viewer-app.browser.test.tsx --reporter verbose`
+  with 1 file, 5 tests passed.
+- Worktree file surface runtime proof passed:
+  `pnpm --dir BridgeWeb exec vitest run src/worktree-file-surface/worktree-file-surface-runtime.integration.test.ts --reporter verbose`
+  with 1 file, 16 tests passed.
+- Full BridgeWeb static/type/format gate passed:
+  `pnpm --dir BridgeWeb run check` with existing non-fatal verifier warnings.
+- Full worktree dev-server browser proof passed:
+  `pnpm --dir BridgeWeb run test:dev-server:worktree`.
+- Fresh proof artifact:
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T22-55-15-002Z/worktree-dev-server-proof.json`.
+- Fresh proof fields:
+  `result.fileViewerVisibleDemandTelemetry.status=settled`,
+  `result.fileViewerVisibleDemandTelemetry.stimulusCount=1`,
+  `result.fileViewerVisibleDemandTelemetry.intentCount=50`,
+  `result.fileViewerVisibleDemandTelemetry.loadedCount=2`,
+  `result.fileViewerVisibleDemandTelemetry.failedCount=48`,
+  `result.fileViewerVisibleDemandTelemetry.failedCountByLane.visible=48`,
+  `result.fileViewerVisibleDemandTelemetry.failedCountByReason.concurrency_exceeded=48`,
+  `result.fileViewerVisibleDemandTelemetry.firstLane=visible`,
+  `result.fileViewerVisibleDemandTelemetry.firstDisposition=visible-preloaded`,
+  `result.fileViewerVisibleDemandTelemetry.schedulerQueuedIntentCountAfter=0`,
+  `result.fileViewerVisibleDemandTelemetry.schedulerQueuedEstimatedBytesAfter=0`,
+  `result.fileViewerVisibleDemandTelemetry.executorInFlightCountAfter=0`,
+  `result.fileViewerVisibleDemandTelemetry.executorInFlightBytesAfter=0`,
+  `result.fileViewerVisibleDemandTelemetry.executorQueuedLoadCountAfter=0`,
+  and `result.fileViewerVisibleDemandTelemetry.executorQueuedBytesAfter=0`.
+- This closes the explicit FileViewer visible-preload pressure-accounting proof
+  for 0.a.5. Remaining 0.a.5 work still includes click-to-ready latency if kept
+  as a separate gate, separately scoped pressure contracts for File-to-Review
+  handoff or Review file-target routes, native Agent Studio Bridge/WKWebView
+  proof, implementation review disposition, and PR-ready wrapup.

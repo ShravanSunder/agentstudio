@@ -458,11 +458,39 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 					? lastDemandDispatchDebugState.reason
 					: undefined
 			}
+			data-last-demand-dispatch-executor-in-flight-after={
+				lastDemandDispatchResult?.executorInFlightCountAfter
+			}
+			data-last-demand-dispatch-executor-in-flight-bytes-after={
+				lastDemandDispatchResult?.executorInFlightBytesAfter
+			}
+			data-last-demand-dispatch-executor-queued-after={
+				lastDemandDispatchResult?.executorQueuedLoadCountAfter
+			}
+			data-last-demand-dispatch-executor-queued-bytes-after={
+				lastDemandDispatchResult?.executorQueuedBytesAfter
+			}
 			data-last-demand-dispatch-failed-count={lastDemandDispatchResult?.failedCount}
+			data-last-demand-dispatch-failed-count-by-lane={
+				lastDemandDispatchResult === null
+					? undefined
+					: JSON.stringify(worktreeFileDemandFailedCountByLane(lastDemandDispatchResult))
+			}
+			data-last-demand-dispatch-failed-count-by-reason={
+				lastDemandDispatchResult === null
+					? undefined
+					: JSON.stringify(worktreeFileDemandFailedCountByReason(lastDemandDispatchResult))
+			}
 			data-last-demand-dispatch-first-disposition={firstDemandLoadTelemetry?.disposition}
 			data-last-demand-dispatch-first-lane={firstDemandLoadTelemetry?.lane}
 			data-last-demand-dispatch-intent-count={lastDemandDispatchResult?.intentCount}
 			data-last-demand-dispatch-loaded-count={lastDemandDispatchResult?.loadedCount}
+			data-last-demand-dispatch-scheduler-queued-after={
+				lastDemandDispatchResult?.schedulerQueuedIntentCountAfter
+			}
+			data-last-demand-dispatch-scheduler-queued-bytes-after={
+				lastDemandDispatchResult?.schedulerQueuedEstimatedBytesAfter
+			}
 			data-last-demand-dispatch-status={lastDemandDispatchDebugState.status}
 			data-last-demand-dispatch-stimulus-count={lastDemandDispatchResult?.stimulusCount}
 			data-last-open-load-disposition={lastOpenLoadTelemetry?.disposition}
@@ -580,6 +608,32 @@ function firstSuccessfulDemandLoadTelemetry(
 		}
 	}
 	return null;
+}
+
+function worktreeFileDemandFailedCountByLane(
+	result: WorktreeFileSurfaceDemandDispatchResult,
+): Record<string, number> {
+	const countByLane: Record<string, number> = {};
+	for (const loadResult of result.loadResults) {
+		if (loadResult.ok) {
+			continue;
+		}
+		countByLane[loadResult.lane] = (countByLane[loadResult.lane] ?? 0) + 1;
+	}
+	return countByLane;
+}
+
+function worktreeFileDemandFailedCountByReason(
+	result: WorktreeFileSurfaceDemandDispatchResult,
+): Record<string, number> {
+	const countByReason: Record<string, number> = {};
+	for (const loadResult of result.loadResults) {
+		if (loadResult.ok) {
+			continue;
+		}
+		countByReason[loadResult.reason] = (countByReason[loadResult.reason] ?? 0) + 1;
+	}
+	return countByReason;
 }
 
 function bridgeFileViewerHeaderTitle(props: {

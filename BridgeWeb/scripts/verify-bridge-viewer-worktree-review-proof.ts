@@ -32,6 +32,24 @@ export interface WorktreeFileOpenLoadTelemetryPredicateInput {
 	readonly schedulerQueuedIntentCountBefore: number | null;
 }
 
+export interface WorktreeFileDemandDispatchTelemetryProof {
+	readonly failedCount: number | null;
+	readonly failedCountByLane: Record<string, number> | null;
+	readonly failedCountByReason: Record<string, number> | null;
+	readonly firstDisposition: string | null;
+	readonly firstLane: string | null;
+	readonly intentCount: number | null;
+	readonly loadedCount: number | null;
+	readonly executorInFlightBytesAfter: number | null;
+	readonly executorInFlightCountAfter: number | null;
+	readonly executorQueuedBytesAfter: number | null;
+	readonly executorQueuedLoadCountAfter: number | null;
+	readonly schedulerQueuedEstimatedBytesAfter: number | null;
+	readonly schedulerQueuedIntentCountAfter: number | null;
+	readonly status: string | null;
+	readonly stimulusCount: number | null;
+}
+
 export interface ReviewDemandTelemetryProof {
 	readonly admittedBytes: number | null;
 	readonly admittedBytesByLane: Record<string, number> | null;
@@ -177,6 +195,64 @@ export function worktreeFileOpenLoadTelemetrySatisfied(
 		proof.executorQueuedBytesBefore !== null &&
 		proof.executorQueuedBytesBefore >= 0
 	);
+}
+
+export function worktreeFileVisibleDemandTelemetrySatisfied(
+	proof: WorktreeFileDemandDispatchTelemetryProof,
+): boolean {
+	const failedCount = proof.failedCount;
+	return (
+		proof.status === 'settled' &&
+		proof.stimulusCount !== null &&
+		proof.stimulusCount > 0 &&
+		proof.intentCount !== null &&
+		proof.intentCount > 0 &&
+		proof.loadedCount !== null &&
+		proof.loadedCount > 0 &&
+		failedCount !== null &&
+		failedCount >= 0 &&
+		worktreeFileDemandDispatchFailuresAccounted({
+			failedCount,
+			failedCountByLane: proof.failedCountByLane,
+			failedCountByReason: proof.failedCountByReason,
+		}) &&
+		proof.firstLane === 'visible' &&
+		proof.firstDisposition === 'visible-preloaded' &&
+		proof.schedulerQueuedIntentCountAfter === 0 &&
+		proof.schedulerQueuedEstimatedBytesAfter === 0 &&
+		proof.executorInFlightCountAfter === 0 &&
+		proof.executorInFlightBytesAfter === 0 &&
+		proof.executorQueuedLoadCountAfter === 0 &&
+		proof.executorQueuedBytesAfter === 0
+	);
+}
+
+function worktreeFileDemandDispatchFailuresAccounted(props: {
+	readonly failedCount: number;
+	readonly failedCountByLane: Record<string, number> | null;
+	readonly failedCountByReason: Record<string, number> | null;
+}): boolean {
+	if (props.failedCount === 0) {
+		return true;
+	}
+	return (
+		props.failedCountByLane !== null &&
+		props.failedCountByReason !== null &&
+		recordNumberSum(props.failedCountByLane) === props.failedCount &&
+		recordNumberSum(props.failedCountByReason) === props.failedCount &&
+		(props.failedCountByLane['visible'] ?? 0) === props.failedCount
+	);
+}
+
+function recordNumberSum(record: Record<string, number>): number {
+	let sum = 0;
+	for (const value of Object.values(record)) {
+		if (!Number.isFinite(value) || value < 0) {
+			return -1;
+		}
+		sum += value;
+	}
+	return sum;
 }
 
 export function reviewSelectedDemandTelemetrySatisfied(proof: ReviewDemandTelemetryProof): boolean {

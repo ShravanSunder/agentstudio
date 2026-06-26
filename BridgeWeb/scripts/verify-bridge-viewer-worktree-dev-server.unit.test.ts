@@ -14,6 +14,7 @@ import {
 	reviewSelectedDemandTelemetrySatisfied,
 	reviewVisibleDemandTelemetryAttributed,
 	selectVisibleReviewCollapseControlProof,
+	worktreeFileVisibleDemandTelemetrySatisfied,
 	worktreeFileOpenLoadTelemetrySatisfied,
 } from './verify-bridge-viewer-worktree-review-proof.ts';
 import type { ReviewDemandTelemetryProof } from './verify-bridge-viewer-worktree-review-proof.ts';
@@ -299,6 +300,108 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 				schedulerQueuedIntentCountBefore: 0,
 			}),
 		).toBe(true);
+	});
+
+	test('publishes FileViewer visible preload telemetry as a first-class dev-server proof row', async () => {
+		const verifierSource = await readFile(verifierSourceUrl, 'utf8');
+
+		expect(verifierSource).toContain('fileViewerVisibleDemandTelemetry');
+		expect(verifierSource).toContain('worktreeFileVisibleDemandTelemetrySatisfied');
+		expect(
+			worktreeFileVisibleDemandTelemetrySatisfied({
+				failedCount: 0,
+				failedCountByLane: { visible: 0 },
+				failedCountByReason: { byte_budget_exceeded: 0 },
+				firstDisposition: 'visible-preloaded',
+				firstLane: 'visible',
+				intentCount: 2,
+				loadedCount: 2,
+				executorInFlightBytesAfter: 0,
+				executorInFlightCountAfter: 0,
+				executorQueuedBytesAfter: 0,
+				executorQueuedLoadCountAfter: 0,
+				schedulerQueuedEstimatedBytesAfter: 0,
+				schedulerQueuedIntentCountAfter: 0,
+				status: 'settled',
+				stimulusCount: 1,
+			}),
+		).toBe(true);
+		expect(
+			worktreeFileVisibleDemandTelemetrySatisfied({
+				failedCount: 48,
+				failedCountByLane: { visible: 48 },
+				failedCountByReason: { byte_budget_exceeded: 48 },
+				firstDisposition: 'visible-preloaded',
+				firstLane: 'visible',
+				intentCount: 50,
+				loadedCount: 2,
+				executorInFlightBytesAfter: 0,
+				executorInFlightCountAfter: 0,
+				executorQueuedBytesAfter: 0,
+				executorQueuedLoadCountAfter: 0,
+				schedulerQueuedEstimatedBytesAfter: 0,
+				schedulerQueuedIntentCountAfter: 0,
+				status: 'settled',
+				stimulusCount: 1,
+			}),
+		).toBe(true);
+		expect(
+			worktreeFileVisibleDemandTelemetrySatisfied({
+				failedCount: 48,
+				failedCountByLane: null,
+				failedCountByReason: null,
+				firstDisposition: 'visible-preloaded',
+				firstLane: 'visible',
+				intentCount: 50,
+				loadedCount: 2,
+				executorInFlightBytesAfter: 0,
+				executorInFlightCountAfter: 0,
+				executorQueuedBytesAfter: 0,
+				executorQueuedLoadCountAfter: 0,
+				schedulerQueuedEstimatedBytesAfter: 0,
+				schedulerQueuedIntentCountAfter: 0,
+				status: 'settled',
+				stimulusCount: 1,
+			}),
+		).toBe(false);
+		expect(
+			worktreeFileVisibleDemandTelemetrySatisfied({
+				failedCount: 0,
+				failedCountByLane: { foreground: 0 },
+				failedCountByReason: { byte_budget_exceeded: 0 },
+				firstDisposition: 'cold-loaded',
+				firstLane: 'foreground',
+				intentCount: 1,
+				loadedCount: 1,
+				executorInFlightBytesAfter: 0,
+				executorInFlightCountAfter: 0,
+				executorQueuedBytesAfter: 0,
+				executorQueuedLoadCountAfter: 0,
+				schedulerQueuedEstimatedBytesAfter: 0,
+				schedulerQueuedIntentCountAfter: 0,
+				status: 'settled',
+				stimulusCount: 1,
+			}),
+		).toBe(false);
+		expect(
+			worktreeFileVisibleDemandTelemetrySatisfied({
+				failedCount: 0,
+				failedCountByLane: { visible: 0 },
+				failedCountByReason: { byte_budget_exceeded: 0 },
+				firstDisposition: 'visible-preloaded',
+				firstLane: 'visible',
+				intentCount: 0,
+				loadedCount: 0,
+				executorInFlightBytesAfter: 0,
+				executorInFlightCountAfter: 0,
+				executorQueuedBytesAfter: 0,
+				executorQueuedLoadCountAfter: 0,
+				schedulerQueuedEstimatedBytesAfter: 0,
+				schedulerQueuedIntentCountAfter: 0,
+				status: 'idle',
+				stimulusCount: 0,
+			}),
+		).toBe(false);
 	});
 
 	test('does not assume the first Worktree/File content route belongs to the selected file', async () => {

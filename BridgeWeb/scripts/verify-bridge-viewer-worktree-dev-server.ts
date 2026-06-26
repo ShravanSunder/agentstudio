@@ -30,6 +30,7 @@ import {
 	reviewRoutePressureSatisfied,
 	reviewSelectedDemandTelemetrySatisfied,
 	selectVisibleReviewCollapseControlProof,
+	worktreeFileVisibleDemandTelemetrySatisfied,
 	worktreeFileOpenLoadTelemetrySatisfied,
 	type ReviewCollapseControlCandidate,
 	type ReviewCollapseControlProof,
@@ -37,6 +38,7 @@ import {
 	type ReviewContentRoutePressureProof,
 	type ReviewDemandTelemetryProof,
 	type ReviewRenderedSelectionSnapshot,
+	type WorktreeFileDemandDispatchTelemetryProof,
 } from './verify-bridge-viewer-worktree-review-proof.ts';
 
 const defaultWorktreeDevServerUrl =
@@ -154,6 +156,7 @@ interface WorktreeDevServerVerificationResult {
 	readonly negativeAssertions: readonly string[];
 	readonly productControlsProof: WorktreeFileProductControlsProof;
 	readonly fileToReviewHandoffProof: WorktreeFileToReviewHandoffProof;
+	readonly fileViewerVisibleDemandTelemetry: WorktreeFileDemandDispatchTelemetryProof;
 	readonly reviewFileTargetRouteProof: WorktreeReviewFileTargetRouteProof;
 	readonly reviewRouteProof: WorktreeReviewRouteProof;
 	readonly sharedShellProof: WorktreeFileSharedShellProof;
@@ -905,6 +908,12 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 			expectedWorktreeRootToken,
 			proof: visibleAppProof,
 		});
+		const fileViewerVisibleDemandTelemetry = await readWorktreeFileVisibleDemandTelemetry(page);
+		if (!worktreeFileVisibleDemandTelemetrySatisfied(fileViewerVisibleDemandTelemetry)) {
+			throw new Error(
+				`Expected FileViewer visible preload demand telemetry to be attributed: ${JSON.stringify(fileViewerVisibleDemandTelemetry)}`,
+			);
+		}
 		const readyScreenshotPath = await captureWorktreeDevServerScreenshot({
 			name: 'worktree-file-ready.png',
 			page,
@@ -986,6 +995,7 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 			substituteGuardProof,
 			visibleAppProof,
 			fileToReviewHandoffProof,
+			fileViewerVisibleDemandTelemetry,
 			productControlsProof,
 			reviewFileTargetRouteProof,
 			reviewRouteProof,
@@ -5346,6 +5356,94 @@ async function readWorktreeDevReloadProof(page: Page): Promise<WorktreeDevReload
 		sourceCursor: rawProof.sourceCursor,
 		status: rawProof.status,
 	};
+}
+
+async function readWorktreeFileVisibleDemandTelemetry(
+	page: Page,
+): Promise<WorktreeFileDemandDispatchTelemetryProof> {
+	return await page.evaluate((): WorktreeFileDemandDispatchTelemetryProof => {
+		const shell = document.querySelector('[data-testid="bridge-file-viewer-shell"]');
+		const readShellNumberAttribute = (attributeName: string): number | null => {
+			if (!(shell instanceof HTMLElement)) {
+				return null;
+			}
+			const attributeValue = shell.getAttribute(attributeName);
+			if (attributeValue === null) {
+				return null;
+			}
+			const parsedValue = Number(attributeValue);
+			return Number.isFinite(parsedValue) ? parsedValue : null;
+		};
+		const readShellNumberRecordAttribute = (
+			attributeName: string,
+		): Record<string, number> | null => {
+			if (!(shell instanceof HTMLElement)) {
+				return null;
+			}
+			const attributeValue = shell.getAttribute(attributeName);
+			if (attributeValue === null) {
+				return null;
+			}
+			try {
+				const parsedValue: unknown = JSON.parse(attributeValue);
+				if (parsedValue === null || typeof parsedValue !== 'object' || Array.isArray(parsedValue)) {
+					return null;
+				}
+				const record: Record<string, number> = {};
+				for (const [key, value] of Object.entries(parsedValue)) {
+					if (typeof value !== 'number') {
+						return null;
+					}
+					record[key] = value;
+				}
+				return record;
+			} catch {
+				return null;
+			}
+		};
+		return {
+			failedCount: readShellNumberAttribute('data-last-demand-dispatch-failed-count'),
+			failedCountByLane: readShellNumberRecordAttribute(
+				'data-last-demand-dispatch-failed-count-by-lane',
+			),
+			failedCountByReason: readShellNumberRecordAttribute(
+				'data-last-demand-dispatch-failed-count-by-reason',
+			),
+			firstDisposition:
+				shell instanceof HTMLElement
+					? shell.getAttribute('data-last-demand-dispatch-first-disposition')
+					: null,
+			firstLane:
+				shell instanceof HTMLElement
+					? shell.getAttribute('data-last-demand-dispatch-first-lane')
+					: null,
+			intentCount: readShellNumberAttribute('data-last-demand-dispatch-intent-count'),
+			loadedCount: readShellNumberAttribute('data-last-demand-dispatch-loaded-count'),
+			executorInFlightBytesAfter: readShellNumberAttribute(
+				'data-last-demand-dispatch-executor-in-flight-bytes-after',
+			),
+			executorInFlightCountAfter: readShellNumberAttribute(
+				'data-last-demand-dispatch-executor-in-flight-after',
+			),
+			executorQueuedBytesAfter: readShellNumberAttribute(
+				'data-last-demand-dispatch-executor-queued-bytes-after',
+			),
+			executorQueuedLoadCountAfter: readShellNumberAttribute(
+				'data-last-demand-dispatch-executor-queued-after',
+			),
+			schedulerQueuedEstimatedBytesAfter: readShellNumberAttribute(
+				'data-last-demand-dispatch-scheduler-queued-bytes-after',
+			),
+			schedulerQueuedIntentCountAfter: readShellNumberAttribute(
+				'data-last-demand-dispatch-scheduler-queued-after',
+			),
+			status:
+				shell instanceof HTMLElement
+					? shell.getAttribute('data-last-demand-dispatch-status')
+					: null,
+			stimulusCount: readShellNumberAttribute('data-last-demand-dispatch-stimulus-count'),
+		};
+	});
 }
 
 async function dispatchWorktreeDevForceSplitResetReload(page: Page): Promise<void> {
