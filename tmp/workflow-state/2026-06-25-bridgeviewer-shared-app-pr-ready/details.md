@@ -2,13 +2,14 @@
 
 Goal id: `2026-06-25-bridgeviewer-shared-app-pr-ready`
 Status: active
-Current workflow: `shravan-dev-workflow:implementation-review-swarm`
-Next workflow: `shravan-dev-workflow:implementation-execute-plan`
+Current workflow: `shravan-dev-workflow:implementation-execute-plan`
+Next workflow: `shravan-dev-workflow:implementation-review-swarm`
 
 Workflow precedence note: the latest valid `shravan-dev-workflow:orchestrator-goal`
 event in `events.jsonl` owns current/next workflow. This header reflects the
-2026-06-25T19:45:00-04:00 checkpoint transition to implementation review after
-the shared FileViewer chrome/browser proof commit.
+2026-06-25T20:00:00-04:00 needs-revision transition back to implementation after
+review accepted proof blockers and the FileViewer preload/performance contract
+was added to spec and plan.
 
 ## Durable Objective
 
@@ -479,6 +480,22 @@ Disposition of prior findings:
   fixtures.
 - Still open: Agent Studio Swift-hosted Bridge/WKWebView proof has not yet been
   captured for the current checkpoint.
+- Accepted implementation-review blocker: the latest dev-server artifact records
+  the legacy compatibility Files URL as the main Files proof. The next verifier
+  slice must prove and record the explicit
+  `?fixture=worktree&viewer=file&workers=on&scenario=current-worktree` route.
+- Accepted implementation-review finding: the current worktree verifier can fall
+  back to synthetic DOM `dispatchEvent` clicks. Product E2E proof must remove
+  that fallback and use actionability-checked browser interactions with bounded
+  waits.
+- Accepted performance design update: FileViewer click latency must be treated
+  as scheduler/preload work. Current code has generic scheduler lanes and
+  Worktree/File demand stimuli, but the FileViewer runtime/UI does not yet emit
+  viewport, adjacent, hover/focus, or recently-updated-file preload stimuli.
+  The next implementation slice should add an app-specific
+  `dispatchDemandStimuli(...)` seam, descriptor-backed body-registry preloads,
+  scoped cancellation groups, preload disposition telemetry, and click-to-ready
+  latency proof.
 
 Recommended next workflow:
 `shravan-dev-workflow:implementation-review-swarm` for source-backed review of

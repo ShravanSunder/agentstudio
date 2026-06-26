@@ -558,6 +558,24 @@ Current checkpoint note, 2026-06-25:
   routes while selected content still rendered ready. This does not block 0.a.3
   shell/chrome acceptance, but it should be kept visible for the review-route
   fetch/cancellation follow-up.
+- Implementation review finding, 2026-06-25: the current dev-server artifact
+  still records the legacy Files URL as the main Files proof. The next verifier
+  fix must make the canonical Files proof use the explicit
+  `?fixture=worktree&viewer=file&workers=on&scenario=current-worktree` URL and
+  record that URL in the artifact. The legacy compatibility URL may remain an
+  extra route, not the primary proof.
+- Implementation review finding, 2026-06-25: `clickWorktreeFilePath` currently
+  falls back to synthetic DOM `dispatchEvent` after a failed browser click.
+  Remove that fallback for product E2E proof. Tree/file selection proof must use
+  actionability-checked browser interactions with bounded waits so a broken
+  user click cannot pass.
+- Browser/onlook update, 2026-06-25: fresh live screenshots were captured at
+  `/tmp/bridgeviewer-verification/current-onlook-file.png`,
+  `/tmp/bridgeviewer-verification/current-onlook-review.png`, and
+  `/tmp/bridgeviewer-verification/current-onlook-review-file-target.png`. The
+  onlook passed all three live URLs for shared shell, no standalone app, left
+  canvas/right rail on Files, and usable search/regex/filter affordances where
+  expected. It repeated the low-priority review-content `ERR_ABORTED` note.
 
 ### Slice 06P.4 / 0.a.4: Pierre CodeView/File, Shiki, And Worker Proof
 
@@ -566,14 +584,68 @@ and the Pierre worker pool must be active when `workers=on`. Make open-file
 state explicit and visible: loading, ready, stale, unavailable, and refresh. If
 the currently open file changes while open, show an update notification/refresh
 affordance rather than silently replacing content.
+Opened-file latency is part of this slice, not a subjective polish follow-up.
+The FileViewer should use the shared demand scheduler to warm likely next files:
+selected/open file and refresh are `foreground`, visible tree rows are bounded
+`visible` preloads, adjacent selected/open rows are `nearby`, hover/focus or
+provider predictions are `speculative`, debounced recently-updated files from
+the current open FileViewer source are `speculative` unless they are adjacent to
+the selected/open/visible region, and broad warming is `idle`. All preloads
+remain descriptor-backed, byte-budgeted, deduped, abortable, and stale-dropped;
+large bodies stay out of Zustand.
 
 Proof:
 
 - Unit test for invalidation of the open descriptor.
+- Unit/integration proof for FileViewer demand policy mapping selected,
+  viewport-visible, adjacent, hover/focus, and idle stimuli to scheduler lanes.
 - Browser proof observes stale/update affordance.
 - Browser proof clicks refresh and returns to ready state.
 - Browser proof rejects raw `<pre>` file rendering.
 - Browser proof records Pierre CodeView/File and worker-ready markers.
+- Browser/dev-server proof records click-to-ready latency, queue depth,
+  in-flight count, byte-budget decisions, and whether opened content was
+  cold-loaded, visible-preloaded, nearby-preloaded, speculative-preloaded, or
+  refreshed.
+- Victoria/OTel proof is required before production constants graduate. The
+  first pass may keep conservative defaults, but it must emit enough telemetry
+  to tell whether slow click-to-ready time comes from provider I/O, descriptor
+  scheduling, worker rendering, or UI commit.
+
+Implementation notes from current-code research:
+
+- Existing generic demand code already owns the right primitives:
+  `BridgeWeb/src/core/models/bridge-demand-models.ts`,
+  `BridgeWeb/src/core/demand/bridge-demand-scheduler.ts`, and
+  `BridgeWeb/src/core/demand/bridge-resource-executor.ts`.
+- Existing Worktree/File policy already defines app-specific stimuli:
+  `fileSelected`, `openFileInvalidated`, `treeViewportChanged`,
+  `treeExpanded`, `explicitRefresh`, `hoverChanged`, and `sourceReset` in
+  `BridgeWeb/src/features/worktree-file/models/worktree-file-protocol-models.ts`.
+- Current FileViewer runtime only drives selection/refresh demand:
+  `BridgeWeb/src/worktree-file-surface/worktree-file-surface-runtime.ts`
+  exposes `openFile` and `refreshOpenFile`, and `BridgeFileViewerApp.openFile`
+  awaits selected-file loading on click. Viewport, adjacent, hover/focus, and
+  recently-updated-file stimuli are defined but not yet emitted by the UI/runtime
+  path.
+- Add an app-specific runtime seam, not a new generic scheduler:
+  `dispatchDemandStimuli(stimuli: readonly WorktreeFileDemandStimulus[])`.
+- Preloads should populate the descriptor-backed body registry/content resource
+  layer, not React/Zustand state. Store only lightweight descriptor refs,
+  freshness keys, source/version/epoch, and preload disposition/status facts.
+- Use shared dedupe keys per descriptor so a queued lower-lane preload upgrades
+  cleanly to `foreground` when the user clicks.
+- Make ordering app-specific:
+  visible by viewport row index, nearby by distance from selected/open row,
+  speculative by latest event wins.
+- Split cancellation groups by scope instead of only source-wide:
+  open session, viewport epoch, nearby selected-file epoch, and speculative
+  epoch. This prevents viewport churn or recently-updated-file debounces from
+  canceling the selected/open file path.
+- Before implementation, verify whether the current Pierre tree wrapper exposes
+  viewport/hover/focus callbacks. If it does not, the first slice must add a
+  browser-local adapter or a measured fallback that emits bounded visible-window
+  stimuli without reaching into Pierre internals.
 
 ### Slice 06P.5 / 0.a.5: Scroll Extent Canary
 
