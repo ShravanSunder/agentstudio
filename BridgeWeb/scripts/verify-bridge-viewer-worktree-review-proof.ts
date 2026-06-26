@@ -65,6 +65,15 @@ export interface ReviewRenderedSelectionSnapshot {
 	readonly visibleText: string;
 }
 
+export interface ReviewCollapseControlProof {
+	readonly ariaExpanded: string | null;
+	readonly fontSize: string | null;
+	readonly height: number;
+	readonly itemId: string | null;
+	readonly primitiveSlot: string | null;
+	readonly present: boolean;
+}
+
 export interface ReviewRenderedSelectionExpectation {
 	readonly expectedCodeViewOverflow: 'wrap';
 	readonly expectedItemId: string;
@@ -83,5 +92,18 @@ export function reviewRenderedSelectionSatisfied(props: {
 		props.snapshot.selectedMaterializedItemType ===
 			props.expectation.expectedMaterializedItemType &&
 		props.snapshot.visibleText.includes(props.expectation.expectedVisibleText)
+	);
+}
+
+export function reviewCollapseControlSatisfied(props: {
+	readonly expectedItemId: string;
+	readonly proof: ReviewCollapseControlProof;
+}): boolean {
+	return (
+		props.proof.present &&
+		props.proof.itemId === props.expectedItemId &&
+		props.proof.primitiveSlot === 'button' &&
+		Math.abs(props.proof.height - 24) <= 1 &&
+		(props.proof.ariaExpanded === 'true' || props.proof.ariaExpanded === 'false')
 	);
 }

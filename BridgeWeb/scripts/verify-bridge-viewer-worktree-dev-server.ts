@@ -22,9 +22,11 @@ import { resolveBridgeWorktreeVerifierWritePath } from './verify-bridge-viewer-w
 import {
 	buildReviewContentRouteDeltaProof,
 	normalizeReviewTreeSearchQuery,
+	reviewCollapseControlSatisfied,
 	reviewContentRouteDeltaSatisfied,
 	reviewRenderedSelectionSatisfied,
 	type ReviewContentRouteDeltaProof,
+	type ReviewCollapseControlProof,
 	type ReviewRenderedSelectionSnapshot,
 } from './verify-bridge-viewer-worktree-review-proof.ts';
 
@@ -414,6 +416,7 @@ interface WorktreeReviewRouteProof {
 	readonly reviewCanvasCount: number;
 	readonly reviewCodeScrollCount: number;
 	readonly reviewContextButtonSelected: string | null;
+	readonly reviewCollapseControlProof: ReviewCollapseControlProof;
 	readonly reviewContentRouteHitCount: number;
 	readonly reviewContentRouteHitUrls: readonly string[];
 	readonly reviewEmptyShellCount: number;
@@ -1007,6 +1010,10 @@ async function verifyWorktreeReviewRoute(): Promise<WorktreeReviewRouteProof> {
 			routeProbe,
 		});
 		const reviewRenderedSelectionProof = await readReviewRenderedSelectionSnapshot(page);
+		const reviewCollapseControlProof = await readReviewCollapseControlProof({
+			expectedItemId: selectionItemId,
+			page,
+		});
 		if (
 			!reviewRenderedSelectionSatisfied({
 				expectation: {
@@ -1020,6 +1027,16 @@ async function verifyWorktreeReviewRoute(): Promise<WorktreeReviewRouteProof> {
 		) {
 			throw new Error(
 				`Expected Review tree click to render ${selectionItemId} in the left CodeView canvas: ${JSON.stringify(reviewRenderedSelectionProof)}`,
+			);
+		}
+		if (
+			!reviewCollapseControlSatisfied({
+				expectedItemId: selectionItemId,
+				proof: reviewCollapseControlProof,
+			})
+		) {
+			throw new Error(
+				`Expected Review CodeView collapse control to use compact Button primitive chrome for ${selectionItemId}: ${JSON.stringify(reviewCollapseControlProof)}`,
 			);
 		}
 		if (!reviewContentRouteDeltaSatisfied(reviewSelectionPostClickContentRouteProof)) {
@@ -1124,6 +1141,7 @@ async function verifyWorktreeReviewRoute(): Promise<WorktreeReviewRouteProof> {
 			...proof,
 			reviewContentRouteHitCount: routeProbe.contentHitCount(),
 			reviewContentRouteHitUrls: routeProbe.contentHitUrls(),
+			reviewCollapseControlProof,
 			reviewSelectionContentRouteHitCount: routeProbe
 				.contentHitUrls()
 				.filter((url) => url.includes(selectionItemId)).length,
@@ -1170,6 +1188,10 @@ async function verifyWorktreeReviewRoute(): Promise<WorktreeReviewRouteProof> {
 			routeProof.reviewContentRouteHitCount <= 0 ||
 			routeProof.reviewSelectionContentRouteHitCount <= 0 ||
 			!reviewContentRouteDeltaSatisfied(routeProof.reviewSelectionPostClickContentRouteProof) ||
+			!reviewCollapseControlSatisfied({
+				expectedItemId: selectionItemId,
+				proof: routeProof.reviewCollapseControlProof,
+			}) ||
 			routeProof.reviewSelectionSelectedContentState !== 'ready' ||
 			routeProof.reviewSelectionSelectedDisplayPath !== reviewSelectionFixtureRelativePath ||
 			!reviewRenderedSelectionSatisfied({
@@ -4777,6 +4799,54 @@ async function readReviewRenderedSelectionSnapshot(
 			visibleText,
 		};
 	});
+}
+
+async function readReviewCollapseControlProof(props: {
+	readonly expectedItemId: string;
+	readonly page: Page;
+}): Promise<ReviewCollapseControlProof> {
+	return await props.page.evaluate((expectedItemId: string): ReviewCollapseControlProof => {
+		const lightDomHeaders = [
+			...document.querySelectorAll('[data-testid="bridge-code-view-header-collapse-button"]'),
+		].filter(
+			(element: Element): element is HTMLButtonElement => element instanceof HTMLButtonElement,
+		);
+		const shadowDomHeaders = [...document.querySelectorAll('diffs-container')].flatMap(
+			(element: Element): readonly HTMLButtonElement[] =>
+				[
+					...(element.shadowRoot?.querySelectorAll(
+						'[data-testid="bridge-code-view-header-collapse-button"]',
+					) ?? []),
+				].filter(
+					(headerElement: Element): headerElement is HTMLButtonElement =>
+						headerElement instanceof HTMLButtonElement,
+				),
+		);
+		const selectedHeader = [...lightDomHeaders, ...shadowDomHeaders].find(
+			(headerElement: HTMLButtonElement): boolean =>
+				headerElement.dataset['bridgeCodeViewItemId'] === expectedItemId,
+		);
+		if (selectedHeader === undefined) {
+			return {
+				ariaExpanded: null,
+				fontSize: null,
+				height: 0,
+				itemId: null,
+				present: false,
+				primitiveSlot: null,
+			};
+		}
+		const selectedHeaderRect = selectedHeader.getBoundingClientRect();
+		const selectedHeaderStyle = getComputedStyle(selectedHeader);
+		return {
+			ariaExpanded: selectedHeader.getAttribute('aria-expanded'),
+			fontSize: selectedHeaderStyle.fontSize,
+			height: selectedHeaderRect.height,
+			itemId: selectedHeader.dataset['bridgeCodeViewItemId'] ?? null,
+			present: true,
+			primitiveSlot: selectedHeader.getAttribute('data-slot'),
+		};
+	}, props.expectedItemId);
 }
 
 async function waitForWorktreeSourceCursor(props: {

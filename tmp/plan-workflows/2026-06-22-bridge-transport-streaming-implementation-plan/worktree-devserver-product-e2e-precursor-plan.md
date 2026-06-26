@@ -111,6 +111,41 @@ Closed visual/chrome cleanup inventory from the 2026-06-26 scout pass:
   selection by `playwright-review-tree-search-click`, and Review file-target
   route ready for `Sources/AgentStudio/AtomRegistry.swift`.
 
+2026-06-26 raw-control cleanup review-fix proof:
+
+- Implementation review found that the CodeView collapse/expand cleanup had
+  only lower-layer unit proof and the dev-server artifact did not publish a
+  visible primitive/style proof row for the actual selected Review CodeView
+  header control.
+- Added `reviewRouteProof.reviewCollapseControlProof` to the worktree
+  dev-server verifier. The proof reads the visible selected CodeView header
+  collapse button from light DOM or Pierre shadow DOM and records item id,
+  `data-slot`, height, computed font size, and `aria-expanded`.
+- Added lower-layer proof predicates in
+  `BridgeWeb/scripts/verify-bridge-viewer-worktree-review-proof.ts` and unit
+  coverage in
+  `BridgeWeb/scripts/verify-bridge-viewer-worktree-dev-server.unit.test.ts`.
+- Red/green proof:
+  `pnpm --dir BridgeWeb exec vitest run scripts/verify-bridge-viewer-worktree-dev-server.unit.test.ts -t "publishes visible CodeView collapse-control" --reporter verbose`
+  first failed because the verifier source did not publish
+  `reviewCollapseControlProof`, then passed after the verifier wiring.
+- Focused unit proof passed:
+  `pnpm --dir BridgeWeb exec vitest run scripts/verify-bridge-viewer-worktree-dev-server.unit.test.ts --reporter verbose`
+  with 1 file and 8 tests.
+- Full BridgeWeb static gate passed:
+  `pnpm --dir BridgeWeb run check` with existing verifier warnings only.
+- Full worktree dev-server browser proof passed:
+  `pnpm --dir BridgeWeb run test:dev-server:worktree`.
+- Fresh proof artifact:
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T15-59-47-610Z/worktree-dev-server-proof.json`.
+- Fresh proof fields:
+  `result.reviewRouteProof.reviewCollapseControlProof.present=true`,
+  `primitiveSlot=button`, `height=24`, `ariaExpanded=true`,
+  `itemId=worktree-review-0f8a4e04bc89-sources-agentstudio-atomregistry-swift`,
+  and `fontSize=13px`. Font size is recorded as telemetry for this icon-only
+  control; the pass/fail contract is owned Button primitive plus compact 24px
+  geometry and aria state.
+
 The remaining blocking outcome is now:
 
 ```text

@@ -1456,3 +1456,46 @@ Open implementation blockers remain:
   implementation review disposition, native Agent Studio Bridge/WKWebView proof,
   route fanout/content pressure, FileViewer preload latency/telemetry, and
   inactive-context browser/native proof if kept as gate-level.
+
+2026-06-26 raw-control cleanup review-fix checkpoint:
+
+- Implementation review found that the CodeView collapse/expand cleanup had
+  implementation and unit proof, but the dev-server artifact did not publish
+  visible browser proof that the actual selected Review CodeView header
+  collapse control uses the owned shared `Button` primitive.
+- Added `reviewRouteProof.reviewCollapseControlProof` to
+  `BridgeWeb/scripts/verify-bridge-viewer-worktree-dev-server.ts`. The verifier
+  now reads the selected CodeView header collapse button from light DOM or
+  Pierre shadow DOM and records item id, `data-slot`, height, computed font
+  size, and `aria-expanded`.
+- Added `ReviewCollapseControlProof` and `reviewCollapseControlSatisfied` in
+  `BridgeWeb/scripts/verify-bridge-viewer-worktree-review-proof.ts`.
+- Added unit coverage in
+  `BridgeWeb/scripts/verify-bridge-viewer-worktree-dev-server.unit.test.ts`.
+- Red/green proof:
+  `pnpm --dir BridgeWeb exec vitest run scripts/verify-bridge-viewer-worktree-dev-server.unit.test.ts -t "publishes visible CodeView collapse-control" --reporter verbose`
+  first failed because the verifier source did not contain
+  `reviewCollapseControlProof`, then passed after wiring the verifier artifact.
+- Focused unit proof passed:
+  `pnpm --dir BridgeWeb exec vitest run scripts/verify-bridge-viewer-worktree-dev-server.unit.test.ts --reporter verbose`
+  with 1 file and 8 tests.
+- Full BridgeWeb static gate passed:
+  `pnpm --dir BridgeWeb run check` with existing verifier warnings only.
+- Full worktree dev-server browser proof passed:
+  `pnpm --dir BridgeWeb run test:dev-server:worktree`.
+- Fresh proof artifact:
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T15-59-47-610Z/worktree-dev-server-proof.json`.
+- Fresh proof fields:
+  `result.reviewRouteProof.reviewCollapseControlProof.present=true`,
+  `result.reviewRouteProof.reviewCollapseControlProof.primitiveSlot=button`,
+  `result.reviewRouteProof.reviewCollapseControlProof.height=24`,
+  `result.reviewRouteProof.reviewCollapseControlProof.ariaExpanded=true`,
+  `result.reviewRouteProof.reviewCollapseControlProof.itemId=worktree-review-0f8a4e04bc89-sources-agentstudio-atomregistry-swift`,
+  and `result.reviewRouteProof.reviewCollapseControlProof.fontSize=13px`.
+  Font size is recorded as telemetry for this icon-only control; the pass/fail
+  contract is owned Button primitive plus compact 24px geometry and aria state.
+- Remaining blockers after this review-fix checkpoint:
+  implementation review disposition, native Agent Studio Bridge/WKWebView proof,
+  inactive-context browser/native proof if kept as gate-level, route
+  fanout/content pressure, FileViewer preload latency/telemetry, and PR-ready
+  wrapup.

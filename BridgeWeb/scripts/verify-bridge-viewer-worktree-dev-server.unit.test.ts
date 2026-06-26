@@ -5,6 +5,7 @@ import { describe, expect, test } from 'vitest';
 import {
 	buildReviewContentRouteDeltaProof,
 	normalizeReviewTreeSearchQuery,
+	reviewCollapseControlSatisfied,
 	reviewContentRouteDeltaSatisfied,
 	reviewRenderedSelectionSatisfied,
 } from './verify-bridge-viewer-worktree-review-proof.ts';
@@ -20,6 +21,14 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 		expect(verifierSource).toContain('clickReviewTreeFilePathViaSearch');
 		expect(verifierSource).toContain('[data-testid="bridge-review-trees-panel"]');
 		expect(verifierSource).toContain('[data-file-tree-search-input]');
+	});
+
+	test('publishes visible CodeView collapse-control primitive proof in Review route artifacts', async () => {
+		const verifierSource = await readFile(verifierSourceUrl, 'utf8');
+
+		expect(verifierSource).toContain('reviewCollapseControlProof');
+		expect(verifierSource).toContain('readReviewCollapseControlProof');
+		expect(verifierSource).toContain('reviewCollapseControlSatisfied');
 	});
 
 	test('normalizes Review tree search query while preserving clicked row path proof', () => {
@@ -131,6 +140,48 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 					selectedMaterializedFileLineCount: 0,
 					selectedMaterializedItemType: 'diff',
 					visibleText: '# Xcode\n*.xcodeproj\n',
+				},
+			}),
+		).toBe(false);
+	});
+
+	test('requires the visible Review CodeView collapse control to use compact Button primitive chrome', () => {
+		expect(
+			reviewCollapseControlSatisfied({
+				expectedItemId: 'worktree-review-gitignore',
+				proof: {
+					ariaExpanded: 'true',
+					fontSize: '11px',
+					height: 24,
+					itemId: 'worktree-review-gitignore',
+					present: true,
+					primitiveSlot: 'button',
+				},
+			}),
+		).toBe(true);
+		expect(
+			reviewCollapseControlSatisfied({
+				expectedItemId: 'worktree-review-gitignore',
+				proof: {
+					ariaExpanded: 'true',
+					fontSize: '11px',
+					height: 24,
+					itemId: 'worktree-review-gitignore',
+					present: true,
+					primitiveSlot: null,
+				},
+			}),
+		).toBe(false);
+		expect(
+			reviewCollapseControlSatisfied({
+				expectedItemId: 'worktree-review-gitignore',
+				proof: {
+					ariaExpanded: 'true',
+					fontSize: '11px',
+					height: 28,
+					itemId: 'worktree-review-gitignore',
+					present: true,
+					primitiveSlot: 'button',
 				},
 			}),
 		).toBe(false);
