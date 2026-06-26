@@ -396,16 +396,34 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 			data-last-open-load-executor-in-flight-after={
 				lastOpenLoadTelemetry?.executorInFlightCountAfter
 			}
+			data-last-open-load-executor-in-flight-bytes-after={
+				lastOpenLoadTelemetry?.executorInFlightBytesAfter
+			}
+			data-last-open-load-executor-in-flight-bytes-before={
+				lastOpenLoadTelemetry?.executorInFlightBytesBefore
+			}
 			data-last-open-load-executor-in-flight-before={
 				lastOpenLoadTelemetry?.executorInFlightCountBefore
 			}
 			data-last-open-load-executor-queued-after={
 				lastOpenLoadTelemetry?.executorQueuedLoadCountAfter
 			}
+			data-last-open-load-executor-queued-bytes-after={
+				lastOpenLoadTelemetry?.executorQueuedBytesAfter
+			}
+			data-last-open-load-executor-queued-bytes-before={
+				lastOpenLoadTelemetry?.executorQueuedBytesBefore
+			}
 			data-last-open-load-executor-queued-before={
 				lastOpenLoadTelemetry?.executorQueuedLoadCountBefore
 			}
 			data-last-open-load-lane={lastOpenLoadTelemetry?.lane}
+			data-last-open-load-scheduler-queued-bytes-after={
+				lastOpenLoadTelemetry?.schedulerQueuedEstimatedBytesAfter
+			}
+			data-last-open-load-scheduler-queued-bytes-before={
+				lastOpenLoadTelemetry?.schedulerQueuedEstimatedBytesBefore
+			}
 			data-last-open-load-scheduler-queued-after={
 				lastOpenLoadTelemetry?.schedulerQueuedIntentCountAfter
 			}

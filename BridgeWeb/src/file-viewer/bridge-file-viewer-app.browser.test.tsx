@@ -128,8 +128,14 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		expect(shell.getAttribute('data-last-open-load-disposition')).toBe('cold-loaded');
 		expect(shell.getAttribute('data-last-open-load-lane')).toBe('foreground');
 		expect(shell.getAttribute('data-last-open-load-estimated-bytes')).toBe('64');
+		expect(shell.getAttribute('data-last-open-load-scheduler-queued-bytes-after')).toBe('0');
+		expect(shell.getAttribute('data-last-open-load-scheduler-queued-bytes-before')).toBe('0');
 		expect(shell.getAttribute('data-last-open-load-scheduler-queued-after')).toBe('0');
+		expect(shell.getAttribute('data-last-open-load-executor-in-flight-bytes-after')).toBe('0');
+		expect(shell.getAttribute('data-last-open-load-executor-in-flight-bytes-before')).toBe('0');
 		expect(shell.getAttribute('data-last-open-load-executor-in-flight-after')).toBe('0');
+		expect(shell.getAttribute('data-last-open-load-executor-queued-bytes-after')).toBe('0');
+		expect(shell.getAttribute('data-last-open-load-executor-queued-bytes-before')).toBe('0');
 		expect(fetchedResourceUrls).toEqual([
 			'agentstudio://resource/worktree-file/worktree.fileContent/target-content?generation=1',
 		]);

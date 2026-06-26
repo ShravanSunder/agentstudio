@@ -178,6 +178,7 @@ interface WorktreeFileStaleRefreshProof {
 	readonly foreignContentRouteHitUrls: readonly string[];
 	readonly initialContentStillVisibleWhileStale: boolean;
 	readonly proofPath: string;
+	readonly refreshLoadTelemetry: WorktreeFileOpenLoadTelemetryProof;
 	readonly refreshFetchHitsAfterFirstClick: number;
 	readonly refreshFetchHitsAfterSecondClick: number;
 	readonly refreshFetchHitsBeforeClick: number;
@@ -520,11 +521,17 @@ interface WorktreeFileOpenLoadTelemetryProof {
 	readonly disposition: string | null;
 	readonly durationMilliseconds: number | null;
 	readonly estimatedBytes: number | null;
+	readonly executorInFlightBytesAfter: number | null;
+	readonly executorInFlightBytesBefore: number | null;
 	readonly executorInFlightCountAfter: number | null;
 	readonly executorInFlightCountBefore: number | null;
+	readonly executorQueuedBytesAfter: number | null;
+	readonly executorQueuedBytesBefore: number | null;
 	readonly executorQueuedLoadCountAfter: number | null;
 	readonly executorQueuedLoadCountBefore: number | null;
 	readonly lane: string | null;
+	readonly schedulerQueuedEstimatedBytesAfter: number | null;
+	readonly schedulerQueuedEstimatedBytesBefore: number | null;
 	readonly schedulerQueuedIntentCountAfter: number | null;
 	readonly schedulerQueuedIntentCountBefore: number | null;
 }
@@ -3515,6 +3522,78 @@ async function verifyWorktreeFileStaleRefresh(props: {
 		label: 'refreshed stale-refresh proof content',
 		page: props.page,
 	});
+	const refreshLoadTelemetry = await props.page.evaluate((): WorktreeFileOpenLoadTelemetryProof => {
+		const shell = document.querySelector('[data-testid="bridge-file-viewer-shell"]');
+		const optionalNumberAttribute = (
+			element: Element | null,
+			attributeName: string,
+		): number | null => {
+			if (!(element instanceof HTMLElement)) {
+				return null;
+			}
+			const attributeValue = element.getAttribute(attributeName);
+			if (attributeValue === null) {
+				return null;
+			}
+			const parsedValue = Number(attributeValue);
+			return Number.isFinite(parsedValue) ? parsedValue : null;
+		};
+		return {
+			disposition:
+				shell instanceof HTMLElement ? shell.getAttribute('data-last-open-load-disposition') : null,
+			durationMilliseconds: optionalNumberAttribute(shell, 'data-last-open-load-duration-ms'),
+			estimatedBytes: optionalNumberAttribute(shell, 'data-last-open-load-estimated-bytes'),
+			executorInFlightBytesAfter: optionalNumberAttribute(
+				shell,
+				'data-last-open-load-executor-in-flight-bytes-after',
+			),
+			executorInFlightBytesBefore: optionalNumberAttribute(
+				shell,
+				'data-last-open-load-executor-in-flight-bytes-before',
+			),
+			executorInFlightCountAfter: optionalNumberAttribute(
+				shell,
+				'data-last-open-load-executor-in-flight-after',
+			),
+			executorInFlightCountBefore: optionalNumberAttribute(
+				shell,
+				'data-last-open-load-executor-in-flight-before',
+			),
+			executorQueuedBytesAfter: optionalNumberAttribute(
+				shell,
+				'data-last-open-load-executor-queued-bytes-after',
+			),
+			executorQueuedBytesBefore: optionalNumberAttribute(
+				shell,
+				'data-last-open-load-executor-queued-bytes-before',
+			),
+			executorQueuedLoadCountAfter: optionalNumberAttribute(
+				shell,
+				'data-last-open-load-executor-queued-after',
+			),
+			executorQueuedLoadCountBefore: optionalNumberAttribute(
+				shell,
+				'data-last-open-load-executor-queued-before',
+			),
+			lane: shell instanceof HTMLElement ? shell.getAttribute('data-last-open-load-lane') : null,
+			schedulerQueuedEstimatedBytesAfter: optionalNumberAttribute(
+				shell,
+				'data-last-open-load-scheduler-queued-bytes-after',
+			),
+			schedulerQueuedEstimatedBytesBefore: optionalNumberAttribute(
+				shell,
+				'data-last-open-load-scheduler-queued-bytes-before',
+			),
+			schedulerQueuedIntentCountAfter: optionalNumberAttribute(
+				shell,
+				'data-last-open-load-scheduler-queued-after',
+			),
+			schedulerQueuedIntentCountBefore: optionalNumberAttribute(
+				shell,
+				'data-last-open-load-scheduler-queued-before',
+			),
+		};
+	});
 	const proof: WorktreeFileStaleRefreshProof = {
 		failedRefreshReturnedStale: true,
 		foreignContentRouteHitCount: refreshRouteProbe.foreignHitCount(),
@@ -3524,6 +3603,7 @@ async function verifyWorktreeFileStaleRefresh(props: {
 			props.fixture.initialContent,
 		),
 		proofPath: props.descriptor.path,
+		refreshLoadTelemetry,
 		refreshFetchHitsAfterFirstClick,
 		refreshFetchHitsAfterSecondClick,
 		refreshFetchHitsBeforeClick,
@@ -3805,7 +3885,25 @@ function assertWorktreeFileStaleRefreshProof(proof: WorktreeFileStaleRefreshProo
 		proof.foreignContentRouteHitCount !== 0 ||
 		proof.refreshFetchHitsBeforeClick !== 0 ||
 		proof.refreshFetchHitsAfterFirstClick !== 1 ||
-		proof.refreshFetchHitsAfterSecondClick !== 2
+		proof.refreshFetchHitsAfterSecondClick !== 2 ||
+		proof.refreshLoadTelemetry.disposition !== 'refreshed' ||
+		proof.refreshLoadTelemetry.lane !== 'foreground' ||
+		proof.refreshLoadTelemetry.durationMilliseconds === null ||
+		proof.refreshLoadTelemetry.durationMilliseconds < 0 ||
+		proof.refreshLoadTelemetry.estimatedBytes === null ||
+		proof.refreshLoadTelemetry.estimatedBytes <= 0 ||
+		proof.refreshLoadTelemetry.schedulerQueuedIntentCountAfter !== 0 ||
+		proof.refreshLoadTelemetry.schedulerQueuedEstimatedBytesAfter !== 0 ||
+		proof.refreshLoadTelemetry.executorInFlightCountAfter !== 0 ||
+		proof.refreshLoadTelemetry.executorInFlightBytesAfter !== 0 ||
+		proof.refreshLoadTelemetry.executorQueuedLoadCountAfter !== 0 ||
+		proof.refreshLoadTelemetry.executorQueuedBytesAfter !== 0 ||
+		proof.refreshLoadTelemetry.schedulerQueuedIntentCountBefore !== 0 ||
+		proof.refreshLoadTelemetry.schedulerQueuedEstimatedBytesBefore !== 0 ||
+		proof.refreshLoadTelemetry.executorInFlightCountBefore !== 0 ||
+		proof.refreshLoadTelemetry.executorInFlightBytesBefore !== 0 ||
+		proof.refreshLoadTelemetry.executorQueuedLoadCountBefore !== 0 ||
+		proof.refreshLoadTelemetry.executorQueuedBytesBefore !== 0
 	) {
 		throw new Error(
 			`Expected Worktree/File explicit refresh to render update: ${JSON.stringify(proof)}`,
@@ -4403,6 +4501,14 @@ async function verifyWorktreeFileToReviewHandoff(): Promise<WorktreeFileToReview
 					fileViewerShell,
 					'data-last-open-load-estimated-bytes',
 				),
+				executorInFlightBytesAfter: optionalNumberAttribute(
+					fileViewerShell,
+					'data-last-open-load-executor-in-flight-bytes-after',
+				),
+				executorInFlightBytesBefore: optionalNumberAttribute(
+					fileViewerShell,
+					'data-last-open-load-executor-in-flight-bytes-before',
+				),
 				executorInFlightCountAfter: optionalNumberAttribute(
 					fileViewerShell,
 					'data-last-open-load-executor-in-flight-after',
@@ -4415,6 +4521,14 @@ async function verifyWorktreeFileToReviewHandoff(): Promise<WorktreeFileToReview
 					fileViewerShell,
 					'data-last-open-load-executor-queued-after',
 				),
+				executorQueuedBytesAfter: optionalNumberAttribute(
+					fileViewerShell,
+					'data-last-open-load-executor-queued-bytes-after',
+				),
+				executorQueuedBytesBefore: optionalNumberAttribute(
+					fileViewerShell,
+					'data-last-open-load-executor-queued-bytes-before',
+				),
 				executorQueuedLoadCountBefore: optionalNumberAttribute(
 					fileViewerShell,
 					'data-last-open-load-executor-queued-before',
@@ -4426,6 +4540,14 @@ async function verifyWorktreeFileToReviewHandoff(): Promise<WorktreeFileToReview
 				schedulerQueuedIntentCountAfter: optionalNumberAttribute(
 					fileViewerShell,
 					'data-last-open-load-scheduler-queued-after',
+				),
+				schedulerQueuedEstimatedBytesAfter: optionalNumberAttribute(
+					fileViewerShell,
+					'data-last-open-load-scheduler-queued-bytes-after',
+				),
+				schedulerQueuedEstimatedBytesBefore: optionalNumberAttribute(
+					fileViewerShell,
+					'data-last-open-load-scheduler-queued-bytes-before',
 				),
 				schedulerQueuedIntentCountBefore: optionalNumberAttribute(
 					fileViewerShell,
@@ -4590,8 +4712,17 @@ async function verifyWorktreeFileToReviewHandoff(): Promise<WorktreeFileToReview
 			handoffProof.fileViewerOpenLoadTelemetry.estimatedBytes === null ||
 			handoffProof.fileViewerOpenLoadTelemetry.estimatedBytes <= 0 ||
 			handoffProof.fileViewerOpenLoadTelemetry.schedulerQueuedIntentCountAfter !== 0 ||
+			handoffProof.fileViewerOpenLoadTelemetry.schedulerQueuedEstimatedBytesAfter !== 0 ||
 			handoffProof.fileViewerOpenLoadTelemetry.executorInFlightCountAfter !== 0 ||
+			handoffProof.fileViewerOpenLoadTelemetry.executorInFlightBytesAfter !== 0 ||
 			handoffProof.fileViewerOpenLoadTelemetry.executorQueuedLoadCountAfter !== 0 ||
+			handoffProof.fileViewerOpenLoadTelemetry.executorQueuedBytesAfter !== 0 ||
+			handoffProof.fileViewerOpenLoadTelemetry.schedulerQueuedIntentCountBefore !== 0 ||
+			handoffProof.fileViewerOpenLoadTelemetry.schedulerQueuedEstimatedBytesBefore !== 0 ||
+			handoffProof.fileViewerOpenLoadTelemetry.executorInFlightCountBefore !== 0 ||
+			handoffProof.fileViewerOpenLoadTelemetry.executorInFlightBytesBefore !== 0 ||
+			handoffProof.fileViewerOpenLoadTelemetry.executorQueuedLoadCountBefore !== 0 ||
+			handoffProof.fileViewerOpenLoadTelemetry.executorQueuedBytesBefore !== 0 ||
 			handoffProof.fileViewerSelectedPathAfterSwitch !== expectedDisplayPath ||
 			handoffProof.reviewModeAfterReturnToFile !== 'file' ||
 			handoffProof.fileModeHostActiveAfterReturnToFile !== 'true' ||

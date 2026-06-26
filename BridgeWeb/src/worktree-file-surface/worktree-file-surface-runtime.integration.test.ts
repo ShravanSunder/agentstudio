@@ -82,11 +82,17 @@ describe('worktree file surface runtime', () => {
 				disposition: 'cold-loaded',
 				durationMilliseconds: 9,
 				estimatedBytes: 64,
+				executorInFlightBytesAfter: 0,
+				executorInFlightBytesBefore: 0,
 				executorInFlightCountAfter: 0,
 				executorInFlightCountBefore: 0,
+				executorQueuedBytesAfter: 0,
+				executorQueuedBytesBefore: 0,
 				executorQueuedLoadCountAfter: 0,
 				executorQueuedLoadCountBefore: 0,
 				lane: 'foreground',
+				schedulerQueuedEstimatedBytesAfter: 0,
+				schedulerQueuedEstimatedBytesBefore: 0,
 				schedulerQueuedIntentCountAfter: 0,
 				schedulerQueuedIntentCountBefore: 0,
 			},
@@ -98,6 +104,8 @@ describe('worktree file surface runtime', () => {
 				durationMilliseconds: 0,
 				estimatedBytes: 64,
 				lane: 'foreground',
+				schedulerQueuedEstimatedBytesAfter: 0,
+				schedulerQueuedEstimatedBytesBefore: 0,
 				schedulerQueuedIntentCountAfter: 0,
 				schedulerQueuedIntentCountBefore: 0,
 			},
@@ -112,10 +120,13 @@ describe('worktree file surface runtime', () => {
 			contentHandle: 'handle-2',
 		});
 		const fetchedDescriptorIds: string[] = [];
+		let nowMilliseconds = 300;
 		const runtime = createWorktreeFileSurfaceRuntime({
 			paneId: 'pane-1',
+			now: () => nowMilliseconds,
 			fetchResource: async ({ descriptor }) => {
 				fetchedDescriptorIds.push(descriptor.descriptorId);
+				nowMilliseconds += descriptor.descriptorId === 'file-content-2' ? 17 : 5;
 				return `${descriptor.descriptorId}:body`;
 			},
 		});
@@ -146,6 +157,24 @@ describe('worktree file surface runtime', () => {
 			ok: true,
 			body: 'file-content-2:body',
 			descriptorId: 'file-content-2',
+			loadTelemetry: {
+				disposition: 'refreshed',
+				durationMilliseconds: 17,
+				estimatedBytes: 64,
+				executorInFlightBytesAfter: 0,
+				executorInFlightBytesBefore: 0,
+				executorInFlightCountAfter: 0,
+				executorInFlightCountBefore: 0,
+				executorQueuedBytesAfter: 0,
+				executorQueuedBytesBefore: 0,
+				executorQueuedLoadCountAfter: 0,
+				executorQueuedLoadCountBefore: 0,
+				lane: 'foreground',
+				schedulerQueuedEstimatedBytesAfter: 0,
+				schedulerQueuedEstimatedBytesBefore: 0,
+				schedulerQueuedIntentCountAfter: 0,
+				schedulerQueuedIntentCountBefore: 0,
+			},
 		});
 		expect(fetchedDescriptorIds).toEqual(['file-content-1', 'file-content-2']);
 		expect(runtime.getState().openFileSessionsById['session-1']).toMatchObject({
