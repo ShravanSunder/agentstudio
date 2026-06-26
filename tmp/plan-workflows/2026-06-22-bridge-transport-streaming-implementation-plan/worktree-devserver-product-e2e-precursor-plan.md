@@ -834,6 +834,27 @@ Test-first anchors for the next implementation slice:
 
 Current visual/layout note, 2026-06-26 accepted-C refresh:
 
+- Fresh user-confirmed option-C dev-server proof passed:
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T08-35-04-033Z/worktree-dev-server-proof.json`.
+- Fresh pictures inspected:
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T08-35-04-033Z/worktree-file-ready.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T08-35-04-033Z/worktree-review-ready.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T08-35-04-033Z/worktree-review-file-target-ready.png`
+- The fresh proof records `contentTopbarStopsBeforeSidebar=true`,
+  `contextSwitcherInsideContentTopbar=true`, `sidebarStartsAtContentTopbar=true`,
+  `sidebarIsRight=true`, and `workerPoolState=ready`.
+- The fresh Review file-target proof records `.gitignore` in Review context
+  through the file renderer, but also records `reviewContentRouteHitCount=292`.
+  That fanout remains a real 0.a.5 pressure/scheduler blocker, not a reason to
+  claim Gate 0.a done.
+- This confirms accepted decision C visually after the latest user alignment:
+  content header only over the left canvas; title/source left; `Files | Review`
+  plus content actions right; right rail full-height, top-aligned, and outside
+  the content header.
+- Still open: the Review route verifier uses `__bridge_select_review_item`.
+  The next implementation checkpoint must replace it with the real Pierre tree
+  search click path before Review interaction proof can close.
+
 - Fresh dev-server proof passed:
   `tmp/bridge-viewer-worktree-dev-server/2026-06-26T08-25-12-296Z/worktree-dev-server-proof.json`.
 - The verifier now saves Review screenshots directly in `screenshotPaths`

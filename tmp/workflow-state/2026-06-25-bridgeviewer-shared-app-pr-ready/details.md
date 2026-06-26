@@ -1102,3 +1102,36 @@ Open implementation blockers remain:
   `__bridge_select_review_item`; next implementation step must replace it with
   the real Pierre tree search click path before the Review tree interaction
   proof can close.
+
+2026-06-26 accepted-C user confirmation and fresh picture refresh:
+
+- User confirmed option C as the design direction.
+- Durable spec and tmp spec now include accepted decision C in the design
+  decision ledger: content header only over the left canvas; title/source left;
+  `Files | Review` plus content actions right; Pierre right rail outside the
+  header, full-height, top-aligned, and using compact rail-owned toolbar.
+- Fresh dev-server proof passed:
+  `pnpm --dir BridgeWeb run test:dev-server:worktree`.
+- Fresh proof artifact:
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T08-35-04-033Z/worktree-dev-server-proof.json`.
+- Fresh pictures inspected:
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T08-35-04-033Z/worktree-file-ready.png`,
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T08-35-04-033Z/worktree-review-ready.png`,
+  and
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T08-35-04-033Z/worktree-review-file-target-ready.png`.
+- Fresh proof fields:
+  `contentTopbarStopsBeforeSidebar=true`,
+  `contextSwitcherInsideContentTopbar=true`,
+  `sidebarStartsAtContentTopbar=true`,
+  `sidebarIsRight=true`,
+  `workerPoolState=ready`.
+- The pictures match option C visually across Files, Review diff, and Review
+  file-target: one shared BridgeViewer shell, content-only header, right rail
+  top-aligned, Pierre FileTree on the right, and Pierre/Shiki CodeView/File on
+  the left.
+- Still open and not hidden by this proof: Review verifier real-click work,
+  neutral shared-chrome ownership, hidden inactive-context side-effect proof,
+  Review content route fanout/content pressure, FileViewer preload latency, and
+  native Agent Studio Bridge/WKWebView proof. The fresh Review file-target proof
+  records `reviewContentRouteHitCount=292`, so 0.a.5 remains a real pressure
+  blocker.

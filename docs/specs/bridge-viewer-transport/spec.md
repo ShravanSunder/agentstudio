@@ -1683,6 +1683,16 @@ there once their schema slice exists. File content is not a separate app from
 worktree browsing; it is a content-session subcontract inside the Worktree/File
 Surface.
 
+D12. Accepted decision C is the BridgeViewer shell geometry contract.
+
+The content header belongs only to the left content region. The title/source
+slot is on the left; the `Files | Review` switcher plus content actions sit in
+the right slot of that same left-content header. The Pierre right rail is not
+part of that header, starts at y=0, owns its own compact toolbar, and must not
+be pushed down or covered by content chrome. Files and Review may expose
+different actions, but they share the same BridgeViewer chrome scale over the
+shadcn/base UI substrate.
+
 ## 15. Open Decisions
 
 OD1. Concrete continuous event-stream carrier.
