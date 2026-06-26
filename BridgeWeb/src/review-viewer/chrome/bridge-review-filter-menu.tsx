@@ -1,6 +1,10 @@
 import { ChevronDownIcon, FolderIcon, SlidersHorizontalIcon, XIcon } from 'lucide-react';
 import type { ReactElement, ReactNode } from 'react';
 
+import {
+	bridgeViewerChromeIconButtonClassName,
+	bridgeViewerChromeLucideIconClassName,
+} from '../../app/bridge-viewer-chrome.js';
 import { cn } from '../../app/class-name.js';
 import {
 	DropdownMenu,
@@ -47,12 +51,13 @@ export function BridgeReviewFilterMenu<TValue extends string>(
 			<DropdownMenuTrigger
 				aria-label={titleForFilterLabel(props.label)}
 				className={cn(
-					'flex h-7 w-7 shrink-0 items-center justify-center gap-0 rounded-md',
+					'flex shrink-0 items-center justify-center gap-0',
+					bridgeViewerChromeIconButtonClassName,
 					'border border-transparent bg-transparent px-0',
 					'text-[12px] text-[var(--bridge-text-secondary)] transition-colors',
-					'hover:border-[var(--bridge-border-opaque)] hover:bg-[var(--bridge-surface-raised-bg)] hover:text-[var(--bridge-text-primary)]',
-					'focus-visible:border-[var(--bridge-accent)] focus-visible:outline-none',
-					'data-popup-open:bg-[var(--bridge-accent-soft)] data-popup-open:text-[var(--bridge-text-primary)]',
+					'hover:border-[var(--bridge-border-opaque)] hover:bg-[var(--bridge-list-hover-bg)] hover:text-[var(--bridge-text-primary)]',
+					'focus-visible:border-[var(--bridge-focus-border)] focus-visible:outline-none',
+					'data-popup-open:bg-[var(--bridge-header-control-active-bg)] data-popup-open:text-[var(--bridge-text-primary)]',
 				)}
 				data-testid={props.testId}
 				title={props.label}
@@ -63,7 +68,7 @@ export function BridgeReviewFilterMenu<TValue extends string>(
 						<span
 							className={cn(
 								'absolute -right-0.5 -top-0.5 size-1.5 rounded-full',
-								'bg-[var(--bridge-accent)] shadow-[0_0_0_1px_var(--bridge-surface-raised-bg)]',
+								'bg-[var(--bridge-focus-border)] shadow-[0_0_0_1px_var(--bridge-surface-bg)]',
 							)}
 							data-testid="bridge-review-filter-active-indicator"
 						/>
@@ -104,7 +109,7 @@ export function BridgeReviewFilterMenu<TValue extends string>(
 							checked={option.value === props.value}
 							className={cn(
 								'h-8 gap-2 rounded-[7px] px-2 py-0 pr-8 text-[13px]',
-								'text-[var(--bridge-text-secondary)] focus:bg-[var(--bridge-accent-soft)]',
+								'text-[var(--bridge-text-secondary)] focus:bg-[var(--bridge-list-hover-bg)]',
 								'focus:text-[var(--bridge-text-primary)]',
 								option.value === props.value && 'text-[var(--bridge-text-primary)]',
 							)}
@@ -133,7 +138,7 @@ export function BridgeReviewFilterMenu<TValue extends string>(
 				<DropdownMenuItem
 					className={cn(
 						'h-8 gap-2 rounded-[7px] px-2 py-0 text-[13px]',
-						'text-[var(--bridge-text-muted)] focus:bg-[var(--bridge-accent-soft)]',
+						'text-[var(--bridge-text-muted)] focus:bg-[var(--bridge-list-hover-bg)]',
 						'focus:text-[var(--bridge-text-primary)] data-disabled:cursor-default data-disabled:opacity-55',
 					)}
 					data-testid="bridge-review-filter-clear"
@@ -159,7 +164,7 @@ function FilterTriggerGlyph(props: { readonly label: string }): ReactElement {
 		return (
 			<FolderIcon
 				aria-hidden="true"
-				className="size-4 text-[var(--bridge-text-secondary)]"
+				className={cn(bridgeViewerChromeLucideIconClassName, 'text-[var(--bridge-text-secondary)]')}
 				data-testid="bridge-review-filter-trigger-glyph"
 			/>
 		);
@@ -167,7 +172,7 @@ function FilterTriggerGlyph(props: { readonly label: string }): ReactElement {
 	return (
 		<SlidersHorizontalIcon
 			aria-hidden="true"
-			className="size-4 text-[var(--bridge-text-secondary)]"
+			className={cn(bridgeViewerChromeLucideIconClassName, 'text-[var(--bridge-text-secondary)]')}
 			data-testid="bridge-review-filter-trigger-glyph"
 		/>
 	);

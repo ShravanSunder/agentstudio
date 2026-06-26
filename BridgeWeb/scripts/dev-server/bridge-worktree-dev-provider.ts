@@ -678,6 +678,7 @@ async function gitShowOrNull(
 }
 
 async function gitStdout(cwd: string, args: readonly string[]): Promise<string> {
+	// Dev-server only: production Swift-side Bridge git data prep must use agentstudio-git.
 	const result = await execFileAsync('git', [...args], { cwd, maxBuffer: 32 * 1024 * 1024 });
 	return result.stdout;
 }

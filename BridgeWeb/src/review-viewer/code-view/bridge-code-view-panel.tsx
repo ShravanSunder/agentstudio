@@ -97,7 +97,7 @@ export const bridgeCodeViewOptions: CodeViewOptions<undefined> = {
 	themeType: 'dark',
 	diffStyle: 'split',
 	diffIndicators: 'bars',
-	overflow: 'scroll',
+	overflow: 'wrap',
 	useTokenTransformer: false,
 	tokenizeMaxLineLength: 20_000,
 	lineDiffType: 'word',
@@ -857,6 +857,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 			}
 			data-selected-display-path={selectedDisplayPath ?? undefined}
 			data-selected-item-id={props.selectedItemId ?? undefined}
+			data-bridge-code-view-overflow={bridgeCodeViewOptions.overflow}
 			data-testid="bridge-code-view-panel"
 		>
 			<BridgePierreWorkerPoolProvider
@@ -1304,7 +1305,7 @@ function renderBridgeCodeViewHeaderPrefix(props: RenderBridgeCodeViewHeaderProps
 			<button
 				aria-expanded={!collapsed}
 				aria-label={collapsed ? 'Expand file' : 'Collapse file'}
-				className="inline-flex size-6 cursor-pointer select-none items-center justify-center rounded-md border border-transparent text-[11px] text-[var(--bridge-text-secondary)] hover:border-[var(--bridge-border-opaque)] hover:bg-[var(--bridge-surface-raised-bg)] hover:text-[var(--bridge-text-primary)] focus-visible:border-[var(--bridge-accent)] focus-visible:outline-none"
+				className="inline-flex size-6 cursor-pointer select-none items-center justify-center rounded-md border border-transparent text-[11px] text-[var(--bridge-text-secondary)] hover:border-[var(--bridge-border-opaque)] hover:bg-[var(--bridge-list-hover-bg)] hover:text-[var(--bridge-text-primary)] focus-visible:border-[var(--bridge-focus-border)] focus-visible:outline-none"
 				data-bridge-code-view-item-id={itemId}
 				data-testid="bridge-code-view-header-collapse-button"
 				onClick={(event): void => {

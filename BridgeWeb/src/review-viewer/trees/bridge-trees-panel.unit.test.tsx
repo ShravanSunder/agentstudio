@@ -143,8 +143,9 @@ describe('BridgeReviewTreesPanel', () => {
 				'--trees-fg-override': 'var(--bridge-text-primary)',
 				'--trees-fg-muted-override': 'var(--bridge-text-muted)',
 				'--trees-search-bg-override': 'var(--bridge-header-control-bg)',
-				'--trees-selected-bg-override':
-					'color-mix(in oklch, var(--bridge-accent) 18%, transparent)',
+				'--trees-selected-bg-override': 'var(--bridge-list-selected-bg)',
+				'--trees-selected-focused-border-color-override': 'var(--bridge-focus-border)',
+				'--trees-focus-ring-color-override': 'var(--bridge-focus-border)',
 				'--trees-padding-inline-override': 8,
 				'--trees-git-renamed-color-override': 'var(--bridge-accent)',
 				'--trees-theme-git-added-fg': '#A6E3A1',

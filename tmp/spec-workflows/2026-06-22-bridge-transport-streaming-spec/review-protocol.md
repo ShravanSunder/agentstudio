@@ -588,6 +588,10 @@ Required runtime contract:
   `foreground` demand without switching app roots
 - Review file target renders through Pierre/Shiki file rendering and remains in
   Review context
+- Review diff targets and Review file targets use the shared BridgeViewer
+  Pierre CodeView options with `overflow: 'wrap'` by default. Pierre's upstream
+  default is `scroll`, so Review must pass this option explicitly unless a
+  future user-controlled setting overrides it through application state.
 - Review file target proof records comparison id, review item id or resolved file
   ref, source identity, version, target kind `file`, and active context `review`;
   path-only bootstraps are hints, not proof authority

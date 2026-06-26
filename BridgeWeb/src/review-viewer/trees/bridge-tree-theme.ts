@@ -59,10 +59,9 @@ export const bridgeReviewTreeStyle: BridgeReviewTreeStyle = {
 	'--trees-search-bg-override': 'var(--bridge-header-control-bg)',
 	'--trees-border-color-override': 'var(--bridge-border-subtle)',
 	'--trees-selected-fg-override': 'var(--bridge-text-primary)',
-	'--trees-selected-bg-override': 'color-mix(in oklch, var(--bridge-accent) 18%, transparent)',
-	'--trees-selected-focused-border-color-override':
-		'color-mix(in oklch, var(--bridge-accent) 82%, white 8%)',
-	'--trees-focus-ring-color-override': 'var(--bridge-accent)',
+	'--trees-selected-bg-override': 'var(--bridge-list-selected-bg)',
+	'--trees-selected-focused-border-color-override': 'var(--bridge-focus-border)',
+	'--trees-focus-ring-color-override': 'var(--bridge-focus-border)',
 	'--trees-padding-inline-override': 8,
 	'--trees-git-renamed-color-override': 'var(--bridge-accent)',
 };

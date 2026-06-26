@@ -46,7 +46,9 @@ describe('Bridge CodeView theme', () => {
 		expect(lowerCaseCss).toContain('--background: #101010;');
 		expect(lowerCaseCss).toContain('--bridge-app-bg: #101010;');
 		expect(lowerCaseCss).toContain('--bridge-canvas-bg: #1e1e2e;');
-		expect(lowerCaseCss).toContain('--bridge-surface-bg: #1e1e2e;');
+		expect(lowerCaseCss).toContain('--bridge-header-bg: #181825;');
+		expect(lowerCaseCss).toContain('--bridge-surface-bg: #181825;');
+		expect(lowerCaseCss).toContain('--bridge-focus-border: #b4befe;');
 
 		for (const expectedHexValue of expectedCatppuccinMochaChromeHexValues) {
 			expect(lowerCaseCss).toContain(expectedHexValue);

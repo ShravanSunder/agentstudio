@@ -1,5 +1,9 @@
 import type { MouseEvent, ReactElement, ReactNode } from 'react';
 
+import {
+	bridgeViewerChromeButtonClassName,
+	bridgeViewerChromeIconClassName,
+} from '../../app/bridge-viewer-chrome.js';
 import { cn } from '../../app/class-name.js';
 import { Button } from '../../components/ui/button.js';
 
@@ -23,12 +27,13 @@ export function BridgeReviewButton(props: BridgeReviewButtonProps): ReactElement
 			aria-label={props.ariaLabel}
 			aria-pressed={props.ariaPressed}
 			className={cn(
-				'h-6 shrink-0 gap-1 rounded-md border border-transparent px-1.5 text-[11px] leading-none',
+				bridgeViewerChromeButtonClassName,
+				'gap-1 px-1.5',
 				'text-[var(--bridge-text-secondary)] transition-colors',
-				'hover:border-[var(--bridge-border-opaque)] hover:bg-[var(--bridge-surface-raised-bg)] hover:text-[var(--bridge-text-primary)]',
-				'focus-visible:border-[var(--bridge-accent)] focus-visible:outline-none',
+				'hover:border-[var(--bridge-border-opaque)] hover:bg-[var(--bridge-list-hover-bg)] hover:text-[var(--bridge-text-primary)]',
+				'focus-visible:border-[var(--bridge-focus-border)] focus-visible:outline-none',
 				props.ariaPressed === true &&
-					'border-transparent bg-[var(--bridge-accent-soft)] text-[var(--bridge-text-primary)]',
+					'border-transparent bg-[var(--bridge-header-control-active-bg)] text-[var(--bridge-text-primary)]',
 				props.className,
 			)}
 			data-bridge-viewer-context-selected={props['data-bridge-viewer-context-selected']}
@@ -53,13 +58,7 @@ export interface BridgeReviewIconProps {
 
 export function BridgeReviewIcon(props: BridgeReviewIconProps): ReactElement {
 	return (
-		<span
-			aria-hidden="true"
-			className={cn(
-				'inline-flex size-3 shrink-0 items-center justify-center text-[10px] leading-none',
-				props.className,
-			)}
-		>
+		<span aria-hidden="true" className={cn(bridgeViewerChromeIconClassName, props.className)}>
 			{props.children}
 		</span>
 	);

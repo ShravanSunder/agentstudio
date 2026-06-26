@@ -474,7 +474,7 @@ function BridgeFileViewerStaleNotice(props: {
 		>
 			<span>Content changed</span>
 			<BridgeReviewButton
-				className="h-7 border-[var(--bridge-border-opaque)] bg-[var(--bridge-header-control-bg)] px-2"
+				className="border-[var(--bridge-border-opaque)] bg-[var(--bridge-header-control-bg)] px-2"
 				data-testid="worktree-file-refresh"
 				disabled={!props.canRefresh}
 				onClick={props.onRefresh}

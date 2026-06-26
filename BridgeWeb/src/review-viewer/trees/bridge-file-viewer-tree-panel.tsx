@@ -3,6 +3,12 @@ import { FileTree, useFileTree } from '@pierre/trees/react';
 import { GitCompareArrowsIcon } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 
+import {
+	bridgeViewerChromeIconButtonClassName,
+	bridgeViewerChromeLucideIconClassName,
+	bridgeViewerChromeToolbarClassName,
+} from '../../app/bridge-viewer-chrome.js';
+import { cn } from '../../app/class-name.js';
 import { Input } from '../../components/ui/input.js';
 import type {
 	WorktreeFileDescriptor,
@@ -148,16 +154,19 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 			data-testid="bridge-file-viewer-sidebar"
 		>
 			<header
-				className="grid gap-1.5 border-b border-[var(--bridge-border-subtle)] px-2 py-1.5"
+				className="grid grid-rows-[auto_auto] border-b border-[var(--bridge-border-subtle)]"
 				data-testid="bridge-file-viewer-toolbar"
 			>
 				<div
-					className="flex min-w-0 items-center justify-between gap-2"
+					className={cn(
+						'flex min-w-0 items-center justify-between gap-2',
+						bridgeViewerChromeToolbarClassName,
+					)}
 					data-bridge-shared-rail-toolbar="true"
 					data-testid="bridge-file-viewer-rail-toolbar"
 				>
 					<div
-						className="flex min-w-0 items-center gap-2 text-xs text-[var(--bridge-text-secondary)]"
+						className="flex min-w-0 items-center gap-1.5 text-[11px] text-[var(--bridge-text-secondary)]"
 						data-testid="bridge-file-viewer-rail-toolbar-leading"
 					>
 						<span className="shrink-0" data-testid="worktree-file-filter-count">
@@ -194,7 +203,7 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 						{props.onOpenReviewComparison === undefined ? null : (
 							<BridgeReviewButton
 								ariaLabel="Open selected file in review"
-								className="h-7 w-7 rounded-md border-transparent bg-transparent px-0"
+								className={bridgeViewerChromeIconButtonClassName}
 								data-testid="worktree-file-open-review-comparison"
 								disabled={selectedDescriptor === null}
 								onClick={() => {
@@ -205,7 +214,10 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 								title="Open selected file in review"
 							>
 								<BridgeReviewIcon>
-									<GitCompareArrowsIcon aria-hidden="true" className="size-4" />
+									<GitCompareArrowsIcon
+										aria-hidden="true"
+										className={bridgeViewerChromeLucideIconClassName}
+									/>
 								</BridgeReviewIcon>
 							</BridgeReviewButton>
 						)}
@@ -214,7 +226,7 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 				{shouldShowSearchInput ? (
 					<Input
 						aria-label="Search files"
-						className="h-7 border-[var(--bridge-border-opaque)] bg-[var(--bridge-header-control-bg)] text-xs"
+						className="mx-2 mb-1.5 h-7 border-[var(--bridge-border-opaque)] bg-[var(--bridge-header-control-bg)] text-xs"
 						data-testid="worktree-file-search-input"
 						onChange={(event) => {
 							props.onSearchTextChange(event.currentTarget.value);

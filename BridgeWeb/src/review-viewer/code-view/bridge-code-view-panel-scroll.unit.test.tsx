@@ -549,7 +549,7 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 			diffIndicators: 'bars',
 			hunkSeparators: 'line-info-basic',
 			lineDiffType: 'word',
-			overflow: 'scroll',
+			overflow: 'wrap',
 			stickyHeaders: true,
 			theme: {
 				dark: bridgePierreDarkThemeName,

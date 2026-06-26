@@ -61,6 +61,7 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 		<section
 			aria-label="Selected file"
 			className="relative min-h-0 min-w-0 overflow-hidden bg-[var(--bridge-canvas-bg)]"
+			data-bridge-code-view-overflow={bridgeCodeViewOptions.overflow}
 			data-pierre-code-view-owner="CodeView.file"
 			data-shiki-rendering="pierre"
 			data-testid="bridge-file-viewer-code-canvas"

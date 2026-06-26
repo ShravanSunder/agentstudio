@@ -1,6 +1,10 @@
 import { FolderIcon, SlidersHorizontalIcon, XIcon } from 'lucide-react';
 import type { ReactElement, ReactNode } from 'react';
 
+import {
+	bridgeViewerChromeIconButtonClassName,
+	bridgeViewerChromeLucideIconClassName,
+} from '../../app/bridge-viewer-chrome.js';
 import { cn } from '../../app/class-name.js';
 import {
 	DropdownMenu,
@@ -41,22 +45,26 @@ export function BridgeReviewFacetMenu(props: BridgeReviewFacetMenuProps): ReactE
 			<DropdownMenuTrigger
 				aria-label="Filter review files"
 				className={cn(
-					'flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-transparent bg-transparent px-0',
+					'flex shrink-0 items-center justify-center border border-transparent bg-transparent px-0',
+					bridgeViewerChromeIconButtonClassName,
 					'text-[12px] text-[var(--bridge-text-secondary)] transition-colors',
-					'hover:border-[var(--bridge-border-opaque)] hover:bg-[var(--bridge-surface-raised-bg)] hover:text-[var(--bridge-text-primary)]',
-					'focus-visible:border-[var(--bridge-accent)] focus-visible:outline-none',
-					'data-popup-open:bg-[var(--bridge-accent-soft)] data-popup-open:text-[var(--bridge-text-primary)]',
+					'hover:border-[var(--bridge-border-opaque)] hover:bg-[var(--bridge-list-hover-bg)] hover:text-[var(--bridge-text-primary)]',
+					'focus-visible:border-[var(--bridge-focus-border)] focus-visible:outline-none',
+					'data-popup-open:bg-[var(--bridge-header-control-active-bg)] data-popup-open:text-[var(--bridge-text-primary)]',
 				)}
 				data-testid="bridge-review-facet-menu-control"
 				title="Filter review files"
 			>
 				<span className="relative flex items-center">
-					<SlidersHorizontalIcon aria-hidden="true" className="size-4" />
+					<SlidersHorizontalIcon
+						aria-hidden="true"
+						className={bridgeViewerChromeLucideIconClassName}
+					/>
 					{hasActiveFacet ? (
 						<span
 							className={cn(
 								'absolute -right-0.5 -top-0.5 size-1.5 rounded-full',
-								'bg-[var(--bridge-accent)] shadow-[0_0_0_1px_var(--bridge-surface-raised-bg)]',
+								'bg-[var(--bridge-focus-border)] shadow-[0_0_0_1px_var(--bridge-surface-bg)]',
 							)}
 							data-testid="bridge-review-facet-active-indicator"
 						/>
@@ -103,7 +111,7 @@ export function BridgeReviewFacetMenu(props: BridgeReviewFacetMenuProps): ReactE
 				<DropdownMenuItem
 					className={cn(
 						'h-8 gap-2 rounded-[7px] px-2 py-0 text-[13px]',
-						'text-[var(--bridge-text-muted)] focus:bg-[var(--bridge-accent-soft)]',
+						'text-[var(--bridge-text-muted)] focus:bg-[var(--bridge-list-hover-bg)]',
 						'focus:text-[var(--bridge-text-primary)] data-disabled:cursor-default data-disabled:opacity-55',
 					)}
 					data-testid="bridge-review-facet-clear"
@@ -146,7 +154,7 @@ function BridgeReviewFacetGroup<TValue extends string>(props: {
 							checked={option.value === props.activeValue}
 							className={cn(
 								'min-h-10 gap-2 rounded-[7px] px-2 py-1.5 pr-8 text-[13px]',
-								'text-[var(--bridge-text-secondary)] focus:bg-[var(--bridge-accent-soft)]',
+								'text-[var(--bridge-text-secondary)] focus:bg-[var(--bridge-list-hover-bg)]',
 								'focus:text-[var(--bridge-text-primary)]',
 								option.value === props.activeValue && 'text-[var(--bridge-text-primary)]',
 							)}

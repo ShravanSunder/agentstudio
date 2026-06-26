@@ -1,7 +1,9 @@
 import { BotIcon, FileTextIcon, ListChecksIcon } from 'lucide-react';
 import type { ReactElement, ReactNode } from 'react';
 
+import { bridgeViewerChromeToolbarClassName } from '../../app/bridge-viewer-chrome.js';
 import { BridgeViewerContentHeader } from '../../app/bridge-viewer-content-header.js';
+import { cn } from '../../app/class-name.js';
 import { Skeleton } from '../../components/ui/skeleton.js';
 import {
 	createBridgeReviewItemRegistry,
@@ -279,49 +281,47 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 					className="order-last flex min-h-0 min-w-0 flex-col border-l border-[var(--bridge-border-opaque)] bg-[var(--bridge-surface-bg)]"
 					data-testid="bridge-review-sidebar"
 				>
-					<div className="shrink-0 border-b border-[var(--bridge-border-subtle)] px-2 py-1.5">
+					<div
+						className={cn(
+							'flex shrink-0 items-center justify-between gap-1',
+							bridgeViewerChromeToolbarClassName,
+						)}
+						data-bridge-shared-rail-toolbar="true"
+						data-testid="bridge-review-rail-toolbar"
+					>
 						<div
-							className="flex items-center justify-between gap-1"
-							data-testid="bridge-review-rail-toolbar"
+							className="flex min-w-0 items-center gap-1"
+							data-testid="bridge-review-rail-toolbar-leading"
 						>
-							<div
-								className="flex min-w-0 items-center gap-1"
-								data-testid="bridge-review-rail-toolbar-leading"
-							>
-								<BridgeReviewProjectionMenu
-									projectionMode={projectionMode}
-									{...(props.onProjectionModeChange === undefined
-										? {}
-										: { onProjectionModeChange: props.onProjectionModeChange })}
+							<BridgeReviewProjectionMenu
+								projectionMode={projectionMode}
+								{...(props.onProjectionModeChange === undefined
+									? {}
+									: { onProjectionModeChange: props.onProjectionModeChange })}
+							/>
+						</div>
+						<div
+							className="flex min-w-0 items-center justify-end gap-1"
+							data-testid="bridge-review-rail-toolbar-trailing"
+						>
+							<div className="shrink-0" data-testid="bridge-review-facet-menu">
+								<BridgeReviewFacetMenu
+									fileClassFilter={fileClassFilter}
+									fileClassOptions={fileClassOptions}
+									gitStatusFilter={gitStatusFilter}
+									gitStatusOptions={gitStatusOptions}
+									onFileClassFilterChange={(value): void => props.onFileClassFilterChange?.(value)}
+									onGitStatusFilterChange={(value): void => props.onGitStatusFilterChange?.(value)}
 								/>
 							</div>
-							<div
-								className="flex min-w-0 items-center justify-end gap-1"
-								data-testid="bridge-review-rail-toolbar-trailing"
-							>
-								<div className="shrink-0" data-testid="bridge-review-facet-menu">
-									<BridgeReviewFacetMenu
-										fileClassFilter={fileClassFilter}
-										fileClassOptions={fileClassOptions}
-										gitStatusFilter={gitStatusFilter}
-										gitStatusOptions={gitStatusOptions}
-										onFileClassFilterChange={(value): void =>
-											props.onFileClassFilterChange?.(value)
-										}
-										onGitStatusFilterChange={(value): void =>
-											props.onGitStatusFilterChange?.(value)
-										}
-									/>
-								</div>
-								<div data-testid="bridge-review-search-control-slot">
-									<span className="sr-only">Search files</span>
-									<BridgeReviewSearchControl
-										isActive={treeSearchOpen}
-										onOpenSearch={(): void => props.onTreeSearchOpen?.()}
-										onSearchModeChange={(mode): void => props.onTreeSearchModeChange?.(mode)}
-										searchMode={treeSearchMode}
-									/>
-								</div>
+							<div data-testid="bridge-review-search-control-slot">
+								<span className="sr-only">Search files</span>
+								<BridgeReviewSearchControl
+									isActive={treeSearchOpen}
+									onOpenSearch={(): void => props.onTreeSearchOpen?.()}
+									onSearchModeChange={(mode): void => props.onTreeSearchModeChange?.(mode)}
+									searchMode={treeSearchMode}
+								/>
 							</div>
 						</div>
 					</div>
@@ -422,10 +422,10 @@ export function BridgeReviewProjectionMenu(props: {
 						className={[
 							'flex size-6 items-center justify-center rounded-[5px] border border-transparent',
 							'text-[var(--bridge-text-secondary)] transition-colors',
-							'hover:bg-[var(--bridge-surface-raised-bg)] hover:text-[var(--bridge-text-primary)]',
-							'focus-visible:border-[var(--bridge-accent)] focus-visible:outline-none',
+							'hover:bg-[var(--bridge-list-hover-bg)] hover:text-[var(--bridge-text-primary)]',
+							'focus-visible:border-[var(--bridge-focus-border)] focus-visible:outline-none',
 							isSelected &&
-								'bg-[var(--bridge-accent-soft)] text-[var(--bridge-text-primary)] shadow-[inset_0_0_0_1px_rgb(137_180_250_/_0.16)]',
+								'bg-[var(--bridge-header-control-active-bg)] text-[var(--bridge-text-primary)] shadow-none',
 						]
 							.filter(Boolean)
 							.join(' ')}

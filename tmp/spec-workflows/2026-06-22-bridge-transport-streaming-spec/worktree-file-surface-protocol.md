@@ -96,6 +96,12 @@ Provider owns:
 - content handles and content hashes
 - source reset/gap decisions
 
+Production Swift/native providers use the repo's `agentstudio-git` library for
+git status, diff, ignore-policy, and candidate preparation. TypeScript git
+helpers are allowed only in clearly marked Vite dev-server utilities or test
+fixture utilities and must not become production Bridge source-adapter
+plumbing.
+
 Browser surface owns:
 
 - tree projection and expansion state
@@ -867,6 +873,11 @@ Contract:
 - demand policy inputs are discriminated stimuli, not loose boolean bags
 - worktree snapshot carries provider-issued source identity, not only the
   browser selector
+- Worktree/File providers apply gitignore and repository ignore policy before
+  publishing descriptors, tree rows, route bootstrap targets, search candidates,
+  or preload demand. Ignored paths must not reach FileViewer as canonical
+  candidates unless a later explicit "show ignored files" product mode is
+  accepted.
 - worktree frames attach descriptors instead of exposing raw descriptor strings
 - huge tree expansion fetches bounded tree windows
 - initial tree/file facts expose row/count/window metadata and file line-count or
@@ -880,6 +891,9 @@ Contract:
   through Pierre CodeView/File with Shiki highlighting and worker-backed
   highlighting when `workers=on`; raw `<pre>` file rendering is a failing
   substitute even if the text is correct
+- current-scope FileViewer proof must show that Pierre CodeView/File uses
+  wrapped rendering by default through `overflow: 'wrap'`; horizontal-scroll
+  rendering is allowed only after an explicit user/app-state override exists
 - current-scope FileViewer proof must show the tree/navigation surface is the
   shared Pierre FileTree/right rail, not a custom left-pane list owned by a
   standalone Worktree/File app

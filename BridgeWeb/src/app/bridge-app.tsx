@@ -1151,6 +1151,10 @@ function BridgeReviewViewerMode(
 			currentReviewPackageTelemetryContextRef.current?.traceContext ?? null;
 		if (!props.isActive) {
 			markdownWorkerClient?.abort(bridgeMarkdownPreviewAbortKey);
+			setSelectedMarkdownPreviewState(
+				(currentState: SelectedMarkdownPreviewState | null): SelectedMarkdownPreviewState | null =>
+					currentState?.status === 'rendering' ? null : currentState,
+			);
 			return (): void => {
 				didCancel = true;
 			};

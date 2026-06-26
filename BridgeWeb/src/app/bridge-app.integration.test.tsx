@@ -189,6 +189,131 @@ describe('BridgeApp', () => {
 		).toBe('button');
 	});
 
+	test('keeps inactive Review mode from doing foreground work while preserving review state', async () => {
+		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
+		const descriptor = makeWorktreeNavigationDescriptor();
+		const reviewPackage = makeSourceAndDocsReviewPackage();
+		const requestedUrls: string[] = [];
+		const commandDetails: unknown[] = [];
+		const markdownRequests: BridgeMarkdownRenderWorkerRequest[] = [];
+		const markdownAbortRequests: unknown[] = [];
+		let markdownRequestIndex = 0;
+		document.addEventListener('__bridge_command', (event: Event): void => {
+			commandDetails.push(extractEventDetail(event));
+		});
+		const transport: BridgeMarkdownRenderWorkerTransport = {
+			send: (request: BridgeMarkdownRenderWorkerRequest): Promise<unknown> => {
+				markdownRequests.push(request);
+				return new Promise<BridgeMarkdownRenderWorkerResponse>((): void => {});
+			},
+			abort: (request): void => {
+				markdownAbortRequests.push(request);
+			},
+		};
+		const markdownWorkerClient = createBridgeMarkdownRenderWorkerClient({
+			transport,
+			createRequestId: (): string => {
+				markdownRequestIndex += 1;
+				return `inactive-review-markdown-${markdownRequestIndex}`;
+			},
+		});
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeApp
+					fileViewerProps={{
+						autoOpenInitialFile: true,
+						initialFrames: makeWorktreeNavigationFrames(descriptor),
+						fetchResource: async (): Promise<string> => 'export const selectedFile = true;\n',
+					}}
+					fetchContent={async (url: string): Promise<Response> => {
+						requestedUrls.push(url);
+						return new Response(
+							url.includes('item-docs')
+								? '# Review Plan\n\nReview state should resume only when active.'
+								: "export const source = 'selected';\n",
+						);
+					}}
+					markdownWorkerClient={markdownWorkerClient}
+				/>,
+			);
+		});
+
+		await pushReviewPackage(reviewPackage);
+		await waitForSelectedItemId('item-source');
+		await dispatchBridgeAppControl({
+			method: 'bridge.fileView.showMarkdownPreview',
+			itemId: 'item-docs',
+		});
+		await waitForSelectedItemId('item-docs');
+		await waitForRequestedUrl(requestedUrls, 'item-docs');
+		await waitForMarkdownRequestCount(markdownRequests, 1);
+
+		const fileContextButton = requireHTMLElement(
+			document.querySelector('[data-testid="bridge-viewer-context-file"]'),
+		);
+		await act(async (): Promise<void> => {
+			fileContextButton.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+			await Promise.resolve();
+			await waitForAnimationFrame();
+		});
+		await waitForFileViewerOpenPath('src/app.ts');
+		expect(
+			document
+				.querySelector('[data-testid="bridge-viewer-mode-host-review"]')
+				?.getAttribute('data-bridge-viewer-mode-active'),
+		).toBe('false');
+		expect(selectedBridgeViewerPanelAttribute('data-selected-item-id')).toBe('item-docs');
+
+		commandDetails.length = 0;
+		const requestedUrlCountWhileActive = requestedUrls.length;
+		const markdownRequestCountWhileActive = markdownRequests.length;
+		const markdownAbortCountAfterDeactivation = markdownAbortRequests.length;
+
+		await act(async (): Promise<void> => {
+			window.dispatchEvent(
+				new CustomEvent('__bridge_select_review_item', { detail: { itemId: 'item-source' } }),
+			);
+			window.dispatchEvent(
+				new CustomEvent('__bridge_review_control', {
+					detail: {
+						method: 'bridge.fileView.showMarkdownPreview',
+						itemId: 'item-source',
+					},
+				}),
+			);
+			await Promise.resolve();
+			await waitForAnimationFrame();
+			await waitForAnimationFrame();
+		});
+
+		expect(requestedUrls).toHaveLength(requestedUrlCountWhileActive);
+		expect(markdownRequests).toHaveLength(markdownRequestCountWhileActive);
+		expect(markdownAbortRequests).toHaveLength(markdownAbortCountAfterDeactivation);
+		expect(commandDetails.filter(isMarkFileViewedCommand)).toEqual([]);
+		expect(selectedBridgeViewerPanelAttribute('data-selected-item-id')).toBe('item-docs');
+
+		const reviewContextButton = requireHTMLElement(
+			document.querySelector('[data-testid="bridge-viewer-context-review"]'),
+		);
+		await act(async (): Promise<void> => {
+			reviewContextButton.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+			await Promise.resolve();
+			await waitForAnimationFrame();
+		});
+
+		await waitForSelectedItemId('item-docs');
+		await waitForMarkdownRequestCount(markdownRequests, 2);
+		expect(markdownRequests[1]).toMatchObject({
+			method: 'markdown.render',
+			itemId: 'item-docs',
+			sourcePath: 'docs/plans/review-plan.md',
+		});
+	});
+
 	test('selected unavailable state is owned by selected content demand', () => {
 		const reviewPackage = makeBridgeReviewPackage();
 		const selectedItem = reviewPackage.itemsById['item-source'];
@@ -3130,6 +3255,22 @@ async function waitForMarkdownRequest(
 	await Promise.resolve();
 	await waitForAnimationFrame();
 	await waitForMarkdownRequest(requests, remainingAttempts - 1);
+}
+
+async function waitForMarkdownRequestCount(
+	requests: readonly BridgeMarkdownRenderWorkerRequest[],
+	expectedCount: number,
+	remainingAttempts = 20,
+): Promise<void> {
+	if (requests.length >= expectedCount) {
+		return;
+	}
+	if (remainingAttempts <= 0) {
+		throw new Error(`expected ${expectedCount} markdown requests, got ${requests.length}`);
+	}
+	await Promise.resolve();
+	await waitForAnimationFrame();
+	await waitForMarkdownRequestCount(requests, expectedCount, remainingAttempts - 1);
 }
 
 async function dispatchBridgeAppControl(command: BridgeAppControlCommand): Promise<void> {

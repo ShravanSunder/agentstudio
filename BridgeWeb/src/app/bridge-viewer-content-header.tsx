@@ -1,10 +1,13 @@
 import { FileTextIcon, ListChecksIcon } from 'lucide-react';
 import type { ReactElement, ReactNode } from 'react';
 
+import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group.js';
 import {
-	BridgeReviewButton,
-	BridgeReviewIcon,
-} from '../review-viewer/chrome/bridge-review-button.js';
+	bridgeViewerChromeHeaderClassName,
+	bridgeViewerChromeLucideIconClassName,
+	bridgeViewerChromeSegmentIconButtonClassName,
+	bridgeViewerChromeSegmentedControlClassName,
+} from './bridge-viewer-chrome.js';
 import { cn } from './class-name.js';
 
 export function BridgeViewerContentHeader(props: {
@@ -14,7 +17,10 @@ export function BridgeViewerContentHeader(props: {
 }): ReactElement {
 	return (
 		<header
-			className="flex h-9 min-w-0 items-center justify-between gap-3 border-b border-[var(--bridge-border-subtle)] bg-[var(--bridge-app-bg)] px-3 shadow-[0_1px_0_rgb(205_214_244_/_0.06)]"
+			className={cn(
+				'flex min-w-0 items-center justify-between gap-3 px-3',
+				bridgeViewerChromeHeaderClassName,
+			)}
 			data-bridge-viewer-content-topbar="true"
 			data-testid="bridge-viewer-content-topbar"
 		>
@@ -46,12 +52,13 @@ export function BridgeViewerContextSwitcher(props: {
 	readonly onModeChange: (mode: 'file' | 'review') => void;
 }): ReactElement {
 	return (
-		<div
+		<ToggleGroup
 			aria-label="Bridge viewer context"
-			className="inline-flex h-7 items-center gap-1 rounded-lg border border-[var(--bridge-border-subtle)] bg-[var(--bridge-surface-bg)] p-0.5"
+			className={bridgeViewerChromeSegmentedControlClassName}
 			data-bridge-segmented-control="viewer-context"
 			data-testid="bridge-viewer-context-switcher"
-			role="radiogroup"
+			role="group"
+			size="sm"
 		>
 			<BridgeViewerContextButton
 				isSelected={props.mode === 'file'}
@@ -65,7 +72,7 @@ export function BridgeViewerContextSwitcher(props: {
 				mode="review"
 				onModeChange={props.onModeChange}
 			/>
-		</div>
+		</ToggleGroup>
 	);
 }
 
@@ -76,10 +83,12 @@ function BridgeViewerContextButton(props: {
 	readonly onModeChange: (mode: 'file' | 'review') => void;
 }): ReactElement {
 	return (
-		<BridgeReviewButton
-			ariaLabel={props.label}
-			ariaPressed={props.isSelected}
-			className={cn('h-6 rounded-md px-2', props.isSelected && 'shadow-none')}
+		<ToggleGroupItem
+			aria-label={props.label}
+			className={cn(
+				bridgeViewerChromeSegmentIconButtonClassName,
+				props.isSelected && 'shadow-none',
+			)}
 			data-bridge-viewer-context-selected={props.isSelected ? 'true' : 'false'}
 			data-bridge-viewer-context-target={props.mode}
 			data-testid={`bridge-viewer-context-${props.mode}`}
@@ -88,16 +97,15 @@ function BridgeViewerContextButton(props: {
 					props.onModeChange(props.mode);
 				}
 			}}
+			pressed={props.isSelected}
+			size="icon-xs"
 			title={props.label}
 		>
-			<BridgeReviewIcon>
-				{props.mode === 'file' ? (
-					<FileTextIcon aria-hidden="true" className="size-4" />
-				) : (
-					<ListChecksIcon aria-hidden="true" className="size-4" />
-				)}
-			</BridgeReviewIcon>
-			<span>{props.label}</span>
-		</BridgeReviewButton>
+			{props.mode === 'file' ? (
+				<FileTextIcon aria-hidden="true" className={bridgeViewerChromeLucideIconClassName} />
+			) : (
+				<ListChecksIcon aria-hidden="true" className={bridgeViewerChromeLucideIconClassName} />
+			)}
+		</ToggleGroupItem>
 	);
 }

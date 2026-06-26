@@ -19,6 +19,14 @@ import {
 	parseBridgeWorktreeDevReloadStringList,
 } from './bridge-worktree-dev-reload-diagnostics.ts';
 import { resolveBridgeWorktreeVerifierWritePath } from './verify-bridge-viewer-worktree-dev-server-paths.ts';
+import {
+	buildReviewContentRouteDeltaProof,
+	normalizeReviewTreeSearchQuery,
+	reviewContentRouteDeltaSatisfied,
+	reviewRenderedSelectionSatisfied,
+	type ReviewContentRouteDeltaProof,
+	type ReviewRenderedSelectionSnapshot,
+} from './verify-bridge-viewer-worktree-review-proof.ts';
 
 const defaultWorktreeDevServerUrl =
 	'http://127.0.0.1:5173/?fixture=worktree&viewer=file&workers=on&scenario=current-worktree';
@@ -39,7 +47,9 @@ const worktreeDevServerOrigin = new URL(worktreeDevServerUrl).origin;
 const targetPathOverride = process.env['BRIDGE_VIEWER_WORKTREE_TARGET_PATH'] ?? null;
 const execFileAsync = promisify(execFile);
 const unavailableFilterFixtureRelativePath = '.github/workflows/ci.yml';
-const reviewExtensionlessFixtureRelativePath = '.gitignore';
+const fileToReviewHandoffFixtureRelativePath = '.gitignore';
+const reviewSelectionFixtureRelativePath = 'Sources/AgentStudio/AtomRegistry.swift';
+const reviewSelectionFixtureMarker = `bridge_worktree_devserver_review_selection_${proofRunCreatedAtUnixMilliseconds}`;
 
 const bridgeWorktreeSurfaceResponseSchema = z
 	.object({
@@ -313,11 +323,20 @@ interface WorktreeFileSharedShellProof {
 	readonly codeCanvasCount: number;
 	readonly codeCanvasOwnsCenterPoint: boolean;
 	readonly codeOwner: string | null;
+	readonly codeViewOverflow: string | null;
 	readonly contentPaneStartsBelowTopbar: boolean;
+	readonly contentHeaderAndRailToolbarTopAligned: boolean;
+	readonly contentHeaderBackground: string;
+	readonly contentHeaderHeight: number;
+	readonly contentHeaderMatchesRailToolbarHeight: boolean;
 	readonly contentTopbarCount: number;
 	readonly contentTopbarOwnsCenterPoint: boolean;
 	readonly contentTopbarStopsBeforeSidebar: boolean;
 	readonly contentTopbarVisible: boolean;
+	readonly contextFileButtonHeight: number;
+	readonly contextReviewButtonHeight: number;
+	readonly contextSegmentMatchesRailButtonHeight: boolean;
+	readonly contextSwitcherHeight: number;
 	readonly contentTitleText: string;
 	readonly contextSwitcherInsideContentTopbar: boolean;
 	readonly fileContextButtonSelected: string | null;
@@ -326,6 +345,12 @@ interface WorktreeFileSharedShellProof {
 	readonly modeHostCount: number;
 	readonly modeHostParentIsSharedRoot: boolean;
 	readonly rootVisible: boolean;
+	readonly railButtonHeightsMatch: boolean;
+	readonly railFilterButtonHeight: number;
+	readonly railOpenReviewButtonHeight: number;
+	readonly railSearchButtonHeight: number;
+	readonly railToolbarBackground: string;
+	readonly railToolbarHeight: number;
 	readonly reviewContextButtonSelected: string | null;
 	readonly sharedShellMode: string | null;
 	readonly sharedShellOwner: string | null;
@@ -366,24 +391,41 @@ interface WorktreeReviewRouteProof {
 	readonly fileViewerSidebarCount: number;
 	readonly locationHref: string;
 	readonly pageUrl: string;
+	readonly reviewContentHeaderHeight: number;
 	readonly reviewCanvasCount: number;
 	readonly reviewCodeScrollCount: number;
 	readonly reviewContextButtonSelected: string | null;
 	readonly reviewContentRouteHitCount: number;
 	readonly reviewContentRouteHitUrls: readonly string[];
 	readonly reviewEmptyShellCount: number;
-	readonly reviewExtensionlessContentRouteHitCount: number;
-	readonly reviewExtensionlessSelectedContentState: string | null;
-	readonly reviewExtensionlessSelectedDisplayPath: string | null;
+	readonly reviewHeaderMatchesRailToolbarHeight: boolean;
 	readonly reviewPackageRouteHitCount: number;
 	readonly reviewPackageRouteHitUrls: readonly string[];
 	readonly reviewPackageShellCount: number;
+	readonly reviewRailToolbarHeight: number;
+	readonly reviewRailToolbarUsesSharedAttr: boolean;
+	readonly reviewRenderedSelectionProof: ReviewRenderedSelectionSnapshot;
+	readonly reviewSelectionContentRouteHitCount: number;
+	readonly reviewSelectionPostClickContentRouteProof: ReviewContentRouteDeltaProof;
+	readonly reviewSelectionProof: ReviewTreeSearchClickProof;
+	readonly reviewSelectionSelectedContentState: string | null;
+	readonly reviewSelectionSelectedDisplayPath: string | null;
 	readonly reviewSelectedContentState: string | null;
 	readonly reviewSelectedDisplayPath: string | null;
 	readonly screenshotPath: string;
 	readonly sharedShellMode: string | null;
 	readonly sharedShellOwner: string | null;
 	readonly standaloneWorktreeFileAppCount: number;
+}
+
+interface ReviewTreeSearchClickProof {
+	readonly clickedRowItemPath: string | null;
+	readonly clickedRowItemType: string | null;
+	readonly clickedRowVisible: boolean;
+	readonly searchInputValue: string | null;
+	readonly searchOpened: boolean;
+	readonly selectionMethod: 'playwright-review-tree-search-click';
+	readonly targetPath: string;
 }
 
 interface WorktreeReviewFileTargetRouteProof {
@@ -393,10 +435,15 @@ interface WorktreeReviewFileTargetRouteProof {
 	readonly expectedVersion: 'base' | 'current' | 'head';
 	readonly locationHref: string;
 	readonly pageUrl: string;
+	readonly reviewContentHeaderHeight: number;
 	readonly reviewContentRouteHitCount: number;
 	readonly reviewContentRouteHitUrls: readonly string[];
+	readonly reviewHeaderMatchesRailToolbarHeight: boolean;
 	readonly reviewPackageRouteHitCount: number;
+	readonly reviewRailToolbarHeight: number;
+	readonly reviewRailToolbarUsesSharedAttr: boolean;
 	readonly screenshotPath: string;
+	readonly selectedCodeViewOverflow: string | null;
 	readonly selectedContentRoleCount: number;
 	readonly selectedContentState: string | null;
 	readonly selectedDisplayPath: string | null;
@@ -615,15 +662,20 @@ try {
 
 async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationResult> {
 	const page = await makeVerificationPage();
+	let fileToReviewHandoffFixture: WorktreeFileModifiedFixture | null = null;
 	let unavailableFilterFixture: WorktreeFileDeletedUnavailableFixture | null = null;
-	let reviewExtensionlessFixture: WorktreeFileModifiedFixture | null = null;
+	let reviewSelectionFixture: WorktreeFileModifiedFixture | null = null;
 	let staleRefreshFixture: WorktreeFileStaleRefreshFixture | null = null;
 	let splitResetFixture: WorktreeFileStaleRefreshFixture | null = null;
 	try {
 		unavailableFilterFixture = await worktreeFileDeletedUnavailableFixture();
-		reviewExtensionlessFixture = await worktreeFileModifiedFixture({
-			relativePath: reviewExtensionlessFixtureRelativePath,
-			tag: 'review_extensionless',
+		fileToReviewHandoffFixture = await worktreeFileModifiedFixture({
+			relativePath: fileToReviewHandoffFixtureRelativePath,
+			tag: 'file_to_review_handoff',
+		});
+		reviewSelectionFixture = await worktreeFileModifiedFixture({
+			relativePath: reviewSelectionFixtureRelativePath,
+			tag: 'review_selection',
 		});
 		const surface = await fetchWorktreeSurface();
 		const expectedWorktreeRootToken = await bridgeWorktreeDevRootTokenForPath(repoRootPath);
@@ -890,8 +942,11 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 		if (unavailableFilterFixture !== null) {
 			await restoreWorktreeFileDeletedUnavailableFixture(unavailableFilterFixture);
 		}
-		if (reviewExtensionlessFixture !== null) {
-			await restoreWorktreeFileModifiedFixture(reviewExtensionlessFixture);
+		if (fileToReviewHandoffFixture !== null) {
+			await restoreWorktreeFileModifiedFixture(fileToReviewHandoffFixture);
+		}
+		if (reviewSelectionFixture !== null) {
+			await restoreWorktreeFileModifiedFixture(reviewSelectionFixture);
 		}
 	}
 }
@@ -900,8 +955,8 @@ async function verifyWorktreeReviewRoute(): Promise<WorktreeReviewRouteProof> {
 	const page = await makeVerificationPage();
 	const routeProbe = await installReviewRouteProbe(page);
 	try {
-		const extensionlessItemId = await fetchWorktreeReviewItemIdForDisplayPath(
-			reviewExtensionlessFixtureRelativePath,
+		const selectionItemId = await fetchWorktreeReviewItemIdForDisplayPath(
+			reviewSelectionFixtureRelativePath,
 		);
 		await page.goto(worktreeReviewDevServerUrl, {
 			waitUntil: 'domcontentloaded',
@@ -909,25 +964,68 @@ async function verifyWorktreeReviewRoute(): Promise<WorktreeReviewRouteProof> {
 		});
 		await page.waitForSelector('[data-testid="bridge-app-root"]', { timeout: 30_000 });
 		await page.waitForSelector('[data-testid="review-viewer-shell"]', { timeout: 30_000 });
+		await waitForAnyReviewSelectedContentState({ page, state: 'ready' });
+		const reviewContentHitCountBeforeClick = routeProbe.contentHitCount();
+		const reviewSelectionProof = await clickReviewTreeFilePathViaSearch({
+			page,
+			path: reviewSelectionFixtureRelativePath,
+		});
 		await waitForReviewSelectedContentState({
-			displayPath: '.github/workflows/ci.yml',
+			displayPath: reviewSelectionFixtureRelativePath,
 			page,
 			state: 'ready',
 		});
-		await selectReviewItem(page, extensionlessItemId);
-		await waitForReviewSelectedContentState({
-			displayPath: reviewExtensionlessFixtureRelativePath,
+		await waitForReviewRenderedSelection({
+			expectedItemId: selectionItemId,
+			expectedVisibleText: reviewSelectionFixtureMarker,
 			page,
-			state: 'ready',
 		});
+		const reviewSelectionPostClickContentRouteProof = await waitForReviewContentRouteHitAfterIndex({
+			beforeHitCount: reviewContentHitCountBeforeClick,
+			expectedItemId: selectionItemId,
+			routeProbe,
+		});
+		const reviewRenderedSelectionProof = await readReviewRenderedSelectionSnapshot(page);
+		if (
+			!reviewRenderedSelectionSatisfied({
+				expectation: {
+					expectedCodeViewOverflow: 'wrap',
+					expectedItemId: selectionItemId,
+					expectedMaterializedItemType: 'diff',
+					expectedVisibleText: reviewSelectionFixtureMarker,
+				},
+				snapshot: reviewRenderedSelectionProof,
+			})
+		) {
+			throw new Error(
+				`Expected Review tree click to render ${selectionItemId} in the left CodeView canvas: ${JSON.stringify(reviewRenderedSelectionProof)}`,
+			);
+		}
+		if (!reviewContentRouteDeltaSatisfied(reviewSelectionPostClickContentRouteProof)) {
+			throw new Error(
+				`Expected Review tree click to trigger a post-click content route for ${selectionItemId}: ${JSON.stringify(reviewSelectionPostClickContentRouteProof)}`,
+			);
+		}
 		await waitForReviewContentRouteHitContaining({
-			needle: extensionlessItemId,
+			needle: selectionItemId,
 			routeProbe,
 		});
 		const proof = await page.evaluate(() => {
 			const appRoots = [...document.querySelectorAll('[data-testid="bridge-app-root"]')];
 			const appRoot = appRoots[0];
 			const reviewShell = document.querySelector('[data-testid="review-viewer-shell"]');
+			const reviewContentHeader = document.querySelector(
+				'[data-testid="bridge-viewer-content-topbar"]',
+			);
+			const reviewRailToolbar = document.querySelector(
+				'[data-testid="bridge-review-rail-toolbar"]',
+			);
+			const reviewContentHeaderRect =
+				reviewContentHeader instanceof HTMLElement
+					? reviewContentHeader.getBoundingClientRect()
+					: null;
+			const reviewRailToolbarRect =
+				reviewRailToolbar instanceof HTMLElement ? reviewRailToolbar.getBoundingClientRect() : null;
 			const visibleContextButtonSelection = (testId: string): string | null => {
 				const buttons = [...document.querySelectorAll(`[data-testid="${testId}"]`)];
 				const visibleButton = buttons.find(
@@ -957,9 +1055,18 @@ async function verifyWorktreeReviewRoute(): Promise<WorktreeReviewRouteProof> {
 				reviewCodeScrollCount: document.querySelectorAll(
 					'[data-testid="bridge-review-code-scroll"]',
 				).length,
+				reviewContentHeaderHeight: reviewContentHeaderRect?.height ?? 0,
 				reviewContextButtonSelected: visibleContextButtonSelection('bridge-viewer-context-review'),
+				reviewHeaderMatchesRailToolbarHeight:
+					reviewContentHeaderRect !== null &&
+					reviewRailToolbarRect !== null &&
+					Math.abs(reviewContentHeaderRect.height - reviewRailToolbarRect.height) <= 1,
 				reviewPackageShellCount: document.querySelectorAll('[data-testid="review-viewer-shell"]')
 					.length,
+				reviewRailToolbarHeight: reviewRailToolbarRect?.height ?? 0,
+				reviewRailToolbarUsesSharedAttr:
+					reviewRailToolbar instanceof HTMLElement &&
+					reviewRailToolbar.getAttribute('data-bridge-shared-rail-toolbar') === 'true',
 				reviewSelectedContentState:
 					reviewShell instanceof HTMLElement
 						? reviewShell.getAttribute('data-selected-content-state')
@@ -979,7 +1086,7 @@ async function verifyWorktreeReviewRoute(): Promise<WorktreeReviewRouteProof> {
 				).length,
 			};
 		});
-		const extensionlessState = await page.evaluate(() => {
+		const selectionState = await page.evaluate(() => {
 			const reviewShell = document.querySelector('[data-testid="review-viewer-shell"]');
 			return {
 				selectedContentState:
@@ -996,13 +1103,16 @@ async function verifyWorktreeReviewRoute(): Promise<WorktreeReviewRouteProof> {
 			...proof,
 			reviewContentRouteHitCount: routeProbe.contentHitCount(),
 			reviewContentRouteHitUrls: routeProbe.contentHitUrls(),
-			reviewExtensionlessContentRouteHitCount: routeProbe
+			reviewSelectionContentRouteHitCount: routeProbe
 				.contentHitUrls()
-				.filter((url) => url.includes(extensionlessItemId)).length,
-			reviewExtensionlessSelectedContentState: extensionlessState.selectedContentState,
-			reviewExtensionlessSelectedDisplayPath: extensionlessState.selectedDisplayPath,
+				.filter((url) => url.includes(selectionItemId)).length,
 			reviewPackageRouteHitCount: routeProbe.packageHitCount(),
 			reviewPackageRouteHitUrls: routeProbe.packageHitUrls(),
+			reviewRenderedSelectionProof,
+			reviewSelectionPostClickContentRouteProof,
+			reviewSelectionProof,
+			reviewSelectionSelectedContentState: selectionState.selectedContentState,
+			reviewSelectionSelectedDisplayPath: selectionState.selectedDisplayPath,
 			screenshotPath: await captureWorktreeDevServerScreenshot({
 				name: 'worktree-review-ready.png',
 				page,
@@ -1031,11 +1141,32 @@ async function verifyWorktreeReviewRoute(): Promise<WorktreeReviewRouteProof> {
 			routeProof.reviewCodeScrollCount !== 1 ||
 			routeProof.reviewSelectedContentState !== 'ready' ||
 			routeProof.reviewSelectedDisplayPath === null ||
+			routeProof.reviewContentHeaderHeight <= 0 ||
+			routeProof.reviewRailToolbarHeight <= 0 ||
+			!routeProof.reviewHeaderMatchesRailToolbarHeight ||
+			!routeProof.reviewRailToolbarUsesSharedAttr ||
 			routeProof.reviewPackageRouteHitCount !== 1 ||
 			routeProof.reviewContentRouteHitCount <= 0 ||
-			routeProof.reviewExtensionlessContentRouteHitCount <= 0 ||
-			routeProof.reviewExtensionlessSelectedContentState !== 'ready' ||
-			routeProof.reviewExtensionlessSelectedDisplayPath !== reviewExtensionlessFixtureRelativePath
+			routeProof.reviewSelectionContentRouteHitCount <= 0 ||
+			!reviewContentRouteDeltaSatisfied(routeProof.reviewSelectionPostClickContentRouteProof) ||
+			routeProof.reviewSelectionSelectedContentState !== 'ready' ||
+			routeProof.reviewSelectionSelectedDisplayPath !== reviewSelectionFixtureRelativePath ||
+			!reviewRenderedSelectionSatisfied({
+				expectation: {
+					expectedCodeViewOverflow: 'wrap',
+					expectedItemId: selectionItemId,
+					expectedMaterializedItemType: 'diff',
+					expectedVisibleText: reviewSelectionFixtureMarker,
+				},
+				snapshot: routeProof.reviewRenderedSelectionProof,
+			}) ||
+			!routeProof.reviewSelectionProof.searchOpened ||
+			routeProof.reviewSelectionProof.searchInputValue !==
+				normalizeReviewTreeSearchQuery(reviewSelectionFixtureRelativePath) ||
+			routeProof.reviewSelectionProof.targetPath !== reviewSelectionFixtureRelativePath ||
+			routeProof.reviewSelectionProof.clickedRowItemPath !== reviewSelectionFixtureRelativePath ||
+			routeProof.reviewSelectionProof.clickedRowItemType !== 'file' ||
+			!routeProof.reviewSelectionProof.clickedRowVisible
 		) {
 			throw new Error(
 				`Expected worktree Review URL to load a real shared review package without FileViewer substitute: ${JSON.stringify(routeProof)}`,
@@ -1052,7 +1183,7 @@ async function verifyWorktreeReviewFileTargetRoute(): Promise<WorktreeReviewFile
 	const page = await makeVerificationPage();
 	const routeProbe = await installReviewRouteProbe(page);
 	try {
-		const expectedDisplayPath = reviewExtensionlessFixtureRelativePath;
+		const expectedDisplayPath = reviewSelectionFixtureRelativePath;
 		const expectedReviewItemId = await fetchWorktreeReviewItemIdForDisplayPath(expectedDisplayPath);
 		const expectedVersion = 'current';
 		const reviewFileTargetUrl = reviewFileTargetUrlFromWorktreeDevServerUrl({
@@ -1114,13 +1245,38 @@ async function verifyWorktreeReviewFileTargetRoute(): Promise<WorktreeReviewFile
 			const appRoot = document.querySelector('[data-testid="bridge-app-root"]');
 			const reviewShell = document.querySelector('[data-testid="review-viewer-shell"]');
 			const codePanel = document.querySelector('[data-testid="bridge-code-view-panel"]');
+			const reviewContentHeader = document.querySelector(
+				'[data-testid="bridge-viewer-content-topbar"]',
+			);
+			const reviewRailToolbar = document.querySelector(
+				'[data-testid="bridge-review-rail-toolbar"]',
+			);
+			const reviewContentHeaderRect =
+				reviewContentHeader instanceof HTMLElement
+					? reviewContentHeader.getBoundingClientRect()
+					: null;
+			const reviewRailToolbarRect =
+				reviewRailToolbar instanceof HTMLElement ? reviewRailToolbar.getBoundingClientRect() : null;
 			return {
 				appOwner:
 					appRoot instanceof HTMLElement ? appRoot.getAttribute('data-bridge-app-owner') : null,
+				reviewContentHeaderHeight: reviewContentHeaderRect?.height ?? 0,
+				reviewHeaderMatchesRailToolbarHeight:
+					reviewContentHeaderRect !== null &&
+					reviewRailToolbarRect !== null &&
+					Math.abs(reviewContentHeaderRect.height - reviewRailToolbarRect.height) <= 1,
+				reviewRailToolbarHeight: reviewRailToolbarRect?.height ?? 0,
+				reviewRailToolbarUsesSharedAttr:
+					reviewRailToolbar instanceof HTMLElement &&
+					reviewRailToolbar.getAttribute('data-bridge-shared-rail-toolbar') === 'true',
 				selectedContentRoleCount:
 					codePanel instanceof HTMLElement
 						? Number(codePanel.getAttribute('data-selected-content-role-count') ?? '0')
 						: 0,
+				selectedCodeViewOverflow:
+					codePanel instanceof HTMLElement
+						? codePanel.getAttribute('data-bridge-code-view-overflow')
+						: null,
 				selectedContentState:
 					reviewShell instanceof HTMLElement
 						? reviewShell.getAttribute('data-selected-content-state')
@@ -1172,10 +1328,15 @@ async function verifyWorktreeReviewFileTargetRoute(): Promise<WorktreeReviewFile
 			routeProof.sharedShellMode !== 'review' ||
 			routeProof.sharedShellOwner !== 'BridgeViewerAppShell' ||
 			routeProof.selectedContentState !== 'ready' ||
+			routeProof.selectedCodeViewOverflow !== 'wrap' ||
 			routeProof.selectedDisplayPath !== expectedDisplayPath ||
 			routeProof.selectedItemId !== expectedReviewItemId ||
 			routeProof.selectedMaterializedItemType !== 'file' ||
 			routeProof.selectedMaterializedFileLineCount <= 0 ||
+			routeProof.reviewContentHeaderHeight <= 0 ||
+			routeProof.reviewRailToolbarHeight <= 0 ||
+			!routeProof.reviewHeaderMatchesRailToolbarHeight ||
+			!routeProof.reviewRailToolbarUsesSharedAttr ||
 			routeProof.standaloneWorktreeFileAppCount !== 0 ||
 			routeProof.reviewPackageRouteHitCount !== 1 ||
 			routeProof.reviewContentRouteHitCount <= 0
@@ -1290,9 +1451,19 @@ async function assertSharedBridgeFileViewerShell(props: {
 		const contextSwitcher = document.querySelector(
 			'[data-testid="bridge-viewer-context-switcher"]',
 		);
+		const contextFileButton = document.querySelector('[data-testid="bridge-viewer-context-file"]');
+		const contextReviewButton = document.querySelector(
+			'[data-testid="bridge-viewer-context-review"]',
+		);
 		const contentTitle = document.querySelector('[data-testid="bridge-viewer-content-title"]');
 		const pierreTree = document.querySelector(
 			'[data-testid="bridge-file-viewer-pierre-file-tree"]',
+		);
+		const railToolbar = document.querySelector('[data-testid="bridge-file-viewer-rail-toolbar"]');
+		const railFilterButton = document.querySelector('[data-testid="worktree-file-filter-menu"]');
+		const railSearchButton = document.querySelector('[data-testid="bridge-review-search-toggle"]');
+		const railOpenReviewButton = document.querySelector(
+			'[data-testid="worktree-file-open-review-comparison"]',
 		);
 		if (
 			!(appRoot instanceof HTMLElement) ||
@@ -1302,8 +1473,14 @@ async function assertSharedBridgeFileViewerShell(props: {
 			!(sidebar instanceof HTMLElement) ||
 			!(contentTopbar instanceof HTMLElement) ||
 			!(contextSwitcher instanceof HTMLElement) ||
+			!(contextFileButton instanceof HTMLElement) ||
+			!(contextReviewButton instanceof HTMLElement) ||
 			!(contentTitle instanceof HTMLElement) ||
-			!(pierreTree instanceof HTMLElement)
+			!(pierreTree instanceof HTMLElement) ||
+			!(railToolbar instanceof HTMLElement) ||
+			!(railFilterButton instanceof HTMLElement) ||
+			!(railSearchButton instanceof HTMLElement) ||
+			!(railOpenReviewButton instanceof HTMLElement)
 		) {
 			return null;
 		}
@@ -1327,6 +1504,14 @@ async function assertSharedBridgeFileViewerShell(props: {
 		const codeRect = codeCanvas.getBoundingClientRect();
 		const sidebarRect = sidebar.getBoundingClientRect();
 		const contentTopbarRect = contentTopbar.getBoundingClientRect();
+		const contextSwitcherRect = contextSwitcher.getBoundingClientRect();
+		const contextFileButtonRect = contextFileButton.getBoundingClientRect();
+		const contextReviewButtonRect = contextReviewButton.getBoundingClientRect();
+		const railToolbarRect = railToolbar.getBoundingClientRect();
+		const railFilterButtonRect = railFilterButton.getBoundingClientRect();
+		const railSearchButtonRect = railSearchButton.getBoundingClientRect();
+		const railOpenReviewButtonRect = railOpenReviewButton.getBoundingClientRect();
+		const sameHeight = (left: number, right: number): boolean => Math.abs(left - right) <= 1;
 		return {
 			appOwner: appRoot.getAttribute('data-bridge-app-owner'),
 			appRootCount: appRoots.length,
@@ -1334,11 +1519,27 @@ async function assertSharedBridgeFileViewerShell(props: {
 			codeCanvasCount: codeCanvases.length,
 			codeCanvasOwnsCenterPoint: elementOwnsCenterPoint(codeCanvas),
 			codeOwner: codeCanvas.getAttribute('data-pierre-code-view-owner'),
+			codeViewOverflow: codeCanvas.getAttribute('data-bridge-code-view-overflow'),
 			contentPaneStartsBelowTopbar: codeRect.top >= contentTopbarRect.bottom - 1,
+			contentHeaderAndRailToolbarTopAligned:
+				Math.abs(contentTopbarRect.top - railToolbarRect.top) <= 1,
+			contentHeaderBackground: getComputedStyle(contentTopbar).backgroundColor,
+			contentHeaderHeight: contentTopbarRect.height,
+			contentHeaderMatchesRailToolbarHeight: sameHeight(
+				contentTopbarRect.height,
+				railToolbarRect.height,
+			),
 			contentTopbarCount: contentTopbars.length,
 			contentTopbarOwnsCenterPoint: elementOwnsCenterPoint(contentTopbar),
 			contentTopbarStopsBeforeSidebar: contentTopbarRect.right <= sidebarRect.left + 1,
 			contentTopbarVisible: contentTopbarRect.width > 0 && contentTopbarRect.height > 0,
+			contextFileButtonHeight: contextFileButtonRect.height,
+			contextReviewButtonHeight: contextReviewButtonRect.height,
+			contextSegmentMatchesRailButtonHeight:
+				sameHeight(contextSwitcherRect.height, railFilterButtonRect.height) &&
+				sameHeight(contextSwitcherRect.height, railSearchButtonRect.height) &&
+				sameHeight(contextSwitcherRect.height, railOpenReviewButtonRect.height),
+			contextSwitcherHeight: contextSwitcherRect.height,
 			contentTitleText: contentTitle.textContent ?? '',
 			contextSwitcherInsideContentTopbar: contentTopbar.contains(contextSwitcher),
 			fileContextButtonSelected: visibleContextButtonSelection('bridge-viewer-context-file'),
@@ -1348,6 +1549,14 @@ async function assertSharedBridgeFileViewerShell(props: {
 				.length,
 			modeHostParentIsSharedRoot: modeHost.parentElement === appRoot,
 			rootVisible: appRoot.getBoundingClientRect().width > 0,
+			railButtonHeightsMatch:
+				sameHeight(railFilterButtonRect.height, railSearchButtonRect.height) &&
+				sameHeight(railFilterButtonRect.height, railOpenReviewButtonRect.height),
+			railFilterButtonHeight: railFilterButtonRect.height,
+			railOpenReviewButtonHeight: railOpenReviewButtonRect.height,
+			railSearchButtonHeight: railSearchButtonRect.height,
+			railToolbarBackground: getComputedStyle(railToolbar).backgroundColor,
+			railToolbarHeight: railToolbarRect.height,
 			reviewContextButtonSelected: visibleContextButtonSelection('bridge-viewer-context-review'),
 			sharedShellMode: appRoot.getAttribute('data-bridge-viewer-mode'),
 			sharedShellOwner: appRoot.getAttribute('data-bridge-viewer-shell-owner'),
@@ -1409,10 +1618,14 @@ async function assertSharedBridgeFileViewerShell(props: {
 		proofWithWorkerBaseline.contentTopbarCount !== 1 ||
 		!proofWithWorkerBaseline.contentTopbarVisible ||
 		!proofWithWorkerBaseline.contentTopbarOwnsCenterPoint ||
+		!proofWithWorkerBaseline.contentHeaderAndRailToolbarTopAligned ||
+		!proofWithWorkerBaseline.contentHeaderMatchesRailToolbarHeight ||
 		!proofWithWorkerBaseline.contextSwitcherInsideContentTopbar ||
+		!proofWithWorkerBaseline.contextSegmentMatchesRailButtonHeight ||
 		!proofWithWorkerBaseline.contentTopbarStopsBeforeSidebar ||
 		!proofWithWorkerBaseline.contentPaneStartsBelowTopbar ||
 		!proofWithWorkerBaseline.contentTitleText.includes(' / ') ||
+		!proofWithWorkerBaseline.railButtonHeightsMatch ||
 		proofWithWorkerBaseline.sidebarCount !== 1 ||
 		!proofWithWorkerBaseline.sidebarOwnsCenterPoint ||
 		!proofWithWorkerBaseline.sidebarStartsAtContentTopbar ||
@@ -1421,6 +1634,7 @@ async function assertSharedBridgeFileViewerShell(props: {
 		proofWithWorkerBaseline.sidebarPosition !== 'right' ||
 		!proofWithWorkerBaseline.sidebarIsRight ||
 		proofWithWorkerBaseline.codeOwner !== 'CodeView.file' ||
+		proofWithWorkerBaseline.codeViewOverflow !== 'wrap' ||
 		proofWithWorkerBaseline.shikiRendering !== 'pierre' ||
 		proofWithWorkerBaseline.treeOwner !== 'FileTree' ||
 		!proofWithWorkerBaseline.hasPierreTreeShadowRoot ||
@@ -2053,6 +2267,37 @@ async function waitForReviewContentRouteHitContaining(props: {
 	});
 	await waitForReviewContentRouteHitContaining({
 		needle: props.needle,
+		remainingAttempts: remainingAttempts - 1,
+		routeProbe: props.routeProbe,
+	});
+}
+
+async function waitForReviewContentRouteHitAfterIndex(props: {
+	readonly beforeHitCount: number;
+	readonly expectedItemId: string;
+	readonly remainingAttempts?: number;
+	readonly routeProbe: ReviewRouteProbe;
+}): Promise<ReviewContentRouteDeltaProof> {
+	const routeProof = buildReviewContentRouteDeltaProof({
+		allHitUrls: props.routeProbe.contentHitUrls(),
+		beforeHitCount: props.beforeHitCount,
+		expectedItemId: props.expectedItemId,
+	});
+	if (reviewContentRouteDeltaSatisfied(routeProof)) {
+		return routeProof;
+	}
+	const remainingAttempts = props.remainingAttempts ?? 1_000;
+	if (remainingAttempts <= 0) {
+		throw new Error(
+			`Timed out waiting for post-click Worktree/Review content route hit for ${props.expectedItemId}: ${JSON.stringify(routeProof)}`,
+		);
+	}
+	await new Promise<void>((resolve): void => {
+		setTimeout(resolve, 10);
+	});
+	return waitForReviewContentRouteHitAfterIndex({
+		beforeHitCount: props.beforeHitCount,
+		expectedItemId: props.expectedItemId,
 		remainingAttempts: remainingAttempts - 1,
 		routeProbe: props.routeProbe,
 	});
@@ -3946,7 +4191,7 @@ async function verifyWorktreeFileToReviewHandoff(): Promise<WorktreeFileToReview
 	const page = await makeVerificationPage();
 	const routeProbe = await installReviewRouteProbe(page);
 	try {
-		const expectedDisplayPath = reviewExtensionlessFixtureRelativePath;
+		const expectedDisplayPath = fileToReviewHandoffFixtureRelativePath;
 		const expectedReviewItemId = await fetchWorktreeReviewItemIdForDisplayPath(expectedDisplayPath);
 		await page.goto(worktreeDevServerUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
 		await page.waitForSelector('[data-testid="bridge-file-viewer-shell"]', { timeout: 30_000 });
@@ -4174,17 +4419,61 @@ async function verifyWorktreeFileToReviewHandoff(): Promise<WorktreeFileToReview
 	}
 }
 
-async function selectReviewItem(page: Page, itemId: string): Promise<void> {
-	await page.evaluate(
-		(props: { readonly itemId: string }): void => {
-			document.dispatchEvent(
-				new CustomEvent('__bridge_select_review_item', {
-					detail: { itemId: props.itemId },
-				}),
+async function clickReviewTreeFilePathViaSearch(props: {
+	readonly page: Page;
+	readonly path: string;
+}): Promise<ReviewTreeSearchClickProof> {
+	const reviewTreeContainerSelector =
+		'[data-testid="bridge-review-trees-panel"] file-tree-container';
+	const searchInputLocator = props.page
+		.locator(`${reviewTreeContainerSelector} input[data-file-tree-search-input]`)
+		.first();
+	const searchContainerLocator = props.page
+		.locator(`${reviewTreeContainerSelector} [data-file-tree-search-container][data-open="true"]`)
+		.first();
+	const targetRowLocator = props.page
+		.locator(
+			`${reviewTreeContainerSelector} button[data-item-path=${cssStringLiteral(
+				props.path,
+			)}][data-item-type="file"]:not([data-file-tree-sticky-row]):not([data-item-parked])`,
+		)
+		.first();
+
+	await dismissOpenBridgeMenus(props.page);
+	if (!(await searchInputLocator.isVisible())) {
+		await props.page.locator('button[data-testid="bridge-review-search-toggle"]:visible').click();
+	}
+	await searchInputLocator.waitFor({ state: 'visible', timeout: 10_000 });
+	await searchInputLocator.fill(props.path);
+	await searchContainerLocator.waitFor({ state: 'visible', timeout: 10_000 });
+	await targetRowLocator.waitFor({ state: 'attached', timeout: 10_000 });
+	await targetRowLocator.scrollIntoViewIfNeeded({ timeout: 10_000 });
+	await targetRowLocator.waitFor({ state: 'visible', timeout: 10_000 });
+
+	const clickProof = await targetRowLocator.evaluate(
+		(row: Element, targetPath: string): ReviewTreeSearchClickProof => {
+			const rowRect = row.getBoundingClientRect();
+			const rootNode = row.getRootNode();
+			const queryRoot =
+				rootNode instanceof Document || rootNode instanceof ShadowRoot ? rootNode : document;
+			const searchInput = queryRoot.querySelector('input[data-file-tree-search-input]');
+			const searchContainer = queryRoot.querySelector(
+				'[data-file-tree-search-container][data-open="true"]',
 			);
+			return {
+				clickedRowItemPath: row instanceof HTMLElement ? row.getAttribute('data-item-path') : null,
+				clickedRowItemType: row instanceof HTMLElement ? row.getAttribute('data-item-type') : null,
+				clickedRowVisible: rowRect.width > 0 && rowRect.height > 0,
+				searchInputValue: searchInput instanceof HTMLInputElement ? searchInput.value : null,
+				searchOpened: searchContainer instanceof HTMLElement,
+				selectionMethod: 'playwright-review-tree-search-click',
+				targetPath,
+			};
 		},
-		{ itemId },
+		props.path,
 	);
+	await targetRowLocator.click({ timeout: 10_000 });
+	return clickProof;
 }
 
 async function waitForReviewSelectedContentState(props: {
@@ -4220,6 +4509,155 @@ async function waitForReviewSelectedContentState(props: {
 			{ cause: error },
 		);
 	}
+}
+
+async function waitForAnyReviewSelectedContentState(props: {
+	readonly page: Page;
+	readonly state: 'failed' | 'loading' | 'ready';
+}): Promise<void> {
+	try {
+		await props.page.waitForFunction(
+			(expectedState: string): boolean => {
+				const reviewShell = document.querySelector('[data-testid="review-viewer-shell"]');
+				const selectedDisplayPath = reviewShell?.getAttribute('data-selected-display-path') ?? null;
+				return (
+					selectedDisplayPath !== null &&
+					reviewShell?.getAttribute('data-selected-content-state') === expectedState
+				);
+			},
+			props.state,
+			{ timeout: 30_000 },
+		);
+	} catch (error) {
+		const debugState = await props.page.evaluate(() => {
+			const reviewShell = document.querySelector('[data-testid="review-viewer-shell"]');
+			const codePanel = document.querySelector('[data-testid="bridge-code-view-panel"]');
+			return {
+				currentDisplayPath: reviewShell?.getAttribute('data-selected-display-path') ?? null,
+				currentState: reviewShell?.getAttribute('data-selected-content-state') ?? null,
+				selectedItemId: codePanel?.getAttribute('data-selected-item-id') ?? null,
+			};
+		});
+		throw new Error(
+			`Timed out waiting for any Worktree/Review selected content ${props.state}: ${JSON.stringify(debugState)}`,
+			{ cause: error },
+		);
+	}
+}
+
+async function waitForReviewRenderedSelection(props: {
+	readonly expectedItemId: string;
+	readonly expectedVisibleText: string;
+	readonly page: Page;
+}): Promise<void> {
+	try {
+		await props.page.waitForFunction(
+			(expected: {
+				readonly expectedItemId: string;
+				readonly expectedVisibleText: string;
+			}): boolean => {
+				const codePanel = document.querySelector('[data-testid="bridge-code-view-panel"]');
+				const codeViewOverflow = codePanel?.getAttribute('data-bridge-code-view-overflow') ?? null;
+				const selectedItemId = codePanel?.getAttribute('data-selected-item-id') ?? null;
+				const selectedMaterializedItemType =
+					codePanel?.getAttribute('data-selected-materialized-item-type') ?? null;
+				const lightDomHeaders = [
+					...document.querySelectorAll('[data-testid="bridge-code-view-header-collapse-button"]'),
+				].filter(
+					(element: Element): element is HTMLButtonElement => element instanceof HTMLButtonElement,
+				);
+				const shadowDomHeaders = [...document.querySelectorAll('diffs-container')].flatMap(
+					(element: Element): readonly HTMLButtonElement[] =>
+						[
+							...(element.shadowRoot?.querySelectorAll(
+								'[data-testid="bridge-code-view-header-collapse-button"]',
+							) ?? []),
+						].filter(
+							(headerElement: Element): headerElement is HTMLButtonElement =>
+								headerElement instanceof HTMLButtonElement,
+						),
+				);
+				const selectedHeaderPresent = [...lightDomHeaders, ...shadowDomHeaders].some(
+					(selectedHeader: HTMLButtonElement): boolean =>
+						selectedHeader.dataset['bridgeCodeViewItemId'] === expected.expectedItemId,
+				);
+				const shadowText = [...document.querySelectorAll('diffs-container')]
+					.map((element: Element): string => element.shadowRoot?.textContent ?? '')
+					.join(' ');
+				const visibleText = [
+					codePanel instanceof HTMLElement ? (codePanel.textContent ?? '') : '',
+					shadowText,
+				].join(' ');
+				return (
+					codeViewOverflow === 'wrap' &&
+					selectedItemId === expected.expectedItemId &&
+					selectedHeaderPresent &&
+					selectedMaterializedItemType === 'diff' &&
+					visibleText.includes(expected.expectedVisibleText)
+				);
+			},
+			{
+				expectedItemId: props.expectedItemId,
+				expectedVisibleText: props.expectedVisibleText,
+			},
+			{ timeout: 30_000 },
+		);
+	} catch (error) {
+		const debugState = await readReviewRenderedSelectionSnapshot(props.page);
+		throw new Error(
+			`Timed out waiting for Review CodeView to render ${props.expectedItemId}: ${JSON.stringify(debugState)}`,
+			{ cause: error },
+		);
+	}
+}
+
+async function readReviewRenderedSelectionSnapshot(
+	page: Page,
+): Promise<ReviewRenderedSelectionSnapshot> {
+	return page.evaluate((): ReviewRenderedSelectionSnapshot => {
+		const codePanel = document.querySelector('[data-testid="bridge-code-view-panel"]');
+		const codeViewOverflow = codePanel?.getAttribute('data-bridge-code-view-overflow') ?? null;
+		const selectedItemId = codePanel?.getAttribute('data-selected-item-id') ?? null;
+		const lightDomHeaders = [
+			...document.querySelectorAll('[data-testid="bridge-code-view-header-collapse-button"]'),
+		].filter(
+			(element: Element): element is HTMLButtonElement => element instanceof HTMLButtonElement,
+		);
+		const shadowDomHeaders = [...document.querySelectorAll('diffs-container')].flatMap(
+			(element: Element): readonly HTMLButtonElement[] =>
+				[
+					...(element.shadowRoot?.querySelectorAll(
+						'[data-testid="bridge-code-view-header-collapse-button"]',
+					) ?? []),
+				].filter(
+					(headerElement: Element): headerElement is HTMLButtonElement =>
+						headerElement instanceof HTMLButtonElement,
+				),
+		);
+		const selectedHeaderPresent = [...lightDomHeaders, ...shadowDomHeaders].some(
+			(selectedHeader: HTMLButtonElement): boolean =>
+				selectedHeader.dataset['bridgeCodeViewItemId'] === selectedItemId,
+		);
+		const shadowText = [...document.querySelectorAll('diffs-container')]
+			.map((element: Element): string => element.shadowRoot?.textContent ?? '')
+			.join(' ');
+		const visibleText = [
+			codePanel instanceof HTMLElement ? (codePanel.textContent ?? '') : '',
+			shadowText,
+		].join(' ');
+		return {
+			codeViewOverflow,
+			selectedHeaderPresent,
+			selectedItemId,
+			selectedMaterializedFileLineCount:
+				codePanel instanceof HTMLElement
+					? Number(codePanel.getAttribute('data-selected-materialized-file-line-count') ?? '0')
+					: 0,
+			selectedMaterializedItemType:
+				codePanel?.getAttribute('data-selected-materialized-item-type') ?? null,
+			visibleText,
+		};
+	});
 }
 
 async function waitForWorktreeSourceCursor(props: {
@@ -4533,7 +4971,7 @@ function worktreeDevServerRequiredRouteUrls(): {
 		files: worktreeDevServerUrl,
 		review: worktreeReviewDevServerUrl,
 		reviewFileTarget: reviewFileTargetUrlFromWorktreeDevServerUrl({
-			path: reviewExtensionlessFixtureRelativePath,
+			path: reviewSelectionFixtureRelativePath,
 			url: worktreeDevServerUrl,
 			version: 'current',
 		}),

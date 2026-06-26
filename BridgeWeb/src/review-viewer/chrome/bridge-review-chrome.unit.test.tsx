@@ -35,7 +35,7 @@ describe('Bridge review chrome controls', () => {
 		const button = requireElement(container.querySelector<HTMLButtonElement>('button'));
 
 		expect(button.getAttribute('aria-pressed')).toBe('true');
-		expect(button.className).toContain('bg-[var(--bridge-accent-soft)]');
+		expect(button.className).toContain('bg-[var(--bridge-header-control-active-bg)]');
 		expect(button.className).toContain('border-transparent');
 		expect(button.className.split(/\s+/)).not.toContain('border-[var(--bridge-border-opaque)]');
 		expect(button.className).toContain('hover:border-[var(--bridge-border-opaque)]');
@@ -101,9 +101,10 @@ describe('Bridge review chrome controls', () => {
 			container.querySelector<HTMLButtonElement>('[data-testid="bridge-review-search-toggle"]'),
 		);
 
-		expect(button.className).toContain('h-7');
-		expect(button.className).toContain('w-7');
-		expect(button.className).toContain('bg-[var(--bridge-accent-soft)]');
+		expect(button.getAttribute('aria-pressed')).toBe('true');
+		expect(button.className).toContain('h-6');
+		expect(button.className).toContain('w-6');
+		expect(button.className).toContain('bg-[var(--bridge-header-control-active-bg)]');
 	});
 
 	test('search control exposes regex mode as a compact icon toggle', () => {
@@ -191,8 +192,8 @@ describe('Bridge review chrome controls', () => {
 			container.querySelector('[data-testid="bridge-review-filter-trigger-glyph"]'),
 		);
 
-		expect(triggerButton.className).toContain('h-7');
-		expect(triggerButton.className).toContain('w-7');
+		expect(triggerButton.className).toContain('h-6');
+		expect(triggerButton.className).toContain('w-6');
 		expect(triggerGlyph.tagName.toLowerCase()).toBe('svg');
 		expect(triggerButton.textContent).toContain('All');
 		expect(triggerButton.textContent).not.toContain('All statuses');

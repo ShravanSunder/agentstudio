@@ -28,14 +28,13 @@ product-like." The current checkpoint stack is:
 - Fresh proof command:
   `pnpm --dir BridgeWeb run test:dev-server:worktree`
 - Fresh proof artifact:
-  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T07-29-01-656Z/worktree-dev-server-proof.json`
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T10-13-26-058Z/worktree-dev-server-proof.json`
 - Screenshot artifacts:
-  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T07-29-01-656Z/worktree-file-ready.png`
-  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T07-29-01-656Z/worktree-file-search-result.png`
-  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T07-29-01-656Z/worktree-file-stale-refresh.png`
-  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T07-29-01-656Z/manual-review-mode-screenshots/review-diff.png`
-  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T07-29-01-656Z/manual-review-mode-screenshots/review-file-target.png`
-  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T07-29-01-656Z/manual-review-mode-screenshots/manual-review-mode-screenshots.json`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T10-13-26-058Z/worktree-file-ready.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T10-13-26-058Z/worktree-file-search-result.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T10-13-26-058Z/worktree-file-stale-refresh.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T10-13-26-058Z/worktree-review-ready.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T10-13-26-058Z/worktree-review-file-target-ready.png`
 - Critical artifact rows:
   `sharedShellProof.contentTitleText = dev-worktree-source / BridgeWeb/pnpm-lock.yaml`,
   `sharedShellProof.contentTopbarStopsBeforeSidebar = true`,
@@ -45,6 +44,24 @@ product-like." The current checkpoint stack is:
   `sharedShellProof.codeOwner = CodeView.file`,
   `sharedShellProof.treeOwner = FileTree`, and
   `fileToReviewHandoffProof.standaloneWorktreeFileAppCount = 0`.
+- Real-click rows:
+  FileViewer -> Review handoff uses `.gitignore` as the FileViewer tree target
+  and proves `selectedMaterializedItemType=file`, `sharedShellMode=review`,
+  Files -> Review -> Files -> Review memory, and no standalone app root.
+  Review tree search uses `Sources/AgentStudio/AtomRegistry.swift` and proves
+  `reviewSelectionProof.selectionMethod=playwright-review-tree-search-click`,
+  `searchInputValue=sources/agentstudio/atomregistry.swift`,
+  `clickedRowItemPath=Sources/AgentStudio/AtomRegistry.swift`,
+  `clickedRowItemType=file`, and `clickedRowVisible=true`.
+  Review file-target routing uses the same AtomRegistry path with
+  `presentation=file&version=current` and proves the Review-owned
+  Pierre/Shiki file rendering path.
+- DiffsHub/Pierre chrome rows:
+  content header and right rail use `#181825`; code canvas remains `#1E1E2E`;
+  shared FileViewer/ReviewViewer controls use compact `h-6`/`w-6` sizing,
+  `#313244` hover, `#B4BEFE` focus, and the same active-fill token. This is the
+  neutral shared-chrome correction for the current checkpoint; exact
+  performance tuning and route-fanout pressure remain later proof rows.
 
 The remaining blocking outcome is now:
 
@@ -115,6 +132,65 @@ header, not the top right of the full viewport. The switcher belongs beside
 content actions in that slot. It must not be centered, detached into a separate
 strip, or placed over/in the right rail. The title/source belongs in the left
 slot. The right rail starts at y=0 and owns its own toolbar.
+
+Current unresolved visual parity rows from the 2026-06-26 screenshot review:
+
+- BridgeWeb reusable React controls must be built from owned shadcn-style
+  primitives in `BridgeWeb/src/components/ui/`. DeepWiki-backed shadcn guidance
+  identifies `ToggleGroup` as the proper primitive family for compact option
+  sets such as `Files | Review`; use that primitive unless source inspection
+  finds an equivalent owned shadcn primitive already in the repo. The current
+  custom `Files | Review` switcher is not accepted as the final primitive. Add
+  the missing shadcn-style primitive source, customize it for Agent Studio
+  tokens, then compose it through a neutral BridgeViewer wrapper;
+- content header height must equal right-rail toolbar height in Files, Review
+  diff, and Review file-target routes;
+- top-bar icon buttons and right-rail icon buttons must use one compact visual
+  box size, icon size, focus ring, selected fill, hover fill, and border radius;
+- the `Files | Review` segmented toggle must match the adjacent button height
+  and selected-fill rhythm instead of looking like a larger independent widget;
+- content header and right-rail toolbar must share the same darker chrome color,
+  bottom border, vertical padding, and top-edge alignment;
+- the header title/provenance text must be defined and compact: `mode source /
+  selected target`, one line, truncated inside the left slot, no duplicate rail
+  prose, and no height growth;
+- FileViewer right-rail toolbar must not show visible count/source metadata such
+  as `480/480 dev-worktree-source...`. For this checkpoint, remove the visible
+  toolbar prose entirely and keep any count/source facts in sr-only status text,
+  data attributes, tooltips, or a later approved compact status/footer surface;
+- FileViewer and ReviewViewer may expose different actions, but any shared
+  action must be rendered through the same BridgeViewer chrome primitive layer;
+- proof must capture screenshots plus geometry for content header, rail toolbar,
+  representative content buttons, representative rail buttons, and the
+  segmented toggle. A subagent/onlook must review this exact list before the
+  checkpoint can be accepted.
+
+Immediate 0.b visual-control inventory before goal restart:
+
+1. Add/own the missing shadcn-style `ToggleGroup` primitive under
+   `BridgeWeb/src/components/ui/` or choose the equivalent existing local
+   primitive if one exists at implementation time.
+2. Replace the custom `BridgeViewerContextSwitcher` segmented-control markup
+   with a neutral BridgeViewer wrapper around that primitive.
+3. Replace `BridgeReviewProjectionMenu` raw route-local segmented button markup
+   with the same neutral `ToggleGroup` primitive family.
+4. Remove visible FileViewer rail metadata text from the toolbar row; keep
+   count/source facts only in non-visible status/proof surfaces until a compact
+   visible surface is explicitly approved.
+5. Ensure `BridgeReviewButton`, search, filters, FileViewer rail actions, and
+   the context switcher all share one compact size contract through shared
+   primitives rather than route-local class patches.
+6. Move shared chrome ownership out of Review-namespaced modules. ReviewViewer
+   and FileViewer may import neutral BridgeViewer shared wrappers; shared
+   shell/header/rail-control code must not depend on Review-only chrome as the
+   permanent implementation.
+7. Keep the content header scoped only to the left content region; keep the
+   right rail full-height and top-aligned.
+8. Extend Playwright/dev-server proof to assert header/rail height parity,
+   button box parity, segmented-toggle box parity, absence of visible rail
+   metadata text, absence of raw route-local segmented controls for the two
+   switchers, and screenshot artifacts for Files, Review diff, and Review
+   file-target.
 
 It is a failure if the next visible checkpoint shows a full-width black/header
 strip over the right rail, a centered/floating mode switcher, route-local
@@ -449,6 +525,15 @@ The shared BridgeViewer product route set must expose these observable regions:
    - Keeps tree scroll extent derived from size facts before all content bodies
      are loaded.
    - Supports tree filtering without fetching every file body.
+   - Worktree/File and worktree-backed Review source adapters respect gitignore
+     and repository ignore policy before publishing tree rows, descriptors,
+     route bootstrap targets, review candidates, or preload demand. Ignored
+     paths are absent from canonical viewer candidates unless a later explicit
+     "show ignored files" mode is accepted.
+   - Production Swift/native git data prep uses `agentstudio-git` for status,
+     diff, ignore-policy, and candidate preparation. Any TypeScript git helper
+     remains clearly marked and scoped to Vite dev-server utilities or test
+     fixture utilities.
 
 4. Pierre CodeView/File content pane
    - Shows opened file identity.
@@ -456,6 +541,9 @@ The shared BridgeViewer product route set must expose these observable regions:
    - Keeps large-file scroll extent stable from declared line/row facts.
    - Renders file content through Pierre `CodeView`/`File`, Shiki, and worker
      backed highlighting when `workers=on`.
+   - Uses the shared BridgeViewer Pierre CodeView options with `overflow:
+     'wrap'` by default for Review diff targets, Review file targets, and Files
+     file targets.
 
 5. Query controls
    - Search text input with product-specific selector.
@@ -826,11 +914,12 @@ Test-first anchors for the next implementation slice:
   Current code should fail because explicit target application can fall back to
   the first projected item or keep the target row hidden when retained
   refinements exclude it.
-- Replace the dev-server Review selection verifier's
-  `__bridge_select_review_item` helper with the real tree/search click path
-  above. This is verifier work, not a product shortcut. A source-text guard is
-  acceptable as a lower-layer regression check, but cannot replace the
-  Playwright/dev-server proof.
+- Completed current checkpoint: the dev-server Review selection verifier now
+  replaces `__bridge_select_review_item` with the real tree/search click path
+  above. A source-text guard covers the lower-layer regression, and
+  `pnpm --dir BridgeWeb run test:dev-server:worktree` proves the Playwright
+  click path with `reviewSelectionProof.selectionMethod =
+  playwright-review-tree-search-click`.
 
 Current visual/layout note, 2026-06-26 accepted-C refresh:
 
@@ -851,24 +940,32 @@ Current visual/layout note, 2026-06-26 accepted-C refresh:
   content header only over the left canvas; title/source left; `Files | Review`
   plus content actions right; right rail full-height, top-aligned, and outside
   the content header.
-- Still open: the Review route verifier uses `__bridge_select_review_item`.
-  The next implementation checkpoint must replace it with the real Pierre tree
-  search click path before Review interaction proof can close.
+- Review real-click verifier checkpoint is now closed for the dev-server slice:
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T10-13-26-058Z/worktree-dev-server-proof.json`
+  records `searchOpened=true`,
+  `searchInputValue=sources/agentstudio/atomregistry.swift`,
+  `clickedRowItemPath=Sources/AgentStudio/AtomRegistry.swift`,
+  `clickedRowItemType=file`, `clickedRowVisible=true`, and
+  `selectionMethod = playwright-review-tree-search-click`.
+  Fresh pictures inspected:
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T10-13-26-058Z/worktree-file-ready.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T10-13-26-058Z/worktree-review-ready.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T10-13-26-058Z/worktree-review-file-target-ready.png`
 
-- Fresh dev-server proof passed:
+- Earlier verifier screenshot-refresh proof passed:
   `tmp/bridge-viewer-worktree-dev-server/2026-06-26T08-25-12-296Z/worktree-dev-server-proof.json`.
 - The verifier now saves Review screenshots directly in `screenshotPaths`
-  instead of requiring manual supplemental Review captures:
+  instead of requiring manual supplemental Review captures. Historical packet:
   - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T08-25-12-296Z/worktree-file-ready.png`
   - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T08-25-12-296Z/worktree-review-ready.png`
   - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T08-25-12-296Z/worktree-review-file-target-ready.png`
   - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T08-25-12-296Z/worktree-file-search-result.png`
   - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T08-25-12-296Z/worktree-file-stale-refresh.png`
-- Parent visual inspection of the fresh verifier screenshots confirms the
+- Parent visual inspection of those verifier screenshots confirmed the
   accepted-C geometry and shared visual language for Files, Review diff, and
-  Review file-target. This picture refresh does not close the Review real-click
-  proof because the Review verifier still uses `__bridge_select_review_item`.
-- Fresh accepted-C screenshots and geometry:
+  Review file-target. This picture refresh was superseded by the 10:13
+  real-click/chrome checkpoint above.
+- Earlier accepted-C screenshots and geometry:
   - `tmp/bridge-viewer-design-proof/2026-06-26T07-56-40-567Z-accepted-c-user-refresh-ready/files.png`
   - `tmp/bridge-viewer-design-proof/2026-06-26T07-56-40-567Z-accepted-c-user-refresh-ready/review-diff.png`
   - `tmp/bridge-viewer-design-proof/2026-06-26T07-56-40-567Z-accepted-c-user-refresh-ready/review-file-target.png`
@@ -905,10 +1002,16 @@ Proof:
 - Unit test for invalidation of the open descriptor.
 - Unit/integration proof for FileViewer demand policy mapping selected,
   viewport-visible, adjacent, hover/focus, and idle stimuli to scheduler lanes.
+- Unit/integration proof that Worktree/File and worktree-backed Review source
+  adapters exclude gitignored paths before publishing descriptors, tree rows,
+  route bootstrap targets, review candidates, and preload demand.
 - Browser proof observes stale/update affordance.
 - Browser proof clicks refresh and returns to ready state.
 - Browser proof rejects raw `<pre>` file rendering.
 - Browser proof records Pierre CodeView/File and worker-ready markers.
+- Browser proof records Pierre `overflow: 'wrap'` for opened FileViewer files,
+  Review diff targets, and Review file targets unless a future explicit
+  app-state override is present.
 - Browser/dev-server proof records click-to-ready latency, queue depth,
   in-flight count, byte-budget decisions, and whether opened content was
   cold-loaded, visible-preloaded, nearby-preloaded, speculative-preloaded, or

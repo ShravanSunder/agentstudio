@@ -1079,18 +1079,18 @@ Open implementation blockers remain:
 - `BridgeWeb/scripts/verify-bridge-viewer-worktree-dev-server.ts` now records
   Review and Review file-target screenshots in the verifier proof instead of
   leaving Review visual proof as a manual supplemental capture.
-- Fresh dev-server proof passed:
+- Earlier verifier screenshot-refresh proof passed:
   `pnpm --dir BridgeWeb run test:dev-server:worktree`.
-- Fresh proof artifact:
+- Earlier proof artifact:
   `tmp/bridge-viewer-worktree-dev-server/2026-06-26T08-25-12-296Z/worktree-dev-server-proof.json`.
-- Fresh pictures inspected:
+- Earlier pictures inspected:
   `tmp/bridge-viewer-worktree-dev-server/2026-06-26T08-25-12-296Z/worktree-file-ready.png`,
   `tmp/bridge-viewer-worktree-dev-server/2026-06-26T08-25-12-296Z/worktree-review-ready.png`,
   `tmp/bridge-viewer-worktree-dev-server/2026-06-26T08-25-12-296Z/worktree-review-file-target-ready.png`,
   `tmp/bridge-viewer-worktree-dev-server/2026-06-26T08-25-12-296Z/worktree-file-search-result.png`,
   and
   `tmp/bridge-viewer-worktree-dev-server/2026-06-26T08-25-12-296Z/worktree-file-stale-refresh.png`.
-- Parent inspection confirms the accepted-C layout remains visually correct in
+- Parent inspection confirmed the accepted-C layout remained visually correct in
   Files, Review diff, and Review file-target: title/source left, `Files |
   Review` plus content actions right in the content-only header, right rail
   top-aligned outside the header, Pierre FileTree on the right, and
@@ -1110,16 +1110,16 @@ Open implementation blockers remain:
   decision ledger: content header only over the left canvas; title/source left;
   `Files | Review` plus content actions right; Pierre right rail outside the
   header, full-height, top-aligned, and using compact rail-owned toolbar.
-- Fresh dev-server proof passed:
+- Earlier user-confirmed option-C proof passed:
   `pnpm --dir BridgeWeb run test:dev-server:worktree`.
-- Fresh proof artifact:
+- Earlier proof artifact:
   `tmp/bridge-viewer-worktree-dev-server/2026-06-26T08-35-04-033Z/worktree-dev-server-proof.json`.
-- Fresh pictures inspected:
+- Earlier pictures inspected:
   `tmp/bridge-viewer-worktree-dev-server/2026-06-26T08-35-04-033Z/worktree-file-ready.png`,
   `tmp/bridge-viewer-worktree-dev-server/2026-06-26T08-35-04-033Z/worktree-review-ready.png`,
   and
   `tmp/bridge-viewer-worktree-dev-server/2026-06-26T08-35-04-033Z/worktree-review-file-target-ready.png`.
-- Fresh proof fields:
+- Earlier proof fields:
   `contentTopbarStopsBeforeSidebar=true`,
   `contextSwitcherInsideContentTopbar=true`,
   `sidebarStartsAtContentTopbar=true`,
@@ -1135,3 +1135,182 @@ Open implementation blockers remain:
   native Agent Studio Bridge/WKWebView proof. The fresh Review file-target proof
   records `reviewContentRouteHitCount=292`, so 0.a.5 remains a real pressure
   blocker.
+
+2026-06-26 Review real-click verifier checkpoint:
+
+- `BridgeWeb/scripts/verify-bridge-viewer-worktree-dev-server.ts` now selects
+  the Review target through the visible Pierre tree search UI instead of
+  synthetic `__bridge_select_review_item` / `document.dispatchEvent`.
+- Lower-layer guard passed:
+  `pnpm --dir BridgeWeb exec vitest run scripts/verify-bridge-viewer-worktree-dev-server.unit.test.ts --reporter verbose`
+  with 1 file passed, 6 tests passed.
+- Full dev-server proof passed:
+  `pnpm --dir BridgeWeb run test:dev-server:worktree`.
+- Fresh proof artifact:
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T10-13-26-058Z/worktree-dev-server-proof.json`.
+- Fresh pictures inspected:
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T10-13-26-058Z/worktree-file-ready.png`,
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T10-13-26-058Z/worktree-review-ready.png`,
+  and
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T10-13-26-058Z/worktree-review-file-target-ready.png`.
+- Proof fields:
+  `reviewSelectionProof.selectionMethod=playwright-review-tree-search-click`,
+  `searchOpened=true`,
+  `searchInputValue=sources/agentstudio/atomregistry.swift`,
+  `clickedRowItemPath=Sources/AgentStudio/AtomRegistry.swift`,
+  `clickedRowItemType=file`, `clickedRowVisible=true`,
+  `fileToReviewHandoffProof.expectedDisplayPath=.gitignore`,
+  `fileToReviewHandoffProof.selectedMaterializedItemType=file`,
+  `fileToReviewHandoffProof.reviewModeAfterReturnToFile=file`,
+  `reviewFileTargetRouteProof.expectedDisplayPath=Sources/AgentStudio/AtomRegistry.swift`,
+  `reviewFileTargetRouteProof.expectedVersion=current`, and
+  `reviewFileTargetRouteProof.selectedMaterializedItemType=file`.
+- This closes the Review tree interaction proof row for the dev-server slice.
+  The DiffsHub/Pierre chrome pass is included in the same current checkpoint:
+  header/right rail `#181825`, canvas `#1E1E2E`, compact shared controls,
+  `#313244` hover, and `#B4BEFE` focus. It does not close Gate 0.a. Remaining
+ blockers are hidden inactive-context side-effect proof, Review content route
+ fanout/content pressure, FileViewer preload latency/telemetry, native Agent
+ Studio Bridge/WKWebView proof, and implementation review disposition.
+
+2026-06-26 visual parity correction required before next commit:
+
+- User review rejected the latest visual checkpoint as incomplete. The specific
+  misses are no longer allowed to stay implicit in "DiffsHub-like chrome" or
+  "shared controls" language.
+- User also clarified the BridgeWeb React UI rule: reusable controls must use
+  owned shadcn-style primitives from `BridgeWeb/src/components/ui/`; if a
+  primitive such as `ToggleGroup` is missing, add the primitive source and
+  customize it rather than hand-rolling route-local toggles or toolbar controls.
+- DeepWiki-backed shadcn guidance identifies `ToggleGroup` as the proper
+  primitive family for compact option sets such as `Files | Review`; use that
+  unless implementation-time source inspection finds an equivalent owned
+  shadcn primitive already in the repo.
+- The active spec and plan now require exact acceptance rows for content header
+  height, right-rail toolbar height, button visual box size, icon size, focus
+  ring, hover/selected fill, segmented toggle height, darker chrome color,
+  border rhythm, title/provenance text, truncation, and rail metadata. The
+  FileViewer rail toolbar must not show visible count/source metadata such as
+  `480/480 dev-worktree-source...`.
+- The custom `Files | Review` switcher and the Review projection-mode segmented
+  control are both failing intermediates until they use the neutral
+  BridgeViewer wrapper over the owned shadcn primitive. Shared shell/header/rail
+  code must also move off permanent Review-namespaced chrome ownership.
+- The next code checkpoint must update the UI against those rows and must prove
+  them with Playwright/dev-server geometry plus screenshot inspection. Generic
+  DOM proof, JSON proof, or a broad visual PASS is not enough.
+- A browser/onlook subagent must receive the same atomic checklist and compare
+  Files, Review diff, Review file-target, and the supplied DiffsHub/Pierre
+  reference screenshots before the checkpoint can be accepted.
+
+2026-06-26 renderer/source-boundary requirement additions:
+
+- BridgeViewer Pierre rendering defaults to wrapped lines. The shared
+  CodeView/File options must pass `overflow: 'wrap'` for Review diff targets,
+  Review file targets, and Files file targets. Pierre's upstream default is
+  `scroll`, so this is an explicit Bridge setting until a future app-state user
+  preference overrides it.
+- Worktree/File and worktree-backed Review source adapters must respect
+  gitignore and repository ignore policy before publishing tree rows,
+  descriptors, route bootstrap targets, review candidates, search candidates,
+  or preload demand. This belongs at the provider/source-adapter boundary; it is
+  not just a browser-side cosmetic filter.
+- Production Swift/native source adapters must use the repo's `agentstudio-git`
+  library for git status, diff, ignore-policy, and candidate preparation. Any
+  TypeScript git shell helper is allowed only in a clearly marked Vite
+  dev-server utility or test fixture utility and must not become production
+  Bridge source-adapter plumbing.
+- The next implementation checkpoint must include focused unit/integration proof
+  for the ignored-path exclusion boundary and browser/dev-server proof that
+  FileViewer, Review diff, and Review file-target rendering use wrapped Pierre
+  CodeView/File settings.
+
+2026-06-26 wrap/gitignore/source-boundary implementation checkpoint:
+
+- Added BridgeViewer Pierre wrap contract to both Review and Files code surfaces:
+  `data-bridge-code-view-overflow=wrap` on `bridge-code-view-panel` and
+  `bridge-file-viewer-code-canvas`.
+- Tightened the worktree dev-server verifier so Files, Review diff, and Review
+  file-target routes fail unless the visible Pierre CodeView/File surface reports
+  `overflow=wrap`.
+- Tightened Review rendered-selection proof so a text-rendered diff no longer
+  counts unless the Review CodeView also reports `overflow=wrap`.
+- Added gitignore provider proof for ignored untracked files and documented the
+  source-boundary: production Swift/native Bridge git data prep must use
+  `agentstudio-git`; TypeScript git shell helpers are only dev-server or test
+  fixture utilities.
+- Focused proof passed:
+  `pnpm --dir BridgeWeb exec vitest run src/review-viewer/code-view/bridge-code-view-panel-scroll.unit.test.tsx -t "passes compact DiffsHub-style CodeView options" --reporter verbose`
+  with 1 file passed, 1 test passed, 25 skipped.
+- Focused verifier proof passed:
+  `pnpm --dir BridgeWeb exec vitest run scripts/verify-bridge-viewer-worktree-dev-server.unit.test.ts --reporter verbose`
+  with 1 file passed, 6 tests passed.
+- Focused gitignore provider proof passed:
+  `pnpm --dir BridgeWeb exec vitest run scripts/dev-server/bridge-worktree-dev-provider.integration.test.ts -t "excludes gitignored untracked files" --reporter verbose`
+  with 1 file passed, 1 test passed, 12 skipped.
+- Full dev-server worktree browser proof passed:
+  `pnpm --dir BridgeWeb run test:dev-server:worktree`.
+- Fresh proof artifact:
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T11-57-15-262Z/worktree-dev-server-proof.json`.
+- Fresh proof fields:
+  `sharedShellProof.codeViewOverflow=wrap`,
+  `sharedShellProof.codeOwner=CodeView.file`,
+  `sharedShellProof.treeOwner=FileTree`,
+  `sharedShellProof.workerPoolState=ready`,
+  `reviewRouteProof.reviewRenderedSelectionProof.codeViewOverflow=wrap`,
+  `reviewRouteProof.reviewRenderedSelectionProof.selectedMaterializedItemType=diff`,
+  `reviewFileTargetRouteProof.selectedCodeViewOverflow=wrap`,
+  `reviewFileTargetRouteProof.selectedMaterializedItemType=file`,
+  `substituteGuardProof.standaloneWorktreeFileAppCount=0`,
+  `treePathCount=484`, and `descriptorCount=484`.
+- Dev server was still listening on `127.0.0.1:5173` after the proof run.
+
+2026-06-26 compact shared toggle / dev-server geometry checkpoint:
+
+- Replaced the visible oversized Files/Review control with an owned compact
+  `ToggleGroup` primitive composed over the existing BridgeWeb `Button`
+  primitive. The shared context switcher is icon-only, accessible through
+  `aria-label`, and uses the shared BridgeViewer chrome tokens instead of
+  Review-local text buttons.
+- Added browser-mode proof for the context switcher. The regression now runs
+  under Vitest Browser, not a new jsdom file:
+  `pnpm --dir BridgeWeb exec vitest --config vitest.browser.config.ts run --project integration-browser src/app/bridge-viewer-content-header.browser.test.tsx --reporter verbose`
+  with 1 file passed, 1 test passed.
+- Tightened the worktree dev-server verifier so the real browser route proof
+  fails unless the Files content header, Review content header, and Review
+  right-rail toolbar use the same shared chrome geometry.
+- Full BridgeWeb static gate passed:
+  `pnpm --dir BridgeWeb run check`.
+- Full worktree dev-server browser proof passed:
+  `pnpm --dir BridgeWeb run test:dev-server:worktree`.
+- Fresh proof artifact:
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T12-29-12-241Z/worktree-dev-server-proof.json`.
+- Fresh proof fields:
+  `sharedShellProof.contentHeaderHeight=36`,
+  `sharedShellProof.railToolbarHeight=36`,
+  `sharedShellProof.contentHeaderMatchesRailToolbarHeight=true`,
+  `sharedShellProof.contextSwitcherHeight=24`,
+  `sharedShellProof.contextFileButtonHeight=20`,
+  `sharedShellProof.contextReviewButtonHeight=20`,
+  `sharedShellProof.contextSegmentMatchesRailButtonHeight=true`,
+  `reviewRouteProof.reviewHeaderMatchesRailToolbarHeight=true`,
+  `reviewRouteProof.reviewRailToolbarUsesSharedAttr=true`,
+  `reviewFileTargetRouteProof.reviewHeaderMatchesRailToolbarHeight=true`,
+  `reviewFileTargetRouteProof.reviewRailToolbarUsesSharedAttr=true`,
+  `sharedShellProof.codeViewOverflow=wrap`,
+  `sharedShellProof.codeOwner=CodeView.file`,
+  `sharedShellProof.treeOwner=FileTree`,
+  `sharedShellProof.workerPoolState=ready`,
+  and `substituteGuardProof.standaloneWorktreeFileAppCount=0`.
+- A parallel worker also found and fixed one inactive Review foreground-work
+  bug: deactivating Review now clears stale `rendering` markdown preview state
+  after abort so reactivation can restart foreground markdown work. The focused
+  lower-layer regression passed:
+  `pnpm --dir BridgeWeb exec vitest run src/app/bridge-app.integration.test.tsx -t "keeps inactive Review mode" --reporter verbose`
+  with 1 file passed, 1 test passed, 53 skipped. This lower-layer regression is
+  not counted as the browser proof gate because the existing file is jsdom.
+- Remaining open before Gate 0.a/PR-ready closure: route fanout/content
+  pressure, FileViewer preload latency/telemetry, native Agent Studio
+  Bridge/WKWebView proof, implementation review disposition, and follow-up
+  browser/native proof for inactive-context no-foreground-work if this remains
+  a gate-level blocker.

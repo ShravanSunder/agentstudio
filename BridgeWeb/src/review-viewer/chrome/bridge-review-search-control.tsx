@@ -1,7 +1,10 @@
 import { RegexIcon, SearchIcon } from 'lucide-react';
 import type { ReactElement } from 'react';
 
-import { cn } from '../../app/class-name.js';
+import {
+	bridgeViewerChromeIconButtonClassName,
+	bridgeViewerChromeLucideIconClassName,
+} from '../../app/bridge-viewer-chrome.js';
 import type { BridgeReviewSearchMode } from '../models/review-projection-models.js';
 import { BridgeReviewButton, BridgeReviewIcon } from './bridge-review-button.js';
 
@@ -23,25 +26,20 @@ export function BridgeReviewSearchControl(props: BridgeReviewSearchControlProps)
 		>
 			<BridgeReviewButton
 				ariaLabel="Search files"
-				className={cn(
-					'h-7 w-7 rounded-md border-transparent bg-transparent px-0',
-					props.isActive && 'bg-[var(--bridge-accent-soft)] text-[var(--bridge-text-primary)]',
-				)}
+				ariaPressed={props.isActive}
+				className={bridgeViewerChromeIconButtonClassName}
 				onClick={props.onOpenSearch}
 				testId="bridge-review-search-toggle"
 				title="Search files"
 			>
 				<BridgeReviewIcon>
-					<SearchIcon aria-hidden="true" className="size-4" />
+					<SearchIcon aria-hidden="true" className={bridgeViewerChromeLucideIconClassName} />
 				</BridgeReviewIcon>
 			</BridgeReviewButton>
 			<BridgeReviewButton
 				ariaLabel={isRegexMode ? 'Use text search' : 'Use regex search'}
 				ariaPressed={isRegexMode}
-				className={cn(
-					'h-7 w-7 rounded-md border-transparent bg-transparent px-0',
-					isRegexMode && 'bg-[var(--bridge-accent-soft)] text-[var(--bridge-text-primary)]',
-				)}
+				className={bridgeViewerChromeIconButtonClassName}
 				onClick={(): void => {
 					props.onSearchModeChange?.(isRegexMode ? { kind: 'text' } : { kind: 'regex' });
 				}}
@@ -49,7 +47,7 @@ export function BridgeReviewSearchControl(props: BridgeReviewSearchControlProps)
 				title={isRegexMode ? 'Use text search' : 'Use regex search'}
 			>
 				<BridgeReviewIcon>
-					<RegexIcon aria-hidden="true" className="size-4" />
+					<RegexIcon aria-hidden="true" className={bridgeViewerChromeLucideIconClassName} />
 				</BridgeReviewIcon>
 			</BridgeReviewButton>
 		</div>

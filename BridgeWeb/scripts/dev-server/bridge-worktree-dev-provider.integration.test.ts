@@ -95,11 +95,11 @@ describe('Bridge worktree dev provider', () => {
 	test('resolves the package-local default worktree and compares against the main merge base', async () => {
 		const repoRoot = await makeGitFixtureWorktree();
 		try {
-			await git(repoRoot, 'branch', '-M', 'main');
-			await git(repoRoot, 'checkout', '-b', 'feature/review');
+			await runGitTestFixtureCommand(repoRoot, 'branch', '-M', 'main');
+			await runGitTestFixtureCommand(repoRoot, 'checkout', '-b', 'feature/review');
 			await writeFile(join(repoRoot, 'src/feature.ts'), 'export const feature = true;\n');
-			await git(repoRoot, 'add', '.');
-			await git(repoRoot, 'commit', '-m', 'feature change');
+			await runGitTestFixtureCommand(repoRoot, 'add', '.');
+			await runGitTestFixtureCommand(repoRoot, 'commit', '-m', 'feature change');
 			await writeFile(join(repoRoot, 'src/app.ts'), 'export const value = 3;\n');
 
 			const config = await resolveBridgeWorktreeDevProviderConfig({
@@ -121,12 +121,43 @@ describe('Bridge worktree dev provider', () => {
 		}
 	});
 
+	test('excludes gitignored untracked files before publishing worktree candidates', async () => {
+		const repoRoot = await makeGitIgnoreFixtureWorktree();
+		try {
+			const snapshot = await loadBridgeWorktreeDevSnapshot({
+				baseRef: 'HEAD',
+				worktreeRoot: repoRoot,
+			});
+			const changedPaths = snapshot.changedFiles.map((changedFile) => changedFile.path);
+
+			expect(changedPaths).toContain('src/app.ts');
+			expect(changedPaths).toContain('docs/visible.md');
+			expect(changedPaths).not.toContain('ignored-output/log.txt');
+			expect(changedPaths).not.toContain('src/generated.generated.ts');
+
+			const provider = await createBridgeWorktreeDevProvider({
+				baseRef: 'HEAD',
+				scenarioName: 'current-worktree',
+				worktreeRoot: repoRoot,
+			});
+			const surface = await provider.loadWorktreeFileSurface();
+			const descriptorPaths = worktreeFileDescriptorPaths(surface);
+
+			expect(descriptorPaths).toContain('src/app.ts');
+			expect(descriptorPaths).toContain('docs/visible.md');
+			expect(descriptorPaths).not.toContain('ignored-output/log.txt');
+			expect(descriptorPaths).not.toContain('src/generated.generated.ts');
+		} finally {
+			await rm(repoRoot, { force: true, recursive: true });
+		}
+	});
+
 	test('preserves real git rename and copy paths in the changed-file snapshot', async () => {
 		const repoRoot = await makeGitRenameCopyFixtureWorktree();
 		try {
-			await git(repoRoot, 'mv', 'src/source.ts', 'src/renamed.ts');
+			await runGitTestFixtureCommand(repoRoot, 'mv', 'src/source.ts', 'src/renamed.ts');
 			await writeFile(join(repoRoot, 'src/copied.ts'), sourceFixtureContent());
-			await git(repoRoot, 'add', 'src/copied.ts', 'src/renamed.ts');
+			await runGitTestFixtureCommand(repoRoot, 'add', 'src/copied.ts', 'src/renamed.ts');
 
 			const snapshot = await loadBridgeWorktreeDevSnapshot({
 				baseRef: 'HEAD',
@@ -349,32 +380,52 @@ describe('Bridge worktree dev provider', () => {
 
 async function makeGitFixtureWorktree(): Promise<string> {
 	const repoRoot = await mkdtemp(join(tmpdir(), 'bridge-worktree-provider-'));
-	await git(repoRoot, 'init');
-	await git(repoRoot, 'config', 'user.name', 'Bridge Test');
-	await git(repoRoot, 'config', 'user.email', 'bridge@example.test');
-	await git(repoRoot, 'config', 'commit.gpgsign', 'false');
+	await runGitTestFixtureCommand(repoRoot, 'init');
+	await runGitTestFixtureCommand(repoRoot, 'config', 'user.name', 'Bridge Test');
+	await runGitTestFixtureCommand(repoRoot, 'config', 'user.email', 'bridge@example.test');
+	await runGitTestFixtureCommand(repoRoot, 'config', 'commit.gpgsign', 'false');
 	await mkdir(join(repoRoot, 'src'), { recursive: true });
 	await mkdir(join(repoRoot, 'docs'), { recursive: true });
 	await writeFile(join(repoRoot, 'src/app.ts'), 'export const value = 1;\n');
 	await writeFile(join(repoRoot, 'docs/deleted-plan.md'), '# Deleted\n\nold docs body\n');
-	await git(repoRoot, 'add', '.');
-	await git(repoRoot, 'commit', '-m', 'base');
+	await runGitTestFixtureCommand(repoRoot, 'add', '.');
+	await runGitTestFixtureCommand(repoRoot, 'commit', '-m', 'base');
 	await writeFile(join(repoRoot, 'src/app.ts'), 'export const value = 2;\n');
 	await writeFile(join(repoRoot, 'docs/bridge-plan.md'), '# Plan\n\nnew docs body\n');
 	await unlink(join(repoRoot, 'docs/deleted-plan.md'));
 	return repoRoot;
 }
 
+async function makeGitIgnoreFixtureWorktree(): Promise<string> {
+	const repoRoot = await mkdtemp(join(tmpdir(), 'bridge-worktree-provider-ignore-'));
+	await runGitTestFixtureCommand(repoRoot, 'init');
+	await runGitTestFixtureCommand(repoRoot, 'config', 'user.name', 'Bridge Test');
+	await runGitTestFixtureCommand(repoRoot, 'config', 'user.email', 'bridge@example.test');
+	await runGitTestFixtureCommand(repoRoot, 'config', 'commit.gpgsign', 'false');
+	await mkdir(join(repoRoot, 'src'), { recursive: true });
+	await mkdir(join(repoRoot, 'docs'), { recursive: true });
+	await mkdir(join(repoRoot, 'ignored-output'), { recursive: true });
+	await writeFile(join(repoRoot, '.gitignore'), 'ignored-output/\n*.generated.ts\n');
+	await writeFile(join(repoRoot, 'src/app.ts'), 'export const value = 1;\n');
+	await runGitTestFixtureCommand(repoRoot, 'add', '.');
+	await runGitTestFixtureCommand(repoRoot, 'commit', '-m', 'base');
+	await writeFile(join(repoRoot, 'src/app.ts'), 'export const value = 2;\n');
+	await writeFile(join(repoRoot, 'docs/visible.md'), '# Visible\n');
+	await writeFile(join(repoRoot, 'ignored-output/log.txt'), 'ignored log\n');
+	await writeFile(join(repoRoot, 'src/generated.generated.ts'), 'export const generated = true;\n');
+	return repoRoot;
+}
+
 async function makeGitRenameCopyFixtureWorktree(): Promise<string> {
 	const repoRoot = await mkdtemp(join(tmpdir(), 'bridge-worktree-provider-rename-copy-'));
-	await git(repoRoot, 'init');
-	await git(repoRoot, 'config', 'user.name', 'Bridge Test');
-	await git(repoRoot, 'config', 'user.email', 'bridge@example.test');
-	await git(repoRoot, 'config', 'commit.gpgsign', 'false');
+	await runGitTestFixtureCommand(repoRoot, 'init');
+	await runGitTestFixtureCommand(repoRoot, 'config', 'user.name', 'Bridge Test');
+	await runGitTestFixtureCommand(repoRoot, 'config', 'user.email', 'bridge@example.test');
+	await runGitTestFixtureCommand(repoRoot, 'config', 'commit.gpgsign', 'false');
 	await mkdir(join(repoRoot, 'src'), { recursive: true });
 	await writeFile(join(repoRoot, 'src/source.ts'), sourceFixtureContent());
-	await git(repoRoot, 'add', '.');
-	await git(repoRoot, 'commit', '-m', 'base');
+	await runGitTestFixtureCommand(repoRoot, 'add', '.');
+	await runGitTestFixtureCommand(repoRoot, 'commit', '-m', 'base');
 	return repoRoot;
 }
 
@@ -389,7 +440,8 @@ function sourceFixtureContent(): string {
 	].join('\n');
 }
 
-async function git(cwd: string, ...args: readonly string[]): Promise<void> {
+async function runGitTestFixtureCommand(cwd: string, ...args: readonly string[]): Promise<void> {
+	// Test-fixture only: product Swift-side Bridge git data prep must use agentstudio-git.
 	await execFileAsync('git', args, { cwd });
 }
 
@@ -405,6 +457,14 @@ function findWorktreeFileDescriptor(
 		throw new Error(`Expected Worktree/File descriptor for ${path}`);
 	}
 	return descriptor;
+}
+
+function worktreeFileDescriptorPaths(
+	surface: BridgeWorktreeDevProviderWorktreeFileSurface,
+): readonly string[] {
+	return surface.frames
+		.filter((frame) => frame.frameKind === 'worktree.fileDescriptor')
+		.map((frame) => frame.descriptor.path);
 }
 
 function findChangedFile(

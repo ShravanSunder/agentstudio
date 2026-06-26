@@ -316,6 +316,22 @@ When two app surfaces need the same visual control, extract a stateless primitiv
 
 Before creating a feature-local UI primitive, check for an existing shared component with the same interaction semantics. Reuse or extract keyboard, focus, selection, and command-toggle behavior even when row content differs. Styling parity alone is not enough.
 
+BridgeWeb React UI uses shadcn-style owned source primitives. For reusable React
+controls, do not hand-roll route-local toggles, segmented controls, buttons,
+menus, inputs, or toolbar widgets because one route happens to have nearby
+markup. First check `BridgeWeb/src/components/ui/`. If the needed shadcn
+primitive is missing, add the primitive source there, edit that owned component
+to match Agent Studio's product tokens and sizing, then compose it through a
+feature-neutral BridgeViewer/shared wrapper. Product-specific chrome may wrap
+shadcn primitives, but it must not replace them with one-off custom controls.
+For BridgeViewer specifically, FileViewer and ReviewViewer controls with the
+same interaction semantics must share the same primitive layer and visual scale.
+
+Bridge worktree and review git data prepared on the Swift/native side must use
+the repo's `agentstudio-git` library. TypeScript may shell out to `git` only in
+clearly scoped Vite dev-server utilities or test fixture utilities; do not use
+TS git helpers as production Bridge protocol or source-adapter plumbing.
+
 Use `AppStyles` for presentation constants only: spacing, radii, icon sizes, opacity, typography, colors, and paint dimensions. Use `AppPolicies` for behavioral constants: limits, thresholds, retention caps, validation rules, routing rules, and accept/reject decisions. If changing the value can change state transitions or command/event behavior, it belongs in `AppPolicies` even when the UI reads it.
 
 Search rule of thumb:

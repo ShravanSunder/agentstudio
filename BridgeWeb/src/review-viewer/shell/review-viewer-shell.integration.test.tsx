@@ -171,6 +171,8 @@ describe('review viewer shell', () => {
 
 		expect(toolbar?.type).toBe('div');
 		expect(classNameForElement(toolbar)).toContain('justify-between');
+		expect(classNameForElement(toolbar)).toContain('h-9');
+		expect(toolbar?.props['data-bridge-shared-rail-toolbar']).toBe('true');
 		expect(classNameForElement(leadingGroup)).toContain('gap-1');
 		expect(classNameForElement(trailingGroup)).toContain('gap-1');
 		expect(leadingControlOrder).toEqual(['BridgeReviewProjectionMenu']);
@@ -398,6 +400,7 @@ interface TestElementProps {
 	readonly ariaPressed?: boolean;
 	readonly children?: ReactNode;
 	readonly className?: string;
+	readonly 'data-bridge-shared-rail-toolbar'?: string;
 	readonly 'data-bridge-segmented-control'?: string;
 	readonly 'data-selected-content-state'?: string;
 	readonly 'data-selected-display-path'?: string;
