@@ -156,6 +156,7 @@ interface WorktreeDevServerVerificationResult {
 	readonly negativeAssertions: readonly string[];
 	readonly productControlsProof: WorktreeFileProductControlsProof;
 	readonly fileToReviewHandoffProof: WorktreeFileToReviewHandoffProof;
+	readonly fileViewerClickToReadyTelemetry: WorktreeFileOpenLoadTelemetryProof;
 	readonly fileViewerVisibleDemandTelemetry: WorktreeFileDemandDispatchTelemetryProof;
 	readonly reviewFileTargetRouteProof: WorktreeReviewFileTargetRouteProof;
 	readonly reviewRouteProof: WorktreeReviewRouteProof;
@@ -914,6 +915,12 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 				`Expected FileViewer visible preload demand telemetry to be attributed: ${JSON.stringify(fileViewerVisibleDemandTelemetry)}`,
 			);
 		}
+		const fileViewerClickToReadyTelemetry = await readWorktreeFileOpenLoadTelemetry(page);
+		if (!worktreeFileOpenLoadTelemetrySatisfied(fileViewerClickToReadyTelemetry)) {
+			throw new Error(
+				`Expected FileViewer click-to-ready load telemetry to be drained and attributed: ${JSON.stringify(fileViewerClickToReadyTelemetry)}`,
+			);
+		}
 		const readyScreenshotPath = await captureWorktreeDevServerScreenshot({
 			name: 'worktree-file-ready.png',
 			page,
@@ -995,6 +1002,7 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 			substituteGuardProof,
 			visibleAppProof,
 			fileToReviewHandoffProof,
+			fileViewerClickToReadyTelemetry,
 			fileViewerVisibleDemandTelemetry,
 			productControlsProof,
 			reviewFileTargetRouteProof,
@@ -5442,6 +5450,68 @@ async function readWorktreeFileVisibleDemandTelemetry(
 					? shell.getAttribute('data-last-demand-dispatch-status')
 					: null,
 			stimulusCount: readShellNumberAttribute('data-last-demand-dispatch-stimulus-count'),
+		};
+	});
+}
+
+async function readWorktreeFileOpenLoadTelemetry(
+	page: Page,
+): Promise<WorktreeFileOpenLoadTelemetryProof> {
+	return await page.evaluate((): WorktreeFileOpenLoadTelemetryProof => {
+		const shell = document.querySelector('[data-testid="bridge-file-viewer-shell"]');
+		const readShellNumberAttribute = (attributeName: string): number | null => {
+			if (!(shell instanceof HTMLElement)) {
+				return null;
+			}
+			const attributeValue = shell.getAttribute(attributeName);
+			if (attributeValue === null) {
+				return null;
+			}
+			const parsedValue = Number(attributeValue);
+			return Number.isFinite(parsedValue) ? parsedValue : null;
+		};
+		return {
+			disposition:
+				shell instanceof HTMLElement ? shell.getAttribute('data-last-open-load-disposition') : null,
+			durationMilliseconds: readShellNumberAttribute('data-last-open-load-duration-ms'),
+			estimatedBytes: readShellNumberAttribute('data-last-open-load-estimated-bytes'),
+			executorInFlightBytesAfter: readShellNumberAttribute(
+				'data-last-open-load-executor-in-flight-bytes-after',
+			),
+			executorInFlightBytesBefore: readShellNumberAttribute(
+				'data-last-open-load-executor-in-flight-bytes-before',
+			),
+			executorInFlightCountAfter: readShellNumberAttribute(
+				'data-last-open-load-executor-in-flight-after',
+			),
+			executorInFlightCountBefore: readShellNumberAttribute(
+				'data-last-open-load-executor-in-flight-before',
+			),
+			executorQueuedBytesAfter: readShellNumberAttribute(
+				'data-last-open-load-executor-queued-bytes-after',
+			),
+			executorQueuedBytesBefore: readShellNumberAttribute(
+				'data-last-open-load-executor-queued-bytes-before',
+			),
+			executorQueuedLoadCountAfter: readShellNumberAttribute(
+				'data-last-open-load-executor-queued-after',
+			),
+			executorQueuedLoadCountBefore: readShellNumberAttribute(
+				'data-last-open-load-executor-queued-before',
+			),
+			lane: shell instanceof HTMLElement ? shell.getAttribute('data-last-open-load-lane') : null,
+			schedulerQueuedEstimatedBytesAfter: readShellNumberAttribute(
+				'data-last-open-load-scheduler-queued-bytes-after',
+			),
+			schedulerQueuedEstimatedBytesBefore: readShellNumberAttribute(
+				'data-last-open-load-scheduler-queued-bytes-before',
+			),
+			schedulerQueuedIntentCountAfter: readShellNumberAttribute(
+				'data-last-open-load-scheduler-queued-after',
+			),
+			schedulerQueuedIntentCountBefore: readShellNumberAttribute(
+				'data-last-open-load-scheduler-queued-before',
+			),
 		};
 	});
 }

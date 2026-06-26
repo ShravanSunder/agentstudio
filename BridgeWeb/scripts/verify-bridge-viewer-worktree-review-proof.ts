@@ -169,8 +169,14 @@ export function reviewRoutePressureSatisfied(props: {
 export function worktreeFileOpenLoadTelemetrySatisfied(
 	proof: WorktreeFileOpenLoadTelemetryPredicateInput,
 ): boolean {
+	const validOpenDisposition =
+		proof.disposition === 'cold-loaded' ||
+		proof.disposition === 'cache-hit' ||
+		proof.disposition === 'visible-preloaded' ||
+		proof.disposition === 'nearby-preloaded' ||
+		proof.disposition === 'speculative-preloaded';
 	return (
-		(proof.disposition === 'cold-loaded' || proof.disposition === 'cache-hit') &&
+		validOpenDisposition &&
 		proof.lane === 'foreground' &&
 		proof.durationMilliseconds !== null &&
 		proof.durationMilliseconds >= 0 &&

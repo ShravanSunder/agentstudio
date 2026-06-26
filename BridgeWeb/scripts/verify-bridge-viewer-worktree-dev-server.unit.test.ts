@@ -404,6 +404,73 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 		).toBe(false);
 	});
 
+	test('publishes FileViewer click-to-ready load telemetry as a first-class dev-server proof row', async () => {
+		const verifierSource = await readFile(verifierSourceUrl, 'utf8');
+
+		expect(verifierSource).toContain('fileViewerClickToReadyTelemetry');
+		expect(verifierSource).toContain('worktreeFileOpenLoadTelemetrySatisfied');
+		expect(
+			worktreeFileOpenLoadTelemetrySatisfied({
+				disposition: 'visible-preloaded',
+				durationMilliseconds: 0,
+				estimatedBytes: 1024,
+				executorInFlightBytesAfter: 0,
+				executorInFlightBytesBefore: 0,
+				executorInFlightCountAfter: 0,
+				executorInFlightCountBefore: 0,
+				executorQueuedBytesAfter: 0,
+				executorQueuedBytesBefore: 0,
+				executorQueuedLoadCountAfter: 0,
+				executorQueuedLoadCountBefore: 0,
+				lane: 'foreground',
+				schedulerQueuedEstimatedBytesAfter: 0,
+				schedulerQueuedEstimatedBytesBefore: 0,
+				schedulerQueuedIntentCountAfter: 0,
+				schedulerQueuedIntentCountBefore: 0,
+			}),
+		).toBe(true);
+		expect(
+			worktreeFileOpenLoadTelemetrySatisfied({
+				disposition: 'cold-loaded',
+				durationMilliseconds: 4,
+				estimatedBytes: 1024,
+				executorInFlightBytesAfter: 0,
+				executorInFlightBytesBefore: 1024,
+				executorInFlightCountAfter: 0,
+				executorInFlightCountBefore: 1,
+				executorQueuedBytesAfter: 0,
+				executorQueuedBytesBefore: 0,
+				executorQueuedLoadCountAfter: 0,
+				executorQueuedLoadCountBefore: 0,
+				lane: 'foreground',
+				schedulerQueuedEstimatedBytesAfter: 0,
+				schedulerQueuedEstimatedBytesBefore: 0,
+				schedulerQueuedIntentCountAfter: 0,
+				schedulerQueuedIntentCountBefore: 0,
+			}),
+		).toBe(true);
+		expect(
+			worktreeFileOpenLoadTelemetrySatisfied({
+				disposition: 'visible-preloaded',
+				durationMilliseconds: 0,
+				estimatedBytes: 1024,
+				executorInFlightBytesAfter: 0,
+				executorInFlightBytesBefore: 0,
+				executorInFlightCountAfter: 0,
+				executorInFlightCountBefore: 0,
+				executorQueuedBytesAfter: 0,
+				executorQueuedBytesBefore: 0,
+				executorQueuedLoadCountAfter: 0,
+				executorQueuedLoadCountBefore: 0,
+				lane: 'visible',
+				schedulerQueuedEstimatedBytesAfter: 0,
+				schedulerQueuedEstimatedBytesBefore: 0,
+				schedulerQueuedIntentCountAfter: 0,
+				schedulerQueuedIntentCountBefore: 0,
+			}),
+		).toBe(false);
+	});
+
 	test('does not assume the first Worktree/File content route belongs to the selected file', async () => {
 		const verifierSource = await readFile(verifierSourceUrl, 'utf8');
 

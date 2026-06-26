@@ -203,6 +203,7 @@ export function createWorktreeFileSurfaceRuntime(
 	const bodyRegistry = createBridgeBodyRegistry<string>({
 		maxBytes: worktreeFileBodyRegistryMaxBytes,
 	});
+	const preloadDispositionByBodyKey = new Map<string, WorktreeFileSurfaceLoadDisposition>();
 	const resetSourceIds = new Set<string>();
 	const resetReplacementDescriptorKeys = new Set<string>();
 	const resetScope: WorktreeFileSourceLessResetScope = {
@@ -414,6 +415,7 @@ export function createWorktreeFileSurfaceRuntime(
 					executor,
 					intent: nextIntent,
 					now,
+					preloadDispositionByBodyKey,
 					registry,
 					scheduler,
 				}),
@@ -463,6 +465,7 @@ export function createWorktreeFileSurfaceRuntime(
 			scheduler,
 			executor,
 			now,
+			preloadDispositionByBodyKey,
 			readContext,
 			stimulusDescriptor: openProps.descriptor,
 			stimulusKind: 'fileSelected',
@@ -520,6 +523,7 @@ export function createWorktreeFileSurfaceRuntime(
 			scheduler,
 			executor,
 			now,
+			preloadDispositionByBodyKey,
 			readContext,
 			stimulusDescriptor: refreshDescriptor,
 			stimulusKind: 'explicitRefresh',
@@ -749,6 +753,7 @@ async function loadPreloadIntent(props: {
 	readonly registry: BridgeResourceDescriptorRegistry;
 	readonly now: () => number;
 	readonly intent: BridgeDemandIntent;
+	readonly preloadDispositionByBodyKey: Map<string, WorktreeFileSurfaceLoadDisposition>;
 }): Promise<WorktreeFileSurfaceDemandDispatchLoadResult> {
 	const queuedIntentCountBefore = props.scheduler.queuedIntentCount;
 	const queuedEstimatedBytesBefore = props.scheduler.queuedEstimatedBytes;
@@ -776,14 +781,24 @@ async function loadPreloadIntent(props: {
 			reason: result.reason,
 		};
 	}
+	const disposition = preloadDispositionForLane({
+		lane: props.intent.lane,
+		wasCachedBeforeLoad,
+	});
+	if (disposition !== 'cache-hit') {
+		props.preloadDispositionByBodyKey.set(
+			bodyProvenanceKey({
+				freshnessKey: props.intent.freshnessKey,
+				resourceUrl: result.descriptor.resourceUrl,
+			}),
+			disposition,
+		);
+	}
 	return {
 		ok: true,
 		descriptorId: result.descriptor.descriptorId,
 		loadTelemetry: {
-			disposition: preloadDispositionForLane({
-				lane: props.intent.lane,
-				wasCachedBeforeLoad,
-			}),
+			disposition,
 			durationMilliseconds: Math.max(0, loadFinishedAtMilliseconds - loadStartedAtMilliseconds),
 			estimatedBytes,
 			executorInFlightBytesAfter: props.executor.inFlightBytes,
@@ -808,6 +823,7 @@ async function loadStimulus(props: {
 	readonly scheduler: BridgeDemandScheduler;
 	readonly executor: BridgeResourceExecutor<string>;
 	readonly now: () => number;
+	readonly preloadDispositionByBodyKey: Map<string, WorktreeFileSurfaceLoadDisposition>;
 	readonly readContext: WorktreeFileDemandReadContext;
 	readonly stimulusDescriptor: WorktreeFileDescriptor;
 	readonly stimulusKind: 'fileSelected' | 'explicitRefresh';
@@ -827,6 +843,14 @@ async function loadStimulus(props: {
 				props.stimulusDescriptor.contentDescriptor.ref,
 			),
 		}) !== null;
+	const cachedPreloadDisposition = props.preloadDispositionByBodyKey.get(
+		bodyProvenanceKey({
+			freshnessKey: demandFreshnessKeyForWorktreeDescriptorRef(
+				props.stimulusDescriptor.contentDescriptor.ref,
+			),
+			resourceUrl: props.stimulusDescriptor.contentDescriptor.descriptor.resourceUrl,
+		}),
+	);
 	const intents = mapWorktreeFileDemandStimulusToIntents({
 		stimulus: {
 			kind: props.stimulusKind,
@@ -878,6 +902,7 @@ async function loadStimulus(props: {
 		descriptorId: result.descriptor.descriptorId,
 		loadTelemetry: {
 			disposition: loadDispositionForStimulus({
+				cachedPreloadDisposition,
 				stimulusKind: props.stimulusKind,
 				wasCachedBeforeLoad,
 			}),
@@ -913,11 +938,12 @@ function pressureReasonForSchedulerRejection(
 }
 
 function loadDispositionForStimulus(props: {
+	readonly cachedPreloadDisposition: WorktreeFileSurfaceLoadDisposition | undefined;
 	readonly stimulusKind: 'fileSelected' | 'explicitRefresh';
 	readonly wasCachedBeforeLoad: boolean;
 }): WorktreeFileSurfaceLoadDisposition {
 	if (props.wasCachedBeforeLoad) {
-		return 'cache-hit';
+		return props.cachedPreloadDisposition ?? 'cache-hit';
 	}
 	return props.stimulusKind === 'explicitRefresh' ? 'refreshed' : 'cold-loaded';
 }
@@ -948,6 +974,13 @@ function preloadDispositionForLane(props: {
 
 function assertNever(value: never): never {
 	throw new Error(`Unhandled WorktreeFileSurfaceRuntime case: ${String(value)}`);
+}
+
+function bodyProvenanceKey(props: {
+	readonly resourceUrl: string;
+	readonly freshnessKey: string;
+}): string {
+	return `${props.resourceUrl}\u0000${props.freshnessKey}`;
 }
 
 function cancelSourceDemand(props: {

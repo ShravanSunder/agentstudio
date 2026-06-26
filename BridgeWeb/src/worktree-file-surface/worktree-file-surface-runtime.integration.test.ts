@@ -227,6 +227,50 @@ describe('worktree file surface runtime', () => {
 		});
 	});
 
+	test('reports visible preload provenance when opening a warmed file', async () => {
+		const descriptor = makeFileDescriptor({
+			descriptorId: 'file-content-visible-open',
+			fileId: 'file-visible-open',
+			path: 'Sources/App/Warmed.swift',
+		});
+		const fetchedDescriptorIds: string[] = [];
+		let nowMilliseconds = 900;
+		const runtime = createWorktreeFileSurfaceRuntime({
+			paneId: 'pane-1',
+			now: () => nowMilliseconds,
+			fetchResource: async ({ descriptor: resourceDescriptor }) => {
+				fetchedDescriptorIds.push(resourceDescriptor.descriptorId);
+				nowMilliseconds += 5;
+				return 'let warmed = true\n';
+			},
+		});
+		runtime.applyFrame(makeFileDescriptorFrame(descriptor));
+
+		await runtime.dispatchDemandStimuli([
+			{
+				kind: 'treeViewportChanged',
+				descriptorRefs: [descriptor.contentDescriptor.ref],
+			},
+		]);
+		nowMilliseconds += 3;
+		const openResult = await runtime.openFile({
+			descriptor,
+			openFileSessionId: 'file-visible-open',
+		});
+
+		expect(openResult).toMatchObject({
+			ok: true,
+			body: 'let warmed = true\n',
+			loadTelemetry: {
+				disposition: 'visible-preloaded',
+				durationMilliseconds: 0,
+				estimatedBytes: 64,
+				lane: 'foreground',
+			},
+		});
+		expect(fetchedDescriptorIds).toEqual(['file-content-visible-open']);
+	});
+
 	test('reports descriptor and lane when visible preload demand is rejected by byte pressure', async () => {
 		const descriptor = makeFileDescriptor({
 			descriptorId: 'oversized-visible-content',

@@ -1738,3 +1738,51 @@ Open implementation blockers remain:
   as a separate gate, separately scoped pressure contracts for File-to-Review
   handoff or Review file-target routes, native Agent Studio Bridge/WKWebView
   proof, implementation review disposition, and PR-ready wrapup.
+
+2026-06-26 FileViewer click-to-ready/provenance checkpoint:
+
+- Runtime provenance fix: when a file body was warmed by visible preload and the
+  user later opens that file through the foreground path, the open telemetry now
+  preserves the warm source as `visible-preloaded` instead of collapsing it to a
+  generic `cache-hit`.
+- Focused runtime red/green proof passed:
+  `pnpm --dir BridgeWeb exec vitest run src/worktree-file-surface/worktree-file-surface-runtime.integration.test.ts -t "visible preload provenance" --reporter verbose`
+  with 1 file, 1 test passed, 16 skipped.
+- Full runtime integration proof passed:
+  `pnpm --dir BridgeWeb exec vitest run src/worktree-file-surface/worktree-file-surface-runtime.integration.test.ts --reporter verbose`
+  with 1 file, 17 tests passed.
+- Verifier contract now publishes and gates
+  `result.fileViewerClickToReadyTelemetry`.
+- Focused verifier red/green proof passed:
+  `pnpm --dir BridgeWeb exec vitest run scripts/verify-bridge-viewer-worktree-dev-server.unit.test.ts -t "click-to-ready" --reporter verbose`
+  with 1 file, 1 test passed, 17 skipped.
+- Full verifier proof passed:
+  `pnpm --dir BridgeWeb exec vitest run scripts/verify-bridge-viewer-worktree-dev-server.unit.test.ts --reporter verbose`
+  with 1 file, 18 tests passed.
+- FileViewer browser proof passed:
+  `pnpm --dir BridgeWeb exec vitest --config vitest.browser.config.ts run --project integration-browser src/file-viewer/bridge-file-viewer-app.browser.test.tsx --reporter verbose`
+  with 1 file, 5 tests passed.
+- Full BridgeWeb static/type/format gate passed:
+  `pnpm --dir BridgeWeb run check` with existing non-fatal verifier warnings.
+- Full worktree dev-server browser proof passed:
+  `pnpm --dir BridgeWeb run test:dev-server:worktree`.
+- Fresh proof artifact:
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T23-22-58-771Z/worktree-dev-server-proof.json`.
+- Fresh proof fields:
+  `result.fileViewerClickToReadyTelemetry.disposition=cold-loaded`,
+  `result.fileViewerClickToReadyTelemetry.durationMilliseconds=265.2000000476837`,
+  `result.fileViewerClickToReadyTelemetry.estimatedBytes=217243`,
+  `result.fileViewerClickToReadyTelemetry.lane=foreground`,
+  `result.fileViewerClickToReadyTelemetry.schedulerQueuedIntentCountAfter=0`,
+  `result.fileViewerClickToReadyTelemetry.schedulerQueuedEstimatedBytesAfter=0`,
+  `result.fileViewerClickToReadyTelemetry.executorInFlightCountAfter=0`,
+  `result.fileViewerClickToReadyTelemetry.executorInFlightBytesAfter=0`,
+  `result.fileViewerClickToReadyTelemetry.executorQueuedLoadCountAfter=0`,
+  and `result.fileViewerClickToReadyTelemetry.executorQueuedBytesAfter=0`.
+- The real dev-server clicked target was cold-loaded; warmed-click provenance is
+  covered by the focused runtime test. This closes the 0.a.5 top-level
+  click-to-ready telemetry publication/provenance slice. Remaining 0.a.5 work
+  still includes nearby/speculative/recently-updated preload lanes if kept,
+  separately scoped pressure contracts for File-to-Review handoff or Review
+  file-target routes if kept, native Agent Studio Bridge/WKWebView proof,
+  implementation review disposition, and PR-ready wrapup.
