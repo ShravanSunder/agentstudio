@@ -113,6 +113,91 @@ describe('worktree file surface runtime', () => {
 		expect(fetches).toHaveLength(1);
 	});
 
+	test('preloads visible file demand through scheduler without opening file sessions', async () => {
+		const firstDescriptor = makeFileDescriptor({
+			descriptorId: 'file-content-1',
+			fileId: 'file-1',
+			path: 'Sources/App/First.swift',
+		});
+		const secondDescriptor = makeFileDescriptor({
+			descriptorId: 'file-content-2',
+			contentHandle: 'handle-2',
+			fileId: 'file-2',
+			path: 'Sources/App/Second.swift',
+		});
+		const fetchedDescriptorIds: string[] = [];
+		let nowMilliseconds = 400;
+		const runtime = createWorktreeFileSurfaceRuntime({
+			paneId: 'pane-1',
+			now: () => nowMilliseconds,
+			fetchResource: async ({ descriptor }) => {
+				fetchedDescriptorIds.push(descriptor.descriptorId);
+				nowMilliseconds += 6;
+				return `${descriptor.descriptorId}:preloaded`;
+			},
+		});
+		runtime.applyFrame(makeFileDescriptorFrame(firstDescriptor));
+		runtime.applyFrame(makeFileDescriptorFrame(secondDescriptor));
+
+		const dispatchResult = await runtime.dispatchDemandStimuli([
+			{
+				kind: 'treeViewportChanged',
+				descriptorRefs: [
+					firstDescriptor.contentDescriptor.ref,
+					secondDescriptor.contentDescriptor.ref,
+				],
+			},
+		]);
+
+		expect(dispatchResult).toMatchObject({
+			stimulusCount: 1,
+			intentCount: 2,
+			enqueueAcceptedCount: 2,
+			enqueueRejectedCount: 0,
+			loadedCount: 2,
+			failedCount: 0,
+			schedulerQueuedIntentCountAfter: 0,
+			executorInFlightCountAfter: 0,
+			executorQueuedLoadCountAfter: 0,
+			loadResults: [
+				{
+					ok: true,
+					descriptorId: 'file-content-1',
+					loadTelemetry: {
+						disposition: 'visible-preloaded',
+						durationMilliseconds: expect.any(Number),
+						estimatedBytes: 64,
+						lane: 'visible',
+					},
+				},
+				{
+					ok: true,
+					descriptorId: 'file-content-2',
+					loadTelemetry: {
+						disposition: 'visible-preloaded',
+						durationMilliseconds: expect.any(Number),
+						estimatedBytes: 64,
+						lane: 'visible',
+					},
+				},
+			],
+		});
+		expect(
+			dispatchResult.loadResults.every((loadResult): boolean => {
+				if (!loadResult.ok) {
+					return false;
+				}
+				return loadResult.loadTelemetry.durationMilliseconds > 0;
+			}),
+		).toBe(true);
+		expect(fetchedDescriptorIds).toEqual(['file-content-1', 'file-content-2']);
+		expect(runtime.getState().openFileSessionsById).toEqual({});
+		expect(runtime.getBodyRegistrySnapshot()).toEqual({
+			entryCount: 2,
+			totalBytes: 'file-content-1:preloaded'.length + 'file-content-2:preloaded'.length,
+		});
+	});
+
 	test('marks open files stale without auto-fetching and refreshes only the latest descriptor', async () => {
 		const firstDescriptor = makeFileDescriptor({ descriptorId: 'file-content-1' });
 		const latestDescriptor = makeFileDescriptor({

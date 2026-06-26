@@ -7,7 +7,7 @@ import {
 	createBridgeResourceExecutor,
 	type BridgeResourceExecutor,
 } from '../core/demand/bridge-resource-executor.js';
-import type { BridgeDemandLane } from '../core/models/bridge-demand-models.js';
+import type { BridgeDemandIntent, BridgeDemandLane } from '../core/models/bridge-demand-models.js';
 import type {
 	BridgeDescriptorRef,
 	BridgeResourceDescriptor,
@@ -26,6 +26,7 @@ import {
 } from '../features/worktree-file/materialization/worktree-file-materializer.js';
 import type {
 	WorktreeFileDescriptor,
+	WorktreeFileDemandStimulus,
 	WorktreeFileProtocolFrame,
 	WorktreeFileSurfaceSourceIdentity,
 } from '../features/worktree-file/models/worktree-file-protocol-models.js';
@@ -49,7 +50,15 @@ export interface WorktreeFileSurfaceRuntimeProps {
 	readonly now?: () => number;
 }
 
-export type WorktreeFileSurfaceLoadDisposition = 'cache-hit' | 'cold-loaded' | 'refreshed';
+export type WorktreeFileSurfaceLoadDisposition =
+	| 'active-preloaded'
+	| 'cache-hit'
+	| 'cold-loaded'
+	| 'idle-preloaded'
+	| 'nearby-preloaded'
+	| 'refreshed'
+	| 'speculative-preloaded'
+	| 'visible-preloaded';
 
 export interface WorktreeFileSurfaceLoadTelemetry {
 	readonly disposition: WorktreeFileSurfaceLoadDisposition;
@@ -113,8 +122,46 @@ export type WorktreeFileSurfaceLoadResult =
 				| 'stale_completion';
 	  };
 
+export type WorktreeFileSurfaceDemandDispatchLoadResult =
+	| {
+			readonly ok: true;
+			readonly descriptorId: string;
+			readonly loadTelemetry: WorktreeFileSurfaceLoadTelemetry;
+	  }
+	| {
+			readonly ok: false;
+			readonly descriptorId: string | null;
+			readonly lane: BridgeDemandLane;
+			readonly reason:
+				| 'aborted'
+				| 'byte_budget_exceeded'
+				| 'concurrency_exceeded'
+				| 'descriptor_missing'
+				| 'load_failed'
+				| 'stale_completion';
+	  };
+
+export interface WorktreeFileSurfaceDemandDispatchResult {
+	readonly stimulusCount: number;
+	readonly intentCount: number;
+	readonly enqueueAcceptedCount: number;
+	readonly enqueueRejectedCount: number;
+	readonly loadedCount: number;
+	readonly failedCount: number;
+	readonly loadResults: readonly WorktreeFileSurfaceDemandDispatchLoadResult[];
+	readonly schedulerQueuedEstimatedBytesAfter: number;
+	readonly schedulerQueuedIntentCountAfter: number;
+	readonly executorInFlightBytesAfter: number;
+	readonly executorInFlightCountAfter: number;
+	readonly executorQueuedBytesAfter: number;
+	readonly executorQueuedLoadCountAfter: number;
+}
+
 export interface WorktreeFileSurfaceRuntime {
 	applyFrame(frame: WorktreeFileProtocolFrame): WorktreeFileSurfaceApplyFrameResult;
+	dispatchDemandStimuli(
+		stimuli: readonly WorktreeFileDemandStimulus[],
+	): Promise<WorktreeFileSurfaceDemandDispatchResult>;
 	openFile(props: WorktreeFileSurfaceOpenFileProps): Promise<WorktreeFileSurfaceLoadResult>;
 	refreshOpenFile(
 		props: WorktreeFileSurfaceRefreshOpenFileProps,
@@ -325,6 +372,68 @@ export function createWorktreeFileSurfaceRuntime(
 		return { ok: false, reason: 'unsupported_frame' };
 	};
 
+	const dispatchDemandStimuli = async (
+		stimuli: readonly WorktreeFileDemandStimulus[],
+	): Promise<WorktreeFileSurfaceDemandDispatchResult> => {
+		const intents = stimuli.flatMap((stimulus): readonly BridgeDemandIntent[] =>
+			mapWorktreeFileDemandStimulusToIntents({ stimulus, readContext }),
+		);
+		let enqueueAcceptedCount = 0;
+		let enqueueRejectedCount = 0;
+		for (const intent of intents) {
+			const descriptor = registry.lookup(intent.descriptorRef);
+			const enqueueResult = scheduler.enqueue({
+				intent,
+				...(descriptor?.content.expectedBytes === undefined
+					? {}
+					: { estimatedBytes: descriptor.content.expectedBytes }),
+			});
+			if (enqueueResult.ok) {
+				enqueueAcceptedCount += 1;
+			} else {
+				enqueueRejectedCount += 1;
+			}
+		}
+		const pendingPreloadLoads: {
+			readonly intent: BridgeDemandIntent;
+			readonly promise: Promise<WorktreeFileSurfaceDemandDispatchLoadResult>;
+		}[] = [];
+		let nextIntent = scheduler.dequeueNext();
+		while (nextIntent !== null) {
+			pendingPreloadLoads.push({
+				intent: nextIntent,
+				promise: loadPreloadIntent({
+					bodyRegistry,
+					executor,
+					intent: nextIntent,
+					now,
+					registry,
+					scheduler,
+				}),
+			});
+			nextIntent = scheduler.dequeueNext();
+		}
+		const loadResults = await settlePreloadLoads({
+			pendingPreloadLoads,
+			registry,
+		});
+		return {
+			stimulusCount: stimuli.length,
+			intentCount: intents.length,
+			enqueueAcceptedCount,
+			enqueueRejectedCount,
+			loadedCount: loadResults.filter((loadResult): boolean => loadResult.ok).length,
+			failedCount: loadResults.filter((loadResult): boolean => !loadResult.ok).length,
+			loadResults,
+			schedulerQueuedEstimatedBytesAfter: scheduler.queuedEstimatedBytes,
+			schedulerQueuedIntentCountAfter: scheduler.queuedIntentCount,
+			executorInFlightBytesAfter: executor.inFlightBytes,
+			executorInFlightCountAfter: executor.inFlightCount,
+			executorQueuedBytesAfter: executor.queuedBytes,
+			executorQueuedLoadCountAfter: executor.queuedLoadCount,
+		};
+	};
+
 	const openFile = async (
 		openProps: WorktreeFileSurfaceOpenFileProps,
 	): Promise<WorktreeFileSurfaceLoadResult> => {
@@ -427,6 +536,7 @@ export function createWorktreeFileSurfaceRuntime(
 
 	return {
 		applyFrame,
+		dispatchDemandStimuli,
 		openFile,
 		refreshOpenFile,
 		getState: (): WorktreeFileSurfaceState => state,
@@ -592,6 +702,99 @@ function resetDescriptorKeyForBridgeDescriptorRef(ref: BridgeDescriptorRef): str
 	return `${ref.expectedIdentity.sourceId ?? 'source-none'}:${demandFreshnessKeyForWorktreeDescriptorRef(ref)}`;
 }
 
+async function settlePreloadLoads(props: {
+	readonly pendingPreloadLoads: readonly {
+		readonly intent: BridgeDemandIntent;
+		readonly promise: Promise<WorktreeFileSurfaceDemandDispatchLoadResult>;
+	}[];
+	readonly registry: BridgeResourceDescriptorRegistry;
+}): Promise<readonly WorktreeFileSurfaceDemandDispatchLoadResult[]> {
+	const settledResults = await Promise.allSettled(
+		props.pendingPreloadLoads.map(({ promise }) => promise),
+	);
+	return settledResults.map((settledResult, index): WorktreeFileSurfaceDemandDispatchLoadResult => {
+		switch (settledResult.status) {
+			case 'fulfilled':
+				return settledResult.value;
+			case 'rejected': {
+				const pendingPreloadLoad = props.pendingPreloadLoads[index];
+				if (pendingPreloadLoad === undefined) {
+					throw new Error('Settled preload result did not have a matching pending intent.');
+				}
+				const descriptor = props.registry.lookup(pendingPreloadLoad.intent.descriptorRef);
+				return {
+					ok: false,
+					descriptorId: descriptor?.descriptorId ?? null,
+					lane: pendingPreloadLoad.intent.lane,
+					reason: 'load_failed',
+				};
+			}
+		}
+		return assertNever(settledResult);
+	});
+}
+
+async function loadPreloadIntent(props: {
+	readonly bodyRegistry: ReturnType<typeof createBridgeBodyRegistry<string>>;
+	readonly scheduler: BridgeDemandScheduler;
+	readonly executor: BridgeResourceExecutor<string>;
+	readonly registry: BridgeResourceDescriptorRegistry;
+	readonly now: () => number;
+	readonly intent: BridgeDemandIntent;
+}): Promise<WorktreeFileSurfaceDemandDispatchLoadResult> {
+	const queuedIntentCountBefore = props.scheduler.queuedIntentCount;
+	const queuedEstimatedBytesBefore = props.scheduler.queuedEstimatedBytes;
+	const executorInFlightCountBefore = props.executor.inFlightCount;
+	const executorInFlightBytesBefore = props.executor.inFlightBytes;
+	const executorQueuedLoadCountBefore = props.executor.queuedLoadCount;
+	const executorQueuedBytesBefore = props.executor.queuedBytes;
+	const descriptor = props.registry.lookup(props.intent.descriptorRef);
+	const estimatedBytes = descriptor?.content.expectedBytes ?? null;
+	const wasCachedBeforeLoad =
+		descriptor === null
+			? false
+			: props.bodyRegistry.get({
+					cacheKey: descriptor.resourceUrl,
+					freshnessKey: props.intent.freshnessKey,
+				}) !== null;
+	const loadStartedAtMilliseconds = props.now();
+	const result = await props.executor.load(props.intent);
+	const loadFinishedAtMilliseconds = props.now();
+	if (!result.ok) {
+		return {
+			ok: false,
+			descriptorId: descriptor?.descriptorId ?? null,
+			lane: props.intent.lane,
+			reason: result.reason,
+		};
+	}
+	return {
+		ok: true,
+		descriptorId: result.descriptor.descriptorId,
+		loadTelemetry: {
+			disposition: preloadDispositionForLane({
+				lane: props.intent.lane,
+				wasCachedBeforeLoad,
+			}),
+			durationMilliseconds: Math.max(0, loadFinishedAtMilliseconds - loadStartedAtMilliseconds),
+			estimatedBytes,
+			executorInFlightBytesAfter: props.executor.inFlightBytes,
+			executorInFlightBytesBefore,
+			executorInFlightCountAfter: props.executor.inFlightCount,
+			executorInFlightCountBefore,
+			executorQueuedBytesAfter: props.executor.queuedBytes,
+			executorQueuedBytesBefore,
+			executorQueuedLoadCountAfter: props.executor.queuedLoadCount,
+			executorQueuedLoadCountBefore,
+			lane: props.intent.lane,
+			schedulerQueuedEstimatedBytesAfter: props.scheduler.queuedEstimatedBytes,
+			schedulerQueuedEstimatedBytesBefore: queuedEstimatedBytesBefore,
+			schedulerQueuedIntentCountAfter: props.scheduler.queuedIntentCount,
+			schedulerQueuedIntentCountBefore: queuedIntentCountBefore,
+		},
+	};
+}
+
 async function loadStimulus(props: {
 	readonly bodyRegistry: ReturnType<typeof createBridgeBodyRegistry<string>>;
 	readonly scheduler: BridgeDemandScheduler;
@@ -691,6 +894,34 @@ function loadDispositionForStimulus(props: {
 		return 'cache-hit';
 	}
 	return props.stimulusKind === 'explicitRefresh' ? 'refreshed' : 'cold-loaded';
+}
+
+function preloadDispositionForLane(props: {
+	readonly lane: BridgeDemandLane;
+	readonly wasCachedBeforeLoad: boolean;
+}): WorktreeFileSurfaceLoadDisposition {
+	if (props.wasCachedBeforeLoad) {
+		return 'cache-hit';
+	}
+	switch (props.lane) {
+		case 'active':
+			return 'active-preloaded';
+		case 'idle':
+			return 'idle-preloaded';
+		case 'nearby':
+			return 'nearby-preloaded';
+		case 'speculative':
+			return 'speculative-preloaded';
+		case 'visible':
+			return 'visible-preloaded';
+		case 'foreground':
+			return 'cold-loaded';
+	}
+	return assertNever(props.lane);
+}
+
+function assertNever(value: never): never {
+	throw new Error(`Unhandled WorktreeFileSurfaceRuntime case: ${String(value)}`);
 }
 
 function cancelSourceDemand(props: {
