@@ -572,6 +572,9 @@ function BridgeFileViewerMode(
 				? {}
 				: { codeViewWorkerPoolEnabled: props.codeViewWorkerPoolEnabled })}
 			{...props.fileViewerProps}
+			{...(props.navigationCommand === undefined
+				? {}
+				: { navigationCommand: props.navigationCommand })}
 			onOpenReviewComparison={openReviewComparison}
 			viewerHeaderControls={props.viewerHeaderControls}
 		/>

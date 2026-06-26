@@ -3,6 +3,7 @@ import { render } from 'vitest-browser-react';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load the app CSS.
 import '../app/bridge-app.css';
+import type { BridgeViewerNavigationCommand } from '../app/bridge-viewer-navigation-models.js';
 import type {
 	BridgeAttachedResourceDescriptor,
 	BridgeResourceKind,
@@ -59,6 +60,41 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		await waitForBridgeViewerAnimationFrame();
 
 		expect(document.querySelector('[data-testid="worktree-file-search-input"]')).not.toBeNull();
+	});
+
+	test('opens a file navigation target in the browser without auto-opening the first descriptor', async () => {
+		const firstDescriptor = makeFileDescriptor({
+			contentHandle: 'first-content',
+			fileId: 'file-first',
+			path: 'src/first.ts',
+		});
+		const targetDescriptor = makeFileDescriptor({
+			contentHandle: 'target-content',
+			fileId: 'file-target',
+			path: 'docs/target.ts',
+		});
+		const fetchedResourceUrls: string[] = [];
+
+		render(
+			<BridgeFileViewerApp
+				autoOpenInitialFile={true}
+				fetchResource={async (props): Promise<string> => {
+					fetchedResourceUrls.push(props.resourceUrl);
+					return props.resourceUrl.includes('target-content')
+						? 'export const target = true;\n'
+						: 'export const first = true;\n';
+				}}
+				initialFrames={makeFrames(firstDescriptor, targetDescriptor)}
+				navigationCommand={fileNavigationCommandForPath('docs/target.ts')}
+			/>,
+		);
+
+		await waitForOpenFileState('ready');
+
+		expect(openFilePath()).toBe('docs/target.ts');
+		expect(fetchedResourceUrls).toEqual([
+			'agentstudio://resource/worktree-file/worktree.fileContent/target-content?generation=1',
+		]);
 	});
 });
 
@@ -166,4 +202,64 @@ function makeAttachedDescriptor(props: {
 		},
 		descriptor,
 	});
+}
+
+function fileNavigationCommandForPath(path: string): BridgeViewerNavigationCommand {
+	return {
+		commandId: `test:file:${path}`,
+		commandKind: 'initialize',
+		context: 'files',
+		restoreMemory: true,
+		source: {
+			sourceKind: 'worktree',
+			sourceId: 'source-1',
+		},
+		target: {
+			targetKind: 'file',
+			fileRef: {
+				sourceId: 'source-1',
+				path,
+			},
+			version: 'current',
+		},
+	};
+}
+
+async function waitForOpenFileState(expectedState: string): Promise<void> {
+	await waitForOpenFileStateAttempt({ attempt: 0, expectedState });
+}
+
+async function waitForOpenFileStateAttempt(props: {
+	readonly attempt: number;
+	readonly expectedState: string;
+}): Promise<void> {
+	if (openFileState() === props.expectedState) {
+		return;
+	}
+	if (props.attempt >= 60) {
+		throw new Error(
+			`Expected open file state ${props.expectedState}; actual=${openFileState() ?? 'missing'}`,
+		);
+	}
+	await waitForBridgeViewerAnimationFrame();
+	await waitForOpenFileStateAttempt({
+		attempt: props.attempt + 1,
+		expectedState: props.expectedState,
+	});
+}
+
+function openFileState(): string | null {
+	return (
+		document
+			.querySelector('[data-worktree-open-file-state]')
+			?.getAttribute('data-worktree-open-file-state') ?? null
+	);
+}
+
+function openFilePath(): string | null {
+	return (
+		document
+			.querySelector('[data-worktree-open-file-path]')
+			?.getAttribute('data-worktree-open-file-path') ?? null
+	);
 }

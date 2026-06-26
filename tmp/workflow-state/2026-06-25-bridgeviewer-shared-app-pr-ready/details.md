@@ -140,12 +140,20 @@ The first implementation sequence after plan review is:
   proof:
     - provider integration:
       `pnpm --dir BridgeWeb exec vitest run scripts/dev-server/bridge-worktree-dev-provider.integration.test.ts`
+    - file target query browser component proof:
+      `pnpm --dir BridgeWeb exec vitest --config vitest.browser.config.ts run --project integration-browser src/file-viewer/bridge-file-viewer-app.browser.test.tsx`
     - dev-server product gate:
       `pnpm --dir BridgeWeb run test:dev-server:worktree`
     - browser screenshot:
       `tmp/bridge-viewer-worktree-provider-cache-proof/2026-06-26T-provider-cache/files-ready.png`
     - browser proof JSON:
       `tmp/bridge-viewer-worktree-provider-cache-proof/2026-06-26T-provider-cache/proof.json`
+    - file target query screenshot:
+      `tmp/bridge-viewer-worktree-file-target-proof/2026-06-26T-file-query-target-rerun/file-target-query.png`
+    - file target query proof JSON:
+      `tmp/bridge-viewer-worktree-file-target-proof/2026-06-26T-file-query-target-rerun/proof.json`
+    - latest dev-server proof JSON:
+      `tmp/bridge-viewer-worktree-dev-server/2026-06-26T04-24-15-308Z/worktree-dev-server-proof.json`
 
 0.a.6 Agent Studio Bridge/WKWebView proof
   proves Files context, Review diff context, Review file-target context, and

@@ -11,6 +11,7 @@ import {
 } from 'react';
 
 import { BridgeViewerContentHeader } from '../app/bridge-viewer-content-header.js';
+import type { BridgeViewerNavigationCommand } from '../app/bridge-viewer-navigation-models.js';
 import type {
 	WorktreeFileDescriptor,
 	WorktreeFileProtocolFrame,
@@ -49,6 +50,7 @@ export interface BridgeFileViewerAppProps {
 	readonly initialFrames?: readonly WorktreeFileProtocolFrame[];
 	readonly loadInitialFrames?: () => Promise<readonly WorktreeFileProtocolFrame[]>;
 	readonly loadInitialSurface?: () => Promise<WorktreeFileInitialSurface>;
+	readonly navigationCommand?: BridgeViewerNavigationCommand;
 	readonly onOpenReviewComparison?: (descriptor: WorktreeFileDescriptor) => void;
 	readonly subscribeFrames?: WorktreeFileFrameSubscriptionFactory;
 	readonly viewerHeaderControls?: ReactNode;
@@ -106,6 +108,7 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 	const runtimeRef = useRef<WorktreeFileSurfaceRuntime | null>(null);
 	const openFileBodyRef = useRef<string | null>(null);
 	const openFileRequestIdRef = useRef(0);
+	const appliedNavigationCommandIdRef = useRef<string | null>(null);
 	const renderStateRef = useRef<BridgeFileViewerRenderState>(emptyRenderState);
 	const [renderState, setRenderState] = useState<BridgeFileViewerRenderState>(emptyRenderState);
 	const [openFileState, setOpenFileState] = useState<BridgeFileViewerOpenState>({
@@ -122,6 +125,7 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 			new Map(renderState.descriptors.map((descriptor) => [descriptor.path, descriptor])),
 		[renderState.descriptors],
 	);
+	const navigationTargetPath = fileViewerNavigationTargetPath(props.navigationCommand);
 
 	if (runtimeRef.current === null) {
 		runtimeRef.current = createWorktreeFileSurfaceRuntime({
@@ -209,6 +213,9 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 				sourceIdentity: initialSurface.source ?? null,
 			});
 			if (autoOpenInitialFile && openFileRequestIdRef.current === 0) {
+				if (navigationTargetPath !== null) {
+					return;
+				}
 				const initialDescriptor = nextState.descriptors.find((descriptor) =>
 					canFetchDescriptorContent(descriptor),
 				);
@@ -227,6 +234,7 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 		initialFrames,
 		loadInitialFrames,
 		loadInitialSurface,
+		navigationTargetPath,
 		openFile,
 	]);
 
@@ -238,6 +246,25 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 			applyIncomingFrames(frames);
 		});
 	}, [applyIncomingFrames, subscribeFrames]);
+
+	useEffect((): void => {
+		const navigationCommand = props.navigationCommand;
+		if (navigationCommand === undefined || navigationTargetPath === null) {
+			return;
+		}
+		if (appliedNavigationCommandIdRef.current === navigationCommand.commandId) {
+			return;
+		}
+		const targetDescriptor = renderState.descriptors.find(
+			(descriptor) =>
+				descriptor.path === navigationTargetPath && canFetchDescriptorContent(descriptor),
+		);
+		if (targetDescriptor === undefined) {
+			return;
+		}
+		appliedNavigationCommandIdRef.current = navigationCommand.commandId;
+		void openFile(targetDescriptor);
+	}, [navigationTargetPath, openFile, props.navigationCommand, renderState.descriptors]);
 
 	const refreshOpenFile = useCallback(async (state: BridgeFileViewerOpenState): Promise<void> => {
 		if (state.status !== 'stale') {
@@ -425,6 +452,15 @@ function bridgeFileViewerHeaderTitle(props: {
 }): string {
 	const sourceTitle = props.sourceIdentity?.sourceId ?? 'Source pending';
 	return props.selectedPath === null ? sourceTitle : `${sourceTitle} / ${props.selectedPath}`;
+}
+
+function fileViewerNavigationTargetPath(
+	navigationCommand: BridgeViewerNavigationCommand | undefined,
+): string | null {
+	if (navigationCommand?.context !== 'files' || navigationCommand.target?.targetKind !== 'file') {
+		return null;
+	}
+	return navigationCommand.target.fileRef.path;
 }
 
 function BridgeFileViewerStaleNotice(props: {
