@@ -311,6 +311,12 @@ interface WorktreeFileSharedShellProof {
 	readonly codeCanvasCount: number;
 	readonly codeCanvasOwnsCenterPoint: boolean;
 	readonly codeOwner: string | null;
+	readonly contentPaneStartsBelowTopbar: boolean;
+	readonly contentTopbarCount: number;
+	readonly contentTopbarOwnsCenterPoint: boolean;
+	readonly contentTopbarStopsBeforeSidebar: boolean;
+	readonly contentTopbarVisible: boolean;
+	readonly contextSwitcherParentIsContentTopbar: boolean;
 	readonly fileContextButtonSelected: string | null;
 	readonly hasPierreTreeShadowRoot: boolean;
 	readonly modeHostActive: string | null;
@@ -328,6 +334,7 @@ interface WorktreeFileSharedShellProof {
 	readonly sidebarIsRight: boolean;
 	readonly sidebarOwnsCenterPoint: boolean;
 	readonly sidebarPosition: string | null;
+	readonly sidebarStartsBelowTopbar: boolean;
 	readonly shikiRendering: string | null;
 	readonly treeOwner: string | null;
 	readonly workerRequestedState: string | null;
@@ -1257,6 +1264,13 @@ async function assertSharedBridgeFileViewerShell(props: {
 		const shell = shells[0];
 		const codeCanvas = codeCanvases[0];
 		const sidebar = sidebars[0];
+		const contentTopbars = [
+			...document.querySelectorAll('[data-testid="bridge-viewer-content-topbar"]'),
+		];
+		const contentTopbar = contentTopbars[0];
+		const contextSwitcher = document.querySelector(
+			'[data-testid="bridge-viewer-context-switcher"]',
+		);
 		const pierreTree = document.querySelector(
 			'[data-testid="bridge-file-viewer-pierre-file-tree"]',
 		);
@@ -1266,6 +1280,8 @@ async function assertSharedBridgeFileViewerShell(props: {
 			!(shell instanceof HTMLElement) ||
 			!(codeCanvas instanceof HTMLElement) ||
 			!(sidebar instanceof HTMLElement) ||
+			!(contentTopbar instanceof HTMLElement) ||
+			!(contextSwitcher instanceof HTMLElement) ||
 			!(pierreTree instanceof HTMLElement)
 		) {
 			return null;
@@ -1280,6 +1296,7 @@ async function assertSharedBridgeFileViewerShell(props: {
 		};
 		const codeRect = codeCanvas.getBoundingClientRect();
 		const sidebarRect = sidebar.getBoundingClientRect();
+		const contentTopbarRect = contentTopbar.getBoundingClientRect();
 		return {
 			appOwner: appRoot.getAttribute('data-bridge-app-owner'),
 			appRootCount: appRoots.length,
@@ -1287,6 +1304,12 @@ async function assertSharedBridgeFileViewerShell(props: {
 			codeCanvasCount: codeCanvases.length,
 			codeCanvasOwnsCenterPoint: elementOwnsCenterPoint(codeCanvas),
 			codeOwner: codeCanvas.getAttribute('data-pierre-code-view-owner'),
+			contentPaneStartsBelowTopbar: codeRect.top >= contentTopbarRect.bottom - 1,
+			contentTopbarCount: contentTopbars.length,
+			contentTopbarOwnsCenterPoint: elementOwnsCenterPoint(contentTopbar),
+			contentTopbarStopsBeforeSidebar: contentTopbarRect.right <= sidebarRect.left + 1,
+			contentTopbarVisible: contentTopbarRect.width > 0 && contentTopbarRect.height > 0,
+			contextSwitcherParentIsContentTopbar: contextSwitcher.parentElement === contentTopbar,
 			fileContextButtonSelected:
 				document
 					.querySelector('[data-testid="bridge-viewer-context-file"]')
@@ -1311,6 +1334,7 @@ async function assertSharedBridgeFileViewerShell(props: {
 			sidebarIsRight: sidebarRect.left > codeRect.left,
 			sidebarOwnsCenterPoint: elementOwnsCenterPoint(sidebar),
 			sidebarPosition: shell.getAttribute('data-sidebar-position'),
+			sidebarStartsBelowTopbar: sidebarRect.top >= contentTopbarRect.bottom - 1,
 			shikiRendering: codeCanvas.getAttribute('data-shiki-rendering'),
 			treeOwner: sidebar.getAttribute('data-pierre-file-tree-owner'),
 			workerRequestedState: codeCanvas.getAttribute('data-worker-backed-highlighting'),
@@ -1357,8 +1381,15 @@ async function assertSharedBridgeFileViewerShell(props: {
 		!proofWithWorkerBaseline.shellOwnsCenterPoint ||
 		proofWithWorkerBaseline.codeCanvasCount !== 1 ||
 		!proofWithWorkerBaseline.codeCanvasOwnsCenterPoint ||
+		proofWithWorkerBaseline.contentTopbarCount !== 1 ||
+		!proofWithWorkerBaseline.contentTopbarVisible ||
+		!proofWithWorkerBaseline.contentTopbarOwnsCenterPoint ||
+		!proofWithWorkerBaseline.contextSwitcherParentIsContentTopbar ||
+		!proofWithWorkerBaseline.contentTopbarStopsBeforeSidebar ||
+		!proofWithWorkerBaseline.contentPaneStartsBelowTopbar ||
 		proofWithWorkerBaseline.sidebarCount !== 1 ||
 		!proofWithWorkerBaseline.sidebarOwnsCenterPoint ||
+		!proofWithWorkerBaseline.sidebarStartsBelowTopbar ||
 		!proofWithWorkerBaseline.shellParentIsModeHost ||
 		proofWithWorkerBaseline.shellOwner !== 'BridgeViewerApp.FileViewer' ||
 		proofWithWorkerBaseline.sidebarPosition !== 'right' ||

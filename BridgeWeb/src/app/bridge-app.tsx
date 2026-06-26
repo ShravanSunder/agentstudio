@@ -492,7 +492,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 		>
 			{mountedViewerModes.has('file') ? (
 				<div
-					className="h-full min-h-0"
+					className="h-full min-h-0 pt-9"
 					data-bridge-viewer-mode-active={
 						activeViewerState.viewerMode === 'file' ? 'true' : 'false'
 					}
@@ -511,7 +511,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			) : null}
 			{mountedViewerModes.has('review') ? (
 				<div
-					className="h-full min-h-0"
+					className="h-full min-h-0 pt-9"
 					data-bridge-viewer-mode-active={
 						activeViewerState.viewerMode === 'review' ? 'true' : 'false'
 					}

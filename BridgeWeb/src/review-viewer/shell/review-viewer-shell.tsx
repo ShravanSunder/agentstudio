@@ -92,7 +92,7 @@ export function BridgeReviewEmptyShell(): ReactElement {
 export function BridgeReviewProjectionPendingShell(): ReactElement {
 	return (
 		<main
-			className="flex h-screen min-h-screen w-full items-center justify-center bg-[var(--bridge-app-bg)] text-[var(--bridge-text-secondary)]"
+			className="flex h-full min-h-0 w-full items-center justify-center bg-[var(--bridge-app-bg)] text-[var(--bridge-text-secondary)]"
 			data-testid="bridge-review-projection-pending-shell"
 		>
 			<section aria-label="Review projection status" className="flex w-72 flex-col gap-3">
@@ -106,7 +106,7 @@ export function BridgeReviewProjectionPendingShell(): ReactElement {
 export function BridgeReviewProjectionFailedShell(): ReactElement {
 	return (
 		<main
-			className="flex h-screen min-h-screen w-full items-center justify-center bg-[var(--bridge-app-bg)] text-[var(--bridge-text-secondary)]"
+			className="flex h-full min-h-0 w-full items-center justify-center bg-[var(--bridge-app-bg)] text-[var(--bridge-text-secondary)]"
 			data-testid="bridge-review-projection-failed-shell"
 		>
 			<section aria-label="Review projection status" className="text-center">
@@ -120,7 +120,7 @@ export function BridgeReviewProjectionFailedShell(): ReactElement {
 export function BridgeReviewPackageLoadingShell(): ReactElement {
 	return (
 		<main
-			className="flex h-screen min-h-screen w-full items-center justify-center bg-[var(--bridge-app-bg)] text-[var(--bridge-text-secondary)]"
+			className="flex h-full min-h-0 w-full items-center justify-center bg-[var(--bridge-app-bg)] text-[var(--bridge-text-secondary)]"
 			data-testid="bridge-review-package-loading-shell"
 		>
 			<section aria-label="Review package status" className="flex w-72 flex-col gap-3">
@@ -136,7 +136,7 @@ export function BridgeReviewPackageFailedShell(props: {
 }): ReactElement {
 	return (
 		<main
-			className="flex h-screen min-h-screen w-full items-center justify-center bg-[var(--bridge-app-bg)] text-[var(--bridge-text-secondary)]"
+			className="flex h-full min-h-0 w-full items-center justify-center bg-[var(--bridge-app-bg)] text-[var(--bridge-text-secondary)]"
 			data-testid="bridge-review-package-failed-shell"
 		>
 			<section aria-label="Review package status" className="text-center">
@@ -187,7 +187,7 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 
 	return (
 		<main
-			className="flex h-screen min-h-screen w-full flex-col overflow-hidden bg-[var(--bridge-app-bg)] text-[var(--bridge-text-primary)]"
+			className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-[var(--bridge-app-bg)] text-[var(--bridge-text-primary)]"
 			data-selected-content-state={selectedContentState}
 			data-selected-display-path={selectedDisplayPath ?? undefined}
 			data-projection-id={projection.projectionId}

@@ -340,7 +340,7 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 
 	return (
 		<main
-			className="flex h-screen min-h-screen w-full flex-col overflow-hidden bg-[var(--bridge-app-bg)]"
+			className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-[var(--bridge-app-bg)]"
 			data-file-viewer-owner="BridgeViewerApp.FileViewer"
 			data-last-refresh-commit-state={refreshDebugState?.commitState}
 			data-last-refresh-current-request-id={refreshDebugState?.currentRequestId}

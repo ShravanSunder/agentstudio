@@ -18,7 +18,13 @@ export function BridgeViewerAppShell(props: {
 			data-testid="bridge-app-root"
 		>
 			{props.onModeChange === undefined ? null : (
-				<BridgeViewerContextSwitcher mode={props.mode} onModeChange={props.onModeChange} />
+				<div
+					className="absolute left-0 right-[340px] top-0 z-50 flex h-9 items-center justify-center border-b border-[var(--bridge-border-subtle)] bg-[var(--bridge-app-bg)]/95 shadow-[0_1px_0_rgb(205_214_244_/_0.06)] backdrop-blur"
+					data-bridge-viewer-content-topbar="true"
+					data-testid="bridge-viewer-content-topbar"
+				>
+					<BridgeViewerContextSwitcher mode={props.mode} onModeChange={props.onModeChange} />
+				</div>
 			)}
 			{props.children}
 		</div>
@@ -32,7 +38,7 @@ function BridgeViewerContextSwitcher(props: {
 	return (
 		<div
 			aria-label="Bridge viewer context"
-			className="absolute left-1/2 top-2 z-50 inline-flex h-7 -translate-x-1/2 items-center gap-0.5 rounded-md border border-[var(--bridge-border-subtle)] bg-[var(--bridge-header-control-bg)]/95 p-0.5 shadow-[0_8px_24px_rgb(0_0_0_/_0.35)] backdrop-blur"
+			className="inline-flex h-7 items-center gap-0.5 rounded-md border border-[var(--bridge-border-subtle)] bg-[var(--bridge-header-control-bg)]/95 p-0.5 shadow-[0_8px_24px_rgb(0_0_0_/_0.24)] backdrop-blur"
 			data-bridge-segmented-control="viewer-context"
 			data-testid="bridge-viewer-context-switcher"
 			role="radiogroup"
