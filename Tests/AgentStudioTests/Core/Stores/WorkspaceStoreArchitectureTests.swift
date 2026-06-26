@@ -33,4 +33,32 @@ struct WorkspaceStoreArchitectureTests {
         #expect(!source.contains("func createPane("))
         #expect(!source.contains("func appendTab("))
     }
+
+    @Test("WorkspaceStore does not observe, hydrate, or serialize repository topology")
+    func workspaceStore_hasNoRepositoryTopologyPersistenceOwnership() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let storePath = projectRoot.appending(
+            path: "Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceStore.swift"
+        )
+        let source = try String(contentsOf: storePath, encoding: .utf8)
+
+        #expect(!source.contains("_ = repositoryTopologyAtom.repos"))
+        #expect(!source.contains("_ = repositoryTopologyAtom.watchedPaths"))
+        #expect(!source.contains("_ = repositoryTopologyAtom.unavailableRepoIds"))
+        #expect(
+            !source.contains(
+                "makeLiveSQLiteSnapshotResult(\n                    identityAtom: identityAtom,\n                    windowMemoryAtom: windowMemoryAtom,\n                    repositoryTopologyAtom: repositoryTopologyAtom"
+            ))
+        #expect(
+            !source.contains(
+                "makePersistableState(\n                identityAtom: identityAtom,\n                windowMemoryAtom: windowMemoryAtom,\n                repositoryTopologyAtom: repositoryTopologyAtom"
+            ))
+        #expect(
+            !source.contains(
+                "WorkspacePersistenceTransformer.hydrate(\n            state,\n            identityAtom: identityAtom,\n            windowMemoryAtom: windowMemoryAtom,\n            repositoryTopologyAtom: repositoryTopologyAtom"
+            ))
+        #expect(!source.contains("loadWorkspaceSnapshot(preferredWorkspaceId: identityAtom.workspaceId)"))
+        #expect(source.contains("resolveWorkspaceRestoreContext(preferredWorkspaceId: identityAtom.workspaceId)"))
+        #expect(source.contains("repositoryTopologyStore.restoreTopology(from: context)"))
+    }
 }

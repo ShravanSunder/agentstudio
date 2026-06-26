@@ -166,7 +166,7 @@ final class TabBarAdapter {
             let displayTitle = atom(\.tabDisplay).displayTitle(
                 for: tab,
                 workspacePane: store.paneAtom,
-                workspaceRepositoryTopology: store.repositoryTopologyAtom,
+                repositoryTopology: store.repositoryTopologyAtom,
                 repoCache: repoCache
             )
             let dragTitle = displayTitle

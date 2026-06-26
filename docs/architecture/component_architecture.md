@@ -2,7 +2,7 @@
 
 ## TL;DR
 
-State is distributed across independent `@Observable` atoms (Jotai-style atomic stores) with `private(set)` for unidirectional flow (Valtio-style). Keyed hot state uses atom-family-style slots through `AtomEntityMap` so one repo/worktree row can observe one key instead of a whole dictionary snapshot. `ActiveWorkspaceSelectionAtom` owns the global active workspace id, while `WorkspaceStore` is a persistence wrapper over the currently hydrated workspace atoms (`WorkspaceIdentityAtom`, `WorkspaceWindowMemoryAtom`, `WorkspaceRepositoryTopologyAtom`, `WorkspacePaneGraphAtom`, `WorkspaceDrawerCursorAtom`, `WorkspacePaneAtom`, `WorkspaceTabShellAtom`, `WorkspaceTabCursorAtom`, `WorkspaceTabGraphAtom`, `WorkspaceArrangementCursorAtom`, `WorkspacePanePresentationAtom`, `WorkspaceTabArrangementAtom`, `WorkspaceTabLayoutAtom`). `WorkspaceTabLayoutDerived` is the rich tab read model. `SurfaceManager` owns Ghostty surfaces, `SessionRuntime` owns backends. A coordinator sequences cross-store operations. `Pane` is the primary entity — referenced by UUID across every layer. Tabs own arrangements containing flat pane-strip layouts. `@Observable` drives SwiftUI re-renders; persistence is debounced. Twelve invariants are enforced at all times.
+State is distributed across independent `@Observable` atoms (Jotai-style atomic stores) with `private(set)` for unidirectional flow (Valtio-style). Keyed hot state uses atom-family-style slots through `AtomEntityMap` so one repo/worktree row can observe one key instead of a whole dictionary snapshot. `ActiveWorkspaceSelectionAtom` owns the global active workspace id, `RepositoryTopologyAtom` owns repository topology, `RepositoryTopologyStore` owns topology restore/observe/dirty/flush participation, and `WorkspaceStore` is a persistence wrapper over workspace identity, window memory, pane graph, drawer cursor, tab owners, and canonical workspace flush coordination. `WorkspaceTabLayoutDerived` is the rich tab read model. `SurfaceManager` owns Ghostty surfaces, `SessionRuntime` owns backends. A coordinator sequences cross-store operations. `Pane` is the primary entity — referenced by UUID across every layer. Tabs own arrangements containing flat pane-strip layouts. `@Observable` drives SwiftUI re-renders; persistence is debounced. Twelve invariants are enforced at all times.
 
 ---
 
@@ -11,7 +11,7 @@ State is distributed across independent `@Observable` atoms (Jotai-style atomic 
 ### 1.1 Architecture Principles
 
 1. **Pane identity is primary** — `Pane` is the primary entity in the window system. `PaneId` (UUID v7) is the single identity used across every layer: `WorkspacePaneGraphAtom`, `WorkspacePaneAtom`, `Layout`, `ViewRegistry`, `SurfaceManager`, `SessionRuntime`, and zmx. A pane exists independently of layout position, tab, or surface and can move between tabs and layout positions while keeping identity.
-2. **Atomic stores (Jotai-style)** — Each domain has its own `@Observable` atom. `ActiveWorkspaceSelectionAtom` owns the global active workspace id, `WorkspaceIdentityAtom` owns hydrated workspace identity, `WorkspaceWindowMemoryAtom` owns local window/sidebar memory, `WorkspaceRepositoryTopologyAtom` owns repos/worktrees, `WorkspacePaneGraphAtom` owns the core pane graph, `WorkspaceDrawerCursorAtom` owns local drawer expansion, `WorkspaceTabShellAtom` owns tab identity/order, `WorkspaceTabCursorAtom` owns active-tab local memory, `WorkspaceTabGraphAtom` owns tab membership and arrangement layout graph, `WorkspaceArrangementCursorAtom` owns arrangement focus cursors, and `WorkspacePanePresentationAtom` owns runtime-only tab zoom. `WorkspacePaneAtom`, `WorkspaceTabArrangementAtom`, and `WorkspaceTabLayoutAtom` remain compatibility mutation/read facades over split owners while callers migrate to derived readers. `SurfaceManager` owns Ghostty surfaces. `SessionRuntime` owns backends. No god-store — each atom has one domain, one reason to change, testable in isolation.
+2. **Atomic stores (Jotai-style)** — Each domain has its own `@Observable` atom. `ActiveWorkspaceSelectionAtom` owns the global active workspace id, `WorkspaceIdentityAtom` owns hydrated workspace identity, `WorkspaceWindowMemoryAtom` owns local window/sidebar memory, `RepositoryTopologyAtom` owns repos/worktrees, `WorkspacePaneGraphAtom` owns the core pane graph, `WorkspaceDrawerCursorAtom` owns local drawer expansion, `WorkspaceTabShellAtom` owns tab identity/order, `WorkspaceTabCursorAtom` owns active-tab local memory, `WorkspaceTabGraphAtom` owns tab membership and arrangement layout graph, `WorkspaceArrangementCursorAtom` owns arrangement focus cursors, and `WorkspacePanePresentationAtom` owns runtime-only tab zoom. `WorkspacePaneAtom`, `WorkspaceTabArrangementAtom`, and `WorkspaceTabLayoutAtom` remain compatibility mutation/read facades over split owners while callers migrate to derived readers. `SurfaceManager` owns Ghostty surfaces. `SessionRuntime` owns backends. No god-store — each atom has one domain, one reason to change, testable in isolation.
 3. **Unidirectional flow (Valtio-style)** — All store state is `private(set)`. External code reads freely, mutates only through store methods. No action enums, no reducers — the compiler enforces the boundary.
 4. **Coordinator for cross-store sequencing** — A coordinator sequences operations across multiple stores for a single user action. Owns no state, contains no domain logic. If a coordinator method contains an `if` that decides what to do with domain data, that logic belongs in a store.
 5. **Explicit layout model** — `Layout` is a flat pane-strip value type with ordered `PaneEntry` items. Leaves reference panes by ID. No `NSView` references, no opaque blobs.
@@ -72,7 +72,7 @@ Configuration injection pattern: prefer constructor injection with defaults over
 erDiagram
     WorkspaceStore ||--|| WorkspaceIdentityAtom : "wraps"
     WorkspaceStore ||--|| WorkspaceWindowMemoryAtom : "wraps"
-    WorkspaceStore ||--|| WorkspaceRepositoryTopologyAtom : "wraps"
+    RepositoryTopologyStore ||--|| RepositoryTopologyAtom : "wraps"
     WorkspaceStore ||--|| WorkspacePaneGraphAtom : "wraps"
     WorkspaceStore ||--|| WorkspaceDrawerCursorAtom : "wraps"
     WorkspaceStore ||--|| WorkspacePaneAtom : "facade"
@@ -84,7 +84,7 @@ erDiagram
     WorkspaceStore ||--|| WorkspaceTabArrangementAtom : "facade"
     WorkspaceStore ||--|| WorkspaceTabLayoutAtom : "facade"
 
-    WorkspaceRepositoryTopologyAtom ||--o{ Repo : "repos[]"
+    RepositoryTopologyAtom ||--o{ Repo : "repos[]"
     Repo ||--o{ Worktree : "worktrees[]"
 
     WorkspacePaneGraphAtom ||--o{ Pane : "pane graph"
@@ -389,7 +389,7 @@ Main-actor persistence aggregate for the workspace atoms. `WorkspaceStore` is **
 |------|--------|
 | `identityAtom: WorkspaceIdentityAtom` | Workspace id, name, and creation timestamp |
 | `windowMemoryAtom: WorkspaceWindowMemoryAtom` | Local sidebar width and window frame |
-| `repositoryTopologyAtom: WorkspaceRepositoryTopologyAtom` | Repos, worktrees, watched paths, availability |
+| `repositoryTopologyStore: RepositoryTopologyStore` | Peer topology persistence participant; owns restore, observation, dirty tracking, and canonical flush participation |
 | `paneGraphAtom: WorkspacePaneGraphAtom` | Core pane graph: identity, content, residency, durable metadata, drawer membership |
 | `drawerCursorAtom: WorkspaceDrawerCursorAtom` | Local drawer expansion cursor |
 | `paneAtom: WorkspacePaneAtom` | Compatibility mutation facade over pane graph + drawer cursor |
@@ -1097,7 +1097,8 @@ These rules are enforced by `WorkspaceStore`, its atoms, and model types at all 
 | `Core/State/MainActor/Atoms/ActiveWorkspaceSelectionAtom.swift` | Global active workspace id selection |
 | `Core/State/MainActor/Atoms/WorkspaceIdentityAtom.swift` | Workspace id, name, and creation timestamp |
 | `Core/State/MainActor/Atoms/WorkspaceWindowMemoryAtom.swift` | Local sidebar width and window frame |
-| `Core/State/MainActor/Atoms/WorkspaceRepositoryTopologyAtom.swift` | Repos, worktrees, watched paths, availability |
+| `Core/State/MainActor/Atoms/RepositoryTopologyAtom.swift` | Repos, worktrees, watched paths, availability |
+| `Core/State/MainActor/Persistence/RepositoryTopologyStore.swift` | Repository topology restore, observation, dirty tracking, and canonical flush participation |
 | `Core/State/MainActor/Atoms/WorkspacePaneGraphAtom.swift` | Core pane graph: identity, content, residency, durable metadata, drawer membership |
 | `Core/State/MainActor/Atoms/WorkspaceDrawerCursorAtom.swift` | Local drawer expansion cursor |
 | `Core/State/MainActor/Atoms/WorkspacePaneAtom.swift` | Compatibility mutation facade over pane graph + drawer cursor |

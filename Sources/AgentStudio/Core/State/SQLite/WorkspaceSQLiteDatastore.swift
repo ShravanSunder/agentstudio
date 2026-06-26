@@ -196,7 +196,7 @@ actor WorkspaceSQLiteDatastore {
                     preferredWorkspaceId: preferredWorkspaceId
                 )
                 ?? backend.coreRepository.fetchRecoverableStagedWorkspaceId(preferredWorkspaceId: preferredWorkspaceId)
-            let snapshot = try await backend.loadCompletedSnapshot(
+            var context = try await backend.resolveWorkspaceRestoreContext(
                 preferredWorkspaceId: preferredWorkspaceId,
                 localRepositoryForWorkspaceId: { workspaceId in
                     try await self.cachedRestoreLocalRepository(
@@ -213,14 +213,14 @@ actor WorkspaceSQLiteDatastore {
                     )
                 }
             )
-            if recoverableStagedWorkspaceId == snapshot.id {
+            if recoverableStagedWorkspaceId == context.workspaceId {
                 appendRecoveryEvent(
                     .init(
                         store: .workspace,
-                        workspaceId: snapshot.id,
+                        workspaceId: context.workspaceId,
                         recovery: .localStateRebuilt
                     ),
-                    workspaceId: snapshot.id
+                    workspaceId: context.workspaceId
                 )
                 await traceRecorder.recordRecovery(
                     .init(
@@ -229,13 +229,15 @@ actor WorkspaceSQLiteDatastore {
                         phase: .synthesizeDefaults,
                         lane: .workspace,
                         outcome: .recovered,
-                        workspaceId: snapshot.id,
+                        workspaceId: context.workspaceId,
                         database: nil,
                         databaseURL: nil,
                         error: nil
                     )
                 )
             }
+            context.recoveryEvents = drainRecoveryEvents(workspaceId: context.workspaceId)
+            let snapshot = try workspaceSQLiteSnapshot(from: context)
             await traceRecorder.recordOperation(
                 .workspaceLoad,
                 phase: .openCore,
@@ -244,7 +246,7 @@ actor WorkspaceSQLiteDatastore {
                 workspaceId: snapshot.id,
                 database: .core
             )
-            return .loaded(snapshot, recoveryEvents: drainRecoveryEvents(workspaceId: snapshot.id))
+            return .loaded(snapshot, recoveryEvents: context.recoveryEvents)
         } catch is BackendUninitializedError {
             await traceRecorder.recordOperation(
                 .workspaceLoad,
@@ -633,7 +635,7 @@ actor WorkspaceSQLiteDatastore {
 }
 
 extension WorkspaceSQLiteDatastore {
-    private func resolvedBackend() throws -> WorkspaceSQLiteStoreBackend {
+    func resolvedBackend() throws -> WorkspaceSQLiteStoreBackend {
         if let backend {
             return backend
         }
@@ -712,7 +714,7 @@ extension WorkspaceSQLiteDatastore {
         return localRepository
     }
 
-    private func cachedSaveLocalRepository(
+    func cachedSaveLocalRepository(
         workspaceId: UUID,
         operation: WorkspaceSQLiteTraceOperation,
         lane: WorkspaceSQLiteTraceLane
@@ -751,7 +753,7 @@ extension WorkspaceSQLiteDatastore {
         return result.repository
     }
 
-    private func cachedRestoreLocalRepository(
+    func cachedRestoreLocalRepository(
         workspaceId: UUID,
         operation: WorkspaceSQLiteTraceOperation,
         lane: WorkspaceSQLiteTraceLane
@@ -918,7 +920,7 @@ extension WorkspaceSQLiteDatastore {
         }
     }
 
-    private func appendRecoveryEvent(_ event: PersistenceRecoveryEvent, workspaceId: UUID) {
+    func appendRecoveryEvent(_ event: PersistenceRecoveryEvent, workspaceId: UUID) {
         pendingRecoveryEventsByWorkspaceId[workspaceId, default: []].append(event)
     }
 
@@ -926,14 +928,14 @@ extension WorkspaceSQLiteDatastore {
         pendingGlobalRecoveryEvents.append(event)
     }
 
-    private func drainRecoveryEvents(workspaceId: UUID) -> [PersistenceRecoveryEvent] {
+    func drainRecoveryEvents(workspaceId: UUID) -> [PersistenceRecoveryEvent] {
         let events = pendingGlobalRecoveryEvents + (pendingRecoveryEventsByWorkspaceId[workspaceId] ?? [])
         pendingGlobalRecoveryEvents = []
         pendingRecoveryEventsByWorkspaceId[workspaceId] = nil
         return events
     }
 
-    private func drainAllRecoveryEvents() -> [PersistenceRecoveryEvent] {
+    func drainAllRecoveryEvents() -> [PersistenceRecoveryEvent] {
         let events = pendingGlobalRecoveryEvents + pendingRecoveryEventsByWorkspaceId.values.flatMap { $0 }
         pendingGlobalRecoveryEvents = []
         pendingRecoveryEventsByWorkspaceId.removeAll()

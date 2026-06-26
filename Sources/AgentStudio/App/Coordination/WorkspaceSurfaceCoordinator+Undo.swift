@@ -102,8 +102,8 @@ extension WorkspaceSurfaceCoordinator {
         let allPanes = [snapshot.pane] + snapshot.drawerChildPanes
         for pane in allPanes.reversed() {
             guard viewRegistry.view(for: pane.id) == nil else { continue }
-            let worktree = pane.worktreeId.flatMap(store.repositoryTopologyAtom.worktree)
-            let repo = pane.repoId.flatMap { store.repositoryTopologyAtom.repo($0) }
+            let worktree = pane.worktreeId.flatMap(atom(\.repositoryTopology).worktree)
+            let repo = pane.repoId.flatMap { atom(\.repositoryTopology).repo($0) }
             let restored = restoreUndoPane(
                 pane,
                 worktree: worktree,

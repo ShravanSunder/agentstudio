@@ -470,7 +470,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         withObservationTracking {
             _ = self.store.tabLayoutAtom.tabs
             _ = self.store.tabLayoutAtom.activeTabId
-            _ = self.store.repositoryTopologyAtom.repos
+            _ = atom(\.repositoryTopology).repos
             _ = atom(\.welcome).isChoosingFolder
             _ = atom(\.welcome).folderScanState
             _ = self.repoCache.recentTargets
@@ -1175,7 +1175,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             from: store.tabLayoutAtom.tabs,
             activeTabId: store.tabLayoutAtom.activeTabId,
             isManagementLayerActive: atom(\.managementLayer).isActive,
-            knownWorktreeIds: Set(store.repositoryTopologyAtom.repos.flatMap(\.worktrees).map(\.id)),
+            knownWorktreeIds: Set(atom(\.repositoryTopology).repos.flatMap(\.worktrees).map(\.id)),
             drawerParentByPaneId: drawerParentByPaneId(),
             drawerLayoutByParentPaneId: drawerLayoutByParentPaneId(),
             visiblePaneIds: { [arrangementView] tab in
@@ -1289,13 +1289,13 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     private func openRecentTarget(_ target: RecentWorkspaceTarget) {
         let fileManager = FileManager.default
         if let worktreeId = target.worktreeId {
-            guard store.repositoryTopologyAtom.worktree(worktreeId) != nil else {
+            guard atom(\.repositoryTopology).worktree(worktreeId) != nil else {
                 Self.logger.warning(
                     "Recent target removed because worktree is missing: \(target.id, privacy: .public)")
                 repoCache.removeRecentTarget(target.id)
                 return
             }
-            guard store.repositoryTopologyAtom.repo(containing: worktreeId) != nil else {
+            guard atom(\.repositoryTopology).repo(containing: worktreeId) != nil else {
                 Self.logger.warning(
                     "Recent target removed because repo is missing for worktreeId=\(worktreeId.uuidString, privacy: .public)"
                 )
@@ -1900,7 +1900,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     /// home directory when no watched folder exists yet.
     private func addNewTab() {
         let launchDirectory =
-            store.repositoryTopologyAtom.watchedPaths.first?.path
+            store.repositoryTopologyStore.repositoryTopologyAtom.watchedPaths.first?.path
             ?? FileManager.default.homeDirectoryForCurrentUser
         dispatchAction(.openFloatingTerminal(launchDirectory: launchDirectory, title: nil))
     }
@@ -1957,7 +1957,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             from: store.tabLayoutAtom.tabs,
             activeTabId: store.tabLayoutAtom.activeTabId,
             isManagementLayerActive: atom(\.managementLayer).isActive,
-            knownWorktreeIds: Set(store.repositoryTopologyAtom.repos.flatMap(\.worktrees).map(\.id)),
+            knownWorktreeIds: Set(atom(\.repositoryTopology).repos.flatMap(\.worktrees).map(\.id)),
             drawerParentByPaneId: drawerParentByPaneId(),
             drawerLayoutByParentPaneId: drawerLayoutByParentPaneId(),
             visiblePaneIds: { [arrangementView] tab in
@@ -2994,8 +2994,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 from: store.tabLayoutAtom.tabs,
                 activeTabId: store.tabLayoutAtom.activeTabId,
                 isManagementLayerActive: atom(\.managementLayer).isActive,
-                knownRepoIds: Set(store.repositoryTopologyAtom.repos.map(\.id)),
-                knownWorktreeIds: Set(store.repositoryTopologyAtom.repos.flatMap(\.worktrees).map(\.id)),
+                knownRepoIds: Set(atom(\.repositoryTopology).repos.map(\.id)),
+                knownWorktreeIds: Set(atom(\.repositoryTopology).repos.flatMap(\.worktrees).map(\.id)),
                 drawerParentByPaneId: drawerParentByPaneId(),
                 drawerLayoutByParentPaneId: drawerLayoutByParentPaneId(),
                 visiblePaneIds: { [arrangementView] tab in
@@ -3100,8 +3100,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 from: store.tabLayoutAtom.tabs,
                 activeTabId: store.tabLayoutAtom.activeTabId,
                 isManagementLayerActive: atom(\.managementLayer).isActive,
-                knownRepoIds: Set(store.repositoryTopologyAtom.repos.map(\.id)),
-                knownWorktreeIds: Set(store.repositoryTopologyAtom.repos.flatMap(\.worktrees).map(\.id)),
+                knownRepoIds: Set(atom(\.repositoryTopology).repos.map(\.id)),
+                knownWorktreeIds: Set(atom(\.repositoryTopology).repos.flatMap(\.worktrees).map(\.id)),
                 drawerParentByPaneId: drawerParentByPaneId(),
                 drawerLayoutByParentPaneId: drawerLayoutByParentPaneId(),
                 visiblePaneIds: { [arrangementView] tab in

@@ -129,7 +129,7 @@ final class WorkspaceCacheCoordinator {
         shouldRefreshTraceIdentity: Bool = true,
         shouldApplyTopologyEffects: Bool = true
     ) -> WorktreeTopologyDelta? {
-        let repositoryTopology = workspaceStore.repositoryTopologyAtom
+        let repositoryTopology = workspaceStore.repositoryTopologyStore.repositoryTopologyAtom
         let normalizedRepoPath = repoPath.standardizedFileURL
         let incomingStableKey = StableKey.fromPath(normalizedRepoPath)
         let existingRepo = repositoryTopology.repos.first {
@@ -214,7 +214,7 @@ final class WorkspaceCacheCoordinator {
         eventId: UUID
     ) {
         guard !repositories.isEmpty else { return }
-        let repositoryTopology = workspaceStore.repositoryTopologyAtom
+        let repositoryTopology = workspaceStore.repositoryTopologyStore.repositoryTopologyAtom
         var topologyDeltas: [WorktreeTopologyDelta] = []
         repositoryTopology.performBatchedTopologyMutation {
             for repository in repositories {
@@ -236,7 +236,7 @@ final class WorkspaceCacheCoordinator {
     }
 
     private func handleRepoRemoved(repoPath: URL) {
-        let repositoryTopology = workspaceStore.repositoryTopologyAtom
+        let repositoryTopology = workspaceStore.repositoryTopologyStore.repositoryTopologyAtom
         let normalizedRepoPath = repoPath.standardizedFileURL
         let removedStableKey = StableKey.fromPath(normalizedRepoPath)
         guard
@@ -265,7 +265,7 @@ final class WorkspaceCacheCoordinator {
     }
 
     private func handleWorktreeRegistered(worktreeId: UUID, repoId: UUID, rootPath: URL) {
-        let repositoryTopology = workspaceStore.repositoryTopologyAtom
+        let repositoryTopology = workspaceStore.repositoryTopologyStore.repositoryTopologyAtom
         guard let repo = repositoryTopology.repos.first(where: { $0.id == repoId }) else {
             Self.logger.debug(
                 "Ignoring worktree registration for unknown repoId=\(repoId.uuidString, privacy: .public)"
@@ -290,7 +290,7 @@ final class WorkspaceCacheCoordinator {
     }
 
     private func handleWorktreeUnregistered(worktreeId: UUID, repoId: UUID) {
-        let repositoryTopology = workspaceStore.repositoryTopologyAtom
+        let repositoryTopology = workspaceStore.repositoryTopologyStore.repositoryTopologyAtom
         guard let repo = repositoryTopology.repos.first(where: { $0.id == repoId }) else { return }
         let worktrees = repo.worktrees.filter { $0.id != worktreeId }
         repositoryTopology.reconcileDiscoveredWorktrees(repo.id, worktrees: worktrees)
@@ -339,44 +339,12 @@ final class WorkspaceCacheCoordinator {
                 repoCache.setWorktreeEnrichment(enrichment)
                 refreshTraceIdentity()
             case .originChanged(let repoId, _, let to):
-                let trimmedOrigin = to.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !trimmedOrigin.isEmpty else {
-                    Self.logger.error(
-                        "Ignoring empty originChanged for repoId=\(repoId.uuidString, privacy: .public); local-only resolution must arrive via originUnavailable"
-                    )
-                    return
-                }
-                let upstream: String?
-                if case .some(.resolvedRemote(_, let raw, _, _)) = repoCache.repoEnrichment(for: repoId) {
-                    upstream = raw.upstream
-                } else {
-                    upstream = nil
-                }
-                let enrichment: RepoEnrichment
-                if let identity = RemoteIdentityNormalizer.normalize(trimmedOrigin) {
-                    enrichment = .resolvedRemote(
-                        repoId: repoId,
-                        raw: RawRepoOrigin(origin: trimmedOrigin, upstream: upstream),
-                        identity: identity,
-                        updatedAt: Date()
-                    )
-                } else {
-                    enrichment = .resolvedRemote(
-                        repoId: repoId,
-                        raw: RawRepoOrigin(origin: trimmedOrigin, upstream: upstream),
-                        identity: RepoIdentity(
-                            groupKey: "remote:\(trimmedOrigin)",
-                            remoteSlug: nil,
-                            organizationName: nil,
-                            displayName: Self.fallbackDisplayName(for: trimmedOrigin)
-                        ),
-                        updatedAt: Date()
-                    )
-                }
-                repoCache.setRepoEnrichment(enrichment)
+                handleOriginChanged(repoId: repoId, origin: to)
             case .originUnavailable(let repoId):
                 let repoName =
-                    workspaceStore.repositoryTopologyAtom.repos.first(where: { $0.id == repoId })?.name
+                    workspaceStore.repositoryTopologyStore.repositoryTopologyAtom.repos.first(where: {
+                        $0.id == repoId
+                    })?.name
                     ?? repoId.uuidString
                 repoCache.setRepoEnrichment(
                     .resolvedLocal(
@@ -416,6 +384,44 @@ final class WorkspaceCacheCoordinator {
         }
     }
 
+    private func handleOriginChanged(repoId: UUID, origin: String) {
+        let trimmedOrigin = origin.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedOrigin.isEmpty else {
+            Self.logger.error(
+                "Ignoring empty originChanged for repoId=\(repoId.uuidString, privacy: .public); local-only resolution must arrive via originUnavailable"
+            )
+            return
+        }
+        let upstream: String?
+        if case .some(.resolvedRemote(_, let raw, _, _)) = repoCache.repoEnrichment(for: repoId) {
+            upstream = raw.upstream
+        } else {
+            upstream = nil
+        }
+        let enrichment: RepoEnrichment
+        if let identity = RemoteIdentityNormalizer.normalize(trimmedOrigin) {
+            enrichment = .resolvedRemote(
+                repoId: repoId,
+                raw: RawRepoOrigin(origin: trimmedOrigin, upstream: upstream),
+                identity: identity,
+                updatedAt: Date()
+            )
+        } else {
+            enrichment = .resolvedRemote(
+                repoId: repoId,
+                raw: RawRepoOrigin(origin: trimmedOrigin, upstream: upstream),
+                identity: RepoIdentity(
+                    groupKey: "remote:\(trimmedOrigin)",
+                    remoteSlug: nil,
+                    organizationName: nil,
+                    displayName: Self.fallbackDisplayName(for: trimmedOrigin)
+                ),
+                updatedAt: Date()
+            )
+        }
+        repoCache.setRepoEnrichment(enrichment)
+    }
+
     private static func fallbackDisplayName(for remote: String) -> String {
         if let parsedURL = URL(string: remote), !parsedURL.lastPathComponent.isEmpty {
             let name = parsedURL.lastPathComponent
@@ -434,7 +440,11 @@ final class WorkspaceCacheCoordinator {
     /// Hard-deletes a repo and all associated cache/forge state.
     /// Called for user-initiated removal (not filesystem disappearance).
     func handleRepoRemoval(repoId: UUID) {
-        guard let repo = workspaceStore.repositoryTopologyAtom.repos.first(where: { $0.id == repoId }) else { return }
+        guard
+            let repo = workspaceStore.repositoryTopologyStore.repositoryTopologyAtom.repos.first(where: {
+                $0.id == repoId
+            })
+        else { return }
 
         // 1. Prune all worktree-level cache entries for this repo
         for worktree in repo.worktrees {
@@ -450,7 +460,7 @@ final class WorkspaceCacheCoordinator {
         }
 
         // 4. Hard-delete from store (removes from repos array + persistence)
-        workspaceStore.repositoryTopologyAtom.removeRepo(repoId)
+        workspaceStore.repositoryTopologyStore.repositoryTopologyAtom.removeRepo(repoId)
         refreshTraceIdentity()
     }
 

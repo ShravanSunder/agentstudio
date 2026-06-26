@@ -318,6 +318,124 @@ struct WorkspaceSQLiteDatastoreActorTests {
         #expect(await datastore.legacyImportStatus(workspaceId: workspaceId) == .missing)
     }
 
+    @Test("repository topology load returns topology through datastore boundary")
+    func repositoryTopologyLoadReturnsTopologyThroughDatastoreBoundary() async throws {
+        let workspaceId = UUID()
+        let repoId = UUID()
+        let worktreeId = UUID()
+        let watchedPathId = UUID()
+        let coreQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(label: "AgentStudio.sqlite.datastore.topology.core")
+        let localQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
+            label: "AgentStudio.sqlite.datastore.topology.local")
+        try WorkspaceCoreMigrations.migrate(coreQueue)
+        try WorkspaceLocalMigrations.migrate(localQueue)
+        let datastore = WorkspaceSQLiteDatastore(
+            coreRepository: WorkspaceCoreRepository(databaseWriter: coreQueue),
+            makeLocalRepository: { WorkspaceLocalRepository(workspaceId: $0, databaseWriter: localQueue) }
+        )
+        let repoPath = URL(fileURLWithPath: "/tmp/datastore-topology-repo")
+        let worktreePath = repoPath.appending(path: "main")
+        let watchedPath = WatchedPath(
+            id: watchedPathId,
+            path: URL(fileURLWithPath: "/tmp/datastore-topology-watch"),
+            addedAt: Date(timeIntervalSince1970: 4)
+        )
+        let snapshot = WorkspaceSQLiteSnapshot(
+            id: workspaceId,
+            name: "Topology",
+            repos: [
+                CanonicalRepo(
+                    id: repoId,
+                    name: "datastore-topology-repo",
+                    repoPath: repoPath,
+                    createdAt: Date(timeIntervalSince1970: 5)
+                )
+            ],
+            worktrees: [
+                CanonicalWorktree(
+                    id: worktreeId,
+                    repoId: repoId,
+                    name: "main",
+                    path: worktreePath,
+                    isMainWorktree: true
+                )
+            ],
+            unavailableRepoIds: [repoId],
+            watchedPaths: [watchedPath],
+            updatedAt: Date(timeIntervalSince1970: 6)
+        )
+
+        try await datastore.saveWorkspaceSnapshot(snapshot)
+        let result = await datastore.loadRepositoryTopology(workspaceId: workspaceId)
+
+        guard case .loaded(let topology) = result else {
+            Issue.record("Expected loaded repository topology, got \(result)")
+            return
+        }
+        #expect(topology.repos.map(\.id) == [repoId])
+        #expect(topology.repos.single?.worktrees.map(\.id) == [worktreeId])
+        #expect(topology.unavailableRepoIds == [repoId])
+        #expect(topology.watchedPaths.map(\.id) == [watchedPathId])
+    }
+
+    @Test("resolved restore context carries one workspace topology and graph snapshot")
+    func resolvedRestoreContextCarriesOneWorkspaceTopologyAndGraphSnapshot() async throws {
+        let workspaceId = UUID()
+        let repoId = UUID()
+        let worktreeId = UUID()
+        let completedAt = Date(timeIntervalSince1970: 7)
+        let coreQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
+            label: "AgentStudio.sqlite.datastore.restore-context.core"
+        )
+        let localQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
+            label: "AgentStudio.sqlite.datastore.restore-context.local"
+        )
+        try WorkspaceCoreMigrations.migrate(coreQueue)
+        try WorkspaceLocalMigrations.migrate(localQueue)
+        let datastore = WorkspaceSQLiteDatastore(
+            coreRepository: WorkspaceCoreRepository(databaseWriter: coreQueue),
+            makeLocalRepository: { WorkspaceLocalRepository(workspaceId: $0, databaseWriter: localQueue) }
+        )
+        let snapshot = WorkspaceSQLiteSnapshot(
+            id: workspaceId,
+            name: "Restore Context",
+            repos: [
+                CanonicalRepo(
+                    id: repoId,
+                    name: "restore-context-repo",
+                    repoPath: URL(fileURLWithPath: "/tmp/restore-context-repo")
+                )
+            ],
+            worktrees: [
+                CanonicalWorktree(
+                    id: worktreeId,
+                    repoId: repoId,
+                    name: "main",
+                    path: URL(fileURLWithPath: "/tmp/restore-context-repo/main"),
+                    isMainWorktree: true
+                )
+            ],
+            updatedAt: completedAt
+        )
+
+        try await datastore.saveWorkspaceSnapshot(snapshot)
+        let result = await datastore.resolveWorkspaceRestoreContext(preferredWorkspaceId: workspaceId)
+
+        guard case .resolved(let context) = result else {
+            Issue.record("Expected resolved restore context, got \(result)")
+            return
+        }
+        #expect(context.workspaceId == workspaceId)
+        #expect(context.workspace.id == workspaceId)
+        #expect(context.topology.repos.map(\.id) == [repoId])
+        #expect(context.topology.repos.single?.worktrees.map(\.id) == [worktreeId])
+        #expect(context.snapshotStatus == .completed(completedAt))
+        #expect(context.paneGraph.panes.isEmpty)
+        #expect(context.tabShells.isEmpty)
+        #expect(context.tabGraph.tabs.isEmpty)
+        #expect(context.recoveryEvents.isEmpty)
+    }
+
     @Test("production datastore quarantines corrupt core SQLite before reporting uninitialized")
     func productionDatastoreQuarantinesCorruptCoreSQLiteBeforeReportingUninitialized() async throws {
         let rootDirectory = try makeDatastoreActorTemporaryDirectory(prefix: "core-quarantine")

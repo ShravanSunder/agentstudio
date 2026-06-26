@@ -31,7 +31,7 @@ struct InboxNotificationSidebarView: View {
     let sidebarCache: SidebarCacheState
     let inboxSidebarState: InboxSidebarState
     let workspacePaneAtom: WorkspacePaneAtom
-    let workspaceRepositoryTopologyAtom: WorkspaceRepositoryTopologyAtom
+    let repositoryTopologyAtom: RepositoryTopologyAtom
     let repoCache: RepoCacheAtom
     let dispatcher: AppCommandDispatcher
     let onRefocusActivePane: @MainActor @Sendable () -> Void
@@ -54,7 +54,7 @@ struct InboxNotificationSidebarView: View {
         sidebarCache: SidebarCacheState,
         inboxSidebarState: InboxSidebarState,
         workspacePaneAtom: WorkspacePaneAtom,
-        workspaceRepositoryTopologyAtom: WorkspaceRepositoryTopologyAtom,
+        repositoryTopologyAtom: RepositoryTopologyAtom,
         repoCache: RepoCacheAtom,
         dispatcher: AppCommandDispatcher,
         onRefocusActivePane: @escaping @MainActor @Sendable () -> Void
@@ -65,16 +65,16 @@ struct InboxNotificationSidebarView: View {
         self.sidebarCache = sidebarCache
         self.inboxSidebarState = inboxSidebarState
         self.workspacePaneAtom = workspacePaneAtom
-        self.workspaceRepositoryTopologyAtom = workspaceRepositoryTopologyAtom
+        self.repositoryTopologyAtom = repositoryTopologyAtom
         self.repoCache = repoCache
         self.dispatcher = dispatcher
         self.onRefocusActivePane = onRefocusActivePane
         let initialRepoEnrichmentByRepoId = Self.repoEnrichmentByRepoId(
-            repos: workspaceRepositoryTopologyAtom.repos,
+            repos: repositoryTopologyAtom.repos,
             repoCache: repoCache
         )
         let initialRepoPresentationByRepoId = Self.repoPresentationByRepoId(
-            repos: workspaceRepositoryTopologyAtom.repos,
+            repos: repositoryTopologyAtom.repos,
             repoEnrichmentByRepoId: initialRepoEnrichmentByRepoId,
             checkoutColors: sidebarCache.checkoutColors
         )
@@ -183,9 +183,9 @@ struct InboxNotificationSidebarView: View {
 
     private var repoPresentationByRepoId: [UUID: InboxNotificationRepoGroupPresentation] {
         Self.repoPresentationByRepoId(
-            repos: workspaceRepositoryTopologyAtom.repos,
+            repos: repositoryTopologyAtom.repos,
             repoEnrichmentByRepoId: Self.repoEnrichmentByRepoId(
-                repos: workspaceRepositoryTopologyAtom.repos,
+                repos: repositoryTopologyAtom.repos,
                 repoCache: repoCache
             ),
             checkoutColors: sidebarCache.checkoutColors

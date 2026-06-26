@@ -8,7 +8,7 @@ enum InboxNotificationIntegrationHarness {
         let bus: EventBus<RuntimeEnvelope>
         let inboxAtom: InboxNotificationAtom
         let prefsAtom: InboxNotificationPrefsAtom
-        let topologyAtom: WorkspaceRepositoryTopologyAtom
+        let topologyAtom: RepositoryTopologyAtom
         let paneAtom: WorkspacePaneAtom
         let tabLayout: WorkspaceTabLayoutAtom
         let windowLifecycle: WindowLifecycleAtom
@@ -29,7 +29,7 @@ enum InboxNotificationIntegrationHarness {
         let bus = EventBus<RuntimeEnvelope>()
         let inboxAtom = InboxNotificationAtom()
         let prefsAtom = InboxNotificationPrefsAtom()
-        let topologyAtom = WorkspaceRepositoryTopologyAtom()
+        let topologyAtom = RepositoryTopologyAtom()
         let paneAtom = WorkspacePaneAtom(repositoryTopologyAtom: topologyAtom)
         let tabLayout = WorkspaceTabLayoutAtom()
         let windowLifecycle = WindowLifecycleAtom()

@@ -82,8 +82,8 @@ and Peekaboo only for the native UI layer that genuinely needs visual evidence.
 
 Current atom vocabulary:
 
-- **Atoms** own mutable state and synchronous domain operations, for example `ActiveWorkspaceSelectionAtom`, `WorkspaceIdentityAtom`, `WorkspaceWindowMemoryAtom`, `WorkspaceRepositoryTopologyAtom`, `WorkspacePaneGraphAtom`, `WorkspaceDrawerCursorAtom`, `WorkspaceTabShellAtom`, `WorkspaceTabCursorAtom`, `WorkspaceTabGraphAtom`, `WorkspaceArrangementCursorAtom`, `WorkspacePanePresentationAtom`, `RepoEnrichmentCacheAtom`, `RecentWorkspaceTargetAtom`, `SidebarExpandedGroupAtom`, `SidebarCheckoutColorAtom`, `WorkspaceSidebarMemoryAtom`, `SidebarFocusRuntimeAtom`, `EditorPreferenceAtom`, `EditorChooserRuntimeAtom`, `InboxSidebarMemoryAtom`, `InboxSidebarRuntimeAtom`, `AppLifecycleAtom`, `WindowLifecycleAtom`, `SessionRuntimeAtom`, and feature atoms. `WorkspacePaneAtom`, `WorkspaceTabArrangementAtom`, `WorkspaceTabLayoutAtom`, and `RepoCacheAtom` remain composed compatibility/read surfaces for existing consumers while split owners land.
-- **Persistence wrappers** own load/save boundaries and debounced disk I/O, for example `WorkspaceStore`, `RepoCacheStore`, `SidebarCacheStore`, and `UIStateStore`.
+- **Atoms** own mutable state and synchronous domain operations, for example `ActiveWorkspaceSelectionAtom`, `WorkspaceIdentityAtom`, `WorkspaceWindowMemoryAtom`, `RepositoryTopologyAtom`, `WorkspacePaneGraphAtom`, `WorkspaceDrawerCursorAtom`, `WorkspaceTabShellAtom`, `WorkspaceTabCursorAtom`, `WorkspaceTabGraphAtom`, `WorkspaceArrangementCursorAtom`, `WorkspacePanePresentationAtom`, `RepoEnrichmentCacheAtom`, `RecentWorkspaceTargetAtom`, `SidebarExpandedGroupAtom`, `SidebarCheckoutColorAtom`, `WorkspaceSidebarMemoryAtom`, `SidebarFocusRuntimeAtom`, `EditorPreferenceAtom`, `EditorChooserRuntimeAtom`, `InboxSidebarMemoryAtom`, `InboxSidebarRuntimeAtom`, `AppLifecycleAtom`, `WindowLifecycleAtom`, `SessionRuntimeAtom`, and feature atoms. `WorkspacePaneAtom`, `WorkspaceTabArrangementAtom`, `WorkspaceTabLayoutAtom`, and `RepoCacheAtom` remain composed compatibility/read surfaces for existing consumers while split owners land.
+- **Persistence wrappers** own load/save boundaries and debounced disk I/O, for example `WorkspaceStore`, `RepositoryTopologyStore`, `RepoCacheStore`, `SidebarCacheStore`, and `UIStateStore`.
 - **Derived readers** compute projections without owning data, for example `WorkspacePaneDerived`, `WorkspaceTabLayoutDerived`, `WorkspacePaneFocusDerived`, `WorkspaceLookupDerived`, `PaneDisplayDerived`, and `TabDisplayDerived`.
 - **Coordinators** sequence mutations across atoms/stores and runtime systems. They own no durable domain state.
 
@@ -107,10 +107,9 @@ The old `AppCommand -> AppEventBus -> controller -> WorkspaceActionCommand` chai
 ```
 ActiveWorkspaceSelectionAtom            ← global active workspace id
 
-WorkspaceStore (workspace.state.json persistence wrapper)
+WorkspaceStore (workspace graph persistence wrapper)
 ├── WorkspaceIdentityAtom               ← workspace id, name, created-at timestamp
 ├── WorkspaceWindowMemoryAtom           ← local sidebar width and window frame
-├── WorkspaceRepositoryTopologyAtom     ← repos, worktrees, watched paths, availability
 ├── WorkspacePaneGraphAtom              ← pane identity/content/residency, durable metadata, drawer membership
 ├── WorkspaceDrawerCursorAtom           ← local drawer expansion cursor
 ├── WorkspacePaneAtom                   ← compatibility facade over pane graph + drawer cursor
@@ -122,6 +121,9 @@ WorkspaceStore (workspace.state.json persistence wrapper)
 ├── WorkspaceTabArrangementAtom         ← compatibility mutation facade over tab graph/cursors/presentation
 ├── WorkspaceTabLayoutAtom              ← compatibility read facade
 └── WorkspaceTabLayoutDerived           ← rich tab read model
+
+RepositoryTopologyStore
+└── RepositoryTopologyAtom              ← repos, worktrees, watched paths, availability
 
 RepoCacheStore (workspace.cache.json, rebuildable/local cache)
 ├── RepoEnrichmentCacheAtom            ← origin, identity, branch, git snapshot,

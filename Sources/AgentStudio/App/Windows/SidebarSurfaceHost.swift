@@ -54,7 +54,7 @@ struct SidebarSurfaceHost: View {
                 sidebarCache: sidebarCache,
                 inboxSidebarState: inboxSidebarState,
                 workspacePaneAtom: store.paneAtom,
-                workspaceRepositoryTopologyAtom: store.repositoryTopologyAtom,
+                repositoryTopologyAtom: atom(\.repositoryTopology),
                 repoCache: repoCache,
                 dispatcher: .shared,
                 onRefocusActivePane: onDismissInbox

@@ -3,7 +3,7 @@ final class AtomRegistry {
     let activeWorkspaceSelection: ActiveWorkspaceSelectionAtom
     let workspaceIdentity: WorkspaceIdentityAtom
     let workspaceWindowMemory: WorkspaceWindowMemoryAtom
-    let workspaceRepositoryTopology: WorkspaceRepositoryTopologyAtom
+    let repositoryTopology: RepositoryTopologyAtom
     let workspacePaneGraph: WorkspacePaneGraphAtom
     let workspaceDrawerCursor: WorkspaceDrawerCursorAtom
     let workspacePane: WorkspacePaneAtom
@@ -47,7 +47,7 @@ final class AtomRegistry {
         activeWorkspaceSelection: ActiveWorkspaceSelectionAtom = .init(),
         workspaceIdentity: WorkspaceIdentityAtom = .init(),
         workspaceWindowMemory: WorkspaceWindowMemoryAtom = .init(),
-        workspaceRepositoryTopology: WorkspaceRepositoryTopologyAtom = .init(),
+        repositoryTopology: RepositoryTopologyAtom = .init(),
         workspacePaneGraph: WorkspacePaneGraphAtom? = nil,
         workspaceDrawerCursor: WorkspaceDrawerCursorAtom? = nil,
         workspacePane: WorkspacePaneAtom? = nil,
@@ -84,12 +84,12 @@ final class AtomRegistry {
         self.activeWorkspaceSelection = activeWorkspaceSelection
         self.workspaceIdentity = workspaceIdentity
         self.workspaceWindowMemory = workspaceWindowMemory
-        self.workspaceRepositoryTopology = workspaceRepositoryTopology
+        self.repositoryTopology = repositoryTopology
         let resolvedWorkspacePane = Self.resolveWorkspacePane(
             workspacePane: workspacePane,
             graphAtom: workspacePaneGraph,
             drawerCursorAtom: workspaceDrawerCursor,
-            repositoryTopologyAtom: workspaceRepositoryTopology,
+            repositoryTopologyAtom: repositoryTopology,
             repoEnrichmentCacheAtom: repoEnrichmentCache
         )
         self.workspacePane = resolvedWorkspacePane
@@ -120,7 +120,7 @@ final class AtomRegistry {
         self.workspaceMutationCoordinator =
             workspaceMutationCoordinator
             ?? WorkspaceMutationCoordinator(
-                repositoryTopologyAtom: workspaceRepositoryTopology,
+                repositoryTopologyAtom: repositoryTopology,
                 workspacePaneAtom: self.workspacePane,
                 workspaceTabShellAtom: self.workspaceTabShell,
                 workspaceTabArrangementAtom: self.workspaceTabArrangement
@@ -173,7 +173,7 @@ final class AtomRegistry {
         workspacePane: WorkspacePaneAtom?,
         graphAtom: WorkspacePaneGraphAtom?,
         drawerCursorAtom: WorkspaceDrawerCursorAtom?,
-        repositoryTopologyAtom: WorkspaceRepositoryTopologyAtom,
+        repositoryTopologyAtom: RepositoryTopologyAtom,
         repoEnrichmentCacheAtom: RepoEnrichmentCacheAtom
     ) -> WorkspacePaneAtom {
         let resolved =
@@ -255,7 +255,7 @@ final class AtomRegistry {
         WorkspacePaneDerived(
             graphAtom: workspacePaneGraph,
             drawerCursorAtom: workspaceDrawerCursor,
-            repositoryTopologyAtom: workspaceRepositoryTopology,
+            repositoryTopologyAtom: repositoryTopology,
             repoEnrichmentCacheAtom: repoEnrichmentCache
         )
     }

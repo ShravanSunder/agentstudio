@@ -252,7 +252,7 @@ private func withMainWindowControllerHarness<T>(
     let store = WorkspaceStore(
         identityAtom: atoms.workspaceIdentity,
         windowMemoryAtom: atoms.workspaceWindowMemory,
-        repositoryTopologyAtom: atoms.workspaceRepositoryTopology,
+        repositoryTopologyAtom: atoms.repositoryTopology,
         paneAtom: atoms.workspacePane,
         tabLayoutAtom: atoms.workspaceTabLayout,
         mutationCoordinator: atoms.workspaceMutationCoordinator,

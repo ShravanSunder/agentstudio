@@ -133,7 +133,7 @@ final class WorkspaceCacheCoordinatorTests {
             )
         )
 
-        #expect(workspaceStore.repositoryTopologyAtom.isRepoUnavailable(repo.id))
+        #expect(workspaceStore.repositoryTopologyStore.repositoryTopologyAtom.isRepoUnavailable(repo.id))
         #expect(repoCache.repoEnrichmentByRepoId[repo.id] == nil)
         #expect(repoCache.worktreeEnrichmentByWorktreeId[worktreeId] == nil)
         #expect(repoCache.pullRequestCountByWorktreeId[worktreeId] == nil)

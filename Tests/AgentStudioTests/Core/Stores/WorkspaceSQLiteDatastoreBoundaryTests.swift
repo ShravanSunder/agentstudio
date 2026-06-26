@@ -69,6 +69,30 @@ struct WorkspaceSQLiteDatastoreBoundaryTests {
         #expect(!source.contains("func hasCompletedSnapshot(workspaceId: UUID) async"))
     }
 
+    @Test("repository topology store uses datastore topology facade")
+    func repositoryTopologyStoreUsesDatastoreTopologyFacade() throws {
+        let storeSource = try projectSource(
+            "Sources/AgentStudio/Core/State/MainActor/Persistence/RepositoryTopologyStore.swift"
+        )
+        let datastoreTopologySource = try projectSource(
+            "Sources/AgentStudio/Core/State/SQLite/WorkspaceSQLiteDatastore+RepositoryTopology.swift"
+        )
+        let datastoreTypesSource = try projectSource(
+            "Sources/AgentStudio/Core/State/SQLite/WorkspaceSQLiteDatastoreTypes.swift"
+        )
+
+        #expect(storeSource.contains("WorkspaceSQLiteDatastore"))
+        #expect(storeSource.contains("loadRepositoryTopology(workspaceId:"))
+        #expect(!storeSource.contains("WorkspaceCoreRepository"))
+        #expect(!storeSource.contains("WorkspaceSQLiteStoreBackend"))
+        #expect(datastoreTopologySource.contains("func loadRepositoryTopology(workspaceId: UUID) async"))
+        #expect(
+            datastoreTopologySource.contains("func resolveWorkspaceRestoreContext(preferredWorkspaceId: UUID) async")
+        )
+        #expect(datastoreTypesSource.contains("enum RepositoryTopologyLoadResult"))
+        #expect(datastoreTypesSource.contains("struct ResolvedWorkspaceRestoreContext"))
+    }
+
     private func projectSource(_ relativePath: String) throws -> String {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         return try String(contentsOf: projectRoot.appending(path: relativePath), encoding: .utf8)

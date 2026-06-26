@@ -43,7 +43,7 @@ final class WorkspaceStoreDrawerTests {
         let snapshot = WorkspacePersistenceTransformer.makeLiveSQLiteSnapshot(
             identityAtom: store.identityAtom,
             windowMemoryAtom: store.windowMemoryAtom,
-            repositoryTopologyAtom: store.repositoryTopologyAtom,
+            repositoryTopologyAtom: store.repositoryTopologyStore.repositoryTopologyAtom,
             workspacePaneAtom: store.paneAtom,
             workspaceTabLayoutAtom: store.tabLayoutAtom,
             persistedAt: Date(timeIntervalSince1970: 1_780_000_000)

@@ -14,7 +14,7 @@ struct WorkspaceLookupDerivedTests {
     func tabContainingPane_returnsOwningTab() {
         withTestAtomRegistry { atoms in
             let store = WorkspaceStore(
-                catalogAtom: atoms.workspaceRepositoryTopology,
+                catalogAtom: atoms.repositoryTopology,
                 graphAtom: atoms.workspacePane,
                 interactionAtom: atoms.workspaceTabLayout
             )
@@ -32,7 +32,7 @@ struct WorkspaceLookupDerivedTests {
     func repoAndWorktreeContainingCwd_resolvesNestedPath() {
         withTestAtomRegistry { atoms in
             let store = WorkspaceStore(
-                catalogAtom: atoms.workspaceRepositoryTopology,
+                catalogAtom: atoms.repositoryTopology,
                 graphAtom: atoms.workspacePane,
                 interactionAtom: atoms.workspaceTabLayout
             )
@@ -57,7 +57,7 @@ struct WorkspaceLookupDerivedTests {
     func repoAndWorktreeContainingCwd_rebuildsLookupAfterTopologyMutation() {
         withTestAtomRegistry { atoms in
             let store = WorkspaceStore(
-                catalogAtom: atoms.workspaceRepositoryTopology,
+                catalogAtom: atoms.repositoryTopology,
                 graphAtom: atoms.workspacePane,
                 interactionAtom: atoms.workspaceTabLayout
             )
@@ -90,7 +90,7 @@ struct WorkspaceLookupDerivedTests {
     func paneLocationsForWorktree_returnsTabAndPaneOrder() {
         withTestAtomRegistry { atoms in
             let store = WorkspaceStore(
-                catalogAtom: atoms.workspaceRepositoryTopology,
+                catalogAtom: atoms.repositoryTopology,
                 graphAtom: atoms.workspacePane,
                 interactionAtom: atoms.workspaceTabLayout
             )
@@ -150,7 +150,7 @@ struct WorkspaceLookupDerivedTests {
     func paneLocationsByWorktreeId_batchesAllActivePaneLocations() {
         withTestAtomRegistry { atoms in
             let store = WorkspaceStore(
-                catalogAtom: atoms.workspaceRepositoryTopology,
+                catalogAtom: atoms.repositoryTopology,
                 graphAtom: atoms.workspacePane,
                 interactionAtom: atoms.workspaceTabLayout
             )
@@ -214,7 +214,7 @@ struct WorkspaceLookupDerivedTests {
     func paneLocationsForWorktree_excludesBackgroundedPanes() {
         withTestAtomRegistry { atoms in
             let store = WorkspaceStore(
-                catalogAtom: atoms.workspaceRepositoryTopology,
+                catalogAtom: atoms.repositoryTopology,
                 graphAtom: atoms.workspacePane,
                 interactionAtom: atoms.workspaceTabLayout
             )

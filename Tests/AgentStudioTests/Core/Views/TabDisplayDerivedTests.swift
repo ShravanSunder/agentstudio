@@ -14,7 +14,7 @@ struct TabDisplayDerivedTests {
     func placeholderTabName_fallsBackToDerivedWorktreeTitle() {
         withTestAtomRegistry { atoms in
             let store = WorkspaceStore(
-                catalogAtom: atoms.workspaceRepositoryTopology,
+                catalogAtom: atoms.repositoryTopology,
                 graphAtom: atoms.workspacePane,
                 interactionAtom: atoms.workspaceTabLayout
             )
@@ -45,7 +45,7 @@ struct TabDisplayDerivedTests {
             let title = atom(\.tabDisplay).displayTitle(
                 for: tab,
                 workspacePane: atoms.workspacePane,
-                workspaceRepositoryTopology: atoms.workspaceRepositoryTopology,
+                repositoryTopology: atoms.repositoryTopology,
                 repoCache: atoms.repoCache
             )
 
@@ -57,7 +57,7 @@ struct TabDisplayDerivedTests {
     func paneTitle_usesFolderOnlyWhenDetachedHead() {
         withTestAtomRegistry { atoms in
             let store = WorkspaceStore(
-                catalogAtom: atoms.workspaceRepositoryTopology,
+                catalogAtom: atoms.repositoryTopology,
                 graphAtom: atoms.workspacePane,
                 interactionAtom: atoms.workspaceTabLayout
             )
@@ -76,7 +76,7 @@ struct TabDisplayDerivedTests {
 
             let title = atom(\.tabDisplay).title(
                 for: pane,
-                workspaceRepositoryTopology: atoms.workspaceRepositoryTopology,
+                repositoryTopology: atoms.repositoryTopology,
                 repoCache: atoms.repoCache
             )
 

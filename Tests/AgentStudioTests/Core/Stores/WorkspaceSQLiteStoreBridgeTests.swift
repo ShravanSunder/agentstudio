@@ -35,7 +35,8 @@ struct WorkspaceSQLiteStoreBridgeTests {
             isMainWorktree: true
         )
         store.reconcileDiscoveredWorktrees(repo.id, worktrees: [discoveredWorktree])
-        let worktree = try #require(store.repositoryTopologyAtom.repo(repo.id)?.worktrees.single)
+        let worktree = try #require(
+            store.repositoryTopologyStore.repositoryTopologyAtom.repo(repo.id)?.worktrees.single)
         store.windowMemoryAtom.setSidebarWidth(321)
         store.windowMemoryAtom.setWindowFrame(CGRect(x: 10, y: 20, width: 900, height: 700))
         let pane = store.createPane(
@@ -93,6 +94,40 @@ struct WorkspaceSQLiteStoreBridgeTests {
         #expect(cursorState.activeTabId == tab.id)
         #expect(cursorState.activeArrangementIdsByTabId[tab.id] == secondArrangement.id)
         #expect(cursorState.activePaneIdsByArrangementId[secondArrangement.id] == pane.id)
+    }
+
+    @Test("repository topology store flush participates in canonical workspace snapshot")
+    func repositoryTopologyStoreFlushParticipatesInCanonicalWorkspaceSnapshot() async throws {
+        let workspaceId = UUID()
+        let fixture = try makeWorkspaceSQLiteBridgeFixture(workspaceId: workspaceId)
+        let identityAtom = WorkspaceIdentityAtom()
+        identityAtom.hydrate(
+            workspaceId: workspaceId,
+            workspaceName: "Topology Flush",
+            createdAt: Date(timeIntervalSince1970: 1_700_000_010)
+        )
+        let store = WorkspaceStore(
+            identityAtom: identityAtom,
+            persistor: WorkspacePersistor(
+                workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+            ),
+            sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend)
+        )
+
+        store.repositoryTopologyStore.startObserving()
+        let repo = store.repositoryTopologyStore.repositoryTopologyAtom.addRepo(
+            at: URL(filePath: "/tmp/repository-topology-store-flush")
+        )
+        for _ in 0..<10 where !store.repositoryTopologyStore.isDirty {
+            await Task.yield()
+        }
+        let outcome = await store.repositoryTopologyStore.flushAsync()
+
+        #expect(outcome)
+        #expect(!store.repositoryTopologyStore.isDirty)
+        let topology = try fixture.coreRepository.fetchRepositoryTopology(workspaceId: workspaceId)
+        #expect(topology.repos.map(\.id) == [repo.id])
+        #expect(topology.repos.single?.worktrees.map(\.repoId) == [repo.id])
     }
 
     @Test("SQLite flush preserves the live pane graph instead of applying legacy prune-on-save")
@@ -389,7 +424,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
         #expect(restoredStore.identityAtom.workspaceName == "Restored SQLite Workspace")
         #expect(restoredStore.windowMemoryAtom.sidebarWidth == 444)
         #expect(restoredStore.windowMemoryAtom.windowFrame == CGRect(x: 1, y: 2, width: 800, height: 600))
-        #expect(restoredStore.repositoryTopologyAtom.repos.single?.id == repoId)
+        #expect(restoredStore.repositoryTopologyStore.repositoryTopologyAtom.repos.single?.id == repoId)
         #expect(restoredStore.paneAtom.pane(paneId)?.title == "Restored SQLite Pane")
         #expect(restoredStore.tabLayoutAtom.activeTabId == tabId)
         #expect(restoredStore.tabLayoutAtom.tab(tabId)?.activeArrangementId == arrangementId)

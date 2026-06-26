@@ -10,7 +10,7 @@ struct WorkspacePersistenceTransformerTests {
     func hydrate_restoresWorktreeBoundPaneWhenTopologyIsPresent() {
         let identityAtom = WorkspaceIdentityAtom()
         let windowMemoryAtom = WorkspaceWindowMemoryAtom()
-        let topologyAtom = WorkspaceRepositoryTopologyAtom()
+        let topologyAtom = RepositoryTopologyAtom()
         let paneAtom = WorkspacePaneAtom()
         let tabLayoutAtom = WorkspaceTabLayoutAtom()
 
@@ -69,7 +69,7 @@ struct WorkspacePersistenceTransformerTests {
     func hydrate_reportsTabMembershipRepair() {
         let identityAtom = WorkspaceIdentityAtom()
         let windowMemoryAtom = WorkspaceWindowMemoryAtom()
-        let topologyAtom = WorkspaceRepositoryTopologyAtom()
+        let topologyAtom = RepositoryTopologyAtom()
         let paneAtom = WorkspacePaneAtom()
         let tabLayoutAtom = WorkspaceTabLayoutAtom()
         let customPane = makePane(title: "Custom")
@@ -118,7 +118,7 @@ struct WorkspacePersistenceTransformerTests {
     func makePersistableState_prunesTemporaryPanesFromTabs() {
         let identityAtom = WorkspaceIdentityAtom()
         let windowMemoryAtom = WorkspaceWindowMemoryAtom()
-        let topologyAtom = WorkspaceRepositoryTopologyAtom()
+        let topologyAtom = RepositoryTopologyAtom()
         let paneAtom = WorkspacePaneAtom()
         let tabLayoutAtom = WorkspaceTabLayoutAtom()
 
@@ -159,7 +159,7 @@ struct WorkspacePersistenceTransformerTests {
     func makePersistableState_stripsDisplayFacetsWhilePreservingDrawerExpansion() throws {
         let identityAtom = WorkspaceIdentityAtom()
         let windowMemoryAtom = WorkspaceWindowMemoryAtom()
-        let topologyAtom = WorkspaceRepositoryTopologyAtom()
+        let topologyAtom = RepositoryTopologyAtom()
         let repoId = UUID()
         let worktreeId = UUID()
         let repoPath = URL(filePath: "/tmp/project-dev/agent-studio")
@@ -250,7 +250,7 @@ struct WorkspacePersistenceTransformerTests {
     func makePersistableState_prunesTemporaryPanesFromArrangementMinimizedPaneIds() {
         let identityAtom = WorkspaceIdentityAtom()
         let windowMemoryAtom = WorkspaceWindowMemoryAtom()
-        let topologyAtom = WorkspaceRepositoryTopologyAtom()
+        let topologyAtom = RepositoryTopologyAtom()
         let paneAtom = WorkspacePaneAtom()
         let tabLayoutAtom = WorkspaceTabLayoutAtom()
 
@@ -294,7 +294,7 @@ struct WorkspacePersistenceTransformerTests {
     func makePersistableState_prunesTemporaryPanesFromDrawerViews() throws {
         let identityAtom = WorkspaceIdentityAtom()
         let windowMemoryAtom = WorkspaceWindowMemoryAtom()
-        let topologyAtom = WorkspaceRepositoryTopologyAtom()
+        let topologyAtom = RepositoryTopologyAtom()
         let paneAtom = WorkspacePaneAtom()
         let tabLayoutAtom = WorkspaceTabLayoutAtom()
 
@@ -360,7 +360,7 @@ struct WorkspacePersistenceTransformerTests {
     func makePersistableState_repairSkipsMinimizedRemainingPaneWhenActivePaneWasPruned() {
         let identityAtom = WorkspaceIdentityAtom()
         let windowMemoryAtom = WorkspaceWindowMemoryAtom()
-        let topologyAtom = WorkspaceRepositoryTopologyAtom()
+        let topologyAtom = RepositoryTopologyAtom()
         let paneAtom = WorkspacePaneAtom()
         let tabLayoutAtom = WorkspaceTabLayoutAtom()
 
@@ -404,7 +404,7 @@ struct WorkspacePersistenceTransformerTests {
     func makePersistableState_fallsBackToDefaultWhenActiveCustomArrangementBecomesEmpty() throws {
         let identityAtom = WorkspaceIdentityAtom()
         let windowMemoryAtom = WorkspaceWindowMemoryAtom()
-        let topologyAtom = WorkspaceRepositoryTopologyAtom()
+        let topologyAtom = RepositoryTopologyAtom()
         let paneAtom = WorkspacePaneAtom()
         let tabLayoutAtom = WorkspaceTabLayoutAtom()
 
@@ -457,7 +457,7 @@ struct WorkspacePersistenceTransformerTests {
     func makePersistableState_preservesTabWhenDefaultArrangementIsEmptyButCustomArrangementHasPane() {
         let identityAtom = WorkspaceIdentityAtom()
         let windowMemoryAtom = WorkspaceWindowMemoryAtom()
-        let topologyAtom = WorkspaceRepositoryTopologyAtom()
+        let topologyAtom = RepositoryTopologyAtom()
         let paneAtom = WorkspacePaneAtom()
         let tabLayoutAtom = WorkspaceTabLayoutAtom()
 
@@ -737,7 +737,7 @@ struct WorkspacePersistenceTransformerTests {
     private func makeSQLiteSnapshotFixture() -> SQLiteSnapshotFixture {
         let identityAtom = WorkspaceIdentityAtom()
         let windowMemoryAtom = WorkspaceWindowMemoryAtom()
-        let topologyAtom = WorkspaceRepositoryTopologyAtom()
+        let topologyAtom = RepositoryTopologyAtom()
         let paneAtom = WorkspacePaneAtom()
         let tabLayoutAtom = WorkspaceTabLayoutAtom()
         identityAtom.hydrate(
@@ -770,7 +770,7 @@ struct WorkspacePersistenceTransformerTests {
 private struct SQLiteSnapshotFixture {
     let identityAtom: WorkspaceIdentityAtom
     let windowMemoryAtom: WorkspaceWindowMemoryAtom
-    let topologyAtom: WorkspaceRepositoryTopologyAtom
+    let topologyAtom: RepositoryTopologyAtom
     let paneAtom: WorkspacePaneAtom
     let tabLayoutAtom: WorkspaceTabLayoutAtom
 }

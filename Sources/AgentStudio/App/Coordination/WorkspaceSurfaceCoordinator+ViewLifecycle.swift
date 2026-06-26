@@ -82,8 +82,8 @@ extension WorkspaceSurfaceCoordinator {
         case .terminal:
             if let worktreeId = pane.worktreeId,
                 let repoId = pane.repoId,
-                let worktree = store.repositoryTopologyAtom.worktree(worktreeId),
-                let repo = store.repositoryTopologyAtom.repo(repoId)
+                let worktree = atom(\.repositoryTopology).worktree(worktreeId),
+                let repo = atom(\.repositoryTopology).repo(repoId)
             {
                 return createView(
                     for: pane,
@@ -97,8 +97,8 @@ extension WorkspaceSurfaceCoordinator {
                 let parentPane = store.paneAtom.pane(parentPaneId),
                 let worktreeId = parentPane.worktreeId,
                 let repoId = parentPane.repoId,
-                let worktree = store.repositoryTopologyAtom.worktree(worktreeId),
-                let repo = store.repositoryTopologyAtom.repo(repoId)
+                let worktree = atom(\.repositoryTopology).worktree(worktreeId),
+                let repo = atom(\.repositoryTopology).repo(repoId)
             {
                 return createView(
                     for: pane,

@@ -778,7 +778,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         }
 
         // 1. Persist the watched path (direct store mutation)
-        _ = store.repositoryTopologyAtom.addWatchedPath(rootURL)
+        _ = atom(\.repositoryTopology).addWatchedPath(rootURL)
 
         // 2. Signal scanning state for UI. Sidebar stays collapsed until
         //    the first repo is discovered — never show an empty sidebar.
@@ -833,7 +833,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             }
 
             let refreshSummary = await self.watchedFolderCommands.refreshWatchedFolders(
-                self.store.repositoryTopologyAtom.watchedPaths.map(\.path)
+                atom(\.repositoryTopology).watchedPaths.map(\.path)
             )
 
             let repoPaths = refreshSummary.repoPaths(in: rootURL)
