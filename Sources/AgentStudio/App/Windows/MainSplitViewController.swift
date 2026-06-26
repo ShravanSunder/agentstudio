@@ -192,7 +192,7 @@ class MainSplitViewController: NSSplitViewController {
         if shouldExpandSidebarOnLoad {
             sidebarItem.isCollapsed = false
             shouldExpandSidebarOnLoad = false
-        } else if store.repositoryTopologyAtom.repos.isEmpty {
+        } else if atom(\.repositoryTopology).repos.isEmpty {
             sidebarItem.isCollapsed = true
         } else if uiState.sidebarCollapsed {
             sidebarItem.isCollapsed = true

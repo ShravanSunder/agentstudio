@@ -222,7 +222,7 @@ final class WorkspaceStoreTests {
         let persistor = WorkspacePersistor(workspacesDir: tempDir)
         let atoms = AtomRegistry()
         let scopedStore = WorkspaceStore(
-            catalogAtom: atoms.workspaceRepositoryTopology,
+            catalogAtom: atoms.repositoryTopology,
             graphAtom: atoms.workspacePane,
             interactionAtom: atoms.workspaceTabLayout,
             persistor: persistor
@@ -337,7 +337,7 @@ final class WorkspaceStoreTests {
         let result = store.paneAtom.updatePaneCWDAndResolvedContext(
             pane.id,
             cwd: cwd,
-            resolvedContext: store.repositoryTopologyAtom.repoAndWorktree(containing: cwd)
+            resolvedContext: store.repositoryTopologyStore.repositoryTopologyAtom.repoAndWorktree(containing: cwd)
         )
         #expect(result == .applied)
 
@@ -373,7 +373,8 @@ final class WorkspaceStoreTests {
         let result = store.paneAtom.updatePaneCWDAndResolvedContext(
             pane.id,
             cwd: externalCwd,
-            resolvedContext: store.repositoryTopologyAtom.repoAndWorktree(containing: externalCwd)
+            resolvedContext: store.repositoryTopologyStore.repositoryTopologyAtom.repoAndWorktree(
+                containing: externalCwd)
         )
         #expect(result == .applied)
 
@@ -412,7 +413,8 @@ final class WorkspaceStoreTests {
         let changed = store.paneAtom.updatePaneCWDAndResolvedContext(
             pane.id,
             cwd: worktree.path,
-            resolvedContext: store.repositoryTopologyAtom.repoAndWorktree(containing: worktree.path)
+            resolvedContext: store.repositoryTopologyStore.repositoryTopologyAtom.repoAndWorktree(
+                containing: worktree.path)
         )
 
         let updated = store.pane(pane.id)
@@ -437,7 +439,8 @@ final class WorkspaceStoreTests {
             title: "Terminal",
             facets: PaneContextFacets(repoId: repo.id, worktreeId: worktree.id, cwd: worktree.path),
         )
-        let resolvedContext = store.repositoryTopologyAtom.repoAndWorktree(containing: worktree.path)
+        let resolvedContext = store.repositoryTopologyStore.repositoryTopologyAtom.repoAndWorktree(
+            containing: worktree.path)
 
         let first = store.paneAtom.updatePaneCWDAndResolvedContext(
             pane.id,
@@ -1370,16 +1373,20 @@ final class WorkspaceStoreTests {
     }
 
     @Test
-    func test_isDirty_setOnDirectTopologyAtomMutation() async {
+    func test_directTopologyAtomMutationDirtiesRepositoryTopologyStoreOnly() async {
         #expect(!(store.isDirty))
+        #expect(!(store.repositoryTopologyStore.isDirty))
 
-        _ = store.repositoryTopologyAtom.addRepo(at: URL(fileURLWithPath: "/tmp/direct-topology"))
+        store.repositoryTopologyStore.startObserving()
+        _ = store.repositoryTopologyStore.repositoryTopologyAtom.addRepo(
+            at: URL(fileURLWithPath: "/tmp/direct-topology"))
 
-        for _ in 0..<10 where !store.isDirty {
+        for _ in 0..<10 where !store.repositoryTopologyStore.isDirty {
             await Task.yield()
         }
 
-        #expect(store.isDirty)
+        #expect(!store.isDirty)
+        #expect(store.repositoryTopologyStore.isDirty)
     }
 
     @Test
@@ -1547,7 +1554,7 @@ final class WorkspaceStoreTests {
         let scopedStore = WorkspaceStore(
             identityAtom: atoms.workspaceIdentity,
             windowMemoryAtom: atoms.workspaceWindowMemory,
-            repositoryTopologyAtom: atoms.workspaceRepositoryTopology,
+            repositoryTopologyAtom: atoms.repositoryTopology,
             paneAtom: atoms.workspacePane,
             tabShellAtom: atoms.workspaceTabShell,
             tabArrangementAtom: atoms.workspaceTabArrangement,

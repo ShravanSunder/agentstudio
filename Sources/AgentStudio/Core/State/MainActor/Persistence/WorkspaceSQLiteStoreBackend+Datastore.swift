@@ -1,11 +1,18 @@
 import Foundation
 
 extension WorkspaceSQLiteStoreBackend {
-    func loadCompletedSnapshot(
+    func loadRepositoryTopology(workspaceId: UUID) throws -> WorkspaceCoreRepository.RepositoryTopologyRecord {
+        guard try coreRepository.fetchWorkspace(id: workspaceId) != nil else {
+            throw BackendUninitializedError()
+        }
+        return try coreRepository.fetchRepositoryTopology(workspaceId: workspaceId)
+    }
+
+    func resolveWorkspaceRestoreContext(
         preferredWorkspaceId: UUID,
         localRepositoryForWorkspaceId: @Sendable (UUID) async throws -> WorkspaceLocalRepository,
         repairLocalRepositoryForWorkspaceId: @Sendable (UUID) async throws -> WorkspaceLocalRepository
-    ) async throws -> WorkspaceSQLiteSnapshot {
+    ) async throws -> WorkspaceSQLiteDatastore.ResolvedWorkspaceRestoreContext {
         let workspaceId =
             try coreRepository.fetchActiveOrPreferredRecoverableStagedWorkspaceId(
                 preferredWorkspaceId: preferredWorkspaceId
@@ -73,15 +80,39 @@ extension WorkspaceSQLiteStoreBackend {
             try markWorkspaceSnapshotCommitted(workspaceId: workspace.id, committedAt: snapshotToken)
         }
 
+        return .init(
+            workspace: workspace,
+            topology: topology,
+            paneGraph: paneGraph,
+            tabShells: tabShells,
+            tabGraph: tabGraph,
+            cursorState: cursorState,
+            windowState: windowState,
+            snapshotStatus: coreCompletedAt.map(WorkspaceSQLiteDatastore.RestoreSnapshotStatus.completed)
+                ?? .recoveredStaged(snapshotToken),
+            recoveryEvents: []
+        )
+    }
+
+    func loadCompletedSnapshot(
+        preferredWorkspaceId: UUID,
+        localRepositoryForWorkspaceId: @Sendable (UUID) async throws -> WorkspaceLocalRepository,
+        repairLocalRepositoryForWorkspaceId: @Sendable (UUID) async throws -> WorkspaceLocalRepository
+    ) async throws -> WorkspaceSQLiteSnapshot {
+        let context = try await resolveWorkspaceRestoreContext(
+            preferredWorkspaceId: preferredWorkspaceId,
+            localRepositoryForWorkspaceId: localRepositoryForWorkspaceId,
+            repairLocalRepositoryForWorkspaceId: repairLocalRepositoryForWorkspaceId
+        )
         let state = try WorkspaceSQLiteStateBridge.persistableState(
             from: .init(
-                workspace: workspace,
-                topology: topology,
-                paneGraph: paneGraph,
-                tabShells: tabShells,
-                tabGraph: tabGraph,
-                cursorState: cursorState,
-                windowState: windowState
+                workspace: context.workspace,
+                topology: context.topology,
+                paneGraph: context.paneGraph,
+                tabShells: context.tabShells,
+                tabGraph: context.tabGraph,
+                cursorState: context.cursorState,
+                windowState: context.windowState
             )
         )
         return WorkspacePersistenceTransformer.sqliteSnapshot(from: state)

@@ -55,7 +55,7 @@ enum WorkspaceLauncherProjector {
         let repoCache = atom(\.repoCache)
         let inboxAtom = atom(\.inboxNotification)
         let welcome = atom(\.welcome)
-        let repositoryTopology = store.repositoryTopologyAtom
+        let repositoryTopology = atom(\.repositoryTopology)
         let workspaceTab = WorkspaceTabLayoutDerived(
             shellAtom: store.tabShellAtom,
             arrangementAtom: store.tabArrangementAtom
@@ -124,8 +124,8 @@ enum WorkspaceLauncherProjector {
         checkoutColorHexByRepoId: [UUID: String]
     ) -> WorkspaceRecentCardModel? {
         if let worktreeId = target.worktreeId,
-            let worktree = store.repositoryTopologyAtom.worktree(worktreeId),
-            let repo = store.repositoryTopologyAtom.repo(containing: worktreeId)
+            let worktree = atom(\.repositoryTopology).worktree(worktreeId),
+            let repo = atom(\.repositoryTopology).repo(containing: worktreeId)
         {
             return makeWorktreeCard(
                 target: target,
@@ -137,7 +137,7 @@ enum WorkspaceLauncherProjector {
             )
         }
 
-        if let resolvedContext = store.repositoryTopologyAtom.repoAndWorktree(containing: target.path) {
+        if let resolvedContext = atom(\.repositoryTopology).repoAndWorktree(containing: target.path) {
             return makeWorktreeCard(
                 target: target,
                 worktree: resolvedContext.worktree,
@@ -205,7 +205,7 @@ enum WorkspaceLauncherProjector {
     ) -> [UUID: String] {
         let repoEnrichmentByRepoId = repoCache.repoEnrichmentSnapshot()
         let sidebarRepos = RepoExplorerView.resolvedRepos(
-            store.repositoryTopologyAtom.repos.map(RepoPresentationItem.init(repo:)),
+            atom(\.repositoryTopology).repos.map(RepoPresentationItem.init(repo:)),
             enrichmentByRepoId: repoEnrichmentByRepoId
         )
         let metadataByRepoId = RepoPresentationColoring.buildRepoMetadata(

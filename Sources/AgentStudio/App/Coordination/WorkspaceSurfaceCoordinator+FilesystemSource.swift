@@ -341,7 +341,8 @@ extension WorkspaceSurfaceCoordinator {
 
     private func filesystemProjectionTopologyEntries() -> [FilesystemProjectionTopologyEntry] {
         var entries: [FilesystemProjectionTopologyEntry] = []
-        for repo in store.repositoryTopologyAtom.repos where !store.repositoryTopologyAtom.isRepoUnavailable(repo.id) {
+        let repositoryTopology = store.repositoryTopologyStore.repositoryTopologyAtom
+        for repo in repositoryTopology.repos where !repositoryTopology.isRepoUnavailable(repo.id) {
             for worktree in repo.worktrees {
                 entries.append(
                     FilesystemProjectionTopologyEntry(
@@ -380,7 +381,7 @@ extension WorkspaceSurfaceCoordinator {
         }
 
         let fallbackCwd =
-            store.repositoryTopologyAtom.worktree(worktreeId)?.path
+            store.repositoryTopologyStore.repositoryTopologyAtom.worktree(worktreeId)?.path
             ?? pane.metadata.launchDirectory
             ?? pane.metadata.cwd
         guard let fallbackCwd else {

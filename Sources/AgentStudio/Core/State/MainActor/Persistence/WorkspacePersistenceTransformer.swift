@@ -33,7 +33,7 @@ enum WorkspacePersistenceTransformer {
         _ state: WorkspacePersistor.PersistableState,
         identityAtom: WorkspaceIdentityAtom,
         windowMemoryAtom: WorkspaceWindowMemoryAtom,
-        repositoryTopologyAtom: WorkspaceRepositoryTopologyAtom,
+        repositoryTopologyAtom: RepositoryTopologyAtom,
         workspacePaneAtom: WorkspacePaneAtom,
         workspaceTabLayoutAtom: WorkspaceTabLayoutAtom
     ) -> WorkspaceTabMembershipRepairReport {
@@ -57,9 +57,37 @@ enum WorkspacePersistenceTransformer {
             unavailableRepoIds: state.unavailableRepoIds
         )
 
+        return hydrateWorkspaceGraph(
+            state,
+            identityAtom: identityAtom,
+            windowMemoryAtom: windowMemoryAtom,
+            validWorktreeIds: repositoryTopologyAtom.allWorktreeIds,
+            workspacePaneAtom: workspacePaneAtom,
+            workspaceTabLayoutAtom: workspaceTabLayoutAtom
+        )
+    }
+
+    @discardableResult
+    static func hydrateWorkspaceGraph(
+        _ state: WorkspacePersistor.PersistableState,
+        identityAtom: WorkspaceIdentityAtom,
+        windowMemoryAtom: WorkspaceWindowMemoryAtom,
+        validWorktreeIds: Set<UUID>,
+        workspacePaneAtom: WorkspacePaneAtom,
+        workspaceTabLayoutAtom: WorkspaceTabLayoutAtom
+    ) -> WorkspaceTabMembershipRepairReport {
+        identityAtom.hydrate(
+            workspaceId: state.id,
+            workspaceName: state.name,
+            createdAt: state.createdAt
+        )
+        windowMemoryAtom.hydrate(
+            sidebarWidth: state.sidebarWidth,
+            windowFrame: state.windowFrame
+        )
         workspacePaneAtom.hydrate(
             persistedPanes: state.panes,
-            validWorktreeIds: repositoryTopologyAtom.allWorktreeIds
+            validWorktreeIds: validWorktreeIds
         )
         let validPaneIds = workspacePaneAtom.graphAtom.paneIds
         let drawerParentPaneIdByDrawerId = drawerParentPaneIdsByDrawerId(from: workspacePaneAtom.liveSQLitePanes.values)
@@ -81,7 +109,7 @@ enum WorkspacePersistenceTransformer {
     static func makePersistableState(
         identityAtom: WorkspaceIdentityAtom,
         windowMemoryAtom: WorkspaceWindowMemoryAtom,
-        repositoryTopologyAtom: WorkspaceRepositoryTopologyAtom,
+        repositoryTopologyAtom: RepositoryTopologyAtom,
         workspacePaneAtom: WorkspacePaneAtom,
         workspaceTabLayoutAtom: WorkspaceTabLayoutAtom,
         persistedAt: Date
@@ -126,7 +154,7 @@ enum WorkspacePersistenceTransformer {
     static func makeLiveSQLiteState(
         identityAtom: WorkspaceIdentityAtom,
         windowMemoryAtom: WorkspaceWindowMemoryAtom,
-        repositoryTopologyAtom: WorkspaceRepositoryTopologyAtom,
+        repositoryTopologyAtom: RepositoryTopologyAtom,
         workspacePaneAtom: WorkspacePaneAtom,
         workspaceTabLayoutAtom: WorkspaceTabLayoutAtom,
         persistedAt: Date
@@ -146,7 +174,7 @@ enum WorkspacePersistenceTransformer {
     static func makeLiveSQLiteSnapshot(
         identityAtom: WorkspaceIdentityAtom,
         windowMemoryAtom: WorkspaceWindowMemoryAtom,
-        repositoryTopologyAtom: WorkspaceRepositoryTopologyAtom,
+        repositoryTopologyAtom: RepositoryTopologyAtom,
         workspacePaneAtom: WorkspacePaneAtom,
         workspaceTabLayoutAtom: WorkspaceTabLayoutAtom,
         persistedAt: Date
@@ -164,7 +192,7 @@ enum WorkspacePersistenceTransformer {
     static func makeLiveSQLiteSnapshotResult(
         identityAtom: WorkspaceIdentityAtom,
         windowMemoryAtom: WorkspaceWindowMemoryAtom,
-        repositoryTopologyAtom: WorkspaceRepositoryTopologyAtom,
+        repositoryTopologyAtom: RepositoryTopologyAtom,
         workspacePaneAtom: WorkspacePaneAtom,
         workspaceTabLayoutAtom: WorkspaceTabLayoutAtom,
         persistedAt: Date

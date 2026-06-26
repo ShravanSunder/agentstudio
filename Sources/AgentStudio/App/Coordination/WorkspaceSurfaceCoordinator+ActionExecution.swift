@@ -293,9 +293,10 @@ extension WorkspaceSurfaceCoordinator {
 
         switch action {
         case .openWorktree(let worktreeId):
+            let repositoryTopology = store.repositoryTopologyStore.repositoryTopologyAtom
             guard
-                let worktree = store.repositoryTopologyAtom.worktree(worktreeId),
-                let repo = store.repositoryTopologyAtom.repo(containing: worktreeId)
+                let worktree = repositoryTopology.worktree(worktreeId),
+                let repo = repositoryTopology.repo(containing: worktreeId)
             else {
                 Self.logger.warning("openWorktree: worktree \(worktreeId) not found")
                 return
@@ -303,9 +304,10 @@ extension WorkspaceSurfaceCoordinator {
             _ = openTerminal(for: worktree, in: repo)
 
         case .openNewTerminalInTab(let worktreeId, let launchDirectory, let title):
+            let repositoryTopology = store.repositoryTopologyStore.repositoryTopologyAtom
             guard
-                let worktree = store.repositoryTopologyAtom.worktree(worktreeId),
-                let repo = store.repositoryTopologyAtom.repo(containing: worktreeId)
+                let worktree = repositoryTopology.worktree(worktreeId),
+                let repo = repositoryTopology.repo(containing: worktreeId)
             else {
                 Self.logger.warning("openNewTerminalInTab: worktree \(worktreeId) not found")
                 return
@@ -313,9 +315,10 @@ extension WorkspaceSurfaceCoordinator {
             _ = createTerminalTab(for: worktree, in: repo, cwdOverride: launchDirectory, titleOverride: title)
 
         case .openWorktreeInPane(let worktreeId):
+            let repositoryTopology = store.repositoryTopologyStore.repositoryTopologyAtom
             guard
-                let worktree = store.repositoryTopologyAtom.worktree(worktreeId),
-                let repo = store.repositoryTopologyAtom.repo(containing: worktreeId)
+                let worktree = repositoryTopology.worktree(worktreeId),
+                let repo = repositoryTopology.repo(containing: worktreeId)
             else {
                 Self.logger.warning("openWorktreeInPane: worktree \(worktreeId) not found")
                 return
@@ -572,7 +575,7 @@ extension WorkspaceSurfaceCoordinator {
                 break
             }
             let fallbackCWD = store.paneAtom.pane(parentPaneId)?.worktreeId.flatMap(
-                store.repositoryTopologyAtom.worktree)?
+                store.repositoryTopologyStore.repositoryTopologyAtom.worktree)?
                 .path
             if let drawerPane = store.paneAtom.addDrawerPane(to: parentPaneId, parentFallbackCWD: fallbackCWD) {
                 prepareTerminalPaneSlot(drawerPane)

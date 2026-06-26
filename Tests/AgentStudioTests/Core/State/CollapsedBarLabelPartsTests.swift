@@ -15,7 +15,7 @@ final class CollapsedBarLabelPartsTests {
         store = WorkspaceStore(
             identityAtom: registry.workspaceIdentity,
             windowMemoryAtom: registry.workspaceWindowMemory,
-            repositoryTopologyAtom: registry.workspaceRepositoryTopology,
+            repositoryTopologyAtom: registry.repositoryTopology,
             paneAtom: registry.workspacePane,
             tabLayoutAtom: registry.workspaceTabLayout,
             persistor: WorkspacePersistor(

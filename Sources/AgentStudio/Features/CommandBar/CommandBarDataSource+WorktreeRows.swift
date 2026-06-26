@@ -20,7 +20,7 @@ typealias CommandBarPathActionFailureHandler = @MainActor @Sendable (CommandBarP
 extension CommandBarDataSource {
     static func repoScopeItems(store: WorkspaceStore) -> [CommandBarItem] {
         let presenceByWorktreeId = buildWorktreePresenceByWorktreeId(store: store)
-        return store.repositoryTopologyAtom.repos
+        return store.repositoryTopologyStore.repositoryTopologyAtom.repos
             .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
             .map { repo in
                 repoRootItem(repo: repo, store: store, presenceByWorktreeId: presenceByWorktreeId)
@@ -29,7 +29,7 @@ extension CommandBarDataSource {
 
     static func everythingWorktreeItems(store: WorkspaceStore) -> [CommandBarItem] {
         let presenceByWorktreeId = buildWorktreePresenceByWorktreeId(store: store)
-        return store.repositoryTopologyAtom.repos.flatMap { repo in
+        return store.repositoryTopologyStore.repositoryTopologyAtom.repos.flatMap { repo in
             repo.worktrees.map { worktree in
                 let presence =
                     presenceByWorktreeId[worktree.id]
@@ -134,7 +134,7 @@ extension CommandBarDataSource {
         )
 
         return Dictionary(
-            uniqueKeysWithValues: store.repositoryTopologyAtom.repos.flatMap { repo in
+            uniqueKeysWithValues: store.repositoryTopologyStore.repositoryTopologyAtom.repos.flatMap { repo in
                 repo.worktrees.map { worktree in
                     (
                         worktree.id,

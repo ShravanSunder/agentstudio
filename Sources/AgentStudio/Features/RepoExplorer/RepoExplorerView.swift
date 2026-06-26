@@ -102,7 +102,7 @@ struct RepoExplorerView: View {
     private static let filterDebounceMilliseconds = 25
 
     private var sidebarRepos: [RepoPresentationItem] {
-        store.repositoryTopologyAtom.repos.map(RepoPresentationItem.init(repo:))
+        atom(\.repositoryTopology).repos.map(RepoPresentationItem.init(repo:))
     }
 
     private var sidebarSnapshot: RepoExplorerSnapshot {

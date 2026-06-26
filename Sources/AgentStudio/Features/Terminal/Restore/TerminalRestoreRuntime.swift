@@ -73,7 +73,7 @@ struct TerminalRestoreRuntime {
 
     func legacyZmxSessionId(for pane: Pane, store: WorkspaceStore) -> String? {
         guard pane.provider == .zmx else { return nil }
-        let workspaceRepositoryTopology = store.repositoryTopologyAtom
+        let repositoryTopology = atom(\.repositoryTopology)
 
         if let parentPaneId = pane.parentPaneId {
             return ZmxBackend.drawerSessionId(
@@ -83,8 +83,8 @@ struct TerminalRestoreRuntime {
         }
 
         if let worktreeId = pane.worktreeId,
-            let worktree = workspaceRepositoryTopology.worktree(worktreeId),
-            let repo = workspaceRepositoryTopology.repo(containing: worktreeId)
+            let worktree = repositoryTopology.worktree(worktreeId),
+            let repo = repositoryTopology.repo(containing: worktreeId)
         {
             return ZmxBackend.sessionId(
                 repoStableKey: repo.stableKey,

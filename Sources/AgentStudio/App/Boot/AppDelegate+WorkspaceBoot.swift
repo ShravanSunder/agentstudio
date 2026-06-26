@@ -135,14 +135,14 @@ extension AppDelegate {
 
     private func bootLoadCanonicalStore() async {
         atomStore = AtomRegistry()
-        atomStore.workspaceRepositoryTopology.setPerformanceTraceRecorder(performanceTraceRecorder)
+        atomStore.repositoryTopology.setPerformanceTraceRecorder(performanceTraceRecorder)
         AtomPerformanceTelemetry.shared.configure(traceRuntime: traceRuntime)
         AtomScope.setUp(atomStore)
         workspaceSQLiteDatastore = makeWorkspaceSQLiteDatastore(traceRuntime: traceRuntime)
         store = WorkspaceStore(
             identityAtom: atomStore.workspaceIdentity,
             windowMemoryAtom: atomStore.workspaceWindowMemory,
-            repositoryTopologyAtom: atomStore.workspaceRepositoryTopology,
+            repositoryTopologyAtom: atomStore.repositoryTopology,
             paneAtom: atomStore.workspacePane,
             tabLayoutAtom: atomStore.workspaceTabLayout,
             mutationCoordinator: atomStore.workspaceMutationCoordinator,
@@ -372,7 +372,7 @@ extension AppDelegate {
     func refreshTraceIdentitySnapshot() async {
         let panes = Array(store.paneAtom.panes.values)
         let snapshot = AgentStudioTraceIdentitySnapshot.from(
-            repos: store.repositoryTopologyAtom.repos,
+            repos: atom(\.repositoryTopology).repos,
             panes: panes,
             worktreeEnrichments: repoCache.worktreeEnrichmentSnapshot()
         )
@@ -384,7 +384,7 @@ extension AppDelegate {
         isObservingTraceIdentityInputs = true
         withObservationTracking {
             _ = store.paneAtom.panes
-            _ = store.repositoryTopologyAtom.repos
+            _ = atom(\.repositoryTopology).repos
             _ = repoCache.worktreeEnrichmentRevision
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
@@ -412,6 +412,7 @@ extension AppDelegate {
         // filesystem discovery are also starting. Arming observation here keeps startup
         // quiet, then immediately persists any stale cache pruning as an explicit boot
         // transaction instead of relying on a debounce side effect.
+        store.repositoryTopologyStore.startObserving()
         repoCacheStore.startObserving()
         sidebarCacheStore.startObserving()
         uiStateStore.startObserving()
@@ -428,6 +429,10 @@ extension AppDelegate {
     }
 
     private func assertBootPersistenceObservationArmed() {
+        assert(
+            store.repositoryTopologyStore.isAutosaveObservationActive,
+            "RepositoryTopologyStore autosave observation must be active after \(WorkspaceBootStep.armPersistenceObservation.rawValue)"
+        )
         assert(
             repoCacheStore.isAutosaveObservationActive,
             "RepoCacheStore autosave observation must be active after \(WorkspaceBootStep.armPersistenceObservation.rawValue)"
@@ -447,7 +452,7 @@ extension AppDelegate {
     }
 
     private func pruneStaleCache(store: WorkspaceStore, repoCache: RepoCacheAtom) -> Bool {
-        let repos = store.repositoryTopologyAtom.repos
+        let repos = atom(\.repositoryTopology).repos
         let validRepoIds = Set(repos.map(\.id))
         let validWorktreeIds = Set(repos.flatMap(\.worktrees).map(\.id))
         var didPrune = false
@@ -472,8 +477,8 @@ extension AppDelegate {
     private func replayBootTopology(store: WorkspaceStore, coordinator: WorkspaceCacheCoordinator) async {
         let tabLayout = store.tabLayoutAtom
         let workspacePane = store.paneAtom
-        let repos = store.repositoryTopologyAtom.repos
-        let watchedPaths = store.repositoryTopologyAtom.watchedPaths
+        let repos = atom(\.repositoryTopology).repos
+        let watchedPaths = atom(\.repositoryTopology).watchedPaths
         let activePaneRepoIds: Set<UUID> = {
             guard let activeTab = tabLayout.activeTab else { return [] }
             let repoIds = activeTab.activePaneIds.compactMap { workspacePane.panes[$0]?.repoId }

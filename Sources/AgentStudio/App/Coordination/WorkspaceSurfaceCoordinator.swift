@@ -261,7 +261,7 @@ final class WorkspaceSurfaceCoordinator {
 
     private func updatePaneCWDAndResolvedContext(paneId: UUID, cwd: URL?) {
         let previousWorktreeId = store.paneAtom.pane(paneId)?.worktreeId
-        let resolvedContext = store.repositoryTopologyAtom.repoAndWorktree(containing: cwd)
+        let resolvedContext = store.repositoryTopologyStore.repositoryTopologyAtom.repoAndWorktree(containing: cwd)
         let updateResult = store.paneAtom.updatePaneCWDAndResolvedContext(
             paneId,
             cwd: cwd,
@@ -512,18 +512,18 @@ final class WorkspaceSurfaceCoordinator {
     }
 
     private func openNewTabFromSourcePane(_ sourcePaneId: UUID) {
-        let workspaceRepositoryTopology = store.repositoryTopologyAtom
+        let repositoryTopology = store.repositoryTopologyStore.repositoryTopologyAtom
         if let sourcePane = store.paneAtom.pane(sourcePaneId),
             let worktreeId = sourcePane.worktreeId,
             let repoId = sourcePane.repoId,
-            let worktree = workspaceRepositoryTopology.worktree(worktreeId),
-            let repo = workspaceRepositoryTopology.repo(repoId)
+            let worktree = repositoryTopology.worktree(worktreeId),
+            let repo = repositoryTopology.repo(repoId)
         {
             _ = openNewTerminal(for: worktree, in: repo)
             return
         }
 
-        if let repo = workspaceRepositoryTopology.repos.first, let worktree = repo.worktrees.first {
+        if let repo = repositoryTopology.repos.first, let worktree = repo.worktrees.first {
             _ = openNewTerminal(for: worktree, in: repo)
             return
         }
@@ -652,7 +652,7 @@ extension WorkspaceSurfaceCoordinator: TopologyEffectHandler {
     func tabNameForPane(_ pane: Pane) -> String {
         atom(\.tabDisplay).title(
             for: pane,
-            workspaceRepositoryTopology: store.repositoryTopologyAtom,
+            repositoryTopology: store.repositoryTopologyStore.repositoryTopologyAtom,
             repoCache: atom(\.repoCache)
         )
     }

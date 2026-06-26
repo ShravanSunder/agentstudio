@@ -306,7 +306,7 @@ final class CommandBarPanelController {
             dismiss()
             dispatcher.dispatch(command, target: target, targetType: targetType)
         case .showActionsMenu:
-            guard let worktree = store.repositoryTopologyAtom.worktree(presence.worktreeId) else { return }
+            guard let worktree = atom(\.repositoryTopology).worktree(presence.worktreeId) else { return }
             state.pushLevel(
                 CommandBarDataSource.buildWorktreeActionsLevel(
                     worktree: worktree,

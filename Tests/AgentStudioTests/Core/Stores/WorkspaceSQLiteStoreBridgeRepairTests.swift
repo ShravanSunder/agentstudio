@@ -37,7 +37,8 @@ struct WorkspaceSQLiteStoreBridgeRepairTests {
             isMainWorktree: true
         )
         store.reconcileDiscoveredWorktrees(repo.id, worktrees: [discoveredWorktree])
-        let worktree = try #require(store.repositoryTopologyAtom.repo(repo.id)?.worktrees.single)
+        let worktree = try #require(
+            store.repositoryTopologyStore.repositoryTopologyAtom.repo(repo.id)?.worktrees.single)
         let customOnlyPane = store.createPane(
             launchDirectory: worktree.path,
             title: "Custom Only",

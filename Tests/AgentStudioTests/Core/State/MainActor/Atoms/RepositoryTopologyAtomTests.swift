@@ -4,11 +4,11 @@ import Testing
 @testable import AgentStudio
 
 @MainActor
-@Suite("WorkspaceRepositoryTopologyAtom")
-struct WorkspaceRepositoryTopologyAtomTests {
+@Suite("RepositoryTopologyAtom")
+struct RepositoryTopologyAtomTests {
     @Test("batched topology mutation defers path index rebuild until batch exits")
     func batchedTopologyMutationDefersPathIndexRebuildUntilBatchExits() {
-        let atom = WorkspaceRepositoryTopologyAtom()
+        let atom = RepositoryTopologyAtom()
         let startingGeneration = atom.worktreePathIndexGeneration
         let repoAPath = URL(fileURLWithPath: "/tmp/agentstudio-topology-batch-a")
         let repoBPath = URL(fileURLWithPath: "/tmp/agentstudio-topology-batch-b")

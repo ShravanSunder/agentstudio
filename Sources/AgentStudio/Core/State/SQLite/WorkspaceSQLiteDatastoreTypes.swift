@@ -60,6 +60,37 @@ extension WorkspaceSQLiteDatastore {
         case unavailable(WorkspaceSQLiteDatastoreFailure, recoveryEvents: [PersistenceRecoveryEvent])
     }
 
+    enum RepositoryTopologyLoadResult: Equatable, Sendable {
+        case loaded(WorkspaceCoreRepository.RepositoryTopologyRecord)
+        case uninitialized(recoveryEvents: [PersistenceRecoveryEvent])
+        case unavailable(WorkspaceSQLiteDatastoreFailure, recoveryEvents: [PersistenceRecoveryEvent])
+    }
+
+    enum RestoreSnapshotStatus: Equatable, Sendable {
+        case completed(Date)
+        case recoveredStaged(Date)
+    }
+
+    struct ResolvedWorkspaceRestoreContext: Equatable, Sendable {
+        var workspace: WorkspaceCoreRepository.WorkspaceRecord
+        var topology: WorkspaceCoreRepository.RepositoryTopologyRecord
+        var paneGraph: WorkspaceCoreRepository.PaneGraphRecord
+        var tabShells: [WorkspaceCoreRepository.TabShellRecord]
+        var tabGraph: WorkspaceCoreRepository.TabGraphRecord
+        var cursorState: WorkspaceLocalRepository.CursorStateRecord
+        var windowState: WorkspaceLocalRepository.WindowStateRecord?
+        var snapshotStatus: RestoreSnapshotStatus
+        var recoveryEvents: [PersistenceRecoveryEvent]
+
+        var workspaceId: UUID { workspace.id }
+    }
+
+    enum ResolvedWorkspaceRestoreContextResult: Equatable, Sendable {
+        case resolved(ResolvedWorkspaceRestoreContext)
+        case uninitialized(recoveryEvents: [PersistenceRecoveryEvent])
+        case unavailable(WorkspaceSQLiteDatastoreFailure, recoveryEvents: [PersistenceRecoveryEvent])
+    }
+
     enum WorkspaceRowsInspectionResult: Equatable, Sendable {
         case hasWorkspaceRows
         case empty

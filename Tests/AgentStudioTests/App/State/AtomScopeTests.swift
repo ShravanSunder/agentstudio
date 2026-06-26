@@ -4,7 +4,7 @@ import Testing
 
 @MainActor
 private struct WorkspaceAtomFixture {
-    @Atom(\.workspaceRepositoryTopology) var workspaceRepositoryTopology
+    @Atom(\.repositoryTopology) var repositoryTopology
     @Atom(\.workspacePane) var workspacePane
 }
 
@@ -163,9 +163,9 @@ struct AtomScopeTests {
 
         AtomScope.$override.withValue(override) {
             let fixture = WorkspaceAtomFixture()
-            #expect(AtomScope.store.workspaceRepositoryTopology === override.workspaceRepositoryTopology)
+            #expect(AtomScope.store.repositoryTopology === override.repositoryTopology)
             #expect(AtomScope.store.workspacePane === override.workspacePane)
-            #expect(fixture.workspaceRepositoryTopology === override.workspaceRepositoryTopology)
+            #expect(fixture.repositoryTopology === override.repositoryTopology)
             #expect(fixture.workspacePane === override.workspacePane)
         }
     }

@@ -18,7 +18,7 @@ struct WorkspaceLookupDerived {
     }
 
     func repoAndWorktree(containing cwd: URL?) -> (repo: Repo, worktree: Worktree)? {
-        atom(\.workspaceRepositoryTopology).repoAndWorktree(containing: cwd)
+        atom(\.repositoryTopology).repoAndWorktree(containing: cwd)
     }
 
     func paneLocations(

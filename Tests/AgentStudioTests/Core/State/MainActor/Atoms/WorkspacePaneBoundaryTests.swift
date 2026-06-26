@@ -134,7 +134,7 @@ struct WorkspacePaneBoundaryTests {
             path: worktreePath,
             isMainWorktree: false
         )
-        let topologyAtom = WorkspaceRepositoryTopologyAtom()
+        let topologyAtom = RepositoryTopologyAtom()
         topologyAtom.hydrate(
             runtimeRepos: [
                 Repo(id: repo.id, name: repo.name, repoPath: repo.repoPath, worktrees: [worktree])
@@ -203,7 +203,7 @@ struct WorkspacePaneBoundaryTests {
             path: worktreePath,
             isMainWorktree: false
         )
-        let topologyAtom = WorkspaceRepositoryTopologyAtom()
+        let topologyAtom = RepositoryTopologyAtom()
         topologyAtom.hydrate(
             runtimeRepos: [
                 Repo(id: repoId, name: "agent-studio", repoPath: repoPath, worktrees: [worktree])
@@ -237,7 +237,7 @@ struct WorkspacePaneBoundaryTests {
         let worktreeId = UUID()
         let repoPath = URL(filePath: "/tmp/project-dev/agent-studio")
         let worktreePath = repoPath.appending(path: "performance")
-        let topologyAtom = WorkspaceRepositoryTopologyAtom()
+        let topologyAtom = RepositoryTopologyAtom()
         topologyAtom.hydrate(
             runtimeRepos: [
                 Repo(

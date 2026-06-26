@@ -15,7 +15,7 @@ final class ArrangementDerivedTests {
         store = WorkspaceStore(
             identityAtom: registry.workspaceIdentity,
             windowMemoryAtom: registry.workspaceWindowMemory,
-            repositoryTopologyAtom: registry.workspaceRepositoryTopology,
+            repositoryTopologyAtom: registry.repositoryTopology,
             paneAtom: registry.workspacePane,
             tabLayoutAtom: registry.workspaceTabLayout,
             persistor: WorkspacePersistor(
@@ -216,7 +216,7 @@ final class ArrangementDerivedTests {
         let firstStore = WorkspaceStore(
             identityAtom: firstRegistry.workspaceIdentity,
             windowMemoryAtom: firstRegistry.workspaceWindowMemory,
-            repositoryTopologyAtom: firstRegistry.workspaceRepositoryTopology,
+            repositoryTopologyAtom: firstRegistry.repositoryTopology,
             paneAtom: firstRegistry.workspacePane,
             tabLayoutAtom: firstRegistry.workspaceTabLayout,
             persistor: persistor
@@ -245,7 +245,7 @@ final class ArrangementDerivedTests {
         let restoredStore = WorkspaceStore(
             identityAtom: restoredRegistry.workspaceIdentity,
             windowMemoryAtom: restoredRegistry.workspaceWindowMemory,
-            repositoryTopologyAtom: restoredRegistry.workspaceRepositoryTopology,
+            repositoryTopologyAtom: restoredRegistry.repositoryTopology,
             paneAtom: restoredRegistry.workspacePane,
             tabLayoutAtom: restoredRegistry.workspaceTabLayout,
             persistor: persistor

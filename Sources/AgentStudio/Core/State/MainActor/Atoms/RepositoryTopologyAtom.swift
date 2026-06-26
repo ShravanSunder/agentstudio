@@ -3,7 +3,7 @@ import Observation
 
 @MainActor
 @Observable
-final class WorkspaceRepositoryTopologyAtom {
+final class RepositoryTopologyAtom {
     private(set) var repos: [Repo] = []
     private(set) var watchedPaths: [WatchedPath] = []
     private(set) var unavailableRepoIds: Set<UUID> = []

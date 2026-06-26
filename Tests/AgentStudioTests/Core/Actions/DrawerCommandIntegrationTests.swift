@@ -153,7 +153,8 @@ final class DrawerCommandIntegrationTests {
             from: store.tabLayoutAtom.tabs,
             activeTabId: store.tabLayoutAtom.activeTabId,
             isManagementLayerActive: atom(\.managementLayer).isActive,
-            knownWorktreeIds: Set(store.repositoryTopologyAtom.repos.flatMap(\.worktrees).map(\.id))
+            knownWorktreeIds: Set(
+                store.repositoryTopologyStore.repositoryTopologyAtom.repos.flatMap(\.worktrees).map(\.id))
         )
 
         #expect(snapshot.activeTabId == tabId)

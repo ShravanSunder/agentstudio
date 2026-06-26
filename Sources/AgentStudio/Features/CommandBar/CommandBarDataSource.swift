@@ -97,9 +97,13 @@ enum CommandBarDataSource {
             duration: start.duration(to: clock.now),
             attributes: [
                 "agentstudio.performance.commandbar.item.count": .int(items.count),
-                "agentstudio.performance.commandbar.repo.count": .int(store.repositoryTopologyAtom.repos.count),
+                "agentstudio.performance.commandbar.repo.count": .int(
+                    store.repositoryTopologyStore.repositoryTopologyAtom.repos.count
+                ),
                 "agentstudio.performance.commandbar.worktree.count": .int(
-                    store.repositoryTopologyAtom.repos.reduce(0) { $0 + $1.worktrees.count }
+                    store.repositoryTopologyStore.repositoryTopologyAtom.repos.reduce(0) {
+                        $0 + $1.worktrees.count
+                    }
                 ),
                 "agentstudio.performance.commandbar.pane.count": .int(store.paneAtom.panes.count),
             ]
@@ -493,7 +497,7 @@ enum CommandBarDataSource {
         }
 
         if appliesToWorktree {
-            for (repoIndex, repo) in store.repositoryTopologyAtom.repos.enumerated() {
+            for (repoIndex, repo) in store.repositoryTopologyStore.repositoryTopologyAtom.repos.enumerated() {
                 for worktree in repo.worktrees {
                     items.append(
                         CommandBarItem(
@@ -729,7 +733,7 @@ enum CommandBarDataSource {
         store: WorkspaceStore,
         repoCache: RepoCacheAtom
     ) -> [String] {
-        let workspaceRepositoryTopology = store.repositoryTopologyAtom
+        let repositoryTopology = store.repositoryTopologyStore.repositoryTopologyAtom
         let parts = displayParts(for: pane, store: store, repoCache: repoCache)
         var keywords = ["pane"]
         if let note = parts.note {
@@ -755,7 +759,7 @@ enum CommandBarDataSource {
         } else {
             keywords.append("terminal")
         }
-        if let worktreeId = pane.worktreeId, let wt = workspaceRepositoryTopology.worktree(worktreeId) {
+        if let worktreeId = pane.worktreeId, let wt = repositoryTopology.worktree(worktreeId) {
             keywords.append(wt.name)
         }
         return keywords
@@ -814,7 +818,7 @@ extension CommandBarDataSource {
         atom(\.tabDisplay).displayTitle(
             for: tab,
             workspacePane: store.paneAtom,
-            workspaceRepositoryTopology: store.repositoryTopologyAtom,
+            repositoryTopology: store.repositoryTopologyStore.repositoryTopologyAtom,
             repoCache: repoCache
         )
     }
@@ -843,7 +847,7 @@ extension CommandBarDataSource {
         store: WorkspaceStore,
         repoCache: RepoCacheAtom
     ) -> PaneDisplayParts {
-        let workspaceRepositoryTopology = store.repositoryTopologyAtom
+        let repositoryTopology = store.repositoryTopologyStore.repositoryTopologyAtom
         let rawTitle = pane.title.trimmingCharacters(in: .whitespacesAndNewlines)
         let defaultLabel = rawTitle.isEmpty ? "Terminal" : rawTitle
         let cwdFolderName: String? = {
@@ -853,8 +857,8 @@ extension CommandBarDataSource {
 
         if let worktreeId = pane.worktreeId,
             let repoId = pane.repoId,
-            let repo = workspaceRepositoryTopology.repo(repoId),
-            let worktree = workspaceRepositoryTopology.worktree(worktreeId)
+            let repo = repositoryTopology.repo(repoId),
+            let worktree = repositoryTopology.worktree(worktreeId)
         {
             let repoName = pane.metadata.repoName ?? repo.name
             let branchName = atom(\.paneDisplay).resolvedBranchName(

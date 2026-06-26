@@ -25,7 +25,7 @@ struct PaneManagementContext: Equatable {
         notificationCountForWorktree: (UUID) -> Int = { _ in 0 }
     ) -> Self {
         let workspacePane = store.paneAtom
-        let workspaceRepositoryTopology = store.repositoryTopologyAtom
+        let repositoryTopology = atom(\.repositoryTopology)
         let workspaceLookup = atom(\.workspaceLookup)
         let parts = atom(\.paneDisplay).displayParts(for: paneId)
         let repoCache = atom(\.repoCache)
@@ -33,8 +33,8 @@ struct PaneManagementContext: Equatable {
         let resolvedContext =
             pane?.worktreeId.flatMap { worktreeId in
                 pane?.repoId.flatMap { repoId in
-                    workspaceRepositoryTopology.repo(repoId).flatMap { repo in
-                        workspaceRepositoryTopology.worktree(worktreeId).map { (repo: repo, worktree: $0) }
+                    repositoryTopology.repo(repoId).flatMap { repo in
+                        repositoryTopology.worktree(worktreeId).map { (repo: repo, worktree: $0) }
                     }
                 }
             }

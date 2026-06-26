@@ -146,7 +146,7 @@ struct PaneDisplayDerived {
 
     func accentColorHex(for paneId: UUID) -> String? {
         let workspacePane = atom(\.workspacePane)
-        let workspaceRepositoryTopology = atom(\.workspaceRepositoryTopology)
+        let repositoryTopology = atom(\.repositoryTopology)
         let repoCache = atom(\.repoCache)
         let sidebarCache = atom(\.sidebarCache)
 
@@ -155,7 +155,7 @@ struct PaneDisplayDerived {
             return nil
         }
         guard let repoId = pane.repoId ?? pane.metadata.repoId else { return nil }
-        let sidebarRepos = workspaceRepositoryTopology.repos.map(RepoPresentationItem.init(repo:))
+        let sidebarRepos = repositoryTopology.repos.map(RepoPresentationItem.init(repo:))
         guard let sidebarRepo = sidebarRepos.first(where: { $0.id == repoId }) else { return nil }
 
         let repoEnrichmentByRepoId = Dictionary(
@@ -241,7 +241,7 @@ struct PaneDisplayDerived {
     }
 
     private func resolvedWorkspaceContext(for pane: Pane) -> WorkspaceContextParts? {
-        let workspaceRepositoryTopology = atom(\.workspaceRepositoryTopology)
+        let repositoryTopology = atom(\.repositoryTopology)
         let workspaceLookup = atom(\.workspaceLookup)
         let repoCache = atom(\.repoCache)
 
@@ -250,8 +250,8 @@ struct PaneDisplayDerived {
 
         if let explicitRepoId,
             let explicitWorktreeId,
-            let repo = workspaceRepositoryTopology.repo(explicitRepoId),
-            let worktree = workspaceRepositoryTopology.worktree(explicitWorktreeId)
+            let repo = repositoryTopology.repo(explicitRepoId),
+            let worktree = repositoryTopology.worktree(explicitWorktreeId)
         {
             return WorkspaceContextParts(
                 repoName: pane.metadata.repoName ?? repo.name,

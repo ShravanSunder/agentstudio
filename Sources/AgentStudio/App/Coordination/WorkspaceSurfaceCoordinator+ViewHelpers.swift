@@ -5,15 +5,16 @@ extension WorkspaceSurfaceCoordinator {
     func resolvedWorktreeContext(
         for targetPane: Pane?
     ) -> (repo: Repo, worktree: Worktree)? {
+        let repositoryTopology = store.repositoryTopologyStore.repositoryTopologyAtom
         if let worktreeId = targetPane?.worktreeId,
             let repoId = targetPane?.repoId,
-            let worktree = store.repositoryTopologyAtom.worktree(worktreeId),
-            let repo = store.repositoryTopologyAtom.repo(repoId)
+            let worktree = repositoryTopology.worktree(worktreeId),
+            let repo = repositoryTopology.repo(repoId)
         {
             return (repo, worktree)
         }
 
-        return store.repositoryTopologyAtom.repoAndWorktree(containing: targetPane?.metadata.facets.cwd)
+        return repositoryTopology.repoAndWorktree(containing: targetPane?.metadata.facets.cwd)
     }
 
     func contextualBrowserMetadata(
@@ -24,10 +25,11 @@ extension WorkspaceSurfaceCoordinator {
         repo: Repo?,
         worktree: Worktree?
     ) {
+        let repositoryTopology = store.repositoryTopologyStore.repositoryTopologyAtom
         if let worktreeId = pane.worktreeId,
             let repoId = pane.repoId,
-            let repo = store.repositoryTopologyAtom.repo(repoId),
-            let worktree = store.repositoryTopologyAtom.worktree(worktreeId)
+            let repo = repositoryTopology.repo(repoId),
+            let worktree = repositoryTopology.worktree(worktreeId)
         {
             return (
                 PaneMetadata(
@@ -47,7 +49,7 @@ extension WorkspaceSurfaceCoordinator {
             )
         }
 
-        if let resolved = store.repositoryTopologyAtom.repoAndWorktree(containing: pane.metadata.cwd) {
+        if let resolved = repositoryTopology.repoAndWorktree(containing: pane.metadata.cwd) {
             return (
                 PaneMetadata(
                     contentType: .browser,
@@ -83,7 +85,9 @@ extension WorkspaceSurfaceCoordinator {
         sizingMode: DropSizingMode
     ) {
         let fallbackCWD =
-            store.paneAtom.pane(parentPaneId)?.worktreeId.flatMap(store.repositoryTopologyAtom.worktree)?.path
+            store.paneAtom.pane(parentPaneId)?.worktreeId.flatMap(
+                store.repositoryTopologyStore.repositoryTopologyAtom.worktree
+            )?.path
 
         guard
             let drawerPane = store.paneAtom.insertDrawerPane(

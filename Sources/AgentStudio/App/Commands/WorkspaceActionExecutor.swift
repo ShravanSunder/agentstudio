@@ -130,7 +130,7 @@ final class WorkspaceActionExecutor {
     @discardableResult
     func execute(_ action: WorkspaceActionCommand) -> Bool {
         let tabLayout = store.tabLayoutAtom
-        let repositoryTopology = store.repositoryTopologyAtom
+        let repositoryTopology = store.repositoryTopologyStore.repositoryTopologyAtom
         let snapshot = WorkspaceCommandResolver.snapshot(
             from: tabLayout.tabs,
             activeTabId: tabLayout.activeTabId,

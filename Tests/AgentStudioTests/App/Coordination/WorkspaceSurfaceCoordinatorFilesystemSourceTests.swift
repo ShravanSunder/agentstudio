@@ -153,10 +153,7 @@ struct WorkspaceSurfaceCoordinatorFilesystemSourceTests {
         )
         defer { Task { await coordinator.shutdown() } }
 
-        await assertEventuallyAsync("commit failure should requeue source sync", maxTurns: 200_000) {
-            let operations = await source.operations()
-            return operations.filter(\.isAssertTopology).count >= 2
-        }
+        await coordinator.waitForFilesystemRootsAndActivitySyncIdle()
 
         let operations = await source.operations()
         let topologyAssertions = operations.compactMap(\.assertedTopologyWorktreeIds)

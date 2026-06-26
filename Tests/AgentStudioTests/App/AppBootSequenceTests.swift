@@ -51,6 +51,7 @@ struct AppBootSequenceTests {
 
         #expect(appDelegateSource.contains("case .armPersistenceObservation:"))
         #expect(appDelegateSource.contains("bootArmPersistenceObservation()"))
+        #expect(appDelegateSource.contains("store.repositoryTopologyStore.startObserving()"))
         #expect(appDelegateSource.contains("repoCacheStore.startObserving()"))
         #expect(appDelegateSource.contains("sidebarCacheStore.startObserving()"))
         #expect(appDelegateSource.contains("uiStateStore.startObserving()"))
