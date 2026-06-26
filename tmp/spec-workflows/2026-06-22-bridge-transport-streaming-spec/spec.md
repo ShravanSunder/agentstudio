@@ -232,10 +232,10 @@ like one BridgeViewer app:
 ```text
 BridgeViewerAppShell
   ┌──────────────────────────────────────────────────────────────┬─────────────┐
-  │ shared top chrome                                            │ right rail  │
-  │   context toggle: Files | Review                             │             │
-  │   search / regex / filters / active source identity          │ Pierre      │
-  ├──────────────────────────────────────────────────────────────┤ FileTree    │
+  │ content header only for the left content region              │ right rail  │
+  │   title: <source> / <selected target>                         │ Review-     │
+  │   compact controls: Files | Review and content actions        │ styled      │
+  ├──────────────────────────────────────────────────────────────┤ Pierre      │
   │ primary Pierre CodeView/File canvas                          │             │
   │   Review diff target  -> Pierre diff items                   │ selection   │
   │   Review file target  -> Pierre/Shiki file item              │ status      │
@@ -243,13 +243,23 @@ BridgeViewerAppShell
   └──────────────────────────────────────────────────────────────┴─────────────┘
 ```
 
-The top chrome and rail controls must use the same shared UI primitive layer
-that ReviewViewer uses where applicable. A FileViewer-only search row, raw
-buttons, custom icon buttons, or route-local chrome can exist only as an
-explicit temporary failing state while the checkpoint is being developed; it
-cannot satisfy Gate 0.a. Review mode and Files mode may expose different
-enabled actions, but the placement, primitive layer, and visual language must
-be coherent with each other and with the DiffsHub/Pierre reference behavior.
+The content header is not app-wide chrome. It belongs only to the left content
+region, must not cover the right rail, and must not push the right rail down.
+The right rail starts at the top of the viewer and owns its own compact toolbar.
+The header title uses the agreed `source / selected target` form in dev proof,
+for example `dev-worktree-source / .github/workflows/ci.yml`.
+
+The content header, context switcher, and rail controls must use the same
+shared UI primitive layer and compact sizing that ReviewViewer uses where
+applicable. The ReviewViewer right rail is the current sizing/style baseline:
+button height, icon size, toolbar rhythm, borders, colors, and text scale must
+match for FileViewer unless functionality requires a different enabled action.
+A FileViewer-only search row, raw buttons, oversized custom icon buttons, or
+route-local chrome can exist only as an explicit temporary failing state while
+the checkpoint is being developed; it cannot satisfy Gate 0.a. Review mode and
+Files mode may expose different enabled actions, but placement, primitive
+layer, and visual language must be coherent with each other and with the
+DiffsHub/Pierre reference behavior.
 
 R15. Bridge viewer navigation state is app state, not route shape.
 

@@ -7,8 +7,10 @@ import {
 	useState,
 	type MutableRefObject,
 	type ReactElement,
+	type ReactNode,
 } from 'react';
 
+import { BridgeViewerContentHeader } from '../app/bridge-viewer-content-header.js';
 import type {
 	WorktreeFileDescriptor,
 	WorktreeFileProtocolFrame,
@@ -49,6 +51,7 @@ export interface BridgeFileViewerAppProps {
 	readonly loadInitialSurface?: () => Promise<WorktreeFileInitialSurface>;
 	readonly onOpenReviewComparison?: (descriptor: WorktreeFileDescriptor) => void;
 	readonly subscribeFrames?: WorktreeFileFrameSubscriptionFactory;
+	readonly viewerHeaderControls?: ReactNode;
 }
 
 interface BridgeFileViewerRenderState {
@@ -337,6 +340,10 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 			renderState,
 		}) !== null;
 	const openFileTotalHeightPixels = totalOpenFileHeightForState(openFileState);
+	const contentHeaderTitle = bridgeFileViewerHeaderTitle({
+		selectedPath,
+		sourceIdentity: renderState.sourceIdentity,
+	});
 
 	return (
 		<main
@@ -366,23 +373,30 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 					})}
 		>
 			<div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(260px,340px)]">
-				<BridgeFileViewerCodePanel
-					openFileBody={openFileBody}
-					openFileState={openFileState}
-					staleNotice={
-						openFileState.status === 'stale' ? (
-							<BridgeFileViewerStaleNotice
-								canRefresh={canRefreshOpenFile}
-								onRefresh={() => {
-									void refreshOpenFile(openFileState);
-								}}
-							/>
-						) : null
-					}
-					totalHeightPixels={openFileTotalHeightPixels}
-					{...(codeViewWorkerFactory === undefined ? {} : { codeViewWorkerFactory })}
-					{...(codeViewWorkerPoolEnabled === undefined ? {} : { codeViewWorkerPoolEnabled })}
-				/>
+				<section className="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)]">
+					<BridgeViewerContentHeader
+						controls={props.viewerHeaderControls}
+						eyebrow="Files"
+						title={contentHeaderTitle}
+					/>
+					<BridgeFileViewerCodePanel
+						openFileBody={openFileBody}
+						openFileState={openFileState}
+						staleNotice={
+							openFileState.status === 'stale' ? (
+								<BridgeFileViewerStaleNotice
+									canRefresh={canRefreshOpenFile}
+									onRefresh={() => {
+										void refreshOpenFile(openFileState);
+									}}
+								/>
+							) : null
+						}
+						totalHeightPixels={openFileTotalHeightPixels}
+						{...(codeViewWorkerFactory === undefined ? {} : { codeViewWorkerFactory })}
+						{...(codeViewWorkerPoolEnabled === undefined ? {} : { codeViewWorkerPoolEnabled })}
+					/>
+				</section>
 				<BridgeFileViewerTreePanel
 					descriptorProjection={descriptorProjection}
 					fileDescriptorByPath={fileDescriptorByPath}
@@ -403,6 +417,14 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 			</div>
 		</main>
 	);
+}
+
+function bridgeFileViewerHeaderTitle(props: {
+	readonly selectedPath: string | null;
+	readonly sourceIdentity: WorktreeFileSurfaceSourceIdentity | null;
+}): string {
+	const sourceTitle = props.sourceIdentity?.sourceId ?? 'Source pending';
+	return props.selectedPath === null ? sourceTitle : `${sourceTitle} / ${props.selectedPath}`;
 }
 
 function BridgeFileViewerStaleNotice(props: {

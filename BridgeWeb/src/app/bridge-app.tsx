@@ -136,6 +136,7 @@ import {
 	type BridgeAppControlProbe,
 } from './bridge-app-control.js';
 import { BridgeViewerAppShell } from './bridge-viewer-app-shell.js';
+import { BridgeViewerContextSwitcher } from './bridge-viewer-content-header.js';
 import type {
 	BridgeViewerNavigationCommand,
 	BridgeViewerSource,
@@ -485,14 +486,10 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 	const rememberedReviewNavigationCommand = rememberedNavigationCommandsRef.current.review;
 
 	return (
-		<BridgeViewerAppShell
-			appOwner="BridgeApp"
-			mode={activeViewerState.viewerMode}
-			onModeChange={activateViewerMode}
-		>
+		<BridgeViewerAppShell appOwner="BridgeApp" mode={activeViewerState.viewerMode}>
 			{mountedViewerModes.has('file') ? (
 				<div
-					className="h-full min-h-0 pt-9"
+					className="h-full min-h-0"
 					data-bridge-viewer-mode-active={
 						activeViewerState.viewerMode === 'file' ? 'true' : 'false'
 					}
@@ -503,6 +500,12 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 					<BridgeFileViewerMode
 						{...props}
 						onActivateNavigationCommand={activateNavigationCommand}
+						viewerHeaderControls={
+							<BridgeViewerContextSwitcher
+								mode={activeViewerState.viewerMode}
+								onModeChange={activateViewerMode}
+							/>
+						}
 						{...(rememberedFileNavigationCommand === undefined
 							? {}
 							: { navigationCommand: rememberedFileNavigationCommand })}
@@ -511,7 +514,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			) : null}
 			{mountedViewerModes.has('review') ? (
 				<div
-					className="h-full min-h-0 pt-9"
+					className="h-full min-h-0"
 					data-bridge-viewer-mode-active={
 						activeViewerState.viewerMode === 'review' ? 'true' : 'false'
 					}
@@ -521,6 +524,12 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 				>
 					<BridgeReviewViewerMode
 						{...props}
+						viewerHeaderControls={
+							<BridgeViewerContextSwitcher
+								mode={activeViewerState.viewerMode}
+								onModeChange={activateViewerMode}
+							/>
+						}
 						{...(rememberedReviewNavigationCommand === undefined
 							? {}
 							: { navigationCommand: rememberedReviewNavigationCommand })}
@@ -536,6 +545,7 @@ function BridgeFileViewerMode(
 		readonly onActivateNavigationCommand: (
 			navigationCommand: BridgeViewerNavigationCommand,
 		) => void;
+		readonly viewerHeaderControls: ReactElement;
 	},
 ): ReactElement {
 	const existingOpenReviewComparison = props.fileViewerProps?.onOpenReviewComparison;
@@ -563,11 +573,14 @@ function BridgeFileViewerMode(
 				: { codeViewWorkerPoolEnabled: props.codeViewWorkerPoolEnabled })}
 			{...props.fileViewerProps}
 			onOpenReviewComparison={openReviewComparison}
+			viewerHeaderControls={props.viewerHeaderControls}
 		/>
 	);
 }
 
-function BridgeReviewViewerMode(props: BridgeAppProps): ReactElement {
+function BridgeReviewViewerMode(
+	props: BridgeAppProps & { readonly viewerHeaderControls: ReactElement },
+): ReactElement {
 	const target = props.target ?? document;
 	const reviewFrameAuthorityRef = useRef<BridgeReviewFrameAuthority | null>(
 		readBridgeReviewFrameAuthority(),
@@ -1347,6 +1360,7 @@ function BridgeReviewViewerMode(props: BridgeAppProps): ReactElement {
 			projection={projection}
 			projectionMode={rootSnapshot.projectionMode}
 			reviewPackage={reviewPackage}
+			viewerHeaderControls={props.viewerHeaderControls}
 			selectedContentResources={selectedContentResources}
 			selectedContentLoadingItemId={selectedContentLoadingItemId}
 			selectedItemPresentation={selectedItemPresentation}

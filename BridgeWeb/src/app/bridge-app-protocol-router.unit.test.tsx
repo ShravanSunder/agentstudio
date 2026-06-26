@@ -38,7 +38,6 @@ describe('BridgeAppProtocolRouter', () => {
 		const contextSwitcher = document.querySelector(
 			'[data-testid="bridge-viewer-context-switcher"]',
 		);
-		const contentTopbar = document.querySelector('[data-testid="bridge-viewer-content-topbar"]');
 		const fileContextButton = document.querySelector('[data-testid="bridge-viewer-context-file"]');
 		const reviewContextButton = document.querySelector(
 			'[data-testid="bridge-viewer-context-review"]',
@@ -46,13 +45,9 @@ describe('BridgeAppProtocolRouter', () => {
 		expect(appRoot?.getAttribute('data-bridge-app-owner')).toBe('BridgeApp');
 		expect(appRoot?.getAttribute('data-bridge-viewer-shell-owner')).toBe('BridgeViewerAppShell');
 		expect(appRoot?.getAttribute('data-bridge-viewer-mode')).toBe('review');
-		expect(contentTopbar?.getAttribute('data-bridge-viewer-content-topbar')).toBe('true');
-		expect(contextSwitcher?.parentElement).toBe(contentTopbar);
-		expect(contextSwitcher).not.toBeNull();
-		expect(fileContextButton?.getAttribute('data-slot')).toBe('button');
-		expect(fileContextButton?.getAttribute('data-bridge-viewer-context-selected')).toBe('false');
-		expect(reviewContextButton?.getAttribute('data-slot')).toBe('button');
-		expect(reviewContextButton?.getAttribute('data-bridge-viewer-context-selected')).toBe('true');
+		expect(contextSwitcher).toBeNull();
+		expect(fileContextButton).toBeNull();
+		expect(reviewContextButton).toBeNull();
 		expect(document.querySelector('[data-testid="bridge-review-empty-shell"]')).not.toBeNull();
 		expect(document.querySelector('[data-testid="worktree-file-app"]')).toBeNull();
 	});
@@ -85,7 +80,9 @@ describe('BridgeAppProtocolRouter', () => {
 		expect(appRoot?.getAttribute('data-bridge-viewer-shell-owner')).toBe('BridgeViewerAppShell');
 		expect(appRoot?.getAttribute('data-bridge-viewer-mode')).toBe('file');
 		expect(contentTopbar?.getAttribute('data-bridge-viewer-content-topbar')).toBe('true');
-		expect(contextSwitcher?.parentElement).toBe(contentTopbar);
+		expect(contextSwitcher?.closest('[data-testid="bridge-viewer-content-topbar"]')).toBe(
+			contentTopbar,
+		);
 		expect(contextSwitcher).not.toBeNull();
 		expect(fileContextButton?.getAttribute('data-slot')).toBe('button');
 		expect(fileContextButton?.getAttribute('data-bridge-viewer-context-selected')).toBe('true');
@@ -93,7 +90,7 @@ describe('BridgeAppProtocolRouter', () => {
 		expect(reviewContextButton?.getAttribute('data-bridge-viewer-context-selected')).toBe('false');
 		expect(modeHost?.parentElement).toBe(appRoot);
 		expect(modeHost?.getAttribute('data-bridge-viewer-mode-active')).toBe('true');
-		expect(modeHost?.className).toContain('pt-9');
+		expect(modeHost?.className).not.toContain('pt-9');
 		expect(shell?.parentElement).toBe(modeHost);
 		expect(shell?.getAttribute('data-file-viewer-owner')).toBe('BridgeViewerApp.FileViewer');
 		expect(shell?.getAttribute('data-sidebar-position')).toBe('right');

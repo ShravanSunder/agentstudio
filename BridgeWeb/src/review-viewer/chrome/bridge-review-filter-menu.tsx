@@ -47,7 +47,7 @@ export function BridgeReviewFilterMenu<TValue extends string>(
 			<DropdownMenuTrigger
 				aria-label={titleForFilterLabel(props.label)}
 				className={cn(
-					'flex h-8 w-9 shrink-0 items-center justify-center gap-0 rounded-[7px]',
+					'flex h-7 w-7 shrink-0 items-center justify-center gap-0 rounded-md',
 					'border border-transparent bg-transparent px-0',
 					'text-[12px] text-[var(--bridge-text-secondary)] transition-colors',
 					'hover:border-[var(--bridge-border-opaque)] hover:bg-[var(--bridge-surface-raised-bg)] hover:text-[var(--bridge-text-primary)]',
@@ -70,7 +70,7 @@ export function BridgeReviewFilterMenu<TValue extends string>(
 					)}
 					<span className="sr-only">{selectedLabel}</span>
 				</span>
-				<BridgeReviewIcon>
+				<BridgeReviewIcon className="sr-only">
 					<ChevronDownIcon
 						aria-hidden="true"
 						className="size-3"

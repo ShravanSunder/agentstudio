@@ -8,6 +8,8 @@ export interface BridgeReviewButtonProps {
 	readonly ariaLabel?: string;
 	readonly ariaPressed?: boolean;
 	readonly className?: string;
+	readonly 'data-bridge-viewer-context-selected'?: string;
+	readonly 'data-bridge-viewer-context-target'?: string;
 	readonly 'data-testid'?: string;
 	readonly disabled?: boolean;
 	readonly testId?: string;
@@ -29,6 +31,8 @@ export function BridgeReviewButton(props: BridgeReviewButtonProps): ReactElement
 					'border-transparent bg-[var(--bridge-accent-soft)] text-[var(--bridge-text-primary)]',
 				props.className,
 			)}
+			data-bridge-viewer-context-selected={props['data-bridge-viewer-context-selected']}
+			data-bridge-viewer-context-target={props['data-bridge-viewer-context-target']}
 			data-testid={props.testId ?? props['data-testid']}
 			disabled={props.disabled}
 			onClick={props.onClick}
@@ -44,13 +48,17 @@ export function BridgeReviewButton(props: BridgeReviewButtonProps): ReactElement
 
 export interface BridgeReviewIconProps {
 	readonly children: ReactNode;
+	readonly className?: string;
 }
 
 export function BridgeReviewIcon(props: BridgeReviewIconProps): ReactElement {
 	return (
 		<span
 			aria-hidden="true"
-			className="inline-flex size-3 shrink-0 items-center justify-center text-[10px] leading-none"
+			className={cn(
+				'inline-flex size-3 shrink-0 items-center justify-center text-[10px] leading-none',
+				props.className,
+			)}
 		>
 			{props.children}
 		</span>

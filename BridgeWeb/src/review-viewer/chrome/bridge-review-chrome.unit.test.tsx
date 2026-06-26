@@ -165,7 +165,7 @@ describe('Bridge review chrome controls', () => {
 		expect(chevron.tagName.toLowerCase()).toBe('svg');
 	});
 
-	test('filter menu trigger uses compact rail label instead of form-control copy', () => {
+	test('filter menu trigger uses the compact rail icon size instead of form-control copy', () => {
 		const container = document.createElement('div');
 		document.body.append(container);
 		mountedRoot = createRoot(container);
@@ -191,8 +191,8 @@ describe('Bridge review chrome controls', () => {
 			container.querySelector('[data-testid="bridge-review-filter-trigger-glyph"]'),
 		);
 
-		expect(triggerButton.className).toContain('h-8');
-		expect(triggerButton.className).toContain('w-9');
+		expect(triggerButton.className).toContain('h-7');
+		expect(triggerButton.className).toContain('w-7');
 		expect(triggerGlyph.tagName.toLowerCase()).toBe('svg');
 		expect(triggerButton.textContent).toContain('All');
 		expect(triggerButton.textContent).not.toContain('All statuses');

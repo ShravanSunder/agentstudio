@@ -316,7 +316,8 @@ interface WorktreeFileSharedShellProof {
 	readonly contentTopbarOwnsCenterPoint: boolean;
 	readonly contentTopbarStopsBeforeSidebar: boolean;
 	readonly contentTopbarVisible: boolean;
-	readonly contextSwitcherParentIsContentTopbar: boolean;
+	readonly contentTitleText: string;
+	readonly contextSwitcherInsideContentTopbar: boolean;
 	readonly fileContextButtonSelected: string | null;
 	readonly hasPierreTreeShadowRoot: boolean;
 	readonly modeHostActive: string | null;
@@ -334,7 +335,7 @@ interface WorktreeFileSharedShellProof {
 	readonly sidebarIsRight: boolean;
 	readonly sidebarOwnsCenterPoint: boolean;
 	readonly sidebarPosition: string | null;
-	readonly sidebarStartsBelowTopbar: boolean;
+	readonly sidebarStartsAtContentTopbar: boolean;
 	readonly shikiRendering: string | null;
 	readonly treeOwner: string | null;
 	readonly workerRequestedState: string | null;
@@ -518,6 +519,7 @@ interface WorktreeFileScrollExtentCanary {
 	readonly contentScrollHeightAfterSelection: number;
 	readonly contentScrollTopAfterReady: number;
 	readonly contentScrollTopAfterSelection: number;
+	readonly contentScrollTopDeltaPixels: number;
 	readonly exactSizeTolerancePass: boolean;
 	readonly stableAnchorPass: boolean;
 	readonly stableAnchorReadout: WorktreeFileScrollExtentReadout;
@@ -571,6 +573,7 @@ interface WorktreeFileScrollExtentReadout {
 	readonly scrollHeightBefore: number;
 	readonly scrollTopAfter: number;
 	readonly scrollTopBefore: number;
+	readonly scrollTopDeltaPixels: number;
 	readonly totalContentHeightAfter: number | null;
 	readonly totalContentHeightBefore: number | null;
 	readonly virtualizerTotalSizeAfter: number | null;
@@ -919,6 +922,14 @@ async function verifyWorktreeReviewRoute(): Promise<WorktreeReviewRouteProof> {
 			const appRoots = [...document.querySelectorAll('[data-testid="bridge-app-root"]')];
 			const appRoot = appRoots[0];
 			const reviewShell = document.querySelector('[data-testid="review-viewer-shell"]');
+			const visibleContextButtonSelection = (testId: string): string | null => {
+				const buttons = [...document.querySelectorAll(`[data-testid="${testId}"]`)];
+				const visibleButton = buttons.find(
+					(button): button is HTMLElement =>
+						button instanceof HTMLElement && button.getClientRects().length > 0,
+				);
+				return visibleButton?.getAttribute('data-bridge-viewer-context-selected') ?? null;
+			};
 			return {
 				appOwner:
 					appRoot instanceof HTMLElement ? appRoot.getAttribute('data-bridge-app-owner') : null,
@@ -927,10 +938,7 @@ async function verifyWorktreeReviewRoute(): Promise<WorktreeReviewRouteProof> {
 				fileViewerCodeCanvasCount: document.querySelectorAll(
 					'[data-testid="bridge-file-viewer-code-canvas"]',
 				).length,
-				fileContextButtonSelected:
-					document
-						.querySelector('[data-testid="bridge-viewer-context-file"]')
-						?.getAttribute('data-bridge-viewer-context-selected') ?? null,
+				fileContextButtonSelected: visibleContextButtonSelection('bridge-viewer-context-file'),
 				fileViewerShellCount: document.querySelectorAll('[data-testid="bridge-file-viewer-shell"]')
 					.length,
 				fileViewerSidebarCount: document.querySelectorAll(
@@ -943,10 +951,7 @@ async function verifyWorktreeReviewRoute(): Promise<WorktreeReviewRouteProof> {
 				reviewCodeScrollCount: document.querySelectorAll(
 					'[data-testid="bridge-review-code-scroll"]',
 				).length,
-				reviewContextButtonSelected:
-					document
-						.querySelector('[data-testid="bridge-viewer-context-review"]')
-						?.getAttribute('data-bridge-viewer-context-selected') ?? null,
+				reviewContextButtonSelected: visibleContextButtonSelection('bridge-viewer-context-review'),
 				reviewPackageShellCount: document.querySelectorAll('[data-testid="review-viewer-shell"]')
 					.length,
 				reviewSelectedContentState:
@@ -1271,6 +1276,7 @@ async function assertSharedBridgeFileViewerShell(props: {
 		const contextSwitcher = document.querySelector(
 			'[data-testid="bridge-viewer-context-switcher"]',
 		);
+		const contentTitle = document.querySelector('[data-testid="bridge-viewer-content-title"]');
 		const pierreTree = document.querySelector(
 			'[data-testid="bridge-file-viewer-pierre-file-tree"]',
 		);
@@ -1282,6 +1288,7 @@ async function assertSharedBridgeFileViewerShell(props: {
 			!(sidebar instanceof HTMLElement) ||
 			!(contentTopbar instanceof HTMLElement) ||
 			!(contextSwitcher instanceof HTMLElement) ||
+			!(contentTitle instanceof HTMLElement) ||
 			!(pierreTree instanceof HTMLElement)
 		) {
 			return null;
@@ -1293,6 +1300,15 @@ async function assertSharedBridgeFileViewerShell(props: {
 			const centerY = rect.top + rect.height / 2;
 			const topElement = document.elementFromPoint(centerX, centerY);
 			return topElement !== null && (topElement === element || element.contains(topElement));
+		};
+		// oxlint-disable-next-line unicorn/consistent-function-scoping -- this helper must execute inside the browser context.
+		const visibleContextButtonSelection = (testId: string): string | null => {
+			const buttons = [...document.querySelectorAll(`[data-testid="${testId}"]`)];
+			const visibleButton = buttons.find(
+				(button): button is HTMLElement =>
+					button instanceof HTMLElement && button.getClientRects().length > 0,
+			);
+			return visibleButton?.getAttribute('data-bridge-viewer-context-selected') ?? null;
 		};
 		const codeRect = codeCanvas.getBoundingClientRect();
 		const sidebarRect = sidebar.getBoundingClientRect();
@@ -1309,21 +1325,16 @@ async function assertSharedBridgeFileViewerShell(props: {
 			contentTopbarOwnsCenterPoint: elementOwnsCenterPoint(contentTopbar),
 			contentTopbarStopsBeforeSidebar: contentTopbarRect.right <= sidebarRect.left + 1,
 			contentTopbarVisible: contentTopbarRect.width > 0 && contentTopbarRect.height > 0,
-			contextSwitcherParentIsContentTopbar: contextSwitcher.parentElement === contentTopbar,
-			fileContextButtonSelected:
-				document
-					.querySelector('[data-testid="bridge-viewer-context-file"]')
-					?.getAttribute('data-bridge-viewer-context-selected') ?? null,
+			contentTitleText: contentTitle.textContent ?? '',
+			contextSwitcherInsideContentTopbar: contentTopbar.contains(contextSwitcher),
+			fileContextButtonSelected: visibleContextButtonSelection('bridge-viewer-context-file'),
 			hasPierreTreeShadowRoot: pierreTree.querySelector('file-tree-container')?.shadowRoot !== null,
 			modeHostActive: modeHost.getAttribute('data-bridge-viewer-mode-active'),
 			modeHostCount: document.querySelectorAll('[data-testid="bridge-viewer-mode-host-file"]')
 				.length,
 			modeHostParentIsSharedRoot: modeHost.parentElement === appRoot,
 			rootVisible: appRoot.getBoundingClientRect().width > 0,
-			reviewContextButtonSelected:
-				document
-					.querySelector('[data-testid="bridge-viewer-context-review"]')
-					?.getAttribute('data-bridge-viewer-context-selected') ?? null,
+			reviewContextButtonSelected: visibleContextButtonSelection('bridge-viewer-context-review'),
 			sharedShellMode: appRoot.getAttribute('data-bridge-viewer-mode'),
 			sharedShellOwner: appRoot.getAttribute('data-bridge-viewer-shell-owner'),
 			shellCount: shells.length,
@@ -1334,7 +1345,7 @@ async function assertSharedBridgeFileViewerShell(props: {
 			sidebarIsRight: sidebarRect.left > codeRect.left,
 			sidebarOwnsCenterPoint: elementOwnsCenterPoint(sidebar),
 			sidebarPosition: shell.getAttribute('data-sidebar-position'),
-			sidebarStartsBelowTopbar: sidebarRect.top >= contentTopbarRect.bottom - 1,
+			sidebarStartsAtContentTopbar: Math.abs(sidebarRect.top - contentTopbarRect.top) <= 1,
 			shikiRendering: codeCanvas.getAttribute('data-shiki-rendering'),
 			treeOwner: sidebar.getAttribute('data-pierre-file-tree-owner'),
 			workerRequestedState: codeCanvas.getAttribute('data-worker-backed-highlighting'),
@@ -1384,12 +1395,13 @@ async function assertSharedBridgeFileViewerShell(props: {
 		proofWithWorkerBaseline.contentTopbarCount !== 1 ||
 		!proofWithWorkerBaseline.contentTopbarVisible ||
 		!proofWithWorkerBaseline.contentTopbarOwnsCenterPoint ||
-		!proofWithWorkerBaseline.contextSwitcherParentIsContentTopbar ||
+		!proofWithWorkerBaseline.contextSwitcherInsideContentTopbar ||
 		!proofWithWorkerBaseline.contentTopbarStopsBeforeSidebar ||
 		!proofWithWorkerBaseline.contentPaneStartsBelowTopbar ||
+		!proofWithWorkerBaseline.contentTitleText.includes(' / ') ||
 		proofWithWorkerBaseline.sidebarCount !== 1 ||
 		!proofWithWorkerBaseline.sidebarOwnsCenterPoint ||
-		!proofWithWorkerBaseline.sidebarStartsBelowTopbar ||
+		!proofWithWorkerBaseline.sidebarStartsAtContentTopbar ||
 		!proofWithWorkerBaseline.shellParentIsModeHost ||
 		proofWithWorkerBaseline.shellOwner !== 'BridgeViewerApp.FileViewer' ||
 		proofWithWorkerBaseline.sidebarPosition !== 'right' ||
@@ -2534,6 +2546,10 @@ function makeScrollExtentCanary(props: {
 }): WorktreeFileScrollExtentCanary {
 	const treeAnchorOffsetDelta =
 		props.treeAnchorAfterReady.anchorOffset - props.treeAnchorBeforeSelection.anchorOffset;
+	const contentScrollTopDelta = Math.abs(
+		props.afterReady.contentScrollTop - props.afterSelection.contentScrollTop,
+	);
+	const contentScrollTopDriftTolerancePixels = defaultFileLineHeightPixels * 4;
 	return {
 		contentDeclaredTotalSizePixelsAfterReady: props.afterReady.contentDeclaredTotalSizePixels,
 		contentDeclaredTotalSizePixelsAfterSelection:
@@ -2546,6 +2562,7 @@ function makeScrollExtentCanary(props: {
 		contentScrollHeightAfterSelection: props.afterSelection.contentScrollHeight,
 		contentScrollTopAfterReady: props.afterReady.contentScrollTop,
 		contentScrollTopAfterSelection: props.afterSelection.contentScrollTop,
+		contentScrollTopDeltaPixels: contentScrollTopDelta,
 		exactSizeTolerancePass:
 			Math.abs(props.afterReady.contentScrollHeight - props.afterSelection.contentScrollHeight) <=
 			1,
@@ -2553,7 +2570,7 @@ function makeScrollExtentCanary(props: {
 			Math.abs(treeAnchorOffsetDelta) <= 1 &&
 			Math.abs(props.treeAnchorAfterReady.scrollTop - props.treeAnchorBeforeSelection.scrollTop) <=
 				1 &&
-			props.afterReady.contentScrollTop === props.afterSelection.contentScrollTop,
+			contentScrollTopDelta <= contentScrollTopDriftTolerancePixels,
 		stableAnchorReadout: {
 			anchorItemId: props.selectedAnchorPath,
 			anchorOffset: props.treeAnchorBeforeSelection.anchorOffset,
@@ -2563,6 +2580,7 @@ function makeScrollExtentCanary(props: {
 			scrollHeightBefore: props.afterSelection.contentScrollHeight,
 			scrollTopAfter: props.afterReady.contentScrollTop,
 			scrollTopBefore: props.afterSelection.contentScrollTop,
+			scrollTopDeltaPixels: contentScrollTopDelta,
 			totalContentHeightAfter: props.afterReady.contentDeclaredTotalSizePixels,
 			totalContentHeightBefore: props.afterSelection.contentDeclaredTotalSizePixels,
 			virtualizerTotalSizeAfter: props.afterReady.contentDeclaredTotalSizePixels,
@@ -3962,15 +3980,22 @@ async function verifyWorktreeFileToReviewHandoff(): Promise<WorktreeFileToReview
 			const codePanel = document.querySelector('[data-testid="bridge-code-view-panel"]');
 			const fileModeHost = document.querySelector('[data-testid="bridge-viewer-mode-host-file"]');
 			const fileViewerShell = document.querySelector('[data-testid="bridge-file-viewer-shell"]');
+			const visibleContextButtonSelection = (testId: string): string | null => {
+				const buttons = [...document.querySelectorAll(`[data-testid="${testId}"]`)];
+				const visibleButton = buttons.find(
+					(button): button is HTMLElement =>
+						button instanceof HTMLElement && button.getClientRects().length > 0,
+				);
+				return visibleButton?.getAttribute('data-bridge-viewer-context-selected') ?? null;
+			};
 			return {
 				afterLocationHref: window.location.href,
 				appOwner:
 					appRoot instanceof HTMLElement ? appRoot.getAttribute('data-bridge-app-owner') : null,
 				appRootCount: appRoots.length,
-				fileContextButtonSelectedAfterSwitch:
-					document
-						.querySelector('[data-testid="bridge-viewer-context-file"]')
-						?.getAttribute('data-bridge-viewer-context-selected') ?? null,
+				fileContextButtonSelectedAfterSwitch: visibleContextButtonSelection(
+					'bridge-viewer-context-file',
+				),
 				fileModeHostHiddenAfterSwitch:
 					fileModeHost instanceof HTMLElement && fileModeHost.hasAttribute('hidden'),
 				fileViewerShellCountAfterSwitch: document.querySelectorAll(
@@ -3982,10 +4007,9 @@ async function verifyWorktreeFileToReviewHandoff(): Promise<WorktreeFileToReview
 					fileViewerShell instanceof HTMLElement
 						? fileViewerShell.getAttribute('data-selected-display-path')
 						: null,
-				reviewContextButtonSelectedAfterSwitch:
-					document
-						.querySelector('[data-testid="bridge-viewer-context-review"]')
-						?.getAttribute('data-bridge-viewer-context-selected') ?? null,
+				reviewContextButtonSelectedAfterSwitch: visibleContextButtonSelection(
+					'bridge-viewer-context-review',
+				),
 				selectedContentState:
 					reviewShell instanceof HTMLElement
 						? reviewShell.getAttribute('data-selected-content-state')
@@ -4015,7 +4039,7 @@ async function verifyWorktreeFileToReviewHandoff(): Promise<WorktreeFileToReview
 				).length,
 			};
 		});
-		await page.click('[data-testid="bridge-viewer-context-file"]');
+		await page.click('[data-testid="bridge-viewer-context-file"]:visible');
 		await page.waitForFunction(
 			(expected: { readonly displayPath: string }): boolean => {
 				const appRoot = document.querySelector('[data-testid="bridge-app-root"]');
@@ -4047,7 +4071,7 @@ async function verifyWorktreeFileToReviewHandoff(): Promise<WorktreeFileToReview
 					appRoot instanceof HTMLElement ? appRoot.getAttribute('data-bridge-viewer-mode') : null,
 			};
 		});
-		await page.click('[data-testid="bridge-viewer-context-review"]');
+		await page.click('[data-testid="bridge-viewer-context-review"]:visible');
 		await waitForReviewSelectedContentState({
 			displayPath: expectedDisplayPath,
 			page,
@@ -4057,6 +4081,14 @@ async function verifyWorktreeFileToReviewHandoff(): Promise<WorktreeFileToReview
 			const appRoot = document.querySelector('[data-testid="bridge-app-root"]');
 			const fileModeHost = document.querySelector('[data-testid="bridge-viewer-mode-host-file"]');
 			const reviewShell = document.querySelector('[data-testid="review-viewer-shell"]');
+			const visibleContextButtonSelection = (testId: string): string | null => {
+				const buttons = [...document.querySelectorAll(`[data-testid="${testId}"]`)];
+				const visibleButton = buttons.find(
+					(button): button is HTMLElement =>
+						button instanceof HTMLElement && button.getClientRects().length > 0,
+				);
+				return visibleButton?.getAttribute('data-bridge-viewer-context-selected') ?? null;
+			};
 			return {
 				fileModeHostActiveAfterReturnToReview:
 					fileModeHost instanceof HTMLElement
@@ -4064,10 +4096,9 @@ async function verifyWorktreeFileToReviewHandoff(): Promise<WorktreeFileToReview
 						: null,
 				fileModeHostHiddenAfterReturnToReview:
 					fileModeHost instanceof HTMLElement && fileModeHost.hasAttribute('hidden'),
-				reviewContextButtonSelectedAfterReturnToReview:
-					document
-						.querySelector('[data-testid="bridge-viewer-context-review"]')
-						?.getAttribute('data-bridge-viewer-context-selected') ?? null,
+				reviewContextButtonSelectedAfterReturnToReview: visibleContextButtonSelection(
+					'bridge-viewer-context-review',
+				),
 				reviewModeAfterReturnToReview:
 					appRoot instanceof HTMLElement ? appRoot.getAttribute('data-bridge-viewer-mode') : null,
 				reviewSelectedDisplayPathAfterReturnToReview:

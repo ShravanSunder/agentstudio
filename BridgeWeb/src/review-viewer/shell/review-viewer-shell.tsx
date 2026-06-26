@@ -1,6 +1,7 @@
 import { BotIcon, FileTextIcon, ListChecksIcon } from 'lucide-react';
-import type { ReactElement } from 'react';
+import type { ReactElement, ReactNode } from 'react';
 
+import { BridgeViewerContentHeader } from '../../app/bridge-viewer-content-header.js';
 import { Skeleton } from '../../components/ui/skeleton.js';
 import {
 	createBridgeReviewItemRegistry,
@@ -70,6 +71,7 @@ export interface ReviewViewerShellProps {
 	readonly onCodeViewVisibleItemIdsChange?: (itemIds: readonly string[]) => void;
 	readonly telemetryRecorder?: BridgeTelemetryRecorder;
 	readonly telemetryParentTraceContext?: BridgeTraceContext | null;
+	readonly viewerHeaderControls?: ReactNode;
 }
 
 export type BridgeReviewCanvasLoadingReason = 'content' | 'markdownPreview';
@@ -178,6 +180,10 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 		selectedItem === null
 			? null
 			: (selectedItem.headPath ?? selectedItem.basePath ?? selectedItem.itemId);
+	const contentHeaderTitle = bridgeReviewViewerHeaderTitle({
+		reviewPackage: props.reviewPackage,
+		selectedDisplayPath,
+	});
 	const selectedContentState = selectedContentStateForShell({
 		selectedCanvasLoadingReason: props.selectedCanvasLoadingReason ?? null,
 		selectedContentResources: props.selectedContentResources ?? null,
@@ -198,9 +204,14 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 			<div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(260px,340px)]">
 				<section
 					aria-label="Selected content"
-					className="min-h-0 min-w-0 overflow-hidden overscroll-contain bg-[var(--bridge-canvas-bg)]"
+					className="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden overscroll-contain bg-[var(--bridge-canvas-bg)]"
 					data-testid="bridge-review-code-scroll"
 				>
+					<BridgeViewerContentHeader
+						controls={props.viewerHeaderControls}
+						eyebrow="Review"
+						title={contentHeaderTitle}
+					/>
 					<section
 						aria-label="Code canvas"
 						className="relative h-full min-h-0 min-w-0 bg-[var(--bridge-canvas-bg)]"
@@ -435,6 +446,16 @@ export function BridgeReviewProjectionMenu(props: {
 			})}
 		</div>
 	);
+}
+
+function bridgeReviewViewerHeaderTitle(props: {
+	readonly reviewPackage: BridgeReviewPackage;
+	readonly selectedDisplayPath: string | null;
+}): string {
+	const sourceTitle = props.reviewPackage.query.queryId;
+	return props.selectedDisplayPath === null
+		? sourceTitle
+		: `${sourceTitle} / ${props.selectedDisplayPath}`;
 }
 
 function BridgeReviewContentUnavailableState(props: { readonly sourcePath: string }): ReactElement {

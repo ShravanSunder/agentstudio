@@ -148,7 +148,7 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 			data-testid="bridge-file-viewer-sidebar"
 		>
 			<header
-				className="grid gap-2 border-b border-[var(--bridge-border-subtle)] p-2"
+				className="grid gap-1.5 border-b border-[var(--bridge-border-subtle)] px-2 py-1.5"
 				data-testid="bridge-file-viewer-toolbar"
 			>
 				<div
@@ -157,7 +157,7 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 					data-testid="bridge-file-viewer-rail-toolbar"
 				>
 					<div
-						className="flex min-w-0 items-baseline gap-2 text-xs text-[var(--bridge-text-secondary)]"
+						className="flex min-w-0 items-center gap-2 text-xs text-[var(--bridge-text-secondary)]"
 						data-testid="bridge-file-viewer-rail-toolbar-leading"
 					>
 						<span className="shrink-0" data-testid="worktree-file-filter-count">
@@ -170,7 +170,7 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 						</span>
 					</div>
 					<div
-						className="flex shrink-0 items-center gap-1 rounded-[10px] border border-[var(--bridge-border-subtle)] bg-[var(--bridge-surface-raised-bg)] p-1"
+						className="flex shrink-0 items-center justify-end gap-1"
 						data-testid="bridge-file-viewer-rail-toolbar-trailing"
 					>
 						<BridgeReviewFilterMenu

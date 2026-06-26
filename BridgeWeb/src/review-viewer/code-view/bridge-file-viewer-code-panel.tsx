@@ -1,5 +1,5 @@
 import type { CodeViewItem } from '@pierre/diffs';
-import { CodeView } from '@pierre/diffs/react';
+import { CodeView, type CodeViewHandle } from '@pierre/diffs/react';
 import { useLayoutEffect, useRef, type CSSProperties, type ReactElement } from 'react';
 
 import type { WorktreeFileDescriptor } from '../../features/worktree-file/models/worktree-file-protocol-models.js';
@@ -24,7 +24,7 @@ export interface BridgeFileViewerCodePanelProps {
 }
 
 export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps): ReactElement {
-	const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+	const codeViewHandleRef = useRef<CodeViewHandle<undefined> | null>(null);
 	const lastScrollTopRef = useRef(0);
 	const previousOpenStateRef = useRef<{
 		readonly path: string | null;
@@ -46,8 +46,12 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 		) {
 			const scrollTop = lastScrollTopRef.current;
 			requestAnimationFrame((): void => {
-				if (scrollTop > 0 && scrollContainerRef.current !== null) {
-					scrollContainerRef.current.scrollTop = scrollTop;
+				if (scrollTop > 0) {
+					codeViewHandleRef.current?.scrollTo({
+						type: 'position',
+						position: scrollTop,
+						behavior: 'instant',
+					});
 				}
 			});
 		}
@@ -73,32 +77,40 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 				? {}
 				: { 'data-worktree-open-file-total-size': String(props.totalHeightPixels) })}
 		>
-			<div
-				className="bridge-scrollbar h-full min-h-0 min-w-0 overflow-auto overscroll-contain"
-				data-testid="bridge-file-viewer-code-view"
-				onScroll={(event) => {
-					lastScrollTopRef.current = event.currentTarget.scrollTop;
-				}}
-				ref={scrollContainerRef}
+			<BridgePierreWorkerPoolProvider
+				{...(props.codeViewWorkerPoolEnabled === undefined
+					? {}
+					: { enabled: props.codeViewWorkerPoolEnabled })}
+				{...(props.codeViewWorkerFactory === undefined
+					? {}
+					: { workerFactory: props.codeViewWorkerFactory })}
 			>
-				<BridgePierreWorkerPoolProvider
-					{...(props.codeViewWorkerPoolEnabled === undefined
-						? {}
-						: { enabled: props.codeViewWorkerPoolEnabled })}
-					{...(props.codeViewWorkerFactory === undefined
-						? {}
-						: { workerFactory: props.codeViewWorkerFactory })}
-				>
-					{codeViewItems.length === 0 ? (
+				{codeViewItems.length === 0 ? (
+					<div
+						className="bridge-scrollbar h-full min-h-0 min-w-0 overflow-auto overscroll-contain"
+						data-testid="bridge-file-viewer-code-view"
+						onScroll={(event) => {
+							lastScrollTopRef.current = event.currentTarget.scrollTop;
+						}}
+					>
 						<BridgeFileViewerContentState
 							state={props.openFileState}
 							totalHeightPixels={props.totalHeightPixels}
 						/>
-					) : (
-						<CodeView items={codeViewItems} options={bridgeCodeViewOptions} />
-					)}
-				</BridgePierreWorkerPoolProvider>
-			</div>
+					</div>
+				) : (
+					<CodeView
+						className="bridge-code-view-scroll-owner bridge-scrollbar cv-scrollbar relative h-full min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain [overflow-anchor:none] [will-change:scroll-position] [&_diffs-container]:overflow-clip [&_diffs-container]:[contain:layout_paint_style]"
+						items={codeViewItems}
+						onScroll={(scrollTop): void => {
+							lastScrollTopRef.current = scrollTop;
+						}}
+						options={bridgeCodeViewOptions}
+						ref={codeViewHandleRef}
+						style={{ height: '100%' }}
+					/>
+				)}
+			</BridgePierreWorkerPoolProvider>
 			{props.staleNotice ?? null}
 		</section>
 	);

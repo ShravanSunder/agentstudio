@@ -65,16 +65,23 @@ Shared shell design target for Gate 0.a:
 ```text
 BridgeViewerAppShell
   ┌──────────────────────────────────────────────────────────────┬─────────────┐
-  │ shared top chrome                                            │ right rail  │
-  │   Files | Review context toggle                              │             │
-  │   search / regex / filters / active source identity          │ Pierre      │
-  ├──────────────────────────────────────────────────────────────┤ FileTree    │
+  │ content header only for the left content region              │ right rail  │
+  │   title: <source> / <selected target>                         │ Review-     │
+  │   compact controls: Files | Review and content actions        │ styled      │
+  ├──────────────────────────────────────────────────────────────┤ Pierre      │
   │ primary Pierre CodeView/File canvas                          │             │
   │   Review diff target  -> Pierre diff items                   │ selection   │
   │   Review file target  -> Pierre/Shiki file item              │ status      │
   │   Files file target   -> Pierre/Shiki file item              │ expansion   │
   └──────────────────────────────────────────────────────────────┴─────────────┘
 ```
+
+The content header is left-content-only. It must not cover the right rail and
+must not push the right rail down. The title uses the accepted
+`source / selected target` form, and FileViewer/ReviewViewer controls must share
+the ReviewViewer/DiffsHub-like compact primitive sizing. ReviewViewer's right
+rail is the styling baseline for FileViewer's right rail: only functionality may
+differ.
 
 The blocker now starts with understandable dev navigation for both current
 worktree contexts. Dev-server query params are allowed because they are a test
@@ -99,8 +106,8 @@ Plan sequence changed after the 2026-06-25 navigation decision:
   -> proves DiffsHub-like top chrome, shared shadcn primitives, context toggle,
      search/filter placement, and per-context memory
   -> status: needs revision; current toggle exists but visible UX does not yet
-     match the expected top-bar/search contract and jsdom proof must be removed
-     or demoted from the UX gate
+     match the expected content-header/right-rail contract and jsdom proof must
+     be removed or demoted from the UX gate
   -> first action: use a browser/subagent onlook to compare current FileViewer,
      current ReviewViewer, and DiffsHub/Pierre screenshots/source, then update
      implementation against the shared-shell design target above
