@@ -893,3 +893,80 @@ This refresh proves the accepted design geometry only. It does not close
 FileViewer click-to-ready latency, speculative preload behavior, Review route
 fanout/content pressure, implementation review, or native Agent Studio
 Bridge/WKWebView proof.
+
+## 2026-06-26 Option-C Spec Tightening And Ready Pictures
+
+Spec/plan updates:
+
+- `docs/specs/bridge-viewer-transport/spec.md` and the tmp spec copy now state
+  that Review-namespaced shared chrome is only an explicitly tracked failing
+  intermediate state. It cannot close a visible UX checkpoint. Gate 0.a requires
+  neutral BridgeViewer shared primitives over the existing shadcn/base UI
+  substrate.
+- `docs/specs/bridge-viewer-transport/spec.md` now has a dedicated Review tree
+  interaction proof row. The accepted verifier path is a real Playwright click
+  through the visible Review tree/search UI, currently using Pierre's
+  `file-tree-container button[data-item-path]` hook until app-owned row hooks
+  exist. `__bridge_select_review_item` and direct DOM dispatch are explicitly
+  rejected as user-interaction proof.
+- `docs/specs/bridge-viewer-transport/review-protocol.md` and the tmp protocol
+  copy now distinguish the immediate `reviewItemId` fix from strict
+  `comparisonId` enforcement. `reviewItemId` already exists in the navigation
+  model and must be preferred before path fallback. Strict comparison authority
+  needs a Review package/runtime contract extension before it can be honestly
+  enforced.
+- The active plan now names the next failing tests:
+  `applies review file target by reviewItemId before path fallback`,
+  `reapplies same review navigation command after selection moved elsewhere`,
+  explicit-target filter/search refinement tests, and replacement of the
+  dev-server Review synthetic selector helper with the real tree/search click.
+
+Fresh product proof:
+
+- `pnpm --dir BridgeWeb run test:dev-server:worktree`
+- Exit: `0`
+- Artifact:
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T06-39-57-805Z/worktree-dev-server-proof.json`
+- Key facts recorded:
+  - `selectedContentState=ready`
+  - `selectedDisplayPath=BridgeWeb/pnpm-lock.yaml`
+  - `treePathCount=478`
+  - `sharedShellOwner=BridgeViewerAppShell`
+  - `codeOwner=CodeView.file`
+  - `treeOwner=FileTree`
+  - `shikiRendering=pierre`
+  - `workerPoolState=ready`
+  - `contentTopbarStopsBeforeSidebar=true`
+  - `sidebarStartsAtContentTopbar=true`
+  - `standaloneWorktreeFileAppCount=0`
+
+Fresh ready screenshots and geometry:
+
+- `tmp/bridge-viewer-design-proof/2026-06-26T06-41-32-966Z-accepted-c-doc-refresh-ready/files.png`
+- `tmp/bridge-viewer-design-proof/2026-06-26T06-41-32-966Z-accepted-c-doc-refresh-ready/review-diff.png`
+- `tmp/bridge-viewer-design-proof/2026-06-26T06-41-32-966Z-accepted-c-doc-refresh-ready/review-file-target.png`
+- `tmp/bridge-viewer-design-proof/2026-06-26T06-41-32-966Z-accepted-c-doc-refresh-ready/accepted-c-design-proof.json`
+
+The screenshot proof records:
+
+- `allHeadersEndBeforeRail=true`;
+- `allRailsStartAtTop=true`;
+- `allCanvasesBelowHeader=true`;
+- `allSwitchersInsideTopbar=true`;
+- `allControlsInsideTopbar=true`;
+- `noStandaloneWorktreeFileApp=true`;
+- `noSourcePending=true`.
+
+Open implementation blockers remain:
+
+- hidden FileViewer inactive-context gating;
+- hidden Review no-foreground-work proof;
+- Review tree interaction verifier still needs the real click path;
+- Review file-target resolver/proof must prefer `reviewItemId` and record
+  lineage honestly;
+- explicit Review targets must override retained search/filter refinements;
+- repeated deterministic navigation commands must replay when the current
+  selection moved away;
+- neutral BridgeViewer shared chrome extraction;
+- route fanout/content pressure and file-load/preload telemetry;
+- native Agent Studio Bridge/WKWebView proof.

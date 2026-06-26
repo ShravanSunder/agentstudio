@@ -111,9 +111,11 @@ It is a failure if the next visible checkpoint shows a full-width black/header
 strip over the right rail, a centered/floating mode switcher, route-local
 FileViewer buttons/search styling that is larger than ReviewViewer rail chrome,
 or different primitive families for the same button/input/toggle interactions.
-The implementation may use the existing ReviewViewer chrome wrappers during the
-refactor, but the proof target is a neutral BridgeViewer shared chrome contract
-over shadcn/base UI primitives, not a second FileViewer design language.
+Review-namespaced wrappers may appear only as an explicitly tracked failing
+intermediate state during a local refactor. They cannot close a visible UX
+checkpoint. The proof target is neutral BridgeViewer shared chrome over the
+existing shadcn/base UI substrate, not a second FileViewer design language and
+not permanent Review-owned shared app chrome.
 
 The blocker now starts with understandable dev navigation for both current
 worktree contexts. Dev-server query params are allowed because they are a test
@@ -743,12 +745,22 @@ Current checkpoint note, 2026-06-26 active-context retention:
     foreground telemetry while Files is active.
   - Review diff proof must stop using the synthetic
     `__bridge_select_review_item` event and select the Review item through a
-    real actionability-checked tree/search UI interaction.
+    real actionability-checked tree/search UI interaction. The smallest
+    accepted verifier path is: open
+    `[data-testid="bridge-review-search-toggle"]`, type into the Pierre tree
+    search input, click the matching
+    `file-tree-container button[data-item-path]` row through Playwright
+    actionability, then prove selected display path, selected item id, selected
+    content state, and review-content route hit.
   - Review file-target routing must prefer `reviewItemId`, validate
     comparison/source lineage, and only fall back to provider-approved file-ref
     mapping. The verifier must record `comparisonId`, source identity,
     `reviewItemId` or resolved file ref, version, `targetKind`, and active
-    context.
+    context. First implementation proof should prefer `target.reviewItemId`
+    over path fallback because that field is already in the navigation model.
+    Strict `comparisonId` enforcement needs a Review package/runtime authority
+    extension before it can be honestly enforced; do not fake it with path-only
+    proof.
   - Explicit Files -> Review handoff must override or clear retained Review
     search/filter refinements that hide the requested target; falling back to
     the first visible projected item is a bug.
@@ -762,6 +774,24 @@ Current checkpoint note, 2026-06-26 active-context retention:
     including high review route hit counts; file-click responsiveness/preload
     telemetry is not tuned; and native Agent Studio Bridge/WKWebView product
     proof is still required.
+
+Test-first anchors for the next implementation slice:
+
+- Add `applies review file target by reviewItemId before path fallback` in
+  `BridgeWeb/src/app/bridge-app.integration.test.tsx`, using a package with two
+  items that share a path but have distinct item ids. Current code should fail
+  because `itemIdForReviewFileNavigationTarget` path-matches first.
+- Add `reapplies same review navigation command after selection moved elsewhere`
+  in the same file. Current code should fail because
+  `appliedNavigationCommandIdRef` drops the repeated command id even when the
+  current selected item no longer satisfies the target.
+- Add explicit-target refinement tests for retained Review filters/search.
+  Current code should fail because explicit target application can fall back to
+  the first projected item or keep the target row hidden when retained
+  refinements exclude it.
+- Replace the dev-server Review selection verifier's
+  `__bridge_select_review_item` helper with the real tree/search click path
+  above. This is verifier work, not a product shortcut.
 
 Current visual/layout note, 2026-06-26 accepted-C refresh:
 

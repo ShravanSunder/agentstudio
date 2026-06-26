@@ -301,6 +301,13 @@ bootstrap hint, but proof must show it resolved to a typed Review file target
 under an accepted comparison. A naked path open is not a valid Review file-target
 proof.
 
+Current implementation pressure point: `reviewItemId` is already part of the
+BridgeViewer navigation model and must be preferred before path fallback. Strict
+`comparisonId` enforcement requires the active Review package/runtime to expose
+a comparison authority that can be checked by the resolver. Until that contract
+exists, proof may record the requested comparison id and source identity, but it
+must not claim strict comparison enforcement from path-only matching.
+
 Finite source examples:
 
 - `commit` versus `commit`
@@ -588,6 +595,9 @@ Required runtime contract:
   it must not claim interactive review-item selection unless the verifier changes
   selection through a visible browser-actionable UI path. Internal dispatch is a
   bootstrap/protocol proof helper, not user-interaction proof.
+- Accepted interactive proof changes selection by clicking the visible Pierre
+  tree row after opening/searching the Review tree. `__bridge_select_review_item`
+  and other direct DOM event dispatch helpers are not user-interaction proof.
 - demand policy inputs are discriminated stimuli, not loose boolean bags
 - review frames attach descriptors instead of exposing raw descriptor strings
 - native descriptor leases reject forged, stale, foreign, revoked, or over-limit
