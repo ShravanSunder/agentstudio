@@ -11,6 +11,7 @@ struct TabBarItem: Identifiable, Equatable {
     var activeArrangementName: String?
     var activeArrangementBadgeNumber: Int?
     var arrangementCount: Int  // total arrangements (1 = default only)
+    var colorHex: String?
     var panes: [PaneVisibilityInfo]
     var arrangements: [ArrangementInfo]
     var minimizedCount: Int
@@ -187,6 +188,7 @@ final class TabBarAdapter {
                 activeArrangementName: Self.activeArrangementDisplayName(for: activeArrangement),
                 activeArrangementBadgeNumber: activeArrangementBadgeNumber,
                 arrangementCount: tab.arrangements.count,
+                colorHex: tab.colorHex,
                 panes: paneInfos,
                 arrangements: arrangementInfos,
                 minimizedCount: tab.activeMinimizedPaneIds.count,

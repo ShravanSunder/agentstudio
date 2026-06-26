@@ -67,13 +67,14 @@ private func upsertTabShell(
 ) throws {
     try database.execute(
         sql: """
-            INSERT INTO tab_shell(id, workspace_id, name, sort_index)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO tab_shell(id, workspace_id, name, color_hex, sort_index)
+            VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 name = excluded.name,
+                color_hex = excluded.color_hex,
                 sort_index = excluded.sort_index
             """,
-        arguments: [shell.id.uuidString, workspaceId.uuidString, shell.name, sortIndex]
+        arguments: [shell.id.uuidString, workspaceId.uuidString, shell.name, shell.colorHex, sortIndex]
     )
 }
 

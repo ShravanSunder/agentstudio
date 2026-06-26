@@ -63,7 +63,6 @@ struct PaneRuntimeContractsTests {
         #expect(metadata.contentType == .terminal)
         #expect(metadata.executionBackend == .local)
         #expect(metadata.createdAt.timeIntervalSince1970 > 0)
-        #expect(metadata.facets.tags.isEmpty)
     }
 
     @Test("pane context facets carry live worktree metadata")
@@ -76,13 +75,11 @@ struct PaneRuntimeContractsTests {
             facets: PaneContextFacets(
                 repoId: repoId,
                 worktreeId: worktreeId,
-                cwd: worktreeURL,
-                tags: ["focus"]
+                cwd: worktreeURL
             )
         )
         #expect(metadata.facets.worktreeId == worktreeId)
         #expect(metadata.facets.repoId == repoId)
-        #expect(metadata.facets.tags == ["focus"])
     }
 
     @Test("system source three-tier hierarchy: builtin, service, plugin")

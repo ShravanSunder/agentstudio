@@ -15,7 +15,6 @@ func replacePaneGraphRows(
     for pane in layoutPanesBeforeDrawerChildren(graph.panes) {
         try upsertPane(database, workspaceId: workspaceId, pane: pane)
         try replacePaneContent(database, pane: pane)
-        try replacePaneTags(database, pane: pane)
     }
 
     for drawer in graph.panes.compactMap(\.drawer) {
@@ -213,19 +212,6 @@ private func insertPayloadContent(
             """,
         arguments: [paneId.uuidString, payloadKind, payloadJSON]
     )
-}
-
-private func replacePaneTags(_ database: Database, pane: WorkspaceCoreRepository.PaneRecord) throws {
-    try database.execute(sql: "DELETE FROM pane_tag WHERE pane_id = ?", arguments: [pane.id.uuidString])
-    for tag in pane.metadata.durableFacets.tags {
-        try database.execute(
-            sql: """
-                INSERT INTO pane_tag(pane_id, tag)
-                VALUES (?, ?)
-                """,
-            arguments: [pane.id.uuidString, tag]
-        )
-    }
 }
 
 private func upsertDrawer(_ database: Database, drawer: WorkspaceCoreRepository.DrawerRecord) throws {

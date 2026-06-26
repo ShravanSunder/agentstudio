@@ -232,6 +232,63 @@ struct WorkspaceCoreTabGraphLayoutRepairMigrationTests {
             )
             """,
             """
+            CREATE TABLE watched_path (
+                id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+                path TEXT NOT NULL,
+                stable_key TEXT NOT NULL,
+                added_at REAL NOT NULL,
+                UNIQUE(workspace_id, stable_key)
+            )
+            """,
+            """
+            CREATE TABLE repo (
+                id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+                name TEXT NOT NULL,
+                repo_path TEXT NOT NULL,
+                stable_key TEXT NOT NULL,
+                created_at REAL NOT NULL,
+                UNIQUE(workspace_id, stable_key),
+                UNIQUE(id, workspace_id)
+            )
+            """,
+            """
+            CREATE TABLE worktree (
+                id TEXT PRIMARY KEY,
+                workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+                repo_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                path TEXT NOT NULL,
+                stable_key TEXT NOT NULL,
+                is_main_worktree INTEGER NOT NULL,
+                UNIQUE(workspace_id, stable_key),
+                UNIQUE(repo_id, stable_key),
+                FOREIGN KEY(repo_id, workspace_id)
+                    REFERENCES repo(id, workspace_id)
+                    ON DELETE CASCADE
+            )
+            """,
+            """
+            CREATE TABLE unavailable_repo (
+                workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,
+                repo_id TEXT NOT NULL,
+                PRIMARY KEY(workspace_id, repo_id),
+                FOREIGN KEY(repo_id, workspace_id)
+                    REFERENCES repo(id, workspace_id)
+                    ON DELETE CASCADE
+            )
+            """,
+            """
+            CREATE INDEX idx_repo_workspace_id ON repo(workspace_id)
+            """,
+            """
+            CREATE INDEX idx_worktree_workspace_id ON worktree(workspace_id)
+            """,
+            """
+            CREATE INDEX idx_worktree_repo_id ON worktree(repo_id)
+            """,
+            """
             CREATE TABLE pane (
                 id TEXT PRIMARY KEY,
                 workspace_id TEXT NOT NULL REFERENCES workspace(id) ON DELETE CASCADE,

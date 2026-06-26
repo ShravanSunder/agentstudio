@@ -5,7 +5,7 @@ struct TabDisplayDerived {
     func displayTitle(
         for tab: Tab,
         workspacePane: WorkspacePaneAtom,
-        workspaceRepositoryTopology: WorkspaceRepositoryTopologyAtom,
+        workspaceRepositoryTopology: RepositoryTopologyAtom,
         repoCache: RepoCacheAtom
     ) -> String {
         let normalizedName = Tab.normalizedName(tab.name)
@@ -30,7 +30,7 @@ struct TabDisplayDerived {
 
     func title(
         for pane: Pane,
-        workspaceRepositoryTopology: WorkspaceRepositoryTopologyAtom,
+        workspaceRepositoryTopology: RepositoryTopologyAtom,
         repoCache: RepoCacheAtom
     ) -> String {
         if let worktreeId = pane.worktreeId,
