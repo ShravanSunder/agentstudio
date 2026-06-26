@@ -47,7 +47,8 @@ const worktreeDevServerOrigin = new URL(worktreeDevServerUrl).origin;
 const targetPathOverride = process.env['BRIDGE_VIEWER_WORKTREE_TARGET_PATH'] ?? null;
 const execFileAsync = promisify(execFile);
 const unavailableFilterFixtureRelativePath = '.github/workflows/ci.yml';
-const fileToReviewHandoffFixtureRelativePath = '.gitignore';
+const fileToReviewHandoffFixtureRelativePath =
+	'BridgeWeb/scripts/dev-server/bridge-worktree-dev-provider.ts';
 const reviewSelectionFixtureRelativePath = 'Sources/AgentStudio/AtomRegistry.swift';
 const reviewSelectionFixtureMarker = `bridge_worktree_devserver_review_selection_${proofRunCreatedAtUnixMilliseconds}`;
 
@@ -268,6 +269,21 @@ interface WorktreeFileUnavailableOpenProof {
 	readonly selectedLineCount: number;
 }
 
+interface WorktreeFileSearchChromeProof {
+	readonly regexToggleFontSize: string;
+	readonly regexToggleHeight: number;
+	readonly searchInputClassName: string;
+	readonly searchInputContainedInRail: boolean;
+	readonly searchInputFontSize: string;
+	readonly searchInputHeight: number;
+	readonly searchInputLeft: number;
+	readonly searchInputRight: number;
+	readonly searchRailLeft: number;
+	readonly searchRailRight: number;
+	readonly searchToggleFontSize: string;
+	readonly searchToggleHeight: number;
+}
+
 interface WorktreeFileProductControlsProof {
 	readonly allFilterVisibleCount: number;
 	readonly allRenderedPathSample: readonly string[];
@@ -300,6 +316,7 @@ interface WorktreeFileProductControlsProof {
 	readonly regexTreeSizePixels: number | null;
 	readonly regexTreeSizeSource: WorktreeFileTreeExtentSource | null;
 	readonly searchScreenshotPath: string;
+	readonly searchChromeProof: WorktreeFileSearchChromeProof;
 	readonly searchResultIncludesTarget: boolean;
 	readonly searchRenderedPathSample: readonly string[];
 	readonly searchStatusText: string;
@@ -327,6 +344,7 @@ interface WorktreeFileSharedShellProof {
 	readonly contentPaneStartsBelowTopbar: boolean;
 	readonly contentHeaderAndRailToolbarTopAligned: boolean;
 	readonly contentHeaderBackground: string;
+	readonly contentHeaderMatchesRailToolbarBackground: boolean;
 	readonly contentHeaderHeight: number;
 	readonly contentHeaderMatchesRailToolbarHeight: boolean;
 	readonly contentTopbarCount: number;
@@ -350,6 +368,7 @@ interface WorktreeFileSharedShellProof {
 	readonly railOpenReviewButtonHeight: number;
 	readonly railSearchButtonHeight: number;
 	readonly railToolbarBackground: string;
+	readonly railToolbarBackgroundIsOpaque: boolean;
 	readonly railToolbarHeight: number;
 	readonly reviewContextButtonSelected: string | null;
 	readonly sharedShellMode: string | null;
@@ -504,9 +523,11 @@ interface WorktreeFileVisibleAppProof {
 	readonly contentVisibleLineCount: number;
 	readonly cssLayoutApplied: boolean;
 	readonly filterMenuCount: number;
+	readonly filterCountMeaningfullyVisible: boolean;
+	readonly filterCountText: string;
 	readonly forbiddenTextAbsentOutsideIntentionalUi: boolean;
 	readonly regexToggleCount: number;
-	readonly sourceProvenanceRect: WorktreeFileVisibleRect;
+	readonly sourceProvenanceMeaningfullyVisible: boolean;
 	readonly sourceProvenanceText: string;
 	readonly sampledTreeRowCount: number;
 	readonly sampledTreeRowsHaveDistinctVerticalPositions: boolean;
@@ -1512,6 +1533,8 @@ async function assertSharedBridgeFileViewerShell(props: {
 		const railSearchButtonRect = railSearchButton.getBoundingClientRect();
 		const railOpenReviewButtonRect = railOpenReviewButton.getBoundingClientRect();
 		const sameHeight = (left: number, right: number): boolean => Math.abs(left - right) <= 1;
+		const contentHeaderBackground = getComputedStyle(contentTopbar).backgroundColor;
+		const railToolbarBackground = getComputedStyle(railToolbar).backgroundColor;
 		return {
 			appOwner: appRoot.getAttribute('data-bridge-app-owner'),
 			appRootCount: appRoots.length,
@@ -1523,7 +1546,8 @@ async function assertSharedBridgeFileViewerShell(props: {
 			contentPaneStartsBelowTopbar: codeRect.top >= contentTopbarRect.bottom - 1,
 			contentHeaderAndRailToolbarTopAligned:
 				Math.abs(contentTopbarRect.top - railToolbarRect.top) <= 1,
-			contentHeaderBackground: getComputedStyle(contentTopbar).backgroundColor,
+			contentHeaderBackground,
+			contentHeaderMatchesRailToolbarBackground: contentHeaderBackground === railToolbarBackground,
 			contentHeaderHeight: contentTopbarRect.height,
 			contentHeaderMatchesRailToolbarHeight: sameHeight(
 				contentTopbarRect.height,
@@ -1555,7 +1579,8 @@ async function assertSharedBridgeFileViewerShell(props: {
 			railFilterButtonHeight: railFilterButtonRect.height,
 			railOpenReviewButtonHeight: railOpenReviewButtonRect.height,
 			railSearchButtonHeight: railSearchButtonRect.height,
-			railToolbarBackground: getComputedStyle(railToolbar).backgroundColor,
+			railToolbarBackground,
+			railToolbarBackgroundIsOpaque: !railToolbarBackground.startsWith('rgba(0, 0, 0, 0'),
 			railToolbarHeight: railToolbarRect.height,
 			reviewContextButtonSelected: visibleContextButtonSelection('bridge-viewer-context-review'),
 			sharedShellMode: appRoot.getAttribute('data-bridge-viewer-mode'),
@@ -1619,6 +1644,7 @@ async function assertSharedBridgeFileViewerShell(props: {
 		!proofWithWorkerBaseline.contentTopbarVisible ||
 		!proofWithWorkerBaseline.contentTopbarOwnsCenterPoint ||
 		!proofWithWorkerBaseline.contentHeaderAndRailToolbarTopAligned ||
+		!proofWithWorkerBaseline.contentHeaderMatchesRailToolbarBackground ||
 		!proofWithWorkerBaseline.contentHeaderMatchesRailToolbarHeight ||
 		!proofWithWorkerBaseline.contextSwitcherInsideContentTopbar ||
 		!proofWithWorkerBaseline.contextSegmentMatchesRailButtonHeight ||
@@ -1626,6 +1652,7 @@ async function assertSharedBridgeFileViewerShell(props: {
 		!proofWithWorkerBaseline.contentPaneStartsBelowTopbar ||
 		!proofWithWorkerBaseline.contentTitleText.includes(' / ') ||
 		!proofWithWorkerBaseline.railButtonHeightsMatch ||
+		!proofWithWorkerBaseline.railToolbarBackgroundIsOpaque ||
 		proofWithWorkerBaseline.sidebarCount !== 1 ||
 		!proofWithWorkerBaseline.sidebarOwnsCenterPoint ||
 		!proofWithWorkerBaseline.sidebarStartsAtContentTopbar ||
@@ -2943,6 +2970,7 @@ async function readWorktreeFileVisibleAppProof(page: Page): Promise<WorktreeFile
 		const shell = document.querySelector('[data-testid="bridge-file-viewer-shell"]');
 		const treePane = document.querySelector('[data-testid="bridge-file-viewer-sidebar"]');
 		const contentPane = document.querySelector('[data-testid="bridge-file-viewer-code-canvas"]');
+		const filterCount = document.querySelector('[data-testid="worktree-file-filter-count"]');
 		const sourceProvenance = document.querySelector('[data-testid="worktree-file-provenance"]');
 		if (!(appRoot instanceof HTMLElement)) {
 			throw new Error('Expected visible shared Bridge app root');
@@ -2956,8 +2984,11 @@ async function readWorktreeFileVisibleAppProof(page: Page): Promise<WorktreeFile
 		if (!(contentPane instanceof HTMLElement)) {
 			throw new Error('Expected visible Bridge FileViewer content pane');
 		}
+		if (!(filterCount instanceof HTMLElement)) {
+			throw new Error('Expected Worktree/File filter count element');
+		}
 		if (!(sourceProvenance instanceof HTMLElement)) {
-			throw new Error('Expected visible Worktree/File provenance element');
+			throw new Error('Expected Worktree/File provenance element');
 		}
 		const helpers = window.bridgeWorktreeVerifier;
 		const sampledRows = helpers.getPierreFileTreeItems().slice(0, 24);
@@ -2978,6 +3009,17 @@ async function readWorktreeFileVisibleAppProof(page: Page): Promise<WorktreeFile
 		const shellStyle = window.getComputedStyle(shell);
 		const contentRect = contentPane.getBoundingClientRect();
 		const treeRect = treePane.getBoundingClientRect();
+		const isMeaningfullyVisible = (element: HTMLElement): boolean => {
+			const rect = element.getBoundingClientRect();
+			const style = window.getComputedStyle(element);
+			return (
+				style.display !== 'none' &&
+				style.visibility !== 'hidden' &&
+				rect.width > 2 &&
+				rect.height > 2 &&
+				element.getClientRects().length > 0
+			);
+		};
 		return {
 			appRootRect: visibleRectForPageElement(appRoot),
 			contentPaneRect: visibleRectForPageElement(contentPane),
@@ -2987,6 +3029,8 @@ async function readWorktreeFileVisibleAppProof(page: Page): Promise<WorktreeFile
 				shell.getAttribute('data-sidebar-position') === 'right' &&
 				contentRect.left < treeRect.left,
 			filterMenuCount: shell.querySelectorAll('[data-testid="worktree-file-filter-menu"]').length,
+			filterCountMeaningfullyVisible: isMeaningfullyVisible(filterCount),
+			filterCountText: filterCount.textContent ?? '',
 			forbiddenTextAbsentOutsideIntentionalUi:
 				!outsideText.includes('"frames"') &&
 				!outsideText.includes('frameKind') &&
@@ -2994,7 +3038,7 @@ async function readWorktreeFileVisibleAppProof(page: Page): Promise<WorktreeFile
 				!outsideText.includes('agentstudio://resource/') &&
 				!outsideText.includes('BridgeWeb/src/'),
 			regexToggleCount: shell.querySelectorAll('[data-testid="bridge-review-regex-toggle"]').length,
-			sourceProvenanceRect: visibleRectForPageElement(sourceProvenance),
+			sourceProvenanceMeaningfullyVisible: isMeaningfullyVisible(sourceProvenance),
 			sourceProvenanceText: sourceProvenance.textContent ?? '',
 			sampledTreeRowCount: sampledRows.length,
 			sampledTreeRowsHaveDistinctVerticalPositions:
@@ -3032,7 +3076,6 @@ function assertWorktreeFileVisibleAppProof(props: {
 	assertVisibleRect('Worktree/File app root', proof.appRootRect);
 	assertVisibleRect('Worktree/File tree pane', proof.treePaneRect);
 	assertVisibleRect('Worktree/File content pane', proof.contentPaneRect);
-	assertVisibleRect('Worktree/File provenance', proof.sourceProvenanceRect);
 	if (!proof.cssLayoutApplied) {
 		throw new Error(`Expected Worktree/File packaged CSS layout proof: ${JSON.stringify(proof)}`);
 	}
@@ -3053,6 +3096,11 @@ function assertWorktreeFileVisibleAppProof(props: {
 	if (proof.filterMenuCount !== 1) {
 		throw new Error(`Expected Worktree/File shadcn filter menu: ${JSON.stringify(proof)}`);
 	}
+	if (proof.filterCountMeaningfullyVisible || proof.sourceProvenanceMeaningfullyVisible) {
+		throw new Error(
+			`Expected Worktree/File rail metadata to stay non-visible: ${JSON.stringify(proof)}`,
+		);
+	}
 	if (!proof.sampledTreeRowsHaveDistinctVerticalPositions) {
 		throw new Error(
 			`Expected Worktree/File tree rows to occupy distinct rows: ${JSON.stringify(proof)}`,
@@ -3072,6 +3120,7 @@ function assertWorktreeFileVisibleAppProof(props: {
 		proof.sourceBaseRef !== props.expectedSourceBaseRef ||
 		proof.sourceCursor !== props.expectedSourceCursor ||
 		proof.sourceId !== props.expectedSourceId ||
+		!proof.filterCountText.includes('/') ||
 		proof.sourceProvenanceText !== props.expectedSourceId ||
 		proof.sourceScenarioName !== props.expectedSourceScenarioName ||
 		proof.sourceState !== 'live' ||
@@ -3139,6 +3188,7 @@ async function verifyWorktreeFileProductControls(props: {
 	const searchRenderedPathSample = await visibleWorktreeFilePathSample(props.page);
 	const searchTreeSizePixels = await worktreeFileTreeTotalSizePixels(props.page);
 	const searchTreeSizeSource = await worktreeFileTreeTotalSizeSource(props.page);
+	const searchChromeProof = await readWorktreeFileSearchChromeProof(props.page);
 	const searchScreenshotPath = await captureWorktreeDevServerScreenshot({
 		name: 'worktree-file-search-result.png',
 		page: props.page,
@@ -3242,6 +3292,7 @@ async function verifyWorktreeFileProductControls(props: {
 		regexTreeSizePixels,
 		regexTreeSizeSource,
 		searchScreenshotPath,
+		searchChromeProof,
 		searchResultIncludesTarget,
 		searchRenderedPathSample,
 		searchStatusText,
@@ -3769,6 +3820,22 @@ function assertWorktreeFileProductControlsProof(props: {
 			`Expected Worktree/File search projection extent source to be localProjection: ${JSON.stringify(proof)}`,
 		);
 	}
+	if (
+		proof.searchChromeProof.searchInputHeight !== 24 ||
+		!proof.searchChromeProof.searchInputContainedInRail ||
+		proof.searchChromeProof.searchInputFontSize !== '11px' ||
+		!proof.searchChromeProof.searchInputClassName.includes('h-6') ||
+		!proof.searchChromeProof.searchInputClassName.includes('w-[calc(100%-1rem)]') ||
+		!proof.searchChromeProof.searchInputClassName.includes('!text-[11px]') ||
+		proof.searchChromeProof.searchToggleHeight !== 24 ||
+		proof.searchChromeProof.searchToggleFontSize !== '11px' ||
+		proof.searchChromeProof.regexToggleHeight !== 24 ||
+		proof.searchChromeProof.regexToggleFontSize !== '11px'
+	) {
+		throw new Error(
+			`Expected Worktree/File search chrome to match compact shared controls: ${JSON.stringify(proof)}`,
+		);
+	}
 	assertWorktreeProjectedTreeSize({
 		actualSizePixels: proof.searchTreeSizePixels,
 		expectedSizePixels: proof.expectedSearchTreeSizePixels,
@@ -3896,6 +3963,49 @@ async function fillWorktreeFileSearch(page: Page, value: string): Promise<void> 
 		await page.locator('[data-testid="bridge-review-search-toggle"]').click();
 	}
 	await page.locator('[data-testid="worktree-file-search-input"]').fill(value);
+}
+
+async function readWorktreeFileSearchChromeProof(
+	page: Page,
+): Promise<WorktreeFileSearchChromeProof> {
+	return await page.evaluate((): WorktreeFileSearchChromeProof => {
+		const searchInput = document.querySelector<HTMLInputElement>(
+			'[data-testid="worktree-file-search-input"]',
+		);
+		const searchToggle = document.querySelector<HTMLElement>(
+			'[data-testid="bridge-review-search-toggle"]',
+		);
+		const regexToggle = document.querySelector<HTMLElement>(
+			'[data-testid="bridge-review-regex-toggle"]',
+		);
+		if (searchInput === null || searchToggle === null || regexToggle === null) {
+			throw new Error('Expected Worktree/File search chrome to be mounted');
+		}
+		const searchInputStyle = getComputedStyle(searchInput);
+		const searchToggleStyle = getComputedStyle(searchToggle);
+		const regexToggleStyle = getComputedStyle(regexToggle);
+		const searchInputRect = searchInput.getBoundingClientRect();
+		const searchRailRect =
+			document
+				.querySelector<HTMLElement>('[data-testid="bridge-file-viewer-rail-toolbar"]')
+				?.getBoundingClientRect() ?? searchInputRect;
+		return {
+			regexToggleFontSize: regexToggleStyle.fontSize,
+			regexToggleHeight: Math.round(regexToggle.getBoundingClientRect().height),
+			searchInputClassName: searchInput.className,
+			searchInputContainedInRail:
+				searchInputRect.left >= searchRailRect.left &&
+				searchInputRect.right <= searchRailRect.right,
+			searchInputFontSize: searchInputStyle.fontSize,
+			searchInputHeight: Math.round(searchInputRect.height),
+			searchInputLeft: Math.round(searchInputRect.left),
+			searchInputRight: Math.round(searchInputRect.right),
+			searchRailLeft: Math.round(searchRailRect.left),
+			searchRailRight: Math.round(searchRailRect.right),
+			searchToggleFontSize: searchToggleStyle.fontSize,
+			searchToggleHeight: Math.round(searchToggle.getBoundingClientRect().height),
+		};
+	});
 }
 
 async function clickWorktreeFileControl(page: Page, testId: string): Promise<void> {
@@ -4079,21 +4189,11 @@ async function scrollPierreFileTreeUntilPathVisible(page: Page, path: string): P
 			{ attempt, path },
 		);
 		if (didFind) {
-			await waitForPierreFileTreePath(page, path);
 			return;
 		}
 		await page.waitForTimeout(25);
 	}
 	throw new Error(`Expected Pierre FileTree row for ${path}`);
-}
-
-async function waitForPierreFileTreePath(page: Page, path: string): Promise<void> {
-	await page.waitForFunction(
-		(targetPath: string): boolean =>
-			window.bridgeWorktreeVerifier.getPierreFileTreeItem(targetPath) !== null,
-		path,
-		{ timeout: 10_000 },
-	);
 }
 
 async function waitForWorktreeOpenFileState(props: {
@@ -4195,9 +4295,7 @@ async function verifyWorktreeFileToReviewHandoff(): Promise<WorktreeFileToReview
 		const expectedReviewItemId = await fetchWorktreeReviewItemIdForDisplayPath(expectedDisplayPath);
 		await page.goto(worktreeDevServerUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
 		await page.waitForSelector('[data-testid="bridge-file-viewer-shell"]', { timeout: 30_000 });
-		await scrollTreeToFilePath(page, expectedDisplayPath);
-		await waitForPierreFileTreeAnchorSettled(page, expectedDisplayPath);
-		await clickWorktreeFilePath(page, expectedDisplayPath);
+		await clickWorktreeFilePathViaSearch({ page, path: expectedDisplayPath });
 		await page.waitForFunction(
 			(path: string): boolean =>
 				document
@@ -4417,6 +4515,27 @@ async function verifyWorktreeFileToReviewHandoff(): Promise<WorktreeFileToReview
 		await routeProbe.dispose();
 		await page.close();
 	}
+}
+
+async function clickWorktreeFilePathViaSearch(props: {
+	readonly page: Page;
+	readonly path: string;
+}): Promise<void> {
+	await dismissOpenBridgeMenus(props.page);
+	const searchInputLocator = props.page
+		.locator('[data-testid="worktree-file-search-input"]')
+		.first();
+	if (!(await searchInputLocator.isVisible())) {
+		await clickWorktreeFileControl(props.page, 'bridge-review-search-toggle');
+	}
+	await searchInputLocator.waitFor({ state: 'visible', timeout: 10_000 });
+	await searchInputLocator.fill(props.path);
+	await props.page.waitForFunction(
+		(path: string): boolean => window.bridgeWorktreeVerifier.getPierreFileTreeItem(path) !== null,
+		props.path,
+		{ timeout: 10_000 },
+	);
+	await clickWorktreeFilePath(props.page, props.path);
 }
 
 async function clickReviewTreeFilePathViaSearch(props: {

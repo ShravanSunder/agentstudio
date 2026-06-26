@@ -3,6 +3,7 @@ import type { ReactElement, ReactNode } from 'react';
 
 import { ToggleGroup, ToggleGroupItem } from '../components/ui/toggle-group.js';
 import {
+	bridgeViewerChromeButtonClassName,
 	bridgeViewerChromeHeaderClassName,
 	bridgeViewerChromeLucideIconClassName,
 } from './bridge-viewer-chrome.js';
@@ -82,7 +83,10 @@ function BridgeViewerContextButton(props: {
 	return (
 		<ToggleGroupItem
 			aria-label={props.label}
-			className={props.isSelected ? 'shadow-none' : undefined}
+			className={cn(
+				bridgeViewerChromeButtonClassName,
+				props.isSelected ? 'shadow-none' : undefined,
+			)}
 			data-bridge-viewer-context-selected={props.isSelected ? 'true' : 'false'}
 			data-bridge-viewer-context-target={props.mode}
 			data-testid={`bridge-viewer-context-${props.mode}`}

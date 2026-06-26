@@ -51,6 +51,7 @@ function ToggleGroupItem({
 			data-toggle-group-slot="toggle-group-item"
 			className={cn(
 				'text-[var(--bridge-text-secondary)] transition-colors',
+				size === 'sm' ? '!text-[11px] !leading-none' : undefined,
 				'hover:border-[var(--bridge-border-opaque)] hover:bg-[var(--bridge-list-hover-bg)] hover:text-[var(--bridge-text-primary)]',
 				'focus-visible:border-[var(--bridge-focus-border)] focus-visible:outline-none',
 				'data-[state=on]:border-transparent data-[state=on]:bg-[var(--bridge-header-control-active-bg)] data-[state=on]:text-[var(--bridge-text-primary)]',

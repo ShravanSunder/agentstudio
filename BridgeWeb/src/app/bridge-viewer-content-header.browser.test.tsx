@@ -41,6 +41,7 @@ describe('BridgeViewerContextSwitcher Browser Mode', () => {
 		const fileButtonBox = fileButton.getBoundingClientRect();
 		const reviewButtonBox = reviewButton.getBoundingClientRect();
 		const railToolbarButtonTokenHeight = 24;
+		const chromeControlTextSize = '11px';
 
 		expect(Math.round(switcherBox.height)).toBe(railToolbarButtonTokenHeight);
 		expect(Math.round(fileButtonBox.height)).toBe(railToolbarButtonTokenHeight);
@@ -57,6 +58,8 @@ describe('BridgeViewerContextSwitcher Browser Mode', () => {
 		expect(reviewButton.getAttribute('data-bridge-viewer-context-selected')).toBe('false');
 		expect(fileButton.className).toContain('h-6');
 		expect(reviewButton.className).toContain('h-6');
+		expect(getComputedStyle(fileButton).fontSize).toBe(chromeControlTextSize);
+		expect(getComputedStyle(reviewButton).fontSize).toBe(chromeControlTextSize);
 		expect(fileButton.className).not.toContain('h-5');
 		expect(reviewButton.className).not.toContain('h-5');
 		expect(fileButton.textContent).toBe('Files');

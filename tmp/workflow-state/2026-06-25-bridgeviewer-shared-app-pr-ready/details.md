@@ -1317,3 +1317,97 @@ Open implementation blockers remain:
   Bridge/WKWebView proof, implementation review disposition, and follow-up
   browser/native proof for inactive-context no-foreground-work if this remains
   a gate-level blocker.
+
+2026-06-26 compact switcher text-size follow-up checkpoint:
+
+- Fixed the remaining visual miss where the Files/Review segmented control used
+  the correct 24px box height but still rendered oversized label text. The owned
+  `ToggleGroupItem` primitive now applies the shared compact chrome text size
+  for `size="sm"` controls, and `BridgeViewerContextButton` composes the same
+  shared chrome class used by other BridgeViewer controls instead of keeping
+  route-local visual scale.
+- This is still the owned shadcn-style primitive path:
+  `BridgeViewerContextSwitcher` -> `ToggleGroup` -> `ToggleGroupItem` ->
+  BridgeWeb `Button`.
+- Added/kept Vitest Browser proof for both geometry and typography:
+  `pnpm --dir BridgeWeb exec vitest --config vitest.browser.config.ts run --project integration-browser src/app/bridge-viewer-content-header.browser.test.tsx --reporter verbose`
+  with 1 file passed, 1 test passed. The browser test now asserts
+  `contextSwitcherHeight=24`, Files and Review button heights at 24px, and
+  computed `font-size=11px` for both labels.
+- Full worktree dev-server browser proof passed after the fix:
+  `pnpm --dir BridgeWeb run test:dev-server:worktree`.
+- Fresh proof artifact:
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T13-38-19-464Z/worktree-dev-server-proof.json`.
+- Fresh proof fields:
+  `sharedShellProof.contentHeaderHeight=36`,
+  `sharedShellProof.railToolbarHeight=36`,
+  `sharedShellProof.contentHeaderMatchesRailToolbarHeight=true`,
+  `sharedShellProof.contentHeaderBackground=rgb(24, 24, 37)`,
+  `sharedShellProof.railToolbarBackground=rgb(24, 24, 37)`,
+  `sharedShellProof.contentHeaderMatchesRailToolbarBackground=true`,
+  `sharedShellProof.contextSwitcherHeight=24`,
+  `sharedShellProof.contextFileButtonHeight=24`,
+  `sharedShellProof.contextReviewButtonHeight=24`,
+  `sharedShellProof.contextSegmentMatchesRailButtonHeight=true`,
+  `visibleAppProof.filterCountMeaningfullyVisible=false`,
+  `visibleAppProof.sourceProvenanceMeaningfullyVisible=false`,
+  `fileToReviewHandoffProof.selectedDisplayPath=BridgeWeb/scripts/dev-server/bridge-worktree-dev-provider.ts`,
+  and `substituteGuardProof.standaloneWorktreeFileAppCount=0`.
+- Browser/onlook subagent `019f042b-b148-7132-891d-f1bb98b25846` passed the
+  focused audit: live runtime measured the Files and Review buttons at 24px
+  height and 11px font size, confirmed the `ToggleGroupItem` -> `Button`
+  primitive path, confirmed the content topbar ends at the right rail boundary,
+  and captured `/tmp/bridge-viewer-audit-current.png`.
+- Added `BridgeWeb/AGENTS.md` so future BridgeWeb React UI work starts from the
+  durable rule: use owned shadcn-style primitives, do not hand-roll route-local
+  chrome, and do not use jsdom as UX checkpoint proof.
+
+2026-06-26 expanded rail search checkpoint:
+
+- A fresh browser/onlook subagent caught the remaining visible mismatch after
+  the first compactness pass: the expanded FileViewer search input had the
+  correct 24px height and 11px text, but inherited `w-full` plus horizontal
+  margin, which overflowed the right rail (`right=1736` while the rail ended at
+  `1728` in Vitest Browser red proof).
+- Fixed the shared BridgeViewer search chrome token so the input is a compact
+  rail-contained row: `h-6`, `!text-[11px]`, and
+  `w-[calc(100%-1rem)]` with the existing rail margins.
+- Added Vitest Browser proof for the exact regression:
+  `pnpm --dir BridgeWeb exec vitest --config vitest.browser.config.ts run --project integration-browser src/file-viewer/bridge-file-viewer-app.browser.test.tsx --reporter verbose`
+  first failed with `expected 1736 to be less than or equal to 1728`, then
+  passed with 1 file passed, 2 tests passed.
+- Combined focused browser proof passed:
+  `pnpm --dir BridgeWeb exec vitest --config vitest.browser.config.ts run --project integration-browser src/file-viewer/bridge-file-viewer-app.browser.test.tsx src/app/bridge-viewer-content-header.browser.test.tsx --reporter verbose`
+  with 2 files passed, 3 tests passed.
+- Full BridgeWeb static gate passed:
+  `pnpm --dir BridgeWeb run check`.
+- Full worktree dev-server browser proof passed:
+  `pnpm --dir BridgeWeb run test:dev-server:worktree`.
+- Fresh proof artifact:
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T14-30-10-348Z/worktree-dev-server-proof.json`.
+- Fresh proof fields:
+  `productControlsProof.searchChromeProof.searchInputHeight=24`,
+  `productControlsProof.searchChromeProof.searchInputFontSize=11px`,
+  `productControlsProof.searchChromeProof.searchInputContainedInRail=true`,
+  `productControlsProof.searchChromeProof.searchInputLeft=1397`,
+  `productControlsProof.searchChromeProof.searchInputRight=1720`,
+  `productControlsProof.searchChromeProof.searchRailLeft=1389`,
+  `productControlsProof.searchChromeProof.searchRailRight=1728`,
+  `productControlsProof.searchChromeProof.searchToggleHeight=24`,
+  `productControlsProof.searchChromeProof.searchToggleFontSize=11px`,
+  `productControlsProof.searchChromeProof.regexToggleHeight=24`,
+  `productControlsProof.searchChromeProof.regexToggleFontSize=11px`,
+  `sharedShellProof.contentHeaderHeight=36`,
+  `sharedShellProof.railToolbarHeight=36`,
+  `sharedShellProof.contextFileButtonHeight=24`,
+  `sharedShellProof.contextReviewButtonHeight=24`,
+  `sharedShellProof.railSearchButtonHeight=24`,
+  `sharedShellProof.railFilterButtonHeight=24`,
+  `sharedShellProof.contentHeaderBackground=rgb(24, 24, 37)`,
+  and `sharedShellProof.railToolbarBackground=rgb(24, 24, 37)`.
+- Remaining scout inventory that is not closed by this checkpoint:
+  `BridgeWeb/src/review-viewer/shell/review-viewer-shell.tsx` still has a raw
+  route-local Review projection segmented button group, and
+  `BridgeWeb/src/review-viewer/code-view/bridge-code-view-panel.tsx` still has
+  a raw collapse/expand chrome button. These are recorded in the active plan as
+  cleanup blockers for the shared-chrome lane, not silently deferred.

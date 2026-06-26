@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import {
 	bridgeViewerChromeIconButtonClassName,
 	bridgeViewerChromeLucideIconClassName,
+	bridgeViewerChromeSearchInputClassName,
 	bridgeViewerChromeToolbarClassName,
 } from '../../app/bridge-viewer-chrome.js';
 import { cn } from '../../app/class-name.js';
@@ -153,10 +154,7 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 			data-pierre-file-tree-owner="FileTree"
 			data-testid="bridge-file-viewer-sidebar"
 		>
-			<header
-				className="grid grid-rows-[auto_auto] border-b border-[var(--bridge-border-subtle)]"
-				data-testid="bridge-file-viewer-toolbar"
-			>
+			<header className="grid grid-rows-[auto_auto]" data-testid="bridge-file-viewer-toolbar">
 				<div
 					className={cn(
 						'flex min-w-0 items-center justify-between gap-2',
@@ -166,15 +164,21 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 					data-testid="bridge-file-viewer-rail-toolbar"
 				>
 					<div
-						className="flex min-w-0 items-center gap-1.5 text-[11px] text-[var(--bridge-text-secondary)]"
+						aria-live="polite"
+						className="sr-only"
 						data-testid="bridge-file-viewer-rail-toolbar-leading"
+						role="status"
 					>
-						<span className="shrink-0" data-testid="worktree-file-filter-count">
+						{props.descriptorProjection.searchError === null
+							? `${props.descriptorProjection.descriptors.length}/${props.totalDescriptorCount}`
+							: 'Invalid regex'}{' '}
+						{props.sourceIdentity === null ? 'Source pending' : props.sourceIdentity.sourceId}
+						<span className="hidden" data-testid="worktree-file-filter-count">
 							{props.descriptorProjection.searchError === null
 								? `${props.descriptorProjection.descriptors.length}/${props.totalDescriptorCount}`
 								: 'Invalid regex'}
 						</span>
-						<span className="min-w-0 truncate" data-testid="worktree-file-provenance">
+						<span className="hidden" data-testid="worktree-file-provenance">
 							{props.sourceIdentity === null ? 'Source pending' : props.sourceIdentity.sourceId}
 						</span>
 					</div>
@@ -226,7 +230,7 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 				{shouldShowSearchInput ? (
 					<Input
 						aria-label="Search files"
-						className="mx-2 mb-1.5 h-7 border-[var(--bridge-border-opaque)] bg-[var(--bridge-header-control-bg)] text-xs"
+						className={cn('mx-2 mb-1', bridgeViewerChromeSearchInputClassName)}
 						data-testid="worktree-file-search-input"
 						onChange={(event) => {
 							props.onSearchTextChange(event.currentTarget.value);

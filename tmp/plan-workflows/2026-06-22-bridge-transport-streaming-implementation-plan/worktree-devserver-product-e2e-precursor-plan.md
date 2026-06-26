@@ -28,13 +28,13 @@ product-like." The current checkpoint stack is:
 - Fresh proof command:
   `pnpm --dir BridgeWeb run test:dev-server:worktree`
 - Fresh proof artifact:
-  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T10-13-26-058Z/worktree-dev-server-proof.json`
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T14-30-10-348Z/worktree-dev-server-proof.json`
 - Screenshot artifacts:
-  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T10-13-26-058Z/worktree-file-ready.png`
-  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T10-13-26-058Z/worktree-file-search-result.png`
-  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T10-13-26-058Z/worktree-file-stale-refresh.png`
-  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T10-13-26-058Z/worktree-review-ready.png`
-  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T10-13-26-058Z/worktree-review-file-target-ready.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T14-30-10-348Z/worktree-file-ready.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T14-30-10-348Z/worktree-file-search-result.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T14-30-10-348Z/worktree-file-stale-refresh.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T14-30-10-348Z/worktree-review-ready.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T14-30-10-348Z/worktree-review-file-target-ready.png`
 - Critical artifact rows:
   `sharedShellProof.contentTitleText = dev-worktree-source / BridgeWeb/pnpm-lock.yaml`,
   `sharedShellProof.contentTopbarStopsBeforeSidebar = true`,
@@ -62,6 +62,32 @@ product-like." The current checkpoint stack is:
   `#313244` hover, `#B4BEFE` focus, and the same active-fill token. This is the
   neutral shared-chrome correction for the current checkpoint; exact
   performance tuning and route-fanout pressure remain later proof rows.
+- Expanded FileViewer search proof rows:
+  `productControlsProof.searchChromeProof.searchInputHeight = 24`,
+  `searchInputFontSize = 11px`, `searchToggleHeight = 24`,
+  `searchToggleFontSize = 11px`, `regexToggleHeight = 24`, and
+  `regexToggleFontSize = 11px`. The screenshot-driven regression where the
+  opened search field looked like a larger form field is now covered by both
+  Vitest Browser and the dev-server verifier.
+- Expanded search containment rows:
+  `searchInputContainedInRail = true`, `searchInputLeft = 1397`,
+  `searchInputRight = 1720`, `searchRailLeft = 1389`, and
+  `searchRailRight = 1728`. This closes the onlook-caught overflow where
+  `w-full` plus horizontal margin put the search field beyond the rail edge.
+
+Remaining visual/chrome cleanup inventory from the 2026-06-26 scout pass:
+
+- `BridgeWeb/src/review-viewer/shell/review-viewer-shell.tsx` still contains a
+  raw route-local segmented button group for Review projection mode. It must
+  move to the same owned `ToggleGroup` primitive family before this visual
+  cleanup lane can be called fully clean.
+- `BridgeWeb/src/review-viewer/code-view/bridge-code-view-panel.tsx` still has a
+  raw collapse/expand chrome button. It should move to the shared
+  BridgeViewer/Review button primitive layer or be explicitly justified as a
+  different interaction.
+- Existing jsdom/unit tests may remain as lower-layer state guards only. They do
+  not satisfy visible UX proof. Future visible checkpoint records must cite
+  Vitest Browser, Playwright/dev-server, or native WKWebView evidence.
 
 The remaining blocking outcome is now:
 

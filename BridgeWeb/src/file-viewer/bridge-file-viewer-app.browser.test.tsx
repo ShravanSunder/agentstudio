@@ -53,13 +53,43 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		expect(document.querySelector('[data-testid="bridge-review-regex-toggle"]')).not.toBeNull();
 		expect(document.querySelector('[data-testid="worktree-file-filter-menu"]')).not.toBeNull();
 		expect(document.querySelector('[data-testid="worktree-file-search-input"]')).toBeNull();
-
-		requireBridgeViewerHTMLElement(
+		const searchToggle = requireBridgeViewerHTMLElement(
 			document.querySelector('[data-testid="bridge-review-search-toggle"]'),
-		).click();
+		);
+		const regexToggle = requireBridgeViewerHTMLElement(
+			document.querySelector('[data-testid="bridge-review-regex-toggle"]'),
+		);
+		expect(Math.round(searchToggle.getBoundingClientRect().height)).toBe(24);
+		expect(Math.round(regexToggle.getBoundingClientRect().height)).toBe(24);
+		expect(getComputedStyle(searchToggle).fontSize).toBe('11px');
+		expect(getComputedStyle(regexToggle).fontSize).toBe('11px');
+		const filterCount = requireBridgeViewerHTMLElement(
+			document.querySelector('[data-testid="worktree-file-filter-count"]'),
+		);
+		const sourceProvenance = requireBridgeViewerHTMLElement(
+			document.querySelector('[data-testid="worktree-file-provenance"]'),
+		);
+		expect(filterCount.getBoundingClientRect().width).toBeLessThanOrEqual(1);
+		expect(filterCount.getBoundingClientRect().height).toBeLessThanOrEqual(1);
+		expect(sourceProvenance.getBoundingClientRect().width).toBeLessThanOrEqual(1);
+		expect(sourceProvenance.getBoundingClientRect().height).toBeLessThanOrEqual(1);
+
+		searchToggle.click();
 		await waitForBridgeViewerAnimationFrame();
 
-		expect(document.querySelector('[data-testid="worktree-file-search-input"]')).not.toBeNull();
+		const searchInput = requireBridgeViewerHTMLElement(
+			document.querySelector('[data-testid="worktree-file-search-input"]'),
+		);
+		expect(Math.round(searchInput.getBoundingClientRect().height)).toBe(24);
+		expect(getComputedStyle(searchInput).fontSize).toBe('11px');
+		expect(searchInput.className).toContain('h-6');
+		expect(searchInput.className).toContain('!text-[11px]');
+		expect(searchInput.getBoundingClientRect().left).toBeGreaterThanOrEqual(
+			toolbar.getBoundingClientRect().left,
+		);
+		expect(searchInput.getBoundingClientRect().right).toBeLessThanOrEqual(
+			toolbar.getBoundingClientRect().right,
+		);
 	});
 
 	test('opens a file navigation target in the browser without auto-opening the first descriptor', async () => {
