@@ -777,11 +777,14 @@ Current checkpoint note, 2026-06-26 active-context retention:
     `__bridge_select_review_item` event and select the Review item through a
     real actionability-checked tree/search UI interaction. The smallest
     accepted verifier path is: open
-    `[data-testid="bridge-review-search-toggle"]`, type into the Pierre tree
-    search input, click the matching
-    `file-tree-container button[data-item-path]` row through Playwright
-    actionability, then prove selected display path, selected item id, selected
-    content state, and review-content route hit.
+    `button[data-testid="bridge-review-search-toggle"]`, type into the Pierre
+    tree search input
+    `[data-testid="bridge-review-trees-panel"] file-tree-container input[data-file-tree-search-input]`,
+    click the matching
+    `[data-testid="bridge-review-trees-panel"] file-tree-container button[data-item-path="<path>"][data-item-type="file"]:not([data-file-tree-sticky-row]):not([data-item-parked])`
+    row through Playwright actionability, then prove selected display path,
+    selected item id, selected content state, content-route hit for the expected
+    Review item, and a screenshot captured after the click.
   - Review file-target routing must prefer `reviewItemId`, validate
     comparison/source lineage, and only fall back to provider-approved file-ref
     mapping. The verifier must record `comparisonId`, source identity,
@@ -825,12 +828,25 @@ Test-first anchors for the next implementation slice:
   refinements exclude it.
 - Replace the dev-server Review selection verifier's
   `__bridge_select_review_item` helper with the real tree/search click path
-  above. This is verifier work, not a product shortcut.
+  above. This is verifier work, not a product shortcut. A source-text guard is
+  acceptable as a lower-layer regression check, but cannot replace the
+  Playwright/dev-server proof.
 
 Current visual/layout note, 2026-06-26 accepted-C refresh:
 
 - Fresh dev-server proof passed:
-  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T06-06-36-494Z/worktree-dev-server-proof.json`.
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T08-25-12-296Z/worktree-dev-server-proof.json`.
+- The verifier now saves Review screenshots directly in `screenshotPaths`
+  instead of requiring manual supplemental Review captures:
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T08-25-12-296Z/worktree-file-ready.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T08-25-12-296Z/worktree-review-ready.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T08-25-12-296Z/worktree-review-file-target-ready.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T08-25-12-296Z/worktree-file-search-result.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T08-25-12-296Z/worktree-file-stale-refresh.png`
+- Parent visual inspection of the fresh verifier screenshots confirms the
+  accepted-C geometry and shared visual language for Files, Review diff, and
+  Review file-target. This picture refresh does not close the Review real-click
+  proof because the Review verifier still uses `__bridge_select_review_item`.
 - Fresh accepted-C screenshots and geometry:
   - `tmp/bridge-viewer-design-proof/2026-06-26T07-56-40-567Z-accepted-c-user-refresh-ready/files.png`
   - `tmp/bridge-viewer-design-proof/2026-06-26T07-56-40-567Z-accepted-c-user-refresh-ready/review-diff.png`

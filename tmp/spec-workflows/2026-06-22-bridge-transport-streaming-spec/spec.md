@@ -1869,6 +1869,37 @@ Latest design-geometry refresh:
   content-load latency and preload behavior remain under the FileViewer
   scheduler/content proof gate.
 
+Latest accepted-C verifier screenshot refresh:
+
+- `pnpm --dir BridgeWeb run test:dev-server:worktree` passed after the verifier
+  was updated to save Review screenshots as first-class proof fields, not only
+  Files screenshots.
+- Fresh proof artifact:
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T08-25-12-296Z/worktree-dev-server-proof.json`
+- Screenshot proof now recorded by the verifier itself:
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T08-25-12-296Z/worktree-file-ready.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T08-25-12-296Z/worktree-review-ready.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T08-25-12-296Z/worktree-review-file-target-ready.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T08-25-12-296Z/worktree-file-search-result.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T08-25-12-296Z/worktree-file-stale-refresh.png`
+- Parent visual inspection confirms that Files, Review diff, and Review
+  file-target screenshots use the accepted-C layout: title/source in the left
+  content-header slot, `Files | Review` and content actions in the right
+  content-header slot, header ending before the right rail, right rail
+  top-aligned, Pierre FileTree on the right, and Pierre/Shiki CodeView/File on
+  the left.
+- This is still not closure for the Review tree interaction proof row. The
+  Review route screenshot is now captured by the verifier, but the Review route
+  selection path must still be changed from the synthetic
+  `__bridge_select_review_item` helper to a real Playwright tree/search click.
+  The accepted selector contract for that next proof is:
+  `button[data-testid="bridge-review-search-toggle"]` opens search;
+  `[data-testid="bridge-review-trees-panel"] file-tree-container
+  input[data-file-tree-search-input]` receives the query; and
+  `[data-testid="bridge-review-trees-panel"] file-tree-container
+  button[data-item-path="<path>"][data-item-type="file"]:not([data-file-tree-sticky-row]):not([data-item-parked])`
+  is the row clicked through browser actionability.
+
 Latest active-context retention checkpoint:
 
 - `BridgeWeb/src/app/bridge-app.tsx` keeps Review projection coordination fed

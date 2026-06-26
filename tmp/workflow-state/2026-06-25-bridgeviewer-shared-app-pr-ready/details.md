@@ -1073,3 +1073,32 @@ Open implementation blockers remain:
   implementation gates: real Review tree interaction proof, neutral shared
   chrome ownership, route fanout/content pressure, file-load/preload telemetry,
   or native Agent Studio Bridge/WKWebView proof.
+
+2026-06-26 accepted-C verifier screenshot refresh:
+
+- `BridgeWeb/scripts/verify-bridge-viewer-worktree-dev-server.ts` now records
+  Review and Review file-target screenshots in the verifier proof instead of
+  leaving Review visual proof as a manual supplemental capture.
+- Fresh dev-server proof passed:
+  `pnpm --dir BridgeWeb run test:dev-server:worktree`.
+- Fresh proof artifact:
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T08-25-12-296Z/worktree-dev-server-proof.json`.
+- Fresh pictures inspected:
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T08-25-12-296Z/worktree-file-ready.png`,
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T08-25-12-296Z/worktree-review-ready.png`,
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T08-25-12-296Z/worktree-review-file-target-ready.png`,
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T08-25-12-296Z/worktree-file-search-result.png`,
+  and
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T08-25-12-296Z/worktree-file-stale-refresh.png`.
+- Parent inspection confirms the accepted-C layout remains visually correct in
+  Files, Review diff, and Review file-target: title/source left, `Files |
+  Review` plus content actions right in the content-only header, right rail
+  top-aligned outside the header, Pierre FileTree on the right, and
+  Pierre/Shiki CodeView/File on the left.
+- Durable spec, tmp spec, and active plan now point at this verifier-owned
+  screenshot packet and the exact Review tree search selectors required for the
+  next real-click verifier implementation.
+- Still open: the Review route verifier still uses
+  `__bridge_select_review_item`; next implementation step must replace it with
+  the real Pierre tree search click path before the Review tree interaction
+  proof can close.

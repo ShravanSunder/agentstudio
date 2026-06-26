@@ -150,6 +150,8 @@ interface WorktreeDevServerBrowserProof {
 
 interface WorktreeDevServerScreenshotPaths {
 	readonly ready: string;
+	readonly review: string;
+	readonly reviewFileTarget: string;
 	readonly search: string;
 	readonly stale: string;
 }
@@ -378,6 +380,7 @@ interface WorktreeReviewRouteProof {
 	readonly reviewPackageShellCount: number;
 	readonly reviewSelectedContentState: string | null;
 	readonly reviewSelectedDisplayPath: string | null;
+	readonly screenshotPath: string;
 	readonly sharedShellMode: string | null;
 	readonly sharedShellOwner: string | null;
 	readonly standaloneWorktreeFileAppCount: number;
@@ -393,6 +396,7 @@ interface WorktreeReviewFileTargetRouteProof {
 	readonly reviewContentRouteHitCount: number;
 	readonly reviewContentRouteHitUrls: readonly string[];
 	readonly reviewPackageRouteHitCount: number;
+	readonly screenshotPath: string;
 	readonly selectedContentRoleCount: number;
 	readonly selectedContentState: string | null;
 	readonly selectedDisplayPath: string | null;
@@ -852,6 +856,8 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 			scenarioName: scenarioNameFromDevServerUrl(worktreeDevServerUrl),
 			screenshotPaths: {
 				ready: readyScreenshotPath,
+				review: reviewRouteProof.screenshotPath,
+				reviewFileTarget: reviewFileTargetRouteProof.screenshotPath,
 				search: productControlsProof.searchScreenshotPath,
 				stale: staleRefreshProof.staleScreenshotPath,
 			},
@@ -997,6 +1003,10 @@ async function verifyWorktreeReviewRoute(): Promise<WorktreeReviewRouteProof> {
 			reviewExtensionlessSelectedDisplayPath: extensionlessState.selectedDisplayPath,
 			reviewPackageRouteHitCount: routeProbe.packageHitCount(),
 			reviewPackageRouteHitUrls: routeProbe.packageHitUrls(),
+			screenshotPath: await captureWorktreeDevServerScreenshot({
+				name: 'worktree-review-ready.png',
+				page,
+			}),
 			locationHref: await page.evaluate(() => window.location.href),
 			pageUrl: page.url(),
 		} satisfies WorktreeReviewRouteProof;
@@ -1150,6 +1160,10 @@ async function verifyWorktreeReviewFileTargetRoute(): Promise<WorktreeReviewFile
 			reviewContentRouteHitCount: routeProbe.contentHitCount(),
 			reviewContentRouteHitUrls: routeProbe.contentHitUrls(),
 			reviewPackageRouteHitCount: routeProbe.packageHitCount(),
+			screenshotPath: await captureWorktreeDevServerScreenshot({
+				name: 'worktree-review-file-target-ready.png',
+				page,
+			}),
 		} satisfies WorktreeReviewFileTargetRouteProof;
 		if (
 			routeProof.appOwner !== 'BridgeApp' ||
