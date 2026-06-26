@@ -788,3 +788,43 @@ Current open work:
 - File click-to-ready latency and speculative preload lanes still need
   telemetry-backed tuning.
 - Native Agent Studio Bridge/WKWebView proof is still required before PR-ready.
+
+## 2026-06-26 Accepted-C Visual Refresh
+
+Accepted decision C is now the named shared-shell design target:
+
+- one `BridgeViewerAppShell`;
+- content topbar/header only over the left content canvas;
+- title/source on the left of that header;
+- `Files | Review` switcher plus content actions on the right of that header;
+- Pierre right rail remains full-height and top-aligned at `y=0`;
+- FileViewer and ReviewViewer use the same compact shared chrome/control scale.
+
+Fresh screenshots and geometry proof:
+
+- `tmp/bridge-viewer-design-proof/2026-06-26T05-41-43-291Z-accepted-c-refresh/files.png`
+- `tmp/bridge-viewer-design-proof/2026-06-26T05-41-43-291Z-accepted-c-refresh/review-diff.png`
+- `tmp/bridge-viewer-design-proof/2026-06-26T05-41-43-291Z-accepted-c-refresh/review-file-target.png`
+- `tmp/bridge-viewer-design-proof/2026-06-26T05-41-43-291Z-accepted-c-refresh/accepted-c-design-proof.json`
+- `tmp/workflow-state/2026-06-25-bridgeviewer-shared-app-pr-ready/accepted-c-visual-onlook-2026-06-26.md`
+
+The proof records Files, Review diff, and Review file-target routes with:
+
+- `shellOwner=BridgeViewerAppShell`;
+- `contentHeaderEndsBeforeRail=true`;
+- `railStartsAtTop=true`;
+- `canvasBelowHeader=true`;
+- `switcherInsideTopbar=true`;
+- `railToolbarHeight=28`;
+- `searchControlHeight=28`;
+- `standaloneWorktreeFileAppCount=0`.
+
+Second-agent/onlook result:
+
+- PASS for accepted-C topbar placement, rail top alignment, switcher placement,
+  compact shared controls, and no standalone/minimal second app.
+
+This refresh proves the accepted design geometry only. It does not close
+FileViewer click-to-ready latency, speculative preload behavior, Review route
+fanout/content pressure, implementation review, or native Agent Studio
+Bridge/WKWebView proof.

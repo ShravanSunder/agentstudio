@@ -243,8 +243,13 @@ BridgeViewerAppShell
   └──────────────────────────────────────────────────────────────┴─────────────┘
 ```
 
-This is the accepted content-header layout. The header is a row inside the left
-content region, not a full-window toolbar:
+Accepted decision C: the BridgeViewer shell has one content header, and that
+header belongs only to the left content region. The source/title sits on the
+left of that header. The `Files | Review` switcher and content actions sit on
+the right of that same header. The Pierre right rail is not part of the header;
+it stays full-height and top-aligned. This is the accepted content-header
+layout. The header is a row inside the left content region, not a full-window
+toolbar:
 
 ```text
 full viewer width
@@ -1811,18 +1816,21 @@ Latest accepted visible-shell checkpoint:
 Latest design-geometry refresh:
 
 - Screenshot/geometry artifacts:
-  - `tmp/bridge-viewer-design-proof/2026-06-26T03-04-21-148Z/file.png`
-  - `tmp/bridge-viewer-design-proof/2026-06-26T03-04-21-148Z/review.png`
-  - `tmp/bridge-viewer-design-proof/2026-06-26T03-04-21-148Z/review-file-target.png`
-  - `tmp/bridge-viewer-design-proof/2026-06-26T03-04-21-148Z/geometry.json`
+  - `tmp/bridge-viewer-design-proof/2026-06-26T05-41-43-291Z-accepted-c-refresh/files.png`
+  - `tmp/bridge-viewer-design-proof/2026-06-26T05-41-43-291Z-accepted-c-refresh/review-diff.png`
+  - `tmp/bridge-viewer-design-proof/2026-06-26T05-41-43-291Z-accepted-c-refresh/review-file-target.png`
+  - `tmp/bridge-viewer-design-proof/2026-06-26T05-41-43-291Z-accepted-c-refresh/accepted-c-design-proof.json`
 - The geometry artifact records, for Files, Review diff, and Review file-target
   routes, content topbar `left=0`, `right=1708`, `height=36`; right rail
   `left=1708`, `width=340`, `top=0`; code canvas `top=36`; and
   `contentHeaderEndsBeforeRail=true`, `railStartsAtTop=true`,
-  `canvasBelowHeader=true`.
-- This refresh is design-geometry evidence, not full content-load closure: the
-  FileViewer screenshot still shows `Loading file`, so content-load latency and
-  preload behavior remain under the FileViewer scheduler/content proof gate.
+  `canvasBelowHeader=true`, and `switcherInsideTopbar=true`.
+- This refresh specifically records accepted decision C: title/source left,
+  `Files | Review` plus content actions right, content header ending before the
+  right rail, and right rail top-aligned at `y=0`.
+- This refresh is design-geometry evidence, not full content-load closure:
+  content-load latency and preload behavior remain under the FileViewer
+  scheduler/content proof gate.
 
 Latest active-context retention checkpoint:
 

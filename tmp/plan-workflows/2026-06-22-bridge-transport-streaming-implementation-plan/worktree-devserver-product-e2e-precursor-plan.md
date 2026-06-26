@@ -71,7 +71,7 @@ New checkpoint rule from the 2026-06-25 UX review:
   intended shared shell state in the plan or proof packet. The design target is
   a gate input, not something inferred from a passing DOM test.
 
-Shared shell design target for Gate 0.a:
+Shared shell design target for Gate 0.a, accepted as decision C:
 
 ```text
 BridgeViewerAppShell
@@ -151,6 +151,9 @@ Plan sequence changed after the 2026-06-25 navigation decision:
      chrome parity correction. Required pictures: Files context, Review diff
      context, Review file-target context, and a geometry/topbar/right-rail
      record showing the header stops at the rail and the rail starts at y=0.
+     Fresh accepted-C refresh:
+     `tmp/bridge-viewer-design-proof/2026-06-26T05-41-43-291Z-accepted-c-refresh/accepted-c-design-proof.json`
+     plus `files.png`, `review-diff.png`, and `review-file-target.png`.
 
 0.a.5 file-load responsiveness/performance proof
   -> proves clicking files does not feel slow under the large worktree fixture,
