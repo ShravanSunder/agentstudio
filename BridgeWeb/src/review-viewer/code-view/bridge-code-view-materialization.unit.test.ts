@@ -140,6 +140,28 @@ describe('Bridge CodeView materialization', () => {
 		});
 	});
 
+	test('materializes a file-target loading item without changing its CodeView item type', () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const item = reviewPackage.itemsById['source-high'];
+		if (item === undefined) {
+			throw new Error('expected fixture diff item');
+		}
+
+		const loadingItem = materializeBridgeCodeViewLoadingItem(item, {
+			kind: 'file',
+			version: 'current',
+		});
+
+		if (loadingItem.type !== 'file') {
+			throw new Error('expected selected review file target loading item to keep file view');
+		}
+		expect(loadingItem.bridgeMetadata).toMatchObject({
+			contentState: 'loading',
+			contentRoles: [],
+			itemId: item.itemId,
+		});
+	});
+
 	test('keeps a diff placeholder as a diff when only one role is loaded', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const item = reviewPackage.itemsById['docs-plan'];

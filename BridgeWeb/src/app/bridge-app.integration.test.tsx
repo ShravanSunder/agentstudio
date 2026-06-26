@@ -51,6 +51,7 @@ import {
 	selectedContentResourcesStateFromLoadResult,
 	selectedContentUnavailablePathForCurrentSelection,
 } from './bridge-app.js';
+import type { BridgeViewerNavigationCommand } from './bridge-viewer-navigation-models.js';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -2618,6 +2619,141 @@ describe('BridgeApp', () => {
 		expect(selectedBridgeViewerPanelAttribute('data-selected-content-state')).toBe('ready');
 	});
 
+	test('applies review file target by reviewItemId before path fallback', async () => {
+		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
+		const reviewPackage = makeDuplicatePathReviewPackage();
+		const requestedUrls: string[] = [];
+		const navigationCommand = makeReviewFileNavigationCommand({
+			commandId: 'test:review:file-target:duplicate-path',
+			path: 'Sources/App/View.swift',
+			reviewItemId: 'item-duplicate-path',
+		});
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeApp
+					fetchContent={async (url: string): Promise<Response> => {
+						requestedUrls.push(url);
+						return new Response(url.includes('duplicate') ? 'duplicate text' : 'source text');
+					}}
+					navigationCommand={navigationCommand}
+				/>,
+			);
+		});
+
+		await pushReviewPackage(reviewPackage);
+		await waitForSelectedItemId('item-duplicate-path');
+		await waitForRequestedUrl(requestedUrls, 'handle-item-duplicate-path-head');
+	});
+
+	test('reapplies same review navigation command after selection moved elsewhere', async () => {
+		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
+		const reviewPackage = makeTwoItemReviewPackage();
+		const requestedUrls: string[] = [];
+		const navigationCommand = makeReviewFileNavigationCommand({
+			commandId: 'test:review:file-target:source',
+			path: 'Sources/App/View.swift',
+			reviewItemId: 'item-source',
+		});
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeApp
+					fetchContent={async (url: string): Promise<Response> => {
+						requestedUrls.push(url);
+						return new Response(url.includes('item-second') ? 'second text' : 'source text');
+					}}
+					navigationCommand={navigationCommand}
+				/>,
+			);
+		});
+
+		await pushReviewPackage(reviewPackage);
+		await waitForSelectedItemId('item-source');
+		await act(async (): Promise<void> => {
+			const secondButton = findReviewTreeItemButton('Sources/App/Second.swift');
+			if (secondButton === null) {
+				throw new Error('expected second review item button');
+			}
+			secondButton.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+			await Promise.resolve();
+			await waitForAnimationFrame();
+		});
+		await waitForSelectedItemId('item-second');
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeApp
+					fetchContent={async (url: string): Promise<Response> => {
+						requestedUrls.push(url);
+						return new Response(url.includes('item-second') ? 'second text' : 'source text');
+					}}
+					navigationCommand={{ ...navigationCommand }}
+				/>,
+			);
+			await Promise.resolve();
+			await waitForAnimationFrame();
+		});
+
+		await waitForSelectedItemId('item-source');
+	});
+
+	test('explicit review file target clears retained filters hiding the target', async () => {
+		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
+		const reviewPackage = makeSourceAndDocsReviewPackage();
+		const requestedUrls: string[] = [];
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeApp
+					fetchContent={async (url: string): Promise<Response> => {
+						requestedUrls.push(url);
+						return new Response(url.includes('item-docs') ? '# Plan\n' : 'source text');
+					}}
+				/>,
+			);
+		});
+
+		await pushReviewPackage(reviewPackage);
+		await waitForSelectedItemId('item-source');
+		await dispatchBridgeAppControl({
+			method: 'bridge.fileTree.setFilter',
+			gitStatusFilter: 'all',
+			fileClassFilter: 'docs',
+		});
+		await waitForSelectedItemId('item-docs');
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeApp
+					fetchContent={async (url: string): Promise<Response> => {
+						requestedUrls.push(url);
+						return new Response(url.includes('item-docs') ? '# Plan\n' : 'source text');
+					}}
+					navigationCommand={makeReviewFileNavigationCommand({
+						commandId: 'test:review:file-target:source-after-docs-filter',
+						path: 'Sources/App/View.swift',
+						reviewItemId: 'item-source',
+					})}
+				/>,
+			);
+			await Promise.resolve();
+			await waitForAnimationFrame();
+		});
+
+		await waitForSelectedItemId('item-source');
+		await waitForRequestedUrl(requestedUrls, 'handle-item-source-head');
+	});
+
 	test('page control rejects scrollToFile for package items filtered out of the mounted CodeView', async () => {
 		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
 		const reviewPackage = makeBridgeReviewPackage();
@@ -3503,6 +3639,91 @@ function makeTwoItemReviewPackage(): ReturnType<typeof makeBridgeReviewPackage> 
 			...reviewPackage.summary,
 			filesChanged: 2,
 			visibleFileCount: 2,
+		},
+	};
+}
+
+function makeDuplicatePathReviewPackage(): ReturnType<typeof makeBridgeReviewPackage> {
+	const reviewPackage = makeBridgeReviewPackage();
+	const sourceItem = reviewPackage.itemsById['item-source'];
+	if (sourceItem === undefined) {
+		throw new Error('expected source item fixture');
+	}
+	const duplicateBaseHandle: BridgeContentHandle | null = isMissingContentHandle(
+		sourceItem.contentRoles.base,
+	)
+		? null
+		: {
+				...sourceItem.contentRoles.base,
+				handleId: 'handle-item-duplicate-path-base',
+				itemId: 'item-duplicate-path',
+				resourceUrl:
+					'agentstudio://resource/review/content/handle-item-duplicate-path-base?generation=1',
+				cacheKey: 'item-duplicate-path:base',
+			};
+	const duplicateHeadHandle: BridgeContentHandle | null = isMissingContentHandle(
+		sourceItem.contentRoles.head,
+	)
+		? null
+		: {
+				...sourceItem.contentRoles.head,
+				handleId: 'handle-item-duplicate-path-head',
+				itemId: 'item-duplicate-path',
+				resourceUrl:
+					'agentstudio://resource/review/content/handle-item-duplicate-path-head?generation=1',
+				cacheKey: 'item-duplicate-path:head',
+			};
+	const duplicateItem = {
+		...sourceItem,
+		itemId: 'item-duplicate-path',
+		contentRoles: {
+			base: duplicateBaseHandle,
+			head: duplicateHeadHandle,
+			diff: null,
+			file: null,
+		},
+		cacheKey: 'item-duplicate-path:base|item-duplicate-path:head',
+	};
+
+	return {
+		...reviewPackage,
+		orderedItemIds: ['item-source', 'item-duplicate-path'],
+		itemsById: {
+			...reviewPackage.itemsById,
+			'item-duplicate-path': duplicateItem,
+		},
+		summary: {
+			...reviewPackage.summary,
+			filesChanged: 2,
+			visibleFileCount: 2,
+		},
+	};
+}
+
+function makeReviewFileNavigationCommand(props: {
+	readonly commandId: string;
+	readonly path: string;
+	readonly reviewItemId: string;
+}): BridgeViewerNavigationCommand {
+	return {
+		commandId: props.commandId,
+		commandKind: 'activateTarget',
+		context: 'review',
+		restoreMemory: true,
+		source: {
+			sourceKind: 'reviewComparison',
+			sourceId: 'review-source-1',
+			comparisonId: 'comparison-1',
+		},
+		target: {
+			targetKind: 'file',
+			comparisonId: 'comparison-1',
+			fileRef: {
+				sourceId: 'review-source-1',
+				path: props.path,
+			},
+			reviewItemId: props.reviewItemId,
+			version: 'current',
 		},
 	};
 }

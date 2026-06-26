@@ -153,7 +153,7 @@ The first implementation sequence after plan review is:
     - file target query proof JSON:
       `tmp/bridge-viewer-worktree-file-target-proof/2026-06-26T-file-query-target-rerun/proof.json`
     - latest dev-server proof JSON:
-      `tmp/bridge-viewer-worktree-dev-server/2026-06-26T04-24-15-308Z/worktree-dev-server-proof.json`
+      `tmp/bridge-viewer-worktree-dev-server/2026-06-26T07-11-01-784Z/worktree-dev-server-proof.json`
 
 0.a.6 Agent Studio Bridge/WKWebView proof
   proves Files context, Review diff context, Review file-target context, and
@@ -946,6 +946,10 @@ Fresh ready screenshots and geometry:
 - `tmp/bridge-viewer-design-proof/2026-06-26T06-41-32-966Z-accepted-c-doc-refresh-ready/review-diff.png`
 - `tmp/bridge-viewer-design-proof/2026-06-26T06-41-32-966Z-accepted-c-doc-refresh-ready/review-file-target.png`
 - `tmp/bridge-viewer-design-proof/2026-06-26T06-41-32-966Z-accepted-c-doc-refresh-ready/accepted-c-design-proof.json`
+- `tmp/bridge-viewer-worktree-dev-server/2026-06-26T07-11-01-784Z/worktree-file-ready.png`
+- `tmp/bridge-viewer-worktree-dev-server/2026-06-26T07-11-01-784Z/worktree-file-search-result.png`
+- `tmp/bridge-viewer-worktree-dev-server/2026-06-26T07-11-01-784Z/worktree-file-stale-refresh.png`
+- `tmp/bridge-viewer-worktree-dev-server/2026-06-26T07-11-01-784Z/worktree-dev-server-proof.json`
 
 The screenshot proof records:
 
@@ -964,9 +968,80 @@ Open implementation blockers remain:
 - Review tree interaction verifier still needs the real click path;
 - Review file-target resolver/proof must prefer `reviewItemId` and record
   lineage honestly;
-- explicit Review targets must override retained search/filter refinements;
+- explicit Review targets must clear retained Review search/filter refinements
+  that hide the requested target;
 - repeated deterministic navigation commands must replay when the current
   selection moved away;
 - neutral BridgeViewer shared chrome extraction;
 - route fanout/content pressure and file-load/preload telemetry;
 - native Agent Studio Bridge/WKWebView proof.
+
+2026-06-26 current spec/design refresh:
+
+- Parent and tmp specs are byte-aligned after the refresh. The parent spec now
+  states that Worktree/File and dev query paths provide selector intent only;
+  Review must accept the selector before app composition may create a
+  `reviewComparison` navigation command.
+- Worktree/File child protocol now points to the canonical parent navigation
+  shape instead of defining a weaker path-only Review file target. Its required
+  Review file-target proof URL includes `workers=on`,
+  `scenario=current-worktree`, and `version=<base|head|current>`.
+- Neutral shared chrome now has a concrete forbidden edge: shared
+  BridgeViewer shell/header/context switcher/rail-control code must not
+  permanently import Review-only chrome modules through direct imports,
+  re-export wrappers, or aliases.
+- Security wording is protocol-neutral: forged page-world frames from Review,
+  Worktree/File, dev fixtures, markdown, or agent communication can corrupt UI
+  projection at worst; byte authority still requires a Swift-issued lease.
+- Fresh dev-server proof passed:
+  `pnpm --dir BridgeWeb run test:dev-server:worktree`.
+- Fresh proof artifact:
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T07-11-01-784Z/worktree-dev-server-proof.json`.
+- Fresh pictures inspected:
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T07-11-01-784Z/worktree-file-ready.png`,
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T07-11-01-784Z/worktree-file-search-result.png`,
+  and
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T07-11-01-784Z/worktree-file-stale-refresh.png`.
+- Focused implementation anchors are now red for expected reasons:
+  `applies review file target by reviewItemId before path fallback`,
+  `reapplies same review navigation command after selection moved elsewhere`,
+  and `explicit review file target clears retained filters hiding the target`.
+
+2026-06-26 implementation/design checkpoint after accepting option C:
+
+- Focused Review navigation anchors are now green:
+  `pnpm --dir BridgeWeb exec vitest run src/review-viewer/code-view/bridge-code-view-materialization.unit.test.ts src/app/bridge-app.integration.test.tsx -t "file-target loading|review file target|same review navigation command|explicit review file target" --reporter verbose`
+  exited 0 with 2 files passed, 6 tests passed, 59 skipped.
+- Broader BridgeApp/CodeView focused suite is green:
+  `pnpm --dir BridgeWeb exec vitest run src/review-viewer/code-view/bridge-code-view-materialization.unit.test.ts src/review-viewer/code-view/bridge-code-view-controller.unit.test.ts src/app/bridge-app.integration.test.tsx --reporter verbose`
+  exited 0 with 3 files passed, 69 tests passed.
+- Fresh dev-server proof passed:
+  `pnpm --dir BridgeWeb run test:dev-server:worktree`.
+- Fresh dev-server proof artifact:
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T07-29-01-656Z/worktree-dev-server-proof.json`.
+- Fresh Files screenshots:
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T07-29-01-656Z/worktree-file-ready.png`,
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T07-29-01-656Z/worktree-file-search-result.png`,
+  and
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T07-29-01-656Z/worktree-file-stale-refresh.png`.
+- Supplemental Review screenshots because the verifier saved only Files route
+  screenshots:
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T07-29-01-656Z/manual-review-mode-screenshots/review-diff.png`,
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T07-29-01-656Z/manual-review-mode-screenshots/review-file-target.png`,
+  and
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T07-29-01-656Z/manual-review-mode-screenshots/manual-review-mode-screenshots.json`.
+- The supplemental Review screenshot JSON records:
+  `reviewDiff.materializedType=diff`,
+  `reviewFileTarget.materializedType=file`,
+  `contentTopbar.right=1388`,
+  `codePanel.top=36`,
+  `reviewRail.top=6`,
+  and `contextSwitcherInsideTopbar=true` for both Review routes.
+- Browser/onlook agent `019f02d6-d856-7db0-95f1-db3475872a4a` found no P0/P1/P2
+  issues, passed the Files-context C slice, and correctly marked the automated
+  screenshot set insufficient for full accepted-C closure until Review
+  screenshots were supplied.
+- `pnpm --dir BridgeWeb run check` initially failed only on formatting for
+  `src/app/bridge-app.tsx`; `pnpm --dir BridgeWeb exec oxfmt --write
+  src/app/bridge-app.tsx` fixed that. Re-run `pnpm --dir BridgeWeb run check`
+  before committing.

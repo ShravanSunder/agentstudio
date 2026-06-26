@@ -179,20 +179,38 @@ Zustand must not store large file bodies, raw diff bodies, worker instances,
 Pierre instances, stream handles, resource executors, or fetched content bytes.
 Those remain in descriptor-backed content/materialization paths.
 
+The canonical navigation command/source/target schema lives in the parent
+BridgeViewer transport spec. This child protocol uses the same vocabulary; it
+must not define a path-only Review file target. The local TypeScript shape below
+is an illustrative projection of the canonical schema for this surface:
+
 ```ts
 export type BridgeViewerContext =
   | { readonly kind: 'review'; readonly sourceId: string }
   | { readonly kind: 'files'; readonly sourceId: string };
 
 export type BridgeViewerTarget =
-  | { readonly kind: 'diff'; readonly sourceId: string; readonly itemId: string }
+  | {
+      readonly kind: 'diff';
+      readonly sourceId: string;
+      readonly itemId: string;
+      readonly comparisonId: string;
+    }
   | {
       readonly kind: 'file';
       readonly sourceId: string;
       readonly fileRef: BridgeFileRef;
       readonly version: 'base' | 'head' | 'current';
+      readonly reviewItemId?: string;
+      readonly comparisonId?: string;
     };
 ```
+
+When `kind === 'file'` and the active context is Review, `reviewItemId` is the
+preferred resolution key before file-ref/path fallback. `comparisonId` must
+match the accepted Review comparison authority once that authority exists.
+Worktree/File context file targets use `version: 'current'` and do not mint
+Review comparison authority.
 
 Context chooses the navigation behavior and source materializer. Target chooses
 the left canvas presentation:
@@ -274,12 +292,17 @@ Required dev navigation examples:
   -> source = current worktree comparison source
   -> default target = first diff item
 
-/?fixture=worktree&viewer=review&presentation=file&path=<path>
+/?fixture=worktree&viewer=review&presentation=file&workers=on&scenario=current-worktree&path=<path>&version=<base|head|current>
   -> BridgeViewer context = review
   -> path is a bootstrap hint
   -> target = typed Review file target with comparison id, review item or
      resolved file ref, and version
 ```
+
+The shorter conceptual form
+`/?fixture=worktree&viewer=review&presentation=file&path=<path>` is not accepted
+Gate 0.a proof. Required proof uses the worker-backed current-worktree scenario,
+records `version`, and records the accepted Review comparison/source lineage.
 
 Production Swift must create equivalent `BridgeViewerNavigationCommand` messages
 and send them through Bridge/app composition. Users do not see or edit query

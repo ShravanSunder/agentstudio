@@ -28,11 +28,14 @@ product-like." The current checkpoint stack is:
 - Fresh proof command:
   `pnpm --dir BridgeWeb run test:dev-server:worktree`
 - Fresh proof artifact:
-  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T02-32-00-284Z/worktree-dev-server-proof.json`
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T07-29-01-656Z/worktree-dev-server-proof.json`
 - Screenshot artifacts:
-  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T02-32-00-284Z/manual-shared-shell-proof/file.png`
-  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T02-32-00-284Z/manual-shared-shell-proof/review.png`
-  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T02-32-00-284Z/manual-shared-shell-proof/reviewFileTarget.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T07-29-01-656Z/worktree-file-ready.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T07-29-01-656Z/worktree-file-search-result.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T07-29-01-656Z/worktree-file-stale-refresh.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T07-29-01-656Z/manual-review-mode-screenshots/review-diff.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T07-29-01-656Z/manual-review-mode-screenshots/review-file-target.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T07-29-01-656Z/manual-review-mode-screenshots/manual-review-mode-screenshots.json`
 - Critical artifact rows:
   `sharedShellProof.contentTitleText = dev-worktree-source / BridgeWeb/pnpm-lock.yaml`,
   `sharedShellProof.contentTopbarStopsBeforeSidebar = true`,
@@ -161,6 +164,17 @@ Plan sequence changed after the 2026-06-25 navigation decision:
      layout only and does not close inactive side effects, Review file-target
      lineage, neutral chrome ownership, context memory behavior, or
      file-load/preload behavior.
+     Fresh implementation proof on 2026-06-26T07:29Z reran
+     `pnpm --dir BridgeWeb run test:dev-server:worktree` and produced
+     `tmp/bridge-viewer-worktree-dev-server/2026-06-26T07-29-01-656Z/worktree-dev-server-proof.json`.
+     The verifier saved Files screenshots only, so supplemental Playwright
+     screenshots were captured for Review diff and Review file-target under
+     `tmp/bridge-viewer-worktree-dev-server/2026-06-26T07-29-01-656Z/manual-review-mode-screenshots/`.
+     Browser/onlook agent `019f02d6-d856-7db0-95f1-db3475872a4a` judged the
+     Files screenshots sufficient for the Files-context C slice but
+     insufficient for full accepted-C closure without the supplemental Review
+     captures; those supplemental captures now record `materializedType=diff`
+     for Review diff and `materializedType=file` for Review file-target.
 
 0.a.5 file-load responsiveness/performance proof
   -> proves clicking files does not feel slow under the large worktree fixture,
@@ -581,6 +595,12 @@ Bridge design system where applicable. Shared BridgeViewer chrome primitives
 must have a neutral owner. Review-namespaced button/icon primitives may be a
 temporary checkpoint implementation detail only if the implementation review
 records the debt and a follow-up cutover; they are not the target architecture.
+The closure invariant is explicit: shared BridgeViewer shell/header/context
+switcher/rail-control code must not permanently import Review-only chrome
+modules through direct imports, re-export wrappers, or aliases. The implementation
+checkpoint must either move the shared primitive ownership to a neutral
+BridgeViewer/shared UI module or record the remaining Review-owned import as
+open debt that blocks PR-ready status.
 Do not add route-local raw buttons,
 inputs, or one-off styling when a shared primitive exists or should be extended.
 The visible chrome should be reconciled against DiffsHub/Pierre and the existing
@@ -761,9 +781,11 @@ Current checkpoint note, 2026-06-26 active-context retention:
     Strict `comparisonId` enforcement needs a Review package/runtime authority
     extension before it can be honestly enforced; do not fake it with path-only
     proof.
-  - Explicit Files -> Review handoff must override or clear retained Review
-    search/filter refinements that hide the requested target; falling back to
-    the first visible projected item is a bug.
+  - Explicit Files -> Review handoff must clear retained Review search/filter
+    refinements that hide the requested target before selecting, so the target
+    row becomes visible and the selected item lineage can be inspected.
+    Silently selecting a hidden target or falling back to the first visible
+    projected item is a bug.
   - Repeating the same navigation intent must reapply when the current target
     has moved elsewhere; lifetime command-id latching is too broad.
   - Context memory proof must be browser-visible for rail search/filter state
@@ -771,9 +793,11 @@ Current checkpoint note, 2026-06-26 active-context retention:
   - Neutral shared-chrome primitive ownership remains open while shared
     FileViewer/header controls import Review-namespaced primitives.
   - Review content route fanout remains visible in the proof artifact,
-    including high review route hit counts; file-click responsiveness/preload
-    telemetry is not tuned; and native Agent Studio Bridge/WKWebView product
-    proof is still required.
+    including high review route hit counts. Slice 06P.4/0.a.5 owns closing the
+    Review route-fanout/content-pressure observation together with FileViewer
+    preload latency, using browser proof plus Victoria-backed telemetry. Native
+    Agent Studio Bridge/WKWebView product proof is still required by 0.a.6 and
+    cannot be satisfied by Vite/dev-server screenshots alone.
 
 Test-first anchors for the next implementation slice:
 
@@ -851,6 +875,34 @@ Proof:
   first pass may keep conservative defaults, but it must emit enough telemetry
   to tell whether slow click-to-ready time comes from provider I/O, descriptor
   scheduling, worker rendering, or UI commit.
+- Review route-fanout/content-pressure is part of this slice, not a detached
+  follow-up. The proof artifact must record Review route hits, cancellations,
+  stale drops, queue depth, in-flight count, and bytes admitted for Review
+  file-target navigation as well as Files click-to-ready navigation.
+
+### Slice 06P.6 / 0.a.6: Native Agent Studio Bridge/WKWebView Proof
+
+Prove the same shared-app behavior inside Agent Studio's native Bridge pane.
+The dev server is the fast iteration loop, but PR-ready status requires native
+Bridge/WKWebView proof.
+
+Proof:
+
+- Launch through the repo-standard debug observability path:
+  `mise run observability:up` and
+  `mise run run-debug-observability -- --detach`.
+- Use the native/browser visual harness to perform real interactions in the
+  embedded Bridge pane: load Files current-worktree, open a file, switch to
+  Review diff, open Review file target, perform Files -> Review handoff, and
+  toggle back with context memory intact.
+- Capture screenshots for Files, Review diff, Review file target, and handoff
+  return-to-Files.
+- Correlate native proof with marker-scoped Victoria logs/metrics from the
+  launched debug app. Marker-only proof or screenshot-only proof does not close
+  this slice.
+- If the native interaction/screenshot harness cannot run, mark 0.a.6 blocked
+  with launcher/process/log evidence instead of downshifting to dev-server-only
+  proof.
 
 Implementation notes from current-code research:
 

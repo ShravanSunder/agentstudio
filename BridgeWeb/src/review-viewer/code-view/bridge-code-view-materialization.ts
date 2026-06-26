@@ -129,7 +129,16 @@ export function materializeBridgeCodeViewItem(
 
 export function materializeBridgeCodeViewLoadingItem(
 	item: BridgeReviewItemDescriptor,
+	presentation: BridgeCodeViewItemPresentation | null = null,
 ): BridgeCodeViewItem {
+	if (presentation?.kind === 'file') {
+		return createFileItem({
+			item,
+			resource: null,
+			version: item.itemVersion,
+			contentState: 'loading',
+		});
+	}
 	if (shouldUseDiffPlaceholder(item)) {
 		return createLoadingDiffItem(item);
 	}

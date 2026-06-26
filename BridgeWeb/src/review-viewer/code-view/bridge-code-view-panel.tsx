@@ -702,7 +702,10 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 				if (loadingItemDescriptor === undefined) {
 					continue;
 				}
-				const loadingItem = materializeBridgeCodeViewLoadingItem(loadingItemDescriptor);
+				const loadingItem = materializeBridgeCodeViewLoadingItem(
+					loadingItemDescriptor,
+					itemId === props.selectedItemId ? (props.selectedItemPresentation ?? null) : null,
+				);
 				const existingItem = codeViewHandle.getItem(itemId);
 				if (
 					existingItem !== undefined &&

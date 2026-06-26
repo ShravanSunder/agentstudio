@@ -771,7 +771,7 @@ function BridgeReviewViewerMode(
 		},
 		[resourceExecutor, reviewDemandScheduler, rpcClient, viewerActions],
 	);
-	const appliedNavigationCommandIdRef = useRef<string | null>(null);
+	const appliedNavigationCommandRef = useRef<BridgeViewerNavigationCommand | null>(null);
 	const initialReviewFileTarget = useMemo(
 		() => reviewFileTargetForNavigationCommand(props.navigationCommand),
 		[props.navigationCommand],
@@ -785,17 +785,26 @@ function BridgeReviewViewerMode(
 		) {
 			return;
 		}
-		if (appliedNavigationCommandIdRef.current === props.navigationCommand?.commandId) {
-			return;
-		}
 		const itemId = itemIdForReviewFileNavigationTarget({
 			reviewPackage,
 			target: initialReviewFileTarget,
 		});
-		if (itemId === null || !projection.orderedItemIds.includes(itemId)) {
+		if (itemId === null) {
 			return;
 		}
-		appliedNavigationCommandIdRef.current = props.navigationCommand?.commandId ?? null;
+		if (
+			appliedNavigationCommandRef.current !== null &&
+			appliedNavigationCommandRef.current === props.navigationCommand
+		) {
+			return;
+		}
+		if (!projection.orderedItemIds.includes(itemId)) {
+			if (clearReviewRefinementsHidingExplicitTarget({ rootSnapshot, viewerActions })) {
+				appliedNavigationCommandRef.current = null;
+			}
+			return;
+		}
+		appliedNavigationCommandRef.current = props.navigationCommand ?? null;
 		selectReviewItem(itemId, {
 			revealBehavior: 'instant',
 		});
@@ -803,9 +812,11 @@ function BridgeReviewViewerMode(
 		initialReviewFileTarget,
 		props.isActive,
 		projection,
-		props.navigationCommand?.commandId,
+		props.navigationCommand,
 		reviewPackage,
+		rootSnapshot,
 		selectReviewItem,
+		viewerActions,
 	]);
 	useBridgeReviewProjectionCoordinator({
 		store: viewerStore,
@@ -1713,11 +1724,45 @@ function itemIdForReviewFileNavigationTarget(props: {
 	readonly reviewPackage: BridgeReviewPackage;
 	readonly target: BridgeReviewFileNavigationTarget;
 }): string | null {
+	if (
+		props.target.reviewItemId !== undefined &&
+		props.reviewPackage.itemsById[props.target.reviewItemId] !== undefined
+	) {
+		return props.target.reviewItemId;
+	}
 	const matchedItem = Object.values(props.reviewPackage.itemsById).find(
 		(item: BridgeReviewItemDescriptor): boolean =>
 			item.headPath === props.target.fileRef.path || item.basePath === props.target.fileRef.path,
 	);
 	return matchedItem?.itemId ?? null;
+}
+
+function clearReviewRefinementsHidingExplicitTarget(props: {
+	readonly rootSnapshot: BridgeReviewViewerRootSnapshot;
+	readonly viewerActions: BridgeReviewViewerStoreActions;
+}): boolean {
+	let didClearRefinement = false;
+	if (props.rootSnapshot.treeSearchText.length > 0) {
+		props.viewerActions.setTreeSearchText('');
+		didClearRefinement = true;
+	}
+	if (props.rootSnapshot.treeSearchMode.kind !== 'text') {
+		props.viewerActions.setTreeSearchMode({ kind: 'text' });
+		didClearRefinement = true;
+	}
+	if (props.rootSnapshot.gitStatusFilter !== 'all') {
+		props.viewerActions.setGitStatusFilter('all');
+		didClearRefinement = true;
+	}
+	if (props.rootSnapshot.fileClassFilter !== 'all') {
+		props.viewerActions.setFileClassFilter('all');
+		didClearRefinement = true;
+	}
+	if (props.rootSnapshot.facets.length > 0) {
+		props.viewerActions.setProjectionFacets([]);
+		didClearRefinement = true;
+	}
+	return didClearRefinement;
 }
 
 function selectedItemPresentationForReviewFileTarget(props: {
@@ -1732,6 +1777,12 @@ function selectedItemPresentationForReviewFileTarget(props: {
 		return null;
 	}
 	const selectedItem = props.reviewPackage.itemsById[props.selectedItemId];
+	if (
+		props.target.reviewItemId !== undefined &&
+		props.target.reviewItemId !== props.selectedItemId
+	) {
+		return null;
+	}
 	if (
 		selectedItem === undefined ||
 		(selectedItem.headPath !== props.target.fileRef.path &&
