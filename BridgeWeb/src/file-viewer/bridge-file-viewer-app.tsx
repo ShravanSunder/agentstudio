@@ -14,6 +14,7 @@ import { BridgeViewerContentHeader } from '../app/bridge-viewer-content-header.j
 import type { BridgeViewerNavigationCommand } from '../app/bridge-viewer-navigation-models.js';
 import type {
 	WorktreeFileDescriptor,
+	WorktreeFileDemandStimulus,
 	WorktreeFileProtocolFrame,
 	WorktreeFileSurfaceSourceIdentity,
 	WorktreeTreeVirtualizedSizeFacts,
@@ -29,6 +30,7 @@ import {
 	type BridgeFileViewerDescriptorProjection,
 	type BridgeFileViewerFilterMode,
 	type BridgeFileViewerSearchMode,
+	type BridgeFileViewerVisibleFileDemandChange,
 } from '../review-viewer/trees/bridge-file-viewer-tree-panel.js';
 import type {
 	WorktreeFileFrameSubscriptionFactory,
@@ -37,6 +39,7 @@ import type {
 } from '../worktree-file-surface/worktree-file-app.js';
 import {
 	createWorktreeFileSurfaceRuntime,
+	type WorktreeFileSurfaceDemandDispatchResult,
 	type WorktreeFileSurfaceLoadTelemetry,
 	type WorktreeFileSurfaceLoadResult,
 	type WorktreeFileSurfaceRuntime,
@@ -80,6 +83,17 @@ interface BridgeFileViewerRefreshDebugState {
 	readonly result: 'ok' | Extract<WorktreeFileSurfaceLoadResult, { readonly ok: false }>['reason'];
 }
 
+type BridgeFileViewerDemandDispatchDebugState =
+	| { readonly status: 'idle' }
+	| {
+			readonly status: 'settled';
+			readonly result: WorktreeFileSurfaceDemandDispatchResult;
+	  }
+	| {
+			readonly status: 'failed';
+			readonly reason: string;
+	  };
+
 type BridgeFileViewerSearchPattern =
 	| { readonly ok: true; readonly pattern: RegExp }
 	| { readonly ok: false; readonly message: string };
@@ -119,6 +133,8 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 		useState<BridgeFileViewerRefreshDebugState | null>(null);
 	const [lastOpenLoadTelemetry, setLastOpenLoadTelemetry] =
 		useState<WorktreeFileSurfaceLoadTelemetry | null>(null);
+	const [lastDemandDispatchDebugState, setLastDemandDispatchDebugState] =
+		useState<BridgeFileViewerDemandDispatchDebugState>({ status: 'idle' });
 	const [searchText, setSearchText] = useState('');
 	const [searchMode, setSearchMode] = useState<BridgeFileViewerSearchMode>('text');
 	const [filterMode, setFilterMode] = useState<BridgeFileViewerFilterMode>('all');
@@ -341,6 +357,36 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 		});
 	}, []);
 
+	const dispatchVisibleFileDemand = useCallback(
+		(change: BridgeFileViewerVisibleFileDemandChange): void => {
+			const runtime = runtimeRef.current;
+			if (runtime === null || change.descriptorRefs.length === 0) {
+				return;
+			}
+			const stimuli: readonly WorktreeFileDemandStimulus[] = [
+				{
+					kind: 'treeViewportChanged',
+					descriptorRefs: [...change.descriptorRefs],
+				},
+			];
+			void runtime
+				.dispatchDemandStimuli(stimuli)
+				.then((result): void => {
+					setLastDemandDispatchDebugState({
+						status: 'settled',
+						result,
+					});
+				})
+				.catch((error: unknown): void => {
+					setLastDemandDispatchDebugState({
+						status: 'failed',
+						reason: error instanceof Error ? error.message : String(error),
+					});
+				});
+		},
+		[],
+	);
+
 	const descriptorProjection = useMemo(
 		(): BridgeFileViewerDescriptorProjection =>
 			projectBridgeFileViewerDescriptors({
@@ -380,6 +426,12 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 		selectedPath,
 		sourceIdentity: renderState.sourceIdentity,
 	});
+	const lastDemandDispatchResult =
+		lastDemandDispatchDebugState.status === 'settled' ? lastDemandDispatchDebugState.result : null;
+	const firstDemandLoadTelemetry =
+		lastDemandDispatchResult === null
+			? null
+			: firstSuccessfulDemandLoadTelemetry(lastDemandDispatchResult);
 
 	return (
 		<main
@@ -390,6 +442,18 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 			data-last-refresh-descriptor-id={refreshDebugState?.descriptorId}
 			data-last-refresh-request-id={refreshDebugState?.requestId}
 			data-last-refresh-result={refreshDebugState?.result}
+			data-last-demand-dispatch-error={
+				lastDemandDispatchDebugState.status === 'failed'
+					? lastDemandDispatchDebugState.reason
+					: undefined
+			}
+			data-last-demand-dispatch-failed-count={lastDemandDispatchResult?.failedCount}
+			data-last-demand-dispatch-first-disposition={firstDemandLoadTelemetry?.disposition}
+			data-last-demand-dispatch-first-lane={firstDemandLoadTelemetry?.lane}
+			data-last-demand-dispatch-intent-count={lastDemandDispatchResult?.intentCount}
+			data-last-demand-dispatch-loaded-count={lastDemandDispatchResult?.loadedCount}
+			data-last-demand-dispatch-status={lastDemandDispatchDebugState.status}
+			data-last-demand-dispatch-stimulus-count={lastDemandDispatchResult?.stimulusCount}
 			data-last-open-load-disposition={lastOpenLoadTelemetry?.disposition}
 			data-last-open-load-duration-ms={lastOpenLoadTelemetry?.durationMilliseconds}
 			data-last-open-load-estimated-bytes={lastOpenLoadTelemetry?.estimatedBytes ?? undefined}
@@ -482,6 +546,7 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 					{...(onOpenReviewComparison === undefined ? {} : { onOpenReviewComparison })}
 					onSearchModeChange={setSearchMode}
 					onSearchTextChange={setSearchText}
+					onVisibleFileDemandChange={dispatchVisibleFileDemand}
 					searchMode={searchMode}
 					searchText={searchText}
 					selectedPath={selectedPath}
@@ -493,6 +558,17 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 			</div>
 		</main>
 	);
+}
+
+function firstSuccessfulDemandLoadTelemetry(
+	result: WorktreeFileSurfaceDemandDispatchResult,
+): WorktreeFileSurfaceLoadTelemetry | null {
+	for (const loadResult of result.loadResults) {
+		if (loadResult.ok) {
+			return loadResult.loadTelemetry;
+		}
+	}
+	return null;
 }
 
 function bridgeFileViewerHeaderTitle(props: {

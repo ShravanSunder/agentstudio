@@ -67,7 +67,7 @@ export function mapWorktreeFileDemandStimulusToIntents(
 		case 'sourceReset':
 			return [];
 	}
-	return [];
+	return assertNever(props.stimulus);
 }
 
 function intentForDescriptor(props: {
@@ -111,5 +111,9 @@ function laneForViewInterest(viewInterest: BridgeViewInterest): BridgeDemandInte
 		case 'none':
 			return null;
 	}
-	return null;
+	return assertNever(viewInterest);
+}
+
+function assertNever(value: never): never {
+	throw new Error(`Unhandled worktree file demand policy case: ${String(value)}`);
 }

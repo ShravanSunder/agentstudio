@@ -1,7 +1,7 @@
 import { prepareFileTreeInput } from '@pierre/trees';
 import { FileTree, useFileTree } from '@pierre/trees/react';
 import { GitCompareArrowsIcon } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 
 import {
 	bridgeViewerChromeIconButtonClassName,
@@ -11,6 +11,7 @@ import {
 } from '../../app/bridge-viewer-chrome.js';
 import { cn } from '../../app/class-name.js';
 import { Input } from '../../components/ui/input.js';
+import type { BridgeDescriptorRef } from '../../core/models/bridge-resource-descriptor.js';
 import type {
 	WorktreeFileDescriptor,
 	WorktreeFileSurfaceSourceIdentity,
@@ -32,6 +33,11 @@ export interface BridgeFileViewerDescriptorProjection {
 	readonly searchError: string | null;
 }
 
+export interface BridgeFileViewerVisibleFileDemandChange {
+	readonly descriptorRefs: readonly BridgeDescriptorRef[];
+	readonly visibleFileCount: number;
+}
+
 export interface BridgeFileViewerTreePanelProps {
 	readonly descriptorProjection: BridgeFileViewerDescriptorProjection;
 	readonly fileDescriptorByPath: ReadonlyMap<string, WorktreeFileDescriptor>;
@@ -41,6 +47,7 @@ export interface BridgeFileViewerTreePanelProps {
 	readonly onOpenReviewComparison?: (descriptor: WorktreeFileDescriptor) => void;
 	readonly onSearchModeChange: (searchMode: BridgeFileViewerSearchMode) => void;
 	readonly onSearchTextChange: (searchText: string) => void;
+	readonly onVisibleFileDemandChange?: (change: BridgeFileViewerVisibleFileDemandChange) => void;
 	readonly searchMode: BridgeFileViewerSearchMode;
 	readonly searchText: string;
 	readonly selectedPath: string | null;
@@ -116,6 +123,8 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 		props.selectedPath === null
 			? null
 			: (props.fileDescriptorByPath.get(props.selectedPath) ?? null);
+	const fileDescriptorByPath = props.fileDescriptorByPath;
+	const onVisibleFileDemandChange = props.onVisibleFileDemandChange;
 	const shouldShowSearchInput =
 		isSearchOpen ||
 		props.searchText.trim().length > 0 ||
@@ -129,6 +138,36 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 	useEffect((): void => {
 		model.resetPaths(preparedInput.paths, { preparedInput });
 	}, [model, paths, preparedInput]);
+
+	const publishVisibleFileDemand = useCallback((): void => {
+		if (onVisibleFileDemandChange === undefined) {
+			return;
+		}
+		const descriptorRefs = visibleDescriptorRefsForDemand({
+			fileDescriptorByPath,
+			model,
+		});
+		if (descriptorRefs.length === 0) {
+			return;
+		}
+		onVisibleFileDemandChange({
+			descriptorRefs,
+			visibleFileCount: descriptorRefs.length,
+		});
+	}, [fileDescriptorByPath, model, onVisibleFileDemandChange]);
+
+	useEffect((): (() => void) => {
+		let scrollElement: HTMLElement | null = null;
+		const animationFrameId = requestAnimationFrame((): void => {
+			scrollElement = fileTreeScrollElementForDemand(model);
+			scrollElement?.addEventListener('scroll', publishVisibleFileDemand, { passive: true });
+			publishVisibleFileDemand();
+		});
+		return (): void => {
+			cancelAnimationFrame(animationFrameId);
+			scrollElement?.removeEventListener('scroll', publishVisibleFileDemand);
+		};
+	}, [model, paths, publishVisibleFileDemand]);
 
 	useEffect((): void => {
 		if (props.selectedPath === null) {
@@ -252,9 +291,43 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 				data-testid="bridge-file-viewer-pierre-file-tree"
 				data-worktree-tree-total-size={String(declaredTreeHeightPixels)}
 				data-worktree-tree-total-size-source={declaredTreeHeightSource}
+				onScroll={publishVisibleFileDemand}
 			>
 				<FileTree className="h-full min-h-full" model={model} style={bridgeReviewTreeStyle} />
 			</section>
 		</aside>
 	);
+}
+
+function fileTreeScrollElementForDemand(
+	model: ReturnType<typeof useFileTree>['model'],
+): HTMLElement | null {
+	const fileTreeContainer = model.getFileTreeContainer();
+	const rowContainer = fileTreeContainer?.shadowRoot ?? fileTreeContainer;
+	return (
+		rowContainer?.querySelector<HTMLElement>('[data-file-tree-virtualized-scroll="true"]') ?? null
+	);
+}
+
+function visibleDescriptorRefsForDemand(props: {
+	readonly fileDescriptorByPath: ReadonlyMap<string, WorktreeFileDescriptor>;
+	readonly model: ReturnType<typeof useFileTree>['model'];
+}): readonly BridgeDescriptorRef[] {
+	const fileTreeContainer = props.model.getFileTreeContainer();
+	const rowContainer = fileTreeContainer?.shadowRoot ?? fileTreeContainer;
+	if (rowContainer === undefined || rowContainer === null) {
+		return [];
+	}
+	return Array.from(
+		rowContainer.querySelectorAll<HTMLElement>(
+			'[data-type="item"][data-item-type="file"][data-item-path]',
+		),
+	).flatMap((rowElement): readonly BridgeDescriptorRef[] => {
+		const path = rowElement.getAttribute('data-item-path');
+		if (path === null) {
+			return [];
+		}
+		const descriptor = props.fileDescriptorByPath.get(path);
+		return descriptor === undefined ? [] : [descriptor.contentDescriptor.ref];
+	});
 }

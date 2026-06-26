@@ -158,6 +158,18 @@ The first implementation sequence after plan review is:
       `tmp/bridge-viewer-worktree-file-target-proof/2026-06-26T-file-query-target-rerun/proof.json`
     - latest dev-server proof JSON:
       `tmp/bridge-viewer-worktree-dev-server/2026-06-26T07-11-01-784Z/worktree-dev-server-proof.json`
+  open contract gates:
+    - demand scheduler admission failures must be observable per descriptor and
+      per lane. Queue-full or byte-limit rejection cannot disappear into only an
+      aggregate counter; `openFile`, `refreshOpenFile`, and visible/preload
+      demand dispatch need saturation tests.
+    - `worktree.reset.replacementDescriptor` must either materialize through the
+      runtime/open-file reconcilers or be removed from the protocol contract.
+      A reset-with-inline-replacement test is required before this gate closes.
+    - multi-file preload/demand work must use settled-result accounting unless
+      a path documents and tests an all-or-nothing contract. Review direct
+      content fallback loading still needs an explicit atomic-vs-partial
+      decision before PR-ready.
 
 0.a.6 Agent Studio Bridge/WKWebView proof
   proves Files context, Review diff context, Review file-target context, and

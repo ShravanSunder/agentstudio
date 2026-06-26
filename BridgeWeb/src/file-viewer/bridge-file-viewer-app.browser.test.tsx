@@ -136,8 +136,53 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		expect(shell.getAttribute('data-last-open-load-executor-in-flight-after')).toBe('0');
 		expect(shell.getAttribute('data-last-open-load-executor-queued-bytes-after')).toBe('0');
 		expect(shell.getAttribute('data-last-open-load-executor-queued-bytes-before')).toBe('0');
-		expect(fetchedResourceUrls).toEqual([
+		expect(fetchedResourceUrls).toContain(
 			'agentstudio://resource/worktree-file/worktree.fileContent/target-content?generation=1',
+		);
+	});
+
+	test('preloads visible file tree demand without opening a file session', async () => {
+		const firstDescriptor = makeFileDescriptor({
+			contentHandle: 'first-visible-content',
+			fileId: 'file-first-visible',
+			path: 'src/first-visible.ts',
+		});
+		const secondDescriptor = makeFileDescriptor({
+			contentHandle: 'second-visible-content',
+			fileId: 'file-second-visible',
+			path: 'src/second-visible.ts',
+		});
+		const fetchedResourceUrls: string[] = [];
+
+		render(
+			<BridgeFileViewerApp
+				fetchResource={async (props): Promise<string> => {
+					fetchedResourceUrls.push(props.resourceUrl);
+					return props.resourceUrl.includes('second-visible-content')
+						? 'export const secondVisible = true;\n'
+						: 'export const firstVisible = true;\n';
+				}}
+				initialFrames={makeFrames(firstDescriptor, secondDescriptor)}
+			/>,
+		);
+
+		await waitForDemandDispatchState('settled');
+
+		const shell = requireBridgeViewerHTMLElement(
+			document.querySelector('[data-testid="bridge-file-viewer-shell"]'),
+		);
+		expect(shell.getAttribute('data-last-demand-dispatch-stimulus-count')).toBe('1');
+		expect(shell.getAttribute('data-last-demand-dispatch-loaded-count')).toBe('2');
+		expect(shell.getAttribute('data-last-demand-dispatch-failed-count')).toBe('0');
+		expect(shell.getAttribute('data-last-demand-dispatch-first-disposition')).toBe(
+			'visible-preloaded',
+		);
+		expect(shell.getAttribute('data-last-demand-dispatch-first-lane')).toBe('visible');
+		expect(openFileState()).toBeNull();
+		expect(openFilePath()).toBeNull();
+		expect(fetchedResourceUrls).toEqual([
+			'agentstudio://resource/worktree-file/worktree.fileContent/first-visible-content?generation=1',
+			'agentstudio://resource/worktree-file/worktree.fileContent/second-visible-content?generation=1',
 		]);
 	});
 });
@@ -273,6 +318,10 @@ async function waitForOpenFileState(expectedState: string): Promise<void> {
 	await waitForOpenFileStateAttempt({ attempt: 0, expectedState });
 }
 
+async function waitForDemandDispatchState(expectedState: string): Promise<void> {
+	await waitForDemandDispatchStateAttempt({ attempt: 0, expectedState });
+}
+
 async function waitForOpenFileStateAttempt(props: {
 	readonly attempt: number;
 	readonly expectedState: string;
@@ -306,4 +355,25 @@ function openFilePath(): string | null {
 			.querySelector('[data-worktree-open-file-path]')
 			?.getAttribute('data-worktree-open-file-path') ?? null
 	);
+}
+
+async function waitForDemandDispatchStateAttempt(props: {
+	readonly attempt: number;
+	readonly expectedState: string;
+}): Promise<void> {
+	const shell = document.querySelector('[data-testid="bridge-file-viewer-shell"]');
+	const actualState = shell?.getAttribute('data-last-demand-dispatch-status') ?? null;
+	if (actualState === props.expectedState) {
+		return;
+	}
+	if (props.attempt >= 60) {
+		throw new Error(
+			`Expected demand dispatch state ${props.expectedState}; actual=${actualState ?? 'missing'}`,
+		);
+	}
+	await waitForBridgeViewerAnimationFrame();
+	await waitForDemandDispatchStateAttempt({
+		attempt: props.attempt + 1,
+		expectedState: props.expectedState,
+	});
 }
