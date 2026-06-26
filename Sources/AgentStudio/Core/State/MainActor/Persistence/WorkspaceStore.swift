@@ -97,10 +97,7 @@ final class WorkspaceStore {
                 workspaceTabShellAtom: resolvedTabShellAtom,
                 workspaceTabArrangementAtom: resolvedTabArrangementAtom
             )
-        self.persistor = persistor
-        self.sqliteDatastore = sqliteDatastore
-        self.repositoryTopologyStore = repositoryTopologyStore
-        self.sqliteSaveCoordinator =
+        let resolvedSQLiteSaveCoordinator =
             sqliteSaveCoordinator
             ?? sqliteDatastore.map { datastore in
                 WorkspaceSQLiteSaveCoordinator(
@@ -112,6 +109,22 @@ final class WorkspaceStore {
                     sqliteDatastore: datastore
                 )
             }
+        let resolvedRepositoryTopologyStore =
+            repositoryTopologyStore
+            ?? sqliteDatastore.map { datastore in
+                RepositoryTopologyStore(
+                    atom: repositoryTopologyAtom,
+                    sqliteDatastore: datastore,
+                    saveCoordinator: resolvedSQLiteSaveCoordinator,
+                    persistDebounceDuration: persistDebounceDuration,
+                    clock: clock,
+                    recoveryReporter: recoveryReporter
+                )
+            }
+        self.persistor = persistor
+        self.sqliteDatastore = sqliteDatastore
+        self.repositoryTopologyStore = resolvedRepositoryTopologyStore
+        self.sqliteSaveCoordinator = resolvedSQLiteSaveCoordinator
         self.persistDebounceDuration = persistDebounceDuration
         delay = clock.map(AsyncDelay.clock) ?? .taskSleep
         self.recoveryReporter = recoveryReporter
