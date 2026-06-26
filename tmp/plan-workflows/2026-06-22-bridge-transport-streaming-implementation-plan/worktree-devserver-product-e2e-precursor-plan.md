@@ -75,19 +75,41 @@ product-like." The current checkpoint stack is:
   `searchRailRight = 1728`. This closes the onlook-caught overflow where
   `w-full` plus horizontal margin put the search field beyond the rail edge.
 
-Remaining visual/chrome cleanup inventory from the 2026-06-26 scout pass:
+Closed visual/chrome cleanup inventory from the 2026-06-26 scout pass:
 
-- `BridgeWeb/src/review-viewer/shell/review-viewer-shell.tsx` still contains a
-  raw route-local segmented button group for Review projection mode. It must
-  move to the same owned `ToggleGroup` primitive family before this visual
-  cleanup lane can be called fully clean.
-- `BridgeWeb/src/review-viewer/code-view/bridge-code-view-panel.tsx` still has a
-  raw collapse/expand chrome button. It should move to the shared
-  BridgeViewer/Review button primitive layer or be explicitly justified as a
-  different interaction.
+- `BridgeWeb/src/review-viewer/shell/review-viewer-shell.tsx` now renders the
+  Review projection mode control through the owned `ToggleGroup` /
+  `ToggleGroupItem` -> `Button` primitive path instead of raw route-local
+  segmented buttons. Vitest Browser proof asserts `data-slot=toggle-group`,
+  `data-toggle-group-slot=toggle-group-item`, 24px segment height, and 11px
+  font size.
+- `BridgeWeb/src/review-viewer/code-view/bridge-code-view-panel.tsx` now renders
+  the collapse/expand header control through the owned `Button` primitive and
+  shared BridgeViewer chrome icon/button classes while preserving aria labels,
+  expanded state, item id data, test id, and click propagation behavior.
 - Existing jsdom/unit tests may remain as lower-layer state guards only. They do
   not satisfy visible UX proof. Future visible checkpoint records must cite
   Vitest Browser, Playwright/dev-server, or native WKWebView evidence.
+
+2026-06-26 raw-control cleanup proof:
+
+- `pnpm --dir BridgeWeb exec vitest --config vitest.browser.config.ts run --project integration-browser src/app/bridge-viewer-content-header.browser.test.tsx --reporter verbose`
+  passed with 1 file and 2 tests. The second test covers the Review projection
+  mode control through the owned compact toggle-group primitive.
+- `pnpm --dir BridgeWeb exec vitest run src/review-viewer/code-view/bridge-code-view-panel-scroll.unit.test.tsx -t "collapse|collapsed|expand" --reporter verbose`
+  passed with 1 file, 4 tests passed, and 22 skipped.
+- `pnpm --dir BridgeWeb exec vitest run src/review-viewer/shell/review-viewer-shell.integration.test.tsx -t "review mode" --reporter verbose`
+  passed with 1 file, 1 test passed, and 12 skipped.
+- `pnpm --dir BridgeWeb run check` passed with existing warnings only.
+- `pnpm --dir BridgeWeb run test:dev-server:worktree` passed with full
+  browser/dev-server proof. Fresh artifact:
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T15-04-44-655Z/worktree-dev-server-proof.json`.
+- Fresh proof fields include `sharedShellProof.sharedShellOwner =
+  BridgeViewerAppShell`, `codeOwner = CodeView.file`, `treeOwner = FileTree`,
+  `codeViewOverflow = wrap`, content/rail headers at 36px, context buttons and
+  rail buttons at 24px, `contentTopbarStopsBeforeSidebar = true`, Review tree
+  selection by `playwright-review-tree-search-click`, and Review file-target
+  route ready for `Sources/AgentStudio/AtomRegistry.swift`.
 
 The remaining blocking outcome is now:
 

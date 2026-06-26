@@ -3,6 +3,7 @@ import { render } from 'vitest-browser-react';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load the app CSS.
 import './bridge-app.css';
+import { BridgeReviewProjectionMenu } from '../review-viewer/shell/review-viewer-shell.js';
 import {
 	BridgeViewerContentHeader,
 	BridgeViewerContextSwitcher,
@@ -70,6 +71,62 @@ describe('BridgeViewerContextSwitcher Browser Mode', () => {
 
 		reviewButton.click();
 		expect(modeChanges).toHaveBeenCalledExactlyOnceWith('review');
+	});
+});
+
+describe('BridgeReviewProjectionMenu Browser Mode', () => {
+	test('uses the owned compact toggle-group primitive for review projection modes', () => {
+		const modeChanges = vi.fn<(mode: { readonly kind: string }) => void>();
+
+		render(
+			<BridgeReviewProjectionMenu
+				onProjectionModeChange={modeChanges}
+				projectionMode={{ kind: 'guidedReview' }}
+			/>,
+		);
+
+		const switcher = requireHTMLElement(
+			document.querySelector('[data-testid="bridge-review-mode-segmented-control"]'),
+		);
+		const segments = [
+			...document.querySelectorAll('[data-testid="bridge-review-mode-segment"]'),
+		].map(requireHTMLElement);
+
+		expect(switcher.getAttribute('data-slot')).toBe('toggle-group');
+		expect(switcher.getAttribute('role')).toBe('radiogroup');
+		expect(Math.round(switcher.getBoundingClientRect().height)).toBe(24);
+		expect(segments).toHaveLength(3);
+		expect(segments.map((segment) => segment.getAttribute('data-slot'))).toEqual([
+			'button',
+			'button',
+			'button',
+		]);
+		expect(segments.map((segment) => segment.getAttribute('data-toggle-group-slot'))).toEqual([
+			'toggle-group-item',
+			'toggle-group-item',
+			'toggle-group-item',
+		]);
+		expect(segments.map((segment) => Math.round(segment.getBoundingClientRect().height))).toEqual([
+			24, 24, 24,
+		]);
+		expect(segments.map((segment) => getComputedStyle(segment).fontSize)).toEqual([
+			'11px',
+			'11px',
+			'11px',
+		]);
+		expect(segments.map((segment) => segment.getAttribute('aria-checked'))).toEqual([
+			'false',
+			'true',
+			'false',
+		]);
+		expect(segments.map((segment) => segment.getAttribute('aria-pressed'))).toEqual([
+			'false',
+			'true',
+			'false',
+		]);
+
+		segments[2]?.click();
+		expect(modeChanges).toHaveBeenCalledExactlyOnceWith({ kind: 'plansAndSpecs' });
 	});
 });
 

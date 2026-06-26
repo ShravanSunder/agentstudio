@@ -1,10 +1,15 @@
 import { BotIcon, FileTextIcon, ListChecksIcon } from 'lucide-react';
 import type { ReactElement, ReactNode } from 'react';
 
-import { bridgeViewerChromeToolbarClassName } from '../../app/bridge-viewer-chrome.js';
+import {
+	bridgeViewerChromeIconButtonClassName,
+	bridgeViewerChromeLucideIconClassName,
+	bridgeViewerChromeToolbarClassName,
+} from '../../app/bridge-viewer-chrome.js';
 import { BridgeViewerContentHeader } from '../../app/bridge-viewer-content-header.js';
 import { cn } from '../../app/class-name.js';
 import { Skeleton } from '../../components/ui/skeleton.js';
+import { ToggleGroup, ToggleGroupItem } from '../../components/ui/toggle-group.js';
 import {
 	createBridgeReviewItemRegistry,
 	reviewItemPathLabel,
@@ -403,32 +408,23 @@ export function BridgeReviewProjectionMenu(props: {
 	readonly onProjectionModeChange?: (mode: BridgeReviewProjectionMode) => void;
 }): ReactElement {
 	return (
-		<div
+		<ToggleGroup
 			aria-label="Review mode"
-			className={[
-				'inline-flex h-7 shrink-0 items-center gap-0.5 rounded-md border border-[var(--bridge-border-subtle)]',
-				'bg-[var(--bridge-header-control-bg)] p-0.5',
-			].join(' ')}
 			data-bridge-segmented-control="review-mode"
 			data-testid="bridge-review-mode-segmented-control"
 			role="radiogroup"
+			size="sm"
 		>
 			{projectionButtonSpecs.map((spec) => {
 				const isSelected = spec.mode.kind === props.projectionMode.kind;
 				return (
-					<button
+					<ToggleGroupItem
 						aria-checked={isSelected ? 'true' : 'false'}
 						aria-label={spec.label}
-						className={[
-							'flex size-6 items-center justify-center rounded-[5px] border border-transparent',
-							'text-[var(--bridge-text-secondary)] transition-colors',
-							'hover:bg-[var(--bridge-list-hover-bg)] hover:text-[var(--bridge-text-primary)]',
-							'focus-visible:border-[var(--bridge-focus-border)] focus-visible:outline-none',
-							isSelected &&
-								'bg-[var(--bridge-header-control-active-bg)] text-[var(--bridge-text-primary)] shadow-none',
-						]
-							.filter(Boolean)
-							.join(' ')}
+						className={cn(
+							bridgeViewerChromeIconButtonClassName,
+							isSelected ? 'shadow-none' : undefined,
+						)}
 						data-testid="bridge-review-mode-segment"
 						key={spec.value}
 						onClick={(): void => {
@@ -436,15 +432,16 @@ export function BridgeReviewProjectionMenu(props: {
 								props.onProjectionModeChange?.(spec.mode);
 							}
 						}}
+						pressed={isSelected}
 						role="radio"
+						size="sm"
 						title={spec.label}
-						type="button"
 					>
-						<spec.Icon aria-hidden="true" className="size-3.5" />
-					</button>
+						<spec.Icon aria-hidden="true" className={bridgeViewerChromeLucideIconClassName} />
+					</ToggleGroupItem>
 				);
 			})}
-		</div>
+		</ToggleGroup>
 	);
 }
 

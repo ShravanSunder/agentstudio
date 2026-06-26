@@ -1411,3 +1411,48 @@ Open implementation blockers remain:
   `BridgeWeb/src/review-viewer/code-view/bridge-code-view-panel.tsx` still has
   a raw collapse/expand chrome button. These are recorded in the active plan as
   cleanup blockers for the shared-chrome lane, not silently deferred.
+
+2026-06-26 raw-control cleanup checkpoint:
+
+- Replaced the Review projection mode raw segmented-control implementation in
+  `BridgeWeb/src/review-viewer/shell/review-viewer-shell.tsx` with the owned
+  `ToggleGroup` / `ToggleGroupItem` primitive path.
+- Replaced the CodeView header collapse/expand raw button in
+  `BridgeWeb/src/review-viewer/code-view/bridge-code-view-panel.tsx` with the
+  owned `Button` primitive and shared BridgeViewer icon/button chrome classes.
+- Added Vitest Browser proof for the Review projection control:
+  `pnpm --dir BridgeWeb exec vitest --config vitest.browser.config.ts run --project integration-browser src/app/bridge-viewer-content-header.browser.test.tsx --reporter verbose`
+  passed with 1 file and 2 tests. The new Review projection test asserts
+  `data-slot=toggle-group`, `data-toggle-group-slot=toggle-group-item`, 24px
+  segment heights, 11px computed font size, selected aria state, and click
+  behavior.
+- CodeView focused lower-layer proof passed:
+  `pnpm --dir BridgeWeb exec vitest run src/review-viewer/code-view/bridge-code-view-panel-scroll.unit.test.tsx -t "collapse|collapsed|expand" --reporter verbose`
+  with 1 file, 4 tests passed, and 22 skipped.
+- Review shell focused lower-layer proof passed:
+  `pnpm --dir BridgeWeb exec vitest run src/review-viewer/shell/review-viewer-shell.integration.test.tsx -t "review mode" --reporter verbose`
+  with 1 file, 1 test passed, and 12 skipped.
+- Full BridgeWeb static gate passed:
+  `pnpm --dir BridgeWeb run check`.
+- Full worktree dev-server browser proof passed:
+  `pnpm --dir BridgeWeb run test:dev-server:worktree`.
+- Fresh proof artifact:
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T15-04-44-655Z/worktree-dev-server-proof.json`.
+- Fresh proof fields include
+  `result.sharedShellProof.sharedShellOwner=BridgeViewerAppShell`,
+  `result.sharedShellProof.codeOwner=CodeView.file`,
+  `result.sharedShellProof.treeOwner=FileTree`,
+  `result.sharedShellProof.codeViewOverflow=wrap`,
+  `result.sharedShellProof.contentHeaderHeight=36`,
+  `result.sharedShellProof.railToolbarHeight=36`,
+  `result.sharedShellProof.contextFileButtonHeight=24`,
+  `result.sharedShellProof.contextReviewButtonHeight=24`,
+  `result.sharedShellProof.railSearchButtonHeight=24`,
+  `result.sharedShellProof.contentTopbarStopsBeforeSidebar=true`,
+  `result.reviewRouteProof.reviewSelectionProof.selectionMethod=playwright-review-tree-search-click`,
+  `result.reviewRouteProof.reviewSelectionSelectedContentState=ready`, and
+  `result.reviewFileTargetRouteProof.selectedContentState=ready`.
+- Remaining blockers after this checkpoint:
+  implementation review disposition, native Agent Studio Bridge/WKWebView proof,
+  route fanout/content pressure, FileViewer preload latency/telemetry, and
+  inactive-context browser/native proof if kept as gate-level.

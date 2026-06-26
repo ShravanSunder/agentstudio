@@ -4,7 +4,12 @@ import { ChevronDownIcon, ChevronRightIcon } from 'lucide-react';
 import type { ReactElement, ReactNode } from 'react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
+import {
+	bridgeViewerChromeIconButtonClassName,
+	bridgeViewerChromeLucideIconClassName,
+} from '../../app/bridge-viewer-chrome.js';
 import { cn } from '../../app/class-name.js';
+import { Button } from '../../components/ui/button.js';
 import type {
 	BridgeReviewItemDescriptor,
 	BridgeReviewPackage,
@@ -1302,10 +1307,16 @@ function renderBridgeCodeViewHeaderPrefix(props: RenderBridgeCodeViewHeaderProps
 					onHeaderVisibilityChange={props.onHeaderVisibilityChange}
 				/>
 			)}
-			<button
+			<Button
 				aria-expanded={!collapsed}
 				aria-label={collapsed ? 'Expand file' : 'Collapse file'}
-				className="inline-flex size-6 cursor-pointer select-none items-center justify-center rounded-md border border-transparent text-[11px] text-[var(--bridge-text-secondary)] hover:border-[var(--bridge-border-opaque)] hover:bg-[var(--bridge-list-hover-bg)] hover:text-[var(--bridge-text-primary)] focus-visible:border-[var(--bridge-focus-border)] focus-visible:outline-none"
+				className={cn(
+					bridgeViewerChromeIconButtonClassName,
+					'cursor-pointer text-[var(--bridge-text-secondary)] transition-colors',
+					'aria-expanded:bg-transparent aria-expanded:text-[var(--bridge-text-secondary)]',
+					'hover:border-[var(--bridge-border-opaque)] hover:bg-[var(--bridge-list-hover-bg)] hover:text-[var(--bridge-text-primary)]',
+					'focus-visible:border-[var(--bridge-focus-border)] focus-visible:outline-none',
+				)}
 				data-bridge-code-view-item-id={itemId}
 				data-testid="bridge-code-view-header-collapse-button"
 				onClick={(event): void => {
@@ -1313,14 +1324,16 @@ function renderBridgeCodeViewHeaderPrefix(props: RenderBridgeCodeViewHeaderProps
 					event.stopPropagation();
 					props.onToggleItemCollapse?.(itemId);
 				}}
+				size="icon-sm"
 				type="button"
+				variant="ghost"
 			>
 				{collapsed ? (
-					<ChevronRightIcon aria-hidden="true" className="size-3.5" />
+					<ChevronRightIcon aria-hidden="true" className={bridgeViewerChromeLucideIconClassName} />
 				) : (
-					<ChevronDownIcon aria-hidden="true" className="size-3.5" />
+					<ChevronDownIcon aria-hidden="true" className={bridgeViewerChromeLucideIconClassName} />
 				)}
-			</button>
+			</Button>
 		</span>
 	);
 }
