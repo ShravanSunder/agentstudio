@@ -6,7 +6,7 @@ native proof remains required. This slice owns the Files-context portion of the
 Gate 0.a shared current-worktree route set. The full gate also requires Review
 diff and Review file-target routes before downstream transport, Review, renderer,
 and PR-ready gates resume.
-Parent: [spec.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/spec-workflows/2026-06-22-bridge-transport-streaming-spec/spec.md:1)
+Parent: [spec.md](spec.md)
 
 Current Gate 0.a status: active blocker. The prior Vite/dev-server proof
 packets remain useful evidence, but they do not close this gate until a fresh
@@ -818,6 +818,16 @@ Contract:
 - closed/unopened file descriptors can update live
 - selected file content maps to `foreground`; open stale file invalidation emits
   no content demand until explicit refresh
+- visible tree rows may emit bounded `visible` content/metadata preloads; rows
+  adjacent to the selected/open row may emit bounded `nearby` preloads; hover,
+  focus, and provider predictions may emit `speculative` preloads. These
+  preloads must be lower priority than selected/open content, deduped by
+  descriptor freshness, byte-budgeted, abortable, and stale-dropped on source
+  reset, viewport/filter change, or selected-file change.
+- FileViewer click latency proof must classify every opened file as
+  cold-loaded, visible-preloaded, nearby-preloaded, speculative-preloaded, or
+  refreshed. The proof must record click-to-ready latency and queue state so a
+  slow cold path cannot be mistaken for an optimized warm path.
 - demand policy inputs are discriminated stimuli, not loose boolean bags
 - worktree snapshot carries provider-issued source identity, not only the
   browser selector
@@ -857,6 +867,10 @@ Contract:
   URL and must exercise file click/open, content render, search input, regex
   toggle, filter/status controls, large-tree scroll, large-file scroll, and
   source/protocol provenance assertions
+- current-scope product E2E proof must use actionability-checked browser
+  interactions for tree row clicks. A synthetic DOM `dispatchEvent` fallback is
+  a prohibited substitute because it can pass while the real user click path is
+  broken.
 - current-scope product E2E proof emits screenshot artifacts before/after
   interaction plus a JSON artifact that records route identity, protocol/source
   lineage, selected file path, open content state, control state changes, scroll

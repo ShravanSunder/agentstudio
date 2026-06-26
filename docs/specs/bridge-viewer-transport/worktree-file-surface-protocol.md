@@ -6,7 +6,7 @@ native proof remains required. This slice owns the Files-context portion of the
 Gate 0.a shared current-worktree route set. The full gate also requires Review
 diff and Review file-target routes before downstream transport, Review, renderer,
 and PR-ready gates resume.
-Parent: [spec.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/docs/specs/bridge-viewer-transport/spec.md:1)
+Parent: [spec.md](spec.md)
 
 Current Gate 0.a status: active blocker. The prior Vite/dev-server proof
 packets remain useful evidence, but they do not close this gate until a fresh

@@ -18,8 +18,8 @@ implementation. It is not an implementation plan.
 This parent file owns the generic Bridge contract and cross-protocol invariants.
 Application-owned protocol details live in:
 
-- [review-protocol.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/spec-workflows/2026-06-22-bridge-transport-streaming-spec/review-protocol.md:1)
-- [worktree-file-surface-protocol.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/spec-workflows/2026-06-22-bridge-transport-streaming-spec/worktree-file-surface-protocol.md:1)
+- [review-protocol.md](review-protocol.md)
+- [worktree-file-surface-protocol.md](worktree-file-surface-protocol.md)
 
 Goal-state context lives in:
 
@@ -987,6 +987,32 @@ Lane jobs:
 - `idle`: low-value background completion, cache warming, and downgraded
   retries.
 
+FileViewer maps worktree file-read stimuli onto these generic lanes without
+making the scheduler FileViewer-specific:
+
+- selected/open file content and explicit refresh use `foreground`;
+- already-open stale-status checks use `active`;
+- bounded content preview/metadata for rows in the current tree viewport use
+  `visible`;
+- rows adjacent to the selected/open row use `nearby` so arrow-key and short
+  scroll navigation can feel warm without waiting for click-time bytes;
+- hover, focus, recent-search candidates, and source-provider predictions use
+  `speculative`;
+- debounced provider events for recently updated files may use `speculative`
+  when FileViewer is open and the descriptor remains relevant to the current
+  source/filter/tree neighborhood; they may upgrade to `nearby` only when the
+  updated file is adjacent to the selected/open/visible region;
+- broad cache warming uses `idle`.
+
+The scheduler owns ordering, dedupe, abort, byte budgets, and concurrency by
+lane. FileViewer policy owns only which descriptors become demand intents. Large
+bodies remain descriptor-backed and outside Zustand; a preload may materialize a
+body/cache entry in the content/resource layer, but Zustand stores only
+selection, descriptor refs, freshness keys, visible windows, and status facts.
+Lower-priority FileViewer preloads must be droppable on source reset, filter
+change, viewport change, selected-file change, byte-budget pressure, or
+foreground starvation.
+
 `DemandIntent`
 
 : The data crossing from app policy to generic scheduling. It has no provenance
@@ -1406,7 +1432,7 @@ Proof expectations feed a later plan. They are not task order.
 | Source reset demand | scheduler/executor fixture | source reset with queued/in-flight work | queued work dropped, stale completion rejected | late commit after reset |
 | Stable scroll extent | schema/provider/browser canary fixture | huge tree and opened file before content bytes hydrate | provider emits exact row/line count or conservative estimated extent; browser `scrollHeight`/virtualizer `totalSize` stays within tolerance after hydration or logs attributed measured deltas | accepting scrollbar jump as manual UX judgment |
 | Worktree visible app proof | browser/dev-server fixture | current-worktree route in a real browser | app root/tree pane/file pane have non-zero visible rects; sampled tree entries occupy distinct row boxes; selected exact-line fixture preserves visible line structure; packaged styling affects the surface; proof records Worktree/File source identity, event/intake lineage, and Worktree frame provenance; raw frame fields, serialized payloads, and raw path corpus dumps are absent outside intentional tree/content UI | schema-only proof, hidden DOM text, Review package/query lineage, hardcoded pass flag, or screenshot with concatenated paths |
-| BridgeViewer shared app dev E2E proof | Playwright/dev-server fixture plus parent-inspected screenshot artifact | Files URL, Review diff URL, and Review file-target URL from Gate 0.a | each route identifies the same BridgeViewer app and shared navigation/store model; Files context renders local worktree files through Pierre/Shiki workers; Review context renders current-worktree review diffs; Review file target renders through Pierre/Shiki while Review context remains active; primary Pierre CodeView/File canvas is on the left; Pierre FileTree/right rail is on the right; tree/file/status controls are visible; file click changes the open content; search, regex toggle, and filter controls produce observable state/result changes; open-file invalidation produces visible stale/update state; refresh is user-invoked rather than silent replacement; refresh returns the surface to ready; large tree and large file scroll preserve stable extents; proof artifact records source/protocol provenance and screenshots before/after interaction | legacy URL only, root mock Review route, standalone `WorktreeFileApp`, route-local custom shell, custom tree, minimal file-list plus `<pre>` renderer, DOM text-only assertion, content-ready flag, silent content replacement, or screenshot that was not tied to Playwright interaction |
+| BridgeViewer shared app dev E2E proof | Playwright/dev-server fixture plus parent-inspected screenshot artifact | explicit Files URL, Review diff URL, and Review file-target URL from Gate 0.a | each route identifies the same BridgeViewer app and shared navigation/store model; Files context renders local worktree files through Pierre/Shiki workers; Review context renders current-worktree review diffs; Review file target renders through Pierre/Shiki while Review context remains active; primary Pierre CodeView/File canvas is on the left; Pierre FileTree/right rail is on the right; tree/file/status controls are visible; file click changes the open content through a real browser actionability-checked click; search, regex toggle, and filter controls produce observable state/result changes; open-file invalidation produces visible stale/update state; refresh is user-invoked rather than silent replacement; refresh returns the surface to ready; large tree and large file scroll preserve stable extents; proof artifact records source/protocol provenance, every required route URL, screenshots before/after interaction, current content latency, and current preload disposition when known: cold-loaded, visible-preloaded, nearby-preloaded, speculative-preloaded, refreshed, or foreground-loaded. Full scheduler/preload tuning and production constants remain the 0.a.5 follow-up slice. | legacy URL only, synthetic DOM `dispatchEvent` interaction, root mock Review route, standalone `WorktreeFileApp`, route-local custom shell, custom tree, minimal file-list plus `<pre>` renderer, DOM text-only assertion, content-ready flag, silent content replacement, or screenshot that was not tied to Playwright interaction |
 | BridgeViewer UX checkpoint proof | Vitest Browser, Playwright/dev-server, or native WKWebView fixture plus screenshot/video artifact and second-agent critique | any checkpoint that changes visible BridgeViewer UX, chrome, search/filter controls, mode switching, file loading, or scroll behavior | screenshots or video demonstrate the actual visible surface; a browser/native test asserts real interaction outcomes; a second agent reviews screenshots and relevant source paths for UX parity with ReviewViewer/DiffsHub/Pierre expectations; defects are either fixed or recorded in the active plan before commit | jsdom, DOM attributes only, JSON proof only, route state, screenshot without interaction/provenance, or no independent visual/code critique |
 | Agent Studio Bridge runtime proof | native app / WKWebView / Victoria-backed fixture | app-hosted Bridge surface opens the Files context, Review diff context, and Review file-target scenario through native Bridge wiring against the local worktree | Swift host, bridge protocol, app assets, stream/RPC/resource descriptors, internal BridgeViewer intents/commands, and browser surface agree on protocol/source identity; marker-scoped logs/metrics prove route boot, content/resource requests, event stream readiness, Files-to-Review handoff when applicable, Review file target, stale/refresh path, and scroll canaries; native proof inherits the product-surface contract for visible regions, controls, before/after screenshots, interaction assertions, and negative-substitute checks | Vite-only proof, mocked backend, packaged asset existence, healthy markers with wrong/minimal visible product surface, screenshot without bridge markers, one-scenario-only native proof, or uncorrelated logs |
 | Renderer boundary and cutover | integration/browser fixture | Pierre/CodeView/tree adapter input and update lifecycle | app/protocol-owned renderer adapters receive prepared items/paths only; same-lineage updates avoid incompatible full remount; stable extent is consumed by renderer path | Bridge URL in renderer, generic Bridge interpreting app render semantics, or old renderer path bypassing the materializer contract |
@@ -1594,8 +1620,9 @@ These are current-state observations, not design goals:
 
 ## 17. Evidence Anchors
 
-Current local Bridge evidence is recorded in the lane files under `lanes/`.
-The most relevant accepted evidence:
+Historical local Bridge evidence is recorded in workflow lane files under
+`tmp/spec-workflows/.../lanes/`. Those files are evidence anchors, not the durable
+spec source of truth. The most relevant accepted evidence:
 
 - [review-source-subscription-contract.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/spec-workflows/2026-06-22-bridge-transport-streaming-spec/lanes/review-source-subscription-contract.md:1)
 - [worktree-source-subscription-contract.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/spec-workflows/2026-06-22-bridge-transport-streaming-spec/lanes/worktree-source-subscription-contract.md:1)
