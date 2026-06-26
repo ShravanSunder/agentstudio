@@ -164,6 +164,13 @@ export async function createBridgeWorktreeDevProvider(
 		loadWorktreeFileContent: async (
 			request: BridgeWorktreeDevProviderWorktreeFileContentRequest,
 		): Promise<string> => {
+			const cachedContent = contentFromProviderState({
+				request,
+				state,
+			});
+			if (cachedContent !== null) {
+				return cachedContent;
+			}
 			const currentState = await loadCurrentState();
 			const currentSource = currentState.worktreeFileSurface.source;
 			if (request.subscriptionGeneration !== currentSource.subscriptionGeneration) {
@@ -187,6 +194,23 @@ export async function createBridgeWorktreeDevProvider(
 			return currentState.worktreeFileSurface;
 		},
 	};
+}
+
+function contentFromProviderState(props: {
+	readonly request: BridgeWorktreeDevProviderWorktreeFileContentRequest;
+	readonly state: ProviderState | null;
+}): string | null {
+	if (props.state === null) {
+		return null;
+	}
+	const currentSource = props.state.worktreeFileSurface.source;
+	if (
+		props.request.subscriptionGeneration !== currentSource.subscriptionGeneration ||
+		props.request.sourceCursor !== currentSource.sourceCursor
+	) {
+		return null;
+	}
+	return props.state.worktreeFileContentByDescriptorId.get(props.request.descriptorId) ?? null;
 }
 
 export async function loadBridgeWorktreeDevSnapshot(props: {

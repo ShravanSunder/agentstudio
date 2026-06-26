@@ -868,6 +868,12 @@ Generic contract invariants:
 - Resource descriptors include stale-drop identity and hard size/window limits.
 - Descriptor refs must bind expected protocol, kind, pane/source/package
   identity, limits, and cursor before fetch or commit.
+- A provider that minted a descriptor for an accepted source cursor must be able
+  to serve that descriptor's body by descriptor/cursor authority without
+  re-materializing the whole source first. Source refresh may mint a newer
+  cursor and reject older descriptors after that newer surface is accepted, but
+  content fetch for the already-accepted descriptor cannot depend on a fresh
+  worktree-wide scan.
 - A protocol frame that introduces a new schedulable descriptor must carry a
   `BridgeAttachedResourceDescriptor` or reference a descriptor attached earlier
   in the same accepted stream lineage. The Bridge runtime registers attached

@@ -324,7 +324,7 @@ describe('Bridge worktree dev provider', () => {
 		}
 	});
 
-	test('rejects old content URLs after worktree changes before another surface refresh', async () => {
+	test('serves descriptor-cursor content from the accepted surface until another surface refresh', async () => {
 		const repoRoot = await makeGitFixtureWorktree();
 		try {
 			const provider = await createBridgeWorktreeDevProvider({
@@ -338,9 +338,9 @@ describe('Bridge worktree dev provider', () => {
 
 			await writeFile(join(repoRoot, 'docs/bridge-plan.md'), '# Plan\n\nupdated docs body\n');
 
-			await expect(provider.loadWorktreeFileContent(firstRequest)).rejects.toThrow(
-				/stale Bridge worktree file content cursor/,
-			);
+			const contentBeforeRefresh = await provider.loadWorktreeFileContent(firstRequest);
+			expect(contentBeforeRefresh).toContain('new docs body');
+			expect(contentBeforeRefresh).not.toContain('updated docs body');
 		} finally {
 			await rm(repoRoot, { force: true, recursive: true });
 		}

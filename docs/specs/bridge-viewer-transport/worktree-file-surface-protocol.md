@@ -476,6 +476,10 @@ Contract:
 - Refresh creates a new content fetch intent using the latest descriptor.
 - Stale completions cannot commit if their descriptor/source identity is no
   longer current for the open session.
+- File content fetch materializes the descriptor version that was already minted
+  by the accepted surface/projection cursor. It must not re-scan the whole
+  worktree before serving that descriptor body. After a newer surface cursor is
+  accepted, older cursor-bound content requests may reject as stale.
 
 ## 7. Status And Invalidation
 

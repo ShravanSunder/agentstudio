@@ -134,6 +134,18 @@ The first implementation sequence after plan review is:
   proves FileViewer selected-file opens reach visible Pierre CodeView/File
   content from real browser clicks with recorded disposition, queue state, and
   click-to-ready timing; a screenshot stuck on `Loading file` keeps this open
+  current provider-cache checkpoint reduces the dev-server file-content read by
+  serving the accepted descriptor cursor directly; full preload/scheduler
+  disposition telemetry remains open
+  proof:
+    - provider integration:
+      `pnpm --dir BridgeWeb exec vitest run scripts/dev-server/bridge-worktree-dev-provider.integration.test.ts`
+    - dev-server product gate:
+      `pnpm --dir BridgeWeb run test:dev-server:worktree`
+    - browser screenshot:
+      `tmp/bridge-viewer-worktree-provider-cache-proof/2026-06-26T-provider-cache/files-ready.png`
+    - browser proof JSON:
+      `tmp/bridge-viewer-worktree-provider-cache-proof/2026-06-26T-provider-cache/proof.json`
 
 0.a.6 Agent Studio Bridge/WKWebView proof
   proves Files context, Review diff context, Review file-target context, and

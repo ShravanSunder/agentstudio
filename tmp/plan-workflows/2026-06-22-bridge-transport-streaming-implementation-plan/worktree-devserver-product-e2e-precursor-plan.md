@@ -835,6 +835,9 @@ Integration:
 - dev worktree provider returns validated metadata, descriptors, size facts, and
   descriptor resource URLs without file bodies in metadata
 - content fetch uses descriptor authority and generation/cursor
+- content fetch serves the descriptor body from the already-accepted surface
+  cursor without re-running a whole-worktree snapshot; after a newer surface is
+  accepted, older cursor-bound requests reject as stale
 
 Browser/E2E:
 
