@@ -166,7 +166,7 @@ final class TabBarAdapter {
             let displayTitle = atom(\.tabDisplay).displayTitle(
                 for: tab,
                 workspacePane: store.paneAtom,
-                repositoryTopology: atom(\.repositoryTopology),
+                repositoryTopology: store.repositoryTopologyAtom,
                 repoCache: repoCache
             )
             let dragTitle = displayTitle
@@ -224,8 +224,8 @@ final class TabBarAdapter {
 
         if let worktreeId = pane.worktreeId,
             let repoId = pane.repoId,
-            let repo = atom(\.repositoryTopology).repo(repoId),
-            let worktree = atom(\.repositoryTopology).worktree(worktreeId)
+            let repo = store.repositoryTopologyAtom.repo(repoId),
+            let worktree = store.repositoryTopologyAtom.worktree(worktreeId)
         {
             let repoName = pane.metadata.repoName ?? repo.name
             let branchName = atom(\.paneDisplay).resolvedBranchName(
