@@ -61,7 +61,7 @@ product-like." The current checkpoint stack is:
   shared FileViewer/ReviewViewer controls use compact `h-6`/`w-6` sizing,
   `#313244` hover, `#B4BEFE` focus, and the same active-fill token. This is the
   neutral shared-chrome correction for the current checkpoint; exact
-  performance tuning and route-fanout pressure remain later proof rows.
+  performance tuning and route-fanout pressure remain 0.a.5 proof rows.
 - Expanded FileViewer search proof rows:
   `productControlsProof.searchChromeProof.searchInputHeight = 24`,
   `searchInputFontSize = 11px`, `searchToggleHeight = 24`,
@@ -374,6 +374,9 @@ Plan sequence changed after the 2026-06-25 navigation decision:
 0.a.4 visual/e2e/negative-substitute proof
   -> proves live dev-server behavior, Pierre/Shiki/worker ownership, and no
      standalone second app or stale bundle substitute
+  -> does not own FileViewer click-to-ready latency, preload disposition,
+     scheduler queue behavior, or Review route-fanout/content-pressure closure;
+     those are 0.a.5 proof gates
   -> status: checkpointed for the shared visual shell in artifact
      2026-06-26T02-32-00-284Z; reopened for a fresh screenshot set after the
      chrome parity correction. Required pictures: Files context, Review diff
@@ -399,12 +402,13 @@ Plan sequence changed after the 2026-06-25 navigation decision:
      captures; those supplemental captures now record `materializedType=diff`
      for Review diff and `materializedType=file` for Review file-target.
 
-0.a.5 file-load responsiveness/performance proof
-  -> proves clicking files does not feel slow under the large worktree fixture,
-     or records measured latency/backpressure defects as the next performance
-     ticket
-  -> status: pending; must be tied to Victoria/browser metrics or a browser
-     performance canary before tuning constants are called ready
+0.a.5 file-load responsiveness/preload and route-pressure proof
+  -> proves FileViewer selected-file opens, refreshes, visible/nearby/
+     speculative preloads, recently-updated-file stimuli, and Review
+     route-fanout/content pressure through measured scheduler telemetry
+  -> status: pending; browser proof may use conservative initial gates for
+     route hits, queue depth, in-flight counts, and byte-budget admission, but
+     production tuning constants still require Victoria/OTel before graduation
 
 0.a.6 native Agent Studio Bridge/WKWebView proof
   -> proves Files context, Review diff context, Review file-target context, and
@@ -446,8 +450,9 @@ with context controls, right rail top-aligned outside that header, and rail-owne
 compact search/filter/status controls using the ReviewViewer primitive style.
 It must also fail if visible FileViewer search/filter/action controls are still
 owned by route-local toolbar classes or raw/custom controls instead of the shared
-BridgeViewer/shadcn primitive layer. It must also fail if file-click content
-loading lacks measured latency/backpressure evidence.
+BridgeViewer/shadcn primitive layer. It may record file-click latency or route
+pressure as open 0.a.5 blockers, but 0.a.4 must not claim responsiveness,
+preload, queue, or content-pressure closure.
 
 Native Agent Studio Bridge/WKWebView proof remains outside this precursor and
 is still required before PR-ready.
@@ -1031,7 +1036,7 @@ Current checkpoint note, 2026-06-26 active-context retention:
   - Neutral shared-chrome primitive ownership remains open while shared
     FileViewer/header controls import Review-namespaced primitives.
   - Review content route fanout remains visible in the proof artifact,
-    including high review route hit counts. Slice 06P.4/0.a.5 owns closing the
+    including high review route hit counts. Slice 06P.5/0.a.5 owns closing the
     Review route-fanout/content-pressure observation together with FileViewer
     preload latency, using browser proof plus Victoria-backed telemetry. Native
     Agent Studio Bridge/WKWebView product proof is still required by 0.a.6 and
@@ -1117,7 +1122,7 @@ Current visual/layout note, 2026-06-26 accepted-C refresh:
   visual/layout proof with no concrete layout mismatches and reiterated that
   this proof does not cover the implementation gates listed above.
 
-### Slice 06P.4 / 0.a.4: Pierre CodeView/File, Shiki, And Worker Proof
+### Slice 06P.5 / 0.a.5: File Load Demand, Preload, And Content Pressure Proof
 
 Render opened worktree files through Pierre CodeView/File. Shiki highlighting
 and the Pierre worker pool must be active when `workers=on`. Make open-file
@@ -1125,9 +1130,13 @@ state explicit and visible: loading, ready, stale, unavailable, and refresh. If
 the currently open file changes while open, show an update notification/refresh
 affordance rather than silently replacing content.
 Opened-file latency is part of this slice, not a subjective polish follow-up.
+0.a.5 owns FileViewer responsiveness, preload/disposition proof, and Review
+route-fanout/content-pressure closure. Visual/shared-shell proof in 0.a.4 can
+surface these as blockers, but cannot close them.
+
 The FileViewer should use the shared demand scheduler to warm likely next files:
 selected/open file and refresh are `foreground`, visible tree rows are bounded
-`visible` preloads, adjacent selected/open rows are `nearby`, hover/focus or
+`visible` preloads, adjacent selected/open rows are `nearby`, hover/focus and
 provider predictions are `speculative`, debounced recently-updated files from
 the current open FileViewer source are `speculative` unless they are adjacent to
 the selected/open/visible region, and broad warming is `idle`. All preloads
@@ -1138,7 +1147,12 @@ Proof:
 
 - Unit test for invalidation of the open descriptor.
 - Unit/integration proof for FileViewer demand policy mapping selected,
-  viewport-visible, adjacent, hover/focus, and idle stimuli to scheduler lanes.
+  viewport-visible, adjacent, hover/focus, recently-updated-file, and idle
+  stimuli to scheduler lanes.
+- Unit/integration proof that recently-updated-file stimuli from the active
+  FileViewer source enqueue descriptor-backed preloads as `speculative` or
+  `nearby` by row proximity, never as foreground work unless the user explicitly
+  opens or refreshes that file.
 - Unit/integration proof that Worktree/File and worktree-backed Review source
   adapters exclude gitignored paths before publishing descriptors, tree rows,
   route bootstrap targets, review candidates, and preload demand.
@@ -1153,6 +1167,9 @@ Proof:
   in-flight count, byte-budget decisions, and whether opened content was
   cold-loaded, visible-preloaded, nearby-preloaded, speculative-preloaded, or
   refreshed.
+- Browser/dev-server proof emits or injects a recently-updated-file event and
+  records the resulting lane, dedupe key, queue admission/drop, byte-budget
+  disposition, and stale-drop behavior.
 - The canonical click-to-ready clock starts at the browser actionability-checked
   click or refresh action and ends when the selected file identity is visible and
   Pierre CodeView/File has rendered non-loading file lines for that target.
@@ -1166,6 +1183,18 @@ Proof:
   follow-up. The proof artifact must record Review route hits, cancellations,
   stale drops, queue depth, in-flight count, and bytes admitted for Review
   file-target navigation as well as Files click-to-ready navigation.
+- Initial route-pressure gate, before production tuning: each selected target
+  epoch may have at most one foreground content request in flight. Extra same-
+  target route hits must be attributed as bounded retry, cancellation, or stale
+  drop, and duplicate foreground work after ready fails the gate.
+- Initial queue/in-flight gate, before production tuning: the proof artifact
+  must publish max queue depth, max in-flight count, configured executor cap,
+  lane upgrades, cancellations, and drops per lane. Foreground work must not sit
+  behind lower-lane preloads, and no lane may exceed its declared executor cap.
+- Initial byte-budget gate, before production tuning: the proof artifact must
+  publish admitted, deferred, and dropped bytes by lane and source. Admission
+  over the configured source/lane budget, or admission without a recorded budget,
+  fails the gate.
 
 ### Slice 06P.6 / 0.a.6: Native Agent Studio Bridge/WKWebView Proof
 
@@ -1226,7 +1255,7 @@ Implementation notes from current-code research:
   browser-local adapter or a measured fallback that emits bounded visible-window
   stimuli without reaching into Pierre internals.
 
-### Slice 06P.5 / 0.a.5: Scroll Extent Canary
+### Slice 06P.5a / 0.a.5 Support: Scroll Extent Canary
 
 Keep DiffsHub-style scroll stability as a first-class canary. Tree and file
 scroll extents must be based on declared row/line facts and remain stable across
@@ -1239,7 +1268,7 @@ Proof:
 - Proof fails if scroll height collapses to only materialized visible content.
 - Proof fails if selecting a file causes an unexplained jump outside threshold.
 
-### Slice 06P.6 / 0.a.6: Negative Proof And Artifact
+### Slice 06P.4a / 0.a.4: Negative Proof Artifact
 
 Write a JSON proof artifact and screenshots that can be inspected by parent
 agent and reviewer lanes.

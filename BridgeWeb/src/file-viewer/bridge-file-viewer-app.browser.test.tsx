@@ -122,6 +122,14 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		await waitForOpenFileState('ready');
 
 		expect(openFilePath()).toBe('docs/target.ts');
+		const shell = requireBridgeViewerHTMLElement(
+			document.querySelector('[data-testid="bridge-file-viewer-shell"]'),
+		);
+		expect(shell.getAttribute('data-last-open-load-disposition')).toBe('cold-loaded');
+		expect(shell.getAttribute('data-last-open-load-lane')).toBe('foreground');
+		expect(shell.getAttribute('data-last-open-load-estimated-bytes')).toBe('64');
+		expect(shell.getAttribute('data-last-open-load-scheduler-queued-after')).toBe('0');
+		expect(shell.getAttribute('data-last-open-load-executor-in-flight-after')).toBe('0');
 		expect(fetchedResourceUrls).toEqual([
 			'agentstudio://resource/worktree-file/worktree.fileContent/target-content?generation=1',
 		]);

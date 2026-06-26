@@ -495,6 +495,7 @@ interface WorktreeFileToReviewHandoffProof {
 	readonly fileModeHostActiveAfterReturnToReview: string | null;
 	readonly fileViewerShellCountAfterSwitch: number;
 	readonly fileViewerShellHiddenAfterSwitch: boolean;
+	readonly fileViewerOpenLoadTelemetry: WorktreeFileOpenLoadTelemetryProof;
 	readonly fileViewerSelectedPathAfterReturnToFile: string | null;
 	readonly fileViewerSelectedPathAfterSwitch: string | null;
 	readonly reviewContentRouteHitCount: number;
@@ -513,6 +514,19 @@ interface WorktreeFileToReviewHandoffProof {
 	readonly sharedShellMode: string | null;
 	readonly sharedShellOwner: string | null;
 	readonly standaloneWorktreeFileAppCount: number;
+}
+
+interface WorktreeFileOpenLoadTelemetryProof {
+	readonly disposition: string | null;
+	readonly durationMilliseconds: number | null;
+	readonly estimatedBytes: number | null;
+	readonly executorInFlightCountAfter: number | null;
+	readonly executorInFlightCountBefore: number | null;
+	readonly executorQueuedLoadCountAfter: number | null;
+	readonly executorQueuedLoadCountBefore: number | null;
+	readonly lane: string | null;
+	readonly schedulerQueuedIntentCountAfter: number | null;
+	readonly schedulerQueuedIntentCountBefore: number | null;
 }
 
 interface ReviewRouteProbe {
@@ -4362,6 +4376,62 @@ async function verifyWorktreeFileToReviewHandoff(): Promise<WorktreeFileToReview
 			const codePanel = document.querySelector('[data-testid="bridge-code-view-panel"]');
 			const fileModeHost = document.querySelector('[data-testid="bridge-viewer-mode-host-file"]');
 			const fileViewerShell = document.querySelector('[data-testid="bridge-file-viewer-shell"]');
+			const optionalNumberAttribute = (
+				element: Element | null,
+				attributeName: string,
+			): number | null => {
+				if (!(element instanceof HTMLElement)) {
+					return null;
+				}
+				const attributeValue = element.getAttribute(attributeName);
+				if (attributeValue === null) {
+					return null;
+				}
+				const parsedValue = Number(attributeValue);
+				return Number.isFinite(parsedValue) ? parsedValue : null;
+			};
+			const fileViewerOpenLoadTelemetry: WorktreeFileOpenLoadTelemetryProof = {
+				disposition:
+					fileViewerShell instanceof HTMLElement
+						? fileViewerShell.getAttribute('data-last-open-load-disposition')
+						: null,
+				durationMilliseconds: optionalNumberAttribute(
+					fileViewerShell,
+					'data-last-open-load-duration-ms',
+				),
+				estimatedBytes: optionalNumberAttribute(
+					fileViewerShell,
+					'data-last-open-load-estimated-bytes',
+				),
+				executorInFlightCountAfter: optionalNumberAttribute(
+					fileViewerShell,
+					'data-last-open-load-executor-in-flight-after',
+				),
+				executorInFlightCountBefore: optionalNumberAttribute(
+					fileViewerShell,
+					'data-last-open-load-executor-in-flight-before',
+				),
+				executorQueuedLoadCountAfter: optionalNumberAttribute(
+					fileViewerShell,
+					'data-last-open-load-executor-queued-after',
+				),
+				executorQueuedLoadCountBefore: optionalNumberAttribute(
+					fileViewerShell,
+					'data-last-open-load-executor-queued-before',
+				),
+				lane:
+					fileViewerShell instanceof HTMLElement
+						? fileViewerShell.getAttribute('data-last-open-load-lane')
+						: null,
+				schedulerQueuedIntentCountAfter: optionalNumberAttribute(
+					fileViewerShell,
+					'data-last-open-load-scheduler-queued-after',
+				),
+				schedulerQueuedIntentCountBefore: optionalNumberAttribute(
+					fileViewerShell,
+					'data-last-open-load-scheduler-queued-before',
+				),
+			};
 			const visibleContextButtonSelection = (testId: string): string | null => {
 				const buttons = [...document.querySelectorAll(`[data-testid="${testId}"]`)];
 				const visibleButton = buttons.find(
@@ -4385,6 +4455,7 @@ async function verifyWorktreeFileToReviewHandoff(): Promise<WorktreeFileToReview
 				).length,
 				fileViewerShellHiddenAfterSwitch:
 					fileViewerShell instanceof HTMLElement && fileViewerShell.closest('[hidden]') !== null,
+				fileViewerOpenLoadTelemetry,
 				fileViewerSelectedPathAfterSwitch:
 					fileViewerShell instanceof HTMLElement
 						? fileViewerShell.getAttribute('data-selected-display-path')
@@ -4512,6 +4583,15 @@ async function verifyWorktreeFileToReviewHandoff(): Promise<WorktreeFileToReview
 			handoffProof.fileViewerShellCountAfterSwitch !== 1 ||
 			!handoffProof.fileModeHostHiddenAfterSwitch ||
 			!handoffProof.fileViewerShellHiddenAfterSwitch ||
+			handoffProof.fileViewerOpenLoadTelemetry.disposition !== 'cold-loaded' ||
+			handoffProof.fileViewerOpenLoadTelemetry.lane !== 'foreground' ||
+			handoffProof.fileViewerOpenLoadTelemetry.durationMilliseconds === null ||
+			handoffProof.fileViewerOpenLoadTelemetry.durationMilliseconds < 0 ||
+			handoffProof.fileViewerOpenLoadTelemetry.estimatedBytes === null ||
+			handoffProof.fileViewerOpenLoadTelemetry.estimatedBytes <= 0 ||
+			handoffProof.fileViewerOpenLoadTelemetry.schedulerQueuedIntentCountAfter !== 0 ||
+			handoffProof.fileViewerOpenLoadTelemetry.executorInFlightCountAfter !== 0 ||
+			handoffProof.fileViewerOpenLoadTelemetry.executorQueuedLoadCountAfter !== 0 ||
 			handoffProof.fileViewerSelectedPathAfterSwitch !== expectedDisplayPath ||
 			handoffProof.reviewModeAfterReturnToFile !== 'file' ||
 			handoffProof.fileModeHostActiveAfterReturnToFile !== 'true' ||

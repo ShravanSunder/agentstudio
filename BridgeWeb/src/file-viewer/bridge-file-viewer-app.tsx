@@ -37,6 +37,7 @@ import type {
 } from '../worktree-file-surface/worktree-file-app.js';
 import {
 	createWorktreeFileSurfaceRuntime,
+	type WorktreeFileSurfaceLoadTelemetry,
 	type WorktreeFileSurfaceLoadResult,
 	type WorktreeFileSurfaceRuntime,
 	type WorktreeFileSurfaceRuntimeFetchResourceProps,
@@ -116,6 +117,8 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 	});
 	const [refreshDebugState, setRefreshDebugState] =
 		useState<BridgeFileViewerRefreshDebugState | null>(null);
+	const [lastOpenLoadTelemetry, setLastOpenLoadTelemetry] =
+		useState<WorktreeFileSurfaceLoadTelemetry | null>(null);
 	const [searchText, setSearchText] = useState('');
 	const [searchMode, setSearchMode] = useState<BridgeFileViewerSearchMode>('text');
 	const [filterMode, setFilterMode] = useState<BridgeFileViewerFilterMode>('all');
@@ -138,6 +141,7 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 		const requestId = openFileRequestIdRef.current + 1;
 		openFileRequestIdRef.current = requestId;
 		openFileBodyRef.current = null;
+		setLastOpenLoadTelemetry(null);
 		setOpenFileState({ status: 'loading', path: descriptor.path, descriptor });
 		const runtime = runtimeRef.current;
 		if (runtime === null) {
@@ -155,10 +159,12 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 		}
 		if (result.ok) {
 			openFileBodyRef.current = result.body;
+			setLastOpenLoadTelemetry(result.loadTelemetry);
 			setOpenFileState({ status: 'ready', path: descriptor.path, descriptor });
 			return;
 		}
 		openFileBodyRef.current = null;
+		setLastOpenLoadTelemetry(null);
 		setOpenFileState({
 			status: result.reason === 'content_unavailable' ? 'unavailable' : 'failed',
 			path: descriptor.path,
@@ -272,6 +278,7 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 		}
 		const requestId = openFileRequestIdRef.current + 1;
 		openFileRequestIdRef.current = requestId;
+		setLastOpenLoadTelemetry(null);
 		const runtime = runtimeRef.current;
 		if (runtime === null) {
 			if (openFileRequestIdRef.current === requestId) {
@@ -311,6 +318,7 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 		});
 		if (result.ok) {
 			openFileBodyRef.current = result.body;
+			setLastOpenLoadTelemetry(result.loadTelemetry);
 			const refreshedDescriptor =
 				findLatestDescriptorForOpenFile({
 					descriptor: state.descriptor,
@@ -325,6 +333,7 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 		}
 		openFileBodyRef.current =
 			result.reason === 'content_unavailable' ? null : openFileBodyRef.current;
+		setLastOpenLoadTelemetry(null);
 		setOpenFileState({
 			status: result.reason === 'content_unavailable' ? 'unavailable' : 'stale',
 			path: refreshDescriptor.path,
@@ -381,6 +390,28 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 			data-last-refresh-descriptor-id={refreshDebugState?.descriptorId}
 			data-last-refresh-request-id={refreshDebugState?.requestId}
 			data-last-refresh-result={refreshDebugState?.result}
+			data-last-open-load-disposition={lastOpenLoadTelemetry?.disposition}
+			data-last-open-load-duration-ms={lastOpenLoadTelemetry?.durationMilliseconds}
+			data-last-open-load-estimated-bytes={lastOpenLoadTelemetry?.estimatedBytes ?? undefined}
+			data-last-open-load-executor-in-flight-after={
+				lastOpenLoadTelemetry?.executorInFlightCountAfter
+			}
+			data-last-open-load-executor-in-flight-before={
+				lastOpenLoadTelemetry?.executorInFlightCountBefore
+			}
+			data-last-open-load-executor-queued-after={
+				lastOpenLoadTelemetry?.executorQueuedLoadCountAfter
+			}
+			data-last-open-load-executor-queued-before={
+				lastOpenLoadTelemetry?.executorQueuedLoadCountBefore
+			}
+			data-last-open-load-lane={lastOpenLoadTelemetry?.lane}
+			data-last-open-load-scheduler-queued-after={
+				lastOpenLoadTelemetry?.schedulerQueuedIntentCountAfter
+			}
+			data-last-open-load-scheduler-queued-before={
+				lastOpenLoadTelemetry?.schedulerQueuedIntentCountBefore
+			}
 			data-selected-display-path={selectedPath ?? undefined}
 			data-sidebar-position="right"
 			data-testid="bridge-file-viewer-shell"

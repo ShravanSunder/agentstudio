@@ -7,6 +7,7 @@ import {
 	createBridgeResourceExecutor,
 	type BridgeResourceExecutor,
 } from '../core/demand/bridge-resource-executor.js';
+import type { BridgeDemandLane } from '../core/models/bridge-demand-models.js';
 import type {
 	BridgeDescriptorRef,
 	BridgeResourceDescriptor,
@@ -45,6 +46,28 @@ export interface WorktreeFileSurfaceRuntimeFetchResourceProps {
 export interface WorktreeFileSurfaceRuntimeProps {
 	readonly paneId: string;
 	readonly fetchResource: (props: WorktreeFileSurfaceRuntimeFetchResourceProps) => Promise<string>;
+	readonly now?: () => number;
+}
+
+export type WorktreeFileSurfaceLoadDisposition = 'cache-hit' | 'cold-loaded' | 'refreshed';
+
+export interface WorktreeFileSurfaceLoadTelemetry {
+	readonly disposition: WorktreeFileSurfaceLoadDisposition;
+	readonly durationMilliseconds: number;
+	readonly estimatedBytes: number | null;
+	readonly executorInFlightBytesAfter: number;
+	readonly executorInFlightBytesBefore: number;
+	readonly executorInFlightCountAfter: number;
+	readonly executorInFlightCountBefore: number;
+	readonly executorQueuedBytesAfter: number;
+	readonly executorQueuedBytesBefore: number;
+	readonly executorQueuedLoadCountAfter: number;
+	readonly executorQueuedLoadCountBefore: number;
+	readonly lane: BridgeDemandLane;
+	readonly schedulerQueuedEstimatedBytesAfter: number;
+	readonly schedulerQueuedEstimatedBytesBefore: number;
+	readonly schedulerQueuedIntentCountAfter: number;
+	readonly schedulerQueuedIntentCountBefore: number;
 }
 
 export type WorktreeFileSurfaceApplyFrameResult =
@@ -73,6 +96,7 @@ export type WorktreeFileSurfaceLoadResult =
 			readonly ok: true;
 			readonly body: string;
 			readonly descriptorId: string;
+			readonly loadTelemetry: WorktreeFileSurfaceLoadTelemetry;
 	  }
 	| {
 			readonly ok: false;
@@ -190,6 +214,7 @@ export function createWorktreeFileSurfaceRuntime(
 			return { body, byteLength };
 		},
 	});
+	const now = props.now ?? ((): number => performance.now());
 	const readContext = makeWorktreeFileDemandReadContext({
 		registry,
 		resetScope,
@@ -317,8 +342,10 @@ export function createWorktreeFileSurfaceRuntime(
 			return { ok: false, reason: 'content_unavailable' };
 		}
 		const loadResult = await loadStimulus({
+			bodyRegistry,
 			scheduler,
 			executor,
+			now,
 			readContext,
 			stimulusDescriptor: openProps.descriptor,
 			stimulusKind: 'fileSelected',
@@ -372,8 +399,10 @@ export function createWorktreeFileSurfaceRuntime(
 			return { ok: false, reason: 'no_demand' };
 		}
 		const loadResult = await loadStimulus({
+			bodyRegistry,
 			scheduler,
 			executor,
+			now,
 			readContext,
 			stimulusDescriptor: refreshDescriptor,
 			stimulusKind: 'explicitRefresh',
@@ -564,12 +593,29 @@ function resetDescriptorKeyForBridgeDescriptorRef(ref: BridgeDescriptorRef): str
 }
 
 async function loadStimulus(props: {
+	readonly bodyRegistry: ReturnType<typeof createBridgeBodyRegistry<string>>;
 	readonly scheduler: BridgeDemandScheduler;
 	readonly executor: BridgeResourceExecutor<string>;
+	readonly now: () => number;
 	readonly readContext: WorktreeFileDemandReadContext;
 	readonly stimulusDescriptor: WorktreeFileDescriptor;
 	readonly stimulusKind: 'fileSelected' | 'explicitRefresh';
 }): Promise<WorktreeFileSurfaceLoadResult> {
+	const queuedIntentCountBefore = props.scheduler.queuedIntentCount;
+	const queuedEstimatedBytesBefore = props.scheduler.queuedEstimatedBytes;
+	const executorInFlightCountBefore = props.executor.inFlightCount;
+	const executorInFlightBytesBefore = props.executor.inFlightBytes;
+	const executorQueuedLoadCountBefore = props.executor.queuedLoadCount;
+	const executorQueuedBytesBefore = props.executor.queuedBytes;
+	const expectedBytes =
+		props.stimulusDescriptor.contentDescriptor.descriptor.content.expectedBytes ?? null;
+	const wasCachedBeforeLoad =
+		props.bodyRegistry.get({
+			cacheKey: props.stimulusDescriptor.contentDescriptor.descriptor.resourceUrl,
+			freshnessKey: demandFreshnessKeyForWorktreeDescriptorRef(
+				props.stimulusDescriptor.contentDescriptor.ref,
+			),
+		}) !== null;
 	const intents = mapWorktreeFileDemandStimulusToIntents({
 		stimulus: {
 			kind: props.stimulusKind,
@@ -603,7 +649,9 @@ async function loadStimulus(props: {
 	if (nextIntent === null) {
 		return { ok: false, reason: 'no_demand' };
 	}
+	const loadStartedAtMilliseconds = props.now();
 	const result = await props.executor.load(nextIntent);
+	const loadFinishedAtMilliseconds = props.now();
 	if (!result.ok) {
 		return result;
 	}
@@ -611,7 +659,38 @@ async function loadStimulus(props: {
 		ok: true,
 		body: result.body,
 		descriptorId: result.descriptor.descriptorId,
+		loadTelemetry: {
+			disposition: loadDispositionForStimulus({
+				stimulusKind: props.stimulusKind,
+				wasCachedBeforeLoad,
+			}),
+			durationMilliseconds: Math.max(0, loadFinishedAtMilliseconds - loadStartedAtMilliseconds),
+			estimatedBytes: expectedBytes,
+			executorInFlightBytesAfter: props.executor.inFlightBytes,
+			executorInFlightBytesBefore,
+			executorInFlightCountAfter: props.executor.inFlightCount,
+			executorInFlightCountBefore,
+			executorQueuedBytesAfter: props.executor.queuedBytes,
+			executorQueuedBytesBefore,
+			executorQueuedLoadCountAfter: props.executor.queuedLoadCount,
+			executorQueuedLoadCountBefore,
+			lane: nextIntent.lane,
+			schedulerQueuedEstimatedBytesAfter: props.scheduler.queuedEstimatedBytes,
+			schedulerQueuedEstimatedBytesBefore: queuedEstimatedBytesBefore,
+			schedulerQueuedIntentCountAfter: props.scheduler.queuedIntentCount,
+			schedulerQueuedIntentCountBefore: queuedIntentCountBefore,
+		},
 	};
+}
+
+function loadDispositionForStimulus(props: {
+	readonly stimulusKind: 'fileSelected' | 'explicitRefresh';
+	readonly wasCachedBeforeLoad: boolean;
+}): WorktreeFileSurfaceLoadDisposition {
+	if (props.wasCachedBeforeLoad) {
+		return 'cache-hit';
+	}
+	return props.stimulusKind === 'explicitRefresh' ? 'refreshed' : 'cold-loaded';
 }
 
 function cancelSourceDemand(props: {

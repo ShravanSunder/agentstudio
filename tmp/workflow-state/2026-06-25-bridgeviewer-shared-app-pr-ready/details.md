@@ -129,14 +129,18 @@ The first implementation sequence after plan review is:
 0.a.4 live dev-server e2e proof
   proves exact URLs, visible layout, Pierre/Shiki/worker ownership, and negative
   assertions against stale/mock/raw/second-app substitutes
+  does not close FileViewer responsiveness, preload disposition, scheduler queue
+  behavior, or Review route-fanout/content-pressure proof
 
-0.a.5 file-load responsiveness/preload proof
+0.a.5 file-load responsiveness/preload and route-pressure proof
   proves FileViewer selected-file opens reach visible Pierre CodeView/File
   content from real browser clicks with recorded disposition, queue state, and
   click-to-ready timing; a screenshot stuck on `Loading file` keeps this open
   current provider-cache checkpoint reduces the dev-server file-content read by
   serving the accepted descriptor cursor directly; full preload/scheduler
-  disposition telemetry remains open
+  disposition telemetry remains open. 0.a.5 also owns visible, nearby,
+  speculative, and recently-updated-file preload behavior plus Review
+  route-fanout/content-pressure closure.
   proof:
     - provider integration:
       `pnpm --dir BridgeWeb exec vitest run scripts/dev-server/bridge-worktree-dev-provider.integration.test.ts`
@@ -561,7 +565,11 @@ Disposition of prior findings:
   The next implementation slice should add an app-specific
   `dispatchDemandStimuli(...)` seam, descriptor-backed body-registry preloads,
   scoped cancellation groups, preload disposition telemetry, and click-to-ready
-  latency proof.
+  latency proof. Recently-updated-file stimuli must be proved directly:
+  debounced updates from the active FileViewer source enqueue descriptor-backed
+  `speculative` preloads, or `nearby` preloads when adjacent to the selected,
+  open, or visible row band; they must not become foreground work unless the
+  user opens or refreshes that file.
 
 ## 2026-06-26 Checkpoint: Shared Content Header And Right-Rail Alignment
 
@@ -848,10 +856,16 @@ Screenshot/onlook artifacts:
 Current open work:
 
 - Review content route fanout is still visible in the proof artifact, including
-  a high review file-target route hit count. This belongs to scheduler/content
-  pressure work, not the shell geometry fix.
-- File click-to-ready latency and speculative preload lanes still need
-  telemetry-backed tuning.
+  a high review file-target route hit count. This belongs to 0.a.5
+  scheduler/content-pressure work, not the shell geometry fix.
+- File click-to-ready latency plus visible, nearby, speculative, and
+  recently-updated-file preload lanes still need telemetry-backed proof.
+- Initial 0.a.5 proof gates are conservative and not production tuning:
+  one foreground content request per selected target epoch; recorded route hits,
+  cancellations, stale drops, queue depth, in-flight counts, lane upgrades, and
+  byte admission/defer/drop decisions; no foreground work blocked behind lower
+  lanes; no lane above its declared executor cap; no admitted bytes without a
+  recorded source/lane budget.
 - Native Agent Studio Bridge/WKWebView proof is still required before PR-ready.
 
 ## 2026-06-26 Accepted-C Visual Refresh
@@ -1131,10 +1145,10 @@ Open implementation blockers remain:
   the left.
 - Still open and not hidden by this proof: Review verifier real-click work,
   neutral shared-chrome ownership, hidden inactive-context side-effect proof,
-  Review content route fanout/content pressure, FileViewer preload latency, and
-  native Agent Studio Bridge/WKWebView proof. The fresh Review file-target proof
-  records `reviewContentRouteHitCount=292`, so 0.a.5 remains a real pressure
-  blocker.
+  Review content route fanout/content pressure, FileViewer preload latency,
+  recently-updated-file preload behavior, and native Agent Studio Bridge/WKWebView
+  proof. The fresh Review file-target proof records
+  `reviewContentRouteHitCount=292`, so 0.a.5 remains a real pressure blocker.
 
 2026-06-26 Review real-click verifier checkpoint:
 
@@ -1553,6 +1567,10 @@ Open implementation blockers remain:
   same artifact: `result.reviewRouteProof.reviewContentRouteHitCount=224` and
   `result.fileToReviewHandoffProof.reviewContentRouteHitCount=325`. These
   remain 0.a.5 scheduler/content-pressure work, not 0.b visual proof closure.
+  The closure proof must include route-hit attribution, queue depth, in-flight
+  count, lane upgrades/cancellations/stale drops, and admitted/deferred/dropped
+  bytes by lane/source; tuning constants still require Victoria/OTel before
+  production graduation.
 - Remaining blockers after this tightened review-fix checkpoint:
   implementation review disposition, native Agent Studio Bridge/WKWebView proof,
   inactive-context browser/native proof if kept as gate-level, route

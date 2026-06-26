@@ -19,10 +19,13 @@ describe('worktree file surface runtime', () => {
 	test('loads selected file content through descriptor-backed demand without storing bodies in state', async () => {
 		const descriptor = makeFileDescriptor({ descriptorId: 'file-content-1' });
 		const fetches: string[] = [];
+		let nowMilliseconds = 100;
 		const runtime = createWorktreeFileSurfaceRuntime({
 			paneId: 'pane-1',
+			now: () => nowMilliseconds,
 			fetchResource: async ({ resourceUrl }) => {
 				fetches.push(resourceUrl);
+				nowMilliseconds = 128;
 				return 'struct View {}';
 			},
 		});
@@ -36,7 +39,7 @@ describe('worktree file surface runtime', () => {
 			openFileSessionId: 'session-1',
 		});
 
-		expect(loadResult).toEqual({
+		expect(loadResult).toMatchObject({
 			ok: true,
 			body: 'struct View {}',
 			descriptorId: 'file-content-1',
@@ -46,6 +49,60 @@ describe('worktree file surface runtime', () => {
 		]);
 		expect(JSON.stringify(runtime.getState())).not.toContain('struct View');
 		expect(runtime.getBodyRegistrySnapshot()).toEqual({ entryCount: 1, totalBytes: 14 });
+	});
+
+	test('reports selected file load disposition and queue pressure for cold and cached opens', async () => {
+		const descriptor = makeFileDescriptor({ descriptorId: 'file-content-1' });
+		const fetches: string[] = [];
+		let nowMilliseconds = 200;
+		const runtime = createWorktreeFileSurfaceRuntime({
+			paneId: 'pane-1',
+			now: () => nowMilliseconds,
+			fetchResource: async ({ resourceUrl }) => {
+				fetches.push(resourceUrl);
+				nowMilliseconds += 9;
+				return `body from ${resourceUrl}`;
+			},
+		});
+		runtime.applyFrame(makeFileDescriptorFrame(descriptor));
+
+		const coldLoadResult = await runtime.openFile({
+			descriptor,
+			openFileSessionId: 'session-1',
+		});
+		nowMilliseconds += 7;
+		const cachedLoadResult = await runtime.openFile({
+			descriptor,
+			openFileSessionId: 'session-1',
+		});
+
+		expect(coldLoadResult).toMatchObject({
+			ok: true,
+			loadTelemetry: {
+				disposition: 'cold-loaded',
+				durationMilliseconds: 9,
+				estimatedBytes: 64,
+				executorInFlightCountAfter: 0,
+				executorInFlightCountBefore: 0,
+				executorQueuedLoadCountAfter: 0,
+				executorQueuedLoadCountBefore: 0,
+				lane: 'foreground',
+				schedulerQueuedIntentCountAfter: 0,
+				schedulerQueuedIntentCountBefore: 0,
+			},
+		});
+		expect(cachedLoadResult).toMatchObject({
+			ok: true,
+			loadTelemetry: {
+				disposition: 'cache-hit',
+				durationMilliseconds: 0,
+				estimatedBytes: 64,
+				lane: 'foreground',
+				schedulerQueuedIntentCountAfter: 0,
+				schedulerQueuedIntentCountBefore: 0,
+			},
+		});
+		expect(fetches).toHaveLength(1);
 	});
 
 	test('marks open files stale without auto-fetching and refreshes only the latest descriptor', async () => {
@@ -85,7 +142,7 @@ describe('worktree file surface runtime', () => {
 
 		const refreshResult = await runtime.refreshOpenFile({ openFileSessionId: 'session-1' });
 
-		expect(refreshResult).toEqual({
+		expect(refreshResult).toMatchObject({
 			ok: true,
 			body: 'file-content-2:body',
 			descriptorId: 'file-content-2',
@@ -134,7 +191,7 @@ describe('worktree file surface runtime', () => {
 
 		const retryRefreshResult = await runtime.refreshOpenFile({ openFileSessionId: 'session-1' });
 
-		expect(retryRefreshResult).toEqual({
+		expect(retryRefreshResult).toMatchObject({
 			ok: true,
 			body: 'file-content-2:body',
 			descriptorId: 'file-content-2',
@@ -305,7 +362,7 @@ describe('worktree file surface runtime', () => {
 
 		const refreshResult = await runtime.refreshOpenFile({ openFileSessionId: 'session-1' });
 
-		expect(refreshResult).toEqual({
+		expect(refreshResult).toMatchObject({
 			ok: true,
 			body: 'file-content-2:body',
 			descriptorId: 'file-content-2',
@@ -432,7 +489,7 @@ describe('worktree file surface runtime', () => {
 
 		const refreshResult = await runtime.refreshOpenFile({ openFileSessionId: 'session-1' });
 
-		expect(refreshResult).toEqual({
+		expect(refreshResult).toMatchObject({
 			ok: true,
 			body: 'file-content-2:body',
 			descriptorId: 'file-content-2',
@@ -480,7 +537,7 @@ describe('worktree file surface runtime', () => {
 			openFileSessionId: 'session-2',
 		});
 
-		expect(openSecondResult).toEqual({
+		expect(openSecondResult).toMatchObject({
 			ok: true,
 			body: 'file-content-2:body',
 			descriptorId: 'file-content-2',
