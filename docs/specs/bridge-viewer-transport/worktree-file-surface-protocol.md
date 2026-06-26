@@ -653,6 +653,12 @@ export const WorktreeFileSurfaceDemandStimulus = z.discriminatedUnion('kind', [
     descriptorRef: BridgeDescriptorRef.nullable(),
   }).strict(),
   z.object({
+    kind: z.literal('recentlyUpdatedFile'),
+    descriptorRef: BridgeDescriptorRef,
+    proximity: z.enum(['nearby', 'remote']),
+    sourceIdentity: z.string().min(1),
+  }).strict(),
+  z.object({
     kind: z.literal('sourceReset'),
     sourceIdentity: z.string().min(1),
   }).strict(),

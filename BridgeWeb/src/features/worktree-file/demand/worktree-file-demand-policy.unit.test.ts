@@ -92,6 +92,49 @@ describe('worktree file demand policy', () => {
 		).toEqual(['visible', 'nearby']);
 	});
 
+	test('maps recently updated files to nearby or speculative preloads without foreground demand', () => {
+		const nearbyRef = makeDescriptorRef('updated-nearby', 'worktree.fileContent');
+		const remoteRef = makeDescriptorRef('updated-remote', 'worktree.fileContent');
+		const readContext = makeReadContext({
+			descriptorStateById: {
+				'updated-nearby': {
+					kind: 'valid',
+					freshnessKey: 'updated-nearby:gen-1',
+					needsBodyOrWindow: true,
+				},
+				'updated-remote': {
+					kind: 'valid',
+					freshnessKey: 'updated-remote:gen-1',
+					needsBodyOrWindow: true,
+				},
+			},
+		});
+
+		const lanes = [
+			...mapWorktreeFileDemandStimulusToIntents({
+				stimulus: {
+					kind: 'recentlyUpdatedFile',
+					descriptorRef: nearbyRef,
+					proximity: 'nearby',
+					sourceIdentity: 'source-1',
+				},
+				readContext,
+			}),
+			...mapWorktreeFileDemandStimulusToIntents({
+				stimulus: {
+					kind: 'recentlyUpdatedFile',
+					descriptorRef: remoteRef,
+					proximity: 'remote',
+					sourceIdentity: 'source-1',
+				},
+				readContext,
+			}),
+		].map((intent) => intent.lane);
+
+		expect(lanes).toEqual(['nearby', 'speculative']);
+		expect(lanes).not.toContain('foreground');
+	});
+
 	test('drops source reset and missing descriptors without emitting demand', () => {
 		const descriptorRef = makeDescriptorRef('missing', 'worktree.fileContent');
 		const readContext = makeReadContext({

@@ -271,6 +271,88 @@ describe('worktree file surface runtime', () => {
 		expect(fetchedDescriptorIds).toEqual(['file-content-visible-open']);
 	});
 
+	test('preloads recently updated files as nearby or speculative demand without opening sessions', async () => {
+		const nearbyDescriptor = makeFileDescriptor({
+			descriptorId: 'file-content-updated-nearby',
+			fileId: 'file-updated-nearby',
+			path: 'Sources/App/Nearby.swift',
+		});
+		const remoteDescriptor = makeFileDescriptor({
+			descriptorId: 'file-content-updated-remote',
+			contentHandle: 'handle-updated-remote',
+			fileId: 'file-updated-remote',
+			path: 'Sources/App/Remote.swift',
+		});
+		const fetchedDescriptorIds: string[] = [];
+		let nowMilliseconds = 1_200;
+		const runtime = createWorktreeFileSurfaceRuntime({
+			paneId: 'pane-1',
+			now: () => nowMilliseconds,
+			fetchResource: async ({ descriptor }) => {
+				fetchedDescriptorIds.push(descriptor.descriptorId);
+				nowMilliseconds += 4;
+				return `${descriptor.descriptorId}:recent`;
+			},
+		});
+		runtime.applyFrame(makeFileDescriptorFrame(nearbyDescriptor));
+		runtime.applyFrame(makeFileDescriptorFrame(remoteDescriptor));
+
+		const dispatchResult = await runtime.dispatchDemandStimuli([
+			{
+				kind: 'recentlyUpdatedFile',
+				descriptorRef: nearbyDescriptor.contentDescriptor.ref,
+				proximity: 'nearby',
+				sourceIdentity: 'dev-worktree-source',
+			},
+			{
+				kind: 'recentlyUpdatedFile',
+				descriptorRef: remoteDescriptor.contentDescriptor.ref,
+				proximity: 'remote',
+				sourceIdentity: 'dev-worktree-source',
+			},
+		]);
+
+		expect(dispatchResult).toMatchObject({
+			stimulusCount: 2,
+			intentCount: 2,
+			enqueueAcceptedCount: 2,
+			enqueueRejectedCount: 0,
+			loadedCount: 2,
+			failedCount: 0,
+			schedulerQueuedIntentCountAfter: 0,
+			executorInFlightCountAfter: 0,
+			executorQueuedLoadCountAfter: 0,
+			loadResults: [
+				{
+					ok: true,
+					descriptorId: 'file-content-updated-nearby',
+					loadTelemetry: {
+						disposition: 'nearby-preloaded',
+						lane: 'nearby',
+					},
+				},
+				{
+					ok: true,
+					descriptorId: 'file-content-updated-remote',
+					loadTelemetry: {
+						disposition: 'speculative-preloaded',
+						lane: 'speculative',
+					},
+				},
+			],
+		});
+		expect(
+			dispatchResult.loadResults
+				.filter((loadResult) => loadResult.ok)
+				.map((loadResult) => loadResult.loadTelemetry.lane),
+		).not.toContain('foreground');
+		expect(fetchedDescriptorIds).toEqual([
+			'file-content-updated-nearby',
+			'file-content-updated-remote',
+		]);
+		expect(runtime.getState().openFileSessionsById).toEqual({});
+	});
+
 	test('reports descriptor and lane when visible preload demand is rejected by byte pressure', async () => {
 		const descriptor = makeFileDescriptor({
 			descriptorId: 'oversized-visible-content',

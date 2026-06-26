@@ -139,6 +139,22 @@ describe('worktree file protocol models', () => {
 				autoFetch: true,
 			}).success,
 		).toBe(false);
+		expect(
+			worktreeFileDemandStimulusSchema.safeParse({
+				kind: 'recentlyUpdatedFile',
+				descriptorRef,
+				proximity: 'nearby',
+				sourceIdentity: 'source-1',
+			}).success,
+		).toBe(true);
+		expect(
+			worktreeFileDemandStimulusSchema.safeParse({
+				kind: 'recentlyUpdatedFile',
+				descriptorRef,
+				proximity: 'foreground',
+				sourceIdentity: 'source-1',
+			}).success,
+		).toBe(false);
 	});
 
 	test('parses status and invalidation frames without Review package lineage', () => {

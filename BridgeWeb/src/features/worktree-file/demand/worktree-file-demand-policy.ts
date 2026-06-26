@@ -64,6 +64,13 @@ export function mapWorktreeFileDemandStimulusToIntents(
 						forcedInterest: { kind: 'speculative' },
 						readContext: props.readContext,
 					});
+		case 'recentlyUpdatedFile':
+			return intentForDescriptor({
+				descriptorRef: props.stimulus.descriptorRef,
+				forcedInterest:
+					props.stimulus.proximity === 'nearby' ? { kind: 'nearby' } : { kind: 'speculative' },
+				readContext: props.readContext,
+			});
 		case 'sourceReset':
 			return [];
 	}

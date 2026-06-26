@@ -282,6 +282,14 @@ export const worktreeFileDemandStimulusSchema = z.discriminatedUnion('kind', [
 		.strict(),
 	z
 		.object({
+			kind: z.literal('recentlyUpdatedFile'),
+			descriptorRef: bridgeDescriptorRefSchema,
+			proximity: z.enum(['nearby', 'remote']),
+			sourceIdentity: z.string().min(1),
+		})
+		.strict(),
+	z
+		.object({
 			kind: z.literal('sourceReset'),
 			sourceIdentity: z.string().min(1),
 		})

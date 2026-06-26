@@ -1786,3 +1786,46 @@ Open implementation blockers remain:
   separately scoped pressure contracts for File-to-Review handoff or Review
   file-target routes if kept, native Agent Studio Bridge/WKWebView proof,
   implementation review disposition, and PR-ready wrapup.
+
+2026-06-26 recently-updated demand protocol checkpoint:
+
+- Added the `recentlyUpdatedFile` Worktree/File demand stimulus to the Zod
+  protocol schema with explicit `proximity: 'nearby' | 'remote'` and
+  `sourceIdentity`.
+- Demand policy maps `recentlyUpdatedFile` with `proximity='nearby'` to the
+  `nearby` lane and `proximity='remote'` to the `speculative` lane. It does not
+  create foreground demand for debounced file updates.
+- Runtime integration proves recently-updated stimuli enqueue descriptor-backed
+  nearby/speculative preloads, fetch through the scheduler/executor, drain
+  queues, and do not create open file sessions.
+- Updated durable and tmp spec snippets:
+  `docs/specs/bridge-viewer-transport/spec.md`,
+  `docs/specs/bridge-viewer-transport/worktree-file-surface-protocol.md`,
+  `tmp/spec-workflows/2026-06-22-bridge-transport-streaming-spec/spec.md`,
+  and
+  `tmp/spec-workflows/2026-06-22-bridge-transport-streaming-spec/worktree-file-surface-protocol.md`.
+- Focused red/green proof passed:
+  `pnpm --dir BridgeWeb exec vitest run src/features/worktree-file/demand/worktree-file-demand-policy.unit.test.ts -t "recently updated" --reporter verbose`
+  initially failed on the unhandled demand-policy case, then passed with 1 file,
+  1 test passed, 4 skipped.
+- Focused red/green proof passed:
+  `pnpm --dir BridgeWeb exec vitest run src/features/worktree-file/models/worktree-file-protocol-models.unit.test.ts -t "loose demand stimuli" --reporter verbose`
+  initially failed because the schema rejected `recentlyUpdatedFile`, then
+  passed with 1 file, 1 test passed, 3 skipped.
+- Focused runtime integration proof passed:
+  `pnpm --dir BridgeWeb exec vitest run src/worktree-file-surface/worktree-file-surface-runtime.integration.test.ts -t "recently updated files" --reporter verbose`
+  with 1 file, 1 test passed, 17 skipped.
+- Full policy/model/runtime proof passed:
+  `pnpm --dir BridgeWeb exec vitest run src/features/worktree-file/demand/worktree-file-demand-policy.unit.test.ts --reporter verbose`
+  with 1 file, 5 tests passed;
+  `pnpm --dir BridgeWeb exec vitest run src/features/worktree-file/models/worktree-file-protocol-models.unit.test.ts --reporter verbose`
+  with 1 file, 4 tests passed; and
+  `pnpm --dir BridgeWeb exec vitest run src/worktree-file-surface/worktree-file-surface-runtime.integration.test.ts --reporter verbose`
+  with 1 file, 18 tests passed.
+- Full BridgeWeb static/type/format gate passed:
+  `pnpm --dir BridgeWeb run check` with existing non-fatal verifier warnings.
+- This closes the protocol/policy/runtime portion of the recently-updated-file
+  preload lane. It does not yet close the browser/dev-server injected-event proof
+  row that must emit or inject a recently-updated-file event and record the
+  resulting lane, dedupe key, queue admission/drop, byte-budget disposition, and
+  stale-drop behavior.
