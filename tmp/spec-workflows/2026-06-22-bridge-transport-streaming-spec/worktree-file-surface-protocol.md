@@ -638,6 +638,12 @@ Required mappings:
 - `treeExpanded` maps visible expansion windows to `visible`; nearby expansion
   windows can map to `nearby`.
 - `hoverChanged` maps non-null demanded refs to `speculative`.
+- Debounced recently-updated file events from the currently open FileViewer
+  source map to `speculative` by default. They may upgrade to `nearby` only when
+  the updated descriptor is adjacent to the selected/open/visible region. They
+  must not auto-replace an already-open stale file; open content still marks
+  stale and waits for `explicitRefresh` unless a later explicit auto-refresh
+  policy is accepted.
 - `sourceReset` emits no demand and invalidates queued/in-flight work by source
   identity.
 

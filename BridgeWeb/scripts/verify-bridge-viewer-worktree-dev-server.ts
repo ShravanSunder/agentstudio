@@ -21,7 +21,7 @@ import {
 import { resolveBridgeWorktreeVerifierWritePath } from './verify-bridge-viewer-worktree-dev-server-paths.ts';
 
 const defaultWorktreeDevServerUrl =
-	'http://127.0.0.1:5173/?fixture=worktree&workers=on&scenario=current-worktree';
+	'http://127.0.0.1:5173/?fixture=worktree&viewer=file&workers=on&scenario=current-worktree';
 const repoRootPath = fileURLToPath(new URL('../..', import.meta.url));
 const proofRootPath =
 	process.env['AGENTSTUDIO_BRIDGE_WORKTREE_DEV_SERVER_PROOF_ROOT'] ??
@@ -31,8 +31,9 @@ const proofRunDirectoryPath = join(
 	proofRootPath,
 	timestampForPath(new Date(proofRunCreatedAtUnixMilliseconds)),
 );
-const worktreeDevServerUrl =
-	process.env['BRIDGE_VIEWER_WORKTREE_DEV_SERVER_URL'] ?? defaultWorktreeDevServerUrl;
+const worktreeDevServerUrl = fileModeUrlFromWorktreeDevServerUrl(
+	process.env['BRIDGE_VIEWER_WORKTREE_DEV_SERVER_URL'] ?? defaultWorktreeDevServerUrl,
+);
 const worktreeReviewDevServerUrl = reviewModeUrlFromWorktreeDevServerUrl(worktreeDevServerUrl);
 const worktreeDevServerOrigin = new URL(worktreeDevServerUrl).origin;
 const targetPathOverride = process.env['BRIDGE_VIEWER_WORKTREE_TARGET_PATH'] ?? null;
@@ -111,6 +112,7 @@ interface WorktreeDevServerVerificationResult {
 	readonly scenarioName: string;
 	readonly scrollExtentCanary: WorktreeFileScrollExtentCanary;
 	readonly selectedCharacterCount: number;
+	readonly selectedContentSemanticProof: WorktreeFileSelectedContentSemanticProof;
 	readonly selectedContentState: string | null;
 	readonly selectedDisplayPath: string | null;
 	readonly selectedLineCount: number;
@@ -225,6 +227,23 @@ interface WorktreeFileSelectedContentRouteProof {
 	readonly hitUrls: readonly string[];
 	readonly selectedResourceUrlContainsHandle: boolean;
 	readonly selectedResourceUrlUsesDevServerFrontDoor: boolean;
+}
+
+interface WorktreeFileSelectedContentSemanticProof {
+	readonly expectedContentHash: string;
+	readonly expectedContentHandle: string;
+	readonly expectedDisplayPath: string;
+	readonly observedDisplayPath: string | null;
+	readonly observedLineCount: number;
+	readonly renderedTextHash: string;
+	readonly renderedTextIncludesExpectedContent: boolean;
+}
+
+interface WorktreeFileControlsStateSnapshot {
+	readonly filterMenuText: string | null;
+	readonly filterStatusText: string | null;
+	readonly regexPressed: string | null;
+	readonly searchValue: string | null;
 }
 
 interface WorktreeFileUnavailableOpenProof {
@@ -721,6 +740,18 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 			rendered,
 			targetPath: targetDescriptor.path,
 		});
+		const selectedContentSemanticProof: WorktreeFileSelectedContentSemanticProof = {
+			expectedContentHandle: targetDescriptor.contentHandle,
+			expectedContentHash: hashText(content),
+			expectedDisplayPath: targetDescriptor.path,
+			observedDisplayPath: rendered.selectedDisplayPath,
+			observedLineCount: rendered.selectedLineCount,
+			renderedTextHash: hashText(rendered.selectedText),
+			renderedTextIncludesExpectedContent: renderedTextIncludesContent(
+				rendered.selectedText,
+				content,
+			),
+		};
 		const { selectedText: _selectedText, ...renderedResult }: WorktreeRenderedContentState =
 			rendered;
 		if (rendered.treeTotalSizePixels === null || rendered.treeTotalSizePixels <= 0) {
@@ -806,6 +837,7 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 				'raw worktree payload text absent outside intended UI',
 			],
 			scrollExtentCanary,
+			selectedContentSemanticProof,
 			selectedContentRouteProof,
 			scenarioName: scenarioNameFromDevServerUrl(worktreeDevServerUrl),
 			screenshotPaths: {
@@ -2153,7 +2185,15 @@ async function waitForPierreFileTreeAnchorSettled(page: Page, path: string): Pro
 }
 
 async function clickWorktreeFilePath(page: Page, path: string): Promise<void> {
+	const treeItemLocator = page
+		.locator(
+			`[data-testid="bridge-file-viewer-pierre-file-tree"] file-tree-container button[data-item-path=${cssStringLiteral(
+				path,
+			)}]`,
+		)
+		.first();
 	for (let attempt = 0; attempt < 3; attempt += 1) {
+		await dismissOpenBridgeMenus(page);
 		await scrollPierreFileTreeUntilPathVisible(page, path);
 		await page.evaluate((targetPath: string): void => {
 			const button = window.bridgeWorktreeVerifier.getPierreFileTreeItem(targetPath);
@@ -2213,7 +2253,7 @@ async function clickWorktreeFilePath(page: Page, path: string): Promise<void> {
 		) {
 			throw new Error(`Expected visible Worktree/File row for ${path}`);
 		}
-		await page.mouse.click(targetCenter.x, targetCenter.y);
+		await treeItemLocator.click({ timeout: 2_000 });
 		const selected = await page
 			.waitForFunction(
 				(targetPath: string): boolean =>
@@ -2230,31 +2270,6 @@ async function clickWorktreeFilePath(page: Page, path: string): Promise<void> {
 		if (selected) {
 			return;
 		}
-		await page.evaluate((targetPath: string): void => {
-			const button = window.bridgeWorktreeVerifier.getPierreFileTreeItem(targetPath);
-			if (!(button instanceof HTMLElement)) {
-				throw new Error(`Expected Worktree/File row for ${targetPath}`);
-			}
-			button.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-			button.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-			button.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-		}, path);
-		const elementClicked = await page
-			.waitForFunction(
-				(targetPath: string): boolean =>
-					document
-						.querySelector('[data-testid="bridge-file-viewer-shell"]')
-						?.getAttribute('data-selected-display-path') === targetPath,
-				path,
-				{ timeout: 1_000 },
-			)
-			.then(
-				() => true,
-				() => false,
-			);
-		if (elementClicked) {
-			return;
-		}
 	}
 	const selectedPath = await page.evaluate(
 		(): string | null =>
@@ -2263,6 +2278,107 @@ async function clickWorktreeFilePath(page: Page, path: string): Promise<void> {
 				?.getAttribute('data-selected-display-path') ?? null,
 	);
 	throw new Error(`Expected Worktree/File click to select ${path}, got ${selectedPath ?? 'none'}`);
+}
+
+async function dismissOpenBridgeMenus(page: Page): Promise<void> {
+	if (!(await hasVisibleBridgeMenuPortal(page))) {
+		return;
+	}
+	const controlsStateBeforeDismiss = await readWorktreeFileControlsStateSnapshot(page);
+	await page.evaluate((): void => {
+		if (document.activeElement instanceof HTMLElement) {
+			document.activeElement.blur();
+		}
+	});
+	await page.keyboard.press('Escape');
+	await waitForNoVisibleBridgeMenuPortal(page);
+	const controlsStateAfterDismiss = await readWorktreeFileControlsStateSnapshot(page);
+	if (
+		!worktreeFileControlsStateSnapshotsEqual(controlsStateBeforeDismiss, controlsStateAfterDismiss)
+	) {
+		throw new Error(
+			`Expected Worktree/File menu dismissal to preserve controls state, before ${JSON.stringify(
+				controlsStateBeforeDismiss,
+			)}, after ${JSON.stringify(controlsStateAfterDismiss)}`,
+		);
+	}
+}
+
+async function waitForNoVisibleBridgeMenuPortal(page: Page): Promise<void> {
+	await page.waitForFunction(
+		(): boolean =>
+			![...document.querySelectorAll('[data-base-ui-portal], [data-base-ui-portal] *')].some(
+				(portalElement) => {
+					if (!(portalElement instanceof HTMLElement)) {
+						return false;
+					}
+					const rect = portalElement.getBoundingClientRect();
+					const style = getComputedStyle(portalElement);
+					return (
+						rect.width > 0 &&
+						rect.height > 0 &&
+						style.visibility !== 'hidden' &&
+						style.display !== 'none' &&
+						style.pointerEvents !== 'none'
+					);
+				},
+			),
+		undefined,
+		{ timeout: 2_000 },
+	);
+}
+
+async function hasVisibleBridgeMenuPortal(page: Page): Promise<boolean> {
+	return await page.evaluate((): boolean =>
+		[...document.querySelectorAll('[data-base-ui-portal], [data-base-ui-portal] *')].some(
+			(portalElement) => {
+				if (!(portalElement instanceof HTMLElement)) {
+					return false;
+				}
+				const rect = portalElement.getBoundingClientRect();
+				const style = getComputedStyle(portalElement);
+				return (
+					rect.width > 0 &&
+					rect.height > 0 &&
+					style.visibility !== 'hidden' &&
+					style.display !== 'none' &&
+					style.pointerEvents !== 'none'
+				);
+			},
+		),
+	);
+}
+
+async function readWorktreeFileControlsStateSnapshot(
+	page: Page,
+): Promise<WorktreeFileControlsStateSnapshot> {
+	return await page.evaluate(
+		(): WorktreeFileControlsStateSnapshot => ({
+			filterMenuText:
+				document.querySelector('[data-testid="worktree-file-filter-menu"]')?.textContent ?? null,
+			filterStatusText:
+				document.querySelector('[data-testid="worktree-file-filter-status"]')?.textContent ?? null,
+			regexPressed:
+				document
+					.querySelector('[data-testid="bridge-review-regex-toggle"]')
+					?.getAttribute('aria-pressed') ?? null,
+			searchValue:
+				document.querySelector<HTMLInputElement>('[data-testid="worktree-file-search-input"]')
+					?.value ?? null,
+		}),
+	);
+}
+
+function worktreeFileControlsStateSnapshotsEqual(
+	left: WorktreeFileControlsStateSnapshot,
+	right: WorktreeFileControlsStateSnapshot,
+): boolean {
+	return (
+		left.filterMenuText === right.filterMenuText &&
+		left.filterStatusText === right.filterStatusText &&
+		left.regexPressed === right.regexPressed &&
+		left.searchValue === right.searchValue
+	);
 }
 
 async function scrollContentPaneToNonzeroOffset(page: Page): Promise<void> {
@@ -3481,23 +3597,11 @@ async function clickWorktreeFileControl(page: Page, testId: string): Promise<voi
 async function selectWorktreeFileFilter(page: Page, label: string): Promise<void> {
 	await page.locator('[data-testid="worktree-file-filter-menu"]').click();
 	await page.waitForSelector('[data-testid="bridge-review-filter-option-label"]');
-	const didClick = await page.evaluate((expectedLabel: string): boolean => {
-		const option = Array.from(
-			document.querySelectorAll<HTMLElement>('[data-testid="bridge-review-filter-option"]'),
-		).find(
-			(candidate): boolean =>
-				candidate.querySelector('[data-testid="bridge-review-filter-option-label"]')
-					?.textContent === expectedLabel,
-		);
-		if (option === undefined) {
-			return false;
-		}
-		option.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-		option.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-		option.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-		return true;
-	}, label);
-	if (!didClick) {
+	const optionLocator = page
+		.locator('[data-testid="bridge-review-filter-option"]')
+		.filter({ hasText: label })
+		.first();
+	if ((await optionLocator.count()) === 0) {
 		const availableLabels = await page
 			.locator('[data-testid="bridge-review-filter-option-label"]')
 			.allTextContents();
@@ -3505,6 +3609,8 @@ async function selectWorktreeFileFilter(page: Page, label: string): Promise<void
 			`Expected Worktree/File filter option ${label}; available options: ${availableLabels.join(', ')}`,
 		);
 	}
+	await optionLocator.click({ timeout: 2_000 });
+	await dismissOpenBridgeMenus(page);
 }
 
 async function worktreeFileFilterMenuContains(page: Page, label: string): Promise<boolean> {
@@ -4243,6 +4349,7 @@ async function writeWorktreeDevServerProofArtifact(
 				schemaVersion: 1,
 				createdAtUnixMilliseconds: proofRunCreatedAtUnixMilliseconds,
 				devServerUrl: worktreeDevServerUrl,
+				requiredRouteUrls: worktreeDevServerRequiredRouteUrls(),
 				result: {
 					...result,
 					proofArtifactPath: proofArtifactDisplayPath,
@@ -4264,6 +4371,7 @@ function worktreeDevServerConsoleProof(
 		devServerUrl: worktreeDevServerUrl,
 		observedLocationHref: result.observedLocationHref,
 		observedPageUrl: result.observedPageUrl,
+		requiredRouteUrls: worktreeDevServerRequiredRouteUrls(),
 		proofArtifactPath,
 		scenarioName: result.scenarioName,
 		selectedContentState: result.selectedContentState,
@@ -4315,6 +4423,12 @@ function scenarioNameFromDevServerUrl(url: string): string {
 	return parsedUrl.searchParams.get('scenario') ?? 'current-worktree';
 }
 
+function fileModeUrlFromWorktreeDevServerUrl(url: string): string {
+	const parsedUrl = new URL(url);
+	parsedUrl.searchParams.set('viewer', 'file');
+	return parsedUrl.toString();
+}
+
 function reviewModeUrlFromWorktreeDevServerUrl(url: string): string {
 	const parsedUrl = new URL(url);
 	parsedUrl.searchParams.set('viewer', 'review');
@@ -4332,6 +4446,26 @@ function reviewFileTargetUrlFromWorktreeDevServerUrl(props: {
 	parsedUrl.searchParams.set('path', props.path);
 	parsedUrl.searchParams.set('version', props.version);
 	return parsedUrl.toString();
+}
+
+function worktreeDevServerRequiredRouteUrls(): {
+	readonly files: string;
+	readonly review: string;
+	readonly reviewFileTarget: string;
+} {
+	return {
+		files: worktreeDevServerUrl,
+		review: worktreeReviewDevServerUrl,
+		reviewFileTarget: reviewFileTargetUrlFromWorktreeDevServerUrl({
+			path: reviewExtensionlessFixtureRelativePath,
+			url: worktreeDevServerUrl,
+			version: 'current',
+		}),
+	};
+}
+
+function cssStringLiteral(value: string): string {
+	return `"${value.replace(/\\/gu, '\\\\').replace(/"/gu, '\\"')}"`;
 }
 
 function timestampForPath(date: Date): string {

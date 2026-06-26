@@ -480,14 +480,33 @@ Disposition of prior findings:
   fixtures.
 - Still open: Agent Studio Swift-hosted Bridge/WKWebView proof has not yet been
   captured for the current checkpoint.
-- Accepted implementation-review blocker: the latest dev-server artifact records
-  the legacy compatibility Files URL as the main Files proof. The next verifier
-  slice must prove and record the explicit
+- Resolved implementation-review blocker: a prior dev-server artifact recorded
+  the legacy compatibility Files URL as the main Files proof. The current
+  verifier proves and records the explicit
   `?fixture=worktree&viewer=file&workers=on&scenario=current-worktree` route.
-- Accepted implementation-review finding: the current worktree verifier can fall
-  back to synthetic DOM `dispatchEvent` clicks. Product E2E proof must remove
-  that fallback and use actionability-checked browser interactions with bounded
+- Resolved implementation-review finding: the prior worktree verifier could fall
+  back to synthetic DOM `dispatchEvent` clicks. Current product E2E proof removes
+  that fallback and uses actionability-checked browser interactions with bounded
   waits.
+- Fix proof, 2026-06-25: `BridgeWeb/scripts/verify-bridge-viewer-worktree-dev-server.ts`
+  now normalizes the canonical Files proof URL to explicit `viewer=file`, records
+  the required Files, Review, and Review file-target route set in the
+  JSON/console proof, removes synthetic tree-row and filter-option click
+  fallbacks, and proves row selection through Playwright's actionability-checked
+  click path. The Bridge menu dismissal guard only sends Escape when a visible
+  Bridge portal exists, blurs the focused element first, and asserts FileViewer
+  search, regex, filter, and status state is preserved so a filtered proof cannot
+  be silently weakened.
+  `pnpm --dir BridgeWeb run test:dev-server:worktree` exited 0 and wrote
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T00-45-05-123Z/worktree-dev-server-proof.json`.
+  The artifact records
+  `devServerUrl = http://127.0.0.1:5173/?fixture=worktree&viewer=file&workers=on&scenario=current-worktree`,
+  matching `observedLocationHref` and `observedPageUrl`.
+- Legacy URL observation, 2026-06-25: the compatibility URL
+  `?fixture=worktree&workers=on&scenario=current-worktree` was live-debugged and
+  currently reaches `BridgeApp`/`BridgeViewerAppShell` in File mode, but did not
+  expose the FileTree/CodeView owner markers or selected content required by
+  Gate 0.a. It is not included as a required passing route for this checkpoint.
 - Accepted performance design update: FileViewer click latency must be treated
   as scheduler/preload work. Current code has generic scheduler lanes and
   Worktree/File demand stimuli, but the FileViewer runtime/UI does not yet emit

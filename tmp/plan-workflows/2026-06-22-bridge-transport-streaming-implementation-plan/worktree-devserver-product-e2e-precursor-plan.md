@@ -558,17 +558,16 @@ Current checkpoint note, 2026-06-25:
   routes while selected content still rendered ready. This does not block 0.a.3
   shell/chrome acceptance, but it should be kept visible for the review-route
   fetch/cancellation follow-up.
-- Implementation review finding, 2026-06-25: the current dev-server artifact
-  still records the legacy Files URL as the main Files proof. The next verifier
-  fix must make the canonical Files proof use the explicit
+- Resolved implementation review finding, 2026-06-25: a prior dev-server
+  artifact recorded the legacy Files URL as the main Files proof. The verifier
+  fix makes the canonical Files proof use the explicit
   `?fixture=worktree&viewer=file&workers=on&scenario=current-worktree` URL and
-  record that URL in the artifact. The legacy compatibility URL may remain an
-  extra route, not the primary proof.
-- Implementation review finding, 2026-06-25: `clickWorktreeFilePath` currently
-  falls back to synthetic DOM `dispatchEvent` after a failed browser click.
-  Remove that fallback for product E2E proof. Tree/file selection proof must use
-  actionability-checked browser interactions with bounded waits so a broken
-  user click cannot pass.
+  records that URL in the artifact. The legacy compatibility URL may remain an
+  extra observation, not the primary or required proof.
+- Resolved implementation review finding, 2026-06-25: `clickWorktreeFilePath`
+  could fall back to synthetic DOM `dispatchEvent` after a failed browser click.
+  Product E2E proof now uses actionability-checked browser interactions with
+  bounded waits so a broken user click cannot pass.
 - Browser/onlook update, 2026-06-25: fresh live screenshots were captured at
   `/tmp/bridgeviewer-verification/current-onlook-file.png`,
   `/tmp/bridgeviewer-verification/current-onlook-review.png`, and
@@ -576,6 +575,20 @@ Current checkpoint note, 2026-06-25:
   onlook passed all three live URLs for shared shell, no standalone app, left
   canvas/right rail on Files, and usable search/regex/filter affordances where
   expected. It repeated the low-priority review-content `ERR_ABORTED` note.
+- Verifier fix proof, 2026-06-25: `test:dev-server:worktree` now uses explicit
+  `viewer=file` as the canonical Files URL and records `requiredRouteUrls` for
+  the explicitly proven Files, Review, and Review file-target URLs. It no longer
+  synthetic-dispatches tree-row clicks or filter-option clicks after a real
+  browser action miss. The menu-dismiss path only sends Escape for a visible
+  Bridge menu portal, blurs the active element first, and asserts the FileViewer
+  search, regex, filter, and status control state is preserved so filtered proof
+  cannot be silently weakened. The latest passing artifact is
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T00-45-05-123Z/worktree-dev-server-proof.json`.
+- Legacy URL observation, 2026-06-25: the compatibility URL
+  `?fixture=worktree&workers=on&scenario=current-worktree` was live-debugged and
+  currently boots the shared app shell in File mode, but it did not expose the
+  FileTree/CodeView ownership markers or selected content required by Gate 0.a.
+  It is not advertised as a required or passing route in this checkpoint.
 
 ### Slice 06P.4 / 0.a.4: Pierre CodeView/File, Shiki, And Worker Proof
 
@@ -667,8 +680,8 @@ agent and reviewer lanes.
 
 Proof artifact must include:
 
-- observed route set: Files URL, Review diff URL, Review file-target URL, and
-  legacy compatibility URL when exercised
+- observed route set: required Files URL, Review diff URL, Review file-target
+  URL, and optional legacy compatibility observations only when exercised
 - timestamp
 - browser executable/channel
 - protocol/source facts
