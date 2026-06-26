@@ -232,11 +232,11 @@ like one BridgeViewer app:
 ```text
 BridgeViewerAppShell
   ┌──────────────────────────────────────────────────────────────┬─────────────┐
-  │ content header only for the left content region              │ right rail  │
-  │   title: <source> / <selected target>                         │ Review-     │
-  │   compact controls: Files | Review and content actions        │ styled      │
-  ├──────────────────────────────────────────────────────────────┤ Pierre      │
-  │ primary Pierre CodeView/File canvas                          │             │
+  │ left content region                                          │ right rail  │
+  │ ┌──────────────────────────────────────────────────────────┐ │             │
+  │ │ source/title on left        Files | Review + actions     │ │ compact     │
+  │ └──────────────────────────────────────────────────────────┘ │ Pierre tree │
+  │ primary Pierre CodeView/File canvas                          │ toolbar     │
   │   Review diff target  -> Pierre diff items                   │ selection   │
   │   Review file target  -> Pierre/Shiki file item              │ status      │
   │   Files file target   -> Pierre/Shiki file item              │ expansion   │
@@ -246,8 +246,27 @@ BridgeViewerAppShell
 The content header is not app-wide chrome. It belongs only to the left content
 region, must not cover the right rail, and must not push the right rail down.
 The right rail starts at the top of the viewer and owns its own compact toolbar.
-The header title uses the agreed `source / selected target` form in dev proof,
-for example `dev-worktree-source / .github/workflows/ci.yml`.
+The content header has two slots:
+
+- left slot: a compact title using the `source / selected target` form in dev
+  proof, for example `dev-worktree-source / .github/workflows/ci.yml`;
+- right slot: the shared context switcher (`Files | Review`) plus mode-specific
+  content actions, sized like the ReviewViewer/DiffsHub controls.
+
+The mode switcher belongs in the content header, not floating in the middle of
+the viewport and not inside the right rail. It may be visually right-aligned in
+the content header, but the containing header still ends at the left edge of the
+right rail. The current accepted layout is therefore: title left, switcher and
+content actions right, right rail independent and top-aligned.
+
+The header/canvas/rail geometry is part of the proof contract:
+
+- content header `left` equals content canvas `left`;
+- content header `right` is less than or equal to right rail `left`;
+- content canvas `top` is greater than or equal to content header `bottom`;
+- right rail `top` is not pushed down by the content header;
+- FileViewer, Review diff, and Review file-target routes satisfy the same
+  geometry.
 
 The content header, context switcher, and rail controls must use the same
 BridgeViewer shared chrome primitive layer and compact sizing that ReviewViewer
@@ -258,6 +277,9 @@ component owners once FileViewer consumes them. The ReviewViewer right rail is
 the current sizing/style baseline:
 button height, icon size, toolbar rhythm, borders, colors, and text scale must
 match for FileViewer unless functionality requires a different enabled action.
+Shared primitives may compose shadcn/base UI components, but FileViewer must not
+introduce route-local raw buttons, custom oversized icon buttons, or a separate
+visual scale for the same interaction semantics.
 A FileViewer-only search row, raw buttons, oversized custom icon buttons, or
 route-local chrome can exist only as an explicit temporary failing state while
 the checkpoint is being developed; it cannot satisfy Gate 0.a. Review mode and
@@ -1704,6 +1726,22 @@ Latest accepted visible-shell checkpoint:
   - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T02-32-00-284Z/manual-shared-shell-proof/file.png`
   - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T02-32-00-284Z/manual-shared-shell-proof/review.png`
   - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T02-32-00-284Z/manual-shared-shell-proof/reviewFileTarget.png`
+
+Latest design-geometry refresh:
+
+- Screenshot/geometry artifacts:
+  - `tmp/bridge-viewer-design-proof/2026-06-26T03-04-21-148Z/file.png`
+  - `tmp/bridge-viewer-design-proof/2026-06-26T03-04-21-148Z/review.png`
+  - `tmp/bridge-viewer-design-proof/2026-06-26T03-04-21-148Z/review-file-target.png`
+  - `tmp/bridge-viewer-design-proof/2026-06-26T03-04-21-148Z/geometry.json`
+- The geometry artifact records, for Files, Review diff, and Review file-target
+  routes, content topbar `left=0`, `right=1708`, `height=36`; right rail
+  `left=1708`, `width=340`, `top=0`; code canvas `top=36`; and
+  `contentHeaderEndsBeforeRail=true`, `railStartsAtTop=true`,
+  `canvasBelowHeader=true`.
+- This refresh is design-geometry evidence, not full content-load closure: the
+  FileViewer screenshot still shows `Loading file`, so content-load latency and
+  preload behavior remain under the FileViewer scheduler/content proof gate.
 
 Standing gate: every later transport/scheduler/renderer ticket keeps the
 current-worktree Files, Review diff, Review file-target, and Agent Studio

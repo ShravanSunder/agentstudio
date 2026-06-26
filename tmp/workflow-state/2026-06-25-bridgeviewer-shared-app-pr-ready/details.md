@@ -617,3 +617,40 @@ not-run/blocked reasons; transcript notes are supplemental only>
 recommended_next_workflow: <shravan-dev-workflow skill or terminal>
 recommended_transition_reason: <one sentence>
 ```
+
+## 2026-06-26 Design Geometry Refresh
+
+The shared BridgeViewer shell design is now tightened in the durable spec:
+title/source lives on the left side of the content header, the `Files | Review`
+switcher and content actions live on the right side of that same content
+header, and the header belongs only to the left content region. The right rail
+starts at the top of the app and is not covered or pushed down by the content
+header.
+
+Updated specs:
+
+- `docs/specs/bridge-viewer-transport/spec.md`
+- `tmp/spec-workflows/2026-06-22-bridge-transport-streaming-spec/spec.md`
+
+Fresh screenshots captured with Playwright driving local Google Chrome against
+the live Vite dev server on `127.0.0.1:5173`:
+
+- `tmp/bridge-viewer-design-proof/2026-06-26T03-04-21-148Z/file.png`
+- `tmp/bridge-viewer-design-proof/2026-06-26T03-04-21-148Z/review.png`
+- `tmp/bridge-viewer-design-proof/2026-06-26T03-04-21-148Z/review-file-target.png`
+- `tmp/bridge-viewer-design-proof/2026-06-26T03-04-21-148Z/geometry.json`
+
+Geometry facts from the capture:
+
+- Files, Review diff, and Review file-target routes all recorded content topbar
+  `left=0`, `right=1708`, `height=36`.
+- The right rail recorded `left=1708`, `width=340`, and `top=0`.
+- The code canvas recorded `top=36`.
+- All three routes recorded `contentHeaderEndsBeforeRail=true`,
+  `railStartsAtTop=true`, and `canvasBelowHeader=true`.
+
+Important caveat:
+
+- This is design-geometry evidence only. The FileViewer screenshot still shows
+  `Loading file`, so content-load latency/preload behavior is not closed by this
+  refresh and remains part of the FileViewer scheduler/content proof gate.
