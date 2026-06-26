@@ -35,6 +35,7 @@ import {
 	BridgeCodeViewPanel,
 	type BridgeCodeViewControlHandle,
 } from '../code-view/bridge-code-view-panel.js';
+import type { ReviewContentDemandTelemetry } from '../content/review-content-demand-loader.js';
 import { BridgeMarkdownPreview } from '../markdown/bridge-markdown-preview.js';
 import type {
 	BridgeReviewProjectionMode,
@@ -54,6 +55,8 @@ export interface ReviewViewerShellProps {
 	readonly selectedItemPresentation?: BridgeCodeViewItemPresentation | null;
 	readonly selectedContentUnavailablePath?: string | null;
 	readonly selectedCanvasLoadingReason?: BridgeReviewCanvasLoadingReason | null;
+	readonly lastSelectedDemandTelemetry?: ReviewContentDemandTelemetry | null;
+	readonly lastVisibleDemandTelemetry?: ReviewContentDemandTelemetry | null;
 	readonly selectedMarkdownPreviewHtml?: string | null;
 	readonly selectedMarkdownPreviewSourcePath?: string | null;
 	readonly visibleContentResourcesByItemId?: ReadonlyMap<string, BridgeCodeViewContentResources>;
@@ -197,10 +200,152 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 		selectedContentUnavailablePath: props.selectedContentUnavailablePath ?? null,
 		selectedMarkdownPreviewHtml: props.selectedMarkdownPreviewHtml ?? null,
 	});
+	const selectedDemandTelemetry = props.lastSelectedDemandTelemetry ?? null;
+	const visibleDemandTelemetry = props.lastVisibleDemandTelemetry ?? null;
 
 	return (
 		<main
 			className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-[var(--bridge-app-bg)] text-[var(--bridge-text-primary)]"
+			data-review-selected-demand-admitted-bytes={selectedDemandTelemetry?.admittedBytes}
+			data-review-selected-demand-admitted-bytes-by-lane={serializeReviewDemandLaneBytes(
+				selectedDemandTelemetry?.admittedBytesByLane,
+			)}
+			data-review-selected-demand-byte-budget-source={selectedDemandTelemetry?.byteBudgetSource}
+			data-review-selected-demand-configured-executor-max-concurrent-loads={
+				selectedDemandTelemetry?.configuredExecutorMaxConcurrentLoads
+			}
+			data-review-selected-demand-configured-executor-max-in-flight-bytes={
+				selectedDemandTelemetry?.configuredExecutorMaxInFlightBytes
+			}
+			data-review-selected-demand-configured-scheduler-max-queued-estimated-bytes={
+				selectedDemandTelemetry?.configuredSchedulerMaxQueuedEstimatedBytes
+			}
+			data-review-selected-demand-configured-scheduler-max-queued-intents-per-lane={
+				selectedDemandTelemetry?.configuredSchedulerMaxQueuedIntentsPerLane
+			}
+			data-review-selected-demand-deferred-count={selectedDemandTelemetry?.deferredCount}
+			data-review-selected-demand-deferred-estimated-bytes-by-lane={serializeReviewDemandLaneBytes(
+				selectedDemandTelemetry?.deferredEstimatedBytesByLane,
+			)}
+			data-review-selected-demand-dropped-estimated-bytes-by-lane={serializeReviewDemandLaneBytes(
+				selectedDemandTelemetry?.droppedEstimatedBytesByLane,
+			)}
+			data-review-selected-demand-dropped-intent-count={selectedDemandTelemetry?.droppedIntentCount}
+			data-review-selected-demand-enqueue-accepted-count={
+				selectedDemandTelemetry?.enqueueAcceptedCount
+			}
+			data-review-selected-demand-enqueue-rejected-count={
+				selectedDemandTelemetry?.enqueueRejectedCount
+			}
+			data-review-selected-demand-executor-in-flight-after-dispatch={
+				selectedDemandTelemetry?.executorInFlightCountAfterDispatch
+			}
+			data-review-selected-demand-executor-in-flight-after={
+				selectedDemandTelemetry?.executorInFlightCountAfter
+			}
+			data-review-selected-demand-executor-in-flight-before={
+				selectedDemandTelemetry?.executorInFlightCountBefore
+			}
+			data-review-selected-demand-executor-queued-load-after={
+				selectedDemandTelemetry?.executorQueuedLoadCountAfter
+			}
+			data-review-selected-demand-failed-count={selectedDemandTelemetry?.failedCount}
+			data-review-selected-demand-foreground-intent-count={
+				selectedDemandTelemetry?.foregroundIntentCount
+			}
+			data-review-selected-demand-interest={selectedDemandTelemetry?.interest}
+			data-review-selected-demand-lane-upgrade-count={selectedDemandTelemetry?.laneUpgradeCount}
+			data-review-selected-demand-loaded-count={selectedDemandTelemetry?.loadedCount}
+			data-review-selected-demand-max-executor-in-flight={
+				selectedDemandTelemetry?.maxExecutorInFlightCount
+			}
+			data-review-selected-demand-max-executor-queued-load={
+				selectedDemandTelemetry?.maxExecutorQueuedLoadCount
+			}
+			data-review-selected-demand-max-scheduler-queued={
+				selectedDemandTelemetry?.maxSchedulerQueuedIntentCount
+			}
+			data-review-selected-demand-scheduler-queued-after-enqueue={
+				selectedDemandTelemetry?.schedulerQueuedIntentCountAfterEnqueue
+			}
+			data-review-selected-demand-scheduler-queued-after={
+				selectedDemandTelemetry?.schedulerQueuedIntentCountAfter
+			}
+			data-review-selected-demand-scheduler-queued-before={
+				selectedDemandTelemetry?.schedulerQueuedIntentCountBefore
+			}
+			data-review-selected-demand-stale-drop-count={selectedDemandTelemetry?.staleDropCount}
+			data-review-selected-demand-visible-intent-count={selectedDemandTelemetry?.visibleIntentCount}
+			data-review-visible-demand-admitted-bytes={visibleDemandTelemetry?.admittedBytes}
+			data-review-visible-demand-admitted-bytes-by-lane={serializeReviewDemandLaneBytes(
+				visibleDemandTelemetry?.admittedBytesByLane,
+			)}
+			data-review-visible-demand-byte-budget-source={visibleDemandTelemetry?.byteBudgetSource}
+			data-review-visible-demand-configured-executor-max-concurrent-loads={
+				visibleDemandTelemetry?.configuredExecutorMaxConcurrentLoads
+			}
+			data-review-visible-demand-configured-executor-max-in-flight-bytes={
+				visibleDemandTelemetry?.configuredExecutorMaxInFlightBytes
+			}
+			data-review-visible-demand-configured-scheduler-max-queued-estimated-bytes={
+				visibleDemandTelemetry?.configuredSchedulerMaxQueuedEstimatedBytes
+			}
+			data-review-visible-demand-configured-scheduler-max-queued-intents-per-lane={
+				visibleDemandTelemetry?.configuredSchedulerMaxQueuedIntentsPerLane
+			}
+			data-review-visible-demand-deferred-count={visibleDemandTelemetry?.deferredCount}
+			data-review-visible-demand-deferred-estimated-bytes-by-lane={serializeReviewDemandLaneBytes(
+				visibleDemandTelemetry?.deferredEstimatedBytesByLane,
+			)}
+			data-review-visible-demand-dropped-estimated-bytes-by-lane={serializeReviewDemandLaneBytes(
+				visibleDemandTelemetry?.droppedEstimatedBytesByLane,
+			)}
+			data-review-visible-demand-dropped-intent-count={visibleDemandTelemetry?.droppedIntentCount}
+			data-review-visible-demand-enqueue-accepted-count={
+				visibleDemandTelemetry?.enqueueAcceptedCount
+			}
+			data-review-visible-demand-enqueue-rejected-count={
+				visibleDemandTelemetry?.enqueueRejectedCount
+			}
+			data-review-visible-demand-executor-in-flight-after-dispatch={
+				visibleDemandTelemetry?.executorInFlightCountAfterDispatch
+			}
+			data-review-visible-demand-executor-in-flight-after={
+				visibleDemandTelemetry?.executorInFlightCountAfter
+			}
+			data-review-visible-demand-executor-in-flight-before={
+				visibleDemandTelemetry?.executorInFlightCountBefore
+			}
+			data-review-visible-demand-executor-queued-load-after={
+				visibleDemandTelemetry?.executorQueuedLoadCountAfter
+			}
+			data-review-visible-demand-failed-count={visibleDemandTelemetry?.failedCount}
+			data-review-visible-demand-foreground-intent-count={
+				visibleDemandTelemetry?.foregroundIntentCount
+			}
+			data-review-visible-demand-interest={visibleDemandTelemetry?.interest}
+			data-review-visible-demand-lane-upgrade-count={visibleDemandTelemetry?.laneUpgradeCount}
+			data-review-visible-demand-loaded-count={visibleDemandTelemetry?.loadedCount}
+			data-review-visible-demand-max-executor-in-flight={
+				visibleDemandTelemetry?.maxExecutorInFlightCount
+			}
+			data-review-visible-demand-max-executor-queued-load={
+				visibleDemandTelemetry?.maxExecutorQueuedLoadCount
+			}
+			data-review-visible-demand-max-scheduler-queued={
+				visibleDemandTelemetry?.maxSchedulerQueuedIntentCount
+			}
+			data-review-visible-demand-scheduler-queued-after-enqueue={
+				visibleDemandTelemetry?.schedulerQueuedIntentCountAfterEnqueue
+			}
+			data-review-visible-demand-scheduler-queued-after={
+				visibleDemandTelemetry?.schedulerQueuedIntentCountAfter
+			}
+			data-review-visible-demand-scheduler-queued-before={
+				visibleDemandTelemetry?.schedulerQueuedIntentCountBefore
+			}
+			data-review-visible-demand-stale-drop-count={visibleDemandTelemetry?.staleDropCount}
+			data-review-visible-demand-visible-intent-count={visibleDemandTelemetry?.visibleIntentCount}
 			data-selected-content-state={selectedContentState}
 			data-selected-display-path={selectedDisplayPath ?? undefined}
 			data-projection-id={projection.projectionId}
@@ -555,6 +700,12 @@ const fileClassOptions: readonly BridgeReviewFacetMenuOption<BridgeFileClass | '
 
 function sentenceCase(value: string): string {
 	return value.length === 0 ? value : `${value.slice(0, 1).toUpperCase()}${value.slice(1)}`;
+}
+
+function serializeReviewDemandLaneBytes(
+	value: ReviewContentDemandTelemetry['admittedBytesByLane'] | undefined,
+): string | undefined {
+	return value === undefined ? undefined : JSON.stringify(value);
 }
 
 function descriptionForFileClass(fileClass: BridgeFileClass): string {

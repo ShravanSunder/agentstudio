@@ -28,6 +28,8 @@ export interface BridgeDemandScheduler {
 		predicate: (intent: BridgeDemandIntent) => boolean,
 	): BridgeDemandIntent | null;
 	cancelGroup(cancellationGroup: string): number;
+	readonly maxQueuedEstimatedBytes: number;
+	readonly maxQueuedIntentsPerLane: number;
 	readonly queuedIntentCount: number;
 	readonly queuedEstimatedBytes: number;
 }
@@ -213,6 +215,12 @@ export function createBridgeDemandScheduler(
 		dequeueNext,
 		dequeueNextMatching,
 		cancelGroup,
+		get maxQueuedEstimatedBytes(): number {
+			return props.maxQueuedEstimatedBytes;
+		},
+		get maxQueuedIntentsPerLane(): number {
+			return props.maxQueuedIntentsPerLane;
+		},
 		get queuedIntentCount(): number {
 			return countQueuedIntents();
 		},

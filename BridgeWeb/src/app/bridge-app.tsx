@@ -86,6 +86,7 @@ import {
 	demandCancellationGroupsForReviewDescriptorRef,
 	demandFreshnessKeyForReviewDescriptorRef,
 	loadReviewItemContentResourcesThroughDemandResult,
+	type ReviewContentDemandTelemetry,
 	type ReviewContentDemandInterest,
 	type ReviewContentDemandLoadResult,
 } from '../review-viewer/content/review-content-demand-loader.js';
@@ -628,6 +629,10 @@ function BridgeReviewViewerMode(
 	const [selectedContentRetryVersion, setSelectedContentRetryVersion] = useState(0);
 	const selectedContentRetryScheduledRef = useRef(false);
 	const [reviewContentInvalidationVersion, setReviewContentInvalidationVersion] = useState(0);
+	const [lastSelectedDemandTelemetry, setLastSelectedDemandTelemetry] =
+		useState<ReviewContentDemandTelemetry | null>(null);
+	const [lastVisibleDemandTelemetry, setLastVisibleDemandTelemetry] =
+		useState<ReviewContentDemandTelemetry | null>(null);
 	const [selectedMarkdownPreviewState, setSelectedMarkdownPreviewState] =
 		useState<SelectedMarkdownPreviewState | null>(null);
 	const selectedMarkdownPreviewStateRef = useRef<SelectedMarkdownPreviewState | null>(null);
@@ -691,6 +696,15 @@ function BridgeReviewViewerMode(
 			}),
 		[reviewPackage, rootSnapshot.selectedItemId, selectedContentResourcesState],
 	);
+	const currentSelectedContentKey =
+		reviewPackage === null || rootSnapshot.selectedItemId === null
+			? null
+			: makeSelectedContentResourcesKey(reviewPackage, rootSnapshot.selectedItemId);
+	const visibleContentHydrationPaused =
+		props.isActive &&
+		currentSelectedContentKey !== null &&
+		(selectedContentResourcesState?.contentKey !== currentSelectedContentKey ||
+			selectedContentResourcesState.status === 'loading');
 	const loadVisibleContentResourcesThroughDemand = useCallback(
 		async (
 			loadProps: LoadReviewItemContentResourcesProps,
@@ -708,6 +722,7 @@ function BridgeReviewViewerMode(
 				...(loadProps.telemetryRecorder === undefined
 					? {}
 					: { telemetryRecorder: loadProps.telemetryRecorder }),
+				onDemandTelemetry: setLastVisibleDemandTelemetry,
 			}),
 		[resourceExecutor, reviewDemandScheduler],
 	);
@@ -720,6 +735,7 @@ function BridgeReviewViewerMode(
 			currentReviewPackageTelemetryContextRef.current?.traceContext ?? null,
 		telemetryRecorder: telemetryRecorderRef.current,
 		contentInvalidationVersion: reviewContentInvalidationVersion,
+		visibleHydrationPaused: visibleContentHydrationPaused,
 	});
 	const flushTelemetry = useCallback((): void => {
 		telemetryRecorderRef.current.flush();
@@ -1039,6 +1055,7 @@ function BridgeReviewViewerMode(
 		if (!props.isActive) {
 			selectedContentAbortControllerRef.current?.abort();
 			selectedContentAbortControllerRef.current = null;
+			setLastSelectedDemandTelemetry(null);
 			return (): void => {};
 		}
 		let didCancel = false;
@@ -1047,6 +1064,7 @@ function BridgeReviewViewerMode(
 		const selectedItemId = rootSnapshot.selectedItemId;
 		if (reviewPackage === null || selectedItemId === null) {
 			setSelectedContentResourcesState(null);
+			setLastSelectedDemandTelemetry(null);
 			return (): void => {
 				didCancel = true;
 				contentAbortController.abort();
@@ -1058,6 +1076,7 @@ function BridgeReviewViewerMode(
 		const selectedItem = reviewPackage.itemsById[selectedItemId];
 		if (selectedItem === undefined) {
 			setSelectedContentResourcesState(null);
+			setLastSelectedDemandTelemetry(null);
 			return (): void => {
 				didCancel = true;
 				contentAbortController.abort();
@@ -1099,6 +1118,7 @@ function BridgeReviewViewerMode(
 				? createChildTraceContext(parentTraceContext)
 				: null,
 			telemetryRecorder: telemetryRecorderRef.current,
+			onDemandTelemetry: setLastSelectedDemandTelemetry,
 		})
 			.then((loadResult): void => {
 				if (!didCancel) {
@@ -1381,10 +1401,6 @@ function BridgeReviewViewerMode(
 		});
 	}, [props.isActive, reviewPackage, rootSnapshot.selectedItemId, rpcClient]);
 
-	const currentSelectedContentKey =
-		reviewPackage !== null && rootSnapshot.selectedItemId !== null
-			? makeSelectedContentResourcesKey(reviewPackage, rootSnapshot.selectedItemId)
-			: null;
 	const selectedCanvasLoadingReason = selectedCanvasLoadingReasonForCurrentSelection({
 		selectedContentKey: currentSelectedContentKey,
 		selectedContentResourcesState,
@@ -1441,6 +1457,8 @@ function BridgeReviewViewerMode(
 			})}
 			selectedCanvasLoadingReason={selectedCanvasLoadingReason}
 			selectedItemId={rootSnapshot.selectedItemId}
+			lastSelectedDemandTelemetry={lastSelectedDemandTelemetry}
+			lastVisibleDemandTelemetry={lastVisibleDemandTelemetry}
 			visibleContentResourcesByItemId={visibleContentHydration.visibleContentResourcesByItemId}
 			visibleLoadingItemIds={visibleContentHydration.visibleLoadingItemIds}
 			visibleLoadingItemCount={visibleContentHydration.visibleLoadingItemCount}

@@ -1608,3 +1608,72 @@ Open implementation blockers remain:
   inactive-context browser/native proof if kept as gate-level, route
   fanout/content pressure, FileViewer preload latency/telemetry, and PR-ready
   wrapup.
+
+2026-06-26 0.a.5 route-pressure proof checkpoint:
+
+- Implemented Review route-pressure artifact wiring in
+  `BridgeWeb/scripts/verify-bridge-viewer-worktree-dev-server.ts`. The
+  dev-server verifier now publishes
+  `result.reviewRouteProof.reviewRoutePressureProof` and fails the Review route
+  proof when exact duplicate content route URLs are observed for the same
+  Review route run.
+- Added route-pressure predicate helpers in
+  `BridgeWeb/scripts/verify-bridge-viewer-worktree-review-proof.ts`:
+  `buildReviewContentRoutePressureProof`,
+  `reviewRoutePressureSatisfied`, and
+  `reviewVisibleDemandTelemetryAttributed`.
+- Added red/green verifier coverage in
+  `BridgeWeb/scripts/verify-bridge-viewer-worktree-dev-server.unit.test.ts` for
+  valid visible fanout attribution and duplicate exact Review content URL
+  rejection.
+- Real browser proof exposed a missing zero-valued DOM telemetry field:
+  `data-review-visible-demand-foreground-intent-count` was absent, so the
+  verifier read `foregroundIntentCount=null` for visible demand. Added the
+  missing shell attribute in
+  `BridgeWeb/src/review-viewer/shell/review-viewer-shell.tsx` and regression
+  coverage in
+  `BridgeWeb/src/review-viewer/shell/review-viewer-shell.integration.test.tsx`.
+- Focused red/green proof:
+  `pnpm --dir BridgeWeb exec vitest run scripts/verify-bridge-viewer-worktree-dev-server.unit.test.ts -t "route-pressure" --reporter verbose`
+  first failed because the verifier source did not contain
+  `reviewRoutePressureProof`; after the verifier patch it passed with 1 file,
+  2 tests passed, 14 skipped.
+- Shell red/green proof:
+  `pnpm --dir BridgeWeb exec vitest run src/review-viewer/shell/review-viewer-shell.integration.test.tsx -t "zero-valued visible demand" --reporter verbose`
+  first failed with `expected undefined to be +0`; after the shell patch it
+  passed with 1 file, 1 test passed, 13 skipped.
+- Focused verifier proof passed:
+  `pnpm --dir BridgeWeb exec vitest run scripts/verify-bridge-viewer-worktree-dev-server.unit.test.ts --reporter verbose`
+  with 1 file and 16 tests.
+- Full BridgeWeb static/type/format gate passed:
+  `pnpm --dir BridgeWeb run check` with existing non-fatal verifier warnings.
+- Full worktree dev-server browser proof passed:
+  `pnpm --dir BridgeWeb run test:dev-server:worktree`.
+- Fresh proof artifact:
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T22-19-17-976Z/worktree-dev-server-proof.json`.
+- Fresh proof fields:
+  `result.sharedShellProof.sharedShellOwner=BridgeViewerAppShell`,
+  `result.sharedShellProof.sharedShellMode=file`,
+  `result.sharedShellProof.codeOwner=CodeView.file`,
+  `result.sharedShellProof.treeOwner=FileTree`,
+  `result.sharedShellProof.workerPoolState=ready`,
+  `result.sharedShellProof.contentTopbarStopsBeforeSidebar=true`,
+  `result.reviewRouteProof.reviewRoutePressureProof.routeHitCount=19`,
+  `result.reviewRouteProof.reviewRoutePressureProof.uniqueRouteHitCount=19`,
+  `result.reviewRouteProof.reviewRoutePressureProof.duplicateRouteCount=0`,
+  `result.reviewRouteProof.reviewSelectedDemandTelemetryProof.foregroundIntentCount=2`,
+  `result.reviewRouteProof.reviewSelectedDemandTelemetryProof.loadedCount=2`,
+  `result.reviewRouteProof.reviewSelectedDemandTelemetryProof.admittedBytes=26999`,
+  `result.reviewRouteProof.reviewSelectedDemandTelemetryProof.executorInFlightCountAfter=0`,
+  `result.reviewRouteProof.reviewVisibleDemandTelemetryProof.visibleIntentCount=2`,
+  `result.reviewRouteProof.reviewVisibleDemandTelemetryProof.foregroundIntentCount=0`,
+  `result.reviewRouteProof.reviewVisibleDemandTelemetryProof.deferredCount=2`,
+  `result.reviewRouteProof.reviewVisibleDemandTelemetryProof.deferredEstimatedBytesByLane.visible=39779`,
+  and `result.reviewRouteProof.reviewVisibleDemandTelemetryProof.maxExecutorInFlightCount=4`.
+- This closes the explicit Review route-pressure attribution proof for the
+  current Review route run. Remaining 0.a.5 work still includes FileViewer
+  preload/latency telemetry closure and deciding whether to apply a separate
+  duplicate-pressure predicate to File-to-Review handoff or Review file-target
+  routes, because their route patterns intentionally include broader visible
+  fanout and need their own contract rather than reusing the exact Review route
+  predicate blindly.

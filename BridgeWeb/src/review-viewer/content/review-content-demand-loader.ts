@@ -5,6 +5,7 @@ import type {
 } from '../../core/demand/bridge-resource-executor.js';
 import type {
 	BridgeDemandIntent,
+	BridgeDemandLane,
 	BridgeDescriptorDemandState,
 	BridgeViewInterest,
 } from '../../core/models/bridge-demand-models.js';
@@ -32,6 +33,7 @@ export interface LoadReviewItemContentResourcesThroughDemandProps {
 	readonly signal?: AbortSignal;
 	readonly traceContext?: BridgeTraceContext | null;
 	readonly telemetryRecorder?: BridgeTelemetryRecorder;
+	readonly onDemandTelemetry?: (sample: ReviewContentDemandTelemetry) => void;
 }
 
 export type ReviewContentDemandInterest =
@@ -51,10 +53,296 @@ export type ReviewContentDemandLoadResult =
 			readonly reason: 'byte_budget_exceeded' | 'descriptor_missing' | 'load_failed';
 	  };
 
+export interface ReviewContentDemandTelemetry {
+	readonly itemId: string;
+	readonly interest: ReviewContentDemandInterest;
+	readonly byteBudgetSource: 'review-content-demand';
+	readonly configuredExecutorMaxConcurrentLoads: number;
+	readonly configuredExecutorMaxInFlightBytes: number;
+	readonly configuredSchedulerMaxQueuedEstimatedBytes: number;
+	readonly configuredSchedulerMaxQueuedIntentsPerLane: number;
+	readonly intentCount: number;
+	readonly foregroundIntentCount: number;
+	readonly activeIntentCount: number;
+	readonly visibleIntentCount: number;
+	readonly nearbyIntentCount: number;
+	readonly speculativeIntentCount: number;
+	readonly idleIntentCount: number;
+	readonly enqueueAcceptedCount: number;
+	readonly enqueueRejectedCount: number;
+	readonly schedulerQueuedIntentCountBefore: number;
+	readonly schedulerQueuedIntentCountAfterEnqueue: number;
+	readonly schedulerQueuedIntentCountAfter: number;
+	readonly schedulerQueuedEstimatedBytesBefore: number;
+	readonly schedulerQueuedEstimatedBytesAfterEnqueue: number;
+	readonly schedulerQueuedEstimatedBytesAfter: number;
+	readonly executorInFlightCountBefore: number;
+	readonly executorInFlightCountAfterDispatch: number;
+	readonly executorInFlightCountAfter: number;
+	readonly executorInFlightBytesBefore: number;
+	readonly executorInFlightBytesAfterDispatch: number;
+	readonly executorInFlightBytesAfter: number;
+	readonly executorQueuedLoadCountBefore: number;
+	readonly executorQueuedLoadCountAfterDispatch: number;
+	readonly executorQueuedLoadCountAfter: number;
+	readonly executorQueuedBytesBefore: number;
+	readonly executorQueuedBytesAfterDispatch: number;
+	readonly executorQueuedBytesAfter: number;
+	readonly laneUpgradeCount: number;
+	readonly maxSchedulerQueuedIntentCount: number;
+	readonly maxExecutorInFlightCount: number;
+	readonly maxExecutorQueuedLoadCount: number;
+	readonly admittedBytes: number;
+	readonly admittedBytesByLane: Record<BridgeDemandLane, number>;
+	readonly deferredCount: number;
+	readonly deferredEstimatedBytesByLane: Record<BridgeDemandLane, number>;
+	readonly droppedEstimatedBytesByLane: Record<BridgeDemandLane, number>;
+	readonly droppedIntentCount: number;
+	readonly failedCount: number;
+	readonly loadedCount: number;
+	readonly staleDropCount: number;
+}
+
 interface ReviewContentDemandPlan {
 	readonly handle: BridgeContentHandle;
 	readonly role: BridgeContentRole;
 	readonly descriptorRef: BridgeDescriptorRef;
+}
+
+interface ReviewContentDemandTelemetryBuilder {
+	recordAcceptedEnqueue(props: { readonly droppedLowerPriorityCount: number }): void;
+	recordRejectedEnqueue(intent: BridgeDemandIntent, estimatedBytes: number): void;
+	recordAfterEnqueue(): void;
+	recordAfterDispatch(): void;
+	recordCompletion(props: {
+		readonly result: ReviewContentDemandLoadResult;
+		readonly loadedResults: readonly LoadedReviewContentDemandSettledResult[];
+	}): void;
+	build(): ReviewContentDemandTelemetry;
+}
+
+type LoadedReviewContentDemandSettledResult =
+	| {
+			readonly status: 'fulfilled';
+			readonly value: LoadedReviewContentDemandResult;
+	  }
+	| {
+			readonly status: 'rejected';
+	  };
+
+function newReviewContentDemandTelemetryBuilder(props: {
+	readonly itemId: string;
+	readonly interest: ReviewContentDemandInterest;
+	readonly intents: readonly BridgeDemandIntent[];
+	readonly scheduler: BridgeDemandScheduler;
+	readonly executor: BridgeResourceExecutor<string>;
+}): ReviewContentDemandTelemetryBuilder {
+	const laneCounts = countDemandIntentsByLane(props.intents);
+	const schedulerQueuedIntentCountBefore = props.scheduler.queuedIntentCount;
+	const schedulerQueuedEstimatedBytesBefore = props.scheduler.queuedEstimatedBytes;
+	const executorInFlightCountBefore = props.executor.inFlightCount;
+	const executorInFlightBytesBefore = props.executor.inFlightBytes;
+	const executorQueuedLoadCountBefore = props.executor.queuedLoadCount;
+	const executorQueuedBytesBefore = props.executor.queuedBytes;
+	let enqueueAcceptedCount = 0;
+	let enqueueRejectedCount = 0;
+	let schedulerQueuedIntentCountAfterEnqueue = schedulerQueuedIntentCountBefore;
+	let schedulerQueuedEstimatedBytesAfterEnqueue = schedulerQueuedEstimatedBytesBefore;
+	let executorInFlightCountAfterDispatch = executorInFlightCountBefore;
+	let executorInFlightBytesAfterDispatch = executorInFlightBytesBefore;
+	let executorQueuedLoadCountAfterDispatch = executorQueuedLoadCountBefore;
+	let executorQueuedBytesAfterDispatch = executorQueuedBytesBefore;
+	let schedulerQueuedIntentCountAfter = schedulerQueuedIntentCountBefore;
+	let schedulerQueuedEstimatedBytesAfter = schedulerQueuedEstimatedBytesBefore;
+	let executorInFlightCountAfter = executorInFlightCountBefore;
+	let executorInFlightBytesAfter = executorInFlightBytesBefore;
+	let executorQueuedLoadCountAfter = executorQueuedLoadCountBefore;
+	let executorQueuedBytesAfter = executorQueuedBytesBefore;
+	let loadedCount = 0;
+	let deferredCount = 0;
+	let failedCount = 0;
+	let admittedBytes = 0;
+	let droppedIntentCount = 0;
+	const laneUpgradeCount = 0;
+	let staleDropCount = 0;
+	const admittedBytesByLane = emptyDemandLaneByteCounts();
+	const deferredEstimatedBytesByLane = emptyDemandLaneByteCounts();
+	const droppedEstimatedBytesByLane = emptyDemandLaneByteCounts();
+
+	const recordAfterEnqueue = (): void => {
+		schedulerQueuedIntentCountAfterEnqueue = props.scheduler.queuedIntentCount;
+		schedulerQueuedEstimatedBytesAfterEnqueue = props.scheduler.queuedEstimatedBytes;
+	};
+
+	const recordAfterDispatch = (): void => {
+		executorInFlightCountAfterDispatch = props.executor.inFlightCount;
+		executorInFlightBytesAfterDispatch = props.executor.inFlightBytes;
+		executorQueuedLoadCountAfterDispatch = props.executor.queuedLoadCount;
+		executorQueuedBytesAfterDispatch = props.executor.queuedBytes;
+	};
+
+	const recordCompletion = (completionProps: {
+		readonly result: ReviewContentDemandLoadResult;
+		readonly loadedResults: readonly LoadedReviewContentDemandSettledResult[];
+	}): void => {
+		for (const loadedResult of completionProps.loadedResults) {
+			if (loadedResult.status === 'rejected') {
+				failedCount += 1;
+				continue;
+			}
+			if (loadedResult.value.result.ok) {
+				loadedCount += 1;
+				admittedBytes += loadedResult.value.result.byteLength;
+				admittedBytesByLane[loadedResult.value.intent.lane] += loadedResult.value.result.byteLength;
+				continue;
+			}
+			if (isDeferredExecutorResult(loadedResult.value.result)) {
+				deferredCount += 1;
+				deferredEstimatedBytesByLane[loadedResult.value.intent.lane] +=
+					loadedResult.value.estimatedBytes;
+				if (loadedResult.value.result.reason === 'stale_completion') {
+					staleDropCount += 1;
+				}
+				continue;
+			}
+			failedCount += 1;
+		}
+		if (completionProps.result.status === 'deferred' && deferredCount === 0) {
+			deferredCount = Math.max(1, props.intents.length - loadedCount - failedCount);
+		}
+		if (completionProps.result.status === 'failed' && failedCount === 0) {
+			failedCount = Math.max(1, props.intents.length - loadedCount - deferredCount);
+		}
+		schedulerQueuedIntentCountAfter = props.scheduler.queuedIntentCount;
+		schedulerQueuedEstimatedBytesAfter = props.scheduler.queuedEstimatedBytes;
+		executorInFlightCountAfter = props.executor.inFlightCount;
+		executorInFlightBytesAfter = props.executor.inFlightBytes;
+		executorQueuedLoadCountAfter = props.executor.queuedLoadCount;
+		executorQueuedBytesAfter = props.executor.queuedBytes;
+	};
+
+	return {
+		recordAcceptedEnqueue(acceptedProps: { readonly droppedLowerPriorityCount: number }): void {
+			enqueueAcceptedCount += 1;
+			droppedIntentCount += acceptedProps.droppedLowerPriorityCount;
+		},
+		recordRejectedEnqueue(intent: BridgeDemandIntent, estimatedBytes: number): void {
+			enqueueRejectedCount += 1;
+			droppedIntentCount += 1;
+			droppedEstimatedBytesByLane[intent.lane] += estimatedBytes;
+		},
+		recordAfterEnqueue,
+		recordAfterDispatch,
+		recordCompletion,
+		build(): ReviewContentDemandTelemetry {
+			return {
+				itemId: props.itemId,
+				interest: props.interest,
+				byteBudgetSource: 'review-content-demand',
+				configuredExecutorMaxConcurrentLoads: props.executor.maxConcurrentLoads,
+				configuredExecutorMaxInFlightBytes: props.executor.maxInFlightBytes,
+				configuredSchedulerMaxQueuedEstimatedBytes: props.scheduler.maxQueuedEstimatedBytes,
+				configuredSchedulerMaxQueuedIntentsPerLane: props.scheduler.maxQueuedIntentsPerLane,
+				intentCount: props.intents.length,
+				foregroundIntentCount: laneCounts.foreground,
+				activeIntentCount: laneCounts.active,
+				visibleIntentCount: laneCounts.visible,
+				nearbyIntentCount: laneCounts.nearby,
+				speculativeIntentCount: laneCounts.speculative,
+				idleIntentCount: laneCounts.idle,
+				enqueueAcceptedCount,
+				enqueueRejectedCount,
+				schedulerQueuedIntentCountBefore,
+				schedulerQueuedIntentCountAfterEnqueue,
+				schedulerQueuedIntentCountAfter,
+				schedulerQueuedEstimatedBytesBefore,
+				schedulerQueuedEstimatedBytesAfterEnqueue,
+				schedulerQueuedEstimatedBytesAfter,
+				executorInFlightCountBefore,
+				executorInFlightCountAfterDispatch,
+				executorInFlightCountAfter,
+				executorInFlightBytesBefore,
+				executorInFlightBytesAfterDispatch,
+				executorInFlightBytesAfter,
+				executorQueuedLoadCountBefore,
+				executorQueuedLoadCountAfterDispatch,
+				executorQueuedLoadCountAfter,
+				executorQueuedBytesBefore,
+				executorQueuedBytesAfterDispatch,
+				executorQueuedBytesAfter,
+				laneUpgradeCount,
+				maxSchedulerQueuedIntentCount: Math.max(
+					schedulerQueuedIntentCountBefore,
+					schedulerQueuedIntentCountAfterEnqueue,
+					schedulerQueuedIntentCountAfter,
+				),
+				maxExecutorInFlightCount: Math.max(
+					executorInFlightCountBefore,
+					executorInFlightCountAfterDispatch,
+					executorInFlightCountAfter,
+				),
+				maxExecutorQueuedLoadCount: Math.max(
+					executorQueuedLoadCountBefore,
+					executorQueuedLoadCountAfterDispatch,
+					executorQueuedLoadCountAfter,
+				),
+				admittedBytes,
+				admittedBytesByLane,
+				deferredCount,
+				deferredEstimatedBytesByLane,
+				droppedEstimatedBytesByLane,
+				droppedIntentCount,
+				failedCount,
+				loadedCount,
+				staleDropCount,
+			};
+		},
+	};
+}
+
+function countDemandIntentsByLane(
+	intents: readonly BridgeDemandIntent[],
+): Record<BridgeDemandLane, number> {
+	const counts: Record<BridgeDemandLane, number> = {
+		foreground: 0,
+		active: 0,
+		visible: 0,
+		nearby: 0,
+		speculative: 0,
+		idle: 0,
+	};
+	for (const intent of intents) {
+		counts[intent.lane] += 1;
+	}
+	return counts;
+}
+
+function emptyDemandLaneByteCounts(): Record<BridgeDemandLane, number> {
+	return {
+		foreground: 0,
+		active: 0,
+		visible: 0,
+		nearby: 0,
+		speculative: 0,
+		idle: 0,
+	};
+}
+
+function isDeferredExecutorResult(result: BridgeResourceExecutorResult<string>): boolean {
+	if (result.ok) {
+		return false;
+	}
+	switch (result.reason) {
+		case 'aborted':
+		case 'concurrency_exceeded':
+		case 'stale_completion':
+			return true;
+		case 'byte_budget_exceeded':
+		case 'descriptor_missing':
+		case 'load_failed':
+			return false;
+	}
+	return assertNever(result.reason);
 }
 
 export async function loadReviewItemContentResourcesThroughDemand(
@@ -100,18 +388,40 @@ export async function loadReviewItemContentResourcesThroughDemandResult(
 			},
 		}),
 	);
+	const telemetryBuilder = newReviewContentDemandTelemetryBuilder({
+		itemId: props.itemId,
+		interest: props.interest,
+		intents,
+		scheduler: props.scheduler,
+		executor: props.executor,
+	});
 	for (const intent of intents) {
+		const estimatedBytes = estimatedBytesForDemandIntent({
+			intent,
+			interest: props.interest,
+			plans,
+		});
 		const enqueueResult = props.scheduler.enqueue({
 			intent,
-			estimatedBytes: 0,
+			estimatedBytes,
 		});
 		if (!enqueueResult.ok) {
+			telemetryBuilder.recordRejectedEnqueue(intent, estimatedBytes);
 			for (const acceptedIntent of intents.slice(0, intents.indexOf(intent))) {
 				props.scheduler.cancelGroup(acceptedIntent.cancellationGroup);
 			}
+			telemetryBuilder.recordCompletion({
+				result: { status: 'deferred', reason: 'concurrency_exceeded' },
+				loadedResults: [],
+			});
+			props.onDemandTelemetry?.(telemetryBuilder.build());
 			return { status: 'deferred', reason: 'concurrency_exceeded' };
 		}
+		telemetryBuilder.recordAcceptedEnqueue({
+			droppedLowerPriorityCount: enqueueResult.droppedLowerPriorityCount ?? 0,
+		});
 	}
+	telemetryBuilder.recordAfterEnqueue();
 	const executableIntents: {
 		readonly intent: BridgeDemandIntent;
 		readonly plan: ReviewContentDemandPlan;
@@ -138,31 +448,56 @@ export async function loadReviewItemContentResourcesThroughDemandResult(
 		);
 	}
 	try {
-		const loadedResults = executableIntents.map(async (executableIntent) => ({
-			role: executableIntent.plan.role,
-			result: await loadDemandResourceWithTelemetry({
-				intent: executableIntent.intent,
-				role: executableIntent.plan.role,
-				interest: props.interest,
-				executor: props.executor,
-				signal: demandAbortController.signal,
-				traceContext: props.traceContext ?? null,
-				telemetryRecorder: props.telemetryRecorder,
-			}),
-		}));
-		return await Promise.race([
+		const settledLoadedResults: LoadedReviewContentDemandSettledResult[] = [];
+		const loadedResults = executableIntents.map(async (executableIntent) => {
+			try {
+				const loadedResult = {
+					role: executableIntent.plan.role,
+					intent: executableIntent.intent,
+					estimatedBytes: estimatedBytesForDemandIntent({
+						intent: executableIntent.intent,
+						interest: props.interest,
+						plans,
+					}),
+					result: await loadDemandResourceWithTelemetry({
+						intent: executableIntent.intent,
+						role: executableIntent.plan.role,
+						interest: props.interest,
+						executor: props.executor,
+						signal: demandAbortController.signal,
+						traceContext: props.traceContext ?? null,
+						telemetryRecorder: props.telemetryRecorder,
+					}),
+				};
+				settledLoadedResults.push({ status: 'fulfilled', value: loadedResult });
+				return loadedResult;
+			} catch (error: unknown) {
+				settledLoadedResults.push({ status: 'rejected' });
+				throw error;
+			}
+		});
+		telemetryBuilder.recordAfterDispatch();
+		const result = await Promise.race([
 			loadAllDemandResources({ plans, loadedResults, signal: demandAbortController.signal }),
 			failFastOnFirstDemandResourceFailure({
 				loadedResults,
 				abortSiblingLoads: abortDemandLoads,
 			}),
 		]);
+		telemetryBuilder.recordCompletion({
+			result,
+			loadedResults: settledLoadedResults,
+		});
+		props.onDemandTelemetry?.(telemetryBuilder.build());
+		return result;
 	} finally {
 		props.signal?.removeEventListener('abort', abortDemandLoads);
 	}
 }
 
 interface LoadedReviewContentDemandResult {
+	readonly estimatedBytes: number;
+	readonly intent: BridgeDemandIntent;
 	readonly role: BridgeContentRole;
 	readonly result: BridgeResourceExecutorResult<string>;
 }
@@ -354,6 +689,21 @@ function demandKeysForPlan(
 		freshnessKey: descriptorIdentityKey,
 		cancellationGroup: demandCancellationGroupForReviewDescriptorRef(plan.descriptorRef, interest),
 	};
+}
+
+function estimatedBytesForDemandIntent(props: {
+	readonly intent: BridgeDemandIntent;
+	readonly interest: ReviewContentDemandInterest;
+	readonly plans: readonly ReviewContentDemandPlan[];
+}): number {
+	if (props.interest === 'selected') {
+		return 0;
+	}
+	const matchingPlan = props.plans.find(
+		(plan: ReviewContentDemandPlan): boolean =>
+			plan.descriptorRef.descriptorId === props.intent.descriptorRef.descriptorId,
+	);
+	return matchingPlan?.handle.sizeBytes ?? 0;
 }
 
 export function demandFreshnessKeyForReviewDescriptorRef(

@@ -5,6 +5,7 @@ import { makeBridgeReviewPackage } from '../../foundation/review-package/bridge-
 import type { BridgeReviewPackage } from '../../foundation/review-package/bridge-review-package.js';
 import { BridgeReviewFacetMenu } from '../chrome/bridge-review-facet-menu.js';
 import { BridgeCodeViewPanel } from '../code-view/bridge-code-view-panel.js';
+import type { ReviewContentDemandTelemetry } from '../content/review-content-demand-loader.js';
 import { BridgeMarkdownPreview } from '../markdown/bridge-markdown-preview.js';
 import { buildBridgeReviewProjection } from '../navigation/review-projection.js';
 import {
@@ -258,6 +259,74 @@ describe('review viewer shell', () => {
 		expect(shell?.props['data-selected-content-state']).toBe('ready');
 	});
 
+	test('publishes zero-valued visible demand counts for browser verifier pressure proof', () => {
+		const reviewPackage = makeBridgeReviewPackage();
+		const element = requireTestElement(
+			ReviewViewerShell({
+				reviewPackage,
+				projection: projectionForPackage(reviewPackage),
+				selectedItemId: 'item-source',
+				onSelectItem: () => undefined,
+				lastVisibleDemandTelemetry: {
+					itemId: 'item-source',
+					interest: 'visible',
+					byteBudgetSource: 'review-content-demand',
+					configuredExecutorMaxConcurrentLoads: 8,
+					configuredExecutorMaxInFlightBytes: 8_388_608,
+					configuredSchedulerMaxQueuedEstimatedBytes: 8_388_608,
+					configuredSchedulerMaxQueuedIntentsPerLane: 128,
+					intentCount: 1,
+					foregroundIntentCount: 0,
+					activeIntentCount: 0,
+					visibleIntentCount: 1,
+					nearbyIntentCount: 0,
+					speculativeIntentCount: 0,
+					idleIntentCount: 0,
+					enqueueAcceptedCount: 1,
+					enqueueRejectedCount: 0,
+					schedulerQueuedIntentCountBefore: 0,
+					schedulerQueuedIntentCountAfterEnqueue: 1,
+					schedulerQueuedIntentCountAfter: 0,
+					schedulerQueuedEstimatedBytesBefore: 0,
+					schedulerQueuedEstimatedBytesAfterEnqueue: 1024,
+					schedulerQueuedEstimatedBytesAfter: 0,
+					executorInFlightCountBefore: 0,
+					executorInFlightCountAfterDispatch: 1,
+					executorInFlightCountAfter: 0,
+					executorInFlightBytesBefore: 0,
+					executorInFlightBytesAfterDispatch: 1024,
+					executorInFlightBytesAfter: 0,
+					executorQueuedLoadCountBefore: 0,
+					executorQueuedLoadCountAfterDispatch: 0,
+					executorQueuedLoadCountAfter: 0,
+					executorQueuedBytesBefore: 0,
+					executorQueuedBytesAfterDispatch: 0,
+					executorQueuedBytesAfter: 0,
+					laneUpgradeCount: 0,
+					maxSchedulerQueuedIntentCount: 1,
+					maxExecutorInFlightCount: 1,
+					maxExecutorQueuedLoadCount: 0,
+					admittedBytes: 0,
+					admittedBytesByLane: emptyDemandLaneByteCounts(),
+					deferredCount: 1,
+					deferredEstimatedBytesByLane: {
+						...emptyDemandLaneByteCounts(),
+						visible: 1024,
+					},
+					droppedEstimatedBytesByLane: emptyDemandLaneByteCounts(),
+					droppedIntentCount: 0,
+					failedCount: 0,
+					loadedCount: 0,
+					staleDropCount: 0,
+				} satisfies ReviewContentDemandTelemetry,
+			}),
+		);
+		const shell = findElementByTestId(element, 'review-viewer-shell');
+
+		expect(shell?.props['data-review-visible-demand-foreground-intent-count']).toBe(0);
+		expect(shell?.props['data-review-visible-demand-visible-intent-count']).toBe(1);
+	});
+
 	test('renders selected markdown preview in the code canvas when worker output is ready', () => {
 		const reviewPackage = makeBridgeReviewPackage();
 		const element = requireTestElement(
@@ -402,6 +471,8 @@ interface TestElementProps {
 	readonly className?: string;
 	readonly 'data-bridge-shared-rail-toolbar'?: string;
 	readonly 'data-bridge-segmented-control'?: string;
+	readonly 'data-review-visible-demand-foreground-intent-count'?: number;
+	readonly 'data-review-visible-demand-visible-intent-count'?: number;
 	readonly 'data-selected-content-state'?: string;
 	readonly 'data-selected-display-path'?: string;
 	readonly 'data-sidebar-position'?: string;
@@ -411,6 +482,20 @@ interface TestElementProps {
 	readonly onValueChange?: () => void;
 	readonly reason?: string;
 	readonly role?: string;
+}
+
+function emptyDemandLaneByteCounts(): Record<
+	'foreground' | 'active' | 'visible' | 'nearby' | 'speculative' | 'idle',
+	number
+> {
+	return {
+		foreground: 0,
+		active: 0,
+		visible: 0,
+		nearby: 0,
+		speculative: 0,
+		idle: 0,
+	};
 }
 
 function isReactElement(node: ReactNode): node is ReactElement<TestElementProps> {

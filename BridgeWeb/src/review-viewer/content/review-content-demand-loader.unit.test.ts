@@ -125,6 +125,65 @@ describe('review content demand loader', () => {
 		expect(telemetryRecorder.flushForces).toEqual([false, false]);
 	});
 
+	test('publishes selected demand pressure telemetry for foreground proof', async () => {
+		const registry = createBridgeResourceDescriptorRegistry({
+			allowedResourceKindsByProtocol: { review: new Set(['content']) },
+		});
+		const reviewPackage = makeBridgeReviewPackage();
+		const registeredDescriptorsByHandleId = registerPackageContentDescriptors({
+			registry,
+			reviewPackage,
+		});
+		const pressureSamples: unknown[] = [];
+		const executor = createBridgeResourceExecutor<string>({
+			registry,
+			maxConcurrentLoads: 2,
+			maxInFlightBytes: 4096,
+			maxQueuedLoads: 8,
+			maxQueuedBytes: 4096,
+			loadResource: async ({ descriptor }) => ({
+				body: `${descriptor.descriptorId} text`,
+				byteLength: 20,
+			}),
+		});
+
+		const result = await loadReviewItemContentResourcesThroughDemandResult({
+			reviewPackage,
+			itemId: 'item-source',
+			interest: 'selected',
+			resolveDescriptorRef: (handle: BridgeContentHandle): BridgeDescriptorRef | null =>
+				registeredDescriptorsByHandleId.get(handle.handleId)?.ref ?? null,
+			scheduler: createBridgeDemandScheduler({
+				maxQueuedIntentsPerLane: 8,
+				maxQueuedEstimatedBytes: 4096,
+			}),
+			executor,
+			onDemandTelemetry: (sample: unknown): void => {
+				pressureSamples.push(sample);
+			},
+		});
+
+		expect(result.status).toBe('ready');
+		expect(pressureSamples).toEqual([
+			expect.objectContaining({
+				itemId: 'item-source',
+				interest: 'selected',
+				foregroundIntentCount: 2,
+				visibleIntentCount: 0,
+				enqueueAcceptedCount: 2,
+				enqueueRejectedCount: 0,
+				admittedBytes: 40,
+				deferredCount: 0,
+				failedCount: 0,
+				loadedCount: 2,
+				maxExecutorInFlightCount: 2,
+				maxSchedulerQueuedIntentCount: 2,
+				schedulerQueuedIntentCountAfter: 0,
+				executorInFlightCountAfter: 0,
+			}),
+		]);
+	});
+
 	test('does not dequeue unrelated work from a shared scheduler', async () => {
 		const registry = createBridgeResourceDescriptorRegistry({
 			allowedResourceKindsByProtocol: { review: new Set(['content']) },
@@ -290,6 +349,10 @@ describe('review content demand loader', () => {
 				cancelGroup: () => 0,
 				inFlightCount: 0,
 				inFlightBytes: 0,
+				maxConcurrentLoads: 2,
+				maxInFlightBytes: 4096,
+				maxQueuedBytes: 4096,
+				maxQueuedLoads: 8,
 				queuedLoadCount: 0,
 				queuedBytes: 0,
 			},

@@ -425,6 +425,114 @@ describe('useVisibleReviewContentHydration', () => {
 			vi.unstubAllGlobals();
 		}
 	});
+
+	test('stops retrying deferred visible pressure after the bounded retry window', async () => {
+		const scheduledFrameCallbacks: FrameRequestCallback[] = [];
+		vi.stubGlobal('requestAnimationFrame', ((callback: FrameRequestCallback): number => {
+			scheduledFrameCallbacks.push(callback);
+			return scheduledFrameCallbacks.length;
+		}) satisfies typeof requestAnimationFrame);
+		try {
+			const reviewPackage = makeBridgeViewerProjectionFixture();
+			let loadCount = 0;
+			const snapshots: UseVisibleReviewContentHydrationResult[] = [];
+			const container = document.createElement('div');
+			document.body.append(container);
+			mountedRoot = createRoot(container);
+
+			await act(async (): Promise<void> => {
+				mountedRoot?.render(
+					<VisibleHydrationHarness
+						loadContentResources={async (): Promise<VisibleReviewContentLoadResult> => {
+							loadCount += 1;
+							return { status: 'deferred', reason: 'concurrency_exceeded' };
+						}}
+						onSnapshot={(snapshot): void => {
+							snapshots.push(snapshot);
+						}}
+						reviewPackage={reviewPackage}
+						visibleItemIds={['hidden-binary']}
+					/>,
+				);
+				await flushVisibleHydrationMicrotasks();
+			});
+
+			expect(loadCount).toBe(1);
+			expect(scheduledFrameCallbacks).toHaveLength(1);
+
+			await act(async (): Promise<void> => {
+				const callback = scheduledFrameCallbacks.shift();
+				if (callback === undefined) {
+					throw new Error('expected scheduled visible hydration retry');
+				}
+				callback(performance.now());
+				await flushVisibleHydrationMicrotasks();
+			});
+
+			expect(loadCount).toBe(2);
+			expect(lastSnapshot(snapshots).visibleFailedItemIds.has('hidden-binary')).toBe(false);
+			expect(scheduledFrameCallbacks).toHaveLength(0);
+
+			await act(async (): Promise<void> => {
+				await flushVisibleHydrationMicrotasks();
+			});
+
+			expect(loadCount).toBe(2);
+		} finally {
+			vi.unstubAllGlobals();
+		}
+	});
+
+	test('does not start visible loads while selected foreground content is loading', async () => {
+		const fixture = makeBridgeViewerBrowserFixture({ fixtureClass: 'large-diffshub' });
+		const visibleItemIds = fixture.reviewPackage.orderedItemIds.slice(0, 8);
+		let loadCount = 0;
+		const snapshots: UseVisibleReviewContentHydrationResult[] = [];
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<VisibleHydrationHarness
+					loadContentResources={async (): Promise<VisibleReviewContentLoadResult> => {
+						loadCount += 1;
+						return { status: 'deferred', reason: 'concurrency_exceeded' };
+					}}
+					onSnapshot={(snapshot): void => {
+						snapshots.push(snapshot);
+					}}
+					reviewPackage={fixture.reviewPackage}
+					visibleHydrationPaused={true}
+					visibleItemIds={visibleItemIds}
+				/>,
+			);
+			await flushVisibleHydrationMicrotasks();
+		});
+
+		expect(loadCount).toBe(0);
+		expect(lastSnapshot(snapshots).visibleLoadingItemCount).toBe(0);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<VisibleHydrationHarness
+					loadContentResources={async (): Promise<VisibleReviewContentLoadResult> => {
+						loadCount += 1;
+						return { status: 'deferred', reason: 'concurrency_exceeded' };
+					}}
+					onSnapshot={(snapshot): void => {
+						snapshots.push(snapshot);
+					}}
+					reviewPackage={fixture.reviewPackage}
+					visibleHydrationPaused={false}
+					visibleItemIds={visibleItemIds}
+				/>,
+			);
+			await flushVisibleHydrationMicrotasks();
+		});
+
+		expect(loadCount).toBeGreaterThan(0);
+	});
 });
 
 interface VisibleHydrationHarnessProps {
@@ -435,6 +543,7 @@ interface VisibleHydrationHarnessProps {
 	readonly reviewPackage: ReturnType<typeof makeBridgeViewerProjectionFixture>;
 	readonly selectedItemId?: string | null;
 	readonly contentInvalidationVersion?: number;
+	readonly visibleHydrationPaused?: boolean;
 	readonly visibleItemIds: readonly string[];
 	readonly onSnapshot: (snapshot: UseVisibleReviewContentHydrationResult) => void;
 }
@@ -454,6 +563,7 @@ function VisibleHydrationHarness(props: VisibleHydrationHarnessProps): ReactElem
 		telemetryParentTraceContext: null,
 		telemetryRecorder: createBridgeTelemetryRecorder(null),
 		contentInvalidationVersion: props.contentInvalidationVersion ?? 0,
+		visibleHydrationPaused: props.visibleHydrationPaused ?? false,
 	});
 	useEffect((): void => {
 		hydration.setVisibleItemIds(props.visibleItemIds);

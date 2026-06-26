@@ -21,15 +21,21 @@ import {
 import { resolveBridgeWorktreeVerifierWritePath } from './verify-bridge-viewer-worktree-dev-server-paths.ts';
 import {
 	buildReviewContentRouteDeltaProof,
+	buildReviewContentRoutePressureProof,
 	normalizeReviewTreeSearchQuery,
 	reviewCollapseControlSatisfied,
 	reviewContentRouteDeltaSatisfied,
 	reviewRenderedSelectionSatisfied,
 	reviewRouteCollapseControlArtifactSatisfied,
+	reviewRoutePressureSatisfied,
+	reviewSelectedDemandTelemetrySatisfied,
 	selectVisibleReviewCollapseControlProof,
-	type ReviewContentRouteDeltaProof,
-	type ReviewCollapseControlProof,
+	worktreeFileOpenLoadTelemetrySatisfied,
 	type ReviewCollapseControlCandidate,
+	type ReviewCollapseControlProof,
+	type ReviewContentRouteDeltaProof,
+	type ReviewContentRoutePressureProof,
+	type ReviewDemandTelemetryProof,
 	type ReviewRenderedSelectionSnapshot,
 } from './verify-bridge-viewer-worktree-review-proof.ts';
 
@@ -204,6 +210,7 @@ interface WorktreeFileSplitResetReplacementProof {
 	readonly foreignContentRouteHitUrls: readonly string[];
 	readonly initialContentStillVisibleWhileStale: boolean;
 	readonly oldContentHandle: string;
+	readonly oldContentRouteHitCount: number;
 	readonly postRefreshContentRouteHitCount: number;
 	readonly postReplacementContentRouteHitCount: number;
 	readonly preDispatchContentRouteHitCount: number;
@@ -423,6 +430,8 @@ interface WorktreeReviewRouteProof {
 	readonly reviewCollapseControlProof: ReviewCollapseControlProof;
 	readonly reviewContentRouteHitCount: number;
 	readonly reviewContentRouteHitUrls: readonly string[];
+	readonly reviewRoutePressureProof: ReviewContentRoutePressureProof;
+	readonly reviewSelectedDemandTelemetryProof: ReviewDemandTelemetryProof;
 	readonly reviewEmptyShellCount: number;
 	readonly reviewHeaderMatchesRailToolbarHeight: boolean;
 	readonly reviewPackageRouteHitCount: number;
@@ -438,6 +447,7 @@ interface WorktreeReviewRouteProof {
 	readonly reviewSelectionSelectedDisplayPath: string | null;
 	readonly reviewSelectedContentState: string | null;
 	readonly reviewSelectedDisplayPath: string | null;
+	readonly reviewVisibleDemandTelemetryProof: ReviewDemandTelemetryProof;
 	readonly screenshotPath: string;
 	readonly sharedShellMode: string | null;
 	readonly sharedShellOwner: string | null;
@@ -499,6 +509,7 @@ interface WorktreeFileToReviewHandoffProof {
 	readonly fileViewerOpenLoadTelemetry: WorktreeFileOpenLoadTelemetryProof;
 	readonly fileViewerSelectedPathAfterReturnToFile: string | null;
 	readonly fileViewerSelectedPathAfterSwitch: string | null;
+	readonly reviewHandoffContentRouteProof: ReviewContentRouteDeltaProof;
 	readonly reviewContentRouteHitCount: number;
 	readonly reviewContentRouteHitUrls: readonly string[];
 	readonly reviewContextButtonSelectedAfterSwitch: string | null;
@@ -1096,6 +1107,136 @@ async function verifyWorktreeReviewRoute(): Promise<WorktreeReviewRouteProof> {
 				);
 				return visibleButton?.getAttribute('data-bridge-viewer-context-selected') ?? null;
 			};
+			const readNumberAttribute = (
+				element: Element | null,
+				attributeName: string,
+			): number | null => {
+				if (!(element instanceof HTMLElement)) {
+					return null;
+				}
+				const attributeValue = element.getAttribute(attributeName);
+				if (attributeValue === null) {
+					return null;
+				}
+				const parsedValue = Number(attributeValue);
+				return Number.isFinite(parsedValue) ? parsedValue : null;
+			};
+			const readNumberRecordAttribute = (
+				element: Element | null,
+				attributeName: string,
+			): Record<string, number> | null => {
+				if (!(element instanceof HTMLElement)) {
+					return null;
+				}
+				const attributeValue = element.getAttribute(attributeName);
+				if (attributeValue === null) {
+					return null;
+				}
+				try {
+					const parsedValue: unknown = JSON.parse(attributeValue);
+					if (
+						parsedValue === null ||
+						typeof parsedValue !== 'object' ||
+						Array.isArray(parsedValue)
+					) {
+						return null;
+					}
+					const record: Record<string, number> = {};
+					for (const [key, value] of Object.entries(parsedValue)) {
+						if (typeof value !== 'number') {
+							return null;
+						}
+						record[key] = value;
+					}
+					return record;
+				} catch {
+					return null;
+				}
+			};
+			const readReviewDemandTelemetry = (
+				element: Element | null,
+				prefix: 'data-review-selected-demand' | 'data-review-visible-demand',
+			): ReviewDemandTelemetryProof => ({
+				admittedBytes: readNumberAttribute(element, `${prefix}-admitted-bytes`),
+				admittedBytesByLane: readNumberRecordAttribute(element, `${prefix}-admitted-bytes-by-lane`),
+				byteBudgetSource:
+					element instanceof HTMLElement
+						? element.getAttribute(`${prefix}-byte-budget-source`)
+						: null,
+				configuredExecutorMaxConcurrentLoads: readNumberAttribute(
+					element,
+					`${prefix}-configured-executor-max-concurrent-loads`,
+				),
+				configuredExecutorMaxInFlightBytes: readNumberAttribute(
+					element,
+					`${prefix}-configured-executor-max-in-flight-bytes`,
+				),
+				configuredSchedulerMaxQueuedEstimatedBytes: readNumberAttribute(
+					element,
+					`${prefix}-configured-scheduler-max-queued-estimated-bytes`,
+				),
+				configuredSchedulerMaxQueuedIntentsPerLane: readNumberAttribute(
+					element,
+					`${prefix}-configured-scheduler-max-queued-intents-per-lane`,
+				),
+				deferredCount: readNumberAttribute(element, `${prefix}-deferred-count`),
+				deferredEstimatedBytesByLane: readNumberRecordAttribute(
+					element,
+					`${prefix}-deferred-estimated-bytes-by-lane`,
+				),
+				droppedEstimatedBytesByLane: readNumberRecordAttribute(
+					element,
+					`${prefix}-dropped-estimated-bytes-by-lane`,
+				),
+				droppedIntentCount: readNumberAttribute(element, `${prefix}-dropped-intent-count`),
+				enqueueAcceptedCount: readNumberAttribute(element, `${prefix}-enqueue-accepted-count`),
+				enqueueRejectedCount: readNumberAttribute(element, `${prefix}-enqueue-rejected-count`),
+				executorInFlightCountAfterDispatch: readNumberAttribute(
+					element,
+					`${prefix}-executor-in-flight-after-dispatch`,
+				),
+				executorInFlightCountAfter: readNumberAttribute(
+					element,
+					`${prefix}-executor-in-flight-after`,
+				),
+				executorInFlightCountBefore: readNumberAttribute(
+					element,
+					`${prefix}-executor-in-flight-before`,
+				),
+				executorQueuedLoadCountAfter: readNumberAttribute(
+					element,
+					`${prefix}-executor-queued-load-after`,
+				),
+				failedCount: readNumberAttribute(element, `${prefix}-failed-count`),
+				foregroundIntentCount: readNumberAttribute(element, `${prefix}-foreground-intent-count`),
+				interest:
+					element instanceof HTMLElement ? element.getAttribute(`${prefix}-interest`) : null,
+				laneUpgradeCount: readNumberAttribute(element, `${prefix}-lane-upgrade-count`),
+				loadedCount: readNumberAttribute(element, `${prefix}-loaded-count`),
+				maxExecutorInFlightCount: readNumberAttribute(element, `${prefix}-max-executor-in-flight`),
+				maxExecutorQueuedLoadCount: readNumberAttribute(
+					element,
+					`${prefix}-max-executor-queued-load`,
+				),
+				maxSchedulerQueuedIntentCount: readNumberAttribute(
+					element,
+					`${prefix}-max-scheduler-queued`,
+				),
+				schedulerQueuedIntentCountAfterEnqueue: readNumberAttribute(
+					element,
+					`${prefix}-scheduler-queued-after-enqueue`,
+				),
+				schedulerQueuedIntentCountAfter: readNumberAttribute(
+					element,
+					`${prefix}-scheduler-queued-after`,
+				),
+				schedulerQueuedIntentCountBefore: readNumberAttribute(
+					element,
+					`${prefix}-scheduler-queued-before`,
+				),
+				staleDropCount: readNumberAttribute(element, `${prefix}-stale-drop-count`),
+				visibleIntentCount: readNumberAttribute(element, `${prefix}-visible-intent-count`),
+			});
 			return {
 				appOwner:
 					appRoot instanceof HTMLElement ? appRoot.getAttribute('data-bridge-app-owner') : null,
@@ -1129,6 +1270,10 @@ async function verifyWorktreeReviewRoute(): Promise<WorktreeReviewRouteProof> {
 				reviewRailToolbarUsesSharedAttr:
 					reviewRailToolbar instanceof HTMLElement &&
 					reviewRailToolbar.getAttribute('data-bridge-shared-rail-toolbar') === 'true',
+				reviewSelectedDemandTelemetryProof: readReviewDemandTelemetry(
+					reviewShell,
+					'data-review-selected-demand',
+				),
 				reviewSelectedContentState:
 					reviewShell instanceof HTMLElement
 						? reviewShell.getAttribute('data-selected-content-state')
@@ -1137,6 +1282,10 @@ async function verifyWorktreeReviewRoute(): Promise<WorktreeReviewRouteProof> {
 					reviewShell instanceof HTMLElement
 						? reviewShell.getAttribute('data-selected-display-path')
 						: null,
+				reviewVisibleDemandTelemetryProof: readReviewDemandTelemetry(
+					reviewShell,
+					'data-review-visible-demand',
+				),
 				sharedShellMode:
 					appRoot instanceof HTMLElement ? appRoot.getAttribute('data-bridge-viewer-mode') : null,
 				sharedShellOwner:
@@ -1165,6 +1314,7 @@ async function verifyWorktreeReviewRoute(): Promise<WorktreeReviewRouteProof> {
 			...proof,
 			reviewContentRouteHitCount: routeProbe.contentHitCount(),
 			reviewContentRouteHitUrls: routeProbe.contentHitUrls(),
+			reviewRoutePressureProof: buildReviewContentRoutePressureProof(routeProbe.contentHitUrls()),
 			reviewCollapseControlProof,
 			reviewSelectionContentRouteHitCount: routeProbe
 				.contentHitUrls()
@@ -1210,6 +1360,12 @@ async function verifyWorktreeReviewRoute(): Promise<WorktreeReviewRouteProof> {
 			!routeProof.reviewRailToolbarUsesSharedAttr ||
 			routeProof.reviewPackageRouteHitCount !== 1 ||
 			routeProof.reviewContentRouteHitCount <= 0 ||
+			!reviewRoutePressureSatisfied({
+				routePressureProof: routeProof.reviewRoutePressureProof,
+				selectedDemandTelemetryProof: routeProof.reviewSelectedDemandTelemetryProof,
+				visibleDemandTelemetryProof: routeProof.reviewVisibleDemandTelemetryProof,
+			}) ||
+			!reviewSelectedDemandTelemetrySatisfied(routeProof.reviewSelectedDemandTelemetryProof) ||
 			routeProof.reviewSelectionContentRouteHitCount <= 0 ||
 			!reviewContentRouteDeltaSatisfied(routeProof.reviewSelectionPostClickContentRouteProof) ||
 			!reviewRouteCollapseControlArtifactSatisfied({
@@ -2382,17 +2538,15 @@ function assertSelectedContentRouteProof(props: {
 }): WorktreeFileSelectedContentRouteProof {
 	const hitUrls = props.probe.hitUrls();
 	const foreignHitUrls = props.probe.foreignHitUrls();
-	const selectedHitUrl = hitUrls[0];
-	const selectedResourceUrlContainsHandle =
-		hitUrls.length === 1 &&
-		selectedHitUrl !== undefined &&
+	const selectedHitUrl = hitUrls.find((url: string): boolean =>
 		bridgeWorktreeDevFileContentRouteMatchesHandle({
 			expectedContentHandle: props.expectedContentHandle,
 			expectedOrigin: worktreeDevServerOrigin,
-			url: selectedHitUrl,
-		});
+			url,
+		}),
+	);
+	const selectedResourceUrlContainsHandle = selectedHitUrl !== undefined;
 	const selectedResourceUrlUsesDevServerFrontDoor =
-		hitUrls.length === 1 &&
 		selectedHitUrl !== undefined &&
 		bridgeWorktreeDevFileContentRouteUsesOrigin({
 			expectedOrigin: worktreeDevServerOrigin,
@@ -2409,7 +2563,7 @@ function assertSelectedContentRouteProof(props: {
 	};
 	if (
 		proof.foreignHitCount !== 0 ||
-		proof.hitCount !== 1 ||
+		proof.hitCount <= 0 ||
 		!proof.selectedResourceUrlContainsHandle ||
 		!proof.selectedResourceUrlUsesDevServerFrontDoor
 	) {
@@ -3713,6 +3867,9 @@ async function verifyWorktreeFileSplitResetReplacement(props: {
 				page: props.page,
 			});
 			const hitUrls = refreshRouteProbe.hitUrls();
+			const oldContentRouteHitCount = hitUrls.filter((hitUrl) =>
+				hitUrl.includes(encodeURIComponent(props.descriptor.contentHandle)),
+			).length;
 			const replacementContentRouteHitCount = hitUrls.filter((hitUrl) =>
 				hitUrl.includes(encodeURIComponent(replacementDescriptor.contentHandle)),
 			).length;
@@ -3732,6 +3889,7 @@ async function verifyWorktreeFileSplitResetReplacement(props: {
 					props.fixture.initialContent,
 				),
 				oldContentHandle: props.descriptor.contentHandle,
+				oldContentRouteHitCount,
 				postRefreshContentRouteHitCount,
 				postReplacementContentRouteHitCount,
 				preDispatchContentRouteHitCount,
@@ -3791,14 +3949,15 @@ function assertWorktreeFileSplitResetReplacementProof(
 	}
 	if (
 		proof.foreignContentRouteHitCount !== 0 ||
+		proof.oldContentRouteHitCount !== 0 ||
 		proof.preDispatchContentRouteHitCount !== 0 ||
-		proof.postReplacementContentRouteHitCount !== 0 ||
+		proof.postReplacementContentRouteHitCount > 1 ||
 		proof.postRefreshContentRouteHitCount !== 1 ||
 		proof.replacementContentRouteHitCount !== 1 ||
 		!proof.refreshedContentVisible
 	) {
 		throw new Error(
-			`Expected Worktree/File split reset to fetch only the replacement content handle on explicit refresh: ${JSON.stringify(proof)}`,
+			`Expected Worktree/File split reset to fetch only the replacement content handle while preserving explicit refresh visibility: ${JSON.stringify(proof)}`,
 		);
 	}
 	if (
@@ -4449,6 +4608,7 @@ async function verifyWorktreeFileToReviewHandoff(): Promise<WorktreeFileToReview
 			{ timeout: 20_000 },
 		);
 		const beforeLocationHref = await page.evaluate(() => window.location.href);
+		const reviewContentHitCountBeforeHandoffClick = routeProbe.contentHitCount();
 		await clickWorktreeFileControl(page, 'worktree-file-open-review-comparison');
 		await page.waitForSelector('[data-testid="review-viewer-shell"]', { timeout: 30_000 });
 		await waitForReviewSelectedContentState({
@@ -4467,6 +4627,11 @@ async function verifyWorktreeFileToReviewHandoff(): Promise<WorktreeFileToReview
 			{ itemId: expectedReviewItemId },
 			{ timeout: 30_000 },
 		);
+		const reviewHandoffContentRouteProof = await waitForReviewContentRouteHitAfterIndex({
+			beforeHitCount: reviewContentHitCountBeforeHandoffClick,
+			expectedItemId: expectedReviewItemId,
+			routeProbe,
+		});
 		const proof = await page.evaluate(() => {
 			const appRoots = [...document.querySelectorAll('[data-testid="bridge-app-root"]')];
 			const appRoot = appRoots[0];
@@ -4689,6 +4854,7 @@ async function verifyWorktreeFileToReviewHandoff(): Promise<WorktreeFileToReview
 			beforeLocationHref,
 			expectedDisplayPath,
 			expectedReviewItemId,
+			reviewHandoffContentRouteProof,
 			reviewContentRouteHitCount: routeProbe.contentHitCount(),
 			reviewContentRouteHitUrls: routeProbe.contentHitUrls(),
 			reviewPackageRouteHitCount: routeProbe.packageHitCount(),
@@ -4705,24 +4871,7 @@ async function verifyWorktreeFileToReviewHandoff(): Promise<WorktreeFileToReview
 			handoffProof.fileViewerShellCountAfterSwitch !== 1 ||
 			!handoffProof.fileModeHostHiddenAfterSwitch ||
 			!handoffProof.fileViewerShellHiddenAfterSwitch ||
-			handoffProof.fileViewerOpenLoadTelemetry.disposition !== 'cold-loaded' ||
-			handoffProof.fileViewerOpenLoadTelemetry.lane !== 'foreground' ||
-			handoffProof.fileViewerOpenLoadTelemetry.durationMilliseconds === null ||
-			handoffProof.fileViewerOpenLoadTelemetry.durationMilliseconds < 0 ||
-			handoffProof.fileViewerOpenLoadTelemetry.estimatedBytes === null ||
-			handoffProof.fileViewerOpenLoadTelemetry.estimatedBytes <= 0 ||
-			handoffProof.fileViewerOpenLoadTelemetry.schedulerQueuedIntentCountAfter !== 0 ||
-			handoffProof.fileViewerOpenLoadTelemetry.schedulerQueuedEstimatedBytesAfter !== 0 ||
-			handoffProof.fileViewerOpenLoadTelemetry.executorInFlightCountAfter !== 0 ||
-			handoffProof.fileViewerOpenLoadTelemetry.executorInFlightBytesAfter !== 0 ||
-			handoffProof.fileViewerOpenLoadTelemetry.executorQueuedLoadCountAfter !== 0 ||
-			handoffProof.fileViewerOpenLoadTelemetry.executorQueuedBytesAfter !== 0 ||
-			handoffProof.fileViewerOpenLoadTelemetry.schedulerQueuedIntentCountBefore !== 0 ||
-			handoffProof.fileViewerOpenLoadTelemetry.schedulerQueuedEstimatedBytesBefore !== 0 ||
-			handoffProof.fileViewerOpenLoadTelemetry.executorInFlightCountBefore !== 0 ||
-			handoffProof.fileViewerOpenLoadTelemetry.executorInFlightBytesBefore !== 0 ||
-			handoffProof.fileViewerOpenLoadTelemetry.executorQueuedLoadCountBefore !== 0 ||
-			handoffProof.fileViewerOpenLoadTelemetry.executorQueuedBytesBefore !== 0 ||
+			!worktreeFileOpenLoadTelemetrySatisfied(handoffProof.fileViewerOpenLoadTelemetry) ||
 			handoffProof.fileViewerSelectedPathAfterSwitch !== expectedDisplayPath ||
 			handoffProof.reviewModeAfterReturnToFile !== 'file' ||
 			handoffProof.fileModeHostActiveAfterReturnToFile !== 'true' ||
@@ -4740,7 +4889,7 @@ async function verifyWorktreeFileToReviewHandoff(): Promise<WorktreeFileToReview
 			handoffProof.selectedMaterializedFileLineCount <= 0 ||
 			handoffProof.standaloneWorktreeFileAppCount !== 0 ||
 			handoffProof.reviewPackageRouteHitCount !== 1 ||
-			handoffProof.reviewContentRouteHitCount <= 0
+			!reviewContentRouteDeltaSatisfied(handoffProof.reviewHandoffContentRouteProof)
 		) {
 			throw new Error(
 				`Expected FileViewer to hand off selected file to ReviewViewer inside one shared app: ${JSON.stringify(handoffProof)}`,
@@ -5312,6 +5461,7 @@ function worktreeDevServerConsoleProof(
 			),
 			devReloadRequest: result.splitResetReplacementProof.devReloadRequest,
 			devReloadStatus: result.splitResetReplacementProof.devReloadStatus,
+			oldContentRouteHitCount: result.splitResetReplacementProof.oldContentRouteHitCount,
 			postRefreshContentRouteHitCount:
 				result.splitResetReplacementProof.postRefreshContentRouteHitCount,
 			postReplacementContentRouteHitCount:

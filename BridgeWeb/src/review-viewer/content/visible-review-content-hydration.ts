@@ -26,6 +26,7 @@ export interface UseVisibleReviewContentHydrationProps {
 	readonly telemetryParentTraceContext: BridgeTraceContext | null;
 	readonly telemetryRecorder: BridgeTelemetryRecorder;
 	readonly contentInvalidationVersion: number;
+	readonly visibleHydrationPaused: boolean;
 }
 
 export interface UseVisibleReviewContentHydrationResult {
@@ -45,6 +46,8 @@ interface VisibleContentResourcesState {
 }
 
 const visibleContentHydrationItemLimit = 96;
+const maxVisibleContentDeferredRetries = 1;
+const exhaustedVisibleContentRetryVersion = Number.MAX_SAFE_INTEGER;
 
 export type VisibleReviewContentLoadResult =
 	| ReviewContentDemandLoadResult
@@ -65,6 +68,7 @@ export function useVisibleReviewContentHydration(
 	const loadAbortControllersByContentKeyRef = useRef<Map<string, AbortController>>(
 		new Map<string, AbortController>(),
 	);
+	const deferredRetryCountByContentKeyRef = useRef<Map<string, number>>(new Map());
 	const loadContentResources = props.loadContentResources;
 
 	const packageIdentityKey =
@@ -79,6 +83,7 @@ export function useVisibleReviewContentHydration(
 	useEffect((): void => {
 		reportedVisibleItemIdsRef.current = [];
 		abortVisibleContentLoads(loadAbortControllersByContentKeyRef.current);
+		deferredRetryCountByContentKeyRef.current.clear();
 		setVisibleItemIdsState([]);
 		setContentStateByItemId(new Map<string, VisibleContentResourcesState>());
 		resourcesByItemIdRef.current = new Map<string, BridgeCodeViewContentResources>();
@@ -116,11 +121,34 @@ export function useVisibleReviewContentHydration(
 		},
 		[],
 	);
+	useEffect((): void => {
+		if (!props.visibleHydrationPaused) {
+			return;
+		}
+		abortVisibleContentLoads(loadAbortControllersByContentKeyRef.current);
+		setContentStateByItemId(
+			(currentStateByItemId: ReadonlyMap<string, VisibleContentResourcesState>) => {
+				const nextStateByItemId = new Map<string, VisibleContentResourcesState>();
+				for (const [itemId, state] of currentStateByItemId) {
+					if (state.status === 'ready' || state.status === 'failed') {
+						nextStateByItemId.set(itemId, state);
+					}
+				}
+				return mapEntriesEqual(currentStateByItemId, nextStateByItemId)
+					? currentStateByItemId
+					: nextStateByItemId;
+			},
+		);
+	}, [props.visibleHydrationPaused]);
 	const [deferredRetryVersion, setDeferredRetryVersion] = useState(0);
 	const deferredRetryScheduledRef = useRef(false);
 
 	useEffect((): void => {
-		if (props.reviewPackage === null || visibleItemIds.length === 0) {
+		if (
+			props.reviewPackage === null ||
+			props.visibleHydrationPaused ||
+			visibleItemIds.length === 0
+		) {
 			return;
 		}
 		const currentReviewPackage = props.reviewPackage;
@@ -190,6 +218,7 @@ export function useVisibleReviewContentHydration(
 						return;
 					}
 					const normalizedLoadResult = normalizeVisibleReviewContentLoadResult(loadResult);
+					let shouldScheduleDeferredRetry = false;
 					setContentStateByItemId(
 						(currentStateByItemId: ReadonlyMap<string, VisibleContentResourcesState>) => {
 							const currentState = currentStateByItemId.get(loadPlan.itemId);
@@ -197,23 +226,40 @@ export function useVisibleReviewContentHydration(
 								return currentStateByItemId;
 							}
 							if (normalizedLoadResult.status === 'ready') {
+								deferredRetryCountByContentKeyRef.current.delete(loadPlan.contentKey);
 								const nextResourcesByItemId = new Map(resourcesByItemIdRef.current);
 								nextResourcesByItemId.set(loadPlan.itemId, normalizedLoadResult.resources);
 								resourcesByItemIdRef.current = nextResourcesByItemId;
 							}
+							if (normalizedLoadResult.status === 'failed') {
+								deferredRetryCountByContentKeyRef.current.delete(loadPlan.contentKey);
+							}
+							const deferredRetryDecision =
+								normalizedLoadResult.status === 'deferred'
+									? nextDeferredVisibleContentRetryDecision({
+											contentKey: loadPlan.contentKey,
+											currentRetryVersion: deferredRetryVersion,
+											retryCountsByContentKey: deferredRetryCountByContentKeyRef.current,
+										})
+									: null;
+							shouldScheduleDeferredRetry = deferredRetryDecision?.kind === 'scheduled';
 							const nextStateByItemId = new Map(currentStateByItemId);
 							nextStateByItemId.set(loadPlan.itemId, {
 								contentKey: loadPlan.contentKey,
 								itemId: loadPlan.itemId,
 								...(normalizedLoadResult.status === 'deferred'
-									? { retryAfterVersion: deferredRetryVersion + 1 }
+									? {
+											retryAfterVersion:
+												deferredRetryDecision?.retryAfterVersion ??
+												exhaustedVisibleContentRetryVersion,
+										}
 									: {}),
 								status: normalizedLoadResult.status,
 							});
 							return nextStateByItemId;
 						},
 					);
-					if (normalizedLoadResult.status === 'deferred') {
+					if (shouldScheduleDeferredRetry) {
 						scheduleVisibleHydrationRetry({
 							scheduledRef: deferredRetryScheduledRef,
 							setDeferredRetryVersion,
@@ -259,6 +305,7 @@ export function useVisibleReviewContentHydration(
 		props.reviewPackage,
 		props.telemetryParentTraceContext,
 		props.telemetryRecorder,
+		props.visibleHydrationPaused,
 		visibleItemIds,
 	]);
 
@@ -283,6 +330,7 @@ export function useVisibleReviewContentHydration(
 			loadAbortControllersByContentKeyRef.current,
 			retainedContentKeys,
 		);
+		pruneDeferredRetryCountsExcept(deferredRetryCountByContentKeyRef.current, retainedContentKeys);
 		setContentStateByItemId(
 			(currentStateByItemId: ReadonlyMap<string, VisibleContentResourcesState>) => {
 				const nextStateByItemId = new Map<string, VisibleContentResourcesState>();
@@ -346,6 +394,16 @@ interface VisibleReviewContentLoadPlan {
 	readonly item: BridgeReviewItemDescriptor;
 	readonly itemId: string;
 }
+
+type DeferredVisibleContentRetryDecision =
+	| {
+			readonly kind: 'scheduled';
+			readonly retryAfterVersion: number;
+	  }
+	| {
+			readonly kind: 'exhausted';
+			readonly retryAfterVersion: number;
+	  };
 
 export function makeReviewItemContentResourcesKey(props: {
 	readonly item: BridgeReviewItemDescriptor;
@@ -475,6 +533,37 @@ function abortVisibleContentLoadsExcept(
 		}
 		loadAbortController.abort();
 		loadAbortControllersByContentKey.delete(contentKey);
+	}
+}
+
+function nextDeferredVisibleContentRetryDecision(props: {
+	readonly contentKey: string;
+	readonly currentRetryVersion: number;
+	readonly retryCountsByContentKey: Map<string, number>;
+}): DeferredVisibleContentRetryDecision {
+	const retryCount = (props.retryCountsByContentKey.get(props.contentKey) ?? 0) + 1;
+	props.retryCountsByContentKey.set(props.contentKey, retryCount);
+	if (retryCount <= maxVisibleContentDeferredRetries) {
+		return {
+			kind: 'scheduled',
+			retryAfterVersion: props.currentRetryVersion + 1,
+		};
+	}
+	return {
+		kind: 'exhausted',
+		retryAfterVersion: exhaustedVisibleContentRetryVersion,
+	};
+}
+
+function pruneDeferredRetryCountsExcept(
+	deferredRetryCountsByContentKey: Map<string, number>,
+	retainedContentKeys: ReadonlySet<string>,
+): void {
+	for (const contentKey of deferredRetryCountsByContentKey.keys()) {
+		if (retainedContentKeys.has(contentKey)) {
+			continue;
+		}
+		deferredRetryCountsByContentKey.delete(contentKey);
 	}
 }
 

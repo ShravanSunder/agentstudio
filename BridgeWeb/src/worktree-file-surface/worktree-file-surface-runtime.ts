@@ -380,6 +380,7 @@ export function createWorktreeFileSurfaceRuntime(
 		);
 		let enqueueAcceptedCount = 0;
 		let enqueueRejectedCount = 0;
+		const rejectedLoadResults: WorktreeFileSurfaceDemandDispatchLoadResult[] = [];
 		for (const intent of intents) {
 			const descriptor = registry.lookup(intent.descriptorRef);
 			const enqueueResult = scheduler.enqueue({
@@ -392,6 +393,12 @@ export function createWorktreeFileSurfaceRuntime(
 				enqueueAcceptedCount += 1;
 			} else {
 				enqueueRejectedCount += 1;
+				rejectedLoadResults.push({
+					ok: false,
+					descriptorId: descriptor?.descriptorId ?? null,
+					lane: intent.lane,
+					reason: pressureReasonForSchedulerRejection(enqueueResult.reason),
+				});
 			}
 		}
 		const pendingPreloadLoads: {
@@ -417,14 +424,15 @@ export function createWorktreeFileSurfaceRuntime(
 			pendingPreloadLoads,
 			registry,
 		});
+		const allLoadResults = [...rejectedLoadResults, ...loadResults];
 		return {
 			stimulusCount: stimuli.length,
 			intentCount: intents.length,
 			enqueueAcceptedCount,
 			enqueueRejectedCount,
-			loadedCount: loadResults.filter((loadResult): boolean => loadResult.ok).length,
-			failedCount: loadResults.filter((loadResult): boolean => !loadResult.ok).length,
-			loadResults,
+			loadedCount: allLoadResults.filter((loadResult): boolean => loadResult.ok).length,
+			failedCount: allLoadResults.filter((loadResult): boolean => !loadResult.ok).length,
+			loadResults: allLoadResults,
 			schedulerQueuedEstimatedBytesAfter: scheduler.queuedEstimatedBytes,
 			schedulerQueuedIntentCountAfter: scheduler.queuedIntentCount,
 			executorInFlightBytesAfter: executor.inFlightBytes,
@@ -843,10 +851,16 @@ async function loadStimulus(props: {
 	for (const intent of intents) {
 		const estimatedBytes =
 			props.stimulusDescriptor.contentDescriptor.descriptor.content.expectedBytes;
-		props.scheduler.enqueue({
+		const enqueueResult = props.scheduler.enqueue({
 			intent,
 			...(estimatedBytes === undefined ? {} : { estimatedBytes }),
 		});
+		if (!enqueueResult.ok) {
+			return {
+				ok: false,
+				reason: pressureReasonForSchedulerRejection(enqueueResult.reason),
+			};
+		}
 	}
 	const nextIntent = props.scheduler.dequeueNext();
 	if (nextIntent === null) {
@@ -884,6 +898,18 @@ async function loadStimulus(props: {
 			schedulerQueuedIntentCountBefore: queuedIntentCountBefore,
 		},
 	};
+}
+
+function pressureReasonForSchedulerRejection(
+	reason: 'lane_queue_full' | 'queued_byte_limit_exceeded',
+): 'byte_budget_exceeded' | 'concurrency_exceeded' {
+	switch (reason) {
+		case 'lane_queue_full':
+			return 'concurrency_exceeded';
+		case 'queued_byte_limit_exceeded':
+			return 'byte_budget_exceeded';
+	}
+	return assertNever(reason);
 }
 
 function loadDispositionForStimulus(props: {

@@ -51,6 +51,10 @@ export interface BridgeResourceExecutor<TBody = unknown> {
 	cancelGroup(cancellationGroup: string): number;
 	readonly inFlightCount: number;
 	readonly inFlightBytes: number;
+	readonly maxConcurrentLoads: number;
+	readonly maxInFlightBytes: number;
+	readonly maxQueuedBytes: number;
+	readonly maxQueuedLoads: number;
 	readonly queuedLoadCount: number;
 	readonly queuedBytes: number;
 }
@@ -342,6 +346,18 @@ export function createBridgeResourceExecutor<TBody = unknown>(
 		},
 		get inFlightBytes(): number {
 			return inFlightBytes;
+		},
+		get maxConcurrentLoads(): number {
+			return props.maxConcurrentLoads;
+		},
+		get maxInFlightBytes(): number {
+			return props.maxInFlightBytes;
+		},
+		get maxQueuedBytes(): number {
+			return props.maxQueuedBytes;
+		},
+		get maxQueuedLoads(): number {
+			return props.maxQueuedLoads;
 		},
 		get queuedLoadCount(): number {
 			return pendingByDedupeKey.size;

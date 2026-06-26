@@ -113,6 +113,35 @@ describe('worktree file surface runtime', () => {
 		expect(fetches).toHaveLength(1);
 	});
 
+	test('reports scheduler byte pressure before fetching oversized selected files', async () => {
+		const descriptor = makeFileDescriptor({
+			descriptorId: 'oversized-content',
+			expectedBytes: 9 * 1024 * 1024,
+			maxBytes: 10 * 1024 * 1024,
+		});
+		let fetchCount = 0;
+		const runtime = createWorktreeFileSurfaceRuntime({
+			paneId: 'pane-1',
+			fetchResource: async () => {
+				fetchCount += 1;
+				return 'must-not-fetch';
+			},
+		});
+		runtime.applyFrame(makeFileDescriptorFrame(descriptor));
+
+		const loadResult = await runtime.openFile({
+			descriptor,
+			openFileSessionId: 'session-1',
+		});
+
+		expect(loadResult).toEqual({ ok: false, reason: 'byte_budget_exceeded' });
+		expect(fetchCount).toBe(0);
+		expect(runtime.getState().openFileSessionsById['session-1']).toMatchObject({
+			status: 'failed',
+			descriptorRef: descriptor.contentDescriptor.ref,
+		});
+	});
+
 	test('preloads visible file demand through scheduler without opening file sessions', async () => {
 		const firstDescriptor = makeFileDescriptor({
 			descriptorId: 'file-content-1',
@@ -196,6 +225,50 @@ describe('worktree file surface runtime', () => {
 			entryCount: 2,
 			totalBytes: 'file-content-1:preloaded'.length + 'file-content-2:preloaded'.length,
 		});
+	});
+
+	test('reports descriptor and lane when visible preload demand is rejected by byte pressure', async () => {
+		const descriptor = makeFileDescriptor({
+			descriptorId: 'oversized-visible-content',
+			expectedBytes: 9 * 1024 * 1024,
+			maxBytes: 10 * 1024 * 1024,
+		});
+		let fetchCount = 0;
+		const runtime = createWorktreeFileSurfaceRuntime({
+			paneId: 'pane-1',
+			fetchResource: async () => {
+				fetchCount += 1;
+				return 'must-not-fetch';
+			},
+		});
+		runtime.applyFrame(makeFileDescriptorFrame(descriptor));
+
+		const dispatchResult = await runtime.dispatchDemandStimuli([
+			{
+				kind: 'treeViewportChanged',
+				descriptorRefs: [descriptor.contentDescriptor.ref],
+			},
+		]);
+
+		expect(dispatchResult).toMatchObject({
+			stimulusCount: 1,
+			intentCount: 1,
+			enqueueAcceptedCount: 0,
+			enqueueRejectedCount: 1,
+			loadedCount: 0,
+			failedCount: 1,
+			loadResults: [
+				{
+					ok: false,
+					descriptorId: 'oversized-visible-content',
+					lane: 'visible',
+					reason: 'byte_budget_exceeded',
+				},
+			],
+			schedulerQueuedEstimatedBytesAfter: 0,
+			schedulerQueuedIntentCountAfter: 0,
+		});
+		expect(fetchCount).toBe(0);
 	});
 
 	test('marks open files stale without auto-fetching and refreshes only the latest descriptor', async () => {
@@ -749,8 +822,10 @@ function makeDeferred<TValue>(): {
 interface MakeFileDescriptorProps {
 	readonly descriptorId: string;
 	readonly contentHandle?: string;
+	readonly expectedBytes?: number;
 	readonly fileId?: string;
 	readonly isBinary?: boolean;
+	readonly maxBytes?: number;
 	readonly path?: string;
 	readonly sourceIdentity?: WorktreeFileSurfaceSourceIdentity;
 	readonly virtualizedExtentKind?: WorktreeFileDescriptor['virtualizedExtentKind'];
@@ -765,6 +840,8 @@ function makeFileDescriptor(props: MakeFileDescriptorProps): WorktreeFileDescrip
 		contentHandle: props.contentHandle ?? 'handle-1',
 		contentDescriptor: makeAttachedDescriptor({
 			descriptorId: props.descriptorId,
+			...(props.expectedBytes === undefined ? {} : { expectedBytes: props.expectedBytes }),
+			...(props.maxBytes === undefined ? {} : { maxBytes: props.maxBytes }),
 			resourceKind: 'worktree.fileContent',
 			sourceIdentity,
 		}),
@@ -795,6 +872,8 @@ function makeSourceIdentity(
 
 interface MakeAttachedDescriptorProps {
 	readonly descriptorId: string;
+	readonly expectedBytes?: number;
+	readonly maxBytes?: number;
 	readonly resourceKind: string;
 	readonly sourceIdentity: WorktreeFileSurfaceSourceIdentity;
 }
@@ -819,8 +898,8 @@ function makeAttachedDescriptor(
 		content: {
 			mediaType: 'text/plain',
 			encoding: 'utf-8',
-			expectedBytes: 64,
-			maxBytes: 1024,
+			expectedBytes: props.expectedBytes ?? 64,
+			maxBytes: props.maxBytes ?? 1024,
 		},
 	} satisfies BridgeResourceDescriptor;
 	return bridgeAttachedResourceDescriptorSchema.parse({
