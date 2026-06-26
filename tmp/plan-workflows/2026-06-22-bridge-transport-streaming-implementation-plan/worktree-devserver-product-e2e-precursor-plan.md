@@ -152,8 +152,13 @@ Plan sequence changed after the 2026-06-25 navigation decision:
      context, Review file-target context, and a geometry/topbar/right-rail
      record showing the header stops at the rail and the rail starts at y=0.
      Fresh accepted-C refresh:
-     `tmp/bridge-viewer-design-proof/2026-06-26T05-41-43-291Z-accepted-c-refresh/accepted-c-design-proof.json`
+     `tmp/bridge-viewer-design-proof/2026-06-26T06-10-55-797Z-accepted-c-refresh/accepted-c-design-proof.json`
      plus `files.png`, `review-diff.png`, and `review-file-target.png`.
+     Browser/onlook agent `019f028e-c7a5-7732-b06e-7f65a0601fb9` passed this
+     visual/layout proof with no Accepted-C mismatches. This pass is scoped to
+     layout only and does not close inactive side effects, Review file-target
+     lineage, neutral chrome ownership, context memory behavior, or
+     file-load/preload behavior.
 
 0.a.5 file-load responsiveness/performance proof
   -> proves clicking files does not feel slow under the large worktree fixture,
@@ -728,10 +733,54 @@ Current checkpoint note, 2026-06-26 active-context retention:
   - `tmp/bridge-viewer-browser-onlook/2026-06-26T05-02-19-553Z/2-review-current-worktree.png`
   - `tmp/bridge-viewer-browser-onlook/2026-06-26T05-02-19-553Z/3-review-presentation-file-gitignore-current.png`
   - `tmp/bridge-viewer-browser-onlook/2026-06-26T05-02-19-553Z/capture-results.json`
-- Still open for later slices: Review content route fanout remains visible in
-  the proof artifact, including a high review file-target route hit count;
-  file-click responsiveness/preload telemetry is not tuned; and native Agent
-  Studio Bridge/WKWebView product proof is still required.
+- Still open for the next implementation slice:
+  - Hidden FileViewer must honor inactive-context gating. The current mounted
+    Files mode is suspected to keep its worktree surface subscription/polling
+    alive after switching to Review.
+  - Hidden Review no-foreground-work proof is still incomplete. The checkpoint
+    proves Review returns ready, but not that hidden Review emits zero
+    foreground content requests, `review.markFileViewed`, or route-level
+    foreground telemetry while Files is active.
+  - Review diff proof must stop using the synthetic
+    `__bridge_select_review_item` event and select the Review item through a
+    real actionability-checked tree/search UI interaction.
+  - Review file-target routing must prefer `reviewItemId`, validate
+    comparison/source lineage, and only fall back to provider-approved file-ref
+    mapping. The verifier must record `comparisonId`, source identity,
+    `reviewItemId` or resolved file ref, version, `targetKind`, and active
+    context.
+  - Explicit Files -> Review handoff must override or clear retained Review
+    search/filter refinements that hide the requested target; falling back to
+    the first visible projected item is a bug.
+  - Repeating the same navigation intent must reapply when the current target
+    has moved elsewhere; lifetime command-id latching is too broad.
+  - Context memory proof must be browser-visible for rail search/filter state
+    and rail/canvas scroll restoration, not jsdom/path-only.
+  - Neutral shared-chrome primitive ownership remains open while shared
+    FileViewer/header controls import Review-namespaced primitives.
+  - Review content route fanout remains visible in the proof artifact,
+    including high review route hit counts; file-click responsiveness/preload
+    telemetry is not tuned; and native Agent Studio Bridge/WKWebView product
+    proof is still required.
+
+Current visual/layout note, 2026-06-26 accepted-C refresh:
+
+- Fresh dev-server proof passed:
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T06-06-36-494Z/worktree-dev-server-proof.json`.
+- Fresh accepted-C screenshots and geometry:
+  - `tmp/bridge-viewer-design-proof/2026-06-26T06-10-55-797Z-accepted-c-refresh/files.png`
+  - `tmp/bridge-viewer-design-proof/2026-06-26T06-10-55-797Z-accepted-c-refresh/review-diff.png`
+  - `tmp/bridge-viewer-design-proof/2026-06-26T06-10-55-797Z-accepted-c-refresh/review-file-target.png`
+  - `tmp/bridge-viewer-design-proof/2026-06-26T06-10-55-797Z-accepted-c-refresh/accepted-c-design-proof.json`
+- The geometry artifact records all three routes with content topbar `left=0`,
+  `right=1708`, `height=36`; right rail `left=1708`, `width=340`, `top=0`;
+  code canvas `top=36`; and all accepted-C predicates true:
+  `allRoutesUseSharedShell`, `allHeadersEndBeforeRail`, `allRailsStartAtTop`,
+  `allCanvasesBelowHeader`, `allSwitchersInsideTopbar`, and
+  `allControlsInsideTopbar`.
+- Browser/onlook agent `019f028e-c7a5-7732-b06e-7f65a0601fb9` passed the
+  visual/layout proof with no concrete layout mismatches and reiterated that
+  this proof does not cover the implementation gates listed above.
 
 ### Slice 06P.4 / 0.a.4: Pierre CodeView/File, Shiki, And Worker Proof
 

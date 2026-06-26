@@ -622,16 +622,81 @@ Proof:
 
 Still open:
 
-- implementation-review-swarm over the current checkpoint
-- neutral shared-chrome primitive ownership review/fix: the target design is
-  BridgeViewer shared chrome, not permanent Review-namespaced primitives
-- Review file-target proof must record comparison/source identity, not only a
-  path/version/content result
-- hidden inactive ReviewViewer side effects review/fix if accepted
-- review-content cancellation/abort audit if accepted
+- implementation-execute-plan must address accepted implementation-review
+  findings before Gate 0.a can close
+- hidden FileViewer inactive-context gating: Files mode must pause/cancel
+  foreground surface subscriptions, polling, and hidden loading-state mutation
+  while Review is active
+- hidden Review inactive-context proof: zero new foreground content requests,
+  `review.markFileViewed`, route-level foreground telemetry, and visible
+  loading/selection mutations while Files is active
+- Review diff proof must use a real actionability-checked Review tree/search
+  interaction instead of synthetic `__bridge_select_review_item`
+- Review file-target routing/proof must bind comparison/source lineage,
+  `reviewItemId` or resolved file ref, version, `targetKind`, and active
+  context; path-only selection is not enough
+- explicit Files -> Review handoff must not be blocked by retained Review
+  search/filter state that hides the requested target
+- repeated identical navigation commands must replay when the current target
+  moved elsewhere
+- browser-visible context memory proof for rail search/filter state and
+  rail/canvas scroll restoration
+- neutral shared-chrome primitive ownership: the target design is BridgeViewer
+  shared chrome, not permanent Review-namespaced primitives
+- review-content cancellation/route fanout audit
 - file-click responsiveness/preload telemetry slice
 - native Agent Studio Swift-hosted Bridge/WKWebView proof
 - final PR-ready wrapup
+
+## 2026-06-26 Accepted-C Visual Refresh And Implementation Review Reduction
+
+Fresh dev-server proof:
+
+- `pnpm --dir BridgeWeb run test:dev-server:worktree`
+- Exit: 0
+- Artifact:
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T06-06-36-494Z/worktree-dev-server-proof.json`
+
+Fresh accepted-C screenshots and geometry:
+
+- `tmp/bridge-viewer-design-proof/2026-06-26T06-10-55-797Z-accepted-c-refresh/files.png`
+- `tmp/bridge-viewer-design-proof/2026-06-26T06-10-55-797Z-accepted-c-refresh/review-diff.png`
+- `tmp/bridge-viewer-design-proof/2026-06-26T06-10-55-797Z-accepted-c-refresh/review-file-target.png`
+- `tmp/bridge-viewer-design-proof/2026-06-26T06-10-55-797Z-accepted-c-refresh/accepted-c-design-proof.json`
+
+The geometry artifact records all three routes with content topbar `left=0`,
+`right=1708`, `height=36`; right rail `left=1708`, `width=340`, `top=0`; code
+canvas `top=36`; and accepted-C predicates true for shared shell, header ending
+before rail, rail at `y=0`, canvas below header, switcher inside topbar, and
+controls inside topbar.
+
+Browser/onlook agent `019f028e-c7a5-7732-b06e-7f65a0601fb9` passed this
+visual/layout proof with no concrete layout mismatches. The pass is scoped to
+visual/layout only and does not close inactive side effects, Review file-target
+lineage, neutral chrome ownership, context memory persistence/behavior, or
+file-load/preload behavior.
+
+Implementation review reduction accepted the following as open implementation
+work, not spec-loop work:
+
+- Hidden FileViewer remains mounted and is suspected to keep foreground
+  worktree surface polling/subscription alive after switching to Review.
+- Hidden Review no-foreground-work proof is incomplete; returning ready is not
+  proof of zero inactive foreground work.
+- Review diff selection proof still uses a synthetic app event and must be
+  converted to visible tree/search interaction proof.
+- Review file-target selection is still too path-shaped; it must prefer
+  `reviewItemId`, validate comparison/source lineage, and record lineage in the
+  verifier artifact.
+- Retained Review filters/search can hide the explicit Files -> Review target;
+  explicit target navigation must override that instead of falling back to the
+  first visible item.
+- Repeated identical navigation commands can become lifetime no-ops after the
+  first application; de-dupe must be target-state aware, not command-id-only.
+- Context memory proof must cover browser-visible search/filter and scroll
+  restoration.
+- Neutral shared-chrome extraction remains open while FileViewer/header import
+  Review-namespaced chrome primitives.
 
 Recommended next workflow:
 `shravan-dev-workflow:implementation-review-swarm` for source-backed review of

@@ -1816,15 +1816,16 @@ Latest accepted visible-shell checkpoint:
 Latest design-geometry refresh:
 
 - Screenshot/geometry artifacts:
-  - `tmp/bridge-viewer-design-proof/2026-06-26T05-41-43-291Z-accepted-c-refresh/files.png`
-  - `tmp/bridge-viewer-design-proof/2026-06-26T05-41-43-291Z-accepted-c-refresh/review-diff.png`
-  - `tmp/bridge-viewer-design-proof/2026-06-26T05-41-43-291Z-accepted-c-refresh/review-file-target.png`
-  - `tmp/bridge-viewer-design-proof/2026-06-26T05-41-43-291Z-accepted-c-refresh/accepted-c-design-proof.json`
+  - `tmp/bridge-viewer-design-proof/2026-06-26T06-10-55-797Z-accepted-c-refresh/files.png`
+  - `tmp/bridge-viewer-design-proof/2026-06-26T06-10-55-797Z-accepted-c-refresh/review-diff.png`
+  - `tmp/bridge-viewer-design-proof/2026-06-26T06-10-55-797Z-accepted-c-refresh/review-file-target.png`
+  - `tmp/bridge-viewer-design-proof/2026-06-26T06-10-55-797Z-accepted-c-refresh/accepted-c-design-proof.json`
 - The geometry artifact records, for Files, Review diff, and Review file-target
   routes, content topbar `left=0`, `right=1708`, `height=36`; right rail
   `left=1708`, `width=340`, `top=0`; code canvas `top=36`; and
   `contentHeaderEndsBeforeRail=true`, `railStartsAtTop=true`,
-  `canvasBelowHeader=true`, and `switcherInsideTopbar=true`.
+  `canvasBelowHeader=true`, `switcherInsideTopbar=true`, and
+  `controlsInsideTopbar=true`.
 - This refresh specifically records accepted decision C: title/source left,
   `Files | Review` plus content actions right, content header ending before the
   right rail, and right rail top-aligned at `y=0`.
@@ -1837,12 +1838,13 @@ Latest active-context retention checkpoint:
 - `BridgeWeb/src/app/bridge-app.tsx` keeps Review projection coordination fed
   by the current `reviewPackage` even while Review is inactive, so Review item
   order/materialized identity survives Files -> Review -> Files -> Review
-  toggles. The same patch gates inactive Review foreground work: visible content
-  hydration receives `null`, selected-content requests abort, control listeners
-  detach, markdown preview work aborts, and route-level first-render /
-  `review.markFileViewed` effects require the Review context to be active.
+  toggles. The implementation attempts to gate inactive Review foreground work:
+  visible content hydration receives `null`, selected-content requests abort,
+  control listeners detach, markdown preview work aborts, and route-level
+  first-render / `review.markFileViewed` effects require the Review context to
+  be active.
 - Fresh dev-server proof:
-  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T05-20-18-995Z/worktree-dev-server-proof.json`
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T06-06-36-494Z/worktree-dev-server-proof.json`
 - Fresh screenshot/onlook artifacts:
   - `tmp/bridge-viewer-browser-onlook/2026-06-26T05-02-19-553Z/1-file-current-worktree-gitignore.png`
   - `tmp/bridge-viewer-browser-onlook/2026-06-26T05-02-19-553Z/1-file-current-worktree-gitignore--open-review-comparison.png`
@@ -1858,11 +1860,28 @@ Latest active-context retention checkpoint:
 - The File -> Review handoff records `.gitignore` as a Review file target,
   materialized as a `file` item with 92 lines, then records returning to Files
   and back to Review with `.gitignore` still selected and ready.
-- The same proof still records Review content route fanout during Review
-  startup/file-target routing, including a high review file-target route hit
-  count. That fanout is not a Gate 0.a geometry blocker, but it remains
-  scheduler/content pressure work for the following responsiveness and preload
-  slice.
+- Implementation review keeps the following items open before Gate 0.a can
+  close:
+  - inactive-context no-foreground-work proof is still missing for both hidden
+    Review and hidden Files; Files is currently suspected to keep its worktree
+    surface subscription/polling alive while Review is active;
+  - Review file-target routing must resolve by accepted comparison lineage and
+    `reviewItemId` first, then only fall back to provider-approved file-ref
+    mapping; path-only proof is not enough;
+  - Review file-target proof must record `comparisonId`, source identity,
+    `reviewItemId` or resolved file ref, version, `targetKind`, and active
+    context;
+  - retained Review filters/search must not block an explicit Files -> Review
+    target handoff or silently fall back to the first visible projected item;
+  - repeated identical navigation intents must be replayable when the current
+    target has moved elsewhere;
+  - neutral BridgeViewer shared-chrome ownership remains open while shared
+    FileViewer/header controls still import Review-namespaced primitives;
+  - browser-visible context memory proof must cover rail search/filter state
+    and rail/canvas scroll restoration, not only selected path survival;
+  - Review content route fanout remains visible during Review startup and
+    file-target routing, and remains scheduler/content-pressure work for the
+    following responsiveness and preload slice.
 
 Standing gate: every later transport/scheduler/renderer ticket keeps the
 current-worktree Files, Review diff, Review file-target, and Agent Studio
