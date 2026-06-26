@@ -16,6 +16,7 @@ import type {
 	WorktreeFileDescriptor,
 	WorktreeFileSurfaceSourceIdentity,
 } from '../../features/worktree-file/models/worktree-file-protocol-models.js';
+import { canFetchWorktreeFileDescriptorContent } from '../../features/worktree-file/models/worktree-file-protocol-models.js';
 import { countFlattenedWorktreeFileTreeRows } from '../../features/worktree-file/models/worktree-file-tree-size.js';
 import { BridgeReviewButton, BridgeReviewIcon } from '../chrome/bridge-review-button.js';
 import {
@@ -158,14 +159,29 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 
 	useEffect((): (() => void) => {
 		let scrollElement: HTMLElement | null = null;
-		const animationFrameId = requestAnimationFrame((): void => {
+		let animationFrameId: number | null = null;
+		const scheduleVisibleFileDemand = (): void => {
+			if (animationFrameId !== null) {
+				return;
+			}
+			animationFrameId = requestAnimationFrame((): void => {
+				animationFrameId = null;
+				publishVisibleFileDemand();
+			});
+		};
+		const setupFrameId = requestAnimationFrame((): void => {
 			scrollElement = fileTreeScrollElementForDemand(model);
-			scrollElement?.addEventListener('scroll', publishVisibleFileDemand, { passive: true });
+			scrollElement?.addEventListener('scroll', scheduleVisibleFileDemand, { passive: true });
 			publishVisibleFileDemand();
 		});
+		const unsubscribeModel = model.subscribe(scheduleVisibleFileDemand);
 		return (): void => {
-			cancelAnimationFrame(animationFrameId);
-			scrollElement?.removeEventListener('scroll', publishVisibleFileDemand);
+			cancelAnimationFrame(setupFrameId);
+			if (animationFrameId !== null) {
+				cancelAnimationFrame(animationFrameId);
+			}
+			scrollElement?.removeEventListener('scroll', scheduleVisibleFileDemand);
+			unsubscribeModel();
 		};
 	}, [model, paths, publishVisibleFileDemand]);
 
@@ -318,16 +334,25 @@ function visibleDescriptorRefsForDemand(props: {
 	if (rowContainer === undefined || rowContainer === null) {
 		return [];
 	}
-	return Array.from(
-		rowContainer.querySelectorAll<HTMLElement>(
-			'[data-type="item"][data-item-type="file"][data-item-path]',
-		),
-	).flatMap((rowElement): readonly BridgeDescriptorRef[] => {
+	const descriptorRefs: BridgeDescriptorRef[] = [];
+	const seenDescriptorIds = new Set<string>();
+	for (const rowElement of rowContainer.querySelectorAll<HTMLElement>(
+		'[data-type="item"][data-item-type="file"][data-item-path]',
+	)) {
 		const path = rowElement.getAttribute('data-item-path');
 		if (path === null) {
-			return [];
+			continue;
 		}
 		const descriptor = props.fileDescriptorByPath.get(path);
-		return descriptor === undefined ? [] : [descriptor.contentDescriptor.ref];
-	});
+		if (
+			descriptor === undefined ||
+			!canFetchWorktreeFileDescriptorContent(descriptor) ||
+			seenDescriptorIds.has(descriptor.contentDescriptor.ref.descriptorId)
+		) {
+			continue;
+		}
+		seenDescriptorIds.add(descriptor.contentDescriptor.ref.descriptorId);
+		descriptorRefs.push(descriptor.contentDescriptor.ref);
+	}
+	return descriptorRefs;
 }

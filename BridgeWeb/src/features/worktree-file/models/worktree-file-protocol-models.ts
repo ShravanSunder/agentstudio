@@ -301,6 +301,10 @@ export type WorktreeFileVirtualizedExtentKind = z.infer<
 >;
 export type WorktreeFileSurfaceResourceKind = z.infer<typeof worktreeFileSurfaceResourceKindSchema>;
 export type WorktreeFileDescriptor = z.infer<typeof worktreeFileDescriptorSchema>;
+
+export function canFetchWorktreeFileDescriptorContent(descriptor: WorktreeFileDescriptor): boolean {
+	return !descriptor.isBinary && descriptor.virtualizedExtentKind !== 'unavailable';
+}
 export type WorktreeOpenFileSessionStatus = z.infer<typeof worktreeOpenFileSessionStatusSchema>;
 export type WorktreeOpenFileStaleReason = z.infer<typeof worktreeOpenFileStaleReasonSchema>;
 export type WorktreeStatusPatch = z.infer<typeof worktreeStatusPatchSchema>;

@@ -19,6 +19,7 @@ import type {
 	WorktreeFileSurfaceSourceIdentity,
 	WorktreeTreeVirtualizedSizeFacts,
 } from '../features/worktree-file/models/worktree-file-protocol-models.js';
+import { canFetchWorktreeFileDescriptorContent } from '../features/worktree-file/models/worktree-file-protocol-models.js';
 import { countFlattenedWorktreeFileTreeRows } from '../features/worktree-file/models/worktree-file-tree-size.js';
 import {
 	BridgeReviewButton,
@@ -122,6 +123,7 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 	} = props;
 	const runtimeRef = useRef<WorktreeFileSurfaceRuntime | null>(null);
 	const openFileBodyRef = useRef<string | null>(null);
+	const demandDispatchRequestIdRef = useRef(0);
 	const openFileRequestIdRef = useRef(0);
 	const appliedNavigationCommandIdRef = useRef<string | null>(null);
 	const renderStateRef = useRef<BridgeFileViewerRenderState>(emptyRenderState);
@@ -239,7 +241,7 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 					return;
 				}
 				const initialDescriptor = nextState.descriptors.find((descriptor) =>
-					canFetchDescriptorContent(descriptor),
+					canFetchWorktreeFileDescriptorContent(descriptor),
 				);
 				if (initialDescriptor !== undefined) {
 					void openFile(initialDescriptor);
@@ -279,7 +281,8 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 		}
 		const targetDescriptor = renderState.descriptors.find(
 			(descriptor) =>
-				descriptor.path === navigationTargetPath && canFetchDescriptorContent(descriptor),
+				descriptor.path === navigationTargetPath &&
+				canFetchWorktreeFileDescriptorContent(descriptor),
 		);
 		if (targetDescriptor === undefined) {
 			return;
@@ -363,6 +366,8 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 			if (runtime === null || change.descriptorRefs.length === 0) {
 				return;
 			}
+			const requestId = demandDispatchRequestIdRef.current + 1;
+			demandDispatchRequestIdRef.current = requestId;
 			const stimuli: readonly WorktreeFileDemandStimulus[] = [
 				{
 					kind: 'treeViewportChanged',
@@ -372,12 +377,18 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 			void runtime
 				.dispatchDemandStimuli(stimuli)
 				.then((result): void => {
+					if (demandDispatchRequestIdRef.current !== requestId) {
+						return;
+					}
 					setLastDemandDispatchDebugState({
 						status: 'settled',
 						result,
 					});
 				})
 				.catch((error: unknown): void => {
+					if (demandDispatchRequestIdRef.current !== requestId) {
+						return;
+					}
 					setLastDemandDispatchDebugState({
 						status: 'failed',
 						reason: error instanceof Error ? error.message : String(error),
@@ -647,15 +658,11 @@ function descriptorMatchesFilterMode(props: {
 		case 'all':
 			return true;
 		case 'fetchable':
-			return canFetchDescriptorContent(props.descriptor);
+			return canFetchWorktreeFileDescriptorContent(props.descriptor);
 		case 'unavailable':
 			return props.descriptor.isBinary || props.descriptor.virtualizedExtentKind === 'unavailable';
 	}
 	return false;
-}
-
-function canFetchDescriptorContent(descriptor: WorktreeFileDescriptor): boolean {
-	return !descriptor.isBinary && descriptor.virtualizedExtentKind !== 'unavailable';
 }
 
 function makeBridgeFileViewerSearchPattern(props: {

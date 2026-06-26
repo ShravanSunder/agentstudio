@@ -16,10 +16,16 @@ import type {
 	WorktreeFileSurfaceSourceIdentity,
 } from '../features/worktree-file/models/worktree-file-protocol-models.js';
 import {
+	worktreeFileDescriptorSchema,
+	worktreeFileProtocolFrameSchema,
+} from '../features/worktree-file/models/worktree-file-protocol-models.js';
+import {
 	requireBridgeViewerHTMLElement,
 	waitForBridgeViewerAnimationFrame,
 } from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
 import { BridgeFileViewerApp } from './bridge-file-viewer-app.js';
+
+type PublishWorktreeFileFrames = (frames: readonly WorktreeFileProtocolFrame[]) => void;
 
 describe('BridgeFileViewerApp Browser Mode', () => {
 	test('uses the shared compact rail chrome before opening tree search', async () => {
@@ -185,13 +191,126 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			'agentstudio://resource/worktree-file/worktree.fileContent/second-visible-content?generation=1',
 		]);
 	});
+
+	test('preloads only fetchable visible file tree demand', async () => {
+		const textDescriptor = makeFileDescriptor({
+			contentHandle: 'text-visible-content',
+			fileId: 'file-text-visible',
+			path: 'src/text-visible.ts',
+		});
+		const binaryDescriptor = makeFileDescriptor({
+			contentHandle: 'binary-visible-content',
+			fileId: 'file-binary-visible',
+			isBinary: true,
+			path: 'assets/logo.png',
+		});
+		const unavailableDescriptor = makeFileDescriptor({
+			contentHandle: 'unavailable-visible-content',
+			fileId: 'file-unavailable-visible',
+			path: 'generated/huge.log',
+			virtualizedExtentKind: 'unavailable',
+		});
+		const fetchedResourceUrls: string[] = [];
+
+		render(
+			<BridgeFileViewerApp
+				fetchResource={async (props): Promise<string> => {
+					fetchedResourceUrls.push(props.resourceUrl);
+					return 'export const textVisible = true;\n';
+				}}
+				initialFrames={makeFrames(textDescriptor, binaryDescriptor, unavailableDescriptor)}
+			/>,
+		);
+
+		await waitForDemandDispatchState('settled');
+
+		const shell = requireBridgeViewerHTMLElement(
+			document.querySelector('[data-testid="bridge-file-viewer-shell"]'),
+		);
+		expect(shell.getAttribute('data-last-demand-dispatch-loaded-count')).toBe('1');
+		expect(shell.getAttribute('data-last-demand-dispatch-failed-count')).toBe('0');
+		expect(fetchedResourceUrls).toEqual([
+			'agentstudio://resource/worktree-file/worktree.fileContent/text-visible-content?generation=1',
+		]);
+	});
+
+	test('ignores stale visible demand batch results after a newer source reset dispatch settles', async () => {
+		const oldDescriptor = makeFileDescriptor({
+			contentHandle: 'old-delayed-content',
+			fileId: 'file-old-delayed',
+			path: 'src/old-delayed.ts',
+		});
+		const resetSourceIdentity = makeSourceIdentity({
+			subscriptionGeneration: 2,
+			sourceCursor: 'cursor-2',
+		});
+		const newFirstDescriptor = makeFileDescriptor({
+			contentHandle: 'new-first-content',
+			fileId: 'file-new-first',
+			generation: 2,
+			path: 'src/new-first.ts',
+			sourceIdentity: resetSourceIdentity,
+		});
+		const newSecondDescriptor = makeFileDescriptor({
+			contentHandle: 'new-second-content',
+			fileId: 'file-new-second',
+			generation: 2,
+			path: 'src/new-second.ts',
+			sourceIdentity: resetSourceIdentity,
+		});
+		const oldDeferredContent = makeDeferredContent();
+		const newDeferredContent = makeDeferredContent();
+		const fetchedResourceUrls: string[] = [];
+		let publishFrames: PublishWorktreeFileFrames | null = null;
+
+		render(
+			<BridgeFileViewerApp
+				fetchResource={(props): Promise<string> => {
+					fetchedResourceUrls.push(props.resourceUrl);
+					return props.resourceUrl.includes('old-delayed-content')
+						? oldDeferredContent.promise
+						: newDeferredContent.promise;
+				}}
+				initialFrames={makeFrames(oldDescriptor)}
+				subscribeFrames={(handler): (() => void) => {
+					publishFrames = handler;
+					return (): void => {
+						publishFrames = null;
+					};
+				}}
+			/>,
+		);
+
+		await waitForRecordedFetchCount({
+			expectedCount: 1,
+			recordedFetches: fetchedResourceUrls,
+		});
+		const publishRequiredFrames = requireFramePublisher(publishFrames);
+		publishRequiredFrames(makeResetFrames(newFirstDescriptor, newSecondDescriptor));
+		await waitForRecordedFetchCount({
+			expectedCount: 3,
+			recordedFetches: fetchedResourceUrls,
+		});
+		newDeferredContent.resolve('export const fresh = true;\n');
+		await waitForDemandDispatchLoadedCount('2');
+		oldDeferredContent.resolve('export const old = true;\n');
+		await waitForBridgeViewerAnimationFrame();
+		await waitForBridgeViewerAnimationFrame();
+
+		const shell = requireBridgeViewerHTMLElement(
+			document.querySelector('[data-testid="bridge-file-viewer-shell"]'),
+		);
+		expect(shell.getAttribute('data-last-demand-dispatch-intent-count')).toBe('2');
+		expect(shell.getAttribute('data-last-demand-dispatch-loaded-count')).toBe('2');
+		expect(shell.getAttribute('data-last-demand-dispatch-failed-count')).toBe('0');
+	});
 });
 
 function makeFrames(
 	...descriptors: readonly WorktreeFileDescriptor[]
 ): readonly WorktreeFileProtocolFrame[] {
 	return [
-		{
+		parseWorktreeFileProtocolFrame({
 			kind: 'snapshot',
 			streamId: 'worktree-file:pane-1',
 			generation: 1,
@@ -208,16 +327,44 @@ function makeFrames(
 				windowRowCount: descriptors.length,
 				rowHeightPixels: 24,
 			},
-		},
+		}),
 		...descriptors.map(
-			(descriptor, descriptorIndex): WorktreeFileProtocolFrame => ({
-				kind: 'delta',
-				streamId: 'worktree-file:pane-1',
-				generation: 1,
-				sequence: descriptorIndex + 1,
-				frameKind: 'worktree.fileDescriptor',
-				descriptor,
-			}),
+			(descriptor, descriptorIndex): WorktreeFileProtocolFrame =>
+				parseWorktreeFileProtocolFrame({
+					kind: 'delta',
+					streamId: 'worktree-file:pane-1',
+					generation: 1,
+					sequence: descriptorIndex + 1,
+					frameKind: 'worktree.fileDescriptor',
+					descriptor,
+				}),
+		),
+	];
+}
+
+function makeResetFrames(
+	...replacementDescriptors: readonly WorktreeFileDescriptor[]
+): readonly WorktreeFileProtocolFrame[] {
+	return [
+		parseWorktreeFileProtocolFrame({
+			kind: 'reset',
+			streamId: 'worktree-file:pane-1',
+			generation: 2,
+			sequence: 0,
+			frameKind: 'worktree.reset',
+			source: makeSourceIdentity({ subscriptionGeneration: 2, sourceCursor: 'cursor-2' }),
+			reason: 'sourceChanged',
+		}),
+		...replacementDescriptors.map(
+			(descriptor, descriptorIndex): WorktreeFileProtocolFrame =>
+				parseWorktreeFileProtocolFrame({
+					kind: 'delta',
+					streamId: 'worktree-file:pane-1',
+					generation: 2,
+					sequence: descriptorIndex + 1,
+					frameKind: 'worktree.fileDescriptor',
+					descriptor,
+				}),
 		),
 	];
 }
@@ -225,55 +372,70 @@ function makeFrames(
 interface MakeFileDescriptorProps {
 	readonly contentHandle?: string;
 	readonly fileId?: string;
+	readonly generation?: number;
+	readonly isBinary?: boolean;
 	readonly path: string;
+	readonly sourceIdentity?: WorktreeFileSurfaceSourceIdentity;
+	readonly virtualizedExtentKind?: WorktreeFileDescriptor['virtualizedExtentKind'];
 }
 
 function makeFileDescriptor(props: MakeFileDescriptorProps): WorktreeFileDescriptor {
 	const contentHandle = props.contentHandle ?? 'file-content-1';
-	return {
+	const generation = props.generation ?? 1;
+	const sourceIdentity = props.sourceIdentity ?? makeSourceIdentity();
+	const virtualizedExtentKind = props.virtualizedExtentKind ?? 'exactLineCount';
+	return worktreeFileDescriptorSchema.parse({
 		path: props.path,
 		fileId: props.fileId ?? 'file-1',
 		contentHandle,
 		contentDescriptor: makeAttachedDescriptor({
 			descriptorId: contentHandle,
+			generation,
 			resourceKind: 'worktree.fileContent',
 		}),
-		sourceIdentity: makeSourceIdentity(),
+		sourceIdentity,
 		sizeBytes: 64,
-		virtualizedExtentKind: 'exactLineCount',
-		lineCount: 2,
-		isBinary: false,
+		virtualizedExtentKind,
+		...(virtualizedExtentKind === 'exactLineCount' ? { lineCount: 2 } : {}),
+		isBinary: props.isBinary ?? false,
 		language: 'typescript',
 		fileExtension: 'ts',
-	};
+	});
 }
 
-function makeSourceIdentity(): WorktreeFileSurfaceSourceIdentity {
+function makeSourceIdentity(
+	props: {
+		readonly sourceCursor?: string;
+		readonly subscriptionGeneration?: number;
+	} = {},
+): WorktreeFileSurfaceSourceIdentity {
 	return {
 		sourceId: 'dev-worktree-source',
 		repoId: 'repo-1',
 		worktreeId: 'worktree-1',
-		subscriptionGeneration: 1,
-		sourceCursor: 'cursor-1',
+		subscriptionGeneration: props.subscriptionGeneration ?? 1,
+		sourceCursor: props.sourceCursor ?? 'cursor-1',
 	};
 }
 
 function makeAttachedDescriptor(props: {
 	readonly descriptorId: string;
+	readonly generation?: number;
 	readonly resourceKind: BridgeResourceKind;
 }): BridgeAttachedResourceDescriptor {
+	const generation = props.generation ?? 1;
 	const identity = {
 		paneId: 'pane-1',
 		protocol: 'worktree-file',
 		sourceId: 'dev-worktree-source',
-		generation: 1,
+		generation,
 		streamId: 'worktree-file:pane-1',
 	};
 	const descriptor = {
 		descriptorId: props.descriptorId,
 		protocol: 'worktree-file',
 		resourceKind: props.resourceKind,
-		resourceUrl: `agentstudio://resource/worktree-file/${props.resourceKind}/${props.descriptorId}?generation=1`,
+		resourceUrl: `agentstudio://resource/worktree-file/${props.resourceKind}/${props.descriptorId}?generation=${generation}`,
 		identity,
 		content: {
 			mediaType: 'text/plain',
@@ -291,6 +453,10 @@ function makeAttachedDescriptor(props: {
 		},
 		descriptor,
 	});
+}
+
+function parseWorktreeFileProtocolFrame(frame: unknown): WorktreeFileProtocolFrame {
+	return worktreeFileProtocolFrameSchema.parse(frame);
 }
 
 function fileNavigationCommandForPath(path: string): BridgeViewerNavigationCommand {
@@ -314,12 +480,36 @@ function fileNavigationCommandForPath(path: string): BridgeViewerNavigationComma
 	};
 }
 
+function requireFramePublisher(
+	publisher: PublishWorktreeFileFrames | null,
+): PublishWorktreeFileFrames {
+	if (publisher === null) {
+		throw new Error('Frame subscription was not initialized.');
+	}
+	return publisher;
+}
+
 async function waitForOpenFileState(expectedState: string): Promise<void> {
 	await waitForOpenFileStateAttempt({ attempt: 0, expectedState });
 }
 
 async function waitForDemandDispatchState(expectedState: string): Promise<void> {
 	await waitForDemandDispatchStateAttempt({ attempt: 0, expectedState });
+}
+
+async function waitForDemandDispatchLoadedCount(expectedLoadedCount: string): Promise<void> {
+	await waitForDemandDispatchLoadedCountAttempt({ attempt: 0, expectedLoadedCount });
+}
+
+async function waitForRecordedFetchCount(props: {
+	readonly expectedCount: number;
+	readonly recordedFetches: readonly string[];
+}): Promise<void> {
+	await waitForRecordedFetchCountAttempt({
+		attempt: 0,
+		expectedCount: props.expectedCount,
+		recordedFetches: props.recordedFetches,
+	});
 }
 
 async function waitForOpenFileStateAttempt(props: {
@@ -376,4 +566,65 @@ async function waitForDemandDispatchStateAttempt(props: {
 		attempt: props.attempt + 1,
 		expectedState: props.expectedState,
 	});
+}
+
+async function waitForDemandDispatchLoadedCountAttempt(props: {
+	readonly attempt: number;
+	readonly expectedLoadedCount: string;
+}): Promise<void> {
+	const shell = document.querySelector('[data-testid="bridge-file-viewer-shell"]');
+	const actualLoadedCount = shell?.getAttribute('data-last-demand-dispatch-loaded-count') ?? null;
+	if (actualLoadedCount === props.expectedLoadedCount) {
+		return;
+	}
+	if (props.attempt >= 60) {
+		throw new Error(
+			`Expected demand dispatch loaded count ${props.expectedLoadedCount}; actual=${actualLoadedCount ?? 'missing'}`,
+		);
+	}
+	await waitForBridgeViewerAnimationFrame();
+	await waitForDemandDispatchLoadedCountAttempt({
+		attempt: props.attempt + 1,
+		expectedLoadedCount: props.expectedLoadedCount,
+	});
+}
+
+async function waitForRecordedFetchCountAttempt(props: {
+	readonly attempt: number;
+	readonly expectedCount: number;
+	readonly recordedFetches: readonly string[];
+}): Promise<void> {
+	if (props.recordedFetches.length === props.expectedCount) {
+		return;
+	}
+	if (props.attempt >= 60) {
+		throw new Error(
+			`Expected ${props.expectedCount} fetches; actual=${props.recordedFetches.length}`,
+		);
+	}
+	await waitForBridgeViewerAnimationFrame();
+	await waitForRecordedFetchCountAttempt({
+		attempt: props.attempt + 1,
+		expectedCount: props.expectedCount,
+		recordedFetches: props.recordedFetches,
+	});
+}
+
+function makeDeferredContent(): {
+	readonly promise: Promise<string>;
+	readonly resolve: (value: string) => void;
+} {
+	let resolveContent: ((value: string) => void) | null = null;
+	const promise = new Promise<string>((resolve): void => {
+		resolveContent = resolve;
+	});
+	return {
+		promise,
+		resolve: (value): void => {
+			if (resolveContent === null) {
+				throw new Error('Deferred content resolver was not initialized.');
+			}
+			resolveContent(value);
+		},
+	};
 }

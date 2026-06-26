@@ -201,6 +201,26 @@ The first implementation sequence after plan review is:
   design/chrome geometry proof. It does not close FileViewer content-load,
   preload, scheduler, or latency proof.
 
+2026-06-26 demand/preload review checkpoint:
+
+- Implementation review found no new `Promise.all` regression in the touched
+  FileViewer demand path. Multi-file preload dispatch uses settled-result
+  accounting.
+- Fixed immediate visible-demand issues:
+  - non-fetchable visible rows no longer enter preload demand.
+  - visible descriptor refs are deduped before scheduler dispatch.
+  - overlapping visible-demand batches use a latest-request guard so stale
+    batches cannot overwrite newer viewport telemetry.
+  - Pierre tree model updates schedule demand publication, so expand/collapse
+    state changes are not dependent on a scroll event.
+  - reset-path browser fixtures now build generation-matched replacement
+    descriptors and parse descriptors/frames through the existing Zod schemas.
+- Current Pierre constraint: exact viewport/scroll observation still requires a
+  scoped DOM adapter because the public `FileTree` React model exposes
+  `subscribe()` and item handles but does not expose public visible-row or scroll
+  range APIs. Keep that adapter centralized and covered by browser proof until a
+  typed Pierre API exists.
+
 2026-06-25 checkpoint:
 
 - Commit `47933c48` proves the current-worktree Review file-target URL route:
