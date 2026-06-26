@@ -130,7 +130,12 @@ The first implementation sequence after plan review is:
   proves exact URLs, visible layout, Pierre/Shiki/worker ownership, and negative
   assertions against stale/mock/raw/second-app substitutes
 
-0.a.5 Agent Studio Bridge/WKWebView proof
+0.a.5 file-load responsiveness/preload proof
+  proves FileViewer selected-file opens reach visible Pierre CodeView/File
+  content from real browser clicks with recorded disposition, queue state, and
+  click-to-ready timing; a screenshot stuck on `Loading file` keeps this open
+
+0.a.6 Agent Studio Bridge/WKWebView proof
   proves Files context, Review diff context, Review file-target context, and
   Files-to-Review handoff in the Swift-hosted local worktree path with
   marker-correlated logs/metrics/traces where available
@@ -654,3 +659,25 @@ Important caveat:
 - This is design-geometry evidence only. The FileViewer screenshot still shows
   `Loading file`, so content-load latency/preload behavior is not closed by this
   refresh and remains part of the FileViewer scheduler/content proof gate.
+
+## 2026-06-26 Spec Review Delta
+
+Spec-review lanes accepted these bounded corrections before implementation
+continues:
+
+- Review file-target identity is now a parent-spec invariant, not only a child
+  protocol note. Review-context file targets must bind to an accepted
+  `reviewComparison` source and proof must record comparison id, source
+  identity, review item id or resolved file ref, version, target kind, and active
+  context.
+- Inactive viewer contexts now have an explicit proof row: hidden/mounted
+  contexts may keep memory and safe background/speculative work, but cannot emit
+  new foreground fetches, route-level foreground telemetry, visible
+  loading/selection mutations, or mark-viewed-style user-visible side effects.
+- Worktree/File provenance belongs in the shared content-header title slot or
+  right-rail toolbar. It must not reintroduce a second Files-only top row.
+- FileViewer click-to-ready timing starts at a browser actionability-checked
+  click or refresh and ends when the selected file identity is visible and Pierre
+  CodeView/File has rendered non-loading file lines for that target.
+- The remaining Gate 0.a order is: implementation review disposition, dev-server
+  content/load proof, then native Agent Studio Bridge/WKWebView proof.

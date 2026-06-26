@@ -132,6 +132,13 @@ Plan sequence changed after the 2026-06-25 navigation decision:
      ticket
   -> status: pending; must be tied to Victoria/browser metrics or a browser
      performance canary before tuning constants are called ready
+
+0.a.6 native Agent Studio Bridge/WKWebView proof
+  -> proves Files context, Review diff context, Review file-target context, and
+     Files-to-Review handoff in the Swift-hosted local worktree path with
+     marker-correlated logs/metrics/traces where available
+  -> status: pending after the dev-server content/scheduler proof is no longer
+     showing unresolved `Loading file` behavior for the selected target
 ```
 
 This order is mandatory for Gate 0.a. Later gates must not treat a FileViewer
@@ -355,8 +362,12 @@ The shared BridgeViewer product route set must expose these observable regions:
    - Production Swift uses internal `BridgeViewerNavigationCommand` messages, not
      visible query parameters.
 
-1. Source/status header
-   - Shows route identity and source provenance.
+1. Shared content-header title/provenance slot
+   - Shows route identity and source provenance in the shared BridgeViewer
+     content header's `source / selected target` title slot.
+   - Does not add a second Files-only header row. Extra provenance/status, if
+     needed, must live in the same content header slot or in the right-rail
+     toolbar.
    - DOM exposes protocol/source facts for Playwright:
      `worktree-file`, source id, worktree/repo id, generation or revision token.
 
@@ -679,6 +690,11 @@ Proof:
   in-flight count, byte-budget decisions, and whether opened content was
   cold-loaded, visible-preloaded, nearby-preloaded, speculative-preloaded, or
   refreshed.
+- The canonical click-to-ready clock starts at the browser actionability-checked
+  click or refresh action and ends when the selected file identity is visible and
+  Pierre CodeView/File has rendered non-loading file lines for that target.
+  Worker-highlight completion is recorded as a secondary phase unless the UI
+  still displays loading because highlighting is pending.
 - Victoria/OTel proof is required before production constants graduate. The
   first pass may keep conservative defaults, but it must emit enough telemetry
   to tell whether slow click-to-ready time comes from provider I/O, descriptor

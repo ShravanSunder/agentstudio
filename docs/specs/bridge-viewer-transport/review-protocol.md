@@ -292,10 +292,14 @@ filters. Only the Review provider resolves those selectors into
 `ReviewComparisonSpec`, package identity, source cursors, and stream ids.
 
 Review file targets use the shared `BridgeViewerFileTarget` shape with
-`context='review'`, `comparisonId`, `reviewItemId`, `fileRef`, and `version`.
-A dev URL may use a path as a bootstrap hint, but proof must show it resolved to
-a typed Review file target under an accepted comparison. A naked path open is not
-a valid Review file-target proof.
+`context='review'`, a `reviewComparison` source, `comparisonId`,
+`reviewItemId` or resolved `fileRef`, `version`, and `targetKind='file'`.
+`reviewItemId` is the preferred resolution key when the provider can supply it.
+If the target is path-bootstrapped, `fileRef + version` must resolve only inside
+the accepted Review comparison/source lineage. A dev URL may use a path as a
+bootstrap hint, but proof must show it resolved to a typed Review file target
+under an accepted comparison. A naked path open is not a valid Review file-target
+proof.
 
 Finite source examples:
 
@@ -578,8 +582,12 @@ Required runtime contract:
 - Review file target renders through Pierre/Shiki file rendering and remains in
   Review context
 - Review file target proof records comparison id, review item id or resolved file
-  ref, version, and active context `review`; path-only bootstraps are hints, not
-  proof authority
+  ref, source identity, version, target kind `file`, and active context `review`;
+  path-only bootstraps are hints, not proof authority
+- Gate 0.a Review diff-route proof may use direct route/bootstrap selection, but
+  it must not claim interactive review-item selection unless the verifier changes
+  selection through a visible browser-actionable UI path. Internal dispatch is a
+  bootstrap/protocol proof helper, not user-interaction proof.
 - demand policy inputs are discriminated stimuli, not loose boolean bags
 - review frames attach descriptors instead of exposing raw descriptor strings
 - native descriptor leases reject forged, stale, foreign, revoked, or over-limit

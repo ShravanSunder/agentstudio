@@ -229,8 +229,11 @@ earn a separate spec slice.
 The Worktree/File product surface must expose these user-visible regions and
 controls before it can be called working:
 
-- source/status header or equivalent provenance surface that identifies the
-  active Worktree/File source, not a Review package fixture
+- shared BridgeViewer content-header title slot that identifies the active
+  Worktree/File source and selected target, not a Review package fixture. Any
+  additional source/status badge must live inside that same content header slot
+  or the right-rail toolbar; Worktree/File must not add a second Files-only top
+  row.
 - Pierre FileTree/right rail with selectable file rows and stable selection
   state
 - primary Pierre CodeView/File region with open-file identity,
@@ -826,8 +829,14 @@ Contract:
   reset, viewport/filter change, or selected-file change.
 - FileViewer click latency proof must classify every opened file as
   cold-loaded, visible-preloaded, nearby-preloaded, speculative-preloaded, or
-  refreshed. The proof must record click-to-ready latency and queue state so a
-  slow cold path cannot be mistaken for an optimized warm path.
+  refreshed. The canonical clock starts at the browser actionability-checked
+  click or refresh action and ends when the selected file identity is visible and
+  Pierre CodeView/File has rendered non-loading file lines for that target.
+  Worker-highlight completion is a secondary phase unless the UI still displays
+  loading because highlighting is pending. The proof must record the start
+  signal, ready signal, click-to-ready latency, worker-highlight latency when
+  available, and queue state so a slow cold path cannot be mistaken for an
+  optimized warm path.
 - demand policy inputs are discriminated stimuli, not loose boolean bags
 - worktree snapshot carries provider-issued source identity, not only the
   browser selector
