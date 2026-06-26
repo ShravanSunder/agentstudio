@@ -7,9 +7,9 @@ Next workflow: `shravan-dev-workflow:implementation-review-swarm`
 
 Workflow precedence note: the latest valid `shravan-dev-workflow:orchestrator-goal`
 event in `events.jsonl` owns current/next workflow. This header reflects the
-2026-06-25T20:00:00-04:00 needs-revision transition back to implementation after
-review accepted proof blockers and the FileViewer preload/performance contract
-was added to spec and plan.
+2026-06-26T02:17:07Z checkpoint transition from implementation execution to
+implementation review after the shared content-header/right-rail correction was
+implemented and proven.
 
 ## Durable Objective
 
@@ -516,10 +516,97 @@ Disposition of prior findings:
   scoped cancellation groups, preload disposition telemetry, and click-to-ready
   latency proof.
 
+## 2026-06-26 Checkpoint: Shared Content Header And Right-Rail Alignment
+
+Status:
+the Gate 0.a shared visible-shell correction is implemented and committed in
+`85e98cd6` (`Align BridgeViewer shared file review chrome`). The workflow event
+`88b92d37` records the checkpoint. This closes the specific UX blocker where
+the header/switcher could appear app-wide or visually disconnected from the
+content region, and where FileViewer/ReviewViewer screenshots were not tied to
+the accepted `source / selected target` title contract. It does not close Gate
+0.a as a whole.
+
+Implemented/proven:
+
+- FileViewer and ReviewViewer use one shared BridgeViewer content header.
+- The header belongs only to the left content region; it does not cover the
+  right rail and does not push the right rail down.
+- The title uses the accepted `source / selected target` form.
+- The right rail starts at the top of the viewer and keeps Review-style compact
+  toolbar sizing.
+- Files context still renders through Pierre FileTree, Pierre CodeView/File,
+  Shiki/Pierre, and the worker path when `workers=on`.
+- The dev-server verifier still proves the explicit Files, Review, and Review
+  file-target route set and rejects standalone `WorktreeFileApp`.
+
+Proof:
+
+- `pnpm --dir BridgeWeb run check`
+  - Exit: 0
+  - Result: type-aware oxlint, architecture check, oxfmt, and `tsc --noEmit`
+    passed. Existing non-fatal `no-await-in-loop` warnings remain in the
+    dev-server verifier script.
+- `pnpm --dir BridgeWeb run test:dev-server:worktree`
+  - Exit: 0
+  - Artifact:
+    `tmp/bridge-viewer-worktree-dev-server/2026-06-26T02-32-00-284Z/worktree-dev-server-proof.json`
+  - Key artifact facts:
+    `sharedShellProof.contentTitleText = dev-worktree-source / BridgeWeb/pnpm-lock.yaml`,
+    `sharedShellProof.contentTopbarStopsBeforeSidebar = true`,
+    `sharedShellProof.sidebarStartsAtContentTopbar = true`,
+    `sharedShellProof.contextSwitcherInsideContentTopbar = true`,
+    `sharedShellProof.codeOwner = CodeView.file`,
+    `sharedShellProof.treeOwner = FileTree`,
+    `sharedShellProof.shikiRendering = pierre`,
+    `sharedShellProof.workerPoolState = ready`,
+    `fileToReviewHandoffProof.standaloneWorktreeFileAppCount = 0`,
+    and `scrollExtentCanary.stableAnchorPass = true`.
+- Screenshot artifacts:
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T02-32-00-284Z/manual-shared-shell-proof/file.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T02-32-00-284Z/manual-shared-shell-proof/review.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T02-32-00-284Z/manual-shared-shell-proof/reviewFileTarget.png`
+- Geometry artifact:
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T02-32-00-284Z/manual-shared-shell-proof/geometry.json`.
+- Screenshot geometry refresh:
+  File, Review, and Review file-target modes recorded content topbar `left=0`,
+  `right=1388`, `height=36`; right rail `left=1388`, `width=340`, `top=0`;
+  and code canvas `top=36`.
+
+Still open:
+
+- implementation-review-swarm over the current checkpoint
+- neutral shared-chrome primitive ownership review/fix: the target design is
+  BridgeViewer shared chrome, not permanent Review-namespaced primitives
+- Review file-target proof must record comparison/source identity, not only a
+  path/version/content result
+- hidden inactive ReviewViewer side effects review/fix if accepted
+- review-content cancellation/abort audit if accepted
+- file-click responsiveness/preload telemetry slice
+- native Agent Studio Swift-hosted Bridge/WKWebView proof
+- final PR-ready wrapup
+
 Recommended next workflow:
 `shravan-dev-workflow:implementation-review-swarm` for source-backed review of
-`44423afa`, the visible UX proof, and the remaining Gate 0.a blockers before the
-next implementation slice.
+`85e98cd6`, the fresh visible UX proof, and the remaining Gate 0.a blockers
+before the next implementation slice.
+
+Spec/plan reconciliation update, 2026-06-26:
+
+- Promoted the visible-shell design from "ReviewViewer style baseline" to a
+  neutral BridgeViewer shared chrome ownership contract. Review-namespaced
+  button/icon reuse is implementation debt unless moved or explicitly accepted
+  by implementation review.
+- Clarified the active/inactive viewer context contract. Hidden mounted contexts
+  may retain memory and accept lifecycle invalidations, but cannot initiate new
+  foreground content work or visible loading/selection mutations. Any inactive
+  work must be explicitly background/speculative and stale-droppable by active
+  context, source, and generation.
+- Clarified Review file-target proof. A Review file target must carry accepted
+  Review comparison identity, source identity, review item or file ref, version,
+  target kind, and active context. Path-only proof is not enough.
+- The next review should treat these as design-contract corrections to inspect
+  against current code before the next implementation slice.
 
 Phase skills must return:
 

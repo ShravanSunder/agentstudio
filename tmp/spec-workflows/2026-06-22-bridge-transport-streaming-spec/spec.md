@@ -250,8 +250,12 @@ The header title uses the agreed `source / selected target` form in dev proof,
 for example `dev-worktree-source / .github/workflows/ci.yml`.
 
 The content header, context switcher, and rail controls must use the same
-shared UI primitive layer and compact sizing that ReviewViewer uses where
-applicable. The ReviewViewer right rail is the current sizing/style baseline:
+BridgeViewer shared chrome primitive layer and compact sizing that ReviewViewer
+uses where applicable. The neutral ownership name is BridgeViewer shared
+chrome, not ReviewViewer chrome. ReviewViewer is the current style baseline,
+but shared controls must not permanently live behind Review-namespaced
+component owners once FileViewer consumes them. The ReviewViewer right rail is
+the current sizing/style baseline:
 button height, icon size, toolbar rhythm, borders, colors, and text scale must
 match for FileViewer unless functionality requires a different enabled action.
 A FileViewer-only search row, raw buttons, oversized custom icon buttons, or
@@ -283,6 +287,17 @@ BridgeViewerApp
     canvas scroll anchor
 ```
 
+Only the active context may create foreground demand, user-visible loading
+state, and route-level telemetry for the current interaction. An inactive
+mounted context may retain memory, cache already-materialized refs, and accept
+explicit lifecycle invalidations, but it must not start new foreground content
+fetches, keep stale subscriptions alive as user-visible work, or mutate visible
+selection/loading state. If an inactive context needs to preserve liveness, its
+work must be downgraded to an explicit background/speculative lane with source,
+generation, and active-context stale-drop checks. Hidden ReviewViewer or
+FileViewer side effects are therefore a production blocker unless proof shows
+they are paused, cancelled, or safely downgraded.
+
 Targets drive the content canvas independently from context:
 
 ```text
@@ -297,6 +312,13 @@ Files context  + diff target  -> future affordance only; it must bind to
 
 There is no rich preview target in the current scope. Text-like file viewing,
 including markdown in this gate, uses the Pierre/Shiki file rendering path.
+
+Review file targets must remain Review-owned even when the selected file path
+originates from Worktree/File exploration or a dev query parameter. A Review
+file-target route/proof must include the accepted Review comparison identity,
+source identity, selected review item or file ref, version, and target kind.
+Path-only proof is insufficient because it can accidentally prove a Worktree/File
+content load while bypassing the Review comparison boundary.
 
 Dev-server query parameters are a dev-only adapter into the same store, not the
 production navigation API. Swift production navigation uses internal
@@ -1656,22 +1678,33 @@ Prior-art evidence used for changeset flexibility:
   of unreviewed state, and stable session identity in the security-guidance
   plugin. The checkout is shallow, so March 3 history was not locally provable.
 
-## 18. Next Workflow
+## 18. Workflow State Anchor
 
-This spec is reopened because the 2026-06-24 Worktree dev-server proof was too
+This spec was reopened because the 2026-06-24 Worktree dev-server proof was too
 weak: it could pass while the exact Worktree URL reached `WorktreeFileApp` and
 rendered a minimal/raw-looking tree plus file-content surface rather than
 FileViewer inside the shared BridgeViewer shell.
 
-Current workflow route:
+The durable design contract is now this file plus the Review and Worktree/File
+protocol files. Active phase routing is intentionally owned by the goal workflow
+state, not by stale prose in the spec:
 
-- next phase: run `shravan-dev-workflow:spec-review-swarm` on the Gate 0.a
-  shared BridgeViewer navigation/store packet
-- after accepted spec edits land: run `shravan-dev-workflow:plan-creation-swarm`
-  to rewrite the active implementation plan around the corrected sequence
-- after plan creation: run `shravan-dev-workflow:plan-review-swarm`
-- after plan review passes: implement the Gate 0.a sequence before resuming
-  downstream transport/scheduler/renderer tickets
-- standing gate: every later transport/scheduler/renderer ticket keeps the
-  current-worktree Files, Review diff, Review file-target, and Agent Studio
-  Bridge/WKWebView product proof in the loop
+- [details.md](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/workflow-state/2026-06-25-bridgeviewer-shared-app-pr-ready/details.md:1)
+- [events.jsonl](/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start/tmp/workflow-state/2026-06-25-bridgeviewer-shared-app-pr-ready/events.jsonl:1)
+
+Latest accepted visible-shell checkpoint:
+
+- `85e98cd6` aligns FileViewer and ReviewViewer on the shared content header,
+  title form `source / selected target`, content-only topbar, right rail
+  top-alignment, Pierre FileTree, Pierre CodeView/File, Shiki workers, and
+  negative guard against standalone `WorktreeFileApp`.
+- Fresh proof:
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T02-32-00-284Z/worktree-dev-server-proof.json`
+- Screenshot proof:
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T02-32-00-284Z/manual-shared-shell-proof/file.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T02-32-00-284Z/manual-shared-shell-proof/review.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T02-32-00-284Z/manual-shared-shell-proof/reviewFileTarget.png`
+
+Standing gate: every later transport/scheduler/renderer ticket keeps the
+current-worktree Files, Review diff, Review file-target, and Agent Studio
+Bridge/WKWebView product proof in the loop.

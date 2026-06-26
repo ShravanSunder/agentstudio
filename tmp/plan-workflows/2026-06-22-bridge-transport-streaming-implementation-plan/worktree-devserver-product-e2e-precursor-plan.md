@@ -9,8 +9,7 @@ Ticket: 06P / Gate 0.a Shared BridgeViewer Navigation And Renderer Precursor
 
 Gate 0.a is not closed. Earlier proof artifacts and reviewer fixes are useful
 history, but the live product contract is stronger than "make WorktreeFileApp
-product-like." Three implementation checkpoints are now historical proof only
-until the browser UX proof gaps below are fixed:
+product-like." The current checkpoint stack is:
 
 - `47933c48` proves direct current-worktree Review file-target routing in the
   shared Review shell.
@@ -21,16 +20,28 @@ until the browser UX proof gaps below are fixed:
   `BridgeApp` owns one `BridgeViewerAppShell`, FileViewer and ReviewViewer are
   mounted as mode bodies, and a Files-to-Review-to-Files-to-Review round trip
   preserves the selected file/review target.
+- `85e98cd6` proves the corrected shared content chrome:
+  FileViewer and ReviewViewer use one shared content header, title form
+  `source / selected target`, content-only topbar, right rail top-aligned outside
+  the header, Pierre FileTree, Pierre CodeView/File, Shiki/Pierre worker path,
+  and zero standalone `WorktreeFileApp` roots.
 - Fresh proof command:
   `pnpm --dir BridgeWeb run test:dev-server:worktree`
 - Fresh proof artifact:
-  `tmp/bridge-viewer-worktree-dev-server/2026-06-25T13-48-26-677Z/worktree-dev-server-proof.json`
-- Critical artifact row:
-  `fileToReviewHandoffProof` records one app root, unchanged dev URL,
-  Review mode, `.gitignore`, Pierre materialized item type `file`, 92 rendered
-  lines, one hidden preserved FileViewer shell after switch, toggle-back to
-  Files with `.gitignore` still selected, toggle-back to Review with `.gitignore`
-  still selected, one review package route hit, and 17 review content route hits.
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T02-32-00-284Z/worktree-dev-server-proof.json`
+- Screenshot artifacts:
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T02-32-00-284Z/manual-shared-shell-proof/file.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T02-32-00-284Z/manual-shared-shell-proof/review.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T02-32-00-284Z/manual-shared-shell-proof/reviewFileTarget.png`
+- Critical artifact rows:
+  `sharedShellProof.contentTitleText = dev-worktree-source / BridgeWeb/pnpm-lock.yaml`,
+  `sharedShellProof.contentTopbarStopsBeforeSidebar = true`,
+  `sharedShellProof.sidebarStartsAtContentTopbar = true`,
+  `sharedShellProof.contextSwitcherInsideContentTopbar = true`,
+  `sharedShellProof.workerPoolState = ready`,
+  `sharedShellProof.codeOwner = CodeView.file`,
+  `sharedShellProof.treeOwner = FileTree`, and
+  `fileToReviewHandoffProof.standaloneWorktreeFileAppCount = 0`.
 
 The remaining blocking outcome is now:
 
@@ -105,19 +116,15 @@ Plan sequence changed after the 2026-06-25 navigation decision:
 0.a.3 shared chrome/layout proof
   -> proves DiffsHub-like top chrome, shared shadcn primitives, context toggle,
      search/filter placement, and per-context memory
-  -> status: needs revision; current toggle exists but visible UX does not yet
-     match the expected content-header/right-rail contract and jsdom proof must
-     be removed or demoted from the UX gate
-  -> first action: use a browser/subagent onlook to compare current FileViewer,
-     current ReviewViewer, and DiffsHub/Pierre screenshots/source, then update
-     implementation against the shared-shell design target above
+  -> status: checkpointed in 85e98cd6 for the content-only header/title-C/right-
+     rail alignment; still implementation-review pending before the next slice
 
 0.a.4 visual/e2e/negative-substitute proof
   -> proves live dev-server behavior, Pierre/Shiki/worker ownership, and no
      standalone second app or stale bundle substitute
-  -> status: needs revision; dev-server proof passed mechanically but must be
-     extended with screenshot review, subagent visual critique, and browser
-     coverage for top chrome/search and Review memory identity after toggle-back
+  -> status: checkpointed for the shared visual shell in artifact
+     2026-06-26T02-32-00-284Z; remains open for implementation review and later
+     native Agent Studio Bridge/WKWebView proof
 
 0.a.5 file-load responsiveness/performance proof
   -> proves clicking files does not feel slow under the large worktree fixture,
@@ -154,9 +161,10 @@ server. The proof must fail if the page renders the file tree/search on the
 left and file content on the right, because the shared UX contract is primary
 code/file canvas on the left and Pierre FileTree/right rail on the right.
 The proof must also fail if the context switch/search/filter UX is visually
-inconsistent with the ReviewViewer/DiffsHub-style top chrome, if the search
-bar appears only as a route-local right-rail control when the shared product
-chrome expects top-bar search, or if file-click content loading lacks measured
+inconsistent with the accepted shared-shell contract: content-only left header
+with context controls, right rail top-aligned outside that header, and rail-owned
+compact search/filter/status controls using the ReviewViewer primitive style.
+It must also fail if file-click content loading lacks measured
 latency/backpressure evidence.
 
 Native Agent Studio Bridge/WKWebView proof remains outside this precursor and
@@ -334,8 +342,10 @@ The shared BridgeViewer product route set must expose these observable regions:
      `version=<base|head|current>` may seed the initial target for proof/debug
      loops.
    - Path parameters are hints. Review file-target proof must resolve them into a
-     typed Review target with comparison id, review item or file ref, version, and
-     active context `review`.
+     typed Review target with comparison id, source identity, review item or file
+     ref, version, target kind, and active context `review`. A path-only proof is
+     not enough because it can accidentally prove a Worktree/File content load
+     while bypassing the Review comparison boundary.
    - The old exact URL
      `?fixture=worktree&workers=on&scenario=current-worktree` may default to
      `viewer=file` for compatibility, but proof must also cover explicit
@@ -509,13 +519,19 @@ shared BridgeViewer shell. Filtering should operate on descriptors and metadata,
 not file bodies. The rail side must match the shared UX contract: primary
 content left, Pierre FileTree/right rail right.
 All controls should use shared `components/ui` primitives and the existing
-Bridge design system where applicable. Do not add route-local raw buttons,
+Bridge design system where applicable. Shared BridgeViewer chrome primitives
+must have a neutral owner. Review-namespaced button/icon primitives may be a
+temporary checkpoint implementation detail only if the implementation review
+records the debt and a follow-up cutover; they are not the target architecture.
+Do not add route-local raw buttons,
 inputs, or one-off styling when a shared primitive exists or should be extended.
 The visible chrome should be reconciled against DiffsHub/Pierre and the existing
 ReviewViewer chrome before implementation. In particular, the context switcher,
 search affordance, filter buttons, and regex toggle must feel like one app
-surface, not a bolted-on FileViewer rail. The top-bar layout must be decided and
-proved from screenshots before this slice can close.
+surface, not a bolted-on FileViewer rail. The accepted top-bar contract is a
+content-only header over the left canvas, with the right rail top-aligned outside
+that header; proof must keep asserting that geometry from screenshots before
+this slice can close.
 
 Proof:
 
@@ -535,6 +551,10 @@ Proof:
   sets for each query/filter interaction so decorative controls cannot pass.
 - Browser proof toggles Review <-> Files and verifies each context restores its
   selected target and scroll/rail location.
+- Browser/protocol proof verifies inactive mounted contexts do not start new
+  foreground content fetches or mutate visible loading/selection state. Allowed
+  inactive work must be explicit background/speculative demand with source,
+  generation, and active-context stale-drop checks.
 - Screenshot proof compares FileViewer, ReviewViewer, and DiffsHub/Pierre chrome
   placement. A subagent must inspect the screenshots and relevant source paths
   and report UX mismatches before this checkpoint can be accepted.
@@ -596,6 +616,38 @@ Current checkpoint note, 2026-06-25:
   currently boots the shared app shell in File mode, but it did not expose the
   FileTree/CodeView ownership markers or selected content required by Gate 0.a.
   It is not advertised as a required or passing route in this checkpoint.
+
+Current checkpoint note, 2026-06-26:
+
+- Commit `85e98cd6` implements the accepted content-header correction:
+  FileViewer and ReviewViewer share one content-only header over the left
+  content region, the header title uses `source / selected target`, and the
+  right rail remains top-aligned outside the header.
+- Fresh dev-server proof passed:
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T02-32-00-284Z/worktree-dev-server-proof.json`.
+  The proof asserts `contentTopbarStopsBeforeSidebar`,
+  `sidebarStartsAtContentTopbar`, `contextSwitcherInsideContentTopbar`,
+  `CodeView.file`, `FileTree`, `shikiRendering = pierre`, worker readiness,
+  stable scroll canary, and zero standalone `WorktreeFileApp`.
+- Screenshot artifacts:
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T02-32-00-284Z/manual-shared-shell-proof/file.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T02-32-00-284Z/manual-shared-shell-proof/review.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T02-32-00-284Z/manual-shared-shell-proof/reviewFileTarget.png`
+- Geometry artifact:
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T02-32-00-284Z/manual-shared-shell-proof/geometry.json`
+  records File, Review, and Review file-target routes with content topbar
+  `left=0`, `right=1388`, `height=36`; right rail `left=1388`, `width=340`,
+  `top=0`; and code canvas `top=36`.
+- Parent-refreshed screenshot geometry recorded content topbar `left=0`,
+  `right=1388`, `height=36`; right rail `left=1388`, `width=340`, `top=0`;
+  and code canvas `top=36` in Files, Review, and Review file-target modes.
+- Current route after this checkpoint:
+  `shravan-dev-workflow:implementation-review-swarm` before the next
+  implementation slice. Remaining Gate 0.a work includes implementation review,
+  neutral shared-chrome primitive ownership review/fix, inactive-context
+  side-effect proof/fix, Review file-target comparison identity proof, file-load
+  responsiveness/preload telemetry, native Agent Studio Bridge/WKWebView proof,
+  and final PR-ready wrapup.
 
 ### Slice 06P.4 / 0.a.4: Pierre CodeView/File, Shiki, And Worker Proof
 
