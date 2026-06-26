@@ -723,3 +723,68 @@ continues:
   CodeView/File has rendered non-loading file lines for that target.
 - The remaining Gate 0.a order is: implementation review disposition, dev-server
   content/load proof, then native Agent Studio Bridge/WKWebView proof.
+
+## 2026-06-26 Active Context Retention Checkpoint
+
+The Review inactive-context fix is narrower than "turn Review off." The current
+contract is:
+
+- keep Review projection/model memory alive across Files/Review toggles;
+- pause or abort inactive Review foreground content work and user-visible
+  effects;
+- keep the content header over the left content region only;
+- keep the right rail top-aligned and independently tooled;
+- prove all of this with real browser screenshots and the dev-server verifier.
+
+Implementation delta:
+
+- `BridgeWeb/src/app/bridge-app.tsx` passes `isActive` into File and Review
+  mode hosts.
+- Review projection coordination continues to receive `reviewPackage`; this
+  preserves Review item order/materialized identity while hidden.
+- Inactive Review visible content hydration receives `null`.
+- Inactive Review selected-content requests abort.
+- Inactive Review app-control/select-item listeners detach.
+- Inactive Review markdown preview work aborts.
+- Inactive Review first-render telemetry and `review.markFileViewed` RPC do not
+  run.
+- `BridgeWeb/src/components/ui/dropdown-menu.tsx` now imports Base UI named prop
+  types instead of `ComponentProps<typeof ...>` so BridgeWeb `check` is not
+  blocked by the redundant-type lint rule.
+
+Fresh proof:
+
+- `pnpm --dir BridgeWeb run test:dev-server:worktree`
+- Exit: `0`
+- Artifact:
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T05-20-18-995Z/worktree-dev-server-proof.json`
+- Key facts recorded:
+  - `sharedShellOwner=BridgeViewerAppShell`
+  - `codeOwner=CodeView.file`
+  - `treeOwner=FileTree`
+  - `shikiRendering=pierre`
+  - `workerPoolState=ready`
+  - `contentTopbarStopsBeforeSidebar=true`
+  - `sidebarStartsAtContentTopbar=true`
+  - `standaloneWorktreeFileAppCount=0`
+  - Files -> Review handoff selected `.gitignore`
+  - Review file target materialized as `file` with 92 lines
+  - Return to Files and back to Review preserved `.gitignore`
+
+Screenshot/onlook artifacts:
+
+- `tmp/bridge-viewer-browser-onlook/2026-06-26T05-02-19-553Z/1-file-current-worktree-gitignore.png`
+- `tmp/bridge-viewer-browser-onlook/2026-06-26T05-02-19-553Z/1-file-current-worktree-gitignore--open-review-comparison.png`
+- `tmp/bridge-viewer-browser-onlook/2026-06-26T05-02-19-553Z/1-file-current-worktree-gitignore--open-review-comparison--steady.png`
+- `tmp/bridge-viewer-browser-onlook/2026-06-26T05-02-19-553Z/2-review-current-worktree.png`
+- `tmp/bridge-viewer-browser-onlook/2026-06-26T05-02-19-553Z/3-review-presentation-file-gitignore-current.png`
+- `tmp/bridge-viewer-browser-onlook/2026-06-26T05-02-19-553Z/capture-results.json`
+
+Current open work:
+
+- Review content route fanout is still visible in the proof artifact, including
+  a high review file-target route hit count. This belongs to scheduler/content
+  pressure work, not the shell geometry fix.
+- File click-to-ready latency and speculative preload lanes still need
+  telemetry-backed tuning.
+- Native Agent Studio Bridge/WKWebView proof is still required before PR-ready.

@@ -697,6 +697,39 @@ Current checkpoint note, 2026-06-26:
   responsiveness/preload telemetry, native Agent Studio Bridge/WKWebView proof,
   and final PR-ready wrapup.
 
+Current checkpoint note, 2026-06-26 active-context retention:
+
+- `BridgeWeb/src/app/bridge-app.tsx` now separates retained Review model work
+  from inactive foreground work. Review projection coordination continues to
+  receive `reviewPackage` while Review is inactive, so item order/materialized
+  identity survives Files -> Review -> Files -> Review toggles. Inactive Review
+  visible content hydration receives `null`, selected-content requests abort,
+  app-control and select-item listeners detach, markdown preview work aborts,
+  and first-render / `review.markFileViewed` effects require Review to be
+  active.
+- Fresh dev-server proof passed:
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T05-20-18-995Z/worktree-dev-server-proof.json`.
+  The proof records `BridgeViewerAppShell`, `CodeView.file`, `FileTree`,
+  `shikiRendering=pierre`, `workerPoolState=ready`,
+  `contentTopbarStopsBeforeSidebar=true`, `sidebarStartsAtContentTopbar=true`,
+  and `standaloneWorktreeFileAppCount=0`.
+- The same proof records Files -> Review handoff for `.gitignore`,
+  `selectedMaterializedItemType=file`, `selectedMaterializedFileLineCount=92`,
+  then return to Files and back to Review with `.gitignore` still selected and
+  ready. This closes the regression where gating the inactive Review projection
+  collapsed Review into `Review projection unavailable` on return.
+- Browser/onlook screenshots captured:
+  - `tmp/bridge-viewer-browser-onlook/2026-06-26T05-02-19-553Z/1-file-current-worktree-gitignore.png`
+  - `tmp/bridge-viewer-browser-onlook/2026-06-26T05-02-19-553Z/1-file-current-worktree-gitignore--open-review-comparison.png`
+  - `tmp/bridge-viewer-browser-onlook/2026-06-26T05-02-19-553Z/1-file-current-worktree-gitignore--open-review-comparison--steady.png`
+  - `tmp/bridge-viewer-browser-onlook/2026-06-26T05-02-19-553Z/2-review-current-worktree.png`
+  - `tmp/bridge-viewer-browser-onlook/2026-06-26T05-02-19-553Z/3-review-presentation-file-gitignore-current.png`
+  - `tmp/bridge-viewer-browser-onlook/2026-06-26T05-02-19-553Z/capture-results.json`
+- Still open for later slices: Review content route fanout remains visible in
+  the proof artifact, including a high review file-target route hit count;
+  file-click responsiveness/preload telemetry is not tuned; and native Agent
+  Studio Bridge/WKWebView product proof is still required.
+
 ### Slice 06P.4 / 0.a.4: Pierre CodeView/File, Shiki, And Worker Proof
 
 Render opened worktree files through Pierre CodeView/File. Shiki highlighting

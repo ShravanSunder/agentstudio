@@ -1,26 +1,40 @@
 import { Menu as MenuPrimitive } from '@base-ui/react/menu';
+import type {
+	MenuCheckboxItemProps,
+	MenuGroupLabelProps,
+	MenuGroupProps,
+	MenuItemProps,
+	MenuPopupProps,
+	MenuPortalProps,
+	MenuPositionerProps,
+	MenuRadioGroupProps,
+	MenuRadioItemProps,
+	MenuRootProps,
+	MenuSubmenuRootProps,
+	MenuSubmenuTriggerProps,
+	MenuTriggerProps,
+} from '@base-ui/react/menu';
+import type { SeparatorProps } from '@base-ui/react/separator';
 import { CheckIcon, ChevronRightIcon } from 'lucide-react';
 import type { ComponentProps, ReactElement } from 'react';
 
 import { cn } from '@/lib/utils';
 
-type DropdownMenuRootProps = ComponentProps<typeof MenuPrimitive.Root>;
-type DropdownMenuPortalProps = ComponentProps<typeof MenuPrimitive.Portal>;
-type DropdownMenuTriggerProps = ComponentProps<typeof MenuPrimitive.Trigger>;
-type DropdownMenuPopupProps = ComponentProps<typeof MenuPrimitive.Popup>;
-type DropdownMenuPositionerProps = ComponentProps<typeof MenuPrimitive.Positioner>;
-type DropdownMenuGroupProps = ComponentProps<typeof MenuPrimitive.Group>;
-type DropdownMenuGroupLabelProps = ComponentProps<typeof MenuPrimitive.GroupLabel>;
-type DropdownMenuItemProps = ComponentProps<typeof MenuPrimitive.Item>;
-type DropdownMenuSubmenuRootProps = ComponentProps<typeof MenuPrimitive.SubmenuRoot>;
-type DropdownMenuSubmenuTriggerProps = ComponentProps<typeof MenuPrimitive.SubmenuTrigger>;
-type DropdownMenuCheckboxItemProps = ComponentProps<typeof MenuPrimitive.CheckboxItem>;
-type DropdownMenuRadioGroupProps = ComponentProps<typeof MenuPrimitive.RadioGroup>;
-type DropdownMenuRadioItemProps = ComponentProps<typeof MenuPrimitive.RadioItem>;
-type DropdownMenuSeparatorProps = ComponentProps<typeof MenuPrimitive.Separator>;
+type DropdownMenuRootProps = MenuRootProps;
+type DropdownMenuPortalProps = MenuPortalProps;
+type DropdownMenuTriggerProps = MenuTriggerProps;
+type DropdownMenuGroupProps = MenuGroupProps;
+type DropdownMenuGroupLabelProps = MenuGroupLabelProps;
+type DropdownMenuItemProps = MenuItemProps;
+type DropdownMenuSubmenuRootProps = MenuSubmenuRootProps;
+type DropdownMenuSubmenuTriggerProps = MenuSubmenuTriggerProps;
+type DropdownMenuCheckboxItemProps = MenuCheckboxItemProps;
+type DropdownMenuRadioGroupProps = MenuRadioGroupProps;
+type DropdownMenuRadioItemProps = MenuRadioItemProps;
+type DropdownMenuSeparatorProps = SeparatorProps;
 
-type DropdownMenuContentProps = DropdownMenuPopupProps &
-	Pick<DropdownMenuPositionerProps, 'align' | 'alignOffset' | 'side' | 'sideOffset'>;
+type DropdownMenuContentProps = MenuPopupProps &
+	Pick<MenuPositionerProps, 'align' | 'alignOffset' | 'side' | 'sideOffset'>;
 
 function DropdownMenu({ ...props }: DropdownMenuRootProps): ReactElement {
 	return <MenuPrimitive.Root data-slot="dropdown-menu" {...props} />;

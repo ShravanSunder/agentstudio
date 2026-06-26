@@ -499,6 +499,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 				>
 					<BridgeFileViewerMode
 						{...props}
+						isActive={activeViewerState.viewerMode === 'file'}
 						onActivateNavigationCommand={activateNavigationCommand}
 						viewerHeaderControls={
 							<BridgeViewerContextSwitcher
@@ -524,6 +525,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 				>
 					<BridgeReviewViewerMode
 						{...props}
+						isActive={activeViewerState.viewerMode === 'review'}
 						viewerHeaderControls={
 							<BridgeViewerContextSwitcher
 								mode={activeViewerState.viewerMode}
@@ -542,6 +544,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 
 function BridgeFileViewerMode(
 	props: BridgeAppProps & {
+		readonly isActive: boolean;
 		readonly onActivateNavigationCommand: (
 			navigationCommand: BridgeViewerNavigationCommand,
 		) => void;
@@ -582,7 +585,10 @@ function BridgeFileViewerMode(
 }
 
 function BridgeReviewViewerMode(
-	props: BridgeAppProps & { readonly viewerHeaderControls: ReactElement },
+	props: BridgeAppProps & {
+		readonly isActive: boolean;
+		readonly viewerHeaderControls: ReactElement;
+	},
 ): ReactElement {
 	const target = props.target ?? document;
 	const reviewFrameAuthorityRef = useRef<BridgeReviewFrameAuthority | null>(
@@ -708,8 +714,8 @@ function BridgeReviewViewerMode(
 	const visibleContentHydration = useVisibleReviewContentHydration({
 		contentRegistry,
 		loadContentResources: loadVisibleContentResourcesThroughDemand,
-		reviewPackage,
-		selectedItemId: rootSnapshot.selectedItemId,
+		reviewPackage: props.isActive ? reviewPackage : null,
+		selectedItemId: props.isActive ? rootSnapshot.selectedItemId : null,
 		telemetryParentTraceContext:
 			currentReviewPackageTelemetryContextRef.current?.traceContext ?? null,
 		telemetryRecorder: telemetryRecorderRef.current,
@@ -771,7 +777,12 @@ function BridgeReviewViewerMode(
 		[props.navigationCommand],
 	);
 	useEffect((): void => {
-		if (reviewPackage === null || projection === null || initialReviewFileTarget === null) {
+		if (
+			!props.isActive ||
+			reviewPackage === null ||
+			projection === null ||
+			initialReviewFileTarget === null
+		) {
 			return;
 		}
 		if (appliedNavigationCommandIdRef.current === props.navigationCommand?.commandId) {
@@ -790,6 +801,7 @@ function BridgeReviewViewerMode(
 		});
 	}, [
 		initialReviewFileTarget,
+		props.isActive,
 		projection,
 		props.navigationCommand?.commandId,
 		reviewPackage,
@@ -810,7 +822,7 @@ function BridgeReviewViewerMode(
 	});
 
 	useEffect((): void => {
-		if (reviewPackage === null || projection === null) {
+		if (!props.isActive || reviewPackage === null || projection === null) {
 			return;
 		}
 		if (
@@ -820,7 +832,17 @@ function BridgeReviewViewerMode(
 			return;
 		}
 
-		const nextSelectedItemId = projection.orderedItemIds[0] ?? null;
+		const targetItemId =
+			initialReviewFileTarget === null
+				? null
+				: itemIdForReviewFileNavigationTarget({
+						reviewPackage,
+						target: initialReviewFileTarget,
+					});
+		const nextSelectedItemId =
+			targetItemId !== null && projection.orderedItemIds.includes(targetItemId)
+				? targetItemId
+				: (projection.orderedItemIds[0] ?? null);
 		if (rootSnapshot.selectedItemId === nextSelectedItemId) {
 			return;
 		}
@@ -831,7 +853,14 @@ function BridgeReviewViewerMode(
 		setSelectedMarkdownPreviewState(null);
 		viewerActions.setSelectedItemId(nextSelectedItemId);
 		viewerActions.setRenderMode({ kind: 'codeView' });
-	}, [projection, reviewPackage, rootSnapshot.selectedItemId, viewerActions]);
+	}, [
+		initialReviewFileTarget,
+		projection,
+		props.isActive,
+		reviewPackage,
+		rootSnapshot.selectedItemId,
+		viewerActions,
+	]);
 
 	useEffect((): void => {
 		contentRegistry.setActiveIdentity(
@@ -897,12 +926,16 @@ function BridgeReviewViewerMode(
 		resourceExecutor,
 		reviewDemandScheduler,
 		rpcClient,
+		props.isActive,
 		target,
 		viewerActions,
 		viewerStore,
 	]);
 
 	useLayoutEffect((): (() => void) => {
+		if (!props.isActive) {
+			return (): void => {};
+		}
 		const handleSelectReviewItem = (event: Event): void => {
 			const detail = 'detail' in event ? event.detail : null;
 			if (!isRecord(detail) || typeof detail['itemId'] !== 'string') {
@@ -921,9 +954,12 @@ function BridgeReviewViewerMode(
 				windowTarget.removeEventListener('__bridge_select_review_item', handleSelectReviewItem);
 			}
 		};
-	}, [selectReviewItem, target]);
+	}, [props.isActive, selectReviewItem, target]);
 
 	useLayoutEffect((): (() => void) => {
+		if (!props.isActive) {
+			return (): void => {};
+		}
 		const handleBridgeAppControl = (event: Event): void => {
 			const detail = 'detail' in event ? event.detail : null;
 			const parsedCommand = bridgeAppControlCommandSchema.safeParse(detail);
@@ -979,6 +1015,7 @@ function BridgeReviewViewerMode(
 		};
 	}, [
 		markdownWorkerClient,
+		props.isActive,
 		selectReviewItem,
 		selectedContentResources,
 		selectedMarkdownPreviewState,
@@ -988,6 +1025,11 @@ function BridgeReviewViewerMode(
 	]);
 
 	useLayoutEffect((): (() => void) => {
+		if (!props.isActive) {
+			selectedContentAbortControllerRef.current?.abort();
+			selectedContentAbortControllerRef.current = null;
+			return (): void => {};
+		}
 		let didCancel = false;
 		const contentAbortController = new AbortController();
 		selectedContentAbortControllerRef.current = contentAbortController;
@@ -1084,6 +1126,7 @@ function BridgeReviewViewerMode(
 	}, [
 		resourceExecutor,
 		reviewDemandScheduler,
+		props.isActive,
 		reviewPackage,
 		reviewContentInvalidationVersion,
 		rootSnapshot.selectedItemId,
@@ -1095,6 +1138,12 @@ function BridgeReviewViewerMode(
 		let didCancel = false;
 		const parentTraceContext =
 			currentReviewPackageTelemetryContextRef.current?.traceContext ?? null;
+		if (!props.isActive) {
+			markdownWorkerClient?.abort(bridgeMarkdownPreviewAbortKey);
+			return (): void => {
+				didCancel = true;
+			};
+		}
 		if (reviewPackage === null || rootSnapshot.selectedItemId === null) {
 			viewerActions.setRenderMode({ kind: 'codeView' });
 			setSelectedMarkdownPreviewState(null);
@@ -1256,6 +1305,7 @@ function BridgeReviewViewerMode(
 		};
 	}, [
 		markdownWorkerClient,
+		props.isActive,
 		reviewPackage,
 		rootSnapshot.renderMode.kind,
 		rootSnapshot.selectedItemId,
@@ -1265,6 +1315,7 @@ function BridgeReviewViewerMode(
 
 	useEffect((): void => {
 		if (
+			!props.isActive ||
 			reviewPackage === null ||
 			projection === null ||
 			!telemetryRecorderRef.current.isEnabled('web')
@@ -1293,10 +1344,11 @@ function BridgeReviewViewerMode(
 			booleanAttributes: {},
 		});
 		telemetryRecorderRef.current.flush();
-	}, [projection, reviewPackage]);
+	}, [projection, props.isActive, reviewPackage]);
 
 	useEffect((): void => {
 		if (
+			!props.isActive ||
 			reviewPackage === null ||
 			rootSnapshot.selectedItemId === null ||
 			!telemetryRecorderRef.current.isEnabled('web')
@@ -1312,7 +1364,7 @@ function BridgeReviewViewerMode(
 			method: 'review.markFileViewed',
 			params: { fileId: rootSnapshot.selectedItemId },
 		});
-	}, [reviewPackage, rootSnapshot.selectedItemId, rpcClient]);
+	}, [props.isActive, reviewPackage, rootSnapshot.selectedItemId, rpcClient]);
 
 	const currentSelectedContentKey =
 		reviewPackage !== null && rootSnapshot.selectedItemId !== null

@@ -343,14 +343,21 @@ BridgeViewerApp
 
 Only the active context may create foreground demand, user-visible loading
 state, and route-level telemetry for the current interaction. An inactive
-mounted context may retain memory, cache already-materialized refs, and accept
-explicit lifecycle invalidations, but it must not start new foreground content
-fetches, keep stale subscriptions alive as user-visible work, or mutate visible
-selection/loading state. If an inactive context needs to preserve liveness, its
-work must be downgraded to an explicit background/speculative lane with source,
-generation, and active-context stale-drop checks. Hidden ReviewViewer or
-FileViewer side effects are therefore a production blocker unless proof shows
-they are paused, cancelled, or safely downgraded.
+mounted context may retain memory, cache already-materialized refs, keep
+projection order/materialized item identity, and accept explicit lifecycle
+invalidations, but it must not start new foreground content fetches, keep stale
+subscriptions alive as user-visible work, or mutate visible selection/loading
+state. Projection coordinators are retention/model work, not foreground content
+hydration: they may keep the inactive context's item order usable so switching
+back does not collapse into an unavailable projection. Visible content
+hydration, selected-content fetches, control listeners, preview workers,
+route-level foreground telemetry, and `mark viewed`-style user effects must be
+paused, cancelled, or stale-dropped while inactive. If an inactive context needs
+to preserve liveness beyond retained projection memory, its work must be
+downgraded to an explicit background/speculative lane with source, generation,
+and active-context stale-drop checks. Hidden ReviewViewer or FileViewer side
+effects are therefore a production blocker unless proof shows they are paused,
+cancelled, or safely downgraded.
 
 Targets drive the content canvas independently from context:
 
@@ -1816,6 +1823,38 @@ Latest design-geometry refresh:
 - This refresh is design-geometry evidence, not full content-load closure: the
   FileViewer screenshot still shows `Loading file`, so content-load latency and
   preload behavior remain under the FileViewer scheduler/content proof gate.
+
+Latest active-context retention checkpoint:
+
+- `BridgeWeb/src/app/bridge-app.tsx` keeps Review projection coordination fed
+  by the current `reviewPackage` even while Review is inactive, so Review item
+  order/materialized identity survives Files -> Review -> Files -> Review
+  toggles. The same patch gates inactive Review foreground work: visible content
+  hydration receives `null`, selected-content requests abort, control listeners
+  detach, markdown preview work aborts, and route-level first-render /
+  `review.markFileViewed` effects require the Review context to be active.
+- Fresh dev-server proof:
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T05-20-18-995Z/worktree-dev-server-proof.json`
+- Fresh screenshot/onlook artifacts:
+  - `tmp/bridge-viewer-browser-onlook/2026-06-26T05-02-19-553Z/1-file-current-worktree-gitignore.png`
+  - `tmp/bridge-viewer-browser-onlook/2026-06-26T05-02-19-553Z/1-file-current-worktree-gitignore--open-review-comparison.png`
+  - `tmp/bridge-viewer-browser-onlook/2026-06-26T05-02-19-553Z/1-file-current-worktree-gitignore--open-review-comparison--steady.png`
+  - `tmp/bridge-viewer-browser-onlook/2026-06-26T05-02-19-553Z/2-review-current-worktree.png`
+  - `tmp/bridge-viewer-browser-onlook/2026-06-26T05-02-19-553Z/3-review-presentation-file-gitignore-current.png`
+  - `tmp/bridge-viewer-browser-onlook/2026-06-26T05-02-19-553Z/capture-results.json`
+- The verifier records `sharedShellOwner=BridgeViewerAppShell`,
+  `codeOwner=CodeView.file`, `treeOwner=FileTree`, `shikiRendering=pierre`,
+  `workerPoolState=ready`, `contentTopbarStopsBeforeSidebar=true`,
+  `sidebarStartsAtContentTopbar=true`, and
+  `standaloneWorktreeFileAppCount=0`.
+- The File -> Review handoff records `.gitignore` as a Review file target,
+  materialized as a `file` item with 92 lines, then records returning to Files
+  and back to Review with `.gitignore` still selected and ready.
+- The same proof still records Review content route fanout during Review
+  startup/file-target routing, including a high review file-target route hit
+  count. That fanout is not a Gate 0.a geometry blocker, but it remains
+  scheduler/content pressure work for the following responsiveness and preload
+  slice.
 
 Standing gate: every later transport/scheduler/renderer ticket keeps the
 current-worktree Files, Review diff, Review file-target, and Agent Studio
