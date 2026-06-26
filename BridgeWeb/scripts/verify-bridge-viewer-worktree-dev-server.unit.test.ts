@@ -8,6 +8,8 @@ import {
 	reviewCollapseControlSatisfied,
 	reviewContentRouteDeltaSatisfied,
 	reviewRenderedSelectionSatisfied,
+	reviewRouteCollapseControlArtifactSatisfied,
+	selectVisibleReviewCollapseControlProof,
 } from './verify-bridge-viewer-worktree-review-proof.ts';
 
 const verifierSourceUrl = new URL('./verify-bridge-viewer-worktree-dev-server.ts', import.meta.url);
@@ -28,7 +30,28 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 
 		expect(verifierSource).toContain('reviewCollapseControlProof');
 		expect(verifierSource).toContain('readReviewCollapseControlProof');
-		expect(verifierSource).toContain('reviewCollapseControlSatisfied');
+		expect(verifierSource).toContain('reviewRouteCollapseControlArtifactSatisfied');
+		expect(
+			reviewRouteCollapseControlArtifactSatisfied({
+				expectedItemId: 'worktree-review-gitignore',
+				routeProof: {
+					reviewCollapseControlProof: {
+						ariaExpanded: 'true',
+						fontSize: '13px',
+						height: 24,
+						itemId: 'worktree-review-gitignore',
+						present: true,
+						primitiveSlot: 'button',
+					},
+				},
+			}),
+		).toBe(true);
+		expect(
+			reviewRouteCollapseControlArtifactSatisfied({
+				expectedItemId: 'worktree-review-gitignore',
+				routeProof: {},
+			}),
+		).toBe(false);
 	});
 
 	test('normalizes Review tree search query while preserving clicked row path proof', () => {
@@ -185,5 +208,68 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 				},
 			}),
 		).toBe(false);
+	});
+
+	test('selects visible Review CodeView collapse-control proof over hidden stale matches', () => {
+		const proof = selectVisibleReviewCollapseControlProof({
+			expectedItemId: 'worktree-review-gitignore',
+			candidates: [
+				{
+					visible: false,
+					proof: {
+						ariaExpanded: 'true',
+						fontSize: '13px',
+						height: 24,
+						itemId: 'worktree-review-gitignore',
+						present: true,
+						primitiveSlot: 'button',
+					},
+				},
+				{
+					visible: true,
+					proof: {
+						ariaExpanded: 'true',
+						fontSize: '13px',
+						height: 28,
+						itemId: 'worktree-review-gitignore',
+						present: true,
+						primitiveSlot: 'button',
+					},
+				},
+			],
+		});
+
+		expect(proof.height).toBe(28);
+		expect(
+			reviewCollapseControlSatisfied({
+				expectedItemId: 'worktree-review-gitignore',
+				proof,
+			}),
+		).toBe(false);
+		expect(
+			selectVisibleReviewCollapseControlProof({
+				expectedItemId: 'worktree-review-gitignore',
+				candidates: [
+					{
+						visible: false,
+						proof: {
+							ariaExpanded: 'true',
+							fontSize: '13px',
+							height: 24,
+							itemId: 'worktree-review-gitignore',
+							present: true,
+							primitiveSlot: 'button',
+						},
+					},
+				],
+			}),
+		).toEqual({
+			ariaExpanded: null,
+			fontSize: null,
+			height: 0,
+			itemId: null,
+			present: false,
+			primitiveSlot: null,
+		});
 	});
 });

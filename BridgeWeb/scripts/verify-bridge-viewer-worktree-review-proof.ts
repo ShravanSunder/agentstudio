@@ -74,11 +74,31 @@ export interface ReviewCollapseControlProof {
 	readonly present: boolean;
 }
 
+export interface ReviewCollapseControlCandidate {
+	readonly proof: ReviewCollapseControlProof;
+	readonly visible: boolean;
+}
+
+export interface ReviewRouteCollapseControlArtifact {
+	readonly reviewCollapseControlProof?: ReviewCollapseControlProof;
+}
+
 export interface ReviewRenderedSelectionExpectation {
 	readonly expectedCodeViewOverflow: 'wrap';
 	readonly expectedItemId: string;
 	readonly expectedMaterializedItemType: 'diff' | 'file';
 	readonly expectedVisibleText: string;
+}
+
+export function emptyReviewCollapseControlProof(): ReviewCollapseControlProof {
+	return {
+		ariaExpanded: null,
+		fontSize: null,
+		height: 0,
+		itemId: null,
+		present: false,
+		primitiveSlot: null,
+	};
 }
 
 export function reviewRenderedSelectionSatisfied(props: {
@@ -105,5 +125,30 @@ export function reviewCollapseControlSatisfied(props: {
 		props.proof.primitiveSlot === 'button' &&
 		Math.abs(props.proof.height - 24) <= 1 &&
 		(props.proof.ariaExpanded === 'true' || props.proof.ariaExpanded === 'false')
+	);
+}
+
+export function selectVisibleReviewCollapseControlProof(props: {
+	readonly candidates: readonly ReviewCollapseControlCandidate[];
+	readonly expectedItemId: string;
+}): ReviewCollapseControlProof {
+	return (
+		props.candidates.find(
+			(candidate: ReviewCollapseControlCandidate): boolean =>
+				candidate.visible && candidate.proof.itemId === props.expectedItemId,
+		)?.proof ?? emptyReviewCollapseControlProof()
+	);
+}
+
+export function reviewRouteCollapseControlArtifactSatisfied(props: {
+	readonly expectedItemId: string;
+	readonly routeProof: ReviewRouteCollapseControlArtifact;
+}): boolean {
+	return (
+		props.routeProof.reviewCollapseControlProof !== undefined &&
+		reviewCollapseControlSatisfied({
+			expectedItemId: props.expectedItemId,
+			proof: props.routeProof.reviewCollapseControlProof,
+		})
 	);
 }

@@ -1499,3 +1499,62 @@ Open implementation blockers remain:
   inactive-context browser/native proof if kept as gate-level, route
   fanout/content pressure, FileViewer preload latency/telemetry, and PR-ready
   wrapup.
+
+2026-06-26 raw-control cleanup review-fix tightening:
+
+- Implementation review then found two proof-quality gaps in the previous
+  review-fix checkpoint:
+  - the verifier could select a hidden or stale collapse-control candidate before
+    the visible selected Review CodeView header control;
+  - the route artifact proof needed to fail when
+    `reviewRouteProof.reviewCollapseControlProof` was absent, instead of only
+    source-grepping for the verifier helper.
+- Added visible-candidate selection in
+  `BridgeWeb/scripts/verify-bridge-viewer-worktree-dev-server.ts`. The verifier
+  now gathers light DOM and Pierre shadow DOM candidates, records whether each
+  candidate is visible, and selects only the visible candidate whose item id
+  matches the selected Review item.
+- Added artifact-level predicate helpers in
+  `BridgeWeb/scripts/verify-bridge-viewer-worktree-review-proof.ts`:
+  `selectVisibleReviewCollapseControlProof` and
+  `reviewRouteCollapseControlArtifactSatisfied`.
+- Added unit coverage in
+  `BridgeWeb/scripts/verify-bridge-viewer-worktree-dev-server.unit.test.ts` for
+  hidden-stale candidate rejection and missing-artifact rejection.
+- Focused unit proof passed:
+  `pnpm --dir BridgeWeb exec vitest run scripts/verify-bridge-viewer-worktree-dev-server.unit.test.ts --reporter verbose`
+  with 1 file and 9 tests.
+- Focused format proof passed:
+  `pnpm --dir BridgeWeb exec oxfmt --check scripts/verify-bridge-viewer-worktree-dev-server.ts scripts/verify-bridge-viewer-worktree-dev-server.unit.test.ts scripts/verify-bridge-viewer-worktree-review-proof.ts`.
+- Full BridgeWeb static gate passed:
+  `pnpm --dir BridgeWeb run check` with existing verifier warnings only.
+- Full worktree dev-server browser proof passed:
+  `pnpm --dir BridgeWeb run test:dev-server:worktree`.
+- Fresh proof artifact:
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-26T16-40-45-386Z/worktree-dev-server-proof.json`.
+- Fresh screenshots:
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T16-40-45-386Z/worktree-file-ready.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T16-40-45-386Z/worktree-review-ready.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T16-40-45-386Z/worktree-review-file-target-ready.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T16-40-45-386Z/worktree-file-search-result.png`
+  - `tmp/bridge-viewer-worktree-dev-server/2026-06-26T16-40-45-386Z/worktree-file-stale-refresh.png`
+- Fresh proof fields:
+  `result.sharedShellProof.sharedShellOwner=BridgeViewerAppShell`,
+  `result.sharedShellProof.codeOwner=CodeView.file`,
+  `result.sharedShellProof.treeOwner=FileTree`,
+  `result.sharedShellProof.workerPoolState=ready`,
+  `result.reviewRouteProof.reviewSelectionProof.selectionMethod=playwright-review-tree-search-click`,
+  `result.reviewRouteProof.reviewCollapseControlProof.present=true`,
+  `result.reviewRouteProof.reviewCollapseControlProof.primitiveSlot=button`,
+  `result.reviewRouteProof.reviewCollapseControlProof.height=24`,
+  `result.reviewRouteProof.reviewCollapseControlProof.ariaExpanded=true`, and
+  `result.reviewRouteProof.reviewCollapseControlProof.itemId=worktree-review-0f8a4e04bc89-sources-agentstudio-atomregistry-swift`.
+- Remaining pressure signals are still open and intentionally recorded by the
+  same artifact: `result.reviewRouteProof.reviewContentRouteHitCount=224` and
+  `result.fileToReviewHandoffProof.reviewContentRouteHitCount=325`. These
+  remain 0.a.5 scheduler/content-pressure work, not 0.b visual proof closure.
+- Remaining blockers after this tightened review-fix checkpoint:
+  implementation review disposition, native Agent Studio Bridge/WKWebView proof,
+  inactive-context browser/native proof if kept as gate-level, route
+  fanout/content pressure, FileViewer preload latency/telemetry, and PR-ready
+  wrapup.

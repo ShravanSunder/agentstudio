@@ -25,8 +25,11 @@ import {
 	reviewCollapseControlSatisfied,
 	reviewContentRouteDeltaSatisfied,
 	reviewRenderedSelectionSatisfied,
+	reviewRouteCollapseControlArtifactSatisfied,
+	selectVisibleReviewCollapseControlProof,
 	type ReviewContentRouteDeltaProof,
 	type ReviewCollapseControlProof,
+	type ReviewCollapseControlCandidate,
 	type ReviewRenderedSelectionSnapshot,
 } from './verify-bridge-viewer-worktree-review-proof.ts';
 
@@ -1188,9 +1191,9 @@ async function verifyWorktreeReviewRoute(): Promise<WorktreeReviewRouteProof> {
 			routeProof.reviewContentRouteHitCount <= 0 ||
 			routeProof.reviewSelectionContentRouteHitCount <= 0 ||
 			!reviewContentRouteDeltaSatisfied(routeProof.reviewSelectionPostClickContentRouteProof) ||
-			!reviewCollapseControlSatisfied({
+			!reviewRouteCollapseControlArtifactSatisfied({
 				expectedItemId: selectionItemId,
-				proof: routeProof.reviewCollapseControlProof,
+				routeProof,
 			}) ||
 			routeProof.reviewSelectionSelectedContentState !== 'ready' ||
 			routeProof.reviewSelectionSelectedDisplayPath !== reviewSelectionFixtureRelativePath ||
@@ -4805,7 +4808,7 @@ async function readReviewCollapseControlProof(props: {
 	readonly expectedItemId: string;
 	readonly page: Page;
 }): Promise<ReviewCollapseControlProof> {
-	return await props.page.evaluate((expectedItemId: string): ReviewCollapseControlProof => {
+	const candidates = await props.page.evaluate((): ReviewCollapseControlCandidate[] => {
 		const lightDomHeaders = [
 			...document.querySelectorAll('[data-testid="bridge-code-view-header-collapse-button"]'),
 		].filter(
@@ -4822,31 +4825,28 @@ async function readReviewCollapseControlProof(props: {
 						headerElement instanceof HTMLButtonElement,
 				),
 		);
-		const selectedHeader = [...lightDomHeaders, ...shadowDomHeaders].find(
-			(headerElement: HTMLButtonElement): boolean =>
-				headerElement.dataset['bridgeCodeViewItemId'] === expectedItemId,
+		return [...lightDomHeaders, ...shadowDomHeaders].map(
+			(selectedHeader: HTMLButtonElement): ReviewCollapseControlCandidate => {
+				const selectedHeaderRect = selectedHeader.getBoundingClientRect();
+				const selectedHeaderStyle = getComputedStyle(selectedHeader);
+				return {
+					proof: {
+						ariaExpanded: selectedHeader.getAttribute('aria-expanded'),
+						fontSize: selectedHeaderStyle.fontSize,
+						height: selectedHeaderRect.height,
+						itemId: selectedHeader.dataset['bridgeCodeViewItemId'] ?? null,
+						present: true,
+						primitiveSlot: selectedHeader.getAttribute('data-slot'),
+					},
+					visible: selectedHeader.getClientRects().length > 0,
+				};
+			},
 		);
-		if (selectedHeader === undefined) {
-			return {
-				ariaExpanded: null,
-				fontSize: null,
-				height: 0,
-				itemId: null,
-				present: false,
-				primitiveSlot: null,
-			};
-		}
-		const selectedHeaderRect = selectedHeader.getBoundingClientRect();
-		const selectedHeaderStyle = getComputedStyle(selectedHeader);
-		return {
-			ariaExpanded: selectedHeader.getAttribute('aria-expanded'),
-			fontSize: selectedHeaderStyle.fontSize,
-			height: selectedHeaderRect.height,
-			itemId: selectedHeader.dataset['bridgeCodeViewItemId'] ?? null,
-			present: true,
-			primitiveSlot: selectedHeader.getAttribute('data-slot'),
-		};
-	}, props.expectedItemId);
+	});
+	return selectVisibleReviewCollapseControlProof({
+		candidates,
+		expectedItemId: props.expectedItemId,
+	});
 }
 
 async function waitForWorktreeSourceCursor(props: {
