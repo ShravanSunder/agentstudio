@@ -69,6 +69,16 @@ enum AppDataPaths {
             .standardizedFileURL
     }
 
+    static func globalPreferencesURL(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        releaseChannel: ReleaseChannel = .current,
+        isDebugBuild: Bool = Self.isDebugBuild
+    ) -> URL {
+        rootDirectory(environment: environment, releaseChannel: releaseChannel, isDebugBuild: isDebugBuild)
+            .appending(path: "preferences.global.json")
+            .standardizedFileURL
+    }
+
     static func coreSQLiteURL(
         environment: [String: String] = ProcessInfo.processInfo.environment,
         isDebugBuild: Bool = Self.isDebugBuild

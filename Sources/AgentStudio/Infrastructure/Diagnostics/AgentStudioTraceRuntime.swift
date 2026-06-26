@@ -97,10 +97,14 @@ struct AgentStudioTraceRuntime: Sendable {
 
     static func fromEnvironment(
         _ environment: [String: String] = ProcessInfo.processInfo.environment,
+        preferenceLayer: AgentStudioTracePreferenceLayer? = nil,
         processIdentifier: Int32 = ProcessInfo.processInfo.processIdentifier
     ) -> Self {
         Self(
-            configuration: AgentStudioTraceConfiguration.from(environment: environment),
+            configuration: AgentStudioTraceConfiguration.from(
+                environment: environment,
+                preferenceLayer: preferenceLayer
+            ),
             processIdentifier: processIdentifier
         )
     }
