@@ -52,11 +52,6 @@ struct RepoIdentityMetadata: Sendable {
 }
 
 enum RepoPresentationGrouping {
-    struct ColorPreset {
-        let name: String
-        let hex: String
-    }
-
     private struct OwnerCandidate {
         let repoId: UUID
         let repoWorktreeCount: Int
@@ -66,15 +61,6 @@ enum RepoPresentationGrouping {
     }
 
     static let automaticPaletteHexes: [String] = AppStyles.Shell.Sidebar.accentPaletteHexes
-
-    static let colorPresets: [ColorPreset] = [
-        ColorPreset(name: "Yellow", hex: "#F5C451"),
-        ColorPreset(name: "Sky", hex: "#58C4FF"),
-        ColorPreset(name: "Violet", hex: "#A78BFA"),
-        ColorPreset(name: "Green", hex: "#4ADE80"),
-        ColorPreset(name: "Orange", hex: "#FB923C"),
-        ColorPreset(name: "Pink", hex: "#F472B6"),
-    ]
 
     static func colorHexForCheckoutIndex(_ index: Int, seed: String) -> String {
         if index < automaticPaletteHexes.count {
@@ -239,16 +225,8 @@ enum RepoPresentationColoring {
 
     static func checkoutColorHex(
         for repo: RepoPresentationItem,
-        in group: RepoPresentationGroup,
-        checkoutColorOverrides: [String: String] = [:]
+        in group: RepoPresentationGroup
     ) -> String {
-        let overrideKey = repo.id.uuidString
-        if let hex = checkoutColorOverrides[overrideKey],
-            let nsColor = NSColor(hex: hex)
-        {
-            return nsColor.hexString
-        }
-
         let orderedFamilies = group.repos.sorted { lhs, rhs in
             lhs.stableKey.localizedCaseInsensitiveCompare(rhs.stableKey) == .orderedAscending
         }
@@ -268,14 +246,12 @@ enum RepoPresentationColoring {
     }
 
     static func sourceGroupColorHex(
-        for group: RepoPresentationGroup,
-        checkoutColorOverrides: [String: String] = [:]
+        for group: RepoPresentationGroup
     ) -> String? {
         guard let primaryRepo = primaryRepoForSourceGroup(group) else { return nil }
         return checkoutColorHex(
             for: primaryRepo,
-            in: group,
-            checkoutColorOverrides: checkoutColorOverrides
+            in: group
         )
     }
 

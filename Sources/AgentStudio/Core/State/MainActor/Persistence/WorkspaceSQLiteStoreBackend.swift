@@ -82,7 +82,6 @@ struct WorkspaceSQLiteStoreBackend {
             throw BackendError.incompleteWorkspaceSnapshot(workspace.id)
         }
 
-        let topology = try coreRepository.fetchRepositoryTopology(workspaceId: workspace.id)
         let paneGraph = try coreRepository.fetchPaneGraph(workspaceId: workspace.id)
         let tabShells = try coreRepository.fetchTabShells(workspaceId: workspace.id)
         let tabGraph = try coreRepository.fetchTabGraph(workspaceId: workspace.id)
@@ -130,10 +129,9 @@ struct WorkspaceSQLiteStoreBackend {
             try markWorkspaceSnapshotCommitted(workspaceId: workspace.id, committedAt: snapshotToken)
         }
 
-        let state = try WorkspaceSQLiteStateBridge.persistableState(
+        return try WorkspaceSQLiteStateBridge.workspaceSnapshot(
             from: .init(
                 workspace: workspace,
-                topology: topology,
                 paneGraph: paneGraph,
                 tabShells: tabShells,
                 tabGraph: tabGraph,
@@ -141,7 +139,6 @@ struct WorkspaceSQLiteStoreBackend {
                 windowState: windowState
             )
         )
-        return WorkspacePersistenceTransformer.sqliteSnapshot(from: state)
     }
 
     func readLocalSnapshot(
@@ -163,15 +160,39 @@ struct WorkspaceSQLiteStoreBackend {
     }
 
     func save(_ snapshot: WorkspaceSQLiteSnapshot) throws {
-        try replaceWorkspaceSnapshotStaged(snapshot, updatesActiveSelection: true)
+        let bundle = WorkspaceSQLiteSaveBundle(
+            workspace: snapshot,
+            repositoryTopology: .init(id: snapshot.id, updatedAt: snapshot.updatedAt)
+        )
+        try replaceWorkspaceSnapshotStaged(bundle, updatesActiveSelection: true)
         let localRepository = try localBackend.repository(for: snapshot.id)
         try writeLocalSnapshotAndCommit(snapshot, localRepository: localRepository)
     }
 
     func save(_ snapshot: WorkspaceSQLiteSnapshot, localRepository: WorkspaceLocalRepository) throws {
         let state = WorkspacePersistenceTransformer.persistableState(from: snapshot)
-        try replaceWorkspaceSnapshotStaged(snapshot, updatesActiveSelection: true)
+        let bundle = WorkspaceSQLiteSaveBundle(
+            workspace: snapshot,
+            repositoryTopology: .init(id: snapshot.id, updatedAt: snapshot.updatedAt)
+        )
+        try replaceWorkspaceSnapshotStaged(bundle, updatesActiveSelection: true)
         try writeLocalSnapshotAndCommit(snapshot, state: state, localRepository: localRepository)
+    }
+
+    func save(_ bundle: WorkspaceSQLiteSaveBundle) throws {
+        try replaceWorkspaceSnapshotStaged(bundle, updatesActiveSelection: true)
+        let localRepository = try localBackend.repository(for: bundle.id)
+        try writeLocalSnapshotAndCommit(
+            bundle.workspace,
+            state: WorkspacePersistenceTransformer.persistableState(from: bundle),
+            localRepository: localRepository
+        )
+    }
+
+    func save(_ bundle: WorkspaceSQLiteSaveBundle, localRepository: WorkspaceLocalRepository) throws {
+        let state = WorkspacePersistenceTransformer.persistableState(from: bundle)
+        try replaceWorkspaceSnapshotStaged(bundle, updatesActiveSelection: true)
+        try writeLocalSnapshotAndCommit(bundle.workspace, state: state, localRepository: localRepository)
     }
 
     private func writeLocalSnapshotAndCommit(
@@ -201,14 +222,25 @@ struct WorkspaceSQLiteStoreBackend {
         _ snapshot: WorkspaceSQLiteSnapshot,
         updatesActiveSelection: Bool
     ) throws {
-        let state = WorkspacePersistenceTransformer.persistableState(from: snapshot)
+        let bundle = WorkspaceSQLiteSaveBundle(
+            workspace: snapshot,
+            repositoryTopology: .init(id: snapshot.id, updatedAt: snapshot.updatedAt)
+        )
+        try replaceWorkspaceSnapshotStaged(bundle, updatesActiveSelection: updatesActiveSelection)
+    }
+
+    func replaceWorkspaceSnapshotStaged(
+        _ bundle: WorkspaceSQLiteSaveBundle,
+        updatesActiveSelection: Bool
+    ) throws {
+        let state = WorkspacePersistenceTransformer.persistableState(from: bundle)
         try coreRepository.replaceWorkspaceSnapshotStaged(
             workspace: WorkspaceSQLiteStateBridge.workspaceRecord(from: state),
             topology: WorkspaceSQLiteStateBridge.repositoryTopologyRecord(from: state),
             paneGraph: try WorkspaceSQLiteStateBridge.paneGraphRecord(from: state),
             tabShells: WorkspaceSQLiteStateBridge.tabShellRecords(from: state),
             tabGraph: WorkspaceSQLiteStateBridge.tabGraphRecord(from: state),
-            stagedAt: snapshot.updatedAt,
+            stagedAt: bundle.updatedAt,
             updatesActiveSelection: updatesActiveSelection
         )
     }
@@ -241,8 +273,12 @@ struct WorkspaceSQLiteStoreBackend {
         _ snapshot: WorkspaceSQLiteSnapshot,
         sourceStatePath: String
     ) throws {
-        let state = WorkspacePersistenceTransformer.persistableState(from: snapshot)
-        try replaceWorkspaceSnapshotStaged(snapshot, updatesActiveSelection: false)
+        let bundle = WorkspaceSQLiteSaveBundle(
+            workspace: snapshot,
+            repositoryTopology: .init(id: snapshot.id, updatedAt: snapshot.updatedAt)
+        )
+        let state = WorkspacePersistenceTransformer.persistableState(from: bundle)
+        try replaceWorkspaceSnapshotStaged(bundle, updatesActiveSelection: false)
         let localRepository = try localBackend.repository(for: snapshot.id)
         try writeImportedLegacySnapshot(
             snapshot,
@@ -257,8 +293,12 @@ struct WorkspaceSQLiteStoreBackend {
         sourceStatePath: String,
         localRepository: WorkspaceLocalRepository
     ) throws {
-        let state = WorkspacePersistenceTransformer.persistableState(from: snapshot)
-        try replaceWorkspaceSnapshotStaged(snapshot, updatesActiveSelection: false)
+        let bundle = WorkspaceSQLiteSaveBundle(
+            workspace: snapshot,
+            repositoryTopology: .init(id: snapshot.id, updatedAt: snapshot.updatedAt)
+        )
+        let state = WorkspacePersistenceTransformer.persistableState(from: bundle)
+        try replaceWorkspaceSnapshotStaged(bundle, updatesActiveSelection: false)
         try writeImportedLegacySnapshot(
             snapshot,
             state: state,
@@ -277,6 +317,29 @@ struct WorkspaceSQLiteStoreBackend {
             state: WorkspacePersistenceTransformer.persistableState(from: snapshot),
             sourceStatePath: sourceStatePath,
             localRepository: localRepository
+        )
+    }
+
+    func saveImportedLegacySnapshot(
+        _ bundle: WorkspaceSQLiteSaveBundle,
+        sourceStatePath: String,
+        localRepository: WorkspaceLocalRepository
+    ) throws {
+        let state = WorkspacePersistenceTransformer.persistableState(from: bundle)
+        try replaceWorkspaceSnapshotStaged(bundle, updatesActiveSelection: false)
+        try writeImportedLegacySnapshot(
+            bundle.workspace,
+            state: state,
+            sourceStatePath: sourceStatePath,
+            localRepository: localRepository
+        )
+    }
+
+    func fetchRepositoryTopologySnapshot(workspaceId: UUID) throws -> RepositoryTopologySQLiteSnapshot {
+        try WorkspaceSQLiteStateBridge.repositoryTopologySnapshot(
+            workspaceId: workspaceId,
+            topology: coreRepository.fetchRepositoryTopology(workspaceId: workspaceId),
+            updatedAt: coreRepository.fetchCompletedWorkspaceSQLiteSnapshotAt(workspaceId: workspaceId) ?? Date()
         )
     }
 
@@ -485,7 +548,6 @@ enum WorkspaceLocalSQLiteStoreBackendError: Error {
 enum WorkspaceSQLiteStateBridge {
     struct Snapshot {
         var workspace: WorkspaceCoreRepository.WorkspaceRecord
-        var topology: WorkspaceCoreRepository.RepositoryTopologyRecord
         var paneGraph: WorkspaceCoreRepository.PaneGraphRecord
         var tabShells: [WorkspaceCoreRepository.TabShellRecord]
         var tabGraph: WorkspaceCoreRepository.TabGraphRecord
@@ -520,9 +582,11 @@ enum WorkspaceSQLiteStateBridge {
                         repoId: worktree.repoId,
                         name: worktree.name,
                         path: worktree.path,
-                        isMainWorktree: worktree.isMainWorktree
+                        isMainWorktree: worktree.isMainWorktree,
+                        tags: worktree.tags
                     )
-                }
+                },
+                tags: repo.tags
             )
         }
         return .init(
@@ -548,7 +612,7 @@ enum WorkspaceSQLiteStateBridge {
         from state: WorkspacePersistor.PersistableState
     ) -> [WorkspaceCoreRepository.TabShellRecord] {
         state.tabs.map { tab in
-            .init(id: tab.id, name: tab.name)
+            .init(id: tab.id, name: tab.name, colorHex: tab.colorHex)
         }
     }
 
@@ -631,9 +695,9 @@ enum WorkspaceSQLiteStateBridge {
         return .init(
             id: snapshot.workspace.id,
             name: snapshot.workspace.name,
-            repos: snapshot.topology.repos.map(canonicalRepo),
-            worktrees: snapshot.topology.repos.flatMap { $0.worktrees.map(canonicalWorktree) },
-            unavailableRepoIds: snapshot.topology.unavailableRepoIds,
+            repos: [],
+            worktrees: [],
+            unavailableRepoIds: [],
             panes: try snapshot.paneGraph.panes.map { try pane(from: $0, cursorState: snapshot.cursorState) },
             tabs: snapshot.tabGraph.tabs.map { tabState in
                 tab(
@@ -645,9 +709,30 @@ enum WorkspaceSQLiteStateBridge {
             activeTabId: snapshot.cursorState.activeTabId,
             sidebarWidth: CGFloat(snapshot.windowState?.sidebarWidth ?? 250),
             windowFrame: snapshot.windowState?.windowFrame,
-            watchedPaths: snapshot.topology.watchedPaths.map(watchedPath),
+            watchedPaths: [],
             createdAt: snapshot.workspace.createdAt,
             updatedAt: snapshot.workspace.updatedAt
+        )
+    }
+
+    static func workspaceSnapshot(
+        from snapshot: Snapshot
+    ) throws -> WorkspaceSQLiteSnapshot {
+        WorkspacePersistenceTransformer.sqliteSnapshot(from: try persistableState(from: snapshot))
+    }
+
+    static func repositoryTopologySnapshot(
+        workspaceId: UUID,
+        topology: WorkspaceCoreRepository.RepositoryTopologyRecord,
+        updatedAt: Date
+    ) -> RepositoryTopologySQLiteSnapshot {
+        RepositoryTopologySQLiteSnapshot(
+            id: workspaceId,
+            repos: topology.repos.map(canonicalRepo),
+            worktrees: topology.repos.flatMap { $0.worktrees.map(canonicalWorktree) },
+            unavailableRepoIds: topology.unavailableRepoIds,
+            watchedPaths: topology.watchedPaths.map(watchedPath),
+            updatedAt: updatedAt
         )
     }
 
@@ -704,8 +789,7 @@ enum WorkspaceSQLiteStateBridge {
             durableFacets: .init(
                 repoId: metadata.facets.repoId,
                 worktreeId: metadata.facets.worktreeId,
-                cwd: metadata.facets.cwd,
-                tags: metadata.facets.tags
+                cwd: metadata.facets.cwd
             )
         )
     }
@@ -821,8 +905,7 @@ enum WorkspaceSQLiteStateBridge {
             facets: .init(
                 repoId: record.durableFacets.repoId,
                 worktreeId: record.durableFacets.worktreeId,
-                cwd: record.durableFacets.cwd,
-                tags: record.durableFacets.tags
+                cwd: record.durableFacets.cwd
             ),
             checkoutRef: record.checkoutRef,
             note: record.note
@@ -884,65 +967,9 @@ enum WorkspaceSQLiteStateBridge {
             allPaneIds: state.allPaneIds,
             arrangements: arrangements,
             activeArrangementId: activeArrangementId,
+            colorHex: shell?.colorHex,
             zoomedPaneId: nil
         )
     }
 
-    private static func paneArrangement(
-        from record: WorkspaceCoreRepository.TabArrangementGraphRecord,
-        cursorState: WorkspaceLocalRepository.CursorStateRecord
-    ) -> PaneArrangement {
-        .init(
-            id: record.id,
-            name: record.name,
-            isDefault: record.isDefault,
-            layout: record.layout,
-            minimizedPaneIds: record.minimizedPaneIds,
-            showsMinimizedPanes: record.showsMinimizedPanes,
-            activePaneId: cursorState.activePaneIdsByArrangementId[record.id],
-            drawerViews: record.drawerViews.map { drawerId, drawerView in
-                let key = WorkspaceLocalRepository.ArrangementDrawerCursorKey(
-                    arrangementId: record.id,
-                    drawerId: drawerId
-                )
-                return (
-                    drawerId,
-                    DrawerView(
-                        layout: drawerView.layout,
-                        activeChildId: cursorState.activeChildIdsByArrangementDrawer[key],
-                        minimizedPaneIds: drawerView.minimizedPaneIds
-                    )
-                )
-            }.reduce(into: [:]) { partialResult, pair in
-                partialResult[pair.0] = pair.1
-            }
-        )
-    }
-
-    private static func canonicalRepo(from record: WorkspaceCoreRepository.RepoRecord) -> CanonicalRepo {
-        .init(
-            id: record.id,
-            name: record.name,
-            repoPath: record.repoPath,
-            createdAt: record.createdAt
-        )
-    }
-
-    private static func canonicalWorktree(from record: WorkspaceCoreRepository.WorktreeRecord) -> CanonicalWorktree {
-        .init(
-            id: record.id,
-            repoId: record.repoId,
-            name: record.name,
-            path: record.path,
-            isMainWorktree: record.isMainWorktree
-        )
-    }
-
-    private static func watchedPath(from record: WorkspaceCoreRepository.WatchedPathRecord) -> WatchedPath {
-        .init(id: record.id, path: record.path, addedAt: record.addedAt)
-    }
-}
-
-enum WorkspaceSQLiteStateBridgeError: Error {
-    case invalidPayloadJSON
 }

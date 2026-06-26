@@ -59,6 +59,15 @@ actor WorkspaceSQLiteDatastore {
     }
 
     func saveWorkspaceSnapshot(_ snapshot: WorkspaceSQLiteSnapshot) async throws {
+        let bundle = WorkspaceSQLiteSaveBundle(
+            workspace: snapshot,
+            repositoryTopology: .init(id: snapshot.id, updatedAt: snapshot.updatedAt)
+        )
+        try await saveWorkspaceSnapshotBundle(bundle)
+    }
+
+    func saveWorkspaceSnapshotBundle(_ bundle: WorkspaceSQLiteSaveBundle) async throws {
+        let snapshot = bundle.workspace
         await recordProbe(.saveWorkspaceSnapshot)
         var failurePhase = WorkspaceSQLiteTracePhase.openCore
         var failureDatabase: WorkspaceSQLiteTraceDatabase? = .core
@@ -81,10 +90,10 @@ actor WorkspaceSQLiteDatastore {
         )
         do {
             let backend = try resolvedBackend()
-            let state = WorkspacePersistenceTransformer.persistableState(from: snapshot)
+            let state = WorkspacePersistenceTransformer.persistableState(from: bundle)
             failurePhase = .stageCore
             failureDatabase = .core
-            try backend.replaceWorkspaceSnapshotStaged(snapshot, updatesActiveSelection: true)
+            try backend.replaceWorkspaceSnapshotStaged(bundle, updatesActiveSelection: true)
             await traceRecorder.recordOperation(
                 .workspaceSave,
                 phase: .stageCore,
@@ -269,6 +278,17 @@ actor WorkspaceSQLiteDatastore {
         }
     }
 
+    func loadRepositoryTopologySnapshot(workspaceId: UUID) async -> RepositoryTopologyLoadResult {
+        do {
+            let backend = try resolvedBackend()
+            return .loaded(try backend.fetchRepositoryTopologySnapshot(workspaceId: workspaceId))
+        } catch is BackendUninitializedError {
+            return .uninitialized
+        } catch {
+            return .unavailable(.init(error))
+        }
+    }
+
     func completedSnapshotStatus(workspaceId: UUID) async -> CompletedSnapshotStatusResult {
         do {
             let backend = try resolvedBackend()
@@ -311,15 +331,22 @@ actor WorkspaceSQLiteDatastore {
     }
 
     func saveImportedLegacySnapshot(_ snapshot: WorkspaceSQLiteSnapshot, sourceStatePath: String) async throws {
+        let bundle = WorkspaceSQLiteSaveBundle(
+            workspace: snapshot,
+            repositoryTopology: .init(id: snapshot.id, updatedAt: snapshot.updatedAt)
+        )
+        try await saveImportedLegacySnapshot(bundle, sourceStatePath: sourceStatePath)
+    }
+
+    func saveImportedLegacySnapshot(_ bundle: WorkspaceSQLiteSaveBundle, sourceStatePath: String) async throws {
         let backend = try resolvedBackend()
-        try backend.replaceWorkspaceSnapshotStaged(snapshot, updatesActiveSelection: false)
         let localRepository = try await cachedSaveLocalRepository(
-            workspaceId: snapshot.id,
+            workspaceId: bundle.id,
             operation: .legacyImport,
             lane: .legacyImport
         )
-        try backend.writeImportedLegacySnapshotLocalStateAndCommit(
-            snapshot,
+        try backend.saveImportedLegacySnapshot(
+            bundle,
             sourceStatePath: sourceStatePath,
             localRepository: localRepository
         )

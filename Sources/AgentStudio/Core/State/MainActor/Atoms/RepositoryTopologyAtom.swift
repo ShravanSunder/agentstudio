@@ -1,9 +1,16 @@
 import Foundation
 import Observation
 
+enum RepositoryTopologyAtomError: Error, Equatable {
+    case invalidRepositoryTag(String)
+    case duplicateRepositoryTag(String)
+    case repoNotFound(UUID)
+    case worktreeNotFound(UUID)
+}
+
 @MainActor
 @Observable
-final class WorkspaceRepositoryTopologyAtom {
+final class RepositoryTopologyAtom {
     private(set) var repos: [Repo] = []
     private(set) var watchedPaths: [WatchedPath] = []
     private(set) var unavailableRepoIds: Set<UUID> = []
@@ -144,6 +151,24 @@ final class WorkspaceRepositoryTopologyAtom {
         unavailableRepoIds.contains(repoId)
     }
 
+    func setRepoTags(_ tags: [String], repoId: UUID) throws {
+        guard let repoIndex = repos.firstIndex(where: { $0.id == repoId }) else {
+            throw RepositoryTopologyAtomError.repoNotFound(repoId)
+        }
+        repos[repoIndex].tags = try Self.canonicalRepositoryTags(tags)
+    }
+
+    func setWorktreeTags(_ tags: [String], worktreeId: UUID) throws {
+        for repoIndex in repos.indices {
+            guard let worktreeIndex = repos[repoIndex].worktrees.firstIndex(where: { $0.id == worktreeId }) else {
+                continue
+            }
+            repos[repoIndex].worktrees[worktreeIndex].tags = try Self.canonicalRepositoryTags(tags)
+            return
+        }
+        throw RepositoryTopologyAtomError.worktreeNotFound(worktreeId)
+    }
+
     @discardableResult
     func addWatchedPath(_ path: URL) -> WatchedPath? {
         let normalizedPath = path.standardizedFileURL
@@ -197,7 +222,8 @@ final class WorkspaceRepositoryTopologyAtom {
                     repoId: repoId,
                     name: discovered.name,
                     path: discovered.path,
-                    isMainWorktree: discovered.isMainWorktree
+                    isMainWorktree: discovered.isMainWorktree,
+                    tags: existingMain.tags
                 )
             }
             if let matched = existingByName[discovered.name] {
@@ -206,7 +232,8 @@ final class WorkspaceRepositoryTopologyAtom {
                     repoId: repoId,
                     name: discovered.name,
                     path: discovered.path,
-                    isMainWorktree: discovered.isMainWorktree
+                    isMainWorktree: discovered.isMainWorktree,
+                    tags: matched.tags
                 )
             }
             return discovered
@@ -270,5 +297,28 @@ final class WorkspaceRepositoryTopologyAtom {
             return !lhs.isMainWorktree && rhs.isMainWorktree
         }
         return lhs.stableTieBreaker < rhs.stableTieBreaker
+    }
+
+    private static func canonicalRepositoryTags(_ tags: [String]) throws -> [String] {
+        var seenTags = Set<String>()
+        var canonicalTags: [String] = []
+        for tag in tags {
+            guard isValidRepositoryTag(tag) else {
+                throw RepositoryTopologyAtomError.invalidRepositoryTag(tag)
+            }
+            guard seenTags.insert(tag).inserted else {
+                throw RepositoryTopologyAtomError.duplicateRepositoryTag(tag)
+            }
+            canonicalTags.append(tag)
+        }
+        return canonicalTags.sorted()
+    }
+
+    private static func isValidRepositoryTag(_ tag: String) -> Bool {
+        guard tag == tag.trimmingCharacters(in: .whitespacesAndNewlines) else { return false }
+        guard (1...64).contains(tag.count) else { return false }
+        return tag.unicodeScalars.allSatisfy { scalar in
+            !CharacterSet.controlCharacters.contains(scalar)
+        }
     }
 }

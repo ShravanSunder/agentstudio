@@ -21,6 +21,8 @@ func replaceRepositoryTopologyRows(
         repoId: nil,
         worktrees: incomingWorktrees
     )
+    try replaceRepoTagRows(database, workspaceId: workspaceId, repos: topology.repos)
+    try replaceWorktreeTagRows(database, workspaceId: workspaceId, worktrees: incomingWorktrees)
     try replaceUnavailableRepoRows(
         database,
         workspaceId: workspaceId,
@@ -63,6 +65,7 @@ func reconcileRepoWorktreeRows(
         repoId: repoId,
         worktrees: worktrees
     )
+    try replaceWorktreeTagRows(database, workspaceId: workspaceId, worktrees: worktrees)
 }
 
 private func replaceWatchedPathRows(
@@ -172,6 +175,45 @@ private func reconcileWorktreeRows(
     )
     for worktree in worktrees {
         try upsertWorktree(database, workspaceId: workspaceId, worktree: worktree)
+    }
+}
+
+private func replaceRepoTagRows(
+    _ database: Database,
+    workspaceId: UUID,
+    repos: [WorkspaceCoreRepository.RepoRecord]
+) throws {
+    try database.execute(
+        sql: """
+            DELETE FROM repo_tag
+            WHERE workspace_id = ?
+            """,
+        arguments: [workspaceId.uuidString]
+    )
+    for repo in repos {
+        for tag in repo.tags.sorted() {
+            try insertRepoTag(database, workspaceId: workspaceId, repoId: repo.id, tag: tag)
+        }
+    }
+}
+
+private func replaceWorktreeTagRows(
+    _ database: Database,
+    workspaceId: UUID,
+    worktrees: [WorkspaceCoreRepository.WorktreeRecord]
+) throws {
+    for worktree in worktrees {
+        try database.execute(
+            sql: """
+                DELETE FROM worktree_tag
+                WHERE workspace_id = ?
+                AND worktree_id = ?
+                """,
+            arguments: [workspaceId.uuidString, worktree.id.uuidString]
+        )
+        for tag in worktree.tags.sorted() {
+            try insertWorktreeTag(database, workspaceId: workspaceId, worktree: worktree, tag: tag)
+        }
     }
 }
 
@@ -435,6 +477,41 @@ private func insertUnavailableRepo(
         arguments: [
             workspaceId.uuidString,
             repoId.uuidString,
+        ]
+    )
+}
+
+private func insertRepoTag(
+    _ database: Database,
+    workspaceId: UUID,
+    repoId: UUID,
+    tag: String
+) throws {
+    try database.execute(
+        sql: """
+            INSERT INTO repo_tag(repo_id, workspace_id, tag)
+            VALUES (?, ?, ?)
+            """,
+        arguments: [repoId.uuidString, workspaceId.uuidString, tag]
+    )
+}
+
+private func insertWorktreeTag(
+    _ database: Database,
+    workspaceId: UUID,
+    worktree: WorkspaceCoreRepository.WorktreeRecord,
+    tag: String
+) throws {
+    try database.execute(
+        sql: """
+            INSERT INTO worktree_tag(worktree_id, workspace_id, repo_id, tag)
+            VALUES (?, ?, ?, ?)
+            """,
+        arguments: [
+            worktree.id.uuidString,
+            workspaceId.uuidString,
+            worktree.repoId.uuidString,
+            tag,
         ]
     )
 }

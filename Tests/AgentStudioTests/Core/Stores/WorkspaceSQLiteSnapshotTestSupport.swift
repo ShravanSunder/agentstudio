@@ -12,15 +12,11 @@ extension WorkspaceSQLiteSnapshot {
         Self(
             id: id,
             name: name,
-            repos: [],
-            worktrees: [],
-            unavailableRepoIds: [],
             panes: [],
             tabs: [],
             activeTabId: nil,
             sidebarWidth: 250,
             windowFrame: nil,
-            watchedPaths: [],
             createdAt: createdAt,
             updatedAt: updatedAt
         )

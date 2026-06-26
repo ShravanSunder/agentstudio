@@ -83,21 +83,18 @@ extension WorkspaceCoreRepository {
         var repoId: UUID?
         var worktreeId: UUID?
         var cwd: URL?
-        var tags: [String]
 
-        init(repoId: UUID? = nil, worktreeId: UUID? = nil, cwd: URL? = nil, tags: [String] = []) {
+        init(repoId: UUID? = nil, worktreeId: UUID? = nil, cwd: URL? = nil) {
             self.repoId = repoId
             self.worktreeId = worktreeId
             self.cwd = cwd
-            self.tags = canonicalTags(tags)
         }
 
         func fillingNilFields(from defaults: Self) -> Self {
             .init(
                 repoId: repoId ?? defaults.repoId,
                 worktreeId: worktreeId ?? defaults.worktreeId,
-                cwd: cwd ?? defaults.cwd,
-                tags: tags.isEmpty ? defaults.tags : tags
+                cwd: cwd ?? defaults.cwd
             )
         }
     }
@@ -155,10 +152,6 @@ private func normalizedOptionalString(_ value: String?) -> String? {
     return trimmed.isEmpty ? nil : trimmed
 }
 
-private func canonicalTags(_ tags: [String]) -> [String] {
-    Array(Set(tags.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty })).sorted()
-}
-
 private func decodePaneRecord(_ database: Database, row: Row) throws -> WorkspaceCoreRepository.PaneRecord {
     let idString: String = row["id"]
     guard let id = UUID(uuidString: idString) else {
@@ -177,7 +170,6 @@ private func decodePaneRecord(_ database: Database, row: Row) throws -> Workspac
     let sourceRepoIdString: String? = row["facet_repo_id"]
     let sourceWorktreeIdString: String? = row["facet_worktree_id"]
     let cwdPath: String? = row["cwd"]
-    let tags = try fetchPaneTags(database, paneId: id)
     let durableRepoId = try decodeOptionalUUID(
         sourceRepoIdString,
         malformedError: WorkspaceCoreRepositoryError.malformedRepoId
@@ -196,8 +188,7 @@ private func decodePaneRecord(_ database: Database, row: Row) throws -> Workspac
         durableFacets: .init(
             repoId: durableRepoId,
             worktreeId: durableWorktreeId,
-            cwd: cwdPath.map { URL(fileURLWithPath: $0) },
-            tags: tags
+            cwd: cwdPath.map { URL(fileURLWithPath: $0) }
         )
     )
     let residency = try decodePaneResidency(row)

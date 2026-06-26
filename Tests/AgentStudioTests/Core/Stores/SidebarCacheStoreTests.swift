@@ -24,15 +24,12 @@ struct SidebarCacheStoreTests {
         let store = SidebarCacheStore(atom: atom, persistor: persistor)
 
         atom.setGroupExpanded("repo:agent-studio", isExpanded: true)
-        atom.setCheckoutColor("#ff6600", for: SidebarCheckoutColorKey("repo:agent-studio"))
-
         try await store.flushAsync(for: workspaceId)
 
         let restoredAtom = SidebarCacheState()
         await SidebarCacheStore(atom: restoredAtom, persistor: persistor).restoreAsync(for: workspaceId)
 
         #expect(restoredAtom.expandedGroups == [SidebarGroupKey("repo:agent-studio")])
-        #expect(restoredAtom.checkoutColors.isEmpty)
     }
 
     @Test
@@ -47,8 +44,6 @@ struct SidebarCacheStoreTests {
         )
 
         atom.setGroupExpanded("repo:agent-studio", isExpanded: true)
-        atom.setCheckoutColor("#ff6600", for: SidebarCheckoutColorKey("repo:agent-studio"))
-
         try await store.flushAsync(for: workspaceId)
 
         #expect(try fixture.repository.fetchExpandedGroups() == [SidebarGroupKey("repo:agent-studio")])
@@ -65,7 +60,6 @@ struct SidebarCacheStoreTests {
         ).restoreAsync(for: workspaceId)
 
         #expect(restoredAtom.expandedGroups == [SidebarGroupKey("repo:agent-studio")])
-        #expect(restoredAtom.checkoutColors.isEmpty)
     }
 
     @Test
@@ -75,8 +69,7 @@ struct SidebarCacheStoreTests {
         try persistor.saveSidebarCache(
             .init(
                 workspaceId: workspaceId,
-                expandedGroups: [SidebarGroupKey("repo:legacy")],
-                checkoutColors: [SidebarCheckoutColorKey("repo:legacy"): "#ff6600"]
+                expandedGroups: [SidebarGroupKey("repo:legacy")]
             )
         )
         let atom = SidebarCacheState()
@@ -89,7 +82,6 @@ struct SidebarCacheStoreTests {
         await store.restoreAsync(for: workspaceId)
 
         #expect(atom.expandedGroups == [SidebarGroupKey("repo:legacy")])
-        #expect(atom.checkoutColors.isEmpty)
         #expect(try fixture.repository.fetchExpandedGroups() == [SidebarGroupKey("repo:legacy")])
         #expect(try fixture.repository.hasExpandedGroupsState())
     }
@@ -100,8 +92,7 @@ struct SidebarCacheStoreTests {
         try persistor.saveSidebarCache(
             .init(
                 workspaceId: workspaceId,
-                expandedGroups: [SidebarGroupKey("repo:legacy")],
-                checkoutColors: [SidebarCheckoutColorKey("repo:legacy"): "#ff6600"]
+                expandedGroups: [SidebarGroupKey("repo:legacy")]
             )
         )
         let atom = SidebarCacheState()
@@ -125,8 +116,7 @@ struct SidebarCacheStoreTests {
         try persistor.saveSidebarCache(
             .init(
                 workspaceId: workspaceId,
-                expandedGroups: [SidebarGroupKey("repo:stale")],
-                checkoutColors: [:]
+                expandedGroups: [SidebarGroupKey("repo:stale")]
             )
         )
         let atom = SidebarCacheState()
@@ -150,8 +140,7 @@ struct SidebarCacheStoreTests {
         try persistor.saveSidebarCache(
             .init(
                 workspaceId: workspaceId,
-                expandedGroups: [SidebarGroupKey("repo:stale")],
-                checkoutColors: [:]
+                expandedGroups: [SidebarGroupKey("repo:stale")]
             )
         )
         let atom = SidebarCacheState()
@@ -223,8 +212,7 @@ struct SidebarCacheStoreTests {
         try persistor.saveSidebarCache(
             .init(
                 workspaceId: workspaceId,
-                expandedGroups: [SidebarGroupKey("repo:stale")],
-                checkoutColors: [:]
+                expandedGroups: [SidebarGroupKey("repo:stale")]
             )
         )
         try await fixture.databaseQueue.write { database in
@@ -269,33 +257,11 @@ struct SidebarCacheStoreTests {
     }
 
     @Test
-    func observedCheckoutColorChangeDoesNotAutosaveSidebarCache() async throws {
-        let workspaceId = UUID()
-        let atom = SidebarCacheState()
-        let store = SidebarCacheStore(
-            atom: atom,
-            persistor: persistor,
-            persistDebounceDuration: .zero
-        )
-        await store.restoreAsync(for: workspaceId)
-        store.startObserving()
-
-        atom.setCheckoutColor("#22cc88", for: SidebarCheckoutColorKey("repo:agent-studio"))
-
-        await assertEventuallyMain("checkout color mutation should not autosave sidebar cache") {
-            if case .missing = persistor.loadSidebarCache(for: workspaceId) { return true }
-            return false
-        }
-    }
-
-    @Test
-    func directExpandedGroupMutation_autosavesWithoutCheckoutColors() async throws {
+    func directExpandedGroupMutation_autosavesThroughComposedState() async throws {
         let workspaceId = UUID()
         let expandedGroupAtom = SidebarExpandedGroupAtom()
-        let checkoutColorAtom = SidebarCheckoutColorAtom()
         let atom = SidebarCacheState(
-            expandedGroupAtom: expandedGroupAtom,
-            checkoutColorAtom: checkoutColorAtom
+            expandedGroupAtom: expandedGroupAtom
         )
         let store = SidebarCacheStore(
             atom: atom,
@@ -306,13 +272,11 @@ struct SidebarCacheStoreTests {
         store.startObserving()
 
         expandedGroupAtom.setGroupExpanded(SidebarGroupKey("repo:agent-studio"), isExpanded: true)
-        checkoutColorAtom.setCheckoutColor("#22cc88", for: SidebarCheckoutColorKey("repo:agent-studio"))
 
         await assertEventuallyMain("write-owner mutations should autosave through composed state") {
             switch persistor.loadSidebarCache(for: workspaceId) {
             case .loaded(let cache):
                 return cache.expandedGroups == [SidebarGroupKey("repo:agent-studio")]
-                    && cache.checkoutColors.isEmpty
             case .missing, .corrupt:
                 return false
             }
@@ -326,8 +290,7 @@ struct SidebarCacheStoreTests {
         try persistor.saveSidebarCache(
             .init(
                 workspaceId: workspaceBId,
-                expandedGroups: [SidebarGroupKey("repo:workspace-b")],
-                checkoutColors: [:]
+                expandedGroups: [SidebarGroupKey("repo:workspace-b")]
             )
         )
         let atom = SidebarCacheState()
@@ -368,7 +331,6 @@ struct SidebarCacheStoreTests {
         ).restoreAsync(for: workspaceId)
 
         #expect(atom.expandedGroups.isEmpty)
-        #expect(atom.checkoutColors.isEmpty)
         #expect(reportedRecovery?.store == .sidebarCache)
         #expect(reportedRecovery?.workspaceId == workspaceId)
         #expect(reportedRecovery?.recovery == .quarantinedAndReset)
@@ -390,7 +352,6 @@ struct SidebarCacheStoreTests {
         await SidebarCacheStore(atom: atom, persistor: persistor).restoreAsync(for: workspaceId)
 
         #expect(atom.expandedGroups.isEmpty)
-        #expect(atom.checkoutColors.isEmpty)
     }
 
     @Test
@@ -432,7 +393,7 @@ struct SidebarCacheStoreTests {
     }
 
     @Test
-    func restoreLegacyCheckoutColorsLeavesSettingsOwnedAtomUntouched() async throws {
+    func restoreLegacyCheckoutColorsIgnoresRemovedManualColorState() async throws {
         let workspaceId = UUID()
         let cacheURL = tempDir.appending(path: "\(workspaceId.uuidString).workspace.sidebar-cache.json")
         let json = """
@@ -445,10 +406,11 @@ struct SidebarCacheStoreTests {
         try Data(json.utf8).write(to: cacheURL, options: .atomic)
 
         let atom = SidebarCacheState()
-        atom.setCheckoutColor("#22cc88", for: SidebarCheckoutColorKey("repo:live"))
         await SidebarCacheStore(atom: atom, persistor: persistor).restoreAsync(for: workspaceId)
 
         #expect(atom.expandedGroups.isEmpty)
-        #expect(atom.checkoutColors == [SidebarCheckoutColorKey("repo:live"): "#22cc88"])
+        try await SidebarCacheStore(atom: atom, persistor: persistor).flushAsync(for: workspaceId)
+        let rawCache = try String(contentsOf: cacheURL, encoding: .utf8)
+        #expect(!rawCache.contains("checkoutColors"))
     }
 }

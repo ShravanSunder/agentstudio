@@ -43,6 +43,50 @@ struct WorkspaceCoreRepositoryTabGraphTests {
         )
     }
 
+    @Test("tab shells round trip optional color")
+    func tabShellsRoundTripOptionalColor() throws {
+        let repository = try makeWorkspaceCoreRepositoryFixture().repository
+        let workspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000003016")!
+        let tabId = UUID(uuidString: "00000000-0000-0000-0000-000000003116")!
+        let paneId = UUID(uuidString: "00000000-0000-0000-0000-000000003218")!
+        try upsertWorkspace(repository, workspaceId: workspaceId, name: "Tab Color")
+        try repository.replacePaneGraph(workspaceId: workspaceId, graph: .init(panes: [makeFloatingPane(id: paneId)]))
+
+        try repository.replaceTabShellsAndGraph(
+            workspaceId: workspaceId,
+            shells: [.init(id: tabId, name: "Main", colorHex: "#1A2B3C")],
+            graph: .init(tabs: [makeSinglePaneTabGraph(tabId: tabId, paneId: paneId)])
+        )
+        try repository.replaceTabShells(
+            workspaceId: workspaceId,
+            shells: [.init(id: tabId, name: "Main", colorHex: "#AABBCC")]
+        )
+
+        #expect(
+            try repository.fetchTabShells(workspaceId: workspaceId) == [
+                .init(id: tabId, name: "Main", colorHex: "#AABBCC")
+            ]
+        )
+    }
+
+    @Test("tab shell replacement rejects invalid color")
+    func tabShellReplacementRejectsInvalidColor() throws {
+        let repository = try makeWorkspaceCoreRepositoryFixture().repository
+        let workspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000003017")!
+        let tabId = UUID(uuidString: "00000000-0000-0000-0000-000000003117")!
+        let paneId = UUID(uuidString: "00000000-0000-0000-0000-000000003219")!
+        try upsertWorkspace(repository, workspaceId: workspaceId, name: "Invalid Tab Color")
+        try repository.replacePaneGraph(workspaceId: workspaceId, graph: .init(panes: [makeFloatingPane(id: paneId)]))
+
+        #expect(throws: WorkspaceCoreRepositoryError.invalidTabColorHex("#aabbcc")) {
+            try repository.replaceTabShellsAndGraph(
+                workspaceId: workspaceId,
+                shells: [.init(id: tabId, name: "Main", colorHex: "#aabbcc")],
+                graph: .init(tabs: [makeSinglePaneTabGraph(tabId: tabId, paneId: paneId)])
+            )
+        }
+    }
+
     @Test("tab graph round trips memberships layouts minimized panes and drawer views")
     func tabGraphRoundTripsMembershipsLayoutsMinimizedPanesAndDrawerViews() throws {
         let repository = try makeWorkspaceCoreRepositoryFixture().repository

@@ -59,19 +59,6 @@ func decodePanePlacement(_ row: Row) throws -> WorkspaceCoreRepository.PanePlace
     }
 }
 
-func fetchPaneTags(_ database: Database, paneId: UUID) throws -> [String] {
-    try String.fetchAll(
-        database,
-        sql: """
-            SELECT tag
-            FROM pane_tag
-            WHERE pane_id = ?
-            ORDER BY tag ASC
-            """,
-        arguments: [paneId.uuidString]
-    )
-}
-
 func fetchDrawerRecord(_ database: Database, parentPaneId: UUID) throws -> WorkspaceCoreRepository.DrawerRecord? {
     guard
         let row = try Row.fetchOne(

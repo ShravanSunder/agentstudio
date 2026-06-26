@@ -46,11 +46,11 @@ struct WorkspaceSQLiteStoreBridgeTests {
                 repoName: "Derived Repo Name",
                 worktreeId: worktree.id,
                 worktreeName: "Derived Worktree Name",
-                cwd: worktree.path.appending(path: "Sources"),
-                tags: ["swift", "sqlite"]
+                cwd: worktree.path.appending(path: "Sources")
             )
         )
         var tab = Tab(paneId: pane.id, name: "SQLite Tab")
+        tab.colorHex = "#22CC88"
         let secondArrangement = PaneArrangement(
             name: "Review",
             isDefault: false,
@@ -75,10 +75,9 @@ struct WorkspaceSQLiteStoreBridgeTests {
         let paneRecord = try #require(paneGraph.panes.single)
         #expect(paneRecord.id == pane.id)
         #expect(paneRecord.metadata.title == "SQLite Pane")
-        #expect(paneRecord.metadata.durableFacets.tags == ["sqlite", "swift"])
 
         let shells = try fixture.coreRepository.fetchTabShells(workspaceId: workspaceId)
-        #expect(shells == [.init(id: tab.id, name: "SQLite Tab")])
+        #expect(shells == [.init(id: tab.id, name: "SQLite Tab", colorHex: "#22CC88")])
         let tabGraph = try fixture.coreRepository.fetchTabGraph(workspaceId: workspaceId)
         let tabState = try #require(tabGraph.tabs.single)
         #expect(tabState.tabId == tab.id)
@@ -333,8 +332,7 @@ struct WorkspaceSQLiteStoreBridgeTests {
                 facets: PaneContextFacets(
                     repoId: repoId,
                     worktreeId: worktreeId,
-                    cwd: repoPath.appending(path: "Sources"),
-                    tags: ["restore"]
+                    cwd: repoPath.appending(path: "Sources")
                 )
             )
         )
@@ -350,50 +348,86 @@ struct WorkspaceSQLiteStoreBridgeTests {
             name: "Restored Tab",
             allPaneIds: [paneId],
             arrangements: [arrangement],
-            activeArrangementId: arrangementId
+            activeArrangementId: arrangementId,
+            colorHex: "#33AA99"
+        )
+        let workspaceSnapshot = WorkspaceSQLiteSnapshot(
+            id: workspaceId,
+            name: "Restored SQLite Workspace",
+            panes: [pane],
+            tabs: [tab],
+            activeTabId: tabId,
+            sidebarWidth: 444,
+            windowFrame: CGRect(x: 1, y: 2, width: 800, height: 600),
+            createdAt: createdAt,
+            updatedAt: Date(timeIntervalSince1970: 1_700_000_200)
         )
         try fixture.backend.save(
-            .init(
-                id: workspaceId,
-                name: "Restored SQLite Workspace",
-                repos: [.init(id: repoId, name: "restore-repo", repoPath: repoPath, createdAt: createdAt)],
-                worktrees: [
-                    .init(
-                        id: worktreeId,
-                        repoId: repoId,
-                        name: "main",
-                        path: repoPath,
-                        isMainWorktree: true
-                    )
-                ],
-                panes: [pane],
-                tabs: [tab],
-                activeTabId: tabId,
-                sidebarWidth: 444,
-                windowFrame: CGRect(x: 1, y: 2, width: 800, height: 600),
-                createdAt: createdAt,
-                updatedAt: Date(timeIntervalSince1970: 1_700_000_200)
+            WorkspaceSQLiteSaveBundle(
+                workspace: workspaceSnapshot,
+                repositoryTopology: RepositoryTopologySQLiteSnapshot(
+                    id: workspaceId,
+                    repos: [.init(id: repoId, name: "restore-repo", repoPath: repoPath, createdAt: createdAt)],
+                    worktrees: [
+                        .init(
+                            id: worktreeId,
+                            repoId: repoId,
+                            name: "main",
+                            path: repoPath,
+                            isMainWorktree: true
+                        )
+                    ],
+                    updatedAt: workspaceSnapshot.updatedAt
+                )
             )
         )
 
-        let restoredStore = WorkspaceStore(
-            persistor: WorkspacePersistor(
-                workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
-            ),
-            sqliteDatastore: workspaceSQLiteDatastore(from: fixture.backend)
-        )
+        let restoredStore = restoredWorkspaceStore(from: fixture.backend)
 
         await restoredStore.restoreAsync()
 
         #expect(restoredStore.identityAtom.workspaceId == workspaceId)
         #expect(restoredStore.identityAtom.workspaceName == "Restored SQLite Workspace")
         #expect(restoredStore.windowMemoryAtom.sidebarWidth == 444)
+        #expect(restoredStore.tabLayoutAtom.tabs.single?.colorHex == "#33AA99")
         #expect(restoredStore.windowMemoryAtom.windowFrame == CGRect(x: 1, y: 2, width: 800, height: 600))
         #expect(restoredStore.repositoryTopologyAtom.repos.single?.id == repoId)
         #expect(restoredStore.paneAtom.pane(paneId)?.title == "Restored SQLite Pane")
         #expect(restoredStore.tabLayoutAtom.activeTabId == tabId)
         #expect(restoredStore.tabLayoutAtom.tab(tabId)?.activeArrangementId == arrangementId)
         #expect(!restoredStore.isDirty)
+    }
+
+    private func restoredWorkspaceStore(from backend: WorkspaceSQLiteStoreBackend) -> WorkspaceStore {
+        let datastore = workspaceSQLiteDatastore(from: backend)
+        let atomRegistry = AtomRegistry()
+        let saveCoordinator = WorkspaceSQLiteSaveCoordinator(
+            identityAtom: atomRegistry.workspaceIdentity,
+            windowMemoryAtom: atomRegistry.workspaceWindowMemory,
+            repositoryTopologyAtom: atomRegistry.workspaceRepositoryTopology,
+            workspacePaneAtom: atomRegistry.workspacePane,
+            workspaceTabLayoutAtom: atomRegistry.workspaceTabLayout,
+            sqliteDatastore: datastore
+        )
+        let topologyStore = RepositoryTopologyStore(
+            atom: atomRegistry.workspaceRepositoryTopology,
+            sqliteDatastore: datastore,
+            saveCoordinator: saveCoordinator
+        )
+        return WorkspaceStore(
+            identityAtom: atomRegistry.workspaceIdentity,
+            windowMemoryAtom: atomRegistry.workspaceWindowMemory,
+            repositoryTopologyAtom: atomRegistry.workspaceRepositoryTopology,
+            paneAtom: atomRegistry.workspacePane,
+            tabLayoutAtom: atomRegistry.workspaceTabLayout,
+            mutationCoordinator: atomRegistry.workspaceMutationCoordinator,
+            persistor: WorkspacePersistor(
+                workspacesDir: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+            ),
+            sqliteDatastore: datastore,
+            repositoryTopologyStore: topologyStore,
+            sqliteSaveCoordinator: saveCoordinator
+        )
     }
 
     @Test("restore repairs dangling active workspace selection before hydrating SQLite")

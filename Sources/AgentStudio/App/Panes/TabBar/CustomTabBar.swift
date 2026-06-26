@@ -823,6 +823,15 @@ struct TabPillView: View {
             RoundedRectangle(cornerRadius: AppStyles.General.CornerRadius.pill)
                 .fill(backgroundColor)
         )
+        .overlay(alignment: .top) {
+            if let tabColor {
+                Capsule()
+                    .fill(tabColor)
+                    .frame(height: 2)
+                    .padding(.horizontal, AppStyles.General.Spacing.loose)
+                    .padding(.top, 2)
+            }
+        }
         .contentShape(RoundedRectangle(cornerRadius: AppStyles.General.CornerRadius.pill))
         .onTapGesture(perform: onSelect)
         .onHover { hovering in
@@ -836,6 +845,11 @@ struct TabPillView: View {
         if isActive { return Color.white.opacity(AppStyles.General.Fill.active) }
         if isHovering { return Color.white.opacity(AppStyles.General.Fill.hover) }
         return Color.white.opacity(AppStyles.General.Fill.subtle)
+    }
+
+    private var tabColor: Color? {
+        guard let colorHex = tab.colorHex, let nsColor = NSColor(hex: colorHex) else { return nil }
+        return Color(nsColor: nsColor)
     }
 }
 

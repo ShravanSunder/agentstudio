@@ -11,7 +11,16 @@ func validateTabShells(
         guard seenIds.insert(shell.id).inserted else {
             throw WorkspaceCoreRepositoryError.duplicateTabId(shell.id)
         }
+        if let colorHex = shell.colorHex {
+            try validateTabColorHex(colorHex)
+        }
         try validateExistingTabBelongsToWorkspace(database, workspaceId: workspaceId, tabId: shell.id)
+    }
+}
+
+private func validateTabColorHex(_ colorHex: String) throws {
+    guard colorHex.range(of: "^#[0-9A-F]{6}$", options: .regularExpression) != nil else {
+        throw WorkspaceCoreRepositoryError.invalidTabColorHex(colorHex)
     }
 }
 

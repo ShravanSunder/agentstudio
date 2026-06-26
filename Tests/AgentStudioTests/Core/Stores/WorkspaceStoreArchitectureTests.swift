@@ -33,4 +33,18 @@ struct WorkspaceStoreArchitectureTests {
         #expect(!source.contains("func createPane("))
         #expect(!source.contains("func appendTab("))
     }
+
+    @Test("WorkspaceStore observePersistedState does not observe repository topology")
+    func workspaceStore_doesNotObserveRepositoryTopologyForPersistence() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let storePath = projectRoot.appending(
+            path: "Sources/AgentStudio/Core/State/MainActor/Persistence/WorkspaceStore.swift"
+        )
+        let source = try String(contentsOf: storePath, encoding: .utf8)
+        let observerBody = source.components(separatedBy: "private func markDirtyObserved()").first ?? source
+
+        #expect(!observerBody.contains("repositoryTopologyAtom.repos"))
+        #expect(!observerBody.contains("repositoryTopologyAtom.watchedPaths"))
+        #expect(!observerBody.contains("repositoryTopologyAtom.unavailableRepoIds"))
+    }
 }
