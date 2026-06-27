@@ -33,6 +33,16 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 		expect(verifierSource).toContain('[data-file-tree-search-input]');
 	});
 
+	test('waits for FileViewer surface readiness after reload before stale-refresh proof', async () => {
+		const verifierSource = await readFile(verifierSourceUrl, 'utf8');
+
+		expect(verifierSource).toContain('waitForWorktreeFileViewerSurfaceReady');
+		expect(verifierSource).toContain("data-worktree-source-state') === 'live'");
+		expect(verifierSource).toContain('totalCount > 0');
+		expect(verifierSource).toContain('visibleCount > 0');
+		expect(verifierSource).toContain('[data-testid="worktree-file-filter-count"]');
+	});
+
 	test('publishes visible CodeView collapse-control primitive proof in Review route artifacts', async () => {
 		const verifierSource = await readFile(verifierSourceUrl, 'utf8');
 
@@ -95,6 +105,13 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 				failedCount: 0,
 				foregroundIntentCount: 2,
 				interest: 'selected',
+				itemId: 'worktree-review-target',
+				packageId: 'package-1',
+				packageReviewGeneration: 1,
+				packageRevision: 1,
+				currentPackageId: 'package-1',
+				currentPackageReviewGeneration: 1,
+				currentPackageRevision: 1,
 				laneUpgradeCount: 0,
 				loadedCount: 2,
 				maxExecutorInFlightCount: 2,
@@ -129,6 +146,13 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 				failedCount: 0,
 				foregroundIntentCount: 2,
 				interest: 'visible',
+				itemId: 'worktree-review-target',
+				packageId: 'package-1',
+				packageReviewGeneration: 1,
+				packageRevision: 1,
+				currentPackageId: 'package-1',
+				currentPackageReviewGeneration: 1,
+				currentPackageRevision: 1,
 				laneUpgradeCount: 0,
 				loadedCount: 2,
 				maxExecutorInFlightCount: 2,
@@ -167,6 +191,7 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 			executorInFlightCountAfterDispatch: 2,
 			foregroundIntentCount: 0,
 			interest: 'visible',
+			itemId: 'worktree-review-target',
 			maxExecutorInFlightCount: 2,
 			schedulerQueuedIntentCountAfterEnqueue: 1,
 			visibleIntentCount: 1,
@@ -179,16 +204,48 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 			duplicateRouteCount: 0,
 			duplicatedRouteUrls: [],
 			routeHitCount: 3,
+			routeHitItemIds: ['worktree-review-target', 'worktree-review-visible'],
 			uniqueRouteHitCount: 3,
 		});
 		expect(reviewVisibleDemandTelemetryAttributed(visibleTelemetry)).toBe(true);
 		expect(
+			reviewVisibleDemandTelemetryAttributed({
+				...visibleTelemetry,
+				currentPackageId: 'package-2',
+			}),
+		).toBe(false);
+		expect(
+			reviewVisibleDemandTelemetryAttributed({
+				...visibleTelemetry,
+				currentPackageReviewGeneration: 2,
+			}),
+		).toBe(false);
+		expect(
+			reviewVisibleDemandTelemetryAttributed(visibleTelemetry, {
+				expectedItemId: 'worktree-review-target',
+			}),
+		).toBe(true);
+		expect(
+			reviewVisibleDemandTelemetryAttributed(visibleTelemetry, {
+				expectedItemId: 'worktree-review-other',
+			}),
+		).toBe(false);
+		expect(
 			reviewRoutePressureSatisfied({
+				expectedVisibleItemId: 'worktree-review-target',
 				routePressureProof,
 				selectedDemandTelemetryProof: selectedTelemetry,
 				visibleDemandTelemetryProof: visibleTelemetry,
 			}),
 		).toBe(true);
+		expect(
+			reviewRoutePressureSatisfied({
+				expectedVisibleItemId: 'worktree-review-other',
+				routePressureProof,
+				selectedDemandTelemetryProof: selectedTelemetry,
+				visibleDemandTelemetryProof: visibleTelemetry,
+			}),
+		).toBe(false);
 	});
 
 	test('rejects duplicate Review route-pressure hits for the same exact content URL', () => {
@@ -200,6 +257,7 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 			duplicateRouteCount: 1,
 			duplicatedRouteUrls: [duplicatedUrl],
 			routeHitCount: 2,
+			routeHitItemIds: ['worktree-review-target'],
 			uniqueRouteHitCount: 1,
 		});
 		expect(
@@ -237,7 +295,7 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 		);
 	});
 
-	test('accepts warmed file-open telemetry when queue and executor are drained', () => {
+	test('rejects cache-hit as a substitute for warmed file-open provenance', () => {
 		expect(
 			worktreeFileOpenLoadTelemetrySatisfied({
 				disposition: 'cache-hit',
@@ -257,10 +315,10 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 				schedulerQueuedIntentCountAfter: 0,
 				schedulerQueuedIntentCountBefore: 0,
 			}),
-		).toBe(true);
+		).toBe(false);
 		expect(
 			worktreeFileOpenLoadTelemetrySatisfied({
-				disposition: 'cache-hit',
+				disposition: 'visible-preloaded',
 				durationMilliseconds: 0.4,
 				estimatedBytes: 640,
 				executorInFlightBytesAfter: 0,
@@ -271,13 +329,13 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 				executorQueuedBytesBefore: 0,
 				executorQueuedLoadCountAfter: 0,
 				executorQueuedLoadCountBefore: 0,
-				lane: 'visible',
+				lane: 'foreground',
 				schedulerQueuedEstimatedBytesAfter: 0,
 				schedulerQueuedEstimatedBytesBefore: 0,
 				schedulerQueuedIntentCountAfter: 0,
 				schedulerQueuedIntentCountBefore: 0,
 			}),
-		).toBe(false);
+		).toBe(true);
 	});
 
 	test('accepts foreground file-open telemetry while existing lower-priority work is in flight', () => {
@@ -310,6 +368,7 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 		expect(verifierSource).toContain('worktreeFileVisibleDemandTelemetrySatisfied');
 		expect(
 			worktreeFileVisibleDemandTelemetrySatisfied({
+				expectedVisibleFileCount: 2,
 				failedCount: 0,
 				failedCountByLane: { visible: 0 },
 				failedCountByReason: { byte_budget_exceeded: 0 },
@@ -323,6 +382,8 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 				executorInFlightCountAfter: 0,
 				executorQueuedBytesAfter: 0,
 				executorQueuedLoadCountAfter: 0,
+				recentlyUpdatedOpenFilePathAfter: null,
+				recentlyUpdatedOpenFilePathBefore: null,
 				schedulerQueuedEstimatedBytesAfter: 0,
 				schedulerQueuedIntentCountAfter: 0,
 				status: 'settled',
@@ -331,6 +392,7 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 		).toBe(true);
 		expect(
 			worktreeFileVisibleDemandTelemetrySatisfied({
+				expectedVisibleFileCount: 50,
 				failedCount: 48,
 				failedCountByLane: { visible: 48 },
 				failedCountByReason: { byte_budget_exceeded: 48 },
@@ -344,14 +406,17 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 				executorInFlightCountAfter: 0,
 				executorQueuedBytesAfter: 0,
 				executorQueuedLoadCountAfter: 0,
+				recentlyUpdatedOpenFilePathAfter: null,
+				recentlyUpdatedOpenFilePathBefore: null,
 				schedulerQueuedEstimatedBytesAfter: 0,
 				schedulerQueuedIntentCountAfter: 0,
 				status: 'settled',
 				stimulusCount: 1,
 			}),
-		).toBe(true);
+		).toBe(false);
 		expect(
 			worktreeFileVisibleDemandTelemetrySatisfied({
+				expectedVisibleFileCount: 50,
 				failedCount: 48,
 				failedCountByLane: null,
 				failedCountByReason: null,
@@ -365,6 +430,8 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 				executorInFlightCountAfter: 0,
 				executorQueuedBytesAfter: 0,
 				executorQueuedLoadCountAfter: 0,
+				recentlyUpdatedOpenFilePathAfter: null,
+				recentlyUpdatedOpenFilePathBefore: null,
 				schedulerQueuedEstimatedBytesAfter: 0,
 				schedulerQueuedIntentCountAfter: 0,
 				status: 'settled',
@@ -373,6 +440,7 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 		).toBe(false);
 		expect(
 			worktreeFileVisibleDemandTelemetrySatisfied({
+				expectedVisibleFileCount: 1,
 				failedCount: 0,
 				failedCountByLane: { foreground: 0 },
 				failedCountByReason: { byte_budget_exceeded: 0 },
@@ -386,6 +454,8 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 				executorInFlightCountAfter: 0,
 				executorQueuedBytesAfter: 0,
 				executorQueuedLoadCountAfter: 0,
+				recentlyUpdatedOpenFilePathAfter: null,
+				recentlyUpdatedOpenFilePathBefore: null,
 				schedulerQueuedEstimatedBytesAfter: 0,
 				schedulerQueuedIntentCountAfter: 0,
 				status: 'settled',
@@ -394,6 +464,7 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 		).toBe(false);
 		expect(
 			worktreeFileVisibleDemandTelemetrySatisfied({
+				expectedVisibleFileCount: 0,
 				failedCount: 0,
 				failedCountByLane: { visible: 0 },
 				failedCountByReason: { byte_budget_exceeded: 0 },
@@ -407,6 +478,8 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 				executorInFlightCountAfter: 0,
 				executorQueuedBytesAfter: 0,
 				executorQueuedLoadCountAfter: 0,
+				recentlyUpdatedOpenFilePathAfter: null,
+				recentlyUpdatedOpenFilePathBefore: null,
 				schedulerQueuedEstimatedBytesAfter: 0,
 				schedulerQueuedIntentCountAfter: 0,
 				status: 'idle',
@@ -489,6 +562,7 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 		expect(verifierSource).toContain('bridge-worktree-file-recently-updated');
 		expect(
 			worktreeFileRecentlyUpdatedDemandTelemetrySatisfied({
+				expectedVisibleFileCount: null,
 				failedCount: 0,
 				failedCountByLane: { nearby: 0 },
 				failedCountByReason: { byte_budget_exceeded: 0 },
@@ -505,12 +579,40 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 				executorQueuedLoadCountAfter: 0,
 				schedulerQueuedEstimatedBytesAfter: 0,
 				schedulerQueuedIntentCountAfter: 0,
+				recentlyUpdatedOpenFilePathAfter: 'BridgeWeb/src/app/bridge-app.tsx',
+				recentlyUpdatedOpenFilePathBefore: 'BridgeWeb/src/app/bridge-app.tsx',
 				status: 'settled',
 				stimulusCount: 1,
 			}),
 		).toBe(true);
 		expect(
 			worktreeFileRecentlyUpdatedDemandTelemetrySatisfied({
+				expectedVisibleFileCount: null,
+				failedCount: 0,
+				failedCountByLane: { nearby: 0 },
+				failedCountByReason: { byte_budget_exceeded: 0 },
+				firstDedupeKey: 'pane-1:worktree-file:worktree.fileContent:recently-updated-content',
+				firstDisposition: 'nearby-preloaded',
+				firstFreshnessKey:
+					'pane-1:worktree-file:dev-worktree-source:1:revision-none:cursor-none:recently-updated-content',
+				firstLane: 'nearby',
+				intentCount: 1,
+				loadedCount: 1,
+				executorInFlightBytesAfter: 0,
+				executorInFlightCountAfter: 0,
+				executorQueuedBytesAfter: 0,
+				executorQueuedLoadCountAfter: 0,
+				schedulerQueuedEstimatedBytesAfter: 0,
+				schedulerQueuedIntentCountAfter: 0,
+				recentlyUpdatedOpenFilePathAfter: null,
+				recentlyUpdatedOpenFilePathBefore: null,
+				status: 'settled',
+				stimulusCount: 1,
+			}),
+		).toBe(true);
+		expect(
+			worktreeFileRecentlyUpdatedDemandTelemetrySatisfied({
+				expectedVisibleFileCount: null,
 				failedCount: 0,
 				failedCountByLane: { visible: 0 },
 				failedCountByReason: { byte_budget_exceeded: 0 },
@@ -527,6 +629,8 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 				executorQueuedLoadCountAfter: 0,
 				schedulerQueuedEstimatedBytesAfter: 0,
 				schedulerQueuedIntentCountAfter: 0,
+				recentlyUpdatedOpenFilePathAfter: 'src/visible.ts',
+				recentlyUpdatedOpenFilePathBefore: 'none',
 				status: 'settled',
 				stimulusCount: 1,
 			}),
@@ -562,7 +666,7 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 		expect(proof.matchingPostClickHitUrls).toEqual([]);
 	});
 
-	test('accepts pre-click selected content route only as rendered-selection evidence', () => {
+	test('keeps pre-click selected content routes as diagnostics, not click proof', () => {
 		const proof = buildReviewContentRouteDeltaProof({
 			allHitUrls: [
 				'http://127.0.0.1:5173/__bridge-worktree/review-content/worktree-review-target-head',
@@ -572,8 +676,8 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 			expectedItemId: 'worktree-review-target',
 		});
 
-		expect(reviewContentRouteDeltaSatisfied(proof)).toBe(true);
-		expect(proof.contentRouteSatisfiedBy).toBe('matching-pre-click-route-with-rendered-selection');
+		expect(reviewContentRouteDeltaSatisfied(proof)).toBe(false);
+		expect(proof.contentRouteSatisfiedBy).toBe('no-matching-post-click-route');
 		expect(proof.matchingPreClickHitUrls).toEqual([
 			'http://127.0.0.1:5173/__bridge-worktree/review-content/worktree-review-target-head',
 		]);
@@ -806,6 +910,13 @@ function makeReviewDemandTelemetryProof(
 		failedCount: 0,
 		foregroundIntentCount: 0,
 		interest: 'selected',
+		itemId: 'item-source',
+		packageId: 'package-1',
+		packageReviewGeneration: 1,
+		packageRevision: 1,
+		currentPackageId: 'package-1',
+		currentPackageReviewGeneration: 1,
+		currentPackageRevision: 1,
 		laneUpgradeCount: 0,
 		loadedCount: 0,
 		maxExecutorInFlightCount: 1,

@@ -33,96 +33,200 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
     ) async -> ActionResult {
         switch command {
         case .loadDiff(let artifact):
-            paneState.diff.setStatus(.loading)
-            paneState.diff.advanceEpoch()
-            let reviewGeneration = nextReviewGeneration.next()
-            nextReviewGeneration = reviewGeneration
-            if let currentPackage = paneState.diff.packageMetadata {
-                paneState.diff.setPackageProtocolFrame(
-                    makeReviewProtocolResetFrame(
-                        currentPackage: currentPackage,
-                        generation: reviewGeneration,
-                        sequence: reviewGeneration.rawValue,
-                        reason: "authorityChanged"
-                    )
-                )
-            }
-            paneState.diff.setPackageMetadata(nil)
-            paneState.diff.setPackageDelta(nil)
-            let contentAuthorityLifetime = revokeReviewContentAuthoritySynchronously()
-            await clearReviewContentAuthority(revokeAuthority: false)
-            let expectedRevocationRevision = reviewContentRevocationRevision()
-            do {
-                let request = makeReviewPipelineRequest(
-                    artifact: artifact,
-                    reviewGeneration: reviewGeneration
-                )
-                let packageTraceContext = makeRootTraceContext()
-                let packageBuildStart = ContinuousClock.now
-                let result = try await reviewPipeline.loadPackage(request)
-                await recordSwiftTelemetry(
-                    name: "performance.bridge.swift.package_build",
-                    phase: "package_build",
-                    priorityHint: .cold,
-                    traceContext: packageTraceContext,
-                    durationMilliseconds: AgentStudioPerformanceTraceRecorder.milliseconds(
-                        from: packageBuildStart.duration(to: ContinuousClock.now)
-                    )
-                )
-                guard reviewGeneration == nextReviewGeneration else {
-                    return .failure(.invalidPayload(description: "Stale bridge review load"))
-                }
-                lastReviewPackageTraceContext = packageTraceContext
-                let deltaBuildStart = ContinuousClock.now
-                let delta = try await reviewChangeIndex.ingestExplicitLoad(result.package)
-                await recordSwiftTelemetry(
-                    name: "performance.bridge.swift.delta_build",
-                    phase: "delta_build",
-                    priorityHint: .warm,
-                    traceContext: makeChildTraceContext(parent: packageTraceContext),
-                    durationMilliseconds: AgentStudioPerformanceTraceRecorder.milliseconds(
-                        from: deltaBuildStart.duration(to: ContinuousClock.now)
-                    )
-                )
-                let package = result.package.withRevision(delta?.revision ?? result.package.revision)
-                let snapshotFrame = try makeReviewProtocolSnapshotFrame(package: package)
-                let deltaFrame = try delta.map { try makeReviewProtocolDeltaFrame(package: package, delta: $0) }
-                let contentRegisterStart = ContinuousClock.now
-                try await activateReviewContentHandles(
-                    handles: result.registeredContentHandles,
-                    reviewGeneration: reviewGeneration,
-                    expectedRevocationRevision: expectedRevocationRevision,
-                    expectedAuthorityLifetime: contentAuthorityLifetime
-                )
-                await recordSwiftTelemetry(
-                    name: "performance.bridge.swift.content_register",
-                    phase: "content_register",
-                    priorityHint: .cold,
-                    traceContext: makeChildTraceContext(parent: packageTraceContext),
-                    durationMilliseconds: AgentStudioPerformanceTraceRecorder.milliseconds(
-                        from: contentRegisterStart.duration(to: ContinuousClock.now)
-                    )
-                )
-                paneState.diff.setPackageMetadata(package, protocolFrame: .snapshot(snapshotFrame))
-                paneState.diff.setPackageDelta(delta, protocolFrame: deltaFrame.map(BridgeReviewProtocolFrame.delta))
-                paneState.diff.setStatus(.ready)
-                ingestRuntimeEvent(
-                    .diff(.diffLoaded(stats: Self.diffStats(from: result.package.summary))),
-                    commandId: commandId,
-                    correlationId: correlationId
-                )
-                return .success(commandId: commandId)
-            } catch BridgeProviderFailure.providerUnavailable {
-                paneState.diff.setStatus(.error, error: "providerUnavailable")
-                return .failure(.backendUnavailable(backend: "BridgeReviewSourceProvider"))
-            } catch {
-                bridgeDiffCommandLogger.error(
-                    "Bridge review package load failed: \(String(describing: error), privacy: .private)"
-                )
-                paneState.diff.setStatus(.error, error: "loadFailed")
-                return .failure(.invalidPayload(description: "Failed to load bridge review package"))
-            }
+            return await handleLoadDiffCommand(
+                artifact: artifact,
+                commandId: commandId,
+                correlationId: correlationId
+            )
         }
+    }
+
+    private struct ReviewPackageLoadReset {
+        let reviewGeneration: BridgeReviewGeneration
+        let contentAuthorityLifetime: Int
+        let expectedRevocationRevision: UInt64
+    }
+
+    private struct ReviewPackageLoadFrames {
+        let package: BridgeReviewPackage
+        let delta: BridgeReviewDelta?
+        let snapshotFrame: BridgeReviewSnapshotFrame
+        let deltaFrame: BridgeReviewDeltaFrame?
+    }
+
+    private func handleLoadDiffCommand(
+        artifact: DiffArtifact,
+        commandId: UUID,
+        correlationId: UUID?
+    ) async -> ActionResult {
+        let reset = await beginReviewPackageLoad()
+        var reviewLoadStage = "request"
+        do {
+            let packageTraceContext = makeRootTraceContext()
+            let result = try await loadReviewPackageResult(
+                artifact: artifact,
+                reviewGeneration: reset.reviewGeneration,
+                reviewLoadStage: &reviewLoadStage,
+                packageTraceContext: packageTraceContext
+            )
+            guard reset.reviewGeneration == nextReviewGeneration else {
+                return .failure(.invalidPayload(description: "Stale bridge review load"))
+            }
+            lastReviewPackageTraceContext = packageTraceContext
+            let frames = try await makeReviewPackageLoadFrames(
+                result: result,
+                reviewLoadStage: &reviewLoadStage,
+                packageTraceContext: packageTraceContext
+            )
+            let contentRegisterStart = ContinuousClock.now
+            try await activateReviewContentHandles(
+                handles: result.registeredContentHandles,
+                reviewGeneration: reset.reviewGeneration,
+                expectedRevocationRevision: reset.expectedRevocationRevision,
+                expectedAuthorityLifetime: reset.contentAuthorityLifetime
+            )
+            await recordReviewContentRegisterTelemetry(
+                traceContext: packageTraceContext,
+                contentRegisterStart: contentRegisterStart
+            )
+            commitReviewPackageLoad(frames)
+            ingestRuntimeEvent(
+                .diff(.diffLoaded(stats: Self.diffStats(from: result.package.summary))),
+                commandId: commandId,
+                correlationId: correlationId
+            )
+            return .success(commandId: commandId)
+        } catch BridgeProviderFailure.providerUnavailable {
+            paneState.diff.setStatus(.error, error: "providerUnavailable")
+            return .failure(.backendUnavailable(backend: "BridgeReviewSourceProvider"))
+        } catch {
+            let failureSummary = Self.reviewPackageLoadFailureSummary(for: error, stage: reviewLoadStage)
+            bridgeDiffCommandLogger.error(
+                "Bridge review package load failed: \(failureSummary, privacy: .public)"
+            )
+            paneState.diff.setStatus(.error, error: failureSummary)
+            return .failure(.invalidPayload(description: "Failed to load bridge review package"))
+        }
+    }
+
+    private func beginReviewPackageLoad() async -> ReviewPackageLoadReset {
+        paneState.diff.setStatus(.loading)
+        paneState.diff.advanceEpoch()
+        let reviewGeneration = nextReviewGeneration.next()
+        nextReviewGeneration = reviewGeneration
+        if let currentPackage = paneState.diff.packageMetadata {
+            paneState.diff.setPackageProtocolFrame(
+                makeReviewProtocolResetFrame(
+                    currentPackage: currentPackage,
+                    generation: reviewGeneration,
+                    sequence: reviewGeneration.rawValue,
+                    reason: "authorityChanged"
+                )
+            )
+        }
+        paneState.diff.setPackageMetadata(nil)
+        paneState.diff.setPackageDelta(nil)
+        let contentAuthorityLifetime = revokeReviewContentAuthoritySynchronously()
+        await clearReviewContentAuthority(revokeAuthority: false)
+        return ReviewPackageLoadReset(
+            reviewGeneration: reviewGeneration,
+            contentAuthorityLifetime: contentAuthorityLifetime,
+            expectedRevocationRevision: reviewContentRevocationRevision()
+        )
+    }
+
+    private func loadReviewPackageResult(
+        artifact: DiffArtifact,
+        reviewGeneration: BridgeReviewGeneration,
+        reviewLoadStage: inout String,
+        packageTraceContext: BridgeTraceContext?
+    ) async throws -> BridgeReviewPipelineResult {
+        let request = makeReviewPipelineRequest(artifact: artifact, reviewGeneration: reviewGeneration)
+        let packageBuildStart = ContinuousClock.now
+        let result: BridgeReviewPipelineResult
+        do {
+            reviewLoadStage = "package"
+            result = try await reviewPipeline.loadPackage(request)
+        } catch {
+            guard shouldRetryUnresolvedHeadBaseline(after: error) else {
+                throw error
+            }
+            bridgeDiffCommandLogger.warning(
+                "Retrying Bridge review package load with unstaged baseline after unresolved HEAD"
+            )
+            let fallbackRequest = makeReviewPipelineRequest(
+                artifact: artifact,
+                reviewGeneration: reviewGeneration,
+                baselineOverride: .unstaged
+            )
+            reviewLoadStage = "packageFallback"
+            result = try await reviewPipeline.loadPackage(fallbackRequest)
+        }
+        await recordSwiftTelemetry(
+            name: "performance.bridge.swift.package_build",
+            phase: "package_build",
+            priorityHint: .cold,
+            traceContext: packageTraceContext,
+            durationMilliseconds: AgentStudioPerformanceTraceRecorder.milliseconds(
+                from: packageBuildStart.duration(to: ContinuousClock.now)
+            )
+        )
+        return result
+    }
+
+    private func makeReviewPackageLoadFrames(
+        result: BridgeReviewPipelineResult,
+        reviewLoadStage: inout String,
+        packageTraceContext: BridgeTraceContext?
+    ) async throws -> ReviewPackageLoadFrames {
+        let deltaBuildStart = ContinuousClock.now
+        reviewLoadStage = "delta"
+        let delta = try await reviewChangeIndex.ingestExplicitLoad(result.package)
+        await recordSwiftTelemetry(
+            name: "performance.bridge.swift.delta_build",
+            phase: "delta_build",
+            priorityHint: .warm,
+            traceContext: makeChildTraceContext(parent: packageTraceContext),
+            durationMilliseconds: AgentStudioPerformanceTraceRecorder.milliseconds(
+                from: deltaBuildStart.duration(to: ContinuousClock.now)
+            )
+        )
+        let package = result.package.withRevision(delta?.revision ?? result.package.revision)
+        reviewLoadStage = "snapshotFrame"
+        let snapshotFrame = try makeReviewProtocolSnapshotFrame(package: package)
+        reviewLoadStage = "deltaFrame"
+        let deltaFrame = try delta.map { try makeReviewProtocolDeltaFrame(package: package, delta: $0) }
+        reviewLoadStage = "contentRegister"
+        return ReviewPackageLoadFrames(
+            package: package,
+            delta: delta,
+            snapshotFrame: snapshotFrame,
+            deltaFrame: deltaFrame
+        )
+    }
+
+    private func recordReviewContentRegisterTelemetry(
+        traceContext: BridgeTraceContext?,
+        contentRegisterStart: ContinuousClock.Instant
+    ) async {
+        await recordSwiftTelemetry(
+            name: "performance.bridge.swift.content_register",
+            phase: "content_register",
+            priorityHint: .cold,
+            traceContext: makeChildTraceContext(parent: traceContext),
+            durationMilliseconds: AgentStudioPerformanceTraceRecorder.milliseconds(
+                from: contentRegisterStart.duration(to: ContinuousClock.now)
+            )
+        )
+    }
+
+    private func commitReviewPackageLoad(_ frames: ReviewPackageLoadFrames) {
+        paneState.diff.setPackageMetadata(frames.package, protocolFrame: .snapshot(frames.snapshotFrame))
+        paneState.diff.setPackageDelta(
+            frames.delta,
+            protocolFrame: frames.deltaFrame.map(BridgeReviewProtocolFrame.delta)
+        )
+        paneState.diff.setStatus(.ready)
     }
 
     private func activateReviewContentHandles(
@@ -428,13 +532,15 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
 
     private func makeReviewPipelineRequest(
         artifact: DiffArtifact,
-        reviewGeneration: BridgeReviewGeneration
+        reviewGeneration: BridgeReviewGeneration,
+        baselineOverride: WorkspaceBaseline? = nil
     ) -> BridgeReviewPipelineRequest {
-        let endpoints = makeReviewEndpoints(for: artifact)
+        let repoId = reviewRepoId(for: artifact)
+        let endpoints = makeReviewEndpoints(for: artifact, repoId: repoId, baselineOverride: baselineOverride)
         let query = BridgeReviewQuery(
             queryId: "query-\(artifact.diffId.uuidString)",
             queryKind: .compare,
-            repoId: artifact.worktreeId,
+            repoId: repoId,
             worktreeId: artifact.worktreeId,
             baseEndpointId: endpoints.base.endpointId,
             headEndpointId: endpoints.head.endpointId,
@@ -471,16 +577,18 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
     }
 
     private func makeReviewEndpoints(
-        for artifact: DiffArtifact
+        for artifact: DiffArtifact,
+        repoId: UUID,
+        baselineOverride: WorkspaceBaseline? = nil
     ) -> ReviewEndpointSelection {
         guard case .workspace(_, let baseline) = bridgePaneState.source else {
-            return makeFallbackReviewEndpoints(for: artifact)
+            return makeFallbackReviewEndpoints(for: artifact, repoId: repoId)
         }
 
         let selection = makeWorkspaceEndpointSelection(
-            baseline: baseline,
+            baseline: baselineOverride ?? baseline,
             worktreeId: artifact.worktreeId,
-            repoId: artifact.worktreeId
+            repoId: repoId
         )
         return ReviewEndpointSelection(
             base: selection.base,
@@ -490,12 +598,12 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
         )
     }
 
-    private func makeFallbackReviewEndpoints(for artifact: DiffArtifact) -> ReviewEndpointSelection {
+    private func makeFallbackReviewEndpoints(for artifact: DiffArtifact, repoId: UUID) -> ReviewEndpointSelection {
         ReviewEndpointSelection(
             base: makeSourceEndpoint(
                 endpointId: "base-\(artifact.diffId.uuidString)",
                 kind: .gitRef,
-                repoId: artifact.worktreeId,
+                repoId: repoId,
                 worktreeId: artifact.worktreeId,
                 label: "Base",
                 providerIdentity: "base:\(artifact.diffId.uuidString)"
@@ -503,7 +611,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             head: makeSourceEndpoint(
                 endpointId: "head-\(artifact.diffId.uuidString)",
                 kind: .workingTree,
-                repoId: artifact.worktreeId,
+                repoId: repoId,
                 worktreeId: artifact.worktreeId,
                 label: "Working tree",
                 providerIdentity: "working-tree:\(artifact.diffId.uuidString)"
@@ -511,6 +619,98 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             comparisonSemantics: .workingTreeDelta,
             pathScope: []
         )
+    }
+
+    private func reviewRepoId(for artifact: DiffArtifact) -> UUID {
+        runtime.metadata.facets.repoId ?? artifact.worktreeId
+    }
+
+    private func shouldRetryUnresolvedHeadBaseline(after error: Error) -> Bool {
+        guard case .workspace(_, .ref(let name)) = bridgePaneState.source,
+            name == "HEAD",
+            case BridgeProviderFailure.providerFailed(let message) = error
+        else {
+            return false
+        }
+        let normalizedMessage = message.lowercased()
+        return normalizedMessage.contains("head")
+            && (normalizedMessage.contains("not found") || normalizedMessage.contains("revspec"))
+    }
+
+    static func reviewPackageLoadFailureSummary(for error: Error, stage: String) -> String {
+        let prefix = "loadFailed:\(stage)"
+        if let providerFailure = error as? BridgeProviderFailure {
+            switch providerFailure {
+            case .providerUnavailable:
+                return "\(prefix):providerUnavailable"
+            case .unavailableEndpoint:
+                return "\(prefix):unavailableEndpoint"
+            case .missingContent:
+                return "\(prefix):missingContent"
+            case .contentHashMismatch:
+                return "\(prefix):contentHashMismatch"
+            case .oversizedContent:
+                return "\(prefix):oversizedContent"
+            case .binaryContent:
+                return "\(prefix):binaryContent"
+            case .staleReviewGeneration:
+                return "\(prefix):staleReviewGeneration"
+            case .providerFailed(let message):
+                return "\(prefix):providerFailed:\(providerFailureReason(from: message))"
+            }
+        }
+        if error is CancellationError {
+            return "\(prefix):cancelled"
+        }
+        return "\(prefix):\(String(describing: type(of: error)))"
+    }
+
+    static func providerFailureReason(from message: String) -> String {
+        let normalizedMessage = message.lowercased()
+        if normalizedMessage.hasPrefix("gitdataplane:") {
+            let prefixLength = "gitDataPlane:".count
+            let suffix = String(message.dropFirst(prefixLength))
+            return "git.\(suffix)"
+        }
+        if normalizedMessage.contains("invalid bridge review content handle") {
+            return "invalidContentHandle"
+        }
+        if normalizedMessage.contains("invalid bridge review content lease set") {
+            return "invalidContentLeaseSet"
+        }
+        if normalizedMessage.contains("stale bridge review content lifetime") {
+            return "staleContentLifetime"
+        }
+        if normalizedMessage.contains("head")
+            && (normalizedMessage.contains("not found") || normalizedMessage.contains("revspec"))
+        {
+            return "unresolvedHEAD"
+        }
+        if normalizedMessage.contains("data plane read timed out")
+            || normalizedMessage.contains("timed out")
+            || normalizedMessage.contains("timeouterror")
+        {
+            return "gitDataPlaneTimeout"
+        }
+        if normalizedMessage.contains("content too large") || normalizedMessage.contains("too large") {
+            return "contentTooLarge"
+        }
+        if normalizedMessage.contains("path escapes") {
+            return "pathEscapesRepository"
+        }
+        if normalizedMessage.contains("tree reads") {
+            return "unsupportedTreeRead"
+        }
+        if normalizedMessage.contains("checkpoint endpoint") {
+            return "unsupportedCheckpointEndpoint"
+        }
+        if normalizedMessage.contains("invalid") {
+            return "invalidProviderPayload"
+        }
+        if normalizedMessage.contains("not found") {
+            return "notFound"
+        }
+        return "providerError"
     }
 
     private func makeWorkspaceEndpointSelection(

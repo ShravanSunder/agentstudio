@@ -42,6 +42,24 @@ struct ObservabilityDebugLaunchScriptsTests {
         #expect(!script.contains("$HOME/dev/devfiles/shared/observability/observability-stack"))
     }
 
+    @Test("debug launcher prefers stable Developer ID signing when available")
+    func debugLauncherPrefersStableDeveloperIDSigningWhenAvailable() throws {
+        let script = try String(contentsOfFile: "scripts/run-debug-observability.sh", encoding: .utf8)
+        #expect(script.contains("SECURITY_BIN=\"${AGENTSTUDIO_SECURITY_BIN:-/usr/bin/security}\""))
+        #expect(script.contains("debug_signing_identity()"))
+        #expect(script.contains("AGENTSTUDIO_DEBUG_SIGNING_IDENTITY"))
+        #expect(script.contains("SIGNING_IDENTITY"))
+        #expect(script.contains("\"$SECURITY_BIN\" find-identity -v -p codesigning"))
+        #expect(script.contains("Developer ID Application"))
+        #expect(script.contains("codesign_debug_item()"))
+        #expect(script.contains("--options runtime"))
+        #expect(script.contains("--entitlements \"$entitlements\""))
+        #expect(script.contains("debug signing identity: $signing_identity"))
+        #expect(script.contains("debug signing identity: ad-hoc"))
+        #expect(script.contains("codesign_debug_item \"$app_dir/MacOS/zmx\" \"$signing_identity\" \"$entitlements\""))
+        #expect(script.contains("codesign_debug_item \"$app_path\" \"$signing_identity\" \"$entitlements\""))
+    }
+
     @Test("debug launcher rejects unsafe trace names before launch")
     func debugLauncherRejectsUnsafeTraceNamesBeforeLaunch() throws {
         let fixture = try LauncherScriptFixture()

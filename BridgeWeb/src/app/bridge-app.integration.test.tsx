@@ -967,6 +967,61 @@ describe('BridgeApp', () => {
 		);
 	});
 
+	test('clears stale review demand telemetry when the active package changes', async () => {
+		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
+		const reviewPackage = makeBridgeReviewPackage();
+		const replacementItem = makeBridgeReviewItem({
+			itemId: 'item-replacement',
+			path: 'Sources/App/Replacement.swift',
+		});
+		const replacementPackage: BridgeReviewPackage = {
+			...reviewPackage,
+			packageId: 'package-2',
+			revision: 2,
+			orderedItemIds: [replacementItem.itemId],
+			itemsById: { [replacementItem.itemId]: replacementItem },
+			summary: {
+				...reviewPackage.summary,
+				filesChanged: 1,
+				visibleFileCount: 1,
+			},
+		};
+		const requestedUrls: string[] = [];
+		const deferredReplacementFetch = createDeferred<Response>();
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeApp
+					fetchContent={async (url: string): Promise<Response> => {
+						requestedUrls.push(url);
+						return url.includes('item-replacement')
+							? deferredReplacementFetch.promise
+							: new Response('package one content');
+					}}
+				/>,
+			);
+		});
+
+		await pushReviewPackage(reviewPackage);
+		await waitForReviewShellAttribute('data-review-selected-demand-package-id', 'package-1');
+		expect(reviewShellAttribute('data-review-selected-demand-item-id')).toBe('item-source');
+
+		try {
+			await pushReviewPackage(replacementPackage);
+			await waitForRequestedUrl(requestedUrls, 'handle-item-replacement-head');
+			expect(reviewShellAttribute('data-review-package-id')).toBe('package-2');
+			expect(reviewShellAttribute('data-review-selected-demand-package-id')).not.toBe('package-1');
+			expect(reviewShellAttribute('data-review-selected-demand-item-id')).not.toBe('item-source');
+			expect(reviewShellAttribute('data-review-visible-demand-package-id')).not.toBe('package-1');
+			expect(reviewShellAttribute('data-review-visible-demand-item-id')).not.toBe('item-source');
+		} finally {
+			deferredReplacementFetch.resolve(new Response('package two content'));
+		}
+	});
+
 	test('accepted delta refreshes package parent for follow-on telemetry', async () => {
 		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
 		const reviewPackage = makeBridgeReviewPackage();
@@ -1809,7 +1864,8 @@ describe('BridgeApp', () => {
 			await waitForAnimationFrame();
 		});
 
-		await waitForRequestedUrl(requestedUrls, 'large-source-007-head');
+		await waitForSelectedItemId('large-source-007');
+		expect(selectedBridgeViewerPanelAttribute('data-selected-content-state')).toBe('ready');
 	});
 
 	test('standalone invalidate refetches targeted content without clearing descriptor authority', async () => {
@@ -3288,6 +3344,33 @@ function selectedBridgeViewerPanelAttribute(attributeName: string): string | nul
 		document.querySelector('[data-testid="bridge-code-view-panel"]')?.getAttribute(attributeName) ??
 		null
 	);
+}
+
+function reviewShellAttribute(attributeName: string): string | null {
+	return (
+		document.querySelector('[data-testid="review-viewer-shell"]')?.getAttribute(attributeName) ??
+		null
+	);
+}
+
+async function waitForReviewShellAttribute(
+	attributeName: string,
+	expectedValue: string,
+	remainingAttempts = 20,
+): Promise<void> {
+	if (reviewShellAttribute(attributeName) === expectedValue) {
+		return;
+	}
+	if (remainingAttempts <= 0) {
+		throw new Error(
+			`expected review shell ${attributeName}=${expectedValue}; actual=${
+				reviewShellAttribute(attributeName) ?? 'null'
+			}`,
+		);
+	}
+	await Promise.resolve();
+	await waitForAnimationFrame();
+	await waitForReviewShellAttribute(attributeName, expectedValue, remainingAttempts - 1);
 }
 
 async function waitForRenderedText(text: string, remainingAttempts = 20): Promise<void> {

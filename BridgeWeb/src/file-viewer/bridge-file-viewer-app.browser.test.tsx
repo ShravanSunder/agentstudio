@@ -1,3 +1,4 @@
+import { useState, type ReactElement } from 'react';
 import { describe, expect, test } from 'vitest';
 import { render } from 'vitest-browser-react';
 
@@ -234,7 +235,55 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		]);
 	});
 
-	test('preloads recently updated files from a provider event without opening the file', async () => {
+	test('ignores visible demand results that settle after Files becomes inactive', async () => {
+		const visibleDescriptor = makeFileDescriptor({
+			contentHandle: 'inactive-visible-content',
+			fileId: 'file-inactive-visible',
+			path: 'src/inactive-visible.ts',
+		});
+		const deferredContent = makeDeferredContent();
+		const fetchedResourceUrls: string[] = [];
+		let deactivateFiles: (() => void) | null = null;
+
+		function ControlledFileViewer(): ReactElement {
+			const [isActive, setIsActive] = useState(true);
+			deactivateFiles = (): void => {
+				setIsActive(false);
+			};
+			return (
+				<BridgeFileViewerApp
+					fetchResource={(props): Promise<string> => {
+						fetchedResourceUrls.push(props.resourceUrl);
+						return deferredContent.promise;
+					}}
+					initialFrames={makeFrames(visibleDescriptor)}
+					isActive={isActive}
+				/>
+			);
+		}
+
+		render(<ControlledFileViewer />);
+
+		await waitForRecordedFetchCount({
+			expectedCount: 1,
+			recordedFetches: fetchedResourceUrls,
+		});
+		const deactivate = requireDeactivateFiles(deactivateFiles);
+		deactivate();
+		await waitForBridgeViewerAnimationFrame();
+		deferredContent.resolve('export const inactiveVisible = true;\n');
+		await waitForBridgeViewerAnimationFrame();
+		await waitForBridgeViewerAnimationFrame();
+
+		const shell = requireBridgeViewerHTMLElement(
+			document.querySelector('[data-testid="bridge-file-viewer-shell"]'),
+		);
+		expect(shell.getAttribute('data-file-viewer-active')).toBe('false');
+		expect(shell.getAttribute('data-last-demand-dispatch-status')).toBe('idle');
+		expect(shell.getAttribute('data-last-demand-dispatch-first-lane')).toBeNull();
+	});
+
+	test('preloads recently updated files from a provider event without changing the open file', async () => {
 		const visibleDescriptor = makeFileDescriptor({
 			contentHandle: 'visible-content',
 			fileId: 'file-visible',
@@ -249,6 +298,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 
 		render(
 			<BridgeFileViewerApp
+				autoOpenInitialFile={true}
 				fetchResource={async (props): Promise<string> => {
 					fetchedResourceUrls.push(props.resourceUrl);
 					return props.resourceUrl.includes('recently-updated-content')
@@ -256,9 +306,12 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 						: 'export const visible = true;\n';
 				}}
 				initialFrames={makeFrames(visibleDescriptor, updatedDescriptor)}
+				navigationCommand={fileNavigationCommandForPath('src/visible.ts')}
 			/>,
 		);
 
+		await waitForOpenFileState('ready');
+		expect(openFilePath()).toBe('src/visible.ts');
 		await waitForDemandDispatchState('settled');
 		window.dispatchEvent(
 			new CustomEvent('bridge-worktree-file-recently-updated', {
@@ -285,18 +338,29 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		expect(shell.getAttribute('data-last-demand-dispatch-first-freshness-key')).toContain(
 			'recently-updated-content',
 		);
-		expect(openFileState()).toBeNull();
-		expect(openFilePath()).toBeNull();
+		expect(shell.getAttribute('data-last-demand-dispatch-open-file-path-before')).toBe(
+			'src/visible.ts',
+		);
+		expect(shell.getAttribute('data-last-demand-dispatch-open-file-path-after')).toBe(
+			'src/visible.ts',
+		);
+		expect(openFileState()).toBe('ready');
+		expect(openFilePath()).toBe('src/visible.ts');
 		expect(fetchedResourceUrls).toContain(
 			'agentstudio://resource/worktree-file/worktree.fileContent/recently-updated-content?generation=1',
 		);
 	});
 
 	test('ignores stale visible demand batch results after a newer source reset dispatch settles', async () => {
-		const oldDescriptor = makeFileDescriptor({
-			contentHandle: 'old-delayed-content',
-			fileId: 'file-old-delayed',
-			path: 'src/old-delayed.ts',
+		const oldFirstDescriptor = makeFileDescriptor({
+			contentHandle: 'old-first-delayed-content',
+			fileId: 'file-old-first-delayed',
+			path: 'src/old-first-delayed.ts',
+		});
+		const oldSecondDescriptor = makeFileDescriptor({
+			contentHandle: 'old-second-delayed-content',
+			fileId: 'file-old-second-delayed',
+			path: 'src/old-second-delayed.ts',
 		});
 		const resetSourceIdentity = makeSourceIdentity({
 			subscriptionGeneration: 2,
@@ -325,11 +389,11 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			<BridgeFileViewerApp
 				fetchResource={(props): Promise<string> => {
 					fetchedResourceUrls.push(props.resourceUrl);
-					return props.resourceUrl.includes('old-delayed-content')
+					return props.resourceUrl.includes('old-')
 						? oldDeferredContent.promise
 						: newDeferredContent.promise;
 				}}
-				initialFrames={makeFrames(oldDescriptor)}
+				initialFrames={makeFrames(oldFirstDescriptor, oldSecondDescriptor)}
 				subscribeFrames={(handler): (() => void) => {
 					publishFrames = handler;
 					return (): void => {
@@ -340,18 +404,19 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		);
 
 		await waitForRecordedFetchCount({
-			expectedCount: 1,
+			expectedCount: 2,
 			recordedFetches: fetchedResourceUrls,
 		});
+		oldDeferredContent.resolve('export const old = true;\n');
+		await waitForDemandDispatchFirstFreshnessKeyContaining('old-first-delayed-content');
 		const publishRequiredFrames = requireFramePublisher(publishFrames);
 		publishRequiredFrames(makeResetFrames(newFirstDescriptor, newSecondDescriptor));
 		await waitForRecordedFetchCount({
-			expectedCount: 3,
+			expectedCount: 4,
 			recordedFetches: fetchedResourceUrls,
 		});
 		newDeferredContent.resolve('export const fresh = true;\n');
 		await waitForDemandDispatchLoadedCount('2');
-		oldDeferredContent.resolve('export const old = true;\n');
 		await waitForBridgeViewerAnimationFrame();
 		await waitForBridgeViewerAnimationFrame();
 
@@ -361,6 +426,20 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		expect(shell.getAttribute('data-last-demand-dispatch-intent-count')).toBe('2');
 		expect(shell.getAttribute('data-last-demand-dispatch-loaded-count')).toBe('2');
 		expect(shell.getAttribute('data-last-demand-dispatch-failed-count')).toBe('0');
+		expect(shell.getAttribute('data-last-demand-dispatch-origin')).toBe('visibleViewport');
+		expect(shell.getAttribute('data-last-demand-dispatch-expected-visible-file-count')).toBe('2');
+		expect(shell.getAttribute('data-last-demand-dispatch-first-dedupe-key')).toContain(
+			'new-first-content',
+		);
+		expect(shell.getAttribute('data-last-demand-dispatch-first-freshness-key')).toContain(
+			'new-first-content',
+		);
+		expect(shell.getAttribute('data-last-demand-dispatch-first-dedupe-key')).not.toContain(
+			'old-first-delayed-content',
+		);
+		expect(shell.getAttribute('data-last-demand-dispatch-first-freshness-key')).not.toContain(
+			'old-first-delayed-content',
+		);
 	});
 });
 
@@ -547,6 +626,13 @@ function requireFramePublisher(
 	return publisher;
 }
 
+function requireDeactivateFiles(deactivateFiles: (() => void) | null): () => void {
+	if (deactivateFiles === null) {
+		throw new Error('Controlled FileViewer did not publish its deactivate callback.');
+	}
+	return deactivateFiles;
+}
+
 async function waitForOpenFileState(expectedState: string): Promise<void> {
 	await waitForOpenFileStateAttempt({ attempt: 0, expectedState });
 }
@@ -669,6 +755,39 @@ async function waitForDemandDispatchFirstLaneAttempt(props: {
 	await waitForDemandDispatchFirstLaneAttempt({
 		attempt: props.attempt + 1,
 		expectedFirstLane: props.expectedFirstLane,
+	});
+}
+
+async function waitForDemandDispatchFirstFreshnessKeyContaining(
+	expectedContentHandle: string,
+): Promise<void> {
+	await waitForDemandDispatchFirstFreshnessKeyContainingAttempt({
+		attempt: 0,
+		expectedContentHandle,
+	});
+}
+
+async function waitForDemandDispatchFirstFreshnessKeyContainingAttempt(props: {
+	readonly attempt: number;
+	readonly expectedContentHandle: string;
+}): Promise<void> {
+	const shell = document.querySelector('[data-testid="bridge-file-viewer-shell"]');
+	const actualFirstFreshnessKey =
+		shell?.getAttribute('data-last-demand-dispatch-first-freshness-key') ?? null;
+	if (actualFirstFreshnessKey?.includes(props.expectedContentHandle) === true) {
+		return;
+	}
+	if (props.attempt >= 60) {
+		throw new Error(
+			`Expected demand dispatch first freshness key to include ${
+				props.expectedContentHandle
+			}; actual=${actualFirstFreshnessKey ?? 'missing'}`,
+		);
+	}
+	await waitForBridgeViewerAnimationFrame();
+	await waitForDemandDispatchFirstFreshnessKeyContainingAttempt({
+		attempt: props.attempt + 1,
+		expectedContentHandle: props.expectedContentHandle,
 	});
 }
 

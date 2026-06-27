@@ -269,6 +269,9 @@ describe('review viewer shell', () => {
 				onSelectItem: () => undefined,
 				lastVisibleDemandTelemetry: {
 					itemId: 'item-source',
+					packageId: reviewPackage.packageId,
+					reviewGeneration: reviewPackage.reviewGeneration,
+					revision: reviewPackage.revision,
 					interest: 'visible',
 					byteBudgetSource: 'review-content-demand',
 					configuredExecutorMaxConcurrentLoads: 8,
@@ -325,6 +328,17 @@ describe('review viewer shell', () => {
 
 		expect(shell?.props['data-review-visible-demand-foreground-intent-count']).toBe(0);
 		expect(shell?.props['data-review-visible-demand-visible-intent-count']).toBe(1);
+		expect(shell?.props['data-review-visible-demand-item-id']).toBe('item-source');
+		expect(shell?.props['data-review-visible-demand-package-id']).toBe(reviewPackage.packageId);
+		expect(shell?.props['data-review-visible-demand-package-generation']).toBe(
+			reviewPackage.reviewGeneration,
+		);
+		expect(shell?.props['data-review-visible-demand-package-revision']).toBe(
+			reviewPackage.revision,
+		);
+		expect(shell?.props['data-review-package-id']).toBe(reviewPackage.packageId);
+		expect(shell?.props['data-review-package-generation']).toBe(reviewPackage.reviewGeneration);
+		expect(shell?.props['data-review-package-revision']).toBe(reviewPackage.revision);
 	});
 
 	test('renders selected markdown preview in the code canvas when worker output is ready', () => {
@@ -472,7 +486,14 @@ interface TestElementProps {
 	readonly 'data-bridge-shared-rail-toolbar'?: string;
 	readonly 'data-bridge-segmented-control'?: string;
 	readonly 'data-review-visible-demand-foreground-intent-count'?: number;
+	readonly 'data-review-visible-demand-item-id'?: string;
+	readonly 'data-review-visible-demand-package-id'?: string;
+	readonly 'data-review-visible-demand-package-generation'?: number;
+	readonly 'data-review-visible-demand-package-revision'?: number;
 	readonly 'data-review-visible-demand-visible-intent-count'?: number;
+	readonly 'data-review-package-id'?: string;
+	readonly 'data-review-package-generation'?: number;
+	readonly 'data-review-package-revision'?: number;
 	readonly 'data-selected-content-state'?: string;
 	readonly 'data-selected-display-path'?: string;
 	readonly 'data-sidebar-position'?: string;

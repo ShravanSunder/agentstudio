@@ -55,6 +55,9 @@ export type ReviewContentDemandLoadResult =
 
 export interface ReviewContentDemandTelemetry {
 	readonly itemId: string;
+	readonly packageId: string;
+	readonly reviewGeneration: number;
+	readonly revision: number;
 	readonly interest: ReviewContentDemandInterest;
 	readonly byteBudgetSource: 'review-content-demand';
 	readonly configuredExecutorMaxConcurrentLoads: number;
@@ -132,6 +135,9 @@ type LoadedReviewContentDemandSettledResult =
 
 function newReviewContentDemandTelemetryBuilder(props: {
 	readonly itemId: string;
+	readonly packageId: string;
+	readonly reviewGeneration: number;
+	readonly revision: number;
 	readonly interest: ReviewContentDemandInterest;
 	readonly intents: readonly BridgeDemandIntent[];
 	readonly scheduler: BridgeDemandScheduler;
@@ -237,6 +243,9 @@ function newReviewContentDemandTelemetryBuilder(props: {
 		build(): ReviewContentDemandTelemetry {
 			return {
 				itemId: props.itemId,
+				packageId: props.packageId,
+				reviewGeneration: props.reviewGeneration,
+				revision: props.revision,
 				interest: props.interest,
 				byteBudgetSource: 'review-content-demand',
 				configuredExecutorMaxConcurrentLoads: props.executor.maxConcurrentLoads,
@@ -390,6 +399,9 @@ export async function loadReviewItemContentResourcesThroughDemandResult(
 	);
 	const telemetryBuilder = newReviewContentDemandTelemetryBuilder({
 		itemId: props.itemId,
+		packageId: props.reviewPackage.packageId,
+		reviewGeneration: props.reviewPackage.reviewGeneration,
+		revision: props.reviewPackage.revision,
 		interest: props.interest,
 		intents,
 		scheduler: props.scheduler,
@@ -410,12 +422,16 @@ export async function loadReviewItemContentResourcesThroughDemandResult(
 			for (const acceptedIntent of intents.slice(0, intents.indexOf(intent))) {
 				props.scheduler.cancelGroup(acceptedIntent.cancellationGroup);
 			}
+			const result: ReviewContentDemandLoadResult =
+				enqueueResult.reason === 'queued_byte_limit_exceeded'
+					? { status: 'failed', reason: 'byte_budget_exceeded' }
+					: { status: 'deferred', reason: 'concurrency_exceeded' };
 			telemetryBuilder.recordCompletion({
-				result: { status: 'deferred', reason: 'concurrency_exceeded' },
+				result,
 				loadedResults: [],
 			});
 			props.onDemandTelemetry?.(telemetryBuilder.build());
-			return { status: 'deferred', reason: 'concurrency_exceeded' };
+			return result;
 		}
 		telemetryBuilder.recordAcceptedEnqueue({
 			droppedLowerPriorityCount: enqueueResult.droppedLowerPriorityCount ?? 0,

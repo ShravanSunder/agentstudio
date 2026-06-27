@@ -64,8 +64,13 @@ struct AgentStudioGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider {
         statusReader: @escaping AgentStudioGitStatusReader
     ) async -> GitWorkingTreeStatusResult {
         let readKey = AgentStudioGitActiveStatusReadKey(rootPath)
-        guard activeReadRegistry.start(readKey) else {
+        switch activeReadRegistry.start(readKey) {
+        case .started:
+            break
+        case .sameRootAlreadyInFlight:
             return .unavailable(GitWorkingTreeStatusUnavailable(reason: .readAlreadyInFlight))
+        case .capacityExceeded:
+            return .unavailable(GitWorkingTreeStatusUnavailable(reason: .readCapacityExceeded))
         }
         do {
             let snapshot = try await readWithHardTimeout(timeout, timeoutScheduler: timeoutScheduler) {
@@ -255,14 +260,28 @@ struct AgentStudioGitActiveStatusReadKey: Hashable, Sendable {
 
 final class AgentStudioGitActiveStatusReadRegistry: @unchecked Sendable {
     private let lock = NSLock()
+    private let maxActiveReadCount: Int
     private var activeReadKeys: Set<AgentStudioGitActiveStatusReadKey> = []
     private var inactiveWaiters: [AgentStudioGitActiveStatusReadKey: [CheckedContinuation<Void, Never>]] = [:]
 
-    func start(_ key: AgentStudioGitActiveStatusReadKey) -> Bool {
+    init(maxActiveReadCount: Int = AppPolicies.GitRefresh.defaultDetachedStatusReadLimit) {
+        precondition(maxActiveReadCount > 0)
+        self.maxActiveReadCount = maxActiveReadCount
+    }
+
+    func start(_ key: AgentStudioGitActiveStatusReadKey) -> AgentStudioGitActiveStatusReadStartResult {
         lock.lock()
-        let inserted = activeReadKeys.insert(key).inserted
+        if activeReadKeys.contains(key) {
+            lock.unlock()
+            return .sameRootAlreadyInFlight
+        }
+        guard activeReadKeys.count < maxActiveReadCount else {
+            lock.unlock()
+            return .capacityExceeded
+        }
+        activeReadKeys.insert(key)
         lock.unlock()
-        return inserted
+        return .started
     }
 
     func finish(_ key: AgentStudioGitActiveStatusReadKey) {
@@ -289,6 +308,12 @@ final class AgentStudioGitActiveStatusReadRegistry: @unchecked Sendable {
             lock.unlock()
         }
     }
+}
+
+enum AgentStudioGitActiveStatusReadStartResult: Equatable, Sendable {
+    case started
+    case sameRootAlreadyInFlight
+    case capacityExceeded
 }
 
 protocol AgentStudioGitStatusTimeoutScheduler: Sendable {

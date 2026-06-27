@@ -175,37 +175,22 @@ final class BridgePaneController {
             name: "rpc"
         )
 
-        // Bootstrap script — installs __bridgeInternal relay in bridge world,
-        // sets up nonce-validated command forwarding, and dispatches handshake event.
-        let bridgeNonce = UUID().uuidString
-        let pushNonce = UUID().uuidString
-        let reviewPaneId = paneId.uuidString
-        let reviewStreamId = "review:\(reviewPaneId)"
-        self.pushNonce = pushNonce
-        self.pushEnvelopeSink = pushEnvelopeSink
-        self.intakeFrameSink = intakeFrameSink
-        let webTelemetryScopes = resolvedTelemetryScopeGate.browserExposedScopes
-        let telemetryConfig =
-            !webTelemetryScopes.isEmpty
-            ? BridgeTelemetryBootstrapConfig.enabled(
-                scopes: webTelemetryScopes,
-                scenario: BridgeTelemetryBootstrapConfig.packageApplyContentFetchScenario
-            )
-            : nil
-        let bootstrapScript = Self.makeBootstrapScript(
-            bridgeNonce: bridgeNonce,
-            pushNonce: pushNonce,
-            reviewPaneId: reviewPaneId,
-            reviewStreamId: reviewStreamId,
-            telemetryConfig: telemetryConfig,
+        let bootstrapArtifacts = Self.makeBootstrapArtifacts(
+            paneId: paneId,
+            metadata: resolvedMetadata,
+            source: bridgePaneState.source,
+            telemetryScopeGate: resolvedTelemetryScopeGate,
             bridgeWorld: bridgeWorld
         )
-        self.bootstrapScript = bootstrapScript
-        userContentController.addUserScript(bootstrapScript)
-        #if DEBUG
-            userContentController.addUserScript(Self.makePageDiagnosticsProbeScript())
-        #endif
-        userContentController.addUserScript(initialManagementScript)
+        self.pushNonce = bootstrapArtifacts.pushNonce
+        self.pushEnvelopeSink = pushEnvelopeSink
+        self.intakeFrameSink = intakeFrameSink
+        self.bootstrapScript = bootstrapArtifacts.script
+        Self.installInitialUserScripts(
+            in: userContentController,
+            bootstrapScript: bootstrapArtifacts.script,
+            managementScript: initialManagementScript
+        )
 
         Self.registerAgentStudioSchemeHandler(
             in: &config,
@@ -240,76 +225,6 @@ final class BridgePaneController {
         runtime.commandHandler = self
 
         registerNamespaceHandlers()
-    }
-
-    private static func registerAgentStudioSchemeHandler(
-        in config: inout WebPage.Configuration,
-        paneId: UUID,
-        reviewContentStore: BridgeContentStore,
-        worktreeFileResourceStore: BridgeWorktreeFileResourceStore,
-        resourceLeaseRegistry: BridgeTransportResourceLeaseRegistry,
-        telemetryRecorder: (any BridgePerformanceTraceRecording)?
-    ) {
-        guard let scheme = URLScheme("agentstudio") else { return }
-        config.urlSchemeHandlers[scheme] = BridgeSchemeHandler(
-            paneId: paneId,
-            contentStore: reviewContentStore,
-            worktreeFileResourceStore: worktreeFileResourceStore,
-            resourceLeaseRegistry: resourceLeaseRegistry,
-            allowedResourceKindsByProtocol: BridgeResourceProtocolRegistry.reviewViewerAllowedResourceKinds,
-            telemetryRecorder: telemetryRecorder
-        )
-    }
-
-    private nonisolated static func resolveTelemetryDependencies(
-        traceRuntime: AgentStudioTraceRuntime?,
-        telemetryRuntimePolicy: BridgeTelemetryRuntimePolicy,
-        telemetryScopeGate: BridgeTelemetryScopeGate?,
-        telemetryRecorder: (any BridgePerformanceTraceRecording)?,
-        telemetryIngestor: (any BridgeTelemetryBatchIngesting)?
-    ) -> (
-        scopeGate: BridgeTelemetryScopeGate,
-        recorder: (any BridgePerformanceTraceRecording)?,
-        ingestor: (any BridgeTelemetryBatchIngesting)?
-    ) {
-        guard telemetryRuntimePolicy.allowsTelemetry else {
-            return (BridgeTelemetryScopeGate(enabledScopes: []), nil, nil)
-        }
-
-        let resolvedScopeGate = telemetryScopeGate ?? BridgeTelemetryScopeGate(traceRuntime: traceRuntime)
-        let resolvedRecorder =
-            telemetryRecorder
-            ?? (resolvedScopeGate.isEnabled ? BridgePerformanceTraceRecorder(traceRuntime: traceRuntime) : nil)
-        let resolvedIngestor =
-            resolvedScopeGate.isEnabled(.web)
-            ? (telemetryIngestor
-                ?? resolvedRecorder.map {
-                    BridgeTelemetryIngestor(scopeGate: resolvedScopeGate, recorder: $0)
-                })
-            : nil
-        return (resolvedScopeGate, resolvedRecorder, resolvedIngestor)
-    }
-
-    private static func makeBootstrapScript(
-        bridgeNonce: String,
-        pushNonce: String,
-        reviewPaneId: String,
-        reviewStreamId: String,
-        telemetryConfig: BridgeTelemetryBootstrapConfig?,
-        bridgeWorld: WKContentWorld
-    ) -> WKUserScript {
-        WKUserScript(
-            source: BridgeBootstrap.generateScript(
-                bridgeNonce: bridgeNonce,
-                pushNonce: pushNonce,
-                reviewPaneId: reviewPaneId,
-                reviewStreamId: reviewStreamId,
-                telemetryConfig: telemetryConfig
-            ),
-            injectionTime: .atDocumentStart,
-            forMainFrameOnly: true,
-            in: bridgeWorld
-        )
     }
 
     private func configureRouter(
@@ -859,7 +774,7 @@ final class BridgePaneController {
     }
 
     #if DEBUG
-        private static func makePageDiagnosticsProbeScript() -> WKUserScript {
+        static func makePageDiagnosticsProbeScript() -> WKUserScript {
             WKUserScript(
                 source: """
                     (() => {

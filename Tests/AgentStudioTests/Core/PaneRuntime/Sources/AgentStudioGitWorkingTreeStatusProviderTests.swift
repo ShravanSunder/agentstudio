@@ -351,6 +351,63 @@ struct AgentStudioGitWorkingTreeStatusProviderTests {
         #expect(await tracker.startedCount() == 1)
     }
 
+    @Test("timed out SDK reads across roots respect global detached read limit")
+    func timedOutSDKReadsAcrossRootsRespectGlobalDetachedReadLimit() async throws {
+        let firstRootPath = URL(fileURLWithPath: "/tmp/noncooperative-slow-repo-1")
+        let secondRootPath = URL(fileURLWithPath: "/tmp/noncooperative-slow-repo-2")
+        let thirdRootPath = URL(fileURLWithPath: "/tmp/noncooperative-slow-repo-3")
+        let gate = StatusReadGate()
+        let tracker = StatusReadTracker()
+        let timeoutScheduler = ManualStatusTimeoutScheduler()
+        let activeReadRegistry = AgentStudioGitActiveStatusReadRegistry(maxActiveReadCount: 2)
+        let provider = AgentStudioGitWorkingTreeStatusProvider(
+            timeout: .seconds(999),
+            timeoutScheduler: timeoutScheduler,
+            activeReadRegistry: activeReadRegistry
+        ) { _, _ in
+            await tracker.recordStarted()
+            await gate.waitUntilReleased()
+            await tracker.recordFinished()
+            return makeSnapshot()
+        }
+
+        let firstRead = Task {
+            await provider.statusResult(for: firstRootPath)
+        }
+        let secondRead = Task {
+            await provider.statusResult(for: secondRootPath)
+        }
+        await tracker.waitForStartedCount(2)
+        await timeoutScheduler.waitUntilScheduledCount(2)
+        timeoutScheduler.fireScheduledTimeout()
+        timeoutScheduler.fireScheduledTimeout()
+        let firstResult = await firstRead.value
+        let secondResult = await secondRead.value
+
+        let overCapacityResult = await provider.statusResult(for: thirdRootPath)
+        let startCountWhileDetachedReadsAreGated = await tracker.startedCount()
+
+        await gate.release()
+        await tracker.waitForFinishedCount(2)
+
+        guard case .unavailable(let firstUnavailable) = firstResult else {
+            Issue.record("expected first result to time out, got \(firstResult)")
+            return
+        }
+        guard case .unavailable(let secondUnavailable) = secondResult else {
+            Issue.record("expected second result to time out, got \(secondResult)")
+            return
+        }
+        guard case .unavailable(let overCapacityUnavailable) = overCapacityResult else {
+            Issue.record("expected third result to be unavailable, got \(overCapacityResult)")
+            return
+        }
+        #expect(firstUnavailable.reason == .timeout)
+        #expect(secondUnavailable.reason == .timeout)
+        #expect(overCapacityUnavailable.reason == .readCapacityExceeded)
+        #expect(startCountWhileDetachedReadsAreGated == 2)
+    }
+
     @Test("successful SDK read leaves root immediately available for another read")
     func successfulSDKReadLeavesRootImmediatelyAvailableForAnotherRead() async throws {
         let rootPath = URL(fileURLWithPath: "/tmp/successful-read-recovery-repo")
@@ -488,7 +545,7 @@ private final class ManualStatusTimeoutScheduler: AgentStudioGitStatusTimeoutSch
     private let lock = NSLock()
     private var nextId = 0
     private var scheduledTimeouts: [ScheduledTimeout] = []
-    private var scheduleWaiters: [CheckedContinuation<Void, Never>] = []
+    private var scheduleWaiters: [(minimumCount: Int, continuation: CheckedContinuation<Void, Never>)] = []
 
     func scheduleTimeout(
         after _: Duration,
@@ -500,8 +557,11 @@ private final class ManualStatusTimeoutScheduler: AgentStudioGitStatusTimeoutSch
         id = nextId
         nextId += 1
         scheduledTimeouts.append(ScheduledTimeout(id: id, handler: handler))
-        waiters = scheduleWaiters
-        scheduleWaiters.removeAll(keepingCapacity: false)
+        waiters =
+            scheduleWaiters
+            .filter { $0.minimumCount <= scheduledTimeouts.count }
+            .map(\.continuation)
+        scheduleWaiters.removeAll { $0.minimumCount <= scheduledTimeouts.count }
         lock.unlock()
 
         for waiter in waiters {
@@ -523,6 +583,16 @@ private final class ManualStatusTimeoutScheduler: AgentStudioGitStatusTimeoutSch
         }
     }
 
+    func waitUntilScheduledCount(_ count: Int) async {
+        guard scheduledTimeoutCount() < count else { return }
+
+        await withCheckedContinuation { continuation in
+            if !appendScheduleWaiterIfNeeded(continuation, minimumCount: count) {
+                continuation.resume()
+            }
+        }
+    }
+
     func fireScheduledTimeout() {
         let scheduledTimeout: ScheduledTimeout?
         lock.lock()
@@ -539,19 +609,26 @@ private final class ManualStatusTimeoutScheduler: AgentStudioGitStatusTimeoutSch
     }
 
     private func hasScheduledTimeouts() -> Bool {
+        scheduledTimeoutCount() > 0
+    }
+
+    private func scheduledTimeoutCount() -> Int {
         lock.lock()
-        let result = !scheduledTimeouts.isEmpty
+        let result = scheduledTimeouts.count
         lock.unlock()
         return result
     }
 
-    private func appendScheduleWaiterIfNeeded(_ waiter: CheckedContinuation<Void, Never>) -> Bool {
+    private func appendScheduleWaiterIfNeeded(
+        _ waiter: CheckedContinuation<Void, Never>,
+        minimumCount: Int = 1
+    ) -> Bool {
         lock.lock()
-        guard scheduledTimeouts.isEmpty else {
+        guard scheduledTimeouts.count < minimumCount else {
             lock.unlock()
             return false
         }
-        scheduleWaiters.append(waiter)
+        scheduleWaiters.append((minimumCount: minimumCount, continuation: waiter))
         lock.unlock()
         return true
     }
@@ -612,10 +689,16 @@ private actor StatusReadGate {
 private actor StatusReadTracker {
     private var startCount = 0
     private var finishCount = 0
+    private var startWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
     private var finishWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
 
     func recordStarted() {
         startCount += 1
+        let readyWaiters = startWaiters.filter { $0.count <= startCount }
+        startWaiters.removeAll { $0.count <= startCount }
+        for waiter in readyWaiters {
+            waiter.continuation.resume()
+        }
     }
 
     func recordFinished() {
@@ -629,6 +712,13 @@ private actor StatusReadTracker {
 
     func startedCount() -> Int {
         startCount
+    }
+
+    func waitForStartedCount(_ count: Int) async {
+        guard startCount < count else { return }
+        await withCheckedContinuation { continuation in
+            startWaiters.append((count: count, continuation: continuation))
+        }
     }
 
     func waitForFinishedCount(_ count: Int) async {

@@ -35,6 +35,7 @@ extension BridgePaneController {
         let result = IPCBridgeReviewPackageResult(
             paneId: paneId,
             status: paneState.diff.status.rawValue,
+            error: paneState.diff.error,
             selectedItemId: selectedReviewItemId,
             package: paneState.diff.packageMetadata.map(ipcPackage)
         )

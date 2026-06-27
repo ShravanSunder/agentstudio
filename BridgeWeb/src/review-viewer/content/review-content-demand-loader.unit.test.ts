@@ -95,7 +95,7 @@ describe('review content demand loader', () => {
 		const result = await loadReviewItemContentResourcesThroughDemandResult({
 			reviewPackage,
 			itemId: 'item-source',
-			interest: 'visible',
+			interest: 'selected',
 			resolveDescriptorRef: (handle: BridgeContentHandle): BridgeDescriptorRef | null =>
 				registeredDescriptorsByHandleId.get(handle.handleId)?.ref ?? null,
 			scheduler: createBridgeDemandScheduler({
@@ -115,7 +115,7 @@ describe('review content demand loader', () => {
 			expect.arrayContaining([
 				expect.objectContaining({
 					stringAttributes: expect.objectContaining({
-						'agentstudio.bridge.content.interest': 'visible',
+						'agentstudio.bridge.content.interest': 'selected',
 						'agentstudio.bridge.result': 'success',
 						'agentstudio.bridge.result_reason': 'none',
 					}),
@@ -167,6 +167,9 @@ describe('review content demand loader', () => {
 		expect(pressureSamples).toEqual([
 			expect.objectContaining({
 				itemId: 'item-source',
+				packageId: reviewPackage.packageId,
+				reviewGeneration: reviewPackage.reviewGeneration,
+				revision: reviewPackage.revision,
 				interest: 'selected',
 				foregroundIntentCount: 2,
 				visibleIntentCount: 0,
@@ -224,7 +227,7 @@ describe('review content demand loader', () => {
 		const result = await loadReviewItemContentResourcesThroughDemandResult({
 			reviewPackage,
 			itemId: 'item-source',
-			interest: 'selected',
+			interest: 'visible',
 			resolveDescriptorRef: (handle: BridgeContentHandle): BridgeDescriptorRef | null =>
 				registeredDescriptorsByHandleId.get(handle.handleId)?.ref ?? null,
 			scheduler,
@@ -235,7 +238,7 @@ describe('review content demand loader', () => {
 		expect(scheduler.dequeueNext()).toEqual(unrelatedIntent);
 	});
 
-	test('loads two-sided content when each role fits executor budget but combined role bytes exceed scheduler cap', async () => {
+	test('returns byte-budget failure when combined role bytes exceed scheduler queued-byte cap', async () => {
 		const registry = createBridgeResourceDescriptorRegistry({
 			allowedResourceKindsByProtocol: { review: new Set(['content']) },
 		});
@@ -263,7 +266,7 @@ describe('review content demand loader', () => {
 		const result = await loadReviewItemContentResourcesThroughDemandResult({
 			reviewPackage,
 			itemId: 'item-source',
-			interest: 'selected',
+			interest: 'visible',
 			resolveDescriptorRef: (handle: BridgeContentHandle): BridgeDescriptorRef | null =>
 				registeredDescriptorsByHandleId.get(handle.handleId)?.ref ?? null,
 			scheduler: createBridgeDemandScheduler({
@@ -274,16 +277,10 @@ describe('review content demand loader', () => {
 		});
 
 		expect(result).toMatchObject({
-			status: 'ready',
-			resources: {
-				base: { text: 'large base' },
-				head: { text: 'large head' },
-			},
+			status: 'failed',
+			reason: 'byte_budget_exceeded',
 		});
-		expect(requestedDescriptorIds).toEqual([
-			'descriptor-handle-item-source-base',
-			'descriptor-handle-item-source-head',
-		]);
+		expect(requestedDescriptorIds).toEqual([]);
 	});
 
 	test('fails closed when a handle has no accepted descriptor ref', async () => {
@@ -487,7 +484,7 @@ describe('review content demand loader', () => {
 		const result = await loadReviewItemContentResourcesThroughDemandResult({
 			reviewPackage,
 			itemId: 'item-source',
-			interest: 'selected',
+			interest: 'visible',
 			resolveDescriptorRef: (handle: BridgeContentHandle): BridgeDescriptorRef | null =>
 				registeredDescriptorsByHandleId.get(handle.handleId)?.ref ?? null,
 			scheduler,
@@ -507,6 +504,57 @@ describe('review content demand loader', () => {
 		expect(result).toEqual({ status: 'deferred', reason: 'concurrency_exceeded' });
 		expect(fetchCount).toBe(0);
 		expect(scheduler.queuedIntentCount).toBe(0);
+	});
+
+	test('returns byte-budget failure when scheduler rejects a role by queued byte limit', async () => {
+		const registry = createBridgeResourceDescriptorRegistry({
+			allowedResourceKindsByProtocol: { review: new Set(['content']) },
+		});
+		const reviewPackage = makeBridgeReviewPackageWithContentRoleBytes(2048);
+		const registeredDescriptorsByHandleId = registerPackageContentDescriptors({
+			registry,
+			reviewPackage,
+		});
+		let fetchCount = 0;
+		const pressureSamples: unknown[] = [];
+		const scheduler = createBridgeDemandScheduler({
+			maxQueuedIntentsPerLane: 8,
+			maxQueuedEstimatedBytes: 1024,
+		});
+
+		const result = await loadReviewItemContentResourcesThroughDemandResult({
+			reviewPackage,
+			itemId: 'item-source',
+			interest: 'visible',
+			resolveDescriptorRef: (handle: BridgeContentHandle): BridgeDescriptorRef | null =>
+				registeredDescriptorsByHandleId.get(handle.handleId)?.ref ?? null,
+			scheduler,
+			executor: createBridgeResourceExecutor<string>({
+				registry,
+				maxConcurrentLoads: 2,
+				maxInFlightBytes: 4096,
+				maxQueuedLoads: 8,
+				maxQueuedBytes: 4096,
+				loadResource: async () => {
+					fetchCount += 1;
+					return { body: 'must not load after byte-budget rejection', byteLength: 48 };
+				},
+			}),
+			onDemandTelemetry: (sample: unknown): void => {
+				pressureSamples.push(sample);
+			},
+		});
+
+		expect(result).toEqual({ status: 'failed', reason: 'byte_budget_exceeded' });
+		expect(fetchCount).toBe(0);
+		expect(scheduler.queuedIntentCount).toBe(0);
+		expect(pressureSamples).toEqual([
+			expect.objectContaining({
+				enqueueAcceptedCount: 0,
+				enqueueRejectedCount: 1,
+				droppedEstimatedBytesByLane: expect.objectContaining({ visible: 2048 }),
+			}),
+		]);
 	});
 
 	test('propagates external aborts into executor demand cancellation', async () => {

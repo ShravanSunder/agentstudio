@@ -13,6 +13,7 @@ extension WebKitSerializedTests {
 
         @Test("source backed controller can load its initial review package")
         func sourceBackedControllerCanLoadInitialReviewPackage() async throws {
+            let repoId = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
             let worktreeId = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
             let provider = BridgeReviewSourceProviderFake(
                 comparison: BridgeEndpointComparison(
@@ -32,6 +33,7 @@ extension WebKitSerializedTests {
             )
             let controller = makeController(
                 source: .workspace(rootPath: "/tmp/worktree", baseline: .unstaged),
+                repoId: repoId,
                 worktreeId: worktreeId,
                 provider: provider
             )
@@ -44,8 +46,16 @@ extension WebKitSerializedTests {
                 return
             }
             #expect(controller.paneState.diff.status == .ready)
+            #expect(controller.paneState.diff.packageMetadata?.query.repoId == repoId)
             #expect(controller.paneState.diff.packageMetadata?.query.worktreeId == worktreeId)
             #expect(controller.paneState.diff.packageMetadata?.orderedItemIds == ["item-source"])
+            let request = try #require(await provider.recordedComparisonRequests().first)
+            #expect(request.query.repoId == repoId)
+            #expect(request.query.worktreeId == worktreeId)
+            #expect(request.baseEndpoint.repoId == repoId)
+            #expect(request.baseEndpoint.worktreeId == worktreeId)
+            #expect(request.headEndpoint.repoId == repoId)
+            #expect(request.headEndpoint.worktreeId == worktreeId)
             #expect(await provider.recordedContentRequestsCount() == 0)
         }
 
@@ -83,9 +93,16 @@ extension WebKitSerializedTests {
                     expectedLabel: "v1.2.3",
                     expectedProviderIdentity: "v1.2.3"
                 ),
+                Case(
+                    baseline: .ref(name: "HEAD"),
+                    expectedEndpointId: "baseline-ref-HEAD",
+                    expectedLabel: "HEAD",
+                    expectedProviderIdentity: "HEAD"
+                ),
             ]
 
             for testCase in cases {
+                let repoId = UUIDv7.generate()
                 let worktreeId = UUIDv7.generate()
                 let provider = BridgeReviewSourceProviderFake(
                     comparison: BridgeEndpointComparison(
@@ -103,6 +120,7 @@ extension WebKitSerializedTests {
                 )
                 let controller = makeController(
                     source: .workspace(rootPath: "/tmp/worktree", baseline: testCase.baseline),
+                    repoId: repoId,
                     worktreeId: worktreeId,
                     provider: provider
                 )
@@ -120,10 +138,123 @@ extension WebKitSerializedTests {
                 #expect(request.baseEndpoint.kind == .gitRef)
                 #expect(request.baseEndpoint.label == testCase.expectedLabel)
                 #expect(request.baseEndpoint.providerIdentity == testCase.expectedProviderIdentity)
+                #expect(request.baseEndpoint.repoId == repoId)
+                #expect(request.baseEndpoint.worktreeId == worktreeId)
                 #expect(request.headEndpoint.kind == .workingTree)
                 #expect(request.headEndpoint.label == "Working tree")
+                #expect(request.headEndpoint.repoId == repoId)
+                #expect(request.headEndpoint.worktreeId == worktreeId)
+                #expect(request.query.repoId == repoId)
+                #expect(request.query.worktreeId == worktreeId)
                 #expect(request.query.comparisonSemantics == .workingTreeDelta)
             }
+        }
+
+        @Test("workspace review falls back to unstaged comparison when HEAD is unresolved")
+        func workspaceReviewFallsBackToUnstagedComparisonWhenHeadIsUnresolved() async throws {
+            let worktreeId = UUIDv7.generate()
+            let provider = BridgeReviewSourceProviderFake(
+                comparison: BridgeEndpointComparison(
+                    baseEndpoint: makeBridgeEndpoint(endpointId: "index", kind: .index),
+                    headEndpoint: makeBridgeEndpoint(endpointId: "working-tree", kind: .workingTree),
+                    changedFiles: [
+                        makeBridgeEndpointChangedFile(
+                            fileId: "unborn",
+                            path: "Sources/App/NewFile.swift",
+                            sizeBytes: 100
+                        )
+                    ]
+                ),
+                contentByHandleId: [:],
+                comparisonFailureByBaseProviderIdentity: [
+                    "HEAD": .providerFailed(message: "revspec 'HEAD' not found")
+                ]
+            )
+            let controller = makeController(
+                source: .workspace(rootPath: "/tmp/worktree", baseline: .ref(name: "HEAD")),
+                worktreeId: worktreeId,
+                provider: provider
+            )
+            defer { controller.teardown() }
+
+            let result = await controller.loadInitialReviewPackageIfPossible(correlationId: nil)
+
+            guard case .success = result else {
+                Issue.record("Expected HEAD fallback review package load to succeed")
+                return
+            }
+            let requests = await provider.recordedComparisonRequests()
+            #expect(requests.count == 2)
+            let headRequest = try #require(requests.first)
+            #expect(headRequest.baseEndpoint.kind == .gitRef)
+            #expect(headRequest.baseEndpoint.providerIdentity == "HEAD")
+            let fallbackRequest = try #require(requests.last)
+            #expect(fallbackRequest.baseEndpoint.kind == .index)
+            #expect(fallbackRequest.headEndpoint.kind == .workingTree)
+            #expect(fallbackRequest.query.comparisonSemantics == .workingTreeDelta)
+            #expect(controller.paneState.diff.status == .ready)
+        }
+
+        @Test("workspace review exposes scrubbed git data-plane package load failures")
+        func workspaceReviewExposesScrubbedGitDataPlanePackageLoadFailures() async throws {
+            let provider = BridgeReviewSourceProviderFake(
+                comparison: BridgeEndpointComparison(
+                    baseEndpoint: makeBridgeEndpoint(endpointId: "base", kind: .gitRef),
+                    headEndpoint: makeBridgeEndpoint(endpointId: "head", kind: .workingTree),
+                    changedFiles: []
+                ),
+                contentByHandleId: [:],
+                comparisonFailureByBaseProviderIdentity: [
+                    "main": .providerFailed(
+                        message:
+                            "gitDataPlane:libgit2Failure:code=-1:klass=2:reason=operationNotPermitted"
+                    )
+                ]
+            )
+            let controller = makeController(
+                source: .workspace(rootPath: "/tmp/worktree", baseline: .branch(name: "main")),
+                worktreeId: UUIDv7.generate(),
+                provider: provider
+            )
+            defer { controller.teardown() }
+
+            let result = await controller.loadInitialReviewPackageIfPossible(correlationId: nil)
+
+            guard case .failure = result else {
+                Issue.record("Expected native review package load to fail")
+                return
+            }
+            #expect(controller.paneState.diff.status == .error)
+            #expect(
+                controller.paneState.diff.error
+                    == "loadFailed:package:providerFailed:git.libgit2Failure:code=-1:klass=2:reason=operationNotPermitted"
+            )
+        }
+
+        @Test("review package failure summaries scrub raw provider paths")
+        func reviewPackageFailureSummariesScrubRawProviderPaths() {
+            let rawPath = "/Users/shravansunder/Documents/dev/project-dev/secret.txt"
+
+            let summary = BridgePaneController.reviewPackageLoadFailureSummary(
+                for: BridgeProviderFailure.providerFailed(message: "Git path escapes repository: \(rawPath)"),
+                stage: "package"
+            )
+
+            #expect(summary == "loadFailed:package:providerFailed:pathEscapesRepository")
+            #expect(!summary.contains(rawPath))
+        }
+
+        @Test("review package failure summaries classify timeout-shaped provider messages")
+        func reviewPackageFailureSummariesClassifyTimeoutShapedProviderMessages() {
+            let summary = BridgePaneController.reviewPackageLoadFailureSummary(
+                for: BridgeProviderFailure.providerFailed(
+                    message:
+                        "The operation couldn’t be completed. (AgentStudio.BridgeGitDataPlaneTimeoutError error 0.)"
+                ),
+                stage: "package"
+            )
+
+            #expect(summary == "loadFailed:package:providerFailed:gitDataPlaneTimeout")
         }
 
         @Test("generic controller skips initial review package load")
@@ -155,6 +286,7 @@ extension WebKitSerializedTests {
 
         private func makeController(
             source: BridgePaneSource?,
+            repoId: UUID? = nil,
             worktreeId: UUID?,
             provider: any BridgeReviewSourceProvider
         ) -> BridgePaneController {
@@ -164,7 +296,7 @@ extension WebKitSerializedTests {
                 metadata: PaneMetadata(
                     contentType: .diff,
                     title: "Bridge Review",
-                    facets: PaneContextFacets(worktreeId: worktreeId)
+                    facets: PaneContextFacets(repoId: repoId, worktreeId: worktreeId)
                 ),
                 reviewSourceProvider: provider
             )

@@ -1,4 +1,5 @@
 import AgentStudioGit
+import CryptoKit
 import Foundation
 
 /// Thin mapper from the AgentStudioGit SDK into Bridge review contracts.
@@ -8,13 +9,13 @@ import Foundation
 /// so later content loads can stay handle-based without putting Git DTOs into
 /// `BridgeReviewPipeline` or BridgeWeb contracts.
 actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClient>: BridgeGitReviewDataClient {
-    private struct ContentLocator: Sendable {
+    struct ContentLocator: Sendable {
         let target: GitDiffTarget
         let path: String
         let reviewGeneration: BridgeReviewGeneration
     }
 
-    private struct FileDescriptorInput: Sendable {
+    struct FileDescriptorInput: Sendable {
         let path: String
         let endpoint: BridgeSourceEndpoint
         let reviewGeneration: BridgeReviewGeneration
@@ -25,11 +26,23 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
         let includeContentHandle: Bool
     }
 
-    private let repositoryPath: URL
-    private let client: LocalClient
-    private let gitDataPlaneReadTimeout: Duration
-    private let timeoutScheduler: any BridgeGitDataPlaneTimeoutScheduler
-    private var locatorByHandleId: [String: ContentLocator] = [:]
+    struct FallbackContentMetadata: Sendable {
+        let sizeBytes: Int
+        let isBinary: Bool
+        let contentHash: String
+        let contentHashAlgorithm: String
+    }
+
+    struct StatusFallbackSnapshot: Sendable {
+        let status: GitStatusSnapshot
+        let fullStatusFailure: BridgeProviderFailure?
+    }
+
+    let repositoryPath: URL
+    let client: LocalClient
+    let gitDataPlaneReadTimeout: Duration
+    let timeoutScheduler: any BridgeGitDataPlaneTimeoutScheduler
+    var locatorByHandleId: [String: ContentLocator] = [:]
 
     init(
         repositoryPath: URL,
@@ -51,10 +64,52 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
         let baseTarget = try gitTarget(for: request.baseEndpoint)
         let headTarget = try gitTarget(for: request.headEndpoint)
         pruneContentLocators(to: request.reviewGeneration)
-        let diff = try await loadGitDiff(
-            GitDiffRequest(repositoryPath: repositoryPath, base: baseTarget, compare: headTarget)
-        )
-        let changedFiles = diff.files.map(bridgeChangedFile)
+        let changedFiles: [BridgeEndpointChangedFile]
+        do {
+            let diff = try await loadGitDiff(
+                GitDiffRequest(repositoryPath: repositoryPath, base: baseTarget, compare: headTarget)
+            )
+            changedFiles = diff.files.map(bridgeChangedFile)
+        } catch let failure as BridgeProviderFailure {
+            guard shouldRecoverWithStatusFallback(from: failure, baseTarget: baseTarget, headTarget: headTarget) else {
+                throw failure
+            }
+            do {
+                changedFiles = try await statusFallbackChangedFiles(
+                    baseTarget: baseTarget,
+                    headTarget: headTarget
+                )
+            } catch let statusFailure as BridgeProviderFailure {
+                guard shouldRetryStatusFallbackWithoutUntracked(from: statusFailure) else {
+                    throw statusFailure
+                }
+                do {
+                    let treeFallbackFiles = try await treeFilesystemFallbackChangedFiles(
+                        baseTarget: baseTarget,
+                        headTarget: headTarget
+                    )
+                    guard !treeFallbackFiles.isEmpty else {
+                        throw treeFilesystemFallbackFailure(
+                            reason: "empty",
+                            statusFailure: statusFailure
+                        )
+                    }
+                    changedFiles = treeFallbackFiles
+                } catch let treeFailure as BridgeProviderFailure {
+                    throw treeFilesystemFallbackFailure(
+                        reason: "failed",
+                        statusFailure: statusFailure,
+                        treeFailure: treeFailure
+                    )
+                } catch {
+                    throw treeFilesystemFallbackFailure(
+                        reason: "failed",
+                        statusFailure: statusFailure,
+                        treeFailure: .providerFailed(message: unexpectedGitDataPlaneErrorMessage(error))
+                    )
+                }
+            }
+        }
         registerContentLocators(
             for: changedFiles,
             baseEndpoint: request.baseEndpoint,
@@ -160,7 +215,7 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
             }
             throw bridgeFailure(for: error)
         } catch {
-            throw BridgeProviderFailure.providerFailed(message: String(describing: error))
+            throw BridgeProviderFailure.providerFailed(message: unexpectedGitDataPlaneErrorMessage(error))
         }
     }
 
@@ -297,73 +352,6 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
         )
     }
 
-    private func loadGitDiff(_ request: GitDiffRequest) async throws -> GitDiffSnapshot {
-        let client = self.client
-        do {
-            return try await BridgeGitDataPlaneTimeout.readWithHardTimeout(
-                gitDataPlaneReadTimeout,
-                timeoutScheduler: timeoutScheduler
-            ) {
-                try await client.diff(request)
-            }
-        } catch BridgeGitDataPlaneTimeoutError.timedOut {
-            throw BridgeProviderFailure.providerFailed(message: BridgeGitDataPlaneTimeoutFailure.message)
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch let error as GitDataPlaneError {
-            throw bridgeFailure(for: error)
-        } catch {
-            throw BridgeProviderFailure.providerFailed(message: String(describing: error))
-        }
-    }
-
-    private func loadGitTree(_ request: GitTreeReadRequest) async throws -> GitTreeSnapshot {
-        let client = self.client
-        do {
-            return try await BridgeGitDataPlaneTimeout.readWithHardTimeout(
-                gitDataPlaneReadTimeout,
-                timeoutScheduler: timeoutScheduler
-            ) {
-                try await client.readTree(request)
-            }
-        } catch BridgeGitDataPlaneTimeoutError.timedOut {
-            throw BridgeProviderFailure.providerFailed(message: BridgeGitDataPlaneTimeoutFailure.message)
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch let error as GitDataPlaneError {
-            throw bridgeFailure(for: error)
-        } catch {
-            throw BridgeProviderFailure.providerFailed(message: String(describing: error))
-        }
-    }
-
-    private func loadGitContent(
-        _ request: GitContentRequest,
-        handle: BridgeContentHandle?
-    ) async throws -> GitContentPayload {
-        do {
-            return try await loadGitContentPayload(request)
-        } catch BridgeGitDataPlaneTimeoutError.timedOut {
-            throw BridgeProviderFailure.providerFailed(message: BridgeGitDataPlaneTimeoutFailure.message)
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch let error as GitDataPlaneError {
-            throw bridgeFailure(for: error, handle: handle)
-        } catch {
-            throw BridgeProviderFailure.providerFailed(message: String(describing: error))
-        }
-    }
-
-    private func loadGitContentPayload(_ request: GitContentRequest) async throws -> GitContentPayload {
-        let client = self.client
-        return try await BridgeGitDataPlaneTimeout.readWithHardTimeout(
-            gitDataPlaneReadTimeout,
-            timeoutScheduler: timeoutScheduler
-        ) {
-            try await client.content(request)
-        }
-    }
-
     private func bridgeChangedFile(_ file: GitDiffFile) -> BridgeEndpointChangedFile {
         BridgeEndpointChangedFile(
             fileId: file.fileId,
@@ -471,7 +459,7 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
         )
     }
 
-    private func bridgeChangeKind(_ kind: GitDiffChangeKind) -> BridgeFileChangeKind {
+    func bridgeChangeKind(_ kind: GitDiffChangeKind) -> BridgeFileChangeKind {
         switch kind {
         case .added:
             return .added
@@ -484,6 +472,25 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
         case .modified, .typeChanged, .unmerged:
             return .modified
         }
+    }
+
+    func bridgeChangeKind(_ entry: GitStatusEntry) -> BridgeFileChangeKind {
+        if entry.untracked {
+            return .added
+        }
+        if entry.indexState == .renamed || entry.worktreeState == .renamed || entry.previousPath != nil {
+            return .renamed
+        }
+        if entry.indexState == .copied || entry.worktreeState == .copied {
+            return .copied
+        }
+        if entry.indexState == .added || entry.worktreeState == .added {
+            return .added
+        }
+        if entry.indexState == .deleted || entry.worktreeState == .deleted {
+            return .deleted
+        }
+        return .modified
     }
 
     private func gitTarget(for endpoint: BridgeSourceEndpoint) throws -> GitDiffTarget {
@@ -504,43 +511,111 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
         }
     }
 
-    private func bridgeFailure(
-        for error: GitDataPlaneError,
-        handle: BridgeContentHandle? = nil
-    ) -> BridgeProviderFailure {
-        switch error {
-        case .repositoryNotFound:
-            return .providerUnavailable
-        case .contentTooLarge(_, let sizeBytes, _):
-            if let handle {
-                return .oversizedContent(handleId: handle.handleId, sizeBytes: byteCount(sizeBytes))
+    func gitRevisionTarget(for target: GitDiffTarget) throws -> GitRevisionTarget {
+        switch target.kind {
+        case .commit:
+            guard let identifier = target.identifier, !identifier.isEmpty else {
+                throw BridgeProviderFailure.providerFailed(message: "commit tree fallback requires an identifier")
             }
-            return .providerFailed(message: "Git content was too large: \(sizeBytes) bytes")
-        case .pathEscapesRepository(let path):
-            return .providerFailed(message: "Git path escapes repository: \(path)")
-        case .libgit2Failure(_, _, let message), .unsupported(let message), .locked(let message):
-            return .providerFailed(message: message)
-        case .worktreeNotFound, .worktreeNotPrunable, .unsafeWorktreeRemoval,
-            .processFailed, .processTimedOut, .processCancelled, .processOutputTooLarge:
-            return .providerFailed(message: String(describing: error))
+            return .named(identifier)
+        case .head:
+            return .named("HEAD")
+        case .index, .workingTree:
+            throw BridgeProviderFailure.providerFailed(
+                message: "tree fallback requires a revision target, not \(target.kind.rawValue)"
+            )
         }
     }
 
-    private func byteCount(_ sizeBytes: Int64?) -> Int {
+    func libGit2FailureReason(_ message: String) -> String {
+        let normalizedMessage = message.lowercased()
+        if normalizedMessage.contains("operation not permitted")
+            || normalizedMessage.contains("eperm")
+        {
+            return "operationNotPermitted"
+        }
+        if normalizedMessage.contains("permission denied")
+            || normalizedMessage.contains("eacces")
+        {
+            return "permissionDenied"
+        }
+        if normalizedMessage.contains("no such file") || normalizedMessage.contains("not found") {
+            return "notFound"
+        }
+        if normalizedMessage.contains("too many open files") {
+            return "tooManyOpenFiles"
+        }
+        if normalizedMessage.contains("invalid argument") {
+            return "invalidArgument"
+        }
+        if normalizedMessage.contains("could not open")
+            || normalizedMessage.contains("failed to open")
+            || normalizedMessage.contains("couldn't be opened")
+            || normalizedMessage.contains("could not read")
+            || normalizedMessage.contains("failed to read")
+            || normalizedMessage.contains("changed before we could read")
+        {
+            return "fileReadFailed"
+        }
+        if normalizedMessage.contains("could not stat")
+            || normalizedMessage.contains("failed to stat")
+            || normalizedMessage.contains("lstat")
+            || normalizedMessage.contains("stat file")
+        {
+            return "fileStatFailed"
+        }
+        if normalizedMessage.contains("could not scan")
+            || normalizedMessage.contains("failed to scan")
+            || normalizedMessage.contains("could not traverse")
+            || normalizedMessage.contains("failed to traverse")
+            || normalizedMessage.contains("readdir")
+            || normalizedMessage.contains("opendir")
+        {
+            return "directoryTraversalFailed"
+        }
+        return "osError"
+    }
+
+    func byteCount(_ sizeBytes: Int64?) -> Int {
         guard let sizeBytes else { return 0 }
         return byteCount(sizeBytes)
     }
 
-    private func byteCount(_ sizeBytes: Int64) -> Int {
+    func statusFallbackFileId(entry: GitStatusEntry, changeKind: BridgeFileChangeKind) -> String {
+        let identity = [
+            "status-fallback",
+            entry.previousPath ?? "none",
+            entry.path,
+            changeKind.rawValue,
+        ].joined(separator: ":")
+        let digest = SHA256.hash(data: Data(identity.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+        return "status-\(digest.prefix(20))"
+    }
+
+    func treeFilesystemFallbackFileId(path: String, changeKind: BridgeFileChangeKind) -> String {
+        let identity = [
+            "tree-filesystem-fallback",
+            path,
+            changeKind.rawValue,
+        ].joined(separator: ":")
+        let digest = SHA256.hash(data: Data(identity.utf8))
+            .map { String(format: "%02x", $0) }
+            .joined()
+        return "tree-fs-\(digest.prefix(20))"
+    }
+
+    func byteCount(_ sizeBytes: Int64) -> Int {
         Int(min(sizeBytes, Int64(Int.max)))
     }
 
-    private func fileExtension(for path: String) -> String? {
+    func fileExtension(for path: String) -> String? {
         let fileExtension = (path as NSString).pathExtension
         return fileExtension.isEmpty ? nil : fileExtension
     }
 
-    private func language(for path: String) -> String? {
+    func language(for path: String) -> String? {
         switch fileExtension(for: path)?.lowercased() {
         case "swift":
             return "swift"
@@ -557,7 +632,7 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
         }
     }
 
-    private func mimeType(for path: String, isBinary: Bool) -> String {
+    func mimeType(for path: String, isBinary: Bool) -> String {
         if isBinary {
             return "application/octet-stream"
         }

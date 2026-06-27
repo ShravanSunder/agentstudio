@@ -1,9 +1,7 @@
 export interface ReviewContentRouteDeltaProof {
 	readonly afterHitCount: number;
 	readonly beforeHitCount: number;
-	readonly contentRouteSatisfiedBy:
-		| 'matching-pre-click-route-with-rendered-selection'
-		| 'matching-post-click-route';
+	readonly contentRouteSatisfiedBy: 'matching-post-click-route' | 'no-matching-post-click-route';
 	readonly expectedItemId: string;
 	readonly matchingPreClickHitUrls: readonly string[];
 	readonly matchingPostClickHitUrls: readonly string[];
@@ -33,6 +31,7 @@ export interface WorktreeFileOpenLoadTelemetryPredicateInput {
 }
 
 export interface WorktreeFileDemandDispatchTelemetryProof {
+	readonly expectedVisibleFileCount: number | null;
 	readonly failedCount: number | null;
 	readonly failedCountByLane: Record<string, number> | null;
 	readonly failedCountByReason: Record<string, number> | null;
@@ -48,6 +47,8 @@ export interface WorktreeFileDemandDispatchTelemetryProof {
 	readonly executorQueuedLoadCountAfter: number | null;
 	readonly schedulerQueuedEstimatedBytesAfter: number | null;
 	readonly schedulerQueuedIntentCountAfter: number | null;
+	readonly recentlyUpdatedOpenFilePathAfter: string | null;
+	readonly recentlyUpdatedOpenFilePathBefore: string | null;
 	readonly status: string | null;
 	readonly stimulusCount: number | null;
 }
@@ -73,6 +74,13 @@ export interface ReviewDemandTelemetryProof {
 	readonly failedCount: number | null;
 	readonly foregroundIntentCount: number | null;
 	readonly interest: string | null;
+	readonly itemId: string | null;
+	readonly packageId: string | null;
+	readonly packageReviewGeneration: number | null;
+	readonly packageRevision: number | null;
+	readonly currentPackageId: string | null;
+	readonly currentPackageReviewGeneration: number | null;
+	readonly currentPackageRevision: number | null;
 	readonly laneUpgradeCount: number | null;
 	readonly loadedCount: number | null;
 	readonly maxExecutorInFlightCount: number | null;
@@ -89,6 +97,7 @@ export interface ReviewContentRoutePressureProof {
 	readonly duplicateRouteCount: number;
 	readonly duplicatedRouteUrls: readonly string[];
 	readonly routeHitCount: number;
+	readonly routeHitItemIds: readonly string[];
 	readonly uniqueRouteHitCount: number;
 }
 
@@ -116,7 +125,7 @@ export function buildReviewContentRouteDeltaProof(
 		contentRouteSatisfiedBy:
 			matchingPostClickHitUrls.length > 0
 				? 'matching-post-click-route'
-				: 'matching-pre-click-route-with-rendered-selection',
+				: 'no-matching-post-click-route',
 		expectedItemId: props.expectedItemId,
 		matchingPreClickHitUrls,
 		matchingPostClickHitUrls,
@@ -128,15 +137,20 @@ export function buildReviewContentRouteDeltaProof(
 }
 
 export function reviewContentRouteDeltaSatisfied(proof: ReviewContentRouteDeltaProof): boolean {
-	return proof.matchingPostClickHitUrls.length > 0 || proof.matchingPreClickHitUrls.length > 0;
+	return proof.matchingPostClickHitUrls.length > 0;
 }
 
 export function buildReviewContentRoutePressureProof(
 	routeHitUrls: readonly string[],
 ): ReviewContentRoutePressureProof {
 	const hitCountByUrl = new Map<string, number>();
+	const routeHitItemIds = new Set<string>();
 	for (const routeHitUrl of routeHitUrls) {
 		hitCountByUrl.set(routeHitUrl, (hitCountByUrl.get(routeHitUrl) ?? 0) + 1);
+		const itemId = reviewContentRouteHitItemId(routeHitUrl);
+		if (itemId !== null) {
+			routeHitItemIds.add(itemId);
+		}
 	}
 	const duplicatedRouteUrls = Array.from(hitCountByUrl.entries())
 		.filter(([, hitCount]): boolean => hitCount > 1)
@@ -150,11 +164,29 @@ export function buildReviewContentRoutePressureProof(
 		duplicateRouteCount,
 		duplicatedRouteUrls,
 		routeHitCount: routeHitUrls.length,
+		routeHitItemIds: Array.from(routeHitItemIds).toSorted(),
 		uniqueRouteHitCount: hitCountByUrl.size,
 	};
 }
 
+function reviewContentRouteHitItemId(routeHitUrl: string): string | null {
+	let contentHandleId: string;
+	try {
+		const url = new URL(routeHitUrl);
+		contentHandleId = decodeURIComponent(url.pathname.split('/').at(-1) ?? '');
+	} catch {
+		contentHandleId = routeHitUrl.split('/').at(-1) ?? '';
+	}
+	for (const roleSuffix of ['-base', '-head', '-diff', '-file'] as const) {
+		if (contentHandleId.endsWith(roleSuffix)) {
+			return contentHandleId.slice(0, -roleSuffix.length);
+		}
+	}
+	return null;
+}
+
 export function reviewRoutePressureSatisfied(props: {
+	readonly expectedVisibleItemId?: string | null;
 	readonly routePressureProof: ReviewContentRoutePressureProof;
 	readonly selectedDemandTelemetryProof: ReviewDemandTelemetryProof;
 	readonly visibleDemandTelemetryProof: ReviewDemandTelemetryProof;
@@ -163,8 +195,13 @@ export function reviewRoutePressureSatisfied(props: {
 		props.routePressureProof.routeHitCount > 0 &&
 		props.routePressureProof.duplicateRouteCount === 0 &&
 		props.routePressureProof.uniqueRouteHitCount === props.routePressureProof.routeHitCount &&
+		(props.expectedVisibleItemId === undefined ||
+			props.expectedVisibleItemId === null ||
+			props.routePressureProof.routeHitItemIds.includes(props.expectedVisibleItemId)) &&
 		reviewSelectedDemandTelemetrySatisfied(props.selectedDemandTelemetryProof) &&
-		reviewVisibleDemandTelemetryAttributed(props.visibleDemandTelemetryProof)
+		reviewVisibleDemandTelemetryAttributed(props.visibleDemandTelemetryProof, {
+			expectedItemId: props.expectedVisibleItemId ?? null,
+		})
 	);
 }
 
@@ -173,7 +210,6 @@ export function worktreeFileOpenLoadTelemetrySatisfied(
 ): boolean {
 	const validOpenDisposition =
 		proof.disposition === 'cold-loaded' ||
-		proof.disposition === 'cache-hit' ||
 		proof.disposition === 'visible-preloaded' ||
 		proof.disposition === 'nearby-preloaded' ||
 		proof.disposition === 'speculative-preloaded';
@@ -215,10 +251,12 @@ export function worktreeFileVisibleDemandTelemetrySatisfied(
 		proof.stimulusCount > 0 &&
 		proof.intentCount !== null &&
 		proof.intentCount > 0 &&
+		proof.expectedVisibleFileCount !== null &&
+		proof.expectedVisibleFileCount === proof.intentCount &&
 		proof.loadedCount !== null &&
-		proof.loadedCount > 0 &&
+		proof.loadedCount === proof.intentCount &&
 		failedCount !== null &&
-		failedCount >= 0 &&
+		failedCount === 0 &&
 		worktreeFileDemandDispatchFailuresAccounted({
 			failedCount,
 			failedCountByLane: proof.failedCountByLane,
@@ -250,6 +288,7 @@ export function worktreeFileRecentlyUpdatedDemandTelemetrySatisfied(
 		proof.intentCount === 1 &&
 		proof.loadedCount === 1 &&
 		failedCount === 0 &&
+		proof.recentlyUpdatedOpenFilePathAfter === proof.recentlyUpdatedOpenFilePathBefore &&
 		worktreeFileDemandDispatchFailuresAccounted({
 			failedCount,
 			failedCountByLane: proof.failedCountByLane,
@@ -267,6 +306,18 @@ export function worktreeFileRecentlyUpdatedDemandTelemetrySatisfied(
 		proof.executorInFlightBytesAfter === 0 &&
 		proof.executorQueuedLoadCountAfter === 0 &&
 		proof.executorQueuedBytesAfter === 0
+	);
+}
+
+function reviewDemandTelemetryMatchesCurrentPackage(proof: ReviewDemandTelemetryProof): boolean {
+	return (
+		proof.packageId !== null &&
+		proof.packageId.length > 0 &&
+		proof.currentPackageId === proof.packageId &&
+		proof.packageReviewGeneration !== null &&
+		proof.currentPackageReviewGeneration === proof.packageReviewGeneration &&
+		proof.packageRevision !== null &&
+		proof.currentPackageRevision === proof.packageRevision
 	);
 }
 
@@ -308,6 +359,7 @@ export function reviewSelectedDemandTelemetrySatisfied(proof: ReviewDemandTeleme
 		proof.loadedCount > 0 &&
 		proof.deferredCount === 0 &&
 		proof.failedCount === 0 &&
+		reviewDemandTelemetryMatchesCurrentPackage(proof) &&
 		proof.admittedBytes !== null &&
 		proof.admittedBytes > 0 &&
 		proof.admittedBytesByLane !== null &&
@@ -350,12 +402,20 @@ export function reviewSelectedDemandTelemetrySatisfied(proof: ReviewDemandTeleme
 	);
 }
 
-export function reviewVisibleDemandTelemetryAttributed(proof: ReviewDemandTelemetryProof): boolean {
+export function reviewVisibleDemandTelemetryAttributed(
+	proof: ReviewDemandTelemetryProof,
+	options: { readonly expectedItemId?: string | null } = {},
+): boolean {
 	const admittedVisibleBytes = proof.admittedBytesByLane?.['visible'] ?? null;
 	const deferredVisibleBytes = proof.deferredEstimatedBytesByLane?.['visible'] ?? null;
 	const droppedVisibleBytes = proof.droppedEstimatedBytesByLane?.['visible'] ?? null;
+	const expectedItemId = options.expectedItemId ?? null;
 	return (
 		proof.interest === 'visible' &&
+		proof.itemId !== null &&
+		proof.itemId.length > 0 &&
+		(expectedItemId === null || proof.itemId === expectedItemId) &&
+		reviewDemandTelemetryMatchesCurrentPackage(proof) &&
 		proof.visibleIntentCount !== null &&
 		proof.visibleIntentCount > 0 &&
 		proof.foregroundIntentCount === 0 &&

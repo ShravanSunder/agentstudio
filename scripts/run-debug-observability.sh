@@ -11,6 +11,7 @@ LSOF_BIN="${AGENTSTUDIO_LSOF_BIN:-/usr/sbin/lsof}"
 CURL_BIN="${AGENTSTUDIO_CURL_BIN:-/usr/bin/curl}"
 DITTO_BIN="${AGENTSTUDIO_DITTO_BIN:-/usr/bin/ditto}"
 CODESIGN_BIN="${AGENTSTUDIO_CODESIGN_BIN:-/usr/bin/codesign}"
+SECURITY_BIN="${AGENTSTUDIO_SECURITY_BIN:-/usr/bin/security}"
 
 fail_on_legacy_observability_env() {
   local legacy_prefix="SHRAVAN_""OBSERVABILITY_"
@@ -172,6 +173,42 @@ bundle_identifier_for_executable() {
   bundle_path="$(bundle_path_for_executable "$executable_path")"
   [ -n "$bundle_path" ] || return 0
   /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$bundle_path/Contents/Info.plist" 2>/dev/null || true
+}
+
+debug_signing_identity() {
+  if [ -n "${AGENTSTUDIO_DEBUG_SIGNING_IDENTITY:-}" ]; then
+    printf '%s\n' "$AGENTSTUDIO_DEBUG_SIGNING_IDENTITY"
+    return 0
+  fi
+  if [ -n "${SIGNING_IDENTITY:-}" ]; then
+    printf '%s\n' "$SIGNING_IDENTITY"
+    return 0
+  fi
+
+  "$SECURITY_BIN" find-identity -v -p codesigning 2>/dev/null |
+    awk -F'"' '/Developer ID Application/ { print $2; exit }'
+}
+
+codesign_debug_item() {
+  local item_path="${1:?missing item path}"
+  local signing_identity="${2:-}"
+  local entitlements="${3:-}"
+
+  if [ -n "$signing_identity" ]; then
+    if [ -n "$entitlements" ]; then
+      "$CODESIGN_BIN" --force --sign "$signing_identity" --options runtime \
+        --entitlements "$entitlements" "$item_path" >/dev/null
+    else
+      "$CODESIGN_BIN" --force --sign "$signing_identity" --options runtime "$item_path" >/dev/null
+    fi
+    return
+  fi
+
+  if [ -n "$entitlements" ]; then
+    "$CODESIGN_BIN" --force --sign - --entitlements "$entitlements" "$item_path" >/dev/null
+  else
+    "$CODESIGN_BIN" --force --sign - "$item_path" >/dev/null
+  fi
 }
 
 app_pid_for_binary() {
@@ -382,6 +419,7 @@ copy_debug_bundle() {
   local app_dir="$app_path/Contents"
   local plist_path="$app_dir/Info.plist"
   local entitlements="Sources/AgentStudio/Resources/AgentStudio.entitlements"
+  local signing_identity
   local marketing_version="${APP_MARKETING_VERSION:-0.0.1-debug+$code}"
   local build_version="${APP_BUILD_VERSION:-$(git rev-list --count HEAD)}"
 
@@ -414,10 +452,16 @@ copy_debug_bundle() {
   resource_bundle="$(find "$build_root" -path '*/debug/AgentStudio_AgentStudio.bundle' -type d | head -1)"
   [ -n "$resource_bundle" ] && "$DITTO_BIN" "$resource_bundle" "$app_dir/Resources/AgentStudio_AgentStudio.bundle"
 
-  if [ -f "$app_dir/MacOS/zmx" ]; then
-    "$CODESIGN_BIN" --force --sign - --entitlements "$entitlements" "$app_dir/MacOS/zmx" >/dev/null
+  signing_identity="$(debug_signing_identity)"
+  if [ -n "$signing_identity" ]; then
+    echo "debug signing identity: $signing_identity" >&2
+  else
+    echo "debug signing identity: ad-hoc" >&2
   fi
-  "$CODESIGN_BIN" --force --deep --sign - "$app_path" >/dev/null
+  if [ -f "$app_dir/MacOS/zmx" ]; then
+    codesign_debug_item "$app_dir/MacOS/zmx" "$signing_identity" "$entitlements"
+  fi
+  codesign_debug_item "$app_path" "$signing_identity" "$entitlements"
   "$CODESIGN_BIN" --verify --deep --strict "$app_path"
 
   printf '%s\n' "$app_path"

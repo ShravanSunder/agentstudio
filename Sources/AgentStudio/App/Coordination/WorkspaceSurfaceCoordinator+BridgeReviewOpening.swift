@@ -117,24 +117,7 @@ extension WorkspaceSurfaceCoordinator {
         )
     }
 
-    private func defaultBridgeReviewBaseline(for repo: Repo) -> WorkspaceBaseline {
-        if let upstream = atom(\.repoCache).repoEnrichment(for: repo.id)?.upstream,
-            let remoteBranch = Self.remoteBranch(from: upstream)
-        {
-            return .originDefaultBranch(
-                remoteName: remoteBranch.remoteName,
-                branchName: remoteBranch.branchName
-            )
-        }
-        return .originDefaultBranch(remoteName: "origin", branchName: "main")
-    }
-
-    private static func remoteBranch(from upstream: String) -> (remoteName: String, branchName: String)? {
-        let trimmed = upstream.trimmingCharacters(in: .whitespacesAndNewlines)
-        let components = trimmed.split(separator: "/", maxSplits: 1).map(String.init)
-        guard components.count == 2, !components[0].isEmpty, !components[1].isEmpty else {
-            return nil
-        }
-        return (remoteName: components[0], branchName: components[1])
+    private func defaultBridgeReviewBaseline(for _: Repo) -> WorkspaceBaseline {
+        .ref(name: "HEAD")
     }
 }

@@ -7,6 +7,7 @@ actor BridgeReviewSourceProviderFake: BridgeReviewSourceProvider {
     var contentByHandleId: [String: BridgeContentLoadResult]
     var treeDescriptors: [BridgeReviewItemDescriptor]
     var itemDescriptorByPath: [String: BridgeReviewItemDescriptor]
+    private let comparisonFailureByBaseProviderIdentity: [String: BridgeProviderFailure]
     private let contentLoadGate: BridgeContentLoadGate?
     private var comparisonGate: BridgeComparisonGate?
     private let checksCancellationAfterGate: Bool
@@ -28,6 +29,7 @@ actor BridgeReviewSourceProviderFake: BridgeReviewSourceProvider {
         contentByHandleId: [String: BridgeContentLoadResult],
         treeDescriptors: [BridgeReviewItemDescriptor] = [],
         itemDescriptorByPath: [String: BridgeReviewItemDescriptor] = [:],
+        comparisonFailureByBaseProviderIdentity: [String: BridgeProviderFailure] = [:],
         contentLoadGate: BridgeContentLoadGate? = nil,
         comparisonGate: BridgeComparisonGate? = nil,
         checksCancellationAfterGate: Bool = false
@@ -36,6 +38,7 @@ actor BridgeReviewSourceProviderFake: BridgeReviewSourceProvider {
         self.contentByHandleId = contentByHandleId
         self.treeDescriptors = treeDescriptors
         self.itemDescriptorByPath = itemDescriptorByPath
+        self.comparisonFailureByBaseProviderIdentity = comparisonFailureByBaseProviderIdentity
         self.contentLoadGate = contentLoadGate
         self.comparisonGate = comparisonGate
         self.checksCancellationAfterGate = checksCancellationAfterGate
@@ -47,6 +50,9 @@ actor BridgeReviewSourceProviderFake: BridgeReviewSourceProvider {
 
     func compareEndpoints(_ request: BridgeEndpointComparisonRequest) async throws -> BridgeEndpointComparison {
         comparisonRequests.append(request)
+        if let failure = comparisonFailureByBaseProviderIdentity[request.baseEndpoint.providerIdentity] {
+            throw failure
+        }
         let resolvedComparison = comparison
         await comparisonGate?.waitUntilReleased()
         return BridgeEndpointComparison(

@@ -146,6 +146,35 @@ final class BridgeBootstrapTests {
     }
 
     @Test
+    func test_script_publishes_worktree_file_source_spec_attribute_when_available() throws {
+        let sourceSpec = BridgeWorktreeFileSurfaceSourceSpec(
+            clientRequestId: "bootstrap-request",
+            repoId: try #require(UUID(uuidString: "11111111-1111-4111-8111-111111111111")),
+            worktreeId: try #require(UUID(uuidString: "22222222-2222-4222-8222-222222222222")),
+            rootPathToken: "root-token",
+            cwdScope: nil,
+            pathScope: [],
+            includeStatuses: true,
+            includeFileDescriptors: true,
+            includeComments: false,
+            includeAgentComms: false,
+            freshness: .live
+        )
+
+        let script = BridgeBootstrap.generateScript(
+            bridgeNonce: "test-nonce",
+            pushNonce: "push-nonce",
+            worktreeFileSourceSpec: sourceSpec
+        )
+
+        #expect(script.contains("const WORKTREE_FILE_SOURCE_SPEC ="))
+        #expect(script.contains("data-bridge-worktree-file-source-spec"))
+        #expect(script.contains("11111111-1111-4111-8111-111111111111"))
+        #expect(script.contains("22222222-2222-4222-8222-222222222222"))
+        #expect(script.contains("root-token"))
+    }
+
+    @Test
     func test_applyEnvelope_preserves_trace_context_at_detail_level() {
         let script = BridgeBootstrap.generateScript(bridgeNonce: "test-nonce", pushNonce: "push-nonce")
         #expect(script.contains("envelope.__traceContext"))

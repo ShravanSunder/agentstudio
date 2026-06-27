@@ -68,17 +68,20 @@ public struct IPCBridgeReviewRefreshResult: Codable, Equatable, Sendable {
 public struct IPCBridgeReviewPackageResult: Codable, Equatable, Sendable {
     public let paneId: UUID
     public let status: String
+    public let error: String?
     public let selectedItemId: String?
     public let package: IPCBridgeReviewPackage?
 
     public init(
         paneId: UUID,
         status: String,
+        error: String? = nil,
         selectedItemId: String?,
         package: IPCBridgeReviewPackage?
     ) {
         self.paneId = paneId
         self.status = status
+        self.error = error
         self.selectedItemId = selectedItemId
         self.package = package
     }

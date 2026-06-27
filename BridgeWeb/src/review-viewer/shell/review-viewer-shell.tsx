@@ -254,6 +254,10 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 				selectedDemandTelemetry?.foregroundIntentCount
 			}
 			data-review-selected-demand-interest={selectedDemandTelemetry?.interest}
+			data-review-selected-demand-item-id={selectedDemandTelemetry?.itemId}
+			data-review-selected-demand-package-id={selectedDemandTelemetry?.packageId}
+			data-review-selected-demand-package-generation={selectedDemandTelemetry?.reviewGeneration}
+			data-review-selected-demand-package-revision={selectedDemandTelemetry?.revision}
 			data-review-selected-demand-lane-upgrade-count={selectedDemandTelemetry?.laneUpgradeCount}
 			data-review-selected-demand-loaded-count={selectedDemandTelemetry?.loadedCount}
 			data-review-selected-demand-max-executor-in-flight={
@@ -324,6 +328,10 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 				visibleDemandTelemetry?.foregroundIntentCount
 			}
 			data-review-visible-demand-interest={visibleDemandTelemetry?.interest}
+			data-review-visible-demand-item-id={visibleDemandTelemetry?.itemId}
+			data-review-visible-demand-package-id={visibleDemandTelemetry?.packageId}
+			data-review-visible-demand-package-generation={visibleDemandTelemetry?.reviewGeneration}
+			data-review-visible-demand-package-revision={visibleDemandTelemetry?.revision}
 			data-review-visible-demand-lane-upgrade-count={visibleDemandTelemetry?.laneUpgradeCount}
 			data-review-visible-demand-loaded-count={visibleDemandTelemetry?.loadedCount}
 			data-review-visible-demand-max-executor-in-flight={
@@ -348,6 +356,9 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 			data-review-visible-demand-visible-intent-count={visibleDemandTelemetry?.visibleIntentCount}
 			data-selected-content-state={selectedContentState}
 			data-selected-display-path={selectedDisplayPath ?? undefined}
+			data-review-package-id={props.reviewPackage.packageId}
+			data-review-package-generation={props.reviewPackage.reviewGeneration}
+			data-review-package-revision={props.reviewPackage.revision}
 			data-projection-id={projection.projectionId}
 			data-projection-mode={projectionMode.kind}
 			data-sidebar-position="right"

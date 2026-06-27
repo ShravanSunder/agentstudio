@@ -576,6 +576,7 @@ function BridgeFileViewerMode(
 				? {}
 				: { codeViewWorkerPoolEnabled: props.codeViewWorkerPoolEnabled })}
 			{...props.fileViewerProps}
+			isActive={props.isActive}
 			{...(props.navigationCommand === undefined
 				? {}
 				: { navigationCommand: props.navigationCommand })}
@@ -700,6 +701,28 @@ function BridgeReviewViewerMode(
 		reviewPackage === null || rootSnapshot.selectedItemId === null
 			? null
 			: makeSelectedContentResourcesKey(reviewPackage, rootSnapshot.selectedItemId);
+	useEffect((): void => {
+		setLastSelectedDemandTelemetry((currentTelemetry) =>
+			reviewContentDemandTelemetryForPackage({
+				reviewPackage,
+				telemetry: currentTelemetry,
+			}),
+		);
+		setLastVisibleDemandTelemetry((currentTelemetry) =>
+			reviewContentDemandTelemetryForPackage({
+				reviewPackage,
+				telemetry: currentTelemetry,
+			}),
+		);
+	}, [reviewPackage]);
+	const lastSelectedDemandTelemetryForCurrentPackage = reviewContentDemandTelemetryForPackage({
+		reviewPackage,
+		telemetry: lastSelectedDemandTelemetry,
+	});
+	const lastVisibleDemandTelemetryForCurrentPackage = reviewContentDemandTelemetryForPackage({
+		reviewPackage,
+		telemetry: lastVisibleDemandTelemetry,
+	});
 	const visibleContentHydrationPaused =
 		props.isActive &&
 		currentSelectedContentKey !== null &&
@@ -1457,8 +1480,8 @@ function BridgeReviewViewerMode(
 			})}
 			selectedCanvasLoadingReason={selectedCanvasLoadingReason}
 			selectedItemId={rootSnapshot.selectedItemId}
-			lastSelectedDemandTelemetry={lastSelectedDemandTelemetry}
-			lastVisibleDemandTelemetry={lastVisibleDemandTelemetry}
+			lastSelectedDemandTelemetry={lastSelectedDemandTelemetryForCurrentPackage}
+			lastVisibleDemandTelemetry={lastVisibleDemandTelemetryForCurrentPackage}
 			visibleContentResourcesByItemId={visibleContentHydration.visibleContentResourcesByItemId}
 			visibleLoadingItemIds={visibleContentHydration.visibleLoadingItemIds}
 			visibleLoadingItemCount={visibleContentHydration.visibleLoadingItemCount}
@@ -1703,6 +1726,25 @@ function makeSelectedContentResourcesKey(
 		item: selectedItem,
 		reviewPackage,
 	});
+}
+
+function reviewContentDemandTelemetryForPackage(props: {
+	readonly reviewPackage: BridgeReviewPackage | null;
+	readonly telemetry: ReviewContentDemandTelemetry | null;
+}): ReviewContentDemandTelemetry | null {
+	if (props.reviewPackage === null || props.telemetry === null) {
+		return null;
+	}
+	if (
+		props.telemetry.packageId !== props.reviewPackage.packageId ||
+		props.telemetry.reviewGeneration !== props.reviewPackage.reviewGeneration ||
+		props.telemetry.revision !== props.reviewPackage.revision
+	) {
+		return null;
+	}
+	return props.reviewPackage.itemsById[props.telemetry.itemId] === undefined
+		? null
+		: props.telemetry;
 }
 
 interface SelectedContentResourcesForCurrentSelectionProps {

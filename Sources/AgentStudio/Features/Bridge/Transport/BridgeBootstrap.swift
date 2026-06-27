@@ -24,10 +24,12 @@ enum BridgeBootstrap {
         pushNonce: String,
         reviewPaneId: String? = nil,
         reviewStreamId: String? = nil,
+        worktreeFileSourceSpec: BridgeWorktreeFileSurfaceSourceSpec? = nil,
         telemetryConfig: BridgeTelemetryBootstrapConfig? = nil
     ) -> String {
         let reviewPaneIdJSON = encodedOptionalJSONString(reviewPaneId)
         let reviewStreamIdJSON = encodedOptionalJSONString(reviewStreamId)
+        let worktreeFileSourceSpecJSON = encodedWorktreeFileSourceSpecJSON(worktreeFileSourceSpec)
         let telemetryConfigJSON = encodedTelemetryConfigJSON(telemetryConfig)
         return """
             // Bridge Bootstrap — injected at document start in bridge content world.
@@ -39,9 +41,11 @@ enum BridgeBootstrap {
                 const PUSH_NONCE = '\(pushNonce)';
                 const REVIEW_PANE_ID = \(reviewPaneIdJSON);
                 const REVIEW_STREAM_ID = \(reviewStreamIdJSON);
+                const WORKTREE_FILE_SOURCE_SPEC = \(worktreeFileSourceSpecJSON);
                 const TELEMETRY_CONFIG = \(telemetryConfigJSON);
                 const PAGE_WORLD_ALLOWED_COMMAND_METHODS = new Set([
                     'review.markFileViewed',
+                    'worktreeFileSurface.openSourceStream',
                     'system.bridgeTelemetry'
                 ]);
                 const HOST_PUSH_PORTS = new Set();
@@ -214,6 +218,12 @@ enum BridgeBootstrap {
                     document.documentElement.setAttribute('data-bridge-review-pane-id', REVIEW_PANE_ID);
                     document.documentElement.setAttribute('data-bridge-review-stream-id', REVIEW_STREAM_ID);
                 }
+                if (WORKTREE_FILE_SOURCE_SPEC !== null) {
+                    document.documentElement.setAttribute(
+                        'data-bridge-worktree-file-source-spec',
+                        JSON.stringify(WORKTREE_FILE_SOURCE_SPEC)
+                    );
+                }
             })();
             """
     }
@@ -242,6 +252,23 @@ enum BridgeBootstrap {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         guard let data = try? encoder.encode(telemetryConfig),
+            let json = String(data: data, encoding: .utf8)
+        else {
+            return "null"
+        }
+        return json
+    }
+
+    private static func encodedWorktreeFileSourceSpecJSON(
+        _ sourceSpec: BridgeWorktreeFileSurfaceSourceSpec?
+    ) -> String {
+        guard let sourceSpec else {
+            return "null"
+        }
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(sourceSpec),
             let json = String(data: data, encoding: .utf8)
         else {
             return "null"

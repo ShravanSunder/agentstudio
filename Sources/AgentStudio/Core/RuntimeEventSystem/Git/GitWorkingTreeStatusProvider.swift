@@ -47,6 +47,7 @@ enum GitWorkingTreeStatusUnavailableReason: String, Sendable, Equatable {
     case providerReturnedNil = "provider_returned_nil"
     case timeout
     case readAlreadyInFlight = "read_already_in_flight"
+    case readCapacityExceeded = "read_capacity_exceeded"
     case cancelled
     case sdkError = "sdk_error"
 }

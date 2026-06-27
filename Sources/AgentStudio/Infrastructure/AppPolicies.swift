@@ -9,7 +9,7 @@ enum AppPolicies {
     enum Bridge {
         static let contentCacheMaxBytes: Int = 50 * 1024 * 1024
         static let contentMaxBytesPerItem: Int = 50 * 1024 * 1024
-        static let defaultGitDataPlaneReadTimeout: Duration = .seconds(5)
+        static let defaultGitDataPlaneReadTimeout: Duration = .seconds(30)
         static let ipcMaxResponsePayloadBytes: Int = 768 * 1024
     }
 
@@ -21,6 +21,7 @@ enum AppPolicies {
         static let defaultPolicy = Policy()
         static let defaultStatusReadTimeout: Duration = .seconds(1)
         static let defaultDiscoveryReadTimeout: Duration = .seconds(2)
+        static let defaultDetachedStatusReadLimit: Int = 4
 
         struct Policy: Equatable, Sendable {
             let activeCadence: Duration

@@ -213,6 +213,7 @@ export function createWorktreeFileSurfaceRuntime(
 		postResetAnchorSource: null,
 	};
 	let state = createWorktreeFileSurfaceState();
+	let demandDispatchTail: Promise<void> = Promise.resolve();
 	const scheduler = createBridgeDemandScheduler({
 		maxQueuedIntentsPerLane: worktreeFileDemandMaxQueuedIntentsPerLane,
 		maxQueuedEstimatedBytes: worktreeFileDemandMaxQueuedEstimatedBytes,
@@ -378,25 +379,103 @@ export function createWorktreeFileSurfaceRuntime(
 	const dispatchDemandStimuli = async (
 		stimuli: readonly WorktreeFileDemandStimulus[],
 	): Promise<WorktreeFileSurfaceDemandDispatchResult> => {
+		const dispatchResult = demandDispatchTail.then(
+			async (): Promise<WorktreeFileSurfaceDemandDispatchResult> =>
+				await runDemandDispatchStimuli(stimuli),
+			async (): Promise<WorktreeFileSurfaceDemandDispatchResult> =>
+				await runDemandDispatchStimuli(stimuli),
+		);
+		demandDispatchTail = dispatchResult.then(
+			(): void => {},
+			(): void => {},
+		);
+		return await dispatchResult;
+	};
+
+	const runDemandDispatchStimuli = async (
+		stimuli: readonly WorktreeFileDemandStimulus[],
+	): Promise<WorktreeFileSurfaceDemandDispatchResult> => {
 		const intents = stimuli.flatMap((stimulus): readonly BridgeDemandIntent[] =>
 			mapWorktreeFileDemandStimulusToIntents({ stimulus, readContext }),
 		);
 		let enqueueAcceptedCount = 0;
 		let enqueueRejectedCount = 0;
-		const rejectedLoadResults: WorktreeFileSurfaceDemandDispatchLoadResult[] = [];
+		const loadResults: WorktreeFileSurfaceDemandDispatchLoadResult[] = [];
+		const acceptedBatch: BridgeDemandIntent[] = [];
+		let acceptedBatchSchedulerBytes = 0;
+		let acceptedBatchExecutorBytes = 0;
+		const flushAcceptedBatch = async (): Promise<void> => {
+			if (acceptedBatch.length === 0) {
+				return;
+			}
+			const pendingPreloadLoads: {
+				readonly intent: BridgeDemandIntent;
+				readonly promise: Promise<WorktreeFileSurfaceDemandDispatchLoadResult>;
+			}[] = [];
+			for (const batchIntent of acceptedBatch.splice(0, acceptedBatch.length)) {
+				const queuedIntent = scheduler.dequeueNextMatching(
+					(candidateIntent): boolean =>
+						candidateIntent.dedupeKey === batchIntent.dedupeKey &&
+						candidateIntent.freshnessKey === batchIntent.freshnessKey,
+				);
+				if (queuedIntent === null) {
+					const descriptor = registry.lookup(batchIntent.descriptorRef);
+					loadResults.push({
+						ok: false,
+						descriptorId: descriptor?.descriptorId ?? null,
+						lane: batchIntent.lane,
+						reason: 'stale_completion',
+					});
+					continue;
+				}
+				pendingPreloadLoads.push({
+					intent: queuedIntent,
+					promise: loadPreloadIntent({
+						bodyRegistry,
+						executor,
+						intent: queuedIntent,
+						now,
+						preloadDispositionByBodyKey,
+						registry,
+						scheduler,
+					}),
+				});
+			}
+			acceptedBatchSchedulerBytes = 0;
+			acceptedBatchExecutorBytes = 0;
+			loadResults.push(
+				...(await settlePreloadLoads({
+					pendingPreloadLoads,
+					registry,
+				})),
+			);
+		};
 		for (const intent of intents) {
 			const descriptor = registry.lookup(intent.descriptorRef);
+			const schedulerBytes = descriptor?.content.expectedBytes ?? 0;
+			const executorBytes = descriptor?.content.expectedBytes ?? descriptor?.content.maxBytes ?? 0;
+			if (
+				acceptedBatch.length > 0 &&
+				(acceptedBatch.length >= executor.maxConcurrentLoads ||
+					acceptedBatchSchedulerBytes + schedulerBytes > scheduler.maxQueuedEstimatedBytes ||
+					acceptedBatchExecutorBytes + executorBytes > executor.maxInFlightBytes)
+			) {
+				await flushAcceptedBatch();
+			}
 			const enqueueResult = scheduler.enqueue({
 				intent,
 				...(descriptor?.content.expectedBytes === undefined
 					? {}
-					: { estimatedBytes: descriptor.content.expectedBytes }),
+					: { estimatedBytes: schedulerBytes }),
 			});
 			if (enqueueResult.ok) {
 				enqueueAcceptedCount += 1;
+				acceptedBatch.push(intent);
+				acceptedBatchSchedulerBytes += schedulerBytes;
+				acceptedBatchExecutorBytes += executorBytes;
 			} else {
 				enqueueRejectedCount += 1;
-				rejectedLoadResults.push({
+				loadResults.push({
 					ok: false,
 					descriptorId: descriptor?.descriptorId ?? null,
 					lane: intent.lane,
@@ -404,39 +483,15 @@ export function createWorktreeFileSurfaceRuntime(
 				});
 			}
 		}
-		const pendingPreloadLoads: {
-			readonly intent: BridgeDemandIntent;
-			readonly promise: Promise<WorktreeFileSurfaceDemandDispatchLoadResult>;
-		}[] = [];
-		let nextIntent = scheduler.dequeueNext();
-		while (nextIntent !== null) {
-			pendingPreloadLoads.push({
-				intent: nextIntent,
-				promise: loadPreloadIntent({
-					bodyRegistry,
-					executor,
-					intent: nextIntent,
-					now,
-					preloadDispositionByBodyKey,
-					registry,
-					scheduler,
-				}),
-			});
-			nextIntent = scheduler.dequeueNext();
-		}
-		const loadResults = await settlePreloadLoads({
-			pendingPreloadLoads,
-			registry,
-		});
-		const allLoadResults = [...rejectedLoadResults, ...loadResults];
+		await flushAcceptedBatch();
 		return {
 			stimulusCount: stimuli.length,
 			intentCount: intents.length,
 			enqueueAcceptedCount,
 			enqueueRejectedCount,
-			loadedCount: allLoadResults.filter((loadResult): boolean => loadResult.ok).length,
-			failedCount: allLoadResults.filter((loadResult): boolean => !loadResult.ok).length,
-			loadResults: allLoadResults,
+			loadedCount: loadResults.filter((loadResult): boolean => loadResult.ok).length,
+			failedCount: loadResults.filter((loadResult): boolean => !loadResult.ok).length,
+			loadResults,
 			schedulerQueuedEstimatedBytesAfter: scheduler.queuedEstimatedBytes,
 			schedulerQueuedIntentCountAfter: scheduler.queuedIntentCount,
 			executorInFlightBytesAfter: executor.inFlightBytes,
@@ -449,6 +504,7 @@ export function createWorktreeFileSurfaceRuntime(
 	const openFile = async (
 		openProps: WorktreeFileSurfaceOpenFileProps,
 	): Promise<WorktreeFileSurfaceLoadResult> => {
+		await demandDispatchTail;
 		state = openWorktreeFileSession({
 			state,
 			descriptor: openProps.descriptor,
@@ -772,6 +828,15 @@ async function loadPreloadIntent(props: {
 					cacheKey: descriptor.resourceUrl,
 					freshnessKey: props.intent.freshnessKey,
 				}) !== null;
+	const cachedPreloadDisposition =
+		descriptor === null
+			? undefined
+			: props.preloadDispositionByBodyKey.get(
+					bodyProvenanceKey({
+						freshnessKey: props.intent.freshnessKey,
+						resourceUrl: descriptor.resourceUrl,
+					}),
+				);
 	const loadStartedAtMilliseconds = props.now();
 	const result = await props.executor.load(props.intent);
 	const loadFinishedAtMilliseconds = props.now();
@@ -784,6 +849,7 @@ async function loadPreloadIntent(props: {
 		};
 	}
 	const disposition = preloadDispositionForLane({
+		cachedPreloadDisposition,
 		lane: props.intent.lane,
 		wasCachedBeforeLoad,
 	});
@@ -953,11 +1019,12 @@ function loadDispositionForStimulus(props: {
 }
 
 function preloadDispositionForLane(props: {
+	readonly cachedPreloadDisposition: WorktreeFileSurfaceLoadDisposition | undefined;
 	readonly lane: BridgeDemandLane;
 	readonly wasCachedBeforeLoad: boolean;
 }): WorktreeFileSurfaceLoadDisposition {
 	if (props.wasCachedBeforeLoad) {
-		return 'cache-hit';
+		return props.cachedPreloadDisposition ?? 'cache-hit';
 	}
 	switch (props.lane) {
 		case 'active':

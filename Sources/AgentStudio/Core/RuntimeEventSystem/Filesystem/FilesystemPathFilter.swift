@@ -27,7 +27,7 @@ struct FilesystemPathFilter: Sendable {
                 return Self(ignoredRules: [])
             }
             logger.warning(
-                "Failed to load .gitignore at \(gitIgnorePath.path, privacy: .public): \(error.localizedDescription, privacy: .public)"
+                "Failed to load .gitignore at \(gitIgnorePath.path, privacy: .public): domain=\(nsError.domain, privacy: .public) code=\(nsError.code, privacy: .public) reason=\(Self.gitIgnoreReadFailureReason(nsError), privacy: .public)"
             )
             return Self(ignoredRules: [])
         }
@@ -91,6 +91,38 @@ struct FilesystemPathFilter: Sendable {
             normalizedPath.removeFirst()
         }
         return normalizedPath
+    }
+
+    private static func gitIgnoreReadFailureReason(_ error: NSError) -> String {
+        if error.domain == NSCocoaErrorDomain {
+            switch error.code {
+            case NSFileReadNoPermissionError:
+                return "fileReadNoPermission"
+            case NSFileReadNoSuchFileError:
+                return "fileReadNoSuchFile"
+            case NSFileReadInapplicableStringEncodingError:
+                return "fileReadEncoding"
+            case NSFileReadCorruptFileError:
+                return "fileReadCorrupt"
+            default:
+                break
+            }
+        }
+        if error.domain == NSPOSIXErrorDomain {
+            switch POSIXErrorCode(rawValue: Int32(error.code)) {
+            case .EACCES?:
+                return "permissionDenied"
+            case .EPERM?:
+                return "operationNotPermitted"
+            case .ENOENT?:
+                return "notFound"
+            case .EMFILE?, .ENFILE?:
+                return "tooManyOpenFiles"
+            default:
+                break
+            }
+        }
+        return "unknown"
     }
 }
 

@@ -920,7 +920,7 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 			expectedWorktreeRootToken,
 			proof: visibleAppProof,
 		});
-		const fileViewerVisibleDemandTelemetry = await readWorktreeFileVisibleDemandTelemetry(page);
+		const fileViewerVisibleDemandTelemetry = await waitForWorktreeFileVisibleDemandTelemetry(page);
 		if (!worktreeFileVisibleDemandTelemetrySatisfied(fileViewerVisibleDemandTelemetry)) {
 			throw new Error(
 				`Expected FileViewer visible preload demand telemetry to be attributed: ${JSON.stringify(fileViewerVisibleDemandTelemetry)}`,
@@ -1246,6 +1246,18 @@ async function verifyWorktreeReviewRoute(): Promise<WorktreeReviewRouteProof> {
 				foregroundIntentCount: readNumberAttribute(element, `${prefix}-foreground-intent-count`),
 				interest:
 					element instanceof HTMLElement ? element.getAttribute(`${prefix}-interest`) : null,
+				itemId: element instanceof HTMLElement ? element.getAttribute(`${prefix}-item-id`) : null,
+				packageId:
+					element instanceof HTMLElement ? element.getAttribute(`${prefix}-package-id`) : null,
+				packageReviewGeneration: readNumberAttribute(element, `${prefix}-package-generation`),
+				packageRevision: readNumberAttribute(element, `${prefix}-package-revision`),
+				currentPackageId:
+					element instanceof HTMLElement ? element.getAttribute('data-review-package-id') : null,
+				currentPackageReviewGeneration: readNumberAttribute(
+					element,
+					'data-review-package-generation',
+				),
+				currentPackageRevision: readNumberAttribute(element, 'data-review-package-revision'),
 				laneUpgradeCount: readNumberAttribute(element, `${prefix}-lane-upgrade-count`),
 				loadedCount: readNumberAttribute(element, `${prefix}-loaded-count`),
 				maxExecutorInFlightCount: readNumberAttribute(element, `${prefix}-max-executor-in-flight`),
@@ -1396,6 +1408,7 @@ async function verifyWorktreeReviewRoute(): Promise<WorktreeReviewRouteProof> {
 			routeProof.reviewPackageRouteHitCount !== 1 ||
 			routeProof.reviewContentRouteHitCount <= 0 ||
 			!reviewRoutePressureSatisfied({
+				expectedVisibleItemId: routeProof.reviewVisibleDemandTelemetryProof.itemId,
 				routePressureProof: routeProof.reviewRoutePressureProof,
 				selectedDemandTelemetryProof: routeProof.reviewSelectedDemandTelemetryProof,
 				visibleDemandTelemetryProof: routeProof.reviewVisibleDemandTelemetryProof,
@@ -1651,7 +1664,30 @@ async function assertObservedWorktreeDevServerUrl(page: Page): Promise<{
 async function reloadWorktreeDevServerPage(page: Page): Promise<void> {
 	await page.goto(worktreeDevServerUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
 	await page.waitForSelector('[data-testid="bridge-file-viewer-shell"]', { timeout: 30_000 });
+	await waitForWorktreeFileViewerSurfaceReady(page);
 	await assertObservedWorktreeDevServerUrl(page);
+}
+
+async function waitForWorktreeFileViewerSurfaceReady(page: Page): Promise<void> {
+	await page.waitForFunction(
+		(): boolean => {
+			const shell = document.querySelector('[data-testid="bridge-file-viewer-shell"]');
+			const filterCountText =
+				document.querySelector('[data-testid="worktree-file-filter-count"]')?.textContent ?? '';
+			const [visibleCountText, totalCountText] = filterCountText.split('/');
+			const visibleCount = Number(visibleCountText);
+			const totalCount = Number(totalCountText);
+			return (
+				shell?.getAttribute('data-worktree-source-state') === 'live' &&
+				Number.isInteger(visibleCount) &&
+				Number.isInteger(totalCount) &&
+				totalCount > 0 &&
+				visibleCount > 0
+			);
+		},
+		undefined,
+		{ timeout: 30_000 },
+	);
 }
 
 async function readBridgePierreWorkerFileSuccessCount(page: Page): Promise<number> {
@@ -5414,6 +5450,7 @@ async function verifyWorktreeFileRecentlyUpdatedDemand(props: {
 			}
 			return (
 				shell.getAttribute('data-last-demand-dispatch-status') === 'settled' &&
+				shell.getAttribute('data-last-demand-dispatch-origin') === 'recentlyUpdatedFile' &&
 				shell.getAttribute('data-last-demand-dispatch-first-lane') === 'nearby' &&
 				(shell.getAttribute('data-last-demand-dispatch-first-dedupe-key') ?? '').includes(
 					expectedContentHandle,
@@ -5487,6 +5524,9 @@ async function readWorktreeFileVisibleDemandTelemetry(
 			}
 		};
 		return {
+			expectedVisibleFileCount: readShellNumberAttribute(
+				'data-last-demand-dispatch-expected-visible-file-count',
+			),
 			failedCount: readShellNumberAttribute('data-last-demand-dispatch-failed-count'),
 			failedCountByLane: readShellNumberRecordAttribute(
 				'data-last-demand-dispatch-failed-count-by-lane',
@@ -5530,6 +5570,14 @@ async function readWorktreeFileVisibleDemandTelemetry(
 			schedulerQueuedIntentCountAfter: readShellNumberAttribute(
 				'data-last-demand-dispatch-scheduler-queued-after',
 			),
+			recentlyUpdatedOpenFilePathAfter:
+				shell instanceof HTMLElement
+					? shell.getAttribute('data-last-demand-dispatch-open-file-path-after')
+					: null,
+			recentlyUpdatedOpenFilePathBefore:
+				shell instanceof HTMLElement
+					? shell.getAttribute('data-last-demand-dispatch-open-file-path-before')
+					: null,
 			status:
 				shell instanceof HTMLElement
 					? shell.getAttribute('data-last-demand-dispatch-status')
@@ -5537,6 +5585,65 @@ async function readWorktreeFileVisibleDemandTelemetry(
 			stimulusCount: readShellNumberAttribute('data-last-demand-dispatch-stimulus-count'),
 		};
 	});
+}
+
+async function waitForWorktreeFileVisibleDemandTelemetry(
+	page: Page,
+): Promise<WorktreeFileDemandDispatchTelemetryProof> {
+	try {
+		await page.waitForFunction(
+			(): boolean => {
+				const shell = document.querySelector('[data-testid="bridge-file-viewer-shell"]');
+				if (!(shell instanceof HTMLElement)) {
+					return false;
+				}
+				const readNumberAttribute = (attributeName: string): number | null => {
+					const attributeValue = shell.getAttribute(attributeName);
+					if (attributeValue === null) {
+						return null;
+					}
+					const parsedValue = Number(attributeValue);
+					return Number.isFinite(parsedValue) ? parsedValue : null;
+				};
+				const expectedVisibleFileCount = readNumberAttribute(
+					'data-last-demand-dispatch-expected-visible-file-count',
+				);
+				const failedCount = readNumberAttribute('data-last-demand-dispatch-failed-count');
+				const intentCount = readNumberAttribute('data-last-demand-dispatch-intent-count');
+				const loadedCount = readNumberAttribute('data-last-demand-dispatch-loaded-count');
+				const schedulerQueuedIntentCountAfter = readNumberAttribute(
+					'data-last-demand-dispatch-scheduler-queued-after',
+				);
+				const executorQueuedLoadCountAfter = readNumberAttribute(
+					'data-last-demand-dispatch-executor-queued-after',
+				);
+				return (
+					shell.getAttribute('data-last-demand-dispatch-status') === 'settled' &&
+					shell.getAttribute('data-last-demand-dispatch-origin') === 'visibleViewport' &&
+					shell.getAttribute('data-last-demand-dispatch-first-lane') === 'visible' &&
+					shell.getAttribute('data-last-demand-dispatch-first-disposition') ===
+						'visible-preloaded' &&
+					expectedVisibleFileCount !== null &&
+					expectedVisibleFileCount > 0 &&
+					intentCount !== null &&
+					intentCount === expectedVisibleFileCount &&
+					loadedCount !== null &&
+					loadedCount === expectedVisibleFileCount &&
+					failedCount === 0 &&
+					schedulerQueuedIntentCountAfter === 0 &&
+					executorQueuedLoadCountAfter === 0
+				);
+			},
+			undefined,
+			{ timeout: 20_000 },
+		);
+	} catch {
+		const proof = await readWorktreeFileVisibleDemandTelemetry(page);
+		throw new Error(
+			`Expected FileViewer visible preload demand telemetry to settle before read: ${JSON.stringify(proof)}`,
+		);
+	}
+	return await readWorktreeFileVisibleDemandTelemetry(page);
 }
 
 async function readWorktreeFileOpenLoadTelemetry(

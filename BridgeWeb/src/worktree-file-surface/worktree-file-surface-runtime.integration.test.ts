@@ -227,6 +227,129 @@ describe('worktree file surface runtime', () => {
 		});
 	});
 
+	test('settles all visible file demand without treating executor pressure as preload failure', async () => {
+		const descriptors = Array.from({ length: 12 }, (_, index): WorktreeFileDescriptor => {
+			const descriptorIndex = index + 1;
+			return makeFileDescriptor({
+				descriptorId: `file-content-${descriptorIndex}`,
+				contentHandle: `handle-${descriptorIndex}`,
+				expectedBytes: 4 * 1024 * 1024,
+				fileId: `file-${descriptorIndex}`,
+				maxBytes: 4 * 1024 * 1024,
+				path: `Sources/App/File${descriptorIndex}.swift`,
+			});
+		});
+		const fetchedDescriptorIds: string[] = [];
+		const runtime = createWorktreeFileSurfaceRuntime({
+			paneId: 'pane-1',
+			fetchResource: async ({ descriptor }) => {
+				fetchedDescriptorIds.push(descriptor.descriptorId);
+				return `${descriptor.descriptorId}:preloaded`;
+			},
+		});
+		for (const descriptor of descriptors) {
+			runtime.applyFrame(makeFileDescriptorFrame(descriptor));
+		}
+
+		const dispatchResult = await runtime.dispatchDemandStimuli([
+			{
+				kind: 'treeViewportChanged',
+				descriptorRefs: descriptors.map((descriptor) => descriptor.contentDescriptor.ref),
+			},
+		]);
+
+		expect(dispatchResult).toMatchObject({
+			stimulusCount: 1,
+			intentCount: descriptors.length,
+			enqueueAcceptedCount: descriptors.length,
+			enqueueRejectedCount: 0,
+			loadedCount: descriptors.length,
+			failedCount: 0,
+			schedulerQueuedIntentCountAfter: 0,
+			executorInFlightCountAfter: 0,
+			executorQueuedLoadCountAfter: 0,
+		});
+		expect(fetchedDescriptorIds).toHaveLength(descriptors.length);
+		expect(
+			dispatchResult.loadResults.every(
+				(loadResult): boolean =>
+					loadResult.ok && loadResult.loadTelemetry.disposition === 'visible-preloaded',
+			),
+		).toBe(true);
+	});
+
+	test('serializes concurrent visible demand dispatches before executor pressure can reject them', async () => {
+		const firstDescriptors = Array.from({ length: 8 }, (_, index): WorktreeFileDescriptor => {
+			const descriptorIndex = index + 1;
+			return makeFileDescriptor({
+				descriptorId: `first-visible-content-${descriptorIndex}`,
+				contentHandle: `first-handle-${descriptorIndex}`,
+				fileId: `first-file-${descriptorIndex}`,
+				path: `Sources/App/First${descriptorIndex}.swift`,
+			});
+		});
+		const secondDescriptors = Array.from({ length: 8 }, (_, index): WorktreeFileDescriptor => {
+			const descriptorIndex = index + 1;
+			return makeFileDescriptor({
+				descriptorId: `second-visible-content-${descriptorIndex}`,
+				contentHandle: `second-handle-${descriptorIndex}`,
+				fileId: `second-file-${descriptorIndex}`,
+				path: `Sources/App/Second${descriptorIndex}.swift`,
+			});
+		});
+		const loadGate = makeDeferred<void>();
+		const fetchedDescriptorIds: string[] = [];
+		const runtime = createWorktreeFileSurfaceRuntime({
+			paneId: 'pane-1',
+			fetchResource: async ({ descriptor }) => {
+				fetchedDescriptorIds.push(descriptor.descriptorId);
+				await loadGate.promise;
+				return `${descriptor.descriptorId}:preloaded`;
+			},
+		});
+		for (const descriptor of [...firstDescriptors, ...secondDescriptors]) {
+			runtime.applyFrame(makeFileDescriptorFrame(descriptor));
+		}
+
+		const firstDispatch = runtime.dispatchDemandStimuli([
+			{
+				kind: 'treeViewportChanged',
+				descriptorRefs: firstDescriptors.map((descriptor) => descriptor.contentDescriptor.ref),
+			},
+		]);
+		await Promise.resolve();
+		const secondDispatch = runtime.dispatchDemandStimuli([
+			{
+				kind: 'treeViewportChanged',
+				descriptorRefs: secondDescriptors.map((descriptor) => descriptor.contentDescriptor.ref),
+			},
+		]);
+		await Promise.resolve();
+
+		expect(fetchedDescriptorIds).toHaveLength(firstDescriptors.length);
+		loadGate.resolve();
+		const [firstDispatchResult, secondDispatchResult] = await Promise.all([
+			firstDispatch,
+			secondDispatch,
+		]);
+
+		expect(firstDispatchResult).toMatchObject({
+			intentCount: firstDescriptors.length,
+			loadedCount: firstDescriptors.length,
+			failedCount: 0,
+			executorInFlightCountAfter: 0,
+			executorQueuedLoadCountAfter: 0,
+		});
+		expect(secondDispatchResult).toMatchObject({
+			intentCount: secondDescriptors.length,
+			loadedCount: secondDescriptors.length,
+			failedCount: 0,
+			executorInFlightCountAfter: 0,
+			executorQueuedLoadCountAfter: 0,
+		});
+		expect(fetchedDescriptorIds).toHaveLength(firstDescriptors.length + secondDescriptors.length);
+	});
+
 	test('reports visible preload provenance when opening a warmed file', async () => {
 		const descriptor = makeFileDescriptor({
 			descriptorId: 'file-content-visible-open',
@@ -269,6 +392,110 @@ describe('worktree file surface runtime', () => {
 			},
 		});
 		expect(fetchedDescriptorIds).toEqual(['file-content-visible-open']);
+	});
+
+	test('reports cached visible preload demand with its original preload provenance', async () => {
+		const descriptor = makeFileDescriptor({
+			descriptorId: 'file-content-visible-repeat',
+			fileId: 'file-visible-repeat',
+			path: 'Sources/App/RepeatedVisible.swift',
+		});
+		const fetchedDescriptorIds: string[] = [];
+		const runtime = createWorktreeFileSurfaceRuntime({
+			paneId: 'pane-1',
+			fetchResource: async ({ descriptor: resourceDescriptor }) => {
+				fetchedDescriptorIds.push(resourceDescriptor.descriptorId);
+				return 'let repeatedVisible = true\n';
+			},
+		});
+		runtime.applyFrame(makeFileDescriptorFrame(descriptor));
+
+		await runtime.dispatchDemandStimuli([
+			{
+				kind: 'treeViewportChanged',
+				descriptorRefs: [descriptor.contentDescriptor.ref],
+			},
+		]);
+		const secondDispatchResult = await runtime.dispatchDemandStimuli([
+			{
+				kind: 'treeViewportChanged',
+				descriptorRefs: [descriptor.contentDescriptor.ref],
+			},
+		]);
+
+		expect(secondDispatchResult).toMatchObject({
+			loadedCount: 1,
+			failedCount: 0,
+		});
+		expect(secondDispatchResult.loadResults[0]).toMatchObject({
+			ok: true,
+			loadTelemetry: {
+				disposition: 'visible-preloaded',
+				lane: 'visible',
+			},
+		});
+		expect(fetchedDescriptorIds).toEqual(['file-content-visible-repeat']);
+	});
+
+	test('waits for visible demand dispatch to drain before sampling foreground open telemetry', async () => {
+		const visibleDescriptor = makeFileDescriptor({
+			descriptorId: 'file-content-visible-blocking',
+			fileId: 'file-visible-blocking',
+			path: 'Sources/App/VisibleBlocking.swift',
+		});
+		const targetDescriptor = makeFileDescriptor({
+			descriptorId: 'file-content-click-target',
+			fileId: 'file-click-target',
+			path: 'Sources/App/ClickTarget.swift',
+		});
+		const visibleGate = makeDeferred<void>();
+		const fetchedDescriptorIds: string[] = [];
+		const runtime = createWorktreeFileSurfaceRuntime({
+			paneId: 'pane-1',
+			fetchResource: async ({ descriptor }) => {
+				fetchedDescriptorIds.push(descriptor.descriptorId);
+				if (descriptor.descriptorId === visibleDescriptor.contentDescriptor.ref.descriptorId) {
+					await visibleGate.promise;
+				}
+				return `${descriptor.descriptorId}:body`;
+			},
+		});
+		runtime.applyFrame(makeFileDescriptorFrame(visibleDescriptor));
+		runtime.applyFrame(makeFileDescriptorFrame(targetDescriptor));
+
+		const visibleDispatch = runtime.dispatchDemandStimuli([
+			{
+				kind: 'treeViewportChanged',
+				descriptorRefs: [visibleDescriptor.contentDescriptor.ref],
+			},
+		]);
+		await Promise.resolve();
+		const openResultPromise = runtime.openFile({
+			descriptor: targetDescriptor,
+			openFileSessionId: 'file-click-target',
+		});
+		await Promise.resolve();
+
+		expect(fetchedDescriptorIds).toEqual(['file-content-visible-blocking']);
+		visibleGate.resolve();
+		await visibleDispatch;
+		const openResult = await openResultPromise;
+
+		expect(openResult).toMatchObject({
+			ok: true,
+			descriptorId: 'file-content-click-target',
+			loadTelemetry: {
+				disposition: 'cold-loaded',
+				executorInFlightCountBefore: 0,
+				executorInFlightCountAfter: 0,
+				executorQueuedLoadCountAfter: 0,
+				lane: 'foreground',
+			},
+		});
+		expect(fetchedDescriptorIds).toEqual([
+			'file-content-visible-blocking',
+			'file-content-click-target',
+		]);
 	});
 
 	test('preloads recently updated files as nearby or speculative demand without opening sessions', async () => {

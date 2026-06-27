@@ -138,7 +138,7 @@ struct WorkspaceActionExecutorTestsQuick {
             return
         }
         #expect(rootPath == worktree.path.path)
-        #expect(baseline == .originDefaultBranch(remoteName: "origin", branchName: "main"))
+        #expect(baseline == .ref(name: "HEAD"))
     }
 
     @Test("openBridgeReview can target a registered worktree without an active source pane")
@@ -175,7 +175,7 @@ struct WorkspaceActionExecutorTestsQuick {
             return
         }
         #expect(rootPath == worktree.path.path)
-        #expect(baseline == .originDefaultBranch(remoteName: "origin", branchName: "main"))
+        #expect(baseline == .ref(name: "HEAD"))
     }
 
     @Test("openContextualWebviewInPane creates a split browser pane with inherited workspace association")
