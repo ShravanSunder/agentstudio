@@ -2236,6 +2236,68 @@ describe('BridgeApp', () => {
 		);
 	});
 
+	test('package apply telemetry flushes every accepted envelope inside the throttle window', async () => {
+		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
+		const commandDetails: unknown[] = [];
+		document.addEventListener('__bridge_command', (event: Event): void => {
+			commandDetails.push(extractEventDetail(event));
+		});
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(<BridgeApp />);
+		});
+
+		await act(async (): Promise<void> => {
+			document.dispatchEvent(
+				new CustomEvent('__bridge_handshake', {
+					detail: {
+						pushNonce: 'push-nonce',
+						telemetryConfig: {
+							enabledScopes: ['web'],
+							maxSamplesPerBatch: 8,
+							maxEncodedBatchBytes: 16384,
+							minimumFlushIntervalMilliseconds: 250,
+							rpcMethodName: 'system.bridgeTelemetry',
+							scenario: 'package_apply_content_fetch_v1',
+						},
+					},
+				}),
+			);
+			postHostAdmittedEnvelope({
+				__v: 1,
+				__pushId: 'push-status-1',
+				__revision: 1,
+				__epoch: 1,
+				store: 'diff',
+				op: 'replace',
+				level: 'hot',
+				slice: 'diff_status',
+				data: { status: 'loading', error: null, epoch: 1 },
+			});
+			postHostAdmittedEnvelope({
+				__v: 1,
+				__pushId: 'push-status-2',
+				__revision: 2,
+				__epoch: 1,
+				store: 'diff',
+				op: 'replace',
+				level: 'hot',
+				slice: 'diff_status',
+				data: { status: 'ready', error: null, epoch: 1 },
+			});
+			await Promise.resolve();
+			await Promise.resolve();
+		});
+
+		const packageApplySamples = commandDetails
+			.flatMap(extractTelemetrySamples)
+			.filter(isPackageApplyTelemetrySample);
+		expect(packageApplySamples).toHaveLength(2);
+	});
+
 	test('Bridge-owned selection event uses the same state path as sidebar selection', async () => {
 		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
 		const reviewPackage = makeTwoItemReviewPackage();
@@ -3725,6 +3787,15 @@ function extractTelemetrySamples(commandDetail: unknown): readonly unknown[] {
 		return [];
 	}
 	return commandDetail.params.samples;
+}
+
+function isPackageApplyTelemetrySample(sample: unknown): boolean {
+	return (
+		typeof sample === 'object' &&
+		sample !== null &&
+		'name' in sample &&
+		sample.name === 'performance.bridge.web.package_apply'
+	);
 }
 
 function makeTwoItemReviewPackage(): ReturnType<typeof makeBridgeReviewPackage> {

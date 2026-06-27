@@ -248,7 +248,7 @@ trace_scenario_filter="$(
 base_log_query="service.name:AgentStudio dev.runtime.flavor:debug $marker_filter $scenario_filter"
 diagnostic_action_filter="$(logsql_exact_value_filter agentstudio.startup_diagnostic.action "$STARTUP_DIAGNOSTIC_ACTION")"
 diagnostic_log_query="service.name:AgentStudio dev.runtime.flavor:debug $marker_filter $diagnostic_action_filter"
-diagnostic_fields="_msg,agentstudio.startup_diagnostic.action,agentstudio.startup_diagnostic.expected_visible_pane.count,agentstudio.startup_diagnostic.bridge.review_shell.visible,agentstudio.startup_diagnostic.bridge.code_view.visible,agentstudio.startup_diagnostic.bridge.selected_item.visible,agentstudio.startup_diagnostic.bridge.selected_path.visible,agentstudio.startup_diagnostic.bridge.selected_content.visible,agentstudio.startup_diagnostic.bridge.selected_content.state,agentstudio.startup_diagnostic.bridge.selected_content_role.count,agentstudio.startup_diagnostic.bridge.selected_content_cache_key.count,agentstudio.startup_diagnostic.bridge.selected_content_character.count,agentstudio.startup_diagnostic.bridge.selected_content_line.count,agentstudio.startup_diagnostic.bridge.selected_materialized.update_result,agentstudio.startup_diagnostic.bridge.selected_materialized.item_type,agentstudio.startup_diagnostic.bridge.selected_materialized.item_version,agentstudio.startup_diagnostic.bridge.selected_materialized.addition_line.count,agentstudio.startup_diagnostic.bridge.selected_materialized.file_line.count,agentstudio.startup_diagnostic.bridge.page_issue.count,agentstudio.startup_diagnostic.bridge.diff_container.count,agentstudio.startup_diagnostic.bridge.code_line.count,agentstudio.startup_diagnostic.bridge.code_view_panel.width_px,agentstudio.startup_diagnostic.bridge.code_view_panel.height_px,agentstudio.startup_diagnostic.bridge.diff_container.width_px,agentstudio.startup_diagnostic.bridge.diff_container.height_px,agentstudio.startup_diagnostic.bridge.diff_container.pre_text.length,agentstudio.startup_diagnostic.bridge.code_text.length,agentstudio.startup_diagnostic.bridge.worker_pool.state,agentstudio.startup_diagnostic.render_proof.succeeded"
+diagnostic_fields="_msg,agentstudio.startup_diagnostic.action,agentstudio.startup_diagnostic.expected_visible_pane.count,agentstudio.startup_diagnostic.bridge.review_shell.visible,agentstudio.startup_diagnostic.bridge.code_view.visible,agentstudio.startup_diagnostic.bridge.selected_item.visible,agentstudio.startup_diagnostic.bridge.selected_path.visible,agentstudio.startup_diagnostic.bridge.selected_content.visible,agentstudio.startup_diagnostic.bridge.selected_content.state,agentstudio.startup_diagnostic.bridge.selected_content_role.count,agentstudio.startup_diagnostic.bridge.selected_content_cache_key.count,agentstudio.startup_diagnostic.bridge.selected_content_character.count,agentstudio.startup_diagnostic.bridge.selected_content_line.count,agentstudio.startup_diagnostic.bridge.selected_materialized.update_result,agentstudio.startup_diagnostic.bridge.selected_materialized.item_type,agentstudio.startup_diagnostic.bridge.selected_materialized.item_version,agentstudio.startup_diagnostic.bridge.selected_materialized.addition_line.count,agentstudio.startup_diagnostic.bridge.selected_materialized.deletion_line.count,agentstudio.startup_diagnostic.bridge.selected_materialized.file_line.count,agentstudio.startup_diagnostic.bridge.page_issue.count,agentstudio.startup_diagnostic.bridge.diff_container.count,agentstudio.startup_diagnostic.bridge.code_view.instance.first_item.height_px,agentstudio.startup_diagnostic.bridge.code_view.rendered_item.count,agentstudio.startup_diagnostic.bridge.code_view.rendered_item.type,agentstudio.startup_diagnostic.bridge.code_view.rendered_item.version,agentstudio.startup_diagnostic.bridge.code_view_panel.width_px,agentstudio.startup_diagnostic.bridge.code_view_panel.height_px,agentstudio.startup_diagnostic.bridge.diff_container.width_px,agentstudio.startup_diagnostic.bridge.code_text.length,agentstudio.startup_diagnostic.bridge.code_shadow_text.length,agentstudio.startup_diagnostic.bridge.worker_pool.state,agentstudio.startup_diagnostic.bridge.worker_pool.manager_state,agentstudio.startup_diagnostic.bridge.worker_pool.workers_failed,agentstudio.startup_diagnostic.bridge.worker_diagnostic.diff_success_count,agentstudio.startup_diagnostic.bridge.worker_diagnostic.failure_count,agentstudio.startup_diagnostic.render_proof.succeeded"
 
 diagnostic_completed_response="$(
   wait_for_log_query \
@@ -300,13 +300,15 @@ required_positive_diagnostic_fields=(
   agentstudio.startup_diagnostic.bridge.selected_materialized.item_version
   agentstudio.startup_diagnostic.bridge.selected_materialized.addition_line.count
   agentstudio.startup_diagnostic.bridge.diff_container.count
-  agentstudio.startup_diagnostic.bridge.code_line.count
+  agentstudio.startup_diagnostic.bridge.code_view.instance.first_item.height_px
+  agentstudio.startup_diagnostic.bridge.code_view.rendered_item.count
+  agentstudio.startup_diagnostic.bridge.code_view.rendered_item.version
   agentstudio.startup_diagnostic.bridge.code_view_panel.width_px
   agentstudio.startup_diagnostic.bridge.code_view_panel.height_px
   agentstudio.startup_diagnostic.bridge.diff_container.width_px
-  agentstudio.startup_diagnostic.bridge.diff_container.height_px
-  agentstudio.startup_diagnostic.bridge.diff_container.pre_text.length
   agentstudio.startup_diagnostic.bridge.code_text.length
+  agentstudio.startup_diagnostic.bridge.code_shadow_text.length
+  agentstudio.startup_diagnostic.bridge.worker_diagnostic.diff_success_count
 )
 
 for field in "${required_positive_diagnostic_fields[@]}"; do
@@ -321,6 +323,41 @@ if ! json_zero_int_field \
   agentstudio.startup_diagnostic.bridge.page_issue.count \
   "$diagnostic_completed_response"; then
   echo "Bridge startup diagnostic reported page issues" >&2
+  echo "$diagnostic_completed_response" >&2
+  exit 1
+fi
+
+if ! json_zero_int_field \
+  agentstudio.startup_diagnostic.bridge.worker_diagnostic.failure_count \
+  "$diagnostic_completed_response"; then
+  echo "Bridge startup diagnostic reported worker diagnostic failures" >&2
+  echo "$diagnostic_completed_response" >&2
+  exit 1
+fi
+
+if ! json_exact_string_field \
+  agentstudio.startup_diagnostic.bridge.code_view.rendered_item.type \
+  diff \
+  "$diagnostic_completed_response"; then
+  echo "Bridge startup diagnostic did not render the selected diff item" >&2
+  echo "$diagnostic_completed_response" >&2
+  exit 1
+fi
+
+if ! json_exact_string_field \
+  agentstudio.startup_diagnostic.bridge.worker_pool.state \
+  ready \
+  "$diagnostic_completed_response"; then
+  echo "Bridge startup diagnostic worker pool is not ready" >&2
+  echo "$diagnostic_completed_response" >&2
+  exit 1
+fi
+
+if ! json_exact_string_field \
+  agentstudio.startup_diagnostic.bridge.worker_pool.manager_state \
+  initialized \
+  "$diagnostic_completed_response"; then
+  echo "Bridge startup diagnostic worker pool manager is not initialized" >&2
   echo "$diagnostic_completed_response" >&2
   exit 1
 fi

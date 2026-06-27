@@ -327,7 +327,12 @@ struct AgentStudioStartupDiagnosticActionTests {
         #expect(probe.contains("data-selected-content-character-count"))
         #expect(probe.contains("data-selected-materialized-update-result"))
         #expect(probe.contains("selectedContentRoleCount > 0"))
-        #expect(probe.contains("firstDiffContainerHeight > 0"))
+        #expect(probe.contains("selectedContentCacheKeyCount > 0"))
+        #expect(probe.contains("selectedContentCharacterCount > 0"))
+        #expect(probe.contains("selectedContentLineCount > 0"))
+        #expect(probe.contains("selectedMaterializedLineCount > 0"))
+        #expect(probe.contains("codeText.length > 0"))
+        #expect(probe.contains("codeViewShadowText.length > 0"))
         #expect(probe.contains("codeViewScrollOwner"))
         #expect(probe.contains("window.__INSTANCE"))
         #expect(probe.contains("codeViewInstanceItemCount"))
@@ -459,6 +464,25 @@ struct AgentStudioStartupDiagnosticActionTests {
         )
 
         #expect(!proof.succeeded)
+    }
+
+    @Test("Bridge smoke render proof accepts current Pierre rendered text evidence")
+    func bridgeSmokeRenderProofAcceptsCurrentPierreRenderedTextEvidence() {
+        let proof = makeHydratedBridgeSmokeRenderProof(
+            HydratedBridgeSmokeRenderProofOptions(
+                codeLineCount: 0,
+                firstDiffContainerHeight: 0,
+                firstDiffContainerPreTextLength: 0,
+                codeViewInstanceFirstItemHeight: 152,
+                codeViewRenderedItemCount: 1,
+                codeViewRenderedItemType: "diff",
+                codeViewRenderedItemVersion: 5,
+                codeTextLength: 1471,
+                codeShadowTextLength: 1466
+            )
+        )
+
+        #expect(proof.succeeded)
     }
 
     @Test("startup diagnostic finite frame check rejects invalid bounds")
@@ -605,4 +629,105 @@ private func assertHydratedBridgeWorkerAttributes(
     #expect(attributes["agentstudio.startup_diagnostic.bridge.worker_diagnostic.last_forward_result"] == .string("ok"))
     #expect(attributes["agentstudio.startup_diagnostic.bridge.worker_diagnostic.failure_count"] == .int(0))
     #expect(attributes["agentstudio.startup_diagnostic.bridge.worker_diagnostic.last_failure_kind"] == .string("none"))
+}
+
+private struct HydratedBridgeSmokeRenderProofOptions {
+    let codeLineCount: Int
+    let firstDiffContainerHeight: Int
+    let firstDiffContainerPreTextLength: Int
+    let codeViewInstanceFirstItemHeight: Int
+    let codeViewRenderedItemCount: Int
+    let codeViewRenderedItemType: String
+    let codeViewRenderedItemVersion: Int
+    let codeTextLength: Int
+    let codeShadowTextLength: Int
+}
+
+private func makeHydratedBridgeSmokeRenderProof(
+    _ options: HydratedBridgeSmokeRenderProofOptions
+) -> BridgeReviewObservabilitySmokeRenderProof {
+    BridgeReviewObservabilitySmokeRenderProof(
+        expectedVisiblePaneCount: 1,
+        hasReviewShell: true,
+        hasCodeViewPanel: true,
+        hasSelectedItem: true,
+        hasSelectedDisplayPath: true,
+        hasSelectedContentText: true,
+        selectedContentState: "ready",
+        selectedContentRoleCount: 2,
+        selectedContentCacheKeyCount: 2,
+        selectedContentCharacterCount: 135,
+        selectedContentLineCount: 7,
+        selectedMaterializedUpdateResult: "updated",
+        selectedMaterializedItemType: "diff",
+        selectedMaterializedItemVersion: 5,
+        selectedMaterializedAdditionLineCount: 4,
+        selectedMaterializedDeletionLineCount: 3,
+        selectedMaterializedFileLineCount: 0,
+        pageErrorCount: 0,
+        diffContainerCount: 1,
+        codeLineCount: options.codeLineCount,
+        codeViewPanelWidth: 2208,
+        codeViewPanelHeight: 1081,
+        firstDiffContainerWidth: 2208,
+        firstDiffContainerHeight: options.firstDiffContainerHeight,
+        codeViewScrollOwnerHeight: 1081,
+        codeViewScrollOwnerScrollHeight: 1081,
+        codeViewScrollOwnerChildCount: 1,
+        codeViewScrollOwnerFirstChildTag: "diffs-container",
+        codeViewInstanceHeight: 1081,
+        codeViewInstanceScrollHeight: 152,
+        codeViewInstanceItemCount: 1,
+        codeViewInstanceWindowTop: 0,
+        codeViewInstanceWindowBottom: 1081,
+        codeViewInstanceFirstRenderedIndex: 0,
+        codeViewInstanceLastRenderedIndex: 0,
+        codeViewInstanceFirstItemHeight: options.codeViewInstanceFirstItemHeight,
+        codeViewInstanceFirstItemTop: 0,
+        codeViewRenderedItemCount: options.codeViewRenderedItemCount,
+        codeViewRenderedItemElementHeight: 0,
+        codeViewRenderedItemElementChildCount: 1,
+        codeViewRenderedItemElementFirstChildTag: "diffs-container",
+        codeViewRenderedItemType: options.codeViewRenderedItemType,
+        codeViewRenderedItemVersion: options.codeViewRenderedItemVersion,
+        firstDiffContainerShadowChildCount: 0,
+        firstDiffContainerPreCount: 1,
+        firstDiffContainerOffsetHeight: 0,
+        firstDiffContainerScrollHeight: 0,
+        firstDiffContainerPreHeight: 0,
+        firstDiffContainerPreTextLength: options.firstDiffContainerPreTextLength,
+        codeLineWithDataLineCount: 0,
+        firstDiffContainerDisplay: "block",
+        workerPoolState: "ready",
+        workerPoolManagerState: "initialized",
+        workerPoolWorkersFailed: false,
+        workerPoolTotalWorkers: 2,
+        workerPoolBusyWorkers: 0,
+        workerPoolQueuedTasks: 0,
+        workerPoolActiveTasks: 0,
+        workerPoolFileCacheSize: 0,
+        workerPoolDiffCacheSize: 1,
+        workerPoolInitializationProbeStage: "highlighter-loaded",
+        workerPoolInitializationProbeThemeCount: 2,
+        workerPoolInitializationProbeLanguageCount: 7,
+        workerPoolInitializationProbeFailureReason: "",
+        workerDiagnosticBootstrapState: "started",
+        workerDiagnosticInitializeRequestIdState: "present",
+        workerDiagnosticLastMessageType: "success",
+        workerDiagnosticLastRequestType: "initialize",
+        workerDiagnosticLastSuccessMatchesInitializeRequest: "yes",
+        workerDiagnosticLastSuccessIdState: "present",
+        workerDiagnosticLastSuccessIdPrefix: "req",
+        workerDiagnosticLastSuccessRequestType: "diff",
+        workerDiagnosticSuccessCount: 2,
+        workerDiagnosticInitializeSuccessCount: 1,
+        workerDiagnosticDiffSuccessCount: 1,
+        workerDiagnosticFileSuccessCount: 0,
+        workerDiagnosticForwardedMessageCount: 2,
+        workerDiagnosticLastForwardResult: "ok",
+        workerDiagnosticErrorCount: 0,
+        workerDiagnosticLastErrorKind: "none",
+        codeTextLength: options.codeTextLength,
+        codeShadowTextLength: options.codeShadowTextLength
+    )
 }

@@ -212,7 +212,11 @@ struct BridgeReviewObservabilitySmokeRenderProof: Equatable {
     let codeShadowTextLength: Int
 
     var succeeded: Bool {
-        expectedVisiblePaneCount == 1
+        let selectedMaterializedLineCount =
+            selectedMaterializedAdditionLineCount
+            + selectedMaterializedDeletionLineCount
+            + selectedMaterializedFileLineCount
+        return expectedVisiblePaneCount == 1
             && hasReviewShell
             && hasCodeViewPanel
             && hasSelectedItem
@@ -220,12 +224,27 @@ struct BridgeReviewObservabilitySmokeRenderProof: Equatable {
             && hasSelectedContentText
             && selectedContentState == "ready"
             && selectedContentRoleCount > 0
+            && selectedContentCacheKeyCount > 0
+            && selectedContentCharacterCount > 0
+            && selectedContentLineCount > 0
+            && selectedMaterializedUpdateResult == "updated"
+            && selectedMaterializedItemVersion > 0
+            && selectedMaterializedLineCount > 0
             && diffContainerCount > 0
-            && codeLineCount > 0
             && codeViewPanelWidth > 0
             && codeViewPanelHeight > 0
             && firstDiffContainerWidth > 0
-            && firstDiffContainerHeight > 0
+            && codeViewInstanceFirstItemHeight > 0
+            && codeViewRenderedItemCount > 0
+            && codeViewRenderedItemType == selectedMaterializedItemType
+            && codeViewRenderedItemVersion == selectedMaterializedItemVersion
+            && codeTextLength > 0
+            && codeShadowTextLength > 0
+            && workerPoolState == "ready"
+            && workerPoolManagerState == "initialized"
+            && !workerPoolWorkersFailed
+            && workerDiagnosticDiffSuccessCount > 0
+            && workerDiagnosticErrorCount == 0
             && pageErrorCount == 0
     }
 

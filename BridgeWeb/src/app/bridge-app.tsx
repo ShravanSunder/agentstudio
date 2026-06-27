@@ -2098,7 +2098,7 @@ function recordPackageApplyTelemetry(
 		numericAttributes: {},
 		booleanAttributes: {},
 	});
-	telemetryRecorder.flush();
+	telemetryRecorder.flush({ force: true });
 }
 
 function recordPushDropTelemetry(

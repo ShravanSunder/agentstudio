@@ -253,25 +253,45 @@ extension BridgeTelemetryBatchValidator {
     }
 
     private static func contentFetchContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
-        contract.matches(
-            .init(
-                phase: "fetch",
-                plane: .data,
-                priority: .hot,
-                slice: .contentFetch,
-                transport: "content",
-                attributeKeys: .init(
-                    additionalStringKeys: [
-                        "agentstudio.bridge.content.correlation_mode",
-                        "agentstudio.bridge.content.role",
-                    ],
-                    booleanKeys: [
-                        "agentstudio.bridge.header_missing",
-                        "agentstudio.bridge.header_supported",
-                    ]
-                )
+        let contentResourceFetchExpectation = BridgeTelemetryEventExpectation(
+            phase: "fetch",
+            plane: .data,
+            priority: .hot,
+            slice: .contentFetch,
+            transport: "content",
+            attributeKeys: .init(
+                additionalStringKeys: [
+                    "agentstudio.bridge.content.correlation_mode",
+                    "agentstudio.bridge.content.role",
+                ],
+                booleanKeys: [
+                    "agentstudio.bridge.header_missing",
+                    "agentstudio.bridge.header_supported",
+                ]
             )
         )
+        let demandContentFetchExpectation = BridgeTelemetryEventExpectation(
+            phase: "fetch",
+            plane: .data,
+            priority: .hot,
+            slice: .contentFetch,
+            transport: "content",
+            attributeKeys: .init(
+                additionalStringKeys: [
+                    "agentstudio.bridge.content.correlation_mode",
+                    "agentstudio.bridge.content.interest",
+                    "agentstudio.bridge.content.role",
+                    "agentstudio.bridge.result",
+                    "agentstudio.bridge.result_reason",
+                ],
+                booleanKeys: [
+                    "agentstudio.bridge.header_missing",
+                    "agentstudio.bridge.header_supported",
+                ]
+            )
+        )
+        return contract.matches(contentResourceFetchExpectation)
+            || contract.matches(demandContentFetchExpectation)
     }
 
     private static func firstRenderContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
@@ -455,6 +475,7 @@ extension BridgeTelemetryBatchValidator {
                 slice: .contentFetch,
                 transport: "content",
                 additionalStringKeys: [
+                    "agentstudio.bridge.content.interest",
                     "agentstudio.bridge.content.priority",
                     "agentstudio.bridge.content.role",
                     "agentstudio.bridge.queue.depth_bucket",
@@ -726,9 +747,17 @@ extension BridgeTelemetryBatchValidator {
             "file",
             "unknown",
         ],
+        "agentstudio.bridge.content.interest": [
+            "selected",
+            "visible",
+            "nearby",
+            "speculative",
+        ],
         "agentstudio.bridge.content.priority": [
+            "nearby",
             "prefetch",
             "selected",
+            "speculative",
             "visible",
         ],
         "agentstudio.bridge.content_bytes_bucket": [
@@ -856,13 +885,25 @@ extension BridgeTelemetryBatchValidator {
             "huge",
         ],
         "agentstudio.bridge.result": [
+            "deferred",
             "dropped",
             "error",
+            "failed",
             "failure",
             "fallback",
             "queued",
             "stale",
             "success",
+        ],
+        "agentstudio.bridge.result_reason": [
+            "aborted",
+            "byte_budget_exceeded",
+            "concurrency_exceeded",
+            "descriptor_missing",
+            "load_failed",
+            "load_threw",
+            "none",
+            "stale_completion",
         ],
         "agentstudio.bridge.scroll_target.kind": [
             "item",

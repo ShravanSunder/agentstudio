@@ -77,6 +77,62 @@ struct BridgeTelemetryBatchValidatorTests {
     }
 
     @Test
+    func validatorAcceptsDemandContentFetchTelemetryWithResultAttributes() {
+        let validator = BridgeTelemetryBatchValidator(
+            scopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web])
+        )
+        let batch = batchWithWebSample(
+            WebSampleProps(
+                name: "performance.bridge.web.content_fetch",
+                phase: "fetch",
+                plane: "data",
+                priority: "hot",
+                slice: "content_fetch",
+                transport: "content",
+                extraStrings: [
+                    "agentstudio.bridge.content.correlation_mode": "summary",
+                    "agentstudio.bridge.content.interest": "selected",
+                    "agentstudio.bridge.content.role": "head",
+                    "agentstudio.bridge.result": "success",
+                    "agentstudio.bridge.result_reason": "none",
+                ],
+                extraBooleans: [
+                    "agentstudio.bridge.header_missing": true,
+                    "agentstudio.bridge.header_supported": false,
+                ]
+            )
+        )
+
+        #expect(validator.validate(batch) == .accepted(batch))
+    }
+
+    @Test
+    func validatorAcceptsDemandContentQueueTelemetryWithInterestAttribute() {
+        let validator = BridgeTelemetryBatchValidator(
+            scopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web])
+        )
+        let batch = batchWithWebSample(
+            WebSampleProps(
+                name: "performance.bridge.viewer.content_queue",
+                phase: "content_queue",
+                plane: "data",
+                priority: "hot",
+                slice: "content_fetch",
+                transport: "content",
+                extraStrings: [
+                    "agentstudio.bridge.content.interest": "selected",
+                    "agentstudio.bridge.content.priority": "selected",
+                    "agentstudio.bridge.content.role": "head",
+                    "agentstudio.bridge.queue.depth_bucket": "small",
+                    "agentstudio.bridge.result": "success",
+                ]
+            )
+        )
+
+        #expect(validator.validate(batch) == .accepted(batch))
+    }
+
+    @Test
     func validatorAcceptsConnectionPushApplyTelemetryAsControlPlane() {
         let validator = BridgeTelemetryBatchValidator(
             scopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web])
@@ -494,6 +550,7 @@ struct BridgeTelemetryBatchValidatorTests {
                 slice: "content_fetch",
                 transport: "content",
                 extraStrings: [
+                    "agentstudio.bridge.content.interest": "visible",
                     "agentstudio.bridge.content.priority": "visible",
                     "agentstudio.bridge.content.role": "head",
                     "agentstudio.bridge.queue.depth_bucket": "small",

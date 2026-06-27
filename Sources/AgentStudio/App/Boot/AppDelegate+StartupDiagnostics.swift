@@ -428,6 +428,10 @@ extension AppDelegate {
               const selectedMaterializedAdditionLineCount = Number(codeViewPanel?.getAttribute('data-selected-materialized-addition-line-count') || '0');
               const selectedMaterializedDeletionLineCount = Number(codeViewPanel?.getAttribute('data-selected-materialized-deletion-line-count') || '0');
               const selectedMaterializedFileLineCount = Number(codeViewPanel?.getAttribute('data-selected-materialized-file-line-count') || '0');
+              const selectedMaterializedLineCount =
+                selectedMaterializedAdditionLineCount +
+                selectedMaterializedDeletionLineCount +
+                selectedMaterializedFileLineCount;
               const panelRect = codeViewPanel?.getBoundingClientRect();
               const codeViewScrollOwnerRect = codeViewScrollOwner?.getBoundingClientRect();
               const diffContainers = [...document.querySelectorAll('diffs-container')];
@@ -548,9 +552,18 @@ extension AppDelegate {
                 hasSelectedContentText:
                   selectedContentState === 'ready' &&
                   selectedContentRoleCount > 0 &&
-                  codeLineElements.length > 0 &&
+                  selectedContentCacheKeyCount > 0 &&
+                  selectedContentCharacterCount > 0 &&
+                  selectedContentLineCount > 0 &&
+                  selectedMaterializedUpdateResult === 'updated' &&
+                  selectedMaterializedItemVersion > 0 &&
+                  selectedMaterializedLineCount > 0 &&
+                  codeViewRenderedItemCount > 0 &&
+                  codeViewInstanceFirstItemHeight > 0 &&
+                  codeText.length > 0 &&
+                  codeViewShadowText.length > 0 &&
                   firstDiffContainerWidth > 0 &&
-                  firstDiffContainerHeight > 0,
+                  workerPoolState === 'ready',
                 selectedContentState,
                 selectedContentRoleCount,
                 selectedContentCacheKeyCount,
