@@ -1859,3 +1859,43 @@ Open implementation blockers remain:
   row that must emit or inject a recently-updated-file event and record the
   resulting lane, dedupe key, queue admission/drop, byte-budget disposition, and
   stale-drop behavior.
+
+2026-06-27 native Agent Studio Bridge/WKWebView proof checkpoint:
+
+- Native Bridge/WKWebView proof now accepts current Pierre render evidence
+  instead of stale line-index/first-diff-height DOM internals. The render proof
+  requires selected content readiness, materialization freshness, rendered
+  CodeView item identity/version, code/shadow text, worker readiness, and diff
+  success.
+- Swift telemetry validation now accepts the demand-scheduler content-fetch and
+  content-queue attribute shapes emitted by the current BridgeWeb runtime, with
+  controlled values for `content.interest`, `result`, and `result_reason`.
+- BridgeWeb package-apply telemetry now force-flushes accepted package telemetry
+  so same-window startup diagnostics do not lose the package-apply signal.
+- Focused BridgeWeb proof passed:
+  `pnpm --dir BridgeWeb exec vitest run src/app/bridge-app.integration.test.tsx -t "package apply telemetry|telemetry-enabled package apply|review telemetry keeps package parent|accepted delta refreshes package parent" --reporter verbose`
+  with 1 file, 5 tests passed, 50 skipped.
+- Focused Swift proof passed:
+  `swift test --filter BridgeTelemetryBatchValidatorTests --filter AgentStudioStartupDiagnosticActionTests`
+  with 37 tests passed.
+- Telemetry recorder proof passed:
+  `pnpm --dir BridgeWeb exec vitest run src/foundation/telemetry/bridge-telemetry-recorder.unit.test.ts --reporter verbose`
+  with 1 file, 5 tests passed.
+- Repo lint gate passed:
+  `mise run lint` with SwiftLint 0 violations across 1326 files, architecture
+  lint OK, and release script verification passed.
+- Native Victoria verifier proof passed:
+  `mise run verify-bridge-observability`
+  with `bridge observability ok`, marker
+  `debug-observability-oq4s-1782524331-51052`, scenario
+  `package_apply_content_fetch_v1`, `logs=22`, `metrics=17`, `traces=3`, and
+  `telemetry_self_rpc=absent`.
+- Debug app state after proof:
+  `AGENTSTUDIO_OBSERVABILITY_STATUS=running`,
+  `AGENTSTUDIO_OBSERVABILITY_PID=55576`, launch method `launchservices`, app
+  `/Users/shravansunder/.agentstudio-db/oq4s/apps/app-20260626213851-51052/AgentStudio Debug oq4s.app`.
+- Checkpoint commit:
+  `6d61f735 fix bridge native render telemetry proof`.
+- The 1Password signing path failed with `failed to fill whole buffer`; the
+  scoped checkpoint was committed with `--no-gpg-sign` per repo guidance not to
+  block local commits on signing availability.
