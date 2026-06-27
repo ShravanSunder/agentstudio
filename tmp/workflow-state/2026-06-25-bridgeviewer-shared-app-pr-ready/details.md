@@ -179,6 +179,36 @@ The first implementation sequence after plan review is:
 
 ## Implementation Checkpoints
 
+2026-06-27 recently-updated-file demand checkpoint:
+
+- FileViewer now accepts the dev/provider `bridge-worktree-file-recently-updated`
+  event as a descriptor-ref demand signal only after validating the payload with
+  Zod and matching the active source identity. The event does not carry file
+  bytes and does not open a foreground file session.
+- The runtime preserves demand dedupe/freshness keys in preload result
+  telemetry so the dev-server verifier can prove the request was descriptor-
+  and source-scoped instead of only counting aggregate loads.
+- Browser proof:
+  `pnpm --dir BridgeWeb exec vitest --config vitest.browser.config.ts run --project integration-browser src/file-viewer/bridge-file-viewer-app.browser.test.tsx --reporter verbose`
+  exited 0 with 1 file passed and 6 tests passed.
+- Verifier unit proof:
+  `pnpm --dir BridgeWeb exec vitest run scripts/verify-bridge-viewer-worktree-dev-server.unit.test.ts --reporter verbose`
+  exited 0 with 1 file passed and 19 tests passed.
+- Runtime integration proof:
+  `pnpm --dir BridgeWeb exec vitest run src/worktree-file-surface/worktree-file-surface-runtime.integration.test.ts --reporter verbose`
+  exited 0 with 1 file passed and 18 tests passed.
+- Static proof:
+  `pnpm --dir BridgeWeb run check` exited 0 with existing verifier warnings only.
+- Dev-server proof:
+  `pnpm --dir BridgeWeb run test:dev-server:worktree` exited 0 and wrote
+  `tmp/bridge-viewer-worktree-dev-server/2026-06-27T00-08-44-986Z/worktree-dev-server-proof.json`.
+- Artifact highlights:
+  `result.fileViewerRecentlyUpdatedDemandTelemetry.status = settled`,
+  `firstLane = nearby`, `firstDisposition = nearby-preloaded`,
+  `intentCount = 1`, `loadedCount = 1`, `failedCount = 0`, and both
+  `firstDedupeKey` and `firstFreshnessKey` are nonempty and scoped to the
+  worktree-file descriptor/source.
+
 2026-06-26 design/spec checkpoint:
 
 - The shared chrome contract now explicitly requires the content header to live

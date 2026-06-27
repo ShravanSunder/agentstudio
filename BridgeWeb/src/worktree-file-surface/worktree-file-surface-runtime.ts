@@ -124,8 +124,10 @@ export type WorktreeFileSurfaceLoadResult =
 
 export type WorktreeFileSurfaceDemandDispatchLoadResult =
 	| {
+			readonly dedupeKey: string;
 			readonly ok: true;
 			readonly descriptorId: string;
+			readonly freshnessKey: string;
 			readonly loadTelemetry: WorktreeFileSurfaceLoadTelemetry;
 	  }
 	| {
@@ -795,8 +797,10 @@ async function loadPreloadIntent(props: {
 		);
 	}
 	return {
+		dedupeKey: props.intent.dedupeKey,
 		ok: true,
 		descriptorId: result.descriptor.descriptorId,
+		freshnessKey: props.intent.freshnessKey,
 		loadTelemetry: {
 			disposition,
 			durationMilliseconds: Math.max(0, loadFinishedAtMilliseconds - loadStartedAtMilliseconds),

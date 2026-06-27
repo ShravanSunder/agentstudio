@@ -30,6 +30,7 @@ import {
 	reviewRoutePressureSatisfied,
 	reviewSelectedDemandTelemetrySatisfied,
 	selectVisibleReviewCollapseControlProof,
+	worktreeFileRecentlyUpdatedDemandTelemetrySatisfied,
 	worktreeFileVisibleDemandTelemetrySatisfied,
 	worktreeFileOpenLoadTelemetrySatisfied,
 	type ReviewCollapseControlCandidate,
@@ -157,6 +158,7 @@ interface WorktreeDevServerVerificationResult {
 	readonly productControlsProof: WorktreeFileProductControlsProof;
 	readonly fileToReviewHandoffProof: WorktreeFileToReviewHandoffProof;
 	readonly fileViewerClickToReadyTelemetry: WorktreeFileOpenLoadTelemetryProof;
+	readonly fileViewerRecentlyUpdatedDemandTelemetry: WorktreeFileDemandDispatchTelemetryProof;
 	readonly fileViewerVisibleDemandTelemetry: WorktreeFileDemandDispatchTelemetryProof;
 	readonly reviewFileTargetRouteProof: WorktreeReviewFileTargetRouteProof;
 	readonly reviewRouteProof: WorktreeReviewRouteProof;
@@ -764,6 +766,15 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 				staleRefreshDescriptor.path,
 			]),
 		});
+		const recentlyUpdatedDescriptor = resolveStaleRefreshDescriptor({
+			descriptors,
+			excludedPaths: new Set([
+				initialDescriptor.path,
+				targetDescriptor.path,
+				staleRefreshDescriptor.path,
+				splitResetDescriptor.path,
+			]),
+		});
 		const staleRefreshInitialContent = await fetchWorktreeFileContent(staleRefreshDescriptor);
 		const splitResetInitialContent = await fetchWorktreeFileContent(splitResetDescriptor);
 		staleRefreshFixture = await worktreeFileStaleRefreshFixture({
@@ -921,6 +932,11 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 				`Expected FileViewer click-to-ready load telemetry to be drained and attributed: ${JSON.stringify(fileViewerClickToReadyTelemetry)}`,
 			);
 		}
+		const fileViewerRecentlyUpdatedDemandTelemetry = await verifyWorktreeFileRecentlyUpdatedDemand({
+			descriptor: recentlyUpdatedDescriptor,
+			page,
+			sourceId: surface.source.sourceId,
+		});
 		const readyScreenshotPath = await captureWorktreeDevServerScreenshot({
 			name: 'worktree-file-ready.png',
 			page,
@@ -1003,6 +1019,7 @@ async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerificationR
 			visibleAppProof,
 			fileToReviewHandoffProof,
 			fileViewerClickToReadyTelemetry,
+			fileViewerRecentlyUpdatedDemandTelemetry,
 			fileViewerVisibleDemandTelemetry,
 			productControlsProof,
 			reviewFileTargetRouteProof,
@@ -5366,6 +5383,66 @@ async function readWorktreeDevReloadProof(page: Page): Promise<WorktreeDevReload
 	};
 }
 
+async function verifyWorktreeFileRecentlyUpdatedDemand(props: {
+	readonly descriptor: WorktreeFileDescriptor;
+	readonly page: Page;
+	readonly sourceId: string;
+}): Promise<WorktreeFileDemandDispatchTelemetryProof> {
+	await props.page.evaluate(
+		(detail: {
+			readonly path: string;
+			readonly proximity: string;
+			readonly sourceIdentity: string;
+		}): void => {
+			window.dispatchEvent(
+				new CustomEvent('bridge-worktree-file-recently-updated', {
+					detail,
+				}),
+			);
+		},
+		{
+			path: props.descriptor.path,
+			proximity: 'nearby',
+			sourceIdentity: props.sourceId,
+		},
+	);
+	await props.page.waitForFunction(
+		(expectedContentHandle: string): boolean => {
+			const shell = document.querySelector('[data-testid="bridge-file-viewer-shell"]');
+			if (!(shell instanceof HTMLElement)) {
+				return false;
+			}
+			return (
+				shell.getAttribute('data-last-demand-dispatch-status') === 'settled' &&
+				shell.getAttribute('data-last-demand-dispatch-first-lane') === 'nearby' &&
+				(shell.getAttribute('data-last-demand-dispatch-first-dedupe-key') ?? '').includes(
+					expectedContentHandle,
+				) &&
+				(shell.getAttribute('data-last-demand-dispatch-first-freshness-key') ?? '').includes(
+					expectedContentHandle,
+				)
+			);
+		},
+		props.descriptor.contentHandle,
+		{ timeout: 20_000 },
+	);
+	const proof = await readWorktreeFileVisibleDemandTelemetry(props.page);
+	if (!worktreeFileRecentlyUpdatedDemandTelemetrySatisfied(proof)) {
+		throw new Error(
+			`Expected FileViewer recently-updated preload telemetry to be attributed: ${JSON.stringify(proof)}`,
+		);
+	}
+	if (
+		!(proof.firstDedupeKey ?? '').includes(props.descriptor.contentHandle) ||
+		!(proof.firstFreshnessKey ?? '').includes(props.descriptor.contentHandle)
+	) {
+		throw new Error(
+			`Expected recently-updated demand keys to reference ${props.descriptor.contentHandle}: ${JSON.stringify(proof)}`,
+		);
+	}
+	return proof;
+}
+
 async function readWorktreeFileVisibleDemandTelemetry(
 	page: Page,
 ): Promise<WorktreeFileDemandDispatchTelemetryProof> {
@@ -5417,9 +5494,17 @@ async function readWorktreeFileVisibleDemandTelemetry(
 			failedCountByReason: readShellNumberRecordAttribute(
 				'data-last-demand-dispatch-failed-count-by-reason',
 			),
+			firstDedupeKey:
+				shell instanceof HTMLElement
+					? shell.getAttribute('data-last-demand-dispatch-first-dedupe-key')
+					: null,
 			firstDisposition:
 				shell instanceof HTMLElement
 					? shell.getAttribute('data-last-demand-dispatch-first-disposition')
+					: null,
+			firstFreshnessKey:
+				shell instanceof HTMLElement
+					? shell.getAttribute('data-last-demand-dispatch-first-freshness-key')
 					: null,
 			firstLane:
 				shell instanceof HTMLElement

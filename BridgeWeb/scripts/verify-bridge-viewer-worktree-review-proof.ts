@@ -36,7 +36,9 @@ export interface WorktreeFileDemandDispatchTelemetryProof {
 	readonly failedCount: number | null;
 	readonly failedCountByLane: Record<string, number> | null;
 	readonly failedCountByReason: Record<string, number> | null;
+	readonly firstDedupeKey: string | null;
 	readonly firstDisposition: string | null;
+	readonly firstFreshnessKey: string | null;
 	readonly firstLane: string | null;
 	readonly intentCount: number | null;
 	readonly loadedCount: number | null;
@@ -224,6 +226,41 @@ export function worktreeFileVisibleDemandTelemetrySatisfied(
 		}) &&
 		proof.firstLane === 'visible' &&
 		proof.firstDisposition === 'visible-preloaded' &&
+		proof.schedulerQueuedIntentCountAfter === 0 &&
+		proof.schedulerQueuedEstimatedBytesAfter === 0 &&
+		proof.executorInFlightCountAfter === 0 &&
+		proof.executorInFlightBytesAfter === 0 &&
+		proof.executorQueuedLoadCountAfter === 0 &&
+		proof.executorQueuedBytesAfter === 0
+	);
+}
+
+export function worktreeFileRecentlyUpdatedDemandTelemetrySatisfied(
+	proof: WorktreeFileDemandDispatchTelemetryProof,
+): boolean {
+	const failedCount = proof.failedCount;
+	const validLane = proof.firstLane === 'nearby' || proof.firstLane === 'speculative';
+	const validDisposition =
+		proof.firstDisposition === 'nearby-preloaded' ||
+		proof.firstDisposition === 'speculative-preloaded' ||
+		proof.firstDisposition === 'cache-hit';
+	return (
+		proof.status === 'settled' &&
+		proof.stimulusCount === 1 &&
+		proof.intentCount === 1 &&
+		proof.loadedCount === 1 &&
+		failedCount === 0 &&
+		worktreeFileDemandDispatchFailuresAccounted({
+			failedCount,
+			failedCountByLane: proof.failedCountByLane,
+			failedCountByReason: proof.failedCountByReason,
+		}) &&
+		validLane &&
+		validDisposition &&
+		proof.firstDedupeKey !== null &&
+		proof.firstDedupeKey.length > 0 &&
+		proof.firstFreshnessKey !== null &&
+		proof.firstFreshnessKey.length > 0 &&
 		proof.schedulerQueuedIntentCountAfter === 0 &&
 		proof.schedulerQueuedEstimatedBytesAfter === 0 &&
 		proof.executorInFlightCountAfter === 0 &&

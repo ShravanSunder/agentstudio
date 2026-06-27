@@ -9,6 +9,7 @@ import {
 	type ReactElement,
 	type ReactNode,
 } from 'react';
+import { z } from 'zod';
 
 import { BridgeViewerContentHeader } from '../app/bridge-viewer-content-header.js';
 import type { BridgeViewerNavigationCommand } from '../app/bridge-viewer-navigation-models.js';
@@ -98,6 +99,15 @@ type BridgeFileViewerDemandDispatchDebugState =
 type BridgeFileViewerSearchPattern =
 	| { readonly ok: true; readonly pattern: RegExp }
 	| { readonly ok: false; readonly message: string };
+
+const bridgeFileViewerRecentlyUpdatedEventName = 'bridge-worktree-file-recently-updated';
+const bridgeFileViewerRecentlyUpdatedEventDetailSchema = z
+	.object({
+		path: z.string().min(1),
+		proximity: z.enum(['nearby', 'remote']),
+		sourceIdentity: z.string().min(1),
+	})
+	.strict();
 
 const defaultPaneId = 'bridge-worktree-dev-pane';
 const defaultFileLineHeightPixels = 20;
@@ -398,6 +408,73 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 		[],
 	);
 
+	const dispatchRecentlyUpdatedFileDemand = useCallback((event: Event): void => {
+		if (!(event instanceof CustomEvent)) {
+			return;
+		}
+		const parsedDetail = bridgeFileViewerRecentlyUpdatedEventDetailSchema.safeParse(event.detail);
+		if (!parsedDetail.success) {
+			return;
+		}
+		const runtime = runtimeRef.current;
+		const currentRenderState = renderStateRef.current;
+		if (runtime === null || currentRenderState.sourceIdentity === null) {
+			return;
+		}
+		if (currentRenderState.sourceIdentity.sourceId !== parsedDetail.data.sourceIdentity) {
+			return;
+		}
+		const descriptor = currentRenderState.descriptors.find(
+			(candidateDescriptor): boolean => candidateDescriptor.path === parsedDetail.data.path,
+		);
+		if (descriptor === undefined || !canFetchWorktreeFileDescriptorContent(descriptor)) {
+			return;
+		}
+		const requestId = demandDispatchRequestIdRef.current + 1;
+		demandDispatchRequestIdRef.current = requestId;
+		const stimuli: readonly WorktreeFileDemandStimulus[] = [
+			{
+				kind: 'recentlyUpdatedFile',
+				descriptorRef: descriptor.contentDescriptor.ref,
+				proximity: parsedDetail.data.proximity,
+				sourceIdentity: parsedDetail.data.sourceIdentity,
+			},
+		];
+		void runtime
+			.dispatchDemandStimuli(stimuli)
+			.then((result): void => {
+				if (demandDispatchRequestIdRef.current !== requestId) {
+					return;
+				}
+				setLastDemandDispatchDebugState({
+					status: 'settled',
+					result,
+				});
+			})
+			.catch((error: unknown): void => {
+				if (demandDispatchRequestIdRef.current !== requestId) {
+					return;
+				}
+				setLastDemandDispatchDebugState({
+					status: 'failed',
+					reason: error instanceof Error ? error.message : String(error),
+				});
+			});
+	}, []);
+
+	useEffect((): (() => void) => {
+		window.addEventListener(
+			bridgeFileViewerRecentlyUpdatedEventName,
+			dispatchRecentlyUpdatedFileDemand,
+		);
+		return (): void => {
+			window.removeEventListener(
+				bridgeFileViewerRecentlyUpdatedEventName,
+				dispatchRecentlyUpdatedFileDemand,
+			);
+		};
+	}, [dispatchRecentlyUpdatedFileDemand]);
+
 	const descriptorProjection = useMemo(
 		(): BridgeFileViewerDescriptorProjection =>
 			projectBridgeFileViewerDescriptors({
@@ -439,10 +516,11 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 	});
 	const lastDemandDispatchResult =
 		lastDemandDispatchDebugState.status === 'settled' ? lastDemandDispatchDebugState.result : null;
-	const firstDemandLoadTelemetry =
+	const firstDemandLoadResult =
 		lastDemandDispatchResult === null
 			? null
-			: firstSuccessfulDemandLoadTelemetry(lastDemandDispatchResult);
+			: firstSuccessfulDemandLoadResult(lastDemandDispatchResult);
+	const firstDemandLoadTelemetry = firstDemandLoadResult?.loadTelemetry ?? null;
 
 	return (
 		<main
@@ -482,6 +560,8 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 					: JSON.stringify(worktreeFileDemandFailedCountByReason(lastDemandDispatchResult))
 			}
 			data-last-demand-dispatch-first-disposition={firstDemandLoadTelemetry?.disposition}
+			data-last-demand-dispatch-first-dedupe-key={firstDemandLoadResult?.dedupeKey}
+			data-last-demand-dispatch-first-freshness-key={firstDemandLoadResult?.freshnessKey}
 			data-last-demand-dispatch-first-lane={firstDemandLoadTelemetry?.lane}
 			data-last-demand-dispatch-intent-count={lastDemandDispatchResult?.intentCount}
 			data-last-demand-dispatch-loaded-count={lastDemandDispatchResult?.loadedCount}
@@ -599,12 +679,15 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 	);
 }
 
-function firstSuccessfulDemandLoadTelemetry(
+function firstSuccessfulDemandLoadResult(
 	result: WorktreeFileSurfaceDemandDispatchResult,
-): WorktreeFileSurfaceLoadTelemetry | null {
+): Extract<
+	WorktreeFileSurfaceDemandDispatchResult['loadResults'][number],
+	{ readonly ok: true }
+> | null {
 	for (const loadResult of result.loadResults) {
 		if (loadResult.ok) {
-			return loadResult.loadTelemetry;
+			return loadResult;
 		}
 	}
 	return null;

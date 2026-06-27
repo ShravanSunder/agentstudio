@@ -234,6 +234,64 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		]);
 	});
 
+	test('preloads recently updated files from a provider event without opening the file', async () => {
+		const visibleDescriptor = makeFileDescriptor({
+			contentHandle: 'visible-content',
+			fileId: 'file-visible',
+			path: 'src/visible.ts',
+		});
+		const updatedDescriptor = makeFileDescriptor({
+			contentHandle: 'recently-updated-content',
+			fileId: 'file-recently-updated',
+			path: 'src/recently-updated.ts',
+		});
+		const fetchedResourceUrls: string[] = [];
+
+		render(
+			<BridgeFileViewerApp
+				fetchResource={async (props): Promise<string> => {
+					fetchedResourceUrls.push(props.resourceUrl);
+					return props.resourceUrl.includes('recently-updated-content')
+						? 'export const recentlyUpdated = true;\n'
+						: 'export const visible = true;\n';
+				}}
+				initialFrames={makeFrames(visibleDescriptor, updatedDescriptor)}
+			/>,
+		);
+
+		await waitForDemandDispatchState('settled');
+		window.dispatchEvent(
+			new CustomEvent('bridge-worktree-file-recently-updated', {
+				detail: {
+					path: 'src/recently-updated.ts',
+					proximity: 'nearby',
+					sourceIdentity: 'dev-worktree-source',
+				},
+			}),
+		);
+		await waitForDemandDispatchFirstLane('nearby');
+
+		const shell = requireBridgeViewerHTMLElement(
+			document.querySelector('[data-testid="bridge-file-viewer-shell"]'),
+		);
+		expect(shell.getAttribute('data-last-demand-dispatch-stimulus-count')).toBe('1');
+		expect(shell.getAttribute('data-last-demand-dispatch-intent-count')).toBe('1');
+		expect(shell.getAttribute('data-last-demand-dispatch-loaded-count')).toBe('1');
+		expect(shell.getAttribute('data-last-demand-dispatch-failed-count')).toBe('0');
+		expect(shell.getAttribute('data-last-demand-dispatch-first-lane')).toBe('nearby');
+		expect(shell.getAttribute('data-last-demand-dispatch-first-dedupe-key')).toContain(
+			'recently-updated-content',
+		);
+		expect(shell.getAttribute('data-last-demand-dispatch-first-freshness-key')).toContain(
+			'recently-updated-content',
+		);
+		expect(openFileState()).toBeNull();
+		expect(openFilePath()).toBeNull();
+		expect(fetchedResourceUrls).toContain(
+			'agentstudio://resource/worktree-file/worktree.fileContent/recently-updated-content?generation=1',
+		);
+	});
+
 	test('ignores stale visible demand batch results after a newer source reset dispatch settles', async () => {
 		const oldDescriptor = makeFileDescriptor({
 			contentHandle: 'old-delayed-content',
@@ -501,6 +559,10 @@ async function waitForDemandDispatchLoadedCount(expectedLoadedCount: string): Pr
 	await waitForDemandDispatchLoadedCountAttempt({ attempt: 0, expectedLoadedCount });
 }
 
+async function waitForDemandDispatchFirstLane(expectedFirstLane: string): Promise<void> {
+	await waitForDemandDispatchFirstLaneAttempt({ attempt: 0, expectedFirstLane });
+}
+
 async function waitForRecordedFetchCount(props: {
 	readonly expectedCount: number;
 	readonly recordedFetches: readonly string[];
@@ -586,6 +648,27 @@ async function waitForDemandDispatchLoadedCountAttempt(props: {
 	await waitForDemandDispatchLoadedCountAttempt({
 		attempt: props.attempt + 1,
 		expectedLoadedCount: props.expectedLoadedCount,
+	});
+}
+
+async function waitForDemandDispatchFirstLaneAttempt(props: {
+	readonly attempt: number;
+	readonly expectedFirstLane: string;
+}): Promise<void> {
+	const shell = document.querySelector('[data-testid="bridge-file-viewer-shell"]');
+	const actualFirstLane = shell?.getAttribute('data-last-demand-dispatch-first-lane') ?? null;
+	if (actualFirstLane === props.expectedFirstLane) {
+		return;
+	}
+	if (props.attempt >= 60) {
+		throw new Error(
+			`Expected demand dispatch first lane ${props.expectedFirstLane}; actual=${actualFirstLane ?? 'missing'}`,
+		);
+	}
+	await waitForBridgeViewerAnimationFrame();
+	await waitForDemandDispatchFirstLaneAttempt({
+		attempt: props.attempt + 1,
+		expectedFirstLane: props.expectedFirstLane,
 	});
 }
 

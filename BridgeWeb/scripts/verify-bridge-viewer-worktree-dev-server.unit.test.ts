@@ -16,6 +16,7 @@ import {
 	selectVisibleReviewCollapseControlProof,
 	worktreeFileVisibleDemandTelemetrySatisfied,
 	worktreeFileOpenLoadTelemetrySatisfied,
+	worktreeFileRecentlyUpdatedDemandTelemetrySatisfied,
 } from './verify-bridge-viewer-worktree-review-proof.ts';
 import type { ReviewDemandTelemetryProof } from './verify-bridge-viewer-worktree-review-proof.ts';
 
@@ -313,6 +314,8 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 				failedCountByLane: { visible: 0 },
 				failedCountByReason: { byte_budget_exceeded: 0 },
 				firstDisposition: 'visible-preloaded',
+				firstDedupeKey: 'visible-dedupe',
+				firstFreshnessKey: 'visible-freshness',
 				firstLane: 'visible',
 				intentCount: 2,
 				loadedCount: 2,
@@ -332,6 +335,8 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 				failedCountByLane: { visible: 48 },
 				failedCountByReason: { byte_budget_exceeded: 48 },
 				firstDisposition: 'visible-preloaded',
+				firstDedupeKey: 'visible-dedupe',
+				firstFreshnessKey: 'visible-freshness',
 				firstLane: 'visible',
 				intentCount: 50,
 				loadedCount: 2,
@@ -351,6 +356,8 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 				failedCountByLane: null,
 				failedCountByReason: null,
 				firstDisposition: 'visible-preloaded',
+				firstDedupeKey: 'visible-dedupe',
+				firstFreshnessKey: 'visible-freshness',
 				firstLane: 'visible',
 				intentCount: 50,
 				loadedCount: 2,
@@ -370,6 +377,8 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 				failedCountByLane: { foreground: 0 },
 				failedCountByReason: { byte_budget_exceeded: 0 },
 				firstDisposition: 'cold-loaded',
+				firstDedupeKey: 'foreground-dedupe',
+				firstFreshnessKey: 'foreground-freshness',
 				firstLane: 'foreground',
 				intentCount: 1,
 				loadedCount: 1,
@@ -389,6 +398,8 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 				failedCountByLane: { visible: 0 },
 				failedCountByReason: { byte_budget_exceeded: 0 },
 				firstDisposition: 'visible-preloaded',
+				firstDedupeKey: 'visible-dedupe',
+				firstFreshnessKey: 'visible-freshness',
 				firstLane: 'visible',
 				intentCount: 0,
 				loadedCount: 0,
@@ -467,6 +478,57 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 				schedulerQueuedEstimatedBytesBefore: 0,
 				schedulerQueuedIntentCountAfter: 0,
 				schedulerQueuedIntentCountBefore: 0,
+			}),
+		).toBe(false);
+	});
+
+	test('publishes FileViewer recently-updated preload telemetry as a first-class dev-server proof row', async () => {
+		const verifierSource = await readFile(verifierSourceUrl, 'utf8');
+
+		expect(verifierSource).toContain('fileViewerRecentlyUpdatedDemandTelemetry');
+		expect(verifierSource).toContain('bridge-worktree-file-recently-updated');
+		expect(
+			worktreeFileRecentlyUpdatedDemandTelemetrySatisfied({
+				failedCount: 0,
+				failedCountByLane: { nearby: 0 },
+				failedCountByReason: { byte_budget_exceeded: 0 },
+				firstDedupeKey: 'pane-1:worktree-file:worktree.fileContent:recently-updated-content',
+				firstDisposition: 'nearby-preloaded',
+				firstFreshnessKey:
+					'pane-1:worktree-file:dev-worktree-source:1:revision-none:cursor-none:recently-updated-content',
+				firstLane: 'nearby',
+				intentCount: 1,
+				loadedCount: 1,
+				executorInFlightBytesAfter: 0,
+				executorInFlightCountAfter: 0,
+				executorQueuedBytesAfter: 0,
+				executorQueuedLoadCountAfter: 0,
+				schedulerQueuedEstimatedBytesAfter: 0,
+				schedulerQueuedIntentCountAfter: 0,
+				status: 'settled',
+				stimulusCount: 1,
+			}),
+		).toBe(true);
+		expect(
+			worktreeFileRecentlyUpdatedDemandTelemetrySatisfied({
+				failedCount: 0,
+				failedCountByLane: { visible: 0 },
+				failedCountByReason: { byte_budget_exceeded: 0 },
+				firstDedupeKey: 'pane-1:worktree-file:worktree.fileContent:visible-content',
+				firstDisposition: 'visible-preloaded',
+				firstFreshnessKey:
+					'pane-1:worktree-file:dev-worktree-source:1:revision-none:cursor-none:visible-content',
+				firstLane: 'visible',
+				intentCount: 1,
+				loadedCount: 1,
+				executorInFlightBytesAfter: 0,
+				executorInFlightCountAfter: 0,
+				executorQueuedBytesAfter: 0,
+				executorQueuedLoadCountAfter: 0,
+				schedulerQueuedEstimatedBytesAfter: 0,
+				schedulerQueuedIntentCountAfter: 0,
+				status: 'settled',
+				stimulusCount: 1,
 			}),
 		).toBe(false);
 	});
