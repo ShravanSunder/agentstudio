@@ -41,6 +41,13 @@ export interface BridgeWorktreeReviewDevProvider {
 	readonly loadReviewPackage: () => Promise<BridgeWorktreeReviewDevPackageResult>;
 }
 
+export interface CreateBridgeWorktreeReviewDevProviderOptions {
+	readonly loadSnapshot?: (props: {
+		readonly baseRef: string;
+		readonly worktreeRoot: string;
+	}) => Promise<BridgeWorktreeReviewDevSnapshot>;
+}
+
 const worktreeReviewGeneration = 1;
 const worktreeReviewRevision = 1;
 const worktreeReviewRepoId = 'dev-worktree-repo';
@@ -50,19 +57,22 @@ const worktreeReviewHeadEndpointId = 'dev-worktree-review-head';
 
 export function createBridgeWorktreeReviewDevProvider(
 	config: BridgeWorktreeDevProviderConfig,
+	options: CreateBridgeWorktreeReviewDevProviderOptions = {},
 ): BridgeWorktreeReviewDevProvider {
+	const loadSnapshot = options.loadSnapshot ?? loadBridgeWorktreeDevSnapshot;
 	const packageResultsById = new Map<string, BridgeWorktreeReviewDevPackageResult>();
+	let packageResultPromise: Promise<BridgeWorktreeReviewDevPackageResult> | null = null;
 	const loadReviewPackage = async (): Promise<BridgeWorktreeReviewDevPackageResult> => {
-		const snapshot = await loadBridgeWorktreeDevSnapshot({
+		packageResultPromise ??= createReviewPackageResult({
 			baseRef: config.baseRef,
+			loadSnapshot,
+			packageResultsById,
 			worktreeRoot: config.worktreeRoot,
+		}).catch((error: unknown): never => {
+			packageResultPromise = null;
+			throw error;
 		});
-		const result = createBridgeWorktreeReviewDevPackage({
-			baseRef: config.baseRef,
-			snapshot,
-		});
-		packageResultsById.set(result.reviewPackage.packageId, result);
-		return result;
+		return await packageResultPromise;
 	};
 	return {
 		loadReviewPackage,
@@ -87,6 +97,24 @@ export function createBridgeWorktreeReviewDevProvider(
 			return content;
 		},
 	};
+}
+
+async function createReviewPackageResult(props: {
+	readonly baseRef: string;
+	readonly loadSnapshot: NonNullable<CreateBridgeWorktreeReviewDevProviderOptions['loadSnapshot']>;
+	readonly packageResultsById: Map<string, BridgeWorktreeReviewDevPackageResult>;
+	readonly worktreeRoot: string;
+}): Promise<BridgeWorktreeReviewDevPackageResult> {
+	const snapshot = await props.loadSnapshot({
+		baseRef: props.baseRef,
+		worktreeRoot: props.worktreeRoot,
+	});
+	const result = createBridgeWorktreeReviewDevPackage({
+		baseRef: props.baseRef,
+		snapshot,
+	});
+	props.packageResultsById.set(result.reviewPackage.packageId, result);
+	return result;
 }
 
 export function createBridgeWorktreeReviewDevPackage(

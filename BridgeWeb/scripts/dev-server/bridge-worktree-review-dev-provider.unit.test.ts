@@ -5,6 +5,7 @@ import type {
 	BridgeReviewPackage,
 } from '../../src/foundation/review-package/bridge-review-package.js';
 import {
+	createBridgeWorktreeReviewDevProvider,
 	createBridgeWorktreeReviewDevPackage,
 	type BridgeWorktreeReviewDevSnapshot,
 } from './bridge-worktree-review-dev-provider.js';
@@ -140,6 +141,56 @@ describe('Bridge worktree review dev provider', () => {
 		expect(itemByHeadPath(result.reviewPackage, 'a-b.ts')?.itemId).not.toBe(
 			itemByHeadPath(result.reviewPackage, 'a/b.ts')?.itemId,
 		);
+	});
+
+	test('reuses the computed review package across snapshot resource and content requests', async () => {
+		let loadSnapshotCallCount = 0;
+		const snapshot = {
+			fingerprint: 'cached123456',
+			changedFiles: [
+				{
+					additions: 1,
+					baseContent: 'export const value = 1;\n',
+					basePath: 'src/app.ts',
+					changeKind: 'modified',
+					deletions: 1,
+					headContent: 'export const value = 2;\n',
+					headPath: 'src/app.ts',
+					path: 'src/app.ts',
+				},
+			],
+		} satisfies BridgeWorktreeReviewDevSnapshot;
+		const provider = createBridgeWorktreeReviewDevProvider(
+			{
+				baseRef: 'base-sha',
+				scenarioName: 'current-worktree',
+				worktreeRoot: '/tmp/bridge-review-cache-fixture',
+			},
+			{
+				loadSnapshot: async () => {
+					loadSnapshotCallCount += 1;
+					return snapshot;
+				},
+			},
+		);
+
+		const firstPackageResult = await provider.loadReviewPackage();
+		const secondPackageResult = await provider.loadReviewPackage();
+		const firstItemId = firstPackageResult.reviewPackage.orderedItemIds[0];
+		expect(firstItemId).toBeDefined();
+		const firstItem = firstPackageResult.reviewPackage.itemsById[firstItemId ?? ''];
+		const headHandle = firstItem?.contentRoles.head;
+		expect(headHandle).not.toBeNull();
+		const content = await provider.loadReviewContent({
+			generation: firstPackageResult.reviewPackage.reviewGeneration,
+			handleId: headHandle?.handleId ?? '',
+			packageId: firstPackageResult.reviewPackage.packageId,
+			revision: firstPackageResult.reviewPackage.revision,
+		});
+
+		expect(secondPackageResult).toBe(firstPackageResult);
+		expect(content).toBe('export const value = 2;\n');
+		expect(loadSnapshotCallCount).toBe(1);
 	});
 });
 

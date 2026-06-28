@@ -2393,3 +2393,44 @@ Open implementation blockers remain:
   it should reduce the `review-package` startup bottleneck by making projection
   data progressively/window-materialized instead of waiting for a 1.36 MB
   package body before useful Review startup work.
+
+2026-06-28 dev Review package provider cache checkpoint:
+
+- Found that the Vite worktree Review provider recomputed the full review
+  package for `frame=review-snapshot` and again for the later
+  `resource=review-package` request. The browser was using the right lane
+  shape, but the dev backend was making the content stream wait on duplicate
+  provider work before first byte.
+- `BridgeWeb/scripts/dev-server/bridge-worktree-review-dev-provider.ts` now
+  caches the in-flight/completed review package result per provider instance and
+  reuses it for snapshot-frame, package-resource, and content requests. Failed
+  cache attempts reset so a later request can retry.
+- Added unit proof in
+  `BridgeWeb/scripts/dev-server/bridge-worktree-review-dev-provider.unit.test.ts`
+  that two package loads plus a content request call the snapshot loader once
+  and return the same package result.
+- Fresh proof:
+  - `pnpm --dir BridgeWeb exec vitest run scripts/dev-server/bridge-worktree-review-dev-provider.unit.test.ts --reporter verbose`
+    exited 0: 1 file passed, 2 tests passed.
+  - `pnpm --dir BridgeWeb exec tsc --noEmit --pretty false` exited 0.
+  - `pnpm --dir BridgeWeb exec oxfmt --check scripts/dev-server/bridge-worktree-review-dev-provider.ts scripts/dev-server/bridge-worktree-review-dev-provider.unit.test.ts`
+    exited 0.
+  - Restarted Vite and reran
+    `pnpm --dir BridgeWeb run test:dev-server:worktree`; it exited 0 and wrote
+    `tmp/bridge-viewer-worktree-dev-server/2026-06-28T14-49-36-695Z/worktree-dev-server-proof.json`.
+  - `git diff --check` exited 0.
+- Timing delta from artifact comparison:
+  - before cache:
+    `review_package_first_chunk=1391.7ms`,
+    `review_package_body_load=1393.7ms`,
+    `byte_count=1356525`, `chunk_count=9`.
+  - after cache:
+    `review_package_first_chunk=62.7ms`,
+    `review_package_body_load=64.2ms`,
+    `byte_count=1358877`, `chunk_count=8`.
+- Interpretation: this closes the immediate dev-loop slowness caused by
+  duplicate provider package generation. It does not close the larger 06P.S
+  architecture gap: Review still waits for a whole package resource before final
+  package authority/projection state. The next architecture slice remains
+  progressive/window projection materialization or an explicit small projection
+  resource descriptor.
