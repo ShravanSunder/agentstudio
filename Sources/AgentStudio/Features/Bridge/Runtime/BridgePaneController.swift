@@ -54,6 +54,7 @@ final class BridgePaneController {
     let revisionClock = RevisionClock()
     let resourceLeaseRegistry = BridgeTransportResourceLeaseRegistry()
     let reviewContentStore: BridgeContentStore
+    let reviewResourceStore = BridgeReviewResourceStore()
     let worktreeFileResourceStore = BridgeWorktreeFileResourceStore()
     let reviewPipeline: BridgeReviewPipeline
     let reviewChangeIndex = BridgeChangeIndex()
@@ -85,7 +86,8 @@ final class BridgePaneController {
     private var managementScript: WKUserScript
     private(set) var isContentInteractionEnabled: Bool
     private var interactionApplyTask: Task<Void, Never>?
-    var pushDeliveryTail: Task<Void, Never>?
+    var bridgeDeliveryTail: Task<Void, Never>?
+    var pendingReviewProtocolIntakeFrames: [String] = []
     var pendingWorktreeFileIntakeFrames: [String] = []
     private var inboxPostTimestamps: [Date] = []
     let telemetryScopeGate: BridgeTelemetryScopeGate
@@ -194,11 +196,14 @@ final class BridgePaneController {
 
         Self.registerAgentStudioSchemeHandler(
             in: &config,
-            paneId: paneId,
-            reviewContentStore: reviewContentStore,
-            worktreeFileResourceStore: worktreeFileResourceStore,
-            resourceLeaseRegistry: resourceLeaseRegistry,
-            telemetryRecorder: resolvedTelemetryRecorder
+            input: BridgeSchemeHandlerRegistrationInput(
+                paneId: paneId,
+                reviewContentStore: reviewContentStore,
+                reviewResourceStore: reviewResourceStore,
+                worktreeFileResourceStore: worktreeFileResourceStore,
+                resourceLeaseRegistry: resourceLeaseRegistry,
+                telemetryRecorder: resolvedTelemetryRecorder
+            )
         )
 
         // Create WebPage with bridge-specific navigation and dialog policies.
@@ -485,10 +490,14 @@ final class BridgePaneController {
         activeReviewRefreshTask = nil
         hasPendingReviewRefresh = false
         activeWorktreeFileSurfaceSource = nil
+        pendingReviewProtocolIntakeFrames.removeAll(keepingCapacity: false)
         pendingWorktreeFileIntakeFrames.removeAll(keepingCapacity: false)
         revokeReviewContentAuthoritySynchronously()
+        revokeReviewResourceAuthoritySynchronously(resourceKind: "review-package")
+        revokeReviewResourceAuthoritySynchronously(resourceKind: "review-delta")
         resourceLeaseRegistry.revokeSynchronously(paneId: paneId, protocolId: "worktree-file")
         let reviewContentStore = reviewContentStore
+        let reviewResourceStore = reviewResourceStore
         let worktreeFileResourceStore = worktreeFileResourceStore
         let resourceLeaseRegistry = resourceLeaseRegistry
         let paneId = paneId
@@ -501,9 +510,24 @@ final class BridgePaneController {
                 resourceKind: "content",
                 revokeAuthority: false
             )
+            await reviewResourceStore.reset(protocolId: "review", resourceKind: "review-package")
+            await reviewResourceStore.reset(protocolId: "review", resourceKind: "review-delta")
+            await resourceLeaseRegistry.reset(
+                paneId: paneId,
+                protocolId: "review",
+                resourceKind: "review-package",
+                revokeAuthority: false
+            )
+            await resourceLeaseRegistry.reset(
+                paneId: paneId,
+                protocolId: "review",
+                resourceKind: "review-delta",
+                revokeAuthority: false
+            )
             await resourceLeaseRegistry.reset(paneId: paneId, protocolId: "worktree-file")
         }
         runtime.resetForControllerTeardown()
+        bridgeDeliveryTail = nil
         lastPushed.removeAll()
         isBridgeReady = false
     }
@@ -547,6 +571,10 @@ final class BridgePaneController {
         reviewPushPlan?.start()
         connectionPushPlan?.start()
         agentPushPlan?.start()
+
+        Task { @MainActor [weak self] in
+            await self?.flushPendingReviewProtocolIntakeFrames()
+        }
     }
 
     // MARK: - Test/entrypoint utility
@@ -569,11 +597,25 @@ final class BridgePaneController {
         let frames = pendingWorktreeFileIntakeFrames
         pendingWorktreeFileIntakeFrames.removeAll(keepingCapacity: true)
         for frame in frames {
-            do {
-                try await intakeFrameSink(page, frame, pushNonce)
-            } catch {
+            let delivered = await deliverIntakeFrame(frame)
+            guard delivered else {
                 bridgeControllerLogger.warning(
-                    "[Bridge] Worktree/File intake transport failed pane=\(self.paneId.uuidString, privacy: .public): \(error.localizedDescription, privacy: .private)"
+                    "[Bridge] Worktree/File intake transport failed pane=\(self.paneId.uuidString, privacy: .public)"
+                )
+                paneState.connection.setHealth(.error)
+                return
+            }
+        }
+    }
+
+    func flushPendingReviewProtocolIntakeFrames() async {
+        let frames = pendingReviewProtocolIntakeFrames
+        pendingReviewProtocolIntakeFrames.removeAll(keepingCapacity: true)
+        for frame in frames {
+            let delivered = await deliverIntakeFrame(frame)
+            guard delivered else {
+                bridgeControllerLogger.warning(
+                    "[Bridge] Review protocol intake transport failed pane=\(self.paneId.uuidString, privacy: .public)"
                 )
                 paneState.connection.setHealth(.error)
                 return
@@ -601,39 +643,6 @@ final class BridgePaneController {
             slices: {
                 Slice("diffStatus", telemetrySlice: .diffStatus, store: .diff, level: .hot) { state in
                     DiffStatusSlice(status: state.status, error: state.error, epoch: state.epoch)
-                }
-                Slice(
-                    "diffPackageMetadata",
-                    telemetrySlice: .diffPackageMetadata,
-                    store: .diff,
-                    level: .cold,
-                    op: .replace
-                ) { state in
-                    DiffPackageMetadataSlice(
-                        package: state.packageMetadata,
-                        protocolFrame: state.packageSnapshotProtocolFrame
-                    )
-                }
-                Slice(
-                    "diffPackageDelta",
-                    telemetrySlice: .diffPackageDelta,
-                    store: .diff,
-                    level: .warm,
-                    op: .merge
-                ) { state in
-                    DiffPackageDeltaSlice(
-                        delta: state.packageDelta,
-                        protocolFrame: state.packageDeltaProtocolFrame
-                    )
-                }
-                Slice(
-                    "diffPackageProtocolFrame",
-                    telemetrySlice: .diffPackageDelta,
-                    store: .diff,
-                    level: .hot,
-                    op: .merge
-                ) { state in
-                    DiffPackageProtocolFrameSlice(protocolFrame: state.packageProtocolFrame)
                 }
                 EntitySlice(
                     "diffFiles", telemetrySlice: .diffFiles, store: .diff, level: .cold,
@@ -762,14 +771,23 @@ final class BridgePaneController {
     private static func dispatchIntakeFrame(
         page: WebPage,
         frameString: String,
-        _: String
+        pushNonce: String
     ) async throws {
         let frameLiteral = try makeJavaScriptStringLiteral(frameString)
+        let pushNonceLiteral = try makeJavaScriptStringLiteral(pushNonce)
         try await page.callJavaScript(
             """
             window.__bridgeInternal.applyIntakeFrameJSON(\(frameLiteral));
             """,
             contentWorld: WKContentWorld.world(name: "agentStudioBridge")
+        )
+        try await page.callJavaScript(
+            """
+            document.dispatchEvent(new CustomEvent('__bridge_intake_json', {
+                detail: { json: \(frameLiteral), nonce: \(pushNonceLiteral) }
+            }));
+            """,
+            contentWorld: .page
         )
     }
 

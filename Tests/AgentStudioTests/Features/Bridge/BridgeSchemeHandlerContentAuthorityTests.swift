@@ -6,6 +6,45 @@ import Testing
 @Suite(.serialized)
 final class BridgeSchemeHandlerContentAuthorityTests {
     @Test
+    func test_protocolScopedContentRouteUsesProviderStreamWithoutWholeBodyLoad() async throws {
+        let bodyText = String(repeating: "streamed review content\n", count: 10_000)
+        let body = Data(bodyText.utf8)
+        let handle = makeBridgeContentHandle(
+            itemId: "item-stream",
+            role: .head,
+            reviewGeneration: 7,
+            contentHash: bridgeSHA256ContentHash(bodyText),
+            sizeBytes: body.count
+        )
+        let provider = BridgeStreamingContentProviderFake(handle: handle, body: body)
+        let contentStore = BridgeContentStore(provider: provider)
+        await contentStore.activate(handles: [handle], reviewGeneration: 7)
+        let handler = await makeLeasedBridgeSchemeHandler(contentStore: contentStore, handle: handle)
+        let request = URLRequest(url: URL(string: handle.resourceUrl)!)
+
+        var eventOrder: [String] = []
+        var receivedBody = Data()
+        for try await result in handler.reply(for: request) {
+            switch result {
+            case .response(let response):
+                eventOrder.append("response")
+                #expect(response.expectedContentLength == Int64(body.count))
+            case .data(let chunk):
+                eventOrder.append("data")
+                receivedBody.append(chunk)
+            @unknown default:
+                Issue.record("Unexpected URL scheme task result")
+            }
+        }
+
+        #expect(eventOrder.first == "response")
+        #expect(eventOrder.filter { $0 == "data" }.count > 1)
+        #expect(receivedBody == body)
+        #expect(await provider.streamContentRequestCount() == 1)
+        #expect(await provider.loadContentRequestCount() == 0)
+    }
+
+    @Test
     func test_protocolScopedContentRouteRejectsOversizedContentBeforeEmittingBytes() async throws {
         let handle = makeBridgeContentHandle(
             itemId: "item-1",
@@ -41,7 +80,7 @@ final class BridgeSchemeHandlerContentAuthorityTests {
         } catch {
             Issue.record("Expected oversizedContent, got \(error)")
         }
-        #expect(emittedEventCount == 0)
+        #expect(emittedEventCount == 1)
     }
 
     @Test
@@ -181,7 +220,7 @@ final class BridgeSchemeHandlerContentAuthorityTests {
         await provider.waitForFinishedContentLoadCount(1)
         _ = await consumerTask.result
 
-        #expect(await eventRecorder.recordedEventCount() == 0)
+        #expect(await eventRecorder.recordedEventCount() == 1)
         #expect(await eventRecorder.recordedErrorCount() == 1)
     }
 
@@ -455,6 +494,79 @@ final class BridgeSchemeHandlerContentAuthorityTests {
             contentStore: contentStore,
             resourceLeaseRegistry: resourceLeaseRegistry
         )
+    }
+}
+
+private actor BridgeStreamingContentProviderFake: BridgeReviewSourceProvider {
+    private let handle: BridgeContentHandle
+    private let body: Data
+    private var streamRequests = 0
+    private var loadRequests = 0
+
+    init(handle: BridgeContentHandle, body: Data) {
+        self.handle = handle
+        self.body = body
+    }
+
+    func resolveEndpoint(_ request: BridgeEndpointResolutionRequest) async throws -> BridgeSourceEndpoint {
+        request.endpoint
+    }
+
+    func compareEndpoints(_ request: BridgeEndpointComparisonRequest) async throws -> BridgeEndpointComparison {
+        BridgeEndpointComparison(
+            baseEndpoint: request.baseEndpoint,
+            headEndpoint: request.headEndpoint,
+            changedFiles: []
+        )
+    }
+
+    func readTree(_ request: BridgeTreeReadRequest) async throws -> BridgeTreeReadResult {
+        BridgeTreeReadResult(endpoint: request.endpoint, descriptors: [])
+    }
+
+    func readReviewItemDescriptor(_ request: BridgeReviewItemDescriptorRequest) async throws
+        -> BridgeReviewItemDescriptor
+    {
+        makeBridgeReviewItemDescriptor(itemId: "item-\(request.path)", path: request.path, fileClass: .source)
+    }
+
+    func resolveCheckpointEndpoint(_ request: BridgeCheckpointEndpointRequest) async throws -> BridgeSourceEndpoint {
+        makeBridgeEndpoint(endpointId: request.checkpointId, kind: .promptCheckpoint)
+    }
+
+    func loadContent(_ request: BridgeContentLoadRequest) async throws -> BridgeContentLoadResult {
+        loadRequests += 1
+        throw BridgeProviderFailure.providerFailed(message: "loadContent should not satisfy streamed content")
+    }
+
+    func streamContent(
+        _ request: BridgeContentStreamRequest,
+        chunkByteCount: Int,
+        emitChunk: BridgeContentStreamEmitter
+    ) async throws -> BridgeContentStreamResult {
+        streamRequests += 1
+        #expect(request.handle.handleId == handle.handleId)
+        var offset = 0
+        while offset < body.count {
+            let endOffset = min(offset + chunkByteCount, body.count)
+            try await emitChunk(body.subdata(in: offset..<endOffset))
+            offset = endOffset
+        }
+        return BridgeContentStreamResult(
+            handle: handle,
+            byteCount: body.count,
+            mimeType: handle.mimeType,
+            contentHash: handle.contentHash,
+            contentHashAlgorithm: handle.contentHashAlgorithm
+        )
+    }
+
+    func streamContentRequestCount() -> Int {
+        streamRequests
+    }
+
+    func loadContentRequestCount() -> Int {
+        loadRequests
     }
 }
 

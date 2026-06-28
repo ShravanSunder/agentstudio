@@ -86,6 +86,7 @@ export function buildReviewDeltaFrame(props: BuildReviewDeltaFrameProps): Review
 function buildRootDescriptor(
 	props: BuildReviewSnapshotFrameProps,
 ): BridgeAttachedResourceDescriptor {
+	const packageByteLength = new TextEncoder().encode(JSON.stringify(props.package)).byteLength;
 	const descriptorId = [
 		'review-package',
 		props.package.packageId,
@@ -110,7 +111,8 @@ function buildRootDescriptor(
 		content: {
 			mediaType: 'application/json',
 			encoding: 'utf-8',
-			maxBytes: reviewProtocolMetadataDescriptorMaxBytes,
+			expectedBytes: packageByteLength,
+			maxBytes: Math.max(packageByteLength, 1),
 		},
 	} satisfies BridgeAttachedResourceDescriptor['descriptor'];
 	return {

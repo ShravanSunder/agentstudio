@@ -87,7 +87,7 @@ struct AgentStudioOTLPTraceProjectionTests {
                 "agentstudio.bridge.phase": .string("package_push"),
                 "agentstudio.bridge.plane": .string("data"),
                 "agentstudio.bridge.priority": .string("cold"),
-                "agentstudio.bridge.slice": .string("diff_package_metadata"),
+                "agentstudio.bridge.slice": .string("review_snapshot"),
                 "agentstudio.bridge.transport": .string("push"),
                 "agentstudio.performance.elapsed_ms": .double(4.25),
                 "agentstudio.trace.tag": .string("bridge.performance.webkit"),
@@ -107,7 +107,7 @@ struct AgentStudioOTLPTraceProjectionTests {
         #expect(projection.attributes["agentstudio.bridge.phase"] == .string("package_push"))
         #expect(projection.attributes["agentstudio.bridge.plane"] == .string("data"))
         #expect(projection.attributes["agentstudio.bridge.priority"] == .string("cold"))
-        #expect(projection.attributes["agentstudio.bridge.slice"] == .string("diff_package_metadata"))
+        #expect(projection.attributes["agentstudio.bridge.slice"] == .string("review_snapshot"))
         #expect(projection.attributes["agentstudio.bridge.transport"] == .string("push"))
         #expect(projection.attributes["agentstudio.performance.elapsed_ms"] == .double(4.25))
         #expect(projection.attributes["agentstudio.bridge.item_id"] == nil)

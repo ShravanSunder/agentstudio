@@ -595,6 +595,35 @@ struct RepoExplorerViewTests {
         #expect(merged[worktreeId]?.syncState == .unknown)
     }
 
+    @Test("worktree facts tolerate duplicate projected worktree ids")
+    func worktreeFactsTolerateDuplicateProjectedWorktreeIds() {
+        let repoId = UUID()
+        let worktreeId = UUID()
+        let worktree = Worktree(
+            id: worktreeId,
+            repoId: repoId,
+            name: "main",
+            path: URL(fileURLWithPath: "/tmp/repo-\(UUID().uuidString)")
+        )
+        let repo = RepoPresentationItem(
+            id: repoId,
+            name: "repo",
+            repoPath: worktree.path,
+            stableKey: "repo",
+            worktrees: [worktree, worktree]
+        )
+        let repoCache = RepoCacheAtom()
+        repoCache.setPullRequestCount(3, for: worktreeId)
+
+        let factsByWorktreeId = RepoExplorerView.worktreeFactsByWorktreeId(
+            sidebarRepos: [repo],
+            repoCache: repoCache
+        )
+
+        #expect(factsByWorktreeId.count == 1)
+        #expect(factsByWorktreeId[worktreeId]?.pullRequestCount == 3)
+    }
+
     @Test("primary grouping uses shared metadata group key")
     func primaryGroupingUsesSharedMetadataGroupKey() {
         let groupKey = "remote:askluna/agent-studio"

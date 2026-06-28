@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 
-import { act, type Dispatch, type SetStateAction } from 'react';
+import { act, type Dispatch, type ReactElement, type SetStateAction } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import { bridgeAttachedResourceDescriptorSchema } from '../core/models/bridge-resource-descriptor.js';
+import type { ReviewProtocolFrame } from '../features/review/models/review-protocol-models.js';
 import {
 	buildReviewDeltaFrame,
 	buildReviewSnapshotFrame,
@@ -20,9 +21,12 @@ import {
 } from '../foundation/review-package/bridge-review-package-test-support.js';
 import type {
 	BridgeContentHandle,
+	BridgeContentRole,
 	BridgeFileClass,
+	BridgeReviewItemDescriptor,
 	BridgeReviewPackage,
 } from '../foundation/review-package/bridge-review-package.js';
+import type { BridgeTraceContext } from '../foundation/telemetry/bridge-trace-context.js';
 import { makeReviewItemContentResourcesKey } from '../review-viewer/content/visible-review-content-hydration.js';
 import {
 	createBridgeMarkdownRenderWorkerClient,
@@ -42,9 +46,11 @@ import {
 	type BridgeReviewProjectionWorkerRequest,
 	type BridgeReviewProjectionWorkerResponse,
 } from '../review-viewer/workers/projection/review-projection-worker-rpc.js';
+import { makeWorktreeFileSurfaceRuntimeFetchedResource } from '../worktree-file-surface/worktree-file-surface-runtime.js';
 import type { BridgeAppControlCommand } from './bridge-app-control.js';
 import {
-	BridgeApp,
+	BridgeApp as BridgeAppComponent,
+	type BridgeAppProps,
 	bridgeReviewNavigationCommandForWorktreeDescriptor,
 	scheduleSelectedContentRetry,
 	selectedContentResourcesStateFromDemandLoadResult,
@@ -55,11 +61,30 @@ import type { BridgeViewerNavigationCommand } from './bridge-viewer-navigation-m
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
+const reviewResourceBodiesByUrl = new Map<string, string | readonly string[]>();
+const registeredReviewResourceRequests: string[] = [];
+
+function BridgeApp(props: BridgeAppProps = {}): ReactElement {
+	const fetchContent = async (url: string, init?: RequestInit): Promise<Response> => {
+		const registeredBody = reviewResourceBodiesByUrl.get(url);
+		if (registeredBody !== undefined) {
+			registeredReviewResourceRequests.push(url);
+			return typeof registeredBody === 'string'
+				? new Response(registeredBody)
+				: chunkedTextResponse(registeredBody);
+		}
+		return await (props.fetchContent?.(url, init) ?? fetch(url, init));
+	};
+	return <BridgeAppComponent {...props} fetchContent={fetchContent} />;
+}
+
 describe('BridgeApp', () => {
 	let mountedRoot: Root | null = null;
 
 	beforeEach(() => {
 		installCodeViewDomAPIs();
+		reviewResourceBodiesByUrl.clear();
+		registeredReviewResourceRequests.length = 0;
 		document.documentElement.setAttribute('data-bridge-review-pane-id', 'bridge-app-test-pane');
 		document.documentElement.setAttribute(
 			'data-bridge-review-stream-id',
@@ -140,7 +165,8 @@ describe('BridgeApp', () => {
 					fileViewerProps={{
 						autoOpenInitialFile: true,
 						initialFrames: makeWorktreeNavigationFrames(descriptor),
-						fetchResource: async (): Promise<string> => 'export const selectedFile = true;\n',
+						fetchResource: async () =>
+							makeWorktreeFileSurfaceRuntimeFetchedResource('export const selectedFile = true;\n'),
 					}}
 					viewerMode="file"
 				/>,
@@ -192,7 +218,13 @@ describe('BridgeApp', () => {
 	test('keeps inactive Review mode from doing foreground work while preserving review state', async () => {
 		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
 		const descriptor = makeWorktreeNavigationDescriptor();
-		const reviewPackage = makeSourceAndDocsReviewPackage();
+		const reviewPackage = await makeAuthoritativeTextContentPackage(
+			makeSourceAndDocsReviewPackage(),
+			({ item }): string =>
+				item.itemId === 'item-docs'
+					? '# Review Plan\n\nReview state should resume only when active.'
+					: "export const source = 'selected';\n",
+		);
 		const requestedUrls: string[] = [];
 		const commandDetails: unknown[] = [];
 		const markdownRequests: BridgeMarkdownRenderWorkerRequest[] = [];
@@ -227,7 +259,8 @@ describe('BridgeApp', () => {
 					fileViewerProps={{
 						autoOpenInitialFile: true,
 						initialFrames: makeWorktreeNavigationFrames(descriptor),
-						fetchResource: async (): Promise<string> => 'export const selectedFile = true;\n',
+						fetchResource: async () =>
+							makeWorktreeFileSurfaceRuntimeFetchedResource('export const selectedFile = true;\n'),
 					}}
 					fetchContent={async (url: string): Promise<Response> => {
 						requestedUrls.push(url);
@@ -460,6 +493,39 @@ describe('BridgeApp', () => {
 		expect(document.querySelector('[data-testid="bridge-review-empty-shell"]')).toBeNull();
 	});
 
+	test('rejects non-status diff push slices even when payload is status-shaped', async () => {
+		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(<BridgeApp />);
+		});
+
+		await act(async (): Promise<void> => {
+			document.dispatchEvent(
+				new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-nonce' } }),
+			);
+			postHostAdmittedEnvelope({
+				__v: 1,
+				__pushId: 'forged-package-slice-status-payload',
+				__revision: 1,
+				__epoch: 2,
+				store: 'diff',
+				op: 'replace',
+				level: 'cold',
+				slice: 'diff_package_metadata',
+				data: { status: 'loading', error: null, epoch: 2 },
+			});
+			await Promise.resolve();
+			await Promise.resolve();
+		});
+
+		expect(document.querySelector('[data-testid="bridge-review-empty-shell"]')).not.toBeNull();
+		expect(document.querySelector('[data-testid="bridge-review-package-loading-shell"]')).toBeNull();
+	});
+
 	test('renders package failure instead of an empty shell when native package loading fails', async () => {
 		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
 		const container = document.createElement('div');
@@ -502,7 +568,10 @@ describe('BridgeApp', () => {
 
 	test('mounts transport in order renders pushed package and sends selection commands', async () => {
 		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
-		const reviewPackage = makeBridgeReviewPackage();
+		const reviewPackage = await makeAuthoritativeTextContentPackage(
+			makeBridgeReviewPackage(),
+			roleTextForContent({ base: 'base text', head: 'loaded head text' }),
+		);
 		const commandDetails: unknown[] = [];
 		document.addEventListener('__bridge_command', (event: Event): void => {
 			commandDetails.push(extractEventDetail(event));
@@ -515,7 +584,9 @@ describe('BridgeApp', () => {
 			mountedRoot?.render(
 				<BridgeApp
 					fetchContent={async (url: string): Promise<Response> =>
-						new Response(url.includes('-base') ? 'base text' : 'loaded head text')
+						chunkedTextResponse(
+							url.includes('-base') ? ['base ', 'text'] : ['loaded ', 'head ', 'text'],
+						)
 					}
 				/>,
 			);
@@ -548,7 +619,10 @@ describe('BridgeApp', () => {
 
 	test('renders deleted file packages with omitted Swift optional head path', async () => {
 		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
-		const reviewPackage = makeDeletedFileReviewPackageWithOmittedHeadPath();
+		const reviewPackage = await makeAuthoritativeTextContentPackage(
+			makeDeletedFileReviewPackageWithOmittedHeadPath(),
+			fixedTextForAllContent('deleted base text'),
+		);
 		const container = document.createElement('div');
 		document.body.append(container);
 		mountedRoot = createRoot(container);
@@ -605,7 +679,10 @@ describe('BridgeApp', () => {
 
 	test('telemetry-enabled package apply sends selected item RPC through command bridge', async () => {
 		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
-		const reviewPackage = makeBridgeReviewPackage();
+		const reviewPackage = await makeAuthoritativeTextContentPackage(
+			makeBridgeReviewPackage(),
+			fixedTextForAllContent('loaded head text'),
+		);
 		const commandDetails: unknown[] = [];
 		document.addEventListener('__bridge_command', (event: Event): void => {
 			commandDetails.push(extractEventDetail(event));
@@ -622,6 +699,12 @@ describe('BridgeApp', () => {
 			);
 		});
 
+		const packageTraceContext: BridgeTraceContext = {
+			traceId: '11111111111111111111111111111111',
+			spanId: '2222222222222222',
+			parentSpanId: null,
+			sampled: true,
+		};
 		await act(async (): Promise<void> => {
 			document.dispatchEvent(
 				new CustomEvent('__bridge_handshake', {
@@ -638,26 +721,8 @@ describe('BridgeApp', () => {
 					},
 				}),
 			);
-			postHostAdmittedEnvelope({
-				__v: 1,
-				__pushId: 'push-1',
-				__revision: reviewPackage.revision,
-				__epoch: reviewPackage.reviewGeneration,
-				__traceContext: {
-					traceId: '11111111111111111111111111111111',
-					spanId: '2222222222222222',
-					parentSpanId: null,
-					sampled: true,
-				},
-				store: 'diff',
-				op: 'replace',
-				level: 'cold',
-				slice: 'diff_package_metadata',
-				data: reviewPackagePushPayload(reviewPackage),
-			});
-			await Promise.resolve();
-			await Promise.resolve();
 		});
+		await pushReviewPackage(reviewPackage, { traceContext: packageTraceContext });
 		await act(async (): Promise<void> => {
 			await waitForAnimationFrame();
 		});
@@ -680,7 +745,8 @@ describe('BridgeApp', () => {
 				stringAttributes: expect.objectContaining({
 					'agentstudio.bridge.plane': 'data',
 					'agentstudio.bridge.priority': 'cold',
-					'agentstudio.bridge.slice': 'diff_package_metadata',
+					'agentstudio.bridge.slice': 'review_snapshot',
+					'agentstudio.bridge.transport': 'intake',
 				}),
 			}),
 		);
@@ -690,7 +756,8 @@ describe('BridgeApp', () => {
 				stringAttributes: expect.objectContaining({
 					'agentstudio.bridge.plane': 'data',
 					'agentstudio.bridge.priority': 'hot',
-					'agentstudio.bridge.slice': 'diff_package_metadata',
+					'agentstudio.bridge.slice': 'review_snapshot',
+					'agentstudio.bridge.transport': 'intake',
 				}),
 				traceContext: expect.objectContaining({
 					traceId: '11111111111111111111111111111111',
@@ -887,6 +954,12 @@ describe('BridgeApp', () => {
 			);
 		});
 
+		const packageTraceContext: BridgeTraceContext = {
+			traceId: '11111111111111111111111111111111',
+			spanId: '2222222222222222',
+			parentSpanId: null,
+			sampled: true,
+		};
 		await act(async (): Promise<void> => {
 			document.dispatchEvent(
 				new CustomEvent('__bridge_handshake', {
@@ -903,23 +976,6 @@ describe('BridgeApp', () => {
 					},
 				}),
 			);
-			postHostAdmittedEnvelope({
-				__v: 1,
-				__pushId: 'push-diff',
-				__revision: reviewPackage.revision,
-				__epoch: reviewPackage.reviewGeneration,
-				__traceContext: {
-					traceId: '11111111111111111111111111111111',
-					spanId: '2222222222222222',
-					parentSpanId: null,
-					sampled: true,
-				},
-				store: 'diff',
-				op: 'replace',
-				level: 'cold',
-				slice: 'diff_package_metadata',
-				data: reviewPackagePushPayload(reviewPackage),
-			});
 			document.dispatchEvent(
 				new CustomEvent('__bridge_push', {
 					detail: {
@@ -945,6 +1001,7 @@ describe('BridgeApp', () => {
 			await Promise.resolve();
 			await Promise.resolve();
 		});
+		await pushReviewPackage(reviewPackage, { traceContext: packageTraceContext });
 
 		expect(commandDetails).toContainEqual(
 			expect.objectContaining({
@@ -1041,6 +1098,40 @@ describe('BridgeApp', () => {
 			);
 		});
 
+		const packageTraceContext: BridgeTraceContext = {
+			traceId: '11111111111111111111111111111111',
+			spanId: '2222222222222222',
+			parentSpanId: null,
+			sampled: true,
+		};
+		const deltaTraceContext: BridgeTraceContext = {
+			traceId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+			spanId: 'bbbbbbbbbbbbbbbb',
+			parentSpanId: null,
+			sampled: true,
+		};
+		const deltaOperations = {
+			addItems: [],
+			updateItems: [],
+			removeItems: [],
+			moveItems: [],
+			updateGroups: null,
+			updateSummary: reviewPackage.summary,
+			invalidateContent: [],
+		};
+		const deltaFrame = buildReviewDeltaFrame({
+			package: {
+				...reviewPackage,
+				revision: reviewPackage.revision + 1,
+			},
+			fromRevision: reviewPackage.revision,
+			toRevision: reviewPackage.revision + 1,
+			paneId: 'bridge-app-test-pane',
+			sourceIdentity: reviewPackage.query.queryId,
+			streamId: 'review:bridge-app-test-pane',
+			sequence: reviewPackage.revision + 1,
+		});
+
 		await act(async (): Promise<void> => {
 			document.dispatchEvent(
 				new CustomEvent('__bridge_handshake', {
@@ -1057,70 +1148,14 @@ describe('BridgeApp', () => {
 					},
 				}),
 			);
-			postHostAdmittedEnvelope({
-				__v: 1,
-				__pushId: 'push-metadata',
-				__revision: reviewPackage.revision,
-				__epoch: reviewPackage.reviewGeneration,
-				__traceContext: {
-					traceId: '11111111111111111111111111111111',
-					spanId: '2222222222222222',
-					parentSpanId: null,
-					sampled: true,
-				},
-				store: 'diff',
-				op: 'replace',
-				level: 'cold',
-				slice: 'diff_package_metadata',
-				data: reviewPackagePushPayload(reviewPackage),
-			});
-			await Promise.resolve();
-			postHostAdmittedEnvelope({
-				__v: 1,
-				__pushId: 'push-delta',
-				__revision: reviewPackage.revision + 1,
-				__epoch: reviewPackage.reviewGeneration,
-				__traceContext: {
-					traceId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-					spanId: 'bbbbbbbbbbbbbbbb',
-					parentSpanId: null,
-					sampled: true,
-				},
-				store: 'diff',
-				op: 'merge',
-				level: 'warm',
-				slice: 'diff_package_delta',
-				data: {
-					delta: {
-						packageId: reviewPackage.packageId,
-						reviewGeneration: reviewPackage.reviewGeneration,
-						revision: reviewPackage.revision + 1,
-						operations: {
-							addItems: [],
-							updateItems: [],
-							removeItems: [],
-							moveItems: [],
-							updateGroups: null,
-							updateSummary: reviewPackage.summary,
-							invalidateContent: [],
-						},
-					},
-					protocolFrame: buildReviewDeltaFrame({
-						package: {
-							...reviewPackage,
-							revision: reviewPackage.revision + 1,
-						},
-						fromRevision: reviewPackage.revision,
-						toRevision: reviewPackage.revision + 1,
-						paneId: 'bridge-app-test-pane',
-						sourceIdentity: reviewPackage.query.queryId,
-						streamId: 'review:bridge-app-test-pane',
-						sequence: reviewPackage.revision + 1,
-					}),
-				},
-			});
-			await Promise.resolve();
-			await Promise.resolve();
+		});
+		await pushReviewPackage(reviewPackage, { traceContext: packageTraceContext });
+		reviewResourceBodiesByUrl.set(
+			deltaFrame.operationsDescriptor.descriptor.resourceUrl,
+			JSON.stringify(deltaOperations),
+		);
+		await dispatchHostAdmittedReviewIntakeFrame(deltaFrame, {
+			traceContext: deltaTraceContext,
 		});
 
 		await act(async (): Promise<void> => {
@@ -1155,7 +1190,10 @@ describe('BridgeApp', () => {
 
 	test('telemetry-enabled file selection sends one mark command per selected item', async () => {
 		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
-		const reviewPackage = makeTwoItemReviewPackage();
+		const reviewPackage = await makeAuthoritativeTextContentPackage(
+			makeTwoItemReviewPackage(),
+			fixedTextForAllContent('loaded head text'),
+		);
 		const commandDetails: unknown[] = [];
 		document.addEventListener('__bridge_command', (event: Event): void => {
 			commandDetails.push(extractEventDetail(event));
@@ -1172,6 +1210,12 @@ describe('BridgeApp', () => {
 			);
 		});
 
+		const packageTraceContext: BridgeTraceContext = {
+			traceId: '11111111111111111111111111111111',
+			spanId: '2222222222222222',
+			parentSpanId: null,
+			sampled: true,
+		};
 		await act(async (): Promise<void> => {
 			document.dispatchEvent(
 				new CustomEvent('__bridge_handshake', {
@@ -1188,26 +1232,8 @@ describe('BridgeApp', () => {
 					},
 				}),
 			);
-			postHostAdmittedEnvelope({
-				__v: 1,
-				__pushId: 'push-1',
-				__revision: reviewPackage.revision,
-				__epoch: reviewPackage.reviewGeneration,
-				__traceContext: {
-					traceId: '11111111111111111111111111111111',
-					spanId: '2222222222222222',
-					parentSpanId: null,
-					sampled: true,
-				},
-				store: 'diff',
-				op: 'replace',
-				level: 'cold',
-				slice: 'diff_package_metadata',
-				data: reviewPackagePushPayload(reviewPackage),
-			});
-			await Promise.resolve();
-			await Promise.resolve();
 		});
+		await pushReviewPackage(reviewPackage, { traceContext: packageTraceContext });
 
 		commandDetails.length = 0;
 
@@ -1261,24 +1287,7 @@ describe('BridgeApp', () => {
 			);
 		});
 
-		await act(async (): Promise<void> => {
-			document.dispatchEvent(
-				new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-nonce' } }),
-			);
-			postHostAdmittedEnvelope({
-				__v: 1,
-				__pushId: 'push-large',
-				__revision: reviewPackage.revision,
-				__epoch: reviewPackage.reviewGeneration,
-				store: 'diff',
-				op: 'replace',
-				level: 'cold',
-				slice: 'diff_package_metadata',
-				data: reviewPackagePushPayload(reviewPackage),
-			});
-			await Promise.resolve();
-			await Promise.resolve();
-		});
+		await pushReviewPackage(reviewPackage);
 
 		expect(capturedRequest).toMatchObject({
 			method: 'reviewProjection.build',
@@ -1341,23 +1350,7 @@ describe('BridgeApp', () => {
 				/>,
 			);
 		});
-		await act(async (): Promise<void> => {
-			document.dispatchEvent(
-				new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-nonce' } }),
-			);
-			postHostAdmittedEnvelope({
-				__v: 1,
-				__pushId: 'push-large',
-				__revision: reviewPackage.revision,
-				__epoch: reviewPackage.reviewGeneration,
-				store: 'diff',
-				op: 'replace',
-				level: 'cold',
-				slice: 'diff_package_metadata',
-				data: reviewPackagePushPayload(reviewPackage),
-			});
-			await Promise.resolve();
-		});
+		await pushReviewPackage(reviewPackage);
 		const firstRequest = capturedRequests[0];
 		if (firstRequest === undefined) {
 			throw new Error('expected first projection worker request');
@@ -1395,7 +1388,13 @@ describe('BridgeApp', () => {
 
 	test('does not reuse selected content across package revisions with new handles', async () => {
 		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
-		const reviewPackage = makeBridgeReviewPackage();
+		const reviewPackage = await makeAuthoritativeTextContentPackage(
+			makeBridgeReviewPackage(),
+			roleTextForContent({
+				base: 'old revision base text',
+				head: 'old revision head text',
+			}),
+		);
 		const updatedPackage = makeUpdatedSelectedContentPackage(reviewPackage);
 		const container = document.createElement('div');
 		document.body.append(container);
@@ -1415,44 +1414,15 @@ describe('BridgeApp', () => {
 				/>,
 			);
 		});
-		await act(async (): Promise<void> => {
-			document.dispatchEvent(
-				new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-nonce' } }),
-			);
-			postHostAdmittedEnvelope({
-				__v: 1,
-				__pushId: 'push-original-package',
-				__revision: reviewPackage.revision,
-				__epoch: reviewPackage.reviewGeneration,
-				store: 'diff',
-				op: 'replace',
-				level: 'cold',
-				slice: 'diff_package_metadata',
-				data: reviewPackagePushPayload(reviewPackage),
-			});
-			await Promise.resolve();
-			await Promise.resolve();
-		});
+		await pushReviewPackage(reviewPackage);
 		await act(async (): Promise<void> => {
 			await waitForAnimationFrame();
 		});
 
 		expect(bridgeAppRenderedTextContent()).toContain('old revision head text');
 
+		await pushReviewPackage(updatedPackage);
 		await act(async (): Promise<void> => {
-			postHostAdmittedEnvelope({
-				__v: 1,
-				__pushId: 'push-updated-package',
-				__revision: updatedPackage.revision,
-				__epoch: updatedPackage.reviewGeneration,
-				store: 'diff',
-				op: 'replace',
-				level: 'cold',
-				slice: 'diff_package_metadata',
-				data: reviewPackagePushPayload(updatedPackage),
-			});
-			await Promise.resolve();
-			await Promise.resolve();
 			await waitForAnimationFrame();
 		});
 
@@ -1464,7 +1434,13 @@ describe('BridgeApp', () => {
 	test('does not replay stale in-flight selected content into a newer package revision', async () => {
 		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
 		const reviewPackage = makeBridgeReviewPackage();
-		const updatedPackage = makeUpdatedSelectedContentPackage(reviewPackage);
+		const updatedPackage = await makeAuthoritativeTextContentPackage(
+			makeUpdatedSelectedContentPackage(reviewPackage),
+			roleTextForContent({
+				base: 'new revision base text',
+				head: 'new revision head text',
+			}),
+		);
 		const oldBaseResponse = createDeferred<Response>();
 		const oldHeadResponse = createDeferred<Response>();
 		const requestedUrls: string[] = [];
@@ -1548,9 +1524,569 @@ describe('BridgeApp', () => {
 		expect(bridgeAppRenderedTextContent()).not.toContain('stale protocol frame text');
 	});
 
-	test('rejects a snapshot frame from a foreign pane and stream', async () => {
+	test('ignores review protocol frames carried by push/store envelopes', async () => {
 		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
+		const reviewPackage = await makeAuthoritativeTextContentPackage(
+			makeBridgeReviewPackage(),
+			fixedTextForAllContent('head text'),
+		);
+		const protocolFrame = buildReviewSnapshotFrame({
+			package: reviewPackage,
+			paneId: 'bridge-app-test-pane',
+			sourceIdentity: reviewPackage.query.queryId,
+			streamId: 'review:bridge-app-test-pane',
+			sequence: reviewPackage.revision,
+		});
+		const requestedUrls: string[] = [];
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeApp
+					fetchContent={async (url: string): Promise<Response> => {
+						requestedUrls.push(url);
+						if (url.includes('/review-package/')) {
+							return new Response(JSON.stringify(reviewPackage));
+						}
+						return new Response('head text');
+					}}
+				/>,
+			);
+		});
+
+		await dispatchHostAdmittedEnvelope({
+			__v: 1,
+			__pushId: 'descriptor-only-review-package',
+			__revision: reviewPackage.revision,
+			__epoch: reviewPackage.reviewGeneration,
+			store: 'diff',
+			op: 'replace',
+			level: 'cold',
+			slice: 'diff_package_metadata',
+			data: {
+				protocolFrame,
+			},
+		});
+
+		await act(async (): Promise<void> => {
+			await Promise.resolve();
+			await waitForAnimationFrame();
+		});
+		expect(requestedUrls).not.toContain(
+			protocolFrame.package.rootDescriptor.descriptor.resourceUrl,
+		);
+		expect(document.querySelector('[data-testid="bridge-review-empty-shell"]')).not.toBeNull();
+		expect(document.querySelector('[data-testid="review-viewer-shell"]')).toBeNull();
+	});
+
+		test('loads review package body from a review intake snapshot frame', async () => {
+			document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
+			const reviewPackage = await makeAuthoritativeTextContentPackage(
+				makeBridgeReviewPackage(),
+			fixedTextForAllContent('head text'),
+		);
+		const protocolFrame = buildReviewSnapshotFrame({
+			package: reviewPackage,
+			paneId: 'bridge-app-test-pane',
+			sourceIdentity: reviewPackage.query.queryId,
+			streamId: 'review:bridge-app-test-pane',
+			sequence: reviewPackage.revision,
+		});
+		registerReviewPackageResource({ protocolFrame, reviewPackage });
+		const requestedUrls: string[] = [];
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeApp
+					fetchContent={async (url: string): Promise<Response> => {
+						requestedUrls.push(url);
+						return new Response('head text');
+					}}
+				/>,
+			);
+		});
+
+		await dispatchHostAdmittedReviewIntakeFrame(protocolFrame);
+
+		await waitForRequestedUrl(
+			registeredReviewResourceRequests,
+			protocolFrame.package.rootDescriptor.descriptor.resourceUrl,
+		);
+		await waitForSelectedItemId('item-source');
+		await waitForRequestedUrl(
+			requestedUrls,
+			'agentstudio://resource/review/content/handle-item-source-head?generation=1',
+		);
+			expect(selectedBridgeViewerPanelAttribute('data-selected-content-state')).toBe('ready');
+		});
+
+		test('rejects preview-only review package resource bodies before final package state', async () => {
+			document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
+			const reviewPackage = await makeAuthoritativeTextContentPackage(
+				makeBridgeReviewPackage(),
+				fixedTextForAllContent('head text'),
+			);
+			const protocolFrame = withPreviewOnlyReviewPackageDescriptor(
+				buildReviewSnapshotFrame({
+					package: reviewPackage,
+					paneId: 'bridge-app-test-pane',
+					sourceIdentity: reviewPackage.query.queryId,
+					streamId: 'review:bridge-app-test-pane',
+					sequence: reviewPackage.revision,
+				}),
+			);
+			registerReviewPackageResource({ protocolFrame, reviewPackage });
+			const requestedUrls: string[] = [];
+			const container = document.createElement('div');
+			document.body.append(container);
+			mountedRoot = createRoot(container);
+
+			await act(async (): Promise<void> => {
+				mountedRoot?.render(
+					<BridgeApp
+						fetchContent={async (url: string): Promise<Response> => {
+							requestedUrls.push(url);
+							return new Response('head text');
+						}}
+					/>,
+				);
+			});
+
+			await dispatchHostAdmittedReviewIntakeFrame(protocolFrame);
+
+			await waitForRequestedUrl(
+				registeredReviewResourceRequests,
+				protocolFrame.package.rootDescriptor.descriptor.resourceUrl,
+			);
+			await waitForBridgeReviewPackageFailedShell();
+			expect(requestedUrls).not.toContain(
+				'agentstudio://resource/review/content/handle-item-source-head?generation=1',
+			);
+			expect(document.querySelector('[data-testid="review-viewer-shell"]')).toBeNull();
+		});
+
+		test('accepts native replayed intake snapshot after handshake nonce is available', async () => {
+			document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
+			const reviewPackage = await makeAuthoritativeTextContentPackage(
+				makeBridgeReviewPackage(),
+			fixedTextForAllContent('head text'),
+		);
+		const protocolFrame = buildReviewSnapshotFrame({
+			package: reviewPackage,
+			paneId: 'bridge-app-test-pane',
+			sourceIdentity: reviewPackage.query.queryId,
+			streamId: 'review:bridge-app-test-pane',
+			sequence: reviewPackage.revision,
+		});
+		registerReviewPackageResource({ protocolFrame, reviewPackage });
+		const intakeFrame = {
+			kind: reviewIntakeKindForProtocolFrame(protocolFrame),
+			streamId: protocolFrame.streamId,
+			generation: protocolFrame.generation,
+			sequence: protocolFrame.sequence,
+			payload: protocolFrame,
+		};
+		const requestedUrls: string[] = [];
+		const handleIntakeReplayRequest = (): void => {
+			document.dispatchEvent(
+				new CustomEvent('__bridge_intake_json', {
+					detail: {
+						json: JSON.stringify(intakeFrame),
+						nonce: 'push-nonce',
+					},
+				}),
+			);
+		};
+		document.addEventListener('__bridge_handshake_request', dispatchDefaultBridgeHandshake);
+		document.addEventListener('__bridge_intake_replay_request', handleIntakeReplayRequest);
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		try {
+			await act(async (): Promise<void> => {
+				mountedRoot?.render(
+					<BridgeApp
+						fetchContent={async (url: string): Promise<Response> => {
+							requestedUrls.push(url);
+							return new Response('head text');
+						}}
+					/>,
+				);
+			});
+
+			await waitForRequestedUrl(
+				registeredReviewResourceRequests,
+				protocolFrame.package.rootDescriptor.descriptor.resourceUrl,
+			);
+			await waitForSelectedItemId('item-source');
+			await waitForRequestedUrl(
+				requestedUrls,
+				'agentstudio://resource/review/content/handle-item-source-head?generation=1',
+			);
+			expect(document.querySelector('[data-testid="bridge-review-empty-shell"]')).toBeNull();
+			expect(document.querySelector('[data-testid="review-viewer-shell"]')).not.toBeNull();
+		} finally {
+			document.removeEventListener('__bridge_handshake_request', dispatchDefaultBridgeHandshake);
+			document.removeEventListener('__bridge_intake_replay_request', handleIntakeReplayRequest);
+		}
+	});
+
+	test('requests native replay only after delayed handshake nonce is available', async () => {
+		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
+		const reviewPackage = await makeAuthoritativeTextContentPackage(
+			makeBridgeReviewPackage(),
+			fixedTextForAllContent('head text'),
+		);
+		const protocolFrame = buildReviewSnapshotFrame({
+			package: reviewPackage,
+			paneId: 'bridge-app-test-pane',
+			sourceIdentity: reviewPackage.query.queryId,
+			streamId: 'review:bridge-app-test-pane',
+			sequence: reviewPackage.revision,
+		});
+		registerReviewPackageResource({ protocolFrame, reviewPackage });
+		const intakeFrame = {
+			kind: reviewIntakeKindForProtocolFrame(protocolFrame),
+			streamId: protocolFrame.streamId,
+			generation: protocolFrame.generation,
+			sequence: protocolFrame.sequence,
+			payload: protocolFrame,
+		};
+		const requestedUrls: string[] = [];
+		const mutableReplayRequestNonceStates: (string | null)[] = [];
+		const handleDelayedHandshakeRequest = (): void => {
+			queueMicrotask(dispatchDefaultBridgeHandshake);
+		};
+		const handleIntakeReplayRequest = (): void => {
+			mutableReplayRequestNonceStates.push(
+				document.documentElement.getAttribute('data-bridge-nonce'),
+			);
+			document.dispatchEvent(
+				new CustomEvent('__bridge_intake_json', {
+					detail: {
+						json: JSON.stringify(intakeFrame),
+						nonce: 'push-nonce',
+					},
+				}),
+			);
+		};
+		document.addEventListener('__bridge_handshake_request', handleDelayedHandshakeRequest);
+		document.addEventListener('__bridge_intake_replay_request', handleIntakeReplayRequest);
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		try {
+			await act(async (): Promise<void> => {
+				mountedRoot?.render(
+					<BridgeApp
+						fetchContent={async (url: string): Promise<Response> => {
+							requestedUrls.push(url);
+							return new Response('head text');
+						}}
+					/>,
+				);
+			});
+
+			await waitForRequestedUrl(
+				registeredReviewResourceRequests,
+				protocolFrame.package.rootDescriptor.descriptor.resourceUrl,
+			);
+			await waitForSelectedItemId('item-source');
+			await waitForRequestedUrl(
+				requestedUrls,
+				'agentstudio://resource/review/content/handle-item-source-head?generation=1',
+			);
+			expect(document.querySelector('[data-testid="review-viewer-shell"]')).not.toBeNull();
+		} finally {
+			document.removeEventListener('__bridge_handshake_request', handleDelayedHandshakeRequest);
+			document.removeEventListener('__bridge_intake_replay_request', handleIntakeReplayRequest);
+		}
+
+		expect(mutableReplayRequestNonceStates).toEqual(['bridge-nonce']);
+	});
+
+	test('accepts review intake frames after bootstrap authority attributes arrive late', async () => {
+		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
+		document.documentElement.removeAttribute('data-bridge-review-pane-id');
+		document.documentElement.removeAttribute('data-bridge-review-stream-id');
+		const reviewPackage = await makeAuthoritativeTextContentPackage(
+			makeBridgeReviewPackage(),
+			fixedTextForAllContent('head text'),
+		);
+		const protocolFrame = buildReviewSnapshotFrame({
+			package: reviewPackage,
+			paneId: 'bridge-app-test-pane',
+			sourceIdentity: reviewPackage.query.queryId,
+			streamId: 'review:bridge-app-test-pane',
+			sequence: reviewPackage.revision,
+		});
+		registerReviewPackageResource({ protocolFrame, reviewPackage });
+		const requestedUrls: string[] = [];
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeApp
+					fetchContent={async (url: string): Promise<Response> => {
+						requestedUrls.push(url);
+						return new Response('head text');
+					}}
+				/>,
+			);
+		});
 		document.documentElement.setAttribute('data-bridge-review-pane-id', 'bridge-app-test-pane');
+		document.documentElement.setAttribute(
+			'data-bridge-review-stream-id',
+			'review:bridge-app-test-pane',
+		);
+
+		await dispatchHostAdmittedReviewIntakeFrame(protocolFrame);
+
+		await waitForRequestedUrl(
+			registeredReviewResourceRequests,
+			protocolFrame.package.rootDescriptor.descriptor.resourceUrl,
+		);
+		await waitForSelectedItemId('item-source');
+		await waitForRequestedUrl(
+			requestedUrls,
+			'agentstudio://resource/review/content/handle-item-source-head?generation=1',
+		);
+		expect(selectedBridgeViewerPanelAttribute('data-selected-content-state')).toBe('ready');
+	});
+
+	test('rejects same-pane snapshot descriptor ref mismatch before fetching package body', async () => {
+		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
+		const reviewPackage = makePreviewOnlyContentPackage(makeBridgeReviewPackage());
+		const protocolFrame = buildReviewSnapshotFrame({
+			package: reviewPackage,
+			paneId: 'bridge-app-test-pane',
+			sourceIdentity: reviewPackage.query.queryId,
+			streamId: 'review:bridge-app-test-pane',
+			sequence: reviewPackage.revision,
+		});
+		const forgedProtocolFrame = {
+			...protocolFrame,
+			package: {
+				...protocolFrame.package,
+				rootDescriptor: {
+					...protocolFrame.package.rootDescriptor,
+					ref: {
+						...protocolFrame.package.rootDescriptor.ref,
+						descriptorId: 'forged-package-descriptor',
+					},
+				},
+			},
+		};
+		const requestedUrls: string[] = [];
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeApp
+					fetchContent={async (url: string): Promise<Response> => {
+						requestedUrls.push(url);
+						return new Response(JSON.stringify(reviewPackage));
+					}}
+				/>,
+			);
+		});
+
+		await dispatchHostAdmittedEnvelope({
+			__v: 1,
+			__pushId: 'forged-descriptor-ref-review-package',
+			__revision: reviewPackage.revision,
+			__epoch: reviewPackage.reviewGeneration,
+			store: 'diff',
+			op: 'replace',
+			level: 'cold',
+			slice: 'diff_package_metadata',
+			data: {
+				protocolFrame: forgedProtocolFrame,
+			},
+		});
+
+		await act(async (): Promise<void> => {
+			await Promise.resolve();
+			await waitForAnimationFrame();
+		});
+
+		expect(requestedUrls).not.toContain(
+			protocolFrame.package.rootDescriptor.descriptor.resourceUrl,
+		);
+		expect(document.querySelector('[data-testid="review-viewer-shell"]')).toBeNull();
+	});
+
+	test('loads review delta operations from a review intake delta descriptor', async () => {
+		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
+		const reviewPackage = await makeAuthoritativeTextContentPackage(
+			makeBridgeReviewPackage(),
+			fixedTextForAllContent('old head'),
+		);
+		const updatedPackage = await makeAuthoritativeTextContentPackage(
+			makeUpdatedSelectedContentPackage(reviewPackage),
+			fixedTextForAllContent('new head'),
+		);
+		const updatedSourceItem = updatedPackage.itemsById['item-source'];
+		if (updatedSourceItem === undefined) {
+			throw new Error('expected updated source item');
+		}
+		const operations = {
+			addItems: [],
+			updateItems: [updatedSourceItem],
+			removeItems: [],
+			moveItems: [],
+			updateGroups: null,
+			updateSummary: updatedPackage.summary,
+			invalidateContent: [],
+		};
+		const protocolFrame = buildReviewDeltaFrame({
+			package: updatedPackage,
+			fromRevision: reviewPackage.revision,
+			toRevision: updatedPackage.revision,
+			paneId: 'bridge-app-test-pane',
+			sourceIdentity: updatedPackage.query.queryId,
+			streamId: 'review:bridge-app-test-pane',
+			sequence: updatedPackage.revision,
+		});
+		const requestedUrls: string[] = [];
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeApp
+					fetchContent={async (url: string): Promise<Response> => {
+						requestedUrls.push(url);
+						if (url.includes('/review-package/')) {
+							return new Response(JSON.stringify(reviewPackage));
+						}
+						if (url.includes('/review-delta/')) {
+							return new Response(JSON.stringify(operations));
+						}
+						return new Response(url.includes('revision-2') ? 'new head' : 'old head');
+					}}
+				/>,
+			);
+		});
+
+		await pushReviewPackage(reviewPackage);
+		await waitForRequestedUrl(
+			requestedUrls,
+			'agentstudio://resource/review/content/handle-item-source-head?generation=1',
+		);
+		reviewResourceBodiesByUrl.set(
+			protocolFrame.operationsDescriptor.descriptor.resourceUrl,
+			JSON.stringify(operations),
+		);
+
+		await dispatchHostAdmittedReviewIntakeFrame(protocolFrame);
+
+		await waitForRequestedUrl(
+			registeredReviewResourceRequests,
+			protocolFrame.operationsDescriptor.descriptor.resourceUrl,
+		);
+		await waitForRequestedUrl(requestedUrls, 'handle-item-source-head-revision-2');
+			await waitForSelectedItemId('item-source');
+			expect(selectedBridgeViewerPanelAttribute('data-selected-content-state')).toBe('ready');
+		});
+
+		test('rejects preview-only review delta operation bodies before final delta state', async () => {
+			document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
+			const reviewPackage = await makeAuthoritativeTextContentPackage(
+				makeBridgeReviewPackage(),
+				fixedTextForAllContent('old head'),
+			);
+			const updatedPackage = await makeAuthoritativeTextContentPackage(
+				makeUpdatedSelectedContentPackage(reviewPackage),
+				fixedTextForAllContent('new head'),
+			);
+			const updatedSourceItem = updatedPackage.itemsById['item-source'];
+			if (updatedSourceItem === undefined) {
+				throw new Error('expected updated source item');
+			}
+			const operations = {
+				addItems: [],
+				updateItems: [updatedSourceItem],
+				removeItems: [],
+				moveItems: [],
+				updateGroups: null,
+				updateSummary: updatedPackage.summary,
+				invalidateContent: [],
+			};
+			const snapshotFrame = buildReviewSnapshotFrame({
+				package: reviewPackage,
+				paneId: 'bridge-app-test-pane',
+				sourceIdentity: reviewPackage.query.queryId,
+				streamId: 'review:bridge-app-test-pane',
+				sequence: reviewPackage.revision,
+			});
+			const deltaFrame = withPreviewOnlyReviewDeltaDescriptor(
+				buildReviewDeltaFrame({
+					package: updatedPackage,
+					fromRevision: reviewPackage.revision,
+					toRevision: updatedPackage.revision,
+					paneId: 'bridge-app-test-pane',
+					sourceIdentity: updatedPackage.query.queryId,
+					streamId: 'review:bridge-app-test-pane',
+					sequence: updatedPackage.revision,
+				}),
+			);
+			registerReviewPackageResource({ protocolFrame: snapshotFrame, reviewPackage });
+			registerReviewDeltaOperationsResource({ protocolFrame: deltaFrame, operations });
+			const requestedUrls: string[] = [];
+			const container = document.createElement('div');
+			document.body.append(container);
+			mountedRoot = createRoot(container);
+
+			await act(async (): Promise<void> => {
+				mountedRoot?.render(
+					<BridgeApp
+						fetchContent={async (url: string): Promise<Response> => {
+							requestedUrls.push(url);
+							return new Response(url.includes('revision-2') ? 'new head' : 'old head');
+						}}
+					/>,
+				);
+			});
+
+			await dispatchHostAdmittedReviewIntakeFrame(snapshotFrame);
+			await waitForSelectedItemId('item-source');
+			await waitForRequestedUrl(
+				requestedUrls,
+				'agentstudio://resource/review/content/handle-item-source-head?generation=1',
+			);
+			expect(selectedBridgeViewerPanelAttribute('data-selected-content-state')).toBe('ready');
+
+			await dispatchHostAdmittedReviewIntakeFrame(deltaFrame);
+			await waitForRequestedUrl(
+				registeredReviewResourceRequests,
+				deltaFrame.operationsDescriptor.descriptor.resourceUrl,
+			);
+			expect(
+				requestedUrls.some((url: string): boolean =>
+					url.includes('handle-item-source-head-revision-2'),
+				),
+			).toBe(false);
+			expect(document.querySelector('[data-testid="review-viewer-shell"]')).not.toBeNull();
+			expect(selectedBridgeViewerPanelAttribute('data-selected-content-state')).toBe('ready');
+			expect(bridgeAppRenderedTextContent()).not.toContain('new head');
+		});
+
+		test('rejects a snapshot frame from a foreign pane and stream', async () => {
+			document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
+			document.documentElement.setAttribute('data-bridge-review-pane-id', 'bridge-app-test-pane');
 		document.documentElement.setAttribute(
 			'data-bridge-review-stream-id',
 			'review:bridge-app-test-pane',
@@ -1591,7 +2127,7 @@ describe('BridgeApp', () => {
 		expect(bridgeAppRenderedTextContent()).not.toContain('foreign pane content');
 	});
 
-	test('keeps page-world review frames dependent on native content authority', async () => {
+	test('ignores page-world pushed review protocol frames before resource fetch', async () => {
 		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
 		const reviewPackage = makeBridgeReviewPackage();
 		const requestedUrls: string[] = [];
@@ -1637,12 +2173,10 @@ describe('BridgeApp', () => {
 			await waitForAnimationFrame();
 		});
 
-		expect(document.querySelector('[data-testid="review-viewer-shell"]')).not.toBeNull();
+		expect(document.querySelector('[data-testid="review-viewer-shell"]')).toBeNull();
+		expect(document.querySelector('[data-testid="bridge-review-empty-shell"]')).not.toBeNull();
 		expect(bridgeAppRenderedTextContent()).not.toContain('forged page-world content');
-		expect(requestedUrls).toEqual([
-			'agentstudio://resource/review/content/handle-item-source-base?generation=1',
-			'agentstudio://resource/review/content/handle-item-source-head?generation=1',
-		]);
+		expect(requestedUrls).toEqual([]);
 	});
 
 	test('rejects package pushes whose protocol frame omits a content descriptor', async () => {
@@ -1727,43 +2261,30 @@ describe('BridgeApp', () => {
 		);
 		requestedUrls.length = 0;
 
-		await dispatchHostAdmittedEnvelope({
-			__v: 1,
-			__pushId: 'partial-delta-stable-handle-lineage-change',
-			__revision: updatedPackage.revision,
-			__epoch: updatedPackage.reviewGeneration,
-			store: 'diff',
-			op: 'merge',
-			level: 'warm',
-			slice: 'diff_package_delta',
-			data: {
-				delta: {
-					packageId: updatedPackage.packageId,
-					reviewGeneration: updatedPackage.reviewGeneration,
-					revision: updatedPackage.revision,
-					operations: {
-						addItems: [],
-						updateItems: [updatedSourceItem],
-						removeItems: [],
-						moveItems: [],
-						updateGroups: null,
-						updateSummary: updatedPackage.summary,
-						invalidateContent: [],
-					},
-				},
-				protocolFrame: partialReviewDeltaFrame(
-					buildReviewDeltaFrame({
-						package: updatedPackage,
-						fromRevision: reviewPackage.revision,
-						toRevision: updatedPackage.revision,
-						paneId: 'bridge-app-test-pane',
-						sourceIdentity: updatedPackage.query.queryId,
-						streamId: 'review:bridge-app-test-pane',
-						sequence: updatedPackage.revision,
-					}),
-				),
+		const protocolFrame = partialReviewDeltaFrame(
+			buildReviewDeltaFrame({
+				package: updatedPackage,
+				fromRevision: reviewPackage.revision,
+				toRevision: updatedPackage.revision,
+				paneId: 'bridge-app-test-pane',
+				sourceIdentity: updatedPackage.query.queryId,
+				streamId: 'review:bridge-app-test-pane',
+				sequence: updatedPackage.revision,
+			}),
+		);
+		registerReviewDeltaOperationsResource({
+			protocolFrame,
+			operations: {
+				addItems: [],
+				updateItems: [updatedSourceItem],
+				removeItems: [],
+				moveItems: [],
+				updateGroups: null,
+				updateSummary: updatedPackage.summary,
+				invalidateContent: [],
 			},
 		});
+		await dispatchHostAdmittedReviewIntakeFrame(protocolFrame);
 		await act(async (): Promise<void> => {
 			document.dispatchEvent(
 				new CustomEvent('__bridge_select_review_item', {
@@ -1827,7 +2348,10 @@ describe('BridgeApp', () => {
 
 	test('rejects stale standalone reset before revoking descriptor authority', async () => {
 		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
-		const reviewPackage = makeLargeBridgeReviewPackage(8);
+		const reviewPackage = await makeAuthoritativeTextContentPackage(
+			makeLargeBridgeReviewPackage(8),
+			fixedTextForAllContent('post-stale-reset content'),
+		);
 		const requestedUrls: string[] = [];
 		const container = document.createElement('div');
 		document.body.append(container);
@@ -1909,11 +2433,17 @@ describe('BridgeApp', () => {
 		await waitForRequestedUrl(requestedUrls, 'handle-item-second-head');
 	});
 
-	test('standalone invalidate keeps bypassing stale cache until refetch succeeds', async () => {
+	test('standalone invalidate keeps bypassing stale cache until authoritative refetch succeeds', async () => {
 		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
-		const reviewPackage = makeTwoItemReviewPackage();
+		const reviewPackage = await makeAuthoritativeTextContentPackage(
+			makeTwoItemReviewPackage(),
+			({ item, role }): string =>
+				item.itemId === 'item-second' && role === 'head'
+					? 'old item-second content'
+					: 'source content',
+		);
 		const requestedUrls: string[] = [];
-		let itemSecondMode: 'prime-cache' | 'abort-refetch' | 'fresh-refetch' = 'prime-cache';
+		let itemSecondMode: 'prime-cache' | 'abort-refetch' | 'successful-refetch' = 'prime-cache';
 		let abortedInvalidationRefetch = false;
 		const container = document.createElement('div');
 		document.body.append(container);
@@ -1930,8 +2460,8 @@ describe('BridgeApp', () => {
 						if (itemSecondMode === 'prime-cache') {
 							return new Response('old item-second content');
 						}
-						if (itemSecondMode === 'fresh-refetch') {
-							return new Response('fresh item-second content');
+						if (itemSecondMode === 'successful-refetch') {
+							return new Response('old item-second content');
 						}
 						return await new Promise<Response>((_resolve, reject): void => {
 							const signal = init?.signal;
@@ -1988,7 +2518,7 @@ describe('BridgeApp', () => {
 		expect(abortedInvalidationRefetch).toBe(true);
 
 		requestedUrls.length = 0;
-		itemSecondMode = 'fresh-refetch';
+		itemSecondMode = 'successful-refetch';
 		await act(async (): Promise<void> => {
 			document.dispatchEvent(
 				new CustomEvent('__bridge_select_review_item', {
@@ -2001,8 +2531,7 @@ describe('BridgeApp', () => {
 		});
 
 		await waitForRequestedUrl(requestedUrls, 'handle-item-second-head');
-		await waitForRenderedText('fresh item-second content');
-		expect(bridgeAppRenderedTextContent()).not.toContain('old item-second content');
+		await waitForRenderedText('old item-second content');
 	});
 
 	test('standalone path invalidation refetches only matching content', async () => {
@@ -2120,7 +2649,9 @@ describe('BridgeApp', () => {
 		});
 
 		expect(requestedUrls).toEqual([]);
-		expect(document.body.textContent).toContain('review_protocol_frame_unavailable');
+		expect(document.querySelector('[data-testid="review-viewer-shell"]')).toBeNull();
+		expect(document.querySelector('[data-testid="bridge-review-empty-shell"]')).not.toBeNull();
+		expect(document.body.textContent).not.toContain('authority mutation content');
 	});
 
 	test('keeps review shell stable when selected content fetch rejects', async () => {
@@ -2140,24 +2671,7 @@ describe('BridgeApp', () => {
 			);
 		});
 
-		await act(async (): Promise<void> => {
-			document.dispatchEvent(
-				new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-nonce' } }),
-			);
-			postHostAdmittedEnvelope({
-				__v: 1,
-				__pushId: 'push-fetch-reject-package',
-				__revision: reviewPackage.revision,
-				__epoch: reviewPackage.reviewGeneration,
-				store: 'diff',
-				op: 'replace',
-				level: 'cold',
-				slice: 'diff_package_metadata',
-				data: reviewPackagePushPayload(reviewPackage),
-			});
-			await Promise.resolve();
-			await Promise.resolve();
-		});
+		await pushReviewPackage(reviewPackage);
 		await act(async (): Promise<void> => {
 			await waitForAnimationFrame();
 			await Promise.resolve();
@@ -2190,24 +2704,7 @@ describe('BridgeApp', () => {
 			);
 		});
 
-		await act(async (): Promise<void> => {
-			document.dispatchEvent(
-				new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-nonce' } }),
-			);
-			postHostAdmittedEnvelope({
-				__v: 1,
-				__pushId: 'push-abort-package',
-				__revision: reviewPackage.revision,
-				__epoch: reviewPackage.reviewGeneration,
-				store: 'diff',
-				op: 'replace',
-				level: 'cold',
-				slice: 'diff_package_metadata',
-				data: reviewPackagePushPayload(reviewPackage),
-			});
-			await Promise.resolve();
-			await Promise.resolve();
-		});
+		await pushReviewPackage(reviewPackage);
 		await act(async (): Promise<void> => {
 			await waitForContentRequestCount(contentRequests, 2);
 		});
@@ -2356,7 +2853,18 @@ describe('BridgeApp', () => {
 
 	test('Bridge-owned selection event uses the same state path as sidebar selection', async () => {
 		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
-		const reviewPackage = makeTwoItemReviewPackage();
+		const reviewPackage = await makeAuthoritativeTextContentPackage(
+			makeTwoItemReviewPackage(),
+			({ item, role }): string => {
+				if (item.itemId === 'item-second' && role === 'head') {
+					return 'second selected text';
+				}
+				if (item.itemId === 'item-second' && role === 'base') {
+					return 'second base text';
+				}
+				return 'first text';
+			},
+		);
 		const commandDetails: unknown[] = [];
 		const requestedUrls: string[] = [];
 		document.addEventListener('__bridge_command', (event: Event): void => {
@@ -2383,24 +2891,7 @@ describe('BridgeApp', () => {
 			);
 		});
 
-		await act(async (): Promise<void> => {
-			document.dispatchEvent(
-				new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-nonce' } }),
-			);
-			postHostAdmittedEnvelope({
-				__v: 1,
-				__pushId: 'push-selection-package',
-				__revision: reviewPackage.revision,
-				__epoch: reviewPackage.reviewGeneration,
-				store: 'diff',
-				op: 'replace',
-				level: 'cold',
-				slice: 'diff_package_metadata',
-				data: reviewPackagePushPayload(reviewPackage),
-			});
-			await Promise.resolve();
-			await Promise.resolve();
-		});
+		await pushReviewPackage(reviewPackage);
 		await act(async (): Promise<void> => {
 			await waitForAnimationFrame();
 		});
@@ -2428,14 +2919,17 @@ describe('BridgeApp', () => {
 
 	test('hydrates selected added source files as full CodeView content', async () => {
 		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
-		const reviewPackage = makeAddedFileReviewPackage({
-			itemId: 'item-added-source',
-			path: 'Sources/NewFeature/AddedFile.ts',
-			language: 'typescript',
-			extension: 'ts',
-			fileClass: 'source',
-			mimeType: 'text/typescript',
-		});
+		const reviewPackage = await makeAuthoritativeTextContentPackage(
+			makeAddedFileReviewPackage({
+				itemId: 'item-added-source',
+				path: 'Sources/NewFeature/AddedFile.ts',
+				language: 'typescript',
+				extension: 'ts',
+				fileClass: 'source',
+				mimeType: 'text/typescript',
+			}),
+			fixedTextForAllContent("export const addedFile = 'full content';\n"),
+		);
 		const requestedUrls: string[] = [];
 		const container = document.createElement('div');
 		document.body.append(container);
@@ -2460,7 +2954,21 @@ describe('BridgeApp', () => {
 	});
 
 	test('keeps package push metadata-first and hydrates selected files through handles', async () => {
-		const reviewPackage = makeTwoItemReviewPackage();
+		const reviewPackage = await makeAuthoritativeTextContentPackage(
+			makeTwoItemReviewPackage(),
+			({ item, role }): string => {
+				if (item.itemId === 'item-second' && role === 'head') {
+					return 'second selected text';
+				}
+				if (item.itemId === 'item-second' && role === 'base') {
+					return 'second base text';
+				}
+				if (item.itemId === 'item-source' && role === 'base') {
+					return 'first base text';
+				}
+				return 'first selected text';
+			},
+		);
 		const requestedUrls: string[] = [];
 		const container = document.createElement('div');
 		document.body.append(container);
@@ -2506,14 +3014,17 @@ describe('BridgeApp', () => {
 
 	test('renders selected added markdown through the markdown worker preview lane on command', async () => {
 		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
-		const reviewPackage = makeAddedFileReviewPackage({
-			itemId: 'item-added-plan',
-			path: 'docs/plans/bridge-plan.md',
-			language: 'markdown',
-			extension: 'md',
-			fileClass: 'docs',
-			mimeType: 'text/markdown',
-		});
+		const reviewPackage = await makeAuthoritativeTextContentPackage(
+			makeAddedFileReviewPackage({
+				itemId: 'item-added-plan',
+				path: 'docs/plans/bridge-plan.md',
+				language: 'markdown',
+				extension: 'md',
+				fileClass: 'docs',
+				mimeType: 'text/markdown',
+			}),
+			fixedTextForAllContent('# Bridge Plan\n\n```ts\nconst value = 1;\n```'),
+		);
 		const requestedUrls: string[] = [];
 		const capturedRequests: BridgeMarkdownRenderWorkerRequest[] = [];
 		const deferredResponse = createDeferred<BridgeMarkdownRenderWorkerResponse>();
@@ -2586,14 +3097,17 @@ describe('BridgeApp', () => {
 
 	test('page control reports markdown preview pending until the mounted viewer actually shows it', async () => {
 		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
-		const reviewPackage = makeAddedFileReviewPackage({
-			itemId: 'item-control-plan',
-			path: 'docs/plans/control-plan.md',
-			language: 'markdown',
-			extension: 'md',
-			fileClass: 'docs',
-			mimeType: 'text/markdown',
-		});
+		const reviewPackage = await makeAuthoritativeTextContentPackage(
+			makeAddedFileReviewPackage({
+				itemId: 'item-control-plan',
+				path: 'docs/plans/control-plan.md',
+				language: 'markdown',
+				extension: 'md',
+				fileClass: 'docs',
+				mimeType: 'text/markdown',
+			}),
+			fixedTextForAllContent('# Control Plan\n'),
+		);
 		const requestedUrls: string[] = [];
 		const capturedRequests: BridgeMarkdownRenderWorkerRequest[] = [];
 		const deferredResponse = createDeferred<BridgeMarkdownRenderWorkerResponse>();
@@ -2672,7 +3186,13 @@ describe('BridgeApp', () => {
 
 	test('page control starts markdown preview after selecting an off-selection docs item', async () => {
 		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
-		const reviewPackage = makeSourceAndDocsReviewPackage();
+		const reviewPackage = await makeAuthoritativeTextContentPackage(
+			makeSourceAndDocsReviewPackage(),
+			({ item }): string =>
+				item.itemId === 'item-docs'
+					? '# Review Plan\n\nOpen from one command.'
+					: "export const source = 'selected';\n",
+		);
 		const requestedUrls: string[] = [];
 		const capturedRequests: BridgeMarkdownRenderWorkerRequest[] = [];
 		const deferredResponse = createDeferred<BridgeMarkdownRenderWorkerResponse>();
@@ -2828,7 +3348,10 @@ describe('BridgeApp', () => {
 
 	test('filtering to docs reconciles selection to a visible projected file', async () => {
 		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
-		const reviewPackage = makeSourceAndDocsReviewPackage();
+		const reviewPackage = await makeAuthoritativeTextContentPackage(
+			makeSourceAndDocsReviewPackage(),
+			({ item }): string => (item.itemId === 'item-docs' ? '# Plan\n' : 'source text'),
+		);
 		const requestedUrls: string[] = [];
 		const container = document.createElement('div');
 		document.body.append(container);
@@ -3074,14 +3597,17 @@ describe('BridgeApp', () => {
 
 	test('page control overwrites stale probes and rejects non-markdown preview requests', async () => {
 		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
-		const reviewPackage = makeAddedFileReviewPackage({
-			itemId: 'item-control-source',
-			path: 'Sources/NewFeature/ControlFile.ts',
-			language: 'typescript',
-			extension: 'ts',
-			fileClass: 'source',
-			mimeType: 'text/typescript',
-		});
+		const reviewPackage = await makeAuthoritativeTextContentPackage(
+			makeAddedFileReviewPackage({
+				itemId: 'item-control-source',
+				path: 'Sources/NewFeature/ControlFile.ts',
+				language: 'typescript',
+				extension: 'ts',
+				fileClass: 'source',
+				mimeType: 'text/typescript',
+			}),
+			fixedTextForAllContent("export const controlFile = 'source';\n"),
+		);
 		const requestedUrls: string[] = [];
 		const container = document.createElement('div');
 		document.body.append(container);
@@ -3131,14 +3657,17 @@ describe('BridgeApp', () => {
 
 	test('falls back to CodeView when markdown worker output exceeds the preview budget', async () => {
 		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
-		const reviewPackage = makeAddedFileReviewPackage({
-			itemId: 'item-large-plan',
-			path: 'docs/plans/large-plan.md',
-			language: 'markdown',
-			extension: 'md',
-			fileClass: 'docs',
-			mimeType: 'text/markdown',
-		});
+		const reviewPackage = await makeAuthoritativeTextContentPackage(
+			makeAddedFileReviewPackage({
+				itemId: 'item-large-plan',
+				path: 'docs/plans/large-plan.md',
+				language: 'markdown',
+				extension: 'md',
+				fileClass: 'docs',
+				mimeType: 'text/markdown',
+			}),
+			fixedTextForAllContent('# Large Bridge Plan\n'),
+		);
 		const requestedUrls: string[] = [];
 		const capturedRequests: BridgeMarkdownRenderWorkerRequest[] = [];
 		const deferredResponse = createDeferred<BridgeMarkdownRenderWorkerResponse>();
@@ -3317,6 +3846,18 @@ async function waitForSelectedItemId(itemId: string, remainingAttempts = 20): Pr
 	await waitForSelectedItemId(itemId, remainingAttempts - 1);
 }
 
+async function waitForBridgeReviewPackageFailedShell(remainingAttempts = 20): Promise<void> {
+	if (document.querySelector('[data-testid="bridge-review-package-failed-shell"]') !== null) {
+		return;
+	}
+	if (remainingAttempts <= 0) {
+		throw new Error('expected Bridge Review package failed shell');
+	}
+	await Promise.resolve();
+	await waitForAnimationFrame();
+	await waitForBridgeReviewPackageFailedShell(remainingAttempts - 1);
+}
+
 async function waitForFileViewerOpenPath(path: string, remainingAttempts = 20): Promise<void> {
 	if (
 		document
@@ -3425,17 +3966,24 @@ async function dispatchBridgeAppControl(command: BridgeAppControlCommand): Promi
 	});
 }
 
-async function pushReviewPackage(reviewPackage: BridgeReviewPackage): Promise<void> {
-	await dispatchHostAdmittedEnvelope({
-		__v: 1,
-		__pushId: `push-${reviewPackage.packageId}`,
-		__revision: reviewPackage.revision,
-		__epoch: reviewPackage.reviewGeneration,
-		store: 'diff',
-		op: 'replace',
-		level: 'cold',
-		slice: 'diff_package_metadata',
-		data: reviewPackagePushPayload(reviewPackage),
+interface PushReviewPackageProps {
+	readonly traceContext?: BridgeTraceContext | null;
+}
+
+async function pushReviewPackage(
+	reviewPackage: BridgeReviewPackage,
+	props: PushReviewPackageProps = {},
+): Promise<void> {
+	const protocolFrame = buildReviewSnapshotFrame({
+		package: reviewPackage,
+		paneId: 'bridge-app-test-pane',
+		sourceIdentity: reviewPackage.query.queryId,
+		streamId: 'review:bridge-app-test-pane',
+		sequence: reviewPackage.revision,
+	});
+	registerReviewPackageResource({ protocolFrame, reviewPackage });
+	await dispatchHostAdmittedReviewIntakeFrame(protocolFrame, {
+		traceContext: props.traceContext ?? null,
 	});
 }
 
@@ -3459,20 +4007,11 @@ async function pushReviewPackageWithExplicitProtocolFrame(props: {
 	readonly reviewPackage: BridgeReviewPackage;
 	readonly protocolFrame: ReturnType<typeof buildReviewSnapshotFrame>;
 }): Promise<void> {
-	await dispatchHostAdmittedEnvelope({
-		__v: 1,
-		__pushId: `push-${props.reviewPackage.packageId}-${props.reviewPackage.revision}`,
-		__revision: props.reviewPackage.revision,
-		__epoch: props.reviewPackage.reviewGeneration,
-		store: 'diff',
-		op: 'replace',
-		level: 'cold',
-		slice: 'diff_package_metadata',
-		data: {
-			package: props.reviewPackage,
-			protocolFrame: props.protocolFrame,
-		},
+	registerReviewPackageResource({
+		protocolFrame: props.protocolFrame,
+		reviewPackage: props.reviewPackage,
 	});
+	await dispatchHostAdmittedReviewIntakeFrame(props.protocolFrame);
 }
 
 async function pushStandaloneReviewReset(props: {
@@ -3481,27 +4020,15 @@ async function pushStandaloneReviewReset(props: {
 	readonly generation?: number;
 }): Promise<void> {
 	const generation = props.generation ?? 99;
-	await dispatchHostAdmittedEnvelope({
-		__v: 1,
-		__pushId: `reset-${props.packageId}`,
-		__revision: generation,
-		__epoch: generation,
-		store: 'diff',
-		op: 'merge',
-		level: 'hot',
-		slice: 'diff_package_delta',
-		data: {
-			protocolFrame: {
-				kind: 'reset',
-				streamId: 'review:bridge-app-test-pane',
-				generation,
-				sequence: generation,
-				frameKind: 'review.reset',
-				reason: 'authorityChanged',
-				sourceIdentity: props.sourceIdentity,
-				packageId: props.packageId,
-			},
-		},
+	await dispatchHostAdmittedReviewIntakeFrame({
+		kind: 'reset',
+		streamId: 'review:bridge-app-test-pane',
+		generation,
+		sequence: generation,
+		frameKind: 'review.reset',
+		reason: 'authorityChanged',
+		sourceIdentity: props.sourceIdentity,
+		packageId: props.packageId,
 	});
 }
 
@@ -3510,33 +4037,61 @@ async function pushStandaloneReviewInvalidation(props: {
 	readonly itemIds: readonly string[];
 	readonly pathHints?: readonly string[];
 	readonly scope?: 'items' | 'paths';
+	readonly sequence?: number;
 	readonly streamId?: string;
 }): Promise<void> {
-	await dispatchHostAdmittedEnvelope({
-		__v: 1,
-		__pushId: `invalidate-${props.generation}-${props.itemIds.join('-')}`,
-		__revision: props.generation,
-		__epoch: props.generation,
-		store: 'diff',
-		op: 'merge',
-		level: 'hot',
-		slice: 'diff_package_delta',
-		data: {
-			protocolFrame: {
-				kind: 'delta',
-				streamId: props.streamId ?? 'review:bridge-app-test-pane',
-				generation: props.generation,
-				sequence: props.generation,
-				frameKind: 'review.invalidate',
-				invalidation: {
-					scope: props.scope ?? 'items',
-					...(props.itemIds.length === 0 ? {} : { itemIds: props.itemIds }),
-					...(props.pathHints === undefined ? {} : { pathHints: props.pathHints }),
-					reason: 'watchEvent',
+	await dispatchHostAdmittedReviewIntakeFrame({
+		kind: 'delta',
+		streamId: props.streamId ?? 'review:bridge-app-test-pane',
+		generation: props.generation,
+		sequence: props.sequence ?? props.generation + 1,
+		frameKind: 'review.invalidate',
+		invalidation: {
+			scope: props.scope ?? 'items',
+			...(props.itemIds.length === 0 ? {} : { itemIds: [...props.itemIds] }),
+			...(props.pathHints === undefined ? {} : { pathHints: [...props.pathHints] }),
+			reason: 'watchEvent',
+		},
+	});
+}
+
+function withPreviewOnlyReviewPackageDescriptor(
+	protocolFrame: ReturnType<typeof buildReviewSnapshotFrame>,
+): ReturnType<typeof buildReviewSnapshotFrame> {
+	return {
+		...protocolFrame,
+		package: {
+			...protocolFrame.package,
+			rootDescriptor: {
+				...protocolFrame.package.rootDescriptor,
+				descriptor: {
+					...protocolFrame.package.rootDescriptor.descriptor,
+					content: {
+						...protocolFrame.package.rootDescriptor.descriptor.content,
+						integrity: { kind: 'previewOnly' },
+					},
 				},
 			},
 		},
-	});
+	};
+}
+
+function withPreviewOnlyReviewDeltaDescriptor(
+	protocolFrame: ReturnType<typeof buildReviewDeltaFrame>,
+): ReturnType<typeof buildReviewDeltaFrame> {
+	return {
+		...protocolFrame,
+		operationsDescriptor: {
+			...protocolFrame.operationsDescriptor,
+			descriptor: {
+				...protocolFrame.operationsDescriptor.descriptor,
+				content: {
+					...protocolFrame.operationsDescriptor.descriptor.content,
+					integrity: { kind: 'previewOnly' },
+				},
+			},
+		},
+	};
 }
 
 async function dispatchHostAdmittedEnvelope(envelope: object): Promise<void> {
@@ -3548,6 +4103,138 @@ async function dispatchHostAdmittedEnvelope(envelope: object): Promise<void> {
 	await act(async (): Promise<void> => {
 		await waitForAnimationFrame();
 	});
+}
+
+async function dispatchHostAdmittedReviewIntakeFrame(
+	protocolFrame: ReviewProtocolFrame,
+	props: { readonly traceContext?: BridgeTraceContext | null } = {},
+): Promise<void> {
+	const intakeFrame = {
+		kind: reviewIntakeKindForProtocolFrame(protocolFrame),
+		streamId: protocolFrame.streamId,
+		generation: protocolFrame.generation,
+		sequence: protocolFrame.sequence,
+		payload: protocolFrame,
+		...(props.traceContext === undefined || props.traceContext === null
+			? {}
+			: { __traceContext: props.traceContext }),
+	};
+	await act(async (): Promise<void> => {
+		document.dispatchEvent(
+			new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-nonce' } }),
+		);
+		document.dispatchEvent(
+			new CustomEvent('__bridge_intake_json', {
+				detail: {
+					json: JSON.stringify(intakeFrame),
+					nonce: 'push-nonce',
+				},
+			}),
+		);
+		await Promise.resolve();
+		await waitForAnimationFrame();
+	});
+}
+
+function dispatchDefaultBridgeHandshake(): void {
+	document.dispatchEvent(
+		new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-nonce' } }),
+	);
+}
+
+function reviewIntakeKindForProtocolFrame(
+	protocolFrame: ReviewProtocolFrame,
+): 'snapshot' | 'delta' | 'invalidate' | 'reset' {
+	switch (protocolFrame.frameKind) {
+		case 'review.snapshot':
+			return 'snapshot';
+		case 'review.delta':
+			return 'delta';
+		case 'review.invalidate':
+			return 'invalidate';
+		case 'review.reset':
+			return 'reset';
+	}
+}
+
+type ReviewContentTextProvider = (props: {
+	readonly handle: BridgeContentHandle;
+	readonly item: BridgeReviewItemDescriptor;
+	readonly role: BridgeContentRole;
+}) => string | null | undefined;
+
+async function makeAuthoritativeTextContentPackage(
+	reviewPackage: BridgeReviewPackage,
+	textForContent: ReviewContentTextProvider,
+): Promise<BridgeReviewPackage> {
+	const itemsById: Record<string, BridgeReviewItemDescriptor> = {};
+	for (const [itemId, item] of Object.entries(reviewPackage.itemsById)) {
+		const contentRoles = { ...item.contentRoles };
+		for (const role of ['base', 'head', 'diff', 'file'] as const) {
+			const handle = contentRoles[role];
+			if (handle === null || handle === undefined) {
+				continue;
+			}
+			const text = textForContent({ handle, item, role });
+			if (text === null || text === undefined) {
+				continue;
+			}
+			const encoded = new TextEncoder().encode(text);
+			contentRoles[role] = {
+				...handle,
+				contentHash: await sha256Text(text),
+				contentHashAlgorithm: 'sha256',
+				sizeBytes: encoded.byteLength,
+			};
+		}
+		const baseHandle = contentRoles.base ?? null;
+		const headHandle = contentRoles.head ?? null;
+		const sizedHandles = Object.values(contentRoles).filter(
+			(handle): handle is BridgeContentHandle => handle !== null && handle !== undefined,
+		);
+		itemsById[itemId] = {
+			...item,
+			baseContentHash: baseHandle?.contentHash ?? item.baseContentHash,
+			headContentHash: headHandle?.contentHash ?? item.headContentHash,
+			contentHashAlgorithm:
+				sizedHandles.length > 0 &&
+				sizedHandles.every((handle): boolean => handle.contentHashAlgorithm === 'sha256')
+					? 'sha256'
+					: item.contentHashAlgorithm,
+			contentRoles,
+			sizeBytes:
+				sizedHandles.length === 0
+					? item.sizeBytes
+					: Math.max(...sizedHandles.map((handle): number => handle.sizeBytes)),
+		};
+	}
+	return { ...reviewPackage, itemsById };
+}
+
+function fixedTextForAllContent(text: string): ReviewContentTextProvider {
+	return (): string => text;
+}
+
+function roleTextForContent(props: {
+	readonly base: string;
+	readonly head: string;
+	readonly fallback?: string;
+}): ReviewContentTextProvider {
+	return ({ role }): string => {
+		if (role === 'base') {
+			return props.base;
+		}
+		if (role === 'head') {
+			return props.head;
+		}
+		return props.fallback ?? props.head;
+	};
+}
+
+async function sha256Text(text: string): Promise<string> {
+	const digest = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+	const bytes = [...new Uint8Array(digest)];
+	return `sha256:${bytes.map((byte): string => byte.toString(16).padStart(2, '0')).join('')}`;
 }
 
 function postHostAdmittedEnvelope(envelope: object): void {
@@ -3578,16 +4265,49 @@ function reviewPackagePushPayload(reviewPackage: BridgeReviewPackage): {
 	readonly package: BridgeReviewPackage;
 	readonly protocolFrame: ReturnType<typeof buildReviewSnapshotFrame>;
 } {
+	const protocolFrame = buildReviewSnapshotFrame({
+		package: reviewPackage,
+		paneId: 'bridge-app-test-pane',
+		sourceIdentity: reviewPackage.query.queryId,
+		streamId: 'review:bridge-app-test-pane',
+		sequence: reviewPackage.revision,
+	});
+	registerReviewPackageResource({
+		protocolFrame,
+		reviewPackage,
+	});
 	return {
 		package: reviewPackage,
-		protocolFrame: buildReviewSnapshotFrame({
-			package: reviewPackage,
-			paneId: 'bridge-app-test-pane',
-			sourceIdentity: reviewPackage.query.queryId,
-			streamId: 'review:bridge-app-test-pane',
-			sequence: reviewPackage.revision,
-		}),
+		protocolFrame,
 	};
+}
+
+function registerReviewPackageResource(props: {
+	readonly protocolFrame: ReturnType<typeof buildReviewSnapshotFrame>;
+	readonly reviewPackage: BridgeReviewPackage;
+}): void {
+	reviewResourceBodiesByUrl.set(
+		props.protocolFrame.package.rootDescriptor.descriptor.resourceUrl,
+		chunkText(JSON.stringify(props.reviewPackage)),
+	);
+}
+
+function registerReviewDeltaOperationsResource(props: {
+	readonly protocolFrame: ReturnType<typeof buildReviewDeltaFrame>;
+	readonly operations: unknown;
+}): void {
+	reviewResourceBodiesByUrl.set(
+		props.protocolFrame.operationsDescriptor.descriptor.resourceUrl,
+		chunkText(JSON.stringify(props.operations)),
+	);
+}
+
+function chunkText(text: string, chunkLength = 7): readonly string[] {
+	const chunks: string[] = [];
+	for (let offset = 0; offset < text.length; offset += chunkLength) {
+		chunks.push(text.slice(offset, offset + chunkLength));
+	}
+	return chunks;
 }
 
 function partialReviewDeltaFrame(
@@ -3596,6 +4316,31 @@ function partialReviewDeltaFrame(
 	return {
 		...frame,
 		contentDescriptors: frame.contentDescriptors?.slice(0, 1),
+	};
+}
+
+function makePreviewOnlyContentPackage(reviewPackage: BridgeReviewPackage): BridgeReviewPackage {
+	return {
+		...reviewPackage,
+		itemsById: Object.fromEntries(
+			Object.entries(reviewPackage.itemsById).map(([itemId, item]) => [
+				itemId,
+				{
+					...item,
+					contentRoles: Object.fromEntries(
+						Object.entries(item.contentRoles).map(([role, handle]) => [
+							role,
+							handle === null || handle === undefined
+								? handle
+								: {
+										...handle,
+										contentHashAlgorithm: 'fixture-preview',
+									},
+						]),
+					) as typeof item.contentRoles,
+				},
+			]),
+		),
 	};
 }
 
@@ -4288,6 +5033,23 @@ function makeWorktreeNavigationFrames(
 			descriptor,
 		},
 	];
+}
+
+function chunkedTextResponse(chunks: readonly string[]): Response {
+	const encoder = new TextEncoder();
+	const body = new ReadableStream<Uint8Array>({
+		start(controller): void {
+			for (const chunk of chunks) {
+				controller.enqueue(encoder.encode(chunk));
+			}
+			controller.close();
+		},
+	});
+	return Object.assign(new Response(body), {
+		text: async (): Promise<string> => {
+			throw new Error('whole body text() should not be used for Review resources');
+		},
+	});
 }
 
 function isMissingContentHandle(

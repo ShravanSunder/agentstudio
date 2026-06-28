@@ -10,6 +10,7 @@ import type {
 	BridgeViewInterest,
 } from '../../core/models/bridge-demand-models.js';
 import type { BridgeDescriptorRef } from '../../core/models/bridge-resource-descriptor.js';
+import type { BridgeTextResourceStreamResult } from '../../core/resources/bridge-resource-stream.js';
 import { mapReviewDemandStimulusToIntents } from '../../features/review/demand/review-demand-policy.js';
 import type { BridgeContentResource } from '../../foundation/content/content-resource-loader.js';
 import type {
@@ -29,7 +30,7 @@ export interface LoadReviewItemContentResourcesThroughDemandProps {
 	readonly interest: 'selected' | 'visible' | 'nearby' | 'speculative';
 	readonly resolveDescriptorRef: (handle: BridgeContentHandle) => BridgeDescriptorRef | null;
 	readonly scheduler: BridgeDemandScheduler;
-	readonly executor: BridgeResourceExecutor<string>;
+	readonly executor: BridgeResourceExecutor<BridgeTextResourceStreamResult>;
 	readonly signal?: AbortSignal;
 	readonly traceContext?: BridgeTraceContext | null;
 	readonly telemetryRecorder?: BridgeTelemetryRecorder;
@@ -141,7 +142,7 @@ function newReviewContentDemandTelemetryBuilder(props: {
 	readonly interest: ReviewContentDemandInterest;
 	readonly intents: readonly BridgeDemandIntent[];
 	readonly scheduler: BridgeDemandScheduler;
-	readonly executor: BridgeResourceExecutor<string>;
+	readonly executor: BridgeResourceExecutor<BridgeTextResourceStreamResult>;
 }): ReviewContentDemandTelemetryBuilder {
 	const laneCounts = countDemandIntentsByLane(props.intents);
 	const schedulerQueuedIntentCountBefore = props.scheduler.queuedIntentCount;
@@ -197,6 +198,13 @@ function newReviewContentDemandTelemetryBuilder(props: {
 				continue;
 			}
 			if (loadedResult.value.result.ok) {
+				if (!loadedResult.value.result.authoritative) {
+					deferredCount += 1;
+					staleDropCount += 1;
+					deferredEstimatedBytesByLane[loadedResult.value.intent.lane] +=
+						loadedResult.value.estimatedBytes;
+					continue;
+				}
 				loadedCount += 1;
 				admittedBytes += loadedResult.value.result.byteLength;
 				admittedBytesByLane[loadedResult.value.intent.lane] += loadedResult.value.result.byteLength;
@@ -337,7 +345,9 @@ function emptyDemandLaneByteCounts(): Record<BridgeDemandLane, number> {
 	};
 }
 
-function isDeferredExecutorResult(result: BridgeResourceExecutorResult<string>): boolean {
+function isDeferredExecutorResult(
+	result: BridgeResourceExecutorResult<BridgeTextResourceStreamResult>,
+): boolean {
 	if (result.ok) {
 		return false;
 	}
@@ -515,7 +525,7 @@ interface LoadedReviewContentDemandResult {
 	readonly estimatedBytes: number;
 	readonly intent: BridgeDemandIntent;
 	readonly role: BridgeContentRole;
-	readonly result: BridgeResourceExecutorResult<string>;
+	readonly result: BridgeResourceExecutorResult<BridgeTextResourceStreamResult>;
 }
 
 async function loadAllDemandResources(props: {
@@ -523,7 +533,10 @@ async function loadAllDemandResources(props: {
 	readonly loadedResults: readonly Promise<LoadedReviewContentDemandResult>[];
 	readonly signal: AbortSignal | undefined;
 }): Promise<ReviewContentDemandLoadResult> {
-	const loadedResourcesByRole = new Map<BridgeContentRole, BridgeResourceExecutorResult<string>>();
+	const loadedResourcesByRole = new Map<
+		BridgeContentRole,
+		BridgeResourceExecutorResult<BridgeTextResourceStreamResult>
+	>();
 	const loadedResults = await Promise.all(props.loadedResults);
 	if (props.signal?.aborted === true) {
 		return { status: 'deferred', reason: 'aborted' };
@@ -554,13 +567,13 @@ async function loadDemandResourceWithTelemetry(props: {
 	readonly intent: BridgeDemandIntent;
 	readonly role: BridgeContentRole;
 	readonly interest: ReviewContentDemandInterest;
-	readonly executor: BridgeResourceExecutor<string>;
+	readonly executor: BridgeResourceExecutor<BridgeTextResourceStreamResult>;
 	readonly signal: AbortSignal | undefined;
 	readonly traceContext: BridgeTraceContext | null;
 	readonly telemetryRecorder: BridgeTelemetryRecorder | undefined;
-}): Promise<BridgeResourceExecutorResult<string>> {
+}): Promise<BridgeResourceExecutorResult<BridgeTextResourceStreamResult>> {
 	const start = performance.now();
-	let loadResult: BridgeResourceExecutorResult<string> | null = null;
+	let loadResult: BridgeResourceExecutorResult<BridgeTextResourceStreamResult> | null = null;
 	const cancelDemandGroup = (): void => {
 		props.executor.cancelGroup(props.intent.cancellationGroup);
 	};
@@ -590,7 +603,9 @@ async function loadDemandResourceWithTelemetry(props: {
 	}
 }
 
-function telemetryResultForExecutorResult(result: BridgeResourceExecutorResult<string> | null): {
+function telemetryResultForExecutorResult(
+	result: BridgeResourceExecutorResult<BridgeTextResourceStreamResult> | null,
+): {
 	readonly result: 'success' | 'deferred' | 'failed';
 	readonly resultReason: string | null;
 } {
@@ -764,7 +779,7 @@ function resultForPlans(props: {
 	readonly plans: readonly ReviewContentDemandPlan[];
 	readonly loadedResourcesByRole: ReadonlyMap<
 		BridgeContentRole,
-		BridgeResourceExecutorResult<string>
+		BridgeResourceExecutorResult<BridgeTextResourceStreamResult>
 	>;
 }): ReviewContentDemandLoadResult {
 	const terminalFailure = firstTerminalFailureForPlans(props);
@@ -782,9 +797,14 @@ function resultForPlans(props: {
 		if (result?.ok !== true) {
 			return loadResultForFailedResource(result ?? { ok: false, reason: 'descriptor_missing' });
 		}
+		if (!result.authoritative) {
+			return { status: 'deferred', reason: 'stale_completion' };
+		}
 		resources[plan.role] = {
+			authoritative: result.authoritative,
+			byteLength: result.byteLength,
 			handle: plan.handle,
-			text: result.body,
+			readText: (): string => result.content.readText(),
 		};
 	}
 	return {
@@ -802,9 +822,9 @@ function firstTerminalFailureForPlans(props: {
 	readonly plans: readonly ReviewContentDemandPlan[];
 	readonly loadedResourcesByRole: ReadonlyMap<
 		BridgeContentRole,
-		BridgeResourceExecutorResult<string>
+		BridgeResourceExecutorResult<BridgeTextResourceStreamResult>
 	>;
-}): BridgeResourceExecutorResult<string> | null {
+}): BridgeResourceExecutorResult<BridgeTextResourceStreamResult> | null {
 	for (const plan of props.plans) {
 		const result = props.loadedResourcesByRole.get(plan.role);
 		if (result !== undefined && !result.ok && isTerminalDemandResourceFailure(result)) {
@@ -815,7 +835,7 @@ function firstTerminalFailureForPlans(props: {
 }
 
 function loadResultForFailedResource(
-	result: BridgeResourceExecutorResult<string>,
+	result: BridgeResourceExecutorResult<BridgeTextResourceStreamResult>,
 ): ReviewContentDemandLoadResult {
 	if (result.ok) {
 		return { status: 'ready', resources: {} };
@@ -833,7 +853,9 @@ function loadResultForFailedResource(
 	return { status: 'failed', reason: 'load_failed' };
 }
 
-function isTerminalDemandResourceFailure(result: BridgeResourceExecutorResult<string>): boolean {
+function isTerminalDemandResourceFailure(
+	result: BridgeResourceExecutorResult<BridgeTextResourceStreamResult>,
+): boolean {
 	return (
 		!result.ok &&
 		(result.reason === 'byte_budget_exceeded' ||

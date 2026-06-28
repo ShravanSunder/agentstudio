@@ -133,23 +133,30 @@ extension CommandBarDataSource {
             workspaceTab: workspaceTab
         )
 
-        return Dictionary(
-            uniqueKeysWithValues: store.repositoryTopologyAtom.repos.flatMap { repo in
-                repo.worktrees.map { worktree in
-                    (
-                        worktree.id,
-                        WorktreePresence(
-                            worktreeId: worktree.id,
-                            repoId: repo.id,
-                            worktreeName: worktree.name,
-                            repoName: repo.name,
-                            isMainWorktree: worktree.isMainWorktree,
-                            openPanes: locationsByWorktreeId[worktree.id] ?? []
-                        )
-                    )
-                }
-            }
+        return buildWorktreePresenceByWorktreeId(
+            repos: store.repositoryTopologyAtom.repos,
+            locationsByWorktreeId: locationsByWorktreeId
         )
+    }
+
+    static func buildWorktreePresenceByWorktreeId(
+        repos: [Repo],
+        locationsByWorktreeId: [UUID: [WorkspacePaneLocation]]
+    ) -> [UUID: WorktreePresence] {
+        var presenceByWorktreeId: [UUID: WorktreePresence] = [:]
+        for repo in repos {
+            for worktree in repo.worktrees where presenceByWorktreeId[worktree.id] == nil {
+                presenceByWorktreeId[worktree.id] = WorktreePresence(
+                    worktreeId: worktree.id,
+                    repoId: repo.id,
+                    worktreeName: worktree.name,
+                    repoName: repo.name,
+                    isMainWorktree: worktree.isMainWorktree,
+                    openPanes: locationsByWorktreeId[worktree.id] ?? []
+                )
+            }
+        }
+        return presenceByWorktreeId
     }
 
     static func buildWorktreePresence(

@@ -152,4 +152,26 @@ describe('bridge page handshake', () => {
 		expect(scenarios).toEqual(['package_apply_content_fetch_v1']);
 		expect(session.getTelemetryConfig()?.scenario).toBe('package_apply_content_fetch_v1');
 	});
+
+	test('notifies ready callback before dispatching bridge ready', async () => {
+		const target = new EventTarget();
+		const events: string[] = [];
+
+		target.addEventListener('__bridge_ready', () => {
+			events.push('ready-event');
+		});
+
+		const session = installBridgePageHandshakeSession(target, {
+			onReady: (): void => {
+				events.push(`ready-callback:${session.getPushNonce() ?? 'missing'}`);
+			},
+		});
+		target.dispatchEvent(
+			new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-1' } }),
+		);
+		await Promise.resolve();
+		session.uninstall();
+
+		expect(events).toEqual(['ready-callback:push-1', 'ready-event']);
+	});
 });

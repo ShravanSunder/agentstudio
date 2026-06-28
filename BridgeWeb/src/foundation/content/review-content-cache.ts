@@ -2,7 +2,7 @@ import type { BridgeContentHandle } from '../review-package/bridge-review-packag
 
 export interface CachedReviewContent {
 	readonly handle: BridgeContentHandle;
-	readonly text: string;
+	readText(): string;
 }
 
 export class ReviewContentCache {

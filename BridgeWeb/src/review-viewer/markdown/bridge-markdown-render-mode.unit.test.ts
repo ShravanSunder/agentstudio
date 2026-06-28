@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
+import type { BridgeContentResource } from '../../foundation/content/content-resource-loader.js';
 import {
 	makeBridgeContentHandle,
 	makeBridgeReviewPackage,
@@ -23,7 +24,9 @@ describe('bridge markdown render mode', () => {
 		const decision = resolveBridgeMarkdownPreviewDecision({
 			reviewPackage,
 			selectedItemId: selectedItem.itemId,
-			resources: { head: { handle: head, text: '# Plan\n\n```ts\nconst value = 1;\n```' } },
+			resources: {
+				head: makeContentResource(head, '# Plan\n\n```ts\nconst value = 1;\n```'),
+			},
 		});
 
 		expect(decision).toMatchObject({
@@ -60,8 +63,8 @@ describe('bridge markdown render mode', () => {
 			reviewPackage,
 			selectedItemId: modifiedMarkdownItem.itemId,
 			resources: {
-				base: { handle: base, text: '# Before' },
-				head: { handle: head, text: '# After' },
+				base: makeContentResource(base, '# Before'),
+				head: makeContentResource(head, '# After'),
 			},
 		});
 
@@ -95,7 +98,7 @@ describe('bridge markdown render mode', () => {
 		const decision = resolveBridgeMarkdownPreviewDecision({
 			reviewPackage,
 			selectedItemId: modifiedMarkdownItem.itemId,
-			resources: { head: { handle: head, text: '# After' } },
+			resources: { head: makeContentResource(head, '# After') },
 		});
 
 		expect(decision).toMatchObject({
@@ -129,7 +132,7 @@ describe('bridge markdown render mode', () => {
 		const decision = resolveBridgeMarkdownPreviewDecision({
 			reviewPackage,
 			selectedItemId: renamedMarkdownItem.itemId,
-			resources: { base: { handle: base, text: '# Before rename' } },
+			resources: { base: makeContentResource(base, '# Before rename') },
 		});
 
 		expect(decision).toMatchObject({
@@ -162,7 +165,7 @@ describe('bridge markdown render mode', () => {
 		const decision = resolveBridgeMarkdownPreviewDecision({
 			reviewPackage,
 			selectedItemId: fileMarkdownItem.itemId,
-			resources: { file: { handle: fileHandle, text: '# File plan' } },
+			resources: { file: makeContentResource(fileHandle, '# File plan') },
 		});
 
 		expect(decision).toMatchObject({
@@ -195,7 +198,7 @@ describe('bridge markdown render mode', () => {
 		const decision = resolveBridgeMarkdownPreviewDecision({
 			reviewPackage,
 			selectedItemId: item.itemId,
-			resources: { head: { handle: head, text: '# Plan' } },
+			resources: { head: makeContentResource(head, '# Plan') },
 		});
 
 		expect(decision).toEqual({ kind: 'codeView', reason: 'invalidResourceUrl' });
@@ -223,7 +226,7 @@ describe('bridge markdown render mode', () => {
 		const decision = resolveBridgeMarkdownPreviewDecision({
 			reviewPackage,
 			selectedItemId: item.itemId,
-			resources: { head: { handle: head, text: '# Plan' } },
+			resources: { head: makeContentResource(head, '# Plan') },
 			maxBytes: 5,
 		});
 
@@ -292,5 +295,12 @@ function makeMarkdownHandle(itemId: string, role: 'base' | 'head'): BridgeConten
 		mimeType: 'text/markdown',
 		language: 'markdown',
 		sizeBytes: 128,
+	};
+}
+
+function makeContentResource(handle: BridgeContentHandle, text: string): BridgeContentResource {
+	return {
+		handle,
+		readText: (): string => text,
 	};
 }

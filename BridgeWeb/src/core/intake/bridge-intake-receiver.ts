@@ -13,9 +13,16 @@ export type BridgeIntakeReceiveDropReason =
 	| 'stale_sequence'
 	| 'stream_mismatch';
 
+export interface BridgeIntakeFrameSummary {
+	readonly kind: BridgeIntakeFrame['kind'];
+	readonly streamId: string;
+	readonly generation: number;
+	readonly sequence: number;
+}
+
 export interface BridgeIntakeReceiveDrop {
 	readonly reason: BridgeIntakeReceiveDropReason;
-	readonly frame: BridgeIntakeFrame;
+	readonly frame: BridgeIntakeFrameSummary;
 	readonly expectedSequence: number;
 }
 
@@ -63,7 +70,7 @@ export function createBridgeIntakeReceiver(
 	): BridgeIntakeReceiveResult {
 		props.onDroppedFrame?.({
 			reason,
-			frame,
+			frame: summarizeIntakeFrame(frame),
 			expectedSequence: nextSequence,
 		});
 		return {
@@ -126,5 +133,14 @@ export function createBridgeIntakeReceiver(
 		close(): void {
 			status = 'closed';
 		},
+	};
+}
+
+export function summarizeIntakeFrame(frame: BridgeIntakeFrame): BridgeIntakeFrameSummary {
+	return {
+		kind: frame.kind,
+		streamId: frame.streamId,
+		generation: frame.generation,
+		sequence: frame.sequence,
 	};
 }

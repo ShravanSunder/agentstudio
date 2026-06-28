@@ -18,6 +18,7 @@ import {
 	waitForBridgeViewerAnimationFrame,
 } from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
 import { WorktreeFileApp } from './worktree-file-app.js';
+import { makeWorktreeFileSurfaceRuntimeFetchedResource } from './worktree-file-surface-runtime.js';
 
 describe('WorktreeFileApp Browser Mode', () => {
 	test('auto-opens the initial fetchable file when requested', async () => {
@@ -29,7 +30,9 @@ describe('WorktreeFileApp Browser Mode', () => {
 				autoOpenInitialFile
 				fetchResource={async ({ resourceUrl }) => {
 					fetchedResourceUrls.push(resourceUrl);
-					return 'export const value = 2;\nexport const other = 3;\n';
+					return makeWorktreeFileSurfaceRuntimeFetchedResource(
+						'export const value = 2;\nexport const other = 3;\n',
+					);
 				}}
 				initialFrames={makeFrames(descriptor)}
 			/>,
@@ -51,7 +54,8 @@ describe('WorktreeFileApp Browser Mode', () => {
 
 	test('reserves tree and file extents before descriptor-backed content hydrates', async () => {
 		const descriptor = makeFileDescriptor();
-		const deferredContent = makeDeferred<string>();
+		const deferredContent =
+			makeDeferred<ReturnType<typeof makeWorktreeFileSurfaceRuntimeFetchedResource>>();
 		const fetchedResourceUrls: string[] = [];
 
 		render(
@@ -89,7 +93,11 @@ describe('WorktreeFileApp Browser Mode', () => {
 			'agentstudio://resource/worktree-file/worktree.fileContent/file-content-1?generation=1',
 		]);
 
-		deferredContent.resolve('export const value = 2;\nexport const other = 3;\n');
+		deferredContent.resolve(
+			makeWorktreeFileSurfaceRuntimeFetchedResource(
+				'export const value = 2;\nexport const other = 3;\n',
+			),
+		);
 		await waitForWorktreeFileState('ready');
 		await waitForBridgeViewerAnimationFrame();
 
@@ -110,7 +118,7 @@ describe('WorktreeFileApp Browser Mode', () => {
 			<WorktreeFileApp
 				fetchResource={async () => {
 					fetchCount += 1;
-					return 'must-not-fetch';
+					return makeWorktreeFileSurfaceRuntimeFetchedResource('must-not-fetch');
 				}}
 				initialFrames={makeFrames(descriptor)}
 			/>,
@@ -144,9 +152,11 @@ describe('WorktreeFileApp Browser Mode', () => {
 			<WorktreeFileApp
 				fetchResource={async ({ resourceUrl }) => {
 					fetchedResourceUrls.push(resourceUrl);
-					return resourceUrl.includes('file-content-2')
-						? 'export const value = 3;\nexport const other = 4;\n'
-						: 'export const value = 2;\n';
+					return makeWorktreeFileSurfaceRuntimeFetchedResource(
+						resourceUrl.includes('file-content-2')
+							? 'export const value = 3;\nexport const other = 4;\n'
+							: 'export const value = 2;\n',
+					);
 				}}
 				initialFrames={makeFrames(descriptor)}
 			/>,

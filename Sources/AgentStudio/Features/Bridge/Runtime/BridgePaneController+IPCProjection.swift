@@ -32,12 +32,16 @@ private struct BridgePageControlRenderModeSnapshot: Decodable {
 @MainActor
 extension BridgePaneController {
     func ipcReviewPackageSnapshot() throws -> IPCBridgeReviewPackageResult {
+        let package = paneState.diff.packageMetadata
         let result = IPCBridgeReviewPackageResult(
             paneId: paneId,
             status: paneState.diff.status.rawValue,
             error: paneState.diff.error,
             selectedItemId: selectedReviewItemId,
-            package: paneState.diff.packageMetadata.map(ipcPackage)
+            packageId: package?.packageId,
+            reviewGeneration: package?.reviewGeneration.rawValue,
+            revision: package?.revision,
+            summary: package.map(ipcPackageSummary)
         )
         try BridgeIPCResponseBudget.validate(result)
         return result
@@ -205,9 +209,9 @@ extension BridgePaneController {
         else {
             throw BridgeIPCProjectionError(reason: .contentUnavailable)
         }
-        let result: BridgeContentLoadResult
+        let handle: BridgeContentHandle
         do {
-            result = try await reviewContentStore.load(
+            handle = try await reviewContentStore.metadata(
                 handleId: contentHandleId,
                 requestedGeneration: BridgeReviewGeneration(reviewGeneration)
             )
@@ -224,28 +228,10 @@ extension BridgePaneController {
             throw BridgeIPCProjectionError(reason: .contentUnavailable)
         }
 
-        guard result.data.count <= AppPolicies.Bridge.ipcMaxResponsePayloadBytes else {
-            throw BridgeIPCProjectionError(reason: .payloadTooLarge)
-        }
-
-        let text = String(data: result.data, encoding: .utf8)
-        let contentBase64 = text == nil ? result.data.base64EncodedString() : nil
-        if let contentBase64,
-            contentBase64.utf8.count > AppPolicies.Bridge.ipcMaxResponsePayloadBytes
-        {
-            throw BridgeIPCProjectionError(reason: .payloadTooLarge)
-        }
-
         let ipcResult = IPCBridgeContentGetResult(
             paneId: paneId,
-            handle: ipcContentHandle(result.handle),
-            mimeType: result.mimeType,
-            body: IPCBridgeContentBody(
-                byteCount: result.data.count,
-                isUtf8: text != nil,
-                contentText: text,
-                contentBase64: contentBase64
-            )
+            handle: ipcContentHandle(handle),
+            mimeType: handle.mimeType
         )
         try BridgeIPCResponseBudget.validate(ipcResult)
         return ipcResult
@@ -322,49 +308,13 @@ extension BridgePaneController {
         )
     }
 
-    private func ipcPackage(_ package: BridgeReviewPackage) -> IPCBridgeReviewPackage {
-        IPCBridgeReviewPackage(
-            packageId: package.packageId,
-            reviewGeneration: package.reviewGeneration.rawValue,
-            revision: package.revision,
-            orderedItemIds: package.orderedItemIds,
-            summary: IPCBridgeReviewPackageSummary(
-                filesChanged: package.summary.filesChanged,
-                additions: package.summary.additions,
-                deletions: package.summary.deletions,
-                visibleFileCount: package.summary.visibleFileCount,
-                hiddenFileCount: package.summary.hiddenFileCount
-            ),
-            items: package.orderedItemIds.compactMap { itemId in
-                package.itemsById[itemId].map(ipcReviewItem)
-            }
-        )
-    }
-
-    private func ipcReviewItem(_ item: BridgeReviewItemDescriptor) -> IPCBridgeReviewItem {
-        IPCBridgeReviewItem(
-            identity: IPCBridgeReviewItemIdentity(
-                itemId: item.itemId,
-                itemKind: item.itemKind.rawValue
-            ),
-            paths: IPCBridgeReviewItemPaths(
-                basePath: item.basePath,
-                headPath: item.headPath,
-                language: item.language
-            ),
-            classification: IPCBridgeReviewItemClassification(
-                changeKind: item.changeKind.rawValue,
-                fileClass: item.fileClass.rawValue,
-                isHiddenByDefault: item.isHiddenByDefault,
-                reviewPriority: item.reviewPriority.rawValue
-            ),
-            stats: IPCBridgeReviewItemStats(additions: item.additions, deletions: item.deletions),
-            contentRoles: IPCBridgeContentRoles(
-                base: item.contentRoles.base.map(ipcContentHandle),
-                head: item.contentRoles.head.map(ipcContentHandle),
-                diff: item.contentRoles.diff.map(ipcContentHandle),
-                file: item.contentRoles.file.map(ipcContentHandle)
-            )
+    private func ipcPackageSummary(_ package: BridgeReviewPackage) -> IPCBridgeReviewPackageSummary {
+        IPCBridgeReviewPackageSummary(
+            filesChanged: package.summary.filesChanged,
+            additions: package.summary.additions,
+            deletions: package.summary.deletions,
+            visibleFileCount: package.summary.visibleFileCount,
+            hiddenFileCount: package.summary.hiddenFileCount
         )
     }
 

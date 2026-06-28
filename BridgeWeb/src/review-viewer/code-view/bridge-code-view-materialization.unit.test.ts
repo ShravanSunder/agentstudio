@@ -438,5 +438,5 @@ function makeContentResource(
 	handle: BridgeContentResource['handle'],
 	text: string,
 ): BridgeContentResource {
-	return { handle, text };
+	return { handle, readText: (): string => text };
 }

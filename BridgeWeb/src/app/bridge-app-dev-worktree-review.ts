@@ -1,13 +1,10 @@
 import { z } from 'zod';
 
-import { dispatchBridgeDevHostAdmittedEnvelope } from '../bridge/bridge-dev-host-push-carrier.js';
+import type { BridgeIntakeFrame } from '../core/models/bridge-intake-frame.js';
 import { parseBridgeCoreResourceUrl } from '../core/resources/bridge-resource-url.js';
-import { buildReviewSnapshotFrame } from '../features/review/protocol/review-snapshot-frame-builder.js';
+import type { ReviewSnapshotFrame } from '../features/review/models/review-protocol-models.js';
+import { reviewProtocolFrameSchema } from '../features/review/models/review-protocol-models.js';
 import type { BridgeContentFetch } from '../foundation/content/content-resource-loader.js';
-import {
-	bridgeReviewPackageSchema,
-	type BridgeReviewPackage,
-} from '../foundation/review-package/bridge-review-package-schema.js';
 
 export interface BridgeAppDevWorktreeReviewBackend {
 	readonly fetchContent: BridgeContentFetch;
@@ -21,12 +18,12 @@ const bridgeWorktreeReviewStreamId = `review:${bridgeWorktreeReviewPaneId}`;
 const bridgeReviewPaneIdAttribute = 'data-bridge-review-pane-id';
 const bridgeReviewStreamIdAttribute = 'data-bridge-review-stream-id';
 const bridgeWorktreeReviewAllowedResourceKindsByProtocol = {
-	review: new Set(['content']),
+	review: new Set(['content', 'review-package', 'review-delta']),
 };
 
-const bridgeWorktreeReviewPackageResponseSchema = z
+const bridgeWorktreeReviewSnapshotResponseSchema = z
 	.object({
-		reviewPackage: bridgeReviewPackageSchema,
+		protocolFrame: reviewProtocolFrameSchema,
 	})
 	.strict();
 
@@ -67,8 +64,28 @@ export function installBridgeAppDevWorktreeReviewBackend(): BridgeAppDevWorktree
 			const parsedResourceUrl = parseBridgeCoreResourceUrl(url, {
 				allowedResourceKindsByProtocol: bridgeWorktreeReviewAllowedResourceKindsByProtocol,
 			});
-			if (parsedResourceUrl === null || parsedResourceUrl.resourceKind !== 'content') {
-				return new Response('Invalid Bridge worktree review content URL', { status: 400 });
+			if (parsedResourceUrl === null) {
+				return new Response('Invalid Bridge worktree review content URL', {
+					status: 400,
+				});
+			}
+			if (
+				parsedResourceUrl.resourceKind === 'review-package' ||
+				parsedResourceUrl.resourceKind === 'review-delta'
+			) {
+				return await fetchWorktreeReviewProtocolResource({
+					forwardedSearchParams,
+					init,
+					opaqueId: parsedResourceUrl.opaqueId,
+					resourceKind: parsedResourceUrl.resourceKind,
+					generation: parsedResourceUrl.generation,
+					revision: parsedResourceUrl.revision,
+				});
+			}
+			if (parsedResourceUrl.resourceKind !== 'content') {
+				return new Response('Invalid Bridge worktree review content URL', {
+					status: 400,
+				});
 			}
 			return await fetch(
 				bridgeWorktreeReviewEndpoint(
@@ -93,46 +110,79 @@ export function installBridgeAppDevWorktreeReviewBackend(): BridgeAppDevWorktree
 	};
 }
 
+async function fetchWorktreeReviewProtocolResource(props: {
+	readonly forwardedSearchParams: URLSearchParams;
+	readonly generation: number | undefined;
+	readonly init?: RequestInit | undefined;
+	readonly opaqueId: string;
+	readonly resourceKind: 'review-package' | 'review-delta';
+	readonly revision: number | undefined;
+}): Promise<Response> {
+	return await fetch(
+		bridgeWorktreeReviewEndpoint(
+			worktreeReviewPackageEndpoint,
+			bridgeWorktreeReviewPackageResourceSearchParams({
+				forwardedSearchParams: props.forwardedSearchParams,
+				generation: props.generation,
+				opaqueId: props.opaqueId,
+				resourceKind: props.resourceKind,
+				revision: props.revision,
+			}),
+		),
+		props.init,
+	);
+}
+
 async function pushWorktreeReviewPackageAfterHandshake(props: {
 	readonly forwardedSearchParams: URLSearchParams;
 	readonly handshakeRequestPromise: Promise<void>;
 }): Promise<void> {
 	await props.handshakeRequestPromise;
-	const reviewPackage = await loadWorktreeReviewPackage(props.forwardedSearchParams);
-	dispatchBridgeDevHostAdmittedEnvelope({
-		__v: 1,
-		__pushId: `push-${reviewPackage.packageId}-${reviewPackage.revision}`,
-		__revision: reviewPackage.revision,
-		__epoch: reviewPackage.reviewGeneration,
-		store: 'diff',
-		op: 'replace',
-		level: 'cold',
-		slice: 'diff_package_metadata',
-		data: {
-			package: reviewPackage,
-			protocolFrame: buildReviewSnapshotFrame({
-				package: reviewPackage,
-				paneId: bridgeWorktreeReviewPaneId,
-				sourceIdentity: reviewPackage.query.queryId,
-				streamId: bridgeWorktreeReviewStreamId,
-				sequence: reviewPackage.revision,
-			}),
-		},
-	});
+	const protocolFrame = await loadWorktreeReviewSnapshotFrame(props.forwardedSearchParams);
+	const intakeFrame: BridgeIntakeFrame = {
+		kind: 'snapshot',
+		streamId: protocolFrame.streamId,
+		generation: protocolFrame.generation,
+		sequence: protocolFrame.sequence,
+		payload: protocolFrame,
+	};
+	document.dispatchEvent(
+		new CustomEvent('__bridge_intake_json', {
+			detail: {
+				json: JSON.stringify(intakeFrame),
+				nonce: 'push',
+			},
+		}),
+	);
 	await Promise.resolve();
 	await Promise.resolve();
 }
 
-async function loadWorktreeReviewPackage(
+async function loadWorktreeReviewSnapshotFrame(
 	forwardedSearchParams: URLSearchParams,
-): Promise<BridgeReviewPackage> {
+): Promise<ReviewSnapshotFrame> {
 	const response = await fetch(
-		bridgeWorktreeReviewEndpoint(worktreeReviewPackageEndpoint, forwardedSearchParams),
+		bridgeWorktreeReviewEndpoint(
+			worktreeReviewPackageEndpoint,
+			bridgeWorktreeReviewSnapshotSearchParams(forwardedSearchParams),
+		),
 	);
 	if (!response.ok) {
-		throw new Error(`Bridge worktree review package request failed: ${response.status}`);
+		throw new Error(`Bridge worktree review snapshot request failed: ${response.status}`);
 	}
-	return bridgeWorktreeReviewPackageResponseSchema.parse(await response.json()).reviewPackage;
+	const parsed = bridgeWorktreeReviewSnapshotResponseSchema.parse(await response.json());
+	if (parsed.protocolFrame.frameKind !== 'review.snapshot') {
+		throw new Error('Bridge worktree review bootstrap returned a non-snapshot frame');
+	}
+	return parsed.protocolFrame;
+}
+
+function bridgeWorktreeReviewSnapshotSearchParams(
+	forwardedSearchParams: URLSearchParams,
+): URLSearchParams {
+	const searchParams = new URLSearchParams(forwardedSearchParams);
+	searchParams.set('frame', 'review-snapshot');
+	return searchParams;
 }
 
 function bridgeWorktreeReviewForwardedSearchParams(search: string): URLSearchParams {
@@ -155,6 +205,25 @@ function bridgeWorktreeReviewContentSearchParams(props: {
 	if (props.cursor !== undefined) {
 		searchParams.set('cursor', props.cursor);
 	}
+	if (props.generation !== undefined) {
+		searchParams.set('generation', String(props.generation));
+	}
+	if (props.revision !== undefined) {
+		searchParams.set('revision', String(props.revision));
+	}
+	return searchParams;
+}
+
+function bridgeWorktreeReviewPackageResourceSearchParams(props: {
+	readonly forwardedSearchParams: URLSearchParams;
+	readonly generation: number | undefined;
+	readonly opaqueId: string;
+	readonly resourceKind: 'review-package' | 'review-delta';
+	readonly revision: number | undefined;
+}): URLSearchParams {
+	const searchParams = new URLSearchParams(props.forwardedSearchParams);
+	searchParams.set('resource', props.resourceKind);
+	searchParams.set('opaqueId', props.opaqueId);
 	if (props.generation !== undefined) {
 		searchParams.set('generation', String(props.generation));
 	}

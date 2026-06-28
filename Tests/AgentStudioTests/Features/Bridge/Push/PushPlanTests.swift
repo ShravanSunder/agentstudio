@@ -31,7 +31,7 @@ final class PushPlanTests {
                 Slice("status", telemetrySlice: .diffStatus, store: .diff, level: .hot) { (s: TestState) in
                     s.status
                 }
-                Slice("count", telemetrySlice: .diffPackageMetadata, store: .diff, level: .cold) { (s: TestState) in
+                Slice("count", telemetrySlice: .diffFiles, store: .diff, level: .cold) { (s: TestState) in
                     s.count
                 }
             }

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { readBridgeTextResourceStream } from '../core/resources/bridge-resource-stream.js';
 import {
 	parseBridgeCoreResourceUrl,
 	type BridgeCoreResourceUrl,
@@ -16,12 +17,15 @@ import type {
 	WorktreeFileFrameSubscriber,
 	WorktreeFileFrameSubscriptionDispose,
 } from '../worktree-file-surface/worktree-file-app.js';
-import type { WorktreeFileSurfaceRuntimeFetchResourceProps } from '../worktree-file-surface/worktree-file-surface-runtime.js';
+import type {
+	WorktreeFileSurfaceRuntimeFetchedResource,
+	WorktreeFileSurfaceRuntimeFetchResourceProps,
+} from '../worktree-file-surface/worktree-file-surface-runtime.js';
 
 export interface BridgeAppDevWorktreeBackend {
 	readonly fetchWorktreeFileResource: (
 		props: WorktreeFileSurfaceRuntimeFetchResourceProps,
-	) => Promise<string>;
+	) => Promise<WorktreeFileSurfaceRuntimeFetchedResource>;
 	readonly loadWorktreeFileSurface: () => Promise<BridgeAppDevWorktreeSurface>;
 	readonly subscribeWorktreeFileFrames: (
 		subscriber: WorktreeFileFrameSubscriber,
@@ -99,7 +103,7 @@ export function installBridgeAppDevWorktreeBackend(): BridgeAppDevWorktreeBacken
 	return {
 		fetchWorktreeFileResource: async (
 			resourceProps: WorktreeFileSurfaceRuntimeFetchResourceProps,
-		): Promise<string> => {
+		): Promise<WorktreeFileSurfaceRuntimeFetchedResource> => {
 			const parsedResourceUrl = parseBridgeCoreResourceUrl(resourceProps.resourceUrl, {
 				allowedResourceKindsByProtocol: bridgeWorktreeAllowedResourceKindsByProtocol,
 			});
@@ -119,7 +123,12 @@ export function installBridgeAppDevWorktreeBackend(): BridgeAppDevWorktreeBacken
 			if (!response.ok) {
 				throw new Error(`Bridge worktree file content request failed: ${response.status}`);
 			}
-			return await response.text();
+			return await readBridgeTextResourceStream(response, {
+				integrity: resourceProps.descriptor.content.integrity,
+				maxBytes: resourceProps.descriptor.content.maxBytes,
+				onTextChunk: resourceProps.onTextChunk,
+				signal: resourceProps.signal,
+			});
 		},
 		loadWorktreeFileSurface: async (): Promise<BridgeAppDevWorktreeSurface> => {
 			const surface = await loadSurface();

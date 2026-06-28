@@ -89,7 +89,6 @@ extension WebKitSerializedTests {
             #expect(response.result.treeSizeFacts.extentKind == .exactPathCount)
             #expect(response.result.treeSizeFacts.pathCount == 0)
             #expect(controller.paneState.diff.packageMetadata == nil)
-            #expect(controller.paneState.diff.packageSnapshotProtocolFrame == nil)
 
             controller.teardown()
         }

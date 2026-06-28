@@ -14,4 +14,37 @@ protocol BridgeReviewSourceProvider: Sendable {
         -> BridgeReviewItemDescriptor
     func resolveCheckpointEndpoint(_ request: BridgeCheckpointEndpointRequest) async throws -> BridgeSourceEndpoint
     func loadContent(_ request: BridgeContentLoadRequest) async throws -> BridgeContentLoadResult
+    func streamContent(
+        _ request: BridgeContentStreamRequest,
+        chunkByteCount: Int,
+        emitChunk: BridgeContentStreamEmitter
+    ) async throws -> BridgeContentStreamResult
+}
+
+extension BridgeReviewSourceProvider {
+    func streamContent(
+        _ request: BridgeContentStreamRequest,
+        chunkByteCount: Int,
+        emitChunk: BridgeContentStreamEmitter
+    ) async throws -> BridgeContentStreamResult {
+        let result = try await loadContent(
+            BridgeContentLoadRequest(
+                handle: request.handle,
+                requestedGeneration: request.requestedGeneration
+            )
+        )
+        var offset = 0
+        while offset < result.data.count {
+            let endOffset = min(offset + chunkByteCount, result.data.count)
+            try await emitChunk(result.data.subdata(in: offset..<endOffset))
+            offset = endOffset
+        }
+        return BridgeContentStreamResult(
+            handle: result.handle,
+            byteCount: result.data.count,
+            mimeType: result.mimeType,
+            contentHash: result.contentHash,
+            contentHashAlgorithm: result.contentHashAlgorithm
+        )
+    }
 }

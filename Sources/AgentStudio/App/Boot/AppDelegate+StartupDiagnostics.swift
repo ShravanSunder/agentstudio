@@ -217,32 +217,28 @@ extension AppDelegate {
                 correlationId: nil
             )
             recordBridgeReviewObservabilitySmokePhase("load_diff_finished", action: action)
-            let outcome: String
             switch result {
-            case .success:
+            case .failure where bridgeView.controller.paneState.diff.status == .error:
+                let renderProof = BridgeReviewObservabilitySmokeRenderProof.unavailable()
+                recordBridgeReviewObservabilitySmokeDiagnosticResult(
+                    action: action,
+                    outcome: "blocked",
+                    renderProof: renderProof
+                )
+                return
+            case .success, .queued, .failure:
                 recordBridgeReviewObservabilitySmokePhase("render_proof_started", action: action)
                 let renderProof = await waitForBridgeReviewObservabilitySmokeRenderProof(
                     for: bridgeView.controller
                 )
                 recordBridgeReviewObservabilitySmokePhase("render_proof_finished", action: action)
-                outcome = renderProof.succeeded ? "succeeded" : "blocked"
                 recordBridgeReviewObservabilitySmokeDiagnosticResult(
                     action: action,
-                    outcome: outcome,
+                    outcome: renderProof.succeeded ? "succeeded" : "blocked",
                     renderProof: renderProof
                 )
                 return
-            case .queued:
-                outcome = "queued"
-            case .failure:
-                outcome = "blocked"
             }
-            let renderProof = BridgeReviewObservabilitySmokeRenderProof.unavailable()
-            recordBridgeReviewObservabilitySmokeDiagnosticResult(
-                action: action,
-                outcome: outcome,
-                renderProof: renderProof
-            )
         }
 
         private func recordBridgeReviewObservabilitySmokePhase(

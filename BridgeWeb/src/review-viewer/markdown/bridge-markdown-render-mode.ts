@@ -100,7 +100,8 @@ export function resolveBridgeMarkdownPreviewDecision(
 	}
 
 	const maxBytes = props.maxBytes ?? bridgeMarkdownPreviewMaxBytes;
-	const contentBytes = new TextEncoder().encode(selectedResource.text).byteLength;
+	const selectedResourceText = selectedResource.readText();
+	const contentBytes = new TextEncoder().encode(selectedResourceText).byteLength;
 	if (selectedResource.handle.sizeBytes > maxBytes || contentBytes > maxBytes) {
 		return { kind: 'codeView', reason: 'largeContent' };
 	}
@@ -118,7 +119,7 @@ export function resolveBridgeMarkdownPreviewDecision(
 			sourcePath: displayPathForMarkdownResource(item, selectedResource),
 			contentCacheKey: selectedResource.handle.cacheKey,
 			contentHash: selectedResource.handle.contentHash,
-			markdownText: selectedResource.text,
+			markdownText: selectedResourceText,
 		},
 	};
 }

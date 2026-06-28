@@ -11,7 +11,7 @@ struct BridgePushEnvelopeEncoderTests {
             store: .diff,
             op: .replace,
             level: .cold,
-            slice: .diffPackageMetadata,
+            slice: .diffFiles,
             revision: 7,
             epoch: 3
         )
@@ -37,7 +37,7 @@ struct BridgePushEnvelopeEncoderTests {
         #expect(object["store"] as? String == "diff")
         #expect(object["op"] as? String == "replace")
         #expect(object["level"] as? String == "cold")
-        #expect(object["slice"] as? String == "diff_package_metadata")
+        #expect(object["slice"] as? String == "diff_files")
 
         let decodedPayload = try #require(object["payload"] as? [String: Any])
         let decodedPackage = try #require(decodedPayload["package"] as? [String: Any])

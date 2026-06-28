@@ -25,8 +25,8 @@ struct BridgeTelemetryIngestorTests {
                         "agentstudio.bridge.phase": "apply",
                         "agentstudio.bridge.plane": "data",
                         "agentstudio.bridge.priority": "cold",
-                        "agentstudio.bridge.slice": "diff_package_metadata",
-                        "agentstudio.bridge.transport": "push",
+                        "agentstudio.bridge.slice": "review_snapshot",
+                        "agentstudio.bridge.transport": "intake",
                     ],
                     numericAttributes: [:],
                     booleanAttributes: [:]
@@ -76,8 +76,8 @@ struct BridgeTelemetryIngestorTests {
                         "agentstudio.bridge.phase": "apply",
                         "agentstudio.bridge.plane": "data",
                         "agentstudio.bridge.priority": "cold",
-                        "agentstudio.bridge.slice": "diff_package_metadata",
-                        "agentstudio.bridge.transport": "push",
+                        "agentstudio.bridge.slice": "review_snapshot",
+                        "agentstudio.bridge.transport": "intake",
                     ],
                     numericAttributes: [:],
                     booleanAttributes: [:]

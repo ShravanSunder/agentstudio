@@ -1,6 +1,7 @@
+import type { BridgeIntegrityDescriptor } from '../../core/models/bridge-resource-descriptor.js';
 import type {
 	BridgeContentFetch,
-	BridgeContentResource,
+	BridgeLoadedContentResource,
 	LoadBridgeContentResourceProps,
 } from '../../foundation/content/content-resource-loader.js';
 import { loadBridgeContentResource } from '../../foundation/content/content-resource-loader.js';
@@ -37,7 +38,7 @@ type LoadReviewContentContext = Omit<LoadSelectedReviewItemContentProps, 'select
 
 export async function loadSelectedReviewItemContent(
 	props: LoadSelectedReviewItemContentProps,
-): Promise<BridgeContentResource | null> {
+): Promise<BridgeLoadedContentResource | null> {
 	if (props.selectedItemId === null) {
 		return null;
 	}
@@ -124,7 +125,7 @@ interface LoadContentHandleProps {
 
 async function loadContentHandle(
 	loadContentHandleProps: LoadContentHandleProps,
-): Promise<BridgeContentResource> {
+): Promise<BridgeLoadedContentResource> {
 	const props = loadContentHandleProps.props;
 	assertSelectedContentHandleOwnership({
 		handle: loadContentHandleProps.handle,
@@ -132,8 +133,11 @@ async function loadContentHandle(
 		selectedItem: loadContentHandleProps.selectedItem,
 		reviewPackage: props.reviewPackage,
 	});
+	const previewOnlyIntegrity = previewOnlyIntegrityForHandle(loadContentHandleProps.handle);
 	const loadProps: LoadBridgeContentResourceProps = {
 		handle: loadContentHandleProps.handle,
+		...(previewOnlyIntegrity === undefined ? {} : { integrity: previewOnlyIntegrity }),
+		maxBytes: loadContentHandleProps.handle.sizeBytes,
 		traceContext: props.traceContext ?? null,
 		sendTraceparentHeader: props.sendTraceparentHeader ?? false,
 		...(props.signal === undefined ? {} : { signal: props.signal }),
@@ -142,7 +146,14 @@ async function loadContentHandle(
 			? {}
 			: { telemetryRecorder: props.telemetryRecorder }),
 	};
-	return await (props.contentRegistry?.load(loadProps) ?? loadBridgeContentResource(loadProps));
+	const resource = await (props.contentRegistry?.load(loadProps) ??
+		loadBridgeContentResource(loadProps));
+	if (!resource.authoritative) {
+		throw new Error(
+			'Bridge review content resource is preview-only and cannot satisfy final content',
+		);
+	}
+	return resource;
 }
 
 interface PreferredContentHandle {
@@ -180,4 +191,13 @@ function assertSelectedContentHandleOwnership(props: {
 	) {
 		throw new Error('Bridge content handle does not match selected review item');
 	}
+}
+
+function previewOnlyIntegrityForHandle(
+	handle: BridgeContentHandle,
+): BridgeIntegrityDescriptor | undefined {
+	if (handle.contentHashAlgorithm !== 'sha256' || handle.contentHash.length === 0) {
+		return { kind: 'previewOnly' };
+	}
+	return undefined;
 }

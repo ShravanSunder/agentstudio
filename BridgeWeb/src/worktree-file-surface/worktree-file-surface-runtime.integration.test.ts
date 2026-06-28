@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest';
 
 import type {
 	BridgeAttachedResourceDescriptor,
+	BridgeIntegrityDescriptor,
 	BridgeResourceDescriptor,
 } from '../core/models/bridge-resource-descriptor.js';
 import { bridgeAttachedResourceDescriptorSchema } from '../core/models/bridge-resource-descriptor.js';
@@ -13,7 +14,11 @@ import type {
 	WorktreeSnapshotFrame,
 	WorktreeResetFrame,
 } from '../features/worktree-file/models/worktree-file-protocol-models.js';
-import { createWorktreeFileSurfaceRuntime } from './worktree-file-surface-runtime.js';
+import {
+	createWorktreeFileSurfaceRuntime,
+	makeWorktreeFileSurfaceRuntimeFetchedResource,
+	type WorktreeFileSurfaceRuntimeFetchedResource,
+} from './worktree-file-surface-runtime.js';
 
 describe('worktree file surface runtime', () => {
 	test('loads selected file content through descriptor-backed demand without storing bodies in state', async () => {
@@ -26,7 +31,7 @@ describe('worktree file surface runtime', () => {
 			fetchResource: async ({ resourceUrl }) => {
 				fetches.push(resourceUrl);
 				nowMilliseconds = 128;
-				return 'struct View {}';
+				return makeWorktreeFileSurfaceRuntimeFetchedResource('struct View {}');
 			},
 		});
 
@@ -41,14 +46,118 @@ describe('worktree file surface runtime', () => {
 
 		expect(loadResult).toMatchObject({
 			ok: true,
-			body: 'struct View {}',
 			descriptorId: 'file-content-1',
 		});
+		if (loadResult.ok) {
+			expect(loadResult.content.readText()).toBe('struct View {}');
+		}
 		expect(fetches).toEqual([
 			'agentstudio://resource/worktree-file/worktree.fileContent/file-content-1?generation=1&cursor=cursor-1',
 		]);
 		expect(JSON.stringify(runtime.getState())).not.toContain('struct View');
 		expect(runtime.getBodyRegistrySnapshot()).toEqual({ entryCount: 1, totalBytes: 14 });
+	});
+
+	test('surfaces streamed selected-file chunks before final body materialization', async () => {
+		const descriptor = makeFileDescriptor({ descriptorId: 'file-content-1' });
+		const streamedChunks: string[] = [];
+		let loadSettled = false;
+		const runtime = createWorktreeFileSurfaceRuntime({
+			paneId: 'pane-1',
+			onResourceTextChunk: (chunk) => {
+				streamedChunks.push(chunk.text);
+				expect(loadSettled).toBe(false);
+			},
+			fetchResource: async ({ onTextChunk }) => {
+				onTextChunk?.({ byteLength: 9, text: 'streamed ', totalBytesRead: 9 });
+				await Promise.resolve();
+				onTextChunk?.({ byteLength: 4, text: 'body', totalBytesRead: 13 });
+				return makeWorktreeFileSurfaceRuntimeFetchedResource('streamed body');
+			},
+		});
+		runtime.applyFrame(makeFileDescriptorFrame(descriptor));
+
+		const loadResult = await runtime.openFile({
+			descriptor,
+			openFileSessionId: 'session-1',
+		});
+		loadSettled = true;
+
+		expect(streamedChunks).toEqual(['streamed ', 'body']);
+		expect(loadResult).toMatchObject({
+			ok: true,
+		});
+		if (loadResult.ok) {
+			expect(loadResult.content.readText()).toBe('streamed body');
+		}
+	});
+
+	test('routes selected-file provisional chunks before authoritative cache commit', async () => {
+		const descriptor = makeFileDescriptor({ descriptorId: 'file-content-1' });
+		const provisionalChunks: string[] = [];
+		const fetchStarted = makeDeferred<void>();
+		const finishFetch = makeDeferred<WorktreeFileSurfaceRuntimeFetchedResource>();
+		const runtime = createWorktreeFileSurfaceRuntime({
+			paneId: 'pane-1',
+			fetchResource: async ({ onTextChunk }) => {
+				onTextChunk?.({ byteLength: 8, text: 'partial ', totalBytesRead: 8 });
+				fetchStarted.resolve();
+				return await finishFetch.promise;
+			},
+		});
+		runtime.applyFrame(makeFileDescriptorFrame(descriptor));
+
+		const loadPromise = runtime.openFile({
+			descriptor,
+			onProvisionalTextChunk: (chunk) => {
+				provisionalChunks.push(chunk.text);
+			},
+			openFileSessionId: 'session-1',
+		});
+		await fetchStarted.promise;
+
+		expect(provisionalChunks).toEqual(['partial ']);
+		expect(runtime.getBodyRegistrySnapshot()).toEqual({ entryCount: 0, totalBytes: 0 });
+
+		finishFetch.resolve(makeWorktreeFileSurfaceRuntimeFetchedResource('partial final\n'));
+		const loadResult = await loadPromise;
+
+		expect(loadResult).toMatchObject({ ok: true });
+		if (loadResult.ok) {
+			expect(loadResult.content.readText()).toBe('partial final\n');
+		}
+		expect(runtime.getBodyRegistrySnapshot()).toEqual({
+			entryCount: 1,
+			totalBytes: 'partial final\n'.length,
+		});
+	});
+
+	test('does not finalize or cache preview-only selected-file materialization', async () => {
+		const descriptor = makeFileDescriptor({
+			descriptorId: 'preview-content-1',
+			integrity: { kind: 'previewOnly' },
+		});
+		const runtime = createWorktreeFileSurfaceRuntime({
+			paneId: 'pane-1',
+			fetchResource: async () =>
+				makeWorktreeFileSurfaceRuntimeFetchedResource({
+					authoritative: false,
+					text: 'preview window body',
+				}),
+		});
+		runtime.applyFrame(makeFileDescriptorFrame(descriptor));
+
+		const loadResult = await runtime.openFile({
+			descriptor,
+			openFileSessionId: 'session-preview',
+		});
+
+		expect(loadResult).toMatchObject({
+			ok: false,
+			reason: 'preview_only',
+		});
+		expect(runtime.getBodyRegistrySnapshot()).toEqual({ entryCount: 0, totalBytes: 0 });
+		expect(runtime.getState().openFileSessionsById['session-preview']?.status).toBe('failed');
 	});
 
 	test('reports selected file load disposition and queue pressure for cold and cached opens', async () => {
@@ -61,7 +170,7 @@ describe('worktree file surface runtime', () => {
 			fetchResource: async ({ resourceUrl }) => {
 				fetches.push(resourceUrl);
 				nowMilliseconds += 9;
-				return `body from ${resourceUrl}`;
+				return makeWorktreeFileSurfaceRuntimeFetchedResource(`body from ${resourceUrl}`);
 			},
 		});
 		runtime.applyFrame(makeFileDescriptorFrame(descriptor));
@@ -124,7 +233,7 @@ describe('worktree file surface runtime', () => {
 			paneId: 'pane-1',
 			fetchResource: async () => {
 				fetchCount += 1;
-				return 'must-not-fetch';
+				return makeWorktreeFileSurfaceRuntimeFetchedResource('must-not-fetch');
 			},
 		});
 		runtime.applyFrame(makeFileDescriptorFrame(descriptor));
@@ -162,7 +271,9 @@ describe('worktree file surface runtime', () => {
 			fetchResource: async ({ descriptor }) => {
 				fetchedDescriptorIds.push(descriptor.descriptorId);
 				nowMilliseconds += 6;
-				return `${descriptor.descriptorId}:preloaded`;
+				return makeWorktreeFileSurfaceRuntimeFetchedResource(
+					`${descriptor.descriptorId}:preloaded`,
+				);
 			},
 		});
 		runtime.applyFrame(makeFileDescriptorFrame(firstDescriptor));
@@ -244,7 +355,9 @@ describe('worktree file surface runtime', () => {
 			paneId: 'pane-1',
 			fetchResource: async ({ descriptor }) => {
 				fetchedDescriptorIds.push(descriptor.descriptorId);
-				return `${descriptor.descriptorId}:preloaded`;
+				return makeWorktreeFileSurfaceRuntimeFetchedResource(
+					`${descriptor.descriptorId}:preloaded`,
+				);
 			},
 		});
 		for (const descriptor of descriptors) {
@@ -304,7 +417,9 @@ describe('worktree file surface runtime', () => {
 			fetchResource: async ({ descriptor }) => {
 				fetchedDescriptorIds.push(descriptor.descriptorId);
 				await loadGate.promise;
-				return `${descriptor.descriptorId}:preloaded`;
+				return makeWorktreeFileSurfaceRuntimeFetchedResource(
+					`${descriptor.descriptorId}:preloaded`,
+				);
 			},
 		});
 		for (const descriptor of [...firstDescriptors, ...secondDescriptors]) {
@@ -364,7 +479,7 @@ describe('worktree file surface runtime', () => {
 			fetchResource: async ({ descriptor: resourceDescriptor }) => {
 				fetchedDescriptorIds.push(resourceDescriptor.descriptorId);
 				nowMilliseconds += 5;
-				return 'let warmed = true\n';
+				return makeWorktreeFileSurfaceRuntimeFetchedResource('let warmed = true\n');
 			},
 		});
 		runtime.applyFrame(makeFileDescriptorFrame(descriptor));
@@ -383,7 +498,6 @@ describe('worktree file surface runtime', () => {
 
 		expect(openResult).toMatchObject({
 			ok: true,
-			body: 'let warmed = true\n',
 			loadTelemetry: {
 				disposition: 'visible-preloaded',
 				durationMilliseconds: 0,
@@ -391,6 +505,9 @@ describe('worktree file surface runtime', () => {
 				lane: 'foreground',
 			},
 		});
+		if (openResult.ok) {
+			expect(openResult.content.readText()).toBe('let warmed = true\n');
+		}
 		expect(fetchedDescriptorIds).toEqual(['file-content-visible-open']);
 	});
 
@@ -405,7 +522,7 @@ describe('worktree file surface runtime', () => {
 			paneId: 'pane-1',
 			fetchResource: async ({ descriptor: resourceDescriptor }) => {
 				fetchedDescriptorIds.push(resourceDescriptor.descriptorId);
-				return 'let repeatedVisible = true\n';
+				return makeWorktreeFileSurfaceRuntimeFetchedResource('let repeatedVisible = true\n');
 			},
 		});
 		runtime.applyFrame(makeFileDescriptorFrame(descriptor));
@@ -457,7 +574,7 @@ describe('worktree file surface runtime', () => {
 				if (descriptor.descriptorId === visibleDescriptor.contentDescriptor.ref.descriptorId) {
 					await visibleGate.promise;
 				}
-				return `${descriptor.descriptorId}:body`;
+				return makeWorktreeFileSurfaceRuntimeFetchedResource(`${descriptor.descriptorId}:body`);
 			},
 		});
 		runtime.applyFrame(makeFileDescriptorFrame(visibleDescriptor));
@@ -518,7 +635,7 @@ describe('worktree file surface runtime', () => {
 			fetchResource: async ({ descriptor }) => {
 				fetchedDescriptorIds.push(descriptor.descriptorId);
 				nowMilliseconds += 4;
-				return `${descriptor.descriptorId}:recent`;
+				return makeWorktreeFileSurfaceRuntimeFetchedResource(`${descriptor.descriptorId}:recent`);
 			},
 		});
 		runtime.applyFrame(makeFileDescriptorFrame(nearbyDescriptor));
@@ -591,7 +708,7 @@ describe('worktree file surface runtime', () => {
 			paneId: 'pane-1',
 			fetchResource: async () => {
 				fetchCount += 1;
-				return 'must-not-fetch';
+				return makeWorktreeFileSurfaceRuntimeFetchedResource('must-not-fetch');
 			},
 		});
 		runtime.applyFrame(makeFileDescriptorFrame(descriptor));
@@ -638,7 +755,7 @@ describe('worktree file surface runtime', () => {
 			fetchResource: async ({ descriptor }) => {
 				fetchedDescriptorIds.push(descriptor.descriptorId);
 				nowMilliseconds += descriptor.descriptorId === 'file-content-2' ? 17 : 5;
-				return `${descriptor.descriptorId}:body`;
+				return makeWorktreeFileSurfaceRuntimeFetchedResource(`${descriptor.descriptorId}:body`);
 			},
 		});
 		runtime.applyFrame(makeFileDescriptorFrame(firstDescriptor));
@@ -666,7 +783,6 @@ describe('worktree file surface runtime', () => {
 
 		expect(refreshResult).toMatchObject({
 			ok: true,
-			body: 'file-content-2:body',
 			descriptorId: 'file-content-2',
 			loadTelemetry: {
 				disposition: 'refreshed',
@@ -705,13 +821,13 @@ describe('worktree file surface runtime', () => {
 			paneId: 'pane-1',
 			fetchResource: async ({ descriptor }) => {
 				if (descriptor.descriptorId !== 'file-content-2') {
-					return `${descriptor.descriptorId}:body`;
+					return makeWorktreeFileSurfaceRuntimeFetchedResource(`${descriptor.descriptorId}:body`);
 				}
 				latestFetchCount += 1;
 				if (latestFetchCount === 1) {
 					throw new Error('transient refresh failure');
 				}
-				return 'file-content-2:body';
+				return makeWorktreeFileSurfaceRuntimeFetchedResource('file-content-2:body');
 			},
 		});
 		runtime.applyFrame(makeFileDescriptorFrame(firstDescriptor));
@@ -733,9 +849,11 @@ describe('worktree file surface runtime', () => {
 
 		expect(retryRefreshResult).toMatchObject({
 			ok: true,
-			body: 'file-content-2:body',
 			descriptorId: 'file-content-2',
 		});
+		if (retryRefreshResult.ok) {
+			expect(retryRefreshResult.content.readText()).toBe('file-content-2:body');
+		}
 		expect(latestFetchCount).toBe(2);
 		expect(runtime.getState().openFileSessionsById['session-1']).toMatchObject({
 			status: 'fresh',
@@ -760,7 +878,7 @@ describe('worktree file surface runtime', () => {
 				if (descriptor.descriptorId === 'file-content-2') {
 					await refreshGate.promise;
 				}
-				return `${descriptor.descriptorId}:body`;
+				return makeWorktreeFileSurfaceRuntimeFetchedResource(`${descriptor.descriptorId}:body`);
 			},
 		});
 		runtime.applyFrame(makeFileDescriptorFrame(firstDescriptor));
@@ -794,7 +912,7 @@ describe('worktree file surface runtime', () => {
 			paneId: 'pane-1',
 			fetchResource: async () => {
 				fetchCount += 1;
-				return 'must-not-fetch';
+				return makeWorktreeFileSurfaceRuntimeFetchedResource('must-not-fetch');
 			},
 		});
 
@@ -818,7 +936,7 @@ describe('worktree file surface runtime', () => {
 			paneId: 'pane-1',
 			fetchResource: async () => {
 				fetchCount += 1;
-				return 'must-not-fetch';
+				return makeWorktreeFileSurfaceRuntimeFetchedResource('must-not-fetch');
 			},
 		});
 
@@ -848,7 +966,8 @@ describe('worktree file surface runtime', () => {
 		});
 		const runtime = createWorktreeFileSurfaceRuntime({
 			paneId: 'pane-1',
-			fetchResource: async ({ descriptor }) => `${descriptor.descriptorId}:body`,
+			fetchResource: async ({ descriptor }) =>
+				makeWorktreeFileSurfaceRuntimeFetchedResource(`${descriptor.descriptorId}:body`),
 		});
 		runtime.applyFrame(makeFileDescriptorFrame(firstDescriptor));
 		await runtime.openFile({
@@ -882,7 +1001,7 @@ describe('worktree file surface runtime', () => {
 			paneId: 'pane-1',
 			fetchResource: async ({ descriptor }) => {
 				fetchedDescriptorIds.push(descriptor.descriptorId);
-				return `${descriptor.descriptorId}:body`;
+				return makeWorktreeFileSurfaceRuntimeFetchedResource(`${descriptor.descriptorId}:body`);
 			},
 		});
 		runtime.applyFrame(makeFileDescriptorFrame(firstDescriptor));
@@ -904,9 +1023,11 @@ describe('worktree file surface runtime', () => {
 
 		expect(refreshResult).toMatchObject({
 			ok: true,
-			body: 'file-content-2:body',
 			descriptorId: 'file-content-2',
 		});
+		if (refreshResult.ok) {
+			expect(refreshResult.content.readText()).toBe('file-content-2:body');
+		}
 		expect(fetchedDescriptorIds).toEqual(['file-content-1', 'file-content-2']);
 		expect(runtime.getState().openFileSessionsById['session-1']).toMatchObject({
 			status: 'fresh',
@@ -931,7 +1052,7 @@ describe('worktree file surface runtime', () => {
 			paneId: 'pane-1',
 			fetchResource: async ({ descriptor }) => {
 				fetchedDescriptorIds.push(descriptor.descriptorId);
-				return `${descriptor.descriptorId}:body`;
+				return makeWorktreeFileSurfaceRuntimeFetchedResource(`${descriptor.descriptorId}:body`);
 			},
 		});
 		runtime.applyFrame(makeFileDescriptorFrame(firstDescriptor));
@@ -967,7 +1088,7 @@ describe('worktree file surface runtime', () => {
 			paneId: 'pane-1',
 			fetchResource: async ({ descriptor }) => {
 				fetchedDescriptorIds.push(descriptor.descriptorId);
-				return `${descriptor.descriptorId}:body`;
+				return makeWorktreeFileSurfaceRuntimeFetchedResource(`${descriptor.descriptorId}:body`);
 			},
 		});
 		runtime.applyFrame(makeFileDescriptorFrame(firstDescriptor));
@@ -1008,7 +1129,7 @@ describe('worktree file surface runtime', () => {
 			paneId: 'pane-1',
 			fetchResource: async ({ descriptor }) => {
 				fetchedDescriptorIds.push(descriptor.descriptorId);
-				return `${descriptor.descriptorId}:body`;
+				return makeWorktreeFileSurfaceRuntimeFetchedResource(`${descriptor.descriptorId}:body`);
 			},
 		});
 		runtime.applyFrame(makeFileDescriptorFrame(firstDescriptor));
@@ -1031,9 +1152,11 @@ describe('worktree file surface runtime', () => {
 
 		expect(refreshResult).toMatchObject({
 			ok: true,
-			body: 'file-content-2:body',
 			descriptorId: 'file-content-2',
 		});
+		if (refreshResult.ok) {
+			expect(refreshResult.content.readText()).toBe('file-content-2:body');
+		}
 		expect(fetchedDescriptorIds).toEqual(['file-content-1', 'file-content-2']);
 		expect(runtime.getState().openFileSessionsById['session-1']).toMatchObject({
 			status: 'fresh',
@@ -1060,7 +1183,7 @@ describe('worktree file surface runtime', () => {
 			paneId: 'pane-1',
 			fetchResource: async ({ descriptor }) => {
 				fetchedDescriptorIds.push(descriptor.descriptorId);
-				return `${descriptor.descriptorId}:body`;
+				return makeWorktreeFileSurfaceRuntimeFetchedResource(`${descriptor.descriptorId}:body`);
 			},
 		});
 		runtime.applyFrame(makeFileDescriptorFrame(firstDescriptor));
@@ -1079,9 +1202,11 @@ describe('worktree file surface runtime', () => {
 
 		expect(openSecondResult).toMatchObject({
 			ok: true,
-			body: 'file-content-2:body',
 			descriptorId: 'file-content-2',
 		});
+		if (openSecondResult.ok) {
+			expect(openSecondResult.content.readText()).toBe('file-content-2:body');
+		}
 		expect(fetchedDescriptorIds).toEqual(['file-content-1', 'file-content-2']);
 	});
 });
@@ -1177,6 +1302,7 @@ interface MakeFileDescriptorProps {
 	readonly contentHandle?: string;
 	readonly expectedBytes?: number;
 	readonly fileId?: string;
+	readonly integrity?: BridgeIntegrityDescriptor;
 	readonly isBinary?: boolean;
 	readonly maxBytes?: number;
 	readonly path?: string;
@@ -1194,6 +1320,7 @@ function makeFileDescriptor(props: MakeFileDescriptorProps): WorktreeFileDescrip
 		contentDescriptor: makeAttachedDescriptor({
 			descriptorId: props.descriptorId,
 			...(props.expectedBytes === undefined ? {} : { expectedBytes: props.expectedBytes }),
+			...(props.integrity === undefined ? {} : { integrity: props.integrity }),
 			...(props.maxBytes === undefined ? {} : { maxBytes: props.maxBytes }),
 			resourceKind: 'worktree.fileContent',
 			sourceIdentity,
@@ -1226,6 +1353,7 @@ function makeSourceIdentity(
 interface MakeAttachedDescriptorProps {
 	readonly descriptorId: string;
 	readonly expectedBytes?: number;
+	readonly integrity?: BridgeIntegrityDescriptor;
 	readonly maxBytes?: number;
 	readonly resourceKind: string;
 	readonly sourceIdentity: WorktreeFileSurfaceSourceIdentity;
@@ -1252,6 +1380,7 @@ function makeAttachedDescriptor(
 			mediaType: 'text/plain',
 			encoding: 'utf-8',
 			expectedBytes: props.expectedBytes ?? 64,
+			...(props.integrity === undefined ? {} : { integrity: props.integrity }),
 			maxBytes: props.maxBytes ?? 1024,
 		},
 	} satisfies BridgeResourceDescriptor;

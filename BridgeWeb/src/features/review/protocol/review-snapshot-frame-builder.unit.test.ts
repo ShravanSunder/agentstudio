@@ -24,7 +24,9 @@ describe('review snapshot frame builder', () => {
 		});
 
 		expect(frame.package.rootDescriptor.descriptor.resourceKind).toBe('review-package');
-		expect(frame.package.rootDescriptor.descriptor.content.maxBytes).toBe(768 * 1024);
+		const packageByteLength = new TextEncoder().encode(JSON.stringify(reviewPackage)).byteLength;
+		expect(frame.package.rootDescriptor.descriptor.content.expectedBytes).toBe(packageByteLength);
+		expect(frame.package.rootDescriptor.descriptor.content.maxBytes).toBe(packageByteLength);
 		expect(frame.package.contentDescriptors?.length).toBeGreaterThan(0);
 		expect(frame.package.contentDescriptors?.[0]?.descriptor.resourceKind).toBe('content');
 		expect(frame.package.contentDescriptors?.[0]?.ref.expectedIdentity.paneId).toBe('pane-1');

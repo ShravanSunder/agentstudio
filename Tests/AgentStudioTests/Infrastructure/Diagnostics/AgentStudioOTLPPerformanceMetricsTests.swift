@@ -156,7 +156,7 @@ struct AgentStudioOTLPPerformanceMetricsTests {
                 "agentstudio.bridge.phase": .string("transport"),
                 "agentstudio.bridge.plane": .string("data"),
                 "agentstudio.bridge.priority": .string("cold"),
-                "agentstudio.bridge.slice": .string("diff_package_metadata"),
+                "agentstudio.bridge.slice": .string("review_snapshot"),
                 "agentstudio.performance.elapsed_ms": .double(8.5),
                 "agentstudio.trace.tag": .string("bridge.performance.webkit"),
             ]
@@ -171,7 +171,7 @@ struct AgentStudioOTLPPerformanceMetricsTests {
             AgentStudioOTLPPerformanceMetricDimension(name: "phase", value: "transport"),
             AgentStudioOTLPPerformanceMetricDimension(name: "plane", value: "data"),
             AgentStudioOTLPPerformanceMetricDimension(name: "priority", value: "cold"),
-            AgentStudioOTLPPerformanceMetricDimension(name: "slice", value: "diff_package_metadata"),
+            AgentStudioOTLPPerformanceMetricDimension(name: "slice", value: "review_snapshot"),
         ]
 
         #expect(metricEvent.eventName == "performance.bridge.webkit.package_push")
@@ -208,7 +208,7 @@ struct AgentStudioOTLPPerformanceMetricsTests {
             attributes: [
                 "agentstudio.bridge.plane": .string("data"),
                 "agentstudio.bridge.priority": .string("cold"),
-                "agentstudio.bridge.slice": .string("diff_package_metadata"),
+                "agentstudio.bridge.slice": .string("review_snapshot"),
             ]
         )
         let invalidSlice = AgentStudioOTLPProjectedLogRecord(

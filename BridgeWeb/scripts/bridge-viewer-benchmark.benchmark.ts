@@ -255,11 +255,11 @@ async function runLargeDiffIteration(
 		resources: {
 			base: {
 				handle: baseHandle,
-				text: firstLines(largeDiff.baseText, materializationLineSampleCount),
+				readText: (): string => firstLines(largeDiff.baseText, materializationLineSampleCount),
 			},
 			head: {
 				handle: headHandle,
-				text: firstLines(largeDiff.headText, materializationLineSampleCount),
+				readText: (): string => firstLines(largeDiff.headText, materializationLineSampleCount),
 			},
 		},
 	});

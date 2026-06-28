@@ -8,8 +8,6 @@ extension WebKitSerializedTests {
     @MainActor
     @Suite(.serialized)
     final class BridgeIntakeCarrierWebKitTests {
-        private let bridgeContentWorld = WKContentWorld.world(name: "agentStudioBridge")
-
         init() {
             installTestAtomRegistryIfNeeded()
         }
@@ -25,13 +23,41 @@ extension WebKitSerializedTests {
             try await WebPageTestHarness.withManagedPage(controller.page) { page in
                 try await loadPageAndInstallProbe(page, controller: controller)
 
-                try await dispatchIntakeFrame(page, frameJSON: makeFrame(kind: .snapshot, generation: 1, sequence: 0))
-                try await dispatchIntakeFrame(page, frameJSON: makeFrame(kind: .delta, generation: 1, sequence: 2))
-                try await dispatchIntakeFrame(page, frameJSON: makeFrame(kind: .reset, generation: 2, sequence: 0))
-                try await dispatchIntakeFrame(page, frameJSON: makeFrame(kind: .snapshot, generation: 2, sequence: 1))
-                try await dispatchIntakeFrame(page, frameJSON: makeFrame(kind: .close, generation: 1, sequence: 3))
-                try await dispatchIntakeFrame(page, frameJSON: makeFrame(kind: .close, generation: 2, sequence: 2))
-                try await dispatchIntakeFrame(page, frameJSON: makeFrame(kind: .delta, generation: 2, sequence: 3))
+                try await dispatchIntakeFrame(
+                    page,
+                    frameJSON: makeFrame(kind: .snapshot, generation: 1, sequence: 0),
+                    pushNonce: controller.pushNonce
+                )
+                try await dispatchIntakeFrame(
+                    page,
+                    frameJSON: makeFrame(kind: .delta, generation: 1, sequence: 2),
+                    pushNonce: controller.pushNonce
+                )
+                try await dispatchIntakeFrame(
+                    page,
+                    frameJSON: makeFrame(kind: .reset, generation: 2, sequence: 0),
+                    pushNonce: controller.pushNonce
+                )
+                try await dispatchIntakeFrame(
+                    page,
+                    frameJSON: makeFrame(kind: .snapshot, generation: 2, sequence: 1),
+                    pushNonce: controller.pushNonce
+                )
+                try await dispatchIntakeFrame(
+                    page,
+                    frameJSON: makeFrame(kind: .close, generation: 1, sequence: 3),
+                    pushNonce: controller.pushNonce
+                )
+                try await dispatchIntakeFrame(
+                    page,
+                    frameJSON: makeFrame(kind: .close, generation: 2, sequence: 2),
+                    pushNonce: controller.pushNonce
+                )
+                try await dispatchIntakeFrame(
+                    page,
+                    frameJSON: makeFrame(kind: .delta, generation: 2, sequence: 3),
+                    pushNonce: controller.pushNonce
+                )
 
                 let didObserveClosedDrop = await waitUntilCarrierObservation {
                     await self.probeDropReasons(page).contains("closed")
@@ -54,7 +80,8 @@ extension WebKitSerializedTests {
                         generation: 1,
                         sequence: 0,
                         message: "backend stream failed"
-                    )
+                    ),
+                    pushNonce: controller.pushNonce
                 )
 
                 let didObserveError = await waitUntilCarrierObservation {
@@ -74,7 +101,7 @@ extension WebKitSerializedTests {
                     payload: Data(#"{"value":"\#(String(repeating: "é", count: 48))"}"#.utf8)
                 )
 
-                try await dispatchIntakeFrame(page, frameJSON: frameJSON)
+                try await dispatchIntakeFrame(page, frameJSON: frameJSON, pushNonce: controller.pushNonce)
 
                 let didObserveFrameLimit = await waitUntilCarrierObservation {
                     await self.probeDropReasons(page).contains("frame_too_large")
@@ -85,6 +112,32 @@ extension WebKitSerializedTests {
                 #expect(didObserveFrameLimit, "Expected UTF-8 byte cap to reject frame: \(byteLimitProbeState)")
                 #expect(byteLengths.contains { $0 > 150 })
                 #expect(await probeAcceptedKinds(page).isEmpty)
+            }
+        }
+
+        @Test
+        func test_bridgeInternalApplyIntakeFrameJSONReachesPageCarrier() async throws {
+            let controller = BridgePaneController(
+                paneId: UUIDv7.generate(),
+                state: BridgePaneState(panelKind: .diffViewer, source: nil)
+            )
+            defer { controller.teardown() }
+
+            try await WebPageTestHarness.withManagedPage(controller.page) { page in
+                try await loadPageAndInstallProbe(page, controller: controller)
+
+                try await dispatchBridgeInternalIntakeFrame(
+                    page,
+                    frameJSON: makeFrame(kind: .snapshot, generation: 1, sequence: 0)
+                )
+
+                let didObserveSnapshot = await waitUntilCarrierObservation {
+                    await self.probeAcceptedKinds(page).contains("snapshot")
+                }
+                let probeState = await probeDescription(page)
+
+                #expect(
+                    didObserveSnapshot, "Expected bridge-world intake dispatcher to reach page carrier: \(probeState)")
             }
         }
 
@@ -122,13 +175,26 @@ extension WebKitSerializedTests {
             )
         }
 
-        private func dispatchIntakeFrame(_ page: WebPage, frameJSON: String) async throws {
+        private func dispatchBridgeInternalIntakeFrame(_ page: WebPage, frameJSON: String) async throws {
             let frameLiteral = try javaScriptStringLiteral(frameJSON)
             _ = try await page.callJavaScript(
                 """
                 window.__bridgeInternal.applyIntakeFrameJSON(\(frameLiteral));
                 """,
-                contentWorld: bridgeContentWorld
+                contentWorld: WKContentWorld.world(name: "agentStudioBridge")
+            )
+        }
+
+        private func dispatchIntakeFrame(_ page: WebPage, frameJSON: String, pushNonce: String) async throws {
+            let frameLiteral = try javaScriptStringLiteral(frameJSON)
+            let pushNonceLiteral = try javaScriptStringLiteral(pushNonce)
+            _ = try await page.callJavaScript(
+                """
+                document.dispatchEvent(new CustomEvent('__bridge_intake_json', {
+                    detail: { json: \(frameLiteral), nonce: \(pushNonceLiteral) }
+                }));
+                """,
+                contentWorld: .page
             )
         }
 

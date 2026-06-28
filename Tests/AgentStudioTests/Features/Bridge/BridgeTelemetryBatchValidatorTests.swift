@@ -23,7 +23,7 @@ struct BridgeTelemetryBatchValidatorTests {
             samples: [
                 BridgeTelemetrySample(
                     scope: .web,
-                    name: "performance.bridge.web.package_apply",
+                    name: "performance.bridge.web.intake_frame",
                     durationMilliseconds: 2.5,
                     traceContext: try BridgeTraceContext(
                         traceId: "11111111111111111111111111111111",
@@ -32,13 +32,19 @@ struct BridgeTelemetryBatchValidatorTests {
                         sampled: true
                     ),
                     stringAttributes: [
+                        "agentstudio.bridge.intake.frame_kind": "review.snapshot",
                         "agentstudio.bridge.plane": "data",
-                        "agentstudio.bridge.phase": "apply",
+                        "agentstudio.bridge.phase": "intake",
                         "agentstudio.bridge.priority": "cold",
-                        "agentstudio.bridge.slice": "diff_package_metadata",
-                        "agentstudio.bridge.transport": "push",
+                        "agentstudio.bridge.result": "success",
+                        "agentstudio.bridge.result_reason": "none",
+                        "agentstudio.bridge.slice": "review_snapshot",
+                        "agentstudio.bridge.transport": "intake",
                     ],
-                    numericAttributes: [:],
+                    numericAttributes: [
+                        "agentstudio.bridge.intake.generation": 1,
+                        "agentstudio.bridge.intake.sequence": 1,
+                    ],
                     booleanAttributes: [:]
                 )
             ]
@@ -47,6 +53,135 @@ struct BridgeTelemetryBatchValidatorTests {
         let result = validator.validate(batch)
 
         #expect(result == .accepted(batch))
+    }
+
+    @Test
+    func validatorRejectsReviewPackageDataOverPushTransport() {
+        let validator = BridgeTelemetryBatchValidator(
+            scopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web])
+        )
+        let packagePushBatch = batchWithWebSample(
+            WebSampleProps(
+                name: "performance.bridge.web.package_apply",
+                phase: "apply",
+                plane: "data",
+                priority: "cold",
+                slice: "diff_package_metadata",
+                transport: "push"
+            )
+        )
+        let deltaPushBatch = batchWithWebSample(
+            WebSampleProps(
+                name: "performance.bridge.web.package_apply",
+                phase: "apply",
+                plane: "data",
+                priority: "warm",
+                slice: "diff_package_delta",
+                transport: "push"
+            )
+        )
+
+        #expect(validator.validate(packagePushBatch) == .dropped(.unsafeAttribute))
+        #expect(validator.validate(deltaPushBatch) == .dropped(.unsafeAttribute))
+    }
+
+    @Test
+    func validatorAcceptsReviewFirstRenderAfterIntakeTransport() {
+        let validator = BridgeTelemetryBatchValidator(
+            scopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web])
+        )
+        let batch = batchWithWebSample(
+            WebSampleProps(
+                name: "performance.bridge.web.first_render",
+                phase: "render",
+                plane: "data",
+                priority: "hot",
+                slice: "review_snapshot",
+                transport: "intake"
+            )
+        )
+
+        #expect(validator.validate(batch) == .accepted(batch))
+    }
+
+    @Test
+    func validatorRejectsLegacyReviewPackageSlicesOverIntakeTransport() {
+        let validator = BridgeTelemetryBatchValidator(
+            scopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web])
+        )
+        let packageApplyBatch = batchWithWebSample(
+            WebSampleProps(
+                name: "performance.bridge.web.package_apply",
+                phase: "apply",
+                plane: "data",
+                priority: "cold",
+                slice: "diff_package_metadata",
+                transport: "intake"
+            )
+        )
+        let firstRenderBatch = batchWithWebSample(
+            WebSampleProps(
+                name: "performance.bridge.web.first_render",
+                phase: "render",
+                plane: "data",
+                priority: "hot",
+                slice: "diff_package_metadata",
+                transport: "intake"
+            )
+        )
+        let intakeFrameBatch = batchWithWebSample(
+            WebSampleProps(
+                name: "performance.bridge.web.intake_frame",
+                phase: "intake",
+                plane: "data",
+                priority: "cold",
+                slice: "diff_package_metadata",
+                transport: "intake",
+                extraStrings: [
+                    "agentstudio.bridge.intake.frame_kind": "review.snapshot",
+                    "agentstudio.bridge.result": "success",
+                    "agentstudio.bridge.result_reason": "none",
+                ],
+                extraNumbers: [
+                    "agentstudio.bridge.intake.generation": 1,
+                    "agentstudio.bridge.intake.sequence": 1,
+                ]
+            )
+        )
+
+        #expect(validator.validate(packageApplyBatch) == .dropped(.unsafeAttribute))
+        #expect(validator.validate(firstRenderBatch) == .dropped(.unsafeAttribute))
+        #expect(validator.validate(intakeFrameBatch) == .dropped(.unsafeAttribute))
+    }
+
+    @Test
+    func validatorAcceptsReviewProtocolSlicesOverIntakeTransport() {
+        let validator = BridgeTelemetryBatchValidator(
+            scopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web])
+        )
+        let snapshotPackageApplyBatch = batchWithWebSample(
+            WebSampleProps(
+                name: "performance.bridge.web.package_apply",
+                phase: "apply",
+                plane: "data",
+                priority: "cold",
+                slice: "review_snapshot",
+                transport: "intake"
+            )
+        )
+        let deltaPackageApplyBatch = batchWithWebSample(
+            WebSampleProps(
+                name: "performance.bridge.web.package_apply",
+                phase: "apply",
+                plane: "data",
+                priority: "warm",
+                slice: "review_delta",
+                transport: "intake"
+            )
+        )
+
+        #expect(validator.validate(snapshotPackageApplyBatch) == .accepted(snapshotPackageApplyBatch))
+        #expect(validator.validate(deltaPackageApplyBatch) == .accepted(deltaPackageApplyBatch))
     }
 
     @Test

@@ -7,11 +7,14 @@ import type {
 	BridgeResourceDescriptor,
 } from '../core/models/bridge-resource-descriptor.js';
 import { bridgeAttachedResourceDescriptorSchema } from '../core/models/bridge-resource-descriptor.js';
+import { buildReviewSnapshotFrame } from '../features/review/protocol/review-snapshot-frame-builder.js';
 import type {
 	WorktreeFileDescriptor,
 	WorktreeFileProtocolFrame,
 	WorktreeFileSurfaceSourceIdentity,
 } from '../features/worktree-file/models/worktree-file-protocol-models.js';
+import { makeBridgeReviewPackage } from '../foundation/review-package/bridge-review-package-test-support.js';
+import { installBridgeAppDevWorktreeReviewBackend } from './bridge-app-dev-worktree-review.js';
 import {
 	installBridgeAppDevWorktreeBackend,
 	worktreeFileIncrementalFramesFromSurfaces,
@@ -21,9 +24,12 @@ import {
 describe('bridge app dev worktree frame subscription', () => {
 	afterEach(() => {
 		vi.restoreAllMocks();
+		vi.unstubAllGlobals();
 		vi.useRealTimers();
 		document.documentElement.removeAttribute('data-bridge-app-protocol');
 		document.documentElement.removeAttribute('data-bridge-worktree-dev-last-reload-status');
+		document.documentElement.removeAttribute('data-bridge-review-pane-id');
+		document.documentElement.removeAttribute('data-bridge-review-stream-id');
 		delete document.documentElement.dataset['bridgeWorktreeDevSplitResetReplacementDelayMs'];
 	});
 
@@ -193,6 +199,167 @@ describe('bridge app dev worktree frame subscription', () => {
 		expect(fetchCount).toBe(2);
 		expect(document.documentElement.dataset['bridgeWorktreeDevPollingState']).toBe('running');
 		dispose();
+	});
+
+	test('fetches dev worktree file resources from streamed response chunks', async () => {
+		const descriptor = makeFileDescriptor();
+		vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init): Promise<Response> => {
+			const requestUrl = input instanceof Request ? input.url : input.toString();
+			expect(requestUrl).toContain('/__bridge-worktree/file-content/file-content-1');
+			expect(requestUrl).toContain('generation=1');
+			expect(requestUrl).toContain('cursor=cursor-1');
+			expect(init?.signal).toBeInstanceOf(AbortSignal);
+			return chunkedTextResponse(['dev ', 'streamed ', 'content']);
+		});
+		const backend = installBridgeAppDevWorktreeBackend();
+
+		const body = await backend.fetchWorktreeFileResource({
+			descriptor: descriptor.contentDescriptor?.descriptor,
+			resourceUrl:
+				'agentstudio://resource/worktree-file/worktree.fileContent/file-content-1?generation=1&cursor=cursor-1',
+			signal: new AbortController().signal,
+		});
+
+		expect(body).toMatchObject({
+			authoritative: true,
+			byteLength: 20,
+		});
+		expect(body.readText()).toBe('dev streamed content');
+	});
+
+	test('rejects dev worktree file resources that exceed descriptor max bytes', async () => {
+		const descriptor = makeFileDescriptor({ maxBytes: 4 });
+		vi.spyOn(globalThis, 'fetch').mockImplementation(async (): Promise<Response> => {
+			return chunkedTextResponse(['too ', 'large']);
+		});
+		const backend = installBridgeAppDevWorktreeBackend();
+
+		await expect(
+			backend.fetchWorktreeFileResource({
+				descriptor: descriptor.contentDescriptor?.descriptor,
+				resourceUrl:
+					'agentstudio://resource/worktree-file/worktree.fileContent/file-content-1?generation=1&cursor=cursor-1',
+				signal: new AbortController().signal,
+			}),
+		).rejects.toThrow('Bridge text resource stream exceeded issued max bytes');
+	});
+
+	test('rejects dev worktree file resources whose whole-body integrity mismatches', async () => {
+		const descriptor = makeFileDescriptor({
+			integrity: {
+				algorithm: 'sha256',
+				kind: 'wholeHash',
+				value: 'sha256:3173778af72bee80065ddb3dc0fa2319fcaca233bdfd4591d1b3a4ca5115d5a9',
+			},
+		});
+		vi.spyOn(globalThis, 'fetch').mockImplementation(async (): Promise<Response> => {
+			return chunkedTextResponse(['tampered']);
+		});
+		const backend = installBridgeAppDevWorktreeBackend();
+
+		await expect(
+			backend.fetchWorktreeFileResource({
+				descriptor: descriptor.contentDescriptor?.descriptor,
+				resourceUrl:
+					'agentstudio://resource/worktree-file/worktree.fileContent/file-content-1?generation=1&cursor=cursor-1',
+				signal: new AbortController().signal,
+			}),
+		).rejects.toThrow('Bridge text resource stream failed whole-body integrity validation');
+	});
+
+	test('fetches dev review package through the resource content path', async () => {
+		const fetchedUrls: string[] = [];
+		const reviewPackage = makeBridgeReviewPackage();
+		vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init): Promise<Response> => {
+			const requestUrl = input instanceof Request ? input.url : input.toString();
+			fetchedUrls.push(requestUrl);
+			expect(init?.signal).toBeInstanceOf(AbortSignal);
+			return new Response(JSON.stringify(reviewPackage));
+		});
+		const backend = installBridgeAppDevWorktreeReviewBackend();
+
+		const response = await backend.fetchContent(
+			'agentstudio://resource/review/review-package/review-package-package-1-1-1?generation=1&revision=1',
+			{ signal: new AbortController().signal },
+		);
+
+		expect(response.ok).toBe(true);
+		expect(fetchedUrls).toEqual([
+			'/__bridge-worktree/review-package?resource=review-package&opaqueId=review-package-package-1-1-1&generation=1&revision=1',
+		]);
+		await expect(response.json()).resolves.toEqual(
+			expect.objectContaining({ packageId: 'package-1' }),
+		);
+	});
+
+	test('fetches dev review delta through the resource content path', async () => {
+		const fetchedUrls: string[] = [];
+		const deltaOperations = {
+			addItems: [],
+			updateItems: [],
+			removeItems: [],
+			moveItems: [],
+			updateGroups: null,
+			updateSummary: null,
+			invalidateContent: [],
+		};
+		vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init): Promise<Response> => {
+			const requestUrl = input instanceof Request ? input.url : input.toString();
+			fetchedUrls.push(requestUrl);
+			expect(init?.signal).toBeInstanceOf(AbortSignal);
+			return new Response(JSON.stringify(deltaOperations));
+		});
+		const backend = installBridgeAppDevWorktreeReviewBackend();
+
+		const response = await backend.fetchContent(
+			'agentstudio://resource/review/review-delta/review-delta-package-1-0-1?generation=1&revision=1',
+			{ signal: new AbortController().signal },
+		);
+
+		expect(response.ok).toBe(true);
+		expect(fetchedUrls).toEqual([
+			'/__bridge-worktree/review-package?resource=review-delta&opaqueId=review-delta-package-1-0-1&generation=1&revision=1',
+		]);
+		await expect(response.json()).resolves.toEqual(deltaOperations);
+	});
+
+	test('pushes dev review metadata without embedding package bytes', async () => {
+		const reviewPackage = makeBridgeReviewPackage();
+		const protocolFrame = buildReviewSnapshotFrame({
+			package: reviewPackage,
+			paneId: 'bridge-worktree-review-dev-pane',
+			sourceIdentity: reviewPackage.query.queryId,
+			streamId: 'review:bridge-worktree-review-dev-pane',
+			sequence: reviewPackage.revision,
+		});
+		const fetchedUrls: string[] = [];
+		vi.spyOn(globalThis, 'fetch').mockImplementation(async (input): Promise<Response> => {
+			fetchedUrls.push(input instanceof Request ? input.url : input.toString());
+			return new Response(JSON.stringify({ protocolFrame }));
+		});
+		const receivedIntakeFrames: unknown[] = [];
+		document.addEventListener('__bridge_intake_json', (event: Event): void => {
+			const detail = (event as CustomEvent).detail;
+			if (typeof detail === 'object' && detail !== null && typeof detail.json === 'string') {
+				receivedIntakeFrames.push(JSON.parse(detail.json));
+			}
+		});
+		const backend = installBridgeAppDevWorktreeReviewBackend();
+
+		document.dispatchEvent(new CustomEvent('__bridge_handshake_request'));
+		await backend.pushPackage();
+		await nextMicrotask();
+
+		expect(fetchedUrls).toEqual(['/__bridge-worktree/review-package?frame=review-snapshot']);
+		expect(receivedIntakeFrames).toEqual([
+			expect.objectContaining({
+				kind: 'snapshot',
+				payload: expect.objectContaining({ frameKind: 'review.snapshot' }),
+			}),
+		]);
+		expect(receivedIntakeFrames[0]).not.toEqual(
+			expect.objectContaining({ data: expect.anything() }),
+		);
 	});
 
 	test('acknowledges paused polling only after an in-flight poll reload settles', async () => {
@@ -579,7 +746,9 @@ interface MakeFileDescriptorProps {
 	readonly contentHash?: string;
 	readonly cursor?: string;
 	readonly fileId?: string;
+	readonly integrity?: BridgeResourceDescriptor['content']['integrity'];
 	readonly lineCount?: number;
+	readonly maxBytes?: number;
 	readonly path?: string;
 }
 
@@ -593,6 +762,8 @@ function makeFileDescriptor(props: MakeFileDescriptorProps = {}): WorktreeFileDe
 		contentDescriptor: makeAttachedDescriptor({
 			cursor,
 			descriptorId: contentHandle,
+			...(props.integrity === undefined ? {} : { integrity: props.integrity }),
+			...(props.maxBytes === undefined ? {} : { maxBytes: props.maxBytes }),
 			resourceKind: 'worktree.fileContent',
 		}),
 		contentHash: props.contentHash ?? 'sha256:default',
@@ -619,6 +790,8 @@ function makeSourceIdentity(cursor: string): WorktreeFileSurfaceSourceIdentity {
 function makeAttachedDescriptor(props: {
 	readonly cursor: string;
 	readonly descriptorId: string;
+	readonly integrity?: BridgeResourceDescriptor['content']['integrity'];
+	readonly maxBytes?: number;
 	readonly resourceKind: 'worktree.fileContent' | 'worktree.treeWindow';
 }): BridgeAttachedResourceDescriptor {
 	const identity = {
@@ -639,7 +812,8 @@ function makeAttachedDescriptor(props: {
 			mediaType: 'text/plain',
 			encoding: 'utf-8',
 			expectedBytes: 64,
-			maxBytes: 1024,
+			maxBytes: props.maxBytes ?? 1024,
+			...(props.integrity === undefined ? {} : { integrity: props.integrity }),
 		},
 	} satisfies BridgeResourceDescriptor;
 	return bridgeAttachedResourceDescriptorSchema.parse({
@@ -676,6 +850,23 @@ function makeSurfaceResponse(
 			status: 200,
 		},
 	);
+}
+
+function chunkedTextResponse(chunks: readonly string[]): Response {
+	const encoder = new TextEncoder();
+	const body = new ReadableStream<Uint8Array>({
+		start(controller): void {
+			for (const chunk of chunks) {
+				controller.enqueue(encoder.encode(chunk));
+			}
+			controller.close();
+		},
+	});
+	return Object.assign(new Response(body), {
+		text: async (): Promise<string> => {
+			throw new Error('whole body text() should not be used for Worktree/File resources');
+		},
+	});
 }
 
 function worktreeFileDescriptorCount(frames: readonly WorktreeFileProtocolFrame[]): number {

@@ -36,10 +36,10 @@ Required reading:
   (historical stuck-lane context only)
 
 Current workflow:
-shravan-dev-workflow:implementation-review-swarm
+shravan-dev-workflow:implementation-execute-plan
 
 Next workflow:
-shravan-dev-workflow:implementation-execute-plan
+shravan-dev-workflow:implementation-review-swarm
 
 Terminal condition:
 PR is opened or updated and proven ready, with implementation complete, required
@@ -70,6 +70,9 @@ Non-goals / scope boundary:
 - Do not treat dev-server query params as production navigation API.
 - Do not move file bodies, raw diffs, streams, workers, Pierre instances, or
   resource executors into Zustand.
+- Do not move content bytes through RPC, continuous event frames, intake frames,
+  push/store updates, or blob-shaped whole-package metadata paths. Content bytes
+  must travel through stream-capable `ContentStreamPath` resource descriptors.
 - Do not replace Agent Studio Bridge/WKWebView proof with Vite-only proof.
 - Do not weaken proof gates to get unstuck; replan or split instead.
 
@@ -103,6 +106,18 @@ Proof gates:
   cover native Files context, Review diff context, Review file-target context,
   and Files-to-Review handoff; one native smoke path is not sufficient.
 - lint/typecheck/test gates from the final reviewed plan
+- streaming-resource realignment gate from
+  tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/worktree-devserver-product-e2e-precursor-plan.md:
+  `Slice 06P.S / Streaming Resource Contract Realignment`
+  - continuous event and intake paths are metadata/descriptor/projection-only
+  - `ContentStreamPath` / `agentstudio://resource/...` is the only content-byte
+    carrier
+  - product Browser paths do not default to whole-body `response.text()` /
+    `Promise<string>` / `{ body }` resource APIs
+  - Swift `BridgeSchemeHandler` emits bounded chunks and enforces lease/byte
+    authority during the stream
+  - stale/cross-pane/revoked/tampered resource authority fails closed
+  - native `oq4s` IPC/WKWebView proof is rerun after resource-stream changes
 - implementation-review-swarm
 - implementation-pr-wrapup
 

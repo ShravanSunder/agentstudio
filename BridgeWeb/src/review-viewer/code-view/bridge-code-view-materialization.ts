@@ -385,7 +385,7 @@ interface CreateFileContentsProps {
 function createFileContents(props: CreateFileContentsProps): FileContents {
 	return {
 		name: props.path,
-		contents: props.resource?.text ?? '',
+		contents: props.resource?.readText() ?? '',
 		cacheKey:
 			props.resource === null
 				? `${props.item.cacheKey}:placeholder`

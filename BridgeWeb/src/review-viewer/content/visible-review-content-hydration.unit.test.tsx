@@ -6,7 +6,7 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
-import type { BridgeContentResource } from '../../foundation/content/content-resource-loader.js';
+import type { BridgeLoadedContentResource } from '../../foundation/content/content-resource-loader.js';
 import { createBridgeTelemetryRecorder } from '../../foundation/telemetry/bridge-telemetry-recorder.js';
 import { makeBridgeViewerBrowserFixture } from '../test-support/bridge-viewer-mocked-backend.js';
 import { makeBridgeViewerProjectionFixture } from '../test-support/review-viewer-fixtures.js';
@@ -77,10 +77,10 @@ describe('useVisibleReviewContentHydration', () => {
 		if (headHandle === undefined || headHandle === null) {
 			throw new Error('expected hidden-binary head handle');
 		}
-		const visibleResource: BridgeContentResource = {
+		const visibleResource = makeLoadedContentResource({
 			handle: headHandle,
 			text: 'let visibleWindowHydrated = true',
-		};
+		});
 		const registry = makeTestContentRegistry(async () => visibleResource);
 		const snapshots: UseVisibleReviewContentHydrationResult[] = [];
 		const container = document.createElement('div');
@@ -130,10 +130,10 @@ describe('useVisibleReviewContentHydration', () => {
 		const loadedItemIds: string[] = [];
 		const registry = makeTestContentRegistry(async ({ handle }) => {
 			loadedItemIds.push(handle.itemId);
-			return {
+			return makeLoadedContentResource({
 				handle,
 				text: `loaded ${handle.itemId}`,
-			};
+			});
 		});
 		const snapshots: UseVisibleReviewContentHydrationResult[] = [];
 		const container = document.createElement('div');
@@ -170,10 +170,10 @@ describe('useVisibleReviewContentHydration', () => {
 		const loadedItemIds: string[] = [];
 		const registry = makeTestContentRegistry(async ({ handle }) => {
 			loadedItemIds.push(handle.itemId);
-			return {
+			return makeLoadedContentResource({
 				handle,
 				text: `loaded ${handle.itemId}`,
-			};
+			});
 		});
 		const snapshots: UseVisibleReviewContentHydrationResult[] = [];
 		const container = document.createElement('div');
@@ -219,7 +219,7 @@ describe('useVisibleReviewContentHydration', () => {
 				throw new Error('expected visible content load abort signal');
 			}
 			capturedSignals.push(signal);
-			return new Promise<BridgeContentResource>(() => {});
+			return new Promise<BridgeLoadedContentResource>(() => {});
 		});
 		const snapshots: UseVisibleReviewContentHydrationResult[] = [];
 		const container = document.createElement('div');
@@ -279,10 +279,10 @@ describe('useVisibleReviewContentHydration', () => {
 		if (headHandle === undefined || headHandle === null) {
 			throw new Error('expected hidden-binary head handle');
 		}
-		const visibleResource: BridgeContentResource = {
+		const visibleResource = makeLoadedContentResource({
 			handle: headHandle,
 			text: 'retried visible text',
-		};
+		});
 		let loadCount = 0;
 		const snapshots: UseVisibleReviewContentHydrationResult[] = [];
 		const container = document.createElement('div');
@@ -587,6 +587,18 @@ function makeTestContentRegistry(
 			cachedResourceKeys: [],
 			inFlightRequestCount: 0,
 		}),
+	};
+}
+
+function makeLoadedContentResource(props: {
+	readonly handle: BridgeLoadedContentResource['handle'];
+	readonly text: string;
+}): BridgeLoadedContentResource {
+	return {
+		authoritative: true,
+		byteLength: new TextEncoder().encode(props.text).byteLength,
+		handle: props.handle,
+		readText: (): string => props.text,
 	};
 }
 

@@ -21,25 +21,20 @@ struct BridgeIPCResponseBudget: Sendable {
         byteCount += estimatedJSONStringBytes(value.paneId.uuidString)
         byteCount += estimatedJSONStringBytes(value.status)
         byteCount += estimatedOptionalJSONStringBytes(value.selectedItemId)
-        guard let package = value.package else {
-            return byteCount + 4
+        byteCount += estimatedOptionalJSONStringBytes(value.packageId)
+        if let reviewGeneration = value.reviewGeneration {
+            byteCount += estimatedJSONIntegerBytes(reviewGeneration)
         }
-
-        byteCount += 512
-        byteCount += estimatedJSONStringBytes(package.packageId)
-        byteCount += estimatedJSONIntegerBytes(package.reviewGeneration)
-        byteCount += estimatedJSONIntegerBytes(package.revision)
-        byteCount += package.orderedItemIds.reduce(2) { partialResult, itemId in
-            partialResult + estimatedJSONStringBytes(itemId) + 1
+        if let revision = value.revision {
+            byteCount += estimatedJSONIntegerBytes(revision)
         }
-        byteCount += 80
-        byteCount += estimatedJSONIntegerBytes(package.summary.filesChanged)
-        byteCount += estimatedJSONIntegerBytes(package.summary.additions)
-        byteCount += estimatedJSONIntegerBytes(package.summary.deletions)
-        byteCount += estimatedJSONIntegerBytes(package.summary.visibleFileCount)
-        byteCount += estimatedJSONIntegerBytes(package.summary.hiddenFileCount)
-        byteCount += package.items.reduce(2) { partialResult, item in
-            partialResult + estimatedPayloadBytes(item) + 1
+        if let summary = value.summary {
+            byteCount += 80
+            byteCount += estimatedJSONIntegerBytes(summary.filesChanged)
+            byteCount += estimatedJSONIntegerBytes(summary.additions)
+            byteCount += estimatedJSONIntegerBytes(summary.deletions)
+            byteCount += estimatedJSONIntegerBytes(summary.visibleFileCount)
+            byteCount += estimatedJSONIntegerBytes(summary.hiddenFileCount)
         }
         return byteCount
     }
@@ -50,40 +45,7 @@ struct BridgeIPCResponseBudget: Sendable {
             + estimatedPayloadBytes(value.handle)
             + estimatedJSONStringBytes(value.mimeType)
             + estimatedJSONIntegerBytes(value.byteCount)
-            + estimatedOptionalJSONStringBytes(value.contentText)
-            + estimatedOptionalJSONStringBytes(value.contentBase64)
-    }
-
-    private static func estimatedPayloadBytes(_ item: IPCBridgeReviewItem) -> Int {
-        384
-            + estimatedJSONStringBytes(item.itemId)
-            + estimatedJSONStringBytes(item.itemKind)
-            + estimatedOptionalJSONStringBytes(item.basePath)
-            + estimatedOptionalJSONStringBytes(item.headPath)
-            + estimatedJSONStringBytes(item.changeKind)
-            + estimatedJSONStringBytes(item.fileClass)
-            + estimatedOptionalJSONStringBytes(item.language)
-            + estimatedJSONIntegerBytes(item.additions)
-            + estimatedJSONIntegerBytes(item.deletions)
-            + estimatedJSONStringBytes(item.reviewPriority)
-            + estimatedPayloadBytes(item.contentRoles)
-    }
-
-    private static func estimatedPayloadBytes(_ roles: IPCBridgeContentRoles) -> Int {
-        64
-            + estimatedOptionalPayloadBytes(roles.base)
-            + estimatedOptionalPayloadBytes(roles.head)
-            + estimatedOptionalPayloadBytes(roles.diff)
-            + estimatedOptionalPayloadBytes(roles.file)
-    }
-
-    private static func estimatedOptionalPayloadBytes(
-        _ handle: IPCBridgeContentHandleSummary?
-    ) -> Int {
-        guard let handle else {
-            return 4
-        }
-        return estimatedPayloadBytes(handle)
+            + 8
     }
 
     private static func estimatedPayloadBytes(_ handle: IPCBridgeContentHandleSummary) -> Int {

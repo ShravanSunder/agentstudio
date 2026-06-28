@@ -1,8 +1,11 @@
 # Worktree Dev-Server Product E2E Precursor Plan
 
 Date: 2026-06-24
-Status: Gate 0.a reopened; shared BridgeViewer navigation/store correction is
-the active blocker before downstream gates
+Status: Gate 0.a reopened; 2026-06-27 takeover supersedes the old
+dev-server-only precursor boundary. The active blocker is now streaming-resource
+realignment plus native/debug-app proof: the shared BridgeViewer route set must
+stay product-correct, and the implementation must also obey the transport spec's
+separation between metadata/event/intake paths and content/resource streams.
 Ticket: 06P / Gate 0.a Shared BridgeViewer Navigation And Renderer Precursor
 
 ## Current Proof Status
@@ -74,6 +77,68 @@ product-like." The current checkpoint stack is:
   `searchInputRight = 1720`, `searchRailLeft = 1389`, and
   `searchRailRight = 1728`. This closes the onlook-caught overflow where
   `w-full` plus horizontal margin put the search field beyond the rail edge.
+
+2026-06-27 orchestrator takeover correction:
+
+- This branch is no longer allowed to continue from the old assumption that a
+  resource URL plus later `fetch().text()`/whole-body promise is sufficient.
+  `agentstudio://resource/...` identifies a leased `ContentStreamPath` resource
+  or stream descriptor. The content/resource path must be stream-capable and
+  bounded; it may use whole-body integrity at completion for authoritative
+  first-slice validation, but transfer and materialization must not be shaped as
+  RPC/event/intake/store blob delivery.
+- Continuous event streams carry compact lifecycle/provider facts only:
+  readiness, heartbeat, source status, descriptor availability, invalidation,
+  gap/reset/close, stream ids, cursors, and source identity. They do not carry
+  file bodies, diff bodies, tree windows, package bodies, or operation lists.
+- Intake streams carry ordered app projection frames and descriptor attachments:
+  Review snapshots/deltas/invalidation/reset and Worktree/File snapshots,
+  tree-window descriptors, status patches, file descriptors, and rich reset
+  details. They do not replace content/resource streams and they do not carry
+  large bodies.
+- Content/resource streams carry file text, diff text, markdown source, tree
+  windows, review package bodies, delta operation lists, and file ranges/windows
+  through `ContentStreamPath`.
+- The written spec currently keeps first authoritative integrity at whole-body
+  hash validation when an integrity hash is issued, while ranged/chunked reads
+  are preview-only until chunk manifests exist. This is not permission to
+  implement blob-shaped transfer. If authoritative partial range/chunk reads are
+  required for this slice, update the spec and plan first to promote chunk
+  manifests/ranged integrity.
+- First-slice progressive materialization is allowed only as provisional state:
+  chunks/windows may update visible renderer deltas while a whole-body resource
+  is still streaming, but final cache/render/review authority requires successful
+  whole-hash validation when integrity is issued. On abort, stale completion,
+  truncation, or hash mismatch, provisional materialization must be dropped or
+  marked failed for that descriptor epoch.
+- Current residual 06P.S drift that this plan must address before further UX
+  polish:
+  `BridgeWeb/src/core/demand/bridge-resource-executor.ts` still resolves a
+  whole-result promise above the fetch boundary; FileViewer/Worktree and Review
+  materializers still collapse resources into strings before useful progressive
+  rendering; non-authoritative preview bytes still need explicit state gating so
+  they cannot satisfy final ready markers; Swift Review `content` resources
+  still load whole `Data` before chunk emission; native Review load still builds
+  a whole package through `reviewPipeline.loadPackage(...)` before useful
+  lifecycle/projection frames can reach the browser; Review startup identity is
+  still requester-minted instead of provider-issued; and `review-package` /
+  `review-delta` resources exist but their body facts/serving are still
+  startup-serialization shaped rather than producer-backed.
+  Superseded drift: Worktree/File native file content now has source-backed
+  chunk emission with descriptor/body drift negatives; dev Review metadata no
+  longer pushes `data.package`; `review-package` / `review-delta` are no longer
+  merely decorative descriptors; and explicit IPC body/package DTO transport has
+  focused Swift coverage as removed/metadata-only.
+- Native proof must use the debug app identity `oq4s` and Agent Studio IPC /
+  WKWebView. The stable `/Applications/AgentStudio.app`, mocked backends,
+  jsdom, and Vite/dev-server proof cannot satisfy native proof. Current native
+  Review package acquisition fails with
+  `loadFailed:package:providerFailed:git.treeFilesystemFallback:failed:status=fileReadFailed:tree=fileReadFailed`
+  in artifact
+  `tmp/bridge-viewer-native-ipc-proof/2026-06-27T10-37-24Z-oq4s-fresh/`.
+- Subagents should be used for bounded spec/code/browser/native evidence lanes
+  where practical. The parent controller still owns integration, proof mapping,
+  and completion claims.
 
 Closed visual/chrome cleanup inventory from the 2026-06-26 scout pass:
 
@@ -585,12 +650,21 @@ In scope:
 Out of scope:
 
 - full Review renderer rewrite
-- native Swift host streaming implementation
 - final scheduler tuning numbers
 - PR merge
 - changing unrelated Review mock fixtures except where the verifier needs a
   negative assertion
 - polishing or preserving `WorktreeFileApp` as a separate product surface
+
+Scope correction for 2026-06-27 takeover:
+
+- The line that previously excluded native Swift host streaming implementation is
+  superseded for the active goal. The old boundary applied only to the original
+  dev-server precursor. The active goal explicitly includes native
+  Agent Studio Bridge/WKWebView proof and the Swift/resource transport changes
+  needed to make content bytes travel through stream-capable
+  `ContentStreamPath` resources instead of RPC, push/store, or blob-shaped
+  package paths.
 
 ## Product Contract
 
@@ -772,16 +846,22 @@ Proof:
 ### Slice 06P.2a / 0.a.2a: Current Worktree Review Context Dev Route
 
 Add a dev-only adapter that can open Review context from the current worktree.
-This adapter may use the existing dev worktree provider's base/head file data
-to materialize a review package or equivalent Review source for the browser
-ReviewViewer. It must remain separate from the Worktree/File source adapter so
-FileViewer does not become the diff engine.
+This adapter behaves as a provider/source adapter: it may use dev-server
+fixture utilities to mint provider-owned Review comparison identity, stream
+lineage, descriptors, and projection frames for the browser ReviewViewer. The
+browser never becomes the Git diff authority, never mints package/source cursor
+authority, and never receives raw package/diff bodies through route bootstrap or
+navigation state. It must remain separate from the Worktree/File source adapter
+so FileViewer does not become the diff engine.
 
 Proof:
 
 - Unit/integration test proves current-worktree provider exposes enough
-  base/head metadata/content handles for a Review source without placing raw
-  bodies in the navigation store.
+  base/head metadata/content descriptors for a Review source without placing raw
+  bodies in route bootstrap, RPC, intake/event paths, or the navigation store.
+- Dev-route integration proof shows `review.openComparison` or the dev
+  equivalent returns provider-owned comparison identity, stream lineage, and
+  descriptors before content is demanded.
 - Browser/dev-server proof for
   `?fixture=worktree&viewer=review&workers=on&scenario=current-worktree`
   reaches BridgeViewer Review context, not a mock fixture and not FileViewer.
@@ -1122,6 +1202,134 @@ Current visual/layout note, 2026-06-26 accepted-C refresh:
   visual/layout proof with no concrete layout mismatches and reiterated that
   this proof does not cover the implementation gates listed above.
 
+### Slice 06P.S / Streaming Resource Contract Realignment
+
+This slice is the mandatory first implementation slice for the 2026-06-27
+takeover. It exists because the current branch has useful scheduler/proof work
+but still has blob-shaped resource/materialization paths that can violate the
+transport spec even when dev-server UX proof passes.
+
+Objective:
+
+- Keep RPC, continuous event streams, intake frames, push/store updates, and
+  Zustand free of large file/diff/review bodies.
+- Make `ContentStreamPath` the only path for content bytes and bounded
+  body/window data.
+- Preserve first-slice authoritative integrity as whole-body validation when an
+  integrity hash is issued, unless this plan explicitly promotes chunk manifests
+  and ranged integrity.
+- Keep preview ranges/windows non-authoritative until chunk manifests exist.
+- Fix native Review startup so useful Review projection/status can reach the
+  browser without requiring a whole package blob to be built first.
+
+Required red/audit proof before implementation:
+
+- Unit or static contract proof that browser resource executor APIs are not
+  whole-body-only promises for in-scope file/review bodies.
+- Unit or integration proof that FileViewer/Worktree resource loading does not
+  require `response.text()` whole-body materialization as the default product
+  path.
+- Unit/integration proof that streamed whole-body resources can materialize
+  provisional chunks/windows, then either commit after whole-hash validation or
+  roll back/mark failed on abort, stale completion, truncation, or hash mismatch.
+- Swift unit/integration proof that `BridgeSchemeHandler` can emit multiple
+  bounded data chunks for content resources and enforces leases/byte limits
+  across the stream.
+- Review transport proof that snapshot/delta intake frames attach descriptors
+  and do not require `DiffPackageMetadataSlice` to carry materialized package
+  bodies through the diff store path.
+- Descriptor handoff proof that every schedulable body/window arrives as a
+  `BridgeAttachedResourceDescriptor`, is registered before app demand policy
+  receives a `BridgeDescriptorRef`, and raw descriptor strings or unregistered
+  URLs cannot drive demand or fetch.
+- Continuous-event-lineage proof that Review and Worktree/File startup expose
+  pane-scoped `ready`, heartbeat/source-status, descriptor-available,
+  invalidated, gap, reset, and closed facts without body transfer, and that
+  matching intake/content work stale-drops or rebinds after gap/reset/close.
+- Security/integrity negative proof that forged or stale resource authority
+  fails closed: cross-pane replay, stale generation/cursor, revoked lease during
+  stream, oversized resource, truncated/tampered whole-body mismatch, and
+  preview ranges remaining non-authoritative until chunk manifests exist.
+- Capability-leak proof that `agentstudio://resource/...` bearer URLs never leak
+  into DOM-visible proof state, telemetry, provider errors, markdown, comments,
+  agent communications, screenshots' JSON metadata, or exported proof artifacts;
+  only safe descriptor refs, hashes, or source-scrubbed identifiers may appear.
+- Inactive-context proof that toggling Files <-> Review while work is queued or
+  in flight emits no new foreground fetches, no route-level foreground telemetry,
+  no visible loading/selection mutation for inactive contexts, and stale-drops
+  by active context, source identity, generation, and consumer epoch.
+- Native IPC proof that failure to build a whole package does not prevent the
+  browser from receiving a usable loading/error/projection lifecycle frame with
+  source/comparison identity and stream lineage.
+
+Implementation guidance:
+
+- Browser: evolve the generic resource executor around stream/window
+  consumption, abort, stale-drop, byte accounting, and completion integrity
+  rather than returning only `Promise<{ body, byteLength }>`.
+- Browser: FileViewer and Review materializers should consume streamed chunks or
+  bounded windows through registries/materializers outside Zustand; Zustand keeps
+  only refs, identities, status, freshness keys, and small facts.
+- Browser: a full-string assembler may remain only as an explicitly leaf-level
+  adapter for small/current renderer APIs. It must not be the generic executor
+  contract, the demand result type, or the proof of streaming behavior.
+- Swift: keep `WKURLSchemeHandler`/`BridgeSchemeHandler` stream semantics real by
+  yielding bounded chunks/windows and validating lease authority before and
+  during emission. A single `.data(wholeBody)` yield cannot be the final
+  product path for large content resources.
+- Swift: current bounded-chunk emission from already-materialized `Data` is only
+  an interim safety improvement. The final resource path must stream or window
+  from the source/store layer so large files do not require full allocation
+  before first byte emission.
+- Review/native: separate provider/source lifecycle and descriptor publication
+  from full package acquisition. `reviewPipeline.loadPackage(...)` may remain a
+  provider implementation detail only after the visible stream/demand contract
+  is satisfied; it must not be the user-facing gate that blocks all Review
+  projection/lifecycle frames.
+- Review/native: either lease and serve `review-package` and `review-delta`
+  through real `ContentStreamPath` stores, or remove those advertised
+  descriptors until they are reachable. They cannot remain decorative while
+  materialized package/delta bodies move through push/store.
+- IPC: `getContent` and `getPackage` must not be used as body/package transport
+  proof. IPC may expose small status and descriptor metadata only; bytes and
+  package/delta bodies must move through content/resource descriptors.
+- Integrity: if the implementation can only prove whole-body integrity, stream
+  incrementally and validate the whole hash at completion. Do not claim
+  authoritative partial reads until chunk manifests and tamper fixtures exist.
+
+Proof:
+
+- Focused TypeScript unit/integration proof for the resource executor stream API,
+  abort, stale completion, byte-budget accounting, and whole-hash completion
+  validation.
+- Focused FileViewer and Review tests proving streamed/windowed materialization
+  without storing bodies/promises/streams in Zustand.
+- Focused descriptor registry tests proving only registered `BridgeDescriptorRef`
+  values can schedule demand/fetch and that raw, stale, foreign, or page-world
+  descriptor-like strings fail closed.
+- Focused Swift tests for chunked `BridgeSchemeHandler` emission, lease
+  revocation during a stream, over-limit rejection, and `HEAD`/`GET` behavior.
+- Focused Swift/Review tests proving `review-package` and `review-delta`
+  descriptors are either real leased resources or absent from advertised frames.
+- Focused negative authority/integrity fixtures for stale/cross-pane resource
+  URLs, forged descriptor identity, mid-stream revocation, truncated/tampered
+  bodies, and preview-only range handling.
+- Focused redaction fixtures proving capability URLs are absent from telemetry,
+  DOM-visible diagnostics, provider errors, and proof JSON while authorized
+  resource fetches still work.
+- Dev-server browser proof for Files, Review diff, and Review file-target routes
+  still passing after the resource executor/materializer change, including
+  queue depth, in-flight bytes, stale drops, aborts, latency, and scroll canary
+  fields.
+- Dev-server and native visible proof must include screenshots/video artifacts
+  plus second-agent/onlook review when startup/loading or visible
+  materialization behavior changes.
+- Native `oq4s` IPC/WKWebView proof for the same routes and Review package
+  acquisition path. The proof must not use stable AgentStudio, jsdom, or Vite as
+  a substitute for native.
+- If a proof layer cannot pass because the spec requires a larger chunk-manifest
+  contract, stop and update the spec/plan before continuing code.
+
 ### Slice 06P.5 / 0.a.5: File Load Demand, Preload, And Content Pressure Proof
 
 Render opened worktree files through Pierre CodeView/File. Shiki highlighting
@@ -1344,8 +1552,8 @@ Browser/E2E:
 
 Native runtime:
 
-- later PR-ready gate runs Agent Studio Bridge/WKWebView proof for the same
-  protocol path
+- native `oq4s` Agent Studio Bridge/WKWebView proof is an active 06P.S / 0.a.6
+  gate and must be rerun after resource-stream changes for the same protocol path
 - proof includes bridge route boot, source/protocol identity, resource/content
   requests, event stream readiness, and Victoria/log marker correlation
 - Vite-only proof must not be used as the final native Bridge proof
@@ -1382,8 +1590,10 @@ BridgeViewerApp(active context = Files or Review)
 
 ## Gate
 
-This precursor remains implementation-review pending until a reviewer can
-inspect the proof artifacts and confirm that the dev-server route set enters one
-shared BridgeViewer app, covers Files, Review diff, and Review file-target
-contexts, and cannot pass from the old compatibility URL or narrow verifier
-alone.
+This precursor remains implementation-execution pending until 06P.S streaming
+resource residuals are implemented and proven: Browser stream/session or
+authoritative leaf-boundary contract, preview-vs-authoritative gating, Swift
+source/store-backed Review content streaming, provider-issued native Review
+startup identity, dev-server product proof, native `oq4s` IPC/WKWebView proof,
+then implementation-review-swarm. Historical dev-server route proof remains
+useful but cannot close this transport gate by itself.

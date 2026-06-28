@@ -215,6 +215,8 @@ extension BridgeTelemetryBatchValidator {
             return firstRenderContractMatches(contract)
         case "performance.bridge.web.package_apply":
             return packageApplyContractMatches(contract)
+        case "performance.bridge.web.intake_frame":
+            return intakeFrameContractMatches(contract)
         case "performance.bridge.web.rpc_send":
             return rpcSendContractMatches(contract)
         case "performance.bridge.web.telemetry_drop":
@@ -298,18 +300,43 @@ extension BridgeTelemetryBatchValidator {
         contract.phase == "render"
             && contract.plane == .data
             && contract.priority == .hot
-            && pushSliceIsBrowserRenderable(contract.slice)
-            && contract.transport == "push"
+            && firstRenderSliceIsBrowserRenderable(contract.slice, transport: contract.transport)
             && contract.hasOnlyCommonKeys()
     }
 
     private static func packageApplyContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
-        contract.phase == "apply"
+        let transportMatches: Bool =
+            if contract.transport == "push" {
+                pushSliceIsBrowserReceivable(contract.slice)
+            } else if contract.transport == "intake" {
+                intakePackageApplySliceIsBrowserReceivable(contract.slice)
+            } else {
+                false
+            }
+        return contract.phase == "apply"
             && contract.plane == planeForBrowserPushSlice(contract.slice)
             && contract.priority == priorityForBrowserPushSlice(contract.slice)
-            && pushSliceIsBrowserReceivable(contract.slice)
-            && contract.transport == "push"
+            && transportMatches
             && contract.hasOnlyCommonKeys()
+    }
+
+    private static func intakeFrameContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+        contract.phase == "intake"
+            && contract.plane == planeForBrowserPushSlice(contract.slice)
+            && contract.priority == priorityForBrowserPushSlice(contract.slice)
+            && intakeSliceIsBrowserReceivable(contract.slice)
+            && contract.transport == "intake"
+            && contract.stringKeys
+                == requiredStringAttributeKeys.union([
+                    "agentstudio.bridge.intake.frame_kind",
+                    "agentstudio.bridge.result",
+                    "agentstudio.bridge.result_reason",
+                ])
+            && contract.numericKeys == [
+                "agentstudio.bridge.intake.generation",
+                "agentstudio.bridge.intake.sequence",
+            ]
+            && contract.booleanKeys.isEmpty
     }
 
     private static func rpcSendContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
@@ -592,13 +619,61 @@ extension BridgeTelemetryBatchValidator {
     private static func pushSliceIsBrowserRenderable(_ slice: BridgeTelemetrySlice) -> Bool {
         switch slice {
         case .diffStatus,
-            .diffPackageMetadata,
-            .diffPackageDelta,
             .diffFiles,
             .reviewThreads,
             .reviewViewedFiles:
             true
-        case .connectionHealth,
+        case .reviewSnapshot,
+            .reviewDelta,
+            .reviewInvalidation,
+            .reviewReset,
+            .connectionHealth,
+            .commandAcks,
+            .reviewRPC,
+            .contentFetch,
+            .reviewProjection,
+            .treePrepareInput,
+            .codeViewItem,
+            .codeViewScroll,
+            .codeViewVirtualRange,
+            .markdownPreview,
+            .shikiHighlight,
+            .workerTask,
+            .telemetryBatch,
+            .telemetryIngest,
+            .telemetryDrop,
+            .unknown:
+            false
+        }
+    }
+
+    private static func firstRenderSliceIsBrowserRenderable(
+        _ slice: BridgeTelemetrySlice,
+        transport: String
+    ) -> Bool {
+        switch slice {
+        case .reviewSnapshot,
+            .reviewDelta:
+            transport == "intake"
+        default:
+            transport == "push" && pushSliceIsBrowserRenderable(slice)
+        }
+    }
+
+    private static func intakePackageApplySliceIsBrowserReceivable(
+        _ slice: BridgeTelemetrySlice
+    ) -> Bool {
+        switch slice {
+        case .reviewSnapshot,
+            .reviewDelta,
+            .reviewInvalidation,
+            .reviewReset:
+            true
+        case .diffStatus,
+            .diffFiles,
+            .reviewThreads,
+            .reviewViewedFiles,
+            .connectionHealth,
             .commandAcks,
             .reviewRPC,
             .contentFetch,
@@ -622,9 +697,14 @@ extension BridgeTelemetryBatchValidator {
         switch slice {
         case .diffStatus, .connectionHealth:
             .hot
-        case .diffPackageDelta, .reviewThreads, .reviewViewedFiles, .commandAcks:
+        case .reviewDelta,
+            .reviewInvalidation,
+            .reviewReset,
+            .reviewThreads,
+            .reviewViewedFiles,
+            .commandAcks:
             .warm
-        case .diffPackageMetadata, .diffFiles:
+        case .reviewSnapshot, .diffFiles:
             .cold
         case .reviewRPC:
             .warm
@@ -651,11 +731,13 @@ extension BridgeTelemetryBatchValidator {
         case .telemetryBatch, .telemetryIngest, .telemetryDrop:
             .observability
         case .diffStatus,
-            .diffPackageMetadata,
-            .diffPackageDelta,
             .diffFiles,
             .reviewThreads,
             .reviewViewedFiles,
+            .reviewSnapshot,
+            .reviewDelta,
+            .reviewInvalidation,
+            .reviewReset,
             .contentFetch,
             .reviewProjection,
             .treePrepareInput,
@@ -673,15 +755,17 @@ extension BridgeTelemetryBatchValidator {
     private static func pushSliceIsBrowserReceivable(_ slice: BridgeTelemetrySlice) -> Bool {
         switch slice {
         case .diffStatus,
-            .diffPackageMetadata,
-            .diffPackageDelta,
             .diffFiles,
             .reviewThreads,
             .reviewViewedFiles,
             .connectionHealth,
             .commandAcks:
             true
-        case .reviewRPC,
+        case .reviewSnapshot,
+            .reviewDelta,
+            .reviewInvalidation,
+            .reviewReset,
+            .reviewRPC,
             .contentFetch,
             .reviewProjection,
             .treePrepareInput,
@@ -699,280 +783,38 @@ extension BridgeTelemetryBatchValidator {
         }
     }
 
-    private static let requiredStringAttributeKeys: Set<String> = [
-        "agentstudio.bridge.phase",
-        "agentstudio.bridge.plane",
-        "agentstudio.bridge.priority",
-        "agentstudio.bridge.slice",
-        "agentstudio.bridge.transport",
-    ]
+    private static func intakeSliceIsBrowserReceivable(_ slice: BridgeTelemetrySlice) -> Bool {
+        switch slice {
+        case .reviewSnapshot,
+            .reviewDelta,
+            .reviewInvalidation,
+            .reviewReset:
+            true
+        case .diffStatus,
+            .diffFiles,
+            .reviewThreads,
+            .reviewViewedFiles,
+            .connectionHealth,
+            .commandAcks,
+            .reviewRPC,
+            .contentFetch,
+            .reviewProjection,
+            .treePrepareInput,
+            .codeViewItem,
+            .codeViewScroll,
+            .codeViewVirtualRange,
+            .markdownPreview,
+            .shikiHighlight,
+            .workerTask,
+            .telemetryBatch,
+            .telemetryIngest,
+            .telemetryDrop,
+            .unknown:
+            false
+        }
+    }
 
-    private static let allowedEventNames: Set<String> = [
-        "performance.bridge.web.content_fetch",
-        "performance.bridge.web.first_render",
-        "performance.bridge.web.package_apply",
-        "performance.bridge.web.rpc_send",
-        "performance.bridge.web.telemetry_drop",
-        "performance.bridge.markdown.render_queue",
-        "performance.bridge.markdown.render",
-        "performance.bridge.markdown.fallback",
-        "performance.bridge.trees.projection_build",
-        "performance.bridge.trees.prepare_input",
-        "performance.bridge.trees.mode_switch",
-        "performance.bridge.trees.search_filter",
-        "performance.bridge.viewer.content_queue",
-        "performance.bridge.viewer.content_cache",
-        "performance.bridge.pierre.item_update",
-        "performance.bridge.pierre.scroll_target",
-        "performance.bridge.pierre.virtualized_range",
-        "performance.bridge.shiki.highlight",
-        "performance.bridge.worker.task",
-    ]
-
-    private static let allowedStringValuesByAttributeKey: [String: Set<String>] = [
-        "agentstudio.bridge.cache.result": [
-            "cache_hit",
-            "provider_load",
-            "in_flight_coalesced",
-            "rejected",
-        ],
-        "agentstudio.bridge.content.correlation_mode": [
-            "summary",
-            "traceparent",
-        ],
-        "agentstudio.bridge.content.role": [
-            "base",
-            "head",
-            "diff",
-            "file",
-            "unknown",
-        ],
-        "agentstudio.bridge.content.interest": [
-            "selected",
-            "visible",
-            "nearby",
-            "speculative",
-        ],
-        "agentstudio.bridge.content.priority": [
-            "nearby",
-            "prefetch",
-            "selected",
-            "speculative",
-            "visible",
-        ],
-        "agentstudio.bridge.content_bytes_bucket": [
-            "empty",
-            "small",
-            "medium",
-            "large",
-            "huge",
-            "unknown",
-        ],
-        "agentstudio.bridge.diff_row_count_bucket": [
-            "small",
-            "medium",
-            "large",
-            "huge",
-        ],
-        "agentstudio.bridge.fixture_class": [
-            "smoke",
-            "medium",
-            "large",
-            "huge",
-        ],
-        "agentstudio.bridge.generation.relation": [
-            "current",
-            "stale",
-            "unknown",
-        ],
-        "agentstudio.bridge.phase": [
-            "accepted",
-            "apply",
-            "content_register",
-            "delta_build",
-            "dispatch",
-            "dropped",
-            "error",
-            "fetch",
-            "package_apply",
-            "package_build",
-            "render",
-            "send",
-            "success",
-            "transport",
-            "content_queue",
-            "content_cache",
-            "highlight",
-            "item_update",
-            "markdown_decision",
-            "markdown_queue",
-            "markdown_render",
-            "mode_switch",
-            "prepare_input",
-            "projection_build",
-            "scroll_target",
-            "search_filter",
-            "virtualized_range",
-            "worker_task",
-        ],
-        "agentstudio.bridge.plane": Set(
-            BridgeTelemetryPlane.allCases.map(\.rawValue)
-        ),
-        "agentstudio.bridge.priority": Set(
-            BridgeTelemetryPriority.allCases.map(\.rawValue)
-        ),
-        "agentstudio.bridge.rpc.method_class": [
-            "other",
-            "review",
-            "telemetry",
-        ],
-        "agentstudio.bridge.item_count_bucket": [
-            "empty",
-            "small",
-            "medium",
-            "large",
-            "huge",
-        ],
-        "agentstudio.bridge.item_update.kind": [
-            "add",
-            "hydrate",
-            "replace",
-        ],
-        "agentstudio.bridge.language_class": [
-            "config",
-            "markdown",
-            "other",
-            "swift",
-            "text",
-            "typescript",
-        ],
-        "agentstudio.bridge.markdown.fallback_reason": [
-            "binaryContent",
-            "contentPending",
-            "contentUnavailable",
-            "diffPatchResource",
-            "invalidResourceUrl",
-            "largeContent",
-            "missingSelectedItem",
-            "noSelectedItem",
-            "notMarkdown",
-            "twoSidedDiff",
-            "workerUnavailable",
-        ],
-        "agentstudio.bridge.projection.kind": [
-            "all_files",
-            "changed_files",
-            "current_change_set",
-            "custom",
-            "docs_and_plans",
-            "guided_review",
-            "normal_review",
-            "plans_and_specs",
-            "source",
-            "tests",
-        ],
-        "agentstudio.bridge.query_class": [
-            "empty",
-            "extension",
-            "path",
-            "symbol",
-        ],
-        "agentstudio.bridge.queue.depth_bucket": [
-            "empty",
-            "small",
-            "medium",
-            "large",
-            "huge",
-        ],
-        "agentstudio.bridge.result": [
-            "deferred",
-            "dropped",
-            "error",
-            "failed",
-            "failure",
-            "fallback",
-            "queued",
-            "stale",
-            "success",
-        ],
-        "agentstudio.bridge.result_reason": [
-            "aborted",
-            "byte_budget_exceeded",
-            "concurrency_exceeded",
-            "descriptor_missing",
-            "load_failed",
-            "load_threw",
-            "none",
-            "stale_completion",
-        ],
-        "agentstudio.bridge.scroll_target.kind": [
-            "item",
-            "line",
-            "position",
-            "range",
-        ],
-        "agentstudio.bridge.slice": Set(
-            BridgeTelemetrySlice.allCases.map(\.rawValue)
-        ),
-        "agentstudio.bridge.telemetry.drop_reason": Set(
-            BridgeTelemetryDropReason.allCases.map(\.rawValue)
-        ),
-        "agentstudio.bridge.test.scenario": [
-            "package_apply_content_fetch_v1"
-        ],
-        "agentstudio.bridge.transport": [
-            "content",
-            "push",
-            "rpc",
-            "swift",
-            "worker",
-        ],
-        "agentstudio.bridge.tree_path_count_bucket": [
-            "empty",
-            "small",
-            "medium",
-            "large",
-            "huge",
-        ],
-        "agentstudio.bridge.visible_row_bucket": [
-            "empty",
-            "small",
-            "medium",
-            "large",
-            "huge",
-        ],
-        "agentstudio.bridge.worker.lane": [
-            "none",
-            "markdown",
-            "pierre",
-            "projection",
-        ],
-        "agentstudio.bridge.worker.task_kind": [
-            "highlight",
-            "markdown_render",
-            "pool_init",
-            "projection",
-        ],
-    ]
-
-    private static let allowedNumericAttributeKeys: Set<String> = [
-        "agentstudio.bridge.batch.sample_count",
-        "agentstudio.bridge.content.byte_size_bucket",
-        "agentstudio.bridge.content.line_count_bucket",
-        "agentstudio.bridge.markdown.input_bytes",
-        "agentstudio.bridge.markdown.output_bytes",
-        "agentstudio.bridge.telemetry.dropped_count",
-    ]
-
-    private static let allowedBooleanAttributeKeys: Set<String> = [
-        "agentstudio.bridge.cache_hit",
-        "agentstudio.bridge.content.binary",
-        "agentstudio.bridge.content.stale",
-        "agentstudio.bridge.header_missing",
-        "agentstudio.bridge.header_supported",
-    ]
-
-    private static func isSafeControlledString(_ value: String) -> Bool {
+    static func isSafeControlledString(_ value: String) -> Bool {
         guard !value.isEmpty, value.count <= 128 else {
             return false
         }

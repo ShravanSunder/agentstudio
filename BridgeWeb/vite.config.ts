@@ -22,6 +22,7 @@ import {
 	type BridgeWorktreeReviewDevProvider,
 	type BridgeWorktreeReviewContentRequest,
 } from './scripts/dev-server/bridge-worktree-review-dev-provider.js';
+import { buildReviewSnapshotFrame } from './src/features/review/protocol/review-snapshot-frame-builder.js';
 
 type BridgeWorktreeDevProviderPromise = Promise<BridgeWorktreeDevProvider>;
 type BridgeWorktreeReviewDevProviderPromise = Promise<BridgeWorktreeReviewDevProvider>;
@@ -79,10 +80,18 @@ export default defineConfig({
 					return providerPromise;
 				};
 				server.middlewares.use('/__bridge-worktree/surface', (request, response) => {
-					void handleBridgeWorktreeSurfaceRequest({ getProvider, request, response });
+					void handleBridgeWorktreeSurfaceRequest({
+						getProvider,
+						request,
+						response,
+					});
 				});
 				server.middlewares.use('/__bridge-worktree/file-content', (request, response) => {
-					void handleBridgeWorktreeFileContentRequest({ getProvider, request, response });
+					void handleBridgeWorktreeFileContentRequest({
+						getProvider,
+						request,
+						response,
+					});
 				});
 				server.middlewares.use('/__bridge-worktree/review-package', (request, response) => {
 					void handleBridgeWorktreeReviewPackageRequest({
@@ -99,10 +108,18 @@ export default defineConfig({
 					});
 				});
 				server.middlewares.use('/__bridge-dev-telemetry/batch', (request, response) => {
-					void handleBridgeDevTelemetryBatchRequest({ request, response, telemetrySink });
+					void handleBridgeDevTelemetryBatchRequest({
+						request,
+						response,
+						telemetrySink,
+					});
 				});
 				server.middlewares.use('/__bridge-dev-telemetry/status', (request, response) => {
-					handleBridgeDevTelemetryStatusRequest({ request, response, telemetrySink });
+					handleBridgeDevTelemetryStatusRequest({
+						request,
+						response,
+						telemetrySink,
+					});
 				});
 			},
 		},
@@ -233,13 +250,112 @@ async function handleBridgeWorktreeReviewPackageRequest(props: {
 	try {
 		const provider = await props.getReviewProvider(props.request.url ?? null);
 		const packageResult = await provider.loadReviewPackage();
-		writeJsonResponse(props.response, 200, { reviewPackage: packageResult.reviewPackage });
+		if (bridgeWorktreeReviewSnapshotFrameRequested(props.request.url ?? null)) {
+			writeJsonResponse(props.response, 200, {
+				protocolFrame: buildReviewSnapshotFrame({
+					package: packageResult.reviewPackage,
+					paneId: 'bridge-worktree-review-dev-pane',
+					sourceIdentity: packageResult.reviewPackage.query.queryId,
+					streamId: 'review:bridge-worktree-review-dev-pane',
+					sequence: packageResult.reviewPackage.revision,
+				}),
+			});
+			return;
+		}
+		const resourceRequest = bridgeWorktreeReviewProtocolResourceRequest(props.request.url ?? null);
+		if (resourceRequest !== null) {
+			const expectedOpaqueId =
+				resourceRequest.resourceKind === 'review-package'
+					? [
+							'review-package',
+							packageResult.reviewPackage.packageId,
+							String(packageResult.reviewPackage.reviewGeneration),
+							String(packageResult.reviewPackage.revision),
+						].join('-')
+					: [
+							'review-delta',
+							packageResult.reviewPackage.packageId,
+							String(Math.max(0, packageResult.reviewPackage.revision - 1)),
+							String(packageResult.reviewPackage.revision),
+						].join('-');
+			if (
+				resourceRequest.opaqueId !== expectedOpaqueId ||
+				resourceRequest.generation !== packageResult.reviewPackage.reviewGeneration ||
+				resourceRequest.revision !== packageResult.reviewPackage.revision
+			) {
+				props.response.statusCode = 404;
+				props.response.end('Bridge worktree review protocol resource identity mismatch');
+				return;
+			}
+			writeJsonResponse(
+				props.response,
+				200,
+				resourceRequest.resourceKind === 'review-package'
+					? packageResult.reviewPackage
+					: emptyBridgeReviewDeltaOperations(),
+			);
+			return;
+		}
+		writeJsonResponse(props.response, 200, {
+			reviewPackage: packageResult.reviewPackage,
+		});
 	} catch (error: unknown) {
 		props.response.statusCode = 500;
 		props.response.end(
 			error instanceof Error ? error.message : 'Bridge worktree review package failed',
 		);
 	}
+}
+
+function bridgeWorktreeReviewSnapshotFrameRequested(requestUrl: string | null): boolean {
+	if (requestUrl === null) {
+		return false;
+	}
+	const parsedUrl = new URL(requestUrl, 'http://127.0.0.1');
+	return parsedUrl.searchParams.get('frame') === 'review-snapshot';
+}
+
+function bridgeWorktreeReviewProtocolResourceRequest(requestUrl: string | null): {
+	readonly generation: number;
+	readonly opaqueId: string;
+	readonly resourceKind: 'review-package' | 'review-delta';
+	readonly revision: number;
+} | null {
+	if (requestUrl === null) {
+		return null;
+	}
+	const parsedUrl = new URL(requestUrl, 'http://127.0.0.1');
+	const resourceKind = parsedUrl.searchParams.get('resource');
+	if (resourceKind !== 'review-package' && resourceKind !== 'review-delta') {
+		return null;
+	}
+	const opaqueId = parsedUrl.searchParams.get('opaqueId');
+	const generation = nonnegativeIntegerSearchParam(parsedUrl.searchParams, 'generation');
+	const revision = nonnegativeIntegerSearchParam(parsedUrl.searchParams, 'revision');
+	if (opaqueId === null || generation === null || revision === null) {
+		throw new Error('Bridge worktree review package resource request is missing identity');
+	}
+	return { generation, opaqueId, resourceKind, revision };
+}
+
+function emptyBridgeReviewDeltaOperations(): Readonly<Record<string, unknown>> {
+	return {
+		addItems: [],
+		updateItems: [],
+		removeItems: [],
+		moveItems: [],
+		updateGroups: null,
+		updateSummary: null,
+		invalidateContent: [],
+	};
+}
+
+function nonnegativeIntegerSearchParam(searchParams: URLSearchParams, key: string): number | null {
+	const value = searchParams.get(key);
+	if (value === null || !/^(?:0|[1-9]\d*)$/u.test(value)) {
+		return null;
+	}
+	return Number(value);
 }
 
 async function handleBridgeWorktreeReviewContentRequest(props: {

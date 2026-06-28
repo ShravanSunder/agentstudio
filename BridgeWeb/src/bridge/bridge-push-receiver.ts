@@ -70,8 +70,8 @@ export function installBridgePushReceiver(props: InstallBridgePushReceiverProps)
 			props.onDroppedEnvelope?.('stale_push');
 			return;
 		}
-		props.onEnvelope(envelope, admissionSource);
-	};
+			props.onEnvelope(envelope, admissionSource);
+		};
 
 	const handleHostPortTransfer = (event: Event): void => {
 		if (!(event instanceof MessageEvent) || !isBridgeHostPushPortMessage(event.data)) {

@@ -1189,11 +1189,12 @@ function selectedContentSummaryForPanel(props: {
 	return {
 		cacheKeyCount: new Set(resources.map((resource): string => resource.handle.cacheKey)).size,
 		characterCount: resources.reduce(
-			(totalCharacters, resource): number => totalCharacters + resource.text.length,
+			(totalCharacters, resource): number => totalCharacters + resource.readText().length,
 			0,
 		),
 		lineCount: resources.reduce(
-			(totalLines, resource): number => totalLines + lineCountForContentResourceText(resource.text),
+			(totalLines, resource): number =>
+				totalLines + lineCountForContentResourceText(resource.readText()),
 			0,
 		),
 	};

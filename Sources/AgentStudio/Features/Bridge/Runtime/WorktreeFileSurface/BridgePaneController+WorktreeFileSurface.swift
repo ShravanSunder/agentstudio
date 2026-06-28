@@ -332,7 +332,9 @@ extension BridgePaneController {
     ) async throws {
         let encodedFrames = try frames.map { try Self.makeIntakeFrameString($0) }
         for encodedFrame in encodedFrames {
-            try await intakeFrameSink(page, encodedFrame, pushNonce)
+            guard await deliverIntakeFrame(encodedFrame) else {
+                throw RPCMethodDispatchError.handlerFailure("Bridge Worktree/File intake delivery failed")
+            }
         }
     }
 

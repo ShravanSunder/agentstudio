@@ -13,7 +13,7 @@ import { createBridgeDemandScheduler } from './bridge-demand-scheduler.js';
 import { createBridgeResourceExecutor } from './bridge-resource-executor.js';
 
 describe('bridge demand runtime integration', () => {
-	test('orders descriptor-backed demand through scheduler executor and body registry', async () => {
+	test('orders descriptor-backed demand through scheduler executor and materialized registry', async () => {
 		const registry = createBridgeResourceDescriptorRegistry({
 			allowedResourceKindsByProtocol: { review: new Set(['content']) },
 		});
@@ -44,21 +44,21 @@ describe('bridge demand runtime integration', () => {
 				if (cachedBody !== null) {
 					cacheHitDescriptorIds.push(descriptor.descriptorId);
 					return {
-						body: cachedBody,
+						content: cachedBody,
 						byteLength: cachedBody.length,
 					};
 				}
 				cacheMissDescriptorIds.push(descriptor.descriptorId);
-				const body = `${descriptor.descriptorId}:body`;
+				const materialized = `${descriptor.descriptorId}:materialized`;
 				bodyRegistry.put({
 					cacheKey: descriptor.resourceUrl,
 					freshnessKey: intent.freshnessKey,
-					body,
-					byteLength: body.length,
+					body: materialized,
+					byteLength: materialized.length,
 				});
 				return {
-					body,
-					byteLength: body.length,
+					content: materialized,
+					byteLength: materialized.length,
 				};
 			},
 		});
@@ -87,14 +87,14 @@ describe('bridge demand runtime integration', () => {
 		const firstResult = await loadNextScheduledIntent({ scheduler, executor });
 		const secondResult = await loadNextScheduledIntent({ scheduler, executor });
 
-		expect(firstResult).toMatchObject({ ok: true, body: 'descriptor-a:body' });
-		expect(secondResult).toMatchObject({ ok: true, body: 'descriptor-b:body' });
+		expect(firstResult).toMatchObject({ ok: true, content: 'descriptor-a:materialized' });
+		expect(secondResult).toMatchObject({ ok: true, content: 'descriptor-b:materialized' });
 		const cachedResult = await executor.load(selectedIntent);
 
-		expect(cachedResult).toMatchObject({ ok: true, body: 'descriptor-a:body' });
+		expect(cachedResult).toMatchObject({ ok: true, content: 'descriptor-a:materialized' });
 		expect(cacheMissDescriptorIds).toEqual(['descriptor-a', 'descriptor-b']);
 		expect(cacheHitDescriptorIds).toEqual(['descriptor-a']);
-		expect(bodyRegistry.snapshot()).toEqual({ entryCount: 2, totalBytes: 34 });
+		expect(bodyRegistry.snapshot()).toEqual({ entryCount: 2, totalBytes: 50 });
 		expect(scheduler.dequeueNext()).toBeNull();
 		expect(executor.inFlightCount).toBe(0);
 		expect(executor.queuedLoadCount).toBe(0);
@@ -113,7 +113,7 @@ describe('bridge demand runtime integration', () => {
 			maxQueuedBytes: 4096,
 			loadResource: async () => {
 				fetchCount += 1;
-				return { body: 'must-not-fetch', byteLength: 14 };
+				return { content: 'must-not-fetch', byteLength: 14 };
 			},
 		});
 		const scheduler = createBridgeDemandScheduler({

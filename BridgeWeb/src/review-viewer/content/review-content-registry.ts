@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { parseBridgeResourceUrl } from '../../bridge/bridge-resource-url.js';
 import {
 	loadBridgeContentResource,
-	type BridgeContentResource,
+	type BridgeLoadedContentResource,
 	type LoadBridgeContentResourceProps,
 } from '../../foundation/content/content-resource-loader.js';
 import type { BridgeContentHandle } from '../../foundation/review-package/bridge-review-package.js';
@@ -22,7 +22,7 @@ export type BridgeReviewContentRegistryIdentity = z.infer<
 
 export interface BridgeReviewContentRegistry {
 	readonly clear: () => void;
-	readonly load: (props: LoadBridgeContentResourceProps) => Promise<BridgeContentResource>;
+	readonly load: (props: LoadBridgeContentResourceProps) => Promise<BridgeLoadedContentResource>;
 	readonly setActiveIdentity: (identity: BridgeReviewContentRegistryIdentity | null) => void;
 	readonly snapshot: () => BridgeReviewContentRegistrySnapshot;
 }
@@ -41,7 +41,7 @@ export interface CreateBridgeReviewContentRegistryProps {
 interface RegistryEntry {
 	readonly generation: number;
 	readonly revision: number | null;
-	readonly resource: BridgeContentResource;
+	readonly resource: BridgeLoadedContentResource;
 }
 
 const defaultMaxEntries = 96;
@@ -51,7 +51,7 @@ export function createBridgeReviewContentRegistry(
 ): BridgeReviewContentRegistry {
 	const maxEntries = Math.max(1, props.maxEntries ?? defaultMaxEntries);
 	const entriesByResourceKey = new Map<string, RegistryEntry>();
-	const inFlightByResourceKey = new Map<string, Promise<BridgeContentResource>>();
+	const inFlightByResourceKey = new Map<string, Promise<BridgeLoadedContentResource>>();
 	let activeIdentity: BridgeReviewContentRegistryIdentity | null = null;
 	let registryEpoch = 0;
 
@@ -74,7 +74,7 @@ export function createBridgeReviewContentRegistry(
 
 	const load = async (
 		loadProps: LoadBridgeContentResourceProps,
-	): Promise<BridgeContentResource> => {
+	): Promise<BridgeLoadedContentResource> => {
 		const resourceKey = canonicalContentResourceKey(loadProps.handle);
 		const identity = activeIdentity;
 		if (identity !== null) {
@@ -101,16 +101,18 @@ export function createBridgeReviewContentRegistry(
 
 		const requestEpoch = registryEpoch;
 		const request = loadBridgeContentResource(sharedRequestProps(loadProps))
-			.then((resource: BridgeContentResource): BridgeContentResource => {
+			.then((resource: BridgeLoadedContentResource): BridgeLoadedContentResource => {
 				if (requestEpoch !== registryEpoch) {
 					throw new Error('Bridge content registry discarded stale in-flight content');
 				}
-				entriesByResourceKey.set(resourceKey, {
-					generation: loadProps.handle.reviewGeneration,
-					revision: revisionForHandle(loadProps.handle),
-					resource,
-				});
-				evictOldEntries(entriesByResourceKey, maxEntries);
+				if (resource.authoritative) {
+					entriesByResourceKey.set(resourceKey, {
+						generation: loadProps.handle.reviewGeneration,
+						revision: revisionForHandle(loadProps.handle),
+						resource,
+					});
+					evictOldEntries(entriesByResourceKey, maxEntries);
+				}
 				return resource;
 			})
 			.finally((): void => {
@@ -136,6 +138,8 @@ function sharedRequestProps(
 	return {
 		handle: loadProps.handle,
 		...(loadProps.fetchContent === undefined ? {} : { fetchContent: loadProps.fetchContent }),
+		...(loadProps.integrity === undefined ? {} : { integrity: loadProps.integrity }),
+		...(loadProps.maxBytes === undefined ? {} : { maxBytes: loadProps.maxBytes }),
 		...(loadProps.traceContext === undefined ? {} : { traceContext: loadProps.traceContext }),
 		...(loadProps.sendTraceparentHeader === undefined
 			? {}

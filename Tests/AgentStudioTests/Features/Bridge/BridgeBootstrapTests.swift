@@ -204,8 +204,32 @@ final class BridgeBootstrapTests {
     func test_applyIntakeFrameJSON_dispatches_string_payload_with_push_nonce() {
         let script = BridgeBootstrap.generateScript(bridgeNonce: "test-nonce", pushNonce: "push-nonce")
         #expect(script.contains("applyIntakeFrameJSON: function(frameJSON)"))
+        #expect(script.contains("dispatchIntakeFrameJSON(frameJSON)"))
         #expect(script.contains("__bridge_intake_json"))
         #expect(script.contains("detail: { json: frameJSON, nonce: PUSH_NONCE }"))
+    }
+
+    @Test
+    func test_intake_frame_dispatch_buffers_and_replays_late_listener_frames() {
+        let script = BridgeBootstrap.generateScript(bridgeNonce: "test-nonce", pushNonce: "push-nonce")
+        #expect(script.contains("const PENDING_INTAKE_FRAME_JSON = []"))
+        #expect(script.contains("const MAX_PENDING_INTAKE_FRAMES = 64"))
+        #expect(script.contains("function dispatchIntakeFrameJSON(frameJSON)"))
+        #expect(script.contains("PENDING_INTAKE_FRAME_JSON.push(frameJSON)"))
+        #expect(script.contains("__bridge_intake_replay_request"))
+        #expect(script.contains("for (const frameJSON of PENDING_INTAKE_FRAME_JSON)"))
+    }
+
+    @Test
+    func test_intake_frame_dispatch_uses_host_intake_message_port() {
+        let script = BridgeBootstrap.generateScript(bridgeNonce: "test-nonce", pushNonce: "push-nonce")
+        #expect(script.contains("const HOST_INTAKE_PORTS = new Set()"))
+        #expect(script.contains("function publishHostIntakePort()"))
+        #expect(script.contains("type: 'agentstudio.bridge.hostIntakePort'"))
+        #expect(script.contains("function postHostIntakeFrameJSON(frameJSON)"))
+        #expect(script.contains("type: 'agentstudio.bridge.hostIntakeFrameJSON'"))
+        #expect(script.contains("__bridge_host_intake_port_request"))
+        #expect(script.contains("postHostIntakeFrameJSON(frameJSON)"))
     }
 
     @Test

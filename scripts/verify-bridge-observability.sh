@@ -363,23 +363,23 @@ if ! json_exact_string_field \
 fi
 
 required_log_event_contracts=(
-  "performance.bridge.swift.package_build|package_build|data|cold|diff_package_metadata|swift"
-  "performance.bridge.swift.delta_build|delta_build|data|warm|diff_package_delta|swift"
-  "performance.bridge.swift.content_register|content_register|data|cold|diff_package_metadata|swift"
+  "performance.bridge.swift.package_build|package_build|data|cold|review_snapshot|swift"
+  "performance.bridge.swift.delta_build|delta_build|data|warm|review_delta|swift"
+  "performance.bridge.swift.content_register|content_register|data|cold|review_snapshot|swift"
   "performance.bridge.swift.content_load|success|data|hot|content_fetch|content"
   "performance.bridge.swift.telemetry_ingest|accepted|observability|best_effort|telemetry_ingest|swift"
-  "performance.bridge.webkit.package_push|transport|data|cold|diff_package_metadata|push"
-  "performance.bridge.webkit.package_push|transport|data|warm|diff_package_delta|push"
   "performance.bridge.webkit.package_push|transport|data|hot|diff_status|push"
   "performance.bridge.webkit.rpc_dispatch|dispatch|control|warm|review_rpc|rpc"
   "performance.bridge.webkit.rpc_response|success|control|warm|review_rpc|rpc"
   "performance.bridge.webkit.telemetry_batch|accepted|observability|best_effort|telemetry_batch|rpc"
-  "performance.bridge.web.package_apply|apply|data|cold|diff_package_metadata|push"
-  "performance.bridge.web.package_apply|apply|data|warm|diff_package_delta|push"
+  "performance.bridge.web.intake_frame|intake|data|cold|review_snapshot|intake"
+  "performance.bridge.web.intake_frame|intake|data|warm|review_delta|intake"
+  "performance.bridge.web.package_apply|apply|data|cold|review_snapshot|intake"
+  "performance.bridge.web.package_apply|apply|data|warm|review_delta|intake"
   "performance.bridge.web.package_apply|apply|data|hot|diff_status|push"
   "performance.bridge.web.rpc_send|send|control|warm|review_rpc|rpc"
   "performance.bridge.web.content_fetch|fetch|data|hot|content_fetch|content"
-  "performance.bridge.web.first_render|render|data|hot|diff_package_metadata|push"
+  "performance.bridge.web.first_render|render|data|hot|review_snapshot|intake"
   "performance.bridge.trees.projection_build|projection_build|data|warm|review_projection|worker"
   "performance.bridge.viewer.content_queue|content_queue|data|hot|content_fetch|content"
   "performance.bridge.pierre.item_update|item_update|data|hot|code_view_item|swift"
@@ -397,18 +397,18 @@ for contract in "${required_log_event_contracts[@]}"; do
 done
 
 required_metric_event_contracts=(
-  "performance.bridge.swift.package_build|package_build|data|cold|diff_package_metadata"
+  "performance.bridge.swift.package_build|package_build|data|cold|review_snapshot"
   "performance.bridge.swift.content_load|success|data|hot|content_fetch"
-  "performance.bridge.webkit.package_push|transport|data|cold|diff_package_metadata"
-  "performance.bridge.webkit.package_push|transport|data|warm|diff_package_delta"
   "performance.bridge.webkit.package_push|transport|data|hot|diff_status"
   "performance.bridge.webkit.rpc_dispatch|dispatch|control|warm|review_rpc"
   "performance.bridge.webkit.telemetry_batch|accepted|observability|best_effort|telemetry_batch"
-  "performance.bridge.web.package_apply|apply|data|cold|diff_package_metadata"
-  "performance.bridge.web.package_apply|apply|data|warm|diff_package_delta"
+  "performance.bridge.web.intake_frame|intake|data|cold|review_snapshot"
+  "performance.bridge.web.intake_frame|intake|data|warm|review_delta"
+  "performance.bridge.web.package_apply|apply|data|cold|review_snapshot"
+  "performance.bridge.web.package_apply|apply|data|warm|review_delta"
   "performance.bridge.web.package_apply|apply|data|hot|diff_status"
   "performance.bridge.web.content_fetch|fetch|data|hot|content_fetch"
-  "performance.bridge.web.first_render|render|data|hot|diff_package_metadata"
+  "performance.bridge.web.first_render|render|data|hot|review_snapshot"
   "performance.bridge.trees.projection_build|projection_build|data|warm|review_projection"
   "performance.bridge.viewer.content_queue|content_queue|data|hot|content_fetch"
   "performance.bridge.pierre.item_update|item_update|data|hot|code_view_item"
@@ -422,12 +422,40 @@ for contract in "${required_metric_event_contracts[@]}"; do
   count="$(wait_for_metric_count "missing Bridge metric counter for marker $MARKER: $event_name $phase/$plane/$priority/$slice" "$promql")"
 done
 
-package_push_slice_promql='agentstudio_performance_events_total{service.name="AgentStudio",dev.runtime.flavor="debug",agent.proof.marker="'"$MARKER"'",event="performance.bridge.webkit.package_push",phase="transport",plane="data",priority="cold",slice="diff_package_metadata"}'
-package_push_slice_count="$(
-  wait_for_metric_count \
-    "missing Bridge package_push metric counter grouped by plane/priority/slice for marker $MARKER" \
-    "$package_push_slice_promql"
-)"
+for forbidden_review_push_slice in \
+  diff_package_metadata \
+  diff_package_delta \
+  review_snapshot \
+  review_delta \
+  review_invalidation \
+  review_reset
+do
+  forbidden_package_push_promql='agentstudio_performance_events_total{service.name="AgentStudio",dev.runtime.flavor="debug",agent.proof.marker="'"$MARKER"'",event="performance.bridge.webkit.package_push",phase="transport",plane="data",slice="'"$forbidden_review_push_slice"'"}'
+  forbidden_package_push_count="$(metric_value "$forbidden_package_push_promql")"
+  if [ "$forbidden_package_push_count" != "0" ] && [ "$forbidden_package_push_count" != "0.0" ]; then
+    echo "Bridge Review package data still used WebKit push transport" >&2
+    echo "slice=$forbidden_review_push_slice count=$forbidden_package_push_count" >&2
+    exit 1
+  fi
+
+  forbidden_web_push_apply_promql='agentstudio_performance_events_total{service.name="AgentStudio",dev.runtime.flavor="debug",agent.proof.marker="'"$MARKER"'",event="performance.bridge.web.package_apply",phase="apply",plane="data",slice="'"$forbidden_review_push_slice"'",transport="push"}'
+  forbidden_web_push_apply_count="$(metric_value "$forbidden_web_push_apply_promql")"
+  if [ "$forbidden_web_push_apply_count" != "0" ] && [ "$forbidden_web_push_apply_count" != "0.0" ]; then
+    echo "Bridge Review package data still used web push apply transport" >&2
+    echo "slice=$forbidden_review_push_slice count=$forbidden_web_push_apply_count" >&2
+    exit 1
+  fi
+done
+
+for forbidden_first_render_push_slice in diff_package_metadata review_snapshot; do
+  forbidden_first_render_push_promql='agentstudio_performance_events_total{service.name="AgentStudio",dev.runtime.flavor="debug",agent.proof.marker="'"$MARKER"'",event="performance.bridge.web.first_render",phase="render",plane="data",slice="'"$forbidden_first_render_push_slice"'",transport="push"}'
+  forbidden_first_render_push_count="$(metric_value "$forbidden_first_render_push_promql")"
+  if [ "$forbidden_first_render_push_count" != "0" ] && [ "$forbidden_first_render_push_count" != "0.0" ]; then
+    echo "Bridge Review first render still reported push transport" >&2
+    echo "slice=$forbidden_first_render_push_slice count=$forbidden_first_render_push_count" >&2
+    exit 1
+  fi
+done
 
 broad_package_push_promql='agentstudio_performance_events_total{service.name="AgentStudio",dev.runtime.flavor="debug",agent.proof.marker="'"$MARKER"'",event="performance.bridge.webkit.package_push"} unless agentstudio_performance_events_total{service.name="AgentStudio",dev.runtime.flavor="debug",agent.proof.marker="'"$MARKER"'",event="performance.bridge.webkit.package_push",phase=~".+",plane=~".+",priority=~".+",slice=~".+"}'
 broad_package_push_count="$(metric_value "$broad_package_push_promql")"
@@ -498,6 +526,44 @@ if [ -n "$unknown_package_push_log_response" ]; then
   echo "$unknown_package_push_log_response" >&2
   exit 1
 fi
+
+for forbidden_review_push_slice in \
+  diff_package_metadata \
+  diff_package_delta \
+  review_snapshot \
+  review_delta \
+  review_invalidation \
+  review_reset
+do
+  forbidden_package_push_log_response="$(
+    query_logs "$base_log_query _msg:performance.bridge.webkit.package_push $(logsql_exact_value_filter agentstudio.bridge.slice "$forbidden_review_push_slice") | limit 1"
+  )"
+  if [ -n "$forbidden_package_push_log_response" ]; then
+    echo "Bridge Review package data still used WebKit push logs" >&2
+    echo "$forbidden_package_push_log_response" >&2
+    exit 1
+  fi
+
+  forbidden_web_push_apply_log_response="$(
+    query_logs "$base_log_query _msg:performance.bridge.web.package_apply $(logsql_exact_value_filter agentstudio.bridge.slice "$forbidden_review_push_slice") $(logsql_exact_value_filter agentstudio.bridge.transport push) | limit 1"
+  )"
+  if [ -n "$forbidden_web_push_apply_log_response" ]; then
+    echo "Bridge Review package data still used web push apply logs" >&2
+    echo "$forbidden_web_push_apply_log_response" >&2
+    exit 1
+  fi
+done
+
+for forbidden_first_render_push_slice in diff_package_metadata review_snapshot; do
+  forbidden_first_render_push_log_response="$(
+    query_logs "$base_log_query _msg:performance.bridge.web.first_render $(logsql_exact_value_filter agentstudio.bridge.slice "$forbidden_first_render_push_slice") $(logsql_exact_value_filter agentstudio.bridge.transport push) | limit 1"
+  )"
+  if [ -n "$forbidden_first_render_push_log_response" ]; then
+    echo "Bridge Review first render still reported push transport in logs" >&2
+    echo "$forbidden_first_render_push_log_response" >&2
+    exit 1
+  fi
+done
 
 telemetry_self_rpc_log_response="$(
   query_logs "$base_log_query agentstudio.bridge.rpc.method_class:telemetry | limit 1"

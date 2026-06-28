@@ -43,12 +43,15 @@ enum BridgeBootstrap {
                 const REVIEW_STREAM_ID = \(reviewStreamIdJSON);
                 const WORKTREE_FILE_SOURCE_SPEC = \(worktreeFileSourceSpecJSON);
                 const TELEMETRY_CONFIG = \(telemetryConfigJSON);
+                const PENDING_INTAKE_FRAME_JSON = [];
+                const MAX_PENDING_INTAKE_FRAMES = 64;
                 const PAGE_WORLD_ALLOWED_COMMAND_METHODS = new Set([
                     'review.markFileViewed',
                     'worktreeFileSurface.openSourceStream',
                     'system.bridgeTelemetry'
                 ]);
                 const HOST_PUSH_PORTS = new Set();
+                const HOST_INTAKE_PORTS = new Set();
 
                 function publishHostPushPort() {
                     const channel = new MessageChannel();
@@ -68,6 +71,37 @@ enum BridgeBootstrap {
                             json: envelopeJSON
                         });
                     }
+                }
+
+                function publishHostIntakePort() {
+                    const channel = new MessageChannel();
+                    HOST_INTAKE_PORTS.add(channel.port1);
+                    channel.port1.start();
+                    window.postMessage({
+                        type: 'agentstudio.bridge.hostIntakePort',
+                        version: 1
+                    }, '*', [channel.port2]);
+                }
+
+                function postHostIntakeFrameJSON(frameJSON) {
+                    for (const port of HOST_INTAKE_PORTS) {
+                        port.postMessage({
+                            type: 'agentstudio.bridge.hostIntakeFrameJSON',
+                            version: 1,
+                            json: frameJSON
+                        });
+                    }
+                }
+
+                function dispatchIntakeFrameJSON(frameJSON) {
+                    if (PENDING_INTAKE_FRAME_JSON.length >= MAX_PENDING_INTAKE_FRAMES) {
+                        PENDING_INTAKE_FRAME_JSON.shift();
+                    }
+                    PENDING_INTAKE_FRAME_JSON.push(frameJSON);
+                    postHostIntakeFrameJSON(frameJSON);
+                    document.dispatchEvent(new CustomEvent('__bridge_intake_json', {
+                        detail: { json: frameJSON, nonce: PUSH_NONCE }
+                    }));
                 }
 
                 // Install bridge internal API in bridge world only.
@@ -130,9 +164,7 @@ enum BridgeBootstrap {
                         }));
                     },
                     applyIntakeFrameJSON: function(frameJSON) {
-                        document.dispatchEvent(new CustomEvent('__bridge_intake_json', {
-                            detail: { json: frameJSON, nonce: PUSH_NONCE }
-                        }));
+                        dispatchIntakeFrameJSON(frameJSON);
                     },
                     sendCommandJSON: function(commandJSON) {
                         if (typeof commandJSON !== 'string' || commandJSON.length === 0) {
@@ -210,7 +242,19 @@ enum BridgeBootstrap {
                 document.addEventListener('__bridge_host_push_port_request', function() {
                     publishHostPushPort();
                 });
+                document.addEventListener('__bridge_host_intake_port_request', function() {
+                    publishHostIntakePort();
+                });
+                document.addEventListener('__bridge_intake_replay_request', function() {
+                    for (const frameJSON of PENDING_INTAKE_FRAME_JSON) {
+                        postHostIntakeFrameJSON(frameJSON);
+                        document.dispatchEvent(new CustomEvent('__bridge_intake_json', {
+                            detail: { json: frameJSON, nonce: PUSH_NONCE }
+                        }));
+                    }
+                });
                 publishHostPushPort();
+                publishHostIntakePort();
 
                 // Set nonce attribute on documentElement for page world command sender
                 document.documentElement.setAttribute('data-bridge-nonce', BRIDGE_NONCE);

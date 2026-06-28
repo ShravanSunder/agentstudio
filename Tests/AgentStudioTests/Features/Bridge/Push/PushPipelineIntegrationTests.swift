@@ -81,7 +81,7 @@ final class PushPipelineIntegrationTests {
             slices: {
                 Slice(
                     "diffEpoch",
-                    telemetrySlice: .diffPackageMetadata,
+                    telemetrySlice: .diffFiles,
                     store: .diff,
                     level: .cold,
                     op: .replace
@@ -120,7 +120,7 @@ final class PushPipelineIntegrationTests {
             pushesAfterMutations < 5,
             "Cold debounce should coalesce rapid mutations into fewer pushes (got \(pushesAfterMutations))")
         #expect(pushesAfterMutations >= 1, "At least one push should have fired after the mutations settled")
-        #expect(transport.lastSlice == .diffPackageMetadata)
+        #expect(transport.lastSlice == .diffFiles)
 
         plan.stop()
     }

@@ -352,6 +352,112 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
         )
     }
 
+    func streamContent(
+        _ request: BridgeContentStreamRequest,
+        chunkByteCount: Int,
+        emitChunk: BridgeContentStreamEmitter
+    ) async throws -> BridgeContentStreamResult {
+        guard let locator = locatorByHandleId[request.handle.handleId] else {
+            throw BridgeProviderFailure.missingContent(handleId: request.handle.handleId)
+        }
+        guard locator.reviewGeneration == request.requestedGeneration,
+            request.handle.reviewGeneration == request.requestedGeneration
+        else {
+            throw BridgeProviderFailure.staleReviewGeneration(
+                storedGeneration: locator.reviewGeneration,
+                requestedGeneration: request.requestedGeneration
+            )
+        }
+        guard locator.target == .workingTree else {
+            let result = try await loadContent(
+                BridgeContentLoadRequest(
+                    handle: request.handle,
+                    requestedGeneration: request.requestedGeneration
+                )
+            )
+            var offset = 0
+            while offset < result.data.count {
+                let endOffset = min(offset + chunkByteCount, result.data.count)
+                try await emitChunk(result.data.subdata(in: offset..<endOffset))
+                offset = endOffset
+            }
+            return BridgeContentStreamResult(
+                handle: request.handle,
+                byteCount: result.data.count,
+                mimeType: request.handle.mimeType,
+                contentHash: request.handle.contentHash,
+                contentHashAlgorithm: request.handle.contentHashAlgorithm
+            )
+        }
+        return try await streamWorkingTreeContent(
+            handle: request.handle,
+            path: locator.path,
+            chunkByteCount: chunkByteCount,
+            emitChunk: emitChunk
+        )
+    }
+
+    private func streamWorkingTreeContent(
+        handle: BridgeContentHandle,
+        path: String,
+        chunkByteCount: Int,
+        emitChunk: BridgeContentStreamEmitter
+    ) async throws -> BridgeContentStreamResult {
+        let fileURL = try checkedWorkingTreeFileURL(path: path)
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            throw BridgeProviderFailure.missingContent(handleId: handle.handleId)
+        }
+        let fileHandle: FileHandle
+        do {
+            fileHandle = try FileHandle(forReadingFrom: fileURL)
+        } catch {
+            throw BridgeProviderFailure.providerFailed(message: "gitDataPlane:fileReadFailed")
+        }
+        defer {
+            try? fileHandle.close()
+        }
+        var byteCount = 0
+        while true {
+            let chunk: Data?
+            do {
+                chunk = try fileHandle.read(upToCount: chunkByteCount)
+            } catch {
+                throw BridgeProviderFailure.providerFailed(message: "gitDataPlane:fileReadFailed")
+            }
+            guard let chunk, !chunk.isEmpty else { break }
+            byteCount += chunk.count
+            guard byteCount <= AppPolicies.Bridge.contentMaxBytesPerItem,
+                byteCount <= handle.sizeBytes
+            else {
+                throw BridgeProviderFailure.oversizedContent(
+                    handleId: handle.handleId,
+                    sizeBytes: byteCount
+                )
+            }
+            try await emitChunk(chunk)
+        }
+        return BridgeContentStreamResult(
+            handle: handle,
+            byteCount: byteCount,
+            mimeType: handle.mimeType,
+            contentHash: handle.contentHash,
+            contentHashAlgorithm: handle.contentHashAlgorithm
+        )
+    }
+
+    private func checkedWorkingTreeFileURL(path: String) throws -> URL {
+        let repositoryURL = repositoryPath.standardizedFileURL
+        let fileURL = repositoryURL.appendingPathComponent(path).standardizedFileURL
+        let repositoryPathPrefix =
+            repositoryURL.path.hasSuffix("/")
+            ? repositoryURL.path
+            : "\(repositoryURL.path)/"
+        guard fileURL.path.hasPrefix(repositoryPathPrefix) else {
+            throw BridgeProviderFailure.providerFailed(message: "gitDataPlane:pathEscapesRepository")
+        }
+        return fileURL
+    }
+
     private func bridgeChangedFile(_ file: GitDiffFile) -> BridgeEndpointChangedFile {
         BridgeEndpointChangedFile(
             fileId: file.fileId,

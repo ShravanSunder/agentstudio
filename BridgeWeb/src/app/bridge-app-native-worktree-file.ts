@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { readBridgeTextResourceStream } from '../core/resources/bridge-resource-stream.js';
 import {
 	worktreeFileProtocolFrameSchema,
 	worktreeFileSurfaceSourceSpecSchema,
@@ -11,12 +12,15 @@ import type {
 	WorktreeFileInitialSurface,
 	WorktreeFileSurfaceProvenance,
 } from '../worktree-file-surface/worktree-file-app.js';
-import type { WorktreeFileSurfaceRuntimeFetchResourceProps } from '../worktree-file-surface/worktree-file-surface-runtime.js';
+import type {
+	WorktreeFileSurfaceRuntimeFetchedResource,
+	WorktreeFileSurfaceRuntimeFetchResourceProps,
+} from '../worktree-file-surface/worktree-file-surface-runtime.js';
 
 export interface BridgeAppNativeWorktreeFileBackend {
 	readonly fetchWorktreeFileResource: (
 		props: WorktreeFileSurfaceRuntimeFetchResourceProps,
-	) => Promise<string>;
+	) => Promise<WorktreeFileSurfaceRuntimeFetchedResource>;
 	readonly loadWorktreeFileSurface: () => Promise<WorktreeFileInitialSurface>;
 	readonly subscribeWorktreeFileFrames: (
 		subscriber: WorktreeFileFrameSubscriber,
@@ -121,7 +125,7 @@ export function createBridgeAppNativeWorktreeFileBackend(
 	return {
 		fetchWorktreeFileResource: async (
 			resourceProps: WorktreeFileSurfaceRuntimeFetchResourceProps,
-		): Promise<string> => {
+		): Promise<WorktreeFileSurfaceRuntimeFetchedResource> => {
 			const fetchResource = props.fetchResource ?? fetch;
 			const response = await fetchResource(resourceProps.resourceUrl, {
 				signal: resourceProps.signal,
@@ -129,7 +133,12 @@ export function createBridgeAppNativeWorktreeFileBackend(
 			if (!response.ok) {
 				throw new Error(`Native Worktree/File resource request failed: ${response.status}`);
 			}
-			return await response.text();
+			return await readBridgeTextResourceStream(response, {
+				integrity: resourceProps.descriptor.content.integrity,
+				maxBytes: resourceProps.descriptor.content.maxBytes,
+				onTextChunk: resourceProps.onTextChunk,
+				signal: resourceProps.signal,
+			});
 		},
 		loadWorktreeFileSurface: async (): Promise<WorktreeFileInitialSurface> => {
 			if (isDisposed) {

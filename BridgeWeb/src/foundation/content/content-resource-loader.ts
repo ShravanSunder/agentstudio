@@ -1,11 +1,20 @@
 import { parseBridgeContentResourceUrl } from '../../bridge/bridge-resource-url.js';
+import type { BridgeIntegrityDescriptor } from '../../core/models/bridge-resource-descriptor.js';
+import { readBridgeTextResourceStream } from '../../core/resources/bridge-resource-stream.js';
 import type { BridgeContentHandle } from '../review-package/bridge-review-package.js';
 import type { BridgeTelemetryRecorder } from '../telemetry/bridge-telemetry-recorder.js';
 import { bridgeTraceparent, type BridgeTraceContext } from '../telemetry/bridge-trace-context.js';
 
 export interface BridgeContentResource {
+	readonly authoritative?: boolean;
+	readonly byteLength?: number;
 	readonly handle: BridgeContentHandle;
-	readonly text: string;
+	readText(): string;
+}
+
+export interface BridgeLoadedContentResource extends BridgeContentResource {
+	readonly authoritative: boolean;
+	readonly byteLength: number;
 }
 
 export interface BridgeContentFetch {
@@ -15,6 +24,8 @@ export interface BridgeContentFetch {
 export interface LoadBridgeContentResourceProps {
 	readonly handle: BridgeContentHandle;
 	readonly fetchContent?: BridgeContentFetch;
+	readonly integrity?: BridgeIntegrityDescriptor;
+	readonly maxBytes?: number;
 	readonly traceContext?: BridgeTraceContext | null;
 	readonly sendTraceparentHeader?: boolean;
 	readonly signal?: AbortSignal;
@@ -23,7 +34,7 @@ export interface LoadBridgeContentResourceProps {
 
 export async function loadBridgeContentResource(
 	props: LoadBridgeContentResourceProps,
-): Promise<BridgeContentResource> {
+): Promise<BridgeLoadedContentResource> {
 	const fetchContent = props.fetchContent ?? fetch;
 	const traceContext = props.traceContext ?? null;
 	const start = performance.now();
@@ -40,9 +51,16 @@ export async function loadBridgeContentResource(
 		if (!response.ok) {
 			throw new Error(`Bridge content request failed: ${response.status}`);
 		}
+		const streamedText = await readBridgeTextResourceStream(response, {
+			integrity: props.integrity,
+			maxBytes: props.maxBytes,
+			signal: props.signal,
+		});
 		return {
+			authoritative: streamedText.authoritative,
+			byteLength: streamedText.byteLength,
 			handle: props.handle,
-			text: await response.text(),
+			readText: (): string => streamedText.readText(),
 		};
 	} finally {
 		props.telemetryRecorder?.record({

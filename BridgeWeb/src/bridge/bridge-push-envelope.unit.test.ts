@@ -19,18 +19,14 @@ describe('bridge push envelope', () => {
 		expect(replaceEnvelope.revision).toBe(1);
 		expect(mergeEnvelope.op).toBe('merge');
 		expect(mergeEnvelope.level).toBe('warm');
-		expect(mergeEnvelope.slice).toBe('diff_package_delta');
+		expect(mergeEnvelope.slice).toBe('diff_files');
 		expect(mergeEnvelope.data).toEqual({
-			delta: {
-				packageId: 'package-33733733-7337-4337-9337-337337337337',
-				reviewGeneration: 1,
-				revision: 2,
-				operations: {
-					addItems: [],
-					updateItems: [],
-					removeItems: [],
+			files: [
+				{
+					path: 'Sources/AgentStudio/Bridge.swift',
+					status: 'modified',
 				},
-			},
+			],
 		});
 		expect(epochAdvanceEnvelope.epoch).toBe(2);
 	});

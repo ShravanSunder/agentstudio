@@ -1,5 +1,6 @@
-import { dispatchBridgeDevHostAdmittedEnvelope } from '../../bridge/bridge-dev-host-push-carrier.js';
+import type { BridgeIntakeFrame } from '../../core/models/bridge-intake-frame.js';
 import { parseBridgeCoreResourceUrl } from '../../core/resources/bridge-resource-url.js';
+import type { ReviewProtocolFrame } from '../../features/review/models/review-protocol-models.js';
 import {
 	buildReviewDeltaFrame,
 	buildReviewSnapshotFrame,
@@ -40,6 +41,7 @@ export type BridgeViewerBrowserFixtureClass =
 	| 'large-diffshub';
 export type BridgeViewerMockedBackendDeliveryMode = 'full-load' | 'streaming-append';
 export type BridgeViewerLargeFixtureItemPlacement = 'near-start' | 'after-fillers';
+type BridgeViewerReviewIntakeKind = 'snapshot' | 'delta' | 'invalidate' | 'reset';
 
 export interface InstallBridgeViewerMockedBackendOptions {
 	readonly latencyProfile?: BridgeViewerMockedBackendLatencyProfile;
@@ -441,6 +443,7 @@ export function installBridgeViewerMockedBackend(
 	const pendingContentResponses: BridgeViewerDeferredContentResponse[] = [];
 	const requestedUrls: string[] = [];
 	const pushRecords: BridgeViewerMockedBackendPushRecord[] = [];
+	const reviewProtocolResourceBodiesByUrl = new Map<string, string>();
 	const contentFailures = new Set(options.contentFailures ?? []);
 	const deferredContentHandleIds = new Set(options.deferContentHandleIds ?? []);
 	const latencyProfile = options.latencyProfile ?? 'zero';
@@ -562,6 +565,22 @@ export function installBridgeViewerMockedBackend(
 			if (init?.signal?.aborted === true) {
 				return new Response('', { status: 499 });
 			}
+			const parsedResourceUrl = parseBridgeCoreResourceUrl(url, {
+				allowedResourceKindsByProtocol: {
+					review: new Set(['content', 'review-package', 'review-delta']),
+				},
+			});
+			if (
+				parsedResourceUrl !== null &&
+				(parsedResourceUrl.resourceKind === 'review-package' ||
+					parsedResourceUrl.resourceKind === 'review-delta')
+			) {
+				const body = reviewProtocolResourceBodiesByUrl.get(parsedResourceUrl.canonicalUrl);
+				if (body === undefined) {
+					return new Response(`missing mocked protocol body for ${url}`, { status: 404 });
+				}
+				return new Response(body);
+			}
 			const handleId = handleIdFromResourceUrl(url);
 			if (handleId !== null && contentFailures.has(handleId)) {
 				return new Response(`mocked content failure for ${handleId}`, { status: 503 });
@@ -619,26 +638,18 @@ export function installBridgeViewerMockedBackend(
 				reviewGeneration: reviewPackage.reviewGeneration,
 				payloadKind: 'package',
 			});
-			dispatchBridgeDevHostAdmittedEnvelope({
-				__v: 1,
-				__pushId: `push-${reviewPackage.packageId}-${reviewPackage.revision}`,
-				__revision: reviewPackage.revision,
-				__epoch: reviewPackage.reviewGeneration,
-				store: 'diff',
-				op: 'replace',
-				level: 'cold',
-				slice: 'diff_package_metadata',
-				data: {
-					package: reviewPackage,
-					protocolFrame: buildReviewSnapshotFrame({
-						package: reviewPackage,
-						paneId: bridgeViewerReviewPaneId,
-						sourceIdentity: reviewPackage.query.queryId,
-						streamId: bridgeViewerReviewStreamId,
-						sequence: reviewPackage.revision,
-					}),
-				},
+			const protocolFrame = buildReviewSnapshotFrame({
+				package: reviewPackage,
+				paneId: bridgeViewerReviewPaneId,
+				sourceIdentity: reviewPackage.query.queryId,
+				streamId: bridgeViewerReviewStreamId,
+				sequence: reviewPackage.revision,
 			});
+			reviewProtocolResourceBodiesByUrl.set(
+				protocolFrame.package.rootDescriptor.descriptor.resourceUrl,
+				JSON.stringify(reviewPackage),
+			);
+			dispatchBridgeViewerReviewIntakeFrame(protocolFrame);
 			await Promise.resolve();
 			await Promise.resolve();
 		},
@@ -653,28 +664,20 @@ export function installBridgeViewerMockedBackend(
 				reviewGeneration: delta.reviewGeneration,
 				payloadKind: 'delta',
 			});
-			dispatchBridgeDevHostAdmittedEnvelope({
-				__v: 1,
-				__pushId: `push-${delta.packageId}-delta-${delta.revision}`,
-				__revision: delta.revision,
-				__epoch: delta.reviewGeneration,
-				store: 'diff',
-				op: 'merge',
-				level: 'hot',
-				slice: 'diff_package_delta',
-				data: {
-					delta,
-					protocolFrame: buildReviewDeltaFrame({
-						package: nextReviewPackage,
-						paneId: bridgeViewerReviewPaneId,
-						sourceIdentity: nextReviewPackage.query.queryId,
-						streamId: bridgeViewerReviewStreamId,
-						sequence: nextReviewPackage.revision,
-						fromRevision: previousReviewPackage.revision,
-						toRevision: nextReviewPackage.revision,
-					}),
-				},
+			const protocolFrame = buildReviewDeltaFrame({
+				package: nextReviewPackage,
+				paneId: bridgeViewerReviewPaneId,
+				sourceIdentity: nextReviewPackage.query.queryId,
+				streamId: bridgeViewerReviewStreamId,
+				sequence: nextReviewPackage.revision,
+				fromRevision: previousReviewPackage.revision,
+				toRevision: nextReviewPackage.revision,
 			});
+			reviewProtocolResourceBodiesByUrl.set(
+				protocolFrame.operationsDescriptor.descriptor.resourceUrl,
+				JSON.stringify(delta.operations),
+			);
+			dispatchBridgeViewerReviewIntakeFrame(protocolFrame);
 			await Promise.resolve();
 			await Promise.resolve();
 		},
@@ -697,6 +700,42 @@ async function waitForBridgeHandshakeRequest(
 		requestAnimationFrame((): void => resolve());
 	});
 	await waitForBridgeHandshakeRequest(didReceiveHandshakeRequest, remainingAttempts - 1);
+}
+
+function dispatchBridgeViewerReviewIntakeFrame(protocolFrame: ReviewProtocolFrame): void {
+	const intakeFrame: BridgeIntakeFrame = {
+		kind: reviewIntakeKindForProtocolFrame(protocolFrame),
+		streamId: protocolFrame.streamId,
+		generation: protocolFrame.generation,
+		sequence: protocolFrame.sequence,
+		payload: protocolFrame,
+	};
+	document.dispatchEvent(
+		new CustomEvent('__bridge_intake_json', {
+			detail: {
+				json: JSON.stringify(intakeFrame),
+				nonce: bridgeViewerPushNonce,
+			},
+		}),
+	);
+}
+
+function reviewIntakeKindForProtocolFrame(
+	protocolFrame: ReviewProtocolFrame,
+): BridgeViewerReviewIntakeKind {
+	switch (protocolFrame.frameKind) {
+		case 'review.snapshot':
+			return 'snapshot';
+		case 'review.delta':
+			return 'delta';
+		case 'review.invalidate':
+			return 'invalidate';
+		case 'review.reset':
+			return 'reset';
+	}
+	const exhaustiveFrameKind: never = protocolFrame;
+	void exhaustiveFrameKind;
+	throw new Error('Unhandled Review protocol frame kind');
 }
 
 function makeBrowserFixtureItem(props: {

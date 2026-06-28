@@ -8,6 +8,22 @@ struct BridgePushDedupEntry {
     let payload: Data
 }
 
+private actor BridgeDeliveryResult {
+    private var didDeliver = false
+
+    var delivered: Bool {
+        didDeliver
+    }
+
+    func setDelivered() {
+        didDeliver = true
+    }
+
+    func setFailed() {
+        didDeliver = false
+    }
+}
+
 @MainActor
 extension BridgePaneController: PushTransport {
     func pushJSON(
@@ -46,8 +62,8 @@ extension BridgePaneController: PushTransport {
 
         // Transport the envelope to React; transport failures are connection errors.
         // WebKit accepts overlapping callJavaScript requests but does not reliably
-        // deliver every page event when several push plans fire at bridge-ready.
-        let previousDelivery = pushDeliveryTail
+        // deliver every page event when several push/intake plans fire at bridge-ready.
+        let previousDelivery = bridgeDeliveryTail
         let delivery = Task { @MainActor [weak self] in
             await previousDelivery?.value
             guard let self else { return }
@@ -59,8 +75,27 @@ extension BridgePaneController: PushTransport {
                 traceContext: traceContext
             )
         }
-        pushDeliveryTail = delivery
+        bridgeDeliveryTail = delivery
         await delivery.value
+    }
+
+    func deliverIntakeFrame(_ frameJSON: String) async -> Bool {
+        let result = BridgeDeliveryResult()
+        let previousDelivery = bridgeDeliveryTail
+        let delivery = Task { @MainActor [weak self] in
+            await previousDelivery?.value
+            guard let self else { return }
+            do {
+                try await self.intakeFrameSink(self.page, frameJSON, self.pushNonce)
+                await result.setDelivered()
+            } catch {
+                await result.setFailed()
+                self.paneState.connection.setHealth(.error)
+            }
+        }
+        bridgeDeliveryTail = delivery
+        await delivery.value
+        return await result.delivered
     }
 
     private func deliverPushEnvelope(
@@ -218,9 +253,9 @@ extension BridgePaneController: PushTransport {
         switch name {
         case "performance.bridge.swift.package_build",
             "performance.bridge.swift.content_register":
-            .diffPackageMetadata
+            .reviewSnapshot
         case "performance.bridge.swift.delta_build":
-            .diffPackageDelta
+            .reviewDelta
         case "performance.bridge.swift.content_load":
             .contentFetch
         case "performance.bridge.swift.telemetry_ingest":
@@ -250,7 +285,9 @@ extension BridgePaneController: PushTransport {
             .codeViewVirtualRange,
             .shikiHighlight:
             .hot
-        case .diffPackageDelta,
+        case .reviewDelta,
+            .reviewInvalidation,
+            .reviewReset,
             .reviewThreads,
             .reviewViewedFiles,
             .commandAcks,
@@ -260,7 +297,7 @@ extension BridgePaneController: PushTransport {
             .markdownPreview,
             .workerTask:
             .warm
-        case .diffPackageMetadata, .diffFiles, .contentFetch, .unknown:
+        case .reviewSnapshot, .diffFiles, .contentFetch, .unknown:
             .cold
         case .telemetryBatch, .telemetryDrop, .telemetryIngest:
             .bestEffort

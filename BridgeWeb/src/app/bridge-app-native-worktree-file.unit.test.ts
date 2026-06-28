@@ -88,6 +88,127 @@ describe('Bridge app native Worktree/File backend', () => {
 		unsubscribe();
 		backend.dispose();
 	});
+
+	test('fetches native worktree file resources from streamed response chunks', async () => {
+		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-1');
+		document.documentElement.setAttribute(
+			'data-bridge-worktree-file-source-spec',
+			JSON.stringify({
+				clientRequestId: 'bootstrap-request',
+				repoId: '11111111-1111-4111-8111-111111111111',
+				worktreeId: '22222222-2222-4222-8222-222222222222',
+				rootPathToken: 'root-token',
+				includeStatuses: true,
+				includeFileDescriptors: true,
+				includeComments: false,
+				includeAgentComms: false,
+				freshness: 'live',
+			}),
+		);
+		const backend = createBridgeAppNativeWorktreeFileBackend({
+			target: document,
+			fetchResource: async (url, init): Promise<Response> => {
+				expect(url).toBe(
+					'agentstudio://resource/worktree-file/worktree.fileContent/content-1?generation=1&revision=1',
+				);
+				expect(init?.signal).toBeInstanceOf(AbortSignal);
+				return chunkedTextResponse(['native ', 'streamed ', 'content']);
+			},
+		});
+		if (backend === null) {
+			throw new Error('expected native worktree backend');
+		}
+
+		const body = await backend.fetchWorktreeFileResource({
+			descriptor: makeAttachedDescriptor('content-1').descriptor,
+			resourceUrl:
+				'agentstudio://resource/worktree-file/worktree.fileContent/content-1?generation=1&revision=1',
+			signal: new AbortController().signal,
+		});
+
+		expect(body).toMatchObject({
+			authoritative: true,
+			byteLength: 23,
+		});
+		expect(body.readText()).toBe('native streamed content');
+		backend.dispose();
+	});
+
+	test('rejects native worktree file resources that exceed descriptor max bytes', async () => {
+		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-1');
+		document.documentElement.setAttribute(
+			'data-bridge-worktree-file-source-spec',
+			JSON.stringify({
+				clientRequestId: 'bootstrap-request',
+				repoId: '11111111-1111-4111-8111-111111111111',
+				worktreeId: '22222222-2222-4222-8222-222222222222',
+				rootPathToken: 'root-token',
+				includeStatuses: true,
+				includeFileDescriptors: true,
+				includeComments: false,
+				includeAgentComms: false,
+				freshness: 'live',
+			}),
+		);
+		const backend = createBridgeAppNativeWorktreeFileBackend({
+			target: document,
+			fetchResource: async (): Promise<Response> => chunkedTextResponse(['too ', 'large']),
+		});
+		if (backend === null) {
+			throw new Error('expected native worktree backend');
+		}
+
+		await expect(
+			backend.fetchWorktreeFileResource({
+				descriptor: makeAttachedDescriptor('content-1', { maxBytes: 4 }).descriptor,
+				resourceUrl:
+					'agentstudio://resource/worktree-file/worktree.fileContent/content-1?generation=1&revision=1',
+				signal: new AbortController().signal,
+			}),
+		).rejects.toThrow('Bridge text resource stream exceeded issued max bytes');
+		backend.dispose();
+	});
+
+	test('rejects native worktree file resources whose whole-body integrity mismatches', async () => {
+		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-1');
+		document.documentElement.setAttribute(
+			'data-bridge-worktree-file-source-spec',
+			JSON.stringify({
+				clientRequestId: 'bootstrap-request',
+				repoId: '11111111-1111-4111-8111-111111111111',
+				worktreeId: '22222222-2222-4222-8222-222222222222',
+				rootPathToken: 'root-token',
+				includeStatuses: true,
+				includeFileDescriptors: true,
+				includeComments: false,
+				includeAgentComms: false,
+				freshness: 'live',
+			}),
+		);
+		const backend = createBridgeAppNativeWorktreeFileBackend({
+			target: document,
+			fetchResource: async (): Promise<Response> => chunkedTextResponse(['tampered']),
+		});
+		if (backend === null) {
+			throw new Error('expected native worktree backend');
+		}
+
+		await expect(
+			backend.fetchWorktreeFileResource({
+				descriptor: makeAttachedDescriptor('content-1', {
+					integrity: {
+						algorithm: 'sha256',
+						kind: 'wholeHash',
+						value: 'sha256:3173778af72bee80065ddb3dc0fa2319fcaca233bdfd4591d1b3a4ca5115d5a9',
+					},
+				}).descriptor,
+				resourceUrl:
+					'agentstudio://resource/worktree-file/worktree.fileContent/content-1?generation=1&revision=1',
+				signal: new AbortController().signal,
+			}),
+		).rejects.toThrow('Bridge text resource stream failed whole-body integrity validation');
+		backend.dispose();
+	});
 });
 
 function makeSourceIdentity(): WorktreeFileSurfaceSourceIdentity {
@@ -148,6 +269,12 @@ function makeFileDescriptorFrame(): Extract<
 
 function makeAttachedDescriptor(
 	descriptorId: string,
+	props: {
+		readonly integrity?: ReturnType<
+			typeof makeSnapshotFrame
+		>['treeDescriptor']['descriptor']['content']['integrity'];
+		readonly maxBytes?: number;
+	} = {},
 ): ReturnType<typeof makeSnapshotFrame>['treeDescriptor'] {
 	const identity = {
 		paneId: 'pane-1',
@@ -173,8 +300,26 @@ function makeAttachedDescriptor(
 				mediaType: 'text/plain',
 				encoding: 'utf-8',
 				expectedBytes: 42,
-				maxBytes: 1024,
+				maxBytes: props.maxBytes ?? 1024,
+				...(props.integrity === undefined ? {} : { integrity: props.integrity }),
 			},
 		},
 	};
+}
+
+function chunkedTextResponse(chunks: readonly string[]): Response {
+	const encoder = new TextEncoder();
+	const body = new ReadableStream<Uint8Array>({
+		start(controller): void {
+			for (const chunk of chunks) {
+				controller.enqueue(encoder.encode(chunk));
+			}
+			controller.close();
+		},
+	});
+	return Object.assign(new Response(body), {
+		text: async (): Promise<string> => {
+			throw new Error('whole body text() should not be used for Worktree/File resources');
+		},
+	});
 }

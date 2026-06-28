@@ -41,8 +41,8 @@ struct AgentStudioIPCBridgeServiceTests {
         #expect(result.correlationId == correlationId)
     }
 
-    @Test("debug unsafe no-auth serves Bridge package and file view content methods")
-    func debugUnsafeNoAuthServesBridgePackageAndFileViewContentMethods() throws {
+    @Test("debug unsafe no-auth serves Bridge package status and file view descriptor methods")
+    func debugUnsafeNoAuthServesBridgePackageStatusAndFileViewDescriptorMethods() throws {
         let paneId = UUID()
         let fixture = try LiveServerFixture(
             accessMode: .unsafeDebug,
@@ -66,10 +66,9 @@ struct AgentStudioIPCBridgeServiceTests {
         #expect(packageResponse.id == .number(66))
         #expect(packageResponse.error == nil)
         let package = try decodeResponseResult(IPCBridgeReviewPackageResult.self, from: packageResponse)
-        let firstItem = try #require(package.package?.items.first)
-        let headHandle = try #require(firstItem.contentRoles.head)
         #expect(package.paneId == paneId)
-        #expect(firstItem.headPath == "Sources/App/View.swift")
+        #expect(package.packageId == "package-test")
+        #expect(package.reviewGeneration == 1)
 
         let contentResponse = try sendRequest(
             socketPath: fixture.paths.socketURL.path,
@@ -78,8 +77,8 @@ struct AgentStudioIPCBridgeServiceTests {
                 method: "bridge.fileView.getContent",
                 params: .object([
                     "handle": .string("pane:1"),
-                    "contentHandleId": .string(headHandle.handleId),
-                    "reviewGeneration": .number(Double(headHandle.reviewGeneration)),
+                    "contentHandleId": .string("handle-head"),
+                    "reviewGeneration": .number(1),
                 ])
             )
         )
@@ -88,8 +87,9 @@ struct AgentStudioIPCBridgeServiceTests {
         #expect(contentResponse.error == nil)
         let content = try decodeResponseResult(IPCBridgeContentGetResult.self, from: contentResponse)
         #expect(content.paneId == paneId)
-        #expect(content.handle.handleId == headHandle.handleId)
-        #expect(content.contentText == "let value = 1\n")
+        #expect(content.handle.handleId == "handle-head")
+        #expect(content.handle.resourceUrl == "agentstudio://resource/review/content/handle-head?generation=1")
+        #expect(content.byteCount == 14)
     }
 
     @Test("debug unsafe no-auth serves Bridge render state method")

@@ -5,32 +5,46 @@ import type { BridgeResourceDescriptorRegistry } from '../resources/bridge-resou
 export interface BridgeResourceExecutorLoadResourceProps {
 	readonly descriptor: BridgeResourceDescriptor;
 	readonly intent: BridgeDemandIntent;
+	readonly onChunk: (chunk: BridgeResourceExecutorStreamChunk) => void;
 	readonly signal: AbortSignal;
 }
 
-export interface BridgeResourceExecutorBody<TBody = unknown> {
-	readonly body: TBody;
+export interface BridgeResourceExecutorContent<TContent = unknown> {
+	readonly authoritative?: boolean;
+	readonly content: TContent;
 	readonly byteLength: number;
 }
 
-export type BridgeResourceExecutorLoadResource<TBody = unknown> = (
-	props: BridgeResourceExecutorLoadResourceProps,
-) => Promise<BridgeResourceExecutorBody<TBody>>;
+export interface BridgeResourceExecutorStreamChunk<TChunk = unknown> {
+	readonly byteLength: number;
+	readonly chunk: TChunk;
+	readonly totalBytesRead: number;
+}
 
-export interface BridgeResourceExecutorProps<TBody = unknown> {
+export type BridgeResourceExecutorLoadResource<TContent = unknown> = (
+	props: BridgeResourceExecutorLoadResourceProps,
+) => Promise<BridgeResourceExecutorContent<TContent>>;
+
+export interface BridgeResourceExecutorProps<TContent = unknown> {
 	readonly registry: BridgeResourceDescriptorRegistry;
 	readonly maxConcurrentLoads: number;
 	readonly maxInFlightBytes: number;
 	readonly maxQueuedLoads: number;
 	readonly maxQueuedBytes: number;
-	readonly loadResource: BridgeResourceExecutorLoadResource<TBody>;
+	readonly loadResource: BridgeResourceExecutorLoadResource<TContent>;
 	readonly isFresh?: (intent: BridgeDemandIntent) => boolean;
+	readonly onChunk?: (props: {
+		readonly chunk: BridgeResourceExecutorStreamChunk;
+		readonly descriptor: BridgeResourceDescriptor;
+		readonly intent: BridgeDemandIntent;
+	}) => void;
 }
 
-export type BridgeResourceExecutorResult<TBody = unknown> =
+export type BridgeResourceExecutorResult<TContent = unknown> =
 	| {
 			readonly ok: true;
-			readonly body: TBody;
+			readonly authoritative: boolean;
+			readonly content: TContent;
 			readonly byteLength: number;
 			readonly descriptor: BridgeResourceDescriptor;
 			readonly freshnessKey: string;
@@ -46,8 +60,8 @@ export type BridgeResourceExecutorResult<TBody = unknown> =
 				| 'aborted';
 	  };
 
-export interface BridgeResourceExecutor<TBody = unknown> {
-	load(intent: BridgeDemandIntent): Promise<BridgeResourceExecutorResult<TBody>>;
+export interface BridgeResourceExecutor<TContent = unknown> {
+	load(intent: BridgeDemandIntent): Promise<BridgeResourceExecutorResult<TContent>>;
 	cancelGroup(cancellationGroup: string): number;
 	readonly inFlightCount: number;
 	readonly inFlightBytes: number;
@@ -59,27 +73,27 @@ export interface BridgeResourceExecutor<TBody = unknown> {
 	readonly queuedBytes: number;
 }
 
-interface InFlightResourceLoad<TBody> {
-	readonly promise: Promise<BridgeResourceExecutorResult<TBody>>;
+interface InFlightResourceLoad<TContent> {
+	readonly promise: Promise<BridgeResourceExecutorResult<TContent>>;
 	readonly abortController: AbortController;
 	readonly cancellationGroup: string;
 	readonly byteBudget: number;
 	readonly intent: BridgeDemandIntent;
 }
 
-interface PendingResourceLoad<TBody> {
+interface PendingResourceLoad<TContent> {
 	readonly intent: BridgeDemandIntent;
 	readonly descriptor: BridgeResourceDescriptor;
-	readonly promise: Promise<BridgeResourceExecutorResult<TBody>>;
+	readonly promise: Promise<BridgeResourceExecutorResult<TContent>>;
 	readonly abortController: AbortController;
 	readonly byteBudget: number;
-	readonly resolve: (result: BridgeResourceExecutorResult<TBody>) => void;
+	readonly resolve: (result: BridgeResourceExecutorResult<TContent>) => void;
 	readonly sequence: number;
 }
 
-interface PendingResourceLoadEntry<TBody> {
+interface PendingResourceLoadEntry<TContent> {
 	readonly inFlightKey: string;
-	readonly pendingLoad: PendingResourceLoad<TBody>;
+	readonly pendingLoad: PendingResourceLoad<TContent>;
 }
 
 const demandLaneOrder = [
@@ -91,16 +105,18 @@ const demandLaneOrder = [
 	'idle',
 ] as const satisfies readonly BridgeDemandIntent['lane'][];
 
-export function createBridgeResourceExecutor<TBody = unknown>(
-	props: BridgeResourceExecutorProps<TBody>,
-): BridgeResourceExecutor<TBody> {
-	const inFlightByDedupeKey = new Map<string, InFlightResourceLoad<TBody>>();
-	const pendingByDedupeKey = new Map<string, PendingResourceLoad<TBody>>();
+export function createBridgeResourceExecutor<TContent = unknown>(
+	props: BridgeResourceExecutorProps<TContent>,
+): BridgeResourceExecutor<TContent> {
+	const inFlightByDedupeKey = new Map<string, InFlightResourceLoad<TContent>>();
+	const pendingByDedupeKey = new Map<string, PendingResourceLoad<TContent>>();
 	let nextPendingSequence = 0;
 	let inFlightBytes = 0;
 	let queuedBytes = 0;
 
-	const load = async (intent: BridgeDemandIntent): Promise<BridgeResourceExecutorResult<TBody>> => {
+	const load = async (
+		intent: BridgeDemandIntent,
+	): Promise<BridgeResourceExecutorResult<TContent>> => {
 		const inFlightKey = makeInFlightKey(intent);
 		const existingLoad = inFlightByDedupeKey.get(inFlightKey);
 		if (existingLoad !== undefined) {
@@ -146,8 +162,8 @@ export function createBridgeResourceExecutor<TBody = unknown>(
 		if (!canQueuePendingLoad(byteBudget)) {
 			return { ok: false, reason: 'concurrency_exceeded' };
 		}
-		let resolvePending: ((result: BridgeResourceExecutorResult<TBody>) => void) | null = null;
-		const promise = new Promise<BridgeResourceExecutorResult<TBody>>((resolve): void => {
+		let resolvePending: ((result: BridgeResourceExecutorResult<TContent>) => void) | null = null;
+		const promise = new Promise<BridgeResourceExecutorResult<TContent>>((resolve): void => {
 			resolvePending = resolve;
 		});
 		if (resolvePending === null) {
@@ -209,10 +225,10 @@ export function createBridgeResourceExecutor<TBody = unknown>(
 
 	const lowestPriorityPendingLoadBelow = (
 		intent: BridgeDemandIntent,
-	): PendingResourceLoadEntry<TBody> | null =>
+	): PendingResourceLoadEntry<TContent> | null =>
 		Array.from(pendingByDedupeKey.entries())
 			.map(
-				([inFlightKey, pendingLoad]): PendingResourceLoadEntry<TBody> => ({
+				([inFlightKey, pendingLoad]): PendingResourceLoadEntry<TContent> => ({
 					inFlightKey,
 					pendingLoad,
 				}),
@@ -226,7 +242,7 @@ export function createBridgeResourceExecutor<TBody = unknown>(
 
 	const removePendingLoad = (removeProps: {
 		readonly inFlightKey: string;
-		readonly pendingLoad: PendingResourceLoad<TBody>;
+		readonly pendingLoad: PendingResourceLoad<TContent>;
 		readonly reason: 'aborted' | 'concurrency_exceeded';
 	}): void => {
 		removeProps.pendingLoad.abortController.abort();
@@ -243,7 +259,7 @@ export function createBridgeResourceExecutor<TBody = unknown>(
 		let projectedInFlightBytes = inFlightBytes;
 		const lowerPriorityLoads = Array.from(inFlightByDedupeKey.values())
 			.filter(
-				(inFlightLoad: InFlightResourceLoad<TBody>): boolean =>
+				(inFlightLoad: InFlightResourceLoad<TContent>): boolean =>
 					!inFlightLoad.abortController.signal.aborted &&
 					compareDemandIntentPriority(preemptProps.intent, inFlightLoad.intent) < 0,
 			)
@@ -282,13 +298,20 @@ export function createBridgeResourceExecutor<TBody = unknown>(
 		readonly descriptor: BridgeResourceDescriptor;
 		readonly inFlightKey: string;
 		readonly intent: BridgeDemandIntent;
-	}): Promise<BridgeResourceExecutorResult<TBody>> => {
+	}): Promise<BridgeResourceExecutorResult<TContent>> => {
 		const promise = runResourceLoad({
 			descriptor: startProps.descriptor,
 			intent: startProps.intent,
 			abortController: startProps.abortController,
 			loadResource: props.loadResource,
 			isFresh: isIntentFresh,
+			onChunk: (chunk): void => {
+				props.onChunk?.({
+					chunk,
+					descriptor: startProps.descriptor,
+					intent: startProps.intent,
+				});
+			},
 		}).finally((): void => {
 			const activeLoad = inFlightByDedupeKey.get(startProps.inFlightKey);
 			if (activeLoad?.promise === promise) {
@@ -368,22 +391,24 @@ export function createBridgeResourceExecutor<TBody = unknown>(
 	};
 }
 
-async function runResourceLoad<TBody>(props: {
+async function runResourceLoad<TContent>(props: {
 	readonly descriptor: BridgeResourceDescriptor;
 	readonly intent: BridgeDemandIntent;
 	readonly abortController: AbortController;
-	readonly loadResource: BridgeResourceExecutorLoadResource<TBody>;
+	readonly loadResource: BridgeResourceExecutorLoadResource<TContent>;
 	readonly isFresh: (intent: BridgeDemandIntent) => boolean;
-}): Promise<BridgeResourceExecutorResult<TBody>> {
+	readonly onChunk: (chunk: BridgeResourceExecutorStreamChunk) => void;
+}): Promise<BridgeResourceExecutorResult<TContent>> {
 	if (props.abortController.signal.aborted) {
 		return { ok: false, reason: 'aborted' };
 	}
-	let loadedBody: BridgeResourceExecutorBody<TBody>;
+	let contentResult: BridgeResourceExecutorContent<TContent>;
 	try {
-		loadedBody = await raceResourceLoadAgainstAbort({
+		contentResult = await raceResourceLoadAgainstAbort({
 			load: props.loadResource({
 				descriptor: props.descriptor,
 				intent: props.intent,
+				onChunk: props.onChunk,
 				signal: props.abortController.signal,
 			}),
 			signal: props.abortController.signal,
@@ -401,21 +426,22 @@ async function runResourceLoad<TBody>(props: {
 	}
 	return {
 		ok: true,
-		body: loadedBody.body,
-		byteLength: loadedBody.byteLength,
+		authoritative: contentResult.authoritative ?? true,
+		content: contentResult.content,
+		byteLength: contentResult.byteLength,
 		descriptor: props.descriptor,
 		freshnessKey: props.intent.freshnessKey,
 	};
 }
 
-function raceResourceLoadAgainstAbort<TBody>(props: {
-	readonly load: Promise<BridgeResourceExecutorBody<TBody>>;
+function raceResourceLoadAgainstAbort<TContent>(props: {
+	readonly load: Promise<BridgeResourceExecutorContent<TContent>>;
 	readonly signal: AbortSignal;
-}): Promise<BridgeResourceExecutorBody<TBody>> {
+}): Promise<BridgeResourceExecutorContent<TContent>> {
 	if (props.signal.aborted) {
 		return Promise.reject(new DOMException('Bridge resource load aborted', 'AbortError'));
 	}
-	return new Promise<BridgeResourceExecutorBody<TBody>>((resolve, reject): void => {
+	return new Promise<BridgeResourceExecutorContent<TContent>>((resolve, reject): void => {
 		const rejectAbort = (): void => {
 			reject(new DOMException('Bridge resource load aborted', 'AbortError'));
 		};
@@ -437,23 +463,23 @@ function makeInFlightKey(intent: BridgeDemandIntent): string {
 	return `${intent.dedupeKey}\u0000${intent.freshnessKey}`;
 }
 
-function nextStartablePendingLoad<TBody>(props: {
-	readonly pendingLoads: ReadonlyMap<string, PendingResourceLoad<TBody>>;
+function nextStartablePendingLoad<TContent>(props: {
+	readonly pendingLoads: ReadonlyMap<string, PendingResourceLoad<TContent>>;
 	readonly availableBytes: number;
-}): PendingResourceLoad<TBody> | null {
+}): PendingResourceLoad<TContent> | null {
 	return (
 		Array.from(props.pendingLoads.values())
 			.filter(
-				(pendingLoad: PendingResourceLoad<TBody>): boolean =>
+				(pendingLoad: PendingResourceLoad<TContent>): boolean =>
 					pendingLoad.byteBudget <= props.availableBytes,
 			)
 			.toSorted(comparePendingResourceLoads)[0] ?? null
 	);
 }
 
-function comparePendingResourceLoads<TBody>(
-	left: PendingResourceLoad<TBody>,
-	right: PendingResourceLoad<TBody>,
+function comparePendingResourceLoads<TContent>(
+	left: PendingResourceLoad<TContent>,
+	right: PendingResourceLoad<TContent>,
 ): number {
 	const intentPriorityComparison = compareDemandIntentPriority(left.intent, right.intent);
 	if (intentPriorityComparison !== 0) {

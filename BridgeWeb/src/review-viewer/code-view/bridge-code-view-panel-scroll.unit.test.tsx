@@ -118,7 +118,7 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		}
 		const selectedContentResource: BridgeContentResource = {
 			handle: headHandle,
-			text: '# Bridge plan\n\nInspect this as source.',
+			readText: (): string => '# Bridge plan\n\nInspect this as source.',
 		};
 		const container = document.createElement('div');
 		document.body.append(container);
@@ -766,7 +766,7 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		}
 		const selectedContentResource: BridgeContentResource = {
 			handle: headHandle,
-			text: '# Bridge plan\n\nInspect this as source.',
+			readText: (): string => '# Bridge plan\n\nInspect this as source.',
 		};
 		const container = document.createElement('div');
 		document.body.append(container);
@@ -834,7 +834,7 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		}
 		const selectedContentResource: BridgeContentResource = {
 			handle: headHandle,
-			text: '# Bridge plan\n\nInspect this as source.',
+			readText: (): string => '# Bridge plan\n\nInspect this as source.',
 		};
 		const container = document.createElement('div');
 		document.body.append(container);
@@ -999,7 +999,7 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		}
 		const selectedContentResource: BridgeContentResource = {
 			handle: headHandle,
-			text: '# Bridge plan\n\nInspect this as source.',
+			readText: (): string => '# Bridge plan\n\nInspect this as source.',
 		};
 		const initialCodeViewItems = createBridgeCodeViewInitialItems({ reviewPackage, projection });
 		const placeholderItem = initialCodeViewItems.find(
@@ -1078,7 +1078,7 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		}
 		const selectedContentResource: BridgeContentResource = {
 			handle: headHandle,
-			text: '# Bridge plan\n\nInspect this as source.',
+			readText: (): string => '# Bridge plan\n\nInspect this as source.',
 		};
 		const initialCodeViewItems = createBridgeCodeViewInitialItems({ reviewPackage, projection });
 		const placeholderItem = initialCodeViewItems.find(
@@ -1199,7 +1199,7 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		}
 		const selectedContentResource: BridgeContentResource = {
 			handle: headHandle,
-			text: '# Bridge plan\n\nInspect this as source.',
+			readText: (): string => '# Bridge plan\n\nInspect this as source.',
 		};
 		const initialCodeViewItems = createBridgeCodeViewInitialItems({ reviewPackage, projection });
 		const placeholderItem = initialCodeViewItems.find(
@@ -1409,7 +1409,7 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		}
 		const selectedContentResource: BridgeContentResource = {
 			handle: headHandle,
-			text: '# Bridge plan\n\nInspect this as source.',
+			readText: (): string => '# Bridge plan\n\nInspect this as source.',
 		};
 		const container = document.createElement('div');
 		document.body.append(container);
@@ -1449,7 +1449,7 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		}
 		const selectedContentResource: BridgeContentResource = {
 			handle: headHandle,
-			text: '# Bridge plan\n\nInspect this as source.',
+			readText: (): string => '# Bridge plan\n\nInspect this as source.',
 		};
 		const container = document.createElement('div');
 		document.body.append(container);
@@ -1599,7 +1599,7 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		}
 		const visibleContentResource: BridgeContentResource = {
 			handle: headHandle,
-			text: 'let visibleWindowHydrated = true',
+			readText: (): string => 'let visibleWindowHydrated = true',
 		};
 		const container = document.createElement('div');
 		document.body.append(container);
@@ -1691,7 +1691,7 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		}
 		const selectedContentResource: BridgeContentResource = {
 			handle: headHandle,
-			text: '# Bridge plan\n\nInspect this as source.',
+			readText: (): string => '# Bridge plan\n\nInspect this as source.',
 		};
 		const container = document.createElement('div');
 		document.body.append(container);
@@ -1751,7 +1751,7 @@ describe('BridgeCodeViewPanel initial selection scroll', () => {
 		}
 		const selectedContentResource: BridgeContentResource = {
 			handle: headHandle,
-			text: '# Bridge plan\n\nInspect this as source.',
+			readText: (): string => '# Bridge plan\n\nInspect this as source.',
 		};
 		const container = document.createElement('div');
 		document.body.append(container);

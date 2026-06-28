@@ -22,6 +22,17 @@ import {
 	createBridgeResourceExecutor,
 	type BridgeResourceExecutor,
 } from '../core/demand/bridge-resource-executor.js';
+import {
+	installBridgeIntakeEventCarrier,
+	type BridgeIntakeCarrierDrop,
+} from '../core/intake/bridge-intake-carrier.js';
+import type {
+	BridgeIntakeReceiver,
+	BridgeIntakeReceiverState,
+	BridgeIntakeReceiveResult,
+} from '../core/intake/bridge-intake-receiver.js';
+import type { BridgeDemandIntent } from '../core/models/bridge-demand-models.js';
+import type { BridgeIntakeFrame } from '../core/models/bridge-intake-frame.js';
 import type {
 	BridgeAttachedResourceDescriptor,
 	BridgeDescriptorRef,
@@ -31,6 +42,10 @@ import {
 	createBridgeResourceDescriptorRegistry,
 	type BridgeResourceDescriptorRegistry,
 } from '../core/resources/bridge-resource-registry.js';
+import {
+	readBridgeTextResourceStream,
+	type BridgeTextResourceStreamResult,
+} from '../core/resources/bridge-resource-stream.js';
 import {
 	applyReviewProtocolFrame,
 	type ReviewMaterializerDelta,
@@ -55,7 +70,7 @@ import {
 	createBridgeReviewItemRegistry,
 } from '../foundation/review-package/bridge-review-item-registry.js';
 import {
-	bridgeReviewDeltaSchema,
+	bridgeReviewDeltaOperationsSchema,
 	bridgeReviewPackageSchema,
 } from '../foundation/review-package/bridge-review-package-schema.js';
 import type {
@@ -168,6 +183,7 @@ declare global {
 interface BridgeReviewPackageTelemetryContext {
 	readonly slice: BridgeTelemetrySlice;
 	readonly traceContext: BridgeTraceContext | null;
+	readonly transport: 'intake' | 'push';
 }
 
 interface BridgeDiffStatusState {
@@ -226,6 +242,7 @@ const bridgeReviewResourceExecutorMaxQueuedLoads = 128;
 const bridgeReviewResourceExecutorMaxQueuedBytes = 8 * 1024 * 1024;
 const bridgeReviewDemandMaxQueuedIntentsPerLane = 128;
 const bridgeReviewDemandMaxQueuedEstimatedBytes = 8 * 1024 * 1024;
+const bridgeReviewIntakeMaxFrameBytes = 1024 * 1024;
 const bridgeReviewPaneIdAttribute = 'data-bridge-review-pane-id';
 const bridgeReviewStreamIdAttribute = 'data-bridge-review-stream-id';
 const bridgeReviewAllowedResourceKindsByProtocol = {
@@ -262,6 +279,8 @@ function useBridgeResourceDescriptorRegistry(): BridgeResourceDescriptorRegistry
 	return registryRef.current;
 }
 
+type BridgeReviewResourceExecutorCachedText = BridgeTextResourceStreamResult;
+
 interface UseBridgeReviewResourceExecutorProps {
 	readonly descriptorRegistry: BridgeResourceDescriptorRegistry;
 	readonly descriptorRefsByDescriptorIdRef: {
@@ -273,21 +292,27 @@ interface UseBridgeReviewResourceExecutorProps {
 
 function useBridgeReviewResourceExecutor(
 	props: UseBridgeReviewResourceExecutorProps,
-): BridgeResourceExecutor<string> {
+): BridgeResourceExecutor<BridgeTextResourceStreamResult> {
 	const bodyRegistryRef = useRef(
-		createBridgeBodyRegistry<string>({
+		createBridgeBodyRegistry<BridgeReviewResourceExecutorCachedText>({
 			maxBytes: bridgeReviewBodyRegistryMaxBytes,
 		}),
 	);
-	const executorRef = useRef<BridgeResourceExecutor<string> | null>(null);
+	const executorRef = useRef<BridgeResourceExecutor<BridgeTextResourceStreamResult> | null>(null);
 	if (executorRef.current === null) {
-		executorRef.current = createBridgeResourceExecutor<string>({
+		executorRef.current = createBridgeResourceExecutor<BridgeTextResourceStreamResult>({
 			registry: props.descriptorRegistry,
 			maxConcurrentLoads: bridgeReviewResourceExecutorMaxConcurrentLoads,
 			maxInFlightBytes: bridgeReviewResourceExecutorMaxInFlightBytes,
 			maxQueuedLoads: bridgeReviewResourceExecutorMaxQueuedLoads,
 			maxQueuedBytes: bridgeReviewResourceExecutorMaxQueuedBytes,
 			isFresh: (intent): boolean => {
+				if (isReviewProtocolBodyDescriptorRef(intent.descriptorRef)) {
+					return (
+						props.descriptorRegistry.lookup(intent.descriptorRef) !== null &&
+						demandFreshnessKeyForReviewDescriptorRef(intent.descriptorRef) === intent.freshnessKey
+					);
+				}
 				const currentDescriptorRef = props.descriptorRefsByDescriptorIdRef.current.get(
 					intent.descriptorRef.descriptorId,
 				);
@@ -296,7 +321,7 @@ function useBridgeReviewResourceExecutor(
 					demandFreshnessKeyForReviewDescriptorRef(currentDescriptorRef) === intent.freshnessKey
 				);
 			},
-			loadResource: async ({ descriptor, intent, signal }) => {
+			loadResource: async ({ descriptor, intent, onChunk, signal }) => {
 				const cacheKey = descriptor.resourceUrl;
 				const shouldBypassCachedBody = props.invalidatedFreshnessKeysRef.current.has(
 					intent.freshnessKey,
@@ -309,8 +334,9 @@ function useBridgeReviewResourceExecutor(
 						});
 				if (cachedBody !== null) {
 					return {
-						body: cachedBody,
-						byteLength: encodedByteLength(cachedBody),
+						authoritative: cachedBody.authoritative,
+						content: cachedBody,
+						byteLength: cachedBody.byteLength,
 					};
 				}
 				const fetchContent = props.fetchContentRef.current ?? fetch;
@@ -318,22 +344,43 @@ function useBridgeReviewResourceExecutor(
 				if (!response.ok) {
 					throw new Error(`Bridge descriptor content request failed: ${response.status}`);
 				}
-				const body = await response.text();
-				const byteLength = encodedByteLength(body);
-				bodyRegistryRef.current.put({
-					cacheKey,
-					freshnessKey: intent.freshnessKey,
-					body,
-					byteLength,
+				const streamedText = await readBridgeTextResourceStream(response, {
+					integrity: descriptor.content.integrity,
+					maxBytes: descriptor.content.maxBytes,
+					onTextChunk: (chunk): void => {
+						onChunk({
+							byteLength: chunk.byteLength,
+							chunk: chunk.text,
+							totalBytesRead: chunk.totalBytesRead,
+						});
+					},
+					signal,
 				});
+				const byteLength = streamedText.byteLength;
+				if (streamedText.authoritative) {
+					bodyRegistryRef.current.put({
+						cacheKey,
+						freshnessKey: intent.freshnessKey,
+						body: streamedText,
+						byteLength,
+					});
+				}
 				if (shouldBypassCachedBody) {
 					props.invalidatedFreshnessKeysRef.current.delete(intent.freshnessKey);
 				}
-				return { body, byteLength };
+				return { authoritative: streamedText.authoritative, content: streamedText, byteLength };
 			},
 		});
 	}
 	return executorRef.current;
+}
+
+function isReviewProtocolBodyDescriptorRef(descriptorRef: BridgeDescriptorRef): boolean {
+	return (
+		descriptorRef.expectedProtocol === 'review' &&
+		(descriptorRef.expectedResourceKind === 'review-package' ||
+			descriptorRef.expectedResourceKind === 'review-delta')
+	);
 }
 
 function createBridgeReviewDemandScheduler(): BridgeDemandScheduler {
@@ -341,10 +388,6 @@ function createBridgeReviewDemandScheduler(): BridgeDemandScheduler {
 		maxQueuedIntentsPerLane: bridgeReviewDemandMaxQueuedIntentsPerLane,
 		maxQueuedEstimatedBytes: bridgeReviewDemandMaxQueuedEstimatedBytes,
 	});
-}
-
-function encodedByteLength(value: string): number {
-	return new TextEncoder().encode(value).byteLength;
 }
 
 function activeViewerStateForBridgeInputs(props: {
@@ -596,6 +639,11 @@ function BridgeReviewViewerMode(
 	const reviewFrameAuthorityRef = useRef<BridgeReviewFrameAuthority | null>(
 		readBridgeReviewFrameAuthority(),
 	);
+	const getReviewFrameAuthority = useCallback(
+		(): BridgeReviewFrameAuthority | null =>
+			refreshBridgeReviewFrameAuthority(reviewFrameAuthorityRef),
+		[],
+	);
 	const viewerStore = useBridgeReviewViewerStore();
 	const contentRegistry = useBridgeReviewContentRegistry();
 	const descriptorRegistry = useBridgeResourceDescriptorRegistry();
@@ -608,6 +656,7 @@ function BridgeReviewViewerMode(
 		reviewDemandSchedulerRef.current = createBridgeReviewDemandScheduler();
 	}
 	const reviewDemandScheduler = reviewDemandSchedulerRef.current;
+	const reviewEnvelopeApplyTailRef = useRef<Promise<void>>(Promise.resolve());
 	const fetchContentRef = useRef<BridgeContentFetch | undefined>(props.fetchContent);
 	fetchContentRef.current = props.fetchContent;
 	const resourceExecutor = useBridgeReviewResourceExecutor({
@@ -926,6 +975,7 @@ function BridgeReviewViewerMode(
 
 	useEffect((): (() => void) => {
 		let handshakeSession: BridgePageHandshakeSession | null = null;
+		let requestIntakeReplay = (): void => {};
 		const configureTelemetryRecorder = (): void => {
 			const telemetryConfig = handshakeSession?.getTelemetryConfig() ?? null;
 			telemetryRecorderRef.current = createBridgeTelemetryRecorder(
@@ -936,47 +986,129 @@ function BridgeReviewViewerMode(
 				}),
 			);
 		};
+		const enqueueReviewProtocolFrame = (
+			protocolFrame: ReviewProtocolFrame,
+			telemetryContext: BridgeReviewPackageTelemetryContext,
+		): void => {
+			reviewEnvelopeApplyTailRef.current = reviewEnvelopeApplyTailRef.current
+				.catch((): void => {})
+				.then(async (): Promise<void> => {
+					await applyReviewProtocolTransportFrame({
+						protocolFrame,
+						setReviewPackage,
+						setDiffStatus,
+						setSelectedItemId: (itemId: string | null): void =>
+							viewerActions.setSelectedItemId(itemId),
+						getSelectedItemId: (): string | null =>
+							viewerStore.getState().rootSnapshot.selectedItemId,
+						reviewPackageRef,
+						telemetryContextByPackageKey: reviewPackageTelemetryContextRef.current,
+						currentReviewPackageTelemetryContextRef,
+						descriptorRegistry,
+						reviewContentDescriptorRefsByHandleIdRef,
+						reviewDemandScheduler,
+						resourceExecutor,
+						reviewFrameAuthority: getReviewFrameAuthority(),
+						invalidatedFreshnessKeysRef: invalidatedReviewFreshnessKeysRef,
+						setReviewContentInvalidationVersion,
+						telemetryContext,
+					});
+				})
+				.catch((): void => {
+					setDiffStatus(
+						(): BridgeDiffStatusState => ({
+							status: 'error',
+							error: 'review_resource_stream_failed',
+							epoch: protocolFrame.generation,
+						}),
+					);
+				});
+		};
+		const reviewIntakeReceiver = createBridgeReviewIntakeReceiver({
+			getAuthority: getReviewFrameAuthority,
+			onFrame: (
+				protocolFrame: ReviewProtocolFrame,
+				traceContext: BridgeTraceContext | null,
+			): void => {
+				const slice = reviewIntakeTelemetrySliceForFrameKind(protocolFrame.frameKind);
+				recordReviewIntakeFrameTelemetry({
+					telemetryRecorder: telemetryRecorderRef.current,
+					frameKind: protocolFrame.frameKind,
+					generation: protocolFrame.generation,
+					sequence: protocolFrame.sequence,
+					result: 'success',
+					resultReason: 'none',
+				});
+				recordPackageApplyTelemetryForSlice({
+					telemetryRecorder: telemetryRecorderRef.current,
+					slice,
+					traceContext,
+					transport: 'intake',
+				});
+				enqueueReviewProtocolFrame(protocolFrame, {
+					slice,
+					traceContext,
+					transport: 'intake',
+				});
+			},
+		});
+		handshakeSession = installBridgePageHandshakeSession(target, {
+			onTelemetryConfig: configureTelemetryRecorder,
+			onReady: (): void => {
+				requestIntakeReplay();
+			},
+		});
+		configureTelemetryRecorder();
+		const uninstallIntakeCarrier = installBridgeIntakeEventCarrier({
+			target,
+			eventName: '__bridge_intake_json',
+			getNonce: (): string | null => handshakeSession?.getPushNonce() ?? null,
+			receiver: reviewIntakeReceiver,
+			maxFrameBytes: bridgeReviewIntakeMaxFrameBytes,
+			requestReplayOnInstall: false,
+			onDroppedFrame: (drop: BridgeIntakeCarrierDrop): void => {
+				recordReviewIntakeDropTelemetry(telemetryRecorderRef.current, drop);
+			},
+		});
+		requestIntakeReplay = (): void => {
+			target.dispatchEvent(new CustomEvent('__bridge_intake_replay_request'));
+		};
 		const uninstallPushReceiver = installBridgePushReceiver({
 			target,
 			getPushNonce: (): string | null => handshakeSession?.getPushNonce() ?? null,
 			onEnvelope: (envelope: BridgePushEnvelope): void => {
-				recordPackageApplyTelemetry(telemetryRecorderRef.current, envelope);
-				applyReviewEnvelope(
-					envelope,
-					setReviewPackage,
-					setDiffStatus,
-					(itemId: string | null): void => viewerActions.setSelectedItemId(itemId),
-					(): string | null => viewerStore.getState().rootSnapshot.selectedItemId,
-					reviewPackageRef,
-					reviewPackageTelemetryContextRef.current,
-					currentReviewPackageTelemetryContextRef,
-					descriptorRegistry,
-					reviewContentDescriptorRefsByHandleIdRef,
-					reviewDemandScheduler,
-					resourceExecutor,
-					reviewFrameAuthorityRef.current,
-					invalidatedReviewFreshnessKeysRef,
-					setReviewContentInvalidationVersion,
-				);
+				reviewEnvelopeApplyTailRef.current = reviewEnvelopeApplyTailRef.current
+					.catch((): void => {})
+					.then(async (): Promise<void> => {
+						recordPackageApplyTelemetry(telemetryRecorderRef.current, envelope);
+						await applyReviewEnvelope(envelope, setDiffStatus);
+					})
+					.catch((): void => {
+						setDiffStatus(
+							(): BridgeDiffStatusState => ({
+								status: 'error',
+								error: 'review_resource_stream_failed',
+								epoch: envelope.epoch,
+							}),
+						);
+					});
 			},
 			onDroppedEnvelope: (reason: BridgePushDropReason): void => {
 				recordPushDropTelemetry(telemetryRecorderRef.current, reason);
 			},
 		});
-		handshakeSession = installBridgePageHandshakeSession(target, {
-			onTelemetryConfig: configureTelemetryRecorder,
-		});
-		configureTelemetryRecorder();
 		return (): void => {
+			uninstallIntakeCarrier();
 			uninstallPushReceiver();
 			handshakeSession?.uninstall();
 		};
 	}, [
 		descriptorRegistry,
+		getReviewFrameAuthority,
 		resourceExecutor,
 		reviewDemandScheduler,
 		rpcClient,
-		props.isActive,
+		setReviewPackage,
 		target,
 		viewerActions,
 		viewerStore,
@@ -1396,7 +1528,7 @@ function BridgeReviewViewerMode(
 				'agentstudio.bridge.plane': 'data',
 				'agentstudio.bridge.priority': 'hot',
 				'agentstudio.bridge.slice': telemetryContext?.slice ?? 'unknown',
-				'agentstudio.bridge.transport': 'push',
+				'agentstudio.bridge.transport': telemetryContext?.transport ?? 'unknown',
 			},
 			numericAttributes: {},
 			booleanAttributes: {},
@@ -2125,22 +2257,36 @@ function recordPackageApplyTelemetry(
 	telemetryRecorder: BridgeTelemetryRecorder,
 	envelope: BridgePushEnvelope,
 ): void {
-	telemetryRecorder.record({
+	recordPackageApplyTelemetryForSlice({
+		telemetryRecorder,
+		slice: envelope.slice,
+		traceContext: envelope.traceContext,
+		transport: 'push',
+	});
+}
+
+function recordPackageApplyTelemetryForSlice(props: {
+	readonly telemetryRecorder: BridgeTelemetryRecorder;
+	readonly slice: BridgeTelemetrySlice;
+	readonly traceContext: BridgeTraceContext | null;
+	readonly transport: 'intake' | 'push';
+}): void {
+	props.telemetryRecorder.record({
 		scope: 'web',
 		name: 'performance.bridge.web.package_apply',
 		durationMilliseconds: null,
-		traceContext: envelope.traceContext,
+		traceContext: props.traceContext,
 		stringAttributes: {
 			'agentstudio.bridge.phase': 'apply',
-			'agentstudio.bridge.plane': planeForBridgeTelemetrySlice(envelope.slice),
-			'agentstudio.bridge.priority': priorityForBridgeTelemetrySlice(envelope.slice),
-			'agentstudio.bridge.slice': envelope.slice,
-			'agentstudio.bridge.transport': 'push',
+			'agentstudio.bridge.plane': planeForBridgeTelemetrySlice(props.slice),
+			'agentstudio.bridge.priority': priorityForBridgeTelemetrySlice(props.slice),
+			'agentstudio.bridge.slice': props.slice,
+			'agentstudio.bridge.transport': props.transport,
 		},
 		numericAttributes: {},
 		booleanAttributes: {},
 	});
-	telemetryRecorder.flush({ force: true });
+	props.telemetryRecorder.flush({ force: true });
 }
 
 function recordPushDropTelemetry(
@@ -2168,30 +2314,127 @@ function recordPushDropTelemetry(
 	telemetryRecorder.flush({ force: true });
 }
 
-function applyReviewEnvelope(
-	envelope: BridgePushEnvelope,
-	setReviewPackage: (
-		update: (current: BridgeReviewPackage | null) => BridgeReviewPackage | null,
-	) => void,
-	setDiffStatus: (update: (current: BridgeDiffStatusState) => BridgeDiffStatusState) => void,
-	setSelectedItemId: (itemId: string | null) => void,
-	getSelectedItemId: () => string | null,
-	reviewPackageRef: { current: BridgeReviewPackage | null },
-	telemetryContextByPackageKey: Map<string, BridgeReviewPackageTelemetryContext>,
-	currentReviewPackageTelemetryContextRef: {
-		current: BridgeReviewPackageTelemetryContext | null;
-	},
-	descriptorRegistry: BridgeResourceDescriptorRegistry,
-	reviewContentDescriptorRefsByHandleIdRef: {
-		current: ReadonlyMap<string, BridgeDescriptorRef>;
-	},
-	reviewDemandScheduler: BridgeDemandScheduler,
-	resourceExecutor: BridgeResourceExecutor<string>,
-	reviewFrameAuthority: BridgeReviewFrameAuthority | null,
-	invalidatedFreshnessKeysRef: { readonly current: Set<string> },
-	setReviewContentInvalidationVersion: Dispatch<SetStateAction<number>>,
+function recordReviewIntakeDropTelemetry(
+	telemetryRecorder: BridgeTelemetryRecorder,
+	drop: BridgeIntakeCarrierDrop,
 ): void {
-	if (envelope.store !== 'diff') {
+	recordReviewIntakeFrameTelemetry({
+		telemetryRecorder,
+		frameKind:
+			drop.reason === 'receiver_rejected_frame'
+				? intakeTelemetryKindForFrameSummary(drop.frame.kind)
+				: 'unknown',
+		generation: drop.reason === 'receiver_rejected_frame' ? drop.frame.generation : 0,
+		sequence: drop.reason === 'receiver_rejected_frame' ? drop.frame.sequence : 0,
+		result: 'dropped',
+		resultReason: drop.reason === 'receiver_rejected_frame' ? drop.receiverReason : drop.reason,
+	});
+}
+
+function recordReviewIntakeFrameTelemetry(props: {
+	readonly telemetryRecorder: BridgeTelemetryRecorder;
+	readonly frameKind: ReviewProtocolFrame['frameKind'] | 'unknown';
+	readonly generation: number;
+	readonly sequence: number;
+	readonly result: 'dropped' | 'success';
+	readonly resultReason: string;
+}): void {
+	const slice = reviewIntakeTelemetrySliceForFrameKind(props.frameKind);
+	props.telemetryRecorder.record({
+		scope: 'web',
+		name: 'performance.bridge.web.intake_frame',
+		durationMilliseconds: null,
+		traceContext: null,
+		stringAttributes: {
+			'agentstudio.bridge.intake.frame_kind': props.frameKind,
+			'agentstudio.bridge.phase': 'intake',
+			'agentstudio.bridge.plane': planeForBridgeTelemetrySlice(slice),
+			'agentstudio.bridge.priority': priorityForBridgeTelemetrySlice(slice),
+			'agentstudio.bridge.result': props.result,
+			'agentstudio.bridge.result_reason': props.resultReason,
+			'agentstudio.bridge.slice': slice,
+			'agentstudio.bridge.transport': 'intake',
+		},
+		numericAttributes: {
+			'agentstudio.bridge.intake.generation': props.generation,
+			'agentstudio.bridge.intake.sequence': props.sequence,
+		},
+		booleanAttributes: {},
+	});
+	props.telemetryRecorder.flush({ force: true });
+}
+
+function reviewIntakeTelemetrySliceForFrameKind(
+	frameKind: ReviewProtocolFrame['frameKind'] | 'unknown',
+): BridgeTelemetrySlice {
+	switch (frameKind) {
+		case 'review.snapshot':
+			return 'review_snapshot';
+		case 'review.delta':
+			return 'review_delta';
+		case 'review.invalidate':
+			return 'review_invalidation';
+		case 'review.reset':
+			return 'review_reset';
+		case 'unknown':
+			return 'review_projection';
+	}
+	return 'review_projection';
+}
+
+function intakeTelemetryKindForFrameSummary(
+	frameKind: BridgeIntakeFrame['kind'],
+): ReviewProtocolFrame['frameKind'] | 'unknown' {
+	switch (frameKind) {
+		case 'snapshot':
+			return 'review.snapshot';
+		case 'delta':
+			return 'review.delta';
+		case 'invalidate':
+			return 'review.invalidate';
+		case 'reset':
+			return 'review.reset';
+		case 'close':
+		case 'error':
+			return 'unknown';
+	}
+	return 'unknown';
+}
+
+async function applyReviewProtocolTransportFrame(props: {
+	readonly protocolFrame: ReviewProtocolFrame;
+	readonly setReviewPackage: (
+		update: (current: BridgeReviewPackage | null) => BridgeReviewPackage | null,
+	) => void;
+	readonly setDiffStatus: (
+		update: (current: BridgeDiffStatusState) => BridgeDiffStatusState,
+	) => void;
+	readonly setSelectedItemId: (itemId: string | null) => void;
+	readonly getSelectedItemId: () => string | null;
+	readonly reviewPackageRef: { current: BridgeReviewPackage | null };
+	readonly telemetryContextByPackageKey: Map<string, BridgeReviewPackageTelemetryContext>;
+	readonly currentReviewPackageTelemetryContextRef: {
+		current: BridgeReviewPackageTelemetryContext | null;
+	};
+	readonly descriptorRegistry: BridgeResourceDescriptorRegistry;
+	readonly reviewContentDescriptorRefsByHandleIdRef: {
+		current: ReadonlyMap<string, BridgeDescriptorRef>;
+	};
+	readonly reviewDemandScheduler: BridgeDemandScheduler;
+	readonly resourceExecutor: BridgeResourceExecutor<BridgeTextResourceStreamResult>;
+	readonly reviewFrameAuthority: BridgeReviewFrameAuthority | null;
+	readonly invalidatedFreshnessKeysRef: { readonly current: Set<string> };
+	readonly setReviewContentInvalidationVersion: Dispatch<SetStateAction<number>>;
+	readonly telemetryContext: BridgeReviewPackageTelemetryContext;
+}): Promise<void> {
+	await applyReviewProtocolFramePayload(props);
+}
+
+async function applyReviewEnvelope(
+	envelope: BridgePushEnvelope,
+	setDiffStatus: (update: (current: BridgeDiffStatusState) => BridgeDiffStatusState) => void,
+): Promise<void> {
+	if (envelope.store !== 'diff' || envelope.slice !== 'diff_status') {
 		return;
 	}
 	const diffStatusPayload = extractDiffStatus(envelope.data);
@@ -2200,10 +2443,52 @@ function applyReviewEnvelope(
 			(current): BridgeDiffStatusState =>
 				diffStatusPayload.epoch < current.epoch ? current : diffStatusPayload,
 		);
+	}
+}
+
+async function applyReviewProtocolFramePayload(
+	props: Parameters<typeof applyReviewProtocolTransportFrame>[0],
+): Promise<void> {
+	const {
+		setReviewPackage,
+		setDiffStatus,
+		setSelectedItemId,
+		getSelectedItemId,
+		reviewPackageRef,
+		telemetryContextByPackageKey,
+		currentReviewPackageTelemetryContextRef,
+		descriptorRegistry,
+		reviewContentDescriptorRefsByHandleIdRef,
+		reviewDemandScheduler,
+		resourceExecutor,
+		reviewFrameAuthority,
+		invalidatedFreshnessKeysRef,
+		setReviewContentInvalidationVersion,
+	} = props;
+	const protocolFrame = props.protocolFrame;
+	if (
+		protocolFrame?.frameKind === 'review.snapshot' &&
+		!reviewSnapshotFrameMatchesAuthority({
+			frame: protocolFrame,
+			reviewFrameAuthority,
+		})
+	) {
+		setDiffStatus(
+			(): BridgeDiffStatusState => ({
+				status: 'error',
+				error: 'review_protocol_frame_unavailable',
+				epoch: protocolFrame.generation,
+			}),
+		);
 		return;
 	}
-
-	const packagePayload = extractReviewPackage(envelope.data);
+	const packagePayload = await loadReviewPackageFromProtocolFrame({
+		descriptorRegistry,
+		protocolFrame,
+		resourceExecutor,
+		reviewDemandScheduler,
+		reviewFrameAuthority,
+	});
 	if (packagePayload !== null) {
 		const currentReviewPackage = reviewPackageRef.current;
 		if (
@@ -2214,7 +2499,7 @@ function applyReviewEnvelope(
 		}
 
 		const materializedFrame = materializeAcceptedReviewSnapshotForPackage({
-			protocolFrame: extractReviewProtocolFrame(envelope.data),
+			protocolFrame,
 			reviewPackage: packagePayload,
 			descriptorRegistry,
 			reviewFrameAuthority,
@@ -2236,8 +2521,9 @@ function applyReviewEnvelope(
 		});
 		reviewContentDescriptorRefsByHandleIdRef.current = materializedFrame.descriptorRefsByHandleId;
 		const telemetryContext = {
-			slice: envelope.slice,
-			traceContext: envelope.traceContext,
+			slice: props.telemetryContext.slice,
+			traceContext: props.telemetryContext.traceContext,
+			transport: props.telemetryContext.transport,
 		};
 		telemetryContextByPackageKey.set(makeTelemetryPackageKey(packagePayload), telemetryContext);
 		currentReviewPackageTelemetryContextRef.current = telemetryContext;
@@ -2259,9 +2545,14 @@ function applyReviewEnvelope(
 		return;
 	}
 
-	const deltaPayload = extractReviewDelta(envelope.data);
+	const deltaPayload = await loadReviewDeltaFromProtocolFrame({
+		descriptorRegistry,
+		protocolFrame,
+		resourceExecutor,
+		reviewDemandScheduler,
+		reviewFrameAuthority,
+	});
 	if (deltaPayload === null) {
-		const protocolFrame = extractReviewProtocolFrame(envelope.data);
 		if (
 			protocolFrame?.frameKind === 'review.invalidate' &&
 			reviewInvalidationFrameMatchesCurrentAuthority({
@@ -2341,8 +2632,9 @@ function applyReviewEnvelope(
 	}
 
 	const telemetryContext = {
-		slice: envelope.slice,
-		traceContext: envelope.traceContext,
+		slice: props.telemetryContext.slice,
+		traceContext: props.telemetryContext.traceContext,
+		transport: props.telemetryContext.transport,
 	};
 	const currentReviewPackage = reviewPackageRef.current;
 	if (currentReviewPackage === null) {
@@ -2357,7 +2649,7 @@ function applyReviewEnvelope(
 	}
 
 	const materializedFrame = materializeAcceptedReviewDeltaForPackage({
-		protocolFrame: extractReviewProtocolFrame(envelope.data),
+		protocolFrame,
 		reviewPackage: result.registry.reviewPackage,
 		previousReviewPackage: currentReviewPackage,
 		previousDescriptorRefsByHandleId: reviewContentDescriptorRefsByHandleIdRef.current,
@@ -2860,7 +3152,7 @@ function descriptorRefsForReviewInvalidation(props: {
 function cancelReviewDescriptorDemandGroups(props: {
 	readonly descriptorRefs: ReadonlyMap<string, BridgeDescriptorRef>;
 	readonly reviewDemandScheduler: BridgeDemandScheduler;
-	readonly resourceExecutor: BridgeResourceExecutor<string>;
+	readonly resourceExecutor: BridgeResourceExecutor<BridgeTextResourceStreamResult>;
 }): number {
 	let cancelledCount = 0;
 	const cancellationGroups = new Set<string>();
@@ -2881,7 +3173,7 @@ function cancelReviewItemDemandForInterest(props: {
 	readonly interest: ReviewContentDemandInterest;
 	readonly item: BridgeReviewItemDescriptor | undefined;
 	readonly reviewDemandScheduler: BridgeDemandScheduler;
-	readonly resourceExecutor: BridgeResourceExecutor<string>;
+	readonly resourceExecutor: BridgeResourceExecutor<BridgeTextResourceStreamResult>;
 }): number {
 	if (props.item === undefined) {
 		return 0;
@@ -2920,22 +3212,173 @@ function bridgeIdentitiesEqual(left: BridgeIdentity, right: BridgeIdentity): boo
 	);
 }
 
-function extractReviewPackage(data: unknown): BridgeReviewPackage | null {
-	if (!isRecord(data)) {
+async function loadReviewPackageFromProtocolFrame(props: {
+	readonly descriptorRegistry: BridgeResourceDescriptorRegistry;
+	readonly protocolFrame: ReviewProtocolFrame | null;
+	readonly resourceExecutor: BridgeResourceExecutor<BridgeTextResourceStreamResult>;
+	readonly reviewDemandScheduler: BridgeDemandScheduler;
+	readonly reviewFrameAuthority: BridgeReviewFrameAuthority | null;
+}): Promise<BridgeReviewPackage | null> {
+	if (
+		props.protocolFrame?.frameKind !== 'review.snapshot' ||
+		!reviewSnapshotFrameMatchesAuthority({
+			frame: props.protocolFrame,
+			reviewFrameAuthority: props.reviewFrameAuthority,
+		})
+	) {
 		return null;
 	}
-	const packageValue = data['package'];
-	const parsedPackage = bridgeReviewPackageSchema.safeParse(packageValue);
-	return parsedPackage.success ? parsedPackage.data : null;
+	const result = await loadReviewProtocolBodyDescriptor({
+		attachedDescriptor: props.protocolFrame.package.rootDescriptor,
+		descriptorRegistry: props.descriptorRegistry,
+		resourceExecutor: props.resourceExecutor,
+		reviewDemandScheduler: props.reviewDemandScheduler,
+	});
+	if (result === null) {
+		return null;
+	}
+		if (!result.ok) {
+			throw new Error(`Bridge review package resource request failed: ${result.reason}`);
+		}
+		if (!result.authoritative) {
+			throw new Error('Bridge review package resource was preview-only');
+		}
+		const parsedPackage = bridgeReviewPackageSchema.safeParse(JSON.parse(result.content.readText()));
+		return parsedPackage.success ? parsedPackage.data : null;
 }
 
-function extractReviewProtocolFrame(data: unknown): ReviewProtocolFrame | null {
-	if (!isRecord(data)) {
+async function loadReviewProtocolBodyDescriptor(props: {
+	readonly attachedDescriptor: BridgeAttachedResourceDescriptor;
+	readonly descriptorRegistry: BridgeResourceDescriptorRegistry;
+	readonly resourceExecutor: BridgeResourceExecutor<BridgeTextResourceStreamResult>;
+	readonly reviewDemandScheduler: BridgeDemandScheduler;
+}): Promise<Awaited<
+	ReturnType<BridgeResourceExecutor<BridgeTextResourceStreamResult>['load']>
+> | null> {
+	const registerResult = props.descriptorRegistry.register(props.attachedDescriptor);
+	if (!registerResult.ok) {
 		return null;
 	}
-	const protocolFrameValue = data['protocolFrame'];
-	const parsedProtocolFrame = reviewProtocolFrameSchema.safeParse(protocolFrameValue);
-	return parsedProtocolFrame.success ? parsedProtocolFrame.data : null;
+	const intent = demandIntentForReviewProtocolBodyDescriptorRef(props.attachedDescriptor.ref);
+	const enqueueResult = props.reviewDemandScheduler.enqueue({
+		intent,
+		estimatedBytes: props.attachedDescriptor.descriptor.content.maxBytes ?? 0,
+	});
+	if (!enqueueResult.ok) {
+		throw new Error(`Bridge review protocol body demand rejected: ${enqueueResult.reason}`);
+	}
+	const executableIntent = props.reviewDemandScheduler.dequeueNextMatching(
+		(candidateIntent): boolean =>
+			candidateIntent.descriptorRef.descriptorId === intent.descriptorRef.descriptorId &&
+			candidateIntent.freshnessKey === intent.freshnessKey,
+	);
+	if (executableIntent === null) {
+		return null;
+	}
+	return await props.resourceExecutor.load(executableIntent);
+}
+
+function demandIntentForReviewProtocolBodyDescriptorRef(
+	descriptorRef: BridgeDescriptorRef,
+): BridgeDemandIntent {
+	const freshnessKey = demandFreshnessKeyForReviewDescriptorRef(descriptorRef);
+	const protocolBodyKey = `${freshnessKey}:protocol-body:${descriptorRef.expectedResourceKind}`;
+	return {
+		descriptorRef,
+		lane: 'foreground',
+		orderingKey: protocolBodyKey,
+		dedupeKey: protocolBodyKey,
+		freshnessKey,
+		cancellationGroup: protocolBodyKey,
+	};
+}
+
+async function loadReviewDeltaFromProtocolFrame(props: {
+	readonly descriptorRegistry: BridgeResourceDescriptorRegistry;
+	readonly protocolFrame: ReviewProtocolFrame | null;
+	readonly resourceExecutor: BridgeResourceExecutor<BridgeTextResourceStreamResult>;
+	readonly reviewDemandScheduler: BridgeDemandScheduler;
+	readonly reviewFrameAuthority: BridgeReviewFrameAuthority | null;
+}): Promise<BridgeReviewDelta | null> {
+	if (
+		props.protocolFrame?.frameKind !== 'review.delta' ||
+		!reviewDeltaFrameMatchesAuthority({
+			frame: props.protocolFrame,
+			reviewFrameAuthority: props.reviewFrameAuthority,
+		})
+	) {
+		return null;
+	}
+	const result = await loadReviewProtocolBodyDescriptor({
+		attachedDescriptor: props.protocolFrame.operationsDescriptor,
+		descriptorRegistry: props.descriptorRegistry,
+		resourceExecutor: props.resourceExecutor,
+		reviewDemandScheduler: props.reviewDemandScheduler,
+	});
+	if (result === null) {
+		return null;
+	}
+		if (!result.ok) {
+			throw new Error(`Bridge review delta resource request failed: ${result.reason}`);
+		}
+		if (!result.authoritative) {
+			throw new Error('Bridge review delta resource was preview-only');
+		}
+		const parsedOperations = bridgeReviewDeltaOperationsSchema.safeParse(
+			JSON.parse(result.content.readText()),
+		);
+	return parsedOperations.success
+		? {
+				packageId: props.protocolFrame.packageId,
+				reviewGeneration: props.protocolFrame.generation,
+				revision: props.protocolFrame.toRevision,
+				operations: parsedOperations.data,
+			}
+		: null;
+}
+
+function reviewSnapshotFrameMatchesAuthority(props: {
+	readonly frame: ReviewSnapshotFrame;
+	readonly reviewFrameAuthority: BridgeReviewFrameAuthority | null;
+}): boolean {
+	if (
+		props.reviewFrameAuthority === null ||
+		props.frame.streamId !== props.reviewFrameAuthority.streamId
+	) {
+		return false;
+	}
+	const rootDescriptor = props.frame.package.rootDescriptor.descriptor;
+	return (
+		rootDescriptor.protocol === 'review' &&
+		rootDescriptor.resourceKind === 'review-package' &&
+		rootDescriptor.identity.paneId === props.reviewFrameAuthority.paneId &&
+		rootDescriptor.identity.streamId === props.reviewFrameAuthority.streamId &&
+		rootDescriptor.identity.packageId === props.frame.package.packageId &&
+		rootDescriptor.identity.generation === props.frame.generation &&
+		rootDescriptor.identity.revision === props.frame.package.revision
+	);
+}
+
+function reviewDeltaFrameMatchesAuthority(props: {
+	readonly frame: ReviewDeltaFrame;
+	readonly reviewFrameAuthority: BridgeReviewFrameAuthority | null;
+}): boolean {
+	if (
+		props.reviewFrameAuthority === null ||
+		props.frame.streamId !== props.reviewFrameAuthority.streamId
+	) {
+		return false;
+	}
+	const operationsDescriptor = props.frame.operationsDescriptor.descriptor;
+	return (
+		operationsDescriptor.protocol === 'review' &&
+		operationsDescriptor.resourceKind === 'review-delta' &&
+		operationsDescriptor.identity.paneId === props.reviewFrameAuthority.paneId &&
+		operationsDescriptor.identity.streamId === props.reviewFrameAuthority.streamId &&
+		operationsDescriptor.identity.packageId === props.frame.packageId &&
+		operationsDescriptor.identity.generation === props.frame.generation &&
+		operationsDescriptor.identity.revision === props.frame.toRevision
+	);
 }
 
 function readBridgeReviewFrameAuthority(): BridgeReviewFrameAuthority | null {
@@ -2946,13 +3389,121 @@ function readBridgeReviewFrameAuthority(): BridgeReviewFrameAuthority | null {
 		: { paneId, streamId };
 }
 
-function extractReviewDelta(data: unknown): BridgeReviewDelta | null {
-	if (!isRecord(data)) {
+function refreshBridgeReviewFrameAuthority(authorityRef: {
+	current: BridgeReviewFrameAuthority | null;
+}): BridgeReviewFrameAuthority | null {
+	if (authorityRef.current !== null) {
+		return authorityRef.current;
+	}
+	const nextAuthority = readBridgeReviewFrameAuthority();
+	if (nextAuthority !== null) {
+		authorityRef.current = nextAuthority;
+	}
+	return authorityRef.current;
+}
+
+function createBridgeReviewIntakeReceiver(props: {
+	readonly getAuthority: () => BridgeReviewFrameAuthority | null;
+	readonly onFrame: (frame: ReviewProtocolFrame, traceContext: BridgeTraceContext | null) => void;
+}): BridgeIntakeReceiver {
+	let status: BridgeIntakeReceiverState['status'] = 'active';
+	let currentGeneration = 0;
+	let nextSequence = 0;
+	return {
+		get state(): BridgeIntakeReceiverState {
+			const authority = props.getAuthority();
+			return {
+				status,
+				streamId: authority?.streamId ?? 'review-unbound',
+				generation: currentGeneration,
+				nextSequence,
+			};
+		},
+		receive(frame: BridgeIntakeFrame): BridgeIntakeReceiveResult {
+			if (status === 'closed') {
+				return { ok: false, reason: 'closed', status };
+			}
+			const authority = props.getAuthority();
+			if (authority === null || frame.streamId !== authority.streamId) {
+				return { ok: false, reason: 'stream_mismatch', status };
+			}
+			const protocolFrame = reviewProtocolFrameFromIntakeFrame(frame);
+			if (protocolFrame === null || !reviewIntakeFrameMatchesProtocolFrame(frame, protocolFrame)) {
+				return { ok: false, reason: 'generation_mismatch', status };
+			}
+			if (!reviewProtocolFrameMatchesAuthority(protocolFrame, authority)) {
+				return { ok: false, reason: 'stream_mismatch', status };
+			}
+			if (currentGeneration === 0) {
+				currentGeneration = frame.generation;
+				nextSequence = frame.sequence;
+			}
+			if (frame.kind === 'reset' && frame.generation > currentGeneration) {
+				currentGeneration = frame.generation;
+				nextSequence = frame.sequence + 1;
+				props.onFrame(protocolFrame, frame.__traceContext ?? null);
+				return { ok: true, status };
+			}
+			if (status === 'resetRequired') {
+				return { ok: false, reason: 'reset_required', status };
+			}
+			if (frame.generation !== currentGeneration) {
+				return { ok: false, reason: 'generation_mismatch', status };
+			}
+			if (frame.sequence < nextSequence) {
+				return {
+					ok: false,
+					reason: frame.sequence === nextSequence - 1 ? 'duplicate_sequence' : 'stale_sequence',
+					status,
+				};
+			}
+			if (frame.sequence > nextSequence) {
+				status = 'resetRequired';
+				return { ok: false, reason: 'sequence_gap', status };
+			}
+			nextSequence += 1;
+			props.onFrame(protocolFrame, frame.__traceContext ?? null);
+			return { ok: true, status };
+		},
+		close(): void {
+			status = 'closed';
+		},
+	};
+}
+
+function reviewProtocolFrameFromIntakeFrame(frame: BridgeIntakeFrame): ReviewProtocolFrame | null {
+	if (!('payload' in frame)) {
 		return null;
 	}
-	const deltaValue = data['delta'];
-	const parsedDelta = bridgeReviewDeltaSchema.safeParse(deltaValue);
-	return parsedDelta.success ? parsedDelta.data : null;
+	const parsedFrame = reviewProtocolFrameSchema.safeParse(frame.payload);
+	return parsedFrame.success ? parsedFrame.data : null;
+}
+
+function reviewIntakeFrameMatchesProtocolFrame(
+	frame: BridgeIntakeFrame,
+	protocolFrame: ReviewProtocolFrame,
+): boolean {
+	const expectedIntakeKind =
+		protocolFrame.frameKind === 'review.snapshot'
+			? 'snapshot'
+			: protocolFrame.frameKind === 'review.delta'
+				? 'delta'
+				: protocolFrame.frameKind === 'review.invalidate'
+					? 'invalidate'
+					: 'reset';
+	return (
+		frame.kind === expectedIntakeKind &&
+		frame.streamId === protocolFrame.streamId &&
+		frame.generation === protocolFrame.generation &&
+		frame.sequence === protocolFrame.sequence
+	);
+}
+
+function reviewProtocolFrameMatchesAuthority(
+	frame: ReviewProtocolFrame,
+	authority: BridgeReviewFrameAuthority,
+): boolean {
+	return frame.streamId === authority.streamId;
 }
 
 function firstVisibleItemId(reviewPackage: BridgeReviewPackage): string | null {

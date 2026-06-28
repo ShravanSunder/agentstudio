@@ -10,17 +10,17 @@ struct CommandBarDataSourceTests {
         installTestAtomRegistryIfNeeded()
     }
 
-    private let dispatcher = AppCommandDispatcher.shared
+    let dispatcher = AppCommandDispatcher.shared
 
-    private func makeStore() -> WorkspaceStore {
+    func makeStore() -> WorkspaceStore {
         WorkspaceStore()
     }
 
-    private func makeRepoCache() -> RepoCacheAtom {
+    func makeRepoCache() -> RepoCacheAtom {
         RepoCacheAtom()
     }
 
-    private func makeRichCommandStore() -> WorkspaceStore {
+    func makeRichCommandStore() -> WorkspaceStore {
         let store = makeStore()
         let repo = store.addRepo(at: URL(filePath: "/tmp/command-bar-rich-state"))
         let worktree = Worktree(
@@ -157,6 +157,40 @@ struct CommandBarDataSourceTests {
         #expect(bridgeItem?.title == "Review")
         #expect(bridgeItem?.group == "Bridge")
         #expect(bridgeItem?.hasChildren == false)
+    }
+
+    @Test
+    func test_worktreePresenceToleratesDuplicateProjectedWorktreeIds() {
+        let repoId = UUID()
+        let worktreeId = UUID()
+        let duplicateWorktree = Worktree(
+            id: worktreeId,
+            repoId: repoId,
+            name: "main",
+            path: URL(fileURLWithPath: "/tmp/repo-\(UUID().uuidString)")
+        )
+        let repo = Repo(
+            id: repoId,
+            name: "repo",
+            repoPath: duplicateWorktree.path,
+            worktrees: [duplicateWorktree, duplicateWorktree]
+        )
+        let paneLocation = WorkspacePaneLocation(
+            paneId: UUID(),
+            tabId: UUID(),
+            tabIndex: 0,
+            paneIndexInTab: 0,
+            isActiveInTab: true
+        )
+
+        let presenceByWorktreeId = CommandBarDataSource.buildWorktreePresenceByWorktreeId(
+            repos: [repo],
+            locationsByWorktreeId: [worktreeId: [paneLocation]]
+        )
+
+        #expect(presenceByWorktreeId.count == 1)
+        #expect(presenceByWorktreeId[worktreeId]?.repoId == repoId)
+        #expect(presenceByWorktreeId[worktreeId]?.openPanes == [paneLocation])
     }
 
     @Test
@@ -881,108 +915,6 @@ struct CommandBarDataSourceTests {
             return
         }
         #expect(level.items.filter { $0.id.hasPrefix("repo-wt-") }.count == 2)
-    }
-
-    // MARK: - Drawer Commands
-
-    @Test
-    func test_commandsScope_includesDrawerCommands() {
-        let store = makeRichCommandStore()
-
-        // Act
-        let items = CommandBarDataSource.items(
-            scope: .commands, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
-
-        // Assert — all four drawer commands should appear once the active pane has drawer state
-        let ids = items.map(\.id)
-        #expect(ids.contains("cmd-addDrawerPane"))
-        #expect(ids.contains("cmd-toggleDrawer"))
-        #expect(ids.contains("cmd-navigateDrawerPane"))
-        #expect(ids.contains("cmd-closeDrawerPane"))
-    }
-
-    @Test
-    func test_commandsScope_drawerCommandsInPaneGroup() {
-        let store = makeRichCommandStore()
-
-        // Act
-        let items = CommandBarDataSource.items(
-            scope: .commands, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
-
-        // Assert — all drawer commands should be in the "Pane" group
-        let drawerItems = items.filter {
-            $0.id == "cmd-addDrawerPane" || $0.id == "cmd-toggleDrawer" || $0.id == "cmd-navigateDrawerPane"
-                || $0.id == "cmd-closeDrawerPane"
-        }
-        #expect(drawerItems.count == 4)
-        #expect(drawerItems.allSatisfy { $0.group == "Pane" })
-    }
-
-    @Test
-    func test_commandsScope_navigateDrawerPaneIsTargetable() {
-        let store = makeStore()
-        let pane = store.createPane()
-        let tab = Tab(paneId: pane.id)
-        store.appendTab(tab)
-        store.setActiveTab(tab.id)
-
-        store.addDrawerPane(to: pane.id)
-
-        // Act
-        let items = CommandBarDataSource.items(
-            scope: .commands, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
-
-        // Assert — navigateDrawerPane should have drill-in (hasChildren: true)
-        let navigateItem = items.first { $0.id == "cmd-navigateDrawerPane" }
-        #expect(navigateItem != nil)
-        #expect((navigateItem?.hasChildren ?? false) == true)
-    }
-
-    @Test
-    func test_navigateDrawerPane_targetLevel_listsDrawerPanes() {
-        // Arrange — create a pane with two drawer panes
-        let store = makeStore()
-        let pane = store.createPane()
-        let tab = Tab(paneId: pane.id)
-        store.appendTab(tab)
-        store.setActiveTab(tab.id)
-
-        let drawer1 = store.addDrawerPane(to: pane.id)
-        let drawer2 = store.addDrawerPane(to: pane.id)
-        #expect(drawer1 != nil)
-        #expect(drawer2 != nil)
-
-        // Act
-        let items = CommandBarDataSource.items(
-            scope: .commands, store: store, repoCache: RepoCacheAtom(), dispatcher: dispatcher)
-        let navigateItem = items.first { $0.id == "cmd-navigateDrawerPane" }
-        #expect(navigateItem != nil)
-
-        // Assert — action should be .navigate with a level containing both drawer panes
-        guard case .navigate(let level) = navigateItem?.action else {
-            Issue.record(
-                "navigateDrawerPane action should be .navigate, got \(String(describing: navigateItem?.action))")
-            return
-        }
-
-        #expect(level.items.count == 2)
-        #expect(level.id == "level-navigateDrawerPane")
-
-        let levelTitles = level.items.map(\.title)
-        #expect(levelTitles.allSatisfy { $0 == "Drawer" })
-
-        // Verify target IDs match the created drawer panes
-        let levelIds = level.items.map(\.id)
-        #expect(
-            levelIds.contains("target-drawer-\(drawer1!.id.uuidString)")
-        )
-        #expect(
-            levelIds.contains("target-drawer-\(drawer2!.id.uuidString)")
-        )
-
-        // Verify the active drawer pane has "Active" subtitle (last added becomes active)
-        let activeItem = level.items.first { $0.id == "target-drawer-\(drawer2!.id.uuidString)" }
-        #expect(activeItem?.subtitle == "Active")
     }
 
 }

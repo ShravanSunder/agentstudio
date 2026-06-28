@@ -74,7 +74,7 @@ describe('BridgeCodeViewPanel', () => {
 		}
 		const selectedContentResource: BridgeContentResource = {
 			handle: headHandle,
-			text: '# Bridge plan\n\nInspect this as source.',
+			readText: (): string => '# Bridge plan\n\nInspect this as source.',
 		};
 		const container = document.createElement('div');
 		document.body.append(container);
@@ -116,7 +116,7 @@ describe('BridgeCodeViewPanel', () => {
 		const telemetryRecorder = makeTelemetryRecorder();
 		const selectedContentResource: BridgeContentResource = {
 			handle: headHandle,
-			text: '# Bridge plan\n\nInspect this as source.',
+			readText: (): string => '# Bridge plan\n\nInspect this as source.',
 		};
 		const container = document.createElement('div');
 		document.body.append(container);

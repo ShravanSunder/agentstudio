@@ -301,7 +301,7 @@ extension WebKitSerializedTests {
         }
 
         @Test
-        func test_pushPackageMetadata_rendersReviewViewerShell() async throws {
+        func test_intakeSnapshotFrame_rendersReviewViewerShell() async throws {
             let paneId = UUIDv7.generate()
             let state = BridgePaneState(panelKind: .diffViewer, source: nil)
             let controller = BridgePaneController(paneId: paneId, state: state)
@@ -341,8 +341,12 @@ extension WebKitSerializedTests {
                 package: package,
                 paneId: paneId
             )
-            let payload = try JSONEncoder().encode(
-                DiffPackageMetadataSlice(package: package, protocolFrame: snapshotFrame))
+            try await registerReviewPackageResource(
+                controller: controller,
+                paneId: paneId,
+                package: package,
+                snapshotFrame: snapshotFrame
+            )
 
             try await WebPageTestHarness.withManagedPage(controller.page) { page in
                 controller.loadApp()
@@ -359,17 +363,7 @@ extension WebKitSerializedTests {
                 #expect(didRenderEmptyShell, "Bridge app should render its empty shell before package pushes")
                 try await installPageDiagnosticsProbe(page)
 
-                await controller.pushJSON(
-                    metadata: BridgePushEnvelopeMetadata(
-                        store: .diff,
-                        op: .replace,
-                        level: .cold,
-                        slice: .diffPackageMetadata,
-                        revision: 1,
-                        epoch: package.reviewGeneration.rawValue
-                    ),
-                    json: payload
-                )
+                try await dispatchReviewSnapshotIntakeFrame(snapshotFrame, page: page)
 
                 let didRenderReviewShell = await waitUntil(timeout: .seconds(1)) {
                     (try? await controller.renderStateForIPC().summary.hasReviewShell) == true
@@ -377,7 +371,7 @@ extension WebKitSerializedTests {
                 let pageState = await describeBridgePageState(page)
                 #expect(
                     didRenderReviewShell,
-                    "Pushed package metadata should render the review viewer shell: \(pageState)")
+                    "Review intake metadata should render the review viewer shell: \(pageState)")
                 let renderState = try await controller.renderStateForIPC()
                 #expect(renderState.summary.hasReviewShell)
                 #expect(!(renderState.summary.hasEmptyShell))
@@ -548,8 +542,12 @@ extension WebKitSerializedTests {
                 package: package,
                 paneId: paneId
             )
-            let payload = try JSONEncoder().encode(
-                DiffPackageMetadataSlice(package: package, protocolFrame: snapshotFrame))
+            try await registerReviewPackageResource(
+                controller: controller,
+                paneId: paneId,
+                package: package,
+                snapshotFrame: snapshotFrame
+            )
             let baseResourceURLJSON = try #require(
                 String(data: JSONEncoder().encode(baseHandle.resourceUrl), encoding: .utf8))
             let headResourceURLJSON = try #require(
@@ -602,17 +600,7 @@ extension WebKitSerializedTests {
                 #expect(resultDescription.contains(#""text":"base content""#), "Expected base content body")
                 #expect(resultDescription.contains(#""text":"head content""#), "Expected head content body")
 
-                await controller.pushJSON(
-                    metadata: BridgePushEnvelopeMetadata(
-                        store: .diff,
-                        op: .replace,
-                        level: .cold,
-                        slice: .diffPackageMetadata,
-                        revision: 1,
-                        epoch: package.reviewGeneration.rawValue
-                    ),
-                    json: payload
-                )
+                try await dispatchReviewSnapshotIntakeFrame(snapshotFrame, page: page)
 
                 let didKeepReviewShellStable = await waitUntil(timeout: .seconds(1)) {
                     await pageContainsReviewShell(page)
@@ -794,6 +782,36 @@ private func makeReviewSnapshotProtocolFrame(
 }
 
 @MainActor
+private func dispatchReviewSnapshotIntakeFrame(
+    _ frame: BridgeReviewSnapshotFrame,
+    page: WebPage
+) async throws {
+    let payload = try JSONEncoder().encode(BridgeReviewProtocolFrame.snapshot(frame))
+    let intakeFrameJSON = try BridgePushEnvelopeEncoder().encodeIntakeFrame(
+        metadata: BridgeIntakeFrameMetadata(
+            kind: .snapshot,
+            streamId: frame.streamId,
+            generation: frame.generation,
+            sequence: frame.sequence
+        ),
+        payload: payload,
+        traceContext: nil
+    )
+    let intakeFrameLiteral = try javaScriptStringLiteral(intakeFrameJSON)
+    _ = try await page.callJavaScript(
+        """
+        window.__bridgeInternal.applyIntakeFrameJSON(\(intakeFrameLiteral));
+        """,
+        contentWorld: WKContentWorld.world(name: "agentStudioBridge")
+    )
+}
+
+private func javaScriptStringLiteral(_ value: String) throws -> String {
+    let data = try JSONEncoder().encode(value)
+    return try #require(String(data: data, encoding: .utf8))
+}
+
+@MainActor
 private func pageContainsEmptyReviewShell(_ page: WebPage) async -> Bool {
     do {
         let result = try await page.callJavaScript(
@@ -907,74 +925,4 @@ private func bridgePushProbeRevisionOrder(_ page: WebPage, burstToken: String) a
     } catch {
         return []
     }
-}
-
-@MainActor
-private func describeBridgePageState(_ page: WebPage) async -> String {
-    do {
-        let result = try await page.callJavaScript(
-            """
-            return JSON.stringify({
-              title: document.title,
-              hasAppRoot: document.querySelector('[data-testid="bridge-app-root"]') !== null,
-              hasEmptyShell: document.querySelector('[data-testid="bridge-review-empty-shell"]') !== null,
-              hasReviewShell: document.querySelector('[data-testid="review-viewer-shell"]') !== null,
-              bridgeInternalType: typeof window.__bridgeInternal,
-              pushProbe: window.__bridgePushProbe ?? [],
-              errorProbe: window.__bridgeErrorProbe ?? [],
-              text: document.body.innerText.slice(0, 240)
-            })
-            """
-        )
-        return (result as? String) ?? String(describing: result)
-    } catch {
-        return "page-state-error=\(String(describing: error))"
-    }
-}
-
-@MainActor
-private func registerContentHandleLeases(
-    controller: BridgePaneController,
-    paneId: UUID,
-    handles: [BridgeContentHandle]
-) async throws {
-    for handle in handles {
-        let resource = try #require(
-            BridgeTransportResourceURL.parse(
-                handle.resourceUrl,
-                allowedResourceKindsByProtocol: ["review": Set(["content"])]
-            ))
-        await controller.resourceLeaseRegistry.register(
-            resource,
-            paneId: paneId,
-            descriptorId: resource.opaqueId,
-            maxBytes: handle.sizeBytes,
-            expectedRevocationRevision: 0
-        )
-    }
-}
-
-@MainActor
-private func makeRealDiffContentHandles() -> (
-    base: BridgeContentHandle,
-    head: BridgeContentHandle
-) {
-    (
-        base: makeBridgeContentHandle(
-            itemId: "item-real-diff",
-            role: .base,
-            endpointId: "transport-base",
-            reviewGeneration: BridgeReviewGeneration(7),
-            contentHash: bridgeSHA256ContentHash("base content"),
-            sizeBytes: 12
-        ),
-        head: makeBridgeContentHandle(
-            itemId: "item-real-diff",
-            role: .head,
-            endpointId: "transport-head",
-            reviewGeneration: BridgeReviewGeneration(7),
-            contentHash: bridgeSHA256ContentHash("head content"),
-            sizeBytes: 12
-        )
-    )
 }

@@ -13,6 +13,7 @@ import { z } from 'zod';
 
 import { BridgeViewerContentHeader } from '../app/bridge-viewer-content-header.js';
 import type { BridgeViewerNavigationCommand } from '../app/bridge-viewer-navigation-models.js';
+import { readBridgeTextResourceStream } from '../core/resources/bridge-resource-stream.js';
 import type {
 	WorktreeFileDescriptor,
 	WorktreeFileDemandStimulus,
@@ -45,6 +46,7 @@ import {
 	type WorktreeFileSurfaceLoadTelemetry,
 	type WorktreeFileSurfaceLoadResult,
 	type WorktreeFileSurfaceRuntime,
+	type WorktreeFileSurfaceRuntimeFetchedResource,
 	type WorktreeFileSurfaceRuntimeFetchResourceProps,
 } from '../worktree-file-surface/worktree-file-surface-runtime.js';
 
@@ -52,7 +54,9 @@ export interface BridgeFileViewerAppProps {
 	readonly autoOpenInitialFile?: boolean;
 	readonly codeViewWorkerFactory?: () => Worker;
 	readonly codeViewWorkerPoolEnabled?: boolean;
-	readonly fetchResource?: (props: WorktreeFileSurfaceRuntimeFetchResourceProps) => Promise<string>;
+	readonly fetchResource?: (
+		props: WorktreeFileSurfaceRuntimeFetchResourceProps,
+	) => Promise<WorktreeFileSurfaceRuntimeFetchedResource>;
 	readonly initialFrames?: readonly WorktreeFileProtocolFrame[];
 	readonly isActive?: boolean;
 	readonly loadInitialFrames?: () => Promise<readonly WorktreeFileProtocolFrame[]>;
@@ -185,6 +189,7 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 	} = props;
 	const runtimeRef = useRef<WorktreeFileSurfaceRuntime | null>(null);
 	const openFileBodyRef = useRef<string | null>(null);
+	const provisionalOpenFileBodyRef = useRef<string | null>(null);
 	const activeVisibleDemandSignatureRef = useRef<string | null>(null);
 	const demandDispatchRequestIdRef = useRef(0);
 	const lastDemandDispatchDebugStateRef = useRef<BridgeFileViewerDemandDispatchDebugState>({
@@ -205,6 +210,7 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 		useState<WorktreeFileSurfaceLoadTelemetry | null>(null);
 	const [lastDemandDispatchDebugState, setLastDemandDispatchDebugState] =
 		useState<BridgeFileViewerDemandDispatchDebugState>({ status: 'idle' });
+	const [provisionalOpenFileBody, setProvisionalOpenFileBody] = useState<string | null>(null);
 	lastDemandDispatchDebugStateRef.current = lastDemandDispatchDebugState;
 	const [searchText, setSearchText] = useState('');
 	const [searchMode, setSearchMode] = useState<BridgeFileViewerSearchMode>('text');
@@ -237,6 +243,8 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 		const requestId = openFileRequestIdRef.current + 1;
 		openFileRequestIdRef.current = requestId;
 		openFileBodyRef.current = null;
+		provisionalOpenFileBodyRef.current = null;
+		setProvisionalOpenFileBody(null);
 		setLastOpenLoadTelemetry(null);
 		setOpenFileState({ status: 'loading', path: descriptor.path, descriptor });
 		const runtime = runtimeRef.current;
@@ -248,18 +256,29 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 		}
 		const result = await runtime.openFile({
 			descriptor,
+			onProvisionalTextChunk: (chunk): void => {
+				if (openFileRequestIdRef.current !== requestId) {
+					return;
+				}
+				provisionalOpenFileBodyRef.current = `${provisionalOpenFileBodyRef.current ?? ''}${chunk.text}`;
+				setProvisionalOpenFileBody(provisionalOpenFileBodyRef.current);
+			},
 			openFileSessionId: descriptor.fileId,
 		});
 		if (openFileRequestIdRef.current !== requestId) {
 			return;
 		}
 		if (result.ok) {
-			openFileBodyRef.current = result.body;
+			openFileBodyRef.current = result.content.readText();
+			provisionalOpenFileBodyRef.current = null;
+			setProvisionalOpenFileBody(null);
 			setLastOpenLoadTelemetry(result.loadTelemetry);
 			setOpenFileState({ status: 'ready', path: descriptor.path, descriptor });
 			return;
 		}
 		openFileBodyRef.current = null;
+		provisionalOpenFileBodyRef.current = null;
+		setProvisionalOpenFileBody(null);
 		setLastOpenLoadTelemetry(null);
 		setOpenFileState({
 			status: result.reason === 'content_unavailable' ? 'unavailable' : 'failed',
@@ -375,6 +394,8 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 		}
 		const requestId = openFileRequestIdRef.current + 1;
 		openFileRequestIdRef.current = requestId;
+		provisionalOpenFileBodyRef.current = null;
+		setProvisionalOpenFileBody(null);
 		setLastOpenLoadTelemetry(null);
 		const runtime = runtimeRef.current;
 		if (runtime === null) {
@@ -394,6 +415,13 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 			descriptor: refreshDescriptor,
 		});
 		const result = await runtime.refreshOpenFile({
+			onProvisionalTextChunk: (chunk): void => {
+				if (openFileRequestIdRef.current !== requestId) {
+					return;
+				}
+				provisionalOpenFileBodyRef.current = `${provisionalOpenFileBodyRef.current ?? ''}${chunk.text}`;
+				setProvisionalOpenFileBody(provisionalOpenFileBodyRef.current);
+			},
 			openFileSessionId: state.descriptor.fileId,
 		});
 		if (openFileRequestIdRef.current !== requestId) {
@@ -414,7 +442,9 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 			result: result.ok ? 'ok' : result.reason,
 		});
 		if (result.ok) {
-			openFileBodyRef.current = result.body;
+			openFileBodyRef.current = result.content.readText();
+			provisionalOpenFileBodyRef.current = null;
+			setProvisionalOpenFileBody(null);
 			setLastOpenLoadTelemetry(result.loadTelemetry);
 			const refreshedDescriptor =
 				findLatestDescriptorForOpenFile({
@@ -430,6 +460,8 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 		}
 		openFileBodyRef.current =
 			result.reason === 'content_unavailable' ? null : openFileBodyRef.current;
+		provisionalOpenFileBodyRef.current = null;
+		setProvisionalOpenFileBody(null);
 		setLastOpenLoadTelemetry(null);
 		setOpenFileState({
 			status: result.reason === 'content_unavailable' ? 'unavailable' : 'stale',
@@ -631,11 +663,13 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 		totalDescriptorCount: renderState.descriptors.length,
 	});
 	const openFileBody =
-		openFileState.status === 'ready' ||
-		openFileState.status === 'stale' ||
-		openFileState.status === 'refreshing'
-			? openFileBodyRef.current
-			: null;
+		openFileState.status === 'loading'
+			? provisionalOpenFileBody
+			: openFileState.status === 'refreshing'
+				? (provisionalOpenFileBody ?? openFileBodyRef.current)
+				: openFileState.status === 'ready' || openFileState.status === 'stale'
+					? openFileBodyRef.current
+					: null;
 	const canRefreshOpenFile =
 		openFileState.status === 'stale' &&
 		findLatestDescriptorForOpenFile({
@@ -1184,10 +1218,15 @@ function totalOpenFileHeightForState(openFileState: BridgeFileViewerOpenState): 
 
 async function defaultFetchWorktreeFileResource(
 	props: WorktreeFileSurfaceRuntimeFetchResourceProps,
-): Promise<string> {
+): Promise<WorktreeFileSurfaceRuntimeFetchedResource> {
 	const response = await fetch(props.resourceUrl, { signal: props.signal });
 	if (!response.ok) {
 		throw new Error(`Worktree/File resource request failed: ${response.status}`);
 	}
-	return await response.text();
+	return await readBridgeTextResourceStream(response, {
+		integrity: props.descriptor.content.integrity,
+		maxBytes: props.descriptor.content.maxBytes,
+		onTextChunk: props.onTextChunk,
+		signal: props.signal,
+	});
 }

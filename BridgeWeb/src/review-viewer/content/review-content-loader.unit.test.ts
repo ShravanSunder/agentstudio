@@ -18,17 +18,23 @@ import { createBridgeReviewContentRegistry } from './review-content-registry.js'
 describe('review content loader', () => {
 	test('loads the selected item through the preferred content handle URL', async () => {
 		const requestedUrls: string[] = [];
+		const reviewPackage = packageWithSelectedItemContentRoles({
+			base: null,
+			head: authoritativeContentHandle('item-source', 'head', headTextSha256),
+			diff: null,
+			file: null,
+		});
 
 		const resource = await loadSelectedReviewItemContent({
-			reviewPackage: makeBridgeReviewPackage(),
+			reviewPackage,
 			selectedItemId: 'item-source',
 			fetchContent: async (url: string): Promise<Response> => {
 				requestedUrls.push(url);
-				return new Response('loaded head text');
+				return new Response('head text');
 			},
 		});
 
-		expect(resource?.text).toBe('loaded head text');
+		expect(resource?.readText()).toBe('head text');
 		expect(resource?.handle.role).toBe('head');
 		expect(requestedUrls).toEqual([
 			'agentstudio://resource/review/content/handle-item-source-head?generation=1',
@@ -37,9 +43,15 @@ describe('review content loader', () => {
 
 	test('loads selected diff content through base and head handles', async () => {
 		const requestedUrls: string[] = [];
+		const reviewPackage = packageWithSelectedItemContentRoles({
+			base: authoritativeContentHandle('item-source', 'base', baseTextSha256),
+			head: authoritativeContentHandle('item-source', 'head', headTextSha256),
+			diff: null,
+			file: null,
+		});
 
 		const resources = await loadSelectedReviewItemContentResources({
-			reviewPackage: makeBridgeReviewPackage(),
+			reviewPackage,
 			selectedItemId: 'item-source',
 			fetchContent: async (url: string): Promise<Response> => {
 				requestedUrls.push(url);
@@ -47,8 +59,8 @@ describe('review content loader', () => {
 			},
 		});
 
-		expect(resources?.base?.text).toBe('base text');
-		expect(resources?.head?.text).toBe('head text');
+		expect(resources?.base?.readText()).toBe('base text');
+		expect(resources?.head?.readText()).toBe('head text');
 		expect(requestedUrls).toEqual([
 			'agentstudio://resource/review/content/handle-item-source-base?generation=1',
 			'agentstudio://resource/review/content/handle-item-source-head?generation=1',
@@ -58,34 +70,65 @@ describe('review content loader', () => {
 	test('reuses registry content across repeated selected item hydration', async () => {
 		const requestedUrls: string[] = [];
 		const contentRegistry = createBridgeReviewContentRegistry();
+		const reviewPackage = packageWithSelectedItemContentRoles({
+			base: authoritativeContentHandle('item-source', 'base', baseTextSha256),
+			head: authoritativeContentHandle('item-source', 'head', headTextSha256),
+			diff: null,
+			file: null,
+		});
 
 		const first = await loadSelectedReviewItemContentResources({
-			reviewPackage: makeBridgeReviewPackage(),
+			reviewPackage,
 			selectedItemId: 'item-source',
 			contentRegistry,
 			fetchContent: async (url: string): Promise<Response> => {
 				requestedUrls.push(url);
-				return new Response(url.includes('-base') ? 'base cached' : 'head cached');
+				return new Response(url.includes('-base') ? 'base text' : 'head text');
 			},
 		});
 		const second = await loadSelectedReviewItemContentResources({
-			reviewPackage: makeBridgeReviewPackage(),
+			reviewPackage,
 			selectedItemId: 'item-source',
 			contentRegistry,
 			fetchContent: async (url: string): Promise<Response> => {
 				requestedUrls.push(url);
-				return new Response(url.includes('-base') ? 'base duplicate' : 'head duplicate');
+				return new Response(url.includes('-base') ? 'base dupe' : 'head dupe');
 			},
 		});
 
-		expect(first?.base?.text).toBe('base cached');
-		expect(first?.head?.text).toBe('head cached');
-		expect(second?.base?.text).toBe('base cached');
-		expect(second?.head?.text).toBe('head cached');
+		expect(first?.base?.readText()).toBe('base text');
+		expect(first?.head?.readText()).toBe('head text');
+		expect(second?.base?.readText()).toBe('base text');
+		expect(second?.head?.readText()).toBe('head text');
 		expect(requestedUrls).toEqual([
 			'agentstudio://resource/review/content/handle-item-source-base?generation=1',
 			'agentstudio://resource/review/content/handle-item-source-head?generation=1',
 		]);
+	});
+
+	test('rejects preview-only selected item content as final content', async () => {
+		const previewOnlyHeadHandle: BridgeContentHandle = {
+			...makeBridgeContentHandle('item-source', 'head'),
+			contentHash: '',
+			contentHashAlgorithm: 'git-oid',
+			sizeBytes: 9,
+		};
+		const reviewPackage = packageWithSelectedItemContentRoles({
+			base: null,
+			head: previewOnlyHeadHandle,
+			diff: null,
+			file: null,
+		});
+
+		await expect(
+			loadSelectedReviewItemContent({
+				reviewPackage,
+				selectedItemId: 'item-source',
+				fetchContent: async (): Promise<Response> => new Response('head text'),
+			}),
+		).rejects.toThrow(
+			'Bridge review content resource is preview-only and cannot satisfy final content',
+		);
 	});
 
 	test('returns null when no selected item is available', async () => {
@@ -210,6 +253,8 @@ describe('review content loader', () => {
 			role: 'file',
 			resourceUrl: 'agentstudio://resource/review/content/handle-item-source-file?generation=1',
 			cacheKey: 'item-source:file',
+			contentHash: fileTextSha256,
+			contentHashAlgorithm: 'sha256',
 		};
 		const reviewPackage = packageWithSelectedItemContentRoles({
 			base: null,
@@ -224,16 +269,32 @@ describe('review content loader', () => {
 			selectedItemId: 'item-source',
 			fetchContent: async (url: string): Promise<Response> => {
 				requestedUrls.push(url);
-				return new Response('added file text');
+				return new Response('file text');
 			},
 		});
 
-		expect(resources?.file?.text).toBe('added file text');
+		expect(resources?.file?.readText()).toBe('file text');
 		expect(requestedUrls).toEqual([
 			'agentstudio://resource/review/content/handle-item-source-file?generation=1',
 		]);
 	});
 });
+
+const baseTextSha256 = 'sha256:5abd7d8a083e4eb248080f52211eb15f3b785ef1bb1fd9117caa02d6ae81ba69';
+const headTextSha256 = 'sha256:1fd3b09376e42af78657b7cb28d101699a1ac7ff4bc9232f32e71bcbdff17b7c';
+const fileTextSha256 = 'sha256:448372bbd09f40b8c2da6754df5e29a1580905be745e26723653dea93ab6722e';
+
+function authoritativeContentHandle(
+	itemId: string,
+	role: 'base' | 'head',
+	contentHash: string,
+): BridgeContentHandle {
+	return {
+		...makeBridgeContentHandle(itemId, role),
+		contentHash,
+		contentHashAlgorithm: 'sha256',
+	};
+}
 
 function packageWithSelectedItemContentRoles(
 	contentRoles: BridgeReviewContentRoles,

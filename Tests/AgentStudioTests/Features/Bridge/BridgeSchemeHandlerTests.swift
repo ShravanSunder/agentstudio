@@ -423,6 +423,51 @@ final class BridgeSchemeHandlerTests {
     }
 
     @Test
+    func test_contentRouteEmitsLargeContentInMultipleBoundedChunks() async throws {
+        let content = String(repeating: "streamed-content-", count: 10_000)
+        let handle = makeBridgeContentHandle(
+            itemId: "item-1",
+            role: .head,
+            reviewGeneration: 7,
+            contentHash: bridgeSHA256ContentHash(content),
+            sizeBytes: Data(content.utf8).count
+        )
+        let provider = BridgeReviewSourceProviderFake(
+            comparison: BridgeEndpointComparison(
+                baseEndpoint: makeBridgeEndpoint(endpointId: "base", kind: .gitRef),
+                headEndpoint: makeBridgeEndpoint(endpointId: "head", kind: .workingTree),
+                changedFiles: []
+            ),
+            contentByHandleId: [
+                handle.handleId: makeContentResult(handle: handle, data: content)
+            ]
+        )
+        let contentStore = BridgeContentStore(provider: provider)
+        await contentStore.activate(handles: [handle], reviewGeneration: 7)
+        let handler = await makeLeasedBridgeSchemeHandler(contentStore: contentStore, handle: handle)
+        let request = URLRequest(url: URL(string: handle.resourceUrl)!)
+
+        var response: URLResponse?
+        var chunks: [Data] = []
+        for try await result in handler.reply(for: request) {
+            switch result {
+            case .response(let emittedResponse):
+                response = emittedResponse
+            case .data(let chunk):
+                chunks.append(chunk)
+            @unknown default:
+                Issue.record("Unexpected URL scheme task result")
+            }
+        }
+
+        #expect(response?.expectedContentLength == Int64(Data(content.utf8).count))
+        #expect(chunks.count > 1)
+        #expect(chunks.allSatisfy { $0.count <= 64 * 1024 })
+        #expect(chunks.reduce(into: Data()) { partial, chunk in partial.append(chunk) } == Data(content.utf8))
+        #expect(await provider.recordedContentRequestsCount() == 1)
+    }
+
+    @Test
     func test_protocolScopedContentRouteRejectsUnleasedContentHandle() async throws {
         let handle = makeBridgeContentHandle(
             itemId: "item-1",

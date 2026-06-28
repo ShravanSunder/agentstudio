@@ -1614,6 +1614,28 @@ fetchable or authoritative.
 Future chunk manifests may promote ranged resources to authoritative after the
 manifest contract and tamper fixtures exist.
 
+First-slice progressive materialization rule:
+
+- when a resource has only whole-body integrity, the content stream may expose
+  provisional chunks/windows to the content/materialization layer before the
+  final hash is known
+- provisional chunks must remain bound to the descriptor identity, source
+  identity, generation/revision/cursor, and active consumer epoch that requested
+  them
+- provisional chunks must not be copied into Zustand, RPC results, continuous
+  events, intake frames, telemetry, DOM proof payloads, comments, or agent
+  communications
+- provisional chunks may drive visible loading/preview renderer deltas only when
+  the materializer can drop or replace them on abort, stale completion,
+  truncation, or whole-hash mismatch
+- final review facts, comments, provider authority decisions, and stable
+  renderer/cache entries become authoritative only after successful whole-body
+  validation when an integrity hash is issued
+- if whole-body validation fails, the implementation must reject the resource
+  completion, invalidate or remove provisional materialization for that
+  descriptor epoch, and surface a bounded source-scrubbed failure fact rather
+  than silently keeping partial bytes
+
 Markdown rendering contract:
 
 - markdown and rendered comments/comms are untrusted input
@@ -1791,6 +1813,8 @@ Decision for first implementation:
 
 - authoritative resources use whole-body validation when integrity is issued
 - ranges/chunks are preview-only until chunk manifests exist
+- streamed chunks may be provisionally materialized before final whole-body
+  validation only under the first-slice progressive materialization rule above
 
 Plain-language boundary:
 
@@ -1802,6 +1826,9 @@ Plain-language boundary:
   vertical
 - chunk manifests stay future integrity work unless a plan explicitly needs
   authoritative partial reads for very large files/diffs
+- a streamed whole-body resource is different from an authoritative ranged
+  resource: it can reduce latency and memory pressure, but it does not make any
+  individual chunk authoritative without a chunk manifest
 
 OD3. Selected neighborhood order.
 

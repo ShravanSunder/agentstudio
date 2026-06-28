@@ -33,6 +33,15 @@ private struct BridgeWorktreeFileDescriptorMaterializationProps: Sendable {
     let sequence: Int
 }
 
+private struct BridgeWorktreeFileAnalysis: Sendable {
+    let contentHash: String
+    let isBinary: Bool
+    let lineCount: Int?
+    let sizeBytes: Int
+    let streamContentHash: String
+    let streamByteCount: Int
+}
+
 enum BridgeWorktreeFileMaterializer {
     static func materializeInitialFileDescriptors(
         request: BridgeWorktreeFileMaterializationRequest
@@ -147,19 +156,14 @@ enum BridgeWorktreeFileMaterializer {
     private static func materializeFileDescriptor(
         props: BridgeWorktreeFileDescriptorMaterializationProps
     ) throws -> BridgeWorktreeMaterializedFileDescriptor {
-        let data = try Data(contentsOf: props.fileURL)
-        let text = String(data: data, encoding: .utf8)
-        let isBinary = text == nil
+        let fileAnalysis = try analyzeFile(props.fileURL)
         let fileExtension = nonEmpty(props.fileURL.pathExtension)
-        let contentHash = sha256Hex(data)
-        let contentHandle = "worktree-file-content-\(contentHash.prefix(32))"
+        let contentHandle = "worktree-file-content-\(fileAnalysis.contentHash.prefix(32))"
         let fileId = "worktree-file-\(sha256Hex(Data(props.relativePath.utf8)).prefix(32))"
         let virtualizedExtentKind = virtualizedExtentKind(
-            isBinary: isBinary,
-            sizeBytes: data.count
+            isBinary: fileAnalysis.isBinary,
+            sizeBytes: fileAnalysis.sizeBytes
         )
-        let lineCount = text.map(lineCount)
-        let bodyData = boundedBodyData(data)
         let frame = try BridgeWorktreeFileSurfaceFrameBuilder.fileDescriptor(
             request: BridgeWorktreeFileDescriptorBuildRequest(
                 paneId: props.paneId.uuidString,
@@ -169,15 +173,15 @@ enum BridgeWorktreeFileMaterializer {
                 path: props.relativePath,
                 fileId: String(fileId),
                 contentHandle: String(contentHandle),
-                sizeBytes: data.count,
-                isBinary: isBinary,
-                contentAvailability: data.count > AppPolicies.Bridge.contentMaxBytesPerItem
+                sizeBytes: fileAnalysis.sizeBytes,
+                isBinary: fileAnalysis.isBinary,
+                contentAvailability: fileAnalysis.sizeBytes > AppPolicies.Bridge.contentMaxBytesPerItem
                     ? .metadataOnly
                     : .readable,
                 language: language(for: fileExtension),
                 fileExtension: fileExtension,
                 virtualizedExtentKind: virtualizedExtentKind,
-                lineCount: virtualizedExtentKind == .exactLineCount ? lineCount : nil,
+                lineCount: virtualizedExtentKind == .exactLineCount ? fileAnalysis.lineCount : nil,
                 estimatedContentHeightPixels: nil
             )
         )
@@ -188,7 +192,12 @@ enum BridgeWorktreeFileMaterializer {
         return BridgeWorktreeMaterializedFileDescriptor(
             frame: frame,
             resource: resource,
-            body: BridgeWorktreeFileResourceBody(data: bodyData, mimeType: mimeType)
+            body: BridgeWorktreeFileResourceBody(
+                fileURL: props.fileURL,
+                byteCount: fileAnalysis.streamByteCount,
+                mimeType: mimeType,
+                expectedSHA256Hex: fileAnalysis.streamContentHash
+            )
         )
     }
 
@@ -205,12 +214,9 @@ enum BridgeWorktreeFileMaterializer {
         return .exactLineCount
     }
 
-    private static func boundedBodyData(_ data: Data) -> Data {
+    private static func boundedBodyByteCount(_ sizeBytes: Int) -> Int {
         let maxBytes = AppPolicies.Bridge.contentMaxBytesPerItem
-        guard data.count > maxBytes else {
-            return data
-        }
-        return Data(data.prefix(maxBytes))
+        return min(sizeBytes, maxBytes)
     }
 
     private static func language(for fileExtension: String?) -> String? {
@@ -237,19 +243,61 @@ enum BridgeWorktreeFileMaterializer {
         value.isEmpty ? nil : value
     }
 
-    private static func lineCount(for text: String) -> Int {
-        guard !text.isEmpty else {
-            return 0
-        }
-        return text.reduce(into: 1) { count, character in
-            if character == "\n" {
-                count += 1
-            }
-        }
-    }
-
     private static func sha256Hex(_ data: Data) -> String {
         SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func sha256Hex(_ digest: SHA256.Digest) -> String {
+        digest.map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func analyzeFile(_ fileURL: URL) throws -> BridgeWorktreeFileAnalysis {
+        let fileSize = try fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+        let fileHandle = try FileHandle(forReadingFrom: fileURL)
+        defer {
+            try? fileHandle.close()
+        }
+
+        var hasher = SHA256()
+        var streamHasher = SHA256()
+        var observedBytes = 0
+        var streamObservedBytes = 0
+        let maxStreamBytes = AppPolicies.Bridge.contentMaxBytesPerItem
+        var containsNulByte = false
+        var newlineCount = 0
+        while let chunk = try fileHandle.read(upToCount: 64 * 1024), !chunk.isEmpty {
+            observedBytes += chunk.count
+            hasher.update(data: chunk)
+            let remainingStreamBytes = max(maxStreamBytes - streamObservedBytes, 0)
+            if remainingStreamBytes > 0 {
+                let streamChunk = chunk.prefix(remainingStreamBytes)
+                streamObservedBytes += streamChunk.count
+                streamHasher.update(data: Data(streamChunk))
+            }
+            if !containsNulByte, chunk.contains(0) {
+                containsNulByte = true
+            }
+            newlineCount += chunk.reduce(into: 0) { count, byte in
+                if byte == UInt8(ascii: "\n") {
+                    count += 1
+                }
+            }
+        }
+
+        let sizeBytes = max(fileSize, observedBytes)
+        let isBinary = containsNulByte
+        let lineCount =
+            isBinary || sizeBytes > AppPolicies.Bridge.contentMaxBytesPerItem
+            ? nil
+            : (observedBytes == 0 ? 0 : newlineCount + 1)
+        return BridgeWorktreeFileAnalysis(
+            contentHash: sha256Hex(hasher.finalize()),
+            isBinary: isBinary,
+            lineCount: lineCount,
+            sizeBytes: sizeBytes,
+            streamContentHash: sha256Hex(streamHasher.finalize()),
+            streamByteCount: boundedBodyByteCount(sizeBytes)
+        )
     }
 
     private static func parsedContentResource(

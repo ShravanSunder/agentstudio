@@ -15,6 +15,7 @@ import type {
 	WorktreeFileSurfaceSourceIdentity,
 } from '../features/worktree-file/models/worktree-file-protocol-models.js';
 import { WorktreeFileApp } from './worktree-file-app.js';
+import { makeWorktreeFileSurfaceRuntimeFetchedResource } from './worktree-file-surface-runtime.js';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -43,7 +44,7 @@ describe('WorktreeFileApp', () => {
 				<WorktreeFileApp
 					fetchResource={async ({ resourceUrl }) => {
 						fetchedResourceUrls.push(resourceUrl);
-						return 'export const value = 2;\n';
+						return makeWorktreeFileSurfaceRuntimeFetchedResource('export const value = 2;\n');
 					}}
 					initialFrames={makeFrames(descriptor)}
 				/>,
@@ -93,7 +94,7 @@ describe('WorktreeFileApp', () => {
 				<WorktreeFileApp
 					fetchResource={async () => {
 						fetchCount += 1;
-						return 'must-not-fetch';
+						return makeWorktreeFileSurfaceRuntimeFetchedResource('must-not-fetch');
 					}}
 					initialFrames={makeFrames(descriptor)}
 				/>,
@@ -199,7 +200,8 @@ describe('WorktreeFileApp', () => {
 			path: 'assets/logo.png',
 			virtualizedExtentKind: 'unavailable',
 		});
-		const slowContent = makeDeferred<string>();
+		const slowContent =
+			makeDeferred<ReturnType<typeof makeWorktreeFileSurfaceRuntimeFetchedResource>>();
 		const container = document.createElement('div');
 		document.body.append(container);
 		mountedRoot = createRoot(container);
@@ -246,7 +248,9 @@ describe('WorktreeFileApp', () => {
 		).toBe('assets/logo.png');
 
 		await act(async (): Promise<void> => {
-			slowContent.resolve('slow content must stay stale\n');
+			slowContent.resolve(
+				makeWorktreeFileSurfaceRuntimeFetchedResource('slow content must stay stale\n'),
+			);
 			await slowContent.promise;
 			await nextMicrotask();
 		});
@@ -282,9 +286,11 @@ describe('WorktreeFileApp', () => {
 				<WorktreeFileApp
 					fetchResource={async ({ resourceUrl }) => {
 						fetchedResourceUrls.push(resourceUrl);
-						return resourceUrl.includes('file-content-2')
-							? 'export const value = 3;\n'
-							: 'export const value = 2;\n';
+						return makeWorktreeFileSurfaceRuntimeFetchedResource(
+							resourceUrl.includes('file-content-2')
+								? 'export const value = 3;\n'
+								: 'export const value = 2;\n',
+						);
 					}}
 					initialFrames={makeFrames(descriptor)}
 				/>,
@@ -368,9 +374,11 @@ describe('WorktreeFileApp', () => {
 				<WorktreeFileApp
 					fetchResource={async ({ resourceUrl }) => {
 						fetchedResourceUrls.push(resourceUrl);
-						return resourceUrl.includes('file-content-2')
-							? 'export const value = 3;\n'
-							: 'export const value = 2;\n';
+						return makeWorktreeFileSurfaceRuntimeFetchedResource(
+							resourceUrl.includes('file-content-2')
+								? 'export const value = 3;\n'
+								: 'export const value = 2;\n',
+						);
 					}}
 					initialFrames={makeFrames(descriptor)}
 					subscribeFrames={(subscriber) => {
@@ -430,7 +438,8 @@ describe('WorktreeFileApp', () => {
 			lineCount: 2,
 			path: descriptor.path,
 		});
-		const refreshContent = makeDeferred<string>();
+		const refreshContent =
+			makeDeferred<ReturnType<typeof makeWorktreeFileSurfaceRuntimeFetchedResource>>();
 		const container = document.createElement('div');
 		document.body.append(container);
 		mountedRoot = createRoot(container);
@@ -441,7 +450,7 @@ describe('WorktreeFileApp', () => {
 					fetchResource={async ({ resourceUrl }) =>
 						resourceUrl.includes('file-content-2')
 							? await refreshContent.promise
-							: 'export const value = 2;\n'
+							: makeWorktreeFileSurfaceRuntimeFetchedResource('export const value = 2;\n')
 					}
 					initialFrames={makeFrames(descriptor)}
 				/>,
@@ -467,7 +476,9 @@ describe('WorktreeFileApp', () => {
 		expect(document.body.textContent).toContain('export const value = 2;');
 
 		await act(async (): Promise<void> => {
-			refreshContent.resolve('export const value = 3;\n');
+			refreshContent.resolve(
+				makeWorktreeFileSurfaceRuntimeFetchedResource('export const value = 3;\n'),
+			);
 			await refreshContent.promise;
 			await nextMicrotask();
 		});
@@ -485,7 +496,9 @@ describe('WorktreeFileApp', () => {
 		await act(async (): Promise<void> => {
 			mountedRoot?.render(
 				<WorktreeFileApp
-					fetchResource={async () => 'export const value = 2;\n'}
+					fetchResource={async () =>
+						makeWorktreeFileSurfaceRuntimeFetchedResource('export const value = 2;\n')
+					}
 					initialFrames={makeFrames(descriptor)}
 					subscribeFrames={(subscriber) => {
 						subscribedFrames = subscriber;
@@ -520,7 +533,8 @@ describe('WorktreeFileApp', () => {
 			lineCount: 7,
 			path: descriptor.path,
 		});
-		const slowContent = makeDeferred<string>();
+		const slowContent =
+			makeDeferred<ReturnType<typeof makeWorktreeFileSurfaceRuntimeFetchedResource>>();
 		const container = document.createElement('div');
 		document.body.append(container);
 		mountedRoot = createRoot(container);
@@ -561,7 +575,9 @@ describe('WorktreeFileApp', () => {
 		).toBe('140');
 
 		await act(async (): Promise<void> => {
-			slowContent.resolve('old content must not render\n');
+			slowContent.resolve(
+				makeWorktreeFileSurfaceRuntimeFetchedResource('old content must not render\n'),
+			);
 			await slowContent.promise;
 			await nextMicrotask();
 		});

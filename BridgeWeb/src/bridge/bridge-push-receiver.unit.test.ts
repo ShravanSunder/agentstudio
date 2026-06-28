@@ -22,7 +22,15 @@ describe('bridge push receiver', () => {
 		dispatchPush(target, pushReplaceFixture, 'wrong-nonce');
 		dispatchPush(target, pushReplaceFixture, 'push-nonce');
 		dispatchPush(target, pushStaleRevisionFixture, 'push-nonce');
-		dispatchPush(target, pushMergeFixture, 'push-nonce');
+		dispatchPush(
+			target,
+			{
+				...pushMergeFixture,
+				slice: 'diff_files',
+				data: { files: {} },
+			},
+			'push-nonce',
+		);
 		dispatchPush(target, pushEpochMismatchFixture, 'push-nonce');
 		uninstall();
 		dispatchPush(target, { ...pushMergeFixture, __revision: 3 }, 'push-nonce');
@@ -62,8 +70,8 @@ describe('bridge push receiver', () => {
 				...pushReplaceFixture,
 				__revision: 2,
 				level: 'cold',
-				slice: 'diff_package_metadata',
-				data: { package: { packageId: 'package-1' } },
+				slice: 'diff_files',
+				data: { files: { 'one.txt': { path: 'one.txt' } } },
 			},
 			'push-nonce',
 		);
@@ -82,14 +90,16 @@ describe('bridge push receiver', () => {
 			{
 				...pushMergeFixture,
 				__revision: 1,
-				slice: 'diff_package_delta',
+				slice: 'review_threads',
+				store: 'review',
+				data: { threads: [] },
 			},
 			'push-nonce',
 		);
 		uninstall();
 
 		expect(acceptedEnvelopes.map((envelope: BridgePushEnvelope): string => envelope.slice)).toEqual(
-			['diff_status', 'diff_package_metadata', 'diff_package_delta'],
+			['diff_status', 'diff_files', 'review_threads'],
 		);
 		expect(
 			acceptedEnvelopes.map((envelope: BridgePushEnvelope): number => envelope.revision),
@@ -119,14 +129,11 @@ describe('bridge push receiver', () => {
 			...pushReplaceFixture,
 			__revision: 5,
 			level: 'cold',
-			slice: 'diff_package_metadata',
+			slice: 'diff_files',
 			data: undefined,
 			payload: {
-				package: {
-					orderedItemIds: ['item-source'],
-					itemsById: {
-						'item-source': { itemId: 'item-source' },
-					},
+				files: {
+					'item-source': { path: 'item-source' },
 				},
 			},
 		};
@@ -143,10 +150,52 @@ describe('bridge push receiver', () => {
 		uninstall();
 
 		expect(acceptedEnvelopes).toHaveLength(1);
-		expect(acceptedEnvelopes[0]?.slice).toBe('diff_package_metadata');
+		expect(acceptedEnvelopes[0]?.slice).toBe('diff_files');
 		expect(acceptedEnvelopes[0]?.data).toEqual(envelope.payload);
 		expect(invalidEnvelopes).toHaveLength(1);
 		expect(droppedReasons).toEqual(['push_decode_failed']);
+	});
+
+	test('rejects legacy review package data push slices at decode', () => {
+		const target = new EventTarget();
+		const acceptedEnvelopes: BridgePushEnvelope[] = [];
+		const droppedReasons: string[] = [];
+		const uninstall = installBridgePushReceiver({
+			target,
+			getPushNonce: () => 'push-nonce',
+			onEnvelope: (envelope: BridgePushEnvelope): void => {
+				acceptedEnvelopes.push(envelope);
+			},
+			onDroppedEnvelope: (reason): void => {
+				droppedReasons.push(reason);
+			},
+		});
+
+		dispatchPush(
+			target,
+			{
+				...pushReplaceFixture,
+				__revision: 5,
+				level: 'cold',
+				slice: 'diff_package_metadata',
+				data: { package: { packageId: 'package-1' } },
+			},
+			'push-nonce',
+		);
+		dispatchPush(
+			target,
+			{
+				...pushMergeFixture,
+				__revision: 6,
+				level: 'warm',
+				slice: 'diff_package_delta',
+			},
+			'push-nonce',
+		);
+		uninstall();
+
+		expect(acceptedEnvelopes).toHaveLength(0);
+		expect(droppedReasons).toEqual(['push_decode_failed', 'push_decode_failed']);
 	});
 
 	test('reports stale push drops without exposing payload data', () => {

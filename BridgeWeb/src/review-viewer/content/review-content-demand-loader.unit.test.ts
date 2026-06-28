@@ -9,6 +9,7 @@ import type {
 } from '../../core/models/bridge-resource-descriptor.js';
 import { bridgeAttachedResourceDescriptorSchema } from '../../core/models/bridge-resource-descriptor.js';
 import { createBridgeResourceDescriptorRegistry } from '../../core/resources/bridge-resource-registry.js';
+import type { BridgeTextResourceStreamResult } from '../../core/resources/bridge-resource-stream.js';
 import { makeBridgeReviewPackage } from '../../foundation/review-package/bridge-review-package-test-support.js';
 import type { BridgeContentHandle } from '../../foundation/review-package/bridge-review-package.js';
 import type { BridgeTelemetrySample } from '../../foundation/telemetry/bridge-telemetry-event.js';
@@ -34,7 +35,7 @@ describe('review content demand loader', () => {
 			reviewPackage,
 		});
 		const requestedUrls: string[] = [];
-		const executor = createBridgeResourceExecutor<string>({
+		const executor = createBridgeResourceExecutor<BridgeTextResourceStreamResult>({
 			registry,
 			maxConcurrentLoads: 2,
 			maxInFlightBytes: 4096,
@@ -43,7 +44,9 @@ describe('review content demand loader', () => {
 			loadResource: async ({ descriptor }) => {
 				requestedUrls.push(descriptor.resourceUrl);
 				return {
-					body: descriptor.descriptorId.includes('base') ? 'base text' : 'head text',
+					content: makeTextStreamResult(
+						descriptor.descriptorId.includes('base') ? 'base text' : 'head text',
+					),
 					byteLength: 9,
 				};
 			},
@@ -62,12 +65,53 @@ describe('review content demand loader', () => {
 			executor,
 		});
 
-		expect(resources?.base?.text).toBe('base text');
-		expect(resources?.head?.text).toBe('head text');
+		expect(resources?.base?.readText()).toBe('base text');
+		expect(resources?.head?.readText()).toBe('head text');
 		expect(requestedUrls).toEqual([
 			'agentstudio://resource/review/content/descriptor-handle-item-source-base?generation=1&revision=1',
 			'agentstudio://resource/review/content/descriptor-handle-item-source-head?generation=1&revision=1',
 		]);
+	});
+
+	test('does not mark preview-only descriptor-backed demand as ready content', async () => {
+		const registry = createBridgeResourceDescriptorRegistry({
+			allowedResourceKindsByProtocol: { review: new Set(['content']) },
+		});
+		const reviewPackage = makeBridgeReviewPackage();
+		const registeredDescriptorsByHandleId = registerPackageContentDescriptors({
+			registry,
+			reviewPackage,
+		});
+		const executor = createBridgeResourceExecutor<BridgeTextResourceStreamResult>({
+			registry,
+			maxConcurrentLoads: 2,
+			maxInFlightBytes: 4096,
+			maxQueuedLoads: 8,
+			maxQueuedBytes: 4096,
+			loadResource: async ({ descriptor }) => ({
+				authoritative: false,
+				content: makeTextStreamResult(`${descriptor.descriptorId} preview`),
+				byteLength: 24,
+			}),
+		});
+
+		const result = await loadReviewItemContentResourcesThroughDemandResult({
+			reviewPackage,
+			itemId: 'item-source',
+			interest: 'selected',
+			resolveDescriptorRef: (handle: BridgeContentHandle): BridgeDescriptorRef | null =>
+				registeredDescriptorsByHandleId.get(handle.handleId)?.ref ?? null,
+			scheduler: createBridgeDemandScheduler({
+				maxQueuedIntentsPerLane: 8,
+				maxQueuedEstimatedBytes: 4096,
+			}),
+			executor,
+		});
+
+		expect(result).toEqual({
+			status: 'deferred',
+			reason: 'stale_completion',
+		});
 	});
 
 	test('records demand fetch telemetry with interest result and throttled flushes', async () => {
@@ -80,14 +124,14 @@ describe('review content demand loader', () => {
 			reviewPackage,
 		});
 		const telemetryRecorder = makeTelemetryRecorder();
-		const executor = createBridgeResourceExecutor<string>({
+		const executor = createBridgeResourceExecutor<BridgeTextResourceStreamResult>({
 			registry,
 			maxConcurrentLoads: 2,
 			maxInFlightBytes: 4096,
 			maxQueuedLoads: 8,
 			maxQueuedBytes: 4096,
 			loadResource: async ({ descriptor }) => ({
-				body: `${descriptor.descriptorId} text`,
+				content: makeTextStreamResult(`${descriptor.descriptorId} text`),
 				byteLength: 20,
 			}),
 		});
@@ -135,14 +179,14 @@ describe('review content demand loader', () => {
 			reviewPackage,
 		});
 		const pressureSamples: unknown[] = [];
-		const executor = createBridgeResourceExecutor<string>({
+		const executor = createBridgeResourceExecutor<BridgeTextResourceStreamResult>({
 			registry,
 			maxConcurrentLoads: 2,
 			maxInFlightBytes: 4096,
 			maxQueuedLoads: 8,
 			maxQueuedBytes: 4096,
 			loadResource: async ({ descriptor }) => ({
-				body: `${descriptor.descriptorId} text`,
+				content: makeTextStreamResult(`${descriptor.descriptorId} text`),
 				byteLength: 20,
 			}),
 		});
@@ -212,14 +256,14 @@ describe('review content demand loader', () => {
 			ok: true,
 			status: 'queued',
 		});
-		const executor = createBridgeResourceExecutor<string>({
+		const executor = createBridgeResourceExecutor<BridgeTextResourceStreamResult>({
 			registry,
 			maxConcurrentLoads: 2,
 			maxInFlightBytes: 4096,
 			maxQueuedLoads: 8,
 			maxQueuedBytes: 4096,
 			loadResource: async ({ descriptor }) => ({
-				body: `${descriptor.descriptorId} text`,
+				content: makeTextStreamResult(`${descriptor.descriptorId} text`),
 				byteLength: 20,
 			}),
 		});
@@ -248,7 +292,7 @@ describe('review content demand loader', () => {
 			reviewPackage,
 		});
 		const requestedDescriptorIds: string[] = [];
-		const executor = createBridgeResourceExecutor<string>({
+		const executor = createBridgeResourceExecutor<BridgeTextResourceStreamResult>({
 			registry,
 			maxConcurrentLoads: 1,
 			maxInFlightBytes: 8 * 1024 * 1024,
@@ -257,7 +301,9 @@ describe('review content demand loader', () => {
 			loadResource: async ({ descriptor }) => {
 				requestedDescriptorIds.push(descriptor.descriptorId);
 				return {
-					body: descriptor.descriptorId.includes('base') ? 'large base' : 'large head',
+					content: makeTextStreamResult(
+						descriptor.descriptorId.includes('base') ? 'large base' : 'large head',
+					),
 					byteLength: 10,
 				};
 			},
@@ -297,7 +343,7 @@ describe('review content demand loader', () => {
 				maxQueuedIntentsPerLane: 8,
 				maxQueuedEstimatedBytes: 4096,
 			}),
-			executor: createBridgeResourceExecutor<string>({
+			executor: createBridgeResourceExecutor<BridgeTextResourceStreamResult>({
 				registry,
 				maxConcurrentLoads: 2,
 				maxInFlightBytes: 4096,
@@ -305,7 +351,7 @@ describe('review content demand loader', () => {
 				maxQueuedBytes: 4096,
 				loadResource: async () => {
 					fetchCount += 1;
-					return { body: 'must not fetch', byteLength: 14 };
+					return { content: makeTextStreamResult('must not fetch'), byteLength: 14 };
 				},
 			}),
 		});
@@ -324,7 +370,8 @@ describe('review content demand loader', () => {
 			reviewPackage,
 		});
 		const headFailureObserved = createDeferred<void>();
-		const unresolvedBaseResult = createDeferred<BridgeResourceExecutorResult<string>>();
+		const unresolvedBaseResult =
+			createDeferred<BridgeResourceExecutorResult<BridgeTextResourceStreamResult>>();
 		const resourcesPromise = loadReviewItemContentResourcesThroughDemand({
 			reviewPackage,
 			itemId: 'item-source',
@@ -375,7 +422,7 @@ describe('review content demand loader', () => {
 			reviewPackage,
 		});
 		const capturedBaseSignals: AbortSignal[] = [];
-		const executor = createBridgeResourceExecutor<string>({
+		const executor = createBridgeResourceExecutor<BridgeTextResourceStreamResult>({
 			registry,
 			maxConcurrentLoads: 2,
 			maxInFlightBytes: 4096,
@@ -386,7 +433,10 @@ describe('review content demand loader', () => {
 					throw new Error('head content failed');
 				}
 				capturedBaseSignals.push(signal);
-				return await new Promise<{ readonly body: string; readonly byteLength: number }>(() => {});
+				return await new Promise<{
+					readonly content: BridgeTextResourceStreamResult;
+					readonly byteLength: number;
+				}>(() => {});
 			},
 		});
 
@@ -424,8 +474,11 @@ describe('review content demand loader', () => {
 		if (blockingDescriptor === undefined) {
 			throw new Error('expected base descriptor');
 		}
-		const blockingLoad = createDeferred<{ readonly body: string; readonly byteLength: number }>();
-		const executor = createBridgeResourceExecutor<string>({
+		const blockingLoad = createDeferred<{
+			readonly content: BridgeTextResourceStreamResult;
+			readonly byteLength: number;
+		}>();
+		const executor = createBridgeResourceExecutor<BridgeTextResourceStreamResult>({
 			registry,
 			maxConcurrentLoads: 1,
 			maxInFlightBytes: 4096,
@@ -435,7 +488,7 @@ describe('review content demand loader', () => {
 				if (descriptor.descriptorId === blockingDescriptor.ref.descriptorId) {
 					return await blockingLoad.promise;
 				}
-				return { body: 'visible text', byteLength: 12 };
+				return { content: makeTextStreamResult('visible text'), byteLength: 12 };
 			},
 		});
 		const scheduler = createBridgeDemandScheduler({
@@ -460,7 +513,7 @@ describe('review content demand loader', () => {
 			scheduler,
 			executor,
 		});
-		blockingLoad.resolve({ body: 'blocking text', byteLength: 13 });
+		blockingLoad.resolve({ content: makeTextStreamResult('blocking text'), byteLength: 13 });
 
 		expect(result).toEqual({ status: 'deferred', reason: 'concurrency_exceeded' });
 		await expect(foregroundLoad).resolves.toMatchObject({ ok: true });
@@ -488,7 +541,7 @@ describe('review content demand loader', () => {
 			resolveDescriptorRef: (handle: BridgeContentHandle): BridgeDescriptorRef | null =>
 				registeredDescriptorsByHandleId.get(handle.handleId)?.ref ?? null,
 			scheduler,
-			executor: createBridgeResourceExecutor<string>({
+			executor: createBridgeResourceExecutor<BridgeTextResourceStreamResult>({
 				registry,
 				maxConcurrentLoads: 2,
 				maxInFlightBytes: 4096,
@@ -496,7 +549,10 @@ describe('review content demand loader', () => {
 				maxQueuedBytes: 4096,
 				loadResource: async () => {
 					fetchCount += 1;
-					return { body: 'must not load after partial enqueue', byteLength: 36 };
+					return {
+						content: makeTextStreamResult('must not load after partial enqueue'),
+						byteLength: 36,
+					};
 				},
 			}),
 		});
@@ -529,7 +585,7 @@ describe('review content demand loader', () => {
 			resolveDescriptorRef: (handle: BridgeContentHandle): BridgeDescriptorRef | null =>
 				registeredDescriptorsByHandleId.get(handle.handleId)?.ref ?? null,
 			scheduler,
-			executor: createBridgeResourceExecutor<string>({
+			executor: createBridgeResourceExecutor<BridgeTextResourceStreamResult>({
 				registry,
 				maxConcurrentLoads: 2,
 				maxInFlightBytes: 4096,
@@ -537,7 +593,10 @@ describe('review content demand loader', () => {
 				maxQueuedBytes: 4096,
 				loadResource: async () => {
 					fetchCount += 1;
-					return { body: 'must not load after byte-budget rejection', byteLength: 48 };
+					return {
+						content: makeTextStreamResult('must not load after byte-budget rejection'),
+						byteLength: 48,
+					};
 				},
 			}),
 			onDemandTelemetry: (sample: unknown): void => {
@@ -567,7 +626,7 @@ describe('review content demand loader', () => {
 			reviewPackage,
 		});
 		const capturedSignals: AbortSignal[] = [];
-		const executor = createBridgeResourceExecutor<string>({
+		const executor = createBridgeResourceExecutor<BridgeTextResourceStreamResult>({
 			registry,
 			maxConcurrentLoads: 2,
 			maxInFlightBytes: 4096,
@@ -575,7 +634,10 @@ describe('review content demand loader', () => {
 			maxQueuedBytes: 4096,
 			loadResource: async ({ signal }) => {
 				capturedSignals.push(signal);
-				return await new Promise<{ readonly body: string; readonly byteLength: number }>(() => {});
+				return await new Promise<{
+					readonly content: BridgeTextResourceStreamResult;
+					readonly byteLength: number;
+				}>(() => {});
 			},
 		});
 		const abortController = new AbortController();
@@ -612,8 +674,11 @@ describe('review content demand loader', () => {
 			reviewPackage,
 		});
 		const capturedSignals: AbortSignal[] = [];
-		const deferredBody = createDeferred<{ readonly body: string; readonly byteLength: number }>();
-		const executor = createBridgeResourceExecutor<string>({
+		const deferredMaterialized = createDeferred<{
+			readonly content: BridgeTextResourceStreamResult;
+			readonly byteLength: number;
+		}>();
+		const executor = createBridgeResourceExecutor<BridgeTextResourceStreamResult>({
 			registry,
 			maxConcurrentLoads: 2,
 			maxInFlightBytes: 4096,
@@ -621,7 +686,7 @@ describe('review content demand loader', () => {
 			maxQueuedBytes: 4096,
 			loadResource: async ({ signal }) => {
 				capturedSignals.push(signal);
-				return await deferredBody.promise;
+				return await deferredMaterialized.promise;
 			},
 		});
 		const abortController = new AbortController();
@@ -642,7 +707,10 @@ describe('review content demand loader', () => {
 
 		abortController.abort();
 		await flushMicrotasks(4);
-		deferredBody.resolve({ body: 'stale selected body', byteLength: 19 });
+		deferredMaterialized.resolve({
+			content: makeTextStreamResult('stale selected body'),
+			byteLength: 19,
+		});
 
 		expect(capturedSignals.length).toBeGreaterThan(0);
 		expect(capturedSignals.every((signal): boolean => signal.aborted)).toBe(true);
@@ -780,6 +848,14 @@ function makeUnrelatedDescriptorRef(): BridgeDescriptorRef {
 			generation: 1,
 			revision: 1,
 		},
+	};
+}
+
+function makeTextStreamResult(text: string): BridgeTextResourceStreamResult {
+	return {
+		authoritative: true,
+		byteLength: new TextEncoder().encode(text).byteLength,
+		readText: (): string => text,
 	};
 }
 

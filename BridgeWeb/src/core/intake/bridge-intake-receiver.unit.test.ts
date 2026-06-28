@@ -42,6 +42,46 @@ describe('bridge intake receiver', () => {
 				return drop.reason;
 			}),
 		).toEqual(['sequence_gap', 'reset_required']);
+		expect(droppedFrames[0]?.frame).toEqual({
+			kind: 'snapshot',
+			streamId: 'stream-1',
+			generation: 1,
+			sequence: 2,
+		});
+	});
+
+	test('reports dropped frames without exposing payload bytes', () => {
+		const droppedFrames: BridgeIntakeReceiveDrop[] = [];
+		const receiver = createBridgeIntakeReceiver({
+			streamId: 'stream-1',
+			generation: 1,
+			onFrame: (): void => {},
+			onDroppedFrame: (drop: BridgeIntakeReceiveDrop): void => {
+				droppedFrames.push(drop);
+			},
+		});
+
+		receiver.receive(
+			createFrame({
+				sequence: 2,
+				value: { body: 'must-not-leave-receiver-drop', descriptorId: 'descriptor-1' },
+			}),
+		);
+
+		expect(droppedFrames).toEqual([
+			{
+				reason: 'sequence_gap',
+				frame: {
+					kind: 'snapshot',
+					streamId: 'stream-1',
+					generation: 1,
+					sequence: 2,
+				},
+				expectedSequence: 0,
+			},
+		]);
+		expect(JSON.stringify(droppedFrames)).not.toContain('must-not-leave-receiver-drop');
+		expect(JSON.stringify(droppedFrames)).not.toContain('body');
 	});
 
 	test('accepts a newer-generation reset frame after a sequence gap', () => {
@@ -161,6 +201,7 @@ describe('bridge intake receiver', () => {
 interface CreateFrameProps {
 	readonly generation?: number;
 	readonly sequence: number;
+	readonly value?: unknown;
 }
 
 function createFrame(props: CreateFrameProps): BridgeIntakeFrame {
@@ -169,6 +210,6 @@ function createFrame(props: CreateFrameProps): BridgeIntakeFrame {
 		streamId: 'stream-1',
 		generation: props.generation ?? 1,
 		sequence: props.sequence,
-		payload: { value: props.sequence },
+		payload: { value: props.value ?? props.sequence },
 	};
 }

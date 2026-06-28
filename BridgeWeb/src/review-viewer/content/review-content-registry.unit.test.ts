@@ -30,8 +30,8 @@ describe('review content registry', () => {
 			},
 		});
 
-		expect(first.text).toBe('loaded once');
-		expect(second.text).toBe('loaded once');
+		expect(first.readText()).toBe('loaded once');
+		expect(second.readText()).toBe('loaded once');
 		expect(requestedUrls).toEqual([
 			'agentstudio://resource/review/content/handle-item-source-head?generation=1',
 		]);
@@ -69,7 +69,7 @@ describe('review content registry', () => {
 			},
 		});
 
-		expect(reloadedFirst.text).toBe('first body reloaded');
+		expect(reloadedFirst.readText()).toBe('first body reloaded');
 		expect(requestedUrls).toEqual([
 			'agentstudio://resource/review/content/handle-item-source-head?generation=1',
 			'agentstudio://resource/review/content/handle-item-renamed-head?generation=1',
@@ -109,10 +109,11 @@ describe('review content registry', () => {
 
 		releaseFetch();
 
-		await expect(Promise.all([first, second])).resolves.toEqual([
-			{ handle, text: 'shared response' },
-			{ handle, text: 'shared response' },
-		]);
+		const [firstResult, secondResult] = await Promise.all([first, second]);
+		expect(firstResult).toMatchObject({ authoritative: true, byteLength: 15, handle });
+		expect(secondResult).toMatchObject({ authoritative: true, byteLength: 15, handle });
+		expect(firstResult.readText()).toBe('shared response');
+		expect(secondResult.readText()).toBe('shared response');
 		expect(fetchCount).toBe(1);
 	});
 
@@ -149,10 +150,11 @@ describe('review content registry', () => {
 		viewportAbortController.abort();
 		releaseFetch();
 
-		await expect(Promise.all([viewportRequest, selectedRequest])).resolves.toEqual([
-			{ handle, text: 'selected body survives viewport churn' },
-			{ handle, text: 'selected body survives viewport churn' },
-		]);
+		const [viewportResult, selectedResult] = await Promise.all([viewportRequest, selectedRequest]);
+		expect(viewportResult).toMatchObject({ authoritative: true, byteLength: 37, handle });
+		expect(selectedResult).toMatchObject({ authoritative: true, byteLength: 37, handle });
+		expect(viewportResult.readText()).toBe('selected body survives viewport churn');
+		expect(selectedResult.readText()).toBe('selected body survives viewport churn');
 		expect(fetchCount).toBe(1);
 		expect(fetchSignal).toBeUndefined();
 	});
@@ -194,7 +196,7 @@ describe('review content registry', () => {
 			fetchContent: async (): Promise<Response> => new Response('fresh response'),
 		});
 
-		expect(fresh.text).toBe('fresh response');
+		expect(fresh.readText()).toBe('fresh response');
 		expect(registry.snapshot()).toMatchObject({
 			cachedResourceCount: 1,
 			inFlightRequestCount: 0,
@@ -266,6 +268,70 @@ describe('review content registry', () => {
 		expect(requestedUrls).toEqual([]);
 	});
 
+	test('preserves descriptor bounds and integrity through shared content loads', async () => {
+		const registry = createBridgeReviewContentRegistry();
+		const handle = makeBridgeContentHandle('item-source', 'head');
+
+		await expect(
+			registry.load({
+				handle,
+				maxBytes: 5,
+				fetchContent: async (): Promise<Response> => chunkedTextResponse(['abcd', 'ef']),
+			}),
+		).rejects.toThrow('Bridge text resource stream exceeded issued max bytes');
+
+		await expect(
+			registry.load({
+				handle,
+				integrity: {
+					kind: 'wholeHash',
+					algorithm: 'sha256',
+					value: 'sha256:3173778af72bee80065ddb3dc0fa2319fcaca233bdfd4591d1b3a4ca5115d5a9',
+				},
+				fetchContent: async (): Promise<Response> => chunkedTextResponse(['tampered ', 'bridge']),
+			}),
+		).rejects.toThrow('Bridge text resource stream failed whole-body integrity validation');
+	});
+
+	test('does not cache preview-only content as stable content', async () => {
+		const registry = createBridgeReviewContentRegistry();
+		const handle = makeBridgeContentHandle('item-source', 'head');
+		const requestedUrls: string[] = [];
+
+		const first = await registry.load({
+			handle,
+			integrity: { kind: 'previewOnly' },
+			fetchContent: async (url: string): Promise<Response> => {
+				requestedUrls.push(url);
+				return chunkedTextResponse(['preview ', 'body']);
+			},
+		});
+		const second = await registry.load({
+			handle,
+			fetchContent: async (url: string): Promise<Response> => {
+				requestedUrls.push(url);
+				return chunkedTextResponse(['authoritative ', 'body']);
+			},
+		});
+
+		expect(first).toMatchObject({
+			authoritative: false,
+			byteLength: 12,
+			handle,
+		});
+		expect(second).toMatchObject({
+			authoritative: true,
+			byteLength: 18,
+			handle,
+		});
+		expect(first.readText()).toBe('preview body');
+		expect(second.readText()).toBe('authoritative body');
+		expect(requestedUrls).toEqual([
+			'agentstudio://resource/review/content/handle-item-source-head?generation=1',
+			'agentstudio://resource/review/content/handle-item-source-head?generation=1',
+		]);
+	});
+
 	test('canonicalizes resource keys through the shared parser', () => {
 		const handle: BridgeContentHandle = {
 			...makeBridgeContentHandle('item-source', 'head'),
@@ -278,3 +344,20 @@ describe('review content registry', () => {
 		);
 	});
 });
+
+function chunkedTextResponse(chunks: readonly string[]): Response {
+	const encoder = new TextEncoder();
+	const body = new ReadableStream<Uint8Array>({
+		start(controller): void {
+			for (const chunk of chunks) {
+				controller.enqueue(encoder.encode(chunk));
+			}
+			controller.close();
+		},
+	});
+	return Object.assign(new Response(body), {
+		text: async (): Promise<string> => {
+			throw new Error('whole body text() should not be used for Bridge content resources');
+		},
+	});
+}

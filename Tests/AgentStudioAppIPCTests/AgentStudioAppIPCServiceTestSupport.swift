@@ -156,41 +156,15 @@ struct FakeBridgePort: AppIPCBridgePort {
             paneId: paneId,
             status: "ready",
             selectedItemId: nil,
-            package: IPCBridgeReviewPackage(
-                packageId: "package-test",
-                reviewGeneration: 1,
-                revision: 1,
-                orderedItemIds: [itemId],
-                summary: IPCBridgeReviewPackageSummary(
-                    filesChanged: 1,
-                    additions: 2,
-                    deletions: 1,
-                    visibleFileCount: 1,
-                    hiddenFileCount: 0
-                ),
-                items: [
-                    IPCBridgeReviewItem(
-                        identity: IPCBridgeReviewItemIdentity(itemId: itemId, itemKind: "diff"),
-                        paths: IPCBridgeReviewItemPaths(
-                            basePath: "Sources/App/View.swift",
-                            headPath: "Sources/App/View.swift",
-                            language: "swift"
-                        ),
-                        classification: IPCBridgeReviewItemClassification(
-                            changeKind: "modified",
-                            fileClass: "source",
-                            isHiddenByDefault: false,
-                            reviewPriority: "normal"
-                        ),
-                        stats: IPCBridgeReviewItemStats(additions: 2, deletions: 1),
-                        contentRoles: IPCBridgeContentRoles(
-                            base: nil,
-                            head: bridgeContentHandleSummary,
-                            diff: nil,
-                            file: nil
-                        )
-                    )
-                ]
+            packageId: "package-test",
+            reviewGeneration: 1,
+            revision: 1,
+            summary: IPCBridgeReviewPackageSummary(
+                filesChanged: 1,
+                additions: 2,
+                deletions: 1,
+                visibleFileCount: 1,
+                hiddenFileCount: 0
             )
         )
     }
@@ -293,17 +267,10 @@ struct FakeBridgePort: AppIPCBridgePort {
     }
 
     func getContent(_: IPCBridgeContentGetParams) async throws -> IPCBridgeContentGetResult {
-        let data = Data("let value = 1\n".utf8)
-        return IPCBridgeContentGetResult(
+        IPCBridgeContentGetResult(
             paneId: paneId,
             handle: bridgeContentHandleSummary,
-            mimeType: "text/x-swift",
-            body: IPCBridgeContentBody(
-                byteCount: data.count,
-                isUtf8: true,
-                contentText: String(data: data, encoding: .utf8),
-                contentBase64: nil
-            )
+            mimeType: "text/x-swift"
         )
     }
 

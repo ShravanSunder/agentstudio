@@ -16,24 +16,30 @@ struct BridgeBootstrapArtifacts {
     let script: WKUserScript
 }
 
+struct BridgeSchemeHandlerRegistrationInput {
+    let paneId: UUID
+    let reviewContentStore: BridgeContentStore
+    let reviewResourceStore: BridgeReviewResourceStore
+    let worktreeFileResourceStore: BridgeWorktreeFileResourceStore
+    let resourceLeaseRegistry: BridgeTransportResourceLeaseRegistry
+    let telemetryRecorder: (any BridgePerformanceTraceRecording)?
+}
+
 @MainActor
 extension BridgePaneController {
     static func registerAgentStudioSchemeHandler(
         in config: inout WebPage.Configuration,
-        paneId: UUID,
-        reviewContentStore: BridgeContentStore,
-        worktreeFileResourceStore: BridgeWorktreeFileResourceStore,
-        resourceLeaseRegistry: BridgeTransportResourceLeaseRegistry,
-        telemetryRecorder: (any BridgePerformanceTraceRecording)?
+        input: BridgeSchemeHandlerRegistrationInput
     ) {
         guard let scheme = URLScheme("agentstudio") else { return }
         config.urlSchemeHandlers[scheme] = BridgeSchemeHandler(
-            paneId: paneId,
-            contentStore: reviewContentStore,
-            worktreeFileResourceStore: worktreeFileResourceStore,
-            resourceLeaseRegistry: resourceLeaseRegistry,
+            paneId: input.paneId,
+            contentStore: input.reviewContentStore,
+            reviewResourceStore: input.reviewResourceStore,
+            worktreeFileResourceStore: input.worktreeFileResourceStore,
+            resourceLeaseRegistry: input.resourceLeaseRegistry,
             allowedResourceKindsByProtocol: BridgeResourceProtocolRegistry.reviewViewerAllowedResourceKinds,
-            telemetryRecorder: telemetryRecorder
+            telemetryRecorder: input.telemetryRecorder
         )
     }
 

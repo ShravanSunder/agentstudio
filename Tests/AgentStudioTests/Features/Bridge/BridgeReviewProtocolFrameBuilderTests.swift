@@ -7,6 +7,7 @@ struct BridgeReviewProtocolFrameBuilderTests {
     @Test("snapshot frame attaches root and content resource descriptors")
     func snapshotFrameAttachesRootAndContentResourceDescriptors() throws {
         let package = try makeReviewPackage()
+        let packageBody = try JSONEncoder().encode(package)
 
         let frame = try BridgeReviewProtocolFrameBuilder.snapshot(
             request: BridgeReviewProtocolSnapshotBuildRequest(
@@ -15,6 +16,7 @@ struct BridgeReviewProtocolFrameBuilderTests {
                 streamId: "stream-1",
                 sequence: 0,
                 package: package,
+                packageBodyFacts: BridgeReviewProtocolBodyResourceFacts(data: packageBody),
                 changesetCluster: nil
             )
         )
@@ -22,6 +24,11 @@ struct BridgeReviewProtocolFrameBuilderTests {
         #expect(frame.kind == "snapshot")
         #expect(frame.frameKind == "review.snapshot")
         #expect(frame.package.rootDescriptor.descriptor.resourceKind == "review-package")
+        #expect(frame.package.rootDescriptor.descriptor.content.expectedBytes == packageBody.count)
+        #expect(frame.package.rootDescriptor.descriptor.content.maxBytes == packageBody.count)
+        #expect(frame.package.rootDescriptor.descriptor.content.integrity?.kind == .wholeHash)
+        #expect(frame.package.rootDescriptor.descriptor.content.integrity?.algorithm == "sha256")
+        #expect(frame.package.rootDescriptor.descriptor.content.integrity?.value?.hasPrefix("sha256:") == true)
         #expect(frame.package.rootDescriptor.ref.expectedIdentity.paneId == "pane-1")
         #expect(frame.package.contentDescriptors.count == 2)
         let contentDescriptor = try #require(frame.package.contentDescriptors.first)
@@ -36,6 +43,29 @@ struct BridgeReviewProtocolFrameBuilderTests {
         )
         let packageObject = try #require(object["package"] as? [String: Any])
         #expect(packageObject["contentDescriptors"] != nil)
+    }
+
+    @Test("snapshot frame can defer root resource body facts")
+    func snapshotFrameCanDeferRootResourceBodyFacts() throws {
+        let package = try makeReviewPackage()
+
+        let frame = try BridgeReviewProtocolFrameBuilder.snapshot(
+            request: BridgeReviewProtocolSnapshotBuildRequest(
+                paneId: "pane-1",
+                sourceIdentity: "review-source-1",
+                streamId: "stream-1",
+                sequence: 0,
+                package: package,
+                packageBodyFacts: nil,
+                changesetCluster: nil
+            )
+        )
+
+        #expect(frame.package.rootDescriptor.descriptor.content.mediaType == "application/json")
+        #expect(frame.package.rootDescriptor.descriptor.content.expectedBytes == nil)
+        #expect(frame.package.rootDescriptor.descriptor.content.integrity == nil)
+        #expect(
+            frame.package.rootDescriptor.descriptor.content.maxBytes == AppPolicies.Bridge.ipcMaxResponsePayloadBytes)
     }
 
     @Test("snapshot frame emits preview-only integrity for non-sha256 host hashes")
@@ -124,8 +154,8 @@ struct BridgeReviewProtocolFrameBuilderTests {
         }
     }
 
-    @Test("diff package metadata slice carries review protocol frame")
-    func diffPackageMetadataSliceCarriesReviewProtocolFrame() throws {
+    @Test("snapshot protocol frame carries descriptor metadata without push wrapper")
+    func snapshotProtocolFrameCarriesDescriptorMetadataWithoutPushWrapper() throws {
         let package = try makeReviewPackage()
         let frame = try BridgeReviewProtocolFrameBuilder.snapshot(
             request: BridgeReviewProtocolSnapshotBuildRequest(
@@ -138,21 +168,21 @@ struct BridgeReviewProtocolFrameBuilderTests {
             )
         )
 
-        let encoded = try JSONEncoder().encode(
-            DiffPackageMetadataSlice(package: package, protocolFrame: frame)
-        )
+        let encoded = try JSONEncoder().encode(BridgeReviewProtocolFrame.snapshot(frame))
         let object = try #require(
             JSONSerialization.jsonObject(with: encoded) as? [String: Any]
         )
-        let protocolFrame = try #require(object["protocolFrame"] as? [String: Any])
 
-        #expect(protocolFrame["frameKind"] as? String == "review.snapshot")
-        #expect(protocolFrame["package"] != nil)
+        #expect(object["protocolFrame"] == nil)
+        #expect(object["frameKind"] as? String == "review.snapshot")
+        #expect(object["package"] != nil)
     }
 
-    @Test("diff package delta slice carries review protocol frame")
-    func diffPackageDeltaSliceCarriesReviewProtocolFrame() throws {
+    @Test("delta protocol frame carries descriptor metadata without push wrapper")
+    func deltaProtocolFrameCarriesDescriptorMetadataWithoutPushWrapper() throws {
         let package = try makeReviewPackage()
+        let operations = BridgeReviewDelta.Operations()
+        let operationsBody = try JSONEncoder().encode(operations)
         let frame = try BridgeReviewProtocolFrameBuilder.delta(
             request: BridgeReviewProtocolDeltaBuildRequest(
                 paneId: "pane-1",
@@ -161,82 +191,80 @@ struct BridgeReviewProtocolFrameBuilderTests {
                 sequence: package.revision,
                 fromRevision: package.revision - 1,
                 toRevision: package.revision,
-                package: package
+                package: package,
+                operationsBodyFacts: BridgeReviewProtocolBodyResourceFacts(data: operationsBody)
             )
         )
-        let delta = BridgeReviewDelta(
-            packageId: package.packageId,
-            reviewGeneration: package.reviewGeneration,
-            revision: package.revision + 1,
-            operations: BridgeReviewDelta.Operations()
-        )
-
-        let encoded = try JSONEncoder().encode(
-            DiffPackageDeltaSlice(delta: delta, protocolFrame: frame)
-        )
+        let encoded = try JSONEncoder().encode(BridgeReviewProtocolFrame.delta(frame))
         let object = try #require(
             JSONSerialization.jsonObject(with: encoded) as? [String: Any]
         )
-        let protocolFrame = try #require(object["protocolFrame"] as? [String: Any])
 
-        #expect(protocolFrame["frameKind"] as? String == "review.delta")
-        #expect(protocolFrame["packageId"] as? String == package.packageId)
-        #expect(protocolFrame["operationsDescriptor"] != nil)
-        #expect(protocolFrame["contentDescriptors"] != nil)
+        #expect(object["protocolFrame"] == nil)
+        #expect(object["frameKind"] as? String == "review.delta")
+        #expect(object["packageId"] as? String == package.packageId)
+        let operationsDescriptor = try #require(object["operationsDescriptor"] as? [String: Any])
+        let descriptor = try #require(operationsDescriptor["descriptor"] as? [String: Any])
+        let content = try #require(descriptor["content"] as? [String: Any])
+        let integrity = try #require(content["integrity"] as? [String: Any])
+        #expect(content["expectedBytes"] as? Int == operationsBody.count)
+        #expect(content["maxBytes"] as? Int == operationsBody.count)
+        #expect(integrity["kind"] as? String == "wholeHash")
+        #expect(integrity["algorithm"] as? String == "sha256")
+        #expect((integrity["value"] as? String)?.hasPrefix("sha256:") == true)
+        #expect(object["contentDescriptors"] != nil)
     }
 
-    @Test("diff state stores and clears package protocol frames with package facts")
-    @MainActor
-    func diffStateStoresAndClearsPackageProtocolFramesWithPackageFacts() throws {
+    @Test("delta frame can defer operations resource body facts")
+    func deltaFrameCanDeferOperationsResourceBodyFacts() throws {
         let package = try makeReviewPackage()
-        let snapshotFrame = try BridgeReviewProtocolFrameBuilder.snapshot(
-            request: BridgeReviewProtocolSnapshotBuildRequest(
-                paneId: "pane-1",
-                sourceIdentity: package.query.queryId,
-                streamId: "review:pane-1",
-                sequence: package.revision,
-                package: package,
-                changesetCluster: nil
-            )
-        )
-        let delta = BridgeReviewDelta(
-            packageId: package.packageId,
-            reviewGeneration: package.reviewGeneration,
-            revision: package.revision + 1,
-            operations: BridgeReviewDelta.Operations()
-        )
-        let deltaFrame = try BridgeReviewProtocolFrameBuilder.delta(
+
+        let frame = try BridgeReviewProtocolFrameBuilder.delta(
             request: BridgeReviewProtocolDeltaBuildRequest(
                 paneId: "pane-1",
                 sourceIdentity: package.query.queryId,
                 streamId: "review:pane-1",
-                sequence: delta.revision,
-                fromRevision: package.revision,
-                toRevision: delta.revision,
-                package: package
+                sequence: package.revision,
+                fromRevision: package.revision - 1,
+                toRevision: package.revision,
+                package: package,
+                operationsBodyFacts: nil
             )
+        )
+
+        #expect(frame.operationsDescriptor.descriptor.content.mediaType == "application/json")
+        #expect(frame.operationsDescriptor.descriptor.content.expectedBytes == nil)
+        #expect(frame.operationsDescriptor.descriptor.content.integrity == nil)
+        #expect(frame.operationsDescriptor.descriptor.content.maxBytes == AppPolicies.Bridge.ipcMaxResponsePayloadBytes)
+    }
+
+    @Test("diff state stores and clears native package facts without protocol frames")
+    @MainActor
+    func diffStateStoresAndClearsNativePackageFactsWithoutProtocolFrames() throws {
+        let package = try makeReviewPackage()
+        let delta = BridgeReviewDelta(
+            packageId: package.packageId,
+            reviewGeneration: package.reviewGeneration,
+            revision: package.revision + 1,
+            operations: BridgeReviewDelta.Operations()
         )
         let state = DiffState()
 
-        state.setPackageMetadata(package, protocolFrame: .snapshot(snapshotFrame))
-        state.setPackageDelta(delta, protocolFrame: .delta(deltaFrame))
+        state.setPackageMetadata(package)
+        state.setPackageDelta(delta)
 
         #expect(state.packageMetadata == package)
-        #expect(state.packageSnapshotProtocolFrame == .snapshot(snapshotFrame))
         #expect(state.packageDelta == delta)
-        #expect(state.packageDeltaProtocolFrame == .delta(deltaFrame))
 
         state.setPackageMetadata(nil)
         state.setPackageDelta(nil)
 
         #expect(state.packageMetadata == nil)
-        #expect(state.packageSnapshotProtocolFrame == nil)
         #expect(state.packageDelta == nil)
-        #expect(state.packageDeltaProtocolFrame == nil)
     }
 
-    @Test("diff package protocol frame slice carries standalone reset and invalidation frames")
-    func diffPackageProtocolFrameSliceCarriesStandaloneFrames() throws {
+    @Test("standalone reset and invalidation protocol frames encode without push wrapper")
+    func standaloneProtocolFramesEncodeWithoutPushWrapper() throws {
         let resetFrame = BridgeReviewProtocolFrameBuilder.reset(
             request: BridgeReviewProtocolResetBuildRequest(
                 sourceIdentity: "review-source-1",
@@ -248,15 +276,13 @@ struct BridgeReviewProtocolFrameBuilderTests {
                 replacementDescriptor: nil
             )
         )
-        let resetEncoded = try JSONEncoder().encode(
-            DiffPackageProtocolFrameSlice(protocolFrame: .reset(resetFrame))
-        )
+        let resetEncoded = try JSONEncoder().encode(BridgeReviewProtocolFrame.reset(resetFrame))
         let resetObject = try #require(
             JSONSerialization.jsonObject(with: resetEncoded) as? [String: Any]
         )
-        let resetProtocolFrame = try #require(resetObject["protocolFrame"] as? [String: Any])
-        #expect(resetProtocolFrame["frameKind"] as? String == "review.reset")
-        #expect(resetProtocolFrame["sourceIdentity"] as? String == "review-source-1")
+        #expect(resetObject["protocolFrame"] == nil)
+        #expect(resetObject["frameKind"] as? String == "review.reset")
+        #expect(resetObject["sourceIdentity"] as? String == "review-source-1")
 
         let invalidationFrame = BridgeReviewProtocolFrameBuilder.invalidation(
             request: BridgeReviewProtocolInvalidationBuildRequest(
@@ -270,16 +296,14 @@ struct BridgeReviewProtocolFrameBuilderTests {
             )
         )
         let invalidationEncoded = try JSONEncoder().encode(
-            DiffPackageProtocolFrameSlice(protocolFrame: .invalidation(invalidationFrame))
+            BridgeReviewProtocolFrame.invalidation(invalidationFrame)
         )
         let invalidationObject = try #require(
             JSONSerialization.jsonObject(with: invalidationEncoded) as? [String: Any]
         )
-        let invalidationProtocolFrame = try #require(
-            invalidationObject["protocolFrame"] as? [String: Any]
-        )
-        let invalidation = try #require(invalidationProtocolFrame["invalidation"] as? [String: Any])
-        #expect(invalidationProtocolFrame["frameKind"] as? String == "review.invalidate")
+        let invalidation = try #require(invalidationObject["invalidation"] as? [String: Any])
+        #expect(invalidationObject["protocolFrame"] == nil)
+        #expect(invalidationObject["frameKind"] as? String == "review.invalidate")
         #expect(invalidation["itemIds"] as? [String] == ["item-a"])
     }
 
@@ -313,14 +337,12 @@ struct BridgeReviewProtocolFrameBuilderTests {
             )
         )
 
-        let encoded = try JSONEncoder().encode(
-            DiffPackageMetadataSlice(package: package, protocolFrame: frame)
-        )
+        let encoded = try JSONEncoder().encode(BridgeReviewProtocolFrame.snapshot(frame))
         let object = try #require(
             JSONSerialization.jsonObject(with: encoded) as? [String: Any]
         )
-        let protocolFrame = try #require(object["protocolFrame"] as? [String: Any])
-        let packageObject = try #require(protocolFrame["package"] as? [String: Any])
+        #expect(object["protocolFrame"] == nil)
+        let packageObject = try #require(object["package"] as? [String: Any])
         let clusterObject = try #require(packageObject["changesetCluster"] as? [String: Any])
         #expect(clusterObject["lifecycle"] as? String == "closed")
         #expect(clusterObject["headCursor"] as? String == "cursor-b")

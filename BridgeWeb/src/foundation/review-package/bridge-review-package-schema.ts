@@ -279,22 +279,24 @@ export type BridgeReviewPackageSummary = z.infer<typeof bridgeReviewPackageSumma
 export type BridgeReviewPackageFromSchema = z.infer<typeof bridgeReviewPackageSchema>;
 export type BridgeReviewPackage = BridgeReviewPackageFromSchema;
 
+export const bridgeReviewDeltaOperationsSchema = z
+	.object({
+		addItems: z.array(bridgeReviewItemDescriptorSchema),
+		updateItems: z.array(bridgeReviewItemDescriptorSchema),
+		removeItems: z.array(z.string()),
+		moveItems: z.array(z.string()),
+		updateGroups: z.array(bridgeReviewGroupSchema).nullable(),
+		updateSummary: bridgeReviewPackageSummarySchema.nullable(),
+		invalidateContent: z.array(z.string()),
+	})
+	.strict();
+
 export const bridgeReviewDeltaSchema = z
 	.object({
 		packageId: z.string(),
 		reviewGeneration: bridgeReviewGenerationSchema,
 		revision: z.number().int().nonnegative(),
-		operations: z
-			.object({
-				addItems: z.array(bridgeReviewItemDescriptorSchema),
-				updateItems: z.array(bridgeReviewItemDescriptorSchema),
-				removeItems: z.array(z.string()),
-				moveItems: z.array(z.string()),
-				updateGroups: z.array(bridgeReviewGroupSchema).nullable(),
-				updateSummary: bridgeReviewPackageSummarySchema.nullable(),
-				invalidateContent: z.array(z.string()),
-			})
-			.strict(),
+		operations: bridgeReviewDeltaOperationsSchema,
 	})
 	.strict();
 

@@ -11,6 +11,7 @@ describe('bridge intake event carrier', () => {
 	test('validates nonce and forwards decoded frames to the receiver', () => {
 		const target = new EventTarget();
 		const acceptedFrames: BridgeIntakeFrame[] = [];
+		const acceptedStatuses: string[] = [];
 		const droppedFrames: BridgeIntakeCarrierDrop[] = [];
 		const receiver = createBridgeIntakeReceiver({
 			streamId: 'stream-1',
@@ -25,6 +26,9 @@ describe('bridge intake event carrier', () => {
 			getNonce: () => 'nonce-1',
 			receiver,
 			maxFrameBytes: 512,
+			onAcceptedFrame: (_frame, result): void => {
+				acceptedStatuses.push(result.status);
+			},
 			onDroppedFrame: (drop: BridgeIntakeCarrierDrop): void => {
 				droppedFrames.push(drop);
 			},
@@ -36,11 +40,123 @@ describe('bridge intake event carrier', () => {
 		dispatchIntake(target, createFrame({ sequence: 1 }), 'nonce-1');
 
 		expect(acceptedFrames.map((frame: BridgeIntakeFrame): number => frame.sequence)).toEqual([0]);
+		expect(acceptedStatuses).toEqual(['active']);
 		expect(
 			droppedFrames.map((drop: BridgeIntakeCarrierDrop): BridgeIntakeCarrierDrop['reason'] => {
 				return drop.reason;
 			}),
 		).toEqual(['carrier_nonce_mismatch']);
+	});
+
+	test('reports receiver rejection reason and status', () => {
+		const target = new EventTarget();
+		const droppedFrames: BridgeIntakeCarrierDrop[] = [];
+		const receiver = createBridgeIntakeReceiver({
+			streamId: 'stream-1',
+			generation: 1,
+			onFrame: (): void => {},
+		});
+		const uninstall = installBridgeIntakeEventCarrier({
+			target,
+			eventName: '__bridge_intake_json',
+			getNonce: () => 'nonce-1',
+			receiver,
+			maxFrameBytes: 512,
+			onDroppedFrame: (drop: BridgeIntakeCarrierDrop): void => {
+				droppedFrames.push(drop);
+			},
+		});
+
+		dispatchIntake(
+			target,
+			{
+				...createFrame({
+					sequence: 0,
+					value: { body: 'must-not-leave-intake-drop', descriptorId: 'descriptor-1' },
+				}),
+				streamId: 'wrong-stream',
+			},
+			'nonce-1',
+		);
+		uninstall();
+
+		expect(droppedFrames).toEqual([
+			{
+				reason: 'receiver_rejected_frame',
+				frame: {
+					kind: 'snapshot',
+					streamId: 'wrong-stream',
+					generation: 1,
+					sequence: 0,
+				},
+				receiverReason: 'stream_mismatch',
+				receiverStatus: 'opening',
+			},
+		]);
+		expect(JSON.stringify(droppedFrames)).not.toContain('must-not-leave-intake-drop');
+		expect(JSON.stringify(droppedFrames)).not.toContain('body');
+	});
+
+	test('requests bootstrap replay after installing the frame listener', () => {
+		const target = new EventTarget();
+		const acceptedFrames: BridgeIntakeFrame[] = [];
+		let replayRequested = false;
+		const receiver = createBridgeIntakeReceiver({
+			streamId: 'stream-1',
+			generation: 1,
+			onFrame: (frame: BridgeIntakeFrame): void => {
+				acceptedFrames.push(frame);
+			},
+		});
+		target.addEventListener('__bridge_intake_replay_request', (): void => {
+			replayRequested = true;
+			dispatchIntake(target, createFrame({ sequence: 0 }), 'nonce-1');
+		});
+
+		const uninstall = installBridgeIntakeEventCarrier({
+			target,
+			eventName: '__bridge_intake_json',
+			getNonce: () => 'nonce-1',
+			receiver,
+			maxFrameBytes: 512,
+		});
+		uninstall();
+
+		expect(replayRequested).toBe(true);
+		expect(acceptedFrames.map((frame: BridgeIntakeFrame): number => frame.sequence)).toEqual([0]);
+	});
+
+	test('can defer bootstrap replay until the host handshake is ready', () => {
+		const target = new EventTarget();
+		const acceptedFrames: BridgeIntakeFrame[] = [];
+		let replayRequestCount = 0;
+		const receiver = createBridgeIntakeReceiver({
+			streamId: 'stream-1',
+			generation: 1,
+			onFrame: (frame: BridgeIntakeFrame): void => {
+				acceptedFrames.push(frame);
+			},
+		});
+		target.addEventListener('__bridge_intake_replay_request', (): void => {
+			replayRequestCount += 1;
+			dispatchIntake(target, createFrame({ sequence: 0 }), 'nonce-1');
+		});
+
+		const uninstall = installBridgeIntakeEventCarrier({
+			target,
+			eventName: '__bridge_intake_json',
+			getNonce: () => 'nonce-1',
+			receiver,
+			maxFrameBytes: 512,
+			requestReplayOnInstall: false,
+		});
+
+		expect(replayRequestCount).toBe(0);
+		target.dispatchEvent(new CustomEvent('__bridge_intake_replay_request'));
+		uninstall();
+
+		expect(replayRequestCount).toBe(1);
+		expect(acceptedFrames.map((frame: BridgeIntakeFrame): number => frame.sequence)).toEqual([0]);
 	});
 
 	test('rejects oversized JSON frames before parsing or receiver mutation', () => {

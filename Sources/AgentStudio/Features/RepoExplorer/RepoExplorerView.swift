@@ -172,10 +172,9 @@ struct RepoExplorerView: View {
     }
 
     private var worktreeStatusById: [UUID: GitBranchStatus] {
-        let factsByWorktreeId = Dictionary(
-            uniqueKeysWithValues: sidebarRepos.flatMap(\.worktrees).compactMap { worktree in
-                repoCache.worktreeFacts(for: worktree.id).map { (worktree.id, $0) }
-            }
+        let factsByWorktreeId = Self.worktreeFactsByWorktreeId(
+            sidebarRepos: sidebarRepos,
+            repoCache: repoCache
         )
         return Self.mergeBranchStatuses(
             worktreeEnrichmentsByWorktreeId: factsByWorktreeId.compactMapValues { $0.enrichment },
@@ -670,5 +669,16 @@ extension RepoExplorerView {
 
     static func sortedWorktrees(for repo: RepoPresentationItem) -> [Worktree] {
         RepoExplorerRowIndex.sortedWorktrees(for: repo)
+    }
+
+    static func worktreeFactsByWorktreeId(
+        sidebarRepos: [RepoPresentationItem],
+        repoCache: RepoCacheAtom
+    ) -> [UUID: RepoWorktreeCacheFacts] {
+        var factsByWorktreeId: [UUID: RepoWorktreeCacheFacts] = [:]
+        for worktree in sidebarRepos.flatMap(\.worktrees) where factsByWorktreeId[worktree.id] == nil {
+            factsByWorktreeId[worktree.id] = repoCache.worktreeFacts(for: worktree.id)
+        }
+        return factsByWorktreeId
     }
 }

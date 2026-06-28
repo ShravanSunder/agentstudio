@@ -70,20 +70,29 @@ public struct IPCBridgeReviewPackageResult: Codable, Equatable, Sendable {
     public let status: String
     public let error: String?
     public let selectedItemId: String?
-    public let package: IPCBridgeReviewPackage?
+    public let packageId: String?
+    public let reviewGeneration: Int?
+    public let revision: Int?
+    public let summary: IPCBridgeReviewPackageSummary?
 
     public init(
         paneId: UUID,
         status: String,
         error: String? = nil,
         selectedItemId: String?,
-        package: IPCBridgeReviewPackage?
+        packageId: String?,
+        reviewGeneration: Int?,
+        revision: Int?,
+        summary: IPCBridgeReviewPackageSummary?
     ) {
         self.paneId = paneId
         self.status = status
         self.error = error
         self.selectedItemId = selectedItemId
-        self.package = package
+        self.packageId = packageId
+        self.reviewGeneration = reviewGeneration
+        self.revision = revision
+        self.summary = summary
     }
 }
 
@@ -144,31 +153,6 @@ public struct IPCBridgeRenderDiagnostics: Codable, Equatable, Sendable {
     }
 }
 
-public struct IPCBridgeReviewPackage: Codable, Equatable, Sendable {
-    public let packageId: String
-    public let reviewGeneration: Int
-    public let revision: Int
-    public let orderedItemIds: [String]
-    public let summary: IPCBridgeReviewPackageSummary
-    public let items: [IPCBridgeReviewItem]
-
-    public init(
-        packageId: String,
-        reviewGeneration: Int,
-        revision: Int,
-        orderedItemIds: [String],
-        summary: IPCBridgeReviewPackageSummary,
-        items: [IPCBridgeReviewItem]
-    ) {
-        self.packageId = packageId
-        self.reviewGeneration = reviewGeneration
-        self.revision = revision
-        self.orderedItemIds = orderedItemIds
-        self.summary = summary
-        self.items = items
-    }
-}
-
 public struct IPCBridgeReviewPackageSummary: Codable, Equatable, Sendable {
     public let filesChanged: Int
     public let additions: Int
@@ -188,107 +172,6 @@ public struct IPCBridgeReviewPackageSummary: Codable, Equatable, Sendable {
         self.deletions = deletions
         self.visibleFileCount = visibleFileCount
         self.hiddenFileCount = hiddenFileCount
-    }
-}
-
-public struct IPCBridgeReviewItem: Codable, Equatable, Sendable {
-    public let itemId: String
-    public let itemKind: String
-    public let basePath: String?
-    public let headPath: String?
-    public let changeKind: String
-    public let fileClass: String
-    public let language: String?
-    public let additions: Int
-    public let deletions: Int
-    public let isHiddenByDefault: Bool
-    public let reviewPriority: String
-    public let contentRoles: IPCBridgeContentRoles
-
-    public init(
-        identity: IPCBridgeReviewItemIdentity,
-        paths: IPCBridgeReviewItemPaths,
-        classification: IPCBridgeReviewItemClassification,
-        stats: IPCBridgeReviewItemStats,
-        contentRoles: IPCBridgeContentRoles
-    ) {
-        itemId = identity.itemId
-        itemKind = identity.itemKind
-        basePath = paths.basePath
-        headPath = paths.headPath
-        changeKind = classification.changeKind
-        fileClass = classification.fileClass
-        language = paths.language
-        additions = stats.additions
-        deletions = stats.deletions
-        isHiddenByDefault = classification.isHiddenByDefault
-        reviewPriority = classification.reviewPriority
-        self.contentRoles = contentRoles
-    }
-}
-
-public struct IPCBridgeReviewItemIdentity: Codable, Equatable, Sendable {
-    public let itemId: String
-    public let itemKind: String
-
-    public init(itemId: String, itemKind: String) {
-        self.itemId = itemId
-        self.itemKind = itemKind
-    }
-}
-
-public struct IPCBridgeReviewItemPaths: Codable, Equatable, Sendable {
-    public let basePath: String?
-    public let headPath: String?
-    public let language: String?
-
-    public init(basePath: String?, headPath: String?, language: String?) {
-        self.basePath = basePath
-        self.headPath = headPath
-        self.language = language
-    }
-}
-
-public struct IPCBridgeReviewItemClassification: Codable, Equatable, Sendable {
-    public let changeKind: String
-    public let fileClass: String
-    public let isHiddenByDefault: Bool
-    public let reviewPriority: String
-
-    public init(changeKind: String, fileClass: String, isHiddenByDefault: Bool, reviewPriority: String) {
-        self.changeKind = changeKind
-        self.fileClass = fileClass
-        self.isHiddenByDefault = isHiddenByDefault
-        self.reviewPriority = reviewPriority
-    }
-}
-
-public struct IPCBridgeReviewItemStats: Codable, Equatable, Sendable {
-    public let additions: Int
-    public let deletions: Int
-
-    public init(additions: Int, deletions: Int) {
-        self.additions = additions
-        self.deletions = deletions
-    }
-}
-
-public struct IPCBridgeContentRoles: Codable, Equatable, Sendable {
-    public let base: IPCBridgeContentHandleSummary?
-    public let head: IPCBridgeContentHandleSummary?
-    public let diff: IPCBridgeContentHandleSummary?
-    public let file: IPCBridgeContentHandleSummary?
-
-    public init(
-        base: IPCBridgeContentHandleSummary?,
-        head: IPCBridgeContentHandleSummary?,
-        diff: IPCBridgeContentHandleSummary?,
-        file: IPCBridgeContentHandleSummary?
-    ) {
-        self.base = base
-        self.head = head
-        self.diff = diff
-        self.file = file
     }
 }
 
@@ -624,37 +507,18 @@ public struct IPCBridgeContentGetResult: Codable, Equatable, Sendable {
     public let handle: IPCBridgeContentHandleSummary
     public let mimeType: String
     public let byteCount: Int
-    public let isUtf8: Bool
-    public let contentText: String?
-    public let contentBase64: String?
+    public let isBinary: Bool
 
     public init(
         paneId: UUID,
         handle: IPCBridgeContentHandleSummary,
-        mimeType: String,
-        body: IPCBridgeContentBody
+        mimeType: String
     ) {
         self.paneId = paneId
         self.handle = handle
         self.mimeType = mimeType
-        byteCount = body.byteCount
-        isUtf8 = body.isUtf8
-        contentText = body.contentText
-        contentBase64 = body.contentBase64
-    }
-}
-
-public struct IPCBridgeContentBody: Codable, Equatable, Sendable {
-    public let byteCount: Int
-    public let isUtf8: Bool
-    public let contentText: String?
-    public let contentBase64: String?
-
-    public init(byteCount: Int, isUtf8: Bool, contentText: String?, contentBase64: String?) {
-        self.byteCount = byteCount
-        self.isUtf8 = isUtf8
-        self.contentText = contentText
-        self.contentBase64 = contentBase64
+        byteCount = handle.sizeBytes
+        isBinary = handle.isBinary
     }
 }
 

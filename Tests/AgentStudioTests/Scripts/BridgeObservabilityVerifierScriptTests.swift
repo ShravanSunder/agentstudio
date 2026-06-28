@@ -36,15 +36,23 @@ struct BridgeObservabilityVerifierScriptTests {
         #expect(verifierScript.contains("agentstudio.bridge.content_hash"))
         #expect(
             verifierScript.contains(
-                "performance.bridge.webkit.package_push|transport|data|cold|diff_package_metadata|push"
-            ))
-        #expect(
-            verifierScript.contains(
                 "performance.bridge.webkit.package_push|transport|data|hot|diff_status|push"
             ))
         #expect(
             verifierScript.contains(
-                "performance.bridge.webkit.package_push|transport|data|warm|diff_package_delta|push"
+                "performance.bridge.web.intake_frame|intake|data|cold|review_snapshot|intake"
+            ))
+        #expect(
+            verifierScript.contains(
+                "performance.bridge.web.intake_frame|intake|data|warm|review_delta|intake"
+            ))
+        #expect(
+            verifierScript.contains(
+                "performance.bridge.web.package_apply|apply|data|cold|review_snapshot|intake"
+            ))
+        #expect(
+            verifierScript.contains(
+                "performance.bridge.web.first_render|render|data|hot|review_snapshot|intake"
             ))
         #expect(
             verifierScript.contains(
@@ -72,6 +80,9 @@ struct BridgeObservabilityVerifierScriptTests {
         #expect(verifierScript.contains("missing Bridge broad package_push metric fallback"))
         #expect(verifierScript.contains("Bridge package_push metric used unknown producer slice"))
         #expect(verifierScript.contains("Bridge package_push log used unknown producer slice"))
+        #expect(verifierScript.contains("Bridge Review package data still used WebKit push transport"))
+        #expect(verifierScript.contains("Bridge Review package data still used web push apply transport"))
+        #expect(verifierScript.contains("Bridge Review first render still reported push transport"))
         #expect(
             verifierScript.contains(
                 "event=\"performance.bridge.webkit.package_push\",slice=\"unknown\""

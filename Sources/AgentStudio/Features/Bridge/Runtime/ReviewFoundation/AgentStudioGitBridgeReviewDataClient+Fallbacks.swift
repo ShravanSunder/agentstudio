@@ -125,6 +125,11 @@ extension AgentStudioGitBridgeReviewDataClient {
 
     func providerFailureReason(from message: String) -> String {
         let normalizedMessage = message.lowercased()
+        if normalizedMessage.hasPrefix("gitdataplane:") {
+            let prefixLength = "gitDataPlane:".count
+            let suffix = String(message.dropFirst(prefixLength))
+            return sanitizedGitDataPlaneFailureReason(from: suffix)
+        }
         if normalizedMessage.contains("filereadfailed") {
             return "fileReadFailed"
         }
@@ -147,6 +152,34 @@ extension AgentStudioGitBridgeReviewDataClient {
             return "unexpected"
         }
         return "providerError"
+    }
+
+    func sanitizedGitDataPlaneFailureReason(from suffix: String) -> String {
+        let parts = suffix.split(separator: ":", omittingEmptySubsequences: false).map(String.init)
+        guard let kind = parts.first else {
+            return "git.providerError"
+        }
+        switch kind {
+        case "libgit2Failure":
+            let code = parts.first { $0.hasPrefix("code=") }
+            let klass = parts.first { $0.hasPrefix("klass=") }
+            let reason = parts.first { $0.hasPrefix("reason=") }
+            return (["git.libgit2Failure", code, klass, reason].compactMap { $0 })
+                .joined(separator: ":")
+        case "contentTooLarge":
+            let sizeBytes = parts.first { $0.hasPrefix("sizeBytes=") }
+            return (["git.contentTooLarge", sizeBytes].compactMap { $0 }).joined(separator: ":")
+        case "pathEscapesRepository", "worktreeNotFound", "worktreeNotPrunable",
+            "unsafeWorktreeRemoval", "processFailed", "processTimedOut", "processCancelled",
+            "processOutputTooLarge", "fileReadFailed", "fileStatFailed",
+            "directoryTraversalFailed", "unsupportedTreeRead":
+            return "git.\(kind)"
+        case "unexpected":
+            let errorType = parts.dropFirst().first
+            return (["git.unexpected", errorType].compactMap { $0 }).joined(separator: ":")
+        default:
+            return "git.providerError"
+        }
     }
 
     func statusFallbackChangedFile(
@@ -327,13 +360,15 @@ extension AgentStudioGitBridgeReviewDataClient {
 
     func filesystemContentMetadata(path: String) -> FallbackContentMetadata? {
         let fileURL = repositoryPath.appendingPathComponent(path)
-        guard let data = try? Data(contentsOf: fileURL) else {
+        guard let sizeBytes = fallbackFilesystemSizeBytes(target: .workingTree, path: path),
+            let contentHash = try? streamGitBlobSHA1ContentHash(fileURL: fileURL, sizeBytes: sizeBytes)
+        else {
             return nil
         }
         return FallbackContentMetadata(
-            sizeBytes: data.count,
+            sizeBytes: sizeBytes,
             isBinary: false,
-            contentHash: gitBlobSHA1ContentHash(data),
+            contentHash: contentHash,
             contentHashAlgorithm: "git-blob-sha1"
         )
     }
@@ -363,6 +398,21 @@ extension AgentStudioGitBridgeReviewDataClient {
         var blobData = Data("blob \(data.count)\0".utf8)
         blobData.append(data)
         return Insecure.SHA1.hash(data: blobData).map { String(format: "%02x", $0) }.joined()
+    }
+
+    func streamGitBlobSHA1ContentHash(fileURL: URL, sizeBytes: Int) throws -> String {
+        let fileHandle = try FileHandle(forReadingFrom: fileURL)
+        defer {
+            try? fileHandle.close()
+        }
+        var hasher = Insecure.SHA1()
+        hasher.update(data: Data("blob \(sizeBytes)\0".utf8))
+        while true {
+            let chunk = try fileHandle.read(upToCount: 64 * 1024)
+            guard let chunk, !chunk.isEmpty else { break }
+            hasher.update(data: chunk)
+        }
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
     func recursiveGitTreeEntries(

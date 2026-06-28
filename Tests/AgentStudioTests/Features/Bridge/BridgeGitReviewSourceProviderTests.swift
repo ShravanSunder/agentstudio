@@ -208,6 +208,60 @@ struct BridgeGitReviewSourceProviderTests {
         }
     }
 
+    @Test("AgentStudioGit tree filesystem fallback preserves sanitized git failure details")
+    func agentStudioGitTreeFilesystemFallbackPreservesSanitizedGitFailureDetails() async throws {
+        let repositoryPath = URL(fileURLWithPath: "/tmp/agentstudio-git-tree-fallback-failure-test")
+        let rawPath = "/Users/shravansunder/Documents/dev/project-dev/secret/.gitignore"
+        let fullStatusOptions = GitStatusOptions(includeIgnored: false, includeUntracked: true)
+        let trackedStatusOptions = GitStatusOptions(includeIgnored: false, includeUntracked: false)
+        let adapter = AgentStudioGitBridgeReviewDataClient(
+            repositoryPath: repositoryPath,
+            client: AgentStudioGitLocalClientFake(
+                diffFailure: .libgit2Failure(
+                    code: -1,
+                    klass: 2,
+                    message: "file changed before we could read it"
+                ),
+                treeFailure: .libgit2Failure(
+                    code: -3,
+                    klass: 4,
+                    message: "too many open files while reading '\(rawPath)'"
+                ),
+                statusFailureByOptions: [
+                    fullStatusOptions: .libgit2Failure(
+                        code: -1,
+                        klass: 2,
+                        message: "file changed before we could read it"
+                    ),
+                    trackedStatusOptions: .libgit2Failure(
+                        code: -1,
+                        klass: 2,
+                        message: "file changed before we could read it"
+                    ),
+                ]
+            )
+        )
+        let provider = BridgeGitReviewSourceProvider(client: adapter)
+
+        do {
+            _ = try await provider.compareEndpoints(
+                BridgeEndpointComparisonRequest(
+                    query: makeBridgeReviewQuery(baseEndpointId: "HEAD", headEndpointId: "working"),
+                    baseEndpoint: makeBridgeEndpoint(endpointId: "HEAD", kind: .gitRef),
+                    headEndpoint: makeBridgeEndpoint(endpointId: "working", kind: .workingTree),
+                    reviewGeneration: 17
+                )
+            )
+            Issue.record("Expected tree filesystem fallback failure")
+        } catch BridgeProviderFailure.providerFailed(let message) {
+            #expect(
+                message
+                    == "gitDataPlane:treeFilesystemFallback:failed:status=git.libgit2Failure:code=-1:klass=2:reason=fileReadFailed:tree=git.libgit2Failure:code=-3:klass=4:reason=tooManyOpenFiles"
+            )
+            #expect(!message.contains(rawPath))
+        }
+    }
+
     @Test("AgentStudioGit adapter falls back to status when working-tree diff hits a volatile file")
     func agentStudioGitAdapterFallsBackToStatusWhenWorkingTreeDiffHitsVolatileFile() async throws {
         let repositoryPath = URL(fileURLWithPath: "/tmp/agentstudio-git-status-fallback-test")
@@ -772,6 +826,7 @@ private actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
     private let contentByLocator: [GitContentLocator: GitContentPayload]
     private let contentFailureByLocator: [GitContentLocator: GitDataPlaneError]
     private let treeSnapshotByRequest: [GitTreeReadRequest: GitTreeSnapshot]
+    private let treeFailure: GitDataPlaneError?
     private let statusSnapshot: GitStatusSnapshot?
     private let statusFailure: GitDataPlaneError?
     private let statusSnapshotByOptions: [GitStatusOptions: GitStatusSnapshot]
@@ -787,6 +842,7 @@ private actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
         contentByLocator: [GitContentLocator: GitContentPayload] = [:],
         contentFailureByLocator: [GitContentLocator: GitDataPlaneError] = [:],
         treeSnapshotByRequest: [GitTreeReadRequest: GitTreeSnapshot] = [:],
+        treeFailure: GitDataPlaneError? = nil,
         statusSnapshot: GitStatusSnapshot? = nil,
         statusFailure: GitDataPlaneError? = nil,
         statusSnapshotByOptions: [GitStatusOptions: GitStatusSnapshot] = [:],
@@ -797,6 +853,7 @@ private actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
         self.contentByLocator = contentByLocator
         self.contentFailureByLocator = contentFailureByLocator
         self.treeSnapshotByRequest = treeSnapshotByRequest
+        self.treeFailure = treeFailure
         self.statusSnapshot = statusSnapshot
         self.statusFailure = statusFailure
         self.statusSnapshotByOptions = statusSnapshotByOptions
@@ -878,6 +935,9 @@ private actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
 
     func readTree(_ request: GitTreeReadRequest) async throws(GitDataPlaneError) -> GitTreeSnapshot {
         treeRequests.append(request)
+        if let treeFailure {
+            throw treeFailure
+        }
         guard let treeSnapshot = treeSnapshotByRequest[request] else {
             throw GitDataPlaneError.unsupported(message: "missing tree for \(request.path ?? "<root>")")
         }
@@ -923,31 +983,4 @@ private actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
     func recordedStatusOptions() -> [GitStatusOptions] {
         statusRequests.map(\.1)
     }
-}
-
-private func buildPackage(
-    provider: BridgeGitReviewSourceProvider,
-    query: BridgeReviewQuery,
-    baseEndpoint: BridgeSourceEndpoint,
-    headEndpoint: BridgeSourceEndpoint,
-    reviewGeneration: BridgeReviewGeneration
-) async throws -> BridgeReviewPackage {
-    let comparison = try await provider.compareEndpoints(
-        BridgeEndpointComparisonRequest(
-            query: query,
-            baseEndpoint: baseEndpoint,
-            headEndpoint: headEndpoint,
-            reviewGeneration: reviewGeneration
-        )
-    )
-    return try BridgeReviewPackageBuilder.build(
-        request: BridgeReviewPackageBuildRequest(
-            packageId: "package-\(reviewGeneration.rawValue)",
-            query: query,
-            comparison: comparison,
-            checkpointIds: [],
-            reviewGeneration: reviewGeneration,
-            generatedAtUnixMilliseconds: Int64(reviewGeneration.rawValue)
-        )
-    )
 }

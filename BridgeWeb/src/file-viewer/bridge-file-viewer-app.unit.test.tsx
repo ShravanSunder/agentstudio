@@ -15,6 +15,10 @@ import type {
 	WorktreeFileProtocolFrame,
 	WorktreeFileSurfaceSourceIdentity,
 } from '../features/worktree-file/models/worktree-file-protocol-models.js';
+import {
+	makeWorktreeFileSurfaceRuntimeFetchedResource,
+	type WorktreeFileSurfaceRuntimeFetchedResource,
+} from '../worktree-file-surface/worktree-file-surface-runtime.js';
 import { BridgeFileViewerApp } from './bridge-file-viewer-app.js';
 
 vi.mock('@pierre/diffs/react', () => ({
@@ -38,6 +42,7 @@ describe('BridgeFileViewerApp', () => {
 	let mountedRoot: Root | null = null;
 
 	afterEach(() => {
+		vi.restoreAllMocks();
 		if (mountedRoot !== null) {
 			act((): void => {
 				mountedRoot?.unmount();
@@ -61,7 +66,9 @@ describe('BridgeFileViewerApp', () => {
 			mountedRoot?.render(
 				<BridgeFileViewerApp
 					autoOpenInitialFile={true}
-					fetchResource={async (): Promise<string> => 'export const live = true;\n'}
+					fetchResource={async () =>
+						makeWorktreeFileSurfaceRuntimeFetchedResource('export const live = true;\n')
+					}
 					initialFrames={makeFrames(descriptor)}
 					onOpenReviewComparison={openReviewComparison}
 				/>,
@@ -110,6 +117,128 @@ describe('BridgeFileViewerApp', () => {
 		expect(openReviewComparison).toHaveBeenCalledWith(descriptor);
 	});
 
+	test('default resource fetch reads streamed response chunks without whole-body text', async () => {
+		const descriptor = makeFileDescriptor({
+			contentHandle: 'streamed-content',
+			path: 'src/streamed.ts',
+		});
+		vi.spyOn(globalThis, 'fetch').mockImplementation(async (input): Promise<Response> => {
+			const requestUrl = input instanceof Request ? input.url : input.toString();
+			expect(requestUrl).toBe(
+				'agentstudio://resource/worktree-file/worktree.fileContent/streamed-content?generation=1',
+			);
+			return chunkedTextResponse(['export ', 'const streamed = true;\n']);
+		});
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeFileViewerApp autoOpenInitialFile={true} initialFrames={makeFrames(descriptor)} />,
+			);
+			await nextMicrotask();
+		});
+
+		expect(openFileState()).toBe('ready');
+		expect(document.body.textContent).toContain('export const streamed = true');
+	});
+
+	test('renders provisional streamed content before selected file load settles', async () => {
+		const descriptor = makeFileDescriptor({
+			contentHandle: 'streamed-content',
+			path: 'src/streamed.ts',
+		});
+		const fetchStarted = makeDeferred<void>();
+		const finishFetch = makeDeferred<WorktreeFileSurfaceRuntimeFetchedResource>();
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeFileViewerApp
+					autoOpenInitialFile={true}
+					fetchResource={async (props) => {
+						props.onTextChunk?.({
+							byteLength: 15,
+							text: 'export const p',
+							totalBytesRead: 15,
+						});
+						fetchStarted.resolve();
+						return await finishFetch.promise;
+					}}
+					initialFrames={makeFrames(descriptor)}
+				/>,
+			);
+			await nextMicrotask();
+		});
+		await act(async (): Promise<void> => {
+			await fetchStarted.promise;
+			await nextMicrotask();
+		});
+
+		expect(openFileState()).toBe('loading');
+		expect(document.body.textContent).toContain('export const p');
+
+		await act(async (): Promise<void> => {
+			finishFetch.resolve(
+				makeWorktreeFileSurfaceRuntimeFetchedResource('export const provisional = true;\n'),
+			);
+			await nextMicrotask();
+		});
+
+		expect(openFileState()).toBe('ready');
+		expect(document.body.textContent).toContain('export const provisional = true');
+	});
+
+	test('drops provisional streamed content when selected file validation fails', async () => {
+		const descriptor = makeFileDescriptor({
+			contentHandle: 'streamed-content',
+			path: 'src/streamed.ts',
+		});
+		const fetchStarted = makeDeferred<void>();
+		const failFetch = makeDeferred<void>();
+		const container = document.createElement('div');
+		document.body.append(container);
+		mountedRoot = createRoot(container);
+
+		await act(async (): Promise<void> => {
+			mountedRoot?.render(
+				<BridgeFileViewerApp
+					autoOpenInitialFile={true}
+					fetchResource={async (props) => {
+						props.onTextChunk?.({
+							byteLength: 14,
+							text: 'partial secret',
+							totalBytesRead: 14,
+						});
+						fetchStarted.resolve();
+						await failFetch.promise;
+						throw new Error('integrity mismatch');
+					}}
+					initialFrames={makeFrames(descriptor)}
+				/>,
+			);
+			await nextMicrotask();
+		});
+		await act(async (): Promise<void> => {
+			await fetchStarted.promise;
+			await nextMicrotask();
+		});
+
+		expect(openFileState()).toBe('loading');
+		expect(document.body.textContent).toContain('partial secret');
+
+		await act(async (): Promise<void> => {
+			failFetch.resolve();
+			await nextMicrotask();
+		});
+
+		expect(openFileState()).toBe('failed');
+		expect(document.body.textContent).not.toContain('partial secret');
+	});
+
 	test('keeps unavailable text descriptors metadata-only in auto-open and filters', async () => {
 		const unavailableDescriptor = makeFileDescriptor({
 			contentHandle: 'deleted-content',
@@ -131,9 +260,9 @@ describe('BridgeFileViewerApp', () => {
 			mountedRoot?.render(
 				<BridgeFileViewerApp
 					autoOpenInitialFile={true}
-					fetchResource={async (props): Promise<string> => {
+					fetchResource={async (props) => {
 						fetches.push(props.resourceUrl);
-						return 'export const live = true;\n';
+						return makeWorktreeFileSurfaceRuntimeFetchedResource('export const live = true;\n');
 					}}
 					initialFrames={makeFrames(unavailableDescriptor, liveDescriptor)}
 				/>,
@@ -177,15 +306,17 @@ describe('BridgeFileViewerApp', () => {
 		document.body.append(container);
 		mountedRoot = createRoot(container);
 		let latestContentFetchCount = 0;
-		const fetchResource = async (props: { readonly resourceUrl: string }): Promise<string> => {
+		const fetchResource = async (props: {
+			readonly resourceUrl: string;
+		}): Promise<WorktreeFileSurfaceRuntimeFetchedResource> => {
 			if (props.resourceUrl.includes('file-content-2')) {
 				latestContentFetchCount += 1;
 				if (latestContentFetchCount === 1) {
 					throw new Error('refresh failed');
 				}
-				return 'export const value = 2;\n';
+				return makeWorktreeFileSurfaceRuntimeFetchedResource('export const value = 2;\n');
 			}
-			return 'export const value = 1;\n';
+			return makeWorktreeFileSurfaceRuntimeFetchedResource('export const value = 1;\n');
 		};
 
 		await act(async (): Promise<void> => {
@@ -256,11 +387,13 @@ describe('BridgeFileViewerApp', () => {
 			mountedRoot?.render(
 				<BridgeFileViewerApp
 					autoOpenInitialFile={true}
-					fetchResource={async (props): Promise<string> => {
+					fetchResource={async (props) => {
 						fetchedResourceUrls.push(props.resourceUrl);
-						return props.resourceUrl.includes('file-content-2')
-							? 'export const value = 2;\n'
-							: 'export const value = 1;\n';
+						return makeWorktreeFileSurfaceRuntimeFetchedResource(
+							props.resourceUrl.includes('file-content-2')
+								? 'export const value = 2;\n'
+								: 'export const value = 1;\n',
+						);
 					}}
 					initialFrames={makeFrames(firstDescriptor)}
 					subscribeFrames={(onFrames) => {
@@ -324,15 +457,15 @@ describe('BridgeFileViewerApp', () => {
 			mountedRoot?.render(
 				<BridgeFileViewerApp
 					autoOpenInitialFile={true}
-					fetchResource={async (props): Promise<string> => {
+					fetchResource={async (props) => {
 						if (props.resourceUrl.includes('file-content-2')) {
 							replacementFetchCount += 1;
 							if (replacementFetchCount === 1) {
 								throw new Error('refresh failed');
 							}
-							return 'export const value = 2;\n';
+							return makeWorktreeFileSurfaceRuntimeFetchedResource('export const value = 2;\n');
 						}
-						return 'export const value = 1;\n';
+						return makeWorktreeFileSurfaceRuntimeFetchedResource('export const value = 1;\n');
 					}}
 					initialFrames={makeFrames(firstDescriptor)}
 					subscribeFrames={(onFrames) => {
@@ -392,7 +525,8 @@ describe('BridgeFileViewerApp', () => {
 		});
 		let frameSubscriber: ((frames: readonly WorktreeFileProtocolFrame[]) => void) | undefined;
 		let replacementFetchCount = 0;
-		const retryFetch = makeDeferred<string>();
+		const retryFetch =
+			makeDeferred<ReturnType<typeof makeWorktreeFileSurfaceRuntimeFetchedResource>>();
 		const container = document.createElement('div');
 		document.body.append(container);
 		mountedRoot = createRoot(container);
@@ -401,7 +535,7 @@ describe('BridgeFileViewerApp', () => {
 			mountedRoot?.render(
 				<BridgeFileViewerApp
 					autoOpenInitialFile={true}
-					fetchResource={async (props): Promise<string> => {
+					fetchResource={async (props) => {
 						if (props.resourceUrl.includes('file-content-2')) {
 							replacementFetchCount += 1;
 							if (replacementFetchCount === 1) {
@@ -409,7 +543,7 @@ describe('BridgeFileViewerApp', () => {
 							}
 							return await retryFetch.promise;
 						}
-						return 'export const value = 1;\n';
+						return makeWorktreeFileSurfaceRuntimeFetchedResource('export const value = 1;\n');
 					}}
 					initialFrames={makeFrames(firstDescriptor)}
 					subscribeFrames={(onFrames) => {
@@ -447,7 +581,9 @@ describe('BridgeFileViewerApp', () => {
 
 		await act(async (): Promise<void> => {
 			frameSubscriber?.([makeFileDescriptorFrame(replacementDescriptor)]);
-			retryFetch.resolve('export const value = 2;\n');
+			retryFetch.resolve(
+				makeWorktreeFileSurfaceRuntimeFetchedResource('export const value = 2;\n'),
+			);
 			await nextMicrotask();
 		});
 
@@ -473,9 +609,9 @@ describe('BridgeFileViewerApp', () => {
 			mountedRoot?.render(
 				<BridgeFileViewerApp
 					autoOpenInitialFile={true}
-					fetchResource={async (props): Promise<string> => {
+					fetchResource={async (props) => {
 						fetchedResourceUrls.push(props.resourceUrl);
-						return 'export const value = 1;\n';
+						return makeWorktreeFileSurfaceRuntimeFetchedResource('export const value = 1;\n');
 					}}
 					initialFrames={makeFrames(firstDescriptor)}
 					subscribeFrames={(onFrames) => {
@@ -529,11 +665,13 @@ describe('BridgeFileViewerApp', () => {
 			mountedRoot?.render(
 				<BridgeFileViewerApp
 					autoOpenInitialFile={true}
-					fetchResource={async (props): Promise<string> => {
+					fetchResource={async (props) => {
 						fetchedResourceUrls.push(props.resourceUrl);
-						return props.resourceUrl.includes('file-content-2')
-							? 'export const value = 2;\n'
-							: 'export const value = 1;\n';
+						return makeWorktreeFileSurfaceRuntimeFetchedResource(
+							props.resourceUrl.includes('file-content-2')
+								? 'export const value = 2;\n'
+								: 'export const value = 1;\n',
+						);
 					}}
 					initialFrames={makeFrames(firstDescriptor)}
 					subscribeFrames={(onFrames) => {
@@ -668,6 +806,23 @@ function makeFileDescriptor(props: {
 		language: 'typescript',
 		fileExtension: 'ts',
 	};
+}
+
+function chunkedTextResponse(chunks: readonly string[]): Response {
+	const encoder = new TextEncoder();
+	const body = new ReadableStream<Uint8Array>({
+		start(controller): void {
+			for (const chunk of chunks) {
+				controller.enqueue(encoder.encode(chunk));
+			}
+			controller.close();
+		},
+	});
+	return Object.assign(new Response(body), {
+		text: async (): Promise<string> => {
+			throw new Error('whole body text() should not be used for Worktree/File resources');
+		},
+	});
 }
 
 function makeSourceIdentity(): WorktreeFileSurfaceSourceIdentity {

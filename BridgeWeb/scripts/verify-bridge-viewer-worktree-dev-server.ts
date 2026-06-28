@@ -65,6 +65,7 @@ const fileToReviewHandoffFixtureRelativePath =
 	'BridgeWeb/scripts/dev-server/bridge-worktree-dev-provider.ts';
 const reviewSelectionFixtureRelativePath = 'Sources/AgentStudio/AtomRegistry.swift';
 const reviewSelectionFixtureMarker = `bridge_worktree_devserver_review_selection_${proofRunCreatedAtUnixMilliseconds}`;
+const expectedReviewPackageRouteHitCount = 2;
 
 const bridgeWorktreeSurfaceResponseSchema = z
 	.object({
@@ -1405,7 +1406,7 @@ async function verifyWorktreeReviewRoute(): Promise<WorktreeReviewRouteProof> {
 			routeProof.reviewRailToolbarHeight <= 0 ||
 			!routeProof.reviewHeaderMatchesRailToolbarHeight ||
 			!routeProof.reviewRailToolbarUsesSharedAttr ||
-			routeProof.reviewPackageRouteHitCount !== 1 ||
+			routeProof.reviewPackageRouteHitCount !== expectedReviewPackageRouteHitCount ||
 			routeProof.reviewContentRouteHitCount <= 0 ||
 			!reviewRoutePressureSatisfied({
 				expectedVisibleItemId: routeProof.reviewVisibleDemandTelemetryProof.itemId,
@@ -1609,7 +1610,7 @@ async function verifyWorktreeReviewFileTargetRoute(): Promise<WorktreeReviewFile
 			!routeProof.reviewHeaderMatchesRailToolbarHeight ||
 			!routeProof.reviewRailToolbarUsesSharedAttr ||
 			routeProof.standaloneWorktreeFileAppCount !== 0 ||
-			routeProof.reviewPackageRouteHitCount !== 1 ||
+			routeProof.reviewPackageRouteHitCount !== expectedReviewPackageRouteHitCount ||
 			routeProof.reviewContentRouteHitCount <= 0
 		) {
 			throw new Error(
@@ -4959,7 +4960,7 @@ async function verifyWorktreeFileToReviewHandoff(): Promise<WorktreeFileToReview
 			handoffProof.selectedMaterializedItemType !== 'file' ||
 			handoffProof.selectedMaterializedFileLineCount <= 0 ||
 			handoffProof.standaloneWorktreeFileAppCount !== 0 ||
-			handoffProof.reviewPackageRouteHitCount !== 1 ||
+			handoffProof.reviewPackageRouteHitCount !== expectedReviewPackageRouteHitCount ||
 			!reviewContentRouteDeltaSatisfied(handoffProof.reviewHandoffContentRouteProof)
 		) {
 			throw new Error(

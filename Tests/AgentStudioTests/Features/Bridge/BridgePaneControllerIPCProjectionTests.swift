@@ -58,8 +58,56 @@ extension WebKitSerializedTests {
             #expect(await provider.recordedContentRequestsCount() == 0)
         }
 
-        @Test("IPC content body returns text without duplicate base64 for UTF-8 content")
-        func ipcContentBody_returnsTextWithoutDuplicateBase64ForUtf8Content() async throws {
+        @Test("IPC package snapshot omits materialized package payload")
+        func ipcPackageSnapshot_omitsMaterializedPackagePayload() async throws {
+            let worktreeId = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
+            let provider = BridgeReviewSourceProviderFake(
+                comparison: BridgeEndpointComparison(
+                    baseEndpoint: makeBridgeEndpoint(endpointId: "index", kind: .index),
+                    headEndpoint: makeBridgeEndpoint(endpointId: "working-tree", kind: .workingTree),
+                    changedFiles: [
+                        makeBridgeEndpointChangedFile(
+                            fileId: "source",
+                            path: "Sources/App/View.swift",
+                            sizeBytes: 100,
+                            oldContentHash: bridgeSHA256ContentHash("old"),
+                            newContentHash: bridgeSHA256ContentHash("new")
+                        )
+                    ]
+                ),
+                contentByHandleId: [:]
+            )
+            let controller = BridgePaneController(
+                paneId: UUIDv7.generate(),
+                state: BridgePaneState(
+                    panelKind: .diffViewer,
+                    source: .workspace(rootPath: "/tmp/worktree", baseline: .unstaged)
+                ),
+                metadata: PaneMetadata(
+                    contentType: .diff,
+                    title: "Bridge Review",
+                    facets: PaneContextFacets(worktreeId: worktreeId)
+                ),
+                reviewSourceProvider: provider
+            )
+            defer { controller.teardown() }
+            _ = try await controller.refreshReviewForIPC(correlationId: nil)
+
+            let result = try controller.ipcReviewPackageSnapshot()
+            let encodedResult = try JSONEncoder().encode(result)
+            let encodedPayload = try #require(String(data: encodedResult, encoding: .utf8))
+
+            #expect(result.paneId == controller.paneId)
+            #expect(result.status == "ready")
+            #expect(result.packageId == controller.paneState.diff.packageMetadata?.packageId)
+            #expect(result.reviewGeneration == controller.paneState.diff.packageMetadata?.reviewGeneration.rawValue)
+            #expect(result.summary?.filesChanged == 1)
+            #expect(encodedPayload.contains("\"package\"") == false)
+            #expect(encodedPayload.contains("\"items\"") == false)
+        }
+
+        @Test("IPC content descriptor returns metadata without loading body bytes")
+        func ipcContentDescriptor_returnsMetadataWithoutLoadingBodyBytes() async throws {
             let handle = makeBridgeContentHandle(
                 itemId: "item-source",
                 role: .head,
@@ -90,12 +138,20 @@ extension WebKitSerializedTests {
                 reviewGeneration: 7
             )
 
-            #expect(result.contentText == "let value = 1\n")
-            #expect(result.contentBase64 == nil)
+            let encodedResult = try JSONEncoder().encode(result)
+            let encodedPayload = try #require(String(data: encodedResult, encoding: .utf8))
+            #expect(result.paneId == controller.paneId)
+            #expect(result.handle.handleId == handle.handleId)
+            #expect(result.handle.resourceUrl == handle.resourceUrl)
+            #expect(result.mimeType == handle.mimeType)
+            #expect(result.byteCount == handle.sizeBytes)
+            #expect(encodedPayload.contains("contentText") == false)
+            #expect(encodedPayload.contains("contentBase64") == false)
+            #expect(await provider.recordedContentRequestsCount() == 0)
         }
 
-        @Test("IPC content body rejects content after teardown revokes review authority")
-        func ipcContentBody_rejectsContentAfterTeardownRevokesReviewAuthority() async throws {
+        @Test("IPC content descriptor rejects content after teardown revokes review authority")
+        func ipcContentDescriptor_rejectsContentAfterTeardownRevokesReviewAuthority() async throws {
             let handle = makeBridgeContentHandle(
                 itemId: "item-source",
                 role: .head,
@@ -131,8 +187,8 @@ extension WebKitSerializedTests {
             #expect(await provider.recordedContentRequestsCount() == 0)
         }
 
-        @Test("IPC content body rejects in-flight content after teardown revokes review authority")
-        func ipcContentBody_rejectsInFlightContentAfterTeardownRevokesReviewAuthority() async throws {
+        @Test("IPC content descriptor does not start provider body load")
+        func ipcContentDescriptor_doesNotStartProviderBodyLoad() async throws {
             let handle = makeBridgeContentHandle(
                 itemId: "item-source",
                 role: .head,
@@ -157,31 +213,21 @@ extension WebKitSerializedTests {
                 state: BridgePaneState(panelKind: .diffViewer, source: nil),
                 reviewSourceProvider: provider
             )
+            defer { controller.teardown() }
             await controller.reviewContentStore.activate(handles: [handle], reviewGeneration: 7)
 
-            let loadTask = Task { @MainActor in
-                try await controller.loadContentForIPC(
-                    contentHandleId: handle.handleId,
-                    reviewGeneration: 7
-                )
-            }
-            await gate.waitForStartedLoadCount(1)
-            controller.teardown()
-            await gate.releaseAll()
+            let result = try await controller.loadContentForIPC(
+                contentHandleId: handle.handleId,
+                reviewGeneration: 7
+            )
 
-            do {
-                _ = try await loadTask.value
-                Issue.record("Expected content unavailable after teardown")
-            } catch let failure as BridgeIPCProjectionError {
-                #expect(failure.reason == .contentUnavailable)
-            } catch {
-                Issue.record("Expected BridgeIPCProjectionError, got \(error)")
-            }
-            #expect(await provider.recordedContentRequestsCount() == 1)
+            #expect(result.handle.handleId == handle.handleId)
+            #expect(await provider.recordedContentRequestsCount() == 0)
+            await gate.releaseAll()
         }
 
-        @Test("IPC content body rejects cached content after active handle tightens byte cap")
-        func ipcContentBody_rejectsCachedContentAfterActiveHandleTightensByteCap() async throws {
+        @Test("IPC content descriptor reflects active handle after byte cap tightens")
+        func ipcContentDescriptor_reflectsActiveHandleAfterByteCapTightens() async throws {
             let handle = makeBridgeContentHandle(
                 itemId: "item-source",
                 role: .head,
@@ -221,26 +267,24 @@ extension WebKitSerializedTests {
             )
             defer { controller.teardown() }
             await controller.reviewContentStore.activate(handles: [handle], reviewGeneration: 7)
-            _ = try await controller.loadContentForIPC(contentHandleId: handle.handleId, reviewGeneration: 7)
+            let initialResult = try await controller.loadContentForIPC(
+                contentHandleId: handle.handleId,
+                reviewGeneration: 7
+            )
+            #expect(initialResult.byteCount == 9)
 
             await controller.reviewContentStore.activate(handles: [tightenedHandle], reviewGeneration: 7)
 
-            do {
-                _ = try await controller.loadContentForIPC(
-                    contentHandleId: handle.handleId,
-                    reviewGeneration: 7
-                )
-                Issue.record("Expected content unavailable after byte cap tightened")
-            } catch let failure as BridgeIPCProjectionError {
-                #expect(failure.reason == .contentUnavailable)
-            } catch {
-                Issue.record("Expected BridgeIPCProjectionError, got \(error)")
-            }
-            #expect(await provider.recordedContentRequestsCount() == 1)
+            let tightenedResult = try await controller.loadContentForIPC(
+                contentHandleId: handle.handleId,
+                reviewGeneration: 7
+            )
+            #expect(tightenedResult.byteCount == 4)
+            #expect(await provider.recordedContentRequestsCount() == 0)
         }
 
-        @Test("IPC content body rejects payloads that exceed the IPC response budget")
-        func ipcContentBody_rejectsPayloadsThatExceedIPCResponseBudget() async throws {
+        @Test("IPC content descriptor does not serialize oversized body payloads")
+        func ipcContentDescriptor_doesNotSerializeOversizedBodyPayloads() async throws {
             let oversizedText = String(repeating: "a", count: 1_000_000)
             let handle = makeBridgeContentHandle(
                 itemId: "item-source",
@@ -267,16 +311,20 @@ extension WebKitSerializedTests {
             defer { controller.teardown() }
             await controller.reviewContentStore.activate(handles: [handle], reviewGeneration: 7)
 
-            await #expect(throws: BridgeIPCProjectionError.self) {
-                _ = try await controller.loadContentForIPC(
-                    contentHandleId: handle.handleId,
-                    reviewGeneration: 7
-                )
-            }
+            let result = try await controller.loadContentForIPC(
+                contentHandleId: handle.handleId,
+                reviewGeneration: 7
+            )
+
+            let encodedResult = try JSONEncoder().encode(result)
+            let encodedPayload = try #require(String(data: encodedResult, encoding: .utf8))
+            #expect(result.byteCount == oversizedText.utf8.count)
+            #expect(encodedPayload.contains(oversizedText) == false)
+            #expect(await provider.recordedContentRequestsCount() == 0)
         }
 
-        @Test("IPC package snapshot rejects oversized metadata projections before frame encoding")
-        func ipcPackageSnapshot_rejectsOversizedMetadataProjectionsBeforeFrameEncoding() async throws {
+        @Test("IPC package snapshot omits oversized item projections before frame encoding")
+        func ipcPackageSnapshot_omitsOversizedItemProjectionsBeforeFrameEncoding() async throws {
             let worktreeId = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
             let longPathSegment = String(repeating: "very-long-folder-name/", count: 180)
             let changedFiles = (0..<260).map { index in
@@ -313,9 +361,14 @@ extension WebKitSerializedTests {
 
             _ = try await controller.refreshReviewForIPC(correlationId: nil)
 
-            #expect(throws: BridgeIPCProjectionError.self) {
-                _ = try controller.ipcReviewPackageSnapshot()
-            }
+            let result = try controller.ipcReviewPackageSnapshot()
+            let encodedResult = try JSONEncoder().encode(result)
+            let encodedPayload = try #require(String(data: encodedResult, encoding: .utf8))
+
+            #expect(result.packageId == controller.paneState.diff.packageMetadata?.packageId)
+            #expect(result.summary?.filesChanged == changedFiles.count)
+            #expect(encodedPayload.contains(longPathSegment) == false)
+            #expect(encodedPayload.contains("\"items\"") == false)
         }
 
         @Test("IPC telemetry snapshot reports package status without exposing samples")

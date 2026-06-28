@@ -72,15 +72,15 @@ extension WebKitSerializedTests {
             #expect(packageBuild.stringAttributes["agentstudio.bridge.phase"] == "package_build")
             #expect(packageBuild.stringAttributes["agentstudio.bridge.plane"] == "data")
             #expect(packageBuild.stringAttributes["agentstudio.bridge.priority"] == "cold")
-            #expect(packageBuild.stringAttributes["agentstudio.bridge.slice"] == "diff_package_metadata")
+            #expect(packageBuild.stringAttributes["agentstudio.bridge.slice"] == "review_snapshot")
             #expect(deltaBuild.stringAttributes["agentstudio.bridge.phase"] == "delta_build")
             #expect(deltaBuild.stringAttributes["agentstudio.bridge.plane"] == "data")
             #expect(deltaBuild.stringAttributes["agentstudio.bridge.priority"] == "warm")
-            #expect(deltaBuild.stringAttributes["agentstudio.bridge.slice"] == "diff_package_delta")
+            #expect(deltaBuild.stringAttributes["agentstudio.bridge.slice"] == "review_delta")
             #expect(contentRegister.stringAttributes["agentstudio.bridge.phase"] == "content_register")
             #expect(contentRegister.stringAttributes["agentstudio.bridge.plane"] == "data")
             #expect(contentRegister.stringAttributes["agentstudio.bridge.priority"] == "cold")
-            #expect(contentRegister.stringAttributes["agentstudio.bridge.slice"] == "diff_package_metadata")
+            #expect(contentRegister.stringAttributes["agentstudio.bridge.slice"] == "review_snapshot")
         }
 
         @Test("release-style telemetry policy disables bridge telemetry wiring")

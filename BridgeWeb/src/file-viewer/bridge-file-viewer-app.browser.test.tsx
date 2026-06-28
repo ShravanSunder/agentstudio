@@ -24,6 +24,7 @@ import {
 	requireBridgeViewerHTMLElement,
 	waitForBridgeViewerAnimationFrame,
 } from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
+import { makeWorktreeFileSurfaceRuntimeFetchedResource } from '../worktree-file-surface/worktree-file-surface-runtime.js';
 import { BridgeFileViewerApp } from './bridge-file-viewer-app.js';
 
 type PublishWorktreeFileFrames = (frames: readonly WorktreeFileProtocolFrame[]) => void;
@@ -115,11 +116,13 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		render(
 			<BridgeFileViewerApp
 				autoOpenInitialFile={true}
-				fetchResource={async (props): Promise<string> => {
+				fetchResource={async (props) => {
 					fetchedResourceUrls.push(props.resourceUrl);
-					return props.resourceUrl.includes('target-content')
-						? 'export const target = true;\n'
-						: 'export const first = true;\n';
+					return makeWorktreeFileSurfaceRuntimeFetchedResource(
+						props.resourceUrl.includes('target-content')
+							? 'export const target = true;\n'
+							: 'export const first = true;\n',
+					);
 				}}
 				initialFrames={makeFrames(firstDescriptor, targetDescriptor)}
 				navigationCommand={fileNavigationCommandForPath('docs/target.ts')}
@@ -163,11 +166,13 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 
 		render(
 			<BridgeFileViewerApp
-				fetchResource={async (props): Promise<string> => {
+				fetchResource={async (props) => {
 					fetchedResourceUrls.push(props.resourceUrl);
-					return props.resourceUrl.includes('second-visible-content')
-						? 'export const secondVisible = true;\n'
-						: 'export const firstVisible = true;\n';
+					return makeWorktreeFileSurfaceRuntimeFetchedResource(
+						props.resourceUrl.includes('second-visible-content')
+							? 'export const secondVisible = true;\n'
+							: 'export const firstVisible = true;\n',
+					);
 				}}
 				initialFrames={makeFrames(firstDescriptor, secondDescriptor)}
 			/>,
@@ -215,9 +220,11 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 
 		render(
 			<BridgeFileViewerApp
-				fetchResource={async (props): Promise<string> => {
+				fetchResource={async (props) => {
 					fetchedResourceUrls.push(props.resourceUrl);
-					return 'export const textVisible = true;\n';
+					return makeWorktreeFileSurfaceRuntimeFetchedResource(
+						'export const textVisible = true;\n',
+					);
 				}}
 				initialFrames={makeFrames(textDescriptor, binaryDescriptor, unavailableDescriptor)}
 			/>,
@@ -252,7 +259,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			};
 			return (
 				<BridgeFileViewerApp
-					fetchResource={(props): Promise<string> => {
+					fetchResource={(props) => {
 						fetchedResourceUrls.push(props.resourceUrl);
 						return deferredContent.promise;
 					}}
@@ -271,7 +278,9 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		const deactivate = requireDeactivateFiles(deactivateFiles);
 		deactivate();
 		await waitForBridgeViewerAnimationFrame();
-		deferredContent.resolve('export const inactiveVisible = true;\n');
+		deferredContent.resolve(
+			makeWorktreeFileSurfaceRuntimeFetchedResource('export const inactiveVisible = true;\n'),
+		);
 		await waitForBridgeViewerAnimationFrame();
 		await waitForBridgeViewerAnimationFrame();
 
@@ -299,11 +308,13 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		render(
 			<BridgeFileViewerApp
 				autoOpenInitialFile={true}
-				fetchResource={async (props): Promise<string> => {
+				fetchResource={async (props) => {
 					fetchedResourceUrls.push(props.resourceUrl);
-					return props.resourceUrl.includes('recently-updated-content')
-						? 'export const recentlyUpdated = true;\n'
-						: 'export const visible = true;\n';
+					return makeWorktreeFileSurfaceRuntimeFetchedResource(
+						props.resourceUrl.includes('recently-updated-content')
+							? 'export const recentlyUpdated = true;\n'
+							: 'export const visible = true;\n',
+					);
 				}}
 				initialFrames={makeFrames(visibleDescriptor, updatedDescriptor)}
 				navigationCommand={fileNavigationCommandForPath('src/visible.ts')}
@@ -387,7 +398,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 
 		render(
 			<BridgeFileViewerApp
-				fetchResource={(props): Promise<string> => {
+				fetchResource={(props) => {
 					fetchedResourceUrls.push(props.resourceUrl);
 					return props.resourceUrl.includes('old-')
 						? oldDeferredContent.promise
@@ -407,7 +418,9 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			expectedCount: 2,
 			recordedFetches: fetchedResourceUrls,
 		});
-		oldDeferredContent.resolve('export const old = true;\n');
+		oldDeferredContent.resolve(
+			makeWorktreeFileSurfaceRuntimeFetchedResource('export const old = true;\n'),
+		);
 		await waitForDemandDispatchFirstFreshnessKeyContaining('old-first-delayed-content');
 		const publishRequiredFrames = requireFramePublisher(publishFrames);
 		publishRequiredFrames(makeResetFrames(newFirstDescriptor, newSecondDescriptor));
@@ -415,7 +428,9 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			expectedCount: 4,
 			recordedFetches: fetchedResourceUrls,
 		});
-		newDeferredContent.resolve('export const fresh = true;\n');
+		newDeferredContent.resolve(
+			makeWorktreeFileSurfaceRuntimeFetchedResource('export const fresh = true;\n'),
+		);
 		await waitForDemandDispatchLoadedCount('2');
 		await waitForBridgeViewerAnimationFrame();
 		await waitForBridgeViewerAnimationFrame();
@@ -813,13 +828,19 @@ async function waitForRecordedFetchCountAttempt(props: {
 }
 
 function makeDeferredContent(): {
-	readonly promise: Promise<string>;
-	readonly resolve: (value: string) => void;
+	readonly promise: Promise<ReturnType<typeof makeWorktreeFileSurfaceRuntimeFetchedResource>>;
+	readonly resolve: (
+		value: ReturnType<typeof makeWorktreeFileSurfaceRuntimeFetchedResource>,
+	) => void;
 } {
-	let resolveContent: ((value: string) => void) | null = null;
-	const promise = new Promise<string>((resolve): void => {
-		resolveContent = resolve;
-	});
+	let resolveContent:
+		| ((value: ReturnType<typeof makeWorktreeFileSurfaceRuntimeFetchedResource>) => void)
+		| null = null;
+	const promise = new Promise<ReturnType<typeof makeWorktreeFileSurfaceRuntimeFetchedResource>>(
+		(resolve): void => {
+			resolveContent = resolve;
+		},
+	);
 	return {
 		promise,
 		resolve: (value): void => {

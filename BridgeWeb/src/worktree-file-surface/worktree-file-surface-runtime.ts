@@ -16,6 +16,7 @@ import {
 	createBridgeResourceDescriptorRegistry,
 	type BridgeResourceDescriptorRegistry,
 } from '../core/resources/bridge-resource-registry.js';
+import type { BridgeTextResourceStreamChunk } from '../core/resources/bridge-resource-stream.js';
 import {
 	mapWorktreeFileDemandStimulusToIntents,
 	type WorktreeFileDemandReadContext,
@@ -40,14 +41,40 @@ import {
 
 export interface WorktreeFileSurfaceRuntimeFetchResourceProps {
 	readonly descriptor: BridgeResourceDescriptor;
+	readonly onTextChunk?: ((chunk: BridgeTextResourceStreamChunk) => void) | undefined;
 	readonly resourceUrl: string;
 	readonly signal: AbortSignal;
 }
 
+export interface WorktreeFileSurfaceRuntimeFetchedResource {
+	readonly authoritative: boolean;
+	readonly byteLength: number;
+	readText(): string;
+}
+
+export function makeWorktreeFileSurfaceRuntimeFetchedResource(
+	props:
+		| string
+		| {
+				readonly authoritative?: boolean;
+				readonly text: string;
+		  },
+): WorktreeFileSurfaceRuntimeFetchedResource {
+	const text = typeof props === 'string' ? props : props.text;
+	return {
+		authoritative: typeof props === 'string' ? true : (props.authoritative ?? true),
+		byteLength: new TextEncoder().encode(text).byteLength,
+		readText: (): string => text,
+	};
+}
+
 export interface WorktreeFileSurfaceRuntimeProps {
 	readonly paneId: string;
-	readonly fetchResource: (props: WorktreeFileSurfaceRuntimeFetchResourceProps) => Promise<string>;
+	readonly fetchResource: (
+		props: WorktreeFileSurfaceRuntimeFetchResourceProps,
+	) => Promise<WorktreeFileSurfaceRuntimeFetchedResource>;
 	readonly now?: () => number;
+	readonly onResourceTextChunk?: ((chunk: BridgeTextResourceStreamChunk) => void) | undefined;
 }
 
 export type WorktreeFileSurfaceLoadDisposition =
@@ -93,17 +120,32 @@ export type WorktreeFileSurfaceApplyFrameResult =
 
 export interface WorktreeFileSurfaceOpenFileProps {
 	readonly descriptor: WorktreeFileDescriptor;
+	readonly onProvisionalTextChunk?:
+		| ((chunk: WorktreeFileSurfaceProvisionalTextChunk) => void)
+		| undefined;
 	readonly openFileSessionId: string;
 }
 
 export interface WorktreeFileSurfaceRefreshOpenFileProps {
+	readonly onProvisionalTextChunk?:
+		| ((chunk: WorktreeFileSurfaceProvisionalTextChunk) => void)
+		| undefined;
 	readonly openFileSessionId: string;
+}
+
+export interface WorktreeFileSurfaceProvisionalTextChunk {
+	readonly byteLength: number;
+	readonly descriptorId: string;
+	readonly text: string;
+	readonly totalBytesRead: number;
 }
 
 export type WorktreeFileSurfaceLoadResult =
 	| {
 			readonly ok: true;
-			readonly body: string;
+			readonly authoritative: boolean;
+			readonly byteLength: number;
+			readonly content: WorktreeFileSurfaceRuntimeFetchedResource;
 			readonly descriptorId: string;
 			readonly loadTelemetry: WorktreeFileSurfaceLoadTelemetry;
 	  }
@@ -118,6 +160,7 @@ export type WorktreeFileSurfaceLoadResult =
 				| 'descriptor_rejected'
 				| 'load_failed'
 				| 'no_demand'
+				| 'preview_only'
 				| 'source_reset'
 				| 'stale_completion';
 	  };
@@ -126,6 +169,8 @@ export type WorktreeFileSurfaceDemandDispatchLoadResult =
 	| {
 			readonly dedupeKey: string;
 			readonly ok: true;
+			readonly authoritative: boolean;
+			readonly byteLength: number;
 			readonly descriptorId: string;
 			readonly freshnessKey: string;
 			readonly loadTelemetry: WorktreeFileSurfaceLoadTelemetry;
@@ -140,6 +185,7 @@ export type WorktreeFileSurfaceDemandDispatchLoadResult =
 				| 'concurrency_exceeded'
 				| 'descriptor_missing'
 				| 'load_failed'
+				| 'preview_only'
 				| 'stale_completion';
 	  };
 
@@ -170,7 +216,9 @@ export interface WorktreeFileSurfaceRuntime {
 	): Promise<WorktreeFileSurfaceLoadResult>;
 	getState(): WorktreeFileSurfaceState;
 	getBodyRegistrySnapshot(): ReturnType<
-		ReturnType<typeof createBridgeBodyRegistry<string>>['snapshot']
+		ReturnType<
+			typeof createBridgeBodyRegistry<WorktreeFileSurfaceRuntimeFetchedResource>
+		>['snapshot']
 	>;
 }
 
@@ -202,10 +250,14 @@ export function createWorktreeFileSurfaceRuntime(
 			]),
 		},
 	});
-	const bodyRegistry = createBridgeBodyRegistry<string>({
+	const bodyRegistry = createBridgeBodyRegistry<WorktreeFileSurfaceRuntimeFetchedResource>({
 		maxBytes: worktreeFileBodyRegistryMaxBytes,
 	});
 	const preloadDispositionByBodyKey = new Map<string, WorktreeFileSurfaceLoadDisposition>();
+	const provisionalChunkConsumersByIntentKey = new Map<
+		string,
+		(chunk: WorktreeFileSurfaceProvisionalTextChunk) => void
+	>();
 	const resetSourceIds = new Set<string>();
 	const resetReplacementDescriptorKeys = new Set<string>();
 	const resetScope: WorktreeFileSourceLessResetScope = {
@@ -218,7 +270,7 @@ export function createWorktreeFileSurfaceRuntime(
 		maxQueuedIntentsPerLane: worktreeFileDemandMaxQueuedIntentsPerLane,
 		maxQueuedEstimatedBytes: worktreeFileDemandMaxQueuedEstimatedBytes,
 	});
-	const executor = createBridgeResourceExecutor<string>({
+	const executor = createBridgeResourceExecutor<WorktreeFileSurfaceRuntimeFetchedResource>({
 		registry,
 		maxConcurrentLoads: worktreeFileResourceExecutorMaxConcurrentLoads,
 		maxInFlightBytes: worktreeFileResourceExecutorMaxInFlightBytes,
@@ -239,30 +291,50 @@ export function createWorktreeFileSurfaceRuntime(
 				resetDescriptorKeyForBridgeDescriptorRef(intent.descriptorRef),
 			);
 		},
-		loadResource: async ({ descriptor, intent, signal }) => {
+		loadResource: async ({ descriptor, intent, onChunk, signal }) => {
 			const cachedBody = bodyRegistry.get({
 				cacheKey: descriptor.resourceUrl,
 				freshnessKey: intent.freshnessKey,
 			});
 			if (cachedBody !== null) {
 				return {
-					body: cachedBody,
-					byteLength: encodedByteLength(cachedBody),
+					authoritative: cachedBody.authoritative,
+					content: cachedBody,
+					byteLength: cachedBody.byteLength,
 				};
 			}
-			const body = await props.fetchResource({
+			const fetchedResource = await props.fetchResource({
 				descriptor,
+				onTextChunk: (chunk): void => {
+					onChunk({
+						byteLength: chunk.byteLength,
+						chunk: chunk.text,
+						totalBytesRead: chunk.totalBytesRead,
+					});
+					provisionalChunkConsumersByIntentKey.get(streamConsumerKeyForIntent(intent))?.({
+						byteLength: chunk.byteLength,
+						descriptorId: descriptor.descriptorId,
+						text: chunk.text,
+						totalBytesRead: chunk.totalBytesRead,
+					});
+					props.onResourceTextChunk?.(chunk);
+				},
 				resourceUrl: descriptor.resourceUrl,
 				signal,
 			});
-			const byteLength = encodedByteLength(body);
-			bodyRegistry.put({
-				cacheKey: descriptor.resourceUrl,
-				freshnessKey: intent.freshnessKey,
-				body,
-				byteLength,
-			});
-			return { body, byteLength };
+			if (fetchedResource.authoritative) {
+				bodyRegistry.put({
+					cacheKey: descriptor.resourceUrl,
+					freshnessKey: intent.freshnessKey,
+					body: fetchedResource,
+					byteLength: fetchedResource.byteLength,
+				});
+			}
+			return {
+				authoritative: fetchedResource.authoritative,
+				content: fetchedResource,
+				byteLength: fetchedResource.byteLength,
+			};
 		},
 	});
 	const now = props.now ?? ((): number => performance.now());
@@ -524,7 +596,9 @@ export function createWorktreeFileSurfaceRuntime(
 			executor,
 			now,
 			preloadDispositionByBodyKey,
+			provisionalChunkConsumersByIntentKey,
 			readContext,
+			onProvisionalTextChunk: openProps.onProvisionalTextChunk,
 			stimulusDescriptor: openProps.descriptor,
 			stimulusKind: 'fileSelected',
 		});
@@ -582,7 +656,9 @@ export function createWorktreeFileSurfaceRuntime(
 			executor,
 			now,
 			preloadDispositionByBodyKey,
+			provisionalChunkConsumersByIntentKey,
 			readContext,
+			onProvisionalTextChunk: refreshProps.onProvisionalTextChunk,
 			stimulusDescriptor: refreshDescriptor,
 			stimulusKind: 'explicitRefresh',
 		});
@@ -805,9 +881,11 @@ async function settlePreloadLoads(props: {
 }
 
 async function loadPreloadIntent(props: {
-	readonly bodyRegistry: ReturnType<typeof createBridgeBodyRegistry<string>>;
+	readonly bodyRegistry: ReturnType<
+		typeof createBridgeBodyRegistry<WorktreeFileSurfaceRuntimeFetchedResource>
+	>;
 	readonly scheduler: BridgeDemandScheduler;
-	readonly executor: BridgeResourceExecutor<string>;
+	readonly executor: BridgeResourceExecutor<WorktreeFileSurfaceRuntimeFetchedResource>;
 	readonly registry: BridgeResourceDescriptorRegistry;
 	readonly now: () => number;
 	readonly intent: BridgeDemandIntent;
@@ -848,6 +926,14 @@ async function loadPreloadIntent(props: {
 			reason: result.reason,
 		};
 	}
+	if (!result.authoritative) {
+		return {
+			ok: false,
+			descriptorId: result.descriptor.descriptorId,
+			lane: props.intent.lane,
+			reason: 'preview_only',
+		};
+	}
 	const disposition = preloadDispositionForLane({
 		cachedPreloadDisposition,
 		lane: props.intent.lane,
@@ -865,6 +951,8 @@ async function loadPreloadIntent(props: {
 	return {
 		dedupeKey: props.intent.dedupeKey,
 		ok: true,
+		authoritative: result.authoritative,
+		byteLength: result.byteLength,
 		descriptorId: result.descriptor.descriptorId,
 		freshnessKey: props.intent.freshnessKey,
 		loadTelemetry: {
@@ -889,12 +977,21 @@ async function loadPreloadIntent(props: {
 }
 
 async function loadStimulus(props: {
-	readonly bodyRegistry: ReturnType<typeof createBridgeBodyRegistry<string>>;
+	readonly bodyRegistry: ReturnType<
+		typeof createBridgeBodyRegistry<WorktreeFileSurfaceRuntimeFetchedResource>
+	>;
 	readonly scheduler: BridgeDemandScheduler;
-	readonly executor: BridgeResourceExecutor<string>;
+	readonly executor: BridgeResourceExecutor<WorktreeFileSurfaceRuntimeFetchedResource>;
 	readonly now: () => number;
 	readonly preloadDispositionByBodyKey: Map<string, WorktreeFileSurfaceLoadDisposition>;
+	readonly provisionalChunkConsumersByIntentKey: Map<
+		string,
+		(chunk: WorktreeFileSurfaceProvisionalTextChunk) => void
+	>;
 	readonly readContext: WorktreeFileDemandReadContext;
+	readonly onProvisionalTextChunk?:
+		| ((chunk: WorktreeFileSurfaceProvisionalTextChunk) => void)
+		| undefined;
 	readonly stimulusDescriptor: WorktreeFileDescriptor;
 	readonly stimulusKind: 'fileSelected' | 'explicitRefresh';
 }): Promise<WorktreeFileSurfaceLoadResult> {
@@ -961,14 +1058,34 @@ async function loadStimulus(props: {
 		return { ok: false, reason: 'no_demand' };
 	}
 	const loadStartedAtMilliseconds = props.now();
-	const result = await props.executor.load(nextIntent);
-	const loadFinishedAtMilliseconds = props.now();
+	const streamConsumerKey = streamConsumerKeyForIntent(nextIntent);
+	if (props.onProvisionalTextChunk !== undefined) {
+		props.provisionalChunkConsumersByIntentKey.set(streamConsumerKey, props.onProvisionalTextChunk);
+	}
+	let result: Awaited<ReturnType<typeof props.executor.load>>;
+	let loadFinishedAtMilliseconds: number;
+	try {
+		result = await props.executor.load(nextIntent);
+		loadFinishedAtMilliseconds = props.now();
+	} finally {
+		if (
+			props.provisionalChunkConsumersByIntentKey.get(streamConsumerKey) ===
+			props.onProvisionalTextChunk
+		) {
+			props.provisionalChunkConsumersByIntentKey.delete(streamConsumerKey);
+		}
+	}
 	if (!result.ok) {
 		return result;
 	}
+	if (!result.authoritative) {
+		return { ok: false, reason: 'preview_only' };
+	}
 	return {
 		ok: true,
-		body: result.body,
+		authoritative: result.authoritative,
+		byteLength: result.byteLength,
+		content: result.content,
 		descriptorId: result.descriptor.descriptorId,
 		loadTelemetry: {
 			disposition: loadDispositionForStimulus({
@@ -1054,8 +1171,12 @@ function bodyProvenanceKey(props: {
 	return `${props.resourceUrl}\u0000${props.freshnessKey}`;
 }
 
+function streamConsumerKeyForIntent(intent: BridgeDemandIntent): string {
+	return `${intent.dedupeKey}\u0000${intent.freshnessKey}`;
+}
+
 function cancelSourceDemand(props: {
-	readonly executor: BridgeResourceExecutor<string>;
+	readonly executor: BridgeResourceExecutor<WorktreeFileSurfaceRuntimeFetchedResource>;
 	readonly paneId: string;
 	readonly scheduler: BridgeDemandScheduler;
 	readonly source: WorktreeFileSurfaceSourceIdentity;
@@ -1156,10 +1277,6 @@ function demandCancellationGroupForSource(props: {
 	readonly source: WorktreeFileSurfaceSourceIdentity;
 }): string {
 	return `worktree-file:${props.paneId}:${props.source.sourceId}`;
-}
-
-function encodedByteLength(value: string): number {
-	return new TextEncoder().encode(value).byteLength;
 }
 
 function canFetchWorktreeFileBody(descriptor: WorktreeFileDescriptor): boolean {

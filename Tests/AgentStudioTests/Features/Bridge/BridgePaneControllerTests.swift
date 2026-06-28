@@ -27,7 +27,7 @@ extension WebKitSerializedTests {
             static let method = "agent.failureProbe"
         }
 
-        private actor SendableBox<Value> {
+        actor SendableBox<Value> {
             private var value: Value
 
             init(_ value: Value) {
@@ -47,7 +47,26 @@ extension WebKitSerializedTests {
             }
         }
 
-        private actor OutOfOrderBridgeReviewSourceProvider: BridgeReviewSourceProvider {
+        private func waitUntil(
+            attempts: Int = 40,
+            _ condition: @escaping () async -> Bool
+        ) async -> Bool {
+            for _ in 0..<attempts {
+                if await condition() {
+                    return true
+                }
+                await Task.yield()
+            }
+            return await condition()
+        }
+
+        private func settleAsyncCallbacks(turns: Int) async {
+            for _ in 0..<turns {
+                await Task.yield()
+            }
+        }
+
+        actor OutOfOrderBridgeReviewSourceProvider: BridgeReviewSourceProvider {
             private let firstGenerationComparison: BridgeEndpointComparison
             private let laterGenerationComparison: BridgeEndpointComparison
             private var firstGenerationStarted = false
@@ -126,7 +145,7 @@ extension WebKitSerializedTests {
             }
         }
 
-        private func makeController(
+        func makeController(
             state: BridgePaneState = BridgePaneState(panelKind: .diffViewer, source: nil),
             reviewSourceProvider: (any BridgeReviewSourceProvider)? = nil,
             telemetryScopeGate: BridgeTelemetryScopeGate? = nil,
@@ -653,15 +672,14 @@ extension WebKitSerializedTests {
             )
             defer { controller.teardown() }
             let commandId = UUID()
+            let artifact = DiffArtifact(
+                diffId: UUIDv7.generate(),
+                worktreeId: headEndpoint.worktreeId,
+                patchData: Data()
+            )
 
             let result = await controller.handleDiffCommand(
-                .loadDiff(
-                    DiffArtifact(
-                        diffId: UUIDv7.generate(),
-                        worktreeId: headEndpoint.worktreeId,
-                        patchData: Data()
-                    )
-                ),
+                .loadDiff(artifact),
                 commandId: commandId,
                 correlationId: nil
             )
@@ -685,175 +703,28 @@ extension WebKitSerializedTests {
             #expect(await controller.resourceLeaseRegistry.contains(headResource, paneId: controller.paneId) == true)
         }
 
-        @Test("filesystem context refresh preserves revisions across changed and no-op packages")
-        func filesystemContextRefreshPreservesRevisionsAcrossChangedAndNoOpPackages() async throws {
-            let fixture = makeRefreshRevisionFixture()
-            defer { fixture.controller.teardown() }
-
-            let loadResult = await fixture.controller.handleDiffCommand(
-                .loadDiff(
-                    DiffArtifact(
-                        diffId: UUIDv7.generate(),
-                        worktreeId: fixture.headEndpoint.worktreeId,
-                        patchData: Data()
-                    )
-                ),
-                commandId: fixture.commandId,
-                correlationId: nil
-            )
-
-            await setRefreshComparison(fixture, changedFile: fixture.refreshedFile)
-            await postRefreshEvent(fixture, path: "Sources/App/New.swift", batchSeq: 10)
-            #expect(loadResult == .success(commandId: fixture.commandId))
-            #expect(fixture.controller.paneState.diff.status == .ready)
-            expectRefreshPackageState(
-                fixture,
-                itemId: "item-new",
-                revision: 1,
-                addedItemIds: ["item-new"],
-                removedItemIds: ["item-old"]
-            )
-
-            await postRefreshEvent(fixture, path: "Sources/App/New.swift", batchSeq: 11)
-            #expect(fixture.controller.paneState.diff.packageMetadata?.orderedItemIds == ["item-new"])
-            #expect(fixture.controller.paneState.diff.packageMetadata?.revision == 1)
-            #expect(fixture.controller.paneState.diff.packageDelta == nil)
-
-            await setRefreshComparison(fixture, changedFile: fixture.secondRefreshedFile)
-            await postRefreshEvent(fixture, path: "Sources/App/Newer.swift", batchSeq: 12)
-            expectRefreshPackageState(
-                fixture,
-                itemId: "item-newer",
-                revision: 2,
-                addedItemIds: ["item-newer"],
-                removedItemIds: ["item-new"]
-            )
-            #expect(await fixture.provider.recordedComparisonRequestsCount() == 4)
-        }
-
-        @Test("filesystem context refresh coalesces overlapping refresh events")
-        func filesystemContextRefreshCoalescesOverlappingRefreshEvents() async throws {
-            let fixture = makeRefreshRevisionFixture()
-            defer { fixture.controller.teardown() }
-            let loadResult = await fixture.controller.handleDiffCommand(
-                .loadDiff(
-                    DiffArtifact(
-                        diffId: UUIDv7.generate(),
-                        worktreeId: fixture.headEndpoint.worktreeId,
-                        patchData: Data()
-                    )
-                ),
-                commandId: fixture.commandId,
-                correlationId: nil
-            )
-            #expect(loadResult == .success(commandId: fixture.commandId))
-
-            let gate = BridgeComparisonGate()
-            await fixture.provider.setComparisonGate(gate)
-            await setRefreshComparison(fixture, changedFile: fixture.refreshedFile)
-            async let firstRefresh: Void = postRefreshEvent(
-                fixture,
-                path: "Sources/App/New.swift",
-                batchSeq: 20
-            )
-            await gate.waitForStartedComparisonCount(1)
-
-            await setRefreshComparison(fixture, changedFile: fixture.secondRefreshedFile)
-            async let secondRefresh: Void = postRefreshEvent(
-                fixture,
-                path: "Sources/App/Newer.swift",
-                batchSeq: 21
-            )
-            async let thirdRefresh: Void = postRefreshEvent(
-                fixture,
-                path: "Sources/App/Newer.swift",
-                batchSeq: 22
-            )
-            await Task.yield()
-            await Task.yield()
-
-            #expect(await fixture.provider.recordedComparisonRequestsCount() == 2)
-            await gate.releaseAll()
-            _ = await (firstRefresh, secondRefresh, thirdRefresh)
-
-            #expect(await fixture.provider.recordedComparisonRequestsCount() == 3)
-            expectRefreshPackageState(
-                fixture,
-                itemId: "item-newer",
-                revision: 2,
-                addedItemIds: ["item-newer"],
-                removedItemIds: ["item-new"]
-            )
-        }
-
-        @Test("loadDiff ignores stale earlier generation completion")
-        func loadDiff_ignores_stale_earlier_generation_completion() async throws {
-            let baseEndpoint = makeBridgeEndpoint(endpointId: "baseline-headMinusOne", kind: .gitRef)
-            let headEndpoint = makeBridgeEndpoint(endpointId: "working-tree", kind: .workingTree)
-            let firstFile = makeBridgeEndpointChangedFile(
-                fileId: "old",
-                path: "Sources/App/Old.swift",
-                sizeBytes: 100
-            )
-            let secondFile = makeBridgeEndpointChangedFile(
-                fileId: "new",
-                path: "Sources/App/New.swift",
-                sizeBytes: 100
-            )
-            let provider = OutOfOrderBridgeReviewSourceProvider(
-                firstGenerationComparison: BridgeEndpointComparison(
-                    baseEndpoint: baseEndpoint,
-                    headEndpoint: headEndpoint,
-                    changedFiles: [firstFile]
-                ),
-                laterGenerationComparison: BridgeEndpointComparison(
-                    baseEndpoint: baseEndpoint,
-                    headEndpoint: headEndpoint,
-                    changedFiles: [secondFile]
-                )
-            )
-            let controller = makeController(
-                state: BridgePaneState(
-                    panelKind: .diffViewer,
-                    source: .workspace(rootPath: "/tmp/worktree", baseline: .headMinusOne)
-                ),
-                reviewSourceProvider: provider
-            )
-            defer { controller.teardown() }
-            let firstCommandId = UUID()
-            let secondCommandId = UUID()
-
-            async let firstResult = controller.handleDiffCommand(
-                .loadDiff(
-                    DiffArtifact(diffId: UUIDv7.generate(), worktreeId: headEndpoint.worktreeId, patchData: Data())
-                ),
-                commandId: firstCommandId,
-                correlationId: nil
-            )
-            await provider.waitForFirstGenerationStarted()
-            let secondResult = await controller.handleDiffCommand(
-                .loadDiff(
-                    DiffArtifact(diffId: UUIDv7.generate(), worktreeId: headEndpoint.worktreeId, patchData: Data())
-                ),
-                commandId: secondCommandId,
-                correlationId: nil
-            )
-            await provider.releaseFirstGeneration()
-
-            #expect(secondResult == .success(commandId: secondCommandId))
-            #expect(await firstResult == .failure(.invalidPayload(description: "Stale bridge review load")))
-            #expect(controller.paneState.diff.packageMetadata?.orderedItemIds == ["item-new"])
-            #expect(controller.paneState.diff.packageMetadata?.itemsById["item-old"] == nil)
-        }
-
-        @Test("loadDiff does not leak absolute workspace root in review package")
-        func loadDiff_does_not_leak_absolute_workspace_root_in_review_package() async throws {
+        @Test("loadDiff queues review snapshot intake until bridge ready")
+        func loadDiff_queues_review_snapshot_intake_until_bridge_ready() async throws {
             let baseEndpoint = makeBridgeEndpoint(endpointId: "baseline-headMinusOne", kind: .gitRef)
             let headEndpoint = makeBridgeEndpoint(endpointId: "working-tree", kind: .workingTree)
             let changedFile = makeBridgeEndpointChangedFile(
                 fileId: "source",
                 path: "Sources/App/View.swift",
-                sizeBytes: 100
+                sizeBytes: 100,
+                oldContentHash: bridgeSHA256ContentHash("old"),
+                newContentHash: bridgeSHA256ContentHash("new")
+            )
+            let baseHandle = BridgeReviewPackageBuilder.contentHandle(
+                for: changedFile,
+                endpoint: baseEndpoint,
+                role: .base,
+                reviewGeneration: 1
+            )
+            let headHandle = BridgeReviewPackageBuilder.contentHandle(
+                for: changedFile,
+                endpoint: headEndpoint,
+                role: .head,
+                reviewGeneration: 1
             )
             let provider = BridgeReviewSourceProviderFake(
                 comparison: BridgeEndpointComparison(
@@ -861,47 +732,31 @@ extension WebKitSerializedTests {
                     headEndpoint: headEndpoint,
                     changedFiles: [changedFile]
                 ),
-                contentByHandleId: [:]
+                contentByHandleId: [
+                    baseHandle.handleId: makeContentResult(handle: baseHandle, data: "old"),
+                    headHandle.handleId: makeContentResult(handle: headHandle, data: "new"),
+                ]
             )
-            let controller = makeController(
+            let capturedIntakeFrames = SendableBox<[String]>([])
+            let controller = BridgePaneController(
+                paneId: UUIDv7.generate(),
                 state: BridgePaneState(
                     panelKind: .diffViewer,
-                    source: .workspace(rootPath: "/tmp/worktree", baseline: .headMinusOne)
+                    source: .workspace(rootPath: "Sources", baseline: .headMinusOne)
                 ),
-                reviewSourceProvider: provider
-            )
-            defer { controller.teardown() }
-            let commandId = UUID()
-
-            let result = await controller.handleDiffCommand(
-                .loadDiff(
-                    DiffArtifact(diffId: UUIDv7.generate(), worktreeId: headEndpoint.worktreeId, patchData: Data())
-                ),
-                commandId: commandId,
-                correlationId: nil
-            )
-
-            #expect(result == .success(commandId: commandId))
-            let package = try #require(controller.paneState.diff.packageMetadata)
-            #expect(package.orderedItemIds == ["item-source"])
-            #expect(package.query.pathScope.isEmpty)
-            #expect(package.headEndpoint.providerIdentity.contains("/tmp") == false)
-            #expect(package.baseEndpoint.providerIdentity.contains("/tmp") == false)
-        }
-
-        @Test("loadDiff publishes typed provider unavailable failure")
-        func loadDiff_publishes_typed_provider_unavailable_failure() async {
-            let controller = makeController(
-                state: BridgePaneState(
-                    panelKind: .diffViewer,
-                    source: .workspace(rootPath: "/tmp/worktree", baseline: .headMinusOne)
-                )
+                reviewSourceProvider: provider,
+                pushEnvelopeSink: { _, _, _ in },
+                intakeFrameSink: { _, frameJSON, _ in
+                    await capturedIntakeFrames.update { frames in
+                        frames + [frameJSON]
+                    }
+                }
             )
             defer { controller.teardown() }
             let commandId = UUID()
             let artifact = DiffArtifact(
                 diffId: UUIDv7.generate(),
-                worktreeId: UUIDv7.generate(),
+                worktreeId: headEndpoint.worktreeId,
                 patchData: Data()
             )
 
@@ -911,10 +766,103 @@ extension WebKitSerializedTests {
                 correlationId: nil
             )
 
-            #expect(result == .failure(.backendUnavailable(backend: "BridgeReviewSourceProvider")))
-            #expect(controller.paneState.diff.status == .error)
-            #expect(controller.paneState.diff.error == "providerUnavailable")
-            #expect(controller.paneState.diff.packageMetadata == nil)
+            #expect(await capturedIntakeFrames.get().isEmpty)
+            #expect(controller.pendingReviewProtocolIntakeFrames.count == 2)
+            controller.handleBridgeReady()
+            let didDeliverQueuedFrames = await waitUntil {
+                await capturedIntakeFrames.get().count == 2
+            }
+
+            let capturedFrames = await capturedIntakeFrames.get()
+            #expect(didDeliverQueuedFrames)
+            #expect(controller.pendingReviewProtocolIntakeFrames.isEmpty)
+            #expect(capturedFrames.count == 2)
+            let resetFrameJSON = try #require(capturedFrames.first)
+            let snapshotFrameJSON = try #require(capturedFrames.last)
+            let resetFrameObject = try Self.reviewIntakeFrameObject(resetFrameJSON)
+            let snapshotFrameObject = try Self.reviewIntakeFrameObject(snapshotFrameJSON)
+            let snapshotPayload = try #require(snapshotFrameObject["payload"] as? [String: Any])
+            let packageObject = try #require(snapshotPayload["package"] as? [String: Any])
+            let rootDescriptorObject = try #require(packageObject["rootDescriptor"] as? [String: Any])
+            let descriptorObject = try #require(rootDescriptorObject["descriptor"] as? [String: Any])
+            let contentObject = try #require(descriptorObject["content"] as? [String: Any])
+            let integrityObject = try #require(contentObject["integrity"] as? [String: Any])
+            #expect(result == .success(commandId: commandId))
+            #expect(resetFrameObject["kind"] as? String == "reset")
+            #expect(resetFrameObject["sequence"] as? Int == 0)
+            #expect(resetFrameObject["payload"] == nil)
+            #expect(snapshotPayload["kind"] as? String == "snapshot")
+            #expect(snapshotPayload["frameKind"] as? String == "review.snapshot")
+            #expect(snapshotPayload["generation"] as? Int == resetFrameObject["generation"] as? Int)
+            #expect(packageObject["sourceIdentity"] as? String == "query-\(artifact.diffId.uuidString)")
+            #expect(contentObject["expectedBytes"] is Int)
+            #expect(contentObject["expectedBytes"] as? Int == contentObject["maxBytes"] as? Int)
+            #expect(integrityObject["kind"] as? String == "wholeHash")
+            #expect(integrityObject["algorithm"] as? String == "sha256")
+            #expect((integrityObject["value"] as? String)?.hasPrefix("sha256:") == true)
+        }
+
+        @Test("push and intake delivery share a serialized WebKit lane")
+        func pushAndIntakeDeliveryShareSerializedWebKitLane() async throws {
+            let events = SendableBox<[String]>([])
+            let pushRelease = SendableBox<CheckedContinuation<Void, Never>?>(nil)
+            let controller = BridgePaneController(
+                paneId: UUIDv7.generate(),
+                state: BridgePaneState(panelKind: .diffViewer, source: nil),
+                pushEnvelopeSink: { _, _, _ in
+                    await events.update { $0 + ["push-start"] }
+                    await withCheckedContinuation { continuation in
+                        Task { await pushRelease.set(continuation) }
+                    }
+                    await events.update { $0 + ["push-end"] }
+                },
+                intakeFrameSink: { _, _, _ in
+                    await events.update { $0 + ["intake-start"] }
+                }
+            )
+            defer { controller.teardown() }
+
+            let pushTask = Task { @MainActor in
+                await controller.pushJSON(
+                    metadata: BridgePushEnvelopeMetadata(
+                        store: .diff,
+                        op: .replace,
+                        level: .hot,
+                        slice: .diffStatus,
+                        revision: 1,
+                        epoch: 0
+                    ),
+                    json: Data(#"{"status":"loading","error":null,"epoch":0}"#.utf8)
+                )
+            }
+
+            let didStartPush = await waitUntil {
+                await events.get().contains("push-start")
+            }
+            #expect(didStartPush)
+
+            let intakeTask = Task { @MainActor in
+                await controller.deliverIntakeFrame(
+                    #"{"kind":"snapshot","streamId":"review:test","generation":1,"sequence":0,"payload":{"value":true}}"#
+                )
+            }
+
+            await settleAsyncCallbacks(turns: 20)
+            #expect(await events.get() == ["push-start"])
+
+            let release = try #require(await pushRelease.get())
+            release.resume()
+
+            let delivered = await intakeTask.value
+            await pushTask.value
+
+            #expect(delivered)
+            #expect(await events.get() == ["push-start", "push-end", "intake-start"])
+        }
+
+        static func reviewIntakeFrameObject(_ frameJSON: String) throws -> [String: Any] {
+            let frameData = try #require(frameJSON.data(using: .utf8))
+            return try #require(JSONSerialization.jsonObject(with: frameData) as? [String: Any])
         }
 
         private func makePushMetadata(revision: Int) -> BridgePushEnvelopeMetadata {

@@ -1,4 +1,34 @@
+import CryptoKit
 import Foundation
+
+struct BridgeReviewProtocolBodyResourceFacts: Equatable, Sendable {
+    let byteCount: Int
+    let integrity: BridgeIntegrityDescriptor
+
+    init(data: Data) {
+        self.byteCount = data.count
+        self.integrity = BridgeIntegrityDescriptor(
+            kind: .wholeHash,
+            algorithm: "sha256",
+            value: "sha256:\(Self.sha256Hex(data))",
+            manifestResourceId: nil
+        )
+    }
+
+    init(byteCount: Int, sha256Hex: String) {
+        self.byteCount = byteCount
+        self.integrity = BridgeIntegrityDescriptor(
+            kind: .wholeHash,
+            algorithm: "sha256",
+            value: "sha256:\(sha256Hex)",
+            manifestResourceId: nil
+        )
+    }
+
+    private static func sha256Hex(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+}
 
 struct BridgeReviewProtocolSnapshotBuildRequest: Equatable, Sendable {
     let paneId: String
@@ -6,6 +36,7 @@ struct BridgeReviewProtocolSnapshotBuildRequest: Equatable, Sendable {
     let streamId: String
     let sequence: Int
     let package: BridgeReviewPackage
+    var packageBodyFacts: BridgeReviewProtocolBodyResourceFacts?
     let changesetCluster: BridgeReviewChangesetClusterMetadata?
 }
 
@@ -17,6 +48,7 @@ struct BridgeReviewProtocolDeltaBuildRequest: Equatable, Sendable {
     let fromRevision: Int
     let toRevision: Int
     let package: BridgeReviewPackage
+    var operationsBodyFacts: BridgeReviewProtocolBodyResourceFacts?
 }
 
 struct BridgeReviewProtocolResetBuildRequest: Equatable, Sendable {
@@ -52,7 +84,8 @@ enum BridgeReviewProtocolFrameBuilder {
             paneId: request.paneId,
             sourceIdentity: request.sourceIdentity,
             streamId: request.streamId,
-            package: request.package
+            package: request.package,
+            bodyFacts: request.packageBodyFacts
         )
         let contentDescriptors = try request.package.itemsById.values
             .flatMap(\.contentRoles.allHandles)
@@ -86,14 +119,7 @@ enum BridgeReviewProtocolFrameBuilder {
     static func delta(
         request: BridgeReviewProtocolDeltaBuildRequest
     ) throws -> BridgeReviewDeltaFrame {
-        let operationsDescriptor = deltaOperationsDescriptor(
-            paneId: request.paneId,
-            sourceIdentity: request.sourceIdentity,
-            streamId: request.streamId,
-            fromRevision: request.fromRevision,
-            toRevision: request.toRevision,
-            package: request.package
-        )
+        let operationsDescriptor = deltaOperationsDescriptor(request: request)
         let contentDescriptors = try request.package.itemsById.values
             .flatMap(\.contentRoles.allHandles)
             .sorted { left, right in left.handleId < right.handleId }
@@ -151,7 +177,8 @@ enum BridgeReviewProtocolFrameBuilder {
         paneId: String,
         sourceIdentity: String,
         streamId: String,
-        package: BridgeReviewPackage
+        package: BridgeReviewPackage,
+        bodyFacts: BridgeReviewProtocolBodyResourceFacts?
     ) -> BridgeAttachedResourceDescriptor {
         let descriptorId =
             "review-package-\(package.packageId)-\(package.reviewGeneration.rawValue)-\(package.revision)"
@@ -176,9 +203,9 @@ enum BridgeReviewProtocolFrameBuilder {
             content: BridgeResourceContentDescriptor(
                 mediaType: "application/json",
                 encoding: .utf8,
-                expectedBytes: nil,
-                maxBytes: AppPolicies.Bridge.ipcMaxResponsePayloadBytes,
-                integrity: nil
+                expectedBytes: bodyFacts?.byteCount,
+                maxBytes: max(bodyFacts?.byteCount ?? AppPolicies.Bridge.ipcMaxResponsePayloadBytes, 1),
+                integrity: bodyFacts?.integrity
             ),
             window: nil
         )
@@ -186,24 +213,20 @@ enum BridgeReviewProtocolFrameBuilder {
     }
 
     private static func deltaOperationsDescriptor(
-        paneId: String,
-        sourceIdentity: String,
-        streamId: String,
-        fromRevision: Int,
-        toRevision: Int,
-        package: BridgeReviewPackage
+        request: BridgeReviewProtocolDeltaBuildRequest
     ) -> BridgeAttachedResourceDescriptor {
-        let descriptorId = "review-delta-\(package.packageId)-\(fromRevision)-\(toRevision)"
+        let package = request.package
+        let descriptorId = "review-delta-\(package.packageId)-\(request.fromRevision)-\(request.toRevision)"
         let resourceUrl =
-            "agentstudio://resource/review/review-delta/\(descriptorId)?generation=\(package.reviewGeneration.rawValue)&revision=\(toRevision)"
+            "agentstudio://resource/review/review-delta/\(descriptorId)?generation=\(package.reviewGeneration.rawValue)&revision=\(request.toRevision)"
         let identity = BridgeResourceIdentity(
-            paneId: paneId,
+            paneId: request.paneId,
             protocolId: "review",
-            sourceId: sourceIdentity,
+            sourceId: request.sourceIdentity,
             packageId: package.packageId,
             generation: package.reviewGeneration.rawValue,
-            revision: toRevision,
-            streamId: streamId,
+            revision: request.toRevision,
+            streamId: request.streamId,
             cursor: nil
         )
         let descriptor = BridgeResourceDescriptor(
@@ -215,9 +238,12 @@ enum BridgeReviewProtocolFrameBuilder {
             content: BridgeResourceContentDescriptor(
                 mediaType: "application/json",
                 encoding: .utf8,
-                expectedBytes: nil,
-                maxBytes: AppPolicies.Bridge.ipcMaxResponsePayloadBytes,
-                integrity: nil
+                expectedBytes: request.operationsBodyFacts?.byteCount,
+                maxBytes: max(
+                    request.operationsBodyFacts?.byteCount ?? AppPolicies.Bridge.ipcMaxResponsePayloadBytes,
+                    1
+                ),
+                integrity: request.operationsBodyFacts?.integrity
             ),
             window: nil
         )

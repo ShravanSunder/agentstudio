@@ -1,9 +1,17 @@
 import { z } from 'zod';
 
+import {
+	decodeBridgeTraceContext,
+	type BridgeTraceContext,
+} from '../../foundation/telemetry/bridge-trace-context.js';
+
 export const bridgeIntakeFrameBaseSchema = z.object({
 	streamId: z.string().min(1),
 	generation: z.number().int().nonnegative(),
 	sequence: z.number().int().nonnegative(),
+	__traceContext: z
+		.custom<BridgeTraceContext>((value): boolean => decodeBridgeTraceContext(value) !== null)
+		.optional(),
 });
 
 const bridgeIntakePayloadFrameSchema = bridgeIntakeFrameBaseSchema.extend({
@@ -13,6 +21,7 @@ const bridgeIntakePayloadFrameSchema = bridgeIntakeFrameBaseSchema.extend({
 
 const bridgeIntakeResetFrameSchema = bridgeIntakeFrameBaseSchema.extend({
 	kind: z.literal('reset'),
+	payload: z.unknown().optional(),
 });
 
 const bridgeIntakeCloseFrameSchema = bridgeIntakeFrameBaseSchema.extend({

@@ -9,10 +9,10 @@ describe('review content cache', () => {
 		const firstHandle = makeBridgeContentHandle('item-one', 'head');
 		const secondHandle = makeBridgeContentHandle('item-two', 'head');
 
-		cache.set({ handle: firstHandle, text: 'one' });
-		cache.set({ handle: secondHandle, text: 'two' });
+		cache.set({ handle: firstHandle, readText: (): string => 'one' });
+		cache.set({ handle: secondHandle, readText: (): string => 'two' });
 
 		expect(cache.get(firstHandle.handleId)).toBeUndefined();
-		expect(cache.get(secondHandle.handleId)?.text).toBe('two');
+		expect(cache.get(secondHandle.handleId)?.readText()).toBe('two');
 	});
 });

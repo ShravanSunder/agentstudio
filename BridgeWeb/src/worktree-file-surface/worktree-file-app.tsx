@@ -8,6 +8,7 @@ import {
 	type ReactElement,
 } from 'react';
 
+import { readBridgeTextResourceStream } from '../core/resources/bridge-resource-stream.js';
 import type {
 	WorktreeFileDescriptor,
 	WorktreeFileProtocolFrame,
@@ -17,12 +18,15 @@ import type {
 import {
 	createWorktreeFileSurfaceRuntime,
 	type WorktreeFileSurfaceRuntime,
+	type WorktreeFileSurfaceRuntimeFetchedResource,
 	type WorktreeFileSurfaceRuntimeFetchResourceProps,
 } from './worktree-file-surface-runtime.js';
 
 export interface WorktreeFileAppProps {
 	readonly autoOpenInitialFile?: boolean;
-	readonly fetchResource?: (props: WorktreeFileSurfaceRuntimeFetchResourceProps) => Promise<string>;
+	readonly fetchResource?: (
+		props: WorktreeFileSurfaceRuntimeFetchResourceProps,
+	) => Promise<WorktreeFileSurfaceRuntimeFetchedResource>;
 	readonly initialFrames?: readonly WorktreeFileProtocolFrame[];
 	readonly loadInitialSurface?: () => Promise<WorktreeFileInitialSurface>;
 	readonly loadInitialFrames?: () => Promise<readonly WorktreeFileProtocolFrame[]>;
@@ -149,7 +153,7 @@ export function WorktreeFileApp({
 			return;
 		}
 		if (result.ok) {
-			openFileBodyRef.current = result.body;
+			openFileBodyRef.current = result.content.readText();
 			setOpenFileState({
 				status: 'ready',
 				path: descriptor.path,
@@ -267,7 +271,7 @@ export function WorktreeFileApp({
 			return;
 		}
 		if (result.ok) {
-			openFileBodyRef.current = result.body;
+			openFileBodyRef.current = result.content.readText();
 			setOpenFileState({
 				status: 'ready',
 				path: state.path,
@@ -711,10 +715,15 @@ function totalOpenFileHeightForState(openFileState: WorktreeFileOpenRenderState)
 
 async function defaultFetchWorktreeFileResource(
 	props: WorktreeFileSurfaceRuntimeFetchResourceProps,
-): Promise<string> {
+): Promise<WorktreeFileSurfaceRuntimeFetchedResource> {
 	const response = await fetch(props.resourceUrl, { signal: props.signal });
 	if (!response.ok) {
 		throw new Error(`Worktree/File resource request failed: ${response.status}`);
 	}
-	return await response.text();
+	return await readBridgeTextResourceStream(response, {
+		integrity: props.descriptor.content.integrity,
+		maxBytes: props.descriptor.content.maxBytes,
+		onTextChunk: props.onTextChunk,
+		signal: props.signal,
+	});
 }

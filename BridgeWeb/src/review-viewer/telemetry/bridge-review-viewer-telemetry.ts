@@ -224,7 +224,7 @@ function contentByteCountForResources(resources: BridgeCodeViewContentResources)
 		if (resource === undefined) {
 			return total;
 		}
-		return total + resource.text.length;
+		return total + new TextEncoder().encode(resource.readText()).byteLength;
 	}, 0);
 }
 

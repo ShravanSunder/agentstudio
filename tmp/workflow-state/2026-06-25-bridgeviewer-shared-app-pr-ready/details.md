@@ -7,9 +7,10 @@ Next workflow: `shravan-dev-workflow:implementation-review-swarm`
 
 Workflow precedence note: the latest valid `shravan-dev-workflow:orchestrator-goal`
 event in `events.jsonl` owns current/next workflow. This header reflects the
-2026-06-26T02:17:07Z checkpoint transition from implementation execution to
-implementation review after the shared content-header/right-rail correction was
-implemented and proven.
+2026-06-27T11:15:07Z orchestrator takeover event that reopened implementation
+execution around streaming-resource realignment. `implementation-review-swarm`
+is next only after Slice 06P.S is implemented and proven against the
+ContentStreamPath, browser, Swift, and native `oq4s` gates below.
 
 ## Durable Objective
 
@@ -179,6 +180,37 @@ The first implementation sequence after plan review is:
 
 ## Implementation Checkpoints
 
+2026-06-27 streaming resource realignment checkpoint:
+
+- Worktree/File native content resources are no longer stored as pre-materialized
+  `Data` blobs for file content. `BridgeWorktreeFileResourceBody` can now be
+  file-backed and streams chunks under the active resource lease; generated
+  tree/status JSON resources remain small generated bodies.
+- `BridgeWorktreeFileMaterializer` now computes file size, content hash, line
+  count, and bounded stream byte count by walking the file stream instead of
+  `Data(contentsOf:)`, then registers a source-backed `worktree.fileContent`
+  body.
+- `BridgeSchemeHandler` now emits both Worktree/File and Review protocol-body
+  resources through chunk emitters that re-check leases per chunk.
+- Dev Review startup no longer pushes `data.package` on the
+  `diff_package_metadata` metadata path. It pushes only the Review snapshot
+  `protocolFrame`; the dev Review package body is fetched through the
+  `review-package` resource URL.
+- Focused Swift proof:
+  `swift test --scratch-path /tmp/agent-studio-bridge-start-swiftpm-streaming-proof --filter 'BridgeSchemeHandlerWorktreeFileResourceTests|BridgeSchemeHandlerReviewResourceTests'`
+  exited 0 with 8 tests passed across 2 suites.
+- Focused BridgeWeb proof:
+  `pnpm --dir BridgeWeb exec vitest run src/app/bridge-app-dev-worktree.unit.test.ts src/core/resources/bridge-resource-stream.unit.test.ts src/core/demand/bridge-resource-executor.unit.test.ts src/worktree-file-surface/worktree-file-surface-runtime.integration.test.ts --reporter verbose`
+  exited 0 with 4 files passed and 56 tests passed.
+- Static BridgeWeb proof:
+  `pnpm --dir BridgeWeb exec tsc --noEmit --pretty false` exited 0.
+- Still open for 06P.S:
+  native Review startup is still package-first through
+  `reviewPipeline.loadPackage(...)`; Review package/delta JSON encoding is still
+  whole-resource generation before chunk emission; native `oq4s` IPC/WKWebView,
+  dev-server product proof, full lint/check, and implementation-review-swarm
+  remain required before the gate can close.
+
 2026-06-27 recently-updated-file demand checkpoint:
 
 - FileViewer now accepts the dev/provider `bridge-worktree-file-recently-updated`
@@ -314,6 +346,47 @@ Proof owner:
 implementation-execute-plan.
 Stale-proof guard:
 must include Review and Files context states after navigation/toggle operations.
+
+Requirement / claim:
+Continuous event stream, intake frames, push/store updates, and Zustand carry
+metadata, lifecycle facts, projection frames, descriptors, ids, refs, status, and
+freshness only; they do not carry large file/diff/review bodies or
+whole-package Review blobs.
+Proof source:
+protocol-frame tests, push/store slice tests, store snapshot inspection, and
+implementation-review source trace against Review and Worktree/File paths.
+Proof owner:
+implementation-execute-plan with implementation-review-swarm verification.
+Stale-proof guard:
+must reject `DiffPackageMetadataSlice` / delta push paths that carry materialized
+Review package or operation bodies as a substitute for descriptor-backed intake.
+
+Requirement / claim:
+`ContentStreamPath` / `agentstudio://resource/...` is the only body-byte carrier
+for file text, diff text, markdown source, tree windows, Review package bodies,
+Review delta operation lists, and bounded file ranges/windows.
+Proof source:
+focused TypeScript resource-executor/materializer tests, focused Swift
+`BridgeSchemeHandler` tests, dev-server route proof, and native `oq4s`
+IPC/WKWebView proof.
+Proof owner:
+implementation-execute-plan with implementation-review-swarm verification.
+Stale-proof guard:
+must fail if product paths use whole-body-only `Promise<string>`,
+`Promise<{ body, byteLength }>`, `response.text()`, body-bearing RPC, or
+body-bearing store/push updates as the default content path.
+
+Requirement / claim:
+Resource capability and integrity checks fail closed.
+Proof source:
+negative Swift and TypeScript fixtures for cross-pane replay, stale generation or
+cursor, revoked lease during a stream, oversized resources, truncated/tampered
+whole-body integrity mismatch, and preview ranges remaining non-authoritative
+until chunk manifests are promoted.
+Proof owner:
+implementation-execute-plan.
+Stale-proof guard:
+happy-path stream proof is not accepted as authority/security proof.
 
 Requirement / claim:
 Dev query params mutate the same store as production intents.
@@ -1899,3 +1972,266 @@ Open implementation blockers remain:
 - The 1Password signing path failed with `failed to fill whole buffer`; the
   scoped checkpoint was committed with `--no-gpg-sign` per repo guidance not to
   block local commits on signing availability.
+
+2026-06-27 orchestrator takeover / streaming-resource realignment:
+
+- Host Codex goal was created in this thread for the existing goal id
+  `2026-06-25-bridgeviewer-shared-app-pr-ready`; this is a takeover, not a
+  reviewer handoff.
+- Current workflow remains
+  `shravan-dev-workflow:implementation-execute-plan`.
+- Next workflow remains
+  `shravan-dev-workflow:implementation-review-swarm`, but only after the
+  streaming-resource realignment below is implemented and proven.
+- First checkpoint for this takeover is a spec/implementation audit and
+  correction of Bridge transport separation:
+  - continuous event streams carry compact lifecycle/provider facts,
+    invalidations, cursors, source status, descriptor availability, gaps,
+    resets, and close/ready/heartbeat frames only.
+  - intake streams carry ordered app projection frames, snapshots/deltas,
+    tree-window descriptors, status patches, reset/invalidate frames, and
+    descriptor attachments only.
+  - content/resource streams carry file text, diff text, markdown source,
+    tree windows, review package bodies, operation lists, and other content
+    bytes through `ContentStreamPath`.
+  - RPC, push/store updates, Zustand, and package metadata slices must not carry
+    large file/diff/review bodies or whole-package blobs.
+- User correction accepted as a hard gate: `agentstudio://resource/...` must not
+  be treated as permission for a later blob-shaped `fetch().text()` path. The
+  resource URL identifies a leased content stream or stream descriptor. The
+  browser executor/materializer must be stream/window/range-capable, with
+  explicit abort, stale-drop, byte-budget, and integrity behavior.
+- Current written spec evidence to reconcile:
+  - `docs/specs/bridge-viewer-transport/spec.md` requires separate command,
+    continuous event, intake, and content stream pathways; `ContentStreamPath`
+    is bounded body/window transfer exposed via `agentstudio://resource/...`;
+    resource carriers are streaming-capable and bounded.
+  - The same spec currently says authoritative resources use whole-body
+    validation when an integrity hash is issued, and ranged/chunked reads are
+    preview-only until chunk manifests exist.
+  - If true authoritative range/chunk support is needed in this slice, update
+    the spec/plan first to promote chunk manifests/ranged integrity rather than
+    silently implementing unverified partial authority.
+- Current implementation drift found before takeover:
+  - `BridgeSchemeHandler.reply` returns `AsyncThrowingStream`, but
+    `emitContent` and Worktree/File resource emission currently yield one full
+    `.data(result.data)` / `.data(body.data)` chunk.
+  - `BridgeWeb/src/core/demand/bridge-resource-executor.ts` resolves a
+    `Promise<{ body, byteLength }>` rather than exposing streamed/windowed body
+    consumption.
+  - `BridgeWeb/src/file-viewer/bridge-file-viewer-app.tsx` default fetch uses
+    `await response.text()`.
+  - Review load is still package-first/blocking through
+    `reviewPipeline.loadPackage(...)` before useful Review projection frames can
+    reach the browser.
+  - `DiffPackageMetadataSlice(package: state.packageMetadata, protocolFrame:
+    ...)` still carries a materialized `BridgeReviewPackage` through the diff
+    store path.
+- Native proof state at takeover:
+  - Checkpoint commit:
+    `6803e975587a2b02e7c3cae4e1da5cae63854f4c checkpoint bridge viewer native worktree proof`.
+  - `git status --short --branch` is clean except untracked
+    `screenshot_2026-06-27T08:59:11Z_screen1.png`.
+  - Native Review package acquisition is blocked in debug app `oq4s` with
+    `loadFailed:package:providerFailed:git.treeFilesystemFallback:failed:status=fileReadFailed:tree=fileReadFailed`.
+  - Fresh native IPC artifact:
+    `tmp/bridge-viewer-native-ipc-proof/2026-06-27T10-37-24Z-oq4s-fresh/`.
+  - Native proof must use debug app `oq4s` and Agent Studio IPC/WKWebView; do
+    not use stable `/Applications/AgentStudio.app`.
+- Execution rules for the takeover:
+  - Use dev-server proof for fast browser loops.
+  - Use Agent Studio IPC/WKWebView proof against debug app `oq4s` for native
+    validation.
+  - Use subagents for bounded research, implementation review, and browser/UI
+    testing where practical, especially for spec audit, resource-stream
+    architecture review, and browser/native proof.
+  - Do not claim `jsdom`, mocked backend, or dev-server proof as native proof.
+  - Keep proof gates from the plan/spec: unit, integration, static/check, real
+    browser/dev-server, native IPC/WKWebView, Victoria/observability where
+    required, implementation review, and PR-ready wrapup.
+  - If the plan is off-spec, update the plan. If the spec itself appears wrong
+    or the change would alter the product contract, stop and bring the user the
+    exact conflict with file/line evidence before writing more code.
+
+2026-06-27 execution-plan validation / spec-plan correction:
+
+- Loaded the active plan end to end before execution:
+  `tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/worktree-devserver-product-e2e-precursor-plan.md`
+  in chunks `1-320`, `321-760`, `761-1160`, and `1161-1532`.
+- Subagent review lanes plus parent verification accepted these blocking
+  findings:
+  - browser resource executor/materializers are still full-body/string-shaped;
+  - Swift resource emission now has bounded chunks in the uncommitted takeover
+    slice, but still loads whole `Data` bodies before emission;
+  - native Review remains package-first through `reviewPipeline.loadPackage(...)`;
+  - `review-package` and `review-delta` descriptors are advertised but not served
+    or consumed as real `ContentStreamPath` resources;
+  - IPC `getContent` and `getPackage` still expose body/package data outside the
+    resource stream path;
+  - plan proof needed explicit lifecycle-stream gating, registered descriptor-ref
+    handoff, capability URL redaction, inactive-context no-foreground-work, and
+    provisional chunk rendering rules.
+- Patched `docs/specs/bridge-viewer-transport/spec.md` to define first-slice
+  progressive materialization: chunks/windows may update provisional renderer
+  state before final whole-hash validation, but authoritative facts/cache/render
+  completion require successful whole-body validation when integrity exists;
+  mismatch/truncation/abort/stale completion must drop or fail provisional state.
+- Patched the active plan's Slice 06P.S to name the missing proof gates and to
+  correct stale current-code drift statements.
+- Controller brief for this takeover:
+  `tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/implementation-execute-plan-brief-2026-06-27-streaming-takeover.md`.
+
+2026-06-27 Browser resource stream checkpoint:
+
+- Implemented the first 06P.S Browser resource read slice:
+  - `BridgeWeb/src/core/resources/bridge-resource-stream.ts` reads
+    `Response.body` as a stream, enforces issued `maxBytes` during read, and
+    validates whole-body integrity at completion when a descriptor provides it.
+  - `BridgeWeb/src/foundation/content/content-resource-loader.ts` now accepts
+    `maxBytes` and `integrity` and forwards both into the stream reader.
+  - `BridgeWeb/src/app/bridge-app.tsx`,
+    `BridgeWeb/src/file-viewer/bridge-file-viewer-app.tsx`, and
+    `BridgeWeb/src/worktree-file-surface/worktree-file-app.tsx` pass descriptor
+    content bounds/integrity into streamed resource reads.
+  - `BridgeWeb/src/review-viewer/content/review-content-loader.ts` passes the
+    legacy handle `sizeBytes` as `maxBytes` for handle-only review content
+    loads.
+  - `BridgeWeb/src/review-viewer/content/review-content-registry.ts` preserves
+    `maxBytes` and `integrity` through shared/coalesced content loads while
+    preserving the existing behavior that strips a viewport consumer's abort
+    signal from shared in-flight registry loads.
+- Proof:
+  - Red: `pnpm --dir BridgeWeb exec vitest run src/foundation/content/content-resource-loader.integration.test.ts --reporter verbose`
+    initially failed 2 tests because over-limit and tampered streamed text
+    resolved instead of rejecting.
+  - Green: `pnpm --dir BridgeWeb exec vitest run src/core/resources/bridge-resource-stream.unit.test.ts src/foundation/content/content-resource-loader.integration.test.ts src/review-viewer/content/review-content-loader.unit.test.ts src/review-viewer/content/review-content-registry.unit.test.ts src/worktree-file-surface/worktree-file-surface-runtime.integration.test.ts src/app/bridge-app-dev-worktree.unit.test.ts src/file-viewer/bridge-file-viewer-app.unit.test.tsx --reporter verbose`
+    passed: 7 files, 74 tests.
+  - Static: `pnpm --dir BridgeWeb run check` passed with existing warnings only.
+- Remaining 06P.S gaps:
+  - the generic Browser resource executor still resolves whole-body
+    `{ body, byteLength }` results;
+  - Review `review-package` / `review-delta` descriptors are still not real
+    served/consumed resource carriers;
+  - explicit native IPC body/package DTO transport is removed and covered by
+    focused Swift tests; remaining IPC concern is narrower capability-URL
+    leakage/redaction in exported proof or diagnostics;
+  - Swift resource emission still chunks already-materialized `Data`;
+  - native `oq4s` IPC/WKWebView proof must be rerun after the resource transport
+    changes.
+
+2026-06-27 06P.S reducer review checkpoint:
+
+- Subagent review lanes completed:
+  - Browser lane accepted that leaf fetches now read `Response.body`, but the
+    generic `BridgeResourceExecutor` and runtime/materializer contracts still
+    collapse resources into whole strings/bodies; authority from
+    `readBridgeTextResourceStream(...).authoritative` is dropped by callers; and
+    dev/native Worktree adapters were still not forwarding descriptor
+    `maxBytes` / integrity into their stream reads.
+  - Source-trace lane accepted that Review package/delta bodies still travel
+    through diff push/store slices while `review-package` / `review-delta`
+    descriptors are advertised but not served or consumed; native Review startup
+    remains package-first; Swift scheme emission chunks pre-materialized `Data`;
+    and the prior broad IPC bypass statement is stale for explicit DTO bodies.
+  - Swift/native lane accepted the same Review package/delta, package-first
+    startup, provider-identity, and pre-materialized-Data streaming gaps; it did
+    not accept a scoped Swift IPC byte-body finding.
+- Parent verification:
+  - `swift test --filter 'BridgePaneControllerIPCProjectionTests|AgentStudioIPCBridgeServiceTests|BridgePaneControllerContentAuthorityTests'`
+    passed: 27 tests across 4 suites.
+  - `swift test --filter AgentStudioIPCClientCoreTests` passed: 18 tests.
+  - `swift test --filter AgentStudioIPCRegistryAuthorizationTests` passed:
+    18 tests.
+- Accepted next implementation order:
+  1. Fix dev/native Worktree adapter descriptor bounds/integrity first because
+     it is a small, high-confidence P1 that protects proof paths.
+  2. Thread authoritative/non-authoritative status through content loaders and
+     prevent preview-only resources from becoming final authoritative content.
+  3. Reshape the generic Browser resource executor/runtime away from
+     `{ body, byteLength }` as the generic contract.
+  4. Realign Review package/delta transport so bodies no longer cross
+     push/store and descriptors are either real leased resources or absent.
+  5. Split native Review startup lifecycle from full package acquisition and use
+     provider-issued identity for Review transport authority.
+  6. Replace Swift pre-materialized-Data chunking with source/store-backed
+     streaming or bounded window readers.
+
+2026-06-27 dev/native Worktree descriptor-bounds checkpoint:
+
+- Implemented the first reducer fix after the review checkpoint:
+  - `BridgeWeb/src/app/bridge-app-dev-worktree.ts` now forwards descriptor
+    `content.maxBytes` and `content.integrity` into
+    `readBridgeTextResourceStream(...)`.
+  - `BridgeWeb/src/app/bridge-app-native-worktree-file.ts` now forwards the same
+    descriptor bounds/integrity into the native Worktree/File resource stream
+    read.
+  - `BridgeWeb/src/app/bridge-app-dev-worktree.unit.test.ts` and
+    `BridgeWeb/src/app/bridge-app-native-worktree-file.unit.test.ts` add
+    over-limit and whole-hash mismatch tests for those adapters.
+- Red:
+  - `pnpm --dir BridgeWeb exec vitest run src/app/bridge-app-dev-worktree.unit.test.ts src/app/bridge-app-native-worktree-file.unit.test.ts --reporter verbose`
+    failed the four new tests because the promises resolved `"too large"` /
+    `"tampered"` instead of rejecting.
+- Green:
+  - Same command passed: 2 files, 17 tests.
+  - `pnpm --dir BridgeWeb exec tsc --noEmit --pretty false --project tsconfig.json`
+    passed.
+  - Broader affected rerun passed:
+    `pnpm --dir BridgeWeb exec vitest run src/core/resources/bridge-resource-stream.unit.test.ts src/foundation/content/content-resource-loader.integration.test.ts src/review-viewer/content/review-content-loader.unit.test.ts src/review-viewer/content/review-content-registry.unit.test.ts src/worktree-file-surface/worktree-file-surface-runtime.integration.test.ts src/app/bridge-app-dev-worktree.unit.test.ts src/app/bridge-app-native-worktree-file.unit.test.ts src/file-viewer/bridge-file-viewer-app.unit.test.tsx --reporter verbose`
+    passed: 8 files, 80 tests.
+- Note:
+  - An initial broad affected run saw two FileViewer stale-refresh assertions
+    fail; rerunning `src/file-viewer/bridge-file-viewer-app.unit.test.tsx` alone
+    passed 9 tests, and the full affected bundle passed on immediate rerun.
+
+2026-06-27 post-restart 06P.S streaming authority checkpoint:
+
+- Operational correction:
+  - Parent session FD pressure was caused by too many old subagents/streams left
+    open. After restart, all old subagent handles were gone; no new subagents are
+    open for this checkpoint. Future delegation must close completed/blocked
+    agents immediately before continuing local work.
+- Implemented fixes:
+  - `Sources/AgentStudio/Features/Bridge/Runtime/BridgePaneController+DiffCommands.swift`
+    replaced the async `delta.map` frame build with explicit async control flow,
+    removing the Swift compile blocker.
+  - `BridgeWorktreeFileResourceBody` now carries expected streamed-body
+    SHA-256 facts, preserves file-backed chunk emission, and fails closed on
+    early EOF or hash mismatch.
+  - `BridgeWorktreeFileMaterializer` now carries the hash of the exact bounded
+    bytes served by the `worktree.fileContent` resource into the body lease.
+  - `BridgeWeb/src/app/bridge-app-dev-worktree-review.ts` now fetches dev
+    `review-package` descriptor resources as raw resource responses with
+    requested opaque id, generation, and revision in the dev-server request.
+  - `BridgeWeb/vite.config.ts` now serves raw Review package JSON only for
+    descriptor resource requests whose opaque id, generation, and revision match
+    the loaded package; bootstrap/default package load remains wrapper-shaped.
+- Fresh proof:
+  - `swift test --scratch-path /tmp/agent-studio-bridge-start-swiftpm-review-bodyfacts-green --filter 'loadDiff_emits_review_snapshot_frame_through_intake'`
+    exited 0: 1 Swift Testing test passed. The earlier display-name filter built
+    successfully but matched 0 tests, so it is compile evidence only.
+  - `swift test --scratch-path /tmp/agent-studio-bridge-start-swiftpm-worktree-drift --filter 'BridgeSchemeHandlerWorktreeFileResourceTests'`
+    exited 0: 5 tests passed, including descriptor/body drift and early-EOF
+    negative tests.
+  - `pnpm --dir BridgeWeb exec vitest run src/app/bridge-app-dev-worktree.unit.test.ts --reporter verbose`
+    exited 0: 15 tests passed.
+- Current residual 06P.S work:
+  - Browser generic resource executor and downstream runtimes are still
+    whole-result shaped above the fetch boundary; they need a consumer-facing
+    stream/session/window contract or explicit leaf-only boundary.
+  - Browser FileViewer and Review materialization still need authoritative vs
+    preview-only state gating so non-authoritative bytes cannot satisfy final
+    ready markers.
+  - Swift Review `content` resources still load full `Data` before chunk
+    emission; they need provider/store-backed streaming or bounded readers.
+  - Native Review startup remains package-first through
+    `reviewPipeline.loadPackage(...)` and still needs provider-issued
+    comparison/source/stream identity before visible-first lifecycle/projection
+    frames.
+  - `review-package` / `review-delta` descriptors have real leased resources,
+    but Review package/delta body ownership is still startup-serialization
+    shaped and needs producer-backed facts/serving before native proof can close.
+  - Fresh `pnpm --dir BridgeWeb exec tsc --noEmit --pretty false`, affected TS
+    integration tests, focused Swift review-resource tests, dev-server product
+    proof, native `oq4s` IPC/WKWebView proof, implementation-review-swarm, and
+    PR-ready wrapup remain open.

@@ -10,7 +10,7 @@ import { bridgeAttachedResourceDescriptorSchema } from '../models/bridge-resourc
 import { createBridgeResourceDescriptorRegistry } from '../resources/bridge-resource-registry.js';
 import {
 	createBridgeResourceExecutor,
-	type BridgeResourceExecutorBody,
+	type BridgeResourceExecutorContent,
 } from './bridge-resource-executor.js';
 
 describe('bridge resource executor', () => {
@@ -22,7 +22,7 @@ describe('bridge resource executor', () => {
 			maxInFlightBytes: 1024,
 			maxQueuedLoads: 8,
 			maxQueuedBytes: 1024,
-			loadResource: async () => ({ body: 'unreachable', byteLength: 11 }),
+			loadResource: async () => ({ content: 'unreachable', byteLength: 11 }),
 		});
 
 		const result = await executor.load(makeIntent(makeAttachedDescriptor().ref));
@@ -43,7 +43,7 @@ describe('bridge resource executor', () => {
 			maxQueuedBytes: 1024,
 			loadResource: async () => {
 				fetchCount += 1;
-				return { body: 'body', byteLength: 4 };
+				return { content: 'materialized', byteLength: 4 };
 			},
 		});
 		const intent = makeIntent(attachedDescriptor.ref);
@@ -56,12 +56,78 @@ describe('bridge resource executor', () => {
 		expect(fetchCount).toBe(1);
 		expect(firstResult).toEqual({
 			ok: true,
-			body: 'body',
+			authoritative: true,
+			content: 'materialized',
 			byteLength: 4,
 			descriptor: attachedDescriptor.descriptor,
 			freshnessKey: intent.freshnessKey,
 		});
 		expect(secondResult).toEqual(firstResult);
+	});
+
+	test('forwards streamed chunks before the final materialized resource resolves', async () => {
+		const registry = createRegistry();
+		const attachedDescriptor = makeAttachedDescriptor();
+		registry.register(attachedDescriptor);
+		const chunkEvents: string[] = [];
+		const finalMaterialization = createDeferred<BridgeResourceExecutorContent<string>>();
+		const executor = createBridgeResourceExecutor<string>({
+			registry,
+			maxConcurrentLoads: 1,
+			maxInFlightBytes: 1024,
+			maxQueuedLoads: 8,
+			maxQueuedBytes: 1024,
+			onChunk: ({ chunk, descriptor, intent }): void => {
+				expect(descriptor.descriptorId).toBe(attachedDescriptor.descriptor.descriptorId);
+				expect(intent.descriptorRef.descriptorId).toBe(attachedDescriptor.ref.descriptorId);
+				chunkEvents.push(String(chunk.chunk));
+			},
+			loadResource: async ({ onChunk }) => {
+				onChunk({ byteLength: 7, chunk: 'partial', totalBytesRead: 7 });
+				onChunk({ byteLength: 6, chunk: '-chunk', totalBytesRead: 13 });
+				return await finalMaterialization.promise;
+			},
+		});
+		const loadPromise = executor.load(makeIntent(attachedDescriptor.ref));
+		await Promise.resolve();
+
+		expect(chunkEvents).toEqual(['partial', '-chunk']);
+		finalMaterialization.resolve({ content: 'partial-chunk', byteLength: 13 });
+
+		await expect(loadPromise).resolves.toMatchObject({
+			ok: true,
+			authoritative: true,
+			content: 'partial-chunk',
+			byteLength: 13,
+		});
+	});
+
+	test('preserves preview-only authority on successful materialization', async () => {
+		const registry = createRegistry();
+		const attachedDescriptor = makeAttachedDescriptor();
+		registry.register(attachedDescriptor);
+		const executor = createBridgeResourceExecutor<string>({
+			registry,
+			maxConcurrentLoads: 1,
+			maxInFlightBytes: 1024,
+			maxQueuedLoads: 8,
+			maxQueuedBytes: 1024,
+			loadResource: async () => ({
+				authoritative: false,
+				content: 'preview materialized',
+				byteLength: 20,
+			}),
+		});
+		const intent = makeIntent(attachedDescriptor.ref);
+
+		await expect(executor.load(intent)).resolves.toEqual({
+			ok: true,
+			authoritative: false,
+			content: 'preview materialized',
+			byteLength: 20,
+			descriptor: attachedDescriptor.descriptor,
+			freshnessKey: intent.freshnessKey,
+		});
 	});
 
 	test('does not coalesce in-flight work when freshness differs', async () => {
@@ -84,7 +150,7 @@ describe('bridge resource executor', () => {
 		registry.register(firstDescriptor);
 		registry.register(secondDescriptor);
 		const requestedDescriptorIds: string[] = [];
-		const firstDeferred = createDeferred<BridgeResourceExecutorBody<string>>();
+		const firstDeferred = createDeferred<BridgeResourceExecutorContent<string>>();
 		const executor = createBridgeResourceExecutor<string>({
 			registry,
 			maxConcurrentLoads: 2,
@@ -96,7 +162,7 @@ describe('bridge resource executor', () => {
 				if (descriptor.descriptorId === firstDescriptor.descriptor.descriptorId) {
 					return await firstDeferred.promise;
 				}
-				return { body: 'fresh-body', byteLength: 10 };
+				return { content: 'fresh-materialized', byteLength: 10 };
 			},
 		});
 		const firstIntent = makeIntent(firstDescriptor.ref, {
@@ -110,18 +176,20 @@ describe('bridge resource executor', () => {
 
 		const firstLoad = executor.load(firstIntent);
 		const secondResult = await executor.load(secondIntent);
-		firstDeferred.resolve({ body: 'stale-body', byteLength: 10 });
+		firstDeferred.resolve({ content: 'stale-materialized', byteLength: 10 });
 
 		expect(secondResult).toEqual({
 			ok: true,
-			body: 'fresh-body',
+			authoritative: true,
+			content: 'fresh-materialized',
 			byteLength: 10,
 			descriptor: secondDescriptor.descriptor,
 			freshnessKey: secondIntent.freshnessKey,
 		});
 		expect(await firstLoad).toEqual({
 			ok: true,
-			body: 'stale-body',
+			authoritative: true,
+			content: 'stale-materialized',
 			byteLength: 10,
 			descriptor: firstDescriptor.descriptor,
 			freshnessKey: firstIntent.freshnessKey,
@@ -140,7 +208,7 @@ describe('bridge resource executor', () => {
 		});
 		registry.register(firstDescriptor);
 		registry.register(secondDescriptor);
-		const firstDeferred = createDeferred<BridgeResourceExecutorBody<string>>();
+		const firstDeferred = createDeferred<BridgeResourceExecutorContent<string>>();
 		const executor = createBridgeResourceExecutor<string>({
 			registry,
 			maxConcurrentLoads: 1,
@@ -151,17 +219,17 @@ describe('bridge resource executor', () => {
 				if (descriptor.descriptorId === firstDescriptor.descriptor.descriptorId) {
 					return await firstDeferred.promise;
 				}
-				return { body: 'queued-body', byteLength: 11 };
+				return { content: 'queued-materialized', byteLength: 11 };
 			},
 		});
 
 		const firstLoad = executor.load(makeIntent(firstDescriptor.ref));
 		const queuedLoad = executor.load(makeIntent(secondDescriptor.ref, { lane: 'foreground' }));
 		await Promise.resolve();
-		firstDeferred.resolve({ body: 'first-body', byteLength: 10 });
+		firstDeferred.resolve({ content: 'first-materialized', byteLength: 10 });
 
-		expect(await firstLoad).toMatchObject({ ok: true, body: 'first-body' });
-		expect(await queuedLoad).toMatchObject({ ok: true, body: 'queued-body' });
+		expect(await firstLoad).toMatchObject({ ok: true, content: 'first-materialized' });
+		expect(await queuedLoad).toMatchObject({ ok: true, content: 'queued-materialized' });
 		expect(executor.inFlightCount).toBe(0);
 	});
 
@@ -183,7 +251,7 @@ describe('bridge resource executor', () => {
 		registry.register(blockingDescriptor);
 		registry.register(queuedDescriptor);
 		registry.register(rejectedDescriptor);
-		const blockingDeferred = createDeferred<BridgeResourceExecutorBody<string>>();
+		const blockingDeferred = createDeferred<BridgeResourceExecutorContent<string>>();
 		const executor = createBridgeResourceExecutor<string>({
 			registry,
 			maxConcurrentLoads: 1,
@@ -194,7 +262,7 @@ describe('bridge resource executor', () => {
 				if (descriptor.descriptorId === blockingDescriptor.descriptor.descriptorId) {
 					return await blockingDeferred.promise;
 				}
-				return { body: `${descriptor.descriptorId}-body`, byteLength: 17 };
+				return { content: `${descriptor.descriptorId}-materialized`, byteLength: 17 };
 			},
 		});
 
@@ -203,11 +271,11 @@ describe('bridge resource executor', () => {
 		const rejectedResult = await executor.load(
 			makeIntent(rejectedDescriptor.ref, { lane: 'foreground' }),
 		);
-		blockingDeferred.resolve({ body: 'blocking-body', byteLength: 13 });
+		blockingDeferred.resolve({ content: 'blocking-materialized', byteLength: 13 });
 
 		expect(rejectedResult).toEqual({ ok: false, reason: 'concurrency_exceeded' });
-		expect(await blockingLoad).toMatchObject({ ok: true, body: 'blocking-body' });
-		expect(await queuedLoad).toMatchObject({ ok: true, body: 'descriptor-2-body' });
+		expect(await blockingLoad).toMatchObject({ ok: true, content: 'blocking-materialized' });
+		expect(await queuedLoad).toMatchObject({ ok: true, content: 'descriptor-2-materialized' });
 		expect(executor.queuedLoadCount).toBe(0);
 		expect(executor.queuedBytes).toBe(0);
 	});
@@ -230,7 +298,7 @@ describe('bridge resource executor', () => {
 		registry.register(blockingDescriptor);
 		registry.register(activeDescriptor);
 		registry.register(foregroundDescriptor);
-		const blockingDeferred = createDeferred<BridgeResourceExecutorBody<string>>();
+		const blockingDeferred = createDeferred<BridgeResourceExecutorContent<string>>();
 		const executor = createBridgeResourceExecutor<string>({
 			registry,
 			maxConcurrentLoads: 1,
@@ -241,7 +309,7 @@ describe('bridge resource executor', () => {
 				if (descriptor.descriptorId === blockingDescriptor.descriptor.descriptorId) {
 					return await blockingDeferred.promise;
 				}
-				return { body: `${descriptor.descriptorId}-body`, byteLength: 17 };
+				return { content: `${descriptor.descriptorId}-materialized`, byteLength: 17 };
 			},
 		});
 
@@ -250,11 +318,14 @@ describe('bridge resource executor', () => {
 		const foregroundLoad = executor.load(
 			makeIntent(foregroundDescriptor.ref, { lane: 'foreground' }),
 		);
-		blockingDeferred.resolve({ body: 'blocking-body', byteLength: 13 });
+		blockingDeferred.resolve({ content: 'blocking-materialized', byteLength: 13 });
 
 		await expect(activeLoad).resolves.toEqual({ ok: false, reason: 'aborted' });
-		expect(await blockingLoad).toMatchObject({ ok: true, body: 'blocking-body' });
-		expect(await foregroundLoad).toMatchObject({ ok: true, body: 'descriptor-3-body' });
+		expect(await blockingLoad).toMatchObject({ ok: true, content: 'blocking-materialized' });
+		expect(await foregroundLoad).toMatchObject({
+			ok: true,
+			content: 'descriptor-3-materialized',
+		});
 		expect(executor.queuedLoadCount).toBe(0);
 		expect(executor.queuedBytes).toBe(0);
 	});
@@ -282,9 +353,9 @@ describe('bridge resource executor', () => {
 				if (descriptor.descriptorId === visibleDescriptor.descriptor.descriptorId) {
 					capturedVisibleSignals.push(signal);
 					visibleLoadStarted.resolve();
-					return await new Promise<BridgeResourceExecutorBody<string>>(() => {});
+					return await new Promise<BridgeResourceExecutorContent<string>>(() => {});
 				}
-				return { body: 'foreground-body', byteLength: 15 };
+				return { content: 'foreground-materialized', byteLength: 15 };
 			},
 		});
 
@@ -295,7 +366,10 @@ describe('bridge resource executor', () => {
 		);
 
 		await expect(visibleLoad).resolves.toEqual({ ok: false, reason: 'aborted' });
-		await expect(foregroundLoad).resolves.toMatchObject({ ok: true, body: 'foreground-body' });
+		await expect(foregroundLoad).resolves.toMatchObject({
+			ok: true,
+			content: 'foreground-materialized',
+		});
 		expect(capturedVisibleSignals.every((signal): boolean => signal.aborted)).toBe(true);
 		expect(executor.inFlightCount).toBe(0);
 		expect(executor.queuedLoadCount).toBe(0);
@@ -312,7 +386,7 @@ describe('bridge resource executor', () => {
 		});
 		registry.register(firstDescriptor);
 		registry.register(secondDescriptor);
-		const firstDeferred = createDeferred<BridgeResourceExecutorBody<string>>();
+		const firstDeferred = createDeferred<BridgeResourceExecutorContent<string>>();
 		let secondFetchCount = 0;
 		const executor = createBridgeResourceExecutor<string>({
 			registry,
@@ -325,7 +399,7 @@ describe('bridge resource executor', () => {
 					return await firstDeferred.promise;
 				}
 				secondFetchCount += 1;
-				return { body: 'visible-body', byteLength: 12 };
+				return { content: 'visible-materialized', byteLength: 12 };
 			},
 		});
 
@@ -333,11 +407,11 @@ describe('bridge resource executor', () => {
 		const visibleResult = await executor.load(
 			makeIntent(secondDescriptor.ref, { lane: 'visible' }),
 		);
-		firstDeferred.resolve({ body: 'blocking-body', byteLength: 13 });
+		firstDeferred.resolve({ content: 'blocking-materialized', byteLength: 13 });
 
 		expect(visibleResult).toEqual({ ok: false, reason: 'concurrency_exceeded' });
 		expect(secondFetchCount).toBe(0);
-		expect(await blockingLoad).toMatchObject({ ok: true, body: 'blocking-body' });
+		expect(await blockingLoad).toMatchObject({ ok: true, content: 'blocking-materialized' });
 	});
 
 	test('promotes pending work when a foreground request joins the same freshness', async () => {
@@ -358,7 +432,7 @@ describe('bridge resource executor', () => {
 		registry.register(blockingDescriptor);
 		registry.register(promotedDescriptor);
 		registry.register(waitingDescriptor);
-		const blockingDeferred = createDeferred<BridgeResourceExecutorBody<string>>();
+		const blockingDeferred = createDeferred<BridgeResourceExecutorContent<string>>();
 		const startedDescriptorIds: string[] = [];
 		const executor = createBridgeResourceExecutor<string>({
 			registry,
@@ -371,7 +445,7 @@ describe('bridge resource executor', () => {
 				if (descriptor.descriptorId === blockingDescriptor.descriptor.descriptorId) {
 					return await blockingDeferred.promise;
 				}
-				return { body: `${descriptor.descriptorId}-body`, byteLength: 17 };
+				return { content: `${descriptor.descriptorId}-materialized`, byteLength: 17 };
 			},
 		});
 		const sharedActiveIntent = makeIntent(promotedDescriptor.ref, {
@@ -395,12 +469,18 @@ describe('bridge resource executor', () => {
 		const sharedActiveLoad = executor.load(sharedActiveIntent);
 		const waitingLoad = executor.load(waitingIntent);
 		const sharedForegroundLoad = executor.load(sharedForegroundIntent);
-		blockingDeferred.resolve({ body: 'blocking-body', byteLength: 13 });
+		blockingDeferred.resolve({ content: 'blocking-materialized', byteLength: 13 });
 
-		expect(await blockingLoad).toMatchObject({ ok: true, body: 'blocking-body' });
-		expect(await sharedForegroundLoad).toMatchObject({ ok: true, body: 'descriptor-2-body' });
+		expect(await blockingLoad).toMatchObject({ ok: true, content: 'blocking-materialized' });
+		expect(await sharedForegroundLoad).toMatchObject({
+			ok: true,
+			content: 'descriptor-2-materialized',
+		});
 		expect(await sharedActiveLoad).toEqual(await sharedForegroundLoad);
-		expect(await waitingLoad).toMatchObject({ ok: true, body: 'descriptor-3-body' });
+		expect(await waitingLoad).toMatchObject({
+			ok: true,
+			content: 'descriptor-3-materialized',
+		});
 		expect(startedDescriptorIds).toEqual(['descriptor-1', 'descriptor-2', 'descriptor-3']);
 	});
 
@@ -445,7 +525,7 @@ describe('bridge resource executor', () => {
 			maxQueuedLoads: 8,
 			maxQueuedBytes: 1024,
 			isFresh: () => false,
-			loadResource: async () => ({ body: 'stale', byteLength: 5 }),
+			loadResource: async () => ({ content: 'stale', byteLength: 5 }),
 		});
 
 		expect(await executor.load(makeIntent(attachedDescriptor.ref))).toEqual({

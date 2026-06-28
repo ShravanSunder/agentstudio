@@ -16,6 +16,7 @@ export interface BridgePageHandshakeSession {
 
 export interface InstallBridgePageHandshakeSessionProps {
 	readonly onTelemetryConfig?: (telemetryConfig: BridgeTelemetryBootstrapConfig) => void;
+	readonly onReady?: () => void;
 }
 
 export function installBridgePageHandshake(target: BridgeHandshakeTarget = document): () => void {
@@ -49,6 +50,7 @@ export function installBridgePageHandshakeSession(
 		didSendReady = true;
 		queueMicrotask((): void => {
 			if (isInstalled) {
+				props.onReady?.();
 				target.dispatchEvent(new CustomEvent('__bridge_ready'));
 			}
 		});
