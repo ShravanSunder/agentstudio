@@ -256,6 +256,14 @@ const bridgeReviewAllowedResourceKindsByProtocol = {
 	review: new Set(['content', 'review-package', 'review-delta']),
 };
 
+type BridgeReviewStartupTelemetryPhase =
+	| 'projection_ready'
+	| 'review_package_body_load'
+	| 'review_package_parse'
+	| 'review_ready'
+	| 'review_snapshot_apply'
+	| 'selected_content_ready';
+
 type MarkdownPreviewFallbackTelemetryReason =
 	| BridgeMarkdownPreviewFallbackReason
 	| 'workerUnavailable';
@@ -703,6 +711,8 @@ function BridgeReviewViewerMode(
 	);
 	const lastTelemetryMarkedItemRef = useRef<string | null>(null);
 	const lastFirstRenderPackageRef = useRef<string | null>(null);
+	const lastReviewReadyPackageRef = useRef<string | null>(null);
+	const selectedContentLoadStartByKeyRef = useRef<Map<string, number>>(new Map());
 	const codeViewControlHandleRef = useRef<BridgeCodeViewControlHandle | null>(null);
 	const selectedContentAbortControllerRef = useRef<AbortController | null>(null);
 	const reviewPackageRef = useRef<BridgeReviewPackage | null>(null);
@@ -1053,6 +1063,7 @@ function BridgeReviewViewerMode(
 						invalidatedFreshnessKeysRef: invalidatedReviewFreshnessKeysRef,
 						setReviewContentInvalidationVersion,
 						telemetryContext,
+						telemetryRecorder: telemetryRecorderRef.current,
 					});
 				})
 				.catch((): void => {
@@ -1298,6 +1309,7 @@ function BridgeReviewViewerMode(
 			};
 		}
 		const selectedContentKey = makeSelectedContentResourcesKey(reviewPackage, selectedItemId);
+		const selectedContentLoadStarts = selectedContentLoadStartByKeyRef.current;
 		setSelectedContentResourcesState(
 			(current: SelectedContentResourcesState | null): SelectedContentResourcesState | null =>
 				current?.contentKey === selectedContentKey
@@ -1311,6 +1323,7 @@ function BridgeReviewViewerMode(
 		);
 		const parentTraceContext =
 			currentReviewPackageTelemetryContextRef.current?.traceContext ?? null;
+		selectedContentLoadStarts.set(selectedContentKey, performance.now());
 		recordBridgeViewerContentQueueTelemetry({
 			telemetryRecorder: telemetryRecorderRef.current,
 			parentTraceContext,
@@ -1334,6 +1347,8 @@ function BridgeReviewViewerMode(
 		})
 			.then((loadResult): void => {
 				if (!didCancel) {
+					const loadStartMilliseconds = selectedContentLoadStarts.get(selectedContentKey) ?? null;
+					selectedContentLoadStarts.delete(selectedContentKey);
 					setSelectedContentResourcesState(
 						selectedContentResourcesStateFromDemandLoadResult({
 							itemId: selectedItemId,
@@ -1341,6 +1356,22 @@ function BridgeReviewViewerMode(
 							loadResult,
 						}),
 					);
+					if (loadResult.status === 'ready' && loadStartMilliseconds !== null) {
+						recordReviewStartupTelemetry({
+							telemetryRecorder: telemetryRecorderRef.current,
+							phase: 'selected_content_ready',
+							slice: 'content_fetch',
+							transport: 'content',
+							traceContext: createChildTraceContext(parentTraceContext),
+							durationMilliseconds: performance.now() - loadStartMilliseconds,
+							result: 'success',
+							numericAttributes: {
+								'agentstudio.bridge.content.resource_count': contentResourceCount(
+									loadResult.resources,
+								),
+							},
+						});
+					}
 					if (loadResult.status === 'deferred') {
 						scheduleSelectedContentRetry({
 							scheduledRef: selectedContentRetryScheduledRef,
@@ -1351,6 +1382,7 @@ function BridgeReviewViewerMode(
 			})
 			.catch((): void => {
 				if (!didCancel) {
+					selectedContentLoadStarts.delete(selectedContentKey);
 					setSelectedContentResourcesState({
 						itemId: selectedItemId,
 						contentKey: selectedContentKey,
@@ -1361,6 +1393,7 @@ function BridgeReviewViewerMode(
 			});
 		return (): void => {
 			didCancel = true;
+			selectedContentLoadStarts.delete(selectedContentKey);
 			contentAbortController.abort();
 			if (selectedContentAbortControllerRef.current === contentAbortController) {
 				selectedContentAbortControllerRef.current = null;
@@ -1592,6 +1625,37 @@ function BridgeReviewViewerMode(
 		});
 		telemetryRecorderRef.current.flush();
 	}, [projection, props.isActive, reviewPackage]);
+
+	useEffect((): void => {
+		if (
+			!props.isActive ||
+			reviewPackage === null ||
+			projection === null ||
+			selectedContentResourcesState?.status !== 'ready' ||
+			!telemetryRecorderRef.current.isEnabled('web')
+		) {
+			return;
+		}
+		const packageKey = `${reviewPackage.packageId}:${reviewPackage.reviewGeneration}`;
+		const selectedReadyKey = `${packageKey}:${selectedContentResourcesState.itemId}:${selectedContentResourcesState.contentKey}`;
+		if (lastReviewReadyPackageRef.current === selectedReadyKey) {
+			return;
+		}
+		lastReviewReadyPackageRef.current = selectedReadyKey;
+		const telemetryContext = reviewPackageTelemetryContextRef.current.get(packageKey);
+		recordReviewStartupTelemetry({
+			telemetryRecorder: telemetryRecorderRef.current,
+			phase: 'review_ready',
+			slice: telemetryContext?.slice ?? 'review_projection',
+			transport: telemetryContext?.transport ?? 'intake',
+			traceContext: createChildTraceContext(telemetryContext?.traceContext ?? null),
+			durationMilliseconds: null,
+			result: 'success',
+			numericAttributes: {
+				'agentstudio.bridge.review.item_count': reviewPackage.orderedItemIds.length,
+			},
+		});
+	}, [projection, props.isActive, reviewPackage, selectedContentResourcesState]);
 
 	useEffect((): void => {
 		if (
@@ -2083,6 +2147,12 @@ export function selectedContentResourcesStateFromDemandLoadResult(props: {
 	};
 }
 
+function contentResourceCount(resources: BridgeCodeViewContentResources): number {
+	return [resources.base, resources.head, resources.diff, resources.file].filter(
+		(resource): boolean => resource !== undefined,
+	).length;
+}
+
 export function scheduleSelectedContentRetry(props: {
 	readonly scheduledRef: { current: boolean };
 	readonly setSelectedContentRetryVersion: Dispatch<SetStateAction<number>>;
@@ -2346,6 +2416,39 @@ function recordPackageApplyTelemetryForSlice(props: {
 	props.telemetryRecorder.flush({ force: true });
 }
 
+function recordReviewStartupTelemetry(props: {
+	readonly telemetryRecorder: BridgeTelemetryRecorder;
+	readonly phase: BridgeReviewStartupTelemetryPhase;
+	readonly slice: BridgeTelemetrySlice;
+	readonly transport: 'content' | 'intake' | 'push' | 'worker';
+	readonly traceContext: BridgeTraceContext | null;
+	readonly durationMilliseconds: number | null;
+	readonly result: 'failed' | 'success';
+	readonly numericAttributes?: Readonly<Record<string, number>>;
+}): void {
+	if (!props.telemetryRecorder.isEnabled('web')) {
+		return;
+	}
+	props.telemetryRecorder.record({
+		scope: 'web',
+		name: `performance.bridge.web.${props.phase}`,
+		durationMilliseconds:
+			props.durationMilliseconds === null ? null : Math.max(0, props.durationMilliseconds),
+		traceContext: props.traceContext,
+		stringAttributes: {
+			'agentstudio.bridge.phase': props.phase,
+			'agentstudio.bridge.plane': planeForBridgeTelemetrySlice(props.slice),
+			'agentstudio.bridge.priority': priorityForBridgeTelemetrySlice(props.slice),
+			'agentstudio.bridge.result': props.result,
+			'agentstudio.bridge.slice': props.slice,
+			'agentstudio.bridge.transport': props.transport,
+		},
+		numericAttributes: props.numericAttributes ?? {},
+		booleanAttributes: {},
+	});
+	props.telemetryRecorder.flush();
+}
+
 function recordPushDropTelemetry(
 	telemetryRecorder: BridgeTelemetryRecorder,
 	reason: BridgePushDropReason,
@@ -2483,6 +2586,7 @@ async function applyReviewProtocolTransportFrame(props: {
 	readonly invalidatedFreshnessKeysRef: { readonly current: Set<string> };
 	readonly setReviewContentInvalidationVersion: Dispatch<SetStateAction<number>>;
 	readonly telemetryContext: BridgeReviewPackageTelemetryContext;
+	readonly telemetryRecorder: BridgeTelemetryRecorder;
 }): Promise<void> {
 	await applyReviewProtocolFramePayload(props);
 }
@@ -2551,6 +2655,8 @@ async function applyReviewProtocolFramePayload(
 			resourceExecutor,
 			reviewDemandScheduler,
 			snapshotFrame,
+			telemetryContext: props.telemetryContext,
+			telemetryRecorder: props.telemetryRecorder,
 		});
 		if (packagePayload === null) {
 			setDiffStatus(
@@ -2570,6 +2676,7 @@ async function applyReviewProtocolFramePayload(
 			return;
 		}
 
+		const applyStartMilliseconds = performance.now();
 		const materializedFrame = materializeAcceptedReviewSnapshotForPackage({
 			descriptorRegistry,
 			protocolFrame,
@@ -2615,6 +2722,18 @@ async function applyReviewProtocolFramePayload(
 				? firstVisibleItemId(packagePayload)
 				: currentSelectedItemId,
 		);
+		recordReviewStartupTelemetry({
+			telemetryRecorder: props.telemetryRecorder,
+			phase: 'review_snapshot_apply',
+			slice: props.telemetryContext.slice,
+			transport: props.telemetryContext.transport,
+			traceContext: createChildTraceContext(props.telemetryContext.traceContext),
+			durationMilliseconds: performance.now() - applyStartMilliseconds,
+			result: 'success',
+			numericAttributes: {
+				'agentstudio.bridge.review.item_count': packagePayload.orderedItemIds.length,
+			},
+		});
 		return;
 	}
 
@@ -3439,15 +3558,29 @@ async function loadReviewPackageFromProtocolFrame(props: {
 	readonly resourceExecutor: BridgeResourceExecutor<BridgeTextResourceStreamResult>;
 	readonly reviewDemandScheduler: BridgeDemandScheduler;
 	readonly snapshotFrame: ReviewSnapshotMaterializerDelta;
+	readonly telemetryContext: BridgeReviewPackageTelemetryContext;
+	readonly telemetryRecorder: BridgeTelemetryRecorder;
 }): Promise<BridgeReviewPackage | null> {
 	if (props.protocolFrame?.frameKind !== 'review.snapshot') {
 		return null;
 	}
+	const loadStartMilliseconds = performance.now();
 	const result = await loadReviewProtocolBodyDescriptorRef({
 		descriptorRegistry: props.descriptorRegistry,
 		descriptorRef: props.snapshotFrame.rootDescriptorRef,
 		resourceExecutor: props.resourceExecutor,
 		reviewDemandScheduler: props.reviewDemandScheduler,
+	});
+	recordReviewStartupTelemetry({
+		telemetryRecorder: props.telemetryRecorder,
+		phase: 'review_package_body_load',
+		slice: props.telemetryContext.slice,
+		transport: 'content',
+		traceContext: createChildTraceContext(props.telemetryContext.traceContext),
+		durationMilliseconds: performance.now() - loadStartMilliseconds,
+		result: result?.ok === true ? 'success' : 'failed',
+		numericAttributes:
+			result?.ok === true ? { 'agentstudio.bridge.content.byte_count': result.byteLength } : {},
 	});
 	if (result === null) {
 		return null;
@@ -3458,7 +3591,20 @@ async function loadReviewPackageFromProtocolFrame(props: {
 	if (!result.authoritative) {
 		throw new Error('Bridge review package resource was preview-only');
 	}
+	const parseStartMilliseconds = performance.now();
 	const parsedPackage = bridgeReviewPackageSchema.safeParse(JSON.parse(result.content.readText()));
+	recordReviewStartupTelemetry({
+		telemetryRecorder: props.telemetryRecorder,
+		phase: 'review_package_parse',
+		slice: props.telemetryContext.slice,
+		transport: 'content',
+		traceContext: createChildTraceContext(props.telemetryContext.traceContext),
+		durationMilliseconds: performance.now() - parseStartMilliseconds,
+		result: parsedPackage.success ? 'success' : 'failed',
+		numericAttributes: {
+			'agentstudio.bridge.content.byte_count': result.byteLength,
+		},
+	});
 	return parsedPackage.success ? parsedPackage.data : null;
 }
 

@@ -52,15 +52,35 @@ describe('Bridge review projection coordinator', () => {
 		expect(store.getState().workerStatus.lane).toBe('sync');
 		expect(store.getState().workerStatus.lastCompletedRequestId).toBe('sync-small-request');
 		expect(store.getState().projection?.orderedItemIds.length).toBeGreaterThan(0);
-		expect(telemetryRecorder.samples).toEqual([
-			expect.objectContaining({
-				name: 'performance.bridge.trees.projection_build',
-				stringAttributes: expect.objectContaining({
-					'agentstudio.bridge.transport': 'worker',
-					'agentstudio.bridge.worker.lane': 'none',
+		expect(telemetryRecorder.samples).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					name: 'performance.bridge.web.projection_input_build',
+					stringAttributes: expect.objectContaining({
+						'agentstudio.bridge.worker.lane': 'none',
+					}),
 				}),
-			}),
-		]);
+				expect.objectContaining({
+					name: 'performance.bridge.web.projection_store_apply',
+					stringAttributes: expect.objectContaining({
+						'agentstudio.bridge.worker.lane': 'none',
+					}),
+				}),
+				expect.objectContaining({
+					name: 'performance.bridge.web.projection_total',
+					stringAttributes: expect.objectContaining({
+						'agentstudio.bridge.worker.lane': 'none',
+					}),
+				}),
+				expect.objectContaining({
+					name: 'performance.bridge.trees.projection_build',
+					stringAttributes: expect.objectContaining({
+						'agentstudio.bridge.transport': 'worker',
+						'agentstudio.bridge.worker.lane': 'none',
+					}),
+				}),
+			]),
+		);
 		expect(flushForces).toEqual([true]);
 	});
 

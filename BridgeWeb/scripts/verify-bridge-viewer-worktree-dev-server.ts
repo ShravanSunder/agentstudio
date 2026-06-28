@@ -29,6 +29,7 @@ import {
 	reviewRouteCollapseControlArtifactSatisfied,
 	reviewRoutePressureSatisfied,
 	reviewSelectedDemandTelemetrySatisfied,
+	reviewStartupTelemetrySatisfied,
 	selectVisibleReviewCollapseControlProof,
 	worktreeFileRecentlyUpdatedDemandTelemetrySatisfied,
 	worktreeFileVisibleDemandTelemetrySatisfied,
@@ -473,6 +474,7 @@ interface WorktreeReviewRouteProof {
 	readonly reviewSelectionProof: ReviewTreeSearchClickProof;
 	readonly reviewSelectionSelectedContentState: string | null;
 	readonly reviewSelectionSelectedDisplayPath: string | null;
+	readonly reviewStartupTelemetrySamples: readonly WorktreeBridgeTelemetrySampleProof[];
 	readonly reviewSelectedContentState: string | null;
 	readonly reviewSelectedDisplayPath: string | null;
 	readonly reviewVisibleDemandTelemetryProof: ReviewDemandTelemetryProof;
@@ -480,6 +482,16 @@ interface WorktreeReviewRouteProof {
 	readonly sharedShellMode: string | null;
 	readonly sharedShellOwner: string | null;
 	readonly standaloneWorktreeFileAppCount: number;
+}
+
+interface WorktreeBridgeTelemetrySampleProof {
+	readonly durationMilliseconds: number | null;
+	readonly name: string;
+	readonly numericAttributes: Readonly<Record<string, number>>;
+	readonly phase: string | null;
+	readonly result: string | null;
+	readonly slice: string | null;
+	readonly transport: string | null;
 }
 
 interface ReviewTreeSearchClickProof {
@@ -642,6 +654,7 @@ interface WorktreeVerifierBrowserHelpers {
 declare global {
 	interface Window {
 		readonly bridgeWorktreeVerifier: WorktreeVerifierBrowserHelpers;
+		bridgeWorktreeVerifierTelemetrySamples?: WorktreeBridgeTelemetrySampleProof[];
 		bridgeWorktreeVerifierLastTreeAnchorSignature?: string;
 		bridgeWorktreeVerifierStableTreeAnchorFrames?: number;
 	}
@@ -1379,6 +1392,7 @@ async function verifyWorktreeReviewRoute(): Promise<WorktreeReviewRouteProof> {
 						: null,
 			};
 		});
+		const reviewStartupTelemetrySamples = await readBridgeWorktreeVerifierTelemetrySamples(page);
 		const routeProof = {
 			...proof,
 			reviewContentRouteHitCount: routeProbe.contentHitCount(),
@@ -1395,6 +1409,7 @@ async function verifyWorktreeReviewRoute(): Promise<WorktreeReviewRouteProof> {
 			reviewSelectionProof,
 			reviewSelectionSelectedContentState: selectionState.selectedContentState,
 			reviewSelectionSelectedDisplayPath: selectionState.selectedDisplayPath,
+			reviewStartupTelemetrySamples,
 			screenshotPath: await captureWorktreeDevServerScreenshot({
 				name: 'worktree-review-ready.png',
 				page,
@@ -1436,6 +1451,7 @@ async function verifyWorktreeReviewRoute(): Promise<WorktreeReviewRouteProof> {
 				visibleDemandTelemetryProof: routeProof.reviewVisibleDemandTelemetryProof,
 			}) ||
 			!reviewSelectedDemandTelemetrySatisfied(routeProof.reviewSelectedDemandTelemetryProof) ||
+			!reviewStartupTelemetrySatisfied(routeProof.reviewStartupTelemetrySamples) ||
 			routeProof.reviewSelectionContentRouteHitCount <= 0 ||
 			!reviewContentRouteDeltaSatisfied(routeProof.reviewSelectionPostClickContentRouteProof) ||
 			!reviewRouteCollapseControlArtifactSatisfied({
@@ -2321,6 +2337,78 @@ async function makeVerificationPage(): Promise<Page> {
 		},
 	});
 	await page.addInitScript((): void => {
+		window.bridgeWorktreeVerifierTelemetrySamples = [];
+		document.addEventListener('__bridge_command', (event: Event): void => {
+			const detail = 'detail' in event ? event.detail : null;
+			if (typeof detail !== 'object' || detail === null) {
+				return;
+			}
+			if (!('method' in detail) || detail.method !== 'system.bridgeTelemetry') {
+				return;
+			}
+			if (!('params' in detail) || typeof detail.params !== 'object' || detail.params === null) {
+				return;
+			}
+			if (!('samples' in detail.params) || !Array.isArray(detail.params.samples)) {
+				return;
+			}
+			for (const sample of detail.params.samples) {
+				if (typeof sample !== 'object' || sample === null) {
+					continue;
+				}
+				if (!('name' in sample) || typeof sample.name !== 'string') {
+					continue;
+				}
+				const stringAttributes =
+					'stringAttributes' in sample &&
+					typeof sample.stringAttributes === 'object' &&
+					sample.stringAttributes !== null
+						? sample.stringAttributes
+						: {};
+				const numericAttributes =
+					'numericAttributes' in sample &&
+					typeof sample.numericAttributes === 'object' &&
+					sample.numericAttributes !== null
+						? sample.numericAttributes
+						: {};
+				const safeNumericAttributes: Record<string, number> = {};
+				for (const [key, value] of Object.entries(numericAttributes)) {
+					if (typeof value === 'number') {
+						safeNumericAttributes[key] = value;
+					}
+				}
+				window.bridgeWorktreeVerifierTelemetrySamples?.push({
+					durationMilliseconds:
+						'durationMilliseconds' in sample &&
+						(typeof sample.durationMilliseconds === 'number' ||
+							sample.durationMilliseconds === null)
+							? sample.durationMilliseconds
+							: null,
+					name: sample.name,
+					numericAttributes: safeNumericAttributes,
+					phase:
+						'agentstudio.bridge.phase' in stringAttributes &&
+						typeof stringAttributes['agentstudio.bridge.phase'] === 'string'
+							? stringAttributes['agentstudio.bridge.phase']
+							: null,
+					result:
+						'agentstudio.bridge.result' in stringAttributes &&
+						typeof stringAttributes['agentstudio.bridge.result'] === 'string'
+							? stringAttributes['agentstudio.bridge.result']
+							: null,
+					slice:
+						'agentstudio.bridge.slice' in stringAttributes &&
+						typeof stringAttributes['agentstudio.bridge.slice'] === 'string'
+							? stringAttributes['agentstudio.bridge.slice']
+							: null,
+					transport:
+						'agentstudio.bridge.transport' in stringAttributes &&
+						typeof stringAttributes['agentstudio.bridge.transport'] === 'string'
+							? stringAttributes['agentstudio.bridge.transport']
+							: null,
+				});
+			}
+		});
 		const verifierHelpers: WorktreeVerifierBrowserHelpers = {
 			getBridgeFileViewerRenderedCodeLineCount(): number {
 				const canvas = document.querySelector('[data-testid="bridge-file-viewer-code-canvas"]');
@@ -2405,6 +2493,15 @@ async function makeVerificationPage(): Promise<Page> {
 		});
 	});
 	return page;
+}
+
+async function readBridgeWorktreeVerifierTelemetrySamples(
+	page: Page,
+): Promise<readonly WorktreeBridgeTelemetrySampleProof[]> {
+	return await page.evaluate(
+		(): readonly WorktreeBridgeTelemetrySampleProof[] =>
+			window.bridgeWorktreeVerifierTelemetrySamples ?? [],
+	);
 }
 
 async function installFileContentRouteGate(props: {

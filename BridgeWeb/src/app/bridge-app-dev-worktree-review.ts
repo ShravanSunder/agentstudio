@@ -5,16 +5,23 @@ import { parseBridgeCoreResourceUrl } from '../core/resources/bridge-resource-ur
 import type { ReviewSnapshotFrame } from '../features/review/models/review-protocol-models.js';
 import { reviewProtocolFrameSchema } from '../features/review/models/review-protocol-models.js';
 import type { BridgeContentFetch } from '../foundation/content/content-resource-loader.js';
+import type { BridgeTelemetryBootstrapHandshakeConfig } from '../foundation/telemetry/bridge-telemetry-bootstrap-config.js';
 
 export interface BridgeAppDevWorktreeReviewBackend {
 	readonly fetchContent: BridgeContentFetch;
 	readonly pushPackage: () => Promise<void>;
 }
 
+export interface InstallBridgeAppDevWorktreeReviewBackendProps {
+	readonly telemetryConfig?: BridgeTelemetryBootstrapHandshakeConfig;
+}
+
 const worktreeReviewPackageEndpoint = '/__bridge-worktree/review-package';
 const worktreeReviewContentEndpointPrefix = '/__bridge-worktree/review-content/';
 const bridgeWorktreeReviewPaneId = 'bridge-worktree-review-dev-pane';
 const bridgeWorktreeReviewStreamId = `review:${bridgeWorktreeReviewPaneId}`;
+const bridgeWorktreeReviewCommandNonce = 'bridge-worktree-review-dev-command';
+const bridgeCommandNonceAttribute = 'data-bridge-nonce';
 const bridgeReviewPaneIdAttribute = 'data-bridge-review-pane-id';
 const bridgeReviewStreamIdAttribute = 'data-bridge-review-stream-id';
 const bridgeWorktreeReviewAllowedResourceKindsByProtocol = {
@@ -27,10 +34,17 @@ const bridgeWorktreeReviewSnapshotResponseSchema = z
 	})
 	.strict();
 
-export function installBridgeAppDevWorktreeReviewBackend(): BridgeAppDevWorktreeReviewBackend {
+export function installBridgeAppDevWorktreeReviewBackend(
+	props: InstallBridgeAppDevWorktreeReviewBackendProps = {},
+): BridgeAppDevWorktreeReviewBackend {
 	const forwardedSearchParams = bridgeWorktreeReviewForwardedSearchParams(window.location.search);
+	const previousCommandNonce = document.documentElement.getAttribute(bridgeCommandNonceAttribute);
 	const previousPaneId = document.documentElement.getAttribute(bridgeReviewPaneIdAttribute);
 	const previousStreamId = document.documentElement.getAttribute(bridgeReviewStreamIdAttribute);
+	document.documentElement.setAttribute(
+		bridgeCommandNonceAttribute,
+		bridgeWorktreeReviewCommandNonce,
+	);
 	document.documentElement.setAttribute(bridgeReviewPaneIdAttribute, bridgeWorktreeReviewPaneId);
 	document.documentElement.setAttribute(
 		bridgeReviewStreamIdAttribute,
@@ -43,7 +57,14 @@ export function installBridgeAppDevWorktreeReviewBackend(): BridgeAppDevWorktree
 	let packagePushPromise: Promise<void> | null = null;
 	const handleHandshakeRequest = (): void => {
 		document.dispatchEvent(
-			new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push' } }),
+			new CustomEvent('__bridge_handshake', {
+				detail: {
+					pushNonce: 'push',
+					...(props.telemetryConfig === undefined
+						? {}
+						: { telemetryConfig: props.telemetryConfig }),
+				},
+			}),
 		);
 		resolveHandshakeRequest?.();
 		resolveHandshakeRequest = null;
@@ -53,6 +74,7 @@ export function installBridgeAppDevWorktreeReviewBackend(): BridgeAppDevWorktree
 		'beforeunload',
 		(): void => {
 			document.removeEventListener('__bridge_handshake_request', handleHandshakeRequest);
+			restoreDocumentElementAttribute(bridgeCommandNonceAttribute, previousCommandNonce);
 			restoreDocumentElementAttribute(bridgeReviewPaneIdAttribute, previousPaneId);
 			restoreDocumentElementAttribute(bridgeReviewStreamIdAttribute, previousStreamId);
 		},

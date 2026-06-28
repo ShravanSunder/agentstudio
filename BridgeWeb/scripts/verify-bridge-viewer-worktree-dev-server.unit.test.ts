@@ -12,6 +12,7 @@ import {
 	reviewRoutePressureSatisfied,
 	reviewRouteCollapseControlArtifactSatisfied,
 	reviewSelectedDemandTelemetrySatisfied,
+	reviewStartupTelemetrySatisfied,
 	reviewVisibleDemandTelemetryAttributed,
 	selectVisibleReviewCollapseControlProof,
 	worktreeFileVisibleDemandTelemetrySatisfied,
@@ -96,6 +97,33 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 				expectedItemId: 'worktree-review-gitignore',
 				routeProof: {},
 			}),
+		).toBe(false);
+	});
+
+	test('requires Review startup telemetry samples in route artifacts', async () => {
+		const verifierSource = await readFile(verifierSourceUrl, 'utf8');
+
+		expect(verifierSource).toContain('reviewStartupTelemetrySamples');
+		expect(verifierSource).toContain('reviewStartupTelemetrySatisfied');
+		expect(reviewStartupTelemetrySatisfied([])).toBe(false);
+		expect(
+			reviewStartupTelemetrySatisfied([
+				makeReviewStartupTelemetrySample('performance.bridge.web.review_package_body_load'),
+				makeReviewStartupTelemetrySample('performance.bridge.web.review_package_parse'),
+				makeReviewStartupTelemetrySample('performance.bridge.web.review_snapshot_apply'),
+				makeReviewStartupTelemetrySample('performance.bridge.web.projection_total'),
+				makeReviewStartupTelemetrySample('performance.bridge.web.selected_content_ready'),
+				makeReviewStartupTelemetrySample('performance.bridge.web.review_ready'),
+			]),
+		).toBe(true);
+		expect(
+			reviewStartupTelemetrySatisfied([
+				makeReviewStartupTelemetrySample('performance.bridge.web.review_package_body_load'),
+				makeReviewStartupTelemetrySample('performance.bridge.web.review_package_parse'),
+				makeReviewStartupTelemetrySample('performance.bridge.web.review_snapshot_apply'),
+				makeReviewStartupTelemetrySample('performance.bridge.web.projection_total'),
+				makeReviewStartupTelemetrySample('performance.bridge.web.selected_content_ready'),
+			]),
 		).toBe(false);
 	});
 
@@ -891,6 +919,18 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 		});
 	});
 });
+
+function makeReviewStartupTelemetrySample(name: string) {
+	return {
+		durationMilliseconds: 1,
+		name,
+		numericAttributes: {},
+		phase: name.replace('performance.bridge.web.', ''),
+		result: 'success',
+		slice: 'review_snapshot',
+		transport: 'content',
+	};
+}
 
 function makeReviewDemandTelemetryProof(
 	props: Partial<ReviewDemandTelemetryProof>,

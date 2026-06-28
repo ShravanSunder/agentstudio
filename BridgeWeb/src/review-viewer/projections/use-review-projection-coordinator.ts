@@ -53,6 +53,11 @@ export interface StartBridgeReviewProjectionCoordinatorRequestProps {
 const projectionAbortKey = 'bridge-review-projection';
 const projectionWorkloadId: BridgeReviewProjectionWorkloadId = 'interactive';
 
+type BridgeReviewProjectionCoordinatorTelemetryPhase =
+	| 'projection_input_build'
+	| 'projection_store_apply'
+	| 'projection_total';
+
 export function useBridgeReviewProjectionCoordinator(
 	props: UseBridgeReviewProjectionCoordinatorProps,
 ): void {
@@ -105,6 +110,7 @@ export function useBridgeReviewProjectionCoordinator(
 export function startBridgeReviewProjectionCoordinatorRequest(
 	props: StartBridgeReviewProjectionCoordinatorRequestProps,
 ): () => void {
+	const inputBuildStartMilliseconds = performance.now();
 	const projectionRequest = makeBridgeReviewProjectionRequest({
 		projectionMode: props.projectionMode,
 		facets: props.facets,
@@ -122,12 +128,14 @@ export function startBridgeReviewProjectionCoordinatorRequest(
 		hasActiveNonVisibilityRefinement: hasActiveNonVisibilityFacet(projectionRequest.facets),
 		workloadId: projectionWorkloadId,
 	});
+	const inputBuildDurationMilliseconds = performance.now() - inputBuildStartMilliseconds;
 	const executionLane =
 		decision.lane === 'worker' && props.projectionWorkerClient !== null ? 'worker' : 'sync';
 	const projectionClient =
 		executionLane === 'worker' && props.projectionWorkerClient !== null
 			? props.projectionWorkerClient
 			: props.syncProjectionClient;
+	const projectionTotalStartMilliseconds = performance.now();
 	const task = projectionClient.startProjection({
 		abortKey: projectionAbortKey,
 		projectionInput,
@@ -152,13 +160,42 @@ export function startBridgeReviewProjectionCoordinatorRequest(
 				props.store.getState().actions.failProjectionRequest(completion.identity);
 				return;
 			}
+			const storeApplyStartMilliseconds = performance.now();
 			const didApply = props.store.getState().actions.applyProjectionWorkerResult({
 				identity: completion.identity,
 				result: completion.response.result,
 			});
+			const storeApplyDurationMilliseconds = performance.now() - storeApplyStartMilliseconds;
 			if (!didApply) {
 				return;
 			}
+			recordBridgeReviewProjectionCoordinatorTelemetry({
+				telemetryRecorder: props.telemetryRecorder,
+				traceContext: props.telemetryParentTraceContext,
+				phase: 'projection_input_build',
+				durationMilliseconds: inputBuildDurationMilliseconds,
+				executionLane,
+				reviewPackage: props.reviewPackage,
+				result: 'success',
+			});
+			recordBridgeReviewProjectionCoordinatorTelemetry({
+				telemetryRecorder: props.telemetryRecorder,
+				traceContext: props.telemetryParentTraceContext,
+				phase: 'projection_store_apply',
+				durationMilliseconds: storeApplyDurationMilliseconds,
+				executionLane,
+				reviewPackage: props.reviewPackage,
+				result: 'success',
+			});
+			recordBridgeReviewProjectionCoordinatorTelemetry({
+				telemetryRecorder: props.telemetryRecorder,
+				traceContext: props.telemetryParentTraceContext,
+				phase: 'projection_total',
+				durationMilliseconds: performance.now() - projectionTotalStartMilliseconds,
+				executionLane,
+				reviewPackage: props.reviewPackage,
+				result: 'success',
+			});
 			recordBridgeProjectionBuildTelemetry({
 				telemetryRecorder: props.telemetryRecorder,
 				parentTraceContext: props.telemetryParentTraceContext,
@@ -207,4 +244,38 @@ function activeFacetPathCount(
 
 function hasActiveNonVisibilityFacet(facets: readonly BridgeReviewProjectionFacet[]): boolean {
 	return facets.some((facet: BridgeReviewProjectionFacet): boolean => facet.kind !== 'visibility');
+}
+
+function recordBridgeReviewProjectionCoordinatorTelemetry(props: {
+	readonly telemetryRecorder: BridgeTelemetryRecorder;
+	readonly traceContext: BridgeTraceContext | null;
+	readonly phase: BridgeReviewProjectionCoordinatorTelemetryPhase;
+	readonly durationMilliseconds: number;
+	readonly executionLane: 'sync' | 'worker';
+	readonly reviewPackage: BridgeReviewPackage;
+	readonly result: 'failed' | 'success';
+}): void {
+	if (!props.telemetryRecorder.isEnabled('web')) {
+		return;
+	}
+	props.telemetryRecorder.record({
+		scope: 'web',
+		name: `performance.bridge.web.${props.phase}`,
+		durationMilliseconds: Math.max(0, props.durationMilliseconds),
+		traceContext: props.traceContext,
+		stringAttributes: {
+			'agentstudio.bridge.phase': props.phase,
+			'agentstudio.bridge.plane': 'data',
+			'agentstudio.bridge.priority': 'warm',
+			'agentstudio.bridge.result': props.result,
+			'agentstudio.bridge.slice': 'review_projection',
+			'agentstudio.bridge.transport': 'worker',
+			'agentstudio.bridge.worker.lane': props.executionLane === 'worker' ? 'projection' : 'none',
+		},
+		numericAttributes: {
+			'agentstudio.bridge.review.item_count': props.reviewPackage.orderedItemIds.length,
+		},
+		booleanAttributes: {},
+	});
+	props.telemetryRecorder.flush();
 }

@@ -6,6 +6,10 @@ import { cleanup, render } from 'vitest-browser-react';
 import '../../app/bridge-app.css';
 import { reviewPackageForBridgeAppDevFixtureScenario } from '../../app/bridge-app-dev-fixture.js';
 import { BridgeApp } from '../../app/bridge-app.js';
+import type {
+	BridgeTelemetryBatch,
+	BridgeTelemetrySample,
+} from '../../foundation/telemetry/bridge-telemetry-event.js';
 import { createBridgePierrePortableBlobWorkerFactory } from '../workers/pierre/bridge-pierre-dev-worker-factory.js';
 import { terminateBridgePierreWorkerPoolSingletonForTest } from '../workers/pierre/bridge-pierre-worker-pool.js';
 import {
@@ -52,13 +56,13 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		await Promise.resolve();
 		await waitForBridgeViewerAnimationFrame();
 		await waitForBridgeViewerAnimationFrame();
-			disposeBridgeViewerMockedBackends();
-			document.body.replaceChildren();
-			document.documentElement.removeAttribute('data-bridge-nonce');
-			document.documentElement.removeAttribute('data-bridge-review-pane-id');
-			document.documentElement.removeAttribute('data-bridge-review-stream-id');
-			delete window.bridgeReviewControlProbe;
-		});
+		disposeBridgeViewerMockedBackends();
+		document.body.replaceChildren();
+		document.documentElement.removeAttribute('data-bridge-nonce');
+		document.documentElement.removeAttribute('data-bridge-review-pane-id');
+		document.documentElement.removeAttribute('data-bridge-review-stream-id');
+		delete window.bridgeReviewControlProbe;
+	});
 
 	test('mounts the real viewer from a mocked Bridge package push', async () => {
 		const fixture = makeBridgeViewerBrowserFixture();
@@ -87,6 +91,93 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		expect(
 			backend.requestedUrls.some((url: string): boolean => url.includes('browser-source-a')),
 		).toBe(true);
+
+		backend.dispose();
+	});
+
+	test('emits review startup timing telemetry from mocked package push to selected content ready', async () => {
+		const fixture = makeBridgeViewerBrowserFixture();
+		const backend = installBridgeViewerMockedBackend(fixture, {
+			telemetryConfig: {
+				enabledScopes: ['web'],
+				maxSamplesPerBatch: 64,
+				maxEncodedBatchBytes: 262_144,
+				minimumFlushIntervalMilliseconds: 0,
+				rpcMethodName: 'system.bridgeTelemetry',
+				scenario: 'mocked_review_startup_timing_v1',
+			},
+		});
+
+		render(
+			<BridgeApp
+				codeViewWorkerPoolEnabled={false}
+				fetchContent={backend.fetchContent}
+				markdownWorkerClient={null}
+				projectionWorkerClient={backend.projectionWorkerClient}
+			/>,
+		);
+		await backend.pushPackage();
+		await waitForBridgeViewerElement('[data-testid="review-viewer-shell"]');
+		await waitForSelectedBridgeViewerContentState('ready');
+		await waitForBridgeViewerTextWithDiagnostics(fixture.expected.initialText);
+		await waitForBridgeViewerRenderedCodeGeometry();
+
+		const samples = await waitForBridgeTelemetrySamples(backend, [
+			'performance.bridge.web.intake_frame',
+			'performance.bridge.web.review_package_body_load',
+			'performance.bridge.web.review_package_parse',
+			'performance.bridge.web.review_snapshot_apply',
+			'performance.bridge.web.projection_input_build',
+			'performance.bridge.web.projection_store_apply',
+			'performance.bridge.web.projection_total',
+			'performance.bridge.web.selected_content_ready',
+			'performance.bridge.web.review_ready',
+		]);
+
+		expect(sampleNames(samples)).toEqual(
+			expect.arrayContaining([
+				'performance.bridge.web.intake_frame',
+				'performance.bridge.web.review_package_body_load',
+				'performance.bridge.web.review_package_parse',
+				'performance.bridge.web.review_snapshot_apply',
+				'performance.bridge.web.projection_input_build',
+				'performance.bridge.web.projection_store_apply',
+				'performance.bridge.web.projection_total',
+				'performance.bridge.web.selected_content_ready',
+				'performance.bridge.web.review_ready',
+			]),
+		);
+		expect(
+			samples.find(
+				(sample: BridgeTelemetrySample): boolean =>
+					sample.name === 'performance.bridge.web.review_package_body_load',
+			),
+		).toEqual(
+			expect.objectContaining({
+				durationMilliseconds: expect.any(Number),
+				stringAttributes: expect.objectContaining({
+					'agentstudio.bridge.phase': 'review_package_body_load',
+					'agentstudio.bridge.transport': 'content',
+				}),
+				numericAttributes: expect.objectContaining({
+					'agentstudio.bridge.content.byte_count': expect.any(Number),
+				}),
+			}),
+		);
+		expect(
+			samples.find(
+				(sample: BridgeTelemetrySample): boolean =>
+					sample.name === 'performance.bridge.web.selected_content_ready',
+			),
+		).toEqual(
+			expect.objectContaining({
+				durationMilliseconds: expect.any(Number),
+				stringAttributes: expect.objectContaining({
+					'agentstudio.bridge.phase': 'selected_content_ready',
+					'agentstudio.bridge.transport': 'content',
+				}),
+			}),
+		);
 
 		backend.dispose();
 	});
@@ -1417,6 +1508,61 @@ async function waitForProjectionRequestCount(
 	await Promise.resolve();
 	await waitForBridgeViewerAnimationFrame();
 	await waitForProjectionRequestCount(backend, count, remainingAttempts - 1);
+}
+
+async function waitForBridgeTelemetrySamples(
+	backend: ReturnType<typeof installBridgeViewerMockedBackend>,
+	requiredNames: readonly string[],
+	remainingAttempts = 180,
+): Promise<readonly BridgeTelemetrySample[]> {
+	const samples = telemetrySamplesFromCommands(backend.commandDetails);
+	const presentNames = new Set(sampleNames(samples));
+	if (requiredNames.every((name: string): boolean => presentNames.has(name))) {
+		return samples;
+	}
+	if (remainingAttempts <= 0) {
+		throw new Error(
+			[
+				`expected Bridge telemetry samples ${requiredNames.join(', ')}`,
+				`actual=${sampleNames(samples).join(', ')}`,
+			].join('; '),
+		);
+	}
+	await Promise.resolve();
+	await waitForBridgeViewerAnimationFrame();
+	return await waitForBridgeTelemetrySamples(backend, requiredNames, remainingAttempts - 1);
+}
+
+function telemetrySamplesFromCommands(
+	commandDetails: readonly unknown[],
+): readonly BridgeTelemetrySample[] {
+	return commandDetails.flatMap((detail: unknown): readonly BridgeTelemetrySample[] => {
+		if (!isBridgeTelemetryCommand(detail)) {
+			return [];
+		}
+		return detail.params.samples;
+	});
+}
+
+function sampleNames(samples: readonly BridgeTelemetrySample[]): readonly string[] {
+	return samples.map((sample: BridgeTelemetrySample): string => sample.name);
+}
+
+function isBridgeTelemetryCommand(value: unknown): value is {
+	readonly method: 'system.bridgeTelemetry';
+	readonly params: BridgeTelemetryBatch;
+} {
+	return (
+		typeof value === 'object' &&
+		value !== null &&
+		'method' in value &&
+		value.method === 'system.bridgeTelemetry' &&
+		'params' in value &&
+		typeof value.params === 'object' &&
+		value.params !== null &&
+		'samples' in value.params &&
+		Array.isArray(value.params.samples)
+	);
 }
 
 async function waitForBridgeViewerRenderedCodeGeometry(remainingAttempts = 180): Promise<void> {

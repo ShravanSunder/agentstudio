@@ -237,8 +237,11 @@ const bridgeDevStringAttributeKeys = new Set<string>([
 ]);
 
 const bridgeDevNumericAttributeKeys = new Set<string>([
+	'agentstudio.bridge.content.byte_count',
+	'agentstudio.bridge.content.resource_count',
 	'agentstudio.bridge.markdown.input_bytes',
 	'agentstudio.bridge.markdown.output_bytes',
+	'agentstudio.bridge.review.item_count',
 	'agentstudio.bridge.telemetry.dropped_count',
 	'agentstudio.bridge.worktree.content_height_delta_px',
 	'agentstudio.bridge.worktree.content_total_size_px',
@@ -248,7 +251,10 @@ const bridgeDevNumericAttributeKeys = new Set<string>([
 	'agentstudio.bridge.worktree.tree_total_size_px',
 ]);
 
-const bridgeDevBooleanAttributeKeys = new Set<string>([]);
+const bridgeDevBooleanAttributeKeys = new Set<string>([
+	'agentstudio.bridge.header_missing',
+	'agentstudio.bridge.header_supported',
+]);
 
 const bridgeDevTelemetryUnsafeValuePatterns = [
 	/(^|[ "'=])\/Users\//,

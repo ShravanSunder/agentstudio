@@ -496,6 +496,16 @@ export interface ReviewRouteCollapseControlArtifact {
 	readonly reviewCollapseControlProof?: ReviewCollapseControlProof;
 }
 
+export interface ReviewStartupTelemetrySampleProof {
+	readonly durationMilliseconds: number | null;
+	readonly name: string;
+	readonly numericAttributes: Readonly<Record<string, number>>;
+	readonly phase: string | null;
+	readonly result: string | null;
+	readonly slice: string | null;
+	readonly transport: string | null;
+}
+
 export interface ReviewRenderedSelectionExpectation {
 	readonly expectedCodeViewOverflow: 'wrap';
 	readonly expectedItemId: string;
@@ -565,3 +575,22 @@ export function reviewRouteCollapseControlArtifactSatisfied(props: {
 		})
 	);
 }
+
+export function reviewStartupTelemetrySatisfied(
+	samples: readonly ReviewStartupTelemetrySampleProof[],
+): boolean {
+	const samplesByName = new Map(samples.map((sample) => [sample.name, sample]));
+	return expectedReviewStartupTelemetrySampleNames.every((name): boolean => {
+		const sample = samplesByName.get(name);
+		return sample !== undefined && sample.result === 'success';
+	});
+}
+
+const expectedReviewStartupTelemetrySampleNames = [
+	'performance.bridge.web.review_package_body_load',
+	'performance.bridge.web.review_package_parse',
+	'performance.bridge.web.review_snapshot_apply',
+	'performance.bridge.web.projection_total',
+	'performance.bridge.web.selected_content_ready',
+	'performance.bridge.web.review_ready',
+] as const satisfies readonly string[];
