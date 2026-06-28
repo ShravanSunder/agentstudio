@@ -52,11 +52,13 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		await Promise.resolve();
 		await waitForBridgeViewerAnimationFrame();
 		await waitForBridgeViewerAnimationFrame();
-		disposeBridgeViewerMockedBackends();
-		document.body.replaceChildren();
-		document.documentElement.removeAttribute('data-bridge-nonce');
-		delete window.bridgeReviewControlProbe;
-	});
+			disposeBridgeViewerMockedBackends();
+			document.body.replaceChildren();
+			document.documentElement.removeAttribute('data-bridge-nonce');
+			document.documentElement.removeAttribute('data-bridge-review-pane-id');
+			document.documentElement.removeAttribute('data-bridge-review-stream-id');
+			delete window.bridgeReviewControlProbe;
+		});
 
 	test('mounts the real viewer from a mocked Bridge package push', async () => {
 		const fixture = makeBridgeViewerBrowserFixture();
@@ -322,16 +324,15 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		const collapseButton = await waitForBridgeViewerCodeHeaderCollapseButton();
 		expect(collapseButton.getAttribute('aria-expanded')).toBe('true');
 		collapseButton.click();
-		await waitForBridgeViewerAnimationFrame();
-		await waitForBridgeViewerAnimationFrame();
 
-		expect(collapseButton.getAttribute('aria-expanded')).toBe('false');
+		await waitForBridgeViewerCodeHeaderCollapseButtonState('false');
 		expect(bridgeViewerCodeTextContent()).not.toContain(fixture.expected.initialText);
 
-		collapseButton.click();
+		const collapsedButton = await waitForBridgeViewerCodeHeaderCollapseButtonState('false');
+		collapsedButton.click();
 		await waitForBridgeViewerText(fixture.expected.initialText);
 
-		expect(collapseButton.getAttribute('aria-expanded')).toBe('true');
+		await waitForBridgeViewerCodeHeaderCollapseButtonState('true');
 
 		backend.dispose();
 	});
@@ -680,7 +681,16 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 					scenario: 'scroll',
 				}),
 			);
-			await waitForSelectedBridgeViewerDisplayPath(fixture.expected.largePath);
+			try {
+				await waitForSelectedBridgeViewerDisplayPath(fixture.expected.largePath);
+			} catch (error: unknown) {
+				throw new Error(
+					[
+						error instanceof Error ? error.message : String(error),
+						`requestedUrls=${JSON.stringify(backend.requestedUrls.slice(0, 8))}`,
+					].join('\n'),
+				);
+			}
 			await waitForSelectedBridgeViewerContentState('ready');
 			await waitForBridgeViewerTextWithDiagnostics(fixture.expected.largeText);
 
@@ -1427,6 +1437,25 @@ async function waitForBridgeViewerRenderedCodeGeometry(remainingAttempts = 180):
 	await waitForBridgeViewerRenderedCodeGeometry(remainingAttempts - 1);
 }
 
+async function waitForBridgeViewerCodeHeaderCollapseButtonState(
+	ariaExpanded: 'false' | 'true',
+	remainingAttempts = 180,
+): Promise<HTMLButtonElement> {
+	const collapseButton = await waitForBridgeViewerCodeHeaderCollapseButton();
+	if (collapseButton.getAttribute('aria-expanded') === ariaExpanded) {
+		return collapseButton;
+	}
+	if (remainingAttempts <= 0) {
+		throw new Error(`expected Bridge CodeView header aria-expanded=${ariaExpanded}`);
+	}
+	await Promise.resolve();
+	await waitForBridgeViewerAnimationFrame();
+	return await waitForBridgeViewerCodeHeaderCollapseButtonState(
+		ariaExpanded,
+		remainingAttempts - 1,
+	);
+}
+
 function selectedBridgeViewerDisplayPath(): string | null {
 	return (
 		document
@@ -1452,7 +1481,13 @@ async function waitForSelectedBridgeViewerDisplayPath(
 	}
 	if (remainingAttempts <= 0) {
 		throw new Error(
-			`expected selected Bridge viewer display path ${displayPath}, got ${selectedBridgeViewerDisplayPath() ?? 'null'}`,
+			[
+				`expected selected Bridge viewer display path ${displayPath}, got ${selectedBridgeViewerDisplayPath() ?? 'null'}`,
+				`reviewShell=${document.querySelector('[data-testid="review-viewer-shell"]') === null ? 'missing' : 'present'}`,
+				`loadingShell=${document.querySelector('[data-testid="bridge-review-package-loading-shell"]') === null ? 'missing' : 'present'}`,
+				`failedShell=${document.querySelector('[data-testid="bridge-review-package-failed-shell"]') === null ? 'missing' : 'present'}`,
+				`bodyText=${(document.body.textContent ?? '').slice(0, 240)}`,
+			].join('\n'),
 		);
 	}
 	await Promise.resolve();

@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { readBridgeTextResourceStream } from '../core/resources/bridge-resource-stream.js';
 import {
+	worktreeFileSurfaceOpenSourceOutcomeSchema,
 	worktreeFileProtocolFrameSchema,
 	worktreeFileSurfaceSourceSpecSchema,
 	type WorktreeFileProtocolFrame,
@@ -38,6 +39,7 @@ export interface CreateBridgeAppNativeWorktreeFileBackendProps {
 
 const nativeWorktreeFileSourceSpecAttribute = 'data-bridge-worktree-file-source-spec';
 const nativeWorktreeFileOpenSourceStreamMethod = 'worktreeFileSurface.openSourceStream';
+const bridgeIntakeReadyMethod = 'bridge.intakeReady';
 const defaultResponseTimeoutMilliseconds = 10_000;
 const defaultMaxFrameBytes = 8 * 1024 * 1024;
 
@@ -60,6 +62,14 @@ export function createBridgeAppNativeWorktreeFileBackend(
 
 	const subscribers = new Set<WorktreeFileFrameSubscriber>();
 	const pendingFrames: WorktreeFileProtocolFrame[] = [];
+	const pendingOpenResolvers = new Set<{
+		readonly streamId: string;
+		readonly generation: number;
+		readonly resolve: (
+			frame: Extract<WorktreeFileProtocolFrame, { readonly frameKind: 'worktree.snapshot' }>,
+		) => void;
+		readonly reject: (error: Error) => void;
+	}>();
 	let pushNonce: string | null = null;
 	let disposeIntakeListener: (() => void) | null = null;
 	let isDisposed = false;
@@ -101,6 +111,18 @@ export function createBridgeAppNativeWorktreeFileBackend(
 				frame.generation !== streamIdentity.generation
 			) {
 				return;
+			}
+			if (frame.frameKind === 'worktree.snapshot') {
+				for (const resolver of pendingOpenResolvers) {
+					if (
+						resolver.streamId === frame.streamId &&
+						resolver.generation === frame.generation
+					) {
+						pendingOpenResolvers.delete(resolver);
+						resolver.resolve(frame);
+						return;
+					}
+				}
 			}
 			publishFrames([frame]);
 		};
@@ -155,14 +177,23 @@ export function createBridgeAppNativeWorktreeFileBackend(
 				timeoutMilliseconds:
 					props.responseTimeoutMilliseconds ?? defaultResponseTimeoutMilliseconds,
 			});
-			const snapshotFrame = worktreeFileProtocolFrameSchema.parse(response);
-			if (snapshotFrame.frameKind !== 'worktree.snapshot') {
-				throw new Error('Native Worktree/File open stream did not return a snapshot frame');
-			}
+			const outcome = worktreeFileSurfaceOpenSourceOutcomeSchema.parse(response);
 			installIntakeListener({
-				streamId: snapshotFrame.streamId,
-				generation: snapshotFrame.generation,
+				streamId: outcome.streamId,
+				generation: outcome.generation,
 			});
+			const snapshotFramePromise = waitForNativeWorktreeSnapshot({
+				generation: outcome.generation,
+				pendingOpenResolvers,
+				streamId: outcome.streamId,
+				timeoutMilliseconds:
+					props.responseTimeoutMilliseconds ?? defaultResponseTimeoutMilliseconds,
+			});
+			sendNativeBridgeIntakeReadyCommand({
+				streamId: outcome.streamId,
+				target,
+			});
+			const snapshotFrame = await snapshotFramePromise;
 			return {
 				frames: [snapshotFrame],
 				provenance: nativeWorktreeFileSurfaceProvenance(sourceSpec.rootPathToken),
@@ -186,6 +217,10 @@ export function createBridgeAppNativeWorktreeFileBackend(
 			target.removeEventListener('__bridge_handshake', handleHandshake);
 			disposeIntakeListener?.();
 			disposeIntakeListener = null;
+			for (const resolver of pendingOpenResolvers) {
+				resolver.reject(new Error('Native Worktree/File backend is disposed'));
+			}
+			pendingOpenResolvers.clear();
 			subscribers.clear();
 			pendingFrames.length = 0;
 		},
@@ -251,6 +286,66 @@ async function sendNativeWorktreeFileOpenStreamCommand(props: {
 				},
 			}),
 		);
+	});
+}
+
+function sendNativeBridgeIntakeReadyCommand(props: {
+	readonly streamId: string;
+	readonly target: Document;
+}): void {
+	const bridgeNonce = props.target.documentElement.getAttribute('data-bridge-nonce');
+	if (bridgeNonce === null || bridgeNonce.length === 0) {
+		throw new Error('Native Worktree/File command nonce is unavailable');
+	}
+	props.target.dispatchEvent(
+		new CustomEvent('__bridge_command', {
+			detail: {
+				jsonrpc: '2.0',
+				method: bridgeIntakeReadyMethod,
+				params: {
+					protocolId: 'worktree-file',
+					streamId: props.streamId,
+				},
+				__nonce: bridgeNonce,
+				__commandId: `${props.streamId}:intake-ready`,
+			},
+		}),
+	);
+}
+
+function waitForNativeWorktreeSnapshot(props: {
+	readonly streamId: string;
+	readonly generation: number;
+	readonly pendingOpenResolvers: Set<{
+		readonly streamId: string;
+		readonly generation: number;
+		readonly resolve: (
+			frame: Extract<WorktreeFileProtocolFrame, { readonly frameKind: 'worktree.snapshot' }>,
+		) => void;
+		readonly reject: (error: Error) => void;
+	}>;
+	readonly timeoutMilliseconds: number;
+}): Promise<Extract<WorktreeFileProtocolFrame, { readonly frameKind: 'worktree.snapshot' }>> {
+	return new Promise((resolve, reject): void => {
+		const timeoutId = window.setTimeout((): void => {
+			props.pendingOpenResolvers.delete(resolver);
+			reject(new Error('Native Worktree/File snapshot intake timed out'));
+		}, props.timeoutMilliseconds);
+		const resolver = {
+			streamId: props.streamId,
+			generation: props.generation,
+			resolve: (
+				frame: Extract<WorktreeFileProtocolFrame, { readonly frameKind: 'worktree.snapshot' }>,
+			): void => {
+				window.clearTimeout(timeoutId);
+				resolve(frame);
+			},
+			reject: (error: Error): void => {
+				window.clearTimeout(timeoutId);
+				reject(error);
+			},
+		};
+		props.pendingOpenResolvers.add(resolver);
 	});
 }
 

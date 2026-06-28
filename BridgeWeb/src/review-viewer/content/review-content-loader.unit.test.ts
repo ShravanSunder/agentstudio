@@ -106,8 +106,8 @@ describe('review content loader', () => {
 		]);
 	});
 
-	test('rejects preview-only selected item content as final content', async () => {
-		const previewOnlyHeadHandle: BridgeContentHandle = {
+	test('loads selected item content when no browser-verifiable integrity is issued', async () => {
+		const hostVerifiedHeadHandle: BridgeContentHandle = {
 			...makeBridgeContentHandle('item-source', 'head'),
 			contentHash: '',
 			contentHashAlgorithm: 'git-oid',
@@ -115,20 +115,19 @@ describe('review content loader', () => {
 		};
 		const reviewPackage = packageWithSelectedItemContentRoles({
 			base: null,
-			head: previewOnlyHeadHandle,
+			head: hostVerifiedHeadHandle,
 			diff: null,
 			file: null,
 		});
 
-		await expect(
-			loadSelectedReviewItemContent({
-				reviewPackage,
-				selectedItemId: 'item-source',
-				fetchContent: async (): Promise<Response> => new Response('head text'),
-			}),
-		).rejects.toThrow(
-			'Bridge review content resource is preview-only and cannot satisfy final content',
-		);
+		const resource = await loadSelectedReviewItemContent({
+			reviewPackage,
+			selectedItemId: 'item-source',
+			fetchContent: async (): Promise<Response> => new Response('head text'),
+		});
+
+		expect(resource?.authoritative).toBe(true);
+		expect(resource?.readText()).toBe('head text');
 	});
 
 	test('returns null when no selected item is available', async () => {

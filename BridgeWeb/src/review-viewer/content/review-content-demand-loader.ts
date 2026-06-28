@@ -538,13 +538,17 @@ async function loadAllDemandResources(props: {
 		BridgeResourceExecutorResult<BridgeTextResourceStreamResult>
 	>();
 	const loadedResults = await Promise.all(props.loadedResults);
-	if (props.signal?.aborted === true) {
-		return { status: 'deferred', reason: 'aborted' };
-	}
 	for (const loadedResult of loadedResults) {
 		loadedResourcesByRole.set(loadedResult.role, loadedResult.result);
 	}
-	return resultForPlans({ plans: props.plans, loadedResourcesByRole });
+	const result = resultForPlans({ plans: props.plans, loadedResourcesByRole });
+	if (result.status === 'failed') {
+		return result;
+	}
+	if (props.signal?.aborted === true) {
+		return { status: 'deferred', reason: 'aborted' };
+	}
+	return result;
 }
 
 async function failFastOnFirstDemandResourceFailure(props: {

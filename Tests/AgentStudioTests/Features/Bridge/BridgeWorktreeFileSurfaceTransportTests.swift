@@ -12,9 +12,14 @@ extension WebKitSerializedTests {
             installTestAtomRegistryIfNeeded()
         }
 
-        @Test("open source stream returns native Worktree/File snapshot without Review lineage")
-        func openSourceStreamReturnsNativeSnapshotWithoutReviewLineage() async throws {
-            let fixture = try makeControllerFixture()
+        @Test("open source stream returns control outcome and delivers native Worktree/File snapshot by intake")
+        func openSourceStreamReturnsControlOutcomeAndDeliversNativeSnapshotByIntake() async throws {
+            let eventCapture = BridgeWorktreeFileSurfaceEventCapture()
+            let fixture = try makeControllerFixtureWithIntakeSink(
+                intakeFrameSink: { _, frameJSON, _ in
+                    await eventCapture.recordIntake(frameJSON)
+                }
+            )
             let paneId = fixture.paneId
             let repoId = fixture.repoId
             let worktreeId = fixture.worktreeId
@@ -55,16 +60,32 @@ extension WebKitSerializedTests {
             let response = try JSONDecoder().decode(BridgeWorktreeFileSurfaceSuccessResponse.self, from: responseData)
             #expect(response.jsonrpc == "2.0")
             #expect(response.id == "open-1")
-            #expect(response.result.frameKind == "worktree.snapshot")
-            #expect(response.result.source.repoId == repoId.uuidString)
-            #expect(response.result.source.worktreeId == worktreeId.uuidString)
-            #expect(response.result.source.subscriptionGeneration == 1)
-            #expect(response.result.treeDescriptor.descriptor.protocolId == "worktree-file")
-            #expect(response.result.treeDescriptor.descriptor.resourceKind == "worktree.treeWindow")
-            #expect(response.result.statusDescriptor?.descriptor.resourceKind == "worktree.status")
+            #expect(response.result.status == "accepted")
+            #expect(response.result.protocolId == "worktree-file")
+            #expect(response.result.streamId == "worktree-file:\(paneId.uuidString)")
+            #expect(response.result.generation == 1)
+
+            await controller.handleBridgeIntakeReady(
+                BridgeIntakeReadyMethod.Params(protocolId: "worktree-file", streamId: response.result.streamId)
+            )
+            let snapshotJSON = try #require(await eventCapture.intakeFrames().first)
+            let snapshotEnvelope = try decodeIntakeEnvelope(
+                snapshotJSON,
+                as: BridgeWorktreeSnapshotFrame.self
+            )
+            #expect(snapshotEnvelope.kind == "snapshot")
+            #expect(snapshotEnvelope.streamId == response.result.streamId)
+            #expect(snapshotEnvelope.generation == response.result.generation)
+            #expect(snapshotEnvelope.payload.frameKind == "worktree.snapshot")
+            #expect(snapshotEnvelope.payload.source.repoId == repoId.uuidString)
+            #expect(snapshotEnvelope.payload.source.worktreeId == worktreeId.uuidString)
+            #expect(snapshotEnvelope.payload.source.subscriptionGeneration == 1)
+            #expect(snapshotEnvelope.payload.treeDescriptor.descriptor.protocolId == "worktree-file")
+            #expect(snapshotEnvelope.payload.treeDescriptor.descriptor.resourceKind == "worktree.treeWindow")
+            #expect(snapshotEnvelope.payload.statusDescriptor?.descriptor.resourceKind == "worktree.status")
             let treeResource = try #require(
                 BridgeTransportResourceURL.parse(
-                    response.result.treeDescriptor.descriptor.resourceUrl,
+                    snapshotEnvelope.payload.treeDescriptor.descriptor.resourceUrl,
                     allowedResourceKindsByProtocol: BridgeResourceProtocolRegistry.reviewViewerAllowedResourceKinds
                 )
             )
@@ -75,19 +96,19 @@ extension WebKitSerializedTests {
                 resourceLeaseRegistry: controller.resourceLeaseRegistry
             )
             let treeBodyData = try await resourceBody(
-                url: response.result.treeDescriptor.descriptor.resourceUrl,
+                url: snapshotEnvelope.payload.treeDescriptor.descriptor.resourceUrl,
                 handler: schemeHandler
             )
             let treeBody = try JSONDecoder().decode(BridgeWorktreeTreeWindowResourceBody.self, from: treeBodyData)
-            #expect(treeBody.source == response.result.source)
-            #expect(treeBody.treeSizeFacts == response.result.treeSizeFacts)
-            let statusURL = try #require(response.result.statusDescriptor?.descriptor.resourceUrl)
+            #expect(treeBody.source == snapshotEnvelope.payload.source)
+            #expect(treeBody.treeSizeFacts == snapshotEnvelope.payload.treeSizeFacts)
+            let statusURL = try #require(snapshotEnvelope.payload.statusDescriptor?.descriptor.resourceUrl)
             let statusBodyData = try await resourceBody(url: statusURL, handler: schemeHandler)
             let statusBody = try JSONDecoder().decode(BridgeWorktreeStatusResourceBody.self, from: statusBodyData)
-            #expect(statusBody.source == response.result.source)
-            #expect(response.result.requestSelector?.pathScope == ["Sources"])
-            #expect(response.result.treeSizeFacts.extentKind == .exactPathCount)
-            #expect(response.result.treeSizeFacts.pathCount == 0)
+            #expect(statusBody.source == snapshotEnvelope.payload.source)
+            #expect(snapshotEnvelope.payload.requestSelector?.pathScope == ["Sources"])
+            #expect(snapshotEnvelope.payload.treeSizeFacts.extentKind == .exactPathCount)
+            #expect(snapshotEnvelope.payload.treeSizeFacts.pathCount == 0)
             #expect(controller.paneState.diff.packageMetadata == nil)
 
             controller.teardown()
@@ -128,11 +149,17 @@ extension WebKitSerializedTests {
             )
 
             let firstResponse = try await decodedResponse(from: firstResponseCapture)
-            #expect(firstResponse.result.treeSizeFacts.extentKind == .exactPathCount)
-            #expect(firstResponse.result.treeSizeFacts.pathCount == 1)
+            let firstSnapshotJSON = try #require(fixture.controller.pendingWorktreeFileIntakeFrames.first)
+            let firstSnapshot = try decodeIntakeEnvelope(
+                firstSnapshotJSON,
+                as: BridgeWorktreeSnapshotFrame.self
+            )
+            #expect(firstResponse.result.status == "accepted")
+            #expect(firstSnapshot.payload.treeSizeFacts.extentKind == .exactPathCount)
+            #expect(firstSnapshot.payload.treeSizeFacts.pathCount == 1)
             let firstTreeResource = try #require(
                 BridgeTransportResourceURL.parse(
-                    firstResponse.result.treeDescriptor.descriptor.resourceUrl,
+                    firstSnapshot.payload.treeDescriptor.descriptor.resourceUrl,
                     allowedResourceKindsByProtocol: BridgeResourceProtocolRegistry.reviewViewerAllowedResourceKinds
                 )
             )
@@ -214,9 +241,20 @@ extension WebKitSerializedTests {
             )
 
             let response = try await decodedResponse(from: responseCapture)
+            await fixture.controller.handleBridgeIntakeReady(
+                BridgeIntakeReadyMethod.Params(protocolId: "worktree-file", streamId: response.result.streamId)
+            )
             let events = await eventCapture.events()
-            #expect(events == ["response", "intake"])
-            let intakeFrameJSON = try #require(await eventCapture.intakeFrames().first)
+            #expect(events == ["response", "intake", "intake"])
+            let intakeFrames = await eventCapture.intakeFrames()
+            let snapshotEnvelope = try decodeIntakeEnvelope(
+                intakeFrames[0],
+                as: BridgeWorktreeSnapshotFrame.self
+            )
+            #expect(snapshotEnvelope.kind == "snapshot")
+            #expect(snapshotEnvelope.streamId == response.result.streamId)
+            #expect(snapshotEnvelope.generation == response.result.generation)
+            let intakeFrameJSON = intakeFrames[1]
             let intakeFrameData = try #require(intakeFrameJSON.data(using: .utf8))
             let intakeFrame = try JSONDecoder().decode(
                 BridgeWorktreeFileSurfaceIntakeFrameEnvelope.self,
@@ -283,6 +321,9 @@ extension WebKitSerializedTests {
                 ).jsonString()
             )
             let response = try await decodedResponse(from: responseCapture)
+            await fixture.controller.handleBridgeIntakeReady(
+                BridgeIntakeReadyMethod.Params(protocolId: "worktree-file", streamId: response.result.streamId)
+            )
             let status = GitWorkingTreeStatus(
                 summary: GitWorkingTreeSummary(
                     changed: 2,
@@ -307,11 +348,17 @@ extension WebKitSerializedTests {
             )
 
             let events = await eventCapture.events()
-            #expect(events == ["response", "intake", "intake", "intake"])
+            #expect(events == ["response", "intake", "intake", "intake", "intake"])
             let intakeFrames = await eventCapture.intakeFrames()
-            #expect(intakeFrames.count == 3)
-            let statusEnvelope = try decodeIntakeEnvelope(
+            #expect(intakeFrames.count == 4)
+            let snapshotEnvelope = try decodeIntakeEnvelope(
                 intakeFrames[0],
+                as: BridgeWorktreeSnapshotFrame.self
+            )
+            #expect(snapshotEnvelope.kind == "snapshot")
+            #expect(snapshotEnvelope.streamId == response.result.streamId)
+            let statusEnvelope = try decodeIntakeEnvelope(
+                intakeFrames[1],
                 as: BridgeWorktreeStatusPatchFrame.self
             )
             #expect(statusEnvelope.streamId == response.result.streamId)
@@ -323,11 +370,11 @@ extension WebKitSerializedTests {
             #expect(statusEnvelope.payload.patch.unstaged == 2)
             #expect(statusEnvelope.payload.patch.untracked == 3)
             let firstInvalidation = try decodeIntakeEnvelope(
-                intakeFrames[1],
+                intakeFrames[2],
                 as: BridgeWorktreeFileInvalidatedFrame.self
             )
             let secondInvalidation = try decodeIntakeEnvelope(
-                intakeFrames[2],
+                intakeFrames[3],
                 as: BridgeWorktreeFileInvalidatedFrame.self
             )
             #expect(firstInvalidation.sequence == 2)
@@ -381,6 +428,9 @@ extension WebKitSerializedTests {
                 ).jsonString()
             )
             let response = try await decodedResponse(from: responseCapture)
+            await fixture.controller.handleBridgeIntakeReady(
+                BridgeIntakeReadyMethod.Params(protocolId: "worktree-file", streamId: response.result.streamId)
+            )
             try await fixture.controller.publishWorktreeFileSurfaceChangeset(
                 FileChangeset(
                     worktreeId: fixture.worktreeId,
@@ -391,7 +441,13 @@ extension WebKitSerializedTests {
                 )
             )
 
-            let intakeFrame = try #require(await eventCapture.intakeFrames().first)
+            let intakeFrames = await eventCapture.intakeFrames()
+            let snapshot = try decodeIntakeEnvelope(
+                intakeFrames[0],
+                as: BridgeWorktreeSnapshotFrame.self
+            )
+            #expect(snapshot.streamId == response.result.streamId)
+            let intakeFrame = intakeFrames[1]
             let invalidation = try decodeIntakeEnvelope(
                 intakeFrame,
                 as: BridgeWorktreeFileInvalidatedFrame.self
@@ -453,9 +509,17 @@ extension WebKitSerializedTests {
                 ).jsonString()
             )
             let response = try await decodedResponse(from: responseCapture)
+            await fixture.controller.handleBridgeIntakeReady(
+                BridgeIntakeReadyMethod.Params(protocolId: "worktree-file", streamId: response.result.streamId)
+            )
+            let snapshotFrame = try #require(await eventCapture.intakeFrames().first)
+            let snapshot = try decodeIntakeEnvelope(
+                snapshotFrame,
+                as: BridgeWorktreeSnapshotFrame.self
+            )
             let treeResource = try #require(
                 BridgeTransportResourceURL.parse(
-                    response.result.treeDescriptor.descriptor.resourceUrl,
+                    snapshot.payload.treeDescriptor.descriptor.resourceUrl,
                     allowedResourceKindsByProtocol: BridgeResourceProtocolRegistry.reviewViewerAllowedResourceKinds
                 )
             )
@@ -471,16 +535,16 @@ extension WebKitSerializedTests {
             )
 
             let intakeFrames = await eventCapture.intakeFrames()
-            #expect(intakeFrames.count == 1)
+            #expect(intakeFrames.count == 2)
             let reset = try decodeIntakeEnvelope(
-                intakeFrames[0],
+                intakeFrames[1],
                 as: BridgeWorktreeResetFrame.self
             )
             #expect(reset.streamId == response.result.streamId)
             #expect(reset.sequence == 1)
             #expect(reset.payload.frameKind == "worktree.reset")
             #expect(reset.payload.reason == .providerRestart)
-            #expect(reset.payload.source == response.result.source)
+            #expect(reset.payload.source == snapshot.payload.source)
             #expect(
                 await fixture.controller.resourceLeaseRegistry.contains(treeResource, paneId: fixture.paneId) == false)
             fixture.controller.teardown()
@@ -628,7 +692,7 @@ private struct BridgeWorktreeFileSurfaceRPCRequest<Params: Encodable>: Encodable
 private struct BridgeWorktreeFileSurfaceSuccessResponse: Decodable {
     let jsonrpc: String
     let id: String
-    let result: BridgeWorktreeSnapshotFrame
+    let result: BridgeWorktreeFileSurfaceOpenSourceOutcome
 }
 
 private struct BridgeWorktreeFileSurfaceIntakeFrameEnvelope: Decodable {

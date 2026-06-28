@@ -182,7 +182,8 @@ struct BridgePushEnvelopeEncoderTests {
         #expect(closeObject["kind"] as? String == "close")
         #expect(closeObject["payload"] == nil)
         #expect(resetObject["kind"] as? String == "reset")
-        #expect(resetObject["payload"] == nil)
+        let resetPayload = try #require(resetObject["payload"] as? [String: Any])
+        #expect(resetPayload["ignored"] as? Bool == true)
     }
 
     @Test("rejects error intake frames without a message")

@@ -132,6 +132,7 @@ function bridgeViewerNavigationCommandForDevQuery(props: {
 		schema: bridgeAppDevPresentationModeSchema,
 	});
 	const selectedPath = props.searchParams.get('path');
+	const selectedReviewItemId = props.searchParams.get('reviewItemId');
 	const selectedVersion = parseOptionalFileVersion(props.searchParams.get('version'));
 
 	if (viewerMode === 'file') {
@@ -143,6 +144,7 @@ function bridgeViewerNavigationCommandForDevQuery(props: {
 
 	return bridgeViewerReviewNavigationCommand({
 		presentationMode,
+		selectedReviewItemId,
 		selectedPath,
 		selectedVersion,
 	});
@@ -189,6 +191,7 @@ function bridgeViewerFileNavigationCommand(props: {
 
 function bridgeViewerReviewNavigationCommand(props: {
 	readonly presentationMode: BridgeAppDevPresentationMode;
+	readonly selectedReviewItemId: string | null;
 	readonly selectedPath: string | null;
 	readonly selectedVersion: BridgeViewerFileVersion | null;
 }): BridgeViewerNavigationCommand {
@@ -199,7 +202,10 @@ function bridgeViewerReviewNavigationCommand(props: {
 			);
 		}
 		return bridgeViewerNavigationCommandSchema.parse({
-			commandId: `dev:worktree:review:file:${props.selectedPath}:${props.selectedVersion}`,
+			commandId:
+				props.selectedReviewItemId === null
+					? `dev:worktree:review:file:${props.selectedPath}:${props.selectedVersion}`
+					: `dev:worktree:review:file:${props.selectedPath}:${props.selectedVersion}:item:${props.selectedReviewItemId}`,
 			commandKind: 'initialize',
 			context: 'review',
 			restoreMemory: true,
@@ -215,6 +221,9 @@ function bridgeViewerReviewNavigationCommand(props: {
 					sourceId: bridgeAppDevWorktreeReviewSourceId,
 					path: props.selectedPath,
 				},
+				...(props.selectedReviewItemId === null
+					? {}
+					: { reviewItemId: props.selectedReviewItemId }),
 				version: props.selectedVersion,
 			},
 		});

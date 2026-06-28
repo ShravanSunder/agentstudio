@@ -21,8 +21,35 @@ import {
 import type { ReviewDemandTelemetryProof } from './verify-bridge-viewer-worktree-review-proof.ts';
 
 const verifierSourceUrl = new URL('./verify-bridge-viewer-worktree-dev-server.ts', import.meta.url);
+const viteConfigSourceUrl = new URL('../vite.config.ts', import.meta.url);
 
 describe('worktree dev-server verifier Review interaction contract', () => {
+	test('derives Review file-target ids through snapshot descriptors and resource fetches', async () => {
+		const verifierSource = await readFile(verifierSourceUrl, 'utf8');
+
+		expect(verifierSource).toContain('worktreeReviewSnapshotFrameResponseSchema');
+		expect(verifierSource).toContain("frameUrl.searchParams.set('frame', 'review-snapshot')");
+		expect(verifierSource).toContain('worktreeReviewPackageDescriptorResourceFetchUrl');
+		expect(verifierSource).toContain(
+			"packageUrl.searchParams.set('resource', parsedResourceUrl.resourceKind)",
+		);
+		expect(verifierSource).toContain(
+			"packageUrl.searchParams.set('opaqueId', parsedResourceUrl.opaqueId)",
+		);
+		expect(verifierSource).not.toContain('worktreeReviewPackageRouteResponseSchema');
+		expect(verifierSource).not.toContain('reviewProtocolFrameSchema');
+		expect(verifierSource).not.toContain('reviewPackage: bridgeReviewPackageSchema');
+	});
+
+	test('rejects the old plain Vite Review-package wrapper route', async () => {
+		const viteConfigSource = await readFile(viteConfigSourceUrl, 'utf8');
+
+		expect(viteConfigSource).toContain(
+			'Bridge worktree review package route requires frame=review-snapshot or a descriptor resource request',
+		);
+		expect(viteConfigSource).not.toContain('reviewPackage: packageResult.reviewPackage');
+	});
+
 	test('uses visible Pierre tree search interaction for Review selection proof', async () => {
 		const verifierSource = await readFile(verifierSourceUrl, 'utf8');
 

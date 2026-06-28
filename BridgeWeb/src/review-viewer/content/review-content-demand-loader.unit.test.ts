@@ -461,6 +461,45 @@ describe('review content demand loader', () => {
 		expect(executor.inFlightBytes).toBe(0);
 	});
 
+	test('keeps terminal failure authoritative when sibling abort races aggregate completion', async () => {
+		const registry = createBridgeResourceDescriptorRegistry({
+			allowedResourceKindsByProtocol: { review: new Set(['content']) },
+		});
+		const reviewPackage = makeBridgeReviewPackage();
+		const registeredDescriptorsByHandleId = registerPackageContentDescriptors({
+			registry,
+			reviewPackage,
+		});
+		const executor = createBridgeResourceExecutor<BridgeTextResourceStreamResult>({
+			registry,
+			maxConcurrentLoads: 2,
+			maxInFlightBytes: 4096,
+			maxQueuedLoads: 8,
+			maxQueuedBytes: 4096,
+			loadResource: async ({ descriptor }) => {
+				if (descriptor.descriptorId.includes('head')) {
+					throw new Error('head content failed');
+				}
+				return { content: makeTextStreamResult('base text'), byteLength: 9 };
+			},
+		});
+
+		const result = await loadReviewItemContentResourcesThroughDemandResult({
+			reviewPackage,
+			itemId: 'item-source',
+			interest: 'selected',
+			resolveDescriptorRef: (handle: BridgeContentHandle): BridgeDescriptorRef | null =>
+				registeredDescriptorsByHandleId.get(handle.handleId)?.ref ?? null,
+			scheduler: createBridgeDemandScheduler({
+				maxQueuedIntentsPerLane: 8,
+				maxQueuedEstimatedBytes: 4096,
+			}),
+			executor,
+		});
+
+		expect(result).toEqual({ status: 'failed', reason: 'load_failed' });
+	});
+
 	test('returns deferred instead of terminal null when visible demand hits pressure', async () => {
 		const registry = createBridgeResourceDescriptorRegistry({
 			allowedResourceKindsByProtocol: { review: new Set(['content']) },

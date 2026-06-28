@@ -111,7 +111,7 @@ final class RPCRouter {
             return
         }
 
-        guard isBridgeReady || request.method == BridgeReadyMethod.method else {
+        guard isBridgeReady || Self.isPreReadyControlMethod(request.method) else {
             rpcRouterLogger.info("[RPCRouter] dropped pre-ready command: \(request.method)")
             await reportError(.bridgeNotReady, "Bridge not ready: \(request.method)", id: request.requestId)
             return
@@ -317,6 +317,10 @@ final class RPCRouter {
             || method.hasSuffix(".refreshStream")
             || method.hasSuffix(".cancelStream")
             || method.hasSuffix(".resetStream")
+    }
+
+    private static func isPreReadyControlMethod(_ method: String) -> Bool {
+        method == BridgeReadyMethod.method || method == BridgeIntakeReadyMethod.method
     }
 
     private func dispatchBridgeTelemetryBatch(_ request: ParsedRPCRequest) async {

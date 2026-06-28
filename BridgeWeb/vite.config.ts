@@ -296,9 +296,10 @@ async function handleBridgeWorktreeReviewPackageRequest(props: {
 			);
 			return;
 		}
-		writeJsonResponse(props.response, 200, {
-			reviewPackage: packageResult.reviewPackage,
-		});
+		props.response.statusCode = 400;
+		props.response.end(
+			'Bridge worktree review package route requires frame=review-snapshot or a descriptor resource request',
+		);
 	} catch (error: unknown) {
 		props.response.statusCode = 500;
 		props.response.end(

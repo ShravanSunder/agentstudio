@@ -1,8 +1,5 @@
-// @vitest-environment jsdom
-
-import { act } from 'react';
-import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, test, vi } from 'vitest';
+import { render } from 'vitest-browser-react';
 
 import type { BridgeViewerNavigationCommand } from './bridge-viewer-navigation-models.js';
 
@@ -28,31 +25,15 @@ vi.mock('./bridge-app.js', () => ({
 
 import { BridgeAppProtocolRouter } from './bridge-app-protocol-router.js';
 
-Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
-
 describe('BridgeAppProtocolRouter contract', () => {
-	let mountedRoot: Root | null = null;
-
 	afterEach(() => {
-		if (mountedRoot !== null) {
-			act((): void => {
-				mountedRoot?.unmount();
-			});
-			mountedRoot = null;
-		}
 		bridgeAppRouterContractMock.calls.length = 0;
 		document.body.replaceChildren();
 		document.documentElement.removeAttribute('data-bridge-app-protocol');
 	});
 
 	test('routes Worktree/File protocol by entering BridgeApp file mode', async () => {
-		const container = document.createElement('div');
-		document.body.append(container);
-		mountedRoot = createRoot(container);
-
-		await act(async (): Promise<void> => {
-			mountedRoot?.render(<BridgeAppProtocolRouter protocol="worktree-file" />);
-		});
+		await render(<BridgeAppProtocolRouter protocol="worktree-file" />);
 
 		expect(bridgeAppRouterContractMock.calls).toEqual([
 			{ navigationCommand: undefined, viewerMode: 'file' },
@@ -65,13 +46,7 @@ describe('BridgeAppProtocolRouter contract', () => {
 	});
 
 	test('routes Review protocol by entering BridgeApp review mode', async () => {
-		const container = document.createElement('div');
-		document.body.append(container);
-		mountedRoot = createRoot(container);
-
-		await act(async (): Promise<void> => {
-			mountedRoot?.render(<BridgeAppProtocolRouter protocol="review" />);
-		});
+		await render(<BridgeAppProtocolRouter protocol="review" />);
 
 		expect(bridgeAppRouterContractMock.calls).toEqual([
 			{ navigationCommand: undefined, viewerMode: 'review' },
@@ -84,9 +59,6 @@ describe('BridgeAppProtocolRouter contract', () => {
 	});
 
 	test('routes Files navigation commands by entering BridgeApp file mode', async () => {
-		const container = document.createElement('div');
-		document.body.append(container);
-		mountedRoot = createRoot(container);
 		const navigationCommand = {
 			commandId: 'dev:worktree:files',
 			commandKind: 'initialize',
@@ -98,17 +70,12 @@ describe('BridgeAppProtocolRouter contract', () => {
 			},
 		} satisfies BridgeViewerNavigationCommand;
 
-		await act(async (): Promise<void> => {
-			mountedRoot?.render(<BridgeAppProtocolRouter navigationCommand={navigationCommand} />);
-		});
+		await render(<BridgeAppProtocolRouter navigationCommand={navigationCommand} />);
 
 		expect(bridgeAppRouterContractMock.calls).toEqual([{ navigationCommand, viewerMode: 'file' }]);
 	});
 
 	test('routes Review navigation commands by entering BridgeApp review mode', async () => {
-		const container = document.createElement('div');
-		document.body.append(container);
-		mountedRoot = createRoot(container);
 		const navigationCommand = {
 			commandId: 'dev:worktree:review',
 			commandKind: 'initialize',
@@ -121,9 +88,7 @@ describe('BridgeAppProtocolRouter contract', () => {
 			},
 		} satisfies BridgeViewerNavigationCommand;
 
-		await act(async (): Promise<void> => {
-			mountedRoot?.render(<BridgeAppProtocolRouter navigationCommand={navigationCommand} />);
-		});
+		await render(<BridgeAppProtocolRouter navigationCommand={navigationCommand} />);
 
 		expect(bridgeAppRouterContractMock.calls).toEqual([
 			{ navigationCommand, viewerMode: 'review' },

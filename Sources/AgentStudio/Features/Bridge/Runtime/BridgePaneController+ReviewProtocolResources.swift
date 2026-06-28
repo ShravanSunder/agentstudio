@@ -29,6 +29,36 @@ extension BridgePaneController {
         }
     }
 
+    func deliverReviewProtocolErrorFrame(
+        streamId: String,
+        generation: Int,
+        message: String,
+        traceContext: BridgeTraceContext?
+    ) async {
+        do {
+            let encodedFrame = try BridgePushEnvelopeEncoder().encodeIntakeFrame(
+                metadata: BridgeIntakeFrameMetadata(
+                    kind: .error,
+                    streamId: streamId,
+                    generation: generation,
+                    sequence: consumeNextReviewProtocolSequence(),
+                    message: message
+                ),
+                payload: Data(),
+                traceContext: traceContext
+            )
+            guard canDeliverReviewProtocolIntakeFrames() else {
+                pendingReviewProtocolIntakeFrames.append(encodedFrame)
+                return
+            }
+            guard await deliverIntakeFrame(encodedFrame) else {
+                throw BridgeProviderFailure.providerFailed(message: "Bridge review protocol intake delivery failed")
+            }
+        } catch {
+            paneState.connection.setHealth(.error)
+        }
+    }
+
     func dispatchReviewProtocolFrame(
         _ frame: BridgeReviewProtocolFrame,
         traceContext: BridgeTraceContext?
@@ -39,13 +69,17 @@ extension BridgePaneController {
             payload: payload,
             traceContext: traceContext
         )
-        guard isBridgeReady else {
+        guard canDeliverReviewProtocolIntakeFrames() else {
             pendingReviewProtocolIntakeFrames.append(encodedFrame)
             return
         }
         guard await deliverIntakeFrame(encodedFrame) else {
             throw BridgeProviderFailure.providerFailed(message: "Bridge review protocol intake delivery failed")
         }
+    }
+
+    func canDeliverReviewProtocolIntakeFrames() -> Bool {
+        isBridgeReady && reviewIntakeReadyStreamId == reviewProtocolStreamId()
     }
 
     func activateReviewProtocolBodyResources(
@@ -72,7 +106,7 @@ extension BridgePaneController {
             packageLease.resource,
             body: BridgeReviewResourceBody(
                 mimeType: "application/json",
-                byteCount: frames.packageBodyFacts.byteCount
+                byteCount: frames.packageBodyFacts?.byteCount
             ) { chunkByteCount, receive in
                 try await BridgeReviewJSONResourceEmitter.emitPackage(
                     package,

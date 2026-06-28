@@ -265,23 +265,26 @@ export function makeBridgeViewerBrowserFixture(
 			head: `export const filler${item.itemId} = 'head';\n`,
 		});
 	}
+	const sizedItems = items.map((item): BridgeReviewItemDescriptor =>
+		reviewItemWithContentSizes({ item, contentByHandleId }),
+	);
 
 	const reviewPackage: BridgeReviewPackage = {
 		...basePackage,
 		packageId: `browser-mode-${fixtureClass}`,
 		reviewGeneration: 338,
 		revision: 1,
-		orderedItemIds: items.map((item): string => item.itemId),
-		itemsById: Object.fromEntries(items.map((item) => [item.itemId, item])),
+		orderedItemIds: sizedItems.map((item): string => item.itemId),
+		itemsById: Object.fromEntries(sizedItems.map((item) => [item.itemId, item])),
 		query: {
 			...basePackage.query,
 			pathScope: [],
 		},
 		summary: {
-			filesChanged: items.length,
-			additions: items.reduce((total, item): number => total + item.additions, 0),
-			deletions: items.reduce((total, item): number => total + item.deletions, 0),
-			visibleFileCount: items.length,
+			filesChanged: sizedItems.length,
+			additions: sizedItems.reduce((total, item): number => total + item.additions, 0),
+			deletions: sizedItems.reduce((total, item): number => total + item.deletions, 0),
+			visibleFileCount: sizedItems.length,
 			hiddenFileCount: 0,
 		},
 		filterState: {
@@ -323,7 +326,7 @@ export function makeBridgeViewerBrowserFixture(
 	const fixtureChecksum = [
 		reviewPackage.packageId,
 		fixtureClass,
-		items.length.toString(),
+				sizedItems.length.toString(),
 		contentByHandleId.size.toString(),
 		packageBytes.toString(),
 	].join(':');
@@ -874,6 +877,50 @@ function addContent(
 	if (headHandle !== null && content.head !== undefined) {
 		contentByHandleId.set(headHandle.handleId, content.head);
 	}
+}
+
+function reviewItemWithContentSizes(props: {
+	readonly item: BridgeReviewItemDescriptor;
+	readonly contentByHandleId: ReadonlyMap<string, string>;
+}): BridgeReviewItemDescriptor {
+	return {
+		...props.item,
+		contentRoles: {
+			base: contentHandleWithMockedSize({
+				handle: props.item.contentRoles.base,
+				contentByHandleId: props.contentByHandleId,
+			}),
+			head: contentHandleWithMockedSize({
+				handle: props.item.contentRoles.head,
+				contentByHandleId: props.contentByHandleId,
+			}),
+			diff: contentHandleWithMockedSize({
+				handle: props.item.contentRoles.diff,
+				contentByHandleId: props.contentByHandleId,
+			}),
+			file: contentHandleWithMockedSize({
+				handle: props.item.contentRoles.file,
+				contentByHandleId: props.contentByHandleId,
+			}),
+		},
+	};
+}
+
+function contentHandleWithMockedSize(props: {
+	readonly handle: BridgeContentHandle | null | undefined;
+	readonly contentByHandleId: ReadonlyMap<string, string>;
+}): BridgeContentHandle | null | undefined {
+	if (props.handle === null || props.handle === undefined) {
+		return props.handle;
+	}
+	const content = props.contentByHandleId.get(props.handle.handleId);
+	if (content === undefined) {
+		return props.handle;
+	}
+	return {
+		...props.handle,
+		sizeBytes: new TextEncoder().encode(content).byteLength,
+	};
 }
 
 function requiredHandleId(handle: BridgeContentHandle | null | undefined, label: string): string {

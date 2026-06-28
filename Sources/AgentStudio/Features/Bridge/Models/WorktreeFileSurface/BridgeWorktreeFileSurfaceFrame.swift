@@ -13,6 +13,27 @@ enum BridgeWorktreeFileSurfaceFreshness: String, Codable, Equatable, Sendable {
     case live
 }
 
+struct BridgeWorktreeFileSurfaceOpenSourceOutcome: Codable, Equatable, Sendable {
+    private enum CodingKeys: String, CodingKey {
+        case status
+        case protocolId = "protocol"
+        case streamId
+        case generation
+    }
+
+    let status: String
+    let protocolId: String
+    let streamId: String
+    let generation: Int
+
+    init(streamId: String, generation: Int) {
+        self.status = "accepted"
+        self.protocolId = "worktree-file"
+        self.streamId = streamId
+        self.generation = generation
+    }
+}
+
 struct BridgeWorktreeFileSurfaceSourceSpec: Codable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey, CaseIterable {
         case clientRequestId

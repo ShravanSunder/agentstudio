@@ -457,6 +457,34 @@ final class RPCRouterTests {
         #expect(await responseCount.get() == 0)
     }
 
+    @Test
+    func test_pre_ready_review_intake_ready_is_accepted_as_control_signal() async throws {
+        // Arrange
+        let router = RPCRouter()
+        let receivedParams = SendableBox<BridgeIntakeReadyMethod.Params?>(nil)
+        var errorCode: Int?
+        router.register(method: BridgeIntakeReadyMethod.self) { params in
+            await receivedParams.set(params)
+            return nil
+        }
+        router.onError = { code, _, _ in errorCode = code }
+
+        // Act
+        let intakeReadyNotification = """
+            { "jsonrpc": "2.0", "method":"bridge.intakeReady", "params": { "protocolId": "review", "streamId": "review:pane-1" } }
+            """
+        await router.dispatch(
+            json: intakeReadyNotification,
+            isBridgeReady: false
+        )
+
+        // Assert
+        let params = try #require(await receivedParams.get())
+        #expect(params.protocolId == "review")
+        #expect(params.streamId == "review:pane-1")
+        #expect(errorCode == nil)
+    }
+
     // MARK: - Unknown method
 
     @Test
@@ -969,17 +997,4 @@ final class RPCRouterTests {
         #expect(await called.get())
     }
 
-    // MARK: - Helpers
-
-    private func loadFixture(_ name: String) throws -> String {
-        let root = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
-        let fixtureURL = root.appendingPathComponent("Tests/BridgeContractFixtures/\(name)")
-        return try String(contentsOf: fixtureURL, encoding: .utf8)
-    }
-
-    private func parseJSONObject(_ json: String) throws -> [String: Any] {
-        let data = Data(json.utf8)
-        let object = try JSONSerialization.jsonObject(with: data)
-        return try #require(object as? [String: Any])
-    }
 }

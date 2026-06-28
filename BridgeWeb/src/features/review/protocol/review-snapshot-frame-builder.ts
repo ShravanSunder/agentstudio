@@ -1,9 +1,5 @@
 import type { BridgeAttachedResourceDescriptor } from '../../../core/models/bridge-resource-descriptor.js';
-import { parseBridgeCoreResourceUrl } from '../../../core/resources/bridge-resource-url.js';
-import type {
-	BridgeContentHandle,
-	BridgeReviewPackage,
-} from '../../../foundation/review-package/bridge-review-package.js';
+import type { BridgeReviewPackage } from '../../../foundation/review-package/bridge-review-package.js';
 import type {
 	ReviewChangesetClusterMetadata,
 	ReviewDeltaFrame,
@@ -24,22 +20,12 @@ export interface BuildReviewDeltaFrameProps extends BuildReviewSnapshotFrameProp
 	readonly toRevision: number;
 }
 
-const reviewAllowedResourceKindsByProtocol = {
-	review: new Set(['content', 'review-package', 'review-delta']),
-};
 const reviewProtocolMetadataDescriptorMaxBytes = 768 * 1024;
 
 export function buildReviewSnapshotFrame(
 	props: BuildReviewSnapshotFrameProps,
 ): ReviewSnapshotFrame {
 	const rootDescriptor = buildRootDescriptor(props);
-	const contentDescriptors = Object.values(props.package.itemsById)
-		.flatMap((item) => Object.values(item.contentRoles))
-		.filter((handle): handle is BridgeContentHandle => handle !== undefined && handle !== null)
-		.toSorted((left, right): number => left.handleId.localeCompare(right.handleId))
-		.map(
-			(handle): BridgeAttachedResourceDescriptor => buildContentDescriptor({ ...props, handle }),
-		);
 
 	return {
 		kind: 'snapshot',
@@ -53,7 +39,6 @@ export function buildReviewSnapshotFrame(
 			generation: props.package.reviewGeneration,
 			revision: props.package.revision,
 			rootDescriptor,
-			contentDescriptors,
 			...(props.changesetCluster === undefined ? {} : { changesetCluster: props.changesetCluster }),
 		},
 	};
@@ -61,13 +46,6 @@ export function buildReviewSnapshotFrame(
 
 export function buildReviewDeltaFrame(props: BuildReviewDeltaFrameProps): ReviewDeltaFrame {
 	const operationsDescriptor = buildDeltaOperationsDescriptor(props);
-	const contentDescriptors = Object.values(props.package.itemsById)
-		.flatMap((item) => Object.values(item.contentRoles))
-		.filter((handle): handle is BridgeContentHandle => handle !== undefined && handle !== null)
-		.toSorted((left, right): number => left.handleId.localeCompare(right.handleId))
-		.map(
-			(handle): BridgeAttachedResourceDescriptor => buildContentDescriptor({ ...props, handle }),
-		);
 
 	return {
 		kind: 'delta',
@@ -79,7 +57,6 @@ export function buildReviewDeltaFrame(props: BuildReviewDeltaFrameProps): Review
 		fromRevision: props.fromRevision,
 		toRevision: props.toRevision,
 		operationsDescriptor,
-		contentDescriptors,
 	};
 }
 
@@ -164,67 +141,5 @@ function buildDeltaOperationsDescriptor(
 			expectedIdentity: identity,
 		},
 		descriptor,
-	};
-}
-
-function buildContentDescriptor(
-	props: BuildReviewSnapshotFrameProps & { readonly handle: BridgeContentHandle },
-): BridgeAttachedResourceDescriptor {
-	const parsedResourceUrl = parseBridgeCoreResourceUrl(props.handle.resourceUrl, {
-		allowedResourceKindsByProtocol: reviewAllowedResourceKindsByProtocol,
-	});
-	if (
-		parsedResourceUrl === null ||
-		parsedResourceUrl.protocol !== 'review' ||
-		parsedResourceUrl.resourceKind !== 'content' ||
-		parsedResourceUrl.opaqueId !== props.handle.handleId
-	) {
-		throw new Error(`Invalid Review content resource URL: ${props.handle.resourceUrl}`);
-	}
-	const identity = {
-		paneId: props.paneId,
-		protocol: 'review',
-		sourceId: props.sourceIdentity,
-		packageId: props.package.packageId,
-		generation: props.handle.reviewGeneration,
-		...(parsedResourceUrl.revision === undefined ? {} : { revision: parsedResourceUrl.revision }),
-		streamId: props.streamId,
-		...(parsedResourceUrl.cursor === undefined ? {} : { cursor: parsedResourceUrl.cursor }),
-	};
-	const descriptor = {
-		descriptorId: parsedResourceUrl.opaqueId,
-		protocol: 'review',
-		resourceKind: 'content',
-		resourceUrl: parsedResourceUrl.canonicalUrl,
-		identity,
-		content: {
-			mediaType: props.handle.mimeType,
-			encoding: props.handle.isBinary ? 'binary' : 'utf-8',
-			expectedBytes: props.handle.sizeBytes,
-			maxBytes: Math.max(props.handle.sizeBytes, 1),
-			integrity: integrityForContentHandle(props.handle),
-		},
-	} satisfies BridgeAttachedResourceDescriptor['descriptor'];
-	return {
-		ref: {
-			descriptorId: descriptor.descriptorId,
-			expectedProtocol: descriptor.protocol,
-			expectedResourceKind: descriptor.resourceKind,
-			expectedIdentity: identity,
-		},
-		descriptor,
-	};
-}
-
-function integrityForContentHandle(
-	handle: BridgeContentHandle,
-): BridgeAttachedResourceDescriptor['descriptor']['content']['integrity'] {
-	if (handle.contentHashAlgorithm !== 'sha256' || handle.contentHash.length === 0) {
-		return { kind: 'previewOnly' };
-	}
-	return {
-		kind: 'wholeHash',
-		algorithm: 'sha256',
-		value: handle.contentHash,
 	};
 }

@@ -22,6 +22,15 @@ export const worktreeFileSurfaceSourceSpecSchema = z
 	})
 	.strict();
 
+export const worktreeFileSurfaceOpenSourceOutcomeSchema = z
+	.object({
+		status: z.literal('accepted'),
+		protocol: z.literal('worktree-file'),
+		streamId: z.string().min(1),
+		generation: z.number().int().nonnegative(),
+	})
+	.strict();
+
 export const worktreeFileSurfaceSourceIdentitySchema = z
 	.object({
 		sourceId: z.string().min(1),

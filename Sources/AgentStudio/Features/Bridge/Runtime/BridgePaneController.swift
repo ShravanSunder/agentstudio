@@ -11,6 +11,16 @@ enum BridgeReadyMethod: RPCMethod {
     static let method = "bridge.ready"
 }
 
+enum BridgeIntakeReadyMethod: RPCMethod {
+    struct Params: Decodable {
+        let protocolId: String
+        let streamId: String?
+    }
+    typealias Result = RPCNoResponse
+
+    static let method = "bridge.intakeReady"
+}
+
 /// Per-pane controller for bridge-backed panels (diff viewer, code review, etc.).
 ///
 /// Each bridge pane gets its own `WebPage.Configuration` with:
@@ -43,6 +53,7 @@ final class BridgePaneController {
     /// No state pushes or commands are allowed before this becomes `true`.
     /// Gated and idempotent — once set, subsequent `bridge.ready` messages are ignored.
     private(set) var isBridgeReady = false
+    private(set) var reviewIntakeReadyStreamId: String?
 
     // MARK: - Runtime Hooks
 
@@ -66,6 +77,7 @@ final class BridgePaneController {
     var activeReviewRefreshTask: Task<Void, Never>?
     var hasPendingReviewRefresh = false
     var reviewContentAuthorityLifetime = 0
+    var nextReviewProtocolSequence = 0
 
     // MARK: - Push Plans
 
@@ -268,6 +280,10 @@ final class BridgePaneController {
         // The closure is @Sendable and async — awaits the @MainActor-isolated handleBridgeReady.
         router.register(method: BridgeReadyMethod.self) { [weak self] _ in
             self?.handleBridgeReady()
+            return nil
+        }
+        router.register(method: BridgeIntakeReadyMethod.self) { [weak self] params in
+            await self?.handleBridgeIntakeReady(params)
             return nil
         }
     }
@@ -492,6 +508,7 @@ final class BridgePaneController {
         activeWorktreeFileSurfaceSource = nil
         pendingReviewProtocolIntakeFrames.removeAll(keepingCapacity: false)
         pendingWorktreeFileIntakeFrames.removeAll(keepingCapacity: false)
+        reviewIntakeReadyStreamId = nil
         revokeReviewContentAuthoritySynchronously()
         revokeReviewResourceAuthoritySynchronously(resourceKind: "review-package")
         revokeReviewResourceAuthoritySynchronously(resourceKind: "review-delta")
@@ -530,6 +547,7 @@ final class BridgePaneController {
         bridgeDeliveryTail = nil
         lastPushed.removeAll()
         isBridgeReady = false
+        nextReviewProtocolSequence = 0
     }
 
     // MARK: - Bridge Handshake
@@ -572,9 +590,59 @@ final class BridgePaneController {
         connectionPushPlan?.start()
         agentPushPlan?.start()
 
-        Task { @MainActor [weak self] in
-            await self?.flushPendingReviewProtocolIntakeFrames()
+        if canDeliverReviewProtocolIntakeFrames(), !pendingReviewProtocolIntakeFrames.isEmpty {
+            Task { @MainActor [weak self] in
+                await self?.flushPendingReviewProtocolIntakeFrames()
+            }
         }
+    }
+
+    func handleBridgeIntakeReady(_ params: BridgeIntakeReadyMethod.Params) async {
+        switch params.protocolId {
+        case "review":
+            await handleReviewIntakeReady(params)
+        case "worktree-file":
+            await handleWorktreeFileIntakeReady(params)
+        default:
+            await recordReviewIntakeReadyTelemetry(phase: "dropped")
+            return
+        }
+    }
+
+    private func handleReviewIntakeReady(_ params: BridgeIntakeReadyMethod.Params) async {
+        let currentStreamId = reviewProtocolStreamId()
+        guard params.streamId == nil || params.streamId == currentStreamId else {
+            bridgeControllerLogger.warning(
+                """
+                Bridge intake ready ignored for pane \(self.paneId.uuidString, privacy: .public): \
+                stream \(String(describing: params.streamId), privacy: .public) does not match \(currentStreamId, privacy: .public)
+                """
+            )
+            await recordReviewIntakeReadyTelemetry(phase: "dropped")
+            return
+        }
+        reviewIntakeReadyStreamId = currentStreamId
+        await recordReviewIntakeReadyTelemetry(phase: "accepted")
+        await flushPendingReviewProtocolIntakeFrames()
+    }
+
+    private func handleWorktreeFileIntakeReady(_ params: BridgeIntakeReadyMethod.Params) async {
+        guard let activeSource = activeWorktreeFileSurfaceSource else {
+            bridgeControllerLogger.warning(
+                "[Bridge] Worktree/File intake ready ignored without active source pane=\(self.paneId.uuidString, privacy: .public)"
+            )
+            return
+        }
+        guard params.streamId == nil || params.streamId == activeSource.streamId else {
+            bridgeControllerLogger.warning(
+                """
+                Bridge Worktree/File intake ready ignored for pane \(self.paneId.uuidString, privacy: .public): \
+                stream \(String(describing: params.streamId), privacy: .public) does not match \(activeSource.streamId, privacy: .public)
+                """
+            )
+            return
+        }
+        await flushPendingWorktreeFileIntakeFrames()
     }
 
     // MARK: - Test/entrypoint utility
@@ -587,10 +655,7 @@ final class BridgePaneController {
     }
 
     private func handleRPCSuccessResponseDelivered(method: String) async {
-        guard method == WorktreeFileSurfaceMethods.OpenSourceStreamMethod.method else {
-            return
-        }
-        await flushPendingWorktreeFileIntakeFrames()
+        _ = method
     }
 
     func flushPendingWorktreeFileIntakeFrames() async {
@@ -609,8 +674,12 @@ final class BridgePaneController {
     }
 
     func flushPendingReviewProtocolIntakeFrames() async {
+        guard canDeliverReviewProtocolIntakeFrames() else {
+            return
+        }
         let frames = pendingReviewProtocolIntakeFrames
         pendingReviewProtocolIntakeFrames.removeAll(keepingCapacity: true)
+        await recordReviewIntakeReadyTelemetry(phase: "transport")
         for frame in frames {
             let delivered = await deliverIntakeFrame(frame)
             guard delivered else {
@@ -621,6 +690,34 @@ final class BridgePaneController {
                 return
             }
         }
+    }
+
+    private func recordReviewIntakeReadyTelemetry(phase: String) async {
+        guard let telemetryRecorder else {
+            return
+        }
+        await telemetryRecorder.record(
+            sample: BridgeTelemetrySample(
+                scope: .webKit,
+                name: "performance.bridge.webkit.review_intake_ready",
+                durationMilliseconds: nil,
+                traceContext: nil,
+                stringAttributes: [
+                    "agentstudio.bridge.phase": phase,
+                    "agentstudio.bridge.plane": BridgeTelemetryPlane.control.rawValue,
+                    "agentstudio.bridge.priority": BridgeTelemetryPriority.warm.rawValue,
+                    "agentstudio.bridge.slice": BridgeTelemetrySlice.reviewSnapshot.rawValue,
+                    "agentstudio.bridge.transport": "intake",
+                ],
+                numericAttributes: [
+                    "agentstudio.bridge.intake.sequence": Double(pendingReviewProtocolIntakeFrames.count)
+                ],
+                booleanAttributes: [
+                    "agentstudio.bridge.header_supported": isBridgeReady
+                ]
+            ),
+            receivedAtUnixNano: UInt64(Date().timeIntervalSince1970 * 1_000_000_000)
+        )
     }
 
     /// Runtime-facing typed event ingress for bridge domain events.

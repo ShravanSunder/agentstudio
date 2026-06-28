@@ -115,11 +115,32 @@ const worktreeFileDescriptorFrameSchema = z
 	})
 	.passthrough();
 
-const worktreeReviewPackageRouteResponseSchema = z
+const worktreeReviewSnapshotFrameResponseSchema = z
 	.object({
-		reviewPackage: bridgeReviewPackageSchema,
+		protocolFrame: z
+			.object({
+				frameKind: z.literal('review.snapshot'),
+				package: z
+					.object({
+						rootDescriptor: z
+							.object({
+								descriptor: z
+									.object({
+										resourceKind: z.literal('review-package'),
+										resourceUrl: z.string().min(1),
+									})
+									.passthrough(),
+							})
+							.passthrough(),
+					})
+					.passthrough(),
+			})
+			.passthrough(),
 	})
 	.strict();
+const worktreeReviewPackageAllowedResourceKinds = {
+	review: new Set(['review-package']),
+};
 
 type WorktreeFileDescriptor = z.infer<typeof worktreeFileDescriptorFrameSchema>['descriptor'];
 type WorktreeFileTreeExtentSource = 'localProjection' | 'providerFacts';
@@ -1459,6 +1480,7 @@ async function verifyWorktreeReviewFileTargetRoute(): Promise<WorktreeReviewFile
 		const expectedReviewItemId = await fetchWorktreeReviewItemIdForDisplayPath(expectedDisplayPath);
 		const expectedVersion = 'current';
 		const reviewFileTargetUrl = reviewFileTargetUrlFromWorktreeDevServerUrl({
+			itemId: expectedReviewItemId,
 			path: expectedDisplayPath,
 			url: worktreeDevServerUrl,
 			version: expectedVersion,
@@ -2490,15 +2512,17 @@ async function installReviewRouteProbe(page: Page): Promise<ReviewRouteProbe> {
 }
 
 async function fetchWorktreeReviewItemIdForDisplayPath(displayPath: string): Promise<string> {
-	const packageUrl = new URL('/__bridge-worktree/review-package', worktreeReviewDevServerUrl);
-	packageUrl.searchParams.set('scenario', scenarioNameFromDevServerUrl(worktreeReviewDevServerUrl));
-	const response = await fetch(packageUrl);
+	const snapshotFrameResponse = await fetchWorktreeReviewSnapshotFrame();
+	const packageResourceUrl = worktreeReviewPackageDescriptorResourceFetchUrl(
+		snapshotFrameResponse.protocolFrame.package.rootDescriptor.descriptor.resourceUrl,
+	);
+	const response = await fetch(packageResourceUrl);
 	if (!response.ok) {
 		throw new Error(
-			`Expected Worktree/Review package route for ${displayPath}, got ${response.status}`,
+			`Expected Worktree/Review package resource for ${displayPath}, got ${response.status}`,
 		);
 	}
-	const { reviewPackage } = worktreeReviewPackageRouteResponseSchema.parse(await response.json());
+	const reviewPackage = bridgeReviewPackageSchema.parse(await response.json());
 	const item = Object.values(reviewPackage.itemsById).find(
 		(candidate): boolean =>
 			candidate.basePath === displayPath || candidate.headPath === displayPath,
@@ -2509,6 +2533,39 @@ async function fetchWorktreeReviewItemIdForDisplayPath(displayPath: string): Pro
 		);
 	}
 	return item.itemId;
+}
+
+async function fetchWorktreeReviewSnapshotFrame(): Promise<
+	z.infer<typeof worktreeReviewSnapshotFrameResponseSchema>
+> {
+	const frameUrl = new URL('/__bridge-worktree/review-package', worktreeReviewDevServerUrl);
+	frameUrl.searchParams.set('scenario', scenarioNameFromDevServerUrl(worktreeReviewDevServerUrl));
+	frameUrl.searchParams.set('frame', 'review-snapshot');
+	const response = await fetch(frameUrl);
+	if (!response.ok) {
+		throw new Error(`Expected Worktree/Review snapshot frame route, got ${response.status}`);
+	}
+	return worktreeReviewSnapshotFrameResponseSchema.parse(await response.json());
+}
+
+function worktreeReviewPackageDescriptorResourceFetchUrl(resourceUrl: string): URL {
+	const parsedResourceUrl = parseBridgeCoreResourceUrl(resourceUrl, {
+		allowedResourceKindsByProtocol: worktreeReviewPackageAllowedResourceKinds,
+	});
+	if (parsedResourceUrl === null || parsedResourceUrl.resourceKind !== 'review-package') {
+		throw new Error('Expected Worktree/Review snapshot to attach a review-package resource URL');
+	}
+	const packageUrl = new URL('/__bridge-worktree/review-package', worktreeReviewDevServerUrl);
+	packageUrl.searchParams.set('scenario', scenarioNameFromDevServerUrl(worktreeReviewDevServerUrl));
+	packageUrl.searchParams.set('resource', parsedResourceUrl.resourceKind);
+	packageUrl.searchParams.set('opaqueId', parsedResourceUrl.opaqueId);
+	if (parsedResourceUrl.generation !== undefined) {
+		packageUrl.searchParams.set('generation', String(parsedResourceUrl.generation));
+	}
+	if (parsedResourceUrl.revision !== undefined) {
+		packageUrl.searchParams.set('revision', String(parsedResourceUrl.revision));
+	}
+	return packageUrl;
 }
 
 function bridgeWorktreeDevReviewRouteUsesOrigin(url: string): boolean {
@@ -5773,7 +5830,7 @@ async function writeWorktreeDevServerProofArtifact(
 				schemaVersion: 1,
 				createdAtUnixMilliseconds: proofRunCreatedAtUnixMilliseconds,
 				devServerUrl: worktreeDevServerUrl,
-				requiredRouteUrls: worktreeDevServerRequiredRouteUrls(),
+				requiredRouteUrls: worktreeDevServerRequiredRouteUrls(result),
 				result: {
 					...result,
 					proofArtifactPath: proofArtifactDisplayPath,
@@ -5795,7 +5852,7 @@ function worktreeDevServerConsoleProof(
 		devServerUrl: worktreeDevServerUrl,
 		observedLocationHref: result.observedLocationHref,
 		observedPageUrl: result.observedPageUrl,
-		requiredRouteUrls: worktreeDevServerRequiredRouteUrls(),
+		requiredRouteUrls: worktreeDevServerRequiredRouteUrls(result),
 		proofArtifactPath,
 		scenarioName: result.scenarioName,
 		selectedContentState: result.selectedContentState,
@@ -5861,6 +5918,7 @@ function reviewModeUrlFromWorktreeDevServerUrl(url: string): string {
 }
 
 function reviewFileTargetUrlFromWorktreeDevServerUrl(props: {
+	readonly itemId?: string;
 	readonly path: string;
 	readonly url: string;
 	readonly version: 'base' | 'current' | 'head';
@@ -5869,11 +5927,14 @@ function reviewFileTargetUrlFromWorktreeDevServerUrl(props: {
 	parsedUrl.searchParams.set('viewer', 'review');
 	parsedUrl.searchParams.set('presentation', 'file');
 	parsedUrl.searchParams.set('path', props.path);
+	if (props.itemId !== undefined) {
+		parsedUrl.searchParams.set('reviewItemId', props.itemId);
+	}
 	parsedUrl.searchParams.set('version', props.version);
 	return parsedUrl.toString();
 }
 
-function worktreeDevServerRequiredRouteUrls(): {
+function worktreeDevServerRequiredRouteUrls(result?: WorktreeDevServerVerificationResult): {
 	readonly files: string;
 	readonly review: string;
 	readonly reviewFileTarget: string;
@@ -5881,11 +5942,13 @@ function worktreeDevServerRequiredRouteUrls(): {
 	return {
 		files: worktreeDevServerUrl,
 		review: worktreeReviewDevServerUrl,
-		reviewFileTarget: reviewFileTargetUrlFromWorktreeDevServerUrl({
-			path: reviewSelectionFixtureRelativePath,
-			url: worktreeDevServerUrl,
-			version: 'current',
-		}),
+		reviewFileTarget:
+			result?.reviewFileTargetRouteProof.locationHref ??
+			reviewFileTargetUrlFromWorktreeDevServerUrl({
+				path: reviewSelectionFixtureRelativePath,
+				url: worktreeDevServerUrl,
+				version: 'current',
+			}),
 	};
 }
 

@@ -174,4 +174,42 @@ describe('bridge page handshake', () => {
 
 		expect(events).toEqual(['ready-callback:push-1', 'ready-event']);
 	});
+
+	test('emits intake-ready as a control command after handshake and command nonce are available', () => {
+		const target = new EventTarget();
+		const commands: unknown[] = [];
+		const session = installBridgePageHandshakeSession(target, {
+			getBridgeCommandNonce: (): string => 'bridge-command-nonce',
+		});
+		target.addEventListener('__bridge_command', (event: Event): void => {
+			commands.push('detail' in event ? event.detail : null);
+		});
+
+		const didSendBeforeHandshake = session.markIntakeReady({
+			protocolId: 'review',
+			streamId: 'review:pane-1',
+		});
+		target.dispatchEvent(
+			new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-1' } }),
+		);
+		const didSendAfterHandshake = session.markIntakeReady({
+			protocolId: 'review',
+			streamId: 'review:pane-1',
+		});
+		session.uninstall();
+
+		expect(didSendBeforeHandshake).toBe(false);
+		expect(didSendAfterHandshake).toBe(true);
+		expect(commands).toEqual([
+			{
+				__nonce: 'bridge-command-nonce',
+				jsonrpc: '2.0',
+				method: 'bridge.intakeReady',
+				params: {
+					protocolId: 'review',
+					streamId: 'review:pane-1',
+				},
+			},
+		]);
+	});
 });

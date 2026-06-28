@@ -1213,6 +1213,15 @@ Objective:
 
 - Keep RPC, continuous event streams, intake frames, push/store updates, and
   Zustand free of large file/diff/review bodies.
+- Make the Vite/browser dev loop the first faithful implementation of the
+  production protocol architecture. Dev may swap the backend source adapter, but
+  it must still use the same three lanes as Swift/native: RPC for control,
+  continuous/intake streams for metadata/projection/descriptors, and
+  `ContentStreamPath` resource streams for all content bytes.
+- Treat any browser/dev fixture that injects Zustand state directly, pushes a
+  package object as metadata, uses RPC for metadata/body transfer, or resolves a
+  resource as the primary proof path through a whole blob as a non-faithful
+  component fixture, not as dev-loop product proof.
 - Make `ContentStreamPath` the only path for content bytes and bounded
   body/window data.
 - Preserve first-slice authoritative integrity as whole-body validation when an
@@ -1224,6 +1233,11 @@ Objective:
 
 Required red/audit proof before implementation:
 
+- Isomorphism proof that dev/Vite and Swift/native expose the same lane
+  contract to BridgeWeb: `RPC/control`, `metadata/change stream`, and
+  `ContentStreamPath` body stream. The proof must name the only allowed
+  difference as backend/source implementation, not browser-visible protocol
+  shape.
 - Unit or static contract proof that browser resource executor APIs are not
   whole-body-only promises for in-scope file/review bodies.
 - Unit or integration proof that FileViewer/Worktree resource loading does not
@@ -1264,6 +1278,10 @@ Required red/audit proof before implementation:
 
 Implementation guidance:
 
+- Dev-loop first: implement and prove the browser/Vite loop as the source of
+  truth for the protocol contract before native proof. Native then proves the
+  same contract through Swift IPC, AgentStudioGit, WKWebView, and
+  `agentstudio://resource`, not a different startup/materialization path.
 - Browser: evolve the generic resource executor around stream/window
   consumption, abort, stale-drop, byte accounting, and completion integrity
   rather than returning only `Promise<{ body, byteLength }>`.
@@ -1299,6 +1317,12 @@ Implementation guidance:
 
 Proof:
 
+- Dev-loop proof must be protocol-faithful before it is accepted: no direct
+  Zustand injection for Review/File data, no RPC body/metadata transfer, no
+  push/store package body, and no whole-body blob fetch used as the proof of the
+  content stream contract. Tests may assemble final text at renderer leaf
+  boundaries only after streamed read, byte-budget enforcement, stale/abort
+  handling, and final integrity gating are proven.
 - Focused TypeScript unit/integration proof for the resource executor stream API,
   abort, stale completion, byte-budget accounting, and whole-hash completion
   validation.

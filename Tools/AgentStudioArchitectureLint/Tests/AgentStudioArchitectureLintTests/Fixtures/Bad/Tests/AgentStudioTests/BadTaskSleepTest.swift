@@ -29,7 +29,7 @@ struct BadTaskSleepTest {
 
     func waitsWithFormattedSpecializedTaskSleep() async throws {
         try await Task<
-            Never, /* Success */
+            Never,  // Success
             Never
         >.sleep(nanoseconds: 1_000_000)
     }

@@ -241,6 +241,7 @@ final class BridgeBootstrapTests {
         #expect(script.contains("payload.protocol !== undefined"))
         #expect(script.contains("Rejected __bridge_command: protocol RPC must use bridge world"))
         #expect(script.contains("PAGE_WORLD_ALLOWED_COMMAND_METHODS"))
+        #expect(script.contains("'bridge.intakeReady'"))
         #expect(script.contains("payload.__bridgeOrigin = 'pageWorldLegacy'"))
         #expect(script.contains("Rejected __bridge_command: method is not allowed from page world"))
     }

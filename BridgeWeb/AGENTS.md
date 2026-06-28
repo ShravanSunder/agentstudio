@@ -16,9 +16,9 @@ BridgeWeb is the React app embedded by Agent Studio Bridge. Follow the root
 
 ## BridgeViewer Proof
 
-- Visible UX checkpoints require Vitest Browser, Playwright/dev-server, or native
-  WKWebView proof. `jsdom` can cover lower-level state logic but cannot close a
-  visible UX checkpoint.
+- React, DOM, and browser rendering tests use Vitest Browser, Playwright/dev-server,
+  or native WKWebView proof. Pure logic tests stay Node-only and must not depend on
+  browser globals.
 - Browser proof for shared chrome must assert real geometry and screenshots:
   content header over the left content region only, right rail top-aligned,
   compact shared controls, and no standalone second app.

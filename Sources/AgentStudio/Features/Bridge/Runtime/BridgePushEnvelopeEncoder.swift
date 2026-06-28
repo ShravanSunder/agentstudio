@@ -74,10 +74,10 @@ struct BridgePushEnvelopeEncoder: Sendable {
         append(#","sequence":"#, to: &frame)
         append(String(metadata.sequence), to: &frame)
         switch metadata.kind {
-        case .snapshot, .delta, .invalidate:
+        case .snapshot, .delta, .invalidate, .reset:
             append(#","payload":"#, to: &frame)
             frame.append(payload)
-        case .reset, .close:
+        case .close:
             break
         case .error:
             guard let message = metadata.message, !message.isEmpty else {

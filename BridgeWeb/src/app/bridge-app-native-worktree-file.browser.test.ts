@@ -1,5 +1,3 @@
-// @vitest-environment jsdom
-
 import { afterEach, describe, expect, test } from 'vitest';
 
 import type {
@@ -66,7 +64,21 @@ describe('Bridge app native Worktree/File backend', () => {
 
 		document.dispatchEvent(
 			new CustomEvent('__bridge_response', {
-				detail: { id: 'request-1', result: makeSnapshotFrame(), nonce: 'push-1' },
+				detail: { id: 'request-1', result: makeOpenSourceOutcome(), nonce: 'push-1' },
+			}),
+		);
+		await expect.poll(() => commandDetails[1]).toMatchObject({
+			jsonrpc: '2.0',
+			method: 'bridge.intakeReady',
+			params: {
+				protocolId: 'worktree-file',
+				streamId: 'worktree-file:pane-1',
+			},
+			__nonce: 'bridge-1',
+		});
+		document.dispatchEvent(
+			new CustomEvent('__bridge_intake_json', {
+				detail: { json: JSON.stringify(makeSnapshotFrame()), nonce: 'push-1' },
 			}),
 		);
 		const surface = await surfacePromise;
@@ -238,6 +250,20 @@ function makeSnapshotFrame(): Extract<
 			pathCount: 1,
 			rowHeightPixels: 24,
 		},
+	};
+}
+
+function makeOpenSourceOutcome(): {
+	readonly status: 'accepted';
+	readonly protocol: 'worktree-file';
+	readonly streamId: string;
+	readonly generation: number;
+} {
+	return {
+		status: 'accepted',
+		protocol: 'worktree-file',
+		streamId: 'worktree-file:pane-1',
+		generation: 1,
 	};
 }
 

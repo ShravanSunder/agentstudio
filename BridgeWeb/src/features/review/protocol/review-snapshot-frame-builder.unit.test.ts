@@ -12,7 +12,7 @@ import {
 } from './review-snapshot-frame-builder.js';
 
 describe('review snapshot frame builder', () => {
-	test('attaches root and content descriptors for browser dev hosts', () => {
+	test('attaches bounded root descriptor for browser dev snapshot hosts', () => {
 		const reviewPackage = makeBridgeReviewPackage();
 
 		const frame = buildReviewSnapshotFrame({
@@ -27,12 +27,10 @@ describe('review snapshot frame builder', () => {
 		const packageByteLength = new TextEncoder().encode(JSON.stringify(reviewPackage)).byteLength;
 		expect(frame.package.rootDescriptor.descriptor.content.expectedBytes).toBe(packageByteLength);
 		expect(frame.package.rootDescriptor.descriptor.content.maxBytes).toBe(packageByteLength);
-		expect(frame.package.contentDescriptors?.length).toBeGreaterThan(0);
-		expect(frame.package.contentDescriptors?.[0]?.descriptor.resourceKind).toBe('content');
-		expect(frame.package.contentDescriptors?.[0]?.ref.expectedIdentity.paneId).toBe('pane-1');
+		expect(frame.package.contentDescriptors).toBeUndefined();
 	});
 
-	test('emits preview-only integrity for host content hashes the browser cannot verify', () => {
+	test('omits browser integrity for host content hashes the browser cannot verify', () => {
 		const reviewPackage = makePackageWithHostContentHashAlgorithm();
 
 		const frame = buildReviewSnapshotFrame({
@@ -44,10 +42,9 @@ describe('review snapshot frame builder', () => {
 		});
 
 		const descriptor = frame.package.contentDescriptors?.find(
-			(attachedDescriptor) =>
-				attachedDescriptor.descriptor.content.integrity?.kind === 'previewOnly',
+			(attachedDescriptor) => attachedDescriptor.ref.descriptorId === 'handle-item-source-head',
 		);
-		expect(descriptor?.descriptor.content.integrity).toEqual({ kind: 'previewOnly' });
+		expect(descriptor?.descriptor.content.integrity).toBeUndefined();
 	});
 
 	test('preserves builder-supplied changeset cluster metadata', () => {
@@ -87,7 +84,7 @@ describe('review snapshot frame builder', () => {
 		});
 	});
 
-	test('builds delta frames with operations and content descriptors', () => {
+	test('builds bounded delta frames with operations descriptor only', () => {
 		const reviewPackage = makeBridgeReviewPackage();
 
 		const frame = buildReviewDeltaFrame({
@@ -107,8 +104,7 @@ describe('review snapshot frame builder', () => {
 		expect(frame.toRevision).toBe(reviewPackage.revision);
 		expect(frame.operationsDescriptor.descriptor.resourceKind).toBe('review-delta');
 		expect(frame.operationsDescriptor.descriptor.content.maxBytes).toBe(768 * 1024);
-		expect(frame.contentDescriptors?.length).toBeGreaterThan(0);
-		expect(frame.contentDescriptors?.[0]?.ref.expectedIdentity.paneId).toBe('pane-1');
+		expect(frame.contentDescriptors).toBeUndefined();
 	});
 });
 

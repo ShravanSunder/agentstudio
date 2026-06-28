@@ -8,7 +8,7 @@ struct BridgeReviewPackageLoadFrames {
     let delta: BridgeReviewDelta?
     let snapshotFrame: BridgeReviewSnapshotFrame
     let deltaFrame: BridgeReviewDeltaFrame?
-    let packageBodyFacts: BridgeReviewProtocolBodyResourceFacts
+    let packageBodyFacts: BridgeReviewProtocolBodyResourceFacts?
     let deltaBodyFacts: BridgeReviewProtocolBodyResourceFacts?
 }
 
@@ -52,6 +52,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
 
     private struct ReviewPackageLoadReset {
         let reviewGeneration: BridgeReviewGeneration
+        let streamId: String
         let contentAuthorityLifetime: Int
         let expectedRevocationRevision: UInt64
         let expectedDeltaResourceRevocationRevision: UInt64
@@ -109,6 +110,12 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             return .success(commandId: commandId)
         } catch BridgeProviderFailure.providerUnavailable {
             paneState.diff.setStatus(.error, error: "providerUnavailable")
+            await deliverReviewProtocolErrorFrame(
+                streamId: reset.streamId,
+                generation: reset.reviewGeneration.rawValue,
+                message: "providerUnavailable",
+                traceContext: packageTraceContext
+            )
             return .failure(.backendUnavailable(backend: "BridgeReviewSourceProvider"))
         } catch {
             let failureSummary = Self.reviewPackageLoadFailureSummary(for: error, stage: reviewLoadStage)
@@ -116,6 +123,12 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                 "Bridge review package load failed: \(failureSummary, privacy: .public)"
             )
             paneState.diff.setStatus(.error, error: failureSummary)
+            await deliverReviewProtocolErrorFrame(
+                streamId: reset.streamId,
+                generation: reset.reviewGeneration.rawValue,
+                message: failureSummary,
+                traceContext: packageTraceContext
+            )
             return .failure(.invalidPayload(description: "Failed to load bridge review package"))
         }
     }
@@ -125,6 +138,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
         paneState.diff.advanceEpoch()
         let reviewGeneration = nextReviewGeneration.next()
         nextReviewGeneration = reviewGeneration
+        nextReviewProtocolSequence = 0
         let resetFrame = makeReviewProtocolResetFrame(
             currentPackage: paneState.diff.packageMetadata,
             artifact: artifact,
@@ -143,8 +157,10 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
         await clearReviewContentAuthority(revokeAuthority: false)
         await clearReviewResourceAuthority(resourceKind: "review-package", revokeAuthority: false)
         await clearReviewResourceAuthority(resourceKind: "review-delta", revokeAuthority: false)
+        let streamId = reviewProtocolStreamId()
         return ReviewPackageLoadReset(
             reviewGeneration: reviewGeneration,
+            streamId: streamId,
             contentAuthorityLifetime: contentAuthorityLifetime,
             expectedRevocationRevision: reviewContentRevocationRevision(),
             expectedDeltaResourceRevocationRevision: expectedDeltaResourceRevocationRevision,
@@ -211,26 +227,20 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             )
         )
         let package = result.package.withRevision(delta?.revision ?? fallbackRevision ?? result.package.revision)
-        let packageBodyFacts = try await BridgeReviewJSONResourceEmitter.packageBodyFacts(package)
         reviewLoadStage = "snapshotFrame"
         let snapshotFrame = try makeReviewProtocolSnapshotFrame(
             package: package,
-            bodyFacts: packageBodyFacts
+            bodyFacts: nil
         )
         reviewLoadStage = "deltaFrame"
         let deltaFrame: BridgeReviewDeltaFrame?
-        let deltaBodyFacts: BridgeReviewProtocolBodyResourceFacts?
         if let delta {
-            let computedDeltaBodyFacts = try await BridgeReviewJSONResourceEmitter.deltaOperationsBodyFacts(
-                delta.operations)
-            deltaBodyFacts = computedDeltaBodyFacts
             deltaFrame = try makeReviewProtocolDeltaFrame(
                 package: package,
                 delta: delta,
-                bodyFacts: computedDeltaBodyFacts
+                bodyFacts: nil
             )
         } else {
-            deltaBodyFacts = nil
             deltaFrame = nil
         }
         reviewLoadStage = "contentRegister"
@@ -239,8 +249,8 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             delta: delta,
             snapshotFrame: snapshotFrame,
             deltaFrame: deltaFrame,
-            packageBodyFacts: packageBodyFacts,
-            deltaBodyFacts: deltaBodyFacts
+            packageBodyFacts: nil,
+            deltaBodyFacts: nil
         )
     }
 
@@ -489,13 +499,14 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
         reason: String
     ) -> BridgeReviewProtocolFrame {
         let sourceIdentity = currentPackage?.query.queryId ?? reviewSourceIdentity(for: artifact)
+        let sequence = consumeNextReviewProtocolSequence()
         return .reset(
             BridgeReviewProtocolFrameBuilder.reset(
                 request: BridgeReviewProtocolResetBuildRequest(
                     sourceIdentity: sourceIdentity,
-                    streamId: "review:\(paneId.uuidString)",
+                    streamId: reviewProtocolStreamId(),
                     generation: generation.rawValue,
-                    sequence: 0,
+                    sequence: sequence,
                     reason: reason,
                     packageId: currentPackage?.packageId,
                     replacementDescriptor: nil
@@ -508,12 +519,13 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
         package: BridgeReviewPackage,
         bodyFacts: BridgeReviewProtocolBodyResourceFacts?
     ) throws -> BridgeReviewSnapshotFrame {
-        try BridgeReviewProtocolFrameBuilder.snapshot(
+        let sequence = consumeNextReviewProtocolSequence()
+        return try BridgeReviewProtocolFrameBuilder.snapshot(
             request: BridgeReviewProtocolSnapshotBuildRequest(
                 paneId: paneId.uuidString,
                 sourceIdentity: package.query.queryId,
-                streamId: "review:\(paneId.uuidString)",
-                sequence: package.revision,
+                streamId: reviewProtocolStreamId(),
+                sequence: sequence,
                 package: package,
                 packageBodyFacts: bodyFacts,
                 changesetCluster: package.changesetCluster
@@ -526,12 +538,13 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
         delta: BridgeReviewDelta,
         bodyFacts: BridgeReviewProtocolBodyResourceFacts?
     ) throws -> BridgeReviewDeltaFrame {
-        try BridgeReviewProtocolFrameBuilder.delta(
+        let sequence = consumeNextReviewProtocolSequence()
+        return try BridgeReviewProtocolFrameBuilder.delta(
             request: BridgeReviewProtocolDeltaBuildRequest(
                 paneId: paneId.uuidString,
                 sourceIdentity: package.query.queryId,
-                streamId: "review:\(paneId.uuidString)",
-                sequence: delta.revision,
+                streamId: reviewProtocolStreamId(),
+                sequence: sequence,
                 fromRevision: max(delta.revision - 1, 0),
                 toRevision: delta.revision,
                 package: package,
@@ -544,24 +557,22 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
         currentPackage: BridgeReviewPackage,
         event: PaneFilesystemContextEvent
     ) -> BridgeReviewProtocolFrame {
-        let sequence: Int
+        let sequence = consumeNextReviewProtocolSequence()
         let scope: String
         let pathHints: [String]?
         switch event {
-        case .cwdSubtreeChanged(_, let paths, let batchSeq):
-            sequence = Int(clamping: batchSeq)
+        case .cwdSubtreeChanged(_, let paths, _):
             let sortedPaths = paths.sorted()
             scope = sortedPaths.isEmpty ? "package" : "paths"
             pathHints = sortedPaths.isEmpty ? nil : sortedPaths
         case .gitWorkingTreeInCwd:
-            sequence = currentPackage.revision + 1
             scope = "package"
             pathHints = nil
         }
         return .invalidation(
             BridgeReviewProtocolFrameBuilder.invalidation(
                 request: BridgeReviewProtocolInvalidationBuildRequest(
-                    streamId: "review:\(paneId.uuidString)",
+                    streamId: reviewProtocolStreamId(),
                     generation: currentPackage.reviewGeneration.rawValue,
                     sequence: sequence,
                     scope: scope,
@@ -571,6 +582,12 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                 )
             )
         )
+    }
+
+    func consumeNextReviewProtocolSequence() -> Int {
+        let sequence = nextReviewProtocolSequence
+        nextReviewProtocolSequence += 1
+        return sequence
     }
 
     private func makeReviewPipelineRequest(
@@ -607,6 +624,10 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
 
     private func reviewSourceIdentity(for artifact: DiffArtifact) -> String {
         "query-\(artifact.diffId.uuidString)"
+    }
+
+    func reviewProtocolStreamId() -> String {
+        "review:\(paneId.uuidString)"
     }
 
     private func shouldRefreshReviewPackage(for event: PaneFilesystemContextEvent) -> Bool {

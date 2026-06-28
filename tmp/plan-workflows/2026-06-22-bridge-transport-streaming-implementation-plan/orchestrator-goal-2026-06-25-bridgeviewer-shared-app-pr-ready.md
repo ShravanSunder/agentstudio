@@ -73,6 +73,11 @@ Non-goals / scope boundary:
 - Do not move content bytes through RPC, continuous event frames, intake frames,
   push/store updates, or blob-shaped whole-package metadata paths. Content bytes
   must travel through stream-capable `ContentStreamPath` resource descriptors.
+- Treat the Vite/dev-server browser loop as the first faithful representation of
+  the production architecture, not a separate fixture architecture. Dev and
+  Swift must expose the same three lanes to BridgeWeb: RPC/control,
+  metadata/change stream, and content/resource streams. Only the backend/source
+  implementation may differ.
 - Do not replace Agent Studio Bridge/WKWebView proof with Vite-only proof.
 - Do not weaken proof gates to get unstuck; replan or split instead.
 
@@ -109,6 +114,8 @@ Proof gates:
 - streaming-resource realignment gate from
   tmp/plan-workflows/2026-06-22-bridge-transport-streaming-implementation-plan/worktree-devserver-product-e2e-precursor-plan.md:
   `Slice 06P.S / Streaming Resource Contract Realignment`
+  - dev/Vite proves the same RPC + metadata stream + content stream contract
+    expected from Swift/native before native proof begins
   - continuous event and intake paths are metadata/descriptor/projection-only
   - `ContentStreamPath` / `agentstudio://resource/...` is the only content-byte
     carrier

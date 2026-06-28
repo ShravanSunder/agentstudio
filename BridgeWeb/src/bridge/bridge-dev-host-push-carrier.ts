@@ -19,7 +19,7 @@ export function dispatchBridgeDevHostAdmittedEnvelope(envelope: unknown): void {
 	try {
 		channel.port2.dispatchEvent(portMessageEvent);
 	} catch {
-		// jsdom/Node MessagePort uses a different Event constructor; browser dev-server proof covers delivery.
+		// Node MessagePort uses a different Event constructor; browser dev-server proof covers delivery.
 	}
 	window.setTimeout((): void => {
 		channel.port1.close();

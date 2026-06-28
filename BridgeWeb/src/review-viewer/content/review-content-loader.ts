@@ -1,4 +1,3 @@
-import type { BridgeIntegrityDescriptor } from '../../core/models/bridge-resource-descriptor.js';
 import type {
 	BridgeContentFetch,
 	BridgeLoadedContentResource,
@@ -133,10 +132,8 @@ async function loadContentHandle(
 		selectedItem: loadContentHandleProps.selectedItem,
 		reviewPackage: props.reviewPackage,
 	});
-	const previewOnlyIntegrity = previewOnlyIntegrityForHandle(loadContentHandleProps.handle);
 	const loadProps: LoadBridgeContentResourceProps = {
 		handle: loadContentHandleProps.handle,
-		...(previewOnlyIntegrity === undefined ? {} : { integrity: previewOnlyIntegrity }),
 		maxBytes: loadContentHandleProps.handle.sizeBytes,
 		traceContext: props.traceContext ?? null,
 		sendTraceparentHeader: props.sendTraceparentHeader ?? false,
@@ -191,13 +188,4 @@ function assertSelectedContentHandleOwnership(props: {
 	) {
 		throw new Error('Bridge content handle does not match selected review item');
 	}
-}
-
-function previewOnlyIntegrityForHandle(
-	handle: BridgeContentHandle,
-): BridgeIntegrityDescriptor | undefined {
-	if (handle.contentHashAlgorithm !== 'sha256' || handle.contentHash.length === 0) {
-		return { kind: 'previewOnly' };
-	}
-	return undefined;
 }

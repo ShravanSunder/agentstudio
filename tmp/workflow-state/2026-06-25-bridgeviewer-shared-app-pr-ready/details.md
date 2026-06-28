@@ -2235,3 +2235,120 @@ Open implementation blockers remain:
     integration tests, focused Swift review-resource tests, dev-server product
     proof, native `oq4s` IPC/WKWebView proof, implementation-review-swarm, and
     PR-ready wrapup remain open.
+
+2026-06-28 goal restart / dev-loop-first hard cutover:
+
+- User clarified that the dev loop must be the first faithful representation of
+  reality, followed by the Swift app proving the same protocol in native
+  AgentStudio/WKWebView. The plan has been tightened so Vite/browser proof is
+  not accepted if it uses a different architecture from Swift.
+- Required lane contract for both dev and Swift:
+  - RPC/control is for control flow only: open/retry/close/status commands and
+    small acknowledgements.
+  - Continuous/intake metadata streams carry lifecycle facts, source identity,
+    cursors, snapshots/deltas, descriptor refs, invalidations, gaps, resets, and
+    small projection facts only.
+  - Content/resource streams carry all file/diff/review bytes through
+    `ContentStreamPath` descriptors. Browser may assemble text only at
+    renderer/materializer leaf boundaries after streamed read, byte-budget
+    enforcement, abort/stale handling, and final integrity/authority gating.
+- Backend difference allowed:
+  - Dev/Vite may use fixture/provider/dev-server source adapters.
+  - Swift/native uses AgentStudioGit, Swift Bridge runtime, WKWebView, and
+    `agentstudio://resource`.
+  - Both must expose the same browser-visible protocol lanes; otherwise the dev
+    loop is only a component fixture and cannot close 06P.S product proof.
+- Official next checkpoint order:
+  1. Repair current BridgeWeb compile/static failure from stale post-cutover
+     code.
+  2. Finish browser/Vite 3-lane hard cutover proof first, including no direct
+     Zustand data injection, no RPC metadata/body transfer, no push/store review
+     package body, and no whole-blob fetch as the proof of content streaming.
+  3. Run focused TypeScript/unit/integration and Vitest Browser/dev-server proof.
+ 4. Carry the same contract into Swift/native and rerun `oq4s` IPC/WKWebView
+     proof.
+  5. Commit scoped verified checkpoints only after proof passes.
+
+2026-06-28 browser static/protocol cleanup checkpoint:
+
+- Removed stale `buildContentDescriptor` code from
+  `BridgeWeb/src/features/review/protocol/review-snapshot-frame-builder.ts`.
+  Review snapshot/delta browser-dev frame building now stays aligned with the
+  hard cutover shape: snapshot frames attach `review-package` root descriptors
+  and delta frames attach `review-delta` operation descriptors; content
+  descriptors are not reintroduced into snapshot/delta metadata frames.
+- Fresh proof:
+  - `pnpm --dir BridgeWeb exec tsc --noEmit --pretty false` exited 0.
+  - `pnpm --dir BridgeWeb exec vitest run src/features/review/protocol/review-snapshot-frame-builder.unit.test.ts --reporter verbose`
+    exited 0: 1 file passed, 4 tests passed.
+  - `pnpm --dir BridgeWeb exec vitest run src/bridge/bridge-push-receiver.unit.test.ts src/features/review/protocol/review-snapshot-frame-builder.unit.test.ts --reporter verbose`
+    exited 0: 2 files passed, 10 tests passed. This includes the negative
+    proof that legacy `diff_package_metadata` and `diff_package_delta` push
+    slices decode-fail.
+  - `git diff --check` exited 0.
+- Residual hard-cutover gap remains: `BridgeWeb/src/app/bridge-app.tsx` still
+  streams `review-package` / `review-delta` resources and then reconstructs
+  old `BridgeReviewPackage` / delta objects for the existing projection
+  coordinator. That is a leaf compatibility bridge, not final projection-stream
+  architecture, and cannot close 06P.S by itself.
+
+2026-06-28 dev-loop lane-shape browser checkpoint:
+
+- Added a Vitest Browser guard in
+  `BridgeWeb/src/review-viewer/test-support/bridge-viewer-mocked-backend.browser.test.ts`
+  proving the dev mocked Review backend uses the same visible lane split:
+  `__bridge_intake_json` carries `review.snapshot` / `review.delta` metadata
+  frames with `review-package` / `review-delta` descriptors, `__bridge_push`
+  carries no package/delta payload, and the package body is fetched through the
+  resource fetch path.
+- Fresh proof:
+  - Sandboxed browser run failed before test collection because Chromium could
+    not register the MachPort rendezvous server:
+    `bootstrap_check_in ... Permission denied (1100)`.
+  - Rerun with escalation:
+    `pnpm --dir BridgeWeb exec vitest --config vitest.browser.config.ts run --project integration-browser src/review-viewer/test-support/bridge-viewer-mocked-backend.browser.test.ts --reporter verbose`
+    exited 0: 1 browser file passed, 10 tests passed.
+  - `pnpm --dir BridgeWeb exec tsc --noEmit --pretty false` exited 0.
+  - `git diff --check` exited 0.
+- This is a faithful-dev-loop guard, not full 06P.S closure. Remaining work is
+  still the `bridge-app.tsx` projection/package compatibility bridge, full
+  dev-server product proof, Swift/native `oq4s` proof, and implementation
+  review.
+
+2026-06-28 dev-loop product proof hard-cutover checkpoint:
+
+- Removed the old Vite product shortcut where
+  `/__bridge-worktree/review-package` with no `frame` or `resource` query
+  returned `{ reviewPackage }`. The route now rejects that shape and only
+  accepts `frame=review-snapshot` or descriptor resource requests.
+- The worktree dev-server verifier no longer fetches the plain package wrapper
+  to discover a Review item id. It now fetches the snapshot frame, follows the
+  `review-package` root descriptor resource URL, and parses the package body
+  only through that resource path.
+- Added Review file-target dev query support for descriptor-derived
+  `reviewItemId`, so dev proof can seed a typed Review file target instead of
+  relying on path-only selection.
+- Fresh proof:
+  - `pnpm --dir BridgeWeb exec tsc --noEmit --pretty false` exited 0.
+  - `pnpm --dir BridgeWeb exec vitest run src/app/bridge-app-dev-fixture.unit.test.ts scripts/verify-bridge-viewer-worktree-dev-server.unit.test.ts --reporter verbose`
+    exited 0: 2 files passed, 33 tests passed.
+  - `pnpm --dir BridgeWeb exec vitest --config vitest.browser.config.ts run --project integration-browser src/review-viewer/test-support/bridge-viewer-mocked-backend.browser.test.ts --reporter verbose`
+    required sandbox escalation after Chromium MachPort permission failure and
+    then exited 0: 1 browser file passed, 10 tests passed.
+  - `pnpm --dir BridgeWeb run test:dev-server:worktree` required sandbox
+    escalation for Chromium MachPort and exited 0. Fresh proof artifact:
+    `tmp/bridge-viewer-worktree-dev-server/2026-06-28T13-24-43-516Z/worktree-dev-server-proof.json`.
+  - `git diff --check` exited 0.
+- Fresh dev-server artifact records the required Review file-target URL with
+  descriptor-derived `reviewItemId`:
+  `?fixture=worktree&viewer=review&workers=on&scenario=current-worktree&presentation=file&path=Sources%2FAgentStudio%2FAtomRegistry.swift&reviewItemId=worktree-review-0f8a4e04bc89-sources-agentstudio-atomregistry-swift&version=current`.
+- `pnpm --dir BridgeWeb run check` remains blocked by sibling jsdom-removal /
+  Vitest Browser conversion files, not this slice:
+  `BridgeWeb/src/app/bridge-app-native-review-error.browser.test.tsx`,
+  `BridgeWeb/src/app/bridge-app-protocol-router.browser.test.tsx`, and
+  `BridgeWeb/src/app/bridge-app-protocol-router.contract.browser.test.tsx`
+  currently have `await-thenable` and one `no-base-to-string` lint/type errors.
+- Remaining hard-cutover work: `BridgeWeb/src/app/bridge-app.tsx` still
+  reconstructs `BridgeReviewPackage` / delta objects from streamed
+  `review-package` / `review-delta` bodies for the existing projection
+  coordinator. Native Swift `oq4s` proof is still not started for this restart.

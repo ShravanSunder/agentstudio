@@ -301,14 +301,9 @@ enum BridgeReviewProtocolFrameBuilder {
 
     private static func contentIntegrityDescriptor(
         for handle: BridgeContentHandle
-    ) -> BridgeIntegrityDescriptor {
+    ) -> BridgeIntegrityDescriptor? {
         guard handle.contentHashAlgorithm == "sha256", !handle.contentHash.isEmpty else {
-            return BridgeIntegrityDescriptor(
-                kind: .previewOnly,
-                algorithm: nil,
-                value: nil,
-                manifestResourceId: nil
-            )
+            return nil
         }
         return BridgeIntegrityDescriptor(
             kind: .wholeHash,

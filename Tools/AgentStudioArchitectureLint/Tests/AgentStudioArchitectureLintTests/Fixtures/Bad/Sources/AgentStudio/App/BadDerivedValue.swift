@@ -1,10 +1,11 @@
 func badDerivedValue() {
     _ = DerivedValue<Int>(
         inputRevisions: { [0] },
-        isContentEqual: ==
-    ) {
-        hiddenRepoCacheRead()
-    }
+        isContentEqual: ==,
+        compute: {
+            hiddenRepoCacheRead()
+        }
+    )
 }
 
 func hiddenRepoCacheRead() -> Int {

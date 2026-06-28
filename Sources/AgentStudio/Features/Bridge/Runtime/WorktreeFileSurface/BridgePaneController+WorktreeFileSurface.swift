@@ -16,6 +16,7 @@ struct BridgeWorktreeFileSurfaceActiveSourceState: Sendable {
 }
 
 private struct BridgeWorktreeFileSurfaceFrameIdentity: Decodable {
+    let kind: String
     let streamId: String
     let generation: Int
     let sequence: Int
@@ -25,7 +26,7 @@ private struct BridgeWorktreeFileSurfaceFrameIdentity: Decodable {
 extension BridgePaneController {
     func handleWorktreeFileSurfaceOpenSourceStream(
         _ params: WorktreeFileSurfaceMethods.OpenSourceStreamMethod.Params
-    ) async throws -> BridgeWorktreeSnapshotFrame {
+    ) async throws -> BridgeWorktreeFileSurfaceOpenSourceOutcome {
         let worktree = try makeWorktreeFileSurfaceAuthority()
         let generation = nextWorktreeFileSurfaceGeneration + 1
         nextWorktreeFileSurfaceGeneration = generation
@@ -95,15 +96,20 @@ extension BridgePaneController {
         for fileDescriptor in fileDescriptors {
             await worktreeFileResourceStore.register(fileDescriptor.resource, body: fileDescriptor.body)
         }
-        pendingWorktreeFileIntakeFrames = try Self.makeIntakeFrameStrings(
-            fileDescriptors.map(\.frame)
-        )
+        pendingWorktreeFileIntakeFrames =
+            try [
+                Self.makeIntakeFrameString(snapshotFrame)
+            ]
+            + Self.makeIntakeFrameStrings(fileDescriptors.map(\.frame))
         activeWorktreeFileSurfaceSource = BridgeWorktreeFileSurfaceActiveSourceState(
             source: openedSource.source,
             streamId: streamId,
             nextSequence: 1 + fileDescriptors.count
         )
-        return snapshotFrame
+        return BridgeWorktreeFileSurfaceOpenSourceOutcome(
+            streamId: streamId,
+            generation: generation
+        )
     }
 
     func publishWorktreeFileSurfaceStatus(_ status: GitWorkingTreeStatus) async throws {
@@ -321,8 +327,8 @@ extension BridgePaneController {
         }
     }
 
-    private nonisolated static func makeIntakeFrameStrings(
-        _ frames: [BridgeWorktreeFileDescriptorFrame]
+    private nonisolated static func makeIntakeFrameStrings<Frame: Encodable>(
+        _ frames: [Frame]
     ) throws -> [String] {
         try frames.map { try makeIntakeFrameString($0) }
     }
@@ -345,9 +351,12 @@ extension BridgePaneController {
         let envelopeEncoder = BridgePushEnvelopeEncoder()
         let frameData = try encoder.encode(frame)
         let object = try JSONDecoder().decode(BridgeWorktreeFileSurfaceFrameIdentity.self, from: frameData)
+        guard let kind = BridgeIntakeFrameKind(rawValue: object.kind) else {
+            throw BridgePushEnvelopeEncodingError.invalidEnvelopeUTF8
+        }
         return try envelopeEncoder.encodeIntakeFrame(
             metadata: BridgeIntakeFrameMetadata(
-                kind: .delta,
+                kind: kind,
                 streamId: object.streamId,
                 generation: object.generation,
                 sequence: object.sequence

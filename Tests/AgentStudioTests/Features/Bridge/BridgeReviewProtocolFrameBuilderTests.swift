@@ -68,8 +68,8 @@ struct BridgeReviewProtocolFrameBuilderTests {
             frame.package.rootDescriptor.descriptor.content.maxBytes == AppPolicies.Bridge.ipcMaxResponsePayloadBytes)
     }
 
-    @Test("snapshot frame emits preview-only integrity for non-sha256 host hashes")
-    func snapshotFrameEmitsPreviewOnlyIntegrityForNonSHA256HostHashes() throws {
+    @Test("snapshot frame omits browser integrity for non-sha256 host hashes")
+    func snapshotFrameOmitsBrowserIntegrityForNonSHA256HostHashes() throws {
         let package = try makeReviewPackageWithHostContentHashAlgorithm()
 
         let frame = try BridgeReviewProtocolFrameBuilder.snapshot(
@@ -83,14 +83,12 @@ struct BridgeReviewProtocolFrameBuilderTests {
             )
         )
 
-        let previewOnlyDescriptor = try #require(
+        let hostVerifiedDescriptor = try #require(
             frame.package.contentDescriptors.first {
-                $0.descriptor.content.integrity?.kind == .previewOnly
+                $0.ref.descriptorId == "handle-item-source-head"
             }
         )
-        #expect(previewOnlyDescriptor.descriptor.content.integrity?.algorithm == nil)
-        #expect(previewOnlyDescriptor.descriptor.content.integrity?.value == nil)
-        #expect(previewOnlyDescriptor.descriptor.content.integrity?.manifestResourceId == nil)
+        #expect(hostVerifiedDescriptor.descriptor.content.integrity == nil)
     }
 
     @Test("snapshot frame builder preserves flexible changeset cluster metadata")

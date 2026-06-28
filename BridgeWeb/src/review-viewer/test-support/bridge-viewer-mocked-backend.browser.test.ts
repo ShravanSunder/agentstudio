@@ -1,5 +1,3 @@
-// @vitest-environment jsdom
-
 import { afterEach, describe, expect, test } from 'vitest';
 
 import { makeBridgeReviewProjectionRequest } from '../navigation/review-projection-request.js';
@@ -68,12 +66,22 @@ describe('bridge viewer mocked backend', () => {
 		expect(fileClassCounts['test']).toBeGreaterThan(0);
 	});
 
-	test('records Bridge pushes without emitting protocol frames through page events', async () => {
+	test('emits review metadata through intake frames and bodies through resources', async () => {
 		const fixture = makeBridgeViewerBrowserFixture();
 		const backend = installBridgeViewerMockedBackend(fixture);
 		const pageEventDetails: unknown[] = [];
+		const intakeFrames: unknown[] = [];
 		document.addEventListener('__bridge_push', (event: Event): void => {
 			pageEventDetails.push('detail' in event ? event.detail : null);
+		});
+		document.addEventListener('__bridge_intake_json', (event: Event): void => {
+			if (!('detail' in event) || typeof event.detail !== 'object' || event.detail === null) {
+				return;
+			}
+			if (!('json' in event.detail) || typeof event.detail.json !== 'string') {
+				return;
+			}
+			intakeFrames.push(JSON.parse(event.detail.json));
 		});
 
 		document.dispatchEvent(new CustomEvent('__bridge_handshake_request'));
@@ -97,6 +105,65 @@ describe('bridge viewer mocked backend', () => {
 			},
 		]);
 		expect(pageEventDetails).toEqual([]);
+		expect(intakeFrames).toHaveLength(2);
+		expect(intakeFrames).toEqual([
+			expect.objectContaining({
+				kind: 'snapshot',
+				payload: expect.objectContaining({
+					frameKind: 'review.snapshot',
+					package: expect.objectContaining({
+						rootDescriptor: expect.objectContaining({
+							descriptor: expect.objectContaining({
+								resourceKind: 'review-package',
+								resourceUrl: expect.stringContaining(
+									'agentstudio://resource/review/review-package/',
+								),
+							}),
+						}),
+					}),
+				}),
+			}),
+			expect.objectContaining({
+				kind: 'delta',
+				payload: expect.objectContaining({
+					frameKind: 'review.delta',
+					operationsDescriptor: expect.objectContaining({
+						descriptor: expect.objectContaining({
+							resourceKind: 'review-delta',
+							resourceUrl: expect.stringContaining(
+								'agentstudio://resource/review/review-delta/',
+							),
+						}),
+					}),
+				}),
+			}),
+		]);
+		const snapshotFrame = intakeFrames[0];
+		expect(JSON.stringify(snapshotFrame)).not.toContain('"itemsById"');
+		expect(JSON.stringify(snapshotFrame)).not.toContain('"orderedItemIds"');
+		const snapshotPayload =
+			typeof snapshotFrame === 'object' && snapshotFrame !== null && 'payload' in snapshotFrame
+				? snapshotFrame.payload
+				: null;
+		const snapshotPackage =
+			typeof snapshotPayload === 'object' && snapshotPayload !== null && 'package' in snapshotPayload
+				? snapshotPayload.package
+				: null;
+		const rootDescriptor =
+			typeof snapshotPackage === 'object' &&
+			snapshotPackage !== null &&
+			'rootDescriptor' in snapshotPackage
+				? snapshotPackage.rootDescriptor
+				: null;
+		const descriptor =
+			typeof rootDescriptor === 'object' && rootDescriptor !== null && 'descriptor' in rootDescriptor
+				? rootDescriptor.descriptor
+				: null;
+		if (typeof descriptor !== 'object' || descriptor === null || !('resourceUrl' in descriptor)) {
+			throw new Error('Mocked Review snapshot did not expose a package resource descriptor');
+		}
+		const packageResourceResponse = await backend.fetchContent(String(descriptor.resourceUrl));
+		expect(packageResourceResponse.ok).toBe(true);
 	});
 
 	test('records semantic command payloads sent through the Bridge command event', () => {

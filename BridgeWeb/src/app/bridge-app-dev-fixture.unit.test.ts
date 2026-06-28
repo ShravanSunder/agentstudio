@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'vitest';
 
+import { buildReviewSnapshotFrame } from '../features/review/protocol/review-snapshot-frame-builder.js';
+import { bridgeReviewPackageSchema } from '../foundation/review-package/bridge-review-package-schema.js';
 import { makeBridgeViewerBrowserFixture } from '../review-viewer/test-support/bridge-viewer-mocked-backend.js';
 import {
 	bridgeAppDevFixtureOptionsSchema,
@@ -134,6 +136,37 @@ describe('bridge app dev fixture options', () => {
 		});
 	});
 
+	test('maps review file presentation dev URLs with review item identity', () => {
+		const options = parseBridgeAppDevFixtureOptions(
+			new URLSearchParams(
+				'fixture=worktree&viewer=review&presentation=file&path=BridgeWeb/src/app/bridge-app.tsx&reviewItemId=worktree-review-123&version=current',
+			),
+		);
+
+		expect(options.navigationCommand).toEqual({
+			commandId:
+				'dev:worktree:review:file:BridgeWeb/src/app/bridge-app.tsx:current:item:worktree-review-123',
+			commandKind: 'initialize',
+			context: 'review',
+			restoreMemory: true,
+			source: {
+				comparisonId: 'dev-current-worktree-comparison',
+				sourceId: 'dev-current-worktree-review',
+				sourceKind: 'reviewComparison',
+			},
+			target: {
+				comparisonId: 'dev-current-worktree-comparison',
+				fileRef: {
+					path: 'BridgeWeb/src/app/bridge-app.tsx',
+					sourceId: 'dev-current-worktree-review',
+				},
+				reviewItemId: 'worktree-review-123',
+				targetKind: 'file',
+				version: 'current',
+			},
+		});
+	});
+
 	test('rejects malformed worktree navigation query parameters', () => {
 		expect(() =>
 			parseBridgeAppDevFixtureOptions(new URLSearchParams('fixture=worktree&viewer=diffs')),
@@ -196,6 +229,17 @@ describe('bridge app dev fixture options', () => {
 
 		expect(markdownPackage.orderedItemIds[0]).toBe('browser-docs-plan');
 		expect(scrollPackage.orderedItemIds[0]).toBe('browser-large-diff');
+		expect(bridgeReviewPackageSchema.safeParse(scrollPackage).success).toBe(true);
+		const scrollFrame = buildReviewSnapshotFrame({
+			package: scrollPackage,
+			paneId: 'bridge-review-pane-browser',
+			sourceIdentity: scrollPackage.query.queryId,
+			streamId: 'bridge-review-stream-browser',
+			sequence: scrollPackage.revision,
+		});
+		const scrollPackageBytes = new TextEncoder().encode(JSON.stringify(scrollPackage)).byteLength;
+		expect(scrollPackageBytes).toBeLessThanOrEqual(8 * 1024 * 1024);
+		expect(scrollFrame.package.rootDescriptor.descriptor.content.maxBytes).toBe(scrollPackageBytes);
 		expect(markdownPackage.orderedItemIds).toHaveLength(
 			fixture.reviewPackage.orderedItemIds.length,
 		);

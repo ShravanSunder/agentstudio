@@ -11,12 +11,19 @@ type BridgeHandshakeTarget = Pick<
 export interface BridgePageHandshakeSession {
 	readonly getPushNonce: () => string | null;
 	readonly getTelemetryConfig: () => BridgeTelemetryBootstrapConfig | null;
+	readonly markIntakeReady: (props: BridgeIntakeReadyProps) => boolean;
 	readonly uninstall: () => void;
 }
 
 export interface InstallBridgePageHandshakeSessionProps {
+	readonly getBridgeCommandNonce?: () => string | null;
 	readonly onTelemetryConfig?: (telemetryConfig: BridgeTelemetryBootstrapConfig) => void;
 	readonly onReady?: () => void;
+}
+
+export interface BridgeIntakeReadyProps {
+	readonly protocolId: string;
+	readonly streamId?: string | null;
 }
 
 export function installBridgePageHandshake(target: BridgeHandshakeTarget = document): () => void {
@@ -62,6 +69,29 @@ export function installBridgePageHandshakeSession(
 	return {
 		getPushNonce: (): string | null => pushNonce,
 		getTelemetryConfig: (): BridgeTelemetryBootstrapConfig | null => telemetryConfig,
+		markIntakeReady: (intakeReadyProps: BridgeIntakeReadyProps): boolean => {
+			if (pushNonce === null) {
+				return false;
+			}
+			const bridgeNonce = (props.getBridgeCommandNonce ?? readBridgeCommandNonce)();
+			if (bridgeNonce === null) {
+				return false;
+			}
+			target.dispatchEvent(
+				new CustomEvent('__bridge_command', {
+					detail: {
+						__nonce: bridgeNonce,
+						jsonrpc: '2.0',
+						method: 'bridge.intakeReady',
+						params: {
+							protocolId: intakeReadyProps.protocolId,
+							streamId: intakeReadyProps.streamId ?? null,
+						},
+					},
+				}),
+			);
+			return true;
+		},
 		uninstall: (): void => {
 			isInstalled = false;
 			target.removeEventListener('__bridge_handshake', handleHandshake);
@@ -90,4 +120,10 @@ function extractTelemetryConfig(event: Event): BridgeTelemetryBootstrapConfig | 
 		return null;
 	}
 	return decodeBridgeTelemetryBootstrapConfig(detail.telemetryConfig);
+}
+
+function readBridgeCommandNonce(): string | null {
+	return typeof document === 'undefined'
+		? null
+		: document.documentElement.getAttribute('data-bridge-nonce');
 }

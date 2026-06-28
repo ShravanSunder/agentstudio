@@ -46,6 +46,7 @@ import {
 	readBridgeTextResourceStream,
 	type BridgeTextResourceStreamResult,
 } from '../core/resources/bridge-resource-stream.js';
+import { parseBridgeCoreResourceUrl } from '../core/resources/bridge-resource-url.js';
 import {
 	applyReviewProtocolFrame,
 	type ReviewMaterializerDelta,
@@ -211,6 +212,12 @@ interface BridgeActiveViewerState {
 	readonly navigationCommand: BridgeViewerNavigationCommand | undefined;
 	readonly viewerMode: 'file' | 'review';
 }
+
+type ReviewSnapshotMaterializerDelta = Extract<
+	ReviewMaterializerDelta,
+	{ readonly kind: 'snapshot' }
+>;
+type ReviewDeltaMaterializerDelta = Extract<ReviewMaterializerDelta, { readonly kind: 'delta' }>;
 
 type BridgeViewerMode = BridgeActiveViewerState['viewerMode'];
 
@@ -975,7 +982,41 @@ function BridgeReviewViewerMode(
 
 	useEffect((): (() => void) => {
 		let handshakeSession: BridgePageHandshakeSession | null = null;
-		let requestIntakeReplay = (): void => {};
+		let didMarkReviewIntakeReady = false;
+		const requestIntakeReplay = (): void => {
+			target.dispatchEvent(new CustomEvent('__bridge_intake_replay_request'));
+		};
+		const markReviewIntakeReady = (): void => {
+			if (didMarkReviewIntakeReady) {
+				return;
+			}
+			const didSendIntakeReady =
+				handshakeSession?.markIntakeReady({
+					protocolId: 'review',
+					streamId: getReviewFrameAuthority()?.streamId ?? null,
+				}) ?? false;
+			if (!didSendIntakeReady) {
+				return;
+			}
+			didMarkReviewIntakeReady = true;
+			requestIntakeReplay();
+		};
+		const documentElement = typeof document === 'undefined' ? null : document.documentElement;
+		const reviewIntakeReadyObserver =
+			documentElement === null || typeof MutationObserver === 'undefined'
+				? null
+				: new MutationObserver((): void => {
+						markReviewIntakeReady();
+					});
+		if (reviewIntakeReadyObserver !== null && documentElement !== null) {
+			reviewIntakeReadyObserver.observe(documentElement, {
+				attributeFilter: [
+					'data-bridge-nonce',
+					bridgeReviewPaneIdAttribute,
+					bridgeReviewStreamIdAttribute,
+				],
+			});
+		}
 		const configureTelemetryRecorder = (): void => {
 			const telemetryConfig = handshakeSession?.getTelemetryConfig() ?? null;
 			telemetryRecorderRef.current = createBridgeTelemetryRecorder(
@@ -1026,6 +1067,23 @@ function BridgeReviewViewerMode(
 		};
 		const reviewIntakeReceiver = createBridgeReviewIntakeReceiver({
 			getAuthority: getReviewFrameAuthority,
+			onError: (frame: Extract<BridgeIntakeFrame, { readonly kind: 'error' }>): void => {
+				setDiffStatus(
+					(): BridgeDiffStatusState => ({
+						status: 'error',
+						error: frame.message,
+						epoch: frame.generation,
+					}),
+				);
+				recordReviewIntakeFrameTelemetry({
+					telemetryRecorder: telemetryRecorderRef.current,
+					frameKind: 'unknown',
+					generation: frame.generation,
+					sequence: frame.sequence,
+					result: 'failed',
+					resultReason: 'intake_error',
+				});
+			},
 			onFrame: (
 				protocolFrame: ReviewProtocolFrame,
 				traceContext: BridgeTraceContext | null,
@@ -1052,13 +1110,6 @@ function BridgeReviewViewerMode(
 				});
 			},
 		});
-		handshakeSession = installBridgePageHandshakeSession(target, {
-			onTelemetryConfig: configureTelemetryRecorder,
-			onReady: (): void => {
-				requestIntakeReplay();
-			},
-		});
-		configureTelemetryRecorder();
 		const uninstallIntakeCarrier = installBridgeIntakeEventCarrier({
 			target,
 			eventName: '__bridge_intake_json',
@@ -1070,9 +1121,14 @@ function BridgeReviewViewerMode(
 				recordReviewIntakeDropTelemetry(telemetryRecorderRef.current, drop);
 			},
 		});
-		requestIntakeReplay = (): void => {
-			target.dispatchEvent(new CustomEvent('__bridge_intake_replay_request'));
-		};
+		handshakeSession = installBridgePageHandshakeSession(target, {
+			onTelemetryConfig: configureTelemetryRecorder,
+			onReady: (): void => {
+				queueMicrotask(markReviewIntakeReady);
+			},
+		});
+		configureTelemetryRecorder();
+		markReviewIntakeReady();
 		const uninstallPushReceiver = installBridgePushReceiver({
 			target,
 			getPushNonce: (): string | null => handshakeSession?.getPushNonce() ?? null,
@@ -1098,6 +1154,7 @@ function BridgeReviewViewerMode(
 			},
 		});
 		return (): void => {
+			reviewIntakeReadyObserver?.disconnect();
 			uninstallIntakeCarrier();
 			uninstallPushReceiver();
 			handshakeSession?.uninstall();
@@ -2336,7 +2393,7 @@ function recordReviewIntakeFrameTelemetry(props: {
 	readonly frameKind: ReviewProtocolFrame['frameKind'] | 'unknown';
 	readonly generation: number;
 	readonly sequence: number;
-	readonly result: 'dropped' | 'success';
+	readonly result: 'dropped' | 'failed' | 'success';
 	readonly resultReason: string;
 }): void {
 	const slice = reviewIntakeTelemetrySliceForFrameKind(props.frameKind);
@@ -2482,14 +2539,29 @@ async function applyReviewProtocolFramePayload(
 		);
 		return;
 	}
-	const packagePayload = await loadReviewPackageFromProtocolFrame({
-		descriptorRegistry,
+	const snapshotFrame = materializeReviewProtocolSnapshotFrame({
 		protocolFrame,
-		resourceExecutor,
-		reviewDemandScheduler,
+		descriptorRegistry,
 		reviewFrameAuthority,
 	});
-	if (packagePayload !== null) {
+	if (snapshotFrame !== null) {
+		const packagePayload = await loadReviewPackageFromProtocolFrame({
+			descriptorRegistry,
+			protocolFrame,
+			resourceExecutor,
+			reviewDemandScheduler,
+			snapshotFrame,
+		});
+		if (packagePayload === null) {
+			setDiffStatus(
+				(): BridgeDiffStatusState => ({
+					status: 'error',
+					error: 'review_protocol_frame_unavailable',
+					epoch: protocolFrame.generation,
+				}),
+			);
+			return;
+		}
 		const currentReviewPackage = reviewPackageRef.current;
 		if (
 			currentReviewPackage !== null &&
@@ -2499,10 +2571,11 @@ async function applyReviewProtocolFramePayload(
 		}
 
 		const materializedFrame = materializeAcceptedReviewSnapshotForPackage({
-			protocolFrame,
-			reviewPackage: packagePayload,
 			descriptorRegistry,
+			protocolFrame,
 			reviewFrameAuthority,
+			reviewPackage: packagePayload,
+			snapshotFrame,
 		});
 		if (materializedFrame === null) {
 			setDiffStatus(
@@ -2545,13 +2618,21 @@ async function applyReviewProtocolFramePayload(
 		return;
 	}
 
-	const deltaPayload = await loadReviewDeltaFromProtocolFrame({
-		descriptorRegistry,
+	const deltaFrame = materializeReviewProtocolDeltaFrame({
 		protocolFrame,
-		resourceExecutor,
-		reviewDemandScheduler,
+		descriptorRegistry,
 		reviewFrameAuthority,
 	});
+	const deltaPayload =
+		deltaFrame === null
+			? null
+			: await loadReviewDeltaFromProtocolFrame({
+					descriptorRegistry,
+					deltaFrame,
+					protocolFrame,
+					resourceExecutor,
+					reviewDemandScheduler,
+				});
 	if (deltaPayload === null) {
 		if (
 			protocolFrame?.frameKind === 'review.invalidate' &&
@@ -2649,12 +2730,13 @@ async function applyReviewProtocolFramePayload(
 	}
 
 	const materializedFrame = materializeAcceptedReviewDeltaForPackage({
+		descriptorRegistry,
 		protocolFrame,
+		deltaFrame,
+		reviewFrameAuthority,
 		reviewPackage: result.registry.reviewPackage,
 		previousReviewPackage: currentReviewPackage,
 		previousDescriptorRefsByHandleId: reviewContentDescriptorRefsByHandleIdRef.current,
-		descriptorRegistry,
-		reviewFrameAuthority,
 	});
 	if (materializedFrame === null) {
 		cancelReviewDescriptorDemandGroups({
@@ -2725,14 +2807,66 @@ interface MaterializedReviewSnapshotForPackage {
 	readonly descriptorRefsByHandleId: ReadonlyMap<string, BridgeDescriptorRef>;
 }
 
-function materializeAcceptedReviewSnapshotForPackage(props: {
+function materializeReviewProtocolSnapshotFrame(props: {
 	readonly protocolFrame: ReviewProtocolFrame | null;
-	readonly reviewPackage: BridgeReviewPackage;
 	readonly descriptorRegistry: BridgeResourceDescriptorRegistry;
 	readonly reviewFrameAuthority: BridgeReviewFrameAuthority | null;
+}): ReviewSnapshotMaterializerDelta | null {
+	if (
+		props.protocolFrame?.frameKind !== 'review.snapshot' ||
+		!reviewSnapshotFrameMatchesAuthority({
+			frame: props.protocolFrame,
+			reviewFrameAuthority: props.reviewFrameAuthority,
+		}) ||
+		props.reviewFrameAuthority === null
+	) {
+		return null;
+	}
+	const materializeResult = applyReviewProtocolFrame({
+		frame: props.protocolFrame,
+		paneId: props.reviewFrameAuthority.paneId,
+		registry: props.descriptorRegistry,
+	});
+	return materializeResult.ok && materializeResult.delta.kind === 'snapshot'
+		? materializeResult.delta
+		: null;
+}
+
+function materializeReviewProtocolDeltaFrame(props: {
+	readonly protocolFrame: ReviewProtocolFrame | null;
+	readonly descriptorRegistry: BridgeResourceDescriptorRegistry;
+	readonly reviewFrameAuthority: BridgeReviewFrameAuthority | null;
+}): ReviewDeltaMaterializerDelta | null {
+	if (
+		props.protocolFrame?.frameKind !== 'review.delta' ||
+		!reviewDeltaFrameMatchesAuthority({
+			frame: props.protocolFrame,
+			reviewFrameAuthority: props.reviewFrameAuthority,
+		}) ||
+		props.reviewFrameAuthority === null
+	) {
+		return null;
+	}
+	const materializeResult = applyReviewProtocolFrame({
+		frame: props.protocolFrame,
+		paneId: props.reviewFrameAuthority.paneId,
+		registry: props.descriptorRegistry,
+	});
+	return materializeResult.ok && materializeResult.delta.kind === 'delta'
+		? materializeResult.delta
+		: null;
+}
+
+function materializeAcceptedReviewSnapshotForPackage(props: {
+	readonly descriptorRegistry: BridgeResourceDescriptorRegistry;
+	readonly protocolFrame: ReviewProtocolFrame | null;
+	readonly reviewFrameAuthority: BridgeReviewFrameAuthority | null;
+	readonly reviewPackage: BridgeReviewPackage;
+	readonly snapshotFrame: ReviewSnapshotMaterializerDelta;
 }): MaterializedReviewSnapshotForPackage | null {
 	if (
 		props.protocolFrame?.frameKind !== 'review.snapshot' ||
+		props.reviewFrameAuthority === null ||
 		!reviewSnapshotFrameMatchesPackage({
 			frame: props.protocolFrame,
 			reviewPackage: props.reviewPackage,
@@ -2741,35 +2875,37 @@ function materializeAcceptedReviewSnapshotForPackage(props: {
 	) {
 		return null;
 	}
-	if (props.reviewFrameAuthority === null) {
+	const descriptorRefsByHandleId =
+		props.snapshotFrame.registeredContentDescriptorRefs.length === 0
+			? deriveAndRegisterReviewContentDescriptorRefs({
+					descriptorRegistry: props.descriptorRegistry,
+					reviewPackage: props.reviewPackage,
+					reviewFrameAuthority: props.reviewFrameAuthority,
+				})
+			: new Map(
+					props.snapshotFrame.registeredContentDescriptorRefs.map(
+						(ref): readonly [string, BridgeDescriptorRef] => [ref.descriptorId, ref],
+					),
+				);
+	if (descriptorRefsByHandleId === null) {
 		return null;
 	}
-	const materializeResult = applyReviewProtocolFrame({
-		frame: props.protocolFrame,
-		paneId: props.reviewFrameAuthority.paneId,
-		registry: props.descriptorRegistry,
-	});
-	if (!materializeResult.ok || materializeResult.delta.kind !== 'snapshot') {
-		return null;
-	}
-	const descriptorRefsByHandleId = new Map(
-		materializeResult.delta.registeredContentDescriptorRefs.map(
-			(ref): readonly [string, BridgeDescriptorRef] => [ref.descriptorId, ref],
-		),
-	);
 	return { descriptorRefsByHandleId };
 }
 
 function materializeAcceptedReviewDeltaForPackage(props: {
+	readonly descriptorRegistry: BridgeResourceDescriptorRegistry;
 	readonly protocolFrame: ReviewProtocolFrame | null;
+	readonly deltaFrame: ReviewDeltaMaterializerDelta | null;
 	readonly previousReviewPackage: BridgeReviewPackage;
 	readonly previousDescriptorRefsByHandleId: ReadonlyMap<string, BridgeDescriptorRef>;
-	readonly reviewPackage: BridgeReviewPackage;
-	readonly descriptorRegistry: BridgeResourceDescriptorRegistry;
 	readonly reviewFrameAuthority: BridgeReviewFrameAuthority | null;
+	readonly reviewPackage: BridgeReviewPackage;
 }): MaterializedReviewSnapshotForPackage | null {
 	if (
 		props.protocolFrame?.frameKind !== 'review.delta' ||
+		props.deltaFrame === null ||
+		props.reviewFrameAuthority === null ||
 		!reviewDeltaFrameMatchesPackage({
 			frame: props.protocolFrame,
 			previousReviewPackage: props.previousReviewPackage,
@@ -2780,28 +2916,24 @@ function materializeAcceptedReviewDeltaForPackage(props: {
 	) {
 		return null;
 	}
-	if (props.reviewFrameAuthority === null) {
-		return null;
-	}
-	const materializeResult = applyReviewProtocolFrame({
-		frame: props.protocolFrame,
-		paneId: props.reviewFrameAuthority.paneId,
-		registry: props.descriptorRegistry,
-	});
-	if (!materializeResult.ok || materializeResult.delta.kind !== 'delta') {
-		return null;
-	}
 	const attachedDescriptorRefsByHandleId = new Map(
-		materializeResult.delta.registeredContentDescriptorRefs.map(
+		props.deltaFrame.registeredContentDescriptorRefs.map(
 			(ref): readonly [string, BridgeDescriptorRef] => [ref.descriptorId, ref],
 		),
 	);
-	const descriptorRefsByHandleId = descriptorRefsForDeltaPackageLineage({
-		previousReviewPackage: props.previousReviewPackage,
-		reviewPackage: props.reviewPackage,
-		previousDescriptorRefsByHandleId: props.previousDescriptorRefsByHandleId,
-		attachedDescriptorRefsByHandleId,
-	});
+	const descriptorRefsByHandleId =
+		props.deltaFrame.registeredContentDescriptorRefs.length === 0
+			? deriveAndRegisterReviewContentDescriptorRefs({
+					descriptorRegistry: props.descriptorRegistry,
+					reviewPackage: props.reviewPackage,
+					reviewFrameAuthority: props.reviewFrameAuthority,
+				})
+			: descriptorRefsForDeltaPackageLineage({
+					previousReviewPackage: props.previousReviewPackage,
+					reviewPackage: props.reviewPackage,
+					previousDescriptorRefsByHandleId: props.previousDescriptorRefsByHandleId,
+					attachedDescriptorRefsByHandleId,
+				});
 	if (descriptorRefsByHandleId === null) {
 		return null;
 	}
@@ -2938,7 +3070,11 @@ function reviewDeltaFrameDescriptorsMatchPackage(props: {
 	}
 	const handlesById = contentHandlesByIdForReviewPackage(props.reviewPackage);
 	const descriptorIds = new Set<string>();
-	for (const attachedDescriptor of props.frame.contentDescriptors ?? []) {
+	const attachedDescriptors = props.frame.contentDescriptors ?? [];
+	if (attachedDescriptors.length === 0) {
+		return true;
+	}
+	for (const attachedDescriptor of attachedDescriptors) {
 		if (descriptorIds.has(attachedDescriptor.ref.descriptorId)) {
 			return false;
 		}
@@ -2960,12 +3096,10 @@ function reviewDeltaFrameDescriptorsMatchPackage(props: {
 			reviewPackage: props.reviewPackage,
 			previousDescriptorRefsByHandleId: props.previousDescriptorRefsByHandleId,
 			attachedDescriptorRefsByHandleId: new Map(
-				(props.frame.contentDescriptors ?? []).map(
-					(attachedDescriptor): readonly [string, BridgeDescriptorRef] => [
-						attachedDescriptor.ref.descriptorId,
-						attachedDescriptor.ref,
-					],
-				),
+				attachedDescriptors.map((attachedDescriptor): readonly [string, BridgeDescriptorRef] => [
+					attachedDescriptor.ref.descriptorId,
+					attachedDescriptor.ref,
+				]),
 			),
 		}) !== null
 	);
@@ -3041,7 +3175,11 @@ function reviewSnapshotFrameDescriptorsMatchPackage(props: {
 	}
 	const handlesById = contentHandlesByIdForReviewPackage(props.reviewPackage);
 	const descriptorIds = new Set<string>();
-	for (const attachedDescriptor of props.frame.package.contentDescriptors ?? []) {
+	const attachedDescriptors = props.frame.package.contentDescriptors ?? [];
+	if (attachedDescriptors.length === 0) {
+		return true;
+	}
+	for (const attachedDescriptor of attachedDescriptors) {
 		if (descriptorIds.has(attachedDescriptor.ref.descriptorId)) {
 			return false;
 		}
@@ -3112,6 +3250,89 @@ function contentHandlesByIdForReviewPackage(
 		}
 	}
 	return handlesById;
+}
+
+function deriveAndRegisterReviewContentDescriptorRefs(props: {
+	readonly reviewPackage: BridgeReviewPackage;
+	readonly reviewFrameAuthority: BridgeReviewFrameAuthority;
+	readonly descriptorRegistry: BridgeResourceDescriptorRegistry;
+}): ReadonlyMap<string, BridgeDescriptorRef> | null {
+	const descriptorRefsByHandleId = new Map<string, BridgeDescriptorRef>();
+	for (const handle of contentHandlesByIdForReviewPackage(props.reviewPackage).values()) {
+		const attachedDescriptor = deriveReviewContentDescriptorFromHandle({
+			handle,
+			reviewPackage: props.reviewPackage,
+			reviewFrameAuthority: props.reviewFrameAuthority,
+		});
+		if (attachedDescriptor === null) {
+			return null;
+		}
+		const registerResult = props.descriptorRegistry.register(attachedDescriptor);
+		if (!registerResult.ok) {
+			return null;
+		}
+		descriptorRefsByHandleId.set(handle.handleId, attachedDescriptor.ref);
+	}
+	return descriptorRefsByHandleId;
+}
+
+function deriveReviewContentDescriptorFromHandle(props: {
+	readonly handle: BridgeContentHandle;
+	readonly reviewPackage: BridgeReviewPackage;
+	readonly reviewFrameAuthority: BridgeReviewFrameAuthority;
+}): BridgeAttachedResourceDescriptor | null {
+	const parsedResourceUrl = parseBridgeCoreResourceUrl(props.handle.resourceUrl, {
+		allowedResourceKindsByProtocol: bridgeReviewAllowedResourceKindsByProtocol,
+	});
+	if (
+		parsedResourceUrl === null ||
+		parsedResourceUrl.protocol !== 'review' ||
+		parsedResourceUrl.resourceKind !== 'content' ||
+		parsedResourceUrl.opaqueId !== props.handle.handleId
+	) {
+		return null;
+	}
+	const identity: BridgeIdentity = {
+		paneId: props.reviewFrameAuthority.paneId,
+		protocol: 'review',
+		sourceId: props.reviewPackage.query.queryId,
+		packageId: props.reviewPackage.packageId,
+		generation: props.handle.reviewGeneration,
+		...(parsedResourceUrl.revision === undefined ? {} : { revision: parsedResourceUrl.revision }),
+		streamId: props.reviewFrameAuthority.streamId,
+		...(parsedResourceUrl.cursor === undefined ? {} : { cursor: parsedResourceUrl.cursor }),
+	};
+	const integrity =
+		props.handle.contentHashAlgorithm === 'sha256' && props.handle.contentHash.length > 0
+			? ({
+					kind: 'wholeHash',
+					algorithm: 'sha256',
+					value: props.handle.contentHash,
+				} as const)
+			: undefined;
+	const descriptor = {
+		descriptorId: parsedResourceUrl.opaqueId,
+		protocol: 'review',
+		resourceKind: 'content',
+		resourceUrl: parsedResourceUrl.canonicalUrl,
+		identity,
+		content: {
+			mediaType: props.handle.mimeType,
+			encoding: props.handle.isBinary ? 'binary' : 'utf-8',
+			expectedBytes: props.handle.sizeBytes,
+			maxBytes: Math.max(props.handle.sizeBytes, 1),
+			...(integrity === undefined ? {} : { integrity }),
+		},
+	} satisfies BridgeAttachedResourceDescriptor['descriptor'];
+	return {
+		ref: {
+			descriptorId: descriptor.descriptorId,
+			expectedProtocol: descriptor.protocol,
+			expectedResourceKind: descriptor.resourceKind,
+			expectedIdentity: identity,
+		},
+		descriptor,
+	};
 }
 
 function descriptorRefsForReviewInvalidation(props: {
@@ -3217,52 +3438,46 @@ async function loadReviewPackageFromProtocolFrame(props: {
 	readonly protocolFrame: ReviewProtocolFrame | null;
 	readonly resourceExecutor: BridgeResourceExecutor<BridgeTextResourceStreamResult>;
 	readonly reviewDemandScheduler: BridgeDemandScheduler;
-	readonly reviewFrameAuthority: BridgeReviewFrameAuthority | null;
+	readonly snapshotFrame: ReviewSnapshotMaterializerDelta;
 }): Promise<BridgeReviewPackage | null> {
-	if (
-		props.protocolFrame?.frameKind !== 'review.snapshot' ||
-		!reviewSnapshotFrameMatchesAuthority({
-			frame: props.protocolFrame,
-			reviewFrameAuthority: props.reviewFrameAuthority,
-		})
-	) {
+	if (props.protocolFrame?.frameKind !== 'review.snapshot') {
 		return null;
 	}
-	const result = await loadReviewProtocolBodyDescriptor({
-		attachedDescriptor: props.protocolFrame.package.rootDescriptor,
+	const result = await loadReviewProtocolBodyDescriptorRef({
 		descriptorRegistry: props.descriptorRegistry,
+		descriptorRef: props.snapshotFrame.rootDescriptorRef,
 		resourceExecutor: props.resourceExecutor,
 		reviewDemandScheduler: props.reviewDemandScheduler,
 	});
 	if (result === null) {
 		return null;
 	}
-		if (!result.ok) {
-			throw new Error(`Bridge review package resource request failed: ${result.reason}`);
-		}
-		if (!result.authoritative) {
-			throw new Error('Bridge review package resource was preview-only');
-		}
-		const parsedPackage = bridgeReviewPackageSchema.safeParse(JSON.parse(result.content.readText()));
-		return parsedPackage.success ? parsedPackage.data : null;
+	if (!result.ok) {
+		throw new Error(`Bridge review package resource request failed: ${result.reason}`);
+	}
+	if (!result.authoritative) {
+		throw new Error('Bridge review package resource was preview-only');
+	}
+	const parsedPackage = bridgeReviewPackageSchema.safeParse(JSON.parse(result.content.readText()));
+	return parsedPackage.success ? parsedPackage.data : null;
 }
 
-async function loadReviewProtocolBodyDescriptor(props: {
-	readonly attachedDescriptor: BridgeAttachedResourceDescriptor;
+async function loadReviewProtocolBodyDescriptorRef(props: {
 	readonly descriptorRegistry: BridgeResourceDescriptorRegistry;
+	readonly descriptorRef: BridgeDescriptorRef;
 	readonly resourceExecutor: BridgeResourceExecutor<BridgeTextResourceStreamResult>;
 	readonly reviewDemandScheduler: BridgeDemandScheduler;
 }): Promise<Awaited<
 	ReturnType<BridgeResourceExecutor<BridgeTextResourceStreamResult>['load']>
 > | null> {
-	const registerResult = props.descriptorRegistry.register(props.attachedDescriptor);
-	if (!registerResult.ok) {
+	const descriptor = props.descriptorRegistry.lookup(props.descriptorRef);
+	if (descriptor === null) {
 		return null;
 	}
-	const intent = demandIntentForReviewProtocolBodyDescriptorRef(props.attachedDescriptor.ref);
+	const intent = demandIntentForReviewProtocolBodyDescriptorRef(props.descriptorRef);
 	const enqueueResult = props.reviewDemandScheduler.enqueue({
 		intent,
-		estimatedBytes: props.attachedDescriptor.descriptor.content.maxBytes ?? 0,
+		estimatedBytes: descriptor.content.maxBytes ?? 0,
 	});
 	if (!enqueueResult.ok) {
 		throw new Error(`Bridge review protocol body demand rejected: ${enqueueResult.reason}`);
@@ -3295,38 +3510,32 @@ function demandIntentForReviewProtocolBodyDescriptorRef(
 
 async function loadReviewDeltaFromProtocolFrame(props: {
 	readonly descriptorRegistry: BridgeResourceDescriptorRegistry;
+	readonly deltaFrame: ReviewDeltaMaterializerDelta;
 	readonly protocolFrame: ReviewProtocolFrame | null;
 	readonly resourceExecutor: BridgeResourceExecutor<BridgeTextResourceStreamResult>;
 	readonly reviewDemandScheduler: BridgeDemandScheduler;
-	readonly reviewFrameAuthority: BridgeReviewFrameAuthority | null;
 }): Promise<BridgeReviewDelta | null> {
-	if (
-		props.protocolFrame?.frameKind !== 'review.delta' ||
-		!reviewDeltaFrameMatchesAuthority({
-			frame: props.protocolFrame,
-			reviewFrameAuthority: props.reviewFrameAuthority,
-		})
-	) {
+	if (props.protocolFrame?.frameKind !== 'review.delta') {
 		return null;
 	}
-	const result = await loadReviewProtocolBodyDescriptor({
-		attachedDescriptor: props.protocolFrame.operationsDescriptor,
+	const result = await loadReviewProtocolBodyDescriptorRef({
 		descriptorRegistry: props.descriptorRegistry,
+		descriptorRef: props.deltaFrame.operationsDescriptorRef,
 		resourceExecutor: props.resourceExecutor,
 		reviewDemandScheduler: props.reviewDemandScheduler,
 	});
 	if (result === null) {
 		return null;
 	}
-		if (!result.ok) {
-			throw new Error(`Bridge review delta resource request failed: ${result.reason}`);
-		}
-		if (!result.authoritative) {
-			throw new Error('Bridge review delta resource was preview-only');
-		}
-		const parsedOperations = bridgeReviewDeltaOperationsSchema.safeParse(
-			JSON.parse(result.content.readText()),
-		);
+	if (!result.ok) {
+		throw new Error(`Bridge review delta resource request failed: ${result.reason}`);
+	}
+	if (!result.authoritative) {
+		throw new Error('Bridge review delta resource was preview-only');
+	}
+	const parsedOperations = bridgeReviewDeltaOperationsSchema.safeParse(
+		JSON.parse(result.content.readText()),
+	);
 	return parsedOperations.success
 		? {
 				packageId: props.protocolFrame.packageId,
@@ -3404,6 +3613,7 @@ function refreshBridgeReviewFrameAuthority(authorityRef: {
 
 function createBridgeReviewIntakeReceiver(props: {
 	readonly getAuthority: () => BridgeReviewFrameAuthority | null;
+	readonly onError: (frame: Extract<BridgeIntakeFrame, { readonly kind: 'error' }>) => void;
 	readonly onFrame: (frame: ReviewProtocolFrame, traceContext: BridgeTraceContext | null) => void;
 }): BridgeIntakeReceiver {
 	let status: BridgeIntakeReceiverState['status'] = 'active';
@@ -3427,13 +3637,6 @@ function createBridgeReviewIntakeReceiver(props: {
 			if (authority === null || frame.streamId !== authority.streamId) {
 				return { ok: false, reason: 'stream_mismatch', status };
 			}
-			const protocolFrame = reviewProtocolFrameFromIntakeFrame(frame);
-			if (protocolFrame === null || !reviewIntakeFrameMatchesProtocolFrame(frame, protocolFrame)) {
-				return { ok: false, reason: 'generation_mismatch', status };
-			}
-			if (!reviewProtocolFrameMatchesAuthority(protocolFrame, authority)) {
-				return { ok: false, reason: 'stream_mismatch', status };
-			}
 			if (currentGeneration === 0) {
 				currentGeneration = frame.generation;
 				nextSequence = frame.sequence;
@@ -3441,6 +3644,14 @@ function createBridgeReviewIntakeReceiver(props: {
 			if (frame.kind === 'reset' && frame.generation > currentGeneration) {
 				currentGeneration = frame.generation;
 				nextSequence = frame.sequence + 1;
+				const protocolFrame = reviewProtocolFrameFromIntakeFrame(frame);
+				if (
+					protocolFrame === null ||
+					!reviewIntakeFrameMatchesProtocolFrame(frame, protocolFrame) ||
+					!reviewProtocolFrameMatchesAuthority(protocolFrame, authority)
+				) {
+					return { ok: false, reason: 'generation_mismatch', status };
+				}
 				props.onFrame(protocolFrame, frame.__traceContext ?? null);
 				return { ok: true, status };
 			}
@@ -3462,6 +3673,21 @@ function createBridgeReviewIntakeReceiver(props: {
 				return { ok: false, reason: 'sequence_gap', status };
 			}
 			nextSequence += 1;
+			if (frame.kind === 'error') {
+				props.onError(frame);
+				return { ok: true, status };
+			}
+			if (frame.kind === 'close') {
+				status = 'closed';
+				return { ok: true, status };
+			}
+			const protocolFrame = reviewProtocolFrameFromIntakeFrame(frame);
+			if (protocolFrame === null || !reviewIntakeFrameMatchesProtocolFrame(frame, protocolFrame)) {
+				return { ok: false, reason: 'generation_mismatch', status };
+			}
+			if (!reviewProtocolFrameMatchesAuthority(protocolFrame, authority)) {
+				return { ok: false, reason: 'stream_mismatch', status };
+			}
 			props.onFrame(protocolFrame, frame.__traceContext ?? null);
 			return { ok: true, status };
 		},

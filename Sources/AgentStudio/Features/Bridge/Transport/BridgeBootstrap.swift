@@ -46,6 +46,7 @@ enum BridgeBootstrap {
                 const PENDING_INTAKE_FRAME_JSON = [];
                 const MAX_PENDING_INTAKE_FRAMES = 64;
                 const PAGE_WORLD_ALLOWED_COMMAND_METHODS = new Set([
+                    'bridge.intakeReady',
                     'review.markFileViewed',
                     'worktreeFileSurface.openSourceStream',
                     'system.bridgeTelemetry'
