@@ -21,6 +21,7 @@ import {
 import {
 	createBridgeResourceExecutor,
 	type BridgeResourceExecutor,
+	type BridgeResourceExecutorStreamChunk,
 } from '../core/demand/bridge-resource-executor.js';
 import {
 	installBridgeIntakeEventCarrier,
@@ -259,6 +260,7 @@ const bridgeReviewAllowedResourceKindsByProtocol = {
 type BridgeReviewStartupTelemetryPhase =
 	| 'projection_ready'
 	| 'review_package_body_load'
+	| 'review_package_first_chunk'
 	| 'review_package_parse'
 	| 'review_ready'
 	| 'review_snapshot_apply'
@@ -3565,11 +3567,33 @@ async function loadReviewPackageFromProtocolFrame(props: {
 		return null;
 	}
 	const loadStartMilliseconds = performance.now();
+	let chunkCount = 0;
+	let didRecordFirstChunk = false;
 	const result = await loadReviewProtocolBodyDescriptorRef({
 		descriptorRegistry: props.descriptorRegistry,
 		descriptorRef: props.snapshotFrame.rootDescriptorRef,
 		resourceExecutor: props.resourceExecutor,
 		reviewDemandScheduler: props.reviewDemandScheduler,
+		onChunk: (chunk): void => {
+			chunkCount += 1;
+			if (didRecordFirstChunk) {
+				return;
+			}
+			didRecordFirstChunk = true;
+			recordReviewStartupTelemetry({
+				telemetryRecorder: props.telemetryRecorder,
+				phase: 'review_package_first_chunk',
+				slice: props.telemetryContext.slice,
+				transport: 'content',
+				traceContext: createChildTraceContext(props.telemetryContext.traceContext),
+				durationMilliseconds: performance.now() - loadStartMilliseconds,
+				result: 'success',
+				numericAttributes: {
+					'agentstudio.bridge.content.chunk_byte_count': chunk.byteLength,
+					'agentstudio.bridge.content.total_bytes_read': chunk.totalBytesRead,
+				},
+			});
+		},
 	});
 	recordReviewStartupTelemetry({
 		telemetryRecorder: props.telemetryRecorder,
@@ -3580,7 +3604,12 @@ async function loadReviewPackageFromProtocolFrame(props: {
 		durationMilliseconds: performance.now() - loadStartMilliseconds,
 		result: result?.ok === true ? 'success' : 'failed',
 		numericAttributes:
-			result?.ok === true ? { 'agentstudio.bridge.content.byte_count': result.byteLength } : {},
+			result?.ok === true
+				? {
+						'agentstudio.bridge.content.byte_count': result.byteLength,
+						'agentstudio.bridge.content.chunk_count': chunkCount,
+					}
+				: {},
 	});
 	if (result === null) {
 		return null;
@@ -3611,6 +3640,7 @@ async function loadReviewPackageFromProtocolFrame(props: {
 async function loadReviewProtocolBodyDescriptorRef(props: {
 	readonly descriptorRegistry: BridgeResourceDescriptorRegistry;
 	readonly descriptorRef: BridgeDescriptorRef;
+	readonly onChunk?: ((chunk: BridgeResourceExecutorStreamChunk) => void) | undefined;
 	readonly resourceExecutor: BridgeResourceExecutor<BridgeTextResourceStreamResult>;
 	readonly reviewDemandScheduler: BridgeDemandScheduler;
 }): Promise<Awaited<
@@ -3636,7 +3666,14 @@ async function loadReviewProtocolBodyDescriptorRef(props: {
 	if (executableIntent === null) {
 		return null;
 	}
-	return await props.resourceExecutor.load(executableIntent);
+	if (props.onChunk === undefined) {
+		return await props.resourceExecutor.load(executableIntent);
+	}
+	return await props.resourceExecutor.load(executableIntent, {
+		onChunk: ({ chunk }): void => {
+			props.onChunk?.(chunk);
+		},
+	});
 }
 
 function demandIntentForReviewProtocolBodyDescriptorRef(

@@ -40,6 +40,14 @@ export interface BridgeResourceExecutorProps<TContent = unknown> {
 	}) => void;
 }
 
+export interface BridgeResourceExecutorLoadOptions {
+	readonly onChunk?: (props: {
+		readonly chunk: BridgeResourceExecutorStreamChunk;
+		readonly descriptor: BridgeResourceDescriptor;
+		readonly intent: BridgeDemandIntent;
+	}) => void;
+}
+
 export type BridgeResourceExecutorResult<TContent = unknown> =
 	| {
 			readonly ok: true;
@@ -61,7 +69,10 @@ export type BridgeResourceExecutorResult<TContent = unknown> =
 	  };
 
 export interface BridgeResourceExecutor<TContent = unknown> {
-	load(intent: BridgeDemandIntent): Promise<BridgeResourceExecutorResult<TContent>>;
+	load(
+		intent: BridgeDemandIntent,
+		options?: BridgeResourceExecutorLoadOptions,
+	): Promise<BridgeResourceExecutorResult<TContent>>;
 	cancelGroup(cancellationGroup: string): number;
 	readonly inFlightCount: number;
 	readonly inFlightBytes: number;
@@ -87,6 +98,7 @@ interface PendingResourceLoad<TContent> {
 	readonly promise: Promise<BridgeResourceExecutorResult<TContent>>;
 	readonly abortController: AbortController;
 	readonly byteBudget: number;
+	readonly loadOptions: BridgeResourceExecutorLoadOptions;
 	readonly resolve: (result: BridgeResourceExecutorResult<TContent>) => void;
 	readonly sequence: number;
 }
@@ -116,6 +128,7 @@ export function createBridgeResourceExecutor<TContent = unknown>(
 
 	const load = async (
 		intent: BridgeDemandIntent,
+		options: BridgeResourceExecutorLoadOptions = {},
 	): Promise<BridgeResourceExecutorResult<TContent>> => {
 		const inFlightKey = makeInFlightKey(intent);
 		const existingLoad = inFlightByDedupeKey.get(inFlightKey);
@@ -147,11 +160,25 @@ export function createBridgeResourceExecutor<TContent = unknown>(
 		}
 		const abortController = new AbortController();
 		if (canStartLoad(byteBudget)) {
-			return await startLoad({ abortController, byteBudget, descriptor, inFlightKey, intent });
+			return await startLoad({
+				abortController,
+				byteBudget,
+				descriptor,
+				inFlightKey,
+				intent,
+				loadOptions: options,
+			});
 		}
 		preemptLowerPriorityInFlightLoads({ byteBudget, intent });
 		if (canStartLoad(byteBudget)) {
-			return await startLoad({ abortController, byteBudget, descriptor, inFlightKey, intent });
+			return await startLoad({
+				abortController,
+				byteBudget,
+				descriptor,
+				inFlightKey,
+				intent,
+				loadOptions: options,
+			});
 		}
 		if (!canQueueUnderPressure(intent)) {
 			return { ok: false, reason: 'concurrency_exceeded' };
@@ -175,6 +202,7 @@ export function createBridgeResourceExecutor<TContent = unknown>(
 			promise,
 			abortController,
 			byteBudget,
+			loadOptions: options,
 			resolve: resolvePending,
 			sequence: nextPendingSequence,
 		});
@@ -298,6 +326,7 @@ export function createBridgeResourceExecutor<TContent = unknown>(
 		readonly descriptor: BridgeResourceDescriptor;
 		readonly inFlightKey: string;
 		readonly intent: BridgeDemandIntent;
+		readonly loadOptions: BridgeResourceExecutorLoadOptions;
 	}): Promise<BridgeResourceExecutorResult<TContent>> => {
 		const promise = runResourceLoad({
 			descriptor: startProps.descriptor,
@@ -306,11 +335,13 @@ export function createBridgeResourceExecutor<TContent = unknown>(
 			loadResource: props.loadResource,
 			isFresh: isIntentFresh,
 			onChunk: (chunk): void => {
-				props.onChunk?.({
+				const chunkProps = {
 					chunk,
 					descriptor: startProps.descriptor,
 					intent: startProps.intent,
-				});
+				} as const;
+				props.onChunk?.(chunkProps);
+				startProps.loadOptions.onChunk?.(chunkProps);
 			},
 		}).finally((): void => {
 			const activeLoad = inFlightByDedupeKey.get(startProps.inFlightKey);
@@ -357,6 +388,7 @@ export function createBridgeResourceExecutor<TContent = unknown>(
 				descriptor: nextPending.descriptor,
 				inFlightKey,
 				intent: nextPending.intent,
+				loadOptions: nextPending.loadOptions,
 			}).then(nextPending.resolve);
 		}
 	};

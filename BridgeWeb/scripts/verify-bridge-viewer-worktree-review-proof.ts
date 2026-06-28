@@ -588,6 +588,7 @@ export function reviewStartupTelemetrySatisfied(
 
 const expectedReviewStartupTelemetrySampleNames = [
 	'performance.bridge.web.review_package_body_load',
+	'performance.bridge.web.review_package_first_chunk',
 	'performance.bridge.web.review_package_parse',
 	'performance.bridge.web.review_snapshot_apply',
 	'performance.bridge.web.projection_total',

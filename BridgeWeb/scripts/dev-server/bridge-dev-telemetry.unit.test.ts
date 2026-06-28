@@ -147,6 +147,48 @@ describe('Bridge dev telemetry sink', () => {
 		});
 	});
 
+	test('accepts Review startup stream chunk metrics without treating them as unsafe', async () => {
+		const fetchImpl = vi.fn(async (): Promise<Response> => new Response('', { status: 200 }));
+		const sink = createBridgeDevTelemetrySink({
+			fetchImpl,
+			marker: 'vite-dev-proof-1',
+			nowUnixNano: () => '1782218790000000000',
+			serviceVersion: 'vite-dev',
+			worktreeHash: 'wt-hash',
+		});
+		const chunkBatch = {
+			...makeTelemetryBatch(),
+			samples: [
+				{
+					...makeTelemetryBatch().samples[0],
+					name: 'performance.bridge.web.review_package_first_chunk',
+					stringAttributes: {
+						'agentstudio.bridge.phase': 'review_package_first_chunk',
+						'agentstudio.bridge.plane': 'data',
+						'agentstudio.bridge.priority': 'hot',
+						'agentstudio.bridge.result': 'success',
+						'agentstudio.bridge.slice': 'review_snapshot',
+						'agentstudio.bridge.transport': 'content',
+					},
+					numericAttributes: {
+						'agentstudio.bridge.content.chunk_byte_count': 65_536,
+						'agentstudio.bridge.content.total_bytes_read': 65_536,
+					},
+				},
+			],
+		};
+
+		await expect(sink.ingest(chunkBatch)).resolves.toBe(true);
+
+		expect(fetchImpl).toHaveBeenCalledOnce();
+		expect(sink.snapshot()).toMatchObject({
+			acceptedBatchCount: 1,
+			acceptedSampleCount: 1,
+			failedBatchCount: 0,
+			lastError: null,
+		});
+	});
+
 	test('accepts scrubbed Worktree/File extent canary telemetry without path or capability fields', async () => {
 		const postedBodies: string[] = [];
 		const fetchImpl = vi.fn(

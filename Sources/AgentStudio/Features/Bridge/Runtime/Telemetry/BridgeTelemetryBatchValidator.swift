@@ -217,6 +217,13 @@ extension BridgeTelemetryBatchValidator {
             return packageApplyContractMatches(contract)
         case "performance.bridge.web.intake_frame":
             return intakeFrameContractMatches(contract)
+        case "performance.bridge.web.review_package_body_load",
+            "performance.bridge.web.review_package_first_chunk",
+            "performance.bridge.web.review_package_parse",
+            "performance.bridge.web.review_ready",
+            "performance.bridge.web.review_snapshot_apply",
+            "performance.bridge.web.selected_content_ready":
+            return reviewStartupContractMatches(contract)
         case "performance.bridge.web.rpc_send":
             return rpcSendContractMatches(contract)
         case "performance.bridge.web.telemetry_drop":
@@ -419,6 +426,54 @@ extension BridgeTelemetryBatchValidator {
                 ]
             )
         )
+    }
+
+    private static func reviewStartupContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+        let expectedNumericKeys: Set<String> =
+            switch contract.phase {
+            case "review_package_body_load":
+                [
+                    "agentstudio.bridge.content.byte_count",
+                    "agentstudio.bridge.content.chunk_count",
+                ]
+            case "review_package_first_chunk":
+                [
+                    "agentstudio.bridge.content.chunk_byte_count",
+                    "agentstudio.bridge.content.total_bytes_read",
+                ]
+            case "review_package_parse":
+                ["agentstudio.bridge.content.byte_count"]
+            case "review_ready",
+                "review_snapshot_apply":
+                ["agentstudio.bridge.review.item_count"]
+            case "selected_content_ready":
+                ["agentstudio.bridge.content.resource_count"]
+            default:
+                []
+            }
+
+        return contract.matches(
+            .init(
+                phase: contract.phase,
+                plane: .data,
+                priority: .hot,
+                slice: reviewStartupSlice(for: contract.phase),
+                transport: contract.phase == "review_snapshot_apply" ? "intake" : "content",
+                attributeKeys: .init(
+                    additionalStringKeys: ["agentstudio.bridge.result"],
+                    numericKeys: expectedNumericKeys
+                )
+            )
+        )
+    }
+
+    private static func reviewStartupSlice(for phase: String) -> BridgeTelemetrySlice {
+        switch phase {
+        case "selected_content_ready":
+            .contentFetch
+        default:
+            .reviewSnapshot
+        }
     }
 
     private static func projectionBuildContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {

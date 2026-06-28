@@ -109,6 +109,7 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 		expect(
 			reviewStartupTelemetrySatisfied([
 				makeReviewStartupTelemetrySample('performance.bridge.web.review_package_body_load'),
+				makeReviewStartupTelemetrySample('performance.bridge.web.review_package_first_chunk'),
 				makeReviewStartupTelemetrySample('performance.bridge.web.review_package_parse'),
 				makeReviewStartupTelemetrySample('performance.bridge.web.review_snapshot_apply'),
 				makeReviewStartupTelemetrySample('performance.bridge.web.projection_total'),

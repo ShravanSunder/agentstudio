@@ -2352,3 +2352,44 @@ Open implementation blockers remain:
   reconstructs `BridgeReviewPackage` / delta objects from streamed
   `review-package` / `review-delta` bodies for the existing projection
   coordinator. Native Swift `oq4s` proof is still not started for this restart.
+
+2026-06-28 Review startup content-stream observability checkpoint:
+
+- Added per-load chunk observation in the browser resource executor so a Review
+  startup caller can record first content chunk arrival before the final
+  materialized body resolves.
+- Added Review startup telemetry for `review_package_first_chunk` with chunk
+  byte count and total bytes read, and extended the existing
+  `review_package_body_load` telemetry with chunk count.
+- Updated dev-server/browser telemetry validation and Swift native telemetry
+  validation to accept the new Review startup content-stream metrics.
+- Fresh proof:
+  - `pnpm --dir BridgeWeb exec tsc --noEmit --pretty false` exited 0.
+  - `pnpm --dir BridgeWeb exec vitest run src/core/demand/bridge-resource-executor.unit.test.ts scripts/dev-server/bridge-dev-telemetry.unit.test.ts scripts/verify-bridge-viewer-worktree-dev-server.unit.test.ts --reporter verbose`
+    exited 0: 3 files passed, 43 tests passed.
+  - `pnpm --dir BridgeWeb exec oxfmt --check src/app/bridge-app.tsx src/core/demand/bridge-resource-executor.ts src/core/demand/bridge-resource-executor.unit.test.ts src/review-viewer/test-support/bridge-viewer-browser.integration.browser.test.tsx scripts/dev-server/bridge-dev-telemetry.ts scripts/dev-server/bridge-dev-telemetry.unit.test.ts scripts/verify-bridge-viewer-worktree-review-proof.ts scripts/verify-bridge-viewer-worktree-dev-server.unit.test.ts`
+    exited 0.
+  - `swift-format lint --configuration .swift-format Sources/AgentStudio/Features/Bridge/Runtime/Telemetry/BridgeTelemetryBatchValidator.swift Sources/AgentStudio/Features/Bridge/Runtime/Telemetry/BridgeTelemetryBatchValidator+Allowlists.swift Tests/AgentStudioTests/Features/Bridge/BridgeTelemetryBatchValidatorTests.swift`
+    exited 0.
+  - `swift test --scratch-path /tmp/agent-studio-bridge-start-swiftpm-telemetry-startup --filter 'BridgeTelemetryBatchValidatorTests|BridgeTelemetryReviewStartupValidatorTests'`
+    exited 0: 24 tests passed across 2 suites.
+  - Restarted the stale Vite dev server and reran
+    `pnpm --dir BridgeWeb run test:dev-server:worktree`; it exited 0 and
+    wrote fresh proof artifact
+    `tmp/bridge-viewer-worktree-dev-server/2026-06-28T14-36-58-350Z/worktree-dev-server-proof.json`.
+  - `git diff --check` exited 0.
+- Observation from the fresh dev-server artifact:
+  - `review_package_first_chunk`: 1391.7ms,
+    `chunk_byte_count=331587`, `total_bytes_read=331587`.
+  - `review_package_body_load`: 1393.7ms,
+    `byte_count=1356525`, `chunk_count=9`.
+  - `review_package_parse`: 5.7ms.
+  - `review_snapshot_apply`: 12.1ms.
+  - `projection_total`: 51.3ms.
+  - `selected_content_ready`: 142.6ms then 76.6ms.
+- Interpretation: the browser/Vite path now proves a real stream-observed
+  content resource, but the first chunk arrives only about 2ms before full body
+  completion. The next optimization slice should not chase more proof plumbing;
+  it should reduce the `review-package` startup bottleneck by making projection
+  data progressively/window-materialized instead of waiting for a 1.36 MB
+  package body before useful Review startup work.

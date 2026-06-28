@@ -238,7 +238,10 @@ const bridgeDevStringAttributeKeys = new Set<string>([
 
 const bridgeDevNumericAttributeKeys = new Set<string>([
 	'agentstudio.bridge.content.byte_count',
+	'agentstudio.bridge.content.chunk_byte_count',
+	'agentstudio.bridge.content.chunk_count',
 	'agentstudio.bridge.content.resource_count',
+	'agentstudio.bridge.content.total_bytes_read',
 	'agentstudio.bridge.markdown.input_bytes',
 	'agentstudio.bridge.markdown.output_bytes',
 	'agentstudio.bridge.review.item_count',

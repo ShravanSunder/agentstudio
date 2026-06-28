@@ -125,6 +125,7 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		const samples = await waitForBridgeTelemetrySamples(backend, [
 			'performance.bridge.web.intake_frame',
 			'performance.bridge.web.review_package_body_load',
+			'performance.bridge.web.review_package_first_chunk',
 			'performance.bridge.web.review_package_parse',
 			'performance.bridge.web.review_snapshot_apply',
 			'performance.bridge.web.projection_input_build',
@@ -138,6 +139,7 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 			expect.arrayContaining([
 				'performance.bridge.web.intake_frame',
 				'performance.bridge.web.review_package_body_load',
+				'performance.bridge.web.review_package_first_chunk',
 				'performance.bridge.web.review_package_parse',
 				'performance.bridge.web.review_snapshot_apply',
 				'performance.bridge.web.projection_input_build',
@@ -161,6 +163,24 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 				}),
 				numericAttributes: expect.objectContaining({
 					'agentstudio.bridge.content.byte_count': expect.any(Number),
+				}),
+			}),
+		);
+		expect(
+			samples.find(
+				(sample: BridgeTelemetrySample): boolean =>
+					sample.name === 'performance.bridge.web.review_package_first_chunk',
+			),
+		).toEqual(
+			expect.objectContaining({
+				durationMilliseconds: expect.any(Number),
+				stringAttributes: expect.objectContaining({
+					'agentstudio.bridge.phase': 'review_package_first_chunk',
+					'agentstudio.bridge.transport': 'content',
+				}),
+				numericAttributes: expect.objectContaining({
+					'agentstudio.bridge.content.chunk_byte_count': expect.any(Number),
+					'agentstudio.bridge.content.total_bytes_read': expect.any(Number),
 				}),
 			}),
 		);

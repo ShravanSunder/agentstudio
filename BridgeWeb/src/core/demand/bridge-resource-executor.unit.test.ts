@@ -102,6 +102,43 @@ describe('bridge resource executor', () => {
 		});
 	});
 
+	test('forwards streamed chunks to a single load observer', async () => {
+		const registry = createRegistry();
+		const attachedDescriptor = makeAttachedDescriptor();
+		registry.register(attachedDescriptor);
+		const globalChunkEvents: string[] = [];
+		const loadChunkEvents: string[] = [];
+		const executor = createBridgeResourceExecutor<string>({
+			registry,
+			maxConcurrentLoads: 1,
+			maxInFlightBytes: 1024,
+			maxQueuedLoads: 8,
+			maxQueuedBytes: 1024,
+			onChunk: ({ chunk }): void => {
+				globalChunkEvents.push(String(chunk.chunk));
+			},
+			loadResource: async ({ onChunk }) => {
+				onChunk({ byteLength: 5, chunk: 'first', totalBytesRead: 5 });
+				onChunk({ byteLength: 6, chunk: 'second', totalBytesRead: 11 });
+				return { content: 'firstsecond', byteLength: 11 };
+			},
+		});
+
+		const result = await executor.load(makeIntent(attachedDescriptor.ref), {
+			onChunk: ({ chunk }): void => {
+				loadChunkEvents.push(String(chunk.chunk));
+			},
+		});
+
+		expect(result).toMatchObject({
+			ok: true,
+			content: 'firstsecond',
+			byteLength: 11,
+		});
+		expect(globalChunkEvents).toEqual(['first', 'second']);
+		expect(loadChunkEvents).toEqual(['first', 'second']);
+	});
+
 	test('preserves preview-only authority on successful materialization', async () => {
 		const registry = createRegistry();
 		const attachedDescriptor = makeAttachedDescriptor();
