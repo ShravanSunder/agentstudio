@@ -635,7 +635,7 @@ extension WorkspaceSurfaceCoordinator {
                 drawer.isExpanded,
                 let activeDrawerPaneId = arrangementView.drawerView(forParent: paneId)?.activeChildId
             {
-                restoreViewsForActiveTabIfNeeded()
+                restoreViewsForActiveTabIfNeeded(forceWhenBoundsExist: true)
                 focusVisiblePaneHost(activeDrawerPaneId)
             } else {
                 focusVisiblePaneHost(paneId)
@@ -645,7 +645,10 @@ extension WorkspaceSurfaceCoordinator {
             else { break }
             store.tabArrangementAtom.setActiveDrawerPane(
                 drawerPaneId, drawerId: drawerContext.drawerId, inTab: drawerContext.tabId)
-            restoreViewsForActiveTabIfNeeded()
+            restoreVisiblePaneIfNeeded(drawerPaneId, forceWhenBoundsExist: true)
+            if viewRegistry.terminalView(for: drawerPaneId) != nil {
+                reattachForViewSwitch(paneId: drawerPaneId)
+            }
             focusVisiblePaneHost(drawerPaneId)
         case .resizeDrawerPane(let parentPaneId, let splitId, let ratio):
             guard let drawerContext = drawerCommandContext(parentPaneId: parentPaneId, command: "resizeDrawerPane")

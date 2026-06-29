@@ -72,11 +72,12 @@ enum TabArrangementValidation {
                 }
             }
 
-            let allArrangementPaneIds = Set(
-                updatedStates[tabIndex].arrangements.flatMap { arrangement in
-                    arrangement.layout.paneIds + arrangement.drawerViews.flatMap { $0.value.layout.paneIds }
-                })
-            updatedStates[tabIndex].allPaneIds = Array(allArrangementPaneIds)
+            let orderedArrangementPaneIds = orderedReferencedPaneIds(in: updatedStates[tabIndex].arrangements)
+            let allArrangementPaneIds = Set(orderedArrangementPaneIds)
+            updatedStates[tabIndex].allPaneIds = stableMembershipPaneIds(
+                existingPaneIds: updatedStates[tabIndex].allPaneIds,
+                referencedPaneIds: orderedArrangementPaneIds
+            )
 
             let duplicatePaneIds = allArrangementPaneIds.intersection(seenPaneIds)
             if !duplicatePaneIds.isEmpty {
@@ -148,6 +149,43 @@ enum TabArrangementValidation {
             return shouldDrop
         }
         return updatedStates
+    }
+
+    private static func stableMembershipPaneIds(
+        existingPaneIds: [UUID],
+        referencedPaneIds: [UUID]
+    ) -> [UUID] {
+        let referencedPaneIdSet = Set(referencedPaneIds)
+        var seenPaneIds = Set<UUID>()
+        var paneIds: [UUID] = []
+        for paneId in referencedPaneIds {
+            guard seenPaneIds.insert(paneId).inserted else { continue }
+            paneIds.append(paneId)
+        }
+        for paneId in existingPaneIds where referencedPaneIdSet.contains(paneId) {
+            guard seenPaneIds.insert(paneId).inserted else { continue }
+            paneIds.append(paneId)
+        }
+        return paneIds
+    }
+
+    private static func orderedReferencedPaneIds(in arrangements: [PaneArrangement]) -> [UUID] {
+        var seenPaneIds = Set<UUID>()
+        var paneIds: [UUID] = []
+        for arrangement in arrangements {
+            for paneId in arrangement.layout.paneIds {
+                guard seenPaneIds.insert(paneId).inserted else { continue }
+                paneIds.append(paneId)
+            }
+            for drawerId in arrangement.drawerViews.keys.sorted(by: { $0.uuidString < $1.uuidString }) {
+                guard let drawerView = arrangement.drawerViews[drawerId] else { continue }
+                for paneId in drawerView.layout.paneIds {
+                    guard seenPaneIds.insert(paneId).inserted else { continue }
+                    paneIds.append(paneId)
+                }
+            }
+        }
+        return paneIds
     }
 
     private static func defaultArrangement(for tabIndex: Int, arrangementStates: [TabArrangementState])

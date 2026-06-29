@@ -2,6 +2,12 @@ import Foundation
 
 @MainActor
 extension WorkspaceSurfaceCoordinator {
+    private enum ViewRestoreOutcome {
+        case restored
+        case deferred(reason: String)
+        case hardFailure(reason: String)
+    }
+
     /// Undo the last close operation (tab or pane).
     func undoCloseTab() {
         while let entry = popLastUndoEntry() {
@@ -41,33 +47,39 @@ extension WorkspaceSurfaceCoordinator {
         for pane in snapshot.panes {
             viewRegistry.ensureSlot(for: pane.id)
         }
-        var failedPaneIds: [UUID] = []
+        var hardFailedPaneIds: [UUID] = []
 
         // Restore views via lifecycle layer — iterate in reverse to match the LIFO
         // order of SurfaceManager's undo stack (panes were pushed in forward
         // order during close, so the last pane is on top of the stack).
         for pane in snapshot.panes.reversed() {
-            let restored = restoreUndoPane(
+            let outcome = restoreUndoPane(
                 pane,
                 worktree: nil,
                 repo: nil,
                 label: "Tab"
             )
-            if !restored {
-                failedPaneIds.append(pane.id)
+            switch outcome {
+            case .restored:
+                break
+            case .deferred(let reason):
+                Self.logger.info("undoTabClose: deferred pane \(pane.id) restore: \(reason)")
+            case .hardFailure(let reason):
+                Self.logger.warning("undoTabClose: hard restore failure for pane \(pane.id): \(reason)")
+                hardFailedPaneIds.append(pane.id)
             }
         }
 
-        for paneId in failedPaneIds {
+        for paneId in hardFailedPaneIds {
             Self.logger.warning(
                 "undoTabClose: removing broken pane \(paneId) from tab \(snapshot.tab.id)"
             )
             removeFailedRestoredPane(paneId, fromTab: snapshot.tab.id)
         }
 
-        if !failedPaneIds.isEmpty {
+        if !hardFailedPaneIds.isEmpty {
             Self.logger.warning(
-                "undoTabClose: tab \(snapshot.tab.id) restored with \(failedPaneIds.count) failed panes"
+                "undoTabClose: tab \(snapshot.tab.id) restored with \(hardFailedPaneIds.count) failed panes"
             )
         }
 
@@ -94,7 +106,7 @@ extension WorkspaceSurfaceCoordinator {
         for pane in [snapshot.pane] + snapshot.drawerChildPanes {
             viewRegistry.ensureSlot(for: pane.id)
         }
-        var failedPaneIds: [UUID] = []
+        var hardFailedPaneIds: [UUID] = []
 
         // Restore views for the pane and its drawer children.
         // Use the same restoration path as undoTabClose: attempt surface undo
@@ -104,18 +116,24 @@ extension WorkspaceSurfaceCoordinator {
             guard viewRegistry.view(for: pane.id) == nil else { continue }
             let worktree = pane.worktreeId.flatMap(store.repositoryTopologyAtom.worktree)
             let repo = pane.repoId.flatMap { store.repositoryTopologyAtom.repo($0) }
-            let restored = restoreUndoPane(
+            let outcome = restoreUndoPane(
                 pane,
                 worktree: worktree,
                 repo: repo,
                 label: "Pane"
             )
-            if !restored {
-                failedPaneIds.append(pane.id)
+            switch outcome {
+            case .restored:
+                break
+            case .deferred(let reason):
+                Self.logger.info("undoPaneClose: deferred pane \(pane.id) restore: \(reason)")
+            case .hardFailure(let reason):
+                Self.logger.warning("undoPaneClose: hard restore failure for pane \(pane.id): \(reason)")
+                hardFailedPaneIds.append(pane.id)
             }
         }
 
-        for paneId in failedPaneIds {
+        for paneId in hardFailedPaneIds {
             Self.logger.warning(
                 "undoPaneClose: removing broken pane \(paneId) in tab \(snapshot.tabId)"
             )
@@ -137,33 +155,44 @@ extension WorkspaceSurfaceCoordinator {
         worktree: Worktree?,
         repo: Repo?,
         label: String
-    ) -> Bool {
+    ) -> ViewRestoreOutcome {
         switch pane.content {
         case .terminal:
             if let worktree, let repo {
                 if restoreView(for: pane, worktree: worktree, repo: repo) != nil {
-                    return true
+                    return .restored
                 }
-                Self.logger.error("Failed to restore terminal pane \(pane.id)")
+                Self.logger.error("Could not immediately restore terminal pane \(pane.id)")
             } else if createViewForContentUsingCurrentGeometry(pane: pane) != nil {
-                return true
+                return .restored
             } else {
-                Self.logger.error("Failed to recreate terminal pane \(pane.id)")
+                Self.logger.error("Could not immediately recreate terminal pane \(pane.id)")
             }
-            return false
+            return terminalViewRestoreOutcome(for: pane)
 
         case .webview, .codeViewer, .bridgePanel:
             if createViewForContent(pane: pane) != nil {
-                return true
+                return .restored
             }
             Self.logger.error("Failed to recreate \(label.lowercased()) pane \(pane.id)")
-            return false
+            return .hardFailure(reason: "nonTerminalViewCreationFailed")
 
         case .unsupported:
             // Unsupported content has no renderer implementation in this build.
             // Keep the pane model restored so user state is preserved, but log that no view can be recreated.
             Self.logger.warning("Cannot restore unsupported pane \(pane.id)")
-            return true
+            return .restored
+        }
+    }
+
+    private func terminalViewRestoreOutcome(for pane: Pane) -> ViewRestoreOutcome {
+        switch viewRegistry.terminalStatusPlaceholderView(for: pane.id)?.mode {
+        case .preparing:
+            return .deferred(reason: "terminalViewPreparing")
+        case .failedToStart:
+            return .hardFailure(reason: "terminalViewFailedToStart")
+        case nil:
+            return .hardFailure(reason: "terminalViewCreationReturnedNilWithoutPlaceholder")
         }
     }
 
