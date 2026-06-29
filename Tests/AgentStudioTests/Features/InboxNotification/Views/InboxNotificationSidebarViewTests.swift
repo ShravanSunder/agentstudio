@@ -429,8 +429,8 @@ struct InboxNotificationSidebarViewSourceGroupTests {
     @MainActor
     func inboxGroupHeaderMapsEverySourceKindToFixedIconSlot() {
         #expect(InboxNotificationGroupHeader.icon(for: .repo(organizationName: nil)) == .repo)
-        #expect(InboxNotificationGroupHeader.icon(for: .pane) == .pane)
-        #expect(InboxNotificationGroupHeader.icon(for: .tab) == .tab)
+        #expect(InboxNotificationGroupHeader.icon(for: .pane) == .paneGroup)
+        #expect(InboxNotificationGroupHeader.icon(for: .tab) == .tabGroup)
         #expect(InboxNotificationGroupHeader.icon(for: .workspace) == .workspace)
         #expect(InboxNotificationGroupHeader.icon(for: .otherSources) == .otherSources)
     }
@@ -605,7 +605,7 @@ struct InboxNotificationSidebarViewSourceGroupTests {
     }
 
     @Test("mounted inbox sidebar uses repo presentation atoms for grouped header")
-    func mountedInboxSidebarUsesRepoPresentationAtomsForGroupedHeader() throws {
+    func mountedInboxSidebarUsesRepoPresentationAtomsForGroupedHeader() async throws {
         let repoId = UUID()
         let paneId = UUID()
         let inboxAtom = InboxNotificationAtom()
@@ -683,10 +683,10 @@ struct InboxNotificationSidebarViewSourceGroupTests {
         defer { window.orderOut(nil) }
         hostingView.layoutSubtreeIfNeeded()
 
-        let header = try #require(
-            inboxSidebarAccessibleElement(in: hostingView, identifier: "inboxSourceGroupHeader")
-        )
-        #expect(inboxSidebarAccessibilityLabel(of: header) == "agent-studio, ShravanSunder")
+        await assertEventuallyMain("inbox sidebar should render repo presentation header") {
+            inboxSidebarAccessibleElementLabels(in: hostingView, identifier: "inboxSourceGroupHeader")
+                .contains("agent-studio, ShravanSunder")
+        }
     }
 
     @Test("mounted inbox sidebar refreshes repo presentation after atom changes")
@@ -752,10 +752,10 @@ struct InboxNotificationSidebarViewSourceGroupTests {
         defer { window.orderOut(nil) }
         hostingView.layoutSubtreeIfNeeded()
 
-        let initialHeader = try #require(
-            inboxSidebarAccessibleElement(in: hostingView, identifier: "inboxSourceGroupHeader")
-        )
-        #expect(inboxSidebarAccessibilityLabel(of: initialHeader) == "agent-studio.notification-inbox-redesign")
+        await assertEventuallyMain("inbox sidebar should render initial repo presentation header") {
+            inboxSidebarAccessibleElementLabels(in: hostingView, identifier: "inboxSourceGroupHeader")
+                .contains("agent-studio.notification-inbox-redesign")
+        }
 
         repoCache.setRepoEnrichment(
             .resolvedRemote(

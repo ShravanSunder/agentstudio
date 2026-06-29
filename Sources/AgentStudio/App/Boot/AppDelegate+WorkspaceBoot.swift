@@ -196,6 +196,7 @@ extension AppDelegate {
         )
         workspaceSettingsStore = WorkspaceSettingsStore(
             editorPreferenceAtom: atomStore.editorPreference,
+            repoExplorerSidebarPrefsAtom: atomStore.repoExplorerSidebarPrefs,
             inboxNotificationPrefsAtom: atomStore.inboxNotificationPrefs,
             recoveryReporter: { [weak self] event in
                 self?.recordPersistenceRecovery(event)

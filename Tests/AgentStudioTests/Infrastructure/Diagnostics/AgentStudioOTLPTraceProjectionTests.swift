@@ -64,46 +64,6 @@ struct AgentStudioOTLPTraceProjectionTests {
     }
 
     @Test
-    func startupProjectionKeepsGlobalPreferenceLoadFieldsAndDropsRawEndpoint() {
-        let record = AgentStudioTraceRecord(
-            timeUnixNano: 110,
-            severityText: .info,
-            body: "app.preferences.global.loaded",
-            traceID: nil,
-            spanID: nil,
-            parentSpanID: nil,
-            resource: [
-                "service.name": "AgentStudio",
-                "service.version": "0.0.99",
-            ],
-            scope: .init(name: "agentstudio.app.startup", version: "0.1.0"),
-            attributes: [
-                "agentstudio.app.startup.phase": .string("global_preferences"),
-                "agentstudio.app.startup.outcome": .string("loaded"),
-                "agentstudio.preferences.global.load_elapsed_ms": .double(1.25),
-                "agentstudio.preferences.global.observability_enabled": .bool(true),
-                "agentstudio.preferences.global.schema_version": .int(1),
-                "agentstudio.preferences.global.status": .string("loaded"),
-                "agentstudio.preferences.global.otlp_endpoint": .string("http://127.0.0.1:4318"),
-                "agentstudio.trace.tag": .string("app.startup"),
-            ]
-        )
-
-        let projection = AgentStudioOTLPTraceProjection.project(record)
-        let renderedProjection = projection.renderedForCanaryAssertions()
-
-        #expect(projection.body == "app.preferences.global.loaded")
-        #expect(projection.attributes["agentstudio.app.startup.phase"] == .string("global_preferences"))
-        #expect(projection.attributes["agentstudio.app.startup.outcome"] == .string("loaded"))
-        #expect(projection.attributes["agentstudio.preferences.global.load_elapsed_ms"] == .double(1.25))
-        #expect(projection.attributes["agentstudio.preferences.global.observability_enabled"] == .bool(true))
-        #expect(projection.attributes["agentstudio.preferences.global.schema_version"] == .int(1))
-        #expect(projection.attributes["agentstudio.preferences.global.status"] == .string("loaded"))
-        #expect(projection.attributes["agentstudio.preferences.global.otlp_endpoint"] == nil)
-        #expect(!renderedProjection.contains("127.0.0.1"))
-    }
-
-    @Test
     func bridgeProjectionPreservesValidTraceFieldsAndSafeAttributes() {
         let historicalBridgeLane = ["agentstudio", "bridge", "lane"].joined(separator: ".")
         let record = AgentStudioTraceRecord(
@@ -265,6 +225,125 @@ struct AgentStudioOTLPTraceProjectionTests {
         #expect(projection.attributes["agentstudio.startup_diagnostic.pane.id"] == nil)
         #expect(projection.attributes["agentstudio.startup_diagnostic.render_proof.succeeded"] == .bool(false))
         #expect(projection.attributes["agentstudio.startup_diagnostic.skip_reason"] == .string("missing_bounds"))
+    }
+
+    @Test
+    func sidebarPerformanceProjectionKeepsControlledTaxonomyAndDropsPayloadText() {
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 175,
+            severityText: .info,
+            body: "performance.sidebar.projection",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: [
+                "service.name": "AgentStudio"
+            ],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.elapsed_ms": .double(2.75),
+                "agentstudio.performance.sidebar.surface": .string("inbox"),
+                "agentstudio.performance.sidebar.phase": .string("mainactor_apply"),
+                "agentstudio.performance.sidebar.query_state": .string("non_empty"),
+                "agentstudio.performance.sidebar.group_mode": .string("not_applicable"),
+                "agentstudio.performance.sidebar.trigger": .string("grouping_switch"),
+                "agentstudio.performance.sidebar.input.count": .int(10),
+                "agentstudio.performance.sidebar.group.count": .int(3),
+                "agentstudio.performance.sidebar.request_build_mainactor_elapsed_ms": .double(0.5),
+                "agentstudio.performance.sidebar.section.count": .int(99),
+                "agentstudio.performance.sidebar.mainactor_apply_elapsed_ms": .double(2.75),
+                "agentstudio.performance.sidebar.notification_text": .string("secret user prompt"),
+                "agentstudio.performance.sidebar.query_text": .string("billing secret"),
+                "agentstudio.performance.sidebar.repo.id": .string(UUID().uuidString),
+                "agentstudio.trace.tag": .string("performance"),
+            ]
+        )
+
+        let projection = AgentStudioOTLPTraceProjection.project(record)
+        let renderedProjection = projection.renderedForCanaryAssertions()
+
+        #expect(projection.body == "performance.sidebar.projection")
+        #expect(projection.attributes["agentstudio.performance.sidebar.surface"] == .string("inbox"))
+        #expect(projection.attributes["agentstudio.performance.sidebar.phase"] == .string("mainactor_apply"))
+        #expect(projection.attributes["agentstudio.performance.sidebar.query_state"] == .string("non_empty"))
+        #expect(projection.attributes["agentstudio.performance.sidebar.group_mode"] == .string("not_applicable"))
+        #expect(projection.attributes["agentstudio.performance.sidebar.trigger"] == .string("grouping_switch"))
+        #expect(projection.attributes["agentstudio.performance.sidebar.input.count"] == .int(10))
+        #expect(projection.attributes["agentstudio.performance.sidebar.group.count"] == .int(3))
+        #expect(
+            projection.attributes["agentstudio.performance.sidebar.request_build_mainactor_elapsed_ms"] == .double(0.5))
+        #expect(projection.attributes["agentstudio.performance.sidebar.section.count"] == nil)
+        #expect(projection.attributes["agentstudio.performance.sidebar.mainactor_apply_elapsed_ms"] == .double(2.75))
+        #expect(projection.attributes["agentstudio.performance.sidebar.notification_text"] == nil)
+        #expect(projection.attributes["agentstudio.performance.sidebar.query_text"] == nil)
+        #expect(projection.attributes["agentstudio.performance.sidebar.repo.id"] == nil)
+        #expect(!renderedProjection.contains("secret user prompt"))
+        #expect(!renderedProjection.contains("billing secret"))
+    }
+
+    @Test
+    func sidebarRowIndexProjectionKeepsCanonicalPhaseAndElapsedKey() {
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 176,
+            severityText: .info,
+            body: "performance.sidebar.row_index",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.elapsed_ms": .double(1.25),
+                "agentstudio.performance.sidebar.surface": .string("repo"),
+                "agentstudio.performance.sidebar.phase": .string("row_index"),
+                "agentstudio.performance.sidebar.query_state": .string("empty"),
+                "agentstudio.performance.sidebar.group_mode": .string("pane"),
+                "agentstudio.performance.sidebar.trigger": .string("grouping_switch"),
+                "agentstudio.performance.sidebar.row_index_elapsed_ms": .double(1.25),
+                "agentstudio.performance.sidebar.row_index_worker_elapsed_ms": .double(99),
+                "agentstudio.trace.tag": .string("performance"),
+            ]
+        )
+
+        let projection = AgentStudioOTLPTraceProjection.project(record)
+
+        #expect(projection.body == "performance.sidebar.row_index")
+        #expect(projection.attributes["agentstudio.performance.sidebar.phase"] == .string("row_index"))
+        #expect(projection.attributes["agentstudio.performance.sidebar.trigger"] == .string("grouping_switch"))
+        #expect(projection.attributes["agentstudio.performance.sidebar.row_index_elapsed_ms"] == .double(1.25))
+        #expect(projection.attributes["agentstudio.performance.sidebar.row_index_worker_elapsed_ms"] == nil)
+    }
+
+    @Test
+    func sidebarRequestBuildProjectionKeepsCanonicalPhaseAndDataRefreshTrigger() {
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 177,
+            severityText: .info,
+            body: "performance.sidebar.projection",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.elapsed_ms": .double(0.75),
+                "agentstudio.performance.sidebar.surface": .string("repo"),
+                "agentstudio.performance.sidebar.phase": .string("request_build_mainactor"),
+                "agentstudio.performance.sidebar.query_state": .string("empty"),
+                "agentstudio.performance.sidebar.group_mode": .string("pane"),
+                "agentstudio.performance.sidebar.trigger": .string("data_refresh"),
+                "agentstudio.performance.sidebar.request_build_mainactor_elapsed_ms": .double(0.75),
+                "agentstudio.trace.tag": .string("performance"),
+            ]
+        )
+
+        let projection = AgentStudioOTLPTraceProjection.project(record)
+
+        #expect(projection.attributes["agentstudio.performance.sidebar.phase"] == .string("request_build_mainactor"))
+        #expect(projection.attributes["agentstudio.performance.sidebar.trigger"] == .string("data_refresh"))
+        #expect(
+            projection.attributes["agentstudio.performance.sidebar.request_build_mainactor_elapsed_ms"] == .double(0.75)
+        )
     }
 
     @Test
@@ -760,7 +839,7 @@ struct AgentStudioOTLPTraceProjectionTests {
 }
 
 extension AgentStudioOTLPProjectedLogRecord {
-    fileprivate func renderedForCanaryAssertions() -> String {
+    func renderedForCanaryAssertions() -> String {
         var components = [
             body,
             resource.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: " "),

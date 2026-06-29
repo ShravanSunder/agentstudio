@@ -5,6 +5,122 @@ import Testing
 
 @Suite("RepoExplorer read models")
 struct RepoExplorerReadModelTests {
+    @Test("grouping modes are exactly repo pane and tab")
+    func groupingModesAreExactlyRepoPaneAndTab() {
+        #expect(RepoExplorerGroupingMode.allCases == [.repo, .pane, .tab])
+        #expect(RepoExplorerGroupingMode.allCases.map(\.title) == ["Repo", "Pane", "Tab"])
+        #expect(
+            RepoExplorerGroupingMode.allCases.map(\.icon) == [
+                .system(.folder),
+                .system(.rectangleSplit2x1),
+                .system(.rectangleStack),
+            ])
+    }
+
+    @Test("sort order defaults ascending and can reverse repo groups")
+    func sortOrderDefaultsAscendingAndCanReverseRepoGroups() {
+        #expect(RepoExplorerSortOrder.default == .ascending)
+        #expect(RepoExplorerSortOrder.ascending.toggled == .descending)
+        #expect(RepoExplorerSortOrder.descending.toggled == .ascending)
+
+        let firstRepoId = UUID()
+        let secondRepoId = UUID()
+        let projection = RepoExplorerProjection.project(
+            RepoExplorerSnapshot(
+                repos: [
+                    repo(id: firstRepoId, name: "actual-server", worktrees: [worktree(repoId: firstRepoId)]),
+                    repo(id: secondRepoId, name: "agent-browser", worktrees: [worktree(repoId: secondRepoId)]),
+                ],
+                repoEnrichmentByRepoId: [
+                    firstRepoId: resolvedRemote(repoId: firstRepoId, displayName: "actual-server"),
+                    secondRepoId: resolvedRemote(repoId: secondRepoId, displayName: "agent-browser"),
+                ],
+                groupingMode: .repo,
+                sortOrder: .descending,
+                query: ""
+            )
+        )
+
+        #expect(projection.resolvedGroups.map(\.repoTitle) == ["agent-browser", "actual-server"])
+    }
+
+    @Test("favorites sort before non favorites in repo pane and tab modes")
+    func favoritesSortBeforeNonFavoritesInRepoPaneAndTabModes() {
+        let normalRepoId = UUID()
+        let favoriteRepoId = UUID()
+        let normalWorktree = worktree(repoId: normalRepoId, name: "z-normal")
+        let favoriteWorktree = worktree(repoId: favoriteRepoId, name: "a-favorite")
+        let normalRepo = repo(id: normalRepoId, name: "alpha-normal", worktrees: [normalWorktree])
+        let favoriteRepo = repo(
+            id: favoriteRepoId,
+            name: "zeta-favorite",
+            isFavorite: true,
+            worktrees: [favoriteWorktree]
+        )
+        let firstPaneId = UUID()
+        let secondPaneId = UUID()
+        let tabId = UUID()
+
+        let enrichmentByRepoId = [
+            normalRepoId: resolvedRemote(repoId: normalRepoId, displayName: "alpha-normal"),
+            favoriteRepoId: resolvedRemote(repoId: favoriteRepoId, displayName: "zeta-favorite"),
+        ]
+        let locationsByWorktreeId = [
+            normalWorktree.id: [
+                WorkspacePaneLocation(
+                    paneId: firstPaneId,
+                    tabId: tabId,
+                    tabIndex: 0,
+                    paneIndexInTab: 0,
+                    isActiveInTab: true
+                )
+            ],
+            favoriteWorktree.id: [
+                WorkspacePaneLocation(
+                    paneId: secondPaneId,
+                    tabId: tabId,
+                    tabIndex: 0,
+                    paneIndexInTab: 1,
+                    isActiveInTab: false
+                )
+            ],
+        ]
+
+        let repoProjection = RepoExplorerProjection.project(
+            RepoExplorerSnapshot(
+                repos: [normalRepo, favoriteRepo],
+                repoEnrichmentByRepoId: enrichmentByRepoId,
+                groupingMode: .repo,
+                sortOrder: .ascending,
+                query: ""
+            )
+        )
+        let paneProjection = RepoExplorerProjection.project(
+            RepoExplorerSnapshot(
+                repos: [normalRepo, favoriteRepo],
+                repoEnrichmentByRepoId: enrichmentByRepoId,
+                groupingMode: .pane,
+                sortOrder: .ascending,
+                query: ""
+            )
+        )
+        let tabProjection = RepoExplorerProjection.project(
+            RepoExplorerSnapshot(
+                repos: [normalRepo, favoriteRepo],
+                repoEnrichmentByRepoId: enrichmentByRepoId,
+                groupingMode: .tab,
+                sortOrder: .ascending,
+                query: "",
+                paneLocationsByWorktreeId: locationsByWorktreeId
+            )
+        )
+
+        #expect(repoProjection.resolvedGroups.map(\.repoTitle) == ["zeta-favorite", "alpha-normal"])
+        #expect(paneProjection.resolvedGroups.first?.id == "pane:inactive")
+        #expect(paneProjection.resolvedGroups.first?.repos.map(\.id) == [favoriteRepoId, normalRepoId])
+        #expect(tabProjection.resolvedGroups.first?.repos.map(\.id) == [favoriteRepoId, normalRepoId])
+    }
+
     @Test("projection separates resolved and loading repos while preserving filter semantics")
     func projectionSeparatesResolvedAndLoadingRepos() {
         let resolvedRepoId = UUID()
@@ -70,23 +186,151 @@ struct RepoExplorerReadModelTests {
         )
 
         #expect(index.entries.count == 3)
-        guard case .resolvedWorktreeRow(let groupId, let indexedRepoId, let worktreeId) = index.entries[1] else {
+        guard case .resolvedWorktreeRow(let groupId, let indexedRepoId, let worktreeId, let rowId) = index.entries[1]
+        else {
             Issue.record("Expected main worktree row after group header")
             return
         }
 
-        let context = index.resolve(groupId: groupId, repoId: indexedRepoId, worktreeId: worktreeId)
+        let context = index.resolve(groupId: groupId, repoId: indexedRepoId, worktreeId: worktreeId, rowId: rowId)
         #expect(context?.group.id == group.id)
         #expect(context?.repo.id == repo.id)
         #expect(context?.worktree.id == main.id)
     }
 
-    private func repo(id: UUID, name: String, worktrees: [Worktree]) -> RepoPresentationItem {
+    @Test("repo mode groups by repo id instead of source-family metadata")
+    func repoModeGroupsByRepoIdInsteadOfSourceFamilyMetadata() {
+        let firstRepoId = UUID()
+        let secondRepoId = UUID()
+        let firstRepo = repo(id: firstRepoId, name: "agent-studio-a", worktrees: [worktree(repoId: firstRepoId)])
+        let secondRepo = repo(id: secondRepoId, name: "agent-studio-b", worktrees: [worktree(repoId: secondRepoId)])
+
+        let projection = RepoExplorerProjection.project(
+            RepoExplorerSnapshot(
+                repos: [firstRepo, secondRepo],
+                repoEnrichmentByRepoId: [
+                    firstRepoId: resolvedRemote(repoId: firstRepoId, displayName: "agent-studio"),
+                    secondRepoId: resolvedRemote(repoId: secondRepoId, displayName: "agent-studio"),
+                ],
+                groupingMode: .repo,
+                query: ""
+            )
+        )
+
+        #expect(
+            projection.resolvedGroups.map(\.id).sorted()
+                == [
+                    "repo:\(firstRepoId.uuidString)",
+                    "repo:\(secondRepoId.uuidString)",
+                ].sorted())
+        #expect(projection.resolvedGroups.allSatisfy { $0.repos.count == 1 })
+    }
+
+    @Test("pane mode groups active worktrees by pane and leaves inactive last")
+    func paneModeGroupsActiveWorktreesByPaneAndLeavesInactiveLast() {
+        let repoId = UUID()
+        let activeWorktree = worktree(repoId: repoId, name: "feature")
+        let inactiveWorktree = worktree(repoId: repoId, name: "inactive")
+        let paneId = UUID()
+        let tabId = UUID()
+        let projection = RepoExplorerProjection.project(
+            RepoExplorerSnapshot(
+                repos: [repo(id: repoId, name: "agent-studio", worktrees: [activeWorktree, inactiveWorktree])],
+                repoEnrichmentByRepoId: [repoId: resolvedRemote(repoId: repoId)],
+                groupingMode: .pane,
+                query: "",
+                paneLocationsByWorktreeId: [
+                    activeWorktree.id: [
+                        WorkspacePaneLocation(
+                            paneId: paneId,
+                            tabId: tabId,
+                            tabIndex: 0,
+                            paneIndexInTab: 0,
+                            isActiveInTab: true
+                        )
+                    ]
+                ]
+            )
+        )
+
+        #expect(projection.resolvedGroups.map(\.id) == ["pane:\(paneId.uuidString)", "pane:inactive"])
+        #expect(projection.resolvedGroups.first?.repos.first?.worktrees.map(\.id) == [activeWorktree.id])
+        #expect(projection.resolvedGroups.last?.repos.first?.worktrees.map(\.id) == [inactiveWorktree.id])
+    }
+
+    @Test("tab mode preserves duplicate worktree rows inside one tab")
+    func tabModePreservesDuplicateWorktreeRowsInsideOneTab() {
+        let repoId = UUID()
+        let duplicateWorktree = worktree(repoId: repoId, name: "feature")
+        let firstPaneId = UUID()
+        let secondPaneId = UUID()
+        let tabId = UUID()
+        let projection = RepoExplorerProjection.project(
+            RepoExplorerSnapshot(
+                repos: [repo(id: repoId, name: "agent-studio", worktrees: [duplicateWorktree])],
+                repoEnrichmentByRepoId: [repoId: resolvedRemote(repoId: repoId)],
+                groupingMode: .tab,
+                query: "",
+                paneLocationsByWorktreeId: [
+                    duplicateWorktree.id: [
+                        WorkspacePaneLocation(
+                            paneId: firstPaneId,
+                            tabId: tabId,
+                            tabIndex: 0,
+                            paneIndexInTab: 0,
+                            isActiveInTab: false
+                        ),
+                        WorkspacePaneLocation(
+                            paneId: secondPaneId,
+                            tabId: tabId,
+                            tabIndex: 0,
+                            paneIndexInTab: 1,
+                            isActiveInTab: true
+                        ),
+                    ]
+                ]
+            )
+        )
+
+        let group = try! #require(projection.resolvedGroups.first)
+        #expect(group.id == "tab:\(tabId.uuidString)")
+        #expect(group.repos.first?.worktrees.map(\.id) == [duplicateWorktree.id, duplicateWorktree.id])
+
+        let rowIndex = RepoExplorerRowIndex(projection: projection, expandedGroupIds: [group.id], isFiltering: false)
+        let rowIds = rowIndex.entries.compactMap { entry -> String? in
+            guard case .resolvedWorktreeRow(_, _, _, let rowId) = entry else { return nil }
+            return rowId
+        }
+        #expect(rowIds.count == 2)
+        #expect(Set(rowIds).count == 2)
+        #expect(rowIds.allSatisfy { $0.contains(":pane:") })
+
+        let placementTexts = rowIndex.entries.compactMap { entry -> String? in
+            guard case .resolvedWorktreeRow(let groupId, let rowRepoId, let worktreeId, let rowId) = entry else {
+                return nil
+            }
+            return rowIndex.resolve(
+                groupId: groupId,
+                repoId: rowRepoId,
+                worktreeId: worktreeId,
+                rowId: rowId
+            )?.placementContext?.displayText
+        }
+        #expect(placementTexts == ["Pane 1", "Pane 2 active"])
+    }
+
+    private func repo(
+        id: UUID,
+        name: String,
+        isFavorite: Bool = false,
+        worktrees: [Worktree]
+    ) -> RepoPresentationItem {
         RepoPresentationItem(
             id: id,
             name: name,
             repoPath: URL(fileURLWithPath: "/tmp/\(name)"),
             stableKey: name,
+            isFavorite: isFavorite,
             worktrees: worktrees
         )
     }
@@ -97,6 +341,20 @@ struct RepoExplorerReadModelTests {
             name: name,
             path: URL(fileURLWithPath: "/tmp/\(name)"),
             isMainWorktree: isMain
+        )
+    }
+
+    private func resolvedRemote(repoId: UUID, displayName: String = "agent-studio") -> RepoEnrichment {
+        .resolvedRemote(
+            repoId: repoId,
+            raw: RawRepoOrigin(origin: "git@github.com:askluna/\(displayName).git", upstream: nil),
+            identity: RepoIdentity(
+                groupKey: "remote:askluna/\(displayName)",
+                remoteSlug: "askluna/\(displayName)",
+                organizationName: "askluna",
+                displayName: displayName
+            ),
+            updatedAt: Date(timeIntervalSince1970: 0)
         )
     }
 }

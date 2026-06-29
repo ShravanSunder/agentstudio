@@ -509,6 +509,10 @@ AGENTSTUDIO_REQUIRE_LAUNCHSERVICES=1 /bin/bash scripts/verify-debug-observabilit
 description = "Run disposable AgentStudio git-refresh performance workload proof"
 run = "/bin/bash scripts/verify-git-refresh-performance-workload.sh"
 
+[tasks.verify-sidebar-performance-workload]
+description = "Run AgentStudio sidebar semantic and performance workload proof"
+run = "/bin/bash scripts/verify-sidebar-performance-workload.sh"
+
 [tasks."observability:up"]
 description = "Start the shared local Victoria + OTel collector stack"
 run = "/bin/bash \"$HOME/dev/ai-tools/observability/observability-stack\" up"

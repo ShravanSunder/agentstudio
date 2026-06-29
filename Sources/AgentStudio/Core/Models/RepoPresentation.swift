@@ -1,7 +1,7 @@
 import AppKit
 import Foundation
 
-struct RepoPresentationGroup: Identifiable {
+struct RepoPresentationGroup: Identifiable, Equatable, Sendable {
     let id: String
     let repoTitle: String
     let organizationName: String?
@@ -12,11 +12,13 @@ struct RepoPresentationGroup: Identifiable {
     }
 }
 
-struct RepoPresentationItem: Identifiable, Hashable {
+struct RepoPresentationItem: Identifiable, Hashable, Sendable {
     let id: UUID
     let name: String
     let repoPath: URL
     let stableKey: String
+    let isFavorite: Bool
+    let note: String?
     let tags: [String]
     var worktrees: [Worktree]
 
@@ -25,6 +27,8 @@ struct RepoPresentationItem: Identifiable, Hashable {
         name: String,
         repoPath: URL,
         stableKey: String,
+        isFavorite: Bool = false,
+        note: String? = nil,
         tags: [String] = [],
         worktrees: [Worktree]
     ) {
@@ -32,6 +36,8 @@ struct RepoPresentationItem: Identifiable, Hashable {
         self.name = name
         self.repoPath = repoPath
         self.stableKey = stableKey
+        self.isFavorite = isFavorite
+        self.note = note
         self.tags = tags
         self.worktrees = worktrees
     }
@@ -42,6 +48,8 @@ struct RepoPresentationItem: Identifiable, Hashable {
             name: repo.name,
             repoPath: repo.repoPath,
             stableKey: repo.stableKey,
+            isFavorite: repo.isFavorite,
+            note: repo.note,
             tags: repo.tags,
             worktrees: repo.worktrees
         )

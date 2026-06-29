@@ -312,7 +312,7 @@ Use these broad ownership rules first, then consult [Directory Structure](docs/a
 
 ### Shared UI, Styles, And Policies
 
-When two app surfaces need the same visual control, extract a stateless primitive into `SharedComponents/` instead of copying styling between features. Shared components render from value parameters, `@Binding`, and closures; they do not subscribe to atoms and they do not import `Core/`, `Features/`, or `App/`.
+When two app surfaces need the same visual control, extract a shared primitive into `SharedComponents/` instead of copying styling between features. Shared components render from direct values, `@Binding`, callbacks, or explicitly passed observable view models; they do not read atoms, reach into global stores, or import `Core/`, `Features/`, or `App/`.
 
 Before creating a feature-local UI primitive, check for an existing shared component with the same interaction semantics. Reuse or extract keyboard, focus, selection, and command-toggle behavior even when row content differs. Styling parity alone is not enough.
 
@@ -368,8 +368,8 @@ icons when a sidebar/local action already defines the presentation.
 | `RecentWorkspaceTargetAtom` | local recent workspace target history | `Core/State/MainActor/Atoms/RepoCacheAtom.swift` |
 | `RepoCacheAtom` | UI-facing compatibility read surface over repo enrichment cache + recent targets; does not own notification unread counts | `Core/State/MainActor/Atoms/RepoCacheAtom.swift` |
 | `SidebarExpandedGroupAtom` | local sidebar expanded-group memory | `Core/State/MainActor/Atoms/SidebarCacheState.swift` |
-| `SidebarCheckoutColorAtom` | checkout color choices, destined for settings | `Core/State/MainActor/Atoms/SidebarCacheState.swift` |
-| `SidebarCacheState` | UI-facing composition surface over sidebar expanded groups + checkout colors | `Core/State/MainActor/Atoms/SidebarCacheState.swift` |
+| `SidebarCheckoutColorAtom` | legacy checkout color memory; new sidebar presentation uses automatic colors and settings must not persist checkout colors | `Core/State/MainActor/Atoms/SidebarCacheState.swift` |
+| `SidebarCacheState` | UI-facing composition surface over sidebar expanded groups plus legacy checkout color cleanup | `Core/State/MainActor/Atoms/SidebarCacheState.swift` |
 | `WorkspaceSidebarMemoryAtom` | persisted workspace sidebar shell memory: filter text, filter visibility, collapsed state, active surface | `Core/State/MainActor/Atoms/WorkspaceSidebarState.swift` |
 | `SidebarFocusRuntimeAtom` | runtime-only sidebar focus fact for keyboard-owner derivation | `Core/State/MainActor/Atoms/WorkspaceSidebarState.swift` |
 | `WorkspaceSidebarState` | UI-facing composition surface over sidebar memory + runtime focus atoms | `Core/State/MainActor/Atoms/WorkspaceSidebarState.swift` |
@@ -394,7 +394,7 @@ icons when a sidebar/local action already defines the presentation.
 | `WorkspaceSQLiteStoreBackendFactory` | product-specific SQLite backend bootstrap, core migration, core sidecar quarantine, and local repository construction | `Core/State/MainActor/Persistence/WorkspaceSQLiteStoreBackendFactory.swift` |
 | `RepoCacheStore` | persistence wrapper for `RepoEnrichmentCacheAtom` + `RecentWorkspaceTargetAtom` | `Core/State/MainActor/Persistence/RepoCacheStore.swift` |
 | `UIStateStore` | persistence wrapper for workspace sidebar shell memory only | `Core/State/MainActor/Persistence/UIStateStore.swift` |
-| `WorkspaceSettingsStore` | persistence wrapper for editor bookmark, checkout colors, and inbox notification preferences until feature-specific settings stores split | `Core/State/MainActor/Persistence/WorkspaceSettingsStore.swift` |
+| `WorkspaceSettingsStore` | persistence wrapper for editor bookmark and inbox notification preferences until feature-specific settings stores split; checkout colors are intentionally ignored/cleared | `Core/State/MainActor/Persistence/WorkspaceSettingsStore.swift` |
 | `InboxNotificationStore` | persistence wrapper for inbox notification history and collapsed inbox groups; uses feature SQLite repository when the local backend is available and legacy JSON only for uninitialized import | `Features/InboxNotification/State/MainActor/Persistence/InboxNotificationStore.swift` |
 | `AppLifecycleAtom` | application active/terminating state | `Core/State/MainActor/Atoms/AppLifecycleAtom.swift` |
 | `WindowLifecycleAtom` | key/focused window identity, registration, transient terminal geometry, launch-settle facts | `Core/State/MainActor/Atoms/WindowLifecycleAtom.swift` |
@@ -640,11 +640,11 @@ agent-studio/
 │   │   │                             #   App/, not a feature)
 │   │   └── <NewFeature>/             # Features/<Feature>/{Components,Models,Routing,
 │   │                                 #   State/MainActor/{Atoms,Persistence},Views}/
-│   ├── SharedComponents/             # Stateless UI primitives (design system). Currently
+│   ├── SharedComponents/             # Shared UI primitives (design system). Currently
 │   │                                 #   hosts EditorChooser/; more primitives land here
 │   │                                 #   over time. Imports only Infrastructure. No atom
-│   │                                 #   subscriptions. State flows via @Binding / value
-│   │                                 #   parameters.
+│   │                                 #   or global-store access. State flows via @Binding,
+│   │                                 #   values, callbacks, or explicit observable view models.
 │   └── Infrastructure/               # Domain-agnostic utilities
 ├── docs/architecture/                # Authoritative design docs (see table above)
 ├── docs/plans/                       # Date-prefixed implementation plans
@@ -697,7 +697,7 @@ Where each key component lives — use this to decide where new files go. Apply 
 | `WorkspaceSQLiteRecoveryClassifier` | `Core/State/SQLite/` | GRDB corruption/not-a-database classifier shared by product SQLite recovery paths |
 | `RepoCacheStore` | `Core/State/MainActor/Persistence/` | Persistence wrapper for repo enrichment cache + recent workspace targets |
 | `UIStateStore` | `Core/State/MainActor/Persistence/` | Persistence wrapper for workspace sidebar shell memory only |
-| `WorkspaceSettingsStore` | `Core/State/MainActor/Persistence/` | Persistence wrapper for editor bookmark, checkout colors, and inbox notification preferences until feature-specific settings stores split |
+| `WorkspaceSettingsStore` | `Core/State/MainActor/Persistence/` | Persistence wrapper for editor bookmark and inbox notification preferences until feature-specific settings stores split; checkout colors are intentionally ignored/cleared |
 | `SessionRuntime` | `Core/RuntimeEventSystem/Runtime/` | Session backends, health checks, zmx attach orchestration using stored pane anchors |
 | `SurfaceManager` | `Features/Terminal/` | Ghostty surface lifecycle, health, undo |
 | `WorkspaceCommandResolver` | `Core/Actions/` | Resolves AppCommand into WorkspaceActionCommand, builds ActionStateSnapshot |

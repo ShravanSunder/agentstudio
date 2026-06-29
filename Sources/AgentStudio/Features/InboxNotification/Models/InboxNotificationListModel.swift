@@ -1,16 +1,16 @@
 import Foundation
 
-enum InboxNotificationListNavigationDirection {
+enum InboxNotificationListNavigationDirection: Sendable {
     case next
     case previous
 }
 
-enum InboxNotificationListEndpoint {
+enum InboxNotificationListEndpoint: Sendable {
     case first
     case last
 }
 
-struct InboxNotificationListSection: Identifiable, Equatable {
+struct InboxNotificationListSection: Identifiable, Equatable, Sendable {
     let id: String
     let header: InboxNotificationListSectionHeader?
     let notifications: [InboxNotification]
@@ -37,8 +37,8 @@ extension Array where Element == InboxNotificationListSection {
     }
 }
 
-struct InboxNotificationListSectionHeader: Equatable {
-    enum SourceKind: Equatable {
+struct InboxNotificationListSectionHeader: Equatable, Sendable {
+    enum SourceKind: Equatable, Sendable {
         case repo(organizationName: String?)
         case pane
         case tab
@@ -46,7 +46,7 @@ struct InboxNotificationListSectionHeader: Equatable {
         case otherSources
     }
 
-    enum Style: Equatable {
+    enum Style: Equatable, Sendable {
         case sourceGroup
     }
 
@@ -64,7 +64,7 @@ struct InboxNotificationListSectionHeader: Equatable {
     }
 }
 
-struct InboxNotificationRepoGroupPresentation: Equatable {
+struct InboxNotificationRepoGroupPresentation: Equatable, Sendable {
     let groupId: String?
     let title: String
     let organizationName: String?
@@ -83,7 +83,7 @@ struct InboxNotificationRepoGroupPresentation: Equatable {
     }
 }
 
-private enum InboxNotificationSectionKey: Hashable {
+private enum InboxNotificationSectionKey: Hashable, Sendable {
     case ungrouped
     case repoGroup(id: String)
     case repo(id: UUID)
@@ -118,7 +118,7 @@ private enum InboxNotificationSectionKey: Hashable {
     }
 }
 
-private struct InboxNotificationListItem {
+private struct InboxNotificationListItem: Sendable {
     let notification: InboxNotification
     let sourceDisplay: InboxNotificationSourceDisplay
     let normalizedSearchText: String
@@ -131,8 +131,14 @@ private struct InboxNotificationListItem {
     }
 }
 
-struct InboxNotificationListModel: Equatable {
+struct InboxNotificationListModel: Equatable, Sendable {
+    static let empty = Self(sections: [])
+
     let sections: [InboxNotificationListSection]
+
+    init(sections: [InboxNotificationListSection]) {
+        self.sections = sections
+    }
 
     init(
         notifications: [InboxNotification],

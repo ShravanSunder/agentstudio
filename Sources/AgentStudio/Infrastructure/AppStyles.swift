@@ -147,6 +147,10 @@ enum AppStyles {
                 static let clearTransitionDuration: Double = 0.10
             }
 
+            enum Header {
+                static let contentPadding: CGFloat = 8
+            }
+
             static let groupChildRowLeadingInset: CGFloat =
                 listRowLeadingInset
                 + AppStyles.General.Typography.textBase
@@ -158,6 +162,8 @@ enum AppStyles {
             static let chipSuccessColor = Color(red: 0.42, green: 0.84, blue: 0.50)
             static let chipWarningColor = Color(red: 0.93, green: 0.71, blue: 0.34)
             static let chipDangerColor = Color(red: 0.93, green: 0.41, blue: 0.41)
+            static let paneGroupIconColor = Color(red: 0.35, green: 0.77, blue: 1.0)
+            static let tabGroupIconColor = Color(red: 0.65, green: 0.55, blue: 0.98)
 
             static let accentPaletteHexes: [String] = [
                 "#F5C451",

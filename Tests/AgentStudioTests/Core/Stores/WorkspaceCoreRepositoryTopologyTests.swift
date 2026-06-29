@@ -41,7 +41,7 @@ struct WorkspaceCoreRepositoryTopologyTests {
                             name: "repo-a",
                             path: URL(fileURLWithPath: "/tmp/agentstudio/repo-a"),
                             isMainWorktree: true,
-                            tags: ["stable"]
+                            note: "stable main"
                         ),
                         .init(
                             id: featureWorktreeId,
@@ -49,7 +49,7 @@ struct WorkspaceCoreRepositoryTopologyTests {
                             name: "feature",
                             path: URL(fileURLWithPath: "/tmp/agentstudio/repo-a-feature"),
                             isMainWorktree: false,
-                            tags: ["review", "wip"]
+                            note: "review work"
                         ),
                     ],
                     tags: ["client", "primary"]
@@ -64,8 +64,8 @@ struct WorkspaceCoreRepositoryTopologyTests {
         #expect(restoredTopology == topology)
     }
 
-    @Test("repository topology replacement prunes removed repo and worktree tags")
-    func repositoryTopologyReplacementPrunesRemovedRepoAndWorktreeTags() throws {
+    @Test("repository topology replacement prunes removed repo tags")
+    func repositoryTopologyReplacementPrunesRemovedRepoTags() throws {
         let repository = try makeWorkspaceCoreRepositoryFixture().repository
         let workspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000128")!
         let repoId = UUID(uuidString: "00000000-0000-0000-0000-000000000235")!
@@ -94,8 +94,7 @@ struct WorkspaceCoreRepositoryTopologyTests {
                                 repoId: repoId,
                                 name: "main",
                                 path: URL(fileURLWithPath: "/tmp/agentstudio/tag-replacement-repo"),
-                                isMainWorktree: true,
-                                tags: ["old"]
+                                isMainWorktree: true
                             )
                         ],
                         tags: ["old"]
@@ -121,8 +120,7 @@ struct WorkspaceCoreRepositoryTopologyTests {
                                 repoId: repoId,
                                 name: "main",
                                 path: URL(fileURLWithPath: "/tmp/agentstudio/tag-replacement-repo"),
-                                isMainWorktree: true,
-                                tags: ["new"]
+                                isMainWorktree: true
                             )
                         ],
                         tags: ["new"]
@@ -134,7 +132,6 @@ struct WorkspaceCoreRepositoryTopologyTests {
         let restoredTopology = try repository.fetchRepositoryTopology(workspaceId: workspaceId)
 
         #expect(restoredTopology.repos.single?.tags == ["new"])
-        #expect(restoredTopology.repos.single?.worktrees.single?.tags == ["new"])
     }
 
     @Test("repository topology is scoped per workspace")

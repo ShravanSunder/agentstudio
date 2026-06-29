@@ -88,6 +88,13 @@ enum AppCommand: String, CaseIterable {
     case showPaneInboxNotifications
     case clearPaneInboxNotifications
     case showWorktreeSidebar
+    case setRepoSidebarGroupingRepo
+    case setRepoSidebarGroupingPane
+    case setRepoSidebarGroupingTab
+    case setInboxGroupingTab
+    case setInboxGroupingRepo
+    case setInboxGroupingPane
+    case setInboxGroupingNone
     case newFloatingTerminal
     // Window commands
     case newWindow
@@ -281,7 +288,10 @@ struct AppCommandIPCExposure: Equatable, Sendable {
             .managementLayerOpenDrawer, .managementLayerCreateTerminal, .managementLayerCreateBrowser,
             .managementLayerExit, .toggleSidebar, .showInboxNotifications, .toggleInboxNotificationSort,
             .clearReadInboxNotifications, .clearAllInboxNotifications, .showPaneInboxNotifications,
-            .clearPaneInboxNotifications, .showWorktreeSidebar, .newFloatingTerminal, .newWindow,
+            .clearPaneInboxNotifications, .showWorktreeSidebar,
+            .setRepoSidebarGroupingRepo, .setRepoSidebarGroupingPane, .setRepoSidebarGroupingTab,
+            .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane, .setInboxGroupingNone,
+            .newFloatingTerminal, .newWindow,
             .closeWindow, .openNewTerminalInTab:
             return [.layoutMutate]
         case .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt:

@@ -7,6 +7,8 @@ STATE_FILE="${AGENTSTUDIO_OBSERVABILITY_STATE_FILE:-$PROJECT_ROOT/tmp/debug-obse
 state_status=""
 state_pid=""
 state_data_dir=""
+state_activation_mode=""
+state_ipc_auth_mode=""
 
 if [ -f "$STATE_FILE" ]; then
   while IFS='=' read -r key value; do
@@ -31,6 +33,12 @@ PY
         ;;
       AGENTSTUDIO_OBSERVABILITY_DATA_DIR)
         state_data_dir="$decoded_value"
+        ;;
+      AGENTSTUDIO_OBSERVABILITY_ACTIVATION_MODE)
+        state_activation_mode="$decoded_value"
+        ;;
+      AGENTSTUDIO_OBSERVABILITY_IPC_AUTH_MODE)
+        state_ipc_auth_mode="$decoded_value"
         ;;
     esac
   done <"$STATE_FILE"
@@ -58,6 +66,18 @@ fi
 
 if [ -z "$state_data_dir" ]; then
   echo "AgentStudio debug observability state missing data directory" >&2
+  echo "state file: $STATE_FILE" >&2
+  exit 1
+fi
+
+if [ "$state_ipc_auth_mode" != "authenticated" ]; then
+  echo "AgentStudio IPC phase-a smoke requires authenticated IPC auth mode: ${state_ipc_auth_mode:-<missing>}" >&2
+  echo "state file: $STATE_FILE" >&2
+  exit 1
+fi
+
+if [ "$state_activation_mode" != "background" ]; then
+  echo "AgentStudio IPC phase-a smoke requires background activation mode: ${state_activation_mode:-<missing>}" >&2
   echo "state file: $STATE_FILE" >&2
   exit 1
 fi
@@ -286,6 +306,55 @@ try:
     if not command_bar_open.get("workspaceWindowId"):
         print(f"ui.commandBar.open result missing workspaceWindowId: {command_bar_open}", file=sys.stderr)
         sys.exit(1)
+
+    sidebar_expectations = [
+        (9, "sidebar.surface.set", {"surface": "repo"}, "repo"),
+        (10, "sidebar.grouping.set", {"surface": "repo", "mode": "repo"}, "repo"),
+        (11, "sidebar.grouping.set", {"surface": "repo", "mode": "pane"}, "pane"),
+        (12, "sidebar.grouping.set", {"surface": "repo", "mode": "tab"}, "tab"),
+        (13, "sidebar.surface.set", {"surface": "inbox"}, "inbox"),
+        (14, "sidebar.grouping.set", {"surface": "inbox", "mode": "tab"}, "tab"),
+        (15, "sidebar.grouping.set", {"surface": "inbox", "mode": "repo"}, "repo"),
+        (16, "sidebar.grouping.set", {"surface": "inbox", "mode": "pane"}, "pane"),
+        (17, "sidebar.grouping.set", {"surface": "inbox", "mode": "none"}, "none"),
+    ]
+    for request_id, method, params, expected_value in sidebar_expectations:
+        result = require_success(session.request(request_id, method, params), method)
+        actual_value = result.get("surface") if method == "sidebar.surface.set" else result.get("mode")
+        if actual_value != expected_value:
+            print(f"{method} mismatch: {result}; expected {expected_value}", file=sys.stderr)
+            sys.exit(1)
+
+    repo_grouping = require_success(
+        session.request(18, "sidebar.grouping.get", {"surface": "repo"}),
+        "sidebar.grouping.get repo",
+    )
+    if repo_grouping.get("mode") != "tab":
+        print(f"repo grouping did not persist tab mode: {repo_grouping}", file=sys.stderr)
+        sys.exit(1)
+
+    inbox_grouping = require_success(
+        session.request(19, "sidebar.grouping.get", {"surface": "inbox"}),
+        "sidebar.grouping.get inbox",
+    )
+    if inbox_grouping.get("mode") != "none":
+        print(f"inbox grouping did not persist none mode: {inbox_grouping}", file=sys.stderr)
+        sys.exit(1)
+
+    sidebar_surface = require_success(
+        session.request(20, "sidebar.surface.get", {}),
+        "sidebar.surface.get",
+    )
+    if sidebar_surface.get("surface") != "inbox":
+        print(f"sidebar surface did not persist inbox: {sidebar_surface}", file=sys.stderr)
+        sys.exit(1)
+
+    require_error(
+        session.request(21, "sidebar.grouping.set", {"surface": "repo", "mode": "none"}),
+        "sidebar.grouping.set repo none",
+        -32007,
+        "validation rejected",
+    )
 
     print(f"AgentStudio IPC Phase A smoke passed for {canonical_pane_handle}")
 finally:

@@ -11,6 +11,7 @@ struct RepoExplorerWorktreeRowTests {
         let view = RepoExplorerWorktreeRowContent(
             checkoutTitle: "agent-studio",
             branchName: "main",
+            placementText: "Pane 2 active",
             checkoutIconKind: .mainCheckout,
             iconColor: .accentColor,
             branchStatus: .unknown,
@@ -24,6 +25,14 @@ struct RepoExplorerWorktreeRowTests {
     func unreadPillVisibility() {
         #expect(RepoExplorerWorktreeRowContent.shouldShowUnreadPill(unreadCount: 0) == false)
         #expect(RepoExplorerWorktreeRowContent.shouldShowUnreadPill(unreadCount: 4) == true)
+    }
+
+    @Test("favorite state exposes explicit add and remove labels")
+    func favoriteStateExposesExplicitLabels() {
+        #expect(RepoExplorerWorktreeRowContent.favoriteAccessibilityLabel(isFavorite: false) == "Add Favorite")
+        #expect(RepoExplorerWorktreeRowContent.favoriteAccessibilityLabel(isFavorite: true) == "Remove Favorite")
+        #expect(RepoExplorerWorktreeRowContent.favoriteHelpText(isFavorite: false) == "Add favorite")
+        #expect(RepoExplorerWorktreeRowContent.favoriteHelpText(isFavorite: true) == "Remove favorite")
     }
 
     @Test("repo explorer remains inbox-feature agnostic")

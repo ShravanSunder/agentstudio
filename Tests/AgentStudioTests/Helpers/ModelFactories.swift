@@ -10,7 +10,7 @@ func makeWorktree(
     name: String = "feature-branch",
     path: String = "/tmp/test-repo/feature-branch",
     isMainWorktree: Bool = false,
-    tags: [String] = []
+    note: String? = nil
 ) -> Worktree {
     Worktree(
         id: id,
@@ -18,7 +18,7 @@ func makeWorktree(
         name: name,
         path: URL(fileURLWithPath: path),
         isMainWorktree: isMainWorktree,
-        tags: tags
+        note: note
     )
 }
 

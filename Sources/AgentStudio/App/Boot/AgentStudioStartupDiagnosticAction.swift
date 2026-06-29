@@ -11,6 +11,7 @@ struct AgentStudioStartupDiagnosticAction: Equatable, Sendable {
             case crossTabMoveGeometrySmoke = "cross-tab-move-geometry-smoke"
             case ipcTerminalSmoke = "ipc-terminal-smoke"
             case bridgeReviewObservabilitySmoke = "bridge-review-observability-smoke"
+            case sidebarPerformanceProof = "sidebar-performance-proof"
         #endif
         case addWatchFolder = "add-watch-folder"
     }
@@ -30,6 +31,8 @@ struct AgentStudioStartupDiagnosticAction: Equatable, Sendable {
                 "ipcTerminalSmoke"
             case .bridgeReviewObservabilitySmoke:
                 "bridgeReviewObservabilitySmoke"
+            case .sidebarPerformanceProof:
+                "sidebarPerformanceProof"
         #endif
         case .addWatchFolder:
             "addWatchFolder"
