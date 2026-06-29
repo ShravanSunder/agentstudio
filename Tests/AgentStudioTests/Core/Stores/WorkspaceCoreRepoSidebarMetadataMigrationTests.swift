@@ -14,7 +14,10 @@ struct WorkspaceCoreRepoSidebarMetadataMigrationTests {
         let worktreeId = UUID().uuidString
         let tabId = UUID().uuidString
 
-        try WorkspaceCoreMigrations.migrator.migrate(databaseQueue, upTo: "010_drop_pane_tag")
+        try WorkspaceCoreMigrations.migrator.migrate(
+            databaseQueue,
+            upTo: "010_repository_topology_tags_and_tab_color"
+        )
         try databaseQueue.write { database in
             try insertWorkspace(database, workspaceId: workspaceId)
             try insertRepo(database, workspaceId: workspaceId, repoId: repoId)
@@ -51,10 +54,10 @@ struct WorkspaceCoreRepoSidebarMetadataMigrationTests {
             )
             try database.execute(
                 sql: """
-                    INSERT INTO repo_tag(repo_id, tag)
-                    VALUES (?, ?)
+                    INSERT INTO repo_tag(repo_id, workspace_id, tag)
+                    VALUES (?, ?, ?)
                     """,
-                arguments: [repoId, "favorite-client"]
+                arguments: [repoId, workspaceId, "favorite-client"]
             )
         }
 
@@ -95,6 +98,7 @@ struct WorkspaceCoreRepoSidebarMetadataMigrationTests {
                     JOIN worktree ON worktree.repo_id = repo.id
                     JOIN tab_shell ON tab_shell.workspace_id = repo.workspace_id
                     JOIN repo_tag ON repo_tag.repo_id = repo.id
+                    AND repo_tag.workspace_id = repo.workspace_id
                     WHERE repo.id = ?
                     """,
                 arguments: [repoId]

@@ -1370,16 +1370,20 @@ final class WorkspaceStoreTests {
     }
 
     @Test
-    func test_isDirty_setOnDirectTopologyAtomMutation() async {
-        #expect(!(store.isDirty))
+    func test_repositoryTopologyStore_isDirty_setOnDirectTopologyAtomMutation() async {
+        let topologyAtom = RepositoryTopologyAtom()
+        let topologyStore = RepositoryTopologyStore(atom: topologyAtom)
+        await topologyStore.restoreAsync(for: UUID())
+        topologyStore.startObserving()
+        #expect(!topologyStore.isDirty)
 
-        _ = store.repositoryTopologyAtom.addRepo(at: URL(fileURLWithPath: "/tmp/direct-topology"))
+        _ = topologyAtom.addRepo(at: URL(fileURLWithPath: "/tmp/direct-topology"))
 
-        for _ in 0..<10 where !store.isDirty {
+        for _ in 0..<10 where !topologyStore.isDirty {
             await Task.yield()
         }
 
-        #expect(store.isDirty)
+        #expect(topologyStore.isDirty)
     }
 
     @Test

@@ -1,9 +1,16 @@
 import Foundation
 import Observation
 
+enum RepositoryTopologyAtomError: Error, Equatable {
+    case invalidRepositoryTag(String)
+    case duplicateRepositoryTag(String)
+    case repoNotFound(UUID)
+    case worktreeNotFound(UUID)
+}
+
 @MainActor
 @Observable
-final class WorkspaceRepositoryTopologyAtom {
+final class RepositoryTopologyAtom {
     private(set) var repos: [Repo] = []
     private(set) var watchedPaths: [WatchedPath] = []
     private(set) var unavailableRepoIds: Set<UUID> = []
@@ -154,6 +161,13 @@ final class WorkspaceRepositoryTopologyAtom {
         repos[repoIndex].note = normalizedNote(note)
     }
 
+    func setRepoTags(_ tags: [String], repoId: UUID) throws {
+        guard let repoIndex = repos.firstIndex(where: { $0.id == repoId }) else {
+            throw RepositoryTopologyAtomError.repoNotFound(repoId)
+        }
+        repos[repoIndex].tags = try Self.canonicalRepositoryTags(tags)
+    }
+
     func updateWorktreeNote(_ worktreeId: UUID, note: String?) {
         for repoIndex in repos.indices {
             guard let worktreeIndex = repos[repoIndex].worktrees.firstIndex(where: { $0.id == worktreeId }) else {
@@ -297,5 +311,24 @@ final class WorkspaceRepositoryTopologyAtom {
             return !lhs.isMainWorktree && rhs.isMainWorktree
         }
         return lhs.stableTieBreaker < rhs.stableTieBreaker
+    }
+
+    private static func canonicalRepositoryTags(_ tags: [String]) throws -> [String] {
+        var seenTags = Set<String>()
+        var canonicalTags: [String] = []
+        for tag in tags {
+            guard isValidRepositoryTag(tag) else {
+                throw RepositoryTopologyAtomError.invalidRepositoryTag(tag)
+            }
+            guard seenTags.insert(tag).inserted else {
+                throw RepositoryTopologyAtomError.duplicateRepositoryTag(tag)
+            }
+            canonicalTags.append(tag)
+        }
+        return canonicalTags.sorted()
+    }
+
+    private static func isValidRepositoryTag(_ tag: String) -> Bool {
+        RepositoryTagValidation.isValid(tag)
     }
 }

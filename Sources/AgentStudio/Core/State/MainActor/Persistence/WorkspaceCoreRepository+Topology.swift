@@ -36,6 +36,7 @@ extension WorkspaceCoreRepository {
         var isFavorite: Bool
         var note: String?
         var worktrees: [WorktreeRecord]
+        var tags: [String]
 
         init(
             id: UUID,
@@ -45,7 +46,8 @@ extension WorkspaceCoreRepository {
             createdAt: Date,
             isFavorite: Bool = false,
             note: String? = nil,
-            worktrees: [WorktreeRecord]
+            worktrees: [WorktreeRecord],
+            tags: [String] = []
         ) {
             self.id = id
             self.name = name
@@ -55,6 +57,7 @@ extension WorkspaceCoreRepository {
             self.isFavorite = isFavorite
             self.note = note
             self.worktrees = worktrees
+            self.tags = tags
         }
     }
 
@@ -166,6 +169,7 @@ func validateTopology(
         throw WorkspaceCoreRepositoryError.unavailableRepoNotInTopology(repoId)
     }
     for repo in topology.repos {
+        try validateRepositoryTags(repo.tags)
         try validateWorktrees(repo.worktrees, repoId: repo.id)
     }
 }
@@ -186,6 +190,22 @@ private func validateWorktrees(
         worktrees.map(\.stableKey),
         duplicateError: WorkspaceCoreRepositoryError.duplicateWorktreeStableKey
     )
+}
+
+func validateRepositoryTags(_ tags: [String]) throws {
+    var seenTags = Set<String>()
+    for tag in tags {
+        guard isValidRepositoryTag(tag) else {
+            throw WorkspaceCoreRepositoryError.invalidRepositoryTag(tag)
+        }
+        guard seenTags.insert(tag).inserted else {
+            throw WorkspaceCoreRepositoryError.duplicateRepositoryTag(tag)
+        }
+    }
+}
+
+private func isValidRepositoryTag(_ tag: String) -> Bool {
+    RepositoryTagValidation.isValid(tag)
 }
 
 private func validateUniqueIds(
@@ -242,6 +262,7 @@ private func fetchRepoRecords(
     return try rows.map { row in
         let repo = try decodeRepoRecord(row, worktrees: [])
         let worktrees = try fetchWorktreeRecords(database, workspaceId: workspaceId, repoId: repo.id)
+        let tags = try fetchRepoTags(database, workspaceId: workspaceId, repoId: repo.id)
         return .init(
             id: repo.id,
             name: repo.name,
@@ -250,7 +271,8 @@ private func fetchRepoRecords(
             createdAt: repo.createdAt,
             isFavorite: repo.isFavorite,
             note: repo.note,
-            worktrees: worktrees
+            worktrees: worktrees,
+            tags: tags
         )
     }
 }
@@ -275,6 +297,20 @@ private func fetchWorktreeRecords(
         ]
     )
     return try rows.map(decodeWorktreeRecord)
+}
+
+private func fetchRepoTags(_ database: Database, workspaceId: UUID, repoId: UUID) throws -> [String] {
+    try String.fetchAll(
+        database,
+        sql: """
+            SELECT tag
+            FROM repo_tag
+            WHERE workspace_id = ?
+            AND repo_id = ?
+            ORDER BY tag ASC
+            """,
+        arguments: [workspaceId.uuidString, repoId.uuidString]
+    )
 }
 
 private func fetchUnavailableRepoIds(_ database: Database, workspaceId: UUID) throws -> Set<UUID> {

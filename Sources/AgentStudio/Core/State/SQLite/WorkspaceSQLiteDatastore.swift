@@ -20,6 +20,8 @@ actor WorkspaceSQLiteDatastore {
     private var restoreLocalRepositoryCache: [UUID: WorkspaceLocalRepository] = [:]
     private var pendingGlobalRecoveryEvents: [PersistenceRecoveryEvent] = []
     private var pendingRecoveryEventsByWorkspaceId: [UUID: [PersistenceRecoveryEvent]] = [:]
+    private var workspaceSaveTail: Task<Void, Error>?
+    private var workspaceSaveTailGeneration: UInt64 = 0
 
     init(
         configuration: WorkspaceSQLiteDatastoreConfiguration,
@@ -58,7 +60,36 @@ actor WorkspaceSQLiteDatastore {
         self.traceRecorder = WorkspaceSQLiteTraceRecorder(traceRuntime: traceRuntime)
     }
 
-    func saveWorkspaceSnapshot(_ snapshot: WorkspaceSQLiteSnapshot) async throws {
+    func saveWorkspaceSnapshotBundle(_ bundle: WorkspaceSQLiteSaveBundle) async throws {
+        let previousTail = workspaceSaveTail
+        workspaceSaveTailGeneration &+= 1
+        let tailGeneration = workspaceSaveTailGeneration
+        let saveTask = Task { [self] in
+            if let previousTail {
+                do {
+                    try await previousTail.value
+                } catch {
+                    // Preserve save ordering without letting one failed flush poison the next queued save.
+                }
+            }
+            try await performWorkspaceSnapshotBundleSave(bundle)
+        }
+        workspaceSaveTail = saveTask
+        do {
+            try await saveTask.value
+            if workspaceSaveTailGeneration == tailGeneration {
+                workspaceSaveTail = nil
+            }
+        } catch {
+            if workspaceSaveTailGeneration == tailGeneration {
+                workspaceSaveTail = nil
+            }
+            throw error
+        }
+    }
+
+    private func performWorkspaceSnapshotBundleSave(_ bundle: WorkspaceSQLiteSaveBundle) async throws {
+        let snapshot = bundle.workspace
         await recordProbe(.saveWorkspaceSnapshot)
         var failurePhase = WorkspaceSQLiteTracePhase.openCore
         var failureDatabase: WorkspaceSQLiteTraceDatabase? = .core
@@ -81,10 +112,10 @@ actor WorkspaceSQLiteDatastore {
         )
         do {
             let backend = try resolvedBackend()
-            let state = WorkspacePersistenceTransformer.persistableState(from: snapshot)
+            let state = WorkspacePersistenceTransformer.persistableState(from: bundle)
             failurePhase = .stageCore
             failureDatabase = .core
-            try backend.replaceWorkspaceSnapshotStaged(snapshot, updatesActiveSelection: true)
+            try backend.replaceWorkspaceSnapshotStaged(bundle, updatesActiveSelection: true)
             await traceRecorder.recordOperation(
                 .workspaceSave,
                 phase: .stageCore,
@@ -269,6 +300,17 @@ actor WorkspaceSQLiteDatastore {
         }
     }
 
+    func loadRepositoryTopologySnapshot(workspaceId: UUID) async -> RepositoryTopologyLoadResult {
+        do {
+            let backend = try resolvedBackend()
+            return .loaded(try backend.fetchRepositoryTopologySnapshot(workspaceId: workspaceId))
+        } catch is BackendUninitializedError {
+            return .uninitialized
+        } catch {
+            return .unavailable(.init(error))
+        }
+    }
+
     func completedSnapshotStatus(workspaceId: UUID) async -> CompletedSnapshotStatusResult {
         do {
             let backend = try resolvedBackend()
@@ -310,16 +352,15 @@ actor WorkspaceSQLiteDatastore {
         try resolvedBackend().markLegacyWorkspaceArchived(workspaceId: workspaceId, archivedAt: archivedAt)
     }
 
-    func saveImportedLegacySnapshot(_ snapshot: WorkspaceSQLiteSnapshot, sourceStatePath: String) async throws {
+    func saveImportedLegacySnapshot(_ bundle: WorkspaceSQLiteSaveBundle, sourceStatePath: String) async throws {
         let backend = try resolvedBackend()
-        try backend.replaceWorkspaceSnapshotStaged(snapshot, updatesActiveSelection: false)
         let localRepository = try await cachedSaveLocalRepository(
-            workspaceId: snapshot.id,
+            workspaceId: bundle.id,
             operation: .legacyImport,
             lane: .legacyImport
         )
-        try backend.writeImportedLegacySnapshotLocalStateAndCommit(
-            snapshot,
+        try backend.saveImportedLegacySnapshot(
+            bundle,
             sourceStatePath: sourceStatePath,
             localRepository: localRepository
         )

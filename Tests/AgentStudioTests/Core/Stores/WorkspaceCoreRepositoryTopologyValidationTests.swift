@@ -676,4 +676,93 @@ struct WorkspaceCoreRepositoryTopologyValidationTests {
         }
     }
 
+    @Test("repository topology replace rejects invalid repository tags")
+    func repositoryTopologyReplaceRejectsInvalidRepositoryTags() throws {
+        let repository = try makeWorkspaceCoreRepositoryFixture().repository
+        let workspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000129")!
+        let repoId = UUID(uuidString: "00000000-0000-0000-0000-000000000236")!
+        try repository.upsertWorkspace(
+            .init(
+                id: workspaceId,
+                name: "Invalid Repo Tags",
+                createdAt: Date(timeIntervalSince1970: 100),
+                updatedAt: Date(timeIntervalSince1970: 100)
+            )
+        )
+
+        #expect(throws: WorkspaceCoreRepositoryError.invalidRepositoryTag(" leading")) {
+            try repository.replaceRepositoryTopology(
+                workspaceId: workspaceId,
+                topology: .init(
+                    watchedPaths: [],
+                    repos: [
+                        .init(
+                            id: repoId,
+                            name: "repo",
+                            repoPath: URL(fileURLWithPath: "/tmp/agentstudio/invalid-repo-tag"),
+                            createdAt: Date(timeIntervalSince1970: 200),
+                            worktrees: [],
+                            tags: [" leading"]
+                        )
+                    ],
+                    unavailableRepoIds: []
+                )
+            )
+        }
+        #expect(throws: WorkspaceCoreRepositoryError.invalidRepositoryTag("spoof\u{2066}tag")) {
+            try repository.replaceRepositoryTopology(
+                workspaceId: workspaceId,
+                topology: .init(
+                    watchedPaths: [],
+                    repos: [
+                        .init(
+                            id: repoId,
+                            name: "repo",
+                            repoPath: URL(fileURLWithPath: "/tmp/agentstudio/invalid-repo-tag"),
+                            createdAt: Date(timeIntervalSince1970: 200),
+                            worktrees: [],
+                            tags: ["spoof\u{2066}tag"]
+                        )
+                    ],
+                    unavailableRepoIds: []
+                )
+            )
+        }
+    }
+
+    @Test("repository topology replace rejects duplicate repository tags")
+    func repositoryTopologyReplaceRejectsDuplicateRepositoryTags() throws {
+        let repository = try makeWorkspaceCoreRepositoryFixture().repository
+        let workspaceId = UUID(uuidString: "00000000-0000-0000-0000-000000000130")!
+        let repoId = UUID(uuidString: "00000000-0000-0000-0000-000000000237")!
+        try repository.upsertWorkspace(
+            .init(
+                id: workspaceId,
+                name: "Duplicate Repository Tags",
+                createdAt: Date(timeIntervalSince1970: 100),
+                updatedAt: Date(timeIntervalSince1970: 100)
+            )
+        )
+
+        #expect(throws: WorkspaceCoreRepositoryError.duplicateRepositoryTag("wip")) {
+            try repository.replaceRepositoryTopology(
+                workspaceId: workspaceId,
+                topology: .init(
+                    watchedPaths: [],
+                    repos: [
+                        .init(
+                            id: repoId,
+                            name: "repo",
+                            repoPath: URL(fileURLWithPath: "/tmp/agentstudio/duplicate-repo-tag"),
+                            createdAt: Date(timeIntervalSince1970: 200),
+                            worktrees: [],
+                            tags: ["wip", "wip"]
+                        )
+                    ],
+                    unavailableRepoIds: []
+                )
+            )
+        }
+    }
+
 }

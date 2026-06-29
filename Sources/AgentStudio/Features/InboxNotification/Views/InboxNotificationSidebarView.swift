@@ -19,7 +19,7 @@ struct InboxNotificationSidebarView: View {
     let sidebarCache: SidebarCacheState
     let inboxSidebarState: InboxSidebarState
     let workspacePaneAtom: WorkspacePaneAtom
-    let workspaceRepositoryTopologyAtom: WorkspaceRepositoryTopologyAtom
+    let workspaceRepositoryTopologyAtom: RepositoryTopologyAtom
     let repoCache: RepoCacheAtom
     let dispatcher: AppCommandDispatcher
     let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
@@ -47,7 +47,7 @@ struct InboxNotificationSidebarView: View {
         sidebarCache: SidebarCacheState,
         inboxSidebarState: InboxSidebarState,
         workspacePaneAtom: WorkspacePaneAtom,
-        workspaceRepositoryTopologyAtom: WorkspaceRepositoryTopologyAtom,
+        workspaceRepositoryTopologyAtom: RepositoryTopologyAtom,
         repoCache: RepoCacheAtom,
         dispatcher: AppCommandDispatcher,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,

@@ -136,6 +136,28 @@ struct RepoExplorerFilterTests {
         #expect(result[0].worktrees.count == 2)
     }
 
+    @Test
+    func test_filter_repoTagMatch_returnsAllWorktrees() {
+        // Arrange
+        let repos = [
+            makeRepo(
+                name: "payments",
+                worktrees: [
+                    makeWorktree(name: "main"),
+                    makeWorktree(name: "settlement"),
+                ],
+                tags: ["client-alpha"]),
+            makeRepo(name: "frontend", worktrees: [makeWorktree(name: "main")]),
+        ]
+
+        // Act
+        let result = RepoExplorerFilter.filter(repos: presentableRepos(repos), query: "client-alpha")
+
+        // Assert
+        #expect(result.map(\.name) == ["payments"])
+        #expect(result[0].worktrees.count == 2)
+    }
+
     // MARK: - No Match
 
     @Test

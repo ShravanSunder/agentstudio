@@ -93,6 +93,19 @@ struct AppDataPathsTests {
     }
 
     @Test
+    func test_globalPreferencesURLFollowsRootDirectory() {
+        let env = ["AGENTSTUDIO_DATA_DIR": "~/preferences-root"]
+        let homeDir = FileManager.default.homeDirectoryForCurrentUser.path
+
+        let preferencesURL = AppDataPaths.globalPreferencesURL(
+            environment: env,
+            isDebugBuild: false
+        )
+
+        #expect(preferencesURL.path == "\(homeDir)/preferences-root/preferences.global.json")
+    }
+
+    @Test
     func test_sqlitePathsFollowRootAndWorkspaceDirectory() {
         let env = ["AGENTSTUDIO_DATA_DIR": "~/sqlite-root"]
         let homeDir = FileManager.default.homeDirectoryForCurrentUser.path

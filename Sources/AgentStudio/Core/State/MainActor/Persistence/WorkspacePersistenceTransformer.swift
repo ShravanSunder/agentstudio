@@ -26,6 +26,11 @@ struct WorkspaceLiveSQLiteSnapshotResult: Equatable {
     let repairReport: WorkspaceTabMembershipRepairReport
 }
 
+struct WorkspaceLiveSQLiteSaveBundleResult: Equatable {
+    let bundle: WorkspaceSQLiteSaveBundle
+    let repairReport: WorkspaceTabMembershipRepairReport
+}
+
 @MainActor
 enum WorkspacePersistenceTransformer {
     @discardableResult
@@ -33,7 +38,7 @@ enum WorkspacePersistenceTransformer {
         _ state: WorkspacePersistor.PersistableState,
         identityAtom: WorkspaceIdentityAtom,
         windowMemoryAtom: WorkspaceWindowMemoryAtom,
-        repositoryTopologyAtom: WorkspaceRepositoryTopologyAtom,
+        repositoryTopologyAtom: RepositoryTopologyAtom,
         workspacePaneAtom: WorkspacePaneAtom,
         workspaceTabLayoutAtom: WorkspaceTabLayoutAtom
     ) -> WorkspaceTabMembershipRepairReport {
@@ -55,6 +60,50 @@ enum WorkspacePersistenceTransformer {
             runtimeRepos: runtimeRepos,
             watchedPaths: state.watchedPaths,
             unavailableRepoIds: state.unavailableRepoIds
+        )
+
+        return hydrateWorkspaceOnly(
+            state,
+            identityAtom: identityAtom,
+            windowMemoryAtom: windowMemoryAtom,
+            repositoryTopologyAtom: repositoryTopologyAtom,
+            workspacePaneAtom: workspacePaneAtom,
+            workspaceTabLayoutAtom: workspaceTabLayoutAtom
+        )
+    }
+
+    static func hydrateRepositoryTopology(
+        _ snapshot: RepositoryTopologySQLiteSnapshot,
+        repositoryTopologyAtom: RepositoryTopologyAtom
+    ) {
+        let runtimeRepos = runtimeRepos(
+            canonicalRepos: snapshot.repos,
+            canonicalWorktrees: snapshot.worktrees
+        )
+        repositoryTopologyAtom.hydrate(
+            runtimeRepos: runtimeRepos,
+            watchedPaths: snapshot.watchedPaths,
+            unavailableRepoIds: snapshot.unavailableRepoIds
+        )
+    }
+
+    @discardableResult
+    static func hydrateWorkspaceOnly(
+        _ state: WorkspacePersistor.PersistableState,
+        identityAtom: WorkspaceIdentityAtom,
+        windowMemoryAtom: WorkspaceWindowMemoryAtom,
+        repositoryTopologyAtom: RepositoryTopologyAtom,
+        workspacePaneAtom: WorkspacePaneAtom,
+        workspaceTabLayoutAtom: WorkspaceTabLayoutAtom
+    ) -> WorkspaceTabMembershipRepairReport {
+        identityAtom.hydrate(
+            workspaceId: state.id,
+            workspaceName: state.name,
+            createdAt: state.createdAt
+        )
+        windowMemoryAtom.hydrate(
+            sidebarWidth: state.sidebarWidth,
+            windowFrame: state.windowFrame
         )
 
         workspacePaneAtom.hydrate(
@@ -81,7 +130,7 @@ enum WorkspacePersistenceTransformer {
     static func makePersistableState(
         identityAtom: WorkspaceIdentityAtom,
         windowMemoryAtom: WorkspaceWindowMemoryAtom,
-        repositoryTopologyAtom: WorkspaceRepositoryTopologyAtom,
+        repositoryTopologyAtom: RepositoryTopologyAtom,
         workspacePaneAtom: WorkspacePaneAtom,
         workspaceTabLayoutAtom: WorkspaceTabLayoutAtom,
         persistedAt: Date
@@ -126,13 +175,13 @@ enum WorkspacePersistenceTransformer {
     static func makeLiveSQLiteState(
         identityAtom: WorkspaceIdentityAtom,
         windowMemoryAtom: WorkspaceWindowMemoryAtom,
-        repositoryTopologyAtom: WorkspaceRepositoryTopologyAtom,
+        repositoryTopologyAtom: RepositoryTopologyAtom,
         workspacePaneAtom: WorkspacePaneAtom,
         workspaceTabLayoutAtom: WorkspaceTabLayoutAtom,
         persistedAt: Date
     ) -> WorkspacePersistor.PersistableState {
         persistableState(
-            from: makeLiveSQLiteSnapshot(
+            from: makeLiveSQLiteSaveBundle(
                 identityAtom: identityAtom,
                 windowMemoryAtom: windowMemoryAtom,
                 repositoryTopologyAtom: repositoryTopologyAtom,
@@ -146,7 +195,7 @@ enum WorkspacePersistenceTransformer {
     static func makeLiveSQLiteSnapshot(
         identityAtom: WorkspaceIdentityAtom,
         windowMemoryAtom: WorkspaceWindowMemoryAtom,
-        repositoryTopologyAtom: WorkspaceRepositoryTopologyAtom,
+        repositoryTopologyAtom: RepositoryTopologyAtom,
         workspacePaneAtom: WorkspacePaneAtom,
         workspaceTabLayoutAtom: WorkspaceTabLayoutAtom,
         persistedAt: Date
@@ -161,10 +210,57 @@ enum WorkspacePersistenceTransformer {
         ).snapshot
     }
 
+    static func makeLiveSQLiteSaveBundle(
+        identityAtom: WorkspaceIdentityAtom,
+        windowMemoryAtom: WorkspaceWindowMemoryAtom,
+        repositoryTopologyAtom: RepositoryTopologyAtom,
+        workspacePaneAtom: WorkspacePaneAtom,
+        workspaceTabLayoutAtom: WorkspaceTabLayoutAtom,
+        persistedAt: Date
+    ) -> WorkspaceSQLiteSaveBundle {
+        makeLiveSQLiteSaveBundleResult(
+            identityAtom: identityAtom,
+            windowMemoryAtom: windowMemoryAtom,
+            repositoryTopologyAtom: repositoryTopologyAtom,
+            workspacePaneAtom: workspacePaneAtom,
+            workspaceTabLayoutAtom: workspaceTabLayoutAtom,
+            persistedAt: persistedAt
+        ).bundle
+    }
+
+    static func makeLiveSQLiteSaveBundleResult(
+        identityAtom: WorkspaceIdentityAtom,
+        windowMemoryAtom: WorkspaceWindowMemoryAtom,
+        repositoryTopologyAtom: RepositoryTopologyAtom,
+        workspacePaneAtom: WorkspacePaneAtom,
+        workspaceTabLayoutAtom: WorkspaceTabLayoutAtom,
+        persistedAt: Date
+    ) -> WorkspaceLiveSQLiteSaveBundleResult {
+        let workspaceSnapshotResult = makeLiveSQLiteSnapshotResult(
+            identityAtom: identityAtom,
+            windowMemoryAtom: windowMemoryAtom,
+            repositoryTopologyAtom: repositoryTopologyAtom,
+            workspacePaneAtom: workspacePaneAtom,
+            workspaceTabLayoutAtom: workspaceTabLayoutAtom,
+            persistedAt: persistedAt
+        )
+        return WorkspaceLiveSQLiteSaveBundleResult(
+            bundle: .init(
+                workspace: workspaceSnapshotResult.snapshot,
+                repositoryTopology: makeRepositoryTopologySQLiteSnapshot(
+                    identityAtom: identityAtom,
+                    repositoryTopologyAtom: repositoryTopologyAtom,
+                    persistedAt: persistedAt
+                )
+            ),
+            repairReport: workspaceSnapshotResult.repairReport
+        )
+    }
+
     static func makeLiveSQLiteSnapshotResult(
         identityAtom: WorkspaceIdentityAtom,
         windowMemoryAtom: WorkspaceWindowMemoryAtom,
-        repositoryTopologyAtom: WorkspaceRepositoryTopologyAtom,
+        repositoryTopologyAtom: RepositoryTopologyAtom,
         workspacePaneAtom: WorkspacePaneAtom,
         workspaceTabLayoutAtom: WorkspaceTabLayoutAtom,
         persistedAt: Date
@@ -190,19 +286,30 @@ enum WorkspacePersistenceTransformer {
             snapshot: WorkspaceSQLiteSnapshot(
                 id: identityAtom.workspaceId,
                 name: identityAtom.workspaceName,
-                repos: canonicalRepos(from: repositoryTopologyAtom.repos),
-                worktrees: canonicalWorktrees(from: repositoryTopologyAtom.repos),
-                unavailableRepoIds: repositoryTopologyAtom.unavailableRepoIds,
                 panes: livePanes,
                 tabs: normalizedTabs.tabs,
                 activeTabId: normalizedTabs.activeTabId,
                 sidebarWidth: windowMemoryAtom.sidebarWidth,
                 windowFrame: windowMemoryAtom.windowFrame,
-                watchedPaths: repositoryTopologyAtom.watchedPaths,
                 createdAt: identityAtom.createdAt,
                 updatedAt: persistedAt
             ),
             repairReport: normalizedTabs.repairReport
+        )
+    }
+
+    static func makeRepositoryTopologySQLiteSnapshot(
+        identityAtom: WorkspaceIdentityAtom,
+        repositoryTopologyAtom: RepositoryTopologyAtom,
+        persistedAt: Date
+    ) -> RepositoryTopologySQLiteSnapshot {
+        RepositoryTopologySQLiteSnapshot(
+            id: identityAtom.workspaceId,
+            repos: canonicalRepos(from: repositoryTopologyAtom.repos),
+            worktrees: canonicalWorktrees(from: repositoryTopologyAtom.repos),
+            unavailableRepoIds: repositoryTopologyAtom.unavailableRepoIds,
+            watchedPaths: repositoryTopologyAtom.watchedPaths,
+            updatedAt: persistedAt
         )
     }
 
@@ -343,17 +450,35 @@ enum WorkspacePersistenceTransformer {
         WorkspaceSQLiteSnapshot(
             id: state.id,
             name: state.name,
-            repos: state.repos,
-            worktrees: state.worktrees,
-            unavailableRepoIds: state.unavailableRepoIds,
             panes: state.panes,
             tabs: state.tabs,
             activeTabId: state.activeTabId,
             sidebarWidth: state.sidebarWidth,
             windowFrame: state.windowFrame,
-            watchedPaths: state.watchedPaths,
             createdAt: state.createdAt,
             updatedAt: state.updatedAt
+        )
+    }
+
+    nonisolated static func repositoryTopologySQLiteSnapshot(
+        from state: WorkspacePersistor.PersistableState
+    ) -> RepositoryTopologySQLiteSnapshot {
+        RepositoryTopologySQLiteSnapshot(
+            id: state.id,
+            repos: state.repos,
+            worktrees: state.worktrees,
+            unavailableRepoIds: state.unavailableRepoIds,
+            watchedPaths: state.watchedPaths,
+            updatedAt: state.updatedAt
+        )
+    }
+
+    nonisolated static func sqliteSaveBundle(
+        from state: WorkspacePersistor.PersistableState
+    ) -> WorkspaceSQLiteSaveBundle {
+        WorkspaceSQLiteSaveBundle(
+            workspace: sqliteSnapshot(from: state),
+            repositoryTopology: repositoryTopologySQLiteSnapshot(from: state)
         )
     }
 
@@ -363,15 +488,37 @@ enum WorkspacePersistenceTransformer {
         WorkspacePersistor.PersistableState(
             id: snapshot.id,
             name: snapshot.name,
-            repos: snapshot.repos,
-            worktrees: snapshot.worktrees,
-            unavailableRepoIds: snapshot.unavailableRepoIds,
+            repos: [],
+            worktrees: [],
+            unavailableRepoIds: [],
             panes: snapshot.panes,
             tabs: snapshot.tabs,
             activeTabId: snapshot.activeTabId,
             sidebarWidth: snapshot.sidebarWidth,
             windowFrame: snapshot.windowFrame,
-            watchedPaths: snapshot.watchedPaths,
+            watchedPaths: [],
+            createdAt: snapshot.createdAt,
+            updatedAt: snapshot.updatedAt
+        )
+    }
+
+    nonisolated static func persistableState(from bundle: WorkspaceSQLiteSaveBundle)
+        -> WorkspacePersistor.PersistableState
+    {
+        let snapshot = bundle.workspace
+        let topology = bundle.repositoryTopology
+        return WorkspacePersistor.PersistableState(
+            id: snapshot.id,
+            name: snapshot.name,
+            repos: topology.repos,
+            worktrees: topology.worktrees,
+            unavailableRepoIds: topology.unavailableRepoIds,
+            panes: snapshot.panes,
+            tabs: snapshot.tabs,
+            activeTabId: snapshot.activeTabId,
+            sidebarWidth: snapshot.sidebarWidth,
+            windowFrame: snapshot.windowFrame,
+            watchedPaths: topology.watchedPaths,
             createdAt: snapshot.createdAt,
             updatedAt: snapshot.updatedAt
         )
@@ -385,7 +532,8 @@ enum WorkspacePersistenceTransformer {
                 repoPath: repo.repoPath,
                 createdAt: repo.createdAt,
                 isFavorite: repo.isFavorite,
-                note: repo.note
+                note: repo.note,
+                tags: repo.tags
             )
         }
     }
@@ -438,7 +586,8 @@ enum WorkspacePersistenceTransformer {
                 worktrees: worktrees,
                 createdAt: canonicalRepo.createdAt,
                 isFavorite: canonicalRepo.isFavorite,
-                note: canonicalRepo.note
+                note: canonicalRepo.note,
+                tags: canonicalRepo.tags
             )
         }
     }

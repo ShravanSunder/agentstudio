@@ -24,7 +24,6 @@ extension WorkspaceSQLiteStoreBackend {
             throw BackendError.incompleteWorkspaceSnapshot(workspace.id)
         }
 
-        let topology = try coreRepository.fetchRepositoryTopology(workspaceId: workspace.id)
         let paneGraph = try coreRepository.fetchPaneGraph(workspaceId: workspace.id)
         let tabShells = try coreRepository.fetchTabShells(workspaceId: workspace.id)
         let tabGraph = try coreRepository.fetchTabGraph(workspaceId: workspace.id)
@@ -73,10 +72,9 @@ extension WorkspaceSQLiteStoreBackend {
             try markWorkspaceSnapshotCommitted(workspaceId: workspace.id, committedAt: snapshotToken)
         }
 
-        let state = try WorkspaceSQLiteStateBridge.persistableState(
+        return try WorkspaceSQLiteStateBridge.workspaceSnapshot(
             from: .init(
                 workspace: workspace,
-                topology: topology,
                 paneGraph: paneGraph,
                 tabShells: tabShells,
                 tabGraph: tabGraph,
@@ -84,7 +82,6 @@ extension WorkspaceSQLiteStoreBackend {
                 windowState: windowState
             )
         )
-        return WorkspacePersistenceTransformer.sqliteSnapshot(from: state)
     }
 
     func hasCompletedSnapshot(workspaceId: UUID, localRepository: WorkspaceLocalRepository) throws -> Bool {

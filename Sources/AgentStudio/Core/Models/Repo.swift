@@ -9,6 +9,7 @@ struct Repo: Codable, Identifiable, Hashable, Sendable {
     var createdAt: Date
     var isFavorite: Bool
     var note: String?
+    var tags: [String]
 
     /// Deterministic identity derived from filesystem path via SHA-256.
     /// Used for zmx session ID segment. Survives reinstall/data loss, breaks on directory move.
@@ -21,7 +22,8 @@ struct Repo: Codable, Identifiable, Hashable, Sendable {
         worktrees: [Worktree] = [],
         createdAt: Date = Date(),
         isFavorite: Bool = false,
-        note: String? = nil
+        note: String? = nil,
+        tags: [String] = []
     ) {
         self.id = id
         self.name = name
@@ -30,6 +32,7 @@ struct Repo: Codable, Identifiable, Hashable, Sendable {
         self.createdAt = createdAt
         self.isFavorite = isFavorite
         self.note = note
+        self.tags = tags
     }
 
     init(from decoder: Decoder) throws {
@@ -41,5 +44,6 @@ struct Repo: Codable, Identifiable, Hashable, Sendable {
         self.createdAt = try container.decode(Date.self, forKey: .createdAt)
         self.isFavorite = try container.decodeIfPresent(Bool.self, forKey: .isFavorite) ?? false
         self.note = try container.decodeIfPresent(String.self, forKey: .note)
+        self.tags = try container.decodeIfPresent([String].self, forKey: .tags) ?? []
     }
 }

@@ -9,16 +9,6 @@ enum WorkspaceCoreRepoSidebarMetadataMigration {
         """
         ALTER TABLE worktree ADD COLUMN note TEXT
         """,
-        """
-        ALTER TABLE tab_shell ADD COLUMN color_hex TEXT
-        """,
-        """
-        CREATE TABLE repo_tag (
-            repo_id TEXT NOT NULL REFERENCES repo(id) ON DELETE CASCADE,
-            tag TEXT NOT NULL,
-            PRIMARY KEY(repo_id, tag)
-        )
-        """,
     ]
 }
 

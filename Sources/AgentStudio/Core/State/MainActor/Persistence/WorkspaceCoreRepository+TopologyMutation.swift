@@ -21,6 +21,7 @@ func replaceRepositoryTopologyRows(
         repoId: nil,
         worktrees: incomingWorktrees
     )
+    try replaceRepoTagRows(database, workspaceId: workspaceId, repos: topology.repos)
     try replaceUnavailableRepoRows(
         database,
         workspaceId: workspaceId,
@@ -172,6 +173,25 @@ private func reconcileWorktreeRows(
     )
     for worktree in worktrees {
         try upsertWorktree(database, workspaceId: workspaceId, worktree: worktree)
+    }
+}
+
+private func replaceRepoTagRows(
+    _ database: Database,
+    workspaceId: UUID,
+    repos: [WorkspaceCoreRepository.RepoRecord]
+) throws {
+    try database.execute(
+        sql: """
+            DELETE FROM repo_tag
+            WHERE workspace_id = ?
+            """,
+        arguments: [workspaceId.uuidString]
+    )
+    for repo in repos {
+        for tag in repo.tags.sorted() {
+            try insertRepoTag(database, workspaceId: workspaceId, repoId: repo.id, tag: tag)
+        }
     }
 }
 
@@ -439,6 +459,21 @@ private func insertUnavailableRepo(
             workspaceId.uuidString,
             repoId.uuidString,
         ]
+    )
+}
+
+private func insertRepoTag(
+    _ database: Database,
+    workspaceId: UUID,
+    repoId: UUID,
+    tag: String
+) throws {
+    try database.execute(
+        sql: """
+            INSERT INTO repo_tag(repo_id, workspace_id, tag)
+            VALUES (?, ?, ?)
+            """,
+        arguments: [repoId.uuidString, workspaceId.uuidString, tag]
     )
 }
 

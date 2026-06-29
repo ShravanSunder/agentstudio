@@ -73,17 +73,20 @@ extension WorkspaceCoreRepository {
             try database.execute(
                 sql: """
                     DELETE FROM repo_tag
-                    WHERE repo_id = ?
+                    WHERE workspace_id = ?
+                    AND repo_id = ?
                     """,
-                arguments: [repoId.uuidString]
+                arguments: [workspaceId.uuidString, repoId.uuidString]
             )
-            for tag in normalizedRepoTags(tags) {
+            let normalizedTags = normalizedRepoTags(tags)
+            try validateRepositoryTags(normalizedTags)
+            for tag in normalizedTags {
                 try database.execute(
                     sql: """
-                        INSERT INTO repo_tag(repo_id, tag)
-                        VALUES (?, ?)
+                        INSERT INTO repo_tag(repo_id, workspace_id, tag)
+                        VALUES (?, ?, ?)
                         """,
-                    arguments: [repoId.uuidString, tag]
+                    arguments: [repoId.uuidString, workspaceId.uuidString, tag]
                 )
             }
         }
@@ -98,10 +101,11 @@ extension WorkspaceCoreRepository {
                 sql: """
                     SELECT tag
                     FROM repo_tag
-                    WHERE repo_id = ?
+                    WHERE workspace_id = ?
+                    AND repo_id = ?
                     ORDER BY tag ASC
                     """,
-                arguments: [repoId.uuidString]
+                arguments: [workspaceId.uuidString, repoId.uuidString]
             )
             return Set(tags)
         }

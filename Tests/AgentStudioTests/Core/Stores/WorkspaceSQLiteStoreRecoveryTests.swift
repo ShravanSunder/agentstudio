@@ -14,7 +14,7 @@ struct WorkspaceSQLiteStoreRecoveryTests {
         let fixture = try makeRecoveryFixture(workspaceId: workspaceId)
         let createdAt = Date(timeIntervalSince1970: 1_700_000_250)
         try fixture.backend.save(
-            .init(
+            .emptyFixture(
                 id: workspaceId,
                 name: "Committed Workspace",
                 createdAt: createdAt,
@@ -30,7 +30,7 @@ struct WorkspaceSQLiteStoreRecoveryTests {
 
         #expect(throws: CocoaError.self) {
             try failingBackend.save(
-                .init(
+                .emptyFixture(
                     id: workspaceId,
                     name: "Staged Core Without Local",
                     createdAt: createdAt,
@@ -54,7 +54,7 @@ struct WorkspaceSQLiteStoreRecoveryTests {
         let createdAt = Date(timeIntervalSince1970: 1_700_000_280)
         let committedUpdatedAt = Date(timeIntervalSince1970: 1_700_000_290)
         try fixture.backend.save(
-            .init(
+            .emptyFixture(
                 id: workspaceId,
                 name: "Committed Workspace",
                 activeTabId: nil,
@@ -69,7 +69,7 @@ struct WorkspaceSQLiteStoreRecoveryTests {
 
         #expect(throws: (any Error).self) {
             try fixture.backend.save(
-                .init(
+                .emptyFixture(
                     id: workspaceId,
                     name: "Invalid Replacement",
                     panes: [],
@@ -97,7 +97,7 @@ struct WorkspaceSQLiteStoreRecoveryTests {
         let fixture = try makeRecoveryFixture(workspaceId: workspaceId)
         let coreCompletedAt = Date(timeIntervalSince1970: 1_700_000_310)
         try fixture.backend.save(
-            .init(
+            .emptyFixture(
                 id: workspaceId,
                 name: "Archive Candidate",
                 sidebarWidth: 315,
@@ -134,15 +134,17 @@ struct WorkspaceSQLiteStoreRecoveryTests {
         let firstTab = Tab(paneId: firstPane.id, name: "First Default Tab")
         let secondTab = Tab(paneId: secondPane.id, name: "Second Default Tab")
         try fixture.backend.save(
-            .init(
-                id: workspaceId,
-                name: "Repair Local Completion",
-                panes: [firstPane, secondPane],
-                tabs: [firstTab, secondTab],
-                activeTabId: secondTab.id,
-                sidebarWidth: 315,
-                createdAt: Date(timeIntervalSince1970: 1_700_000_305),
-                updatedAt: coreCompletedAt
+            .emptyTopologyFixture(
+                workspace: .init(
+                    id: workspaceId,
+                    name: "Repair Local Completion",
+                    panes: [firstPane, secondPane],
+                    tabs: [firstTab, secondTab],
+                    activeTabId: secondTab.id,
+                    sidebarWidth: 315,
+                    createdAt: Date(timeIntervalSince1970: 1_700_000_305),
+                    updatedAt: coreCompletedAt
+                )
             )
         )
         try await fixture.localQueue.write { database in
@@ -182,12 +184,14 @@ struct WorkspaceSQLiteStoreRecoveryTests {
         let workspaceId = UUID()
         let fixture = try makeRecoveryFixture(workspaceId: workspaceId)
         try fixture.backend.save(
-            .init(
-                id: workspaceId,
-                name: "Core Survives Local Restore Failure",
-                sidebarWidth: 315,
-                createdAt: Date(timeIntervalSince1970: 1_700_000_320),
-                updatedAt: Date(timeIntervalSince1970: 1_700_000_330)
+            .emptyTopologyFixture(
+                workspace: .init(
+                    id: workspaceId,
+                    name: "Core Survives Local Restore Failure",
+                    sidebarWidth: 315,
+                    createdAt: Date(timeIntervalSince1970: 1_700_000_320),
+                    updatedAt: Date(timeIntervalSince1970: 1_700_000_330)
+                )
             )
         )
         let failingRestoreBackend = WorkspaceSQLiteStoreBackend(
@@ -226,10 +230,12 @@ struct WorkspaceSQLiteStoreRecoveryTests {
             makeLocalRepository: { _ in initialLocalRepository }
         )
         try seedBackend.save(
-            .emptyFixture(
-                id: workspaceId,
-                name: "Core Survives Quarantine Failure",
-                updatedAt: Date(timeIntervalSince1970: 2)
+            .emptyTopologyFixture(
+                workspace: .emptyFixture(
+                    id: workspaceId,
+                    name: "Core Survives Quarantine Failure",
+                    updatedAt: Date(timeIntervalSince1970: 2)
+                )
             )
         )
         let repairOpenCount = OSAllocatedUnfairLock<Int>(initialState: 0)
@@ -373,11 +379,13 @@ struct WorkspaceSQLiteStoreRecoveryTests {
             persistor: persistor, sqliteDatastore: workspaceSQLiteDatastore(from: failingBackend))
         await firstBootStore.restoreAsync()
         try retryBackend.save(
-            .init(
-                id: completedWorkspaceId,
-                name: "SQLite Mutated Name",
-                createdAt: completedCreatedAt,
-                updatedAt: Date(timeIntervalSince1970: 1_700_002_400)
+            .emptyTopologyFixture(
+                workspace: .init(
+                    id: completedWorkspaceId,
+                    name: "SQLite Mutated Name",
+                    createdAt: completedCreatedAt,
+                    updatedAt: Date(timeIntervalSince1970: 1_700_002_400)
+                )
             )
         )
         let secondBootStore = WorkspaceStore(
@@ -433,12 +441,14 @@ struct WorkspaceSQLiteStoreRecoveryTests {
         let workspaceId = UUID()
         let fixture = try makeRecoveryFixture(workspaceId: workspaceId)
         try fixture.backend.save(
-            .init(
-                id: workspaceId,
-                name: "Core Survives Local Read Failure",
-                sidebarWidth: 315,
-                createdAt: Date(timeIntervalSince1970: 1_700_000_340),
-                updatedAt: Date(timeIntervalSince1970: 1_700_000_350)
+            .emptyTopologyFixture(
+                workspace: .init(
+                    id: workspaceId,
+                    name: "Core Survives Local Read Failure",
+                    sidebarWidth: 315,
+                    createdAt: Date(timeIntervalSince1970: 1_700_000_340),
+                    updatedAt: Date(timeIntervalSince1970: 1_700_000_350)
+                )
             )
         )
         try await fixture.localQueue.write { database in

@@ -451,9 +451,21 @@ run = "/bin/bash scripts/create-local-beta-bundle.sh"
 description = "Launch AgentStudio Beta with full trace tags through the already-running shared OTLP collector"
 run = "/bin/bash scripts/run-beta-observability.sh"
 
+[tasks.run-beta-preferences-observability]
+description = "Launch AgentStudio Beta with full observability from global preferences"
+run = "/bin/bash scripts/run-beta-preferences-observability.sh"
+
 [tasks.run-debug-observability]
 description = "Build and launch debug AgentStudio with full trace tags and shared OTLP"
 run = "/bin/bash scripts/run-debug-observability.sh"
+
+[tasks.run-debug-preferences-observability]
+description = "Build and launch debug AgentStudio with full observability from global preferences"
+run = "/bin/bash scripts/run-debug-preferences-observability.sh"
+
+[tasks.run-stable-preferences-observability]
+description = "Launch a local stable AgentStudio.app with full observability from global preferences"
+run = "/bin/bash scripts/run-stable-preferences-observability.sh"
 
 [tasks.verify-beta-observability]
 description = "Verify AgentStudio beta records and scrubbed fields in VictoriaLogs"
@@ -462,6 +474,14 @@ run = "/bin/bash scripts/verify-beta-observability.sh"
 [tasks.verify-debug-observability]
 description = "Verify AgentStudio debug startup records and scrubbed fields in VictoriaLogs"
 run = "/bin/bash scripts/verify-debug-observability.sh"
+
+[tasks.verify-stable-preferences-observability]
+description = "Verify local stable preference-honoring records in VictoriaLogs"
+run = "/bin/bash scripts/verify-stable-preferences-observability.sh"
+
+[tasks.verify-global-preferences-startup-performance]
+description = "Verify global preferences loader and launch startup budgets"
+run = "/bin/bash scripts/verify-global-preferences-startup-performance.sh"
 
 [tasks.verify-agentstudio-ipc-phase-a-smoke]
 description = "Verify Phase A App IPC contribution routing through the debug socket"
@@ -473,6 +493,15 @@ run = """
 #!/usr/bin/env bash
 set -euo pipefail
 /bin/bash scripts/run-debug-observability.sh --detach
+AGENTSTUDIO_REQUIRE_LAUNCHSERVICES=1 /bin/bash scripts/verify-debug-observability.sh
+"""
+
+[tasks.smoke-debug-preferences-launchservices]
+description = "Launch debug AgentStudio through global preferences and require real LaunchServices GUI proof"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+/bin/bash scripts/run-debug-preferences-observability.sh --detach
 AGENTSTUDIO_REQUIRE_LAUNCHSERVICES=1 /bin/bash scripts/verify-debug-observability.sh
 """
 

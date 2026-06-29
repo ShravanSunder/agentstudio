@@ -707,8 +707,7 @@ final class WorkspacePersistorTests {
         let workspaceId = UUID()
         let sidebarCache = WorkspacePersistor.PersistableSidebarCache(
             workspaceId: workspaceId,
-            expandedGroups: [SidebarGroupKey("askluna"), SidebarGroupKey("personal")],
-            checkoutColors: [SidebarCheckoutColorKey("repoA"): "#22cc88"]
+            expandedGroups: [SidebarGroupKey("askluna"), SidebarGroupKey("personal")]
         )
 
         try persistor.saveSidebarCache(sidebarCache)
@@ -716,7 +715,6 @@ final class WorkspacePersistorTests {
 
         #expect(loaded?.workspaceId == workspaceId)
         #expect(loaded?.expandedGroups == [SidebarGroupKey("askluna"), SidebarGroupKey("personal")])
-        #expect(loaded?.checkoutColors[SidebarCheckoutColorKey("repoA")] == "#22cc88")
     }
 
     @Test
@@ -936,7 +934,6 @@ final class WorkspacePersistorTests {
         let loaded = persistor.loadSidebarCache(for: workspaceId).value
 
         #expect(loaded?.expandedGroups.isEmpty == true)
-        #expect(loaded?.checkoutColors == [SidebarCheckoutColorKey("repoA"): "#22cc88"])
     }
 
 }

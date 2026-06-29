@@ -148,6 +148,7 @@ struct PaneDisplayDerived {
         let workspacePane = atom(\.workspacePane)
         let workspaceRepositoryTopology = atom(\.workspaceRepositoryTopology)
         let repoCache = atom(\.repoCache)
+
         guard let pane = workspacePane.pane(paneId) else {
             paneDisplayLogger.warning("accentColorHex: pane \(paneId.uuidString, privacy: .public) not found")
             return nil

@@ -37,7 +37,7 @@ struct WorkspaceSQLiteLegacyImportStatusTests {
             try database.execute(sql: "DROP TRIGGER fail_success_status")
         }
         try fixture.backend.save(
-            WorkspaceSQLiteSnapshot(
+            .emptyFixture(
                 id: workspaceId,
                 name: "SQLite Newer Name",
                 createdAt: Date(timeIntervalSince1970: 1_700_003_000),

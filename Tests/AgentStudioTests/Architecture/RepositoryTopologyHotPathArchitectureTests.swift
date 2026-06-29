@@ -8,7 +8,7 @@ struct RepositoryTopologyHotPathArchitectureTests {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let source = try String(
             contentsOf: projectRoot.appending(
-                path: "Sources/AgentStudio/Core/State/MainActor/Atoms/WorkspaceRepositoryTopologyAtom.swift"
+                path: "Sources/AgentStudio/Core/State/MainActor/Atoms/RepositoryTopologyAtom.swift"
             ),
             encoding: .utf8
         )

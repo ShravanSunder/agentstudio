@@ -10,7 +10,6 @@ private let workspaceSettingsStoreLogger = Logger(
 @MainActor
 final class WorkspaceSettingsStore {
     private let editorPreferenceAtom: EditorPreferenceAtom
-    private let sidebarCheckoutColorAtom: SidebarCheckoutColorAtom
     private let repoExplorerSidebarPrefsAtom: RepoExplorerSidebarPrefsAtom
     private let inboxNotificationPrefsAtom: InboxNotificationPrefsAtom
     private let workspacesDir: URL
@@ -31,7 +30,6 @@ final class WorkspaceSettingsStore {
 
     init(
         editorPreferenceAtom: EditorPreferenceAtom,
-        sidebarCheckoutColorAtom: SidebarCheckoutColorAtom,
         repoExplorerSidebarPrefsAtom: RepoExplorerSidebarPrefsAtom,
         inboxNotificationPrefsAtom: InboxNotificationPrefsAtom,
         workspacesDir: URL = AppDataPaths.workspacesDirectory(),
@@ -42,7 +40,6 @@ final class WorkspaceSettingsStore {
         recoveryReporter: PersistenceRecoveryReporter? = nil
     ) {
         self.editorPreferenceAtom = editorPreferenceAtom
-        self.sidebarCheckoutColorAtom = sidebarCheckoutColorAtom
         self.repoExplorerSidebarPrefsAtom = repoExplorerSidebarPrefsAtom
         self.inboxNotificationPrefsAtom = inboxNotificationPrefsAtom
         self.workspacesDir = workspacesDir
@@ -188,7 +185,6 @@ final class WorkspaceSettingsStore {
             groupingMode: payload.repoExplorer.groupingMode,
             sortOrder: payload.repoExplorer.sortOrder
         )
-        sidebarCheckoutColorAtom.clear()
         inboxNotificationPrefsAtom.setGrouping(payload.notifications.grouping)
         inboxNotificationPrefsAtom.setSort(payload.notifications.sort)
         inboxNotificationPrefsAtom.setBellEnabled(payload.notifications.bellEnabled)
@@ -201,7 +197,6 @@ final class WorkspaceSettingsStore {
     private func hydrateDefaults() {
         editorPreferenceAtom.clear()
         repoExplorerSidebarPrefsAtom.reset()
-        sidebarCheckoutColorAtom.clear()
         inboxNotificationPrefsAtom.setGrouping(.byTab)
         inboxNotificationPrefsAtom.setSort(.newestFirst)
         inboxNotificationPrefsAtom.setBellEnabled(false)
@@ -532,7 +527,22 @@ private struct WorkspaceSettingsPayload: Codable {
         }
     }
 
-    struct Sidebar: Codable {}
+    struct Sidebar: Codable {
+        init() {}
+
+        private enum CodingKeys: String, CodingKey {
+            case checkoutColors
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            _ = try container.decodeIfPresent([String: String].self, forKey: .checkoutColors)
+        }
+
+        func encode(to encoder: Encoder) throws {
+            _ = encoder.container(keyedBy: CodingKeys.self)
+        }
+    }
 
     struct Notifications: Codable {
         var grouping: InboxNotificationGrouping

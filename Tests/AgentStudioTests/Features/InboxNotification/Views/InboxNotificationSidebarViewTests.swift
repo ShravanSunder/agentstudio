@@ -19,7 +19,7 @@ struct InboxNotificationSidebarViewTests {
                 sidebarCache: SidebarCacheState(),
                 inboxSidebarState: inboxSidebarState,
                 workspacePaneAtom: WorkspacePaneAtom(),
-                workspaceRepositoryTopologyAtom: WorkspaceRepositoryTopologyAtom(),
+                workspaceRepositoryTopologyAtom: RepositoryTopologyAtom(),
                 repoCache: RepoCacheAtom(),
                 dispatcher: AppCommandDispatcher.shared,
                 onRefocusActivePane: {}
@@ -49,7 +49,7 @@ struct InboxNotificationSidebarViewTests {
                 sidebarCache: SidebarCacheState(),
                 inboxSidebarState: inboxSidebarState,
                 workspacePaneAtom: WorkspacePaneAtom(),
-                workspaceRepositoryTopologyAtom: WorkspaceRepositoryTopologyAtom(),
+                workspaceRepositoryTopologyAtom: RepositoryTopologyAtom(),
                 repoCache: RepoCacheAtom(),
                 dispatcher: AppCommandDispatcher.shared,
                 onRefocusActivePane: {}
@@ -185,7 +185,7 @@ struct InboxNotificationSidebarViewTests {
                     sidebarCache: SidebarCacheState(),
                     inboxSidebarState: InboxSidebarState(),
                     workspacePaneAtom: WorkspacePaneAtom(),
-                    workspaceRepositoryTopologyAtom: WorkspaceRepositoryTopologyAtom(),
+                    workspaceRepositoryTopologyAtom: RepositoryTopologyAtom(),
                     repoCache: RepoCacheAtom(),
                     dispatcher: .shared,
                     onRefocusActivePane: {}
@@ -216,7 +216,7 @@ struct InboxNotificationSidebarViewTests {
                         sidebarCache: SidebarCacheState(),
                         inboxSidebarState: InboxSidebarState(),
                         workspacePaneAtom: WorkspacePaneAtom(),
-                        workspaceRepositoryTopologyAtom: WorkspaceRepositoryTopologyAtom(),
+                        workspaceRepositoryTopologyAtom: RepositoryTopologyAtom(),
                         repoCache: RepoCacheAtom(),
                         dispatcher: .shared,
                         onRefocusActivePane: {}
@@ -610,7 +610,7 @@ struct InboxNotificationSidebarViewSourceGroupTests {
         let paneId = UUID()
         let inboxAtom = InboxNotificationAtom()
         let prefsAtom = InboxNotificationPrefsAtom()
-        let repositoryTopologyAtom = WorkspaceRepositoryTopologyAtom()
+        let repositoryTopologyAtom = RepositoryTopologyAtom()
         let repoCache = RepoCacheAtom()
         let worktree = Worktree(
             id: UUID(),
@@ -695,7 +695,7 @@ struct InboxNotificationSidebarViewSourceGroupTests {
         let paneId = UUID()
         let inboxAtom = InboxNotificationAtom()
         let prefsAtom = InboxNotificationPrefsAtom()
-        let repositoryTopologyAtom = WorkspaceRepositoryTopologyAtom()
+        let repositoryTopologyAtom = RepositoryTopologyAtom()
         let repoCache = RepoCacheAtom()
         let worktree = Worktree(
             id: UUID(),

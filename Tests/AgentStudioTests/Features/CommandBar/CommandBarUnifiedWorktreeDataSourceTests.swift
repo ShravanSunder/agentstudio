@@ -76,6 +76,30 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
     }
 
     @Test
+    func test_reposScope_keywordsIncludeRepoTags() throws {
+        let store = makeStore()
+        let repo = store.addRepo(at: URL(filePath: "/tmp/tagged-command-repo"))
+        let main = try #require(store.repos.first?.worktrees.first)
+        try store.repositoryTopologyAtom.setRepoTags(["client-alpha"], repoId: repo.id)
+
+        let items = CommandBarDataSource.items(
+            scope: .repos,
+            store: store,
+            repoCache: RepoCacheAtom(),
+            dispatcher: dispatcher
+        )
+
+        let repoItem = try #require(items.first { $0.id == "repo-\(repo.id.uuidString)" })
+        #expect(repoItem.keywords.contains("client-alpha"))
+        guard case .navigateRepo(let level) = repoItem.action else {
+            Issue.record("Expected repo item to navigate")
+            return
+        }
+        let worktreeItem = try #require(level.items.first { $0.id == "repo-wt-\(main.id.uuidString)" })
+        #expect(worktreeItem.keywords.contains("client-alpha"))
+    }
+
+    @Test
     func test_repoLevelShowsOpenCommandsBeforeWorktrees() {
         let store = makeStore()
         let repo = store.addRepo(at: URL(filePath: "/tmp/repo-level-actions"))
