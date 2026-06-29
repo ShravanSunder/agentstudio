@@ -404,11 +404,11 @@ enum WorkspacePersistenceTransformer {
         var normalizedPaneIds: [UUID] = []
         var seenPaneIds = Set<UUID>()
 
-        for paneId in tab.allPaneIds where validPaneIds.contains(paneId) && referencedPaneIdSet.contains(paneId) {
+        for paneId in referencedPaneIds {
             guard seenPaneIds.insert(paneId).inserted else { continue }
             normalizedPaneIds.append(paneId)
         }
-        for paneId in referencedPaneIds {
+        for paneId in tab.allPaneIds where validPaneIds.contains(paneId) && referencedPaneIdSet.contains(paneId) {
             guard seenPaneIds.insert(paneId).inserted else { continue }
             normalizedPaneIds.append(paneId)
         }

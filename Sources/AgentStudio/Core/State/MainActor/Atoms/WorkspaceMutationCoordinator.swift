@@ -193,11 +193,17 @@ final class WorkspaceMutationCoordinator {
         guard let tabIndex = tabs.firstIndex(where: { $0.id == tabId }) else { return nil }
         let tab = tabs[tabIndex]
         var allPanes: [Pane] = []
+        var seenPaneIds = Set<UUID>()
         for paneId in tab.allPaneIds {
             guard let layoutPane = workspacePaneAtom.pane(paneId) else { continue }
-            allPanes.append(layoutPane)
+            if seenPaneIds.insert(layoutPane.id).inserted {
+                allPanes.append(layoutPane)
+            }
             if let drawer = layoutPane.drawer {
-                allPanes.append(contentsOf: workspacePaneAtom.snapshotPanes(with: drawer.paneIds))
+                for drawerPane in workspacePaneAtom.snapshotPanes(with: drawer.paneIds)
+                where seenPaneIds.insert(drawerPane.id).inserted {
+                    allPanes.append(drawerPane)
+                }
             }
         }
         return TabCloseSnapshot(tab: tab, panes: allPanes, tabIndex: tabIndex)
