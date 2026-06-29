@@ -48,11 +48,16 @@ struct CIFastLaneWorkflowTests {
         #expect(fastRunner.contains("--parallel --num-workers \"$SWIFT_TEST_WORKERS\""))
         #expect(
             fastRunner.contains(
-                "--skip 'Script|Smoke|Integration|Benchmark|ZmxStartupTraceAnalyzerTests|WorkspaceSurfaceCoordinatorFilesystemSourceTests|TerminalActivityAgentSettledHeuristicTests|MainWindowControllerInboxToolbarButtonTests|ProcessExecutorTests|AgentStudioAppIPCServiceTests'"
+                "app_ipc_live_socket_suite_filter='AgentStudioAppIPC(Service(Command|Contribution|AuthMode)?|SidebarService|CommandExecuteContract)Tests'"
             )
         )
-        #expect(fastRunner.contains("serial App IPC service live socket suite"))
-        #expect(fastRunner.contains("--filter AgentStudioAppIPCServiceTests"))
+        #expect(
+            fastRunner.contains(
+                "--skip \"Script|Smoke|Integration|Benchmark|ZmxStartupTraceAnalyzerTests|WorkspaceSurfaceCoordinatorFilesystemSourceTests|TerminalActivityAgentSettledHeuristicTests|MainWindowControllerInboxToolbarButtonTests|ProcessExecutorTests|${app_ipc_live_socket_suite_filter}\""
+            )
+        )
+        #expect(fastRunner.contains("serial App IPC service live socket suites"))
+        #expect(fastRunner.contains("--filter \"$app_ipc_live_socket_suite_filter\""))
         #expect(largeRunner.contains("--parallel --num-workers \"$SWIFT_TEST_WORKERS\""))
         #expect(
             largeRunner.contains(

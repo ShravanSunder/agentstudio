@@ -45,6 +45,9 @@ run_non_serialized_swift_tests() {
 }
 
 run_fast_non_webkit_swift_tests() {
+  local app_ipc_live_socket_suite_filter
+  app_ipc_live_socket_suite_filter='AgentStudioAppIPC(Service(Command|Contribution|AuthMode)?|SidebarService|CommandExecuteContract)Tests'
+
   if [ "${SWIFT_TEST_PARALLEL:-1}" = "1" ]; then
     SWIFT_TEST_WORKERS="${SWIFT_TEST_WORKERS:-$(( $(sysctl -n hw.ncpu) / 2 ))}"
     if [ "$SWIFT_TEST_WORKERS" -lt 2 ]; then SWIFT_TEST_WORKERS=2; fi
@@ -55,21 +58,21 @@ run_fast_non_webkit_swift_tests() {
       env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
       --parallel --num-workers "$SWIFT_TEST_WORKERS" \
       --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests \
-      --skip 'Script|Smoke|Integration|Benchmark|ZmxStartupTraceAnalyzerTests|WorkspaceSurfaceCoordinatorFilesystemSourceTests|TerminalActivityAgentSettledHeuristicTests|MainWindowControllerInboxToolbarButtonTests|ProcessExecutorTests|AgentStudioAppIPCServiceTests' --build-path "$BUILD_PATH"
+      --skip "Script|Smoke|Integration|Benchmark|ZmxStartupTraceAnalyzerTests|WorkspaceSurfaceCoordinatorFilesystemSourceTests|TerminalActivityAgentSettledHeuristicTests|MainWindowControllerInboxToolbarButtonTests|ProcessExecutorTests|${app_ipc_live_socket_suite_filter}" --build-path "$BUILD_PATH"
   else
     run_swift_with_timeout \
       "serial fast non-WebKit suites" \
       "$TIMEOUT_SECONDS" \
       env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
       --skip WebKitSerializedTests --skip E2ESerializedTests --skip ZmxE2ETests \
-      --skip 'Script|Smoke|Integration|Benchmark|ZmxStartupTraceAnalyzerTests|WorkspaceSurfaceCoordinatorFilesystemSourceTests|TerminalActivityAgentSettledHeuristicTests|MainWindowControllerInboxToolbarButtonTests|ProcessExecutorTests|AgentStudioAppIPCServiceTests' --build-path "$BUILD_PATH"
+      --skip "Script|Smoke|Integration|Benchmark|ZmxStartupTraceAnalyzerTests|WorkspaceSurfaceCoordinatorFilesystemSourceTests|TerminalActivityAgentSettledHeuristicTests|MainWindowControllerInboxToolbarButtonTests|ProcessExecutorTests|${app_ipc_live_socket_suite_filter}" --build-path "$BUILD_PATH"
   fi
 
   run_swift_with_timeout \
-    "serial App IPC service live socket suite" \
+    "serial App IPC service live socket suites" \
     "$TIMEOUT_SECONDS" \
     env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
-    --filter AgentStudioAppIPCServiceTests --build-path "$BUILD_PATH"
+    --filter "$app_ipc_live_socket_suite_filter" --build-path "$BUILD_PATH"
 }
 
 run_large_non_webkit_swift_tests() {
