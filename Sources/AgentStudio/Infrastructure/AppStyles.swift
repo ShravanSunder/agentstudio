@@ -182,6 +182,12 @@ enum AppStyles {
             static let titlebarBackground = NSColor(white: 0.12, alpha: 1.0)
         }
 
+        enum Chrome {
+            static let tabBarLeadingInset: CGFloat = 72
+            static let tabBarContentLeadingPadding: CGFloat = AppStyles.General.Spacing.loose
+            static let tabBarTopInset: CGFloat = 6
+        }
+
         enum Titlebar {
             static let iconSize: CGFloat = 14
             static let buttonSize: CGFloat = 28

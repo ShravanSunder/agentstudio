@@ -120,7 +120,7 @@ struct CustomTabBar: View {
                         workspaceWindowId: workspaceWindowId
                     )
                 }
-                .padding(.leading, AppStyles.General.Spacing.loose)
+                .padding(.leading, AppStyles.Shell.Chrome.tabBarContentLeadingPadding)
 
                 // MARK: - Scroll area with gradient overlays
                 ZStack {

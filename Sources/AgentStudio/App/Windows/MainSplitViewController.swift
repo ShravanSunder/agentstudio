@@ -18,8 +18,6 @@ struct SidebarRootViewDependencies {
 class MainSplitViewController: NSSplitViewController {
     typealias SidebarRootViewBuilder = @MainActor (SidebarRootViewDependencies) -> AnyView
     private static let inboxFocusRetryTurns = 20
-    private static let shellChromeLeadingInset: CGFloat = 166
-    private static let shellChromeTopInset: CGFloat = 12
 
     @MainActor
     private static func defaultSidebarRootViewBuilder(
@@ -146,7 +144,7 @@ class MainSplitViewController: NSSplitViewController {
             shellChromeContainerView.leadingAnchor.constraint(equalTo: rootView.leadingAnchor),
             shellChromeContainerView.trailingAnchor.constraint(equalTo: rootView.trailingAnchor),
             shellChromeContainerView.heightAnchor.constraint(
-                equalToConstant: AppStyles.Shell.TabBar.height + Self.shellChromeTopInset
+                equalToConstant: AppStyles.Shell.TabBar.height + AppStyles.Shell.Chrome.tabBarTopInset
             ),
 
             splitView.topAnchor.constraint(equalTo: shellChromeContainerView.bottomAnchor),
@@ -242,11 +240,11 @@ class MainSplitViewController: NSSplitViewController {
         NSLayoutConstraint.activate([
             tabBarHostingView.topAnchor.constraint(
                 equalTo: shellChromeContainerView.topAnchor,
-                constant: Self.shellChromeTopInset
+                constant: AppStyles.Shell.Chrome.tabBarTopInset
             ),
             tabBarHostingView.leadingAnchor.constraint(
                 equalTo: shellChromeContainerView.leadingAnchor,
-                constant: Self.shellChromeLeadingInset
+                constant: AppStyles.Shell.Chrome.tabBarLeadingInset
             ),
             tabBarHostingView.trailingAnchor.constraint(equalTo: shellChromeContainerView.trailingAnchor),
             tabBarHostingView.heightAnchor.constraint(equalToConstant: AppStyles.Shell.TabBar.height),
