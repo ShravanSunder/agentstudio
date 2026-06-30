@@ -105,6 +105,8 @@ See the [Architecture Overview](docs/architecture/README.md) for the full system
 
 ## Development
 
+[Deep-wiki agentstudio](https://deepwiki.com/ShravanSunder/agentstudio)
+
 ### Prerequisites
 
 - macOS 26+, Xcode 26+, Swift 6
