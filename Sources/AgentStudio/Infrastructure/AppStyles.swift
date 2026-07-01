@@ -180,20 +180,22 @@ enum AppStyles {
         enum TabBar {
             static let height: CGFloat = 36
             static let tabPillHeight: CGFloat = 32
+            static let tabPillSpacing: CGFloat = 2
             static let titlebarBackground = NSColor(white: 0.12, alpha: 1.0)
         }
 
         enum Chrome {
-            static let tabBarLeadingInset: CGFloat = 72
+            static let tabBarLeadingInset: CGFloat = 80
             static let tabBarContentLeadingPadding: CGFloat = AppStyles.General.Spacing.loose
             static let tabBarTopInset: CGFloat = 6
-            static let dividerHeight: CGFloat = 18
-            static let dividerHorizontalPadding: CGFloat = AppStyles.General.Spacing.standard
             static let iconClusterSpacing: CGFloat = AppStyles.General.Spacing.standard
+            static let tabStripLeadingPadding: CGFloat = iconClusterSpacing
+            static let dividerHeight: CGFloat = 18
+            static let dividerHorizontalPadding: CGFloat = 12
 
             enum ToolbarButton {
-                static let size: CGFloat = AppStyles.General.Button.compact
-                static let iconSize: CGFloat = AppStyles.General.Icon.compact
+                static let size: CGFloat = 28
+                static let iconSize: CGFloat = 14
                 static let baseFillOpacity: CGFloat = AppStyles.General.Fill.pressed
                 static let hoverFillOpacity: CGFloat = AppStyles.General.Fill.active
                 static let pressedFillOpacity: CGFloat = AppStyles.General.Fill.active

@@ -55,7 +55,7 @@ struct TabBarChromeLayoutPlan: Equatable {
     let isOverflowing: Bool
 
     var showsTrailingControls: Bool {
-        isOverflowing
+        isOverflowing || hasNewTab
     }
 
     var leadingControls: [TabBarChromeControl] {
@@ -93,17 +93,15 @@ struct TabBarChromeLayoutPlan: Equatable {
             .sidebarSurfaces,
             .divider,
             .watchFolder,
-            .divider,
             .managementLayer,
             .arrangement,
-            .divider,
         ]
-        if hasNewTab {
-            controls.append(.newTab)
-        }
         controls.append(.tabStrip)
-        if showsTrailingControls {
-            controls.append(contentsOf: [.divider, .overflowLeft, .overflowRight, .overflowMenu])
+        if isOverflowing {
+            controls.append(contentsOf: [.overflowLeft, .overflowRight, .overflowMenu])
+        }
+        if hasNewTab {
+            controls.append(contentsOf: [.divider, .newTab])
         }
         return controls
     }

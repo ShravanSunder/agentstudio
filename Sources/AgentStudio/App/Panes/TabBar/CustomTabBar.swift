@@ -81,7 +81,7 @@ struct CustomTabBar: View {
     private static let tabMinWidth: CGFloat = 220
 
     /// Spacing between tab pills.
-    private static let tabSpacing: CGFloat = AppStyles.General.Spacing.tight
+    private static let tabSpacing: CGFloat = AppStyles.Shell.TabBar.tabPillSpacing
 
     /// Computed width for each tab pill based on available space.
     private var computedTabWidth: CGFloat {
@@ -116,7 +116,7 @@ struct CustomTabBar: View {
                 ZStack(alignment: .bottom) {
                     ScrollViewReader { proxy in
                         ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: AppStyles.General.Spacing.tight) {
+                            HStack(spacing: AppStyles.Shell.TabBar.tabPillSpacing) {
                                 // Hidden anchor for scroll offset tracking
                                 GeometryReader { innerGeo in
                                     Color.clear.preference(
@@ -218,6 +218,7 @@ struct CustomTabBar: View {
                 }
                 .frame(maxWidth: .infinity)
                 .frame(height: AppStyles.Shell.TabBar.height, alignment: .bottom)
+                .padding(.leading, AppStyles.Shell.Chrome.tabStripLeadingPadding)
                 .background(
                     GeometryReader { geo in
                         let frame = geo.frame(in: .named("tabBar"))
@@ -260,6 +261,7 @@ struct CustomTabBar: View {
             TabBarDivider()
         case .watchFolder:
             WatchFolderTabBarMenu()
+                .padding(.trailing, AppStyles.Shell.Chrome.iconClusterSpacing)
         case .managementLayer:
             TabBarManagementLayerButton()
                 .padding(.trailing, AppStyles.Shell.Chrome.iconClusterSpacing)
@@ -293,7 +295,7 @@ struct CustomTabBar: View {
                 ChromeToolbarButtonLabel(
                     symbolName: "chevron.left",
                     isHovered: isOverflowLeftHovered,
-                    buttonSize: AppStyles.General.Button.compact,
+                    buttonSize: AppStyles.Shell.Chrome.ToolbarButton.size,
                     showsBackground: false
                 )
             }
@@ -307,7 +309,7 @@ struct CustomTabBar: View {
                 ChromeToolbarButtonLabel(
                     symbolName: "chevron.right",
                     isHovered: isOverflowRightHovered,
-                    buttonSize: AppStyles.General.Button.compact,
+                    buttonSize: AppStyles.Shell.Chrome.ToolbarButton.size,
                     showsBackground: false
                 )
             }
@@ -346,7 +348,12 @@ struct CustomTabBar: View {
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .fixedSize()
-        case .sidebarSurfaces, .watchFolder, .managementLayer, .arrangement, .newTab, .tabStrip:
+        case .newTab:
+            if let onAdd {
+                NewTabButton(onAdd: onAdd, onOpenRepoInTab: onOpenRepoInTab)
+                    .padding(.trailing, AppStyles.Shell.Chrome.iconClusterSpacing)
+            }
+        case .sidebarSurfaces, .watchFolder, .managementLayer, .arrangement, .tabStrip:
             EmptyView()
         }
     }
