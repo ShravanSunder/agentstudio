@@ -1,36 +1,26 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, type ReactElement } from 'react';
+import { lazy, Suspense, useCallback, useRef, type ReactElement } from 'react';
 
 import type {
 	WorktreeFileDescriptor,
 	WorktreeFileDescriptorRequest,
 	WorktreeFileDemandStimulus,
-	WorktreeFileProtocolFrame,
-	WorktreeFileSurfaceSourceIdentity,
 } from '../features/worktree-file/models/worktree-file-protocol-models.js';
 import { canFetchWorktreeFileDescriptorContent } from '../features/worktree-file/models/worktree-file-protocol-models.js';
 import {
 	recordBridgeViewerFileOpenReadyTelemetrySample,
-	recordBridgeViewerWorktreeFileTreeTelemetrySample,
 	recordBridgeWorktreeFileVisibleDemandSettledTelemetrySample,
 } from '../foundation/telemetry/bridge-viewer-telemetry-adapter.js';
-import type {
-	WorktreeFileFrameSubscriptionFactory,
-	WorktreeFileSurfaceProvenance,
-} from '../worktree-file-surface/worktree-file-app.js';
 import type { WorktreeFileSurfaceRuntime } from '../worktree-file-surface/worktree-file-surface-runtime.js';
 import type { BridgeFileViewerAppProps } from './bridge-file-viewer-app-props.js';
 import { BridgeFileViewerLazyLoadingFrame } from './bridge-file-viewer-lazy-loading-frame.js';
 import { createBridgeFileViewerRuntime } from './bridge-file-viewer-runtime.js';
 import {
-	applyFramesToRuntime,
 	emptyRenderState,
 	findLatestDescriptorForOpenFile,
 	firstSuccessfulDemandLoadResult,
-	reconcileOpenFileStateWithFrames,
 	visibleFileDemandChangeWithoutDescriptorId,
 	visibleFileDemandSignature,
 	visibleViewportDemandDispatchSatisfied,
-	worktreeTreeWindowRowCount,
 	type BridgeFileViewerDemandDispatchDebugState,
 	type BridgeFileViewerOpenState,
 	type BridgeFileViewerPendingRecentlyUpdatedDescriptorDemand,
@@ -39,8 +29,8 @@ import {
 import { type BridgeFileViewerVisibleFileDemandChange } from './bridge-file-viewer-tree-panel.js';
 import { useBridgeFileViewerActiveModeGate } from './use-bridge-file-viewer-active-mode-gate.js';
 import { useBridgeFileViewerBodyState } from './use-bridge-file-viewer-body-state.js';
+import { useBridgeFileViewerFrameIntakeController } from './use-bridge-file-viewer-frame-intake-controller.js';
 import { useBridgeFileViewerInactiveOpenFileRecovery } from './use-bridge-file-viewer-inactive-open-file-recovery.js';
-import { useBridgeFileViewerInitialSurfaceLoader } from './use-bridge-file-viewer-initial-surface-loader.js';
 import { useBridgeFileViewerRecentlyUpdatedDemand } from './use-bridge-file-viewer-recently-updated-demand.js';
 import { useBridgeFileViewerSelectionEffects } from './use-bridge-file-viewer-selection-effects.js';
 import { useBridgeFileViewerShellModel } from './use-bridge-file-viewer-shell-model.js';
@@ -434,75 +424,24 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 		[dispatchRecentlyUpdatedDescriptorDemand, isActiveRef],
 	);
 
-	const applyIncomingFrames = useCallback(
-		(
-			frames: readonly WorktreeFileProtocolFrame[],
-			surface?: {
-				readonly provenance: WorktreeFileSurfaceProvenance | null;
-				readonly sourceIdentity: WorktreeFileSurfaceSourceIdentity | null;
-			},
-		): BridgeFileViewerRenderState => {
-			const applyStartedAt = performance.now();
-			const nextState = applyFramesToRuntime({
-				currentRenderState: renderStateRef.current,
-				frames,
-				provenance: surface?.provenance ?? null,
-				runtime: runtimeRef.current,
-				sourceIdentity: surface?.sourceIdentity ?? null,
-			});
-			if (props.telemetryRecorder !== undefined) {
-				recordBridgeViewerWorktreeFileTreeTelemetrySample({
-					descriptorCount: nextState.descriptors.length,
-					durationMilliseconds: performance.now() - applyStartedAt,
-					frameCount: frames.length,
-					phase: 'worktree_file_frame_apply',
-					result: 'success',
-					telemetryRecorder: props.telemetryRecorder,
-					traceContext: props.telemetryTraceContext ?? null,
-					treeRowCount: nextState.treeRows.length,
-					treeWindowRowCount: worktreeTreeWindowRowCount(frames),
-				});
-			}
-			renderStateRef.current = nextState;
-			viewerActions.setRenderState(nextState);
-			viewerActions.setOpenFileState((currentOpenFileState) =>
-				reconcileOpenFileStateWithFrames({
-					currentOpenFileState,
-					frames,
-					openFileBodyRef,
-					openFileRequestIdRef,
-				}),
-			);
-			dispatchPendingRecentlyUpdatedDescriptorDemand(nextState);
-			openPendingSelectedDescriptor(nextState);
-			return nextState;
-		},
-		[
-			dispatchPendingRecentlyUpdatedDescriptorDemand,
-			openPendingSelectedDescriptor,
-			openFileBodyRef,
-			props.telemetryRecorder,
-			props.telemetryTraceContext,
-			viewerActions,
-		],
-	);
-	useBridgeFileViewerInitialSurfaceLoader({
-		applyIncomingFrames,
+	useBridgeFileViewerFrameIntakeController({
+		dispatchPendingRecentlyUpdatedDescriptorDemand,
+		initialFrames,
+		loadInitialFrames,
+		loadInitialSurface,
+		openFileBodyRef,
+		openFileRequestIdRef,
+		openPendingSelectedDescriptor,
+		renderStateRef,
+		runtimeRef,
 		setInitialSurfaceLoadState: viewerActions.setInitialSurfaceLoadState,
-		...(initialFrames === undefined ? {} : { initialFrames }),
-		...(loadInitialFrames === undefined ? {} : { loadInitialFrames }),
-		...(loadInitialSurface === undefined ? {} : { loadInitialSurface }),
-		...(waitForBridgeReady === undefined ? {} : { waitForBridgeReady }),
+		setOpenFileState: viewerActions.setOpenFileState,
+		setRenderState: viewerActions.setRenderState,
+		subscribeFrames,
+		telemetryRecorder,
+		telemetryTraceContext,
+		waitForBridgeReady,
 	});
-
-	useEffect((): ReturnType<WorktreeFileFrameSubscriptionFactory> | undefined => {
-		if (subscribeFrames === undefined) {
-			return undefined;
-		}
-		return subscribeFrames((frames) => {
-			applyIncomingFrames(frames);
-		});
-	}, [applyIncomingFrames, subscribeFrames]);
 
 	useBridgeFileViewerSelectionEffects({
 		appliedNavigationCommandIdRef,
