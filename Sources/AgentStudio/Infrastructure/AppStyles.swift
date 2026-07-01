@@ -179,6 +179,7 @@ enum AppStyles {
 
         enum TabBar {
             static let height: CGFloat = 36
+            static let tabPillHeight: CGFloat = 32
             static let titlebarBackground = NSColor(white: 0.12, alpha: 1.0)
         }
 
@@ -186,6 +187,15 @@ enum AppStyles {
             static let tabBarLeadingInset: CGFloat = 72
             static let tabBarContentLeadingPadding: CGFloat = AppStyles.General.Spacing.loose
             static let tabBarTopInset: CGFloat = 6
+
+            enum ToolbarButton {
+                static let iconSize: CGFloat = AppStyles.General.Icon.compact
+                static let baseFillOpacity: CGFloat = AppStyles.General.Fill.muted
+                static let hoverFillOpacity: CGFloat = AppStyles.General.Fill.hover
+                static let selectedFillOpacity: CGFloat = AppStyles.General.Fill.active
+                static let badgeOffsetX: CGFloat = 6
+                static let badgeOffsetY: CGFloat = -5
+            }
         }
 
         enum Titlebar {

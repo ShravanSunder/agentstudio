@@ -42,30 +42,13 @@ private struct SidebarSurfaceTabBarButton: View {
         Button {
             AppCommandDispatcher.shared.dispatch(command)
         } label: {
-            Image(systemName: isSelected ? selectedSymbolName : symbolName)
-                .font(.system(size: AppStyles.General.Icon.compact, weight: .medium))
-                .foregroundStyle(
-                    isSelected
-                        ? Color.accentColor
-                        : (isHovered ? .primary : .secondary)
-                )
-                .frame(width: AppStyles.General.Button.toolbar, height: AppStyles.General.Button.toolbar)
-                .background(
-                    Circle()
-                        .fill(
-                            isSelected
-                                ? Color.accentColor.opacity(AppStyles.General.Fill.active)
-                                : Color.white.opacity(
-                                    isHovered ? AppStyles.General.Fill.pressed : AppStyles.General.Fill.muted)
-                        )
-                )
-                .overlay(alignment: .topTrailing) {
-                    if badgeCount > 0 {
-                        UnreadCountBadge(text: InboxToolbarUnreadBadgeText.text(for: badgeCount))
-                            .offset(x: 6, y: -5)
-                    }
-                }
-                .contentShape(Circle())
+            ChromeToolbarButtonLabel(
+                symbolName: symbolName,
+                selectedSymbolName: selectedSymbolName,
+                isSelected: isSelected,
+                isHovered: isHovered,
+                badgeText: badgeCount > 0 ? InboxToolbarUnreadBadgeText.text(for: badgeCount) : nil
+            )
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
@@ -86,21 +69,10 @@ struct WatchFolderTabBarMenu: View {
                 AppCommandDispatcher.shared.dispatch(.watchFolder)
             }
         } label: {
-            Image(systemName: "folder.badge.plus")
-                .font(.system(size: AppStyles.General.Icon.compact, weight: .medium))
-                .foregroundStyle(isHovered ? .primary : .secondary)
-                .frame(width: AppStyles.General.Button.toolbar, height: AppStyles.General.Button.toolbar)
-                .background(
-                    Circle()
-                        .fill(
-                            Color.white.opacity(
-                                isHovered
-                                    ? AppStyles.General.Fill.pressed
-                                    : AppStyles.General.Fill.muted
-                            )
-                        )
-                )
-                .contentShape(Circle())
+            ChromeToolbarButtonLabel(
+                symbolName: "folder.badge.plus",
+                isHovered: isHovered
+            )
         } primaryAction: {
             AppCommandDispatcher.shared.dispatch(.watchFolder)
         }

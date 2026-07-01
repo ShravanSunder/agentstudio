@@ -99,7 +99,7 @@ struct CustomTabBar: View {
 
     var body: some View {
         GeometryReader { geometry in
-            HStack(spacing: 0) {
+            HStack(alignment: .center, spacing: 0) {
                 // MARK: - Left-side controls (sidebar surfaces, workspace, management, arrangement)
                 HStack(spacing: AppStyles.General.Spacing.standard) {
                     SidebarSurfaceTabBarControls()
@@ -121,9 +121,12 @@ struct CustomTabBar: View {
                     )
                 }
                 .padding(.leading, AppStyles.Shell.Chrome.tabBarContentLeadingPadding)
+                .frame(height: AppStyles.Shell.TabBar.height, alignment: .center)
+
+                TabBarDivider()
 
                 // MARK: - Scroll area with gradient overlays
-                ZStack {
+                ZStack(alignment: .bottom) {
                     ScrollViewReader { proxy in
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: AppStyles.General.Spacing.tight) {
@@ -190,6 +193,7 @@ struct CustomTabBar: View {
                             scrollProxy = proxy
                         }
                     }
+                    .frame(height: AppStyles.Shell.TabBar.tabPillHeight, alignment: .bottom)
 
                     // Left gradient fade
                     if showLeftFade {
@@ -226,6 +230,7 @@ struct CustomTabBar: View {
                     }
                 }
                 .frame(maxWidth: .infinity)
+                .frame(height: AppStyles.Shell.TabBar.height, alignment: .bottom)
                 .background(
                     GeometryReader { geo in
                         Color.clear
@@ -316,6 +321,7 @@ struct CustomTabBar: View {
                     }
                 }
                 .padding(.horizontal, AppStyles.General.Spacing.tight)
+                .frame(height: AppStyles.Shell.TabBar.height, alignment: .center)
             }
             .frame(maxWidth: .infinity)
             .frame(height: AppStyles.Shell.TabBar.height)
@@ -400,21 +406,10 @@ private struct GitHubTabButton: View {
         Button {
             onOpenGitHub()
         } label: {
-            Image(systemName: "globe")
-                .font(.system(size: AppStyles.General.Icon.compact, weight: .medium))
-                .foregroundStyle(isHovered ? .primary : .secondary)
-                .frame(width: AppStyles.General.Button.toolbar, height: AppStyles.General.Button.toolbar)
-                .background(
-                    Circle()
-                        .fill(
-                            Color.white.opacity(
-                                isHovered
-                                    ? AppStyles.General.Fill.pressed
-                                    : AppStyles.General.Fill.muted
-                            )
-                        )
-                )
-                .contentShape(Circle())
+            ChromeToolbarButtonLabel(
+                symbolName: "globe",
+                isHovered: isHovered
+            )
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
@@ -585,28 +580,12 @@ private struct TabBarManagementLayerButton: View {
         Button {
             atom(\.managementLayer).toggle()
         } label: {
-            Image(
-                systemName: isManagementLayerActive
-                    ? "rectangle.split.2x2.fill"
-                    : "rectangle.split.2x2"
+            ChromeToolbarButtonLabel(
+                symbolName: "rectangle.split.2x2",
+                selectedSymbolName: "rectangle.split.2x2.fill",
+                isSelected: isManagementLayerActive,
+                isHovered: isHovered
             )
-            .font(.system(size: AppStyles.General.Icon.compact, weight: .medium))
-            .foregroundStyle(
-                isManagementLayerActive
-                    ? Color.accentColor
-                    : (isHovered ? .primary : .secondary)
-            )
-            .frame(width: AppStyles.General.Button.toolbar, height: AppStyles.General.Button.toolbar)
-            .background(
-                Circle()
-                    .fill(
-                        isManagementLayerActive
-                            ? Color.accentColor.opacity(AppStyles.General.Fill.active)
-                            : Color.white.opacity(
-                                isHovered ? AppStyles.General.Fill.pressed : AppStyles.General.Fill.muted)
-                    )
-            )
-            .contentShape(Circle())
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
@@ -631,21 +610,10 @@ private struct NewTabButton: View {
                 }
             }
         } label: {
-            Image(systemName: "plus")
-                .font(.system(size: AppStyles.General.Icon.compact, weight: .medium))
-                .foregroundStyle(isHovered ? .primary : .secondary)
-                .frame(width: AppStyles.General.Button.toolbar, height: AppStyles.General.Button.toolbar)
-                .background(
-                    Circle()
-                        .fill(
-                            Color.white.opacity(
-                                isHovered
-                                    ? AppStyles.General.Fill.pressed
-                                    : AppStyles.General.Fill.muted
-                            )
-                        )
-                )
-                .contentShape(Circle())
+            ChromeToolbarButtonLabel(
+                symbolName: "plus",
+                isHovered: isHovered
+            )
         } primaryAction: {
             onAdd()
         }
@@ -826,7 +794,7 @@ struct TabPillView: View {
         }
         .padding(.horizontal, AppStyles.General.Spacing.standard)
         .padding(.vertical, AppStyles.General.Spacing.standard)
-        .frame(width: tabWidth)
+        .frame(width: tabWidth, height: AppStyles.Shell.TabBar.tabPillHeight)
         .background(
             RoundedRectangle(cornerRadius: AppStyles.General.CornerRadius.pill)
                 .fill(backgroundColor)
