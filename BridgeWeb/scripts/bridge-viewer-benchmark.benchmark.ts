@@ -19,7 +19,7 @@ import {
 	makeBridgeViewerBenchmarkWorkload,
 	type BridgeViewerBenchmarkWorkload,
 } from '../src/review-viewer/test-support/bridge-viewer-benchmark-workloads.js';
-import { prepareBridgePresortedTreeInput } from '../src/review-viewer/trees/bridge-trees-controller.js';
+import { prepareBridgeTreeInput } from '../src/review-viewer/trees/bridge-trees-controller.js';
 import { buildBridgeMarkdownRenderWorkerSuccessResponse } from '../src/review-viewer/workers/markdown/bridge-markdown-render-worker-renderer.js';
 import type { BridgeMarkdownRenderWorkerRequest } from '../src/review-viewer/workers/markdown/bridge-markdown-render-worker-rpc.js';
 
@@ -192,7 +192,7 @@ function runLargeTreeIteration(
 	workload: BridgeViewerBenchmarkWorkload,
 ): Readonly<Record<string, number>> {
 	const prepareStart = performance.now();
-	const preparedInput = prepareBridgePresortedTreeInput(workload.treePaths);
+	const preparedInput = prepareBridgeTreeInput(workload.treePaths);
 	const prepareInputMilliseconds = elapsedSince(prepareStart);
 
 	const projectionInputStart = performance.now();

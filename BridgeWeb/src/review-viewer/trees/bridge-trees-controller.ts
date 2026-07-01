@@ -1,6 +1,5 @@
 import {
 	prepareFileTreeInput,
-	preparePresortedFileTreeInput,
 	type FileTreeBatchOperation,
 	type FileTreeDirectoryHandle,
 	type FileTreeItemHandle,
@@ -73,8 +72,7 @@ export function createBridgeTreesSource(props: CreateBridgeTreesSourceProps): Br
 	});
 	const sourcePaths =
 		treeRowsSource === null ? props.projection.orderedPaths : treeRowsSource.orderedPaths;
-	const preparedInput =
-		treeRowsSource === null ? prepareBridgeTreeInput(sourcePaths) : prepareBridgePresortedTreeInput(sourcePaths);
+	const preparedInput = prepareBridgeTreeInput(sourcePaths);
 	const treePaths = preparedInput.paths;
 	const gitStatusEntries = createGitStatusEntries({
 		reviewPackage: props.reviewPackage,
@@ -146,10 +144,6 @@ function bridgeTreePathForReviewRow(row: ReviewTreeRowMetadata): string {
 
 export function prepareBridgeTreeInput(paths: readonly string[]): FileTreePreparedInput {
 	return prepareFileTreeInput(paths);
-}
-
-export function prepareBridgePresortedTreeInput(paths: readonly string[]): FileTreePreparedInput {
-	return preparePresortedFileTreeInput(paths);
 }
 
 export function planBridgeTreesUpdate(props: PlanBridgeTreesUpdateProps): BridgeTreesUpdatePlan {
@@ -333,7 +327,11 @@ function expandAncestorDirectories(props: {
 			path: ancestorPath,
 		});
 		if (isFileTreeDirectoryHandle(item) && !item.isExpanded()) {
-			item.expand();
+			try {
+				item.expand();
+			} catch {
+				continue;
+			}
 		}
 	}
 }

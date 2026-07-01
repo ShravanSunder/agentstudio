@@ -241,7 +241,7 @@ describe('Bridge Trees controller', () => {
 		});
 	});
 
-	test('treats streamed review tree row order as authoritative for metadata windows', () => {
+	test('canonicalizes streamed review tree rows before planning tree updates', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const projection = buildBridgeReviewProjection({
 			reviewPackage,
@@ -299,14 +299,12 @@ describe('Bridge Trees controller', () => {
 
 		expect(previousSource.orderedPaths).toEqual(['middle/File.swift', 'z-last/File.swift']);
 		expect(nextSource.orderedPaths).toEqual([
+			'a-late/File.swift',
 			'middle/File.swift',
 			'z-last/File.swift',
-			'a-late/File.swift',
 		]);
 		expect(planBridgeTreesUpdate({ previous: previousSource, next: nextSource })).toEqual({
-			kind: 'appendOnly',
-			addedPaths: ['a-late/File.swift'],
-			shouldUpdateGitStatus: false,
+			kind: 'reset',
 		});
 	});
 
@@ -451,6 +449,37 @@ describe('Bridge Trees controller', () => {
 		expect(nestedDirectory.expand).toHaveBeenCalledTimes(1);
 		expect(model.scrollToPathCalls).toEqual([
 			{ path: 'src/deep/nested/file.ts', options: undefined },
+		]);
+	});
+
+	test('reveals a tree path without throwing on stale ancestor expansion handles', () => {
+		const model = new RecordingTreesModel();
+		const controller = new BridgeTreesController({ model });
+		const source = makeSource({
+			orderedPaths: ['src/stale/file.ts'],
+			gitStatusEntries: [{ path: 'src/stale/file.ts', status: 'modified' }],
+			primaryItemIdByTreePath: {
+				'src/stale/file.ts': 'stale-file',
+			},
+		});
+		model.addDirectory('src', false);
+		model.itemByPath.set(
+			'src/stale',
+			makeDirectoryHandle({
+				expand: (): void => {
+					throw new Error('stale directory handle');
+				},
+				isExpanded: false,
+			}),
+		);
+
+		controller.applySource(source);
+
+		expect((): void => {
+			controller.revealTreePath('src/stale/file.ts');
+		}).not.toThrow();
+		expect(model.scrollToPathCalls).toEqual([
+			{ path: 'src/stale/file.ts', options: undefined },
 		]);
 	});
 
@@ -667,7 +696,10 @@ class RecordingTreesModel implements BridgeTreesModel {
 	}
 }
 
-function makeDirectoryHandle(props: { readonly isExpanded: boolean }): {
+function makeDirectoryHandle(props: {
+	readonly expand?: () => void;
+	readonly isExpanded: boolean;
+}): {
 	readonly collapse: ReturnType<typeof vi.fn>;
 	readonly deselect: ReturnType<typeof vi.fn>;
 	readonly expand: ReturnType<typeof vi.fn>;
@@ -687,9 +719,9 @@ function makeDirectoryHandle(props: { readonly isExpanded: boolean }): {
 			expanded = false;
 		}),
 		deselect: vi.fn(),
-		expand: vi.fn((): void => {
+		expand: vi.fn(props.expand ?? ((): void => {
 			expanded = true;
-		}),
+		})),
 		focus: vi.fn(),
 		getPath: vi.fn((): string => ''),
 		isDirectory: (): true => true,
