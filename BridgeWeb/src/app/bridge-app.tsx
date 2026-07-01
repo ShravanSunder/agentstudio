@@ -847,6 +847,9 @@ function BridgeReviewViewerMode(
 		error: null,
 		epoch: 0,
 	});
+	const [activatedReviewViewerShellKey, setActivatedReviewViewerShellKey] = useState<string | null>(
+		null,
+	);
 	const [selectedContentResourcesState, setSelectedContentResourcesState] =
 		useState<SelectedContentResourcesState | null>(null);
 	const selectedContentResourcesStateRef = useRef<SelectedContentResourcesState | null>(null);
@@ -2129,6 +2132,24 @@ function BridgeReviewViewerMode(
 	const visibleReadyItemCountForCodeView = visibleContentHydrationPaused
 		? 0
 		: visibleContentHydration.visibleReadyItemCount;
+	const reviewViewerShellKey =
+		reviewPackage === null
+			? null
+			: `${reviewPackage.packageId}:${reviewPackage.reviewGeneration}:${reviewPackage.revision}`;
+	const isReviewViewerShellReady =
+		reviewPackage !== null && rootSnapshot.projectionStatus !== 'failed' && projection !== null;
+	const shouldRenderReviewViewerShell =
+		isReviewViewerShellReady &&
+		(props.isActive || activatedReviewViewerShellKey === reviewViewerShellKey);
+	useEffect((): void => {
+		if (reviewViewerShellKey === null) {
+			setActivatedReviewViewerShellKey(null);
+			return;
+		}
+		if (props.isActive && isReviewViewerShellReady) {
+			setActivatedReviewViewerShellKey(reviewViewerShellKey);
+		}
+	}, [isReviewViewerShellReady, props.isActive, reviewViewerShellKey]);
 
 	return reviewPackage === null && diffStatus.status === 'loading' ? (
 		<BridgeReviewMetadataLoadingShell viewerHeaderControls={props.viewerHeaderControls} />
@@ -2142,6 +2163,8 @@ function BridgeReviewViewerMode(
 	) : rootSnapshot.projectionStatus === 'failed' ? (
 		<BridgeReviewProjectionFailedShell viewerHeaderControls={props.viewerHeaderControls} />
 	) : projection === null ? (
+		<BridgeReviewProjectionPendingShell viewerHeaderControls={props.viewerHeaderControls} />
+	) : !shouldRenderReviewViewerShell ? (
 		<BridgeReviewProjectionPendingShell viewerHeaderControls={props.viewerHeaderControls} />
 	) : (
 		<Suspense
