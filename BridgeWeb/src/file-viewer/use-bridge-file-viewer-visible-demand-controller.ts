@@ -5,6 +5,7 @@ import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-tel
 import type { BridgeTraceContext } from '../foundation/telemetry/bridge-trace-context.js';
 import { recordBridgeWorktreeFileVisibleDemandSettledTelemetrySample } from '../foundation/telemetry/bridge-viewer-telemetry-adapter.js';
 import type { WorktreeFileSurfaceRuntime } from '../worktree-file-surface/worktree-file-surface-runtime.js';
+import type { BridgeFileViewerVisibleFileDemandChange } from './bridge-file-viewer-contracts.js';
 import {
 	firstSuccessfulDemandLoadResult,
 	visibleFileDemandChangeWithoutDescriptorId,
@@ -12,7 +13,6 @@ import {
 	visibleViewportDemandDispatchSatisfied,
 	type BridgeFileViewerDemandDispatchDebugState,
 } from './bridge-file-viewer-state.js';
-import type { BridgeFileViewerVisibleFileDemandChange } from './bridge-file-viewer-tree-panel.js';
 
 interface UseBridgeFileViewerVisibleDemandControllerProps {
 	readonly activeVisibleDemandSignatureRef: MutableRefObject<string | null>;

@@ -25,7 +25,7 @@ import type {
 	BridgeFileViewerFilterMode,
 	BridgeFileViewerSearchMode,
 	BridgeFileViewerVisibleFileDemandChange,
-} from './bridge-file-viewer-tree-panel.js';
+} from './bridge-file-viewer-contracts.js';
 
 export interface BridgeFileViewerRenderState {
 	readonly descriptors: readonly WorktreeFileDescriptor[];

@@ -40,21 +40,12 @@ import { countFlattenedWorktreeFileTreeRows } from '../features/worktree-file/mo
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import type { BridgeTraceContext } from '../foundation/telemetry/bridge-trace-context.js';
 import { recordBridgeTreeScrollVisibleDemandTelemetrySample } from '../foundation/telemetry/bridge-viewer-telemetry-adapter.js';
-
-export type BridgeFileViewerFilterMode = 'all' | 'fetchable' | 'unavailable';
-export type BridgeFileViewerSearchMode = 'text' | 'regex';
-
-export interface BridgeFileViewerDescriptorProjection {
-	readonly descriptors: readonly WorktreeFileDescriptor[];
-	readonly paths: readonly string[];
-	readonly searchError: string | null;
-	readonly treeRows: readonly WorktreeTreeRowMetadata[];
-}
-
-export interface BridgeFileViewerVisibleFileDemandChange {
-	readonly descriptorRefs: readonly BridgeDescriptorRef[];
-	readonly visibleFileCount: number;
-}
+import type {
+	BridgeFileViewerDescriptorProjection,
+	BridgeFileViewerFilterMode,
+	BridgeFileViewerSearchMode,
+	BridgeFileViewerVisibleFileDemandChange,
+} from './bridge-file-viewer-contracts.js';
 
 export interface BridgeFileViewerTreePanelProps {
 	readonly descriptorProjection: BridgeFileViewerDescriptorProjection;

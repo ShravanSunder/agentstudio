@@ -2,6 +2,10 @@ import { subscribeWithSelector } from 'zustand/middleware';
 import { createStore, type Mutate, type StoreApi } from 'zustand/vanilla';
 
 import type { WorktreeFileSurfaceLoadTelemetry } from '../../worktree-file-surface/worktree-file-surface-runtime.js';
+import type {
+	BridgeFileViewerFilterMode,
+	BridgeFileViewerSearchMode,
+} from '../bridge-file-viewer-contracts.js';
 import {
 	emptyRenderState,
 	type BridgeFileViewerDemandDispatchDebugState,
@@ -10,10 +14,6 @@ import {
 	type BridgeFileViewerRefreshDebugState,
 	type BridgeFileViewerRenderState,
 } from '../bridge-file-viewer-state.js';
-import type {
-	BridgeFileViewerFilterMode,
-	BridgeFileViewerSearchMode,
-} from '../bridge-file-viewer-tree-panel.js';
 
 export interface BridgeFileViewerRootSnapshot {
 	readonly searchText: string;

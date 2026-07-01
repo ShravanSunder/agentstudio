@@ -11,6 +11,12 @@ import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-tel
 import type { BridgeTraceContext } from '../foundation/telemetry/bridge-trace-context.js';
 import type { WorktreeFileSurfaceLoadTelemetry } from '../worktree-file-surface/worktree-file-surface-runtime.js';
 import { BridgeFileViewerCodePanel } from './bridge-file-viewer-code-panel.js';
+import type {
+	BridgeFileViewerDescriptorProjection,
+	BridgeFileViewerFilterMode,
+	BridgeFileViewerSearchMode,
+	BridgeFileViewerVisibleFileDemandChange,
+} from './bridge-file-viewer-contracts.js';
 import {
 	firstSuccessfulDemandLoadResult,
 	worktreeFileDemandFailedCountByLane,
@@ -22,13 +28,7 @@ import {
 	type BridgeFileViewerRenderState,
 	type BridgeFileViewerRenderedOpenFileContent,
 } from './bridge-file-viewer-state.js';
-import {
-	BridgeFileViewerTreePanel,
-	type BridgeFileViewerDescriptorProjection,
-	type BridgeFileViewerFilterMode,
-	type BridgeFileViewerSearchMode,
-	type BridgeFileViewerVisibleFileDemandChange,
-} from './bridge-file-viewer-tree-panel.js';
+import { BridgeFileViewerTreePanel } from './bridge-file-viewer-tree-panel.js';
 
 interface BridgeFileViewerShellProps {
 	readonly canRefreshOpenFile: boolean;

@@ -5,6 +5,11 @@ import { countFlattenedWorktreeFileTreeRows } from '../features/worktree-file/mo
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import type { BridgeTraceContext } from '../foundation/telemetry/bridge-trace-context.js';
 import { recordBridgeViewerWorktreeFileTreeTelemetrySample } from '../foundation/telemetry/bridge-viewer-telemetry-adapter.js';
+import type {
+	BridgeFileViewerDescriptorProjection,
+	BridgeFileViewerFilterMode,
+	BridgeFileViewerSearchMode,
+} from './bridge-file-viewer-contracts.js';
 import {
 	bridgeFileViewerHeaderTitle,
 	findLatestDescriptorForOpenFile,
@@ -16,11 +21,6 @@ import {
 	type BridgeFileViewerRenderedOpenFileContent,
 	type BridgeFileViewerRenderState,
 } from './bridge-file-viewer-state.js';
-import type {
-	BridgeFileViewerDescriptorProjection,
-	BridgeFileViewerFilterMode,
-	BridgeFileViewerSearchMode,
-} from './bridge-file-viewer-tree-panel.js';
 
 interface UseBridgeFileViewerShellModelProps {
 	readonly filterMode: BridgeFileViewerFilterMode;

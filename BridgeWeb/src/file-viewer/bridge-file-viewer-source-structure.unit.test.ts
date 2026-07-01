@@ -59,6 +59,25 @@ describe('Bridge file viewer source structure', () => {
 		}
 	});
 
+	test('keeps file viewer controller hooks independent from visual adapter modules', () => {
+		const controllerHookUrls = [
+			'./use-bridge-file-viewer-content-controller.ts',
+			'./use-bridge-file-viewer-frame-intake-controller.ts',
+			'./use-bridge-file-viewer-visible-demand-controller.ts',
+			'./use-bridge-file-viewer-shell-model.ts',
+			'./use-bridge-file-viewer-store-bindings.ts',
+		];
+
+		for (const controllerHookUrl of controllerHookUrls) {
+			const source = readFileSync(
+				fileURLToPath(new URL(controllerHookUrl, import.meta.url)),
+				'utf8',
+			);
+			expect(source, controllerHookUrl).not.toContain('bridge-file-viewer-tree-panel');
+			expect(source, controllerHookUrl).not.toContain('bridge-file-viewer-code-panel');
+		}
+	});
+
 	test('keeps the file viewer shell as a composition-only surface', () => {
 		const shellSource = readFileSync(
 			fileURLToPath(new URL('./bridge-file-viewer-shell.tsx', import.meta.url)),
