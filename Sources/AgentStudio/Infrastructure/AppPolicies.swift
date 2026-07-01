@@ -16,6 +16,11 @@ enum AppPolicies {
         /// gate graduates it; proof asserts observed windows equal this
         /// constant rather than a literal.
         static let worktreeFileTreeMetadataWindowRowLimit: Int = 200
+        /// Idle no-starvation budget for the metadata lane scheduler: after
+        /// this many higher-lane jobs drain while idle work waits, the next
+        /// dispatch is one idle batch. Provisional until the OD4 profiling
+        /// gate graduates it.
+        static let metadataIdleNoStarvationBudget: Int = 4
     }
 
     enum WorkspacePersistence {
