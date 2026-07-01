@@ -1,0 +1,888 @@
+import type { MutableRefObject, ReactElement } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useStore } from 'zustand';
+
+import type { BridgePageHandshakeSession } from '../bridge/bridge-page-handshake.js';
+import { createBridgeRPCClient } from '../bridge/bridge-rpc-client.js';
+import type { BridgeDemandScheduler } from '../core/demand/bridge-demand-scheduler.js';
+import type { BridgeDescriptorRef } from '../core/models/bridge-resource-descriptor.js';
+import type { ReviewTreeRowMetadata } from '../features/review/models/review-protocol-models.js';
+import type { BridgeContentFetch } from '../foundation/content/content-resource-loader.js';
+import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
+import type {
+	BridgeTelemetryFlushProps,
+	BridgeTelemetryRecorder,
+} from '../foundation/telemetry/bridge-telemetry-recorder.js';
+import type { BridgeTraceContext } from '../foundation/telemetry/bridge-trace-context.js';
+import type { BridgeCodeViewContentResources } from '../review-viewer/code-view/bridge-code-view-materialization.js';
+import type { BridgeCodeViewControlHandle } from '../review-viewer/code-view/bridge-code-view-panel.js';
+import {
+	loadReviewItemContentResourcesThroughDemandResult,
+	type ReviewContentDemandTelemetry,
+} from '../review-viewer/content/review-content-demand-loader.js';
+import type { LoadReviewItemContentResourcesProps } from '../review-viewer/content/review-content-loader.js';
+import {
+	type VisibleReviewContentLoadResult,
+	useVisibleReviewContentHydration,
+} from '../review-viewer/content/visible-review-content-hydration.js';
+import { useBridgeReviewProjectionCoordinator } from '../review-viewer/projections/use-review-projection-coordinator.js';
+import { selectBridgeReviewViewerRootSnapshot } from '../review-viewer/state/review-viewer-store.js';
+import { createBridgeMarkdownRenderWebWorkerClient } from '../review-viewer/workers/markdown/bridge-markdown-render-worker-transport.js';
+import type { BridgeReviewProjectionWorkerClient } from '../review-viewer/workers/projection/review-projection-worker-client.js';
+import { createBridgeReviewProjectionWebWorkerClient } from '../review-viewer/workers/projection/review-projection-worker-transport.js';
+import {
+	applyBridgeAppControlCommand,
+	makeBridgeAppControlProbe,
+	nextBridgeAppControlProbeSequence,
+	publishBridgeAppControlProbe,
+} from './bridge-app-control-commands.js';
+import { bridgeAppControlCommandSchema } from './bridge-app-control.js';
+import type { BridgeDiffStatusState } from './bridge-app-review-controller.js';
+import {
+	cancelReviewItemDemand,
+	reviewItemDemandCancellationTargetForSelectionChange,
+} from './bridge-app-review-descriptors.js';
+import {
+	readBridgeReviewFrameAuthority,
+	refreshBridgeReviewFrameAuthority,
+	type BridgeReviewFrameAuthority,
+} from './bridge-app-review-frame-authority.js';
+import { useBridgeReviewIntakeController } from './bridge-app-review-intake-controller.js';
+import { useBridgeReviewMarkdownPreviewController } from './bridge-app-review-markdown-preview-controller.js';
+import { useBridgeReviewMetadataInterestRuntime } from './bridge-app-review-metadata-interest-runtime.js';
+import {
+	createBridgeReviewDemandScheduler,
+	emptyVisibleContentResourcesByItemId,
+	emptyVisibleLoadingItemIds,
+	useBridgeResourceDescriptorRegistry,
+	useBridgeReviewContentRegistry,
+	useBridgeReviewResourceExecutor,
+	useBridgeReviewViewerStore,
+} from './bridge-app-review-runtime.js';
+import { useSelectedReviewContentDemandController } from './bridge-app-review-selected-content-controller.js';
+import {
+	clearReviewRefinementsHidingExplicitTarget,
+	itemIdForReviewFileNavigationTarget,
+	makeSelectedContentResourcesKey,
+	reviewContentDemandTelemetryForPackage,
+	reviewFileTargetForNavigationCommand,
+	scheduleSelectedContentRetry,
+	selectedCanvasLoadingReasonForCurrentSelection,
+	selectedContentResourcesForCurrentSelection,
+	selectedContentUnavailablePathForCurrentSelection,
+	selectedItemPresentationForReviewFileTarget,
+	shouldPauseVisibleReviewContentHydration,
+	shouldRetrySelectedReviewContentAfterDescriptorRegistration,
+	type BridgeReviewFileNavigationTarget,
+	type SelectedMarkdownPreviewState,
+} from './bridge-app-review-selection-state.js';
+import { useBridgeReviewRenderTelemetryController } from './bridge-app-review-telemetry-controller.js';
+import {
+	createChildTraceContext,
+	makeTelemetryMarkedItemKey,
+	makeTelemetryPackageKey,
+	recordReviewStartupTelemetry,
+	type BridgeReviewPackageTelemetryContext,
+	type PendingReviewSelectionCommitTelemetry,
+} from './bridge-app-review-telemetry.js';
+import { BridgeReviewViewerShellBoundary } from './bridge-app-review-viewer-shell-boundary.js';
+import type { BridgeAppProps } from './bridge-app.js';
+import type { BridgeViewerNavigationCommand } from './bridge-viewer-navigation-models.js';
+
+export function BridgeReviewViewerMode(
+	props: BridgeAppProps & {
+		readonly handshakeSessionRef: MutableRefObject<BridgePageHandshakeSession | null>;
+		readonly isActive: boolean;
+		readonly registerBridgeReadyCallback: (callback: () => void) => () => void;
+		readonly telemetryRecorderRef: MutableRefObject<BridgeTelemetryRecorder>;
+		readonly viewerHeaderControls: ReactElement;
+	},
+): ReactElement {
+	const target = props.target ?? document;
+	const reviewFrameAuthorityRef = useRef<BridgeReviewFrameAuthority | null>(
+		readBridgeReviewFrameAuthority(),
+	);
+	const getReviewFrameAuthority = useCallback(
+		(): BridgeReviewFrameAuthority | null =>
+			refreshBridgeReviewFrameAuthority(reviewFrameAuthorityRef),
+		[],
+	);
+	const viewerStore = useBridgeReviewViewerStore();
+	const contentRegistry = useBridgeReviewContentRegistry();
+	const descriptorRegistry = useBridgeResourceDescriptorRegistry();
+	const reviewContentDescriptorRefsByHandleIdRef = useRef<ReadonlyMap<string, BridgeDescriptorRef>>(
+		new Map<string, BridgeDescriptorRef>(),
+	);
+	const invalidatedReviewFreshnessKeysRef = useRef<Set<string>>(new Set<string>());
+	const reviewDemandSchedulerRef = useRef<BridgeDemandScheduler | null>(null);
+	if (reviewDemandSchedulerRef.current === null) {
+		reviewDemandSchedulerRef.current = createBridgeReviewDemandScheduler();
+	}
+	const reviewDemandScheduler = reviewDemandSchedulerRef.current;
+	const reviewEnvelopeApplyTailRef = useRef<Promise<void>>(Promise.resolve());
+	const fetchContentRef = useRef<BridgeContentFetch | undefined>(props.fetchContent);
+	fetchContentRef.current = props.fetchContent;
+	const resourceExecutor = useBridgeReviewResourceExecutor({
+		descriptorRegistry,
+		descriptorRefsByDescriptorIdRef: reviewContentDescriptorRefsByHandleIdRef,
+		fetchContentRef,
+		invalidatedFreshnessKeysRef: invalidatedReviewFreshnessKeysRef,
+	});
+	const projection = useStore(viewerStore, (state) => state.projection);
+	const rootSnapshot = useStore(viewerStore, selectBridgeReviewViewerRootSnapshot);
+	const viewerActions = useStore(viewerStore, (state) => state.actions);
+	const setReviewRenderModeCodeView = useCallback((): void => {
+		if (viewerStore.getState().rootSnapshot.renderMode.kind === 'codeView') {
+			return;
+		}
+		viewerActions.setRenderMode({ kind: 'codeView' });
+	}, [viewerActions, viewerStore]);
+	const [reviewPackage, setReviewPackage] = useState<BridgeReviewPackage | null>(null);
+	const [reviewTreeRows, setReviewTreeRows] = useState<readonly ReviewTreeRowMetadata[]>([]);
+	const [diffStatus, setDiffStatus] = useState<BridgeDiffStatusState>({
+		status: 'idle',
+		error: null,
+		epoch: 0,
+	});
+	const [reviewContentInvalidationVersion, setReviewContentInvalidationVersion] = useState(0);
+	const [lastVisibleDemandTelemetry, setLastVisibleDemandTelemetry] =
+		useState<ReviewContentDemandTelemetry | null>(null);
+	const [selectedMarkdownPreviewState, setSelectedMarkdownPreviewState] =
+		useState<SelectedMarkdownPreviewState | null>(null);
+	const [selectedReviewFileTarget, setSelectedReviewFileTarget] =
+		useState<BridgeReviewFileNavigationTarget | null>(null);
+	const [lastSelectionCommitDurationMilliseconds, setLastSelectionCommitDurationMilliseconds] =
+		useState<number | null>(null);
+	const selectedMarkdownPreviewStateRef = useRef<SelectedMarkdownPreviewState | null>(null);
+	selectedMarkdownPreviewStateRef.current = selectedMarkdownPreviewState;
+	const [isTreeSearchOpen, setIsTreeSearchOpen] = useState(false);
+	const telemetryRecorderRef = props.telemetryRecorderRef;
+	const bridgeHandshakeSessionRef = props.handshakeSessionRef;
+	const registerBridgeReadyCallback = props.registerBridgeReadyCallback;
+	const currentReviewPackageTelemetryContextRef =
+		useRef<BridgeReviewPackageTelemetryContext | null>(null);
+	const {
+		cancelForegroundSelectionRelease,
+		foregroundSelectedContentKey,
+		lastSelectedDemandTelemetry,
+		lastSelectedDemandTelemetryRef,
+		selectedContentAbortControllerRef,
+		selectedContentActiveLoadKeyRef,
+		selectedContentResourcesState,
+		selectedContentResourcesStateRef,
+		selectedContentRetryScheduledRef,
+		selectedContentRetryVersion,
+		setForegroundSelectedContentKey,
+		setLastSelectedDemandTelemetry,
+		setSelectedContentRetryVersion,
+		setSelectedContentResourcesState,
+		startSelectedReviewContentDemand,
+	} = useSelectedReviewContentDemandController({
+		currentReviewPackageTelemetryContextRef,
+		reviewContentDescriptorRefsByHandleIdRef,
+		resourceExecutor,
+		reviewDemandScheduler,
+		telemetryRecorderRef,
+	});
+	const reviewPackageTelemetryContextRef = useRef<Map<string, BridgeReviewPackageTelemetryContext>>(
+		new Map(),
+	);
+	const lastTelemetryMarkedItemRef = useRef<string | null>(null);
+	const reviewReadyStartMillisecondsByPackageKeyRef = useRef<Map<string, number>>(new Map());
+	const pendingSelectionCommitTelemetryRef = useRef<PendingReviewSelectionCommitTelemetry | null>(
+		null,
+	);
+	const codeViewControlHandleRef = useRef<BridgeCodeViewControlHandle | null>(null);
+	const reviewPackageRef = useRef<BridgeReviewPackage | null>(null);
+	reviewPackageRef.current = reviewPackage;
+	const projectionRef = useRef(projection);
+	projectionRef.current = projection;
+	const rootSnapshotRef = useRef(rootSnapshot);
+	rootSnapshotRef.current = rootSnapshot;
+	const [isCodeViewScrollActive, setIsCodeViewScrollActive] = useState(false);
+	const controlProbeSequenceRef = useRef(0);
+	const rpcClient = useMemo(
+		() =>
+			createBridgeRPCClient({
+				target,
+				getTraceContext: (): BridgeTraceContext | null =>
+					telemetryRecorderRef.current.isEnabled('web')
+						? createChildTraceContext(
+								currentReviewPackageTelemetryContextRef.current?.traceContext ?? null,
+							)
+						: null,
+				telemetryRecorder: {
+					isEnabled: (scope) => telemetryRecorderRef.current.isEnabled(scope),
+					record: (sample) => telemetryRecorderRef.current.record(sample),
+					measure: (measureProps) => telemetryRecorderRef.current.measure(measureProps),
+					flush: (flushProps) => telemetryRecorderRef.current.flush(flushProps),
+				},
+			}),
+		[target, telemetryRecorderRef],
+	);
+	const projectionWorkerClient = useMemo(
+		(): BridgeReviewProjectionWorkerClient | null =>
+			props.projectionWorkerClient === undefined
+				? createBridgeReviewProjectionWebWorkerClient()
+				: props.projectionWorkerClient,
+		[props.projectionWorkerClient],
+	);
+	const defaultMarkdownWorkerClient = useMemo(
+		() => createBridgeMarkdownRenderWebWorkerClient(),
+		[],
+	);
+	const markdownWorkerClient =
+		props.markdownWorkerClient === undefined
+			? defaultMarkdownWorkerClient
+			: props.markdownWorkerClient;
+	const selectedContentResources = useMemo(
+		(): BridgeCodeViewContentResources | null =>
+			selectedContentResourcesForCurrentSelection({
+				reviewPackage,
+				selectedItemId: rootSnapshot.selectedItemId,
+				selectedContentResourcesState,
+			}),
+		[reviewPackage, rootSnapshot.selectedItemId, selectedContentResourcesState],
+	);
+	const currentSelectedContentKey =
+		reviewPackage === null || rootSnapshot.selectedItemId === null
+			? null
+			: makeSelectedContentResourcesKey(reviewPackage, rootSnapshot.selectedItemId);
+	const initialReviewFileTarget = useMemo(
+		() => reviewFileTargetForNavigationCommand(props.navigationCommand),
+		[props.navigationCommand],
+	);
+	const selectedItemPresentation = useMemo(
+		() =>
+			selectedItemPresentationForReviewFileTarget({
+				reviewPackage,
+				selectedItemId: rootSnapshot.selectedItemId,
+				target: selectedReviewFileTarget ?? initialReviewFileTarget,
+			}),
+		[initialReviewFileTarget, reviewPackage, rootSnapshot.selectedItemId, selectedReviewFileTarget],
+	);
+	useEffect((): void => {
+		setLastSelectedDemandTelemetry((currentTelemetry) =>
+			reviewContentDemandTelemetryForPackage({
+				reviewPackage,
+				telemetry: currentTelemetry,
+			}),
+		);
+		setLastVisibleDemandTelemetry((currentTelemetry) =>
+			reviewContentDemandTelemetryForPackage({
+				reviewPackage,
+				telemetry: currentTelemetry,
+			}),
+		);
+	}, [reviewPackage, setLastSelectedDemandTelemetry]);
+	const lastSelectedDemandTelemetryForCurrentPackage = reviewContentDemandTelemetryForPackage({
+		reviewPackage,
+		telemetry: lastSelectedDemandTelemetry,
+	});
+	const lastVisibleDemandTelemetryForCurrentPackage = reviewContentDemandTelemetryForPackage({
+		reviewPackage,
+		telemetry: lastVisibleDemandTelemetry,
+	});
+	const visibleContentHydrationPaused = shouldPauseVisibleReviewContentHydration({
+		isActive: props.isActive,
+		codeViewScrollActive: isCodeViewScrollActive,
+		currentSelectedContentKey,
+		foregroundSelectedContentKey,
+		selectedContentResourcesState,
+	});
+	const loadVisibleContentResourcesThroughDemand = useCallback(
+		async (
+			loadProps: LoadReviewItemContentResourcesProps,
+		): Promise<VisibleReviewContentLoadResult> =>
+			loadReviewItemContentResourcesThroughDemandResult({
+				reviewPackage: loadProps.reviewPackage,
+				itemId: loadProps.itemId,
+				interest: 'visible',
+				resolveDescriptorRef: (handle): BridgeDescriptorRef | null =>
+					reviewContentDescriptorRefsByHandleIdRef.current.get(handle.handleId) ?? null,
+				scheduler: reviewDemandScheduler,
+				executor: resourceExecutor,
+				traceContext: loadProps.traceContext ?? null,
+				...(loadProps.signal === undefined ? {} : { signal: loadProps.signal }),
+				...(loadProps.telemetryRecorder === undefined
+					? {}
+					: { telemetryRecorder: loadProps.telemetryRecorder }),
+				onDemandTelemetry: setLastVisibleDemandTelemetry,
+			}),
+		[resourceExecutor, reviewDemandScheduler],
+	);
+	const visibleContentHydration = useVisibleReviewContentHydration({
+		contentRegistry,
+		loadContentResources: loadVisibleContentResourcesThroughDemand,
+		reviewPackage: props.isActive ? reviewPackage : null,
+		selectedItemId: props.isActive ? rootSnapshot.selectedItemId : null,
+		telemetryParentTraceContext:
+			currentReviewPackageTelemetryContextRef.current?.traceContext ?? null,
+		telemetryRecorder: telemetryRecorderRef.current,
+		contentInvalidationVersion: reviewContentInvalidationVersion,
+		visibleHydrationPaused: visibleContentHydrationPaused,
+	});
+	const reviewMetadataInterestRuntime = useBridgeReviewMetadataInterestRuntime({
+		authority: getReviewFrameAuthority(),
+		isActive: props.isActive,
+		reviewPackage,
+		rpcClient,
+		selectedItemId: rootSnapshot.selectedItemId,
+		setVisibleContentItemIds: visibleContentHydration.setVisibleItemIds,
+	});
+	const retrySelectedContentAfterDescriptorRegistration = useCallback(
+		(registeredDescriptorRefCount: number): void => {
+			if (
+				shouldRetrySelectedReviewContentAfterDescriptorRegistration({
+					reviewPackage: reviewPackageRef.current,
+					selectedItemId: rootSnapshotRef.current.selectedItemId,
+					registeredDescriptorRefCount,
+					selectedContentResourcesState: selectedContentResourcesStateRef.current,
+					lastSelectedDemandTelemetry: lastSelectedDemandTelemetryRef.current,
+				})
+			) {
+				scheduleSelectedContentRetry({
+					scheduledRef: selectedContentRetryScheduledRef,
+					setSelectedContentRetryVersion,
+				});
+			}
+		},
+		[
+			lastSelectedDemandTelemetryRef,
+			selectedContentResourcesStateRef,
+			selectedContentRetryScheduledRef,
+			setSelectedContentRetryVersion,
+		],
+	);
+	const flushTelemetry = useCallback(
+		(flushProps: BridgeTelemetryFlushProps = {}): void => {
+			telemetryRecorderRef.current.flush(flushProps);
+		},
+		[telemetryRecorderRef],
+	);
+	const beginForegroundReviewSelection = useCallback(
+		(
+			itemId: string,
+			presentationTarget: BridgeReviewFileNavigationTarget | null = null,
+		): boolean => {
+			const currentReviewPackage = reviewPackageRef.current;
+			if (currentReviewPackage === null || !(itemId in currentReviewPackage.itemsById)) {
+				return false;
+			}
+			const previousSelectedItemId = rootSnapshotRef.current.selectedItemId;
+			const isSelectionChange = previousSelectedItemId !== itemId;
+			const selectedContentKey = makeSelectedContentResourcesKey(currentReviewPackage, itemId);
+			const selectedPresentation = selectedItemPresentationForReviewFileTarget({
+				reviewPackage: currentReviewPackage,
+				selectedItemId: itemId,
+				target: presentationTarget ?? initialReviewFileTarget,
+			});
+			if (isSelectionChange) {
+				pendingSelectionCommitTelemetryRef.current = telemetryRecorderRef.current.isEnabled('web')
+					? {
+							itemId,
+							packageKey: makeTelemetryPackageKey(currentReviewPackage),
+							startedAtMilliseconds: performance.now(),
+							traceContext: createChildTraceContext(
+								currentReviewPackageTelemetryContextRef.current?.traceContext ?? null,
+							),
+						}
+					: null;
+				cancelForegroundSelectionRelease();
+				setForegroundSelectedContentKey(selectedContentKey);
+				selectedContentAbortControllerRef.current?.abort();
+				selectedContentAbortControllerRef.current = null;
+				selectedContentActiveLoadKeyRef.current = null;
+				cancelReviewItemDemand({
+					descriptorRefsByHandleId: reviewContentDescriptorRefsByHandleIdRef.current,
+					item: reviewItemDemandCancellationTargetForSelectionChange({
+						previousSelectedItemId,
+						reviewPackage: currentReviewPackage,
+					}),
+					resourceExecutor,
+					reviewDemandScheduler,
+				});
+				setSelectedContentResourcesState({
+					itemId,
+					contentKey: selectedContentKey,
+					status: 'loading',
+					resources: null,
+				});
+				startSelectedReviewContentDemand({
+					itemId,
+					presentation: selectedPresentation,
+					reviewPackage: currentReviewPackage,
+					selectedContentKey,
+				});
+			}
+			if (presentationTarget !== null || isSelectionChange) {
+				setSelectedReviewFileTarget(presentationTarget);
+			}
+			viewerActions.setSelectedItemId(itemId);
+			viewerActions.setRenderMode({ kind: 'codeView' });
+			return true;
+		},
+		[
+			cancelForegroundSelectionRelease,
+			initialReviewFileTarget,
+			resourceExecutor,
+			reviewDemandScheduler,
+			selectedContentAbortControllerRef,
+			selectedContentActiveLoadKeyRef,
+			setForegroundSelectedContentKey,
+			setSelectedContentResourcesState,
+			startSelectedReviewContentDemand,
+			telemetryRecorderRef,
+			viewerActions,
+		],
+	);
+	const selectReviewItem = useCallback(
+		(
+			itemId: string,
+			presentationTarget: BridgeReviewFileNavigationTarget | null = null,
+		): boolean => {
+			const currentReviewPackage = reviewPackageRef.current;
+			if (
+				!beginForegroundReviewSelection(itemId, presentationTarget) ||
+				currentReviewPackage === null
+			) {
+				return false;
+			}
+			lastTelemetryMarkedItemRef.current = makeTelemetryMarkedItemKey(currentReviewPackage, itemId);
+			rpcClient.sendCommand({
+				method: 'review.markFileViewed',
+				params: { fileId: itemId },
+			});
+			return true;
+		},
+		[beginForegroundReviewSelection, rpcClient],
+	);
+	useLayoutEffect((): void => {
+		const pendingTelemetry = pendingSelectionCommitTelemetryRef.current;
+		if (
+			pendingTelemetry === null ||
+			!props.isActive ||
+			reviewPackage === null ||
+			projection === null ||
+			rootSnapshot.selectedItemId !== pendingTelemetry.itemId
+		) {
+			return;
+		}
+		if (makeTelemetryPackageKey(reviewPackage) !== pendingTelemetry.packageKey) {
+			pendingSelectionCommitTelemetryRef.current = null;
+			return;
+		}
+		pendingSelectionCommitTelemetryRef.current = null;
+		const durationMilliseconds = performance.now() - pendingTelemetry.startedAtMilliseconds;
+		setLastSelectionCommitDurationMilliseconds(Math.max(0, durationMilliseconds));
+		recordReviewStartupTelemetry({
+			telemetryRecorder: telemetryRecorderRef.current,
+			phase: 'selection_commit',
+			slice: 'review_projection',
+			transport: 'worker',
+			traceContext: pendingTelemetry.traceContext,
+			durationMilliseconds,
+			result: 'success',
+		});
+	}, [
+		projection,
+		props.isActive,
+		reviewPackage,
+		rootSnapshot.selectedItemId,
+		telemetryRecorderRef,
+	]);
+	const appliedNavigationCommandRef = useRef<BridgeViewerNavigationCommand | null>(null);
+	useEffect((): void => {
+		if (
+			!props.isActive ||
+			reviewPackage === null ||
+			projection === null ||
+			initialReviewFileTarget === null
+		) {
+			return;
+		}
+		const itemId = itemIdForReviewFileNavigationTarget({
+			reviewPackage,
+			target: initialReviewFileTarget,
+		});
+		if (itemId === null) {
+			return;
+		}
+		if (
+			appliedNavigationCommandRef.current !== null &&
+			appliedNavigationCommandRef.current === props.navigationCommand
+		) {
+			return;
+		}
+		if (!projection.orderedItemIds.includes(itemId)) {
+			if (clearReviewRefinementsHidingExplicitTarget({ rootSnapshot, viewerActions })) {
+				appliedNavigationCommandRef.current = null;
+			}
+			return;
+		}
+		appliedNavigationCommandRef.current = props.navigationCommand ?? null;
+		selectReviewItem(itemId);
+	}, [
+		initialReviewFileTarget,
+		props.isActive,
+		projection,
+		props.navigationCommand,
+		reviewPackage,
+		rootSnapshot,
+		selectReviewItem,
+		viewerActions,
+	]);
+	useBridgeReviewProjectionCoordinator({
+		store: viewerStore,
+		reviewPackage,
+		projectionMode: rootSnapshot.projectionMode,
+		facets: rootSnapshot.facets,
+		gitStatusFilter: rootSnapshot.gitStatusFilter,
+		fileClassFilter: rootSnapshot.fileClassFilter,
+		projectionWorkerClient,
+		telemetryRecorder: telemetryRecorderRef.current,
+		telemetryParentTraceContext:
+			currentReviewPackageTelemetryContextRef.current?.traceContext ?? null,
+		flushTelemetry,
+	});
+
+	useEffect((): void => {
+		if (!props.isActive || reviewPackage === null || projection === null) {
+			return;
+		}
+		if (
+			rootSnapshot.selectedItemId !== null &&
+			projection.orderedItemIds.includes(rootSnapshot.selectedItemId)
+		) {
+			return;
+		}
+
+		const targetItemId =
+			initialReviewFileTarget === null
+				? null
+				: itemIdForReviewFileNavigationTarget({
+						reviewPackage,
+						target: initialReviewFileTarget,
+					});
+		const nextSelectedItemId =
+			targetItemId !== null && projection.orderedItemIds.includes(targetItemId)
+				? targetItemId
+				: (projection.orderedItemIds[0] ?? null);
+		if (rootSnapshot.selectedItemId === nextSelectedItemId) {
+			return;
+		}
+
+		if (nextSelectedItemId === null) {
+			selectedContentAbortControllerRef.current?.abort();
+			selectedContentAbortControllerRef.current = null;
+			setSelectedContentResourcesState(null);
+			viewerActions.setSelectedItemId(null);
+			viewerActions.setRenderMode({ kind: 'codeView' });
+		} else {
+			beginForegroundReviewSelection(nextSelectedItemId);
+		}
+		setSelectedMarkdownPreviewState(null);
+	}, [
+		beginForegroundReviewSelection,
+		initialReviewFileTarget,
+		projection,
+		props.isActive,
+		reviewPackage,
+		rootSnapshot.selectedItemId,
+		selectedContentAbortControllerRef,
+		setSelectedContentResourcesState,
+		viewerActions,
+	]);
+
+	useEffect((): void => {
+		contentRegistry.setActiveIdentity(
+			reviewPackage === null
+				? null
+				: {
+						packageId: reviewPackage.packageId,
+						reviewGeneration: reviewPackage.reviewGeneration,
+						revision: reviewPackage.revision,
+					},
+		);
+	}, [contentRegistry, reviewPackage]);
+
+	useBridgeReviewIntakeController({
+		target,
+		bridgeHandshakeSessionRef,
+		getReviewFrameAuthority,
+		registerBridgeReadyCallback,
+		reviewEnvelopeApplyTailRef,
+		beginForegroundReviewSelection,
+		setReviewPackage,
+		setReviewTreeRows,
+		setDiffStatus,
+		setSelectedItemId: viewerActions.setSelectedItemId,
+		viewerStore,
+		reviewPackageRef,
+		reviewPackageTelemetryContextRef,
+		currentReviewPackageTelemetryContextRef,
+		reviewReadyStartMillisecondsByPackageKeyRef,
+		descriptorRegistry,
+		reviewContentDescriptorRefsByHandleIdRef,
+		reviewDemandScheduler,
+		resourceExecutor,
+		invalidatedFreshnessKeysRef: invalidatedReviewFreshnessKeysRef,
+		setReviewContentInvalidationVersion,
+		retrySelectedContentAfterDescriptorRegistration,
+		telemetryRecorderRef,
+	});
+	useLayoutEffect((): (() => void) => {
+		if (!props.isActive) {
+			return (): void => {};
+		}
+		const handleSelectReviewItem = (event: Event): void => {
+			const detail = 'detail' in event ? event.detail : null;
+			if (!isRecord(detail) || typeof detail['itemId'] !== 'string') {
+				return;
+			}
+			selectReviewItem(detail['itemId']);
+		};
+		const windowTarget = typeof window === 'undefined' ? null : window;
+		target.addEventListener('__bridge_select_review_item', handleSelectReviewItem);
+		if (windowTarget !== null && windowTarget !== target) {
+			windowTarget.addEventListener('__bridge_select_review_item', handleSelectReviewItem);
+		}
+		return (): void => {
+			target.removeEventListener('__bridge_select_review_item', handleSelectReviewItem);
+			if (windowTarget !== null && windowTarget !== target) {
+				windowTarget.removeEventListener('__bridge_select_review_item', handleSelectReviewItem);
+			}
+		};
+	}, [props.isActive, selectReviewItem, target]);
+
+	useLayoutEffect((): (() => void) => {
+		if (!props.isActive) {
+			return (): void => {};
+		}
+		const handleBridgeAppControl = (event: Event): void => {
+			const detail = 'detail' in event ? event.detail : null;
+			const parsedCommand = bridgeAppControlCommandSchema.safeParse(detail);
+			if (!parsedCommand.success) {
+				publishBridgeAppControlProbe({
+					probe: makeBridgeAppControlProbe({
+						command: {
+							method: 'bridge.fileTree.search',
+							searchText: '',
+							searchMode: { kind: 'text' },
+						},
+						status: 'rejected',
+						reason: 'invalid_control_command',
+						sequence: nextBridgeAppControlProbeSequence(controlProbeSequenceRef),
+						rootSnapshot: rootSnapshotRef.current,
+					}),
+				});
+				return;
+			}
+			const result = applyBridgeAppControlCommand({
+				command: parsedCommand.data,
+				markdownWorkerClient,
+				projection: projectionRef.current,
+				rootSnapshot: rootSnapshotRef.current,
+				reviewPackage: reviewPackageRef.current,
+				selectReviewItem,
+				selectedContentResources,
+				selectedMarkdownPreviewState,
+				setTreeSearchOpen: setIsTreeSearchOpen,
+				codeViewControlHandle: codeViewControlHandleRef.current,
+				viewerActions,
+			});
+			publishBridgeAppControlProbe({
+				probe: makeBridgeAppControlProbe({
+					command: parsedCommand.data,
+					status: result.status,
+					reason: result.reason,
+					sequence: nextBridgeAppControlProbeSequence(controlProbeSequenceRef),
+					rootSnapshot: viewerStore.getState().rootSnapshot,
+				}),
+			});
+		};
+		const windowTarget = typeof window === 'undefined' ? null : window;
+		target.addEventListener('__bridge_review_control', handleBridgeAppControl);
+		if (windowTarget !== null && windowTarget !== target) {
+			windowTarget.addEventListener('__bridge_review_control', handleBridgeAppControl);
+		}
+		return (): void => {
+			target.removeEventListener('__bridge_review_control', handleBridgeAppControl);
+			if (windowTarget !== null && windowTarget !== target) {
+				windowTarget.removeEventListener('__bridge_review_control', handleBridgeAppControl);
+			}
+		};
+	}, [
+		markdownWorkerClient,
+		props.isActive,
+		selectReviewItem,
+		selectedContentResources,
+		selectedMarkdownPreviewState,
+		target,
+		viewerActions,
+		viewerStore,
+	]);
+
+	useLayoutEffect((): (() => void) => {
+		if (!props.isActive) {
+			selectedContentAbortControllerRef.current?.abort();
+			selectedContentAbortControllerRef.current = null;
+			selectedContentActiveLoadKeyRef.current = null;
+			cancelForegroundSelectionRelease();
+			setForegroundSelectedContentKey(null);
+			setLastSelectedDemandTelemetry(null);
+			return (): void => {};
+		}
+		const selectedItemId = rootSnapshotRef.current.selectedItemId;
+		const currentReviewPackage = reviewPackageRef.current;
+		if (currentReviewPackage === null || selectedItemId === null) {
+			setSelectedContentResourcesState(null);
+			cancelForegroundSelectionRelease();
+			setForegroundSelectedContentKey(null);
+			setLastSelectedDemandTelemetry(null);
+			return (): void => {};
+		}
+		const selectedItem = currentReviewPackage.itemsById[selectedItemId];
+		if (selectedItem === undefined) {
+			setSelectedContentResourcesState(null);
+			cancelForegroundSelectionRelease();
+			setForegroundSelectedContentKey(null);
+			setLastSelectedDemandTelemetry(null);
+			return (): void => {};
+		}
+		const selectedContentKey =
+			currentSelectedContentKey ??
+			makeSelectedContentResourcesKey(currentReviewPackage, selectedItemId);
+		return startSelectedReviewContentDemand({
+			itemId: selectedItemId,
+			presentation: selectedItemPresentation,
+			reviewPackage: currentReviewPackage,
+			selectedContentKey,
+		});
+	}, [
+		cancelForegroundSelectionRelease,
+		props.isActive,
+		currentSelectedContentKey,
+		selectedContentAbortControllerRef,
+		selectedContentActiveLoadKeyRef,
+		selectedContentRetryVersion,
+		selectedItemPresentation,
+		setForegroundSelectedContentKey,
+		setLastSelectedDemandTelemetry,
+		setSelectedContentResourcesState,
+		startSelectedReviewContentDemand,
+	]);
+
+	useBridgeReviewMarkdownPreviewController({
+		currentReviewPackageTelemetryContextRef,
+		isActive: props.isActive,
+		markdownWorkerClient,
+		renderModeKind: rootSnapshot.renderMode.kind,
+		reviewPackage,
+		selectedContentResources,
+		selectedItemId: rootSnapshot.selectedItemId,
+		selectedMarkdownPreviewStateRef,
+		setRenderModeCodeView: setReviewRenderModeCodeView,
+		setSelectedMarkdownPreviewState,
+		telemetryRecorderRef,
+	});
+
+	useBridgeReviewRenderTelemetryController({
+		hasProjection: projection !== null,
+		isActive: props.isActive,
+		reviewPackage,
+		reviewPackageTelemetryContextRef,
+		reviewReadyStartMillisecondsByPackageKeyRef,
+		selectedContentResourcesState,
+		telemetryRecorderRef,
+	});
+
+	useEffect((): void => {
+		if (
+			!props.isActive ||
+			reviewPackage === null ||
+			rootSnapshot.selectedItemId === null ||
+			!telemetryRecorderRef.current.isEnabled('web')
+		) {
+			return;
+		}
+		const markedItemKey = makeTelemetryMarkedItemKey(reviewPackage, rootSnapshot.selectedItemId);
+		if (lastTelemetryMarkedItemRef.current === markedItemKey) {
+			return;
+		}
+		lastTelemetryMarkedItemRef.current = markedItemKey;
+		rpcClient.sendCommand({
+			method: 'review.markFileViewed',
+			params: { fileId: rootSnapshot.selectedItemId },
+		});
+	}, [props.isActive, reviewPackage, rootSnapshot.selectedItemId, rpcClient, telemetryRecorderRef]);
+
+	const selectedCanvasLoadingReason = selectedCanvasLoadingReasonForCurrentSelection({
+		selectedContentKey: currentSelectedContentKey,
+		selectedContentResourcesState,
+		selectedItemId: rootSnapshot.selectedItemId,
+		selectedMarkdownPreviewState,
+	});
+	const selectedContentLoadingItemId =
+		selectedCanvasLoadingReason === 'content' ? rootSnapshot.selectedItemId : null;
+	const visibleContentResourcesByItemIdForCodeView = visibleContentHydrationPaused
+		? emptyVisibleContentResourcesByItemId
+		: visibleContentHydration.visibleContentResourcesByItemId;
+	const visibleLoadingItemIdsForCodeView = visibleContentHydrationPaused
+		? emptyVisibleLoadingItemIds
+		: visibleContentHydration.visibleLoadingItemIds;
+	const visibleLoadingItemCountForCodeView = visibleContentHydrationPaused
+		? 0
+		: visibleContentHydration.visibleLoadingItemCount;
+	const visibleReadyItemCountForCodeView = visibleContentHydrationPaused
+		? 0
+		: visibleContentHydration.visibleReadyItemCount;
+	return (
+		<BridgeReviewViewerShellBoundary
+			codeViewWorkerFactory={props.codeViewWorkerFactory}
+			codeViewWorkerPoolEnabled={props.codeViewWorkerPoolEnabled}
+			currentSelectedContentKey={currentSelectedContentKey}
+			diffStatus={diffStatus}
+			isActive={props.isActive}
+			lastSelectedDemandTelemetry={lastSelectedDemandTelemetryForCurrentPackage}
+			lastSelectionCommitDurationMilliseconds={lastSelectionCommitDurationMilliseconds}
+			lastVisibleDemandTelemetry={lastVisibleDemandTelemetryForCurrentPackage}
+			onCodeViewControlHandleChange={(handle): void => {
+				codeViewControlHandleRef.current = handle;
+			}}
+			onCodeViewScrollActivityChange={setIsCodeViewScrollActive}
+			onSelectItem={selectReviewItem}
+			onTreeSearchOpen={(): void => setIsTreeSearchOpen(true)}
+			projection={projection}
+			reviewPackage={reviewPackage}
+			reviewMetadataInterestRuntime={reviewMetadataInterestRuntime}
+			reviewTreeRows={reviewTreeRows}
+			rootSnapshot={rootSnapshot}
+			selectedCanvasLoadingReason={selectedCanvasLoadingReason}
+			selectedContentLoadingItemId={selectedContentLoadingItemId}
+			selectedContentResources={selectedContentResources}
+			selectedContentUnavailablePath={selectedContentUnavailablePathForCurrentSelection({
+				reviewPackage,
+				selectedItemId: rootSnapshot.selectedItemId,
+				selectedContentResourcesState,
+			})}
+			selectedItemPresentation={selectedItemPresentation}
+			selectedMarkdownPreviewState={selectedMarkdownPreviewState}
+			telemetryParentTraceContext={
+				currentReviewPackageTelemetryContextRef.current?.traceContext ?? null
+			}
+			telemetryRecorder={telemetryRecorderRef.current}
+			treeSearchOpen={isTreeSearchOpen}
+			viewerActions={viewerActions}
+			viewerHeaderControls={props.viewerHeaderControls}
+			visibleContentResourcesByItemId={visibleContentResourcesByItemIdForCodeView}
+			visibleLoadingItemCount={visibleLoadingItemCountForCodeView}
+			visibleLoadingItemIds={visibleLoadingItemIdsForCodeView}
+			visibleReadyItemCount={visibleReadyItemCountForCodeView}
+		/>
+	);
+}
+
+function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+	return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
