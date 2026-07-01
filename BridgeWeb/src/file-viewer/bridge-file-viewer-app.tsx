@@ -6,17 +6,13 @@ import type {
 	WorktreeFileDemandStimulus,
 } from '../features/worktree-file/models/worktree-file-protocol-models.js';
 import { canFetchWorktreeFileDescriptorContent } from '../features/worktree-file/models/worktree-file-protocol-models.js';
-import {
-	recordBridgeViewerFileOpenReadyTelemetrySample,
-	recordBridgeWorktreeFileVisibleDemandSettledTelemetrySample,
-} from '../foundation/telemetry/bridge-viewer-telemetry-adapter.js';
+import { recordBridgeWorktreeFileVisibleDemandSettledTelemetrySample } from '../foundation/telemetry/bridge-viewer-telemetry-adapter.js';
 import type { WorktreeFileSurfaceRuntime } from '../worktree-file-surface/worktree-file-surface-runtime.js';
 import type { BridgeFileViewerAppProps } from './bridge-file-viewer-app-props.js';
 import { BridgeFileViewerLazyLoadingFrame } from './bridge-file-viewer-lazy-loading-frame.js';
 import { createBridgeFileViewerRuntime } from './bridge-file-viewer-runtime.js';
 import {
 	emptyRenderState,
-	findLatestDescriptorForOpenFile,
 	firstSuccessfulDemandLoadResult,
 	visibleFileDemandChangeWithoutDescriptorId,
 	visibleFileDemandSignature,
@@ -29,6 +25,7 @@ import {
 import { type BridgeFileViewerVisibleFileDemandChange } from './bridge-file-viewer-tree-panel.js';
 import { useBridgeFileViewerActiveModeGate } from './use-bridge-file-viewer-active-mode-gate.js';
 import { useBridgeFileViewerBodyState } from './use-bridge-file-viewer-body-state.js';
+import { useBridgeFileViewerContentController } from './use-bridge-file-viewer-content-controller.js';
 import { useBridgeFileViewerFrameIntakeController } from './use-bridge-file-viewer-frame-intake-controller.js';
 import { useBridgeFileViewerInactiveOpenFileRecovery } from './use-bridge-file-viewer-inactive-open-file-recovery.js';
 import { useBridgeFileViewerRecentlyUpdatedDemand } from './use-bridge-file-viewer-recently-updated-demand.js';
@@ -101,8 +98,8 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 		openFileBodyVersion,
 		provisionalOpenFileBody,
 		provisionalOpenFileBodyRef,
-		setOpenFileBodyState,
 		setProvisionalOpenFileBody,
+		setOpenFileBodyState,
 	} = useBridgeFileViewerBodyState();
 	lastDemandDispatchDebugStateRef.current = lastDemandDispatchDebugState;
 	const selectedPath = openFileState.status === 'idle' ? null : openFileState.path;
@@ -142,131 +139,25 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 		recentlyUpdatedDemandRequestIdRef,
 	});
 
-	const openFile = useCallback(
-		async (descriptor: WorktreeFileDescriptor): Promise<void> => {
-			if (!isActiveRef.current) {
-				return;
-			}
-			const activeModeToken = activeModeTokenRef.current;
-			const openFileStartedAt = performance.now();
-			const requestId = openFileRequestIdRef.current + 1;
-			openFileRequestIdRef.current = requestId;
-			clearOpenFileBody();
-			clearProvisionalOpenFileBody();
-			viewerActions.setLastOpenLoadTelemetry(null);
-			viewerActions.setOpenFileState({ status: 'loading', path: descriptor.path, descriptor });
-			const runtime = runtimeRef.current;
-			if (runtime === null) {
-				if (
-					openFileRequestIdRef.current === requestId &&
-					isActiveRef.current &&
-					activeModeTokenRef.current === activeModeToken
-				) {
-					viewerActions.setOpenFileState({ status: 'failed', path: descriptor.path, descriptor });
-				}
-				return;
-			}
-			const result = await runtime.openFile({
-				descriptor,
-				onProvisionalTextChunk: (chunk): void => {
-					if (
-						openFileRequestIdRef.current !== requestId ||
-						!isActiveRef.current ||
-						activeModeTokenRef.current !== activeModeToken
-					) {
-						return;
-					}
-					provisionalOpenFileBodyRef.current = `${provisionalOpenFileBodyRef.current ?? ''}${chunk.text}`;
-					setProvisionalOpenFileBody(provisionalOpenFileBodyRef.current);
-				},
-				openFileSessionId: descriptor.fileId,
-			});
-			if (
-				openFileRequestIdRef.current !== requestId ||
-				!isActiveRef.current ||
-				activeModeTokenRef.current !== activeModeToken
-			) {
-				return;
-			}
-			if (result.ok) {
-				const openFileBody = result.content.readText();
-				commitOpenFileBody({
-					body: openFileBody,
-					descriptor,
-					path: descriptor.path,
-				});
-				if (telemetryRecorder !== undefined) {
-					recordBridgeViewerFileOpenReadyTelemetrySample({
-						disposition: result.loadTelemetry.disposition,
-						durationMilliseconds: performance.now() - openFileStartedAt,
-						estimatedBytes: result.loadTelemetry.estimatedBytes,
-						executorInFlightMilliseconds: result.loadTelemetry.executorInFlightMilliseconds,
-						executorPendingWaitMilliseconds: result.loadTelemetry.executorPendingWaitMilliseconds,
-						lane: result.loadTelemetry.lane,
-						requestId,
-						resourceBodyRegistryCommitMilliseconds:
-							result.loadTelemetry.resourceBodyRegistryCommitMilliseconds,
-						resourceFetchResponseWaitMilliseconds:
-							result.loadTelemetry.resourceFetchResponseWaitMilliseconds,
-						resourceFirstChunkWaitMilliseconds:
-							result.loadTelemetry.resourceFirstChunkWaitMilliseconds,
-						resourceStreamReadMilliseconds: result.loadTelemetry.resourceStreamReadMilliseconds,
-						result: 'success',
-						resultReason: null,
-						schedulerQueueWaitMilliseconds: result.loadTelemetry.schedulerQueueWaitMilliseconds,
-						sourceGeneration: descriptor.sourceIdentity.subscriptionGeneration,
-						telemetryRecorder,
-						traceContext: telemetryTraceContext,
-					});
-				}
-				clearProvisionalOpenFileBody();
-				viewerActions.setLastOpenLoadTelemetry(result.loadTelemetry);
-				viewerActions.setOpenFileState({ status: 'ready', path: descriptor.path, descriptor });
-				return;
-			}
-			clearOpenFileBody();
-			clearProvisionalOpenFileBody();
-			viewerActions.setLastOpenLoadTelemetry(null);
-			if (telemetryRecorder !== undefined) {
-				recordBridgeViewerFileOpenReadyTelemetrySample({
-					disposition: 'none',
-					durationMilliseconds: performance.now() - openFileStartedAt,
-					estimatedBytes: descriptor.contentDescriptor.descriptor.content.expectedBytes ?? null,
-					executorInFlightMilliseconds: null,
-					executorPendingWaitMilliseconds: null,
-					lane: 'foreground',
-					requestId,
-					resourceBodyRegistryCommitMilliseconds: null,
-					resourceFetchResponseWaitMilliseconds: null,
-					resourceFirstChunkWaitMilliseconds: null,
-					resourceStreamReadMilliseconds: null,
-					result: 'failed',
-					resultReason: result.reason,
-					schedulerQueueWaitMilliseconds: null,
-					sourceGeneration: descriptor.sourceIdentity.subscriptionGeneration,
-					telemetryRecorder,
-					traceContext: telemetryTraceContext,
-				});
-			}
-			viewerActions.setOpenFileState({
-				status: result.reason === 'content_unavailable' ? 'unavailable' : 'failed',
-				path: descriptor.path,
-				descriptor,
-			});
-		},
-		[
-			clearOpenFileBody,
-			clearProvisionalOpenFileBody,
-			commitOpenFileBody,
-			activeModeTokenRef,
-			isActiveRef,
-			provisionalOpenFileBodyRef,
-			setProvisionalOpenFileBody,
-			telemetryRecorder,
-			telemetryTraceContext,
-			viewerActions,
-		],
-	);
+	const { openFile, refreshOpenFile } = useBridgeFileViewerContentController({
+		activeModeTokenRef,
+		clearOpenFileBody,
+		clearProvisionalOpenFileBody,
+		commitOpenFileBody,
+		isActiveRef,
+		openFileBodyRef,
+		openFileRequestIdRef,
+		provisionalOpenFileBodyRef,
+		renderStateRef,
+		runtimeRef,
+		setLastOpenLoadTelemetry: viewerActions.setLastOpenLoadTelemetry,
+		setOpenFileBodyState,
+		setOpenFileState: viewerActions.setOpenFileState,
+		setProvisionalOpenFileBody,
+		setRefreshDebugState: viewerActions.setRefreshDebugState,
+		telemetryRecorder,
+		telemetryTraceContext,
+	});
 
 	const openPendingSelectedDescriptor = useCallback(
 		(nextState: BridgeFileViewerRenderState): void => {
@@ -457,140 +348,6 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 		requestFileDescriptor,
 		requestFileDescriptorForDemand,
 	});
-
-	const refreshOpenFile = useCallback(
-		async (state: BridgeFileViewerOpenState): Promise<void> => {
-			if (!isActiveRef.current) {
-				return;
-			}
-			if (state.status !== 'stale') {
-				viewerActions.setRefreshDebugState({
-					commitState: 'skipped',
-					currentRequestId: openFileRequestIdRef.current,
-					descriptorId: 'none',
-					requestId: openFileRequestIdRef.current,
-					result: 'non_stale_state',
-				});
-				return;
-			}
-			const activeModeToken = activeModeTokenRef.current;
-			const requestId = openFileRequestIdRef.current + 1;
-			openFileRequestIdRef.current = requestId;
-			clearProvisionalOpenFileBody();
-			viewerActions.setLastOpenLoadTelemetry(null);
-			const runtime = runtimeRef.current;
-			if (runtime === null) {
-				if (
-					openFileRequestIdRef.current === requestId &&
-					isActiveRef.current &&
-					activeModeTokenRef.current === activeModeToken
-				) {
-					viewerActions.setOpenFileState({
-						status: 'failed',
-						path: state.path,
-						descriptor: state.descriptor,
-					});
-				}
-				return;
-			}
-			const refreshDescriptor =
-				findLatestDescriptorForOpenFile({
-					descriptor: state.descriptor,
-					renderState: renderStateRef.current,
-				}) ?? state.descriptor;
-			viewerActions.setOpenFileState({
-				status: 'refreshing',
-				path: refreshDescriptor.path,
-				descriptor: refreshDescriptor,
-			});
-			viewerActions.setRefreshDebugState({
-				commitState: 'started',
-				currentRequestId: openFileRequestIdRef.current,
-				descriptorId: refreshDescriptor.contentDescriptor.ref.descriptorId,
-				requestId,
-				result: 'started',
-			});
-			const result = await runtime.refreshOpenFile({
-				onProvisionalTextChunk: (chunk): void => {
-					if (
-						openFileRequestIdRef.current !== requestId ||
-						!isActiveRef.current ||
-						activeModeTokenRef.current !== activeModeToken
-					) {
-						return;
-					}
-					provisionalOpenFileBodyRef.current = `${provisionalOpenFileBodyRef.current ?? ''}${chunk.text}`;
-					setProvisionalOpenFileBody(provisionalOpenFileBodyRef.current);
-				},
-				openFileSessionId: state.descriptor.fileId,
-			});
-			if (
-				openFileRequestIdRef.current !== requestId ||
-				!isActiveRef.current ||
-				activeModeTokenRef.current !== activeModeToken
-			) {
-				viewerActions.setRefreshDebugState({
-					commitState: 'ignored',
-					currentRequestId: openFileRequestIdRef.current,
-					descriptorId: refreshDescriptor.contentDescriptor.ref.descriptorId,
-					requestId,
-					result: result.ok ? 'ok' : result.reason,
-				});
-				return;
-			}
-			viewerActions.setRefreshDebugState({
-				commitState: 'committed',
-				currentRequestId: openFileRequestIdRef.current,
-				descriptorId: refreshDescriptor.contentDescriptor.ref.descriptorId,
-				requestId,
-				result: result.ok ? 'ok' : result.reason,
-			});
-			if (result.ok) {
-				const openFileBody = result.content.readText();
-				commitOpenFileBody({
-					body: openFileBody,
-					descriptor: refreshDescriptor,
-					path: refreshDescriptor.path,
-				});
-				clearProvisionalOpenFileBody();
-				viewerActions.setLastOpenLoadTelemetry(result.loadTelemetry);
-				const refreshedDescriptor =
-					findLatestDescriptorForOpenFile({
-						descriptor: state.descriptor,
-						renderState: renderStateRef.current,
-					}) ?? state.descriptor;
-				viewerActions.setOpenFileState({
-					status: 'ready',
-					path: refreshedDescriptor.path,
-					descriptor: refreshedDescriptor,
-				});
-				return;
-			}
-			openFileBodyRef.current =
-				result.reason === 'content_unavailable' ? null : openFileBodyRef.current;
-			setOpenFileBodyState(
-				result.reason === 'content_unavailable' ? null : openFileBodyRef.current,
-			);
-			clearProvisionalOpenFileBody();
-			viewerActions.setLastOpenLoadTelemetry(null);
-			viewerActions.setOpenFileState({
-				status: result.reason === 'content_unavailable' ? 'unavailable' : 'stale',
-				path: refreshDescriptor.path,
-				descriptor: refreshDescriptor,
-			});
-		},
-		[
-			activeModeTokenRef,
-			clearProvisionalOpenFileBody,
-			commitOpenFileBody,
-			isActiveRef,
-			openFileBodyRef,
-			provisionalOpenFileBodyRef,
-			setOpenFileBodyState,
-			setProvisionalOpenFileBody,
-			viewerActions,
-		],
-	);
 
 	const dispatchVisibleFileDemand = useCallback(
 		(change: BridgeFileViewerVisibleFileDemandChange): void => {

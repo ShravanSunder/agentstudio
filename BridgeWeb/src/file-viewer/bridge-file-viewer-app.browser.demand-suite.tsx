@@ -807,6 +807,98 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		expect(shell.getAttribute('data-last-refresh-descriptor-id')).toBe('refresh-content-2');
 	});
 
+	test('ignores stale refresh completion after Files becomes inactive', async () => {
+		const initialDescriptor = makeFileDescriptor({
+			contentHandle: 'inactive-refresh-content-1',
+			fileId: 'file-inactive-refresh-target',
+			path: 'src/inactive-refresh-target.ts',
+		});
+		const resetSourceIdentity = makeSourceIdentity({
+			subscriptionGeneration: 2,
+			sourceCursor: 'cursor-2',
+		});
+		const replacementDescriptor = makeFileDescriptor({
+			contentHandle: 'inactive-refresh-content-2',
+			fileId: 'file-inactive-refresh-target',
+			generation: 2,
+			path: 'src/inactive-refresh-target.ts',
+			sourceIdentity: resetSourceIdentity,
+		});
+		const deferredRefreshContent = makeDeferredContent();
+		let activateFiles: (() => void) | null = null;
+		let deactivateFiles: (() => void) | null = null;
+		let publishFrames: PublishWorktreeFileFrames | null = null;
+
+		function ControlledFileViewer(): ReactElement {
+			const [isActive, setIsActive] = useState(true);
+			activateFiles = (): void => {
+				setIsActive(true);
+			};
+			deactivateFiles = (): void => {
+				setIsActive(false);
+			};
+			return (
+				<BridgeFileViewerApp
+					codeViewWorkerPoolEnabled={false}
+					fetchResource={(props) => {
+						if (props.resourceUrl.includes('inactive-refresh-content-2')) {
+							return deferredRefreshContent.promise;
+						}
+						return Promise.resolve(
+							makeWorktreeFileSurfaceRuntimeFetchedResource(
+								'export const inactiveRefreshInitial = true;\n',
+							),
+						);
+					}}
+					initialFrames={makeFrames(initialDescriptor)}
+					isActive={isActive}
+					navigationCommand={fileNavigationCommandForPath('src/inactive-refresh-target.ts')}
+					subscribeFrames={(handler): (() => void) => {
+						publishFrames = handler;
+						return (): void => {
+							publishFrames = null;
+						};
+					}}
+				/>
+			);
+		}
+
+		render(<ControlledFileViewer />);
+
+		await waitForOpenFileState('ready');
+		await waitForVisibleCodeText('inactiveRefreshInitial');
+		const publishRequiredFrames = requireFramePublisher(publishFrames);
+		publishRequiredFrames(makeResetFrames(replacementDescriptor));
+		await waitForOpenFileState('stale');
+		const refreshButton = requireBridgeViewerHTMLElement(
+			document.querySelector('[data-testid="worktree-file-refresh"]'),
+		);
+		refreshButton.click();
+		await waitForOpenFileState('refreshing');
+		requireDeactivateFiles(deactivateFiles)();
+		await waitForFileViewerActiveState('false');
+
+		deferredRefreshContent.resolve(
+			makeWorktreeFileSurfaceRuntimeFetchedResource(
+				'export const inactiveRefreshReplacement = true;\n',
+			),
+		);
+		await waitForBridgeViewerAnimationFrame();
+		await waitForBridgeViewerAnimationFrame();
+
+		expect(openFileState()).toBe('stale');
+		expect(openFileBodyPreview()).toContain('inactiveRefreshInitial');
+		expect(visibleCodeText()).toContain('inactiveRefreshInitial');
+		expect(visibleCodeText()).not.toContain('inactiveRefreshReplacement');
+		const shell = requireBridgeViewerHTMLElement(
+			document.querySelector('[data-testid="bridge-file-viewer-shell"]'),
+		);
+		expect(shell.getAttribute('data-file-viewer-active')).toBe('false');
+		expect(shell.getAttribute('data-last-refresh-commit-state')).toBe('ignored');
+
+		requireActivateFiles(activateFiles)();
+	});
+
 	test('keeps selected file ready when reset metadata carries the same content descriptor', async () => {
 		const initialDescriptor = makeFileDescriptor({
 			contentHandle: 'stable-content',
