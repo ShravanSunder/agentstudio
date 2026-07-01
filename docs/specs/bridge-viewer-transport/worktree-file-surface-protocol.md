@@ -189,6 +189,13 @@ Zustand must not store large file bodies, raw diff bodies, worker instances,
 Pierre instances, stream handles, resource executors, or fetched content bytes.
 Those remain in descriptor-backed content/materialization paths.
 
+Worktree/File metadata stream controllers, materializers, demand-lane state,
+and store subscriptions mount outside lazy/Suspense visual shells. Visual shells
+may lazy-load Pierre adapters, chrome, and renderer-heavy modules, but source
+subscription, metadata application, lane interest, last-good tree state, and
+per-context navigation memory must survive visual chunk loading and
+FileView/Review context switches.
+
 The canonical navigation command/source/target schema lives in the parent
 BridgeViewer transport spec. This child protocol uses the same vocabulary; it
 must not define a path-only Review file target. The local TypeScript shape below
@@ -716,7 +723,7 @@ export const WorktreeFileMetadataInterestUpdate = z.object({
   kind: z.literal('metadataInterest'),
   updateId: z.string().min(1),
   sourceId: z.string().min(1),
-  generation: z.string().min(1),
+  generation: z.number().int().nonnegative(),
   cursor: z.string().min(1).optional(),
   paneId: z.string().min(1),
   lane: BridgeDemandLane,
@@ -837,6 +844,14 @@ are hydrated. If the exact `pathCount` is not yet available, the provider must
 send a conservative estimated total extent and later reconcile it through a
 measured, attributed update instead of allowing a later body stream to resize
 the scrollbar silently.
+
+Headless Swift-plane proof must record manifest progress for the accepted
+source. The required artifact includes total eligible path count after ignore
+policy, emitted row count, remaining row count, first-window range, every
+subsequent emitted range/delta, lane that caused or budgeted the emission,
+generation/cursor, and timestamp. A proof that only sees the first 200 rows is
+red unless it also records continued manifest progress and eventual completion
+for all non-ignored rows, or a bounded explicit failure with source evidence.
 
 ## 11. Surface Flow
 
@@ -974,6 +989,15 @@ Contract:
 - worktree tree/status updates do not instantiate Review package lineage
 - Swift/native owns authoritative file-tree metadata production; BridgeWeb
   applies streamed metadata and must not synthesize the native file tree
+- headless Swift-plane e2e/benchmark proof opens the current worktree source,
+  records every metadata frame/delta/range with lane and cursor lineage, proves
+  all non-ignored files eventually arrive as metadata, and reports p95/p99 for
+  first window, full-manifest completion, metadata-interest-to-frame, queue wait
+  by lane, metadata apply, and content fetch phases
+- the headless Swift artifact classifies how rows were loaded: startup
+  first-window, foreground selected/open, visible viewport, nearby lookahead,
+  speculative prediction, idle manifest continuation, delta, reset, or
+  replacement
 - metadata interest updates prioritize the persistent metadata stream by lane:
   selected/open target `foreground`, viewport `visible`, adjacent/lookahead
   `nearby`, prediction `speculative`, and remaining manifest `idle`

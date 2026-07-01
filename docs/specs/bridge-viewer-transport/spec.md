@@ -297,6 +297,52 @@ descriptor readiness. Metadata can reference content descriptors; content
 streams cannot become the first place the browser learns the authoritative file
 tree or review manifest.
 
+R17.a. BridgeWeb data controllers mount outside lazy visual shells.
+
+The BridgeViewer app frame owns durable mode hosts. FileView and Review
+metadata stream controllers, materializers, demand-lane state, lightweight
+stores, selection/open state, and metrics snapshots must mount independently
+from lazy/Suspense visual shells. Lazy loading is allowed for visual shell code,
+Pierre renderer adapters, chrome, and heavy renderer modules. It is not allowed
+to gate source subscription, metadata intake, demand-lane interest, last-good
+projection state, or context memory. Switching FileView and Review must not
+tear down the active source manifest, blank the tree because a visual chunk is
+loading, or reload title/header/chrome that is already app-frame state.
+
+Zustand is the browser control-plane store for stream and view facts. It may
+store source identity, stream status, cursors, generations, tree/review metadata
+facts, descriptor refs, selected/open/visible state, lane queue/in-flight facts,
+stale/drop/error facts, and small timing snapshots. It must not store file
+text, diff text, raw bytes, stream objects, `AbortController` instances,
+workers, schedulers/executors, Pierre instances, or other content/runtime
+bodies.
+
+R17.b. Native proof must include a headless Swift-plane manifest benchmark.
+
+Native correctness is not proven only by Vite parity, browser screenshots, or a
+WKWebView visual smoke. The Swift plane must have a headless e2e/benchmark
+harness that opens Worktree/File and worktree-backed Review sources from the
+current worktree, observes emitted metadata frames and demand decisions, and
+proves:
+
+- all non-ignored files eventually appear in the metadata manifest;
+- the artifact records how each row arrived: initial window, foreground,
+  visible, nearby, speculative, idle continuation, delta, reset, or replacement;
+- selected/open and visible metadata are emitted before idle manifest
+  continuation under pressure;
+- full-manifest completion continues with a no-starvation budget while
+  selected/visible work remains responsive;
+- content descriptor publication and content stream demand remain separate from
+  metadata frame production;
+- p95 and p99 are reported for native open-to-first-window,
+  metadata-interest-to-frame, full-manifest-complete, queue-wait-by-lane,
+  metadata apply, and content fetch phases.
+
+The same protocol shape must then be proven through native WKWebView product
+proof. The headless Swift plane is the fast native truth loop; Vite/dev-server
+is a parity adapter and cannot satisfy native manifest completeness or native
+lane-order proof by itself.
+
 ```text
 BridgeViewerAppShell
   ┌──────────────────────────────────────────────────────────────┬─────────────┐
@@ -1969,8 +2015,12 @@ continuity.
 
 OD7. Worktree tree-window delivery.
 
-Recommended default: hybrid. Snapshot carries an initial visible/root window;
-expansion and large windows use descriptors fetched by the scheduler.
+Decision: Worktree/File tree windows are streamed metadata frames on the
+persistent intake lineage. Snapshot carries an initial visible/root window, and
+expansion, viewport, adjacent, and remaining-manifest windows arrive as
+`worktree.treeWindow` or typed tree-delta metadata frames. Descriptor-backed
+resources are only for body/range bytes; they must not be used to fetch
+authoritative tree metadata.
 
 OD8. Comment and agent-comms schema depth.
 

@@ -1452,10 +1452,12 @@ Implementation guidance:
   provider implementation detail only after the visible stream/demand contract
   is satisfied; it must not be the user-facing gate that blocks all Review
   projection/lifecycle frames.
-- Review/native: either lease and serve `review-package` and `review-delta`
-  through real `ContentStreamPath` stores, or remove those advertised
-  descriptors until they are reachable. They cannot remain decorative while
-  materialized package/delta bodies move through push/store.
+- Review/native: semantic Review snapshots, windows, and deltas must stream as
+  intake metadata. Remove `review-package` and `review-delta` from startup and
+  projection authority unless a later export/debug slice defines them as
+  non-startup, non-authoritative byte resources with separate proof. They cannot
+  remain decorative descriptors, and they cannot be used to satisfy tree,
+  projection, or metadata readiness.
 - IPC: `getContent` and `getPackage` must not be used as body/package transport
   proof. IPC may expose small status and descriptor metadata only; bytes and
   package/delta bodies must move through content/resource descriptors.
@@ -1582,8 +1584,31 @@ Prove the same shared-app behavior inside Agent Studio's native Bridge pane.
 The dev server is the fast iteration loop, but PR-ready status requires native
 Bridge/WKWebView proof.
 
+This slice has a required headless Swift-plane subgate before visual WKWebView
+proof. The headless gate opens Worktree/File and worktree-backed Review sources
+from the current worktree through the Swift transport/provider plane, records
+metadata frames and demand decisions without relying on Vite or visible
+rendering, and writes a benchmark artifact that proves manifest completeness,
+load order, lane priority, no-starvation, and p95/p99 timings.
+
 Proof:
 
+- Add or update Swift e2e/benchmark coverage that runs headlessly against this
+  worktree and records:
+  - expected eligible path count after gitignore/repository ignore policy
+  - emitted metadata row count, remaining count, and completion
+  - the load class for each row: startup first-window, foreground selected/open,
+    visible viewport, nearby lookahead, speculative prediction, idle manifest
+    continuation, delta, reset, or replacement
+  - metadata-interest update sequence and provider emission order
+  - queue wait by lane, stale drops, lane upgrades, aborts, and no-starvation
+    progress for idle manifest completion
+  - separated content descriptor/content stream timings
+- The headless Swift artifact fails if only the initial bounded window is
+  emitted and no continued manifest progress/completion is recorded.
+- The headless Swift artifact reports p95/p99 for open-to-first-window,
+  metadata-interest-to-frame, full-manifest-complete, metadata apply, queue wait
+  by lane, file click content fetch, and review item content fetch.
 - Launch through the repo-standard debug observability path:
   `mise run observability:up` and
   `mise run run-debug-observability -- --detach`.
@@ -1726,8 +1751,12 @@ Native runtime:
 
 - native `oq4s` Agent Studio Bridge/WKWebView proof is an active 06P.S / 0.a.6
   gate and must be rerun after resource-stream changes for the same protocol path
+- headless Swift-plane e2e/benchmark proof is an active 06P.S / 0.a.6 subgate
+  and must pass before native WKWebView visual proof is accepted
 - proof includes bridge route boot, source/protocol identity, resource/content
   requests, event stream readiness, and Victoria/log marker correlation
+- proof includes manifest completeness for all non-ignored rows, loaded-by/lane
+  classification, metadata emission order, queue timing, and p95/p99 metrics
 - Vite-only proof must not be used as the final native Bridge proof
 
 Quality:
