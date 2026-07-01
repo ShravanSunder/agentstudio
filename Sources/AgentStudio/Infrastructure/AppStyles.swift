@@ -197,7 +197,7 @@ enum AppStyles {
 
             enum ToolbarButton {
                 static let size: CGFloat = 28
-                static let iconSize: CGFloat = 14
+                static let iconSize: CGFloat = 12
                 static let verticalOffset: CGFloat = 2
                 static let baseFillColor = Color(nsColor: NSColor(hex: "#141416") ?? NSColor(white: 0.08, alpha: 1))
                 static let hoverFillColor = Color(nsColor: NSColor(hex: "#242428") ?? NSColor(white: 0.14, alpha: 1))

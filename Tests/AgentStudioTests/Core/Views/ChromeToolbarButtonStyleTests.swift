@@ -5,6 +5,12 @@ import Testing
 
 @Suite("Chrome toolbar button style")
 struct ChromeToolbarButtonStyleTests {
+    @Test("toolbar button metrics preserve the accepted chrome sizing")
+    func toolbarButtonMetricsPreserveAcceptedChromeSizing() {
+        #expect(AppStyles.Shell.Chrome.ToolbarButton.size == 28)
+        #expect(AppStyles.Shell.Chrome.ToolbarButton.iconSize == 12)
+    }
+
     @Test("circular toolbar controls use the shared AppStyles backed label path")
     func circularToolbarControlsUseSharedLabelPath() throws {
         let sharedLabelSource = try sourceFile("Sources/AgentStudio/SharedComponents/ChromeToolbarButtonLabel.swift")
@@ -38,6 +44,11 @@ struct ChromeToolbarButtonStyleTests {
             from: "private struct NewTabButton",
             to: "/// Individual pill-shaped tab"
         )
+        let overflowMenuSection = try section(
+            in: customTabBarSource,
+            from: "case .overflowMenu:",
+            to: "case .newTab:"
+        )
 
         #expect(sidebarSection.contains("showsBackground: false"))
         #expect(!sidebarSection.contains("usesToolbarForeground"))
@@ -52,6 +63,11 @@ struct ChromeToolbarButtonStyleTests {
             #expect(!circularSection.contains("usesToolbarForeground"))
             #expect(!circularSection.contains("ChromeToolbarCircleBackground"))
         }
+
+        #expect(overflowMenuSection.contains("ChromeToolbarButtonLabel("))
+        #expect(overflowMenuSection.contains("symbolName: \"rectangle.stack\""))
+        #expect(overflowMenuSection.contains("showsBackground: false"))
+        #expect(!overflowMenuSection.contains("Image(systemName: \"rectangle.stack\")"))
     }
 
     @Test("arrangement capsule uses the shared toolbar palette for every state")

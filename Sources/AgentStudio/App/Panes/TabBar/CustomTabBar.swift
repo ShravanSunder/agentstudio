@@ -73,6 +73,7 @@ struct CustomTabBar: View {
     @State private var scrollAreaFrame: CGRect = .zero
     @State private var isOverflowLeftHovered = false
     @State private var isOverflowRightHovered = false
+    @State private var isOverflowMenuHovered = false
 
     /// Maximum width a tab can grow to.
     private static let tabMaxWidth: CGFloat = 400
@@ -352,12 +353,16 @@ struct CustomTabBar: View {
                 }
             } label: {
                 HStack(spacing: AppStyles.General.Spacing.tight) {
-                    Image(systemName: "rectangle.stack")
-                        .font(.system(size: AppStyles.General.Typography.textSm, weight: .medium))
+                    ChromeToolbarButtonLabel(
+                        symbolName: "rectangle.stack",
+                        isHovered: isOverflowMenuHovered,
+                        buttonSize: AppStyles.Shell.Chrome.ToolbarButton.size,
+                        showsBackground: false
+                    )
                     Text("\(adapter.tabs.count)")
                         .font(.system(size: AppStyles.General.Typography.textSm, weight: .semibold))
+                        .foregroundStyle(.secondary)
                 }
-                .foregroundStyle(.secondary)
                 .padding(.horizontal, AppStyles.General.Spacing.loose)
                 .padding(.vertical, AppStyles.General.Spacing.tight)
                 .contentShape(Capsule())
@@ -365,6 +370,7 @@ struct CustomTabBar: View {
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .fixedSize()
+            .onHover { isOverflowMenuHovered = $0 }
         case .newTab:
             if let onAdd {
                 NewTabButton(onAdd: onAdd, onOpenRepoInTab: onOpenRepoInTab)

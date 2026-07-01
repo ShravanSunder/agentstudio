@@ -80,6 +80,87 @@ struct DraggableTabBarWindowDragTests {
     }
 
     @MainActor
+    @Test("explicit drag region zooms the window on double click")
+    func explicitDragRegionZoomsWindowOnDoubleClick() throws {
+        let dragRegion = ShellChromeDragRegionView(
+            frame: NSRect(
+                x: 0,
+                y: 0,
+                width: 320,
+                height: AppStyles.Shell.Chrome.windowDragRegionHeight
+            )
+        )
+        let event = try #require(
+            NSEvent.mouseEvent(
+                with: .leftMouseDown,
+                location: NSPoint(x: 12, y: 3),
+                modifierFlags: [],
+                timestamp: 1,
+                windowNumber: 0,
+                context: nil,
+                eventNumber: 10,
+                clickCount: 2,
+                pressure: 1
+            )
+        )
+
+        var didDrag = false
+        var didZoom = false
+        dragRegion.performWindowDrag = { _ in didDrag = true }
+        dragRegion.performWindowZoom = { didZoom = true }
+
+        dragRegion.mouseDown(with: event)
+
+        #expect(didZoom)
+        #expect(!didDrag)
+    }
+
+    @MainActor
+    @Test("explicit drag region falls back to window zoom on double click")
+    func explicitDragRegionFallsBackToWindowZoomOnDoubleClick() throws {
+        let window = ZoomRecordingWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 120),
+            styleMask: [.titled, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        let contentView = NSView(frame: window.contentView?.bounds ?? NSRect(x: 0, y: 0, width: 320, height: 120))
+        window.contentView = contentView
+
+        let dragRegion = ShellChromeDragRegionView(
+            frame: NSRect(
+                x: 0,
+                y: 0,
+                width: 320,
+                height: AppStyles.Shell.Chrome.windowDragRegionHeight
+            )
+        )
+        contentView.addSubview(dragRegion)
+
+        let event = try #require(
+            NSEvent.mouseEvent(
+                with: .leftMouseDown,
+                location: NSPoint(x: 12, y: 3),
+                modifierFlags: [],
+                timestamp: 1,
+                windowNumber: window.windowNumber,
+                context: nil,
+                eventNumber: 11,
+                clickCount: 2,
+                pressure: 1
+            )
+        )
+
+        var didDrag = false
+        dragRegion.performWindowDrag = { _ in didDrag = true }
+
+        dragRegion.mouseDown(with: event)
+
+        #expect(window.didPerformZoom)
+        #expect(!didDrag)
+    }
+
+    @MainActor
     @Test("main split chrome layers explicit drag region above tab host")
     func mainSplitChromeLayersExplicitDragRegionAboveTabHost() async throws {
         try await withMainSplitViewControllerHarness { harness in
@@ -108,5 +189,13 @@ struct DraggableTabBarWindowDragTests {
     @MainActor
     private func descendants(of view: NSView) -> [NSView] {
         view.subviews + view.subviews.flatMap { descendants(of: $0) }
+    }
+}
+
+private final class ZoomRecordingWindow: NSWindow {
+    var didPerformZoom = false
+
+    override func performZoom(_ sender: Any?) {
+        didPerformZoom = true
     }
 }
