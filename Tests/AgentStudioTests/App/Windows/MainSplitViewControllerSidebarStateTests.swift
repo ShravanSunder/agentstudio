@@ -157,6 +157,21 @@ struct MainSplitViewControllerSidebarStateTests {
         )
     }
 
+    @Test("collapseSidebar immediately records collapsed state for loaded sidebar")
+    func collapseSidebarLoadedPersistsIntentImmediately() async {
+        await withMainSplitViewControllerHarness(
+            withRepos: true,
+            body: { harness in
+                #expect(harness.controller.isSidebarCollapsed == false)
+                #expect(harness.atoms.workspaceSidebarState.sidebarCollapsed == false)
+
+                harness.controller.collapseSidebar()
+
+                #expect(harness.atoms.workspaceSidebarState.sidebarCollapsed == true)
+            }
+        )
+    }
+
     private func layOutMainSplitViewController(_ harness: MainSplitViewControllerHarness) {
         harness.window.setContentSize(NSSize(width: 1000, height: 700))
         harness.controller.view.frame = NSRect(x: 0, y: 0, width: 1000, height: 700)

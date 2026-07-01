@@ -1,9 +1,0 @@
-# Local overrides (personal, not committed)
-*.local.*
-*.local.sh
-sidecar.local.conf
-firewall-allowlist-extra.local.txt
-extra.local.zshrc
-
-# Generated files
-.generated/
