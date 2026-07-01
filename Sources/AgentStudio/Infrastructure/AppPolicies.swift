@@ -11,6 +11,11 @@ enum AppPolicies {
         static let contentMaxBytesPerItem: Int = 50 * 1024 * 1024
         static let defaultGitDataPlaneReadTimeout: Duration = .seconds(30)
         static let ipcMaxResponsePayloadBytes: Int = 768 * 1024
+        /// Worktree/File metadata window size for the startup snapshot and
+        /// continuation tree windows. Provisional until the OD4 profiling
+        /// gate graduates it; proof asserts observed windows equal this
+        /// constant rather than a literal.
+        static let worktreeFileTreeMetadataWindowRowLimit: Int = 200
     }
 
     enum WorkspacePersistence {
@@ -101,6 +106,7 @@ enum AppPolicies {
         static let appActivationTimeout: Duration = .seconds(2)
         static let launchRestoreBoundsTimeout: Duration = .seconds(3)
         static let ipcTerminalSmokeReadinessTimeout: Duration = .seconds(10)
+        static let bridgeFileViewSmokeReadinessTimeout: Duration = .seconds(15)
     }
 
     enum SelectablePopover {

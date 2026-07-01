@@ -18,10 +18,28 @@ struct BridgeWorktreeFileMaterializationRequest: Sendable {
 struct BridgeWorktreeChangedFileMaterializationRequest: Sendable {
     let rootURL: URL
     let paneId: UUID
+    let ignorePolicy: BridgeWorktreeFileIgnorePolicy
     let source: BridgeWorktreeFileSurfaceSourceIdentity
     let streamId: String
     let firstSequence: Int
     let relativePaths: [String]
+}
+
+struct BridgeWorktreeRequestedFileDescriptorRequest: Sendable {
+    let rootURL: URL
+    let paneId: UUID
+    let ignorePolicy: BridgeWorktreeFileIgnorePolicy
+    let source: BridgeWorktreeFileSurfaceSourceIdentity
+    let streamId: String
+    let sequence: Int
+    let relativePath: String
+}
+
+struct BridgeWorktreeTreeRowWindowBatch: Sendable {
+    let discoveredRowCount: Int
+    let isFinalWindow: Bool
+    let rows: [BridgeWorktreeTreeRowMetadata]
+    let startIndex: Int
 }
 
 private struct BridgeWorktreeFileDescriptorMaterializationProps: Sendable {
@@ -43,17 +61,70 @@ private struct BridgeWorktreeFileAnalysis: Sendable {
 }
 
 enum BridgeWorktreeFileMaterializer {
-    static func materializeInitialFileDescriptors(
-        request: BridgeWorktreeFileMaterializationRequest
-    ) async throws -> [BridgeWorktreeMaterializedFileDescriptor] {
-        guard request.openedSource.includeFileDescriptors else {
-            return []
-        }
+    private static let initialTreeMetadataWindowLimit =
+        AppPolicies.Bridge.worktreeFileTreeMetadataWindowRowLimit
 
+    static func canMaterializeDemandPath(
+        _ relativePath: String,
+        openedSource: BridgeWorktreeFileOpenedSource
+    ) -> Bool {
+        guard isPublishedTreePath(relativePath, ignorePolicy: openedSource.ignorePolicy) else {
+            return false
+        }
+        let pathScope = openedSource.canonicalPathScope
+        guard !pathScope.isEmpty else {
+            return true
+        }
+        return pathScope.contains { scopedPath in
+            scopedPath == "."
+                || relativePath == scopedPath
+                || relativePath.hasPrefix("\(scopedPath)/")
+        }
+    }
+
+    static func materializeInitialTreeRows(
+        request: BridgeWorktreeFileMaterializationRequest
+    ) async throws -> [BridgeWorktreeTreeRowMetadata] {
         // swiftlint:disable:next no_task_detached
-        return try await Task.detached(priority: .utility) {
-            try materializeInitialFileDescriptorsSynchronously(request: request)
+        try await Task.detached(priority: .utility) {
+            try materializeInitialTreeRowsSynchronously(request: request)
         }.value
+    }
+
+    static func materializeAllTreeRows(
+        request: BridgeWorktreeFileMaterializationRequest
+    ) async throws -> [BridgeWorktreeTreeRowMetadata] {
+        // swiftlint:disable:next no_task_detached
+        try await Task.detached(priority: .utility) {
+            try materializeTreeRowsSynchronously(request: request, maxCount: nil)
+        }.value
+    }
+
+    static func materializeTreeRowWindows(
+        request: BridgeWorktreeFileMaterializationRequest,
+        afterCount: Int,
+        windowSize: Int
+    ) -> AsyncThrowingStream<BridgeWorktreeTreeRowWindowBatch, Error> {
+        AsyncThrowingStream { continuation in
+            // swiftlint:disable:next no_task_detached
+            let task = Task.detached(priority: .utility) {
+                do {
+                    try materializeTreeRowWindowsSynchronously(
+                        request: request,
+                        afterCount: afterCount,
+                        windowSize: windowSize
+                    ) { batch in
+                        continuation.yield(batch)
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in
+                task.cancel()
+            }
+        }
     }
 
     static func materializeChangedFileDescriptors(
@@ -65,13 +136,415 @@ enum BridgeWorktreeFileMaterializer {
         }.value
     }
 
-    private static func materializeInitialFileDescriptorsSynchronously(
+    static func materializeRequestedFileDescriptor(
+        request: BridgeWorktreeRequestedFileDescriptorRequest
+    ) async throws -> BridgeWorktreeMaterializedFileDescriptor {
+        // swiftlint:disable:next no_task_detached
+        try await Task.detached(priority: .utility) {
+            try materializeRequestedFileDescriptorSynchronously(request: request)
+        }.value
+    }
+
+    private static func materializeInitialTreeRowsSynchronously(
         request: BridgeWorktreeFileMaterializationRequest
+    ) throws -> [BridgeWorktreeTreeRowMetadata] {
+        try materializeTreeRowsSynchronously(request: request, maxCount: initialTreeMetadataWindowLimit)
+    }
+
+    private static func materializeTreeRowsSynchronously(
+        request: BridgeWorktreeFileMaterializationRequest,
+        maxCount: Int?
+    ) throws -> [BridgeWorktreeTreeRowMetadata] {
+        let relativePaths = try initialTreeRowPaths(
+            rootURL: request.rootURL,
+            canonicalPathScope: request.openedSource.canonicalPathScope,
+            ignorePolicy: request.openedSource.ignorePolicy,
+            maxCount: maxCount
+        )
+        var rowsByPath: [String: BridgeWorktreeTreeRowMetadata] = [:]
+        var orderedRows: [BridgeWorktreeTreeRowMetadata] = []
+
+        func appendRow(_ row: BridgeWorktreeTreeRowMetadata) {
+            if let maxCount, orderedRows.count >= maxCount {
+                return
+            }
+            guard rowsByPath[row.path] == nil else {
+                return
+            }
+            rowsByPath[row.path] = row
+            orderedRows.append(row)
+        }
+
+        for relativePath in relativePaths {
+            appendAncestorRows(for: relativePath, appendRow: appendRow)
+            if let maxCount, orderedRows.count >= maxCount {
+                break
+            }
+            let fileURL = request.rootURL.appending(path: relativePath)
+            let values = try? fileURL.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey])
+            if values?.isDirectory == true {
+                appendRow(directoryTreeRow(relativePath: relativePath))
+            } else if values?.isRegularFile == true {
+                appendRow(try fileTreeRow(fileURL: fileURL, relativePath: relativePath))
+            }
+        }
+
+        return orderedRows
+    }
+
+    private static func materializeTreeRowWindowsSynchronously(
+        request: BridgeWorktreeFileMaterializationRequest,
+        afterCount: Int,
+        windowSize: Int,
+        yield: (BridgeWorktreeTreeRowWindowBatch) -> Void
+    ) throws {
+        guard afterCount >= 0, windowSize > 0 else {
+            return
+        }
+        var rowsByPath: [String: BridgeWorktreeTreeRowMetadata] = [:]
+        var orderedRowCount = 0
+        var windowRows: [BridgeWorktreeTreeRowMetadata] = []
+        var windowStartIndex: Int?
+
+        func flushWindowIfNeeded(force: Bool = false) {
+            guard !windowRows.isEmpty, force || windowRows.count >= windowSize else {
+                return
+            }
+            yield(
+                BridgeWorktreeTreeRowWindowBatch(
+                    discoveredRowCount: orderedRowCount,
+                    isFinalWindow: force,
+                    rows: windowRows,
+                    startIndex: windowStartIndex ?? orderedRowCount - windowRows.count
+                )
+            )
+            windowRows.removeAll(keepingCapacity: true)
+            windowStartIndex = nil
+        }
+
+        func appendRow(_ row: BridgeWorktreeTreeRowMetadata) throws {
+            if Task.isCancelled {
+                throw CancellationError()
+            }
+            guard rowsByPath[row.path] == nil else {
+                return
+            }
+            let rowIndex = orderedRowCount
+            rowsByPath[row.path] = row
+            orderedRowCount += 1
+            guard rowIndex >= afterCount else {
+                return
+            }
+            if windowRows.isEmpty {
+                windowStartIndex = rowIndex
+            }
+            windowRows.append(row)
+            flushWindowIfNeeded()
+        }
+
+        try forEachInitialTreeRowPath(
+            rootURL: request.rootURL,
+            canonicalPathScope: request.openedSource.canonicalPathScope,
+            ignorePolicy: request.openedSource.ignorePolicy,
+            maxPathCount: nil
+        ) { relativePath in
+            try appendAncestorRowsThrowing(for: relativePath) { row in
+                try appendRow(row)
+            }
+            let fileURL = request.rootURL.appending(path: relativePath)
+            let values = try? fileURL.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey])
+            if values?.isDirectory == true {
+                try appendRow(directoryTreeRow(relativePath: relativePath))
+            } else if values?.isRegularFile == true {
+                try appendRow(try fileTreeRow(fileURL: fileURL, relativePath: relativePath))
+            }
+            return true
+        }
+        flushWindowIfNeeded(force: true)
+    }
+
+    private static func initialTreeRowPaths(
+        rootURL: URL,
+        canonicalPathScope: [String],
+        ignorePolicy: BridgeWorktreeFileIgnorePolicy,
+        maxCount: Int?
+    ) throws -> [String] {
+        var relativePaths: [String] = []
+        try forEachInitialTreeRowPath(
+            rootURL: rootURL,
+            canonicalPathScope: canonicalPathScope,
+            ignorePolicy: ignorePolicy,
+            maxPathCount: maxCount
+        ) { relativePath in
+            relativePaths.append(relativePath)
+            return true
+        }
+        return relativePaths
+    }
+
+    private static func forEachInitialTreeRowPath(
+        rootURL: URL,
+        canonicalPathScope: [String],
+        ignorePolicy: BridgeWorktreeFileIgnorePolicy,
+        maxPathCount: Int?,
+        visit: (String) throws -> Bool
+    ) throws {
+        let scopedPaths =
+            canonicalPathScope.isEmpty
+            ? ["."]
+            : canonicalPathScope
+        var seenPaths = Set<String>()
+        var visitedPathCount = 0
+
+        func visitIfNeeded(_ relativePath: String) throws -> Bool {
+            guard !seenPaths.contains(relativePath) else {
+                return true
+            }
+            seenPaths.insert(relativePath)
+            if let maxPathCount, visitedPathCount >= maxPathCount {
+                return false
+            }
+            visitedPathCount += 1
+            return try visit(relativePath)
+        }
+
+        for scopedPath in scopedPaths {
+            if let maxPathCount, visitedPathCount >= maxPathCount {
+                break
+            }
+            let scopedURL = scopedPath == "." ? rootURL : rootURL.appending(path: scopedPath)
+            let values = try? scopedURL.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey])
+            if values?.isRegularFile == true {
+                if isPublishedTreePath(scopedPath, ignorePolicy: ignorePolicy) {
+                    guard try visitIfNeeded(scopedPath) else {
+                        return
+                    }
+                }
+                continue
+            }
+            guard values?.isDirectory == true else {
+                continue
+            }
+            if scopedPath != "." && isPublishedTreePath(scopedPath, ignorePolicy: ignorePolicy) {
+                guard try visitIfNeeded(scopedPath) else {
+                    return
+                }
+            }
+            if scopedPath != "." && isNestedGitWorktreeRoot(scopedURL, rootURL: rootURL) {
+                continue
+            }
+            try enumerateTreeRowPaths(
+                rootURL: rootURL,
+                scopedURL: scopedURL,
+                ignorePolicy: ignorePolicy,
+                maxCount: maxPathCount.map { max($0 - visitedPathCount, 0) }
+            ) { relativePath in
+                try visitIfNeeded(relativePath)
+            }
+        }
+    }
+
+    private static func enumerateTreeRowPaths(
+        rootURL: URL,
+        scopedURL: URL,
+        ignorePolicy: BridgeWorktreeFileIgnorePolicy,
+        maxCount: Int?,
+        visit: (String) throws -> Bool
+    ) throws {
+        if let maxCount, maxCount <= 0 {
+            return
+        }
+
+        var pathCount = 0
+        var pendingDirectories = [scopedURL]
+        while !pendingDirectories.isEmpty {
+            if let maxCount, pathCount >= maxCount {
+                break
+            }
+            let directoryURL = pendingDirectories.removeFirst()
+            let childURLs = try FileManager.default.contentsOfDirectory(
+                at: directoryURL,
+                includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey],
+                options: []
+            )
+            for fileURL in childURLs.sorted(by: compareFileDiscoveryOrder) {
+                if let maxCount, pathCount >= maxCount {
+                    return
+                }
+                let relativePath = relativePath(fileURL: fileURL, rootURL: rootURL)
+                if !isPublishedTreePath(relativePath, ignorePolicy: ignorePolicy) {
+                    continue
+                }
+                let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey, .isDirectoryKey])
+                if values?.isRegularFile == true {
+                    pathCount += 1
+                    guard try visit(relativePath) else {
+                        return
+                    }
+                } else if values?.isDirectory == true {
+                    pathCount += 1
+                    guard try visit(relativePath) else {
+                        return
+                    }
+                    if !isNestedGitWorktreeRoot(fileURL, rootURL: rootURL) {
+                        pendingDirectories.append(fileURL)
+                    }
+                }
+            }
+        }
+    }
+
+    private static func enumerateTreeRowPaths(
+        rootURL: URL,
+        scopedURL: URL,
+        ignorePolicy: BridgeWorktreeFileIgnorePolicy,
+        maxCount: Int?
+    ) throws -> [String] {
+        if let maxCount, maxCount <= 0 {
+            return []
+        }
+
+        var paths: [String] = []
+        try enumerateTreeRowPaths(
+            rootURL: rootURL,
+            scopedURL: scopedURL,
+            ignorePolicy: ignorePolicy,
+            maxCount: maxCount
+        ) { relativePath in
+            paths.append(relativePath)
+            return true
+        }
+        return paths
+    }
+
+    private static func appendAncestorRowsThrowing(
+        for relativePath: String,
+        appendRow: (BridgeWorktreeTreeRowMetadata) throws -> Void
+    ) throws {
+        let pathComponents = relativePath.split(separator: "/").map(String.init)
+        guard pathComponents.count > 1 else {
+            return
+        }
+        for componentCount in 1..<pathComponents.count {
+            let ancestorPath = pathComponents.prefix(componentCount).joined(separator: "/")
+            try appendRow(directoryTreeRow(relativePath: ancestorPath))
+        }
+    }
+
+    private static func appendAncestorRows(
+        for relativePath: String,
+        appendRow: (BridgeWorktreeTreeRowMetadata) -> Void
+    ) {
+        try? appendAncestorRowsThrowing(for: relativePath) { row in
+            appendRow(row)
+        }
+    }
+
+    // Manifest ordering is deterministic and policy-owned: plain code-unit
+    // comparison of sibling names, breadth-first by directory. A generic
+    // provider must not encode a specific repository's folder names.
+    private static func compareFileDiscoveryOrder(_ lhs: URL, _ rhs: URL) -> Bool {
+        lhs.lastPathComponent.utf8.lexicographicallyPrecedes(rhs.lastPathComponent.utf8)
+    }
+
+    private static func relativePath(fileURL: URL, rootURL: URL) -> String {
+        let rootPath = rootURL.standardizedFileURL.path
+        let filePath = fileURL.standardizedFileURL.path
+        let prefix = rootPath == "/" ? "/" : rootPath + "/"
+        guard let range = filePath.range(of: prefix, options: [.anchored]) else {
+            return fileURL.lastPathComponent
+        }
+        return String(filePath[range.upperBound...])
+    }
+
+    private static func directoryTreeRow(relativePath: String) -> BridgeWorktreeTreeRowMetadata {
+        let pathComponents = relativePath.split(separator: "/").map(String.init)
+        return BridgeWorktreeTreeRowMetadata(
+            rowId: "worktree-directory-\(sha256Hex(Data(relativePath.utf8)).prefix(32))",
+            path: relativePath,
+            name: pathComponents.last ?? relativePath,
+            parentPath: parentPath(for: pathComponents),
+            depth: max(pathComponents.count - 1, 0),
+            isDirectory: true,
+            fileId: nil,
+            sizeBytes: nil,
+            lineCount: nil,
+            changeStatus: nil
+        )
+    }
+
+    private static func fileTreeRow(fileURL: URL, relativePath: String) throws -> BridgeWorktreeTreeRowMetadata {
+        let pathComponents = relativePath.split(separator: "/").map(String.init)
+        let sizeBytes = try fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+        let fileId = "worktree-file-\(sha256Hex(Data(relativePath.utf8)).prefix(32))"
+        return BridgeWorktreeTreeRowMetadata(
+            rowId: "worktree-file-row-\(sha256Hex(Data(relativePath.utf8)).prefix(32))",
+            path: relativePath,
+            name: pathComponents.last ?? relativePath,
+            parentPath: parentPath(for: pathComponents),
+            depth: max(pathComponents.count - 1, 0),
+            isDirectory: false,
+            fileId: String(fileId),
+            sizeBytes: sizeBytes,
+            lineCount: nil,
+            changeStatus: nil
+        )
+    }
+
+    private static func parentPath(for pathComponents: [String]) -> String? {
+        guard pathComponents.count > 1 else {
+            return nil
+        }
+        return pathComponents.dropLast().joined(separator: "/")
+    }
+
+    private static func isGitInternalPath(_ path: String) -> Bool {
+        path == ".git" || path.hasPrefix(".git/")
+    }
+
+    private static func isNestedGitWorktreeRoot(_ directoryURL: URL, rootURL: URL) -> Bool {
+        let canonicalDirectoryURL = directoryURL.standardizedFileURL.resolvingSymlinksInPath()
+        let canonicalRootURL = rootURL.standardizedFileURL.resolvingSymlinksInPath()
+        guard canonicalDirectoryURL.path != canonicalRootURL.path else {
+            return false
+        }
+        return FileManager.default.fileExists(atPath: canonicalDirectoryURL.appending(path: ".git").path)
+    }
+
+    private static func isSafeDemandPath(_ path: String) -> Bool {
+        guard path.isEmpty == false, path.hasPrefix("/") == false, isGitInternalPath(path) == false else {
+            return false
+        }
+        let components = path.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+        guard components.allSatisfy({ $0.isEmpty == false && $0 != "." && $0 != ".." }) else {
+            return false
+        }
+        return true
+    }
+
+    // Publication policy is git-truth only (accepted product decision
+    // 2026-07-01): repository ignore policy plus structural exclusions
+    // (`.git` internals via isSafeDemandPath, nested worktree roots at the
+    // enumeration boundary). Hidden dotfiles and generated-dependency
+    // directories are published unless gitignored.
+    private static func isPublishedTreePath(
+        _ path: String,
+        ignorePolicy: BridgeWorktreeFileIgnorePolicy
+    ) -> Bool {
+        isSafeDemandPath(path)
+            && !ignorePolicy.isIgnored(relativePath: path)
+    }
+
+    private static func materializeChangedFileDescriptorsSynchronously(
+        request: BridgeWorktreeChangedFileMaterializationRequest
     ) throws -> [BridgeWorktreeMaterializedFileDescriptor] {
         var materializedDescriptors: [BridgeWorktreeMaterializedFileDescriptor] = []
         var nextSequence = request.firstSequence
 
-        for relativePath in request.openedSource.canonicalPathScope where relativePath != "." {
+        for relativePath in request.relativePaths where relativePath != "." {
+            guard isPublishedTreePath(relativePath, ignorePolicy: request.ignorePolicy) else {
+                continue
+            }
             let fileURL = request.rootURL.appending(path: relativePath)
             let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey])
             guard values?.isRegularFile == true else {
@@ -91,30 +564,23 @@ enum BridgeWorktreeFileMaterializer {
         return materializedDescriptors
     }
 
-    private static func materializeChangedFileDescriptorsSynchronously(
-        request: BridgeWorktreeChangedFileMaterializationRequest
-    ) throws -> [BridgeWorktreeMaterializedFileDescriptor] {
-        var materializedDescriptors: [BridgeWorktreeMaterializedFileDescriptor] = []
-        var nextSequence = request.firstSequence
-
-        for relativePath in request.relativePaths where relativePath != "." {
-            let fileURL = request.rootURL.appending(path: relativePath)
-            let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey])
-            guard values?.isRegularFile == true else {
-                continue
-            }
-
-            let materializedDescriptor = try materializeFileDescriptor(
-                request: request,
-                fileURL: fileURL,
-                relativePath: relativePath,
-                sequence: nextSequence
-            )
-            materializedDescriptors.append(materializedDescriptor)
-            nextSequence += 1
+    private static func materializeRequestedFileDescriptorSynchronously(
+        request: BridgeWorktreeRequestedFileDescriptorRequest
+    ) throws -> BridgeWorktreeMaterializedFileDescriptor {
+        guard isPublishedTreePath(request.relativePath, ignorePolicy: request.ignorePolicy) else {
+            throw RPCMethodDispatchError.invalidParams("worktree_file.descriptor_path_invalid")
         }
-
-        return materializedDescriptors
+        let fileURL = request.rootURL.appending(path: request.relativePath)
+        let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey])
+        guard values?.isRegularFile == true else {
+            throw RPCMethodDispatchError.invalidParams("worktree_file.descriptor_path_not_file")
+        }
+        return try materializeFileDescriptor(
+            request: request,
+            fileURL: fileURL,
+            relativePath: request.relativePath,
+            sequence: request.sequence
+        )
     }
 
     private static func materializeFileDescriptor(
@@ -137,6 +603,24 @@ enum BridgeWorktreeFileMaterializer {
 
     private static func materializeFileDescriptor(
         request: BridgeWorktreeChangedFileMaterializationRequest,
+        fileURL: URL,
+        relativePath: String,
+        sequence: Int
+    ) throws -> BridgeWorktreeMaterializedFileDescriptor {
+        try materializeFileDescriptor(
+            props: BridgeWorktreeFileDescriptorMaterializationProps(
+                paneId: request.paneId,
+                source: request.source,
+                streamId: request.streamId,
+                fileURL: fileURL,
+                relativePath: relativePath,
+                sequence: sequence
+            )
+        )
+    }
+
+    private static func materializeFileDescriptor(
+        request: BridgeWorktreeRequestedFileDescriptorRequest,
         fileURL: URL,
         relativePath: String,
         sequence: Int
@@ -309,7 +793,7 @@ enum BridgeWorktreeFileMaterializer {
                 allowedResourceKindsByProtocol: BridgeResourceProtocolRegistry.reviewViewerAllowedResourceKinds
             )
         else {
-            throw RPCMethodDispatchError.handlerFailure("Invalid Worktree/File content descriptor URL")
+            throw RPCMethodDispatchError.handlerFailure("worktree_file.invalid_content_descriptor_url")
         }
         return resource
     }

@@ -12,22 +12,30 @@ extension WebKitSerializedTests {
             installTestAtomRegistryIfNeeded()
         }
 
-        @Test("root scoped open source bounds initial tree metadata window and skips dependency directories")
+        @Test("root scoped open source bounds initial tree metadata window and skips gitignored dependency directories")
         func rootScopedOpenSourceBoundsInitialTreeMetadataWindowAndSkipsDependencyDirectories() async throws {
+            let repoURL = try FilesystemTestGitRepo.create(named: "worktree-file-window-bound-policy")
+            defer { FilesystemTestGitRepo.destroy(repoURL) }
             let eventCapture = BridgeWorktreeFileSurfaceEventCapture()
             let fixture = try makeControllerFixtureWithIntakeSink(
+                rootURL: repoURL,
                 intakeFrameSink: { _, frameJSON, _ in
                     await eventCapture.recordIntake(frameJSON)
                 }
             )
-            defer { try? FileManager.default.removeItem(at: fixture.rootURL) }
-            let sourcesURL = fixture.rootURL.appending(path: "Sources")
-            let nodeModulesURL = fixture.rootURL
+            let sourcesURL = repoURL.appending(path: "Sources")
+            let nodeModulesURL =
+                repoURL
                 .appending(path: "BridgeWeb")
                 .appending(path: "node_modules")
                 .appending(path: "package")
             try FileManager.default.createDirectory(at: sourcesURL, withIntermediateDirectories: true)
             try FileManager.default.createDirectory(at: nodeModulesURL, withIntermediateDirectories: true)
+            try "node_modules/\n".write(
+                to: repoURL.appending(path: ".gitignore"),
+                atomically: true,
+                encoding: .utf8
+            )
             for index in 0..<260 {
                 let fileName = String(format: "File%03d.swift", index)
                 try "struct File\(index) {}\n".write(
@@ -73,12 +81,90 @@ extension WebKitSerializedTests {
                 intakeFrames[0],
                 as: BridgeWorktreeSnapshotFrame.self
             )
-            #expect(snapshotEnvelope.payload.treeRows.count == 200)
+            #expect(
+                snapshotEnvelope.payload.treeRows.count
+                    == AppPolicies.Bridge.worktreeFileTreeMetadataWindowRowLimit
+            )
             #expect(
                 snapshotEnvelope.payload.treeRows.allSatisfy { row in
                     !row.path.contains("node_modules")
                 }
             )
+            fixture.controller.teardown()
+        }
+
+        @Test("root scoped open source publishes non-ignored dotfiles under git-truth policy")
+        func rootScopedOpenSourcePublishesNonIgnoredDotfilesUnderGitTruthPolicy() async throws {
+            let repoURL = try FilesystemTestGitRepo.create(named: "worktree-file-git-truth-policy")
+            defer { FilesystemTestGitRepo.destroy(repoURL) }
+            let workflowsURL = repoURL.appending(path: ".github").appending(path: "workflows")
+            let nodeModulesURL = repoURL.appending(path: "node_modules").appending(path: "package")
+            let sourcesURL = repoURL.appending(path: "Sources")
+            try FileManager.default.createDirectory(at: workflowsURL, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: nodeModulesURL, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: sourcesURL, withIntermediateDirectories: true)
+            try "node_modules/\nignored/\n".write(
+                to: repoURL.appending(path: ".gitignore"),
+                atomically: true,
+                encoding: .utf8
+            )
+            try "name: ci\n".write(
+                to: workflowsURL.appending(path: "ci.yml"),
+                atomically: true,
+                encoding: .utf8
+            )
+            try "console.log('dep')\n".write(
+                to: nodeModulesURL.appending(path: "index.js"),
+                atomically: true,
+                encoding: .utf8
+            )
+            try "struct Visible {}\n".write(
+                to: sourcesURL.appending(path: "Visible.swift"),
+                atomically: true,
+                encoding: .utf8
+            )
+            let eventCapture = BridgeWorktreeFileSurfaceEventCapture()
+            let fixture = try makeControllerFixtureWithIntakeSink(
+                rootURL: repoURL,
+                intakeFrameSink: { _, frameJSON, _ in
+                    await eventCapture.recordIntake(frameJSON)
+                }
+            )
+            let responseCapture = BridgeWorktreeFileSurfaceResponseCapture()
+            fixture.controller.router.onResponse = { responseJSON in
+                await responseCapture.set(responseJSON)
+            }
+            await fixture.controller.handleIncomingRPC(
+                #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
+            )
+            await fixture.controller.handleIncomingRPC(
+                try BridgeWorktreeFileSurfaceRPCRequest(
+                    id: "open-git-truth-policy-root",
+                    method: "worktreeFileSurface.openSourceStream",
+                    params: sourceSpec(
+                        fixture: fixture,
+                        clientRequestId: "request-git-truth-policy-root",
+                        pathScope: []
+                    )
+                ).jsonString()
+            )
+
+            let response = try await decodedResponse(from: responseCapture)
+            await fixture.controller.handleBridgeIntakeReady(
+                BridgeIntakeReadyMethod.Params(protocolId: "worktree-file", streamId: response.result.streamId)
+            )
+            await fixture.controller.activeWorktreeFileTreeWindowTask?.value
+            let treePaths = try await allTreePaths(from: eventCapture)
+            #expect(treePaths.contains(".github"))
+            #expect(treePaths.contains(".github/workflows"))
+            #expect(treePaths.contains(".github/workflows/ci.yml"))
+            #expect(treePaths.contains(".gitignore"))
+            #expect(treePaths.contains("Sources/Visible.swift"))
+            #expect(!treePaths.contains("node_modules"))
+            #expect(!treePaths.contains("node_modules/package/index.js"))
+            #expect(!treePaths.contains(".git"))
+            #expect(treePaths.allSatisfy { !$0.hasPrefix(".git/") })
+
             fixture.controller.teardown()
         }
 
@@ -231,14 +317,19 @@ extension WebKitSerializedTests {
                 try #require(intakeFrames.last),
                 as: BridgeWorktreeTreeWindowFrame.self
             )
-            #expect(snapshotEnvelope.payload.treeRows.count == 200)
+            // Published rows: .gitignore + Sources + 260 files = 262 under
+            // git-truth publication policy.
+            let windowLimit = AppPolicies.Bridge.worktreeFileTreeMetadataWindowRowLimit
+            let expectedPublishedRowCount = 262
+            #expect(snapshotEnvelope.payload.treeRows.count == windowLimit)
             #expect(continuationEnvelope.payload.frameKind == "worktree.treeWindow")
-            #expect(continuationEnvelope.payload.treeSizeFacts.windowStartIndex == 200)
-            #expect(continuationEnvelope.payload.rows.count == 61)
-            #expect(continuationEnvelope.payload.treeSizeFacts.pathCount == 261)
+            #expect(continuationEnvelope.payload.treeSizeFacts.windowStartIndex == windowLimit)
+            #expect(continuationEnvelope.payload.rows.count == expectedPublishedRowCount - windowLimit)
+            #expect(continuationEnvelope.payload.treeSizeFacts.pathCount == expectedPublishedRowCount)
 
             let treePaths = try await allTreePaths(from: eventCapture)
-            #expect(treePaths.count == 261)
+            #expect(treePaths.count == expectedPublishedRowCount)
+            #expect(treePaths.contains(".gitignore"))
             #expect(treePaths.contains("Sources"))
             #expect(treePaths.contains("Sources/Visible000.swift"))
             #expect(treePaths.contains("Sources/Visible259.swift"))
