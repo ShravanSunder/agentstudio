@@ -13,11 +13,9 @@ import {
 	type BridgeFileViewerRenderState,
 	pruneEmptyWorktreeFileTreeDirectories,
 	projectBridgeFileViewerDescriptors,
-	visibleFileDemandChangeWithoutDescriptorId,
-} from './bridge-file-viewer-app.js';
-import {
 	reconcileOpenFileStateWithFrames,
 	resetSnapshotFramesKeepOpenFilePath,
+	visibleFileDemandChangeWithoutDescriptorId,
 } from './bridge-file-viewer-state.js';
 
 describe('BridgeFileViewerApp tree row pruning', () => {

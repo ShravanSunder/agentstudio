@@ -6,23 +6,17 @@ import type {
 	WorktreeFileDemandStimulus,
 } from '../features/worktree-file/models/worktree-file-protocol-models.js';
 import { canFetchWorktreeFileDescriptorContent } from '../features/worktree-file/models/worktree-file-protocol-models.js';
-import { recordBridgeWorktreeFileVisibleDemandSettledTelemetrySample } from '../foundation/telemetry/bridge-viewer-telemetry-adapter.js';
 import type { WorktreeFileSurfaceRuntime } from '../worktree-file-surface/worktree-file-surface-runtime.js';
 import type { BridgeFileViewerAppProps } from './bridge-file-viewer-app-props.js';
 import { BridgeFileViewerLazyLoadingFrame } from './bridge-file-viewer-lazy-loading-frame.js';
 import { createBridgeFileViewerRuntime } from './bridge-file-viewer-runtime.js';
 import {
 	emptyRenderState,
-	firstSuccessfulDemandLoadResult,
-	visibleFileDemandChangeWithoutDescriptorId,
-	visibleFileDemandSignature,
-	visibleViewportDemandDispatchSatisfied,
 	type BridgeFileViewerDemandDispatchDebugState,
 	type BridgeFileViewerOpenState,
 	type BridgeFileViewerPendingRecentlyUpdatedDescriptorDemand,
 	type BridgeFileViewerRenderState,
 } from './bridge-file-viewer-state.js';
-import { type BridgeFileViewerVisibleFileDemandChange } from './bridge-file-viewer-tree-panel.js';
 import { useBridgeFileViewerActiveModeGate } from './use-bridge-file-viewer-active-mode-gate.js';
 import { useBridgeFileViewerBodyState } from './use-bridge-file-viewer-body-state.js';
 import { useBridgeFileViewerContentController } from './use-bridge-file-viewer-content-controller.js';
@@ -32,12 +26,7 @@ import { useBridgeFileViewerRecentlyUpdatedDemand } from './use-bridge-file-view
 import { useBridgeFileViewerSelectionEffects } from './use-bridge-file-viewer-selection-effects.js';
 import { useBridgeFileViewerShellModel } from './use-bridge-file-viewer-shell-model.js';
 import { useBridgeFileViewerStoreBindings } from './use-bridge-file-viewer-store-bindings.js';
-export {
-	applyFramesToRuntime,
-	projectBridgeFileViewerDescriptors,
-	pruneEmptyWorktreeFileTreeDirectories,
-	visibleFileDemandChangeWithoutDescriptorId,
-} from './bridge-file-viewer-state.js';
+import { useBridgeFileViewerVisibleDemandController } from './use-bridge-file-viewer-visible-demand-controller.js';
 export type { BridgeFileViewerRenderState } from './bridge-file-viewer-state.js';
 export type { BridgeFileViewerAppProps } from './bridge-file-viewer-app-props.js';
 const LazyBridgeFileViewerShell = lazy(async () => {
@@ -349,166 +338,21 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 		requestFileDescriptorForDemand,
 	});
 
-	const dispatchVisibleFileDemand = useCallback(
-		(change: BridgeFileViewerVisibleFileDemandChange): void => {
-			if (!isActive) {
-				return;
-			}
-			let visibleDemandChange = change;
-			const recentlyUpdatedLoadedDescriptorId = recentlyUpdatedLoadedDescriptorIdRef.current;
-			if (recentlyUpdatedLoadedDescriptorId !== null) {
-				recentlyUpdatedLoadedDescriptorIdRef.current = null;
-				const filteredVisibleDemandChange = visibleFileDemandChangeWithoutDescriptorId(
-					change,
-					recentlyUpdatedLoadedDescriptorId,
-				);
-				if (filteredVisibleDemandChange === null) {
-					return;
-				}
-				visibleDemandChange = filteredVisibleDemandChange;
-			}
-			const runtime = runtimeRef.current;
-			if (runtime === null || visibleDemandChange.descriptorRefs.length === 0) {
-				return;
-			}
-			if (recentlyUpdatedDemandInFlightRef.current) {
-				return;
-			}
-			const visibleDemandSignature = visibleFileDemandSignature(visibleDemandChange);
-			if (activeVisibleDemandSignatureRef.current === visibleDemandSignature) {
-				return;
-			}
-			if (
-				lastVisibleDemandSignatureRef.current === visibleDemandSignature &&
-				visibleViewportDemandDispatchSatisfied(lastDemandDispatchDebugStateRef.current)
-			) {
-				return;
-			}
-			activeVisibleDemandSignatureRef.current = visibleDemandSignature;
-			const requestId = demandDispatchRequestIdRef.current + 1;
-			demandDispatchRequestIdRef.current = requestId;
-			const visibleDemandStartedAt = performance.now();
-			const recentlyUpdatedDemandRequestIdAtStart = recentlyUpdatedDemandRequestIdRef.current;
-			const stimuli: readonly WorktreeFileDemandStimulus[] = [
-				{
-					kind: 'treeViewportChanged',
-					descriptorRefs: [...visibleDemandChange.descriptorRefs],
-				},
-			];
-			void runtime
-				.dispatchDemandStimuli(stimuli)
-				.then((result): void => {
-					if (!isActiveRef.current) {
-						if (activeVisibleDemandSignatureRef.current === visibleDemandSignature) {
-							activeVisibleDemandSignatureRef.current = null;
-						}
-						return;
-					}
-					if (recentlyUpdatedDemandRequestIdRef.current !== recentlyUpdatedDemandRequestIdAtStart) {
-						if (activeVisibleDemandSignatureRef.current === visibleDemandSignature) {
-							activeVisibleDemandSignatureRef.current = null;
-						}
-						return;
-					}
-					const nextDebugState: BridgeFileViewerDemandDispatchDebugState = {
-						origin: {
-							expectedVisibleFileCount: visibleDemandChange.visibleFileCount,
-							kind: 'visibleViewport',
-						},
-						status: 'settled',
-						result,
-					};
-					if (activeVisibleDemandSignatureRef.current === visibleDemandSignature) {
-						activeVisibleDemandSignatureRef.current = null;
-					}
-					if (demandDispatchRequestIdRef.current !== requestId) {
-						return;
-					}
-					if (visibleViewportDemandDispatchSatisfied(nextDebugState)) {
-						lastVisibleDemandSignatureRef.current = visibleDemandSignature;
-					}
-					if (telemetryRecorder !== undefined) {
-						const firstLoadTelemetry =
-							firstSuccessfulDemandLoadResult(result)?.loadTelemetry ?? null;
-						recordBridgeWorktreeFileVisibleDemandSettledTelemetrySample({
-							durationMilliseconds: performance.now() - visibleDemandStartedAt,
-							enqueueAcceptedCount: result.enqueueAcceptedCount,
-							enqueueRejectedCount: result.enqueueRejectedCount,
-							executorInFlightMilliseconds:
-								firstLoadTelemetry?.executorInFlightMilliseconds ?? null,
-							executorPendingWaitMilliseconds:
-								firstLoadTelemetry?.executorPendingWaitMilliseconds ?? null,
-							failedCount: result.failedCount,
-							firstChunkWaitMilliseconds:
-								firstLoadTelemetry?.resourceFirstChunkWaitMilliseconds ?? null,
-							intentCount: result.intentCount,
-							lane: firstLoadTelemetry?.lane ?? null,
-							loadedCount: result.loadedCount,
-							requestId,
-							responseWaitMilliseconds:
-								firstLoadTelemetry?.resourceFetchResponseWaitMilliseconds ?? null,
-							result: result.failedCount === 0 ? 'success' : 'failed',
-							resultReason: result.failedCount === 0 ? null : 'load_failed',
-							schedulerQueueWaitMilliseconds:
-								firstLoadTelemetry?.schedulerQueueWaitMilliseconds ?? null,
-							streamReadMilliseconds: firstLoadTelemetry?.resourceStreamReadMilliseconds ?? null,
-							telemetryRecorder,
-							traceContext: telemetryTraceContext,
-							visibleItemCount: change.visibleFileCount,
-						});
-					}
-					viewerActions.setLastDemandDispatchDebugState(nextDebugState);
-				})
-				.catch((error: unknown): void => {
-					if (!isActiveRef.current) {
-						if (activeVisibleDemandSignatureRef.current === visibleDemandSignature) {
-							activeVisibleDemandSignatureRef.current = null;
-						}
-						return;
-					}
-					if (recentlyUpdatedDemandRequestIdRef.current !== recentlyUpdatedDemandRequestIdAtStart) {
-						if (activeVisibleDemandSignatureRef.current === visibleDemandSignature) {
-							activeVisibleDemandSignatureRef.current = null;
-						}
-						return;
-					}
-					if (activeVisibleDemandSignatureRef.current === visibleDemandSignature) {
-						activeVisibleDemandSignatureRef.current = null;
-					}
-					if (demandDispatchRequestIdRef.current !== requestId) {
-						return;
-					}
-					if (telemetryRecorder !== undefined) {
-						recordBridgeWorktreeFileVisibleDemandSettledTelemetrySample({
-							durationMilliseconds: performance.now() - visibleDemandStartedAt,
-							enqueueAcceptedCount: 0,
-							enqueueRejectedCount: 0,
-							executorInFlightMilliseconds: null,
-							executorPendingWaitMilliseconds: null,
-							failedCount: change.visibleFileCount,
-							firstChunkWaitMilliseconds: null,
-							intentCount: change.visibleFileCount,
-							lane: 'visible',
-							loadedCount: 0,
-							requestId,
-							responseWaitMilliseconds: null,
-							result: 'failed',
-							resultReason: 'load_failed',
-							schedulerQueueWaitMilliseconds: null,
-							streamReadMilliseconds: null,
-							telemetryRecorder,
-							traceContext: telemetryTraceContext,
-							visibleItemCount: change.visibleFileCount,
-						});
-					}
-					viewerActions.setLastDemandDispatchDebugState({
-						status: 'failed',
-						reason: error instanceof Error ? error.message : String(error),
-					});
-				});
-		},
-		[isActive, isActiveRef, telemetryRecorder, telemetryTraceContext, viewerActions],
-	);
+	const dispatchVisibleFileDemand = useBridgeFileViewerVisibleDemandController({
+		activeVisibleDemandSignatureRef,
+		demandDispatchRequestIdRef,
+		isActive,
+		isActiveRef,
+		lastDemandDispatchDebugStateRef,
+		lastVisibleDemandSignatureRef,
+		recentlyUpdatedDemandInFlightRef,
+		recentlyUpdatedDemandRequestIdRef,
+		recentlyUpdatedLoadedDescriptorIdRef,
+		runtimeRef,
+		setLastDemandDispatchDebugState: viewerActions.setLastDemandDispatchDebugState,
+		telemetryRecorder,
+		telemetryTraceContext,
+	});
 
 	useBridgeFileViewerRecentlyUpdatedDemand({
 		dispatchRecentlyUpdatedDescriptorDemand,
