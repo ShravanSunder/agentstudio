@@ -88,9 +88,13 @@ highlighting, and worker-backed rendering.
 Provider owns:
 
 - worktree source authority
+- authoritative file-tree metadata production
+- persistent metadata stream scheduling for the accepted source
 - filesystem watch classification
 - git status classification
-- tree/window descriptors
+- tree rows/windows/ranges/deltas as streamed metadata frames
+- metadata interest handling for selected/open/visible/nearby/speculative/idle
+  source ranges
 - file content descriptors
 - file invalidation facts
 - content handles and content hashes
@@ -105,6 +109,8 @@ Browser surface owns:
 - reserved future comments/comms projection state once enabled
 - app demand policy that maps selected, open, visible, and nearby resources onto
   generic Bridge demand lanes
+- browser-to-provider metadata interest updates for selected/open/visible/
+  nearby/speculative/idle source ranges
 - adaptation from Worktree/File frames and descriptors into shared FileViewer
   item/tree input
 - renderer deltas into Pierre CodeView/File and Pierre FileTree
@@ -153,6 +159,10 @@ Worktree/File protocol
 
 Tree and file content can use separate substreams and descriptors, but they are
 part of one app protocol family and one user-facing surface.
+
+Tree metadata is file data. Production Swift/native owns it. BridgeWeb consumes
+and applies it; Vite/dev-server may emulate it. No browser-side scan or
+JavaScript-generated manifest is authoritative for native FileViewer.
 
 The Worktree/File protocol can have its own source provider, materializer, and
 demand policy, but it must not own a parallel application shell, a custom
@@ -354,7 +364,6 @@ export const WorktreeFileSurfaceSourceSpec = z.object({
   cwdScope: z.string().min(1).optional(),
   pathScope: z.array(z.string().min(1)).optional(),
   includeStatuses: z.boolean().default(true),
-  includeFileDescriptors: z.boolean().default(true),
   includeComments: z.boolean().default(false),
   includeAgentComms: z.boolean().default(false),
   freshness: z.literal('live'),
@@ -379,6 +388,7 @@ export const WorktreeTreeProjectionIdentity = z.object({
 }).strict();
 
 export const WorktreeTreeVirtualizedSizeFacts = z.object({
+  extentKind: z.enum(['exactPathCount', 'estimatedTotalHeight']),
   pathCount: z.number().int().nonnegative(),
   windowStartIndex: z.number().int().nonnegative().optional(),
   windowRowCount: z.number().int().nonnegative().optional(),
@@ -394,48 +404,18 @@ export const WorktreeFileVirtualizedExtentKind = z.enum([
 ]);
 
 export const WorktreeFileSurfaceResourceKind = z.enum([
-  'worktree.treeWindow',
-  'worktree.treeDeltaOperations',
-  'worktree.status',
   'worktree.fileContent',
   'worktree.fileRange',
   'worktree.commentThreadWindow',
   'worktree.agentCommsWindow',
 ]);
 
-export const WorktreeFileSurfaceOpenSourceAccepted = z.object({
-  kind: z.literal('accepted'),
-  source: WorktreeFileSurfaceSourceIdentity,
-  eventStreamId: z.string().min(1),
-  intakeStreamId: z.string().min(1),
-  initialCursor: z.string().min(1),
-  treeRootDescriptor: BridgeAttachedResourceDescriptor.optional(),
+export const WorktreeFileSurfaceOpenSourceOutcome = z.object({
+  status: z.literal('accepted'),
+  protocol: z.literal('worktree-file'),
+  streamId: z.string().min(1),
+  generation: z.number().int().nonnegative(),
 }).strict();
-
-export const WorktreeFileSurfaceOpenSourceRejected = z.object({
-  kind: z.literal('rejected'),
-  reason: z.enum([
-    'notFound',
-    'unauthorized',
-    'outsideScope',
-    'unsupportedSource',
-    'providerUnavailable',
-    'invalidRequest',
-  ]),
-  message: z.string().min(1).optional(),
-}).strict();
-
-export const WorktreeFileSurfaceOpenSourceDeferred = z.object({
-  kind: z.literal('deferred'),
-  reason: z.enum(['providerStarting', 'indexing', 'backpressure']),
-  retryAfterMilliseconds: z.number().int().positive().optional(),
-}).strict();
-
-export const WorktreeFileSurfaceOpenSourceOutcome = z.discriminatedUnion('kind', [
-  WorktreeFileSurfaceOpenSourceAccepted,
-  WorktreeFileSurfaceOpenSourceRejected,
-  WorktreeFileSurfaceOpenSourceDeferred,
-]);
 ```
 
 Contract:
@@ -447,9 +427,15 @@ Contract:
 - Browser-supplied path/cwd scopes are selectors that must be canonicalized and
   containment-checked provider-side.
 - `worktreeFileSurface.openSourceStream` returns
-  `WorktreeFileSurfaceOpenSourceOutcome`. Only `accepted` establishes source
-  identity, event-stream lineage, intake-stream lineage, and the initial cursor.
-  `rejected` and `deferred` do not create descriptor or content authority.
+  `WorktreeFileSurfaceOpenSourceOutcome`. The result is a small control ack
+  only. Source identity, cursor lineage, tree facts, descriptor refs, and
+  invalidations arrive on the continuous/intake stream. Failed open requests
+  fail as JSON-RPC errors with scrubbed native error classification and do not
+  create descriptor or content authority.
+- The open-source input and outcome are shared fixtures. Swift must decode the
+  browser input strictly; TypeScript must Zod-parse the native output strictly;
+  both sides must reject wrong protocol ids, missing required fields, and
+  unknown fields.
 
 ## 6. File Descriptor And Content Session
 
@@ -536,32 +522,76 @@ Recommended status scope:
 ## 8. Intake Frames
 
 ```ts
+export const WorktreeTreeRowMetadata = z.object({
+  rowId: z.string().min(1),
+  path: z.string().min(1),
+  name: z.string().min(1),
+  parentPath: z.string().min(1).nullable(),
+  depth: z.number().int().nonnegative(),
+  isDirectory: z.boolean(),
+  fileId: z.string().min(1).optional(),
+  childCount: z.number().int().nonnegative().optional(),
+  subtreeDescendantCount: z.number().int().nonnegative().optional(),
+  sizeBytes: z.number().int().nonnegative().optional(),
+  lineCount: z.number().int().nonnegative().optional(),
+  virtualizedExtentKind: z.enum(['exactLineCount', 'estimatedHeight', 'previewBounded', 'unavailable']).optional(),
+  estimatedContentHeightPixels: z.number().int().nonnegative().optional(),
+  changeStatus: z.enum(['unmodified', 'modified', 'added', 'deleted', 'renamed', 'copied', 'untracked', 'ignored']).optional(),
+  descriptorRefs: z.array(BridgeDescriptorRef).optional(),
+  sortKey: z.string().min(1).optional(),
+}).strict();
+
+export const WorktreeTreeOperation = z.discriminatedUnion('op', [
+  z.object({
+    op: z.literal('upsertRows'),
+    rows: z.array(WorktreeTreeRowMetadata),
+  }).strict(),
+  z.object({
+    op: z.literal('removeRows'),
+    rowIds: z.array(z.string().min(1)),
+    paths: z.array(z.string().min(1)).optional(),
+  }).strict(),
+  z.object({
+    op: z.literal('moveSubtree'),
+    rowId: z.string().min(1),
+    oldPath: z.string().min(1),
+    newPath: z.string().min(1),
+    newParentPath: z.string().min(1).nullable(),
+    depthDelta: z.number().int(),
+  }).strict(),
+  z.object({
+    op: z.literal('replaceWindow'),
+    projectionIdentity: WorktreeTreeProjectionIdentity,
+    startIndex: z.number().int().nonnegative(),
+    rows: z.array(WorktreeTreeRowMetadata),
+    totalRowCount: z.number().int().nonnegative().optional(),
+  }).strict(),
+]);
+
 export const WorktreeSnapshotFrame = BridgeIntakeFrameBase.extend({
   frameKind: z.literal('worktree.snapshot'),
   source: WorktreeFileSurfaceSourceIdentity,
   requestSelector: WorktreeFileSurfaceSourceSpec.optional(),
-  treeDescriptor: BridgeAttachedResourceDescriptor,
+  treeRows: z.array(WorktreeTreeRowMetadata),
   treeSizeFacts: WorktreeTreeVirtualizedSizeFacts.optional(),
-  statusDescriptor: BridgeAttachedResourceDescriptor.optional(),
+  statusPatch: WorktreeStatusPatch.optional(),
 }).strict();
 
 export const WorktreeTreeWindowFrame = BridgeIntakeFrameBase.extend({
   frameKind: z.literal('worktree.treeWindow'),
   projectionIdentity: WorktreeTreeProjectionIdentity,
-  windowDescriptor: BridgeAttachedResourceDescriptor,
+  rows: z.array(WorktreeTreeRowMetadata),
   treeSizeFacts: WorktreeTreeVirtualizedSizeFacts.optional(),
 }).strict();
 
 export const WorktreeTreeDeltaFrame = BridgeIntakeFrameBase.extend({
   frameKind: z.literal('worktree.treeDelta'),
-  operationsDescriptor: BridgeAttachedResourceDescriptor,
+  operations: z.array(WorktreeTreeOperation),
 }).strict();
 
 export const WorktreeStatusPatchFrame = BridgeIntakeFrameBase.extend({
   frameKind: z.literal('worktree.statusPatch'),
-  patch: WorktreeStatusPatch.or(z.object({
-    statusDescriptor: BridgeAttachedResourceDescriptor,
-  }).strict()),
+  patch: WorktreeStatusPatch,
 }).strict();
 
 export const WorktreeFileDescriptorFrame = BridgeIntakeFrameBase.extend({
@@ -582,11 +612,12 @@ export const WorktreeResetFrame = BridgeIntakeFrameBase.extend({
 }).strict();
 ```
 
-An accepted `worktreeFileSurface.openSourceStream` outcome is the first
-authoritative source-identity handoff for the surface. `worktree.snapshot` is
-the first authoritative intake/projection frame for that accepted source.
-`requestSelector` may echo the browser request for diagnostics, but it is not
-authority for stale-drop, demand keys, or resource fetches.
+An accepted `worktreeFileSurface.openSourceStream` outcome is the control ack
+that establishes the accepted stream id and generation. The first
+`worktree.snapshot` for that stream is the first authoritative source-identity
+and intake/projection handoff for the accepted source. `requestSelector` may
+echo the browser request for diagnostics, but it is not authority for
+stale-drop, demand keys, or resource fetches.
 
 Tree/file virtualization facts should arrive with the earliest authoritative
 frame that knows them. Providers should expose tree row/count/window facts and
@@ -606,12 +637,21 @@ Worktree/File subscription binding to the parent continuous event stream:
 - File selection is browser-local open-session state over a provider descriptor.
   It is not a Swift/Bridge `openFile` RPC in this contract. Selecting or
   refreshing a file emits app demand stimuli for descriptor-backed content.
+- Metadata interest is browser-to-provider control state over the accepted
+  source stream. It is not file discovery. It tells Swift which already-scoped
+  source metadata matters now: selected/open path, visible tree range, expanded
+  subtree, adjacent range, scroll-direction lookahead, hover/search prediction,
+  or idle manifest completion.
 - Compact lifecycle facts for the source ride the continuous event stream:
   ready/heartbeat, source status, descriptor availability, file/tree/status
   invalidation notice, gap, reset, and close.
 - Worktree/File intake frames carry projection materialization: source snapshot,
-  tree window, tree delta operations, status patches, file descriptors, rich file
-  invalidation details, and reset replacement descriptors.
+  visible-first and continuing tree windows, tree delta operations, status
+  patches, file descriptors, rich file invalidation details, and reset
+  replacement facts. Tree metadata streams through intake; it must not be
+  hidden behind a tree body descriptor before the FileTree can render. Swift
+  produces these metadata frames for native; BridgeWeb never owns native tree
+  metadata production.
 - `worktree.fileInvalidated` and `worktree.reset` frames are app projection
   detail that must agree with the authoritative `bridge.invalidated` or
   `bridge.reset` event for the same source identity, generation, and cursor.
@@ -622,11 +662,69 @@ Worktree/File subscription binding to the parent continuous event stream:
 
 ## 9. Demand Policy Stimuli
 
-Worktree/File demand policy consumes app-specific stimuli and emits generic
-`DemandIntent` values. The stimuli are discriminated unions, not loose boolean
-bags. The emitted lane names remain generic Bridge lanes.
+Worktree/File demand policy has two outputs:
+
+- metadata interest updates sent to the native provider to prioritize the
+  persistent metadata stream
+- content `DemandIntent` values for descriptor-backed body/range byte streams
+
+Both use the same lane vocabulary. Metadata interest is a control signal, not a
+JS-owned metadata fetch. Content demand is resource execution, not metadata
+production. The stimuli are discriminated unions, not loose boolean bags. The
+emitted lane names remain generic Bridge lanes.
 
 ```ts
+export const WorktreeFileMetadataInterestSelector = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('selectedPath'),
+    path: z.string().min(1),
+    includeAncestors: z.boolean().default(true),
+    includeDescriptorFacts: z.boolean().default(true),
+  }).strict(),
+  z.object({
+    kind: z.literal('visibleRange'),
+    projectionIdentity: WorktreeTreeProjectionIdentity,
+    startIndex: z.number().int().nonnegative(),
+    endIndexExclusive: z.number().int().positive(),
+  }).strict(),
+  z.object({
+    kind: z.literal('expandedSubtree'),
+    path: z.string().min(1),
+    depthBudget: z.number().int().nonnegative().max(8),
+    rowBudget: z.number().int().positive().max(500),
+  }).strict(),
+  z.object({
+    kind: z.literal('adjacentRange'),
+    projectionIdentity: WorktreeTreeProjectionIdentity,
+    anchorIndex: z.number().int().nonnegative(),
+    before: z.number().int().nonnegative().max(500),
+    after: z.number().int().nonnegative().max(500),
+    direction: z.enum(['up', 'down', 'unknown']),
+  }).strict(),
+  z.object({
+    kind: z.literal('predictedPath'),
+    path: z.string().min(1),
+    reason: z.enum(['hover', 'keyboardFocus', 'search', 'providerPrediction']),
+  }).strict(),
+  z.object({
+    kind: z.literal('remainingManifest'),
+    rowBudget: z.number().int().positive().max(2_000),
+  }).strict(),
+]);
+
+export const WorktreeFileMetadataInterestUpdate = z.object({
+  kind: z.literal('metadataInterest'),
+  updateId: z.string().min(1),
+  sourceId: z.string().min(1),
+  generation: z.string().min(1),
+  cursor: z.string().min(1).optional(),
+  paneId: z.string().min(1),
+  lane: BridgeDemandLane,
+  selectors: z.array(WorktreeFileMetadataInterestSelector).min(1).max(32),
+  reason: z.enum(['initialVisible', 'selection', 'scroll', 'expand', 'hover', 'search', 'idleCompletion', 'refresh']),
+  issuedAtUnixMs: z.number().int().nonnegative(),
+}).strict();
+
 export const WorktreeFileSurfaceDemandStimulus = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('fileSelected'),
@@ -665,15 +763,29 @@ export const WorktreeFileSurfaceDemandStimulus = z.discriminatedUnion('kind', [
 ]);
 ```
 
+Metadata interest reject cases:
+
+- unknown or cross-pane `sourceId`, `generation`, or `paneId`
+- stale `generation` after `worktree.reset` or source replacement
+- `endIndexExclusive <= startIndex`
+- range, subtree, adjacent, or remaining-manifest budgets above the schema caps
+- selectors that require metadata bodies, file bodies, diff bodies, or raw path
+  corpus payloads in the control frame
+- unknown fields or selector variants
+
 Required mappings:
 
-- `fileSelected` and `explicitRefresh` map to `foreground`.
+- `fileSelected` maps selected/open path metadata, ancestors, descriptor facts,
+  and selected content to `foreground`.
+- `explicitRefresh` maps refreshed descriptor/content work to `foreground`.
 - `openFileInvalidated` marks stale and emits no content demand in the first
   implementation. Content refresh requires `explicitRefresh`.
-- `treeViewportChanged` maps demanded visible window refs to `visible`.
-- `treeExpanded` maps visible expansion windows to `visible`; nearby expansion
-  windows can map to `nearby`.
-- `hoverChanged` maps non-null demanded refs to `speculative`.
+- `treeViewportChanged` maps the current visible tree range to metadata
+  interest lane `visible` and any already-attached visible body warming to
+  content lane `visible`.
+- `treeExpanded` maps the expanded subtree window to metadata interest lane
+  `visible`; sibling/adjacent expansion windows can map to `nearby`.
+- `hoverChanged` maps non-null prediction metadata/content to `speculative`.
 - Debounced recently-updated file events from the currently open FileViewer
   source map to `speculative` by default. They may upgrade to `nearby` only when
   the updated descriptor is adjacent to the selected/open/visible region. They
@@ -685,31 +797,45 @@ Required mappings:
 
 ## 10. Tree Windowing
 
-Huge repos cannot require full-tree materialization.
+Huge repos cannot require full-tree materialization before useful UI, but the
+full tree manifest still streams as provider-produced metadata over the
+persistent source stream. The first rows are not a one-time blob, and the rest
+of the manifest is not an unprioritized cold crawl.
 
 Recommended delivery:
 
 ```text
-initial snapshot
-  includes descriptor for root/visible window
+persistent metadata stream opens
+  source accepted, generation/cursor established
 
-visible expansion
-  app demand policy maps tree-window work to the visible lane
-  demand scheduler orders it
-  resource executor fetches bounded tree window
+initial metadata frames
+  include selected/open target metadata, ancestors, visible rows,
+  size/extent facts, and descriptor refs
+
+metadata interest updates
+  foreground: selected/open path, ancestors, descriptor facts
+  visible: current viewport ranges and expanded visible subtree
+  nearby: adjacent ranges and scroll-direction lookahead
+  speculative: hover/search prediction
+  idle: remaining manifest completion with no starvation
+
+provider production
+  Swift reorders metadata frame production from the interest state and emits
+  frames on the same persistent stream
 
 hidden changes
   provider emits compact stale/invalidation facts
-  hidden descendants are not fetched until demanded
+  hidden descendants are not prioritized until demanded, but idle manifest
+  completion continues under a no-starvation budget
 ```
 
-Tree windows carry stable size metadata separately from row bodies. At minimum,
+Tree windows carry stable size metadata with the metadata frames. At minimum,
 the first provider snapshot or first demanded window should tell the browser the
 current `pathCount`, fixed or declared row height, and any known visible-window
 row range so the tree can reserve extent before all descendants or file bodies
 are hydrated. If the exact `pathCount` is not yet available, the provider must
 send a conservative estimated total extent and later reconcile it through a
-measured, attributed update instead of allowing the tree body stream to resize
+measured, attributed update instead of allowing a later body stream to resize
 the scrollbar silently.
 
 ## 11. Surface Flow
@@ -729,14 +855,12 @@ sequenceDiagram
   Browser->>Bridge: RPC(worktreeFileSurface.openSourceStream, sourceSpec)
   Bridge->>Provider: validate scope and open subscription
   Provider->>Bridge: bridge.ready(eventStreamId, cursor)
-  Provider->>Bridge: worktree.snapshot(treeDescriptor)
+  Provider->>Bridge: worktree.snapshot(visible-first tree metadata)
   Bridge->>Mat: applyFrame(snapshot)
   Mat->>Policy: projection facts and descriptor refs
-  Policy->>Sched: visible tree-window demand intent
-  Sched->>Exec: ordered demand intent
-  Exec->>Bridge: fetch tree window
-  Exec->>Mat: tree window result
-  Mat->>Pierre: FileTree render delta
+  Policy->>Bridge: metadataInterest(visible range)
+  Provider->>Bridge: worktree.treeWindow/treeDelta metadata frames
+  Mat->>Pierre: FileTree render deltas
   Browser->>Mat: select descriptor and create open file session
   Mat->>Policy: fileSelected(descriptorRef)
   Policy->>Sched: foreground file-content demand intent
@@ -848,6 +972,13 @@ Contract:
 ## 14. Proof Expectations
 
 - worktree tree/status updates do not instantiate Review package lineage
+- Swift/native owns authoritative file-tree metadata production; BridgeWeb
+  applies streamed metadata and must not synthesize the native file tree
+- metadata interest updates prioritize the persistent metadata stream by lane:
+  selected/open target `foreground`, viewport `visible`, adjacent/lookahead
+  `nearby`, prediction `speculative`, and remaining manifest `idle`
+- visible/selected metadata does not wait behind idle manifest completion or
+  content warming
 - file descriptor replacement does not silently replace open rendered content
 - open file invalidation marks stale, exposes a visible update notification, and
   exposes refresh
@@ -874,7 +1005,8 @@ Contract:
 - worktree snapshot carries provider-issued source identity, not only the
   browser selector
 - worktree frames attach descriptors instead of exposing raw descriptor strings
-- huge tree expansion fetches bounded tree windows
+- huge tree expansion receives bounded tree-window metadata frames on the
+  persistent intake stream
 - initial tree/file facts expose row/count/window metadata and file line-count or
   estimated extent metadata before content bytes arrive for virtualization
 - tree scroll extent follows the DiffsHub-style model: provider `pathCount`,

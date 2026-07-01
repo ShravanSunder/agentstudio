@@ -80,6 +80,30 @@ product-like." The current checkpoint stack is:
 
 2026-06-27 orchestrator takeover correction:
 
+- 2026-07-01 goal reset correction:
+  file data includes metadata. Production Swift/native owns authoritative
+  Worktree/File and worktree-backed Review metadata production: file-tree rows,
+  paths, names, parent/depth, status/change facts, size/line/extent facts,
+  descriptor refs, invalidations, resets, and deltas. BridgeWeb consumes and
+  applies that metadata; it sends compact metadata-interest updates and
+  schedules content demand, but it does not discover or synthesize the native
+  file tree. Vite/dev-server must mimic this same stream contract for fast
+  proof only.
+- The metadata stream is persistent for the accepted source. Demand lanes for
+  metadata are browser-to-provider interest signals that reprioritize Swift
+  metadata production on that stream: selected/open target and ancestors are
+  `foreground`, visible tree/review ranges are `visible`, adjacent/lookahead
+  ranges are `nearby`, predictions are `speculative`, and remaining manifest
+  completion is `idle` with no-starvation. Metadata needed for visible/selected
+  UI must not wait behind idle manifest crawling or content warming.
+- Performance targets are requirements. The implementation must produce
+  Victoria/OTel-backed p95/p99 metrics for page load, file click,
+  tree-scroll-to-visible-rows, review click, review tree scroll,
+  metadata-interest-to-frame, metadata apply, content fetch, queue wait by lane,
+  stale drops, aborts, and idle/no-starvation progress. File click p95 must be
+  under 100ms and p99 under 200ms for normal text/source files. File tree and
+  review tree scroll must report p95/p99 and must have zero blank windows and
+  zero wrong visible rows.
 - This branch is no longer allowed to continue from the old assumption that a
   resource URL plus later `fetch().text()`/whole-body promise is sufficient.
   `agentstudio://resource/...` identifies a leased `ContentStreamPath` resource
@@ -87,18 +111,20 @@ product-like." The current checkpoint stack is:
   bounded; it may use whole-body integrity at completion for authoritative
   first-slice validation, but transfer and materialization must not be shaped as
   RPC/event/intake/store blob delivery.
-- Continuous event streams carry compact lifecycle/provider facts only:
+- Continuous event streams carry compact lifecycle/provider facts:
   readiness, heartbeat, source status, descriptor availability, invalidation,
   gap/reset/close, stream ids, cursors, and source identity. They do not carry
-  file bodies, diff bodies, tree windows, package bodies, or operation lists.
-- Intake streams carry ordered app projection frames and descriptor attachments:
+  file bodies, diff bodies, package bodies, or other body payloads.
+- Intake streams carry ordered app projection and metadata frames:
   Review snapshots/deltas/invalidation/reset and Worktree/File snapshots,
-  tree-window descriptors, status patches, file descriptors, and rich reset
-  details. They do not replace content/resource streams and they do not carry
-  large bodies.
-- Content/resource streams carry file text, diff text, markdown source, tree
-  windows, review package bodies, delta operation lists, and file ranges/windows
-  through `ContentStreamPath`.
+  tree-window rows, tree deltas, status patches, file descriptors, and rich reset
+  details. Tree/review/file metadata stays here as structured frames; it is not
+  hidden behind descriptor-backed body resources before the tree/projection can
+  render.
+- Content/resource streams carry only body/range bytes through
+  `ContentStreamPath`: file text, diff text, markdown source, and bounded body
+  chunks/windows. They do not carry authoritative tree manifests, review package
+  startup metadata, or semantic delta operation lists.
 - The written spec currently keeps first authoritative integrity at whole-body
   hash validation when an integrity hash is issued, while ranged/chunked reads
   are preview-only until chunk manifests exist. This is not permission to
@@ -139,6 +165,128 @@ product-like." The current checkpoint stack is:
 - Subagents should be used for bounded spec/code/browser/native evidence lanes
   where practical. The parent controller still owns integration, proof mapping,
   and completion claims.
+
+## 2026-07-01 Native Metadata Stream Cutover Plan
+
+### Goal
+
+Hard-cut FileView and worktree-backed Review to a native-owned, persistent,
+lane-aware metadata stream. Vite remains a fast adapter proving the same
+contract; it must not define file-tree metadata production.
+
+### Non-goals
+
+- Do not make BridgeWeb scan the filesystem or authoritatively build the native
+  file tree.
+- Do not move metadata into descriptor-backed blobs to avoid designing stream
+  priority.
+- Do not let content preloading or body fetches block selected/visible metadata.
+- Do not keep old package/blob-first Review startup as compatibility.
+
+### Vertical Slices
+
+1. Metadata interest contract
+   - Behavior: BridgeWeb reports selected/open path, visible range, expanded
+     subtree, adjacent/lookahead range, prediction, and idle-manifest interest
+     with lane priority against an accepted source.
+   - Swift owns: validating interest against the accepted source and using it
+     only to prioritize provider-produced metadata frames.
+   - BridgeWeb owns: deriving interest from Pierre tree viewport, selection,
+     expansion, search/hover, and context state.
+   - Proof: strict Swift/TypeScript contract fixtures, rejected stale/cross-pane
+     interest, and a unit proof that JS interest does not carry metadata bodies.
+
+2. Swift metadata producer scheduler
+   - Behavior: the native provider emits metadata frames on the persistent
+     stream using lane order: foreground, visible, nearby, speculative, idle.
+     Idle manifest completion gets a no-starvation budget.
+   - Swift owns: filesystem/git truth, ignore policy, source generation/cursor,
+     row/range/delta production, and cancellation on reset.
+   - Proof: Swift provider tests for selected-path foreground before idle
+     continuation, visible range before idle continuation, idle no-starvation,
+     and stale-generation drop.
+
+3. BridgeWeb application state split
+   - Behavior: metadata loading and content loading are separate typed states.
+     The tree keeps last-good rows while newer metadata is active. Content keeps
+     last-good/provisional state independently.
+   - BridgeWeb owns: applying metadata frames, preserving shell/tree/code panel
+     composition, and emitting metadata interest without remounting the app
+     frame.
+   - Proof: Vitest Browser/React tests for no blank tree during active metadata,
+     no content blanking due to metadata continuation, and no shell/header
+     remount on FileView/Review context switches.
+
+4. Content demand isolation
+   - Behavior: selected/visible content streams use content lanes and executor
+     pressure, but content warming cannot starve selected/visible metadata.
+   - Swift owns: leased content resources and chunk emission.
+   - BridgeWeb owns: scheduler/executor pressure and stale completion drops for
+     bodies.
+   - Proof: demand-pressure test where idle/speculative content is active while
+     visible metadata interest still reaches frame application within budget.
+
+5. Native performance and observability proof
+   - Behavior: marker-scoped native proof reports metadata latency separately
+     from content latency.
+   - Required metrics: metadata interest-to-frame, metadata frame apply,
+     content fetch, click-to-first-visible-content, scroll-to-visible-rows,
+     queue wait by lane, stale drops, aborts, and no-starvation idle progress.
+   - Proof: Victoria-backed debug app runs for FileView and Review with p95/p99
+     reports and screenshots/interaction artifacts.
+
+### Execution DAG
+
+```text
+gate 0: re-anchor spec/plan and current code evidence
+  |
+  +-- slice 1: metadata interest contract
+  |
+  +-- slice 2: Swift metadata producer scheduler
+  |
+  +-- slice 3: BridgeWeb state split and interest emission
+  |
+integration gate: Swift frames + BridgeWeb interest/apply interop
+  |
+slice 4: content demand isolation under pressure
+  |
+slice 5: native performance/observability proof
+  |
+implementation-review-swarm
+```
+
+### Requirements / Proof Matrix
+
+| Requirement | Source | Owning slice | Proof layer | Evidence |
+| --- | --- | --- | --- | --- |
+| Swift owns file-tree metadata production | `spec.md` R15, `worktree-file-surface-protocol.md` Ownership | 1, 2 | Swift unit/integration, TS contract | no JS metadata body/discovery path; provider emits rows |
+| Metadata stream is persistent and lane-aware | `spec.md` R16 | 1, 2, 3 | Swift integration, browser integration | interest updates reorder next frames on same stream |
+| Selected/visible metadata beats idle manifest/content warming | `spec.md` R16/R17 | 2, 4 | Swift integration, browser pressure, native smoke | foreground/visible interest-to-frame p95/p99 |
+| UI never blanks because metadata is active | Worktree/File proof expectations | 3 | Vitest Browser, native WKWebView | last-good tree/content retained during newer work |
+| Content streams remain body/range only | `spec.md` R17 | 4 | contract/unit/security | content resources do not carry authoritative tree manifest |
+| Native proof uses same contract as Vite | `performance-demand-lanes.md` | 5 | native smoke/e2e/Victoria | same metric names and scenario shape |
+| File click meets latency target | `performance-demand-lanes.md` | 3, 4, 5 | browser/native performance | normal text/source p95 <100ms, p99 <200ms |
+| Tree scroll is stable and measured | `performance-demand-lanes.md` | 2, 3, 5 | browser/native performance | p95/p99 reported, blank window count 0, wrong visible row count 0 |
+| Vite page load records startup latency | `performance-demand-lanes.md` page-load-current-worktree | 3, 5 | browser performance | non-exploratory artifact with run marker, runtime, worker mode, commit SHA |
+| Vite file click has enough samples | `performance-demand-lanes.md` file-click-random-100 | 3, 4, 5 | browser performance | >=100 samples, p95/p99, lane queue wait, content latency separated from metadata |
+| Vite tree scroll has enough samples | `performance-demand-lanes.md` tree-scroll-sampled-100 | 2, 3, 5 | browser performance | >=100 samples, p95/p99, blank windows 0, wrong visible rows 0 |
+| Review click and tree scroll are measured separately | `performance-demand-lanes.md` review-click-random-100 and review-tree-scroll-sampled-100 | 2, 3, 4, 5 | browser/native performance | separate Review scenario rows and p95/p99; no FileView-only substitution |
+| Demand pressure proves no starvation | `performance-demand-lanes.md` demand-pressure-no-starvation | 2, 4, 5 | browser/native performance | selected/visible metadata interest-to-frame under pressure; idle manifest progress recorded |
+| Native WKWebView emits same metric names | `performance-demand-lanes.md` native parity scenarios | 5 | native smoke/e2e/Victoria | native page-load/file-click/tree-scroll and trace-stitching visible in Victoria |
+
+Exploratory fast-loop runs with fewer than 100 click or scroll samples may guide
+debugging, but they must be labeled exploratory and cannot satisfy the
+performance gate.
+
+### Split / Replan Triggers
+
+- If Swift cannot prioritize metadata production from compact interest without
+  a new protocol method, split a dedicated `metadataInterest` RPC/control slice
+  before touching UI rendering.
+- If Pierre tree viewport APIs cannot provide stable visible ranges, split a
+  UI adapter proof slice before changing native scheduling.
+- If native performance proof lacks metadata/content separated metrics, split
+  instrumentation before tuning constants.
 
 Closed visual/chrome cleanup inventory from the 2026-06-26 scout pass:
 

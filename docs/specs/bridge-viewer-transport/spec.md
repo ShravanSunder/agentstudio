@@ -256,6 +256,47 @@ The shared shell has one visual contract for both viewer modes. The source can
 change and the active target can change, but the product surface must still feel
 like one BridgeViewer app:
 
+R15. File data includes metadata, and native providers own that metadata.
+
+For Worktree/File and worktree-backed Review, file data is not limited to file
+body bytes. It includes authoritative file-tree metadata, review-file metadata,
+paths, names, parent/depth facts, file ids, directory facts, status/change
+facts, size facts, line/extent facts, descriptor refs, invalidations, resets,
+and deltas. Production Swift/native source adapters own production of these
+metadata facts from filesystem/git truth, using `agentstudio-git` where git
+truth is required. BridgeWeb JavaScript consumes, validates, materializes,
+schedules interest, and renders these facts; it must not discover or synthesize
+the authoritative file tree for native product surfaces. Vite/dev-server code
+may mimic the same stream contract for fast testing, but it is an adapter and
+proof loop, not the architecture source of truth.
+
+R16. Metadata is a persistent stream with lane-aware interest, not a cold
+background continuation.
+
+The Worktree/File and Review metadata stream is long-lived for the accepted
+source. Startup metadata, continuing manifest/tree rows, viewport ranges,
+selected/open target facts, descriptor availability, status changes, filesystem
+updates, git updates, invalidations, resets, and replacement facts all flow over
+the persistent event/intake stream lineage. Browser demand for metadata is a
+compact interest/control signal into that existing source stream: selected/open
+targets are `foreground`, current viewport ranges are `visible`, adjacent and
+scroll-direction ranges are `nearby`, predictions are `speculative`, and full
+manifest completion is `idle`. These lane signals prioritize which metadata the
+provider emits next; they do not authorize browser-side file discovery and they
+do not move metadata into body/resource blobs. Metadata needed to paint a
+selected or visible tree/review row must not sit behind idle manifest crawling
+or content warming.
+
+R17. Content streams are body/range streams, separate from metadata streams.
+
+File text, diff text, markdown source, large file ranges, and other body bytes
+move through descriptor-backed `ContentStreamPath` resources. Content streams
+may use the same generic lane vocabulary and backpressure model, but they must
+not block metadata needed for the tree, scroll extent, selected/open target, or
+descriptor readiness. Metadata can reference content descriptors; content
+streams cannot become the first place the browser learns the authoritative file
+tree or review manifest.
+
 ```text
 BridgeViewerAppShell
   ┌──────────────────────────────────────────────────────────────┬─────────────┐
@@ -402,7 +443,7 @@ Pierre-provided surfaces. Review and Files may import the shared primitives;
 shared primitives must not depend on Review-owned chrome through re-export
 wrappers or aliases.
 
-R15. Bridge viewer navigation state is app state, not route shape.
+R18. Bridge viewer navigation state is app state, not route shape.
 
 The Browser app owns a single navigation/view store. Zustand is the source of
 truth for active source refs, active viewer context, active target, rail
@@ -579,7 +620,7 @@ select React roots directly. The Swift host must send the same command shape
 through Bridge host wiring and observe `BridgeViewerNavigationOutcome` before a
 native proof can claim the route is loaded.
 
-R13. Review handoff from Worktree/File is in current scope and must be explicit.
+R19. Review handoff from Worktree/File is in current scope and must be explicit.
 
 The shared-app Gate 0.a goal requires a Files-context action that opens Review in
 the same BridgeViewer app. The handoff must be a typed app-composition contract:
@@ -627,10 +668,11 @@ work under backpressure. Renderers consume prepared data.
 ```text
 Native Host / Provider
   owns: pane lifetime, provider authority, filesystem/Git authority,
-        app assets, resource validation
+        app assets, resource validation, authoritative metadata production
   exposes: BridgeTransportHost
 
-        │ typed transport envelopes, resource descriptors, streams
+        │ typed transport envelopes, source metadata frames,
+        │ resource descriptors, streams
         ▼
 
 Generic Bridge
@@ -648,7 +690,8 @@ Application Protocol Family
     Review Protocol
     Worktree/File Surface Protocol
   owns: source specs, domain commands, intake frame schemas,
-        materialization identity, app-specific invalidation semantics
+        materialization identity, app-specific invalidation semantics,
+        metadata interest vocabulary
   exposes: projection materializer, app demand policy, descriptors,
            viewer-mode input
 
@@ -659,6 +702,7 @@ Browser Runtime
   owns: Zustand facts/refs, registries, demand scheduler,
         resource executor, shared BridgeViewer shell, renderer adapters,
         Pierre integration
+  does not own: native file-tree metadata production
 ```
 
 ```mermaid
@@ -696,7 +740,11 @@ flowchart TD
 
 : Request/response for commands, small facts, and descriptors. It is the path
   for "open stream", "select item", "get descriptor", "refresh content", and
-  "cancel". It must not carry large bodies.
+  "cancel". It also carries compact browser-to-provider interest updates such as
+  selected path, visible tree range, expanded subtree, adjacent range, or
+  speculative target when those updates are needed to prioritize the existing
+  persistent metadata stream. It must not carry large bodies or authoritative
+  file-tree metadata payloads.
 
 `ContinuousEventStreamPath`
 
@@ -716,13 +764,18 @@ flowchart TD
 : Typed application stream into a projection materializer. It carries ordered
   frames such as review snapshots/deltas, worktree snapshots/tree windows/status
   patches/file descriptors, or rich app-specific invalidation/reset details. It
-  can be finite or continuous.
+  can be finite or continuous. For Worktree/File and worktree-backed Review,
+  file-tree/review-tree metadata arrives here as streamed metadata facts from
+  the native provider. It is not a browser-produced tree, and it is not a
+  descriptor-backed metadata blob that must be fetched before FileTree can
+  render.
 
 `ContentStreamPath`
 
-: Bounded body/window transfer for file text, diff text, markdown source, tree
-  windows, review package bodies, and operation lists. It is exposed through an
-  opaque `agentstudio://resource/...` URL or equivalent stream descriptor.
+: Bounded body/window transfer for file text, diff text, markdown source, large
+  file ranges, and other body bytes. It is exposed through an opaque
+  `agentstudio://resource/...` URL or equivalent stream descriptor. It is not
+  the carrier for authoritative file-tree metadata.
 
 `AppSourceSubscription`
 
@@ -737,12 +790,15 @@ Source subscription control flow:
 Browser starts pane
   -> Bridge opens ContinuousEventStreamPath
   -> browser sends CommandRPCPath open/subscribe request
-  -> provider validates and returns source metadata / stream ids / descriptor refs
+  -> provider validates and returns stream ids / accepted source ack
   -> provider publishes compact lifecycle/update facts on ContinuousEventStreamPath
-  -> provider publishes typed projection frames on IntakeStreamPath when state
-     materialization changes
-  -> app demand policy schedules only demanded descriptors
-  -> ResourceExecutor fetches bodies/windows over ContentStreamPath
+  -> provider publishes typed metadata/projection frames on IntakeStreamPath
+     when source materialization changes
+  -> browser sends compact metadata interest updates for selected/open/visible/
+     nearby/speculative/idle source ranges
+  -> provider reorders metadata frame production on the persistent stream
+  -> app demand policy schedules only demanded body descriptors
+  -> ResourceExecutor fetches body/range bytes over ContentStreamPath
 ```
 
 The continuous event stream must define:
@@ -762,14 +818,25 @@ Normative event-versus-intake split:
   lifecycle/update facts: ready, heartbeat, source status, descriptor available,
   invalidation notice, gap, reset, and close. These events wake app policy,
   update small facts, and define cursor lineage. They do not carry file bodies,
-  diff bodies, tree windows, or operation lists.
-- `IntakeStreamPath` carries app projection frames: Review snapshots/deltas and
-  Worktree/File snapshots/tree windows/tree deltas/status patches/file
-  descriptors. Intake frames may attach resource descriptors and may be finite or
-  continuous, but they are not a substitute for the pane-scoped event stream.
+  diff bodies, or other content bytes. The provider-to-browser stream surface is
+  the event stream plus the matching app intake stream; Vite and native Swift
+  must expose the same browser-visible contract.
+- `IntakeStreamPath` carries app metadata/projection frames: Review metadata
+  snapshots/windows/deltas and Worktree/File source snapshots/tree windows/tree
+  deltas/status patches/file descriptors. These frames stream the facts needed
+  to build tree/projection/scroll state; they are not a body-resource shortcut
+  and they are not allowed to point at one full startup package/tree blob before
+  useful UI can render.
+- Worktree/File tree metadata and worktree-backed Review file metadata are
+  native-provider-produced file data. Vite/dev-server TypeScript may emulate the
+  same stream for proof, but production BridgeWeb must not replace the native
+  provider by scanning or authoritatively synthesizing the file tree in JS.
+- Browser-to-provider metadata interest messages are control inputs into the
+  persistent stream scheduler. They carry range/path/subtree interest and lane
+  priority, not metadata bodies.
 - `descriptorAvailable` on the event stream points at a registered descriptor or
   at the next intake frame that attaches the descriptor. It does not duplicate
-  descriptor bodies or app projection payloads.
+  descriptor bodies or metadata/projection payloads.
 - `invalidation`, `gap`, `reset`, and `close` events on the continuous stream
   are the authoritative lifecycle facts. App-specific intake frames may carry
   richer invalidation/reset details only after the event stream has established
@@ -960,6 +1027,16 @@ Generic contract invariants:
   schemas plus size classes. `params` and event `payload` are unknown only at
   the generic carrier boundary; they must be decoded by the registered protocol
   before dispatch.
+- Every protocol boundary has an explicit strict contract test in both
+  directions:
+  - browser-to-host RPC/input fixtures are decoded by Swift and rejected on
+    missing required fields, unknown fields, wrong protocol ids, or invalid
+    enum values;
+  - host-to-browser RPC results and intake/output frames are emitted by Swift,
+    accepted by the TypeScript Zod schema, and rejected by Zod on malformed
+    protocol ids, unknown fields, or missing identity;
+  - no BridgeViewer protocol may rely on `unknown`, unchecked casts, raw JSON
+    passthrough, or fixture-only equality as the only contract proof.
 - RPC returns descriptors for large data.
 - Intake and event streams preserve order with `streamId`, `sequence`, and
   `cursor`; app intake for a source must bind to the same source identity and
@@ -992,7 +1069,7 @@ Generic contract invariants:
 | --- | --- |
 | Review package | pane id, protocol id, provider-issued package id, generation, revision or content handle/hash, stream cursor |
 | Review item/content | Review package identity plus stable item id and content descriptor id |
-| Review delta operations | Review package id, from revision, to revision, operations descriptor id, stream cursor |
+| Review delta operations | Review package id, generation, from revision, to revision, ordered stream sequence, typed semantic operations, stream cursor |
 | Worktree tree projection | pane id, protocol id, provider-issued source id, subscription generation, source cursor, tree window key |
 | Worktree file descriptor | Worktree source identity, provider-issued file id, content handle, optional content hash |
 | Worktree open file session | open file session id, file descriptor id, render content key, latest known descriptor id |
@@ -1206,31 +1283,41 @@ foreground
 Lane jobs:
 
 - `foreground`: direct user-blocking work, such as selected item content or an
-  explicit refresh.
+  explicit refresh, plus metadata needed to reveal/select/open the current
+  target.
 - `active`: already-open content that should remain reasonably fresh without
   blocking foreground interaction.
-- `visible`: content or bounded windows required by the current viewport.
-- `nearby`: adjacent work that makes short navigation smooth.
+- `visible`: metadata and content required by the current viewport.
+- `nearby`: adjacent metadata/content work that makes short navigation smooth.
 - `speculative`: prediction, hover, or prefetch work that is safe to drop.
 - `idle`: low-value background completion, cache warming, and downgraded
   retries.
 
-FileViewer maps worktree file-read stimuli onto these generic lanes without
-making the scheduler FileViewer-specific:
+FileViewer maps worktree metadata interest and file-read stimuli onto these
+generic lanes without making the scheduler FileViewer-specific:
 
-- selected/open file content and explicit refresh use `foreground`;
+- selected/open file metadata, ancestor rows, descriptor facts, content, and
+  explicit refresh use `foreground`;
 - already-open stale-status checks use `active`;
-- bounded content preview/metadata for rows in the current tree viewport use
-  `visible`;
-- rows adjacent to the selected/open row use `nearby` so arrow-key and short
-  scroll navigation can feel warm without waiting for click-time bytes;
+- tree/review rows in the current viewport and bounded content previews for
+  those rows use `visible`;
+- rows adjacent to the selected/open row and scroll-direction lookahead use
+  `nearby` so arrow-key and short scroll navigation can feel warm without
+  waiting for click-time metadata or bytes;
 - hover, focus, recent-search candidates, and source-provider predictions use
   `speculative`;
 - debounced provider events for recently updated files may use `speculative`
   when FileViewer is open and the descriptor remains relevant to the current
   source/filter/tree neighborhood; they may upgrade to `nearby` only when the
   updated file is adjacent to the selected/open/visible region;
-- broad cache warming uses `idle`.
+- broad manifest completion and cache warming use `idle`.
+
+Metadata lanes are source-stream scheduling signals. They tell the native
+provider which metadata frames to produce next on the persistent stream. They do
+not mean that BridgeWeb owns file-tree metadata discovery, and they do not mean
+tree metadata is fetched as arbitrary JS-managed blobs. Content lanes schedule
+body/range byte streams after metadata has provided descriptor refs and extent
+facts.
 
 The scheduler owns ordering, dedupe, abort, byte budgets, and concurrency by
 lane. FileViewer policy owns only which descriptors become demand intents. Large
@@ -1437,12 +1524,12 @@ Example mappings:
 
 | App policy observation | Generic lane |
 | --- | --- |
-| selected item body or explicit refresh | `foreground` |
+| selected/open target metadata, ancestors, descriptor facts, body, or explicit refresh | `foreground` |
 | open file/diff became stale | `active` |
-| current viewport tree/diff/code window | `visible` |
-| next/previous item near selection | `nearby` |
+| current viewport tree/review metadata, diff/code window, or visible content warming | `visible` |
+| next/previous item near selection or scroll-direction metadata lookahead | `nearby` |
 | hover or predicted next item | `speculative` |
-| background metadata fill or downgraded retry | `idle` |
+| full manifest completion or downgraded retry | `idle` |
 
 Cancellation ownership is layered:
 
@@ -1493,6 +1580,24 @@ source/package reset
   authority identity changed
   -> fail closed, drop old resources, reject stale completions
 ```
+
+Review metadata deltas are typed semantic source changes, not renderer method
+calls. Providers emit operations such as item metadata upserts/removals, item
+order replacement, tree row upserts/removals, tree-window replacement,
+`movePathPrefix` for folder moves, extent fact updates, selected-item changes,
+and descriptor invalidations. The browser applies each accepted delta as one
+normalized metadata transaction, then lowers it at the renderer edge into Pierre
+tree batches, prepared tree resets, CodeView item additions, or CodeView
+versioned item updates.
+
+Noisy file-system/git updates must be coalesced before expensive projection or
+renderer work starts. A hot stream must not blank the UI or wait for quiet:
+derived results are allowed to stale-drop, while the last good tree/projection
+stays visible until a newer accepted revision commits.
+
+The baseline safety gate is ordered stream identity plus package id, generation,
+`fromRevision`, and `toRevision`; a revision mismatch requires a metadata window
+or reset instead of guessing.
 
 The materializer decides whether an application frame is same-lineage
 incremental materialization or replacement. The resource executor enforces
@@ -1719,9 +1824,10 @@ D2. Continuous events are facts, not data transfer.
 
 The startup continuous event stream updates facts, invalidations, cursors,
 source status, gap/reset lifecycle, and descriptor availability.
-Content/resource streams move bodies. App intake streams move projection frames
-and descriptor attachments; they do not replace the continuous lifecycle/event
-stream.
+Content/resource streams move bodies. App intake streams move metadata and
+projection frames; they do not replace the continuous lifecycle/event stream
+and must not defer first tree/projection render on a full package or tree body
+fetch.
 
 D3. Reducers do not own effects.
 
@@ -1749,9 +1855,10 @@ budgets, aborts, retries, and stale completion drops.
 
 D8. Changeset is a product lens, not the base wire noun.
 
-Review's stable wire/materialization vocabulary is snapshot, delta,
-invalidation, reset, package identity, generation, and revision. A changeset is
-a provider-owned review lens that materializes through those primitives.
+Review's stable wire/materialization vocabulary is snapshot, window, typed
+semantic delta, invalidation, reset, package identity, generation, and revision.
+A changeset is a provider-owned review lens that materializes through those
+primitives.
 
 D9. Source subscriptions are application-level but ride the mandatory event
 stream.
