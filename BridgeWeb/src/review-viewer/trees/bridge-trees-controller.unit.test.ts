@@ -1,4 +1,4 @@
-import type { FileTreeBatchOperation, FileTreeOptions } from '@pierre/trees';
+import type { FileTreeBatchOperation, FileTreeItemHandle, FileTreeOptions } from '@pierre/trees';
 import { describe, expect, expectTypeOf, test, vi } from 'vitest';
 
 import {
@@ -58,6 +58,71 @@ describe('Bridge Trees controller', () => {
 			status: 'untracked',
 		});
 		expectTypeOf(source.preparedInput).toMatchTypeOf<FileTreeOptions['preparedInput']>();
+	});
+
+	test('prefers streamed review tree rows over synthesized projection paths', () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const projection = buildBridgeReviewProjection({
+			reviewPackage,
+			request: { mode: { kind: 'normalReview' }, facets: [] },
+		});
+		const itemId = projection.orderedItemIds[0] ?? 'missing-item';
+		expect(projection.orderedItemIds[0]).toBeDefined();
+
+		const source = createBridgeTreesSource({
+			reviewPackage,
+			projection,
+			reviewTreeRows: [
+				{
+					rowId: 'stream-row-1',
+					itemId,
+					path: 'authoritative/streamed/path.swift',
+					depth: 2,
+					isDirectory: false,
+				},
+			],
+		});
+
+		expect(source.orderedPaths).toEqual(['authoritative/streamed/path.swift']);
+		expect(source.primaryItemIdByTreePath).toEqual({
+			'authoritative/streamed/path.swift': itemId,
+		});
+		expect(source.orderedPaths).not.toContain(projection.orderedPaths[0]);
+	});
+
+	test('normalizes streamed directory rows for Pierre tree input', () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const projection = buildBridgeReviewProjection({
+			reviewPackage,
+			request: { mode: { kind: 'normalReview' }, facets: [] },
+		});
+		const itemId = projection.orderedItemIds[0] ?? 'missing-item';
+		expect(projection.orderedItemIds[0]).toBeDefined();
+
+		const source = createBridgeTreesSource({
+			reviewPackage,
+			projection,
+			reviewTreeRows: [
+				{
+					rowId: 'review-directory:review-viewer',
+					path: 'review-viewer',
+					depth: 0,
+					isDirectory: true,
+				},
+				{
+					rowId: 'review-row:review-viewer-file',
+					itemId,
+					path: 'review-viewer/file.ts',
+					depth: 1,
+					isDirectory: false,
+				},
+			],
+		});
+
+		expect(source.orderedPaths).toEqual(['review-viewer/', 'review-viewer/file.ts']);
+		expect(source.primaryItemIdByTreePath).toEqual({
+			'review-viewer/file.ts': itemId,
+		});
 	});
 
 	test('bounds initial expansion for large review trees so search does not preserve every branch', () => {
@@ -176,6 +241,75 @@ describe('Bridge Trees controller', () => {
 		});
 	});
 
+	test('treats streamed review tree row order as authoritative for metadata windows', () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const projection = buildBridgeReviewProjection({
+			reviewPackage,
+			request: { mode: { kind: 'normalReview' }, facets: [] },
+		});
+		const itemIds = projection.orderedItemIds.slice(0, 3);
+		expect(itemIds).toHaveLength(3);
+		const previousSource = createBridgeTreesSource({
+			reviewPackage,
+			projection,
+			reviewTreeRows: [
+				{
+					rowId: 'review-row:middle',
+					itemId: itemIds[0],
+					path: 'middle/File.swift',
+					depth: 1,
+					isDirectory: false,
+				},
+				{
+					rowId: 'review-row:z-last',
+					itemId: itemIds[1],
+					path: 'z-last/File.swift',
+					depth: 1,
+					isDirectory: false,
+				},
+			],
+		});
+		const nextSource = createBridgeTreesSource({
+			reviewPackage,
+			projection,
+			reviewTreeRows: [
+				{
+					rowId: 'review-row:middle',
+					itemId: itemIds[0],
+					path: 'middle/File.swift',
+					depth: 1,
+					isDirectory: false,
+				},
+				{
+					rowId: 'review-row:z-last',
+					itemId: itemIds[1],
+					path: 'z-last/File.swift',
+					depth: 1,
+					isDirectory: false,
+				},
+				{
+					rowId: 'review-row:a-late',
+					itemId: itemIds[2],
+					path: 'a-late/File.swift',
+					depth: 1,
+					isDirectory: false,
+				},
+			],
+		});
+
+		expect(previousSource.orderedPaths).toEqual(['middle/File.swift', 'z-last/File.swift']);
+		expect(nextSource.orderedPaths).toEqual([
+			'middle/File.swift',
+			'z-last/File.swift',
+			'a-late/File.swift',
+		]);
+		expect(planBridgeTreesUpdate({ previous: previousSource, next: nextSource })).toEqual({
+			kind: 'appendOnly',
+			addedPaths: ['a-late/File.swift'],
+			shouldUpdateGitStatus: false,
+		});
+	});
+
 	test('applies public FileTree mutations and maps selected tree path to primary item id', () => {
 		const model = new RecordingTreesModel();
 		const controller = new BridgeTreesController({ model });
@@ -250,6 +384,51 @@ describe('Bridge Trees controller', () => {
 		]);
 	});
 
+	test('does not rescan and scroll the tree when selecting the already-selected path', () => {
+		const model = new RecordingTreesModel();
+		const controller = new BridgeTreesController({ model });
+		const source = makeSource({
+			orderedPaths: ['src/deep/nested/file.ts'],
+			gitStatusEntries: [{ path: 'src/deep/nested/file.ts', status: 'modified' }],
+			primaryItemIdByTreePath: {
+				'src/deep/nested/file.ts': 'deep-file',
+			},
+		});
+		const rootDirectory = model.addDirectory('src', false);
+		const deepDirectory = model.addDirectory('src/deep', false);
+		const nestedDirectory = model.addDirectory('src/deep/nested', false);
+
+		controller.applySource(source);
+		expect(controller.selectTreePath('src/deep/nested/file.ts')).toBe('deep-file');
+		expect(controller.selectTreePath('src/deep/nested/file.ts')).toBe('deep-file');
+
+		expect(rootDirectory.expand).toHaveBeenCalledTimes(1);
+		expect(deepDirectory.expand).toHaveBeenCalledTimes(1);
+		expect(nestedDirectory.expand).toHaveBeenCalledTimes(1);
+		expect(model.scrollToPathCalls).toEqual([
+			{ path: 'src/deep/nested/file.ts', options: { focus: true } },
+		]);
+	});
+
+	test('selects a clicked tree item through the public tree handle without scrolling', () => {
+		const model = new RecordingTreesModel();
+		const controller = new BridgeTreesController({ model });
+		const source = makeSource({
+			orderedPaths: ['src/clicked.ts'],
+			gitStatusEntries: [{ path: 'src/clicked.ts', status: 'modified' }],
+			primaryItemIdByTreePath: {
+				'src/clicked.ts': 'clicked-file',
+			},
+		});
+		const clickedFile = model.addFile('src/clicked.ts');
+
+		controller.applySource(source);
+
+		expect(controller.selectClickedTreePath('src/clicked.ts')).toBe('clicked-file');
+		expect(clickedFile.select).toHaveBeenCalledTimes(1);
+		expect(model.scrollToPathCalls).toEqual([]);
+	});
+
 	test('reveals a tree path without changing selection focus semantics', () => {
 		const model = new RecordingTreesModel();
 		const controller = new BridgeTreesController({ model });
@@ -306,6 +485,109 @@ describe('Bridge Trees controller', () => {
 		expect(streamingDirectory.expand).toHaveBeenCalledTimes(1);
 		expect(appendDirectory.expand).toHaveBeenCalledTimes(1);
 	});
+
+	test('reveals ancestors for appended review paths beyond the old startup chunk reveal cap', () => {
+		const model = new RecordingTreesModel();
+		const controller = new BridgeTreesController({ model });
+		controller.applySource(
+			makeSource({
+				orderedPaths: ['src/a.ts'],
+				gitStatusEntries: [{ path: 'src/a.ts', status: 'modified' }],
+				primaryItemIdByTreePath: {
+					'src/a.ts': 'item-a',
+				},
+			}),
+		);
+		const appendedPaths = Array.from(
+			{ length: 20 },
+			(_, index): string => `streamed/module-${index}/File.swift`,
+		);
+		const lastModuleDirectory = model.addDirectory('streamed/module-19', false);
+		model.addDirectory('streamed', false);
+
+		controller.applySource(
+			makeSource({
+				orderedPaths: ['src/a.ts', ...appendedPaths],
+				gitStatusEntries: [
+					{ path: 'src/a.ts', status: 'modified' },
+					...appendedPaths.map((path): { readonly path: string; readonly status: 'added' } => ({
+						path,
+						status: 'added',
+					})),
+				],
+				primaryItemIdByTreePath: {
+					'src/a.ts': 'item-a',
+					...Object.fromEntries(
+						appendedPaths.map((path, index): readonly [string, string] => [path, `item-${index}`]),
+					),
+				},
+			}),
+		);
+
+		expect(lastModuleDirectory.expand).toHaveBeenCalledTimes(1);
+	});
+
+	test('reveals the first active search match after streamed source updates', () => {
+		const model = new RecordingTreesModel();
+		const controller = new BridgeTreesController({ model });
+		controller.applySource(
+			makeSource({
+				orderedPaths: ['src/visible.ts'],
+				gitStatusEntries: [{ path: 'src/visible.ts', status: 'modified' }],
+				primaryItemIdByTreePath: {
+					'src/visible.ts': 'visible',
+				},
+			}),
+		);
+		expect(controller.revealFirstSearchMatch('targetfile')).toBeNull();
+		const laterDirectory = model.addDirectory('src/later', false);
+		const nestedDirectory = model.addDirectory('src/later/nested', false);
+
+		controller.applySource(
+			makeSource({
+				orderedPaths: ['src/visible.ts', 'src/later/nested/TargetFile.ts'],
+				gitStatusEntries: [
+					{ path: 'src/visible.ts', status: 'modified' },
+					{ path: 'src/later/nested/TargetFile.ts', status: 'added' },
+				],
+				primaryItemIdByTreePath: {
+					'src/visible.ts': 'visible',
+					'src/later/nested/TargetFile.ts': 'target',
+				},
+			}),
+		);
+
+		expect(controller.revealFirstSearchMatch('targetfile')).toBe('src/later/nested/TargetFile.ts');
+		expect(laterDirectory.expand).toHaveBeenCalledTimes(1);
+		expect(nestedDirectory.expand).toHaveBeenCalledTimes(1);
+		expect(model.scrollToPathCalls.at(-1)).toEqual({
+			path: 'src/later/nested/TargetFile.ts',
+			options: undefined,
+		});
+	});
+
+	test('maps full path search intent to a Pierre-friendly leaf query', () => {
+		const model = new RecordingTreesModel();
+		const controller = new BridgeTreesController({ model });
+		controller.applySource(
+			makeSource({
+				orderedPaths: ['BridgeWeb/src/review-viewer/test-support/review-viewer-fixtures.ts'],
+				gitStatusEntries: [
+					{
+						path: 'BridgeWeb/src/review-viewer/test-support/review-viewer-fixtures.ts',
+						status: 'modified',
+					},
+				],
+			}),
+		);
+
+		expect(
+			controller.modelSearchTextForFirstSearchMatch(
+				'BridgeWeb/src/review-viewer/test-support/review-viewer-fixtures.ts',
+			),
+		).toBe('review-viewer-fixtures');
+		expect(controller.modelSearchTextForFirstSearchMatch('review-viewer')).toBe('review-viewer');
+	});
 });
 
 function makeSource(
@@ -343,12 +625,18 @@ class RecordingTreesModel implements BridgeTreesModel {
 		readonly options: Parameters<BridgeTreesModel['scrollToPath']>[1];
 	}> = [];
 	readonly setGitStatusCalls: Array<NonNullable<FileTreeOptions['gitStatus']>> = [];
-	readonly itemByPath = new Map<string, ReturnType<typeof makeDirectoryHandle>>();
+	readonly itemByPath = new Map<string, FileTreeItemHandle>();
 
 	addDirectory(path: string, isExpanded: boolean): ReturnType<typeof makeDirectoryHandle> {
 		const directory = makeDirectoryHandle({ isExpanded });
 		this.itemByPath.set(path, directory);
 		return directory;
+	}
+
+	addFile(path: string): ReturnType<typeof makeFileHandle> {
+		const file = makeFileHandle();
+		this.itemByPath.set(path, file);
+		return file;
 	}
 
 	resetPaths(
@@ -366,7 +654,7 @@ class RecordingTreesModel implements BridgeTreesModel {
 		this.setGitStatusCalls.push([...(gitStatus ?? [])]);
 	}
 
-	getItem(path: string): ReturnType<typeof makeDirectoryHandle> | null {
+	getItem(path: string): FileTreeItemHandle | null {
 		return this.itemByPath.get(path) ?? null;
 	}
 
@@ -412,6 +700,28 @@ function makeDirectoryHandle(props: { readonly isExpanded: boolean }): {
 		toggle: vi.fn((): void => {
 			expanded = !expanded;
 		}),
+		toggleSelect: vi.fn(),
+	};
+}
+
+function makeFileHandle(): {
+	readonly deselect: ReturnType<typeof vi.fn>;
+	readonly focus: ReturnType<typeof vi.fn>;
+	readonly getPath: ReturnType<typeof vi.fn>;
+	readonly isDirectory: () => false;
+	readonly isFocused: () => boolean;
+	readonly isSelected: () => boolean;
+	readonly select: ReturnType<typeof vi.fn>;
+	readonly toggleSelect: ReturnType<typeof vi.fn>;
+} {
+	return {
+		deselect: vi.fn(),
+		focus: vi.fn(),
+		getPath: vi.fn((): string => ''),
+		isDirectory: (): false => false,
+		isFocused: (): boolean => false,
+		isSelected: (): boolean => false,
+		select: vi.fn(),
 		toggleSelect: vi.fn(),
 	};
 }
