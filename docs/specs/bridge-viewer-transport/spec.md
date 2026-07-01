@@ -325,18 +325,41 @@ harness that opens Worktree/File and worktree-backed Review sources from the
 current worktree, observes emitted metadata frames and demand decisions, and
 proves:
 
-- all non-ignored files eventually appear in the metadata manifest;
+- all non-ignored files eventually appear in the metadata manifest, proven
+  against an independently built expected set (test-owned walk minus the
+  AgentStudioGit/libgit2 ignored set, cutting over to trackedPaths union
+  untracked-non-ignored when available) with an empty files-only path-set
+  symmetric difference; publication policy is git-truth only; the
+  provider's own emission counters are never their own completeness
+  authority, and a seeded ignored-path fixture must be absent from every
+  emitted frame;
 - the artifact records how each row arrived: initial window, foreground,
-  visible, nearby, speculative, idle continuation, delta, reset, or replacement;
+  visible, nearby, speculative, idle continuation, delta, reset, or
+  replacement, carried as typed frame-level lineage on Worktree/File frames
+  with a one-lineage-per-frame invariant; Review's per-item lineage is an
+  accepted residual outside this cutover;
 - selected/open and visible metadata are emitted before idle manifest
-  continuation under pressure;
-- full-manifest completion continues with a no-starvation budget while
-  selected/visible work remains responsive;
+  continuation under the normative contention scenario in
+  [performance-demand-lanes.md](performance-demand-lanes.md): interest is
+  injected while idle continuation is actively producing, and preemption is
+  proven against a live scheduler rather than pre-ready buffer choreography;
+- full-manifest completion continues with an AppPolicies-defined
+  no-starvation budget while selected/visible work remains responsive, and
+  idle progress counters advance during contention;
 - content descriptor publication and content stream demand remain separate from
   metadata frame production;
+- queue-wait-by-lane derives from the generic native lane scheduler's
+  enqueue-to-dequeue instrumentation with the structural evidence defined in
+  [performance-demand-lanes.md](performance-demand-lanes.md); a relabeled
+  request-to-delivery span is a failing substitute;
 - p95 and p99 are reported for native open-to-first-window,
   metadata-interest-to-frame, full-manifest-complete, queue-wait-by-lane,
-  metadata apply, and content fetch phases.
+  metadata window produce, web metadata apply, and content fetch phases;
+- the proof runs in two lanes per
+  [performance-demand-lanes.md](performance-demand-lanes.md): an always-on
+  compact contract-truth proof with report-only percentiles, and an env-gated
+  benchmark task with hard latency gates, real sample counts, and Victoria
+  export.
 
 The same protocol shape must then be proven through native WKWebView product
 proof. The headless Swift plane is the fast native truth loop; Vite/dev-server
@@ -1305,6 +1328,15 @@ an active runtime object, the data was placed in the wrong layer.
   dedupe/replacement, and starvation guards. It does not know Review, Worktree,
   trees, files, diffs, viewport semantics, or provider identity semantics.
 
+  The scheduler concept exists on both runtimes. The browser scheduler orders
+  content demand for the resource executor. The native provider routes all
+  metadata production — interest responses and full-manifest continuation —
+  through a generic, protocol-agnostic lane scheduler shared by worktree-file
+  and review protocols. The native scheduling and measurement contract
+  (per-lane queues, idle no-starvation budget, enqueue-to-dequeue queue-wait,
+  manifest index serving) is owned by
+  [performance-demand-lanes.md](performance-demand-lanes.md).
+
 `ResourceExecutor`
 
 : Generic bounded execution. It owns concurrency, byte/work budgets, in-flight
@@ -2055,6 +2087,33 @@ These are current-state observations, not design goals:
   shell: the exact route could still reach `WorktreeFileApp`, raw `<pre>`
   rendering, and custom tree/content UI while bypassing Pierre FileTree, Pierre
   CodeView/File, Shiki, and workers.
+- The 2026-07-01 audit of the native demand-loading path found the current
+  implementation and headless proof weaker than their labels (carry these as
+  cutover targets, not accepted behavior):
+  - metadata interest handling re-enumerates the entire worktree per update
+    and filters to the requested paths, instead of serving from a manifest
+    index;
+  - no native lane queue exists; priority is pending-buffer insertion order
+    plus MainActor arrival order, so there is nothing whose queue wait can be
+    measured;
+  - the proof artifact's `queueWaitByLane` relabels an
+    interest-request-to-delivered-frame span with one sample per lane;
+  - manifest-completeness telemetry passes `expected_total` and
+    `emitted_total` from the same discovered-row variable, making
+    expected-equals-emitted circular;
+  - lane-order assertions are satisfied by test choreography: probes are
+    awaited sequentially before intake-ready, so pending-buffer insertion
+    guarantees the asserted order without exercising a scheduler;
+  - `loaded_by`/`lane` lineage is injected by post-hoc JSON rewriting of
+    encoded frames and duplicated per row rather than typed frame-level
+    metadata;
+  - no runner sets the headless proof artifact directory, so artifact-shape
+    assertions silently skip in normal test runs;
+  - the native materializer excludes every hidden dotfile path and a
+    hardcoded generated-dependency list from publication, while the Vite
+    adapter publishes them; per the accepted 2026-07-01 product decision
+    the publication policy is git-truth only, so these exclusions are
+    completeness bugs to remove, not policy.
 
 ## 17. Evidence Anchors
 

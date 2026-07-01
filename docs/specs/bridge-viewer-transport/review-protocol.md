@@ -83,6 +83,30 @@ BridgeViewerApp
 No rich-preview target is in first scope. Markdown and text-like review items
 render through the Pierre/Shiki file path when the user chooses file view.
 
+### 2.1 Native Metadata Production Scheduling
+
+Review metadata interest served by the native provider routes through the
+same generic per-pane lane scheduler defined in
+[performance-demand-lanes.md](performance-demand-lanes.md). The scheduler
+stays protocol-agnostic; review-specific meaning stays here:
+
+- review metadata-interest jobs map to `foreground`, `visible`, `nearby`, or
+  `speculative` from the requesting lane; review window builds serve from
+  the in-memory review package in O(requested items)
+- review has no full-manifest continuation, so review contributes no
+  idle-lane jobs; the idle no-starvation budget applies only to protocols
+  that supply idle work (Worktree/File manifest continuation)
+- within a lane, jobs order by arrival; protocol id is identity and
+  stale-drop scope, never priority
+- review queue wait is emitted per lane from the scheduler's
+  enqueue-to-dequeue instrumentation, subject to the measurement honesty
+  rules in performance-demand-lanes.md; pending-buffer insertion order is
+  not a scheduling contract
+- review's per-item wire lineage (`loadedBy`/`lane` on item metadata) is an
+  accepted existing shape; the Worktree/File frame-level lineage cutover
+  does not change review wire frames, and any change here belongs to a
+  later review-protocol slice
+
 ## 3. Source And Changeset Model
 
 The product word `changeset` is a Review lens. It is not the base transport
@@ -208,16 +232,13 @@ export const ReviewChangesetClusterMetadata = z.object({
 
 export const ReviewResourceKind = z.enum([
   'content',
-  'review-package',
-  'review-delta',
 ]);
 
-export const ProviderIssuedReviewPackageIdentity = z.object({
+export const ProviderIssuedReviewComparisonIdentity = z.object({
   packageId: z.string().min(1),
   sourceIdentity: z.string().min(1),
   generation: z.number().int().nonnegative(),
   revision: z.number().int().nonnegative(),
-  rootDescriptor: BridgeAttachedResourceDescriptor,
   contentDescriptors: z.array(BridgeAttachedResourceDescriptor).optional(),
   changesetCluster: ReviewChangesetClusterMetadata.optional(),
 }).strict();
@@ -312,7 +333,7 @@ Finite source examples:
 
 - `commit` versus `commit`
 - `tag` versus `commit`
-- static provider-materialized package descriptor
+- static provider-materialized comparison metadata stream
 - closed time-window cluster versus base
 - pinned provider changeset cluster
 
@@ -335,10 +356,12 @@ Review subscription binding to the parent continuous event stream:
 - Compact lifecycle facts for the comparison ride the continuous event stream:
   ready/heartbeat, source status, descriptor availability, invalidation notice,
   gap, reset, and close.
-- Review intake frames carry projection materialization: snapshots, deltas,
-  rich invalidation detail, resets with replacement descriptors, and package
-  metadata. They may attach descriptors, but they are not a replacement for the
-  continuous event stream.
+- Review intake frames carry metadata/projection materialization: metadata
+  snapshots, metadata windows, metadata deltas, rich invalidation detail, resets,
+  package/comparison identity, item ids, paths, filenames, tree shape,
+  line/extent facts, selected target, and content descriptor refs. They may
+  attach descriptors for file/diff bodies, but metadata itself streams through
+  intake and is not a replacement for the continuous event stream.
 - A `bridge.invalidated`, `bridge.gap`, `bridge.reset`, or `bridge.closed` event
   for a Review identity gates the matching Review intake/content work. Old intake
   frames and resource completions must stale-drop unless the provider rebinds the
@@ -347,19 +370,90 @@ Review subscription binding to the parent continuous event stream:
 ## 6. Intake Frames
 
 ```ts
-export const ReviewSnapshotFrame = BridgeIntakeFrameBase.extend({
-  kind: z.literal('snapshot'),
-  frameKind: z.literal('review.snapshot'),
-  package: ProviderIssuedReviewPackageIdentity,
+// The exact fields of these metadata schemas are implementation-owned, but they
+// must cover item ids, paths, filenames, tree shape, change kind, diff facts,
+// line counts/extents, content descriptor refs, and selection/visibility facts.
+const ReviewItemMetadata = z.object({}).passthrough();
+const ReviewTreeRowMetadata = z.object({}).passthrough();
+const ReviewExtentFact = z.object({}).passthrough();
+const ReviewMetadataOperation = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('upsertItemMetadata'),
+    item: ReviewItemMetadata,
+  }).strict(),
+  z.object({
+    kind: z.literal('removeItems'),
+    itemIds: z.array(z.string().min(1)),
+  }).strict(),
+  z.object({
+    kind: z.literal('appendItems'),
+    items: z.array(ReviewItemMetadata),
+  }).strict(),
+  z.object({
+    kind: z.literal('replaceItemOrder'),
+    itemIds: z.array(z.string().min(1)),
+  }).strict(),
+  z.object({
+    kind: z.literal('upsertTreeRows'),
+    rows: z.array(ReviewTreeRowMetadata),
+  }).strict(),
+  z.object({
+    kind: z.literal('removeTreeRows'),
+    rowIds: z.array(z.string().min(1)).optional(),
+    paths: z.array(z.string().min(1)).optional(),
+  }).strict(),
+  z.object({
+    kind: z.literal('replaceTreeWindow'),
+    rows: z.array(ReviewTreeRowMetadata),
+  }).strict(),
+  z.object({
+    kind: z.literal('movePathPrefix'),
+    fromPath: z.string().min(1),
+    toPath: z.string().min(1),
+    affectedItemIds: z.array(z.string().min(1)),
+  }).strict(),
+  z.object({
+    kind: z.literal('upsertExtentFacts'),
+    facts: z.array(ReviewExtentFact),
+  }).strict(),
+  z.object({
+    kind: z.literal('selectItem'),
+    itemId: z.string().min(1).nullable(),
+  }).strict(),
+  z.object({
+    kind: z.literal('invalidateContentDescriptors'),
+    descriptorIds: z.array(z.string().min(1)),
+  }).strict(),
+]);
+
+export const ReviewMetadataSnapshotFrame = BridgeIntakeFrameBase.extend({
+  kind: z.literal('metadataSnapshot'),
+  frameKind: z.literal('review.metadataSnapshot'),
+  comparison: ProviderIssuedReviewComparisonIdentity,
+  selectedItemId: z.string().min(1).nullable(),
+  visibleItemIds: z.array(z.string().min(1)),
+  itemMetadata: z.array(ReviewItemMetadata),
+  treeRows: z.array(ReviewTreeRowMetadata),
+  extentFacts: z.array(ReviewExtentFact),
 }).strict();
 
-export const ReviewDeltaFrame = BridgeIntakeFrameBase.extend({
-  kind: z.literal('delta'),
-  frameKind: z.literal('review.delta'),
+export const ReviewMetadataWindowFrame = BridgeIntakeFrameBase.extend({
+  kind: z.literal('metadataWindow'),
+  frameKind: z.literal('review.metadataWindow'),
+  packageId: z.string().min(1),
+  revision: z.number().int().nonnegative(),
+  itemMetadata: z.array(ReviewItemMetadata),
+  treeRows: z.array(ReviewTreeRowMetadata),
+  extentFacts: z.array(ReviewExtentFact),
+}).strict();
+
+export const ReviewMetadataDeltaFrame = BridgeIntakeFrameBase.extend({
+  kind: z.literal('metadataDelta'),
+  frameKind: z.literal('review.metadataDelta'),
   packageId: z.string().min(1),
   fromRevision: z.number().int().nonnegative(),
   toRevision: z.number().int().nonnegative(),
-  operationsDescriptor: BridgeAttachedResourceDescriptor,
+  operations: z.array(ReviewMetadataOperation),
   contentDescriptors: z.array(BridgeAttachedResourceDescriptor).optional(),
 }).strict();
 
@@ -379,8 +473,6 @@ export const ReviewResetFrame = BridgeIntakeFrameBase.extend({
   frameKind: z.literal('review.reset'),
   reason: z.enum(['sourceChanged', 'subscriptionReset', 'providerRestart', 'authorityChanged']),
   sourceIdentity: z.string().min(1),
-  packageId: z.string().min(1).optional(),
-  replacementDescriptor: BridgeAttachedResourceDescriptor.optional(),
 }).strict();
 ```
 
@@ -391,13 +483,43 @@ Review intake streams must:
   comparison, source identity, generation, and cursor
 - treat page-world frame delivery as bundled app-internal transport, not native
   byte-serving authority
-- use descriptors for package roots and delta operation bodies
-- register attached descriptors before demand policy receives descriptor refs
-- allow same-lineage deltas without CodeView remount
+- stream Review metadata directly as intake frames, visible-first and then
+  continuing over time; metadata must not require fetching a full
+  `review-package` body before tree/projection render
+- use descriptors only for content/body bytes such as file or diff contents
+- register attached content descriptors before demand policy receives descriptor
+  refs
+- emit typed semantic metadata deltas. Provider/Vite/Swift deltas describe the
+  Review/File source change, not Pierre renderer method calls.
+- coalesce noisy watch/git events into revisioned deltas before intake. The
+  browser applies each accepted delta as one normalized metadata-store
+  transaction and schedules at most one projection/materialization pass for that
+  transaction.
+- allow same-lineage deltas without CodeView remount. The browser adapter lowers
+  semantic deltas into Pierre tree/code mutations only at the renderer edge.
+- preserve the last good tree/projection while a newer revision materializes;
+  stale derived results must not commit, but active streams must not starve the
+  UI waiting for quiet.
 - fail closed on package/source authority replacement
 - treat `review.invalidate` and `review.reset` frames as Review projection detail
   that must agree with the authoritative `bridge.invalidated` or `bridge.reset`
   lifecycle event for the same identity
+
+Renderer lowering rules:
+
+- append/remove/move metadata deltas lower to `@pierre/trees` batch operations
+  when the affected path count is below the browser-side reset threshold.
+- `movePathPrefix` is the semantic operation for folder moves. The browser may
+  lower it to per-path Pierre moves for small affected sets or to
+  `resetPaths(..., { preparedInput })` for large affected sets.
+- large reorder, unknown lineage, or provider-declared reset lowers to a
+  prepared tree reset.
+- content descriptor changes update metadata and demand state; actual file/diff
+  body hydration lowers to `@pierre/diffs` `CodeView.updateItem(...)` with a new
+  item version/cache key when content arrives.
+- The baseline safety contract is package id, generation, ordered stream
+  sequence, `fromRevision`, and `toRevision`; a revision gap requires a metadata
+  window/reset instead of speculative renderer work.
 
 Page-world push nonce checks, DOM attributes, MessagePort provenance, and
 agreement between a package payload and sibling `protocolFrame` are not native
@@ -442,7 +564,6 @@ export const ReviewDemandStimulus = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('reviewSourceReset'),
     sourceIdentity: z.string().min(1),
-    packageId: z.string().min(1).optional(),
   }).strict(),
 ]);
 ```
@@ -457,7 +578,7 @@ Required mappings:
 - `reviewViewportChanged` maps demanded visible descriptor refs to `visible`.
 - `reviewHoverChanged` maps non-null demanded refs to `speculative`.
 - `reviewSourceReset` emits no demand and invalidates queued/in-flight work by
-  package/source identity.
+  source identity.
 
 ## 8. Review Flow
 
@@ -477,10 +598,10 @@ sequenceDiagram
   Browser->>Browser: activate Review context and diff/file target memory
   Bridge->>Provider: validate scope and open subscription
   Provider->>Provider: resolve endpoints
-  Provider->>Provider: compute/materialize comparison package
+  Provider->>Provider: compute/materialize comparison metadata
   Provider->>Bridge: bridge.ready(eventStreamId, cursor)
-  Provider->>Bridge: review.snapshot(rootDescriptor)
-  Bridge->>Mat: applyFrame(review.snapshot)
+  Provider->>Bridge: review.metadataSnapshot(visible-first metadata)
+  Bridge->>Mat: applyFrame(review.metadataSnapshot)
   Mat->>Policy: projection facts and descriptor refs
   Policy->>Sched: foreground/visible demand intents
   Sched->>Exec: ordered demand intent
@@ -490,7 +611,7 @@ sequenceDiagram
   loop live source
     Provider->>Provider: debounce/coalesce source changes
     Provider->>Bridge: bridge.invalidated or bridge.reset
-    Provider->>Bridge: review.delta/invalidate/reset projection detail
+    Provider->>Bridge: review.metadataDelta/invalidate/reset projection detail
     Bridge->>Mat: applyFrame(detail after event lineage matches)
   end
 ```
@@ -556,7 +677,7 @@ Required future properties:
 - confidence/degraded-mode metadata
 - limitations for out-of-band, shell, remote, ignored, or generated edits
 - included path hints and optional hunks/ranges
-- materialized package descriptor
+- materialized comparison metadata stream plus content descriptor refs
 - reset behavior when provider cannot continue same lineage
 
 Required runtime contract:
@@ -613,6 +734,12 @@ Required runtime contract:
   cursor, or clustering authority changes
 - schema-only changeset metadata is not enough to satisfy the first Review
   runtime contract
+- review metadata interest routes through the generic native lane scheduler;
+  review lane order and per-lane queue-wait samples come from scheduler
+  instrumentation, not pending-buffer insertion order or relabeled
+  request-to-delivery spans
+- a shared-pane scenario proves review foreground/visible interest is not
+  starved by Worktree/File idle manifest continuation
 
 ## 12. Open Decisions
 

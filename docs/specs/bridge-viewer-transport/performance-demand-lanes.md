@@ -145,6 +145,115 @@ visible_queue_wait_ms p99 < 100
 Nearby, speculative, and idle are measured but not hard-gated except that they
 must not worsen foreground or visible p95/p99.
 
+## Native Metadata Production Scheduler
+
+Demand lanes on the native side are a real scheduler, not frame labels.
+The Swift provider must route all metadata production for an accepted source
+through a generic, protocol-agnostic lane scheduler:
+
+```text
+scheduler ownership
+  one scheduler instance per pane; jobs are keyed by protocol id plus
+  source/generation identity. worktree-file and review metadata interest
+  share the same generic scheduler component. lane names stay generic;
+  the scheduler never learns tree/review semantics, and it never learns
+  active-context state: pausing an inactive context's production is the
+  interest producer's responsibility under R18, not the scheduler's.
+
+lane queues
+  per-lane FIFO queues with strict priority
+  foreground > active > visible > nearby > speculative > idle
+  within a lane, jobs order by arrival; protocol id is identity and
+  stale-drop scope, never priority.
+
+idle continuation
+  full-manifest continuation is enqueued as idle-lane work inside the same
+  scheduler. a free-running continuation loop outside the scheduler is a
+  contract violation. only protocols with manifest continuation supply
+  idle jobs; review supplies none today.
+
+preemption granularity
+  idle work executes in bounded batches. a queued higher-lane job waits at
+  most one bounded idle batch before dequeue. the idle batch bound is an
+  AppPolicies constant sized so one batch cannot consume the foreground
+  queue-wait budget.
+
+idle no-starvation budget
+  when higher lanes are active, the scheduler must still service at least
+  one idle batch per N higher-lane jobs drained. N is an AppPolicies
+  constant, not a literal in production or proof code. N counts drained
+  higher-lane jobs per pane.
+
+queue wait
+  measured per job as enqueue-to-dequeue by the scheduler's own
+  instrumentation and emitted per lane. a request-to-delivered-frame span
+  is not queue wait and must not be labeled, aliased, or artifact-keyed as
+  queue wait.
+
+stale drop
+  queued jobs bound to a replaced source/generation are dropped and counted.
+
+test seams
+  the scheduler accepts an injected clock and a test-drivable continuation
+  step/gate as ordinary constructor parameters. proof drives contention
+  deterministically through these seams with no wall-clock sleeps. `#if
+  DEBUG` production hooks are prohibited.
+```
+
+Manifest index contract:
+
+```text
+index ownership
+  a single-writer owner holds the manifest index for the accepted source
+  generation on one isolation domain off the MainActor. enumeration build,
+  watch-event patches, and interest reads all go through that owner. the
+  stateless materializer is not the index owner. source reset or a
+  generation bump discards and rebuilds the index.
+
+index content and scope
+  the index holds compact ordered path/key entries plus the facts needed
+  to serve tree rows; it does not hold hydrated file bodies. the index and
+  the completeness expected set are scoped identically: pathScope
+  intersected with the publication policy.
+
+index ordering
+  manifest ordering is deterministic and policy-owned. a generic provider
+  must not encode a specific repository's folder names in its ordering
+  policy.
+
+interest serving
+  metadata interest is served from the index in O(requested paths) plus a
+  freshness stat of the requested paths. serving interest must not
+  re-enumerate the worktree. when the stat disagrees with the index, stat
+  truth wins: the provider never emits a stale upsert; it patches the
+  index and emits the corrected row or a removal delta instead.
+
+live updates
+  filesystem/git watch events patch the index and emit delta-lineage rows.
+
+expected set
+  manifest-completeness truth is a files-only path-set comparison with an
+  empty symmetric difference, never a count equality, and never the
+  provider's own emission counters. until AgentStudioGit ships
+  tracked-path enumeration, the expected set is: an independent test-owned
+  filesystem walk (structural exclusions only: `.git` internals and nested
+  worktree roots) minus the AgentStudioGit (libgit2) ignored set. when
+  `trackedPaths` lands, the expected set cuts over to git truth:
+  trackedPaths union untracked-non-ignored. publication policy is
+  git-truth only per the Worktree/File protocol spec; directory rows are
+  derived from file parents on both sides of the comparison.
+```
+
+Worktree/File metadata lineage (`loaded_by`, `lane`) is typed frame-level
+metadata on snapshot/window/delta frames, with a one-lineage-per-frame
+invariant: emitters must not coalesce rows of differing lineage into a
+single frame; they split frames per lineage instead. Per-row duplicated
+lineage inside encoded Worktree/File wire frames and post-hoc JSON rewriting
+of encoded frames are contract violations. Browser materializers may derive
+per-item lineage facts from accepted frame-level lineage for classification
+and proof. Review's existing per-item wire lineage is an accepted residual
+outside this cutover; changing it belongs to a later review-protocol slice.
+
 ## Required Trace Shape
 
 Trace spans must stitch a user action through the system. Use one run marker
@@ -223,6 +332,8 @@ agentstudio_performance_event_elapsed_ms_bucket{event="performance.bridge.web.me
 agentstudio_performance_event_elapsed_ms_bucket{event="performance.bridge.web.metadata_interest_to_frame", ...}
 agentstudio_performance_event_elapsed_ms_bucket{event="performance.bridge.native.metadata_open_to_first_window", ...}
 agentstudio_performance_event_elapsed_ms_bucket{event="performance.bridge.native.metadata_full_manifest_complete", ...}
+agentstudio_performance_event_elapsed_ms_bucket{event="performance.bridge.native.metadata_interest_to_frame", ...}
+agentstudio_performance_event_elapsed_ms_bucket{event="performance.bridge.native.metadata_window_produce", ...}
 agentstudio_performance_event_elapsed_ms_bucket{event="performance.bridge.web.projection_input_build", ...}
 agentstudio_performance_event_elapsed_ms_bucket{event="performance.bridge.web.projection_worker", ...}
 agentstudio_performance_event_elapsed_ms_bucket{event="performance.bridge.web.projection_store_apply", ...}
@@ -239,6 +350,27 @@ Vite and native. Exact dashboard aliases such as
 `bridge_click_to_first_visible_content_window_ms` may be added later, but they
 must be aliases over the same bounded event histogram data rather than a
 separate Vite-only metric path.
+
+Measurement honesty rules:
+
+- `performance.bridge.viewer.demand_queue_wait{lane}` measures scheduler
+  enqueue-to-dequeue only, in both runtimes. Native emits it from the generic
+  lane scheduler. A runtime without a real queue must not emit or synthesize
+  this metric.
+- `performance.bridge.native.metadata_interest_to_frame` measures interest
+  request to delivered intake frame. It legitimately includes intake-ready
+  wait; it must not be renamed, aliased, or artifact-keyed as queue wait.
+- `performance.bridge.web.metadata_apply` is browser-side frame apply time
+  only. Native frame preparation/dispatch time is
+  `performance.bridge.native.metadata_window_produce`. Neither runtime may
+  report its own phase under the other runtime's metric name.
+- queue-wait claims require structural evidence: per-lane sample counts
+  greater than one for every hard-gated lane; under the contention
+  scenario, at least one lower lane records nonzero queue wait while a
+  higher lane drains; samples originate from the scheduler's own
+  enqueue/dequeue instrumentation, not from intake-frame delivery
+  timestamps; and for any single job, `demand_queue_wait` must not equal
+  `metadata_interest_to_frame`.
 
 Counters and gauges:
 
@@ -296,6 +428,54 @@ includes FileView and worktree-backed Review as separate scenario families:
 FileView click/open and tree scroll cannot stand in for Review item click/open
 or Review tree scroll, and Review proof cannot stand in for FileView proof.
 
+Headless Swift-plane proof runs in two lanes:
+
+```text
+compact proof (always-on, `mise run test`)
+  proves contract truth without wall-clock latency gates: manifest
+  completeness per the expected-set composition above, ignored-path
+  exclusion via a seeded ignored fixture, typed frame-level loaded_by/lane
+  lineage decoded from the typed field with a negative assertion that
+  Worktree/File rows carry no duplicated per-row lineage, interest
+  preemption of mid-flight idle continuation under the normative contention
+  scenario driven through the scheduler's test seams, idle-budget progress
+  during that contention, the structural preemption bound (a queued
+  higher-lane job dequeues after at most one bounded idle batch), and
+  proof-artifact shape. latency percentiles are recorded report-only in
+  this lane. window sizes and budgets are asserted as observed behavior
+  equal to the AppPolicies constant production uses; constant-to-constant
+  comparisons prove nothing. obligations activate slice by slice as the
+  implementation lands; a required assertion whose input exists must fail
+  closed, not skip silently.
+
+gated benchmark (`mise run verify-bridge-headless-manifest`)
+  this task is REQUIRED to exist and is the authoritative command for
+  closing R17.b; the compact lane alone can never close it. the task sets
+  the environment that activates the gated assertions, runs the benchmark
+  loop against the current worktree with metadata_interest_samples >= 100
+  total and >= 50 for each hard-gated lane (foreground, visible), and
+  content samples >= 20. it enforces the queue-wait and interest-to-frame
+  budgets as hard gates, writes the proof artifact, exports the same
+  histograms to the shared Victoria stack through the standard debug
+  observability path, and finishes with a marker-scoped VictoriaMetrics
+  query proving the named native histogram events landed for the run
+  marker. a gated run with a partially-set environment fails closed.
+```
+
+The contention scenario is normative for `demand-pressure-no-starvation` and
+is defined measurably: the proof drives the scheduler's injected clock and
+continuation step/gate seams so idle continuation is mid-flight, injects
+foreground and visible interest, and asserts (a) idle-lane frames exist with
+delivery indices strictly before AND strictly after the injection point,
+proving idle was actively producing; (b) the injected higher-lane frames are
+delivered after at most one bounded idle batch (the AppPolicies preemption
+bound); and (c) idle progress counters strictly increase across the
+injection, proving no starvation. Sequentially awaited interest probes
+issued before intake-ready do not satisfy this scenario, because buffer
+insertion order would prove test choreography rather than scheduler
+behavior. Wall-clock sleeps and `#if DEBUG` hooks are prohibited; the seams
+are ordinary constructor parameters.
+
 ## Passing Criteria
 
 Vite performance proof passes only when:
@@ -323,12 +503,23 @@ through Victoria-backed proof.
 Headless Swift-plane proof is required before native WKWebView proof can close:
 
 ```text
-all non-ignored files in the current worktree are counted as expected metadata
+the expected metadata set follows the expected-set composition in the
+  manifest index contract: independent test-owned walk minus the libgit2
+  ignored set today, cutting over to trackedPaths union
+  untracked-non-ignored when AgentStudioGit ships it; never the provider's
+  own emission counters; expected-versus-emitted is a files-only path-set
+  comparison with an empty symmetric difference, not a count equality
+a seeded ignored-path fixture is absent from every emitted frame
 all expected rows eventually appear in emitted metadata frames
-each emitted row records loaded_by and lane lineage
-selected/open and visible metadata beat idle continuation under pressure
+every frame records typed loaded_by and lane lineage at frame level
+selected/open and visible metadata beat active idle continuation under the
+  normative contention scenario, and idle progress counters still advance
 full-manifest completion has p95/p99 and no-starvation progress counters
 content descriptor demand is measured separately from metadata frame emission
+queue wait by lane comes from the generic lane scheduler's
+  enqueue-to-dequeue instrumentation with real per-lane sample counts;
+  a relabeled request-to-delivery span is a failing substitute
 p95/p99 are reported for open-to-first-window, metadata-interest-to-frame,
-full-manifest-complete, queue wait by lane, metadata apply, and content fetch
+full-manifest-complete, queue wait by lane, metadata window produce,
+web metadata apply, and content fetch
 ```

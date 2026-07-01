@@ -89,7 +89,18 @@ Provider owns:
 
 - worktree source authority
 - authoritative file-tree metadata production
-- persistent metadata stream scheduling for the accepted source
+- an ordered manifest index per accepted source generation, built during
+  initial/continuation enumeration and patched by watch events; a
+  single-writer owner on one isolation domain off the MainActor holds the
+  index (the stateless materializer is not the owner), and source reset or
+  a generation bump discards and rebuilds it; metadata interest is served
+  from this index in O(requested paths) and must not re-enumerate the
+  worktree
+- persistent metadata stream scheduling for the accepted source through the
+  generic native lane scheduler defined in
+  [performance-demand-lanes.md](performance-demand-lanes.md); full-manifest
+  continuation is idle-lane work inside that scheduler, not a free-running
+  loop
 - filesystem watch classification
 - git status classification
 - tree rows/windows/ranges/deltas as streamed metadata frames
@@ -99,6 +110,16 @@ Provider owns:
 - file invalidation facts
 - content handles and content hashes
 - source reset/gap decisions
+
+Publication policy is git-truth only (accepted product decision
+2026-07-01): a path is publishable when repository ignore policy (gitignore
+via AgentStudioGit/libgit2) does not exclude it. The only structural
+exclusions on top of ignore policy are `.git` internals and nested git
+worktree roots. Hidden dotfile paths and generated-dependency directories
+are not policy exclusions: hiding non-ignored files such as
+`.github/workflows/*.yml`, `.gitignore`, or `.mise.toml` is a completeness
+bug that proof must catch, and the Vite adapter and native provider must
+publish the same set.
 
 Browser surface owns:
 
@@ -827,8 +848,11 @@ metadata interest updates
   idle: remaining manifest completion with no starvation
 
 provider production
-  Swift reorders metadata frame production from the interest state and emits
-  frames on the same persistent stream
+  Swift serves interest selectors from the per-generation manifest index in
+  O(requested paths), orders emission through the generic lane scheduler
+  (foreground > active > visible > nearby > speculative > idle with an idle
+  no-starvation budget), and emits frames on the same persistent stream.
+  Serving interest by re-enumerating the worktree is a contract violation.
 
 hidden changes
   provider emits compact stale/invalidation facts
@@ -849,9 +873,29 @@ Headless Swift-plane proof must record manifest progress for the accepted
 source. The required artifact includes total eligible path count after ignore
 policy, emitted row count, remaining row count, first-window range, every
 subsequent emitted range/delta, lane that caused or budgeted the emission,
-generation/cursor, and timestamp. A proof that only sees the first 200 rows is
-red unless it also records continued manifest progress and eventual completion
-for all non-ignored rows, or a bounded explicit failure with source evidence.
+generation/cursor, and timestamp. A proof that only sees the first startup
+window is red unless it also records continued manifest progress and eventual
+completion for all non-ignored rows, or a bounded explicit failure with source
+evidence.
+
+Completeness truth is independent of the provider: the expected path set is
+built by the proof itself as an independent test-owned filesystem walk
+(structural exclusions only: `.git` internals and nested worktree roots)
+minus the AgentStudioGit (libgit2) ignored set, cutting over to
+`trackedPaths` union untracked-non-ignored once AgentStudioGit ships
+tracked-path enumeration. The comparison is a files-only path-set symmetric
+difference that must be empty, not a count equality; directory rows are
+derived from file parents on both sides. The proof must not call the
+provider's publication/enumeration code to build the expected set. The
+provider's own `expected_total`/`emitted_total` counters are reporting
+facts, never their own completeness authority. The proof must also seed an
+ignored-path fixture and assert its absence from every emitted frame. The
+startup window size and the idle no-starvation budget are AppPolicies
+constants shared with production; proof asserts observed behavior equals
+the constant, never constant-to-constant or literal values. Git truth in
+proof code uses AgentStudioGit (libgit2) exclusively; shelling out to a git
+CLI is prohibited and is enforced by the repo architecture lint or review
+checklist.
 
 ## 11. Surface Flow
 
@@ -989,11 +1033,23 @@ Contract:
 - worktree tree/status updates do not instantiate Review package lineage
 - Swift/native owns authoritative file-tree metadata production; BridgeWeb
   applies streamed metadata and must not synthesize the native file tree
-- headless Swift-plane e2e/benchmark proof opens the current worktree source,
-  records every metadata frame/delta/range with lane and cursor lineage, proves
-  all non-ignored files eventually arrive as metadata, and reports p95/p99 for
-  first window, full-manifest completion, metadata-interest-to-frame, queue wait
-  by lane, metadata apply, and content fetch phases
+- headless Swift-plane proof runs in the two lanes defined in
+  [performance-demand-lanes.md](performance-demand-lanes.md): an always-on
+  compact proof (contract truth, independent libgit2 expected set, ignored
+  fixture, contention/no-starvation scenario, report-only percentiles) and an
+  env-gated `mise run verify-bridge-headless-manifest` benchmark (>=100
+  interest samples, >=20 content samples, hard queue-wait and
+  interest-to-frame gates, Victoria export). Queue wait by lane comes from
+  the generic lane scheduler's enqueue-to-dequeue instrumentation; a
+  relabeled request-to-delivery span is a failing substitute
+- Worktree/File metadata lineage (`loaded_by`, `lane`) is typed frame-level
+  metadata on snapshot/window/delta frames with a one-lineage-per-frame
+  invariant, shared as bidirectional Swift/TS fixtures; per-row duplicated
+  lineage and post-hoc JSON rewriting of encoded frames are prohibited;
+  proof decodes lineage from the typed frame field and asserts rows carry
+  no duplicated per-row lineage; browser materializers may derive per-item
+  lineage facts from accepted frame-level lineage; Review's per-item wire
+  lineage is an accepted residual owned by a later review-protocol slice
 - the headless Swift artifact classifies how rows were loaded: startup
   first-window, foreground selected/open, visible viewport, nearby lookahead,
   speculative prediction, idle manifest continuation, delta, reset, or
