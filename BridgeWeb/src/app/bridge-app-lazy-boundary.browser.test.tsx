@@ -13,7 +13,10 @@ import { makeBridgeReviewPackage } from '../foundation/review-package/bridge-rev
 import type { BridgeReviewProjectionRequestIdentity } from '../review-viewer/models/review-projection-models.js';
 import type { UseBridgeReviewProjectionCoordinatorProps } from '../review-viewer/projections/use-review-projection-coordinator.js';
 import { waitForBridgeViewerAnimationFrame } from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
-import type { WorktreeFileFrameSubscriber } from '../worktree-file-surface/worktree-file-app.js';
+import type {
+	WorktreeFileFrameSubscriber,
+	WorktreeFileInitialSurface,
+} from '../worktree-file-surface/worktree-file-app.js';
 
 const bridgeAppLazyBoundaryMock = vi.hoisted(() => ({
 	fileViewerShellImportCount: 0,
@@ -215,7 +218,7 @@ describe('BridgeApp lazy mode boundaries', () => {
 			reason: 'subscriptionReset',
 		};
 		let loadInitialSurfaceCount = 0;
-		const loadInitialSurface = async () => {
+		const loadInitialSurface = async (): Promise<WorktreeFileInitialSurface> => {
 			loadInitialSurfaceCount += 1;
 			return { frames: [bufferedFrame] };
 		};

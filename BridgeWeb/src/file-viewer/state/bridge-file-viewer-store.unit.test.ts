@@ -2,10 +2,101 @@ import { describe, expect, test } from 'vitest';
 
 import { makeFileDescriptor } from '../bridge-file-viewer-browser-test-fixtures.js';
 import type { BridgeFileViewerStoreState } from './bridge-file-viewer-store.js';
-import { createBridgeFileViewerStore } from './bridge-file-viewer-store.js';
+import {
+	createBridgeFileViewerStore,
+	selectBridgeFileViewerRootSnapshot,
+} from './bridge-file-viewer-store.js';
 
 describe('Bridge file viewer Zustand store', () => {
-	test('owns file tree search filter and open status as pure control-plane facts', () => {
+	test('keeps root subscriptions stable for render hydration descriptor and open-file updates', () => {
+		const store = createBridgeFileViewerStore();
+		const descriptor = makeFileDescriptor({ path: 'Sources/App.swift' });
+		let rootRenderCount = 0;
+		const unsubscribe = store.subscribe(selectBridgeFileViewerRootSnapshot, () => {
+			rootRenderCount += 1;
+		});
+
+		store.getState().actions.setRenderState({
+			descriptors: [descriptor],
+			provenance: {
+				baseRef: 'HEAD',
+				scenarioName: 'current-worktree',
+				worktreeRootToken: 'root-token',
+			},
+			sourceIdentity: descriptor.sourceIdentity,
+			treeRows: [
+				{
+					rowId: 'row:Sources/App.swift',
+					path: 'Sources/App.swift',
+					name: 'App.swift',
+					parentPath: 'Sources',
+					depth: 1,
+					isDirectory: false,
+					fileId: descriptor.fileId,
+					sizeBytes: descriptor.sizeBytes,
+					lineCount: descriptor.lineCount,
+				},
+			],
+			treeSizeFacts: {
+				extentKind: 'exactPathCount',
+				pathCount: 1,
+				windowStartIndex: 0,
+				windowRowCount: 1,
+				rowHeightPixels: 24,
+			},
+		});
+		store.getState().actions.setOpenFileState({
+			status: 'loading',
+			path: 'Sources/App.swift',
+			descriptor,
+		});
+		store.getState().actions.setInitialSurfaceLoadState({ status: 'ready' });
+		store.getState().actions.setRefreshDebugState({
+			commitState: 'committed',
+			currentRequestId: 1,
+			descriptorId: descriptor.contentDescriptor.ref.descriptorId,
+			requestId: 1,
+			result: 'ok',
+		});
+		store.getState().actions.setLastOpenLoadTelemetry({
+			disposition: 'cold-loaded',
+			durationMilliseconds: 12,
+			estimatedBytes: descriptor.sizeBytes,
+			executorInFlightBytesAfter: 0,
+			executorInFlightBytesBefore: 1,
+			executorInFlightCountAfter: 0,
+			executorInFlightCountBefore: 1,
+			executorInFlightMilliseconds: 2,
+			executorPendingWaitMilliseconds: 1,
+			executorQueuedBytesAfter: 0,
+			executorQueuedBytesBefore: 0,
+			executorQueuedLoadCountAfter: 0,
+			executorQueuedLoadCountBefore: 0,
+			lane: 'foreground',
+			resourceBodyRegistryCommitMilliseconds: 1,
+			resourceFetchResponseWaitMilliseconds: 3,
+			resourceFirstChunkWaitMilliseconds: 4,
+			resourceStreamReadMilliseconds: 5,
+			schedulerQueueWaitMilliseconds: 1,
+			schedulerQueuedEstimatedBytesAfter: 0,
+			schedulerQueuedEstimatedBytesBefore: descriptor.sizeBytes ?? 0,
+			schedulerQueuedIntentCountAfter: 0,
+			schedulerQueuedIntentCountBefore: 1,
+		});
+		store.getState().actions.setLastDemandDispatchDebugState({
+			status: 'failed',
+			reason: 'descriptor_missing',
+		});
+
+		expect(rootRenderCount).toBe(0);
+
+		store.getState().actions.setSearchText('Sources');
+
+		expect(rootRenderCount).toBe(1);
+		unsubscribe();
+	});
+
+	test('owns file tree search filters as pure control-plane facts', () => {
 		const store = createBridgeFileViewerStore();
 		const descriptor = makeFileDescriptor({ path: 'Sources/App.swift' });
 
@@ -22,10 +113,10 @@ describe('Bridge file viewer Zustand store', () => {
 			searchText: 'Sources',
 			searchMode: 'regex',
 			filterMode: 'fetchable',
-			openFileState: {
-				status: 'loading',
-				path: 'Sources/App.swift',
-			},
+		});
+		expect(store.getState().openFileState).toMatchObject({
+			status: 'loading',
+			path: 'Sources/App.swift',
 		});
 	});
 
@@ -48,7 +139,7 @@ describe('Bridge file viewer Zustand store', () => {
 			};
 		});
 
-		expect(store.getState().rootSnapshot.openFileState).toMatchObject({
+		expect(store.getState().openFileState).toMatchObject({
 			status: 'failed',
 			path: 'Sources/App.swift',
 		});
@@ -101,8 +192,8 @@ describe('Bridge file viewer Zustand store', () => {
 		const snapshot = serializableViewerStateForBodyBoundary(store.getState());
 		const snapshotJSON = JSON.stringify(snapshot);
 
-		expect(snapshot.rootSnapshot.renderState.descriptors).toHaveLength(1);
-		expect(snapshot.rootSnapshot.openFileState).toMatchObject({
+		expect(snapshot.renderState.descriptors).toHaveLength(1);
+		expect(snapshot.openFileState).toMatchObject({
 			status: 'ready',
 			path: 'Sources/App.swift',
 		});

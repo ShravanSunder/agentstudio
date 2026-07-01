@@ -16,12 +16,6 @@ import type {
 } from '../bridge-file-viewer-tree-panel.js';
 
 export interface BridgeFileViewerRootSnapshot {
-	readonly renderState: BridgeFileViewerRenderState;
-	readonly openFileState: BridgeFileViewerOpenState;
-	readonly initialSurfaceLoadState: BridgeFileViewerInitialSurfaceLoadState;
-	readonly refreshDebugState: BridgeFileViewerRefreshDebugState | null;
-	readonly lastOpenLoadTelemetry: WorktreeFileSurfaceLoadTelemetry | null;
-	readonly lastDemandDispatchDebugState: BridgeFileViewerDemandDispatchDebugState;
 	readonly searchText: string;
 	readonly searchMode: BridgeFileViewerSearchMode;
 	readonly filterMode: BridgeFileViewerFilterMode;
@@ -53,6 +47,12 @@ export interface BridgeFileViewerStoreActions {
 
 export interface BridgeFileViewerStoreState {
 	readonly rootSnapshot: BridgeFileViewerRootSnapshot;
+	readonly renderState: BridgeFileViewerRenderState;
+	readonly openFileState: BridgeFileViewerOpenState;
+	readonly initialSurfaceLoadState: BridgeFileViewerInitialSurfaceLoadState;
+	readonly refreshDebugState: BridgeFileViewerRefreshDebugState | null;
+	readonly lastOpenLoadTelemetry: WorktreeFileSurfaceLoadTelemetry | null;
+	readonly lastDemandDispatchDebugState: BridgeFileViewerDemandDispatchDebugState;
 	readonly actions: BridgeFileViewerStoreActions;
 }
 
@@ -77,19 +77,19 @@ export function createBridgeFileViewerStore(): BridgeFileViewerStore {
 
 			return {
 				rootSnapshot: {
-					renderState: emptyRenderState,
-					openFileState: { status: 'idle' },
-					initialSurfaceLoadState: { status: 'idle' },
-					refreshDebugState: null,
-					lastOpenLoadTelemetry: null,
-					lastDemandDispatchDebugState: { status: 'idle' },
 					searchText: '',
 					searchMode: 'text',
 					filterMode: 'all',
 				},
+				renderState: emptyRenderState,
+				openFileState: { status: 'idle' },
+				initialSurfaceLoadState: { status: 'idle' },
+				refreshDebugState: null,
+				lastOpenLoadTelemetry: null,
+				lastDemandDispatchDebugState: { status: 'idle' },
 				actions: {
 					setRenderState: (renderState: BridgeFileViewerRenderState): void => {
-						replaceRootSnapshot({ renderState });
+						set({ renderState });
 					},
 					setOpenFileState: (
 						openFileState:
@@ -98,35 +98,32 @@ export function createBridgeFileViewerStore(): BridgeFileViewerStore {
 					): void => {
 						set(
 							(state: BridgeFileViewerStoreState): Partial<BridgeFileViewerStoreState> => ({
-								rootSnapshot: {
-									...state.rootSnapshot,
-									openFileState:
-										typeof openFileState === 'function'
-											? openFileState(state.rootSnapshot.openFileState)
-											: openFileState,
-								},
+								openFileState:
+									typeof openFileState === 'function'
+										? openFileState(state.openFileState)
+										: openFileState,
 							}),
 						);
 					},
 					setInitialSurfaceLoadState: (
 						initialSurfaceLoadState: BridgeFileViewerInitialSurfaceLoadState,
 					): void => {
-						replaceRootSnapshot({ initialSurfaceLoadState });
+						set({ initialSurfaceLoadState });
 					},
 					setRefreshDebugState: (
 						refreshDebugState: BridgeFileViewerRefreshDebugState | null,
 					): void => {
-						replaceRootSnapshot({ refreshDebugState });
+						set({ refreshDebugState });
 					},
 					setLastOpenLoadTelemetry: (
 						lastOpenLoadTelemetry: WorktreeFileSurfaceLoadTelemetry | null,
 					): void => {
-						replaceRootSnapshot({ lastOpenLoadTelemetry });
+						set({ lastOpenLoadTelemetry });
 					},
 					setLastDemandDispatchDebugState: (
 						lastDemandDispatchDebugState: BridgeFileViewerDemandDispatchDebugState,
 					): void => {
-						replaceRootSnapshot({ lastDemandDispatchDebugState });
+						set({ lastDemandDispatchDebugState });
 					},
 					setSearchText: (searchText: string): void => {
 						replaceRootSnapshot({ searchText });

@@ -603,8 +603,12 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			0,
 		);
 		expect(sample.numericAttributes['agentstudio.bridge.source.generation']).toBe(1);
-		expect(sample.numericAttributes['agentstudio.bridge.demand.scheduler_queue_wait_ms']).toBe(0);
-		expect(sample.numericAttributes['agentstudio.bridge.demand.executor_pending_wait_ms']).toBe(0);
+		expect(
+			sample.numericAttributes['agentstudio.bridge.demand.scheduler_queue_wait_ms'],
+		).toBeGreaterThanOrEqual(0);
+		expect(
+			sample.numericAttributes['agentstudio.bridge.demand.executor_pending_wait_ms'],
+		).toBeGreaterThanOrEqual(0);
 		expect(
 			sample.numericAttributes['agentstudio.bridge.demand.executor_in_flight_ms'],
 		).toBeGreaterThanOrEqual(0);

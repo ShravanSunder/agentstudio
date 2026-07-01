@@ -26,42 +26,56 @@ export interface BridgeFileViewerActiveModeGate {
 export function useBridgeFileViewerActiveModeGate(
 	props: UseBridgeFileViewerActiveModeGateProps,
 ): BridgeFileViewerActiveModeGate {
+	const {
+		activeVisibleDemandSignatureRef,
+		appliedNavigationCommandIdRef,
+		demandDispatchRequestIdRef,
+		isActive,
+		onDeactivateOpenFileWork,
+		openFileRequestIdRef,
+		pendingRecentlyUpdatedDescriptorDemandRef,
+		pendingSelectedDescriptorRequestRef,
+		pendingStaleRefreshDescriptorRequestKeyRef,
+		recentlyUpdatedDemandInFlightRef,
+		recentlyUpdatedDemandRequestIdRef,
+		recentlyUpdatedLoadedDescriptorIdRef,
+	} = props;
 	const activeModeTokenRef = useRef(0);
-	const isActiveRef = useRef(props.isActive);
+	const isActiveRef = useRef(isActive);
 
 	useLayoutEffect((): void => {
-		if (isActiveRef.current === props.isActive) {
+		if (isActiveRef.current === isActive) {
 			return;
 		}
-		isActiveRef.current = props.isActive;
+		isActiveRef.current = isActive;
 		activeModeTokenRef.current += 1;
-		if (props.isActive) {
+		if (isActive) {
 			return;
 		}
-		props.activeVisibleDemandSignatureRef.current = null;
-		props.demandDispatchRequestIdRef.current += 1;
-		props.openFileRequestIdRef.current += 1;
-		props.recentlyUpdatedDemandRequestIdRef.current += 1;
-		props.appliedNavigationCommandIdRef.current = null;
-		props.pendingRecentlyUpdatedDescriptorDemandRef.current = null;
-		props.pendingSelectedDescriptorRequestRef.current = null;
-		props.pendingStaleRefreshDescriptorRequestKeyRef.current = null;
-		props.recentlyUpdatedDemandInFlightRef.current = false;
-		props.recentlyUpdatedLoadedDescriptorIdRef.current = null;
-		props.onDeactivateOpenFileWork();
+		activeVisibleDemandSignatureRef.current = null;
+		demandDispatchRequestIdRef.current += 1;
+		openFileRequestIdRef.current += 1;
+		recentlyUpdatedDemandRequestIdRef.current += 1;
+		appliedNavigationCommandIdRef.current = null;
+		pendingRecentlyUpdatedDescriptorDemandRef.current = null;
+		pendingSelectedDescriptorRequestRef.current = null;
+		pendingStaleRefreshDescriptorRequestKeyRef.current = null;
+		recentlyUpdatedDemandInFlightRef.current = false;
+		recentlyUpdatedLoadedDescriptorIdRef.current = null;
+		onDeactivateOpenFileWork();
 	}, [
-		props.activeVisibleDemandSignatureRef,
-		props.appliedNavigationCommandIdRef,
-		props.demandDispatchRequestIdRef,
-		props.isActive,
-		props.onDeactivateOpenFileWork,
-		props.openFileRequestIdRef,
-		props.pendingRecentlyUpdatedDescriptorDemandRef,
-		props.pendingSelectedDescriptorRequestRef,
-		props.pendingStaleRefreshDescriptorRequestKeyRef,
-		props.recentlyUpdatedDemandInFlightRef,
-		props.recentlyUpdatedLoadedDescriptorIdRef,
-		props.recentlyUpdatedDemandRequestIdRef,
+		activeVisibleDemandSignatureRef,
+		appliedNavigationCommandIdRef,
+		demandDispatchRequestIdRef,
+		isActive,
+		onDeactivateOpenFileWork,
+		openFileRequestIdRef,
+		pendingRecentlyUpdatedDescriptorDemandRef,
+		pendingSelectedDescriptorRequestRef,
+		pendingStaleRefreshDescriptorRequestKeyRef,
+		recentlyUpdatedDemandInFlightRef,
+		recentlyUpdatedDemandRequestIdRef,
+		recentlyUpdatedLoadedDescriptorIdRef,
 	]);
 
 	return { activeModeTokenRef, isActiveRef };

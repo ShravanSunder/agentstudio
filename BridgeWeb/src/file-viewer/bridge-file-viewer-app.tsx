@@ -1,16 +1,5 @@
-import {
-	lazy,
-	Suspense,
-	useCallback,
-	useEffect,
-	useMemo,
-	useRef,
-	type ReactElement,
-	type ReactNode,
-} from 'react';
-import { useStore } from 'zustand';
+import { lazy, Suspense, useCallback, useEffect, useRef, type ReactElement } from 'react';
 
-import type { BridgeViewerNavigationCommand } from '../app/bridge-viewer-navigation-models.js';
 import type {
 	WorktreeFileDescriptor,
 	WorktreeFileDescriptorRequest,
@@ -19,9 +8,6 @@ import type {
 	WorktreeFileSurfaceSourceIdentity,
 } from '../features/worktree-file/models/worktree-file-protocol-models.js';
 import { canFetchWorktreeFileDescriptorContent } from '../features/worktree-file/models/worktree-file-protocol-models.js';
-import { countFlattenedWorktreeFileTreeRows } from '../features/worktree-file/models/worktree-file-tree-size.js';
-import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
-import type { BridgeTraceContext } from '../foundation/telemetry/bridge-trace-context.js';
 import {
 	recordBridgeViewerFileOpenReadyTelemetrySample,
 	recordBridgeViewerWorktreeFileTreeTelemetrySample,
@@ -29,27 +15,18 @@ import {
 } from '../foundation/telemetry/bridge-viewer-telemetry-adapter.js';
 import type {
 	WorktreeFileFrameSubscriptionFactory,
-	WorktreeFileInitialSurface,
 	WorktreeFileSurfaceProvenance,
 } from '../worktree-file-surface/worktree-file-app.js';
 import type { WorktreeFileSurfaceRuntime } from '../worktree-file-surface/worktree-file-surface-runtime.js';
+import type { BridgeFileViewerAppProps } from './bridge-file-viewer-app-props.js';
 import { BridgeFileViewerLazyLoadingFrame } from './bridge-file-viewer-lazy-loading-frame.js';
-import {
-	createBridgeFileViewerRuntime,
-	type WorktreeFileSurfaceRuntimeFetchedResource,
-	type WorktreeFileSurfaceRuntimeFetchResourceProps,
-} from './bridge-file-viewer-runtime.js';
+import { createBridgeFileViewerRuntime } from './bridge-file-viewer-runtime.js';
 import {
 	applyFramesToRuntime,
-	bridgeFileViewerHeaderTitle,
 	emptyRenderState,
 	findLatestDescriptorForOpenFile,
 	firstSuccessfulDemandLoadResult,
-	projectBridgeFileViewerDescriptors,
-	renderedOpenFileContentForState,
 	reconcileOpenFileStateWithFrames,
-	totalOpenFileHeightForState,
-	totalTreeHeightForSizeFacts,
 	visibleFileDemandChangeWithoutDescriptorId,
 	visibleFileDemandSignature,
 	visibleViewportDemandDispatchSatisfied,
@@ -57,24 +34,17 @@ import {
 	type BridgeFileViewerDemandDispatchDebugState,
 	type BridgeFileViewerOpenState,
 	type BridgeFileViewerPendingRecentlyUpdatedDescriptorDemand,
-	type BridgeFileViewerRenderedOpenFileContent,
 	type BridgeFileViewerRenderState,
 } from './bridge-file-viewer-state.js';
-import {
-	type BridgeFileViewerDescriptorProjection,
-	type BridgeFileViewerVisibleFileDemandChange,
-} from './bridge-file-viewer-tree-panel.js';
-import {
-	createBridgeFileViewerStore,
-	selectBridgeFileViewerRootSnapshot,
-	type BridgeFileViewerStore,
-} from './state/bridge-file-viewer-store.js';
+import { type BridgeFileViewerVisibleFileDemandChange } from './bridge-file-viewer-tree-panel.js';
 import { useBridgeFileViewerActiveModeGate } from './use-bridge-file-viewer-active-mode-gate.js';
 import { useBridgeFileViewerBodyState } from './use-bridge-file-viewer-body-state.js';
 import { useBridgeFileViewerInactiveOpenFileRecovery } from './use-bridge-file-viewer-inactive-open-file-recovery.js';
 import { useBridgeFileViewerInitialSurfaceLoader } from './use-bridge-file-viewer-initial-surface-loader.js';
 import { useBridgeFileViewerRecentlyUpdatedDemand } from './use-bridge-file-viewer-recently-updated-demand.js';
 import { useBridgeFileViewerSelectionEffects } from './use-bridge-file-viewer-selection-effects.js';
+import { useBridgeFileViewerShellModel } from './use-bridge-file-viewer-shell-model.js';
+import { useBridgeFileViewerStoreBindings } from './use-bridge-file-viewer-store-bindings.js';
 export {
 	applyFramesToRuntime,
 	projectBridgeFileViewerDescriptors,
@@ -82,31 +52,11 @@ export {
 	visibleFileDemandChangeWithoutDescriptorId,
 } from './bridge-file-viewer-state.js';
 export type { BridgeFileViewerRenderState } from './bridge-file-viewer-state.js';
+export type { BridgeFileViewerAppProps } from './bridge-file-viewer-app-props.js';
 const LazyBridgeFileViewerShell = lazy(async () => {
 	const module = await import('./bridge-file-viewer-shell.js');
 	return { default: module.BridgeFileViewerShell };
 });
-
-export interface BridgeFileViewerAppProps {
-	readonly autoOpenInitialFile?: boolean;
-	readonly codeViewWorkerFactory?: () => Worker;
-	readonly codeViewWorkerPoolEnabled?: boolean;
-	readonly fetchResource?: (
-		props: WorktreeFileSurfaceRuntimeFetchResourceProps,
-	) => Promise<WorktreeFileSurfaceRuntimeFetchedResource>;
-	readonly initialFrames?: readonly WorktreeFileProtocolFrame[];
-	readonly isActive?: boolean;
-	readonly loadInitialFrames?: () => Promise<readonly WorktreeFileProtocolFrame[]>;
-	readonly loadInitialSurface?: () => Promise<WorktreeFileInitialSurface>;
-	readonly navigationCommand?: BridgeViewerNavigationCommand;
-	readonly onOpenReviewComparison?: (descriptor: WorktreeFileDescriptor) => void;
-	readonly requestFileDescriptor?: (request: WorktreeFileDescriptorRequest) => Promise<void> | void;
-	readonly subscribeFrames?: WorktreeFileFrameSubscriptionFactory;
-	readonly telemetryRecorder?: BridgeTelemetryRecorder | undefined;
-	readonly telemetryTraceContext?: BridgeTraceContext | null | undefined;
-	readonly viewerHeaderControls?: ReactNode;
-	readonly waitForBridgeReady?: (callback: () => void) => () => void;
-}
 
 export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): ReactElement {
 	const {
@@ -140,24 +90,17 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 	const appliedNavigationCommandIdRef = useRef<string | null>(null);
 	const renderStateRef = useRef<BridgeFileViewerRenderState>(emptyRenderState);
 	const openFileStateRef = useRef<BridgeFileViewerOpenState>({ status: 'idle' });
-	const storeRef = useRef<BridgeFileViewerStore | null>(null);
-	if (storeRef.current === null) {
-		storeRef.current = createBridgeFileViewerStore();
-	}
-	const viewerStore = storeRef.current;
-	const rootSnapshot = useStore(viewerStore, selectBridgeFileViewerRootSnapshot);
-	const viewerActions = useStore(viewerStore, (state) => state.actions);
 	const {
-		filterMode,
 		initialSurfaceLoadState,
 		lastDemandDispatchDebugState,
 		lastOpenLoadTelemetry,
 		openFileState,
 		refreshDebugState,
 		renderState,
-		searchMode,
-		searchText,
-	} = rootSnapshot;
+		rootSnapshot,
+		viewerActions,
+	} = useBridgeFileViewerStoreBindings();
+	const { filterMode, searchMode, searchText } = rootSnapshot;
 	const {
 		clearOpenFileBody,
 		clearProvisionalOpenFileBody,
@@ -176,11 +119,6 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 	openFileStateRef.current = openFileState;
 	const telemetryRecorder = props.telemetryRecorder;
 	const telemetryTraceContext = props.telemetryTraceContext ?? null;
-	const fileDescriptorByPath = useMemo(
-		(): ReadonlyMap<string, WorktreeFileDescriptor> =>
-			new Map(renderState.descriptors.map((descriptor) => [descriptor.path, descriptor])),
-		[renderState.descriptors],
-	);
 
 	if (runtimeRef.current === null) {
 		runtimeRef.current = createBridgeFileViewerRuntime({
@@ -330,6 +268,10 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 			clearOpenFileBody,
 			clearProvisionalOpenFileBody,
 			commitOpenFileBody,
+			activeModeTokenRef,
+			isActiveRef,
+			provisionalOpenFileBodyRef,
+			setProvisionalOpenFileBody,
 			telemetryRecorder,
 			telemetryTraceContext,
 			viewerActions,
@@ -357,7 +299,7 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 			pendingSelectedDescriptorRequestRef.current = null;
 			void openFile(descriptor);
 		},
-		[openFile],
+		[isActiveRef, openFile],
 	);
 
 	const requestFileDescriptorFromHost = props.requestFileDescriptor;
@@ -378,7 +320,7 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 				pendingSelectedDescriptorRequestRef.current = null;
 			});
 		},
-		[requestFileDescriptorFromHost],
+		[isActiveRef, requestFileDescriptorFromHost],
 	);
 
 	const requestFileDescriptorForDemand = useCallback(
@@ -395,7 +337,7 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 				// as unhandled promise rejections or poison foreground selection state.
 			});
 		},
-		[requestFileDescriptorFromHost],
+		[isActiveRef, requestFileDescriptorFromHost],
 	);
 
 	const dispatchRecentlyUpdatedDescriptorDemand = useCallback(
@@ -423,7 +365,7 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 			void runtime
 				.dispatchDemandStimuli(stimuli)
 				.then((result): void => {
-					if (!isActive) {
+					if (!isActiveRef.current) {
 						return;
 					}
 					if (recentlyUpdatedDemandRequestIdRef.current !== demandProps.requestId) {
@@ -443,7 +385,7 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 					});
 				})
 				.catch((error: unknown): void => {
-					if (!isActive) {
+					if (!isActiveRef.current) {
 						return;
 					}
 					if (recentlyUpdatedDemandRequestIdRef.current !== demandProps.requestId) {
@@ -460,7 +402,7 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 					}
 				});
 		},
-		[isActive, viewerActions],
+		[isActiveRef, viewerActions],
 	);
 
 	const dispatchPendingRecentlyUpdatedDescriptorDemand = useCallback(
@@ -489,7 +431,7 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 				requestId: pendingDemand.requestId,
 			});
 		},
-		[dispatchRecentlyUpdatedDescriptorDemand],
+		[dispatchRecentlyUpdatedDescriptorDemand, isActiveRef],
 	);
 
 	const applyIncomingFrames = useCallback(
@@ -538,6 +480,7 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 		[
 			dispatchPendingRecentlyUpdatedDescriptorDemand,
 			openPendingSelectedDescriptor,
+			openFileBodyRef,
 			props.telemetryRecorder,
 			props.telemetryTraceContext,
 			viewerActions,
@@ -697,7 +640,17 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 				descriptor: refreshDescriptor,
 			});
 		},
-		[clearProvisionalOpenFileBody, commitOpenFileBody, viewerActions],
+		[
+			activeModeTokenRef,
+			clearProvisionalOpenFileBody,
+			commitOpenFileBody,
+			isActiveRef,
+			openFileBodyRef,
+			provisionalOpenFileBodyRef,
+			setOpenFileBodyState,
+			setProvisionalOpenFileBody,
+			viewerActions,
+		],
 	);
 
 	const dispatchVisibleFileDemand = useCallback(
@@ -749,7 +702,7 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 			void runtime
 				.dispatchDemandStimuli(stimuli)
 				.then((result): void => {
-					if (!isActive) {
+					if (!isActiveRef.current) {
 						if (activeVisibleDemandSignatureRef.current === visibleDemandSignature) {
 							activeVisibleDemandSignatureRef.current = null;
 						}
@@ -811,7 +764,7 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 					viewerActions.setLastDemandDispatchDebugState(nextDebugState);
 				})
 				.catch((error: unknown): void => {
-					if (!isActive) {
+					if (!isActiveRef.current) {
 						if (activeVisibleDemandSignatureRef.current === visibleDemandSignature) {
 							activeVisibleDemandSignatureRef.current = null;
 						}
@@ -858,7 +811,7 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 					});
 				});
 		},
-		[isActive, telemetryRecorder, telemetryTraceContext, viewerActions],
+		[isActive, isActiveRef, telemetryRecorder, telemetryTraceContext, viewerActions],
 	);
 
 	useBridgeFileViewerRecentlyUpdatedDemand({
@@ -872,81 +825,20 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 		runtimeRef,
 	});
 
-	const descriptorProjection = useMemo((): BridgeFileViewerDescriptorProjection => {
-		const projectionStartedAt = performance.now();
-		const projection = projectBridgeFileViewerDescriptors({
-			descriptors: renderState.descriptors,
-			filterMode,
-			searchMode,
-			searchText,
-			treeRows: renderState.treeRows,
-		});
-		if (props.telemetryRecorder !== undefined) {
-			recordBridgeViewerWorktreeFileTreeTelemetrySample({
-				descriptorCount: projection.descriptors.length,
-				durationMilliseconds: performance.now() - projectionStartedAt,
-				frameCount: 0,
-				phase: 'worktree_file_projection',
-				result: 'success',
-				telemetryRecorder: props.telemetryRecorder,
-				traceContext: props.telemetryTraceContext ?? null,
-				treeRowCount: projection.treeRows.length,
-				treeWindowRowCount: 0,
-			});
-		}
-		return projection;
-	}, [
+	const shellModel = useBridgeFileViewerShellModel({
 		filterMode,
-		props.telemetryRecorder,
-		props.telemetryTraceContext,
-		renderState.descriptors,
-		renderState.treeRows,
+		lastGoodOpenFileContent,
+		openFileBodyState,
+		openFileBodyVersion,
+		openFileState,
+		provisionalOpenFileBody,
+		renderState,
 		searchMode,
 		searchText,
-	]);
-	const totalTreeRowCount = renderState.treeRows.length;
-	const totalTreeHeight = totalTreeHeightForSizeFacts({
-		filteredTreeRowCount: countFlattenedWorktreeFileTreeRows(descriptorProjection.paths),
-		hasActiveProjection:
-			filterMode !== 'all' ||
-			searchText.trim().length > 0 ||
-			descriptorProjection.searchError !== null,
-		sizeFacts: renderState.treeSizeFacts,
-		totalTreeRowCount,
-	});
-	const renderedOpenFileContent = useMemo(
-		(): BridgeFileViewerRenderedOpenFileContent | null =>
-			renderedOpenFileContentForState({
-				lastGoodOpenFileContent,
-				openFileBody: openFileBodyState,
-				openFileBodyVersion,
-				openFileState,
-				provisionalOpenFileBody,
-				selectedPath,
-			}),
-		[
-			lastGoodOpenFileContent,
-			openFileBodyState,
-			openFileBodyVersion,
-			openFileState,
-			provisionalOpenFileBody,
-			selectedPath,
-		],
-	);
-	const canRefreshOpenFile =
-		openFileState.status === 'stale' &&
-		findLatestDescriptorForOpenFile({
-			descriptor: openFileState.descriptor,
-			renderState,
-		}) !== null;
-	const openFileTotalHeightPixels = totalOpenFileHeightForState(openFileState);
-	const contentHeaderTitle = bridgeFileViewerHeaderTitle({
 		selectedPath,
-		sourceIdentity: renderState.sourceIdentity,
+		telemetryRecorder,
+		telemetryTraceContext,
 	});
-	const metadataFileTreeRowCount = renderState.treeRows.filter(
-		(treeRow): boolean => !treeRow.isDirectory && treeRow.fileId !== undefined,
-	).length;
 
 	return (
 		<Suspense
@@ -955,27 +847,27 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 			}
 		>
 			<LazyBridgeFileViewerShell
-				canRefreshOpenFile={canRefreshOpenFile}
-				contentHeaderTitle={contentHeaderTitle}
-				descriptorProjection={descriptorProjection}
+				canRefreshOpenFile={shellModel.canRefreshOpenFile}
+				contentHeaderTitle={shellModel.contentHeaderTitle}
+				descriptorProjection={shellModel.descriptorProjection}
 				dispatchVisibleFileDemand={dispatchVisibleFileDemand}
-				fileDescriptorByPath={fileDescriptorByPath}
+				fileDescriptorByPath={shellModel.fileDescriptorByPath}
 				filterMode={filterMode}
 				initialSurfaceLoadState={initialSurfaceLoadState}
 				isActive={isActive}
 				lastDemandDispatchDebugState={lastDemandDispatchDebugState}
 				lastOpenLoadTelemetry={lastOpenLoadTelemetry}
-				metadataFileTreeRowCount={metadataFileTreeRowCount}
+				metadataFileTreeRowCount={shellModel.metadataFileTreeRowCount}
 				onFilterModeChange={viewerActions.setFilterMode}
 				onOpenFile={openFile}
 				onRequestFileDescriptor={requestFileDescriptor}
 				onSearchModeChange={viewerActions.setSearchMode}
 				onSearchTextChange={viewerActions.setSearchText}
 				openFileState={openFileState}
-				openFileTotalHeightPixels={openFileTotalHeightPixels}
+				openFileTotalHeightPixels={shellModel.openFileTotalHeightPixels}
 				refreshDebugState={refreshDebugState}
 				refreshOpenFile={refreshOpenFile}
-				renderedOpenFileContent={renderedOpenFileContent}
+				renderedOpenFileContent={shellModel.renderedOpenFileContent}
 				renderState={renderState}
 				searchMode={searchMode}
 				searchText={searchText}
@@ -983,8 +875,8 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 				sourceIdentity={renderState.sourceIdentity}
 				telemetryRecorder={telemetryRecorder}
 				telemetryTraceContext={telemetryTraceContext}
-				totalTreeHeight={totalTreeHeight}
-				totalTreeRowCount={totalTreeRowCount}
+				totalTreeHeight={shellModel.totalTreeHeight}
+				totalTreeRowCount={shellModel.totalTreeRowCount}
 				viewerHeaderControls={props.viewerHeaderControls}
 				{...(codeViewWorkerFactory === undefined ? {} : { codeViewWorkerFactory })}
 				{...(codeViewWorkerPoolEnabled === undefined ? {} : { codeViewWorkerPoolEnabled })}
