@@ -564,8 +564,170 @@ extension WebKitSerializedTests {
             #expect(sawRemoveRowsDelta)
             #expect(!sawStaleUpsert)
             let manifestIndex = try #require(fixture.controller.activeWorktreeFileManifestIndex)
-            let servedAfterRemoval = await manifestIndex.interestServing(forPaths: [deletedPath])
-            #expect(servedAfterRemoval.indexedPaths.isEmpty)
+            let membersAfterRemoval = await manifestIndex.memberPaths(of: [deletedPath])
+            #expect(membersAfterRemoval.isEmpty)
+            fixture.controller.teardown()
+        }
+
+        @Test("watch-event changeset patches the manifest index and emits a treeDelta")
+        func watchEventChangesetPatchesManifestIndexAndEmitsTreeDelta() async throws {
+            let repoURL = try FilesystemTestGitRepo.create(named: "worktree-file-watch-index-patch")
+            defer { FilesystemTestGitRepo.destroy(repoURL) }
+            let sourcesURL = repoURL.appending(path: "Sources")
+            try FileManager.default.createDirectory(at: sourcesURL, withIntermediateDirectories: true)
+            try "struct Kept {}\n".write(
+                to: sourcesURL.appending(path: "Kept.swift"),
+                atomically: true,
+                encoding: .utf8
+            )
+            try "struct Doomed {}\n".write(
+                to: sourcesURL.appending(path: "Doomed.swift"),
+                atomically: true,
+                encoding: .utf8
+            )
+            let eventCapture = BridgeWorktreeFileSurfaceEventCapture()
+            let fixture = try makeControllerFixtureWithIntakeSink(
+                rootURL: repoURL,
+                intakeFrameSink: { _, frameJSON, _ in
+                    await eventCapture.recordIntake(frameJSON)
+                }
+            )
+            let responseCapture = BridgeWorktreeFileSurfaceResponseCapture()
+            fixture.controller.router.onResponse = { responseJSON in
+                await responseCapture.set(responseJSON)
+            }
+            await fixture.controller.handleIncomingRPC(
+                #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
+            )
+            await fixture.controller.handleIncomingRPC(
+                try BridgeWorktreeFileSurfaceRPCRequest(
+                    id: "open-watch-index-patch",
+                    method: "worktreeFileSurface.openSourceStream",
+                    params: sourceSpec(
+                        fixture: fixture,
+                        clientRequestId: "request-watch-index-patch",
+                        pathScope: []
+                    )
+                ).jsonString()
+            )
+            let response = try await decodedResponse(from: responseCapture)
+            await fixture.controller.handleBridgeIntakeReady(
+                BridgeIntakeReadyMethod.Params(protocolId: "worktree-file", streamId: response.result.streamId)
+            )
+            await fixture.controller.activeWorktreeFileTreeWindowTask?.value
+
+            let freshPath = "Sources/Fresh.swift"
+            let doomedPath = "Sources/Doomed.swift"
+            try "struct Fresh {}\n".write(
+                to: repoURL.appending(path: freshPath),
+                atomically: true,
+                encoding: .utf8
+            )
+            try FileManager.default.removeItem(at: repoURL.appending(path: doomedPath))
+            try await fixture.controller.publishWorktreeFileSurfaceChangeset(
+                FileChangeset(
+                    worktreeId: fixture.worktreeId,
+                    rootPath: repoURL,
+                    paths: [freshPath, doomedPath],
+                    timestamp: .now,
+                    batchSeq: 7
+                )
+            )
+
+            var sawFreshUpsert = false
+            var sawDoomedRemoval = false
+            for frameJSON in await eventCapture.intakeFrames() {
+                guard
+                    let probe = try? decodeIntakeEnvelope(
+                        frameJSON,
+                        as: BridgeWorktreeFileFrameKindProbe.self
+                    ),
+                    probe.payload.frameKind == "worktree.treeDelta"
+                else { continue }
+                let delta = try decodeIntakeEnvelope(frameJSON, as: BridgeWorktreeTreeDeltaFrame.self)
+                for operation in delta.payload.operations {
+                    switch operation {
+                    case .upsertRows(let rows):
+                        sawFreshUpsert = sawFreshUpsert || rows.contains { $0.path == freshPath }
+                    case .removeRows(_, let paths):
+                        sawDoomedRemoval = sawDoomedRemoval || paths?.contains(doomedPath) == true
+                    }
+                }
+            }
+            #expect(sawFreshUpsert)
+            #expect(sawDoomedRemoval)
+            let manifestIndex = try #require(fixture.controller.activeWorktreeFileManifestIndex)
+            #expect(await manifestIndex.memberPaths(of: [freshPath]) == [freshPath])
+            #expect(await manifestIndex.memberPaths(of: [doomedPath]).isEmpty)
+            fixture.controller.teardown()
+        }
+
+        @Test("pending intake flush survives a reentrant source reopen during delivery")
+        func pendingIntakeFlushSurvivesReentrantSourceReopenDuringDelivery() async throws {
+            let repoURL = try FilesystemTestGitRepo.create(named: "worktree-file-flush-reentrancy")
+            defer { FilesystemTestGitRepo.destroy(repoURL) }
+            let sourcesURL = repoURL.appending(path: "Sources")
+            try FileManager.default.createDirectory(at: sourcesURL, withIntermediateDirectories: true)
+            for fileIndex in 0..<210 {
+                try "struct R\(fileIndex) {}\n".write(
+                    to: sourcesURL.appending(path: String(format: "R%03d.swift", fileIndex)),
+                    atomically: true,
+                    encoding: .utf8
+                )
+            }
+            let eventCapture = BridgeWorktreeFileSurfaceEventCapture()
+            let reopenTrigger = BridgeFlushReopenTrigger()
+            let fixture = try makeControllerFixtureWithIntakeSink(
+                rootURL: repoURL,
+                intakeFrameSink: { _, frameJSON, _ in
+                    await eventCapture.recordIntake(frameJSON)
+                    await reopenTrigger.fireIfArmed()
+                }
+            )
+            let responseCapture = BridgeWorktreeFileSurfaceResponseCapture()
+            fixture.controller.router.onResponse = { responseJSON in
+                await responseCapture.set(responseJSON)
+            }
+            await fixture.controller.handleIncomingRPC(
+                #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
+            )
+            await fixture.controller.handleIncomingRPC(
+                try BridgeWorktreeFileSurfaceRPCRequest(
+                    id: "open-flush-reentrancy",
+                    method: "worktreeFileSurface.openSourceStream",
+                    params: sourceSpec(
+                        fixture: fixture,
+                        clientRequestId: "request-flush-reentrancy",
+                        pathScope: []
+                    )
+                ).jsonString()
+            )
+            _ = try await decodedResponse(from: responseCapture)
+            await fixture.controller.activeWorktreeFileTreeWindowTask?.value
+            #expect(fixture.controller.pendingWorktreeFileIntakeFrames.count > 1)
+
+            let reopenRequestJSON = try BridgeWorktreeFileSurfaceRPCRequest(
+                id: "open-flush-reentrancy-second",
+                method: "worktreeFileSurface.openSourceStream",
+                params: sourceSpec(
+                    fixture: fixture,
+                    clientRequestId: "request-flush-reentrancy-second",
+                    pathScope: []
+                )
+            ).jsonString()
+            await reopenTrigger.arm { [weak controller = fixture.controller] in
+                await controller?.handleIncomingRPC(reopenRequestJSON)
+            }
+            // The reopen fires inside the first delivery await of the flush;
+            // the flush must not trap on the cleared buffer and must not
+            // double-drain. Reaching the assertions below is the proof that
+            // no precondition trap occurred.
+            await fixture.controller.handleBridgeIntakeReady(
+                BridgeIntakeReadyMethod.Params(
+                    protocolId: "worktree-file", streamId: "worktree-file:\(fixture.paneId.uuidString)")
+            )
+            await fixture.controller.activeWorktreeFileTreeWindowTask?.value
+            #expect(fixture.controller.activeWorktreeFileSurfaceSource != nil)
             fixture.controller.teardown()
         }
 
@@ -602,4 +764,20 @@ extension WebKitSerializedTests {
 
 private struct BridgeWorktreeFileFrameKindProbe: Decodable {
     let frameKind: String
+}
+
+/// Arms a one-shot reentrant action that fires inside an intake delivery
+/// await, so flush reentrancy is exercised deterministically without sleeps.
+private actor BridgeFlushReopenTrigger {
+    private var armedAction: (@Sendable () async -> Void)?
+
+    func arm(_ action: @escaping @Sendable () async -> Void) {
+        armedAction = action
+    }
+
+    func fireIfArmed() async {
+        guard let action = armedAction else { return }
+        armedAction = nil
+        await action()
+    }
 }

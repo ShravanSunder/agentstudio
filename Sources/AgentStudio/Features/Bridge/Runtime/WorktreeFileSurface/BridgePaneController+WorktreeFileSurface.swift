@@ -168,14 +168,14 @@ extension BridgePaneController {
         // not discovery), and freshness stat-truth rebuilds the member rows
         // off the MainActor. Re-enumerating the worktree here is a contract
         // violation (performance-demand-lanes.md, manifest index contract).
-        let serving = await manifestIndex.interestServing(forPaths: requestedPaths)
-        guard !serving.indexedPaths.isEmpty else {
+        let memberPaths = await manifestIndex.memberPaths(of: requestedPaths)
+        guard !memberPaths.isEmpty else {
             return
         }
         let rootURL = try worktreeFileSurfaceRootURL()
         let refreshed = await BridgeWorktreeFileMaterializer.refreshTreeRows(
             rootURL: rootURL,
-            relativePaths: serving.indexedPaths
+            relativePaths: memberPaths
         )
         guard let latestActiveSource = activeWorktreeFileSurfaceSource,
             latestActiveSource.source == activeSource.source,
@@ -316,6 +316,11 @@ extension BridgePaneController {
             uniqueKeysWithValues: materializedDescriptors.map {
                 ($0.frame.descriptor.path, $0.frame.descriptor)
             }
+        )
+        try await reconcileWorktreeFileManifestIndexForWatchEvent(
+            changedPaths: scopedChangedPaths,
+            latestActiveSource: latestActiveSource,
+            rootURL: rootURL
         )
         let invalidationFrameCount = scopedChangeset.paths.filter { !Self.isWorktreeFileGitInternalPath($0) }.count
         guard invalidationFrameCount > 0 else {

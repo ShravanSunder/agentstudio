@@ -6,20 +6,6 @@ import Foundation
 /// index state, and interest serving must not re-enumerate the worktree.
 /// Contract: performance-demand-lanes.md, manifest index contract.
 actor BridgeWorktreeFileManifestIndex {
-    struct InterestServing: Sendable {
-        /// Rows currently stored for the requested paths, in manifest order.
-        let rows: [BridgeWorktreeTreeRowMetadata]
-        /// Requested paths that are members of the ordered manifest.
-        let indexedPaths: Set<String>
-    }
-
-    struct WindowSlice: Sendable {
-        let rows: [BridgeWorktreeTreeRowMetadata]
-        let startIndex: Int
-        let totalKnownRowCount: Int
-        let isCompleteManifestTail: Bool
-    }
-
     let generation: Int
     private var orderedPaths: [String] = []
     private var rowsByPath: [String: BridgeWorktreeTreeRowMetadata] = [:]
@@ -54,17 +40,23 @@ actor BridgeWorktreeFileManifestIndex {
     }
 
     /// Serves metadata interest membership from the index in O(requested
-    /// paths). Freshness stat-truth is applied by the caller before emission.
-    func interestServing(forPaths paths: Set<String>) -> InterestServing {
-        var indexedPaths = Set<String>()
-        var rows: [BridgeWorktreeTreeRowMetadata] = []
-        rows.reserveCapacity(paths.count)
-        for path in orderedPaths where paths.contains(path) {
-            guard let row = rowsByPath[path] else { continue }
-            indexedPaths.insert(path)
-            rows.append(row)
+    /// paths). Freshness stat-truth is applied by the caller before emission;
+    /// interest is not discovery, so only manifest members are returned.
+    func memberPaths(of paths: Set<String>) -> Set<String> {
+        Set(paths.filter { rowsByPath[$0] != nil })
+    }
+
+    /// Watch-event stat-truth: updates existing manifest members in place and
+    /// appends newly discovered rows at the end of the ordered manifest
+    /// (deterministic enumeration ordering governs only the enumeration pass;
+    /// watch additions arrive as deltas).
+    func upsertRows(_ rows: [BridgeWorktreeTreeRowMetadata]) {
+        for row in rows {
+            if rowsByPath[row.path] == nil {
+                orderedPaths.append(row.path)
+            }
+            rowsByPath[row.path] = row
         }
-        return InterestServing(rows: rows, indexedPaths: indexedPaths)
     }
 
     /// Freshness stat-truth: replaces stored rows for paths that still exist
@@ -92,23 +84,4 @@ actor BridgeWorktreeFileManifestIndex {
         return removedRows
     }
 
-    /// Reads a continuation window from the ordered manifest.
-    func windowSlice(startIndex: Int, limit: Int) -> WindowSlice {
-        guard startIndex < orderedPaths.count, limit > 0 else {
-            return WindowSlice(
-                rows: [],
-                startIndex: startIndex,
-                totalKnownRowCount: orderedPaths.count,
-                isCompleteManifestTail: isEnumerationComplete
-            )
-        }
-        let endIndex = min(startIndex + limit, orderedPaths.count)
-        let rows = orderedPaths[startIndex..<endIndex].compactMap { rowsByPath[$0] }
-        return WindowSlice(
-            rows: rows,
-            startIndex: startIndex,
-            totalKnownRowCount: orderedPaths.count,
-            isCompleteManifestTail: isEnumerationComplete && endIndex == orderedPaths.count
-        )
-    }
 }

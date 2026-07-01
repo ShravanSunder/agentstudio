@@ -154,6 +154,66 @@ extension BridgePaneController {
         }
     }
 
+    /// Watch events patch the manifest index (spec: manifest index contract,
+    /// live updates): stat-truth reconciles the changed paths against the
+    /// accepted generation's manifest and emits one `worktree.treeDelta`
+    /// frame so the browser tree stays aligned without a reset.
+    func reconcileWorktreeFileManifestIndexForWatchEvent(
+        changedPaths: [String],
+        latestActiveSource: BridgeWorktreeFileSurfaceActiveSourceState,
+        rootURL: URL
+    ) async throws {
+        guard let manifestIndex = activeWorktreeFileManifestIndex,
+            manifestIndex.generation == latestActiveSource.source.subscriptionGeneration,
+            !changedPaths.isEmpty
+        else {
+            return
+        }
+        let refreshed = await BridgeWorktreeFileMaterializer.refreshTreeRows(
+            rootURL: rootURL,
+            relativePaths: Set(changedPaths),
+            includeAncestorDirectories: true
+        )
+        guard let currentSource = activeWorktreeFileSurfaceSource,
+            currentSource.source == latestActiveSource.source,
+            currentSource.source.subscriptionGeneration == nextWorktreeFileSurfaceGeneration
+        else {
+            return
+        }
+        await manifestIndex.upsertRows(refreshed.rows)
+        let removedRows = await manifestIndex.removePaths(refreshed.missingPaths)
+        var operations: [BridgeWorktreeTreeOperation] = []
+        if !refreshed.rows.isEmpty {
+            operations.append(.upsertRows(refreshed.rows))
+        }
+        if !removedRows.isEmpty {
+            operations.append(
+                .removeRows(
+                    rowIds: removedRows.map(\.rowId),
+                    paths: removedRows.map(\.path)
+                )
+            )
+        }
+        guard !operations.isEmpty else {
+            return
+        }
+        let sequence = try reserveWorktreeFileSurfaceSequenceBlock(
+            count: 1,
+            source: latestActiveSource.source,
+            streamId: latestActiveSource.streamId
+        )
+        let deltaFrame = BridgeWorktreeTreeDeltaFrame(
+            streamId: latestActiveSource.streamId,
+            generation: latestActiveSource.source.subscriptionGeneration,
+            sequence: sequence,
+            operations: operations
+        )
+        try await dispatchWorktreeFileIntakeFrames(
+            [deltaFrame],
+            allowsTreeWindowPublication: true
+        )
+    }
+
     private func isWorktreeFileManifestSourceCurrent(
         publication: WorktreeFileManifestPublication
     ) -> Bool {

@@ -117,25 +117,38 @@ enum BridgeWorktreeFileMaterializer {
     /// delta. Runs off the MainActor; never enumerates the worktree.
     static func refreshTreeRows(
         rootURL: URL,
-        relativePaths: Set<String>
+        relativePaths: Set<String>,
+        includeAncestorDirectories: Bool = false
     ) async -> BridgeWorktreeRefreshedTreeRows {
         // swiftlint:disable:next no_task_detached
         await Task.detached(priority: .userInitiated) {
             var rows: [BridgeWorktreeTreeRowMetadata] = []
+            var emittedPaths = Set<String>()
             var missingPaths = Set<String>()
+
+            func appendRow(_ row: BridgeWorktreeTreeRowMetadata) {
+                guard emittedPaths.insert(row.path).inserted else { return }
+                rows.append(row)
+            }
+
             for relativePath in relativePaths {
                 let fileURL = rootURL.appending(path: relativePath)
                 let values = try? fileURL.resourceValues(
                     forKeys: [.isDirectoryKey, .isRegularFileKey]
                 )
-                if values?.isDirectory == true {
-                    rows.append(directoryTreeRow(relativePath: relativePath))
-                } else if values?.isRegularFile == true,
-                    let row = try? fileTreeRow(fileURL: fileURL, relativePath: relativePath)
-                {
-                    rows.append(row)
-                } else {
+                guard values?.isDirectory == true || values?.isRegularFile == true else {
                     missingPaths.insert(relativePath)
+                    continue
+                }
+                if includeAncestorDirectories {
+                    try? appendAncestorRowsThrowing(for: relativePath) { row in
+                        appendRow(row)
+                    }
+                }
+                if values?.isDirectory == true {
+                    appendRow(directoryTreeRow(relativePath: relativePath))
+                } else if let row = try? fileTreeRow(fileURL: fileURL, relativePath: relativePath) {
+                    appendRow(row)
                 }
             }
             return BridgeWorktreeRefreshedTreeRows(rows: rows, missingPaths: missingPaths)

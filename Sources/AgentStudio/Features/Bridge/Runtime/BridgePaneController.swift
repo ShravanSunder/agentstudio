@@ -88,6 +88,7 @@ final class BridgePaneController {
     var bridgeDeliveryTail: Task<Void, Never>?
     var pendingReviewProtocolIntakeFrames: [String] = []
     var pendingWorktreeFileIntakeFrames: [String] = []
+    private var isFlushingPendingWorktreeFileIntakeFrames = false
     private var inboxPostTimestamps: [Date] = []
     let telemetryScopeGate: BridgeTelemetryScopeGate
     let telemetryRecorder: (any BridgePerformanceTraceRecording)?
@@ -656,14 +657,24 @@ final class BridgePaneController {
     }
 
     func flushPendingWorktreeFileIntakeFrames() async {
-        while !pendingWorktreeFileIntakeFrames.isEmpty {
-            let frame = pendingWorktreeFileIntakeFrames[0]
+        guard !isFlushingPendingWorktreeFileIntakeFrames else {
+            return
+        }
+        isFlushingPendingWorktreeFileIntakeFrames = true
+        defer { isFlushingPendingWorktreeFileIntakeFrames = false }
+        while let frame = pendingWorktreeFileIntakeFrames.first {
             let delivered = await deliverIntakeFrame(frame)
             guard delivered else {
                 bridgeControllerLogger.warning(
                     "[Bridge] Worktree/File intake transport failed pane=\(self.paneId.uuidString, privacy: .public)"
                 )
                 paneState.connection.setHealth(.error)
+                return
+            }
+            // The buffer may have been cleared or replaced during the delivery
+            // await (source reopen, reset, teardown); drop only the frame that
+            // was actually delivered and stop if the buffer changed identity.
+            guard pendingWorktreeFileIntakeFrames.first == frame else {
                 return
             }
             pendingWorktreeFileIntakeFrames.removeFirst()
