@@ -1,5 +1,14 @@
 import type { Dispatch, MutableRefObject, ReactElement, SetStateAction } from 'react';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import {
+	lazy,
+	Suspense,
+	useCallback,
+	useEffect,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+} from 'react';
 import { useStore } from 'zustand';
 
 import {
@@ -62,10 +71,7 @@ import {
 	type ReviewTreeRowMetadata,
 } from '../features/review/models/review-protocol-models.js';
 import type { WorktreeFileDescriptor } from '../features/worktree-file/models/worktree-file-protocol-models.js';
-import {
-	BridgeFileViewerApp,
-	type BridgeFileViewerAppProps,
-} from '../file-viewer/bridge-file-viewer-app.js';
+import type { BridgeFileViewerAppProps } from '../file-viewer/bridge-file-viewer-app.js';
 import type { BridgeContentFetch } from '../foundation/content/content-resource-loader.js';
 import { createBridgeReviewItemRegistry } from '../foundation/review-package/bridge-review-item-registry.js';
 import { bridgeReviewPackageSchema } from '../foundation/review-package/bridge-review-package-schema.js';
@@ -123,9 +129,8 @@ import {
 	BridgeReviewMetadataLoadingShell,
 	BridgeReviewProjectionFailedShell,
 	BridgeReviewProjectionPendingShell,
-	ReviewViewerShell,
-	type BridgeReviewCanvasLoadingReason,
-} from '../review-viewer/shell/review-viewer-shell.js';
+} from '../review-viewer/shell/review-viewer-fallback-shells.js';
+import type { BridgeReviewCanvasLoadingReason } from '../review-viewer/shell/review-viewer-shell.js';
 import {
 	createBridgeReviewViewerStore,
 	selectBridgeReviewViewerRootSnapshot,
@@ -147,7 +152,10 @@ import {
 	type BridgeAppControlProbe,
 } from './bridge-app-control.js';
 import { BridgeViewerAppShell } from './bridge-viewer-app-shell.js';
-import { BridgeViewerContextSwitcher } from './bridge-viewer-content-header.js';
+import {
+	BridgeViewerContentHeader,
+	BridgeViewerContextSwitcher,
+} from './bridge-viewer-content-header.js';
 import type {
 	BridgeViewerNavigationCommand,
 	BridgeViewerSource,
@@ -232,6 +240,16 @@ type BridgeRememberedNavigationCommands = Record<
 	BridgeViewerMode,
 	BridgeViewerNavigationCommand | undefined
 >;
+
+const LazyBridgeFileViewerApp = lazy(async () => {
+	const module = await import('../file-viewer/bridge-file-viewer-app.js');
+	return { default: module.BridgeFileViewerApp };
+});
+
+const LazyReviewViewerShell = lazy(async () => {
+	const module = await import('../review-viewer/shell/review-viewer-shell.js');
+	return { default: module.ReviewViewerShell };
+});
 
 export interface SelectedContentResourcesState {
 	readonly itemId: string;
@@ -726,24 +744,57 @@ function BridgeFileViewerMode(
 		[existingOpenReviewComparison, onActivateNavigationCommand, reviewNavigationSource],
 	);
 	return (
-		<BridgeFileViewerApp
-			{...(props.codeViewWorkerFactory === undefined
-				? {}
-				: { codeViewWorkerFactory: props.codeViewWorkerFactory })}
-			{...(props.codeViewWorkerPoolEnabled === undefined
-				? {}
-				: { codeViewWorkerPoolEnabled: props.codeViewWorkerPoolEnabled })}
-			{...props.fileViewerProps}
-			isActive={props.isActive}
-			{...(props.navigationCommand === undefined
-				? {}
-				: { navigationCommand: props.navigationCommand })}
-			onOpenReviewComparison={openReviewComparison}
-			telemetryRecorder={props.telemetryRecorder}
-			telemetryTraceContext={null}
-			viewerHeaderControls={props.viewerHeaderControls}
-			waitForBridgeReady={props.registerBridgeReadyCallback}
-		/>
+		<Suspense
+			fallback={
+				<BridgeFileViewerLazyLoadingFrame viewerHeaderControls={props.viewerHeaderControls} />
+			}
+		>
+			<LazyBridgeFileViewerApp
+				{...(props.codeViewWorkerFactory === undefined
+					? {}
+					: { codeViewWorkerFactory: props.codeViewWorkerFactory })}
+				{...(props.codeViewWorkerPoolEnabled === undefined
+					? {}
+					: { codeViewWorkerPoolEnabled: props.codeViewWorkerPoolEnabled })}
+				{...props.fileViewerProps}
+				isActive={props.isActive}
+				{...(props.navigationCommand === undefined
+					? {}
+					: { navigationCommand: props.navigationCommand })}
+				onOpenReviewComparison={openReviewComparison}
+				telemetryRecorder={props.telemetryRecorder}
+				telemetryTraceContext={null}
+				viewerHeaderControls={props.viewerHeaderControls}
+				waitForBridgeReady={props.registerBridgeReadyCallback}
+			/>
+		</Suspense>
+	);
+}
+
+function BridgeFileViewerLazyLoadingFrame(props: {
+	readonly viewerHeaderControls: ReactElement;
+}): ReactElement {
+	return (
+		<main
+			className="grid h-full min-h-0 w-full grid-cols-[minmax(0,1fr)_minmax(260px,340px)] overflow-hidden bg-[var(--bridge-app-bg)] text-[var(--bridge-text-primary)]"
+			data-testid="bridge-file-viewer-lazy-loading-frame"
+		>
+			<section className="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
+				<BridgeViewerContentHeader
+					controls={props.viewerHeaderControls}
+					eyebrow="Files"
+					title="Loading file view"
+				/>
+				<section
+					className="min-h-0 min-w-0 bg-[var(--bridge-canvas-bg)]"
+					data-testid="bridge-file-viewer-lazy-loading-canvas"
+				/>
+			</section>
+			<aside
+				className="order-last min-h-0 min-w-0 border-l border-[var(--bridge-border-opaque)] bg-[var(--bridge-surface-bg)]"
+				data-testid="bridge-file-viewer-lazy-loading-sidebar"
+			/>
+		</main>
 	);
 }
 
@@ -2080,86 +2131,95 @@ function BridgeReviewViewerMode(
 		: visibleContentHydration.visibleReadyItemCount;
 
 	return reviewPackage === null && diffStatus.status === 'loading' ? (
-		<BridgeReviewMetadataLoadingShell />
+		<BridgeReviewMetadataLoadingShell viewerHeaderControls={props.viewerHeaderControls} />
 	) : reviewPackage === null && diffStatus.status === 'error' ? (
-		<BridgeReviewMetadataFailedShell error={diffStatus.error} />
-	) : reviewPackage === null ? (
-		<BridgeReviewEmptyShell />
-	) : rootSnapshot.projectionStatus === 'failed' ? (
-		<BridgeReviewProjectionFailedShell />
-	) : projection === null ? (
-		<BridgeReviewProjectionPendingShell />
-	) : (
-		<ReviewViewerShell
-			fileClassFilter={rootSnapshot.fileClassFilter}
-			gitStatusFilter={rootSnapshot.gitStatusFilter}
-			selectionCommitDurationMilliseconds={lastSelectionCommitDurationMilliseconds}
-			onCodeViewControlHandleChange={(handle): void => {
-				codeViewControlHandleRef.current = handle;
-			}}
-			onCodeViewScrollActivityChange={setIsCodeViewScrollActive}
-			onFileClassFilterChange={viewerActions.setFileClassFilter}
-			onGitStatusFilterChange={viewerActions.setGitStatusFilter}
-			onProjectionModeChange={viewerActions.setProjectionMode}
-			onSelectItem={selectReviewItem}
-			onTreeSearchOpen={(): void => setIsTreeSearchOpen(true)}
-			onTreeSearchModeChange={viewerActions.setTreeSearchMode}
-			onTreeSearchTextChange={viewerActions.setTreeSearchText}
-			projection={projection}
-			projectionMode={rootSnapshot.projectionMode}
-			reviewPackage={reviewPackage}
-			reviewTreeRows={reviewTreeRows}
+		<BridgeReviewMetadataFailedShell
+			error={diffStatus.error}
 			viewerHeaderControls={props.viewerHeaderControls}
-			selectedContentResources={selectedContentResources}
-			selectedContentLoadingItemId={selectedContentLoadingItemId}
-			selectedItemPresentation={selectedItemPresentation}
-			selectedContentUnavailablePath={selectedContentUnavailablePathForCurrentSelection({
-				reviewPackage,
-				selectedItemId: rootSnapshot.selectedItemId,
-				selectedContentResourcesState,
-			})}
-			selectedCanvasLoadingReason={selectedCanvasLoadingReason}
-			selectedItemId={rootSnapshot.selectedItemId}
-			lastSelectedDemandTelemetry={lastSelectedDemandTelemetryForCurrentPackage}
-			lastVisibleDemandTelemetry={lastVisibleDemandTelemetryForCurrentPackage}
-			visibleContentResourcesByItemId={visibleContentResourcesByItemIdForCodeView}
-			visibleLoadingItemIds={visibleLoadingItemIdsForCodeView}
-			visibleLoadingItemCount={visibleLoadingItemCountForCodeView}
-			visibleReadyItemCount={visibleReadyItemCountForCodeView}
-			onCodeViewVisibleItemIdsChange={setCodeViewVisibleReviewItemIds}
-			onTreeVisibleItemIdsChange={setTreeVisibleReviewItemIds}
-			{...(props.codeViewWorkerPoolEnabled === undefined
-				? {}
-				: { codeViewWorkerPoolEnabled: props.codeViewWorkerPoolEnabled })}
-			{...(props.codeViewWorkerFactory === undefined
-				? {}
-				: { codeViewWorkerFactory: props.codeViewWorkerFactory })}
-			selectedMarkdownPreviewHtml={
-				rootSnapshot.renderMode.kind === 'markdownPreview' &&
-				selectedMarkdownPreviewState !== null &&
-				selectedMarkdownPreviewState.status === 'ready' &&
-				selectedMarkdownPreviewState.itemId === rootSnapshot.selectedItemId &&
-				selectedMarkdownPreviewState.contentKey === currentSelectedContentKey
-					? selectedMarkdownPreviewState.html
-					: null
-			}
-			selectedMarkdownPreviewSourcePath={
-				rootSnapshot.renderMode.kind === 'markdownPreview' &&
-				selectedMarkdownPreviewState !== null &&
-				selectedMarkdownPreviewState.status === 'ready' &&
-				selectedMarkdownPreviewState.itemId === rootSnapshot.selectedItemId &&
-				selectedMarkdownPreviewState.contentKey === currentSelectedContentKey
-					? selectedMarkdownPreviewState.sourcePath
-					: null
-			}
-			telemetryParentTraceContext={
-				currentReviewPackageTelemetryContextRef.current?.traceContext ?? null
-			}
-			telemetryRecorder={telemetryRecorderRef.current}
-			treeSearchOpen={isTreeSearchOpen}
-			treeSearchMode={rootSnapshot.treeSearchMode}
-			treeSearchText={rootSnapshot.treeSearchText}
 		/>
+	) : reviewPackage === null ? (
+		<BridgeReviewEmptyShell viewerHeaderControls={props.viewerHeaderControls} />
+	) : rootSnapshot.projectionStatus === 'failed' ? (
+		<BridgeReviewProjectionFailedShell viewerHeaderControls={props.viewerHeaderControls} />
+	) : projection === null ? (
+		<BridgeReviewProjectionPendingShell viewerHeaderControls={props.viewerHeaderControls} />
+	) : (
+		<Suspense
+			fallback={
+				<BridgeReviewProjectionPendingShell viewerHeaderControls={props.viewerHeaderControls} />
+			}
+		>
+			<LazyReviewViewerShell
+				fileClassFilter={rootSnapshot.fileClassFilter}
+				gitStatusFilter={rootSnapshot.gitStatusFilter}
+				selectionCommitDurationMilliseconds={lastSelectionCommitDurationMilliseconds}
+				onCodeViewControlHandleChange={(handle): void => {
+					codeViewControlHandleRef.current = handle;
+				}}
+				onCodeViewScrollActivityChange={setIsCodeViewScrollActive}
+				onFileClassFilterChange={viewerActions.setFileClassFilter}
+				onGitStatusFilterChange={viewerActions.setGitStatusFilter}
+				onProjectionModeChange={viewerActions.setProjectionMode}
+				onSelectItem={selectReviewItem}
+				onTreeSearchOpen={(): void => setIsTreeSearchOpen(true)}
+				onTreeSearchModeChange={viewerActions.setTreeSearchMode}
+				onTreeSearchTextChange={viewerActions.setTreeSearchText}
+				projection={projection}
+				projectionMode={rootSnapshot.projectionMode}
+				reviewPackage={reviewPackage}
+				reviewTreeRows={reviewTreeRows}
+				viewerHeaderControls={props.viewerHeaderControls}
+				selectedContentResources={selectedContentResources}
+				selectedContentLoadingItemId={selectedContentLoadingItemId}
+				selectedItemPresentation={selectedItemPresentation}
+				selectedContentUnavailablePath={selectedContentUnavailablePathForCurrentSelection({
+					reviewPackage,
+					selectedItemId: rootSnapshot.selectedItemId,
+					selectedContentResourcesState,
+				})}
+				selectedCanvasLoadingReason={selectedCanvasLoadingReason}
+				selectedItemId={rootSnapshot.selectedItemId}
+				lastSelectedDemandTelemetry={lastSelectedDemandTelemetryForCurrentPackage}
+				lastVisibleDemandTelemetry={lastVisibleDemandTelemetryForCurrentPackage}
+				visibleContentResourcesByItemId={visibleContentResourcesByItemIdForCodeView}
+				visibleLoadingItemIds={visibleLoadingItemIdsForCodeView}
+				visibleLoadingItemCount={visibleLoadingItemCountForCodeView}
+				visibleReadyItemCount={visibleReadyItemCountForCodeView}
+				onCodeViewVisibleItemIdsChange={setCodeViewVisibleReviewItemIds}
+				onTreeVisibleItemIdsChange={setTreeVisibleReviewItemIds}
+				{...(props.codeViewWorkerPoolEnabled === undefined
+					? {}
+					: { codeViewWorkerPoolEnabled: props.codeViewWorkerPoolEnabled })}
+				{...(props.codeViewWorkerFactory === undefined
+					? {}
+					: { codeViewWorkerFactory: props.codeViewWorkerFactory })}
+				selectedMarkdownPreviewHtml={
+					rootSnapshot.renderMode.kind === 'markdownPreview' &&
+					selectedMarkdownPreviewState !== null &&
+					selectedMarkdownPreviewState.status === 'ready' &&
+					selectedMarkdownPreviewState.itemId === rootSnapshot.selectedItemId &&
+					selectedMarkdownPreviewState.contentKey === currentSelectedContentKey
+						? selectedMarkdownPreviewState.html
+						: null
+				}
+				selectedMarkdownPreviewSourcePath={
+					rootSnapshot.renderMode.kind === 'markdownPreview' &&
+					selectedMarkdownPreviewState !== null &&
+					selectedMarkdownPreviewState.status === 'ready' &&
+					selectedMarkdownPreviewState.itemId === rootSnapshot.selectedItemId &&
+					selectedMarkdownPreviewState.contentKey === currentSelectedContentKey
+						? selectedMarkdownPreviewState.sourcePath
+						: null
+				}
+				telemetryParentTraceContext={
+					currentReviewPackageTelemetryContextRef.current?.traceContext ?? null
+				}
+				telemetryRecorder={telemetryRecorderRef.current}
+				treeSearchOpen={isTreeSearchOpen}
+				treeSearchMode={rootSnapshot.treeSearchMode}
+				treeSearchText={rootSnapshot.treeSearchText}
+			/>
+		</Suspense>
 	);
 }
 

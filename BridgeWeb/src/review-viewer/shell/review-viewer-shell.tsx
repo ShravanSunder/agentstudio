@@ -10,6 +10,7 @@ import { BridgeViewerContentHeader } from '../../app/bridge-viewer-content-heade
 import { cn } from '../../app/class-name.js';
 import { Skeleton } from '../../components/ui/skeleton.js';
 import { ToggleGroup, ToggleGroupItem } from '../../components/ui/toggle-group.js';
+import type { ReviewTreeRowMetadata } from '../../features/review/models/review-protocol-models.js';
 import {
 	createBridgeReviewItemRegistry,
 	reviewItemPathLabel,
@@ -46,12 +47,14 @@ import { BridgeReviewTreesPanel } from '../trees/bridge-trees-panel.js';
 
 export interface ReviewViewerShellProps {
 	readonly reviewPackage: BridgeReviewPackage;
+	readonly reviewTreeRows?: readonly ReviewTreeRowMetadata[];
 	readonly projection: BridgeReviewProjectionResult;
 	readonly selectedItemId: string | null;
 	readonly selectedContentLoadingItemId?: string | null;
 	readonly onSelectItem: (itemId: string) => void;
 	readonly selectedContentText?: string | null;
 	readonly selectedContentResources?: BridgeCodeViewContentResources | null;
+	readonly selectionCommitDurationMilliseconds?: number | null;
 	readonly selectedItemPresentation?: BridgeCodeViewItemPresentation | null;
 	readonly selectedContentUnavailablePath?: string | null;
 	readonly selectedCanvasLoadingReason?: BridgeReviewCanvasLoadingReason | null;
@@ -78,7 +81,9 @@ export interface ReviewViewerShellProps {
 	readonly fileClassFilter?: BridgeFileClass | 'all';
 	readonly onFileClassFilterChange?: (fileClass: BridgeFileClass | 'all') => void;
 	readonly onCodeViewControlHandleChange?: (handle: BridgeCodeViewControlHandle | null) => void;
+	readonly onCodeViewScrollActivityChange?: (isActive: boolean) => void;
 	readonly onCodeViewVisibleItemIdsChange?: (itemIds: readonly string[]) => void;
+	readonly onTreeVisibleItemIdsChange?: (itemIds: readonly string[]) => void;
 	readonly telemetryRecorder?: BridgeTelemetryRecorder;
 	readonly telemetryParentTraceContext?: BridgeTraceContext | null;
 	readonly viewerHeaderControls?: ReactNode;
@@ -86,95 +91,11 @@ export interface ReviewViewerShellProps {
 
 export type BridgeReviewCanvasLoadingReason = 'content' | 'markdownPreview';
 
-export function BridgeReviewEmptyShell(): ReactElement {
-	return (
-		<main data-testid="bridge-review-empty-shell">
-			<section aria-label="Review summary">
-				<p>Bridge Review</p>
-				<p>Waiting for review package</p>
-			</section>
-			<nav aria-label="Changed files" />
-			<section aria-label="Selected content">
-				<pre />
-			</section>
-		</main>
-	);
-}
-
-export function BridgeReviewProjectionPendingShell(): ReactElement {
-	return (
-		<main
-			className="flex h-full min-h-0 w-full items-center justify-center bg-[var(--bridge-app-bg)] text-[var(--bridge-text-secondary)]"
-			data-testid="bridge-review-projection-pending-shell"
-		>
-			<section aria-label="Review projection status" className="flex w-72 flex-col gap-3">
-				<p className="text-sm">Projecting review</p>
-				<BridgeReviewShellSkeleton />
-			</section>
-		</main>
-	);
-}
-
-export function BridgeReviewProjectionFailedShell(): ReactElement {
-	return (
-		<main
-			className="flex h-full min-h-0 w-full items-center justify-center bg-[var(--bridge-app-bg)] text-[var(--bridge-text-secondary)]"
-			data-testid="bridge-review-projection-failed-shell"
-		>
-			<section aria-label="Review projection status" className="text-center">
-				<p className="text-sm text-[var(--bridge-text-primary)]">Review projection unavailable</p>
-				<p className="mt-1 text-xs">The review package could not be projected.</p>
-			</section>
-		</main>
-	);
-}
-
-export function BridgeReviewPackageLoadingShell(): ReactElement {
-	return (
-		<main
-			className="flex h-full min-h-0 w-full items-center justify-center bg-[var(--bridge-app-bg)] text-[var(--bridge-text-secondary)]"
-			data-testid="bridge-review-package-loading-shell"
-		>
-			<section aria-label="Review package status" className="flex w-72 flex-col gap-3">
-				<p className="text-sm">Loading review package</p>
-				<BridgeReviewShellSkeleton />
-			</section>
-		</main>
-	);
-}
-
-export function BridgeReviewPackageFailedShell(props: {
-	readonly error: string | null;
-}): ReactElement {
-	return (
-		<main
-			className="flex h-full min-h-0 w-full items-center justify-center bg-[var(--bridge-app-bg)] text-[var(--bridge-text-secondary)]"
-			data-testid="bridge-review-package-failed-shell"
-		>
-			<section aria-label="Review package status" className="text-center">
-				<p className="text-sm text-[var(--bridge-text-primary)]">Review package unavailable</p>
-				<p className="mt-1 text-xs">{props.error ?? 'The review package could not be loaded.'}</p>
-			</section>
-		</main>
-	);
-}
-
-function BridgeReviewShellSkeleton(): ReactElement {
-	return (
-		<div className="flex w-full flex-col gap-2" data-testid="bridge-review-shell-skeleton">
-			<Skeleton className="h-3 w-full bg-[var(--bridge-surface-raised-bg)]" />
-			<Skeleton className="h-3 w-11/12 bg-[var(--bridge-surface-raised-bg)]" />
-			<Skeleton className="h-3 w-3/4 bg-[var(--bridge-surface-raised-bg)]" />
-		</div>
-	);
-}
-
 export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 	const registry = createBridgeReviewItemRegistry({
 		reviewPackage: props.reviewPackage,
 		selectedItemId: props.selectedItemId,
 	});
-	const summary = props.reviewPackage.summary;
 	const projectionMode = props.projectionMode ?? { kind: 'normalReview' };
 	const gitStatusFilter = props.gitStatusFilter ?? 'all';
 	const fileClassFilter = props.fileClassFilter ?? 'all';
@@ -199,6 +120,11 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 		selectedContentResources: props.selectedContentResources ?? null,
 		selectedContentUnavailablePath: props.selectedContentUnavailablePath ?? null,
 		selectedMarkdownPreviewHtml: props.selectedMarkdownPreviewHtml ?? null,
+	});
+	const canvasBranch = reviewCanvasBranchForShell({
+		selectedContentUnavailablePath: props.selectedContentUnavailablePath ?? null,
+		selectedMarkdownPreviewHtml: props.selectedMarkdownPreviewHtml ?? null,
+		selectedMarkdownPreviewSourcePath: props.selectedMarkdownPreviewSourcePath ?? null,
 	});
 	const selectedDemandTelemetry = props.lastSelectedDemandTelemetry ?? null;
 	const visibleDemandTelemetry = props.lastVisibleDemandTelemetry ?? null;
@@ -231,6 +157,7 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 				selectedDemandTelemetry?.droppedEstimatedBytesByLane,
 			)}
 			data-review-selected-demand-dropped-intent-count={selectedDemandTelemetry?.droppedIntentCount}
+			data-review-selected-demand-duration-ms={selectedDemandTelemetry?.durationMilliseconds}
 			data-review-selected-demand-enqueue-accepted-count={
 				selectedDemandTelemetry?.enqueueAcceptedCount
 			}
@@ -258,6 +185,9 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 			data-review-selected-demand-package-id={selectedDemandTelemetry?.packageId}
 			data-review-selected-demand-package-generation={selectedDemandTelemetry?.reviewGeneration}
 			data-review-selected-demand-package-revision={selectedDemandTelemetry?.revision}
+			data-review-selected-demand-result-reason={selectedDemandTelemetry?.resultReason}
+			data-review-selected-demand-result-status={selectedDemandTelemetry?.resultStatus}
+			data-review-selected-demand-load-failure-kind={selectedDemandTelemetry?.resultLoadFailureKind}
 			data-review-selected-demand-lane-upgrade-count={selectedDemandTelemetry?.laneUpgradeCount}
 			data-review-selected-demand-loaded-count={selectedDemandTelemetry?.loadedCount}
 			data-review-selected-demand-max-executor-in-flight={
@@ -305,6 +235,7 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 				visibleDemandTelemetry?.droppedEstimatedBytesByLane,
 			)}
 			data-review-visible-demand-dropped-intent-count={visibleDemandTelemetry?.droppedIntentCount}
+			data-review-visible-demand-duration-ms={visibleDemandTelemetry?.durationMilliseconds}
 			data-review-visible-demand-enqueue-accepted-count={
 				visibleDemandTelemetry?.enqueueAcceptedCount
 			}
@@ -354,11 +285,23 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 			}
 			data-review-visible-demand-stale-drop-count={visibleDemandTelemetry?.staleDropCount}
 			data-review-visible-demand-visible-intent-count={visibleDemandTelemetry?.visibleIntentCount}
+			data-review-selection-commit-duration-ms={
+				props.selectionCommitDurationMilliseconds ?? undefined
+			}
+			data-review-canvas-branch={canvasBranch}
 			data-selected-content-state={selectedContentState}
 			data-selected-display-path={selectedDisplayPath ?? undefined}
-			data-review-package-id={props.reviewPackage.packageId}
-			data-review-package-generation={props.reviewPackage.reviewGeneration}
-			data-review-package-revision={props.reviewPackage.revision}
+			data-review-metadata-id={props.reviewPackage.packageId}
+			data-review-metadata-generation={props.reviewPackage.reviewGeneration}
+			data-review-metadata-revision={props.reviewPackage.revision}
+			data-review-metadata-item-count={props.reviewPackage.orderedItemIds.length}
+			data-review-metadata-tree-row-count={props.reviewTreeRows?.length ?? 0}
+			data-review-base-endpoint-id={props.reviewPackage.query.baseEndpointId}
+			data-review-base-endpoint-kind={props.reviewPackage.baseEndpoint.kind}
+			data-review-base-provider-identity={props.reviewPackage.baseEndpoint.providerIdentity}
+			data-review-head-endpoint-id={props.reviewPackage.query.headEndpointId}
+			data-review-head-endpoint-kind={props.reviewPackage.headEndpoint.kind}
+			data-review-head-provider-identity={props.reviewPackage.headEndpoint.providerIdentity}
 			data-projection-id={projection.projectionId}
 			data-projection-mode={projectionMode.kind}
 			data-sidebar-position="right"
@@ -419,6 +362,11 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 									? {}
 									: {
 											onControlHandleChange: props.onCodeViewControlHandleChange,
+										})}
+								{...(props.onCodeViewScrollActivityChange === undefined
+									? {}
+									: {
+											onScrollActivityChange: props.onCodeViewScrollActivityChange,
 										})}
 								{...(props.codeViewWorkerPoolEnabled === undefined
 									? {}
@@ -497,11 +445,15 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 						>
 							<BridgeReviewTreesPanel
 								onSelectItem={props.onSelectItem}
+								{...(props.onTreeVisibleItemIdsChange === undefined
+									? {}
+									: { onVisibleItemIdsChange: props.onTreeVisibleItemIdsChange })}
 								{...(props.onTreeSearchTextChange === undefined
 									? {}
 									: { onSearchTextChange: props.onTreeSearchTextChange })}
 								projection={projection}
 								reviewPackage={props.reviewPackage}
+								reviewTreeRows={props.reviewTreeRows ?? []}
 								searchOpen={treeSearchOpen}
 								searchText={treeSearchText}
 								selectedItemId={props.selectedItemId}
@@ -512,20 +464,6 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 								</div>
 							)}
 						</nav>
-					</div>
-					<div
-						aria-label="Review summary"
-						className="grid shrink-0 grid-cols-2 gap-x-3 gap-y-1 border-t border-[var(--bridge-border-subtle)] p-2 text-[11px] text-[var(--bridge-text-secondary)]"
-						data-testid="bridge-review-rail-stats"
-					>
-						<span>Files</span>
-						<span className="text-right text-[var(--bridge-text-primary)]">
-							{summary.filesChanged}
-						</span>
-						<span>Additions</span>
-						<span className="text-right text-[var(--bridge-added)]">{summary.additions}</span>
-						<span>Deletions</span>
-						<span className="text-right text-[var(--bridge-deleted)]">{summary.deletions}</span>
 					</div>
 				</aside>
 			</div>
@@ -605,10 +543,38 @@ function bridgeReviewViewerHeaderTitle(props: {
 	readonly reviewPackage: BridgeReviewPackage;
 	readonly selectedDisplayPath: string | null;
 }): string {
-	const sourceTitle = props.reviewPackage.query.queryId;
+	const sourceTitle = bridgeReviewComparisonTitle(props.reviewPackage);
 	return props.selectedDisplayPath === null
 		? sourceTitle
 		: `${sourceTitle} / ${props.selectedDisplayPath}`;
+}
+
+function bridgeReviewComparisonTitle(reviewPackage: BridgeReviewPackage): string {
+	const baseLabel = bridgeReviewEndpointDisplayLabel({
+		endpointId: reviewPackage.query.baseEndpointId,
+		endpoint: reviewPackage.baseEndpoint,
+	});
+	const headLabel = bridgeReviewEndpointDisplayLabel({
+		endpointId: reviewPackage.query.headEndpointId,
+		endpoint: reviewPackage.headEndpoint,
+	});
+	return `${headLabel} vs ${baseLabel}`;
+}
+
+function bridgeReviewEndpointDisplayLabel(props: {
+	readonly endpointId: string | null | undefined;
+	readonly endpoint: BridgeReviewPackage['baseEndpoint'];
+}): string {
+	if (props.endpoint.kind === 'workingTree') {
+		return 'Current worktree';
+	}
+	if (
+		props.endpointId === 'baseline-local-default' ||
+		props.endpointId === 'baseline-origin-default'
+	) {
+		return 'Default';
+	}
+	return props.endpoint.label;
 }
 
 function BridgeReviewContentUnavailableState(props: { readonly sourcePath: string }): ReactElement {
@@ -642,6 +608,23 @@ function selectedContentStateForShell(props: {
 		return 'loading';
 	}
 	return 'unavailable';
+}
+
+function reviewCanvasBranchForShell(props: {
+	readonly selectedContentUnavailablePath: string | null;
+	readonly selectedMarkdownPreviewHtml: string | null;
+	readonly selectedMarkdownPreviewSourcePath: string | null;
+}): 'code' | 'markdown' | 'unavailable' {
+	if (
+		props.selectedMarkdownPreviewHtml !== null &&
+		props.selectedMarkdownPreviewSourcePath !== null
+	) {
+		return 'markdown';
+	}
+	if (props.selectedContentUnavailablePath !== null) {
+		return 'unavailable';
+	}
+	return 'code';
 }
 
 const projectionButtonSpecs: readonly {
