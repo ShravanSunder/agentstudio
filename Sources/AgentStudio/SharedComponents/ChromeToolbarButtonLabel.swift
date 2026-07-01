@@ -17,6 +17,9 @@ struct ChromeToolbarButtonLabel: View {
     }
 
     private var foregroundStyle: Color {
+        if showsBackground {
+            return ChromeToolbarControlPalette.foregroundColor(isSelected: isSelected, isHovered: isHovered)
+        }
         if isSelected {
             return Color.accentColor
         }
@@ -108,25 +111,40 @@ struct ChromeToolbarCapsuleBackground: View {
 }
 
 enum ChromeToolbarControlPalette {
+    static func foregroundColor(isSelected: Bool, isHovered: Bool) -> Color {
+        if isSelected {
+            return Color.accentColor
+        }
+        if isHovered {
+            return AppStyles.Shell.Chrome.ToolbarButton.hoverIconForegroundColor
+        }
+        return AppStyles.Shell.Chrome.ToolbarButton.iconForegroundColor
+    }
+
     static func fillColor(isSelected: Bool, isHovered: Bool, isPressed: Bool = false) -> Color {
         if isSelected {
             return Color.accentColor.opacity(AppStyles.Shell.Chrome.ToolbarButton.selectedFillOpacity)
         }
         if isPressed {
-            return Color.white.opacity(AppStyles.Shell.Chrome.ToolbarButton.pressedFillOpacity)
+            return AppStyles.Shell.Chrome.ToolbarButton.pressedFillColor
         }
         if isHovered {
-            return Color.white.opacity(AppStyles.Shell.Chrome.ToolbarButton.hoverFillOpacity)
+            return AppStyles.Shell.Chrome.ToolbarButton.hoverFillColor
         }
-        return Color.white.opacity(AppStyles.Shell.Chrome.ToolbarButton.baseFillOpacity)
+        return AppStyles.Shell.Chrome.ToolbarButton.baseFillColor
     }
 
     static func strokeColor(isSelected: Bool, isHovered: Bool, isPressed: Bool = false) -> Color {
         if isSelected {
             return Color.accentColor.opacity(AppStyles.Shell.Chrome.ToolbarButton.selectedStrokeOpacity)
         }
-        if isHovered || isPressed {
-            return Color.white.opacity(AppStyles.Shell.Chrome.ToolbarButton.hoverStrokeOpacity)
+        if isPressed {
+            return AppStyles.Shell.Chrome.ToolbarButton.pressedStrokeColor
+                .opacity(AppStyles.Shell.Chrome.ToolbarButton.pressedStrokeOpacity)
+        }
+        if isHovered {
+            return AppStyles.Shell.Chrome.ToolbarButton.hoverStrokeColor
+                .opacity(AppStyles.Shell.Chrome.ToolbarButton.hoverStrokeOpacity)
         }
         return Color.white.opacity(AppStyles.Shell.Chrome.ToolbarButton.baseStrokeOpacity)
     }

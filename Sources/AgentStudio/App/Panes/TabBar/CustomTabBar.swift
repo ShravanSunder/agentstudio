@@ -95,7 +95,22 @@ struct CustomTabBar: View {
 
     /// Whether the left gradient fade should be visible (scrolled past the start)
     private var showLeftFade: Bool {
-        adapter.isOverflowing && scrollOffset < -5
+        guard adapter.isOverflowing else { return false }
+        return hiddenTabExists(direction: .left)
+    }
+
+    private var showRightFade: Bool {
+        guard adapter.isOverflowing else { return false }
+        return hiddenTabExists(direction: .right)
+    }
+
+    private func hiddenTabExists(direction: TabBarOverflowScrollDirection) -> Bool {
+        TabBarOverflowScrollTargetResolver.targetTabId(
+            direction: direction,
+            orderedTabIds: adapter.tabs.map(\.id),
+            tabFrames: adapter.tabFrames,
+            visibleFrame: scrollAreaFrame
+        ) != nil
     }
 
     var body: some View {
@@ -111,6 +126,7 @@ struct CustomTabBar: View {
                 }
                 .padding(.leading, AppStyles.Shell.Chrome.tabBarContentLeadingPadding)
                 .frame(height: AppStyles.Shell.TabBar.height, alignment: .center)
+                .offset(y: AppStyles.Shell.Chrome.ToolbarButton.verticalOffset)
 
                 // MARK: - Scroll area with gradient overlays
                 ZStack(alignment: .bottom) {
@@ -199,8 +215,8 @@ struct CustomTabBar: View {
                         .allowsHitTesting(false)
                     }
 
-                    // Right gradient fade (always visible when overflowing)
-                    if adapter.isOverflowing {
+                    // Right gradient fade
+                    if showRightFade {
                         HStack(spacing: 0) {
                             Spacer()
                             LinearGradient(
@@ -235,6 +251,7 @@ struct CustomTabBar: View {
                         }
                     }
                     .frame(height: AppStyles.Shell.TabBar.height, alignment: .center)
+                    .offset(y: AppStyles.Shell.Chrome.ToolbarButton.verticalOffset)
                 }
             }
             .frame(maxWidth: .infinity)
@@ -598,7 +615,16 @@ private struct NewTabButton: View {
     @State private var isHovered = false
 
     var body: some View {
-        Menu {
+        Button {
+            onAdd()
+        } label: {
+            ChromeToolbarButtonLabel(
+                symbolName: "plus",
+                isHovered: isHovered
+            )
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
             Button(LocalActionSpec.emptyTerminal.actionSpec.label) { onAdd() }
             Divider()
             if let onOpenRepoInTab {
@@ -606,24 +632,7 @@ private struct NewTabButton: View {
                     onOpenRepoInTab()
                 }
             }
-        } label: {
-            ChromeToolbarButtonLabel(
-                symbolName: "plus",
-                isHovered: isHovered,
-                showsBackground: false
-            )
-        } primaryAction: {
-            onAdd()
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .buttonStyle(.plain)
-        .frame(
-            width: AppStyles.Shell.Chrome.ToolbarButton.size,
-            height: AppStyles.Shell.Chrome.ToolbarButton.size
-        )
-        .background(ChromeToolbarCircleBackground(isHovered: isHovered))
-        .contentShape(Circle())
         .onHover { isHovered = $0 }
         .help(AppCommandDispatcher.shared.definition(for: .newTab).controlToolTip)
     }

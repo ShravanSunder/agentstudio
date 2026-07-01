@@ -69,28 +69,15 @@ struct WatchFolderTabBarMenu: View {
     }
 
     var body: some View {
-        Menu {
-            Button(commandDefinition.label) {
-                AppCommandDispatcher.shared.dispatch(.watchFolder)
-            }
+        Button {
+            AppCommandDispatcher.shared.dispatch(.watchFolder)
         } label: {
             ChromeToolbarButtonLabel(
                 symbolName: "folder.badge.plus",
-                isHovered: isHovered,
-                showsBackground: false
+                isHovered: isHovered
             )
-        } primaryAction: {
-            AppCommandDispatcher.shared.dispatch(.watchFolder)
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
         .buttonStyle(.plain)
-        .frame(
-            width: AppStyles.Shell.Chrome.ToolbarButton.size,
-            height: AppStyles.Shell.Chrome.ToolbarButton.size
-        )
-        .background(ChromeToolbarCircleBackground(isHovered: isHovered))
-        .contentShape(Circle())
         .onHover { isHovered = $0 }
         .help(commandDefinition.controlToolTip)
     }

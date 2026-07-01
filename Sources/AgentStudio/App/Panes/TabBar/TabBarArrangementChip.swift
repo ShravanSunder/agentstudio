@@ -19,6 +19,10 @@ struct TabBarArrangementChip: View {
         name != nil
     }
 
+    private var contentForegroundColor: Color {
+        ChromeToolbarControlPalette.foregroundColor(isSelected: false, isHovered: isHovered)
+    }
+
     static func nameMaxWidth(isManagementLayerActive: Bool) -> CGFloat {
         isManagementLayerActive ? 200 : 100
     }
@@ -29,21 +33,21 @@ struct TabBarArrangementChip: View {
         HStack(spacing: 6) {
             Image(systemName: "rectangle.3.group")
                 .font(.system(size: styleContract.iconSize, weight: .medium))
-                .foregroundStyle(isHovered ? .primary : .secondary)
+                .foregroundStyle(contentForegroundColor)
 
             if let name {
                 HStack(spacing: 4) {
                     if let index {
                         Text("\(index)")
                             .font(.system(size: AppStyles.General.Typography.textXs, weight: .semibold))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(contentForegroundColor)
                         Text("·")
                             .font(.system(size: AppStyles.General.Typography.textXs))
-                            .foregroundStyle(.tertiary)
+                            .foregroundStyle(contentForegroundColor)
                     }
                     Text(name)
                         .font(.system(size: AppStyles.General.Typography.textXs))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(contentForegroundColor)
                         .lineLimit(1)
                         .truncationMode(.tail)
                         .frame(maxWidth: nameMaxWidth)

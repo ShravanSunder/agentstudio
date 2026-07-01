@@ -56,6 +56,8 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         window.backgroundColor = AppStyles.Shell.TabBar.titlebarBackground
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
+        window.isMovable = false
+        window.isMovableByWindowBackground = false
         for buttonType in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
             window.standardWindowButton(buttonType)?.isHidden = false
             window.standardWindowButton(buttonType)?.isEnabled = true
