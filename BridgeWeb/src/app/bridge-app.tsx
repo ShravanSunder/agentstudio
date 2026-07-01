@@ -1031,6 +1031,156 @@ function BridgeReviewViewerMode(
 		},
 		[telemetryRecorderRef],
 	);
+	const startSelectedReviewContentDemand = useCallback(
+		(props: {
+			readonly itemId: string;
+			readonly presentation: {
+				readonly kind: 'file';
+				readonly version: BridgeReviewFileNavigationTarget['version'];
+			} | null;
+			readonly reviewPackage: BridgeReviewPackage;
+			readonly selectedContentKey: string;
+		}): (() => void) => {
+			const selectedItem = props.reviewPackage.itemsById[props.itemId];
+			if (selectedItem === undefined) {
+				setSelectedContentResourcesState(null);
+				cancelForegroundSelectionRelease();
+				setForegroundSelectedContentKey(null);
+				setLastSelectedDemandTelemetry(null);
+				return (): void => {};
+			}
+			const selectedContentLoadKey = props.selectedContentKey;
+			const currentSelectedContentResourcesState = selectedContentResourcesStateRef.current;
+			if (
+				!shouldStartSelectedReviewContentDemand({
+					activeSelectedContentLoadKey: selectedContentActiveLoadKeyRef.current,
+					currentSelectedContentResourcesState,
+					selectedContentKey: props.selectedContentKey,
+					selectedContentLoadKey,
+				})
+			) {
+				scheduleForegroundSelectionRelease(props.selectedContentKey);
+				return (): void => {};
+			}
+			let didCancel = false;
+			const contentAbortController = new AbortController();
+			selectedContentAbortControllerRef.current?.abort();
+			selectedContentAbortControllerRef.current = contentAbortController;
+			selectedContentActiveLoadKeyRef.current = selectedContentLoadKey;
+			const selectedContentLoadStarts = selectedContentLoadStartByKeyRef.current;
+			setSelectedContentResourcesState(
+				(current: SelectedContentResourcesState | null): SelectedContentResourcesState | null =>
+					current?.contentKey === props.selectedContentKey
+						? current
+						: {
+								itemId: props.itemId,
+								contentKey: props.selectedContentKey,
+								status: 'loading',
+								resources: null,
+							},
+			);
+			const parentTraceContext =
+				currentReviewPackageTelemetryContextRef.current?.traceContext ?? null;
+			selectedContentLoadStarts.set(props.selectedContentKey, performance.now());
+			recordBridgeViewerContentQueueTelemetry({
+				telemetryRecorder: telemetryRecorderRef.current,
+				parentTraceContext,
+				item: selectedItem,
+				interest: 'selected',
+			});
+			void loadReviewItemContentResourcesThroughDemandResult({
+				reviewPackage: props.reviewPackage,
+				itemId: props.itemId,
+				interest: 'selected',
+				presentation: props.presentation,
+				resolveDescriptorRef: (handle): BridgeDescriptorRef | null =>
+					reviewContentDescriptorRefsByHandleIdRef.current.get(handle.handleId) ?? null,
+				scheduler: reviewDemandScheduler,
+				executor: resourceExecutor,
+				signal: contentAbortController.signal,
+				traceContext: telemetryRecorderRef.current.isEnabled('web')
+					? createChildTraceContext(parentTraceContext)
+					: null,
+				telemetryRecorder: telemetryRecorderRef.current,
+				onDemandTelemetry: setLastSelectedDemandTelemetry,
+			})
+				.then((loadResult): void => {
+					if (!didCancel) {
+						const loadStartMilliseconds =
+							selectedContentLoadStarts.get(props.selectedContentKey) ?? null;
+						selectedContentLoadStarts.delete(props.selectedContentKey);
+						if (selectedContentActiveLoadKeyRef.current === selectedContentLoadKey) {
+							selectedContentActiveLoadKeyRef.current = null;
+						}
+						setSelectedContentResourcesState(
+							selectedContentResourcesStateFromDemandLoadResult({
+								itemId: props.itemId,
+								contentKey: props.selectedContentKey,
+								loadResult,
+							}),
+						);
+						scheduleForegroundSelectionRelease(props.selectedContentKey);
+						if (loadResult.status === 'ready' && loadStartMilliseconds !== null) {
+							recordReviewStartupTelemetry({
+								telemetryRecorder: telemetryRecorderRef.current,
+								phase: 'selected_content_ready',
+								slice: 'content_fetch',
+								transport: 'content',
+								traceContext: createChildTraceContext(parentTraceContext),
+								durationMilliseconds: performance.now() - loadStartMilliseconds,
+								result: 'success',
+								numericAttributes: {
+									'agentstudio.bridge.content.resource_count': contentResourceCount(
+										loadResult.resources,
+									),
+								},
+							});
+						}
+						if (loadResult.status === 'deferred') {
+							scheduleSelectedContentRetry({
+								scheduledRef: selectedContentRetryScheduledRef,
+								setSelectedContentRetryVersion,
+							});
+						}
+					}
+				})
+				.catch((): void => {
+					if (!didCancel) {
+						selectedContentLoadStarts.delete(props.selectedContentKey);
+						if (selectedContentActiveLoadKeyRef.current === selectedContentLoadKey) {
+							selectedContentActiveLoadKeyRef.current = null;
+						}
+						setSelectedContentResourcesState({
+							itemId: props.itemId,
+							contentKey: props.selectedContentKey,
+							status: 'failed',
+							resources: null,
+						});
+						clearForegroundSelectionNow(props.selectedContentKey);
+					}
+				});
+			return (): void => {
+				didCancel = true;
+				selectedContentLoadStarts.delete(props.selectedContentKey);
+				contentAbortController.abort();
+				if (selectedContentActiveLoadKeyRef.current === selectedContentLoadKey) {
+					selectedContentActiveLoadKeyRef.current = null;
+				}
+				if (selectedContentAbortControllerRef.current === contentAbortController) {
+					selectedContentAbortControllerRef.current = null;
+				}
+			};
+		},
+		[
+			cancelForegroundSelectionRelease,
+			clearForegroundSelectionNow,
+			resourceExecutor,
+			reviewDemandScheduler,
+			scheduleForegroundSelectionRelease,
+			setSelectedContentRetryVersion,
+			telemetryRecorderRef,
+		],
+	);
 	const beginForegroundReviewSelection = useCallback(
 		(itemId: string): boolean => {
 			const currentReviewPackage = reviewPackageRef.current;
@@ -1071,6 +1221,16 @@ function BridgeReviewViewerMode(
 					status: 'loading',
 					resources: null,
 				});
+				startSelectedReviewContentDemand({
+					itemId,
+					presentation: selectedItemPresentationForReviewFileTarget({
+						reviewPackage: currentReviewPackage,
+						selectedItemId: itemId,
+						target: initialReviewFileTarget,
+					}),
+					reviewPackage: currentReviewPackage,
+					selectedContentKey,
+				});
 			}
 			viewerActions.setSelectedItemId(itemId);
 			viewerActions.setRenderMode({ kind: 'codeView' });
@@ -1078,8 +1238,10 @@ function BridgeReviewViewerMode(
 		},
 		[
 			cancelForegroundSelectionRelease,
+			initialReviewFileTarget,
 			resourceExecutor,
 			reviewDemandScheduler,
+			startSelectedReviewContentDemand,
 			telemetryRecorderRef,
 			viewerActions,
 		],
@@ -1579,9 +1741,6 @@ function BridgeReviewViewerMode(
 			setLastSelectedDemandTelemetry(null);
 			return (): void => {};
 		}
-		let didCancel = false;
-		const contentAbortController = new AbortController();
-		selectedContentAbortControllerRef.current = contentAbortController;
 		const selectedItemId = rootSnapshotRef.current.selectedItemId;
 		const currentReviewPackage = reviewPackageRef.current;
 		if (currentReviewPackage === null || selectedItemId === null) {
@@ -1589,13 +1748,7 @@ function BridgeReviewViewerMode(
 			cancelForegroundSelectionRelease();
 			setForegroundSelectedContentKey(null);
 			setLastSelectedDemandTelemetry(null);
-			return (): void => {
-				didCancel = true;
-				contentAbortController.abort();
-				if (selectedContentAbortControllerRef.current === contentAbortController) {
-					selectedContentAbortControllerRef.current = null;
-				}
-			};
+			return (): void => {};
 		}
 		const selectedItem = currentReviewPackage.itemsById[selectedItemId];
 		if (selectedItem === undefined) {
@@ -1603,145 +1756,24 @@ function BridgeReviewViewerMode(
 			cancelForegroundSelectionRelease();
 			setForegroundSelectedContentKey(null);
 			setLastSelectedDemandTelemetry(null);
-			return (): void => {
-				didCancel = true;
-				contentAbortController.abort();
-				if (selectedContentAbortControllerRef.current === contentAbortController) {
-					selectedContentAbortControllerRef.current = null;
-				}
-			};
+			return (): void => {};
 		}
 		const selectedContentKey =
 			currentSelectedContentKey ??
 			makeSelectedContentResourcesKey(currentReviewPackage, selectedItemId);
-		const selectedContentLoadKey = selectedContentKey;
-		const currentSelectedContentResourcesState = selectedContentResourcesStateRef.current;
-		if (
-			!shouldStartSelectedReviewContentDemand({
-				activeSelectedContentLoadKey: selectedContentActiveLoadKeyRef.current,
-				currentSelectedContentResourcesState,
-				selectedContentKey,
-				selectedContentLoadKey,
-			})
-		) {
-			scheduleForegroundSelectionRelease(selectedContentKey);
-			return (): void => {};
-		}
-		selectedContentActiveLoadKeyRef.current = selectedContentLoadKey;
-		const selectedContentLoadStarts = selectedContentLoadStartByKeyRef.current;
-		setSelectedContentResourcesState(
-			(current: SelectedContentResourcesState | null): SelectedContentResourcesState | null =>
-				current?.contentKey === selectedContentKey
-					? current
-					: {
-							itemId: selectedItemId,
-							contentKey: selectedContentKey,
-							status: 'loading',
-							resources: null,
-						},
-		);
-		const parentTraceContext =
-			currentReviewPackageTelemetryContextRef.current?.traceContext ?? null;
-		selectedContentLoadStarts.set(selectedContentKey, performance.now());
-		recordBridgeViewerContentQueueTelemetry({
-			telemetryRecorder: telemetryRecorderRef.current,
-			parentTraceContext,
-			item: selectedItem,
-			interest: 'selected',
-		});
-		void loadReviewItemContentResourcesThroughDemandResult({
-			reviewPackage: currentReviewPackage,
+		return startSelectedReviewContentDemand({
 			itemId: selectedItemId,
-			interest: 'selected',
 			presentation: selectedItemPresentation,
-			resolveDescriptorRef: (handle): BridgeDescriptorRef | null =>
-				reviewContentDescriptorRefsByHandleIdRef.current.get(handle.handleId) ?? null,
-			scheduler: reviewDemandScheduler,
-			executor: resourceExecutor,
-			signal: contentAbortController.signal,
-			traceContext: telemetryRecorderRef.current.isEnabled('web')
-				? createChildTraceContext(parentTraceContext)
-				: null,
-			telemetryRecorder: telemetryRecorderRef.current,
-			onDemandTelemetry: setLastSelectedDemandTelemetry,
-		})
-			.then((loadResult): void => {
-				if (!didCancel) {
-					const loadStartMilliseconds = selectedContentLoadStarts.get(selectedContentKey) ?? null;
-					selectedContentLoadStarts.delete(selectedContentKey);
-					if (selectedContentActiveLoadKeyRef.current === selectedContentLoadKey) {
-						selectedContentActiveLoadKeyRef.current = null;
-					}
-					setSelectedContentResourcesState(
-						selectedContentResourcesStateFromDemandLoadResult({
-							itemId: selectedItemId,
-							contentKey: selectedContentKey,
-							loadResult,
-						}),
-					);
-					scheduleForegroundSelectionRelease(selectedContentKey);
-					if (loadResult.status === 'ready' && loadStartMilliseconds !== null) {
-						recordReviewStartupTelemetry({
-							telemetryRecorder: telemetryRecorderRef.current,
-							phase: 'selected_content_ready',
-							slice: 'content_fetch',
-							transport: 'content',
-							traceContext: createChildTraceContext(parentTraceContext),
-							durationMilliseconds: performance.now() - loadStartMilliseconds,
-							result: 'success',
-							numericAttributes: {
-								'agentstudio.bridge.content.resource_count': contentResourceCount(
-									loadResult.resources,
-								),
-							},
-						});
-					}
-					if (loadResult.status === 'deferred') {
-						scheduleSelectedContentRetry({
-							scheduledRef: selectedContentRetryScheduledRef,
-							setSelectedContentRetryVersion,
-						});
-					}
-				}
-			})
-			.catch((): void => {
-				if (!didCancel) {
-					selectedContentLoadStarts.delete(selectedContentKey);
-					if (selectedContentActiveLoadKeyRef.current === selectedContentLoadKey) {
-						selectedContentActiveLoadKeyRef.current = null;
-					}
-					setSelectedContentResourcesState({
-						itemId: selectedItemId,
-						contentKey: selectedContentKey,
-						status: 'failed',
-						resources: null,
-					});
-					clearForegroundSelectionNow(selectedContentKey);
-				}
-			});
-		return (): void => {
-			didCancel = true;
-			selectedContentLoadStarts.delete(selectedContentKey);
-			contentAbortController.abort();
-			if (selectedContentActiveLoadKeyRef.current === selectedContentLoadKey) {
-				selectedContentActiveLoadKeyRef.current = null;
-			}
-			if (selectedContentAbortControllerRef.current === contentAbortController) {
-				selectedContentAbortControllerRef.current = null;
-			}
-		};
+			reviewPackage: currentReviewPackage,
+			selectedContentKey,
+		});
 	}, [
-		resourceExecutor,
-		reviewDemandScheduler,
 		cancelForegroundSelectionRelease,
-		clearForegroundSelectionNow,
 		props.isActive,
 		currentSelectedContentKey,
-		scheduleForegroundSelectionRelease,
 		selectedContentRetryVersion,
 		selectedItemPresentation,
-		setSelectedContentRetryVersion,
-		telemetryRecorderRef,
+		startSelectedReviewContentDemand,
 	]);
 
 	useEffect((): (() => void) => {
@@ -4245,7 +4277,8 @@ export function applyReviewMetadataDeltaToReviewPackage(props: {
 }): BridgeReviewPackage | null {
 	if (
 		props.reviewPackage.packageId !== props.deltaFrame.packageId ||
-		props.reviewPackage.revision !== props.deltaFrame.fromRevision
+		props.reviewPackage.revision !== props.deltaFrame.fromRevision ||
+		props.deltaFrame.toRevision !== props.deltaFrame.fromRevision + 1
 	) {
 		return null;
 	}

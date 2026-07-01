@@ -532,6 +532,31 @@ describe('BridgeApp review metadata delta materialization', () => {
 		expect(nextReviewPackage?.summary).toEqual(reviewPackage.summary);
 	});
 
+	test('rejects metadata deltas with skipped revision gaps', () => {
+		const reviewPackage = makeBridgeReviewPackage();
+		const appendedItem = makeReviewProjectionInputItem({
+			itemId: 'item-appended-gap',
+			path: 'Sources/App/AppendedGap.swift',
+		});
+		const deltaFrame: ReviewDeltaMaterializerDelta = {
+			kind: 'metadataDelta',
+			packageId: reviewPackage.packageId,
+			fromRevision: reviewPackage.revision,
+			toRevision: reviewPackage.revision + 2,
+			operations: [{ kind: 'appendItems', items: [appendedItem] }],
+			summary: reviewPackage.summary,
+			registeredContentDescriptorRefs: [],
+			contentDescriptors: [],
+		};
+
+		const nextReviewPackage = applyReviewMetadataDeltaToReviewPackage({
+			reviewPackage,
+			deltaFrame,
+		});
+
+		expect(nextReviewPackage).toBeNull();
+	});
+
 	test('applies extent fact deltas to existing review items', () => {
 		const reviewPackage = makeBridgeReviewPackage();
 		const deltaFrame: ReviewDeltaMaterializerDelta = {
