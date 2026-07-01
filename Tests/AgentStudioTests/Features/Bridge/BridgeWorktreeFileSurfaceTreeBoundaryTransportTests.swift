@@ -407,6 +407,168 @@ extension WebKitSerializedTests {
             fixture.controller.teardown()
         }
 
+        @Test("metadata interest serves from the manifest index without re-enumerating the worktree")
+        func metadataInterestServesFromManifestIndexWithoutReEnumeration() async throws {
+            let repoURL = try FilesystemTestGitRepo.create(named: "worktree-file-index-interest")
+            defer { FilesystemTestGitRepo.destroy(repoURL) }
+            let sourcesURL = repoURL.appending(path: "Sources")
+            try FileManager.default.createDirectory(at: sourcesURL, withIntermediateDirectories: true)
+            for fileIndex in 0..<8 {
+                try "struct F\(fileIndex) {}\n".write(
+                    to: sourcesURL.appending(path: "F\(fileIndex).swift"),
+                    atomically: true,
+                    encoding: .utf8
+                )
+            }
+            let eventCapture = BridgeWorktreeFileSurfaceEventCapture()
+            let fixture = try makeControllerFixtureWithIntakeSink(
+                rootURL: repoURL,
+                intakeFrameSink: { _, frameJSON, _ in
+                    await eventCapture.recordIntake(frameJSON)
+                }
+            )
+            let responseCapture = BridgeWorktreeFileSurfaceResponseCapture()
+            fixture.controller.router.onResponse = { responseJSON in
+                await responseCapture.set(responseJSON)
+            }
+            await fixture.controller.handleIncomingRPC(
+                #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
+            )
+            await fixture.controller.handleIncomingRPC(
+                try BridgeWorktreeFileSurfaceRPCRequest(
+                    id: "open-index-interest",
+                    method: "worktreeFileSurface.openSourceStream",
+                    params: sourceSpec(
+                        fixture: fixture,
+                        clientRequestId: "request-index-interest",
+                        pathScope: []
+                    )
+                ).jsonString()
+            )
+            let response = try await decodedResponse(from: responseCapture)
+            await fixture.controller.handleBridgeIntakeReady(
+                BridgeIntakeReadyMethod.Params(protocolId: "worktree-file", streamId: response.result.streamId)
+            )
+            await fixture.controller.activeWorktreeFileTreeWindowTask?.value
+
+            let manifestIndex = try #require(fixture.controller.activeWorktreeFileManifestIndex)
+            #expect(await manifestIndex.enumerationCount == 1)
+            #expect(await manifestIndex.isEnumerationComplete)
+            #expect(await manifestIndex.count == 9)
+
+            let framesBeforeInterest = (await eventCapture.intakeFrames()).count
+            for (probeIndex, lane) in ["foreground", "visible", "nearby"].enumerated() {
+                await fixture.controller.handleIncomingRPC(
+                    """
+                    {"jsonrpc":"2.0","method":"bridge.metadata_interest.update","params":{"protocol":"worktree-file","streamId":"\(response.result.streamId)","generation":\(response.result.generation),"paths":["Sources/F\(probeIndex).swift"],"lane":"\(lane)"},"id":"index-interest-\(lane)"}
+                    """
+                )
+            }
+            #expect((await eventCapture.intakeFrames()).count == framesBeforeInterest + 3)
+            #expect(await manifestIndex.enumerationCount == 1)
+            fixture.controller.teardown()
+        }
+
+        @Test("interest for a deleted path emits a removeRows delta instead of a stale upsert")
+        func interestForDeletedPathEmitsRemoveRowsDeltaInsteadOfStaleUpsert() async throws {
+            let repoURL = try FilesystemTestGitRepo.create(named: "worktree-file-index-stat-truth")
+            defer { FilesystemTestGitRepo.destroy(repoURL) }
+            let sourcesURL = repoURL.appending(path: "Sources")
+            try FileManager.default.createDirectory(at: sourcesURL, withIntermediateDirectories: true)
+            try "struct Kept {}\n".write(
+                to: sourcesURL.appending(path: "Kept.swift"),
+                atomically: true,
+                encoding: .utf8
+            )
+            try "struct Doomed {}\n".write(
+                to: sourcesURL.appending(path: "Doomed.swift"),
+                atomically: true,
+                encoding: .utf8
+            )
+            let eventCapture = BridgeWorktreeFileSurfaceEventCapture()
+            let fixture = try makeControllerFixtureWithIntakeSink(
+                rootURL: repoURL,
+                intakeFrameSink: { _, frameJSON, _ in
+                    await eventCapture.recordIntake(frameJSON)
+                }
+            )
+            let responseCapture = BridgeWorktreeFileSurfaceResponseCapture()
+            fixture.controller.router.onResponse = { responseJSON in
+                await responseCapture.set(responseJSON)
+            }
+            await fixture.controller.handleIncomingRPC(
+                #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
+            )
+            await fixture.controller.handleIncomingRPC(
+                try BridgeWorktreeFileSurfaceRPCRequest(
+                    id: "open-index-stat-truth",
+                    method: "worktreeFileSurface.openSourceStream",
+                    params: sourceSpec(
+                        fixture: fixture,
+                        clientRequestId: "request-index-stat-truth",
+                        pathScope: []
+                    )
+                ).jsonString()
+            )
+            let response = try await decodedResponse(from: responseCapture)
+            await fixture.controller.handleBridgeIntakeReady(
+                BridgeIntakeReadyMethod.Params(protocolId: "worktree-file", streamId: response.result.streamId)
+            )
+            await fixture.controller.activeWorktreeFileTreeWindowTask?.value
+
+            let deletedPath = "Sources/Doomed.swift"
+            try FileManager.default.removeItem(at: repoURL.appending(path: deletedPath))
+            let framesBeforeInterest = (await eventCapture.intakeFrames()).count
+            await fixture.controller.handleIncomingRPC(
+                """
+                {"jsonrpc":"2.0","method":"bridge.metadata_interest.update","params":{"protocol":"worktree-file","streamId":"\(response.result.streamId)","generation":\(response.result.generation),"paths":["\(deletedPath)"],"lane":"visible"},"id":"index-stat-truth-interest"}
+                """
+            )
+
+            let framesAfterInterest = Array(
+                (await eventCapture.intakeFrames()).dropFirst(framesBeforeInterest)
+            )
+            var sawRemoveRowsDelta = false
+            var sawStaleUpsert = false
+            for frameJSON in framesAfterInterest {
+                let probe = try decodeIntakeEnvelope(
+                    frameJSON,
+                    as: BridgeWorktreeFileFrameKindProbe.self
+                )
+                switch probe.payload.frameKind {
+                case "worktree.treeDelta":
+                    let delta = try decodeIntakeEnvelope(
+                        frameJSON,
+                        as: BridgeWorktreeTreeDeltaFrame.self
+                    )
+                    sawRemoveRowsDelta =
+                        sawRemoveRowsDelta
+                        || delta.payload.operations.contains { operation in
+                            if case .removeRows(_, let paths) = operation {
+                                return paths?.contains(deletedPath) == true
+                            }
+                            return false
+                        }
+                case "worktree.treeWindow":
+                    let window = try decodeIntakeEnvelope(
+                        frameJSON,
+                        as: BridgeWorktreeTreeWindowFrame.self
+                    )
+                    sawStaleUpsert =
+                        sawStaleUpsert
+                        || window.payload.rows.contains { $0.path == deletedPath }
+                default:
+                    continue
+                }
+            }
+            #expect(sawRemoveRowsDelta)
+            #expect(!sawStaleUpsert)
+            let manifestIndex = try #require(fixture.controller.activeWorktreeFileManifestIndex)
+            let servedAfterRemoval = await manifestIndex.interestServing(forPaths: [deletedPath])
+            #expect(servedAfterRemoval.indexedPaths.isEmpty)
+            fixture.controller.teardown()
+        }
+
         private func allTreePaths(
             from eventCapture: BridgeWorktreeFileSurfaceEventCapture
         ) async throws -> Set<String> {

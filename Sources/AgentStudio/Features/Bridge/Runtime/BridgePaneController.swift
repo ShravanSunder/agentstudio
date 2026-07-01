@@ -4,22 +4,6 @@ import WebKit
 import os.log
 
 private let bridgeControllerLogger = Logger(subsystem: "com.agentstudio", category: "BridgePaneController")
-enum BridgeReadyMethod: RPCMethod {
-    struct Params: Decodable {}
-    typealias Result = RPCNoResponse
-
-    static let method = "bridge.ready"
-}
-
-enum BridgeIntakeReadyMethod: RPCMethod {
-    struct Params: Decodable {
-        let protocolId: String
-        let streamId: String?
-    }
-    typealias Result = RPCNoResponse
-
-    static let method = "bridge.intakeReady"
-}
 
 /// Per-pane controller for bridge-backed panels (diff viewer, code review, etc.).
 ///
@@ -65,7 +49,6 @@ final class BridgePaneController {
     let revisionClock = RevisionClock()
     let resourceLeaseRegistry = BridgeTransportResourceLeaseRegistry()
     let reviewContentStore: BridgeContentStore
-    let reviewResourceStore = BridgeReviewResourceStore()
     let worktreeFileResourceStore = BridgeWorktreeFileResourceStore()
     let reviewPipeline: BridgeReviewPipeline
     let reviewChangeIndex = BridgeChangeIndex()
@@ -73,6 +56,10 @@ final class BridgePaneController {
     var nextReviewGeneration: BridgeReviewGeneration = 0
     var nextWorktreeFileSurfaceGeneration = 0
     var activeWorktreeFileSurfaceSource: BridgeWorktreeFileSurfaceActiveSourceState?
+    var activeWorktreeFileManifestIndex: BridgeWorktreeFileManifestIndex?
+    var activeWorktreeFileTreeWindowTask: Task<Void, Never>?
+    var worktreeFileIntakeReadyStreamId: String?
+    var isPublishingWorktreeFileTreeWindows = false
     var selectedReviewItemId: String?
     var activeReviewRefreshTask: Task<Void, Never>?
     var hasPendingReviewRefresh = false
@@ -192,7 +179,7 @@ final class BridgePaneController {
         let bootstrapArtifacts = Self.makeBootstrapArtifacts(
             paneId: paneId,
             metadata: resolvedMetadata,
-            source: bridgePaneState.source,
+            state: bridgePaneState,
             telemetryScopeGate: resolvedTelemetryScopeGate,
             bridgeWorld: bridgeWorld
         )
@@ -211,7 +198,6 @@ final class BridgePaneController {
             input: BridgeSchemeHandlerRegistrationInput(
                 paneId: paneId,
                 reviewContentStore: reviewContentStore,
-                reviewResourceStore: reviewResourceStore,
                 worktreeFileResourceStore: worktreeFileResourceStore,
                 resourceLeaseRegistry: resourceLeaseRegistry,
                 telemetryRecorder: resolvedTelemetryRecorder
@@ -367,6 +353,11 @@ final class BridgePaneController {
             guard let self else { return nil }
             return try await self.handleWorktreeFileSurfaceOpenSourceStream(params)
         }
+        typealias RequestWorktreeFileDescriptor = WorktreeFileSurfaceMethods.RequestFileDescriptorMethod
+        router.register(method: RequestWorktreeFileDescriptor.self) { @MainActor [weak self] params in
+            guard let self else { return nil }
+            return try await self.handleWorktreeFileDescriptorRequest(params)
+        }
 
         // review namespace
         registerStub(ReviewMethods.AddCommentMethod.self)
@@ -379,6 +370,15 @@ final class BridgePaneController {
         }
         router.register(method: ReviewMethods.UnmarkFileViewedMethod.self) { @MainActor [weak self] params in
             self?.paneState.review.unmarkFileViewed(params.fileId)
+            return nil
+        }
+        router.register(method: ReviewMethods.MetadataInterestUpdateMethod.self) { @MainActor [weak self] params in
+            guard let self else { return nil }
+            if params.protocolId == "worktree-file" {
+                try await self.handleWorktreeFileMetadataInterestUpdate(params)
+                return nil
+            }
+            try await self.handleReviewMetadataInterestUpdate(params)
             return nil
         }
 
@@ -466,9 +466,9 @@ final class BridgePaneController {
         }
         inboxPostTimestamps.append(now)
 
-        let body = params.body?
+        let trimmedBody = params.body?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-            .nilIfEmpty
+        let body = trimmedBody?.isEmpty == true ? nil : trimmedBody
         let boundedText = InboxNotificationTextPolicy.bounded(title: title, body: body)
 
         return .init(
@@ -499,22 +499,22 @@ final class BridgePaneController {
         connectionPushPlan?.stop()
         agentPushPlan?.stop()
         activeReviewRefreshTask?.cancel()
+        activeWorktreeFileTreeWindowTask?.cancel()
         diffPushPlan = nil
         reviewPushPlan = nil
         connectionPushPlan = nil
         agentPushPlan = nil
         activeReviewRefreshTask = nil
+        activeWorktreeFileTreeWindowTask = nil
         hasPendingReviewRefresh = false
         activeWorktreeFileSurfaceSource = nil
         pendingReviewProtocolIntakeFrames.removeAll(keepingCapacity: false)
         pendingWorktreeFileIntakeFrames.removeAll(keepingCapacity: false)
         reviewIntakeReadyStreamId = nil
+        worktreeFileIntakeReadyStreamId = nil
         revokeReviewContentAuthoritySynchronously()
-        revokeReviewResourceAuthoritySynchronously(resourceKind: "review-package")
-        revokeReviewResourceAuthoritySynchronously(resourceKind: "review-delta")
         resourceLeaseRegistry.revokeSynchronously(paneId: paneId, protocolId: "worktree-file")
         let reviewContentStore = reviewContentStore
-        let reviewResourceStore = reviewResourceStore
         let worktreeFileResourceStore = worktreeFileResourceStore
         let resourceLeaseRegistry = resourceLeaseRegistry
         let paneId = paneId
@@ -525,20 +525,6 @@ final class BridgePaneController {
                 paneId: paneId,
                 protocolId: "review",
                 resourceKind: "content",
-                revokeAuthority: false
-            )
-            await reviewResourceStore.reset(protocolId: "review", resourceKind: "review-package")
-            await reviewResourceStore.reset(protocolId: "review", resourceKind: "review-delta")
-            await resourceLeaseRegistry.reset(
-                paneId: paneId,
-                protocolId: "review",
-                resourceKind: "review-package",
-                revokeAuthority: false
-            )
-            await resourceLeaseRegistry.reset(
-                paneId: paneId,
-                protocolId: "review",
-                resourceKind: "review-delta",
                 revokeAuthority: false
             )
             await resourceLeaseRegistry.reset(paneId: paneId, protocolId: "worktree-file")
@@ -642,6 +628,17 @@ final class BridgePaneController {
             )
             return
         }
+        guard params.generation == nil || params.generation == activeSource.source.subscriptionGeneration else {
+            bridgeControllerLogger.warning(
+                """
+                Bridge Worktree/File intake ready ignored for pane \(self.paneId.uuidString, privacy: .public): \
+                generation \(String(describing: params.generation), privacy: .public) does not match \
+                \(activeSource.source.subscriptionGeneration, privacy: .public)
+                """
+            )
+            return
+        }
+        worktreeFileIntakeReadyStreamId = activeSource.streamId
         await flushPendingWorktreeFileIntakeFrames()
     }
 
@@ -659,9 +656,8 @@ final class BridgePaneController {
     }
 
     func flushPendingWorktreeFileIntakeFrames() async {
-        let frames = pendingWorktreeFileIntakeFrames
-        pendingWorktreeFileIntakeFrames.removeAll(keepingCapacity: true)
-        for frame in frames {
+        while !pendingWorktreeFileIntakeFrames.isEmpty {
+            let frame = pendingWorktreeFileIntakeFrames[0]
             let delivered = await deliverIntakeFrame(frame)
             guard delivered else {
                 bridgeControllerLogger.warning(
@@ -670,6 +666,7 @@ final class BridgePaneController {
                 paneState.connection.setHealth(.error)
                 return
             }
+            pendingWorktreeFileIntakeFrames.removeFirst()
         }
     }
 
@@ -677,10 +674,9 @@ final class BridgePaneController {
         guard canDeliverReviewProtocolIntakeFrames() else {
             return
         }
-        let frames = pendingReviewProtocolIntakeFrames
-        pendingReviewProtocolIntakeFrames.removeAll(keepingCapacity: true)
         await recordReviewIntakeReadyTelemetry(phase: "transport")
-        for frame in frames {
+        while !pendingReviewProtocolIntakeFrames.isEmpty {
+            let frame = pendingReviewProtocolIntakeFrames[0]
             let delivered = await deliverIntakeFrame(frame)
             guard delivered else {
                 bridgeControllerLogger.warning(
@@ -689,6 +685,7 @@ final class BridgePaneController {
                 paneState.connection.setHealth(.error)
                 return
             }
+            pendingReviewProtocolIntakeFrames.removeFirst()
         }
     }
 
@@ -706,7 +703,7 @@ final class BridgePaneController {
                     "agentstudio.bridge.phase": phase,
                     "agentstudio.bridge.plane": BridgeTelemetryPlane.control.rawValue,
                     "agentstudio.bridge.priority": BridgeTelemetryPriority.warm.rawValue,
-                    "agentstudio.bridge.slice": BridgeTelemetrySlice.reviewSnapshot.rawValue,
+                    "agentstudio.bridge.slice": BridgeTelemetrySlice.reviewMetadata.rawValue,
                     "agentstudio.bridge.transport": "intake",
                 ],
                 numericAttributes: [
@@ -835,6 +832,8 @@ final class BridgePaneController {
         switch state.panelKind {
         case .diffViewer:
             title = "Diff"
+        case .fileViewer:
+            title = "Files"
         }
 
         return PaneMetadata(
@@ -846,7 +845,7 @@ final class BridgePaneController {
 
     private static func contentType(for state: BridgePaneState) -> PaneContentType {
         switch state.panelKind {
-        case .diffViewer:
+        case .diffViewer, .fileViewer:
             return .diff
         }
     }
@@ -871,17 +870,11 @@ final class BridgePaneController {
         pushNonce: String
     ) async throws {
         let frameLiteral = try makeJavaScriptStringLiteral(frameString)
-        let pushNonceLiteral = try makeJavaScriptStringLiteral(pushNonce)
-        try await page.callJavaScript(
-            """
-            window.__bridgeInternal.applyIntakeFrameJSON(\(frameLiteral));
-            """,
-            contentWorld: WKContentWorld.world(name: "agentStudioBridge")
-        )
+        let nonceLiteral = try makeJavaScriptStringLiteral(pushNonce)
         try await page.callJavaScript(
             """
             document.dispatchEvent(new CustomEvent('__bridge_intake_json', {
-                detail: { json: \(frameLiteral), nonce: \(pushNonceLiteral) }
+                detail: { json: \(frameLiteral), nonce: \(nonceLiteral) }
             }));
             """,
             contentWorld: .page
@@ -898,27 +891,6 @@ final class BridgePaneController {
 
 }
 
-private enum BridgeError: Error, LocalizedError, Sendable {
-    case encoding(String)
-
-    var errorDescription: String? {
-        switch self {
-        case .encoding(let message):
-            return message
-        }
-    }
-}
-
-struct BridgeMethodUnimplementedError: Error, LocalizedError, Sendable {
-    let method: String
-
-    var errorDescription: String? {
-        "Unimplemented bridge method: \(method)"
-    }
-}
-
-extension String {
-    fileprivate var nilIfEmpty: String? {
-        isEmpty ? nil : self
-    }
+extension BridgePaneController {
+    var bootstrapScriptSourceForTesting: String { bootstrapScript.source }
 }

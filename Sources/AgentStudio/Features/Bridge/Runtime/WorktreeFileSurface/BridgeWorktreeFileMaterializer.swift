@@ -42,6 +42,11 @@ struct BridgeWorktreeTreeRowWindowBatch: Sendable {
     let startIndex: Int
 }
 
+struct BridgeWorktreeRefreshedTreeRows: Sendable {
+    let rows: [BridgeWorktreeTreeRowMetadata]
+    let missingPaths: Set<String>
+}
+
 private struct BridgeWorktreeFileDescriptorMaterializationProps: Sendable {
     let paneId: UUID
     let source: BridgeWorktreeFileSurfaceSourceIdentity
@@ -61,9 +66,6 @@ private struct BridgeWorktreeFileAnalysis: Sendable {
 }
 
 enum BridgeWorktreeFileMaterializer {
-    private static let initialTreeMetadataWindowLimit =
-        AppPolicies.Bridge.worktreeFileTreeMetadataWindowRowLimit
-
     static func canMaterializeDemandPath(
         _ relativePath: String,
         openedSource: BridgeWorktreeFileOpenedSource
@@ -80,24 +82,6 @@ enum BridgeWorktreeFileMaterializer {
                 || relativePath == scopedPath
                 || relativePath.hasPrefix("\(scopedPath)/")
         }
-    }
-
-    static func materializeInitialTreeRows(
-        request: BridgeWorktreeFileMaterializationRequest
-    ) async throws -> [BridgeWorktreeTreeRowMetadata] {
-        // swiftlint:disable:next no_task_detached
-        try await Task.detached(priority: .utility) {
-            try materializeInitialTreeRowsSynchronously(request: request)
-        }.value
-    }
-
-    static func materializeAllTreeRows(
-        request: BridgeWorktreeFileMaterializationRequest
-    ) async throws -> [BridgeWorktreeTreeRowMetadata] {
-        // swiftlint:disable:next no_task_detached
-        try await Task.detached(priority: .utility) {
-            try materializeTreeRowsSynchronously(request: request, maxCount: nil)
-        }.value
     }
 
     static func materializeTreeRowWindows(
@@ -127,6 +111,37 @@ enum BridgeWorktreeFileMaterializer {
         }
     }
 
+    /// Freshness stat-truth for metadata interest: rebuilds rows for the
+    /// requested manifest-member paths from current filesystem facts, and
+    /// reports paths whose stat failed so the caller can emit a removal
+    /// delta. Runs off the MainActor; never enumerates the worktree.
+    static func refreshTreeRows(
+        rootURL: URL,
+        relativePaths: Set<String>
+    ) async -> BridgeWorktreeRefreshedTreeRows {
+        // swiftlint:disable:next no_task_detached
+        await Task.detached(priority: .userInitiated) {
+            var rows: [BridgeWorktreeTreeRowMetadata] = []
+            var missingPaths = Set<String>()
+            for relativePath in relativePaths {
+                let fileURL = rootURL.appending(path: relativePath)
+                let values = try? fileURL.resourceValues(
+                    forKeys: [.isDirectoryKey, .isRegularFileKey]
+                )
+                if values?.isDirectory == true {
+                    rows.append(directoryTreeRow(relativePath: relativePath))
+                } else if values?.isRegularFile == true,
+                    let row = try? fileTreeRow(fileURL: fileURL, relativePath: relativePath)
+                {
+                    rows.append(row)
+                } else {
+                    missingPaths.insert(relativePath)
+                }
+            }
+            return BridgeWorktreeRefreshedTreeRows(rows: rows, missingPaths: missingPaths)
+        }.value
+    }
+
     static func materializeChangedFileDescriptors(
         request: BridgeWorktreeChangedFileMaterializationRequest
     ) async throws -> [BridgeWorktreeMaterializedFileDescriptor] {
@@ -143,53 +158,6 @@ enum BridgeWorktreeFileMaterializer {
         try await Task.detached(priority: .utility) {
             try materializeRequestedFileDescriptorSynchronously(request: request)
         }.value
-    }
-
-    private static func materializeInitialTreeRowsSynchronously(
-        request: BridgeWorktreeFileMaterializationRequest
-    ) throws -> [BridgeWorktreeTreeRowMetadata] {
-        try materializeTreeRowsSynchronously(request: request, maxCount: initialTreeMetadataWindowLimit)
-    }
-
-    private static func materializeTreeRowsSynchronously(
-        request: BridgeWorktreeFileMaterializationRequest,
-        maxCount: Int?
-    ) throws -> [BridgeWorktreeTreeRowMetadata] {
-        let relativePaths = try initialTreeRowPaths(
-            rootURL: request.rootURL,
-            canonicalPathScope: request.openedSource.canonicalPathScope,
-            ignorePolicy: request.openedSource.ignorePolicy,
-            maxCount: maxCount
-        )
-        var rowsByPath: [String: BridgeWorktreeTreeRowMetadata] = [:]
-        var orderedRows: [BridgeWorktreeTreeRowMetadata] = []
-
-        func appendRow(_ row: BridgeWorktreeTreeRowMetadata) {
-            if let maxCount, orderedRows.count >= maxCount {
-                return
-            }
-            guard rowsByPath[row.path] == nil else {
-                return
-            }
-            rowsByPath[row.path] = row
-            orderedRows.append(row)
-        }
-
-        for relativePath in relativePaths {
-            appendAncestorRows(for: relativePath, appendRow: appendRow)
-            if let maxCount, orderedRows.count >= maxCount {
-                break
-            }
-            let fileURL = request.rootURL.appending(path: relativePath)
-            let values = try? fileURL.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey])
-            if values?.isDirectory == true {
-                appendRow(directoryTreeRow(relativePath: relativePath))
-            } else if values?.isRegularFile == true {
-                appendRow(try fileTreeRow(fileURL: fileURL, relativePath: relativePath))
-            }
-        }
-
-        return orderedRows
     }
 
     private static func materializeTreeRowWindowsSynchronously(
@@ -261,25 +229,6 @@ enum BridgeWorktreeFileMaterializer {
             return true
         }
         flushWindowIfNeeded(force: true)
-    }
-
-    private static func initialTreeRowPaths(
-        rootURL: URL,
-        canonicalPathScope: [String],
-        ignorePolicy: BridgeWorktreeFileIgnorePolicy,
-        maxCount: Int?
-    ) throws -> [String] {
-        var relativePaths: [String] = []
-        try forEachInitialTreeRowPath(
-            rootURL: rootURL,
-            canonicalPathScope: canonicalPathScope,
-            ignorePolicy: ignorePolicy,
-            maxPathCount: maxCount
-        ) { relativePath in
-            relativePaths.append(relativePath)
-            return true
-        }
-        return relativePaths
     }
 
     private static func forEachInitialTreeRowPath(
@@ -394,29 +343,6 @@ enum BridgeWorktreeFileMaterializer {
         }
     }
 
-    private static func enumerateTreeRowPaths(
-        rootURL: URL,
-        scopedURL: URL,
-        ignorePolicy: BridgeWorktreeFileIgnorePolicy,
-        maxCount: Int?
-    ) throws -> [String] {
-        if let maxCount, maxCount <= 0 {
-            return []
-        }
-
-        var paths: [String] = []
-        try enumerateTreeRowPaths(
-            rootURL: rootURL,
-            scopedURL: scopedURL,
-            ignorePolicy: ignorePolicy,
-            maxCount: maxCount
-        ) { relativePath in
-            paths.append(relativePath)
-            return true
-        }
-        return paths
-    }
-
     private static func appendAncestorRowsThrowing(
         for relativePath: String,
         appendRow: (BridgeWorktreeTreeRowMetadata) throws -> Void
@@ -428,15 +354,6 @@ enum BridgeWorktreeFileMaterializer {
         for componentCount in 1..<pathComponents.count {
             let ancestorPath = pathComponents.prefix(componentCount).joined(separator: "/")
             try appendRow(directoryTreeRow(relativePath: ancestorPath))
-        }
-    }
-
-    private static func appendAncestorRows(
-        for relativePath: String,
-        appendRow: (BridgeWorktreeTreeRowMetadata) -> Void
-    ) {
-        try? appendAncestorRowsThrowing(for: relativePath) { row in
-            appendRow(row)
         }
     }
 

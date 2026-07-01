@@ -14,11 +14,26 @@ enum BridgeWorktreeFileSurfaceFreshness: String, Codable, Equatable, Sendable {
 }
 
 struct BridgeWorktreeFileSurfaceOpenSourceOutcome: Codable, Equatable, Sendable {
-    private enum CodingKeys: String, CodingKey {
+    private enum CodingKeys: String, CodingKey, CaseIterable {
         case status
         case protocolId = "protocol"
         case streamId
         case generation
+    }
+
+    private struct OutcomeAnyCodingKey: CodingKey {
+        let stringValue: String
+        let intValue: Int?
+
+        init?(stringValue: String) {
+            self.stringValue = stringValue
+            self.intValue = nil
+        }
+
+        init?(intValue: Int) {
+            self.stringValue = String(intValue)
+            self.intValue = intValue
+        }
     }
 
     let status: String
@@ -32,6 +47,56 @@ struct BridgeWorktreeFileSurfaceOpenSourceOutcome: Codable, Equatable, Sendable 
         self.streamId = streamId
         self.generation = generation
     }
+
+    init(from decoder: Decoder) throws {
+        let allowedKeys = Set(CodingKeys.allCases.map(\.rawValue))
+        let rawContainer = try decoder.container(keyedBy: OutcomeAnyCodingKey.self)
+        for key in rawContainer.allKeys where !allowedKeys.contains(key.stringValue) {
+            throw DecodingError.dataCorruptedError(
+                forKey: key,
+                in: rawContainer,
+                debugDescription: "Unexpected Worktree/File open-source outcome key"
+            )
+        }
+
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let decodedStatus = try container.decode(String.self, forKey: .status)
+        guard decodedStatus == "accepted" else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .status,
+                in: container,
+                debugDescription: "Worktree/File open-source outcome status must be accepted"
+            )
+        }
+        let decodedProtocolId = try container.decode(String.self, forKey: .protocolId)
+        guard decodedProtocolId == "worktree-file" else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .protocolId,
+                in: container,
+                debugDescription: "Worktree/File open-source outcome protocol must be worktree-file"
+            )
+        }
+        let decodedStreamId = try container.decode(String.self, forKey: .streamId)
+        guard decodedStreamId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .streamId,
+                in: container,
+                debugDescription: "Worktree/File open-source outcome streamId must be non-empty"
+            )
+        }
+        let decodedGeneration = try container.decode(Int.self, forKey: .generation)
+        guard decodedGeneration >= 0 else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .generation,
+                in: container,
+                debugDescription: "Worktree/File open-source outcome generation must be nonnegative"
+            )
+        }
+        self.status = decodedStatus
+        self.protocolId = decodedProtocolId
+        self.streamId = decodedStreamId
+        self.generation = decodedGeneration
+    }
 }
 
 struct BridgeWorktreeFileSurfaceSourceSpec: Codable, Equatable, Sendable {
@@ -43,7 +108,6 @@ struct BridgeWorktreeFileSurfaceSourceSpec: Codable, Equatable, Sendable {
         case cwdScope
         case pathScope
         case includeStatuses
-        case includeFileDescriptors
         case includeComments
         case includeAgentComms
         case freshness
@@ -71,7 +135,6 @@ struct BridgeWorktreeFileSurfaceSourceSpec: Codable, Equatable, Sendable {
     let cwdScope: String?
     let pathScope: [String]
     let includeStatuses: Bool
-    let includeFileDescriptors: Bool
     let includeComments: Bool
     let includeAgentComms: Bool
     let freshness: BridgeWorktreeFileSurfaceFreshness
@@ -84,7 +147,6 @@ struct BridgeWorktreeFileSurfaceSourceSpec: Codable, Equatable, Sendable {
         cwdScope: String?,
         pathScope: [String],
         includeStatuses: Bool,
-        includeFileDescriptors: Bool,
         includeComments: Bool,
         includeAgentComms: Bool,
         freshness: BridgeWorktreeFileSurfaceFreshness
@@ -96,7 +158,6 @@ struct BridgeWorktreeFileSurfaceSourceSpec: Codable, Equatable, Sendable {
         self.cwdScope = cwdScope
         self.pathScope = pathScope
         self.includeStatuses = includeStatuses
-        self.includeFileDescriptors = includeFileDescriptors
         self.includeComments = includeComments
         self.includeAgentComms = includeAgentComms
         self.freshness = freshness
@@ -139,12 +200,6 @@ struct BridgeWorktreeFileSurfaceSourceSpec: Codable, Equatable, Sendable {
         self.includeStatuses =
             if container.contains(.includeStatuses) {
                 try container.decode(Bool.self, forKey: .includeStatuses)
-            } else {
-                true
-            }
-        self.includeFileDescriptors =
-            if container.contains(.includeFileDescriptors) {
-                try container.decode(Bool.self, forKey: .includeFileDescriptors)
             } else {
                 true
             }
@@ -217,6 +272,67 @@ struct BridgeWorktreeTreeProjectionIdentity: Codable, Equatable, Sendable {
     let treeWindowKey: String?
 }
 
+struct BridgeWorktreeTreeRowMetadata: Codable, Equatable, Sendable {
+    let rowId: String
+    let path: String
+    let name: String
+    let parentPath: String?
+    let depth: Int
+    let isDirectory: Bool
+    let fileId: String?
+    let sizeBytes: Int?
+    let lineCount: Int?
+    let changeStatus: String?
+
+    enum CodingKeys: String, CodingKey {
+        case rowId
+        case path
+        case name
+        case parentPath
+        case depth
+        case isDirectory
+        case fileId
+        case sizeBytes
+        case lineCount
+        case changeStatus
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(rowId, forKey: .rowId)
+        try container.encode(path, forKey: .path)
+        try container.encode(name, forKey: .name)
+        if let parentPath {
+            try container.encode(parentPath, forKey: .parentPath)
+        } else {
+            try container.encodeNil(forKey: .parentPath)
+        }
+        try container.encode(depth, forKey: .depth)
+        try container.encode(isDirectory, forKey: .isDirectory)
+        try container.encodeIfPresent(fileId, forKey: .fileId)
+        try container.encodeIfPresent(sizeBytes, forKey: .sizeBytes)
+        try container.encodeIfPresent(lineCount, forKey: .lineCount)
+        try container.encodeIfPresent(changeStatus, forKey: .changeStatus)
+    }
+}
+
+enum BridgeDemandLane: String, Codable, Equatable, Sendable {
+    case foreground
+    case active
+    case visible
+    case nearby
+    case speculative
+    case idle
+}
+
+struct BridgeWorktreeFileDescriptorRequest: Codable, Equatable, Sendable {
+    let sourceIdentity: BridgeWorktreeFileSurfaceSourceIdentity
+    let rowId: String
+    let path: String
+    let fileId: String
+    let lane: BridgeDemandLane
+}
+
 enum BridgeWorktreeFileVirtualizedExtentKind: String, Codable, Equatable, Sendable {
     case exactLineCount
     case estimatedHeight
@@ -256,18 +372,18 @@ struct BridgeWorktreeSnapshotFrame: Codable, Equatable, Sendable {
     let frameKind: String
     let source: BridgeWorktreeFileSurfaceSourceIdentity
     let requestSelector: BridgeWorktreeFileSurfaceSourceSpec?
-    let treeDescriptor: BridgeAttachedResourceDescriptor
+    let treeRows: [BridgeWorktreeTreeRowMetadata]
     let treeSizeFacts: BridgeWorktreeTreeVirtualizedSizeFacts
-    let statusDescriptor: BridgeAttachedResourceDescriptor?
+    let statusPatch: BridgeWorktreeStatusPatch?
 
     init(
         streamId: String,
         sequence: Int,
         source: BridgeWorktreeFileSurfaceSourceIdentity,
         requestSelector: BridgeWorktreeFileSurfaceSourceSpec?,
-        treeDescriptor: BridgeAttachedResourceDescriptor,
+        treeRows: [BridgeWorktreeTreeRowMetadata],
         treeSizeFacts: BridgeWorktreeTreeVirtualizedSizeFacts,
-        statusDescriptor: BridgeAttachedResourceDescriptor?
+        statusPatch: BridgeWorktreeStatusPatch?
     ) {
         self.kind = "snapshot"
         self.streamId = streamId
@@ -276,9 +392,9 @@ struct BridgeWorktreeSnapshotFrame: Codable, Equatable, Sendable {
         self.frameKind = "worktree.snapshot"
         self.source = source
         self.requestSelector = requestSelector
-        self.treeDescriptor = treeDescriptor
+        self.treeRows = treeRows
         self.treeSizeFacts = treeSizeFacts
-        self.statusDescriptor = statusDescriptor
+        self.statusPatch = statusPatch
     }
 }
 
@@ -289,14 +405,14 @@ struct BridgeWorktreeTreeWindowFrame: Codable, Equatable, Sendable {
     let sequence: Int
     let frameKind: String
     let projectionIdentity: BridgeWorktreeTreeProjectionIdentity
-    let windowDescriptor: BridgeAttachedResourceDescriptor
+    let rows: [BridgeWorktreeTreeRowMetadata]
     let treeSizeFacts: BridgeWorktreeTreeVirtualizedSizeFacts
 
     init(
         streamId: String,
         sequence: Int,
         projectionIdentity: BridgeWorktreeTreeProjectionIdentity,
-        windowDescriptor: BridgeAttachedResourceDescriptor,
+        rows: [BridgeWorktreeTreeRowMetadata],
         treeSizeFacts: BridgeWorktreeTreeVirtualizedSizeFacts
     ) {
         self.kind = "delta"
@@ -305,8 +421,78 @@ struct BridgeWorktreeTreeWindowFrame: Codable, Equatable, Sendable {
         self.sequence = sequence
         self.frameKind = "worktree.treeWindow"
         self.projectionIdentity = projectionIdentity
-        self.windowDescriptor = windowDescriptor
+        self.rows = rows
         self.treeSizeFacts = treeSizeFacts
+    }
+}
+
+enum BridgeWorktreeTreeOperation: Codable, Equatable, Sendable {
+    case upsertRows([BridgeWorktreeTreeRowMetadata])
+    case removeRows(rowIds: [String], paths: [String]?)
+
+    private enum CodingKeys: String, CodingKey {
+        case op
+        case rows
+        case rowIds
+        case paths
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .upsertRows(let rows):
+            try container.encode("upsertRows", forKey: .op)
+            try container.encode(rows, forKey: .rows)
+        case .removeRows(let rowIds, let paths):
+            try container.encode("removeRows", forKey: .op)
+            try container.encode(rowIds, forKey: .rowIds)
+            try container.encodeIfPresent(paths, forKey: .paths)
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let operation = try container.decode(String.self, forKey: .op)
+        switch operation {
+        case "upsertRows":
+            self = .upsertRows(
+                try container.decode([BridgeWorktreeTreeRowMetadata].self, forKey: .rows)
+            )
+        case "removeRows":
+            self = .removeRows(
+                rowIds: try container.decode([String].self, forKey: .rowIds),
+                paths: try container.decodeIfPresent([String].self, forKey: .paths)
+            )
+        default:
+            throw DecodingError.dataCorruptedError(
+                forKey: .op,
+                in: container,
+                debugDescription: "unknown worktree tree operation: \(operation)"
+            )
+        }
+    }
+}
+
+struct BridgeWorktreeTreeDeltaFrame: Codable, Equatable, Sendable {
+    let kind: String
+    let streamId: String
+    let generation: Int
+    let sequence: Int
+    let frameKind: String
+    let operations: [BridgeWorktreeTreeOperation]
+
+    init(
+        streamId: String,
+        generation: Int,
+        sequence: Int,
+        operations: [BridgeWorktreeTreeOperation]
+    ) {
+        self.kind = "delta"
+        self.streamId = streamId
+        self.generation = generation
+        self.sequence = sequence
+        self.frameKind = "worktree.treeDelta"
+        self.operations = operations
     }
 }
 
