@@ -89,7 +89,7 @@ extension BridgeTelemetryBatchValidator {
         return true
     }
 
-    private struct BridgeTelemetryEventExpectation: Sendable {
+    struct BridgeTelemetryEventExpectation: Sendable {
         let phase: String
         let plane: BridgeTelemetryPlane
         let priority: BridgeTelemetryPriority
@@ -132,7 +132,7 @@ extension BridgeTelemetryBatchValidator {
         }
     }
 
-    private struct BridgeTelemetryEventAttributeKeys: Sendable {
+    struct BridgeTelemetryEventAttributeKeys: Sendable {
         static let commonOnly = Self()
 
         let additionalStringKeys: Set<String>
@@ -150,7 +150,7 @@ extension BridgeTelemetryBatchValidator {
         }
     }
 
-    private struct BridgeTelemetryEventContract: Sendable {
+    struct BridgeTelemetryEventContract: Sendable {
         let phase: String
         let plane: BridgeTelemetryPlane
         let priority: BridgeTelemetryPriority
@@ -208,26 +208,54 @@ extension BridgeTelemetryBatchValidator {
             return false
         }
 
-        switch sample.name {
+        if let webContractResult = browserWebContractMatches(name: sample.name, contract: contract) {
+            return webContractResult
+        }
+        if let treeContractResult = treeContractMatches(name: sample.name, contract: contract) {
+            return treeContractResult
+        }
+        return auxiliaryContractMatches(name: sample.name, contract: contract) ?? false
+    }
+
+    private static func browserWebContractMatches(
+        name: String,
+        contract: BridgeTelemetryEventContract
+    ) -> Bool? {
+        switch name {
         case "performance.bridge.web.content_fetch":
             return contentFetchContractMatches(contract)
+        case "performance.bridge.web.file_open_ready":
+            return fileOpenReadyContractMatches(contract)
+        case "performance.bridge.web.visible_demand_settled":
+            return visibleDemandSettledContractMatches(contract)
         case "performance.bridge.web.first_render":
             return firstRenderContractMatches(contract)
-        case "performance.bridge.web.package_apply":
+        case "performance.bridge.web.intake_apply":
             return packageApplyContractMatches(contract)
+        case "performance.bridge.web.push_apply":
+            return packageApplyContractMatches(contract)
+        case "performance.bridge.web.projection_input_build",
+            "performance.bridge.web.projection_store_apply",
+            "performance.bridge.web.projection_total":
+            return projectionCoordinatorContractMatches(contract)
         case "performance.bridge.web.intake_frame":
             return intakeFrameContractMatches(contract)
-        case "performance.bridge.web.review_package_body_load",
-            "performance.bridge.web.review_package_first_chunk",
-            "performance.bridge.web.review_package_parse",
-            "performance.bridge.web.review_ready",
-            "performance.bridge.web.review_snapshot_apply",
+        case "performance.bridge.web.review_ready",
+            "performance.bridge.web.review_metadata_apply",
+            "performance.bridge.web.selection_commit",
             "performance.bridge.web.selected_content_ready":
             return reviewStartupContractMatches(contract)
         case "performance.bridge.web.rpc_send":
             return rpcSendContractMatches(contract)
         case "performance.bridge.web.telemetry_drop":
             return telemetryDropContractMatches(contract)
+        default:
+            return nil
+        }
+    }
+
+    private static func treeContractMatches(name: String, contract: BridgeTelemetryEventContract) -> Bool? {
+        switch name {
         case "performance.bridge.markdown.render_queue":
             return markdownRenderQueueContractMatches(contract)
         case "performance.bridge.markdown.render":
@@ -238,10 +266,19 @@ extension BridgeTelemetryBatchValidator {
             return projectionBuildContractMatches(contract)
         case "performance.bridge.trees.prepare_input":
             return prepareInputContractMatches(contract)
+        case "performance.bridge.trees.scroll_visible_demand":
+            return scrollVisibleDemandContractMatches(contract)
         case "performance.bridge.trees.mode_switch":
             return modeSwitchContractMatches(contract)
         case "performance.bridge.trees.search_filter":
             return searchFilterContractMatches(contract)
+        default:
+            return nil
+        }
+    }
+
+    private static func auxiliaryContractMatches(name: String, contract: BridgeTelemetryEventContract) -> Bool? {
+        switch name {
         case "performance.bridge.viewer.content_queue":
             return contentQueueContractMatches(contract)
         case "performance.bridge.viewer.content_cache":
@@ -257,7 +294,7 @@ extension BridgeTelemetryBatchValidator {
         case "performance.bridge.worker.task":
             return workerTaskContractMatches(contract)
         default:
-            return false
+            return nil
         }
     }
 
@@ -301,6 +338,7 @@ extension BridgeTelemetryBatchValidator {
         )
         return contract.matches(contentResourceFetchExpectation)
             || contract.matches(demandContentFetchExpectation)
+            || worktreeFileContentFetchContractMatches(contract)
     }
 
     private static func firstRenderContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
@@ -431,20 +469,9 @@ extension BridgeTelemetryBatchValidator {
     private static func reviewStartupContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
         let expectedNumericKeys: Set<String> =
             switch contract.phase {
-            case "review_package_body_load":
-                [
-                    "agentstudio.bridge.content.byte_count",
-                    "agentstudio.bridge.content.chunk_count",
-                ]
-            case "review_package_first_chunk":
-                [
-                    "agentstudio.bridge.content.chunk_byte_count",
-                    "agentstudio.bridge.content.total_bytes_read",
-                ]
-            case "review_package_parse":
-                ["agentstudio.bridge.content.byte_count"]
-            case "review_ready",
-                "review_snapshot_apply":
+            case "review_ready":
+                ["agentstudio.bridge.review.item_count"]
+            case "review_metadata_apply" where contract.numericKeys.contains("agentstudio.bridge.review.item_count"):
                 ["agentstudio.bridge.review.item_count"]
             case "selected_content_ready":
                 ["agentstudio.bridge.content.resource_count"]
@@ -456,11 +483,14 @@ extension BridgeTelemetryBatchValidator {
             .init(
                 phase: contract.phase,
                 plane: .data,
-                priority: .hot,
+                priority: reviewStartupPriority(for: contract.phase),
                 slice: reviewStartupSlice(for: contract.phase),
-                transport: contract.phase == "review_snapshot_apply" ? "intake" : "content",
+                transport: reviewStartupTransport(for: contract.phase),
                 attributeKeys: .init(
-                    additionalStringKeys: ["agentstudio.bridge.result"],
+                    additionalStringKeys: [
+                        "agentstudio.bridge.result",
+                        "agentstudio.bridge.result_reason",
+                    ],
                     numericKeys: expectedNumericKeys
                 )
             )
@@ -469,10 +499,32 @@ extension BridgeTelemetryBatchValidator {
 
     private static func reviewStartupSlice(for phase: String) -> BridgeTelemetrySlice {
         switch phase {
+        case "selection_commit":
+            .reviewProjection
         case "selected_content_ready":
             .contentFetch
         default:
-            .reviewSnapshot
+            .reviewMetadata
+        }
+    }
+
+    private static func reviewStartupTransport(for phase: String) -> String {
+        switch phase {
+        case "review_metadata_apply":
+            "intake"
+        case "selection_commit":
+            "worker"
+        default:
+            "content"
+        }
+    }
+
+    private static func reviewStartupPriority(for phase: String) -> BridgeTelemetryPriority {
+        switch phase {
+        case "selection_commit":
+            .warm
+        default:
+            .hot
         }
     }
 
@@ -496,8 +548,34 @@ extension BridgeTelemetryBatchValidator {
         )
     }
 
+    private static func projectionCoordinatorContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+        switch contract.phase {
+        case "projection_input_build",
+            "projection_store_apply",
+            "projection_total":
+            contract.matches(
+                .init(
+                    phase: contract.phase,
+                    plane: .data,
+                    priority: .warm,
+                    slice: .reviewProjection,
+                    transport: "worker",
+                    attributeKeys: .init(
+                        additionalStringKeys: [
+                            "agentstudio.bridge.result",
+                            "agentstudio.bridge.worker.lane",
+                        ],
+                        numericKeys: ["agentstudio.bridge.review.item_count"]
+                    )
+                )
+            )
+        default:
+            false
+        }
+    }
+
     private static func prepareInputContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
-        contract.matches(
+        let reviewTreePrepareInputMatches = contract.matches(
             .init(
                 phase: "prepare_input",
                 plane: .data,
@@ -512,6 +590,27 @@ extension BridgeTelemetryBatchValidator {
                 ]
             )
         )
+        let worktreeFileTreePrepareInputStringKeys = requiredStringAttributeKeys.union([
+            "agentstudio.bridge.fixture_class",
+            "agentstudio.bridge.projection.kind",
+            "agentstudio.bridge.result",
+            "agentstudio.bridge.tree_path_count_bucket",
+        ])
+        let worktreeFileTreePrepareInputMatches =
+            (contract.phase == "worktree_file_frame_apply" || contract.phase == "worktree_file_projection")
+            && contract.plane == .data
+            && contract.priority == .warm
+            && contract.slice == .treePrepareInput
+            && contract.transport == "worker"
+            && contract.stringKeys == worktreeFileTreePrepareInputStringKeys
+            && contract.numericKeys == [
+                "agentstudio.bridge.worktree_file.tree.current_row.count",
+                "agentstudio.bridge.worktree_file.tree.descriptor.count",
+                "agentstudio.bridge.worktree_file.tree.incoming_frame.count",
+                "agentstudio.bridge.worktree_file.tree.window.row.count",
+            ]
+            && contract.booleanKeys.isEmpty
+        return reviewTreePrepareInputMatches || worktreeFileTreePrepareInputMatches
     }
 
     private static func modeSwitchContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
@@ -678,7 +777,7 @@ extension BridgeTelemetryBatchValidator {
             .reviewThreads,
             .reviewViewedFiles:
             true
-        case .reviewSnapshot,
+        case .reviewMetadata,
             .reviewDelta,
             .reviewInvalidation,
             .reviewReset,
@@ -707,7 +806,7 @@ extension BridgeTelemetryBatchValidator {
         transport: String
     ) -> Bool {
         switch slice {
-        case .reviewSnapshot,
+        case .reviewMetadata,
             .reviewDelta:
             transport == "intake"
         default:
@@ -719,10 +818,11 @@ extension BridgeTelemetryBatchValidator {
         _ slice: BridgeTelemetrySlice
     ) -> Bool {
         switch slice {
-        case .reviewSnapshot,
+        case .reviewMetadata,
             .reviewDelta,
             .reviewInvalidation,
-            .reviewReset:
+            .reviewReset,
+            .reviewProjection:
             true
         case .diffStatus,
             .diffFiles,
@@ -732,7 +832,6 @@ extension BridgeTelemetryBatchValidator {
             .commandAcks,
             .reviewRPC,
             .contentFetch,
-            .reviewProjection,
             .treePrepareInput,
             .codeViewItem,
             .codeViewScroll,
@@ -757,14 +856,14 @@ extension BridgeTelemetryBatchValidator {
             .reviewReset,
             .reviewThreads,
             .reviewViewedFiles,
-            .commandAcks:
+            .commandAcks,
+            .reviewProjection:
             .warm
-        case .reviewSnapshot, .diffFiles:
+        case .reviewMetadata, .diffFiles:
             .cold
         case .reviewRPC:
             .warm
         case .contentFetch,
-            .reviewProjection,
             .treePrepareInput,
             .codeViewItem,
             .codeViewScroll,
@@ -789,7 +888,7 @@ extension BridgeTelemetryBatchValidator {
             .diffFiles,
             .reviewThreads,
             .reviewViewedFiles,
-            .reviewSnapshot,
+            .reviewMetadata,
             .reviewDelta,
             .reviewInvalidation,
             .reviewReset,
@@ -816,7 +915,7 @@ extension BridgeTelemetryBatchValidator {
             .connectionHealth,
             .commandAcks:
             true
-        case .reviewSnapshot,
+        case .reviewMetadata,
             .reviewDelta,
             .reviewInvalidation,
             .reviewReset,
@@ -840,10 +939,11 @@ extension BridgeTelemetryBatchValidator {
 
     private static func intakeSliceIsBrowserReceivable(_ slice: BridgeTelemetrySlice) -> Bool {
         switch slice {
-        case .reviewSnapshot,
+        case .reviewMetadata,
             .reviewDelta,
             .reviewInvalidation,
-            .reviewReset:
+            .reviewReset,
+            .reviewProjection:
             true
         case .diffStatus,
             .diffFiles,
@@ -853,7 +953,6 @@ extension BridgeTelemetryBatchValidator {
             .commandAcks,
             .reviewRPC,
             .contentFetch,
-            .reviewProjection,
             .treePrepareInput,
             .codeViewItem,
             .codeViewScroll,

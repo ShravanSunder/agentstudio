@@ -12,6 +12,16 @@ export interface BridgeProjectionBuildTelemetrySampleProps {
 	readonly treePathCountBucket: 'empty' | 'small' | 'medium' | 'large' | 'huge';
 }
 
+export interface BridgeProjectionCoordinatorTelemetrySampleProps {
+	readonly telemetryRecorder: BridgeTelemetryRecorder;
+	readonly traceContext: BridgeTraceContext | null;
+	readonly durationMilliseconds: number;
+	readonly executionLane: 'sync' | 'worker';
+	readonly itemCount: number;
+	readonly phase: 'projection_input_build' | 'projection_store_apply' | 'projection_total';
+	readonly result: 'failed' | 'success';
+}
+
 export interface BridgeViewerContentQueueTelemetrySampleProps {
 	readonly telemetryRecorder: BridgeTelemetryRecorder;
 	readonly traceContext: BridgeTraceContext | null;
@@ -27,6 +37,82 @@ export interface BridgeViewerContentFetchTelemetrySampleProps {
 	readonly interest: 'selected' | 'visible' | 'nearby' | 'speculative';
 	readonly result: 'success' | 'deferred' | 'failed';
 	readonly resultReason: string | null;
+}
+
+export interface BridgeViewerWorktreeFileContentFetchTelemetrySampleProps {
+	readonly byteLength: number;
+	readonly estimatedBytes: number | null;
+	readonly firstChunkWaitMilliseconds: number | null;
+	readonly lane: string;
+	readonly responseWaitMilliseconds: number | null;
+	readonly result: 'failed' | 'success';
+	readonly resultReason: string | null;
+	readonly streamReadMilliseconds: number | null;
+	readonly telemetryRecorder: BridgeTelemetryRecorder;
+	readonly totalDurationMilliseconds: number;
+	readonly traceContext: BridgeTraceContext | null;
+}
+
+export interface BridgeViewerWorktreeFileTreeTelemetrySampleProps {
+	readonly descriptorCount: number;
+	readonly durationMilliseconds: number | null;
+	readonly frameCount: number;
+	readonly phase: 'worktree_file_frame_apply' | 'worktree_file_projection';
+	readonly result: 'success';
+	readonly telemetryRecorder: BridgeTelemetryRecorder;
+	readonly traceContext: BridgeTraceContext | null;
+	readonly treeRowCount: number;
+	readonly treeWindowRowCount: number;
+}
+
+export interface BridgeViewerFileOpenReadyTelemetrySampleProps {
+	readonly disposition: string;
+	readonly durationMilliseconds: number;
+	readonly estimatedBytes: number | null;
+	readonly executorInFlightMilliseconds: number | null;
+	readonly executorPendingWaitMilliseconds: number | null;
+	readonly lane: string;
+	readonly requestId: number;
+	readonly resourceBodyRegistryCommitMilliseconds: number | null;
+	readonly resourceFetchResponseWaitMilliseconds: number | null;
+	readonly resourceFirstChunkWaitMilliseconds: number | null;
+	readonly resourceStreamReadMilliseconds: number | null;
+	readonly result: 'failed' | 'success';
+	readonly resultReason: string | null;
+	readonly schedulerQueueWaitMilliseconds: number | null;
+	readonly sourceGeneration: number | null;
+	readonly telemetryRecorder: BridgeTelemetryRecorder;
+	readonly traceContext: BridgeTraceContext | null;
+}
+
+export interface BridgeTreeScrollVisibleDemandTelemetrySampleProps {
+	readonly durationMilliseconds: number;
+	readonly telemetryRecorder: BridgeTelemetryRecorder;
+	readonly traceContext: BridgeTraceContext | null;
+	readonly viewer: 'file' | 'review';
+	readonly visibleItemCount: number;
+}
+
+export interface BridgeWorktreeFileVisibleDemandSettledTelemetrySampleProps {
+	readonly durationMilliseconds: number;
+	readonly enqueueAcceptedCount: number;
+	readonly enqueueRejectedCount: number;
+	readonly executorInFlightMilliseconds: number | null;
+	readonly executorPendingWaitMilliseconds: number | null;
+	readonly failedCount: number;
+	readonly firstChunkWaitMilliseconds: number | null;
+	readonly intentCount: number;
+	readonly lane: string | null;
+	readonly loadedCount: number;
+	readonly requestId: number;
+	readonly responseWaitMilliseconds: number | null;
+	readonly result: 'failed' | 'success';
+	readonly resultReason: string | null;
+	readonly schedulerQueueWaitMilliseconds: number | null;
+	readonly streamReadMilliseconds: number | null;
+	readonly telemetryRecorder: BridgeTelemetryRecorder;
+	readonly traceContext: BridgeTraceContext | null;
+	readonly visibleItemCount: number;
 }
 
 export interface BridgeCodeViewHydrationTelemetrySampleProps {
@@ -63,6 +149,33 @@ export function recordBridgeProjectionBuildTelemetrySample(
 			numericAttributes: {},
 			booleanAttributes: {},
 		});
+	});
+}
+
+export function recordBridgeProjectionCoordinatorTelemetrySample(
+	props: BridgeProjectionCoordinatorTelemetrySampleProps,
+): void {
+	recordWhenEnabled(props.telemetryRecorder, () => {
+		props.telemetryRecorder.record({
+			scope: 'web',
+			name: `performance.bridge.web.${props.phase}`,
+			durationMilliseconds: Math.max(0, props.durationMilliseconds),
+			traceContext: props.traceContext,
+			stringAttributes: {
+				'agentstudio.bridge.phase': props.phase,
+				'agentstudio.bridge.plane': 'data',
+				'agentstudio.bridge.priority': 'warm',
+				'agentstudio.bridge.result': props.result,
+				'agentstudio.bridge.slice': 'review_projection',
+				'agentstudio.bridge.transport': 'worker',
+				'agentstudio.bridge.worker.lane': props.executionLane === 'worker' ? 'projection' : 'none',
+			},
+			numericAttributes: {
+				'agentstudio.bridge.review.item_count': props.itemCount,
+			},
+			booleanAttributes: {},
+		});
+		props.telemetryRecorder.flush();
 	});
 }
 
@@ -119,6 +232,251 @@ export function recordBridgeViewerContentFetchTelemetrySample(
 				'agentstudio.bridge.header_missing': true,
 				'agentstudio.bridge.header_supported': false,
 			},
+		});
+		props.telemetryRecorder.flush();
+	});
+}
+
+export function recordBridgeViewerWorktreeFileContentFetchTelemetrySample(
+	props: BridgeViewerWorktreeFileContentFetchTelemetrySampleProps,
+): void {
+	recordWhenEnabled(props.telemetryRecorder, () => {
+		props.telemetryRecorder.record({
+			scope: 'web',
+			name: 'performance.bridge.web.content_fetch',
+			durationMilliseconds: Math.max(0, props.totalDurationMilliseconds),
+			traceContext: props.traceContext,
+			stringAttributes: {
+				'agentstudio.bridge.content.correlation_mode': 'summary',
+				'agentstudio.bridge.content.role': 'file',
+				'agentstudio.bridge.demand.lane': props.lane,
+				'agentstudio.bridge.file_size_bucket': bridgeContentSizeBucketForBytes(
+					props.estimatedBytes ?? props.byteLength,
+				),
+				'agentstudio.bridge.generation_relation': 'current',
+				'agentstudio.bridge.phase': 'fetch',
+				'agentstudio.bridge.plane': 'data',
+				'agentstudio.bridge.priority': 'hot',
+				'agentstudio.bridge.protocol': 'worktree-file',
+				'agentstudio.bridge.result': props.result,
+				'agentstudio.bridge.result_reason': props.resultReason ?? 'none',
+				'agentstudio.bridge.slice': 'content_fetch',
+				'agentstudio.bridge.transport': 'content',
+				'agentstudio.bridge.viewer': 'file',
+			},
+			numericAttributes: {
+				'agentstudio.bridge.content.byte_length': props.byteLength,
+				...(props.estimatedBytes === null
+					? {}
+					: { 'agentstudio.bridge.content.estimated_bytes': props.estimatedBytes }),
+				...(props.firstChunkWaitMilliseconds === null
+					? {}
+					: {
+							'agentstudio.bridge.content.first_chunk_wait_ms': props.firstChunkWaitMilliseconds,
+						}),
+				...(props.responseWaitMilliseconds === null
+					? {}
+					: {
+							'agentstudio.bridge.content.response_wait_ms': props.responseWaitMilliseconds,
+						}),
+				...(props.streamReadMilliseconds === null
+					? {}
+					: { 'agentstudio.bridge.content.stream_read_ms': props.streamReadMilliseconds }),
+			},
+			booleanAttributes: {
+				'agentstudio.bridge.header_missing': true,
+				'agentstudio.bridge.header_supported': false,
+			},
+		});
+		props.telemetryRecorder.flush();
+	});
+}
+
+export function recordBridgeViewerWorktreeFileTreeTelemetrySample(
+	props: BridgeViewerWorktreeFileTreeTelemetrySampleProps,
+): void {
+	recordWhenEnabled(props.telemetryRecorder, () => {
+		props.telemetryRecorder.record({
+			scope: 'web',
+			name: 'performance.bridge.trees.prepare_input',
+			durationMilliseconds:
+				props.durationMilliseconds === null ? null : Math.max(0, props.durationMilliseconds),
+			traceContext: props.traceContext,
+			stringAttributes: {
+				'agentstudio.bridge.fixture_class': bridgeWorktreeFileTreeFixtureBucket(props.treeRowCount),
+				'agentstudio.bridge.phase': props.phase,
+				'agentstudio.bridge.plane': 'data',
+				'agentstudio.bridge.priority': 'warm',
+				'agentstudio.bridge.projection.kind': 'source',
+				'agentstudio.bridge.result': props.result,
+				'agentstudio.bridge.slice': 'tree_prepare_input',
+				'agentstudio.bridge.transport': 'worker',
+				'agentstudio.bridge.tree_path_count_bucket': bridgeWorktreeFileTreeFixtureBucket(
+					props.treeRowCount,
+				),
+			},
+			numericAttributes: {
+				'agentstudio.bridge.worktree_file.tree.current_row.count': props.treeRowCount,
+				'agentstudio.bridge.worktree_file.tree.descriptor.count': props.descriptorCount,
+				'agentstudio.bridge.worktree_file.tree.incoming_frame.count': props.frameCount,
+				'agentstudio.bridge.worktree_file.tree.window.row.count': props.treeWindowRowCount,
+			},
+			booleanAttributes: {},
+		});
+		props.telemetryRecorder.flush();
+	});
+}
+
+export function recordBridgeViewerFileOpenReadyTelemetrySample(
+	props: BridgeViewerFileOpenReadyTelemetrySampleProps,
+): void {
+	recordWhenEnabled(props.telemetryRecorder, () => {
+		props.telemetryRecorder.record({
+			scope: 'web',
+			name: 'performance.bridge.web.file_open_ready',
+			durationMilliseconds: Math.max(0, props.durationMilliseconds),
+			traceContext: props.traceContext,
+			stringAttributes: {
+				'agentstudio.bridge.content.role': 'file',
+				'agentstudio.bridge.demand.disposition': props.disposition,
+				'agentstudio.bridge.demand.lane': props.lane,
+				'agentstudio.bridge.phase': 'file_open_ready',
+				'agentstudio.bridge.plane': 'data',
+				'agentstudio.bridge.priority': 'hot',
+				'agentstudio.bridge.result': props.result,
+				'agentstudio.bridge.result_reason': props.resultReason ?? 'none',
+				'agentstudio.bridge.slice': 'content_fetch',
+				'agentstudio.bridge.transport': 'content',
+				'agentstudio.bridge.viewer': 'file',
+			},
+			numericAttributes: {
+				'agentstudio.bridge.demand.request.sequence': props.requestId,
+				...(props.sourceGeneration === null
+					? {}
+					: { 'agentstudio.bridge.source.generation': props.sourceGeneration }),
+				...(props.estimatedBytes === null
+					? {}
+					: { 'agentstudio.bridge.content.estimated_bytes': props.estimatedBytes }),
+				...optionalNumericAttribute(
+					'agentstudio.bridge.content.body_registry_commit_ms',
+					props.resourceBodyRegistryCommitMilliseconds,
+				),
+				...optionalNumericAttribute(
+					'agentstudio.bridge.content.first_chunk_wait_ms',
+					props.resourceFirstChunkWaitMilliseconds,
+				),
+				...optionalNumericAttribute(
+					'agentstudio.bridge.content.response_wait_ms',
+					props.resourceFetchResponseWaitMilliseconds,
+				),
+				...optionalNumericAttribute(
+					'agentstudio.bridge.content.stream_read_ms',
+					props.resourceStreamReadMilliseconds,
+				),
+				...optionalNumericAttribute(
+					'agentstudio.bridge.demand.executor_in_flight_ms',
+					props.executorInFlightMilliseconds,
+				),
+				...optionalNumericAttribute(
+					'agentstudio.bridge.demand.executor_pending_wait_ms',
+					props.executorPendingWaitMilliseconds,
+				),
+				...optionalNumericAttribute(
+					'agentstudio.bridge.demand.scheduler_queue_wait_ms',
+					props.schedulerQueueWaitMilliseconds,
+				),
+			},
+			booleanAttributes: {},
+		});
+		props.telemetryRecorder.flush();
+	});
+}
+
+export function recordBridgeTreeScrollVisibleDemandTelemetrySample(
+	props: BridgeTreeScrollVisibleDemandTelemetrySampleProps,
+): void {
+	recordWhenEnabled(props.telemetryRecorder, () => {
+		props.telemetryRecorder.record({
+			scope: 'web',
+			name: 'performance.bridge.trees.scroll_visible_demand',
+			durationMilliseconds: Math.max(0, props.durationMilliseconds),
+			traceContext: props.traceContext,
+			stringAttributes: {
+				'agentstudio.bridge.demand.disposition': 'published',
+				'agentstudio.bridge.demand.lane': 'visible',
+				'agentstudio.bridge.phase': 'scroll_visible_demand',
+				'agentstudio.bridge.plane': 'data',
+				'agentstudio.bridge.priority': 'hot',
+				'agentstudio.bridge.result': 'success',
+				'agentstudio.bridge.result_reason': 'none',
+				'agentstudio.bridge.slice': 'tree_prepare_input',
+				'agentstudio.bridge.transport': 'worker',
+				'agentstudio.bridge.viewer': props.viewer,
+			},
+			numericAttributes: {
+				'agentstudio.bridge.visible_item.count': props.visibleItemCount,
+			},
+			booleanAttributes: {},
+		});
+		props.telemetryRecorder.flush();
+	});
+}
+
+export function recordBridgeWorktreeFileVisibleDemandSettledTelemetrySample(
+	props: BridgeWorktreeFileVisibleDemandSettledTelemetrySampleProps,
+): void {
+	recordWhenEnabled(props.telemetryRecorder, () => {
+		props.telemetryRecorder.record({
+			scope: 'web',
+			name: 'performance.bridge.web.visible_demand_settled',
+			durationMilliseconds: Math.max(0, props.durationMilliseconds),
+			traceContext: props.traceContext,
+			stringAttributes: {
+				'agentstudio.bridge.content.role': 'file',
+				'agentstudio.bridge.demand.lane': props.lane ?? 'visible',
+				'agentstudio.bridge.phase': 'visible_demand_settled',
+				'agentstudio.bridge.plane': 'data',
+				'agentstudio.bridge.priority': 'hot',
+				'agentstudio.bridge.result': props.result,
+				'agentstudio.bridge.result_reason': props.resultReason ?? 'none',
+				'agentstudio.bridge.slice': 'content_fetch',
+				'agentstudio.bridge.transport': 'content',
+				'agentstudio.bridge.viewer': 'file',
+			},
+			numericAttributes: {
+				'agentstudio.bridge.demand.enqueue_accepted.count': props.enqueueAcceptedCount,
+				'agentstudio.bridge.demand.enqueue_rejected.count': props.enqueueRejectedCount,
+				'agentstudio.bridge.demand.failed.count': props.failedCount,
+				'agentstudio.bridge.demand.intent.count': props.intentCount,
+				'agentstudio.bridge.demand.loaded.count': props.loadedCount,
+				'agentstudio.bridge.demand.request.sequence': props.requestId,
+				'agentstudio.bridge.visible_item.count': props.visibleItemCount,
+				...optionalNumericAttribute(
+					'agentstudio.bridge.content.first_chunk_wait_ms',
+					props.firstChunkWaitMilliseconds,
+				),
+				...optionalNumericAttribute(
+					'agentstudio.bridge.content.response_wait_ms',
+					props.responseWaitMilliseconds,
+				),
+				...optionalNumericAttribute(
+					'agentstudio.bridge.content.stream_read_ms',
+					props.streamReadMilliseconds,
+				),
+				...optionalNumericAttribute(
+					'agentstudio.bridge.demand.executor_in_flight_ms',
+					props.executorInFlightMilliseconds,
+				),
+				...optionalNumericAttribute(
+					'agentstudio.bridge.demand.executor_pending_wait_ms',
+					props.executorPendingWaitMilliseconds,
+				),
+				...optionalNumericAttribute(
+					'agentstudio.bridge.demand.scheduler_queue_wait_ms',
+					props.schedulerQueueWaitMilliseconds,
+				),
+			},
+			booleanAttributes: {},
 		});
 		props.telemetryRecorder.flush();
 	});
@@ -193,4 +551,50 @@ function recordWhenEnabled(telemetryRecorder: BridgeTelemetryRecorder, record: (
 		return;
 	}
 	record();
+}
+
+function optionalNumericAttribute(
+	key: string,
+	value: number | null,
+): Readonly<Record<string, number>> {
+	return value === null ? {} : { [key]: value };
+}
+
+function bridgeWorktreeFileTreeFixtureBucket(
+	rowCount: number,
+): 'empty' | 'huge' | 'large' | 'medium' | 'small' {
+	if (rowCount <= 0) {
+		return 'empty';
+	}
+	if (rowCount < 100) {
+		return 'small';
+	}
+	if (rowCount < 1_000) {
+		return 'medium';
+	}
+	if (rowCount < 10_000) {
+		return 'large';
+	}
+	return 'huge';
+}
+
+function bridgeContentSizeBucketForBytes(
+	byteLength: number,
+): 'empty' | 'huge' | 'large' | 'medium' | 'small' | 'unknown' {
+	if (!Number.isFinite(byteLength) || byteLength < 0) {
+		return 'unknown';
+	}
+	if (byteLength === 0) {
+		return 'empty';
+	}
+	if (byteLength < 16 * 1024) {
+		return 'small';
+	}
+	if (byteLength < 256 * 1024) {
+		return 'medium';
+	}
+	if (byteLength < 1024 * 1024) {
+		return 'large';
+	}
+	return 'huge';
 }

@@ -13,16 +13,26 @@ import { z } from 'zod';
 
 import { BridgeViewerContentHeader } from '../app/bridge-viewer-content-header.js';
 import type { BridgeViewerNavigationCommand } from '../app/bridge-viewer-navigation-models.js';
-import { readBridgeTextResourceStream } from '../core/resources/bridge-resource-stream.js';
+import { loadBridgeTextResourceWithTiming } from '../core/resources/bridge-resource-stream.js';
 import type {
 	WorktreeFileDescriptor,
+	WorktreeFileDescriptorRequest,
 	WorktreeFileDemandStimulus,
 	WorktreeFileProtocolFrame,
 	WorktreeFileSurfaceSourceIdentity,
+	WorktreeTreeRowMetadata,
 	WorktreeTreeVirtualizedSizeFacts,
 } from '../features/worktree-file/models/worktree-file-protocol-models.js';
 import { canFetchWorktreeFileDescriptorContent } from '../features/worktree-file/models/worktree-file-protocol-models.js';
 import { countFlattenedWorktreeFileTreeRows } from '../features/worktree-file/models/worktree-file-tree-size.js';
+import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
+import type { BridgeTraceContext } from '../foundation/telemetry/bridge-trace-context.js';
+import {
+	recordBridgeWorktreeFileVisibleDemandSettledTelemetrySample,
+	recordBridgeViewerFileOpenReadyTelemetrySample,
+	recordBridgeViewerWorktreeFileContentFetchTelemetrySample,
+	recordBridgeViewerWorktreeFileTreeTelemetrySample,
+} from '../foundation/telemetry/bridge-viewer-telemetry-adapter.js';
 import {
 	BridgeReviewButton,
 	BridgeReviewIcon,
@@ -63,16 +73,25 @@ export interface BridgeFileViewerAppProps {
 	readonly loadInitialSurface?: () => Promise<WorktreeFileInitialSurface>;
 	readonly navigationCommand?: BridgeViewerNavigationCommand;
 	readonly onOpenReviewComparison?: (descriptor: WorktreeFileDescriptor) => void;
+	readonly requestFileDescriptor?: (request: WorktreeFileDescriptorRequest) => Promise<void> | void;
 	readonly subscribeFrames?: WorktreeFileFrameSubscriptionFactory;
+	readonly telemetryRecorder?: BridgeTelemetryRecorder | undefined;
+	readonly telemetryTraceContext?: BridgeTraceContext | null | undefined;
 	readonly viewerHeaderControls?: ReactNode;
+	readonly waitForBridgeReady?: (callback: () => void) => () => void;
 }
 
-interface BridgeFileViewerRenderState {
+export interface BridgeFileViewerRenderState {
 	readonly descriptors: readonly WorktreeFileDescriptor[];
 	readonly provenance: WorktreeFileSurfaceProvenance | null;
 	readonly sourceIdentity: WorktreeFileSurfaceSourceIdentity | null;
+	readonly treeRows: readonly WorktreeTreeRowMetadata[];
 	readonly treeSizeFacts: WorktreeTreeVirtualizedSizeFacts | null;
 }
+
+type BridgeFileViewerInitialSurfaceLoadState =
+	| { readonly status: 'idle' | 'loading' | 'ready' }
+	| { readonly reason: string; readonly status: 'failed' };
 
 type BridgeFileViewerOpenState =
 	| { readonly status: 'idle' }
@@ -82,12 +101,34 @@ type BridgeFileViewerOpenState =
 			readonly status: 'failed' | 'loading' | 'ready' | 'refreshing' | 'stale' | 'unavailable';
 	  };
 
+type BridgeFileViewerActiveOpenState = Exclude<
+	BridgeFileViewerOpenState,
+	{ readonly status: 'idle' }
+>;
+
+interface BridgeFileViewerRenderedOpenFileContent {
+	readonly body: string;
+	readonly bodyVersion: number;
+	readonly descriptor: WorktreeFileDescriptor;
+	readonly path: string;
+}
+
+interface CommitOpenFileBodyProps {
+	readonly body: string;
+	readonly descriptor: WorktreeFileDescriptor;
+	readonly path: string;
+}
+
 interface BridgeFileViewerRefreshDebugState {
-	readonly commitState: 'committed' | 'ignored';
+	readonly commitState: 'committed' | 'ignored' | 'skipped' | 'started';
 	readonly currentRequestId: number;
 	readonly descriptorId: string;
 	readonly requestId: number;
-	readonly result: 'ok' | Extract<WorktreeFileSurfaceLoadResult, { readonly ok: false }>['reason'];
+	readonly result:
+		| 'non_stale_state'
+		| 'started'
+		| 'ok'
+		| Extract<WorktreeFileSurfaceLoadResult, { readonly ok: false }>['reason'];
 }
 
 type BridgeFileViewerDemandDispatchDebugState =
@@ -112,6 +153,13 @@ type BridgeFileViewerDemandDispatchDebugState =
 			readonly reason: string;
 	  };
 
+interface BridgeFileViewerPendingRecentlyUpdatedDescriptorDemand {
+	readonly openFilePathBefore: string | null;
+	readonly proximity: 'nearby' | 'remote';
+	readonly request: WorktreeFileDescriptorRequest;
+	readonly requestId: number;
+}
+
 type BridgeFileViewerSearchPattern =
 	| { readonly ok: true; readonly pattern: RegExp }
 	| { readonly ok: false; readonly message: string };
@@ -127,11 +175,11 @@ const bridgeFileViewerRecentlyUpdatedEventDetailSchema = z
 
 const defaultPaneId = 'bridge-worktree-dev-pane';
 const defaultFileLineHeightPixels = 20;
-const pierreCodeViewFileChromeHeightPixels = 52;
 const emptyRenderState: BridgeFileViewerRenderState = {
 	descriptors: [],
 	provenance: null,
 	sourceIdentity: null,
+	treeRows: [],
 	treeSizeFacts: null,
 };
 
@@ -186,17 +234,23 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 		loadInitialSurface,
 		onOpenReviewComparison,
 		subscribeFrames,
+		waitForBridgeReady,
 	} = props;
 	const runtimeRef = useRef<WorktreeFileSurfaceRuntime | null>(null);
 	const openFileBodyRef = useRef<string | null>(null);
 	const provisionalOpenFileBodyRef = useRef<string | null>(null);
 	const activeVisibleDemandSignatureRef = useRef<string | null>(null);
 	const demandDispatchRequestIdRef = useRef(0);
+	const openFileBodyVersionRef = useRef(0);
 	const lastDemandDispatchDebugStateRef = useRef<BridgeFileViewerDemandDispatchDebugState>({
 		status: 'idle',
 	});
 	const lastVisibleDemandSignatureRef = useRef<string | null>(null);
+	const pendingRecentlyUpdatedDescriptorDemandRef =
+		useRef<BridgeFileViewerPendingRecentlyUpdatedDescriptorDemand | null>(null);
 	const openFileRequestIdRef = useRef(0);
+	const pendingSelectedDescriptorRequestRef = useRef<WorktreeFileDescriptorRequest | null>(null);
+	const pendingStaleRefreshDescriptorRequestKeyRef = useRef<string | null>(null);
 	const appliedNavigationCommandIdRef = useRef<string | null>(null);
 	const renderStateRef = useRef<BridgeFileViewerRenderState>(emptyRenderState);
 	const openFileStateRef = useRef<BridgeFileViewerOpenState>({ status: 'idle' });
@@ -210,6 +264,12 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 		useState<WorktreeFileSurfaceLoadTelemetry | null>(null);
 	const [lastDemandDispatchDebugState, setLastDemandDispatchDebugState] =
 		useState<BridgeFileViewerDemandDispatchDebugState>({ status: 'idle' });
+	const [openFileBodyState, setOpenFileBodyState] = useState<string | null>(null);
+	const [openFileBodyVersion, setOpenFileBodyVersion] = useState(0);
+	const [initialSurfaceLoadState, setInitialSurfaceLoadState] =
+		useState<BridgeFileViewerInitialSurfaceLoadState>({ status: 'idle' });
+	const [lastGoodOpenFileContent, setLastGoodOpenFileContent] =
+		useState<BridgeFileViewerRenderedOpenFileContent | null>(null);
 	const [provisionalOpenFileBody, setProvisionalOpenFileBody] = useState<string | null>(null);
 	lastDemandDispatchDebugStateRef.current = lastDemandDispatchDebugState;
 	const [searchText, setSearchText] = useState('');
@@ -217,6 +277,8 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 	const [filterMode, setFilterMode] = useState<BridgeFileViewerFilterMode>('all');
 	const selectedPath = openFileState.status === 'idle' ? null : openFileState.path;
 	openFileStateRef.current = openFileState;
+	const telemetryRecorder = props.telemetryRecorder;
+	const telemetryTraceContext = props.telemetryTraceContext ?? null;
 	const fileDescriptorByPath = useMemo(
 		(): ReadonlyMap<string, WorktreeFileDescriptor> =>
 			new Map(renderState.descriptors.map((descriptor) => [descriptor.path, descriptor])),
@@ -225,11 +287,40 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 	const navigationTargetPath = fileViewerNavigationTargetPath(props.navigationCommand);
 
 	if (runtimeRef.current === null) {
+		const telemetryRecorder = props.telemetryRecorder;
 		runtimeRef.current = createWorktreeFileSurfaceRuntime({
 			paneId: defaultPaneId,
 			fetchResource: fetchResource ?? defaultFetchWorktreeFileResource,
+			resourceLoadProbe:
+				telemetryRecorder === undefined
+					? undefined
+					: {
+							isEnabled: (): boolean => telemetryRecorder.isEnabled('web'),
+							now: (): number => performance.now(),
+							record: (sample): void => {
+								recordBridgeViewerWorktreeFileContentFetchTelemetrySample({
+									...sample,
+									telemetryRecorder,
+									traceContext: props.telemetryTraceContext ?? null,
+								});
+							},
+						},
 		});
 	}
+
+	const commitOpenFileBody = useCallback((commit: CommitOpenFileBodyProps): void => {
+		const nextBodyVersion = openFileBodyVersionRef.current + 1;
+		openFileBodyVersionRef.current = nextBodyVersion;
+		openFileBodyRef.current = commit.body;
+		setOpenFileBodyState(commit.body);
+		setOpenFileBodyVersion(nextBodyVersion);
+		setLastGoodOpenFileContent({
+			body: commit.body,
+			bodyVersion: nextBodyVersion,
+			descriptor: commit.descriptor,
+			path: commit.path,
+		});
+	}, []);
 
 	useEffect((): void => {
 		if (isActive) {
@@ -239,53 +330,245 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 		demandDispatchRequestIdRef.current += 1;
 	}, [isActive]);
 
-	const openFile = useCallback(async (descriptor: WorktreeFileDescriptor): Promise<void> => {
-		const requestId = openFileRequestIdRef.current + 1;
-		openFileRequestIdRef.current = requestId;
-		openFileBodyRef.current = null;
-		provisionalOpenFileBodyRef.current = null;
-		setProvisionalOpenFileBody(null);
-		setLastOpenLoadTelemetry(null);
-		setOpenFileState({ status: 'loading', path: descriptor.path, descriptor });
-		const runtime = runtimeRef.current;
-		if (runtime === null) {
-			if (openFileRequestIdRef.current === requestId) {
-				setOpenFileState({ status: 'failed', path: descriptor.path, descriptor });
-			}
-			return;
-		}
-		const result = await runtime.openFile({
-			descriptor,
-			onProvisionalTextChunk: (chunk): void => {
-				if (openFileRequestIdRef.current !== requestId) {
-					return;
-				}
-				provisionalOpenFileBodyRef.current = `${provisionalOpenFileBodyRef.current ?? ''}${chunk.text}`;
-				setProvisionalOpenFileBody(provisionalOpenFileBodyRef.current);
-			},
-			openFileSessionId: descriptor.fileId,
-		});
-		if (openFileRequestIdRef.current !== requestId) {
-			return;
-		}
-		if (result.ok) {
-			openFileBodyRef.current = result.content.readText();
+	const openFile = useCallback(
+		async (descriptor: WorktreeFileDescriptor): Promise<void> => {
+			const openFileStartedAt = performance.now();
+			const requestId = openFileRequestIdRef.current + 1;
+			openFileRequestIdRef.current = requestId;
+			openFileBodyRef.current = null;
+			setOpenFileBodyState(null);
 			provisionalOpenFileBodyRef.current = null;
 			setProvisionalOpenFileBody(null);
-			setLastOpenLoadTelemetry(result.loadTelemetry);
-			setOpenFileState({ status: 'ready', path: descriptor.path, descriptor });
-			return;
-		}
-		openFileBodyRef.current = null;
-		provisionalOpenFileBodyRef.current = null;
-		setProvisionalOpenFileBody(null);
-		setLastOpenLoadTelemetry(null);
-		setOpenFileState({
-			status: result.reason === 'content_unavailable' ? 'unavailable' : 'failed',
-			path: descriptor.path,
-			descriptor,
-		});
-	}, []);
+			setLastOpenLoadTelemetry(null);
+			setOpenFileState({ status: 'loading', path: descriptor.path, descriptor });
+			const runtime = runtimeRef.current;
+			if (runtime === null) {
+				if (openFileRequestIdRef.current === requestId) {
+					setOpenFileState({ status: 'failed', path: descriptor.path, descriptor });
+				}
+				return;
+			}
+			const result = await runtime.openFile({
+				descriptor,
+				onProvisionalTextChunk: (chunk): void => {
+					if (openFileRequestIdRef.current !== requestId) {
+						return;
+					}
+					provisionalOpenFileBodyRef.current = `${provisionalOpenFileBodyRef.current ?? ''}${chunk.text}`;
+					setProvisionalOpenFileBody(provisionalOpenFileBodyRef.current);
+				},
+				openFileSessionId: descriptor.fileId,
+			});
+			if (openFileRequestIdRef.current !== requestId) {
+				return;
+			}
+			if (result.ok) {
+				const openFileBody = result.content.readText();
+				commitOpenFileBody({
+					body: openFileBody,
+					descriptor,
+					path: descriptor.path,
+				});
+				if (telemetryRecorder !== undefined) {
+					recordBridgeViewerFileOpenReadyTelemetrySample({
+						disposition: result.loadTelemetry.disposition,
+						durationMilliseconds: performance.now() - openFileStartedAt,
+						estimatedBytes: result.loadTelemetry.estimatedBytes,
+						executorInFlightMilliseconds: result.loadTelemetry.executorInFlightMilliseconds,
+						executorPendingWaitMilliseconds: result.loadTelemetry.executorPendingWaitMilliseconds,
+						lane: result.loadTelemetry.lane,
+						requestId,
+						resourceBodyRegistryCommitMilliseconds:
+							result.loadTelemetry.resourceBodyRegistryCommitMilliseconds,
+						resourceFetchResponseWaitMilliseconds:
+							result.loadTelemetry.resourceFetchResponseWaitMilliseconds,
+						resourceFirstChunkWaitMilliseconds:
+							result.loadTelemetry.resourceFirstChunkWaitMilliseconds,
+						resourceStreamReadMilliseconds: result.loadTelemetry.resourceStreamReadMilliseconds,
+						result: 'success',
+						resultReason: null,
+						schedulerQueueWaitMilliseconds: result.loadTelemetry.schedulerQueueWaitMilliseconds,
+						sourceGeneration: descriptor.sourceIdentity.subscriptionGeneration,
+						telemetryRecorder,
+						traceContext: telemetryTraceContext,
+					});
+				}
+				provisionalOpenFileBodyRef.current = null;
+				setProvisionalOpenFileBody(null);
+				setLastOpenLoadTelemetry(result.loadTelemetry);
+				setOpenFileState({ status: 'ready', path: descriptor.path, descriptor });
+				return;
+			}
+			openFileBodyRef.current = null;
+			setOpenFileBodyState(null);
+			provisionalOpenFileBodyRef.current = null;
+			setProvisionalOpenFileBody(null);
+			setLastOpenLoadTelemetry(null);
+			if (telemetryRecorder !== undefined) {
+				recordBridgeViewerFileOpenReadyTelemetrySample({
+					disposition: 'none',
+					durationMilliseconds: performance.now() - openFileStartedAt,
+					estimatedBytes: descriptor.contentDescriptor.descriptor.content.expectedBytes ?? null,
+					executorInFlightMilliseconds: null,
+					executorPendingWaitMilliseconds: null,
+					lane: 'foreground',
+					requestId,
+					resourceBodyRegistryCommitMilliseconds: null,
+					resourceFetchResponseWaitMilliseconds: null,
+					resourceFirstChunkWaitMilliseconds: null,
+					resourceStreamReadMilliseconds: null,
+					result: 'failed',
+					resultReason: result.reason,
+					schedulerQueueWaitMilliseconds: null,
+					sourceGeneration: descriptor.sourceIdentity.subscriptionGeneration,
+					telemetryRecorder,
+					traceContext: telemetryTraceContext,
+				});
+			}
+			setOpenFileState({
+				status: result.reason === 'content_unavailable' ? 'unavailable' : 'failed',
+				path: descriptor.path,
+				descriptor,
+			});
+		},
+		[commitOpenFileBody, telemetryRecorder, telemetryTraceContext],
+	);
+
+	const openPendingSelectedDescriptor = useCallback(
+		(nextState: BridgeFileViewerRenderState): void => {
+			const pendingRequest = pendingSelectedDescriptorRequestRef.current;
+			if (pendingRequest === null) {
+				return;
+			}
+			const descriptor = nextState.descriptors.find(
+				(candidate): boolean =>
+					candidate.fileId === pendingRequest.fileId &&
+					candidate.path === pendingRequest.path &&
+					canFetchWorktreeFileDescriptorContent(candidate),
+			);
+			if (descriptor === undefined) {
+				return;
+			}
+			pendingSelectedDescriptorRequestRef.current = null;
+			void openFile(descriptor);
+		},
+		[openFile],
+	);
+
+	const requestFileDescriptorFromHost = props.requestFileDescriptor;
+	const requestFileDescriptor = useCallback(
+		(request: WorktreeFileDescriptorRequest): void => {
+			pendingSelectedDescriptorRequestRef.current = request;
+			const requestResult = requestFileDescriptorFromHost?.(request);
+			if (requestResult === undefined) {
+				return;
+			}
+			void Promise.resolve(requestResult).catch((): void => {
+				if (pendingSelectedDescriptorRequestRef.current !== request) {
+					return;
+				}
+				pendingSelectedDescriptorRequestRef.current = null;
+			});
+		},
+		[requestFileDescriptorFromHost],
+	);
+
+	const requestFileDescriptorForDemand = useCallback(
+		(request: WorktreeFileDescriptorRequest): void => {
+			const requestResult = requestFileDescriptorFromHost?.(request);
+			if (requestResult === undefined) {
+				return;
+			}
+			void Promise.resolve(requestResult).catch((): void => {
+				// Demand lanes are advisory warming; failed descriptor requests must not surface
+				// as unhandled promise rejections or poison foreground selection state.
+			});
+		},
+		[requestFileDescriptorFromHost],
+	);
+
+	const dispatchRecentlyUpdatedDescriptorDemand = useCallback(
+		(demandProps: {
+			readonly descriptor: WorktreeFileDescriptor;
+			readonly openFilePathBefore: string | null;
+			readonly proximity: 'nearby' | 'remote';
+			readonly requestId: number;
+		}): void => {
+			const runtime = runtimeRef.current;
+			if (runtime === null) {
+				return;
+			}
+			const stimuli: readonly WorktreeFileDemandStimulus[] = [
+				{
+					kind: 'recentlyUpdatedFile',
+					descriptorRef: demandProps.descriptor.contentDescriptor.ref,
+					proximity: demandProps.proximity,
+					sourceIdentity: demandProps.descriptor.sourceIdentity.sourceId,
+				},
+			];
+			void runtime
+				.dispatchDemandStimuli(stimuli)
+				.then((result): void => {
+					if (!isActive) {
+						return;
+					}
+					if (demandDispatchRequestIdRef.current !== demandProps.requestId) {
+						return;
+					}
+					const openFilePathAfter =
+						openFileStateRef.current.status === 'idle' ? null : openFileStateRef.current.path;
+					setLastDemandDispatchDebugState({
+						origin: {
+							descriptorPath: demandProps.descriptor.path,
+							kind: 'recentlyUpdatedFile',
+							openFilePathAfter,
+							openFilePathBefore: demandProps.openFilePathBefore,
+						},
+						status: 'settled',
+						result,
+					});
+				})
+				.catch((error: unknown): void => {
+					if (!isActive) {
+						return;
+					}
+					if (demandDispatchRequestIdRef.current !== demandProps.requestId) {
+						return;
+					}
+					setLastDemandDispatchDebugState({
+						status: 'failed',
+						reason: error instanceof Error ? error.message : String(error),
+					});
+				});
+		},
+		[isActive],
+	);
+
+	const dispatchPendingRecentlyUpdatedDescriptorDemand = useCallback(
+		(nextState: BridgeFileViewerRenderState): void => {
+			const pendingDemand = pendingRecentlyUpdatedDescriptorDemandRef.current;
+			if (pendingDemand === null) {
+				return;
+			}
+			const descriptor = nextState.descriptors.find(
+				(candidate): boolean =>
+					candidate.fileId === pendingDemand.request.fileId &&
+					candidate.path === pendingDemand.request.path &&
+					canFetchWorktreeFileDescriptorContent(candidate),
+			);
+			if (descriptor === undefined) {
+				return;
+			}
+			pendingRecentlyUpdatedDescriptorDemandRef.current = null;
+			dispatchRecentlyUpdatedDescriptorDemand({
+				descriptor,
+				openFilePathBefore: pendingDemand.openFilePathBefore,
+				proximity: pendingDemand.proximity,
+				requestId: pendingDemand.requestId,
+			});
+		},
+		[dispatchRecentlyUpdatedDescriptorDemand],
+	);
 
 	const applyIncomingFrames = useCallback(
 		(
@@ -295,6 +578,7 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 				readonly sourceIdentity: WorktreeFileSurfaceSourceIdentity | null;
 			},
 		): BridgeFileViewerRenderState => {
+			const applyStartedAt = performance.now();
 			const nextState = applyFramesToRuntime({
 				currentRenderState: renderStateRef.current,
 				frames,
@@ -302,6 +586,19 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 				runtime: runtimeRef.current,
 				sourceIdentity: surface?.sourceIdentity ?? null,
 			});
+			if (props.telemetryRecorder !== undefined) {
+				recordBridgeViewerWorktreeFileTreeTelemetrySample({
+					descriptorCount: nextState.descriptors.length,
+					durationMilliseconds: performance.now() - applyStartedAt,
+					frameCount: frames.length,
+					phase: 'worktree_file_frame_apply',
+					result: 'success',
+					telemetryRecorder: props.telemetryRecorder,
+					traceContext: props.telemetryTraceContext ?? null,
+					treeRowCount: nextState.treeRows.length,
+					treeWindowRowCount: worktreeTreeWindowRowCount(frames),
+				});
+			}
 			renderStateRef.current = nextState;
 			setRenderState(nextState);
 			setOpenFileState((currentOpenFileState) =>
@@ -312,52 +609,81 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 					openFileRequestIdRef,
 				}),
 			);
+			dispatchPendingRecentlyUpdatedDescriptorDemand(nextState);
+			openPendingSelectedDescriptor(nextState);
 			return nextState;
 		},
-		[],
+		[
+			dispatchPendingRecentlyUpdatedDescriptorDemand,
+			openPendingSelectedDescriptor,
+			props.telemetryRecorder,
+			props.telemetryTraceContext,
+		],
 	);
+	const applyIncomingFramesRef = useRef(applyIncomingFrames);
+	applyIncomingFramesRef.current = applyIncomingFrames;
+	const initialFramesRef = useRef(initialFrames);
+	const loadInitialFramesRef = useRef(loadInitialFrames);
+	const loadInitialSurfaceRef = useRef(loadInitialSurface);
+	const waitForBridgeReadyRef = useRef(waitForBridgeReady);
+	initialFramesRef.current = initialFrames;
+	loadInitialFramesRef.current = loadInitialFrames;
+	loadInitialSurfaceRef.current = loadInitialSurface;
+	waitForBridgeReadyRef.current = waitForBridgeReady;
 
 	useEffect((): (() => void) => {
 		let isCancelled = false;
+		let didStartLoad = false;
 		const loadFrames = async (): Promise<void> => {
-			const initialSurface =
-				initialFrames !== undefined
-					? { frames: initialFrames }
-					: loadInitialSurface === undefined
-						? { frames: loadInitialFrames === undefined ? [] : await loadInitialFrames() }
-						: await loadInitialSurface();
-			if (isCancelled) {
-				return;
-			}
-			const nextState = applyIncomingFrames(initialSurface.frames, {
-				provenance: initialSurface.provenance ?? null,
-				sourceIdentity: initialSurface.source ?? null,
-			});
-			if (autoOpenInitialFile && openFileRequestIdRef.current === 0) {
-				if (navigationTargetPath !== null) {
+			setInitialSurfaceLoadState({ status: 'loading' });
+			try {
+				const currentInitialFrames = initialFramesRef.current;
+				const currentLoadInitialFrames = loadInitialFramesRef.current;
+				const currentLoadInitialSurface = loadInitialSurfaceRef.current;
+				const initialSurface =
+					currentInitialFrames !== undefined
+						? { frames: currentInitialFrames }
+						: currentLoadInitialSurface === undefined
+							? {
+									frames:
+										currentLoadInitialFrames === undefined ? [] : await currentLoadInitialFrames(),
+								}
+							: await currentLoadInitialSurface();
+				if (isCancelled) {
 					return;
 				}
-				const initialDescriptor = nextState.descriptors.find((descriptor) =>
-					canFetchWorktreeFileDescriptorContent(descriptor),
-				);
-				if (initialDescriptor !== undefined) {
-					void openFile(initialDescriptor);
+				applyIncomingFramesRef.current(initialSurface.frames, {
+					provenance: initialSurface.provenance ?? null,
+					sourceIdentity: initialSurface.source ?? null,
+				});
+				setInitialSurfaceLoadState({ status: 'ready' });
+			} catch (error: unknown) {
+				if (isCancelled) {
+					return;
 				}
+				setInitialSurfaceLoadState({
+					status: 'failed',
+					reason: error instanceof Error ? error.message : String(error),
+				});
 			}
 		};
-		void loadFrames();
+		const startLoadFrames = (): void => {
+			if (didStartLoad) {
+				return;
+			}
+			didStartLoad = true;
+			void loadFrames();
+		};
+		const currentWaitForBridgeReady = waitForBridgeReadyRef.current;
+		const unregisterBridgeReady = currentWaitForBridgeReady?.(startLoadFrames);
+		if (currentWaitForBridgeReady === undefined) {
+			startLoadFrames();
+		}
 		return (): void => {
 			isCancelled = true;
+			unregisterBridgeReady?.();
 		};
-	}, [
-		applyIncomingFrames,
-		autoOpenInitialFile,
-		initialFrames,
-		loadInitialFrames,
-		loadInitialSurface,
-		navigationTargetPath,
-		openFile,
-	]);
+	}, []);
 
 	useEffect((): ReturnType<WorktreeFileFrameSubscriptionFactory> | undefined => {
 		if (subscribeFrames === undefined) {
@@ -367,6 +693,70 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 			applyIncomingFrames(frames);
 		});
 	}, [applyIncomingFrames, subscribeFrames]);
+
+	useEffect((): void => {
+		if (!autoOpenInitialFile || openFileRequestIdRef.current !== 0) {
+			return;
+		}
+		if (navigationTargetPath !== null) {
+			return;
+		}
+		if (pendingSelectedDescriptorRequestRef.current !== null) {
+			return;
+		}
+		const initialDescriptor = renderState.descriptors.find((descriptor) =>
+			canFetchWorktreeFileDescriptorContent(descriptor),
+		);
+		if (initialDescriptor !== undefined) {
+			void openFile(initialDescriptor);
+			return;
+		}
+		const initialDescriptorRequest = descriptorRequestForFirstFileTreeRow({
+			sourceIdentity: renderState.sourceIdentity,
+			treeRows: renderState.treeRows,
+		});
+		if (initialDescriptorRequest !== null) {
+			requestFileDescriptor(initialDescriptorRequest);
+		}
+	}, [
+		autoOpenInitialFile,
+		navigationTargetPath,
+		openFile,
+		renderState.descriptors,
+		renderState.sourceIdentity,
+		renderState.treeRows,
+		requestFileDescriptor,
+	]);
+
+	useEffect((): void => {
+		if (openFileState.status !== 'stale') {
+			pendingStaleRefreshDescriptorRequestKeyRef.current = null;
+			return;
+		}
+		const latestDescriptor = findLatestDescriptorForOpenFile({
+			descriptor: openFileState.descriptor,
+			renderState,
+		});
+		if (latestDescriptor !== null) {
+			pendingStaleRefreshDescriptorRequestKeyRef.current = null;
+			return;
+		}
+		const descriptorRequest = descriptorRequestForTreePath({
+			lane: 'foreground',
+			path: openFileState.path,
+			sourceIdentity: renderState.sourceIdentity,
+			treeRows: renderState.treeRows,
+		});
+		if (descriptorRequest === null) {
+			return;
+		}
+		const requestKey = `${descriptorRequest.sourceIdentity.sourceId}:${descriptorRequest.sourceIdentity.sourceCursor}:${descriptorRequest.fileId}:${descriptorRequest.path}`;
+		if (pendingStaleRefreshDescriptorRequestKeyRef.current === requestKey) {
+			return;
+		}
+		pendingStaleRefreshDescriptorRequestKeyRef.current = requestKey;
+		requestFileDescriptorForDemand(descriptorRequest);
+	}, [openFileState, renderState, requestFileDescriptorForDemand]);
 
 	useEffect((): void => {
 		const navigationCommand = props.navigationCommand;
@@ -382,93 +772,141 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 				canFetchWorktreeFileDescriptorContent(descriptor),
 		);
 		if (targetDescriptor === undefined) {
+			const descriptorRequest = descriptorRequestForTreePath({
+				lane: 'foreground',
+				path: navigationTargetPath,
+				sourceIdentity: renderState.sourceIdentity,
+				treeRows: renderState.treeRows,
+			});
+			if (
+				descriptorRequest !== null &&
+				!worktreeFileDescriptorRequestsMatch(
+					pendingSelectedDescriptorRequestRef.current,
+					descriptorRequest,
+				)
+			) {
+				requestFileDescriptor(descriptorRequest);
+			}
 			return;
 		}
 		appliedNavigationCommandIdRef.current = navigationCommand.commandId;
 		void openFile(targetDescriptor);
-	}, [navigationTargetPath, openFile, props.navigationCommand, renderState.descriptors]);
+	}, [
+		navigationTargetPath,
+		openFile,
+		props.navigationCommand,
+		renderState.descriptors,
+		renderState.sourceIdentity,
+		renderState.treeRows,
+		requestFileDescriptor,
+	]);
 
-	const refreshOpenFile = useCallback(async (state: BridgeFileViewerOpenState): Promise<void> => {
-		if (state.status !== 'stale') {
-			return;
-		}
-		const requestId = openFileRequestIdRef.current + 1;
-		openFileRequestIdRef.current = requestId;
-		provisionalOpenFileBodyRef.current = null;
-		setProvisionalOpenFileBody(null);
-		setLastOpenLoadTelemetry(null);
-		const runtime = runtimeRef.current;
-		if (runtime === null) {
-			if (openFileRequestIdRef.current === requestId) {
-				setOpenFileState({ status: 'failed', path: state.path, descriptor: state.descriptor });
+	const refreshOpenFile = useCallback(
+		async (state: BridgeFileViewerOpenState): Promise<void> => {
+			if (state.status !== 'stale') {
+				setRefreshDebugState({
+					commitState: 'skipped',
+					currentRequestId: openFileRequestIdRef.current,
+					descriptorId: 'none',
+					requestId: openFileRequestIdRef.current,
+					result: 'non_stale_state',
+				});
+				return;
 			}
-			return;
-		}
-		const refreshDescriptor =
-			findLatestDescriptorForOpenFile({
-				descriptor: state.descriptor,
-				renderState: renderStateRef.current,
-			}) ?? state.descriptor;
-		setOpenFileState({
-			status: 'refreshing',
-			path: refreshDescriptor.path,
-			descriptor: refreshDescriptor,
-		});
-		const result = await runtime.refreshOpenFile({
-			onProvisionalTextChunk: (chunk): void => {
-				if (openFileRequestIdRef.current !== requestId) {
-					return;
-				}
-				provisionalOpenFileBodyRef.current = `${provisionalOpenFileBodyRef.current ?? ''}${chunk.text}`;
-				setProvisionalOpenFileBody(provisionalOpenFileBodyRef.current);
-			},
-			openFileSessionId: state.descriptor.fileId,
-		});
-		if (openFileRequestIdRef.current !== requestId) {
-			setRefreshDebugState({
-				commitState: 'ignored',
-				currentRequestId: openFileRequestIdRef.current,
-				descriptorId: refreshDescriptor.contentDescriptor.ref.descriptorId,
-				requestId,
-				result: result.ok ? 'ok' : result.reason,
-			});
-			return;
-		}
-		setRefreshDebugState({
-			commitState: 'committed',
-			currentRequestId: openFileRequestIdRef.current,
-			descriptorId: refreshDescriptor.contentDescriptor.ref.descriptorId,
-			requestId,
-			result: result.ok ? 'ok' : result.reason,
-		});
-		if (result.ok) {
-			openFileBodyRef.current = result.content.readText();
+			const requestId = openFileRequestIdRef.current + 1;
+			openFileRequestIdRef.current = requestId;
 			provisionalOpenFileBodyRef.current = null;
 			setProvisionalOpenFileBody(null);
-			setLastOpenLoadTelemetry(result.loadTelemetry);
-			const refreshedDescriptor =
+			setLastOpenLoadTelemetry(null);
+			const runtime = runtimeRef.current;
+			if (runtime === null) {
+				if (openFileRequestIdRef.current === requestId) {
+					setOpenFileState({ status: 'failed', path: state.path, descriptor: state.descriptor });
+				}
+				return;
+			}
+			const refreshDescriptor =
 				findLatestDescriptorForOpenFile({
 					descriptor: state.descriptor,
 					renderState: renderStateRef.current,
 				}) ?? state.descriptor;
 			setOpenFileState({
-				status: 'ready',
-				path: refreshedDescriptor.path,
-				descriptor: refreshedDescriptor,
+				status: 'refreshing',
+				path: refreshDescriptor.path,
+				descriptor: refreshDescriptor,
 			});
-			return;
-		}
-		openFileBodyRef.current =
-			result.reason === 'content_unavailable' ? null : openFileBodyRef.current;
-		provisionalOpenFileBodyRef.current = null;
-		setProvisionalOpenFileBody(null);
-		setLastOpenLoadTelemetry(null);
-		setOpenFileState({
-			status: result.reason === 'content_unavailable' ? 'unavailable' : 'stale',
-			path: refreshDescriptor.path,
-			descriptor: refreshDescriptor,
-		});
-	}, []);
+			setRefreshDebugState({
+				commitState: 'started',
+				currentRequestId: openFileRequestIdRef.current,
+				descriptorId: refreshDescriptor.contentDescriptor.ref.descriptorId,
+				requestId,
+				result: 'started',
+			});
+			const result = await runtime.refreshOpenFile({
+				onProvisionalTextChunk: (chunk): void => {
+					if (openFileRequestIdRef.current !== requestId) {
+						return;
+					}
+					provisionalOpenFileBodyRef.current = `${provisionalOpenFileBodyRef.current ?? ''}${chunk.text}`;
+					setProvisionalOpenFileBody(provisionalOpenFileBodyRef.current);
+				},
+				openFileSessionId: state.descriptor.fileId,
+			});
+			if (openFileRequestIdRef.current !== requestId) {
+				setRefreshDebugState({
+					commitState: 'ignored',
+					currentRequestId: openFileRequestIdRef.current,
+					descriptorId: refreshDescriptor.contentDescriptor.ref.descriptorId,
+					requestId,
+					result: result.ok ? 'ok' : result.reason,
+				});
+				return;
+			}
+			setRefreshDebugState({
+				commitState: 'committed',
+				currentRequestId: openFileRequestIdRef.current,
+				descriptorId: refreshDescriptor.contentDescriptor.ref.descriptorId,
+				requestId,
+				result: result.ok ? 'ok' : result.reason,
+			});
+			if (result.ok) {
+				const openFileBody = result.content.readText();
+				commitOpenFileBody({
+					body: openFileBody,
+					descriptor: refreshDescriptor,
+					path: refreshDescriptor.path,
+				});
+				provisionalOpenFileBodyRef.current = null;
+				setProvisionalOpenFileBody(null);
+				setLastOpenLoadTelemetry(result.loadTelemetry);
+				const refreshedDescriptor =
+					findLatestDescriptorForOpenFile({
+						descriptor: state.descriptor,
+						renderState: renderStateRef.current,
+					}) ?? state.descriptor;
+				setOpenFileState({
+					status: 'ready',
+					path: refreshedDescriptor.path,
+					descriptor: refreshedDescriptor,
+				});
+				return;
+			}
+			openFileBodyRef.current =
+				result.reason === 'content_unavailable' ? null : openFileBodyRef.current;
+			setOpenFileBodyState(
+				result.reason === 'content_unavailable' ? null : openFileBodyRef.current,
+			);
+			provisionalOpenFileBodyRef.current = null;
+			setProvisionalOpenFileBody(null);
+			setLastOpenLoadTelemetry(null);
+			setOpenFileState({
+				status: result.reason === 'content_unavailable' ? 'unavailable' : 'stale',
+				path: refreshDescriptor.path,
+				descriptor: refreshDescriptor,
+			});
+		},
+		[commitOpenFileBody],
+	);
 
 	const dispatchVisibleFileDemand = useCallback(
 		(change: BridgeFileViewerVisibleFileDemandChange): void => {
@@ -492,6 +930,7 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 			activeVisibleDemandSignatureRef.current = visibleDemandSignature;
 			const requestId = demandDispatchRequestIdRef.current + 1;
 			demandDispatchRequestIdRef.current = requestId;
+			const visibleDemandStartedAt = performance.now();
 			const stimuli: readonly WorktreeFileDemandStimulus[] = [
 				{
 					kind: 'treeViewportChanged',
@@ -524,6 +963,36 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 					if (visibleViewportDemandDispatchSatisfied(nextDebugState)) {
 						lastVisibleDemandSignatureRef.current = visibleDemandSignature;
 					}
+					if (telemetryRecorder !== undefined) {
+						const firstLoadTelemetry =
+							firstSuccessfulDemandLoadResult(result)?.loadTelemetry ?? null;
+						recordBridgeWorktreeFileVisibleDemandSettledTelemetrySample({
+							durationMilliseconds: performance.now() - visibleDemandStartedAt,
+							enqueueAcceptedCount: result.enqueueAcceptedCount,
+							enqueueRejectedCount: result.enqueueRejectedCount,
+							executorInFlightMilliseconds:
+								firstLoadTelemetry?.executorInFlightMilliseconds ?? null,
+							executorPendingWaitMilliseconds:
+								firstLoadTelemetry?.executorPendingWaitMilliseconds ?? null,
+							failedCount: result.failedCount,
+							firstChunkWaitMilliseconds:
+								firstLoadTelemetry?.resourceFirstChunkWaitMilliseconds ?? null,
+							intentCount: result.intentCount,
+							lane: firstLoadTelemetry?.lane ?? null,
+							loadedCount: result.loadedCount,
+							requestId,
+							responseWaitMilliseconds:
+								firstLoadTelemetry?.resourceFetchResponseWaitMilliseconds ?? null,
+							result: result.failedCount === 0 ? 'success' : 'failed',
+							resultReason: result.failedCount === 0 ? null : 'load_failed',
+							schedulerQueueWaitMilliseconds:
+								firstLoadTelemetry?.schedulerQueueWaitMilliseconds ?? null,
+							streamReadMilliseconds: firstLoadTelemetry?.resourceStreamReadMilliseconds ?? null,
+							telemetryRecorder,
+							traceContext: telemetryTraceContext,
+							visibleItemCount: change.visibleFileCount,
+						});
+					}
 					setLastDemandDispatchDebugState(nextDebugState);
 				})
 				.catch((error: unknown): void => {
@@ -539,13 +1008,36 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 					if (demandDispatchRequestIdRef.current !== requestId) {
 						return;
 					}
+					if (telemetryRecorder !== undefined) {
+						recordBridgeWorktreeFileVisibleDemandSettledTelemetrySample({
+							durationMilliseconds: performance.now() - visibleDemandStartedAt,
+							enqueueAcceptedCount: 0,
+							enqueueRejectedCount: 0,
+							executorInFlightMilliseconds: null,
+							executorPendingWaitMilliseconds: null,
+							failedCount: change.visibleFileCount,
+							firstChunkWaitMilliseconds: null,
+							intentCount: change.visibleFileCount,
+							lane: 'visible',
+							loadedCount: 0,
+							requestId,
+							responseWaitMilliseconds: null,
+							result: 'failed',
+							resultReason: 'load_failed',
+							schedulerQueueWaitMilliseconds: null,
+							streamReadMilliseconds: null,
+							telemetryRecorder,
+							traceContext: telemetryTraceContext,
+							visibleItemCount: change.visibleFileCount,
+						});
+					}
 					setLastDemandDispatchDebugState({
 						status: 'failed',
 						reason: error instanceof Error ? error.message : String(error),
 					});
 				});
 		},
-		[isActive],
+		[isActive, telemetryRecorder, telemetryTraceContext],
 	);
 
 	const dispatchRecentlyUpdatedFileDemand = useCallback(
@@ -571,57 +1063,41 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 			const descriptor = currentRenderState.descriptors.find(
 				(candidateDescriptor): boolean => candidateDescriptor.path === parsedDetail.data.path,
 			);
-			if (descriptor === undefined || !canFetchWorktreeFileDescriptorContent(descriptor)) {
-				return;
-			}
 			const openFilePathBefore =
 				openFileStateRef.current.status === 'idle' ? null : openFileStateRef.current.path;
 			const requestId = demandDispatchRequestIdRef.current + 1;
 			demandDispatchRequestIdRef.current = requestId;
-			const stimuli: readonly WorktreeFileDemandStimulus[] = [
-				{
-					kind: 'recentlyUpdatedFile',
-					descriptorRef: descriptor.contentDescriptor.ref,
+			if (descriptor !== undefined && canFetchWorktreeFileDescriptorContent(descriptor)) {
+				dispatchRecentlyUpdatedDescriptorDemand({
+					descriptor,
+					openFilePathBefore,
 					proximity: parsedDetail.data.proximity,
-					sourceIdentity: parsedDetail.data.sourceIdentity,
-				},
-			];
-			void runtime
-				.dispatchDemandStimuli(stimuli)
-				.then((result): void => {
-					if (!isActive) {
-						return;
-					}
-					if (demandDispatchRequestIdRef.current !== requestId) {
-						return;
-					}
-					const openFilePathAfter =
-						openFileStateRef.current.status === 'idle' ? null : openFileStateRef.current.path;
-					setLastDemandDispatchDebugState({
-						origin: {
-							descriptorPath: descriptor.path,
-							kind: 'recentlyUpdatedFile',
-							openFilePathAfter,
-							openFilePathBefore,
-						},
-						status: 'settled',
-						result,
-					});
-				})
-				.catch((error: unknown): void => {
-					if (!isActive) {
-						return;
-					}
-					if (demandDispatchRequestIdRef.current !== requestId) {
-						return;
-					}
-					setLastDemandDispatchDebugState({
-						status: 'failed',
-						reason: error instanceof Error ? error.message : String(error),
-					});
+					requestId,
 				});
+				return;
+			}
+			const treeRow = currentRenderState.treeRows.find(
+				(candidateTreeRow): boolean => candidateTreeRow.path === parsedDetail.data.path,
+			);
+			if (treeRow === undefined || treeRow.fileId === undefined) {
+				return;
+			}
+			const descriptorRequest: WorktreeFileDescriptorRequest = {
+				fileId: treeRow.fileId,
+				lane: parsedDetail.data.proximity === 'nearby' ? 'nearby' : 'speculative',
+				path: treeRow.path,
+				rowId: treeRow.rowId,
+				sourceIdentity: currentRenderState.sourceIdentity,
+			};
+			pendingRecentlyUpdatedDescriptorDemandRef.current = {
+				openFilePathBefore,
+				proximity: parsedDetail.data.proximity,
+				request: descriptorRequest,
+				requestId,
+			};
+			requestFileDescriptorForDemand(descriptorRequest);
 		},
-		[isActive],
+		[dispatchRecentlyUpdatedDescriptorDemand, isActive, requestFileDescriptorForDemand],
 	);
 
 	useEffect((): (() => void) => {
@@ -640,36 +1116,67 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 		};
 	}, [dispatchRecentlyUpdatedFileDemand, isActive]);
 
-	const descriptorProjection = useMemo(
-		(): BridgeFileViewerDescriptorProjection =>
-			projectBridgeFileViewerDescriptors({
-				descriptors: renderState.descriptors,
-				filterMode,
-				searchMode,
-				searchText,
-			}),
-		[filterMode, renderState.descriptors, searchMode, searchText],
-	);
+	const descriptorProjection = useMemo((): BridgeFileViewerDescriptorProjection => {
+		const projectionStartedAt = performance.now();
+		const projection = projectBridgeFileViewerDescriptors({
+			descriptors: renderState.descriptors,
+			filterMode,
+			searchMode,
+			searchText,
+			treeRows: renderState.treeRows,
+		});
+		if (props.telemetryRecorder !== undefined) {
+			recordBridgeViewerWorktreeFileTreeTelemetrySample({
+				descriptorCount: projection.descriptors.length,
+				durationMilliseconds: performance.now() - projectionStartedAt,
+				frameCount: 0,
+				phase: 'worktree_file_projection',
+				result: 'success',
+				telemetryRecorder: props.telemetryRecorder,
+				traceContext: props.telemetryTraceContext ?? null,
+				treeRowCount: projection.treeRows.length,
+				treeWindowRowCount: 0,
+			});
+		}
+		return projection;
+	}, [
+		filterMode,
+		props.telemetryRecorder,
+		props.telemetryTraceContext,
+		renderState.descriptors,
+		renderState.treeRows,
+		searchMode,
+		searchText,
+	]);
+	const totalTreeRowCount = renderState.treeRows.length;
 	const totalTreeHeight = totalTreeHeightForSizeFacts({
-		filteredDescriptorCount: descriptorProjection.descriptors.length,
-		filteredTreeRowCount: countFlattenedWorktreeFileTreeRows(
-			descriptorProjection.descriptors.map((descriptor) => descriptor.path),
-		),
+		filteredTreeRowCount: countFlattenedWorktreeFileTreeRows(descriptorProjection.paths),
 		hasActiveProjection:
 			filterMode !== 'all' ||
 			searchText.trim().length > 0 ||
 			descriptorProjection.searchError !== null,
 		sizeFacts: renderState.treeSizeFacts,
-		totalDescriptorCount: renderState.descriptors.length,
+		totalTreeRowCount,
 	});
-	const openFileBody =
-		openFileState.status === 'loading'
-			? provisionalOpenFileBody
-			: openFileState.status === 'refreshing'
-				? (provisionalOpenFileBody ?? openFileBodyRef.current)
-				: openFileState.status === 'ready' || openFileState.status === 'stale'
-					? openFileBodyRef.current
-					: null;
+	const renderedOpenFileContent = useMemo(
+		(): BridgeFileViewerRenderedOpenFileContent | null =>
+			renderedOpenFileContentForState({
+				lastGoodOpenFileContent,
+				openFileBody: openFileBodyState,
+				openFileBodyVersion,
+				openFileState,
+				provisionalOpenFileBody,
+				selectedPath,
+			}),
+		[
+			lastGoodOpenFileContent,
+			openFileBodyState,
+			openFileBodyVersion,
+			openFileState,
+			provisionalOpenFileBody,
+			selectedPath,
+		],
+	);
 	const canRefreshOpenFile =
 		openFileState.status === 'stale' &&
 		findLatestDescriptorForOpenFile({
@@ -688,6 +1195,9 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 			? null
 			: firstSuccessfulDemandLoadResult(lastDemandDispatchResult);
 	const firstDemandLoadTelemetry = firstDemandLoadResult?.loadTelemetry ?? null;
+	const metadataFileTreeRowCount = renderState.treeRows.filter(
+		(treeRow): boolean => !treeRow.isDirectory && treeRow.fileId !== undefined,
+	).length;
 
 	return (
 		<main
@@ -730,7 +1240,16 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 			data-last-demand-dispatch-first-disposition={firstDemandLoadTelemetry?.disposition}
 			data-last-demand-dispatch-first-dedupe-key={firstDemandLoadResult?.dedupeKey}
 			data-last-demand-dispatch-first-freshness-key={firstDemandLoadResult?.freshnessKey}
+			data-last-demand-dispatch-first-executor-in-flight-ms={
+				firstDemandLoadTelemetry?.executorInFlightMilliseconds ?? undefined
+			}
+			data-last-demand-dispatch-first-executor-pending-wait-ms={
+				firstDemandLoadTelemetry?.executorPendingWaitMilliseconds ?? undefined
+			}
 			data-last-demand-dispatch-first-lane={firstDemandLoadTelemetry?.lane}
+			data-last-demand-dispatch-first-scheduler-queue-wait-ms={
+				firstDemandLoadTelemetry?.schedulerQueueWaitMilliseconds ?? undefined
+			}
 			data-last-demand-dispatch-origin={
 				lastDemandDispatchDebugState.status === 'settled'
 					? lastDemandDispatchDebugState.origin.kind
@@ -764,6 +1283,10 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 			}
 			data-last-demand-dispatch-status={lastDemandDispatchDebugState.status}
 			data-last-demand-dispatch-stimulus-count={lastDemandDispatchResult?.stimulusCount}
+			data-worktree-initial-surface-error={
+				initialSurfaceLoadState.status === 'failed' ? initialSurfaceLoadState.reason : undefined
+			}
+			data-worktree-initial-surface-state={initialSurfaceLoadState.status}
 			data-last-open-load-disposition={lastOpenLoadTelemetry?.disposition}
 			data-last-open-load-duration-ms={lastOpenLoadTelemetry?.durationMilliseconds}
 			data-last-open-load-estimated-bytes={lastOpenLoadTelemetry?.estimatedBytes ?? undefined}
@@ -779,6 +1302,12 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 			data-last-open-load-executor-in-flight-before={
 				lastOpenLoadTelemetry?.executorInFlightCountBefore
 			}
+			data-last-open-load-executor-in-flight-ms={
+				lastOpenLoadTelemetry?.executorInFlightMilliseconds ?? undefined
+			}
+			data-last-open-load-executor-pending-wait-ms={
+				lastOpenLoadTelemetry?.executorPendingWaitMilliseconds ?? undefined
+			}
 			data-last-open-load-executor-queued-after={
 				lastOpenLoadTelemetry?.executorQueuedLoadCountAfter
 			}
@@ -792,6 +1321,21 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 				lastOpenLoadTelemetry?.executorQueuedLoadCountBefore
 			}
 			data-last-open-load-lane={lastOpenLoadTelemetry?.lane}
+			data-last-open-load-resource-body-registry-commit-ms={
+				lastOpenLoadTelemetry?.resourceBodyRegistryCommitMilliseconds ?? undefined
+			}
+			data-last-open-load-resource-fetch-response-wait-ms={
+				lastOpenLoadTelemetry?.resourceFetchResponseWaitMilliseconds ?? undefined
+			}
+			data-last-open-load-resource-first-chunk-wait-ms={
+				lastOpenLoadTelemetry?.resourceFirstChunkWaitMilliseconds ?? undefined
+			}
+			data-last-open-load-resource-stream-read-ms={
+				lastOpenLoadTelemetry?.resourceStreamReadMilliseconds ?? undefined
+			}
+			data-last-open-load-scheduler-queue-wait-ms={
+				lastOpenLoadTelemetry?.schedulerQueueWaitMilliseconds ?? undefined
+			}
 			data-last-open-load-scheduler-queued-bytes-after={
 				lastOpenLoadTelemetry?.schedulerQueuedEstimatedBytesAfter
 			}
@@ -804,6 +1348,10 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 			data-last-open-load-scheduler-queued-before={
 				lastOpenLoadTelemetry?.schedulerQueuedIntentCountBefore
 			}
+			data-worktree-metadata-file-row-count={metadataFileTreeRowCount}
+			data-worktree-metadata-tree-row-count={renderState.treeRows.length}
+			data-worktree-tree-extent-kind={renderState.treeSizeFacts?.extentKind ?? undefined}
+			data-worktree-tree-path-count={renderState.treeSizeFacts?.pathCount ?? undefined}
 			data-selected-display-path={selectedPath ?? undefined}
 			data-sidebar-position="right"
 			data-testid="bridge-file-viewer-shell"
@@ -830,8 +1378,8 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 						title={contentHeaderTitle}
 					/>
 					<BridgeFileViewerCodePanel
-						openFileBody={openFileBody}
 						openFileState={openFileState}
+						renderedFileContent={renderedOpenFileContent}
 						staleNotice={
 							openFileState.status === 'stale' ? (
 								<BridgeFileViewerStaleNotice
@@ -854,6 +1402,7 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 					onFilterModeChange={setFilterMode}
 					onOpenFile={openFile}
 					{...(onOpenReviewComparison === undefined ? {} : { onOpenReviewComparison })}
+					onRequestFileDescriptor={requestFileDescriptor}
 					onSearchModeChange={setSearchMode}
 					onSearchTextChange={setSearchText}
 					onVisibleFileDemandChange={dispatchVisibleFileDemand}
@@ -861,7 +1410,9 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 					searchText={searchText}
 					selectedPath={selectedPath}
 					sourceIdentity={renderState.sourceIdentity}
-					totalDescriptorCount={renderState.descriptors.length}
+					{...(telemetryRecorder === undefined ? {} : { telemetryRecorder })}
+					telemetryTraceContext={telemetryTraceContext}
+					totalTreeRowCount={totalTreeRowCount}
 					totalTreeHeightPixels={totalTreeHeight.heightPixels}
 					totalTreeHeightSource={totalTreeHeight.source}
 				/>
@@ -910,6 +1461,16 @@ function worktreeFileDemandFailedCountByReason(
 	return countByReason;
 }
 
+function worktreeTreeWindowRowCount(frames: readonly WorktreeFileProtocolFrame[]): number {
+	let rowCount = 0;
+	for (const frame of frames) {
+		if (frame.frameKind === 'worktree.treeWindow') {
+			rowCount += frame.rows?.length ?? 0;
+		}
+	}
+	return rowCount;
+}
+
 function bridgeFileViewerHeaderTitle(props: {
 	readonly selectedPath: string | null;
 	readonly sourceIdentity: WorktreeFileSurfaceSourceIdentity | null;
@@ -927,7 +1488,10 @@ function fileViewerNavigationTargetPath(
 	return navigationCommand.target.fileRef.path;
 }
 
-function BridgeFileViewerStaleNotice(props: {
+function BridgeFileViewerStaleNotice({
+	canRefresh,
+	onRefresh,
+}: {
 	readonly canRefresh: boolean;
 	readonly onRefresh: () => void;
 }): ReactElement {
@@ -940,8 +1504,8 @@ function BridgeFileViewerStaleNotice(props: {
 			<BridgeReviewButton
 				className="border-[var(--bridge-border-opaque)] bg-[var(--bridge-header-control-bg)] px-2"
 				data-testid="worktree-file-refresh"
-				disabled={!props.canRefresh}
-				onClick={props.onRefresh}
+				disabled={!canRefresh}
+				onClick={onRefresh}
 			>
 				<BridgeReviewIcon>
 					<RefreshCwIcon aria-hidden="true" className="size-3" />
@@ -952,11 +1516,12 @@ function BridgeFileViewerStaleNotice(props: {
 	);
 }
 
-function projectBridgeFileViewerDescriptors(props: {
+export function projectBridgeFileViewerDescriptors(props: {
 	readonly descriptors: readonly WorktreeFileDescriptor[];
 	readonly filterMode: BridgeFileViewerFilterMode;
 	readonly searchMode: BridgeFileViewerSearchMode;
 	readonly searchText: string;
+	readonly treeRows: readonly WorktreeTreeRowMetadata[];
 }): BridgeFileViewerDescriptorProjection {
 	const trimmedSearchText = props.searchText.trim();
 	const searchPattern =
@@ -967,27 +1532,121 @@ function projectBridgeFileViewerDescriptors(props: {
 					searchText: trimmedSearchText,
 				});
 	if (searchPattern?.ok === false) {
-		return { descriptors: [], searchError: searchPattern.message };
+		return { descriptors: [], paths: [], searchError: searchPattern.message, treeRows: [] };
 	}
-	const descriptors = props.descriptors.filter((descriptor): boolean => {
-		if (!descriptorMatchesFilterMode({ descriptor, filterMode: props.filterMode })) {
+	const descriptorByPath = new Map(
+		props.descriptors.map((descriptor) => [descriptor.path, descriptor]),
+	);
+	const treeRows = props.treeRows.filter((treeRow): boolean => {
+		const descriptor = descriptorByPath.get(treeRow.path) ?? null;
+		if (
+			!treeRowMatchesFilterMode({
+				descriptor,
+				filterMode: props.filterMode,
+				treeRow,
+			})
+		) {
 			return false;
 		}
-		return searchPattern === null ? true : searchPattern.pattern.test(descriptor.path);
+		return searchPattern === null ? true : searchPattern.pattern.test(treeRow.path);
 	});
-	return { descriptors, searchError: null };
+	const includedPathSet = new Set(treeRows.map((treeRow) => treeRow.path));
+	const descriptors = props.descriptors.filter((descriptor): boolean =>
+		includedPathSet.has(descriptor.path),
+	);
+	return {
+		descriptors,
+		paths: treeRows.map(pierreFileTreePathForRow),
+		searchError: null,
+		treeRows,
+	};
 }
 
-function descriptorMatchesFilterMode(props: {
-	readonly descriptor: WorktreeFileDescriptor;
+function pierreFileTreePathForRow(treeRow: WorktreeTreeRowMetadata): string {
+	if (!treeRow.isDirectory) {
+		return treeRow.path;
+	}
+	return treeRow.path.endsWith('/') ? treeRow.path : `${treeRow.path}/`;
+}
+
+function descriptorRequestForFirstFileTreeRow(props: {
+	readonly sourceIdentity: WorktreeFileSurfaceSourceIdentity | null;
+	readonly treeRows: readonly WorktreeTreeRowMetadata[];
+}): WorktreeFileDescriptorRequest | null {
+	if (props.sourceIdentity === null) {
+		return null;
+	}
+	const firstFileRow = props.treeRows.find(
+		(treeRow): boolean => !treeRow.isDirectory && treeRow.fileId !== undefined,
+	);
+	if (firstFileRow === undefined || firstFileRow.fileId === undefined) {
+		return null;
+	}
+	return {
+		sourceIdentity: props.sourceIdentity,
+		rowId: firstFileRow.rowId,
+		path: firstFileRow.path,
+		fileId: firstFileRow.fileId,
+		lane: 'foreground',
+	};
+}
+
+function descriptorRequestForTreePath(props: {
+	readonly lane: WorktreeFileDescriptorRequest['lane'];
+	readonly path: string;
+	readonly sourceIdentity: WorktreeFileSurfaceSourceIdentity | null;
+	readonly treeRows: readonly WorktreeTreeRowMetadata[];
+}): WorktreeFileDescriptorRequest | null {
+	if (props.sourceIdentity === null) {
+		return null;
+	}
+	const treeRow = props.treeRows.find(
+		(candidate): boolean => candidate.path === props.path && !candidate.isDirectory,
+	);
+	if (treeRow === undefined || treeRow.fileId === undefined) {
+		return null;
+	}
+	return {
+		sourceIdentity: props.sourceIdentity,
+		rowId: treeRow.rowId,
+		path: treeRow.path,
+		fileId: treeRow.fileId,
+		lane: props.lane,
+	};
+}
+
+function worktreeFileDescriptorRequestsMatch(
+	leftRequest: WorktreeFileDescriptorRequest | null,
+	rightRequest: WorktreeFileDescriptorRequest,
+): boolean {
+	return (
+		leftRequest !== null &&
+		leftRequest.sourceIdentity.sourceId === rightRequest.sourceIdentity.sourceId &&
+		leftRequest.sourceIdentity.sourceCursor === rightRequest.sourceIdentity.sourceCursor &&
+		leftRequest.rowId === rightRequest.rowId &&
+		leftRequest.path === rightRequest.path &&
+		leftRequest.fileId === rightRequest.fileId &&
+		leftRequest.lane === rightRequest.lane
+	);
+}
+
+function treeRowMatchesFilterMode(props: {
+	readonly descriptor: WorktreeFileDescriptor | null;
 	readonly filterMode: BridgeFileViewerFilterMode;
+	readonly treeRow: WorktreeTreeRowMetadata;
 }): boolean {
 	switch (props.filterMode) {
 		case 'all':
 			return true;
 		case 'fetchable':
+			if (props.descriptor === null) {
+				return !props.treeRow.isDirectory && props.treeRow.fileId !== undefined;
+			}
 			return canFetchWorktreeFileDescriptorContent(props.descriptor);
 		case 'unavailable':
+			if (props.descriptor === null) {
+				return false;
+			}
 			return props.descriptor.isBinary || props.descriptor.virtualizedExtentKind === 'unavailable';
 	}
 	return false;
@@ -1011,29 +1670,55 @@ function escapeRegExp(value: string): string {
 	return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
 }
 
-function applyFramesToRuntime(props: {
+type WorktreeFileRuntimeFrameApplier = Pick<WorktreeFileSurfaceRuntime, 'applyFrame'>;
+
+export function applyFramesToRuntime(props: {
 	readonly currentRenderState: BridgeFileViewerRenderState;
 	readonly frames: readonly WorktreeFileProtocolFrame[];
 	readonly provenance?: WorktreeFileSurfaceProvenance | null;
-	readonly runtime: WorktreeFileSurfaceRuntime | null;
+	readonly runtime: WorktreeFileRuntimeFrameApplier | null;
 	readonly sourceIdentity?: WorktreeFileSurfaceSourceIdentity | null;
 }): BridgeFileViewerRenderState {
-	const descriptorsByFileId = new Map(
-		props.currentRenderState.descriptors.map((descriptor) => [descriptor.fileId, descriptor]),
+	const descriptorsByFileId = new Map<string, WorktreeFileDescriptor>(
+		props.currentRenderState.descriptors.map(
+			(descriptor): readonly [string, WorktreeFileDescriptor] => [descriptor.fileId, descriptor],
+		),
+	);
+	const treeRowsByPath = new Map<string, WorktreeTreeRowMetadata>(
+		props.currentRenderState.treeRows.map((treeRow): readonly [string, WorktreeTreeRowMetadata] => [
+			treeRow.path,
+			treeRow,
+		]),
 	);
 	const provenance = props.provenance ?? props.currentRenderState.provenance;
 	let sourceIdentity = props.sourceIdentity ?? props.currentRenderState.sourceIdentity;
 	let treeSizeFacts = props.currentRenderState.treeSizeFacts;
+
 	for (const frame of props.frames) {
-		props.runtime?.applyFrame(frame);
+		const applyFrameResult = props.runtime?.applyFrame(frame);
+		if (applyFrameResult?.ok === false) {
+			continue;
+		}
 		if (frame.frameKind === 'worktree.snapshot' || frame.frameKind === 'worktree.treeWindow') {
 			treeSizeFacts = frame.treeSizeFacts ?? treeSizeFacts;
 		}
 		if (frame.frameKind === 'worktree.snapshot') {
 			sourceIdentity = frame.source;
+			descriptorsByFileId.clear();
+			if (frame.treeRows !== undefined) {
+				treeRowsByPath.clear();
+				for (const treeRow of frame.treeRows) {
+					treeRowsByPath.set(treeRow.path, treeRow);
+				}
+			}
 		}
 		if (frame.frameKind === 'worktree.treeWindow') {
 			sourceIdentity = frame.projectionIdentity.source;
+			if (frame.rows !== undefined) {
+				for (const treeRow of frame.rows) {
+					treeRowsByPath.set(treeRow.path, treeRow);
+				}
+			}
 		}
 		if (frame.frameKind === 'worktree.fileDescriptor') {
 			sourceIdentity = frame.descriptor.sourceIdentity;
@@ -1044,20 +1729,60 @@ function applyFramesToRuntime(props: {
 			if (latestDescriptor !== undefined) {
 				sourceIdentity = latestDescriptor.sourceIdentity;
 				descriptorsByFileId.set(latestDescriptor.fileId, latestDescriptor);
+			} else {
+				const invalidatedFileId = frame.invalidation.fileId;
+				if (invalidatedFileId !== undefined) {
+					descriptorsByFileId.delete(invalidatedFileId);
+				}
+				for (const [fileId, descriptor] of descriptorsByFileId) {
+					if (descriptor.path === frame.invalidation.path) {
+						descriptorsByFileId.delete(fileId);
+					}
+				}
+				treeRowsByPath.delete(frame.invalidation.path);
+				pruneEmptyWorktreeFileTreeDirectories(treeRowsByPath);
 			}
 		}
 		if (frame.frameKind === 'worktree.reset') {
 			descriptorsByFileId.clear();
-			sourceIdentity = frame.source ?? sourceIdentity;
+			treeRowsByPath.clear();
+			sourceIdentity = frame.source ?? null;
 			treeSizeFacts = null;
 		}
 	}
+
 	return {
 		descriptors: [...descriptorsByFileId.values()],
 		provenance,
 		sourceIdentity,
+		treeRows: [...treeRowsByPath.values()],
 		treeSizeFacts,
 	};
+}
+
+export function pruneEmptyWorktreeFileTreeDirectories(
+	treeRowsByPath: Map<string, WorktreeTreeRowMetadata>,
+): void {
+	const pathsToDelete: string[] = [];
+	for (const [path, treeRow] of treeRowsByPath) {
+		if (!treeRow.isDirectory) {
+			continue;
+		}
+		const descendantPathPrefix = `${path.replace(/\/+$/, '')}/`;
+		let hasFileDescendant = false;
+		for (const candidate of treeRowsByPath.values()) {
+			if (!candidate.isDirectory && candidate.path.startsWith(descendantPathPrefix)) {
+				hasFileDescendant = true;
+				break;
+			}
+		}
+		if (!hasFileDescendant) {
+			pathsToDelete.push(path);
+		}
+	}
+	for (const path of pathsToDelete) {
+		treeRowsByPath.delete(path);
+	}
 }
 
 function reconcileOpenFileStateWithFrames(props: {
@@ -1070,8 +1795,65 @@ function reconcileOpenFileStateWithFrames(props: {
 		return props.currentOpenFileState;
 	}
 	const currentOpenFileState = props.currentOpenFileState;
+	const matchedReplacementDescriptor = props.frames.find(
+		(frame) =>
+			frame.frameKind === 'worktree.fileDescriptor' &&
+			(frame.descriptor.fileId === currentOpenFileState.descriptor.fileId ||
+				frame.descriptor.path === currentOpenFileState.path),
+	);
 	const resetFrame = props.frames.find((frame) => frame.frameKind === 'worktree.reset');
 	if (resetFrame !== undefined) {
+		if (
+			matchedReplacementDescriptor?.frameKind === 'worktree.fileDescriptor' &&
+			areWorktreeFileDescriptorsSameContentVersion(
+				matchedReplacementDescriptor.descriptor,
+				currentOpenFileState.descriptor,
+			)
+		) {
+			return {
+				...currentOpenFileState,
+				path: matchedReplacementDescriptor.descriptor.path,
+				descriptor: matchedReplacementDescriptor.descriptor,
+			};
+		}
+		if (
+			matchedReplacementDescriptor === undefined &&
+			resetSnapshotFramesKeepOpenFilePath({
+				currentOpenFileState,
+				frames: props.frames,
+			})
+		) {
+			return currentOpenFileState;
+		}
+		props.openFileRequestIdRef.current += 1;
+		return {
+			status: 'stale',
+			path: currentOpenFileState.path,
+			descriptor: currentOpenFileState.descriptor,
+		};
+	}
+	const replacementSourceSnapshot = props.frames.find(
+		(frame) =>
+			frame.frameKind === 'worktree.snapshot' &&
+			!areWorktreeFileSourceIdentitiesEqual(
+				frame.source,
+				currentOpenFileState.descriptor.sourceIdentity,
+			),
+	);
+	if (replacementSourceSnapshot !== undefined) {
+		if (
+			matchedReplacementDescriptor?.frameKind === 'worktree.fileDescriptor' &&
+			areWorktreeFileDescriptorsSameContentVersion(
+				matchedReplacementDescriptor.descriptor,
+				currentOpenFileState.descriptor,
+			)
+		) {
+			return {
+				...currentOpenFileState,
+				path: matchedReplacementDescriptor.descriptor.path,
+				descriptor: matchedReplacementDescriptor.descriptor,
+			};
+		}
 		props.openFileRequestIdRef.current += 1;
 		return {
 			status: 'stale',
@@ -1084,12 +1866,6 @@ function reconcileOpenFileStateWithFrames(props: {
 			frame.frameKind === 'worktree.fileInvalidated' &&
 			(frame.invalidation.fileId === currentOpenFileState.descriptor.fileId ||
 				frame.invalidation.path === currentOpenFileState.path),
-	);
-	const matchedReplacementDescriptor = props.frames.find(
-		(frame) =>
-			frame.frameKind === 'worktree.fileDescriptor' &&
-			(frame.descriptor.fileId === currentOpenFileState.descriptor.fileId ||
-				frame.descriptor.path === currentOpenFileState.path),
 	);
 	if (
 		matchedInvalidation?.frameKind !== 'worktree.fileInvalidated' &&
@@ -1147,10 +1923,42 @@ function areWorktreeFileDescriptorsSameContentVersion(
 		left.path === right.path &&
 		left.contentHandle === right.contentHandle &&
 		left.contentHash === right.contentHash &&
-		left.contentDescriptor.ref.descriptorId === right.contentDescriptor.ref.descriptorId &&
-		left.contentDescriptor.ref.expectedIdentity.cursor ===
-			right.contentDescriptor.ref.expectedIdentity.cursor
+		left.contentDescriptor.ref.descriptorId === right.contentDescriptor.ref.descriptorId
 	);
+}
+
+function areWorktreeFileSourceIdentitiesEqual(
+	left: WorktreeFileSurfaceSourceIdentity,
+	right: WorktreeFileSurfaceSourceIdentity,
+): boolean {
+	return (
+		left.sourceId === right.sourceId &&
+		left.repoId === right.repoId &&
+		left.worktreeId === right.worktreeId &&
+		left.subscriptionGeneration === right.subscriptionGeneration &&
+		left.sourceCursor === right.sourceCursor
+	);
+}
+
+function resetSnapshotFramesKeepOpenFilePath(props: {
+	readonly currentOpenFileState: BridgeFileViewerActiveOpenState;
+	readonly frames: readonly WorktreeFileProtocolFrame[];
+}): boolean {
+	for (const frame of props.frames) {
+		if (frame.frameKind !== 'worktree.snapshot' || frame.treeRows === undefined) {
+			continue;
+		}
+		for (const row of frame.treeRows) {
+			if (
+				!row.isDirectory &&
+				(row.fileId === props.currentOpenFileState.descriptor.fileId ||
+					row.path === props.currentOpenFileState.path)
+			) {
+				return false;
+			}
+		}
+	}
+	return false;
 }
 
 function findLatestDescriptorForOpenFile(props: {
@@ -1166,11 +1974,10 @@ function findLatestDescriptorForOpenFile(props: {
 }
 
 function totalTreeHeightForSizeFacts(props: {
-	readonly filteredDescriptorCount: number;
 	readonly filteredTreeRowCount: number;
 	readonly hasActiveProjection: boolean;
 	readonly sizeFacts: WorktreeTreeVirtualizedSizeFacts | null;
-	readonly totalDescriptorCount: number;
+	readonly totalTreeRowCount: number;
 }): {
 	readonly heightPixels: number | null;
 	readonly source: 'localProjection' | 'providerFacts' | null;
@@ -1181,17 +1988,91 @@ function totalTreeHeightForSizeFacts(props: {
 	if (!props.hasActiveProjection && props.sizeFacts.estimatedTotalHeightPixels !== undefined) {
 		return { heightPixels: props.sizeFacts.estimatedTotalHeightPixels, source: 'providerFacts' };
 	}
+	if (!props.hasActiveProjection && props.sizeFacts.pathCount !== undefined) {
+		return {
+			heightPixels: Math.max(1, props.sizeFacts.pathCount) * props.sizeFacts.rowHeightPixels,
+			source: 'providerFacts',
+		};
+	}
 	if (
 		props.hasActiveProjection &&
-		props.filteredDescriptorCount === props.totalDescriptorCount &&
+		props.filteredTreeRowCount === props.totalTreeRowCount &&
 		props.sizeFacts.estimatedTotalHeightPixels !== undefined
 	) {
 		return { heightPixels: props.sizeFacts.estimatedTotalHeightPixels, source: 'providerFacts' };
+	}
+	if (
+		props.hasActiveProjection &&
+		props.filteredTreeRowCount === props.totalTreeRowCount &&
+		props.sizeFacts.pathCount !== undefined
+	) {
+		return {
+			heightPixels: Math.max(1, props.sizeFacts.pathCount) * props.sizeFacts.rowHeightPixels,
+			source: 'providerFacts',
+		};
 	}
 	return {
 		heightPixels: Math.max(1, props.filteredTreeRowCount) * props.sizeFacts.rowHeightPixels,
 		source: 'localProjection',
 	};
+}
+
+function renderedOpenFileContentForState(props: {
+	readonly lastGoodOpenFileContent: BridgeFileViewerRenderedOpenFileContent | null;
+	readonly openFileBody: string | null;
+	readonly openFileBodyVersion: number;
+	readonly openFileState: BridgeFileViewerOpenState;
+	readonly provisionalOpenFileBody: string | null;
+	readonly selectedPath: string | null;
+}): BridgeFileViewerRenderedOpenFileContent | null {
+	if (props.openFileState.status === 'idle') {
+		return null;
+	}
+	if (props.selectedPath !== null && props.selectedPath !== props.openFileState.path) {
+		return props.lastGoodOpenFileContent;
+	}
+	if (props.openFileState.status === 'loading') {
+		if (props.provisionalOpenFileBody !== null) {
+			return {
+				body: props.provisionalOpenFileBody,
+				bodyVersion: props.openFileBodyVersion + 1,
+				descriptor: props.openFileState.descriptor,
+				path: props.openFileState.path,
+			};
+		}
+		return null;
+	}
+	if (props.openFileState.status === 'refreshing') {
+		if (props.provisionalOpenFileBody !== null) {
+			return {
+				body: props.provisionalOpenFileBody,
+				bodyVersion: props.openFileBodyVersion + 1,
+				descriptor: props.openFileState.descriptor,
+				path: props.openFileState.path,
+			};
+		}
+		if (props.openFileBody !== null) {
+			return {
+				body: props.openFileBody,
+				bodyVersion: props.openFileBodyVersion,
+				descriptor: props.openFileState.descriptor,
+				path: props.openFileState.path,
+			};
+		}
+		return props.lastGoodOpenFileContent;
+	}
+	if (props.openFileState.status === 'ready' || props.openFileState.status === 'stale') {
+		if (props.openFileBody === null) {
+			return props.lastGoodOpenFileContent;
+		}
+		return {
+			body: props.openFileBody,
+			bodyVersion: props.openFileBodyVersion,
+			descriptor: props.openFileState.descriptor,
+			path: props.openFileState.path,
+		};
+	}
+	return null;
 }
 
 function totalOpenFileHeightForState(openFileState: BridgeFileViewerOpenState): number | null {
@@ -1206,7 +2087,7 @@ function totalOpenFileHeightForState(openFileState: BridgeFileViewerOpenState): 
 		case 'exactLineCount':
 			return descriptor.lineCount === undefined
 				? null
-				: descriptor.lineCount * defaultFileLineHeightPixels + pierreCodeViewFileChromeHeightPixels;
+				: descriptor.lineCount * defaultFileLineHeightPixels;
 		case 'estimatedHeight':
 			return descriptor.estimatedContentHeightPixels ?? null;
 		case 'previewBounded':
@@ -1219,14 +2100,13 @@ function totalOpenFileHeightForState(openFileState: BridgeFileViewerOpenState): 
 async function defaultFetchWorktreeFileResource(
 	props: WorktreeFileSurfaceRuntimeFetchResourceProps,
 ): Promise<WorktreeFileSurfaceRuntimeFetchedResource> {
-	const response = await fetch(props.resourceUrl, { signal: props.signal });
-	if (!response.ok) {
-		throw new Error(`Worktree/File resource request failed: ${response.status}`);
-	}
-	return await readBridgeTextResourceStream(response, {
+	return await loadBridgeTextResourceWithTiming({
 		integrity: props.descriptor.content.integrity,
 		maxBytes: props.descriptor.content.maxBytes,
 		onTextChunk: props.onTextChunk,
+		performFetch: async (): Promise<Response> =>
+			await fetch(props.resourceUrl, { signal: props.signal }),
+		probe: props.probe,
 		signal: props.signal,
 	});
 }

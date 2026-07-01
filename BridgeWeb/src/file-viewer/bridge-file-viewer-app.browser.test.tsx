@@ -22,6 +22,8 @@ import {
 	worktreeFileDescriptorSchema,
 	worktreeFileProtocolFrameSchema,
 } from '../features/worktree-file/models/worktree-file-protocol-models.js';
+import type { BridgeTelemetrySample } from '../foundation/telemetry/bridge-telemetry-event.js';
+import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import {
 	findBridgeViewerTreeScrollOwner,
 	requireBridgeViewerHTMLElement,
@@ -545,6 +547,136 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			'agentstudio://resource/worktree-file/worktree.fileContent/app-delegate-content?generation=1',
 		]);
 		expect(openFilePath()).toBe('Sources/AgentStudio/App/AppDelegate.swift');
+	});
+
+	test('records file open ready telemetry from user click to rendered body commit', async () => {
+		const descriptor = makeFileDescriptor({
+			contentHandle: 'file-open-ready-content',
+			fileId: 'file-open-ready',
+			path: 'src/file-open-ready.ts',
+		});
+		const telemetrySamples: BridgeTelemetrySample[] = [];
+
+		render(
+			<BridgeFileViewerApp
+				codeViewWorkerPoolEnabled={false}
+				fetchResource={async () =>
+					makeWorktreeFileSurfaceRuntimeFetchedResource('export const fileOpenReady = true;\n')
+				}
+				initialFrames={makeFrames(descriptor)}
+				telemetryRecorder={makeTestTelemetryRecorder(telemetrySamples)}
+			/>,
+		);
+
+		const fileButton = await waitForBridgeViewerTreeItemButton('src/file-open-ready.ts');
+		fileButton.click();
+
+		await waitForOpenFileState('ready');
+		await waitForVisibleCodeText('fileOpenReady');
+		const sample = await waitForTelemetrySample({
+			name: 'performance.bridge.web.file_open_ready',
+			samples: telemetrySamples,
+		});
+
+		expect(sample.durationMilliseconds).not.toBeNull();
+		expect(sample.durationMilliseconds ?? -1).toBeGreaterThanOrEqual(0);
+		expect(sample.stringAttributes).toMatchObject({
+			'agentstudio.bridge.content.role': 'file',
+			'agentstudio.bridge.phase': 'file_open_ready',
+			'agentstudio.bridge.result': 'success',
+			'agentstudio.bridge.result_reason': 'none',
+			'agentstudio.bridge.slice': 'content_fetch',
+			'agentstudio.bridge.viewer': 'file',
+		});
+		expect(sample.stringAttributes['agentstudio.bridge.demand.lane']).toBeTruthy();
+		expect(sample.stringAttributes['agentstudio.bridge.demand.disposition']).toBeTruthy();
+		expect(sample.numericAttributes['agentstudio.bridge.demand.request.sequence']).toBeGreaterThan(
+			0,
+		);
+		expect(sample.numericAttributes['agentstudio.bridge.source.generation']).toBe(1);
+		expect(sample.numericAttributes['agentstudio.bridge.demand.scheduler_queue_wait_ms']).toBe(0);
+		expect(sample.numericAttributes['agentstudio.bridge.demand.executor_pending_wait_ms']).toBe(0);
+		expect(
+			sample.numericAttributes['agentstudio.bridge.demand.executor_in_flight_ms'],
+		).toBeGreaterThanOrEqual(0);
+	});
+
+	test('records visible demand telemetry when the File tree scroll path settles demand', async () => {
+		const descriptor = makeFileDescriptor({
+			contentHandle: 'scroll-visible-demand-content',
+			fileId: 'file-scroll-visible-demand',
+			path: 'src/scroll-visible-demand.ts',
+		});
+		const telemetrySamples: BridgeTelemetrySample[] = [];
+
+		render(
+			<BridgeFileViewerApp
+				fetchResource={async () =>
+					makeWorktreeFileSurfaceRuntimeFetchedResource(
+						'export const scrollVisibleDemand = true;\n',
+					)
+				}
+				initialFrames={makeFrames(descriptor)}
+				telemetryRecorder={makeTestTelemetryRecorder(telemetrySamples)}
+			/>,
+		);
+
+		await waitForBridgeViewerTreeItemButton('src/scroll-visible-demand.ts');
+		const initialSampleCount = telemetrySamples.filter(
+			(sample): boolean => sample.name === 'performance.bridge.trees.scroll_visible_demand',
+		).length;
+		const treeScrollOwner = findBridgeViewerTreeScrollOwner();
+		if (treeScrollOwner === null) {
+			throw new Error('Expected FileView tree scroll owner for visible demand telemetry.');
+		}
+		treeScrollOwner.dispatchEvent(new Event('scroll', { bubbles: true }));
+
+		const sample = await waitForTelemetrySampleCount({
+			count: initialSampleCount + 1,
+			name: 'performance.bridge.trees.scroll_visible_demand',
+			samples: telemetrySamples,
+		});
+
+		expect(sample.durationMilliseconds).not.toBeNull();
+		expect(sample.durationMilliseconds ?? -1).toBeGreaterThanOrEqual(0);
+		expect(sample.stringAttributes).toMatchObject({
+			'agentstudio.bridge.demand.disposition': 'published',
+			'agentstudio.bridge.demand.lane': 'visible',
+			'agentstudio.bridge.phase': 'scroll_visible_demand',
+			'agentstudio.bridge.result': 'success',
+			'agentstudio.bridge.result_reason': 'none',
+			'agentstudio.bridge.slice': 'tree_prepare_input',
+			'agentstudio.bridge.viewer': 'file',
+		});
+		expect(sample.numericAttributes['agentstudio.bridge.visible_item.count']).toBeGreaterThan(0);
+		const settledSample = await waitForTelemetrySample({
+			name: 'performance.bridge.web.visible_demand_settled',
+			samples: telemetrySamples,
+		});
+		expect(settledSample.durationMilliseconds).not.toBeNull();
+		expect(settledSample.durationMilliseconds ?? -1).toBeGreaterThanOrEqual(0);
+		expect(settledSample.stringAttributes).toMatchObject({
+			'agentstudio.bridge.content.role': 'file',
+			'agentstudio.bridge.demand.lane': 'visible',
+			'agentstudio.bridge.phase': 'visible_demand_settled',
+			'agentstudio.bridge.result': 'success',
+			'agentstudio.bridge.result_reason': 'none',
+			'agentstudio.bridge.slice': 'content_fetch',
+			'agentstudio.bridge.viewer': 'file',
+		});
+		expect(
+			settledSample.numericAttributes['agentstudio.bridge.demand.enqueue_accepted.count'],
+		).toBeGreaterThan(0);
+		expect(settledSample.numericAttributes['agentstudio.bridge.demand.failed.count']).toBe(0);
+		expect(
+			settledSample.numericAttributes['agentstudio.bridge.demand.loaded.count'],
+		).toBeGreaterThan(0);
+		expect(
+			settledSample.numericAttributes['agentstudio.bridge.demand.request.sequence'],
+		).toBeGreaterThan(0);
+		expect(
+			settledSample.numericAttributes['agentstudio.bridge.demand.scheduler_queue_wait_ms'],
+		).toBeGreaterThanOrEqual(0);
 	});
 
 	test('does not advance selected display path until a metadata-only descriptor converges', async () => {
@@ -2578,6 +2710,55 @@ async function waitForInitialSurfaceLoadCount(props: {
 		attempt: 0,
 		expectedCount: props.expectedCount,
 		getLoadCount: props.getLoadCount,
+	});
+}
+
+function makeTestTelemetryRecorder(samples: BridgeTelemetrySample[]): BridgeTelemetryRecorder {
+	return {
+		isEnabled: (scope): boolean => scope === 'web',
+		record: (sample): void => {
+			samples.push(sample);
+		},
+		measure: (props): ReturnType<typeof props.operation> => props.operation(),
+		flush: (): boolean => true,
+	};
+}
+
+async function waitForTelemetrySample(props: {
+	readonly name: string;
+	readonly samples: readonly BridgeTelemetrySample[];
+}): Promise<BridgeTelemetrySample> {
+	return waitForTelemetrySampleCount({
+		count: 1,
+		name: props.name,
+		samples: props.samples,
+	});
+}
+
+async function waitForTelemetrySampleCount(props: {
+	readonly count: number;
+	readonly name: string;
+	readonly samples: readonly BridgeTelemetrySample[];
+	readonly attempt?: number;
+}): Promise<BridgeTelemetrySample> {
+	const matchingSamples = props.samples.filter((sample): boolean => sample.name === props.name);
+	if (matchingSamples.length >= props.count) {
+		const sample = matchingSamples.at(props.count - 1);
+		if (sample === undefined) {
+			throw new Error(`Expected telemetry sample at index ${props.count - 1}.`);
+		}
+		return sample;
+	}
+	const attempt = props.attempt ?? 0;
+	if (attempt >= 60) {
+		throw new Error(
+			`Expected ${props.count} telemetry samples named ${props.name}; actual=${matchingSamples.length}`,
+		);
+	}
+	await waitForBridgeViewerAnimationFrame();
+	return waitForTelemetrySampleCount({
+		...props,
+		attempt: attempt + 1,
 	});
 }
 

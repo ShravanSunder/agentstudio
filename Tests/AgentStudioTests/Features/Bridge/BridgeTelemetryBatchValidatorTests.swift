@@ -32,13 +32,13 @@ struct BridgeTelemetryBatchValidatorTests {
                         sampled: true
                     ),
                     stringAttributes: [
-                        "agentstudio.bridge.intake.frame_kind": "review.snapshot",
+                        "agentstudio.bridge.intake.frame_kind": "review.metadataSnapshot",
                         "agentstudio.bridge.plane": "data",
                         "agentstudio.bridge.phase": "intake",
                         "agentstudio.bridge.priority": "cold",
                         "agentstudio.bridge.result": "success",
                         "agentstudio.bridge.result_reason": "none",
-                        "agentstudio.bridge.slice": "review_snapshot",
+                        "agentstudio.bridge.slice": "review_metadata",
                         "agentstudio.bridge.transport": "intake",
                     ],
                     numericAttributes: [
@@ -62,7 +62,7 @@ struct BridgeTelemetryBatchValidatorTests {
         )
         let packagePushBatch = batchWithWebSample(
             WebSampleProps(
-                name: "performance.bridge.web.package_apply",
+                name: "performance.bridge.web.push_apply",
                 phase: "apply",
                 plane: "data",
                 priority: "cold",
@@ -72,7 +72,7 @@ struct BridgeTelemetryBatchValidatorTests {
         )
         let deltaPushBatch = batchWithWebSample(
             WebSampleProps(
-                name: "performance.bridge.web.package_apply",
+                name: "performance.bridge.web.push_apply",
                 phase: "apply",
                 plane: "data",
                 priority: "warm",
@@ -96,7 +96,7 @@ struct BridgeTelemetryBatchValidatorTests {
                 phase: "render",
                 plane: "data",
                 priority: "hot",
-                slice: "review_snapshot",
+                slice: "review_metadata",
                 transport: "intake"
             )
         )
@@ -111,7 +111,7 @@ struct BridgeTelemetryBatchValidatorTests {
         )
         let packageApplyBatch = batchWithWebSample(
             WebSampleProps(
-                name: "performance.bridge.web.package_apply",
+                name: "performance.bridge.web.push_apply",
                 phase: "apply",
                 plane: "data",
                 priority: "cold",
@@ -138,7 +138,7 @@ struct BridgeTelemetryBatchValidatorTests {
                 slice: "diff_package_metadata",
                 transport: "intake",
                 extraStrings: [
-                    "agentstudio.bridge.intake.frame_kind": "review.snapshot",
+                    "agentstudio.bridge.intake.frame_kind": "review.metadataSnapshot",
                     "agentstudio.bridge.result": "success",
                     "agentstudio.bridge.result_reason": "none",
                 ],
@@ -159,19 +159,29 @@ struct BridgeTelemetryBatchValidatorTests {
         let validator = BridgeTelemetryBatchValidator(
             scopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web])
         )
-        let snapshotPackageApplyBatch = batchWithWebSample(
+        let snapshotIntakeApplyBatch = batchWithWebSample(
             WebSampleProps(
-                name: "performance.bridge.web.package_apply",
+                name: "performance.bridge.web.intake_apply",
                 phase: "apply",
                 plane: "data",
                 priority: "cold",
-                slice: "review_snapshot",
+                slice: "review_metadata",
+                transport: "intake"
+            )
+        )
+        let snapshotPackageApplyBatch = batchWithWebSample(
+            WebSampleProps(
+                name: "performance.bridge.web.push_apply",
+                phase: "apply",
+                plane: "data",
+                priority: "cold",
+                slice: "review_metadata",
                 transport: "intake"
             )
         )
         let deltaPackageApplyBatch = batchWithWebSample(
             WebSampleProps(
-                name: "performance.bridge.web.package_apply",
+                name: "performance.bridge.web.push_apply",
                 phase: "apply",
                 plane: "data",
                 priority: "warm",
@@ -179,9 +189,58 @@ struct BridgeTelemetryBatchValidatorTests {
                 transport: "intake"
             )
         )
+        let windowIntakeFrameBatch = batchWithWebSample(
+            WebSampleProps(
+                name: "performance.bridge.web.intake_frame",
+                phase: "intake",
+                plane: "data",
+                priority: "cold",
+                slice: "review_metadata",
+                transport: "intake",
+                extraStrings: [
+                    "agentstudio.bridge.intake.frame_kind": "review.metadataWindow",
+                    "agentstudio.bridge.result": "success",
+                    "agentstudio.bridge.result_reason": "none",
+                ],
+                extraNumbers: [
+                    "agentstudio.bridge.intake.generation": 1,
+                    "agentstudio.bridge.intake.sequence": 2,
+                ]
+            )
+        )
 
+        #expect(validator.validate(snapshotIntakeApplyBatch) == .accepted(snapshotIntakeApplyBatch))
         #expect(validator.validate(snapshotPackageApplyBatch) == .accepted(snapshotPackageApplyBatch))
         #expect(validator.validate(deltaPackageApplyBatch) == .accepted(deltaPackageApplyBatch))
+        #expect(validator.validate(windowIntakeFrameBatch) == .accepted(windowIntakeFrameBatch))
+    }
+
+    @Test
+    func validatorAcceptsUnknownReviewIntakeDropTelemetry() {
+        let validator = BridgeTelemetryBatchValidator(
+            scopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web])
+        )
+        let batch = batchWithWebSample(
+            WebSampleProps(
+                name: "performance.bridge.web.intake_frame",
+                phase: "intake",
+                plane: "data",
+                priority: "warm",
+                slice: "review_projection",
+                transport: "intake",
+                extraStrings: [
+                    "agentstudio.bridge.intake.frame_kind": "unknown",
+                    "agentstudio.bridge.result": "failed",
+                    "agentstudio.bridge.result_reason": "frame_decode_failed",
+                ],
+                extraNumbers: [
+                    "agentstudio.bridge.intake.generation": 0,
+                    "agentstudio.bridge.intake.sequence": 0,
+                ]
+            )
+        )
+
+        #expect(validator.validate(batch) == .accepted(batch))
     }
 
     @Test
@@ -242,6 +301,47 @@ struct BridgeTelemetryBatchValidatorTests {
     }
 
     @Test
+    func validatorAcceptsWorktreeFileContentFetchTelemetryWithTimingAttributes() {
+        let validator = BridgeTelemetryBatchValidator(
+            scopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web])
+        )
+        let batch = batchWithWebSample(
+            WebSampleProps(
+                name: "performance.bridge.web.content_fetch",
+                phase: "fetch",
+                plane: "data",
+                priority: "hot",
+                slice: "content_fetch",
+                transport: "content",
+                extraStrings: [
+                    "agentstudio.bridge.content.correlation_mode": "summary",
+                    "agentstudio.bridge.content.role": "file",
+                    "agentstudio.bridge.demand.lane": "foreground",
+                    "agentstudio.bridge.file_size_bucket": "small",
+                    "agentstudio.bridge.generation_relation": "current",
+                    "agentstudio.bridge.protocol": "worktree-file",
+                    "agentstudio.bridge.result": "success",
+                    "agentstudio.bridge.result_reason": "none",
+                    "agentstudio.bridge.viewer": "file",
+                ],
+                extraNumbers: [
+                    "agentstudio.bridge.content.byte_length": 2048,
+                    "agentstudio.bridge.content.estimated_bytes": 4096,
+                    "agentstudio.bridge.content.first_chunk_wait_ms": 4.5,
+                    "agentstudio.bridge.content.response_wait_ms": 3.25,
+                    "agentstudio.bridge.content.stream_read_ms": 9.75,
+                ],
+                extraBooleans: [
+                    "agentstudio.bridge.header_missing": true,
+                    "agentstudio.bridge.header_supported": false,
+                ]
+            )
+        )
+
+        #expect(validator.validate(batch) == .accepted(batch))
+    }
+
+    @Test
     func validatorAcceptsDemandContentQueueTelemetryWithInterestAttribute() {
         let validator = BridgeTelemetryBatchValidator(
             scopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web])
@@ -274,7 +374,7 @@ struct BridgeTelemetryBatchValidatorTests {
         )
         let batch = batchWithWebSample(
             WebSampleProps(
-                name: "performance.bridge.web.package_apply",
+                name: "performance.bridge.web.push_apply",
                 phase: "apply",
                 plane: "control",
                 priority: "hot",
@@ -285,7 +385,10 @@ struct BridgeTelemetryBatchValidatorTests {
 
         #expect(validator.validate(batch) == .accepted(batch))
     }
+}
 
+@Suite
+struct BridgeTelemetryBatchValidatorContractTests {
     @Test
     func validatorAcceptsViewerTelemetryContracts() {
         let validator = BridgeTelemetryBatchValidator(
@@ -335,6 +438,10 @@ struct BridgeTelemetryBatchValidatorTests {
         }
     }
 
+}
+
+@Suite
+struct BridgeTelemetryBatchValidatorSafetyTests {
     @Test
     func validatorRejectsEventInappropriateAuxiliaryAttributes() {
         let validator = BridgeTelemetryBatchValidator(
@@ -342,7 +449,7 @@ struct BridgeTelemetryBatchValidatorTests {
         )
         let packageApplyWithRPCClass = batchWithWebSample(
             WebSampleProps(
-                name: "performance.bridge.web.package_apply",
+                name: "performance.bridge.web.push_apply",
                 phase: "apply",
                 plane: "data",
                 priority: "cold",
@@ -390,7 +497,7 @@ struct BridgeTelemetryBatchValidatorTests {
             samples: [
                 BridgeTelemetrySample(
                     scope: .web,
-                    name: "performance.bridge.web.package_apply",
+                    name: "performance.bridge.web.push_apply",
                     durationMilliseconds: 2.5,
                     traceContext: nil,
                     stringAttributes: [
@@ -504,7 +611,7 @@ struct BridgeTelemetryBatchValidatorTests {
             samples: [
                 BridgeTelemetrySample(
                     scope: .web,
-                    name: "performance.bridge.web.package_apply",
+                    name: "performance.bridge.web.push_apply",
                     durationMilliseconds: nil,
                     traceContext: nil,
                     stringAttributes: [:],
@@ -553,7 +660,7 @@ struct BridgeTelemetryBatchValidatorTests {
             samples: [
                 BridgeTelemetrySample(
                     scope: .web,
-                    name: "performance.bridge.web.package_apply",
+                    name: "performance.bridge.web.push_apply",
                     durationMilliseconds: nil,
                     traceContext: nil,
                     stringAttributes: [
@@ -580,7 +687,7 @@ struct BridgeTelemetryBatchValidatorTests {
             samples: [
                 BridgeTelemetrySample(
                     scope: .web,
-                    name: "performance.bridge.web.package_apply",
+                    name: "performance.bridge.web.push_apply",
                     durationMilliseconds: nil,
                     traceContext: nil,
                     stringAttributes: [
@@ -643,7 +750,7 @@ struct BridgeTelemetryBatchValidatorTests {
         let samples = Array(
             repeating: BridgeTelemetrySample(
                 scope: .web,
-                name: "performance.bridge.web.package_apply",
+                name: "performance.bridge.web.push_apply",
                 durationMilliseconds: nil,
                 traceContext: nil,
                 stringAttributes: [:],
@@ -659,195 +766,5 @@ struct BridgeTelemetryBatchValidatorTests {
         )
 
         #expect(validator.validate(batch) == .dropped(.tooManySamples))
-    }
-
-    private var bridgeViewerTelemetryContractSamples: [BridgeTelemetrySample] {
-        [
-            viewerSample(
-                name: "performance.bridge.trees.projection_build",
-                phase: "projection_build",
-                priority: "warm",
-                slice: "review_projection",
-                transport: "worker",
-                extraStrings: [
-                    "agentstudio.bridge.fixture_class": "smoke",
-                    "agentstudio.bridge.item_count_bucket": "small",
-                    "agentstudio.bridge.projection.kind": "all_files",
-                    "agentstudio.bridge.result": "success",
-                    "agentstudio.bridge.tree_path_count_bucket": "small",
-                    "agentstudio.bridge.worker.lane": "none",
-                ]
-            ),
-            viewerSample(
-                name: "performance.bridge.viewer.content_queue",
-                phase: "content_queue",
-                priority: "hot",
-                slice: "content_fetch",
-                transport: "content",
-                extraStrings: [
-                    "agentstudio.bridge.content.interest": "visible",
-                    "agentstudio.bridge.content.priority": "visible",
-                    "agentstudio.bridge.content.role": "head",
-                    "agentstudio.bridge.queue.depth_bucket": "small",
-                    "agentstudio.bridge.result": "success",
-                ]
-            ),
-            viewerSample(
-                name: "performance.bridge.pierre.item_update",
-                phase: "item_update",
-                priority: "hot",
-                slice: "code_view_item",
-                transport: "swift",
-                extraStrings: [
-                    "agentstudio.bridge.item_count_bucket": "small",
-                    "agentstudio.bridge.item_update.kind": "hydrate",
-                    "agentstudio.bridge.result": "success",
-                ]
-            ),
-            viewerSample(
-                name: "performance.bridge.shiki.highlight",
-                phase: "highlight",
-                priority: "hot",
-                slice: "shiki_highlight",
-                transport: "worker",
-                extraStrings: [
-                    "agentstudio.bridge.content_bytes_bucket": "small",
-                    "agentstudio.bridge.language_class": "swift",
-                    "agentstudio.bridge.result": "success",
-                    "agentstudio.bridge.worker.lane": "pierre",
-                ]
-            ),
-            viewerSample(
-                name: "performance.bridge.worker.task",
-                phase: "worker_task",
-                priority: "warm",
-                slice: "worker_task",
-                transport: "worker",
-                extraStrings: [
-                    "agentstudio.bridge.item_count_bucket": "small",
-                    "agentstudio.bridge.result": "success",
-                    "agentstudio.bridge.worker.lane": "pierre",
-                    "agentstudio.bridge.worker.task_kind": "highlight",
-                ]
-            ),
-            viewerSample(
-                name: "performance.bridge.markdown.render_queue",
-                phase: "markdown_queue",
-                priority: "warm",
-                slice: "markdown_preview",
-                transport: "worker",
-                extraStrings: [
-                    "agentstudio.bridge.result": "queued",
-                    "agentstudio.bridge.worker.lane": "markdown",
-                ]
-            ),
-            viewerSample(
-                name: "performance.bridge.markdown.render",
-                phase: "markdown_render",
-                priority: "warm",
-                slice: "markdown_preview",
-                transport: "worker",
-                extraStrings: [
-                    "agentstudio.bridge.content_bytes_bucket": "small",
-                    "agentstudio.bridge.result": "success",
-                    "agentstudio.bridge.worker.lane": "markdown",
-                ],
-                extraNumbers: [
-                    "agentstudio.bridge.markdown.input_bytes": 120,
-                    "agentstudio.bridge.markdown.output_bytes": 240,
-                ]
-            ),
-            viewerSample(
-                name: "performance.bridge.markdown.fallback",
-                phase: "markdown_decision",
-                priority: "warm",
-                slice: "markdown_preview",
-                transport: "worker",
-                extraStrings: [
-                    "agentstudio.bridge.markdown.fallback_reason": "notMarkdown",
-                    "agentstudio.bridge.result": "fallback",
-                    "agentstudio.bridge.worker.lane": "markdown",
-                ]
-            ),
-            viewerSample(
-                name: "performance.bridge.worker.task",
-                phase: "worker_task",
-                priority: "warm",
-                slice: "worker_task",
-                transport: "worker",
-                extraStrings: [
-                    "agentstudio.bridge.item_count_bucket": "small",
-                    "agentstudio.bridge.result": "success",
-                    "agentstudio.bridge.worker.lane": "markdown",
-                    "agentstudio.bridge.worker.task_kind": "markdown_render",
-                ]
-            ),
-        ]
-    }
-
-    private struct WebSampleProps {
-        let name: String
-        let phase: String
-        let plane: String
-        let priority: String
-        let slice: String
-        let transport: String
-        var extraStrings: [String: String] = [:]
-        var extraNumbers: [String: Double] = [:]
-        var extraBooleans: [String: Bool] = [:]
-    }
-
-    private func batchWithWebSample(_ props: WebSampleProps) -> BridgeTelemetryBatch {
-        var stringAttributes = [
-            "agentstudio.bridge.phase": props.phase,
-            "agentstudio.bridge.plane": props.plane,
-            "agentstudio.bridge.priority": props.priority,
-            "agentstudio.bridge.slice": props.slice,
-            "agentstudio.bridge.transport": props.transport,
-        ]
-        stringAttributes.merge(props.extraStrings) { _, new in new }
-        return BridgeTelemetryBatch(
-            schemaVersion: 1,
-            scenario: "package_apply_content_fetch_v1",
-            samples: [
-                BridgeTelemetrySample(
-                    scope: .web,
-                    name: props.name,
-                    durationMilliseconds: nil,
-                    traceContext: nil,
-                    stringAttributes: stringAttributes,
-                    numericAttributes: props.extraNumbers,
-                    booleanAttributes: props.extraBooleans
-                )
-            ]
-        )
-    }
-
-    private func viewerSample(
-        name: String,
-        phase: String,
-        priority: String,
-        slice: String,
-        transport: String,
-        extraStrings: [String: String],
-        extraNumbers: [String: Double] = [:]
-    ) -> BridgeTelemetrySample {
-        var stringAttributes = [
-            "agentstudio.bridge.phase": phase,
-            "agentstudio.bridge.plane": "data",
-            "agentstudio.bridge.priority": priority,
-            "agentstudio.bridge.slice": slice,
-            "agentstudio.bridge.transport": transport,
-        ]
-        stringAttributes.merge(extraStrings) { _, new in new }
-        return BridgeTelemetrySample(
-            scope: .web,
-            name: name,
-            durationMilliseconds: 1,
-            traceContext: nil,
-            stringAttributes: stringAttributes,
-            numericAttributes: extraNumbers,
-            booleanAttributes: [:]
-        )
     }
 }
