@@ -69,7 +69,7 @@ struct AgentStudioOTLPTraceProjectionTests {
         let record = AgentStudioTraceRecord(
             timeUnixNano: 125,
             severityText: .info,
-            body: "performance.bridge.webkit.package_push",
+            body: "performance.bridge.webkit.push_envelope",
             traceID: "11111111111111111111111111111111",
             spanID: "2222222222222222",
             parentSpanID: "3333333333333333",
@@ -84,10 +84,10 @@ struct AgentStudioOTLPTraceProjectionTests {
                 "agentstudio.bridge.header_supported": .bool(true),
                 "agentstudio.bridge.item_id": .string("private-item-id"),
                 historicalBridgeLane: .string("warm"),
-                "agentstudio.bridge.phase": .string("package_push"),
+                "agentstudio.bridge.phase": .string("transport"),
                 "agentstudio.bridge.plane": .string("data"),
                 "agentstudio.bridge.priority": .string("cold"),
-                "agentstudio.bridge.slice": .string("review_snapshot"),
+                "agentstudio.bridge.slice": .string("review_metadata"),
                 "agentstudio.bridge.transport": .string("push"),
                 "agentstudio.performance.elapsed_ms": .double(4.25),
                 "agentstudio.trace.tag": .string("bridge.performance.webkit"),
@@ -104,10 +104,10 @@ struct AgentStudioOTLPTraceProjectionTests {
         #expect(projection.attributes["agentstudio.bridge.content.line_count_bucket"] == .int(500))
         #expect(projection.attributes["agentstudio.bridge.header_supported"] == .bool(true))
         #expect(projection.attributes[historicalBridgeLane] == nil)
-        #expect(projection.attributes["agentstudio.bridge.phase"] == .string("package_push"))
+        #expect(projection.attributes["agentstudio.bridge.phase"] == .string("transport"))
         #expect(projection.attributes["agentstudio.bridge.plane"] == .string("data"))
         #expect(projection.attributes["agentstudio.bridge.priority"] == .string("cold"))
-        #expect(projection.attributes["agentstudio.bridge.slice"] == .string("review_snapshot"))
+        #expect(projection.attributes["agentstudio.bridge.slice"] == .string("review_metadata"))
         #expect(projection.attributes["agentstudio.bridge.transport"] == .string("push"))
         #expect(projection.attributes["agentstudio.performance.elapsed_ms"] == .double(4.25))
         #expect(projection.attributes["agentstudio.bridge.item_id"] == nil)
@@ -119,7 +119,7 @@ struct AgentStudioOTLPTraceProjectionTests {
         let record = AgentStudioTraceRecord(
             timeUnixNano: 126,
             severityText: .info,
-            body: "performance.bridge.webkit.package_push",
+            body: "performance.bridge.webkit.push_envelope",
             traceID: nil,
             spanID: nil,
             parentSpanID: nil,
@@ -139,7 +139,7 @@ struct AgentStudioOTLPTraceProjectionTests {
         let projection = AgentStudioOTLPTraceProjection.project(record)
         let renderedProjection = projection.renderedForCanaryAssertions()
 
-        #expect(projection.attributes["agentstudio.bridge.phase"] == .string("package_push"))
+        #expect(projection.attributes["agentstudio.bridge.phase"] == nil)
         #expect(projection.attributes["agentstudio.bridge.plane"] == nil)
         #expect(projection.attributes["agentstudio.bridge.priority"] == nil)
         #expect(projection.attributes["agentstudio.bridge.slice"] == nil)
@@ -153,7 +153,7 @@ struct AgentStudioOTLPTraceProjectionTests {
         let record = AgentStudioTraceRecord(
             timeUnixNano: 126,
             severityText: .info,
-            body: "performance.bridge.web.package_apply",
+            body: "performance.bridge.web.push_apply",
             traceID: "00000000000000000000000000000000",
             spanID: "not-a-span",
             parentSpanID: "0000000000000000",
@@ -694,13 +694,40 @@ struct AgentStudioOTLPTraceProjectionTests {
             "agentstudio.startup_diagnostic.bridge.diff_container.shadow_child.count": .int(3),
             "agentstudio.startup_diagnostic.bridge.diff_container.width_px": .int(1260),
             "agentstudio.startup_diagnostic.bridge.page_issue.count": .int(2),
+            "agentstudio.startup_diagnostic.bridge.review_canvas.branch": .string("code"),
+            "agentstudio.startup_diagnostic.bridge.review_metadata.converged": .bool(true),
             "agentstudio.startup_diagnostic.bridge.review_shell.visible": .bool(true),
+            "agentstudio.startup_diagnostic.bridge.review_shell.selected_content.state": .string("failed"),
+            "agentstudio.startup_diagnostic.bridge.review_shell.selected_path.visible": .bool(true),
+            "agentstudio.startup_diagnostic.bridge.review_tree_click.rendered_row.count": .int(22),
+            "agentstudio.startup_diagnostic.bridge.review_tree_click.target_row.index": .int(21),
+            "agentstudio.startup_diagnostic.bridge.review_tree_click.target_row.visible": .bool(true),
+            "agentstudio.startup_diagnostic.bridge.review_tree_click.click_attempt.count": .int(1),
+            "agentstudio.startup_diagnostic.bridge.review_tree_click.selected_matches_target": .bool(true),
+            "agentstudio.startup_diagnostic.bridge.modified_click.filter_requested": .bool(true),
+            "agentstudio.startup_diagnostic.bridge.modified_click.click_attempt.count": .int(2),
+            "agentstudio.startup_diagnostic.bridge.modified_click.target_found": .bool(true),
+            "agentstudio.startup_diagnostic.bridge.modified_click.first_rendered_present": .bool(true),
+            "agentstudio.startup_diagnostic.bridge.modified_click.selected_matches_target": .bool(true),
+            "agentstudio.startup_diagnostic.bridge.modified_click.shell_selected_matches_target": .bool(true),
+            "agentstudio.startup_diagnostic.bridge.modified_click.rendered_row.count": .int(2),
+            "agentstudio.startup_diagnostic.bridge.modified_click.set_filter.reason": .string("none"),
+            "agentstudio.startup_diagnostic.bridge.modified_click.set_filter.status": .string("accepted"),
+            "agentstudio.startup_diagnostic.bridge.modified_click.selected_content.cache_keys_present": .bool(true),
             "agentstudio.startup_diagnostic.bridge.selected_content.state": .string("ready"),
             "agentstudio.startup_diagnostic.bridge.selected_content.visible": .bool(false),
+            "agentstudio.startup_diagnostic.bridge.selected_content.cache_keys_present": .bool(true),
             "agentstudio.startup_diagnostic.bridge.selected_content_cache_key.count": .int(2),
             "agentstudio.startup_diagnostic.bridge.selected_content_character.count": .int(180),
             "agentstudio.startup_diagnostic.bridge.selected_content_line.count": .int(12),
             "agentstudio.startup_diagnostic.bridge.selected_content_role.count": .int(2),
+            "agentstudio.startup_diagnostic.bridge.selected_demand.deferred.count": .int(0),
+            "agentstudio.startup_diagnostic.bridge.selected_demand.failed.count": .int(1),
+            "agentstudio.startup_diagnostic.bridge.selected_demand.loaded.count": .int(0),
+            "agentstudio.startup_diagnostic.bridge.selected_demand.load_failure.kind": .string(
+                "integrity_mismatch"),
+            "agentstudio.startup_diagnostic.bridge.selected_demand.result.reason": .string("descriptor_missing"),
+            "agentstudio.startup_diagnostic.bridge.selected_demand.result.status": .string("failed"),
             "agentstudio.startup_diagnostic.bridge.selected_materialized.addition_line.count": .int(4),
             "agentstudio.startup_diagnostic.bridge.selected_materialized.deletion_line.count": .int(2),
             "agentstudio.startup_diagnostic.bridge.selected_materialized.file_line.count": .int(0),

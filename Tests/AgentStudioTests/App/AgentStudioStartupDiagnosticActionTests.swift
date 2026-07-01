@@ -72,6 +72,56 @@ struct AgentStudioStartupDiagnosticActionTests {
         #expect(action.commandName == "bridgeReviewObservabilitySmoke")
     }
 
+    @Test("startup diagnostic action parses bridge file view observability smoke command")
+    func parsesBridgeFileViewObservabilitySmokeCommand() throws {
+        let action = try #require(
+            AgentStudioStartupDiagnosticAction.fromEnvironment([
+                AgentStudioStartupDiagnosticAction.environmentKey: " bridge-file-view-observability-smoke "
+            ]))
+
+        #expect(action.kind == .bridgeFileViewObservabilitySmoke)
+        #expect(action.commandName == "bridgeFileViewObservabilitySmoke")
+        #expect(action.suppressesAutomaticLaunchPaneRestore)
+    }
+
+    @Test("startup diagnostic action parses bridge review to file view observability smoke command")
+    func parsesBridgeReviewToFileViewObservabilitySmokeCommand() throws {
+        let action = try #require(
+            AgentStudioStartupDiagnosticAction.fromEnvironment([
+                AgentStudioStartupDiagnosticAction.environmentKey: " bridge-review-to-file-view-observability-smoke "
+            ]))
+
+        #expect(action.kind == .bridgeReviewToFileViewObservabilitySmoke)
+        #expect(action.commandName == "bridgeReviewToFileViewObservabilitySmoke")
+        #expect(action.suppressesAutomaticLaunchPaneRestore)
+    }
+
+    @Test("startup diagnostic action parses bridge file view command route observability smoke command")
+    func parsesBridgeFileViewCommandRouteObservabilitySmokeCommand() throws {
+        let action = try #require(
+            AgentStudioStartupDiagnosticAction.fromEnvironment([
+                AgentStudioStartupDiagnosticAction.environmentKey:
+                    " bridge-file-view-command-route-observability-smoke "
+            ]))
+
+        #expect(action.kind == .bridgeFileViewCommandRouteObservabilitySmoke)
+        #expect(action.commandName == "bridgeFileViewCommandRouteObservabilitySmoke")
+        #expect(action.suppressesAutomaticLaunchPaneRestore)
+    }
+
+    @Test("startup diagnostic action parses bridge file view targeted route observability smoke command")
+    func parsesBridgeFileViewTargetedRouteObservabilitySmokeCommand() throws {
+        let action = try #require(
+            AgentStudioStartupDiagnosticAction.fromEnvironment([
+                AgentStudioStartupDiagnosticAction.environmentKey:
+                    " bridge-file-view-targeted-route-observability-smoke "
+            ]))
+
+        #expect(action.kind == .bridgeFileViewTargetedRouteObservabilitySmoke)
+        #expect(action.commandName == "bridgeFileViewTargetedRouteObservabilitySmoke")
+        #expect(action.suppressesAutomaticLaunchPaneRestore)
+    }
+
     @Test("startup diagnostic action parses add watch folder command and path")
     func parsesAddWatchFolderCommandAndPath() throws {
         let action = try #require(
@@ -132,90 +182,7 @@ struct AgentStudioStartupDiagnosticActionTests {
 
     @Test("Bridge smoke render proof requires hydrated selected content")
     func bridgeSmokeRenderProofRequiresHydratedSelectedContent() {
-        let proof = BridgeReviewObservabilitySmokeRenderProof(
-            expectedVisiblePaneCount: 1,
-            hasReviewShell: true,
-            hasCodeViewPanel: true,
-            hasSelectedItem: true,
-            hasSelectedDisplayPath: true,
-            hasSelectedContentText: true,
-            selectedContentState: "ready",
-            selectedContentRoleCount: 2,
-            selectedContentCacheKeyCount: 2,
-            selectedContentCharacterCount: 180,
-            selectedContentLineCount: 12,
-            selectedMaterializedUpdateResult: "updated",
-            selectedMaterializedItemType: "diff",
-            selectedMaterializedItemVersion: 3,
-            selectedMaterializedAdditionLineCount: 4,
-            selectedMaterializedDeletionLineCount: 2,
-            selectedMaterializedFileLineCount: 0,
-            pageErrorCount: 0,
-            diffContainerCount: 1,
-            codeLineCount: 4,
-            codeViewPanelWidth: 900,
-            codeViewPanelHeight: 700,
-            firstDiffContainerWidth: 880,
-            firstDiffContainerHeight: 600,
-            codeViewScrollOwnerHeight: 700,
-            codeViewScrollOwnerScrollHeight: 1200,
-            codeViewScrollOwnerChildCount: 1,
-            codeViewScrollOwnerFirstChildTag: "diffs-container",
-            codeViewInstanceHeight: 700,
-            codeViewInstanceScrollHeight: 1200,
-            codeViewInstanceItemCount: 1,
-            codeViewInstanceWindowTop: 0,
-            codeViewInstanceWindowBottom: 700,
-            codeViewInstanceFirstRenderedIndex: 0,
-            codeViewInstanceLastRenderedIndex: 0,
-            codeViewInstanceFirstItemHeight: 600,
-            codeViewInstanceFirstItemTop: 0,
-            codeViewRenderedItemCount: 1,
-            codeViewRenderedItemElementHeight: 600,
-            codeViewRenderedItemElementChildCount: 1,
-            codeViewRenderedItemElementFirstChildTag: "diffs-container",
-            codeViewRenderedItemType: "diff",
-            codeViewRenderedItemVersion: 3,
-            firstDiffContainerShadowChildCount: 3,
-            firstDiffContainerPreCount: 1,
-            firstDiffContainerOffsetHeight: 600,
-            firstDiffContainerScrollHeight: 1200,
-            firstDiffContainerPreHeight: 560,
-            firstDiffContainerPreTextLength: 88,
-            codeLineWithDataLineCount: 4,
-            firstDiffContainerDisplay: "block",
-            workerPoolState: "ready",
-            workerPoolManagerState: "initialized",
-            workerPoolWorkersFailed: false,
-            workerPoolTotalWorkers: 2,
-            workerPoolBusyWorkers: 0,
-            workerPoolQueuedTasks: 0,
-            workerPoolActiveTasks: 0,
-            workerPoolFileCacheSize: 1,
-            workerPoolDiffCacheSize: 1,
-            workerPoolInitializationProbeStage: "idle",
-            workerPoolInitializationProbeThemeCount: 0,
-            workerPoolInitializationProbeLanguageCount: 0,
-            workerPoolInitializationProbeFailureReason: "",
-            workerDiagnosticBootstrapState: "started",
-            workerDiagnosticInitializeRequestIdState: "present",
-            workerDiagnosticLastMessageType: "success",
-            workerDiagnosticLastRequestType: "initialize",
-            workerDiagnosticLastSuccessMatchesInitializeRequest: "yes",
-            workerDiagnosticLastSuccessIdState: "present",
-            workerDiagnosticLastSuccessIdPrefix: "req",
-            workerDiagnosticLastSuccessRequestType: "diff",
-            workerDiagnosticSuccessCount: 2,
-            workerDiagnosticInitializeSuccessCount: 1,
-            workerDiagnosticDiffSuccessCount: 1,
-            workerDiagnosticFileSuccessCount: 0,
-            workerDiagnosticForwardedMessageCount: 2,
-            workerDiagnosticLastForwardResult: "ok",
-            workerDiagnosticErrorCount: 0,
-            workerDiagnosticLastErrorKind: "none",
-            codeTextLength: 120,
-            codeShadowTextLength: 88
-        )
+        let proof = makeFullyHydratedBridgeSmokeRenderProof()
 
         #expect(proof.succeeded)
         assertHydratedBridgeContentAttributes(proof.attributes)
@@ -224,14 +191,260 @@ struct AgentStudioStartupDiagnosticActionTests {
         #expect(proof.attributes["agentstudio.startup_diagnostic.render_proof.succeeded"] == .bool(true))
     }
 
+    @Test("Bridge smoke render proof fails before streamed review metadata converges")
+    func bridgeSmokeRenderProofFailsBeforeStreamedReviewMetadataConverges() {
+        let proof = makeHydratedBridgeSmokeRenderProof(
+            HydratedBridgeSmokeRenderProofOptions(
+                expectedReviewItemCount: 3,
+                reviewMetadataItemCount: 2,
+                reviewMetadataTreeRowCount: 3,
+                selectedContentLineCount: 7,
+                codeLineCount: 0,
+                firstDiffContainerHeight: 0,
+                firstDiffContainerPreTextLength: 0,
+                codeViewInstanceFirstItemHeight: 152,
+                codeViewRenderedItemCount: 1,
+                codeViewRenderedItemType: "diff",
+                codeViewRenderedItemVersion: 5,
+                codeTextLength: 1471,
+                codeShadowTextLength: 1466
+            )
+        )
+
+        #expect(!proof.succeeded)
+        #expect(proof.attributes["agentstudio.startup_diagnostic.bridge.review_expected_item.count"] == .int(3))
+        #expect(proof.attributes["agentstudio.startup_diagnostic.bridge.review_metadata_item.count"] == .int(2))
+        #expect(proof.attributes["agentstudio.startup_diagnostic.bridge.review_metadata_tree_row.count"] == .int(3))
+        #expect(proof.attributes["agentstudio.startup_diagnostic.render_proof.succeeded"] == .bool(false))
+    }
+
+    @Test("Bridge smoke render proof fails before Review tree scroll stress converges")
+    func bridgeSmokeRenderProofFailsBeforeReviewTreeScrollStressConverges() {
+        var proof = makeHydratedBridgeSmokeRenderProof(
+            HydratedBridgeSmokeRenderProofOptions(
+                expectedReviewItemCount: 3,
+                reviewMetadataItemCount: 3,
+                reviewMetadataTreeRowCount: 4,
+                selectedContentLineCount: 7,
+                codeLineCount: 0,
+                firstDiffContainerHeight: 0,
+                firstDiffContainerPreTextLength: 0,
+                codeViewInstanceFirstItemHeight: 152,
+                codeViewRenderedItemCount: 1,
+                codeViewRenderedItemType: "diff",
+                codeViewRenderedItemVersion: 5,
+                codeTextLength: 1471,
+                codeShadowTextLength: 1466
+            )
+        )
+        proof.reviewTreeScrollStressCount = 0
+        proof.reviewTreeScrollStressReachedBottom = false
+        proof.reviewTreeClientHeight = 480
+        proof.reviewTreeScrollHeight = 1200
+
+        #expect(!proof.succeeded)
+        #expect(proof.attributes["agentstudio.startup_diagnostic.bridge.review_tree_scroll_stress.count"] == .int(0))
+        #expect(
+            proof.attributes["agentstudio.startup_diagnostic.bridge.review_tree_scroll_stress.reached_bottom"]
+                == .bool(false))
+    }
+
+    @Test("Bridge smoke render proof fails before Review tree scroll click converges")
+    func bridgeSmokeRenderProofFailsBeforeReviewTreeScrollClickConverges() {
+        var proof = makeHydratedBridgeSmokeRenderProof(
+            HydratedBridgeSmokeRenderProofOptions(
+                expectedReviewItemCount: 3,
+                reviewMetadataItemCount: 3,
+                reviewMetadataTreeRowCount: 4,
+                selectedContentLineCount: 7,
+                codeLineCount: 0,
+                firstDiffContainerHeight: 0,
+                firstDiffContainerPreTextLength: 0,
+                codeViewInstanceFirstItemHeight: 152,
+                codeViewRenderedItemCount: 1,
+                codeViewRenderedItemType: "diff",
+                codeViewRenderedItemVersion: 5,
+                codeTextLength: 1471,
+                codeShadowTextLength: 1466
+            )
+        )
+        proof.reviewTreeClickTargetPath = "Sources/App/ClickedAfterScroll.swift"
+        proof.reviewTreeClickCurrentSelectedPath = ""
+        proof.reviewTreeClickCurrentSelectedItemId = ""
+        proof.reviewTreeClickShellSelectedPath = ""
+        proof.reviewTreeClickRenderedRowCount = 0
+        proof.reviewTreeClickTargetRowIndex = -1
+        proof.reviewTreeClickTargetRowVisible = false
+        proof.reviewTreeClickAttemptCount = 0
+        proof.reviewTreeClickSelectedPath = ""
+        proof.reviewTreeClickSelectedContentState = "missing"
+        proof.reviewTreeClickSelectedMaterializedItemType = "missing"
+        proof.reviewTreeClickSelectedMaterializedItemVersion = 0
+        proof.reviewTreeClickSelectedCharacterCount = 0
+
+        #expect(!proof.succeeded)
+        #expect(
+            proof.attributes["agentstudio.startup_diagnostic.bridge.review_tree_click.current_selected_path"]
+                == .string(""))
+        #expect(
+            proof.attributes["agentstudio.startup_diagnostic.bridge.review_tree_click.rendered_row.count"]
+                == .int(0))
+        #expect(
+            proof.attributes["agentstudio.startup_diagnostic.bridge.review_tree_click.selected_content_state"]
+                == .string("missing"))
+    }
+
+    @Test("Bridge smoke render proof fails before a modified review item click converges")
+    func bridgeSmokeRenderProofFailsBeforeModifiedReviewItemClickConverges() {
+        var proof = makeHydratedBridgeSmokeRenderProof(
+            HydratedBridgeSmokeRenderProofOptions(
+                expectedReviewItemCount: 3,
+                reviewMetadataItemCount: 3,
+                reviewMetadataTreeRowCount: 4,
+                selectedContentLineCount: 7,
+                codeLineCount: 0,
+                firstDiffContainerHeight: 0,
+                firstDiffContainerPreTextLength: 0,
+                codeViewInstanceFirstItemHeight: 152,
+                codeViewRenderedItemCount: 1,
+                codeViewRenderedItemType: "diff",
+                codeViewRenderedItemVersion: 5,
+                codeTextLength: 1471,
+                codeShadowTextLength: 1466
+            )
+        )
+        proof.modifiedClickTargetPath = ""
+        proof.modifiedClickSelectedPath = ""
+        proof.modifiedClickSelectedChangeKind = "missing"
+        proof.modifiedClickSelectedContentState = "missing"
+        proof.modifiedClickSelectedContentRoles = ""
+        proof.modifiedClickSelectedContentCacheKeys = ""
+        proof.modifiedClickSelectedMaterializedItemType = "missing"
+        proof.modifiedClickSelectedMaterializedItemVersion = 0
+        proof.modifiedClickSelectedCharacterCount = 0
+
+        #expect(!proof.succeeded)
+    }
+
+    @Test("Bridge smoke render proof reports modified click targeting diagnostics")
+    func bridgeSmokeRenderProofReportsModifiedClickTargetingDiagnostics() {
+        var proof = makeHydratedBridgeSmokeRenderProof(
+            HydratedBridgeSmokeRenderProofOptions(
+                expectedReviewItemCount: 3,
+                reviewMetadataItemCount: 3,
+                reviewMetadataTreeRowCount: 4,
+                selectedContentLineCount: 7,
+                codeLineCount: 0,
+                firstDiffContainerHeight: 0,
+                firstDiffContainerPreTextLength: 0,
+                codeViewInstanceFirstItemHeight: 152,
+                codeViewRenderedItemCount: 1,
+                codeViewRenderedItemType: "diff",
+                codeViewRenderedItemVersion: 5,
+                codeTextLength: 1471,
+                codeShadowTextLength: 1466
+            )
+        )
+        proof.modifiedClickFilterRequested = true
+        proof.modifiedClickRenderedRowCount = 2
+        proof.modifiedClickFirstRenderedPath = "Sources/App/Modified.swift"
+        proof.modifiedClickSetFilterStatus = "accepted"
+        proof.modifiedClickSetFilterReason = "none"
+
+        #expect(
+            proof.attributes["agentstudio.startup_diagnostic.bridge.modified_click.filter_requested"]
+                == .bool(true))
+        #expect(
+            proof.attributes["agentstudio.startup_diagnostic.bridge.modified_click.rendered_row.count"]
+                == .int(2))
+        #expect(
+            proof.attributes["agentstudio.startup_diagnostic.bridge.modified_click.first_rendered_path"]
+                == .string("Sources/App/Modified.swift"))
+        #expect(
+            proof.attributes["agentstudio.startup_diagnostic.bridge.modified_click.set_filter.status"]
+                == .string("accepted"))
+        #expect(
+            proof.attributes["agentstudio.startup_diagnostic.bridge.modified_click.set_filter.reason"]
+                == .string("none"))
+    }
+
+    @Test("Bridge smoke render proof allows context switch fetch aborts after modified review content converges")
+    func bridgeSmokeRenderProofAllowsContextSwitchFetchAbortsAfterModifiedReviewContentConverges() {
+        let proof = makeHydratedBridgeSmokeRenderProof(
+            HydratedBridgeSmokeRenderProofOptions(
+                expectedReviewItemCount: 3,
+                reviewMetadataItemCount: 3,
+                reviewMetadataTreeRowCount: 4,
+                selectedContentLineCount: 7,
+                pageErrorCount: 1,
+                pageIssueLastKind: "fetch_error",
+                pageIssueLastClass: "context_switch_fetch_aborted",
+                pageIssueDisallowedCount: 0,
+                codeLineCount: 0,
+                firstDiffContainerHeight: 0,
+                firstDiffContainerPreTextLength: 0,
+                codeViewInstanceFirstItemHeight: 152,
+                codeViewRenderedItemCount: 1,
+                codeViewRenderedItemType: "diff",
+                codeViewRenderedItemVersion: 5,
+                codeTextLength: 1471,
+                codeShadowTextLength: 1466
+            )
+        )
+
+        #expect(proof.succeeded)
+    }
+
+    @Test("Bridge smoke render proof fails when a real page issue is masked by a later abort")
+    func bridgeSmokeRenderProofFailsWhenRealPageIssueIsMaskedByLaterAbort() {
+        let proof = makeHydratedBridgeSmokeRenderProof(
+            HydratedBridgeSmokeRenderProofOptions(
+                expectedReviewItemCount: 3,
+                reviewMetadataItemCount: 3,
+                reviewMetadataTreeRowCount: 4,
+                selectedContentLineCount: 7,
+                pageErrorCount: 2,
+                pageIssueLastKind: "fetch_error",
+                pageIssueLastClass: "context_switch_fetch_aborted",
+                pageIssueDisallowedCount: 1,
+                codeLineCount: 0,
+                firstDiffContainerHeight: 0,
+                firstDiffContainerPreTextLength: 0,
+                codeViewInstanceFirstItemHeight: 152,
+                codeViewRenderedItemCount: 1,
+                codeViewRenderedItemType: "diff",
+                codeViewRenderedItemVersion: 5,
+                codeTextLength: 1471,
+                codeShadowTextLength: 1466
+            )
+        )
+
+        #expect(!proof.succeeded)
+        #expect(
+            proof.attributes["agentstudio.startup_diagnostic.bridge.page_issue.disallowed.count"] == .int(1))
+    }
+
+    @Test("Bridge smoke render proof requires native review intake lineage")
+    func bridgeSmokeRenderProofRequiresNativeReviewIntakeLineage() {
+        let proof = makeBridgeSmokeRenderProofWithoutNativeReviewIntakeLineage()
+
+        #expect(!proof.succeeded)
+        #expect(
+            proof.attributes["agentstudio.startup_diagnostic.bridge.review_intake_ready_command.count"] == .int(0))
+    }
+
     @Test("Bridge smoke render proof fails before selected content is visible")
     func bridgeSmokeRenderProofFailsBeforeSelectedContentIsVisible() {
         let proof = BridgeReviewObservabilitySmokeRenderProof(
             expectedVisiblePaneCount: 1,
+            expectedReviewItemCount: 3,
             hasReviewShell: true,
+            reviewShellState: "ready",
             hasCodeViewPanel: true,
             hasSelectedItem: true,
             hasSelectedDisplayPath: true,
+            reviewMetadataItemCount: 3,
+            reviewMetadataTreeRowCount: 3,
             hasSelectedContentText: false,
             selectedContentState: "pending",
             selectedContentRoleCount: 0,
@@ -245,6 +458,8 @@ struct AgentStudioStartupDiagnosticActionTests {
             selectedMaterializedDeletionLineCount: 0,
             selectedMaterializedFileLineCount: 0,
             pageErrorCount: 0,
+            pageIssueLastKind: "none",
+            pageIssueLastClass: "none",
             diffContainerCount: 1,
             codeLineCount: 0,
             codeViewPanelWidth: 900,
@@ -329,7 +544,7 @@ struct AgentStudioStartupDiagnosticActionTests {
         #expect(probe.contains("selectedContentRoleCount > 0"))
         #expect(probe.contains("selectedContentCacheKeyCount > 0"))
         #expect(probe.contains("selectedContentCharacterCount > 0"))
-        #expect(probe.contains("selectedContentLineCount > 0"))
+        #expect(!probe.contains("selectedContentLineCount > 0"))
         #expect(probe.contains("selectedMaterializedLineCount > 0"))
         #expect(probe.contains("codeText.length > 0"))
         #expect(probe.contains("codeViewShadowText.length > 0"))
@@ -339,6 +554,20 @@ struct AgentStudioStartupDiagnosticActionTests {
         #expect(probe.contains("codeViewInstanceFirstRenderedIndex"))
         #expect(probe.contains("codeViewInstanceFirstItemHeight"))
         #expect(probe.contains("getRenderedItems"))
+        #expect(probe.contains("reviewShellState"))
+        #expect(probe.contains("bridge-review-projection-pending-shell"))
+        #expect(probe.contains("bridge-review-projection-failed-shell"))
+        #expect(probe.contains("pageIssueLastKind"))
+        #expect(probe.contains("pageIssueLastClass"))
+        #expect(probe.contains("pageIssueDisallowedCount"))
+        #expect(probe.contains("__bridgeCommandProbe"))
+        #expect(probe.contains("__bridgeIntakeReadyCommandProbe"))
+        #expect(probe.contains("__bridgeIntakeProbe"))
+        #expect(probe.contains("reviewIntakeReadyCommandCount"))
+        #expect(probe.contains("reviewIntakeSnapshotFrameCount"))
+        #expect(probe.contains("classifyPageIssue"))
+        #expect(probe.contains("modifiedClickAttemptCount"))
+        #expect(probe.contains("clickAttemptCount: modifiedClickAttemptCount"))
         #expect(probe.contains("codeViewRenderedItemElementHeight"))
         #expect(probe.contains("codeViewRenderedItemElementFirstChildTag"))
         #expect(probe.contains("firstDiffContainerPreCount"))
@@ -380,10 +609,14 @@ struct AgentStudioStartupDiagnosticActionTests {
     func bridgeSmokeRenderProofRequiresPositiveRenderedLineGeometry() {
         let proof = BridgeReviewObservabilitySmokeRenderProof(
             expectedVisiblePaneCount: 1,
+            expectedReviewItemCount: 3,
             hasReviewShell: true,
+            reviewShellState: "ready",
             hasCodeViewPanel: true,
             hasSelectedItem: true,
             hasSelectedDisplayPath: true,
+            reviewMetadataItemCount: 3,
+            reviewMetadataTreeRowCount: 3,
             hasSelectedContentText: true,
             selectedContentState: "ready",
             selectedContentRoleCount: 2,
@@ -397,6 +630,8 @@ struct AgentStudioStartupDiagnosticActionTests {
             selectedMaterializedDeletionLineCount: 2,
             selectedMaterializedFileLineCount: 0,
             pageErrorCount: 0,
+            pageIssueLastKind: "none",
+            pageIssueLastClass: "none",
             diffContainerCount: 1,
             codeLineCount: 0,
             codeViewPanelWidth: 900,
@@ -470,6 +705,10 @@ struct AgentStudioStartupDiagnosticActionTests {
     func bridgeSmokeRenderProofAcceptsCurrentPierreRenderedTextEvidence() {
         let proof = makeHydratedBridgeSmokeRenderProof(
             HydratedBridgeSmokeRenderProofOptions(
+                expectedReviewItemCount: 3,
+                reviewMetadataItemCount: 3,
+                reviewMetadataTreeRowCount: 3,
+                selectedContentLineCount: 7,
                 codeLineCount: 0,
                 firstDiffContainerHeight: 0,
                 firstDiffContainerPreTextLength: 0,
@@ -483,6 +722,31 @@ struct AgentStudioStartupDiagnosticActionTests {
         )
 
         #expect(proof.succeeded)
+    }
+
+    @Test("Bridge smoke render proof accepts native ready content with zero selected line metadata")
+    func bridgeSmokeRenderProofAcceptsNativeReadyContentWithZeroSelectedLineMetadata() {
+        let proof = makeHydratedBridgeSmokeRenderProof(
+            HydratedBridgeSmokeRenderProofOptions(
+                expectedReviewItemCount: 3,
+                reviewMetadataItemCount: 3,
+                reviewMetadataTreeRowCount: 3,
+                selectedContentLineCount: 0,
+                codeLineCount: 0,
+                firstDiffContainerHeight: 0,
+                firstDiffContainerPreTextLength: 0,
+                codeViewInstanceFirstItemHeight: 112,
+                codeViewRenderedItemCount: 1,
+                codeViewRenderedItemType: "diff",
+                codeViewRenderedItemVersion: 5,
+                codeTextLength: 193,
+                codeShadowTextLength: 188
+            )
+        )
+
+        #expect(proof.succeeded)
+        #expect(
+            proof.attributes["agentstudio.startup_diagnostic.bridge.selected_content_line.count"] == .int(0))
     }
 
     @Test("startup diagnostic finite frame check rejects invalid bounds")
@@ -629,105 +893,4 @@ private func assertHydratedBridgeWorkerAttributes(
     #expect(attributes["agentstudio.startup_diagnostic.bridge.worker_diagnostic.last_forward_result"] == .string("ok"))
     #expect(attributes["agentstudio.startup_diagnostic.bridge.worker_diagnostic.failure_count"] == .int(0))
     #expect(attributes["agentstudio.startup_diagnostic.bridge.worker_diagnostic.last_failure_kind"] == .string("none"))
-}
-
-private struct HydratedBridgeSmokeRenderProofOptions {
-    let codeLineCount: Int
-    let firstDiffContainerHeight: Int
-    let firstDiffContainerPreTextLength: Int
-    let codeViewInstanceFirstItemHeight: Int
-    let codeViewRenderedItemCount: Int
-    let codeViewRenderedItemType: String
-    let codeViewRenderedItemVersion: Int
-    let codeTextLength: Int
-    let codeShadowTextLength: Int
-}
-
-private func makeHydratedBridgeSmokeRenderProof(
-    _ options: HydratedBridgeSmokeRenderProofOptions
-) -> BridgeReviewObservabilitySmokeRenderProof {
-    BridgeReviewObservabilitySmokeRenderProof(
-        expectedVisiblePaneCount: 1,
-        hasReviewShell: true,
-        hasCodeViewPanel: true,
-        hasSelectedItem: true,
-        hasSelectedDisplayPath: true,
-        hasSelectedContentText: true,
-        selectedContentState: "ready",
-        selectedContentRoleCount: 2,
-        selectedContentCacheKeyCount: 2,
-        selectedContentCharacterCount: 135,
-        selectedContentLineCount: 7,
-        selectedMaterializedUpdateResult: "updated",
-        selectedMaterializedItemType: "diff",
-        selectedMaterializedItemVersion: 5,
-        selectedMaterializedAdditionLineCount: 4,
-        selectedMaterializedDeletionLineCount: 3,
-        selectedMaterializedFileLineCount: 0,
-        pageErrorCount: 0,
-        diffContainerCount: 1,
-        codeLineCount: options.codeLineCount,
-        codeViewPanelWidth: 2208,
-        codeViewPanelHeight: 1081,
-        firstDiffContainerWidth: 2208,
-        firstDiffContainerHeight: options.firstDiffContainerHeight,
-        codeViewScrollOwnerHeight: 1081,
-        codeViewScrollOwnerScrollHeight: 1081,
-        codeViewScrollOwnerChildCount: 1,
-        codeViewScrollOwnerFirstChildTag: "diffs-container",
-        codeViewInstanceHeight: 1081,
-        codeViewInstanceScrollHeight: 152,
-        codeViewInstanceItemCount: 1,
-        codeViewInstanceWindowTop: 0,
-        codeViewInstanceWindowBottom: 1081,
-        codeViewInstanceFirstRenderedIndex: 0,
-        codeViewInstanceLastRenderedIndex: 0,
-        codeViewInstanceFirstItemHeight: options.codeViewInstanceFirstItemHeight,
-        codeViewInstanceFirstItemTop: 0,
-        codeViewRenderedItemCount: options.codeViewRenderedItemCount,
-        codeViewRenderedItemElementHeight: 0,
-        codeViewRenderedItemElementChildCount: 1,
-        codeViewRenderedItemElementFirstChildTag: "diffs-container",
-        codeViewRenderedItemType: options.codeViewRenderedItemType,
-        codeViewRenderedItemVersion: options.codeViewRenderedItemVersion,
-        firstDiffContainerShadowChildCount: 0,
-        firstDiffContainerPreCount: 1,
-        firstDiffContainerOffsetHeight: 0,
-        firstDiffContainerScrollHeight: 0,
-        firstDiffContainerPreHeight: 0,
-        firstDiffContainerPreTextLength: options.firstDiffContainerPreTextLength,
-        codeLineWithDataLineCount: 0,
-        firstDiffContainerDisplay: "block",
-        workerPoolState: "ready",
-        workerPoolManagerState: "initialized",
-        workerPoolWorkersFailed: false,
-        workerPoolTotalWorkers: 2,
-        workerPoolBusyWorkers: 0,
-        workerPoolQueuedTasks: 0,
-        workerPoolActiveTasks: 0,
-        workerPoolFileCacheSize: 0,
-        workerPoolDiffCacheSize: 1,
-        workerPoolInitializationProbeStage: "highlighter-loaded",
-        workerPoolInitializationProbeThemeCount: 2,
-        workerPoolInitializationProbeLanguageCount: 7,
-        workerPoolInitializationProbeFailureReason: "",
-        workerDiagnosticBootstrapState: "started",
-        workerDiagnosticInitializeRequestIdState: "present",
-        workerDiagnosticLastMessageType: "success",
-        workerDiagnosticLastRequestType: "initialize",
-        workerDiagnosticLastSuccessMatchesInitializeRequest: "yes",
-        workerDiagnosticLastSuccessIdState: "present",
-        workerDiagnosticLastSuccessIdPrefix: "req",
-        workerDiagnosticLastSuccessRequestType: "diff",
-        workerDiagnosticSuccessCount: 2,
-        workerDiagnosticInitializeSuccessCount: 1,
-        workerDiagnosticDiffSuccessCount: 1,
-        workerDiagnosticFileSuccessCount: 0,
-        workerDiagnosticForwardedMessageCount: 2,
-        workerDiagnosticLastForwardResult: "ok",
-        workerDiagnosticErrorCount: 0,
-        workerDiagnosticLastErrorKind: "none",
-        codeTextLength: options.codeTextLength,
-        codeShadowTextLength: options.codeShadowTextLength
-    )
 }
