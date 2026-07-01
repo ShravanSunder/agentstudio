@@ -286,8 +286,15 @@ native-headless-demand-pressure-no-starvation
 native-wkwebview-page-load
 native-wkwebview-file-click
 native-wkwebview-tree-scroll
+native-wkwebview-review-click
+native-wkwebview-review-tree-scroll
 native-victoria-trace-stitching
 ```
+
+All native scenarios run against the current worktree source set. Native parity
+includes FileView and worktree-backed Review as separate scenario families:
+FileView click/open and tree scroll cannot stand in for Review item click/open
+or Review tree scroll, and Review proof cannot stand in for FileView proof.
 
 ## Passing Criteria
 
@@ -307,8 +314,11 @@ content latency is separated from metadata latency
 artifact records run marker, runtime, worker mode, and commit SHA
 ```
 
-Native performance proof passes only when the same metric names and scenario
-shape are visible through the native WKWebView path and Victoria-backed proof.
+Native performance proof passes only when the current-worktree headless
+Swift-plane artifact and native WKWebView artifact both report the required
+p95/p99 metrics, `loaded_by`/lane lineage, manifest-completeness facts,
+no-starvation facts, and separate FileView versus Review scenario results
+through Victoria-backed proof.
 
 Headless Swift-plane proof is required before native WKWebView proof can close:
 

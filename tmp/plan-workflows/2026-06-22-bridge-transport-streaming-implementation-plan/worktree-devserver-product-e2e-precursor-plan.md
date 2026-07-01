@@ -216,6 +216,10 @@ contract; it must not define file-tree metadata production.
    - Proof: Vitest Browser/React tests for no blank tree during active metadata,
      no content blanking due to metadata continuation, and no shell/header
      remount on FileView/Review context switches.
+   - Mount rule: metadata stream controllers, materializers, demand-lane state,
+     and lightweight stores mount outside lazy/Suspense visual shells, so source
+     subscription, metadata intake, last-good state, and per-context memory
+     survive visual chunk loading.
 
 4. Content demand isolation
    - Behavior: selected/visible content streams use content lanes and executor
