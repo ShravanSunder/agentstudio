@@ -16,7 +16,7 @@ import type {
 import { applyWorktreeFileProtocolFrame } from './worktree-file-materializer.js';
 
 describe('worktree file materializer', () => {
-	test('registers snapshot tree and status descriptors before publishing source facts', () => {
+	test('applies snapshot metadata without registering tree or status resources', () => {
 		const registry = createWorktreeFileRegistry();
 		const frame = makeSnapshotFrame();
 
@@ -31,44 +31,11 @@ describe('worktree file materializer', () => {
 			delta: {
 				kind: 'snapshot',
 				source: frame.source,
-				treeDescriptorRef: frame.treeDescriptor.ref,
-				statusDescriptorRef: frame.statusDescriptor?.ref,
 				treeSizeFacts: frame.treeSizeFacts,
 			},
 		});
-		expect(registry.lookup(frame.treeDescriptor.ref)?.descriptorId).toBe('tree-window-1');
-		expect(
-			registry.lookup(frame.statusDescriptor?.ref ?? frame.treeDescriptor.ref)?.descriptorId,
-		).toBe('status-1');
-	});
-
-	test('rolls back snapshot descriptors when a later descriptor is rejected', () => {
-		const registry = createWorktreeFileRegistry();
-		const frame = makeSnapshotFrame();
-		const statusDescriptor = frame.statusDescriptor;
-		if (statusDescriptor === undefined) {
-			throw new Error('Expected snapshot test fixture to include status descriptor.');
-		}
-		const rejectedStatusDescriptor: BridgeAttachedResourceDescriptor = {
-			...statusDescriptor,
-			ref: {
-				...statusDescriptor.ref,
-				expectedResourceKind: 'worktree.treeWindow',
-			},
-		};
-
-		const result = applyWorktreeFileProtocolFrame({
-			frame: {
-				...frame,
-				statusDescriptor: rejectedStatusDescriptor,
-			},
-			paneId: 'pane-1',
-			registry,
-		});
-
-		expect(result).toEqual({ ok: false, reason: 'descriptor_rejected' });
-		expect(registry.lookup(frame.treeDescriptor.ref)).toBeNull();
-		expect(registry.lookup(rejectedStatusDescriptor.ref)).toBeNull();
+		expect(JSON.stringify(result)).not.toContain('treeDescriptorRef');
+		expect(JSON.stringify(result)).not.toContain('statusDescriptorRef');
 	});
 
 	test('registers file descriptor content authority without storing body content', () => {
@@ -152,14 +119,14 @@ describe('worktree file materializer', () => {
 				source: snapshotFrame.source,
 			},
 		});
-		expect(registry.lookup(snapshotFrame.treeDescriptor.ref)).toBeNull();
+		expect(JSON.stringify(result)).not.toContain('treeDescriptorRef');
 	});
 });
 
 function createWorktreeFileRegistry(): BridgeResourceDescriptorRegistry {
 	return createBridgeResourceDescriptorRegistry({
 		allowedResourceKindsByProtocol: {
-			'worktree-file': new Set(['worktree.treeWindow', 'worktree.status', 'worktree.fileContent']),
+			'worktree-file': new Set(['worktree.fileContent', 'worktree.fileRange']),
 		},
 	});
 }
@@ -172,20 +139,29 @@ function makeSnapshotFrame(): WorktreeSnapshotFrame {
 		sequence: 0,
 		frameKind: 'worktree.snapshot',
 		source: makeSourceIdentity(),
-		treeDescriptor: makeAttachedDescriptor({
-			descriptorId: 'tree-window-1',
-			resourceKind: 'worktree.treeWindow',
-		}),
+		treeRows: [
+			{
+				rowId: 'row-1',
+				path: 'Sources/App/View.swift',
+				name: 'View.swift',
+				parentPath: 'Sources/App',
+				depth: 2,
+				isDirectory: false,
+				fileId: 'file-1',
+			},
+		],
 		treeSizeFacts: {
+			extentKind: 'exactPathCount',
 			pathCount: 12_000,
 			windowStartIndex: 0,
 			windowRowCount: 50,
 			rowHeightPixels: 24,
 		},
-		statusDescriptor: makeAttachedDescriptor({
-			descriptorId: 'status-1',
-			resourceKind: 'worktree.status',
-		}),
+		statusPatch: {
+			staged: 0,
+			unstaged: 1,
+			untracked: 0,
+		},
 	};
 }
 

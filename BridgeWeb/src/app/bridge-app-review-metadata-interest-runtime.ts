@@ -24,6 +24,7 @@ export interface ReviewMetadataInterestRuntimeState extends ReviewMetadataIntere
 
 export interface UseBridgeReviewMetadataInterestRuntimeProps {
 	readonly authority: BridgeReviewFrameAuthority | null;
+	readonly bridgeReadyEpoch: number;
 	readonly isActive: boolean;
 	readonly reviewPackage: BridgeReviewPackage | null;
 	readonly rpcClient: BridgeRPCClient;
@@ -51,6 +52,7 @@ export function useBridgeReviewMetadataInterestRuntime(
 ): BridgeReviewMetadataInterestRuntime {
 	const {
 		authority,
+		bridgeReadyEpoch,
 		isActive,
 		reviewPackage,
 		rpcClient,
@@ -133,7 +135,7 @@ export function useBridgeReviewMetadataInterestRuntime(
 	}, [effectiveVisibleItemIds, setVisibleContentItemIds]);
 
 	useEffect((): void => {
-		const requestSignature = JSON.stringify(requests);
+		const requestSignature = JSON.stringify({ bridgeReadyEpoch, requests });
 		if (requestSignature === lastRequestSignatureRef.current) {
 			return;
 		}
@@ -144,7 +146,7 @@ export function useBridgeReviewMetadataInterestRuntime(
 				rpcClient,
 			});
 		}
-	}, [requests, rpcClient]);
+	}, [bridgeReadyEpoch, requests, rpcClient]);
 
 	const onCodeViewVisibleItemIdsChange = useCallback(
 		(itemIds: readonly string[]): void => {

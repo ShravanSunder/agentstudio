@@ -1,0 +1,354 @@
+import { readFile, realpath, writeFile } from 'node:fs/promises';
+
+import type { Page } from 'playwright';
+import { z } from 'zod';
+
+import { parseBridgeCoreResourceUrl } from '../../src/core/resources/bridge-resource-url.ts';
+import { resolveBridgeWorktreeVerifierWritePath } from '../verify-bridge-viewer-worktree-dev-server-paths.ts';
+import { requireVerifierBrowser } from './browser-session.ts';
+import {
+	execFileAsync,
+	proofRunCreatedAtUnixMilliseconds,
+	repoRootPath,
+	selectedContentFixtureRelativePath,
+	targetPathOverride,
+	worktreeDevServerUrl,
+} from './config.ts';
+import { worktreeFilePathEligibleForPerformanceClick } from './scroll-performance.ts';
+import {
+	bridgeWorktreeSurfaceResponseSchema,
+	interactionPerformanceSampleCount,
+	maximumNormalPerformanceLineCount,
+	worktreeFileDescriptorResponseSchema,
+	worktreeSnapshotFrameSchema,
+	type WorktreeDevServerBrowserProof,
+	type WorktreeFileDescriptor,
+	type WorktreeFileSurface,
+	type WorktreeFileTreeRow,
+} from './types.ts';
+import { hashText, isNodeErrorWithCode } from './utils.ts';
+
+export async function fetchWorktreeSurface(): Promise<
+	z.infer<typeof bridgeWorktreeSurfaceResponseSchema>
+> {
+	const surfaceUrl = new URL('/__bridge-worktree/surface', worktreeDevServerUrl);
+	copyScenarioSearchParam(surfaceUrl);
+	const response = await fetch(surfaceUrl);
+	if (!response.ok) {
+		throw new Error(`Worktree/File surface request failed: ${response.status}`);
+	}
+	return bridgeWorktreeSurfaceResponseSchema.parse(await response.json());
+}
+
+export async function readBrowserProof(page: Page): Promise<WorktreeDevServerBrowserProof> {
+	const browser = requireVerifierBrowser();
+	const viewport = page.viewportSize();
+	return {
+		browserName: browser.browserType().name(),
+		browserVersion: browser.version(),
+		headless: true,
+		viewportHeight: viewport?.height ?? 0,
+		viewportWidth: viewport?.width ?? 0,
+	};
+}
+
+export function assertWorktreeTreeExtentMatchesSurfaceFacts(props: {
+	readonly renderedTreeTotalSizePixels: number;
+	readonly surfaceTreeSizeFacts: z.infer<
+		typeof bridgeWorktreeSurfaceResponseSchema
+	>['treeSizeFacts'];
+}): void {
+	const expectedHeight = props.surfaceTreeSizeFacts.estimatedTotalHeightPixels ?? null;
+	if (expectedHeight === null) {
+		throw new Error(
+			`Expected provider Worktree/File estimated tree extent facts: ${JSON.stringify(props.surfaceTreeSizeFacts)}`,
+		);
+	}
+	if (Math.abs(props.renderedTreeTotalSizePixels - expectedHeight) > 1) {
+		throw new Error(
+			`Expected rendered tree extent to match provider facts: ${JSON.stringify({
+				expectedHeight,
+				renderedTreeTotalSizePixels: props.renderedTreeTotalSizePixels,
+				surfaceTreeSizeFacts: props.surfaceTreeSizeFacts,
+			})}`,
+		);
+	}
+}
+
+export async function bridgeWorktreeDevRootTokenForPath(path: string): Promise<string> {
+	return `root-${hashText(await realpath(path)).slice(0, 32)}`;
+}
+
+export function worktreeFileTreeRows(frames: readonly unknown[]): readonly WorktreeFileTreeRow[] {
+	const rows: WorktreeFileTreeRow[] = [];
+	for (const frame of frames) {
+		const parsedFrame = worktreeSnapshotFrameSchema.safeParse(frame);
+		if (parsedFrame.success) {
+			rows.push(...(parsedFrame.data.treeRows ?? []));
+		}
+	}
+	return rows;
+}
+
+export function worktreeFileDemandCandidatePaths(surface: WorktreeFileSurface): readonly string[] {
+	return worktreeFileTreeRows(surface.frames)
+		.filter((row): boolean => !row.isDirectory && row.fileId !== undefined)
+		.map((row): string => row.path);
+}
+
+export async function resolveTargetDescriptor(
+	surface: WorktreeFileSurface,
+): Promise<WorktreeFileDescriptor> {
+	if (targetPathOverride !== null) {
+		return await fetchFetchableWorktreeFileDescriptorForPath({
+			path: targetPathOverride,
+			surface,
+		});
+	}
+	return await fetchFetchableWorktreeFileDescriptorForPath({
+		path: selectedContentFixtureRelativePath,
+		surface,
+	});
+}
+
+export async function fetchPerformanceWorktreeFileDescriptors(
+	surface: WorktreeFileSurface,
+): Promise<readonly WorktreeFileDescriptor[]> {
+	const descriptors: WorktreeFileDescriptor[] = [];
+	for (const path of worktreeFileDemandCandidatePaths(surface).filter(
+		worktreeFilePathEligibleForPerformanceClick,
+	)) {
+		const descriptor = await fetchWorktreeFileDescriptorForPath({ path, surface });
+		if (isNormalWorktreeFilePerformanceDescriptor(descriptor)) {
+			descriptors.push(descriptor);
+		}
+		if (descriptors.length >= interactionPerformanceSampleCount) {
+			break;
+		}
+	}
+	if (descriptors.length < interactionPerformanceSampleCount) {
+		throw new Error(
+			`Expected at least ${interactionPerformanceSampleCount} demanded normal Worktree/File descriptors for performance proof, got ${descriptors.length}`,
+		);
+	}
+	return descriptors;
+}
+
+export async function fetchFirstFetchableWorktreeFileDescriptor(
+	surface: WorktreeFileSurface,
+): Promise<WorktreeFileDescriptor> {
+	for (const path of worktreeFileDemandCandidatePaths(surface)) {
+		const descriptor = await fetchWorktreeFileDescriptorForPath({ path, surface });
+		if (!descriptor.isBinary && descriptor.virtualizedExtentKind === 'exactLineCount') {
+			return descriptor;
+		}
+	}
+	throw new Error('Expected at least one demanded fetchable Worktree/File descriptor');
+}
+
+export async function fetchFetchableWorktreeFileDescriptorForPath(props: {
+	readonly path: string;
+	readonly surface: WorktreeFileSurface;
+}): Promise<WorktreeFileDescriptor> {
+	const descriptor = await fetchWorktreeFileDescriptorForPath(props);
+	if (descriptor.isBinary || descriptor.virtualizedExtentKind !== 'exactLineCount') {
+		throw new Error(`Expected an existing fetchable Worktree/File descriptor for ${props.path}`);
+	}
+	return descriptor;
+}
+
+export async function fetchWorktreeFileDescriptorForPath(props: {
+	readonly path: string;
+	readonly surface: WorktreeFileSurface;
+}): Promise<WorktreeFileDescriptor> {
+	const knownPath = worktreeFileDemandCandidatePaths(props.surface).includes(props.path);
+	if (!knownPath) {
+		throw new Error(`Expected Worktree/File tree metadata row for ${props.path}`);
+	}
+	const descriptorUrl = new URL('/__bridge-worktree/file-descriptor', worktreeDevServerUrl);
+	copyScenarioSearchParam(descriptorUrl);
+	descriptorUrl.searchParams.set('path', props.path);
+	descriptorUrl.searchParams.set('generation', String(props.surface.source.subscriptionGeneration));
+	descriptorUrl.searchParams.set('cursor', props.surface.source.sourceCursor);
+	const response = await fetch(descriptorUrl);
+	if (!response.ok) {
+		throw new Error(
+			`Worktree/File descriptor request failed for ${props.path}: ${response.status}`,
+		);
+	}
+	const descriptorResponse = worktreeFileDescriptorResponseSchema.parse(await response.json());
+	if (descriptorResponse.frame.descriptor.path !== props.path) {
+		throw new Error(
+			`Expected demanded Worktree/File descriptor for ${props.path}, got ${descriptorResponse.frame.descriptor.path}`,
+		);
+	}
+	return descriptorResponse.frame.descriptor;
+}
+
+export function isNormalWorktreeFilePerformanceDescriptor(
+	descriptor: WorktreeFileDescriptor,
+): boolean {
+	const lineCount = Number(descriptor.lineCount ?? 0);
+	return (
+		worktreeFilePathEligibleForPerformanceClick(descriptor.path) &&
+		!descriptor.isBinary &&
+		descriptor.virtualizedExtentKind === 'exactLineCount' &&
+		Number.isFinite(lineCount) &&
+		lineCount > 0 &&
+		lineCount <= maximumNormalPerformanceLineCount
+	);
+}
+
+export interface WorktreeFileModifiedFixture {
+	readonly absolutePath: string;
+	readonly initialContent: string;
+	readonly initialContentHash: string;
+	readonly relativePath: string;
+	readonly updatedContent: string;
+	readonly updatedContentHash: string;
+}
+
+export interface WorktreeFileStaleRefreshFixture extends WorktreeFileModifiedFixture {}
+
+export async function worktreeFileModifiedFixture(props: {
+	readonly markerPlacement?: 'append' | 'prependComment';
+	readonly relativePath: string;
+	readonly tag: string;
+}): Promise<WorktreeFileModifiedFixture> {
+	const absolutePath = await resolveBridgeWorktreeVerifierWritePath({
+		descriptorPath: props.relativePath,
+		rootPath: repoRootPath,
+	});
+	await assertGitTrackedWorktreeVerifierPath(props.relativePath);
+	const initialContent = await readFile(absolutePath, 'utf8');
+	const marker = `bridge_worktree_devserver_${props.tag}_${proofRunCreatedAtUnixMilliseconds}`;
+	const updatedContent =
+		props.markerPlacement === 'prependComment'
+			? `// ${marker}\n${initialContent}`
+			: initialContent.endsWith('\n')
+				? `${initialContent}${marker}\n`
+				: `${initialContent}\n${marker}\n`;
+	const fixture = {
+		absolutePath,
+		initialContent,
+		initialContentHash: hashText(initialContent),
+		relativePath: props.relativePath,
+		updatedContent,
+		updatedContentHash: hashText(updatedContent),
+	};
+	await writeFile(absolutePath, updatedContent);
+	return fixture;
+}
+
+export async function worktreeFileStaleRefreshFixture(props: {
+	readonly descriptor: WorktreeFileDescriptor;
+	readonly initialContent: string;
+}): Promise<WorktreeFileStaleRefreshFixture> {
+	const marker = `bridge_worktree_devserver_proof_${proofRunCreatedAtUnixMilliseconds}`;
+	const absolutePath = await resolveBridgeWorktreeVerifierWritePath({
+		descriptorPath: props.descriptor.path,
+		rootPath: repoRootPath,
+	});
+	await assertGitTrackedWorktreeVerifierPath(props.descriptor.path);
+	const initialContent = await readFile(absolutePath, 'utf8');
+	const updatedContent = `${initialContent}\n// ${marker}: updated content\n`;
+	return {
+		absolutePath,
+		initialContent,
+		initialContentHash: hashText(initialContent),
+		relativePath: props.descriptor.path,
+		updatedContent,
+		updatedContentHash: hashText(updatedContent),
+	};
+}
+
+export async function assertGitTrackedWorktreeVerifierPath(relativePath: string): Promise<void> {
+	try {
+		await execFileAsync('git', [
+			'-C',
+			repoRootPath,
+			'ls-files',
+			'--error-unmatch',
+			'--',
+			relativePath,
+		]);
+	} catch (error) {
+		throw new Error(`Bridge worktree verifier path must be git-tracked: ${relativePath}`, {
+			cause: error,
+		});
+	}
+}
+
+export async function restoreWorktreeFileStaleRefreshFixture(
+	fixture: WorktreeFileStaleRefreshFixture,
+): Promise<void> {
+	await restoreWorktreeFileModifiedFixture(fixture);
+}
+
+export async function restoreWorktreeFileModifiedFixture(
+	fixture: WorktreeFileModifiedFixture,
+): Promise<void> {
+	const currentHash = await readTextFileHashOrNull(fixture.absolutePath);
+	if (currentHash !== fixture.initialContentHash && currentHash !== fixture.updatedContentHash) {
+		throw new Error(
+			`Refusing to restore modified proof file after external edit: ${fixture.relativePath}`,
+		);
+	}
+	if (currentHash === fixture.updatedContentHash) {
+		await writeFile(fixture.absolutePath, fixture.initialContent);
+	}
+	const restoredContent = await readFile(fixture.absolutePath, 'utf8');
+	if (hashText(restoredContent) !== fixture.initialContentHash) {
+		throw new Error(`Failed to restore modified proof file: ${fixture.relativePath}`);
+	}
+}
+
+export async function readTextFileHashOrNull(absolutePath: string): Promise<string | null> {
+	try {
+		return hashText(await readFile(absolutePath, 'utf8'));
+	} catch (error) {
+		if (isNodeErrorWithCode(error, 'ENOENT')) {
+			return null;
+		}
+		throw error;
+	}
+}
+
+export async function fetchWorktreeFileContent(
+	descriptor: WorktreeFileDescriptor,
+): Promise<string> {
+	const parsedResourceUrl = parseBridgeCoreResourceUrl(
+		descriptor.contentDescriptor.descriptor.resourceUrl,
+		{
+			allowedResourceKindsByProtocol: {
+				'worktree-file': new Set(['worktree.fileContent']),
+			},
+		},
+	);
+	if (parsedResourceUrl === null) {
+		throw new Error(`Invalid Worktree/File resource URL for ${descriptor.path}`);
+	}
+	const contentUrl = new URL(
+		`/__bridge-worktree/file-content/${encodeURIComponent(parsedResourceUrl.opaqueId)}`,
+		worktreeDevServerUrl,
+	);
+	copyScenarioSearchParam(contentUrl);
+	if (parsedResourceUrl.generation !== undefined) {
+		contentUrl.searchParams.set('generation', String(parsedResourceUrl.generation));
+	}
+	if (parsedResourceUrl.cursor !== undefined) {
+		contentUrl.searchParams.set('cursor', parsedResourceUrl.cursor);
+	}
+	const response = await fetch(contentUrl);
+	if (!response.ok) {
+		throw new Error(`Worktree/File content request failed: ${response.status}`);
+	}
+	return await response.text();
+}
+
+export function copyScenarioSearchParam(url: URL): void {
+	const scenario = new URL(worktreeDevServerUrl).searchParams.get('scenario');
+	if (scenario !== null) {
+		url.searchParams.set('scenario', scenario);
+	}
+}

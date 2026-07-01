@@ -1,28 +1,31 @@
 import type { BridgeIntakeFrame } from '../../core/models/bridge-intake-frame.js';
 import { parseBridgeCoreResourceUrl } from '../../core/resources/bridge-resource-url.js';
-import type { ReviewProtocolFrame } from '../../features/review/models/review-protocol-models.js';
+import type {
+	ReviewExtentFact,
+	ReviewMetadataOperation,
+	ReviewProtocolFrame,
+	ReviewTreeRowMetadata,
+} from '../../features/review/models/review-protocol-models.js';
 import {
-	buildReviewDeltaFrame,
-	buildReviewSnapshotFrame,
-} from '../../features/review/protocol/review-snapshot-frame-builder.js';
+	buildReviewMetadataDeltaFrame,
+	buildReviewMetadataSnapshotFrame,
+	buildReviewMetadataWindowFrame,
+} from '../../features/review/protocol/review-metadata-frame-builder.js';
 import type { BridgeContentFetch } from '../../foundation/content/content-resource-loader.js';
 import {
 	applyBridgeReviewDelta,
 	type BridgeReviewDelta,
 } from '../../foundation/review-package/bridge-review-delta.js';
-import {
-	makeBridgeContentHandle,
-	makeBridgeReviewItem,
-	makeBridgeReviewPackage,
-} from '../../foundation/review-package/bridge-review-package-test-support.js';
+import { makeBridgeReviewPackage } from '../../foundation/review-package/bridge-review-package-test-support.js';
 import type {
-	BridgeContentHandle,
+	BridgeContentRole,
 	BridgeFileClass,
 	BridgeFileChangeKind,
 	BridgeReviewItemDescriptor,
 	BridgeReviewPackage,
 } from '../../foundation/review-package/bridge-review-package.js';
 import type { BridgeTelemetryBootstrapHandshakeConfig } from '../../foundation/telemetry/bridge-telemetry-bootstrap-config.js';
+import { makeBridgeReviewProjectionInput } from '../navigation/review-projection.js';
 import {
 	createBridgeReviewProjectionWorkerClient,
 	type BridgeReviewProjectionWorkerClient,
@@ -33,6 +36,7 @@ import {
 	type BridgeReviewProjectionWorkerRequest,
 	type BridgeReviewProjectionWorkerResponse,
 } from '../workers/projection/review-projection-worker-rpc.js';
+import * as mockedBackendSupport from './bridge-viewer-mocked-backend-support.js';
 
 export type BridgeViewerMockedBackendLatencyProfile = 'zero' | 'small' | 'slowBounded';
 export type BridgeViewerBrowserFixtureClass =
@@ -42,6 +46,7 @@ export type BridgeViewerBrowserFixtureClass =
 export type BridgeViewerMockedBackendDeliveryMode = 'full-load' | 'streaming-append';
 export type BridgeViewerLargeFixtureItemPlacement = 'near-start' | 'after-fillers';
 type BridgeViewerReviewIntakeKind = 'snapshot' | 'delta' | 'invalidate' | 'reset';
+const bridgeViewerReviewMetadataWindowSize = 80;
 
 export interface InstallBridgeViewerMockedBackendOptions {
 	readonly latencyProfile?: BridgeViewerMockedBackendLatencyProfile;
@@ -56,7 +61,7 @@ export interface BridgeViewerMockedBackendPushRecord {
 	readonly op: 'replace' | 'merge';
 	readonly revision: number;
 	readonly reviewGeneration: number;
-	readonly payloadKind: 'package' | 'delta';
+	readonly payloadKind: 'metadata' | 'metadataDelta' | 'metadataWindow';
 }
 
 export interface BridgeViewerDeferredProjectionResponse {
@@ -82,7 +87,7 @@ export interface BridgeViewerMockedBackend {
 	readonly pendingContentResponses: readonly BridgeViewerDeferredContentResponse[];
 	readonly requestedUrls: readonly string[];
 	readonly pushRecords: readonly BridgeViewerMockedBackendPushRecord[];
-	readonly pushPackage: (reviewPackage?: BridgeReviewPackage) => Promise<void>;
+	readonly pushMetadata: (reviewPackage?: BridgeReviewPackage) => Promise<void>;
 	readonly pushDelta: (delta?: BridgeReviewDelta) => Promise<void>;
 	readonly dispose: () => void;
 }
@@ -155,7 +160,7 @@ export function makeBridgeViewerBrowserFixture(
 	const fixtureClass = props.fixtureClass ?? 'small-mixed';
 	const largeItemPlacement = props.largeItemPlacement ?? 'near-start';
 	const basePackage = makeBridgeReviewPackage();
-	const sourceItem = makeBrowserFixtureItem({
+	const sourceItem = mockedBackendSupport.makeBrowserFixtureItem({
 		itemId: 'browser-source-a',
 		path: 'Sources/BridgeViewer/Alpha.ts',
 		changeKind: 'modified',
@@ -163,7 +168,7 @@ export function makeBridgeViewerBrowserFixture(
 		language: 'typescript',
 		extension: 'ts',
 	});
-	const secondItem = makeBrowserFixtureItem({
+	const secondItem = mockedBackendSupport.makeBrowserFixtureItem({
 		itemId: 'browser-source-b',
 		path: 'Sources/BridgeViewer/Beta.ts',
 		changeKind: 'modified',
@@ -171,7 +176,7 @@ export function makeBridgeViewerBrowserFixture(
 		language: 'typescript',
 		extension: 'ts',
 	});
-	const addedItem = makeBrowserFixtureItem({
+	const addedItem = mockedBackendSupport.makeBrowserFixtureItem({
 		itemId: 'browser-added-source',
 		path: 'Sources/BridgeViewer/NewPanel.ts',
 		changeKind: 'added',
@@ -179,7 +184,7 @@ export function makeBridgeViewerBrowserFixture(
 		language: 'typescript',
 		extension: 'ts',
 	});
-	const docsItem = makeBrowserFixtureItem({
+	const docsItem = mockedBackendSupport.makeBrowserFixtureItem({
 		itemId: 'browser-docs-plan',
 		path: 'docs/plans/bridge-viewer-browser.md',
 		changeKind: 'added',
@@ -187,7 +192,7 @@ export function makeBridgeViewerBrowserFixture(
 		language: 'markdown',
 		extension: 'md',
 	});
-	const largeItem = makeBrowserFixtureItem({
+	const largeItem = mockedBackendSupport.makeBrowserFixtureItem({
 		itemId: 'browser-large-diff',
 		path: 'large/browser/huge-diff.ts',
 		itemKind: 'file',
@@ -196,7 +201,7 @@ export function makeBridgeViewerBrowserFixture(
 		language: 'typescript',
 		extension: 'ts',
 	});
-	const hunkedItem = makeBrowserFixtureItem({
+	const hunkedItem = mockedBackendSupport.makeBrowserFixtureItem({
 		itemId: 'browser-hunked-diff',
 		path: 'Sources/BridgeViewer/HunkedContext.ts',
 		changeKind: 'modified',
@@ -204,7 +209,7 @@ export function makeBridgeViewerBrowserFixture(
 		language: 'typescript',
 		extension: 'ts',
 	});
-	const appendedItem = makeBrowserFixtureItem({
+	const appendedItem = mockedBackendSupport.makeBrowserFixtureItem({
 		itemId: 'browser-streaming-append',
 		path: 'streaming/append/NewStreamingPanel.ts',
 		changeKind: 'added',
@@ -213,8 +218,9 @@ export function makeBridgeViewerBrowserFixture(
 		extension: 'ts',
 	});
 	const fillerItems = Array.from(
-		{ length: fillerItemCountForFixtureClass(fixtureClass) },
-		(_value: unknown, index: number) => makeBrowserFillerItem({ fixtureClass, index }),
+		{ length: mockedBackendSupport.fillerItemCountForFixtureClass(fixtureClass) },
+		(_value: unknown, index: number) =>
+			mockedBackendSupport.makeBrowserFillerItem({ fixtureClass, index }),
 	);
 	const leadingItems = [sourceItem, secondItem, addedItem, docsItem];
 	const items =
@@ -223,15 +229,15 @@ export function makeBridgeViewerBrowserFixture(
 			: [...leadingItems, largeItem, hunkedItem, ...fillerItems];
 	const contentByHandleId = new Map<string, string>();
 
-	addContent(contentByHandleId, sourceItem, {
+	mockedBackendSupport.addContent(contentByHandleId, sourceItem, {
 		base: "export const selectedFile = 'alpha base';\n",
 		head: "export const selectedFile = 'alpha head visible';\n",
 	});
-	addContent(contentByHandleId, secondItem, {
+	mockedBackendSupport.addContent(contentByHandleId, secondItem, {
 		base: "export const selectedFile = 'beta base';\n",
 		head: "export const selectedFile = 'beta selected content';\n",
 	});
-	addContent(contentByHandleId, addedItem, {
+	mockedBackendSupport.addContent(contentByHandleId, addedItem, {
 		head: [
 			'export function renderAddedPanel(): string {',
 			"\treturn 'full added file content';",
@@ -239,18 +245,18 @@ export function makeBridgeViewerBrowserFixture(
 			'',
 		].join('\n'),
 	});
-	addContent(contentByHandleId, docsItem, {
+	mockedBackendSupport.addContent(contentByHandleId, docsItem, {
 		head: '# Browser fixture\n\n```ts\nconst fixture = true;\n```\n',
 	});
-	addContent(contentByHandleId, largeItem, {
-		base: largeBrowserDiffText('base'),
-		head: largeBrowserDiffText('head'),
+	mockedBackendSupport.addContent(contentByHandleId, largeItem, {
+		base: mockedBackendSupport.largeBrowserDiffText('base'),
+		head: mockedBackendSupport.largeBrowserDiffText('head'),
 	});
-	addContent(contentByHandleId, hunkedItem, {
-		base: hunkedBrowserDiffText('base'),
-		head: hunkedBrowserDiffText('head'),
+	mockedBackendSupport.addContent(contentByHandleId, hunkedItem, {
+		base: mockedBackendSupport.hunkedBrowserDiffText('base'),
+		head: mockedBackendSupport.hunkedBrowserDiffText('head'),
 	});
-	addContent(contentByHandleId, appendedItem, {
+	mockedBackendSupport.addContent(contentByHandleId, appendedItem, {
 		head: [
 			'export function renderStreamingPanel(): string {',
 			"\treturn 'streaming appended file content';",
@@ -260,14 +266,19 @@ export function makeBridgeViewerBrowserFixture(
 	});
 
 	for (const item of fillerItems) {
-		addContent(contentByHandleId, item, {
+		mockedBackendSupport.addContent(contentByHandleId, item, {
 			base: `export const filler${item.itemId} = 'base';\n`,
 			head: `export const filler${item.itemId} = 'head';\n`,
 		});
 	}
-	const sizedItems = items.map((item): BridgeReviewItemDescriptor =>
-		reviewItemWithContentSizes({ item, contentByHandleId }),
+	const sizedItems = items.map(
+		(item): BridgeReviewItemDescriptor =>
+			mockedBackendSupport.reviewItemWithContentSizes({ item, contentByHandleId }),
 	);
+	const sizedAppendedItem = mockedBackendSupport.reviewItemWithContentSizes({
+		item: appendedItem,
+		contentByHandleId,
+	});
 
 	const reviewPackage: BridgeReviewPackage = {
 		...basePackage,
@@ -294,13 +305,16 @@ export function makeBridgeViewerBrowserFixture(
 	};
 
 	const packageBytes = new TextEncoder().encode(JSON.stringify(reviewPackage)).byteLength;
-	const selectedLargeFileLineCount = selectedLargeContentLineCount(contentByHandleId, largeItem);
+	const selectedLargeFileLineCount = mockedBackendSupport.selectedLargeContentLineCount(
+		contentByHandleId,
+		largeItem,
+	);
 	const addedFullContentTargetCount = items.filter((item: BridgeReviewItemDescriptor): boolean => {
 		const headHandle = item.contentRoles.head ?? null;
 		return (
 			item.changeKind === 'added' &&
 			headHandle !== null &&
-			lineCount(contentByHandleId.get(headHandle.handleId)) > 2
+			mockedBackendSupport.lineCount(contentByHandleId.get(headHandle.handleId)) > 2
 		);
 	}).length;
 	const streamingAppendDelta: BridgeReviewDelta = {
@@ -308,7 +322,7 @@ export function makeBridgeViewerBrowserFixture(
 		reviewGeneration: reviewPackage.reviewGeneration,
 		revision: reviewPackage.revision + 1,
 		operations: {
-			addItems: [appendedItem],
+			addItems: [sizedAppendedItem],
 			updateItems: [],
 			removeItems: [],
 			moveItems: [...reviewPackage.orderedItemIds, appendedItem.itemId],
@@ -326,7 +340,7 @@ export function makeBridgeViewerBrowserFixture(
 	const fixtureChecksum = [
 		reviewPackage.packageId,
 		fixtureClass,
-				sizedItems.length.toString(),
+		sizedItems.length.toString(),
 		contentByHandleId.size.toString(),
 		packageBytes.toString(),
 	].join(':');
@@ -353,8 +367,8 @@ export function makeBridgeViewerBrowserFixture(
 			),
 			packageBytes,
 			fixtureChecksum,
-			changeKindCounts: countChangeKinds(items),
-			fileClassCounts: countFileClasses(items),
+			changeKindCounts: mockedBackendSupport.countChangeKinds(items),
+			fileClassCounts: mockedBackendSupport.countFileClasses(items),
 			selectedLargeFileLineCount,
 			addedFullContentTargetCount,
 		},
@@ -366,7 +380,10 @@ export function makeBridgeViewerBrowserFixture(
 			secondText: "export const selectedFile = 'beta selected content';",
 			addedPath: 'Sources/BridgeViewer/NewPanel.ts',
 			addedText: "return 'full added file content';",
-			addedHeadHandleId: requiredHandleId(addedItem.contentRoles.head, 'added head'),
+			addedHeadHandleId: mockedBackendSupport.requiredHandleId(
+				addedItem.contentRoles.head,
+				'added head',
+			),
 			hunkPath: 'Sources/BridgeViewer/HunkedContext.ts',
 			hunkExpandedText: "export const stableContextLine0025 = 'same';",
 			docsPath: 'docs/plans/bridge-viewer-browser.md',
@@ -378,11 +395,20 @@ export function makeBridgeViewerBrowserFixture(
 			testFilterText: "export const fillerbrowser-filler-small-mixed-007 = 'head';",
 			largePath: 'large/browser/huge-diff.ts',
 			largeText: "export const generatedLine0000 = 'head';",
-			largeHeadHandleId: requiredHandleId(largeItem.contentRoles.head, 'large head'),
-			secondHeadHandleId: requiredHandleId(secondItem.contentRoles.head, 'second head'),
+			largeHeadHandleId: mockedBackendSupport.requiredHandleId(
+				largeItem.contentRoles.head,
+				'large head',
+			),
+			secondHeadHandleId: mockedBackendSupport.requiredHandleId(
+				secondItem.contentRoles.head,
+				'second head',
+			),
 			appendedPath: 'streaming/append/NewStreamingPanel.ts',
 			appendedText: "return 'streaming appended file content';",
-			appendedHeadHandleId: requiredHandleId(appendedItem.contentRoles.head, 'appended head'),
+			appendedHeadHandleId: mockedBackendSupport.requiredHandleId(
+				appendedItem.contentRoles.head,
+				'appended head',
+			),
 		},
 	};
 }
@@ -446,11 +472,11 @@ export function installBridgeViewerMockedBackend(
 	const pendingContentResponses: BridgeViewerDeferredContentResponse[] = [];
 	const requestedUrls: string[] = [];
 	const pushRecords: BridgeViewerMockedBackendPushRecord[] = [];
-	const reviewProtocolResourceBodiesByUrl = new Map<string, string>();
 	const contentFailures = new Set(options.contentFailures ?? []);
 	const deferredContentHandleIds = new Set(options.deferContentHandleIds ?? []);
 	const latencyProfile = options.latencyProfile ?? 'zero';
 	let currentReviewPackage = fixture.reviewPackage;
+	let nextReviewSequence = fixture.reviewPackage.revision;
 	let didReceiveHandshakeRequest = false;
 	const commandListener = (event: Event): void => {
 		commandDetails.push('detail' in event ? event.detail : null);
@@ -477,7 +503,7 @@ export function installBridgeViewerMockedBackend(
 				request: BridgeReviewProjectionWorkerRequest,
 			): Promise<BridgeReviewProjectionWorkerResponse> => {
 				projectionRequests.push(request);
-				await waitForLatencyProfile(latencyProfile);
+				await mockedBackendSupport.waitForLatencyProfile(latencyProfile);
 				const response = (): BridgeReviewProjectionWorkerResponse =>
 					options.projectionFailure === true
 						? {
@@ -564,27 +590,19 @@ export function installBridgeViewerMockedBackend(
 		pushRecords,
 		fetchContent: async (url: string, init?: RequestInit): Promise<Response> => {
 			requestedUrls.push(url);
-			await waitForLatencyProfile(latencyProfile);
+			await mockedBackendSupport.waitForLatencyProfile(latencyProfile);
 			if (init?.signal?.aborted === true) {
 				return new Response('', { status: 499 });
 			}
 			const parsedResourceUrl = parseBridgeCoreResourceUrl(url, {
 				allowedResourceKindsByProtocol: {
-					review: new Set(['content', 'review-package', 'review-delta']),
+					review: new Set(['content']),
 				},
 			});
-			if (
-				parsedResourceUrl !== null &&
-				(parsedResourceUrl.resourceKind === 'review-package' ||
-					parsedResourceUrl.resourceKind === 'review-delta')
-			) {
-				const body = reviewProtocolResourceBodiesByUrl.get(parsedResourceUrl.canonicalUrl);
-				if (body === undefined) {
-					return new Response(`missing mocked protocol body for ${url}`, { status: 404 });
-				}
-				return new Response(body);
+			if (parsedResourceUrl === null) {
+				return new Response(`invalid mocked content URL ${url}`, { status: 400 });
 			}
-			const handleId = handleIdFromResourceUrl(url);
+			const handleId = mockedBackendSupport.handleIdFromResourceUrl(url);
 			if (handleId !== null && contentFailures.has(handleId)) {
 				return new Response(`mocked content failure for ${handleId}`, { status: 503 });
 			}
@@ -630,7 +648,7 @@ export function installBridgeViewerMockedBackend(
 			}
 			return response();
 		},
-		pushPackage: async (
+		pushMetadata: async (
 			reviewPackage: BridgeReviewPackage = fixture.reviewPackage,
 		): Promise<void> => {
 			await waitForBridgeHandshakeRequest((): boolean => didReceiveHandshakeRequest);
@@ -639,20 +657,37 @@ export function installBridgeViewerMockedBackend(
 				op: 'replace',
 				revision: reviewPackage.revision,
 				reviewGeneration: reviewPackage.reviewGeneration,
-				payloadKind: 'package',
+				payloadKind: 'metadata',
 			});
-			const protocolFrame = buildReviewSnapshotFrame({
+			const protocolFrame = buildReviewMetadataSnapshotFrame({
 				package: reviewPackage,
 				paneId: bridgeViewerReviewPaneId,
 				sourceIdentity: reviewPackage.query.queryId,
 				streamId: bridgeViewerReviewStreamId,
-				sequence: reviewPackage.revision,
+				sequence: nextReviewSequence,
+				selectedItemId: reviewPackage.orderedItemIds[0] ?? null,
+				visibleItemIds: reviewPackage.orderedItemIds.slice(0, bridgeViewerReviewMetadataWindowSize),
 			});
-			reviewProtocolResourceBodiesByUrl.set(
-				protocolFrame.package.rootDescriptor.descriptor.resourceUrl,
-				JSON.stringify(reviewPackage),
-			);
+			nextReviewSequence += 1;
 			dispatchBridgeViewerReviewIntakeFrame(protocolFrame);
+			for (const itemIds of reviewMetadataWindowItemIdBatches(reviewPackage)) {
+				pushRecords.push({
+					op: 'replace',
+					revision: reviewPackage.revision,
+					reviewGeneration: reviewPackage.reviewGeneration,
+					payloadKind: 'metadataWindow',
+				});
+				const windowFrame = buildReviewMetadataWindowFrame({
+					package: reviewPackage,
+					paneId: bridgeViewerReviewPaneId,
+					sourceIdentity: reviewPackage.query.queryId,
+					streamId: bridgeViewerReviewStreamId,
+					sequence: nextReviewSequence,
+					itemIds,
+				});
+				nextReviewSequence += 1;
+				dispatchBridgeViewerReviewIntakeFrame(windowFrame);
+			}
 			await Promise.resolve();
 			await Promise.resolve();
 		},
@@ -665,21 +700,22 @@ export function installBridgeViewerMockedBackend(
 				op: 'merge',
 				revision: delta.revision,
 				reviewGeneration: delta.reviewGeneration,
-				payloadKind: 'delta',
+				payloadKind: 'metadataDelta',
 			});
-			const protocolFrame = buildReviewDeltaFrame({
+			const protocolFrame = buildReviewMetadataDeltaFrame({
 				package: nextReviewPackage,
 				paneId: bridgeViewerReviewPaneId,
 				sourceIdentity: nextReviewPackage.query.queryId,
 				streamId: bridgeViewerReviewStreamId,
-				sequence: nextReviewPackage.revision,
+				sequence: nextReviewSequence,
 				fromRevision: previousReviewPackage.revision,
 				toRevision: nextReviewPackage.revision,
+				operations: reviewMetadataOperationsForFixtureDelta({
+					delta,
+					reviewPackage: nextReviewPackage,
+				}),
 			});
-			reviewProtocolResourceBodiesByUrl.set(
-				protocolFrame.operationsDescriptor.descriptor.resourceUrl,
-				JSON.stringify(delta.operations),
-			);
+			nextReviewSequence += 1;
 			dispatchBridgeViewerReviewIntakeFrame(protocolFrame);
 			await Promise.resolve();
 			await Promise.resolve();
@@ -696,7 +732,7 @@ async function waitForBridgeHandshakeRequest(
 		return;
 	}
 	if (remainingAttempts <= 0) {
-		throw new Error('expected Bridge handshake request before package push');
+		throw new Error('expected Bridge handshake request before metadata push');
 	}
 	await Promise.resolve();
 	await new Promise<void>((resolve) => {
@@ -727,9 +763,10 @@ function reviewIntakeKindForProtocolFrame(
 	protocolFrame: ReviewProtocolFrame,
 ): BridgeViewerReviewIntakeKind {
 	switch (protocolFrame.frameKind) {
-		case 'review.snapshot':
+		case 'review.metadataSnapshot':
 			return 'snapshot';
-		case 'review.delta':
+		case 'review.metadataWindow':
+		case 'review.metadataDelta':
 			return 'delta';
 		case 'review.invalidate':
 			return 'invalidate';
@@ -741,346 +778,116 @@ function reviewIntakeKindForProtocolFrame(
 	throw new Error('Unhandled Review protocol frame kind');
 }
 
-function makeBrowserFixtureItem(props: {
-	readonly itemId: string;
-	readonly path: string;
-	readonly itemKind?: BridgeReviewItemDescriptor['itemKind'];
-	readonly changeKind: BridgeFileChangeKind;
-	readonly fileClass: BridgeFileClass;
-	readonly language: string;
-	readonly extension: string;
-}): BridgeReviewItemDescriptor {
-	const baseItem = makeBridgeReviewItem({ itemId: props.itemId, path: props.path });
-	const base =
-		props.changeKind === 'added'
-			? null
-			: makeBrowserContentHandle(props.itemId, 'base', props.language, props.extension);
-	const head =
-		props.changeKind === 'deleted'
-			? null
-			: makeBrowserContentHandle(props.itemId, 'head', props.language, props.extension);
-	return {
-		...baseItem,
-		itemKind: props.itemKind ?? baseItem.itemKind,
-		itemId: props.itemId,
-		basePath: props.changeKind === 'added' ? null : props.path,
-		headPath: props.changeKind === 'deleted' ? null : props.path,
-		changeKind: props.changeKind,
-		fileClass: props.fileClass,
-		language: props.language,
-		extension: props.extension,
-		baseContentHash: base?.contentHash ?? null,
-		headContentHash: head?.contentHash ?? null,
-		additions: props.changeKind === 'deleted' ? 0 : 7,
-		deletions: props.changeKind === 'added' ? 0 : 4,
-		contentRoles: { base, head, diff: null, file: null },
-		cacheKey: `${base?.cacheKey ?? 'none'}|${head?.cacheKey ?? 'none'}`,
-		isHiddenByDefault: false,
-		hiddenReason: null,
-	};
+function reviewMetadataWindowItemIdBatches(
+	reviewPackage: BridgeReviewPackage,
+): readonly (readonly string[])[] {
+	const remainingItemIds = reviewPackage.orderedItemIds.slice(bridgeViewerReviewMetadataWindowSize);
+	const batches: string[][] = [];
+	for (
+		let itemIdOffset = 0;
+		itemIdOffset < remainingItemIds.length;
+		itemIdOffset += bridgeViewerReviewMetadataWindowSize
+	) {
+		batches.push(
+			remainingItemIds.slice(itemIdOffset, itemIdOffset + bridgeViewerReviewMetadataWindowSize),
+		);
+	}
+	return batches;
 }
 
-function makeBrowserFillerItem(props: {
-	readonly fixtureClass: BridgeViewerBrowserFixtureClass;
-	readonly index: number;
-}): BridgeReviewItemDescriptor {
-	const pathRoot = props.fixtureClass === 'small-mixed' ? 'tree' : 'Sources/AgentStudio';
-	const pathLeaf = props.index.toString().padStart(3, '0');
-	const moduleName = Math.floor(props.index / 12)
-		.toString()
-		.padStart(2, '0');
-	const fileClass = browserFillerFileClass(props.index);
-	const changeKind = browserFillerChangeKind(props.index);
-	const extension = fileClass === 'docs' ? 'md' : 'ts';
-	const language = fileClass === 'docs' ? 'markdown' : 'typescript';
-	const path =
-		props.fixtureClass === 'small-mixed'
-			? `tree/module-${moduleName}/file-${pathLeaf}.${extension}`
-			: `${pathRoot}/${fileClass}/module-${moduleName}/file-${pathLeaf}.${extension}`;
-	return makeBrowserFixtureItem({
-		itemId: `browser-filler-${props.fixtureClass}-${pathLeaf}`,
-		path,
-		changeKind,
-		fileClass,
-		language,
-		extension,
-	});
-}
-
-function fillerItemCountForFixtureClass(fixtureClass: BridgeViewerBrowserFixtureClass): number {
-	switch (fixtureClass) {
-		case 'small-mixed':
-			return 96;
-		case 'medium-agentstudio':
-			return 1_000;
-		case 'large-diffshub':
-			return 3_414;
+function reviewMetadataOperationsForFixtureDelta(props: {
+	readonly delta: BridgeReviewDelta;
+	readonly reviewPackage: BridgeReviewPackage;
+}): readonly ReviewMetadataOperation[] {
+	const projectionInput = makeBridgeReviewProjectionInput(props.reviewPackage);
+	const projectionItemById = new Map(
+		projectionInput.orderedItems.map((item): readonly [string, typeof item] => [item.itemId, item]),
+	);
+	const operations: ReviewMetadataOperation[] = [];
+	const appendedItems = props.delta.operations.addItems
+		.map((item) => projectionItemById.get(item.itemId) ?? null)
+		.filter((item): item is NonNullable<typeof item> => item !== null);
+	if (appendedItems.length > 0) {
+		operations.push({ kind: 'appendItems', items: appendedItems });
+		operations.push({
+			kind: 'upsertTreeRows',
+			rows: reviewTreeRowsForItems(props.delta.operations.addItems),
+		});
+		operations.push({
+			kind: 'upsertExtentFacts',
+			facts: reviewExtentFactsForItems(props.delta.operations.addItems),
+		});
 	}
-	const exhaustiveFixtureClass: never = fixtureClass;
-	void exhaustiveFixtureClass;
-	throw new Error('Unhandled fixture class');
-}
-
-function browserFillerFileClass(index: number): BridgeFileClass {
-	if (index % 23 === 0) {
-		return 'docs';
-	}
-	if (index % 17 === 0) {
-		return 'config';
-	}
-	if (index % 7 === 0) {
-		return 'test';
-	}
-	return 'source';
-}
-
-function browserFillerChangeKind(index: number): BridgeFileChangeKind {
-	if (index % 29 === 0) {
-		return 'renamed';
-	}
-	if (index % 31 === 0) {
-		return 'deleted';
-	}
-	if (index % 5 === 0) {
-		return 'added';
-	}
-	return 'modified';
-}
-
-function makeBrowserContentHandle(
-	itemId: string,
-	role: 'base' | 'head',
-	language: string,
-	extension: string,
-): BridgeContentHandle {
-	const handle = makeBridgeContentHandle(itemId, role);
-	return {
-		...handle,
-		reviewGeneration: 338,
-		resourceUrl: `agentstudio://resource/review/content/${handle.handleId}?generation=338`,
-		mimeType: extension === 'md' ? 'text/markdown' : 'text/typescript',
-		language,
-		sizeBytes: 512,
-	};
-}
-
-function addContent(
-	contentByHandleId: Map<string, string>,
-	item: BridgeReviewItemDescriptor,
-	content: { readonly base?: string; readonly head?: string },
-): void {
-	const baseHandle = item.contentRoles.base ?? null;
-	const headHandle = item.contentRoles.head ?? null;
-	if (baseHandle !== null && content.base !== undefined) {
-		contentByHandleId.set(baseHandle.handleId, content.base);
-	}
-	if (headHandle !== null && content.head !== undefined) {
-		contentByHandleId.set(headHandle.handleId, content.head);
-	}
-}
-
-function reviewItemWithContentSizes(props: {
-	readonly item: BridgeReviewItemDescriptor;
-	readonly contentByHandleId: ReadonlyMap<string, string>;
-}): BridgeReviewItemDescriptor {
-	return {
-		...props.item,
-		contentRoles: {
-			base: contentHandleWithMockedSize({
-				handle: props.item.contentRoles.base,
-				contentByHandleId: props.contentByHandleId,
-			}),
-			head: contentHandleWithMockedSize({
-				handle: props.item.contentRoles.head,
-				contentByHandleId: props.contentByHandleId,
-			}),
-			diff: contentHandleWithMockedSize({
-				handle: props.item.contentRoles.diff,
-				contentByHandleId: props.contentByHandleId,
-			}),
-			file: contentHandleWithMockedSize({
-				handle: props.item.contentRoles.file,
-				contentByHandleId: props.contentByHandleId,
-			}),
-		},
-	};
-}
-
-function contentHandleWithMockedSize(props: {
-	readonly handle: BridgeContentHandle | null | undefined;
-	readonly contentByHandleId: ReadonlyMap<string, string>;
-}): BridgeContentHandle | null | undefined {
-	if (props.handle === null || props.handle === undefined) {
-		return props.handle;
-	}
-	const content = props.contentByHandleId.get(props.handle.handleId);
-	if (content === undefined) {
-		return props.handle;
-	}
-	return {
-		...props.handle,
-		sizeBytes: new TextEncoder().encode(content).byteLength,
-	};
-}
-
-function requiredHandleId(handle: BridgeContentHandle | null | undefined, label: string): string {
-	if (handle === null || handle === undefined) {
-		throw new Error(`expected ${label} content handle`);
-	}
-	return handle.handleId;
-}
-
-async function waitForLatencyProfile(
-	latencyProfile: BridgeViewerMockedBackendLatencyProfile,
-): Promise<void> {
-	const delayMilliseconds = latencyDelayMilliseconds(latencyProfile);
-	if (delayMilliseconds === 0) {
-		await Promise.resolve();
-		return;
-	}
-	await new Promise<void>((resolve) => {
-		setTimeout(resolve, delayMilliseconds);
-	});
-}
-
-function latencyDelayMilliseconds(latencyProfile: BridgeViewerMockedBackendLatencyProfile): number {
-	switch (latencyProfile) {
-		case 'zero':
-			return 0;
-		case 'small':
-			return 6;
-		case 'slowBounded':
-			return 80;
-	}
-	const exhaustiveLatencyProfile: never = latencyProfile;
-	void exhaustiveLatencyProfile;
-	throw new Error('Unhandled latency profile');
-}
-
-function largeBrowserDiffText(label: 'base' | 'head'): string {
-	return Array.from({ length: 50_000 }, (_value: unknown, index: number): string => {
-		const paddedIndex = index.toString().padStart(4, '0');
-		return `export const generatedLine${paddedIndex} = '${label}';`;
-	}).join('\n');
-}
-
-function hunkedBrowserDiffText(label: 'base' | 'head'): string {
-	return Array.from({ length: 60 }, (_value: unknown, index: number): string => {
-		const paddedIndex = index.toString().padStart(4, '0');
-		if (index === 4 || index === 47) {
-			return `export const changedContextLine${paddedIndex} = '${label}';`;
+	for (const item of props.delta.operations.updateItems) {
+		const projectionItem = projectionItemById.get(item.itemId) ?? null;
+		if (projectionItem !== null) {
+			operations.push({ kind: 'upsertItemMetadata', item: projectionItem });
 		}
-		return `export const stableContextLine${paddedIndex} = 'same';`;
-	}).join('\n');
+	}
+	if (props.delta.operations.removeItems.length > 0) {
+		operations.push({ kind: 'removeItems', itemIds: props.delta.operations.removeItems });
+	}
+	if (props.delta.operations.moveItems.length > 0) {
+		operations.push({
+			kind: 'replaceItemOrder',
+			itemIds: props.delta.operations.moveItems,
+		});
+	}
+	return operations;
 }
 
-function handleIdFromResourceUrl(url: string): string | null {
-	const parsedUrl = parseBridgeCoreResourceUrl(url, {
-		allowedResourceKindsByProtocol: { review: new Set(['content']) },
+function reviewTreeRowsForItems(
+	items: readonly BridgeReviewItemDescriptor[],
+): ReviewTreeRowMetadata[] {
+	return items.map((item): ReviewTreeRowMetadata => {
+		const path = mockedBackendSupport.primaryPathForItem(item);
+		return {
+			rowId: `review-row:${item.itemId}`,
+			itemId: item.itemId,
+			path,
+			depth: path.split('/').length - 1,
+			isDirectory: false,
+		};
 	});
-	if (parsedUrl?.protocol !== 'review' || parsedUrl.resourceKind !== 'content') {
-		return null;
+}
+
+function reviewExtentFactsForItems(
+	items: readonly BridgeReviewItemDescriptor[],
+): ReviewExtentFact[] {
+	return items.flatMap((item): ReviewExtentFact[] =>
+		(['base', 'head', 'diff', 'file'] as const satisfies BridgeContentRole[]).flatMap(
+			(contentRole): ReviewExtentFact[] => {
+				const handle = item.contentRoles[contentRole] ?? null;
+				if (handle === null) {
+					return [];
+				}
+				return [
+					{
+						itemId: item.itemId,
+						contentRole,
+						lineCount: lineCountForReviewItemContentRole({ contentRole, item }),
+					},
+				];
+			},
+		),
+	);
+}
+
+function lineCountForReviewItemContentRole(props: {
+	readonly contentRole: BridgeContentRole;
+	readonly item: BridgeReviewItemDescriptor;
+}): number {
+	const exactLineCount = props.item.contentLineCountsByRole?.[props.contentRole];
+	if (exactLineCount !== null && exactLineCount !== undefined) {
+		return exactLineCount;
 	}
-	return parsedUrl.opaqueId;
-}
-
-function countChangeKinds(
-	items: readonly BridgeReviewItemDescriptor[],
-): Readonly<Record<BridgeFileChangeKind, number>> {
-	return {
-		added: countItemsWhere(
-			items,
-			(item: BridgeReviewItemDescriptor): boolean => item.changeKind === 'added',
-		),
-		modified: countItemsWhere(
-			items,
-			(item: BridgeReviewItemDescriptor): boolean => item.changeKind === 'modified',
-		),
-		deleted: countItemsWhere(
-			items,
-			(item: BridgeReviewItemDescriptor): boolean => item.changeKind === 'deleted',
-		),
-		renamed: countItemsWhere(
-			items,
-			(item: BridgeReviewItemDescriptor): boolean => item.changeKind === 'renamed',
-		),
-		copied: countItemsWhere(
-			items,
-			(item: BridgeReviewItemDescriptor): boolean => item.changeKind === 'copied',
-		),
-	};
-}
-
-function countFileClasses(
-	items: readonly BridgeReviewItemDescriptor[],
-): Readonly<Record<BridgeFileClass, number>> {
-	return {
-		source: countItemsWhere(
-			items,
-			(item: BridgeReviewItemDescriptor): boolean => item.fileClass === 'source',
-		),
-		test: countItemsWhere(
-			items,
-			(item: BridgeReviewItemDescriptor): boolean => item.fileClass === 'test',
-		),
-		docs: countItemsWhere(
-			items,
-			(item: BridgeReviewItemDescriptor): boolean => item.fileClass === 'docs',
-		),
-		config: countItemsWhere(
-			items,
-			(item: BridgeReviewItemDescriptor): boolean => item.fileClass === 'config',
-		),
-		generated: countItemsWhere(
-			items,
-			(item: BridgeReviewItemDescriptor): boolean => item.fileClass === 'generated',
-		),
-		vendor: countItemsWhere(
-			items,
-			(item: BridgeReviewItemDescriptor): boolean => item.fileClass === 'vendor',
-		),
-		binary: countItemsWhere(
-			items,
-			(item: BridgeReviewItemDescriptor): boolean => item.fileClass === 'binary',
-		),
-		large: countItemsWhere(
-			items,
-			(item: BridgeReviewItemDescriptor): boolean => item.fileClass === 'large',
-		),
-		fixture: countItemsWhere(
-			items,
-			(item: BridgeReviewItemDescriptor): boolean => item.fileClass === 'fixture',
-		),
-		unknown: countItemsWhere(
-			items,
-			(item: BridgeReviewItemDescriptor): boolean => item.fileClass === 'unknown',
-		),
-	};
-}
-
-function countItemsWhere(
-	items: readonly BridgeReviewItemDescriptor[],
-	predicate: (item: BridgeReviewItemDescriptor) => boolean,
-): number {
-	return items.filter(predicate).length;
-}
-
-function selectedLargeContentLineCount(
-	contentByHandleId: ReadonlyMap<string, string>,
-	largeItem: BridgeReviewItemDescriptor,
-): number {
-	const baseHandle = largeItem.contentRoles.base ?? null;
-	const headHandle = largeItem.contentRoles.head ?? null;
-	const baseLineCount =
-		baseHandle === null ? 0 : lineCount(contentByHandleId.get(baseHandle.handleId));
-	const headLineCount =
-		headHandle === null ? 0 : lineCount(contentByHandleId.get(headHandle.handleId));
-	return baseLineCount + headLineCount;
-}
-
-function lineCount(content: string | undefined): number {
-	if (content === undefined || content.length === 0) {
-		return 0;
+	switch (props.contentRole) {
+		case 'base':
+			return Math.max(props.item.deletions, 1);
+		case 'head':
+		case 'file':
+			return Math.max(props.item.additions, 1);
+		case 'diff':
+			return Math.max(props.item.additions + props.item.deletions, 1);
 	}
-	return content.split('\n').length;
 }

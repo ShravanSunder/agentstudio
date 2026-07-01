@@ -144,7 +144,7 @@ export function createBridgeReviewViewerStore(): BridgeReviewViewerStore {
 					},
 					startProjectionRequest: (identity: BridgeReviewProjectionRequestIdentity): void => {
 						set((state: BridgeReviewViewerStoreState): Partial<BridgeReviewViewerStoreState> => {
-							const keepCurrentProjection = projectionIdentityMatchesPackageRevision(
+							const keepCurrentProjection = projectionIdentityMatchesReviewStream(
 								state.projectionIdentity,
 								identity,
 							);
@@ -249,14 +249,13 @@ function requestIdentitiesMatch(
 	);
 }
 
-function projectionIdentityMatchesPackageRevision(
+function projectionIdentityMatchesReviewStream(
 	left: BridgeReviewProjectionRequestIdentity | null,
 	right: BridgeReviewProjectionRequestIdentity,
 ): boolean {
 	return (
 		left !== null &&
 		left.packageId === right.packageId &&
-		left.reviewGeneration === right.reviewGeneration &&
-		left.revision === right.revision
+		left.reviewGeneration === right.reviewGeneration
 	);
 }

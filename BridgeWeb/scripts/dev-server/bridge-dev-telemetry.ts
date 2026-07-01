@@ -9,6 +9,7 @@ import type {
 
 interface BridgeDevTelemetrySinkProps {
 	readonly collectorLogsUrl?: string;
+	readonly collectorMetricsUrl?: string;
 	readonly fetchImpl?: typeof fetch;
 	readonly marker?: string;
 	readonly nowUnixNano?: () => string;
@@ -27,8 +28,20 @@ export interface BridgeDevTelemetrySnapshot {
 	readonly failedBatchCount: number;
 	readonly lastError: string | null;
 	readonly marker: string;
+	readonly recentSamples: readonly BridgeTelemetrySample[];
 	readonly serviceVersion: string;
 	readonly worktreeHash: string;
+}
+
+export interface BridgeDevContentResponseTelemetryBatchProps {
+	readonly byteLength: number;
+	readonly getProviderMilliseconds: number;
+	readonly providerLoadMilliseconds: number;
+	readonly responseTotalMilliseconds: number;
+	readonly result: 'failed' | 'success';
+	readonly resultReason: string;
+	readonly scenario: string;
+	readonly viewer: 'file' | 'review';
 }
 
 interface BuildBridgeDevTelemetryLogRecordProps {
@@ -61,8 +74,51 @@ interface OTelLogRecord {
 }
 
 const defaultCollectorLogsUrl = 'http://127.0.0.1:4318/v1/logs';
+const defaultCollectorMetricsUrl = 'http://127.0.0.1:4318/v1/metrics';
 const bridgeDevRuntimeFlavor = 'vite-dev';
 const bridgeDevReleaseChannel = 'local';
+const elapsedHistogramBounds = [
+	0, 5, 10, 25, 50, 75, 100, 150, 200, 250, 350, 500, 650, 750, 900, 1000, 1050, 1100, 1250, 1500,
+	2000, 2500, 5000, 7500, 10_000,
+] as const satisfies readonly number[];
+const recentTelemetrySampleLimit = 1_000;
+
+export function buildBridgeDevContentResponseTelemetryBatch(
+	props: BridgeDevContentResponseTelemetryBatchProps,
+): BridgeTelemetryBatch {
+	const stringAttributes = bridgeDevContentResponseStringAttributes({
+		result: props.result,
+		resultReason: props.resultReason,
+		viewer: props.viewer,
+	});
+	return {
+		schemaVersion: 1,
+		scenario: props.scenario,
+		samples: [
+			bridgeDevContentResponseSample({
+				durationMilliseconds: props.getProviderMilliseconds,
+				phase: 'dev_content_get_provider',
+				stringAttributes,
+			}),
+			bridgeDevContentResponseSample({
+				durationMilliseconds: props.providerLoadMilliseconds,
+				phase: 'dev_content_provider_load',
+				stringAttributes,
+			}),
+			bridgeDevContentResponseSample({
+				durationMilliseconds: props.responseTotalMilliseconds,
+				numericAttributes: {
+					'agentstudio.bridge.content.byte_length': props.byteLength,
+					'agentstudio.bridge.dev_server.get_provider_ms': props.getProviderMilliseconds,
+					'agentstudio.bridge.dev_server.provider_load_ms': props.providerLoadMilliseconds,
+					'agentstudio.bridge.dev_server.response_total_ms': props.responseTotalMilliseconds,
+				},
+				phase: 'dev_content_response_total',
+				stringAttributes,
+			}),
+		],
+	};
+}
 
 export function createBridgeDevTelemetrySink(
 	props: BridgeDevTelemetrySinkProps = {},
@@ -71,6 +127,10 @@ export function createBridgeDevTelemetrySink(
 		props.collectorLogsUrl ??
 		process.env['BRIDGE_WEB_DEV_TELEMETRY_OTLP_LOGS_URL'] ??
 		defaultCollectorLogsUrl;
+	const collectorMetricsUrl =
+		props.collectorMetricsUrl ??
+		process.env['BRIDGE_WEB_DEV_TELEMETRY_OTLP_METRICS_URL'] ??
+		defaultCollectorMetricsUrl;
 	const fetchImpl = props.fetchImpl ?? fetch;
 	const marker =
 		props.marker ??
@@ -83,6 +143,7 @@ export function createBridgeDevTelemetrySink(
 	let acceptedSampleCount = 0;
 	let failedBatchCount = 0;
 	let lastError: string | null = null;
+	let recentSamples: readonly BridgeTelemetrySample[] = [];
 	const ingest = async (batch: unknown): Promise<boolean> => {
 		const parsedBatch = bridgeTelemetryBatchSchema.safeParse(batch);
 		if (!parsedBatch.success) {
@@ -103,6 +164,16 @@ export function createBridgeDevTelemetrySink(
 			serviceVersion,
 			worktreeHash,
 		});
+		const metricsBody = buildBridgeDevTelemetryOTLPMetricsRequest({
+			batch: parsedBatch.data,
+			marker,
+			receivedAtUnixNano,
+			serviceVersion,
+			worktreeHash,
+		});
+		recentSamples = [...recentSamples, ...parsedBatch.data.samples].slice(
+			-recentTelemetrySampleLimit,
+		);
 		try {
 			const response = await fetchImpl(collectorLogsUrl, {
 				body: JSON.stringify(body),
@@ -110,7 +181,15 @@ export function createBridgeDevTelemetrySink(
 				method: 'POST',
 			});
 			if (!response.ok) {
-				throw new Error(`collector_http_${response.status}`);
+				throw new Error(`collector_logs_http_${response.status}`);
+			}
+			const metricsResponse = await fetchImpl(collectorMetricsUrl, {
+				body: JSON.stringify(metricsBody),
+				headers: { 'content-type': 'application/json' },
+				method: 'POST',
+			});
+			if (!metricsResponse.ok) {
+				throw new Error(`collector_metrics_http_${metricsResponse.status}`);
 			}
 			acceptedBatchCount += 1;
 			acceptedSampleCount += parsedBatch.data.samples.length;
@@ -130,6 +209,7 @@ export function createBridgeDevTelemetrySink(
 			failedBatchCount,
 			lastError,
 			marker,
+			recentSamples,
 			serviceVersion,
 			worktreeHash,
 		}),
@@ -214,7 +294,10 @@ const bridgeDevStringAttributeKeys = new Set<string>([
 	'agentstudio.bridge.content.priority',
 	'agentstudio.bridge.content.role',
 	'agentstudio.bridge.content_bytes_bucket',
+	'agentstudio.bridge.demand.lane',
+	'agentstudio.bridge.file_size_bucket',
 	'agentstudio.bridge.fixture_class',
+	'agentstudio.bridge.generation_relation',
 	'agentstudio.bridge.header_missing',
 	'agentstudio.bridge.header_supported',
 	'agentstudio.bridge.item_count_bucket',
@@ -224,6 +307,7 @@ const bridgeDevStringAttributeKeys = new Set<string>([
 	'agentstudio.bridge.phase',
 	'agentstudio.bridge.plane',
 	'agentstudio.bridge.priority',
+	'agentstudio.bridge.protocol',
 	'agentstudio.bridge.projection.kind',
 	'agentstudio.bridge.queue.depth_bucket',
 	'agentstudio.bridge.result',
@@ -232,16 +316,25 @@ const bridgeDevStringAttributeKeys = new Set<string>([
 	'agentstudio.bridge.slice',
 	'agentstudio.bridge.telemetry.drop_reason',
 	'agentstudio.bridge.transport',
+	'agentstudio.bridge.viewer',
 	'agentstudio.bridge.worker.lane',
 	'agentstudio.bridge.worker.task_kind',
 ]);
 
 const bridgeDevNumericAttributeKeys = new Set<string>([
+	'agentstudio.bridge.content.byte_length',
 	'agentstudio.bridge.content.byte_count',
 	'agentstudio.bridge.content.chunk_byte_count',
 	'agentstudio.bridge.content.chunk_count',
+	'agentstudio.bridge.content.estimated_bytes',
+	'agentstudio.bridge.content.first_chunk_wait_ms',
+	'agentstudio.bridge.content.response_wait_ms',
+	'agentstudio.bridge.content.stream_read_ms',
 	'agentstudio.bridge.content.resource_count',
 	'agentstudio.bridge.content.total_bytes_read',
+	'agentstudio.bridge.dev_server.get_provider_ms',
+	'agentstudio.bridge.dev_server.provider_load_ms',
+	'agentstudio.bridge.dev_server.response_total_ms',
 	'agentstudio.bridge.markdown.input_bytes',
 	'agentstudio.bridge.markdown.output_bytes',
 	'agentstudio.bridge.review.item_count',
@@ -313,6 +406,262 @@ function buildBridgeDevTelemetryOTLPRequest(props: {
 	};
 }
 
+function buildBridgeDevTelemetryOTLPMetricsRequest(props: {
+	readonly batch: BridgeTelemetryBatch;
+	readonly marker: string;
+	readonly receivedAtUnixNano: string;
+	readonly serviceVersion: string;
+	readonly worktreeHash: string;
+}): {
+	readonly resourceMetrics: readonly [
+		{
+			readonly resource: { readonly attributes: readonly OTelKeyValue[] };
+			readonly scopeMetrics: readonly [
+				{
+					readonly scope: { readonly name: 'bridge-web-vite-dev'; readonly version: string };
+					readonly metrics: readonly OTelMetric[];
+				},
+			];
+		},
+	];
+} {
+	return {
+		resourceMetrics: [
+			{
+				resource: {
+					attributes: resourceAttributesForBridgeDevTelemetry(props),
+				},
+				scopeMetrics: [
+					{
+						scope: { name: 'bridge-web-vite-dev', version: props.serviceVersion },
+						metrics: metricsForBridgeTelemetryBatch(props),
+					},
+				],
+			},
+		],
+	};
+}
+
+type OTelMetric =
+	| {
+			readonly name: string;
+			readonly sum: {
+				readonly aggregationTemporality: 2;
+				readonly isMonotonic: boolean;
+				readonly dataPoints: readonly OTelMetricDataPoint[];
+			};
+	  }
+	| {
+			readonly name: string;
+			readonly gauge: {
+				readonly dataPoints: readonly OTelMetricDataPoint[];
+			};
+	  }
+	| {
+			readonly name: string;
+			readonly histogram: {
+				readonly aggregationTemporality: 2;
+				readonly dataPoints: readonly OTelHistogramDataPoint[];
+			};
+	  };
+
+interface OTelMetricDataPoint {
+	readonly timeUnixNano: string;
+	readonly attributes: readonly OTelKeyValue[];
+	readonly asInt?: string;
+	readonly asDouble?: number;
+}
+
+interface OTelHistogramDataPoint {
+	readonly timeUnixNano: string;
+	readonly attributes: readonly OTelKeyValue[];
+	readonly count: string;
+	readonly sum: number;
+	readonly bucketCounts: readonly string[];
+	readonly explicitBounds: readonly number[];
+	readonly min: number;
+	readonly max: number;
+}
+
+function metricsForBridgeTelemetryBatch(props: {
+	readonly batch: BridgeTelemetryBatch;
+	readonly receivedAtUnixNano: string;
+}): readonly OTelMetric[] {
+	const counterPoints: OTelMetricDataPoint[] = [];
+	const elapsedHistogramPoints: OTelHistogramDataPoint[] = [];
+	const elapsedMaxPoints: OTelMetricDataPoint[] = [];
+	const numericGaugePointsByMetricName = new Map<string, OTelMetricDataPoint[]>();
+
+	for (const sample of props.batch.samples) {
+		const dimensions = dimensionsForBridgeTelemetrySample(sample);
+		if (dimensions === null) {
+			continue;
+		}
+		counterPoints.push({
+			timeUnixNano: props.receivedAtUnixNano,
+			attributes: dimensions,
+			asInt: '1',
+		});
+		if (sample.durationMilliseconds !== null) {
+			elapsedHistogramPoints.push(
+				histogramPointForDuration({
+					attributes: dimensions,
+					durationMilliseconds: sample.durationMilliseconds,
+					timeUnixNano: props.receivedAtUnixNano,
+				}),
+			);
+			elapsedMaxPoints.push({
+				timeUnixNano: props.receivedAtUnixNano,
+				attributes: dimensions,
+				asDouble: sample.durationMilliseconds,
+			});
+		}
+		for (const [key, value] of Object.entries(sample.numericAttributes)) {
+			const metricName = metricNameForBridgeTelemetryNumericAttribute(key);
+			if (metricName === null) {
+				continue;
+			}
+			const points = numericGaugePointsByMetricName.get(metricName) ?? [];
+			points.push({
+				timeUnixNano: props.receivedAtUnixNano,
+				attributes: dimensions,
+				asDouble: value,
+			});
+			numericGaugePointsByMetricName.set(metricName, points);
+		}
+	}
+
+	const metrics: OTelMetric[] = [
+		{
+			name: 'agentstudio_performance_events_total',
+			sum: {
+				aggregationTemporality: 2,
+				isMonotonic: true,
+				dataPoints: counterPoints,
+			},
+		},
+		{
+			name: 'agentstudio_performance_event_elapsed_ms',
+			histogram: {
+				aggregationTemporality: 2,
+				dataPoints: elapsedHistogramPoints,
+			},
+		},
+		{
+			name: 'agentstudio_performance_event_elapsed_ms_max',
+			gauge: {
+				dataPoints: elapsedMaxPoints,
+			},
+		},
+	];
+	for (const [metricName, dataPoints] of [...numericGaugePointsByMetricName.entries()].sort(
+		([leftName], [rightName]): number => leftName.localeCompare(rightName),
+	)) {
+		metrics.push({
+			name: metricName,
+			gauge: { dataPoints },
+		});
+	}
+	return metrics;
+}
+
+function dimensionsForBridgeTelemetrySample(
+	sample: BridgeTelemetrySample,
+): readonly OTelKeyValue[] | null {
+	if (!sample.name.startsWith('performance.')) {
+		return null;
+	}
+	if (sample.name.startsWith('performance.bridge.')) {
+		const phase = sample.stringAttributes['agentstudio.bridge.phase'];
+		const plane = sample.stringAttributes['agentstudio.bridge.plane'];
+		const priority = sample.stringAttributes['agentstudio.bridge.priority'];
+		const slice = sample.stringAttributes['agentstudio.bridge.slice'];
+		if (
+			phase === undefined ||
+			plane === undefined ||
+			priority === undefined ||
+			slice === undefined
+		) {
+			return null;
+		}
+		return [
+			stringAttribute('event', sample.name),
+			stringAttribute('phase', phase),
+			stringAttribute('plane', plane),
+			stringAttribute('priority', priority),
+			stringAttribute('slice', slice),
+			...(sample.stringAttributes['agentstudio.bridge.transport'] === undefined
+				? []
+				: [stringAttribute('transport', sample.stringAttributes['agentstudio.bridge.transport'])]),
+		];
+	}
+	return [stringAttribute('event', sample.name)];
+}
+
+function histogramPointForDuration(props: {
+	readonly attributes: readonly OTelKeyValue[];
+	readonly durationMilliseconds: number;
+	readonly timeUnixNano: string;
+}): OTelHistogramDataPoint {
+	const bucketCounts = Array.from({ length: elapsedHistogramBounds.length + 1 }, (): string => '0');
+	const bucketIndex = elapsedHistogramBounds.findIndex(
+		(bound): boolean => props.durationMilliseconds <= bound,
+	);
+	bucketCounts[bucketIndex === -1 ? elapsedHistogramBounds.length : bucketIndex] = '1';
+	return {
+		timeUnixNano: props.timeUnixNano,
+		attributes: props.attributes,
+		count: '1',
+		sum: props.durationMilliseconds,
+		bucketCounts,
+		explicitBounds: [...elapsedHistogramBounds],
+		min: props.durationMilliseconds,
+		max: props.durationMilliseconds,
+	};
+}
+
+function metricNameForBridgeTelemetryNumericAttribute(key: string): string | null {
+	if (key === 'agentstudio.performance.elapsed_ms') {
+		return null;
+	}
+	if (key.startsWith('agentstudio.performance.')) {
+		return metricNameFromAttributeSuffix(
+			'agentstudio_performance',
+			key.slice('agentstudio.performance.'.length),
+		);
+	}
+	if (!key.startsWith('agentstudio.bridge.')) {
+		return null;
+	}
+	return metricNameFromAttributeSuffix(
+		'agentstudio_bridge',
+		key.slice('agentstudio.bridge.'.length),
+	);
+}
+
+function metricNameFromAttributeSuffix(prefix: string, suffix: string): string | null {
+	const sanitized = suffix
+		.replace(/[^A-Za-z0-9]+/gu, '_')
+		.replace(/_+/gu, '_')
+		.replace(/^_|_$/gu, '');
+	return sanitized.length === 0 ? null : `${prefix}_${sanitized}`;
+}
+
+function resourceAttributesForBridgeDevTelemetry(props: {
+	readonly marker: string;
+	readonly serviceVersion: string;
+	readonly worktreeHash: string;
+}): readonly OTelKeyValue[] {
+	return [
+		stringAttribute('service.name', 'AgentStudioBridgeWebDevServer'),
+		stringAttribute('service.version', props.serviceVersion),
+		stringAttribute('dev.release.channel', bridgeDevReleaseChannel),
+		stringAttribute('dev.runtime.flavor', bridgeDevRuntimeFlavor),
+		stringAttribute('dev.worktree.hash', props.worktreeHash),
+		stringAttribute('agent.proof.marker', props.marker),
+	];
+}
+
 function stringAttribute(key: string, value: string): OTelKeyValue {
 	return { key, value: { stringValue: value } };
 }
@@ -333,4 +682,44 @@ function currentUnixNano(): string {
 
 function hashValue(value: string): string {
 	return createHash('sha256').update(value).digest('hex').slice(0, 16);
+}
+
+function bridgeDevContentResponseStringAttributes(props: {
+	readonly result: 'failed' | 'success';
+	readonly resultReason: string;
+	readonly viewer: 'file' | 'review';
+}): Readonly<Record<string, string>> {
+	return {
+		'agentstudio.bridge.content.correlation_mode': 'summary',
+		'agentstudio.bridge.content.role': props.viewer === 'file' ? 'file' : 'unknown',
+		'agentstudio.bridge.phase': 'dev_content_response_total',
+		'agentstudio.bridge.plane': 'data',
+		'agentstudio.bridge.priority': 'hot',
+		'agentstudio.bridge.protocol': props.viewer === 'file' ? 'worktree-file' : 'review',
+		'agentstudio.bridge.result': props.result,
+		'agentstudio.bridge.result_reason': props.resultReason,
+		'agentstudio.bridge.slice': 'content_fetch',
+		'agentstudio.bridge.transport': 'content',
+		'agentstudio.bridge.viewer': props.viewer,
+	};
+}
+
+function bridgeDevContentResponseSample(props: {
+	readonly durationMilliseconds: number;
+	readonly numericAttributes?: Readonly<Record<string, number>>;
+	readonly phase: string;
+	readonly stringAttributes: Readonly<Record<string, string>>;
+}): BridgeTelemetrySample {
+	return {
+		scope: 'web',
+		name: 'performance.bridge.web.dev_content_response',
+		durationMilliseconds: Math.max(0, props.durationMilliseconds),
+		traceContext: null,
+		stringAttributes: {
+			...props.stringAttributes,
+			'agentstudio.bridge.phase': props.phase,
+		},
+		numericAttributes: props.numericAttributes ?? {},
+		booleanAttributes: {},
+	};
 }

@@ -208,11 +208,19 @@ function makeFrames(descriptor: WorktreeFileDescriptor): readonly WorktreeFilePr
 			sequence: 0,
 			frameKind: 'worktree.snapshot',
 			source: makeSourceIdentity(),
-			treeDescriptor: makeAttachedDescriptor({
-				descriptorId: 'tree-window-1',
-				resourceKind: 'worktree.treeWindow',
-			}),
+			treeRows: [
+				{
+					rowId: 'row-1',
+					path: descriptor.path,
+					name: 'View.swift',
+					parentPath: 'Sources/App',
+					depth: 2,
+					isDirectory: false,
+					fileId: descriptor.fileId,
+				},
+			],
 			treeSizeFacts: {
+				extentKind: 'exactPathCount',
 				pathCount: 20,
 				windowStartIndex: 0,
 				windowRowCount: 1,
@@ -286,7 +294,7 @@ function makeSourceIdentity(): WorktreeFileSurfaceSourceIdentity {
 
 function makeAttachedDescriptor(props: {
 	readonly descriptorId: string;
-	readonly resourceKind: 'worktree.fileContent' | 'worktree.treeWindow';
+	readonly resourceKind: 'worktree.fileContent';
 }): BridgeAttachedResourceDescriptor {
 	const identity = {
 		paneId: 'pane-1',

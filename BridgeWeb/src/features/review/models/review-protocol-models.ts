@@ -1,8 +1,14 @@
 import { z } from 'zod';
 
+import { bridgeDemandLaneSchema } from '../../../core/models/bridge-demand-models.js';
 import { bridgeIntakeFrameBaseSchema } from '../../../core/models/bridge-intake-frame.js';
 import { bridgeDescriptorRefSchema } from '../../../core/models/bridge-resource-descriptor.js';
 import { bridgeAttachedResourceDescriptorSchema } from '../../../core/models/bridge-resource-descriptor.js';
+import {
+	bridgeReviewPackageSummarySchema,
+	bridgeSourceEndpointSchema,
+} from '../../../foundation/review-package/bridge-review-package-schema.js';
+import { bridgeReviewProjectionInputItemSchema } from '../../../review-viewer/models/review-projection-models.js';
 
 export const reviewChangesetClusterMetadataSchema = z
 	.object({
@@ -45,34 +51,160 @@ export const reviewChangesetClusterMetadataSchema = z
 	})
 	.strict();
 
-export const reviewPackageIdentitySchema = z
+export const reviewComparisonIdentitySchema = z
 	.object({
 		packageId: z.string().min(1),
 		sourceIdentity: z.string().min(1),
 		generation: z.number().int().nonnegative(),
 		revision: z.number().int().nonnegative(),
-		rootDescriptor: bridgeAttachedResourceDescriptorSchema,
+		baseEndpoint: bridgeSourceEndpointSchema,
+		headEndpoint: bridgeSourceEndpointSchema,
 		contentDescriptors: z.array(bridgeAttachedResourceDescriptorSchema).optional(),
 		changesetCluster: reviewChangesetClusterMetadataSchema.optional(),
 	})
 	.strict();
 
-export const reviewSnapshotFrameSchema = bridgeIntakeFrameBaseSchema
-	.extend({
-		kind: z.literal('snapshot'),
-		frameKind: z.literal('review.snapshot'),
-		package: reviewPackageIdentitySchema,
+export const reviewTreeRowMetadataSchema = z
+	.object({
+		rowId: z.string().min(1),
+		itemId: z.string().min(1).optional(),
+		path: z.string().min(1),
+		depth: z.number().int().nonnegative(),
+		isDirectory: z.boolean(),
+		loaded_by: z
+			.enum([
+				'startup_window',
+				'foreground',
+				'visible',
+				'nearby',
+				'speculative',
+				'idle',
+				'delta',
+				'reset',
+				'replacement',
+			])
+			.optional(),
+		lane: bridgeDemandLaneSchema.optional(),
 	})
 	.strict();
 
-export const reviewDeltaFrameSchema = bridgeIntakeFrameBaseSchema
+export const reviewExtentFactSchema = z
+	.object({
+		itemId: z.string().min(1),
+		contentRole: z.enum(['base', 'head', 'diff', 'file']),
+		lineCount: z.number().int().nonnegative(),
+	})
+	.strict();
+
+export const reviewMetadataOperationSchema = z.discriminatedUnion('kind', [
+	z
+		.object({
+			kind: z.literal('upsertItemMetadata'),
+			item: bridgeReviewProjectionInputItemSchema,
+		})
+		.strict(),
+	z
+		.object({
+			kind: z.literal('removeItems'),
+			itemIds: z.array(z.string().min(1)),
+		})
+		.strict(),
+	z
+		.object({
+			kind: z.literal('appendItems'),
+			items: z.array(bridgeReviewProjectionInputItemSchema),
+		})
+		.strict(),
+	z
+		.object({
+			kind: z.literal('replaceItemOrder'),
+			itemIds: z.array(z.string().min(1)),
+		})
+		.strict(),
+	z
+		.object({
+			kind: z.literal('upsertTreeRows'),
+			rows: z.array(reviewTreeRowMetadataSchema),
+		})
+		.strict(),
+	z
+		.object({
+			kind: z.literal('removeTreeRows'),
+			rowIds: z.array(z.string().min(1)).optional(),
+			paths: z.array(z.string().min(1)).optional(),
+		})
+		.strict(),
+	z
+		.object({
+			kind: z.literal('replaceTreeWindow'),
+			rows: z.array(reviewTreeRowMetadataSchema),
+		})
+		.strict(),
+	z
+		.object({
+			kind: z.literal('movePathPrefix'),
+			fromPath: z.string().min(1),
+			toPath: z.string().min(1),
+			affectedItemIds: z.array(z.string().min(1)),
+		})
+		.strict(),
+	z
+		.object({
+			kind: z.literal('upsertExtentFacts'),
+			facts: z.array(reviewExtentFactSchema),
+		})
+		.strict(),
+	z
+		.object({
+			kind: z.literal('selectItem'),
+			itemId: z.string().min(1).nullable(),
+		})
+		.strict(),
+	z
+		.object({
+			kind: z.literal('invalidateContentDescriptors'),
+			descriptorIds: z.array(z.string().min(1)),
+		})
+		.strict(),
+]);
+
+export const reviewMetadataSnapshotFrameSchema = bridgeIntakeFrameBaseSchema
 	.extend({
-		kind: z.literal('delta'),
-		frameKind: z.literal('review.delta'),
+		kind: z.literal('metadataSnapshot'),
+		frameKind: z.literal('review.metadataSnapshot'),
+		comparison: reviewComparisonIdentitySchema,
+		selectedItemId: z.string().min(1).nullable(),
+		visibleItemIds: z.array(z.string().min(1)),
+		itemMetadata: z.array(bridgeReviewProjectionInputItemSchema),
+		treeRows: z.array(reviewTreeRowMetadataSchema),
+		extentFacts: z.array(reviewExtentFactSchema),
+		summary: bridgeReviewPackageSummarySchema,
+	})
+	.strict();
+
+export const reviewMetadataWindowFrameSchema = bridgeIntakeFrameBaseSchema
+	.extend({
+		kind: z.literal('metadataWindow'),
+		frameKind: z.literal('review.metadataWindow'),
+		packageId: z.string().min(1),
+		revision: z.number().int().nonnegative(),
+		itemMetadata: z.array(bridgeReviewProjectionInputItemSchema),
+		treeRows: z.array(reviewTreeRowMetadataSchema),
+		extentFacts: z.array(reviewExtentFactSchema),
+		summary: bridgeReviewPackageSummarySchema,
+		contentDescriptors: z.array(bridgeAttachedResourceDescriptorSchema).optional(),
+	})
+	.strict();
+
+export const reviewMetadataDeltaFrameSchema = bridgeIntakeFrameBaseSchema
+	.extend({
+		kind: z.literal('metadataDelta'),
+		frameKind: z.literal('review.metadataDelta'),
 		packageId: z.string().min(1),
 		fromRevision: z.number().int().nonnegative(),
 		toRevision: z.number().int().nonnegative(),
-		operationsDescriptor: bridgeAttachedResourceDescriptorSchema,
+		operations: z.array(reviewMetadataOperationSchema),
+		summary: bridgeReviewPackageSummarySchema,
 		contentDescriptors: z.array(bridgeAttachedResourceDescriptorSchema).optional(),
 	})
 	.strict();
@@ -98,14 +230,13 @@ export const reviewResetFrameSchema = bridgeIntakeFrameBaseSchema
 		frameKind: z.literal('review.reset'),
 		reason: z.enum(['sourceChanged', 'subscriptionReset', 'providerRestart', 'authorityChanged']),
 		sourceIdentity: z.string().min(1),
-		packageId: z.string().min(1).optional(),
-		replacementDescriptor: bridgeAttachedResourceDescriptorSchema.optional(),
 	})
 	.strict();
 
 export const reviewProtocolFrameSchema = z.discriminatedUnion('frameKind', [
-	reviewSnapshotFrameSchema,
-	reviewDeltaFrameSchema,
+	reviewMetadataSnapshotFrameSchema,
+	reviewMetadataWindowFrameSchema,
+	reviewMetadataDeltaFrameSchema,
 	reviewInvalidationFrameSchema,
 	reviewResetFrameSchema,
 ]);
@@ -145,14 +276,18 @@ export const reviewDemandStimulusSchema = z.discriminatedUnion('kind', [
 		.object({
 			kind: z.literal('reviewSourceReset'),
 			sourceIdentity: z.string().min(1),
-			packageId: z.string().min(1).optional(),
 		})
 		.strict(),
 ]);
 
 export type ReviewChangesetClusterMetadata = z.infer<typeof reviewChangesetClusterMetadataSchema>;
-export type ReviewSnapshotFrame = z.infer<typeof reviewSnapshotFrameSchema>;
-export type ReviewDeltaFrame = z.infer<typeof reviewDeltaFrameSchema>;
+export type ReviewComparisonIdentity = z.infer<typeof reviewComparisonIdentitySchema>;
+export type ReviewTreeRowMetadata = z.infer<typeof reviewTreeRowMetadataSchema>;
+export type ReviewExtentFact = z.infer<typeof reviewExtentFactSchema>;
+export type ReviewMetadataOperation = z.infer<typeof reviewMetadataOperationSchema>;
+export type ReviewMetadataSnapshotFrame = z.infer<typeof reviewMetadataSnapshotFrameSchema>;
+export type ReviewMetadataWindowFrame = z.infer<typeof reviewMetadataWindowFrameSchema>;
+export type ReviewMetadataDeltaFrame = z.infer<typeof reviewMetadataDeltaFrameSchema>;
 export type ReviewInvalidationFrame = z.infer<typeof reviewInvalidationFrameSchema>;
 export type ReviewResetFrame = z.infer<typeof reviewResetFrameSchema>;
 export type ReviewProtocolFrame = z.infer<typeof reviewProtocolFrameSchema>;

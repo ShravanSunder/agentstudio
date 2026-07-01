@@ -8,6 +8,7 @@ import type {
 	WorktreeFileInvalidation,
 	WorktreeFileProtocolFrame,
 	WorktreeFileSurfaceSourceIdentity,
+	WorktreeTreeOperation,
 	WorktreeTreeVirtualizedSizeFacts,
 } from '../models/worktree-file-protocol-models.js';
 import { worktreeFileProtocolFrameSchema } from '../models/worktree-file-protocol-models.js';
@@ -16,18 +17,15 @@ export type WorktreeFileMaterializerDelta =
 	| {
 			readonly kind: 'snapshot';
 			readonly source: WorktreeFileSurfaceSourceIdentity;
-			readonly treeDescriptorRef: BridgeDescriptorRef;
-			readonly statusDescriptorRef?: BridgeDescriptorRef;
 			readonly treeSizeFacts?: WorktreeTreeVirtualizedSizeFacts;
 	  }
 	| {
 			readonly kind: 'treeWindow';
-			readonly windowDescriptorRef: BridgeDescriptorRef;
 			readonly treeSizeFacts?: WorktreeTreeVirtualizedSizeFacts;
 	  }
 	| {
 			readonly kind: 'treeDelta';
-			readonly operationsDescriptorRef: BridgeDescriptorRef;
+			readonly operations: readonly WorktreeTreeOperation[];
 	  }
 	| {
 			readonly kind: 'statusPatch';
@@ -86,24 +84,21 @@ export function applyWorktreeFileProtocolFrame(
 		case 'worktree.snapshot':
 			return applySnapshotFrame({ frame, registry: props.registry });
 		case 'worktree.treeWindow':
-			return applySingleDescriptorFrame({
-				registry: props.registry,
-				attachedDescriptor: frame.windowDescriptor,
-				makeDelta: (descriptorRef): WorktreeFileMaterializerDelta => ({
+			return {
+				ok: true,
+				delta: {
 					kind: 'treeWindow',
-					windowDescriptorRef: descriptorRef,
 					...(frame.treeSizeFacts === undefined ? {} : { treeSizeFacts: frame.treeSizeFacts }),
-				}),
-			});
+				},
+			};
 		case 'worktree.treeDelta':
-			return applySingleDescriptorFrame({
-				registry: props.registry,
-				attachedDescriptor: frame.operationsDescriptor,
-				makeDelta: (descriptorRef): WorktreeFileMaterializerDelta => ({
+			return {
+				ok: true,
+				delta: {
 					kind: 'treeDelta',
-					operationsDescriptorRef: descriptorRef,
-				}),
-			});
+					operations: frame.operations,
+				},
+			};
 		case 'worktree.statusPatch':
 			return {
 				ok: true,
@@ -170,35 +165,11 @@ function applySnapshotFrame(props: {
 	readonly frame: Extract<WorktreeFileProtocolFrame, { readonly frameKind: 'worktree.snapshot' }>;
 	readonly registry: BridgeResourceDescriptorRegistry;
 }): ApplyWorktreeFileProtocolFrameResult {
-	const registeredRefs: BridgeDescriptorRef[] = [];
-	const treeRegisterResult = registerAttachedDescriptorTransactionally({
-		registry: props.registry,
-		attachedDescriptor: props.frame.treeDescriptor,
-		registeredRefs,
-	});
-	if (!treeRegisterResult) {
-		return { ok: false, reason: 'descriptor_rejected' };
-	}
-	if (props.frame.statusDescriptor !== undefined) {
-		const statusRegisterResult = registerAttachedDescriptorTransactionally({
-			registry: props.registry,
-			attachedDescriptor: props.frame.statusDescriptor,
-			registeredRefs,
-		});
-		if (!statusRegisterResult) {
-			rollbackRegisteredDescriptors({ registry: props.registry, registeredRefs });
-			return { ok: false, reason: 'descriptor_rejected' };
-		}
-	}
 	return {
 		ok: true,
 		delta: {
 			kind: 'snapshot',
 			source: props.frame.source,
-			treeDescriptorRef: props.frame.treeDescriptor.ref,
-			...(props.frame.statusDescriptor === undefined
-				? {}
-				: { statusDescriptorRef: props.frame.statusDescriptor.ref }),
 			...(props.frame.treeSizeFacts === undefined
 				? {}
 				: { treeSizeFacts: props.frame.treeSizeFacts }),
@@ -219,26 +190,4 @@ function applySingleDescriptorFrame(props: {
 		ok: true,
 		delta: props.makeDelta(props.attachedDescriptor.ref),
 	};
-}
-
-function registerAttachedDescriptorTransactionally(props: {
-	readonly registry: BridgeResourceDescriptorRegistry;
-	readonly attachedDescriptor: BridgeAttachedResourceDescriptor;
-	readonly registeredRefs: BridgeDescriptorRef[];
-}): boolean {
-	const registerResult = props.registry.register(props.attachedDescriptor);
-	if (!registerResult.ok) {
-		return false;
-	}
-	props.registeredRefs.push(props.attachedDescriptor.ref);
-	return true;
-}
-
-function rollbackRegisteredDescriptors(props: {
-	readonly registry: BridgeResourceDescriptorRegistry;
-	readonly registeredRefs: readonly BridgeDescriptorRef[];
-}): void {
-	for (const registeredRef of props.registeredRefs.toReversed()) {
-		props.registry.revoke(registeredRef);
-	}
 }

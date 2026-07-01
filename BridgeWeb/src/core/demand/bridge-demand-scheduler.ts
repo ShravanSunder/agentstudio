@@ -3,6 +3,8 @@ import type { BridgeDemandIntent, BridgeDemandLane } from '../models/bridge-dema
 export interface BridgeDemandSchedulerProps {
 	readonly maxQueuedIntentsPerLane: number;
 	readonly maxQueuedEstimatedBytes: number;
+	readonly now?: () => number;
+	readonly onLifecycleEvent?: (event: BridgeDemandSchedulerLifecycleEvent) => void;
 }
 
 export interface BridgeDemandSchedulerEnqueueProps {
@@ -21,6 +23,29 @@ export type BridgeDemandSchedulerEnqueueResult =
 			readonly reason: 'lane_queue_full' | 'queued_byte_limit_exceeded';
 	  };
 
+export type BridgeDemandSchedulerLifecycleEvent =
+	| {
+			readonly estimatedBytes: number;
+			readonly intent: BridgeDemandIntent;
+			readonly kind: 'enqueued';
+			readonly lane: BridgeDemandLane;
+			readonly queueDepthAfter: number;
+			readonly queuedAtMilliseconds: number;
+			readonly queuedEstimatedBytesAfter: number;
+			readonly status: 'queued' | 'replaced';
+	  }
+	| {
+			readonly dequeuedAtMilliseconds: number;
+			readonly estimatedBytes: number;
+			readonly intent: BridgeDemandIntent;
+			readonly kind: 'dequeued';
+			readonly lane: BridgeDemandLane;
+			readonly queueDepthAfter: number;
+			readonly queueWaitMilliseconds: number;
+			readonly queuedAtMilliseconds: number;
+			readonly queuedEstimatedBytesAfter: number;
+	  };
+
 export interface BridgeDemandScheduler {
 	enqueue(props: BridgeDemandSchedulerEnqueueProps): BridgeDemandSchedulerEnqueueResult;
 	dequeueNext(): BridgeDemandIntent | null;
@@ -37,6 +62,7 @@ export interface BridgeDemandScheduler {
 interface QueuedDemandIntent {
 	readonly intent: BridgeDemandIntent;
 	readonly estimatedBytes: number;
+	readonly queuedAtMilliseconds: number;
 	readonly sequence: number;
 }
 
@@ -57,6 +83,7 @@ export function createBridgeDemandScheduler(
 	);
 	let nextSequence = 0;
 	let queuedEstimatedBytes = 0;
+	const now = props.now ?? defaultNow;
 
 	const removeQueuedIntent = (queuedIntent: QueuedDemandIntent): void => {
 		const laneQueue = queuedIntentsByLane.get(queuedIntent.intent.lane);
@@ -117,15 +144,28 @@ export function createBridgeDemandScheduler(
 			}
 			return { ok: false, reason: 'lane_queue_full' };
 		}
+		const queuedAtMilliseconds = now();
+		const status = replacedExistingIntent ? 'replaced' : 'queued';
 		insertQueuedIntent({
 			intent: enqueueProps.intent,
 			estimatedBytes,
+			queuedAtMilliseconds,
 			sequence: nextSequence,
 		});
 		nextSequence += 1;
+		props.onLifecycleEvent?.({
+			estimatedBytes,
+			intent: enqueueProps.intent,
+			kind: 'enqueued',
+			lane: enqueueProps.intent.lane,
+			queueDepthAfter: countQueuedIntents(),
+			queuedAtMilliseconds,
+			queuedEstimatedBytesAfter: queuedEstimatedBytes,
+			status,
+		});
 		return {
 			ok: true,
-			status: replacedExistingIntent ? 'replaced' : 'queued',
+			status,
 			...(droppedLowerPriorityCount === 0 ? {} : { droppedLowerPriorityCount }),
 		};
 	};
@@ -162,8 +202,7 @@ export function createBridgeDemandScheduler(
 			const laneQueue = queuedIntentsByLane.get(lane);
 			const queuedIntent = laneQueue?.shift() ?? null;
 			if (queuedIntent !== null) {
-				queuedEstimatedBytes -= queuedIntent.estimatedBytes;
-				return queuedIntent.intent;
+				return dequeueQueuedIntent(queuedIntent);
 			}
 		}
 		return null;
@@ -188,10 +227,29 @@ export function createBridgeDemandScheduler(
 				continue;
 			}
 			laneQueue.splice(queuedIndex, 1);
-			queuedEstimatedBytes -= queuedIntent.estimatedBytes;
-			return queuedIntent.intent;
+			return dequeueQueuedIntent(queuedIntent);
 		}
 		return null;
+	};
+
+	const dequeueQueuedIntent = (queuedIntent: QueuedDemandIntent): BridgeDemandIntent => {
+		queuedEstimatedBytes -= queuedIntent.estimatedBytes;
+		const dequeuedAtMilliseconds = now();
+		props.onLifecycleEvent?.({
+			dequeuedAtMilliseconds,
+			estimatedBytes: queuedIntent.estimatedBytes,
+			intent: queuedIntent.intent,
+			kind: 'dequeued',
+			lane: queuedIntent.intent.lane,
+			queueDepthAfter: countQueuedIntents(),
+			queueWaitMilliseconds: Math.max(
+				0,
+				dequeuedAtMilliseconds - queuedIntent.queuedAtMilliseconds,
+			),
+			queuedAtMilliseconds: queuedIntent.queuedAtMilliseconds,
+			queuedEstimatedBytesAfter: queuedEstimatedBytes,
+		});
+		return queuedIntent.intent;
 	};
 
 	const cancelGroup = (cancellationGroup: string): number => {
@@ -233,4 +291,8 @@ export function createBridgeDemandScheduler(
 function compareQueuedDemandIntents(left: QueuedDemandIntent, right: QueuedDemandIntent): number {
 	const orderingComparison = left.intent.orderingKey.localeCompare(right.intent.orderingKey);
 	return orderingComparison === 0 ? left.sequence - right.sequence : orderingComparison;
+}
+
+function defaultNow(): number {
+	return globalThis.performance?.now() ?? Date.now();
 }

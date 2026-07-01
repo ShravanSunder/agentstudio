@@ -14,7 +14,6 @@ export interface BridgeCodeViewModel {
 	readonly updateItemId: (oldId: string, newId: string) => boolean;
 	readonly scrollTo: (target: CodeViewScrollTarget) => void;
 	readonly setSelectedLines: (selection: CodeViewLineSelection | null) => void;
-	readonly renderImmediately?: () => void;
 }
 
 export interface BridgeCodeViewControllerProps {
@@ -51,7 +50,6 @@ export class BridgeCodeViewController {
 		if (options.scrollIntoView === true) {
 			this.scrollToItem(item.id, options.scrollBehavior ?? 'instant');
 		}
-		this.#model.renderImmediately?.();
 		return result;
 	}
 

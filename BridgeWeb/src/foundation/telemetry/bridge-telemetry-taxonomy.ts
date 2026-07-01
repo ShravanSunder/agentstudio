@@ -7,7 +7,7 @@ export const bridgeTelemetrySliceSchema = z.enum([
 	'diff_files',
 	'review_threads',
 	'review_viewed_files',
-	'review_snapshot',
+	'review_metadata',
 	'review_delta',
 	'review_invalidation',
 	'review_reset',
@@ -42,13 +42,13 @@ export function planeForBridgeTelemetrySlice(slice: BridgeTelemetrySlice): Bridg
 		case 'telemetry_ingest':
 		case 'telemetry_drop':
 			return 'observability';
-			case 'code_view_scroll':
-				return 'control';
-			case 'diff_status':
-			case 'diff_files':
-			case 'review_threads':
-			case 'review_viewed_files':
-		case 'review_snapshot':
+		case 'code_view_scroll':
+			return 'control';
+		case 'diff_status':
+		case 'diff_files':
+		case 'review_threads':
+		case 'review_viewed_files':
+		case 'review_metadata':
 		case 'review_delta':
 		case 'review_invalidation':
 		case 'review_reset':
@@ -69,13 +69,13 @@ export function priorityForBridgeTelemetrySlice(
 	slice: BridgeTelemetrySlice,
 ): BridgeTelemetryPriority {
 	switch (slice) {
-			case 'diff_status':
-			case 'connection_health':
-			case 'content_fetch':
-				return 'hot';
-			case 'review_delta':
-			case 'review_invalidation':
-			case 'review_reset':
+		case 'diff_status':
+		case 'connection_health':
+		case 'content_fetch':
+			return 'hot';
+		case 'review_delta':
+		case 'review_invalidation':
+		case 'review_reset':
 		case 'review_threads':
 		case 'review_viewed_files':
 		case 'command_acks':
@@ -90,12 +90,12 @@ export function priorityForBridgeTelemetrySlice(
 		case 'shiki_highlight':
 			return 'hot';
 		case 'telemetry_batch':
-			case 'telemetry_ingest':
-			case 'telemetry_drop':
-				return 'best_effort';
-			case 'review_snapshot':
-			case 'diff_files':
-			case 'unknown':
+		case 'telemetry_ingest':
+		case 'telemetry_drop':
+			return 'best_effort';
+		case 'review_metadata':
+		case 'diff_files':
+		case 'unknown':
 			return 'cold';
 	}
 	return 'cold';

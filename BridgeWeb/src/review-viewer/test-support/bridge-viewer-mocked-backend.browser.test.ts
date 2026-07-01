@@ -85,7 +85,7 @@ describe('bridge viewer mocked backend', () => {
 		});
 
 		document.dispatchEvent(new CustomEvent('__bridge_handshake_request'));
-		await backend.pushPackage();
+		await backend.pushMetadata();
 		await backend.pushDelta();
 		await Promise.resolve();
 		await Promise.resolve();
@@ -95,46 +95,64 @@ describe('bridge viewer mocked backend', () => {
 				op: 'replace',
 				revision: fixture.reviewPackage.revision,
 				reviewGeneration: fixture.reviewPackage.reviewGeneration,
-				payloadKind: 'package',
+				payloadKind: 'metadata',
+			},
+			{
+				op: 'replace',
+				revision: fixture.reviewPackage.revision,
+				reviewGeneration: fixture.reviewPackage.reviewGeneration,
+				payloadKind: 'metadataWindow',
 			},
 			{
 				op: 'merge',
 				revision: fixture.streamingAppendDelta.revision,
 				reviewGeneration: fixture.streamingAppendDelta.reviewGeneration,
-				payloadKind: 'delta',
+				payloadKind: 'metadataDelta',
 			},
 		]);
 		expect(pageEventDetails).toEqual([]);
-		expect(intakeFrames).toHaveLength(2);
+		expect(intakeFrames).toHaveLength(3);
 		expect(intakeFrames).toEqual([
 			expect.objectContaining({
 				kind: 'snapshot',
 				payload: expect.objectContaining({
-					frameKind: 'review.snapshot',
-					package: expect.objectContaining({
-						rootDescriptor: expect.objectContaining({
-							descriptor: expect.objectContaining({
-								resourceKind: 'review-package',
-								resourceUrl: expect.stringContaining(
-									'agentstudio://resource/review/review-package/',
-								),
-							}),
+					frameKind: 'review.metadataSnapshot',
+					itemMetadata: expect.arrayContaining([
+						expect.objectContaining({
+							itemId: fixture.reviewPackage.orderedItemIds[0],
 						}),
-					}),
+					]),
+					treeRows: expect.any(Array),
+					extentFacts: expect.any(Array),
 				}),
 			}),
 			expect.objectContaining({
 				kind: 'delta',
 				payload: expect.objectContaining({
-					frameKind: 'review.delta',
-					operationsDescriptor: expect.objectContaining({
-						descriptor: expect.objectContaining({
-							resourceKind: 'review-delta',
-							resourceUrl: expect.stringContaining(
-								'agentstudio://resource/review/review-delta/',
-							),
+					frameKind: 'review.metadataWindow',
+					itemMetadata: expect.any(Array),
+					treeRows: expect.any(Array),
+					extentFacts: expect.any(Array),
+				}),
+			}),
+			expect.objectContaining({
+				kind: 'delta',
+				payload: expect.objectContaining({
+					frameKind: 'review.metadataDelta',
+					operations: expect.arrayContaining([
+						expect.objectContaining({
+							kind: 'appendItems',
 						}),
-					}),
+						expect.objectContaining({
+							kind: 'upsertTreeRows',
+						}),
+						expect.objectContaining({
+							kind: 'upsertExtentFacts',
+						}),
+						expect.objectContaining({
+							kind: 'replaceItemOrder',
+						}),
+					]),
 				}),
 			}),
 		]);
@@ -145,25 +163,13 @@ describe('bridge viewer mocked backend', () => {
 			typeof snapshotFrame === 'object' && snapshotFrame !== null && 'payload' in snapshotFrame
 				? snapshotFrame.payload
 				: null;
-		const snapshotPackage =
-			typeof snapshotPayload === 'object' && snapshotPayload !== null && 'package' in snapshotPayload
-				? snapshotPayload.package
-				: null;
-		const rootDescriptor =
-			typeof snapshotPackage === 'object' &&
-			snapshotPackage !== null &&
-			'rootDescriptor' in snapshotPackage
-				? snapshotPackage.rootDescriptor
-				: null;
-		const descriptor =
-			typeof rootDescriptor === 'object' && rootDescriptor !== null && 'descriptor' in rootDescriptor
-				? rootDescriptor.descriptor
-				: null;
-		if (typeof descriptor !== 'object' || descriptor === null || !('resourceUrl' in descriptor)) {
-			throw new Error('Mocked Review snapshot did not expose a package resource descriptor');
-		}
-		const packageResourceResponse = await backend.fetchContent(String(descriptor.resourceUrl));
-		expect(packageResourceResponse.ok).toBe(true);
+		expect(snapshotPayload).toEqual(
+			expect.objectContaining({
+				frameKind: 'review.metadataSnapshot',
+				itemMetadata: expect.any(Array),
+				treeRows: expect.any(Array),
+			}),
+		);
 	});
 
 	test('records semantic command payloads sent through the Bridge command event', () => {
@@ -200,7 +206,7 @@ describe('bridge viewer mocked backend', () => {
 		const unsafeResponse = await unsafeBackend.fetchContent(
 			`agentstudio://resource/review/content/${fixture.expected.secondHeadHandleId}?generation=338&unsafe=1`,
 		);
-		expect(unsafeResponse.status).toBe(404);
+		expect(unsafeResponse.status).toBe(400);
 		expect(unsafeBackend.requestedUrls).toEqual([
 			`agentstudio://resource/review/content/${fixture.expected.secondHeadHandleId}?generation=338&unsafe=1`,
 		]);

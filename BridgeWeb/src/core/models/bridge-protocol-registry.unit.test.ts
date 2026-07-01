@@ -8,7 +8,7 @@ describe('bridge protocol registry', () => {
 			protocols: [
 				{
 					protocol: 'review',
-					resourceKinds: ['content', 'review-package'],
+					resourceKinds: ['content'],
 					privilegedMethods: ['review.openStream'],
 				},
 			],
@@ -16,9 +16,7 @@ describe('bridge protocol registry', () => {
 
 		expect(registry.isResourceKindAllowed('review', 'content')).toBe(true);
 		expect(registry.isPrivilegedMethodAllowed('review', 'review.openStream')).toBe(true);
-		expect(registry.allowedResourceKindsByProtocol['review']).toEqual(
-			new Set(['content', 'review-package']),
-		);
+		expect(registry.allowedResourceKindsByProtocol['review']).toEqual(new Set(['content']));
 	});
 
 	test('rejects duplicate protocol registrations before runtime use', () => {
@@ -32,7 +30,7 @@ describe('bridge protocol registry', () => {
 					},
 					{
 						protocol: 'review',
-						resourceKinds: ['review-package'],
+						resourceKinds: ['content'],
 						privilegedMethods: [],
 					},
 				],
@@ -45,7 +43,7 @@ describe('bridge protocol registry', () => {
 			protocols: [
 				{
 					protocol: 'review',
-					resourceKinds: ['content', 'review-package'],
+					resourceKinds: ['content'],
 					privilegedMethods: ['review.openStream'],
 				},
 				{

@@ -23,6 +23,7 @@ import {
 } from '../review-viewer/content/review-content-demand-loader.js';
 import { makeReviewItemContentResourcesKey } from '../review-viewer/content/visible-review-content-hydration.js';
 import type { BridgeReviewProjectionInputItem } from '../review-viewer/models/review-projection-models.js';
+import { makeBridgeViewerBrowserFixture } from '../review-viewer/test-support/bridge-viewer-mocked-backend.js';
 import {
 	applyReviewMetadataDeltaToReviewPackage,
 	bridgeReviewContentDemandByteBudget,
@@ -30,6 +31,7 @@ import {
 	reviewSnapshotDescriptorRefsByHandleIdForPackage,
 	reviewSnapshotFrameDescriptorsMatchPackage,
 	reviewTreeRowsWithMetadataDelta,
+	reviewFileTargetForReviewPackagePath,
 	reviewItemDemandCancellationTargetForSelectionChange,
 	shouldRetrySelectedReviewContentAfterDescriptorRegistration,
 	shouldStartSelectedReviewContentDemand,
@@ -189,6 +191,43 @@ describe('BridgeApp visible review content hydration policy', () => {
 });
 
 describe('BridgeApp selected review content demand policy', () => {
+	test('resolves control path reveal to a file presentation target', () => {
+		const reviewPackage = makeBridgeReviewPackage();
+
+		const target = reviewFileTargetForReviewPackagePath({
+			path: 'Sources/App/View.swift',
+			reviewPackage,
+		});
+
+		expect(target).toEqual({
+			targetKind: 'file',
+			fileRef: {
+				sourceId: 'repo',
+				path: 'Sources/App/View.swift',
+			},
+			version: 'current',
+			reviewItemId: 'item-source',
+		});
+	});
+
+	test('resolves large fixture control path reveal to a file presentation target', () => {
+		const fixture = makeBridgeViewerBrowserFixture({ fixtureClass: 'large-diffshub' });
+
+		const target = reviewFileTargetForReviewPackagePath({
+			path: 'Sources/AgentStudio/source/module-24/file-292.ts',
+			reviewPackage: fixture.reviewPackage,
+		});
+
+		expect(target).toMatchObject({
+			targetKind: 'file',
+			fileRef: {
+				path: 'Sources/AgentStudio/source/module-24/file-292.ts',
+			},
+			version: 'current',
+			reviewItemId: 'browser-filler-large-diffshub-292',
+		});
+	});
+
 	test('does not reload ready selected content when only invalidation load key changes', () => {
 		const selectedContentKey = 'package-1:1:1:item-source:base-head';
 
@@ -887,12 +926,7 @@ function emptyDemandLaneByteCounts(): Record<BridgeDemandLane, number> {
 function makeSelectedReviewContentDemandTelemetry(
 	props: Pick<
 		ReviewContentDemandTelemetry,
-		| 'itemId'
-		| 'packageId'
-		| 'reviewGeneration'
-		| 'revision'
-		| 'resultStatus'
-		| 'resultReason'
+		'itemId' | 'packageId' | 'reviewGeneration' | 'revision' | 'resultStatus' | 'resultReason'
 	>,
 ): ReviewContentDemandTelemetry {
 	return {

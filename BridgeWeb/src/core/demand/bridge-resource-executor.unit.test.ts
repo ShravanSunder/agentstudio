@@ -270,6 +270,87 @@ describe('bridge resource executor', () => {
 		expect(executor.inFlightCount).toBe(0);
 	});
 
+	test('emits pending wait and in-flight lifecycle timing for queued foreground work', async () => {
+		let nowMilliseconds = 2_000;
+		const lifecycleEvents: unknown[] = [];
+		const registry = createRegistry();
+		const firstDescriptor = makeAttachedDescriptor();
+		const secondDescriptor = makeAttachedDescriptor({
+			descriptor: {
+				descriptorId: 'descriptor-2',
+				resourceUrl: 'agentstudio://resource/review/content/descriptor-2?generation=1&revision=1',
+			},
+		});
+		registry.register(firstDescriptor);
+		registry.register(secondDescriptor);
+		const firstDeferred = createDeferred<BridgeResourceExecutorContent<string>>();
+		const secondDeferred = createDeferred<BridgeResourceExecutorContent<string>>();
+		const executor = createBridgeResourceExecutor<string>({
+			registry,
+			maxConcurrentLoads: 1,
+			maxInFlightBytes: 1024,
+			maxQueuedLoads: 8,
+			maxQueuedBytes: 1024,
+			now: () => nowMilliseconds,
+			onLifecycleEvent: (event): void => {
+				lifecycleEvents.push(event);
+			},
+			loadResource: async ({ descriptor }) => {
+				if (descriptor.descriptorId === firstDescriptor.descriptor.descriptorId) {
+					return await firstDeferred.promise;
+				}
+				return await secondDeferred.promise;
+			},
+		});
+		const firstIntent = makeIntent(firstDescriptor.ref);
+		const secondIntent = makeIntent(secondDescriptor.ref, { lane: 'foreground' });
+
+		const firstLoad = executor.load(firstIntent);
+		await Promise.resolve();
+		nowMilliseconds = 2_010;
+		const queuedLoad = executor.load(secondIntent);
+		await Promise.resolve();
+		nowMilliseconds = 2_040;
+		firstDeferred.resolve({ content: 'first-materialized', byteLength: 10 });
+
+		expect(await firstLoad).toMatchObject({ ok: true, content: 'first-materialized' });
+		nowMilliseconds = 2_055;
+		secondDeferred.resolve({ content: 'queued-materialized', byteLength: 11 });
+		expect(await queuedLoad).toMatchObject({ ok: true, content: 'queued-materialized' });
+		expect(lifecycleEvents).toEqual([
+			expect.objectContaining({
+				kind: 'started',
+				intent: firstIntent,
+				pendingWaitMilliseconds: 0,
+				startedAtMilliseconds: 2_000,
+			}),
+			expect.objectContaining({
+				kind: 'queued',
+				intent: secondIntent,
+				pendingEnteredAtMilliseconds: 2_010,
+				queuedLoadCountAfter: 1,
+			}),
+			expect.objectContaining({
+				kind: 'completed',
+				intent: firstIntent,
+				inFlightMilliseconds: 40,
+				result: 'success',
+			}),
+			expect.objectContaining({
+				kind: 'started',
+				intent: secondIntent,
+				pendingWaitMilliseconds: 30,
+				startedAtMilliseconds: 2_040,
+			}),
+			expect.objectContaining({
+				kind: 'completed',
+				intent: secondIntent,
+				inFlightMilliseconds: 15,
+				result: 'success',
+			}),
+		]);
+	});
+
 	test('bounds queued foreground pressure instead of growing pending work without limit', async () => {
 		const registry = createRegistry();
 		const blockingDescriptor = makeAttachedDescriptor();
@@ -412,6 +493,73 @@ describe('bridge resource executor', () => {
 		expect(executor.queuedLoadCount).toBe(0);
 	});
 
+	test('classifies abort-shaped resource failures as aborted instead of load failed', async () => {
+		const registry = createRegistry();
+		const attachedDescriptor = makeAttachedDescriptor();
+		registry.register(attachedDescriptor);
+		const executor = createBridgeResourceExecutor<string>({
+			registry,
+			maxConcurrentLoads: 1,
+			maxInFlightBytes: 1024,
+			maxQueuedLoads: 8,
+			maxQueuedBytes: 1024,
+			loadResource: async () => {
+				throw new DOMException('Bridge descriptor fetch aborted by context switch', 'AbortError');
+			},
+		});
+
+		const result = await executor.load(makeIntent(attachedDescriptor.ref));
+
+		expect(result).toEqual({ ok: false, reason: 'aborted' });
+	});
+
+	test('starts foreground work in the same turn after preempting lower-priority in-flight work', async () => {
+		const registry = createRegistry();
+		const visibleDescriptor = makeAttachedDescriptor();
+		const foregroundDescriptor = makeAttachedDescriptor({
+			descriptor: {
+				descriptorId: 'descriptor-2',
+				resourceUrl: 'agentstudio://resource/review/content/descriptor-2?generation=1&revision=1',
+			},
+		});
+		registry.register(visibleDescriptor);
+		registry.register(foregroundDescriptor);
+		const visibleLoadStarted = createDeferred<void>();
+		const visibleLoadCanFinish = createDeferred<BridgeResourceExecutorContent<string>>();
+		const startedDescriptorIds: string[] = [];
+		const executor = createBridgeResourceExecutor<string>({
+			registry,
+			maxConcurrentLoads: 1,
+			maxInFlightBytes: 1024,
+			maxQueuedLoads: 8,
+			maxQueuedBytes: 1024,
+			loadResource: async ({ descriptor }) => {
+				startedDescriptorIds.push(descriptor.descriptorId);
+				if (descriptor.descriptorId === visibleDescriptor.descriptor.descriptorId) {
+					visibleLoadStarted.resolve();
+					return await visibleLoadCanFinish.promise;
+				}
+				return { content: 'foreground-materialized', byteLength: 15 };
+			},
+		});
+
+		const visibleLoad = executor.load(makeIntent(visibleDescriptor.ref, { lane: 'visible' }));
+		await visibleLoadStarted.promise;
+		const foregroundLoad = executor.load(
+			makeIntent(foregroundDescriptor.ref, { lane: 'foreground' }),
+		);
+
+		expect(startedDescriptorIds).toEqual(['descriptor-1', 'descriptor-2']);
+		expect(executor.inFlightCount).toBe(1);
+		expect(executor.queuedLoadCount).toBe(0);
+		visibleLoadCanFinish.resolve({ content: 'visible-too-late', byteLength: 16 });
+		await expect(visibleLoad).resolves.toEqual({ ok: false, reason: 'aborted' });
+		await expect(foregroundLoad).resolves.toMatchObject({
+			ok: true,
+			content: 'foreground-materialized',
+		});
+	});
+
 	test('keeps visible pressure opportunistic instead of queueing behind active work', async () => {
 		const registry = createRegistry();
 		const firstDescriptor = makeAttachedDescriptor();
@@ -539,6 +687,32 @@ describe('bridge resource executor', () => {
 		await expect(executor.load(makeIntent(attachedDescriptor.ref))).resolves.toEqual({
 			ok: false,
 			reason: 'load_failed',
+		});
+	});
+
+	test('preserves sanitized load failure details when the classifier recognizes the rejection', async () => {
+		const registry = createRegistry();
+		const attachedDescriptor = makeAttachedDescriptor();
+		registry.register(attachedDescriptor);
+		const executor = createBridgeResourceExecutor<string>({
+			registry,
+			maxConcurrentLoads: 1,
+			maxInFlightBytes: 1024,
+			maxQueuedLoads: 8,
+			maxQueuedBytes: 1024,
+			classifyLoadFailure: (error): 'integrity_mismatch' | null =>
+				error instanceof Error && error.message === 'integrity failed'
+					? 'integrity_mismatch'
+					: null,
+			loadResource: async () => {
+				throw new Error('integrity failed');
+			},
+		});
+
+		await expect(executor.load(makeIntent(attachedDescriptor.ref))).resolves.toEqual({
+			ok: false,
+			reason: 'load_failed',
+			loadFailureKind: 'integrity_mismatch',
 		});
 	});
 

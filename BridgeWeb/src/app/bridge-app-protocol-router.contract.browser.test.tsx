@@ -33,7 +33,7 @@ describe('BridgeAppProtocolRouter contract', () => {
 	});
 
 	test('routes Worktree/File protocol by entering BridgeApp file mode', async () => {
-		await render(<BridgeAppProtocolRouter protocol="worktree-file" />);
+		render(<BridgeAppProtocolRouter protocol="worktree-file" />);
 
 		expect(bridgeAppRouterContractMock.calls).toEqual([
 			{ navigationCommand: undefined, viewerMode: 'file' },
@@ -46,7 +46,7 @@ describe('BridgeAppProtocolRouter contract', () => {
 	});
 
 	test('routes Review protocol by entering BridgeApp review mode', async () => {
-		await render(<BridgeAppProtocolRouter protocol="review" />);
+		render(<BridgeAppProtocolRouter protocol="review" />);
 
 		expect(bridgeAppRouterContractMock.calls).toEqual([
 			{ navigationCommand: undefined, viewerMode: 'review' },
@@ -70,7 +70,7 @@ describe('BridgeAppProtocolRouter contract', () => {
 			},
 		} satisfies BridgeViewerNavigationCommand;
 
-		await render(<BridgeAppProtocolRouter navigationCommand={navigationCommand} />);
+		render(<BridgeAppProtocolRouter navigationCommand={navigationCommand} />);
 
 		expect(bridgeAppRouterContractMock.calls).toEqual([{ navigationCommand, viewerMode: 'file' }]);
 	});
@@ -88,7 +88,7 @@ describe('BridgeAppProtocolRouter contract', () => {
 			},
 		} satisfies BridgeViewerNavigationCommand;
 
-		await render(<BridgeAppProtocolRouter navigationCommand={navigationCommand} />);
+		render(<BridgeAppProtocolRouter navigationCommand={navigationCommand} />);
 
 		expect(bridgeAppRouterContractMock.calls).toEqual([
 			{ navigationCommand, viewerMode: 'review' },

@@ -8,7 +8,7 @@ describe('bridge content-world RPC host', () => {
 		protocols: [
 			{
 				protocol: 'review',
-				resourceKinds: ['content', 'review-package'],
+				resourceKinds: ['content'],
 				privilegedMethods: ['review.openStream'],
 			},
 			{

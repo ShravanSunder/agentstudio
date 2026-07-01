@@ -45,6 +45,17 @@ export function installBridgeAppDevTelemetryHost(
 	};
 	const handleBridgeCommand = (event: Event): void => {
 		const detail = 'detail' in event ? event.detail : null;
+		if (isRecord(detail) && detail['method'] === 'bridge.ready') {
+			const requestId = detail['id'];
+			if (typeof requestId === 'string' || typeof requestId === 'number') {
+				target.dispatchEvent(
+					new CustomEvent('__bridge_response', {
+						detail: { id: requestId, result: null },
+					}),
+				);
+			}
+			return;
+		}
 		const batch = extractBridgeTelemetryBatch(detail);
 		if (batch !== null) {
 			fetchTelemetryBatch(batch);

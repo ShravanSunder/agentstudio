@@ -113,6 +113,7 @@ if (rootElement !== null) {
 							autoOpenInitialFile: true,
 							fetchResource: worktreeBackend.fetchWorktreeFileResource,
 							loadInitialSurface: worktreeBackend.loadWorktreeFileSurface,
+							requestFileDescriptor: worktreeBackend.requestWorktreeFileDescriptor,
 							subscribeFrames: worktreeBackend.subscribeWorktreeFileFrames,
 						},
 					})}
@@ -121,11 +122,9 @@ if (rootElement !== null) {
 				? worktreeReviewBackend !== null
 					? {
 							fetchContent: worktreeReviewBackend.fetchContent,
-							...(projectionWorkerClient === null ? {} : { projectionWorkerClient }),
+							projectionWorkerClient,
 						}
-					: projectionWorkerClient === null
-						? {}
-						: { projectionWorkerClient }
+					: { projectionWorkerClient }
 				: {
 						fetchContent: backend.fetchContent,
 						projectionWorkerClient: backend.projectionWorkerClient,
@@ -157,13 +156,13 @@ async function pushDevFixture(props: {
 	readonly worktreeReviewBackend: BridgeAppDevWorktreeReviewBackend | null;
 }): Promise<void> {
 	if (props.worktreeReviewBackend !== null) {
-		await props.worktreeReviewBackend.pushPackage();
+		await props.worktreeReviewBackend.pushMetadata();
 		return;
 	}
 	if (props.backend === null || props.fixture === null) {
 		return;
 	}
-	await props.backend.pushPackage(
+	await props.backend.pushMetadata(
 		reviewPackageForBridgeAppDevFixtureScenario({
 			fixture: props.fixture,
 			scenario: props.scenario,

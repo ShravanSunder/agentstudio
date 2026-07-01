@@ -1,15 +1,10 @@
-import { BotIcon, FileTextIcon, ListChecksIcon } from 'lucide-react';
 import type { ReactElement, ReactNode } from 'react';
 
-import {
-	bridgeViewerChromeIconButtonClassName,
-	bridgeViewerChromeLucideIconClassName,
-	bridgeViewerChromeToolbarClassName,
-} from '../../app/bridge-viewer-chrome.js';
+import { bridgeViewerChromeToolbarClassName } from '../../app/bridge-viewer-chrome.js';
 import { BridgeViewerContentHeader } from '../../app/bridge-viewer-content-header.js';
+import { BridgeViewerSearchControl } from '../../app/bridge-viewer-search-control.js';
 import { cn } from '../../app/class-name.js';
 import { Skeleton } from '../../components/ui/skeleton.js';
-import { ToggleGroup, ToggleGroupItem } from '../../components/ui/toggle-group.js';
 import type { ReviewTreeRowMetadata } from '../../features/review/models/review-protocol-models.js';
 import {
 	createBridgeReviewItemRegistry,
@@ -27,7 +22,7 @@ import {
 	bridgeReviewFileClassIcon,
 	type BridgeReviewFacetMenuOption,
 } from '../chrome/bridge-review-facet-menu.js';
-import { BridgeReviewSearchControl } from '../chrome/bridge-review-search-control.js';
+import { BridgeReviewProjectionMenu } from '../chrome/bridge-review-projection-menu.js';
 import type {
 	BridgeCodeViewContentResources,
 	BridgeCodeViewItemPresentation,
@@ -425,7 +420,7 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 							</div>
 							<div data-testid="bridge-review-search-control-slot">
 								<span className="sr-only">Search files</span>
-								<BridgeReviewSearchControl
+								<BridgeViewerSearchControl
 									isActive={treeSearchOpen}
 									onOpenSearch={(): void => props.onTreeSearchOpen?.()}
 									onSearchModeChange={(mode): void => props.onTreeSearchModeChange?.(mode)}
@@ -494,48 +489,6 @@ export function BridgeReviewCanvasLoadingState(props: {
 				data-testid="bridge-review-canvas-loading-line"
 			/>
 		</div>
-	);
-}
-
-export function BridgeReviewProjectionMenu(props: {
-	readonly projectionMode: BridgeReviewProjectionMode;
-	readonly onProjectionModeChange?: (mode: BridgeReviewProjectionMode) => void;
-}): ReactElement {
-	return (
-		<ToggleGroup
-			aria-label="Review mode"
-			data-bridge-segmented-control="review-mode"
-			data-testid="bridge-review-mode-segmented-control"
-			role="radiogroup"
-			size="sm"
-		>
-			{projectionButtonSpecs.map((spec) => {
-				const isSelected = spec.mode.kind === props.projectionMode.kind;
-				return (
-					<ToggleGroupItem
-						aria-checked={isSelected ? 'true' : 'false'}
-						aria-label={spec.label}
-						className={cn(
-							bridgeViewerChromeIconButtonClassName,
-							isSelected ? 'shadow-none' : undefined,
-						)}
-						data-testid="bridge-review-mode-segment"
-						key={spec.value}
-						onClick={(): void => {
-							if (!isSelected) {
-								props.onProjectionModeChange?.(spec.mode);
-							}
-						}}
-						pressed={isSelected}
-						role="radio"
-						size="sm"
-						title={spec.label}
-					>
-						<spec.Icon aria-hidden="true" className={bridgeViewerChromeLucideIconClassName} />
-					</ToggleGroupItem>
-				);
-			})}
-		</ToggleGroup>
 	);
 }
 
@@ -626,32 +579,6 @@ function reviewCanvasBranchForShell(props: {
 	}
 	return 'code';
 }
-
-const projectionButtonSpecs: readonly {
-	readonly label: string;
-	readonly mode: BridgeReviewProjectionMode;
-	readonly value: string;
-	readonly Icon: typeof ListChecksIcon;
-}[] = [
-	{
-		label: 'Normal review',
-		mode: { kind: 'normalReview' },
-		value: 'normalReview',
-		Icon: ListChecksIcon,
-	},
-	{
-		label: 'Guided review',
-		mode: { kind: 'guidedReview' },
-		value: 'guidedReview',
-		Icon: BotIcon,
-	},
-	{
-		label: 'Plans/specs',
-		mode: { kind: 'plansAndSpecs' },
-		value: 'plansAndSpecs',
-		Icon: FileTextIcon,
-	},
-];
 
 const gitStatusOptions: readonly BridgeReviewFacetMenuOption<BridgeFileChangeKind | 'all'>[] = [
 	{ value: 'all', label: 'All statuses', description: 'Show every Git change kind', icon: '*' },

@@ -84,6 +84,15 @@ export const bridgeReviewContentRolesSchema = z
 	})
 	.strict();
 
+export const bridgeReviewContentLineCountsByRoleSchema = z
+	.object({
+		base: z.number().int().nonnegative().nullable().optional(),
+		head: z.number().int().nonnegative().nullable().optional(),
+		diff: z.number().int().nonnegative().nullable().optional(),
+		file: z.number().int().nonnegative().nullable().optional(),
+	})
+	.strict();
+
 export const bridgeProvenanceSummarySchema = z
 	.object({
 		paneIds: z.array(z.string()),
@@ -123,6 +132,7 @@ export const bridgeReviewItemDescriptorSchema = z
 		hiddenReason: z.string().nullable().optional(),
 		reviewPriority: bridgeReviewPrioritySchema,
 		contentRoles: bridgeReviewContentRolesSchema,
+		contentLineCountsByRole: bridgeReviewContentLineCountsByRoleSchema.optional(),
 		cacheKey: z.string(),
 		provenance: bridgeProvenanceSummarySchema,
 		annotationSummary: bridgeAnnotationSummarySchema,

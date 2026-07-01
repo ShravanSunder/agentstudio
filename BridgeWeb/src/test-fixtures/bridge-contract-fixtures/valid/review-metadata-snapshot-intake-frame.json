@@ -1,0 +1,194 @@
+{
+  "kind": "snapshot",
+  "streamId": "review:pane-1",
+  "generation": 3,
+  "sequence": 0,
+  "payload": {
+    "streamId": "review:pane-1",
+    "treeRows": [
+      {
+        "isDirectory": true,
+        "path": "Sources",
+        "rowId": "review-directory:Sources",
+        "depth": 0
+      },
+      {
+        "isDirectory": true,
+        "path": "Sources/App",
+        "rowId": "review-directory:Sources/App",
+        "depth": 1
+      },
+      {
+        "isDirectory": false,
+        "path": "Sources/App/View.swift",
+        "rowId": "review-row:item-source",
+        "depth": 2,
+        "itemId": "item-source"
+      }
+    ],
+    "visibleItemIds": [
+      "item-source"
+    ],
+    "sequence": 0,
+    "itemMetadata": [
+      {
+        "extension": "swift",
+        "mimeTypes": [
+          "text/x-swift"
+        ],
+        "basePath": "Sources/App/View.swift",
+        "contentDescriptorIdsByRole": {
+          "head": "handle-50e8f294d1a2af57697f6adcffeb65aea1a7676c1e3f0c71c0c67c59e5274676",
+          "base": "handle-1f2f328a9922d61106f801824e8daeafdb6b4682d2a84abef37e581586607a37"
+        },
+        "headPath": "Sources/App/View.swift",
+        "reviewPriority": "normal",
+        "language": "swift",
+        "reviewState": "unreviewed",
+        "isHiddenByDefault": false,
+        "provenance": {
+          "promptIds": [],
+          "agentSessionIds": [],
+          "operationIds": []
+        },
+        "changeKind": "modified",
+        "contentRoles": [
+          "base",
+          "head"
+        ],
+        "fileClass": "source",
+        "itemId": "item-source"
+      }
+    ],
+    "comparison": {
+      "packageId": "package-1",
+      "baseEndpoint": {
+        "contentSetHash": "sha256:base",
+        "createdAtUnixMilliseconds": 1,
+        "endpointId": "base",
+        "kind": "gitRef",
+        "label": "base",
+        "providerIdentity": "base",
+        "repoId": "11111111-1111-1111-1111-111111111111",
+        "worktreeId": "22222222-2222-2222-2222-222222222222"
+      },
+      "headEndpoint": {
+        "contentSetHash": "sha256:head",
+        "createdAtUnixMilliseconds": 1,
+        "endpointId": "head",
+        "kind": "workingTree",
+        "label": "head",
+        "providerIdentity": "head",
+        "repoId": "11111111-1111-1111-1111-111111111111",
+        "worktreeId": "22222222-2222-2222-2222-222222222222"
+      },
+      "contentDescriptors": [
+        {
+          "descriptor": {
+            "descriptorId": "handle-1f2f328a9922d61106f801824e8daeafdb6b4682d2a84abef37e581586607a37",
+            "identity": {
+              "generation": 3,
+              "streamId": "review:pane-1",
+              "sourceId": "query",
+              "paneId": "pane-1",
+              "packageId": "package-1",
+              "protocol": "review"
+            },
+            "resourceKind": "content",
+            "protocol": "review",
+            "content": {
+              "encoding": "utf-8",
+              "mediaType": "text/x-swift",
+              "maxBytes": 52428800,
+              "integrity": {
+                "kind": "wholeHash",
+                "algorithm": "sha256",
+                "value": "sha256:old-source"
+              }
+            },
+            "resourceUrl": "agentstudio://resource/review/content/handle-1f2f328a9922d61106f801824e8daeafdb6b4682d2a84abef37e581586607a37?generation=3"
+          },
+          "ref": {
+            "expectedProtocol": "review",
+            "descriptorId": "handle-1f2f328a9922d61106f801824e8daeafdb6b4682d2a84abef37e581586607a37",
+            "expectedIdentity": {
+              "packageId": "package-1",
+              "streamId": "review:pane-1",
+              "generation": 3,
+              "paneId": "pane-1",
+              "protocol": "review",
+              "sourceId": "query"
+            },
+            "expectedResourceKind": "content"
+          }
+        },
+        {
+          "descriptor": {
+            "resourceKind": "content",
+            "resourceUrl": "agentstudio://resource/review/content/handle-50e8f294d1a2af57697f6adcffeb65aea1a7676c1e3f0c71c0c67c59e5274676?generation=3",
+            "descriptorId": "handle-50e8f294d1a2af57697f6adcffeb65aea1a7676c1e3f0c71c0c67c59e5274676",
+            "identity": {
+              "sourceId": "query",
+              "protocol": "review",
+              "generation": 3,
+              "paneId": "pane-1",
+              "streamId": "review:pane-1",
+              "packageId": "package-1"
+            },
+            "content": {
+              "encoding": "utf-8",
+              "expectedBytes": 100,
+              "integrity": {
+                "kind": "wholeHash",
+                "algorithm": "sha256",
+                "value": "sha256:new-source"
+              },
+              "maxBytes": 100,
+              "mediaType": "text/x-swift"
+            },
+            "protocol": "review"
+          },
+          "ref": {
+            "expectedProtocol": "review",
+            "descriptorId": "handle-50e8f294d1a2af57697f6adcffeb65aea1a7676c1e3f0c71c0c67c59e5274676",
+            "expectedResourceKind": "content",
+            "expectedIdentity": {
+              "sourceId": "query",
+              "protocol": "review",
+              "generation": 3,
+              "paneId": "pane-1",
+              "streamId": "review:pane-1",
+              "packageId": "package-1"
+            }
+          }
+        }
+      ],
+      "revision": 0,
+      "sourceIdentity": "query",
+      "generation": 3
+    },
+    "generation": 3,
+    "extentFacts": [
+      {
+        "lineCount": 1,
+        "contentRole": "base",
+        "itemId": "item-source"
+      },
+      {
+        "lineCount": 1,
+        "contentRole": "head",
+        "itemId": "item-source"
+      }
+    ],
+    "summary": {
+      "filesChanged": 1,
+      "additions": 1,
+      "deletions": 1,
+      "visibleFileCount": 1,
+      "hiddenFileCount": 0
+    },
+    "kind": "metadataSnapshot",
+    "frameKind": "review.metadataSnapshot",
+    "selectedItemId": "item-source"
+  }
+}

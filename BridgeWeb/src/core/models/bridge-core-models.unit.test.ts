@@ -12,7 +12,7 @@ describe('bridge core transport models', () => {
 		expect(bridgeProtocolIdSchema.parse('review')).toBe('review');
 		expect(bridgeProtocolIdSchema.parse('worktree-file')).toBe('worktree-file');
 		expect(bridgeResourceKindSchema.parse('content')).toBe('content');
-		expect(bridgeResourceKindSchema.parse('review-package')).toBe('review-package');
+		expect(bridgeResourceKindSchema.parse('worktree.fileContent')).toBe('worktree.fileContent');
 		expect(
 			bridgeStreamIdentitySchema.parse({
 				protocol: 'review',

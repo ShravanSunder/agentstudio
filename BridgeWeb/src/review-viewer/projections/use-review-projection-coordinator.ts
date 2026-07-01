@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 
 import type {
 	BridgeFileChangeKind,
@@ -18,9 +18,15 @@ import type {
 import { makeBridgeReviewProjectionRequest } from '../navigation/review-projection-request.js';
 import { makeBridgeReviewProjectionInput } from '../navigation/review-projection.js';
 import type { BridgeReviewViewerStore } from '../state/review-viewer-store.js';
-import { recordBridgeProjectionBuildTelemetry } from '../telemetry/bridge-review-viewer-telemetry.js';
+import {
+	recordBridgeProjectionBuildTelemetry,
+	recordBridgeProjectionCoordinatorTelemetry,
+} from '../telemetry/bridge-review-viewer-telemetry.js';
 import { createBridgeReviewProjectionSyncClient } from '../workers/projection/review-projection-sync-client.js';
-import type { BridgeReviewProjectionWorkerClient } from '../workers/projection/review-projection-worker-client.js';
+import type {
+	BridgeReviewProjectionWorkerClient,
+	BridgeReviewProjectionWorkerTask,
+} from '../workers/projection/review-projection-worker-client.js';
 import { selectBridgeReviewProjectionExecutionLane } from '../workers/projection/review-projection-worker-planner.js';
 
 export interface UseBridgeReviewProjectionCoordinatorProps {
@@ -52,11 +58,8 @@ export interface StartBridgeReviewProjectionCoordinatorRequestProps {
 
 const projectionAbortKey = 'bridge-review-projection';
 const projectionWorkloadId: BridgeReviewProjectionWorkloadId = 'interactive';
-
-type BridgeReviewProjectionCoordinatorTelemetryPhase =
-	| 'projection_input_build'
-	| 'projection_store_apply'
-	| 'projection_total';
+const projectionStartCoalescingDelayMilliseconds = 32;
+const projectionStartMaxCoalescingDelayMilliseconds = 96;
 
 export function useBridgeReviewProjectionCoordinator(
 	props: UseBridgeReviewProjectionCoordinatorProps,
@@ -74,12 +77,49 @@ export function useBridgeReviewProjectionCoordinator(
 		telemetryRecorder,
 	} = props;
 	const syncProjectionClient = useMemo(() => createBridgeReviewProjectionSyncClient(), []);
+	const activeProjectionCleanupRef = useRef<(() => void) | null>(null);
+	const pendingProjectionStartTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const pendingProjectionFirstQueuedAtRef = useRef<number | null>(null);
+	const latestProjectionStartPropsRef =
+		useRef<StartBridgeReviewProjectionCoordinatorRequestProps | null>(null);
+	const latestProjectionControlKeyRef = useRef<string | null>(null);
+
+	useEffect(
+		(): (() => void) => (): void => {
+			cancelPendingProjectionStart({
+				pendingProjectionStartTimeoutRef,
+				pendingProjectionFirstQueuedAtRef,
+				latestProjectionStartPropsRef,
+			});
+			activeProjectionCleanupRef.current?.();
+			activeProjectionCleanupRef.current = null;
+		},
+		[],
+	);
 
 	useEffect((): (() => void) | undefined => {
 		if (reviewPackage === null) {
+			cancelPendingProjectionStart({
+				pendingProjectionStartTimeoutRef,
+				pendingProjectionFirstQueuedAtRef,
+				latestProjectionStartPropsRef,
+			});
+			activeProjectionCleanupRef.current?.();
+			activeProjectionCleanupRef.current = null;
+			latestProjectionControlKeyRef.current = null;
 			return undefined;
 		}
-		return startBridgeReviewProjectionCoordinatorRequest({
+		const projectionControlKey = makeReviewProjectionControlKey({
+			projectionMode,
+			facets,
+			gitStatusFilter,
+			fileClassFilter,
+		});
+		const shouldStartImmediately =
+			latestProjectionControlKeyRef.current !== null &&
+			latestProjectionControlKeyRef.current !== projectionControlKey;
+		latestProjectionControlKeyRef.current = projectionControlKey;
+		latestProjectionStartPropsRef.current = {
 			store,
 			reviewPackage,
 			projectionMode,
@@ -91,7 +131,17 @@ export function useBridgeReviewProjectionCoordinator(
 			telemetryRecorder,
 			telemetryParentTraceContext,
 			flushTelemetry,
+		};
+		const cancelScheduledStart = scheduleLatestReviewProjectionCoordinatorStart({
+			activeProjectionCleanupRef,
+			pendingProjectionFirstQueuedAtRef,
+			pendingProjectionStartTimeoutRef,
+			latestProjectionStartPropsRef,
+			startImmediately: shouldStartImmediately,
 		});
+		return (): void => {
+			cancelScheduledStart();
+		};
 	}, [
 		fileClassFilter,
 		facets,
@@ -105,6 +155,107 @@ export function useBridgeReviewProjectionCoordinator(
 		telemetryRecorder,
 		syncProjectionClient,
 	]);
+}
+
+interface ReviewProjectionStartRefs {
+	readonly activeProjectionCleanupRef: {
+		current: (() => void) | null;
+	};
+	readonly pendingProjectionFirstQueuedAtRef: {
+		current: number | null;
+	};
+	readonly pendingProjectionStartTimeoutRef: {
+		current: ReturnType<typeof setTimeout> | null;
+	};
+	readonly latestProjectionStartPropsRef: {
+		current: StartBridgeReviewProjectionCoordinatorRequestProps | null;
+	};
+	readonly startImmediately: boolean;
+}
+
+function scheduleLatestReviewProjectionCoordinatorStart(
+	refs: ReviewProjectionStartRefs,
+): () => void {
+	if (refs.startImmediately) {
+		if (refs.pendingProjectionStartTimeoutRef.current !== null) {
+			clearTimeout(refs.pendingProjectionStartTimeoutRef.current);
+			refs.pendingProjectionStartTimeoutRef.current = null;
+		}
+		refs.pendingProjectionFirstQueuedAtRef.current = null;
+		startLatestReviewProjectionCoordinatorRequest(refs);
+		return (): void => {};
+	}
+	if (refs.pendingProjectionFirstQueuedAtRef.current === null) {
+		refs.pendingProjectionFirstQueuedAtRef.current = performance.now();
+	}
+	if (refs.pendingProjectionStartTimeoutRef.current !== null) {
+		clearTimeout(refs.pendingProjectionStartTimeoutRef.current);
+		refs.pendingProjectionStartTimeoutRef.current = null;
+	}
+	const elapsedMilliseconds = performance.now() - refs.pendingProjectionFirstQueuedAtRef.current;
+	const delayMilliseconds =
+		elapsedMilliseconds >= projectionStartMaxCoalescingDelayMilliseconds
+			? 0
+			: projectionStartCoalescingDelayMilliseconds;
+	const timeoutId = setTimeout((): void => {
+		refs.pendingProjectionStartTimeoutRef.current = null;
+		refs.pendingProjectionFirstQueuedAtRef.current = null;
+		startLatestReviewProjectionCoordinatorRequest(refs);
+	}, delayMilliseconds);
+	refs.pendingProjectionStartTimeoutRef.current = timeoutId;
+	return (): void => {
+		if (refs.pendingProjectionStartTimeoutRef.current === timeoutId) {
+			clearTimeout(timeoutId);
+			refs.pendingProjectionStartTimeoutRef.current = null;
+		}
+	};
+}
+
+function startLatestReviewProjectionCoordinatorRequest(refs: ReviewProjectionStartRefs): void {
+	const latestProjectionStartProps = refs.latestProjectionStartPropsRef.current;
+	refs.latestProjectionStartPropsRef.current = null;
+	if (latestProjectionStartProps === null) {
+		return;
+	}
+	const previousProjectionCleanup = refs.activeProjectionCleanupRef.current;
+	const nextProjectionCleanup = startBridgeReviewProjectionCoordinatorRequest(
+		latestProjectionStartProps,
+	);
+	refs.activeProjectionCleanupRef.current = nextProjectionCleanup;
+	previousProjectionCleanup?.();
+}
+
+function cancelPendingProjectionStart(refs: {
+	readonly pendingProjectionStartTimeoutRef: {
+		current: ReturnType<typeof setTimeout> | null;
+	};
+	readonly pendingProjectionFirstQueuedAtRef: {
+		current: number | null;
+	};
+	readonly latestProjectionStartPropsRef: {
+		current: StartBridgeReviewProjectionCoordinatorRequestProps | null;
+	};
+}): void {
+	if (refs.pendingProjectionStartTimeoutRef.current !== null) {
+		clearTimeout(refs.pendingProjectionStartTimeoutRef.current);
+		refs.pendingProjectionStartTimeoutRef.current = null;
+	}
+	refs.pendingProjectionFirstQueuedAtRef.current = null;
+	refs.latestProjectionStartPropsRef.current = null;
+}
+
+function makeReviewProjectionControlKey(props: {
+	readonly projectionMode: BridgeReviewProjectionMode;
+	readonly facets: readonly BridgeReviewProjectionFacet[];
+	readonly gitStatusFilter: BridgeFileChangeKind | 'all';
+	readonly fileClassFilter: BridgeFileClass | 'all';
+}): string {
+	return JSON.stringify({
+		fileClassFilter: props.fileClassFilter,
+		facets: props.facets,
+		gitStatusFilter: props.gitStatusFilter,
+		projectionMode: props.projectionMode,
+	});
 }
 
 export function startBridgeReviewProjectionCoordinatorRequest(
@@ -135,88 +286,103 @@ export function startBridgeReviewProjectionCoordinatorRequest(
 		executionLane === 'worker' && props.projectionWorkerClient !== null
 			? props.projectionWorkerClient
 			: props.syncProjectionClient;
-	const projectionTotalStartMilliseconds = performance.now();
-	const task = projectionClient.startProjection({
-		abortKey: projectionAbortKey,
-		projectionInput,
-		projectionRequest,
-		visibleItemIds: [],
-		workloadId: projectionWorkloadId,
-	});
-	props.store.getState().actions.startProjectionRequest(task.identity);
-	props.store.getState().actions.setWorkerStatus({
-		lane: executionLane,
-		pendingRequestCount: 1,
-		lastCompletedRequestId: props.store.getState().workerStatus.lastCompletedRequestId,
-	});
-
 	let isCurrentRequest = true;
-	void task.completed
-		.then((completion): void => {
-			if (!isCurrentRequest) {
-				return;
-			}
-			if (completion.status !== 'success') {
-				props.store.getState().actions.failProjectionRequest(completion.identity);
-				return;
-			}
-			const storeApplyStartMilliseconds = performance.now();
-			const didApply = props.store.getState().actions.applyProjectionWorkerResult({
-				identity: completion.identity,
-				result: completion.response.result,
-			});
-			const storeApplyDurationMilliseconds = performance.now() - storeApplyStartMilliseconds;
-			if (!didApply) {
-				return;
-			}
-			recordBridgeReviewProjectionCoordinatorTelemetry({
-				telemetryRecorder: props.telemetryRecorder,
-				traceContext: props.telemetryParentTraceContext,
-				phase: 'projection_input_build',
-				durationMilliseconds: inputBuildDurationMilliseconds,
-				executionLane,
-				reviewPackage: props.reviewPackage,
-				result: 'success',
-			});
-			recordBridgeReviewProjectionCoordinatorTelemetry({
-				telemetryRecorder: props.telemetryRecorder,
-				traceContext: props.telemetryParentTraceContext,
-				phase: 'projection_store_apply',
-				durationMilliseconds: storeApplyDurationMilliseconds,
-				executionLane,
-				reviewPackage: props.reviewPackage,
-				result: 'success',
-			});
-			recordBridgeReviewProjectionCoordinatorTelemetry({
-				telemetryRecorder: props.telemetryRecorder,
-				traceContext: props.telemetryParentTraceContext,
-				phase: 'projection_total',
-				durationMilliseconds: performance.now() - projectionTotalStartMilliseconds,
-				executionLane,
-				reviewPackage: props.reviewPackage,
-				result: 'success',
-			});
-			recordBridgeProjectionBuildTelemetry({
-				telemetryRecorder: props.telemetryRecorder,
-				parentTraceContext: props.telemetryParentTraceContext,
-				reviewPackage: props.reviewPackage,
-				projectionMode: props.projectionMode,
-				durationMilliseconds: completion.response.metrics.durationMilliseconds,
-				executionLane,
-				treePathCount: completion.response.metrics.treePathCount,
-			});
-			props.flushTelemetry({ force: true });
-		})
-		.catch((): void => {
-			if (isCurrentRequest) {
-				props.store.getState().actions.failProjectionRequest(task.identity);
-			}
+	let activeTask: BridgeReviewProjectionWorkerTask | null = null;
+	const startProjectionTask = (
+		client: BridgeReviewProjectionWorkerClient,
+		taskExecutionLane: 'sync' | 'worker',
+	): BridgeReviewProjectionWorkerTask => {
+		const projectionTotalStartMilliseconds = performance.now();
+		const task = client.startProjection({
+			abortKey: projectionAbortKey,
+			projectionInput,
+			projectionRequest,
+			visibleItemIds: [],
+			workloadId: projectionWorkloadId,
 		});
+		activeTask = task;
+		props.store.getState().actions.startProjectionRequest(task.identity);
+		props.store.getState().actions.setWorkerStatus({
+			lane: taskExecutionLane,
+			pendingRequestCount: 1,
+			lastCompletedRequestId: props.store.getState().workerStatus.lastCompletedRequestId,
+		});
+		void task.completed
+			.then((completion): void => {
+				if (!isCurrentRequest) {
+					return;
+				}
+				if (completion.status !== 'success') {
+					props.store.getState().actions.failProjectionRequest(completion.identity);
+					return;
+				}
+				const storeApplyStartMilliseconds = performance.now();
+				const didApply = props.store.getState().actions.applyProjectionWorkerResult({
+					identity: completion.identity,
+					result: completion.response.result,
+				});
+				const storeApplyDurationMilliseconds = performance.now() - storeApplyStartMilliseconds;
+				if (!didApply) {
+					return;
+				}
+				recordBridgeProjectionCoordinatorTelemetry({
+					telemetryRecorder: props.telemetryRecorder,
+					traceContext: props.telemetryParentTraceContext,
+					phase: 'projection_input_build',
+					durationMilliseconds: inputBuildDurationMilliseconds,
+					executionLane: taskExecutionLane,
+					reviewPackage: props.reviewPackage,
+					result: 'success',
+				});
+				recordBridgeProjectionCoordinatorTelemetry({
+					telemetryRecorder: props.telemetryRecorder,
+					traceContext: props.telemetryParentTraceContext,
+					phase: 'projection_store_apply',
+					durationMilliseconds: storeApplyDurationMilliseconds,
+					executionLane: taskExecutionLane,
+					reviewPackage: props.reviewPackage,
+					result: 'success',
+				});
+				recordBridgeProjectionCoordinatorTelemetry({
+					telemetryRecorder: props.telemetryRecorder,
+					traceContext: props.telemetryParentTraceContext,
+					phase: 'projection_total',
+					durationMilliseconds: performance.now() - projectionTotalStartMilliseconds,
+					executionLane: taskExecutionLane,
+					reviewPackage: props.reviewPackage,
+					result: 'success',
+				});
+				recordBridgeProjectionBuildTelemetry({
+					telemetryRecorder: props.telemetryRecorder,
+					parentTraceContext: props.telemetryParentTraceContext,
+					reviewPackage: props.reviewPackage,
+					projectionMode: props.projectionMode,
+					durationMilliseconds: completion.response.metrics.durationMilliseconds,
+					executionLane: taskExecutionLane,
+					treePathCount: completion.response.metrics.treePathCount,
+				});
+				props.flushTelemetry({ force: true });
+			})
+			.catch((): void => {
+				if (!isCurrentRequest) {
+					return;
+				}
+				if (taskExecutionLane === 'worker') {
+					startProjectionTask(props.syncProjectionClient, 'sync');
+					return;
+				}
+				props.store.getState().actions.failProjectionRequest(task.identity);
+			});
+		return task;
+	};
+	startProjectionTask(projectionClient, executionLane);
 
 	return (): void => {
 		isCurrentRequest = false;
-		task.abort();
-		props.store.getState().actions.cancelProjectionRequest(task.identity);
+		activeTask?.abort();
+		if (activeTask !== null) {
+			props.store.getState().actions.cancelProjectionRequest(activeTask.identity);
+		}
 	};
 }
 
@@ -244,38 +410,4 @@ function activeFacetPathCount(
 
 function hasActiveNonVisibilityFacet(facets: readonly BridgeReviewProjectionFacet[]): boolean {
 	return facets.some((facet: BridgeReviewProjectionFacet): boolean => facet.kind !== 'visibility');
-}
-
-function recordBridgeReviewProjectionCoordinatorTelemetry(props: {
-	readonly telemetryRecorder: BridgeTelemetryRecorder;
-	readonly traceContext: BridgeTraceContext | null;
-	readonly phase: BridgeReviewProjectionCoordinatorTelemetryPhase;
-	readonly durationMilliseconds: number;
-	readonly executionLane: 'sync' | 'worker';
-	readonly reviewPackage: BridgeReviewPackage;
-	readonly result: 'failed' | 'success';
-}): void {
-	if (!props.telemetryRecorder.isEnabled('web')) {
-		return;
-	}
-	props.telemetryRecorder.record({
-		scope: 'web',
-		name: `performance.bridge.web.${props.phase}`,
-		durationMilliseconds: Math.max(0, props.durationMilliseconds),
-		traceContext: props.traceContext,
-		stringAttributes: {
-			'agentstudio.bridge.phase': props.phase,
-			'agentstudio.bridge.plane': 'data',
-			'agentstudio.bridge.priority': 'warm',
-			'agentstudio.bridge.result': props.result,
-			'agentstudio.bridge.slice': 'review_projection',
-			'agentstudio.bridge.transport': 'worker',
-			'agentstudio.bridge.worker.lane': props.executionLane === 'worker' ? 'projection' : 'none',
-		},
-		numericAttributes: {
-			'agentstudio.bridge.review.item_count': props.reviewPackage.orderedItemIds.length,
-		},
-		booleanAttributes: {},
-	});
-	props.telemetryRecorder.flush();
 }

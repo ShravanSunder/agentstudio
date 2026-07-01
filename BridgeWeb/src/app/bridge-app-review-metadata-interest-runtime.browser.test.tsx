@@ -12,6 +12,42 @@ import type { BridgeReviewPackage } from '../foundation/review-package/bridge-re
 import { useBridgeReviewMetadataInterestRuntime } from './bridge-app-review-metadata-interest-runtime.js';
 
 describe('Bridge review metadata interest runtime', () => {
+	test('replays current interest after bridge-ready when pre-ready dispatch was dropped', async () => {
+		document.body.replaceChildren();
+		const commandDetails: BridgeRPCCommand[] = [];
+		let sendAccepted = false;
+		const rpcClient: BridgeRPCClient = {
+			sendCommand: (command): boolean => {
+				commandDetails.push(command);
+				return sendAccepted;
+			},
+		};
+		const reviewPackage = makeReviewPackageWithIdentity({
+			itemIds: ['item-a', 'item-b'],
+			packageId: 'package-a',
+			reviewGeneration: 7,
+			revision: 11,
+		});
+		render(
+			<RuntimeHarness
+				reviewPackage={reviewPackage}
+				rpcClient={rpcClient}
+				selectedItemId="item-a"
+				setVisibleContentItemIds={(): void => {}}
+			/>,
+		);
+
+		await expect.poll(() => commandDetails.length).toBeGreaterThanOrEqual(2);
+		const preReadyCommandCount = commandDetails.length;
+		expect(lastCommandsByLane(commandDetails).foreground).toEqual(['item-a']);
+
+		sendAccepted = true;
+		requireHTMLButtonElement(document.querySelector('[data-testid="bridge-ready"]')).click();
+
+		await expect.poll(() => commandDetails.length).toBeGreaterThan(preReadyCommandCount);
+		expect(lastCommandsByLane(commandDetails).foreground).toEqual(['item-a']);
+	});
+
 	test('dispatches hook-driven interest updates and clears stale surface ids across package revisions', async () => {
 		document.body.replaceChildren();
 		const commandDetails: BridgeRPCCommand[] = [];
@@ -89,9 +125,11 @@ function RuntimeHarness(props: {
 	readonly setVisibleContentItemIds: (itemIds: readonly string[]) => void;
 }): ReactElement {
 	const [reviewPackage, setReviewPackage] = useState(props.reviewPackage);
+	const [bridgeReadyEpoch, setBridgeReadyEpoch] = useState(0);
 	const [selectedItemId, setSelectedItemId] = useState<string | null>(props.selectedItemId);
 	const runtime = useBridgeReviewMetadataInterestRuntime({
 		authority: { paneId: 'pane-1', streamId: 'review:pane-1' },
+		bridgeReadyEpoch,
 		isActive: true,
 		reviewPackage,
 		rpcClient: props.rpcClient,
@@ -100,6 +138,11 @@ function RuntimeHarness(props: {
 	});
 	return (
 		<div>
+			<button
+				data-testid="bridge-ready"
+				onClick={(): void => setBridgeReadyEpoch((currentEpoch) => currentEpoch + 1)}
+				type="button"
+			/>
 			<button
 				data-testid="tree-visible"
 				onClick={(): void => runtime.onTreeVisibleItemIdsChange(['item-a', 'item-b'])}

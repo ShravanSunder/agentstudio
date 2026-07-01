@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { bridgeDemandLaneSchema } from '../core/models/bridge-demand-models.js';
 import { bridgeTelemetryBatchSchema } from '../foundation/telemetry/bridge-telemetry-event.js';
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import type { BridgeTraceContext } from '../foundation/telemetry/bridge-trace-context.js';
@@ -11,6 +12,21 @@ export const bridgeRPCCommandSchema = z.discriminatedUnion('method', [
 		id: bridgeRPCIdSchema.optional(),
 		method: z.literal('review.markFileViewed'),
 		params: z.object({ fileId: z.string().min(1) }),
+	}),
+	z.object({
+		id: bridgeRPCIdSchema.optional(),
+		method: z.literal('bridge.metadata_interest.update'),
+		params: z
+			.object({
+				protocol: z.literal('review'),
+				streamId: z.string().min(1).optional(),
+				generation: z.number().int().nonnegative().optional(),
+				itemIds: z.array(z.string().min(1)).optional(),
+				paths: z.array(z.string().min(1)).optional(),
+				lane: bridgeDemandLaneSchema,
+				loaded_by: z.enum(['foreground', 'visible', 'nearby', 'speculative', 'idle']).optional(),
+			})
+			.strict(),
 	}),
 	z.object({
 		id: bridgeRPCIdSchema.optional(),

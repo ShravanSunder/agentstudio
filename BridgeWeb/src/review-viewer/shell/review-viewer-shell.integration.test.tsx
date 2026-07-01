@@ -1,21 +1,19 @@
 import type { ReactElement, ReactNode } from 'react';
 import { describe, expect, test } from 'vitest';
 
+import { BridgeViewerContentHeader } from '../../app/bridge-viewer-content-header.js';
 import { makeBridgeReviewPackage } from '../../foundation/review-package/bridge-review-package-test-support.js';
 import type { BridgeReviewPackage } from '../../foundation/review-package/bridge-review-package.js';
 import { BridgeReviewFacetMenu } from '../chrome/bridge-review-facet-menu.js';
+import { BridgeReviewProjectionMenu } from '../chrome/bridge-review-projection-menu.js';
 import { BridgeCodeViewPanel } from '../code-view/bridge-code-view-panel.js';
 import type { ReviewContentDemandTelemetry } from '../content/review-content-demand-loader.js';
 import { BridgeMarkdownPreview } from '../markdown/bridge-markdown-preview.js';
 import { buildBridgeReviewProjection } from '../navigation/review-projection.js';
-import {
-	BridgeReviewCanvasLoadingState,
-	BridgeReviewProjectionMenu,
-	ReviewViewerShell,
-} from './review-viewer-shell.js';
+import { BridgeReviewCanvasLoadingState, ReviewViewerShell } from './review-viewer-shell.js';
 
 describe('review viewer shell', () => {
-	test('renders compact rail summary controls and visible item list', () => {
+	test('renders compact rail controls and visible item list without footer stats', () => {
 		const basePackage = makeBridgeReviewPackage();
 		const reviewPackage = {
 			...basePackage,
@@ -50,13 +48,9 @@ describe('review viewer shell', () => {
 		});
 		const shell = requireTestElement(element);
 		const text = collectText(element);
-		const railStats = findElementByTestId(shell, 'bridge-review-rail-stats');
 
 		expect(findElementByTestId(shell, 'bridge-review-top-header')).toBeNull();
-		expect(collectText(railStats)).toContain('Files');
-		expect(collectText(railStats)).toContain('1');
-		expect(collectText(railStats)).toContain('Additions');
-		expect(collectText(railStats)).toContain('Deletions');
+		expect(findElementByTestId(shell, 'bridge-review-rail-stats')).toBeNull();
 		expect(text).toContain('Sources/App/View.swift');
 	});
 
@@ -77,7 +71,44 @@ describe('review viewer shell', () => {
 		expect(findElementByTestId(element, 'bridge-review-top-header')).toBeNull();
 	});
 
-	test('keeps projection scope in compact rail chrome without a top app bar', () => {
+	test('renders review content header from comparison endpoint identity', () => {
+		const basePackage = makeBridgeReviewPackage();
+		const reviewPackage = {
+			...basePackage,
+			query: {
+				...basePackage.query,
+				baseEndpointId: 'baseline-local-default',
+				headEndpointId: 'working-tree',
+			},
+			baseEndpoint: {
+				...basePackage.baseEndpoint,
+				endpointId: 'baseline-local-default',
+				kind: 'gitRef' as const,
+				label: 'main',
+				providerIdentity: 'main',
+			},
+			headEndpoint: {
+				...basePackage.headEndpoint,
+				endpointId: 'working-tree',
+				kind: 'workingTree' as const,
+				label: 'Working tree',
+				providerIdentity: 'working-tree:worktree-1',
+			},
+		};
+		const element = ReviewViewerShell({
+			reviewPackage,
+			projection: projectionForPackage(reviewPackage),
+			selectedItemId: 'item-source',
+			onSelectItem: () => undefined,
+			selectedContentText: null,
+		});
+
+		const contentHeader = findElementByComponent(element, BridgeViewerContentHeader);
+		expect(contentHeader?.props.title).toBe('Current worktree vs Default / Sources/App/View.swift');
+		expect(contentHeader?.props.title).not.toBe(basePackage.query.queryId);
+	});
+
+	test('keeps projection controls in compact rail chrome without a top app bar or footer stats', () => {
 		const reviewPackage = makeBridgeReviewPackage();
 		const element = requireTestElement(
 			ReviewViewerShell({
@@ -92,13 +123,12 @@ describe('review viewer shell', () => {
 		const projectionScope = findElementByTestId(element, 'bridge-review-projection-scope');
 		const projectionMenu = findElementByComponent(element, BridgeReviewProjectionMenu);
 		const facetMenu = findElementByComponent(element, BridgeReviewFacetMenu);
-		const railStats = findElementByTestId(element, 'bridge-review-rail-stats');
 
 		expect(findElementByTestId(element, 'bridge-review-top-header')).toBeNull();
 		expect(projectionScope).toBeNull();
 		expect(projectionMenu).not.toBeNull();
 		expect(facetMenu).not.toBeNull();
-		expect(railStats).not.toBeNull();
+		expect(findElementByTestId(element, 'bridge-review-rail-stats')).toBeNull();
 	});
 
 	test('renders review mode as a compact segmented control instead of a filter menu', () => {
@@ -305,6 +335,7 @@ describe('review viewer shell', () => {
 					executorQueuedBytesBefore: 0,
 					executorQueuedBytesAfterDispatch: 0,
 					executorQueuedBytesAfter: 0,
+					durationMilliseconds: 12,
 					laneUpgradeCount: 0,
 					maxSchedulerQueuedIntentCount: 1,
 					maxExecutorInFlightCount: 1,
@@ -328,6 +359,7 @@ describe('review viewer shell', () => {
 
 		expect(shell?.props['data-review-visible-demand-foreground-intent-count']).toBe(0);
 		expect(shell?.props['data-review-visible-demand-visible-intent-count']).toBe(1);
+		expect(shell?.props['data-review-visible-demand-interest']).toBe('visible');
 		expect(shell?.props['data-review-visible-demand-item-id']).toBe('item-source');
 		expect(shell?.props['data-review-visible-demand-package-id']).toBe(reviewPackage.packageId);
 		expect(shell?.props['data-review-visible-demand-package-generation']).toBe(
@@ -336,9 +368,20 @@ describe('review viewer shell', () => {
 		expect(shell?.props['data-review-visible-demand-package-revision']).toBe(
 			reviewPackage.revision,
 		);
-		expect(shell?.props['data-review-package-id']).toBe(reviewPackage.packageId);
-		expect(shell?.props['data-review-package-generation']).toBe(reviewPackage.reviewGeneration);
-		expect(shell?.props['data-review-package-revision']).toBe(reviewPackage.revision);
+		expect(shell?.props['data-review-visible-demand-duration-ms']).toBe(12);
+		expect(shell?.props['data-review-metadata-id']).toBe(reviewPackage.packageId);
+		expect(shell?.props['data-review-metadata-generation']).toBe(reviewPackage.reviewGeneration);
+		expect(shell?.props['data-review-metadata-revision']).toBe(reviewPackage.revision);
+		expect(shell?.props['data-review-base-endpoint-id']).toBe(reviewPackage.query.baseEndpointId);
+		expect(shell?.props['data-review-base-endpoint-kind']).toBe(reviewPackage.baseEndpoint.kind);
+		expect(shell?.props['data-review-base-provider-identity']).toBe(
+			reviewPackage.baseEndpoint.providerIdentity,
+		);
+		expect(shell?.props['data-review-head-endpoint-id']).toBe(reviewPackage.query.headEndpointId);
+		expect(shell?.props['data-review-head-endpoint-kind']).toBe(reviewPackage.headEndpoint.kind);
+		expect(shell?.props['data-review-head-provider-identity']).toBe(
+			reviewPackage.headEndpoint.providerIdentity,
+		);
 	});
 
 	test('renders selected markdown preview in the code canvas when worker output is ready', () => {
@@ -378,6 +421,54 @@ describe('review viewer shell', () => {
 
 		expect(findElementByComponent(element, BridgeMarkdownPreview)).toBeNull();
 		expect(findElementByComponent(element, BridgeCodeViewPanel)).not.toBeNull();
+	});
+
+	test('publishes the active canvas branch for native startup diagnostics', () => {
+		const reviewPackage = makeBridgeReviewPackage();
+		const codeElement = requireTestElement(
+			ReviewViewerShell({
+				reviewPackage,
+				projection: projectionForPackage(reviewPackage),
+				selectedItemId: 'item-source',
+				onSelectItem: () => undefined,
+				selectedContentText: null,
+			}),
+		);
+		const markdownElement = requireTestElement(
+			ReviewViewerShell({
+				reviewPackage,
+				projection: projectionForPackage(reviewPackage),
+				selectedItemId: 'item-source',
+				onSelectItem: () => undefined,
+				selectedContentText: null,
+				selectedMarkdownPreviewHtml: '<h1>Bridge plan</h1>',
+				selectedMarkdownPreviewSourcePath: 'docs/plans/bridge-plan.md',
+			}),
+		);
+		const unavailableElement = requireTestElement(
+			ReviewViewerShell({
+				reviewPackage,
+				projection: projectionForPackage(reviewPackage),
+				selectedItemId: 'item-source',
+				onSelectItem: () => undefined,
+				selectedContentText: null,
+				selectedContentUnavailablePath: 'Sources/App/View.swift',
+			}),
+		);
+
+		expect(
+			findElementByTestId(codeElement, 'review-viewer-shell')?.props['data-review-canvas-branch'],
+		).toBe('code');
+		expect(
+			findElementByTestId(markdownElement, 'review-viewer-shell')?.props[
+				'data-review-canvas-branch'
+			],
+		).toBe('markdown');
+		expect(
+			findElementByTestId(unavailableElement, 'review-viewer-shell')?.props[
+				'data-review-canvas-branch'
+			],
+		).toBe('unavailable');
 	});
 
 	test('shows a shadcn canvas skeleton while markdown output is rendering', () => {
@@ -486,14 +577,24 @@ interface TestElementProps {
 	readonly 'data-bridge-shared-rail-toolbar'?: string;
 	readonly 'data-bridge-segmented-control'?: string;
 	readonly 'data-review-visible-demand-foreground-intent-count'?: number;
+	readonly 'data-review-visible-demand-interest'?: string;
 	readonly 'data-review-visible-demand-item-id'?: string;
 	readonly 'data-review-visible-demand-package-id'?: string;
 	readonly 'data-review-visible-demand-package-generation'?: number;
 	readonly 'data-review-visible-demand-package-revision'?: number;
+	readonly 'data-review-visible-demand-duration-ms'?: number;
 	readonly 'data-review-visible-demand-visible-intent-count'?: number;
-	readonly 'data-review-package-id'?: string;
-	readonly 'data-review-package-generation'?: number;
-	readonly 'data-review-package-revision'?: number;
+	readonly 'data-review-metadata-id'?: string;
+	readonly 'data-review-metadata-generation'?: number;
+	readonly 'data-review-metadata-revision'?: number;
+	readonly 'data-review-base-endpoint-id'?: string;
+	readonly 'data-review-base-endpoint-kind'?: string;
+	readonly 'data-review-base-provider-identity'?: string;
+	readonly 'data-review-head-endpoint-id'?: string;
+	readonly 'data-review-head-endpoint-kind'?: string;
+	readonly 'data-review-head-provider-identity'?: string;
+	readonly 'data-review-selection-commit-duration-ms'?: number;
+	readonly 'data-review-canvas-branch'?: string;
 	readonly 'data-selected-content-state'?: string;
 	readonly 'data-selected-display-path'?: string;
 	readonly 'data-sidebar-position'?: string;
@@ -503,6 +604,7 @@ interface TestElementProps {
 	readonly onValueChange?: () => void;
 	readonly reason?: string;
 	readonly role?: string;
+	readonly title?: string;
 }
 
 function emptyDemandLaneByteCounts(): Record<

@@ -8,7 +8,7 @@ import {
 	type ReactElement,
 } from 'react';
 
-import { readBridgeTextResourceStream } from '../core/resources/bridge-resource-stream.js';
+import { loadBridgeTextResourceWithTiming } from '../core/resources/bridge-resource-stream.js';
 import type {
 	WorktreeFileDescriptor,
 	WorktreeFileProtocolFrame,
@@ -716,14 +716,13 @@ function totalOpenFileHeightForState(openFileState: WorktreeFileOpenRenderState)
 async function defaultFetchWorktreeFileResource(
 	props: WorktreeFileSurfaceRuntimeFetchResourceProps,
 ): Promise<WorktreeFileSurfaceRuntimeFetchedResource> {
-	const response = await fetch(props.resourceUrl, { signal: props.signal });
-	if (!response.ok) {
-		throw new Error(`Worktree/File resource request failed: ${response.status}`);
-	}
-	return await readBridgeTextResourceStream(response, {
+	return await loadBridgeTextResourceWithTiming({
 		integrity: props.descriptor.content.integrity,
 		maxBytes: props.descriptor.content.maxBytes,
 		onTextChunk: props.onTextChunk,
+		performFetch: async (): Promise<Response> =>
+			await fetch(props.resourceUrl, { signal: props.signal }),
+		probe: props.probe,
 		signal: props.signal,
 	});
 }

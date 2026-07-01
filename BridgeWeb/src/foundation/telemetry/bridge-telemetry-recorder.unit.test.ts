@@ -111,9 +111,9 @@ describe('bridge telemetry recorder', () => {
 			(): number => now,
 		);
 
-		recorder.record(makeSample('performance.bridge.web.package_apply'));
+		recorder.record(makeSample('performance.bridge.web.push_apply'));
 		expect(recorder.flush()).toBe(true);
-		recorder.record(makeSample('performance.bridge.web.package_apply'));
+		recorder.record(makeSample('performance.bridge.web.push_apply'));
 		now += 100;
 		expect(recorder.flush()).toBe(true);
 		expect(batches).toHaveLength(1);
@@ -121,8 +121,8 @@ describe('bridge telemetry recorder', () => {
 		expect(recorder.flush({ force: true })).toBe(true);
 
 		expect(batches.map((batch) => batch.samples.map((sample) => sample.name))).toEqual([
-			['performance.bridge.web.package_apply'],
-			['performance.bridge.web.package_apply'],
+			['performance.bridge.web.push_apply'],
+			['performance.bridge.web.push_apply'],
 		]);
 	});
 

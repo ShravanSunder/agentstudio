@@ -153,6 +153,7 @@ export function BridgeReviewViewerMode(
 		useState<BridgeReviewFileNavigationTarget | null>(null);
 	const [lastSelectionCommitDurationMilliseconds, setLastSelectionCommitDurationMilliseconds] =
 		useState<number | null>(null);
+	const [bridgeReadyEpoch, setBridgeReadyEpoch] = useState(0);
 	const selectedMarkdownPreviewStateRef = useRef<SelectedMarkdownPreviewState | null>(null);
 	selectedMarkdownPreviewStateRef.current = selectedMarkdownPreviewState;
 	const [isTreeSearchOpen, setIsTreeSearchOpen] = useState(false);
@@ -324,12 +325,22 @@ export function BridgeReviewViewerMode(
 	});
 	const reviewMetadataInterestRuntime = useBridgeReviewMetadataInterestRuntime({
 		authority: getReviewFrameAuthority(),
+		bridgeReadyEpoch,
 		isActive: props.isActive,
 		reviewPackage,
 		rpcClient,
 		selectedItemId: rootSnapshot.selectedItemId,
 		setVisibleContentItemIds: visibleContentHydration.setVisibleItemIds,
 	});
+	useEffect(
+		(): (() => void) =>
+			registerBridgeReadyCallback((): void => {
+				if (props.isActive) {
+					setBridgeReadyEpoch((currentEpoch) => currentEpoch + 1);
+				}
+			}),
+		[props.isActive, registerBridgeReadyCallback],
+	);
 	const retrySelectedContentAfterDescriptorRegistration = useCallback(
 		(registeredDescriptorRefCount: number): void => {
 			if (

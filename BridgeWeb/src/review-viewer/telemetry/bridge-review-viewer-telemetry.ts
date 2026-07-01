@@ -11,6 +11,7 @@ import {
 import {
 	recordBridgeCodeViewHydrationTelemetrySamples,
 	recordBridgeViewerContentFetchTelemetrySample,
+	recordBridgeProjectionCoordinatorTelemetrySample,
 	recordBridgeProjectionBuildTelemetrySample,
 	recordBridgeViewerContentQueueTelemetrySample,
 } from '../../foundation/telemetry/bridge-viewer-telemetry-adapter.js';
@@ -28,6 +29,16 @@ export interface RecordBridgeProjectionBuildTelemetryProps {
 	readonly durationMilliseconds: number | null;
 	readonly executionLane: 'sync' | 'worker';
 	readonly treePathCount: number;
+}
+
+export interface RecordBridgeProjectionCoordinatorTelemetryProps {
+	readonly telemetryRecorder: BridgeTelemetryRecorder;
+	readonly traceContext: BridgeTraceContext | null;
+	readonly phase: 'projection_input_build' | 'projection_store_apply' | 'projection_total';
+	readonly durationMilliseconds: number;
+	readonly executionLane: 'sync' | 'worker';
+	readonly reviewPackage: BridgeReviewPackage;
+	readonly result: 'failed' | 'success';
 }
 
 export interface RecordBridgeViewerContentQueueTelemetryProps {
@@ -74,6 +85,20 @@ export function recordBridgeProjectionBuildTelemetry(
 	});
 }
 
+export function recordBridgeProjectionCoordinatorTelemetry(
+	props: RecordBridgeProjectionCoordinatorTelemetryProps,
+): void {
+	recordBridgeProjectionCoordinatorTelemetrySample({
+		telemetryRecorder: props.telemetryRecorder,
+		traceContext: props.traceContext,
+		phase: props.phase,
+		durationMilliseconds: props.durationMilliseconds,
+		executionLane: props.executionLane,
+		itemCount: props.reviewPackage.orderedItemIds.length,
+		result: props.result,
+	});
+}
+
 export function recordBridgeViewerContentQueueTelemetry(
 	props: RecordBridgeViewerContentQueueTelemetryProps,
 ): void {
@@ -102,6 +127,9 @@ export function recordBridgeViewerContentFetchTelemetry(
 export function recordBridgeCodeViewHydrationTelemetry(
 	props: RecordBridgeCodeViewHydrationTelemetryProps,
 ): void {
+	if (!props.telemetryRecorder.isEnabled('web')) {
+		return;
+	}
 	const contentByteCount = contentByteCountForResources(props.resources);
 	recordBridgeCodeViewHydrationTelemetrySamples({
 		telemetryRecorder: props.telemetryRecorder,
@@ -224,7 +252,10 @@ function contentByteCountForResources(resources: BridgeCodeViewContentResources)
 		if (resource === undefined) {
 			return total;
 		}
-		return total + new TextEncoder().encode(resource.readText()).byteLength;
+		if (resource.byteLength !== undefined) {
+			return total + resource.byteLength;
+		}
+		return total + resource.handle.sizeBytes;
 	}, 0);
 }
 

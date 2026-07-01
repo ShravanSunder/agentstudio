@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { bridgeDemandLaneSchema } from '../../../core/models/bridge-demand-models.js';
 import { bridgeIntakeFrameBaseSchema } from '../../../core/models/bridge-intake-frame.js';
 import {
 	bridgeAttachedResourceDescriptorSchema,
@@ -15,7 +16,6 @@ export const worktreeFileSurfaceSourceSpecSchema = z
 		cwdScope: z.string().min(1).optional(),
 		pathScope: z.array(z.string().min(1)).optional(),
 		includeStatuses: z.boolean().default(true),
-		includeFileDescriptors: z.boolean().default(true),
 		includeComments: z.boolean().default(false),
 		includeAgentComms: z.boolean().default(false),
 		freshness: z.literal('live'),
@@ -55,6 +55,7 @@ export const worktreeTreeProjectionIdentitySchema = z
 
 export const worktreeTreeVirtualizedSizeFactsSchema = z
 	.object({
+		extentKind: z.enum(['exactPathCount', 'estimatedTotalHeight']),
 		pathCount: z.number().int().nonnegative().optional(),
 		windowStartIndex: z.number().int().nonnegative().optional(),
 		windowRowCount: z.number().int().nonnegative().optional(),
@@ -72,6 +73,45 @@ export const worktreeTreeVirtualizedSizeFactsSchema = z
 		}
 	});
 
+export const worktreeTreeRowLoadedBySchema = z.enum([
+	'startup_window',
+	'foreground',
+	'visible',
+	'nearby',
+	'speculative',
+	'idle',
+	'delta',
+	'reset',
+	'replacement',
+]);
+
+export const worktreeTreeRowMetadataSchema = z
+	.object({
+		rowId: z.string().min(1),
+		path: z.string().min(1),
+		name: z.string().min(1),
+		parentPath: z.string().min(1).nullable(),
+		depth: z.number().int().nonnegative(),
+		isDirectory: z.boolean(),
+		fileId: z.string().min(1).optional(),
+		sizeBytes: z.number().int().nonnegative().optional(),
+		lineCount: z.number().int().nonnegative().optional(),
+		changeStatus: z.string().min(1).optional(),
+		loaded_by: worktreeTreeRowLoadedBySchema.optional(),
+		lane: bridgeDemandLaneSchema.optional(),
+	})
+	.strict();
+
+export const worktreeFileDescriptorRequestSchema = z
+	.object({
+		sourceIdentity: worktreeFileSurfaceSourceIdentitySchema,
+		rowId: z.string().min(1),
+		path: z.string().min(1),
+		fileId: z.string().min(1),
+		lane: bridgeDemandLaneSchema,
+	})
+	.strict();
+
 export const worktreeFileVirtualizedExtentKindSchema = z.enum([
 	'exactLineCount',
 	'estimatedHeight',
@@ -80,13 +120,8 @@ export const worktreeFileVirtualizedExtentKindSchema = z.enum([
 ]);
 
 export const worktreeFileSurfaceResourceKindSchema = z.enum([
-	'worktree.treeWindow',
-	'worktree.treeDeltaOperations',
-	'worktree.status',
 	'worktree.fileContent',
 	'worktree.fileRange',
-	'worktree.commentThreadWindow',
-	'worktree.agentCommsWindow',
 ]);
 
 export const worktreeFileDescriptorSchema = z
@@ -176,9 +211,9 @@ export const worktreeSnapshotFrameSchema = bridgeIntakeFrameBaseSchema
 		frameKind: z.literal('worktree.snapshot'),
 		source: worktreeFileSurfaceSourceIdentitySchema,
 		requestSelector: worktreeFileSurfaceSourceSpecSchema.optional(),
-		treeDescriptor: bridgeAttachedResourceDescriptorSchema,
+		treeRows: z.array(worktreeTreeRowMetadataSchema),
 		treeSizeFacts: worktreeTreeVirtualizedSizeFactsSchema.optional(),
-		statusDescriptor: bridgeAttachedResourceDescriptorSchema.optional(),
+		statusPatch: worktreeStatusPatchSchema.optional(),
 	})
 	.strict();
 
@@ -187,16 +222,51 @@ export const worktreeTreeWindowFrameSchema = bridgeIntakeFrameBaseSchema
 		kind: z.literal('delta'),
 		frameKind: z.literal('worktree.treeWindow'),
 		projectionIdentity: worktreeTreeProjectionIdentitySchema,
-		windowDescriptor: bridgeAttachedResourceDescriptorSchema,
+		rows: z.array(worktreeTreeRowMetadataSchema),
 		treeSizeFacts: worktreeTreeVirtualizedSizeFactsSchema.optional(),
 	})
 	.strict();
+
+export const worktreeTreeOperationSchema = z.discriminatedUnion('op', [
+	z
+		.object({
+			op: z.literal('upsertRows'),
+			rows: z.array(worktreeTreeRowMetadataSchema),
+		})
+		.strict(),
+	z
+		.object({
+			op: z.literal('removeRows'),
+			rowIds: z.array(z.string().min(1)),
+			paths: z.array(z.string().min(1)).optional(),
+		})
+		.strict(),
+	z
+		.object({
+			op: z.literal('moveSubtree'),
+			rowId: z.string().min(1),
+			oldPath: z.string().min(1),
+			newPath: z.string().min(1),
+			newParentPath: z.string().min(1).nullable(),
+			depthDelta: z.number().int(),
+		})
+		.strict(),
+	z
+		.object({
+			op: z.literal('replaceWindow'),
+			projectionIdentity: worktreeTreeProjectionIdentitySchema,
+			startIndex: z.number().int().nonnegative(),
+			rows: z.array(worktreeTreeRowMetadataSchema),
+			totalRowCount: z.number().int().nonnegative().optional(),
+		})
+		.strict(),
+]);
 
 export const worktreeTreeDeltaFrameSchema = bridgeIntakeFrameBaseSchema
 	.extend({
 		kind: z.literal('delta'),
 		frameKind: z.literal('worktree.treeDelta'),
-		operationsDescriptor: bridgeAttachedResourceDescriptorSchema,
+		operations: z.array(worktreeTreeOperationSchema),
 	})
 	.strict();
 
@@ -204,14 +274,7 @@ export const worktreeStatusPatchFrameSchema = bridgeIntakeFrameBaseSchema
 	.extend({
 		kind: z.literal('delta'),
 		frameKind: z.literal('worktree.statusPatch'),
-		patch: z.union([
-			worktreeStatusPatchSchema,
-			z
-				.object({
-					statusDescriptor: bridgeAttachedResourceDescriptorSchema,
-				})
-				.strict(),
-		]),
+		patch: worktreeStatusPatchSchema,
 	})
 	.strict();
 
@@ -313,6 +376,10 @@ export type WorktreeTreeProjectionIdentity = z.infer<typeof worktreeTreeProjecti
 export type WorktreeTreeVirtualizedSizeFacts = z.infer<
 	typeof worktreeTreeVirtualizedSizeFactsSchema
 >;
+export type WorktreeTreeRowLoadedBy = z.infer<typeof worktreeTreeRowLoadedBySchema>;
+export type WorktreeTreeRowMetadata = z.infer<typeof worktreeTreeRowMetadataSchema>;
+export type WorktreeTreeOperation = z.infer<typeof worktreeTreeOperationSchema>;
+export type WorktreeFileDescriptorRequest = z.infer<typeof worktreeFileDescriptorRequestSchema>;
 export type WorktreeFileVirtualizedExtentKind = z.infer<
 	typeof worktreeFileVirtualizedExtentKindSchema
 >;

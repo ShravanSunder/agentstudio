@@ -52,25 +52,25 @@ describe('worktree file demand policy', () => {
 		).toEqual([]);
 	});
 
-	test('maps tree viewport and expansion windows to generic visible and nearby lanes', () => {
-		const visibleRef = makeDescriptorRef('tree-window-visible', 'worktree.treeWindow');
-		const nearbyRef = makeDescriptorRef('tree-window-nearby', 'worktree.treeWindow');
+	test('maps visible and nearby file content descriptors to generic visible and nearby lanes', () => {
+		const visibleRef = makeDescriptorRef('file-content-visible', 'worktree.fileContent');
+		const nearbyRef = makeDescriptorRef('file-content-nearby', 'worktree.fileContent');
 		const readContext = makeReadContext({
 			descriptorStateById: {
-				'tree-window-visible': {
+				'file-content-visible': {
 					kind: 'valid',
 					freshnessKey: 'visible:gen-1',
 					needsBodyOrWindow: true,
 				},
-				'tree-window-nearby': {
+				'file-content-nearby': {
 					kind: 'valid',
 					freshnessKey: 'nearby:gen-1',
 					needsBodyOrWindow: true,
 				},
 			},
 			viewInterestById: {
-				'tree-window-visible': { kind: 'visible' },
-				'tree-window-nearby': { kind: 'nearby' },
+				'file-content-visible': { kind: 'visible' },
+				'file-content-nearby': { kind: 'nearby' },
 			},
 		});
 

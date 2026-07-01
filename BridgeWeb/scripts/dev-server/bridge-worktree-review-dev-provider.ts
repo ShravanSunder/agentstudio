@@ -1,6 +1,12 @@
 import { createHash } from 'node:crypto';
 import { extname } from 'node:path';
 
+import type { ReviewMetadataSnapshotFrame } from '../../src/features/review/models/review-protocol-models.js';
+import type { ReviewMetadataWindowFrame } from '../../src/features/review/models/review-protocol-models.js';
+import {
+	buildReviewMetadataSnapshotFrame,
+	buildReviewMetadataWindowFrame,
+} from '../../src/features/review/protocol/review-metadata-frame-builder.js';
 import { bridgeReviewPackageSchema } from '../../src/foundation/review-package/bridge-review-package-schema.js';
 import type {
 	BridgeContentHandle,
@@ -19,14 +25,18 @@ export interface BridgeWorktreeReviewDevSnapshot {
 	readonly fingerprint: string;
 }
 
-export interface CreateBridgeWorktreeReviewDevPackageProps {
+export interface CreateBridgeWorktreeReviewDevMetadataProps {
 	readonly baseRef: string;
 	readonly snapshot: BridgeWorktreeReviewDevSnapshot;
+	readonly paneId: string;
+	readonly streamId: string;
 }
 
-export interface BridgeWorktreeReviewDevPackageResult {
+export interface BridgeWorktreeReviewDevMetadataResult {
 	readonly contentByHandleId: ReadonlyMap<string, string>;
-	readonly reviewPackage: BridgeReviewPackage;
+	readonly metadataFrame: ReviewMetadataSnapshotFrame;
+	readonly metadataWindowFrames: readonly ReviewMetadataWindowFrame[];
+	readonly reviewMetadataSource: BridgeReviewPackage;
 }
 
 export interface BridgeWorktreeReviewContentRequest {
@@ -36,9 +46,15 @@ export interface BridgeWorktreeReviewContentRequest {
 	readonly revision: number;
 }
 
+export interface BridgeWorktreeReviewMetadataRequest {
+	readonly forceRefresh?: boolean;
+}
+
 export interface BridgeWorktreeReviewDevProvider {
 	readonly loadReviewContent: (request: BridgeWorktreeReviewContentRequest) => Promise<string>;
-	readonly loadReviewPackage: () => Promise<BridgeWorktreeReviewDevPackageResult>;
+	readonly loadReviewMetadata: (
+		request?: BridgeWorktreeReviewMetadataRequest,
+	) => Promise<BridgeWorktreeReviewDevMetadataResult>;
 }
 
 export interface CreateBridgeWorktreeReviewDevProviderOptions {
@@ -52,45 +68,50 @@ const worktreeReviewGeneration = 1;
 const worktreeReviewRevision = 1;
 const worktreeReviewRepoId = 'dev-worktree-repo';
 const worktreeReviewWorktreeId = 'dev-worktree';
-const worktreeReviewBaseEndpointId = 'dev-worktree-review-base';
-const worktreeReviewHeadEndpointId = 'dev-worktree-review-head';
+const worktreeReviewBaseEndpointId = 'baseline-local-default';
+const worktreeReviewHeadEndpointId = 'working-tree';
+const worktreeReviewMetadataWindowSize = 80;
 
 export function createBridgeWorktreeReviewDevProvider(
 	config: BridgeWorktreeDevProviderConfig,
 	options: CreateBridgeWorktreeReviewDevProviderOptions = {},
 ): BridgeWorktreeReviewDevProvider {
 	const loadSnapshot = options.loadSnapshot ?? loadBridgeWorktreeDevSnapshot;
-	const packageResultsById = new Map<string, BridgeWorktreeReviewDevPackageResult>();
-	let packageResultPromise: Promise<BridgeWorktreeReviewDevPackageResult> | null = null;
-	const loadReviewPackage = async (): Promise<BridgeWorktreeReviewDevPackageResult> => {
-		packageResultPromise ??= createReviewPackageResult({
+	const metadataResultsByPackageId = new Map<string, BridgeWorktreeReviewDevMetadataResult>();
+	let currentMetadataResult: BridgeWorktreeReviewDevMetadataResult | null = null;
+	const loadReviewMetadata = async (
+		request: BridgeWorktreeReviewMetadataRequest = {},
+	): Promise<BridgeWorktreeReviewDevMetadataResult> => {
+		if (currentMetadataResult !== null && request.forceRefresh !== true) {
+			return currentMetadataResult;
+		}
+		currentMetadataResult = await createReviewMetadataResult({
 			baseRef: config.baseRef,
 			loadSnapshot,
-			packageResultsById,
+			metadataResultsByPackageId,
+			paneId: 'bridge-worktree-review-dev-pane',
+			streamId: 'review:bridge-worktree-review-dev-pane',
 			worktreeRoot: config.worktreeRoot,
-		}).catch((error: unknown): never => {
-			packageResultPromise = null;
-			throw error;
 		});
-		return await packageResultPromise;
+		return currentMetadataResult;
 	};
 	return {
-		loadReviewPackage,
+		loadReviewMetadata,
 		loadReviewContent: async (request: BridgeWorktreeReviewContentRequest): Promise<string> => {
-			let packageResult = packageResultsById.get(request.packageId);
-			if (packageResult === undefined) {
-				packageResult = await loadReviewPackage();
+			let metadataResult = metadataResultsByPackageId.get(request.packageId);
+			if (metadataResult === undefined) {
+				metadataResult = await loadReviewMetadata();
 			}
 			if (
-				packageResult.reviewPackage.packageId !== request.packageId ||
-				packageResult.reviewPackage.reviewGeneration !== request.generation ||
-				packageResult.reviewPackage.revision !== request.revision
+				metadataResult.metadataFrame.comparison.packageId !== request.packageId ||
+				metadataResult.metadataFrame.comparison.generation !== request.generation ||
+				metadataResult.metadataFrame.comparison.revision !== request.revision
 			) {
 				throw new Error(
-					`Bridge worktree review content request does not match loaded package: ${request.packageId}`,
+					`Bridge worktree review content request does not match loaded metadata: ${request.packageId}`,
 				);
 			}
-			const content = packageResult.contentByHandleId.get(request.handleId);
+			const content = metadataResult.contentByHandleId.get(request.handleId);
 			if (content === undefined) {
 				throw new Error(`Unknown Bridge worktree review content handle: ${request.handleId}`);
 			}
@@ -99,27 +120,31 @@ export function createBridgeWorktreeReviewDevProvider(
 	};
 }
 
-async function createReviewPackageResult(props: {
+async function createReviewMetadataResult(props: {
 	readonly baseRef: string;
 	readonly loadSnapshot: NonNullable<CreateBridgeWorktreeReviewDevProviderOptions['loadSnapshot']>;
-	readonly packageResultsById: Map<string, BridgeWorktreeReviewDevPackageResult>;
+	readonly metadataResultsByPackageId: Map<string, BridgeWorktreeReviewDevMetadataResult>;
+	readonly paneId: string;
+	readonly streamId: string;
 	readonly worktreeRoot: string;
-}): Promise<BridgeWorktreeReviewDevPackageResult> {
+}): Promise<BridgeWorktreeReviewDevMetadataResult> {
 	const snapshot = await props.loadSnapshot({
 		baseRef: props.baseRef,
 		worktreeRoot: props.worktreeRoot,
 	});
-	const result = createBridgeWorktreeReviewDevPackage({
+	const result = createBridgeWorktreeReviewDevMetadata({
 		baseRef: props.baseRef,
+		paneId: props.paneId,
 		snapshot,
+		streamId: props.streamId,
 	});
-	props.packageResultsById.set(result.reviewPackage.packageId, result);
+	props.metadataResultsByPackageId.set(result.metadataFrame.comparison.packageId, result);
 	return result;
 }
 
-export function createBridgeWorktreeReviewDevPackage(
-	props: CreateBridgeWorktreeReviewDevPackageProps,
-): BridgeWorktreeReviewDevPackageResult {
+export function createBridgeWorktreeReviewDevMetadata(
+	props: CreateBridgeWorktreeReviewDevMetadataProps,
+): BridgeWorktreeReviewDevMetadataResult {
 	const packageId = `worktree-review-${props.snapshot.fingerprint.slice(0, 12)}`;
 	const contentByHandleId = new Map<string, string>();
 	const items = props.snapshot.changedFiles.map(
@@ -158,7 +183,7 @@ export function createBridgeWorktreeReviewDevPackage(
 			kind: 'gitRef',
 			repoId: worktreeReviewRepoId,
 			worktreeId: worktreeReviewWorktreeId,
-			label: props.baseRef.slice(0, 12),
+			label: 'Default',
 			createdAtUnixMilliseconds: 1,
 			contentSetHash: `sha256:${props.baseRef}`,
 			providerIdentity: props.baseRef,
@@ -186,9 +211,38 @@ export function createBridgeWorktreeReviewDevPackage(
 		filterState: emptyReviewViewFilter(),
 		generatedAtUnixMilliseconds: 3,
 	});
+	const metadataFrame = buildReviewMetadataSnapshotFrame({
+		package: reviewPackage,
+		paneId: props.paneId,
+		sourceIdentity: reviewPackage.query.queryId,
+		streamId: props.streamId,
+		sequence: reviewPackage.revision,
+		selectedItemId: reviewPackage.orderedItemIds[0] ?? null,
+		visibleItemIds: reviewPackage.orderedItemIds.slice(0, worktreeReviewMetadataWindowSize),
+	});
+	const metadataWindowFrames = reviewPackage.orderedItemIds
+		.slice(worktreeReviewMetadataWindowSize)
+		.reduce<ReviewMetadataWindowFrame[]>((frames, _itemId, offset, remainingItemIds) => {
+			if (offset % worktreeReviewMetadataWindowSize !== 0) {
+				return frames;
+			}
+			frames.push(
+				buildReviewMetadataWindowFrame({
+					package: reviewPackage,
+					paneId: props.paneId,
+					sourceIdentity: reviewPackage.query.queryId,
+					streamId: props.streamId,
+					sequence: reviewPackage.revision + frames.length + 1,
+					itemIds: remainingItemIds.slice(offset, offset + worktreeReviewMetadataWindowSize),
+				}),
+			);
+			return frames;
+		}, []);
 	return {
 		contentByHandleId,
-		reviewPackage,
+		metadataFrame,
+		metadataWindowFrames,
+		reviewMetadataSource: reviewPackage,
 	};
 }
 
@@ -225,6 +279,7 @@ function reviewItemForChangedFile(props: {
 					packageId: props.packageId,
 					role: props.changedFile.baseContent === null ? 'file' : 'head',
 				});
+	const contentLineCountsByRole = contentLineCountsByRoleForChangedFile(props.changedFile);
 	const contentHashAlgorithm = 'sha256';
 	return {
 		itemId,
@@ -251,6 +306,7 @@ function reviewItemForChangedFile(props: {
 			diff: null,
 			file: head?.role === 'file' ? head : null,
 		},
+		contentLineCountsByRole,
 		cacheKey: `${base?.cacheKey ?? 'none'}|${head?.cacheKey ?? 'none'}`,
 		provenance: {
 			paneIds: [],
@@ -263,6 +319,23 @@ function reviewItemForChangedFile(props: {
 		reviewState: 'unreviewed',
 		collapsed: false,
 	};
+}
+
+function contentLineCountsByRoleForChangedFile(
+	changedFile: BridgeWorktreeChangedFile,
+): BridgeReviewItemDescriptor['contentLineCountsByRole'] {
+	const lineCounts: NonNullable<BridgeReviewItemDescriptor['contentLineCountsByRole']> = {};
+	if (changedFile.baseContent !== null) {
+		lineCounts.base = renderLineCount(changedFile.baseContent);
+	}
+	if (changedFile.headContent !== null) {
+		if (changedFile.baseContent === null) {
+			lineCounts.file = renderLineCount(changedFile.headContent);
+		} else {
+			lineCounts.head = renderLineCount(changedFile.headContent);
+		}
+	}
+	return Object.keys(lineCounts).length === 0 ? undefined : lineCounts;
 }
 
 function makeContentHandle(props: {
@@ -292,6 +365,14 @@ function makeContentHandle(props: {
 		sizeBytes: byteLength(props.content),
 		isBinary: false,
 	};
+}
+
+function renderLineCount(content: string): number {
+	if (content.length === 0) {
+		return 0;
+	}
+	const renderedContent = content.endsWith('\n') ? content.slice(0, -1) : content;
+	return renderedContent.split('\n').length;
 }
 
 function emptyReviewViewFilter(): BridgeReviewPackage['filterState'] {

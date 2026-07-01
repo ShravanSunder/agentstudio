@@ -32,7 +32,10 @@ export interface BridgeResourceExecutorProps<TContent = unknown> {
 	readonly maxQueuedLoads: number;
 	readonly maxQueuedBytes: number;
 	readonly loadResource: BridgeResourceExecutorLoadResource<TContent>;
+	readonly classifyLoadFailure?: (error: unknown) => BridgeResourceExecutorLoadFailureKind | null;
 	readonly isFresh?: (intent: BridgeDemandIntent) => boolean;
+	readonly now?: () => number;
+	readonly onLifecycleEvent?: (event: BridgeResourceExecutorLifecycleEvent) => void;
 	readonly onChunk?: (props: {
 		readonly chunk: BridgeResourceExecutorStreamChunk;
 		readonly descriptor: BridgeResourceDescriptor;
@@ -66,7 +69,15 @@ export type BridgeResourceExecutorResult<TContent = unknown> =
 				| 'load_failed'
 				| 'stale_completion'
 				| 'aborted';
+			readonly loadFailureKind?: BridgeResourceExecutorLoadFailureKind;
 	  };
+
+export type BridgeResourceExecutorLoadFailureKind =
+	| 'http_error'
+	| 'missing_body'
+	| 'byte_limit_exceeded'
+	| 'integrity_mismatch'
+	| 'chunk_manifest_unsupported';
 
 export interface BridgeResourceExecutor<TContent = unknown> {
 	load(
@@ -84,12 +95,49 @@ export interface BridgeResourceExecutor<TContent = unknown> {
 	readonly queuedBytes: number;
 }
 
+export type BridgeResourceExecutorLifecycleResult =
+	| 'success'
+	| 'descriptor_missing'
+	| 'byte_budget_exceeded'
+	| 'concurrency_exceeded'
+	| 'load_failed'
+	| 'stale_completion'
+	| 'aborted';
+
+export type BridgeResourceExecutorLifecycleEvent =
+	| {
+			readonly byteBudget: number;
+			readonly intent: BridgeDemandIntent;
+			readonly kind: 'queued';
+			readonly pendingEnteredAtMilliseconds: number;
+			readonly queuedBytesAfter: number;
+			readonly queuedLoadCountAfter: number;
+	  }
+	| {
+			readonly byteBudget: number;
+			readonly inFlightBytesAfter: number;
+			readonly inFlightCountAfter: number;
+			readonly intent: BridgeDemandIntent;
+			readonly kind: 'started';
+			readonly pendingEnteredAtMilliseconds: number;
+			readonly pendingWaitMilliseconds: number;
+			readonly startedAtMilliseconds: number;
+	  }
+	| {
+			readonly completedAtMilliseconds: number;
+			readonly inFlightMilliseconds: number;
+			readonly intent: BridgeDemandIntent;
+			readonly kind: 'completed';
+			readonly result: BridgeResourceExecutorLifecycleResult;
+			readonly startedAtMilliseconds: number;
+	  };
+
 interface InFlightResourceLoad<TContent> {
 	readonly promise: Promise<BridgeResourceExecutorResult<TContent>>;
 	readonly abortController: AbortController;
-	readonly cancellationGroup: string;
+	readonly cancellationGroups: Set<string>;
 	readonly byteBudget: number;
-	readonly intent: BridgeDemandIntent;
+	intent: BridgeDemandIntent;
 }
 
 interface PendingResourceLoad<TContent> {
@@ -99,6 +147,7 @@ interface PendingResourceLoad<TContent> {
 	readonly abortController: AbortController;
 	readonly byteBudget: number;
 	readonly loadOptions: BridgeResourceExecutorLoadOptions;
+	readonly pendingEnteredAtMilliseconds: number;
 	readonly resolve: (result: BridgeResourceExecutorResult<TContent>) => void;
 	readonly sequence: number;
 }
@@ -125,6 +174,7 @@ export function createBridgeResourceExecutor<TContent = unknown>(
 	let nextPendingSequence = 0;
 	let inFlightBytes = 0;
 	let queuedBytes = 0;
+	const now = props.now ?? defaultNow;
 
 	const load = async (
 		intent: BridgeDemandIntent,
@@ -133,6 +183,10 @@ export function createBridgeResourceExecutor<TContent = unknown>(
 		const inFlightKey = makeInFlightKey(intent);
 		const existingLoad = inFlightByDedupeKey.get(inFlightKey);
 		if (existingLoad !== undefined) {
+			existingLoad.cancellationGroups.add(intent.cancellationGroup);
+			if (compareDemandIntentPriority(intent, existingLoad.intent) < 0) {
+				existingLoad.intent = intent;
+			}
 			return await existingLoad.promise;
 		}
 		const existingPendingLoad = pendingByDedupeKey.get(inFlightKey);
@@ -160,6 +214,7 @@ export function createBridgeResourceExecutor<TContent = unknown>(
 		}
 		const abortController = new AbortController();
 		if (canStartLoad(byteBudget)) {
+			const pendingEnteredAtMilliseconds = now();
 			return await startLoad({
 				abortController,
 				byteBudget,
@@ -167,10 +222,12 @@ export function createBridgeResourceExecutor<TContent = unknown>(
 				inFlightKey,
 				intent,
 				loadOptions: options,
+				pendingEnteredAtMilliseconds,
 			});
 		}
 		preemptLowerPriorityInFlightLoads({ byteBudget, intent });
 		if (canStartLoad(byteBudget)) {
+			const pendingEnteredAtMilliseconds = now();
 			return await startLoad({
 				abortController,
 				byteBudget,
@@ -178,6 +235,7 @@ export function createBridgeResourceExecutor<TContent = unknown>(
 				inFlightKey,
 				intent,
 				loadOptions: options,
+				pendingEnteredAtMilliseconds,
 			});
 		}
 		if (!canQueueUnderPressure(intent)) {
@@ -189,6 +247,7 @@ export function createBridgeResourceExecutor<TContent = unknown>(
 		if (!canQueuePendingLoad(byteBudget)) {
 			return { ok: false, reason: 'concurrency_exceeded' };
 		}
+		const pendingEnteredAtMilliseconds = now();
 		let resolvePending: ((result: BridgeResourceExecutorResult<TContent>) => void) | null = null;
 		const promise = new Promise<BridgeResourceExecutorResult<TContent>>((resolve): void => {
 			resolvePending = resolve;
@@ -203,11 +262,20 @@ export function createBridgeResourceExecutor<TContent = unknown>(
 			abortController,
 			byteBudget,
 			loadOptions: options,
+			pendingEnteredAtMilliseconds,
 			resolve: resolvePending,
 			sequence: nextPendingSequence,
 		});
 		queuedBytes += byteBudget;
 		nextPendingSequence += 1;
+		props.onLifecycleEvent?.({
+			byteBudget,
+			intent,
+			kind: 'queued',
+			pendingEnteredAtMilliseconds,
+			queuedBytesAfter: queuedBytes,
+			queuedLoadCountAfter: pendingByDedupeKey.size,
+		});
 		pumpPendingLoads();
 		return await promise;
 	};
@@ -215,10 +283,13 @@ export function createBridgeResourceExecutor<TContent = unknown>(
 	const cancelGroup = (cancellationGroup: string): number => {
 		let cancelledCount = 0;
 		for (const inFlightLoad of inFlightByDedupeKey.values()) {
-			if (inFlightLoad.cancellationGroup !== cancellationGroup) {
+			if (!inFlightLoad.cancellationGroups.has(cancellationGroup)) {
 				continue;
 			}
-			inFlightLoad.abortController.abort();
+			inFlightLoad.cancellationGroups.delete(cancellationGroup);
+			if (inFlightLoad.cancellationGroups.size === 0) {
+				inFlightLoad.abortController.abort();
+			}
 			cancelledCount += 1;
 		}
 		for (const [inFlightKey, pendingLoad] of pendingByDedupeKey) {
@@ -285,18 +356,17 @@ export function createBridgeResourceExecutor<TContent = unknown>(
 	}): void => {
 		let projectedInFlightCount = inFlightByDedupeKey.size;
 		let projectedInFlightBytes = inFlightBytes;
-		const lowerPriorityLoads = Array.from(inFlightByDedupeKey.values())
+		const lowerPriorityLoads = Array.from(inFlightByDedupeKey.entries())
 			.filter(
-				(inFlightLoad: InFlightResourceLoad<TContent>): boolean =>
+				([, inFlightLoad]): boolean =>
 					!inFlightLoad.abortController.signal.aborted &&
 					compareDemandIntentPriority(preemptProps.intent, inFlightLoad.intent) < 0,
 			)
-			.toSorted(
-				(left, right): number =>
-					compareDemandIntentPriority(right.intent, left.intent) ||
-					right.byteBudget - left.byteBudget,
-			);
-		for (const inFlightLoad of lowerPriorityLoads) {
+			.toSorted(([, left], [, right]): number => {
+				const priorityComparison = compareDemandIntentPriority(right.intent, left.intent);
+				return priorityComparison === 0 ? right.byteBudget - left.byteBudget : priorityComparison;
+			});
+		for (const [inFlightKey, inFlightLoad] of lowerPriorityLoads) {
 			if (
 				projectedInFlightCount < props.maxConcurrentLoads &&
 				projectedInFlightBytes + preemptProps.byteBudget <= props.maxInFlightBytes
@@ -304,6 +374,10 @@ export function createBridgeResourceExecutor<TContent = unknown>(
 				return;
 			}
 			inFlightLoad.abortController.abort();
+			if (inFlightByDedupeKey.get(inFlightKey) === inFlightLoad) {
+				inFlightByDedupeKey.delete(inFlightKey);
+				inFlightBytes -= inFlightLoad.byteBudget;
+			}
 			projectedInFlightCount -= 1;
 			projectedInFlightBytes -= inFlightLoad.byteBudget;
 		}
@@ -327,12 +401,15 @@ export function createBridgeResourceExecutor<TContent = unknown>(
 		readonly inFlightKey: string;
 		readonly intent: BridgeDemandIntent;
 		readonly loadOptions: BridgeResourceExecutorLoadOptions;
+		readonly pendingEnteredAtMilliseconds: number;
 	}): Promise<BridgeResourceExecutorResult<TContent>> => {
+		const startedAtMilliseconds = now();
 		const promise = runResourceLoad({
 			descriptor: startProps.descriptor,
 			intent: startProps.intent,
 			abortController: startProps.abortController,
 			loadResource: props.loadResource,
+			classifyLoadFailure: props.classifyLoadFailure,
 			isFresh: isIntentFresh,
 			onChunk: (chunk): void => {
 				const chunkProps = {
@@ -343,22 +420,48 @@ export function createBridgeResourceExecutor<TContent = unknown>(
 				props.onChunk?.(chunkProps);
 				startProps.loadOptions.onChunk?.(chunkProps);
 			},
-		}).finally((): void => {
-			const activeLoad = inFlightByDedupeKey.get(startProps.inFlightKey);
-			if (activeLoad?.promise === promise) {
-				inFlightBytes -= activeLoad.byteBudget;
-				inFlightByDedupeKey.delete(startProps.inFlightKey);
-			}
-			pumpPendingLoads();
-		});
+		})
+			.then((result): BridgeResourceExecutorResult<TContent> => {
+				const completedAtMilliseconds = now();
+				props.onLifecycleEvent?.({
+					completedAtMilliseconds,
+					inFlightMilliseconds: Math.max(0, completedAtMilliseconds - startedAtMilliseconds),
+					intent: startProps.intent,
+					kind: 'completed',
+					result: executorLifecycleResult(result),
+					startedAtMilliseconds,
+				});
+				return result;
+			})
+			.finally((): void => {
+				const activeLoad = inFlightByDedupeKey.get(startProps.inFlightKey);
+				if (activeLoad?.promise === promise) {
+					inFlightBytes -= activeLoad.byteBudget;
+					inFlightByDedupeKey.delete(startProps.inFlightKey);
+				}
+				pumpPendingLoads();
+			});
 		inFlightByDedupeKey.set(startProps.inFlightKey, {
 			promise,
 			abortController: startProps.abortController,
-			cancellationGroup: startProps.intent.cancellationGroup,
+			cancellationGroups: new Set([startProps.intent.cancellationGroup]),
 			byteBudget: startProps.byteBudget,
 			intent: startProps.intent,
 		});
 		inFlightBytes += startProps.byteBudget;
+		props.onLifecycleEvent?.({
+			byteBudget: startProps.byteBudget,
+			inFlightBytesAfter: inFlightBytes,
+			inFlightCountAfter: inFlightByDedupeKey.size,
+			intent: startProps.intent,
+			kind: 'started',
+			pendingEnteredAtMilliseconds: startProps.pendingEnteredAtMilliseconds,
+			pendingWaitMilliseconds: Math.max(
+				0,
+				startedAtMilliseconds - startProps.pendingEnteredAtMilliseconds,
+			),
+			startedAtMilliseconds,
+		});
 		return promise;
 	};
 
@@ -389,6 +492,7 @@ export function createBridgeResourceExecutor<TContent = unknown>(
 				inFlightKey,
 				intent: nextPending.intent,
 				loadOptions: nextPending.loadOptions,
+				pendingEnteredAtMilliseconds: nextPending.pendingEnteredAtMilliseconds,
 			}).then(nextPending.resolve);
 		}
 	};
@@ -428,6 +532,9 @@ async function runResourceLoad<TContent>(props: {
 	readonly intent: BridgeDemandIntent;
 	readonly abortController: AbortController;
 	readonly loadResource: BridgeResourceExecutorLoadResource<TContent>;
+	readonly classifyLoadFailure:
+		| ((error: unknown) => BridgeResourceExecutorLoadFailureKind | null)
+		| undefined;
 	readonly isFresh: (intent: BridgeDemandIntent) => boolean;
 	readonly onChunk: (chunk: BridgeResourceExecutorStreamChunk) => void;
 }): Promise<BridgeResourceExecutorResult<TContent>> {
@@ -445,10 +552,14 @@ async function runResourceLoad<TContent>(props: {
 			}),
 			signal: props.abortController.signal,
 		});
-	} catch {
-		return props.abortController.signal.aborted
-			? { ok: false, reason: 'aborted' }
-			: { ok: false, reason: 'load_failed' };
+	} catch (error: unknown) {
+		if (props.abortController.signal.aborted || isAbortLikeResourceLoadError(error)) {
+			return { ok: false, reason: 'aborted' };
+		}
+		const loadFailureKind = props.classifyLoadFailure?.(error) ?? null;
+		return loadFailureKind === null
+			? { ok: false, reason: 'load_failed' }
+			: { ok: false, reason: 'load_failed', loadFailureKind };
 	}
 	if (props.abortController.signal.aborted) {
 		return { ok: false, reason: 'aborted' };
@@ -464,6 +575,16 @@ async function runResourceLoad<TContent>(props: {
 		descriptor: props.descriptor,
 		freshnessKey: props.intent.freshnessKey,
 	};
+}
+
+function isAbortLikeResourceLoadError(error: unknown): boolean {
+	if (error instanceof DOMException && error.name === 'AbortError') {
+		return true;
+	}
+	if (error instanceof Error) {
+		return error.name === 'AbortError' || error.message.toLowerCase().includes('aborted');
+	}
+	return false;
 }
 
 function raceResourceLoadAgainstAbort<TContent>(props: {
@@ -530,4 +651,14 @@ function compareDemandIntentPriority(left: BridgeDemandIntent, right: BridgeDema
 
 function canQueueUnderPressure(intent: BridgeDemandIntent): boolean {
 	return intent.lane === 'foreground' || intent.lane === 'active';
+}
+
+function executorLifecycleResult<TContent>(
+	result: BridgeResourceExecutorResult<TContent>,
+): BridgeResourceExecutorLifecycleResult {
+	return result.ok ? 'success' : result.reason;
+}
+
+function defaultNow(): number {
+	return globalThis.performance?.now() ?? Date.now();
 }

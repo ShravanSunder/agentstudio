@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from 'vitest';
 
 import {
+	buildBridgeDevContentResponseTelemetryBatch,
 	buildBridgeDevTelemetryLogRecord,
 	createBridgeDevTelemetrySink,
 } from './bridge-dev-telemetry.js';
@@ -56,15 +57,63 @@ describe('Bridge dev telemetry sink', () => {
 				method: 'POST',
 			}),
 		);
+		expect(fetchImpl).toHaveBeenCalledWith(
+			'http://127.0.0.1:4318/v1/metrics',
+			expect.objectContaining({
+				body: expect.stringContaining('agentstudio_performance_events_total'),
+				headers: { 'content-type': 'application/json' },
+				method: 'POST',
+			}),
+		);
 		expect(sink.snapshot()).toEqual({
 			acceptedBatchCount: 1,
 			acceptedSampleCount: 1,
 			failedBatchCount: 0,
 			lastError: null,
 			marker: 'vite-dev-proof-1',
+			recentSamples: makeTelemetryBatch().samples,
 			serviceVersion: 'vite-dev',
 			worktreeHash: 'wt-hash',
 		});
+	});
+
+	test('builds VictoriaMetrics-compatible performance metric payloads for BridgeWeb batches', async () => {
+		const postedBodies: string[] = [];
+		const fetchImpl = vi.fn(
+			async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+				postedBodies.push(typeof init?.body === 'string' ? init.body : '');
+				return new Response('', { status: 200 });
+			},
+		);
+		const sink = createBridgeDevTelemetrySink({
+			fetchImpl,
+			marker: 'vite-dev-proof-1',
+			nowUnixNano: () => '1782218790000000000',
+			serviceVersion: 'vite-dev',
+			worktreeHash: 'wt-hash',
+		});
+
+		await sink.ingest(makeTelemetryBatch());
+
+		const metricsBody = postedBodies.find((body) =>
+			body.includes('agentstudio_performance_events_total'),
+		);
+		expect(metricsBody).toContain(
+			'"service.name","value":{"stringValue":"AgentStudioBridgeWebDevServer"',
+		);
+		expect(metricsBody).toContain('"agent.proof.marker","value":{"stringValue":"vite-dev-proof-1"');
+		expect(metricsBody).toContain('"name":"agentstudio_performance_events_total"');
+		expect(metricsBody).toContain('"name":"agentstudio_performance_event_elapsed_ms"');
+		expect(metricsBody).toContain('"name":"agentstudio_performance_event_elapsed_ms_max"');
+		expect(metricsBody).toContain(
+			'"key":"event","value":{"stringValue":"performance.bridge.web.first_render"',
+		);
+		expect(metricsBody).toContain('"key":"phase","value":{"stringValue":"render"');
+		expect(metricsBody).toContain('"key":"plane","value":{"stringValue":"data"');
+		expect(metricsBody).toContain('"key":"priority","value":{"stringValue":"hot"');
+		expect(metricsBody).toContain('"key":"slice","value":{"stringValue":"diff_package_metadata"');
+		expect(metricsBody).toContain('"key":"transport","value":{"stringValue":"push"');
+		expect(metricsBody).toContain('"sum":12');
 	});
 
 	test('rejects browser telemetry batches with unsafe attribute values before OTLP export', async () => {
@@ -101,8 +150,30 @@ describe('Bridge dev telemetry sink', () => {
 			failedBatchCount: 1,
 			lastError: 'unsafe_attributes',
 			marker: 'vite-dev-proof-1',
+			recentSamples: [],
 			serviceVersion: 'vite-dev',
 			worktreeHash: 'wt-hash',
+		});
+	});
+
+	test('keeps safe recent samples available when collector export fails', async () => {
+		const fetchImpl = vi.fn(async (): Promise<Response> => new Response('', { status: 503 }));
+		const sink = createBridgeDevTelemetrySink({
+			fetchImpl,
+			marker: 'vite-dev-proof-1',
+			nowUnixNano: () => '1782218790000000000',
+			serviceVersion: 'vite-dev',
+			worktreeHash: 'wt-hash',
+		});
+
+		await expect(sink.ingest(makeTelemetryBatch())).resolves.toBe(false);
+
+		expect(sink.snapshot()).toMatchObject({
+			acceptedBatchCount: 0,
+			acceptedSampleCount: 0,
+			failedBatchCount: 1,
+			lastError: 'collector_logs_http_503',
+			recentSamples: makeTelemetryBatch().samples,
 		});
 	});
 
@@ -138,7 +209,7 @@ describe('Bridge dev telemetry sink', () => {
 
 		await expect(sink.ingest(dropBatch)).resolves.toBe(true);
 
-		expect(fetchImpl).toHaveBeenCalledOnce();
+		expect(fetchImpl).toHaveBeenCalledTimes(2);
 		expect(sink.snapshot()).toMatchObject({
 			acceptedBatchCount: 1,
 			acceptedSampleCount: 1,
@@ -147,7 +218,7 @@ describe('Bridge dev telemetry sink', () => {
 		});
 	});
 
-	test('accepts Review startup stream chunk metrics without treating them as unsafe', async () => {
+	test('accepts Review content stream chunk metrics without treating them as unsafe', async () => {
 		const fetchImpl = vi.fn(async (): Promise<Response> => new Response('', { status: 200 }));
 		const sink = createBridgeDevTelemetrySink({
 			fetchImpl,
@@ -161,13 +232,13 @@ describe('Bridge dev telemetry sink', () => {
 			samples: [
 				{
 					...makeTelemetryBatch().samples[0],
-					name: 'performance.bridge.web.review_package_first_chunk',
+					name: 'performance.bridge.web.review_content_first_chunk',
 					stringAttributes: {
-						'agentstudio.bridge.phase': 'review_package_first_chunk',
+						'agentstudio.bridge.phase': 'review_content_first_chunk',
 						'agentstudio.bridge.plane': 'data',
 						'agentstudio.bridge.priority': 'hot',
 						'agentstudio.bridge.result': 'success',
-						'agentstudio.bridge.slice': 'review_snapshot',
+						'agentstudio.bridge.slice': 'content_fetch',
 						'agentstudio.bridge.transport': 'content',
 					},
 					numericAttributes: {
@@ -180,7 +251,7 @@ describe('Bridge dev telemetry sink', () => {
 
 		await expect(sink.ingest(chunkBatch)).resolves.toBe(true);
 
-		expect(fetchImpl).toHaveBeenCalledOnce();
+		expect(fetchImpl).toHaveBeenCalledTimes(2);
 		expect(sink.snapshot()).toMatchObject({
 			acceptedBatchCount: 1,
 			acceptedSampleCount: 1,
@@ -234,8 +305,11 @@ describe('Bridge dev telemetry sink', () => {
 
 		await expect(sink.ingest(extentBatch)).resolves.toBe(true);
 
-		expect(fetchImpl).toHaveBeenCalledOnce();
-		const postedBody = postedBodies[0] ?? '';
+		expect(fetchImpl).toHaveBeenCalledTimes(2);
+		const postedBody =
+			postedBodies.find((body) =>
+				body.includes('performance.bridge.web.worktree_file_scroll_extent'),
+			) ?? '';
 		expect(postedBody).toContain('performance.bridge.web.worktree_file_scroll_extent');
 		expect(postedBody).not.toContain('/Users/');
 		expect(postedBody).not.toContain('agentstudio://resource/');
@@ -246,6 +320,171 @@ describe('Bridge dev telemetry sink', () => {
 			failedBatchCount: 0,
 			lastError: null,
 		});
+	});
+
+	test('accepts scrubbed Worktree/File content fetch phase telemetry', async () => {
+		const postedBodies: string[] = [];
+		const fetchImpl = vi.fn(
+			async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+				postedBodies.push(typeof init?.body === 'string' ? init.body : '');
+				return new Response('', { status: 200 });
+			},
+		);
+		const sink = createBridgeDevTelemetrySink({
+			fetchImpl,
+			marker: 'vite-dev-proof-1',
+			nowUnixNano: () => '1782218790000000000',
+			serviceVersion: 'vite-dev',
+			worktreeHash: 'wt-hash',
+		});
+		const contentFetchBatch = {
+			...makeTelemetryBatch(),
+			samples: [
+				{
+					...makeTelemetryBatch().samples[0],
+					name: 'performance.bridge.web.content_fetch',
+					durationMilliseconds: 92,
+					stringAttributes: {
+						'agentstudio.bridge.content.correlation_mode': 'summary',
+						'agentstudio.bridge.content.role': 'file',
+						'agentstudio.bridge.demand.lane': 'foreground',
+						'agentstudio.bridge.file_size_bucket': 'medium',
+						'agentstudio.bridge.generation_relation': 'current',
+						'agentstudio.bridge.phase': 'fetch',
+						'agentstudio.bridge.plane': 'data',
+						'agentstudio.bridge.priority': 'hot',
+						'agentstudio.bridge.protocol': 'worktree-file',
+						'agentstudio.bridge.result': 'success',
+						'agentstudio.bridge.result_reason': 'none',
+						'agentstudio.bridge.slice': 'content_fetch',
+						'agentstudio.bridge.transport': 'content',
+						'agentstudio.bridge.viewer': 'file',
+					},
+					numericAttributes: {
+						'agentstudio.bridge.content.byte_length': 4096,
+						'agentstudio.bridge.content.estimated_bytes': 4096,
+						'agentstudio.bridge.content.first_chunk_wait_ms': 1,
+						'agentstudio.bridge.content.response_wait_ms': 88,
+						'agentstudio.bridge.content.stream_read_ms': 2,
+					},
+					booleanAttributes: {
+						'agentstudio.bridge.header_missing': true,
+						'agentstudio.bridge.header_supported': false,
+					},
+				},
+			],
+		};
+
+		await expect(sink.ingest(contentFetchBatch)).resolves.toBe(true);
+
+		expect(fetchImpl).toHaveBeenCalledTimes(2);
+		const postedBody =
+			postedBodies.find((body) => body.includes('performance.bridge.web.content_fetch')) ?? '';
+		const metricsBody =
+			postedBodies.find((body) => body.includes('agentstudio_performance_events_total')) ?? '';
+		expect(postedBody).toContain('performance.bridge.web.content_fetch');
+		expect(metricsBody).toContain('agentstudio_bridge_content_response_wait_ms');
+		expect(postedBody).not.toContain('/Users/');
+		expect(postedBody).not.toContain('agentstudio://resource/');
+		expect(sink.snapshot()).toMatchObject({
+			acceptedBatchCount: 1,
+			acceptedSampleCount: 1,
+			failedBatchCount: 0,
+			lastError: null,
+		});
+	});
+
+	test('builds split Vite dev content response phase telemetry batches', async () => {
+		const batch = buildBridgeDevContentResponseTelemetryBatch({
+			byteLength: 4096,
+			getProviderMilliseconds: 3,
+			providerLoadMilliseconds: 88,
+			responseTotalMilliseconds: 94,
+			result: 'success',
+			resultReason: 'none',
+			scenario: 'vite-dev-worktree-current-worktree',
+			viewer: 'file',
+		});
+
+		expect(batch).toEqual({
+			schemaVersion: 1,
+			scenario: 'vite-dev-worktree-current-worktree',
+			samples: [
+				expect.objectContaining({
+					name: 'performance.bridge.web.dev_content_response',
+					durationMilliseconds: 3,
+					stringAttributes: expect.objectContaining({
+						'agentstudio.bridge.phase': 'dev_content_get_provider',
+						'agentstudio.bridge.protocol': 'worktree-file',
+						'agentstudio.bridge.result': 'success',
+						'agentstudio.bridge.result_reason': 'none',
+						'agentstudio.bridge.viewer': 'file',
+					}),
+				}),
+				expect.objectContaining({
+					durationMilliseconds: 88,
+					stringAttributes: expect.objectContaining({
+						'agentstudio.bridge.phase': 'dev_content_provider_load',
+					}),
+				}),
+				expect.objectContaining({
+					durationMilliseconds: 94,
+					numericAttributes: expect.objectContaining({
+						'agentstudio.bridge.content.byte_length': 4096,
+						'agentstudio.bridge.dev_server.get_provider_ms': 3,
+						'agentstudio.bridge.dev_server.provider_load_ms': 88,
+						'agentstudio.bridge.dev_server.response_total_ms': 94,
+					}),
+					stringAttributes: expect.objectContaining({
+						'agentstudio.bridge.phase': 'dev_content_response_total',
+					}),
+				}),
+			],
+		});
+	});
+
+	test('builds Review-tagged Vite dev content response telemetry batches', async () => {
+		const batch = buildBridgeDevContentResponseTelemetryBatch({
+			byteLength: 2048,
+			getProviderMilliseconds: 5,
+			providerLoadMilliseconds: 41,
+			responseTotalMilliseconds: 49,
+			result: 'success',
+			resultReason: 'none',
+			scenario: 'vite-dev-worktree-current-worktree',
+			viewer: 'review',
+		});
+
+		expect(batch.samples).toEqual([
+			expect.objectContaining({
+				durationMilliseconds: 5,
+				stringAttributes: expect.objectContaining({
+					'agentstudio.bridge.phase': 'dev_content_get_provider',
+					'agentstudio.bridge.protocol': 'review',
+					'agentstudio.bridge.viewer': 'review',
+				}),
+			}),
+			expect.objectContaining({
+				durationMilliseconds: 41,
+				stringAttributes: expect.objectContaining({
+					'agentstudio.bridge.phase': 'dev_content_provider_load',
+					'agentstudio.bridge.protocol': 'review',
+					'agentstudio.bridge.viewer': 'review',
+				}),
+			}),
+			expect.objectContaining({
+				durationMilliseconds: 49,
+				numericAttributes: expect.objectContaining({
+					'agentstudio.bridge.content.byte_length': 2048,
+					'agentstudio.bridge.dev_server.provider_load_ms': 41,
+				}),
+				stringAttributes: expect.objectContaining({
+					'agentstudio.bridge.phase': 'dev_content_response_total',
+					'agentstudio.bridge.protocol': 'review',
+					'agentstudio.bridge.viewer': 'review',
+				}),
+			}),
+		]);
 	});
 });
 

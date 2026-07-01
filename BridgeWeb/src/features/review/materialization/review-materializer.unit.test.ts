@@ -1,30 +1,27 @@
 import { describe, expect, test } from 'vitest';
 
-import type { BridgeResourceDescriptor } from '../../../core/models/bridge-resource-descriptor.js';
+import type {
+	BridgeAttachedResourceDescriptor,
+	BridgeResourceDescriptor,
+} from '../../../core/models/bridge-resource-descriptor.js';
 import { createBridgeResourceDescriptorRegistry } from '../../../core/resources/bridge-resource-registry.js';
-import type { ReviewDeltaFrame, ReviewSnapshotFrame } from '../models/review-protocol-models.js';
+import type { BridgeSourceEndpoint } from '../../../foundation/review-package/bridge-review-package.js';
+import type {
+	ReviewMetadataDeltaFrame,
+	ReviewMetadataSnapshotFrame,
+} from '../models/review-protocol-models.js';
 import { applyReviewProtocolFrame } from './review-materializer.js';
 
 describe('review materializer', () => {
-	test('registers attached descriptors before publishing snapshot facts', () => {
+	test('materializes metadata snapshots without a package body descriptor', () => {
 		const registry = createBridgeResourceDescriptorRegistry({
-			allowedResourceKindsByProtocol: { review: new Set(['content', 'review-package']) },
+			allowedResourceKindsByProtocol: { review: new Set(['content']) },
 		});
-		const frame = makeSnapshotFrame();
-		const contentDescriptor = makeAttachedDescriptor({
-			descriptorId: 'descriptor-content',
-			resourceKind: 'content',
-		});
-		const frameWithContentDescriptor: ReviewSnapshotFrame = {
-			...frame,
-			package: {
-				...frame.package,
-				contentDescriptors: [contentDescriptor],
-			},
-		};
+		const contentDescriptor = makeAttachedContentDescriptor('descriptor-content');
+		const frame = makeMetadataSnapshotFrame({ contentDescriptors: [contentDescriptor] });
 
 		const result = applyReviewProtocolFrame({
-			frame: frameWithContentDescriptor,
+			frame,
 			paneId: 'pane-1',
 			registry,
 		});
@@ -32,27 +29,174 @@ describe('review materializer', () => {
 		expect(result).toEqual({
 			ok: true,
 			delta: {
-				kind: 'snapshot',
+				kind: 'metadataSnapshot',
 				packageId: 'package-1',
 				sourceIdentity: 'review:source-1',
 				generation: 1,
 				revision: 1,
-				rootDescriptorRef: frameWithContentDescriptor.package.rootDescriptor.ref,
+				baseEndpoint: frame.comparison.baseEndpoint,
+				headEndpoint: frame.comparison.headEndpoint,
+				selectedItemId: 'item-source',
+				visibleItemIds: ['item-source'],
+				projectionInput: {
+					packageId: 'package-1',
+					reviewGeneration: 1,
+					revision: 1,
+					orderedItems: [frame.itemMetadata[0]],
+				},
+				treeRows: frame.treeRows,
+				extentFacts: frame.extentFacts,
+				summary: frame.summary,
 				registeredContentDescriptorRefs: [contentDescriptor.ref],
+				contentDescriptors: [contentDescriptor],
 				changesetCluster: null,
 			},
 		});
-		expect(
-			registry.lookup(frameWithContentDescriptor.package.rootDescriptor.ref)?.descriptorId,
-		).toBe('descriptor-1');
 		expect(registry.lookup(contentDescriptor.ref)?.descriptorId).toBe('descriptor-content');
 	});
 
-	test('resets source identity and revokes stale descriptors', () => {
+	test('rejects metadata snapshots when an attached descriptor is not content', () => {
 		const registry = createBridgeResourceDescriptorRegistry({
-			allowedResourceKindsByProtocol: { review: new Set(['content', 'review-package']) },
+			allowedResourceKindsByProtocol: { review: new Set(['content']) },
 		});
-		const frame = makeSnapshotFrame();
+		const rejectedDescriptor = makeAttachedContentDescriptor('descriptor-rejected', {
+			refResourceKind: 'review-package',
+		});
+		const frame = makeMetadataSnapshotFrame({ contentDescriptors: [rejectedDescriptor] });
+
+		const result = applyReviewProtocolFrame({
+			frame,
+			paneId: 'pane-1',
+			registry,
+		});
+
+		expect(result).toEqual({ ok: false, reason: 'descriptor_rejected' });
+		expect(registry.lookup(rejectedDescriptor.ref)).toBeNull();
+	});
+
+	test('materializes metadata deltas with inline operations and content descriptors only', () => {
+		const registry = createBridgeResourceDescriptorRegistry({
+			allowedResourceKindsByProtocol: { review: new Set(['content']) },
+		});
+		const contentDescriptor = makeAttachedContentDescriptor('descriptor-delta-content');
+		const frame: ReviewMetadataDeltaFrame = {
+			kind: 'metadataDelta',
+			streamId: 'stream-1',
+			generation: 1,
+			sequence: 1,
+			frameKind: 'review.metadataDelta',
+			packageId: 'package-1',
+			fromRevision: 1,
+			toRevision: 2,
+			operations: [
+				{
+					kind: 'upsertItemMetadata',
+					item: makeProjectionInputItem('item-source'),
+				},
+			],
+			summary: makeReviewSummary(),
+			contentDescriptors: [contentDescriptor],
+		};
+
+		const result = applyReviewProtocolFrame({
+			frame,
+			paneId: 'pane-1',
+			registry,
+		});
+
+		expect(result).toEqual({
+			ok: true,
+			delta: {
+				kind: 'metadataDelta',
+				packageId: 'package-1',
+				fromRevision: 1,
+				toRevision: 2,
+				operations: frame.operations,
+				summary: frame.summary,
+				registeredContentDescriptorRefs: [contentDescriptor.ref],
+				contentDescriptors: [contentDescriptor],
+			},
+		});
+		expect(registry.lookup(contentDescriptor.ref)?.descriptorId).toBe('descriptor-delta-content');
+	});
+
+	test('materializes metadata windows with content descriptors only', () => {
+		const registry = createBridgeResourceDescriptorRegistry({
+			allowedResourceKindsByProtocol: { review: new Set(['content']) },
+		});
+		const contentDescriptor = makeAttachedContentDescriptor('descriptor-window-content');
+
+		const result = applyReviewProtocolFrame({
+			frame: {
+				kind: 'metadataWindow',
+				streamId: 'stream-1',
+				generation: 1,
+				sequence: 2,
+				frameKind: 'review.metadataWindow',
+				packageId: 'package-1',
+				revision: 1,
+				itemMetadata: [makeProjectionInputItem('item-window')],
+				treeRows: [
+					{
+						rowId: 'row-window',
+						itemId: 'item-window',
+						path: 'Sources/App/Window.swift',
+						depth: 2,
+						isDirectory: false,
+					},
+				],
+				extentFacts: [
+					{
+						itemId: 'item-window',
+						contentRole: 'diff',
+						lineCount: 8,
+					},
+				],
+				summary: makeReviewSummary(),
+				contentDescriptors: [contentDescriptor],
+			},
+			paneId: 'pane-1',
+			registry,
+		});
+
+		expect(result).toEqual({
+			ok: true,
+			delta: {
+				kind: 'metadataWindow',
+				packageId: 'package-1',
+				generation: 1,
+				revision: 1,
+				itemMetadata: [makeProjectionInputItem('item-window')],
+				treeRows: [
+					{
+						rowId: 'row-window',
+						itemId: 'item-window',
+						path: 'Sources/App/Window.swift',
+						depth: 2,
+						isDirectory: false,
+					},
+				],
+				extentFacts: [
+					{
+						itemId: 'item-window',
+						contentRole: 'diff',
+						lineCount: 8,
+					},
+				],
+				summary: makeReviewSummary(),
+				registeredContentDescriptorRefs: [contentDescriptor.ref],
+				contentDescriptors: [contentDescriptor],
+			},
+		});
+		expect(registry.lookup(contentDescriptor.ref)?.descriptorId).toBe('descriptor-window-content');
+	});
+
+	test('resets source identity and revokes stale content descriptors', () => {
+		const registry = createBridgeResourceDescriptorRegistry({
+			allowedResourceKindsByProtocol: { review: new Set(['content']) },
+		});
+		const contentDescriptor = makeAttachedContentDescriptor('descriptor-content');
+		const frame = makeMetadataSnapshotFrame({ contentDescriptors: [contentDescriptor] });
 		applyReviewProtocolFrame({ frame, paneId: 'pane-1', registry });
 
 		const resetResult = applyReviewProtocolFrame({
@@ -64,7 +208,6 @@ describe('review materializer', () => {
 				frameKind: 'review.reset',
 				reason: 'authorityChanged',
 				sourceIdentity: 'review:source-1',
-				packageId: 'package-1',
 			},
 			paneId: 'pane-1',
 			registry,
@@ -76,176 +219,14 @@ describe('review materializer', () => {
 				kind: 'reset',
 				reason: 'authorityChanged',
 				sourceIdentity: 'review:source-1',
-				packageId: 'package-1',
 			},
 		});
-		expect(registry.lookup(frame.package.rootDescriptor.ref)).toBeNull();
-	});
-
-	test('registers reset replacement descriptor after revoking stale authority', () => {
-		const registry = createBridgeResourceDescriptorRegistry({
-			allowedResourceKindsByProtocol: { review: new Set(['content', 'review-package']) },
-		});
-		const frame = makeSnapshotFrame();
-		applyReviewProtocolFrame({ frame, paneId: 'pane-1', registry });
-		const replacementDescriptor = makeAttachedDescriptor({
-			descriptorId: 'descriptor-replacement',
-			resourceKind: 'review-package',
-			generation: 2,
-			revision: 2,
-		});
-
-		const resetResult = applyReviewProtocolFrame({
-			frame: {
-				kind: 'reset',
-				streamId: 'stream-1',
-				generation: 2,
-				sequence: 1,
-				frameKind: 'review.reset',
-				reason: 'authorityChanged',
-				sourceIdentity: 'review:source-1',
-				packageId: 'package-1',
-				replacementDescriptor,
-			},
-			paneId: 'pane-1',
-			registry,
-		});
-
-		expect(resetResult).toEqual({
-			ok: true,
-			delta: {
-				kind: 'reset',
-				reason: 'authorityChanged',
-				sourceIdentity: 'review:source-1',
-				packageId: 'package-1',
-				replacementDescriptorRef: replacementDescriptor.ref,
-			},
-		});
-		expect(registry.lookup(frame.package.rootDescriptor.ref)).toBeNull();
-		expect(registry.lookup(replacementDescriptor.ref)?.descriptorId).toBe('descriptor-replacement');
-	});
-
-	test('rolls back descriptors when snapshot materialization rejects a later descriptor', () => {
-		const registry = createBridgeResourceDescriptorRegistry({
-			allowedResourceKindsByProtocol: { review: new Set(['content', 'review-package']) },
-		});
-		const frame = makeSnapshotFrame();
-		const acceptedContentDescriptor = makeAttachedDescriptor({
-			descriptorId: 'descriptor-content',
-			resourceKind: 'content',
-		});
-		const rejectedContentDescriptor = {
-			...makeAttachedDescriptor({
-				descriptorId: 'descriptor-rejected',
-				resourceKind: 'content',
-			}),
-			ref: {
-				...acceptedContentDescriptor.ref,
-				descriptorId: 'descriptor-rejected',
-				expectedResourceKind: 'review-package',
-			},
-		};
-		const frameWithRejectedContentDescriptor: ReviewSnapshotFrame = {
-			...frame,
-			package: {
-				...frame.package,
-				contentDescriptors: [acceptedContentDescriptor, rejectedContentDescriptor],
-			},
-		};
-
-		const result = applyReviewProtocolFrame({
-			frame: frameWithRejectedContentDescriptor,
-			paneId: 'pane-1',
-			registry,
-		});
-
-		expect(result).toEqual({ ok: false, reason: 'descriptor_rejected' });
-		expect(registry.lookup(frame.package.rootDescriptor.ref)).toBeNull();
-		expect(registry.lookup(acceptedContentDescriptor.ref)).toBeNull();
-		expect(registry.lookup(rejectedContentDescriptor.ref)).toBeNull();
-	});
-
-	test('registers delta operations and content descriptors without snapshot fallback', () => {
-		const registry = createBridgeResourceDescriptorRegistry({
-			allowedResourceKindsByProtocol: {
-				review: new Set(['content', 'review-package', 'review-delta']),
-			},
-		});
-		const frame = makeDeltaFrame();
-		const contentDescriptor = makeAttachedDescriptor({
-			descriptorId: 'descriptor-delta-content',
-			resourceKind: 'content',
-		});
-		const frameWithContentDescriptor: ReviewDeltaFrame = {
-			...frame,
-			contentDescriptors: [contentDescriptor],
-		};
-
-		const result = applyReviewProtocolFrame({
-			frame: frameWithContentDescriptor,
-			paneId: 'pane-1',
-			registry,
-		});
-
-		expect(result).toEqual({
-			ok: true,
-			delta: {
-				kind: 'delta',
-				packageId: 'package-1',
-				fromRevision: 1,
-				toRevision: 2,
-				operationsDescriptorRef: frame.operationsDescriptor.ref,
-				registeredContentDescriptorRefs: [contentDescriptor.ref],
-			},
-		});
-		expect(registry.lookup(frame.operationsDescriptor.ref)?.descriptorId).toBe(
-			'descriptor-delta-operations',
-		);
-		expect(registry.lookup(contentDescriptor.ref)?.descriptorId).toBe('descriptor-delta-content');
-	});
-
-	test('rolls back delta descriptors when a later delta content descriptor is rejected', () => {
-		const registry = createBridgeResourceDescriptorRegistry({
-			allowedResourceKindsByProtocol: {
-				review: new Set(['content', 'review-package', 'review-delta']),
-			},
-		});
-		const frame = makeDeltaFrame();
-		const acceptedContentDescriptor = makeAttachedDescriptor({
-			descriptorId: 'descriptor-delta-content',
-			resourceKind: 'content',
-		});
-		const rejectedContentDescriptor = {
-			...makeAttachedDescriptor({
-				descriptorId: 'descriptor-delta-rejected',
-				resourceKind: 'content',
-			}),
-			ref: {
-				...acceptedContentDescriptor.ref,
-				descriptorId: 'descriptor-delta-rejected',
-				expectedResourceKind: 'review-package',
-			},
-		};
-		const frameWithRejectedContentDescriptor: ReviewDeltaFrame = {
-			...frame,
-			contentDescriptors: [acceptedContentDescriptor, rejectedContentDescriptor],
-		};
-
-		const result = applyReviewProtocolFrame({
-			frame: frameWithRejectedContentDescriptor,
-			paneId: 'pane-1',
-			registry,
-		});
-
-		expect(result).toEqual({ ok: false, reason: 'descriptor_rejected' });
-		expect(registry.lookup(frame.operationsDescriptor.ref)).toBeNull();
-		expect(registry.lookup(acceptedContentDescriptor.ref)).toBeNull();
-		expect(registry.lookup(rejectedContentDescriptor.ref)).toBeNull();
+		expect(registry.lookup(contentDescriptor.ref)).toBeNull();
 	});
 
 	test('materializes invalidation frames as metadata-only facts', () => {
 		const registry = createBridgeResourceDescriptorRegistry({
-			allowedResourceKindsByProtocol: { review: new Set(['content', 'review-package']) },
+			allowedResourceKindsByProtocol: { review: new Set(['content']) },
 		});
 
 		const result = applyReviewProtocolFrame({
@@ -277,67 +258,132 @@ describe('review materializer', () => {
 	});
 });
 
-function makeSnapshotFrame(): ReviewSnapshotFrame {
-	const rootDescriptor = makeAttachedDescriptor({
-		descriptorId: 'descriptor-1',
-		resourceKind: 'review-package',
-	});
+function makeMetadataSnapshotFrame(props?: {
+	readonly contentDescriptors?: ReviewMetadataSnapshotFrame['comparison']['contentDescriptors'];
+}): ReviewMetadataSnapshotFrame {
 	return {
-		kind: 'snapshot',
+		kind: 'metadataSnapshot',
 		streamId: 'stream-1',
 		generation: 1,
 		sequence: 0,
-		frameKind: 'review.snapshot',
-		package: {
+		frameKind: 'review.metadataSnapshot',
+		comparison: {
 			packageId: 'package-1',
 			sourceIdentity: 'review:source-1',
 			generation: 1,
 			revision: 1,
-			rootDescriptor,
+			baseEndpoint: makeSourceEndpoint({
+				endpointId: 'baseline-main',
+				kind: 'gitRef',
+				label: 'main',
+				providerIdentity: 'main',
+			}),
+			headEndpoint: makeSourceEndpoint({
+				endpointId: 'working-tree',
+				kind: 'workingTree',
+				label: 'Working tree',
+				providerIdentity: 'working-tree:worktree-1',
+			}),
+			...(props?.contentDescriptors === undefined
+				? {}
+				: { contentDescriptors: props.contentDescriptors }),
+		},
+		selectedItemId: 'item-source',
+		visibleItemIds: ['item-source'],
+		itemMetadata: [makeProjectionInputItem('item-source')],
+		treeRows: [
+			{
+				rowId: 'row-source',
+				itemId: 'item-source',
+				path: 'Sources/App/View.swift',
+				depth: 2,
+				isDirectory: false,
+			},
+		],
+		extentFacts: [
+			{
+				itemId: 'item-source',
+				contentRole: 'diff',
+				lineCount: 42,
+			},
+		],
+		summary: makeReviewSummary(),
+	};
+}
+
+function makeReviewSummary(): ReviewMetadataSnapshotFrame['summary'] {
+	return {
+		filesChanged: 9,
+		additions: 17,
+		deletions: 5,
+		visibleFileCount: 8,
+		hiddenFileCount: 1,
+	};
+}
+
+function makeSourceEndpoint(props: {
+	readonly endpointId: string;
+	readonly kind: BridgeSourceEndpoint['kind'];
+	readonly label: string;
+	readonly providerIdentity: string;
+}): BridgeSourceEndpoint {
+	return {
+		endpointId: props.endpointId,
+		kind: props.kind,
+		repoId: 'repo-1',
+		worktreeId: 'worktree-1',
+		label: props.label,
+		createdAtUnixMilliseconds: 1,
+		contentSetHash: null,
+		providerIdentity: props.providerIdentity,
+	};
+}
+
+function makeProjectionInputItem(
+	itemId: string,
+): ReviewMetadataSnapshotFrame['itemMetadata'][number] {
+	return {
+		itemId,
+		basePath: 'Sources/App/View.swift',
+		headPath: 'Sources/App/View.swift',
+		changeKind: 'modified',
+		fileClass: 'source',
+		language: 'swift',
+		extension: 'swift',
+		isHiddenByDefault: false,
+		reviewPriority: 'normal',
+		reviewState: 'unreviewed',
+		contentRoles: ['diff'],
+		mimeTypes: ['text/x-diff'],
+		provenance: {
+			promptIds: [],
+			agentSessionIds: [],
+			operationIds: [],
 		},
 	};
 }
 
-function makeDeltaFrame(): ReviewDeltaFrame {
-	return {
-		kind: 'delta',
-		streamId: 'stream-1',
-		generation: 1,
-		sequence: 1,
-		frameKind: 'review.delta',
-		packageId: 'package-1',
-		fromRevision: 1,
-		toRevision: 2,
-		operationsDescriptor: makeAttachedDescriptor({
-			descriptorId: 'descriptor-delta-operations',
-			resourceKind: 'review-delta',
-		}),
-	};
-}
-
-function makeAttachedDescriptor(props: {
-	readonly descriptorId: string;
-	readonly resourceKind: 'content' | 'review-package' | 'review-delta';
-	readonly generation?: number;
-	readonly revision?: number;
-}): ReviewSnapshotFrame['package']['rootDescriptor'] {
+function makeAttachedContentDescriptor(
+	descriptorId: string,
+	props?: { readonly refResourceKind?: string },
+): BridgeAttachedResourceDescriptor {
 	const identity = {
 		paneId: 'pane-1',
 		protocol: 'review',
 		sourceId: 'review:source-1',
 		packageId: 'package-1',
-		generation: props.generation ?? 1,
-		revision: props.revision ?? 1,
+		generation: 1,
+		revision: 1,
 		streamId: 'stream-1',
 	};
 	const descriptor = {
-		descriptorId: props.descriptorId,
+		descriptorId,
 		protocol: 'review',
-		resourceKind: props.resourceKind,
-		resourceUrl: `agentstudio://resource/review/${props.resourceKind}/${props.descriptorId}?generation=${identity.generation}&revision=${identity.revision}`,
+		resourceKind: 'content',
+		resourceUrl: `agentstudio://resource/review/content/${descriptorId}?generation=1&revision=1`,
 		identity,
 		content: {
-			mediaType: 'application/json',
+			mediaType: 'text/x-diff',
 			encoding: 'utf-8',
 			expectedBytes: 128,
 			maxBytes: 1024,
@@ -347,7 +393,7 @@ function makeAttachedDescriptor(props: {
 		ref: {
 			descriptorId: descriptor.descriptorId,
 			expectedProtocol: descriptor.protocol,
-			expectedResourceKind: descriptor.resourceKind,
+			expectedResourceKind: props?.refResourceKind ?? descriptor.resourceKind,
 			expectedIdentity: identity,
 		},
 		descriptor,

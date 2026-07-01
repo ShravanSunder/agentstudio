@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { bridgeDemandLaneSchema } from '../../core/models/bridge-demand-models.js';
+
 export const bridgeContentRoleSchema = z.enum(['base', 'head', 'diff', 'file']);
 export const bridgeFileClassSchema = z.enum([
 	'source',
@@ -115,8 +117,31 @@ export const bridgeReviewProjectionInputItemSchema = z.object({
 	reviewPriority: bridgeReviewPrioritySchema,
 	reviewState: bridgeFileReviewStateSchema,
 	contentRoles: z.array(bridgeContentRoleSchema).readonly(),
+	contentDescriptorIdsByRole: z
+		.object({
+			base: z.string().min(1).nullable().optional(),
+			head: z.string().min(1).nullable().optional(),
+			diff: z.string().min(1).nullable().optional(),
+			file: z.string().min(1).nullable().optional(),
+		})
+		.strict()
+		.optional(),
 	mimeTypes: z.array(z.string().min(1)).readonly(),
 	provenance: bridgeReviewProjectionItemProvenanceSchema,
+	loaded_by: z
+		.enum([
+			'startup_window',
+			'foreground',
+			'visible',
+			'nearby',
+			'speculative',
+			'idle',
+			'delta',
+			'reset',
+			'replacement',
+		])
+		.optional(),
+	lane: bridgeDemandLaneSchema.optional(),
 });
 
 export type BridgeReviewProjectionInputItem = z.infer<typeof bridgeReviewProjectionInputItemSchema>;

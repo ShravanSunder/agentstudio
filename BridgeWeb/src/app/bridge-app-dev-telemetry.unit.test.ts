@@ -60,7 +60,7 @@ describe('Bridge app dev telemetry host', () => {
 						'agentstudio.bridge.phase': 'render',
 						'agentstudio.bridge.plane': 'data',
 						'agentstudio.bridge.priority': 'hot',
-						'agentstudio.bridge.slice': 'review_snapshot',
+						'agentstudio.bridge.slice': 'review_metadata',
 						'agentstudio.bridge.transport': 'intake',
 					},
 					numericAttributes: {},

@@ -105,6 +105,51 @@ describe('bridge demand scheduler', () => {
 		expect(scheduler.cancelGroup('review:package-1')).toBe(2);
 		expect(drainScheduler(scheduler)).toEqual(['foreground:001']);
 	});
+
+	test('emits queue wait lifecycle timing when work dequeues', () => {
+		let nowMilliseconds = 1_000;
+		const lifecycleEvents: unknown[] = [];
+		const scheduler = createBridgeDemandScheduler({
+			maxQueuedIntentsPerLane: 8,
+			maxQueuedEstimatedBytes: 1024,
+			now: () => nowMilliseconds,
+			onLifecycleEvent: (event): void => {
+				lifecycleEvents.push(event);
+			},
+		});
+		const intent = makeIntent({ lane: 'visible', dedupeKey: 'visible-1' });
+
+		expect(scheduler.enqueue({ intent, estimatedBytes: 128 })).toEqual({
+			ok: true,
+			status: 'queued',
+		});
+		nowMilliseconds = 1_024;
+		expect(scheduler.dequeueNext()).toEqual(intent);
+
+		expect(lifecycleEvents).toEqual([
+			{
+				estimatedBytes: 128,
+				intent,
+				kind: 'enqueued',
+				lane: 'visible',
+				queueDepthAfter: 1,
+				queuedAtMilliseconds: 1_000,
+				queuedEstimatedBytesAfter: 128,
+				status: 'queued',
+			},
+			{
+				dequeuedAtMilliseconds: 1_024,
+				estimatedBytes: 128,
+				intent,
+				kind: 'dequeued',
+				lane: 'visible',
+				queueDepthAfter: 0,
+				queueWaitMilliseconds: 24,
+				queuedAtMilliseconds: 1_000,
+				queuedEstimatedBytesAfter: 0,
+			},
+		]);
+	});
 });
 
 function drainScheduler(

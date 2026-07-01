@@ -10,6 +10,56 @@ import {
 } from './check-bridgeweb-architecture.ts';
 
 describe('BridgeWeb architecture checker', () => {
+	test('reports every TypeScript and TSX file over one thousand lines', async () => {
+		await withFixtureTree(
+			{
+				'src/app/large-controller.ts': generatedLineSource(1001),
+				'src/app/large-controller.unit.test.ts': generatedLineSource(1001),
+				'vite.config.ts': generatedLineSource(1001),
+				'src/app/large-view.tsx': generatedLineSource(1001),
+				'src/app/limit.ts': generatedLineSource(1000),
+				'node_modules/package/large.ts': generatedLineSource(1001),
+			},
+			async (packageRootPath: string): Promise<void> => {
+				const report = await checkBridgeWebArchitecture({ packageRootPath });
+
+				expect(report.ok).toBe(false);
+				expect(report.violations).toEqual(
+					expect.arrayContaining([
+						expect.objectContaining({
+							ruleId: 'max-file-lines',
+							relativePath: 'src/app/large-controller.ts',
+						}),
+						expect.objectContaining({
+							ruleId: 'max-file-lines',
+							relativePath: 'src/app/large-controller.unit.test.ts',
+						}),
+						expect.objectContaining({
+							ruleId: 'max-file-lines',
+							relativePath: 'src/app/large-view.tsx',
+						}),
+						expect.objectContaining({
+							ruleId: 'max-file-lines',
+							relativePath: 'vite.config.ts',
+						}),
+					]),
+				);
+				expect(report.violations).not.toContainEqual(
+					expect.objectContaining({
+						ruleId: 'max-file-lines',
+						relativePath: 'src/app/limit.ts',
+					}),
+				);
+				expect(report.violations).not.toContainEqual(
+					expect.objectContaining({
+						ruleId: 'max-file-lines',
+						relativePath: 'node_modules/package/large.ts',
+					}),
+				);
+			},
+		);
+	});
+
 	test('reports private Pierre imports and misplaced Trees runtime imports', async () => {
 		await withFixtureTree(
 			{
@@ -37,7 +87,19 @@ describe('BridgeWeb architecture checker', () => {
 					import { preparePresortedFileTreeInput } from '@pierre/trees';
 					export const value = preparePresortedFileTreeInput([]);
 				`,
+				'src/file-viewer/file-tree-panel.tsx': `
+					import { FileTree } from '@pierre/trees/react';
+					export const value = FileTree;
+				`,
+				'src/app/bridge-viewer-tree-theme.ts': `
+					import { themeToTreeStyles } from '@pierre/trees';
+					export const value = themeToTreeStyles;
+				`,
 				'src/review-viewer/code-view/code-view-controller.ts': `
+					import { CodeView } from '@pierre/diffs/react';
+					export const value = CodeView;
+				`,
+				'src/file-viewer/file-code-panel.tsx': `
 					import { CodeView } from '@pierre/diffs/react';
 					export const value = CodeView;
 				`,
@@ -408,4 +470,11 @@ async function withFixtureTree(
 
 function ruleIdForViolation(violation: ArchitectureViolation): string {
 	return violation.ruleId;
+}
+
+function generatedLineSource(lineCount: number): string {
+	return Array.from(
+		{ length: lineCount },
+		(_value: undefined, index: number): string => `export const value${index} = ${index};`,
+	).join('\n');
 }

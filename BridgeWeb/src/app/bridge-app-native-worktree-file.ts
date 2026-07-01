@@ -630,7 +630,11 @@ function createNativeWorktreeFileIntakeReceiver(props: {
 				});
 				return reject('stream_mismatch');
 			}
-			if (frame.kind === 'reset' && frame.generation > currentGeneration) {
+			if (
+				frame.kind === 'reset' &&
+				(frame.generation > currentGeneration ||
+					(frame.generation === currentGeneration && frame.sequence >= nextSequence))
+			) {
 				const resetFrame = worktreeFileProtocolFrameFromIntakeFrame(frame);
 				if (
 					resetFrame === null ||

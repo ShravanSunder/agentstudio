@@ -1,4 +1,3 @@
-import pierrePortableWorkerSource from '@pierre/diffs/worker/worker-portable.js?raw';
 import { afterEach, expect, test } from 'vitest';
 import { cleanup, render } from 'vitest-browser-react';
 
@@ -6,7 +5,6 @@ import { cleanup, render } from 'vitest-browser-react';
 import '../../app/bridge-app.css';
 import type { BridgeAppControlProbe } from '../../app/bridge-app-control.js';
 import { BridgeApp } from '../../app/bridge-app.js';
-import { parseBridgeCoreResourceUrl } from '../../core/resources/bridge-resource-url.js';
 import type { BridgeMarkdownRenderWorkerClient } from '../workers/markdown/bridge-markdown-render-worker-client.js';
 import {
 	bridgeViewerVisibleCodeTextContent,
@@ -68,14 +66,14 @@ interface BridgeViewerBrowserPerformanceSample {
 	readonly codeViewWorkerPoolEnabled?: boolean;
 }
 
-const browserPerformanceScenarios: readonly BridgeViewerBrowserPerformanceScenario[] = [
+const allBrowserPerformanceScenarios: readonly BridgeViewerBrowserPerformanceScenario[] = [
 	{
 		scenarioId: 'cold-package-push',
 		metric: 'bridge.viewer.browser.cold_package_push.interactive_ms',
 		budgetMilliseconds: 2_000,
 		sampleCount: 6,
 		latencyProfile: 'zero',
-		correctnessAssertion: 'shell and initial selected content visible after package push',
+		correctnessAssertion: 'shell and initial selected content visible after metadata push',
 		run: measureColdPackagePush,
 	},
 	{
@@ -152,7 +150,7 @@ const browserPerformanceScenarios: readonly BridgeViewerBrowserPerformanceScenar
 		sampleCount: 3,
 		latencyProfile: 'zero',
 		correctnessAssertion:
-			'large fixture package push reaches visible content and a virtualized rail scroll surface',
+			'large fixture metadata push reaches visible content and a virtualized rail scroll surface',
 		run: measureLargeColdPackagePush,
 	},
 	{
@@ -218,6 +216,24 @@ const browserPerformanceScenarios: readonly BridgeViewerBrowserPerformanceScenar
 		run: measureScrollOwnership,
 	},
 ];
+const requestedBrowserPerformanceScenarioId =
+	(
+		import.meta as ImportMeta & {
+			readonly env?: Readonly<Record<string, string | undefined>>;
+		}
+	).env?.['VITE_BRIDGE_VIEWER_BROWSER_BENCHMARK_SCENARIO'] ?? null;
+const browserPerformanceScenarios =
+	requestedBrowserPerformanceScenarioId === null
+		? allBrowserPerformanceScenarios
+		: allBrowserPerformanceScenarios.filter(
+				(scenario: BridgeViewerBrowserPerformanceScenario): boolean =>
+					scenario.scenarioId === requestedBrowserPerformanceScenarioId,
+			);
+if (browserPerformanceScenarios.length === 0) {
+	throw new Error(
+		`Unknown Bridge viewer browser benchmark scenario: ${requestedBrowserPerformanceScenarioId}`,
+	);
+}
 
 afterEach(async () => {
 	disposeBridgeViewerMockedBackends();
@@ -244,8 +260,8 @@ test(
 			const durationMilliseconds = samples.map(
 				(sample: BridgeViewerBrowserPerformanceSample): number => sample.durationMilliseconds,
 			);
-			const p50DurationMilliseconds = percentile(durationMilliseconds, 0.5);
-			const p95DurationMilliseconds = percentile(durationMilliseconds, 0.95);
+			const p50DurationMilliseconds = benchmarkSupport.percentile(durationMilliseconds, 0.5);
+			const p95DurationMilliseconds = benchmarkSupport.percentile(durationMilliseconds, 0.95);
 			const fixture = samples[0]?.fixture ?? null;
 			if (fixture === null) {
 				throw new Error(`missing fixture metadata for ${scenario.scenarioId}`);
@@ -298,7 +314,7 @@ test(
 					contentUrls: [...sampleBackend.requestedUrls],
 					contentUrlCount: sampleBackend.requestedUrls.length,
 					contentUrlsScopedToBridgeResource: sampleBackend.requestedUrls.every(
-						isBridgeContentResourceUrl,
+						benchmarkSupport.isBridgeContentResourceUrl,
 					),
 					projectionRequestCount: sampleBackend.projectionRequests.length,
 					commandCount: sampleBackend.commandDetails.length,
@@ -325,7 +341,7 @@ async function measureColdPackagePush(): Promise<BridgeViewerBrowserPerformanceS
 			projectionWorkerClient={backend.projectionWorkerClient}
 		/>,
 	);
-	await backend.pushPackage();
+	await backend.pushMetadata();
 	await waitForBridgeViewerElement('[data-testid="review-viewer-shell"]');
 	await waitForBridgeViewerCodePanelSelection({
 		itemId: 'browser-source-a',
@@ -345,13 +361,13 @@ async function measureColdPackagePush(): Promise<BridgeViewerBrowserPerformanceS
 		backend.requestedUrls.some((url: string): boolean => url.includes('browser-source-a')),
 	).toBe(true);
 
-	return finishPerformanceSample({ durationMilliseconds, fixture, backend });
+	return benchmarkSupport.finishPerformanceSample({ durationMilliseconds, fixture, backend });
 }
 
 async function measureWarmTreeSelect(): Promise<BridgeViewerBrowserPerformanceSample> {
 	const { backend, fixture } = await mountInteractiveFixture();
 	const secondButton = await waitForBridgeViewerTreeItemButton(fixture.expected.secondPath);
-	const beforeAction = snapshotBackendLedgerCounts(backend);
+	const beforeAction = benchmarkSupport.snapshotBackendLedgerCounts(backend);
 	const startedAt = performance.now();
 	secondButton.click();
 	await waitForBridgeViewerCodePanelSelection({
@@ -367,17 +383,17 @@ async function measureWarmTreeSelect(): Promise<BridgeViewerBrowserPerformanceSa
 	).toBe(true);
 	expect(
 		backend.commandDetails.some((detail: unknown): boolean =>
-			isBridgeCommandForItem(detail, 'review.markFileViewed', 'browser-source-b'),
+			benchmarkSupport.isBridgeCommandForItem(detail, 'review.markFileViewed', 'browser-source-b'),
 		),
 	).toBe(true);
-	expectBackendCommandLedgerDelta(backend, beforeAction, 'browser-source-b');
-	return finishPerformanceSample({ durationMilliseconds, fixture, backend });
+	benchmarkSupport.expectBackendCommandLedgerDelta(backend, beforeAction, 'browser-source-b');
+	return benchmarkSupport.finishPerformanceSample({ durationMilliseconds, fixture, backend });
 }
 
 async function measureWarmAddedFile(): Promise<BridgeViewerBrowserPerformanceSample> {
 	const { backend, fixture } = await mountInteractiveFixture();
 	const addedButton = await waitForBridgeViewerTreeItemButton(fixture.expected.addedPath);
-	const beforeAction = snapshotBackendLedgerCounts(backend);
+	const beforeAction = benchmarkSupport.snapshotBackendLedgerCounts(backend);
 	const startedAt = performance.now();
 	addedButton.click();
 	await waitForBridgeViewerCodePanelSelection({
@@ -391,8 +407,8 @@ async function measureWarmAddedFile(): Promise<BridgeViewerBrowserPerformanceSam
 			url.includes(fixture.expected.addedHeadHandleId),
 		),
 	).toBe(true);
-	expectBackendCommandLedgerDelta(backend, beforeAction, 'browser-added-source');
-	return finishPerformanceSample({ durationMilliseconds, fixture, backend });
+	benchmarkSupport.expectBackendCommandLedgerDelta(backend, beforeAction, 'browser-added-source');
+	return benchmarkSupport.finishPerformanceSample({ durationMilliseconds, fixture, backend });
 }
 
 async function measureWarmHunkExpand(): Promise<BridgeViewerBrowserPerformanceSample> {
@@ -404,7 +420,7 @@ async function measureWarmHunkExpand(): Promise<BridgeViewerBrowserPerformanceSa
 	expandButton.click();
 	await waitForBridgeViewerText(fixture.expected.hunkExpandedText);
 	const durationMilliseconds = performance.now() - startedAt;
-	return finishPerformanceSample({ durationMilliseconds, fixture, backend });
+	return benchmarkSupport.finishPerformanceSample({ durationMilliseconds, fixture, backend });
 }
 
 async function measureWarmSearchExpandMatches(): Promise<BridgeViewerBrowserPerformanceSample> {
@@ -419,7 +435,7 @@ async function measureWarmSearchExpandMatches(): Promise<BridgeViewerBrowserPerf
 	expect(document.body.textContent ?? '').not.toContain('Content unavailable');
 	await waitForBridgeViewerText(fixture.expected.initialText);
 	expect(backend.projectionRequests).toHaveLength(1);
-	return finishPerformanceSample({ durationMilliseconds, fixture, backend });
+	return benchmarkSupport.finishPerformanceSample({ durationMilliseconds, fixture, backend });
 }
 
 async function measureWarmFilterSwitch(): Promise<BridgeViewerBrowserPerformanceSample> {
@@ -441,7 +457,7 @@ async function measureWarmFilterSwitch(): Promise<BridgeViewerBrowserPerformance
 		kind: 'fileClass',
 		fileClasses: ['test'],
 	});
-	return finishPerformanceSample({ durationMilliseconds, fixture, backend });
+	return benchmarkSupport.finishPerformanceSample({ durationMilliseconds, fixture, backend });
 }
 
 async function measureWarmProjectionChipSwitch(): Promise<BridgeViewerBrowserPerformanceSample> {
@@ -450,17 +466,17 @@ async function measureWarmProjectionChipSwitch(): Promise<BridgeViewerBrowserPer
 	await clickBridgeViewerProjectionMenuOption('Plans/specs');
 	const docsButton = await waitForBridgeViewerTreeItemButton(fixture.expected.docsPath);
 	expect(docsButton.dataset['itemPath']).toBe(fixture.expected.docsPath);
+	await waitForBridgeViewerAppliedProjectionMode('plansAndSpecs');
 	expect(backend.projectionRequests.at(-1)?.projectionRequest.mode).toEqual({
 		kind: 'plansAndSpecs',
 	});
-	await waitForBridgeViewerAppliedProjectionMode('plansAndSpecs');
 	const railScroll = await waitForBridgeViewerTreeScrollOwner();
 	await waitForBridgeViewerVisibleTreeItemPathAbsent(railScroll, fixture.expected.initialPath);
 	const visibleTreePaths = bridgeViewerVisibleTreeItemPaths(railScroll);
 	const durationMilliseconds = performance.now() - startedAt;
 	expect(visibleTreePaths).toContain(fixture.expected.docsPath);
 	expect(visibleTreePaths).not.toContain(fixture.expected.initialPath);
-	return finishPerformanceSample({ durationMilliseconds, fixture, backend });
+	return benchmarkSupport.finishPerformanceSample({ durationMilliseconds, fixture, backend });
 }
 
 async function measureMediumStreamingAppendDelta(): Promise<BridgeViewerBrowserPerformanceSample> {
@@ -479,9 +495,9 @@ async function measureMediumStreamingAppendDelta(): Promise<BridgeViewerBrowserP
 		op: 'merge',
 		revision: fixture.streamingAppendDelta.revision,
 		reviewGeneration: fixture.streamingAppendDelta.reviewGeneration,
-		payloadKind: 'delta',
+		payloadKind: 'metadataDelta',
 	});
-	return finishPerformanceSample({
+	return benchmarkSupport.finishPerformanceSample({
 		durationMilliseconds,
 		fixture,
 		backend,
@@ -493,8 +509,8 @@ async function measureLargeColdPackagePush(): Promise<BridgeViewerBrowserPerform
 	const fixture = makeBridgeViewerBrowserFixture({ fixtureClass: 'large-diffshub' });
 	const backend = installBridgeViewerMockedBackend(fixture);
 	const startedAt = performance.now();
-	renderBridgeApp({ backend });
-	await backend.pushPackage();
+	benchmarkSupport.renderBridgeApp({ backend });
+	await backend.pushMetadata();
 	await waitForBridgeViewerElement('[data-testid="review-viewer-shell"]');
 	await waitForBridgeViewerText(fixture.expected.initialText);
 	const railScroll = await waitForBridgeViewerTreeScrollOwner();
@@ -505,19 +521,19 @@ async function measureLargeColdPackagePush(): Promise<BridgeViewerBrowserPerform
 		op: 'replace',
 		revision: fixture.reviewPackage.revision,
 		reviewGeneration: fixture.reviewPackage.reviewGeneration,
-		payloadKind: 'package',
+		payloadKind: 'metadata',
 	});
-	return finishPerformanceSample({ durationMilliseconds, fixture, backend });
+	return benchmarkSupport.finishPerformanceSample({ durationMilliseconds, fixture, backend });
 }
 
 async function measureLargeSemanticSelect(): Promise<BridgeViewerBrowserPerformanceSample> {
-	const uninstallPackagedWorkerFetchMock = installPierrePackagedWorkerFetchMock();
+	const uninstallPackagedWorkerFetchMock = benchmarkSupport.installPierrePackagedWorkerFetchMock();
 	try {
 		const { backend, fixture } = await mountInteractiveFixture({
 			fixtureClass: 'large-diffshub',
 			codeViewWorkerPoolEnabled: true,
 		});
-		const beforeAction = snapshotBackendLedgerCounts(backend);
+		const beforeAction = benchmarkSupport.snapshotBackendLedgerCounts(backend);
 		const startedAt = performance.now();
 		window.dispatchEvent(
 			new CustomEvent('__bridge_select_review_item', {
@@ -537,9 +553,9 @@ async function measureLargeSemanticSelect(): Promise<BridgeViewerBrowserPerforma
 				url.includes(fixture.expected.largeHeadHandleId),
 			),
 		).toBe(true);
-		expectBackendCommandLedgerDelta(backend, beforeAction, 'browser-large-diff');
+		benchmarkSupport.expectBackendCommandLedgerDelta(backend, beforeAction, 'browser-large-diff');
 		expect(document.querySelector('[data-testid="bridge-pierre-worker-pool-failed"]')).toBeNull();
-		return finishPerformanceSample({
+		return benchmarkSupport.finishPerformanceSample({
 			durationMilliseconds,
 			fixture,
 			backend,
@@ -553,26 +569,28 @@ async function measureLargeSemanticSelect(): Promise<BridgeViewerBrowserPerforma
 async function measureWorkerBackedColdPackagePush(): Promise<BridgeViewerBrowserPerformanceSample> {
 	const fixture = makeBridgeViewerBrowserFixture();
 	const backend = installBridgeViewerMockedBackend(fixture);
-	const uninstallPackagedWorkerFetchMock = installPierrePackagedWorkerFetchMock();
+	const uninstallPackagedWorkerFetchMock = benchmarkSupport.installPierrePackagedWorkerFetchMock();
 	const startedAt = performance.now();
 	try {
-		renderBridgeApp({
+		benchmarkSupport.renderBridgeApp({
 			backend,
 			codeViewWorkerPoolEnabled: true,
 		});
-		await backend.pushPackage();
+		await backend.pushMetadata();
 		await waitForBridgeViewerElement('[data-testid="review-viewer-shell"]');
 		await waitForBridgeViewerText(fixture.expected.initialText);
-		await waitForBridgeViewerSelectorAbsent('[data-testid="bridge-pierre-worker-pool-loading"]');
+		await benchmarkSupport.waitForBridgeViewerSelectorAbsent(
+			'[data-testid="bridge-pierre-worker-pool-loading"]',
+		);
 		const durationMilliseconds = performance.now() - startedAt;
 		expect(document.querySelector('[data-testid="bridge-pierre-worker-pool-failed"]')).toBeNull();
 		expect(backend.pushRecords).toContainEqual({
 			op: 'replace',
 			revision: fixture.reviewPackage.revision,
 			reviewGeneration: fixture.reviewPackage.reviewGeneration,
-			payloadKind: 'package',
+			payloadKind: 'metadata',
 		});
-		return finishPerformanceSample({
+		return benchmarkSupport.finishPerformanceSample({
 			durationMilliseconds,
 			fixture,
 			backend,
@@ -606,7 +624,7 @@ async function measureWarmMarkdownPreview(): Promise<BridgeViewerBrowserPerforma
 			'[data-testid="bridge-markdown-preview"] form, [data-testid="bridge-markdown-preview"] input, [data-testid="bridge-markdown-preview"] button, [data-testid="bridge-markdown-preview"] details, [data-testid="bridge-markdown-preview"] dialog, [data-testid="bridge-markdown-preview"] [contenteditable]',
 		),
 	).toBeNull();
-	return finishPerformanceSample({ durationMilliseconds, fixture, backend });
+	return benchmarkSupport.finishPerformanceSample({ durationMilliseconds, fixture, backend });
 }
 
 async function measureContentUnavailable(): Promise<BridgeViewerBrowserPerformanceSample> {
@@ -615,23 +633,23 @@ async function measureContentUnavailable(): Promise<BridgeViewerBrowserPerforman
 		contentFailures: [fixture.expected.secondHeadHandleId],
 		latencyProfile: 'small',
 	});
-	renderBridgeApp({ backend });
-	await backend.pushPackage();
+	benchmarkSupport.renderBridgeApp({ backend });
+	await backend.pushMetadata();
 	await waitForBridgeViewerText(fixture.expected.initialText);
 	const secondButton = await waitForBridgeViewerTreeItemButton(fixture.expected.secondPath);
-	const beforeAction = snapshotBackendLedgerCounts(backend);
-	const requestedFailureHandleCountBeforeClick = requestedContentUrlCount(
+	const beforeAction = benchmarkSupport.snapshotBackendLedgerCounts(backend);
+	const requestedFailureHandleCountBeforeClick = benchmarkSupport.requestedContentUrlCount(
 		backend,
 		fixture.expected.secondHeadHandleId,
 	);
 	const startedAt = performance.now();
 	secondButton.click();
-	await waitForRequestedContentUrlCountGreaterThan(
+	await benchmarkSupport.waitForRequestedContentUrlCountGreaterThan(
 		backend,
 		fixture.expected.secondHeadHandleId,
 		requestedFailureHandleCountBeforeClick,
 	);
-	await waitForBridgeViewerSelectedContentState('failed');
+	await benchmarkSupport.waitForBridgeViewerSelectedContentState('failed');
 	const unavailableElement = await waitForBridgeViewerElement(
 		'[data-testid="bridge-review-content-unavailable"]',
 	);
@@ -642,8 +660,8 @@ async function measureContentUnavailable(): Promise<BridgeViewerBrowserPerforman
 			url.includes(fixture.expected.secondHeadHandleId),
 		),
 	).toBe(true);
-	expectBackendCommandLedgerDelta(backend, beforeAction, 'browser-source-b');
-	return finishPerformanceSample({ durationMilliseconds, fixture, backend });
+	benchmarkSupport.expectBackendCommandLedgerDelta(backend, beforeAction, 'browser-source-b');
+	return benchmarkSupport.finishPerformanceSample({ durationMilliseconds, fixture, backend });
 }
 
 async function measureStaleGenerationDrop(): Promise<BridgeViewerBrowserPerformanceSample> {
@@ -673,10 +691,10 @@ async function measureStaleGenerationDrop(): Promise<BridgeViewerBrowserPerforma
 	expect(document.querySelector('[data-testid="bridge-markdown-preview"]')).toBeNull();
 	expect(
 		backend.commandDetails.some((detail: unknown): boolean =>
-			isBridgeCommandForItem(detail, 'review.markFileViewed', 'browser-source-b'),
+			benchmarkSupport.isBridgeCommandForItem(detail, 'review.markFileViewed', 'browser-source-b'),
 		),
 	).toBe(true);
-	return finishPerformanceSample({ durationMilliseconds, fixture, backend });
+	return benchmarkSupport.finishPerformanceSample({ durationMilliseconds, fixture, backend });
 }
 
 async function startBridgeMarkdownPreviewRender(props: {
@@ -790,7 +808,7 @@ async function measureScrollOwnership(): Promise<BridgeViewerBrowserPerformanceS
 	expect(bridgeViewerVisibleCodeTextContent(codeScroll)).not.toBe(codeTextBefore);
 	expect(bridgeViewerVisibleTreeTextContent(railScroll)).not.toBe(treeTextBefore);
 	expect(shell.scrollTop).toBe(0);
-	return finishPerformanceSample({ durationMilliseconds, fixture, backend });
+	return benchmarkSupport.finishPerformanceSample({ durationMilliseconds, fixture, backend });
 }
 
 async function mountInteractiveFixture(): Promise<{
@@ -819,7 +837,7 @@ async function mountInteractiveFixture(
 		props.fixtureClass === undefined ? {} : { fixtureClass: props.fixtureClass },
 	);
 	const backend = installBridgeViewerMockedBackend(fixture);
-	renderBridgeApp({
+	benchmarkSupport.renderBridgeApp({
 		backend,
 		...(props.codeViewWorkerPoolEnabled === undefined
 			? {}
@@ -828,7 +846,7 @@ async function mountInteractiveFixture(
 			? {}
 			: { markdownWorkerClient: props.markdownWorkerClient }),
 	});
-	await backend.pushPackage();
+	await backend.pushMetadata();
 	await waitForBridgeViewerElement('[data-testid="review-viewer-shell"]');
 	await waitForBridgeViewerText(fixture.expected.initialText);
 	return { backend, fixture };
@@ -871,188 +889,4 @@ async function waitForBridgeViewerVisibleCodeText(
 	await waitForBridgeViewerAnimationFrame();
 	await waitForBridgeViewerVisibleCodeText(text, remainingAttempts - 1);
 }
-
-function renderBridgeApp(props: {
-	readonly backend: BridgeViewerMockedBackend;
-	readonly codeViewWorkerPoolEnabled?: boolean;
-	readonly markdownWorkerClient?: BridgeMarkdownRenderWorkerClient | null;
-}): void {
-	render(
-		<BridgeApp
-			codeViewWorkerPoolEnabled={props.codeViewWorkerPoolEnabled ?? false}
-			fetchContent={props.backend.fetchContent}
-			markdownWorkerClient={props.markdownWorkerClient ?? null}
-			projectionWorkerClient={props.backend.projectionWorkerClient}
-		/>,
-	);
-}
-
-async function finishPerformanceSample(props: {
-	readonly durationMilliseconds: number;
-	readonly fixture: BridgeViewerBrowserFixture;
-	readonly backend: BridgeViewerMockedBackend;
-	readonly deliveryMode?: BridgeViewerMockedBackendDeliveryMode;
-	readonly codeViewWorkerPoolEnabled?: boolean;
-}): Promise<BridgeViewerBrowserPerformanceSample> {
-	expect(props.durationMilliseconds).toBeGreaterThan(0);
-	expect(props.backend.projectionRequests.length).toBeGreaterThan(0);
-	props.backend.dispose();
-	cleanup();
-	await Promise.resolve();
-	await waitForBridgeViewerAnimationFrame();
-	document.body.replaceChildren();
-	document.documentElement.removeAttribute('data-bridge-nonce');
-	delete window.bridgeReviewControlProbe;
-	return {
-		durationMilliseconds: props.durationMilliseconds,
-		fixture: props.fixture,
-		backend: props.backend,
-		...(props.deliveryMode === undefined ? {} : { deliveryMode: props.deliveryMode }),
-		...(props.codeViewWorkerPoolEnabled === undefined
-			? {}
-			: { codeViewWorkerPoolEnabled: props.codeViewWorkerPoolEnabled }),
-	};
-}
-
-function percentile(values: readonly number[], percentileValue: number): number {
-	if (values.length === 0) {
-		throw new Error('expected at least one performance sample');
-	}
-	const sortedValues = [...values];
-	// oxlint-disable-next-line unicorn/no-array-sort -- Sorting a local copy preserves the readonly input and supports current WebKit targets.
-	sortedValues.sort((left, right): number => left - right);
-	const index = Math.min(
-		sortedValues.length - 1,
-		Math.max(0, Math.ceil(sortedValues.length * percentileValue) - 1),
-	);
-	const value = sortedValues[index];
-	if (value === undefined) {
-		throw new Error('expected percentile sample');
-	}
-	return value;
-}
-
-function isBridgeCommandForItem(detail: unknown, method: string, itemId: string): boolean {
-	if (!isRecord(detail)) {
-		return false;
-	}
-	const params = detail['params'];
-	return detail['method'] === method && isRecord(params) && params['fileId'] === itemId;
-}
-
-interface BackendLedgerCounts {
-	readonly requestedUrlCount: number;
-	readonly commandCount: number;
-}
-
-function snapshotBackendLedgerCounts(backend: BridgeViewerMockedBackend): BackendLedgerCounts {
-	return {
-		requestedUrlCount: backend.requestedUrls.length,
-		commandCount: backend.commandDetails.length,
-	};
-}
-
-function requestedContentUrlCount(backend: BridgeViewerMockedBackend, handleId: string): number {
-	return backend.requestedUrls.filter((url: string): boolean => url.includes(handleId)).length;
-}
-
-async function waitForRequestedContentUrlCountGreaterThan(
-	backend: BridgeViewerMockedBackend,
-	handleId: string,
-	count: number,
-	remainingAttempts = 180,
-): Promise<void> {
-	if (requestedContentUrlCount(backend, handleId) > count) {
-		return;
-	}
-	if (remainingAttempts <= 0) {
-		throw new Error(
-			`expected Bridge viewer content request count for ${handleId} to exceed ${count}; requested=${backend.requestedUrls.join(',')}`,
-		);
-	}
-	await waitForBridgeViewerAnimationFrame();
-	await waitForRequestedContentUrlCountGreaterThan(backend, handleId, count, remainingAttempts - 1);
-}
-
-async function waitForBridgeViewerSelectorAbsent(
-	selector: string,
-	remainingAttempts = 180,
-): Promise<void> {
-	if (document.querySelector(selector) === null) {
-		return;
-	}
-	if (remainingAttempts <= 0) {
-		throw new Error(`expected Bridge viewer selector to be absent: ${selector}`);
-	}
-	await waitForBridgeViewerAnimationFrame();
-	await waitForBridgeViewerSelectorAbsent(selector, remainingAttempts - 1);
-}
-
-async function waitForBridgeViewerSelectedContentState(
-	state: string,
-	remainingAttempts = 180,
-): Promise<void> {
-	const shell = document.querySelector('[data-testid="review-viewer-shell"]');
-	const currentState = shell?.getAttribute('data-selected-content-state') ?? 'missing';
-	if (currentState === state) {
-		return;
-	}
-	if (remainingAttempts <= 0) {
-		const panel = document.querySelector('[data-testid="bridge-code-view-panel"]');
-		throw new Error(
-			`expected selected content state ${state}; current=${currentState}; panel=${panel?.getAttribute('data-selected-content-state') ?? 'missing'}; text=${(document.body.textContent ?? '').slice(0, 300)}`,
-		);
-	}
-	await waitForBridgeViewerAnimationFrame();
-	await waitForBridgeViewerSelectedContentState(state, remainingAttempts - 1);
-}
-
-function expectBackendCommandLedgerDelta(
-	backend: BridgeViewerMockedBackend,
-	beforeAction: BackendLedgerCounts,
-	commandItemId: string,
-): void {
-	const actionCommands = backend.commandDetails.slice(beforeAction.commandCount);
-	expect(
-		actionCommands.some((detail: unknown): boolean =>
-			isBridgeCommandForItem(detail, 'review.markFileViewed', commandItemId),
-		),
-	).toBe(true);
-}
-
-function isBridgeContentResourceUrl(url: string): boolean {
-	const parsedUrl = parseBridgeCoreResourceUrl(url, {
-		allowedResourceKindsByProtocol: { review: new Set(['content']) },
-	});
-	return parsedUrl?.protocol === 'review' && parsedUrl.resourceKind === 'content';
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === 'object' && value !== null;
-}
-
-function installPierrePackagedWorkerFetchMock(): () => void {
-	const originalFetch = window.fetch.bind(window);
-	window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-		const url = resourceUrlFromFetchInput(input);
-		if (url === 'agentstudio://app/workers/pierre-diffs-worker-portable.js') {
-			return new Response(pierrePortableWorkerSource, {
-				headers: { 'content-type': 'application/javascript' },
-			});
-		}
-		return await originalFetch(input, init);
-	};
-	return (): void => {
-		window.fetch = originalFetch;
-	};
-}
-
-function resourceUrlFromFetchInput(input: RequestInfo | URL): string {
-	if (typeof input === 'string') {
-		return input;
-	}
-	if (input instanceof URL) {
-		return input.href;
-	}
-	return input.url;
-}
+import * as benchmarkSupport from './bridge-viewer.browser.benchmark-support.js';

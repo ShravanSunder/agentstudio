@@ -46,9 +46,7 @@ describe('Bridge review projection coordinator', () => {
 			},
 		});
 
-		await flushProjectionCoordinatorMicrotasks();
-
-		expect(store.getState().rootSnapshot.projectionStatus).toBe('ready');
+		await expect.poll((): string => store.getState().rootSnapshot.projectionStatus).toBe('ready');
 		expect(store.getState().workerStatus.lane).toBe('sync');
 		expect(store.getState().workerStatus.lastCompletedRequestId).toBe('sync-small-request');
 		expect(store.getState().projection?.orderedItemIds.length).toBeGreaterThan(0);
@@ -111,9 +109,7 @@ describe('Bridge review projection coordinator', () => {
 		expect(store.getState().workerStatus.lane).toBe('worker');
 		expect(deferredWorker.requests).toHaveLength(1);
 		deferredWorker.resolveSuccess(4);
-		await flushProjectionCoordinatorMicrotasks();
-
-		expect(store.getState().rootSnapshot.projectionStatus).toBe('ready');
+		await expect.poll((): string => store.getState().rootSnapshot.projectionStatus).toBe('ready');
 		expect(store.getState().workerStatus.lastCompletedRequestId).toBe('worker-large-request');
 		expect(telemetryRecorder.samples[0]?.stringAttributes).toEqual(
 			expect.objectContaining({
@@ -195,6 +191,41 @@ describe('Bridge review projection coordinator', () => {
 				'agentstudio.bridge.worker.lane': 'none',
 			}),
 		);
+		expect(flushCount).toBe(1);
+	});
+
+	test('falls back to the sync lane when the worker transport cannot start', async () => {
+		const store = createBridgeReviewViewerStore();
+		const telemetryRecorder = makeTelemetryRecorder();
+		const unavailableWorker = makeUnavailableProjectionWorkerClient('worker-unavailable-request');
+		let flushCount = 0;
+
+		startBridgeReviewProjectionCoordinatorRequest({
+			store,
+			reviewPackage: makeBridgeViewerBrowserFixture({ fixtureClass: 'large-diffshub' })
+				.reviewPackage,
+			projectionMode: { kind: 'normalReview' },
+			facets: [],
+			gitStatusFilter: 'all',
+			fileClassFilter: 'all',
+			projectionWorkerClient: unavailableWorker,
+			syncProjectionClient: createBridgeReviewProjectionSyncClient({
+				createRequestId: (): string => 'sync-worker-unavailable-fallback-request',
+				now: makeStepClock(),
+			}),
+			telemetryRecorder,
+			telemetryParentTraceContext: null,
+			flushTelemetry: (): void => {
+				flushCount += 1;
+			},
+		});
+
+		await expect.poll((): string => store.getState().rootSnapshot.projectionStatus).toBe('ready');
+		expect(store.getState().workerStatus.lane).toBe('sync');
+		expect(store.getState().workerStatus.lastCompletedRequestId).toBe(
+			'sync-worker-unavailable-fallback-request',
+		);
+		expect(store.getState().projection?.orderedItemIds.length).toBeGreaterThan(0);
 		expect(flushCount).toBe(1);
 	});
 
@@ -313,6 +344,19 @@ function makeFailingProjectionWorkerClient(requestId: string): BridgeReviewProje
 					message: 'test projection failure',
 				},
 			}),
+		},
+	});
+}
+
+function makeUnavailableProjectionWorkerClient(
+	requestId: string,
+): BridgeReviewProjectionWorkerClient {
+	return createBridgeReviewProjectionWorkerClient({
+		createRequestId: (): string => requestId,
+		transport: {
+			send: async (): Promise<BridgeReviewProjectionWorkerResponse> => {
+				throw new Error('projection worker unavailable');
+			},
 		},
 	});
 }

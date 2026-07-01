@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 
 import {
 	installBridgePageHandshake,
@@ -127,7 +127,7 @@ describe('bridge page handshake', () => {
 						maxEncodedBatchBytes: 16_384,
 						minimumFlushIntervalMilliseconds: 1,
 						rpcMethodName: 'system.bridgeTelemetry',
-						scenario: 'package_apply_content_fetch_v1',
+						scenario: 'metadata_apply_content_fetch_v1',
 					},
 				},
 			}),
@@ -149,11 +149,11 @@ describe('bridge page handshake', () => {
 		);
 		session.uninstall();
 
-		expect(scenarios).toEqual(['package_apply_content_fetch_v1']);
-		expect(session.getTelemetryConfig()?.scenario).toBe('package_apply_content_fetch_v1');
+		expect(scenarios).toEqual(['metadata_apply_content_fetch_v1']);
+		expect(session.getTelemetryConfig()?.scenario).toBe('metadata_apply_content_fetch_v1');
 	});
 
-	test('notifies ready callback before dispatching bridge ready', async () => {
+	test('notifies ready callback after dispatching bridge ready', async () => {
 		const target = new EventTarget();
 		const events: string[] = [];
 
@@ -172,7 +172,123 @@ describe('bridge page handshake', () => {
 		await Promise.resolve();
 		session.uninstall();
 
-		expect(events).toEqual(['ready-callback:push-1', 'ready-event']);
+		expect(events).toEqual(['ready-event', 'ready-callback:push-1']);
+	});
+
+	test('waits for bridge-ready response before notifying ready callback when command nonce is available', async () => {
+		const target = new EventTarget();
+		const events: string[] = [];
+		let bridgeReadyRequestId: string | null = null;
+
+		target.addEventListener('__bridge_ready', () => {
+			events.push('ready-event');
+		});
+		target.addEventListener('__bridge_command', (event: Event): void => {
+			const detail = 'detail' in event ? event.detail : null;
+			const commandId = bridgeReadyCommandId(detail);
+			if (commandId === null) {
+				return;
+			}
+			bridgeReadyRequestId = commandId;
+			events.push('bridge-ready-command');
+		});
+
+		const session = installBridgePageHandshakeSession(target, {
+			getBridgeCommandNonce: (): string => 'bridge-command-nonce',
+			onReady: (): void => {
+				events.push(`ready-callback:${session.getPushNonce() ?? 'missing'}`);
+			},
+		});
+		target.dispatchEvent(
+			new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-1' } }),
+		);
+		await Promise.resolve();
+
+		expect(events).toEqual(['ready-event', 'bridge-ready-command']);
+		if (bridgeReadyRequestId === null) {
+			throw new Error('Expected bridge ready request id');
+		}
+		target.dispatchEvent(
+			new CustomEvent('__bridge_response', {
+				detail: { jsonrpc: '2.0', id: bridgeReadyRequestId, result: null, nonce: 'push-1' },
+			}),
+		);
+		session.uninstall();
+
+		expect(events).toEqual(['ready-event', 'bridge-ready-command', 'ready-callback:push-1']);
+	});
+
+	test('rejects bridge-ready error responses without notifying ready callback', async () => {
+		const target = new EventTarget();
+		const events: string[] = [];
+		let bridgeReadyRequestId: string | null = null;
+
+		target.addEventListener('__bridge_command', (event: Event): void => {
+			bridgeReadyRequestId = bridgeReadyCommandId('detail' in event ? event.detail : null);
+			events.push('bridge-ready-command');
+		});
+
+		const session = installBridgePageHandshakeSession(target, {
+			getBridgeCommandNonce: (): string => 'bridge-command-nonce',
+			onReady: (): void => {
+				events.push('ready-callback');
+			},
+			onReadyError: (error: Error): void => {
+				events.push(error.message);
+			},
+		});
+		target.dispatchEvent(
+			new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-1' } }),
+		);
+		await Promise.resolve();
+
+		if (bridgeReadyRequestId === null) {
+			throw new Error('Expected bridge ready request id');
+		}
+		target.dispatchEvent(
+			new CustomEvent('__bridge_response', {
+				detail: {
+					id: bridgeReadyRequestId,
+					error: { code: -32_004, message: 'bridge_not_ready' },
+				},
+			}),
+		);
+		session.uninstall();
+
+		expect(events).toEqual([
+			'bridge-ready-command',
+			'Bridge ready command failed: bridge_not_ready',
+		]);
+	});
+
+	test('times out waiting for bridge-ready response without notifying ready callback', async () => {
+		vi.useFakeTimers();
+		try {
+			const target = new EventTarget();
+			const events: string[] = [];
+
+			const session = installBridgePageHandshakeSession(target, {
+				getBridgeCommandNonce: (): string => 'bridge-command-nonce',
+				onReady: (): void => {
+					events.push('ready-callback');
+				},
+				onReadyError: (error: Error): void => {
+					events.push(error.message);
+				},
+				readyResponseTimeoutMilliseconds: 25,
+			});
+			target.dispatchEvent(
+				new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-1' } }),
+			);
+			await Promise.resolve();
+
+			await vi.advanceTimersByTimeAsync(25);
+			session.uninstall();
+
+			expect(events).toEqual(['Bridge ready command timed out']);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	test('emits intake-ready as a control command after handshake and command nonce are available', () => {
@@ -213,3 +329,16 @@ describe('bridge page handshake', () => {
 		]);
 	});
 });
+
+function bridgeReadyCommandId(value: unknown): string | null {
+	if (typeof value !== 'object' || value === null) {
+		return null;
+	}
+	if (!('method' in value) || value.method !== 'bridge.ready') {
+		return null;
+	}
+	if (!('id' in value) || typeof value.id !== 'string') {
+		return null;
+	}
+	return value.id;
+}

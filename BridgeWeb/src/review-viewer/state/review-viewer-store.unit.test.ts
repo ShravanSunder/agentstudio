@@ -123,6 +123,46 @@ describe('Bridge review viewer Zustand store', () => {
 		expect(store.getState().projection?.orderedItemIds).toEqual(['docs-plan']);
 	});
 
+	test('keeps the last completed projection visible while a newer stream revision is projecting', () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const projectionInput = makeBridgeReviewProjectionInput(reviewPackage);
+		const projectionRequest = {
+			mode: { kind: 'normalReview' },
+			facets: [],
+		} as const;
+		const completedIdentity = {
+			requestId: 'request-revision-1',
+			packageId: projectionInput.packageId,
+			reviewGeneration: projectionInput.reviewGeneration,
+			revision: projectionInput.revision,
+			projectionRequestFingerprint: fingerprintBridgeReviewProjectionRequest(projectionRequest),
+			abortKey: 'projection',
+		};
+		const nextRevisionIdentity = {
+			...completedIdentity,
+			requestId: 'request-revision-2',
+			revision: projectionInput.revision + 1,
+		};
+		const completedProjection = buildBridgeReviewProjection({
+			reviewPackage,
+			request: projectionRequest,
+		});
+		const store = createBridgeReviewViewerStore();
+
+		store.getState().actions.startProjectionRequest(completedIdentity);
+		store.getState().actions.applyProjectionWorkerResult({
+			identity: completedIdentity,
+			result: completedProjection,
+		});
+		store.getState().actions.setSelectedItemId('source-high');
+		store.getState().actions.startProjectionRequest(nextRevisionIdentity);
+
+		expect(store.getState().rootSnapshot.projectionStatus).toBe('running');
+		expect(store.getState().rootSnapshot.selectedItemId).toBe('source-high');
+		expect(store.getState().projection).toBe(completedProjection);
+		expect(store.getState().projectionIdentity).toEqual(completedIdentity);
+	});
+
 	test('keeps hydrated bodies and runtime controls out of the Zustand snapshot', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const projectionInput = makeBridgeReviewProjectionInput(reviewPackage);

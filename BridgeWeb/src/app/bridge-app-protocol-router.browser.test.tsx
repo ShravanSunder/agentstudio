@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from 'vitest';
 import { render } from 'vitest-browser-react';
 
+import type { WorktreeFileInitialSurface } from '../worktree-file-surface/worktree-file-app.js';
 import {
 	BridgeAppProtocolRouter,
 	resolveBridgeAppProtocolFromElement,
@@ -13,7 +14,7 @@ describe('BridgeAppProtocolRouter', () => {
 	});
 
 	test('defaults to Review when no app protocol is declared', async () => {
-		await render(<BridgeAppProtocolRouter />);
+		render(<BridgeAppProtocolRouter />);
 
 		const appRoot = document.querySelector('[data-testid="bridge-app-root"]');
 		const contextSwitcher = document.querySelector(
@@ -34,7 +35,7 @@ describe('BridgeAppProtocolRouter', () => {
 	});
 
 	test('routes Worktree/File protocol through the shared Bridge app shell', async () => {
-		await render(<BridgeAppProtocolRouter protocol="worktree-file" />);
+		render(<BridgeAppProtocolRouter protocol="worktree-file" />);
 
 		expect(document.querySelector('[data-testid="worktree-file-app"]')).toBeNull();
 		expect(document.querySelector('[data-testid="bridge-review-empty-shell"]')).toBeNull();
@@ -71,6 +72,42 @@ describe('BridgeAppProtocolRouter', () => {
 		expect(shell?.getAttribute('data-sidebar-position')).toBe('right');
 		expect(codeCanvas?.getAttribute('data-pierre-code-view-owner')).toBe('CodeView.file');
 		expect(treeSidebar?.getAttribute('data-pierre-file-tree-owner')).toBe('FileTree');
+	});
+
+	test('starts Worktree/File native loading after the page bridge-ready event is emitted', async () => {
+		const eventNames: string[] = [];
+		const loadInitialSurface = async (): Promise<WorktreeFileInitialSurface> => {
+			eventNames.push('worktree-file.load');
+			return { frames: [] };
+		};
+		document.addEventListener(
+			'__bridge_ready',
+			(): void => {
+				eventNames.push('__bridge_ready');
+			},
+			{ once: true },
+		);
+		document.addEventListener(
+			'__bridge_handshake_request',
+			(): void => {
+				eventNames.push('__bridge_handshake_request');
+				document.dispatchEvent(
+					new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-1' } }),
+				);
+			},
+			{ once: true },
+		);
+
+		render(
+			<BridgeAppProtocolRouter fileViewerProps={{ loadInitialSurface }} protocol="worktree-file" />,
+		);
+
+		await expect.poll(() => eventNames.includes('worktree-file.load')).toBe(true);
+		expect(eventNames).toEqual([
+			'__bridge_handshake_request',
+			'__bridge_ready',
+			'worktree-file.load',
+		]);
 	});
 
 	test('parses document protocol metadata with Review as the fail-closed fallback', () => {

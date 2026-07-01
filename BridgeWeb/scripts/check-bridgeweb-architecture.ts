@@ -6,6 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import ts from 'typescript';
 
 type RuleId =
+	| 'max-file-lines'
 	| 'no-private-pierre-imports'
 	| 'pierre-codeview-import-boundary'
 	| 'pierre-trees-import-boundary'
@@ -57,8 +58,9 @@ interface AddViolationProps {
 }
 
 const defaultPackageRootPath = fileURLToPath(new URL('../', import.meta.url));
-const sourceRootNames = ['src', 'scripts'];
 const checkedExtensions = new Set(['.ts', '.tsx']);
+const ignoredDirectoryNames = new Set(['node_modules', 'dist', 'coverage', '.vite']);
+const maxSourceFileLineCount = 1000;
 const publicPierreExports = new Set([
 	'@pierre/diffs',
 	'@pierre/diffs/react',
@@ -66,6 +68,7 @@ const publicPierreExports = new Set([
 	'@pierre/diffs/worker',
 	'@pierre/diffs/worker/worker.js',
 	'@pierre/diffs/worker/worker-portable.js',
+	'@pierre/theming/themes',
 	'@pierre/trees',
 	'@pierre/trees/react',
 	'@pierre/trees/ssr',
@@ -76,13 +79,7 @@ export async function checkBridgeWebArchitecture(
 	props: CheckBridgeWebArchitectureProps = {},
 ): Promise<ArchitectureReport> {
 	const packageRootPath = props.packageRootPath ?? defaultPackageRootPath;
-	const sourceFileGroups = await Promise.all(
-		sourceRootNames.map(
-			(sourceRootName: string): Promise<readonly string[]> =>
-				collectSourceFiles(join(packageRootPath, sourceRootName)),
-		),
-	);
-	const sourceFilePaths = sourceFileGroups.flat();
+	const sourceFilePaths = await collectSourceFiles(packageRootPath);
 	const violationGroups = await Promise.all(
 		sourceFilePaths.map(
 			(filePath: string): Promise<readonly ArchitectureViolation[]> =>
@@ -115,6 +112,9 @@ async function collectSourceFiles(directoryPath: string): Promise<readonly strin
 			const entryPath = join(directoryPath, entry.name);
 
 			if (entry.isDirectory()) {
+				if (ignoredDirectoryNames.has(entry.name)) {
+					return [];
+				}
 				return collectSourceFiles(entryPath);
 			}
 
@@ -148,6 +148,7 @@ async function checkSourceFile(
 		violations: [],
 	};
 
+	checkMaxSourceFileLineCount(context);
 	checkReviewViewerFolderBoundary(context);
 	walkSourceFile(sourceFile, (node: ts.Node): void => {
 		checkStringLiteral(context, node);
@@ -160,6 +161,30 @@ async function checkSourceFile(
 	checkWorktreeDevReviewPackageScaffolding(context);
 
 	return context.violations;
+}
+
+function checkMaxSourceFileLineCount(context: SourceContext): void {
+	const lineCount = sourceLineCount(context.sourceText);
+	if (lineCount <= maxSourceFileLineCount) {
+		return;
+	}
+
+	addViolation(context, {
+		ruleId: 'max-file-lines',
+		message: `BridgeWeb TypeScript source files must be ${maxSourceFileLineCount} lines or fewer; split this file by controller, store, hook, runtime, test-support, or visual shell responsibility. Found ${lineCount} lines.`,
+	});
+}
+
+function sourceLineCount(sourceText: string): number {
+	if (sourceText.length === 0) {
+		return 0;
+	}
+
+	const normalizedSourceText = sourceText.replace(/\r\n?/gu, '\n');
+	const trimmedTrailingNewlineSourceText = normalizedSourceText.endsWith('\n')
+		? normalizedSourceText.slice(0, -1)
+		: normalizedSourceText;
+	return trimmedTrailingNewlineSourceText.split('\n').length;
 }
 
 function walkSourceFile(node: ts.Node, visitNode: (node: ts.Node) => void): void {
@@ -214,14 +239,11 @@ function checkImportSource(context: SourceContext, node: ts.Node): void {
 		});
 	}
 
-	if (
-		importSource.startsWith('@pierre/trees') &&
-		!isPathInside(context.relativePath, 'src/review-viewer/trees/')
-	) {
+	if (importSource.startsWith('@pierre/trees') && !isAllowedTreesImportPath(context.relativePath)) {
 		addViolation(context, {
 			ruleId: 'pierre-trees-import-boundary',
 			node,
-			message: `Pierre Trees runtime imports belong under review-viewer/trees: ${importSource}`,
+			message: `Pierre Trees runtime imports belong under owning viewer tree panes: ${importSource}`,
 		});
 	}
 
@@ -229,7 +251,7 @@ function checkImportSource(context: SourceContext, node: ts.Node): void {
 		addViolation(context, {
 			ruleId: 'pierre-codeview-import-boundary',
 			node,
-			message: `Pierre CodeView runtime imports belong under review-viewer/code-view: ${importSource}`,
+			message: `Pierre CodeView runtime imports belong under owning viewer code panes: ${importSource}`,
 		});
 	}
 
@@ -493,8 +515,17 @@ function isPierreWorkerImport(importSource: string): boolean {
 	);
 }
 
+function isAllowedTreesImportPath(relativePath: string): boolean {
+	return (
+		relativePath === 'src/app/bridge-viewer-tree-theme.ts' ||
+		isPathInside(relativePath, 'src/file-viewer/') ||
+		isPathInside(relativePath, 'src/review-viewer/trees/')
+	);
+}
+
 function isAllowedCodeViewImportPath(relativePath: string): boolean {
 	return (
+		isPathInside(relativePath, 'src/file-viewer/') ||
 		isPathInside(relativePath, 'src/review-viewer/code-view/') ||
 		isPathInside(relativePath, 'src/review-viewer/workers/pierre/')
 	);
@@ -596,6 +627,7 @@ function isShellPath(relativePath: string): boolean {
 function isTestPath(relativePath: string): boolean {
 	return (
 		/\.(?:unit|integration|e2e|browser)\.test\.[cm]?[jt]sx?$/u.test(relativePath) ||
+		/\.browser\.[a-z0-9-]+-suite\.[cm]?[jt]sx?$/u.test(relativePath) ||
 		/\.browser\.benchmark\.[cm]?[jt]sx?$/u.test(relativePath) ||
 		relativePath.includes('/test-fixtures/')
 	);

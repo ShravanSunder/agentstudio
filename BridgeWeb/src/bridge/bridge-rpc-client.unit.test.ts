@@ -97,6 +97,40 @@ describe('bridge RPC client', () => {
 		).toThrow();
 	});
 
+	test('accepts compact review metadata interest commands with demand lanes', () => {
+		expect(
+			bridgeRPCCommandSchema.parse({
+				method: 'bridge.metadata_interest.update',
+				params: {
+					protocol: 'review',
+					streamId: 'review:pane-1',
+					generation: 3,
+					itemIds: ['item-source'],
+					lane: 'foreground',
+				},
+			}),
+		).toEqual({
+			method: 'bridge.metadata_interest.update',
+			params: {
+				protocol: 'review',
+				streamId: 'review:pane-1',
+				generation: 3,
+				itemIds: ['item-source'],
+				lane: 'foreground',
+			},
+		});
+		expect(
+			bridgeRPCCommandSchema.safeParse({
+				method: 'bridge.metadata_interest.update',
+				params: {
+					protocol: 'review',
+					itemIds: ['item-source'],
+					lane: 'worktree_visible',
+				},
+			}).success,
+		).toBe(false);
+	});
+
 	test('attaches trace context outside params and records generic RPC telemetry', () => {
 		const target = new EventTarget();
 		const sentDetails: unknown[] = [];

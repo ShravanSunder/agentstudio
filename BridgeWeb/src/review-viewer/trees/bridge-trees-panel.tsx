@@ -2,10 +2,15 @@ import type { FileTreeSortComparator } from '@pierre/trees';
 import { FileTree, useFileTree } from '@pierre/trees/react';
 import type { ReactElement } from 'react';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { flushSync } from 'react-dom';
 
+import {
+	bridgeViewerTreeStyle,
+	bridgeViewerTreeUnsafeCSS,
+} from '../../app/bridge-viewer-tree-theme.js';
+import type { ReviewTreeRowMetadata } from '../../features/review/models/review-protocol-models.js';
 import type { BridgeReviewPackage } from '../../foundation/review-package/bridge-review-package.js';
 import type { BridgeReviewProjectionResult } from '../models/review-projection-models.js';
-import { bridgeReviewTreeStyle, bridgeReviewTreeUnsafeCSS } from './bridge-tree-theme.js';
 import { BridgeTreesController, createBridgeTreesSource } from './bridge-trees-controller.js';
 
 const preserveInputOrderSort: FileTreeSortComparator = () => 0;
@@ -14,12 +19,14 @@ const bridgeReviewTreeOverscan = 10;
 
 export interface BridgeReviewTreesPanelProps {
 	readonly reviewPackage: BridgeReviewPackage;
+	readonly reviewTreeRows: readonly ReviewTreeRowMetadata[];
 	readonly projection: BridgeReviewProjectionResult;
 	readonly selectedItemId: string | null;
 	readonly searchOpen: boolean;
 	readonly searchText: string;
 	readonly onSelectItem: (itemId: string) => void;
 	readonly onSearchTextChange?: (searchText: string) => void;
+	readonly onVisibleItemIdsChange?: (itemIds: readonly string[]) => void;
 }
 
 export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): ReactElement {
@@ -27,9 +34,10 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 		() =>
 			createBridgeTreesSource({
 				reviewPackage: props.reviewPackage,
+				reviewTreeRows: props.reviewTreeRows,
 				projection: props.projection,
 			}),
-		[props.projection, props.reviewPackage],
+		[props.projection, props.reviewPackage, props.reviewTreeRows],
 	);
 	const sourceRef = useRef(source);
 	sourceRef.current = source;
@@ -38,9 +46,14 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 	onSelectItemRef.current = props.onSelectItem;
 	const onSearchTextChangeRef = useRef(props.onSearchTextChange);
 	onSearchTextChangeRef.current = props.onSearchTextChange;
+	const onVisibleItemIdsChange = props.onVisibleItemIdsChange;
+	const isSyncingClickedSelectionRef = useRef(false);
 	const searchTextRef = useRef(props.searchText);
 	searchTextRef.current = props.searchText;
 	const onSelectionChange = useCallback((selectedPaths: readonly string[]): void => {
+		if (isSyncingClickedSelectionRef.current) {
+			return;
+		}
 		if (selectedPaths.length !== 1) {
 			return;
 		}
@@ -75,28 +88,42 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 		overscan: bridgeReviewTreeOverscan,
 		onSelectionChange,
 		stickyFolders: true,
-		unsafeCSS: bridgeReviewTreeUnsafeCSS,
+		unsafeCSS: bridgeViewerTreeUnsafeCSS,
 	});
 	const controllerRef = useRef<BridgeTreesController | null>(null);
 	controllerRef.current ??= new BridgeTreesController({ model });
 
 	useEffect((): void => {
 		const updatePlan = controllerRef.current?.applySource(source);
-		if (updatePlan?.kind !== 'appendOnly') {
-			return;
+		if (props.searchOpen && props.searchText.length > 0) {
+			const modelSearchText =
+				controllerRef.current?.modelSearchTextForFirstSearchMatch(props.searchText) ??
+				props.searchText;
+			const revealActiveSearchMatch = (): void => {
+				model.openSearch(modelSearchText);
+				model.setSearch(modelSearchText);
+				model.focusNextSearchMatch();
+				controllerRef.current?.revealFirstSearchMatch(props.searchText);
+			};
+			revealActiveSearchMatch();
+			queueMicrotask(revealActiveSearchMatch);
+			requestAnimationFrame(revealActiveSearchMatch);
+			setTimeout(revealActiveSearchMatch, 0);
 		}
-		const controller = controllerRef.current;
-		const pathsToReveal = updatePlan.addedPaths;
-		const revealAppendedPathAncestors = (): void => {
-			for (const path of pathsToReveal) {
-				controller?.revealTreePathAncestors(path);
-			}
-		};
-		revealAppendedPathAncestors();
-		queueMicrotask(revealAppendedPathAncestors);
-		requestAnimationFrame(revealAppendedPathAncestors);
-		setTimeout(revealAppendedPathAncestors, 0);
-	}, [source]);
+		if (updatePlan?.kind === 'appendOnly') {
+			const controller = controllerRef.current;
+			const pathsToReveal = updatePlan.addedPaths;
+			const revealAppendedPathAncestors = (): void => {
+				for (const path of pathsToReveal) {
+					controller?.revealTreePathAncestors(path);
+				}
+			};
+			revealAppendedPathAncestors();
+			queueMicrotask(revealAppendedPathAncestors);
+			requestAnimationFrame(revealAppendedPathAncestors);
+			setTimeout(revealAppendedPathAncestors, 0);
+		}
+	}, [model, props.searchOpen, props.searchText, source]);
 
 	useEffect((): void => {
 		if (!props.searchOpen) {
@@ -106,14 +133,12 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 		}
 		model.openSearch(props.searchText);
 		if (props.searchText.length > 0) {
-			model.setSearch(props.searchText);
-			const matchedPath = firstBridgeTreeSearchMatchPath({
-				orderedPaths: sourceRef.current.orderedPaths,
-				searchText: props.searchText,
-			});
-			if (matchedPath !== null) {
-				controllerRef.current?.revealTreePath(matchedPath);
-			}
+			const modelSearchText =
+				controllerRef.current?.modelSearchTextForFirstSearchMatch(props.searchText) ??
+				props.searchText;
+			model.setSearch(modelSearchText);
+			model.focusNextSearchMatch();
+			controllerRef.current?.revealFirstSearchMatch(props.searchText);
 		}
 	}, [model, props.searchOpen, props.searchText]);
 
@@ -129,28 +154,173 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 		model.getItem(path)?.select();
 	}, [model, props.projection, props.selectedItemId]);
 
+	const publishVisibleItemIds = useCallback((): void => {
+		if (onVisibleItemIdsChange === undefined) {
+			return;
+		}
+		onVisibleItemIdsChange(
+			visibleReviewTreeItemIds({
+				model,
+				primaryItemIdByTreePath: sourceRef.current.primaryItemIdByTreePath,
+			}),
+		);
+	}, [model, onVisibleItemIdsChange]);
+
+	useEffect((): (() => void) => {
+		let scrollElement: HTMLElement | null = null;
+		let rowContainer: ParentNode | null = null;
+		let animationFrameId: number | null = null;
+		const scheduleVisibleItemIds = (): void => {
+			if (animationFrameId !== null) {
+				return;
+			}
+			animationFrameId = requestAnimationFrame((): void => {
+				animationFrameId = null;
+				publishVisibleItemIds();
+			});
+		};
+		const selectClickedFileRow = (event: Event): void => {
+			const selection = reviewTreeSelectionForEventTarget({
+				primaryItemIdByTreePath: sourceRef.current.primaryItemIdByTreePath,
+				target: event.target,
+			});
+			if (selection !== null) {
+				isSyncingClickedSelectionRef.current = true;
+				try {
+					controllerRef.current?.selectClickedTreePath(selection.path);
+				} finally {
+					isSyncingClickedSelectionRef.current = false;
+				}
+				flushSync((): void => {
+					onSelectItemRef.current(selection.itemId);
+				});
+			}
+		};
+		const setupFrameId = requestAnimationFrame((): void => {
+			const fileTreeContainer = model.getFileTreeContainer();
+			rowContainer = fileTreeContainer?.shadowRoot ?? fileTreeContainer ?? null;
+			scrollElement =
+				rowContainer?.querySelector<HTMLElement>('[data-file-tree-virtualized-scroll="true"]') ??
+				null;
+			scrollElement?.addEventListener('scroll', scheduleVisibleItemIds, { passive: true });
+			rowContainer?.addEventListener('click', selectClickedFileRow, { capture: true });
+			publishVisibleItemIds();
+		});
+		const unsubscribeModel = model.subscribe(scheduleVisibleItemIds);
+		return (): void => {
+			cancelAnimationFrame(setupFrameId);
+			if (animationFrameId !== null) {
+				cancelAnimationFrame(animationFrameId);
+			}
+			scrollElement?.removeEventListener('scroll', scheduleVisibleItemIds);
+			rowContainer?.removeEventListener('click', selectClickedFileRow, { capture: true });
+			unsubscribeModel();
+		};
+	}, [model, publishVisibleItemIds]);
+
 	return (
 		<div
 			aria-label="Review file tree"
 			className="h-full min-h-0 overflow-hidden bg-[var(--bridge-surface-bg)] text-[var(--bridge-text-secondary)]"
 			data-testid="bridge-review-trees-panel"
 		>
-			<FileTree model={model} style={bridgeReviewTreeStyle} />
+			<FileTree model={model} style={bridgeViewerTreeStyle} />
 		</div>
 	);
 }
 
-function firstBridgeTreeSearchMatchPath(props: {
-	readonly orderedPaths: readonly string[];
-	readonly searchText: string;
+export function reviewTreeItemIdForEventTarget(props: {
+	readonly primaryItemIdByTreePath: Readonly<Record<string, string>>;
+	readonly target: EventTarget | null;
 }): string | null {
-	const normalizedSearchText = props.searchText.trim().toLocaleLowerCase();
-	if (normalizedSearchText.length === 0) {
+	return (
+		reviewTreeSelectionForEventTarget({
+			primaryItemIdByTreePath: props.primaryItemIdByTreePath,
+			target: props.target,
+		})?.itemId ?? null
+	);
+}
+
+export interface ReviewTreeSelection {
+	readonly itemId: string;
+	readonly path: string;
+}
+
+export function reviewTreeSelectionForEventTarget(props: {
+	readonly primaryItemIdByTreePath: Readonly<Record<string, string>>;
+	readonly target: EventTarget | null;
+}): ReviewTreeSelection | null {
+	const rowElement = reviewTreeSelectionElementForEventTarget(props.target);
+	return reviewTreeSelectionForPath({
+		path: rowElement?.getAttribute('data-item-path') ?? null,
+		primaryItemIdByTreePath: props.primaryItemIdByTreePath,
+	});
+}
+
+function reviewTreeSelectionElementForEventTarget(target: EventTarget | null): HTMLElement | null {
+	if (!(target instanceof Element)) {
 		return null;
 	}
-	return (
-		props.orderedPaths.find((path: string): boolean =>
-			path.toLocaleLowerCase().includes(normalizedSearchText),
-		) ?? null
-	);
+	const selectionSelector =
+		'button[data-item-type="file"][data-item-path],[data-type="item"][data-item-type="file"][data-item-path]';
+	if ('getRootNode' in target) {
+		const root = target.getRootNode();
+		const eventLikePath =
+			root instanceof ShadowRoot && root.host instanceof Element ? [target, root.host] : [target];
+		for (const pathTarget of eventLikePath) {
+			const matched = pathTarget.closest<HTMLElement>(selectionSelector);
+			if (matched !== null) {
+				return matched;
+			}
+		}
+	}
+	return target.closest<HTMLElement>(selectionSelector);
+}
+
+export function reviewTreeItemIdForPath(props: {
+	readonly path: string | null;
+	readonly primaryItemIdByTreePath: Readonly<Record<string, string>>;
+}): string | null {
+	const path = props.path;
+	if (path === null) {
+		return null;
+	}
+	return props.primaryItemIdByTreePath[path] ?? null;
+}
+
+export function reviewTreeSelectionForPath(props: {
+	readonly path: string | null;
+	readonly primaryItemIdByTreePath: Readonly<Record<string, string>>;
+}): ReviewTreeSelection | null {
+	const path = props.path;
+	if (path === null) {
+		return null;
+	}
+	const itemId = props.primaryItemIdByTreePath[path];
+	return itemId === undefined ? null : { itemId, path };
+}
+
+function visibleReviewTreeItemIds(props: {
+	readonly model: ReturnType<typeof useFileTree>['model'];
+	readonly primaryItemIdByTreePath: Readonly<Record<string, string>>;
+}): readonly string[] {
+	const fileTreeContainer = props.model.getFileTreeContainer();
+	const rowContainer = fileTreeContainer?.shadowRoot ?? fileTreeContainer;
+	if (rowContainer === undefined || rowContainer === null) {
+		return [];
+	}
+	const itemIds: string[] = [];
+	const seenItemIds = new Set<string>();
+	for (const rowElement of rowContainer.querySelectorAll<HTMLElement>(
+		'[data-type="item"][data-item-type="file"][data-item-path]',
+	)) {
+		const path = rowElement.getAttribute('data-item-path');
+		const itemId = path === null ? undefined : props.primaryItemIdByTreePath[path];
+		if (itemId === undefined || seenItemIds.has(itemId)) {
+			continue;
+		}
+		seenItemIds.add(itemId);
+		itemIds.push(itemId);
+	}
+	return itemIds;
 }

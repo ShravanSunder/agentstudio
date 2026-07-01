@@ -26,6 +26,7 @@ if (rootElement !== null) {
 							autoOpenInitialFile: true,
 							fetchResource: nativeWorktreeFileBackend.fetchWorktreeFileResource,
 							loadInitialSurface: nativeWorktreeFileBackend.loadWorktreeFileSurface,
+							requestFileDescriptor: nativeWorktreeFileBackend.requestWorktreeFileDescriptor,
 							subscribeFrames: nativeWorktreeFileBackend.subscribeWorktreeFileFrames,
 						},
 					})}

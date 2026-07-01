@@ -4,21 +4,52 @@ import type {
 } from '../../../core/models/bridge-resource-descriptor.js';
 import type { BridgeResourceDescriptorRegistry } from '../../../core/resources/bridge-resource-registry.js';
 import type {
+	BridgeReviewPackageSummary,
+	BridgeSourceEndpoint,
+} from '../../../foundation/review-package/bridge-review-package.js';
+import type {
+	BridgeReviewProjectionInput,
+	BridgeReviewProjectionInputItem,
+} from '../../../review-viewer/models/review-projection-models.js';
+import type {
 	ReviewChangesetClusterMetadata,
+	ReviewExtentFact,
+	ReviewMetadataOperation,
 	ReviewProtocolFrame,
+	ReviewTreeRowMetadata,
 } from '../models/review-protocol-models.js';
 import { reviewProtocolFrameSchema } from '../models/review-protocol-models.js';
 
 export type ReviewMaterializerDelta =
 	| {
-			readonly kind: 'snapshot';
+			readonly kind: 'metadataSnapshot';
 			readonly packageId: string;
 			readonly sourceIdentity: string;
 			readonly generation: number;
 			readonly revision: number;
-			readonly rootDescriptorRef: BridgeDescriptorRef;
+			readonly baseEndpoint: BridgeSourceEndpoint;
+			readonly headEndpoint: BridgeSourceEndpoint;
+			readonly selectedItemId: string | null;
+			readonly visibleItemIds: readonly string[];
+			readonly projectionInput: BridgeReviewProjectionInput;
+			readonly treeRows: readonly ReviewTreeRowMetadata[];
+			readonly extentFacts: readonly ReviewExtentFact[];
+			readonly summary: BridgeReviewPackageSummary;
 			readonly registeredContentDescriptorRefs: readonly BridgeDescriptorRef[];
+			readonly contentDescriptors: readonly BridgeAttachedResourceDescriptor[];
 			readonly changesetCluster: ReviewChangesetClusterMetadata | null;
+	  }
+	| {
+			readonly kind: 'metadataWindow';
+			readonly packageId: string;
+			readonly generation: number;
+			readonly revision: number;
+			readonly itemMetadata: readonly BridgeReviewProjectionInputItem[];
+			readonly treeRows: readonly ReviewTreeRowMetadata[];
+			readonly extentFacts: readonly ReviewExtentFact[];
+			readonly summary: BridgeReviewPackageSummary;
+			readonly registeredContentDescriptorRefs: readonly BridgeDescriptorRef[];
+			readonly contentDescriptors: readonly BridgeAttachedResourceDescriptor[];
 	  }
 	| {
 			readonly kind: 'reset';
@@ -28,16 +59,16 @@ export type ReviewMaterializerDelta =
 				| 'providerRestart'
 				| 'authorityChanged';
 			readonly sourceIdentity: string;
-			readonly packageId?: string;
-			readonly replacementDescriptorRef?: BridgeDescriptorRef;
 	  }
 	| {
-			readonly kind: 'delta';
+			readonly kind: 'metadataDelta';
 			readonly packageId: string;
 			readonly fromRevision: number;
 			readonly toRevision: number;
-			readonly operationsDescriptorRef: BridgeDescriptorRef;
+			readonly operations: readonly ReviewMetadataOperation[];
+			readonly summary: BridgeReviewPackageSummary;
 			readonly registeredContentDescriptorRefs: readonly BridgeDescriptorRef[];
+			readonly contentDescriptors: readonly BridgeAttachedResourceDescriptor[];
 	  }
 	| {
 			readonly kind: 'invalidate';
@@ -72,41 +103,62 @@ export function applyReviewProtocolFrame(
 	}
 	const frame = parsedFrame.data;
 	switch (frame.frameKind) {
-		case 'review.snapshot': {
-			const registeredRefs: BridgeDescriptorRef[] = [];
-			const registeredContentDescriptorRefs: BridgeDescriptorRef[] = [];
-			const registerRootResult = registerAttachedDescriptorTransactionally({
+		case 'review.metadataSnapshot': {
+			const contentRegisterResult = registerContentDescriptorsTransactionally({
 				registry: props.registry,
-				attachedDescriptor: frame.package.rootDescriptor,
-				registeredRefs,
+				attachedDescriptors: frame.comparison.contentDescriptors ?? [],
 			});
-			if (!registerRootResult) {
-				rollbackRegisteredDescriptors({ registry: props.registry, registeredRefs });
+			if (!contentRegisterResult.ok) {
 				return { ok: false, reason: 'descriptor_rejected' };
-			}
-			for (const attachedDescriptor of frame.package.contentDescriptors ?? []) {
-				const contentRegisterResult = registerAttachedDescriptorTransactionally({
-					registry: props.registry,
-					attachedDescriptor,
-					registeredRefs,
-				});
-				if (!contentRegisterResult) {
-					rollbackRegisteredDescriptors({ registry: props.registry, registeredRefs });
-					return { ok: false, reason: 'descriptor_rejected' };
-				}
-				registeredContentDescriptorRefs.push(attachedDescriptor.ref);
 			}
 			return {
 				ok: true,
 				delta: {
-					kind: 'snapshot',
-					packageId: frame.package.packageId,
-					sourceIdentity: frame.package.sourceIdentity,
-					generation: frame.package.generation,
-					revision: frame.package.revision,
-					rootDescriptorRef: frame.package.rootDescriptor.ref,
-					registeredContentDescriptorRefs,
-					changesetCluster: frame.package.changesetCluster ?? null,
+					kind: 'metadataSnapshot',
+					packageId: frame.comparison.packageId,
+					sourceIdentity: frame.comparison.sourceIdentity,
+					generation: frame.comparison.generation,
+					revision: frame.comparison.revision,
+					baseEndpoint: frame.comparison.baseEndpoint,
+					headEndpoint: frame.comparison.headEndpoint,
+					selectedItemId: frame.selectedItemId,
+					visibleItemIds: frame.visibleItemIds,
+					projectionInput: {
+						packageId: frame.comparison.packageId,
+						reviewGeneration: frame.comparison.generation,
+						revision: frame.comparison.revision,
+						orderedItems: frame.itemMetadata,
+					},
+					treeRows: frame.treeRows,
+					extentFacts: frame.extentFacts,
+					summary: frame.summary,
+					registeredContentDescriptorRefs: contentRegisterResult.registeredContentDescriptorRefs,
+					contentDescriptors: frame.comparison.contentDescriptors ?? [],
+					changesetCluster: frame.comparison.changesetCluster ?? null,
+				},
+			};
+		}
+		case 'review.metadataWindow': {
+			const contentRegisterResult = registerContentDescriptorsTransactionally({
+				registry: props.registry,
+				attachedDescriptors: frame.contentDescriptors ?? [],
+			});
+			if (!contentRegisterResult.ok) {
+				return { ok: false, reason: 'descriptor_rejected' };
+			}
+			return {
+				ok: true,
+				delta: {
+					kind: 'metadataWindow',
+					packageId: frame.packageId,
+					generation: frame.generation,
+					revision: frame.revision,
+					itemMetadata: frame.itemMetadata,
+					treeRows: frame.treeRows,
+					extentFacts: frame.extentFacts,
+					summary: frame.summary,
+					registeredContentDescriptorRefs: contentRegisterResult.registeredContentDescriptorRefs,
+					contentDescriptors: frame.contentDescriptors ?? [],
 				},
 			};
 		}
@@ -115,67 +167,35 @@ export function applyReviewProtocolFrame(
 				paneId: props.paneId,
 				protocol: 'review',
 				sourceId: frame.sourceIdentity,
-				...(frame.packageId === undefined ? {} : { packageId: frame.packageId }),
 			});
-			if (frame.replacementDescriptor === undefined) {
-				return {
-					ok: true,
-					delta: {
-						kind: 'reset',
-						reason: frame.reason,
-						sourceIdentity: frame.sourceIdentity,
-						...(frame.packageId === undefined ? {} : { packageId: frame.packageId }),
-					},
-				};
-			}
-			const replacementRegisterResult = props.registry.register(frame.replacementDescriptor);
-			if (!replacementRegisterResult.ok) {
-				return { ok: false, reason: 'descriptor_rejected' };
-			}
 			return {
 				ok: true,
 				delta: {
 					kind: 'reset',
 					reason: frame.reason,
 					sourceIdentity: frame.sourceIdentity,
-					...(frame.packageId === undefined ? {} : { packageId: frame.packageId }),
-					replacementDescriptorRef: frame.replacementDescriptor.ref,
 				},
 			};
 		}
-		case 'review.delta': {
-			const registeredRefs: BridgeDescriptorRef[] = [];
-			const registeredContentDescriptorRefs: BridgeDescriptorRef[] = [];
-			const registerOperationsResult = registerAttachedDescriptorTransactionally({
+		case 'review.metadataDelta': {
+			const contentRegisterResult = registerContentDescriptorsTransactionally({
 				registry: props.registry,
-				attachedDescriptor: frame.operationsDescriptor,
-				registeredRefs,
+				attachedDescriptors: frame.contentDescriptors ?? [],
 			});
-			if (!registerOperationsResult) {
-				rollbackRegisteredDescriptors({ registry: props.registry, registeredRefs });
+			if (!contentRegisterResult.ok) {
 				return { ok: false, reason: 'descriptor_rejected' };
-			}
-			for (const attachedDescriptor of frame.contentDescriptors ?? []) {
-				const contentRegisterResult = registerAttachedDescriptorTransactionally({
-					registry: props.registry,
-					attachedDescriptor,
-					registeredRefs,
-				});
-				if (!contentRegisterResult) {
-					rollbackRegisteredDescriptors({ registry: props.registry, registeredRefs });
-					return { ok: false, reason: 'descriptor_rejected' };
-				}
-				registeredContentDescriptorRefs.push(attachedDescriptor.ref);
 			}
 			return {
 				ok: true,
 				delta: {
-					kind: 'delta',
+					kind: 'metadataDelta',
 					packageId: frame.packageId,
 					fromRevision: frame.fromRevision,
 					toRevision: frame.toRevision,
-					operationsDescriptorRef: frame.operationsDescriptor.ref,
-					registeredContentDescriptorRefs,
+					operations: frame.operations,
+					summary: frame.summary,
+					registeredContentDescriptorRefs: contentRegisterResult.registeredContentDescriptorRefs,
+					contentDescriptors: frame.contentDescriptors ?? [],
 				},
 			};
 		}
@@ -209,6 +229,32 @@ function registerAttachedDescriptorTransactionally(props: {
 	}
 	props.registeredRefs.push(props.attachedDescriptor.ref);
 	return true;
+}
+
+function registerContentDescriptorsTransactionally(props: {
+	readonly registry: BridgeResourceDescriptorRegistry;
+	readonly attachedDescriptors: readonly BridgeAttachedResourceDescriptor[];
+}):
+	| {
+			readonly ok: true;
+			readonly registeredContentDescriptorRefs: readonly BridgeDescriptorRef[];
+	  }
+	| { readonly ok: false } {
+	const registeredRefs: BridgeDescriptorRef[] = [];
+	const registeredContentDescriptorRefs: BridgeDescriptorRef[] = [];
+	for (const attachedDescriptor of props.attachedDescriptors) {
+		const contentRegisterResult = registerAttachedDescriptorTransactionally({
+			registry: props.registry,
+			attachedDescriptor,
+			registeredRefs,
+		});
+		if (!contentRegisterResult) {
+			rollbackRegisteredDescriptors({ registry: props.registry, registeredRefs });
+			return { ok: false };
+		}
+		registeredContentDescriptorRefs.push(attachedDescriptor.ref);
+	}
+	return { ok: true, registeredContentDescriptorRefs };
 }
 
 function rollbackRegisteredDescriptors(props: {

@@ -2,21 +2,24 @@ import { z } from 'zod';
 
 import type { BridgeIntakeFrame } from '../core/models/bridge-intake-frame.js';
 import { parseBridgeCoreResourceUrl } from '../core/resources/bridge-resource-url.js';
-import type { ReviewSnapshotFrame } from '../features/review/models/review-protocol-models.js';
+import type {
+	ReviewMetadataSnapshotFrame,
+	ReviewMetadataWindowFrame,
+} from '../features/review/models/review-protocol-models.js';
 import { reviewProtocolFrameSchema } from '../features/review/models/review-protocol-models.js';
 import type { BridgeContentFetch } from '../foundation/content/content-resource-loader.js';
 import type { BridgeTelemetryBootstrapHandshakeConfig } from '../foundation/telemetry/bridge-telemetry-bootstrap-config.js';
 
 export interface BridgeAppDevWorktreeReviewBackend {
 	readonly fetchContent: BridgeContentFetch;
-	readonly pushPackage: () => Promise<void>;
+	readonly pushMetadata: () => Promise<void>;
 }
 
 export interface InstallBridgeAppDevWorktreeReviewBackendProps {
 	readonly telemetryConfig?: BridgeTelemetryBootstrapHandshakeConfig;
 }
 
-const worktreeReviewPackageEndpoint = '/__bridge-worktree/review-package';
+const worktreeReviewMetadataEndpoint = '/__bridge-worktree/review-metadata';
 const worktreeReviewContentEndpointPrefix = '/__bridge-worktree/review-content/';
 const bridgeWorktreeReviewPaneId = 'bridge-worktree-review-dev-pane';
 const bridgeWorktreeReviewStreamId = `review:${bridgeWorktreeReviewPaneId}`;
@@ -25,12 +28,13 @@ const bridgeCommandNonceAttribute = 'data-bridge-nonce';
 const bridgeReviewPaneIdAttribute = 'data-bridge-review-pane-id';
 const bridgeReviewStreamIdAttribute = 'data-bridge-review-stream-id';
 const bridgeWorktreeReviewAllowedResourceKindsByProtocol = {
-	review: new Set(['content', 'review-package', 'review-delta']),
+	review: new Set(['content']),
 };
 
-const bridgeWorktreeReviewSnapshotResponseSchema = z
+const bridgeWorktreeReviewMetadataResponseSchema = z
 	.object({
 		protocolFrame: reviewProtocolFrameSchema,
+		nextWindowCursor: z.string().min(1).nullable().optional(),
 	})
 	.strict();
 
@@ -54,7 +58,11 @@ export function installBridgeAppDevWorktreeReviewBackend(
 	const handshakeRequestPromise = new Promise<void>((resolve): void => {
 		resolveHandshakeRequest = resolve;
 	});
-	let packagePushPromise: Promise<void> | null = null;
+	let resolveIntakeReplayRequest: (() => void) | null = null;
+	const intakeReplayRequestPromise = new Promise<void>((resolve): void => {
+		resolveIntakeReplayRequest = resolve;
+	});
+	let metadataPushPromise: Promise<void> | null = null;
 	const handleHandshakeRequest = (): void => {
 		document.dispatchEvent(
 			new CustomEvent('__bridge_handshake', {
@@ -69,11 +77,17 @@ export function installBridgeAppDevWorktreeReviewBackend(
 		resolveHandshakeRequest?.();
 		resolveHandshakeRequest = null;
 	};
+	const handleIntakeReplayRequest = (): void => {
+		resolveIntakeReplayRequest?.();
+		resolveIntakeReplayRequest = null;
+	};
 	document.addEventListener('__bridge_handshake_request', handleHandshakeRequest);
+	document.addEventListener('__bridge_intake_replay_request', handleIntakeReplayRequest);
 	window.addEventListener(
 		'beforeunload',
 		(): void => {
 			document.removeEventListener('__bridge_handshake_request', handleHandshakeRequest);
+			document.removeEventListener('__bridge_intake_replay_request', handleIntakeReplayRequest);
 			restoreDocumentElementAttribute(bridgeCommandNonceAttribute, previousCommandNonce);
 			restoreDocumentElementAttribute(bridgeReviewPaneIdAttribute, previousPaneId);
 			restoreDocumentElementAttribute(bridgeReviewStreamIdAttribute, previousStreamId);
@@ -89,19 +103,6 @@ export function installBridgeAppDevWorktreeReviewBackend(
 			if (parsedResourceUrl === null) {
 				return new Response('Invalid Bridge worktree review content URL', {
 					status: 400,
-				});
-			}
-			if (
-				parsedResourceUrl.resourceKind === 'review-package' ||
-				parsedResourceUrl.resourceKind === 'review-delta'
-			) {
-				return await fetchWorktreeReviewProtocolResource({
-					forwardedSearchParams,
-					init,
-					opaqueId: parsedResourceUrl.opaqueId,
-					resourceKind: parsedResourceUrl.resourceKind,
-					generation: parsedResourceUrl.generation,
-					revision: parsedResourceUrl.revision,
 				});
 			}
 			if (parsedResourceUrl.resourceKind !== 'content') {
@@ -122,47 +123,92 @@ export function installBridgeAppDevWorktreeReviewBackend(
 				init,
 			);
 		},
-		pushPackage: async (): Promise<void> => {
-			packagePushPromise ??= pushWorktreeReviewPackageAfterHandshake({
+		pushMetadata: async (): Promise<void> => {
+			metadataPushPromise ??= pushWorktreeReviewMetadataAfterHandshake({
 				forwardedSearchParams,
 				handshakeRequestPromise,
+				intakeReplayRequestPromise,
 			});
-			await packagePushPromise;
+			await metadataPushPromise;
 		},
 	};
 }
 
-async function fetchWorktreeReviewProtocolResource(props: {
-	readonly forwardedSearchParams: URLSearchParams;
-	readonly generation: number | undefined;
-	readonly init?: RequestInit | undefined;
-	readonly opaqueId: string;
-	readonly resourceKind: 'review-package' | 'review-delta';
-	readonly revision: number | undefined;
-}): Promise<Response> {
-	return await fetch(
-		bridgeWorktreeReviewEndpoint(
-			worktreeReviewPackageEndpoint,
-			bridgeWorktreeReviewPackageResourceSearchParams({
-				forwardedSearchParams: props.forwardedSearchParams,
-				generation: props.generation,
-				opaqueId: props.opaqueId,
-				resourceKind: props.resourceKind,
-				revision: props.revision,
-			}),
-		),
-		props.init,
-	);
-}
-
-async function pushWorktreeReviewPackageAfterHandshake(props: {
+async function pushWorktreeReviewMetadataAfterHandshake(props: {
 	readonly forwardedSearchParams: URLSearchParams;
 	readonly handshakeRequestPromise: Promise<void>;
+	readonly intakeReplayRequestPromise: Promise<void>;
 }): Promise<void> {
 	await props.handshakeRequestPromise;
-	const protocolFrame = await loadWorktreeReviewSnapshotFrame(props.forwardedSearchParams);
+	await props.intakeReplayRequestPromise;
+	for await (const protocolFrame of loadWorktreeReviewMetadataFrames(props.forwardedSearchParams)) {
+		dispatchWorktreeReviewMetadataFrame(protocolFrame);
+		await Promise.resolve();
+	}
+	await Promise.resolve();
+}
+
+async function* loadWorktreeReviewMetadataFrames(
+	forwardedSearchParams: URLSearchParams,
+): AsyncGenerator<ReviewMetadataSnapshotFrame | ReviewMetadataWindowFrame> {
+	const snapshotResponse = await loadWorktreeReviewMetadataResponse(
+		bridgeWorktreeReviewMetadataSearchParams(forwardedSearchParams),
+	);
+	if (snapshotResponse.protocolFrame.frameKind !== 'review.metadataSnapshot') {
+		throw new Error('Bridge worktree review bootstrap returned a non-metadata snapshot frame');
+	}
+	yield snapshotResponse.protocolFrame;
+	let nextWindowCursor = snapshotResponse.nextWindowCursor ?? null;
+	while (nextWindowCursor !== null) {
+		const windowResponse = await loadWorktreeReviewMetadataResponse(
+			bridgeWorktreeReviewMetadataWindowSearchParams({
+				cursor: nextWindowCursor,
+				forwardedSearchParams,
+			}),
+		);
+		if (windowResponse.protocolFrame.frameKind !== 'review.metadataWindow') {
+			throw new Error('Bridge worktree review bootstrap returned a non-metadata window frame');
+		}
+		yield windowResponse.protocolFrame;
+		nextWindowCursor = windowResponse.nextWindowCursor ?? null;
+	}
+}
+
+async function loadWorktreeReviewMetadataResponse(
+	searchParams: URLSearchParams,
+): Promise<z.infer<typeof bridgeWorktreeReviewMetadataResponseSchema>> {
+	const response = await fetch(
+		bridgeWorktreeReviewEndpoint(worktreeReviewMetadataEndpoint, searchParams),
+	);
+	if (!response.ok) {
+		throw new Error(`Bridge worktree review metadata request failed: ${response.status}`);
+	}
+	return bridgeWorktreeReviewMetadataResponseSchema.parse(await response.json());
+}
+
+function bridgeWorktreeReviewMetadataSearchParams(
+	forwardedSearchParams: URLSearchParams,
+): URLSearchParams {
+	const searchParams = new URLSearchParams(forwardedSearchParams);
+	searchParams.set('frame', 'review-metadata-snapshot');
+	return searchParams;
+}
+
+function bridgeWorktreeReviewMetadataWindowSearchParams(props: {
+	readonly cursor: string;
+	readonly forwardedSearchParams: URLSearchParams;
+}): URLSearchParams {
+	const searchParams = new URLSearchParams(props.forwardedSearchParams);
+	searchParams.set('frame', 'review-metadata-window');
+	searchParams.set('cursor', props.cursor);
+	return searchParams;
+}
+
+function dispatchWorktreeReviewMetadataFrame(
+	protocolFrame: ReviewMetadataSnapshotFrame | ReviewMetadataWindowFrame,
+): void {
 	const intakeFrame: BridgeIntakeFrame = {
-		kind: 'snapshot',
+		kind: protocolFrame.frameKind === 'review.metadataSnapshot' ? 'snapshot' : 'delta',
 		streamId: protocolFrame.streamId,
 		generation: protocolFrame.generation,
 		sequence: protocolFrame.sequence,
@@ -176,35 +222,6 @@ async function pushWorktreeReviewPackageAfterHandshake(props: {
 			},
 		}),
 	);
-	await Promise.resolve();
-	await Promise.resolve();
-}
-
-async function loadWorktreeReviewSnapshotFrame(
-	forwardedSearchParams: URLSearchParams,
-): Promise<ReviewSnapshotFrame> {
-	const response = await fetch(
-		bridgeWorktreeReviewEndpoint(
-			worktreeReviewPackageEndpoint,
-			bridgeWorktreeReviewSnapshotSearchParams(forwardedSearchParams),
-		),
-	);
-	if (!response.ok) {
-		throw new Error(`Bridge worktree review snapshot request failed: ${response.status}`);
-	}
-	const parsed = bridgeWorktreeReviewSnapshotResponseSchema.parse(await response.json());
-	if (parsed.protocolFrame.frameKind !== 'review.snapshot') {
-		throw new Error('Bridge worktree review bootstrap returned a non-snapshot frame');
-	}
-	return parsed.protocolFrame;
-}
-
-function bridgeWorktreeReviewSnapshotSearchParams(
-	forwardedSearchParams: URLSearchParams,
-): URLSearchParams {
-	const searchParams = new URLSearchParams(forwardedSearchParams);
-	searchParams.set('frame', 'review-snapshot');
-	return searchParams;
 }
 
 function bridgeWorktreeReviewForwardedSearchParams(search: string): URLSearchParams {
@@ -227,25 +244,6 @@ function bridgeWorktreeReviewContentSearchParams(props: {
 	if (props.cursor !== undefined) {
 		searchParams.set('cursor', props.cursor);
 	}
-	if (props.generation !== undefined) {
-		searchParams.set('generation', String(props.generation));
-	}
-	if (props.revision !== undefined) {
-		searchParams.set('revision', String(props.revision));
-	}
-	return searchParams;
-}
-
-function bridgeWorktreeReviewPackageResourceSearchParams(props: {
-	readonly forwardedSearchParams: URLSearchParams;
-	readonly generation: number | undefined;
-	readonly opaqueId: string;
-	readonly resourceKind: 'review-package' | 'review-delta';
-	readonly revision: number | undefined;
-}): URLSearchParams {
-	const searchParams = new URLSearchParams(props.forwardedSearchParams);
-	searchParams.set('resource', props.resourceKind);
-	searchParams.set('opaqueId', props.opaqueId);
 	if (props.generation !== undefined) {
 		searchParams.set('generation', String(props.generation));
 	}

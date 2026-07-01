@@ -3,7 +3,7 @@ import { render } from 'vitest-browser-react';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load the app CSS.
 import './bridge-app.css';
-import { BridgeReviewProjectionMenu } from '../review-viewer/shell/review-viewer-shell.js';
+import { BridgeReviewProjectionMenu } from '../review-viewer/chrome/bridge-review-projection-menu.js';
 import {
 	BridgeViewerContentHeader,
 	BridgeViewerContextSwitcher,
