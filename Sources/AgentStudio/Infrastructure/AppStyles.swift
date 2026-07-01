@@ -187,12 +187,20 @@ enum AppStyles {
             static let tabBarLeadingInset: CGFloat = 72
             static let tabBarContentLeadingPadding: CGFloat = AppStyles.General.Spacing.loose
             static let tabBarTopInset: CGFloat = 6
+            static let dividerHeight: CGFloat = 18
+            static let dividerHorizontalPadding: CGFloat = AppStyles.General.Spacing.standard
+            static let iconClusterSpacing: CGFloat = AppStyles.General.Spacing.standard
 
             enum ToolbarButton {
+                static let size: CGFloat = AppStyles.General.Button.compact
                 static let iconSize: CGFloat = AppStyles.General.Icon.compact
-                static let baseFillOpacity: CGFloat = AppStyles.General.Fill.muted
-                static let hoverFillOpacity: CGFloat = AppStyles.General.Fill.hover
-                static let selectedFillOpacity: CGFloat = AppStyles.General.Fill.active
+                static let baseFillOpacity: CGFloat = AppStyles.General.Fill.pressed
+                static let hoverFillOpacity: CGFloat = AppStyles.General.Fill.active
+                static let pressedFillOpacity: CGFloat = AppStyles.General.Fill.active
+                static let selectedFillOpacity: CGFloat = 0.20
+                static let baseStrokeOpacity: CGFloat = AppStyles.General.Stroke.muted
+                static let hoverStrokeOpacity: CGFloat = AppStyles.General.Stroke.hover
+                static let selectedStrokeOpacity: CGFloat = 0.30
                 static let badgeOffsetX: CGFloat = 6
                 static let badgeOffsetY: CGFloat = -5
             }

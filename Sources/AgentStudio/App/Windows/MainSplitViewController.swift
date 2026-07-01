@@ -461,6 +461,7 @@ class MainSplitViewController: NSSplitViewController {
         }
         guard let sidebarItem = splitViewItems.first, !sidebarItem.isCollapsed else { return }
         sidebarItem.animator().isCollapsed = true
+        uiState.setSidebarCollapsed(true)
         uiState.setSidebarHasFocus(false)
         clearInboxRuntimeEntryStateIfNeeded()
         scheduleSaveSidebarState()
@@ -548,8 +549,8 @@ class MainSplitViewController: NSSplitViewController {
             collapseSidebar()
             return
         }
-        ensureSidebarVisible()
         uiState.setSidebarSurface(.inbox)
+        ensureSidebarVisible()
         if commandBarIsKey {
             inboxSidebarState.markRetargetRequestHandled()
             sidebarFocusTask?.cancel()
@@ -575,8 +576,8 @@ class MainSplitViewController: NSSplitViewController {
         }
         sidebarFocusTask?.cancel()
         shouldFocusSidebarWhenVisible = false
-        ensureSidebarVisible()
         uiState.setSidebarSurface(.repos)
+        ensureSidebarVisible()
     }
 
     func refocusActivePane() {

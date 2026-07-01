@@ -67,7 +67,6 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         @MainActor (_ id: EditorTargetId, _ path: URL, _ installedTargets: [ExternalEditorTarget]) -> Bool
 
     private static let logger = Logger(subsystem: "com.agentstudio", category: "PaneTabViewController")
-    private static let genericGitHubURL = URL(string: "https://github.com")!
 
     private enum WorkspaceNavigationFocusScope: Equatable {
         case mainRow
@@ -342,9 +341,6 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             },
             onAdd: { [weak self] in
                 self?.addNewTab()
-            },
-            onOpenGitHub: { [weak self] in
-                self?.openGitHubWebview()
             },
             onPaneAction: { [weak self] action in
                 self?.dispatchAction(action)
@@ -1359,10 +1355,6 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         for target in emptyStateModel.recentTargets {
             openRecentTarget(target)
         }
-    }
-
-    private func openGitHubWebview() {
-        executor.openWebview(url: Self.genericGitHubURL)
     }
 
     private func openGitHubWebview(for paneId: UUID) {

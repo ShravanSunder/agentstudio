@@ -7,6 +7,10 @@ struct TabBarArrangementChip: View {
     let isPressed: Bool
     let nameMaxWidth: CGFloat
 
+    var styleContract: ChromeToolbarCapsuleStyleContract {
+        ChromeToolbarCapsuleStyleContract(isHovered: isHovered, isPressed: isPressed)
+    }
+
     var hasCustomArrangement: Bool {
         index != nil && name != nil
     }
@@ -15,20 +19,16 @@ struct TabBarArrangementChip: View {
         name != nil
     }
 
-    var chipFillOpacity: CGFloat {
-        if isPressed { return AppStyles.General.Fill.active }
-        if isHovered { return AppStyles.General.Fill.pressed }
-        return AppStyles.General.Fill.muted
-    }
-
     static func nameMaxWidth(isManagementLayerActive: Bool) -> CGFloat {
         isManagementLayerActive ? 200 : 100
     }
 
     var body: some View {
+        let styleContract = styleContract
+
         HStack(spacing: 6) {
             Image(systemName: "rectangle.3.group")
-                .font(.system(size: AppStyles.General.Icon.compact, weight: .medium))
+                .font(.system(size: styleContract.iconSize, weight: .medium))
                 .foregroundStyle(isHovered ? .primary : .secondary)
 
             if let name {
@@ -51,15 +51,26 @@ struct TabBarArrangementChip: View {
             }
         }
         .fixedSize(horizontal: true, vertical: false)
-        .frame(height: AppStyles.General.Button.toolbar)
+        .frame(height: styleContract.height)
         .padding(.horizontal, showsArrangementName ? 8 : 0)
-        .frame(minWidth: AppStyles.General.Button.toolbar)
+        .frame(minWidth: styleContract.minimumWidth)
         .background(
-            Capsule()
-                .fill(Color.white.opacity(chipFillOpacity))
+            ChromeToolbarCapsuleBackground(
+                isHovered: styleContract.isHovered,
+                isPressed: styleContract.isPressed
+            )
         )
         .contentShape(Capsule())
         .animation(.easeInOut(duration: AppStyles.General.Animation.standard), value: showsArrangementName)
         .animation(.easeInOut(duration: AppStyles.General.Animation.standard), value: name)
     }
+}
+
+struct ChromeToolbarCapsuleStyleContract: Equatable {
+    let height = AppStyles.Shell.Chrome.ToolbarButton.size
+    let minimumWidth = AppStyles.Shell.Chrome.ToolbarButton.size
+    let iconSize = AppStyles.Shell.Chrome.ToolbarButton.iconSize
+    let isHovered: Bool
+    let isPressed: Bool
+    let usesToolbarBackground = true
 }

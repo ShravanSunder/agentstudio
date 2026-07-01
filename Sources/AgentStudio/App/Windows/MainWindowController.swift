@@ -237,12 +237,13 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
 
     private func updateSidebarToolbarIcons() {
         guard let uiState else { return }
+        let sidebarIsOpen = !uiState.sidebarCollapsed
         let worktreeSymbol =
-            uiState.sidebarSurface == .repos
+            sidebarIsOpen && uiState.sidebarSurface == .repos
             ? "square.stack.3d.down.right.fill"
             : "square.stack.3d.down.right"
         let inboxSymbol =
-            uiState.sidebarSurface == .inbox
+            sidebarIsOpen && uiState.sidebarSurface == .inbox
             ? "bell.fill"
             : "bell"
 
@@ -289,6 +290,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         isObservingSidebarSurface = true
         withObservationTracking {
             _ = uiState.sidebarSurface
+            _ = uiState.sidebarCollapsed
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
