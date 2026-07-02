@@ -138,9 +138,14 @@ actor BridgeMetadataLaneScheduler {
         openProtocolIds.remove(protocolId)
     }
 
-    func enqueue(_ job: BridgeMetadataLaneJob) {
+    func enqueue(_ job: BridgeMetadataLaneJob) async {
         guard currentGenerationByProtocol[job.protocolId] == job.generation else {
             staleDroppedJobCount += 1
+            await telemetry?.recordStaleDrop(
+                lane: job.lane,
+                protocolId: job.protocolId,
+                droppedCount: 1
+            )
             return
         }
         queuesByLane[job.lane, default: []].append(
@@ -177,6 +182,11 @@ actor BridgeMetadataLaneScheduler {
             guard currentGenerationByProtocol[dequeued.job.protocolId] == dequeued.job.generation
             else {
                 staleDroppedJobCount += 1
+                await telemetry?.recordStaleDrop(
+                    lane: dequeued.job.lane,
+                    protocolId: dequeued.job.protocolId,
+                    droppedCount: 1
+                )
                 continue
             }
             let waitMilliseconds = Self.milliseconds(
@@ -192,8 +202,15 @@ actor BridgeMetadataLaneScheduler {
             guard delivered else {
                 // Transport failure: retain the job at the front of its lane
                 // and close the gate; reopening the gate retries in order.
+                // The retained job re-enters the queue now, so its retry
+                // queue-wait measures requeue-to-dequeue instead of folding
+                // the whole gate-closed recovery gap into the lane's
+                // percentiles.
                 closeGate(protocolId: dequeued.job.protocolId)
-                queuesByLane[dequeued.job.lane, default: []].insert(dequeued, at: 0)
+                queuesByLane[dequeued.job.lane, default: []].insert(
+                    QueuedJob(job: dequeued.job, enqueuedAt: clock.now),
+                    at: 0
+                )
                 continue
             }
             drainedJobCount += 1

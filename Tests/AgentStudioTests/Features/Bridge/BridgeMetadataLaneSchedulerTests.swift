@@ -124,6 +124,24 @@ struct BridgeMetadataLaneSchedulerTests {
         #expect(executed == ["foreground-1", "visible-1", "idle-1", "idle-2"])
     }
 
+    @Test("review foreground work drains before worktree-file idle continuation")
+    func reviewForegroundDrainsBeforeWorktreeFileIdleContinuation() async throws {
+        let recorder = await MainActor.run { SchedulerExecutionOrderRecorder() }
+        let scheduler = BridgeMetadataLaneScheduler(idleNoStarvationBudget: 100)
+        await scheduler.acceptGeneration(1, protocolId: "worktree-file")
+        await scheduler.acceptGeneration(1, protocolId: "review")
+        await scheduler.enqueue(makeJob("worktree-idle", lane: .idle, recorder: recorder))
+        await scheduler.enqueue(
+            makeJob("review-foreground", lane: .foreground, protocolId: "review", recorder: recorder)
+        )
+        await scheduler.openGate(protocolId: "worktree-file")
+        await scheduler.openGate(protocolId: "review")
+        await scheduler.waitUntilDrained()
+
+        let executed = await MainActor.run { recorder.executedLabels }
+        #expect(executed == ["review-foreground", "worktree-idle"])
+    }
+
     @Test("within a lane jobs dispatch in arrival order across protocols")
     func withinLaneJobsDispatchInArrivalOrder() async throws {
         let recorder = await MainActor.run { SchedulerExecutionOrderRecorder() }
@@ -213,8 +231,12 @@ struct BridgeMetadataLaneSchedulerTests {
         let executed = await MainActor.run { recorder.executedLabels }
         #expect(executed == ["current-1"])
         #expect(await scheduler.staleDroppedJobCount == 3)
+        // Every stale-drop lane emits telemetry: the two queued jobs dropped
+        // by the generation bump AND the rejected stale enqueue, so the
+        // emitted count matches staleDroppedJobCount instead of
+        // under-reporting.
         let dropCounts = await telemetrySpy.staleDropCounts
-        #expect((dropCounts[.visible] ?? 0) + (dropCounts[.idle] ?? 0) == 2)
+        #expect((dropCounts[.visible] ?? 0) + (dropCounts[.idle] ?? 0) == 3)
     }
 
     @Test("queue-wait samples are recorded per lane from enqueue to dequeue")

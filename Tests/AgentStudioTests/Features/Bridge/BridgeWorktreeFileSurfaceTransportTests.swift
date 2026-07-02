@@ -91,6 +91,11 @@ extension WebKitSerializedTests {
                 )
             )
 
+            // Drain fence: if the stale-generation guard were removed, the
+            // rejected ready would open the gate and schedule a detached
+            // drain; without this wait the assertions below could race it
+            // and pass falsely.
+            await fixture.controller.worktreeFileMetadataScheduler.waitUntilDrained()
             #expect(await fixture.controller.worktreeFileMetadataScheduler.queuedJobCount == 1)
             #expect(await eventCapture.intakeFrames().isEmpty)
 

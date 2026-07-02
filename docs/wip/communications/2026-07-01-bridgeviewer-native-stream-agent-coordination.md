@@ -109,6 +109,25 @@ entries; if an entry becomes stale, append a correction with the new evidence.
   `oxlint --type-aware` on touched TS passed,
   and `pnpm --dir BridgeWeb exec tsc --noEmit --pretty false` passed.
 
+### 2026-07-01 Codex Swift Lane Takeover Follow-Up
+
+- Fable hit quota after `9c398471`; Codex is now the parent controller for the
+  Swift demand-lane path too.
+- Live handoff mismatch resolved: `9c398471` is committed, but five final
+  reliability/allowlist/stale-drop files were still dirty on top of it.
+- Codex added the remaining cross-protocol scheduler proof:
+  review foreground metadata drains before worktree-file idle continuation.
+- Focused proof:
+  `source scripts/swift-build-slot.sh debug && swift build --build-path "$SWIFT_BUILD_DIR" --build-tests && SWIFT_TEST_TIMEOUT_SECONDS=240 swift test --build-path "$SWIFT_BUILD_DIR" --skip-build --filter 'BridgeMetadataLaneSchedulerTests'`
+  passed 9 tests / 1 suite.
+- Wide Swift lane proof:
+  `source scripts/swift-build-slot.sh debug && SWIFT_TEST_TIMEOUT_SECONDS=240 swift test --build-path "$SWIFT_BUILD_DIR" --skip-build --filter 'BridgeMetadataLaneSchedulerTests|WebKitSerializedTests.BridgeWorktreeFile|WebKitSerializedTests.BridgeReviewMetadataWindowTransportTests|WebKitSerializedTests.BridgePaneControllerTests'`
+  passed 85 tests / 12 suites.
+- Touched-file static proof:
+  `git diff --check`, `swift-format lint --configuration .swift-format ...`,
+  and `swiftlint lint --strict --config .swiftlint.yml ...` passed for the five
+  Swift files in the follow-up batch.
+
 ### 2026-07-01 Codex React Lane Pierre Scroll Ownership Checkpoint
 
 - Verified local `@pierre/trees` package source:
