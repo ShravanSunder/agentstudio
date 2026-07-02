@@ -536,7 +536,7 @@ describe('Bridge worktree dev provider', () => {
 			);
 			const secondRequest = worktreeFileContentRequestForDescriptor(secondDocsDescriptor);
 
-			expect(secondSurface.source.sourceCursor).not.toBe(firstSurface.source.sourceCursor);
+			expect(secondSurface.source.sourceCursor).toBe(firstSurface.source.sourceCursor);
 			expect(secondRequest.sourceCursor).toBe(secondSurface.source.sourceCursor);
 			await expect(provider.loadWorktreeFileContent(firstRequest)).resolves.toContain(
 				'new docs body',

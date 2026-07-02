@@ -5,12 +5,16 @@ import type {
 import { bridgeAttachedResourceDescriptorSchema } from '../../../src/core/models/bridge-resource-descriptor.js';
 import type {
 	WorktreeFileDescriptor,
+	WorktreeFileInvalidatedFrame,
 	WorktreeFileProtocolFrame,
 	WorktreeFileSurfaceSourceIdentity,
 	WorktreeTreeRowMetadata,
 	WorktreeTreeVirtualizedSizeFacts,
 } from '../../../src/features/worktree-file/models/worktree-file-protocol-models.js';
-import { worktreeFileProtocolFrameSchema } from '../../../src/features/worktree-file/models/worktree-file-protocol-models.js';
+import {
+	worktreeFileInvalidatedFrameSchema,
+	worktreeFileProtocolFrameSchema,
+} from '../../../src/features/worktree-file/models/worktree-file-protocol-models.js';
 import { countFlattenedWorktreeFileTreeRows } from '../../../src/features/worktree-file/models/worktree-file-tree-size.js';
 import type { BridgeWorktreeDevProviderConfig, BridgeWorktreeDevScenarioName } from './config.ts';
 import { bridgeWorktreeDevProviderConfigSchema } from './config.ts';
@@ -34,6 +38,7 @@ const worktreeFileProtocol = 'worktree-file';
 const worktreeFilePaneId = 'bridge-worktree-dev-pane';
 const worktreeFileSourceId = 'dev-worktree-source';
 const worktreeFileStreamId = `${worktreeFileProtocol}:${worktreeFilePaneId}`;
+const worktreeFileSourceCursor = `cursor-generation-${worktreeFileSubscriptionGeneration}`;
 const worktreeFileRowHeightPixels = 24;
 const worktreeFileTreeWindowRowLimit = 200;
 const retainedProviderStateLimit = 4;
@@ -93,21 +98,23 @@ export async function createBridgeWorktreeDevProvider(
 	const worktreeRoot = await resolveAllowedWorktreeRoot(parsedConfig.worktreeRoot);
 	const worktreeRootToken = await bridgeWorktreeDevRootTokenForPath(worktreeRoot);
 	let state: ProviderState | null = null;
-	const retainedStatesBySourceKey = new Map<string, ProviderState>();
+	const retainedStatesByFingerprint = new Map<string, ProviderState>();
 
 	const loadCurrentState = async (): Promise<ProviderState> => {
 		const snapshot = await loadBridgeWorktreeDevSnapshot({
 			baseRef: parsedConfig.baseRef,
 			worktreeRoot,
 		});
+		const previousState = state;
 		const revision =
-			state === null
+			previousState === null
 				? 1
-				: state.fingerprint === snapshot.fingerprint
-					? state.revision
-					: state.revision + 1;
+				: previousState.fingerprint === snapshot.fingerprint
+					? previousState.revision
+					: previousState.revision + 1;
 		const currentState = makeProviderState({
 			config: parsedConfig,
+			previousState,
 			revision,
 			snapshot,
 			worktreeRoot,
@@ -115,7 +122,7 @@ export async function createBridgeWorktreeDevProvider(
 		});
 		state = currentState;
 		retainProviderState({
-			retainedStatesBySourceKey,
+			retainedStatesByFingerprint,
 			state: currentState,
 		});
 		return currentState;
@@ -127,75 +134,50 @@ export async function createBridgeWorktreeDevProvider(
 		): Promise<
 			Extract<WorktreeFileProtocolFrame, { readonly frameKind: 'worktree.fileDescriptor' }>
 		> => {
-			const acceptedState = providerStateForDescriptorRequest({
-				request,
-				retainedStatesBySourceKey,
-				state,
-			});
+			const currentState = state ?? (await loadCurrentState());
+			const acceptedState =
+				providerStateForDescriptorRequest({
+					request,
+					retainedStatesByFingerprint,
+					state: currentState,
+				}) ??
+				providerStateForDescriptorRequest({
+					request,
+					retainedStatesByFingerprint,
+					state: await loadCurrentState(),
+				});
 			if (acceptedState !== null) {
 				return await descriptorFrameFromAcceptedProviderState({ request, state: acceptedState });
 			}
-			const currentState = await loadCurrentState();
-			const refreshedAcceptedState = providerStateForDescriptorRequest({
+			rejectStaleDescriptorRequest({
 				request,
-				retainedStatesBySourceKey,
-				state: currentState,
+				source: currentState.worktreeFileSurface.source,
 			});
-			if (refreshedAcceptedState !== null) {
-				return await descriptorFrameFromAcceptedProviderState({
-					request,
-					state: refreshedAcceptedState,
-				});
-			}
-			const currentSource = currentState.worktreeFileSurface.source;
-			if (request.subscriptionGeneration !== currentSource.subscriptionGeneration) {
-				throw new Error(
-					`Rejected stale Bridge worktree file descriptor generation: ${request.subscriptionGeneration}`,
-				);
-			}
-			if (request.sourceCursor !== currentSource.sourceCursor) {
-				throw new Error(
-					`Rejected stale Bridge worktree file descriptor cursor: ${request.sourceCursor}`,
-				);
-			}
-			return await descriptorFrameFromAcceptedProviderState({ request, state: currentState });
+			throw new Error(`Unknown Bridge worktree file descriptor path: ${request.path}`);
 		},
 		loadWorktreeFileContent: async (
 			request: BridgeWorktreeDevProviderWorktreeFileContentRequest,
 		): Promise<string> => {
-			const acceptedState = providerStateForContentRequest({
-				request,
-				retainedStatesBySourceKey,
-				state,
-			});
+			const currentState = state ?? (await loadCurrentState());
+			const acceptedState =
+				providerStateForContentRequest({
+					request,
+					retainedStatesByFingerprint,
+					state: currentState,
+				}) ??
+				providerStateForContentRequest({
+					request,
+					retainedStatesByFingerprint,
+					state: await loadCurrentState(),
+				});
 			if (acceptedState !== null) {
 				return contentFromAcceptedProviderState({ request, state: acceptedState });
 			}
-			const currentState = await loadCurrentState();
-			const refreshedAcceptedState = providerStateForContentRequest({
+			rejectStaleContentRequest({
 				request,
-				retainedStatesBySourceKey,
-				state: currentState,
+				source: currentState.worktreeFileSurface.source,
 			});
-			if (refreshedAcceptedState !== null) {
-				return contentFromAcceptedProviderState({ request, state: refreshedAcceptedState });
-			}
-			const currentSource = currentState.worktreeFileSurface.source;
-			if (request.subscriptionGeneration !== currentSource.subscriptionGeneration) {
-				throw new Error(
-					`Rejected stale Bridge worktree file content generation: ${request.subscriptionGeneration}`,
-				);
-			}
-			if (request.sourceCursor !== currentSource.sourceCursor) {
-				throw new Error(
-					`Rejected stale Bridge worktree file content cursor: ${request.sourceCursor}`,
-				);
-			}
-			const content = currentState.worktreeFileContentByDescriptorId.get(request.descriptorId);
-			if (content === undefined) {
-				throw new Error(`Unknown Bridge worktree file content descriptor: ${request.descriptorId}`);
-			}
-			return content;
+			throw new Error(`Unknown Bridge worktree file content descriptor: ${request.descriptorId}`);
 		},
 		loadWorktreeFileSurface: async (): Promise<BridgeWorktreeDevProviderWorktreeFileSurface> => {
 			const currentState = await loadCurrentState();
@@ -205,39 +187,65 @@ export async function createBridgeWorktreeDevProvider(
 }
 
 function retainProviderState(props: {
-	readonly retainedStatesBySourceKey: Map<string, ProviderState>;
+	readonly retainedStatesByFingerprint: Map<string, ProviderState>;
 	readonly state: ProviderState;
 }): void {
-	props.retainedStatesBySourceKey.set(providerStateSourceKey(props.state), props.state);
-	while (props.retainedStatesBySourceKey.size > retainedProviderStateLimit) {
-		const oldestSourceKey = props.retainedStatesBySourceKey.keys().next().value;
-		if (oldestSourceKey === undefined) {
+	props.retainedStatesByFingerprint.set(props.state.fingerprint, props.state);
+	while (props.retainedStatesByFingerprint.size > retainedProviderStateLimit) {
+		const oldestFingerprint = props.retainedStatesByFingerprint.keys().next().value;
+		if (oldestFingerprint === undefined) {
 			return;
 		}
-		props.retainedStatesBySourceKey.delete(oldestSourceKey);
+		props.retainedStatesByFingerprint.delete(oldestFingerprint);
 	}
 }
 
 function providerStateForDescriptorRequest(props: {
 	readonly request: BridgeWorktreeDevProviderWorktreeFileDescriptorRequest;
-	readonly retainedStatesBySourceKey: ReadonlyMap<string, ProviderState>;
+	readonly retainedStatesByFingerprint: ReadonlyMap<string, ProviderState>;
 	readonly state: ProviderState | null;
 }): ProviderState | null {
-	if (props.state !== null && providerStateMatchesDescriptorRequest(props.state, props.request)) {
+	if (props.state === null || !providerStateMatchesDescriptorRequest(props.state, props.request)) {
+		return null;
+	}
+	if (
+		props.state.currentFilePaths.has(props.request.path) ||
+		props.state.worktreeFileDescriptorByPath.has(props.request.path)
+	) {
 		return props.state;
 	}
-	return props.retainedStatesBySourceKey.get(descriptorRequestSourceKey(props.request)) ?? null;
+	for (const retainedState of props.retainedStatesByFingerprint.values()) {
+		if (
+			providerStateMatchesDescriptorRequest(retainedState, props.request) &&
+			(retainedState.currentFilePaths.has(props.request.path) ||
+				retainedState.worktreeFileDescriptorByPath.has(props.request.path))
+		) {
+			return retainedState;
+		}
+	}
+	return null;
 }
 
 function providerStateForContentRequest(props: {
 	readonly request: BridgeWorktreeDevProviderWorktreeFileContentRequest;
-	readonly retainedStatesBySourceKey: ReadonlyMap<string, ProviderState>;
+	readonly retainedStatesByFingerprint: ReadonlyMap<string, ProviderState>;
 	readonly state: ProviderState | null;
 }): ProviderState | null {
-	if (props.state !== null && providerStateMatchesContentRequest(props.state, props.request)) {
+	if (props.state === null || !providerStateMatchesContentRequest(props.state, props.request)) {
+		return null;
+	}
+	if (props.state.worktreeFileContentByDescriptorId.has(props.request.descriptorId)) {
 		return props.state;
 	}
-	return props.retainedStatesBySourceKey.get(contentRequestSourceKey(props.request)) ?? null;
+	for (const retainedState of props.retainedStatesByFingerprint.values()) {
+		if (
+			providerStateMatchesContentRequest(retainedState, props.request) &&
+			retainedState.worktreeFileContentByDescriptorId.has(props.request.descriptorId)
+		) {
+			return retainedState;
+		}
+	}
+	return null;
 }
 
 async function descriptorFrameFromAcceptedProviderState(props: {
@@ -298,63 +306,68 @@ function providerStateMatchesContentRequest(
 	state: ProviderState,
 	request: BridgeWorktreeDevProviderWorktreeFileContentRequest,
 ): boolean {
-	return providerStateSourceKey(state) === contentRequestSourceKey(request);
+	return (
+		request.subscriptionGeneration === state.worktreeFileSurface.source.subscriptionGeneration &&
+		request.sourceCursor === state.worktreeFileSurface.source.sourceCursor
+	);
 }
 
 function providerStateMatchesDescriptorRequest(
 	state: ProviderState,
 	request: BridgeWorktreeDevProviderWorktreeFileDescriptorRequest,
 ): boolean {
-	return providerStateSourceKey(state) === descriptorRequestSourceKey(request);
+	return (
+		request.subscriptionGeneration === state.worktreeFileSurface.source.subscriptionGeneration &&
+		request.sourceCursor === state.worktreeFileSurface.source.sourceCursor
+	);
 }
 
-function providerStateSourceKey(state: ProviderState): string {
-	const source = state.worktreeFileSurface.source;
-	return sourceKey({
-		sourceCursor: source.sourceCursor,
-		subscriptionGeneration: source.subscriptionGeneration,
-	});
+function rejectStaleContentRequest(props: {
+	readonly request: BridgeWorktreeDevProviderWorktreeFileContentRequest;
+	readonly source: WorktreeFileSurfaceSourceIdentity;
+}): void {
+	if (props.request.subscriptionGeneration !== props.source.subscriptionGeneration) {
+		throw new Error(
+			`Rejected stale Bridge worktree file content generation: ${props.request.subscriptionGeneration}`,
+		);
+	}
+	if (props.request.sourceCursor !== props.source.sourceCursor) {
+		throw new Error(
+			`Rejected stale Bridge worktree file content cursor: ${props.request.sourceCursor}`,
+		);
+	}
 }
 
-function contentRequestSourceKey(
-	request: BridgeWorktreeDevProviderWorktreeFileContentRequest,
-): string {
-	return sourceKey({
-		sourceCursor: request.sourceCursor,
-		subscriptionGeneration: request.subscriptionGeneration,
-	});
-}
-
-function descriptorRequestSourceKey(
-	request: BridgeWorktreeDevProviderWorktreeFileDescriptorRequest,
-): string {
-	return sourceKey({
-		sourceCursor: request.sourceCursor,
-		subscriptionGeneration: request.subscriptionGeneration,
-	});
-}
-
-function sourceKey(props: {
-	readonly sourceCursor: string;
-	readonly subscriptionGeneration: number;
-}): string {
-	return `${props.subscriptionGeneration}\u{0}${props.sourceCursor}`;
+function rejectStaleDescriptorRequest(props: {
+	readonly request: BridgeWorktreeDevProviderWorktreeFileDescriptorRequest;
+	readonly source: WorktreeFileSurfaceSourceIdentity;
+}): void {
+	if (props.request.subscriptionGeneration !== props.source.subscriptionGeneration) {
+		throw new Error(
+			`Rejected stale Bridge worktree file descriptor generation: ${props.request.subscriptionGeneration}`,
+		);
+	}
+	if (props.request.sourceCursor !== props.source.sourceCursor) {
+		throw new Error(
+			`Rejected stale Bridge worktree file descriptor cursor: ${props.request.sourceCursor}`,
+		);
+	}
 }
 
 function makeProviderState(props: {
 	readonly config: BridgeWorktreeDevProviderConfig;
+	readonly previousState: ProviderState | null;
 	readonly revision: number;
 	readonly snapshot: BridgeWorktreeDevSnapshot;
 	readonly worktreeRoot: string;
 	readonly worktreeRootToken: string;
 }): ProviderState {
-	const sourceCursor = `cursor-${props.snapshot.fingerprint.slice(0, 32)}`;
 	const sourceIdentity: WorktreeFileSurfaceSourceIdentity = {
 		sourceId: worktreeFileSourceId,
 		repoId: 'dev-worktree-repo',
 		worktreeId: 'dev-worktree',
 		subscriptionGeneration: worktreeFileSubscriptionGeneration,
-		sourceCursor,
+		sourceCursor: worktreeFileSourceCursor,
 		rootRevisionToken: props.snapshot.fingerprint,
 	};
 	const worktreeFileContentByDescriptorId = new Map<string, string>();
@@ -377,6 +390,7 @@ function makeProviderState(props: {
 				worktreeFileContentByDescriptorId,
 			}),
 	);
+	const currentFilePathSet = new Set(props.snapshot.currentFilePaths);
 	const worktreeFileSurfaceFrames = worktreeFileSurfaceFramesForTreeRows({
 		initialTreeRows,
 		renderedTreeRowCount,
@@ -385,8 +399,15 @@ function makeProviderState(props: {
 		treeRows,
 		treeSizeFacts,
 	});
+	const invalidationFrames = worktreeFileInvalidationFramesForChangedDescriptors({
+		currentFilePaths: currentFilePathSet,
+		previousState: props.previousState,
+		sequenceStart: worktreeFileSurfaceFrames.length,
+		sourceIdentity,
+		worktreeFileDescriptors,
+	});
 	const worktreeFileSurface: BridgeWorktreeDevProviderWorktreeFileSurface = {
-		frames: worktreeFileSurfaceFrames,
+		frames: [...worktreeFileSurfaceFrames, ...invalidationFrames],
 		provenance: {
 			baseRef: props.config.baseRef,
 			scenarioName: props.config.scenarioName,
@@ -396,7 +417,7 @@ function makeProviderState(props: {
 		treeSizeFacts,
 	};
 	return {
-		currentFilePaths: new Set(props.snapshot.currentFilePaths),
+		currentFilePaths: currentFilePathSet,
 		fingerprint: props.snapshot.fingerprint,
 		revision: props.revision,
 		worktreeFileDescriptorByPath: new Map(
@@ -445,6 +466,91 @@ function worktreeFileSurfaceFramesForTreeRows(props: {
 	return [snapshotFrame, ...continuationFrames].map((frame) =>
 		worktreeFileProtocolFrameSchema.parse(frame),
 	);
+}
+
+function worktreeFileInvalidationFramesForChangedDescriptors(props: {
+	readonly currentFilePaths: ReadonlySet<string>;
+	readonly previousState: ProviderState | null;
+	readonly sequenceStart: number;
+	readonly sourceIdentity: WorktreeFileSurfaceSourceIdentity;
+	readonly worktreeFileDescriptors: readonly WorktreeFileDescriptor[];
+}): readonly WorktreeFileInvalidatedFrame[] {
+	if (props.previousState === null) {
+		return [];
+	}
+	const invalidationFrames: WorktreeFileInvalidatedFrame[] = [];
+	for (const latestDescriptor of props.worktreeFileDescriptors) {
+		const previousDescriptor = props.previousState.worktreeFileDescriptorByPath.get(
+			latestDescriptor.path,
+		);
+		if (previousDescriptor === undefined) {
+			continue;
+		}
+		if (latestDescriptor.virtualizedExtentKind === 'unavailable') {
+			invalidationFrames.push(
+				worktreeFileInvalidatedFrameSchema.parse({
+					kind: 'delta',
+					streamId: worktreeFileStreamId,
+					generation: props.sourceIdentity.subscriptionGeneration,
+					sequence: props.sequenceStart + invalidationFrames.length,
+					frameKind: 'worktree.fileInvalidated',
+					invalidation: {
+						path: latestDescriptor.path,
+						fileId: latestDescriptor.fileId,
+						reason: 'filesystemEvent',
+						contentHandleIds: [previousDescriptor.contentHandle],
+					},
+				}),
+			);
+			continue;
+		}
+		if (previousDescriptor.contentHash === latestDescriptor.contentHash) {
+			continue;
+		}
+		invalidationFrames.push(
+			worktreeFileInvalidatedFrameSchema.parse({
+				kind: 'delta',
+				streamId: worktreeFileStreamId,
+				generation: props.sourceIdentity.subscriptionGeneration,
+				sequence: props.sequenceStart + invalidationFrames.length,
+				frameKind: 'worktree.fileInvalidated',
+				invalidation: {
+					path: latestDescriptor.path,
+					fileId: latestDescriptor.fileId,
+					reason: 'contentChanged',
+					contentHandleIds: [previousDescriptor.contentHandle],
+					latestDescriptor,
+				},
+			}),
+		);
+	}
+	const latestDescriptorPaths = new Set(
+		props.worktreeFileDescriptors.map((descriptor) => descriptor.path),
+	);
+	for (const previousDescriptor of props.previousState.worktreeFileDescriptorByPath.values()) {
+		if (
+			props.currentFilePaths.has(previousDescriptor.path) ||
+			latestDescriptorPaths.has(previousDescriptor.path)
+		) {
+			continue;
+		}
+		invalidationFrames.push(
+			worktreeFileInvalidatedFrameSchema.parse({
+				kind: 'delta',
+				streamId: worktreeFileStreamId,
+				generation: props.sourceIdentity.subscriptionGeneration,
+				sequence: props.sequenceStart + invalidationFrames.length,
+				frameKind: 'worktree.fileInvalidated',
+				invalidation: {
+					path: previousDescriptor.path,
+					fileId: previousDescriptor.fileId,
+					reason: 'filesystemEvent',
+					contentHandleIds: [previousDescriptor.contentHandle],
+				},
+			}),
+		);
+	}
+	return invalidationFrames;
 }
 
 function worktreeFileTreeWindowFrames(props: {
