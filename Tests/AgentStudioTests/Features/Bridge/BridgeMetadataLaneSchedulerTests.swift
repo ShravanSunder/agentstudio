@@ -30,7 +30,15 @@ actor SchedulerTelemetrySpy: BridgeMetadataLaneSchedulerTelemetry {
         let queueDepth: Int
     }
 
+    struct JobExecutionSample: Sendable {
+        let lane: BridgeDemandLane
+        let protocolId: String
+        let executionMilliseconds: Double
+        let delivered: Bool
+    }
+
     private(set) var queueWaitSamples: [QueueWaitSample] = []
+    private(set) var jobExecutionSamples: [JobExecutionSample] = []
     private(set) var staleDropCounts: [BridgeDemandLane: Int] = [:]
     private(set) var overflowDropCounts: [BridgeDemandLane: Int] = [:]
 
@@ -46,6 +54,22 @@ actor SchedulerTelemetrySpy: BridgeMetadataLaneSchedulerTelemetry {
                 protocolId: protocolId,
                 waitMilliseconds: waitMilliseconds,
                 queueDepth: queueDepth
+            )
+        )
+    }
+
+    func recordJobExecution(
+        lane: BridgeDemandLane,
+        protocolId: String,
+        executionMilliseconds: Double,
+        delivered: Bool
+    ) {
+        jobExecutionSamples.append(
+            JobExecutionSample(
+                lane: lane,
+                protocolId: protocolId,
+                executionMilliseconds: executionMilliseconds,
+                delivered: delivered
             )
         )
     }
@@ -285,6 +309,34 @@ struct BridgeMetadataLaneSchedulerTests {
         #expect(samples.contains { $0.lane == .foreground })
         #expect(samples.contains { $0.lane == .idle })
         #expect(samples.allSatisfy { $0.waitMilliseconds >= 0 })
+    }
+
+    @Test("job execution durations are recorded per lane with delivery outcome")
+    func jobExecutionDurationsAreRecordedPerLane() async throws {
+        let recorder = await MainActor.run { SchedulerExecutionOrderRecorder() }
+        let telemetry = SchedulerTelemetrySpy()
+        let scheduler = BridgeMetadataLaneScheduler(telemetry: telemetry)
+        await scheduler.acceptGeneration(1, protocolId: "worktree-file")
+        await scheduler.acceptGeneration(1, protocolId: "review")
+        await scheduler.openGate(protocolId: "worktree-file")
+        await scheduler.openGate(protocolId: "review")
+        await scheduler.enqueue(makeJob("fg-1", lane: .foreground, recorder: recorder))
+        await scheduler.enqueue(makeJob("idle-1", lane: .idle, recorder: recorder))
+        // The failing job rides its own protocol so its gate-close retention
+        // does not hold the worktree-file idle job out of the drain.
+        await scheduler.enqueue(
+            BridgeMetadataLaneJob(protocolId: "review", generation: 1, lane: .visible) {
+                @MainActor in false
+            }
+        )
+        await scheduler.waitUntilDrained()
+
+        let samples = await telemetry.jobExecutionSamples
+        #expect(samples.count == 3)
+        #expect(samples.contains { $0.lane == .foreground && $0.delivered && $0.protocolId == "worktree-file" })
+        #expect(samples.contains { $0.lane == .idle && $0.delivered && $0.protocolId == "worktree-file" })
+        #expect(samples.contains { $0.lane == .visible && !$0.delivered && $0.protocolId == "review" })
+        #expect(samples.allSatisfy { $0.executionMilliseconds >= 0 })
     }
 
     @Test("a closed protocol gate holds its jobs without blocking other protocols")

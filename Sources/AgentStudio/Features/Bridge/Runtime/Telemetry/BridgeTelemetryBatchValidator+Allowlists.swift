@@ -168,6 +168,7 @@ extension BridgeTelemetryBatchValidator {
             "demand_queue_wait",
             "metadata_full_manifest_complete",
             "metadata_open_to_first_window",
+            "metadata_scheduler_job_execution",
             "metadata_scheduler_overflow_drop",
             "metadata_scheduler_stale_drop",
             "mode_switch",

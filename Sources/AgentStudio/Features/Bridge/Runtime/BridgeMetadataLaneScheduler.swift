@@ -26,6 +26,15 @@ protocol BridgeMetadataLaneSchedulerTelemetry: Sendable {
     ) async
     func recordStaleDrop(lane: BridgeDemandLane, protocolId: String, droppedCount: Int) async
     func recordOverflowDrop(lane: BridgeDemandLane, protocolId: String, droppedCount: Int) async
+    /// Job run time on the serial drain (build + encode + deliver). This is
+    /// the blocking unit a queued higher-lane job waits behind, so it sizes
+    /// the idle-batch bounding decision.
+    func recordJobExecution(
+        lane: BridgeDemandLane,
+        protocolId: String,
+        executionMilliseconds: Double,
+        delivered: Bool
+    ) async
 }
 
 /// Test seam: gates each idle-lane job so contention proofs can hold idle
@@ -230,7 +239,16 @@ actor BridgeMetadataLaneScheduler {
                 waitMilliseconds: waitMilliseconds,
                 queueDepth: queuedJobCount
             )
+            let executionStart = clock.now
             let delivered = await dequeued.job.work()
+            await telemetry?.recordJobExecution(
+                lane: dequeued.job.lane,
+                protocolId: dequeued.job.protocolId,
+                executionMilliseconds: Self.milliseconds(
+                    from: executionStart.duration(to: clock.now)
+                ),
+                delivered: delivered
+            )
             guard delivered else {
                 // Transport failure: retain the job at the front of its lane
                 // and close the gate; reopening the gate retries in order.

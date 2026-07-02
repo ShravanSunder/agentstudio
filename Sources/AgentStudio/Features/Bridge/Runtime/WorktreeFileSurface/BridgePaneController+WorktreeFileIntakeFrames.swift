@@ -43,6 +43,36 @@ struct BridgePaneMetadataSchedulerTelemetryAdapter: BridgeMetadataLaneSchedulerT
         )
     }
 
+    func recordJobExecution(
+        lane: BridgeDemandLane,
+        protocolId: String,
+        executionMilliseconds: Double,
+        delivered: Bool
+    ) async {
+        await recorder.record(
+            sample: BridgeTelemetrySample(
+                scope: .swift,
+                name: "performance.bridge.swift.metadata_scheduler_job_execution",
+                durationMilliseconds: executionMilliseconds,
+                traceContext: nil,
+                stringAttributes: [
+                    "agentstudio.bridge.phase": "metadata_scheduler_job_execution",
+                    "agentstudio.bridge.plane": BridgeTelemetryPlane.data.rawValue,
+                    "agentstudio.bridge.priority": BridgeTelemetryPriority.hot.rawValue,
+                    "agentstudio.bridge.slice": BridgeTelemetrySlice.treePrepareInput.rawValue,
+                    "agentstudio.bridge.transport": "swift",
+                    "agentstudio.bridge.demand.lane": lane.rawValue,
+                    "agentstudio.bridge.result": delivered ? "success" : "retry",
+                ],
+                numericAttributes: [
+                    "agentstudio.bridge.demand.job_execution_ms": executionMilliseconds
+                ],
+                booleanAttributes: [:]
+            ),
+            receivedAtUnixNano: UInt64(Date().timeIntervalSince1970 * 1_000_000_000)
+        )
+    }
+
     func recordStaleDrop(lane: BridgeDemandLane, protocolId: String, droppedCount: Int) async {
         await recorder.record(
             sample: BridgeTelemetrySample(
