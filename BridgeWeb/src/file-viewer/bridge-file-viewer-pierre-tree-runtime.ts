@@ -131,7 +131,6 @@ export function useBridgeFileViewerPierreTreeRuntime(
 		appliedTreePathsRef.current = paths;
 	}, [model, paths]);
 
-	const fileDescriptorByPath = props.fileDescriptorByPath;
 	const onVisibleFileDemandChange = props.onVisibleFileDemandChange;
 	const telemetryRecorder = props.telemetryRecorder;
 	const telemetryTraceContext = props.telemetryTraceContext ?? null;
@@ -141,7 +140,7 @@ export function useBridgeFileViewerPierreTreeRuntime(
 		}
 		const publishStartedAt = performance.now();
 		const descriptorRefs = visibleDescriptorRefsForPierreDemand({
-			fileDescriptorByPath,
+			fileDescriptorByPath: fileDescriptorByPathRef.current,
 			model,
 		});
 		if (descriptorRefs.length === 0) {
@@ -161,7 +160,7 @@ export function useBridgeFileViewerPierreTreeRuntime(
 			});
 		}
 	}, [
-		fileDescriptorByPath,
+		fileDescriptorByPathRef,
 		model,
 		onVisibleFileDemandChange,
 		telemetryRecorder,

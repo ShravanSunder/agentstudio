@@ -207,6 +207,19 @@ describe('Bridge file viewer source structure', () => {
 		expect(visibleDemandAdapterImporters).toEqual(['bridge-file-viewer-pierre-tree-runtime.ts']);
 	});
 
+	test('keeps Pierre visible-demand publishing on ref-backed descriptor lookup', () => {
+		const treeRuntimeSource = readFileSync(
+			fileURLToPath(new URL('./bridge-file-viewer-pierre-tree-runtime.ts', import.meta.url)),
+			'utf8',
+		);
+
+		expect(treeRuntimeSource).toContain('fileDescriptorByPathRef.current');
+		expect(treeRuntimeSource).not.toContain(
+			'const fileDescriptorByPath = props.fileDescriptorByPath;',
+		);
+		expect(treeRuntimeSource).not.toContain('fileDescriptorByPath,\\n\\t\\tmodel,');
+	});
+
 	test('keeps Pierre tree runtime effects owned by the tree runtime hook', () => {
 		const fileViewerSources = readFileViewerSourceFiles();
 		const runtimeOwners = treeRuntimeOwnershipNeedles.flatMap((needle): readonly string[] =>

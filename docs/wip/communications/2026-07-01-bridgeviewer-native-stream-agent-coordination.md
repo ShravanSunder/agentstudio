@@ -193,3 +193,28 @@ entries; if an entry becomes stale, append a correction with the new evidence.
   in S2 if that slice already owns lineage/treeDelta cutover. If the user
   redirects the browser reducer branch back to Codex, coordinate here before
   editing `applyFramesToRuntime`.
+
+### 2026-07-01 Codex React Lane Pierre Demand Identity Checkpoint
+
+- Followed up on the React ownership audit: `useBridgeFileViewerShellModel`
+  already memoizes `fileDescriptorByPath` and `descriptorProjection`, but
+  `BridgeWeb/src/file-viewer/bridge-file-viewer-pierre-tree-runtime.ts` still
+  closed visible-demand publishing over `props.fileDescriptorByPath`.
+- Updated Pierre visible-demand publishing to read
+  `fileDescriptorByPathRef.current`, so descriptor-map identity changes do not
+  force the Pierre scroll/model subscription effect to rebind.
+- Added a source-structure guard that keeps visible-demand publishing on
+  ref-backed descriptor lookup.
+- Red proof:
+  `pnpm --dir BridgeWeb exec vitest run src/file-viewer/bridge-file-viewer-source-structure.unit.test.ts --reporter verbose`
+  failed because the runtime still had
+  `const fileDescriptorByPath = props.fileDescriptorByPath`.
+- Green proof:
+  same source-structure command passed 16/16.
+- Browser proof:
+  `pnpm --dir BridgeWeb exec vitest --config vitest.browser.config.ts run --project integration-browser src/file-viewer/bridge-file-viewer-app.browser.test.tsx --reporter verbose`
+  passed 41/41.
+- Static proof:
+  `oxfmt --check` on touched TS passed,
+  `oxlint --type-aware` on touched TS passed,
+  and `pnpm --dir BridgeWeb exec tsc --noEmit --pretty false` passed.
