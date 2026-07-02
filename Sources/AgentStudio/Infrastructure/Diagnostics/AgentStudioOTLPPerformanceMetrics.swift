@@ -159,6 +159,12 @@ struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
         {
             dimensions.append(AgentStudioOTLPPerformanceMetricDimension(name: "reason", value: reason))
         }
+        if record.body == "performance.git.status",
+            case .string(let scope) = record.attributes["agentstudio.performance.git.status_scope"],
+            isSafeDimensionValue(scope)
+        {
+            dimensions.append(AgentStudioOTLPPerformanceMetricDimension(name: "scope", value: scope))
+        }
         if record.body == "performance.git.backoff",
             case .string(let reason) = record.attributes["agentstudio.performance.git.backoff.reason"],
             isSafeDimensionValue(reason)

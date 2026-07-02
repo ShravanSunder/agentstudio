@@ -45,9 +45,10 @@ struct AgentStudioGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider {
         self.activeReadRegistry = activeReadRegistry
     }
 
-    func statusResult(for rootPath: URL) async -> GitWorkingTreeStatusResult {
+    func statusResult(for rootPath: URL, pathspecs: [String]?) async -> GitWorkingTreeStatusResult {
         await Self.computeStatusResult(
             rootPath: rootPath,
+            pathspecs: pathspecs,
             timeout: timeout,
             timeoutScheduler: timeoutScheduler,
             activeReadRegistry: activeReadRegistry,
@@ -58,6 +59,7 @@ struct AgentStudioGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider {
     @concurrent
     nonisolated private static func computeStatusResult(
         rootPath: URL,
+        pathspecs: [String]?,
         timeout: Duration,
         timeoutScheduler: any AgentStudioGitStatusTimeoutScheduler,
         activeReadRegistry: AgentStudioGitActiveStatusReadRegistry,
@@ -76,7 +78,11 @@ struct AgentStudioGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider {
             let snapshot = try await readWithHardTimeout(timeout, timeoutScheduler: timeoutScheduler) {
                 try await statusReader(
                     rootPath,
-                    AgentStudioGit.GitStatusOptions(includeIgnored: false, includeUntracked: true)
+                    AgentStudioGit.GitStatusOptions(
+                        includeIgnored: false,
+                        includeUntracked: true,
+                        pathspecs: pathspecs
+                    )
                 )
             } onOperationFinished: {
                 activeReadRegistry.finish(readKey)
@@ -164,7 +170,21 @@ struct AgentStudioGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider {
         GitWorkingTreeStatus(
             summary: mapSummary(snapshot.summary, headKind: snapshot.head.kind),
             branch: mapBranch(snapshot.head),
-            originResolution: mapOrigin(snapshot.originResolution)
+            originResolution: mapOrigin(snapshot.originResolution),
+            entries: snapshot.entries.map(mapEntry)
+        )
+    }
+
+    nonisolated private static func mapEntry(
+        _ entry: AgentStudioGit.GitStatusEntry
+    ) -> GitWorkingTreeStatusEntry {
+        GitWorkingTreeStatusEntry(
+            path: entry.path,
+            previousPath: entry.previousPath,
+            hasStagedChange: entry.indexState != nil,
+            hasUnstagedChange: entry.worktreeState != nil,
+            isUntracked: entry.untracked,
+            isRename: entry.indexState == .renamed || entry.worktreeState == .renamed
         )
     }
 

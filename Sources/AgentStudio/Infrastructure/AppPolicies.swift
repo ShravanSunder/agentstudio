@@ -56,12 +56,11 @@ enum AppPolicies {
             let statusFailureBackoffBaseDelay: Duration
             let statusFailureBackoffMultiplier: Int
             let statusFailureBackoffMaxDelay: Duration
-            /// Upper bound for the adaptive coalescing window. The base window is
-            /// the projector's constructor `coalescingWindow`; it grows by one
-            /// base step per productive window (more changes arrived while
-            /// waiting) and decays back toward the base when quiet, never
-            /// exceeding this cap.
-            let adaptiveCoalescingMaxWindow: Duration
+            /// Maximum changed-path count a file-change batch may carry and still
+            /// be refreshed with a pathspec-scoped status. Beyond this the
+            /// projector falls back to a full-worktree status, since a very large
+            /// pathspec set approaches full-tree walk cost anyway.
+            let maxScopedStatusPathspecCount: Int
 
             init(
                 activeCadence: Duration = .seconds(15),
@@ -74,7 +73,7 @@ enum AppPolicies {
                 statusFailureBackoffBaseDelay: Duration = .seconds(5),
                 statusFailureBackoffMultiplier: Int = 2,
                 statusFailureBackoffMaxDelay: Duration = .seconds(60),
-                adaptiveCoalescingMaxWindow: Duration = .milliseconds(1000)
+                maxScopedStatusPathspecCount: Int = 128
             ) {
                 precondition(backgroundStripeCount > 0)
                 precondition(maxConcurrentStatusComputes > 0)
@@ -84,7 +83,7 @@ enum AppPolicies {
                 precondition(statusFailureBackoffBaseDelay > .zero)
                 precondition(statusFailureBackoffMultiplier >= 1)
                 precondition(statusFailureBackoffMaxDelay >= statusFailureBackoffBaseDelay)
-                precondition(adaptiveCoalescingMaxWindow > .zero)
+                precondition(maxScopedStatusPathspecCount > 0)
 
                 self.activeCadence = activeCadence
                 self.backgroundStripeCount = backgroundStripeCount
@@ -96,7 +95,7 @@ enum AppPolicies {
                 self.statusFailureBackoffBaseDelay = statusFailureBackoffBaseDelay
                 self.statusFailureBackoffMultiplier = statusFailureBackoffMultiplier
                 self.statusFailureBackoffMaxDelay = statusFailureBackoffMaxDelay
-                self.adaptiveCoalescingMaxWindow = adaptiveCoalescingMaxWindow
+                self.maxScopedStatusPathspecCount = maxScopedStatusPathspecCount
             }
 
             /// Exponential per-worktree backoff for status computes that time out

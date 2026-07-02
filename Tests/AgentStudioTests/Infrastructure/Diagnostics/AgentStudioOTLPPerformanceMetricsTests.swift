@@ -90,6 +90,45 @@ struct AgentStudioOTLPPerformanceMetricsTests {
     }
 
     @Test
+    func gitStatusScopeBecomesMetricDimension() throws {
+        let record = AgentStudioOTLPProjectedLogRecord(
+            timeUnixNano: 123,
+            severityText: .info,
+            body: "performance.git.status",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.elapsed_ms": .double(12.0),
+                "agentstudio.performance.git.status_scope": .string("pathspec"),
+                "agentstudio.performance.git.pathspec.count": .int(3),
+                "agentstudio.trace.tag": .string("performance"),
+            ]
+        )
+
+        let metricEvent = try #require(AgentStudioOTLPPerformanceMetricEvent(record: record))
+
+        #expect(metricEvent.eventName == "performance.git.status")
+        let expectedDimensions = [
+            AgentStudioOTLPPerformanceMetricDimension(name: "event", value: "performance.git.status"),
+            AgentStudioOTLPPerformanceMetricDimension(name: "scope", value: "pathspec"),
+        ]
+        #expect(metricEvent.dimensions == expectedDimensions)
+        #expect(
+            metricEvent.samples == [
+                AgentStudioOTLPPerformanceMetricSample(
+                    eventName: "performance.git.status",
+                    label: "agentstudio_performance_git_pathspec_count",
+                    dimensions: expectedDimensions,
+                    value: 3
+                )
+            ])
+        #expect(metricEvent.elapsedMilliseconds == 12.0)
+    }
+
+    @Test
     func gitBackoffProjectsBoundedMetricsWithReasonDimension() throws {
         let record = AgentStudioOTLPProjectedLogRecord(
             timeUnixNano: 123,

@@ -420,8 +420,11 @@ private actor MutableGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider 
         currentStatus = status
     }
 
-    func status(for _: URL) async -> GitWorkingTreeStatus? {
-        currentStatus
+    func statusResult(for _: URL, pathspecs _: [String]?) async -> GitWorkingTreeStatusResult {
+        guard let currentStatus else {
+            return .unavailable(GitWorkingTreeStatusUnavailable(reason: .providerReturnedNil))
+        }
+        return .available(currentStatus)
     }
 }
 

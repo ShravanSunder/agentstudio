@@ -2034,6 +2034,478 @@ struct GitWorkingDirectoryProjectorTests {
         collectionTask.cancel()
     }
 
+    // MARK: - Pathspec-scoped status fold
+
+    @Test("file-change batch after cache warm scopes status to the changed paths")
+    func fileChangeBatchAfterCacheWarmScopesToChangedPaths() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let recorder = PathspecRecorder()
+        let provider = StubGitWorkingTreeStatusProvider(pathspecAwareResultHandler: { _, pathspecs in
+            await recorder.record(pathspecs)
+            return .available(
+                GitWorkingTreeStatus(
+                    summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
+                    branch: "main",
+                    origin: nil
+                )
+            )
+        })
+        let actor = GitWorkingDirectoryProjector(bus: bus, gitWorkingTreeProvider: provider, coalescingWindow: .zero)
+        let observed = ObservedGitEvents()
+        let collectionTask = await startCollection(on: bus, observed: observed)
+        await actor.start()
+
+        let worktreeId = UUID()
+        let rootPath = URL(fileURLWithPath: "/tmp/scoped-pathspec-\(UUID().uuidString)")
+        // Registration warms the cache with a full status (pathspecs nil).
+        await bus.post(
+            makeEnvelope(
+                seq: 1,
+                worktreeId: worktreeId,
+                event: .worktreeRegistered(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
+            )
+        )
+        #expect(await waitUntil { await recorder.callCount == 1 })
+        #expect(await recorder.lastPathspecs == .some(nil))
+
+        // A real file-change batch scopes to its changed paths.
+        await bus.post(
+            makeFilesChangedEnvelope(
+                seq: 2,
+                worktreeId: worktreeId,
+                rootPath: rootPath,
+                batchSeq: 1,
+                paths: ["Sources/App/File.swift"]
+            )
+        )
+        #expect(await waitUntil { await recorder.callCount == 2 })
+        #expect(await recorder.lastPathspecs == ["Sources/App/File.swift"])
+
+        await actor.shutdown()
+        collectionTask.cancel()
+    }
+
+    @Test("scoped fold drops paths absent from the scoped result (became clean)")
+    func scopedFoldDropsPathsThatBecameClean() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let provider = StubGitWorkingTreeStatusProvider(pathspecAwareResultHandler: { _, pathspecs in
+            if pathspecs == nil {
+                // Full: two unstaged files warm the cache.
+                return .available(
+                    GitWorkingTreeStatus(
+                        summary: GitWorkingTreeSummary(changed: 2, staged: 0, untracked: 0),
+                        branch: "main",
+                        originResolution: .confirmedAbsent,
+                        entries: [Self.modifiedEntry("a.txt"), Self.modifiedEntry("b.txt")]
+                    )
+                )
+            }
+            // Scoped to a.txt: it is now clean (no entries).
+            return .available(
+                GitWorkingTreeStatus(
+                    summary: GitWorkingTreeSummary(changed: 0, staged: 0, untracked: 0),
+                    branch: "main",
+                    originResolution: .confirmedAbsent,
+                    entries: []
+                )
+            )
+        })
+        let actor = GitWorkingDirectoryProjector(bus: bus, gitWorkingTreeProvider: provider, coalescingWindow: .zero)
+        let observed = ObservedGitEvents()
+        let collectionTask = await startCollection(on: bus, observed: observed)
+        await actor.start()
+
+        let worktreeId = UUID()
+        let rootPath = URL(fileURLWithPath: "/tmp/fold-clean-\(UUID().uuidString)")
+        await bus.post(
+            makeEnvelope(
+                seq: 1,
+                worktreeId: worktreeId,
+                event: .worktreeRegistered(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
+            )
+        )
+        #expect(await waitUntil { await observed.latestSnapshot(for: worktreeId)?.summary.changed == 2 })
+
+        await bus.post(
+            makeFilesChangedEnvelope(seq: 2, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 1, paths: ["a.txt"])
+        )
+        // Fold keeps b.txt, drops a.txt -> changed == 1, matching a full status of the final state.
+        #expect(await waitUntil { await observed.latestSnapshot(for: worktreeId)?.summary.changed == 1 })
+
+        await actor.shutdown()
+        collectionTask.cancel()
+    }
+
+    @Test("scoped fold adds a new in-scope entry to the cached set")
+    func scopedFoldAddsNewInScopeEntry() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let provider = StubGitWorkingTreeStatusProvider(pathspecAwareResultHandler: { _, pathspecs in
+            if pathspecs == nil {
+                return .available(
+                    GitWorkingTreeStatus(
+                        summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
+                        branch: "main",
+                        originResolution: .confirmedAbsent,
+                        entries: [Self.modifiedEntry("a.txt")]
+                    )
+                )
+            }
+            // Scoped to c.txt: newly modified.
+            return .available(
+                GitWorkingTreeStatus(
+                    summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
+                    branch: "main",
+                    originResolution: .confirmedAbsent,
+                    entries: [Self.modifiedEntry("c.txt")]
+                )
+            )
+        })
+        let actor = GitWorkingDirectoryProjector(bus: bus, gitWorkingTreeProvider: provider, coalescingWindow: .zero)
+        let observed = ObservedGitEvents()
+        let collectionTask = await startCollection(on: bus, observed: observed)
+        await actor.start()
+
+        let worktreeId = UUID()
+        let rootPath = URL(fileURLWithPath: "/tmp/fold-new-\(UUID().uuidString)")
+        await bus.post(
+            makeEnvelope(
+                seq: 1,
+                worktreeId: worktreeId,
+                event: .worktreeRegistered(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
+            )
+        )
+        #expect(await waitUntil { await observed.latestSnapshot(for: worktreeId)?.summary.changed == 1 })
+
+        await bus.post(
+            makeFilesChangedEnvelope(seq: 2, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 1, paths: ["c.txt"])
+        )
+        // Fold keeps a.txt and adds c.txt -> changed == 2.
+        #expect(await waitUntil { await observed.latestSnapshot(for: worktreeId)?.summary.changed == 2 })
+
+        await actor.shutdown()
+        collectionTask.cancel()
+    }
+
+    @Test("scoped fold re-classifies an in-scope entry from unstaged to staged")
+    func scopedFoldReclassifiesEntryToStaged() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let provider = StubGitWorkingTreeStatusProvider(pathspecAwareResultHandler: { _, pathspecs in
+            if pathspecs == nil {
+                return .available(
+                    GitWorkingTreeStatus(
+                        summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
+                        branch: "main",
+                        originResolution: .confirmedAbsent,
+                        entries: [Self.modifiedEntry("a.txt")]
+                    )
+                )
+            }
+            return .available(
+                GitWorkingTreeStatus(
+                    summary: GitWorkingTreeSummary(changed: 0, staged: 1, untracked: 0),
+                    branch: "main",
+                    originResolution: .confirmedAbsent,
+                    entries: [Self.stagedEntry("a.txt")]
+                )
+            )
+        })
+        let actor = GitWorkingDirectoryProjector(bus: bus, gitWorkingTreeProvider: provider, coalescingWindow: .zero)
+        let observed = ObservedGitEvents()
+        let collectionTask = await startCollection(on: bus, observed: observed)
+        await actor.start()
+
+        let worktreeId = UUID()
+        let rootPath = URL(fileURLWithPath: "/tmp/fold-staged-\(UUID().uuidString)")
+        await bus.post(
+            makeEnvelope(
+                seq: 1,
+                worktreeId: worktreeId,
+                event: .worktreeRegistered(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
+            )
+        )
+        #expect(await waitUntil { await observed.latestSnapshot(for: worktreeId)?.summary.changed == 1 })
+
+        await bus.post(
+            makeFilesChangedEnvelope(seq: 2, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 1, paths: ["a.txt"])
+        )
+        #expect(
+            await waitUntil {
+                let summary = await observed.latestSnapshot(for: worktreeId)?.summary
+                return summary?.changed == 0 && summary?.staged == 1
+            }
+        )
+
+        await actor.shutdown()
+        collectionTask.cancel()
+    }
+
+    @Test("no cached snapshot forces a full status for a file-change batch")
+    func noCachedSnapshotForcesFullStatus() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let recorder = PathspecRecorder()
+        let provider = StubGitWorkingTreeStatusProvider(pathspecAwareResultHandler: { _, pathspecs in
+            await recorder.record(pathspecs)
+            return .available(
+                GitWorkingTreeStatus(
+                    summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
+                    branch: "main",
+                    origin: nil
+                )
+            )
+        })
+        let actor = GitWorkingDirectoryProjector(bus: bus, gitWorkingTreeProvider: provider, coalescingWindow: .zero)
+        let observed = ObservedGitEvents()
+        let collectionTask = await startCollection(on: bus, observed: observed)
+        await actor.start()
+
+        let worktreeId = UUID()
+        let rootPath = URL(fileURLWithPath: "/tmp/no-cache-\(UUID().uuidString)")
+        // File-change batch with no prior cache -> full status (pathspecs nil).
+        await bus.post(
+            makeFilesChangedEnvelope(seq: 1, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 1, paths: ["a.txt"])
+        )
+        #expect(await waitUntil { await recorder.callCount == 1 })
+        #expect(await recorder.lastPathspecs == .some(nil))
+
+        await actor.shutdown()
+        collectionTask.cancel()
+    }
+
+    @Test("git-internal changeset forces a full status even with a warm cache")
+    func gitInternalChangesetForcesFullStatus() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let recorder = PathspecRecorder()
+        let provider = StubGitWorkingTreeStatusProvider(pathspecAwareResultHandler: { _, pathspecs in
+            await recorder.record(pathspecs)
+            return .available(
+                GitWorkingTreeStatus(
+                    summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
+                    branch: "main",
+                    origin: nil
+                )
+            )
+        })
+        let actor = GitWorkingDirectoryProjector(bus: bus, gitWorkingTreeProvider: provider, coalescingWindow: .zero)
+        let observed = ObservedGitEvents()
+        let collectionTask = await startCollection(on: bus, observed: observed)
+        await actor.start()
+
+        let worktreeId = UUID()
+        let rootPath = URL(fileURLWithPath: "/tmp/git-internal-full-\(UUID().uuidString)")
+        await bus.post(
+            makeEnvelope(
+                seq: 1,
+                worktreeId: worktreeId,
+                event: .worktreeRegistered(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
+            )
+        )
+        #expect(await waitUntil { await recorder.callCount == 1 })
+
+        // Batch that touches git-internal state stays full even though a cache exists.
+        await bus.post(
+            makeFilesChangedEnvelope(
+                seq: 2,
+                worktreeId: worktreeId,
+                rootPath: rootPath,
+                batchSeq: 1,
+                paths: ["a.txt"],
+                containsGitInternalChanges: true
+            )
+        )
+        #expect(await waitUntil { await recorder.callCount == 2 })
+        #expect(await recorder.lastPathspecs == .some(nil))
+
+        await actor.shutdown()
+        collectionTask.cancel()
+    }
+
+    @Test("pathspec count over the policy cap forces a full status")
+    func pathspecCountOverCapForcesFullStatus() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let recorder = PathspecRecorder()
+        let policy = AppPolicies.GitRefresh.Policy(backgroundStripeCount: 1, maxScopedStatusPathspecCount: 2)
+        let provider = StubGitWorkingTreeStatusProvider(pathspecAwareResultHandler: { _, pathspecs in
+            await recorder.record(pathspecs)
+            return .available(
+                GitWorkingTreeStatus(
+                    summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
+                    branch: "main",
+                    origin: nil
+                )
+            )
+        })
+        let actor = GitWorkingDirectoryProjector(
+            bus: bus,
+            gitWorkingTreeProvider: provider,
+            coalescingWindow: .zero,
+            refreshPolicy: policy
+        )
+        let observed = ObservedGitEvents()
+        let collectionTask = await startCollection(on: bus, observed: observed)
+        await actor.start()
+
+        let worktreeId = UUID()
+        let rootPath = URL(fileURLWithPath: "/tmp/cap-full-\(UUID().uuidString)")
+        await bus.post(
+            makeEnvelope(
+                seq: 1,
+                worktreeId: worktreeId,
+                event: .worktreeRegistered(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
+            )
+        )
+        #expect(await waitUntil { await recorder.callCount == 1 })
+
+        // Three changed paths exceeds the cap of two -> full status.
+        await bus.post(
+            makeFilesChangedEnvelope(
+                seq: 2,
+                worktreeId: worktreeId,
+                rootPath: rootPath,
+                batchSeq: 1,
+                paths: ["a.txt", "b.txt", "c.txt"]
+            )
+        )
+        #expect(await waitUntil { await recorder.callCount == 2 })
+        #expect(await recorder.lastPathspecs == .some(nil))
+
+        await actor.shutdown()
+        collectionTask.cancel()
+    }
+
+    @Test("rename half outside the pathspec falls back to a full recompute")
+    func renameHalfOutsidePathspecFallsBackToFullRecompute() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let recorder = PathspecRecorder()
+        let provider = StubGitWorkingTreeStatusProvider(pathspecAwareResultHandler: { _, pathspecs in
+            await recorder.record(pathspecs)
+            if pathspecs == nil {
+                // Full: seeds the cache, and later serves the fallback recompute.
+                return .available(
+                    GitWorkingTreeStatus(
+                        summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
+                        branch: "main",
+                        originResolution: .confirmedAbsent,
+                        entries: [Self.modifiedEntry("a.txt")]
+                    )
+                )
+            }
+            // Scoped to new.txt: a rename whose source "old.txt" is outside the pathspec.
+            return .available(
+                GitWorkingTreeStatus(
+                    summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
+                    branch: "main",
+                    originResolution: .confirmedAbsent,
+                    entries: [Self.renameEntry(path: "new.txt", previousPath: "old.txt")]
+                )
+            )
+        })
+        let actor = GitWorkingDirectoryProjector(bus: bus, gitWorkingTreeProvider: provider, coalescingWindow: .zero)
+        let observed = ObservedGitEvents()
+        let collectionTask = await startCollection(on: bus, observed: observed)
+        await actor.start()
+
+        let worktreeId = UUID()
+        let rootPath = URL(fileURLWithPath: "/tmp/rename-guard-\(UUID().uuidString)")
+        await bus.post(
+            makeEnvelope(
+                seq: 1,
+                worktreeId: worktreeId,
+                event: .worktreeRegistered(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
+            )
+        )
+        #expect(await waitUntil { await recorder.callCount == 1 })
+
+        await bus.post(
+            makeFilesChangedEnvelope(
+                seq: 2, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 1, paths: ["new.txt"])
+        )
+        // The batch triggers a scoped call, then a full recompute: scoped ["new.txt"] then nil.
+        #expect(await waitUntil { await recorder.callCount == 3 })
+        let calls = await recorder.calls
+        #expect(calls[1] == ["new.txt"])
+        #expect(calls[2] == .some(nil))
+
+        await actor.shutdown()
+        collectionTask.cancel()
+    }
+
+    @Test("scoped compute timeout opens the per-worktree backoff breaker")
+    func scopedComputeTimeoutOpensBackoffBreaker() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let clock = TestPushClock()
+        let recorderSpy = GitProjectorTraceRecorderSpy()
+        let policy = AppPolicies.GitRefresh.Policy(
+            backgroundStripeCount: 1,
+            statusFailureBackoffBaseDelay: .milliseconds(50),
+            statusFailureBackoffMaxDelay: .seconds(1)
+        )
+        let provider = StubGitWorkingTreeStatusProvider(pathspecAwareResultHandler: { _, pathspecs in
+            if pathspecs == nil {
+                // Full: warms the cache.
+                return .available(
+                    GitWorkingTreeStatus(
+                        summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
+                        branch: "main",
+                        origin: nil
+                    )
+                )
+            }
+            // Scoped compute times out -> must route into the breaker.
+            return .unavailable(GitWorkingTreeStatusUnavailable(reason: .timeout))
+        })
+        let actor = GitWorkingDirectoryProjector(
+            bus: bus,
+            gitWorkingTreeProvider: provider,
+            coalescingWindow: .zero,
+            sleepClock: clock,
+            refreshPolicy: policy,
+            performanceTraceRecorder: recorderSpy
+        )
+        let observed = ObservedGitEvents()
+        let collectionTask = await startCollection(on: bus, observed: observed)
+        await actor.start()
+
+        let worktreeId = UUID()
+        let rootPath = URL(fileURLWithPath: "/tmp/scoped-timeout-\(UUID().uuidString)")
+        await bus.post(
+            makeEnvelope(
+                seq: 1,
+                worktreeId: worktreeId,
+                event: .worktreeRegistered(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
+            )
+        )
+        #expect(await waitUntil { await observed.snapshotCount(for: worktreeId) >= 1 })
+
+        await bus.post(
+            makeFilesChangedEnvelope(seq: 2, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 1, paths: ["a.txt"])
+        )
+        let openEmitted = await waitUntil { recorderSpy.backoffEvents(open: true).count == 1 }
+        #expect(openEmitted)
+        #expect(recorderSpy.backoffEvents(open: true).first?.reason == "timeout")
+
+        await actor.shutdown()
+        collectionTask.cancel()
+    }
+
+    static func modifiedEntry(_ path: String) -> GitWorkingTreeStatusEntry {
+        GitWorkingTreeStatusEntry(path: path, hasStagedChange: false, hasUnstagedChange: true, isUntracked: false)
+    }
+
+    static func stagedEntry(_ path: String) -> GitWorkingTreeStatusEntry {
+        GitWorkingTreeStatusEntry(path: path, hasStagedChange: true, hasUnstagedChange: false, isUntracked: false)
+    }
+
+    static func renameEntry(path: String, previousPath: String) -> GitWorkingTreeStatusEntry {
+        GitWorkingTreeStatusEntry(
+            path: path,
+            previousPath: previousPath,
+            hasStagedChange: false,
+            hasUnstagedChange: true,
+            isUntracked: false,
+            isRename: true
+        )
+    }
+
     private func startCollection(
         on bus: EventBus<RuntimeEnvelope>,
         observed: ObservedGitEvents
@@ -2290,6 +2762,22 @@ private actor CallCounter {
 
     func value() -> Int {
         count
+    }
+}
+
+private actor PathspecRecorder {
+    private(set) var calls: [[String]?] = []
+
+    func record(_ pathspecs: [String]?) {
+        calls.append(pathspecs)
+    }
+
+    var callCount: Int {
+        calls.count
+    }
+
+    var lastPathspecs: [String]? {
+        calls.last.flatMap { $0 }
     }
 }
 

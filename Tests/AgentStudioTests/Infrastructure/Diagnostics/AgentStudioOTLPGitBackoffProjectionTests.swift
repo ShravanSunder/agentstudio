@@ -36,4 +36,30 @@ struct AgentStudioOTLPGitBackoffProjectionTests {
         #expect(projection.attributes["agentstudio.performance.git.backoff.reason"] == .string("timeout"))
         #expect(projection.attributes["agentstudio.performance.git.root_path"] == nil)
     }
+
+    @Test
+    func gitStatusScopeTelemetryProjectsThroughAllowlist() {
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 300,
+            severityText: .info,
+            body: "performance.git.status",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.git.status_scope": .string("pathspec"),
+                "agentstudio.performance.git.pathspec.count": .int(3),
+                "agentstudio.performance.git.root_path": .string("/Users/shravan/private/repo"),
+            ]
+        )
+
+        let projection = AgentStudioOTLPTraceProjection.project(record)
+
+        #expect(projection.body == "performance.git.status")
+        #expect(projection.attributes["agentstudio.performance.git.status_scope"] == .string("pathspec"))
+        #expect(projection.attributes["agentstudio.performance.git.pathspec.count"] == .int(3))
+        #expect(projection.attributes["agentstudio.performance.git.root_path"] == nil)
+    }
 }

@@ -3,10 +3,11 @@ import Foundation
 @testable import AgentStudio
 
 struct StubGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider {
-    let resultHandler: @Sendable (URL) async -> GitWorkingTreeStatusResult
+    let resultHandler: @Sendable (URL, [String]?) async -> GitWorkingTreeStatusResult
 
+    /// Pathspec-ignoring convenience: the handler sees only the root path.
     init(handler: @escaping @Sendable (URL) async -> GitWorkingTreeStatus?) {
-        self.resultHandler = { rootPath in
+        self.resultHandler = { rootPath, _ in
             guard let status = await handler(rootPath) else {
                 return .unavailable(GitWorkingTreeStatusUnavailable(reason: .providerReturnedNil))
             }
@@ -14,21 +15,19 @@ struct StubGitWorkingTreeStatusProvider: GitWorkingTreeStatusProvider {
         }
     }
 
+    /// Pathspec-ignoring convenience returning a full result.
     init(resultHandler: @escaping @Sendable (URL) async -> GitWorkingTreeStatusResult) {
-        self.resultHandler = resultHandler
+        self.resultHandler = { rootPath, _ in await resultHandler(rootPath) }
     }
 
-    func statusResult(for rootPath: URL) async -> GitWorkingTreeStatusResult {
-        await resultHandler(rootPath)
+    /// Pathspec-aware handler: `pathspecs` is `nil` for a full status, otherwise
+    /// the scoped repo-relative paths the projector requested.
+    init(pathspecAwareResultHandler: @escaping @Sendable (URL, [String]?) async -> GitWorkingTreeStatusResult) {
+        self.resultHandler = pathspecAwareResultHandler
     }
 
-    func status(for rootPath: URL) async -> GitWorkingTreeStatus? {
-        switch await resultHandler(rootPath) {
-        case .available(let status):
-            status
-        case .unavailable:
-            nil
-        }
+    func statusResult(for rootPath: URL, pathspecs: [String]?) async -> GitWorkingTreeStatusResult {
+        await resultHandler(rootPath, pathspecs)
     }
 }
 
