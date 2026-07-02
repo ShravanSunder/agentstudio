@@ -116,9 +116,69 @@ describe('Bridge review metadata interest runtime', () => {
 
 		await expect.poll(() => lastCommandsByLane(commandDetails).visible).toEqual(['item-b']);
 	});
+
+	test('clears both interest lanes on hide and re-declares interest on show', async () => {
+		document.body.replaceChildren();
+		const commandDetails: BridgeRPCCommand[] = [];
+		const rpcClient: BridgeRPCClient = {
+			sendCommand: (command): boolean => {
+				commandDetails.push(command);
+				return true;
+			},
+		};
+		const reviewPackage = makeReviewPackageWithIdentity({
+			itemIds: ['item-a', 'item-b'],
+			packageId: 'package-a',
+			reviewGeneration: 7,
+			revision: 11,
+		});
+
+		// Arrange: declare foreground (selected) + visible interest while the surface is active.
+		render(
+			<RuntimeHarness
+				reviewPackage={reviewPackage}
+				rpcClient={rpcClient}
+				selectedItemId="item-a"
+				setVisibleContentItemIds={(): void => {}}
+			/>,
+		);
+		await expect.poll(() => commandDetails.length).toBeGreaterThanOrEqual(2);
+		requireHTMLButtonElement(document.querySelector('[data-testid="tree-visible"]')).click();
+		await expect
+			.poll(() => lastCommandsByLane(commandDetails))
+			.toEqual({
+				foreground: ['item-a'],
+				visible: ['item-b'],
+			});
+
+		// Act: hide the review surface.
+		requireHTMLButtonElement(document.querySelector('[data-testid="set-inactive"]')).click();
+
+		// Assert: both lanes are re-declared with empty item ids so native drops all interest.
+		await expect
+			.poll(() => lastCommandsByLane(commandDetails))
+			.toEqual({
+				foreground: [],
+				visible: [],
+			});
+
+		// Act: show the review surface again.
+		requireHTMLButtonElement(document.querySelector('[data-testid="set-active"]')).click();
+
+		// Assert: selection re-declares immediately; visible re-declares once the surface reports again.
+		await expect
+			.poll(() => lastCommandsByLane(commandDetails))
+			.toEqual({
+				foreground: ['item-a'],
+				visible: [],
+			});
+		requireHTMLButtonElement(document.querySelector('[data-testid="tree-visible"]')).click();
+		await expect.poll(() => lastCommandsByLane(commandDetails).visible).toEqual(['item-b']);
+	});
 });
 
 function RuntimeHarness(props: {
+	readonly isActive?: boolean;
 	readonly reviewPackage: BridgeReviewPackage;
 	readonly rpcClient: BridgeRPCClient;
 	readonly selectedItemId: string | null;
@@ -126,11 +186,12 @@ function RuntimeHarness(props: {
 }): ReactElement {
 	const [reviewPackage, setReviewPackage] = useState(props.reviewPackage);
 	const [bridgeReadyEpoch, setBridgeReadyEpoch] = useState(0);
+	const [isActive, setIsActive] = useState(props.isActive ?? true);
 	const [selectedItemId, setSelectedItemId] = useState<string | null>(props.selectedItemId);
 	const runtime = useBridgeReviewMetadataInterestRuntime({
 		authority: { paneId: 'pane-1', streamId: 'review:pane-1' },
 		bridgeReadyEpoch,
-		isActive: true,
+		isActive,
 		reviewPackage,
 		rpcClient: props.rpcClient,
 		selectedItemId,
@@ -143,6 +204,8 @@ function RuntimeHarness(props: {
 				onClick={(): void => setBridgeReadyEpoch((currentEpoch) => currentEpoch + 1)}
 				type="button"
 			/>
+			<button data-testid="set-inactive" onClick={(): void => setIsActive(false)} type="button" />
+			<button data-testid="set-active" onClick={(): void => setIsActive(true)} type="button" />
 			<button
 				data-testid="tree-visible"
 				onClick={(): void => runtime.onTreeVisibleItemIdsChange(['item-a', 'item-b'])}

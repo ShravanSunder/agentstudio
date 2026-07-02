@@ -7,6 +7,7 @@ import '../app/bridge-app.css';
 import type { WorktreeFileDescriptorRequest } from '../features/worktree-file/models/worktree-file-protocol-models.js';
 import type { BridgeTelemetrySample } from '../foundation/telemetry/bridge-telemetry-event.js';
 import {
+	findBridgeViewerTreeItemButton,
 	requireBridgeViewerHTMLElement,
 	waitForBridgeViewerAnimationFrame,
 	waitForBridgeViewerTreeItemButton,
@@ -20,8 +21,10 @@ import {
 	makeFileDescriptorFrame,
 	makeFrames,
 	makeSourceIdentity,
+	makeTreeRow,
 	makeTreeRowsOnlyFrames,
 	makeTreeWindowFrame,
+	parseWorktreeFileProtocolFrame,
 	type PublishWorktreeFileFrames,
 } from './bridge-file-viewer-browser-test-fixtures.js';
 import {
@@ -42,6 +45,7 @@ import {
 	waitForDescriptorRequestCount,
 	waitForFileViewerActiveState,
 	waitForInitialSurfaceLoadCount,
+	waitForMetadataTreeRowCount,
 	waitForOpenFileState,
 	waitForRecordedFetchCount,
 	waitForSelectedDisplayPath,
@@ -180,6 +184,111 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 
 		expect(loadInitialSurfaceCount).toBe(1);
 		await waitForBridgeViewerTreeItemButton('src/file-1.ts');
+	});
+
+	test('applies a tree delta pushed while Files is hidden without reloading the surface', async () => {
+		let activateFiles: (() => void) | null = null;
+		let deactivateFiles: (() => void) | null = null;
+		let loadInitialSurfaceCount = 0;
+		let publishFrames: PublishWorktreeFileFrames | null = null;
+
+		function ControlledFileViewer(): ReactElement {
+			const [isActive, setIsActive] = useState(true);
+			activateFiles = (): void => {
+				setIsActive(true);
+			};
+			deactivateFiles = (): void => {
+				setIsActive(false);
+			};
+			return (
+				<BridgeFileViewerApp
+					codeViewWorkerPoolEnabled={false}
+					isActive={isActive}
+					loadInitialSurface={async (): Promise<WorktreeFileInitialSurface> => {
+						loadInitialSurfaceCount += 1;
+						return {
+							frames: makeFrames(
+								makeFileDescriptor({
+									contentHandle: 'content-existing',
+									fileId: 'file-existing',
+									path: 'src/existing.ts',
+								}),
+								makeFileDescriptor({
+									contentHandle: 'content-removed',
+									fileId: 'file-removed',
+									path: 'src/removed.ts',
+								}),
+							),
+							provenance: {
+								baseRef: 'native-current-worktree',
+								scenarioName: 'current-worktree',
+								worktreeRootToken: 'root-token',
+							},
+							source: makeSourceIdentity(),
+						};
+					}}
+					subscribeFrames={(handler): (() => void) => {
+						publishFrames = handler;
+						return (): void => {
+							publishFrames = null;
+						};
+					}}
+				/>
+			);
+		}
+
+		render(<ControlledFileViewer />);
+
+		await waitForInitialSurfaceLoadCount({
+			expectedCount: 1,
+			getLoadCount: () => loadInitialSurfaceCount,
+		});
+		await waitForMetadataTreeRowCount(2);
+		await waitForBridgeViewerTreeItemButton('src/existing.ts');
+		await waitForBridgeViewerTreeItemButton('src/removed.ts');
+
+		// Hide Files (switch to Review), then push a tree delta while hidden.
+		requireDeactivateFiles(deactivateFiles)();
+		await waitForFileViewerActiveState('false');
+		requireFramePublisher(publishFrames)([
+			parseWorktreeFileProtocolFrame({
+				kind: 'delta',
+				streamId: 'worktree-file:pane-1',
+				generation: 1,
+				sequence: 3,
+				frameKind: 'worktree.treeDelta',
+				operations: [
+					{
+						op: 'upsertRows',
+						rows: [
+							makeTreeRow({
+								depth: 1,
+								fileId: 'file-added',
+								isDirectory: false,
+								lineCount: 12,
+								name: 'added.ts',
+								parentPath: 'src',
+								path: 'src/added.ts',
+							}),
+						],
+					},
+					{
+						op: 'removeRows',
+						rowIds: ['row:src/removed.ts'],
+						paths: ['src/removed.ts'],
+					},
+				],
+			}),
+		]);
+
+		// Show Files again (switch back to Review -> Files).
+		requireActivateFiles(activateFiles)();
+		await waitForFileViewerActiveState('true');
+		await waitForBridgeViewerTreeItemButton('src/added.ts');
+
+		expect(findBridgeViewerTreeItemButton('src/removed.ts')).toBeNull();
+		expect(findBridgeViewerTreeItemButton('src/existing.ts')).not.toBeNull();
+		expect(loadInitialSurfaceCount).toBe(1);
 	});
 
 	test('opens clicked file content after Files reactivates with the preserved streamed surface', async () => {

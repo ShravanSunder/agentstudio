@@ -497,6 +497,118 @@ describe('BridgeApp lazy mode boundaries', () => {
 			reviewModeHost.querySelector('[data-testid="review-viewer-shell-lazy-mock"]'),
 		).toBeNull();
 	});
+
+	test('keeps both mode hosts and Review projection across a Review -> File -> Review round trip', async () => {
+		const reviewPackage = makeBridgeReviewPackage();
+		const streamId = 'review:bridge-app-test-pane';
+		const snapshotFrame = buildReviewMetadataSnapshotFrame({
+			package: reviewPackage,
+			paneId: 'bridge-app-test-pane',
+			sequence: 1,
+			sourceIdentity: reviewPackage.query.queryId,
+			streamId,
+			selectedItemId: reviewPackage.orderedItemIds[0] ?? null,
+			visibleItemIds: reviewPackage.orderedItemIds,
+		});
+		const bufferedFrame: WorktreeFileProtocolFrame = {
+			kind: 'reset',
+			streamId: 'worktree-file:test',
+			generation: 1,
+			sequence: 0,
+			frameKind: 'worktree.reset',
+			reason: 'subscriptionReset',
+		};
+		let loadInitialSurfaceCount = 0;
+		// No data-bridge-nonce: the file frame controller waits on bridge-ready, and an
+		// unanswered bridge.ready RPC (which a command nonce would require) would never resolve.
+		document.documentElement.setAttribute('data-bridge-review-pane-id', 'bridge-app-test-pane');
+		document.documentElement.setAttribute('data-bridge-review-stream-id', streamId);
+		const { BridgeApp } = await import('./bridge-app.js');
+		// A stable fileViewerProps reference keeps the File frame controller from reloading across
+		// mode switches. Mode switches are driven by the viewerMode prop because the mocked Review
+		// shell does not render the context switcher once the Review projection is active.
+		const fileViewerProps = {
+			loadInitialSurface: async (): Promise<WorktreeFileInitialSurface> => {
+				loadInitialSurfaceCount += 1;
+				return { frames: [bufferedFrame] };
+			},
+		};
+
+		const { rerender } = render(
+			<BridgeApp fileViewerProps={fileViewerProps} viewerMode="review" />,
+		);
+
+		// Establish the Review projection from native intake.
+		await dispatchHostAdmittedReviewIntakeFrame({
+			kind: 'reset',
+			streamId,
+			generation: reviewPackage.reviewGeneration,
+			sequence: 0,
+			payload: {
+				kind: 'reset',
+				streamId,
+				generation: reviewPackage.reviewGeneration,
+				sequence: 0,
+				frameKind: 'review.reset',
+				reason: 'authorityChanged',
+				sourceIdentity: reviewPackage.query.queryId,
+			},
+		});
+		await dispatchHostAdmittedReviewIntakeFrame({
+			kind: 'snapshot',
+			streamId,
+			generation: reviewPackage.reviewGeneration,
+			sequence: snapshotFrame.sequence,
+			payload: snapshotFrame,
+		});
+		await expect.poll(() => bridgeAppLazyBoundaryMock.projectionApplyCount).toBe(1);
+
+		const reviewModeHost = requireHTMLElement(
+			document.querySelector('[data-testid="bridge-viewer-mode-host-review"]'),
+		);
+		const projectionApplyCountBeforeRoundTrip = bridgeAppLazyBoundaryMock.projectionApplyCount;
+
+		// Switch to Files: the File surface loads its initial surface exactly once.
+		rerender(<BridgeApp fileViewerProps={fileViewerProps} viewerMode="file" />);
+		await expect
+			.poll(
+				() => document.querySelector('[data-testid="bridge-file-viewer-shell-lazy-mock"]') !== null,
+			)
+			.toBe(true);
+		await expect.poll(() => loadInitialSurfaceCount).toBe(1);
+		const fileModeHost = requireHTMLElement(
+			document.querySelector('[data-testid="bridge-viewer-mode-host-file"]'),
+		);
+		expect(reviewModeHost.hidden).toBe(true);
+		expect(fileModeHost.hidden).toBe(false);
+
+		// Switch back to Review.
+		rerender(<BridgeApp fileViewerProps={fileViewerProps} viewerMode="review" />);
+		await expect
+			.poll(() => {
+				const host = document.querySelector('[data-testid="bridge-viewer-mode-host-review"]');
+				return host instanceof HTMLElement && !host.hidden;
+			})
+			.toBe(true);
+
+		// Both mode hosts keep DOM identity across the round trip.
+		expect(document.querySelector('[data-testid="bridge-viewer-mode-host-review"]')).toBe(
+			reviewModeHost,
+		);
+		expect(document.querySelector('[data-testid="bridge-viewer-mode-host-file"]')).toBe(
+			fileModeHost,
+		);
+		// The File host stays mounted (hidden) with its already-loaded shell; it never reloaded.
+		expect(fileModeHost.hidden).toBe(true);
+		expect(
+			fileModeHost.querySelector('[data-testid="bridge-file-viewer-shell-lazy-mock"]'),
+		).not.toBeNull();
+		expect(loadInitialSurfaceCount).toBe(1);
+		// The Review projection was not re-applied across the round trip (no re-apply storm).
+		expect(bridgeAppLazyBoundaryMock.projectionApplyCount).toBe(
+			projectionApplyCountBeforeRoundTrip,
+		);
+	});
 });
 
 async function dispatchHostAdmittedReviewIntakeFrame(frame: BridgeIntakeFrame): Promise<void> {
