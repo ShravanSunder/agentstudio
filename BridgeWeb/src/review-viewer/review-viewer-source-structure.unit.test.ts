@@ -11,6 +11,7 @@ describe('Review viewer source structure', () => {
 
 		expect(modeSource).toContain('useBridgeReviewViewerStore');
 		expect(modeSource).toContain('useBridgeReviewControlEventListeners');
+		expect(modeSource).toContain('useBridgeReviewContentIdentityController');
 		expect(modeSource).toContain('useBridgeReviewIntakeController');
 		expect(modeSource).toContain('useBridgeReviewMetadataInterestRuntime');
 		expect(modeSource).toContain('useBridgeReviewNavigationController');
@@ -138,6 +139,31 @@ describe('Review viewer source structure', () => {
 		expect(demandTelemetryControllerSource).not.toContain('@pierre/');
 	});
 
+	test('keeps Review content registry identity in an app-level controller hook', () => {
+		const modeSource = readSource('../app/bridge-app-review-viewer-mode.tsx');
+		const contentIdentityControllerSource = readSource(
+			'../app/bridge-app-review-content-identity-controller.ts',
+		);
+
+		expect(modeSource).toContain('useBridgeReviewContentIdentityController');
+		expect(modeSource).not.toContain('contentRegistry.setActiveIdentity');
+
+		expect(contentIdentityControllerSource).toContain('useBridgeReviewContentIdentityController');
+		expect(contentIdentityControllerSource).toContain('contentRegistry.setActiveIdentity');
+		expect(contentIdentityControllerSource).not.toContain('BridgeReviewViewerShellBoundary');
+		expect(contentIdentityControllerSource).not.toContain('useBridgeReviewViewerStore');
+		expect(contentIdentityControllerSource).not.toContain('createBridgeReviewViewerStore');
+		expect(contentIdentityControllerSource).not.toContain('resourceExecutor');
+		expect(contentIdentityControllerSource).not.toContain('reviewDemandScheduler');
+		expect(contentIdentityControllerSource).not.toContain(
+			'createBridgeReviewProjectionWebWorkerClient',
+		);
+		expect(contentIdentityControllerSource).not.toContain(
+			'createBridgeMarkdownRenderWebWorkerClient',
+		);
+		expect(contentIdentityControllerSource).not.toContain('@pierre/');
+	});
+
 	test('keeps Review visible content hydration in an app-level controller hook', () => {
 		const modeSource = readSource('../app/bridge-app-review-viewer-mode.tsx');
 		const visibleContentControllerSource = readSource(
@@ -207,6 +233,9 @@ describe('Review viewer source structure', () => {
 		).toBeLessThanOrEqual(1000);
 		expect(
 			readSource('../app/bridge-app-review-demand-telemetry-controller.ts').split('\n').length,
+		).toBeLessThanOrEqual(1000);
+		expect(
+			readSource('../app/bridge-app-review-content-identity-controller.ts').split('\n').length,
 		).toBeLessThanOrEqual(1000);
 	});
 });

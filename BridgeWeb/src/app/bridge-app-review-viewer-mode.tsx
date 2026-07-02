@@ -22,6 +22,7 @@ import { selectBridgeReviewViewerRootSnapshot } from '../review-viewer/state/rev
 import { createBridgeMarkdownRenderWebWorkerClient } from '../review-viewer/workers/markdown/bridge-markdown-render-worker-transport.js';
 import type { BridgeReviewProjectionWorkerClient } from '../review-viewer/workers/projection/review-projection-worker-client.js';
 import { createBridgeReviewProjectionWebWorkerClient } from '../review-viewer/workers/projection/review-projection-worker-transport.js';
+import { useBridgeReviewContentIdentityController } from './bridge-app-review-content-identity-controller.js';
 import type { BridgeDiffStatusState } from './bridge-app-review-controller.js';
 import { useBridgeReviewDemandTelemetryController } from './bridge-app-review-demand-telemetry-controller.js';
 import {
@@ -362,17 +363,10 @@ export function BridgeReviewViewerMode(
 		viewerActions,
 	});
 
-	useEffect((): void => {
-		contentRegistry.setActiveIdentity(
-			reviewPackage === null
-				? null
-				: {
-						packageId: reviewPackage.packageId,
-						reviewGeneration: reviewPackage.reviewGeneration,
-						revision: reviewPackage.revision,
-					},
-		);
-	}, [contentRegistry, reviewPackage]);
+	useBridgeReviewContentIdentityController({
+		contentRegistry,
+		reviewPackage,
+	});
 
 	useBridgeReviewIntakeController({
 		target,
