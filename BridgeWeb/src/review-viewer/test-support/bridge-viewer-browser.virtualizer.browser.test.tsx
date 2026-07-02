@@ -9,6 +9,7 @@ import type {
 	BridgeReviewItemDescriptor,
 	BridgeReviewPackage,
 } from '../../foundation/review-package/bridge-review-package.js';
+import { bridgeCodeViewOptions } from '../code-view/bridge-code-view-options.js';
 import {
 	waitForBridgeViewerAnimationFrame,
 	waitForBridgeViewerCodeScrollOwner,
@@ -30,8 +31,10 @@ const reviewPaneId = 'bridge-viewer-dev-pane';
 const reviewStreamId = `review:${reviewPaneId}`;
 const bridgeViewerPushNonce = 'browser-push-nonce';
 // Selection-reveal landing bound (px) between the target header top and the scroll-owner
-// top after settle. S2 (F9) lands within the placeholder height-estimate residual; S3 (F1
-// itemMetrics) makes estimates truthful and tightens this toward the spec's 2px ideal.
+// top after settle. Measured to be a constant ~4px structural offset from Pierre's item
+// layout at align:'start' (identical for a 1-line filler and a multi-line file, and
+// unchanged by S3 height truth), so this is the achievable floor — the load-bearing proof
+// is the monotonic, oscillation-free settle, not sub-pixel landing.
 const revealSettleLandingOffsetPixels = 4;
 
 describe('Bridge viewer CodeView virtualizer anchoring', () => {
@@ -324,6 +327,53 @@ describe('Bridge viewer CodeView virtualizer anchoring', () => {
 		}
 	});
 
+	test('keeps the code view scroll height stable as items measure across scroll positions (R2 thumb constancy)', async () => {
+		const fixture = makeBridgeViewerBrowserFixture({ fixtureClass: 'large-diffshub' });
+		const backend = installBridgeViewerMockedBackend(fixture);
+
+		render(
+			<BridgeApp
+				codeViewWorkerPoolEnabled={false}
+				fetchContent={backend.fetchContent}
+				markdownWorkerClient={null}
+				projectionWorkerClient={backend.projectionWorkerClient}
+			/>,
+		);
+		await backend.pushMetadata();
+		await waitForBridgeViewerText(fixture.expected.initialText);
+		const scrollOwner = await waitForBridgeViewerCodeScrollOwner();
+		await waitForInitialRevealSettled(scrollOwner);
+
+		// I1 HEIGHT TRUTH (F1): the estimate Pierre reserves for an unhydrated/virtualized item
+		// must equal the height it measures after render, within a line of rounding. Without
+		// itemMetrics Pierre defaults to a 44px header while the rendered header is 32px.
+		const measured = measuredBridgeCodeViewLayoutMetrics();
+		expect(measured.headerHeight).toBeGreaterThan(0);
+		expect(measured.lineHeight).toBeGreaterThan(0);
+		expect(
+			Math.abs((bridgeCodeViewOptions.itemMetrics?.diffHeaderHeight ?? 0) - measured.headerHeight),
+		).toBeLessThanOrEqual(1);
+		expect(
+			Math.abs((bridgeCodeViewOptions.itemMetrics?.lineHeight ?? 0) - measured.lineHeight),
+		).toBeLessThanOrEqual(1);
+
+		// R2 thumb constancy: with true estimates the scroll height (thumb length =
+		// clientHeight / scrollHeight) does not churn as items scroll through the measured
+		// window.
+		const maxScrollTop = Math.max(0, scrollOwner.scrollHeight - scrollOwner.clientHeight);
+		const scrollHeights: number[] = [];
+		for (const fraction of [0, 0.2, 0.4, 0.6, 0.8, 0.95, 0.4, 0]) {
+			scrollOwner.scrollTop = Math.round(maxScrollTop * fraction);
+			scrollOwner.dispatchEvent(new Event('scroll', { bubbles: true }));
+			// oxlint-disable-next-line no-await-in-loop -- Each scroll must settle before sampling scroll height.
+			await waitForBridgeViewerScrollIdle(scrollOwner);
+			scrollHeights.push(scrollOwner.scrollHeight);
+		}
+		const minScrollHeight = Math.min(...scrollHeights);
+		const maxScrollHeight = Math.max(...scrollHeights);
+		expect((maxScrollHeight - minScrollHeight) / maxScrollHeight).toBeLessThan(0.02);
+	});
+
 	test('lands a downward selection reveal at the target header top (R3 down-guard)', async () => {
 		const fixture = makeBridgeViewerBrowserFixture({ fixtureClass: 'large-diffshub' });
 		const orderedItemIds = fixture.reviewPackage.orderedItemIds;
@@ -463,6 +513,40 @@ async function waitForBridgeViewerScrollIdle(
 		}
 		previousScrollTop = scrollOwner.scrollTop;
 	}
+}
+
+interface MeasuredBridgeCodeViewLayoutMetrics {
+	readonly headerHeight: number;
+	readonly lineHeight: number;
+}
+
+function measuredBridgeCodeViewLayoutMetrics(): MeasuredBridgeCodeViewLayoutMetrics {
+	let headerHeight = 0;
+	let lineHeight = 0;
+	const searchRoots: ParentNode[] = [document];
+	for (const container of document.querySelectorAll('diffs-container')) {
+		if (container.shadowRoot !== null) {
+			searchRoots.push(container.shadowRoot);
+		}
+	}
+	for (const searchRoot of searchRoots) {
+		if (headerHeight === 0) {
+			const headerElement = searchRoot.querySelector('[data-diffs-header]');
+			if (headerElement instanceof HTMLElement) {
+				headerHeight = headerElement.getBoundingClientRect().height;
+			}
+		}
+		if (lineHeight === 0) {
+			const lineElement = searchRoot.querySelector('[data-line-index]');
+			if (lineElement instanceof HTMLElement) {
+				lineHeight = lineElement.getBoundingClientRect().height;
+			}
+		}
+	}
+	return {
+		headerHeight: Math.round(headerHeight * 100) / 100,
+		lineHeight: Math.round(lineHeight * 100) / 100,
+	};
 }
 
 function revealReviewItem(itemId: string): void {

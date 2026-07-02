@@ -563,6 +563,7 @@ function createFileContents(props: CreateFileContentsProps): FileContents {
 			placeholderTextForLineCount({
 				contentState: props.contentState ?? 'placeholder',
 				lineCount: props.placeholderLineCount ?? null,
+				maxPlaceholderLineCount: placeholderLineCountBudgetForItem(props.item),
 			}),
 	});
 	return {
@@ -581,14 +582,25 @@ function createFileContents(props: CreateFileContentsProps): FileContents {
 	};
 }
 
+export function placeholderLineCountBudgetForItem(item: BridgeReviewItemDescriptor): number {
+	// F2 placeholder/hydrated cap parity: reserve the placeholder with the same line budget
+	// the hydrated content will use. Items that hydrate to a bounded window keep the window
+	// cap; everything else reserves up to the full materialization budget so the item does
+	// not grow (or shrink) on hydrate.
+	return shouldUseBoundedCodeViewWindow({ item, resources: [null] })
+		? codeViewContentWindowLineCount
+		: fullCodeViewMaterializationLineBudget;
+}
+
 function placeholderTextForLineCount(props: {
 	readonly contentState: BridgeCodeViewItemMetadata['contentState'];
 	readonly lineCount: number | null;
+	readonly maxPlaceholderLineCount: number;
 }): string {
 	if (props.lineCount === null || props.lineCount <= 0) {
 		return '';
 	}
-	const boundedLineCount = Math.min(props.lineCount, codeViewContentWindowLineCount);
+	const boundedLineCount = Math.min(props.lineCount, props.maxPlaceholderLineCount);
 	const statusLines =
 		props.contentState === 'loading'
 			? ['Loading content...', 'Loading syntax view...']

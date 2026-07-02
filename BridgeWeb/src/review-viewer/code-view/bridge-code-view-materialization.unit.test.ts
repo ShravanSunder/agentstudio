@@ -1,12 +1,15 @@
 import { describe, expect, expectTypeOf, test } from 'vitest';
 
 import type { BridgeContentResource } from '../../foundation/content/content-resource-loader.js';
+import { makeBridgeReviewItem } from '../../foundation/review-package/bridge-review-package-test-support.js';
+import type { BridgeReviewItemDescriptor } from '../../foundation/review-package/bridge-review-package.js';
 import { buildBridgeReviewProjection } from '../navigation/review-projection.js';
 import { makeBridgeViewerProjectionFixture } from '../test-support/review-viewer-fixtures.js';
 import {
 	createBridgeCodeViewInitialItems,
 	materializeBridgeCodeViewLoadingItem,
 	materializeBridgeCodeViewItem,
+	placeholderLineCountBudgetForItem,
 	type BridgeCodeViewDiffItem,
 	type BridgeCodeViewItem,
 } from './bridge-code-view-materialization.js';
@@ -741,6 +744,35 @@ describe('Bridge CodeView materialization', () => {
 
 		expect(materialized.file.contents).toBe('let value = 1\n');
 		expect(materialized.bridgeMetadata.contentRoles).toEqual(['base']);
+	});
+
+	test('reserves a placeholder line budget that matches the hydrated content window (F2)', () => {
+		// A normal file (well under the materialization budget) that hydrates to 4000 lines.
+		const normalItem: BridgeReviewItemDescriptor = {
+			...makeBridgeReviewItem({ itemId: 'big-file', path: 'Sources/App/Big.ts' }),
+			additions: 4000,
+			deletions: 0,
+			contentLineCountsByRole: { head: 4000 },
+		};
+		const placeholder = materializeBridgeCodeViewLoadingItem(normalItem, {
+			kind: 'file',
+			version: 'head',
+		});
+		if (placeholder.type !== 'file') {
+			throw new Error('expected a file placeholder');
+		}
+		// Number of reserved rows Pierre will estimate from = newline count of the placeholder.
+		const reservedLineCount = placeholder.file.contents.split('\n').length - 1;
+		// Before F2 the placeholder was capped at 1500 rows while the head hydrates to 4000,
+		// so the item grew ~2.6x on hydrate. Now the placeholder reserves the hydrated count.
+		expect(reservedLineCount).toBeGreaterThan(1500);
+		expect(reservedLineCount).toBeLessThanOrEqual(4000);
+
+		// Budget decision: a normal item reserves the full materialization budget; an item that
+		// hydrates to a bounded window keeps the window cap, so both match hydrated height.
+		expect(placeholderLineCountBudgetForItem(normalItem)).toBe(20_000);
+		const windowedItem: BridgeReviewItemDescriptor = { ...normalItem, additions: 30_000 };
+		expect(placeholderLineCountBudgetForItem(windowedItem)).toBe(1500);
 	});
 });
 

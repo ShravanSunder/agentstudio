@@ -10,6 +10,16 @@ export const bridgeCodeViewOptions: CodeViewOptions<undefined> = {
 		light: bridgePierreDarkThemeName,
 	},
 	themeType: 'dark',
+	// F1 height truth: give Pierre estimate metrics that match the rendered CSS instead of
+	// its 20/44/8 defaults, so an unhydrated item reserves the height it will measure. The
+	// header estimate must match the `[data-diffs-header] { min-height: 32px }` below; the
+	// line height matches Pierre's own `--diffs-line-height` default (20px), and spacing
+	// stays at the package default because the layout does not override hunk/file padding.
+	itemMetrics: {
+		lineHeight: 20,
+		diffHeaderHeight: 32,
+		spacing: 8,
+	},
 	diffStyle: 'split',
 	diffIndicators: 'bars',
 	overflow: 'wrap',
