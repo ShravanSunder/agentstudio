@@ -1906,15 +1906,13 @@ struct GitWorkingDirectoryProjectorTests {
         collectionTask.cancel()
     }
 
-    @Test("adaptive coalescing window grows under sustained bursts and decays when quiet")
-    func adaptiveCoalescingWindowGrowsUnderBurst() async throws {
+    @Test("active worktree periodic tick skips while quiescent and refreshes when a change arrives")
+    func activeWorktreePeriodicTickSkipsWhileQuiescent() async throws {
         let bus = EventBus<RuntimeEnvelope>()
         let clock = TestPushClock()
         let calls = CallCounter()
-        let policy = AppPolicies.GitRefresh.Policy(
-            backgroundStripeCount: 1,
-            adaptiveCoalescingMaxWindow: .milliseconds(200)
-        )
+        let policy = AppPolicies.GitRefresh.Policy(backgroundStripeCount: 1)
+        // Every compute yields the same snapshot, so computes after the first dedup.
         let provider = StubGitWorkingTreeStatusProvider(resultHandler: { _ in
             _ = await calls.increment()
             return .available(
@@ -1928,7 +1926,8 @@ struct GitWorkingDirectoryProjectorTests {
         let actor = GitWorkingDirectoryProjector(
             bus: bus,
             gitWorkingTreeProvider: provider,
-            coalescingWindow: .milliseconds(50),
+            coalescingWindow: .zero,
+            periodicRefreshInterval: .milliseconds(100),
             sleepClock: clock,
             refreshPolicy: policy
         )
@@ -1938,31 +1937,35 @@ struct GitWorkingDirectoryProjectorTests {
         await actor.start()
 
         let worktreeId = UUID()
-        let rootPath = URL(fileURLWithPath: "/tmp/adaptive-\(UUID().uuidString)")
-
-        // Cycle A (productive at base 50ms): a second change arrives during the
-        // window, so the window grows one step to 100ms.
-        await bus.post(makeFilesChangedEnvelope(seq: 1, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 1))
-        await clock.waitForPendingSleepCount(atLeast: 1)
-        await bus.post(makeFilesChangedEnvelope(seq: 2, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 2))
-        clock.advance(by: .milliseconds(50))
-        #expect(await waitUntil { await calls.value() == 1 })
-
-        // Cycle B (quiet at the grown 100ms window): 50ms is not enough.
-        await bus.post(makeFilesChangedEnvelope(seq: 3, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 3))
-        await clock.waitForPendingSleepCount(atLeast: 1)
-        clock.advance(by: .milliseconds(50))
-        for _ in 0..<300 {
-            await Task.yield()
-        }
-        #expect(await calls.value() == 1)
-        clock.advance(by: .milliseconds(50))
+        let rootPath = URL(fileURLWithPath: "/tmp/quiescent-tick-\(UUID().uuidString)")
+        // Registration seeds compute #1 (emits nil->snapshot); making it the
+        // active pane seeds compute #2 (same snapshot -> dedup -> quiescent).
+        await bus.post(
+            makeEnvelope(
+                seq: 1,
+                worktreeId: worktreeId,
+                event: .worktreeRegistered(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
+            )
+        )
+        #expect(await waitUntil { await observed.snapshotCount(for: worktreeId) == 1 })
+        await actor.setActivePaneWorktree(worktreeId: worktreeId)
         #expect(await waitUntil { await calls.value() == 2 })
+        // Barrier: a no-op awaited actor call serializes after compute #2's dedup,
+        // so the worktree is marked quiescent before any tick can fire.
+        await actor.setActivity(worktreeId: UUID(), isActiveInApp: false)
 
-        // Cycle C: the quiet Cycle B decayed the window back to base 50ms.
-        await bus.post(makeFilesChangedEnvelope(seq: 4, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 4))
+        // Periodic ticks while quiescent must not re-enqueue the active worktree.
         await clock.waitForPendingSleepCount(atLeast: 1)
-        clock.advance(by: .milliseconds(50))
+        for _ in 0..<3 {
+            clock.advance(by: .milliseconds(100))
+            for _ in 0..<200 {
+                await Task.yield()
+            }
+        }
+        #expect(await calls.value() == 2)
+
+        // A real file-change re-arms the worktree; the next refresh runs.
+        await bus.post(makeFilesChangedEnvelope(seq: 2, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 1))
         #expect(await waitUntil { await calls.value() == 3 })
 
         await actor.shutdown()

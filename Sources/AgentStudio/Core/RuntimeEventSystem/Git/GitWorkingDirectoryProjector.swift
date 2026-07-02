@@ -47,7 +47,7 @@ actor GitWorkingDirectoryProjector {
     var openStatusBackoffWorktreeIds: Set<UUID> = []
     var deferredStatusBackoffChangesetByWorktreeId: [UUID: FileChangeset] = [:]
     var statusBackoffTasks: [UUID: Task<Void, Never>] = [:]
-    var adaptiveCoalescingWindowByWorktreeId: [UUID: Duration] = [:]
+    private var quiescentWorktreeIds: Set<UUID> = []
     private var periodicRefreshTick: UInt64 = 0
     private var nextEnvelopeSequence: UInt64 = 0
     var isShuttingDown = false
@@ -146,7 +146,7 @@ actor GitWorkingDirectoryProjector {
         statusBackoffFailureCountByWorktreeId.removeAll(keepingCapacity: false)
         openStatusBackoffWorktreeIds.removeAll(keepingCapacity: false)
         deferredStatusBackoffChangesetByWorktreeId.removeAll(keepingCapacity: false)
-        adaptiveCoalescingWindowByWorktreeId.removeAll(keepingCapacity: false)
+        quiescentWorktreeIds.removeAll(keepingCapacity: false)
         pendingByWorktreeId.removeAll(keepingCapacity: false)
         suppressedWorktreeIds.removeAll(keepingCapacity: false)
         suppressedWorktreeOrder.removeAll(keepingCapacity: false)
@@ -205,6 +205,7 @@ actor GitWorkingDirectoryProjector {
                 return
             }
             repoIdByWorktreeId[worktreeId] = changeset.repoId
+            quiescentWorktreeIds.remove(worktreeId)
             guard !deferChangesetIfStatusBackoffOpen(changeset) else { return }
             pendingByWorktreeId[worktreeId] = changeset
             admitPendingWorktrees()
@@ -364,6 +365,7 @@ actor GitWorkingDirectoryProjector {
             nilStatusRetryCountByWorktreeId.removeValue(forKey: worktreeId)
             cancelNilStatusRetry(worktreeId: worktreeId)
             clearStatusBackoffState(worktreeId: worktreeId)
+            quiescentWorktreeIds.remove(worktreeId)
             worktreeTasks.removeValue(forKey: worktreeId)?.cancel()
             worktreeTaskGenerationByWorktreeId.removeValue(forKey: worktreeId)
         }
@@ -397,6 +399,7 @@ actor GitWorkingDirectoryProjector {
         nilStatusRetryCountByWorktreeId.removeValue(forKey: worktreeId)
         cancelNilStatusRetry(worktreeId: worktreeId)
         clearStatusBackoffState(worktreeId: worktreeId)
+        quiescentWorktreeIds.remove(worktreeId)
         nextPeriodicBatchSeqByWorktreeId.removeValue(forKey: worktreeId)
         if !repoIdByWorktreeId.values.contains(repoId) {
             lastKnownOriginByRepoId.removeValue(forKey: repoId)
@@ -492,7 +495,7 @@ actor GitWorkingDirectoryProjector {
             }
             if coalescingWindow > .zero {
                 do {
-                    try await delay.wait(effectiveCoalescingWindow(for: worktreeId))
+                    try await delay.wait(coalescingWindow)
                 } catch is CancellationError {
                     return
                 } catch {
@@ -502,10 +505,8 @@ actor GitWorkingDirectoryProjector {
                     continue
                 }
                 guard !Task.isCancelled else { return }
-                let coalescedNewerChangeset = pendingByWorktreeId.removeValue(forKey: worktreeId)
-                adaptCoalescingWindow(worktreeId: worktreeId, wasProductive: coalescedNewerChangeset != nil)
-                if let coalescedNewerChangeset {
-                    nextChangeset = coalescedNewerChangeset
+                if let newer = pendingByWorktreeId.removeValue(forKey: worktreeId) {
+                    nextChangeset = newer
                 }
             }
 
@@ -545,6 +546,7 @@ actor GitWorkingDirectoryProjector {
         let previousSnapshot = lastEmittedSnapshotByWorktreeId[changeset.worktreeId]
         if previousSnapshot != nextSnapshot {
             lastEmittedSnapshotByWorktreeId[changeset.worktreeId] = nextSnapshot
+            quiescentWorktreeIds.remove(changeset.worktreeId)
             await emitGitWorkingDirectoryEvent(
                 worktreeId: changeset.worktreeId,
                 repoId: changeset.repoId,
@@ -559,6 +561,12 @@ actor GitWorkingDirectoryProjector {
                     "agentstudio.performance.git.snapshot_dedup.count": .int(1)
                 ]
             )
+            // Backstop tick suppression: mark the worktree quiescent so its next
+            // periodic re-enqueue is skipped, but only when no newer refresh is
+            // already queued (i.e. no file-change arrived since this compute).
+            if pendingByWorktreeId[changeset.worktreeId] == nil {
+                quiescentWorktreeIds.insert(changeset.worktreeId)
+            }
         }
 
         if let previousSnapshot,
@@ -818,7 +826,10 @@ actor GitWorkingDirectoryProjector {
 
     private func isPeriodicRefreshDue(worktreeId: UUID) -> Bool {
         if activePaneWorktreeId == worktreeId || activeWorktreeIds.contains(worktreeId) {
-            return true
+            // The active worktree used to backstop-refresh every tick. Skip the
+            // tick while it is quiescent (its last compute found no change and no
+            // file-change has arrived since); a real change re-arms the tick.
+            return !quiescentWorktreeIds.contains(worktreeId)
         }
         return refreshPolicy.isBackgroundWorktreeDue(worktreeId, tick: periodicRefreshTick)
     }

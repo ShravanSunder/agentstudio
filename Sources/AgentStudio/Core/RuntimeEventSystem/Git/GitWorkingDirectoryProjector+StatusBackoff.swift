@@ -110,30 +110,6 @@ extension GitWorkingDirectoryProjector {
         statusBackoffFailureCountByWorktreeId.removeValue(forKey: worktreeId)
         openStatusBackoffWorktreeIds.remove(worktreeId)
         deferredStatusBackoffChangesetByWorktreeId.removeValue(forKey: worktreeId)
-        adaptiveCoalescingWindowByWorktreeId.removeValue(forKey: worktreeId)
-    }
-
-    func effectiveCoalescingWindow(for worktreeId: UUID) -> Duration {
-        adaptiveCoalescingWindowByWorktreeId[worktreeId] ?? coalescingWindow
-    }
-
-    /// Grows the per-worktree coalescing window by one base step after a window
-    /// that folded additional changes (a burst), and decays it back toward the
-    /// base when the window was quiet, clamped to `adaptiveCoalescingMaxWindow`.
-    func adaptCoalescingWindow(worktreeId: UUID, wasProductive: Bool) {
-        guard coalescingWindow > .zero else { return }
-        let currentWindow = adaptiveCoalescingWindowByWorktreeId[worktreeId] ?? coalescingWindow
-        let nextWindow: Duration
-        if wasProductive {
-            nextWindow = min(currentWindow + coalescingWindow, refreshPolicy.adaptiveCoalescingMaxWindow)
-        } else {
-            nextWindow = max(coalescingWindow, currentWindow - coalescingWindow)
-        }
-        if nextWindow == coalescingWindow {
-            adaptiveCoalescingWindowByWorktreeId.removeValue(forKey: worktreeId)
-        } else {
-            adaptiveCoalescingWindowByWorktreeId[worktreeId] = nextWindow
-        }
     }
 
     func emitStatusBackoffTelemetry(
