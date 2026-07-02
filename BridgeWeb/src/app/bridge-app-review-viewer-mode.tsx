@@ -156,6 +156,7 @@ export function BridgeReviewViewerMode(
 		setSelectedContentResourcesState,
 		startSelectedReviewContentDemand,
 	} = useSelectedReviewContentDemandController({
+		contentRegistry,
 		currentReviewPackageTelemetryContextRef,
 		reviewContentDescriptorRefsByHandleIdRef,
 		resourceExecutor,
@@ -388,6 +389,7 @@ export function BridgeReviewViewerMode(
 		reviewContentDescriptorRefsByHandleIdRef,
 		reviewDemandScheduler,
 		resourceExecutor,
+		contentRegistry,
 		invalidatedFreshnessKeysRef: invalidatedReviewFreshnessKeysRef,
 		setReviewContentInvalidationVersion,
 		retrySelectedContentAfterDescriptorRegistration,

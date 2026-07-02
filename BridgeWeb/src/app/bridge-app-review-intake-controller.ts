@@ -23,6 +23,7 @@ import type {
 import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import type { BridgeTraceContext } from '../foundation/telemetry/bridge-trace-context.js';
+import type { BridgeReviewContentRegistry } from '../review-viewer/content/review-content-registry.js';
 import type { BridgeReviewViewerStore } from '../review-viewer/state/review-viewer-store.js';
 import {
 	applyReviewEnvelope,
@@ -76,6 +77,7 @@ export interface UseBridgeReviewIntakeControllerProps {
 	>;
 	readonly reviewDemandScheduler: BridgeDemandScheduler;
 	readonly resourceExecutor: BridgeResourceExecutor<BridgeTextResourceStreamResult>;
+	readonly contentRegistry: BridgeReviewContentRegistry;
 	readonly invalidatedFreshnessKeysRef: MutableRefObject<Set<string>>;
 	readonly setReviewContentInvalidationVersion: Dispatch<SetStateAction<number>>;
 	readonly retrySelectedContentAfterDescriptorRegistration: (
@@ -105,6 +107,7 @@ export function useBridgeReviewIntakeController(props: UseBridgeReviewIntakeCont
 		reviewContentDescriptorRefsByHandleIdRef,
 		reviewDemandScheduler,
 		resourceExecutor,
+		contentRegistry,
 		invalidatedFreshnessKeysRef,
 		setReviewContentInvalidationVersion,
 		retrySelectedContentAfterDescriptorRegistration,
@@ -209,6 +212,7 @@ export function useBridgeReviewIntakeController(props: UseBridgeReviewIntakeCont
 						reviewContentDescriptorRefsByHandleIdRef,
 						reviewDemandScheduler,
 						resourceExecutor,
+						contentRegistry,
 						reviewFrameAuthority: getReviewFrameAuthority(),
 						invalidatedFreshnessKeysRef,
 						setReviewContentInvalidationVersion,
@@ -327,6 +331,7 @@ export function useBridgeReviewIntakeController(props: UseBridgeReviewIntakeCont
 		descriptorRegistry,
 		bridgeHandshakeSessionRef,
 		beginForegroundReviewSelection,
+		contentRegistry,
 		currentReviewPackageTelemetryContextRef,
 		getReviewFrameAuthority,
 		invalidatedFreshnessKeysRef,

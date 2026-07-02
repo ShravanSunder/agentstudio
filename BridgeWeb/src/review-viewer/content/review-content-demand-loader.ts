@@ -1,6 +1,7 @@
 import type { BridgeResourceExecutorResult } from '../../core/demand/bridge-resource-executor.js';
 import type { BridgeDemandIntent } from '../../core/models/bridge-demand-models.js';
 import type { BridgeTextResourceStreamResult } from '../../core/resources/bridge-resource-stream.js';
+import type { BridgeContentResource } from '../../foundation/content/content-resource-loader.js';
 import type { BridgeContentRole } from '../../foundation/review-package/bridge-review-package.js';
 import type { BridgeCodeViewContentResources } from '../code-view/bridge-code-view-materialization.js';
 import { recordBridgeViewerContentFetchTelemetry } from '../telemetry/bridge-review-viewer-telemetry.js';
@@ -25,6 +26,7 @@ import type {
 	ReviewContentDemandLoadResult,
 	ReviewContentDemandPlan,
 } from './review-content-demand-types.js';
+import type { BridgeReviewContentRegistry } from './review-content-registry.js';
 
 export type {
 	LoadReviewItemContentResourcesThroughDemandProps,
@@ -64,6 +66,18 @@ export async function loadReviewItemContentResourcesThroughDemandResult(
 	}
 	if (props.signal?.aborted) {
 		return { status: 'deferred', reason: 'aborted' };
+	}
+	// An all-roles registry hit is a pure cache read: no scheduler intents,
+	// no executor traffic, and no demand telemetry sample (nothing was
+	// demanded from the transport).
+	if (props.contentRegistry !== undefined) {
+		const cachedResources = cachedContentResourcesForPlans({
+			contentRegistry: props.contentRegistry,
+			plans,
+		});
+		if (cachedResources !== null) {
+			return { status: 'ready', resources: cachedResources };
+		}
 	}
 	const demandAbortController = new AbortController();
 	const abortDemandLoads = (): void => {
@@ -178,6 +192,12 @@ export async function loadReviewItemContentResourcesThroughDemandResult(
 				]);
 		if (!allowsPartialRoleResults && result.status === 'failed') {
 			abortDemandLoads();
+		}
+		if (result.status === 'ready' && props.contentRegistry !== undefined) {
+			storeContentResourcesInRegistry({
+				contentRegistry: props.contentRegistry,
+				resources: result.resources,
+			});
 		}
 		telemetryBuilder.recordCompletion({
 			result,
@@ -334,4 +354,38 @@ function telemetryResultForExecutorResult(
 			return { result: 'failed', resultReason: result.reason };
 	}
 	return assertNever(result.reason);
+}
+
+/** All-or-nothing peek: partial role coverage falls through to a full demand
+ * load so cached and fetched roles never mix stale revisions in one result. */
+function cachedContentResourcesForPlans(props: {
+	readonly contentRegistry: BridgeReviewContentRegistry;
+	readonly plans: readonly ReviewContentDemandPlan[];
+}): BridgeCodeViewContentResources | null {
+	const resources: { -readonly [Role in BridgeContentRole]?: BridgeContentResource } = {};
+	for (const plan of props.plans) {
+		const cachedResource = props.contentRegistry.peekResource(plan.handle);
+		if (cachedResource === null) {
+			return null;
+		}
+		resources[plan.role] = cachedResource;
+	}
+	return resources;
+}
+
+function storeContentResourcesInRegistry(props: {
+	readonly contentRegistry: BridgeReviewContentRegistry;
+	readonly resources: BridgeCodeViewContentResources;
+}): void {
+	const roleResources = [
+		props.resources.base,
+		props.resources.head,
+		props.resources.diff,
+		props.resources.file,
+	];
+	for (const resource of roleResources) {
+		if (resource !== undefined) {
+			props.contentRegistry.storeResource({ resource });
+		}
+	}
 }

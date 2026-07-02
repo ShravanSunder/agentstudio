@@ -12,6 +12,7 @@ import {
 	loadReviewItemContentResourcesThroughDemandResult,
 	type ReviewContentDemandTelemetry,
 } from '../review-viewer/content/review-content-demand-loader.js';
+import type { BridgeReviewContentRegistry } from '../review-viewer/content/review-content-registry.js';
 import { recordBridgeViewerContentQueueTelemetry } from '../review-viewer/telemetry/bridge-review-viewer-telemetry.js';
 import { foregroundSelectionVisibleHydrationReleaseDelayMilliseconds } from './bridge-app-review-runtime.js';
 import {
@@ -30,6 +31,7 @@ import {
 } from './bridge-app-review-telemetry.js';
 
 export interface UseSelectedReviewContentDemandControllerProps {
+	readonly contentRegistry: BridgeReviewContentRegistry;
 	readonly currentReviewPackageTelemetryContextRef: MutableRefObject<BridgeReviewPackageTelemetryContext | null>;
 	readonly reviewContentDescriptorRefsByHandleIdRef: MutableRefObject<
 		ReadonlyMap<string, BridgeDescriptorRef>
@@ -102,6 +104,7 @@ export function useSelectedReviewContentDemandController(
 	props: UseSelectedReviewContentDemandControllerProps,
 ): SelectedReviewContentDemandController {
 	const {
+		contentRegistry,
 		currentReviewPackageTelemetryContextRef,
 		reviewContentDescriptorRefsByHandleIdRef,
 		resourceExecutor,
@@ -212,6 +215,7 @@ export function useSelectedReviewContentDemandController(
 					reviewContentDescriptorRefsByHandleIdRef.current.get(handle.handleId) ?? null,
 				scheduler: reviewDemandScheduler,
 				executor: resourceExecutor,
+				contentRegistry,
 				signal: contentAbortController.signal,
 				traceContext: telemetryRecorderRef.current.isEnabled('web')
 					? createChildTraceContext(parentTraceContext)
@@ -281,6 +285,7 @@ export function useSelectedReviewContentDemandController(
 		[
 			cancelForegroundSelectionRelease,
 			clearForegroundSelectionNow,
+			contentRegistry,
 			currentReviewPackageTelemetryContextRef,
 			scheduleForegroundSelectionRelease,
 			resourceExecutor,

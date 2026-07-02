@@ -14,8 +14,10 @@ import type {
 import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import { demandFreshnessKeyForReviewDescriptorRef } from '../review-viewer/content/review-content-demand-loader.js';
+import type { BridgeReviewContentRegistry } from '../review-viewer/content/review-content-registry.js';
 import {
 	cancelReviewDescriptorDemandGroups,
+	contentResourceKeysForReviewHandleIds,
 	descriptorRefsForReviewInvalidation,
 	materializeAcceptedReviewSnapshotForPackage,
 	materializeReviewProtocolDeltaFrame,
@@ -82,6 +84,7 @@ interface BridgeReviewProtocolTransportFrameApplyProps {
 	};
 	readonly reviewDemandScheduler: BridgeDemandScheduler;
 	readonly resourceExecutor: BridgeResourceExecutor<BridgeTextResourceStreamResult>;
+	readonly contentRegistry: BridgeReviewContentRegistry;
 	readonly reviewFrameAuthority: BridgeReviewFrameAuthority | null;
 	readonly invalidatedFreshnessKeysRef: { readonly current: Set<string> };
 	readonly setReviewContentInvalidationVersion: Dispatch<SetStateAction<number>>;
@@ -158,6 +161,7 @@ async function applyReviewProtocolFramePayload(
 		reviewContentDescriptorRefsByHandleIdRef,
 		reviewDemandScheduler,
 		resourceExecutor,
+		contentRegistry,
 		reviewFrameAuthority,
 		invalidatedFreshnessKeysRef,
 		setReviewContentInvalidationVersion,
@@ -421,6 +425,12 @@ async function applyReviewProtocolFramePayload(
 							demandFreshnessKeyForReviewDescriptorRef(descriptorRef),
 						);
 					}
+					contentRegistry.evictResourceKeys(
+						contentResourceKeysForReviewHandleIds({
+							handleIds: new Set(invalidatedDescriptorRefs.keys()),
+							reviewPackage: reviewPackageRef.current,
+						}),
+					);
 					setReviewContentInvalidationVersion((version): number => version + 1);
 				}
 			}

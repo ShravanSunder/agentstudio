@@ -29,6 +29,7 @@ import {
 	demandCancellationGroupForReviewDescriptorRef,
 	demandCancellationGroupsForReviewDescriptorRef,
 } from '../review-viewer/content/review-content-demand-loader.js';
+import { canonicalContentResourceKey } from '../review-viewer/content/review-content-registry.js';
 import type { BridgeReviewFrameAuthority } from './bridge-app-review-frame-authority.js';
 
 export const bridgeReviewAllowedResourceKindsByProtocol = {
@@ -502,6 +503,30 @@ export function descriptorRefsForReviewInvalidation(props: {
 		}
 	}
 	return descriptorRefsByHandleId;
+}
+
+/** Canonical content-registry keys for the invalidated handles, so cached
+ * bodies are evicted in the same pass that marks demand freshness stale —
+ * a registry hit must never serve bytes the native side just invalidated. */
+export function contentResourceKeysForReviewHandleIds(props: {
+	readonly handleIds: ReadonlySet<string>;
+	readonly reviewPackage: BridgeReviewPackage | null;
+}): readonly string[] {
+	if (props.reviewPackage === null || props.handleIds.size === 0) {
+		return [];
+	}
+	const resourceKeys: string[] = [];
+	for (const item of Object.values(props.reviewPackage.itemsById)) {
+		for (const handle of Object.values(item.contentRoles)) {
+			if (handle === null || handle === undefined) {
+				continue;
+			}
+			if (props.handleIds.has(handle.handleId)) {
+				resourceKeys.push(canonicalContentResourceKey(handle));
+			}
+		}
+	}
+	return resourceKeys;
 }
 
 export function cancelReviewDescriptorDemandGroups(props: {

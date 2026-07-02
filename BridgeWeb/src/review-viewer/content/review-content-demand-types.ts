@@ -21,6 +21,7 @@ import type {
 	BridgeCodeViewContentResources,
 	BridgeCodeViewItemPresentation,
 } from '../code-view/bridge-code-view-materialization.js';
+import type { BridgeReviewContentRegistry } from './review-content-registry.js';
 
 export interface LoadReviewItemContentResourcesThroughDemandProps {
 	readonly reviewPackage: BridgeReviewPackage;
@@ -30,6 +31,10 @@ export interface LoadReviewItemContentResourcesThroughDemandProps {
 	readonly resolveDescriptorRef: (handle: BridgeContentHandle) => BridgeDescriptorRef | null;
 	readonly scheduler: BridgeDemandScheduler;
 	readonly executor: BridgeResourceExecutor<BridgeTextResourceStreamResult>;
+	/** Shared review content cache: peeked before enqueueing demand intents
+	 * (an all-roles hit produces zero demand traffic) and populated after
+	 * every authoritative load so repeat selections become cache hits. */
+	readonly contentRegistry?: BridgeReviewContentRegistry;
 	readonly signal?: AbortSignal;
 	readonly traceContext?: BridgeTraceContext | null;
 	readonly telemetryRecorder?: BridgeTelemetryRecorder;

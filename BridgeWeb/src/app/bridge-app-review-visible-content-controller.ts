@@ -95,6 +95,7 @@ export function useBridgeReviewVisibleContentController(
 					reviewContentDescriptorRefsByHandleIdRef.current.get(handle.handleId) ?? null,
 				scheduler: reviewDemandScheduler,
 				executor: resourceExecutor,
+				contentRegistry,
 				traceContext: loadProps.traceContext ?? null,
 				...(loadProps.signal === undefined ? {} : { signal: loadProps.signal }),
 				...(loadProps.telemetryRecorder === undefined
@@ -103,6 +104,7 @@ export function useBridgeReviewVisibleContentController(
 				onDemandTelemetry: setLastVisibleDemandTelemetry,
 			}),
 		[
+			contentRegistry,
 			resourceExecutor,
 			reviewContentDescriptorRefsByHandleIdRef,
 			reviewDemandScheduler,

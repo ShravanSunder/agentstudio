@@ -343,7 +343,96 @@ describe('review content registry', () => {
 			'agentstudio://resource/review/content/handle-item-source-head?generation=1&revision=4',
 		);
 	});
+
+	test('peekResource misses before storeResource and hits after', () => {
+		const registry = createBridgeReviewContentRegistry();
+		const handle = makeBridgeContentHandle('item-source', 'head');
+
+		expect(registry.peekResource(handle)).toBeNull();
+
+		registry.storeResource({ resource: makeStoredResource(handle, 'stored head text') });
+
+		expect(registry.peekResource(handle)?.readText()).toBe('stored head text');
+		expect(registry.snapshot()).toMatchObject({
+			cachedResourceCount: 1,
+			inFlightRequestCount: 0,
+		});
+	});
+
+	test('storeResource ignores non-authoritative resources', () => {
+		const registry = createBridgeReviewContentRegistry();
+		const handle = makeBridgeContentHandle('item-source', 'head');
+
+		registry.storeResource({
+			resource: {
+				authoritative: false,
+				byteLength: 12,
+				handle,
+				readText: (): string => 'preview only',
+			},
+		});
+
+		expect(registry.peekResource(handle)).toBeNull();
+	});
+
+	test('storeResource and peekResource treat identity mismatch as a miss, not an error', () => {
+		const registry = createBridgeReviewContentRegistry();
+		const handle = makeBridgeContentHandle('item-source', 'head');
+		registry.setActiveIdentity({ packageId: 'pkg', reviewGeneration: 2, revision: 0 });
+
+		registry.storeResource({ resource: makeStoredResource(handle, 'stale generation text') });
+
+		expect(registry.peekResource(handle)).toBeNull();
+		expect(registry.snapshot()).toMatchObject({ cachedResourceCount: 0 });
+	});
+
+	test('peekResource refreshes LRU order so hot entries survive eviction', () => {
+		const registry = createBridgeReviewContentRegistry({ maxEntries: 2 });
+		const firstHandle = makeBridgeContentHandle('item-first', 'head');
+		const secondHandle = makeBridgeContentHandle('item-second', 'head');
+		const thirdHandle = makeBridgeContentHandle('item-third', 'head');
+
+		registry.storeResource({ resource: makeStoredResource(firstHandle, 'first') });
+		registry.storeResource({ resource: makeStoredResource(secondHandle, 'second') });
+		expect(registry.peekResource(firstHandle)?.readText()).toBe('first');
+		registry.storeResource({ resource: makeStoredResource(thirdHandle, 'third') });
+
+		expect(registry.peekResource(secondHandle)).toBeNull();
+		expect(registry.peekResource(firstHandle)?.readText()).toBe('first');
+		expect(registry.peekResource(thirdHandle)?.readText()).toBe('third');
+	});
+
+	test('evictResourceKeys removes exact entries and leaves others cached', () => {
+		const registry = createBridgeReviewContentRegistry();
+		const firstHandle = makeBridgeContentHandle('item-first', 'head');
+		const secondHandle = makeBridgeContentHandle('item-second', 'head');
+		registry.storeResource({ resource: makeStoredResource(firstHandle, 'first') });
+		registry.storeResource({ resource: makeStoredResource(secondHandle, 'second') });
+
+		const evictedCount = registry.evictResourceKeys([canonicalContentResourceKey(firstHandle)]);
+
+		expect(evictedCount).toBe(1);
+		expect(registry.peekResource(firstHandle)).toBeNull();
+		expect(registry.peekResource(secondHandle)?.readText()).toBe('second');
+	});
 });
+
+function makeStoredResource(
+	handle: BridgeContentHandle,
+	text: string,
+): {
+	readonly authoritative: boolean;
+	readonly byteLength: number;
+	readonly handle: BridgeContentHandle;
+	readonly readText: () => string;
+} {
+	return {
+		authoritative: true,
+		byteLength: text.length,
+		handle,
+		readText: (): string => text,
+	};
+}
 
 function chunkedTextResponse(chunks: readonly string[]): Response {
 	const encoder = new TextEncoder();

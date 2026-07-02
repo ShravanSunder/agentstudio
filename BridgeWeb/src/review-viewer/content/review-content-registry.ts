@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { parseBridgeResourceUrl } from '../../bridge/bridge-resource-url.js';
 import {
 	loadBridgeContentResource,
+	type BridgeContentResource,
 	type BridgeLoadedContentResource,
 	type LoadBridgeContentResourceProps,
 } from '../../foundation/content/content-resource-loader.js';
@@ -22,9 +23,16 @@ export type BridgeReviewContentRegistryIdentity = z.infer<
 
 export interface BridgeReviewContentRegistry {
 	readonly clear: () => void;
+	readonly evictResourceKeys: (resourceKeys: readonly string[]) => number;
 	readonly load: (props: LoadBridgeContentResourceProps) => Promise<BridgeLoadedContentResource>;
+	readonly peekResource: (handle: BridgeContentHandle) => BridgeLoadedContentResource | null;
 	readonly setActiveIdentity: (identity: BridgeReviewContentRegistryIdentity | null) => void;
+	readonly storeResource: (props: StoreBridgeReviewContentResourceProps) => void;
 	readonly snapshot: () => BridgeReviewContentRegistrySnapshot;
+}
+
+export interface StoreBridgeReviewContentResourceProps {
+	readonly resource: BridgeContentResource;
 }
 
 export interface BridgeReviewContentRegistrySnapshot {
@@ -122,6 +130,67 @@ export function createBridgeReviewContentRegistry(
 		return await request;
 	};
 
+	const matchesActiveIdentity = (handle: BridgeContentHandle): boolean => {
+		const identity = activeIdentity;
+		if (identity === null) {
+			return true;
+		}
+		const handleRevision = revisionForHandle(handle);
+		return (
+			handle.reviewGeneration === identity.reviewGeneration &&
+			(handleRevision === null || handleRevision === identity.revision)
+		);
+	};
+
+	// Peek/store are opportunistic cache operations: identity mismatch during
+	// a package switch is a miss, not a programmer error like `load`'s throw.
+	const peekResource = (handle: BridgeContentHandle): BridgeLoadedContentResource | null => {
+		if (!matchesActiveIdentity(handle)) {
+			return null;
+		}
+		const resourceKey = canonicalContentResourceKey(handle);
+		const cachedEntry = entriesByResourceKey.get(resourceKey);
+		if (cachedEntry === undefined) {
+			return null;
+		}
+		entriesByResourceKey.delete(resourceKey);
+		entriesByResourceKey.set(resourceKey, cachedEntry);
+		return cachedEntry.resource;
+	};
+
+	const storeResource = (storeProps: StoreBridgeReviewContentResourceProps): void => {
+		const resource = storeProps.resource;
+		if (resource.authoritative !== true || typeof resource.byteLength !== 'number') {
+			return;
+		}
+		if (!matchesActiveIdentity(resource.handle)) {
+			return;
+		}
+		const resourceKey = canonicalContentResourceKey(resource.handle);
+		entriesByResourceKey.delete(resourceKey);
+		entriesByResourceKey.set(resourceKey, {
+			generation: resource.handle.reviewGeneration,
+			revision: revisionForHandle(resource.handle),
+			resource: {
+				authoritative: resource.authoritative,
+				byteLength: resource.byteLength,
+				handle: resource.handle,
+				readText: (): string => resource.readText(),
+			},
+		});
+		evictOldEntries(entriesByResourceKey, maxEntries);
+	};
+
+	const evictResourceKeys = (resourceKeys: readonly string[]): number => {
+		let evictedCount = 0;
+		for (const resourceKey of resourceKeys) {
+			if (entriesByResourceKey.delete(resourceKey)) {
+				evictedCount += 1;
+			}
+		}
+		return evictedCount;
+	};
+
 	const snapshot = (): BridgeReviewContentRegistrySnapshot => ({
 		activeIdentity,
 		cachedResourceCount: entriesByResourceKey.size,
@@ -129,7 +198,15 @@ export function createBridgeReviewContentRegistry(
 		cachedResourceKeys: [...entriesByResourceKey.keys()],
 	});
 
-	return { clear, load, setActiveIdentity, snapshot };
+	return {
+		clear,
+		evictResourceKeys,
+		load,
+		peekResource,
+		setActiveIdentity,
+		storeResource,
+		snapshot,
+	};
 }
 
 function sharedRequestProps(
