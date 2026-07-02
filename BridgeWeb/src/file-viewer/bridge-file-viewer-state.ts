@@ -73,6 +73,7 @@ export interface BridgeFileViewerRefreshDebugState {
 	readonly requestId: number;
 	readonly result:
 		| 'non_stale_state'
+		| 'duplicate_stale_auto_refresh_failure'
 		| 'started'
 		| 'ok'
 		| Extract<WorktreeFileSurfaceLoadResult, { readonly ok: false }>['reason'];

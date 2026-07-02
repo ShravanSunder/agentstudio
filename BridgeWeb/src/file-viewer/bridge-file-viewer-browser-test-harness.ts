@@ -518,6 +518,36 @@ export async function waitForDemandDispatchFirstFreshnessKeyContaining(
 	});
 }
 
+export async function waitForRefreshDebugState(props: {
+	readonly commitState: string;
+	readonly result: string;
+}): Promise<void> {
+	await waitForRefreshDebugStateAttempt({ attempt: 0, ...props });
+}
+
+export async function waitForRefreshDebugStateAttempt(props: {
+	readonly attempt: number;
+	readonly commitState: string;
+	readonly result: string;
+}): Promise<void> {
+	const shell = document.querySelector('[data-testid="bridge-file-viewer-shell"]');
+	const actualCommitState = shell?.getAttribute('data-last-refresh-commit-state') ?? null;
+	const actualResult = shell?.getAttribute('data-last-refresh-result') ?? null;
+	if (actualCommitState === props.commitState && actualResult === props.result) {
+		return;
+	}
+	if (props.attempt >= 60) {
+		throw new Error(
+			`Expected refresh debug state ${props.commitState}/${props.result}; actual=${actualCommitState ?? 'missing'}/${actualResult ?? 'missing'}`,
+		);
+	}
+	await waitForBridgeViewerAnimationFrame();
+	await waitForRefreshDebugStateAttempt({
+		...props,
+		attempt: props.attempt + 1,
+	});
+}
+
 export async function waitForDemandDispatchFirstFreshnessKeyContainingAttempt(props: {
 	readonly attempt: number;
 	readonly expectedContentHandle: string;
