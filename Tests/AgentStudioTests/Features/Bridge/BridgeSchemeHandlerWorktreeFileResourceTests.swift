@@ -6,60 +6,24 @@ import Testing
 
 @Suite(.serialized)
 struct BridgeSchemeHandlerWorktreeFileResourceTests {
-    @Test
-    func worktreeFileTreeWindowResourceEmitsLeasedBody() async throws {
-        let resourceURL =
-            "agentstudio://resource/worktree-file/worktree.treeWindow/tree-window-1?generation=3&cursor=cursor-3"
-        let resource = try #require(
-            BridgeTransportResourceURL.parse(
-                resourceURL,
-                allowedResourceKindsByProtocol: BridgeResourceProtocolRegistry.reviewViewerAllowedResourceKinds
-            ))
-        let paneId = UUID()
-        let resourceLeaseRegistry = BridgeTransportResourceLeaseRegistry()
-        let resourceStore = BridgeWorktreeFileResourceStore()
-        let body = Data(#"{"rows":[],"treeSizeFacts":{"extentKind":"exactPathCount","pathCount":0}}"#.utf8)
-        await resourceStore.register(
-            resource,
-            body: BridgeWorktreeFileResourceBody(
-                data: body,
-                mimeType: "application/json"
-            )
-        )
-        await resourceLeaseRegistry.register(
-            resource,
-            paneId: paneId,
-            descriptorId: resource.opaqueId,
-            maxBytes: 1024,
-            expectedRevocationRevision: 0
-        )
-        let handler = BridgeSchemeHandler(
-            paneId: paneId,
-            worktreeFileResourceStore: resourceStore,
-            resourceLeaseRegistry: resourceLeaseRegistry
-        )
-        let request = URLRequest(url: URL(string: resourceURL)!)
+    private actor BridgeTelemetryRecorderSpy: BridgePerformanceTraceRecording {
+        private var recordedSamples: [BridgeTelemetrySample] = []
 
-        var response: URLResponse?
-        var receivedBody = Data()
-        var eventOrder: [String] = []
-        for try await result in handler.reply(for: request) {
-            switch result {
-            case .response(let emittedResponse):
-                response = emittedResponse
-                eventOrder.append("response")
-            case .data(let chunk):
-                receivedBody.append(chunk)
-                eventOrder.append("data")
-            @unknown default:
-                Issue.record("Unexpected URL scheme task result")
-            }
+        func record(sample: BridgeTelemetrySample, receivedAtUnixNano: UInt64) async {
+            recordedSamples.append(sample)
         }
 
-        #expect(eventOrder == ["response", "data"])
-        #expect(response?.mimeType == "application/json")
-        #expect(response?.expectedContentLength == Int64(body.count))
-        #expect(receivedBody == body)
+        func recordDrop(
+            reason: BridgeTelemetryDropReason,
+            droppedCount: Int,
+            receivedAtUnixNano: UInt64
+        ) async {}
+
+        func samples() -> [BridgeTelemetrySample] {
+            recordedSamples
+        }
+
+        func drain() async throws {}
     }
 
     @Test
@@ -122,6 +86,60 @@ struct BridgeSchemeHandlerWorktreeFileResourceTests {
         #expect(response?.expectedContentLength == Int64(body.count))
         #expect(receivedBody == body)
         #expect(dataChunkCount > 1)
+    }
+
+    @Test
+    func worktreeFileContentResourceRecordsContentLoadTelemetry() async throws {
+        let resourceURL =
+            "agentstudio://resource/worktree-file/worktree.fileContent/file-telemetry?generation=3&cursor=cursor-3"
+        let resource = try #require(
+            BridgeTransportResourceURL.parse(
+                resourceURL,
+                allowedResourceKindsByProtocol: BridgeResourceProtocolRegistry.reviewViewerAllowedResourceKinds
+            ))
+        let paneId = UUID()
+        let resourceLeaseRegistry = BridgeTransportResourceLeaseRegistry()
+        let resourceStore = BridgeWorktreeFileResourceStore()
+        let recorder = BridgeTelemetryRecorderSpy()
+        let body = Data("let answer = 42\n".utf8)
+        await resourceStore.register(
+            resource,
+            body: BridgeWorktreeFileResourceBody(
+                data: body,
+                mimeType: "text/plain"
+            )
+        )
+        await resourceLeaseRegistry.register(
+            resource,
+            paneId: paneId,
+            descriptorId: resource.opaqueId,
+            maxBytes: body.count,
+            expectedRevocationRevision: 0
+        )
+        let handler = BridgeSchemeHandler(
+            paneId: paneId,
+            worktreeFileResourceStore: resourceStore,
+            resourceLeaseRegistry: resourceLeaseRegistry,
+            telemetryRecorder: recorder
+        )
+        let request = URLRequest(url: URL(string: resourceURL)!)
+
+        for try await _ in handler.reply(for: request) {}
+
+        let sample = try #require(await recorder.samples().first)
+        #expect(sample.name == "performance.bridge.swift.content_load")
+        #expect(sample.scope == .swift)
+        #expect(sample.stringAttributes["agentstudio.bridge.phase"] == "success")
+        #expect(sample.stringAttributes["agentstudio.bridge.plane"] == "data")
+        #expect(sample.stringAttributes["agentstudio.bridge.priority"] == "hot")
+        #expect(sample.stringAttributes["agentstudio.bridge.slice"] == "content_fetch")
+        #expect(sample.stringAttributes["agentstudio.bridge.transport"] == "worktree-file")
+        #expect(sample.stringAttributes["agentstudio.bridge.content.role"] == "file")
+        #expect(sample.stringAttributes["agentstudio.bridge.cache.result"] == "provider_load")
+        #expect(sample.stringAttributes["agentstudio.bridge.content.correlation_mode"] == "summary")
+        #expect(sample.numericAttributes["agentstudio.bridge.content.byte_size_bucket"] == 1024)
+        #expect(sample.booleanAttributes["agentstudio.bridge.header_missing"] == true)
+        #expect(sample.booleanAttributes["agentstudio.bridge.header_supported"] == false)
     }
 
     @Test
@@ -237,7 +255,7 @@ struct BridgeSchemeHandlerWorktreeFileResourceTests {
     @Test
     func revokedWorktreeFileResourceFailsWithoutLeakingCapabilityURL() async throws {
         let resourceURL =
-            "agentstudio://resource/worktree-file/worktree.status/status-1?generation=3&cursor=cursor-3"
+            "agentstudio://resource/worktree-file/worktree.fileContent/file-1?generation=3&cursor=cursor-3"
         let resource = try #require(
             BridgeTransportResourceURL.parse(
                 resourceURL,
@@ -249,8 +267,8 @@ struct BridgeSchemeHandlerWorktreeFileResourceTests {
         await resourceStore.register(
             resource,
             body: BridgeWorktreeFileResourceBody(
-                data: Data(#"{"branchName":"main"}"#.utf8),
-                mimeType: "application/json"
+                data: Data("let value = 1\n".utf8),
+                mimeType: "text/plain"
             )
         )
         await resourceLeaseRegistry.register(
@@ -263,7 +281,7 @@ struct BridgeSchemeHandlerWorktreeFileResourceTests {
         resourceLeaseRegistry.revokeSynchronously(
             paneId: paneId,
             protocolId: "worktree-file",
-            resourceKind: "worktree.status"
+            resourceKind: "worktree.fileContent"
         )
         let handler = BridgeSchemeHandler(
             paneId: paneId,

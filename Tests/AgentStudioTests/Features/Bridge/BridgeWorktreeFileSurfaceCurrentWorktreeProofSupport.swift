@@ -146,6 +146,14 @@ struct BridgeCurrentWorktreeGatedBenchmarkProofRequest {
     let streamId: String
     let telemetryRecorder: BridgeWorktreeFileCurrentWorktreeTelemetryRecorder
 }
+struct BridgeCurrentWorktreeProofHarness {
+    let eventCapture: BridgeWorktreeFileSurfaceEventCapture
+    let fixture: BridgeWorktreeFileSurfaceControllerFixture
+    let intakeDeliveryCapture: BridgeCurrentWorktreeProofIntakeDeliveryCapture
+    let projectRoot: URL
+    let responseCapture: BridgeWorktreeFileSurfaceResponseCapture
+    let telemetryRecorder: BridgeWorktreeFileCurrentWorktreeTelemetryRecorder
+}
 struct BridgeCurrentWorktreeTimingPercentileSummary {
     let sampleCount: Int
     let p95Milliseconds: Double?
@@ -364,10 +372,25 @@ func proofArtifactDirectoryURL(_ proofDirectory: String, projectRoot: URL) -> UR
     return projectRoot.appending(path: proofDirectory)
 }
 actor BridgeWorktreeFileCurrentWorktreeTelemetryRecorder: BridgePerformanceTraceRecording {
+    private let forwardingRecorder: BridgePerformanceTraceRecorder?
+    private let traceRuntime: AgentStudioTraceRuntime?
     private var recordedSamples: [BridgeTelemetrySample] = []
+
+    init(traceRuntime: AgentStudioTraceRuntime? = nil) {
+        self.traceRuntime = traceRuntime
+        if let traceRuntime {
+            self.forwardingRecorder = BridgePerformanceTraceRecorder(
+                traceRuntime: traceRuntime,
+                scenario: "bridge_headless_manifest_gated_benchmark"
+            )
+        } else {
+            self.forwardingRecorder = nil
+        }
+    }
 
     func record(sample: BridgeTelemetrySample, receivedAtUnixNano: UInt64) async {
         recordedSamples.append(sample)
+        await forwardingRecorder?.record(sample: sample, receivedAtUnixNano: receivedAtUnixNano)
     }
 
     func recordDrop(
@@ -380,11 +403,22 @@ actor BridgeWorktreeFileCurrentWorktreeTelemetryRecorder: BridgePerformanceTrace
         _ = receivedAtUnixNano
     }
 
-    func drain() async throws {}
+    func drain() async throws {
+        try await forwardingRecorder?.drain()
+        try await traceRuntime?.shutdown()
+    }
 
     func samples(named sampleName: String) -> [BridgeTelemetrySample] {
         recordedSamples.filter { $0.name == sampleName }
     }
+}
+
+func currentWorktreeProofTraceRuntime() -> AgentStudioTraceRuntime? {
+    let environment = ProcessInfo.processInfo.environment
+    guard environment["AGENTSTUDIO_BRIDGE_HEADLESS_VICTORIA_MODE"] == "1" else {
+        return nil
+    }
+    return AgentStudioTraceRuntime.fromEnvironment(environment)
 }
 
 @MainActor
@@ -427,7 +461,8 @@ extension WebKitSerializedTests.BridgeWorktreeFileSurfaceCurrentWorktreeProofTes
         )
         let contentFetch = try await currentWorktreeGatedBenchmarkContentFetch(
             eventCapture: request.eventCapture,
-            fixture: request.fixture
+            fixture: request.fixture,
+            telemetryRecorder: request.telemetryRecorder
         )
         #expect(metadataInterestTiming.sampleCount >= 100)
         #expect((metadataInterestTiming.sampleCountByLane["foreground"] ?? 0) >= 50)
@@ -500,7 +535,8 @@ extension WebKitSerializedTests.BridgeWorktreeFileSurfaceCurrentWorktreeProofTes
 
     private func currentWorktreeGatedBenchmarkContentFetch(
         eventCapture: BridgeWorktreeFileSurfaceEventCapture,
-        fixture: BridgeWorktreeFileSurfaceControllerFixture
+        fixture: BridgeWorktreeFileSurfaceControllerFixture,
+        telemetryRecorder: BridgeWorktreeFileCurrentWorktreeTelemetryRecorder
     ) async throws -> BridgeCurrentWorktreePhaseTimingFacts {
         let intakeFramesBeforeDemand = await eventCapture.intakeFrames()
         let demandRows = try contentDemandRows(
@@ -511,7 +547,8 @@ extension WebKitSerializedTests.BridgeWorktreeFileSurfaceCurrentWorktreeProofTes
         let schemeHandler = BridgeSchemeHandler(
             paneId: fixture.paneId,
             worktreeFileResourceStore: fixture.controller.worktreeFileResourceStore,
-            resourceLeaseRegistry: fixture.controller.resourceLeaseRegistry
+            resourceLeaseRegistry: fixture.controller.resourceLeaseRegistry,
+            telemetryRecorder: telemetryRecorder
         )
         var contentFetchSamples: [Double] = []
         for sampleIndex in 0..<20 {

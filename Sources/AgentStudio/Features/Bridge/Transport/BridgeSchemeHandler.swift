@@ -18,13 +18,13 @@ struct BridgeSchemeHandler: URLSchemeHandler {
 
     private struct BridgeSchemeWorktreeFileEmissionRequest {
         let url: URL
+        let request: URLRequest
         let readMethod: BridgeSchemeReadMethod
         let leasedResource: BridgeTransportResourceURL
     }
 
     let paneId: UUID
     let contentStore: BridgeContentStore
-    let reviewResourceStore: BridgeReviewResourceStore
     let worktreeFileResourceStore: BridgeWorktreeFileResourceStore
     let appAssetStore: BridgeAppAssetStore
     let resourceLeaseRegistry: BridgeTransportResourceLeaseRegistry
@@ -37,7 +37,6 @@ struct BridgeSchemeHandler: URLSchemeHandler {
     init(
         paneId: UUID,
         contentStore: BridgeContentStore = BridgeContentStore(),
-        reviewResourceStore: BridgeReviewResourceStore = BridgeReviewResourceStore(),
         worktreeFileResourceStore: BridgeWorktreeFileResourceStore = BridgeWorktreeFileResourceStore(),
         appAssetStore: BridgeAppAssetStore = BridgeAppAssetStore(),
         resourceLeaseRegistry: BridgeTransportResourceLeaseRegistry = BridgeTransportResourceLeaseRegistry(),
@@ -48,7 +47,6 @@ struct BridgeSchemeHandler: URLSchemeHandler {
     ) {
         self.paneId = paneId
         self.contentStore = contentStore
-        self.reviewResourceStore = reviewResourceStore
         self.worktreeFileResourceStore = worktreeFileResourceStore
         self.appAssetStore = appAssetStore
         self.resourceLeaseRegistry = resourceLeaseRegistry
@@ -203,26 +201,13 @@ struct BridgeSchemeHandler: URLSchemeHandler {
             )
             return
         }
-        if resource.protocolId == "review",
-            resource.resourceKind == "review-package" || resource.resourceKind == "review-delta",
-            await resourceLeaseRegistry.contains(resource, paneId: paneId)
-        {
-            await emitReviewResource(
-                emissionRequest: BridgeSchemeWorktreeFileEmissionRequest(
-                    url: url,
-                    readMethod: readMethod,
-                    leasedResource: resource
-                ),
-                continuation: continuation
-            )
-            return
-        }
         if resource.protocolId == "worktree-file",
             await resourceLeaseRegistry.contains(resource, paneId: paneId)
         {
             await emitWorktreeFileResource(
                 emissionRequest: BridgeSchemeWorktreeFileEmissionRequest(
                     url: url,
+                    request: request,
                     readMethod: readMethod,
                     leasedResource: resource
                 ),
@@ -312,6 +297,33 @@ struct BridgeSchemeHandler: URLSchemeHandler {
         case options
     }
 
+    private static func expectedContentLength(for handle: BridgeContentHandle) -> Int? {
+        handle.sizeBytesIsExact ? handle.sizeBytes : nil
+    }
+
+    private static func byteSizeBucket(for byteSize: Int) -> Int {
+        guard byteSize > 0 else {
+            return 0
+        }
+        var bucket = 1024
+        while bucket < byteSize, bucket < 64 * 1024 * 1024 {
+            bucket *= 2
+        }
+        return bucket
+    }
+
+    private static func isBinaryMimeType(_ mimeType: String) -> Bool {
+        if mimeType.hasPrefix("text/") {
+            return false
+        }
+        switch mimeType {
+        case "application/json", "application/javascript", "application/xml", "image/svg+xml":
+            return false
+        default:
+            return true
+        }
+    }
+
     private static func readMethod(from httpMethod: String?) -> BridgeSchemeReadMethod? {
         switch httpMethod?.uppercased() ?? "GET" {
         case "GET": .get
@@ -348,11 +360,12 @@ struct BridgeSchemeHandler: URLSchemeHandler {
                 handleId: emissionRequest.handleId,
                 requestedGeneration: emissionRequest.generation
             )
+            let expectedContentLength = Self.expectedContentLength(for: handle)
             guard
                 await resourceLeaseRegistry.contains(
                     emissionRequest.leasedResource,
                     paneId: paneId,
-                    contentLength: handle.sizeBytes
+                    contentLength: expectedContentLength
                 )
             else {
                 continuation.finish(throwing: BridgeSchemeError.invalidRoute(Self.invalidRouteReason))
@@ -364,14 +377,14 @@ struct BridgeSchemeHandler: URLSchemeHandler {
                 await resourceLeaseRegistry.performWhileLeased(
                     emissionRequest.leasedResource,
                     paneId: paneId,
-                    contentLength: handle.sizeBytes,
+                    contentLength: expectedContentLength,
                     {
                         continuation.yield(
                             .response(
                                 Self.response(
                                     url: emissionRequest.url,
                                     mimeType: handle.mimeType,
-                                    expectedContentLength: handle.sizeBytes
+                                    expectedContentLength: expectedContentLength
                                 )))
                     }
                 )
@@ -384,7 +397,7 @@ struct BridgeSchemeHandler: URLSchemeHandler {
                     await resourceLeaseRegistry.contains(
                         emissionRequest.leasedResource,
                         paneId: paneId,
-                        contentLength: handle.sizeBytes
+                        contentLength: expectedContentLength
                     )
                 else {
                     continuation.finish(
@@ -445,11 +458,12 @@ struct BridgeSchemeHandler: URLSchemeHandler {
                 handleId: emissionRequest.handleId,
                 requestedGeneration: emissionRequest.generation
             )
+            let expectedContentLength = Self.expectedContentLength(for: handle)
             guard
                 await resourceLeaseRegistry.contains(
                     emissionRequest.leasedResource,
                     paneId: paneId,
-                    contentLength: handle.sizeBytes
+                    contentLength: expectedContentLength
                 )
             else {
                 continuation.finish(throwing: BridgeSchemeError.invalidRoute(Self.invalidRouteReason))
@@ -460,14 +474,14 @@ struct BridgeSchemeHandler: URLSchemeHandler {
                 await resourceLeaseRegistry.performWhileLeased(
                     emissionRequest.leasedResource,
                     paneId: paneId,
-                    contentLength: handle.sizeBytes,
+                    contentLength: expectedContentLength,
                     {
                         continuation.yield(
                             .response(
                                 Self.response(
                                     url: emissionRequest.url,
                                     mimeType: handle.mimeType,
-                                    expectedContentLength: handle.sizeBytes
+                                    expectedContentLength: expectedContentLength
                                 )))
                     }
                 )
@@ -485,6 +499,9 @@ struct BridgeSchemeHandler: URLSchemeHandler {
         emissionRequest: BridgeSchemeWorktreeFileEmissionRequest,
         continuation: AsyncThrowingStream<URLSchemeTaskResult, any Error>.Continuation
     ) async {
+        let traceContext = Self.traceContext(from: emissionRequest.request)
+        let hasTraceparentHeader = Self.traceparentHeader(from: emissionRequest.request) != nil
+        let loadStart = ContinuousClock.now
         guard let body = await worktreeFileResourceStore.load(emissionRequest.leasedResource) else {
             continuation.finish(throwing: BridgeSchemeError.invalidRoute(Self.invalidRouteReason))
             return
@@ -546,71 +563,22 @@ struct BridgeSchemeHandler: URLSchemeHandler {
                 continuation.finish(throwing: BridgeSchemeError.invalidRoute(Self.invalidRouteReason))
                 return
             }
-            continuation.finish()
-        } catch {
-            continuation.finish(throwing: error)
-        }
-    }
-
-    private func emitReviewResource(
-        emissionRequest: BridgeSchemeWorktreeFileEmissionRequest,
-        continuation: AsyncThrowingStream<URLSchemeTaskResult, any Error>.Continuation
-    ) async {
-        guard let metadata = await reviewResourceStore.metadata(emissionRequest.leasedResource) else {
-            continuation.finish(throwing: BridgeSchemeError.invalidRoute(Self.invalidRouteReason))
-            return
-        }
-        guard
-            await resourceLeaseRegistry.contains(
-                emissionRequest.leasedResource,
-                paneId: paneId,
-                contentLength: metadata.byteCount
+            await recordContentLoadTelemetry(
+                observation: BridgeContentLoadObservation(
+                    cacheResult: .providerLoad,
+                    role: .file,
+                    generationRelation: .current,
+                    byteSizeBucket: Self.byteSizeBucket(for: body.byteCount),
+                    lineCountBucket: 0,
+                    isBinary: Self.isBinaryMimeType(body.mimeType),
+                    isStale: false
+                ),
+                traceContext: traceContext,
+                hasTraceparentHeader: hasTraceparentHeader,
+                phase: "success",
+                durationMilliseconds: Self.milliseconds(from: loadStart.duration(to: ContinuousClock.now)),
+                transport: "worktree-file"
             )
-        else {
-            continuation.finish(throwing: BridgeSchemeError.invalidRoute(Self.invalidRouteReason))
-            return
-        }
-        do {
-            try Task.checkCancellation()
-            await beforeContentEmission?()
-            guard
-                await resourceLeaseRegistry.performWhileLeased(
-                    emissionRequest.leasedResource,
-                    paneId: paneId,
-                    contentLength: nil,
-                    {
-                        continuation.yield(
-                            .response(
-                                Self.response(
-                                    url: emissionRequest.url,
-                                    mimeType: metadata.mimeType,
-                                    expectedContentLength: metadata.byteCount
-                                )))
-                    }
-                )
-            else {
-                continuation.finish(throwing: BridgeSchemeError.invalidRoute(Self.invalidRouteReason))
-                return
-            }
-            guard emissionRequest.readMethod == .get else {
-                continuation.finish()
-                return
-            }
-            try Task.checkCancellation()
-            await beforeContentEmission?()
-            guard
-                let didEmitBody = try await emitLeasedReviewResourceChunks(
-                    leasedResource: emissionRequest.leasedResource,
-                    continuation: continuation
-                )
-            else {
-                continuation.finish(throwing: BridgeSchemeError.invalidRoute(Self.invalidRouteReason))
-                return
-            }
-            guard didEmitBody else {
-                continuation.finish(throwing: BridgeSchemeError.invalidRoute(Self.invalidRouteReason))
-                return
-            }
             continuation.finish()
         } catch {
             continuation.finish(throwing: error)
@@ -622,7 +590,8 @@ struct BridgeSchemeHandler: URLSchemeHandler {
         traceContext: BridgeTraceContext?,
         hasTraceparentHeader: Bool,
         phase: String,
-        durationMilliseconds: Double
+        durationMilliseconds: Double,
+        transport: String = "content"
     ) async {
         guard let telemetryRecorder else {
             return
@@ -642,7 +611,7 @@ struct BridgeSchemeHandler: URLSchemeHandler {
                     "agentstudio.bridge.plane": BridgeTelemetryPlane.data.rawValue,
                     "agentstudio.bridge.priority": BridgeTelemetryPriority.hot.rawValue,
                     "agentstudio.bridge.slice": BridgeTelemetrySlice.contentFetch.rawValue,
-                    "agentstudio.bridge.transport": "content",
+                    "agentstudio.bridge.transport": transport,
                 ],
                 numericAttributes: [
                     "agentstudio.bridge.content.byte_size_bucket": Double(observation.byteSizeBucket),
@@ -699,29 +668,6 @@ struct BridgeSchemeHandler: URLSchemeHandler {
                 leasedResource,
                 paneId: paneId,
                 contentLength: body.byteCount,
-                {
-                    continuation.yield(.data(chunk))
-                }
-            )
-        }
-    }
-
-    private func emitLeasedReviewResourceChunks(
-        leasedResource: BridgeTransportResourceURL,
-        continuation: AsyncThrowingStream<URLSchemeTaskResult, any Error>.Continuation
-    ) async throws -> Bool? {
-        let byteCounter = BridgeSchemeResourceByteCounter()
-        return try await reviewResourceStore.emitChunks(
-            leasedResource,
-            chunkByteCount: Self.resourceChunkByteCount
-        ) { chunk in
-            try Task.checkCancellation()
-            await beforeContentEmission?()
-            let totalBytesRead = byteCounter.add(chunk.count)
-            return await resourceLeaseRegistry.performWhileLeased(
-                leasedResource,
-                paneId: paneId,
-                contentLength: totalBytesRead,
                 {
                     continuation.yield(.data(chunk))
                 }

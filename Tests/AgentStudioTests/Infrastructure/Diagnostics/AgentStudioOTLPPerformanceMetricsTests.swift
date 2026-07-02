@@ -143,7 +143,7 @@ struct AgentStudioOTLPPerformanceMetricsTests {
         let record = AgentStudioOTLPProjectedLogRecord(
             timeUnixNano: 124,
             severityText: .info,
-            body: "performance.bridge.webkit.package_push",
+            body: "performance.bridge.webkit.push_envelope",
             traceID: "11111111111111111111111111111111",
             spanID: "2222222222222222",
             parentSpanID: "3333333333333333",
@@ -156,7 +156,7 @@ struct AgentStudioOTLPPerformanceMetricsTests {
                 "agentstudio.bridge.phase": .string("transport"),
                 "agentstudio.bridge.plane": .string("data"),
                 "agentstudio.bridge.priority": .string("cold"),
-                "agentstudio.bridge.slice": .string("review_snapshot"),
+                "agentstudio.bridge.slice": .string("review_metadata"),
                 "agentstudio.performance.elapsed_ms": .double(8.5),
                 "agentstudio.trace.tag": .string("bridge.performance.webkit"),
             ]
@@ -166,30 +166,91 @@ struct AgentStudioOTLPPerformanceMetricsTests {
         let expectedDimensions = [
             AgentStudioOTLPPerformanceMetricDimension(
                 name: "event",
-                value: "performance.bridge.webkit.package_push"
+                value: "performance.bridge.webkit.push_envelope"
             ),
             AgentStudioOTLPPerformanceMetricDimension(name: "phase", value: "transport"),
             AgentStudioOTLPPerformanceMetricDimension(name: "plane", value: "data"),
             AgentStudioOTLPPerformanceMetricDimension(name: "priority", value: "cold"),
-            AgentStudioOTLPPerformanceMetricDimension(name: "slice", value: "review_snapshot"),
+            AgentStudioOTLPPerformanceMetricDimension(name: "slice", value: "review_metadata"),
         ]
 
-        #expect(metricEvent.eventName == "performance.bridge.webkit.package_push")
+        #expect(metricEvent.eventName == "performance.bridge.webkit.push_envelope")
         #expect(metricEvent.elapsedMilliseconds == 8.5)
         #expect(metricEvent.dimensions == expectedDimensions)
         #expect(
             metricEvent.samples == [
                 AgentStudioOTLPPerformanceMetricSample(
-                    eventName: "performance.bridge.webkit.package_push",
+                    eventName: "performance.bridge.webkit.push_envelope",
                     label: "agentstudio_bridge_content_byte_size_bucket",
                     dimensions: expectedDimensions,
                     value: 100_000
                 ),
                 AgentStudioOTLPPerformanceMetricSample(
-                    eventName: "performance.bridge.webkit.package_push",
+                    eventName: "performance.bridge.webkit.push_envelope",
                     label: "agentstudio_bridge_content_line_count_bucket",
                     dimensions: expectedDimensions,
                     value: 500
+                ),
+            ])
+    }
+
+    @Test
+    func bridgeDemandQueueWaitProjectsLaneDimensionAndSchedulerGauges() throws {
+        let record = AgentStudioOTLPProjectedLogRecord(
+            timeUnixNano: 125,
+            severityText: .info,
+            body: "performance.bridge.viewer.demand_queue_wait",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.bridge.performance.swift", version: "0.1.0"),
+            attributes: [
+                "agent.proof.marker": .string("bridge-headless-manifest-proof"),
+                "agentstudio.bridge.demand.lane": .string("foreground"),
+                "agentstudio.bridge.demand.queue_depth": .double(7),
+                "agentstudio.bridge.demand.scheduler_queue_wait_ms": .double(12.5),
+                "agentstudio.bridge.phase": .string("demand_queue_wait"),
+                "agentstudio.bridge.plane": .string("data"),
+                "agentstudio.bridge.priority": .string("hot"),
+                "agentstudio.bridge.slice": .string("tree_prepare_input"),
+                "agentstudio.performance.elapsed_ms": .double(12.5),
+                "agentstudio.trace.tag": .string("bridge.performance.swift"),
+            ]
+        )
+
+        let metricEvent = try #require(AgentStudioOTLPPerformanceMetricEvent(record: record))
+        let expectedDimensions = [
+            AgentStudioOTLPPerformanceMetricDimension(
+                name: "event",
+                value: "performance.bridge.viewer.demand_queue_wait"
+            ),
+            AgentStudioOTLPPerformanceMetricDimension(
+                name: "agent.proof.marker",
+                value: "bridge-headless-manifest-proof"
+            ),
+            AgentStudioOTLPPerformanceMetricDimension(name: "phase", value: "demand_queue_wait"),
+            AgentStudioOTLPPerformanceMetricDimension(name: "plane", value: "data"),
+            AgentStudioOTLPPerformanceMetricDimension(name: "priority", value: "hot"),
+            AgentStudioOTLPPerformanceMetricDimension(name: "slice", value: "tree_prepare_input"),
+            AgentStudioOTLPPerformanceMetricDimension(name: "lane", value: "foreground"),
+        ]
+
+        #expect(metricEvent.dimensions == expectedDimensions)
+        #expect(metricEvent.elapsedMilliseconds == 12.5)
+        #expect(
+            metricEvent.samples == [
+                AgentStudioOTLPPerformanceMetricSample(
+                    eventName: "performance.bridge.viewer.demand_queue_wait",
+                    label: "agentstudio_bridge_demand_queue_depth",
+                    dimensions: expectedDimensions,
+                    value: 7
+                ),
+                AgentStudioOTLPPerformanceMetricSample(
+                    eventName: "performance.bridge.viewer.demand_queue_wait",
+                    label: "agentstudio_bridge_demand_scheduler_queue_wait_ms",
+                    dimensions: expectedDimensions,
+                    value: 12.5
                 ),
             ])
     }
@@ -199,7 +260,7 @@ struct AgentStudioOTLPPerformanceMetricsTests {
         let missingPhase = AgentStudioOTLPProjectedLogRecord(
             timeUnixNano: 124,
             severityText: .info,
-            body: "performance.bridge.webkit.package_push",
+            body: "performance.bridge.webkit.push_envelope",
             traceID: nil,
             spanID: nil,
             parentSpanID: nil,
@@ -208,13 +269,13 @@ struct AgentStudioOTLPPerformanceMetricsTests {
             attributes: [
                 "agentstudio.bridge.plane": .string("data"),
                 "agentstudio.bridge.priority": .string("cold"),
-                "agentstudio.bridge.slice": .string("review_snapshot"),
+                "agentstudio.bridge.slice": .string("review_metadata"),
             ]
         )
         let invalidSlice = AgentStudioOTLPProjectedLogRecord(
             timeUnixNano: 125,
             severityText: .info,
-            body: "performance.bridge.webkit.package_push",
+            body: "performance.bridge.webkit.push_envelope",
             traceID: nil,
             spanID: nil,
             parentSpanID: nil,

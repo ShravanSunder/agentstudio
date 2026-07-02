@@ -376,3 +376,31 @@ entries; if an entry becomes stale, append a correction with the new evidence.
   `oxfmt --check` on touched TS passed,
   `oxlint --type-aware` on touched TS passed,
   and `pnpm --dir BridgeWeb exec tsc --noEmit --pretty false` passed.
+
+### 2026-07-01 Codex Swift S4 Victoria Loop Closure Checkpoint
+
+- Closed the headless Victoria visibility gap for the native benchmark.
+- Root cause: late worktree-file content fetches were visible in JSONL but not
+  exported to Victoria before process exit because the OTLP metrics backend
+  exports on its periodic interval and `flush()` is intentionally not a service
+  shutdown.
+- Added worktree-file scheme-handler content-load telemetry on the real
+  `BridgeSchemeHandler` file-resource path:
+  `performance.bridge.swift.content_load`, phase `success`, slice
+  `content_fetch`, transport `worktree-file`.
+- Added explicit `agent.proof.marker` as a bridge performance metric dimension
+  so native bridge metrics can be marker-scoped consistently.
+- The headless proof recorder now shuts down its per-proof trace runtime after
+  draining queued samples, exporting late content-load samples before the Swift
+  test process exits.
+- Fresh verifier proof:
+  `mise run verify-bridge-headless-manifest` passed with 2 tests / 2 suites,
+  artifact totals expected/emitted files `2174/2174`, rows `2561/2561`, and
+  Victoria marker `bridge-headless-manifest-1782962580-12056` reporting
+  `performance.bridge.swift.content_load` count `20`.
+- Focused proof:
+  `BridgeSchemeHandlerWorktreeFileResourceTests|BridgeHeadlessManifestVerifierScriptTests|AgentStudioOTLPPerformanceMetricsTests`
+  passed 18 tests / 3 suites.
+- Surrounding Bridge sweep:
+  `BridgeMetadataLaneSchedulerTests|WebKitSerializedTests.BridgeWorktreeFile|WebKitSerializedTests.BridgeReviewMetadataWindowTransportTests|WebKitSerializedTests.BridgePaneControllerTests`
+  passed 86 tests / 12 suites.

@@ -12,10 +12,11 @@ extension WebKitSerializedTests {
             installTestAtomRegistryIfNeeded()
         }
 
-        @Test("current worktree manifest proof records completeness lineage and percentiles")
-        func currentWorktreeManifestProofRecordsCompletenessLineageAndPercentiles() async throws {
+        private func makeCurrentWorktreeProofHarness() throws -> BridgeCurrentWorktreeProofHarness {
             let projectRoot = currentProjectRoot()
-            let telemetryRecorder = BridgeWorktreeFileCurrentWorktreeTelemetryRecorder()
+            let telemetryRecorder = BridgeWorktreeFileCurrentWorktreeTelemetryRecorder(
+                traceRuntime: currentWorktreeProofTraceRuntime()
+            )
             let eventCapture = BridgeWorktreeFileSurfaceEventCapture()
             let intakeDeliveryCapture = BridgeCurrentWorktreeProofIntakeDeliveryCapture()
             let fixture = try makeControllerFixtureWithIntakeSink(
@@ -30,68 +31,81 @@ extension WebKitSerializedTests {
             fixture.controller.router.onResponse = { responseJSON in
                 await responseCapture.set(responseJSON)
             }
-            defer { fixture.controller.teardown() }
+            return BridgeCurrentWorktreeProofHarness(
+                eventCapture: eventCapture,
+                fixture: fixture,
+                intakeDeliveryCapture: intakeDeliveryCapture,
+                projectRoot: projectRoot,
+                responseCapture: responseCapture,
+                telemetryRecorder: telemetryRecorder
+            )
+        }
+
+        @Test("current worktree manifest proof records completeness lineage and percentiles")
+        func currentWorktreeManifestProofRecordsCompletenessLineageAndPercentiles() async throws {
+            let harness = try makeCurrentWorktreeProofHarness()
+            defer { harness.fixture.controller.teardown() }
 
             let response = try await openCurrentWorktreeHeadlessProofStream(
-                fixture: fixture,
-                responseCapture: responseCapture
+                fixture: harness.fixture,
+                responseCapture: harness.responseCapture
             )
-            await fixture.controller.activeWorktreeFileTreeWindowTask?.value
-            let manifestIndex = try #require(fixture.controller.activeWorktreeFileManifestIndex)
+            await harness.fixture.controller.activeWorktreeFileTreeWindowTask?.value
+            let manifestIndex = try #require(harness.fixture.controller.activeWorktreeFileManifestIndex)
             let interestProbePaths = try await demandLaneInterestProbePaths(
                 from: manifestIndex
             )
             let laneProbeResults = try await requestDemandLaneInterestProbes(
-                controller: fixture.controller,
+                controller: harness.fixture.controller,
                 generation: response.result.generation,
                 paths: interestProbePaths,
                 streamId: response.result.streamId
             )
-            await fixture.controller.handleBridgeIntakeReady(
+            await harness.fixture.controller.handleBridgeIntakeReady(
                 BridgeIntakeReadyMethod.Params(
                     protocolId: "worktree-file",
                     streamId: response.result.streamId,
                     generation: response.result.generation
                 )
             )
-            await fixture.controller.worktreeFileMetadataScheduler.waitUntilDrained()
+            await harness.fixture.controller.worktreeFileMetadataScheduler.waitUntilDrained()
 
             let manifestFacts = try await currentWorktreeManifestFacts(
-                from: eventCapture,
-                projectRoot: projectRoot
+                from: harness.eventCapture,
+                projectRoot: harness.projectRoot
             )
             let demandLaneFacts = try await currentWorktreeDemandLaneFacts(
-                from: await eventCapture.intakeFrames(),
+                from: await harness.eventCapture.intakeFrames(),
                 laneProbeResults: laneProbeResults.probesByLane
             )
             let timingProof = try await currentWorktreeTimingProof(
-                telemetryRecorder: telemetryRecorder
+                telemetryRecorder: harness.telemetryRecorder
             )
             let metadataInterestTiming = try await currentWorktreeMetadataInterestTiming(
-                deliveryRecords: intakeDeliveryCapture.intakeRecords(),
+                deliveryRecords: harness.intakeDeliveryCapture.intakeRecords(),
                 requestTimings: laneProbeResults.requestTimings
             )
             let schedulerQueueWaitByLane = try await currentWorktreeSchedulerQueueWaitByLane(
-                telemetryRecorder: telemetryRecorder
+                telemetryRecorder: harness.telemetryRecorder
             )
             let contentDemandProof = try await currentWorktreeContentDemandProof(
-                eventCapture: eventCapture,
-                fixture: fixture
+                eventCapture: harness.eventCapture,
+                fixture: harness.fixture
             )
             let gatedBenchmark = try await currentWorktreeGatedBenchmarkProof(
                 BridgeCurrentWorktreeGatedBenchmarkProofRequest(
-                    controller: fixture.controller,
-                    deliveryCapture: intakeDeliveryCapture,
-                    eventCapture: eventCapture,
-                    fixture: fixture,
+                    controller: harness.fixture.controller,
+                    deliveryCapture: harness.intakeDeliveryCapture,
+                    eventCapture: harness.eventCapture,
+                    fixture: harness.fixture,
                     generation: response.result.generation,
                     manifestIndex: manifestIndex,
                     streamId: response.result.streamId,
-                    telemetryRecorder: telemetryRecorder
+                    telemetryRecorder: harness.telemetryRecorder
                 )
             )
             let noStarvationProgress = try currentWorktreeNoStarvationProgress(
-                from: await eventCapture.intakeFrames(),
+                from: await harness.eventCapture.intakeFrames(),
                 demandLaneFacts: demandLaneFacts,
                 fullManifestSample: timingProof.fullManifestSample,
                 manifestFacts: manifestFacts
@@ -109,13 +123,14 @@ extension WebKitSerializedTests {
                     metadataInterestTiming: metadataInterestTiming,
                     noStarvationProgress: noStarvationProgress,
                     openToFirstWindowSummary: timingProof.openToFirstWindowSummary,
-                    projectRoot: projectRoot,
+                    projectRoot: harness.projectRoot,
                     gatedBenchmark: gatedBenchmark,
                     schedulerQueueWaitByLane: schedulerQueueWaitByLane,
                     treeWindowTimingSummary: timingProof.treeWindowTimingSummary
                 )
             )
-            try assertCurrentWorktreeBenchmarkArtifactHasDemandLoadingFields(projectRoot: projectRoot)
+            try await harness.telemetryRecorder.drain()
+            try assertCurrentWorktreeBenchmarkArtifactHasDemandLoadingFields(projectRoot: harness.projectRoot)
         }
 
         @Test("manifest completeness ignores demand interest tree windows")

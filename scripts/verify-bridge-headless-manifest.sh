@@ -5,6 +5,12 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROOF_ROOT="${AGENTSTUDIO_BRIDGE_HEADLESS_PROOF_DIR:-$PROJECT_ROOT/tmp/bridge-headless-manifest-proof}"
 TEST_FILTER="${AGENTSTUDIO_BRIDGE_HEADLESS_TEST_FILTER:-WebKitSerializedTests.BridgeWorktreeFileSurfaceCurrentWorktreeProofTests}"
 SWIFT_TIMEOUT="${SWIFT_TEST_TIMEOUT_SECONDS:-240}"
+METRICS_QUERY_URL="${AI_TOOLS_OBSERVABILITY_METRICS_QUERY_URL:-http://127.0.0.1:8428/api/v1/query}"
+COLLECTOR_HEALTH_URL="${AI_TOOLS_OBSERVABILITY_COLLECTOR_HEALTH_URL:-http://127.0.0.1:13133/}"
+TRACE_NAME="${AGENTSTUDIO_BRIDGE_HEADLESS_TRACE_NAME:-bridge-headless-manifest-$(date +%s)-$$}"
+TRACE_DIR="${AGENTSTUDIO_BRIDGE_HEADLESS_TRACE_DIR:-$PROOF_ROOT/traces}"
+VERIFY_ATTEMPTS="${AGENTSTUDIO_BRIDGE_HEADLESS_VICTORIA_ATTEMPTS:-12}"
+VERIFY_RETRY_DELAY_SECONDS="${AGENTSTUDIO_BRIDGE_HEADLESS_VICTORIA_RETRY_DELAY_SECONDS:-2}"
 VALIDATE_ONLY=0
 
 if [ "${1:-}" = "--validate-only" ]; then
@@ -169,14 +175,149 @@ print(f"emittedMetadataRowTotal={emitted_rows}")
 PY
 }
 
+metric_query_value() {
+  local promql="${1:?missing PromQL query}"
+  local response
+  response="$(
+    curl \
+      --fail \
+      --silent \
+      --show-error \
+      --max-time 5 \
+      --get \
+      --data-urlencode "query=$promql" \
+      "$METRICS_QUERY_URL" 2>/dev/null || true
+  )"
+  if [ -z "$response" ]; then
+    printf '0\n'
+    return 0
+  fi
+  /usr/bin/python3 -c '
+import json
+import math
+import sys
+
+total = 0.0
+try:
+    payload = json.load(sys.stdin)
+    for item in payload["data"]["result"]:
+        value = float(item["value"][1])
+        if math.isfinite(value):
+            total += value
+except Exception:
+    pass
+
+print(int(total) if total.is_integer() else total)
+' <<<"$response"
+}
+
+wait_for_metric_value() {
+  local description="${1:?missing description}"
+  local promql="${2:?missing PromQL query}"
+  local value="0"
+  local attempt=1
+  while [ "$attempt" -le "$VERIFY_ATTEMPTS" ]; do
+    value="$(metric_query_value "$promql")"
+    if [ "$value" != "0" ] && [ "$value" != "0.0" ]; then
+      printf '%s' "$value"
+      return 0
+    fi
+    if [ "$attempt" -lt "$VERIFY_ATTEMPTS" ]; then
+      sleep "$VERIFY_RETRY_DELAY_SECONDS"
+    fi
+    attempt=$((attempt + 1))
+  done
+  echo "$description" >&2
+  echo "$promql" >&2
+  return 1
+}
+
+bridge_metric_label_selector() {
+  local event_name="${1:?missing event name}"
+  local phase="${2:?missing phase}"
+  local priority="${3:?missing priority}"
+  local slice="${4:?missing slice}"
+  local lane="${5:-}"
+  local selector
+  selector="$(printf 'service.name="AgentStudio",dev.runtime.flavor="debug",agent.proof.marker="%s",event="%s",phase="%s",plane="data",priority="%s",slice="%s"' \
+    "$TRACE_NAME" "$event_name" "$phase" "$priority" "$slice")"
+  if [ -n "$lane" ]; then
+    selector="$selector,lane=\"$lane\""
+  fi
+  printf '%s' "$selector"
+}
+
+require_victoria_metric_percentiles() {
+  local event_name="${1:?missing event name}"
+  local phase="${2:?missing phase}"
+  local priority="${3:?missing priority}"
+  local slice="${4:?missing slice}"
+  local lane="${5:-}"
+  local selector count p95 p99
+  selector="$(bridge_metric_label_selector "$event_name" "$phase" "$priority" "$slice" "$lane")"
+  count="$(wait_for_metric_value \
+    "Bridge headless Victoria metric missing count for $event_name lane=${lane:-none}" \
+    "sum(agentstudio_performance_events_total{$selector})")"
+  p95="$(wait_for_metric_value \
+    "Bridge headless Victoria metric missing p95 for $event_name lane=${lane:-none}" \
+    "histogram_quantile(0.95, sum by (le) (agentstudio_performance_event_elapsed_ms_bucket{$selector}))")"
+  p99="$(wait_for_metric_value \
+    "Bridge headless Victoria metric missing p99 for $event_name lane=${lane:-none}" \
+    "histogram_quantile(0.99, sum by (le) (agentstudio_performance_event_elapsed_ms_bucket{$selector}))")"
+  echo "Bridge headless Victoria metric $event_name lane=${lane:-none} count=$count p95=$p95 p99=$p99"
+}
+
+require_victoria_metrics() {
+  require_victoria_metric_percentiles \
+    "performance.bridge.native.metadata_open_to_first_window" \
+    "metadata_open_to_first_window" \
+    "hot" \
+    "tree_prepare_input"
+  require_victoria_metric_percentiles \
+    "performance.bridge.native.metadata_full_manifest_complete" \
+    "metadata_full_manifest_complete" \
+    "cold" \
+    "tree_prepare_input"
+  require_victoria_metric_percentiles \
+    "performance.bridge.viewer.demand_queue_wait" \
+    "demand_queue_wait" \
+    "hot" \
+    "tree_prepare_input" \
+    "foreground"
+  require_victoria_metric_percentiles \
+    "performance.bridge.viewer.demand_queue_wait" \
+    "demand_queue_wait" \
+    "hot" \
+    "tree_prepare_input" \
+    "visible"
+  require_victoria_metric_percentiles \
+    "performance.bridge.swift.content_load" \
+    "success" \
+    "hot" \
+    "content_fetch"
+}
+
 if [ "$VALIDATE_ONLY" != "1" ]; then
   rm -rf "$PROOF_ROOT"
   mkdir -p "$PROOF_ROOT"
+  if ! curl --fail --silent --show-error --max-time 2 "$COLLECTOR_HEALTH_URL" >/dev/null; then
+    echo "OTLP collector health check failed: $COLLECTOR_HEALTH_URL" >&2
+    echo "Run 'mise run observability:up' before verify-bridge-headless-manifest." >&2
+    exit 1
+  fi
   source "$PROJECT_ROOT/scripts/swift-build-slot.sh" debug
   swift build --build-path "$SWIFT_BUILD_DIR" --build-tests
   PROJECT_ROOT="$PROJECT_ROOT" \
     AGENTSTUDIO_BRIDGE_HEADLESS_PROOF_DIR="$PROOF_ROOT" \
     AGENTSTUDIO_BRIDGE_HEADLESS_BENCHMARK_MODE=1 \
+    AGENTSTUDIO_BRIDGE_HEADLESS_VICTORIA_MODE=1 \
+    AGENTSTUDIO_TRACE_BACKEND=both \
+    AGENTSTUDIO_TRACE_DIR="$TRACE_DIR" \
+    AGENTSTUDIO_TRACE_FLUSH=immediate \
+    AGENTSTUDIO_TRACE_NAME="$TRACE_NAME" \
+    AGENTSTUDIO_TRACE_TAGS=bridge.performance.swift \
+    OTEL_EXPORTER_OTLP_ENDPOINT="${OTEL_EXPORTER_OTLP_ENDPOINT:-http://127.0.0.1:4318}" \
+    OTEL_EXPORTER_OTLP_PROTOCOL="${OTEL_EXPORTER_OTLP_PROTOCOL:-http/protobuf}" \
     SWIFT_TEST_TIMEOUT_SECONDS="$SWIFT_TIMEOUT" \
     swift test --build-path "$SWIFT_BUILD_DIR" --skip-build --filter "$TEST_FILTER"
 fi
@@ -188,3 +329,7 @@ if [ -z "$ARTIFACT" ]; then
 fi
 
 validate_artifact "$ARTIFACT"
+
+if [ "$VALIDATE_ONLY" != "1" ]; then
+  require_victoria_metrics
+fi

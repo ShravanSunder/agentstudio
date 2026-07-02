@@ -161,6 +161,12 @@ struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
         }
         if record.body.hasPrefix("performance.bridge.") {
             appendBridgeDimension(
+                name: "agent.proof.marker",
+                attributeKey: "agent.proof.marker",
+                record: record,
+                dimensions: &dimensions
+            )
+            appendBridgeDimension(
                 name: "phase",
                 attributeKey: "agentstudio.bridge.phase",
                 record: record,
@@ -181,6 +187,12 @@ struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
             appendBridgeDimension(
                 name: "slice",
                 attributeKey: "agentstudio.bridge.slice",
+                record: record,
+                dimensions: &dimensions
+            )
+            appendBridgeDimension(
+                name: "lane",
+                attributeKey: "agentstudio.bridge.demand.lane",
                 record: record,
                 dimensions: &dimensions
             )
@@ -238,6 +250,12 @@ struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
         "agentstudio.bridge.batch.sample_count",
         "agentstudio.bridge.content.byte_size_bucket",
         "agentstudio.bridge.content.line_count_bucket",
+        "agentstudio.bridge.demand.queue_depth",
+        "agentstudio.bridge.demand.scheduler_queue_wait_ms",
+        "agentstudio.bridge.demand.stale_drop.count",
+        "agentstudio.bridge.metadata_manifest.emitted_total",
+        "agentstudio.bridge.metadata_manifest.expected_total",
+        "agentstudio.bridge.metadata_manifest.remaining_total",
         "agentstudio.bridge.telemetry.dropped_count",
     ]
 
