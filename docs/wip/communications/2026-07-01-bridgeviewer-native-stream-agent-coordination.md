@@ -404,3 +404,51 @@ entries; if an entry becomes stale, append a correction with the new evidence.
 - Surrounding Bridge sweep:
   `BridgeMetadataLaneSchedulerTests|WebKitSerializedTests.BridgeWorktreeFile|WebKitSerializedTests.BridgeReviewMetadataWindowTransportTests|WebKitSerializedTests.BridgePaneControllerTests`
   passed 86 tests / 12 suites.
+
+### 2026-07-02 Codex React Lane Tree Delta Apply Checkpoint
+
+- Fable's open `worktree.treeDelta` browser reducer question is now owned and
+  fixed in the React lane.
+- Root cause: the TS schema and native receiver already accepted
+  `worktree.treeDelta`, and the worktree-file materializer classified it as a
+  valid metadata delta, but FileView's render-state reducer only applied
+  `snapshot`, `treeWindow`, `fileDescriptor`, `fileInvalidated`, and `reset`.
+  Watch-event deletes/upserts could therefore be accepted by transport while
+  persisting stale rows in the visible FileView tree.
+- Added pure tree-delta application in
+  `BridgeWeb/src/file-viewer/bridge-file-viewer-tree-delta.ts` and kept
+  `BridgeWeb/src/file-viewer/bridge-file-viewer-state.ts` below the 1k-line
+  guard by delegating the operation logic out of the main state module.
+- Covered `removeRows` + `upsertRows` in the reducer unit path, including
+  descriptor cleanup and empty-directory pruning, and added a Vitest Browser
+  proof that a subscribed `worktree.treeDelta` removes the old visible tree row
+  and renders the new row through the mounted FileView/Pierre tree.
+- Red proof:
+  `pnpm --dir BridgeWeb exec vitest run src/file-viewer/bridge-file-viewer-app.unit.test.ts --reporter verbose`
+  failed before the reducer patch because the `worktree.treeDelta` frame was
+  ignored.
+- Green proof:
+  `pnpm --dir BridgeWeb exec vitest run src/file-viewer/bridge-file-viewer-source-structure.unit.test.ts src/file-viewer/bridge-file-viewer-app.unit.test.ts --reporter verbose`
+  passed 26/26.
+- Browser proof:
+  `pnpm --dir BridgeWeb exec vitest --config vitest.browser.config.ts run --project integration-browser src/file-viewer/bridge-file-viewer-app.browser.test.tsx --reporter verbose`
+  passed 42/42.
+- Static proof:
+  `pnpm --dir BridgeWeb exec oxfmt --check ...` passed on the four touched
+  TS/TSX files, `pnpm --dir BridgeWeb exec oxlint --type-aware ...` passed,
+  and `pnpm --dir BridgeWeb exec tsc --noEmit --pretty false` passed.
+- Sidekick validation:
+  Plato mapped Pierre/DiffsHub APIs and confirmed FileView no longer owns wrapper
+  scrolling; the remaining duplicated risk is the shared Pierre tree
+  search/selection/runtime seam.
+  Feynman mapped FileView and Review component/state trees and confirmed
+  FileView has a Zustand store plus non-Zustand runtime/body registries; the
+  biggest concrete gap in its drift list was this missing `treeDelta` branch.
+- Review fix:
+  Hume found two accepted tree-delta helper issues before commit:
+  `moveSubtree` could leave old-path descriptors cached, and shorter
+  `replaceWindow` operations could retain stale tail rows. Codex fixed both:
+  moved-subtree descriptors are evicted until a fresh descriptor frame
+  re-authorizes content, and window replacement evicts the prior materialized
+  window length when available. Reducer tests now cover `moveSubtree` with a
+  loaded descriptor and shorter `replaceWindow` tail cleanup.

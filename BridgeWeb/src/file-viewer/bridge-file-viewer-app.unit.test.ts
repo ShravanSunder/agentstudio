@@ -7,6 +7,7 @@ import type {
 	WorktreeSnapshotFrame,
 	WorktreeFileSurfaceSourceIdentity,
 	WorktreeTreeRowMetadata,
+	WorktreeTreeDeltaFrame,
 } from '../features/worktree-file/models/worktree-file-protocol-models.js';
 import {
 	applyFramesToRuntime,
@@ -140,6 +141,225 @@ describe('BridgeFileViewerApp frame projection', () => {
 		expect(nextRenderState.descriptors).toEqual([]);
 		expect(nextRenderState.treeRows).toEqual([nextTreeRow]);
 		expect(nextRenderState.sourceIdentity).toEqual(newSourceIdentity);
+	});
+
+	test('applies tree delta removals and upserts to the retained FileView tree', () => {
+		const sourceIdentity = makeWorktreeFileSourceIdentity();
+		const removedDescriptor = makeWorktreeFileDescriptor(sourceIdentity, {
+			contentHandle: 'content-removed-file',
+			fileId: 'file-removed',
+			path: 'Sources/Removed.swift',
+		});
+		const keptDescriptor = makeWorktreeFileDescriptor(sourceIdentity, {
+			contentHandle: 'content-kept-file',
+			fileId: 'file-kept',
+			path: 'Sources/Kept.swift',
+		});
+		const addedRow = makeWorktreeTreeRow({
+			rowId: 'row-added-file',
+			path: 'Sources/Added.swift',
+			depth: 1,
+			isDirectory: false,
+		});
+		const currentRenderState: BridgeFileViewerRenderState = {
+			...makeBridgeFileViewerRenderState(),
+			descriptors: [removedDescriptor, keptDescriptor],
+			sourceIdentity,
+			treeRows: [
+				makeWorktreeTreeRow({
+					rowId: 'row-dir-sources',
+					path: 'Sources',
+					depth: 0,
+					isDirectory: true,
+				}),
+				makeWorktreeTreeRow({
+					rowId: 'row-dir-empty',
+					path: 'Sources/EmptyAfterDelete',
+					depth: 1,
+					isDirectory: true,
+				}),
+				makeWorktreeTreeRow({
+					rowId: 'row-empty-child',
+					path: 'Sources/EmptyAfterDelete/OnlyChild.swift',
+					depth: 2,
+					isDirectory: false,
+				}),
+				makeWorktreeTreeRow({
+					rowId: 'row-removed-file',
+					path: removedDescriptor.path,
+					depth: 1,
+					isDirectory: false,
+				}),
+				makeWorktreeTreeRow({
+					rowId: 'row-kept-file',
+					path: keptDescriptor.path,
+					depth: 1,
+					isDirectory: false,
+				}),
+			],
+			treeSizeFacts: {
+				extentKind: 'exactPathCount',
+				pathCount: 5,
+				rowHeightPixels: 24,
+			},
+		};
+
+		const nextRenderState = applyFramesToRuntime({
+			currentRenderState,
+			frames: [
+				makeWorktreeTreeDeltaFrame([
+					{
+						op: 'removeRows',
+						rowIds: ['row-removed-file', 'row-empty-child'],
+						paths: [removedDescriptor.path, 'Sources/EmptyAfterDelete/OnlyChild.swift'],
+					},
+					{
+						op: 'upsertRows',
+						rows: [addedRow],
+					},
+				]),
+			],
+			runtime: {
+				applyFrame: () => ({ ok: true, deltaKind: 'treeDelta' }),
+			},
+		});
+
+		expect(nextRenderState.treeRows.map((treeRow) => treeRow.path)).toEqual([
+			'Sources',
+			keptDescriptor.path,
+			addedRow.path,
+		]);
+		expect(nextRenderState.descriptors).toEqual([keptDescriptor]);
+		expect(nextRenderState.sourceIdentity).toEqual(sourceIdentity);
+		expect(nextRenderState.treeSizeFacts).toMatchObject({
+			extentKind: 'exactPathCount',
+			pathCount: 4,
+		});
+	});
+
+	test('evicts stale descriptors when a tree delta moves a loaded subtree', () => {
+		const sourceIdentity = makeWorktreeFileSourceIdentity();
+		const movedDescriptor = makeWorktreeFileDescriptor(sourceIdentity, {
+			contentHandle: 'content-moved-file',
+			fileId: 'file-moved',
+			path: 'Sources/Old/Loaded.swift',
+		});
+		const currentRenderState: BridgeFileViewerRenderState = {
+			...makeBridgeFileViewerRenderState(),
+			descriptors: [movedDescriptor],
+			sourceIdentity,
+			treeRows: [
+				makeWorktreeTreeRow({
+					rowId: 'row-old-dir',
+					path: 'Sources/Old',
+					depth: 1,
+					isDirectory: true,
+				}),
+				makeWorktreeTreeRow({
+					rowId: 'row-moved-file',
+					path: movedDescriptor.path,
+					depth: 2,
+					isDirectory: false,
+				}),
+			],
+		};
+
+		const nextRenderState = applyFramesToRuntime({
+			currentRenderState,
+			frames: [
+				makeWorktreeTreeDeltaFrame([
+					{
+						op: 'moveSubtree',
+						rowId: 'row-old-dir',
+						oldPath: 'Sources/Old',
+						newPath: 'Sources/New',
+						newParentPath: 'Sources',
+						depthDelta: 0,
+					},
+				]),
+			],
+			runtime: {
+				applyFrame: () => ({ ok: true, deltaKind: 'treeDelta' }),
+			},
+		});
+
+		expect(nextRenderState.treeRows.map((treeRow) => treeRow.path)).toEqual([
+			'Sources/New',
+			'Sources/New/Loaded.swift',
+		]);
+		expect(nextRenderState.descriptors).toEqual([]);
+		expect(nextRenderState.sourceIdentity).toEqual(sourceIdentity);
+	});
+
+	test('replaces a shorter tree window without retaining stale tail rows', () => {
+		const sourceIdentity = makeWorktreeFileSourceIdentity();
+		const currentRenderState: BridgeFileViewerRenderState = {
+			...makeBridgeFileViewerRenderState(),
+			sourceIdentity,
+			treeRows: [
+				makeWorktreeTreeRow({
+					rowId: 'row-window-0',
+					path: 'Window/File-0.swift',
+					depth: 1,
+					isDirectory: false,
+				}),
+				makeWorktreeTreeRow({
+					rowId: 'row-window-1',
+					path: 'Window/File-1.swift',
+					depth: 1,
+					isDirectory: false,
+				}),
+				makeWorktreeTreeRow({
+					rowId: 'row-window-2',
+					path: 'Window/File-2.swift',
+					depth: 1,
+					isDirectory: false,
+				}),
+			],
+			treeSizeFacts: {
+				extentKind: 'exactPathCount',
+				pathCount: 3,
+				windowStartIndex: 0,
+				windowRowCount: 3,
+				rowHeightPixels: 24,
+			},
+		};
+		const replacementRow = makeWorktreeTreeRow({
+			rowId: 'row-window-replacement',
+			path: 'Window/File-Replacement.swift',
+			depth: 1,
+			isDirectory: false,
+		});
+
+		const nextRenderState = applyFramesToRuntime({
+			currentRenderState,
+			frames: [
+				makeWorktreeTreeDeltaFrame([
+					{
+						op: 'replaceWindow',
+						projectionIdentity: {
+							source: sourceIdentity,
+							pathScope: [],
+							treeWindowKey: 'tree-window-0',
+						},
+						startIndex: 0,
+						rows: [replacementRow],
+						totalRowCount: 1,
+					},
+				]),
+			],
+			runtime: {
+				applyFrame: () => ({ ok: true, deltaKind: 'treeDelta' }),
+			},
+		});
+
+		expect(nextRenderState.treeRows.map((treeRow) => treeRow.path)).toEqual([replacementRow.path]);
+		expect(nextRenderState.treeSizeFacts).toMatchObject({
+			extentKind: 'exactPathCount',
+			pathCount: 1,
+			windowStartIndex: 0,
+			windowRowCount: 1,
+		});
 	});
 
 	test('does not project descriptor-only rows into the file tree', () => {
@@ -422,5 +642,18 @@ function makeWorktreeResetFrame(
 		sequence: 0,
 		source: sourceIdentity,
 		reason: 'sourceChanged',
+	};
+}
+
+function makeWorktreeTreeDeltaFrame(
+	operations: WorktreeTreeDeltaFrame['operations'],
+): WorktreeTreeDeltaFrame {
+	return {
+		kind: 'delta',
+		frameKind: 'worktree.treeDelta',
+		streamId: 'worktree-file:pane-file-viewer-test',
+		generation: 1,
+		sequence: 2,
+		operations,
 	};
 }

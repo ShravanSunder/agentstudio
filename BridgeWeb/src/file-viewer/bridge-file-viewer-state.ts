@@ -26,6 +26,7 @@ import type {
 	BridgeFileViewerSearchMode,
 	BridgeFileViewerVisibleFileDemandChange,
 } from './bridge-file-viewer-contracts.js';
+import { applyWorktreeTreeOperationsToFileViewerState } from './bridge-file-viewer-tree-delta.js';
 
 export interface BridgeFileViewerRenderState {
 	readonly descriptors: readonly WorktreeFileDescriptor[];
@@ -456,6 +457,16 @@ export function applyFramesToRuntime(props: {
 					treeRowsByPath.set(treeRow.path, treeRow);
 				}
 			}
+		}
+		if (frame.frameKind === 'worktree.treeDelta') {
+			treeSizeFacts = applyWorktreeTreeOperationsToFileViewerState({
+				descriptorsByFileId,
+				fallbackRowHeightPixels: defaultFileLineHeightPixels,
+				operations: frame.operations,
+				pruneEmptyDirectories: pruneEmptyWorktreeFileTreeDirectories,
+				treeRowsByPath,
+				treeSizeFacts,
+			});
 		}
 		if (frame.frameKind === 'worktree.fileDescriptor') {
 			sourceIdentity = frame.descriptor.sourceIdentity;

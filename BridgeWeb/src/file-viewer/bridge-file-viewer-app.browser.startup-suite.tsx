@@ -4,6 +4,7 @@ import { render } from 'vitest-browser-react';
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load the app CSS.
 import '../app/bridge-app.css';
 import type { WorktreeFileDescriptorRequest } from '../features/worktree-file/models/worktree-file-protocol-models.js';
+import { worktreeFileProtocolFrameSchema } from '../features/worktree-file/models/worktree-file-protocol-models.js';
 import type { BridgeTelemetrySample } from '../foundation/telemetry/bridge-telemetry-event.js';
 import {
 	findBridgeViewerTreeScrollOwner,
@@ -20,6 +21,7 @@ import {
 	makeFileInvalidatedFrames,
 	makeFrames,
 	makeSourceIdentity,
+	makeTreeRow,
 	makeTreeRowsOnlyFrames,
 	makeTreeWindowedSnapshotFrame,
 	makeTreeWindowFrame,
@@ -361,6 +363,66 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		);
 		expect(shell.getAttribute('data-worktree-metadata-file-row-count')).toBe('260');
 		expect(tree.getAttribute('data-worktree-tree-total-size-source')).toBe('providerFacts');
+	});
+
+	test('applies subscribed tree delta updates to the visible FileView tree', async () => {
+		let publishFrames: PublishWorktreeFileFrames | null = null;
+
+		render(
+			<BridgeFileViewerApp
+				codeViewWorkerPoolEnabled={false}
+				initialFrames={makeTreeRowsOnlyFrames()}
+				subscribeFrames={(handler): (() => void) => {
+					publishFrames = handler;
+					return (): void => {
+						publishFrames = null;
+					};
+				}}
+			/>,
+		);
+
+		await waitForMetadataTreeRowCount(6);
+		await waitForBridgeViewerTreeItemButton('Sources/AgentStudio/App/AppDelegate.swift');
+		requireFramePublisher(publishFrames)([
+			worktreeFileProtocolFrameSchema.parse({
+				kind: 'delta',
+				streamId: 'worktree-file:pane-1',
+				generation: 1,
+				sequence: 1,
+				frameKind: 'worktree.treeDelta',
+				operations: [
+					{
+						op: 'removeRows',
+						rowIds: ['row:Sources/AgentStudio/App/AppDelegate.swift'],
+						paths: ['Sources/AgentStudio/App/AppDelegate.swift'],
+					},
+					{
+						op: 'upsertRows',
+						rows: [
+							makeTreeRow({
+								depth: 4,
+								fileId: 'file-bridge-runtime',
+								isDirectory: false,
+								lineCount: 64,
+								name: 'BridgeRuntime.swift',
+								parentPath: 'Sources/AgentStudio/Features/Bridge',
+								path: 'Sources/AgentStudio/Features/Bridge/BridgeRuntime.swift',
+							}),
+						],
+					},
+				],
+			}),
+		]);
+
+		await waitForMetadataTreeRowCount(5);
+		await waitForBridgeViewerTreeItemButton(
+			'Sources/AgentStudio/Features/Bridge/BridgeRuntime.swift',
+		);
+		expect(
+			document.querySelector(
+				'[data-worktree-file-path="Sources/AgentStudio/App/AppDelegate.swift"]',
+			),
+		).toBeNull();
 	});
 
 	test('opens content for a file discovered through a subscribed tree window', async () => {
