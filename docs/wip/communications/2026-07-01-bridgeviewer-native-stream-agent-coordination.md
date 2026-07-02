@@ -1334,3 +1334,19 @@ first visible line does not drift and collapsed-region counts don't
 flicker; assert the tree thumb length is constant from window 1.
 Analysis artifacts (frames, motion timelines): session scratchpad
 d3406bc1.../scratchpad/{thumbs,w,c,tree_motion.txt,content_motion.txt}.
+
+### 2026-07-02 User requirement: file-scoped content-changed semantics
+
+Recorded from user (with screenshot of the "Content changed / Refresh"
+bar) — requirements for both lanes, Pierre comments deferred:
+- The content-changed bar must be FILE-SPECIFIC, never for the whole
+  diff tree.
+- The file tree auto-updates silently in the background (native already
+  streams worktree.treeDelta for this — browser should apply without
+  prompting; Codex's treeDelta reducer + anchor work is the seam).
+- FileView and DiffView: show the refresh affordance ONLY when the
+  changed file is in-view or loaded. If the file is not in view — or the
+  diff/file has no comments — update silently (native invalidation
+  frames carry per-path facts; the prompt policy is a browser decision).
+- Pierre comments integration comes later; design the prompt policy so
+  "has comments" can gate silent-vs-prompt when it lands.
