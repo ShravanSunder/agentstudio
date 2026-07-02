@@ -442,7 +442,7 @@ extension WebKitSerializedTests.BridgeWorktreeFileSurfaceCurrentWorktreeProofTes
         let probePlan = try await gatedBenchmarkInterestProbePlan(from: request.manifestIndex)
         let benchmarkStartedRecordCount = await request.deliveryCapture.intakeRecords().count
         let queueWaitStartedSampleCount = await request.telemetryRecorder.samples(
-            named: "performance.bridge.viewer.demand_queue_wait"
+            named: "performance.bridge.swift.metadata_scheduler_queue_wait"
         ).count
         let requestTimings = try await requestGatedBenchmarkInterestProbes(
             controller: request.controller,
@@ -460,7 +460,7 @@ extension WebKitSerializedTests.BridgeWorktreeFileSurfaceCurrentWorktreeProofTes
             minimumSampleCount: 100
         )
         let allQueueWaitSamples = await request.telemetryRecorder.samples(
-            named: "performance.bridge.viewer.demand_queue_wait"
+            named: "performance.bridge.swift.metadata_scheduler_queue_wait"
         )
         let queueWaitByLane = queueWaitByLaneFacts(
             from: Array(allQueueWaitSamples.dropFirst(queueWaitStartedSampleCount))

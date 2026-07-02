@@ -366,7 +366,7 @@ agentstudio_performance_event_elapsed_ms_bucket{event="performance.bridge.web.pr
 agentstudio_performance_event_elapsed_ms_bucket{event="performance.bridge.web.projection_store_apply", ...}
 agentstudio_performance_event_elapsed_ms_bucket{event="performance.bridge.web.click_to_first_visible_content_window", ...}
 agentstudio_performance_event_elapsed_ms_bucket{event="performance.bridge.web.scroll_to_visible_rows", ...}
-agentstudio_performance_event_elapsed_ms_bucket{event="performance.bridge.viewer.demand_queue_wait", lane="...", ...}
+agentstudio_performance_event_elapsed_ms_bucket{event="performance.bridge.swift.metadata_scheduler_queue_wait", lane="...", ...}
 agentstudio_performance_event_elapsed_ms_bucket{event="performance.bridge.viewer.demand_inflight", lane="...", ...}
 agentstudio_performance_event_elapsed_ms_bucket{event="performance.bridge.web.content_fetch", ...}
 agentstudio_performance_event_elapsed_ms_bucket{event="performance.bridge.web.content_first_window_materialize", ...}
@@ -380,7 +380,7 @@ separate Vite-only metric path.
 
 Measurement honesty rules:
 
-- `performance.bridge.viewer.demand_queue_wait{lane}` measures scheduler
+- `performance.bridge.swift.metadata_scheduler_queue_wait{lane}` measures scheduler
   enqueue-to-dequeue only, in both runtimes. Native emits it from the generic
   lane scheduler. A runtime without a real queue must not emit or synthesize
   this metric.

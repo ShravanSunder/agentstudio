@@ -525,7 +525,7 @@ extension WebKitSerializedTests {
             telemetryRecorder: BridgeWorktreeFileCurrentWorktreeTelemetryRecorder
         ) async throws -> [String: BridgeCurrentWorktreePhaseTimingFacts] {
             let samples = await telemetryRecorder.samples(
-                named: "performance.bridge.viewer.demand_queue_wait"
+                named: "performance.bridge.swift.metadata_scheduler_queue_wait"
             )
             let factsByLane = queueWaitByLaneFacts(from: samples)
             for lane in Self.demandLaneProofOrder {

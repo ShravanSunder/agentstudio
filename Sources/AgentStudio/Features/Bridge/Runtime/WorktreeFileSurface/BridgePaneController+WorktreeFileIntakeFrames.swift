@@ -22,7 +22,7 @@ struct BridgePaneMetadataSchedulerTelemetryAdapter: BridgeMetadataLaneSchedulerT
         await recorder.record(
             sample: BridgeTelemetrySample(
                 scope: .swift,
-                name: "performance.bridge.viewer.demand_queue_wait",
+                name: "performance.bridge.swift.metadata_scheduler_queue_wait",
                 durationMilliseconds: waitMilliseconds,
                 traceContext: nil,
                 stringAttributes: [

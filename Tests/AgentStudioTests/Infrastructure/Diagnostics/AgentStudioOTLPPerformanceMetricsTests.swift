@@ -199,7 +199,7 @@ struct AgentStudioOTLPPerformanceMetricsTests {
         let record = AgentStudioOTLPProjectedLogRecord(
             timeUnixNano: 125,
             severityText: .info,
-            body: "performance.bridge.viewer.demand_queue_wait",
+            body: "performance.bridge.swift.metadata_scheduler_queue_wait",
             traceID: nil,
             spanID: nil,
             parentSpanID: nil,
@@ -223,7 +223,7 @@ struct AgentStudioOTLPPerformanceMetricsTests {
         let expectedDimensions = [
             AgentStudioOTLPPerformanceMetricDimension(
                 name: "event",
-                value: "performance.bridge.viewer.demand_queue_wait"
+                value: "performance.bridge.swift.metadata_scheduler_queue_wait"
             ),
             AgentStudioOTLPPerformanceMetricDimension(
                 name: "agent.proof.marker",
@@ -241,13 +241,13 @@ struct AgentStudioOTLPPerformanceMetricsTests {
         #expect(
             metricEvent.samples == [
                 AgentStudioOTLPPerformanceMetricSample(
-                    eventName: "performance.bridge.viewer.demand_queue_wait",
+                    eventName: "performance.bridge.swift.metadata_scheduler_queue_wait",
                     label: "agentstudio_bridge_demand_queue_depth",
                     dimensions: expectedDimensions,
                     value: 7
                 ),
                 AgentStudioOTLPPerformanceMetricSample(
-                    eventName: "performance.bridge.viewer.demand_queue_wait",
+                    eventName: "performance.bridge.swift.metadata_scheduler_queue_wait",
                     label: "agentstudio_bridge_demand_scheduler_queue_wait_ms",
                     dimensions: expectedDimensions,
                     value: 12.5

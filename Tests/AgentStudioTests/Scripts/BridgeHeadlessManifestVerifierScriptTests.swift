@@ -35,7 +35,7 @@ struct BridgeHeadlessManifestVerifierScriptTests {
         #expect(source.contains("agent.proof.marker=\"%s\",event=\"%s\""))
         #expect(source.contains("performance.bridge.native.metadata_open_to_first_window"))
         #expect(source.contains("performance.bridge.native.metadata_full_manifest_complete"))
-        #expect(source.contains("performance.bridge.viewer.demand_queue_wait"))
+        #expect(source.contains("performance.bridge.swift.metadata_scheduler_queue_wait"))
         #expect(source.contains("performance.bridge.swift.content_load"))
         #expect(source.contains(#"lane=\"$lane\""#))
         #expect(source.contains("histogram_quantile(0.95"))

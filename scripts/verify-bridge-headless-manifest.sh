@@ -283,13 +283,13 @@ require_victoria_metrics() {
     "cold" \
     "tree_prepare_input"
   require_victoria_metric_percentiles \
-    "performance.bridge.viewer.demand_queue_wait" \
+    "performance.bridge.swift.metadata_scheduler_queue_wait" \
     "demand_queue_wait" \
     "hot" \
     "tree_prepare_input" \
     "foreground"
   require_victoria_metric_percentiles \
-    "performance.bridge.viewer.demand_queue_wait" \
+    "performance.bridge.swift.metadata_scheduler_queue_wait" \
     "demand_queue_wait" \
     "hot" \
     "tree_prepare_input" \
