@@ -1,0 +1,110 @@
+# BridgeViewer Native Stream Agent Coordination
+
+Goal id: `2026-07-01-bridgeviewer-native-stream-metadata-cutover`
+
+Updated: 2026-07-01
+
+## Ownership
+
+- React/FileView/Pierre decomposition: Codex lane in this worktree.
+- Swift demand-lane implementation and native stream slices 1-3: other agent lane.
+- `agentstudio-git` tracked-path API: side worktree
+  `/Users/shravansunder/.config/superpowers/worktrees/agentstudio-git/bridgeviewer-tracked-paths`.
+
+## Current React Checkpoints
+
+- `6b153273 refactor: isolate file viewer pierre tree runtime`
+- `6f54a9bd refactor: isolate file viewer code view items`
+
+Current React slice in progress:
+
+- Move recently-updated file demand dispatch and pending descriptor replay out
+  of `BridgeWeb/src/file-viewer/bridge-file-viewer-app.tsx`.
+- Target owner:
+  `BridgeWeb/src/file-viewer/use-bridge-file-viewer-recently-updated-demand.ts`.
+- Keep app coordinator as hook wiring only.
+- Preserve existing behavior:
+  recently-updated-file stimuli remain advisory warming; nearby maps to
+  `nearby`, remote maps to `speculative`; visible demand pauses while
+  recently-updated demand is in flight; the loaded descriptor id is excluded
+  from the next visible warming batch.
+
+## Current Red Proof
+
+Command:
+
+```bash
+pnpm --dir BridgeWeb exec vitest run src/file-viewer/bridge-file-viewer-source-structure.unit.test.ts --reporter verbose
+```
+
+Expected current failure before extraction:
+
+- `bridge-file-viewer-app.tsx` still contains `WorktreeFileDemandStimulus`
+  and recently-updated demand dispatch symbols.
+
+## Cross-Agent Notes
+
+- Do not stage unrelated Swift/infra files while committing React checkpoints.
+- Do not edit Swift demand-lane code from the React lane unless explicitly
+  unblocking validation.
+- If the Swift lane changes frame lineage or tree delta schema, coordinate
+  before editing `applyFramesToRuntime` or related Zod/intake contracts.
+- Dedicated proof files for experiments should stay temporary unless promoted
+  by plan/spec.
+
+## AgentStudio Git Status
+
+Side worktree:
+`/Users/shravansunder/.config/superpowers/worktrees/agentstudio-git/bridgeviewer-tracked-paths`
+
+Current tracked-path commits:
+
+- `2bf9f90 Add libgit2 tracked path enumeration`
+- `7180e77 test: cover tracked path wire and scope proofs`
+
+Focused proof last checked by Codex:
+
+- `GitPublicContractTests`: 11 passed.
+- `GitTrackedPathIntegrationTests`: 6 passed.
+- `BridgeReviewSourceCompatibilityTests`: 2 passed.
+
+## Append-Only Log
+
+Log rule: append new dated entries below this line. Do not rewrite earlier
+entries; if an entry becomes stale, append a correction with the new evidence.
+
+### 2026-07-01 Codex React Lane
+
+- Added this coordination artifact so Claude/Fable/other agents can consume
+  ownership state without relying on chat transcript memory.
+- User clarified that Fable owns the Swift side. Codex should keep this lane
+  React/FileView/Pierre-only unless a narrow validation blocker requires
+  coordination.
+- React slice in progress: `bridge-file-viewer-app.tsx` recently-updated demand
+  extraction.
+- Sidecar `019f204f-847d-7cb1-abe2-afbdac95b070` returned read-only analysis:
+  smallest safe slice is to move recently-updated callbacks/effects into
+  `use-bridge-file-viewer-recently-updated-demand.ts` while leaving shared refs
+  in the app for now because active-mode reset and visible-demand suppression
+  still depend on them.
+
+### 2026-07-01 Codex React Lane Checkpoint
+
+- Extracted recently-updated demand dispatch and pending descriptor replay from
+  `BridgeWeb/src/file-viewer/bridge-file-viewer-app.tsx` into
+  `BridgeWeb/src/file-viewer/use-bridge-file-viewer-recently-updated-demand.ts`.
+- Reviewer sidecar `019f2054-1d2e-7dc3-b5e1-20a9928d4e9b` found one guard gap:
+  the newly expanded hook was missing from controller-boundary guard lists.
+  Codex accepted and fixed that gap.
+- Red proof:
+  `pnpm --dir BridgeWeb exec vitest run src/file-viewer/bridge-file-viewer-source-structure.unit.test.ts --reporter verbose`
+  failed because the app still contained `WorktreeFileDemandStimulus`.
+- Green proof after extraction and review fix:
+  same source-structure command passed 14/14.
+- Browser proof:
+  `pnpm --dir BridgeWeb exec vitest --config vitest.browser.config.ts run --project integration-browser src/file-viewer/bridge-file-viewer-app.browser.test.tsx --reporter verbose`
+  passed 40/40.
+- Static proof:
+  `oxfmt --check` on touched TS passed,
+  `oxlint --type-aware` on touched TS passed,
+  and `pnpm --dir BridgeWeb exec tsc --noEmit --pretty false` passed.

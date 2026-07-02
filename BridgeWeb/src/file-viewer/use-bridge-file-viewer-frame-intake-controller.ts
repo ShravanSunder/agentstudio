@@ -24,9 +24,7 @@ import {
 import { useBridgeFileViewerInitialSurfaceLoader } from './use-bridge-file-viewer-initial-surface-loader.js';
 
 interface UseBridgeFileViewerFrameIntakeControllerProps {
-	readonly dispatchPendingRecentlyUpdatedDescriptorDemand: (
-		nextState: BridgeFileViewerRenderState,
-	) => void;
+	readonly replayPendingRecentlyUpdatedDemand: (nextState: BridgeFileViewerRenderState) => void;
 	readonly initialFrames: readonly WorktreeFileProtocolFrame[] | undefined;
 	readonly loadInitialFrames: (() => Promise<readonly WorktreeFileProtocolFrame[]>) | undefined;
 	readonly loadInitialSurface: (() => Promise<WorktreeFileInitialSurface>) | undefined;
@@ -52,7 +50,6 @@ export function useBridgeFileViewerFrameIntakeController(
 	props: UseBridgeFileViewerFrameIntakeControllerProps,
 ): void {
 	const {
-		dispatchPendingRecentlyUpdatedDescriptorDemand,
 		initialFrames,
 		loadInitialFrames,
 		loadInitialSurface,
@@ -60,6 +57,7 @@ export function useBridgeFileViewerFrameIntakeController(
 		openFileRequestIdRef,
 		openPendingSelectedDescriptor,
 		renderStateRef,
+		replayPendingRecentlyUpdatedDemand,
 		runtimeRef,
 		setInitialSurfaceLoadState,
 		setOpenFileState,
@@ -108,16 +106,16 @@ export function useBridgeFileViewerFrameIntakeController(
 					openFileRequestIdRef,
 				}),
 			);
-			dispatchPendingRecentlyUpdatedDescriptorDemand(nextState);
+			replayPendingRecentlyUpdatedDemand(nextState);
 			openPendingSelectedDescriptor(nextState);
 			return nextState;
 		},
 		[
-			dispatchPendingRecentlyUpdatedDescriptorDemand,
 			openFileBodyRef,
 			openFileRequestIdRef,
 			openPendingSelectedDescriptor,
 			renderStateRef,
+			replayPendingRecentlyUpdatedDemand,
 			runtimeRef,
 			setOpenFileState,
 			setRenderState,

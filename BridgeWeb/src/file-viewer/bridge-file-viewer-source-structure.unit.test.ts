@@ -28,6 +28,26 @@ describe('Bridge file viewer source structure', () => {
 		expect(appSource).not.toContain('runtime.dispatchDemandStimuli');
 	});
 
+	test('keeps recently-updated demand dispatch in its controller hook', () => {
+		const appSource = readFileSync(
+			fileURLToPath(new URL('./bridge-file-viewer-app.tsx', import.meta.url)),
+			'utf8',
+		);
+		const recentlyUpdatedDemandSource = readFileSync(
+			fileURLToPath(
+				new URL('./use-bridge-file-viewer-recently-updated-demand.ts', import.meta.url),
+			),
+			'utf8',
+		);
+
+		expect(appSource).toContain('useBridgeFileViewerRecentlyUpdatedDemand');
+		expect(appSource).not.toContain('WorktreeFileDemandStimulus');
+		expect(appSource).not.toContain('recentlyUpdatedFile');
+		expect(appSource).not.toContain('dispatchRecentlyUpdatedDescriptorDemand');
+		expect(appSource).not.toContain('dispatchPendingRecentlyUpdatedDescriptorDemand');
+		expect(recentlyUpdatedDemandSource).toContain('recentlyUpdatedFile');
+	});
+
 	test('keeps frame application out of the file viewer app coordinator', () => {
 		const appSource = readFileSync(
 			fileURLToPath(new URL('./bridge-file-viewer-app.tsx', import.meta.url)),
@@ -43,6 +63,7 @@ describe('Bridge file viewer source structure', () => {
 		const controllerHookUrls = [
 			'./use-bridge-file-viewer-content-controller.ts',
 			'./use-bridge-file-viewer-frame-intake-controller.ts',
+			'./use-bridge-file-viewer-recently-updated-demand.ts',
 			'./use-bridge-file-viewer-visible-demand-controller.ts',
 			'./use-bridge-file-viewer-shell-model.ts',
 			'./use-bridge-file-viewer-store-bindings.ts',
@@ -63,6 +84,7 @@ describe('Bridge file viewer source structure', () => {
 		const controllerHookUrls = [
 			'./use-bridge-file-viewer-content-controller.ts',
 			'./use-bridge-file-viewer-frame-intake-controller.ts',
+			'./use-bridge-file-viewer-recently-updated-demand.ts',
 			'./use-bridge-file-viewer-visible-demand-controller.ts',
 			'./use-bridge-file-viewer-shell-model.ts',
 			'./use-bridge-file-viewer-store-bindings.ts',
