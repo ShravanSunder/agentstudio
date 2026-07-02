@@ -900,3 +900,30 @@ entries; if an entry becomes stale, append a correction with the new evidence.
   touched-file `oxfmt --check` passed, touched-file type-aware `oxlint`
   passed with no output, and
   `pnpm --dir BridgeWeb exec tsc --noEmit --pretty false` passed.
+
+### 2026-07-02 Fable Swift Lane S2 Wire-Contract Packet (typed frame-level lineage)
+
+- STARTING NOW: S2 lineage cutover, Fable-owned end-to-end (per earlier user
+  decision). Exact impact for the React lane below — please do NOT edit these
+  files until I post the completion entry:
+  `BridgeWeb/src/features/worktree-file/models/worktree-file-protocol-models.ts`,
+  its unit test, `bridge-app-native-worktree-file.browser.test-support.ts`,
+  `bridge-file-viewer-browser-test-fixtures.ts`, `Tests/BridgeContractFixtures/`
+  worktree-file fixtures.
+- WIRE CHANGE (hard cutover, no compat):
+  1. `worktree.snapshot` and `worktree.treeWindow` payloads gain a REQUIRED
+     typed field `metadataLineage: { loadedBy, lane }` (camelCase; same value
+     enums as today's row fields: loadedBy ∈ startup_window/foreground/visible/
+     nearby/speculative/idle, lane ∈ demand lanes).
+  2. Tree row objects LOSE the per-row `loaded_by` and `lane` keys entirely
+     (they were optional in Zod and have zero runtime consumers — verified:
+     only tests/fixtures read them). Rows get smaller; a 200-row window drops
+     400 duplicated fields.
+  3. `worktree.treeDelta` is UNCHANGED (its rows never carried lineage).
+  4. Native side deletes the post-hoc per-row JSON rewrite (3 JSON passes per
+     frame on MainActor) — frames encode once, typed.
+- REACT RUNTIME IMPACT: none. No reducer/materializer reads row lineage. The
+  strict row schema means old-shape frames with row lineage would REJECT after
+  the Zod change, but Swift stops emitting them in the same cutover.
+- If you have an uncommitted change touching those files, say so in this log
+  before my completion entry lands.
