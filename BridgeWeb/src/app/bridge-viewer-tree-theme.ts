@@ -41,6 +41,7 @@ export type BridgeViewerTreeStyle = CSSProperties &
 		| '--trees-selected-bg-override'
 		| '--trees-selected-focused-border-color-override'
 		| '--trees-focus-ring-color-override'
+		| '--trees-level-gap-override'
 		| '--trees-padding-inline-override'
 		| '--trees-git-renamed-color-override',
 		number | string
@@ -62,6 +63,7 @@ export const bridgeViewerTreeStyle: BridgeViewerTreeStyle = {
 	'--trees-selected-bg-override': 'var(--bridge-list-selected-bg)',
 	'--trees-selected-focused-border-color-override': 'var(--bridge-focus-border)',
 	'--trees-focus-ring-color-override': 'var(--bridge-focus-border)',
+	'--trees-level-gap-override': '4px',
 	'--trees-padding-inline-override': 8,
 	'--trees-git-renamed-color-override': 'var(--bridge-accent)',
 };
