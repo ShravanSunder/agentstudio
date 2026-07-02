@@ -57,9 +57,8 @@ final class BridgePaneController {
     var nextWorktreeFileSurfaceGeneration = 0
     var activeWorktreeFileSurfaceSource: BridgeWorktreeFileSurfaceActiveSourceState?
     var activeWorktreeFileManifestIndex: BridgeWorktreeFileManifestIndex?
+    let worktreeFileMetadataScheduler = BridgeMetadataLaneScheduler()
     var activeWorktreeFileTreeWindowTask: Task<Void, Never>?
-    var worktreeFileIntakeReadyStreamId: String?
-    var isPublishingWorktreeFileTreeWindows = false
     var selectedReviewItemId: String?
     var activeReviewRefreshTask: Task<Void, Never>?
     var hasPendingReviewRefresh = false
@@ -87,8 +86,6 @@ final class BridgePaneController {
     private var interactionApplyTask: Task<Void, Never>?
     var bridgeDeliveryTail: Task<Void, Never>?
     var pendingReviewProtocolIntakeFrames: [String] = []
-    var pendingWorktreeFileIntakeFrames: [String] = []
-    private var isFlushingPendingWorktreeFileIntakeFrames = false
     private var inboxPostTimestamps: [Date] = []
     let telemetryScopeGate: BridgeTelemetryScopeGate
     let telemetryRecorder: (any BridgePerformanceTraceRecording)?
@@ -510,16 +507,16 @@ final class BridgePaneController {
         hasPendingReviewRefresh = false
         activeWorktreeFileSurfaceSource = nil
         pendingReviewProtocolIntakeFrames.removeAll(keepingCapacity: false)
-        pendingWorktreeFileIntakeFrames.removeAll(keepingCapacity: false)
         reviewIntakeReadyStreamId = nil
-        worktreeFileIntakeReadyStreamId = nil
         revokeReviewContentAuthoritySynchronously()
         resourceLeaseRegistry.revokeSynchronously(paneId: paneId, protocolId: "worktree-file")
         let reviewContentStore = reviewContentStore
         let worktreeFileResourceStore = worktreeFileResourceStore
         let resourceLeaseRegistry = resourceLeaseRegistry
         let paneId = paneId
+        let worktreeFileMetadataScheduler = worktreeFileMetadataScheduler
         Task {
+            await worktreeFileMetadataScheduler.closeGate(protocolId: "worktree-file")
             await reviewContentStore.deactivate()
             await worktreeFileResourceStore.reset(protocolId: "worktree-file")
             await resourceLeaseRegistry.reset(
@@ -639,8 +636,7 @@ final class BridgePaneController {
             )
             return
         }
-        worktreeFileIntakeReadyStreamId = activeSource.streamId
-        await flushPendingWorktreeFileIntakeFrames()
+        await worktreeFileMetadataScheduler.openGate(protocolId: "worktree-file")
     }
 
     // MARK: - Test/entrypoint utility
@@ -654,31 +650,6 @@ final class BridgePaneController {
 
     private func handleRPCSuccessResponseDelivered(method: String) async {
         _ = method
-    }
-
-    func flushPendingWorktreeFileIntakeFrames() async {
-        guard !isFlushingPendingWorktreeFileIntakeFrames else {
-            return
-        }
-        isFlushingPendingWorktreeFileIntakeFrames = true
-        defer { isFlushingPendingWorktreeFileIntakeFrames = false }
-        while let frame = pendingWorktreeFileIntakeFrames.first {
-            let delivered = await deliverIntakeFrame(frame)
-            guard delivered else {
-                bridgeControllerLogger.warning(
-                    "[Bridge] Worktree/File intake transport failed pane=\(self.paneId.uuidString, privacy: .public)"
-                )
-                paneState.connection.setHealth(.error)
-                return
-            }
-            // The buffer may have been cleared or replaced during the delivery
-            // await (source reopen, reset, teardown); drop only the frame that
-            // was actually delivered and stop if the buffer changed identity.
-            guard pendingWorktreeFileIntakeFrames.first == frame else {
-                return
-            }
-            pendingWorktreeFileIntakeFrames.removeFirst()
-        }
     }
 
     func flushPendingReviewProtocolIntakeFrames() async {

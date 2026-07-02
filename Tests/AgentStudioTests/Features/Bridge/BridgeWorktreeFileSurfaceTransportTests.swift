@@ -14,60 +14,23 @@ extension WebKitSerializedTests {
 
         @Test("open source stream returns control outcome and delivers native Worktree/File snapshot by intake")
         func openSourceStreamReturnsControlOutcomeAndDeliversNativeSnapshotByIntake() async throws {
-            let eventCapture = BridgeWorktreeFileSurfaceEventCapture()
-            let fixture = try makeControllerFixtureWithIntakeSink(
-                intakeFrameSink: { _, frameJSON, _ in
-                    await eventCapture.recordIntake(frameJSON)
-                }
-            )
+            let openedStream = try await openSourcesScopedStreamWithBridgeFile()
+            let eventCapture = openedStream.eventCapture
+            let fixture = openedStream.fixture
             let paneId = fixture.paneId
             let repoId = fixture.repoId
             let worktreeId = fixture.worktreeId
             let rootURL = fixture.rootURL
             defer { try? FileManager.default.removeItem(at: rootURL) }
-            let sourceSpec = BridgeWorktreeFileSurfaceSourceSpec(
-                clientRequestId: "request-1",
-                repoId: repoId,
-                worktreeId: worktreeId,
-                rootPathToken: fixture.worktree.stableKey,
-                cwdScope: nil,
-                pathScope: ["Sources"],
-                includeStatuses: true,
-                includeFileDescriptors: false,
-                includeComments: false,
-                includeAgentComms: false,
-                freshness: .live
-            )
             let controller = fixture.controller
-            let capturedResponse = BridgeWorktreeFileSurfaceResponseCapture()
-            controller.router.onResponse = { responseJSON in
-                await capturedResponse.set(responseJSON)
-            }
-
-            await controller.handleIncomingRPC(
-                #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
-            )
-            let request = try BridgeWorktreeFileSurfaceRPCRequest(
-                id: "open-1",
-                method: "worktreeFileSurface.openSourceStream",
-                params: sourceSpec
-            ).jsonString()
-
-            await controller.handleIncomingRPC(request)
-
-            let responseJSON = try #require(await capturedResponse.get())
-            let responseData = try #require(responseJSON.data(using: .utf8))
-            let response = try JSONDecoder().decode(BridgeWorktreeFileSurfaceSuccessResponse.self, from: responseData)
-            #expect(response.jsonrpc == "2.0")
-            #expect(response.id == "open-1")
-            #expect(response.result.status == "accepted")
-            #expect(response.result.protocolId == "worktree-file")
-            #expect(response.result.streamId == "worktree-file:\(paneId.uuidString)")
-            #expect(response.result.generation == 1)
+            let response = openedStream.response
+            assertAcceptedOpenResponse(response, paneId: paneId)
 
             await controller.handleBridgeIntakeReady(
                 BridgeIntakeReadyMethod.Params(protocolId: "worktree-file", streamId: response.result.streamId)
             )
+            await controller.activeWorktreeFileTreeWindowTask?.value
+            await controller.worktreeFileMetadataScheduler.waitUntilDrained()
             let snapshotJSON = try #require(await eventCapture.intakeFrames().first)
             let snapshotEnvelope = try decodeIntakeEnvelope(
                 snapshotJSON,
@@ -80,667 +43,719 @@ extension WebKitSerializedTests {
             #expect(snapshotEnvelope.payload.source.repoId == repoId.uuidString)
             #expect(snapshotEnvelope.payload.source.worktreeId == worktreeId.uuidString)
             #expect(snapshotEnvelope.payload.source.subscriptionGeneration == 1)
-            #expect(snapshotEnvelope.payload.treeDescriptor.descriptor.protocolId == "worktree-file")
-            #expect(snapshotEnvelope.payload.treeDescriptor.descriptor.resourceKind == "worktree.treeWindow")
-            #expect(snapshotEnvelope.payload.statusDescriptor?.descriptor.resourceKind == "worktree.status")
-            let treeResource = try #require(
-                BridgeTransportResourceURL.parse(
-                    snapshotEnvelope.payload.treeDescriptor.descriptor.resourceUrl,
-                    allowedResourceKindsByProtocol: BridgeResourceProtocolRegistry.reviewViewerAllowedResourceKinds
-                )
-            )
-            #expect(await controller.resourceLeaseRegistry.contains(treeResource, paneId: paneId))
-            let schemeHandler = BridgeSchemeHandler(
-                paneId: paneId,
-                worktreeFileResourceStore: controller.worktreeFileResourceStore,
-                resourceLeaseRegistry: controller.resourceLeaseRegistry
-            )
-            let treeBodyData = try await resourceBody(
-                url: snapshotEnvelope.payload.treeDescriptor.descriptor.resourceUrl,
-                handler: schemeHandler
-            )
-            let treeBody = try JSONDecoder().decode(BridgeWorktreeTreeWindowResourceBody.self, from: treeBodyData)
-            #expect(treeBody.source == snapshotEnvelope.payload.source)
-            #expect(treeBody.treeSizeFacts == snapshotEnvelope.payload.treeSizeFacts)
-            let statusURL = try #require(snapshotEnvelope.payload.statusDescriptor?.descriptor.resourceUrl)
-            let statusBodyData = try await resourceBody(url: statusURL, handler: schemeHandler)
-            let statusBody = try JSONDecoder().decode(BridgeWorktreeStatusResourceBody.self, from: statusBodyData)
-            #expect(statusBody.source == snapshotEnvelope.payload.source)
+            #expect(snapshotEnvelope.payload.statusPatch != nil)
             #expect(snapshotEnvelope.payload.requestSelector?.pathScope == ["Sources"])
-            #expect(snapshotEnvelope.payload.treeSizeFacts.extentKind == .exactPathCount)
-            #expect(snapshotEnvelope.payload.treeSizeFacts.pathCount == 0)
+            #expect(snapshotEnvelope.payload.treeRows.count == 2)
+            let fileRow = try #require(
+                snapshotEnvelope.payload.treeRows.first(where: { $0.path == "Sources/BridgeFileView.swift" })
+            )
+            #expect(fileRow.name == "BridgeFileView.swift")
+            #expect(fileRow.parentPath == "Sources")
+            #expect(fileRow.isDirectory == false)
+            #expect(fileRow.fileId != nil)
+            #expect(snapshotEnvelope.payload.treeSizeFacts.extentKind == .estimatedTotalHeight)
+            #expect(snapshotEnvelope.payload.treeSizeFacts.pathCount == nil)
             #expect(controller.paneState.diff.packageMetadata == nil)
 
             controller.teardown()
         }
 
-        @Test("file scoped open source reports one tree row and revokes stale Worktree/File leases")
-        func fileScopedOpenSourceReportsOneRowAndRevokesStaleLeases() async throws {
-            let fixture = try makeControllerFixture()
-            defer { try? FileManager.default.removeItem(at: fixture.rootURL) }
-            let fileURL = fixture.rootURL
-                .appending(path: "Sources")
-                .appending(path: "App")
-                .appending(path: "View.swift")
-            try FileManager.default.createDirectory(
-                at: fileURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
+        @Test("Worktree/File intake ready rejects stale generations before flushing pending frames")
+        func worktreeFileIntakeReadyRejectsStaleGenerationBeforeFlushingPendingFrames() async throws {
+            let eventCapture = BridgeWorktreeFileSurfaceEventCapture()
+            let fixture = try makeControllerFixtureWithIntakeSink(
+                intakeFrameSink: { _, frameJSON, _ in
+                    await eventCapture.recordIntake(frameJSON)
+                }
             )
-            try "struct View {}\n".write(to: fileURL, atomically: true, encoding: .utf8)
-            let firstResponseCapture = BridgeWorktreeFileSurfaceResponseCapture()
+            defer { try? FileManager.default.removeItem(at: fixture.rootURL) }
+            let fileURL = fixture.rootURL.appending(path: "BridgeFileView.swift")
+            try "let bridgeFileView = true\n".write(to: fileURL, atomically: true, encoding: .utf8)
+
+            let firstOutcome = try await fixture.controller.handleWorktreeFileSurfaceOpenSourceStream(
+                sourceSpec(fixture: fixture, clientRequestId: "stale-ready-1", pathScope: [])
+            )
+            let secondOutcome = try await fixture.controller.handleWorktreeFileSurfaceOpenSourceStream(
+                sourceSpec(fixture: fixture, clientRequestId: "stale-ready-2", pathScope: [])
+            )
+            await fixture.controller.activeWorktreeFileTreeWindowTask?.value
+
+            #expect(firstOutcome.generation == 1)
+            #expect(secondOutcome.generation == 2)
+            #expect(await fixture.controller.worktreeFileMetadataScheduler.queuedJobCount == 1)
+            await fixture.controller.handleBridgeIntakeReady(
+                BridgeIntakeReadyMethod.Params(
+                    protocolId: "worktree-file",
+                    streamId: firstOutcome.streamId,
+                    generation: firstOutcome.generation
+                )
+            )
+
+            #expect(await fixture.controller.worktreeFileMetadataScheduler.queuedJobCount == 1)
+            #expect(await eventCapture.intakeFrames().isEmpty)
+
+            await fixture.controller.handleBridgeIntakeReady(
+                BridgeIntakeReadyMethod.Params(
+                    protocolId: "worktree-file",
+                    streamId: secondOutcome.streamId,
+                    generation: secondOutcome.generation
+                )
+            )
+
+            await fixture.controller.worktreeFileMetadataScheduler.waitUntilDrained()
+            #expect(await fixture.controller.worktreeFileMetadataScheduler.queuedJobCount == 0)
+            #expect(await eventCapture.intakeFrames().count == 1)
+
+            fixture.controller.teardown()
+        }
+
+        @Test("Worktree/File intake flush retains queued frames after transport failure")
+        func worktreeFileIntakeFlushRetainsQueuedFramesAfterTransportFailure() async throws {
+            let intakeCapture = FailingWorktreeFileIntakeCapture(failureCount: 1)
+            let fixture = try makeControllerFixtureWithIntakeSink(
+                intakeFrameSink: { _, frameJSON, _ in
+                    try await intakeCapture.record(frameJSON)
+                }
+            )
+            defer { try? FileManager.default.removeItem(at: fixture.rootURL) }
+            for index in 0..<210 {
+                let fileURL = fixture.rootURL.appending(path: String(format: "File-%03d.swift", index))
+                try "let value\(index) = \(index)\n".write(to: fileURL, atomically: true, encoding: .utf8)
+            }
+            let outcome = try await fixture.controller.handleWorktreeFileSurfaceOpenSourceStream(
+                sourceSpec(fixture: fixture, clientRequestId: "retry-ready", pathScope: [])
+            )
+            await fixture.controller.activeWorktreeFileTreeWindowTask?.value
+            // 210 rows enqueue two scheduler jobs: the foreground snapshot
+            // (200-row startup window) and one idle continuation window.
+            #expect(await fixture.controller.worktreeFileMetadataScheduler.queuedJobCount == 2)
+
+            await fixture.controller.handleBridgeIntakeReady(
+                BridgeIntakeReadyMethod.Params(
+                    protocolId: "worktree-file",
+                    streamId: outcome.streamId,
+                    generation: outcome.generation
+                )
+            )
+            await fixture.controller.worktreeFileMetadataScheduler.waitUntilDrained()
+
+            // The first delivery fails: the scheduler closes the gate and
+            // retains the failed job at the front of its lane, so no queued
+            // work is lost and nothing is delivered.
+            #expect(await fixture.controller.worktreeFileMetadataScheduler.queuedJobCount == 2)
+            #expect(await intakeCapture.frames().isEmpty)
+
+            await fixture.controller.handleBridgeIntakeReady(
+                BridgeIntakeReadyMethod.Params(
+                    protocolId: "worktree-file",
+                    streamId: outcome.streamId,
+                    generation: outcome.generation
+                )
+            )
+            await fixture.controller.worktreeFileMetadataScheduler.waitUntilDrained()
+
+            // Reopening the gate retries in order, delivering the retained
+            // frames exactly once and in sequence order.
+            #expect(await fixture.controller.worktreeFileMetadataScheduler.queuedJobCount == 0)
+            let deliveredFrames = await intakeCapture.frames()
+            #expect(deliveredFrames.count == 2)
+            let snapshotEnvelope = try decodeIntakeEnvelope(
+                deliveredFrames[0],
+                as: BridgeWorktreeSnapshotFrame.self
+            )
+            let windowEnvelope = try decodeIntakeEnvelope(
+                deliveredFrames[1],
+                as: BridgeWorktreeTreeWindowFrame.self
+            )
+            #expect(snapshotEnvelope.payload.frameKind == "worktree.snapshot")
+            #expect(snapshotEnvelope.sequence == 0)
+            #expect(windowEnvelope.payload.frameKind == "worktree.treeWindow")
+            #expect(windowEnvelope.sequence == 1)
+
+            fixture.controller.teardown()
+        }
+
+        @Test("failed descriptor delivery rolls back its sequence and redelivers without a gap")
+        func failedDescriptorDeliveryRollsBackSequenceAndRedeliversWithoutGap() async throws {
+            let intakeCapture = FailingWorktreeFileIntakeCapture(failingCallIndices: [1])
+            let fixture = try makeControllerFixtureWithIntakeSink(
+                intakeFrameSink: { _, frameJSON, _ in
+                    try await intakeCapture.record(frameJSON)
+                }
+            )
+            defer { try? FileManager.default.removeItem(at: fixture.rootURL) }
+            let fileURL = fixture.rootURL.appending(path: "File-000.swift")
+            try "let value = 0\n".write(to: fileURL, atomically: true, encoding: .utf8)
+            let responseCapture = BridgeWorktreeFileSurfaceResponseCapture()
             fixture.controller.router.onResponse = { responseJSON in
-                await firstResponseCapture.set(responseJSON)
+                await responseCapture.set(responseJSON)
             }
             await fixture.controller.handleIncomingRPC(
                 #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
             )
+            await fixture.controller.handleIncomingRPC(
+                try BridgeWorktreeFileSurfaceRPCRequest(
+                    id: "open-sequence-rollback",
+                    method: "worktreeFileSurface.openSourceStream",
+                    params: sourceSpec(
+                        fixture: fixture,
+                        clientRequestId: "request-sequence-rollback",
+                        pathScope: []
+                    )
+                ).jsonString()
+            )
+            let response = try await decodedResponse(from: responseCapture)
+            await fixture.controller.handleBridgeIntakeReady(
+                BridgeIntakeReadyMethod.Params(protocolId: "worktree-file", streamId: response.result.streamId)
+            )
+            await fixture.controller.activeWorktreeFileTreeWindowTask?.value
+            await fixture.controller.worktreeFileMetadataScheduler.waitUntilDrained()
+            let snapshot = try decodeIntakeEnvelope(
+                try #require(await intakeCapture.frames().first),
+                as: BridgeWorktreeSnapshotFrame.self
+            )
+            let selectedRow = try #require(snapshot.payload.treeRows.first { $0.path == "File-000.swift" })
 
-            let firstSpec = sourceSpec(
-                fixture: fixture,
-                clientRequestId: "request-file",
-                pathScope: ["Sources/App/View.swift"]
+            // Call 1 (the first descriptor delivery attempt) fails at the
+            // transport: the scheduler retains the job, and the sequence
+            // reservation must roll back so the retry redelivers with the
+            // SAME sequence — a gap would wedge the browser's monotonic
+            // intake gate into resetRequired.
+            try await requestFileDescriptor(
+                controller: fixture.controller,
+                requestId: "request-sequence-rollback-descriptor",
+                sourceIdentity: snapshot.payload.source,
+                row: selectedRow,
+                path: "File-000.swift",
+                lane: .foreground
+            )
+            await fixture.controller.worktreeFileMetadataScheduler.waitUntilDrained()
+            #expect(await intakeCapture.frames().count == 1)
+            #expect(await fixture.controller.worktreeFileMetadataScheduler.queuedJobCount == 1)
+
+            await fixture.controller.handleBridgeIntakeReady(
+                BridgeIntakeReadyMethod.Params(protocolId: "worktree-file", streamId: response.result.streamId)
+            )
+            await fixture.controller.worktreeFileMetadataScheduler.waitUntilDrained()
+
+            let deliveredFrames = await intakeCapture.frames()
+            #expect(deliveredFrames.count == 2)
+            let descriptorEnvelope = try decodeDescriptorEnvelope(try #require(deliveredFrames.last))
+            #expect(descriptorEnvelope.sequence == 1)
+            #expect(fixture.controller.activeWorktreeFileSurfaceSource?.nextSequence == 2)
+            #expect(await fixture.controller.worktreeFileMetadataScheduler.queuedJobCount == 0)
+
+            fixture.controller.teardown()
+        }
+
+        private func openSourcesScopedStreamWithBridgeFile() async throws
+            -> (
+                fixture: BridgeWorktreeFileSurfaceControllerFixture,
+                eventCapture: BridgeWorktreeFileSurfaceEventCapture,
+                response: BridgeWorktreeFileSurfaceSuccessResponse
+            )
+        {
+            let eventCapture = BridgeWorktreeFileSurfaceEventCapture()
+            let fixture = try makeControllerFixtureWithIntakeSink(
+                intakeFrameSink: { _, frameJSON, _ in
+                    await eventCapture.recordIntake(frameJSON)
+                }
+            )
+            let scopedFileURL = fixture.rootURL
+                .appending(path: "Sources")
+                .appending(path: "BridgeFileView.swift")
+            try FileManager.default.createDirectory(
+                at: scopedFileURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try "let bridgeFileView = true\n".write(to: scopedFileURL, atomically: true, encoding: .utf8)
+            let responseCapture = BridgeWorktreeFileSurfaceResponseCapture()
+            fixture.controller.router.onResponse = { responseJSON in
+                await responseCapture.set(responseJSON)
+            }
+            await fixture.controller.handleIncomingRPC(
+                #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
             )
             await fixture.controller.handleIncomingRPC(
                 try BridgeWorktreeFileSurfaceRPCRequest(
-                    id: "open-file",
+                    id: "open-1",
                     method: "worktreeFileSurface.openSourceStream",
-                    params: firstSpec
+                    params: sourceSpec(
+                        fixture: fixture,
+                        clientRequestId: "request-1",
+                        pathScope: ["Sources"]
+                    )
                 ).jsonString()
             )
 
-            let firstResponse = try await decodedResponse(from: firstResponseCapture)
-            let firstSnapshotJSON = try #require(fixture.controller.pendingWorktreeFileIntakeFrames.first)
-            let firstSnapshot = try decodeIntakeEnvelope(
-                firstSnapshotJSON,
-                as: BridgeWorktreeSnapshotFrame.self
-            )
-            #expect(firstResponse.result.status == "accepted")
-            #expect(firstSnapshot.payload.treeSizeFacts.extentKind == .exactPathCount)
-            #expect(firstSnapshot.payload.treeSizeFacts.pathCount == 1)
-            let firstTreeResource = try #require(
-                BridgeTransportResourceURL.parse(
-                    firstSnapshot.payload.treeDescriptor.descriptor.resourceUrl,
-                    allowedResourceKindsByProtocol: BridgeResourceProtocolRegistry.reviewViewerAllowedResourceKinds
-                )
-            )
-            #expect(await fixture.controller.resourceLeaseRegistry.contains(firstTreeResource, paneId: fixture.paneId))
-
-            let secondResponseCapture = BridgeWorktreeFileSurfaceResponseCapture()
-            fixture.controller.router.onResponse = { responseJSON in
-                await secondResponseCapture.set(responseJSON)
-            }
-            let secondSpec = sourceSpec(
+            return (
                 fixture: fixture,
-                clientRequestId: "request-root",
-                pathScope: []
+                eventCapture: eventCapture,
+                response: try await decodedResponse(from: responseCapture)
+            )
+        }
+
+        private func assertAcceptedOpenResponse(
+            _ response: BridgeWorktreeFileSurfaceSuccessResponse,
+            paneId: UUID
+        ) {
+            #expect(response.jsonrpc == "2.0")
+            #expect(response.id == "open-1")
+            #expect(response.result.status == "accepted")
+            #expect(response.result.protocolId == "worktree-file")
+            #expect(response.result.streamId == "worktree-file:\(paneId.uuidString)")
+            #expect(response.result.generation == 1)
+        }
+
+        @Test("open source stream continues file tree metadata after startup window")
+        func openSourceStreamContinuesFileTreeMetadataAfterStartupWindow() async throws {
+            let eventCapture = BridgeWorktreeFileSurfaceEventCapture()
+            let fixture = try makeControllerFixtureWithIntakeSink(
+                intakeFrameSink: { _, frameJSON, _ in
+                    await eventCapture.recordIntake(frameJSON)
+                }
+            )
+            defer { try? FileManager.default.removeItem(at: fixture.rootURL) }
+            for index in 0..<260 {
+                let fileURL = fixture.rootURL.appending(path: String(format: "File-%03d.swift", index))
+                try "let value\(index) = \(index)\n".write(to: fileURL, atomically: true, encoding: .utf8)
+            }
+            let capturedResponse = BridgeWorktreeFileSurfaceResponseCapture()
+            fixture.controller.router.onResponse = { responseJSON in
+                await capturedResponse.set(responseJSON)
+            }
+
+            await fixture.controller.handleIncomingRPC(
+                #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
             )
             await fixture.controller.handleIncomingRPC(
                 try BridgeWorktreeFileSurfaceRPCRequest(
                     id: "open-root",
                     method: "worktreeFileSurface.openSourceStream",
-                    params: secondSpec
-                ).jsonString()
-            )
-
-            _ = try await decodedResponse(from: secondResponseCapture)
-            #expect(
-                await fixture.controller.resourceLeaseRegistry.contains(
-                    firstTreeResource,
-                    paneId: fixture.paneId
-                ) == false
-            )
-            fixture.controller.teardown()
-            #expect(
-                await fixture.controller.resourceLeaseRegistry.contains(
-                    firstTreeResource,
-                    paneId: fixture.paneId
-                ) == false
-            )
-        }
-
-        @Test("file scoped open source queues descriptor frame after response and serves content")
-        func fileScopedOpenSourceQueuesDescriptorAfterResponseAndServesContent() async throws {
-            let eventCapture = BridgeWorktreeFileSurfaceEventCapture()
-            let fixture = try makeControllerFixtureWithIntakeSink(
-                intakeFrameSink: { _, frameJSON, _ in
-                    await eventCapture.recordIntake(frameJSON)
-                }
-            )
-            defer { try? FileManager.default.removeItem(at: fixture.rootURL) }
-            let fileURL = fixture.rootURL
-                .appending(path: "Sources")
-                .appending(path: "App")
-                .appending(path: "View.swift")
-            let fileText = "struct View {}\nlet value = 1"
-            try FileManager.default.createDirectory(
-                at: fileURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            try fileText.write(to: fileURL, atomically: true, encoding: .utf8)
-            let responseCapture = BridgeWorktreeFileSurfaceResponseCapture()
-            fixture.controller.router.onResponse = { responseJSON in
-                await eventCapture.recordResponse()
-                await responseCapture.set(responseJSON)
-            }
-            await fixture.controller.handleIncomingRPC(
-                #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
-            )
-            let spec = sourceSpec(
-                fixture: fixture,
-                clientRequestId: "request-file-descriptor",
-                pathScope: ["Sources/App/View.swift"],
-                includeFileDescriptors: true
-            )
-
-            await fixture.controller.handleIncomingRPC(
-                try BridgeWorktreeFileSurfaceRPCRequest(
-                    id: "open-file-descriptor",
-                    method: "worktreeFileSurface.openSourceStream",
-                    params: spec
-                ).jsonString()
-            )
-
-            let response = try await decodedResponse(from: responseCapture)
-            await fixture.controller.handleBridgeIntakeReady(
-                BridgeIntakeReadyMethod.Params(protocolId: "worktree-file", streamId: response.result.streamId)
-            )
-            let events = await eventCapture.events()
-            #expect(events == ["response", "intake", "intake"])
-            let intakeFrames = await eventCapture.intakeFrames()
-            let snapshotEnvelope = try decodeIntakeEnvelope(
-                intakeFrames[0],
-                as: BridgeWorktreeSnapshotFrame.self
-            )
-            #expect(snapshotEnvelope.kind == "snapshot")
-            #expect(snapshotEnvelope.streamId == response.result.streamId)
-            #expect(snapshotEnvelope.generation == response.result.generation)
-            let intakeFrameJSON = intakeFrames[1]
-            let intakeFrameData = try #require(intakeFrameJSON.data(using: .utf8))
-            let intakeFrame = try JSONDecoder().decode(
-                BridgeWorktreeFileSurfaceIntakeFrameEnvelope.self,
-                from: intakeFrameData
-            )
-            #expect(intakeFrame.kind == "delta")
-            #expect(intakeFrame.streamId == response.result.streamId)
-            #expect(intakeFrame.generation == response.result.generation)
-            #expect(intakeFrame.sequence == 1)
-            #expect(intakeFrame.payload.frameKind == "worktree.fileDescriptor")
-            #expect(intakeFrame.payload.descriptor.path == "Sources/App/View.swift")
-            #expect(intakeFrame.payload.descriptor.virtualizedExtentKind == .exactLineCount)
-            #expect(intakeFrame.payload.descriptor.lineCount == 2)
-            #expect(intakeFrame.payload.descriptor.contentDescriptor.descriptor.resourceKind == "worktree.fileContent")
-            let contentResource = try #require(
-                BridgeTransportResourceURL.parse(
-                    intakeFrame.payload.descriptor.contentDescriptor.descriptor.resourceUrl,
-                    allowedResourceKindsByProtocol: BridgeResourceProtocolRegistry.reviewViewerAllowedResourceKinds
-                )
-            )
-            #expect(await fixture.controller.resourceLeaseRegistry.contains(contentResource, paneId: fixture.paneId))
-            let schemeHandler = BridgeSchemeHandler(
-                paneId: fixture.paneId,
-                worktreeFileResourceStore: fixture.controller.worktreeFileResourceStore,
-                resourceLeaseRegistry: fixture.controller.resourceLeaseRegistry
-            )
-            let contentBody = try await resourceBody(
-                url: intakeFrame.payload.descriptor.contentDescriptor.descriptor.resourceUrl,
-                handler: schemeHandler
-            )
-            #expect(String(data: contentBody, encoding: .utf8) == fileText)
-            fixture.controller.teardown()
-        }
-
-        @Test("active Worktree/File source emits live status and invalidation frames in sequence")
-        func activeWorktreeFileSourceEmitsLiveStatusAndInvalidationsInSequence() async throws {
-            let eventCapture = BridgeWorktreeFileSurfaceEventCapture()
-            let fixture = try makeControllerFixtureWithIntakeSink(
-                intakeFrameSink: { _, frameJSON, _ in
-                    await eventCapture.recordIntake(frameJSON)
-                }
-            )
-            defer { try? FileManager.default.removeItem(at: fixture.rootURL) }
-            let responseCapture = BridgeWorktreeFileSurfaceResponseCapture()
-            fixture.controller.router.onResponse = { responseJSON in
-                await eventCapture.recordResponse()
-                await responseCapture.set(responseJSON)
-            }
-            await fixture.controller.handleIncomingRPC(
-                #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
-            )
-            let spec = sourceSpec(
-                fixture: fixture,
-                clientRequestId: "request-live",
-                pathScope: [],
-                includeFileDescriptors: false
-            )
-
-            await fixture.controller.handleIncomingRPC(
-                try BridgeWorktreeFileSurfaceRPCRequest(
-                    id: "open-live",
-                    method: "worktreeFileSurface.openSourceStream",
-                    params: spec
-                ).jsonString()
-            )
-            let response = try await decodedResponse(from: responseCapture)
-            await fixture.controller.handleBridgeIntakeReady(
-                BridgeIntakeReadyMethod.Params(protocolId: "worktree-file", streamId: response.result.streamId)
-            )
-            let status = GitWorkingTreeStatus(
-                summary: GitWorkingTreeSummary(
-                    changed: 2,
-                    staged: 1,
-                    untracked: 3,
-                    aheadCount: 5,
-                    behindCount: 8
-                ),
-                branch: "ticket-03",
-                origin: "git@example.com:repo/project.git"
-            )
-            try await fixture.controller.publishWorktreeFileSurfaceStatus(status)
-            try await fixture.controller.publishWorktreeFileSurfaceChangeset(
-                FileChangeset(
-                    worktreeId: fixture.worktreeId,
-                    rootPath: fixture.rootURL,
-                    paths: ["Sources/App/View.swift", ".git/index", "README.md"],
-                    containsGitInternalChanges: true,
-                    timestamp: .now,
-                    batchSeq: 42
-                )
-            )
-
-            let events = await eventCapture.events()
-            #expect(events == ["response", "intake", "intake", "intake", "intake"])
-            let intakeFrames = await eventCapture.intakeFrames()
-            #expect(intakeFrames.count == 4)
-            let snapshotEnvelope = try decodeIntakeEnvelope(
-                intakeFrames[0],
-                as: BridgeWorktreeSnapshotFrame.self
-            )
-            #expect(snapshotEnvelope.kind == "snapshot")
-            #expect(snapshotEnvelope.streamId == response.result.streamId)
-            let statusEnvelope = try decodeIntakeEnvelope(
-                intakeFrames[1],
-                as: BridgeWorktreeStatusPatchFrame.self
-            )
-            #expect(statusEnvelope.streamId == response.result.streamId)
-            #expect(statusEnvelope.generation == response.result.generation)
-            #expect(statusEnvelope.sequence == 1)
-            #expect(statusEnvelope.payload.frameKind == "worktree.statusPatch")
-            #expect(statusEnvelope.payload.patch.branchName == "ticket-03")
-            #expect(statusEnvelope.payload.patch.staged == 1)
-            #expect(statusEnvelope.payload.patch.unstaged == 2)
-            #expect(statusEnvelope.payload.patch.untracked == 3)
-            let firstInvalidation = try decodeIntakeEnvelope(
-                intakeFrames[2],
-                as: BridgeWorktreeFileInvalidatedFrame.self
-            )
-            let secondInvalidation = try decodeIntakeEnvelope(
-                intakeFrames[3],
-                as: BridgeWorktreeFileInvalidatedFrame.self
-            )
-            #expect(firstInvalidation.sequence == 2)
-            #expect(secondInvalidation.sequence == 3)
-            #expect(firstInvalidation.payload.invalidation.path == "Sources/App/View.swift")
-            #expect(secondInvalidation.payload.invalidation.path == "README.md")
-            #expect(firstInvalidation.payload.invalidation.reason == .contentChanged)
-            #expect(secondInvalidation.payload.invalidation.reason == .contentChanged)
-            fixture.controller.teardown()
-        }
-
-        @Test("live Worktree/File invalidation carries latest descriptor and serves replacement bytes")
-        func liveWorktreeFileInvalidationCarriesLatestDescriptorAndServesReplacementBytes() async throws {
-            let eventCapture = BridgeWorktreeFileSurfaceEventCapture()
-            let fixture = try makeControllerFixtureWithIntakeSink(
-                intakeFrameSink: { _, frameJSON, _ in
-                    await eventCapture.recordIntake(frameJSON)
-                }
-            )
-            defer { try? FileManager.default.removeItem(at: fixture.rootURL) }
-            let fileURL = fixture.rootURL
-                .appending(path: "Sources")
-                .appending(path: "App")
-                .appending(path: "View.swift")
-            let updatedText = "struct View {}\nlet updated = true\n"
-            try FileManager.default.createDirectory(
-                at: fileURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            try updatedText.write(to: fileURL, atomically: true, encoding: .utf8)
-            let responseCapture = BridgeWorktreeFileSurfaceResponseCapture()
-            fixture.controller.router.onResponse = { responseJSON in
-                await eventCapture.recordResponse()
-                await responseCapture.set(responseJSON)
-            }
-            await fixture.controller.handleIncomingRPC(
-                #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
-            )
-            let spec = sourceSpec(
-                fixture: fixture,
-                clientRequestId: "request-replacement",
-                pathScope: [],
-                includeFileDescriptors: false
-            )
-
-            await fixture.controller.handleIncomingRPC(
-                try BridgeWorktreeFileSurfaceRPCRequest(
-                    id: "open-replacement",
-                    method: "worktreeFileSurface.openSourceStream",
-                    params: spec
-                ).jsonString()
-            )
-            let response = try await decodedResponse(from: responseCapture)
-            await fixture.controller.handleBridgeIntakeReady(
-                BridgeIntakeReadyMethod.Params(protocolId: "worktree-file", streamId: response.result.streamId)
-            )
-            try await fixture.controller.publishWorktreeFileSurfaceChangeset(
-                FileChangeset(
-                    worktreeId: fixture.worktreeId,
-                    rootPath: fixture.rootURL,
-                    paths: ["Sources/App/View.swift"],
-                    timestamp: .now,
-                    batchSeq: 43
-                )
-            )
-
-            let intakeFrames = await eventCapture.intakeFrames()
-            let snapshot = try decodeIntakeEnvelope(
-                intakeFrames[0],
-                as: BridgeWorktreeSnapshotFrame.self
-            )
-            #expect(snapshot.streamId == response.result.streamId)
-            let intakeFrame = intakeFrames[1]
-            let invalidation = try decodeIntakeEnvelope(
-                intakeFrame,
-                as: BridgeWorktreeFileInvalidatedFrame.self
-            )
-            let latestDescriptor = try #require(invalidation.payload.invalidation.latestDescriptor)
-            #expect(invalidation.streamId == response.result.streamId)
-            #expect(invalidation.sequence == 1)
-            #expect(latestDescriptor.path == "Sources/App/View.swift")
-            #expect(latestDescriptor.virtualizedExtentKind == .exactLineCount)
-            #expect(latestDescriptor.lineCount == 3)
-            let contentResource = try #require(
-                BridgeTransportResourceURL.parse(
-                    latestDescriptor.contentDescriptor.descriptor.resourceUrl,
-                    allowedResourceKindsByProtocol: BridgeResourceProtocolRegistry.reviewViewerAllowedResourceKinds
-                )
-            )
-            #expect(await fixture.controller.resourceLeaseRegistry.contains(contentResource, paneId: fixture.paneId))
-            let schemeHandler = BridgeSchemeHandler(
-                paneId: fixture.paneId,
-                worktreeFileResourceStore: fixture.controller.worktreeFileResourceStore,
-                resourceLeaseRegistry: fixture.controller.resourceLeaseRegistry
-            )
-            let contentBody = try await resourceBody(
-                url: latestDescriptor.contentDescriptor.descriptor.resourceUrl,
-                handler: schemeHandler
-            )
-            #expect(String(data: contentBody, encoding: .utf8) == updatedText)
-            fixture.controller.teardown()
-        }
-
-        @Test("live Worktree/File reset revokes source leases and suppresses stale frames")
-        func liveWorktreeFileResetRevokesSourceLeasesAndSuppressesStaleFrames() async throws {
-            let eventCapture = BridgeWorktreeFileSurfaceEventCapture()
-            let fixture = try makeControllerFixtureWithIntakeSink(
-                intakeFrameSink: { _, frameJSON, _ in
-                    await eventCapture.recordIntake(frameJSON)
-                }
-            )
-            defer { try? FileManager.default.removeItem(at: fixture.rootURL) }
-            let responseCapture = BridgeWorktreeFileSurfaceResponseCapture()
-            fixture.controller.router.onResponse = { responseJSON in
-                await eventCapture.recordResponse()
-                await responseCapture.set(responseJSON)
-            }
-            await fixture.controller.handleIncomingRPC(
-                #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
-            )
-
-            await fixture.controller.handleIncomingRPC(
-                try BridgeWorktreeFileSurfaceRPCRequest(
-                    id: "open-reset",
-                    method: "worktreeFileSurface.openSourceStream",
                     params: sourceSpec(
                         fixture: fixture,
-                        clientRequestId: "request-reset",
-                        pathScope: [],
-                        includeFileDescriptors: false
+                        clientRequestId: "request-root-windowed-tree",
+                        pathScope: []
                     )
                 ).jsonString()
             )
-            let response = try await decodedResponse(from: responseCapture)
+
+            let response = try await decodedResponse(from: capturedResponse)
             await fixture.controller.handleBridgeIntakeReady(
                 BridgeIntakeReadyMethod.Params(protocolId: "worktree-file", streamId: response.result.streamId)
             )
-            let snapshotFrame = try #require(await eventCapture.intakeFrames().first)
-            let snapshot = try decodeIntakeEnvelope(
-                snapshotFrame,
-                as: BridgeWorktreeSnapshotFrame.self
-            )
-            let treeResource = try #require(
-                BridgeTransportResourceURL.parse(
-                    snapshot.payload.treeDescriptor.descriptor.resourceUrl,
-                    allowedResourceKindsByProtocol: BridgeResourceProtocolRegistry.reviewViewerAllowedResourceKinds
-                )
-            )
-            #expect(await fixture.controller.resourceLeaseRegistry.contains(treeResource, paneId: fixture.paneId))
-
-            try await fixture.controller.publishWorktreeFileSurfaceReset(reason: .providerRestart)
-            try await fixture.controller.publishWorktreeFileSurfaceStatus(
-                GitWorkingTreeStatus(
-                    summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
-                    branch: "stale",
-                    origin: nil
-                )
-            )
+            await fixture.controller.activeWorktreeFileTreeWindowTask?.value
+            await fixture.controller.worktreeFileMetadataScheduler.waitUntilDrained()
 
             let intakeFrames = await eventCapture.intakeFrames()
             #expect(intakeFrames.count == 2)
-            let reset = try decodeIntakeEnvelope(
-                intakeFrames[1],
-                as: BridgeWorktreeResetFrame.self
+            let snapshotEnvelope = try decodeIntakeEnvelope(
+                intakeFrames[0],
+                as: BridgeWorktreeSnapshotFrame.self
             )
-            #expect(reset.streamId == response.result.streamId)
-            #expect(reset.sequence == 1)
-            #expect(reset.payload.frameKind == "worktree.reset")
-            #expect(reset.payload.reason == .providerRestart)
-            #expect(reset.payload.source == snapshot.payload.source)
-            #expect(
-                await fixture.controller.resourceLeaseRegistry.contains(treeResource, paneId: fixture.paneId) == false)
+            let windowEnvelope = try decodeIntakeEnvelope(
+                intakeFrames[1],
+                as: BridgeWorktreeTreeWindowFrame.self
+            )
+            #expect(snapshotEnvelope.payload.treeRows.count == 200)
+            #expect(windowEnvelope.payload.frameKind == "worktree.treeWindow")
+            #expect(windowEnvelope.payload.treeSizeFacts.extentKind == .exactPathCount)
+            #expect(windowEnvelope.payload.treeSizeFacts.pathCount == 260)
+            #expect(windowEnvelope.payload.treeSizeFacts.windowStartIndex == 200)
+            #expect(windowEnvelope.payload.treeSizeFacts.windowRowCount == 60)
+            #expect(windowEnvelope.payload.rows.count == 60)
+            #expect(windowEnvelope.payload.rows.first?.path == "File-200.swift")
+            #expect(windowEnvelope.payload.rows.last?.path == "File-259.swift")
+
             fixture.controller.teardown()
         }
 
-        private func makeControllerFixture() throws -> BridgeWorktreeFileSurfaceControllerFixture {
-            try makeControllerFixtureWithIntakeSink(intakeFrameSink: nil)
-        }
-
-        private func makeControllerFixtureWithIntakeSink(
-            intakeFrameSink: (@MainActor (WebPage, String, String) async throws -> Void)?
-        ) throws -> BridgeWorktreeFileSurfaceControllerFixture {
-            let paneId = UUIDv7.generate()
-            let repoId = UUIDv7.generate()
-            let worktreeId = UUIDv7.generate()
-            let fixtureDirectoryName = "agentstudio-worktree-file-transport-\(UUIDv7.generate().uuidString)"
-            let rootURL = URL(fileURLWithPath: NSTemporaryDirectory())
-                .appending(path: fixtureDirectoryName)
-            try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
-            let worktree = Worktree(
-                id: worktreeId,
-                repoId: repoId,
-                name: "transport-worktree",
-                path: rootURL
-            )
-            let state = BridgePaneState(
-                panelKind: .diffViewer,
-                source: .workspace(rootPath: rootURL.path, baseline: .headMinusOne)
-            )
-            let metadata = PaneMetadata(
-                paneId: PaneId(uuid: paneId),
-                contentType: .diff,
-                launchDirectory: rootURL,
-                title: "Worktree",
-                facets: PaneContextFacets(
-                    repoId: repoId,
-                    worktreeId: worktreeId,
-                    worktreeName: "transport-worktree",
-                    cwd: rootURL
-                )
-            )
-            let controller =
-                if let intakeFrameSink {
-                    BridgePaneController(
-                        paneId: paneId,
-                        state: state,
-                        metadata: metadata,
-                        intakeFrameSink: intakeFrameSink
-                    )
-                } else {
-                    BridgePaneController(paneId: paneId, state: state, metadata: metadata)
+        @Test("native metadata lanes expose startup and idle lineage with percentile capable timing")
+        func nativeMetadataLanesExposeStartupAndIdleLineageWithPercentileCapableTiming() async throws {
+            let telemetryRecorder = BridgeWorktreeFileTelemetryRecorderSpy()
+            let eventCapture = BridgeWorktreeFileSurfaceEventCapture()
+            let fixture = try makeControllerFixtureWithIntakeSink(
+                telemetryRecorder: telemetryRecorder,
+                intakeFrameSink: { _, frameJSON, _ in
+                    await eventCapture.recordIntake(frameJSON)
                 }
-            return BridgeWorktreeFileSurfaceControllerFixture(
-                paneId: paneId,
-                repoId: repoId,
-                worktreeId: worktreeId,
-                rootURL: rootURL,
-                worktree: worktree,
-                controller: controller
             )
-        }
-
-        private func sourceSpec(
-            fixture: BridgeWorktreeFileSurfaceControllerFixture,
-            clientRequestId: String,
-            pathScope: [String],
-            includeFileDescriptors: Bool = false
-        ) -> BridgeWorktreeFileSurfaceSourceSpec {
-            BridgeWorktreeFileSurfaceSourceSpec(
-                clientRequestId: clientRequestId,
-                repoId: fixture.repoId,
-                worktreeId: fixture.worktreeId,
-                rootPathToken: fixture.worktree.stableKey,
-                cwdScope: nil,
-                pathScope: pathScope,
-                includeStatuses: true,
-                includeFileDescriptors: includeFileDescriptors,
-                includeComments: false,
-                includeAgentComms: false,
-                freshness: .live
-            )
-        }
-
-        private func decodedResponse(
-            from capture: BridgeWorktreeFileSurfaceResponseCapture
-        ) async throws -> BridgeWorktreeFileSurfaceSuccessResponse {
-            let responseJSON = try #require(await capture.get())
-            let responseData = try #require(responseJSON.data(using: .utf8))
-            return try JSONDecoder().decode(BridgeWorktreeFileSurfaceSuccessResponse.self, from: responseData)
-        }
-
-        private func resourceBody(
-            url: String,
-            handler: BridgeSchemeHandler
-        ) async throws -> Data {
-            let request = URLRequest(url: URL(string: url)!)
-            var body = Data()
-            for try await result in handler.reply(for: request) {
-                switch result {
-                case .response:
-                    break
-                case .data(let chunk):
-                    body.append(chunk)
-                @unknown default:
-                    Issue.record("Unexpected URL scheme task result")
-                }
+            defer { try? FileManager.default.removeItem(at: fixture.rootURL) }
+            for index in 0..<260 {
+                let fileURL = fixture.rootURL.appending(path: String(format: "File-%03d.swift", index))
+                try "let value\(index) = \(index)\n".write(to: fileURL, atomically: true, encoding: .utf8)
             }
-            return body
+            let responseCapture = BridgeWorktreeFileSurfaceResponseCapture()
+            fixture.controller.router.onResponse = { responseJSON in
+                await eventCapture.recordResponse()
+                await responseCapture.set(responseJSON)
+            }
+            await fixture.controller.handleIncomingRPC(
+                #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
+            )
+            await fixture.controller.handleIncomingRPC(
+                try BridgeWorktreeFileSurfaceRPCRequest(
+                    id: "open-native-lanes",
+                    method: "worktreeFileSurface.openSourceStream",
+                    params: sourceSpec(
+                        fixture: fixture,
+                        clientRequestId: "request-native-lanes",
+                        pathScope: []
+                    )
+                ).jsonString()
+            )
+
+            let response = try await decodedResponse(from: responseCapture)
+            await fixture.controller.handleBridgeIntakeReady(
+                BridgeIntakeReadyMethod.Params(protocolId: "worktree-file", streamId: response.result.streamId)
+            )
+            await fixture.controller.activeWorktreeFileTreeWindowTask?.value
+            await fixture.controller.worktreeFileMetadataScheduler.waitUntilDrained()
+
+            let intakeFrames = await eventCapture.intakeFrames()
+            #expect(intakeFrames.count == 2)
+            let snapshotEnvelope = try decodeIntakeEnvelope(
+                intakeFrames[0],
+                as: BridgeWorktreeSnapshotFrame.self
+            )
+            let idleWindowEnvelope = try decodeIntakeEnvelope(
+                intakeFrames[1],
+                as: BridgeWorktreeTreeWindowFrame.self
+            )
+            #expect(snapshotEnvelope.sequence < idleWindowEnvelope.sequence)
+            #expect(snapshotEnvelope.payload.treeRows.count == 200)
+            #expect(idleWindowEnvelope.payload.rows.count == 60)
+            #expect(idleWindowEnvelope.payload.treeSizeFacts.pathCount == 260)
+
+            let snapshotRows = try treeRows(from: intakeFrames[0], rowsKey: "treeRows")
+            let idleWindowRows = try treeRows(from: intakeFrames[1], rowsKey: "rows")
+            #expect(stringValues(in: snapshotRows, forKey: "loaded_by") == ["startup_window"])
+            #expect(stringValues(in: snapshotRows, forKey: "lane") == ["foreground"])
+            #expect(stringValues(in: idleWindowRows, forKey: "loaded_by") == ["idle"])
+            #expect(stringValues(in: idleWindowRows, forKey: "lane") == ["idle"])
+
+            let selectedRow = try #require(snapshotEnvelope.payload.treeRows.first { $0.path == "File-000.swift" })
+            try await requestFileDescriptor(
+                controller: fixture.controller,
+                requestId: "request-content-after-metadata-lanes",
+                sourceIdentity: snapshotEnvelope.payload.source,
+                row: selectedRow,
+                path: "File-000.swift",
+                lane: .foreground
+            )
+            await fixture.controller.worktreeFileMetadataScheduler.waitUntilDrained()
+            let demandFrames = await eventCapture.intakeFrames()
+            #expect(demandFrames.count == 3)
+            let descriptorEnvelope = try decodeDescriptorEnvelope(demandFrames[2])
+            #expect(descriptorEnvelope.payload.frameKind == "worktree.fileDescriptor")
+            #expect(descriptorEnvelope.sequence > idleWindowEnvelope.sequence)
+
+            let windowSamples = await telemetryRecorder.samples(
+                named: "performance.bridge.swift.worktree_file_tree_window_batch"
+            )
+            let timingSummary = BridgeWorktreeFileTimingPercentileSummary(
+                samples: windowSamples.compactMap(\.durationMilliseconds)
+            )
+            #expect(timingSummary.sampleCount == windowSamples.count)
+            #expect(timingSummary.p95Milliseconds != nil)
+            #expect(timingSummary.p99Milliseconds != nil)
+            let openToFirstWindowSamples = await telemetryRecorder.samples(
+                named: "performance.bridge.native.metadata_open_to_first_window"
+            )
+            let fullManifestSamples = await telemetryRecorder.samples(
+                named: "performance.bridge.native.metadata_full_manifest_complete"
+            )
+            assertNativeMetadataManifestTelemetry(
+                openToFirstWindowSamples: openToFirstWindowSamples,
+                fullManifestSamples: fullManifestSamples
+            )
+
+            fixture.controller.teardown()
         }
 
-        private func decodeIntakeEnvelope<Payload: Decodable>(
-            _ json: String,
-            as _: Payload.Type
-        ) throws -> WorktreeFileIntakeEnvelope<Payload> {
-            let data = try #require(json.data(using: .utf8))
-            return try JSONDecoder().decode(
-                WorktreeFileIntakeEnvelope<Payload>.self,
-                from: data
+        private func assertNativeMetadataManifestTelemetry(
+            openToFirstWindowSamples: [BridgeTelemetrySample],
+            fullManifestSamples: [BridgeTelemetrySample]
+        ) {
+            #expect(openToFirstWindowSamples.count == 1)
+            #expect(fullManifestSamples.count == 1)
+            #expect(openToFirstWindowSamples.first?.durationMilliseconds != nil)
+            #expect(fullManifestSamples.first?.durationMilliseconds != nil)
+            #expect(
+                fullManifestSamples.first?.numericAttributes[
+                    "agentstudio.bridge.metadata_manifest.expected_total"
+                ] == 260
+            )
+            #expect(
+                fullManifestSamples.first?.numericAttributes[
+                    "agentstudio.bridge.metadata_manifest.emitted_total"
+                ] == 260
+            )
+            #expect(
+                fullManifestSamples.first?.numericAttributes[
+                    "agentstudio.bridge.metadata_manifest.remaining_total"
+                ] == 0
             )
         }
+
+        @Test("open source stream replays queued multi-window tree metadata when intake is late")
+        func openSourceStreamReplaysQueuedMultiWindowTreeMetadataWhenIntakeIsLate() async throws {
+            let eventCapture = BridgeWorktreeFileSurfaceEventCapture()
+            let fixture = try makeControllerFixtureWithIntakeSink(
+                intakeFrameSink: { _, frameJSON, _ in
+                    await eventCapture.recordIntake(frameJSON)
+                }
+            )
+            defer { try? FileManager.default.removeItem(at: fixture.rootURL) }
+            for index in 0..<520 {
+                let fileURL = fixture.rootURL.appending(path: String(format: "File-%03d.swift", index))
+                try "let value\(index) = \(index)\n".write(to: fileURL, atomically: true, encoding: .utf8)
+            }
+            let capturedResponse = BridgeWorktreeFileSurfaceResponseCapture()
+            fixture.controller.router.onResponse = { responseJSON in
+                await capturedResponse.set(responseJSON)
+            }
+
+            await fixture.controller.handleIncomingRPC(
+                #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
+            )
+            await fixture.controller.handleIncomingRPC(
+                try BridgeWorktreeFileSurfaceRPCRequest(
+                    id: "open-root-late-ready",
+                    method: "worktreeFileSurface.openSourceStream",
+                    params: sourceSpec(
+                        fixture: fixture,
+                        clientRequestId: "request-root-late-ready-tree",
+                        pathScope: []
+                    )
+                ).jsonString()
+            )
+
+            let response = try await decodedResponse(from: capturedResponse)
+            await fixture.controller.activeWorktreeFileTreeWindowTask?.value
+            #expect(await eventCapture.intakeFrames().isEmpty)
+            #expect(await fixture.controller.worktreeFileMetadataScheduler.queuedJobCount == 3)
+
+            await fixture.controller.handleBridgeIntakeReady(
+                BridgeIntakeReadyMethod.Params(protocolId: "worktree-file", streamId: response.result.streamId)
+            )
+
+            await fixture.controller.worktreeFileMetadataScheduler.waitUntilDrained()
+            let intakeFrames = await eventCapture.intakeFrames()
+            #expect(intakeFrames.count == 3)
+            let snapshotEnvelope = try decodeIntakeEnvelope(
+                intakeFrames[0],
+                as: BridgeWorktreeSnapshotFrame.self
+            )
+            let firstWindow = try decodeIntakeEnvelope(
+                intakeFrames[1],
+                as: BridgeWorktreeTreeWindowFrame.self
+            )
+            let secondWindow = try decodeIntakeEnvelope(
+                intakeFrames[2],
+                as: BridgeWorktreeTreeWindowFrame.self
+            )
+            #expect(snapshotEnvelope.sequence == 0)
+            #expect(firstWindow.sequence == 1)
+            #expect(secondWindow.sequence == 2)
+            #expect(snapshotEnvelope.payload.treeRows.count == 200)
+            #expect(firstWindow.payload.treeSizeFacts.windowStartIndex == 200)
+            #expect(firstWindow.payload.treeSizeFacts.windowRowCount == 200)
+            #expect(firstWindow.payload.treeSizeFacts.extentKind == .estimatedTotalHeight)
+            #expect(firstWindow.payload.treeSizeFacts.pathCount == nil)
+            #expect(secondWindow.payload.treeSizeFacts.windowStartIndex == 400)
+            #expect(secondWindow.payload.treeSizeFacts.windowRowCount == 120)
+            #expect(secondWindow.payload.treeSizeFacts.extentKind == .exactPathCount)
+            #expect(secondWindow.payload.treeSizeFacts.pathCount == 520)
+            #expect(secondWindow.payload.rows.last?.path == "File-519.swift")
+
+            fixture.controller.teardown()
+        }
+
+        @Test("Worktree/File sequence reservation advances from the latest active cursor")
+        func worktreeFileSequenceReservationAdvancesFromLatestActiveCursor() async throws {
+            let fixture = try makeControllerFixture()
+            defer { try? FileManager.default.removeItem(at: fixture.rootURL) }
+            let responseCapture = BridgeWorktreeFileSurfaceResponseCapture()
+            fixture.controller.router.onResponse = { responseJSON in
+                await responseCapture.set(responseJSON)
+            }
+
+            await fixture.controller.handleIncomingRPC(
+                #"{"jsonrpc":"2.0","method":"bridge.ready","params":{}}"#
+            )
+            await fixture.controller.handleIncomingRPC(
+                try BridgeWorktreeFileSurfaceRPCRequest(
+                    id: "open-sequence-reservation",
+                    method: "worktreeFileSurface.openSourceStream",
+                    params: sourceSpec(
+                        fixture: fixture,
+                        clientRequestId: "request-sequence-reservation",
+                        pathScope: []
+                    )
+                ).jsonString()
+            )
+
+            _ = try await decodedResponse(from: responseCapture)
+            fixture.controller.activeWorktreeFileTreeWindowTask?.cancel()
+            fixture.controller.activeWorktreeFileTreeWindowTask = nil
+            let activeSource = try #require(fixture.controller.activeWorktreeFileSurfaceSource)
+
+            let firstReservation = try fixture.controller.reserveWorktreeFileSurfaceSequenceBlock(
+                count: 2,
+                source: activeSource.source,
+                streamId: activeSource.streamId
+            )
+            let secondReservation = try fixture.controller.reserveWorktreeFileSurfaceSequenceBlock(
+                count: 1,
+                source: activeSource.source,
+                streamId: activeSource.streamId
+            )
+
+            #expect(firstReservation == 1)
+            #expect(secondReservation == 3)
+            #expect(fixture.controller.activeWorktreeFileSurfaceSource?.nextSequence == 4)
+
+            fixture.controller.teardown()
+        }
+
     }
 }
 
-private struct BridgeWorktreeFileSurfaceControllerFixture {
-    let paneId: UUID
-    let repoId: UUID
-    let worktreeId: UUID
-    let rootURL: URL
-    let worktree: Worktree
-    let controller: BridgePaneController
-}
+private actor FailingWorktreeFileIntakeCapture {
+    private var failureCount: Int
+    private let failingCallIndices: Set<Int>
+    private var callIndex = 0
+    private var deliveredFrames: [String] = []
 
-private struct BridgeWorktreeFileSurfaceRPCRequest<Params: Encodable>: Encodable {
-    let jsonrpc = "2.0"
-    let id: String
-    let method: String
-    let params: Params
+    init(failureCount: Int) {
+        self.failureCount = failureCount
+        self.failingCallIndices = []
+    }
 
-    func jsonString() throws -> String {
-        let data = try JSONEncoder().encode(self)
-        return try #require(String(data: data, encoding: .utf8))
+    /// Fails specific 0-based delivery attempts so a test can target one
+    /// frame kind (for example the first descriptor after a successful
+    /// snapshot) instead of the first N calls.
+    init(failingCallIndices: Set<Int>) {
+        self.failureCount = 0
+        self.failingCallIndices = failingCallIndices
+    }
+
+    func record(_ frameJSON: String) throws {
+        let index = callIndex
+        callIndex += 1
+        if failureCount > 0 {
+            failureCount -= 1
+            throw BridgeProviderFailure.providerFailed(message: "Injected Worktree/File intake failure")
+        }
+        if failingCallIndices.contains(index) {
+            throw BridgeProviderFailure.providerFailed(message: "Injected Worktree/File intake failure")
+        }
+        deliveredFrames.append(frameJSON)
+    }
+
+    func frames() -> [String] {
+        deliveredFrames
     }
 }
 
-private struct BridgeWorktreeFileSurfaceSuccessResponse: Decodable {
-    let jsonrpc: String
-    let id: String
-    let result: BridgeWorktreeFileSurfaceOpenSourceOutcome
+private struct RichWorktreeTreeResourceBody: Decodable {
+    struct Row: Decodable {
+        let rowId: String
+        let path: String
+        let name: String
+        let parentPath: String?
+        let isDirectory: Bool
+        let fileId: String?
+    }
+
+    let rows: [Row]
 }
 
-private struct BridgeWorktreeFileSurfaceIntakeFrameEnvelope: Decodable {
-    let kind: String
-    let streamId: String
-    let generation: Int
-    let sequence: Int
-    let payload: BridgeWorktreeFileDescriptorFrame
+private struct BridgeWorktreeFileTimingPercentileSummary {
+    let sampleCount: Int
+    let p95Milliseconds: Double?
+    let p99Milliseconds: Double?
+
+    init(samples: [Double]) {
+        let sortedSamples = samples.sorted()
+        self.sampleCount = sortedSamples.count
+        self.p95Milliseconds = Self.percentile(0.95, samples: sortedSamples)
+        self.p99Milliseconds = Self.percentile(0.99, samples: sortedSamples)
+    }
+
+    private static func percentile(_ percentile: Double, samples: [Double]) -> Double? {
+        guard !samples.isEmpty else {
+            return nil
+        }
+        let rank = percentile * Double(samples.count - 1)
+        let lowerIndex = Int(floor(rank))
+        let upperIndex = Int(ceil(rank))
+        guard lowerIndex != upperIndex else {
+            return samples[lowerIndex]
+        }
+        let weight = rank - Double(lowerIndex)
+        return samples[lowerIndex] + ((samples[upperIndex] - samples[lowerIndex]) * weight)
+    }
 }
 
-private struct WorktreeFileIntakeEnvelope<Payload: Decodable>: Decodable {
-    let kind: String
-    let streamId: String
-    let generation: Int
-    let sequence: Int
-    let payload: Payload
+func treeRows(from intakeFrameJSON: String, rowsKey: String) throws -> [[String: Any]] {
+    let frameData = try #require(intakeFrameJSON.data(using: .utf8))
+    let object = try #require(JSONSerialization.jsonObject(with: frameData) as? [String: Any])
+    let payload = try #require(object["payload"] as? [String: Any])
+    return try #require(payload[rowsKey] as? [[String: Any]])
 }
 
-private actor BridgeWorktreeFileSurfaceResponseCapture {
-    private var payload: String?
-
-    func set(_ value: String) {
-        payload = value
-    }
-
-    func get() -> String? {
-        payload
-    }
+func stringValues(in rows: [[String: Any]], forKey key: String) -> Set<String> {
+    Set(rows.compactMap { $0[key] as? String })
 }
 
-private actor BridgeWorktreeFileSurfaceEventCapture {
-    private var recordedEvents: [String] = []
-    private var recordedIntakeFrames: [String] = []
+/// Non-recording frame-kind probe. Unlike `treeRows`, this never asserts, so
+/// it can classify a mixed delivery stream (snapshot / treeWindow /
+/// descriptor) without failing on frames that lack the inspected key.
+func worktreeFrameKind(from intakeFrameJSON: String) -> String? {
+    guard let frameData = intakeFrameJSON.data(using: .utf8),
+        let object = try? JSONSerialization.jsonObject(with: frameData) as? [String: Any],
+        let payload = object["payload"] as? [String: Any]
+    else {
+        return nil
+    }
+    return payload["frameKind"] as? String
+}
 
-    func recordResponse() {
-        recordedEvents.append("response")
+/// Non-recording accessor for a treeWindow frame's `rows`. Returns nil for
+/// frames without a `rows` array (for example the snapshot, which carries
+/// `treeRows`), so it can be used to classify frames in a mixed stream.
+func worktreeWindowRows(from intakeFrameJSON: String) -> [[String: Any]]? {
+    guard let frameData = intakeFrameJSON.data(using: .utf8),
+        let object = try? JSONSerialization.jsonObject(with: frameData) as? [String: Any],
+        let payload = object["payload"] as? [String: Any]
+    else {
+        return nil
+    }
+    return payload["rows"] as? [[String: Any]]
+}
+
+actor BridgeWorktreeFileTelemetryRecorderSpy: BridgePerformanceTraceRecording {
+    private var recordedSamples: [BridgeTelemetrySample] = []
+
+    func record(sample: BridgeTelemetrySample, receivedAtUnixNano: UInt64) async {
+        recordedSamples.append(sample)
     }
 
-    func recordIntake(_ frameJSON: String) {
-        recordedEvents.append("intake")
-        recordedIntakeFrames.append(frameJSON)
+    func recordDrop(
+        reason: BridgeTelemetryDropReason,
+        droppedCount: Int,
+        receivedAtUnixNano: UInt64
+    ) async {
+        _ = reason
+        _ = droppedCount
+        _ = receivedAtUnixNano
     }
 
-    func events() -> [String] {
-        recordedEvents
-    }
+    func drain() async throws {}
 
-    func intakeFrames() -> [String] {
-        recordedIntakeFrames
+    func samples(named sampleName: String) -> [BridgeTelemetrySample] {
+        recordedSamples.filter { $0.name == sampleName }
     }
 }

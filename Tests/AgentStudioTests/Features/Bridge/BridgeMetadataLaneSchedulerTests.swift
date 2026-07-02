@@ -12,6 +12,16 @@ final class SchedulerExecutionOrderRecorder {
     }
 }
 
+actor SchedulerFailFirstAttemptFlag {
+    private var hasFailed = false
+
+    func consumeFailure() -> Bool {
+        guard !hasFailed else { return false }
+        hasFailed = true
+        return true
+    }
+}
+
 actor SchedulerTelemetrySpy: BridgeMetadataLaneSchedulerTelemetry {
     struct QueueWaitSample: Sendable {
         let lane: BridgeDemandLane
@@ -59,7 +69,43 @@ struct BridgeMetadataLaneSchedulerTests {
             lane: lane
         ) { @MainActor in
             recorder.record(label)
+            return true
         }
+    }
+
+    @Test("a failed delivery closes the gate, retains the job, and retries on reopen")
+    func failedDeliveryClosesGateRetainsJobAndRetriesOnReopen() async throws {
+        let recorder = await MainActor.run { SchedulerExecutionOrderRecorder() }
+        let failFirstAttempt = SchedulerFailFirstAttemptFlag()
+        let scheduler = BridgeMetadataLaneScheduler()
+        await scheduler.acceptGeneration(1, protocolId: "worktree-file")
+        await scheduler.enqueue(
+            BridgeMetadataLaneJob(
+                protocolId: "worktree-file",
+                generation: 1,
+                lane: .visible
+            ) { @MainActor in
+                if await failFirstAttempt.consumeFailure() {
+                    recorder.record("failed-attempt")
+                    return false
+                }
+                recorder.record("delivered")
+                return true
+            }
+        )
+        await scheduler.enqueue(makeJob("follower", lane: .visible, recorder: recorder))
+        await scheduler.openGate(protocolId: "worktree-file")
+        await scheduler.waitUntilDrained()
+        // The failure closed the gate: both jobs are retained, in order.
+        #expect(await MainActor.run { recorder.executedLabels } == ["failed-attempt"])
+        #expect(await scheduler.queuedJobCount == 2)
+
+        await scheduler.openGate(protocolId: "worktree-file")
+        await scheduler.waitUntilDrained()
+        #expect(
+            await MainActor.run { recorder.executedLabels }
+                == ["failed-attempt", "delivered", "follower"]
+        )
     }
 
     @Test("strict lane priority dispatches foreground before idle regardless of arrival order")

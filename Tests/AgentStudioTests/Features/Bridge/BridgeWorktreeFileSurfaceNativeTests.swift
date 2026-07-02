@@ -22,7 +22,7 @@ struct BridgeWorktreeFileSurfaceNativeTests {
         let frame = BridgeWorktreeFileSurfaceClassifier.statusPatchFrame(
             request: BridgeWorktreeStatusPatchBuildRequest(
                 source: sourceIdentity,
-                streamId: "worktree:pane-1",
+                streamId: "worktree-file:pane-1",
                 sequence: 8,
                 status: status
             )
@@ -54,7 +54,7 @@ struct BridgeWorktreeFileSurfaceNativeTests {
         let frames = BridgeWorktreeFileSurfaceClassifier.fileInvalidationFrames(
             request: BridgeWorktreeFileChangesetClassificationRequest(
                 source: sourceIdentity,
-                streamId: "worktree:pane-1",
+                streamId: "worktree-file:pane-1",
                 firstSequence: 9,
                 changeset: changeset,
                 latestDescriptorsByPath: [:]
@@ -82,7 +82,7 @@ struct BridgeWorktreeFileSurfaceNativeTests {
         let frames = BridgeWorktreeFileSurfaceClassifier.fileInvalidationFrames(
             request: BridgeWorktreeFileChangesetClassificationRequest(
                 source: sourceIdentity,
-                streamId: "worktree:pane-1",
+                streamId: "worktree-file:pane-1",
                 firstSequence: 10,
                 changeset: changeset,
                 latestDescriptorsByPath: [:]
@@ -94,7 +94,7 @@ struct BridgeWorktreeFileSurfaceNativeTests {
         let statusFrame = BridgeWorktreeFileSurfaceClassifier.statusInvalidatedFrame(
             request: BridgeWorktreeStatusInvalidationBuildRequest(
                 source: sourceIdentity,
-                streamId: "worktree:pane-1",
+                streamId: "worktree-file:pane-1",
                 sequence: 10,
                 changeset: changeset
             )
@@ -111,14 +111,15 @@ struct BridgeWorktreeFileSurfaceNativeTests {
                 paneId: "pane-1",
                 source: makeSourceIdentity(),
                 requestSelector: nil,
-                streamId: "worktree:pane-1",
+                streamId: "worktree-file:pane-1",
                 sequence: 0,
                 treePathCount: 10,
                 treeEstimatedTotalHeightPixels: nil,
                 treeWindowStartIndex: 0,
                 treeWindowRowCount: 10,
                 treeRowHeightPixels: 22,
-                includeStatusDescriptor: true
+                treeRows: [],
+                includeStatusPatch: true
             )
         )
         let encoded = String(data: try JSONEncoder().encode(snapshot), encoding: .utf8) ?? ""

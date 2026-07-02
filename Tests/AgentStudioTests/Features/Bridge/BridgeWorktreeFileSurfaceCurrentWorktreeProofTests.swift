@@ -37,8 +37,9 @@ extension WebKitSerializedTests {
                 responseCapture: responseCapture
             )
             await fixture.controller.activeWorktreeFileTreeWindowTask?.value
-            let interestProbePaths = try demandLaneInterestProbePaths(
-                from: fixture.controller.pendingWorktreeFileIntakeFrames
+            let manifestIndex = try #require(fixture.controller.activeWorktreeFileManifestIndex)
+            let interestProbePaths = try await demandLaneInterestProbePaths(
+                from: manifestIndex
             )
             let laneProbeResults = try await requestDemandLaneInterestProbes(
                 controller: fixture.controller,
@@ -53,6 +54,7 @@ extension WebKitSerializedTests {
                     generation: response.result.generation
                 )
             )
+            await fixture.controller.worktreeFileMetadataScheduler.waitUntilDrained()
 
             let manifestFacts = try await currentWorktreeManifestFacts(from: eventCapture)
             let demandLaneFacts = try await currentWorktreeDemandLaneFacts(
@@ -65,6 +67,10 @@ extension WebKitSerializedTests {
             let metadataInterestTiming = try await currentWorktreeMetadataInterestTiming(
                 deliveryRecords: intakeDeliveryCapture.intakeRecords(),
                 requestTimings: laneProbeResults.requestTimings
+            )
+            let contentDemandProof = try await currentWorktreeContentDemandProof(
+                eventCapture: eventCapture,
+                fixture: fixture
             )
             let noStarvationProgress = try currentWorktreeNoStarvationProgress(
                 from: await eventCapture.intakeFrames(),
@@ -79,6 +85,7 @@ extension WebKitSerializedTests {
             try writeCurrentWorktreeManifestProofArtifact(
                 CurrentWorktreeProofArtifactWriteRequest(
                     demandLaneFacts: demandLaneFacts,
+                    contentDemandProof: contentDemandProof,
                     fullManifestSample: timingProof.fullManifestSample,
                     manifestFacts: manifestFacts,
                     metadataInterestTiming: metadataInterestTiming,
@@ -122,14 +129,16 @@ extension WebKitSerializedTests {
         }
 
         private func demandLaneInterestProbePaths(
-            from pendingFrames: [String]
-        ) throws -> [BridgeDemandLane: String] {
-            let idlePaths = try pendingFrames.compactMap { pendingFrame -> [String]? in
-                let probe = try decodeIntakeEnvelope(pendingFrame, as: BridgeCurrentWorktreeFrameKindProbe.self)
-                guard probe.payload.frameKind == "worktree.treeWindow" else { return nil }
-                let window = try decodeIntakeEnvelope(pendingFrame, as: BridgeWorktreeTreeWindowFrame.self)
-                return window.payload.rows.map(\.path)
-            }.flatMap { $0 }
+            from manifestIndex: BridgeWorktreeFileManifestIndex
+        ) async throws -> [BridgeDemandLane: String] {
+            // Probe paths are manifest members past the startup window, so
+            // each probe targets rows that would otherwise arrive as idle
+            // continuation. The index is the manifest authority; no frame
+            // buffer inspection and no re-enumeration.
+            let idlePaths = await manifestIndex.orderedPaths(
+                startIndex: AppPolicies.Bridge.worktreeFileTreeMetadataWindowRowLimit,
+                limit: Self.demandLaneProofOrder.count * 4
+            )
             #expect(idlePaths.count >= Self.demandLaneProofOrder.count)
             return Dictionary(
                 uniqueKeysWithValues: zip(
@@ -264,9 +273,16 @@ extension WebKitSerializedTests {
                     firstIdleDeliveryIndex = deliveryIndex
                 }
                 for lane in Self.demandLaneProofOrder {
+                    // Interest windows serve exactly the requested paths, so a
+                    // probe's window is the single-row frame for its path. The
+                    // idle continuation batch also carries probe paths (it
+                    // streams the whole manifest tail) and may deliver before
+                    // later probes under the no-starvation budget, so a
+                    // contains-only match would misattribute those probes.
                     guard let expectedProbe = laneProbeResults[lane],
                         !matchedLanes.contains(lane),
-                        rows.contains(where: { $0["path"] as? String == expectedProbe.expectedPath })
+                        rows.count == 1,
+                        rows.first?["path"] as? String == expectedProbe.expectedPath
                     else {
                         continue
                     }
@@ -284,10 +300,24 @@ extension WebKitSerializedTests {
                     matchedLanes.insert(lane)
                 }
             }
-            let probeDeliveryIndices = matchedProbes.compactMap(\.deliveryIndex)
+            // Under the real scheduler the idle no-starvation budget services
+            // one idle batch per N higher-lane jobs. The snapshot consumes one
+            // budget slot, so exactly budget-1 probes are guaranteed to
+            // precede the first idle continuation batch; later higher-lane
+            // probes interleave per budget, and the idle-lane probe delivers
+            // within the idle stream in arrival order.
+            let guaranteedLanesBeforeIdle = Set(
+                Self.demandLaneProofOrder
+                    .prefix(AppPolicies.Bridge.metadataIdleNoStarvationBudget - 1)
+                    .map(\.rawValue)
+            )
+            let guaranteedProbeDeliveryIndices =
+                matchedProbes
+                .filter { guaranteedLanesBeforeIdle.contains($0.lane) }
+                .compactMap(\.deliveryIndex)
             let allInterestBeforeIdle =
                 if let firstIdleDeliveryIndex {
-                    probeDeliveryIndices.allSatisfy { $0 < firstIdleDeliveryIndex }
+                    guaranteedProbeDeliveryIndices.allSatisfy { $0 < firstIdleDeliveryIndex }
                 } else {
                     false
                 }
@@ -351,6 +381,108 @@ extension WebKitSerializedTests {
             )
         }
 
+        private func currentWorktreeContentDemandProof(
+            eventCapture: BridgeWorktreeFileSurfaceEventCapture,
+            fixture: BridgeWorktreeFileSurfaceControllerFixture
+        ) async throws -> BridgeCurrentWorktreeContentDemandProof {
+            let intakeFramesBeforeDemand = await eventCapture.intakeFrames()
+            let demandRow = try firstContentDemandRow(from: intakeFramesBeforeDemand)
+            let sourceIdentity = try firstSourceIdentity(from: intakeFramesBeforeDemand)
+            let descriptorDemandStart = Date()
+            try await requestFileDescriptor(
+                controller: fixture.controller,
+                requestId: "current-worktree-content-descriptor-demand",
+                sourceIdentity: sourceIdentity,
+                row: demandRow,
+                path: demandRow.path,
+                lane: .foreground
+            )
+            await waitForIntakeFrameCount(
+                intakeFramesBeforeDemand.count + 1,
+                from: eventCapture,
+                description: "Content descriptor demand should emit descriptor frame"
+            )
+            let intakeFramesAfterDemand = await eventCapture.intakeFrames()
+            let descriptorFrameJSON = try #require(intakeFramesAfterDemand.last)
+            let descriptorDemandMilliseconds = Date().timeIntervalSince(descriptorDemandStart) * 1000
+            let descriptorEnvelope = try decodeDescriptorEnvelope(descriptorFrameJSON)
+            #expect(descriptorEnvelope.payload.frameKind == "worktree.fileDescriptor")
+            #expect(descriptorEnvelope.payload.descriptor.path == demandRow.path)
+            let schemeHandler = BridgeSchemeHandler(
+                paneId: fixture.paneId,
+                worktreeFileResourceStore: fixture.controller.worktreeFileResourceStore,
+                resourceLeaseRegistry: fixture.controller.resourceLeaseRegistry
+            )
+            let contentFetchStart = Date()
+            let contentBody = try await resourceBody(
+                url: descriptorEnvelope.payload.descriptor.contentDescriptor.descriptor.resourceUrl,
+                handler: schemeHandler
+            )
+            let contentFetchMilliseconds = Date().timeIntervalSince(contentFetchStart) * 1000
+            #expect(!contentBody.isEmpty)
+            return BridgeCurrentWorktreeContentDemandProof(
+                contentDescriptorDemand: BridgeCurrentWorktreePhaseTimingFacts(
+                    measurementName: "content_descriptor_demand",
+                    measurementScope: "headless Swift descriptor demand RPC to descriptor intake frame",
+                    samples: [descriptorDemandMilliseconds]
+                ),
+                contentFetch: BridgeCurrentWorktreePhaseTimingFacts(
+                    measurementName: "content_fetch",
+                    measurementScope: "headless Swift descriptor body read through BridgeSchemeHandler",
+                    samples: [contentFetchMilliseconds]
+                ),
+                demandedPath: demandRow.path
+            )
+        }
+
+        private func firstContentDemandRow(
+            from intakeFrames: [String]
+        ) throws -> BridgeWorktreeTreeRowMetadata {
+            for intakeFrame in intakeFrames {
+                let probe = try decodeIntakeEnvelope(intakeFrame, as: BridgeCurrentWorktreeFrameKindProbe.self)
+                switch probe.payload.frameKind {
+                case "worktree.snapshot":
+                    let snapshot = try decodeIntakeEnvelope(intakeFrame, as: BridgeWorktreeSnapshotFrame.self)
+                    if let row = snapshot.payload.treeRows.first(where: { $0.fileId != nil && !$0.isDirectory }) {
+                        return row
+                    }
+                case "worktree.treeWindow":
+                    let window = try decodeIntakeEnvelope(intakeFrame, as: BridgeWorktreeTreeWindowFrame.self)
+                    if let row = window.payload.rows.first(where: { $0.fileId != nil && !$0.isDirectory }) {
+                        return row
+                    }
+                default:
+                    continue
+                }
+            }
+            Issue.record("Expected at least one file row for content descriptor demand proof")
+            throw BridgeProviderFailure.providerFailed(message: "missingContentDemandRow")
+        }
+
+        private func firstSourceIdentity(
+            from intakeFrames: [String]
+        ) throws -> BridgeWorktreeFileSurfaceSourceIdentity {
+            for intakeFrame in intakeFrames {
+                let probe = try decodeIntakeEnvelope(intakeFrame, as: BridgeCurrentWorktreeFrameKindProbe.self)
+                switch probe.payload.frameKind {
+                case "worktree.snapshot":
+                    return try decodeIntakeEnvelope(
+                        intakeFrame,
+                        as: BridgeWorktreeSnapshotFrame.self
+                    ).payload.source
+                case "worktree.treeWindow":
+                    return try decodeIntakeEnvelope(
+                        intakeFrame,
+                        as: BridgeWorktreeTreeWindowFrame.self
+                    ).payload.projectionIdentity.source
+                default:
+                    continue
+                }
+            }
+            Issue.record("Expected metadata frame with source identity")
+            throw BridgeProviderFailure.providerFailed(message: "missingSourceIdentity")
+        }
+
         private func currentWorktreeNoStarvationProgress(
             from intakeFrames: [String],
             demandLaneFacts: BridgeCurrentWorktreeDemandLaneFacts,
@@ -401,7 +533,10 @@ extension WebKitSerializedTests {
                 }
             }
             #expect(manifestFacts.firstWindowRowCount > 0)
-            #expect(interestRowsBeforeIdleContinuation >= Self.demandLaneProofOrder.count)
+            #expect(
+                interestRowsBeforeIdleContinuation
+                    >= AppPolicies.Bridge.metadataIdleNoStarvationBudget - 1
+            )
             #expect(idleContinuationRowsAfterInterest > 0)
             #expect(expectedTotal == emittedTotal)
             #expect(remainingTotal == 0)
@@ -540,275 +675,28 @@ extension WebKitSerializedTests {
             #expect(noStarvationProgress["initialEmittedRows"] as? Int == 200)
             #expect(
                 noStarvationProgress["interestRowsBeforeIdleContinuation"] as? Int
-                    ?? 0 >= Self.demandLaneProofOrder.count
+                    ?? 0 >= AppPolicies.Bridge.metadataIdleNoStarvationBudget - 1
             )
             #expect(noStarvationProgress["idleContinuationRowsAfterInterest"] as? Int ?? 0 > 0)
             #expect(noStarvationProgress["expectedTotal"] as? Int == noStarvationProgress["emittedTotal"] as? Int)
             #expect(noStarvationProgress["remainingTotal"] as? Int == 0)
             #expect(noStarvationProgress["completed"] as? Bool == true)
-        }
-    }
-}
-
-private actor BridgeCurrentWorktreeProofIntakeDeliveryCapture {
-    private var records: [BridgeCurrentWorktreeProofIntakeDeliveryRecord] = []
-
-    func recordIntake(_ frameJSON: String) {
-        records.append(
-            BridgeCurrentWorktreeProofIntakeDeliveryRecord(
-                deliveredAt: Date(),
-                frameJSON: frameJSON
+            let queueWaitByLane = try #require(artifactObject["queueWaitByLane"] as? [String: Any])
+            #expect(queueWaitByLane["foreground"] != nil)
+            #expect(queueWaitByLane["visible"] != nil)
+            let metadataApply = try #require(artifactObject["metadataApply"] as? [String: Any])
+            #expect(metadataApply["measurementName"] as? String == "metadata_apply")
+            #expect(metadataApply["p95Milliseconds"] != nil)
+            #expect(metadataApply["p99Milliseconds"] != nil)
+            let contentFetch = try #require(artifactObject["contentFetch"] as? [String: Any])
+            #expect(contentFetch["measurementName"] as? String == "content_fetch")
+            #expect(contentFetch["p95Milliseconds"] != nil)
+            #expect(contentFetch["p99Milliseconds"] != nil)
+            let contentDescriptorDemand = try #require(
+                artifactObject["contentDescriptorDemand"] as? [String: Any]
             )
-        )
-    }
-
-    func intakeRecords() -> [BridgeCurrentWorktreeProofIntakeDeliveryRecord] {
-        records
-    }
-}
-
-private struct BridgeCurrentWorktreeProofIntakeDeliveryRecord: Sendable {
-    let deliveredAt: Date
-    let frameJSON: String
-}
-
-private struct BridgeCurrentWorktreeFrameKindProbe: Decodable {
-    let frameKind: String
-}
-
-private struct BridgeCurrentWorktreeManifestFacts {
-    let finalRemainingRowCount: Int
-    let firstWindowRowCount: Int
-    let laneValues: Set<String>
-    let loadedByValues: Set<String>
-    let uniquePathCount: Int
-}
-
-private struct BridgeCurrentWorktreeDemandLaneFacts: Encodable {
-    let allInterestBeforeIdleContinuation: Bool
-    let firstIdleContinuationDeliveryIndex: Int?
-    let probes: [BridgeCurrentWorktreeDemandLaneProbe]
-}
-
-private struct BridgeCurrentWorktreeDemandLaneProbeResults {
-    let probesByLane: [BridgeDemandLane: BridgeCurrentWorktreeDemandLaneProbe]
-    let requestTimings: [BridgeCurrentWorktreeMetadataInterestRequestTiming]
-}
-
-private struct BridgeCurrentWorktreeDemandLaneProbe: Encodable {
-    let expectedLoadedBy: String
-    let expectedPath: String
-    let lane: String
-    var deliveryIndex: Int?
-    var sequence: Int?
-}
-
-private struct BridgeCurrentWorktreeMetadataInterestRequestTiming {
-    let expectedPath: String
-    let lane: String
-    let requestStartedAt: Date
-}
-
-private struct BridgeCurrentWorktreeMetadataInterestTimingFacts: Encodable {
-    let measurementName: String
-    let measurementScope: String
-    let sampleCount: Int
-    let p95Milliseconds: Double?
-    let p99Milliseconds: Double?
-    let samples: [BridgeCurrentWorktreeMetadataInterestTimingSample]
-}
-
-private struct BridgeCurrentWorktreeMetadataInterestTimingSample: Encodable {
-    let deliveredFrameSequence: Int
-    let deliveryIndex: Int
-    let durationMilliseconds: Double
-    let expectedPath: String
-    let lane: String
-}
-
-private struct BridgeCurrentWorktreeNoStarvationProgress: Encodable {
-    let initialEmittedRows: Int
-    let interestRowsBeforeIdleContinuation: Int
-    let idleContinuationRowsAfterInterest: Int
-    let expectedTotal: Int
-    let emittedTotal: Int
-    let remainingTotal: Int
-    let completed: Bool
-}
-
-private struct BridgeCurrentWorktreeTimingProof {
-    let fullManifestSample: BridgeTelemetrySample
-    let openToFirstWindowSummary: BridgeCurrentWorktreeTimingPercentileSummary
-    let treeWindowTimingSummary: BridgeCurrentWorktreeTimingPercentileSummary
-}
-
-private struct BridgeCurrentWorktreeTimingPercentileSummary {
-    let sampleCount: Int
-    let p95Milliseconds: Double?
-    let p99Milliseconds: Double?
-
-    init(samples: [Double]) {
-        let sortedSamples = samples.sorted()
-        self.sampleCount = sortedSamples.count
-        self.p95Milliseconds = Self.percentile(0.95, samples: sortedSamples)
-        self.p99Milliseconds = Self.percentile(0.99, samples: sortedSamples)
-    }
-
-    private static func percentile(_ percentile: Double, samples: [Double]) -> Double? {
-        guard !samples.isEmpty else {
-            return nil
+            #expect(contentDescriptorDemand["measurementName"] as? String == "content_descriptor_demand")
+            #expect(contentDescriptorDemand["sampleCount"] as? Int ?? 0 > 0)
         }
-        let rank = percentile * Double(samples.count - 1)
-        let lowerIndex = Int(floor(rank))
-        let upperIndex = Int(ceil(rank))
-        guard lowerIndex != upperIndex else {
-            return samples[lowerIndex]
-        }
-        let weight = rank - Double(lowerIndex)
-        return samples[lowerIndex] + ((samples[upperIndex] - samples[lowerIndex]) * weight)
-    }
-}
-
-private struct BridgeCurrentWorktreeManifestProofArtifact: Encodable {
-    let scenarioId: String
-    let runtime: String
-    let demandLaneFacts: BridgeCurrentWorktreeDemandLaneFacts
-    let expectedMetadataRowTotal: Int
-    let emittedMetadataRowTotal: Int
-    let remainingMetadataRowTotal: Int
-    let uniquePathCount: Int
-    let firstWindowRowCount: Int
-    let loadedByValues: [String]
-    let laneValues: [String]
-    let metadataInterestRequestToDeliveredFrame: BridgeCurrentWorktreeMetadataInterestTimingFacts
-    let noStarvationProgress: BridgeCurrentWorktreeNoStarvationProgress
-    let openToFirstWindow: CurrentWorktreeTimingProofArtifact
-    let treeWindowBatch: CurrentWorktreeTimingProofArtifact
-    let fullManifestComplete: CurrentWorktreeTimingProofArtifact
-}
-
-private struct CurrentWorktreeTimingProofArtifact: Encodable {
-    let sampleCount: Int
-    let p95Milliseconds: Double?
-    let p99Milliseconds: Double?
-
-    init(_ summary: BridgeCurrentWorktreeTimingPercentileSummary) {
-        self.sampleCount = summary.sampleCount
-        self.p95Milliseconds = summary.p95Milliseconds
-        self.p99Milliseconds = summary.p99Milliseconds
-    }
-}
-
-private struct CurrentWorktreeProofArtifactWriteRequest {
-    let demandLaneFacts: BridgeCurrentWorktreeDemandLaneFacts
-    let fullManifestSample: BridgeTelemetrySample
-    let manifestFacts: BridgeCurrentWorktreeManifestFacts
-    let metadataInterestTiming: BridgeCurrentWorktreeMetadataInterestTimingFacts
-    let noStarvationProgress: BridgeCurrentWorktreeNoStarvationProgress
-    let openToFirstWindowSummary: BridgeCurrentWorktreeTimingPercentileSummary
-    let projectRoot: URL
-    let treeWindowTimingSummary: BridgeCurrentWorktreeTimingPercentileSummary
-}
-
-private func writeCurrentWorktreeManifestProofArtifact(
-    _ request: CurrentWorktreeProofArtifactWriteRequest
-) throws {
-    guard
-        let proofDirectory = ProcessInfo.processInfo.environment[
-            "AGENTSTUDIO_BRIDGE_HEADLESS_PROOF_DIR"
-        ],
-        !proofDirectory.isEmpty
-    else {
-        return
-    }
-
-    let proofDirectoryURL = proofArtifactDirectoryURL(
-        proofDirectory,
-        projectRoot: request.projectRoot
-    )
-    try FileManager.default.createDirectory(
-        at: proofDirectoryURL,
-        withIntermediateDirectories: true
-    )
-
-    let expectedTotal = Int(
-        request.fullManifestSample.numericAttributes[
-            "agentstudio.bridge.metadata_manifest.expected_total"
-        ] ?? Double(request.manifestFacts.uniquePathCount)
-    )
-    let emittedTotal = Int(
-        request.fullManifestSample.numericAttributes[
-            "agentstudio.bridge.metadata_manifest.emitted_total"
-        ] ?? Double(request.manifestFacts.uniquePathCount)
-    )
-    let remainingTotal = Int(
-        request.fullManifestSample.numericAttributes[
-            "agentstudio.bridge.metadata_manifest.remaining_total"
-        ] ?? Double(request.manifestFacts.finalRemainingRowCount)
-    )
-    let fullManifestSummary = BridgeCurrentWorktreeTimingPercentileSummary(
-        samples: [request.fullManifestSample.durationMilliseconds].compactMap { $0 }
-    )
-    let artifact = BridgeCurrentWorktreeManifestProofArtifact(
-        scenarioId: "native-headless-manifest-completeness",
-        runtime: "swift-headless",
-        demandLaneFacts: request.demandLaneFacts,
-        expectedMetadataRowTotal: expectedTotal,
-        emittedMetadataRowTotal: emittedTotal,
-        remainingMetadataRowTotal: remainingTotal,
-        uniquePathCount: request.manifestFacts.uniquePathCount,
-        firstWindowRowCount: request.manifestFacts.firstWindowRowCount,
-        loadedByValues: request.manifestFacts.loadedByValues.sorted(),
-        laneValues: request.manifestFacts.laneValues.sorted(),
-        metadataInterestRequestToDeliveredFrame: request.metadataInterestTiming,
-        noStarvationProgress: request.noStarvationProgress,
-        openToFirstWindow: CurrentWorktreeTimingProofArtifact(
-            request.openToFirstWindowSummary
-        ),
-        treeWindowBatch: CurrentWorktreeTimingProofArtifact(
-            request.treeWindowTimingSummary
-        ),
-        fullManifestComplete: CurrentWorktreeTimingProofArtifact(
-            fullManifestSummary
-        )
-    )
-    let encoder = JSONEncoder()
-    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-    let artifactData = try encoder.encode(artifact)
-    try artifactData.write(
-        to: proofDirectoryURL.appending(path: "current-worktree-manifest-proof.json"),
-        options: .atomic
-    )
-}
-
-private func proofArtifactDirectoryURL(_ proofDirectory: String, projectRoot: URL) -> URL {
-    let proofDirectoryURL = URL(fileURLWithPath: proofDirectory)
-    if proofDirectoryURL.path.hasPrefix("/") {
-        return proofDirectoryURL
-    }
-    return projectRoot.appending(path: proofDirectory)
-}
-
-private actor BridgeWorktreeFileCurrentWorktreeTelemetryRecorder: BridgePerformanceTraceRecording {
-    private var recordedSamples: [BridgeTelemetrySample] = []
-
-    func record(sample: BridgeTelemetrySample, receivedAtUnixNano: UInt64) async {
-        recordedSamples.append(sample)
-    }
-
-    func recordDrop(
-        reason: BridgeTelemetryDropReason,
-        droppedCount: Int,
-        receivedAtUnixNano: UInt64
-    ) async {
-        _ = reason
-        _ = droppedCount
-        _ = receivedAtUnixNano
-    }
-
-    func drain() async throws {}
-
-    func samples(named sampleName: String) -> [BridgeTelemetrySample] {
-        recordedSamples.filter { $0.name == sampleName }
     }
 }

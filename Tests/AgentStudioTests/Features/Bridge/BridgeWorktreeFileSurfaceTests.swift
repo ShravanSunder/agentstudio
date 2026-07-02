@@ -20,33 +20,21 @@ struct BridgeWorktreeFileSurfaceTests {
                 treeWindowStartIndex: 0,
                 treeWindowRowCount: 250,
                 treeRowHeightPixels: 22,
-                includeStatusDescriptor: true
+                treeRows: [],
+                includeStatusPatch: true
             )
         )
 
         #expect(frame.kind == "snapshot")
         #expect(frame.frameKind == "worktree.snapshot")
         #expect(frame.source == sourceIdentity)
-        #expect(frame.treeDescriptor.descriptor.protocolId == "worktree-file")
-        #expect(frame.treeDescriptor.descriptor.resourceKind == "worktree.treeWindow")
-        #expect(frame.statusDescriptor?.descriptor.resourceKind == "worktree.status")
+        #expect(frame.statusPatch?.staged == nil)
         #expect(frame.treeSizeFacts.extentKind == .exactPathCount)
         #expect(frame.treeSizeFacts.pathCount == 12_500)
         #expect(frame.treeSizeFacts.windowStartIndex == 0)
         #expect(frame.treeSizeFacts.windowRowCount == 250)
         #expect(frame.treeSizeFacts.rowHeightPixels == 22)
         #expect(frame.treeSizeFacts.estimatedTotalHeightPixels == 275_000)
-        #expect(frame.treeDescriptor.descriptor.content.expectedBytes == nil)
-
-        let parsedResource = try #require(
-            BridgeTransportResourceURL.parse(
-                frame.treeDescriptor.descriptor.resourceUrl,
-                allowedResourceKindsByProtocol: BridgeResourceProtocolRegistry.reviewViewerAllowedResourceKinds
-            )
-        )
-        #expect(parsedResource.protocolId == "worktree-file")
-        #expect(parsedResource.resourceKind == "worktree.treeWindow")
-        #expect(parsedResource.opaqueId == frame.treeDescriptor.descriptor.descriptorId)
     }
 
     @Test("snapshot frame can echo request selector for diagnostics")
@@ -59,7 +47,6 @@ struct BridgeWorktreeFileSurfaceTests {
             cwdScope: nil,
             pathScope: ["Sources"],
             includeStatuses: true,
-            includeFileDescriptors: true,
             includeComments: false,
             includeAgentComms: false,
             freshness: .live
@@ -77,7 +64,8 @@ struct BridgeWorktreeFileSurfaceTests {
                 treeWindowStartIndex: 0,
                 treeWindowRowCount: 10,
                 treeRowHeightPixels: 22,
-                includeStatusDescriptor: true
+                treeRows: [],
+                includeStatusPatch: true
             )
         )
 
@@ -140,13 +128,14 @@ struct BridgeWorktreeFileSurfaceTests {
                 source: sourceIdentity,
                 streamId: "worktree:pane-1",
                 sequence: 2,
-                descriptorId: "tree-window-visible-0",
+                treeWindowKey: "tree-window-visible-0",
                 pathScope: ["Sources", "Tests"],
                 treePathCount: 12_500,
                 treeEstimatedTotalHeightPixels: nil,
                 treeWindowStartIndex: 250,
                 treeWindowRowCount: 100,
-                treeRowHeightPixels: 22
+                treeRowHeightPixels: 22,
+                rows: []
             )
         )
 
@@ -154,7 +143,7 @@ struct BridgeWorktreeFileSurfaceTests {
         #expect(frame.frameKind == "worktree.treeWindow")
         #expect(frame.projectionIdentity.source == sourceIdentity)
         #expect(frame.projectionIdentity.pathScope == ["Sources", "Tests"])
-        #expect(frame.windowDescriptor.descriptor.resourceKind == "worktree.treeWindow")
+        #expect(frame.projectionIdentity.treeWindowKey == "tree-window-visible-0")
         #expect(frame.treeSizeFacts.extentKind == .exactPathCount)
         #expect(frame.treeSizeFacts.pathCount == 12_500)
         #expect(frame.treeSizeFacts.windowStartIndex == 250)
@@ -172,13 +161,14 @@ struct BridgeWorktreeFileSurfaceTests {
                 source: sourceIdentity,
                 streamId: "worktree:pane-1",
                 sequence: 2,
-                descriptorId: "tree-window-visible-0",
+                treeWindowKey: "tree-window-visible-0",
                 pathScope: [],
                 treePathCount: nil,
                 treeEstimatedTotalHeightPixels: 550_000,
                 treeWindowStartIndex: 0,
                 treeWindowRowCount: 100,
-                treeRowHeightPixels: 22
+                treeRowHeightPixels: 22,
+                rows: []
             )
         )
 
@@ -187,8 +177,8 @@ struct BridgeWorktreeFileSurfaceTests {
         #expect(frame.treeSizeFacts.estimatedTotalHeightPixels == 550_000)
     }
 
-    @Test("snapshot can omit status descriptor when selector disables statuses")
-    func snapshotCanOmitStatusDescriptorWhenSelectorDisablesStatuses() throws {
+    @Test("snapshot can omit status patch when selector disables statuses")
+    func snapshotCanOmitStatusPatchWhenSelectorDisablesStatuses() throws {
         let frame = BridgeWorktreeFileSurfaceFrameBuilder.snapshot(
             request: BridgeWorktreeFileSnapshotBuildRequest(
                 paneId: "pane-1",
@@ -201,11 +191,12 @@ struct BridgeWorktreeFileSurfaceTests {
                 treeWindowStartIndex: 0,
                 treeWindowRowCount: 10,
                 treeRowHeightPixels: 22,
-                includeStatusDescriptor: false
+                treeRows: [],
+                includeStatusPatch: false
             )
         )
 
-        #expect(frame.statusDescriptor == nil)
+        #expect(frame.statusPatch == nil)
     }
 
     @Test("unavailable file extent is reserved for binary or metadata-only content")

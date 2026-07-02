@@ -11,6 +11,10 @@ extension WebKitSerializedTests.BridgeWorktreeFileSurfaceTransportTests:
     BridgeWorktreeFileSurfaceTransportTestHelpers
 {}
 
+extension WebKitSerializedTests.BridgeWorktreeFileSurfaceDemandTransportTests:
+    BridgeWorktreeFileSurfaceTransportTestHelpers
+{}
+
 extension WebKitSerializedTests.BridgeWorktreeFileSurfaceDescriptorTransportTests:
     BridgeWorktreeFileSurfaceTransportTestHelpers
 {}
@@ -24,6 +28,10 @@ extension WebKitSerializedTests.BridgeWorktreeFileSurfaceScopeTransportTests:
 {}
 
 extension WebKitSerializedTests.BridgeWorktreeFileTreeBoundaryTests:
+    BridgeWorktreeFileSurfaceTransportTestHelpers
+{}
+
+extension WebKitSerializedTests.BridgeWorktreeFileInterestTransportTests:
     BridgeWorktreeFileSurfaceTransportTestHelpers
 {}
 

@@ -124,9 +124,17 @@ struct BridgeWorktreeFileResourceBody: Equatable, Sendable {
 
 struct BridgeWorktreeTreeWindowResourceBody: Codable, Equatable, Sendable {
     struct Row: Codable, Equatable, Sendable {
+        let rowId: String
         let path: String
+        let name: String
+        let parentPath: String?
         let kind: String
         let depth: Int
+        let isDirectory: Bool
+        let fileId: String?
+        let sizeBytes: Int?
+        let lineCount: Int?
+        let changeStatus: String?
     }
 
     let source: BridgeWorktreeFileSurfaceSourceIdentity

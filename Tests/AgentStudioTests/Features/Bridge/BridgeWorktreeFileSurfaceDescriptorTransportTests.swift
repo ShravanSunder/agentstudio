@@ -14,7 +14,12 @@ extension WebKitSerializedTests {
 
         @Test("file scoped open source reports metadata tree rows without metadata resource leases")
         func fileScopedOpenSourceReportsMetadataTreeRowsWithoutMetadataResourceLeases() async throws {
-            let fixture = try makeControllerFixture()
+            let eventCapture = BridgeWorktreeFileSurfaceEventCapture()
+            let fixture = try makeControllerFixtureWithIntakeSink(
+                intakeFrameSink: { _, frameJSON, _ in
+                    await eventCapture.recordIntake(frameJSON)
+                }
+            )
             defer { try? FileManager.default.removeItem(at: fixture.rootURL) }
             let fileURL = fixture.rootURL
                 .appending(path: "Sources")
@@ -47,8 +52,13 @@ extension WebKitSerializedTests {
             )
 
             let firstResponse = try await decodedResponse(from: firstResponseCapture)
+            await fixture.controller.handleBridgeIntakeReady(
+                BridgeIntakeReadyMethod.Params(
+                    protocolId: "worktree-file", streamId: firstResponse.result.streamId)
+            )
             await fixture.controller.activeWorktreeFileTreeWindowTask?.value
-            let firstSnapshotJSON = try #require(fixture.controller.pendingWorktreeFileIntakeFrames.first)
+            await fixture.controller.worktreeFileMetadataScheduler.waitUntilDrained()
+            let firstSnapshotJSON = try #require(await eventCapture.intakeFrames().first)
             let firstSnapshot = try decodeIntakeEnvelope(
                 firstSnapshotJSON,
                 as: BridgeWorktreeSnapshotFrame.self
@@ -133,6 +143,7 @@ extension WebKitSerializedTests {
                 BridgeIntakeReadyMethod.Params(protocolId: "worktree-file", streamId: response.result.streamId)
             )
             await fixture.controller.activeWorktreeFileTreeWindowTask?.value
+            await fixture.controller.worktreeFileMetadataScheduler.waitUntilDrained()
             let events = await eventCapture.events()
             #expect(events == ["response", "intake"])
             let intakeFrames = await eventCapture.intakeFrames()
@@ -152,8 +163,14 @@ extension WebKitSerializedTests {
                 path: "Sources/App/View.swift",
                 lane: .foreground
             )
+            await fixture.controller.worktreeFileMetadataScheduler.waitUntilDrained()
+            // The descriptor frame is emitted by a scheduler job, so its
+            // delivery interleaves with the RPC response at suspension
+            // points; only counts and intake order are deterministic.
             let demandEvents = await eventCapture.events()
-            #expect(demandEvents == ["response", "intake", "intake", "response"])
+            #expect(demandEvents.prefix(2) == ["response", "intake"])
+            #expect(demandEvents.count == 4)
+            #expect(demandEvents.filter { $0 == "response" }.count == 2)
             let demandIntakeFrames = await eventCapture.intakeFrames()
             let intakeFrame = try decodeDescriptorEnvelope(demandIntakeFrames[1])
             #expect(intakeFrame.kind == "delta")
@@ -227,6 +244,7 @@ extension WebKitSerializedTests {
                 BridgeIntakeReadyMethod.Params(protocolId: "worktree-file", streamId: response.result.streamId)
             )
             await fixture.controller.activeWorktreeFileTreeWindowTask?.value
+            await fixture.controller.worktreeFileMetadataScheduler.waitUntilDrained()
             let treeFrames = await eventCapture.intakeFrames()
             #expect(treeFrames.count == 2)
             let treeWindow = try decodeIntakeEnvelope(
@@ -246,6 +264,7 @@ extension WebKitSerializedTests {
                 path: "File-259.swift",
                 lane: .foreground
             )
+            await fixture.controller.worktreeFileMetadataScheduler.waitUntilDrained()
 
             let demandFrames = await eventCapture.intakeFrames()
             #expect(demandFrames.count == 3)
@@ -304,6 +323,7 @@ extension WebKitSerializedTests {
                 BridgeIntakeReadyMethod.Params(protocolId: "worktree-file", streamId: response.result.streamId)
             )
             await fixture.controller.activeWorktreeFileTreeWindowTask?.value
+            await fixture.controller.worktreeFileMetadataScheduler.waitUntilDrained()
             let events = await eventCapture.events()
             #expect(events == ["response", "intake"])
             let intakeFrames = await eventCapture.intakeFrames()
@@ -340,6 +360,10 @@ extension WebKitSerializedTests {
                 path: "README.md",
                 lane: .visible
             )
+            // Drain between the two demands: with both queued, strict lane
+            // priority would legally deliver the foreground descriptor before
+            // the visible one, so per-request delivery is what pins the order.
+            await fixture.controller.worktreeFileMetadataScheduler.waitUntilDrained()
             try await requestFileDescriptor(
                 controller: fixture.controller,
                 requestId: "request-source-descriptor",
@@ -348,6 +372,7 @@ extension WebKitSerializedTests {
                 path: "Sources/App/View.swift",
                 lane: .foreground
             )
+            await fixture.controller.worktreeFileMetadataScheduler.waitUntilDrained()
             let demandFrames = await eventCapture.intakeFrames()
             let firstDescriptor = try decodeDescriptorEnvelope(demandFrames[1])
             let secondDescriptor = try decodeDescriptorEnvelope(demandFrames[2])

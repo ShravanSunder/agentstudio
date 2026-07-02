@@ -9,8 +9,10 @@ struct BridgeMetadataLaneJob: Sendable {
     let lane: BridgeDemandLane
     /// Emission work: reserve the protocol sequence, encode, and deliver.
     /// Jobs execute serially on the drain loop, so sequence order equals
-    /// delivery order by construction.
-    let work: @MainActor @Sendable () async -> Void
+    /// delivery order by construction. Returning false signals a transport
+    /// failure: the scheduler closes the protocol gate and retains the job
+    /// at the front of its lane for retry when the gate reopens.
+    let work: @MainActor @Sendable () async -> Bool
 }
 
 /// Queue-wait and drop facts emitted by the scheduler. Enqueue-to-dequeue
@@ -86,7 +88,7 @@ actor BridgeMetadataLaneScheduler {
     private let clock: ContinuousClock
     private let idleNoStarvationBudget: Int
     private let idleGate: BridgeMetadataLaneSchedulerIdleGate?
-    private let telemetry: (any BridgeMetadataLaneSchedulerTelemetry)?
+    private var telemetry: (any BridgeMetadataLaneSchedulerTelemetry)?
 
     private var queuesByLane: [BridgeDemandLane: [QueuedJob]] = [:]
     private var openProtocolIds = Set<String>()
@@ -110,6 +112,12 @@ actor BridgeMetadataLaneScheduler {
 
     var queuedJobCount: Int {
         queuesByLane.values.reduce(0) { $0 + $1.count }
+    }
+
+    /// Late telemetry wiring for owners whose recorder is not available at
+    /// scheduler construction time.
+    func configureTelemetry(_ telemetry: any BridgeMetadataLaneSchedulerTelemetry) {
+        self.telemetry = telemetry
     }
 
     /// Accepts the current generation for a protocol; queued jobs bound to
@@ -180,7 +188,14 @@ actor BridgeMetadataLaneScheduler {
                 waitMilliseconds: waitMilliseconds,
                 queueDepth: queuedJobCount
             )
-            await dequeued.job.work()
+            let delivered = await dequeued.job.work()
+            guard delivered else {
+                // Transport failure: retain the job at the front of its lane
+                // and close the gate; reopening the gate retries in order.
+                closeGate(protocolId: dequeued.job.protocolId)
+                queuesByLane[dequeued.job.lane, default: []].insert(dequeued, at: 0)
+                continue
+            }
             drainedJobCount += 1
             if dequeued.job.lane == .idle {
                 higherLaneJobsSinceIdleService = 0

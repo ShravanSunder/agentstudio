@@ -132,6 +132,7 @@ extension WebKitSerializedTests {
                     lane: .foreground
                 )
             )
+            await fixture.controller.worktreeFileMetadataScheduler.waitUntilDrained()
             let intakeFrames = await eventCapture.intakeFrames()
             #expect(intakeFrames.count == 2)
             let descriptorEnvelope = try decodeDescriptorEnvelope(try #require(intakeFrames.last))
@@ -260,6 +261,7 @@ extension WebKitSerializedTests {
                     lane: .foreground
                 )
             )
+            await fixture.controller.worktreeFileMetadataScheduler.waitUntilDrained()
             let intakeFrames = await eventCapture.intakeFrames()
             #expect(intakeFrames.count == 2)
             let descriptorEnvelope = try decodeDescriptorEnvelope(try #require(intakeFrames.last))

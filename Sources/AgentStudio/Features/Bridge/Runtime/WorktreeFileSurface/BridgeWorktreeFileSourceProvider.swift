@@ -1,11 +1,21 @@
 import Foundation
 
-struct BridgeWorktreeFileOpenedSource: Equatable, Sendable {
+struct BridgeWorktreeFileOpenedSource: Sendable {
     let source: BridgeWorktreeFileSurfaceSourceIdentity
     let canonicalCwdScope: String
     let canonicalPathScope: [String]
+    let ignorePolicy: BridgeWorktreeFileIgnorePolicy
     let includeStatuses: Bool
-    let includeFileDescriptors: Bool
+
+    func withIgnorePolicy(_ ignorePolicy: BridgeWorktreeFileIgnorePolicy) -> Self {
+        Self(
+            source: source,
+            canonicalCwdScope: canonicalCwdScope,
+            canonicalPathScope: canonicalPathScope,
+            ignorePolicy: ignorePolicy,
+            includeStatuses: includeStatuses
+        )
+    }
 }
 
 enum BridgeWorktreeFileSourceProviderError: Error, Equatable, Sendable {
@@ -57,8 +67,8 @@ enum BridgeWorktreeFileSourceProvider {
             source: source,
             canonicalCwdScope: relativePath(canonicalPath: cwdPath, rootPath: rootPath),
             canonicalPathScope: canonicalPathScope,
-            includeStatuses: spec.includeStatuses,
-            includeFileDescriptors: spec.includeFileDescriptors
+            ignorePolicy: .empty,
+            includeStatuses: spec.includeStatuses
         )
     }
 

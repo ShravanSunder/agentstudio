@@ -69,6 +69,7 @@ extension WebKitSerializedTests {
                     batchSeq: 42
                 )
             )
+            await fixture.controller.worktreeFileMetadataScheduler.waitUntilDrained()
 
             let events = await eventCapture.events()
             #expect(events == ["response", "intake", "intake", "intake", "intake"])
@@ -159,6 +160,7 @@ extension WebKitSerializedTests {
                     batchSeq: 43
                 )
             )
+            await fixture.controller.worktreeFileMetadataScheduler.waitUntilDrained()
 
             let intakeFrames = await eventCapture.intakeFrames()
             #expect(snapshot.streamId == response.result.streamId)
@@ -243,6 +245,9 @@ extension WebKitSerializedTests {
                     origin: nil
                 )
             )
+            // Drain fully before asserting suppression: the stale status must
+            // not deliver even once the scheduler has run everything it holds.
+            await fixture.controller.worktreeFileMetadataScheduler.waitUntilDrained()
 
             let intakeFrames = await eventCapture.intakeFrames()
             #expect(intakeFrames.count == 2)

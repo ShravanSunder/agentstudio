@@ -75,6 +75,7 @@ extension WebKitSerializedTests {
                 BridgeIntakeReadyMethod.Params(protocolId: "worktree-file", streamId: response.result.streamId)
             )
             await fixture.controller.activeWorktreeFileTreeWindowTask?.value
+            await fixture.controller.worktreeFileMetadataScheduler.waitUntilDrained()
             let intakeFrames = await eventCapture.intakeFrames()
             #expect(!intakeFrames.isEmpty)
             let snapshotEnvelope = try decodeIntakeEnvelope(
@@ -154,6 +155,7 @@ extension WebKitSerializedTests {
                 BridgeIntakeReadyMethod.Params(protocolId: "worktree-file", streamId: response.result.streamId)
             )
             await fixture.controller.activeWorktreeFileTreeWindowTask?.value
+            await fixture.controller.worktreeFileMetadataScheduler.waitUntilDrained()
             let treePaths = try await allTreePaths(from: eventCapture)
             #expect(treePaths.contains(".github"))
             #expect(treePaths.contains(".github/workflows"))
@@ -227,6 +229,7 @@ extension WebKitSerializedTests {
                 BridgeIntakeReadyMethod.Params(protocolId: "worktree-file", streamId: response.result.streamId)
             )
             await fixture.controller.activeWorktreeFileTreeWindowTask?.value
+            await fixture.controller.worktreeFileMetadataScheduler.waitUntilDrained()
             let snapshotJSON = try #require(await eventCapture.intakeFrames().first)
             let snapshotEnvelope = try decodeIntakeEnvelope(
                 snapshotJSON,
@@ -307,6 +310,7 @@ extension WebKitSerializedTests {
                 BridgeIntakeReadyMethod.Params(protocolId: "worktree-file", streamId: response.result.streamId)
             )
             await fixture.controller.activeWorktreeFileTreeWindowTask?.value
+            await fixture.controller.worktreeFileMetadataScheduler.waitUntilDrained()
             let intakeFrames = await eventCapture.intakeFrames()
             #expect(intakeFrames.count == 2)
             let snapshotEnvelope = try decodeIntakeEnvelope(
@@ -398,6 +402,7 @@ extension WebKitSerializedTests {
                 BridgeIntakeReadyMethod.Params(protocolId: "worktree-file", streamId: response.result.streamId)
             )
             await fixture.controller.activeWorktreeFileTreeWindowTask?.value
+            await fixture.controller.worktreeFileMetadataScheduler.waitUntilDrained()
             let treePaths = try await allTreePaths(from: eventCapture)
             #expect(treePaths.contains("Parent.swift"))
             #expect(treePaths.contains("vendor"))
@@ -456,6 +461,7 @@ extension WebKitSerializedTests {
             #expect(await manifestIndex.isEnumerationComplete)
             #expect(await manifestIndex.count == 9)
 
+            await fixture.controller.worktreeFileMetadataScheduler.waitUntilDrained()
             let framesBeforeInterest = (await eventCapture.intakeFrames()).count
             for (probeIndex, lane) in ["foreground", "visible", "nearby"].enumerated() {
                 await fixture.controller.handleIncomingRPC(
@@ -464,6 +470,7 @@ extension WebKitSerializedTests {
                     """
                 )
             }
+            await fixture.controller.worktreeFileMetadataScheduler.waitUntilDrained()
             #expect((await eventCapture.intakeFrames()).count == framesBeforeInterest + 3)
             #expect(await manifestIndex.enumerationCount == 1)
             fixture.controller.teardown()
@@ -518,6 +525,7 @@ extension WebKitSerializedTests {
 
             let deletedPath = "Sources/Doomed.swift"
             try FileManager.default.removeItem(at: repoURL.appending(path: deletedPath))
+            await fixture.controller.worktreeFileMetadataScheduler.waitUntilDrained()
             let framesBeforeInterest = (await eventCapture.intakeFrames()).count
             await fixture.controller.handleIncomingRPC(
                 """
@@ -525,6 +533,7 @@ extension WebKitSerializedTests {
                 """
             )
 
+            await fixture.controller.worktreeFileMetadataScheduler.waitUntilDrained()
             let framesAfterInterest = Array(
                 (await eventCapture.intakeFrames()).dropFirst(framesBeforeInterest)
             )
@@ -634,6 +643,7 @@ extension WebKitSerializedTests {
                 )
             )
 
+            await fixture.controller.worktreeFileMetadataScheduler.waitUntilDrained()
             var sawFreshUpsert = false
             var sawDoomedRemoval = false
             for frameJSON in await eventCapture.intakeFrames() {
@@ -662,26 +672,24 @@ extension WebKitSerializedTests {
             fixture.controller.teardown()
         }
 
-        @Test("pending intake flush survives a reentrant source reopen during delivery")
-        func pendingIntakeFlushSurvivesReentrantSourceReopenDuringDelivery() async throws {
-            let repoURL = try FilesystemTestGitRepo.create(named: "worktree-file-flush-reentrancy")
+        @Test("delivered intake frame sequences are never descending")
+        func deliveredIntakeFrameSequencesAreNeverDescending() async throws {
+            let repoURL = try FilesystemTestGitRepo.create(named: "worktree-file-sequence-order")
             defer { FilesystemTestGitRepo.destroy(repoURL) }
             let sourcesURL = repoURL.appending(path: "Sources")
             try FileManager.default.createDirectory(at: sourcesURL, withIntermediateDirectories: true)
-            for fileIndex in 0..<210 {
-                try "struct R\(fileIndex) {}\n".write(
-                    to: sourcesURL.appending(path: String(format: "R%03d.swift", fileIndex)),
+            for fileIndex in 0..<260 {
+                try "struct S\(fileIndex) {}\n".write(
+                    to: sourcesURL.appending(path: String(format: "S%03d.swift", fileIndex)),
                     atomically: true,
                     encoding: .utf8
                 )
             }
             let eventCapture = BridgeWorktreeFileSurfaceEventCapture()
-            let reopenTrigger = BridgeFlushReopenTrigger()
             let fixture = try makeControllerFixtureWithIntakeSink(
                 rootURL: repoURL,
                 intakeFrameSink: { _, frameJSON, _ in
                     await eventCapture.recordIntake(frameJSON)
-                    await reopenTrigger.fireIfArmed()
                 }
             )
             let responseCapture = BridgeWorktreeFileSurfaceResponseCapture()
@@ -693,41 +701,37 @@ extension WebKitSerializedTests {
             )
             await fixture.controller.handleIncomingRPC(
                 try BridgeWorktreeFileSurfaceRPCRequest(
-                    id: "open-flush-reentrancy",
+                    id: "open-sequence-order",
                     method: "worktreeFileSurface.openSourceStream",
                     params: sourceSpec(
                         fixture: fixture,
-                        clientRequestId: "request-flush-reentrancy",
+                        clientRequestId: "request-sequence-order",
                         pathScope: []
                     )
                 ).jsonString()
             )
-            _ = try await decodedResponse(from: responseCapture)
+            let response = try await decodedResponse(from: responseCapture)
             await fixture.controller.activeWorktreeFileTreeWindowTask?.value
-            #expect(fixture.controller.pendingWorktreeFileIntakeFrames.count > 1)
 
-            let reopenRequestJSON = try BridgeWorktreeFileSurfaceRPCRequest(
-                id: "open-flush-reentrancy-second",
-                method: "worktreeFileSurface.openSourceStream",
-                params: sourceSpec(
-                    fixture: fixture,
-                    clientRequestId: "request-flush-reentrancy-second",
-                    pathScope: []
-                )
-            ).jsonString()
-            await reopenTrigger.arm { [weak controller = fixture.controller] in
-                await controller?.handleIncomingRPC(reopenRequestJSON)
-            }
-            // The reopen fires inside the first delivery await of the flush;
-            // the flush must not trap on the cleared buffer and must not
-            // double-drain. Reaching the assertions below is the proof that
-            // no precondition trap occurred.
-            await fixture.controller.handleBridgeIntakeReady(
-                BridgeIntakeReadyMethod.Params(
-                    protocolId: "worktree-file", streamId: "worktree-file:\(fixture.paneId.uuidString)")
+            // Pre-ready interest: reserved after the buffered continuation
+            // window (higher sequence), reprioritized ahead of it. Delivery
+            // order must still be sequence order for the strict monotonic
+            // browser receiver.
+            await fixture.controller.handleIncomingRPC(
+                """
+                {"jsonrpc":"2.0","method":"bridge.metadata_interest.update","params":{"protocol":"worktree-file","streamId":"\(response.result.streamId)","generation":\(response.result.generation),"paths":["Sources/S000.swift"],"lane":"visible"},"id":"sequence-order-interest"}
+                """
             )
-            await fixture.controller.activeWorktreeFileTreeWindowTask?.value
-            #expect(fixture.controller.activeWorktreeFileSurfaceSource != nil)
+            await fixture.controller.handleBridgeIntakeReady(
+                BridgeIntakeReadyMethod.Params(protocolId: "worktree-file", streamId: response.result.streamId)
+            )
+
+            await fixture.controller.worktreeFileMetadataScheduler.waitUntilDrained()
+            let deliveredSequences = try await eventCapture.intakeFrames().map { frameJSON in
+                try decodeIntakeEnvelope(frameJSON, as: BridgeWorktreeFileFrameKindProbe.self).sequence
+            }
+            #expect(deliveredSequences.count >= 3)
+            #expect(deliveredSequences == deliveredSequences.sorted())
             fixture.controller.teardown()
         }
 
@@ -764,20 +768,4 @@ extension WebKitSerializedTests {
 
 private struct BridgeWorktreeFileFrameKindProbe: Decodable {
     let frameKind: String
-}
-
-/// Arms a one-shot reentrant action that fires inside an intake delivery
-/// await, so flush reentrancy is exercised deterministically without sleeps.
-private actor BridgeFlushReopenTrigger {
-    private var armedAction: (@Sendable () async -> Void)?
-
-    func arm(_ action: @escaping @Sendable () async -> Void) {
-        armedAction = action
-    }
-
-    func fireIfArmed() async {
-        guard let action = armedAction else { return }
-        armedAction = nil
-        await action()
-    }
 }

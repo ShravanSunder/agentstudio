@@ -114,7 +114,7 @@ extension BridgePaneController {
                 }
                 await manifestIndex.appendEnumeratedRows(batch.rows)
                 if counters.snapshotSent {
-                    try await publishManifestContinuationWindow(
+                    await publishManifestContinuationWindow(
                         batch: batch,
                         publication: publication,
                         counters: &counters
@@ -122,14 +122,14 @@ extension BridgePaneController {
                 } else {
                     counters.snapshotSent = true
                     counters.snapshotRowCount = batch.rows.count
-                    try await dispatchWorktreeFileSurfaceSnapshot(
+                    await dispatchWorktreeFileSurfaceSnapshot(
                         rows: batch.rows,
                         publication: publication
                     )
                 }
             }
             if !counters.snapshotSent {
-                try await dispatchWorktreeFileSurfaceSnapshot(rows: [], publication: publication)
+                await dispatchWorktreeFileSurfaceSnapshot(rows: [], publication: publication)
             }
             await manifestIndex.markEnumerationComplete()
             await recordNativeWorktreeFileFullManifestTelemetry(
@@ -197,21 +197,19 @@ extension BridgePaneController {
         guard !operations.isEmpty else {
             return
         }
-        let sequence = try reserveWorktreeFileSurfaceSequenceBlock(
-            count: 1,
-            source: latestActiveSource.source,
-            streamId: latestActiveSource.streamId
-        )
-        let deltaFrame = BridgeWorktreeTreeDeltaFrame(
-            streamId: latestActiveSource.streamId,
-            generation: latestActiveSource.source.subscriptionGeneration,
-            sequence: sequence,
-            operations: operations
-        )
-        try await dispatchWorktreeFileIntakeFrames(
-            [deltaFrame],
-            allowsTreeWindowPublication: true
-        )
+        let generation = latestActiveSource.source.subscriptionGeneration
+        let deltaOperations = operations
+        await enqueueWorktreeFileMetadataJob(lane: .active, generation: generation) { [weak self] in
+            guard let self else { return true }
+            return await self.deliverWorktreeFileFrameJob(generation: generation) { current, sequence in
+                BridgeWorktreeTreeDeltaFrame(
+                    streamId: current.streamId,
+                    generation: current.source.subscriptionGeneration,
+                    sequence: sequence,
+                    operations: deltaOperations
+                )
+            }
+        }
     }
 
     private func isWorktreeFileManifestSourceCurrent(
@@ -225,32 +223,54 @@ extension BridgePaneController {
             && activeSource.source.subscriptionGeneration == nextWorktreeFileSurfaceGeneration
     }
 
+    /// Enqueues one continuation window as an idle-lane job. The job builds
+    /// the frame, reserves its sequence, and delivers through the scheduler's
+    /// serialized drain, so continuation can never overtake higher-lane work
+    /// and delivery order equals sequence order.
     private func publishManifestContinuationWindow(
         batch: BridgeWorktreeTreeRowWindowBatch,
         publication: WorktreeFileManifestPublication,
         counters: inout WorktreeFileManifestCounters
-    ) async throws {
-        let batchPublishStart = ContinuousClock.now
-        let timing = try await publishWorktreeFileTreeWindowBatch(
-            batch,
-            openedSource: publication.openedSource,
-            streamId: publication.streamId,
-            treeExtent: publication.treeExtent
-        )
-        if counters.firstPublishedSequence == nil {
-            counters.firstPublishedSequence = timing.sequence
-        }
-        await recordWorktreeFileTreeWindowBatchTelemetry(
-            batch: batch,
-            publication: timing,
-            durationMilliseconds: Self.milliseconds(
-                from: batchPublishStart.duration(to: ContinuousClock.now)
-            ),
-            pendingFrameCount: pendingWorktreeFileIntakeFrames.count
-        )
+    ) async {
         counters.emittedWindowCount += 1
-        if worktreeFileIntakeReadyStreamId != nil {
-            await flushPendingWorktreeFileIntakeFrames()
+        let generation = publication.openedSource.source.subscriptionGeneration
+        await enqueueWorktreeFileMetadataJob(lane: .idle, generation: generation) { [weak self] in
+            guard let self else { return true }
+            let batchPublishStart = ContinuousClock.now
+            let pathCount =
+                if batch.isFinalWindow {
+                    batch.discoveredRowCount
+                } else {
+                    publication.treeExtent.pathCount.map { max($0, batch.discoveredRowCount) }
+                }
+            let delivered = await self.deliverWorktreeFileFrameJob(generation: generation) { current, sequence in
+                BridgeWorktreeFileSurfaceFrameBuilder.treeWindow(
+                    request: BridgeWorktreeTreeWindowBuildRequest(
+                        paneId: self.paneId.uuidString,
+                        source: current.source,
+                        streamId: current.streamId,
+                        sequence: sequence,
+                        treeWindowKey:
+                            "worktree-tree-\(current.source.sourceId)-\(current.source.subscriptionGeneration)-\(batch.startIndex)",
+                        pathScope: current.openedSource.canonicalPathScope,
+                        treePathCount: pathCount,
+                        treeEstimatedTotalHeightPixels: publication.treeExtent
+                            .estimatedTotalHeightPixels,
+                        treeWindowStartIndex: batch.startIndex,
+                        treeWindowRowCount: batch.rows.count,
+                        treeRowHeightPixels: worktreeFileTreeRowHeightPixels,
+                        rows: batch.rows
+                    )
+                )
+            }
+            await self.recordWorktreeFileTreeWindowBatchTelemetry(
+                batch: batch,
+                durationMilliseconds: Self.milliseconds(
+                    from: batchPublishStart.duration(to: ContinuousClock.now)
+                ),
+                pendingFrameCount: await self.worktreeFileMetadataScheduler.queuedJobCount
+            )
+            return delivered
         }
     }
 
@@ -264,56 +284,60 @@ extension BridgePaneController {
             allRowCount: counters.latestDiscoveredRowCount,
             windowCount: counters.emittedWindowCount,
             firstSequence: counters.firstPublishedSequence,
-            pendingFrameCount: pendingWorktreeFileIntakeFrames.count
+            pendingFrameCount: await worktreeFileMetadataScheduler.queuedJobCount
         )
     }
 
+    /// Enqueues the startup snapshot as a foreground job. The snapshot is
+    /// always sequence 0 and must be the first delivered frame of the
+    /// accepted stream; foreground priority plus the closed-until-ready gate
+    /// guarantee that.
     private func dispatchWorktreeFileSurfaceSnapshot(
         rows: [BridgeWorktreeTreeRowMetadata],
         publication: WorktreeFileManifestPublication
-    ) async throws {
-        let openedSource = publication.openedSource
-        let requestSelector = publication.requestSelector
-        let streamId = publication.streamId
-        let treeExtent = publication.treeExtent
-        let openStartedAt = publication.openStartedAt
-        let treePathCount: Int? =
-            if let pathCount = treeExtent.pathCount {
-                max(pathCount, rows.count)
-            } else {
-                nil
+    ) async {
+        let generation = publication.openedSource.source.subscriptionGeneration
+        await enqueueWorktreeFileMetadataJob(lane: .foreground, generation: generation) { [weak self] in
+            guard let self else { return true }
+            guard let current = self.activeWorktreeFileSurfaceSource,
+                current.source.subscriptionGeneration == generation,
+                generation == self.nextWorktreeFileSurfaceGeneration
+            else {
+                return true
             }
-        let snapshotFrame = BridgeWorktreeFileSurfaceFrameBuilder.snapshot(
-            request: BridgeWorktreeFileSnapshotBuildRequest(
-                paneId: paneId.uuidString,
-                source: openedSource.source,
-                requestSelector: requestSelector,
-                streamId: streamId,
-                sequence: 0,
-                treePathCount: treePathCount,
-                treeEstimatedTotalHeightPixels: treeExtent.estimatedTotalHeightPixels,
-                treeWindowStartIndex: 0,
-                treeWindowRowCount: rows.count,
-                treeRowHeightPixels: worktreeFileTreeRowHeightPixels,
-                treeRows: rows,
-                includeStatusPatch: openedSource.includeStatuses
+            let treePathCount: Int? =
+                if let pathCount = publication.treeExtent.pathCount {
+                    max(pathCount, rows.count)
+                } else {
+                    nil
+                }
+            let snapshotFrame = BridgeWorktreeFileSurfaceFrameBuilder.snapshot(
+                request: BridgeWorktreeFileSnapshotBuildRequest(
+                    paneId: self.paneId.uuidString,
+                    source: publication.openedSource.source,
+                    requestSelector: publication.requestSelector,
+                    streamId: publication.streamId,
+                    sequence: 0,
+                    treePathCount: treePathCount,
+                    treeEstimatedTotalHeightPixels: publication.treeExtent
+                        .estimatedTotalHeightPixels,
+                    treeWindowStartIndex: 0,
+                    treeWindowRowCount: rows.count,
+                    treeRowHeightPixels: worktreeFileTreeRowHeightPixels,
+                    treeRows: rows,
+                    includeStatusPatch: publication.openedSource.includeStatuses
+                )
             )
-        )
-        try await dispatchWorktreeFileIntakeFrames([snapshotFrame])
-        await recordNativeWorktreeFileOpenToFirstWindowTelemetry(
-            durationMilliseconds: Self.milliseconds(from: openStartedAt.duration(to: ContinuousClock.now)),
-            emittedRows: rows.count,
-            expectedTotal: treePathCount
-        )
-        if worktreeFileIntakeReadyStreamId != nil {
-            await flushPendingWorktreeFileIntakeFrames()
+            let delivered = await self.deliverWorktreeFileIntakeFramesNow([snapshotFrame])
+            await self.recordNativeWorktreeFileOpenToFirstWindowTelemetry(
+                durationMilliseconds: Self.milliseconds(
+                    from: publication.openStartedAt.duration(to: ContinuousClock.now)
+                ),
+                emittedRows: rows.count,
+                expectedTotal: treePathCount
+            )
+            return delivered
         }
-    }
-
-    private struct WorktreeFileTreeWindowPublicationTiming: Sendable {
-        let dispatchElapsedMilliseconds: Double
-        let prepareElapsedMilliseconds: Double
-        let sequence: Int
     }
 
     private func recordNativeWorktreeFileOpenToFirstWindowTelemetry(
@@ -389,79 +413,6 @@ extension BridgePaneController {
         )
     }
 
-    private func publishWorktreeFileTreeWindowBatch(
-        _ batch: BridgeWorktreeTreeRowWindowBatch,
-        openedSource: BridgeWorktreeFileOpenedSource,
-        streamId: String,
-        treeExtent: BridgeWorktreeOpenTreeExtent
-    ) async throws -> WorktreeFileTreeWindowPublicationTiming {
-        beginWorktreeFileTreeWindowPublication()
-        defer {
-            finishWorktreeFileTreeWindowPublication()
-        }
-        let prepareStart = ContinuousClock.now
-        let pathCount =
-            if batch.isFinalWindow {
-                batch.discoveredRowCount
-            } else {
-                treeExtent.pathCount.map { max($0, batch.discoveredRowCount) }
-            }
-        let preparedFrame = BridgeWorktreeFileSurfaceFrameBuilder.treeWindow(
-            request: BridgeWorktreeTreeWindowBuildRequest(
-                paneId: paneId.uuidString,
-                source: openedSource.source,
-                streamId: streamId,
-                sequence: 0,
-                treeWindowKey:
-                    "worktree-tree-\(openedSource.source.sourceId)-\(openedSource.source.subscriptionGeneration)-\(batch.startIndex)",
-                pathScope: openedSource.canonicalPathScope,
-                treePathCount: pathCount,
-                treeEstimatedTotalHeightPixels: treeExtent.estimatedTotalHeightPixels,
-                treeWindowStartIndex: batch.startIndex,
-                treeWindowRowCount: batch.rows.count,
-                treeRowHeightPixels: worktreeFileTreeRowHeightPixels,
-                rows: batch.rows
-            )
-        )
-        guard !Task.isCancelled,
-            let currentActiveSource = activeWorktreeFileSurfaceSource,
-            currentActiveSource.source == openedSource.source,
-            currentActiveSource.streamId == streamId,
-            currentActiveSource.source.subscriptionGeneration == nextWorktreeFileSurfaceGeneration
-        else {
-            throw CancellationError()
-        }
-        let sequence = try reserveWorktreeFileSurfaceSequenceBlock(
-            count: 1,
-            source: currentActiveSource.source,
-            streamId: currentActiveSource.streamId
-        )
-        let frame = BridgeWorktreeTreeWindowFrame(
-            streamId: streamId,
-            sequence: sequence,
-            projectionIdentity: preparedFrame.projectionIdentity,
-            rows: preparedFrame.rows,
-            treeSizeFacts: preparedFrame.treeSizeFacts
-        )
-        let prepareElapsedMilliseconds = Self.milliseconds(from: prepareStart.duration(to: ContinuousClock.now))
-        let dispatchStart = ContinuousClock.now
-        try await dispatchWorktreeFileIntakeFrames([frame], allowsTreeWindowPublication: true)
-        let dispatchElapsedMilliseconds = Self.milliseconds(from: dispatchStart.duration(to: ContinuousClock.now))
-        return WorktreeFileTreeWindowPublicationTiming(
-            dispatchElapsedMilliseconds: dispatchElapsedMilliseconds,
-            prepareElapsedMilliseconds: prepareElapsedMilliseconds,
-            sequence: sequence
-        )
-    }
-
-    func beginWorktreeFileTreeWindowPublication() {
-        isPublishingWorktreeFileTreeWindows = true
-    }
-
-    func finishWorktreeFileTreeWindowPublication() {
-        isPublishingWorktreeFileTreeWindows = false
-    }
-
     private func recordWorktreeFileTreeWindowPublicationTelemetry(
         resultReason: String,
         initialRowCount: Int,
@@ -505,7 +456,6 @@ extension BridgePaneController {
 
     private func recordWorktreeFileTreeWindowBatchTelemetry(
         batch: BridgeWorktreeTreeRowWindowBatch,
-        publication: WorktreeFileTreeWindowPublicationTiming,
         durationMilliseconds: Double,
         pendingFrameCount: Int
     ) async {
@@ -528,12 +478,7 @@ extension BridgePaneController {
                 numericAttributes: [
                     "agentstudio.bridge.worktree_file.pending_frame.count": Double(pendingFrameCount),
                     "agentstudio.bridge.worktree_file.tree.discovered_row.count": Double(batch.discoveredRowCount),
-                    "agentstudio.bridge.worktree_file.tree.window.dispatch_elapsed_ms":
-                        publication.dispatchElapsedMilliseconds,
-                    "agentstudio.bridge.worktree_file.tree.window.prepare_elapsed_ms":
-                        publication.prepareElapsedMilliseconds,
                     "agentstudio.bridge.worktree_file.tree.window.row.count": Double(batch.rows.count),
-                    "agentstudio.bridge.worktree_file.tree.window.sequence": Double(publication.sequence),
                     "agentstudio.bridge.worktree_file.tree.window.start_index": Double(batch.startIndex),
                 ],
                 booleanAttributes: [

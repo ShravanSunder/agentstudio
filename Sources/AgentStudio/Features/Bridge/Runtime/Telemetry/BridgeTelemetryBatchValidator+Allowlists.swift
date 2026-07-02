@@ -164,6 +164,8 @@ extension BridgeTelemetryBatchValidator {
             "markdown_decision",
             "markdown_queue",
             "markdown_render",
+            "metadata_full_manifest_complete",
+            "metadata_open_to_first_window",
             "mode_switch",
             "prepare_input",
             "projection_input_build",

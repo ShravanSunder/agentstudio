@@ -43,8 +43,13 @@ extension BridgePaneController {
         }
 
         let streamId = "worktree-file:\(paneId.uuidString)"
-        pendingWorktreeFileIntakeFrames.removeAll(keepingCapacity: true)
-        worktreeFileIntakeReadyStreamId = nil
+        if let telemetryRecorder {
+            await worktreeFileMetadataScheduler.configureTelemetry(
+                BridgePaneMetadataSchedulerTelemetryAdapter(recorder: telemetryRecorder)
+            )
+        }
+        await worktreeFileMetadataScheduler.closeGate(protocolId: "worktree-file")
+        await worktreeFileMetadataScheduler.acceptGeneration(generation, protocolId: "worktree-file")
         activeWorktreeFileTreeWindowTask?.cancel()
         activeWorktreeFileTreeWindowTask = nil
         resourceLeaseRegistry.revokeSynchronously(paneId: paneId, protocolId: "worktree-file")
@@ -118,20 +123,18 @@ extension BridgePaneController {
             materializedDescriptor.resource,
             body: materializedDescriptor.body
         )
-        let sequence = try reserveWorktreeFileSurfaceSequenceBlock(
-            count: 1,
-            source: activeSource.source,
-            streamId: activeSource.streamId
-        )
-        let frame = BridgeWorktreeFileDescriptorFrame(
-            streamId: activeSource.streamId,
-            sequence: sequence,
-            descriptor: materializedDescriptor.frame.descriptor
-        )
-        try await dispatchWorktreeFileIntakeFrames(
-            [frame],
-            allowsTreeWindowPublication: params.lane == .foreground
-        )
+        let generation = activeSource.source.subscriptionGeneration
+        let descriptor = materializedDescriptor.frame.descriptor
+        await enqueueWorktreeFileMetadataJob(lane: params.lane, generation: generation) { [weak self] in
+            guard let self else { return true }
+            return await self.deliverWorktreeFileFrameJob(generation: generation) { current, sequence in
+                BridgeWorktreeFileDescriptorFrame(
+                    streamId: current.streamId,
+                    sequence: sequence,
+                    descriptor: descriptor
+                )
+            }
+        }
         return RPCNoResponse()
     }
 
@@ -186,61 +189,88 @@ extension BridgePaneController {
         }
         await manifestIndex.applyRefreshedRows(refreshed.rows)
         let removedRows = await manifestIndex.removePaths(refreshed.missingPaths)
+        let generation = latestActiveSource.source.subscriptionGeneration
+        let lane = params.lane
         if !refreshed.rows.isEmpty {
-            let sequence = try reserveWorktreeFileSurfaceSequenceBlock(
-                count: 1,
-                source: latestActiveSource.source,
-                streamId: latestActiveSource.streamId
-            )
-            let frame = BridgeWorktreeFileSurfaceFrameBuilder.treeWindow(
-                request: BridgeWorktreeTreeWindowBuildRequest(
-                    paneId: paneId.uuidString,
-                    source: latestActiveSource.source,
-                    streamId: latestActiveSource.streamId,
-                    sequence: sequence,
-                    treeWindowKey:
-                        "worktree-interest-\(latestActiveSource.source.sourceId)-\(latestActiveSource.source.subscriptionGeneration)-\(params.lane.rawValue)-\(sequence)",
-                    pathScope: latestActiveSource.openedSource.canonicalPathScope,
-                    treePathCount: nil,
-                    treeEstimatedTotalHeightPixels: nil,
-                    treeWindowStartIndex: nil,
-                    treeWindowRowCount: refreshed.rows.count,
-                    treeRowHeightPixels: worktreeFileTreeRowHeightPixels,
-                    rows: refreshed.rows
-                )
-            )
-            try await dispatchWorktreeFileIntakeFrames(
-                [frame],
-                allowsTreeWindowPublication: true,
-                pendingPlacement: .beforeIdleTreeWindows,
-                metadataLineageOverride: Self.worktreeMetadataLineage(for: params.lane)
-            )
+            let rows = refreshed.rows
+            await enqueueWorktreeFileMetadataJob(lane: lane, generation: generation) { [weak self] in
+                guard let self else { return true }
+                return await self.deliverWorktreeFileFrameJob(
+                    generation: generation,
+                    metadataLineageOverride: Self.worktreeMetadataLineage(for: lane)
+                ) { current, sequence in
+                    BridgeWorktreeFileSurfaceFrameBuilder.treeWindow(
+                        request: BridgeWorktreeTreeWindowBuildRequest(
+                            paneId: self.paneId.uuidString,
+                            source: current.source,
+                            streamId: current.streamId,
+                            sequence: sequence,
+                            treeWindowKey:
+                                "worktree-interest-\(current.source.sourceId)-\(current.source.subscriptionGeneration)-\(lane.rawValue)-\(sequence)",
+                            pathScope: current.openedSource.canonicalPathScope,
+                            treePathCount: nil,
+                            treeEstimatedTotalHeightPixels: nil,
+                            treeWindowStartIndex: nil,
+                            treeWindowRowCount: rows.count,
+                            treeRowHeightPixels: worktreeFileTreeRowHeightPixels,
+                            rows: rows
+                        )
+                    )
+                }
+            }
         }
         if !removedRows.isEmpty {
             // Stat-truth: a missing manifest member is removed, never served
             // as a stale upsert.
-            let sequence = try reserveWorktreeFileSurfaceSequenceBlock(
-                count: 1,
-                source: latestActiveSource.source,
-                streamId: latestActiveSource.streamId
-            )
-            let deltaFrame = BridgeWorktreeTreeDeltaFrame(
-                streamId: latestActiveSource.streamId,
-                generation: latestActiveSource.source.subscriptionGeneration,
-                sequence: sequence,
-                operations: [
-                    .removeRows(
-                        rowIds: removedRows.map(\.rowId),
-                        paths: removedRows.map(\.path)
+            let rowIds = removedRows.map(\.rowId)
+            let paths = removedRows.map(\.path)
+            await enqueueWorktreeFileMetadataJob(lane: lane, generation: generation) { [weak self] in
+                guard let self else { return true }
+                return await self.deliverWorktreeFileFrameJob(generation: generation) { current, sequence in
+                    BridgeWorktreeTreeDeltaFrame(
+                        streamId: current.streamId,
+                        generation: current.source.subscriptionGeneration,
+                        sequence: sequence,
+                        operations: [.removeRows(rowIds: rowIds, paths: paths)]
                     )
-                ]
-            )
-            try await dispatchWorktreeFileIntakeFrames(
-                [deltaFrame],
-                allowsTreeWindowPublication: true,
-                pendingPlacement: .beforeIdleTreeWindows
-            )
+                }
+            }
         }
+    }
+
+    /// Job body: re-validates the active source for the captured generation,
+    /// reserves one sequence, builds the frame, and delivers it. Stale jobs
+    /// are consumed silently — the scheduler already generation-gates, and
+    /// this closes the enqueue-to-execute race.
+    func deliverWorktreeFileFrameJob<Frame: Encodable>(
+        generation: Int,
+        metadataLineageOverride: BridgeWorktreeFileMetadataLineage? = nil,
+        buildFrame: (BridgeWorktreeFileSurfaceActiveSourceState, Int) -> Frame
+    ) async -> Bool {
+        guard let current = activeWorktreeFileSurfaceSource,
+            current.source.subscriptionGeneration == generation,
+            generation == nextWorktreeFileSurfaceGeneration
+        else {
+            return true
+        }
+        guard
+            let sequence = try? reserveWorktreeFileSurfaceSequenceBlock(
+                count: 1,
+                source: current.source,
+                streamId: current.streamId
+            )
+        else {
+            return true
+        }
+        let frame = buildFrame(current, sequence)
+        let delivered = await deliverWorktreeFileIntakeFramesNow(
+            [frame],
+            metadataLineageOverride: metadataLineageOverride
+        )
+        if !delivered {
+            rollbackWorktreeFileSurfaceSequenceReservation(firstSequence: sequence, count: 1)
+        }
+        return delivered
     }
 
     func publishWorktreeFileSurfaceStatus(_ status: GitWorkingTreeStatus) async throws {
@@ -250,20 +280,20 @@ extension BridgePaneController {
         guard activeSource.source.subscriptionGeneration == nextWorktreeFileSurfaceGeneration else {
             return
         }
-        let sequence = try reserveWorktreeFileSurfaceSequenceBlock(
-            count: 1,
-            source: activeSource.source,
-            streamId: activeSource.streamId
-        )
-        let frame = BridgeWorktreeFileSurfaceClassifier.statusPatchFrame(
-            request: BridgeWorktreeStatusPatchBuildRequest(
-                source: activeSource.source,
-                streamId: activeSource.streamId,
-                sequence: sequence,
-                status: status
-            )
-        )
-        try await dispatchWorktreeFileIntakeFrames([frame])
+        let generation = activeSource.source.subscriptionGeneration
+        await enqueueWorktreeFileMetadataJob(lane: .active, generation: generation) { [weak self] in
+            guard let self else { return true }
+            return await self.deliverWorktreeFileFrameJob(generation: generation) { current, sequence in
+                BridgeWorktreeFileSurfaceClassifier.statusPatchFrame(
+                    request: BridgeWorktreeStatusPatchBuildRequest(
+                        source: current.source,
+                        streamId: current.streamId,
+                        sequence: sequence,
+                        status: status
+                    )
+                )
+            }
+        }
     }
 
     func publishWorktreeFileSurfaceChangeset(_ changeset: FileChangeset) async throws {
@@ -322,41 +352,75 @@ extension BridgePaneController {
             latestActiveSource: latestActiveSource,
             rootURL: rootURL
         )
+        let generation = latestActiveSource.source.subscriptionGeneration
         let invalidationFrameCount = scopedChangeset.paths.filter { !Self.isWorktreeFileGitInternalPath($0) }.count
         guard invalidationFrameCount > 0 else {
             if changeset.containsGitInternalChanges {
-                let sequence = try reserveWorktreeFileSurfaceSequenceBlock(
-                    count: 1,
-                    source: latestActiveSource.source,
-                    streamId: latestActiveSource.streamId
-                )
-                let statusFrame = BridgeWorktreeFileSurfaceClassifier.statusInvalidatedFrame(
-                    request: BridgeWorktreeStatusInvalidationBuildRequest(
-                        source: latestActiveSource.source,
-                        streamId: latestActiveSource.streamId,
-                        sequence: sequence,
-                        changeset: changeset
-                    )
-                )
-                try await dispatchWorktreeFileIntakeFrames([statusFrame])
+                await enqueueWorktreeFileMetadataJob(lane: .active, generation: generation) { [weak self] in
+                    guard let self else { return true }
+                    return await self.deliverWorktreeFileFrameJob(generation: generation) { current, sequence in
+                        BridgeWorktreeFileSurfaceClassifier.statusInvalidatedFrame(
+                            request: BridgeWorktreeStatusInvalidationBuildRequest(
+                                source: current.source,
+                                streamId: current.streamId,
+                                sequence: sequence,
+                                changeset: changeset
+                            )
+                        )
+                    }
+                }
             }
             return
         }
-        let firstSequence = try reserveWorktreeFileSurfaceSequenceBlock(
-            count: invalidationFrameCount,
-            source: latestActiveSource.source,
-            streamId: latestActiveSource.streamId
+        await enqueueWorktreeFileChangesetInvalidationJob(
+            generation: generation,
+            invalidationFrameCount: invalidationFrameCount,
+            scopedChangeset: scopedChangeset,
+            latestDescriptorsByPath: latestDescriptorsByPath
         )
-        let invalidationFrames = BridgeWorktreeFileSurfaceClassifier.fileInvalidationFrames(
-            request: BridgeWorktreeFileChangesetClassificationRequest(
-                source: latestActiveSource.source,
-                streamId: latestActiveSource.streamId,
-                firstSequence: firstSequence,
-                changeset: scopedChangeset,
-                latestDescriptorsByPath: latestDescriptorsByPath
+    }
+
+    /// Multi-frame invalidation emission as one scheduler job: the sequence
+    /// block reserves inside the serialized drain, and a failed delivery
+    /// rolls the whole block back so the retained-job retry redelivers with
+    /// the same sequences.
+    private func enqueueWorktreeFileChangesetInvalidationJob(
+        generation: Int,
+        invalidationFrameCount: Int,
+        scopedChangeset: FileChangeset,
+        latestDescriptorsByPath: [String: BridgeWorktreeFileDescriptor]
+    ) async {
+        await enqueueWorktreeFileMetadataJob(lane: .active, generation: generation) { [weak self] in
+            guard let self else { return true }
+            guard let current = self.activeWorktreeFileSurfaceSource,
+                current.source.subscriptionGeneration == generation,
+                generation == self.nextWorktreeFileSurfaceGeneration,
+                let firstSequence = try? self.reserveWorktreeFileSurfaceSequenceBlock(
+                    count: invalidationFrameCount,
+                    source: current.source,
+                    streamId: current.streamId
+                )
+            else {
+                return true
+            }
+            let invalidationFrames = BridgeWorktreeFileSurfaceClassifier.fileInvalidationFrames(
+                request: BridgeWorktreeFileChangesetClassificationRequest(
+                    source: current.source,
+                    streamId: current.streamId,
+                    firstSequence: firstSequence,
+                    changeset: scopedChangeset,
+                    latestDescriptorsByPath: latestDescriptorsByPath
+                )
             )
-        )
-        try await dispatchWorktreeFileIntakeFrames(invalidationFrames)
+            let delivered = await self.deliverWorktreeFileIntakeFramesNow(invalidationFrames)
+            if !delivered {
+                self.rollbackWorktreeFileSurfaceSequenceReservation(
+                    firstSequence: firstSequence,
+                    count: invalidationFrameCount
+                )
+            }
+            return delivered
+        }
     }
 
     func publishWorktreeFileSurfaceReset(reason: BridgeWorktreeResetReason) async throws {
@@ -380,11 +444,16 @@ extension BridgePaneController {
         activeWorktreeFileSurfaceSource = nil
         activeWorktreeFileManifestIndex = nil
         nextWorktreeFileSurfaceGeneration += 1
-        pendingWorktreeFileIntakeFrames.removeAll(keepingCapacity: false)
+        await worktreeFileMetadataScheduler.closeGate(protocolId: "worktree-file")
+        await worktreeFileMetadataScheduler.acceptGeneration(
+            nextWorktreeFileSurfaceGeneration,
+            protocolId: "worktree-file"
+        )
         resourceLeaseRegistry.revokeSynchronously(paneId: paneId, protocolId: "worktree-file")
         await worktreeFileResourceStore.reset(protocolId: "worktree-file")
-        try await dispatchWorktreeFileIntakeFrames([frame])
-        worktreeFileIntakeReadyStreamId = nil
+        // Reset frames deliver directly: they are the lifecycle boundary, and
+        // the browser's generation gate stale-drops any queued laggards.
+        _ = await deliverWorktreeFileIntakeFramesNow([frame])
     }
 
     private func makeWorktreeFileSurfaceAuthority() throws -> Worktree {
@@ -440,6 +509,24 @@ extension BridgePaneController {
         activeSource.nextSequence += count
         activeWorktreeFileSurfaceSource = activeSource
         return firstSequence
+    }
+
+    /// Failed deliveries roll their reservation back so the scheduler's
+    /// retained-job retry redelivers with the same sequence instead of
+    /// leaving a gap that wedges the browser's monotonic intake gate.
+    /// Reservations only advance inside serialized scheduler jobs, so the
+    /// failed block is always the newest one; the guard makes the rollback
+    /// a no-op if that invariant is ever broken rather than corrupting the
+    /// cursor.
+    func rollbackWorktreeFileSurfaceSequenceReservation(firstSequence: Int, count: Int) {
+        guard var activeSource = activeWorktreeFileSurfaceSource,
+            activeSource.source.subscriptionGeneration == nextWorktreeFileSurfaceGeneration,
+            activeSource.nextSequence == firstSequence + count
+        else {
+            return
+        }
+        activeSource.nextSequence = firstSequence
+        activeWorktreeFileSurfaceSource = activeSource
     }
 
     private func activateWorktreeFileSurfaceLeases(

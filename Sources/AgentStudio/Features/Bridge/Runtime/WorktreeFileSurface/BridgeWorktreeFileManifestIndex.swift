@@ -46,6 +46,17 @@ actor BridgeWorktreeFileManifestIndex {
         Set(paths.filter { rowsByPath[$0] != nil })
     }
 
+    /// A bounded slice of the ordered manifest paths. Used by proof harnesses
+    /// to select known manifest members (for example, continuation rows past
+    /// the startup window) without re-enumerating the worktree.
+    func orderedPaths(startIndex: Int, limit: Int) -> [String] {
+        guard startIndex < orderedPaths.count, limit > 0 else {
+            return []
+        }
+        let endIndex = min(startIndex + limit, orderedPaths.count)
+        return Array(orderedPaths[startIndex..<endIndex])
+    }
+
     /// Watch-event stat-truth: updates existing manifest members in place and
     /// appends newly discovered rows at the end of the ordered manifest
     /// (deterministic enumeration ordering governs only the enumeration pass;

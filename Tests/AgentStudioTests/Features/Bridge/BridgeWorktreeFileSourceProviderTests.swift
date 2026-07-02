@@ -22,7 +22,6 @@ struct BridgeWorktreeFileSourceProviderTests {
 
         #expect(spec.pathScope.isEmpty)
         #expect(spec.includeStatuses)
-        #expect(spec.includeFileDescriptors)
         #expect(spec.includeComments == false)
         #expect(spec.includeAgentComms == false)
     }
@@ -111,7 +110,6 @@ struct BridgeWorktreeFileSourceProviderTests {
             cwdScope: "Sources/../Sources/App",
             pathScope: ["./Views/ContentView.swift"],
             includeStatuses: true,
-            includeFileDescriptors: true,
             includeComments: false,
             includeAgentComms: false,
             freshness: .live
@@ -131,7 +129,6 @@ struct BridgeWorktreeFileSourceProviderTests {
         #expect(opened.canonicalCwdScope == "Sources/App")
         #expect(opened.canonicalPathScope == ["Sources/App/Views/ContentView.swift"])
         #expect(opened.includeStatuses)
-        #expect(opened.includeFileDescriptors)
     }
 
     @Test("open source rejects browser selector that escapes worktree root")
@@ -145,7 +142,6 @@ struct BridgeWorktreeFileSourceProviderTests {
             cwdScope: nil,
             pathScope: ["../outside.swift"],
             includeStatuses: true,
-            includeFileDescriptors: true,
             includeComments: false,
             includeAgentComms: false,
             freshness: .live
@@ -171,7 +167,6 @@ struct BridgeWorktreeFileSourceProviderTests {
             cwdScope: "/tmp/Repo",
             pathScope: ["secret.swift"],
             includeStatuses: true,
-            includeFileDescriptors: true,
             includeComments: false,
             includeAgentComms: false,
             freshness: .live
@@ -186,8 +181,8 @@ struct BridgeWorktreeFileSourceProviderTests {
         }
     }
 
-    @Test("open source preserves selector flags for downstream snapshot work")
-    func openSourcePreservesSelectorFlagsForDownstreamSnapshotWork() throws {
+    @Test("open source preserves supported selector flags for downstream snapshot work")
+    func openSourcePreservesSupportedSelectorFlagsForDownstreamSnapshotWork() throws {
         let worktree = makeWorktree(rootPath: "/tmp/repo")
         let spec = BridgeWorktreeFileSurfaceSourceSpec(
             clientRequestId: "request-1",
@@ -197,7 +192,6 @@ struct BridgeWorktreeFileSourceProviderTests {
             cwdScope: nil,
             pathScope: [],
             includeStatuses: false,
-            includeFileDescriptors: false,
             includeComments: false,
             includeAgentComms: false,
             freshness: .live
@@ -210,7 +204,6 @@ struct BridgeWorktreeFileSourceProviderTests {
         )
 
         #expect(opened.includeStatuses == false)
-        #expect(opened.includeFileDescriptors == false)
     }
 
     @Test("open source rejects stale root token without leaking raw paths")
@@ -224,7 +217,6 @@ struct BridgeWorktreeFileSourceProviderTests {
             cwdScope: nil,
             pathScope: [],
             includeStatuses: true,
-            includeFileDescriptors: true,
             includeComments: false,
             includeAgentComms: false,
             freshness: .live
@@ -255,7 +247,6 @@ struct BridgeWorktreeFileSourceProviderTests {
             cwdScope: nil,
             pathScope: [],
             includeStatuses: true,
-            includeFileDescriptors: true,
             includeComments: true,
             includeAgentComms: true,
             freshness: .live

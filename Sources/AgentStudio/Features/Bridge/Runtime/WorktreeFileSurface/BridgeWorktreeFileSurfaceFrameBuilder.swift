@@ -11,7 +11,8 @@ struct BridgeWorktreeFileSnapshotBuildRequest: Equatable, Sendable {
     let treeWindowStartIndex: Int?
     let treeWindowRowCount: Int?
     let treeRowHeightPixels: Double
-    let includeStatusDescriptor: Bool
+    let treeRows: [BridgeWorktreeTreeRowMetadata]
+    let includeStatusPatch: Bool
 }
 
 struct BridgeWorktreeTreeWindowBuildRequest: Equatable, Sendable {
@@ -19,13 +20,14 @@ struct BridgeWorktreeTreeWindowBuildRequest: Equatable, Sendable {
     let source: BridgeWorktreeFileSurfaceSourceIdentity
     let streamId: String
     let sequence: Int
-    let descriptorId: String
+    let treeWindowKey: String
     let pathScope: [String]
     let treePathCount: Int?
     let treeEstimatedTotalHeightPixels: Double?
     let treeWindowStartIndex: Int?
     let treeWindowRowCount: Int?
     let treeRowHeightPixels: Double
+    let rows: [BridgeWorktreeTreeRowMetadata]
 }
 
 enum BridgeWorktreeFileContentAvailability: Equatable, Sendable {
@@ -104,7 +106,6 @@ enum BridgeWorktreeFileSurfaceFrameBuilder {
     static func snapshot(
         request: BridgeWorktreeFileSnapshotBuildRequest
     ) -> BridgeWorktreeSnapshotFrame {
-        let descriptorId = "worktree-tree-\(request.source.sourceId)-\(request.source.subscriptionGeneration)"
         let treeSizeFacts = treeSizeFacts(
             pathCount: request.treePathCount,
             estimatedTotalHeightPixels: request.treeEstimatedTotalHeightPixels,
@@ -112,107 +113,49 @@ enum BridgeWorktreeFileSurfaceFrameBuilder {
             windowRowCount: request.treeWindowRowCount,
             rowHeightPixels: request.treeRowHeightPixels
         )
-        let treeDescriptor = attachedDescriptor(
-            request: BridgeWorktreeAttachedDescriptorBuildRequest(
-                scope: BridgeWorktreeDescriptorScope(
-                    paneId: request.paneId,
-                    protocolId: "worktree-file",
-                    source: request.source,
-                    streamId: request.streamId
+        let statusPatch: BridgeWorktreeStatusPatch? =
+            request.includeStatusPatch
+            ? BridgeWorktreeStatusPatch(
+                counts: BridgeWorktreeStatusPatchCounts(
+                    staged: nil,
+                    unstaged: nil,
+                    untracked: nil
                 ),
-                resourceKind: "worktree.treeWindow",
-                descriptorId: descriptorId,
-                content: BridgeResourceContentDescriptor(
-                    mediaType: "application/json",
-                    encoding: .utf8,
-                    expectedBytes: nil,
-                    maxBytes: AppPolicies.Bridge.ipcMaxResponsePayloadBytes,
-                    integrity: nil
-                ),
-                window: BridgeResourceWindowDescriptor(
-                    start: request.treeWindowStartIndex,
-                    count: request.treeWindowRowCount,
-                    maxCount: max(request.treeWindowRowCount ?? 0, 1)
+                branchFacts: BridgeWorktreeStatusPatchBranchFacts(
+                    branchName: nil,
+                    ahead: nil,
+                    behind: nil
                 )
             )
-        )
-        let statusDescriptor: BridgeAttachedResourceDescriptor? =
-            if request.includeStatusDescriptor {
-                attachedDescriptor(
-                    request: BridgeWorktreeAttachedDescriptorBuildRequest(
-                        scope: BridgeWorktreeDescriptorScope(
-                            paneId: request.paneId,
-                            protocolId: "worktree-file",
-                            source: request.source,
-                            streamId: request.streamId
-                        ),
-                        resourceKind: "worktree.status",
-                        descriptorId: "worktree-status-\(request.source.sourceId)",
-                        content: BridgeResourceContentDescriptor(
-                            mediaType: "application/json",
-                            encoding: .utf8,
-                            expectedBytes: nil,
-                            maxBytes: AppPolicies.Bridge.ipcMaxResponsePayloadBytes,
-                            integrity: nil
-                        ),
-                        window: nil
-                    )
-                )
-            } else {
-                nil
-            }
+            : nil
 
         return BridgeWorktreeSnapshotFrame(
             streamId: request.streamId,
             sequence: request.sequence,
             source: request.source,
             requestSelector: request.requestSelector,
-            treeDescriptor: treeDescriptor,
+            treeRows: request.treeRows,
             treeSizeFacts: treeSizeFacts,
-            statusDescriptor: statusDescriptor
+            statusPatch: statusPatch
         )
     }
 
     static func treeWindow(
         request: BridgeWorktreeTreeWindowBuildRequest
     ) -> BridgeWorktreeTreeWindowFrame {
-        let windowDescriptor = attachedDescriptor(
-            request: BridgeWorktreeAttachedDescriptorBuildRequest(
-                scope: BridgeWorktreeDescriptorScope(
-                    paneId: request.paneId,
-                    protocolId: "worktree-file",
-                    source: request.source,
-                    streamId: request.streamId
-                ),
-                resourceKind: "worktree.treeWindow",
-                descriptorId: request.descriptorId,
-                content: BridgeResourceContentDescriptor(
-                    mediaType: "application/json",
-                    encoding: .utf8,
-                    expectedBytes: nil,
-                    maxBytes: AppPolicies.Bridge.ipcMaxResponsePayloadBytes,
-                    integrity: nil
-                ),
-                window: BridgeResourceWindowDescriptor(
-                    start: request.treeWindowStartIndex,
-                    count: request.treeWindowRowCount,
-                    maxCount: max(request.treeWindowRowCount ?? 0, 1)
-                )
-            )
-        )
         let projectionIdentity = BridgeWorktreeTreeProjectionIdentity(
             source: request.source,
             pathScope: request.pathScope,
             sortKey: nil,
             groupKey: nil,
             filterKey: nil,
-            treeWindowKey: request.descriptorId
+            treeWindowKey: request.treeWindowKey
         )
         return BridgeWorktreeTreeWindowFrame(
             streamId: request.streamId,
             sequence: request.sequence,
             projectionIdentity: projectionIdentity,
-            windowDescriptor: windowDescriptor,
+            rows: request.rows,
             treeSizeFacts: treeSizeFacts(
                 pathCount: request.treePathCount,
                 estimatedTotalHeightPixels: request.treeEstimatedTotalHeightPixels,
