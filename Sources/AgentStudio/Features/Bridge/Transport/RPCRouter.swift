@@ -351,7 +351,8 @@ final class RPCRouter {
             return
         }
 
-        guard telemetryQueue.admitBatch() == nil else {
+        let batchPriority = bridgeTelemetryBatchAdmissionPriority(from: paramsData)
+        guard telemetryQueue.admitBatch(priority: batchPriority) == nil else {
             await recordBridgeTelemetryBatch(
                 traceContext: request.traceContext,
                 result: .dropped(.queueSaturated),
@@ -414,8 +415,17 @@ final class RPCRouter {
             rpcErrorCode = .internalError
         }
 
-        let message = publicErrorMessage(for: rpcErrorCode)
+        let message = publicErrorMessage(for: rpcErrorCode, error: error)
         return (rpcErrorCode, message)
+    }
+
+    private func publicErrorMessage(for code: RPCErrorCode, error: Error) -> String {
+        if let rpcMethodError = error as? RPCMethodDispatchError,
+            let diagnosticMessage = safeDiagnosticMessage(from: rpcMethodError)
+        {
+            return diagnosticMessage
+        }
+        return publicErrorMessage(for: code)
     }
 
     private func publicErrorMessage(for code: RPCErrorCode) -> String {
@@ -433,6 +443,27 @@ final class RPCRouter {
         case .bridgeNotReady:
             return "Bridge not ready"
         }
+    }
+
+    private func safeDiagnosticMessage(from error: RPCMethodDispatchError) -> String? {
+        let message: String
+        switch error {
+        case .invalidParams(let value), .handlerFailure(let value):
+            message = value
+        }
+        guard message.utf8.count <= 120,
+            message.contains("."),
+            message.allSatisfy({ character in
+                character == "."
+                    || character == "_"
+                    || character == "-"
+                    || ("a"..."z").contains(character)
+                    || ("0"..."9").contains(character)
+            })
+        else {
+            return nil
+        }
+        return message
     }
 
     private func errorMessage(from error: Error) -> String {
@@ -702,6 +733,38 @@ final class RPCRouter {
             ),
             receivedAtUnixNano: currentTimeUnixNano()
         )
+    }
+
+    private nonisolated func bridgeTelemetryBatchAdmissionPriority(from paramsData: Data) -> BridgeTelemetryPriority {
+        guard let batch = try? JSONDecoder().decode(BridgeTelemetryBatch.self, from: paramsData) else {
+            return .bestEffort
+        }
+        return batch.samples
+            .compactMap { sample in
+                sample.stringAttributes["agentstudio.bridge.priority"]
+                    .flatMap(BridgeTelemetryPriority.init(rawValue:))
+            }
+            .reduce(.bestEffort, Self.higherTelemetryAdmissionPriority)
+    }
+
+    private nonisolated static func higherTelemetryAdmissionPriority(
+        _ current: BridgeTelemetryPriority,
+        _ candidate: BridgeTelemetryPriority
+    ) -> BridgeTelemetryPriority {
+        telemetryAdmissionPriorityRank(candidate) > telemetryAdmissionPriorityRank(current) ? candidate : current
+    }
+
+    private nonisolated static func telemetryAdmissionPriorityRank(_ priority: BridgeTelemetryPriority) -> Int {
+        switch priority {
+        case .hot:
+            3
+        case .warm:
+            2
+        case .cold:
+            1
+        case .bestEffort:
+            0
+        }
     }
 
     private nonisolated func currentTimeUnixNano() -> UInt64 {
