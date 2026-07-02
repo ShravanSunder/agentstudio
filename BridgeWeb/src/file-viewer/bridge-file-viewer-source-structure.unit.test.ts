@@ -75,6 +75,7 @@ describe('Bridge file viewer source structure', () => {
 			);
 			expect(source, controllerHookUrl).not.toContain('bridge-file-viewer-tree-panel');
 			expect(source, controllerHookUrl).not.toContain('bridge-file-viewer-code-panel');
+			expect(source, controllerHookUrl).not.toContain('bridge-file-viewer-pierre-visible-demand');
 		}
 	});
 
@@ -127,6 +128,36 @@ describe('Bridge file viewer source structure', () => {
 
 		expect(forbiddenPierreOwners).toEqual([]);
 		expect(internalPierreImportOwners).toEqual([]);
+	});
+
+	test('keeps Pierre tree viewport DOM reads isolated to the visible-demand adapter', () => {
+		const fileViewerSources = readFileViewerSourceFiles();
+		const pierreViewportDomOwners = fileViewerSources
+			.filter(
+				(entry): boolean => entry.relativePath !== 'bridge-file-viewer-pierre-visible-demand.ts',
+			)
+			.filter((entry): boolean =>
+				[
+					'getFileTreeContainer',
+					'data-file-tree-virtualized-scroll',
+					'[data-type="item"][data-item-type="file"][data-item-path]',
+				].some((needle): boolean => entry.source.includes(needle)),
+			)
+			.map((entry): string => entry.relativePath);
+
+		expect(pierreViewportDomOwners).toEqual([]);
+	});
+
+	test('keeps the Pierre visible-demand adapter owned by the tree panel', () => {
+		const fileViewerSources = readFileViewerSourceFiles();
+		const visibleDemandAdapterImporters = fileViewerSources
+			.filter(
+				(entry): boolean => entry.relativePath !== 'bridge-file-viewer-pierre-visible-demand.ts',
+			)
+			.filter((entry): boolean => entry.source.includes('bridge-file-viewer-pierre-visible-demand'))
+			.map((entry): string => entry.relativePath);
+
+		expect(visibleDemandAdapterImporters).toEqual(['bridge-file-viewer-tree-panel.tsx']);
 	});
 
 	test('keeps BridgeWeb TypeScript and TSX files under one thousand lines', () => {

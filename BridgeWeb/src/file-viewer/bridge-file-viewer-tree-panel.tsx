@@ -28,14 +28,12 @@ import {
 } from '../app/bridge-viewer-tree-theme.js';
 import { cn } from '../app/class-name.js';
 import { Input } from '../components/ui/input.js';
-import type { BridgeDescriptorRef } from '../core/models/bridge-resource-descriptor.js';
 import type {
 	WorktreeFileDescriptorRequest,
 	WorktreeFileDescriptor,
 	WorktreeFileSurfaceSourceIdentity,
 	WorktreeTreeRowMetadata,
 } from '../features/worktree-file/models/worktree-file-protocol-models.js';
-import { canFetchWorktreeFileDescriptorContent } from '../features/worktree-file/models/worktree-file-protocol-models.js';
 import { countFlattenedWorktreeFileTreeRows } from '../features/worktree-file/models/worktree-file-tree-size.js';
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import type { BridgeTraceContext } from '../foundation/telemetry/bridge-trace-context.js';
@@ -46,6 +44,10 @@ import type {
 	BridgeFileViewerSearchMode,
 	BridgeFileViewerVisibleFileDemandChange,
 } from './bridge-file-viewer-contracts.js';
+import {
+	pierreFileTreeScrollElementForDemand,
+	visibleDescriptorRefsForPierreDemand,
+} from './bridge-file-viewer-pierre-visible-demand.js';
 
 export interface BridgeFileViewerTreePanelProps {
 	readonly descriptorProjection: BridgeFileViewerDescriptorProjection;
@@ -198,7 +200,7 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 			return;
 		}
 		const publishStartedAt = performance.now();
-		const descriptorRefs = visibleDescriptorRefsForDemand({
+		const descriptorRefs = visibleDescriptorRefsForPierreDemand({
 			fileDescriptorByPath,
 			model,
 		});
@@ -239,7 +241,7 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 			});
 		};
 		const setupFrameId = requestAnimationFrame((): void => {
-			scrollElement = fileTreeScrollElementForDemand(model);
+			scrollElement = pierreFileTreeScrollElementForDemand(model);
 			scrollElement?.addEventListener('scroll', scheduleVisibleFileDemand, { passive: true });
 			publishVisibleFileDemand();
 		});
@@ -427,48 +429,6 @@ function descriptorRequestForSelectedPath(props: {
 		fileId: row.fileId,
 		lane: 'foreground',
 	};
-}
-
-function fileTreeScrollElementForDemand(
-	model: ReturnType<typeof useFileTree>['model'],
-): HTMLElement | null {
-	const fileTreeContainer = model.getFileTreeContainer();
-	const rowContainer = fileTreeContainer?.shadowRoot ?? fileTreeContainer;
-	return (
-		rowContainer?.querySelector<HTMLElement>('[data-file-tree-virtualized-scroll="true"]') ?? null
-	);
-}
-
-function visibleDescriptorRefsForDemand(props: {
-	readonly fileDescriptorByPath: ReadonlyMap<string, WorktreeFileDescriptor>;
-	readonly model: ReturnType<typeof useFileTree>['model'];
-}): readonly BridgeDescriptorRef[] {
-	const fileTreeContainer = props.model.getFileTreeContainer();
-	const rowContainer = fileTreeContainer?.shadowRoot ?? fileTreeContainer;
-	if (rowContainer === undefined || rowContainer === null) {
-		return [];
-	}
-	const descriptorRefs: BridgeDescriptorRef[] = [];
-	const seenDescriptorIds = new Set<string>();
-	for (const rowElement of rowContainer.querySelectorAll<HTMLElement>(
-		'[data-type="item"][data-item-type="file"][data-item-path]',
-	)) {
-		const path = rowElement.getAttribute('data-item-path');
-		if (path === null) {
-			continue;
-		}
-		const descriptor = props.fileDescriptorByPath.get(path);
-		if (
-			descriptor === undefined ||
-			!canFetchWorktreeFileDescriptorContent(descriptor) ||
-			seenDescriptorIds.has(descriptor.contentDescriptor.ref.descriptorId)
-		) {
-			continue;
-		}
-		seenDescriptorIds.add(descriptor.contentDescriptor.ref.descriptorId);
-		descriptorRefs.push(descriptor.contentDescriptor.ref);
-	}
-	return descriptorRefs;
 }
 
 export interface BridgeFileViewerTreeDirectoryHandle {
