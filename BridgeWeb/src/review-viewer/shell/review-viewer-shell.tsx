@@ -2,6 +2,7 @@ import type { ReactElement, ReactNode } from 'react';
 
 import { BridgeViewerContentHeader } from '../../app/bridge-viewer-content-header.js';
 import { BridgeViewerRailToolbar } from '../../app/bridge-viewer-rail-toolbar.js';
+import { BridgeViewerResizableRailLayout } from '../../app/bridge-viewer-resizable-rail-layout.js';
 import { BridgeViewerRightRailShell } from '../../app/bridge-viewer-right-rail-shell.js';
 import { BridgeViewerSearchControl } from '../../app/bridge-viewer-search-control.js';
 import { Skeleton } from '../../components/ui/skeleton.js';
@@ -302,86 +303,91 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 			data-sidebar-position="right"
 			data-testid="review-viewer-shell"
 		>
-			<div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(260px,340px)]">
-				<section
-					aria-label="Selected content"
-					className="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden overscroll-contain bg-[var(--bridge-canvas-bg)]"
-					data-testid="bridge-review-code-scroll"
-				>
-					<BridgeViewerContentHeader
-						controls={props.viewerHeaderControls}
-						eyebrow="Review"
-						title={contentHeaderTitle}
-					/>
+			<BridgeViewerResizableRailLayout
+				autosaveId="bridge-viewer-right-rail"
+				content={
 					<section
-						aria-label="Code canvas"
-						className="relative h-full min-h-0 min-w-0 bg-[var(--bridge-canvas-bg)]"
-						data-testid="bridge-review-canvas"
+						aria-label="Selected content"
+						className="grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden overscroll-contain bg-[var(--bridge-canvas-bg)]"
+						data-testid="bridge-review-code-scroll"
 					>
-						{props.selectedMarkdownPreviewHtml !== undefined &&
-						props.selectedMarkdownPreviewHtml !== null &&
-						props.selectedMarkdownPreviewSourcePath !== undefined &&
-						props.selectedMarkdownPreviewSourcePath !== null ? (
-							<BridgeMarkdownPreview
-								html={props.selectedMarkdownPreviewHtml}
-								sourcePath={props.selectedMarkdownPreviewSourcePath}
-							/>
-						) : props.selectedContentUnavailablePath !== undefined &&
-						  props.selectedContentUnavailablePath !== null ? (
-							<BridgeReviewContentUnavailableState
-								sourcePath={props.selectedContentUnavailablePath}
-							/>
-						) : (
-							<BridgeCodeViewPanel
-								projection={projection}
-								reviewPackage={props.reviewPackage}
-								selectedContentLoadingItemId={props.selectedContentLoadingItemId ?? null}
-								selectedContentResources={props.selectedContentResources ?? null}
-								selectedItemId={props.selectedItemId}
-								selectedItemPresentation={props.selectedItemPresentation ?? null}
-								telemetryParentTraceContext={props.telemetryParentTraceContext ?? null}
-								{...(props.visibleLoadingItemIds === undefined
-									? {}
-									: { visibleLoadingItemIds: props.visibleLoadingItemIds })}
-								visibleLoadingItemCount={props.visibleLoadingItemCount ?? 0}
-								visibleReadyItemCount={props.visibleReadyItemCount ?? 0}
-								{...(props.visibleContentResourcesByItemId === undefined
-									? {}
-									: {
-											visibleContentResourcesByItemId: props.visibleContentResourcesByItemId,
-										})}
-								{...(props.onCodeViewVisibleItemIdsChange === undefined
-									? {}
-									: { onVisibleItemIdsChange: props.onCodeViewVisibleItemIdsChange })}
-								{...(props.onCodeViewControlHandleChange === undefined
-									? {}
-									: {
-											onControlHandleChange: props.onCodeViewControlHandleChange,
-										})}
-								{...(props.onCodeViewScrollActivityChange === undefined
-									? {}
-									: {
-											onScrollActivityChange: props.onCodeViewScrollActivityChange,
-										})}
-								{...(props.codeViewWorkerPoolEnabled === undefined
-									? {}
-									: { workerPoolEnabled: props.codeViewWorkerPoolEnabled })}
-								{...(props.codeViewWorkerFactory === undefined
-									? {}
-									: { workerFactory: props.codeViewWorkerFactory })}
-								{...(props.telemetryRecorder === undefined
-									? {}
-									: { telemetryRecorder: props.telemetryRecorder })}
-							/>
-						)}
-						{props.selectedCanvasLoadingReason === undefined ||
-						props.selectedCanvasLoadingReason === null ||
-						props.selectedCanvasLoadingReason === 'content' ? null : (
-							<BridgeReviewCanvasLoadingState reason={props.selectedCanvasLoadingReason} />
-						)}
+						<BridgeViewerContentHeader
+							controls={props.viewerHeaderControls}
+							eyebrow="Review"
+							title={contentHeaderTitle}
+						/>
+						<section
+							aria-label="Code canvas"
+							className="relative h-full min-h-0 min-w-0 bg-[var(--bridge-canvas-bg)]"
+							data-testid="bridge-review-canvas"
+						>
+							{props.selectedMarkdownPreviewHtml !== undefined &&
+							props.selectedMarkdownPreviewHtml !== null &&
+							props.selectedMarkdownPreviewSourcePath !== undefined &&
+							props.selectedMarkdownPreviewSourcePath !== null ? (
+								<BridgeMarkdownPreview
+									html={props.selectedMarkdownPreviewHtml}
+									sourcePath={props.selectedMarkdownPreviewSourcePath}
+								/>
+							) : props.selectedContentUnavailablePath !== undefined &&
+							  props.selectedContentUnavailablePath !== null ? (
+								<BridgeReviewContentUnavailableState
+									sourcePath={props.selectedContentUnavailablePath}
+								/>
+							) : (
+								<BridgeCodeViewPanel
+									projection={projection}
+									reviewPackage={props.reviewPackage}
+									selectedContentLoadingItemId={props.selectedContentLoadingItemId ?? null}
+									selectedContentResources={props.selectedContentResources ?? null}
+									selectedItemId={props.selectedItemId}
+									selectedItemPresentation={props.selectedItemPresentation ?? null}
+									telemetryParentTraceContext={props.telemetryParentTraceContext ?? null}
+									{...(props.visibleLoadingItemIds === undefined
+										? {}
+										: { visibleLoadingItemIds: props.visibleLoadingItemIds })}
+									visibleLoadingItemCount={props.visibleLoadingItemCount ?? 0}
+									visibleReadyItemCount={props.visibleReadyItemCount ?? 0}
+									{...(props.visibleContentResourcesByItemId === undefined
+										? {}
+										: {
+												visibleContentResourcesByItemId: props.visibleContentResourcesByItemId,
+											})}
+									{...(props.onCodeViewVisibleItemIdsChange === undefined
+										? {}
+										: { onVisibleItemIdsChange: props.onCodeViewVisibleItemIdsChange })}
+									{...(props.onCodeViewControlHandleChange === undefined
+										? {}
+										: {
+												onControlHandleChange: props.onCodeViewControlHandleChange,
+											})}
+									{...(props.onCodeViewScrollActivityChange === undefined
+										? {}
+										: {
+												onScrollActivityChange: props.onCodeViewScrollActivityChange,
+											})}
+									{...(props.codeViewWorkerPoolEnabled === undefined
+										? {}
+										: { workerPoolEnabled: props.codeViewWorkerPoolEnabled })}
+									{...(props.codeViewWorkerFactory === undefined
+										? {}
+										: { workerFactory: props.codeViewWorkerFactory })}
+									{...(props.telemetryRecorder === undefined
+										? {}
+										: { telemetryRecorder: props.telemetryRecorder })}
+								/>
+							)}
+							{props.selectedCanvasLoadingReason === undefined ||
+							props.selectedCanvasLoadingReason === null ||
+							props.selectedCanvasLoadingReason === 'content' ? null : (
+								<BridgeReviewCanvasLoadingState reason={props.selectedCanvasLoadingReason} />
+							)}
+						</section>
 					</section>
-				</section>
-				{BridgeViewerRightRailShell({
+				}
+				contentTestId="bridge-review-content-panel"
+				handleTestId="bridge-review-rail-resize-handle"
+				rail={BridgeViewerRightRailShell({
 					body: (
 						<nav
 							aria-label="Changed files"
@@ -453,7 +459,8 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 						trailingTestId: 'bridge-review-rail-toolbar-trailing',
 					}),
 				})}
-			</div>
+				railTestId="bridge-review-resizable-rail"
+			/>
 		</main>
 	);
 }

@@ -10,6 +10,7 @@ import {
 	findBridgeViewerTreeScrollOwner,
 	requireBridgeViewerHTMLElement,
 	waitForBridgeViewerAnimationFrame,
+	waitForBridgeViewerElement,
 	waitForBridgeViewerTreeItemButton,
 } from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
 import type { WorktreeFileInitialSurface } from '../worktree-file-surface/worktree-file-app.js';
@@ -220,6 +221,54 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		expect(searchInput.getBoundingClientRect().right).toBeLessThanOrEqual(
 			toolbar.getBoundingClientRect().right,
 		);
+	});
+
+	test('renders FileView rail in the shared resizable panel layout with stable geometry', async () => {
+		render(
+			<BridgeFileViewerApp
+				initialFrames={makeFrames(
+					makeFileDescriptor({ path: 'src/app.ts' }),
+					makeFileDescriptor({
+						contentHandle: 'docs-content',
+						fileId: 'file-docs',
+						path: 'docs/readme.md',
+					}),
+				)}
+			/>,
+		);
+
+		await waitForInitialSurfaceState('ready');
+		await waitForBridgeViewerElement('[data-slot="resizable-panel-group"]');
+
+		const layout = requireBridgeViewerHTMLElement(
+			document.querySelector('[data-slot="resizable-panel-group"]'),
+		);
+		const contentPanel = requireBridgeViewerHTMLElement(
+			document.querySelector('[data-testid="bridge-file-viewer-content-panel"]'),
+		);
+		const resizeHandle = requireBridgeViewerHTMLElement(
+			document.querySelector('[data-testid="bridge-file-viewer-rail-resize-handle"]'),
+		);
+		const railPanel = requireBridgeViewerHTMLElement(
+			document.querySelector('[data-testid="bridge-file-viewer-resizable-rail"]'),
+		);
+
+		const layoutBox = layout.getBoundingClientRect();
+		const contentBox = contentPanel.getBoundingClientRect();
+		const handleBox = resizeHandle.getBoundingClientRect();
+		const railBox = railPanel.getBoundingClientRect();
+		const railWidthRatio = railBox.width / layoutBox.width;
+
+		expect(layout.getAttribute('data-panel-group-direction')).toBe('horizontal');
+		expect(layoutBox.width).toBeGreaterThan(900);
+		expect(contentBox.width).toBeGreaterThan(railBox.width);
+		expect(handleBox.width).toBeGreaterThanOrEqual(1);
+		expect(railBox.width).toBeGreaterThanOrEqual(240);
+		expect(railWidthRatio).toBeGreaterThan(0.24);
+		expect(railWidthRatio).toBeLessThan(0.32);
+		expect(
+			document.querySelector('[data-testid="bridge-file-viewer-pierre-file-tree"]'),
+		).not.toBeNull();
 	});
 
 	test('renders streamed metadata tree rows before file descriptors arrive', async () => {

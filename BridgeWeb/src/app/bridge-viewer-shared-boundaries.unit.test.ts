@@ -52,6 +52,21 @@ describe('BridgeViewer shared component boundaries', () => {
 		expect(rightRailShell).not.toContain('../review-viewer/');
 	});
 
+	test('FileViewer and ReviewViewer route rail width through the shared resizable layout', async () => {
+		const resizableLayout = await source('src/app/bridge-viewer-resizable-rail-layout.tsx');
+		const fileViewerShell = await source('src/file-viewer/bridge-file-viewer-shell.tsx');
+		const reviewViewerShell = await source('src/review-viewer/shell/review-viewer-shell.tsx');
+
+		expect(resizableLayout).toContain('ResizablePanelGroup');
+		expect(resizableLayout).toContain('ResizableHandle');
+		expect(resizableLayout).not.toContain('../file-viewer/');
+		expect(resizableLayout).not.toContain('../review-viewer/');
+		expect(fileViewerShell).toContain('BridgeViewerResizableRailLayout');
+		expect(reviewViewerShell).toContain('BridgeViewerResizableRailLayout');
+		expect(fileViewerShell).not.toContain('grid-cols-[minmax(0,1fr)_minmax(260px,340px)]');
+		expect(reviewViewerShell).not.toContain('grid-cols-[minmax(0,1fr)_minmax(260px,340px)]');
+	});
+
 	test('Pierre tree adapter stays neutral from FileView and Review domain modules', async () => {
 		const pierreTreeAdapter = await source('src/app/bridge-pierre-tree-adapter.ts');
 

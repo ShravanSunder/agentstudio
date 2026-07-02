@@ -3,6 +3,7 @@ import type { ReactElement, ReactNode } from 'react';
 
 import { BridgeViewerButton, BridgeViewerIcon } from '../app/bridge-viewer-button.js';
 import { BridgeViewerContentHeader } from '../app/bridge-viewer-content-header.js';
+import { BridgeViewerResizableRailLayout } from '../app/bridge-viewer-resizable-rail-layout.js';
 import type {
 	WorktreeFileDescriptor,
 	WorktreeFileSurfaceSourceIdentity,
@@ -286,55 +287,63 @@ export function BridgeFileViewerShell({
 						'data-worktree-scenario': renderState.provenance.scenarioName,
 					})}
 		>
-			<div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(260px,340px)]">
-				<section className="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)]">
-					<BridgeViewerContentHeader
-						controls={viewerHeaderControls}
-						eyebrow="Files"
-						title={contentHeaderTitle}
+			<BridgeViewerResizableRailLayout
+				autosaveId="bridge-viewer-right-rail"
+				content={
+					<section className="grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)]">
+						<BridgeViewerContentHeader
+							controls={viewerHeaderControls}
+							eyebrow="Files"
+							title={contentHeaderTitle}
+						/>
+						<BridgeFileViewerCodePanel
+							openFileState={openFileState}
+							renderedFileContent={renderedOpenFileContent}
+							staleNotice={
+								openFileState.status === 'stale' ? (
+									<BridgeFileViewerStaleNotice
+										canRefresh={canRefreshOpenFile}
+										onRefresh={() => {
+											void refreshOpenFile(openFileState);
+										}}
+									/>
+								) : null
+							}
+							totalHeightPixels={openFileTotalHeightPixels}
+							{...(codeViewWorkerFactory === undefined ? {} : { codeViewWorkerFactory })}
+							{...(codeViewWorkerPoolEnabled === undefined ? {} : { codeViewWorkerPoolEnabled })}
+						/>
+					</section>
+				}
+				contentTestId="bridge-file-viewer-content-panel"
+				handleTestId="bridge-file-viewer-rail-resize-handle"
+				rail={
+					<BridgeFileViewerTreePanel
+						descriptorProjection={descriptorProjection}
+						fileDescriptorByPath={fileDescriptorByPath}
+						filterMode={filterMode}
+						onFilterModeChange={setFilterMode}
+						onOpenFile={openFile}
+						{...(onOpenReviewComparison === undefined ? {} : { onOpenReviewComparison })}
+						{...(requestFileDescriptor === undefined
+							? {}
+							: { onRequestFileDescriptor: requestFileDescriptor })}
+						onSearchModeChange={setSearchMode}
+						onSearchTextChange={setSearchText}
+						onVisibleFileDemandChange={dispatchVisibleFileDemand}
+						searchMode={searchMode}
+						searchText={searchText}
+						selectedPath={selectedPath}
+						sourceIdentity={renderState.sourceIdentity}
+						{...(telemetryRecorder === undefined ? {} : { telemetryRecorder })}
+						telemetryTraceContext={telemetryTraceContext}
+						totalTreeRowCount={totalTreeRowCount}
+						totalTreeHeightPixels={totalTreeHeight.heightPixels}
+						totalTreeHeightSource={totalTreeHeight.source}
 					/>
-					<BridgeFileViewerCodePanel
-						openFileState={openFileState}
-						renderedFileContent={renderedOpenFileContent}
-						staleNotice={
-							openFileState.status === 'stale' ? (
-								<BridgeFileViewerStaleNotice
-									canRefresh={canRefreshOpenFile}
-									onRefresh={() => {
-										void refreshOpenFile(openFileState);
-									}}
-								/>
-							) : null
-						}
-						totalHeightPixels={openFileTotalHeightPixels}
-						{...(codeViewWorkerFactory === undefined ? {} : { codeViewWorkerFactory })}
-						{...(codeViewWorkerPoolEnabled === undefined ? {} : { codeViewWorkerPoolEnabled })}
-					/>
-				</section>
-				<BridgeFileViewerTreePanel
-					descriptorProjection={descriptorProjection}
-					fileDescriptorByPath={fileDescriptorByPath}
-					filterMode={filterMode}
-					onFilterModeChange={setFilterMode}
-					onOpenFile={openFile}
-					{...(onOpenReviewComparison === undefined ? {} : { onOpenReviewComparison })}
-					{...(requestFileDescriptor === undefined
-						? {}
-						: { onRequestFileDescriptor: requestFileDescriptor })}
-					onSearchModeChange={setSearchMode}
-					onSearchTextChange={setSearchText}
-					onVisibleFileDemandChange={dispatchVisibleFileDemand}
-					searchMode={searchMode}
-					searchText={searchText}
-					selectedPath={selectedPath}
-					sourceIdentity={renderState.sourceIdentity}
-					{...(telemetryRecorder === undefined ? {} : { telemetryRecorder })}
-					telemetryTraceContext={telemetryTraceContext}
-					totalTreeRowCount={totalTreeRowCount}
-					totalTreeHeightPixels={totalTreeHeight.heightPixels}
-					totalTreeHeightSource={totalTreeHeight.source}
-				/>
-			</div>
+				}
+				railTestId="bridge-file-viewer-resizable-rail"
+			/>
 		</main>
 	);
 }
