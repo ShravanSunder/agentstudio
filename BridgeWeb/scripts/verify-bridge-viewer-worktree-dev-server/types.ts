@@ -121,6 +121,23 @@ export const worktreeSnapshotFrameSchema = z
 	})
 	.passthrough();
 
+export const worktreeTreeWindowFrameSchema = z
+	.object({
+		frameKind: z.literal('worktree.treeWindow'),
+		rows: z
+			.array(
+				z
+					.object({
+						path: z.string().min(1),
+						isDirectory: z.boolean(),
+						fileId: z.string().min(1).optional(),
+					})
+					.passthrough(),
+			)
+			.optional(),
+	})
+	.passthrough();
+
 export const nullableNumberSchema = z.number().nullable();
 
 export const nullableStringSchema = z.string().nullable();

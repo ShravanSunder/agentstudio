@@ -219,7 +219,7 @@ export function assertWorktreeProjectedTreeSize(props: {
 
 export async function fillWorktreeFileSearch(page: Page, value: string): Promise<void> {
 	if ((await page.locator('[data-testid="worktree-file-search-input"]').count()) === 0) {
-		await page.locator('[data-testid="bridge-review-search-toggle"]').click();
+		await page.locator('[data-testid="worktree-file-search-toggle"]').click();
 	}
 	await page.locator('[data-testid="worktree-file-search-input"]').fill(value);
 }
@@ -232,10 +232,10 @@ export async function readWorktreeFileSearchChromeProof(
 			'[data-testid="worktree-file-search-input"]',
 		);
 		const searchToggle = document.querySelector<HTMLElement>(
-			'[data-testid="bridge-review-search-toggle"]',
+			'[data-testid="worktree-file-search-toggle"]',
 		);
 		const regexToggle = document.querySelector<HTMLElement>(
-			'[data-testid="bridge-review-regex-toggle"]',
+			'[data-testid="worktree-file-regex-toggle"]',
 		);
 		if (searchInput === null || searchToggle === null || regexToggle === null) {
 			throw new Error('Expected Worktree/File search chrome to be mounted');

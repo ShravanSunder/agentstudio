@@ -21,6 +21,7 @@ import {
 	maximumNormalPerformanceLineCount,
 	worktreeFileDescriptorResponseSchema,
 	worktreeSnapshotFrameSchema,
+	worktreeTreeWindowFrameSchema,
 	type WorktreeDevServerBrowserProof,
 	type WorktreeFileDescriptor,
 	type WorktreeFileSurface,
@@ -85,6 +86,10 @@ export function worktreeFileTreeRows(frames: readonly unknown[]): readonly Workt
 		const parsedFrame = worktreeSnapshotFrameSchema.safeParse(frame);
 		if (parsedFrame.success) {
 			rows.push(...(parsedFrame.data.treeRows ?? []));
+		}
+		const parsedTreeWindowFrame = worktreeTreeWindowFrameSchema.safeParse(frame);
+		if (parsedTreeWindowFrame.success) {
+			rows.push(...(parsedTreeWindowFrame.data.rows ?? []));
 		}
 	}
 	return rows;

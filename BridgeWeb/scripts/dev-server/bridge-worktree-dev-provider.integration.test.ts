@@ -314,6 +314,26 @@ describe('Bridge worktree dev provider', () => {
 		}
 	});
 
+	test('loads untracked worktree files whose paths require git quote escaping', async () => {
+		const repoRoot = await makeGitFixtureWorktree();
+		try {
+			const oddPath = 'docs/"quoted\nfile.md';
+			await writeFile(join(repoRoot, oddPath), '# Odd path\n');
+
+			const snapshot = await loadBridgeWorktreeDevSnapshot({
+				baseRef: 'HEAD',
+				worktreeRoot: repoRoot,
+			});
+			const changedPaths = snapshot.changedFiles.map((changedFile) => changedFile.path);
+			const currentPaths = snapshot.currentFilePaths;
+
+			expect(changedPaths).toContain(oddPath);
+			expect(currentPaths).toContain(oddPath);
+		} finally {
+			await rm(repoRoot, { force: true, recursive: true });
+		}
+	});
+
 	test('preserves real git rename and copy paths in the changed-file snapshot', async () => {
 		const repoRoot = await makeGitRenameCopyFixtureWorktree();
 		try {

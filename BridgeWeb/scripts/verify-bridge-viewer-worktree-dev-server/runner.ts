@@ -18,6 +18,7 @@ import { clearVerifierBrowser, installVerifierBrowser } from './browser-session.
 import { performanceOnlyMode } from './config.ts';
 import {
 	fileToReviewHandoffFixtureRelativePath,
+	initialContentFixtureRelativePath,
 	recentlyUpdatedFixtureRelativePath,
 	repoRootPath,
 	reviewSelectionFixtureRelativePath,
@@ -87,7 +88,6 @@ import {
 	assertWorktreeTreeExtentMatchesSurfaceFacts,
 	bridgeWorktreeDevRootTokenForPath,
 	fetchFetchableWorktreeFileDescriptorForPath,
-	fetchFirstFetchableWorktreeFileDescriptor,
 	fetchPerformanceWorktreeFileDescriptors,
 	fetchWorktreeFileContent,
 	fetchWorktreeSurface,
@@ -147,7 +147,10 @@ export async function verifyWorktreeDevServerPerformanceOnly(): Promise<Worktree
 	const page = await makeVerificationPage();
 	const surface = await fetchWorktreeSurface();
 	const descriptors = await fetchPerformanceWorktreeFileDescriptors(surface);
-	const initialDescriptor = await fetchFirstFetchableWorktreeFileDescriptor(surface);
+	const initialDescriptor = await fetchFetchableWorktreeFileDescriptorForPath({
+		path: initialContentFixtureRelativePath,
+		surface,
+	});
 	const startupLoadTiming = await collectWorktreeStartupLoadTimingProof({
 		page,
 		path: initialDescriptor.path,
@@ -217,7 +220,10 @@ export async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerifi
 			);
 		}
 		const descriptors = await fetchPerformanceWorktreeFileDescriptors(surface);
-		const initialDescriptor = await fetchFirstFetchableWorktreeFileDescriptor(surface);
+		const initialDescriptor = await fetchFetchableWorktreeFileDescriptorForPath({
+			path: initialContentFixtureRelativePath,
+			surface,
+		});
 		const targetDescriptor = await resolveTargetDescriptor(surface);
 		const initialContent = await fetchWorktreeFileContent(initialDescriptor);
 		const content = await fetchWorktreeFileContent(targetDescriptor);
@@ -257,6 +263,7 @@ export async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerifi
 		await page.waitForSelector('[data-testid="bridge-file-viewer-shell"]', { timeout: 30_000 });
 		const observedRoute = await assertObservedWorktreeDevServerUrl(page);
 		const substituteGuardProof = await assertNoStandaloneWorktreeFileApp(page);
+		await clickWorktreeFilePath(page, initialDescriptor.path);
 		await page.waitForFunction(
 			(path: string): boolean =>
 				document

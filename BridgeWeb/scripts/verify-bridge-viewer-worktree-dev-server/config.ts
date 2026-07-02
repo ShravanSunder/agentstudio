@@ -6,7 +6,7 @@ import { promisify } from 'node:util';
 export const defaultWorktreeDevServerUrl =
 	'http://127.0.0.1:5173/?fixture=worktree&viewer=file&workers=on&scenario=current-worktree';
 
-export const repoRootPath = fileURLToPath(new URL('../..', import.meta.url));
+export const repoRootPath = fileURLToPath(new URL('../../..', import.meta.url));
 
 export const proofRootPath =
 	process.env['AGENTSTUDIO_BRIDGE_WORKTREE_DEV_SERVER_PROOF_ROOT'] ??
@@ -36,6 +36,8 @@ export const execFileAsync = promisify(execFile);
 
 export const fileToReviewHandoffFixtureRelativePath =
 	'BridgeWeb/src/test-fixtures/worktree-file-to-review-handoff-canary.txt';
+
+export const initialContentFixtureRelativePath = fileToReviewHandoffFixtureRelativePath;
 
 export const selectedContentFixtureRelativePath = 'BridgeWeb/scripts/app-asset-contract.ts';
 

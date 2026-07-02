@@ -118,12 +118,12 @@ export async function verifyWorktreeFileProductControls(props: {
 		name: 'worktree-file-search-result.png',
 		page: props.page,
 	});
-	await clickWorktreeFileControl(props.page, 'bridge-review-regex-toggle');
+	await clickWorktreeFileControl(props.page, 'worktree-file-regex-toggle');
 	await fillWorktreeFileSearch(props.page, `^${escapeRegExp(props.targetPath)}$`);
 	await waitForWorktreeFileFilterStatus(props.page, 1, undefined);
 	const regexModeActive = await worktreeFileControlPressed(
 		props.page,
-		'bridge-review-regex-toggle',
+		'worktree-file-regex-toggle',
 	);
 	const regexVisibleCount = await worktreeFileFilterStatusVisibleCount(props.page);
 	await waitForWorktreeRenderedFilePathSample(props.page, [props.targetPath]);
@@ -134,7 +134,7 @@ export async function verifyWorktreeFileProductControls(props: {
 	await waitForWorktreeFileInvalidRegexStatus(props.page);
 	const invalidRegexModeActive = await worktreeFileControlPressed(
 		props.page,
-		'bridge-review-regex-toggle',
+		'worktree-file-regex-toggle',
 	);
 	const invalidRegexStatusText = await worktreeFileFilterStatusText(props.page);
 	const invalidRegexRenderedPathSample = await visibleWorktreeFilePathSample(props.page);

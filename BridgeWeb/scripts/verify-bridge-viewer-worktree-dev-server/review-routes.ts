@@ -27,7 +27,6 @@ import {
 } from './review-selection.ts';
 import {
 	selectedReviewTreeTargetProof,
-	waitForAnyReviewSelectedContentState,
 	waitForReviewSelectedContentState,
 	waitForReviewVisibleDemandTelemetry,
 } from './review-tree-click.ts';
@@ -69,7 +68,6 @@ export async function verifyWorktreeReviewRoute(): Promise<WorktreeReviewRoutePr
 			routeProbe,
 		});
 		startupContentGate.resolve();
-		await waitForAnyReviewSelectedContentState({ page, state: 'ready' });
 		const reviewContentHitCountBeforeClick = routeProbe.contentHitCount();
 		const reviewSelectionProof =
 			(await selectedReviewTreeTargetProof({
@@ -163,6 +161,27 @@ export async function verifyWorktreeReviewRoute(): Promise<WorktreeReviewRoutePr
 				);
 				return visibleButton?.getAttribute('data-bridge-viewer-context-selected') ?? null;
 			};
+			const activeVisibleFileViewerSubstituteCount = (testId: string): number =>
+				[...document.querySelectorAll(`[data-testid="${testId}"]`)].filter(
+					(element): element is HTMLElement => {
+						if (!(element instanceof HTMLElement)) {
+							return false;
+						}
+						const fileModeHost = element.closest('[data-testid="bridge-viewer-mode-host-file"]');
+						const fileModeIsActive =
+							fileModeHost instanceof HTMLElement &&
+							fileModeHost.getAttribute('data-bridge-viewer-mode-active') === 'true';
+						const rect = element.getBoundingClientRect();
+						const style = window.getComputedStyle(element);
+						return (
+							fileModeIsActive &&
+							style.display !== 'none' &&
+							style.visibility !== 'hidden' &&
+							rect.width > 0 &&
+							rect.height > 0
+						);
+					},
+				).length;
 			const readNumberAttribute = (
 				element: Element | null,
 				attributeName: string,
@@ -323,15 +342,14 @@ export async function verifyWorktreeReviewRoute(): Promise<WorktreeReviewRoutePr
 					reviewShell instanceof HTMLElement
 						? reviewShell.getAttribute('data-review-base-provider-identity')
 						: null,
-				fileViewerCodeCanvasCount: document.querySelectorAll(
-					'[data-testid="bridge-file-viewer-code-canvas"]',
-				).length,
+				fileViewerCodeCanvasCount: activeVisibleFileViewerSubstituteCount(
+					'bridge-file-viewer-code-canvas',
+				),
 				fileContextButtonSelected: visibleContextButtonSelection('bridge-viewer-context-file'),
-				fileViewerShellCount: document.querySelectorAll('[data-testid="bridge-file-viewer-shell"]')
-					.length,
-				fileViewerSidebarCount: document.querySelectorAll(
-					'[data-testid="bridge-file-viewer-sidebar"]',
-				).length,
+				fileViewerShellCount: activeVisibleFileViewerSubstituteCount('bridge-file-viewer-shell'),
+				fileViewerSidebarCount: activeVisibleFileViewerSubstituteCount(
+					'bridge-file-viewer-sidebar',
+				),
 				reviewEmptyShellCount: document.querySelectorAll(
 					'[data-testid="bridge-review-empty-shell"]',
 				).length,

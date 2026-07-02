@@ -410,7 +410,7 @@ export async function readWorktreeFileControlsStateSnapshot(
 				document.querySelector('[data-testid="worktree-file-filter-status"]')?.textContent ?? null,
 			regexPressed:
 				document
-					.querySelector('[data-testid="bridge-review-regex-toggle"]')
+					.querySelector('[data-testid="worktree-file-regex-toggle"]')
 					?.getAttribute('aria-pressed') ?? null,
 			searchValue:
 				document.querySelector<HTMLInputElement>('[data-testid="worktree-file-search-input"]')
@@ -713,7 +713,7 @@ export async function readWorktreeFileVisibleAppProof(
 				!outsideText.includes('resourceUrl') &&
 				!outsideText.includes('agentstudio://resource/') &&
 				!outsideText.includes('BridgeWeb/src/'),
-			regexToggleCount: shell.querySelectorAll('[data-testid="bridge-review-regex-toggle"]').length,
+			regexToggleCount: shell.querySelectorAll('[data-testid="worktree-file-regex-toggle"]').length,
 			sourceProvenanceMeaningfullyVisible: isMeaningfullyVisible(sourceProvenance),
 			sourceProvenanceText: sourceProvenance.textContent ?? '',
 			sampledTreeRowCount: sampledRows.length,

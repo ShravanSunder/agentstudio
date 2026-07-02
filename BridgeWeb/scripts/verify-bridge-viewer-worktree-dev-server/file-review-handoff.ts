@@ -384,7 +384,7 @@ export async function clickWorktreeFilePathViaSearch(props: {
 		.locator('[data-testid="worktree-file-search-input"]')
 		.first();
 	if (!(await searchInputLocator.isVisible())) {
-		await clickWorktreeFileControl(props.page, 'bridge-review-search-toggle');
+		await clickWorktreeFileControl(props.page, 'worktree-file-search-toggle');
 	}
 	await searchInputLocator.waitFor({ state: 'visible', timeout: 10_000 });
 	await searchInputLocator.fill(props.path);

@@ -20,8 +20,8 @@ export async function resetWorktreeFileTreeForPerformanceSamples(props: {
 	readonly totalMetadataTreeRowCount: number;
 }): Promise<void> {
 	await selectWorktreeFileFilter(props.page, 'All files');
-	if (await worktreeFileControlPressed(props.page, 'bridge-review-regex-toggle')) {
-		await clickWorktreeFileControl(props.page, 'bridge-review-regex-toggle');
+	if (await worktreeFileControlPressed(props.page, 'worktree-file-regex-toggle')) {
+		await clickWorktreeFileControl(props.page, 'worktree-file-regex-toggle');
 	}
 	await fillWorktreeFileSearch(props.page, '');
 	await waitForWorktreeFileFilterStatus(

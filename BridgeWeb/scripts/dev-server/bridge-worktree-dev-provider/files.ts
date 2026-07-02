@@ -116,6 +116,7 @@ async function gitNameStatusRecords(props: {
 	const diffOutput = await gitStdout(props.worktreeRoot, [
 		'diff',
 		'--name-status',
+		'-z',
 		'--find-renames',
 		'--find-copies',
 		props.baseRef,
@@ -125,15 +126,11 @@ async function gitNameStatusRecords(props: {
 		'ls-files',
 		'--others',
 		'--exclude-standard',
+		'-z',
 	]);
-	const diffRecords = diffOutput
-		.split('\n')
-		.map((line) => line.trim())
-		.filter((line) => line.length > 0)
-		.map(parseNameStatusLine);
+	const diffRecords = parseNameStatusRecords(diffOutput);
 	const untrackedRecords = untrackedOutput
-		.split('\n')
-		.map((line) => line.trim())
+		.split('\0')
 		.filter((path) => path.length > 0)
 		.map(
 			(path): GitNameStatusRecord => ({
@@ -151,50 +148,45 @@ async function gitNameStatusRecords(props: {
 }
 
 async function readCurrentWorktreeFilePaths(worktreeRoot: string): Promise<readonly string[]> {
-	const currentFilesOutput = await gitStdout(worktreeRoot, [
-		'ls-files',
-		'--cached',
-		'--others',
-		'--exclude-standard',
-		'-z',
+	const [currentFilesOutput, deletedFilesOutput] = await Promise.all([
+		gitStdout(worktreeRoot, ['ls-files', '--cached', '--others', '--exclude-standard', '-z']),
+		gitStdout(worktreeRoot, ['ls-files', '--deleted', '-z']),
 	]);
+	const deletedPaths = new Set(
+		deletedFilesOutput.split('\0').filter((path): boolean => path.length > 0),
+	);
 	const candidatePaths = currentFilesOutput
 		.split('\0')
-		.map((path) => path.trim())
-		.filter((path) => path.length > 0);
-	const pathEntries = await Promise.all(
-		candidatePaths.map(async (path): Promise<string | null> => {
-			const absolutePath = resolve(worktreeRoot, path);
-			try {
-				const realAbsolutePath = await realpath(absolutePath);
-				return isPathInsideRoot({ absolutePath: realAbsolutePath, rootPath: worktreeRoot })
-					? path
-					: null;
-			} catch {
-				return null;
-			}
-		}),
-	);
-	return pathEntries
-		.filter((path): path is string => path !== null)
-		.toSorted((left, right) => left.localeCompare(right));
+		.filter((path) => path.length > 0 && !deletedPaths.has(path));
+	return candidatePaths.toSorted((left, right) => left.localeCompare(right));
 }
 
-function parseNameStatusLine(line: string): GitNameStatusRecord {
-	const columns = line.split('\t');
-	const status = columns[0] ?? '';
-	const oldPath = status.startsWith('R') || status.startsWith('C') ? columns[1] : null;
-	const path = status.startsWith('R') || status.startsWith('C') ? columns[2] : columns[1];
-	if (path === undefined || path.length === 0 || oldPath === undefined) {
-		throw new Error(`Invalid git name-status line: ${line}`);
+function parseNameStatusRecords(output: string): readonly GitNameStatusRecord[] {
+	const records: GitNameStatusRecord[] = [];
+	const fields = output.split('\0');
+	let fieldIndex = 0;
+	while (fieldIndex < fields.length) {
+		const status = fields[fieldIndex];
+		if (status === undefined || status.length === 0) {
+			fieldIndex += 1;
+			continue;
+		}
+		const hasSourcePath = status.startsWith('R') || status.startsWith('C');
+		const oldPath = hasSourcePath ? fields[fieldIndex + 1] : null;
+		const path = hasSourcePath ? fields[fieldIndex + 2] : fields[fieldIndex + 1];
+		fieldIndex += hasSourcePath ? 3 : 2;
+		if (path === undefined || path.length === 0 || oldPath === undefined) {
+			throw new Error(`Invalid git name-status record: ${status}`);
+		}
+		const changeKind = changeKindForGitStatus(status);
+		records.push({
+			basePath: changeKind === 'added' ? null : (oldPath ?? path),
+			changeKind,
+			headPath: changeKind === 'deleted' ? null : path,
+			path,
+		});
 	}
-	const changeKind = changeKindForGitStatus(status);
-	return {
-		basePath: changeKind === 'added' ? null : (oldPath ?? path),
-		changeKind,
-		headPath: changeKind === 'deleted' ? null : path,
-		path,
-	};
+	return records;
 }
 
 function changeKindForGitStatus(status: string): WorktreeFileChangeKind {

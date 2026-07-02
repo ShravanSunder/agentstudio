@@ -13,16 +13,33 @@ export async function assertNoStandaloneWorktreeFileApp(
 	const standaloneWorktreeFileAppCount = await page
 		.locator('[data-testid="worktree-file-app"]')
 		.count();
-	const reviewEmptyShellCount = await page
-		.locator('[data-testid="bridge-review-empty-shell"]')
-		.count();
+	const reviewEmptyShellCount = await page.evaluate((): number => {
+		const emptyShells = Array.from(
+			document.querySelectorAll('[data-testid="bridge-review-empty-shell"]'),
+		).filter((element): element is HTMLElement => element instanceof HTMLElement);
+		return emptyShells.filter((element): boolean => {
+			const reviewModeHost = element.closest('[data-testid="bridge-viewer-mode-host-review"]');
+			const reviewModeIsActive =
+				reviewModeHost instanceof HTMLElement &&
+				reviewModeHost.getAttribute('data-bridge-viewer-mode-active') === 'true';
+			const rect = element.getBoundingClientRect();
+			const style = window.getComputedStyle(element);
+			return (
+				reviewModeIsActive &&
+				style.display !== 'none' &&
+				style.visibility !== 'hidden' &&
+				rect.width > 0 &&
+				rect.height > 0
+			);
+		}).length;
+	});
 	if (standaloneWorktreeFileAppCount > 0) {
 		throw new Error(
 			'Gate 0.a forbids standalone WorktreeFileApp; expected shared BridgeViewer FileViewer shell',
 		);
 	}
 	if (reviewEmptyShellCount > 0) {
-		throw new Error('Expected Worktree/File route to avoid the Review empty shell');
+		throw new Error('Expected Worktree/File route to avoid an active Review empty shell');
 	}
 	return {
 		reviewEmptyShellCount,
@@ -151,7 +168,7 @@ export async function assertSharedBridgeFileViewerShell(props: {
 		);
 		const railToolbar = document.querySelector('[data-testid="bridge-file-viewer-rail-toolbar"]');
 		const railFilterButton = document.querySelector('[data-testid="worktree-file-filter-menu"]');
-		const railSearchButton = document.querySelector('[data-testid="bridge-review-search-toggle"]');
+		const railSearchButton = document.querySelector('[data-testid="worktree-file-search-toggle"]');
 		const railOpenReviewButton = document.querySelector(
 			'[data-testid="worktree-file-open-review-comparison"]',
 		);

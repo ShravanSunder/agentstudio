@@ -1,7 +1,12 @@
 import { readFile } from 'node:fs/promises';
+import { basename, join } from 'node:path';
 
 import { describe, expect, test } from 'vitest';
 
+import {
+	fileToReviewHandoffFixtureRelativePath,
+	repoRootPath,
+} from './verify-bridge-viewer-worktree-dev-server/config.ts';
 import { registerWorktreeDevServerTelemetryAndSelectionTests } from './verify-bridge-viewer-worktree-dev-server/unit-telemetry-and-selection-tests.ts';
 import {
 	makePassingInteractionPerformanceProof,
@@ -11,6 +16,7 @@ import {
 	makeReviewStartupTelemetrySample,
 } from './verify-bridge-viewer-worktree-dev-server/unit-test-fixtures.ts';
 import { readWorktreeDevServerVerifierSource } from './verify-bridge-viewer-worktree-dev-server/unit-test-source.ts';
+import { worktreeFileTreeRows } from './verify-bridge-viewer-worktree-dev-server/worktree-data.ts';
 import {
 	buildReviewContentRoutePressureProof,
 	reviewMetadataBeforeContentSatisfied,
@@ -31,8 +37,35 @@ import {
 import type { WorktreeInteractionPerformanceProof } from './verify-bridge-viewer-worktree-review-proof.ts';
 
 const viteConfigSourceUrl = new URL('../vite.config.ts', import.meta.url);
+const reviewRoutesSourceUrl = new URL(
+	'./verify-bridge-viewer-worktree-dev-server/review-routes.ts',
+	import.meta.url,
+);
 
 describe('worktree dev-server verifier Review interaction contract', () => {
+	test('resolves canary fixture paths from the repository root', async () => {
+		expect(basename(repoRootPath)).toBe('agent-studio.bridge-start');
+
+		await expect(
+			readFile(join(repoRootPath, fileToReviewHandoffFixtureRelativePath), 'utf8'),
+		).resolves.toContain('file-to-review handoff canary');
+	});
+
+	test('reads Worktree/File rows from snapshot and streamed tree windows', () => {
+		expect(
+			worktreeFileTreeRows([
+				{
+					frameKind: 'worktree.snapshot',
+					treeRows: [{ isDirectory: false, path: 'first-window.ts' }],
+				},
+				{
+					frameKind: 'worktree.treeWindow',
+					rows: [{ isDirectory: false, path: 'continued-window.ts' }],
+				},
+			]).map((row) => row.path),
+		).toEqual(['first-window.ts', 'continued-window.ts']);
+	});
+
 	test('summarizes interaction latency samples with p95 and p99 gates', () => {
 		const summary = summarizeInteractionSamples(
 			Array.from({ length: 100 }, (_, index): number => index + 1),
@@ -297,6 +330,26 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 		expect(verifierSource).toContain('descriptors: performanceDescriptors');
 	});
 
+	test('uses a stable Worktree/File first-load canary instead of the alphabetically first repo file', async () => {
+		const verifierSource = await readWorktreeDevServerVerifierSource();
+
+		expect(verifierSource).toContain('initialContentFixtureRelativePath');
+		expect(verifierSource).toContain('fetchFetchableWorktreeFileDescriptorForPath({');
+		expect(verifierSource).toContain('path: initialContentFixtureRelativePath');
+		expect(verifierSource).toContain('await clickWorktreeFilePath(page, initialDescriptor.path)');
+		expect(verifierSource).not.toContain('fetchFirstFetchableWorktreeFileDescriptor(surface)');
+	});
+
+	test('selects the stable Review route canary without waiting on default selection order', async () => {
+		const reviewRoutesSource = await readFile(reviewRoutesSourceUrl, 'utf8');
+
+		expect(reviewRoutesSource).toContain('clickReviewTreeFilePathViaSearch');
+		expect(reviewRoutesSource).toContain('reviewSelectionFixtureRelativePath');
+		expect(reviewRoutesSource).not.toContain(
+			"await waitForAnyReviewSelectedContentState({ page, state: 'ready' });",
+		);
+	});
+
 	test('demands Worktree/File descriptors from snapshot tree metadata instead of startup descriptor frames', async () => {
 		const verifierSource = await readWorktreeDevServerVerifierSource();
 
@@ -326,6 +379,20 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 		expect(verifierSource).not.toContain("packageUrl.searchParams.set('opaqueId'");
 		expect(verifierSource).not.toContain('worktreeReviewPackageRouteResponseSchema');
 		expect(verifierSource).not.toContain('reviewPackage: bridgeReviewPackageSchema');
+	});
+
+	test('ignores hidden keep-alive FileViewer DOM when proving the Review route', async () => {
+		const verifierSource = await readWorktreeDevServerVerifierSource();
+
+		expect(verifierSource).toContain('activeVisibleFileViewerSubstituteCount');
+		expect(verifierSource).toContain('[data-testid="bridge-viewer-mode-host-file"]');
+		expect(verifierSource).toContain("fileModeHost.getAttribute('data-bridge-viewer-mode-active')");
+		expect(verifierSource).toContain("'bridge-file-viewer-shell'");
+		expect(verifierSource).toContain("'bridge-file-viewer-sidebar'");
+		expect(verifierSource).toContain("'bridge-file-viewer-code-canvas'");
+		expect(verifierSource).not.toContain(
+			'document.querySelectorAll(\'[data-testid="bridge-file-viewer-shell"]\').length',
+		);
 	});
 
 	test('rejects the old plain Vite Review-package wrapper route', async () => {
