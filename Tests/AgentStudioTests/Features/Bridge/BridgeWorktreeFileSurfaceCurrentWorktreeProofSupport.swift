@@ -660,3 +660,12 @@ func expectedRelativePath(fileURL: URL, rootURL: URL) -> String {
     }
     return String(filePath[range.upperBound...])
 }
+
+func isNestedExpectedWorktreeRoot(_ directoryURL: URL, rootURL: URL) -> Bool {
+    let canonicalDirectoryURL = directoryURL.standardizedFileURL.resolvingSymlinksInPath()
+    let canonicalRootURL = rootURL.standardizedFileURL.resolvingSymlinksInPath()
+    guard canonicalDirectoryURL.path != canonicalRootURL.path else {
+        return false
+    }
+    return FileManager.default.fileExists(atPath: canonicalDirectoryURL.appending(path: ".git").path)
+}

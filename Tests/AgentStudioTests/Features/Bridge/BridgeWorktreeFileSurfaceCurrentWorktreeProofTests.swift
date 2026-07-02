@@ -1,3 +1,4 @@
+import AgentStudioGit
 import Foundation
 import Testing
 import WebKit
@@ -699,6 +700,21 @@ extension WebKitSerializedTests {
         private func expectedPublishedCurrentWorktreeFilePaths(rootURL: URL) async throws -> Set<String> {
             let ignorePolicy = await BridgeWorktreeFileIgnorePolicy.load(rootURL: rootURL)
             var expectedFilePaths = Set<String>()
+            // Tracked paths are published even when a gitignore rule matches
+            // them (gitignore only governs untracked files), and the
+            // filesystem walk below prunes ignored directories before it can
+            // reach force-added files inside them — so tracked membership is
+            // unioned in directly from the index, minus worktree deletions.
+            let trackedSnapshot = try await LibGit2AgentStudioGitLocalClient().trackedPaths(
+                for: rootURL,
+                options: GitTrackedPathsOptions()
+            )
+            for entry in trackedSnapshot.entries where entry.kind != .submodule {
+                let fileURL = rootURL.appending(path: entry.path)
+                if FileManager.default.fileExists(atPath: fileURL.path) {
+                    expectedFilePaths.insert(entry.path)
+                }
+            }
             var pendingDirectories = [rootURL.standardizedFileURL]
 
             while !pendingDirectories.isEmpty {
@@ -747,15 +763,6 @@ extension WebKitSerializedTests {
                 return false
             }
             return !ignorePolicy.isIgnored(relativePath: relativePath)
-        }
-
-        private func isNestedExpectedWorktreeRoot(_ directoryURL: URL, rootURL: URL) -> Bool {
-            let canonicalDirectoryURL = directoryURL.standardizedFileURL.resolvingSymlinksInPath()
-            let canonicalRootURL = rootURL.standardizedFileURL.resolvingSymlinksInPath()
-            guard canonicalDirectoryURL.path != canonicalRootURL.path else {
-                return false
-            }
-            return FileManager.default.fileExists(atPath: canonicalDirectoryURL.appending(path: ".git").path)
         }
 
         private func treeRows(from intakeFrame: String, rowsKey: String) throws -> [[String: Any]] {

@@ -112,6 +112,27 @@ private actor NonCooperativeDiffAgentStudioGitClient: AgentStudioGitLocalClient 
         throw GitDataPlaneError.unsupported(message: "not used")
     }
 
+    func trackedPaths(
+        for worktreePath: URL,
+        options: GitTrackedPathsOptions
+    ) async throws(GitDataPlaneError) -> GitTrackedPathsSnapshot {
+        throw GitDataPlaneError.unsupported(message: "not used")
+    }
+
+    func isPathIgnored(
+        repositoryAt worktreePath: URL,
+        relativePath: String
+    ) async throws(GitDataPlaneError) -> Bool {
+        throw GitDataPlaneError.unsupported(message: "not used")
+    }
+
+    func ignoredPaths(
+        repositoryAt worktreePath: URL,
+        relativePaths: [String]
+    ) async throws(GitDataPlaneError) -> [GitIgnoreCheck] {
+        throw GitDataPlaneError.unsupported(message: "not used")
+    }
+
     func resolveRevision(_ request: GitRevisionResolutionRequest) async throws(GitDataPlaneError)
         -> GitResolvedRevision
     {

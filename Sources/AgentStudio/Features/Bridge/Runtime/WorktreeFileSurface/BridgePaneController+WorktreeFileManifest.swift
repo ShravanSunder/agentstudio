@@ -36,10 +36,23 @@ extension BridgePaneController {
         let openStartedAt = ContinuousClock.now
         let ignorePolicy = await BridgeWorktreeFileIgnorePolicy.load(rootURL: rootURL)
         let openedSourceWithIgnorePolicy = openedSource.withIgnorePolicy(ignorePolicy)
-        let treeExtent = await Self.resolveOpenTreeExtent(
-            rootURL: rootURL,
-            scopedPaths: openedSourceWithIgnorePolicy.canonicalPathScope
-        )
+        let treeExtent: BridgeWorktreeOpenTreeExtent
+        if let publishableFilePaths = ignorePolicy.publishableFilePaths {
+            // Git worktrees know the exact row total before the first frame,
+            // so the browser scrollbar never resizes from an estimate.
+            treeExtent = BridgeWorktreeOpenTreeExtent(
+                pathCount: BridgeWorktreeFileMaterializer.exactTreeRowCount(
+                    publishableFilePaths: publishableFilePaths,
+                    canonicalPathScope: openedSourceWithIgnorePolicy.canonicalPathScope
+                ),
+                estimatedTotalHeightPixels: nil
+            )
+        } else {
+            treeExtent = await Self.resolveOpenTreeExtent(
+                rootURL: rootURL,
+                scopedPaths: openedSourceWithIgnorePolicy.canonicalPathScope
+            )
+        }
         guard !Task.isCancelled,
             var activeSource = activeWorktreeFileSurfaceSource,
             activeSource.source == openedSource.source,

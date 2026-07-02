@@ -233,11 +233,17 @@ enum BridgeWorktreeFileMaterializer {
                 try appendRow(row)
             }
             let fileURL = request.rootURL.appending(path: relativePath)
-            let values = try? fileURL.resourceValues(forKeys: [.isDirectoryKey, .isRegularFileKey])
-            if values?.isDirectory == true {
-                try appendRow(directoryTreeRow(relativePath: relativePath))
-            } else if values?.isRegularFile == true {
-                try appendRow(try fileTreeRow(fileURL: fileURL, relativePath: relativePath))
+            // fileExists resolves symlinks, so tracked symlinked files
+            // publish as file rows at their link path (a symlinked
+            // directory publishes as a non-expanded directory row — the
+            // manifest never registers children under a link path).
+            var isDirectory: ObjCBool = false
+            if FileManager.default.fileExists(atPath: fileURL.path, isDirectory: &isDirectory) {
+                if isDirectory.boolValue {
+                    try appendRow(directoryTreeRow(relativePath: relativePath))
+                } else {
+                    try appendRow(try fileTreeRow(fileURL: fileURL, relativePath: relativePath))
+                }
             }
             return true
         }
@@ -316,6 +322,20 @@ enum BridgeWorktreeFileMaterializer {
         if let maxCount, maxCount <= 0 {
             return
         }
+        // Git worktrees enumerate from the publishable manifest instead of
+        // walking the filesystem: ignored directories are never visited and
+        // only published paths are statted. The walk below remains the
+        // non-git fallback.
+        if let publishableFilePaths = ignorePolicy.publishableFilePaths {
+            let isRootScope =
+                scopedURL.standardizedFileURL.path == rootURL.standardizedFileURL.path
+            try enumerateTreeRowPaths(
+                publishableFilePaths: publishableFilePaths,
+                scopedRelativePath: isRootScope ? nil : relativePath(fileURL: scopedURL, rootURL: rootURL),
+                visit: visit
+            )
+            return
+        }
 
         var pathCount = 0
         var pendingDirectories = [scopedURL]
@@ -354,6 +374,105 @@ enum BridgeWorktreeFileMaterializer {
                 }
             }
         }
+    }
+
+    /// Exact tree row count (files plus implied directories, plus scope
+    /// rows) for a publishable manifest, mirroring the enumeration and the
+    /// caller's scope-row emission so the open response can carry
+    /// `exactPathCount` before the first frame — the scrollbar is born at
+    /// its final length instead of snapping from an estimate.
+    static func exactTreeRowCount(
+        publishableFilePaths: Set<String>,
+        canonicalPathScope: [String]
+    ) -> Int {
+        let scopedRelativePaths: [String?] =
+            canonicalPathScope.isEmpty ? [nil] : canonicalPathScope.map { $0 }
+        var seenPaths = Set<String>()
+        for scopedRelativePath in scopedRelativePaths {
+            if let scopedRelativePath {
+                seenPaths.insert(scopedRelativePath)
+                if publishableFilePaths.contains(scopedRelativePath) {
+                    continue
+                }
+            }
+            try? enumerateTreeRowPaths(
+                publishableFilePaths: publishableFilePaths,
+                scopedRelativePath: scopedRelativePath
+            ) { relativePath in
+                seenPaths.insert(relativePath)
+                return true
+            }
+        }
+        return seenPaths.count
+    }
+
+    /// Breadth-first enumeration over the publishable manifest, matching the
+    /// filesystem walk's order exactly: per-directory children (directories
+    /// and files interleaved) sorted by last path component, directories
+    /// expanded in queue order. Directories exist implicitly as the ancestor
+    /// prefixes of published files, so ignored subtrees are never visited.
+    private static func enumerateTreeRowPaths(
+        publishableFilePaths: Set<String>,
+        scopedRelativePath: String?,
+        visit: (String) throws -> Bool
+    ) throws {
+        var childDirectoriesByParent: [String: Set<String>] = [:]
+        var childFilesByParent: [String: [String]] = [:]
+        let scopePrefix = scopedRelativePath.map { $0 + "/" }
+        let scopeRoot = scopedRelativePath ?? ""
+        for filePath in publishableFilePaths {
+            if let scopedRelativePath {
+                guard filePath == scopedRelativePath || filePath.hasPrefix(scopePrefix ?? "") else {
+                    continue
+                }
+                if filePath == scopedRelativePath {
+                    // The scope itself is a published file; the caller's
+                    // scope loop already visits file scopes directly.
+                    continue
+                }
+            }
+            let components = filePath.split(separator: "/").map(String.init)
+            var parentPath = ""
+            for componentIndex in 0..<max(components.count - 1, 0) {
+                let directoryPath =
+                    parentPath.isEmpty
+                    ? components[componentIndex]
+                    : parentPath + "/" + components[componentIndex]
+                if directoryPath.count > scopeRoot.count {
+                    childDirectoriesByParent[parentPath, default: []].insert(directoryPath)
+                }
+                parentPath = directoryPath
+            }
+            childFilesByParent[parentPath, default: []].append(filePath)
+        }
+        var pendingDirectories = [scopeRoot]
+        while !pendingDirectories.isEmpty {
+            let directoryPath = pendingDirectories.removeFirst()
+            let childDirectories = childDirectoriesByParent[directoryPath] ?? []
+            let childFiles = childFilesByParent[directoryPath] ?? []
+            let unsortedChildren =
+                childDirectories.map { (path: $0, isDirectory: true) }
+                + childFiles.map { (path: $0, isDirectory: false) }
+            let sortedChildren = unsortedChildren.sorted { lhs, rhs in
+                lastPathComponent(lhs.path).utf8
+                    .lexicographicallyPrecedes(lastPathComponent(rhs.path).utf8)
+            }
+            for child in sortedChildren {
+                guard try visit(child.path) else {
+                    return
+                }
+                if child.isDirectory {
+                    pendingDirectories.append(child.path)
+                }
+            }
+        }
+    }
+
+    private static func lastPathComponent(_ relativePath: String) -> String {
+        if let separatorIndex = relativePath.lastIndex(of: "/") {
+            return String(relativePath[relativePath.index(after: separatorIndex)...])
+        }
+        return relativePath
     }
 
     private static func appendAncestorRowsThrowing(
