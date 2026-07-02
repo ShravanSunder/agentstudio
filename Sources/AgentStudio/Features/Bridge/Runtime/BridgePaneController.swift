@@ -37,7 +37,6 @@ final class BridgePaneController {
     /// No state pushes or commands are allowed before this becomes `true`.
     /// Gated and idempotent — once set, subsequent `bridge.ready` messages are ignored.
     private(set) var isBridgeReady = false
-    private(set) var reviewIntakeReadyStreamId: String?
 
     // MARK: - Runtime Hooks
 
@@ -85,7 +84,6 @@ final class BridgePaneController {
     private(set) var isContentInteractionEnabled: Bool
     private var interactionApplyTask: Task<Void, Never>?
     var bridgeDeliveryTail: Task<Void, Never>?
-    var pendingReviewProtocolIntakeFrames: [String] = []
     private var inboxPostTimestamps: [Date] = []
     let telemetryScopeGate: BridgeTelemetryScopeGate
     let telemetryRecorder: (any BridgePerformanceTraceRecording)?
@@ -506,8 +504,6 @@ final class BridgePaneController {
         activeWorktreeFileTreeWindowTask = nil
         hasPendingReviewRefresh = false
         activeWorktreeFileSurfaceSource = nil
-        pendingReviewProtocolIntakeFrames.removeAll(keepingCapacity: false)
-        reviewIntakeReadyStreamId = nil
         revokeReviewContentAuthoritySynchronously()
         resourceLeaseRegistry.revokeSynchronously(paneId: paneId, protocolId: "worktree-file")
         let reviewContentStore = reviewContentStore
@@ -517,6 +513,7 @@ final class BridgePaneController {
         let worktreeFileMetadataScheduler = worktreeFileMetadataScheduler
         Task {
             await worktreeFileMetadataScheduler.closeGate(protocolId: "worktree-file")
+            await worktreeFileMetadataScheduler.closeGate(protocolId: "review")
             await reviewContentStore.deactivate()
             await worktreeFileResourceStore.reset(protocolId: "worktree-file")
             await resourceLeaseRegistry.reset(
@@ -573,12 +570,6 @@ final class BridgePaneController {
         reviewPushPlan?.start()
         connectionPushPlan?.start()
         agentPushPlan?.start()
-
-        if canDeliverReviewProtocolIntakeFrames(), !pendingReviewProtocolIntakeFrames.isEmpty {
-            Task { @MainActor [weak self] in
-                await self?.flushPendingReviewProtocolIntakeFrames()
-            }
-        }
     }
 
     func handleBridgeIntakeReady(_ params: BridgeIntakeReadyMethod.Params) async {
@@ -605,9 +596,8 @@ final class BridgePaneController {
             await recordReviewIntakeReadyTelemetry(phase: "dropped")
             return
         }
-        reviewIntakeReadyStreamId = currentStreamId
         await recordReviewIntakeReadyTelemetry(phase: "accepted")
-        await flushPendingReviewProtocolIntakeFrames()
+        await worktreeFileMetadataScheduler.openGate(protocolId: "review")
     }
 
     private func handleWorktreeFileIntakeReady(_ params: BridgeIntakeReadyMethod.Params) async {
@@ -652,25 +642,6 @@ final class BridgePaneController {
         _ = method
     }
 
-    func flushPendingReviewProtocolIntakeFrames() async {
-        guard canDeliverReviewProtocolIntakeFrames() else {
-            return
-        }
-        await recordReviewIntakeReadyTelemetry(phase: "transport")
-        while !pendingReviewProtocolIntakeFrames.isEmpty {
-            let frame = pendingReviewProtocolIntakeFrames[0]
-            let delivered = await deliverIntakeFrame(frame)
-            guard delivered else {
-                bridgeControllerLogger.warning(
-                    "[Bridge] Review protocol intake transport failed pane=\(self.paneId.uuidString, privacy: .public)"
-                )
-                paneState.connection.setHealth(.error)
-                return
-            }
-            pendingReviewProtocolIntakeFrames.removeFirst()
-        }
-    }
-
     private func recordReviewIntakeReadyTelemetry(phase: String) async {
         guard let telemetryRecorder else {
             return
@@ -688,9 +659,7 @@ final class BridgePaneController {
                     "agentstudio.bridge.slice": BridgeTelemetrySlice.reviewMetadata.rawValue,
                     "agentstudio.bridge.transport": "intake",
                 ],
-                numericAttributes: [
-                    "agentstudio.bridge.intake.sequence": Double(pendingReviewProtocolIntakeFrames.count)
-                ],
+                numericAttributes: [:],
                 booleanAttributes: [
                     "agentstudio.bridge.header_supported": isBridgeReady
                 ]

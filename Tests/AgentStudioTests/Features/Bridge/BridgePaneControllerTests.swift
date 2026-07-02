@@ -703,8 +703,8 @@ extension WebKitSerializedTests {
             #expect(await controller.resourceLeaseRegistry.contains(headResource, paneId: controller.paneId) == true)
         }
 
-        @Test("loadDiff queues review snapshot intake until bridge ready")
-        func loadDiff_queues_review_snapshot_intake_until_bridge_ready() async throws {
+        @Test("loadDiff queues review metadata intake until bridge ready")
+        func loadDiff_queues_review_metadata_intake_until_bridge_ready() async throws {
             let baseEndpoint = makeBridgeEndpoint(endpointId: "baseline-headMinusOne", kind: .gitRef)
             let headEndpoint = makeBridgeEndpoint(endpointId: "working-tree", kind: .workingTree)
             let changedFile = makeBridgeEndpointChangedFile(
@@ -767,40 +767,36 @@ extension WebKitSerializedTests {
             )
 
             #expect(await capturedIntakeFrames.get().isEmpty)
-            #expect(controller.pendingReviewProtocolIntakeFrames.count == 2)
+            #expect(await controller.worktreeFileMetadataScheduler.queuedJobCount == 2)
             controller.handleBridgeReady()
             #expect(await capturedIntakeFrames.get().isEmpty)
             await controller.handleBridgeIntakeReady(
                 BridgeIntakeReadyMethod.Params(protocolId: "review", streamId: nil)
             )
-            let didDeliverQueuedFrames = await waitUntil {
-                await capturedIntakeFrames.get().count == 2
-            }
+            await controller.worktreeFileMetadataScheduler.waitUntilDrained()
 
             let capturedFrames = await capturedIntakeFrames.get()
-            #expect(didDeliverQueuedFrames)
-            #expect(controller.pendingReviewProtocolIntakeFrames.isEmpty)
+            #expect(await controller.worktreeFileMetadataScheduler.queuedJobCount == 0)
             #expect(capturedFrames.count == 2)
             let resetFrameJSON = try #require(capturedFrames.first)
             let snapshotFrameJSON = try #require(capturedFrames.last)
             let resetFrameObject = try Self.reviewIntakeFrameObject(resetFrameJSON)
             let snapshotFrameObject = try Self.reviewIntakeFrameObject(snapshotFrameJSON)
             let snapshotPayload = try #require(snapshotFrameObject["payload"] as? [String: Any])
-            let packageObject = try #require(snapshotPayload["package"] as? [String: Any])
-            let rootDescriptorObject = try #require(packageObject["rootDescriptor"] as? [String: Any])
-            let descriptorObject = try #require(rootDescriptorObject["descriptor"] as? [String: Any])
-            let contentObject = try #require(descriptorObject["content"] as? [String: Any])
+            let comparisonObject = try #require(snapshotPayload["comparison"] as? [String: Any])
             #expect(result == .success(commandId: commandId))
             #expect(resetFrameObject["kind"] as? String == "reset")
             #expect(resetFrameObject["sequence"] as? Int == 0)
             #expect(snapshotFrameObject["sequence"] as? Int == 1)
-            #expect(snapshotPayload["kind"] as? String == "snapshot")
-            #expect(snapshotPayload["frameKind"] as? String == "review.snapshot")
+            #expect(snapshotPayload["kind"] as? String == "metadataSnapshot")
+            #expect(snapshotPayload["frameKind"] as? String == "review.metadataSnapshot")
             #expect(snapshotPayload["generation"] as? Int == resetFrameObject["generation"] as? Int)
             #expect(snapshotPayload["sequence"] as? Int == 1)
-            #expect(packageObject["sourceIdentity"] as? String == "query-\(artifact.diffId.uuidString)")
-            #expect(contentObject["expectedBytes"] == nil)
-            #expect(contentObject["integrity"] == nil)
+            #expect(comparisonObject["sourceIdentity"] as? String == "query-\(artifact.diffId.uuidString)")
+            #expect(comparisonObject["rootDescriptor"] == nil)
+            #expect(snapshotPayload["itemMetadata"] != nil)
+            #expect(snapshotPayload["treeRows"] != nil)
+            #expect(snapshotPayload["extentFacts"] != nil)
         }
 
         @Test("push and intake delivery share a serialized WebKit lane")
