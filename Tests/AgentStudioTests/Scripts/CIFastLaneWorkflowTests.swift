@@ -47,17 +47,17 @@ struct CIFastLaneWorkflowTests {
         #expect(nonSerializedRunner.contains("--skip E2ESerializedTests"))
         #expect(nonSerializedRunner.contains("--skip ZmxE2ETests"))
         #expect(fastRunner.contains("--parallel --num-workers \"$SWIFT_TEST_WORKERS\""))
-        #expect(
-            fastRunner.contains(
-                "app_ipc_live_socket_suite_filter='AgentStudioAppIPC(Service(Command|Contribution|AuthMode)?|SidebarService|CommandExecuteContract)Tests'"
-            )
-        )
+        #expect(testHelperScript.contains("app_ipc_live_socket_suite_filters()"))
+        #expect(testHelperScript.contains("AgentStudioAppIPCServiceTests"))
+        #expect(testHelperScript.contains("AgentStudioAppIPCSidebarServiceTests"))
+        #expect(testHelperScript.contains("AgentStudioAppIPCCommandExecuteContractTests"))
         #expect(
             fastRunner.contains(
                 "--skip \"Script|Smoke|Integration|Benchmark|ZmxStartupTraceAnalyzerTests|WorkspaceSurfaceCoordinatorFilesystemSourceTests|TerminalActivityAgentSettledHeuristicTests|MainWindowControllerInboxToolbarButtonTests|ProcessExecutorTests|${app_ipc_live_socket_suite_filter}\""
             )
         )
         #expect(fastRunner.contains("serial App IPC service live socket suites"))
+        #expect(fastRunner.contains("while IFS= read -r app_ipc_live_socket_suite_filter"))
         #expect(fastRunner.contains("--filter \"$app_ipc_live_socket_suite_filter\""))
         #expect(largeRunner.contains("--parallel --num-workers \"$SWIFT_TEST_WORKERS\""))
         #expect(

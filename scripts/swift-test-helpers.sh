@@ -44,6 +44,17 @@ run_non_serialized_swift_tests() {
   fi
 }
 
+app_ipc_live_socket_suite_filters() {
+  cat <<'EOF'
+AgentStudioAppIPCServiceTests
+AgentStudioAppIPCServiceCommandTests
+AgentStudioAppIPCServiceContributionTests
+AgentStudioAppIPCServiceAuthModeTests
+AgentStudioAppIPCSidebarServiceTests
+AgentStudioAppIPCCommandExecuteContractTests
+EOF
+}
+
 run_fast_non_webkit_swift_tests() {
   local app_ipc_live_socket_suite_filter
   app_ipc_live_socket_suite_filter='AgentStudioAppIPC(Service(Command|Contribution|AuthMode)?|SidebarService|CommandExecuteContract)Tests'
@@ -68,11 +79,14 @@ run_fast_non_webkit_swift_tests() {
       --skip "Script|Smoke|Integration|Benchmark|ZmxStartupTraceAnalyzerTests|WorkspaceSurfaceCoordinatorFilesystemSourceTests|TerminalActivityAgentSettledHeuristicTests|MainWindowControllerInboxToolbarButtonTests|ProcessExecutorTests|${app_ipc_live_socket_suite_filter}" --build-path "$BUILD_PATH"
   fi
 
-  run_swift_with_timeout \
-    "serial App IPC service live socket suites" \
-    "$TIMEOUT_SECONDS" \
-    env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
-    --filter "$app_ipc_live_socket_suite_filter" --build-path "$BUILD_PATH"
+  while IFS= read -r app_ipc_live_socket_suite_filter; do
+    [ -n "$app_ipc_live_socket_suite_filter" ] || continue
+    run_swift_with_timeout \
+      "serial App IPC service live socket suites: $app_ipc_live_socket_suite_filter" \
+      "$TIMEOUT_SECONDS" \
+      env AGENT_STUDIO_BENCHMARK_MODE=off AGENTSTUDIO_TRACE_BACKEND="${SWIFT_TEST_TRACE_BACKEND:-jsonl}" swift test ${EXTRA_SWIFT_TEST_ARGS:-} --skip-build \
+      --filter "$app_ipc_live_socket_suite_filter" --build-path "$BUILD_PATH"
+  done < <(app_ipc_live_socket_suite_filters)
 }
 
 run_large_non_webkit_swift_tests() {
