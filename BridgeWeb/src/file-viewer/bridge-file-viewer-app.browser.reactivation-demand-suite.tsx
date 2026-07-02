@@ -21,6 +21,7 @@ import {
 	makeFrames,
 	makeSourceIdentity,
 	makeTreeRowsOnlyFrames,
+	makeTreeWindowFrame,
 	type PublishWorktreeFileFrames,
 } from './bridge-file-viewer-browser-test-fixtures.js';
 import {
@@ -256,6 +257,99 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		expect(openFileBodyPreview()).toContain('reactivatedPreservedFile');
 		expect(fetchedResourceUrls).toContain(
 			'agentstudio://resource/worktree-file/worktree.fileContent/content-1?generation=1',
+		);
+	});
+
+	test('ignores a late metadata-only descriptor from before Files deactivated', async () => {
+		const initiallyOpenDescriptor = makeFileDescriptor({
+			contentHandle: 'initial-content',
+			fileId: 'file-000',
+			path: 'File-000.swift',
+		});
+		const lateDescriptor = makeFileDescriptor({
+			contentHandle: 'late-clicked-content',
+			fileId: 'file-001',
+			path: 'File-001.swift',
+		});
+		const descriptorRequests: WorktreeFileDescriptorRequest[] = [];
+		const fetchedResourceUrls: string[] = [];
+		let activateFiles: (() => void) | null = null;
+		let deactivateFiles: (() => void) | null = null;
+		let publishFrames: PublishWorktreeFileFrames | null = null;
+
+		function ControlledFileViewer(): ReactElement {
+			const [isActive, setIsActive] = useState(true);
+			activateFiles = (): void => {
+				setIsActive(true);
+			};
+			deactivateFiles = (): void => {
+				setIsActive(false);
+			};
+			return (
+				<BridgeFileViewerApp
+					autoOpenInitialFile
+					codeViewWorkerPoolEnabled={false}
+					fetchResource={async (props) => {
+						fetchedResourceUrls.push(props.resourceUrl);
+						return makeWorktreeFileSurfaceRuntimeFetchedResource(
+							props.resourceUrl.includes('late-clicked-content')
+								? 'export const lateClickedSelection = true;\n'
+								: 'export const initiallyOpen = true;\n',
+						);
+					}}
+					initialFrames={makeFrames(initiallyOpenDescriptor)}
+					isActive={isActive}
+					requestFileDescriptor={(request) => {
+						descriptorRequests.push(request);
+					}}
+					subscribeFrames={(handler): (() => void) => {
+						publishFrames = handler;
+						return (): void => {
+							publishFrames = null;
+						};
+					}}
+				/>
+			);
+		}
+
+		render(<ControlledFileViewer />);
+
+		await waitForOpenFileState('ready');
+		await waitForVisibleCodeText('initiallyOpen');
+		const publishRequiredFrames = requireFramePublisher(publishFrames);
+		publishRequiredFrames([
+			makeTreeWindowFrame({ rowCount: 1, sequence: 2, startIndex: 1, totalPathCount: 2 }),
+		]);
+		const clickedButton = await waitForBridgeViewerTreeItemButton('File-001.swift');
+		clickedButton.click();
+		await waitForDescriptorRequestCount({
+			expectedCount: 1,
+			recordedRequests: descriptorRequests,
+		});
+
+		requireDeactivateFiles(deactivateFiles)();
+		await waitForFileViewerActiveState('false');
+		requireActivateFiles(activateFiles)();
+		await waitForFileViewerActiveState('true');
+		publishRequiredFrames(makeFileDescriptorFrame(lateDescriptor, { sequence: 3 }));
+		await waitForBridgeViewerAnimationFrame();
+		await waitForBridgeViewerAnimationFrame();
+
+		expect(openFilePath()).toBe('File-000.swift');
+		expect(selectedDisplayPath()).toBe('File-000.swift');
+		expect(renderedFilePath()).toBe('File-000.swift');
+		expect(openFileBodyPreview()).toContain('initiallyOpen');
+		expect(visibleCodeText()).not.toContain('lateClickedSelection');
+
+		clickedButton.click();
+		await waitForOpenFileState('ready');
+		await waitForSelectedDisplayPath('File-001.swift');
+		await waitForVisibleCodeText('lateClickedSelection');
+
+		expect(openFilePath()).toBe('File-001.swift');
+		expect(descriptorRequests).toHaveLength(1);
+		expect(fetchedResourceUrls).toContain(
+			'agentstudio://resource/worktree-file/worktree.fileContent/late-clicked-content?generation=1',
 		);
 	});
 

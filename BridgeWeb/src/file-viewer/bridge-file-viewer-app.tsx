@@ -1,7 +1,6 @@
-import { lazy, Suspense, useCallback, useRef, type ReactElement } from 'react';
+import { lazy, Suspense, useRef, type ReactElement } from 'react';
 
 import type { WorktreeFileDescriptorRequest } from '../features/worktree-file/models/worktree-file-protocol-models.js';
-import { canFetchWorktreeFileDescriptorContent } from '../features/worktree-file/models/worktree-file-protocol-models.js';
 import type { WorktreeFileSurfaceRuntime } from '../worktree-file-surface/worktree-file-surface-runtime.js';
 import type { BridgeFileViewerAppProps } from './bridge-file-viewer-app-props.js';
 import { BridgeFileViewerLazyLoadingFrame } from './bridge-file-viewer-lazy-loading-frame.js';
@@ -16,6 +15,7 @@ import {
 import { useBridgeFileViewerActiveModeGate } from './use-bridge-file-viewer-active-mode-gate.js';
 import { useBridgeFileViewerBodyState } from './use-bridge-file-viewer-body-state.js';
 import { useBridgeFileViewerContentController } from './use-bridge-file-viewer-content-controller.js';
+import { useBridgeFileViewerDescriptorRequestController } from './use-bridge-file-viewer-descriptor-request-controller.js';
 import { useBridgeFileViewerFrameIntakeController } from './use-bridge-file-viewer-frame-intake-controller.js';
 import { useBridgeFileViewerInactiveOpenFileRecovery } from './use-bridge-file-viewer-inactive-open-file-recovery.js';
 import { useBridgeFileViewerRecentlyUpdatedDemand } from './use-bridge-file-viewer-recently-updated-demand.js';
@@ -144,67 +144,13 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 		telemetryTraceContext,
 	});
 
-	const openPendingSelectedDescriptor = useCallback(
-		(nextState: BridgeFileViewerRenderState): void => {
-			if (!isActiveRef.current) {
-				return;
-			}
-			const pendingRequest = pendingSelectedDescriptorRequestRef.current;
-			if (pendingRequest === null) {
-				return;
-			}
-			const descriptor = nextState.descriptors.find(
-				(candidate): boolean =>
-					candidate.fileId === pendingRequest.fileId &&
-					candidate.path === pendingRequest.path &&
-					canFetchWorktreeFileDescriptorContent(candidate),
-			);
-			if (descriptor === undefined) {
-				return;
-			}
-			pendingSelectedDescriptorRequestRef.current = null;
-			void openFile(descriptor);
-		},
-		[isActiveRef, openFile],
-	);
-
 	const requestFileDescriptorFromHost = props.requestFileDescriptor;
-	const requestFileDescriptor = useCallback(
-		(request: WorktreeFileDescriptorRequest): void => {
-			if (!isActiveRef.current) {
-				return;
-			}
-			pendingSelectedDescriptorRequestRef.current = request;
-			const requestResult = requestFileDescriptorFromHost?.(request);
-			if (requestResult === undefined) {
-				return;
-			}
-			void Promise.resolve(requestResult).catch((): void => {
-				if (pendingSelectedDescriptorRequestRef.current !== request) {
-					return;
-				}
-				pendingSelectedDescriptorRequestRef.current = null;
-			});
-		},
-		[isActiveRef, requestFileDescriptorFromHost],
-	);
-
-	const requestFileDescriptorForDemand = useCallback(
-		(request: WorktreeFileDescriptorRequest): void => {
-			if (!isActiveRef.current) {
-				return;
-			}
-			const requestResult = requestFileDescriptorFromHost?.(request);
-			if (requestResult === undefined) {
-				return;
-			}
-			void Promise.resolve(requestResult).catch((): void => {
-				// Demand lanes are advisory warming; failed descriptor requests must not surface
-				// as unhandled promise rejections or poison foreground selection state.
-			});
-		},
-		[isActiveRef, requestFileDescriptorFromHost],
-	);
+	const descriptorRequestController = useBridgeFileViewerDescriptorRequestController({
+		isActiveRef,
+		openFile,
+		pendingSelectedDescriptorRequestRef,
+		requestFileDescriptorFromHost,
+	});
 
 	const recentlyUpdatedDemandController = useBridgeFileViewerRecentlyUpdatedDemand({
 		isActive,
@@ -215,7 +161,7 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 		recentlyUpdatedDemandRequestIdRef,
 		recentlyUpdatedLoadedDescriptorIdRef,
 		renderStateRef,
-		requestFileDescriptorForDemand,
+		requestFileDescriptorForDemand: descriptorRequestController.requestFileDescriptorForDemand,
 		runtimeRef,
 		setLastDemandDispatchDebugState: viewerActions.setLastDemandDispatchDebugState,
 	});
@@ -228,7 +174,7 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 		loadInitialSurface,
 		openFileBodyRef,
 		openFileRequestIdRef,
-		openPendingSelectedDescriptor,
+		openPendingSelectedDescriptor: descriptorRequestController.openPendingSelectedDescriptor,
 		renderStateRef,
 		runtimeRef,
 		setInitialSurfaceLoadState: viewerActions.setInitialSurfaceLoadState,
@@ -251,8 +197,8 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 		pendingSelectedDescriptorRequestRef,
 		pendingStaleRefreshDescriptorRequestKeyRef,
 		renderState,
-		requestFileDescriptor,
-		requestFileDescriptorForDemand,
+		requestFileDescriptor: descriptorRequestController.requestFileDescriptor,
+		requestFileDescriptorForDemand: descriptorRequestController.requestFileDescriptorForDemand,
 	});
 
 	const dispatchVisibleFileDemand = useBridgeFileViewerVisibleDemandController({
@@ -306,7 +252,7 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 				metadataFileTreeRowCount={shellModel.metadataFileTreeRowCount}
 				onFilterModeChange={viewerActions.setFilterMode}
 				onOpenFile={openFile}
-				onRequestFileDescriptor={requestFileDescriptor}
+				onRequestFileDescriptor={descriptorRequestController.requestFileDescriptor}
 				onSearchModeChange={viewerActions.setSearchMode}
 				onSearchTextChange={viewerActions.setSearchText}
 				openFileState={openFileState}

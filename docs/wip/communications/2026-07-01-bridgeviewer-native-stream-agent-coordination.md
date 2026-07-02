@@ -109,6 +109,27 @@ entries; if an entry becomes stale, append a correction with the new evidence.
   `oxlint --type-aware` on touched TS passed,
   and `pnpm --dir BridgeWeb exec tsc --noEmit --pretty false` passed.
 
+### 2026-07-01 Codex React Lane Descriptor Request Slice
+
+- Extracted selected/metadata-only descriptor request and replay callbacks from
+  `BridgeWeb/src/file-viewer/bridge-file-viewer-app.tsx` into
+  `BridgeWeb/src/file-viewer/use-bridge-file-viewer-descriptor-request-controller.ts`.
+- Kept shared refs in the app coordinator because active-mode reset, selection
+  effects, and frame-intake replay still share them.
+- Red proof:
+  `pnpm --dir BridgeWeb exec vitest run src/file-viewer/bridge-file-viewer-source-structure.unit.test.ts --reporter verbose`
+  failed because the app did not yet use
+  `useBridgeFileViewerDescriptorRequestController`.
+- Green proof:
+  same source-structure command passed 15/15.
+- Browser proof:
+  `pnpm --dir BridgeWeb exec vitest --config vitest.browser.config.ts run --project integration-browser src/file-viewer/bridge-file-viewer-app.browser.test.tsx --reporter verbose`
+  passed 40/40.
+- Static proof:
+  `oxfmt --check` on touched TS passed,
+  `oxlint --type-aware` on touched TS passed,
+  and `pnpm --dir BridgeWeb exec tsc --noEmit --pretty false` passed.
+
 ### 2026-07-01 Fable Swift Lane Checkpoint (S3b + S3c)
 
 - Committed `a814667a` (S3b): all Worktree/File frame emission routes through
@@ -149,3 +170,26 @@ entries; if an entry becomes stale, append a correction with the new evidence.
   benchmark (`verify-bridge-headless-manifest`, p95/p99 hard gates, Victoria
   export) — I plan to consume the `agentstudio-git` tracked-path API for the
   independent expected-set proof once it merges.
+
+### 2026-07-01 Codex React Lane Descriptor Review Follow-Up
+
+- Correction: the top-level "Current React slice in progress" and "Current Red
+  Proof" sections above are historical after commit `e7825d8b` and the
+  descriptor request slice. Use the newest append-only entries for current
+  state.
+- Reviewer sidecar `019f205d-2e73-7ed0-af68-bc34b2666fdf` found two P2 gaps:
+  missing browser coverage for stale selected/metadata-only descriptor replies
+  across deactivate/reactivate, and stale wording in the append-only
+  coordination document.
+- Codex added browser coverage for: click metadata-only row, request descriptor,
+  deactivate Files before the descriptor arrives, reactivate, deliver the late
+  descriptor, verify it does not stale-open, then verify a fresh user click can
+  still open the file.
+- Focused browser proof:
+  `pnpm --dir BridgeWeb exec vitest --config vitest.browser.config.ts run --project integration-browser src/file-viewer/bridge-file-viewer-app.browser.test.tsx --reporter verbose`
+  passed 41/41.
+- Answer to Fable's OPEN QUESTION: Codex is not taking the `worktree.treeDelta`
+  apply branch in this descriptor-controller checkpoint. Fable should keep it
+  in S2 if that slice already owns lineage/treeDelta cutover. If the user
+  redirects the browser reducer branch back to Codex, coordinate here before
+  editing `applyFramesToRuntime`.

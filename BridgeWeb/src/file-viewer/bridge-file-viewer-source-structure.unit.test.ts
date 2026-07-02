@@ -48,6 +48,29 @@ describe('Bridge file viewer source structure', () => {
 		expect(recentlyUpdatedDemandSource).toContain('recentlyUpdatedFile');
 	});
 
+	test('keeps descriptor request replay logic in a controller hook', () => {
+		const appSource = readFileSync(
+			fileURLToPath(new URL('./bridge-file-viewer-app.tsx', import.meta.url)),
+			'utf8',
+		);
+		const descriptorRequestControllerSource = readFileSync(
+			fileURLToPath(
+				new URL('./use-bridge-file-viewer-descriptor-request-controller.ts', import.meta.url),
+			),
+			'utf8',
+		);
+
+		expect(appSource).toContain('useBridgeFileViewerDescriptorRequestController');
+		expect(appSource).not.toContain('canFetchWorktreeFileDescriptorContent');
+		expect(appSource).not.toContain('const openPendingSelectedDescriptor = useCallback');
+		expect(appSource).not.toContain('const requestFileDescriptor = useCallback');
+		expect(appSource).not.toContain('const requestFileDescriptorForDemand = useCallback');
+		expect(descriptorRequestControllerSource).toContain('canFetchWorktreeFileDescriptorContent');
+		expect(descriptorRequestControllerSource).toContain('openPendingSelectedDescriptor');
+		expect(descriptorRequestControllerSource).toContain('requestFileDescriptor');
+		expect(descriptorRequestControllerSource).toContain('requestFileDescriptorForDemand');
+	});
+
 	test('keeps frame application out of the file viewer app coordinator', () => {
 		const appSource = readFileSync(
 			fileURLToPath(new URL('./bridge-file-viewer-app.tsx', import.meta.url)),
@@ -62,6 +85,7 @@ describe('Bridge file viewer source structure', () => {
 	test('keeps Pierre runtime imports out of file viewer controller hooks', () => {
 		const controllerHookUrls = [
 			'./use-bridge-file-viewer-content-controller.ts',
+			'./use-bridge-file-viewer-descriptor-request-controller.ts',
 			'./use-bridge-file-viewer-frame-intake-controller.ts',
 			'./use-bridge-file-viewer-recently-updated-demand.ts',
 			'./use-bridge-file-viewer-visible-demand-controller.ts',
@@ -83,6 +107,7 @@ describe('Bridge file viewer source structure', () => {
 	test('keeps file viewer controller hooks independent from visual adapter modules', () => {
 		const controllerHookUrls = [
 			'./use-bridge-file-viewer-content-controller.ts',
+			'./use-bridge-file-viewer-descriptor-request-controller.ts',
 			'./use-bridge-file-viewer-frame-intake-controller.ts',
 			'./use-bridge-file-viewer-recently-updated-demand.ts',
 			'./use-bridge-file-viewer-visible-demand-controller.ts',
