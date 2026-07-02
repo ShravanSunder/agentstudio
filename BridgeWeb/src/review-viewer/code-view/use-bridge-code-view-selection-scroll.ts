@@ -135,7 +135,7 @@ export function useBridgeCodeViewSelectionScroll(
 					});
 					return;
 				}
-				const scrollBehavior: BridgeCodeViewScrollToItemOptions['behavior'] = 'instant';
+				const scrollBehavior: BridgeCodeViewScrollToItemOptions['behavior'] = 'smooth-auto';
 				const didScroll = scrollToItem(selectedItemId, { behavior: scrollBehavior });
 				if (!didScroll) {
 					if (remainingFrameBudget > 0) {

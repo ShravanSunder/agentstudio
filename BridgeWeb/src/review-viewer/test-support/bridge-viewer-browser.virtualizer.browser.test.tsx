@@ -137,7 +137,115 @@ describe('Bridge viewer CodeView virtualizer anchoring', () => {
 		await waitForBridgeViewerAnimationFrame();
 		expect(Math.abs(scrollOwner.scrollTop - scrollTopBeforeMetadataWindow)).toBeLessThanOrEqual(4);
 	});
+
+	test('keeps an upward selection reveal pinned after target content hydrates', async () => {
+		const fixture = makeBridgeViewerBrowserFixture({ fixtureClass: 'large-diffshub' });
+		const upItemId = 'browser-added-source';
+		const upItem = fixture.reviewPackage.itemsById[upItemId];
+		if (upItem === undefined) {
+			throw new Error('Expected large fixture upward target item.');
+		}
+		const deferredUpTargetHandleIds = contentHandleIdsForItem(upItem);
+		const backend = installBridgeViewerMockedBackend(fixture, {
+			deferContentHandleIds: deferredUpTargetHandleIds,
+		});
+
+		render(
+			<BridgeApp
+				codeViewWorkerPoolEnabled={false}
+				fetchContent={backend.fetchContent}
+				markdownWorkerClient={null}
+				projectionWorkerClient={backend.projectionWorkerClient}
+			/>,
+		);
+		await backend.pushMetadata();
+		await waitForBridgeViewerText(fixture.expected.initialText);
+
+		const scrollOwner = await waitForBridgeViewerCodeScrollOwner();
+		scrollOwner.scrollTop = Math.min(scrollOwner.scrollHeight - scrollOwner.clientHeight, 12_000);
+		scrollOwner.dispatchEvent(new Event('scroll', { bubbles: true }));
+		await waitForBridgeViewerAnimationFrame();
+		await waitForBridgeViewerAnimationFrame();
+		expect(scrollOwner.scrollTop).toBeGreaterThan(0);
+
+		const upwardMotionSamples = await browserSupport.sampleBridgeCodeViewScrollMotion({
+			frameCount: 36,
+			scrollOwner,
+			action: (): void => {
+				revealReviewItem(upItemId);
+			},
+		});
+		await browserSupport.waitForBridgeCodeHeaderItemOffsetFromScrollOwner({
+			itemId: upItemId,
+			maxOffset: 8,
+			scrollOwner,
+		});
+		await browserSupport.waitForPendingContentResponseCount(
+			backend,
+			deferredUpTargetHandleIds.length,
+		);
+		for (const response of backend.pendingContentResponses) {
+			response.resolve();
+		}
+		await browserSupport.waitForSelectedBridgeViewerContentState('ready');
+		const upHeaderButton =
+			await browserSupport.waitForBridgeCodeHeaderCollapseButtonForItem(upItemId);
+		const stableOffsetAfterHydration =
+			await browserSupport.waitForStableBridgeCodeHeaderOffsetFromScrollOwner({
+				collapseButton: upHeaderButton,
+				maxOffset: 4,
+				scrollOwner,
+			});
+		const settledScrollTop = await waitForStableScrollTop(scrollOwner);
+		const resampledSettledScrollTop = await waitForStableScrollTop(scrollOwner);
+
+		expectUpwardRevealMotion(upwardMotionSamples);
+		expect(Math.abs(resampledSettledScrollTop - settledScrollTop)).toBeLessThanOrEqual(2);
+		expect(stableOffsetAfterHydration).toBeGreaterThanOrEqual(0);
+		expect(stableOffsetAfterHydration).toBeLessThanOrEqual(4);
+	});
 });
+
+function revealReviewItem(itemId: string): void {
+	window.dispatchEvent(
+		new CustomEvent('__bridge_review_control', {
+			detail: {
+				method: 'bridge.diff.scrollToFile',
+				itemId,
+			},
+		}),
+	);
+}
+
+function contentHandleIdsForItem(item: BridgeReviewItemDescriptor): readonly string[] {
+	return Object.values(item.contentRoles)
+		.map((handle): string | null => handle?.handleId ?? null)
+		.filter((handleId): handleId is string => handleId !== null);
+}
+
+function expectUpwardRevealMotion(samples: readonly number[]): void {
+	const firstScrollTop = samples[0] ?? 0;
+	const lastScrollTop = samples.at(-1) ?? firstScrollTop;
+	expect(lastScrollTop).toBeLessThan(firstScrollTop);
+}
+
+async function waitForStableScrollTop(
+	scrollOwner: HTMLElement,
+	remainingAttempts = 120,
+): Promise<number> {
+	const firstSample = scrollOwner.scrollTop;
+	await waitForBridgeViewerAnimationFrame();
+	const secondSample = scrollOwner.scrollTop;
+	if (Math.abs(secondSample - firstSample) <= 2) {
+		return secondSample;
+	}
+	if (remainingAttempts <= 0) {
+		throw new Error(
+			`expected stable Bridge CodeView scrollTop; first=${firstSample}; second=${secondSample}`,
+		);
+	}
+	return await waitForStableScrollTop(scrollOwner, remainingAttempts - 1);
+}
 
 function reviewPackageWithClampedLineCounts(props: {
 	readonly lineCount: number;
