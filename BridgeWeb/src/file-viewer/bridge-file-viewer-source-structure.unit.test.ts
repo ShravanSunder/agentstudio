@@ -128,6 +128,19 @@ describe('Bridge file viewer source structure', () => {
 		expect(forbiddenPierreOwners).toEqual([]);
 		expect(internalPierreImportOwners).toEqual([]);
 	});
+
+	test('keeps BridgeWeb TypeScript and TSX files under one thousand lines', () => {
+		const bridgeWebSources = readBridgeWebSourceFiles();
+		const oversizedSources = bridgeWebSources
+			.map((entry) => ({
+				lineCount: countSourceLines(entry.source),
+				relativePath: entry.relativePath,
+			}))
+			.filter((entry): boolean => entry.lineCount >= 1000)
+			.map((entry): string => `${entry.relativePath}: ${entry.lineCount}`);
+
+		expect(oversizedSources).toEqual([]);
+	});
 });
 
 interface SourceFileEntry {
@@ -139,12 +152,23 @@ function readFileViewerSourceFiles(): readonly SourceFileEntry[] {
 	const fileViewerDirectory = fileURLToPath(new URL('.', import.meta.url));
 	return readSourceFilesInDirectory({
 		absoluteDirectory: fileViewerDirectory,
+		includeTestFiles: false,
+		relativeDirectory: '',
+	});
+}
+
+function readBridgeWebSourceFiles(): readonly SourceFileEntry[] {
+	const bridgeWebSourceDirectory = fileURLToPath(new URL('../../', import.meta.url));
+	return readSourceFilesInDirectory({
+		absoluteDirectory: bridgeWebSourceDirectory,
+		includeTestFiles: true,
 		relativeDirectory: '',
 	});
 }
 
 function readSourceFilesInDirectory(props: {
 	readonly absoluteDirectory: string;
+	readonly includeTestFiles: boolean;
 	readonly relativeDirectory: string;
 }): readonly SourceFileEntry[] {
 	const entries: SourceFileEntry[] = [];
@@ -155,9 +179,13 @@ function readSourceFilesInDirectory(props: {
 				: `${props.relativeDirectory}/${directoryEntry.name}`;
 		const absolutePath = join(props.absoluteDirectory, directoryEntry.name);
 		if (directoryEntry.isDirectory()) {
+			if (excludedSourceDirectoryNames.has(directoryEntry.name)) {
+				continue;
+			}
 			entries.push(
 				...readSourceFilesInDirectory({
 					absoluteDirectory: absolutePath,
+					includeTestFiles: props.includeTestFiles,
 					relativeDirectory: relativePath,
 				}),
 			);
@@ -165,8 +193,8 @@ function readSourceFilesInDirectory(props: {
 		}
 		if (
 			!(directoryEntry.name.endsWith('.ts') || directoryEntry.name.endsWith('.tsx')) ||
-			directoryEntry.name.includes('.test.') ||
-			directoryEntry.name.includes('.browser.')
+			(!props.includeTestFiles &&
+				(directoryEntry.name.includes('.test.') || directoryEntry.name.includes('.browser.')))
 		) {
 			continue;
 		}
@@ -176,4 +204,23 @@ function readSourceFilesInDirectory(props: {
 		});
 	}
 	return entries;
+}
+
+const excludedSourceDirectoryNames = new Set([
+	'.turbo',
+	'.vite',
+	'.vitest',
+	'coverage',
+	'dist',
+	'node_modules',
+	'playwright-report',
+	'test-results',
+]);
+
+function countSourceLines(source: string): number {
+	if (source.length === 0) {
+		return 0;
+	}
+	const lineCount = source.split('\n').length;
+	return source.endsWith('\n') ? lineCount - 1 : lineCount;
 }

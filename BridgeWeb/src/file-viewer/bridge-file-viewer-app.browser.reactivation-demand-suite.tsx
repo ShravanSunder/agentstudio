@@ -1,0 +1,499 @@
+import { useState, type ReactElement } from 'react';
+import { describe, expect, test } from 'vitest';
+import { render } from 'vitest-browser-react';
+
+// oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load the app CSS.
+import '../app/bridge-app.css';
+import type { WorktreeFileDescriptorRequest } from '../features/worktree-file/models/worktree-file-protocol-models.js';
+import type { BridgeTelemetrySample } from '../foundation/telemetry/bridge-telemetry-event.js';
+import {
+	requireBridgeViewerHTMLElement,
+	waitForBridgeViewerAnimationFrame,
+	waitForBridgeViewerTreeItemButton,
+} from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
+import type { WorktreeFileInitialSurface } from '../worktree-file-surface/worktree-file-app.js';
+import { makeWorktreeFileSurfaceRuntimeFetchedResource } from '../worktree-file-surface/worktree-file-surface-runtime.js';
+import { BridgeFileViewerApp } from './bridge-file-viewer-app.js';
+import {
+	fileNavigationCommandForPath,
+	makeFileDescriptor,
+	makeFileDescriptorFrame,
+	makeFrames,
+	makeSourceIdentity,
+	makeTreeRowsOnlyFrames,
+	type PublishWorktreeFileFrames,
+} from './bridge-file-viewer-browser-test-fixtures.js';
+import {
+	makeDeferredContent,
+	makeTestTelemetryRecorder,
+	openFileBodyPreview,
+	openFilePath,
+	openFileState,
+	renderedFilePath,
+	requireActivateFiles,
+	requireDeactivateFiles,
+	requireFramePublisher,
+	selectedDisplayPath,
+	visibleCodeText,
+	waitForDemandDispatchFirstFreshnessKeyContaining,
+	waitForDemandDispatchFirstLane,
+	waitForDemandDispatchState,
+	waitForDescriptorRequestCount,
+	waitForFileViewerActiveState,
+	waitForInitialSurfaceLoadCount,
+	waitForOpenFileState,
+	waitForRecordedFetchCount,
+	waitForSelectedDisplayPath,
+	waitForTelemetrySample,
+	waitForVisibleCodeText,
+} from './bridge-file-viewer-browser-test-harness.js';
+
+describe('BridgeFileViewerApp Browser Mode', () => {
+	test('recovers a slow foreground navigation open after Files reactivates', async () => {
+		const slowDescriptor = makeFileDescriptor({
+			contentHandle: 'inactive-open-content',
+			fileId: 'file-inactive-open',
+			path: 'src/inactive-open.ts',
+		});
+		const firstDeferredContent = makeDeferredContent();
+		const fetchedResourceUrls: string[] = [];
+		const telemetrySamples: BridgeTelemetrySample[] = [];
+		let activateFiles: (() => void) | null = null;
+		let deactivateFiles: (() => void) | null = null;
+
+		function ControlledFileViewer(): ReactElement {
+			const [isActive, setIsActive] = useState(true);
+			activateFiles = (): void => {
+				setIsActive(true);
+			};
+			deactivateFiles = (): void => {
+				setIsActive(false);
+			};
+			return (
+				<BridgeFileViewerApp
+					codeViewWorkerPoolEnabled={false}
+					fetchResource={(props) => {
+						fetchedResourceUrls.push(props.resourceUrl);
+						return firstDeferredContent.promise;
+					}}
+					initialFrames={makeFrames(slowDescriptor)}
+					isActive={isActive}
+					navigationCommand={fileNavigationCommandForPath('src/inactive-open.ts')}
+					telemetryRecorder={makeTestTelemetryRecorder(telemetrySamples)}
+				/>
+			);
+		}
+
+		render(<ControlledFileViewer />);
+
+		await waitForOpenFileState('loading');
+		await waitForRecordedFetchCount({
+			expectedCount: 1,
+			recordedFetches: fetchedResourceUrls,
+		});
+		requireDeactivateFiles(deactivateFiles)();
+		await waitForFileViewerActiveState('false');
+		firstDeferredContent.resolve(
+			makeWorktreeFileSurfaceRuntimeFetchedResource('export const loadedWhileInactive = true;\n'),
+		);
+		await waitForBridgeViewerAnimationFrame();
+		await waitForBridgeViewerAnimationFrame();
+
+		const shell = requireBridgeViewerHTMLElement(
+			document.querySelector('[data-testid="bridge-file-viewer-shell"]'),
+		);
+		expect(shell.getAttribute('data-file-viewer-active')).toBe('false');
+		expect(openFileState()).toBeNull();
+		expect(openFileBodyPreview()).toBeNull();
+		expect(visibleCodeText()).not.toContain('loadedWhileInactive');
+		expect(
+			telemetrySamples.some((sample) => sample.name === 'performance.bridge.web.file_open_ready'),
+		).toBe(false);
+
+		requireActivateFiles(activateFiles)();
+		await waitForFileViewerActiveState('true');
+		await waitForOpenFileState('ready');
+		await waitForVisibleCodeText('loadedWhileInactive');
+		const fileOpenSample = await waitForTelemetrySample({
+			name: 'performance.bridge.web.file_open_ready',
+			samples: telemetrySamples,
+		});
+
+		expect(openFilePath()).toBe('src/inactive-open.ts');
+		expect(openFileBodyPreview()).toContain('loadedWhileInactive');
+		expect(fileOpenSample.stringAttributes['agentstudio.bridge.demand.disposition']).toBe(
+			'cache-hit',
+		);
+	});
+	test('preserves the streamed surface when Files becomes active again', async () => {
+		let activateFiles: (() => void) | null = null;
+		let deactivateFiles: (() => void) | null = null;
+		let loadInitialSurfaceCount = 0;
+
+		function ControlledFileViewer(): ReactElement {
+			const [isActive, setIsActive] = useState(true);
+			activateFiles = (): void => {
+				setIsActive(true);
+			};
+			deactivateFiles = (): void => {
+				setIsActive(false);
+			};
+			return (
+				<BridgeFileViewerApp
+					codeViewWorkerPoolEnabled={false}
+					isActive={isActive}
+					loadInitialSurface={async (): Promise<WorktreeFileInitialSurface> => {
+						loadInitialSurfaceCount += 1;
+						return {
+							frames: makeFrames(
+								makeFileDescriptor({
+									contentHandle: `content-${loadInitialSurfaceCount}`,
+									fileId: `file-${loadInitialSurfaceCount}`,
+									path: `src/file-${loadInitialSurfaceCount}.ts`,
+								}),
+							),
+							provenance: {
+								baseRef: 'native-current-worktree',
+								scenarioName: 'current-worktree',
+								worktreeRootToken: 'root-token',
+							},
+							source: makeSourceIdentity({ subscriptionGeneration: loadInitialSurfaceCount }),
+						};
+					}}
+				/>
+			);
+		}
+
+		render(<ControlledFileViewer />);
+
+		await waitForInitialSurfaceLoadCount({
+			expectedCount: 1,
+			getLoadCount: () => loadInitialSurfaceCount,
+		});
+		requireDeactivateFiles(deactivateFiles)();
+		await waitForFileViewerActiveState('false');
+		requireActivateFiles(activateFiles)();
+		await waitForFileViewerActiveState('true');
+		await waitForBridgeViewerAnimationFrame();
+		await waitForBridgeViewerAnimationFrame();
+
+		expect(loadInitialSurfaceCount).toBe(1);
+		await waitForBridgeViewerTreeItemButton('src/file-1.ts');
+	});
+
+	test('opens clicked file content after Files reactivates with the preserved streamed surface', async () => {
+		let activateFiles: (() => void) | null = null;
+		let deactivateFiles: (() => void) | null = null;
+		let loadInitialSurfaceCount = 0;
+		const fetchedResourceUrls: string[] = [];
+
+		function ControlledFileViewer(): ReactElement {
+			const [isActive, setIsActive] = useState(true);
+			activateFiles = (): void => {
+				setIsActive(true);
+			};
+			deactivateFiles = (): void => {
+				setIsActive(false);
+			};
+			return (
+				<BridgeFileViewerApp
+					codeViewWorkerPoolEnabled={false}
+					fetchResource={async (props) => {
+						fetchedResourceUrls.push(props.resourceUrl);
+						return makeWorktreeFileSurfaceRuntimeFetchedResource(
+							props.resourceUrl.includes('content-1')
+								? 'export const reactivatedPreservedFile = true;\n'
+								: 'export const initialFile = true;\n',
+						);
+					}}
+					isActive={isActive}
+					loadInitialSurface={async (): Promise<WorktreeFileInitialSurface> => {
+						loadInitialSurfaceCount += 1;
+						return {
+							frames: makeFrames(
+								makeFileDescriptor({
+									contentHandle: `content-${loadInitialSurfaceCount}`,
+									fileId: `file-${loadInitialSurfaceCount}`,
+									path: `src/file-${loadInitialSurfaceCount}.ts`,
+								}),
+							),
+							provenance: {
+								baseRef: 'native-current-worktree',
+								scenarioName: 'current-worktree',
+								worktreeRootToken: 'root-token',
+							},
+							source: makeSourceIdentity({ subscriptionGeneration: loadInitialSurfaceCount }),
+						};
+					}}
+				/>
+			);
+		}
+
+		render(<ControlledFileViewer />);
+
+		await waitForInitialSurfaceLoadCount({
+			expectedCount: 1,
+			getLoadCount: () => loadInitialSurfaceCount,
+		});
+		requireDeactivateFiles(deactivateFiles)();
+		await waitForFileViewerActiveState('false');
+		requireActivateFiles(activateFiles)();
+		await waitForFileViewerActiveState('true');
+		await waitForBridgeViewerAnimationFrame();
+		await waitForBridgeViewerAnimationFrame();
+
+		expect(loadInitialSurfaceCount).toBe(1);
+		const reactivatedFileButton = await waitForBridgeViewerTreeItemButton('src/file-1.ts');
+		reactivatedFileButton.click();
+
+		await waitForOpenFileState('ready');
+		await waitForSelectedDisplayPath('src/file-1.ts');
+		await waitForVisibleCodeText('reactivatedPreservedFile');
+
+		expect(selectedDisplayPath()).toBe('src/file-1.ts');
+		expect(openFilePath()).toBe('src/file-1.ts');
+		expect(renderedFilePath()).toBe('src/file-1.ts');
+		expect(openFileBodyPreview()).toContain('reactivatedPreservedFile');
+		expect(fetchedResourceUrls).toContain(
+			'agentstudio://resource/worktree-file/worktree.fileContent/content-1?generation=1',
+		);
+	});
+
+	test('preloads recently updated files from a provider event without changing the open file', async () => {
+		const visibleDescriptor = makeFileDescriptor({
+			contentHandle: 'visible-content',
+			fileId: 'file-visible',
+			path: 'src/visible.ts',
+		});
+		const updatedDescriptor = makeFileDescriptor({
+			contentHandle: 'recently-updated-content',
+			fileId: 'file-recently-updated',
+			path: 'src/recently-updated.ts',
+		});
+		const fetchedResourceUrls: string[] = [];
+
+		render(
+			<BridgeFileViewerApp
+				autoOpenInitialFile={true}
+				fetchResource={async (props) => {
+					fetchedResourceUrls.push(props.resourceUrl);
+					return makeWorktreeFileSurfaceRuntimeFetchedResource(
+						props.resourceUrl.includes('recently-updated-content')
+							? 'export const recentlyUpdated = true;\n'
+							: 'export const visible = true;\n',
+					);
+				}}
+				initialFrames={makeFrames(visibleDescriptor, updatedDescriptor)}
+				navigationCommand={fileNavigationCommandForPath('src/visible.ts')}
+			/>,
+		);
+
+		await waitForOpenFileState('ready');
+		expect(openFilePath()).toBe('src/visible.ts');
+		await waitForDemandDispatchState('settled');
+		window.dispatchEvent(
+			new CustomEvent('bridge-worktree-file-recently-updated', {
+				detail: {
+					path: 'src/recently-updated.ts',
+					proximity: 'nearby',
+					sourceIdentity: 'dev-worktree-source',
+				},
+			}),
+		);
+		await waitForDemandDispatchFirstLane('nearby');
+
+		const shell = requireBridgeViewerHTMLElement(
+			document.querySelector('[data-testid="bridge-file-viewer-shell"]'),
+		);
+		expect(shell.getAttribute('data-last-demand-dispatch-stimulus-count')).toBe('1');
+		expect(shell.getAttribute('data-last-demand-dispatch-intent-count')).toBe('1');
+		expect(shell.getAttribute('data-last-demand-dispatch-loaded-count')).toBe('1');
+		expect(shell.getAttribute('data-last-demand-dispatch-failed-count')).toBe('0');
+		expect(shell.getAttribute('data-last-demand-dispatch-first-lane')).toBe('nearby');
+		expect(shell.getAttribute('data-last-demand-dispatch-first-dedupe-key')).toContain(
+			'recently-updated-content',
+		);
+		expect(shell.getAttribute('data-last-demand-dispatch-first-freshness-key')).toContain(
+			'recently-updated-content',
+		);
+		expect(shell.getAttribute('data-last-demand-dispatch-open-file-path-before')).toBe(
+			'src/visible.ts',
+		);
+		expect(shell.getAttribute('data-last-demand-dispatch-open-file-path-after')).toBe(
+			'src/visible.ts',
+		);
+		expect(openFileState()).toBe('ready');
+		expect(openFilePath()).toBe('src/visible.ts');
+		expect(fetchedResourceUrls).toContain(
+			'agentstudio://resource/worktree-file/worktree.fileContent/recently-updated-content?generation=1',
+		);
+	});
+
+	test('requests a descriptor before preloading recently updated metadata-only rows', async () => {
+		const updatedDescriptor = makeFileDescriptor({
+			contentHandle: 'recently-updated-metadata-only-content',
+			fileId: 'file-app-delegate',
+			path: 'Sources/AgentStudio/App/AppDelegate.swift',
+		});
+		const descriptorRequests: WorktreeFileDescriptorRequest[] = [];
+		const fetchedResourceUrls: string[] = [];
+		let publishFrames: PublishWorktreeFileFrames | null = null;
+
+		render(
+			<BridgeFileViewerApp
+				codeViewWorkerPoolEnabled={false}
+				fetchResource={async (props) => {
+					fetchedResourceUrls.push(props.resourceUrl);
+					return makeWorktreeFileSurfaceRuntimeFetchedResource(
+						'export const recentlyUpdatedMetadataOnly = true;\n',
+					);
+				}}
+				initialFrames={makeTreeRowsOnlyFrames()}
+				requestFileDescriptor={(request) => {
+					descriptorRequests.push(request);
+					const publishRequiredFrames = requireFramePublisher(publishFrames);
+					publishRequiredFrames(makeFileDescriptorFrame(updatedDescriptor, { sequence: 1 }));
+				}}
+				subscribeFrames={(handler): (() => void) => {
+					publishFrames = handler;
+					return (): void => {
+						publishFrames = null;
+					};
+				}}
+			/>,
+		);
+
+		await waitForBridgeViewerTreeItemButton('Sources/AgentStudio/App/AppDelegate.swift');
+		window.dispatchEvent(
+			new CustomEvent('bridge-worktree-file-recently-updated', {
+				detail: {
+					path: 'Sources/AgentStudio/App/AppDelegate.swift',
+					proximity: 'nearby',
+					sourceIdentity: 'dev-worktree-source',
+				},
+			}),
+		);
+		await waitForDescriptorRequestCount({
+			expectedCount: 1,
+			recordedRequests: descriptorRequests,
+		});
+		await waitForDemandDispatchFirstLane('nearby');
+
+		expect(descriptorRequests).toEqual([
+			{
+				fileId: 'file-app-delegate',
+				lane: 'nearby',
+				path: 'Sources/AgentStudio/App/AppDelegate.swift',
+				rowId: 'row:Sources/AgentStudio/App/AppDelegate.swift',
+				sourceIdentity: makeSourceIdentity(),
+			},
+		]);
+		expect(fetchedResourceUrls).toEqual([
+			'agentstudio://resource/worktree-file/worktree.fileContent/recently-updated-metadata-only-content?generation=1',
+		]);
+		expect(openFileState()).toBeNull();
+	});
+
+	test('clears inactive recently updated demand so visible warming can settle after reactivation', async () => {
+		const firstDescriptor = makeFileDescriptor({
+			contentHandle: 'recently-updated-inactive-content',
+			fileId: 'file-app-delegate',
+			path: 'Sources/AgentStudio/App/AppDelegate.swift',
+		});
+		const replacementDescriptor = makeFileDescriptor({
+			contentHandle: 'visible-after-reactivate-content',
+			fileId: 'file-app-delegate',
+			path: 'Sources/AgentStudio/App/AppDelegate.swift',
+		});
+		const descriptorRequests: WorktreeFileDescriptorRequest[] = [];
+		const fetchedResourceUrls: string[] = [];
+		const firstDeferredContent = makeDeferredContent();
+		let activateFiles: (() => void) | null = null;
+		let deactivateFiles: (() => void) | null = null;
+		let publishFrames: PublishWorktreeFileFrames | null = null;
+
+		function ControlledFileViewer(): ReactElement {
+			const [isActive, setIsActive] = useState(true);
+			activateFiles = (): void => {
+				setIsActive(true);
+			};
+			deactivateFiles = (): void => {
+				setIsActive(false);
+			};
+			return (
+				<BridgeFileViewerApp
+					codeViewWorkerPoolEnabled={false}
+					fetchResource={(props) => {
+						fetchedResourceUrls.push(props.resourceUrl);
+						if (props.resourceUrl.includes('recently-updated-inactive-content')) {
+							return firstDeferredContent.promise;
+						}
+						return Promise.resolve(
+							makeWorktreeFileSurfaceRuntimeFetchedResource(
+								'export const visibleAfterReactivate = true;\n',
+							),
+						);
+					}}
+					initialFrames={makeTreeRowsOnlyFrames()}
+					isActive={isActive}
+					requestFileDescriptor={(request) => {
+						descriptorRequests.push(request);
+						const publishRequiredFrames = requireFramePublisher(publishFrames);
+						publishRequiredFrames(makeFileDescriptorFrame(firstDescriptor, { sequence: 1 }));
+					}}
+					subscribeFrames={(handler): (() => void) => {
+						publishFrames = handler;
+						return (): void => {
+							publishFrames = null;
+						};
+					}}
+				/>
+			);
+		}
+
+		render(<ControlledFileViewer />);
+
+		await waitForBridgeViewerTreeItemButton('Sources/AgentStudio/App/AppDelegate.swift');
+		window.dispatchEvent(
+			new CustomEvent('bridge-worktree-file-recently-updated', {
+				detail: {
+					path: 'Sources/AgentStudio/App/AppDelegate.swift',
+					proximity: 'nearby',
+					sourceIdentity: 'dev-worktree-source',
+				},
+			}),
+		);
+		await waitForDescriptorRequestCount({
+			expectedCount: 1,
+			recordedRequests: descriptorRequests,
+		});
+		await waitForRecordedFetchCount({
+			expectedCount: 1,
+			recordedFetches: fetchedResourceUrls,
+		});
+		requireDeactivateFiles(deactivateFiles)();
+		await waitForFileViewerActiveState('false');
+		firstDeferredContent.resolve(
+			makeWorktreeFileSurfaceRuntimeFetchedResource('export const shouldNotBlockVisible = true;\n'),
+		);
+		await waitForBridgeViewerAnimationFrame();
+		await waitForBridgeViewerAnimationFrame();
+
+		requireActivateFiles(activateFiles)();
+		await waitForFileViewerActiveState('true');
+		requireFramePublisher(publishFrames)(
+			makeFileDescriptorFrame(replacementDescriptor, { sequence: 2 }),
+		);
+
+		await waitForRecordedFetchCount({
+			expectedCount: 2,
+			recordedFetches: fetchedResourceUrls,
+		});
+		await waitForDemandDispatchFirstLane('visible');
+		await waitForDemandDispatchFirstFreshnessKeyContaining('visible-after-reactivate-content');
+
+		expect(fetchedResourceUrls).toContain(
+			'agentstudio://resource/worktree-file/worktree.fileContent/visible-after-reactivate-content?generation=1',
+		);
+	});
+});
