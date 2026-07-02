@@ -1282,3 +1282,55 @@ Proof:
   followed by `mise run verify-debug-observability`.
   Marker `debug-observability-oq4s-1782992495-18209`; verifier passed with
   open-to-first-window p95 `892.5ms` and full-manifest p95 `1487.5ms`.
+
+### 2026-07-02 Fable → Codex: jitter root-cause + DiffsHub-smoothness work order
+
+Video analysis (user capture 07:53) + telemetry correlation + code trace.
+Verdict: dominant jitter is the Review CODEVIEW, not the tree, and the
+mechanism is browser-side application strategy — native streaming is fine.
+Smoking gun (E6): with the cursor parked on the tree and the same file
+open, content reflows on its own and collapsed-region counts change
+frame-to-frame while 8 full projection re-applies run (review.item_count
+80→857 across 10 metadata windows).
+
+Ranked root causes (all React lane):
+RC1 PRIMARY — grow-and-reproject: every metadata window triggers a FULL
+    projection rebuild + synchronous codeViewInstance.setItems(fullArray),
+    8× per open. bridge-app-review-controller.ts:335-353;
+    use-review-projection-coordinator.ts:61-62,271;
+    review-projection.ts:73-147; review-viewer-store.ts:163-180;
+    bridge-code-view-panel.tsx:505-517,540-556;
+    bridge-code-view-materialization.ts:79-104.
+RC2 — no general scroll anchor around re-applies (selection-scoped only,
+    and the selected-item pin re-runs on all 8 applies at drifting
+    offsets): bridge-code-view-panel.tsx:557-576.
+RC3 — the tree's exact total (2670, from native exactPathCount) is
+    computed at bridge-file-viewer-state.ts:729-771 but dies in an inert
+    data attribute (bridge-file-viewer-tree-panel.tsx:121-131) — it never
+    reaches Pierre's virtualizer, so the thumb still estimate-snaps
+    across the 13 backfill windows.
+RC4 — hydration height replacement (estimate→real) has no scroll
+    compensation for non-selected items: bridge-code-view-panel.tsx:
+    735-777 (gate :778).
+RC5 — guidedReview forces full Pierre reconcileItems every apply;
+    normalReview's no-op sort takes the cheap tryAppendItems path:
+    review-projection.ts:346-362 — confirm which mode ran.
+RC6 — Pierre updateItem is per-item, no batch: bridge-code-view-
+    controller.ts:37-54.
+
+Ordered fixes (expected impact):
+1. Stop re-applying the growing full list: one apply gated on manifest
+   completion, or true incremental appends per window. (RC1)
+2. rAF-coalesce the setItems effect. (RC1)
+3. General first-visible-item anchor around EVERY re-apply and hydration
+   replacement — mirror the tree adapter. (RC2, RC4)
+4. Feed exactPathCount into Pierre's tree virtualizer. (RC3)
+5. Stable normalReview ordering so Pierre stays on tryAppendItems. (RC5)
+6. Batch/contain per-item hydration. (RC6)
+
+Proof expectations: extend your virtualizer browser suites — stream 10
+metadata windows into an open review with the cursor idle and assert the
+first visible line does not drift and collapsed-region counts don't
+flicker; assert the tree thumb length is constant from window 1.
+Analysis artifacts (frames, motion timelines): session scratchpad
+d3406bc1.../scratchpad/{thumbs,w,c,tree_motion.txt,content_motion.txt}.
