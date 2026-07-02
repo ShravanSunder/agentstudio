@@ -23,6 +23,7 @@ import { createBridgeMarkdownRenderWebWorkerClient } from '../review-viewer/work
 import type { BridgeReviewProjectionWorkerClient } from '../review-viewer/workers/projection/review-projection-worker-client.js';
 import { createBridgeReviewProjectionWebWorkerClient } from '../review-viewer/workers/projection/review-projection-worker-transport.js';
 import { useBridgeReviewContentIdentityController } from './bridge-app-review-content-identity-controller.js';
+import { useBridgeReviewContentPrefetchController } from './bridge-app-review-content-prefetch-controller.js';
 import type { BridgeDiffStatusState } from './bridge-app-review-controller.js';
 import { useBridgeReviewDemandTelemetryController } from './bridge-app-review-demand-telemetry-controller.js';
 import {
@@ -259,6 +260,19 @@ export function BridgeReviewViewerMode(
 		selectedItemId: rootSnapshot.selectedItemId,
 		setLastVisibleDemandTelemetry,
 		telemetryRecorderRef,
+	});
+	useBridgeReviewContentPrefetchController({
+		contentRegistry,
+		isActive: props.isActive,
+		isCodeViewScrollActive,
+		resourceExecutor,
+		reviewContentDescriptorRefsByHandleIdRef,
+		reviewContentInvalidationVersion,
+		reviewDemandScheduler,
+		reviewPackage,
+		selectedContentLoading: selectedContentResourcesState?.status === 'loading',
+		selectedItemId: rootSnapshot.selectedItemId,
+		visibleLoadingItemCount: visibleContentController.visibleLoadingItemCount,
 	});
 	const reviewMetadataInterestRuntime = useBridgeReviewMetadataInterestRuntime({
 		authority: getReviewFrameAuthority(),

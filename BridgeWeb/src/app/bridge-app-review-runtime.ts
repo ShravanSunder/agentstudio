@@ -22,6 +22,7 @@ import {
 import type { BridgeContentFetch } from '../foundation/content/content-resource-loader.js';
 import type { BridgeCodeViewContentResources } from '../review-viewer/code-view/bridge-code-view-materialization.js';
 import { demandFreshnessKeyForReviewDescriptorRef } from '../review-viewer/content/review-content-demand-loader.js';
+import { reviewContentRegistryPrefetchMaxEntries } from '../review-viewer/content/review-content-prefetch-policy.js';
 import {
 	createBridgeReviewContentRegistry,
 	type BridgeReviewContentRegistry,
@@ -84,7 +85,9 @@ export function useBridgeReviewViewerStore(): BridgeReviewViewerStore {
 export function useBridgeReviewContentRegistry(): BridgeReviewContentRegistry {
 	const registryRef = useRef<BridgeReviewContentRegistry | null>(null);
 	if (registryRef.current === null) {
-		registryRef.current = createBridgeReviewContentRegistry();
+		registryRef.current = createBridgeReviewContentRegistry({
+			maxEntries: reviewContentRegistryPrefetchMaxEntries,
+		});
 	}
 	return registryRef.current;
 }
