@@ -82,6 +82,20 @@ no_starvation = payload.get("noStarvationProgress")
 if not isinstance(no_starvation, dict) or no_starvation.get("completed") is not True:
     raise SystemExit("noStarvationProgress.completed must be true")
 
+queue_wait = payload.get("queueWaitByLane")
+if not isinstance(queue_wait, dict):
+    raise SystemExit("queueWaitByLane missing")
+for lane in ("foreground", "visible"):
+    lane_wait = queue_wait.get(lane)
+    if not isinstance(lane_wait, dict):
+        raise SystemExit(f"queueWaitByLane.{lane} missing")
+    if lane_wait.get("measurementName") != "metadata_scheduler_queue_wait_by_lane":
+        raise SystemExit(f"queueWaitByLane.{lane}.measurementName must be scheduler queue wait")
+    if lane_wait.get("p95Milliseconds") is None:
+        raise SystemExit(f"queueWaitByLane.{lane}.p95Milliseconds missing")
+    if lane_wait.get("p99Milliseconds") is None:
+        raise SystemExit(f"queueWaitByLane.{lane}.p99Milliseconds missing")
+
 print(f"artifact={artifact}")
 print(f"expectedMetadataFileTotal={expected_files}")
 print(f"emittedMetadataFileTotal={emitted_files}")

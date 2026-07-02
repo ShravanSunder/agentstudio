@@ -232,6 +232,7 @@ struct CurrentWorktreeProofArtifactWriteRequest {
     let noStarvationProgress: BridgeCurrentWorktreeNoStarvationProgress
     let openToFirstWindowSummary: BridgeCurrentWorktreeTimingPercentileSummary
     let projectRoot: URL
+    let schedulerQueueWaitByLane: [String: BridgeCurrentWorktreePhaseTimingFacts]
     let treeWindowTimingSummary: BridgeCurrentWorktreeTimingPercentileSummary
 }
 
@@ -292,7 +293,7 @@ func writeCurrentWorktreeManifestProofArtifact(
         firstWindowRowCount: request.manifestFacts.firstWindowRowCount,
         loadedByValues: request.manifestFacts.loadedByValues.sorted(),
         laneValues: request.manifestFacts.laneValues.sorted(),
-        queueWaitByLane: queueWaitByLaneFacts(from: request.metadataInterestTiming),
+        queueWaitByLane: request.schedulerQueueWaitByLane,
         metadataApply: BridgeCurrentWorktreePhaseTimingFacts(
             measurementName: "metadata_apply",
             measurementScope: "headless Swift metadata frame preparation and dispatch timing",
@@ -319,21 +320,20 @@ func writeCurrentWorktreeManifestProofArtifact(
     )
 }
 
-func queueWaitByLaneFacts(
-    from metadataInterestTiming: BridgeCurrentWorktreeMetadataInterestTimingFacts
-) -> [String: BridgeCurrentWorktreePhaseTimingFacts] {
-    Dictionary(
-        uniqueKeysWithValues: metadataInterestTiming.samples.map { sample in
-            (
-                sample.lane,
-                BridgeCurrentWorktreePhaseTimingFacts(
-                    measurementName: "metadata_interest_queue_wait_by_lane",
-                    measurementScope: "headless Swift metadata interest request to delivered frame for lane",
-                    samples: [sample.durationMilliseconds]
-                )
-            )
-        }
-    )
+func queueWaitByLaneFacts(from samples: [BridgeTelemetrySample]) -> [String: BridgeCurrentWorktreePhaseTimingFacts] {
+    let samplesByLane = Dictionary(grouping: samples) { sample in
+        sample.stringAttributes["agentstudio.bridge.demand.lane"] ?? "unknown"
+    }
+    return samplesByLane.mapValues { laneSamples in
+        BridgeCurrentWorktreePhaseTimingFacts(
+            measurementName: "metadata_scheduler_queue_wait_by_lane",
+            measurementScope: "native scheduler enqueue-to-dequeue queue wait for lane",
+            samples: laneSamples.compactMap { sample in
+                sample.numericAttributes["agentstudio.bridge.demand.scheduler_queue_wait_ms"]
+                    ?? sample.durationMilliseconds
+            }
+        )
+    }
 }
 func proofArtifactDirectoryURL(_ proofDirectory: String, projectRoot: URL) -> URL {
     let proofDirectoryURL = URL(fileURLWithPath: proofDirectory)

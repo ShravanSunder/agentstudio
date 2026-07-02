@@ -71,6 +71,9 @@ extension WebKitSerializedTests {
                 deliveryRecords: intakeDeliveryCapture.intakeRecords(),
                 requestTimings: laneProbeResults.requestTimings
             )
+            let schedulerQueueWaitByLane = try await currentWorktreeSchedulerQueueWaitByLane(
+                telemetryRecorder: telemetryRecorder
+            )
             let contentDemandProof = try await currentWorktreeContentDemandProof(
                 eventCapture: eventCapture,
                 fixture: fixture
@@ -95,6 +98,7 @@ extension WebKitSerializedTests {
                     noStarvationProgress: noStarvationProgress,
                     openToFirstWindowSummary: timingProof.openToFirstWindowSummary,
                     projectRoot: projectRoot,
+                    schedulerQueueWaitByLane: schedulerQueueWaitByLane,
                     treeWindowTimingSummary: timingProof.treeWindowTimingSummary
                 )
             )
@@ -473,6 +477,24 @@ extension WebKitSerializedTests {
             )
         }
 
+        private func currentWorktreeSchedulerQueueWaitByLane(
+            telemetryRecorder: BridgeWorktreeFileCurrentWorktreeTelemetryRecorder
+        ) async throws -> [String: BridgeCurrentWorktreePhaseTimingFacts] {
+            let samples = await telemetryRecorder.samples(
+                named: "performance.bridge.viewer.demand_queue_wait"
+            )
+            let factsByLane = queueWaitByLaneFacts(from: samples)
+            for lane in Self.demandLaneProofOrder {
+                let laneFacts = try #require(factsByLane[lane.rawValue])
+                #expect(laneFacts.measurementName == "metadata_scheduler_queue_wait_by_lane")
+                #expect(laneFacts.measurementScope == "native scheduler enqueue-to-dequeue queue wait for lane")
+                #expect(laneFacts.sampleCount > 0)
+                #expect(laneFacts.p95Milliseconds != nil)
+                #expect(laneFacts.p99Milliseconds != nil)
+            }
+            return factsByLane
+        }
+
         private func firstContentDemandRow(
             from intakeFrames: [String]
         ) throws -> BridgeWorktreeTreeRowMetadata {
@@ -795,8 +817,21 @@ extension WebKitSerializedTests {
             #expect(noStarvationProgress["remainingTotal"] as? Int == 0)
             #expect(noStarvationProgress["completed"] as? Bool == true)
             let queueWaitByLane = try #require(artifactObject["queueWaitByLane"] as? [String: Any])
-            #expect(queueWaitByLane["foreground"] != nil)
-            #expect(queueWaitByLane["visible"] != nil)
+            let foregroundQueueWait = try #require(queueWaitByLane["foreground"] as? [String: Any])
+            #expect(
+                foregroundQueueWait["measurementName"] as? String
+                    == "metadata_scheduler_queue_wait_by_lane"
+            )
+            #expect(
+                foregroundQueueWait["measurementScope"] as? String
+                    == "native scheduler enqueue-to-dequeue queue wait for lane")
+            #expect(foregroundQueueWait["p95Milliseconds"] != nil)
+            #expect(foregroundQueueWait["p99Milliseconds"] != nil)
+            let visibleQueueWait = try #require(queueWaitByLane["visible"] as? [String: Any])
+            #expect(
+                visibleQueueWait["measurementName"] as? String
+                    == "metadata_scheduler_queue_wait_by_lane"
+            )
             let metadataApply = try #require(artifactObject["metadataApply"] as? [String: Any])
             #expect(metadataApply["measurementName"] as? String == "metadata_apply")
             #expect(metadataApply["p95Milliseconds"] != nil)

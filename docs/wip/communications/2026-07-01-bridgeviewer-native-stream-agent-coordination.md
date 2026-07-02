@@ -171,6 +171,27 @@ entries; if an entry becomes stale, append a correction with the new evidence.
   expected files `2174`, emitted files `2174`, expected/emitted rows
   `2561/2561`.
 
+### 2026-07-01 Codex Swift S4 Scheduler Queue-Wait Artifact Cutover
+
+- Replaced the artifact's `queueWaitByLane` source. It now groups real
+  `performance.bridge.viewer.demand_queue_wait` scheduler samples by
+  `agentstudio.bridge.demand.lane` and reads
+  `agentstudio.bridge.demand.scheduler_queue_wait_ms`.
+- `metadataInterestRequestToDeliveredFrame` remains in the artifact as the
+  separate request-to-delivered-frame span; it no longer masquerades as
+  queue-wait evidence.
+- `verify-bridge-headless-manifest.sh` now rejects artifacts without
+  `queueWaitByLane.foreground` and `queueWaitByLane.visible` scheduler
+  queue-wait facts.
+- Artifact check after `mise run verify-bridge-headless-manifest` showed all
+  six lanes (`foreground`, `active`, `visible`, `nearby`, `speculative`,
+  `idle`) using `metadata_scheduler_queue_wait_by_lane`.
+- Proof:
+  `BridgeHeadlessManifestVerifierScriptTests` passed 3 tests / 1 suite;
+  `mise run verify-bridge-headless-manifest` passed 2 tests / 2 suites and
+  stricter artifact validation;
+  the surrounding bridge sweep passed 86 tests / 12 suites.
+
 ### 2026-07-01 Codex Swift Lane Takeover Follow-Up
 
 - Fable hit quota after `9c398471`; Codex is now the parent controller for the

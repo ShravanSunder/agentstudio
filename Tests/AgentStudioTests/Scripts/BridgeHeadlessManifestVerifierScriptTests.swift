@@ -23,6 +23,7 @@ struct BridgeHeadlessManifestVerifierScriptTests {
         #expect(source.contains("unexpectedPublishedFilePaths"))
         #expect(source.contains("metadataInterestRequestToDeliveredFrame.p95Milliseconds"))
         #expect(source.contains("noStarvationProgress.completed"))
+        #expect(source.contains("queueWaitByLane.{lane}.measurementName must be scheduler queue wait"))
     }
 
     @Test("headless manifest verifier accepts complete artifact in validate only mode")
@@ -80,6 +81,18 @@ struct BridgeHeadlessManifestVerifierScriptTests {
           "metadataInterestRequestToDeliveredFrame": {
             "p95Milliseconds": 1.2,
             "p99Milliseconds": 1.4
+          },
+          "queueWaitByLane": {
+            "foreground": {
+              "measurementName": "metadata_scheduler_queue_wait_by_lane",
+              "p95Milliseconds": 0.2,
+              "p99Milliseconds": 0.3
+            },
+            "visible": {
+              "measurementName": "metadata_scheduler_queue_wait_by_lane",
+              "p95Milliseconds": 0.4,
+              "p99Milliseconds": 0.5
+            }
           },
           "noStarvationProgress": {
             "completed": true
