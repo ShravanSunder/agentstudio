@@ -1,4 +1,4 @@
-import { lazy, Suspense, useRef, type ReactElement } from 'react';
+import { lazy, Suspense, useEffect, useRef, type ReactElement } from 'react';
 
 import type { WorktreeFileDescriptorRequest } from '../features/worktree-file/models/worktree-file-protocol-models.js';
 import type { WorktreeFileSurfaceRuntime } from '../worktree-file-surface/worktree-file-surface-runtime.js';
@@ -23,6 +23,10 @@ import { useBridgeFileViewerSelectionEffects } from './use-bridge-file-viewer-se
 import { useBridgeFileViewerShellModel } from './use-bridge-file-viewer-shell-model.js';
 import { useBridgeFileViewerStoreBindings } from './use-bridge-file-viewer-store-bindings.js';
 import { useBridgeFileViewerVisibleDemandController } from './use-bridge-file-viewer-visible-demand-controller.js';
+import {
+	bridgeFileViewerHasActiveCommentDraft,
+	shouldAutoRefreshStaleOpenFile,
+} from './bridge-file-viewer-stale-refresh-policy.js';
 export type { BridgeFileViewerRenderState } from './bridge-file-viewer-state.js';
 export type { BridgeFileViewerAppProps } from './bridge-file-viewer-app-props.js';
 const LazyBridgeFileViewerShell = lazy(async () => {
@@ -143,6 +147,20 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 		telemetryRecorder,
 		telemetryTraceContext,
 	});
+
+	useEffect((): void => {
+		if (openFileState.status !== 'stale') {
+			return;
+		}
+		if (
+			!shouldAutoRefreshStaleOpenFile({
+				hasActiveCommentDraft: bridgeFileViewerHasActiveCommentDraft,
+			})
+		) {
+			return;
+		}
+		void refreshOpenFile(openFileState);
+	}, [openFileState, refreshOpenFile]);
 
 	const requestFileDescriptorFromHost = props.requestFileDescriptor;
 	const descriptorRequestController = useBridgeFileViewerDescriptorRequestController({

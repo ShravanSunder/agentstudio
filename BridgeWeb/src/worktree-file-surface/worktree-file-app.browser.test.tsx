@@ -170,24 +170,17 @@ describe('WorktreeFileApp Browser Mode', () => {
 		expect(document.body.textContent).toContain('export const value = 2;');
 
 		rerender(<WorktreeFileApp initialFrames={[makeInvalidationFrame(replacementDescriptor)]} />);
-		await waitForWorktreeFileState('stale');
+		// Stale content auto-refreshes silently: no prompt, no manual click.
+		await waitForWorktreeFileState('ready');
+		await waitForBridgeViewerAnimationFrame();
 
 		const contentPanel = requireBridgeViewerHTMLElement(
 			document.querySelector('[data-testid="worktree-file-content"]'),
 		);
 		expect(document.querySelector('[data-worktree-file-path="src/app.ts"]')).not.toBeNull();
 		expect(contentPanel.getAttribute('data-worktree-open-file-total-size')).toBe('40');
-		expect(document.body.textContent).toContain('Content changed');
-		expect(document.body.textContent).toContain('export const value = 2;');
-		expect(fetchedResourceUrls).toEqual([
-			'agentstudio://resource/worktree-file/worktree.fileContent/file-content-1?generation=1',
-		]);
-
-		requireBridgeViewerHTMLElement(
-			document.querySelector('[data-testid="worktree-file-refresh"]'),
-		).click();
-		await waitForWorktreeFileState('ready');
-		await waitForBridgeViewerAnimationFrame();
+		expect(document.body.textContent).not.toContain('Content changed');
+		expect(document.querySelector('[data-testid="worktree-file-refresh"]')).toBeNull();
 
 		expect(fetchedResourceUrls).toEqual([
 			'agentstudio://resource/worktree-file/worktree.fileContent/file-content-1?generation=1',

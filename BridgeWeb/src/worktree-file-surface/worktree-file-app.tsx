@@ -21,6 +21,10 @@ import {
 	type WorktreeFileSurfaceRuntimeFetchedResource,
 	type WorktreeFileSurfaceRuntimeFetchResourceProps,
 } from './worktree-file-surface-runtime.js';
+import {
+	bridgeFileViewerHasActiveCommentDraft,
+	shouldAutoRefreshStaleOpenFile,
+} from '../file-viewer/bridge-file-viewer-stale-refresh-policy.js';
 
 export interface WorktreeFileAppProps {
 	readonly autoOpenInitialFile?: boolean;
@@ -287,6 +291,20 @@ export function WorktreeFileApp({
 		setOpenFileState({ status: 'failed', path: state.path, descriptor: state.descriptor });
 	}, []);
 
+	useEffect((): void => {
+		if (openFileState.status !== 'stale') {
+			return;
+		}
+		if (
+			!shouldAutoRefreshStaleOpenFile({
+				hasActiveCommentDraft: bridgeFileViewerHasActiveCommentDraft,
+			})
+		) {
+			return;
+		}
+		void refreshOpenFile(openFileState);
+	}, [openFileState, refreshOpenFile]);
+
 	const descriptorProjection = useMemo(
 		() =>
 			projectWorktreeFileDescriptors({
@@ -456,7 +474,10 @@ export function WorktreeFileApp({
 							{openFileBody}
 						</pre>
 					)}
-					{openFileState.status === 'stale' ? (
+					{openFileState.status === 'stale' &&
+					!shouldAutoRefreshStaleOpenFile({
+						hasActiveCommentDraft: bridgeFileViewerHasActiveCommentDraft,
+					}) ? (
 						<div
 							className="bridge-worktree-file-stale-notice"
 							data-testid="worktree-file-content-stale"

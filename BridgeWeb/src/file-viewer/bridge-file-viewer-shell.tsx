@@ -30,6 +30,10 @@ import {
 	type BridgeFileViewerRenderedOpenFileContent,
 } from './bridge-file-viewer-state.js';
 import { BridgeFileViewerTreePanel } from './bridge-file-viewer-tree-panel.js';
+import {
+	bridgeFileViewerHasActiveCommentDraft,
+	shouldAutoRefreshStaleOpenFile,
+} from './bridge-file-viewer-stale-refresh-policy.js';
 
 interface BridgeFileViewerShellProps {
 	readonly canRefreshOpenFile: boolean;
@@ -300,7 +304,10 @@ export function BridgeFileViewerShell({
 							openFileState={openFileState}
 							renderedFileContent={renderedOpenFileContent}
 							staleNotice={
-								openFileState.status === 'stale' ? (
+								openFileState.status === 'stale' &&
+								!shouldAutoRefreshStaleOpenFile({
+									hasActiveCommentDraft: bridgeFileViewerHasActiveCommentDraft,
+								}) ? (
 									<BridgeFileViewerStaleNotice
 										canRefresh={canRefreshOpenFile}
 										onRefresh={() => {
