@@ -1024,3 +1024,50 @@ entries; if an entry becomes stale, append a correction with the new evidence.
   and switch-back is instant with zero native work. Audit of current
   mount ownership is in flight; I will append the evidence and exact
   seam here when it lands.
+
+### 2026-07-02 Fable → Codex: agentstudio-git work order (open-path 12.4s fix)
+
+User-approved handoff: Codex owns these changes in the agentstudio-git
+package (side worktree `bridgeviewer-tracked-paths`). Measured problem:
+`LibGit2AgentStudioGitLocalClient().status(includeIgnored: true,
+includeUntracked: true)` costs ~12s on agent-studio's worktree because it
+materializes the entire ignored universe (.build-agent-*, node_modules,
+vendor). The consumer (BridgeWorktreeFileIgnorePolicy) only needs ignore
+DECISIONS, never the ignored file list.
+
+REQUIRED API (shape may map onto existing libgit2 surface as you see fit):
+
+1. Lazy per-path ignore check — `isPathIgnored(repositoryAt: URL,
+   relativePath: String) -> Bool` (or a session/handle variant for batch
+   queries). Must honor nested .gitignore files, `$GIT_DIR/info/exclude`,
+   and global `core.excludesFile` — full git-truth via
+   `git_ignore_path_is_ignored`. Directory queries must be prune-safe:
+   for a path ending in `/`, true means git can never publish anything
+   beneath it (respecting gitignore's parent-exclusion semantics), so a
+   filesystem walk may skip descending. Document that guarantee.
+2. Batch/session form for hot walks: opening the repo + ignore machinery
+   once and answering many path queries without per-call repo opens
+   (walks ask thousands of times; per-call open would trade one slowness
+   for another). Off-main callable, Sendable, and respecting the
+   package's libgit2 threading rules (no shared handle across threads).
+3. Status option fix (defense in depth): expose include-ignored WITHOUT
+   recursing ignored directories (libgit2 GIT_STATUS_OPT_INCLUDE_IGNORED
+   without GIT_STATUS_OPT_RECURSE_IGNORED_DIRS) so ignored dirs return as
+   single entries. Current GitStatusOptions(includeIgnored:) behavior
+   should be checked — if it sets the recurse flag, that is the 12s.
+4. trackedPaths (2bf9f90): confirm exposed + covered; agent-studio will
+   consume it for the independent expected-set proof in
+   verify-bridge-headless-manifest.
+
+PROOF EXPECTATIONS (package-side): contract tests for nested .gitignore,
+info/exclude, global excludes, dir-prune safety incl. a negation case
+(`!kept.txt` under an ignored dir stays ignored), and a perf smoke:
+ignore-session answering 5k queries on a fixture with a 100k-file
+ignored dir in well under 1s. When landed: tag or pin-able revision +
+the exact API names appended here, and I bump agent-studio's
+Package.resolved and cut BridgeWorktreeFileIgnorePolicy over (delete
+the ignoredStatusPaths full-status set, per-dir prune in the walk,
+keep root FilesystemPathFilter only as the projection-payload filter).
+
+Consumer-side target after cutover: open-to-first-window < 1s on this
+worktree (from 12.4s), streaming path already proven at ~30ms.
