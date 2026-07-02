@@ -252,6 +252,7 @@ enum InboxNotificationKind: String, Sendable, Codable, Equatable {
     case agentSettledActivity
     case approvalRequested
     case securityEvent
+    case fullDiskAccessDenied
 }
 
 extension InboxNotification {
@@ -274,7 +275,7 @@ extension InboxNotificationKind {
         case .approvalRequested:
             return .actionNeeded
         case .terminalSecureInputRequested, .terminalProgressError, .terminalRendererUnhealthy,
-            .persistenceRecovery, .securityEvent:
+            .persistenceRecovery, .securityEvent, .fullDiskAccessDenied:
             return .safety
         case .agentSettledActivity:
             return .settledAgent
