@@ -404,12 +404,99 @@ if [ "$startup_diagnostic_action" = "cross-tab-move-geometry-smoke" ] ||
   fi
 fi
 
+if [ "$startup_diagnostic_action" = "tcc-upgrade-probe" ]; then
+  startup_diagnostic_action_filter="$(
+    logsql_exact_filter agentstudio.startup_diagnostic.action "$startup_diagnostic_action"
+  )"
+  tcc_probe_event_query="$(logsql_exact_filter "_msg" "terminal.tcc.access_probe")"
+  tcc_identity_event_query="$(logsql_exact_filter "_msg" "terminal.tcc.app_identity_snapshot")"
+  diagnostic_query="$query $startup_diagnostic_action_filter"
+  tcc_identity_response="$(
+    query_logs \
+      "$diagnostic_query $tcc_identity_event_query | fields _msg,agentstudio.tcc.phase,agentstudio.tcc.bundle.kind,agentstudio.tcc.code_identity.kind,agentstudio.tcc.bundle.changed,agentstudio.tcc.bundle.executable.reachable,agentstudio.tcc.probe.sequence | limit 5"
+  )"
+  if [ -z "$tcc_identity_response" ]; then
+    echo "TCC app identity snapshot missing for action $startup_diagnostic_action" >&2
+    exit 1
+  fi
+  tcc_probe_response="$(
+    query_logs \
+      "$diagnostic_query $tcc_probe_event_query | fields _msg,agentstudio.tcc.phase,agentstudio.tcc.subject,agentstudio.tcc.access.target,agentstudio.tcc.access.result,agentstudio.tcc.responsible.kind,agentstudio.tcc.command.exit_class,agentstudio.tcc.probe.sequence | limit 5"
+  )"
+  if [ -z "$tcc_probe_response" ]; then
+    echo "TCC upgrade probe record missing for action $startup_diagnostic_action" >&2
+    exit 1
+  fi
+  required_tcc_fields=(
+    agentstudio.tcc.phase
+    agentstudio.tcc.subject
+    agentstudio.tcc.access.target
+    agentstudio.tcc.access.result
+    agentstudio.tcc.responsible.kind
+    agentstudio.tcc.command.exit_class
+    agentstudio.tcc.probe.sequence
+  )
+  required_tcc_identity_fields=(
+    agentstudio.tcc.phase
+    agentstudio.tcc.bundle.kind
+    agentstudio.tcc.code_identity.kind
+    agentstudio.tcc.bundle.changed
+    agentstudio.tcc.bundle.executable.reachable
+    agentstudio.tcc.probe.sequence
+  )
+  for field in "${required_tcc_identity_fields[@]}"; do
+    if ! grep -q "\"$field\":" <<<"$tcc_identity_response"; then
+      echo "TCC app identity snapshot missing field: $field" >&2
+      echo "$tcc_identity_response" >&2
+      exit 1
+    fi
+  done
+  for field in "${required_tcc_fields[@]}"; do
+    if ! grep -q "\"$field\":" <<<"$tcc_probe_response"; then
+      echo "TCC upgrade probe record missing field: $field" >&2
+      echo "$tcc_probe_response" >&2
+      exit 1
+    fi
+  done
+  if [ "${AGENTSTUDIO_TCC_REQUIRE_PROTECTED_DATA_GRANT:-0}" = "1" ]; then
+    tcc_messages_target_filter="$(logsql_exact_filter agentstudio.tcc.access.target messages_data)"
+    tcc_granted_result_filter="$(logsql_exact_filter agentstudio.tcc.access.result granted)"
+    tcc_denied_result_response=""
+    for tcc_denied_result in denied_eacces denied_eperm path_missing timed_out unknown_error; do
+      tcc_denied_result_filter="$(logsql_exact_filter agentstudio.tcc.access.result "$tcc_denied_result")"
+      tcc_denied_result_response="$(
+        query_logs \
+          "$diagnostic_query $tcc_probe_event_query $tcc_messages_target_filter $tcc_denied_result_filter | fields _msg,agentstudio.tcc.access.target,agentstudio.tcc.access.result,agentstudio.tcc.command.exit_class,agentstudio.tcc.probe.sequence | limit 1"
+      )"
+      if [ -n "$tcc_denied_result_response" ]; then
+        echo "TCC protected-data grant was required but messages_data had non-granted result $tcc_denied_result for action $startup_diagnostic_action" >&2
+        echo "$tcc_denied_result_response" >&2
+        exit 1
+      fi
+    done
+    tcc_messages_grant_response="$(
+      query_logs \
+        "$diagnostic_query $tcc_probe_event_query $tcc_messages_target_filter $tcc_granted_result_filter | fields _msg,agentstudio.tcc.access.target,agentstudio.tcc.access.result,agentstudio.tcc.command.exit_class,agentstudio.tcc.probe.sequence | limit 1"
+    )"
+    if [ -z "$tcc_messages_grant_response" ]; then
+      echo "TCC protected-data grant was required but messages_data was not granted for action $startup_diagnostic_action" >&2
+      echo "$tcc_probe_response" >&2
+      exit 1
+    fi
+  fi
+fi
+
 sensitive_fields=(
   agentstudio.session.id
   agentstudio.pane.id
   agentstudio.repo.id
   agentstudio.sqlite.database_path
   agentstudio.surface.id
+  agentstudio.tcc.raw.bundle_path
+  agentstudio.tcc.raw.executable_path
+  agentstudio.tcc.raw.probe_path
+  agentstudio.tcc.raw.responsible_path
+  agentstudio.tcc.tccdb.raw_client
   agent.proof.marker.raw
   agentstudio.worktree.id
   agentstudio.workspace.id

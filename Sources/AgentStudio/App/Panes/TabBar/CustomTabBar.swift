@@ -63,7 +63,6 @@ struct CustomTabBar: View {
     var onCommand: ((AppCommand, UUID) -> Void)?
     var onTabFramesChanged: (([UUID: CGRect]) -> Void)?
     var onAdd: (() -> Void)?
-    var onOpenGitHub: (() -> Void)?
     var onPaneAction: ((WorkspaceActionCommand) -> Void)?
     var onSaveArrangement: ((UUID) -> Void)?
     var onOpenRepoInTab: (() -> Void)?
@@ -71,7 +70,10 @@ struct CustomTabBar: View {
 
     @State private var scrollOffset: CGFloat = 0
     @State private var scrollProxy: ScrollViewProxy?
-    @State private var scrollAreaWidth: CGFloat = 0
+    @State private var scrollAreaFrame: CGRect = .zero
+    @State private var isOverflowLeftHovered = false
+    @State private var isOverflowRightHovered = false
+    @State private var isOverflowMenuHovered = false
 
     /// Maximum width a tab can grow to.
     private static let tabMaxWidth: CGFloat = 400
@@ -80,45 +82,58 @@ struct CustomTabBar: View {
     private static let tabMinWidth: CGFloat = 220
 
     /// Spacing between tab pills.
-    private static let tabSpacing: CGFloat = AppStyles.General.Spacing.tight
+    private static let tabSpacing: CGFloat = AppStyles.Shell.TabBar.tabPillSpacing
 
     /// Computed width for each tab pill based on available space.
     private var computedTabWidth: CGFloat {
         let count = CGFloat(max(1, adapter.tabs.count))
         let totalSpacing = (count - 1) * Self.tabSpacing
         let scrollInset = AppStyles.General.Spacing.loose * 2
-        let available = max(0, scrollAreaWidth - totalSpacing - scrollInset)
+        let available = max(0, scrollAreaFrame.width - totalSpacing - scrollInset)
         let perTab = available / count
         return min(Self.tabMaxWidth, max(Self.tabMinWidth, perTab))
     }
 
     /// Whether the left gradient fade should be visible (scrolled past the start)
     private var showLeftFade: Bool {
-        adapter.isOverflowing && scrollOffset < -5
+        guard adapter.isOverflowing else { return false }
+        return hiddenTabExists(direction: .left)
+    }
+
+    private var showRightFade: Bool {
+        guard adapter.isOverflowing else { return false }
+        return hiddenTabExists(direction: .right)
+    }
+
+    private func hiddenTabExists(direction: TabBarOverflowScrollDirection) -> Bool {
+        TabBarOverflowScrollTargetResolver.targetTabId(
+            direction: direction,
+            orderedTabIds: adapter.tabs.map(\.id),
+            tabFrames: adapter.tabFrames,
+            visibleFrame: scrollAreaFrame
+        ) != nil
     }
 
     var body: some View {
-        GeometryReader { geometry in
-            HStack(spacing: 0) {
-                // MARK: - Left-side controls (management layer, arrangement)
-                HStack(spacing: AppStyles.General.Spacing.standard) {
-                    TabBarManagementLayerButton()
+        let chromeLayout = TabBarChromeLayoutPlan(hasNewTab: onAdd != nil, isOverflowing: adapter.isOverflowing)
 
-                    TabBarArrangementButton(
-                        adapter: adapter,
-                        arrangementInlineRenameState: arrangementInlineRenameState,
-                        onPaneAction: onPaneAction,
-                        onSaveArrangement: onSaveArrangement,
-                        workspaceWindowId: workspaceWindowId
-                    )
+        GeometryReader { geometry in
+            HStack(alignment: .center, spacing: 0) {
+                // MARK: - Left-side controls (sidebar surfaces, workspace, management, arrangement)
+                HStack(spacing: 0) {
+                    ForEach(Array(chromeLayout.leadingControls.enumerated()), id: \.offset) { _, control in
+                        leadingChromeControl(control)
+                    }
                 }
-                .padding(.leading, AppStyles.General.Spacing.loose)
+                .padding(.leading, AppStyles.Shell.Chrome.tabBarContentLeadingPadding)
+                .frame(height: AppStyles.Shell.TabBar.height, alignment: .center)
+                .offset(y: AppStyles.Shell.Chrome.ToolbarButton.verticalOffset)
 
                 // MARK: - Scroll area with gradient overlays
-                ZStack {
+                ZStack(alignment: .bottom) {
                     ScrollViewReader { proxy in
                         ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: AppStyles.General.Spacing.tight) {
+                            HStack(spacing: AppStyles.Shell.TabBar.tabPillSpacing) {
                                 // Hidden anchor for scroll offset tracking
                                 GeometryReader { innerGeo in
                                     Color.clear.preference(
@@ -148,9 +163,9 @@ struct CustomTabBar: View {
                                     .background(frameReporter(for: tab.id))
                                 }
 
-                                // Inline + button removed — now in fixed controls zone
+                                // New tab button lives with the fixed left chrome controls.
                             }
-                            .padding(.horizontal, AppStyles.General.Spacing.loose)
+                            .padding(.trailing, AppStyles.General.Spacing.loose)
                             .background(
                                 GeometryReader { geo in
                                     Color.clear.preference(
@@ -182,6 +197,7 @@ struct CustomTabBar: View {
                             scrollProxy = proxy
                         }
                     }
+                    .frame(height: AppStyles.Shell.TabBar.tabPillHeight, alignment: .bottom)
 
                     // Left gradient fade
                     if showLeftFade {
@@ -200,8 +216,8 @@ struct CustomTabBar: View {
                         .allowsHitTesting(false)
                     }
 
-                    // Right gradient fade (always visible when overflowing)
-                    if adapter.isOverflowing {
+                    // Right gradient fade
+                    if showRightFade {
                         HStack(spacing: 0) {
                             Spacer()
                             LinearGradient(
@@ -218,96 +234,26 @@ struct CustomTabBar: View {
                     }
                 }
                 .frame(maxWidth: .infinity)
+                .frame(height: AppStyles.Shell.TabBar.height, alignment: .bottom)
+                .padding(.leading, AppStyles.Shell.Chrome.tabStripLeadingPadding)
                 .background(
                     GeometryReader { geo in
+                        let frame = geo.frame(in: .named("tabBar"))
                         Color.clear
-                            .onAppear { scrollAreaWidth = geo.size.width }
-                            .onChange(of: geo.size.width) { _, w in scrollAreaWidth = w }
+                            .onAppear { scrollAreaFrame = frame }
+                            .onChange(of: frame) { _, newFrame in scrollAreaFrame = newFrame }
                     }
                 )
 
-                // MARK: - Fixed controls zone (always visible)
-                HStack(spacing: 2) {
-                    // Overflow-only controls
-                    if adapter.isOverflowing {
-                        // Left scroll arrow
-                        Button {
-                            scrollToAdjacentTab(direction: .left)
-                        } label: {
-                            Image(systemName: "chevron.left")
-                                .font(.system(size: AppStyles.General.Icon.compact, weight: .medium))
-                                .foregroundStyle(.secondary)
-                                .frame(
-                                    width: AppStyles.General.Button.compact,
-                                    height: AppStyles.General.Button.compact
-                                )
-                                .contentShape(Rectangle())
+                if chromeLayout.showsTrailingControls {
+                    HStack(spacing: 0) {
+                        ForEach(Array(chromeLayout.trailingControls.enumerated()), id: \.offset) { _, control in
+                            trailingChromeControl(control)
                         }
-                        .buttonStyle(.plain)
-
-                        // Right scroll arrow
-                        Button {
-                            scrollToAdjacentTab(direction: .right)
-                        } label: {
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: AppStyles.General.Icon.compact, weight: .medium))
-                                .foregroundStyle(.secondary)
-                                .frame(
-                                    width: AppStyles.General.Button.compact,
-                                    height: AppStyles.General.Button.compact
-                                )
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-
-                        // Dropdown with count badge
-                        Menu {
-                            ForEach(Array(adapter.tabs.enumerated()), id: \.element.id) { index, tab in
-                                Button {
-                                    onSelect(tab.id)
-                                } label: {
-                                    HStack {
-                                        if tab.id == adapter.activeTabId {
-                                            Image(systemName: "checkmark")
-                                        }
-                                        Text(tab.displayTitle)
-                                        if index < 9 {
-                                            Text("  \u{2318}\(index + 1)")
-                                        }
-                                    }
-                                }
-                            }
-                        } label: {
-                            HStack(spacing: AppStyles.General.Spacing.tight) {
-                                Image(systemName: "rectangle.stack")
-                                    .font(.system(size: AppStyles.General.Typography.textSm, weight: .medium))
-                                Text("\(adapter.tabs.count)")
-                                    .font(.system(size: AppStyles.General.Typography.textSm, weight: .semibold))
-                            }
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, AppStyles.General.Spacing.loose)
-                            .padding(.vertical, AppStyles.General.Spacing.tight)
-                            .background(
-                                Capsule()
-                                    .fill(Color.white.opacity(AppStyles.General.Fill.hover))
-                            )
-                            .contentShape(Capsule())
-                        }
-                        .menuStyle(.borderlessButton)
-                        .menuIndicator(.hidden)
-                        .fixedSize()
                     }
-
-                    if let onOpenGitHub {
-                        GitHubTabButton(onOpenGitHub: onOpenGitHub)
-                    }
-
-                    // New tab button (always visible)
-                    if let onAdd {
-                        NewTabButton(onAdd: onAdd, onOpenRepoInTab: onOpenRepoInTab)
-                    }
+                    .frame(height: AppStyles.Shell.TabBar.height, alignment: .center)
+                    .offset(y: AppStyles.Shell.Chrome.ToolbarButton.verticalOffset)
                 }
-                .padding(.horizontal, AppStyles.General.Spacing.tight)
             }
             .frame(maxWidth: .infinity)
             .frame(height: AppStyles.Shell.TabBar.height)
@@ -324,6 +270,117 @@ struct CustomTabBar: View {
         .frame(height: AppStyles.Shell.TabBar.height)
     }
 
+    @ViewBuilder
+    private func leadingChromeControl(_ control: TabBarChromeControl) -> some View {
+        switch control {
+        case .sidebarSurfaces:
+            SidebarSurfaceTabBarControls()
+        case .divider:
+            TabBarDivider()
+        case .watchFolder:
+            WatchFolderTabBarMenu()
+                .padding(.trailing, AppStyles.Shell.Chrome.iconClusterSpacing)
+        case .managementLayer:
+            TabBarManagementLayerButton()
+                .padding(.trailing, AppStyles.Shell.Chrome.iconClusterSpacing)
+        case .arrangement:
+            TabBarArrangementButton(
+                adapter: adapter,
+                arrangementInlineRenameState: arrangementInlineRenameState,
+                onPaneAction: onPaneAction,
+                onSaveArrangement: onSaveArrangement,
+                workspaceWindowId: workspaceWindowId
+            )
+        case .newTab:
+            if let onAdd {
+                NewTabButton(onAdd: onAdd, onOpenRepoInTab: onOpenRepoInTab)
+                    .padding(.trailing, AppStyles.Shell.Chrome.iconClusterSpacing)
+            }
+        case .tabStrip, .overflowLeft, .overflowRight, .overflowMenu:
+            EmptyView()
+        }
+    }
+
+    @ViewBuilder
+    private func trailingChromeControl(_ control: TabBarChromeControl) -> some View {
+        switch control {
+        case .divider:
+            TabBarDivider()
+        case .overflowLeft:
+            Button {
+                scrollToAdjacentTab(direction: .left)
+            } label: {
+                ChromeToolbarButtonLabel(
+                    symbolName: "chevron.left",
+                    isHovered: isOverflowLeftHovered,
+                    buttonSize: AppStyles.Shell.Chrome.ToolbarButton.size,
+                    showsBackground: false
+                )
+            }
+            .buttonStyle(.plain)
+            .padding(.trailing, AppStyles.Shell.Chrome.iconClusterSpacing)
+            .onHover { isOverflowLeftHovered = $0 }
+        case .overflowRight:
+            Button {
+                scrollToAdjacentTab(direction: .right)
+            } label: {
+                ChromeToolbarButtonLabel(
+                    symbolName: "chevron.right",
+                    isHovered: isOverflowRightHovered,
+                    buttonSize: AppStyles.Shell.Chrome.ToolbarButton.size,
+                    showsBackground: false
+                )
+            }
+            .buttonStyle(.plain)
+            .padding(.trailing, AppStyles.Shell.Chrome.iconClusterSpacing)
+            .onHover { isOverflowRightHovered = $0 }
+        case .overflowMenu:
+            Menu {
+                ForEach(Array(adapter.tabs.enumerated()), id: \.element.id) { index, tab in
+                    Button {
+                        onSelect(tab.id)
+                    } label: {
+                        HStack {
+                            if tab.id == adapter.activeTabId {
+                                Image(systemName: "checkmark")
+                            }
+                            Text(tab.displayTitle)
+                            if index < 9 {
+                                Text("  \u{2318}\(index + 1)")
+                            }
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: AppStyles.General.Spacing.tight) {
+                    ChromeToolbarButtonLabel(
+                        symbolName: "rectangle.stack",
+                        isHovered: isOverflowMenuHovered,
+                        buttonSize: AppStyles.Shell.Chrome.ToolbarButton.size,
+                        showsBackground: false
+                    )
+                    Text("\(adapter.tabs.count)")
+                        .font(.system(size: AppStyles.General.Typography.textSm, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, AppStyles.General.Spacing.loose)
+                .padding(.vertical, AppStyles.General.Spacing.tight)
+                .contentShape(Capsule())
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .onHover { isOverflowMenuHovered = $0 }
+        case .newTab:
+            if let onAdd {
+                NewTabButton(onAdd: onAdd, onOpenRepoInTab: onOpenRepoInTab)
+                    .padding(.trailing, AppStyles.Shell.Chrome.iconClusterSpacing)
+            }
+        case .sidebarSurfaces, .watchFolder, .managementLayer, .arrangement, .tabStrip:
+            EmptyView()
+        }
+    }
+
     // MARK: - Scroll Navigation
 
     private enum ScrollDirection {
@@ -334,30 +391,26 @@ struct CustomTabBar: View {
     /// Uses actual tab frames from the adapter for accurate targeting.
     private func scrollToAdjacentTab(direction: ScrollDirection) {
         guard let proxy = scrollProxy else { return }
-        let tabs = adapter.tabs
-        guard !tabs.isEmpty else { return }
+        let scrollDirection: TabBarOverflowScrollDirection =
+            switch direction {
+            case .left: .left
+            case .right: .right
+            }
+        let orderedTabIds = adapter.tabs.map(\.id)
+        guard
+            let targetId = TabBarOverflowScrollTargetResolver.targetTabId(
+                direction: scrollDirection,
+                orderedTabIds: orderedTabIds,
+                tabFrames: adapter.tabFrames,
+                visibleFrame: scrollAreaFrame
+            )
+        else {
+            return
+        }
 
-        switch direction {
-        case .right:
-            // Find the first tab whose right edge extends beyond the visible scroll area
-            if let target = tabs.first(where: { tab in
-                guard let frame = adapter.tabFrames[tab.id] else { return false }
-                return frame.maxX > scrollAreaWidth
-            }) {
-                withAnimation(.easeInOut(duration: AppStyles.General.Animation.standard)) {
-                    proxy.scrollTo(target.id, anchor: .trailing)
-                }
-            }
-        case .left:
-            // Find the last tab whose left edge is before the visible scroll area
-            if let target = tabs.last(where: { tab in
-                guard let frame = adapter.tabFrames[tab.id] else { return false }
-                return frame.minX < 0
-            }) {
-                withAnimation(.easeInOut(duration: AppStyles.General.Animation.standard)) {
-                    proxy.scrollTo(target.id, anchor: .leading)
-                }
-            }
+        let anchor: UnitPoint = direction == .left ? .leading : .trailing
+        withAnimation(.easeInOut(duration: AppStyles.General.Animation.standard)) {
+            proxy.scrollTo(targetId, anchor: anchor)
         }
     }
 
@@ -381,36 +434,6 @@ struct CustomTabBar: View {
                     onTabFramesChanged?([tabId: frame])
                 }
         }
-    }
-}
-
-private struct GitHubTabButton: View {
-    let onOpenGitHub: () -> Void
-    @State private var isHovered = false
-
-    var body: some View {
-        Button {
-            onOpenGitHub()
-        } label: {
-            Image(systemName: "globe")
-                .font(.system(size: AppStyles.General.Icon.compact, weight: .medium))
-                .foregroundStyle(isHovered ? .primary : .secondary)
-                .frame(width: AppStyles.General.Button.toolbar, height: AppStyles.General.Button.toolbar)
-                .background(
-                    Circle()
-                        .fill(
-                            Color.white.opacity(
-                                isHovered
-                                    ? AppStyles.General.Fill.pressed
-                                    : AppStyles.General.Fill.muted
-                            )
-                        )
-                )
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .onHover { isHovered = $0 }
-        .help(LocalActionSpec.openGitHubInNewTab.actionSpec.helpText)
     }
 }
 
@@ -577,28 +600,12 @@ private struct TabBarManagementLayerButton: View {
         Button {
             atom(\.managementLayer).toggle()
         } label: {
-            Image(
-                systemName: isManagementLayerActive
-                    ? "rectangle.split.2x2.fill"
-                    : "rectangle.split.2x2"
+            ChromeToolbarButtonLabel(
+                symbolName: "rectangle.split.2x2",
+                selectedSymbolName: "rectangle.split.2x2.fill",
+                isSelected: isManagementLayerActive,
+                isHovered: isHovered
             )
-            .font(.system(size: AppStyles.General.Icon.compact, weight: .medium))
-            .foregroundStyle(
-                isManagementLayerActive
-                    ? Color.accentColor
-                    : (isHovered ? .primary : .secondary)
-            )
-            .frame(width: AppStyles.General.Button.toolbar, height: AppStyles.General.Button.toolbar)
-            .background(
-                Circle()
-                    .fill(
-                        isManagementLayerActive
-                            ? Color.accentColor.opacity(AppStyles.General.Fill.active)
-                            : Color.white.opacity(
-                                isHovered ? AppStyles.General.Fill.pressed : AppStyles.General.Fill.muted)
-                    )
-            )
-            .contentShape(Circle())
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
@@ -614,7 +621,16 @@ private struct NewTabButton: View {
     @State private var isHovered = false
 
     var body: some View {
-        Menu {
+        Button {
+            onAdd()
+        } label: {
+            ChromeToolbarButtonLabel(
+                symbolName: "plus",
+                isHovered: isHovered
+            )
+        }
+        .buttonStyle(.plain)
+        .contextMenu {
             Button(LocalActionSpec.emptyTerminal.actionSpec.label) { onAdd() }
             Divider()
             if let onOpenRepoInTab {
@@ -622,28 +638,7 @@ private struct NewTabButton: View {
                     onOpenRepoInTab()
                 }
             }
-        } label: {
-            Image(systemName: "plus")
-                .font(.system(size: AppStyles.General.Icon.compact, weight: .medium))
-                .foregroundStyle(isHovered ? .primary : .secondary)
-                .frame(width: AppStyles.General.Button.toolbar, height: AppStyles.General.Button.toolbar)
-                .background(
-                    Circle()
-                        .fill(
-                            Color.white.opacity(
-                                isHovered
-                                    ? AppStyles.General.Fill.pressed
-                                    : AppStyles.General.Fill.muted
-                            )
-                        )
-                )
-                .contentShape(Circle())
-        } primaryAction: {
-            onAdd()
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
         .onHover { isHovered = $0 }
         .help(AppCommandDispatcher.shared.definition(for: .newTab).controlToolTip)
     }
@@ -818,7 +813,7 @@ struct TabPillView: View {
         }
         .padding(.horizontal, AppStyles.General.Spacing.standard)
         .padding(.vertical, AppStyles.General.Spacing.standard)
-        .frame(width: tabWidth)
+        .frame(width: tabWidth, height: AppStyles.Shell.TabBar.tabPillHeight)
         .background(
             RoundedRectangle(cornerRadius: AppStyles.General.CornerRadius.pill)
                 .fill(backgroundColor)
