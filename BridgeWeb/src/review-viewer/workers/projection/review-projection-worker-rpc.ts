@@ -22,6 +22,10 @@ export const bridgeReviewProjectionWorkerRequestSchema =
 		projectionInput: bridgeReviewProjectionInputSchema,
 		visibleItemIds: z.array(z.string().min(1)).readonly(),
 		workloadId: bridgeReviewProjectionWorkloadIdSchema,
+		// F5 guided-order freeze: the previously-projected order. Kept OUT of projectionRequest so
+		// it does not enter the fingerprint/identity or projectionId — it must not churn dedup or
+		// remount the view during streaming.
+		stableGuidedOrderHint: z.array(z.string().min(1)).readonly().optional(),
 	});
 
 export type BridgeReviewProjectionWorkerRequest = z.infer<
@@ -89,6 +93,9 @@ export function buildBridgeReviewProjectionWorkerSuccessResponse(
 	const result = buildBridgeReviewProjectionFromInput({
 		projectionInput: props.request.projectionInput,
 		request: props.request.projectionRequest,
+		...(props.request.stableGuidedOrderHint === undefined
+			? {}
+			: { stableGuidedOrderHint: props.request.stableGuidedOrderHint }),
 	});
 	const response = {
 		schemaVersion: 1,

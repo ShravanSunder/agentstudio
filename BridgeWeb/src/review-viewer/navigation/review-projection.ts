@@ -460,10 +460,13 @@ function isDocsOrPlanItem(item: BridgeReviewProjectionInputItem): boolean {
 	);
 }
 
-function projectionIdForRequest(
-	projectionInput: BridgeReviewProjectionInput,
+export function projectionIdForRequest(
+	projectionInput: Pick<BridgeReviewProjectionInput, 'packageId' | 'reviewGeneration'>,
 	request: BridgeReviewProjectionRequest,
 ): string {
+	// The stable guided-order hint is deliberately NOT part of this identity: two requests that
+	// differ only by the freeze hint must produce the same projectionId (and thus the same
+	// CodeView mount key and worker fingerprint), or streaming would remount every window.
 	return `${projectionInput.packageId}:${projectionInput.reviewGeneration}:${JSON.stringify(request)}`;
 }
 

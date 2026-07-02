@@ -30,6 +30,7 @@ export interface StartBridgeReviewProjectionWorkerTaskProps {
 	readonly visibleItemIds: readonly string[];
 	readonly workloadId: BridgeReviewProjectionWorkloadId;
 	readonly abortKey?: string;
+	readonly stableGuidedOrderHint?: readonly string[];
 }
 
 export type BridgeReviewProjectionWorkerClientCompletion =
@@ -89,6 +90,9 @@ export function createBridgeReviewProjectionWorkerClient(
 			projectionInput: taskProps.projectionInput,
 			visibleItemIds: taskProps.visibleItemIds,
 			workloadId: taskProps.workloadId,
+			...(taskProps.stableGuidedOrderHint === undefined
+				? {}
+				: { stableGuidedOrderHint: taskProps.stableGuidedOrderHint }),
 		});
 
 		if (taskProps.abortKey !== undefined) {

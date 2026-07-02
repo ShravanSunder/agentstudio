@@ -249,12 +249,20 @@ describe('Bridge review projection', () => {
 		expect(reshuffledOrder[0]).not.toBe('source-high');
 
 		// With the prior order as the stable hint, already-projected rows keep their order.
-		const frozenOrder = buildBridgeReviewProjection({
+		const frozenProjection = buildBridgeReviewProjection({
 			reviewPackage: streamedPackage,
 			request: guidedRequest,
 			stableGuidedOrderHint: initialOrder,
-		}).orderedItemIds;
-		expect(frozenOrder).toEqual(initialOrder);
+		});
+		expect(frozenProjection.orderedItemIds).toEqual(initialOrder);
+
+		// Load-bearing: the freeze hint must NOT change the projectionId — otherwise the CodeView
+		// mount key / worker fingerprint would churn every streaming window and remount the view.
+		const unhintedProjection = buildBridgeReviewProjection({
+			reviewPackage: streamedPackage,
+			request: guidedRequest,
+		});
+		expect(frozenProjection.projectionId).toBe(unhintedProjection.projectionId);
 	});
 });
 

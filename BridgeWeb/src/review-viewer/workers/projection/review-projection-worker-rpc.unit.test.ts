@@ -116,4 +116,67 @@ describe('review projection worker RPC contract', () => {
 
 		expect(workerResponse.result).toEqual(directProjection);
 	});
+
+	test('threads the guided-order freeze hint through the RPC without touching the request fingerprint or projectionId (F5)', () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const projectionRequest = {
+			mode: { kind: 'guidedReview' },
+			facets: [
+				{ kind: 'visibility', includeHidden: true, includeBinary: true, includeLarge: true },
+			],
+		} as const;
+		const initialOrder = buildBridgeReviewProjectionFromInput({
+			projectionInput: makeBridgeReviewProjectionInput(reviewPackage),
+			request: projectionRequest,
+		}).orderedItemIds;
+
+		// Streaming flips a ranking key on an already-projected row.
+		const sourceHigh = reviewPackage.itemsById['source-high'];
+		if (sourceHigh === undefined) {
+			throw new Error('expected source-high fixture item');
+		}
+		const streamedInput = makeBridgeReviewProjectionInput({
+			...reviewPackage,
+			itemsById: {
+				...reviewPackage.itemsById,
+				'source-high': { ...sourceHigh, reviewState: 'resolved' as const },
+			},
+		});
+		const fingerprint = fingerprintBridgeReviewProjectionRequest(projectionRequest);
+		const makeRequest = (
+			stableGuidedOrderHint?: readonly string[],
+		): ReturnType<typeof bridgeReviewProjectionWorkerRequestSchema.parse> =>
+			bridgeReviewProjectionWorkerRequestSchema.parse({
+				schemaVersion: 1,
+				method: 'reviewProjection.build',
+				requestId: 'request-f5',
+				packageId: streamedInput.packageId,
+				reviewGeneration: streamedInput.reviewGeneration,
+				revision: streamedInput.revision,
+				projectionRequestFingerprint: fingerprint,
+				projectionRequest,
+				projectionInput: streamedInput,
+				visibleItemIds: [],
+				workloadId: 'interactive',
+				...(stableGuidedOrderHint === undefined ? {} : { stableGuidedOrderHint }),
+			});
+
+		const hintedResponse = buildBridgeReviewProjectionWorkerSuccessResponse({
+			request: makeRequest(initialOrder),
+			durationMilliseconds: 1,
+		});
+		const unhintedResponse = buildBridgeReviewProjectionWorkerSuccessResponse({
+			request: makeRequest(),
+			durationMilliseconds: 1,
+		});
+
+		// The hint freezes the streamed order back to the initial order; without it the row moves.
+		expect(hintedResponse.result.orderedItemIds).toEqual(initialOrder);
+		expect(unhintedResponse.result.orderedItemIds[0]).not.toBe('source-high');
+		// The hint must NOT alter the dedup fingerprint or the projectionId.
+		expect(makeRequest(initialOrder).projectionRequestFingerprint).toBe(
+			makeRequest().projectionRequestFingerprint,
+		);
+		expect(hintedResponse.result.projectionId).toBe(unhintedResponse.result.projectionId);
+	});
 });

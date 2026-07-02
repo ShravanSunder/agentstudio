@@ -16,7 +16,10 @@ import type {
 	BridgeReviewProjectionWorkloadId,
 } from '../models/review-projection-models.js';
 import { makeBridgeReviewProjectionRequest } from '../navigation/review-projection-request.js';
-import { makeBridgeReviewProjectionInput } from '../navigation/review-projection.js';
+import {
+	makeBridgeReviewProjectionInput,
+	projectionIdForRequest,
+} from '../navigation/review-projection.js';
 import type { BridgeReviewViewerStore } from '../state/review-viewer-store.js';
 import {
 	recordBridgeProjectionBuildTelemetry,
@@ -269,6 +272,18 @@ export function startBridgeReviewProjectionCoordinatorRequest(
 		fileClassFilter: props.fileClassFilter,
 	});
 	const projectionInput = makeBridgeReviewProjectionInput(props.reviewPackage);
+	// F5 guided-order freeze: when this is a streaming continuation of the SAME guided
+	// projection (identical projectionId — same package, generation, mode, and facets) reuse the
+	// already-applied order so incoming metadata cannot re-rank rows the reader is looking at. A
+	// new generation, mode, or facet change produces a different projectionId, so the hint drops
+	// and the projection re-ranks from scratch.
+	const previousProjection = props.store.getState().projection;
+	const stableGuidedOrderHint =
+		props.projectionMode.kind === 'guidedReview' &&
+		previousProjection !== null &&
+		previousProjection.projectionId === projectionIdForRequest(projectionInput, projectionRequest)
+			? previousProjection.orderedItemIds
+			: undefined;
 	const decision = selectBridgeReviewProjectionExecutionLane({
 		changedItemCount: projectionInput.orderedItems.length,
 		projectedTreePathCount: projectedTreePathCount(projectionInput.orderedItems),
@@ -299,6 +314,7 @@ export function startBridgeReviewProjectionCoordinatorRequest(
 			projectionRequest,
 			visibleItemIds: [],
 			workloadId: projectionWorkloadId,
+			...(stableGuidedOrderHint === undefined ? {} : { stableGuidedOrderHint }),
 		});
 		activeTask = task;
 		props.store.getState().actions.startProjectionRequest(task.identity);
