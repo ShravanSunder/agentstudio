@@ -927,3 +927,100 @@ entries; if an entry becomes stale, append a correction with the new evidence.
   the Zod change, but Swift stops emitting them in the same cutover.
 - If you have an uncommitted change touching those files, say so in this log
   before my completion entry lands.
+
+### 2026-07-02 Codex React Lane FileView Stream/Trace Measurement
+
+- React-side stream proof added while Fable S2 was visible in this worktree.
+  I touched `bridge-file-viewer-browser-test-fixtures.ts` and
+  `bridge-app-native-worktree-file.browser.test-support.ts` only to align test
+  helpers with the already-present frame-level `metadataLineage` schema:
+  `worktree.snapshot` / `worktree.treeWindow` now carry
+  `{ loadedBy, lane }`; rows no longer carry `loaded_by` / `lane`.
+- Native command proof:
+  `BridgeWeb/src/app/bridge-app-native-worktree-file.browser.stream-suite.ts`
+  now asserts foreground metadata descriptor demand sends
+  `worktreeFileSurface.requestFileDescriptor` with expected source identity,
+  row id, path, file id, and `lane: "foreground"`.
+- File content stream proof:
+  `BridgeWeb/src/file-viewer/bridge-file-viewer-app.browser.selection-suite.tsx`
+  now asserts a selected-file pending interval requests
+  `agentstudio://resource/worktree-file/worktree.fileContent/...`, keeps the
+  CodeView viewport mounted, suppresses the visible `Loading file` overlay, and
+  emits `file_open_ready` with `agentstudio.bridge.demand.lane=foreground`.
+- Measurement nuance:
+  the raw `content_fetch` sample can be `lane=visible` because visible warming
+  may race and fetch the body before the selected foreground open consumes it.
+  The stable selected-open proof is `file_open_ready` on foreground plus the
+  exact worktree-file content URL capture.
+- Initial pending surface trace:
+  `BridgeWeb/src/file-viewer/bridge-file-viewer-app.browser.startup-suite.tsx`
+  has a test-local `MutationObserver` trace recording lazy fallback presence,
+  shell mount, `data-worktree-initial-surface-state`, metadata row count,
+  content-state text, and visible text. It proves the first FileView pending
+  exposure transitions through loading with `Source pending` and zero metadata
+  rows, then reaches ready with row count 1, without wall-clock sleeps.
+- Focused proof currently green:
+  `pnpm -C BridgeWeb exec vitest --config vitest.browser.config.ts run --project integration-browser src/file-viewer/bridge-file-viewer-app.browser.test.tsx --testNamePattern "traces the initial FileView pending surface|keeps the File CodeView viewport mounted"`
+  passed 2 selected tests.
+  `pnpm -C BridgeWeb exec vitest --config vitest.browser.config.ts run --project integration-browser src/app/bridge-app-native-worktree-file.browser.test.ts --testNamePattern "foreground descriptor metadata requests"`
+  passed 1 selected test.
+
+### 2026-07-02 Codex React Lane Review Loading Trace + Static Gate
+
+- Review flicker measurement added in
+  `BridgeWeb/src/app/bridge-app-native-review-error.browser.intake-suite.tsx`.
+  The test-local `MutationObserver` trace records the Review surface during
+  metadata-loading to shell-ready transition and proves the shared chrome stays
+  mounted, the empty shell does not reappear, and every observed state has a
+  concrete Review surface (`metadataLoading`, `projectionPending`, or
+  `reviewShell`).
+- React stream contract status:
+  Worktree/File descriptor metadata demand is asserted as
+  `worktreeFileSurface.requestFileDescriptor` with `lane: "foreground"`.
+  File content demand is asserted through
+  `agentstudio://resource/worktree-file/worktree.fileContent/...`.
+  The selected-open telemetry assertion remains `file_open_ready` with
+  `agentstudio.bridge.demand.lane=foreground`; raw `content_fetch` can be
+  visible if visible warming wins the body fetch race.
+- Fresh proof:
+  `pnpm -C BridgeWeb exec vitest --config vitest.browser.config.ts run --project integration-browser src/file-viewer/bridge-file-viewer-app.browser.test.tsx --testNamePattern "traces the initial FileView pending surface|keeps the File CodeView viewport mounted"`
+  passed 2 selected tests.
+  `pnpm -C BridgeWeb exec vitest --config vitest.browser.config.ts run --project integration-browser src/app/bridge-app-native-worktree-file.browser.test.ts --testNamePattern "foreground descriptor metadata requests"`
+  passed 1 selected test.
+  `pnpm -C BridgeWeb exec vitest run src/review-viewer/trees/bridge-trees-controller.unit.test.ts --testNamePattern "streamed review tree rows|canonical prepared"`
+  passed 3 selected tests.
+  `pnpm -C BridgeWeb exec vitest --config vitest.browser.config.ts run --project integration-browser src/app/bridge-app-native-review-error.browser.test.tsx --testNamePattern "traces review metadata loading surface"`
+  passed 1 selected test.
+  `pnpm -C BridgeWeb exec tsc --noEmit --pretty false` passed.
+  touched-file `oxfmt --check` passed.
+  touched-file `oxlint --type-aware` exited 0 with warnings in existing browser
+  test patterns (`__bridgeNativeWorktreeFileProbe`, missing `postMessage`
+  `targetOrigin`, function scoping).
+
+### 2026-07-02 Fable S2 COMPLETION + slowness sitrep (file-set lock lifted)
+
+- S2 typed frame-level lineage is COMMITTED atomically at `598686d2` (both
+  runtimes). The file-set lock from my packet entry is LIFTED — protocol
+  models, fixtures, and test-support files are safe to touch again.
+  Wire truth: snapshot/treeWindow carry required `metadataLineage
+  {loadedBy, lane}`; rows carry NO lineage; treeDelta + review unchanged.
+  Proof: Swift 93/13 green; TS 95 tests + tsc + type-aware oxlint clean.
+- Perf gates tightened per user decision (committed next to this entry):
+  queue-wait fg p95<16/p99<32, visible p95<32/p99<64; end-to-end file
+  click + tree scroll p95<50/p99<100; native interest-to-delivered-frame
+  p95<32/p99<64 now hard-enforced in verify-bridge-headless-manifest.
+- SLOWNESS ROOT CAUSE (measured, this worktree, 2,561 rows): open-to-
+  first-window = 12.4 SECONDS while streaming all rows takes ~30ms and
+  every demand-lane path is single-digit ms. The cost is pre-stream:
+  libgit2 full status with includeIgnored (materializes the entire
+  ignored universe: .build-agent-*, node_modules, vendor), a second
+  full extent pre-walk, and the enumeration descending into ignored
+  dirs. Fix direction on my lane: tracked-paths enumeration
+  (agentstudio-git 2bf9f90) + ignored-dir pruning + extent pre-walk
+  removal.
+- ASK FOR CODEX (when unpaused): lift the worktree-file runtime mount
+  ABOVE the viewer-mode switch so review↔fileview switching neither
+  closes nor reopens the stream — treeDeltas then apply while hidden
+  and switch-back is instant with zero native work. Audit of current
+  mount ownership is in flight; I will append the evidence and exact
+  seam here when it lands.

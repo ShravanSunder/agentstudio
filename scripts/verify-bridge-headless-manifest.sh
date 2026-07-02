@@ -138,11 +138,15 @@ if gated_metadata_interest.get("p95Milliseconds") is None:
     raise SystemExit("gatedBenchmark.metadataInterestRequestToDeliveredFrame.p95Milliseconds missing")
 if gated_metadata_interest.get("p99Milliseconds") is None:
     raise SystemExit("gatedBenchmark.metadataInterestRequestToDeliveredFrame.p99Milliseconds missing")
+if require_number(gated_metadata_interest, "p95Milliseconds") >= 32.0:
+    raise SystemExit("metadataInterestRequestToDeliveredFrame p95 must be below 32ms")
+if require_number(gated_metadata_interest, "p99Milliseconds") >= 64.0:
+    raise SystemExit("metadataInterestRequestToDeliveredFrame p99 must be below 64ms")
 
 gated_queue_wait = require_dict(gated_benchmark, "queueWaitByLane")
 queue_wait_thresholds = {
-    "foreground": (32.0, 64.0),
-    "visible": (64.0, 100.0),
+    "foreground": (16.0, 32.0),
+    "visible": (32.0, 64.0),
 }
 for lane, (p95_limit, p99_limit) in queue_wait_thresholds.items():
     lane_wait = require_dict(gated_queue_wait, lane)

@@ -136,10 +136,10 @@ idle
 Queue timing gates:
 
 ```text
-foreground_queue_wait_ms p95 < 32
-foreground_queue_wait_ms p99 < 64
-visible_queue_wait_ms p95 < 64
-visible_queue_wait_ms p99 < 100
+foreground_queue_wait_ms p95 < 16
+foreground_queue_wait_ms p99 < 32
+visible_queue_wait_ms p95 < 32
+visible_queue_wait_ms p99 < 64
 ```
 
 Nearby, speculative, and idle are measured but not hard-gated except that they
@@ -199,6 +199,30 @@ test seams
   deterministically through these seams with no wall-clock sleeps. `#if
   DEBUG` production hooks are prohibited.
 ```
+
+Per-protocol dispatch gates: each protocol id has a dispatch gate that
+opens when the browser's intake-ready arrives for the current stream
+identity and closes on teardown or when a new source generation supersedes
+the stream. Closed-gate jobs hold in their lanes without blocking other
+protocols. Failed delivery closes the protocol's gate and retains the
+failed job at the front of its lane with its sequence reservation rolled
+back, so reopening the gate (a fresh intake-ready) retries in order and
+redelivers with the same sequence — a retry must never leave a sequence
+gap. Retained jobs re-enter the queue at retention time, so retry
+queue-wait measures requeue-to-dequeue rather than folding the gate-closed
+recovery gap into lane percentiles.
+
+Scheduler queues are bounded per lane
+(`AppPolicies.Bridge.metadataSchedulerMaxQueuedJobsPerLane`). A pane whose
+gate never reopens must not grow its queues without bound from
+watch-driven producers: when a lane exceeds its cap, the scheduler drops
+that lane's oldest job and emits an overflow-drop fact
+(`performance.bridge.swift.metadata_scheduler_overflow_drop`, per-lane),
+so the loss is observable and never silent. Newest facts win; recovery is
+the normal reset/reopen path, which rebuilds from the manifest. Overflow
+drops are a wedged-pane safety valve — a healthy pane must never emit
+them, and the gated benchmark treats any overflow drop during a proof run
+as a failure.
 
 Manifest index contract:
 
@@ -380,6 +404,7 @@ bridge_demand_inflight_count
 bridge_demand_inflight_bytes
 bridge_demand_deferred_total
 bridge_demand_stale_drop_total
+bridge_demand_overflow_drop_total
 bridge_demand_abort_total
 bridge_demand_lane_upgrade_total
 bridge_blank_tree_window_total
@@ -484,8 +509,9 @@ Vite performance proof passes only when:
 100 file click samples are recorded
 100 tree scroll samples are recorded
 p95 and p99 are computed for the hard interaction metrics
-File click p95 < 100ms and p99 < 200ms
-Tree scroll p95 < 100ms and p99 < 200ms
+File click p95 < 50ms and p99 < 100ms
+Tree scroll p95 < 50ms and p99 < 100ms
+Native interest-to-delivered-frame p95 < 32ms and p99 < 64ms
 blank_tree_window_count = 0
 wrong_visible_row_count = 0
 foreground and visible queue wait percentiles are reported
