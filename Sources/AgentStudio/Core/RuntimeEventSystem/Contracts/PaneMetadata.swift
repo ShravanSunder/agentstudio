@@ -59,10 +59,6 @@ struct PaneMetadata: Codable, Hashable, Sendable {
         note = Self.normalizedNote(newNote)
     }
 
-    mutating func updateTags(_ newTags: [String]) {
-        facets.tags = newTags
-    }
-
     func canonicalizedIdentity(
         paneId: PaneId,
         contentType: PaneContentType,
@@ -101,8 +97,6 @@ struct PaneMetadata: Codable, Hashable, Sendable {
     var origin: String? { facets.origin }
 
     var upstream: String? { facets.upstream }
-
-    var tags: [String] { facets.tags }
 
     private enum CodingKeys: String, CodingKey {
         case paneId

@@ -126,6 +126,7 @@ struct AgentStudioTraceConfiguration: Equatable, Sendable {
 
     static func from(
         environment: [String: String],
+        preferenceLayer: AgentStudioTracePreferenceLayer? = nil,
         releaseChannel: AppDataPaths.ReleaseChannel = .current,
         isDebugBuild: Bool = AppDataPaths.isDebugBuild
     ) -> Self {
@@ -134,20 +135,22 @@ struct AgentStudioTraceConfiguration: Equatable, Sendable {
             isDebugBuild: isDebugBuild
         )
         let selection = tagSelection(
-            environment["AGENTSTUDIO_TRACE_TAGS"],
+            environment["AGENTSTUDIO_TRACE_TAGS"] ?? preferenceTraceTags(preferenceLayer),
             runtimeFlavor: runtimeFlavor
         )
         let traceName = sanitizedTraceName(environment["AGENTSTUDIO_TRACE_NAME"])
         let proofToken = sanitizedProofToken(environment["AGENTSTUDIO_TRACE_PROOF_TOKEN"])
         let directory = traceDirectory(environment["AGENTSTUDIO_TRACE_DIR"])
-        let flushMode = AgentStudioTraceFlushMode.parse(environment["AGENTSTUDIO_TRACE_FLUSH"])
+        let flushMode = AgentStudioTraceFlushMode.parse(
+            environment["AGENTSTUDIO_TRACE_FLUSH"] ?? preferenceTraceFlush(preferenceLayer)
+        )
         let backendSelection = AgentStudioTraceBackend.parse(
-            environment["AGENTSTUDIO_TRACE_BACKEND"],
+            environment["AGENTSTUDIO_TRACE_BACKEND"] ?? preferenceTraceBackend(preferenceLayer),
             defaultBackend: defaultBackend(runtimeFlavor: runtimeFlavor)
         )
         let protocolSelection = AgentStudioOTLPProtocol.parse(environment["OTEL_EXPORTER_OTLP_PROTOCOL"])
         let endpointSelection = otlpEndpointSelection(
-            environment["OTEL_EXPORTER_OTLP_ENDPOINT"],
+            environment["OTEL_EXPORTER_OTLP_ENDPOINT"] ?? preferenceLayer?.otlpEndpoint,
             backend: backendSelection.backend,
             isTracingEnabled: !selection.tags.isEmpty,
             isProtocolSupported: protocolSelection.unsupportedSelector == nil
@@ -230,6 +233,29 @@ struct AgentStudioTraceConfiguration: Equatable, Sendable {
         case .stable:
             return AgentStudioTraceTagSelection(tags: [], unknownSelectors: [])
         }
+    }
+
+    private static func preferenceTraceTags(_ preferenceLayer: AgentStudioTracePreferenceLayer?) -> String? {
+        guard let preferenceLayer else { return nil }
+        guard preferenceLayer.enabled == true else { return "off" }
+        return nonEmptyString(preferenceLayer.traceTags) ?? "*"
+    }
+
+    private static func preferenceTraceBackend(_ preferenceLayer: AgentStudioTracePreferenceLayer?) -> String? {
+        guard let preferenceLayer else { return nil }
+        return nonEmptyString(preferenceLayer.traceBackend) ?? (preferenceLayer.enabled == true ? "otlp" : nil)
+    }
+
+    private static func preferenceTraceFlush(_ preferenceLayer: AgentStudioTracePreferenceLayer?) -> String? {
+        guard let preferenceLayer else { return nil }
+        return nonEmptyString(preferenceLayer.traceFlush) ?? (preferenceLayer.enabled == true ? "buffered" : nil)
+    }
+
+    private static func nonEmptyString(_ rawValue: String?) -> String? {
+        guard let trimmedValue = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmedValue.isEmpty else {
+            return nil
+        }
+        return trimmedValue
     }
 
     private static func defaultBackend(runtimeFlavor: AgentStudioTraceRuntimeFlavor) -> AgentStudioTraceBackend {

@@ -49,7 +49,7 @@ final class WorkspaceMutationCoordinator {
         let drawerViewsByArrangementId: [UUID: DrawerView]
     }
 
-    private let repositoryTopologyAtom: WorkspaceRepositoryTopologyAtom
+    private let repositoryTopologyAtom: RepositoryTopologyAtom
     private let workspacePaneAtom: WorkspacePaneAtom
     private let workspaceTabShellAtom: WorkspaceTabShellAtom
     private let workspaceTabArrangementAtom: WorkspaceTabArrangementAtom
@@ -63,7 +63,7 @@ final class WorkspaceMutationCoordinator {
     }
 
     init(
-        repositoryTopologyAtom: WorkspaceRepositoryTopologyAtom,
+        repositoryTopologyAtom: RepositoryTopologyAtom,
         workspacePaneAtom: WorkspacePaneAtom,
         workspaceTabShellAtom: WorkspaceTabShellAtom,
         workspaceTabArrangementAtom: WorkspaceTabArrangementAtom
@@ -254,7 +254,7 @@ final class WorkspaceMutationCoordinator {
             _ = workspacePaneAtom.insertRestoredPane(pane)
         }
         workspaceTabShellAtom.insertTabShell(
-            TabShell(id: snapshot.tab.id, name: snapshot.tab.name),
+            TabShell(id: snapshot.tab.id, name: snapshot.tab.name, colorHex: snapshot.tab.colorHex),
             at: snapshot.tabIndex
         )
         workspaceTabArrangementAtom.insertState(

@@ -3,7 +3,7 @@ final class AtomRegistry {
     let activeWorkspaceSelection: ActiveWorkspaceSelectionAtom
     let workspaceIdentity: WorkspaceIdentityAtom
     let workspaceWindowMemory: WorkspaceWindowMemoryAtom
-    let workspaceRepositoryTopology: WorkspaceRepositoryTopologyAtom
+    let workspaceRepositoryTopology: RepositoryTopologyAtom
     let workspacePaneGraph: WorkspacePaneGraphAtom
     let workspaceDrawerCursor: WorkspaceDrawerCursorAtom
     let workspacePane: WorkspacePaneAtom
@@ -20,7 +20,6 @@ final class AtomRegistry {
     let recentWorkspaceTarget: RecentWorkspaceTargetAtom
     let repoCache: RepoCacheAtom
     let sidebarExpandedGroup: SidebarExpandedGroupAtom
-    let sidebarCheckoutColor: SidebarCheckoutColorAtom
     let sidebarCache: SidebarCacheState
     let terminalActivity: TerminalActivityAtom
     let editorPreference: EditorPreferenceAtom
@@ -47,7 +46,7 @@ final class AtomRegistry {
         activeWorkspaceSelection: ActiveWorkspaceSelectionAtom = .init(),
         workspaceIdentity: WorkspaceIdentityAtom = .init(),
         workspaceWindowMemory: WorkspaceWindowMemoryAtom = .init(),
-        workspaceRepositoryTopology: WorkspaceRepositoryTopologyAtom = .init(),
+        workspaceRepositoryTopology: RepositoryTopologyAtom = .init(),
         workspacePaneGraph: WorkspacePaneGraphAtom? = nil,
         workspaceDrawerCursor: WorkspaceDrawerCursorAtom? = nil,
         workspacePane: WorkspacePaneAtom? = nil,
@@ -62,7 +61,6 @@ final class AtomRegistry {
         repoEnrichmentCache: RepoEnrichmentCacheAtom = .init(),
         recentWorkspaceTarget: RecentWorkspaceTargetAtom = .init(),
         sidebarExpandedGroup: SidebarExpandedGroupAtom = .init(),
-        sidebarCheckoutColor: SidebarCheckoutColorAtom = .init(),
         terminalActivity: TerminalActivityAtom = .init(),
         editorPreference: EditorPreferenceAtom = .init(),
         editorChooserRuntime: EditorChooserRuntimeAtom = .init(),
@@ -133,10 +131,8 @@ final class AtomRegistry {
             recentTargetAtom: recentWorkspaceTarget
         )
         self.sidebarExpandedGroup = sidebarExpandedGroup
-        self.sidebarCheckoutColor = sidebarCheckoutColor
         self.sidebarCache = SidebarCacheState(
-            expandedGroupAtom: sidebarExpandedGroup,
-            checkoutColorAtom: sidebarCheckoutColor
+            expandedGroupAtom: sidebarExpandedGroup
         )
         self.terminalActivity = terminalActivity
         self.editorPreference = editorPreference
@@ -173,7 +169,7 @@ final class AtomRegistry {
         workspacePane: WorkspacePaneAtom?,
         graphAtom: WorkspacePaneGraphAtom?,
         drawerCursorAtom: WorkspaceDrawerCursorAtom?,
-        repositoryTopologyAtom: WorkspaceRepositoryTopologyAtom,
+        repositoryTopologyAtom: RepositoryTopologyAtom,
         repoEnrichmentCacheAtom: RepoEnrichmentCacheAtom
     ) -> WorkspacePaneAtom {
         let resolved =

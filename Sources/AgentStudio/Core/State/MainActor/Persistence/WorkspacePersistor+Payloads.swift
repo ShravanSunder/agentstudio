@@ -417,17 +417,14 @@ extension WorkspacePersistor {
         var schemaVersion: Int
         var workspaceId: UUID
         var expandedGroups: Set<SidebarGroupKey>
-        var checkoutColors: [SidebarCheckoutColorKey: String]
 
         init(
             workspaceId: UUID,
-            expandedGroups: Set<SidebarGroupKey> = [],
-            checkoutColors: [SidebarCheckoutColorKey: String] = [:]
+            expandedGroups: Set<SidebarGroupKey> = []
         ) {
             self.schemaVersion = WorkspacePersistor.currentSchemaVersion
             self.workspaceId = workspaceId
             self.expandedGroups = expandedGroups
-            self.checkoutColors = checkoutColors
         }
 
         private enum CodingKeys: String, CodingKey {
@@ -460,18 +457,13 @@ extension WorkspacePersistor {
                 payloadName: "PersistableSidebarCache",
                 default: []
             )
-            let rawCheckoutColors = decodeRecoverableField(
+            _ = decodeRecoverableField(
                 [String: String].self,
                 from: container,
                 forKey: .checkoutColors,
                 schemaVersion: schemaVersion,
                 payloadName: "PersistableSidebarCache",
                 default: [:]
-            )
-            self.checkoutColors = Dictionary(
-                uniqueKeysWithValues: rawCheckoutColors.map { key, value in
-                    (SidebarCheckoutColorKey(key), value)
-                }
             )
         }
 
@@ -480,10 +472,6 @@ extension WorkspacePersistor {
             try container.encode(schemaVersion, forKey: .schemaVersion)
             try container.encode(workspaceId, forKey: .workspaceId)
             try container.encode(expandedGroups, forKey: .expandedGroups)
-            try container.encode(
-                Dictionary(uniqueKeysWithValues: checkoutColors.map { key, value in (key.rawValue, value) }),
-                forKey: .checkoutColors
-            )
         }
     }
 }

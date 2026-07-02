@@ -9,14 +9,16 @@ func makeWorktree(
     repoId: UUID = UUID(),
     name: String = "feature-branch",
     path: String = "/tmp/test-repo/feature-branch",
-    isMainWorktree: Bool = false
+    isMainWorktree: Bool = false,
+    tags: [String] = []
 ) -> Worktree {
     Worktree(
         id: id,
         repoId: repoId,
         name: name,
         path: URL(fileURLWithPath: path),
-        isMainWorktree: isMainWorktree
+        isMainWorktree: isMainWorktree,
+        tags: tags
     )
 }
 
@@ -27,6 +29,7 @@ func makeRepo(
     name: String = "test-repo",
     repoPath: String = "/tmp/test-repo",
     worktrees: [Worktree] = [],
+    tags: [String] = [],
     createdAt: Date = Date(timeIntervalSince1970: 1_000_000)
 ) -> Repo {
     Repo(
@@ -34,7 +37,8 @@ func makeRepo(
         name: name,
         repoPath: URL(fileURLWithPath: repoPath),
         worktrees: worktrees,
-        createdAt: createdAt
+        createdAt: createdAt,
+        tags: tags
     )
 }
 

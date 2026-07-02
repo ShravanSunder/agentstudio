@@ -61,7 +61,7 @@ final class WorkspaceTabLayoutAtom {
     }
 
     func appendTab(_ tab: Tab) {
-        shellAtom.appendTabShell(TabShell(id: tab.id, name: tab.name))
+        shellAtom.appendTabShell(TabShell(id: tab.id, name: tab.name, colorHex: tab.colorHex))
         arrangementAtom.appendState(Self.arrangementState(from: tab))
     }
 
@@ -71,15 +71,16 @@ final class WorkspaceTabLayoutAtom {
     }
 
     func insertTab(_ tab: Tab, at index: Int) {
-        shellAtom.insertTabShell(TabShell(id: tab.id, name: tab.name), at: index)
+        shellAtom.insertTabShell(TabShell(id: tab.id, name: tab.name, colorHex: tab.colorHex), at: index)
         arrangementAtom.insertState(Self.arrangementState(from: tab), at: index)
     }
 
     func restoreTab(_ tab: Tab, at index: Int) {
         if shellAtom.tabShell(tab.id) == nil {
-            shellAtom.insertTabShell(TabShell(id: tab.id, name: tab.name), at: index)
+            shellAtom.insertTabShell(TabShell(id: tab.id, name: tab.name, colorHex: tab.colorHex), at: index)
         } else {
             shellAtom.renameTab(tab.id, name: tab.name)
+            try? shellAtom.setTabColorHex(tab.colorHex, tabId: tab.id)
         }
         arrangementAtom.removeState(tab.id)
         arrangementAtom.insertState(Self.arrangementState(from: tab), at: index)
@@ -176,6 +177,10 @@ final class WorkspaceTabLayoutAtom {
 
     func renameTab(_ tabId: UUID, name: String) {
         shellAtom.renameTab(tabId, name: name)
+    }
+
+    func setTabColorHex(_ colorHex: String?, tabId: UUID) throws {
+        try shellAtom.setTabColorHex(colorHex, tabId: tabId)
     }
 
     func toggleZoom(paneId: UUID, inTab tabId: UUID) {

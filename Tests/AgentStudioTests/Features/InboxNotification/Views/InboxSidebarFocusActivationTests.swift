@@ -40,7 +40,7 @@ struct InboxSidebarFocusActivationTests {
                 sidebarCache: SidebarCacheState(),
                 inboxSidebarState: InboxSidebarState(),
                 workspacePaneAtom: workspacePaneAtom,
-                workspaceRepositoryTopologyAtom: WorkspaceRepositoryTopologyAtom(),
+                workspaceRepositoryTopologyAtom: RepositoryTopologyAtom(),
                 repoCache: RepoCacheAtom(),
                 dispatcher: AppCommandDispatcher.shared,
                 onRefocusActivePane: { didRefocusActivePane = true }

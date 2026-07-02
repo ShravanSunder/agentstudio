@@ -206,11 +206,13 @@ struct AppBootSequenceTests {
                 return WorkspaceLocalRepository(workspaceId: workspaceId, databaseWriter: localPool)
             }
         )
-        try await datastore.saveWorkspaceSnapshot(
-            .emptyFixture(
-                id: workspaceId,
-                name: "Archive Ready",
-                updatedAt: Date(timeIntervalSince1970: 1_700_004_000)
+        try await datastore.saveWorkspaceSnapshotBundle(
+            .emptyTopologyFixture(
+                workspace: .emptyFixture(
+                    id: workspaceId,
+                    name: "Archive Ready",
+                    updatedAt: Date(timeIntervalSince1970: 1_700_004_000)
+                )
             )
         )
         let persistor = WorkspacePersistor(
@@ -262,7 +264,7 @@ struct AppBootSequenceTests {
             coreRepository: coreRepository,
             makeLocalRepository: { WorkspaceLocalRepository(workspaceId: $0, databaseWriter: seedLocalQueue) }
         )
-        try seedBackend.save(.emptyFixture(id: workspaceId, name: "Archive Recovery"))
+        try seedBackend.save(.emptyTopologyFixture(workspace: .emptyFixture(id: workspaceId, name: "Archive Recovery")))
         let datastore = WorkspaceSQLiteDatastore(
             coreRepository: coreRepository,
             makeLocalRepository: { WorkspaceLocalRepository(workspaceId: $0, databaseWriter: seedLocalQueue) },

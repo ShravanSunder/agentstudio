@@ -44,6 +44,12 @@ extension WorkspaceSQLiteDatastore {
         case unavailable(WorkspaceSQLiteDatastoreFailure, recoveryEvents: [PersistenceRecoveryEvent])
     }
 
+    enum RepositoryTopologyLoadResult: Equatable, Sendable {
+        case loaded(RepositoryTopologySQLiteSnapshot)
+        case uninitialized
+        case unavailable(WorkspaceSQLiteDatastoreFailure)
+    }
+
     enum LegacyImportStatusResult: Equatable, Sendable {
         case found(WorkspaceCoreRepository.LegacyImportStatusRecord)
         case missing

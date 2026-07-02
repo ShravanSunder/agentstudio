@@ -18,15 +18,12 @@ struct WorkspaceSettingsStoreTests {
     func flushAndRestoreRoundTripsSettings() throws {
         let workspaceId = UUID()
         let editorPreference = EditorPreferenceAtom()
-        let sidebarCheckoutColors = SidebarCheckoutColorAtom()
         let inboxPrefs = InboxNotificationPrefsAtom()
         let store = makeStore(
             editorPreference: editorPreference,
-            sidebarCheckoutColors: sidebarCheckoutColors,
             inboxPrefs: inboxPrefs
         )
         editorPreference.setBookmarkedEditor("cursor")
-        sidebarCheckoutColors.setCheckoutColor("#22cc88", for: SidebarCheckoutColorKey("repo:agent-studio"))
         inboxPrefs.setGrouping(.byRepo)
         inboxPrefs.setSort(.oldestFirst)
         inboxPrefs.setBellEnabled(true)
@@ -38,20 +35,13 @@ struct WorkspaceSettingsStoreTests {
         try store.flush(for: workspaceId)
 
         let restoredEditorPreference = EditorPreferenceAtom()
-        let restoredSidebarCheckoutColors = SidebarCheckoutColorAtom()
         let restoredInboxPrefs = InboxNotificationPrefsAtom()
         makeStore(
             editorPreference: restoredEditorPreference,
-            sidebarCheckoutColors: restoredSidebarCheckoutColors,
             inboxPrefs: restoredInboxPrefs
         ).restore(for: workspaceId)
 
         #expect(restoredEditorPreference.bookmarkedEditorId == "cursor")
-        #expect(
-            restoredSidebarCheckoutColors.checkoutColors == [
-                SidebarCheckoutColorKey("repo:agent-studio"): "#22cc88"
-            ]
-        )
         #expect(restoredInboxPrefs.grouping == .byRepo)
         #expect(restoredInboxPrefs.sort == .oldestFirst)
         #expect(restoredInboxPrefs.bellEnabled)
@@ -65,15 +55,12 @@ struct WorkspaceSettingsStoreTests {
     func restoreMissingSettingsFileAppliesDefaults() {
         let workspaceId = UUID()
         let editorPreference = EditorPreferenceAtom()
-        let sidebarCheckoutColors = SidebarCheckoutColorAtom()
         let inboxPrefs = InboxNotificationPrefsAtom()
         let store = makeStore(
             editorPreference: editorPreference,
-            sidebarCheckoutColors: sidebarCheckoutColors,
             inboxPrefs: inboxPrefs
         )
         editorPreference.setBookmarkedEditor("cursor")
-        sidebarCheckoutColors.setCheckoutColor("#22cc88", for: SidebarCheckoutColorKey("repo:agent-studio"))
         inboxPrefs.setGrouping(.byRepo)
         inboxPrefs.setSort(.oldestFirst)
         inboxPrefs.setBellEnabled(true)
@@ -81,7 +68,6 @@ struct WorkspaceSettingsStoreTests {
         store.restore(for: workspaceId)
 
         #expect(editorPreference.bookmarkedEditorId == nil)
-        #expect(sidebarCheckoutColors.checkoutColors.isEmpty)
         #expect(inboxPrefs.grouping == .byTab)
         #expect(inboxPrefs.sort == .newestFirst)
         #expect(!inboxPrefs.bellEnabled)
@@ -95,19 +81,12 @@ struct WorkspaceSettingsStoreTests {
     func restoreMissingSettingsFileImportsLegacySettingsSlices() throws {
         let workspaceId = UUID()
         let editorPreference = EditorPreferenceAtom()
-        let sidebarCheckoutColors = SidebarCheckoutColorAtom()
         let inboxPrefs = InboxNotificationPrefsAtom()
         let legacyPersistor = WorkspacePersistor(workspacesDir: tempDir)
         try legacyPersistor.saveUI(
             .init(
                 workspaceId: workspaceId,
                 editorChooserState: .init(bookmarkedEditorId: "cursor")
-            )
-        )
-        try legacyPersistor.saveSidebarCache(
-            .init(
-                workspaceId: workspaceId,
-                checkoutColors: [SidebarCheckoutColorKey("repo:agent-studio"): "#ff6600"]
             )
         )
         let legacyInboxURL = legacyPersistor.notificationInboxFileURL(for: workspaceId)
@@ -128,14 +107,12 @@ struct WorkspaceSettingsStoreTests {
         try Data(legacyInboxJSON.utf8).write(to: legacyInboxURL, options: .atomic)
         let store = makeStore(
             editorPreference: editorPreference,
-            sidebarCheckoutColors: sidebarCheckoutColors,
             inboxPrefs: inboxPrefs
         )
 
         store.restore(for: workspaceId)
 
         #expect(editorPreference.bookmarkedEditorId == "cursor")
-        #expect(sidebarCheckoutColors.checkoutColors == [SidebarCheckoutColorKey("repo:agent-studio"): "#ff6600"])
         #expect(inboxPrefs.grouping == .byRepo)
         #expect(inboxPrefs.sort == .oldestFirst)
         #expect(inboxPrefs.bellEnabled)
@@ -145,7 +122,6 @@ struct WorkspaceSettingsStoreTests {
     func failedLegacyMaterializationBlocksSettingsArchiveReadiness() throws {
         let workspaceId = UUID()
         let editorPreference = EditorPreferenceAtom()
-        let sidebarCheckoutColors = SidebarCheckoutColorAtom()
         let inboxPrefs = InboxNotificationPrefsAtom()
         let legacyPersistor = WorkspacePersistor(workspacesDir: tempDir)
         _ = try seedLegacySettingsSidecars(workspaceId: workspaceId, legacyPersistor: legacyPersistor)
@@ -154,7 +130,6 @@ struct WorkspaceSettingsStoreTests {
         try Data("not-a-directory".utf8).write(to: blockedDirectoryURL, options: .atomic)
         let store = makeStore(
             editorPreference: editorPreference,
-            sidebarCheckoutColors: sidebarCheckoutColors,
             inboxPrefs: inboxPrefs,
             workspacesDir: blockedDirectoryURL,
             legacyPersistor: legacyPersistor
@@ -163,7 +138,6 @@ struct WorkspaceSettingsStoreTests {
         store.restore(for: workspaceId)
 
         #expect(editorPreference.bookmarkedEditorId == "cursor")
-        #expect(sidebarCheckoutColors.checkoutColors == [SidebarCheckoutColorKey("repo:agent-studio"): "#ff6600"])
         #expect(inboxPrefs.grouping == .byRepo)
         #expect(!store.canArchiveLegacySettingsFiles)
     }
@@ -185,20 +159,13 @@ struct WorkspaceSettingsStoreTests {
         )
 
         let restoredEditorPreference = EditorPreferenceAtom()
-        let restoredSidebarCheckoutColors = SidebarCheckoutColorAtom()
         let restoredInboxPrefs = InboxNotificationPrefsAtom()
         makeStore(
             editorPreference: restoredEditorPreference,
-            sidebarCheckoutColors: restoredSidebarCheckoutColors,
             inboxPrefs: restoredInboxPrefs
         ).restore(for: workspaceId)
 
         #expect(restoredEditorPreference.bookmarkedEditorId == "cursor")
-        #expect(
-            restoredSidebarCheckoutColors.checkoutColors == [
-                SidebarCheckoutColorKey("repo:agent-studio"): "#ff6600"
-            ]
-        )
         #expect(restoredInboxPrefs.grouping == .byRepo)
         #expect(restoredInboxPrefs.sort == .oldestFirst)
         #expect(restoredInboxPrefs.bellEnabled)
@@ -221,20 +188,13 @@ struct WorkspaceSettingsStoreTests {
         try Data("not-json".utf8).write(to: settingsFileURL(for: workspaceId), options: .atomic)
 
         let restoredEditorPreference = EditorPreferenceAtom()
-        let restoredSidebarCheckoutColors = SidebarCheckoutColorAtom()
         let restoredInboxPrefs = InboxNotificationPrefsAtom()
         makeStore(
             editorPreference: restoredEditorPreference,
-            sidebarCheckoutColors: restoredSidebarCheckoutColors,
             inboxPrefs: restoredInboxPrefs
         ).restore(for: workspaceId)
 
         #expect(restoredEditorPreference.bookmarkedEditorId == "cursor")
-        #expect(
-            restoredSidebarCheckoutColors.checkoutColors == [
-                SidebarCheckoutColorKey("repo:agent-studio"): "#ff6600"
-            ]
-        )
         #expect(restoredInboxPrefs.grouping == .byRepo)
         #expect(restoredInboxPrefs.sort == .oldestFirst)
         #expect(restoredInboxPrefs.bellEnabled)
@@ -257,20 +217,13 @@ struct WorkspaceSettingsStoreTests {
         try FileManager.default.removeItem(at: settingsFileURL(for: workspaceId))
 
         let restoredEditorPreference = EditorPreferenceAtom()
-        let restoredSidebarCheckoutColors = SidebarCheckoutColorAtom()
         let restoredInboxPrefs = InboxNotificationPrefsAtom()
         makeStore(
             editorPreference: restoredEditorPreference,
-            sidebarCheckoutColors: restoredSidebarCheckoutColors,
             inboxPrefs: restoredInboxPrefs
         ).restore(for: workspaceId)
 
         #expect(restoredEditorPreference.bookmarkedEditorId == "cursor")
-        #expect(
-            restoredSidebarCheckoutColors.checkoutColors == [
-                SidebarCheckoutColorKey("repo:agent-studio"): "#ff6600"
-            ]
-        )
         #expect(restoredInboxPrefs.grouping == .byRepo)
         #expect(restoredInboxPrefs.sort == .oldestFirst)
         #expect(restoredInboxPrefs.bellEnabled)
@@ -309,20 +262,12 @@ struct WorkspaceSettingsStoreTests {
     @Test
     func restoreCorruptSettingsFileFallsBackToLegacySettingsSlices() throws {
         let workspaceId = UUID()
-        let sidebarCheckoutColors = SidebarCheckoutColorAtom()
-        let legacyPersistor = WorkspacePersistor(workspacesDir: tempDir)
-        try legacyPersistor.saveSidebarCache(
-            .init(
-                workspaceId: workspaceId,
-                checkoutColors: [SidebarCheckoutColorKey("repo:agent-studio"): "#33aa99"]
-            )
-        )
         try Data("not-json".utf8).write(to: settingsFileURL(for: workspaceId), options: .atomic)
-        let store = makeStore(sidebarCheckoutColors: sidebarCheckoutColors)
+        let store = makeStore()
 
         store.restore(for: workspaceId)
 
-        #expect(sidebarCheckoutColors.checkoutColors == [SidebarCheckoutColorKey("repo:agent-studio"): "#33aa99"])
+        #expect(FileManager.default.fileExists(atPath: settingsFileURL(for: workspaceId).path) == false)
     }
 
     @Test
@@ -342,11 +287,9 @@ struct WorkspaceSettingsStoreTests {
             """.utf8
         ).write(to: settingsURL, options: .atomic)
         let editorPreference = EditorPreferenceAtom()
-        let sidebarCheckoutColors = SidebarCheckoutColorAtom()
         let inboxPrefs = InboxNotificationPrefsAtom()
         let store = makeStore(
             editorPreference: editorPreference,
-            sidebarCheckoutColors: sidebarCheckoutColors,
             inboxPrefs: inboxPrefs
         )
 
@@ -357,6 +300,7 @@ struct WorkspaceSettingsStoreTests {
         #expect(rawSettings.contains("\n  \"editorChooser\""))
         #expect(!rawSettings.contains("\"unknown\""))
         #expect(!rawSettings.contains("runtimePane"))
+        #expect(!rawSettings.contains("checkoutColors"))
         let editorChooserIndex = rawSettings.firstRange(of: "\"editorChooser\"")!.lowerBound
         let notificationsIndex = rawSettings.firstRange(of: "\"notifications\"")!.lowerBound
         let schemaVersionIndex = rawSettings.firstRange(of: "\"schemaVersion\"")!.lowerBound
@@ -401,20 +345,16 @@ struct WorkspaceSettingsStoreTests {
         var reportedRecovery: PersistenceRecoveryEvent?
 
         let editorPreference = EditorPreferenceAtom()
-        let sidebarCheckoutColors = SidebarCheckoutColorAtom()
         let inboxPrefs = InboxNotificationPrefsAtom()
         editorPreference.setBookmarkedEditor("cursor")
-        sidebarCheckoutColors.setCheckoutColor("#22cc88", for: SidebarCheckoutColorKey("repo:agent-studio"))
         inboxPrefs.setBellEnabled(true)
         makeStore(
             editorPreference: editorPreference,
-            sidebarCheckoutColors: sidebarCheckoutColors,
             inboxPrefs: inboxPrefs,
             recoveryReporter: { reportedRecovery = $0 }
         ).restore(for: workspaceId)
 
         #expect(editorPreference.bookmarkedEditorId == nil)
-        #expect(sidebarCheckoutColors.checkoutColors.isEmpty)
         #expect(!inboxPrefs.bellEnabled)
         #expect(FileManager.default.fileExists(atPath: localURL.path))
         #expect(reportedRecovery?.store == .workspaceSettings)
@@ -449,17 +389,14 @@ struct WorkspaceSettingsStoreTests {
         var reportedRecovery: PersistenceRecoveryEvent?
 
         let editorPreference = EditorPreferenceAtom()
-        let sidebarCheckoutColors = SidebarCheckoutColorAtom()
         let inboxPrefs = InboxNotificationPrefsAtom()
         makeStore(
             editorPreference: editorPreference,
-            sidebarCheckoutColors: sidebarCheckoutColors,
             inboxPrefs: inboxPrefs,
             recoveryReporter: { reportedRecovery = $0 }
         ).restore(for: workspaceId)
 
         #expect(editorPreference.bookmarkedEditorId == nil)
-        #expect(sidebarCheckoutColors.checkoutColors.isEmpty)
         #expect(inboxPrefs.grouping == .byTab)
         #expect(inboxPrefs.sort == .newestFirst)
         #expect(!inboxPrefs.bellEnabled)
@@ -503,12 +440,10 @@ struct WorkspaceSettingsStoreTests {
     func observedSettingsMutationsAutosaveAllSettingsSlices() async throws {
         let workspaceId = UUID()
         let editorPreference = EditorPreferenceAtom()
-        let sidebarCheckoutColors = SidebarCheckoutColorAtom()
         let inboxPrefs = InboxNotificationPrefsAtom()
         let clock = TestPushClock()
         let store = makeStore(
             editorPreference: editorPreference,
-            sidebarCheckoutColors: sidebarCheckoutColors,
             inboxPrefs: inboxPrefs,
             persistDebounceDuration: .milliseconds(10),
             clock: clock
@@ -517,7 +452,6 @@ struct WorkspaceSettingsStoreTests {
         store.restore(for: workspaceId)
         store.startObserving()
         editorPreference.setBookmarkedEditor("cursor")
-        sidebarCheckoutColors.setCheckoutColor("#22cc88", for: SidebarCheckoutColorKey("repo:agent-studio"))
         inboxPrefs.setGrouping(.byRepo)
         inboxPrefs.setSort(.oldestFirst)
         inboxPrefs.setBellEnabled(true)
@@ -531,10 +465,9 @@ struct WorkspaceSettingsStoreTests {
         }
         let editorChooser = settings["editorChooser"] as? [String: Any]
         let sidebar = settings["sidebar"] as? [String: Any]
-        let checkoutColors = sidebar?["checkoutColors"] as? [String: String]
         let notifications = settings["notifications"] as? [String: Any]
         #expect(editorChooser?["bookmarkedEditorId"] as? String == "cursor")
-        #expect(checkoutColors?[SidebarCheckoutColorKey("repo:agent-studio").rawValue] == "#22cc88")
+        #expect(sidebar?["checkoutColors"] == nil)
         #expect(notifications?["grouping"] as? String == "byRepo")
         #expect(notifications?["sort"] as? String == "oldestFirst")
         #expect(notifications?["bellEnabled"] as? Bool == true)
@@ -585,7 +518,6 @@ struct WorkspaceSettingsStoreTests {
 
     private func makeStore(
         editorPreference: EditorPreferenceAtom = EditorPreferenceAtom(),
-        sidebarCheckoutColors: SidebarCheckoutColorAtom = SidebarCheckoutColorAtom(),
         inboxPrefs: InboxNotificationPrefsAtom = InboxNotificationPrefsAtom(),
         workspacesDir: URL? = nil,
         legacyPersistor: WorkspacePersistor? = nil,
@@ -596,7 +528,6 @@ struct WorkspaceSettingsStoreTests {
     ) -> WorkspaceSettingsStore {
         WorkspaceSettingsStore(
             editorPreferenceAtom: editorPreference,
-            sidebarCheckoutColorAtom: sidebarCheckoutColors,
             inboxNotificationPrefsAtom: inboxPrefs,
             workspacesDir: workspacesDir ?? tempDir,
             legacyPersistor: legacyPersistor,
@@ -630,12 +561,6 @@ struct WorkspaceSettingsStoreTests {
             .init(
                 workspaceId: workspaceId,
                 editorChooserState: .init(bookmarkedEditorId: "cursor")
-            )
-        )
-        try legacyPersistor.saveSidebarCache(
-            .init(
-                workspaceId: workspaceId,
-                checkoutColors: [SidebarCheckoutColorKey("repo:agent-studio"): "#ff6600"]
             )
         )
         let legacyInboxURL = legacyPersistor.notificationInboxFileURL(for: workspaceId)

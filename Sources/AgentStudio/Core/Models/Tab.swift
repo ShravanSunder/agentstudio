@@ -17,6 +17,8 @@ struct Tab: Codable, Identifiable, Hashable, Sendable {
     var arrangements: [PaneArrangement]
     /// The currently active arrangement ID.
     var activeArrangementId: UUID
+    /// Optional durable tab display color as canonical `#RRGGBB`.
+    var colorHex: String?
     /// Display-only zoom state — NOT persisted. When set, the zoomed pane fills the tab.
     var zoomedPaneId: UUID?
 
@@ -26,6 +28,7 @@ struct Tab: Codable, Identifiable, Hashable, Sendable {
         case allPaneIds = "panes"
         case arrangements
         case activeArrangementId
+        case colorHex
         // zoomedPaneId excluded — transient, not persisted
     }
 
@@ -43,6 +46,7 @@ struct Tab: Codable, Identifiable, Hashable, Sendable {
         )
         self.arrangements = [defaultArrangement]
         self.activeArrangementId = defaultArrangement.id
+        self.colorHex = nil
         self.zoomedPaneId = nil
     }
 
@@ -54,6 +58,7 @@ struct Tab: Codable, Identifiable, Hashable, Sendable {
         allPaneIds: [UUID],
         arrangements: [PaneArrangement],
         activeArrangementId: UUID,
+        colorHex: String? = nil,
         zoomedPaneId: UUID? = nil
     ) {
         precondition(!arrangements.isEmpty, "Tab must have at least one arrangement")
@@ -63,6 +68,7 @@ struct Tab: Codable, Identifiable, Hashable, Sendable {
         self.allPaneIds = allPaneIds
         self.arrangements = arrangements
         self.activeArrangementId = activeArrangementId
+        self.colorHex = colorHex.map(TabShell.canonicalColorHex)
         self.zoomedPaneId = zoomedPaneId
     }
 
@@ -72,6 +78,7 @@ struct Tab: Codable, Identifiable, Hashable, Sendable {
         panes: [UUID],
         arrangements: [PaneArrangement],
         activeArrangementId: UUID,
+        colorHex: String? = nil,
         zoomedPaneId: UUID? = nil
     ) {
         self.init(
@@ -80,6 +87,7 @@ struct Tab: Codable, Identifiable, Hashable, Sendable {
             allPaneIds: panes,
             arrangements: arrangements,
             activeArrangementId: activeArrangementId,
+            colorHex: colorHex,
             zoomedPaneId: zoomedPaneId
         )
     }

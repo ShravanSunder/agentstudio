@@ -8,7 +8,7 @@ import Testing
 struct WorkspaceMutationCoordinatorTests {
     @Test
     func reactivatePane_failedInsert_keepsPaneBackgrounded() {
-        let topologyAtom = WorkspaceRepositoryTopologyAtom()
+        let topologyAtom = RepositoryTopologyAtom()
         let paneAtom = WorkspacePaneAtom()
         let tabShellAtom = WorkspaceTabShellAtom()
         let tabArrangementAtom = WorkspaceTabArrangementAtom()
@@ -37,7 +37,7 @@ struct WorkspaceMutationCoordinatorTests {
 
     @Test
     func restoreFromPaneSnapshot_failedLayoutInsertion_cleansUpRestoredPaneState() {
-        let topologyAtom = WorkspaceRepositoryTopologyAtom()
+        let topologyAtom = RepositoryTopologyAtom()
         let paneAtom = WorkspacePaneAtom()
         let tabShellAtom = WorkspaceTabShellAtom()
         let tabArrangementAtom = WorkspaceTabArrangementAtom()
@@ -71,7 +71,7 @@ struct WorkspaceMutationCoordinatorTests {
 
     @Test
     func restoreFromPaneSnapshot_failedDrawerParent_cleansUpRestoredDrawerPaneState() {
-        let topologyAtom = WorkspaceRepositoryTopologyAtom()
+        let topologyAtom = RepositoryTopologyAtom()
         let paneAtom = WorkspacePaneAtom()
         let tabShellAtom = WorkspaceTabShellAtom()
         let tabArrangementAtom = WorkspaceTabArrangementAtom()

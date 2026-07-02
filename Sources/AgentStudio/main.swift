@@ -21,8 +21,12 @@ func debugLog(_ message: String) {
     }
 }
 
-let traceRuntime = AgentStudioTraceRuntime.fromEnvironment()
+let globalPreferences = GlobalPreferencesBootstrap.load()
+let traceRuntime = AgentStudioTraceRuntime.fromEnvironment(
+    preferenceLayer: globalPreferences.tracePreferenceLayer
+)
 let startupTraceRecorder = AgentStudioStartupTraceRecorder(traceRuntime: traceRuntime)
+GlobalPreferencesStartupTelemetry.recordLoaded(globalPreferences, recorder: startupTraceRecorder)
 startupTraceRecorder.recordAppStartup(
     "app.process.start",
     phase: "process",

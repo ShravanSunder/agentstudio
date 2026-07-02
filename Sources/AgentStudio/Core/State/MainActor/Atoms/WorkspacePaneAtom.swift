@@ -15,13 +15,13 @@ enum PaneCWDContextUpdateResult: Equatable {
 final class WorkspacePaneAtom {
     let graphAtom: WorkspacePaneGraphAtom
     let drawerCursorAtom: WorkspaceDrawerCursorAtom
-    private let repositoryTopologyAtom: WorkspaceRepositoryTopologyAtom?
+    private let repositoryTopologyAtom: RepositoryTopologyAtom?
     private let repoEnrichmentCacheAtom: RepoEnrichmentCacheAtom?
 
     init(
         graphAtom: WorkspacePaneGraphAtom = WorkspacePaneGraphAtom(),
         drawerCursorAtom: WorkspaceDrawerCursorAtom = WorkspaceDrawerCursorAtom(),
-        repositoryTopologyAtom: WorkspaceRepositoryTopologyAtom? = nil,
+        repositoryTopologyAtom: RepositoryTopologyAtom? = nil,
         repoEnrichmentCacheAtom: RepoEnrichmentCacheAtom? = nil
     ) {
         self.graphAtom = graphAtom

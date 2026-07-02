@@ -12,9 +12,7 @@ struct WorkspaceSQLiteSnapshotDiagnostics: Sendable {
             "agentstudio.workspace.snapshot.active_tab_id": .string(snapshot.activeTabId?.uuidString ?? "nil"),
             "agentstudio.workspace.snapshot.arrangement_count": .int(snapshot.tabs.flatMap(\.arrangements).count),
             "agentstudio.workspace.snapshot.pane_count": .int(snapshot.panes.count),
-            "agentstudio.workspace.snapshot.repo_count": .int(snapshot.repos.count),
             "agentstudio.workspace.snapshot.tab_count": .int(snapshot.tabs.count),
-            "agentstudio.workspace.snapshot.worktree_count": .int(snapshot.worktrees.count),
         ]
 
         let tabPaneMembershipMismatches = tabPaneMembershipMismatches()

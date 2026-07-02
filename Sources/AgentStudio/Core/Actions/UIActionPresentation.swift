@@ -72,7 +72,6 @@ enum LocalActionSpec {
     case commandPalette
     case goToPane
     case openInMenu
-    case setIconColorMenu
     case openInNewTab
     case openInPaneSplit
     case goToTerminal
@@ -93,7 +92,6 @@ enum LocalActionSpec {
     case showPane
     case hidePane
     case addDrawerTerminal
-    case resetIconColorDefault
     case browserBack
     case browserForward
     case browserStop
@@ -133,9 +131,6 @@ enum LocalActionSpec {
         case .openInMenu:
             return ActionSpec(
                 label: "Open in...", helpText: "Choose an editor to open this worktree", icon: .system(.ellipsisCircle))
-        case .setIconColorMenu:
-            return ActionSpec(
-                label: "Set Icon Color", helpText: "Choose a custom sidebar color", icon: .system(.paintpaletteFill))
         case .openInNewTab:
             return ActionSpec(
                 label: "Open in New Tab", helpText: "Open this worktree in a new tab", icon: .system(.plusRectangle))
@@ -202,9 +197,6 @@ enum LocalActionSpec {
         case .addDrawerTerminal:
             return ActionSpec(
                 label: "Add Drawer Terminal", helpText: "Add a drawer terminal", icon: .system(.plus))
-        case .resetIconColorDefault:
-            return ActionSpec(
-                label: "Reset to Default", helpText: "Reset the sidebar icon color", icon: .system(.paintpalette))
         case .browserBack:
             return ActionSpec(label: "Back", helpText: "Back (⌘[)", icon: .system(.chevronLeft))
         case .browserForward:
