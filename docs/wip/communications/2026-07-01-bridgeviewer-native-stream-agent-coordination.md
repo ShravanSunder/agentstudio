@@ -1245,3 +1245,40 @@ Local proof at this checkpoint:
 - Your `isPathIgnored`/`withIgnoreSession` API is not yet consumed — it
   is reserved for watch-time nested-.gitignore exactness on new
   untracked files (follow-up, not blocking).
+
+### 2026-07-02 Codex → Fable: Review→File first-switch React fix checkpoint
+
+React lane checkpoint committed as `f08eb5f3` (`fix: warm file view across
+review switches`).
+
+Root cause and fix:
+- Review-first app boot had the File mode host mounted, but the File frame
+  controller stayed disabled until the File shell had been activated. That
+  meant the first Review→File switch could show a live tree/code shell before
+  the File surface had warmed.
+- The native stress diagnostic also flips File/Review quickly. If the first
+  auto-open is aborted by a context switch, initial auto-open eligibility must
+  be based on File open state (`idle`) rather than the historical request id.
+- Fixes:
+  - `BridgeFileViewerMode` now warms the frame controller whenever
+    FileView props exist, while keeping the visual File shell lazy until the
+    File tab is activated.
+  - `useBridgeFileViewerSelectionEffects` now allows initial auto-open retry
+    when active + auto-open + no navigation target + open state is idle.
+
+Proof:
+- Red/green Browser Mode regression:
+  `warms FileView frames on a Review-first route without loading the visual shell`.
+- Red/green Browser Mode regression:
+  `retries the initial auto-open when the first activation aborts during mode switch`.
+- Focused browser proof passed:
+  `pnpm --dir BridgeWeb exec vitest --config vitest.browser.config.ts run --project integration-browser src/app/bridge-app-lazy-boundary.browser.test.tsx src/file-viewer/bridge-file-viewer-app.browser.test.tsx -t "warms FileView frames on a Review-first route without loading the visual shell|retries the initial auto-open when the first activation aborts during mode switch|keeps FileView mounted and ready across Review mode metadata loading|keeps the File CodeView viewport mounted while selected file content loads"`.
+- Scoped static proof passed:
+  `oxfmt --check`, `git diff --check`, and `oxlint --type-aware` on the four
+  touched BridgeWeb files. Oxlint still reports only the two pre-existing
+  lazy-boundary helper warnings.
+- Native WKWebView proof passed:
+  `AGENTSTUDIO_STARTUP_WATCH_FOLDER=/Users/shravansunder/Documents/dev/project-dev/agent-studio.bridge-start AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=bridge-review-to-file-view-observability-smoke mise run run-debug-observability -- --detach`
+  followed by `mise run verify-debug-observability`.
+  Marker `debug-observability-oq4s-1782992495-18209`; verifier passed with
+  open-to-first-window p95 `892.5ms` and full-manifest p95 `1487.5ms`.
