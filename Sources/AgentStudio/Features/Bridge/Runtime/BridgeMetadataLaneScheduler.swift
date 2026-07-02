@@ -25,6 +25,7 @@ protocol BridgeMetadataLaneSchedulerTelemetry: Sendable {
         queueDepth: Int
     ) async
     func recordStaleDrop(lane: BridgeDemandLane, protocolId: String, droppedCount: Int) async
+    func recordOverflowDrop(lane: BridgeDemandLane, protocolId: String, droppedCount: Int) async
 }
 
 /// Test seam: gates each idle-lane job so contention proofs can hold idle
@@ -87,6 +88,7 @@ actor BridgeMetadataLaneScheduler {
 
     private let clock: ContinuousClock
     private let idleNoStarvationBudget: Int
+    private let maxQueuedJobsPerLane: Int
     private let idleGate: BridgeMetadataLaneSchedulerIdleGate?
     private var telemetry: (any BridgeMetadataLaneSchedulerTelemetry)?
 
@@ -97,15 +99,18 @@ actor BridgeMetadataLaneScheduler {
     private var higherLaneJobsSinceIdleService = 0
     private(set) var drainedJobCount = 0
     private(set) var staleDroppedJobCount = 0
+    private(set) var overflowDroppedJobCount = 0
 
     init(
         clock: ContinuousClock = ContinuousClock(),
         idleNoStarvationBudget: Int = AppPolicies.Bridge.metadataIdleNoStarvationBudget,
+        maxQueuedJobsPerLane: Int = AppPolicies.Bridge.metadataSchedulerMaxQueuedJobsPerLane,
         idleGate: BridgeMetadataLaneSchedulerIdleGate? = nil,
         telemetry: (any BridgeMetadataLaneSchedulerTelemetry)? = nil
     ) {
         self.clock = clock
         self.idleNoStarvationBudget = max(1, idleNoStarvationBudget)
+        self.maxQueuedJobsPerLane = max(1, maxQueuedJobsPerLane)
         self.idleGate = idleGate
         self.telemetry = telemetry
     }
@@ -151,6 +156,20 @@ actor BridgeMetadataLaneScheduler {
         queuesByLane[job.lane, default: []].append(
             QueuedJob(job: job, enqueuedAt: clock.now)
         )
+        // Bounded queue: a lane that outgrows the cap (a wedged pane whose
+        // gate never reopens while watch-driven producers keep enqueueing)
+        // drops its oldest job so newer facts win; the drop is emitted so
+        // the loss is observable, never silent.
+        if var queue = queuesByLane[job.lane], queue.count > maxQueuedJobsPerLane {
+            let dropped = queue.removeFirst()
+            queuesByLane[job.lane] = queue
+            overflowDroppedJobCount += 1
+            await telemetry?.recordOverflowDrop(
+                lane: dropped.job.lane,
+                protocolId: dropped.job.protocolId,
+                droppedCount: 1
+            )
+        }
         scheduleDrain()
     }
 

@@ -21,6 +21,13 @@ enum AppPolicies {
         /// dispatch is one idle batch. Provisional until the OD4 profiling
         /// gate graduates it.
         static let metadataIdleNoStarvationBudget: Int = 4
+        /// Per-lane queued-job cap for the metadata lane scheduler. A pane
+        /// whose gate never reopens (wedged or dead WebView) must not grow
+        /// its queues without bound from watch-driven producers; on overflow
+        /// the scheduler drops the lane's oldest job and emits an overflow
+        /// drop so the loss is observable, never silent. Recovery is the
+        /// normal reset/reopen path, which rebuilds from the manifest.
+        static let metadataSchedulerMaxQueuedJobsPerLane: Int = 256
     }
 
     enum WorkspacePersistence {

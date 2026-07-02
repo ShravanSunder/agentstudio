@@ -32,6 +32,7 @@ actor SchedulerTelemetrySpy: BridgeMetadataLaneSchedulerTelemetry {
 
     private(set) var queueWaitSamples: [QueueWaitSample] = []
     private(set) var staleDropCounts: [BridgeDemandLane: Int] = [:]
+    private(set) var overflowDropCounts: [BridgeDemandLane: Int] = [:]
 
     func recordQueueWait(
         lane: BridgeDemandLane,
@@ -51,6 +52,10 @@ actor SchedulerTelemetrySpy: BridgeMetadataLaneSchedulerTelemetry {
 
     func recordStaleDrop(lane: BridgeDemandLane, protocolId: String, droppedCount: Int) {
         staleDropCounts[lane, default: 0] += droppedCount
+    }
+
+    func recordOverflowDrop(lane: BridgeDemandLane, protocolId: String, droppedCount: Int) {
+        overflowDropCounts[lane, default: 0] += droppedCount
     }
 }
 
@@ -122,6 +127,31 @@ struct BridgeMetadataLaneSchedulerTests {
 
         let executed = await MainActor.run { recorder.executedLabels }
         #expect(executed == ["foreground-1", "visible-1", "idle-1", "idle-2"])
+    }
+
+    @Test("a lane over its cap drops the oldest job with an observable overflow drop")
+    func laneOverCapDropsOldestJobWithObservableOverflowDrop() async throws {
+        let recorder = await MainActor.run { SchedulerExecutionOrderRecorder() }
+        let telemetrySpy = SchedulerTelemetrySpy()
+        let scheduler = BridgeMetadataLaneScheduler(
+            maxQueuedJobsPerLane: 2,
+            telemetry: telemetrySpy
+        )
+        await scheduler.acceptGeneration(1, protocolId: "worktree-file")
+        // Gate stays closed (wedged-pane shape): producers keep enqueueing.
+        await scheduler.enqueue(makeJob("active-1", lane: .active, recorder: recorder))
+        await scheduler.enqueue(makeJob("active-2", lane: .active, recorder: recorder))
+        await scheduler.enqueue(makeJob("active-3", lane: .active, recorder: recorder))
+        #expect(await scheduler.queuedJobCount == 2)
+        #expect(await scheduler.overflowDroppedJobCount == 1)
+        #expect(await telemetrySpy.overflowDropCounts[.active] == 1)
+
+        await scheduler.openGate(protocolId: "worktree-file")
+        await scheduler.waitUntilDrained()
+
+        // The oldest job was dropped; the newest facts survive in order.
+        let executed = await MainActor.run { recorder.executedLabels }
+        #expect(executed == ["active-2", "active-3"])
     }
 
     @Test("review foreground work drains before worktree-file idle continuation")

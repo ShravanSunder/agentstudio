@@ -211,6 +211,7 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.bridge.demand.intent.count",
         "agentstudio.bridge.demand.loaded.count",
         "agentstudio.bridge.demand.request.sequence",
+        "agentstudio.bridge.demand.overflow_drop.count",
         "agentstudio.bridge.demand.queue_depth",
         "agentstudio.bridge.demand.scheduler_queue_wait_ms",
         "agentstudio.bridge.demand.stale_drop.count",

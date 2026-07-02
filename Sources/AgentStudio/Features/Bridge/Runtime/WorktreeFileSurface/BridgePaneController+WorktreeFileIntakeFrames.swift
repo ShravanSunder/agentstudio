@@ -71,6 +71,30 @@ struct BridgePaneMetadataSchedulerTelemetryAdapter: BridgeMetadataLaneSchedulerT
             receivedAtUnixNano: UInt64(Date().timeIntervalSince1970 * 1_000_000_000)
         )
     }
+
+    func recordOverflowDrop(lane: BridgeDemandLane, protocolId: String, droppedCount: Int) async {
+        await recorder.record(
+            sample: BridgeTelemetrySample(
+                scope: .swift,
+                name: "performance.bridge.swift.metadata_scheduler_overflow_drop",
+                durationMilliseconds: nil,
+                traceContext: nil,
+                stringAttributes: [
+                    "agentstudio.bridge.phase": "metadata_scheduler_overflow_drop",
+                    "agentstudio.bridge.plane": BridgeTelemetryPlane.data.rawValue,
+                    "agentstudio.bridge.priority": BridgeTelemetryPriority.cold.rawValue,
+                    "agentstudio.bridge.slice": BridgeTelemetrySlice.treePrepareInput.rawValue,
+                    "agentstudio.bridge.transport": "swift",
+                    "agentstudio.bridge.demand.lane": lane.rawValue,
+                ],
+                numericAttributes: [
+                    "agentstudio.bridge.demand.overflow_drop.count": Double(droppedCount)
+                ],
+                booleanAttributes: [:]
+            ),
+            receivedAtUnixNano: UInt64(Date().timeIntervalSince1970 * 1_000_000_000)
+        )
+    }
 }
 
 @MainActor
