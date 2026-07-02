@@ -40,7 +40,6 @@ import {
 } from './bridge-code-view-panel-support.js';
 import {
 	codeViewMaterializationRetryFrameBudget,
-	codeViewSelectedHeaderPinFrameBudget,
 	codeViewVisibleHydrationScrollIdleMilliseconds,
 	codeViewVisibleMetadataScrollThrottleMilliseconds,
 	initialSelectionScrollDiagnostic,
@@ -526,8 +525,6 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 	]);
 	const selectedItemIdForMetadataReconcileRef = useRef(props.selectedItemId);
 	selectedItemIdForMetadataReconcileRef.current = props.selectedItemId;
-	const selectedContentResourcesForMetadataReconcileRef = useRef(props.selectedContentResources);
-	selectedContentResourcesForMetadataReconcileRef.current = props.selectedContentResources;
 	const initialItems = useMemo(() => {
 		const itemPresentationsByItemId =
 			props.selectedItemId === null ||
@@ -580,26 +577,6 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 						: [selectedItemIdForMetadataReconcileRef.current],
 			}),
 		);
-		const selectedItemId = selectedItemIdForMetadataReconcileRef.current;
-		if (
-			selectedItemId !== null &&
-			selectedContentResourcesForMetadataReconcileRef.current !== null &&
-			selectedContentResourcesForMetadataReconcileRef.current !== undefined
-		) {
-			const controller = controllerForHandle({
-				handle: codeViewHandle,
-				controllerEntryRef,
-			});
-			controller.scrollToItem(selectedItemId, 'instant');
-			scrollToTopTargetItemIdRef.current = selectedItemId;
-			scrollCodeViewHeaderToScrollTopAcrossLayout({
-				handle: codeViewHandle,
-				itemId: selectedItemId,
-				isCurrent: (): boolean =>
-					codeViewHandleRef.current === codeViewHandle &&
-					scrollToTopTargetItemIdRef.current === selectedItemId,
-			});
-		}
 		scheduleCodeViewRecoveryRender();
 	}, [codeViewMountVersion, initialItems, scheduleCodeViewRecoveryRender, sourceKey]);
 
@@ -674,30 +651,6 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		publishVisibleItemIdsFromCurrentHandle,
 		sourceKey,
 	]);
-
-	useEffect((): void => {
-		if (
-			props.selectedItemId === null ||
-			props.selectedContentResources === null ||
-			props.selectedContentResources === undefined
-		) {
-			return;
-		}
-		const codeViewHandle = codeViewHandleRef.current;
-		if (codeViewHandle === null || !codeViewHandleHasInstance(codeViewHandle)) {
-			return;
-		}
-		const itemId = props.selectedItemId;
-		scrollToTopTargetItemIdRef.current = itemId;
-		scrollCodeViewHeaderToScrollTopAcrossLayout({
-			frameBudget: codeViewSelectedHeaderPinFrameBudget,
-			handle: codeViewHandle,
-			itemId,
-			isCurrent: (): boolean =>
-				codeViewHandleRef.current === codeViewHandle &&
-				scrollToTopTargetItemIdRef.current === itemId,
-		});
-	}, [codeViewMountVersion, props.selectedContentResources, props.selectedItemId, sourceKey]);
 
 	useEffect((): void => {
 		if (loadingMaterializationItemIds.length === 0 && materializationResourceEntries.length === 0) {
@@ -826,16 +779,6 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 						});
 						pendingPreHydrationSelectionScrollKeyRef.current = null;
 						pendingSmoothSelectionScrollKeyRef.current = selectionScrollKey;
-					} else {
-						scrollToItem(itemId, { behavior: 'instant' });
-						scrollToTopTargetItemIdRef.current = itemId;
-						scrollCodeViewHeaderToScrollTopAcrossLayout({
-							handle: codeViewHandle,
-							itemId,
-							isCurrent: (): boolean =>
-								codeViewHandleRef.current === codeViewHandle &&
-								scrollToTopTargetItemIdRef.current === itemId,
-						});
 					}
 					completedSelectionScrollKeyRef.current = selectionScrollKey;
 					lastSelectionScrollKeyRef.current = selectionScrollKey;

@@ -105,6 +105,38 @@ describe('Bridge viewer CodeView virtualizer anchoring', () => {
 		});
 		expect(Math.abs(anchorOffsetAfter - anchorOffsetBefore)).toBeLessThanOrEqual(2);
 	});
+
+	test('does not yank the user scroll position back to the selected file on metadata windows', async () => {
+		const fixture = makeBridgeViewerBrowserFixture({ fixtureClass: 'large-diffshub' });
+		const backend = installBridgeViewerMockedBackend(fixture);
+
+		render(
+			<BridgeApp
+				codeViewWorkerPoolEnabled={false}
+				fetchContent={backend.fetchContent}
+				markdownWorkerClient={null}
+				projectionWorkerClient={backend.projectionWorkerClient}
+			/>,
+		);
+		await backend.pushMetadata();
+		await waitForBridgeViewerText(fixture.expected.initialText);
+
+		const scrollOwner = await waitForBridgeViewerCodeScrollOwner();
+		scrollOwner.scrollTop += 500;
+		await waitForBridgeViewerAnimationFrame();
+		await waitForBridgeViewerAnimationFrame();
+		const scrollTopBeforeMetadataWindow = scrollOwner.scrollTop;
+
+		dispatchReviewMetadataWindow({
+			itemIds: fixture.reviewPackage.orderedItemIds.slice(0, 80),
+			reviewPackage: fixture.reviewPackage,
+			sequence: 100,
+		});
+
+		await waitForBridgeViewerAnimationFrame();
+		await waitForBridgeViewerAnimationFrame();
+		expect(Math.abs(scrollOwner.scrollTop - scrollTopBeforeMetadataWindow)).toBeLessThanOrEqual(4);
+	});
 });
 
 function reviewPackageWithClampedLineCounts(props: {
