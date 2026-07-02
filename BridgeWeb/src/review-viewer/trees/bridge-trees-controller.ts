@@ -1,7 +1,6 @@
 import {
 	prepareFileTreeInput,
 	type FileTreeBatchOperation,
-	type FileTreeDirectoryHandle,
 	type FileTreeItemHandle,
 	type FileTreeOptions,
 	type FileTreePreparedInput,
@@ -10,6 +9,10 @@ import {
 	type GitStatusEntry,
 } from '@pierre/trees';
 
+import {
+	appendedOnlyPierreTreePaths,
+	expandAncestorDirectoriesForPierreTreePaths,
+} from '../../app/bridge-pierre-tree-adapter.js';
 import type { ReviewTreeRowMetadata } from '../../features/review/models/review-protocol-models.js';
 import type { BridgeReviewPackage } from '../../foundation/review-package/bridge-review-package.js';
 import type { BridgeReviewProjectionResult } from '../models/review-projection-models.js';
@@ -162,10 +165,14 @@ export function planBridgeTreesUpdate(props: PlanBridgeTreesUpdateProps): Bridge
 		return gitStatusMatches ? { kind: 'none' } : { kind: 'statusOnly' };
 	}
 
-	if (isAppendOnlyPathChange(props.previous.orderedPaths, props.next.orderedPaths)) {
+	const addedPaths = appendedOnlyPierreTreePaths({
+		nextPaths: props.next.orderedPaths,
+		previousPaths: props.previous.orderedPaths,
+	});
+	if (addedPaths !== null && addedPaths.length > 0) {
 		return {
 			kind: 'appendOnly',
-			addedPaths: props.next.orderedPaths.slice(props.previous.orderedPaths.length),
+			addedPaths,
 			shouldUpdateGitStatus: !gitStatusMatches,
 		};
 	}
@@ -320,52 +327,11 @@ function expandAncestorDirectories(props: {
 	readonly model: BridgeTreesModel;
 	readonly path: string;
 }): void {
-	const ancestorPaths = ancestorDirectoryPaths(props.path);
-	for (const ancestorPath of ancestorPaths) {
-		const item = directoryItemForInputPath({
-			model: props.model,
-			path: ancestorPath,
-		});
-		if (isFileTreeDirectoryHandle(item) && !item.isExpanded()) {
-			try {
-				item.expand();
-			} catch {
-				continue;
-			}
-		}
-	}
-}
-
-function isFileTreeDirectoryHandle(
-	item: FileTreeItemHandle | null,
-): item is FileTreeDirectoryHandle {
-	return item?.isDirectory() === true;
-}
-
-function directoryItemForInputPath(props: {
-	readonly model: BridgeTreesModel;
-	readonly path: string;
-}): FileTreeItemHandle | null {
-	const slashPath = `${props.path}/`;
-	const mountedPath =
-		props.model.resolveMountedDirectoryPathFromInput?.(props.path) ??
-		props.model.resolveMountedDirectoryPathFromInput?.(slashPath) ??
-		null;
-	if (mountedPath !== null) {
-		return props.model.getItem(mountedPath);
-	}
-	return props.model.getItem(props.path) ?? props.model.getItem(slashPath);
-}
-
-function ancestorDirectoryPaths(path: string): readonly string[] {
-	const segments = path.split('/').filter((segment: string): boolean => segment.length > 0);
-	const ancestorPaths: string[] = [];
-	let currentPath = '';
-	for (const segment of segments.slice(0, -1)) {
-		currentPath = currentPath.length === 0 ? segment : `${currentPath}/${segment}`;
-		ancestorPaths.push(currentPath);
-	}
-	return ancestorPaths;
+	expandAncestorDirectoriesForPierreTreePaths({
+		ignoreExpandErrors: true,
+		model: props.model,
+		paths: [props.path],
+	});
 }
 
 function createGitStatusEntries(props: CreateBridgeTreesSourceProps): readonly GitStatusEntry[] {
@@ -420,17 +386,6 @@ function arraysEqual(left: readonly string[], right: readonly string[]): boolean
 		left.length === right.length &&
 		left.every((value: string, index: number): boolean => value === right[index])
 	);
-}
-
-function isAppendOnlyPathChange(
-	previousPaths: readonly string[],
-	nextPaths: readonly string[],
-): boolean {
-	if (nextPaths.length <= previousPaths.length) {
-		return false;
-	}
-
-	return previousPaths.every((path: string, index: number): boolean => path === nextPaths[index]);
 }
 
 function gitStatusSignature(entries: readonly GitStatusEntry[]): string {

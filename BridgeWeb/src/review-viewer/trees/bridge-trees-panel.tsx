@@ -5,6 +5,16 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { flushSync } from 'react-dom';
 
 import {
+	pierreFilePathFromEventTarget,
+	pierreFilePathFromTreeEvent,
+	pierreTreeRowContainerForModel,
+	pierreTreeScrollOwnerForModel,
+	visiblePierreFileRowElementsForModel,
+	type BridgePierreFileRowElement,
+	type BridgePierreTreeQueryContainer,
+	type BridgePierreTreeScrollOwner,
+} from '../../app/bridge-pierre-tree-adapter.js';
+import {
 	bridgeViewerTreeStyle,
 	bridgeViewerTreeUnsafeCSS,
 } from '../../app/bridge-viewer-tree-theme.js';
@@ -167,8 +177,8 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 	}, [model, onVisibleItemIdsChange]);
 
 	useEffect((): (() => void) => {
-		let scrollElement: HTMLElement | null = null;
-		let rowContainer: ParentNode | null = null;
+		let scrollElement: BridgePierreTreeScrollOwner | null = null;
+		let rowContainer: BridgePierreTreeQueryContainer | null = null;
 		let animationFrameId: number | null = null;
 		const scheduleVisibleItemIds = (): void => {
 			if (animationFrameId !== null) {
@@ -182,7 +192,7 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 		const selectClickedFileRow = (event: Event): void => {
 			const selection = reviewTreeSelectionForEventTarget({
 				primaryItemIdByTreePath: sourceRef.current.primaryItemIdByTreePath,
-				target: event.target,
+				target: event,
 			});
 			if (selection !== null) {
 				isSyncingClickedSelectionRef.current = true;
@@ -197,13 +207,10 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 			}
 		};
 		const setupFrameId = requestAnimationFrame((): void => {
-			const fileTreeContainer = model.getFileTreeContainer();
-			rowContainer = fileTreeContainer?.shadowRoot ?? fileTreeContainer ?? null;
-			scrollElement =
-				rowContainer?.querySelector<HTMLElement>('[data-file-tree-virtualized-scroll="true"]') ??
-				null;
+			rowContainer = pierreTreeRowContainerForModel(model);
+			scrollElement = pierreTreeScrollOwnerForModel(model);
 			scrollElement?.addEventListener('scroll', scheduleVisibleItemIds, { passive: true });
-			rowContainer?.addEventListener('click', selectClickedFileRow, { capture: true });
+			rowContainer?.addEventListener?.('click', selectClickedFileRow, { capture: true });
 			publishVisibleItemIds();
 		});
 		const unsubscribeModel = model.subscribe(scheduleVisibleItemIds);
@@ -213,7 +220,7 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 				cancelAnimationFrame(animationFrameId);
 			}
 			scrollElement?.removeEventListener('scroll', scheduleVisibleItemIds);
-			rowContainer?.removeEventListener('click', selectClickedFileRow, { capture: true });
+			rowContainer?.removeEventListener?.('click', selectClickedFileRow, { capture: true });
 			unsubscribeModel();
 		};
 	}, [model, publishVisibleItemIds]);
@@ -248,33 +255,16 @@ export interface ReviewTreeSelection {
 
 export function reviewTreeSelectionForEventTarget(props: {
 	readonly primaryItemIdByTreePath: Readonly<Record<string, string>>;
-	readonly target: EventTarget | null;
+	readonly target: Event | EventTarget | null;
 }): ReviewTreeSelection | null {
-	const rowElement = reviewTreeSelectionElementForEventTarget(props.target);
+	const path =
+		props.target !== null && 'composedPath' in props.target
+			? pierreFilePathFromTreeEvent(props.target)
+			: pierreFilePathFromEventTarget(props.target);
 	return reviewTreeSelectionForPath({
-		path: rowElement?.getAttribute('data-item-path') ?? null,
+		path,
 		primaryItemIdByTreePath: props.primaryItemIdByTreePath,
 	});
-}
-
-function reviewTreeSelectionElementForEventTarget(target: EventTarget | null): HTMLElement | null {
-	if (!(target instanceof Element)) {
-		return null;
-	}
-	const selectionSelector =
-		'button[data-item-type="file"][data-item-path],[data-type="item"][data-item-type="file"][data-item-path]';
-	if ('getRootNode' in target) {
-		const root = target.getRootNode();
-		const eventLikePath =
-			root instanceof ShadowRoot && root.host instanceof Element ? [target, root.host] : [target];
-		for (const pathTarget of eventLikePath) {
-			const matched = pathTarget.closest<HTMLElement>(selectionSelector);
-			if (matched !== null) {
-				return matched;
-			}
-		}
-	}
-	return target.closest<HTMLElement>(selectionSelector);
 }
 
 export function reviewTreeItemIdForPath(props: {
@@ -304,16 +294,19 @@ function visibleReviewTreeItemIds(props: {
 	readonly model: ReturnType<typeof useFileTree>['model'];
 	readonly primaryItemIdByTreePath: Readonly<Record<string, string>>;
 }): readonly string[] {
-	const fileTreeContainer = props.model.getFileTreeContainer();
-	const rowContainer = fileTreeContainer?.shadowRoot ?? fileTreeContainer;
-	if (rowContainer === undefined || rowContainer === null) {
-		return [];
-	}
+	return reviewTreeItemIdsForPierreVisibleFileRows({
+		primaryItemIdByTreePath: props.primaryItemIdByTreePath,
+		rowElements: visiblePierreFileRowElementsForModel(props.model),
+	});
+}
+
+export function reviewTreeItemIdsForPierreVisibleFileRows(props: {
+	readonly primaryItemIdByTreePath: Readonly<Record<string, string>>;
+	readonly rowElements: Iterable<BridgePierreFileRowElement>;
+}): readonly string[] {
 	const itemIds: string[] = [];
 	const seenItemIds = new Set<string>();
-	for (const rowElement of rowContainer.querySelectorAll<HTMLElement>(
-		'[data-type="item"][data-item-type="file"][data-item-path]',
-	)) {
+	for (const rowElement of props.rowElements) {
 		const path = rowElement.getAttribute('data-item-path');
 		const itemId = path === null ? undefined : props.primaryItemIdByTreePath[path];
 		if (itemId === undefined || seenItemIds.has(itemId)) {

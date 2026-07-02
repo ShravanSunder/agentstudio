@@ -473,3 +473,32 @@ entries; if an entry becomes stale, append a correction with the new evidence.
   `pnpm --dir BridgeWeb exec oxfmt --check src/review-viewer/review-viewer-source-structure.unit.test.ts`
   passed, `pnpm --dir BridgeWeb exec oxlint --type-aware src/review-viewer/review-viewer-source-structure.unit.test.ts`
   passed, and `pnpm --dir BridgeWeb exec tsc --noEmit --pretty false` passed.
+
+### 2026-07-02 Codex React Lane Pierre Adapter Checkpoint
+
+- Extracted neutral raw Pierre tree adapter mechanics to
+  `BridgeWeb/src/app/bridge-pierre-tree-adapter.ts`.
+- Shared only renderer-adapter mechanics:
+  append-only path detection, ancestor expansion via mounted Pierre directory
+  paths, scroll-owner lookup, visible file-row discovery, and file-row path
+  extraction from Pierre DOM events.
+- Kept domain policies separate:
+  FileView still maps visible paths to fetchable descriptor refs in
+  `bridge-file-viewer-pierre-visible-demand.ts`; Review still maps visible
+  paths to review item ids in `bridge-trees-panel.tsx`; Review search,
+  selection, source building, and git-status shaping remain Review-owned.
+- Sidekick reviewer `019f20f7-fdcb-7312-84e1-601e6ee1588f` recommended this
+  adapter-only seam, explicitly deferring a shared visible-row hook.
+- Added guards that the adapter imports no FileView/Review domain modules and
+  that Pierre tree DOM selectors live in the neutral adapter, not scattered
+  through FileView/Review consumers.
+- Focused unit proof:
+  `pnpm --dir BridgeWeb exec vitest run src/app/bridge-pierre-tree-adapter.unit.test.ts src/app/bridge-viewer-shared-boundaries.unit.test.ts src/file-viewer/bridge-file-viewer-tree-panel.unit.test.ts src/file-viewer/bridge-file-viewer-source-structure.unit.test.ts src/review-viewer/review-viewer-source-structure.unit.test.ts src/review-viewer/trees/bridge-trees-controller.unit.test.ts --reporter verbose`
+  passed 58 tests / 6 files.
+- Browser proof:
+  `pnpm --dir BridgeWeb exec vitest --config vitest.browser.config.ts run --project integration-browser src/review-viewer/trees/bridge-trees-panel.browser.test.ts src/file-viewer/bridge-file-viewer-app.browser.test.tsx --reporter verbose`
+  passed 44 tests / 2 files.
+- Static proof:
+  touched-file `oxfmt --check` passed, touched-file `oxlint --type-aware`
+  passed with no output, and `pnpm --dir BridgeWeb exec tsc --noEmit --pretty false`
+  passed.

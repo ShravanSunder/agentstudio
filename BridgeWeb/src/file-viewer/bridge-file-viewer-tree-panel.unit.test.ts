@@ -1,17 +1,17 @@
 import { describe, expect, test } from 'vitest';
 
-import { makeFileDescriptor } from './bridge-file-viewer-browser-test-fixtures.js';
 import {
-	appendedOnlyPaths,
-	createBridgeFileViewerTreeSelectionCoordinator,
-	expandAncestorDirectoriesForAppendedPaths,
-	type BridgeFileViewerTreeDirectoryHandle,
-} from './bridge-file-viewer-pierre-tree-runtime.js';
+	appendedOnlyPierreTreePaths,
+	expandAncestorDirectoriesForPierreTreePaths,
+	type BridgePierreTreeDirectoryHandle,
+} from '../app/bridge-pierre-tree-adapter.js';
+import { makeFileDescriptor } from './bridge-file-viewer-browser-test-fixtures.js';
+import { createBridgeFileViewerTreeSelectionCoordinator } from './bridge-file-viewer-pierre-tree-runtime.js';
 import { descriptorRefsForPierreVisibleFileRows } from './bridge-file-viewer-pierre-visible-demand.js';
 
 describe('BridgeFileViewerTreePanel append behavior', () => {
 	test('detects append-only path growth', () => {
-		const appendedPaths = appendedOnlyPaths({
+		const appendedPaths = appendedOnlyPierreTreePaths({
 			previousPaths: ['Sources/App/View.swift'],
 			nextPaths: ['Sources/App/View.swift', 'Sources/App/Model.swift'],
 		});
@@ -20,7 +20,7 @@ describe('BridgeFileViewerTreePanel append behavior', () => {
 	});
 
 	test('rejects reordered path changes as append-only updates', () => {
-		const appendedPaths = appendedOnlyPaths({
+		const appendedPaths = appendedOnlyPierreTreePaths({
 			previousPaths: ['Sources/App/View.swift'],
 			nextPaths: ['Sources/App/Model.swift', 'Sources/App/View.swift'],
 		});
@@ -38,7 +38,7 @@ describe('BridgeFileViewerTreePanel append behavior', () => {
 			]),
 		);
 
-		expandAncestorDirectoriesForAppendedPaths({
+		expandAncestorDirectoriesForPierreTreePaths({
 			model,
 			paths: ['Sources/App/Model.swift'],
 		});
@@ -57,7 +57,7 @@ describe('BridgeFileViewerTreePanel append behavior', () => {
 		});
 		const model = new RecordingFileTreeModel(directoryByPath);
 
-		expandAncestorDirectoriesForAppendedPaths({
+		expandAncestorDirectoriesForPierreTreePaths({
 			model,
 			paths: appendedPaths,
 		});
@@ -151,7 +151,7 @@ describe('BridgeFileViewerTreePanel Pierre visible demand adapter', () => {
 	});
 });
 
-class RecordingDirectoryHandle implements BridgeFileViewerTreeDirectoryHandle {
+class RecordingDirectoryHandle implements BridgePierreTreeDirectoryHandle {
 	expandCount = 0;
 
 	isDirectory(): boolean {
