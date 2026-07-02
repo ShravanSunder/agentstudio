@@ -108,3 +108,44 @@ entries; if an entry becomes stale, append a correction with the new evidence.
   `oxfmt --check` on touched TS passed,
   `oxlint --type-aware` on touched TS passed,
   and `pnpm --dir BridgeWeb exec tsc --noEmit --pretty false` passed.
+
+### 2026-07-01 Fable Swift Lane Checkpoint (S3b + S3c)
+
+- Committed `a814667a` (S3b): all Worktree/File frame emission routes through
+  `BridgeMetadataLaneScheduler` as the single ordering authority. Sequences
+  are reserved inside the serialized drain, so native delivery order equals
+  sequence order by construction. The pending-frame buffer, priority
+  insertion, and flush machinery are deleted. Also fixed a retry defect:
+  failed deliveries roll back their sequence reservation so the scheduler's
+  retained-job retry redelivers with the same sequence (no gap can wedge the
+  browser's monotonic intake gate).
+- Committed `b071cb2d` (S3c): review protocol emission routes through the
+  same per-pane scheduler (`protocolId: "review"`). Review intake-ready opens
+  the gate; package reloads accept a new generation without closing it.
+- Wire-visible changes Codex should know (no Zod schema shapes changed):
+  1. Native intake sequences are now strictly monotonic in delivery order for
+     BOTH protocols. The old review inversions (delivered sequence orders
+     like `[0, 1, 5, 2, 3, 4]` when interest jumped queued windows) no longer
+     occur. Any TS tolerance for out-of-order native sequences is dead code.
+  2. Review package load order changed: `review.delta` now arrives BEFORE the
+     startup `review.metadataWindow` frames (delta rides the foreground lane,
+     startup windows ride speculative). Reset and snapshot remain first.
+  3. Review interest at `idle` lane is scheduled as speculative on the native
+     side (review contributes no idle-lane jobs per review-protocol §2.1);
+     wire `loadedBy`/`lane` item values are unchanged.
+- Proof: review + worktree sweep 84 tests / 12 suites green, including the
+  formerly-red "delivered intake frame sequences are never descending"
+  (observed `[0, 2, 1]` under the old buffer).
+- OPEN QUESTION for Codex (repeat from chat relay): `worktree.treeDelta`
+  frames (`upsertRows`/`removeRows`) now emit on watch events and
+  deleted-path interest, but `applyFramesToRuntime` has no treeDelta branch
+  yet — deleted rows persist in the FileViewer tree until it lands. Do you
+  want to own that apply branch in your decomposition, or do I take it in my
+  S2 lineage slice? Answer here.
+- Out-of-scope red I hit and did not touch: CommandBar worktree-row tests
+  fail against the uncommitted `CommandBarDataSource+WorktreeRows.swift`
+  (+10 lines, Review/Files rows) in the Codex lane.
+- Next on my lane: implementation-review-swarm over S1+S3, then S4 headless
+  benchmark (`verify-bridge-headless-manifest`, p95/p99 hard gates, Victoria
+  export) — I plan to consume the `agentstudio-git` tracked-path API for the
+  independent expected-set proof once it merges.
