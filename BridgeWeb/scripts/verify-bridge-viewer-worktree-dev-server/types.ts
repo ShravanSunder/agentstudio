@@ -212,6 +212,15 @@ export const worktreeReviewMetadataFrameResponseSchema = z
 						.object({
 							itemId: z.string().min(1),
 							basePath: z.string().min(1).nullable(),
+							contentDescriptorIdsByRole: z
+								.object({
+									base: z.string().min(1).nullable().optional(),
+									diff: z.string().min(1).nullable().optional(),
+									file: z.string().min(1).nullable().optional(),
+									head: z.string().min(1).nullable().optional(),
+								})
+								.passthrough()
+								.optional(),
 							headPath: z.string().min(1).nullable(),
 						})
 						.passthrough(),

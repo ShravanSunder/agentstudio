@@ -663,6 +663,11 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 		expect(routePressureProof).toEqual({
 			duplicateRouteCount: 0,
 			duplicatedRouteUrls: [],
+			routeHitContentDescriptorIds: [
+				'worktree-review-target-base',
+				'worktree-review-target-head',
+				'worktree-review-visible-base',
+			],
 			routeHitCount: 3,
 			routeHitItemIds: ['worktree-review-target', 'worktree-review-visible'],
 			uniqueRouteHitCount: 3,
@@ -692,6 +697,7 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 		).toBe(false);
 		expect(
 			reviewRoutePressureSatisfied({
+				expectedVisibleContentDescriptorIds: ['worktree-review-target-head'],
 				expectedVisibleItemId: 'worktree-review-target',
 				routePressureProof,
 				selectedDemandTelemetryProof: selectedTelemetry,
@@ -716,6 +722,7 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 		expect(routePressureProof).toEqual({
 			duplicateRouteCount: 1,
 			duplicatedRouteUrls: [duplicatedUrl],
+			routeHitContentDescriptorIds: ['worktree-review-target-head'],
 			routeHitCount: 2,
 			routeHitItemIds: ['worktree-review-target'],
 			uniqueRouteHitCount: 1,

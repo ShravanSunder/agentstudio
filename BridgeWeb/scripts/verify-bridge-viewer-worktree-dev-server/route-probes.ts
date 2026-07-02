@@ -246,6 +246,29 @@ export async function fetchWorktreeReviewItemIdForDisplayPath(
 	);
 }
 
+export async function fetchWorktreeReviewContentDescriptorIdsForItemId(
+	itemId: string,
+): Promise<readonly string[]> {
+	let metadataFrameResponse = await fetchWorktreeReviewMetadataFrame();
+	for (;;) {
+		const item = metadataFrameResponse.protocolFrame.itemMetadata.find(
+			(candidate): boolean => candidate.itemId === itemId,
+		);
+		if (item !== undefined) {
+			return Object.values(item.contentDescriptorIdsByRole ?? {}).filter(
+				(descriptorId): descriptorId is string =>
+					typeof descriptorId === 'string' && descriptorId.length > 0,
+			);
+		}
+		const nextWindowCursor = metadataFrameResponse.nextWindowCursor ?? null;
+		if (nextWindowCursor === null) {
+			break;
+		}
+		metadataFrameResponse = await fetchWorktreeReviewMetadataWindowFrame(nextWindowCursor);
+	}
+	throw new Error(`Expected Worktree/Review metadata descriptors for ${itemId}`);
+}
+
 export async function fetchWorktreeReviewPerformanceClickTargets(): Promise<
 	readonly ReviewPerformanceClickTarget[]
 > {
@@ -396,6 +419,7 @@ export async function waitForReviewContentRouteHitCountAbove(props: {
 
 export async function waitForReviewContentRouteHitAfterIndex(props: {
 	readonly beforeHitCount: number;
+	readonly expectedContentDescriptorIds?: readonly string[];
 	readonly expectedItemId: string;
 	readonly remainingAttempts?: number;
 	readonly routeProbe: ReviewRouteProbe;
@@ -404,6 +428,9 @@ export async function waitForReviewContentRouteHitAfterIndex(props: {
 		allHitUrls: props.routeProbe.contentHitUrls(),
 		beforeHitCount: props.beforeHitCount,
 		expectedItemId: props.expectedItemId,
+		...(props.expectedContentDescriptorIds === undefined
+			? {}
+			: { expectedContentDescriptorIds: props.expectedContentDescriptorIds }),
 	});
 	if (reviewContentRouteDeltaSatisfied(routeProof)) {
 		return routeProof;
@@ -422,5 +449,8 @@ export async function waitForReviewContentRouteHitAfterIndex(props: {
 		expectedItemId: props.expectedItemId,
 		remainingAttempts: remainingAttempts - 1,
 		routeProbe: props.routeProbe,
+		...(props.expectedContentDescriptorIds === undefined
+			? {}
+			: { expectedContentDescriptorIds: props.expectedContentDescriptorIds }),
 	});
 }

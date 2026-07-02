@@ -2,6 +2,7 @@ export interface ReviewContentRouteDeltaProof {
 	readonly afterHitCount: number;
 	readonly beforeHitCount: number;
 	readonly contentRouteSatisfiedBy: 'matching-post-click-route' | 'no-matching-post-click-route';
+	readonly expectedContentDescriptorIds: readonly string[];
 	readonly expectedItemId: string;
 	readonly matchingPreClickHitUrls: readonly string[];
 	readonly matchingPostClickHitUrls: readonly string[];

@@ -264,6 +264,8 @@ function reviewItemForChangedFile(props: {
 					endpointId: worktreeReviewBaseEndpointId,
 					itemId,
 					language,
+					packageId: props.packageId,
+					revision: worktreeReviewRevision,
 					role: 'base',
 				});
 	const head =
@@ -275,6 +277,8 @@ function reviewItemForChangedFile(props: {
 					endpointId: worktreeReviewHeadEndpointId,
 					itemId,
 					language,
+					packageId: props.packageId,
+					revision: worktreeReviewRevision,
 					role: 'head',
 				});
 	const contentLineCountsByRole = contentLineCountsByRoleForChangedFile(props.changedFile);
@@ -338,6 +342,8 @@ function makeContentHandle(props: {
 	readonly endpointId: string;
 	readonly itemId: string;
 	readonly language: string;
+	readonly packageId: string;
+	readonly revision: number;
 	readonly role: 'base' | 'head';
 }): BridgeContentHandle {
 	const contentHash = gitBlobSha1(props.content);
@@ -351,7 +357,7 @@ function makeContentHandle(props: {
 		role: props.role,
 		endpointId: props.endpointId,
 		reviewGeneration: worktreeReviewGeneration,
-		resourceUrl: `agentstudio://resource/review/content/${handleId}?generation=${worktreeReviewGeneration}`,
+		resourceUrl: `agentstudio://resource/review/content/${handleId}?generation=${worktreeReviewGeneration}&cursor=${encodeURIComponent(props.packageId)}&revision=${props.revision}`,
 		contentHash,
 		contentHashAlgorithm: 'git-blob-sha1',
 		cacheKey: `${handleId}:${contentHash}`,

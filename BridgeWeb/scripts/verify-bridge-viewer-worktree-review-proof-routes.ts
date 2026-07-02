@@ -10,6 +10,7 @@ import type {
 export interface ReviewContentRoutePressureProof {
 	readonly duplicateRouteCount: number;
 	readonly duplicatedRouteUrls: readonly string[];
+	readonly routeHitContentDescriptorIds: readonly string[];
 	readonly routeHitCount: number;
 	readonly routeHitItemIds: readonly string[];
 	readonly uniqueRouteHitCount: number;
@@ -27,6 +28,7 @@ export interface ReviewMetadataBeforeContentProof {
 export interface BuildReviewContentRouteDeltaProofProps {
 	readonly allHitUrls: readonly string[];
 	readonly beforeHitCount: number;
+	readonly expectedContentDescriptorIds?: readonly string[];
 	readonly expectedItemId: string;
 }
 
@@ -35,11 +37,16 @@ export function buildReviewContentRouteDeltaProof(
 ): ReviewContentRouteDeltaProof {
 	const preClickHitUrls = props.allHitUrls.slice(0, props.beforeHitCount);
 	const postClickHitUrls = props.allHitUrls.slice(props.beforeHitCount);
+	const expectedContentDescriptorIds =
+		props.expectedContentDescriptorIds === undefined ||
+		props.expectedContentDescriptorIds.length === 0
+			? [props.expectedItemId]
+			: props.expectedContentDescriptorIds;
 	const matchingPreClickHitUrls = preClickHitUrls.filter((url: string): boolean =>
-		url.includes(props.expectedItemId),
+		reviewContentRouteHitMatchesAnyDescriptor(url, expectedContentDescriptorIds),
 	);
 	const matchingPostClickHitUrls = postClickHitUrls.filter((url: string): boolean =>
-		url.includes(props.expectedItemId),
+		reviewContentRouteHitMatchesAnyDescriptor(url, expectedContentDescriptorIds),
 	);
 
 	return {
@@ -49,6 +56,7 @@ export function buildReviewContentRouteDeltaProof(
 			matchingPostClickHitUrls.length > 0
 				? 'matching-post-click-route'
 				: 'no-matching-post-click-route',
+		expectedContentDescriptorIds,
 		expectedItemId: props.expectedItemId,
 		matchingPreClickHitUrls,
 		matchingPostClickHitUrls,
@@ -57,6 +65,28 @@ export function buildReviewContentRouteDeltaProof(
 		postClickHitCount: postClickHitUrls.length,
 		postClickHitUrls,
 	};
+}
+
+function reviewContentRouteHitMatchesAnyDescriptor(
+	routeHitUrl: string,
+	expectedContentDescriptorIds: readonly string[],
+): boolean {
+	const contentHandleId = reviewContentRouteHitHandleId(routeHitUrl);
+	return (
+		contentHandleId !== null &&
+		expectedContentDescriptorIds.some(
+			(descriptorId: string): boolean => descriptorId === contentHandleId,
+		)
+	);
+}
+
+function reviewContentRouteHitHandleId(routeHitUrl: string): string | null {
+	try {
+		const url = new URL(routeHitUrl);
+		return decodeURIComponent(url.pathname.split('/').at(-1) ?? '');
+	} catch {
+		return routeHitUrl.split('/').at(-1) ?? null;
+	}
 }
 
 export function reviewContentRouteDeltaSatisfied(proof: ReviewContentRouteDeltaProof): boolean {
@@ -81,9 +111,14 @@ export function buildReviewContentRoutePressureProof(
 	routeHitUrls: readonly string[],
 ): ReviewContentRoutePressureProof {
 	const hitCountByUrl = new Map<string, number>();
+	const routeHitContentDescriptorIds = new Set<string>();
 	const routeHitItemIds = new Set<string>();
 	for (const routeHitUrl of routeHitUrls) {
 		hitCountByUrl.set(routeHitUrl, (hitCountByUrl.get(routeHitUrl) ?? 0) + 1);
+		const contentDescriptorId = reviewContentRouteHitHandleId(routeHitUrl);
+		if (contentDescriptorId !== null) {
+			routeHitContentDescriptorIds.add(contentDescriptorId);
+		}
 		const itemId = reviewContentRouteHitItemId(routeHitUrl);
 		if (itemId !== null) {
 			routeHitItemIds.add(itemId);
@@ -100,6 +135,7 @@ export function buildReviewContentRoutePressureProof(
 	return {
 		duplicateRouteCount,
 		duplicatedRouteUrls,
+		routeHitContentDescriptorIds: Array.from(routeHitContentDescriptorIds).toSorted(),
 		routeHitCount: routeHitUrls.length,
 		routeHitItemIds: Array.from(routeHitItemIds).toSorted(),
 		uniqueRouteHitCount: hitCountByUrl.size,
@@ -123,18 +159,24 @@ function reviewContentRouteHitItemId(routeHitUrl: string): string | null {
 }
 
 export function reviewRoutePressureSatisfied(props: {
+	readonly expectedVisibleContentDescriptorIds?: readonly string[] | null;
 	readonly expectedVisibleItemId?: string | null;
 	readonly routePressureProof: ReviewContentRoutePressureProof;
 	readonly selectedDemandTelemetryProof: ReviewDemandTelemetryProof;
 	readonly visibleDemandTelemetryProof: ReviewDemandTelemetryProof;
 }): boolean {
+	const expectedContentDescriptorIds = props.expectedVisibleContentDescriptorIds ?? [];
 	return (
 		props.routePressureProof.routeHitCount > 0 &&
 		props.routePressureProof.duplicateRouteCount === 0 &&
 		props.routePressureProof.uniqueRouteHitCount === props.routePressureProof.routeHitCount &&
-		(props.expectedVisibleItemId === undefined ||
-			props.expectedVisibleItemId === null ||
-			props.routePressureProof.routeHitItemIds.includes(props.expectedVisibleItemId)) &&
+		(expectedContentDescriptorIds.length > 0
+			? expectedContentDescriptorIds.some((descriptorId: string): boolean =>
+					props.routePressureProof.routeHitContentDescriptorIds.includes(descriptorId),
+				)
+			: props.expectedVisibleItemId === undefined ||
+				props.expectedVisibleItemId === null ||
+				props.routePressureProof.routeHitItemIds.includes(props.expectedVisibleItemId)) &&
 		reviewSelectedDemandTelemetrySatisfied(props.selectedDemandTelemetryProof) &&
 		reviewVisibleDemandTelemetryAttributed(props.visibleDemandTelemetryProof, {
 			expectedItemId: props.expectedVisibleItemId ?? null,

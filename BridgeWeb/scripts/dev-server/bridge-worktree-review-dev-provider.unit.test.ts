@@ -123,7 +123,10 @@ describe('Bridge worktree review dev provider', () => {
 		const modifiedBase = modifiedItem?.contentRoles.base;
 		const modifiedHead = modifiedItem?.contentRoles.head;
 		expect(modifiedBase?.resourceUrl).toBe(
-			`agentstudio://resource/review/content/${modifiedBase?.handleId}?generation=1`,
+			`agentstudio://resource/review/content/${modifiedBase?.handleId}?generation=1&cursor=worktree-review-abc123def456&revision=1`,
+		);
+		expect(modifiedHead?.resourceUrl).toBe(
+			`agentstudio://resource/review/content/${modifiedHead?.handleId}?generation=1&cursor=worktree-review-abc123def456&revision=1`,
 		);
 		expect(modifiedBase?.contentHashAlgorithm).toBe('git-blob-sha1');
 		expect(modifiedHead?.contentHashAlgorithm).toBe('git-blob-sha1');

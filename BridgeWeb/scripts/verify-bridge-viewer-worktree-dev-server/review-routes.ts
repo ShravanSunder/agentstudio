@@ -31,6 +31,7 @@ import {
 	waitForReviewVisibleDemandTelemetry,
 } from './review-tree-click.ts';
 import {
+	fetchWorktreeReviewContentDescriptorIdsForItemId,
 	fetchWorktreeReviewItemIdForDisplayPath,
 	fetchWorktreeReviewMetadataFrame,
 	installReviewRouteProbe,
@@ -57,6 +58,8 @@ export async function verifyWorktreeReviewRoute(): Promise<WorktreeReviewRoutePr
 		const selectionItemId = await fetchWorktreeReviewItemIdForDisplayPath(
 			reviewSelectionFixtureRelativePath,
 		);
+		const selectionContentDescriptorIds =
+			await fetchWorktreeReviewContentDescriptorIdsForItemId(selectionItemId);
 		await page.goto(worktreeReviewDevServerUrl, {
 			waitUntil: 'domcontentloaded',
 			timeout: 30_000,
@@ -94,6 +97,7 @@ export async function verifyWorktreeReviewRoute(): Promise<WorktreeReviewRoutePr
 				reviewSelectionProof.selectionMethod === 'preselected-review-tree-target'
 					? 0
 					: reviewContentHitCountBeforeClick,
+			expectedContentDescriptorIds: selectionContentDescriptorIds,
 			expectedItemId: selectionItemId,
 			routeProbe,
 		});
@@ -133,7 +137,7 @@ export async function verifyWorktreeReviewRoute(): Promise<WorktreeReviewRoutePr
 			);
 		}
 		await waitForReviewContentRouteHitContaining({
-			needle: selectionItemId,
+			needle: selectionContentDescriptorIds[0] ?? selectionItemId,
 			routeProbe,
 		});
 		await waitForReviewVisibleDemandTelemetry(page);
@@ -432,7 +436,11 @@ export async function verifyWorktreeReviewRoute(): Promise<WorktreeReviewRoutePr
 			...reviewComparisonProof,
 			reviewSelectionContentRouteHitCount: routeProbe
 				.contentHitUrls()
-				.filter((url) => url.includes(selectionItemId)).length,
+				.filter((url) =>
+					selectionContentDescriptorIds.some((descriptorId: string): boolean =>
+						url.includes(descriptorId),
+					),
+				).length,
 			reviewMetadataRouteHitCount: routeProbe.metadataHitCount(),
 			reviewMetadataRouteHitUrls: routeProbe.metadataHitUrls(),
 			reviewMetadataBeforeContentProof,
@@ -449,6 +457,12 @@ export async function verifyWorktreeReviewRoute(): Promise<WorktreeReviewRoutePr
 			locationHref: await page.evaluate(() => window.location.href),
 			pageUrl: page.url(),
 		} satisfies WorktreeReviewRouteProof;
+		const expectedVisibleContentDescriptorIds =
+			routeProof.reviewVisibleDemandTelemetryProof.itemId === null
+				? null
+				: await fetchWorktreeReviewContentDescriptorIdsForItemId(
+						routeProof.reviewVisibleDemandTelemetryProof.itemId,
+					);
 		const expectedReviewUrl = new URL(worktreeReviewDevServerUrl).href;
 		if (
 			routeProof.appOwner !== 'BridgeApp' ||
@@ -491,6 +505,7 @@ export async function verifyWorktreeReviewRoute(): Promise<WorktreeReviewRoutePr
 			!reviewMetadataBeforeContentSatisfied(routeProof.reviewMetadataBeforeContentProof) ||
 			routeProof.reviewContentRouteHitCount <= 0 ||
 			!reviewRoutePressureSatisfied({
+				expectedVisibleContentDescriptorIds,
 				expectedVisibleItemId: routeProof.reviewVisibleDemandTelemetryProof.itemId,
 				routePressureProof: routeProof.reviewRoutePressureProof,
 				selectedDemandTelemetryProof: routeProof.reviewSelectedDemandTelemetryProof,

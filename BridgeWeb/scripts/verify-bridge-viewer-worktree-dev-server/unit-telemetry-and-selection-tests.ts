@@ -435,10 +435,11 @@ export function registerWorktreeDevServerTelemetryAndSelectionTests(): void {
 	test('does not count pre-click Review content routes as click proof', () => {
 		const proof = buildReviewContentRouteDeltaProof({
 			allHitUrls: [
-				'http://127.0.0.1:5173/__bridge-worktree/review-content/worktree-review-target-head',
-				'http://127.0.0.1:5173/__bridge-worktree/review-content/worktree-review-other-head',
+				'http://127.0.0.1:5173/__bridge-worktree/review-content/handle-target-head',
+				'http://127.0.0.1:5173/__bridge-worktree/review-content/handle-other-head',
 			],
 			beforeHitCount: 2,
+			expectedContentDescriptorIds: ['handle-missing-target'],
 			expectedItemId: 'worktree-review-missing-target',
 		});
 
@@ -450,17 +451,18 @@ export function registerWorktreeDevServerTelemetryAndSelectionTests(): void {
 	test('keeps pre-click selected content routes as diagnostics, not click proof', () => {
 		const proof = buildReviewContentRouteDeltaProof({
 			allHitUrls: [
-				'http://127.0.0.1:5173/__bridge-worktree/review-content/worktree-review-target-head',
-				'http://127.0.0.1:5173/__bridge-worktree/review-content/worktree-review-other-head',
+				'http://127.0.0.1:5173/__bridge-worktree/review-content/handle-target-head',
+				'http://127.0.0.1:5173/__bridge-worktree/review-content/handle-other-head',
 			],
 			beforeHitCount: 2,
+			expectedContentDescriptorIds: ['handle-target-head'],
 			expectedItemId: 'worktree-review-target',
 		});
 
 		expect(reviewContentRouteDeltaSatisfied(proof)).toBe(false);
 		expect(proof.contentRouteSatisfiedBy).toBe('no-matching-post-click-route');
 		expect(proof.matchingPreClickHitUrls).toEqual([
-			'http://127.0.0.1:5173/__bridge-worktree/review-content/worktree-review-target-head',
+			'http://127.0.0.1:5173/__bridge-worktree/review-content/handle-target-head',
 		]);
 		expect(proof.matchingPostClickHitUrls).toEqual([]);
 	});
@@ -468,18 +470,19 @@ export function registerWorktreeDevServerTelemetryAndSelectionTests(): void {
 	test('requires a post-click Review content route for the clicked item', () => {
 		const proof = buildReviewContentRouteDeltaProof({
 			allHitUrls: [
-				'http://127.0.0.1:5173/__bridge-worktree/review-content/worktree-review-target-head',
-				'http://127.0.0.1:5173/__bridge-worktree/review-content/worktree-review-other-head',
-				'http://127.0.0.1:5173/__bridge-worktree/review-content/worktree-review-target-base',
+				'http://127.0.0.1:5173/__bridge-worktree/review-content/handle-target-head',
+				'http://127.0.0.1:5173/__bridge-worktree/review-content/handle-other-head',
+				'http://127.0.0.1:5173/__bridge-worktree/review-content/handle-target-base',
 			],
 			beforeHitCount: 2,
+			expectedContentDescriptorIds: ['handle-target-head', 'handle-target-base'],
 			expectedItemId: 'worktree-review-target',
 		});
 
 		expect(reviewContentRouteDeltaSatisfied(proof)).toBe(true);
 		expect(proof.contentRouteSatisfiedBy).toBe('matching-post-click-route');
 		expect(proof.matchingPostClickHitUrls).toEqual([
-			'http://127.0.0.1:5173/__bridge-worktree/review-content/worktree-review-target-base',
+			'http://127.0.0.1:5173/__bridge-worktree/review-content/handle-target-base',
 		]);
 	});
 
