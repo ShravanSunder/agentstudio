@@ -13,8 +13,6 @@ import {
 } from './bridge-code-view-materialization.js';
 import { BridgeCodeViewPanelFrame } from './bridge-code-view-panel-frame.js';
 import {
-	captureCodeViewHeaderAnchor,
-	codeViewHeaderAnchorRestoreFrameBudget,
 	codeViewHandleHasInstance,
 	collapsedItemIdsWithItemState,
 	controllerForHandle,
@@ -27,7 +25,6 @@ import {
 	materializationDiagnosticForCodeViewItem,
 	nextCodeViewItemForCollapse,
 	reconcileBridgeCodeViewMetadataItems,
-	restoreCodeViewHeaderAnchorAcrossLayout,
 	scrollCodeViewHeaderToScrollTopAcrossLayout,
 	selectedContentDiagnosticsForPanel,
 	shouldApplyBridgeCodeViewMaterialization,
@@ -276,10 +273,6 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 				pendingSelectionRevealBehaviorRef.current = null;
 				pendingSmoothSelectionScrollKeyRef.current = null;
 			}
-			const headerAnchor = captureCodeViewHeaderAnchor({
-				handle: codeViewHandle,
-				itemId,
-			});
 			const itemDescriptor = reviewItemsById[itemId];
 			const nextItem =
 				itemDescriptor === undefined
@@ -297,15 +290,11 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 				handle: codeViewHandle,
 				controllerEntryRef,
 			});
+			// F6: collapse via a single item update and let Pierre's first-visible anchor hold
+			// the viewport. Collapsing only removes body rows below the header, so the header
+			// keeps its position without an app-side DOM anchor. F7: no forced render(true) —
+			// updateItem's queued render coalesces and re-applies Pierre's anchor.
 			controller.applyItemUpdate(nextItem);
-			if (collapsed) {
-				codeViewHandle.getInstance()?.render(true);
-			}
-			restoreCodeViewHeaderAnchorAcrossLayout({
-				anchor: headerAnchor,
-				frameBudget: codeViewHeaderAnchorRestoreFrameBudget,
-				isCurrent: (): boolean => codeViewHandleRef.current === codeViewHandle,
-			});
 			setCollapsedItemIds(
 				(currentIds: ReadonlySet<string>): ReadonlySet<string> =>
 					collapsedItemIdsWithItemState({
@@ -755,7 +744,9 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 				const updateResult = controller.applyItemUpdate(nextMaterializedItem);
 				didUpdateRenderedItems = true;
 				if (itemId === props.selectedItemId) {
-					codeViewHandle.getInstance()?.render(true);
+					// F7: no mid-loop render(true) — applyItemUpdate's updateItem queues a render
+					// that coalesces the whole hydration batch into one layout pass, and the smooth
+					// reveal below re-resolves the target per frame regardless.
 					const currentModelItem = codeViewHandle.getItem(itemId);
 					const selectionScrollKey = `${sourceKey}:${codeViewMountVersion}:${itemId}`;
 					const shouldPreserveSmoothReveal =
