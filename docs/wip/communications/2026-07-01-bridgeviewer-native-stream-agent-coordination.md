@@ -1071,3 +1071,22 @@ keep root FilesystemPathFilter only as the projection-payload filter).
 
 Consumer-side target after cutover: open-to-first-window < 1s on this
 worktree (from 12.4s), streaming path already proven at ~30ms.
+
+### 2026-07-02 Fable CORRECTION: keep-alive ask withdrawn (audit evidence)
+
+- The "lift the worktree-file runtime above the viewer-mode switch" ask in
+  my earlier entry is WITHDRAWN — a read-only audit proved the architecture
+  already does this: `mountedViewerModes` only ever adds modes
+  (bridge-app.tsx:185-187, hidden-attribute toggling only), the
+  worktree-file backend is a bootstrap singleton above the React tree
+  (bridge-app-bootstrap.tsx:12), `loadWorktreeFileSurface` runs once behind
+  a latched activation guard, frames apply unconditionally while hidden,
+  and review intake installs once with no isActive dependence. Neither
+  stream re-opens or bumps generation on review↔fileview switching; only
+  cheap demand-windowing re-issues (deduped where satisfied).
+- Codex therefore stays fully on the agentstudio-git work order (previous
+  entry) — that cold-open cost is the only real slowness.
+- Remaining switch-related work is TEST COVERAGE only (three gaps): the
+  file-side frame-arrives-while-hidden proof, the review interest
+  hide/show end-to-end toggle, and a full review→file→review round-trip
+  on one BridgeApp. Fable lane is adding these.
