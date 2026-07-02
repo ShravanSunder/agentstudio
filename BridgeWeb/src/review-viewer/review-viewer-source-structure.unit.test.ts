@@ -10,6 +10,7 @@ describe('Review viewer source structure', () => {
 		const shellBoundarySource = readSource('../app/bridge-app-review-viewer-shell-boundary.tsx');
 
 		expect(modeSource).toContain('useBridgeReviewViewerStore');
+		expect(modeSource).toContain('useBridgeReviewControlEventListeners');
 		expect(modeSource).toContain('useBridgeReviewIntakeController');
 		expect(modeSource).toContain('useBridgeReviewMetadataInterestRuntime');
 		expect(modeSource).toContain('useBridgeReviewProjectionCoordinator');
@@ -25,6 +26,28 @@ describe('Review viewer source structure', () => {
 		expect(shellBoundarySource).not.toContain('useBridgeReviewMetadataInterestRuntime');
 		expect(shellBoundarySource).not.toContain('useBridgeReviewProjectionCoordinator');
 		expect(shellBoundarySource).not.toContain('useSelectedReviewContentDemandController');
+	});
+
+	test('keeps Review control event listeners in an app-level hook', () => {
+		const modeSource = readSource('../app/bridge-app-review-viewer-mode.tsx');
+		const hookSource = readSource('../app/use-bridge-review-control-event-listeners.ts');
+
+		expect(modeSource).toContain('useBridgeReviewControlEventListeners');
+		expect(modeSource).not.toContain('__bridge_select_review_item');
+		expect(modeSource).not.toContain('__bridge_review_control');
+		expect(modeSource).not.toContain('bridgeAppControlCommandSchema');
+		expect(modeSource).not.toContain('applyBridgeAppControlCommand');
+
+		expect(hookSource).toContain('__bridge_select_review_item');
+		expect(hookSource).toContain('__bridge_review_control');
+		expect(hookSource).toContain('bridgeAppControlCommandSchema');
+		expect(hookSource).toContain('applyBridgeAppControlCommand');
+		expect(hookSource).not.toContain('BridgeReviewViewerShellBoundary');
+		expect(hookSource).not.toContain('@pierre/');
+		expect(hookSource).not.toContain('useBridgeReviewViewerStore');
+		expect(hookSource).not.toContain('AbortController');
+		expect(hookSource).not.toContain('resourceExecutor');
+		expect(hookSource).not.toContain('reviewDemandScheduler');
 	});
 
 	test('keeps the review store out of content bodies and runtime handles', () => {

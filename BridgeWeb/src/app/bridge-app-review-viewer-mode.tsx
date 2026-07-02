@@ -30,13 +30,6 @@ import { selectBridgeReviewViewerRootSnapshot } from '../review-viewer/state/rev
 import { createBridgeMarkdownRenderWebWorkerClient } from '../review-viewer/workers/markdown/bridge-markdown-render-worker-transport.js';
 import type { BridgeReviewProjectionWorkerClient } from '../review-viewer/workers/projection/review-projection-worker-client.js';
 import { createBridgeReviewProjectionWebWorkerClient } from '../review-viewer/workers/projection/review-projection-worker-transport.js';
-import {
-	applyBridgeAppControlCommand,
-	makeBridgeAppControlProbe,
-	nextBridgeAppControlProbeSequence,
-	publishBridgeAppControlProbe,
-} from './bridge-app-control-commands.js';
-import { bridgeAppControlCommandSchema } from './bridge-app-control.js';
 import type { BridgeDiffStatusState } from './bridge-app-review-controller.js';
 import {
 	cancelReviewItemDemand,
@@ -88,6 +81,7 @@ import {
 import { BridgeReviewViewerShellBoundary } from './bridge-app-review-viewer-shell-boundary.js';
 import type { BridgeAppProps } from './bridge-app.js';
 import type { BridgeViewerNavigationCommand } from './bridge-viewer-navigation-models.js';
+import { useBridgeReviewControlEventListeners } from './use-bridge-review-control-event-listeners.js';
 
 export function BridgeReviewViewerMode(
 	props: BridgeAppProps & {
@@ -642,97 +636,22 @@ export function BridgeReviewViewerMode(
 		retrySelectedContentAfterDescriptorRegistration,
 		telemetryRecorderRef,
 	});
-	useLayoutEffect((): (() => void) => {
-		if (!props.isActive) {
-			return (): void => {};
-		}
-		const handleSelectReviewItem = (event: Event): void => {
-			const detail = 'detail' in event ? event.detail : null;
-			if (!isRecord(detail) || typeof detail['itemId'] !== 'string') {
-				return;
-			}
-			selectReviewItem(detail['itemId']);
-		};
-		const windowTarget = typeof window === 'undefined' ? null : window;
-		target.addEventListener('__bridge_select_review_item', handleSelectReviewItem);
-		if (windowTarget !== null && windowTarget !== target) {
-			windowTarget.addEventListener('__bridge_select_review_item', handleSelectReviewItem);
-		}
-		return (): void => {
-			target.removeEventListener('__bridge_select_review_item', handleSelectReviewItem);
-			if (windowTarget !== null && windowTarget !== target) {
-				windowTarget.removeEventListener('__bridge_select_review_item', handleSelectReviewItem);
-			}
-		};
-	}, [props.isActive, selectReviewItem, target]);
-
-	useLayoutEffect((): (() => void) => {
-		if (!props.isActive) {
-			return (): void => {};
-		}
-		const handleBridgeAppControl = (event: Event): void => {
-			const detail = 'detail' in event ? event.detail : null;
-			const parsedCommand = bridgeAppControlCommandSchema.safeParse(detail);
-			if (!parsedCommand.success) {
-				publishBridgeAppControlProbe({
-					probe: makeBridgeAppControlProbe({
-						command: {
-							method: 'bridge.fileTree.search',
-							searchText: '',
-							searchMode: { kind: 'text' },
-						},
-						status: 'rejected',
-						reason: 'invalid_control_command',
-						sequence: nextBridgeAppControlProbeSequence(controlProbeSequenceRef),
-						rootSnapshot: rootSnapshotRef.current,
-					}),
-				});
-				return;
-			}
-			const result = applyBridgeAppControlCommand({
-				command: parsedCommand.data,
-				markdownWorkerClient,
-				projection: projectionRef.current,
-				rootSnapshot: rootSnapshotRef.current,
-				reviewPackage: reviewPackageRef.current,
-				selectReviewItem,
-				selectedContentResources,
-				selectedMarkdownPreviewState,
-				setTreeSearchOpen: setIsTreeSearchOpen,
-				codeViewControlHandle: codeViewControlHandleRef.current,
-				viewerActions,
-			});
-			publishBridgeAppControlProbe({
-				probe: makeBridgeAppControlProbe({
-					command: parsedCommand.data,
-					status: result.status,
-					reason: result.reason,
-					sequence: nextBridgeAppControlProbeSequence(controlProbeSequenceRef),
-					rootSnapshot: viewerStore.getState().rootSnapshot,
-				}),
-			});
-		};
-		const windowTarget = typeof window === 'undefined' ? null : window;
-		target.addEventListener('__bridge_review_control', handleBridgeAppControl);
-		if (windowTarget !== null && windowTarget !== target) {
-			windowTarget.addEventListener('__bridge_review_control', handleBridgeAppControl);
-		}
-		return (): void => {
-			target.removeEventListener('__bridge_review_control', handleBridgeAppControl);
-			if (windowTarget !== null && windowTarget !== target) {
-				windowTarget.removeEventListener('__bridge_review_control', handleBridgeAppControl);
-			}
-		};
-	}, [
+	useBridgeReviewControlEventListeners({
+		codeViewControlHandleRef,
+		controlProbeSequenceRef,
+		isActive: props.isActive,
 		markdownWorkerClient,
-		props.isActive,
-		selectReviewItem,
+		projectionRef,
+		reviewPackageRef,
+		rootSnapshotRef,
 		selectedContentResources,
 		selectedMarkdownPreviewState,
+		selectReviewItem,
+		setTreeSearchOpen: setIsTreeSearchOpen,
 		target,
 		viewerActions,
 		viewerStore,
-	]);
+	});
 
 	useLayoutEffect((): (() => void) => {
 		if (!props.isActive) {
@@ -892,8 +811,4 @@ export function BridgeReviewViewerMode(
 			visibleReadyItemCount={visibleReadyItemCountForCodeView}
 		/>
 	);
-}
-
-function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-	return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

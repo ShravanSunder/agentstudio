@@ -616,3 +616,46 @@ entries; if an entry becomes stale, append a correction with the new evidence.
   touched-file `oxfmt --check` passed, touched-file type-aware `oxlint`
   passed with no output, and
   `pnpm --dir BridgeWeb exec tsc --noEmit --pretty false` passed.
+
+### 2026-07-02 Codex React Lane Review Control Event Hook Checkpoint
+
+- Extracted Review app-mode DOM control-event wiring into
+  `BridgeWeb/src/app/use-bridge-review-control-event-listeners.ts`.
+- The hook owns only the two app-level custom-event bridges:
+  `__bridge_select_review_item` and `__bridge_review_control`.
+- `BridgeReviewViewerMode` still owns selection, content demand, registries,
+  runtime refs, worker clients, and Zustand store creation outside the lazy
+  visual shell; nothing moved into Zustand.
+- Added source-structure guards that the mode composes the hook, the mode no
+  longer contains the event strings/control-command parsing, and the hook does
+  not import Pierre, the shell boundary, Zustand store creation, schedulers,
+  resource executors, or AbortController.
+- File size checkpoint:
+  `bridge-app-review-viewer-mode.tsx` dropped from 899 to 814 lines;
+  new hook is 172 lines.
+- Red proof:
+  `pnpm --dir BridgeWeb exec vitest run src/review-viewer/review-viewer-source-structure.unit.test.ts --reporter verbose`
+  first failed because `useBridgeReviewControlEventListeners` was absent and
+  the hook file did not exist.
+- Focused proof:
+  `pnpm --dir BridgeWeb exec vitest run src/review-viewer/review-viewer-source-structure.unit.test.ts src/app/bridge-app-control.unit.test.ts --reporter verbose`
+  passed 8 tests / 2 files.
+- Boundary proof:
+  `pnpm --dir BridgeWeb exec vitest run src/app/bridge-viewer-shared-boundaries.unit.test.ts src/file-viewer/bridge-file-viewer-source-structure.unit.test.ts src/review-viewer/review-viewer-source-structure.unit.test.ts src/review-viewer/shell/review-viewer-shell.integration.test.tsx --reporter verbose`
+  passed 47 tests / 4 files.
+- Browser control-event proof:
+  `pnpm --dir BridgeWeb exec vitest --config vitest.browser.config.ts run --project integration-browser src/review-viewer/test-support/bridge-viewer-browser.integration.browser.test.tsx -t "large fixture deep tree selection scrolls the selected file body into the CodeView viewport" --reporter verbose`
+  passed 1 selected test.
+  `pnpm --dir BridgeWeb exec vitest --config vitest.browser.config.ts run --project integration-browser src/review-viewer/test-support/bridge-viewer-browser.integration-large.browser.test.tsx -t "programmatic file reveal|preview command explicit|stale markdown worker responses|markdown preview restores CodeView" --reporter verbose`
+  passed 4 selected tests.
+- Static proof:
+  touched-file `oxfmt --check` passed, touched-file type-aware `oxlint`
+  passed with no output, and
+  `pnpm --dir BridgeWeb exec tsc --noEmit --pretty false` passed.
+- Broader browser note:
+  the full `bridge-viewer-browser.integration.browser.test.tsx` file still has
+  one out-of-scope CodeView geometry failure in
+  `CodeView file header collapse preserves mid-viewport header position`
+  (`aria-expanded=true` candidate offset 348 vs expected near 144). The
+  programmatic control-event tests passed, so Codex left geometry/test
+  infrastructure untouched in this React decomposition checkpoint.
