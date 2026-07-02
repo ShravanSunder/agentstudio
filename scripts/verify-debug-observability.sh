@@ -10,6 +10,29 @@ LSOF_BIN="${AGENTSTUDIO_LSOF_BIN:-/usr/sbin/lsof}"
 VERIFY_ATTEMPTS="${AGENTSTUDIO_OBSERVABILITY_VERIFY_ATTEMPTS:-30}"
 VERIFY_RETRY_DELAY_SECONDS="${AGENTSTUDIO_OBSERVABILITY_VERIFY_RETRY_DELAY_SECONDS:-2}"
 
+# Report-only time-to-first-interaction gate. Compares the observed TTFI p95 to a soft
+# budget (default 300ms, tunable via AGENTSTUDIO_BRIDGE_TTFI_GATE_MS) and logs pass or
+# over-budget. It NEVER fails the smoke: enforcing the 300ms target is intentionally
+# deferred, so this only reports. Defined early so the self-test hook below can exercise
+# the comparison in isolation without the live-process/state-file preamble.
+bridge_viewer_ttfi_report_gate() {
+  local p95="$1"
+  local gate_ms="$2"
+  if awk "BEGIN { exit !($p95 <= $gate_ms) }" 2>/dev/null; then
+    echo "Bridge viewer TTFI gate PASS: p95=${p95}ms <= ${gate_ms}ms budget"
+  else
+    echo "Bridge viewer TTFI gate REPORT (over budget, not enforced): p95=${p95}ms > ${gate_ms}ms budget"
+  fi
+  return 0
+}
+
+if [ -n "${AGENTSTUDIO_BRIDGE_TTFI_GATE_SELFTEST_P95:-}" ]; then
+  bridge_viewer_ttfi_report_gate \
+    "$AGENTSTUDIO_BRIDGE_TTFI_GATE_SELFTEST_P95" \
+    "${AGENTSTUDIO_BRIDGE_TTFI_GATE_MS:-300}"
+  exit $?
+fi
+
 fail_on_legacy_observability_env() {
   local legacy_prefix="SHRAVAN_""OBSERVABILITY_"
   local env_name
@@ -385,6 +408,25 @@ require_bridge_file_view_native_metric_percentiles() {
   done
 }
 
+bridge_viewer_ttfi_metric_label_selector() {
+  printf 'service.name="AgentStudio",dev.runtime.flavor="debug",agent.proof.marker="%s",event="performance.bridge.viewer.time_to_first_interaction",phase="time_to_first_interaction",plane="data",priority="hot",slice="content_fetch"' \
+    "$MARKER"
+}
+
+require_bridge_viewer_ttfi_report_only_gate() {
+  local selector count_query p95_query count p95 gate_ms
+  selector="$(bridge_viewer_ttfi_metric_label_selector)"
+  count_query="sum(agentstudio_performance_events_total{$selector})"
+  p95_query="histogram_quantile(0.95, sum by (le) (agentstudio_performance_event_elapsed_ms_bucket{$selector}))"
+  # Presence is a hard contract: the browser TTFI mark must reach VictoriaMetrics, or the
+  # metric wiring has regressed. The numeric budget below stays report-only.
+  count="$(wait_for_metric_value "Bridge viewer TTFI presence proof missing count" "$count_query")"
+  p95="$(wait_for_metric_value "Bridge viewer TTFI presence proof missing p95" "$p95_query")"
+  echo "Bridge viewer TTFI presence proof performance.bridge.viewer.time_to_first_interaction count=$count p95=$p95"
+  gate_ms="${AGENTSTUDIO_BRIDGE_TTFI_GATE_MS:-300}"
+  bridge_viewer_ttfi_report_gate "$p95" "$gate_ms"
+}
+
 wait_for_log_query() {
   local description="${1:?missing description}"
   local logsql="${2:?missing LogSQL query}"
@@ -566,6 +608,7 @@ if [ "$startup_diagnostic_action" = "cross-tab-move-geometry-smoke" ] ||
       agentstudio.startup_diagnostic.bridge.file_view.native_probe.last_stream_id_matches \
       agentstudio.startup_diagnostic.bridge.page_issue.disallowed.count
     require_bridge_file_view_native_metric_percentiles
+    require_bridge_viewer_ttfi_report_only_gate
   fi
 fi
 

@@ -256,6 +256,46 @@ struct AgentStudioOTLPPerformanceMetricsTests {
     }
 
     @Test
+    func bridgeTimeToFirstInteractionProjectsVariantDimension() throws {
+        let record = AgentStudioOTLPProjectedLogRecord(
+            timeUnixNano: 126,
+            severityText: .info,
+            body: "performance.bridge.viewer.time_to_first_interaction",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.bridge.performance.web", version: "0.1.0"),
+            attributes: [
+                "agentstudio.bridge.phase": .string("time_to_first_interaction"),
+                "agentstudio.bridge.plane": .string("data"),
+                "agentstudio.bridge.priority": .string("hot"),
+                "agentstudio.bridge.slice": .string("content_fetch"),
+                "agentstudio.bridge.viewer": .string("file"),
+                "agentstudio.bridge.viewer.ttfi_variant": .string("cold"),
+                "agentstudio.performance.elapsed_ms": .double(1429),
+                "agentstudio.trace.tag": .string("bridge.performance.web"),
+            ]
+        )
+
+        let metricEvent = try #require(AgentStudioOTLPPerformanceMetricEvent(record: record))
+        let expectedDimensions = [
+            AgentStudioOTLPPerformanceMetricDimension(
+                name: "event",
+                value: "performance.bridge.viewer.time_to_first_interaction"
+            ),
+            AgentStudioOTLPPerformanceMetricDimension(name: "phase", value: "time_to_first_interaction"),
+            AgentStudioOTLPPerformanceMetricDimension(name: "plane", value: "data"),
+            AgentStudioOTLPPerformanceMetricDimension(name: "priority", value: "hot"),
+            AgentStudioOTLPPerformanceMetricDimension(name: "slice", value: "content_fetch"),
+            AgentStudioOTLPPerformanceMetricDimension(name: "variant", value: "cold"),
+        ]
+
+        #expect(metricEvent.dimensions == expectedDimensions)
+        #expect(metricEvent.elapsedMilliseconds == 1429)
+    }
+
+    @Test
     func bridgePerformanceRecordRequiresCompleteFiniteTaxonomy() {
         let missingPhase = AgentStudioOTLPProjectedLogRecord(
             timeUnixNano: 124,

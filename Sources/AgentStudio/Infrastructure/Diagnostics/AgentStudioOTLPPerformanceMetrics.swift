@@ -196,6 +196,12 @@ struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
                 record: record,
                 dimensions: &dimensions
             )
+            appendBridgeDimension(
+                name: "variant",
+                attributeKey: "agentstudio.bridge.viewer.ttfi_variant",
+                record: record,
+                dimensions: &dimensions
+            )
         }
         return dimensions
     }
