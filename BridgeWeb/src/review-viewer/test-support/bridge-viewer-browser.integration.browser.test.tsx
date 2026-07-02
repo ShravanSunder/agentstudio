@@ -522,6 +522,12 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		scrollOwner.scrollTop = 0;
 		await waitForBridgeViewerAnimationFrame();
 		await waitForBridgeViewerAnimationFrame();
+		// Wait for item hydration to stop changing the layout before capturing the baseline.
+		// A preceding test can leak async hydration work that keeps growing header positions
+		// after this test mounts (pre-existing; flagged to the content/harness owner). Without
+		// this the baseline offset is captured mid-hydration and the test measures hydration
+		// timing instead of its actual intent: collapse stability from a settled layout.
+		await browserSupport.waitForStableBridgeCodeViewLayout(scrollOwner);
 
 		const collapseButton =
 			await browserSupport.waitForVisibleBridgeCodeHeaderCollapseButtonInOffsetRange({

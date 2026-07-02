@@ -969,3 +969,26 @@ export async function waitForStableBridgeCodeHeaderOffsetFromScrollOwner(props: 
 	}
 	return stableOffset;
 }
+
+export async function waitForStableBridgeCodeViewLayout(
+	scrollOwner: HTMLElement,
+	stableFrameCount = 6,
+): Promise<void> {
+	// Wait for the code-view layout to go quiet (item hydration stops changing total height)
+	// before a test captures a baseline. Bounded and frame-based — never a wall-clock sleep.
+	let previousScrollHeight = scrollOwner.scrollHeight;
+	let stableFrames = 0;
+	for (let frameIndex = 0; frameIndex < 180; frameIndex += 1) {
+		// oxlint-disable-next-line no-await-in-loop -- Layout-quiet detection must observe sequential frames.
+		await waitForBridgeViewerAnimationFrame();
+		if (Math.abs(scrollOwner.scrollHeight - previousScrollHeight) <= 1) {
+			stableFrames += 1;
+			if (stableFrames >= stableFrameCount) {
+				return;
+			}
+		} else {
+			stableFrames = 0;
+		}
+		previousScrollHeight = scrollOwner.scrollHeight;
+	}
+}
