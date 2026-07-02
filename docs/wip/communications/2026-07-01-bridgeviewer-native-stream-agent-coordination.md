@@ -502,3 +502,28 @@ entries; if an entry becomes stale, append a correction with the new evidence.
   touched-file `oxfmt --check` passed, touched-file `oxlint --type-aware`
   passed with no output, and `pnpm --dir BridgeWeb exec tsc --noEmit --pretty false`
   passed.
+
+### 2026-07-02 Codex React Lane Rail Toolbar Slot Checkpoint
+
+- Extracted the shared FileView/Review right-rail toolbar row into
+  `BridgeWeb/src/app/bridge-viewer-rail-toolbar.tsx`.
+- The primitive owns only neutral chrome geometry and slots:
+  `leading`, `trailing`, slot test ids, and optional leading `aria-live`/role.
+  FileView and Review still own their mode-specific controls, search state,
+  selection behavior, tree content, source projection, and demand logic.
+- FileView now passes its status/search/filter/open-review controls through the
+  neutral rail-toolbar slots. Review now passes projection/facet/search controls
+  through the same neutral slots.
+- Added source-structure guard coverage that FileView and Review compose the
+  neutral rail toolbar and do not keep route-local copies of the shared toolbar
+  data/class contract.
+- Focused proof:
+  `pnpm --dir BridgeWeb exec vitest run src/app/bridge-viewer-shared-boundaries.unit.test.ts src/file-viewer/bridge-file-viewer-source-structure.unit.test.ts src/review-viewer/review-viewer-source-structure.unit.test.ts src/review-viewer/shell/review-viewer-shell.integration.test.tsx --reporter verbose`
+  passed 43 tests / 4 files.
+- Browser proof:
+  `pnpm --dir BridgeWeb exec vitest --config vitest.browser.config.ts run --project integration-browser src/file-viewer/bridge-file-viewer-app.browser.test.tsx src/app/bridge-app-lazy-boundary.browser.test.tsx src/app/bridge-viewer-content-header.browser.test.tsx --reporter verbose`
+  passed 51 tests / 3 files.
+- Static proof:
+  touched-file `oxfmt --check` passed, touched-file `oxlint --type-aware`
+  passed with no output, and `pnpm --dir BridgeWeb exec tsc --noEmit --pretty false`
+  passed.

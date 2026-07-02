@@ -7,12 +7,12 @@ import {
 	bridgeViewerChromeIconButtonClassName,
 	bridgeViewerChromeLucideIconClassName,
 	bridgeViewerChromeSearchInputClassName,
-	bridgeViewerChromeToolbarClassName,
 } from '../app/bridge-viewer-chrome.js';
 import {
 	BridgeViewerFilterMenu,
 	type BridgeViewerFilterOption,
 } from '../app/bridge-viewer-filter-menu.js';
+import { BridgeViewerRailToolbar } from '../app/bridge-viewer-rail-toolbar.js';
 import { BridgeViewerSearchControl } from '../app/bridge-viewer-search-control.js';
 import { bridgeViewerTreeStyle } from '../app/bridge-viewer-tree-theme.js';
 import { cn } from '../app/class-name.js';
@@ -120,78 +120,75 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 			data-testid="bridge-file-viewer-sidebar"
 		>
 			<header className="grid grid-rows-[auto_auto]" data-testid="bridge-file-viewer-toolbar">
-				<div
-					className={cn(
-						'flex min-w-0 items-center justify-between gap-2',
-						bridgeViewerChromeToolbarClassName,
-					)}
-					data-bridge-shared-rail-toolbar="true"
-					data-testid="bridge-file-viewer-rail-toolbar"
-				>
-					<div
-						aria-live="polite"
-						className="sr-only"
-						data-testid="bridge-file-viewer-rail-toolbar-leading"
-						role="status"
-					>
-						{props.descriptorProjection.searchError === null
-							? `${props.descriptorProjection.treeRows.length}/${props.totalTreeRowCount}`
-							: 'Invalid regex'}{' '}
-						{props.sourceIdentity === null ? 'Source pending' : props.sourceIdentity.sourceId}
-						<span className="hidden" data-testid="worktree-file-filter-count">
+				{BridgeViewerRailToolbar({
+					className: 'min-w-0 gap-2',
+					leading: (
+						<>
 							{props.descriptorProjection.searchError === null
 								? `${props.descriptorProjection.treeRows.length}/${props.totalTreeRowCount}`
-								: 'Invalid regex'}
-						</span>
-						<span className="hidden" data-testid="worktree-file-provenance">
+								: 'Invalid regex'}{' '}
 							{props.sourceIdentity === null ? 'Source pending' : props.sourceIdentity.sourceId}
-						</span>
-					</div>
-					<div
-						className="flex shrink-0 items-center justify-end gap-1"
-						data-testid="bridge-file-viewer-rail-toolbar-trailing"
-					>
-						<BridgeViewerFilterMenu
-							label="File class filter"
-							onChange={props.onFilterModeChange}
-							options={bridgeFileViewerFilterOptions}
-							testId="worktree-file-filter-menu"
-							value={props.filterMode}
-						/>
-						<BridgeViewerSearchControl
-							isActive={shouldShowSearchInput}
-							onOpenSearch={() => {
-								setIsSearchOpen(true);
-							}}
-							onSearchModeChange={(searchMode) => {
-								setIsSearchOpen(true);
-								props.onSearchModeChange(searchMode.kind);
-							}}
-							searchMode={{ kind: props.searchMode }}
-						/>
-						{props.onOpenReviewComparison === undefined ? null : (
-							<BridgeViewerButton
-								ariaLabel="Open selected file in review"
-								className={bridgeViewerChromeIconButtonClassName}
-								data-testid="worktree-file-open-review-comparison"
-								disabled={selectedDescriptor === null}
-								onClick={() => {
-									if (selectedDescriptor !== null) {
-										props.onOpenReviewComparison?.(selectedDescriptor);
-									}
+							<span className="hidden" data-testid="worktree-file-filter-count">
+								{props.descriptorProjection.searchError === null
+									? `${props.descriptorProjection.treeRows.length}/${props.totalTreeRowCount}`
+									: 'Invalid regex'}
+							</span>
+							<span className="hidden" data-testid="worktree-file-provenance">
+								{props.sourceIdentity === null ? 'Source pending' : props.sourceIdentity.sourceId}
+							</span>
+						</>
+					),
+					leadingAriaLive: 'polite',
+					leadingClassName: 'sr-only',
+					leadingRole: 'status',
+					leadingTestId: 'bridge-file-viewer-rail-toolbar-leading',
+					testId: 'bridge-file-viewer-rail-toolbar',
+					trailing: (
+						<>
+							<BridgeViewerFilterMenu
+								label="File class filter"
+								onChange={props.onFilterModeChange}
+								options={bridgeFileViewerFilterOptions}
+								testId="worktree-file-filter-menu"
+								value={props.filterMode}
+							/>
+							<BridgeViewerSearchControl
+								isActive={shouldShowSearchInput}
+								onOpenSearch={() => {
+									setIsSearchOpen(true);
 								}}
-								title="Open selected file in review"
-							>
-								<BridgeViewerIcon>
-									<GitCompareArrowsIcon
-										aria-hidden="true"
-										className={bridgeViewerChromeLucideIconClassName}
-									/>
-								</BridgeViewerIcon>
-							</BridgeViewerButton>
-						)}
-					</div>
-				</div>
+								onSearchModeChange={(searchMode) => {
+									setIsSearchOpen(true);
+									props.onSearchModeChange(searchMode.kind);
+								}}
+								searchMode={{ kind: props.searchMode }}
+							/>
+							{props.onOpenReviewComparison === undefined ? null : (
+								<BridgeViewerButton
+									ariaLabel="Open selected file in review"
+									className={bridgeViewerChromeIconButtonClassName}
+									data-testid="worktree-file-open-review-comparison"
+									disabled={selectedDescriptor === null}
+									onClick={() => {
+										if (selectedDescriptor !== null) {
+											props.onOpenReviewComparison?.(selectedDescriptor);
+										}
+									}}
+									title="Open selected file in review"
+								>
+									<BridgeViewerIcon>
+										<GitCompareArrowsIcon
+											aria-hidden="true"
+											className={bridgeViewerChromeLucideIconClassName}
+										/>
+									</BridgeViewerIcon>
+								</BridgeViewerButton>
+							)}
+						</>
+					),
+					trailingClassName: 'shrink-0',
+					trailingTestId: 'bridge-file-viewer-rail-toolbar-trailing',
+				})}
 				{shouldShowSearchInput ? (
 					<Input
 						aria-label="Search files"

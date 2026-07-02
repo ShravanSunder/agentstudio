@@ -1,9 +1,8 @@
 import type { ReactElement, ReactNode } from 'react';
 
-import { bridgeViewerChromeToolbarClassName } from '../../app/bridge-viewer-chrome.js';
 import { BridgeViewerContentHeader } from '../../app/bridge-viewer-content-header.js';
+import { BridgeViewerRailToolbar } from '../../app/bridge-viewer-rail-toolbar.js';
 import { BridgeViewerSearchControl } from '../../app/bridge-viewer-search-control.js';
-import { cn } from '../../app/class-name.js';
 import { Skeleton } from '../../components/ui/skeleton.js';
 import type { ReviewTreeRowMetadata } from '../../features/review/models/review-protocol-models.js';
 import {
@@ -385,30 +384,19 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 					className="order-last flex min-h-0 min-w-0 flex-col border-l border-[var(--bridge-border-opaque)] bg-[var(--bridge-surface-bg)]"
 					data-testid="bridge-review-sidebar"
 				>
-					<div
-						className={cn(
-							'flex shrink-0 items-center justify-between gap-1',
-							bridgeViewerChromeToolbarClassName,
-						)}
-						data-bridge-shared-rail-toolbar="true"
-						data-testid="bridge-review-rail-toolbar"
-					>
-						<div
-							className="flex min-w-0 items-center gap-1"
-							data-testid="bridge-review-rail-toolbar-leading"
-						>
+					{BridgeViewerRailToolbar({
+						leading: (
 							<BridgeReviewProjectionMenu
 								projectionMode={projectionMode}
 								{...(props.onProjectionModeChange === undefined
 									? {}
 									: { onProjectionModeChange: props.onProjectionModeChange })}
 							/>
-						</div>
-						<div
-							className="flex min-w-0 items-center justify-end gap-1"
-							data-testid="bridge-review-rail-toolbar-trailing"
-						>
-							<div className="shrink-0" data-testid="bridge-review-facet-menu">
+						),
+						leadingTestId: 'bridge-review-rail-toolbar-leading',
+						testId: 'bridge-review-rail-toolbar',
+						trailing: [
+							<div className="shrink-0" data-testid="bridge-review-facet-menu" key="facet-menu">
 								<BridgeReviewFacetMenu
 									fileClassFilter={fileClassFilter}
 									fileClassOptions={fileClassOptions}
@@ -417,8 +405,8 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 									onFileClassFilterChange={(value): void => props.onFileClassFilterChange?.(value)}
 									onGitStatusFilterChange={(value): void => props.onGitStatusFilterChange?.(value)}
 								/>
-							</div>
-							<div data-testid="bridge-review-search-control-slot">
+							</div>,
+							<div data-testid="bridge-review-search-control-slot" key="search-control">
 								<span className="sr-only">Search files</span>
 								<BridgeViewerSearchControl
 									isActive={treeSearchOpen}
@@ -426,9 +414,10 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 									onSearchModeChange={(mode): void => props.onTreeSearchModeChange?.(mode)}
 									searchMode={treeSearchMode}
 								/>
-							</div>
-						</div>
-					</div>
+							</div>,
+						],
+						trailingTestId: 'bridge-review-rail-toolbar-trailing',
+					})}
 					<div
 						className="min-h-0 flex-1 overflow-hidden overscroll-contain"
 						data-testid="bridge-review-rail-scroll"

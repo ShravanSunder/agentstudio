@@ -19,6 +19,18 @@ describe('BridgeViewer shared component boundaries', () => {
 		expect(fileViewerApp).not.toContain('../review-viewer/trees/bridge-file-viewer-tree-panel.js');
 	});
 
+	test('FileViewer and ReviewViewer rail toolbars compose through neutral slots', async () => {
+		const fileViewerTreePanel = await source('src/file-viewer/bridge-file-viewer-tree-panel.tsx');
+		const reviewViewerShell = await source('src/review-viewer/shell/review-viewer-shell.tsx');
+
+		expect(fileViewerTreePanel).toContain('BridgeViewerRailToolbar');
+		expect(reviewViewerShell).toContain('BridgeViewerRailToolbar');
+		expect(fileViewerTreePanel).not.toContain('bridgeViewerChromeToolbarClassName');
+		expect(reviewViewerShell).not.toContain('bridgeViewerChromeToolbarClassName');
+		expect(fileViewerTreePanel).not.toContain('data-bridge-shared-rail-toolbar="true"');
+		expect(reviewViewerShell).not.toContain('data-bridge-shared-rail-toolbar="true"');
+	});
+
 	test('Pierre tree adapter stays neutral from FileView and Review domain modules', async () => {
 		const pierreTreeAdapter = await source('src/app/bridge-pierre-tree-adapter.ts');
 
