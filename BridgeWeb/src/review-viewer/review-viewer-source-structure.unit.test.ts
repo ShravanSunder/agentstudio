@@ -16,7 +16,7 @@ describe('Review viewer source structure', () => {
 		expect(modeSource).toContain('useBridgeReviewNavigationController');
 		expect(modeSource).toContain('useBridgeReviewProjectionCoordinator');
 		expect(modeSource).toContain('useBridgeReviewSelectionController');
-		expect(modeSource).toContain('useVisibleReviewContentHydration');
+		expect(modeSource).toContain('useBridgeReviewVisibleContentController');
 		expect(modeSource).toContain('useBridgeReviewSelectedContentEffect');
 		expect(modeSource).toContain('useSelectedReviewContentDemandController');
 		expect(modeSource).toContain('BridgeReviewViewerShellBoundary');
@@ -118,6 +118,38 @@ describe('Review viewer source structure', () => {
 		expect(navigationControllerSource).not.toContain('@pierre/');
 	});
 
+	test('keeps Review visible content hydration in an app-level controller hook', () => {
+		const modeSource = readSource('../app/bridge-app-review-viewer-mode.tsx');
+		const visibleContentControllerSource = readSource(
+			'../app/bridge-app-review-visible-content-controller.ts',
+		);
+
+		expect(modeSource).toContain('useBridgeReviewVisibleContentController');
+		expect(modeSource).not.toContain('useVisibleReviewContentHydration');
+		expect(modeSource).not.toContain('loadReviewItemContentResourcesThroughDemandResult');
+		expect(modeSource).not.toContain('shouldPauseVisibleReviewContentHydration');
+		expect(modeSource).not.toContain('emptyVisibleContentResourcesByItemId');
+		expect(modeSource).not.toContain('emptyVisibleLoadingItemIds');
+
+		expect(visibleContentControllerSource).toContain('useBridgeReviewVisibleContentController');
+		expect(visibleContentControllerSource).toContain('useVisibleReviewContentHydration');
+		expect(visibleContentControllerSource).toContain(
+			'loadReviewItemContentResourcesThroughDemandResult',
+		);
+		expect(visibleContentControllerSource).toContain('shouldPauseVisibleReviewContentHydration');
+		expect(visibleContentControllerSource).not.toContain('BridgeReviewViewerShellBoundary');
+		expect(visibleContentControllerSource).not.toContain('useBridgeReviewViewerStore');
+		expect(visibleContentControllerSource).not.toContain('createBridgeReviewViewerStore');
+		expect(visibleContentControllerSource).not.toContain('bridge-app-review-runtime');
+		expect(visibleContentControllerSource).not.toContain(
+			'createBridgeReviewProjectionWebWorkerClient',
+		);
+		expect(visibleContentControllerSource).not.toContain(
+			'createBridgeMarkdownRenderWebWorkerClient',
+		);
+		expect(visibleContentControllerSource).not.toContain('@pierre/');
+	});
+
 	test('keeps the review store out of content bodies and runtime handles', () => {
 		const storeSource = readSource('./state/review-viewer-store.ts');
 
@@ -150,6 +182,9 @@ describe('Review viewer source structure', () => {
 			.map((entry): string => `${entry.relativePath}: ${entry.lineCount}`);
 
 		expect(oversizedSources).toEqual([]);
+		expect(
+			readSource('../app/bridge-app-review-visible-content-controller.ts').split('\n').length,
+		).toBeLessThanOrEqual(1000);
 	});
 });
 

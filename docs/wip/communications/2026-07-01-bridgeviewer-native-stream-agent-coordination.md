@@ -700,6 +700,52 @@ entries; if an entry becomes stale, append a correction with the new evidence.
   passed with no output, and
   `pnpm --dir BridgeWeb exec tsc --noEmit --pretty false` passed.
 
+### 2026-07-02 Codex React Lane Visible Content Controller Checkpoint
+
+- Extracted Review visible-content hydration out of
+  `BridgeWeb/src/app/bridge-app-review-viewer-mode.tsx` into
+  `BridgeWeb/src/app/bridge-app-review-visible-content-controller.ts` as
+  `useBridgeReviewVisibleContentController`.
+- The hook owns visible-hydration pause calculation, visible demand load
+  dispatch, `useVisibleReviewContentHydration`, paused fallback shaping, and
+  the `setVisibleContentItemIds` callback consumed by metadata-interest
+  runtime.
+- `BridgeReviewViewerMode` still owns runtime construction and passes in the
+  existing content registry, descriptor refs, demand scheduler, resource
+  executor, telemetry refs, selected state, and package state. No runtime
+  handles moved into Zustand or the lazy shell.
+- Reviewer sidecar `019f2147-8bd4-7391-8ea4-e9735d6097fa` found two accepted
+  P2s before commit: the controller imported fallback empties from
+  `bridge-app-review-runtime`, and the source guard did not explicitly protect
+  store creation / app-controller line count. Codex fixed both: fallback
+  empties are local stable constants, and the guard rejects runtime/store
+  creation imports plus checks the new app controller under 1k lines.
+- File size checkpoint:
+  `bridge-app-review-viewer-mode.tsx` is now 526 lines;
+  `bridge-app-review-visible-content-controller.ts` is 139 lines;
+  `review-viewer-source-structure.unit.test.ts` is 223 lines.
+- Red proof:
+  `pnpm --dir BridgeWeb exec vitest run src/review-viewer/review-viewer-source-structure.unit.test.ts --reporter verbose`
+  failed first because `useBridgeReviewVisibleContentController` and
+  `bridge-app-review-visible-content-controller.ts` were absent. Review-fix red
+  then failed because the controller still imported `bridge-app-review-runtime`.
+- Focused proof:
+  `pnpm --dir BridgeWeb exec vitest run src/review-viewer/review-viewer-source-structure.unit.test.ts src/app/bridge-app-control.unit.test.ts --reporter verbose`
+  passed 12 tests / 2 files.
+- Boundary proof:
+  `pnpm --dir BridgeWeb exec vitest run src/app/bridge-viewer-shared-boundaries.unit.test.ts src/file-viewer/bridge-file-viewer-source-structure.unit.test.ts src/review-viewer/review-viewer-source-structure.unit.test.ts src/review-viewer/shell/review-viewer-shell.integration.test.tsx --reporter verbose`
+  passed 51 tests / 4 files.
+- Browser visible/selection proof:
+  `pnpm --dir BridgeWeb exec vitest --config vitest.browser.config.ts run --project integration-browser src/review-viewer/test-support/bridge-viewer-browser.integration.browser.test.tsx -t "visible added files hydrate without requiring file selection|clicking a tree row fetches and renders the newly selected file|starts clicked Review foreground content demand before selected path commit|large fixture deep tree selection scrolls the selected file body into the CodeView viewport" --reporter verbose`
+  passed 4 selected tests.
+  `pnpm --dir BridgeWeb exec vitest --config vitest.browser.config.ts run --project integration-browser src/review-viewer/test-support/bridge-viewer-browser.integration-large.browser.test.tsx -t "programmatic file reveal|preview command explicit|markdown preview restores CodeView|custom filter controls route through projection requests" --reporter verbose`
+  passed 4 selected tests. The large run emitted the existing React
+  `flushSync` lifecycle warnings in markdown-preview tests.
+- Static proof:
+  touched-file `oxfmt --check` passed, touched-file type-aware `oxlint`
+  passed with no output, `pnpm --dir BridgeWeb exec tsc --noEmit --pretty false`
+  passed, and `git diff --check` passed for the checkpoint files.
+
 ### 2026-07-02 Codex React Lane Review Control Event Hook Checkpoint
 
 - Extracted Review app-mode DOM control-event wiring into

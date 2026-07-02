@@ -16,15 +16,7 @@ import type {
 import type { BridgeTraceContext } from '../foundation/telemetry/bridge-trace-context.js';
 import type { BridgeCodeViewContentResources } from '../review-viewer/code-view/bridge-code-view-materialization.js';
 import type { BridgeCodeViewControlHandle } from '../review-viewer/code-view/bridge-code-view-panel.js';
-import {
-	loadReviewItemContentResourcesThroughDemandResult,
-	type ReviewContentDemandTelemetry,
-} from '../review-viewer/content/review-content-demand-loader.js';
-import type { LoadReviewItemContentResourcesProps } from '../review-viewer/content/review-content-loader.js';
-import {
-	type VisibleReviewContentLoadResult,
-	useVisibleReviewContentHydration,
-} from '../review-viewer/content/visible-review-content-hydration.js';
+import type { ReviewContentDemandTelemetry } from '../review-viewer/content/review-content-demand-loader.js';
 import { useBridgeReviewProjectionCoordinator } from '../review-viewer/projections/use-review-projection-coordinator.js';
 import { selectBridgeReviewViewerRootSnapshot } from '../review-viewer/state/review-viewer-store.js';
 import { createBridgeMarkdownRenderWebWorkerClient } from '../review-viewer/workers/markdown/bridge-markdown-render-worker-transport.js';
@@ -42,8 +34,6 @@ import { useBridgeReviewMetadataInterestRuntime } from './bridge-app-review-meta
 import { useBridgeReviewNavigationController } from './bridge-app-review-navigation-controller.js';
 import {
 	createBridgeReviewDemandScheduler,
-	emptyVisibleContentResourcesByItemId,
-	emptyVisibleLoadingItemIds,
 	useBridgeResourceDescriptorRegistry,
 	useBridgeReviewContentRegistry,
 	useBridgeReviewResourceExecutor,
@@ -63,7 +53,6 @@ import {
 	selectedContentResourcesForCurrentSelection,
 	selectedContentUnavailablePathForCurrentSelection,
 	selectedItemPresentationForReviewFileTarget,
-	shouldPauseVisibleReviewContentHydration,
 	shouldRetrySelectedReviewContentAfterDescriptorRegistration,
 	type BridgeReviewFileNavigationTarget,
 	type SelectedMarkdownPreviewState,
@@ -74,6 +63,7 @@ import {
 	type BridgeReviewPackageTelemetryContext,
 } from './bridge-app-review-telemetry.js';
 import { BridgeReviewViewerShellBoundary } from './bridge-app-review-viewer-shell-boundary.js';
+import { useBridgeReviewVisibleContentController } from './bridge-app-review-visible-content-controller.js';
 import type { BridgeAppProps } from './bridge-app.js';
 import { useBridgeReviewControlEventListeners } from './use-bridge-review-control-event-listeners.js';
 
@@ -266,44 +256,22 @@ export function BridgeReviewViewerMode(
 		reviewPackage,
 		telemetry: lastVisibleDemandTelemetry,
 	});
-	const visibleContentHydrationPaused = shouldPauseVisibleReviewContentHydration({
-		isActive: props.isActive,
-		codeViewScrollActive: isCodeViewScrollActive,
+	const visibleContentController = useBridgeReviewVisibleContentController({
+		contentRegistry,
+		currentReviewPackageTelemetryContextRef,
 		currentSelectedContentKey,
 		foregroundSelectedContentKey,
+		isActive: props.isActive,
+		isCodeViewScrollActive,
+		resourceExecutor,
+		reviewContentDescriptorRefsByHandleIdRef,
+		reviewContentInvalidationVersion,
+		reviewDemandScheduler,
+		reviewPackage,
 		selectedContentResourcesState,
-	});
-	const loadVisibleContentResourcesThroughDemand = useCallback(
-		async (
-			loadProps: LoadReviewItemContentResourcesProps,
-		): Promise<VisibleReviewContentLoadResult> =>
-			loadReviewItemContentResourcesThroughDemandResult({
-				reviewPackage: loadProps.reviewPackage,
-				itemId: loadProps.itemId,
-				interest: 'visible',
-				resolveDescriptorRef: (handle): BridgeDescriptorRef | null =>
-					reviewContentDescriptorRefsByHandleIdRef.current.get(handle.handleId) ?? null,
-				scheduler: reviewDemandScheduler,
-				executor: resourceExecutor,
-				traceContext: loadProps.traceContext ?? null,
-				...(loadProps.signal === undefined ? {} : { signal: loadProps.signal }),
-				...(loadProps.telemetryRecorder === undefined
-					? {}
-					: { telemetryRecorder: loadProps.telemetryRecorder }),
-				onDemandTelemetry: setLastVisibleDemandTelemetry,
-			}),
-		[resourceExecutor, reviewDemandScheduler],
-	);
-	const visibleContentHydration = useVisibleReviewContentHydration({
-		contentRegistry,
-		loadContentResources: loadVisibleContentResourcesThroughDemand,
-		reviewPackage: props.isActive ? reviewPackage : null,
-		selectedItemId: props.isActive ? rootSnapshot.selectedItemId : null,
-		telemetryParentTraceContext:
-			currentReviewPackageTelemetryContextRef.current?.traceContext ?? null,
-		telemetryRecorder: telemetryRecorderRef.current,
-		contentInvalidationVersion: reviewContentInvalidationVersion,
-		visibleHydrationPaused: visibleContentHydrationPaused,
+		selectedItemId: rootSnapshot.selectedItemId,
+		setLastVisibleDemandTelemetry,
+		telemetryRecorderRef,
 	});
 	const reviewMetadataInterestRuntime = useBridgeReviewMetadataInterestRuntime({
 		authority: getReviewFrameAuthority(),
@@ -312,7 +280,7 @@ export function BridgeReviewViewerMode(
 		reviewPackage,
 		rpcClient,
 		selectedItemId: rootSnapshot.selectedItemId,
-		setVisibleContentItemIds: visibleContentHydration.setVisibleItemIds,
+		setVisibleContentItemIds: visibleContentController.setVisibleContentItemIds,
 	});
 	useEffect(
 		(): (() => void) =>
@@ -511,18 +479,6 @@ export function BridgeReviewViewerMode(
 	});
 	const selectedContentLoadingItemId =
 		selectedCanvasLoadingReason === 'content' ? rootSnapshot.selectedItemId : null;
-	const visibleContentResourcesByItemIdForCodeView = visibleContentHydrationPaused
-		? emptyVisibleContentResourcesByItemId
-		: visibleContentHydration.visibleContentResourcesByItemId;
-	const visibleLoadingItemIdsForCodeView = visibleContentHydrationPaused
-		? emptyVisibleLoadingItemIds
-		: visibleContentHydration.visibleLoadingItemIds;
-	const visibleLoadingItemCountForCodeView = visibleContentHydrationPaused
-		? 0
-		: visibleContentHydration.visibleLoadingItemCount;
-	const visibleReadyItemCountForCodeView = visibleContentHydrationPaused
-		? 0
-		: visibleContentHydration.visibleReadyItemCount;
 	return (
 		<BridgeReviewViewerShellBoundary
 			codeViewWorkerFactory={props.codeViewWorkerFactory}
@@ -561,10 +517,10 @@ export function BridgeReviewViewerMode(
 			treeSearchOpen={isTreeSearchOpen}
 			viewerActions={viewerActions}
 			viewerHeaderControls={props.viewerHeaderControls}
-			visibleContentResourcesByItemId={visibleContentResourcesByItemIdForCodeView}
-			visibleLoadingItemCount={visibleLoadingItemCountForCodeView}
-			visibleLoadingItemIds={visibleLoadingItemIdsForCodeView}
-			visibleReadyItemCount={visibleReadyItemCountForCodeView}
+			visibleContentResourcesByItemId={visibleContentController.visibleContentResourcesByItemId}
+			visibleLoadingItemCount={visibleContentController.visibleLoadingItemCount}
+			visibleLoadingItemIds={visibleContentController.visibleLoadingItemIds}
+			visibleReadyItemCount={visibleContentController.visibleReadyItemCount}
 		/>
 	);
 }
