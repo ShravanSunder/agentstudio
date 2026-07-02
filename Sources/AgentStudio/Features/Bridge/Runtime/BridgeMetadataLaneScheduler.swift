@@ -133,8 +133,21 @@ actor BridgeMetadataLaneScheduler {
     }
 
     /// Opens the dispatch gate for a protocol (intake ready). Closed-gate
-    /// jobs hold in their lanes without blocking other protocols.
+    /// jobs hold in their lanes without blocking other protocols. Held jobs
+    /// are re-stamped at gate-open so their queue wait measures open-to-
+    /// dequeue: time parked behind a closed gate (browser boot, recovery)
+    /// is not scheduler pressure and must not pollute the lane percentiles
+    /// — the same rule the failure-retention path applies at re-insert.
     func openGate(protocolId: String) {
+        if !openProtocolIds.contains(protocolId) {
+            for (lane, queue) in queuesByLane {
+                queuesByLane[lane] = queue.map { queued in
+                    queued.job.protocolId == protocolId
+                        ? QueuedJob(job: queued.job, enqueuedAt: clock.now)
+                        : queued
+                }
+            }
+        }
         openProtocolIds.insert(protocolId)
         scheduleDrain()
     }

@@ -210,7 +210,10 @@ back, so reopening the gate (a fresh intake-ready) retries in order and
 redelivers with the same sequence — a retry must never leave a sequence
 gap. Retained jobs re-enter the queue at retention time, so retry
 queue-wait measures requeue-to-dequeue rather than folding the gate-closed
-recovery gap into lane percentiles.
+recovery gap into lane percentiles. Symmetrically, jobs held behind a
+closed gate are re-stamped when the gate opens, so queue wait measures
+open-to-dequeue: browser boot and recovery parking are not scheduler
+pressure.
 
 Scheduler queues are bounded per lane
 (`AppPolicies.Bridge.metadataSchedulerMaxQueuedJobsPerLane`). A pane whose
