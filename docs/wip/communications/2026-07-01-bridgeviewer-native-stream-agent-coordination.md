@@ -589,3 +589,30 @@ entries; if an entry becomes stale, append a correction with the new evidence.
   `bridge-app-native-review-error.browser.metadata-suite.tsx`.
 - Dev-server proof remains blocked before UI launch by the same verifier
   root/path issue recorded in the prior checkpoint.
+
+### 2026-07-02 Codex React Lane Right Rail Review Fix Checkpoint
+
+- Sidecar reviewer `019f2117-2136-74f2-b2f9-4371357f5a3b` found two P2 issues
+  in `a9c2afea`: the shared right-rail shell still exposed FileView/Pierre
+  vocabulary in its prop API, and tests did not read the shell source itself.
+- Fixed by replacing FileView-specific shell props with generic
+  `rootDataAttributes` and `bodyDataAttributes` slots.
+- FileView now owns the actual `data-pierre-file-tree-owner` and
+  `data-worktree-tree-total-size*` attribute names at its call site; Review
+  continues to pass no domain attributes through the shell.
+- Added a shared-boundary guard that reads
+  `BridgeWeb/src/app/bridge-viewer-right-rail-shell.tsx` and rejects
+  FileView/Review domain vocabulary in the neutral shell.
+- Updated stale protocol-router browser assertions to the current shared-shell
+  contract: context switcher is present, both mode hosts can be mounted, and
+  Worktree/File initially renders the lazy-loading frame until readiness/loading.
+- Focused proof:
+  `pnpm --dir BridgeWeb exec vitest run src/app/bridge-viewer-shared-boundaries.unit.test.ts src/file-viewer/bridge-file-viewer-source-structure.unit.test.ts src/review-viewer/review-viewer-source-structure.unit.test.ts src/review-viewer/shell/review-viewer-shell.integration.test.tsx --reporter verbose`
+  passed 46 tests / 4 files.
+- Browser proof:
+  `pnpm --dir BridgeWeb exec vitest --config vitest.browser.config.ts run --project integration-browser src/file-viewer/bridge-file-viewer-app.browser.test.tsx src/app/bridge-app-protocol-router.browser.test.tsx src/app/bridge-app-lazy-boundary.browser.test.tsx --reporter verbose`
+  passed 53 tests / 3 files.
+- Static proof:
+  touched-file `oxfmt --check` passed, touched-file type-aware `oxlint`
+  passed with no output, and
+  `pnpm --dir BridgeWeb exec tsc --noEmit --pretty false` passed.

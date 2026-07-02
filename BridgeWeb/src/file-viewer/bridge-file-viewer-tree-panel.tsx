@@ -125,13 +125,17 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 					/>
 				),
 				bodyClassName: 'h-full min-h-0 overflow-hidden',
+				bodyDataAttributes: {
+					'data-worktree-tree-total-size': String(declaredTreeHeightPixels),
+					'data-worktree-tree-total-size-source': declaredTreeHeightSource,
+				},
 				bodyElement: 'section',
 				bodyOnClick: treeRuntime.handleTreeClick,
 				bodyTestId: 'bridge-file-viewer-pierre-file-tree',
 				border: 'subtle',
-				dataPierreFileTreeOwner: 'FileTree',
 				headerTestId: 'bridge-file-viewer-toolbar',
 				layout: 'grid',
+				rootDataAttributes: { 'data-pierre-file-tree-owner': 'FileTree' },
 				testId: 'bridge-file-viewer-sidebar',
 				toolbar: BridgeViewerRailToolbar({
 					className: 'min-w-0 gap-2',
@@ -226,8 +230,6 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 							: 'Invalid regex'}
 					</div>
 				),
-				worktreeTreeTotalSize: String(declaredTreeHeightPixels),
-				worktreeTreeTotalSizeSource: declaredTreeHeightSource,
 			})}
 		</>
 	);

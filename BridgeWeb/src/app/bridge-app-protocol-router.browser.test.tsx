@@ -27,9 +27,9 @@ describe('BridgeAppProtocolRouter', () => {
 		expect(appRoot?.getAttribute('data-bridge-app-owner')).toBe('BridgeApp');
 		expect(appRoot?.getAttribute('data-bridge-viewer-shell-owner')).toBe('BridgeViewerAppShell');
 		expect(appRoot?.getAttribute('data-bridge-viewer-mode')).toBe('review');
-		expect(contextSwitcher).toBeNull();
-		expect(fileContextButton).toBeNull();
-		expect(reviewContextButton).toBeNull();
+		expect(contextSwitcher).not.toBeNull();
+		expect(fileContextButton?.getAttribute('data-bridge-viewer-context-selected')).toBe('false');
+		expect(reviewContextButton?.getAttribute('data-bridge-viewer-context-selected')).toBe('true');
 		expect(document.querySelector('[data-testid="bridge-review-empty-shell"]')).not.toBeNull();
 		expect(document.querySelector('[data-testid="worktree-file-app"]')).toBeNull();
 	});
@@ -38,7 +38,6 @@ describe('BridgeAppProtocolRouter', () => {
 		render(<BridgeAppProtocolRouter protocol="worktree-file" />);
 
 		expect(document.querySelector('[data-testid="worktree-file-app"]')).toBeNull();
-		expect(document.querySelector('[data-testid="bridge-review-empty-shell"]')).toBeNull();
 		const appRoot = document.querySelector('[data-testid="bridge-app-root"]');
 		const contextSwitcher = document.querySelector(
 			'[data-testid="bridge-viewer-context-switcher"]',
@@ -49,9 +48,10 @@ describe('BridgeAppProtocolRouter', () => {
 			'[data-testid="bridge-viewer-context-review"]',
 		);
 		const modeHost = document.querySelector('[data-testid="bridge-viewer-mode-host-file"]');
-		const shell = document.querySelector('[data-testid="bridge-file-viewer-shell"]');
-		const codeCanvas = document.querySelector('[data-testid="bridge-file-viewer-code-canvas"]');
-		const treeSidebar = document.querySelector('[data-testid="bridge-file-viewer-sidebar"]');
+		const reviewModeHost = document.querySelector('[data-testid="bridge-viewer-mode-host-review"]');
+		const lazyLoadingFrame = document.querySelector(
+			'[data-testid="bridge-file-viewer-lazy-loading-frame"]',
+		);
 		expect(appRoot?.getAttribute('data-bridge-app-owner')).toBe('BridgeApp');
 		expect(appRoot?.getAttribute('data-bridge-viewer-shell-owner')).toBe('BridgeViewerAppShell');
 		expect(appRoot?.getAttribute('data-bridge-viewer-mode')).toBe('file');
@@ -67,11 +67,12 @@ describe('BridgeAppProtocolRouter', () => {
 		expect(modeHost?.parentElement).toBe(appRoot);
 		expect(modeHost?.getAttribute('data-bridge-viewer-mode-active')).toBe('true');
 		expect(modeHost?.className).not.toContain('pt-9');
-		expect(shell?.parentElement).toBe(modeHost);
-		expect(shell?.getAttribute('data-file-viewer-owner')).toBe('BridgeViewerApp.FileViewer');
-		expect(shell?.getAttribute('data-sidebar-position')).toBe('right');
-		expect(codeCanvas?.getAttribute('data-pierre-code-view-owner')).toBe('CodeView.file');
-		expect(treeSidebar?.getAttribute('data-pierre-file-tree-owner')).toBe('FileTree');
+		expect(reviewModeHost?.parentElement).toBe(appRoot);
+		expect(reviewModeHost?.getAttribute('data-bridge-viewer-mode-active')).toBe('false');
+		expect(reviewModeHost?.hasAttribute('hidden')).toBe(true);
+		expect(document.querySelector('[data-testid="bridge-review-empty-shell"]')).not.toBeNull();
+		expect(lazyLoadingFrame?.parentElement).toBe(modeHost);
+		expect(document.querySelector('[data-testid="bridge-file-viewer-shell"]')).toBeNull();
 	});
 
 	test('starts Worktree/File native loading after the page bridge-ready event is emitted', async () => {

@@ -2,25 +2,28 @@ import type { MouseEventHandler, ReactElement, ReactNode } from 'react';
 
 import { cn } from './class-name.js';
 
+export type BridgeViewerRightRailDataAttributes = Readonly<
+	Record<`data-${string}`, string | undefined>
+>;
+
 export interface BridgeViewerRightRailShellProps {
 	readonly ariaLabel?: string;
 	readonly body: ReactNode;
 	readonly bodyAriaLabel?: string;
 	readonly bodyClassName?: string;
+	readonly bodyDataAttributes?: BridgeViewerRightRailDataAttributes;
 	readonly bodyElement?: 'div' | 'section';
 	readonly bodyOnClick?: MouseEventHandler<HTMLElement>;
 	readonly bodyTestId: string;
 	readonly border: 'opaque' | 'subtle';
 	readonly className?: string;
-	readonly dataPierreFileTreeOwner?: string;
 	readonly headerTestId?: string;
 	readonly layout: 'grid' | 'stack';
+	readonly rootDataAttributes?: BridgeViewerRightRailDataAttributes;
 	readonly testId: string;
 	readonly toolbar: ReactNode;
 	readonly toolbarBelow?: ReactNode;
 	readonly toolbarFooter?: ReactNode;
-	readonly worktreeTreeTotalSize?: string;
-	readonly worktreeTreeTotalSizeSource?: string;
 }
 
 export function BridgeViewerRightRailShell(props: BridgeViewerRightRailShellProps): ReactElement {
@@ -39,7 +42,7 @@ export function BridgeViewerRightRailShell(props: BridgeViewerRightRailShellProp
 					: 'order-last flex flex-col',
 				props.className,
 			)}
-			data-pierre-file-tree-owner={props.dataPierreFileTreeOwner}
+			{...props.rootDataAttributes}
 			data-testid={props.testId}
 		>
 			<header
@@ -53,9 +56,8 @@ export function BridgeViewerRightRailShell(props: BridgeViewerRightRailShellProp
 			<BodyElement
 				aria-label={props.bodyAriaLabel}
 				className={props.bodyClassName}
+				{...props.bodyDataAttributes}
 				data-testid={props.bodyTestId}
-				data-worktree-tree-total-size={props.worktreeTreeTotalSize}
-				data-worktree-tree-total-size-source={props.worktreeTreeTotalSizeSource}
 				onClick={props.bodyOnClick}
 			>
 				{props.body}

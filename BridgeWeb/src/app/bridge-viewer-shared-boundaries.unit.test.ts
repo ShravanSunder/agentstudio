@@ -41,6 +41,17 @@ describe('BridgeViewer shared component boundaries', () => {
 		expect(filterMenu).not.toContain('bridge-review-');
 	});
 
+	test('shared right rail shell does not bake in FileView or Review domain vocabulary', async () => {
+		const rightRailShell = await source('src/app/bridge-viewer-right-rail-shell.tsx');
+
+		expect(rightRailShell).not.toContain('Pierre');
+		expect(rightRailShell).not.toContain('FileTree');
+		expect(rightRailShell).not.toContain('worktree');
+		expect(rightRailShell).not.toContain('bridge-review');
+		expect(rightRailShell).not.toContain('../file-viewer/');
+		expect(rightRailShell).not.toContain('../review-viewer/');
+	});
+
 	test('Pierre tree adapter stays neutral from FileView and Review domain modules', async () => {
 		const pierreTreeAdapter = await source('src/app/bridge-pierre-tree-adapter.ts');
 

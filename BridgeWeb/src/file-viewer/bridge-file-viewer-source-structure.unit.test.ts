@@ -226,6 +226,11 @@ describe('Bridge file viewer source structure', () => {
 
 		expect(treePanelSource).toContain('BridgeViewerRightRailShell');
 		expect(treePanelSource).toContain("bodyTestId: 'bridge-file-viewer-pierre-file-tree'");
+		expect(treePanelSource).toContain('rootDataAttributes:');
+		expect(treePanelSource).toContain("'data-pierre-file-tree-owner': 'FileTree'");
+		expect(treePanelSource).toContain('bodyDataAttributes:');
+		expect(treePanelSource).toContain("'data-worktree-tree-total-size':");
+		expect(treePanelSource).toContain("'data-worktree-tree-total-size-source':");
 		expect(treePanelSource).toContain('toolbarBelow:');
 		expect(treePanelSource).not.toContain('<aside');
 		expect(treePanelSource).not.toContain('border-l border-[var(--bridge-border-subtle)]');
