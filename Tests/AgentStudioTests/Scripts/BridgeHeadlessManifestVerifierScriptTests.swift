@@ -22,6 +22,12 @@ struct BridgeHeadlessManifestVerifierScriptTests {
         #expect(source.contains("missingExpectedFilePaths"))
         #expect(source.contains("unexpectedPublishedFilePaths"))
         #expect(source.contains("metadataInterestRequestToDeliveredFrame.p95Milliseconds"))
+        #expect(source.contains("metadataInterestRequestToDeliveredFrame.sampleCount must be at least 100"))
+        #expect(source.contains("queueWaitByLane.{lane}.sampleCount must be at least 50"))
+        #expect(source.contains("contentFetch.sampleCount must be at least 20"))
+        #expect(source.contains(#""foreground": (32.0, 64.0)"#))
+        #expect(source.contains(#""visible": (64.0, 100.0)"#))
+        #expect(source.contains("AGENTSTUDIO_BRIDGE_HEADLESS_BENCHMARK_MODE=1"))
         #expect(source.contains("noStarvationProgress.completed"))
         #expect(source.contains("queueWaitByLane.{lane}.measurementName must be scheduler queue wait"))
     }
@@ -64,6 +70,45 @@ struct BridgeHeadlessManifestVerifierScriptTests {
         #expect(result.stderr.contains("missingExpectedFilePaths must be an empty list"))
     }
 
+    @Test("headless manifest verifier rejects insufficient benchmark sample counts")
+    func headlessManifestVerifierRejectsInsufficientBenchmarkSampleCounts() throws {
+        let fixture = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: fixture) }
+        let artifact = fixture.appendingPathComponent("current-worktree-manifest-proof.json")
+        let completeMetadataInterestBlock = """
+                  "sampleCount": 100,
+                  "sampleCountByLane": {
+                    "foreground": 50,
+                    "visible": 50
+                  }
+            """
+        let insufficientMetadataInterestBlock = """
+                  "sampleCount": 99,
+                  "sampleCountByLane": {
+                    "foreground": 50,
+                    "visible": 49
+                  }
+            """
+        try completeArtifactJSON
+            .replacingOccurrences(
+                of: completeMetadataInterestBlock,
+                with: insufficientMetadataInterestBlock
+            )
+            .write(to: artifact, atomically: true, encoding: .utf8)
+
+        let result = try runScript(
+            arguments: ["--validate-only"],
+            environment: ["AGENTSTUDIO_BRIDGE_HEADLESS_PROOF_DIR": fixture.path]
+        )
+
+        #expect(result.exitCode != 0)
+        #expect(
+            result.stderr.contains(
+                "metadataInterestRequestToDeliveredFrame.sampleCount must be at least 100"
+            )
+        )
+    }
+
     private let scriptPath = "scripts/verify-bridge-headless-manifest.sh"
 
     private var completeArtifactJSON: String {
@@ -79,19 +124,62 @@ struct BridgeHeadlessManifestVerifierScriptTests {
           "uniquePathCount": 5,
           "firstWindowRowCount": 5,
           "metadataInterestRequestToDeliveredFrame": {
+            "measurementName": "metadata_interest_request_to_delivered_intake_frame",
+            "sampleCount": 100,
             "p95Milliseconds": 1.2,
             "p99Milliseconds": 1.4
           },
           "queueWaitByLane": {
             "foreground": {
               "measurementName": "metadata_scheduler_queue_wait_by_lane",
+              "sampleCount": 50,
               "p95Milliseconds": 0.2,
               "p99Milliseconds": 0.3
             },
             "visible": {
               "measurementName": "metadata_scheduler_queue_wait_by_lane",
+              "sampleCount": 50,
               "p95Milliseconds": 0.4,
               "p99Milliseconds": 0.5
+            }
+          },
+          "contentFetch": {
+            "measurementName": "content_fetch",
+            "sampleCount": 1,
+            "p95Milliseconds": 2.0,
+            "p99Milliseconds": 2.4
+          },
+          "gatedBenchmark": {
+            "completed": true,
+            "contentFetch": {
+              "measurementName": "content_fetch",
+              "sampleCount": 20,
+              "p95Milliseconds": 2.0,
+              "p99Milliseconds": 2.4
+            },
+            "metadataInterestRequestToDeliveredFrame": {
+              "measurementName": "metadata_interest_request_to_delivered_intake_frame",
+              "sampleCount": 100,
+              "sampleCountByLane": {
+                "foreground": 50,
+                "visible": 50
+              },
+              "p95Milliseconds": 1.2,
+              "p99Milliseconds": 1.4
+            },
+            "queueWaitByLane": {
+              "foreground": {
+                "measurementName": "metadata_scheduler_queue_wait_by_lane",
+                "sampleCount": 50,
+                "p95Milliseconds": 0.2,
+                "p99Milliseconds": 0.3
+              },
+              "visible": {
+                "measurementName": "metadata_scheduler_queue_wait_by_lane",
+                "sampleCount": 50,
+                "p95Milliseconds": 0.4,
+                "p99Milliseconds": 0.5
+              }
             }
           },
           "noStarvationProgress": {

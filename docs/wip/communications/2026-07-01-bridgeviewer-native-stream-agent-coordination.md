@@ -109,6 +109,36 @@ entries; if an entry becomes stale, append a correction with the new evidence.
   `oxlint --type-aware` on touched TS passed,
   and `pnpm --dir BridgeWeb exec tsc --noEmit --pretty false` passed.
 
+### 2026-07-01 Codex Swift S4 Gated Headless Benchmark Checkpoint
+
+- Took over Fable's Swift S4 handoff after S3 scheduler fixes were committed.
+- Added gated benchmark mode to `mise run verify-bridge-headless-manifest` via
+  `AGENTSTUDIO_BRIDGE_HEADLESS_BENCHMARK_MODE=1`.
+- The compact proof remains always-on/report-only; the nested
+  `gatedBenchmark` artifact is now the hard-gated benchmark block.
+- Gated artifact checks now fail closed for:
+  - metadata interest samples >= 100 total;
+  - foreground metadata interest samples >= 50;
+  - visible metadata interest samples >= 50;
+  - foreground/visible scheduler queue-wait samples >= 50 per lane;
+  - content fetch samples >= 20;
+  - foreground queue wait p95 < 32ms and p99 < 64ms;
+  - visible queue wait p95 < 64ms and p99 < 100ms.
+- Fresh gated artifact:
+  `tmp/bridge-headless-manifest-proof/current-worktree-manifest-proof.json`.
+  Observed sample facts: metadata interest 100 total (50 foreground,
+  50 visible), content fetch 20, foreground queue-wait p95 0.0096ms /
+  p99 0.0196ms, visible queue-wait p95 0.0084ms / p99 0.0188ms.
+- Proof run:
+  `mise run verify-bridge-headless-manifest` passed with 2 tests / 2 suites and
+  artifact validation green.
+- Broad Bridge sweep:
+  `swift test --filter 'BridgeMetadataLaneSchedulerTests|WebKitSerializedTests.BridgeWorktreeFile|WebKitSerializedTests.BridgeReviewMetadataWindowTransportTests|WebKitSerializedTests.BridgePaneControllerTests'`
+  passed 86 tests / 12 suites.
+- Still open after this checkpoint: marker-scoped Victoria export/query for the
+  same native histogram events, native WKWebView proof, and S2 typed
+  frame-level lineage / browser treeDelta apply branch.
+
 ### 2026-07-01 Codex Swift S4 Current-Worktree Proof Checkpoint
 
 - Took over after Fable quota handoff and commit `8c5d39e2`.

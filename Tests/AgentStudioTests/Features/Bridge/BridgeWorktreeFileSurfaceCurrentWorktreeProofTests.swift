@@ -78,6 +78,18 @@ extension WebKitSerializedTests {
                 eventCapture: eventCapture,
                 fixture: fixture
             )
+            let gatedBenchmark = try await currentWorktreeGatedBenchmarkProof(
+                BridgeCurrentWorktreeGatedBenchmarkProofRequest(
+                    controller: fixture.controller,
+                    deliveryCapture: intakeDeliveryCapture,
+                    eventCapture: eventCapture,
+                    fixture: fixture,
+                    generation: response.result.generation,
+                    manifestIndex: manifestIndex,
+                    streamId: response.result.streamId,
+                    telemetryRecorder: telemetryRecorder
+                )
+            )
             let noStarvationProgress = try currentWorktreeNoStarvationProgress(
                 from: await eventCapture.intakeFrames(),
                 demandLaneFacts: demandLaneFacts,
@@ -98,6 +110,7 @@ extension WebKitSerializedTests {
                     noStarvationProgress: noStarvationProgress,
                     openToFirstWindowSummary: timingProof.openToFirstWindowSummary,
                     projectRoot: projectRoot,
+                    gatedBenchmark: gatedBenchmark,
                     schedulerQueueWaitByLane: schedulerQueueWaitByLane,
                     treeWindowTimingSummary: timingProof.treeWindowTimingSummary
                 )
@@ -372,9 +385,10 @@ extension WebKitSerializedTests {
             )
         }
 
-        private func currentWorktreeMetadataInterestTiming(
+        func currentWorktreeMetadataInterestTiming(
             deliveryRecords: [BridgeCurrentWorktreeProofIntakeDeliveryRecord],
-            requestTimings: [BridgeCurrentWorktreeMetadataInterestRequestTiming]
+            requestTimings: [BridgeCurrentWorktreeMetadataInterestRequestTiming],
+            minimumSampleCount: Int? = nil
         ) throws -> BridgeCurrentWorktreeMetadataInterestTimingFacts {
             let samples = try requestTimings.map { requestTiming in
                 let deliveryIndex = try #require(
@@ -409,7 +423,13 @@ extension WebKitSerializedTests {
             let summary = BridgeCurrentWorktreeTimingPercentileSummary(
                 samples: samples.map(\.durationMilliseconds)
             )
-            #expect(samples.count == Self.demandLaneProofOrder.count)
+            let sampleCountByLane = Dictionary(grouping: samples, by: \.lane)
+                .mapValues(\.count)
+            if let minimumSampleCount {
+                #expect(samples.count >= minimumSampleCount)
+            } else {
+                #expect(samples.count == Self.demandLaneProofOrder.count)
+            }
             #expect(summary.p95Milliseconds != nil)
             #expect(summary.p99Milliseconds != nil)
             return BridgeCurrentWorktreeMetadataInterestTimingFacts(
@@ -417,6 +437,7 @@ extension WebKitSerializedTests {
                 measurementScope:
                     "headless Swift intake delivery; includes intake-ready wait and does not claim provider queue wait",
                 sampleCount: summary.sampleCount,
+                sampleCountByLane: sampleCountByLane,
                 p95Milliseconds: summary.p95Milliseconds,
                 p99Milliseconds: summary.p99Milliseconds,
                 samples: samples.sorted { $0.lane < $1.lane }
@@ -517,30 +538,6 @@ extension WebKitSerializedTests {
             }
             Issue.record("Expected at least one file row for content descriptor demand proof")
             throw BridgeProviderFailure.providerFailed(message: "missingContentDemandRow")
-        }
-
-        private func firstSourceIdentity(
-            from intakeFrames: [String]
-        ) throws -> BridgeWorktreeFileSurfaceSourceIdentity {
-            for intakeFrame in intakeFrames {
-                let probe = try decodeIntakeEnvelope(intakeFrame, as: BridgeCurrentWorktreeFrameKindProbe.self)
-                switch probe.payload.frameKind {
-                case "worktree.snapshot":
-                    return try decodeIntakeEnvelope(
-                        intakeFrame,
-                        as: BridgeWorktreeSnapshotFrame.self
-                    ).payload.source
-                case "worktree.treeWindow":
-                    return try decodeIntakeEnvelope(
-                        intakeFrame,
-                        as: BridgeWorktreeTreeWindowFrame.self
-                    ).payload.projectionIdentity.source
-                default:
-                    continue
-                }
-            }
-            Issue.record("Expected metadata frame with source identity")
-            throw BridgeProviderFailure.providerFailed(message: "missingSourceIdentity")
         }
 
         private func currentWorktreeNoStarvationProgress(
