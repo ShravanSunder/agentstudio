@@ -49,8 +49,15 @@ import {
 	verifyWorktreeFileSplitResetReplacement,
 	verifyWorktreeFileStaleRefresh,
 } from './file-refresh-proofs.ts';
-import { verifyWorktreeFileToReviewHandoff } from './file-review-handoff.ts';
-import { captureWorktreeDevServerScreenshot } from './file-search-filter.ts';
+import {
+	clickWorktreeFilePathViaSearch,
+	verifyWorktreeFileToReviewHandoff,
+} from './file-review-handoff.ts';
+import {
+	captureWorktreeDevServerScreenshot,
+	fillWorktreeFileSearch,
+	waitForWorktreeOpenFileState,
+} from './file-search-filter.ts';
 import {
 	collectReviewInteractionPerformanceProof,
 	collectWorktreeInteractionPerformanceProof,
@@ -67,6 +74,7 @@ import {
 	worktreeFilePierreCacheKey,
 } from './page-shell.ts';
 import { verifyWorktreeReviewFileTargetRoute, verifyWorktreeReviewRoute } from './review-routes.ts';
+import { setWorktreeDevPollingEnabled } from './review-selection.ts';
 import {
 	fetchWorktreeReviewPerformanceClickTargets,
 	installFileContentRouteGate,
@@ -147,13 +155,8 @@ export async function verifyWorktreeDevServerPerformanceOnly(): Promise<Worktree
 	const page = await makeVerificationPage();
 	const surface = await fetchWorktreeSurface();
 	const descriptors = await fetchPerformanceWorktreeFileDescriptors(surface);
-	const initialDescriptor = await fetchFetchableWorktreeFileDescriptorForPath({
-		path: initialContentFixtureRelativePath,
-		surface,
-	});
 	const startupLoadTiming = await collectWorktreeStartupLoadTimingProof({
 		page,
-		path: initialDescriptor.path,
 	});
 	await resetWorktreeFileTreeForPerformanceSamples({
 		page,
@@ -263,7 +266,7 @@ export async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerifi
 		await page.waitForSelector('[data-testid="bridge-file-viewer-shell"]', { timeout: 30_000 });
 		const observedRoute = await assertObservedWorktreeDevServerUrl(page);
 		const substituteGuardProof = await assertNoStandaloneWorktreeFileApp(page);
-		await clickWorktreeFilePath(page, initialDescriptor.path);
+		await clickWorktreeFilePathViaSearch({ page, path: initialDescriptor.path });
 		await page.waitForFunction(
 			(path: string): boolean =>
 				document
@@ -286,6 +289,7 @@ export async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerifi
 			rendered: firstLoadRendered,
 			targetPath: initialDescriptor.path,
 		});
+		await fillWorktreeFileSearch(page, '');
 		await scrollTreeToFilePath(page, targetDescriptor.path);
 		await waitForPierreFileTreeAnchorSettled(page, targetDescriptor.path);
 		const scrollExtentBeforeSelection = await readWorktreeFileScrollExtentSnapshot(page);
@@ -294,40 +298,64 @@ export async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerifi
 			targetDescriptor.path,
 		);
 		const contentRouteGate = makeDeferred<void>();
+		await setWorktreeDevPollingEnabled({ enabled: false, page });
 		const contentRouteProbe = await installFileContentRouteGate({ gate: contentRouteGate, page });
-		await clickWorktreeFilePath(page, targetDescriptor.path);
-		await page.waitForFunction(
-			(path: string): boolean =>
-				document
-					.querySelector('[data-worktree-open-file-path]')
-					?.getAttribute('data-worktree-open-file-path') === path,
-			targetDescriptor.path,
-			{ timeout: 10_000 },
-		);
-		await page.waitForFunction(
-			(): boolean =>
-				document
-					.querySelector('[data-worktree-open-file-state]')
-					?.getAttribute('data-worktree-open-file-state') === 'loading',
-			{ timeout: 10_000 },
-		);
-		await scrollContentPaneToNonzeroOffset(page);
-		const scrollExtentAfterSelection = await readWorktreeFileScrollExtentSnapshot(page);
-		const workerFileSuccessCountBeforeTargetSelection =
-			await readBridgePierreWorkerFileSuccessCount(page);
-		contentRouteGate.resolve();
-		await page.waitForFunction(
-			(): boolean =>
-				document
-					.querySelector('[data-worktree-open-file-state]')
-					?.getAttribute('data-worktree-open-file-state') === 'ready',
-			{ timeout: 20_000 },
-		);
-		const selectedContentRouteProof = assertSelectedContentRouteProof({
-			expectedContentHandle: targetDescriptor.contentHandle,
-			probe: contentRouteProbe,
-		});
-		await contentRouteProbe.dispose();
+		let scrollExtentAfterSelection;
+		let workerFileSuccessCountBeforeTargetSelection;
+		let selectedContentRouteProof;
+		try {
+			await clickWorktreeFilePath(page, targetDescriptor.path);
+			await page.waitForFunction(
+				(path: string): boolean =>
+					document
+						.querySelector('[data-worktree-open-file-path]')
+						?.getAttribute('data-worktree-open-file-path') === path,
+				targetDescriptor.path,
+				{ timeout: 10_000 },
+			);
+			await page.waitForFunction(
+				(expected: { readonly path: string }): boolean => {
+					const contentPanel = document.querySelector(
+						'[data-testid="bridge-file-viewer-code-canvas"]',
+					);
+					const state = contentPanel?.getAttribute('data-worktree-open-file-state');
+					return (
+						contentPanel?.getAttribute('data-worktree-open-file-path') === expected.path &&
+						(state === 'loading' || state === 'stale')
+					);
+				},
+				{ path: targetDescriptor.path },
+				{ timeout: 20_000 },
+			);
+			await scrollContentPaneToNonzeroOffset(page);
+			scrollExtentAfterSelection = await readWorktreeFileScrollExtentSnapshot(page);
+			workerFileSuccessCountBeforeTargetSelection =
+				await readBridgePierreWorkerFileSuccessCount(page);
+			contentRouteGate.resolve();
+			const targetStateAfterGateRelease = await page.evaluate((path: string): string | null => {
+				const contentPanel = document.querySelector(
+					'[data-testid="bridge-file-viewer-code-canvas"]',
+				);
+				return contentPanel?.getAttribute('data-worktree-open-file-path') === path
+					? (contentPanel.getAttribute('data-worktree-open-file-state') ?? null)
+					: null;
+			}, targetDescriptor.path);
+			if (targetStateAfterGateRelease === 'stale') {
+				await clickWorktreeFilePath(page, targetDescriptor.path);
+			}
+			await waitForWorktreeOpenFileState({
+				page,
+				path: targetDescriptor.path,
+				state: 'ready',
+			});
+			selectedContentRouteProof = assertSelectedContentRouteProof({
+				expectedContentHandle: targetDescriptor.contentHandle,
+				probe: contentRouteProbe,
+			});
+		} finally {
+			await contentRouteProbe.dispose();
+			await setWorktreeDevPollingEnabled({ enabled: true, page });
+		}
 		const scrollExtentAfterReady = await readWorktreeFileScrollExtentSnapshot(page);
 		await waitForPierreFileTreeAnchorSettled(page, targetDescriptor.path);
 		const treeAnchorAfterReady = await readWorktreeFileTreeAnchorSnapshot(
@@ -433,7 +461,6 @@ export async function verifyWorktreeDevServer(): Promise<WorktreeDevServerVerifi
 		assertWorktreeScrollExtentCanary(scrollExtentCanary);
 		const startupLoadTiming = await collectWorktreeStartupLoadTimingProof({
 			page,
-			path: initialDescriptor.path,
 		});
 		const performanceSurface = await fetchWorktreeSurface();
 		const performanceDescriptors =

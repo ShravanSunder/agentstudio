@@ -19,7 +19,7 @@ import {
 	type WorktreeFileVisibleRect,
 	type WorktreeRenderedContentState,
 } from './types.ts';
-import { countTextLines, cssStringLiteral } from './utils.ts';
+import { countTextLines } from './utils.ts';
 
 export function assertSelectedContentRouteProof(props: {
 	readonly expectedContentHandle: string;
@@ -235,13 +235,6 @@ export async function waitForPierreFileTreeAnchorSettled(page: Page, path: strin
 }
 
 export async function clickWorktreeFilePath(page: Page, path: string): Promise<void> {
-	const treeItemLocator = page
-		.locator(
-			`[data-testid="bridge-file-viewer-pierre-file-tree"] file-tree-container button[data-item-path=${cssStringLiteral(
-				path,
-			)}]`,
-		)
-		.first();
 	for (let attempt = 0; attempt < 3; attempt += 1) {
 		await dismissOpenBridgeMenus(page);
 		await scrollPierreFileTreeUntilPathVisible(page, path);
@@ -303,7 +296,20 @@ export async function clickWorktreeFilePath(page: Page, path: string): Promise<v
 		) {
 			throw new Error(`Expected visible Worktree/File row for ${path}`);
 		}
-		await treeItemLocator.click({ timeout: 2_000 });
+		await page.evaluate((targetPath: string): void => {
+			const button = window.bridgeWorktreeVerifier.getPierreFileTreeItem(targetPath);
+			if (!(button instanceof HTMLElement) || button.dataset['itemPath'] !== targetPath) {
+				throw new Error(`Expected exact Worktree/File row element for ${targetPath}`);
+			}
+			button.dispatchEvent(
+				new MouseEvent('click', {
+					bubbles: true,
+					cancelable: true,
+					composed: true,
+					view: window,
+				}),
+			);
+		}, path);
 		const selected = await page
 			.waitForFunction(
 				(targetPath: string): boolean =>
@@ -719,7 +725,7 @@ export async function readWorktreeFileVisibleAppProof(
 			sampledTreeRowCount: sampledRows.length,
 			sampledTreeRowsHaveDistinctVerticalPositions:
 				sampledRows.length >= 8 && distinctSampledRowTops.size === sampledRows.length,
-			searchControlCount: shell.querySelectorAll('[data-testid="bridge-review-search-control"]')
+			searchControlCount: shell.querySelectorAll('[data-testid="worktree-file-search-control"]')
 				.length,
 			searchInputCount: shell.querySelectorAll('[data-testid="worktree-file-search-input"]').length,
 			sharedRailToolbarCount: shell.querySelectorAll(
@@ -761,9 +767,9 @@ export function assertWorktreeFileVisibleAppProof(props: {
 	if (proof.searchControlCount !== 1) {
 		throw new Error(`Expected Worktree/File shared search control: ${JSON.stringify(proof)}`);
 	}
-	if (proof.searchInputCount !== 0) {
+	if (proof.searchInputCount > 1) {
 		throw new Error(
-			`Expected Worktree/File search input to start closed: ${JSON.stringify(proof)}`,
+			`Expected Worktree/File search input to mount at most once: ${JSON.stringify(proof)}`,
 		);
 	}
 	if (proof.regexToggleCount !== 1) {

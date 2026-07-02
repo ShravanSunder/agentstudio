@@ -336,8 +336,40 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 		expect(verifierSource).toContain('initialContentFixtureRelativePath');
 		expect(verifierSource).toContain('fetchFetchableWorktreeFileDescriptorForPath({');
 		expect(verifierSource).toContain('path: initialContentFixtureRelativePath');
-		expect(verifierSource).toContain('await clickWorktreeFilePath(page, initialDescriptor.path)');
+		expect(verifierSource).toContain(
+			'await clickWorktreeFilePathViaSearch({ page, path: initialDescriptor.path })',
+		);
+		expect(verifierSource).toContain("await fillWorktreeFileSearch(page, '')");
 		expect(verifierSource).not.toContain('fetchFirstFetchableWorktreeFileDescriptor(surface)');
+	});
+
+	test('scopes File-to-Review handoff ready waits to the FileViewer code canvas', async () => {
+		const handoffSource = await readFile(
+			new URL('./verify-bridge-viewer-worktree-dev-server/file-review-handoff.ts', import.meta.url),
+			'utf8',
+		);
+
+		expect(handoffSource).toContain('waitForWorktreeOpenFileState');
+		expect(handoffSource).toContain('waitForWorktreeFileViewerSurfaceReady');
+		expect(handoffSource).toContain('waitForWorktreeOpenFileReadyOrStale');
+		expect(handoffSource).toContain("state === 'stale'");
+		expect(handoffSource).toContain('worktree-file-refresh');
+		expect(handoffSource).toContain("state: 'ready'");
+		expect(handoffSource).toContain('path: expectedDisplayPath');
+		expect(handoffSource).not.toContain(
+			"document\\n\\t\\t\\t\\t\\t.querySelector('[data-worktree-open-file-state]')",
+		);
+	});
+
+	test('uses Playwright row clicks for filtered Worktree/File selections', async () => {
+		const handoffSource = await readFile(
+			new URL('./verify-bridge-viewer-worktree-dev-server/file-review-handoff.ts', import.meta.url),
+			'utf8',
+		);
+
+		expect(handoffSource).toContain('await clickWorktreeFilePath(props.page, props.path)');
+		expect(handoffSource).toContain('data-selected-display-path');
+		expect(handoffSource).not.toContain('treeItem.click();');
 	});
 
 	test('selects the stable Review route canary without waiting on default selection order', async () => {
@@ -393,6 +425,40 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 		expect(verifierSource).not.toContain(
 			'document.querySelectorAll(\'[data-testid="bridge-file-viewer-shell"]\').length',
 		);
+	});
+
+	test('counts FileViewer content topbars inside the active file mode host', async () => {
+		const verifierSource = await readWorktreeDevServerVerifierSource();
+
+		expect(verifierSource).toContain(
+			'modeHost.querySelectorAll(\'[data-testid="bridge-viewer-content-topbar"]\')',
+		);
+		expect(verifierSource).not.toContain(
+			'...document.querySelectorAll(\'[data-testid="bridge-viewer-content-topbar"]\')',
+		);
+	});
+
+	test('proves the Worktree/File search control with the FileViewer selector', async () => {
+		const contentStateSource = await readFile(
+			new URL('./verify-bridge-viewer-worktree-dev-server/content-state.ts', import.meta.url),
+			'utf8',
+		);
+
+		expect(contentStateSource).toContain('[data-testid="worktree-file-search-control"]');
+		expect(contentStateSource).not.toContain('[data-testid="bridge-review-search-control"]');
+	});
+
+	test('selects Worktree/File filter options with FileViewer menu selectors', async () => {
+		const fileSearchFilterSource = await readFile(
+			new URL('./verify-bridge-viewer-worktree-dev-server/file-search-filter.ts', import.meta.url),
+			'utf8',
+		);
+
+		expect(fileSearchFilterSource).toContain(
+			'[data-testid="worktree-file-filter-menu-option-label"]',
+		);
+		expect(fileSearchFilterSource).toContain('[data-testid="worktree-file-filter-menu-option"]');
+		expect(fileSearchFilterSource).not.toContain('[data-testid="bridge-review-filter-option"]');
 	});
 
 	test('rejects the old plain Vite Review-package wrapper route', async () => {
@@ -783,14 +849,14 @@ describe('worktree dev-server verifier Review interaction contract', () => {
 				preDispatchContentRouteHitCount: 0,
 				proofPath: 'BridgeWeb/src/test-fixtures/worktree-split-reset-canary.txt',
 				refreshDisabledAtFirstStale: true,
-				refreshEnabledAfterReplacement: true,
+				refreshEnabledAfterReplacement: false,
 				refreshedContentVisible: true,
 				replacementContentHandle: 'replacement-handle',
 				replacementContentHash: 'replacement-hash',
 				replacementContentRouteHitCount: 1,
 				replacementSourceCursor: 'cursor-replacement',
 				selectedContentStateAfterReset: 'stale',
-				staleMessageVisible: true,
+				staleMessageVisible: false,
 			}),
 		).toBe(true);
 	});

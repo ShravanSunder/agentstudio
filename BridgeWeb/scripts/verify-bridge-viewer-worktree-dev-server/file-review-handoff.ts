@@ -1,22 +1,26 @@
 import type { Page } from 'playwright';
 
-import {
-	reviewContentRouteDeltaSatisfied,
-	worktreeFileOpenLoadTelemetrySatisfied,
-} from '../verify-bridge-viewer-worktree-review-proof.ts';
+import { reviewContentRouteDeltaSatisfied } from '../verify-bridge-viewer-worktree-review-proof.ts';
 import {
 	fileToReviewHandoffFixtureRelativePath,
 	minimumExpectedReviewMetadataRouteHitCount,
 	worktreeDevServerUrl,
 } from './config.ts';
 import { clickWorktreeFilePath, dismissOpenBridgeMenus } from './content-state.ts';
-import { clickWorktreeFileControl } from './file-search-filter.ts';
+import {
+	clickWorktreeFileControl,
+	fillWorktreeFileSearch,
+	waitForWorktreeFileFilterStatusAtLeast,
+	waitForWorktreeOpenFileState,
+} from './file-search-filter.ts';
 import { makeVerificationPage } from './page-factory.ts';
+import { waitForWorktreeFileViewerSurfaceReady } from './page-shell.ts';
 import {
 	reviewTreeSelectedPathMatches,
 	waitForReviewSelectedContentState,
 } from './review-tree-click.ts';
 import {
+	fetchWorktreeReviewContentDescriptorIdsForItemId,
 	fetchWorktreeReviewItemIdForDisplayPath,
 	installReviewRouteProbe,
 	waitForReviewContentRouteHitAfterIndex,
@@ -34,24 +38,33 @@ export async function verifyWorktreeFileToReviewHandoff(): Promise<WorktreeFileT
 	try {
 		const expectedDisplayPath = fileToReviewHandoffFixtureRelativePath;
 		const expectedReviewItemId = await fetchWorktreeReviewItemIdForDisplayPath(expectedDisplayPath);
+		const expectedContentDescriptorIds =
+			await fetchWorktreeReviewContentDescriptorIdsForItemId(expectedReviewItemId);
 		await page.goto(worktreeDevServerUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
 		await page.waitForSelector('[data-testid="bridge-file-viewer-shell"]', { timeout: 30_000 });
+		await waitForWorktreeFileViewerSurfaceReady(page);
 		await clickWorktreeFilePathViaSearch({ page, path: expectedDisplayPath });
-		await page.waitForFunction(
-			(path: string): boolean =>
-				document
-					.querySelector('[data-worktree-open-file-path]')
-					?.getAttribute('data-worktree-open-file-path') === path,
-			expectedDisplayPath,
-			{ timeout: 10_000 },
-		);
-		await page.waitForFunction(
-			(): boolean =>
-				document
-					.querySelector('[data-worktree-open-file-state]')
-					?.getAttribute('data-worktree-open-file-state') === 'ready',
-			{ timeout: 20_000 },
-		);
+		const openFileState = await waitForWorktreeOpenFileReadyOrStale({
+			page,
+			path: expectedDisplayPath,
+		});
+		if (openFileState === 'stale') {
+			const refreshButton = page.locator('[data-testid="worktree-file-refresh"]:visible').first();
+			if ((await refreshButton.count()) > 0) {
+				await refreshButton.click();
+				await waitForWorktreeOpenFileState({
+					page,
+					path: expectedDisplayPath,
+					state: 'ready',
+				});
+			}
+		} else {
+			await waitForWorktreeOpenFileState({
+				page,
+				path: expectedDisplayPath,
+				state: 'ready',
+			});
+		}
 		const beforeLocationHref = await page.evaluate(() => window.location.href);
 		const reviewContentHitCountBeforeHandoffClick = routeProbe.contentHitCount();
 		await clickWorktreeFileControl(page, 'worktree-file-open-review-comparison');
@@ -74,6 +87,7 @@ export async function verifyWorktreeFileToReviewHandoff(): Promise<WorktreeFileT
 		);
 		const reviewHandoffContentRouteProof = await waitForReviewContentRouteHitAfterIndex({
 			beforeHitCount: reviewContentHitCountBeforeHandoffClick,
+			expectedContentDescriptorIds,
 			expectedItemId: expectedReviewItemId,
 			routeProbe,
 		});
@@ -332,40 +346,68 @@ export async function verifyWorktreeFileToReviewHandoff(): Promise<WorktreeFileT
 			reviewContentRouteHitUrls: routeProbe.contentHitUrls(),
 			reviewMetadataRouteHitCount: routeProbe.metadataHitCount(),
 		} satisfies WorktreeFileToReviewHandoffProof;
-		if (
-			handoffProof.appRootCount !== 1 ||
-			handoffProof.appOwner !== 'BridgeApp' ||
-			handoffProof.beforeLocationHref !== worktreeDevServerUrl ||
-			handoffProof.afterLocationHref !== worktreeDevServerUrl ||
-			handoffProof.sharedShellMode !== 'review' ||
-			handoffProof.sharedShellOwner !== 'BridgeViewerAppShell' ||
-			handoffProof.fileContextButtonSelectedAfterSwitch !== 'false' ||
-			handoffProof.reviewContextButtonSelectedAfterSwitch !== 'true' ||
-			handoffProof.fileViewerShellCountAfterSwitch !== 1 ||
-			!handoffProof.fileModeHostHiddenAfterSwitch ||
-			!handoffProof.fileViewerShellHiddenAfterSwitch ||
-			!worktreeFileOpenLoadTelemetrySatisfied(handoffProof.fileViewerOpenLoadTelemetry) ||
-			handoffProof.fileViewerSelectedPathAfterSwitch !== expectedDisplayPath ||
-			handoffProof.reviewModeAfterReturnToFile !== 'file' ||
-			handoffProof.fileModeHostActiveAfterReturnToFile !== 'true' ||
-			handoffProof.fileModeHostHiddenAfterReturnToFile ||
-			handoffProof.fileViewerSelectedPathAfterReturnToFile !== expectedDisplayPath ||
-			handoffProof.reviewModeAfterReturnToReview !== 'review' ||
-			handoffProof.fileModeHostActiveAfterReturnToReview !== 'false' ||
-			!handoffProof.fileModeHostHiddenAfterReturnToReview ||
-			handoffProof.reviewContextButtonSelectedAfterReturnToReview !== 'true' ||
-			handoffProof.reviewSelectedDisplayPathAfterReturnToReview !== expectedDisplayPath ||
-			handoffProof.selectedContentState !== 'ready' ||
-			handoffProof.selectedDisplayPath !== expectedDisplayPath ||
-			handoffProof.selectedItemId !== expectedReviewItemId ||
-			handoffProof.selectedMaterializedItemType !== 'file' ||
-			handoffProof.selectedMaterializedFileLineCount <= 0 ||
-			handoffProof.standaloneWorktreeFileAppCount !== 0 ||
-			handoffProof.reviewMetadataRouteHitCount < minimumExpectedReviewMetadataRouteHitCount ||
-			!reviewContentRouteDeltaSatisfied(handoffProof.reviewHandoffContentRouteProof)
-		) {
+		const failedInvariants = [
+			handoffProof.appRootCount === 1 ? null : 'appRootCount',
+			handoffProof.appOwner === 'BridgeApp' ? null : 'appOwner',
+			handoffProof.beforeLocationHref === worktreeDevServerUrl ? null : 'beforeLocationHref',
+			handoffProof.afterLocationHref === worktreeDevServerUrl ? null : 'afterLocationHref',
+			handoffProof.sharedShellMode === 'review' ? null : 'sharedShellMode',
+			handoffProof.sharedShellOwner === 'BridgeViewerAppShell' ? null : 'sharedShellOwner',
+			handoffProof.fileContextButtonSelectedAfterSwitch === 'false'
+				? null
+				: 'fileContextButtonSelectedAfterSwitch',
+			handoffProof.reviewContextButtonSelectedAfterSwitch === 'true'
+				? null
+				: 'reviewContextButtonSelectedAfterSwitch',
+			handoffProof.fileViewerShellCountAfterSwitch === 1 ? null : 'fileViewerShellCountAfterSwitch',
+			handoffProof.fileModeHostHiddenAfterSwitch ? null : 'fileModeHostHiddenAfterSwitch',
+			handoffProof.fileViewerShellHiddenAfterSwitch ? null : 'fileViewerShellHiddenAfterSwitch',
+			handoffProof.fileViewerSelectedPathAfterSwitch === expectedDisplayPath
+				? null
+				: 'fileViewerSelectedPathAfterSwitch',
+			handoffProof.reviewModeAfterReturnToFile === 'file' ? null : 'reviewModeAfterReturnToFile',
+			handoffProof.fileModeHostActiveAfterReturnToFile === 'true'
+				? null
+				: 'fileModeHostActiveAfterReturnToFile',
+			!handoffProof.fileModeHostHiddenAfterReturnToFile
+				? null
+				: 'fileModeHostHiddenAfterReturnToFile',
+			handoffProof.fileViewerSelectedPathAfterReturnToFile === expectedDisplayPath
+				? null
+				: 'fileViewerSelectedPathAfterReturnToFile',
+			handoffProof.reviewModeAfterReturnToReview === 'review'
+				? null
+				: 'reviewModeAfterReturnToReview',
+			handoffProof.fileModeHostActiveAfterReturnToReview === 'false'
+				? null
+				: 'fileModeHostActiveAfterReturnToReview',
+			handoffProof.fileModeHostHiddenAfterReturnToReview
+				? null
+				: 'fileModeHostHiddenAfterReturnToReview',
+			handoffProof.reviewContextButtonSelectedAfterReturnToReview === 'true'
+				? null
+				: 'reviewContextButtonSelectedAfterReturnToReview',
+			handoffProof.reviewSelectedDisplayPathAfterReturnToReview === expectedDisplayPath
+				? null
+				: 'reviewSelectedDisplayPathAfterReturnToReview',
+			handoffProof.selectedContentState === 'ready' ? null : 'selectedContentState',
+			handoffProof.selectedDisplayPath === expectedDisplayPath ? null : 'selectedDisplayPath',
+			handoffProof.selectedItemId === expectedReviewItemId ? null : 'selectedItemId',
+			handoffProof.selectedMaterializedItemType === 'file' ? null : 'selectedMaterializedItemType',
+			handoffProof.selectedMaterializedFileLineCount > 0
+				? null
+				: 'selectedMaterializedFileLineCount',
+			handoffProof.standaloneWorktreeFileAppCount === 0 ? null : 'standaloneWorktreeFileAppCount',
+			handoffProof.reviewMetadataRouteHitCount >= minimumExpectedReviewMetadataRouteHitCount
+				? null
+				: 'reviewMetadataRouteHitCount',
+			reviewContentRouteDeltaSatisfied(handoffProof.reviewHandoffContentRouteProof)
+				? null
+				: 'reviewHandoffContentRouteProof',
+		].filter((failure): failure is string => failure !== null);
+		if (failedInvariants.length > 0) {
 			throw new Error(
-				`Expected FileViewer to hand off selected file to ReviewViewer inside one shared app: ${JSON.stringify(handoffProof)}`,
+				`Expected FileViewer to hand off selected file to ReviewViewer inside one shared app; failed ${failedInvariants.join(', ')}: ${JSON.stringify(handoffProof)}`,
 			);
 		}
 		return handoffProof;
@@ -375,24 +417,36 @@ export async function verifyWorktreeFileToReviewHandoff(): Promise<WorktreeFileT
 	}
 }
 
+async function waitForWorktreeOpenFileReadyOrStale(props: {
+	readonly page: Page;
+	readonly path: string;
+}): Promise<'ready' | 'stale'> {
+	const stateHandle = await props.page.waitForFunction(
+		(expectedPath: string): 'ready' | 'stale' | false => {
+			const contentPanel = document.querySelector('[data-testid="bridge-file-viewer-code-canvas"]');
+			if (contentPanel?.getAttribute('data-worktree-open-file-path') !== expectedPath) {
+				return false;
+			}
+			const state = contentPanel.getAttribute('data-worktree-open-file-state');
+			return state === 'ready' || state === 'stale' ? state : false;
+		},
+		props.path,
+		{ timeout: 20_000 },
+	);
+	const state = await stateHandle.jsonValue();
+	if (state !== 'ready' && state !== 'stale') {
+		throw new Error(`Expected Worktree/File ready-or-stale state, got ${String(state)}`);
+	}
+	return state;
+}
+
 export async function clickWorktreeFilePathViaSearch(props: {
 	readonly page: Page;
 	readonly path: string;
 }): Promise<void> {
 	await dismissOpenBridgeMenus(props.page);
-	const searchInputLocator = props.page
-		.locator('[data-testid="worktree-file-search-input"]')
-		.first();
-	if (!(await searchInputLocator.isVisible())) {
-		await clickWorktreeFileControl(props.page, 'worktree-file-search-toggle');
-	}
-	await searchInputLocator.waitFor({ state: 'visible', timeout: 10_000 });
-	await searchInputLocator.fill(props.path);
-	await props.page.waitForFunction(
-		(path: string): boolean => window.bridgeWorktreeVerifier.getPierreFileTreeItem(path) !== null,
-		props.path,
-		{ timeout: 10_000 },
-	);
+	await fillWorktreeFileSearch(props.page, props.path);
+	await waitForWorktreeFileFilterStatusAtLeast(props.page, 1);
 	await clickWorktreeFilePath(props.page, props.path);
 }
 

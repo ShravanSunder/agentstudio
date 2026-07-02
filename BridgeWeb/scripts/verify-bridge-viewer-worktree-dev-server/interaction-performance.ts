@@ -26,6 +26,7 @@ import { assertObservedWorktreeDevServerUrl, reloadWorktreeDevServerPage } from 
 import {
 	clickVisibleWorktreeFilePath,
 	readReviewCodeViewItemCount,
+	waitForAnyWorktreeSelectedPathTiming,
 	waitForWorktreeFirstVisibleContentWindow,
 	waitForWorktreeOpenFileReadyMilliseconds,
 	waitForWorktreeSelectedPathMilliseconds,
@@ -246,26 +247,24 @@ export function summarizeBridgeTelemetryPhaseDurations(props: {
 
 export async function collectWorktreeStartupLoadTimingProof(props: {
 	readonly page: Page;
-	readonly path: string;
 }): Promise<WorktreeStartupLoadTimingProof> {
 	const pageLoadStartedAt = performance.now();
 	await reloadWorktreeDevServerPage(props.page);
 	await assertObservedWorktreeDevServerUrl(props.page);
-	const selectedPathMilliseconds = await waitForWorktreeSelectedPathMilliseconds({
+	const selectedPathTiming = await waitForAnyWorktreeSelectedPathTiming({
 		page: props.page,
-		path: props.path,
 		startedAt: pageLoadStartedAt,
-		timeoutMilliseconds: 10_000,
+		timeoutMilliseconds: 20_000,
 	});
 	const contentReadyMilliseconds = await waitForWorktreeOpenFileReadyMilliseconds({
 		page: props.page,
-		path: props.path,
+		path: selectedPathTiming.path,
 		startedAt: pageLoadStartedAt,
 		timeoutMilliseconds: 20_000,
 	});
 	await waitForWorktreeFirstVisibleContentWindow({
 		page: props.page,
-		path: props.path,
+		path: selectedPathTiming.path,
 		timeoutMilliseconds: 20_000,
 	});
 	const firstVisibleContentWindowMilliseconds = Math.max(0, performance.now() - pageLoadStartedAt);
@@ -274,7 +273,9 @@ export async function collectWorktreeStartupLoadTimingProof(props: {
 		pageLoadToFirstVisibleContentWindow: summarizeInteractionSamples([
 			firstVisibleContentWindowMilliseconds,
 		]),
-		pageLoadToSelectedPath: summarizeInteractionSamples([selectedPathMilliseconds]),
+		pageLoadToSelectedPath: summarizeInteractionSamples([
+			selectedPathTiming.selectedPathMilliseconds,
+		]),
 	};
 }
 

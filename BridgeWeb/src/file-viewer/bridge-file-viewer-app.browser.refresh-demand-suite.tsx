@@ -536,4 +536,62 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		await waitForOpenFileState('ready');
 		await waitForVisibleCodeText('sourceLessResetFresh');
 	});
+
+	test('requests a replacement descriptor after source reset snapshot metadata arrives without descriptors', async () => {
+		const initialDescriptor = makeFileDescriptor({
+			contentHandle: 'source-snapshot-demand-content-1',
+			fileId: 'file-source-less-reset-target',
+			path: 'src/source-less-reset-target.ts',
+		});
+		const resetSourceIdentity = makeSourceIdentity({
+			subscriptionGeneration: 2,
+			sourceCursor: 'cursor-2',
+		});
+		const descriptorRequests: WorktreeFileDescriptorRequest[] = [];
+		let publishFrames: PublishWorktreeFileFrames | null = null;
+
+		render(
+			<BridgeFileViewerApp
+				codeViewWorkerPoolEnabled={false}
+				fetchResource={async () =>
+					makeWorktreeFileSurfaceRuntimeFetchedResource(
+						'export const sourceSnapshotDemandInitial = true;\n',
+					)
+				}
+				initialFrames={makeFrames(initialDescriptor)}
+				navigationCommand={fileNavigationCommandForPath('src/source-less-reset-target.ts')}
+				requestFileDescriptor={(request) => {
+					descriptorRequests.push(request);
+				}}
+				subscribeFrames={(handler): (() => void) => {
+					publishFrames = handler;
+					return (): void => {
+						publishFrames = null;
+					};
+				}}
+			/>,
+		);
+
+		await waitForOpenFileState('ready');
+		await waitForVisibleCodeText('sourceSnapshotDemandInitial');
+		const publishRequiredFrames = requireFramePublisher(publishFrames);
+		publishRequiredFrames(makeSourceLessResetFrames());
+		await waitForOpenFileState('stale');
+		expect(descriptorRequests).toEqual([]);
+
+		publishRequiredFrames([
+			makeSnapshotFrame({ sequence: 1, sourceIdentity: resetSourceIdentity }),
+		]);
+
+		await waitForBridgeViewerAnimationFrame();
+		await waitForBridgeViewerAnimationFrame();
+		expect(descriptorRequests).toEqual([
+			expect.objectContaining({
+				fileId: 'file-source-less-reset-target',
+				lane: 'foreground',
+				path: 'src/source-less-reset-target.ts',
+				sourceIdentity: resetSourceIdentity,
+			}),
+		]);
+	});
 });

@@ -1,6 +1,6 @@
 import type { Page } from 'playwright';
 
-import { cssStringLiteral } from './utils.ts';
+import { clickWorktreeFilePath } from './content-state.ts';
 
 export async function readReviewCodeViewItemCount(page: Page): Promise<number> {
 	return await page.evaluate((): number => {
@@ -29,14 +29,7 @@ export async function clickVisibleWorktreeFilePath(page: Page, path: string): Pr
 	if (!targetVisible) {
 		throw new Error(`Expected visible Worktree/File row for performance click ${path}`);
 	}
-	await page
-		.locator(
-			`[data-testid="bridge-file-viewer-pierre-file-tree"] file-tree-container button[data-item-path=${cssStringLiteral(
-				path,
-			)}]`,
-		)
-		.first()
-		.click({ timeout: 2_000 });
+	await clickWorktreeFilePath(page, path);
 }
 
 export async function waitForWorktreeFirstVisibleContentWindow(props: {
@@ -83,15 +76,81 @@ export async function waitForWorktreeSelectedPathMilliseconds(props: {
 	readonly startedAt: number;
 	readonly timeoutMilliseconds: number;
 }): Promise<number> {
-	await props.page.waitForFunction(
-		(targetPath: string): boolean =>
-			document
-				.querySelector('[data-testid="bridge-file-viewer-shell"]')
-				?.getAttribute('data-selected-display-path') === targetPath,
-		props.path,
-		{ timeout: props.timeoutMilliseconds },
-	);
+	try {
+		await props.page.waitForFunction(
+			(targetPath: string): boolean =>
+				document
+					.querySelector('[data-testid="bridge-file-viewer-shell"]')
+					?.getAttribute('data-selected-display-path') === targetPath,
+			props.path,
+			{ timeout: props.timeoutMilliseconds },
+		);
+	} catch (error) {
+		const debugState = await props.page.evaluate((targetPath: string) => {
+			const shell = document.querySelector('[data-testid="bridge-file-viewer-shell"]');
+			const contentPanel = document.querySelector('[data-testid="bridge-file-viewer-code-canvas"]');
+			return {
+				currentOpenPath: contentPanel?.getAttribute('data-worktree-open-file-path') ?? null,
+				currentOpenState: contentPanel?.getAttribute('data-worktree-open-file-state') ?? null,
+				selectedDisplayPath: shell?.getAttribute('data-selected-display-path') ?? null,
+				sourceCursor: shell?.getAttribute('data-worktree-source-cursor') ?? null,
+				targetPath,
+				targetTreeRowExists:
+					window.bridgeWorktreeVerifier.getPierreFileTreeItem(targetPath) !== null,
+			};
+		}, props.path);
+		throw new Error(
+			`Timed out waiting for selected Worktree/File path ${props.path}: ${JSON.stringify(debugState)}`,
+			{ cause: error },
+		);
+	}
 	return Math.max(0, performance.now() - props.startedAt);
+}
+
+export async function waitForAnyWorktreeSelectedPathTiming(props: {
+	readonly page: Page;
+	readonly startedAt: number;
+	readonly timeoutMilliseconds: number;
+}): Promise<{
+	readonly path: string;
+	readonly selectedPathMilliseconds: number;
+}> {
+	try {
+		const selectedPathHandle = await props.page.waitForFunction(
+			(): string | false => {
+				const selectedPath = document
+					.querySelector('[data-testid="bridge-file-viewer-shell"]')
+					?.getAttribute('data-selected-display-path');
+				return selectedPath === undefined || selectedPath === null || selectedPath.length === 0
+					? false
+					: selectedPath;
+			},
+			{ timeout: props.timeoutMilliseconds },
+		);
+		const path = await selectedPathHandle.jsonValue();
+		if (typeof path !== 'string' || path.length === 0) {
+			throw new Error(`Expected non-empty selected Worktree/File path, got ${String(path)}`);
+		}
+		return {
+			path,
+			selectedPathMilliseconds: Math.max(0, performance.now() - props.startedAt),
+		};
+	} catch (error) {
+		const debugState = await props.page.evaluate(() => {
+			const shell = document.querySelector('[data-testid="bridge-file-viewer-shell"]');
+			const contentPanel = document.querySelector('[data-testid="bridge-file-viewer-code-canvas"]');
+			return {
+				currentOpenPath: contentPanel?.getAttribute('data-worktree-open-file-path') ?? null,
+				currentOpenState: contentPanel?.getAttribute('data-worktree-open-file-state') ?? null,
+				selectedDisplayPath: shell?.getAttribute('data-selected-display-path') ?? null,
+				sourceCursor: shell?.getAttribute('data-worktree-source-cursor') ?? null,
+			};
+		});
+		throw new Error(
+			`Timed out waiting for any selected Worktree/File startup path: ${JSON.stringify(debugState)}`,
+			{ cause: error },
+		);
+	}
 }
 
 export async function waitForWorktreeOpenFileReadyMilliseconds(props: {

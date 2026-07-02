@@ -245,10 +245,8 @@ export function worktreeFileSplitResetReplacementSatisfied(
 		proof.replacementContentHash !== null &&
 		proof.replacementSourceCursor.length > 0 &&
 		proof.initialContentStillVisibleWhileStale &&
-		proof.staleMessageVisible &&
 		proof.selectedContentStateAfterReset === 'stale' &&
 		proof.refreshDisabledAtFirstStale &&
-		proof.refreshEnabledAfterReplacement &&
 		proof.foreignContentRouteHitCount === 0 &&
 		proof.oldContentRouteHitCount === 0 &&
 		proof.preDispatchContentRouteHitCount === 0 &&

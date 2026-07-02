@@ -361,9 +361,9 @@ export interface WorktreeFileStaleRefreshProof {
 	readonly initialContentStillVisibleWhileStale: boolean;
 	readonly proofPath: string;
 	readonly refreshLoadTelemetry: WorktreeFileOpenLoadTelemetryProof;
-	readonly refreshFetchHitsAfterFirstClick: number;
-	readonly refreshFetchHitsAfterSecondClick: number;
-	readonly refreshFetchHitsBeforeClick: number;
+	readonly refreshFetchHitsAfterAutoRefresh: number;
+	readonly refreshFetchHitsAfterStale: number;
+	readonly refreshFetchHitsBeforeStale: number;
 	readonly refreshEnteredRefreshing: boolean;
 	readonly refreshReturnedReady: boolean;
 	readonly refreshedContentVisible: boolean;

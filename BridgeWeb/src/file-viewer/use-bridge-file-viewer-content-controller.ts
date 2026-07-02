@@ -237,6 +237,10 @@ export function useBridgeFileViewerContentController(
 					descriptor: state.descriptor,
 					renderState: renderStateRef.current,
 				}) ?? state.descriptor;
+			if (refreshDescriptor.fileId !== state.descriptor.fileId) {
+				await openFile(refreshDescriptor);
+				return;
+			}
 			setOpenFileState({
 				status: 'refreshing',
 				path: refreshDescriptor.path,
@@ -261,7 +265,7 @@ export function useBridgeFileViewerContentController(
 					provisionalOpenFileBodyRef.current = `${provisionalOpenFileBodyRef.current ?? ''}${chunk.text}`;
 					setProvisionalOpenFileBody(provisionalOpenFileBodyRef.current);
 				},
-				openFileSessionId: state.descriptor.fileId,
+				openFileSessionId: refreshDescriptor.fileId,
 			});
 			if (
 				openFileRequestIdRef.current !== requestId ||
@@ -333,6 +337,7 @@ export function useBridgeFileViewerContentController(
 			setOpenFileState,
 			setProvisionalOpenFileBody,
 			setRefreshDebugState,
+			openFile,
 		],
 	);
 

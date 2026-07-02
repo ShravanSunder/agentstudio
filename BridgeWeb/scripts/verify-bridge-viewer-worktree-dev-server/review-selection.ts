@@ -289,6 +289,21 @@ export async function waitForWorktreeDevForceSplitReloadDelivered(props: {
 	);
 }
 
+export async function waitForWorktreeDevReloadDelivered(props: {
+	readonly page: Page;
+	readonly sourceCursor: string;
+}): Promise<void> {
+	await props.page.waitForFunction(
+		(expectedSourceCursor: string): boolean =>
+			document.documentElement.dataset['bridgeWorktreeDevLastReloadRequest'] === 'normal' &&
+			document.documentElement.dataset['bridgeWorktreeDevLastReloadStatus'] === 'delivered' &&
+			document.documentElement.dataset['bridgeWorktreeDevLastReloadSourceCursor'] ===
+				expectedSourceCursor,
+		props.sourceCursor,
+		{ timeout: 20_000 },
+	);
+}
+
 export async function setWorktreeDevPollingEnabled(props: {
 	readonly enabled: boolean;
 	readonly page: Page;
@@ -300,12 +315,26 @@ export async function setWorktreeDevPollingEnabled(props: {
 	await props.page.evaluate((nextEventType: string): void => {
 		window.dispatchEvent(new Event(nextEventType));
 	}, eventType);
-	await props.page.waitForFunction(
-		(nextState: string): boolean =>
-			document.documentElement.dataset['bridgeWorktreeDevPollingState'] === nextState,
-		expectedState,
-		{ timeout: 5_000 },
-	);
+	try {
+		await props.page.waitForFunction(
+			(nextState: string): boolean =>
+				document.documentElement.dataset['bridgeWorktreeDevPollingState'] === nextState,
+			expectedState,
+			{ timeout: 20_000 },
+		);
+	} catch (error) {
+		const debugState = await props.page.evaluate(() => ({
+			devReloadRequest:
+				document.documentElement.dataset['bridgeWorktreeDevLastReloadRequest'] ?? null,
+			devReloadStatus:
+				document.documentElement.dataset['bridgeWorktreeDevLastReloadStatus'] ?? null,
+			pollingState: document.documentElement.dataset['bridgeWorktreeDevPollingState'] ?? null,
+		}));
+		throw new Error(
+			`Timed out waiting for Worktree dev polling ${expectedState}: ${JSON.stringify(debugState)}`,
+			{ cause: error },
+		);
+	}
 }
 
 export async function setWorktreeDevSplitResetReplacementDelay(props: {

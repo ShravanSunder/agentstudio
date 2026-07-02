@@ -151,9 +151,10 @@ export async function assertSharedBridgeFileViewerShell(props: {
 		const shell = shells[0];
 		const codeCanvas = codeCanvases[0];
 		const sidebar = sidebars[0];
-		const contentTopbars = [
-			...document.querySelectorAll('[data-testid="bridge-viewer-content-topbar"]'),
-		];
+		const contentTopbars =
+			modeHost instanceof HTMLElement
+				? [...modeHost.querySelectorAll('[data-testid="bridge-viewer-content-topbar"]')]
+				: [];
 		const contentTopbar = contentTopbars[0];
 		const contextSwitcher = document.querySelector(
 			'[data-testid="bridge-viewer-context-switcher"]',

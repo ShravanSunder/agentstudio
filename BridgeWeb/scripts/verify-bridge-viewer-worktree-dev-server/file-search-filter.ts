@@ -273,14 +273,14 @@ export async function clickWorktreeFileControl(page: Page, testId: string): Prom
 
 export async function selectWorktreeFileFilter(page: Page, label: string): Promise<void> {
 	await page.locator('[data-testid="worktree-file-filter-menu"]').click();
-	await page.waitForSelector('[data-testid="bridge-review-filter-option-label"]');
+	await page.waitForSelector('[data-testid="worktree-file-filter-menu-option-label"]');
 	const optionLocator = page
-		.locator('[data-testid="bridge-review-filter-option"]')
+		.locator('[data-testid="worktree-file-filter-menu-option"]')
 		.filter({ hasText: label })
 		.first();
 	if ((await optionLocator.count()) === 0) {
 		const availableLabels = await page
-			.locator('[data-testid="bridge-review-filter-option-label"]')
+			.locator('[data-testid="worktree-file-filter-menu-option-label"]')
 			.allTextContents();
 		throw new Error(
 			`Expected Worktree/File filter option ${label}; available options: ${availableLabels.join(', ')}`,
