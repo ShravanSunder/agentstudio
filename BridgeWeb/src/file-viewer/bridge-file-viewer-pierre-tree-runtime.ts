@@ -4,8 +4,12 @@ import { useCallback, useEffect, useRef, type MouseEvent as ReactMouseEvent } fr
 
 import {
 	appendedOnlyPierreTreePaths,
+	captureFirstVisiblePierreTreeRowAnchor,
 	expandAncestorDirectoriesForPierreTreePaths,
 	pierreFilePathFromTreeEvent,
+	restorePierreTreeRowAnchor,
+	restorePierreTreeRowAnchorAcrossAnimationFrames,
+	restorePierreTreeRowAnchorFromPathOrder,
 	type BridgePierreTreeModelForExpansion,
 	type BridgePierreTreeScrollOwner,
 } from '../app/bridge-pierre-tree-adapter.js';
@@ -124,6 +128,7 @@ export function useBridgeFileViewerPierreTreeRuntime(
 			nextPaths: paths,
 			previousPaths,
 		});
+		const treeRowAnchor = captureFirstVisiblePierreTreeRowAnchor(model);
 		if (appendedPaths === null) {
 			model.resetPaths(paths, {
 				preparedInput: prepareFileTreeInput(paths, bridgeFileViewerTreeOptions),
@@ -135,6 +140,20 @@ export function useBridgeFileViewerPierreTreeRuntime(
 				paths: appendedPaths,
 			});
 		}
+		restorePierreTreeRowAnchorFromPathOrder({
+			anchor: treeRowAnchor,
+			nextPaths: paths,
+			previousPaths,
+			rowHeightPixels: bridgeFileViewerTreeRowHeightPixels,
+		});
+		if (treeRowAnchor !== null) {
+			model.scrollToPath(treeRowAnchor.path, { focus: false, offset: 'top' });
+		}
+		restorePierreTreeRowAnchor(treeRowAnchor);
+		restorePierreTreeRowAnchorAcrossAnimationFrames({
+			anchor: treeRowAnchor,
+			frameBudget: 4,
+		});
 		appliedTreePathsRef.current = paths;
 	}, [model, paths]);
 

@@ -212,6 +212,57 @@ describe('Bridge CodeView materialization', () => {
 		expect(placeholder.fileDiff.additionLines).toContain('Loading content...\n');
 	});
 
+	test('estimates unloaded diff placeholders from known role line-count averages', () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const sourceHighItem = reviewPackage.itemsById['source-high'];
+		const sourceNormalItem = reviewPackage.itemsById['source-normal'];
+		if (sourceHighItem === undefined || sourceNormalItem === undefined) {
+			throw new Error('expected source fixture items');
+		}
+		const reviewPackageWithPartialExtents = {
+			...reviewPackage,
+			itemsById: {
+				...reviewPackage.itemsById,
+				'source-high': {
+					...sourceHighItem,
+					contentLineCountsByRole: undefined,
+				},
+				'source-normal': {
+					...sourceNormalItem,
+					contentLineCountsByRole: {
+						base: 20,
+						head: 40,
+					},
+				},
+			},
+		};
+		const projection = buildBridgeReviewProjection({
+			reviewPackage: reviewPackageWithPartialExtents,
+			request: { mode: { kind: 'normalReview' }, facets: [] },
+		});
+
+		const items = createBridgeCodeViewInitialItems({
+			reviewPackage: reviewPackageWithPartialExtents,
+			projection,
+		});
+		const placeholder = items.find(
+			(item: BridgeCodeViewItem): boolean => item.id === 'source-high',
+		);
+
+		if (placeholder?.type !== 'diff') {
+			throw new Error('expected diff placeholder item');
+		}
+		expect(placeholder.collapsed).toBeUndefined();
+		expect(placeholder.bridgeMetadata).toMatchObject({
+			contentState: 'placeholder',
+			contentRoles: ['base', 'head'],
+			itemId: 'source-high',
+			lineCount: 60,
+		});
+		expect(placeholder.fileDiff.deletionLines).toHaveLength(20);
+		expect(placeholder.fileDiff.additionLines).toHaveLength(40);
+	});
+
 	test('reserves streamed line extents in visible loading file-target items', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const item = reviewPackage.itemsById['source-high'];
