@@ -617,6 +617,48 @@ entries; if an entry becomes stale, append a correction with the new evidence.
   passed with no output, and
   `pnpm --dir BridgeWeb exec tsc --noEmit --pretty false` passed.
 
+### 2026-07-02 Codex React Lane Navigation Controller Checkpoint
+
+- Extracted Review navigation/projection reconciliation into
+  `BridgeWeb/src/app/bridge-app-review-navigation-controller.ts` as
+  `useBridgeReviewNavigationController`.
+- The hook owns explicit Review file-target application, refinement clearing
+  when filters hide an explicit target, and fallback/default selection when the
+  current selected item disappears from the projection.
+- `BridgeReviewViewerMode` now composes the navigation controller after the
+  projection coordinator and keeps only runtime/controller composition plus
+  shell prop assembly for this slice.
+- Added source-structure guards that the mode composes the navigation
+  controller and no longer owns `appliedNavigationCommandRef`,
+  `projection.orderedItemIds.includes(`, or
+  `clearReviewRefinementsHidingExplicitTarget(`.
+- File size checkpoint:
+  `bridge-app-review-viewer-mode.tsx` is now 570 lines;
+  `bridge-app-review-navigation-controller.ts` is 150 lines;
+  `bridge-app-review-selection-controller.ts` remains 265 lines;
+  `review-viewer-source-structure.unit.test.ts` is 188 lines.
+- Red proof:
+  `pnpm --dir BridgeWeb exec vitest run src/review-viewer/review-viewer-source-structure.unit.test.ts --reporter verbose`
+  first failed because `useBridgeReviewNavigationController` was absent and
+  `bridge-app-review-navigation-controller.ts` did not exist.
+- Focused proof:
+  `pnpm --dir BridgeWeb exec vitest run src/review-viewer/review-viewer-source-structure.unit.test.ts src/app/bridge-app-control.unit.test.ts --reporter verbose`
+  passed 11 tests / 2 files.
+- Boundary proof:
+  `pnpm --dir BridgeWeb exec vitest run src/app/bridge-viewer-shared-boundaries.unit.test.ts src/file-viewer/bridge-file-viewer-source-structure.unit.test.ts src/review-viewer/review-viewer-source-structure.unit.test.ts src/review-viewer/shell/review-viewer-shell.integration.test.tsx --reporter verbose`
+  passed 50 tests / 4 files.
+- Browser selected/navigation proof:
+  `pnpm --dir BridgeWeb exec vitest --config vitest.browser.config.ts run --project integration-browser src/review-viewer/test-support/bridge-viewer-browser.integration.browser.test.tsx -t "clicking a tree row fetches and renders the newly selected file|starts clicked Review foreground content demand before selected path commit|large fixture deep tree selection scrolls the selected file body into the CodeView viewport" --reporter verbose`
+  passed 3 selected tests.
+  `pnpm --dir BridgeWeb exec vitest --config vitest.browser.config.ts run --project integration-browser src/review-viewer/test-support/bridge-viewer-browser.integration-large.browser.test.tsx -t "programmatic file reveal|preview command explicit|markdown preview restores CodeView|custom filter controls route through projection requests" --reporter verbose`
+  passed 4 selected tests. The large browser run emitted existing React
+  `flushSync` lifecycle warnings in markdown-preview tests, but all selected
+  browser tests passed.
+- Static proof:
+  touched-file `oxfmt --check` passed, touched-file type-aware `oxlint`
+  passed with no output, and
+  `pnpm --dir BridgeWeb exec tsc --noEmit --pretty false` passed.
+
 ### 2026-07-02 Codex React Lane Selection Controller Checkpoint
 
 - Extracted Review selected-item orchestration into

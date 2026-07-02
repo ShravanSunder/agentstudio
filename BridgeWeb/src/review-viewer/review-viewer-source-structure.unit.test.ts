@@ -13,6 +13,7 @@ describe('Review viewer source structure', () => {
 		expect(modeSource).toContain('useBridgeReviewControlEventListeners');
 		expect(modeSource).toContain('useBridgeReviewIntakeController');
 		expect(modeSource).toContain('useBridgeReviewMetadataInterestRuntime');
+		expect(modeSource).toContain('useBridgeReviewNavigationController');
 		expect(modeSource).toContain('useBridgeReviewProjectionCoordinator');
 		expect(modeSource).toContain('useBridgeReviewSelectionController');
 		expect(modeSource).toContain('useVisibleReviewContentHydration');
@@ -93,6 +94,28 @@ describe('Review viewer source structure', () => {
 		expect(selectionControllerSource).not.toContain('createBridgeReviewProjectionWebWorkerClient');
 		expect(selectionControllerSource).not.toContain('createBridgeMarkdownRenderWebWorkerClient');
 		expect(selectionControllerSource).not.toContain('@pierre/');
+	});
+
+	test('keeps Review navigation reconciliation in an app-level controller hook', () => {
+		const modeSource = readSource('../app/bridge-app-review-viewer-mode.tsx');
+		const navigationControllerSource = readSource(
+			'../app/bridge-app-review-navigation-controller.ts',
+		);
+
+		expect(modeSource).toContain('useBridgeReviewNavigationController');
+		expect(modeSource).not.toContain('appliedNavigationCommandRef');
+		expect(modeSource).not.toContain('projection.orderedItemIds.includes(');
+		expect(modeSource).not.toContain('clearReviewRefinementsHidingExplicitTarget(');
+
+		expect(navigationControllerSource).toContain('useBridgeReviewNavigationController');
+		expect(navigationControllerSource).toContain('appliedNavigationCommandRef');
+		expect(navigationControllerSource).toContain('projection.orderedItemIds.includes(');
+		expect(navigationControllerSource).toContain('clearReviewRefinementsHidingExplicitTarget(');
+		expect(navigationControllerSource).not.toContain('BridgeReviewViewerShellBoundary');
+		expect(navigationControllerSource).not.toContain('resourceExecutor');
+		expect(navigationControllerSource).not.toContain('reviewDemandScheduler');
+		expect(navigationControllerSource).not.toContain('createBridgeReviewProjectionWebWorkerClient');
+		expect(navigationControllerSource).not.toContain('@pierre/');
 	});
 
 	test('keeps the review store out of content bodies and runtime handles', () => {

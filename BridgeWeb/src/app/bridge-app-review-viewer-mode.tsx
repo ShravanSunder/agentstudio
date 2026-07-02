@@ -39,6 +39,7 @@ import {
 import { useBridgeReviewIntakeController } from './bridge-app-review-intake-controller.js';
 import { useBridgeReviewMarkdownPreviewController } from './bridge-app-review-markdown-preview-controller.js';
 import { useBridgeReviewMetadataInterestRuntime } from './bridge-app-review-metadata-interest-runtime.js';
+import { useBridgeReviewNavigationController } from './bridge-app-review-navigation-controller.js';
 import {
 	createBridgeReviewDemandScheduler,
 	emptyVisibleContentResourcesByItemId,
@@ -54,8 +55,6 @@ import {
 } from './bridge-app-review-selected-content-controller.js';
 import { useBridgeReviewSelectionController } from './bridge-app-review-selection-controller.js';
 import {
-	clearReviewRefinementsHidingExplicitTarget,
-	itemIdForReviewFileNavigationTarget,
 	makeSelectedContentResourcesKey,
 	reviewContentDemandTelemetryForPackage,
 	reviewFileTargetForNavigationCommand,
@@ -76,7 +75,6 @@ import {
 } from './bridge-app-review-telemetry.js';
 import { BridgeReviewViewerShellBoundary } from './bridge-app-review-viewer-shell-boundary.js';
 import type { BridgeAppProps } from './bridge-app.js';
-import type { BridgeViewerNavigationCommand } from './bridge-viewer-navigation-models.js';
 import { useBridgeReviewControlEventListeners } from './use-bridge-review-control-event-listeners.js';
 
 export function BridgeReviewViewerMode(
@@ -382,47 +380,6 @@ export function BridgeReviewViewerMode(
 		telemetryRecorderRef,
 		viewerActions,
 	});
-	const appliedNavigationCommandRef = useRef<BridgeViewerNavigationCommand | null>(null);
-	useEffect((): void => {
-		if (
-			!props.isActive ||
-			reviewPackage === null ||
-			projection === null ||
-			initialReviewFileTarget === null
-		) {
-			return;
-		}
-		const itemId = itemIdForReviewFileNavigationTarget({
-			reviewPackage,
-			target: initialReviewFileTarget,
-		});
-		if (itemId === null) {
-			return;
-		}
-		if (
-			appliedNavigationCommandRef.current !== null &&
-			appliedNavigationCommandRef.current === props.navigationCommand
-		) {
-			return;
-		}
-		if (!projection.orderedItemIds.includes(itemId)) {
-			if (clearReviewRefinementsHidingExplicitTarget({ rootSnapshot, viewerActions })) {
-				appliedNavigationCommandRef.current = null;
-			}
-			return;
-		}
-		appliedNavigationCommandRef.current = props.navigationCommand ?? null;
-		selectReviewItem(itemId);
-	}, [
-		initialReviewFileTarget,
-		props.isActive,
-		projection,
-		props.navigationCommand,
-		reviewPackage,
-		rootSnapshot,
-		selectReviewItem,
-		viewerActions,
-	]);
 	useBridgeReviewProjectionCoordinator({
 		store: viewerStore,
 		reviewPackage,
@@ -437,53 +394,20 @@ export function BridgeReviewViewerMode(
 		flushTelemetry,
 	});
 
-	useEffect((): void => {
-		if (!props.isActive || reviewPackage === null || projection === null) {
-			return;
-		}
-		if (
-			rootSnapshot.selectedItemId !== null &&
-			projection.orderedItemIds.includes(rootSnapshot.selectedItemId)
-		) {
-			return;
-		}
-
-		const targetItemId =
-			initialReviewFileTarget === null
-				? null
-				: itemIdForReviewFileNavigationTarget({
-						reviewPackage,
-						target: initialReviewFileTarget,
-					});
-		const nextSelectedItemId =
-			targetItemId !== null && projection.orderedItemIds.includes(targetItemId)
-				? targetItemId
-				: (projection.orderedItemIds[0] ?? null);
-		if (rootSnapshot.selectedItemId === nextSelectedItemId) {
-			return;
-		}
-
-		if (nextSelectedItemId === null) {
-			selectedContentAbortControllerRef.current?.abort();
-			selectedContentAbortControllerRef.current = null;
-			setSelectedContentResourcesState(null);
-			viewerActions.setSelectedItemId(null);
-			viewerActions.setRenderMode({ kind: 'codeView' });
-		} else {
-			beginForegroundReviewSelection(nextSelectedItemId);
-		}
-		setSelectedMarkdownPreviewState(null);
-	}, [
+	useBridgeReviewNavigationController({
 		beginForegroundReviewSelection,
 		initialReviewFileTarget,
+		isActive: props.isActive,
+		navigationCommand: props.navigationCommand,
 		projection,
-		props.isActive,
 		reviewPackage,
-		rootSnapshot.selectedItemId,
+		rootSnapshot,
+		selectReviewItem,
 		selectedContentAbortControllerRef,
 		setSelectedContentResourcesState,
+		setSelectedMarkdownPreviewState,
 		viewerActions,
-	]);
+	});
 
 	useEffect((): void => {
 		contentRegistry.setActiveIdentity(
