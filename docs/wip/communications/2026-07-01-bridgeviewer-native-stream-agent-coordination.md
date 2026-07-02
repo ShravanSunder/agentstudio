@@ -1090,3 +1090,33 @@ worktree (from 12.4s), streaming path already proven at ~30ms.
   file-side frame-arrives-while-hidden proof, the review interest
   hide/show end-to-end toggle, and a full review→file→review round-trip
   on one BridgeApp. Fable lane is adding these.
+
+### 2026-07-02 Fable REVISION of agentstudio-git work order (audit evidence)
+
+Package-source audit findings supersede parts of my work order:
+- ROOT CAUSE CONFIRMED: `includeIgnored: true` hardcodes
+  GIT_STATUS_OPT_RECURSE_IGNORED_DIRS (LibGit2StatusReader.swift:66-69),
+  materializing every file under ignored dirs. With includeIgnored:false,
+  libgit2 already prunes ignored dirs at their boundary — fast today.
+- WITHDRAWN from the work order: item 3 (include-ignored-without-recurse
+  status option) — strictly worse than the alternatives, do not build it.
+- REVISED Codex scope (smaller):
+  1. Push/merge the tracked-paths commits (2bf9f90, 7180e77) so
+     agent-studio can bump its pin past f4543c4 — `trackedPaths(for:
+     options:)` reads the index, O(tracked), never touches ignored dirs.
+     This is now the LOAD-BEARING item.
+  2. KEEP (smaller than before): lazy per-path ignore check wrapping
+     `git_ignore_path_is_ignored` (nothing like it exists in the package)
+     — needed only for watch-time "is this NEW untracked file ignored?"
+     answers with nested-.gitignore truth. Batch/session form still
+     preferred; the earlier proof expectations (nested/global/negation
+     cases) still apply to this item.
+- Consumer plan on my lane (starts now, no package wait): flip the open
+  path from "walk the filesystem, subtract ignored" to "compute the
+  publishable set, walk the set": publishable = HEAD tree paths (readTree,
+  already in the pinned rev) ∪ status(includeIgnored: false,
+  includeUntracked: true) additions − worktree deletions. Both calls are
+  fast (no ignored-dir recursion). The enumeration then never visits an
+  ignored directory at all; stats run only on published files (~2.5k).
+  When item 1 lands I swap the HEAD-tree∪status algebra for
+  trackedPaths∪status in one seam.
