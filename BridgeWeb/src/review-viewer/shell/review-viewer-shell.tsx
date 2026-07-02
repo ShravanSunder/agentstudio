@@ -2,6 +2,7 @@ import type { ReactElement, ReactNode } from 'react';
 
 import { BridgeViewerContentHeader } from '../../app/bridge-viewer-content-header.js';
 import { BridgeViewerRailToolbar } from '../../app/bridge-viewer-rail-toolbar.js';
+import { BridgeViewerRightRailShell } from '../../app/bridge-viewer-right-rail-shell.js';
 import { BridgeViewerSearchControl } from '../../app/bridge-viewer-search-control.js';
 import { Skeleton } from '../../components/ui/skeleton.js';
 import type { ReviewTreeRowMetadata } from '../../features/review/models/review-protocol-models.js';
@@ -380,11 +381,41 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 						)}
 					</section>
 				</section>
-				<aside
-					className="order-last flex min-h-0 min-w-0 flex-col border-l border-[var(--bridge-border-opaque)] bg-[var(--bridge-surface-bg)]"
-					data-testid="bridge-review-sidebar"
-				>
-					{BridgeViewerRailToolbar({
+				{BridgeViewerRightRailShell({
+					body: (
+						<nav
+							aria-label="Changed files"
+							className="h-full min-h-0"
+							data-testid="bridge-review-rail-tree-slot"
+						>
+							<BridgeReviewTreesPanel
+								onSelectItem={props.onSelectItem}
+								{...(props.onTreeVisibleItemIdsChange === undefined
+									? {}
+									: { onVisibleItemIdsChange: props.onTreeVisibleItemIdsChange })}
+								{...(props.onTreeSearchTextChange === undefined
+									? {}
+									: { onSearchTextChange: props.onTreeSearchTextChange })}
+								projection={projection}
+								reviewPackage={props.reviewPackage}
+								reviewTreeRows={props.reviewTreeRows ?? []}
+								searchOpen={treeSearchOpen}
+								searchText={treeSearchText}
+								selectedItemId={props.selectedItemId}
+							/>
+							{registry.visibleItems.length === 0 ? null : (
+								<div aria-hidden="true" hidden>
+									{registry.visibleItems.map((item) => reviewItemPathLabel(item)).join(' ')}
+								</div>
+							)}
+						</nav>
+					),
+					bodyClassName: 'min-h-0 flex-1 overflow-hidden overscroll-contain',
+					bodyTestId: 'bridge-review-rail-scroll',
+					border: 'opaque',
+					layout: 'stack',
+					testId: 'bridge-review-sidebar',
+					toolbar: BridgeViewerRailToolbar({
 						leading: (
 							<BridgeReviewProjectionMenu
 								projectionMode={projectionMode}
@@ -417,39 +448,8 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 							</div>,
 						],
 						trailingTestId: 'bridge-review-rail-toolbar-trailing',
-					})}
-					<div
-						className="min-h-0 flex-1 overflow-hidden overscroll-contain"
-						data-testid="bridge-review-rail-scroll"
-					>
-						<nav
-							aria-label="Changed files"
-							className="h-full min-h-0"
-							data-testid="bridge-review-rail-tree-slot"
-						>
-							<BridgeReviewTreesPanel
-								onSelectItem={props.onSelectItem}
-								{...(props.onTreeVisibleItemIdsChange === undefined
-									? {}
-									: { onVisibleItemIdsChange: props.onTreeVisibleItemIdsChange })}
-								{...(props.onTreeSearchTextChange === undefined
-									? {}
-									: { onSearchTextChange: props.onTreeSearchTextChange })}
-								projection={projection}
-								reviewPackage={props.reviewPackage}
-								reviewTreeRows={props.reviewTreeRows ?? []}
-								searchOpen={treeSearchOpen}
-								searchText={treeSearchText}
-								selectedItemId={props.selectedItemId}
-							/>
-							{registry.visibleItems.length === 0 ? null : (
-								<div aria-hidden="true" hidden>
-									{registry.visibleItems.map((item) => reviewItemPathLabel(item)).join(' ')}
-								</div>
-							)}
-						</nav>
-					</div>
-				</aside>
+					}),
+				})}
 			</div>
 		</main>
 	);

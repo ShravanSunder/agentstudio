@@ -25,6 +25,8 @@ describe('BridgeViewer shared component boundaries', () => {
 
 		expect(fileViewerTreePanel).toContain('BridgeViewerRailToolbar');
 		expect(reviewViewerShell).toContain('BridgeViewerRailToolbar');
+		expect(fileViewerTreePanel).toContain('BridgeViewerRightRailShell');
+		expect(reviewViewerShell).toContain('BridgeViewerRightRailShell');
 		expect(fileViewerTreePanel).not.toContain('bridgeViewerChromeToolbarClassName');
 		expect(reviewViewerShell).not.toContain('bridgeViewerChromeToolbarClassName');
 		expect(fileViewerTreePanel).not.toContain('data-bridge-shared-rail-toolbar="true"');

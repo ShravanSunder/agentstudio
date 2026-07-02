@@ -13,6 +13,7 @@ import {
 	type BridgeViewerFilterOption,
 } from '../app/bridge-viewer-filter-menu.js';
 import { BridgeViewerRailToolbar } from '../app/bridge-viewer-rail-toolbar.js';
+import { BridgeViewerRightRailShell } from '../app/bridge-viewer-right-rail-shell.js';
 import { BridgeViewerSearchControl } from '../app/bridge-viewer-search-control.js';
 import { bridgeViewerTreeStyle } from '../app/bridge-viewer-tree-theme.js';
 import { cn } from '../app/class-name.js';
@@ -113,14 +114,26 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 		props.descriptorProjection.searchError !== null;
 
 	return (
-		<aside
-			aria-label="Files"
-			className="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] border-l border-[var(--bridge-border-subtle)] bg-[var(--bridge-surface-bg)]"
-			data-pierre-file-tree-owner="FileTree"
-			data-testid="bridge-file-viewer-sidebar"
-		>
-			<header className="grid grid-rows-[auto_auto]" data-testid="bridge-file-viewer-toolbar">
-				{BridgeViewerRailToolbar({
+		<>
+			{BridgeViewerRightRailShell({
+				ariaLabel: 'Files',
+				body: (
+					<FileTree
+						className="h-full min-h-full"
+						model={treeRuntime.model}
+						style={bridgeViewerTreeStyle}
+					/>
+				),
+				bodyClassName: 'h-full min-h-0 overflow-hidden',
+				bodyElement: 'section',
+				bodyOnClick: treeRuntime.handleTreeClick,
+				bodyTestId: 'bridge-file-viewer-pierre-file-tree',
+				border: 'subtle',
+				dataPierreFileTreeOwner: 'FileTree',
+				headerTestId: 'bridge-file-viewer-toolbar',
+				layout: 'grid',
+				testId: 'bridge-file-viewer-sidebar',
+				toolbar: BridgeViewerRailToolbar({
 					className: 'min-w-0 gap-2',
 					leading: (
 						<>
@@ -188,8 +201,8 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 					),
 					trailingClassName: 'shrink-0',
 					trailingTestId: 'bridge-file-viewer-rail-toolbar-trailing',
-				})}
-				{shouldShowSearchInput ? (
+				}),
+				toolbarBelow: shouldShowSearchInput ? (
 					<Input
 						aria-label="Search files"
 						className={cn('mx-2 mb-1', bridgeViewerChromeSearchInputClassName)}
@@ -202,26 +215,17 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 						type="search"
 						value={props.searchText}
 					/>
-				) : null}
-				<div className="sr-only" data-testid="worktree-file-filter-status">
-					{props.descriptorProjection.searchError === null
-						? `${props.descriptorProjection.treeRows.length}/${props.totalTreeRowCount}`
-						: 'Invalid regex'}
-				</div>
-			</header>
-			<section
-				className="h-full min-h-0 overflow-hidden"
-				data-testid="bridge-file-viewer-pierre-file-tree"
-				data-worktree-tree-total-size={String(declaredTreeHeightPixels)}
-				data-worktree-tree-total-size-source={declaredTreeHeightSource}
-				onClick={treeRuntime.handleTreeClick}
-			>
-				<FileTree
-					className="h-full min-h-full"
-					model={treeRuntime.model}
-					style={bridgeViewerTreeStyle}
-				/>
-			</section>
-		</aside>
+				) : null,
+				toolbarFooter: (
+					<div className="sr-only" data-testid="worktree-file-filter-status">
+						{props.descriptorProjection.searchError === null
+							? `${props.descriptorProjection.treeRows.length}/${props.totalTreeRowCount}`
+							: 'Invalid regex'}
+					</div>
+				),
+				worktreeTreeTotalSize: String(declaredTreeHeightPixels),
+				worktreeTreeTotalSizeSource: declaredTreeHeightSource,
+			})}
+		</>
 	);
 }

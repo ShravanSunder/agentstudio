@@ -218,6 +218,19 @@ describe('Bridge file viewer source structure', () => {
 		expect(treePanelSource).not.toContain('bridge-scrollbar');
 	});
 
+	test('keeps File rail shell composition in the neutral right-rail wrapper', () => {
+		const treePanelSource = readFileSync(
+			fileURLToPath(new URL('./bridge-file-viewer-tree-panel.tsx', import.meta.url)),
+			'utf8',
+		);
+
+		expect(treePanelSource).toContain('BridgeViewerRightRailShell');
+		expect(treePanelSource).toContain("bodyTestId: 'bridge-file-viewer-pierre-file-tree'");
+		expect(treePanelSource).toContain('toolbarBelow:');
+		expect(treePanelSource).not.toContain('<aside');
+		expect(treePanelSource).not.toContain('border-l border-[var(--bridge-border-subtle)]');
+	});
+
 	test('keeps Pierre visible-demand publishing on ref-backed descriptor lookup', () => {
 		const treeRuntimeSource = readFileSync(
 			fileURLToPath(new URL('./bridge-file-viewer-pierre-tree-runtime.ts', import.meta.url)),

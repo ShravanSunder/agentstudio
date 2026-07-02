@@ -527,3 +527,37 @@ entries; if an entry becomes stale, append a correction with the new evidence.
   touched-file `oxfmt --check` passed, touched-file `oxlint --type-aware`
   passed with no output, and `pnpm --dir BridgeWeb exec tsc --noEmit --pretty false`
   passed.
+
+### 2026-07-02 Codex React Lane Right Rail Shell Checkpoint
+
+- Extracted the shared FileView/Review right-rail container into
+  `BridgeWeb/src/app/bridge-viewer-right-rail-shell.tsx`.
+- The shell owns only neutral rail chrome:
+  outer `aside`, border/background/layout, header, toolbar slot, optional
+  below-toolbar/footer slots, and body slot.
+- FileView still owns its descriptor projection, filters, search input,
+  selected/open behavior, Pierre tree runtime, and visible-demand path.
+- Review still owns projection mode, facet/search controls, selected item
+  identity, Review tree model, and visible item mapping.
+- Added source-structure guards that FileView and Review compose the neutral
+  right-rail shell instead of retaining route-local `<aside>` chrome.
+- Focused proof:
+  `pnpm --dir BridgeWeb exec vitest run src/app/bridge-viewer-shared-boundaries.unit.test.ts src/file-viewer/bridge-file-viewer-source-structure.unit.test.ts src/review-viewer/review-viewer-source-structure.unit.test.ts src/review-viewer/shell/review-viewer-shell.integration.test.tsx --reporter verbose`
+  passed 44 tests / 4 files.
+- Browser proof:
+  `pnpm --dir BridgeWeb exec vitest --config vitest.browser.config.ts run --project integration-browser src/file-viewer/bridge-file-viewer-app.browser.test.tsx src/app/bridge-app-lazy-boundary.browser.test.tsx src/app/bridge-viewer-content-header.browser.test.tsx --reporter verbose`
+  passed 51 tests / 3 files.
+- Static proof:
+  `pnpm --dir BridgeWeb exec oxfmt --check src/app/bridge-viewer-right-rail-shell.tsx src/app/bridge-viewer-shared-boundaries.unit.test.ts src/file-viewer/bridge-file-viewer-tree-panel.tsx src/file-viewer/bridge-file-viewer-source-structure.unit.test.ts src/review-viewer/shell/review-viewer-shell.tsx`
+  passed; touched-file
+  `pnpm --dir BridgeWeb exec oxlint --type-aware src/app/bridge-viewer-right-rail-shell.tsx src/app/bridge-viewer-shared-boundaries.unit.test.ts src/file-viewer/bridge-file-viewer-tree-panel.tsx src/file-viewer/bridge-file-viewer-source-structure.unit.test.ts src/review-viewer/shell/review-viewer-shell.tsx`
+  passed with no output; `pnpm --dir BridgeWeb exec tsc --noEmit --pretty false`
+  passed.
+- Dev-server proof blocked before UI launch:
+  `pnpm --dir BridgeWeb run test:dev-server:worktree` failed with `ENOENT`
+  because the verifier resolved
+  `BridgeWeb/BridgeWeb/src/test-fixtures/worktree-file-to-review-handoff-canary.txt`.
+  Inspection shows `BridgeWeb/scripts/verify-bridge-viewer-worktree-dev-server/config.ts`
+  resolves `repoRootPath` to the `BridgeWeb` directory while fixture constants
+  are repo-relative paths beginning with `BridgeWeb/`. Codex left verifier
+  infrastructure untouched in this React component checkpoint.
