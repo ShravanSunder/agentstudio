@@ -34,7 +34,9 @@ export function BridgeFileViewerMode(props: BridgeFileViewerModeProps): ReactEle
 	const onActivateNavigationCommand = props.onActivateNavigationCommand;
 	const reviewNavigationSource = props.reviewNavigationSource;
 	const [hasActivatedFileViewerShell, setHasActivatedFileViewerShell] = useState(props.isActive);
-	const hasActivatedFileViewerController = props.isActive || hasActivatedFileViewerShell;
+	const hasFileViewerFrameSource = props.fileViewerProps !== undefined;
+	const hasActivatedFileViewerController =
+		props.isActive || hasActivatedFileViewerShell || hasFileViewerFrameSource;
 	const controlledFileViewerProps = useBridgeFileViewerFrameControllerProps({
 		enabled: hasActivatedFileViewerController,
 		fileViewerProps: props.fileViewerProps,

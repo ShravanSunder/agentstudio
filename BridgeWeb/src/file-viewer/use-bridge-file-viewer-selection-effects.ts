@@ -51,7 +51,7 @@ export function useBridgeFileViewerSelectionEffects(
 	const navigationTargetPath = fileViewerNavigationTargetPath(navigationCommand);
 
 	useEffect((): void => {
-		if (!isActive || !autoOpenInitialFile || openFileRequestIdRef.current !== 0) {
+		if (!isActive || !autoOpenInitialFile || openFileState.status !== 'idle') {
 			return;
 		}
 		if (navigationTargetPath !== null) {
@@ -79,6 +79,7 @@ export function useBridgeFileViewerSelectionEffects(
 		isActive,
 		navigationTargetPath,
 		openFile,
+		openFileState.status,
 		openFileRequestIdRef,
 		pendingSelectedDescriptorRequestRef,
 		renderState.descriptors,

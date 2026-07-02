@@ -130,6 +130,85 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			'cache-hit',
 		);
 	});
+
+	test('retries the initial auto-open when the first activation aborts during mode switch', async () => {
+		const initialDescriptor = makeFileDescriptor({
+			contentHandle: 'auto-open-aborted-content',
+			fileId: 'file-auto-open-aborted',
+			path: 'src/auto-open-aborted.ts',
+		});
+		const firstFetchController: { reject: ((reason?: unknown) => void) | null } = {
+			reject: null,
+		};
+		const firstFetchPromise = new Promise<never>((_resolve, reject): void => {
+			firstFetchController.reject = reject;
+		});
+		const fetchedResourceUrls: string[] = [];
+		let activateFiles: (() => void) | null = null;
+		let deactivateFiles: (() => void) | null = null;
+
+		function ControlledFileViewer(): ReactElement {
+			const [isActive, setIsActive] = useState(true);
+			activateFiles = (): void => {
+				setIsActive(true);
+			};
+			deactivateFiles = (): void => {
+				setIsActive(false);
+			};
+			return (
+				<BridgeFileViewerApp
+					autoOpenInitialFile
+					codeViewWorkerPoolEnabled={false}
+					fetchResource={(props) => {
+						fetchedResourceUrls.push(props.resourceUrl);
+						if (fetchedResourceUrls.length === 1) {
+							return firstFetchPromise;
+						}
+						return Promise.resolve(
+							makeWorktreeFileSurfaceRuntimeFetchedResource(
+								'export const autoOpenRetried = true;\n',
+							),
+						);
+					}}
+					initialFrames={makeFrames(initialDescriptor)}
+					isActive={isActive}
+				/>
+			);
+		}
+
+		render(<ControlledFileViewer />);
+
+		await waitForOpenFileState('loading');
+		await waitForRecordedFetchCount({
+			expectedCount: 1,
+			recordedFetches: fetchedResourceUrls,
+		});
+		requireDeactivateFiles(deactivateFiles)();
+		await waitForFileViewerActiveState('false');
+		if (firstFetchController.reject === null) {
+			throw new Error('Expected first fetch reject callback to be registered.');
+		}
+		firstFetchController.reject(new DOMException('Context switch aborted', 'AbortError'));
+		await waitForBridgeViewerAnimationFrame();
+		await waitForBridgeViewerAnimationFrame();
+		expect(openFileState()).toBeNull();
+
+		requireActivateFiles(activateFiles)();
+		await waitForFileViewerActiveState('true');
+		await waitForBridgeViewerTreeItemButton('src/auto-open-aborted.ts');
+
+		await waitForRecordedFetchCount({
+			expectedCount: 2,
+			recordedFetches: fetchedResourceUrls,
+		});
+		await waitForOpenFileState('ready');
+		await waitForSelectedDisplayPath('src/auto-open-aborted.ts');
+		await waitForVisibleCodeText('autoOpenRetried');
+
+		expect(openFilePath()).toBe('src/auto-open-aborted.ts');
+		expect(openFileBodyPreview()).toContain('autoOpenRetried');
+	});
+
 	test('preserves the streamed surface when Files becomes active again', async () => {
 		let activateFiles: (() => void) | null = null;
 		let deactivateFiles: (() => void) | null = null;

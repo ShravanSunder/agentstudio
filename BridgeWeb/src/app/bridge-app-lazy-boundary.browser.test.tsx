@@ -133,6 +133,38 @@ describe('BridgeApp lazy mode boundaries', () => {
 		expect(document.querySelector('[data-testid="bridge-file-viewer-shell-lazy-mock"]')).toBeNull();
 	});
 
+	test('warms FileView frames on a Review-first route without loading the visual shell', async () => {
+		const bufferedFrame: WorktreeFileProtocolFrame = {
+			kind: 'reset',
+			streamId: 'worktree-file:test',
+			generation: 1,
+			sequence: 0,
+			frameKind: 'worktree.reset',
+			reason: 'subscriptionReset',
+		};
+		let loadInitialSurfaceCount = 0;
+		const { BridgeApp } = await import('./bridge-app.js');
+
+		render(
+			<BridgeApp
+				fileViewerProps={{
+					loadInitialSurface: async (): Promise<WorktreeFileInitialSurface> => {
+						loadInitialSurfaceCount += 1;
+						return { frames: [bufferedFrame] };
+					},
+				}}
+				viewerMode="review"
+			/>,
+		);
+		document.dispatchEvent(
+			new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-nonce' } }),
+		);
+
+		await expect.poll(() => loadInitialSurfaceCount).toBe(1);
+		expect(bridgeAppLazyBoundaryMock.fileViewerShellImportCount).toBe(0);
+		expect(document.querySelector('[data-testid="bridge-file-viewer-shell-lazy-mock"]')).toBeNull();
+	});
+
 	test('keeps mode hosts mounted while the FileViewer visual shell is suspended', async () => {
 		bridgeAppLazyBoundaryMock.fileViewerShellModuleMode = 'deferred';
 		const bufferedFrame: WorktreeFileProtocolFrame = {
