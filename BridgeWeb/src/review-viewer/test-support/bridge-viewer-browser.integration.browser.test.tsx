@@ -77,6 +77,47 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		backend.dispose();
 	});
 
+	test('renders Review tree content inside the resizable right rail', async () => {
+		const fixture = makeBridgeViewerBrowserFixture();
+		const backend = installBridgeViewerMockedBackend(fixture);
+
+		render(
+			<BridgeApp
+				codeViewWorkerPoolEnabled={false}
+				fetchContent={backend.fetchContent}
+				markdownWorkerClient={null}
+				projectionWorkerClient={backend.projectionWorkerClient}
+			/>,
+		);
+		await backend.pushMetadata();
+		await waitForBridgeViewerElement('[data-testid="review-viewer-shell"]');
+		await waitForBridgeViewerElement('[data-testid="bridge-review-resizable-rail"]');
+		await waitForBridgeViewerTreeItemButton(fixture.expected.initialPath);
+
+		const railSlot = requireBridgeViewerHTMLElement(
+			document.querySelector('[data-testid="bridge-review-resizable-rail"]'),
+		);
+		const sidebar = requireBridgeViewerHTMLElement(
+			document.querySelector('[data-testid="bridge-review-sidebar"]'),
+		);
+		const railScroll = requireBridgeViewerHTMLElement(
+			document.querySelector('[data-testid="bridge-review-rail-scroll"]'),
+		);
+		const treeSlot = requireBridgeViewerHTMLElement(
+			document.querySelector('[data-testid="bridge-review-rail-tree-slot"]'),
+		);
+		const treeText = bridgeViewerVisibleTreeTextContent(railScroll);
+
+		expect(Math.round(railSlot.getBoundingClientRect().width)).toBeGreaterThanOrEqual(240);
+		expect(Math.round(railSlot.getBoundingClientRect().height)).toBeGreaterThan(300);
+		expect(Math.round(sidebar.getBoundingClientRect().height)).toBeGreaterThan(300);
+		expect(Math.round(railScroll.getBoundingClientRect().height)).toBeGreaterThan(250);
+		expect(Math.round(treeSlot.getBoundingClientRect().height)).toBeGreaterThan(250);
+		expect(treeText).toContain('Alpha');
+
+		backend.dispose();
+	});
+
 	test('emits review startup timing telemetry from mocked metadata push to selected content ready', async () => {
 		const fixture = makeBridgeViewerBrowserFixture();
 		const backend = installBridgeViewerMockedBackend(fixture, {

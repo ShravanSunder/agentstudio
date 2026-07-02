@@ -2,6 +2,7 @@ import type { ReactElement, ReactNode } from 'react';
 import { describe, expect, test } from 'vitest';
 
 import { BridgeViewerContentHeader } from '../../app/bridge-viewer-content-header.js';
+import { BridgeViewerResizableRailLayout } from '../../app/bridge-viewer-resizable-rail-layout.js';
 import { makeBridgeReviewPackage } from '../../foundation/review-package/bridge-review-package-test-support.js';
 import type { BridgeReviewPackage } from '../../foundation/review-package/bridge-review-package.js';
 import { BridgeReviewFacetMenu } from '../chrome/bridge-review-facet-menu.js';
@@ -269,6 +270,36 @@ describe('review viewer shell', () => {
 		expect(classNameForElement(railScroll)).toContain('min-h-0');
 		expect(classNameForElement(railTreeSlot)).toContain('h-full');
 		expect(classNameForElement(railTreeSlot)).toContain('min-h-0');
+	});
+
+	test('routes review tree content through the resizable right rail slot contract', () => {
+		const reviewPackage = makeBridgeReviewPackage();
+		const element = requireTestElement(
+			ReviewViewerShell({
+				reviewPackage,
+				projection: projectionForPackage(reviewPackage),
+				selectedItemId: 'item-source',
+				onSelectItem: () => undefined,
+				selectedContentText: null,
+			}),
+		);
+		const resizableLayout = findElementByComponent(element, BridgeViewerResizableRailLayout);
+		const rail = resizableLayout?.props.rail;
+		const sidebar = findElementByTestId(rail, 'bridge-review-sidebar');
+		const railScroll = findElementByTestId(rail, 'bridge-review-rail-scroll');
+		const railTreeSlot = findElementByTestId(rail, 'bridge-review-rail-tree-slot');
+		const railText = collectText(rail);
+
+		expect(resizableLayout?.props.contentTestId).toBe('bridge-review-content-panel');
+		expect(resizableLayout?.props.railTestId).toBe('bridge-review-resizable-rail');
+		expect(resizableLayout?.props.handleTestId).toBe('bridge-review-rail-resize-handle');
+		expect(sidebar).not.toBeNull();
+		expect(railScroll).not.toBeNull();
+		expect(railTreeSlot).not.toBeNull();
+		expect(railText).toContain('Sources/App/View.swift');
+		expect(railText).toContain('Search files');
+		expect(classNameForElement(sidebar)).toContain('h-full');
+		expect(classNameForElement(railScroll)).toContain('flex-1');
 	});
 
 	test('exposes selected identity and content readiness from the shell', () => {
@@ -574,6 +605,7 @@ interface TestElementProps {
 	readonly ariaPressed?: boolean;
 	readonly children?: ReactNode;
 	readonly className?: string;
+	readonly contentTestId?: string;
 	readonly 'data-bridge-shared-rail-toolbar'?: string;
 	readonly 'data-bridge-segmented-control'?: string;
 	readonly 'data-review-visible-demand-foreground-intent-count'?: number;
@@ -600,8 +632,11 @@ interface TestElementProps {
 	readonly 'data-sidebar-position'?: string;
 	readonly 'data-testid'?: string;
 	readonly disabled?: boolean;
+	readonly handleTestId?: string;
 	readonly onClick?: () => void;
 	readonly onValueChange?: () => void;
+	readonly rail?: ReactNode;
+	readonly railTestId?: string;
 	readonly reason?: string;
 	readonly role?: string;
 	readonly title?: string;

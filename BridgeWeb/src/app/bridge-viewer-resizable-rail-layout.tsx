@@ -30,8 +30,8 @@ export function BridgeViewerResizableRailLayout(
 	const defaultRailSize = props.defaultRailSize ?? defaultBridgeViewerRailSize;
 	const maxRailSize = props.maxRailSize ?? defaultBridgeViewerRailMaxSize;
 	const contentDefaultSize = Math.max(0, 100 - defaultRailSize);
-	const contentPanelId = `${props.contentTestId}-panel`;
-	const railPanelId = `${props.railTestId}-panel`;
+	const contentPanelId = props.contentTestId;
+	const railPanelId = props.railTestId;
 	const groupId = `${props.autosaveId}-${props.railTestId}`;
 	const persistedLayout = useResizablePanelLayout({
 		id: props.autosaveId,
@@ -48,14 +48,13 @@ export function BridgeViewerResizableRailLayout(
 			orientation="horizontal"
 		>
 			<ResizablePanel
-				className="min-h-0 min-w-0"
+				className="h-full min-h-0 min-w-0"
 				defaultSize={`${contentDefaultSize}%`}
 				id={contentPanelId}
 				minSize={`${100 - maxRailSize}%`}
+				data-testid={props.contentTestId}
 			>
-				<div className="h-full min-h-0 min-w-0" data-testid={props.contentTestId}>
-					{props.content}
-				</div>
+				{props.content}
 			</ResizablePanel>
 			<ResizableHandle
 				aria-label="Resize file tree sidebar"
@@ -64,15 +63,14 @@ export function BridgeViewerResizableRailLayout(
 				withHandle
 			/>
 			<ResizablePanel
-				className="min-h-0 min-w-[240px]"
+				className="h-full min-h-0 min-w-[240px]"
 				defaultSize={`${defaultRailSize}%`}
 				id={railPanelId}
 				maxSize={`${maxRailSize}%`}
 				minSize={`${minRailSize}%`}
+				data-testid={props.railTestId}
 			>
-				<div className="h-full min-h-0 min-w-0" data-testid={props.railTestId}>
-					{props.rail}
-				</div>
+				{props.rail}
 			</ResizablePanel>
 		</ResizablePanelGroup>
 	);

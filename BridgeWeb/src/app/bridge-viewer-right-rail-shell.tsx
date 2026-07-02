@@ -33,7 +33,7 @@ export function BridgeViewerRightRailShell(props: BridgeViewerRightRailShellProp
 		<aside
 			aria-label={props.ariaLabel}
 			className={cn(
-				'min-h-0 min-w-0 border-l bg-[var(--bridge-surface-bg)]',
+				'h-full min-h-0 min-w-0 border-l bg-[var(--bridge-surface-bg)]',
 				props.border === 'opaque'
 					? 'border-[var(--bridge-border-opaque)]'
 					: 'border-[var(--bridge-border-subtle)]',

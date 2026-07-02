@@ -252,23 +252,31 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		const railPanel = requireBridgeViewerHTMLElement(
 			document.querySelector('[data-testid="bridge-file-viewer-resizable-rail"]'),
 		);
+		const treePanel = requireBridgeViewerHTMLElement(
+			document.querySelector('[data-testid="bridge-file-viewer-pierre-file-tree"]'),
+		);
 
 		const layoutBox = layout.getBoundingClientRect();
 		const contentBox = contentPanel.getBoundingClientRect();
 		const handleBox = resizeHandle.getBoundingClientRect();
 		const railBox = railPanel.getBoundingClientRect();
+		const treeBox = treePanel.getBoundingClientRect();
 		const railWidthRatio = railBox.width / layoutBox.width;
+		const appButton = await waitForBridgeViewerTreeItemButton('src/app.ts');
+		const readmeButton = await waitForBridgeViewerTreeItemButton('docs/readme.md');
 
 		expect(layout.getAttribute('data-panel-group-direction')).toBe('horizontal');
 		expect(layoutBox.width).toBeGreaterThan(900);
 		expect(contentBox.width).toBeGreaterThan(railBox.width);
 		expect(handleBox.width).toBeGreaterThanOrEqual(1);
 		expect(railBox.width).toBeGreaterThanOrEqual(240);
+		expect(railBox.height).toBeGreaterThan(200);
+		expect(treeBox.width).toBeGreaterThan(200);
+		expect(treeBox.height).toBeGreaterThan(150);
+		expect(appButton.getAttribute('data-item-path')).toBe('src/app.ts');
+		expect(readmeButton.getAttribute('data-item-path')).toBe('docs/readme.md');
 		expect(railWidthRatio).toBeGreaterThan(0.24);
 		expect(railWidthRatio).toBeLessThan(0.32);
-		expect(
-			document.querySelector('[data-testid="bridge-file-viewer-pierre-file-tree"]'),
-		).not.toBeNull();
 	});
 
 	test('renders streamed metadata tree rows before file descriptors arrive', async () => {
