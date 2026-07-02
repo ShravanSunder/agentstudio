@@ -1,8 +1,9 @@
 import type { ReactElement, ReactNode } from 'react';
 
-import { bridgeViewerChromeToolbarClassName } from '../../app/bridge-viewer-chrome.js';
 import { BridgeViewerContentHeader } from '../../app/bridge-viewer-content-header.js';
-import { cn } from '../../app/class-name.js';
+import { BridgeViewerRailToolbar } from '../../app/bridge-viewer-rail-toolbar.js';
+import { BridgeViewerResizableRailLayout } from '../../app/bridge-viewer-resizable-rail-layout.js';
+import { BridgeViewerRightRailShell } from '../../app/bridge-viewer-right-rail-shell.js';
 import { Skeleton } from '../../components/ui/skeleton.js';
 
 export function BridgeReviewEmptyShell(props: {
@@ -130,58 +131,53 @@ function BridgeReviewFallbackFrame(props: {
 			className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-[var(--bridge-app-bg)] text-[var(--bridge-text-primary)]"
 			data-testid="bridge-review-fallback-frame"
 		>
-			<div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(260px,340px)]">
-				<section className="grid min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
-					<BridgeViewerContentHeader
-						controls={props.viewerHeaderControls}
-						eyebrow="Review"
-						title={props.title}
-					/>
-					<section
-						className="min-h-0 min-w-0 bg-[var(--bridge-canvas-bg)]"
-						data-testid="bridge-review-fallback-canvas"
-					>
-						{props.children}
+			<BridgeViewerResizableRailLayout
+				autosaveId="bridge-viewer-right-rail"
+				content={
+					<section className="grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
+						<BridgeViewerContentHeader
+							controls={props.viewerHeaderControls}
+							eyebrow="Review"
+							title={props.title}
+						/>
+						<section
+							className="min-h-0 min-w-0 bg-[var(--bridge-canvas-bg)]"
+							data-testid="bridge-review-fallback-canvas"
+						>
+							{props.children}
+						</section>
 					</section>
-				</section>
-				<aside
-					className="order-last flex min-h-0 min-w-0 flex-col border-l border-[var(--bridge-border-opaque)] bg-[var(--bridge-surface-bg)]"
-					data-testid="bridge-review-sidebar"
-				>
-					<div
-						className={cn(
-							'flex shrink-0 items-center justify-between gap-1',
-							bridgeViewerChromeToolbarClassName,
-						)}
-						data-bridge-shared-rail-toolbar="true"
-						data-testid="bridge-review-rail-toolbar"
-					>
-						<div
-							className="flex min-w-0 items-center gap-1"
-							data-testid="bridge-review-rail-toolbar-leading"
-						>
-							<Skeleton className="h-6 w-14 bg-[var(--bridge-surface-raised-bg)]" />
-						</div>
-						<div
-							className="flex min-w-0 items-center justify-end gap-1"
-							data-testid="bridge-review-rail-toolbar-trailing"
-						>
-							<Skeleton className="h-6 w-6 bg-[var(--bridge-surface-raised-bg)]" />
-							<Skeleton className="h-6 w-6 bg-[var(--bridge-surface-raised-bg)]" />
-						</div>
-					</div>
-					<div
-						className="min-h-0 flex-1 overflow-hidden overscroll-contain p-3"
-						data-testid="bridge-review-rail-scroll"
-					>
+				}
+				contentTestId="bridge-review-content-panel"
+				handleTestId="bridge-review-rail-resize-handle"
+				rail={BridgeViewerRightRailShell({
+					body: (
 						<div className="flex flex-col gap-2">
 							<Skeleton className="h-3 w-full bg-[var(--bridge-surface-raised-bg)]" />
 							<Skeleton className="h-3 w-11/12 bg-[var(--bridge-surface-raised-bg)]" />
 							<Skeleton className="h-3 w-4/5 bg-[var(--bridge-surface-raised-bg)]" />
 						</div>
-					</div>
-				</aside>
-			</div>
+					),
+					bodyClassName: 'min-h-0 flex-1 overflow-hidden overscroll-contain p-3',
+					bodyTestId: 'bridge-review-rail-scroll',
+					border: 'opaque',
+					layout: 'stack',
+					testId: 'bridge-review-sidebar',
+					toolbar: BridgeViewerRailToolbar({
+						leading: <Skeleton className="h-6 w-14 bg-[var(--bridge-surface-raised-bg)]" />,
+						leadingTestId: 'bridge-review-rail-toolbar-leading',
+						testId: 'bridge-review-rail-toolbar',
+						trailing: (
+							<>
+								<Skeleton className="h-6 w-6 bg-[var(--bridge-surface-raised-bg)]" />
+								<Skeleton className="h-6 w-6 bg-[var(--bridge-surface-raised-bg)]" />
+							</>
+						),
+						trailingTestId: 'bridge-review-rail-toolbar-trailing',
+					}),
+				})}
+				railTestId="bridge-review-resizable-rail"
+			/>
 		</main>
 	);
 }

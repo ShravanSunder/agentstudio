@@ -67,6 +67,22 @@ describe('BridgeViewer shared component boundaries', () => {
 		expect(reviewViewerShell).not.toContain('grid-cols-[minmax(0,1fr)_minmax(260px,340px)]');
 	});
 
+	test('loading and fallback frames keep divider geometry in the shared resizable shell', async () => {
+		const fileLoadingFrame = await source(
+			'src/file-viewer/bridge-file-viewer-lazy-loading-frame.tsx',
+		);
+		const reviewFallbackShells = await source(
+			'src/review-viewer/shell/review-viewer-fallback-shells.tsx',
+		);
+
+		expect(fileLoadingFrame).toContain('BridgeViewerResizableRailLayout');
+		expect(reviewFallbackShells).toContain('BridgeViewerResizableRailLayout');
+		expect(fileLoadingFrame).toContain('contentTestId="bridge-file-viewer-content-panel"');
+		expect(reviewFallbackShells).toContain('contentTestId="bridge-review-content-panel"');
+		expect(fileLoadingFrame).not.toContain('grid-cols-[minmax(0,1fr)_minmax(260px,340px)]');
+		expect(reviewFallbackShells).not.toContain('grid-cols-[minmax(0,1fr)_minmax(260px,340px)]');
+	});
+
 	test('Pierre tree adapter stays neutral from FileView and Review domain modules', async () => {
 		const pierreTreeAdapter = await source('src/app/bridge-pierre-tree-adapter.ts');
 

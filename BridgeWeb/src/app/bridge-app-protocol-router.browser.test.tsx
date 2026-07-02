@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, test } from 'vitest';
 import { render } from 'vitest-browser-react';
 
+// oxlint-disable-next-line import/no-unassigned-import -- Browser Mode geometry assertions need app CSS.
+import './bridge-app.css';
 import type { WorktreeFileInitialSurface } from '../worktree-file-surface/worktree-file-app.js';
 import {
 	BridgeAppProtocolRouter,
@@ -31,6 +33,12 @@ describe('BridgeAppProtocolRouter', () => {
 		expect(fileContextButton?.getAttribute('data-bridge-viewer-context-selected')).toBe('false');
 		expect(reviewContextButton?.getAttribute('data-bridge-viewer-context-selected')).toBe('true');
 		expect(document.querySelector('[data-testid="bridge-review-empty-shell"]')).not.toBeNull();
+		assertSharedResizableRailFallbackGeometry({
+			contentPanelTestId: 'bridge-review-content-panel',
+			frameTestId: 'bridge-review-fallback-frame',
+			handleId: 'bridge-review-rail-resize-handle',
+			railPanelTestId: 'bridge-review-resizable-rail',
+		});
 		expect(document.querySelector('[data-testid="worktree-file-app"]')).toBeNull();
 	});
 
@@ -72,6 +80,12 @@ describe('BridgeAppProtocolRouter', () => {
 		expect(reviewModeHost?.hasAttribute('hidden')).toBe(true);
 		expect(document.querySelector('[data-testid="bridge-review-empty-shell"]')).not.toBeNull();
 		expect(lazyLoadingFrame?.parentElement).toBe(modeHost);
+		assertSharedResizableRailFallbackGeometry({
+			contentPanelTestId: 'bridge-file-viewer-content-panel',
+			frameTestId: 'bridge-file-viewer-lazy-loading-frame',
+			handleId: 'bridge-file-viewer-rail-resize-handle',
+			railPanelTestId: 'bridge-file-viewer-resizable-rail',
+		});
 		expect(document.querySelector('[data-testid="bridge-file-viewer-shell"]')).toBeNull();
 	});
 
@@ -119,3 +133,38 @@ describe('BridgeAppProtocolRouter', () => {
 		expect(resolveBridgeAppProtocolFromElement(document.documentElement)).toBe('review');
 	});
 });
+
+function assertSharedResizableRailFallbackGeometry(props: {
+	readonly contentPanelTestId: string;
+	readonly frameTestId: string;
+	readonly handleId: string;
+	readonly railPanelTestId: string;
+}): void {
+	const frame = requireHTMLElement(document.querySelector(`[data-testid="${props.frameTestId}"]`));
+	const layout = requireHTMLElement(frame.querySelector('[data-slot="resizable-panel-group"]'));
+	const contentPanel = requireHTMLElement(
+		frame.querySelector(`[data-testid="${props.contentPanelTestId}"]`),
+	);
+	const resizeHandle = requireHTMLElement(frame.querySelector(`#${props.handleId}`));
+	const railPanel = requireHTMLElement(
+		frame.querySelector(`[data-testid="${props.railPanelTestId}"]`),
+	);
+	const layoutBox = layout.getBoundingClientRect();
+	const contentBox = contentPanel.getBoundingClientRect();
+	const handleBox = resizeHandle.getBoundingClientRect();
+	const railBox = railPanel.getBoundingClientRect();
+
+	expect(layout.getAttribute('data-panel-group-direction')).toBe('horizontal');
+	expect(layoutBox.width).toBeGreaterThan(700);
+	expect(contentBox.width).toBeGreaterThan(railBox.width);
+	expect(handleBox.width).toBeGreaterThanOrEqual(1);
+	expect(railBox.width).toBeGreaterThanOrEqual(240);
+	expect(railBox.height).toBeGreaterThan(200);
+}
+
+function requireHTMLElement(element: Element | null): HTMLElement {
+	if (!(element instanceof HTMLElement)) {
+		throw new Error('Expected Bridge app browser test element to be an HTMLElement');
+	}
+	return element;
+}
