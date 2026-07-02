@@ -14,6 +14,7 @@ describe('Review viewer source structure', () => {
 		expect(modeSource).toContain('useBridgeReviewIntakeController');
 		expect(modeSource).toContain('useBridgeReviewMetadataInterestRuntime');
 		expect(modeSource).toContain('useBridgeReviewNavigationController');
+		expect(modeSource).toContain('useBridgeReviewDemandTelemetryController');
 		expect(modeSource).toContain('useBridgeReviewProjectionCoordinator');
 		expect(modeSource).toContain('useBridgeReviewSelectionController');
 		expect(modeSource).toContain('useBridgeReviewVisibleContentController');
@@ -118,6 +119,25 @@ describe('Review viewer source structure', () => {
 		expect(navigationControllerSource).not.toContain('@pierre/');
 	});
 
+	test('keeps Review demand telemetry package filtering in an app-level controller hook', () => {
+		const modeSource = readSource('../app/bridge-app-review-viewer-mode.tsx');
+		const demandTelemetryControllerSource = readSource(
+			'../app/bridge-app-review-demand-telemetry-controller.ts',
+		);
+
+		expect(modeSource).toContain('useBridgeReviewDemandTelemetryController');
+		expect(modeSource).not.toContain('reviewContentDemandTelemetryForPackage');
+
+		expect(demandTelemetryControllerSource).toContain('useBridgeReviewDemandTelemetryController');
+		expect(demandTelemetryControllerSource).toContain('reviewContentDemandTelemetryForPackage');
+		expect(demandTelemetryControllerSource).not.toContain('BridgeReviewViewerShellBoundary');
+		expect(demandTelemetryControllerSource).not.toContain('useBridgeReviewViewerStore');
+		expect(demandTelemetryControllerSource).not.toContain('createBridgeReviewViewerStore');
+		expect(demandTelemetryControllerSource).not.toContain('resourceExecutor');
+		expect(demandTelemetryControllerSource).not.toContain('reviewDemandScheduler');
+		expect(demandTelemetryControllerSource).not.toContain('@pierre/');
+	});
+
 	test('keeps Review visible content hydration in an app-level controller hook', () => {
 		const modeSource = readSource('../app/bridge-app-review-viewer-mode.tsx');
 		const visibleContentControllerSource = readSource(
@@ -184,6 +204,9 @@ describe('Review viewer source structure', () => {
 		expect(oversizedSources).toEqual([]);
 		expect(
 			readSource('../app/bridge-app-review-visible-content-controller.ts').split('\n').length,
+		).toBeLessThanOrEqual(1000);
+		expect(
+			readSource('../app/bridge-app-review-demand-telemetry-controller.ts').split('\n').length,
 		).toBeLessThanOrEqual(1000);
 	});
 });

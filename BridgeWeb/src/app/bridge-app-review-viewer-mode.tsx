@@ -23,6 +23,7 @@ import { createBridgeMarkdownRenderWebWorkerClient } from '../review-viewer/work
 import type { BridgeReviewProjectionWorkerClient } from '../review-viewer/workers/projection/review-projection-worker-client.js';
 import { createBridgeReviewProjectionWebWorkerClient } from '../review-viewer/workers/projection/review-projection-worker-transport.js';
 import type { BridgeDiffStatusState } from './bridge-app-review-controller.js';
+import { useBridgeReviewDemandTelemetryController } from './bridge-app-review-demand-telemetry-controller.js';
 import {
 	readBridgeReviewFrameAuthority,
 	refreshBridgeReviewFrameAuthority,
@@ -46,7 +47,6 @@ import {
 import { useBridgeReviewSelectionController } from './bridge-app-review-selection-controller.js';
 import {
 	makeSelectedContentResourcesKey,
-	reviewContentDemandTelemetryForPackage,
 	reviewFileTargetForNavigationCommand,
 	scheduleSelectedContentRetry,
 	selectedCanvasLoadingReasonForCurrentSelection,
@@ -234,27 +234,12 @@ export function BridgeReviewViewerMode(
 			}),
 		[initialReviewFileTarget, reviewPackage, rootSnapshot.selectedItemId, selectedReviewFileTarget],
 	);
-	useEffect((): void => {
-		setLastSelectedDemandTelemetry((currentTelemetry) =>
-			reviewContentDemandTelemetryForPackage({
-				reviewPackage,
-				telemetry: currentTelemetry,
-			}),
-		);
-		setLastVisibleDemandTelemetry((currentTelemetry) =>
-			reviewContentDemandTelemetryForPackage({
-				reviewPackage,
-				telemetry: currentTelemetry,
-			}),
-		);
-	}, [reviewPackage, setLastSelectedDemandTelemetry]);
-	const lastSelectedDemandTelemetryForCurrentPackage = reviewContentDemandTelemetryForPackage({
+	const demandTelemetryController = useBridgeReviewDemandTelemetryController({
+		lastSelectedDemandTelemetry,
+		lastVisibleDemandTelemetry,
 		reviewPackage,
-		telemetry: lastSelectedDemandTelemetry,
-	});
-	const lastVisibleDemandTelemetryForCurrentPackage = reviewContentDemandTelemetryForPackage({
-		reviewPackage,
-		telemetry: lastVisibleDemandTelemetry,
+		setLastSelectedDemandTelemetry,
+		setLastVisibleDemandTelemetry,
 	});
 	const visibleContentController = useBridgeReviewVisibleContentController({
 		contentRegistry,
@@ -486,9 +471,13 @@ export function BridgeReviewViewerMode(
 			currentSelectedContentKey={currentSelectedContentKey}
 			diffStatus={diffStatus}
 			isActive={props.isActive}
-			lastSelectedDemandTelemetry={lastSelectedDemandTelemetryForCurrentPackage}
+			lastSelectedDemandTelemetry={
+				demandTelemetryController.lastSelectedDemandTelemetryForCurrentPackage
+			}
 			lastSelectionCommitDurationMilliseconds={lastSelectionCommitDurationMilliseconds}
-			lastVisibleDemandTelemetry={lastVisibleDemandTelemetryForCurrentPackage}
+			lastVisibleDemandTelemetry={
+				demandTelemetryController.lastVisibleDemandTelemetryForCurrentPackage
+			}
 			onCodeViewControlHandleChange={(handle): void => {
 				codeViewControlHandleRef.current = handle;
 			}}
