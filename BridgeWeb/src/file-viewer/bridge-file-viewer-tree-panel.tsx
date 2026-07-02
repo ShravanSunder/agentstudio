@@ -213,7 +213,7 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 				</div>
 			</header>
 			<section
-				className="min-h-0 overflow-auto bridge-scrollbar"
+				className="h-full min-h-0 overflow-hidden"
 				data-testid="bridge-file-viewer-pierre-file-tree"
 				data-worktree-tree-total-size={String(declaredTreeHeightPixels)}
 				data-worktree-tree-total-size-source={declaredTreeHeightSource}

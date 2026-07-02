@@ -207,6 +207,17 @@ describe('Bridge file viewer source structure', () => {
 		expect(visibleDemandAdapterImporters).toEqual(['bridge-file-viewer-pierre-tree-runtime.ts']);
 	});
 
+	test('keeps the File tree wrapper from owning overflow scrolling', () => {
+		const treePanelSource = readFileSync(
+			fileURLToPath(new URL('./bridge-file-viewer-tree-panel.tsx', import.meta.url)),
+			'utf8',
+		);
+
+		expect(treePanelSource).toContain('overflow-hidden');
+		expect(treePanelSource).not.toContain('overflow-auto');
+		expect(treePanelSource).not.toContain('bridge-scrollbar');
+	});
+
 	test('keeps Pierre visible-demand publishing on ref-backed descriptor lookup', () => {
 		const treeRuntimeSource = readFileSync(
 			fileURLToPath(new URL('./bridge-file-viewer-pierre-tree-runtime.ts', import.meta.url)),

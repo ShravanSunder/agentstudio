@@ -109,6 +109,32 @@ entries; if an entry becomes stale, append a correction with the new evidence.
   `oxlint --type-aware` on touched TS passed,
   and `pnpm --dir BridgeWeb exec tsc --noEmit --pretty false` passed.
 
+### 2026-07-01 Codex React Lane Pierre Scroll Ownership Checkpoint
+
+- Verified local `@pierre/trees` package source:
+  `FileTreeView` owns `scrollRef`, attaches scroll/wheel/touch/key listeners
+  to the internal element, and renders
+  `data-file-tree-virtualized-scroll="true"`.
+- Matched ReviewViewer's Pierre wrapper shape by changing
+  `BridgeWeb/src/file-viewer/bridge-file-viewer-tree-panel.tsx` from
+  `overflow-auto bridge-scrollbar` to `overflow-hidden`; Pierre's internal
+  virtualized scroll element is now the only File tree scroll owner.
+- Added a source-structure guard so FileView does not reintroduce wrapper
+  scroll ownership.
+- Red proof:
+  `pnpm --dir BridgeWeb exec vitest run src/file-viewer/bridge-file-viewer-source-structure.unit.test.ts --reporter verbose`
+  failed because the File tree wrapper lacked `overflow-hidden` and still had
+  `overflow-auto bridge-scrollbar`.
+- Green proof:
+  same source-structure command passed 17/17.
+- Browser proof:
+  `pnpm --dir BridgeWeb exec vitest --config vitest.browser.config.ts run --project integration-browser src/file-viewer/bridge-file-viewer-app.browser.test.tsx --reporter verbose`
+  passed 41/41.
+- Static proof:
+  `oxfmt --check` on touched TS passed,
+  `oxlint --type-aware` on touched TS passed,
+  and `pnpm --dir BridgeWeb exec tsc --noEmit --pretty false` passed.
+
 ### 2026-07-01 Codex React Lane Descriptor Request Slice
 
 - Extracted selected/metadata-only descriptor request and replay callbacks from
