@@ -171,6 +171,7 @@ jobs:
       - name: Prebuild Swift test bundles
         env:
           SWIFT_TEST_TIMEOUT_SECONDS: "600"
+          SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS: "900"
         run: mise run test-prebuild
 
       - name: Test fast lane

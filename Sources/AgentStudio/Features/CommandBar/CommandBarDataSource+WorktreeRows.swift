@@ -59,7 +59,7 @@ extension CommandBarDataSource {
             icon: worktree.isMainWorktree ? .system(.starFill) : .system(.arrowTriangleBranch),
             group: group,
             groupPriority: groupPriority,
-            keywords: ["repo", "worktree", "terminal", repo.name, worktree.name, worktree.path.lastPathComponent],
+            keywords: worktreeKeywords(worktree: worktree, repo: repo),
             hasChildren: true,
             action: .worktreeAction(presence: presence),
             command: .openWorktree
@@ -92,8 +92,10 @@ extension CommandBarDataSource {
 
     static func repoRootKeywords(repo: Repo) -> [String] {
         var keywords = ["repo", repo.name, repo.repoPath.lastPathComponent]
+        keywords.append(contentsOf: repo.tags)
         keywords.append(contentsOf: repo.worktrees.map(\.name))
         keywords.append(contentsOf: repo.worktrees.map { $0.path.lastPathComponent })
+        keywords.append(contentsOf: repo.worktrees.flatMap(\.tags))
         return keywords
     }
 
@@ -232,7 +234,7 @@ extension CommandBarDataSource {
                         icon: worktree.isMainWorktree ? .system(.starFill) : .system(.arrowTriangleBranch),
                         group: "Worktrees",
                         groupPriority: 1,
-                        keywords: ["repo", "worktree", "terminal", repo.name, worktree.name, worktree.path.path],
+                        keywords: worktreeKeywords(worktree: worktree, repo: repo, includeFullPath: true),
                         hasChildren: true,
                         action: .navigate(level),
                         command: .openWorktree
@@ -258,6 +260,16 @@ extension CommandBarDataSource {
             isMainWorktree: worktree.isMainWorktree,
             openPanes: []
         )
+    }
+
+    private static func worktreeKeywords(worktree: Worktree, repo: Repo, includeFullPath: Bool = false) -> [String] {
+        var keywords = ["repo", "worktree", "terminal", repo.name, worktree.name, worktree.path.lastPathComponent]
+        if includeFullPath {
+            keywords.append(worktree.path.path)
+        }
+        keywords.append(contentsOf: repo.tags)
+        keywords.append(contentsOf: worktree.tags)
+        return keywords
     }
 
     static func buildWorktreeActionsLevel(

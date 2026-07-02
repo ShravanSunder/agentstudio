@@ -48,6 +48,7 @@ state_reason=""
 state_app=""
 state_pid=""
 state_startup_diagnostic_action=""
+state_preferences_mode=""
 if [ -f "$STATE_FILE" ]; then
   while IFS='=' read -r key value; do
     decoded_value="$(
@@ -90,8 +91,16 @@ PY
       AGENTSTUDIO_OBSERVABILITY_STARTUP_DIAGNOSTIC_ACTION)
         state_startup_diagnostic_action="$decoded_value"
         ;;
+      AGENTSTUDIO_OBSERVABILITY_PREFERENCES_MODE)
+        state_preferences_mode="$decoded_value"
+        ;;
     esac
   done <"$STATE_FILE"
+fi
+
+if [ -z "$state_preferences_mode" ] && [ -f "$STATE_FILE" ] &&
+  grep -Eq '^[[:space:]]*AGENTSTUDIO_OBSERVABILITY_PREFERENCES_MODE[[:space:]]*=[[:space:]]*honor_preferences[[:space:]]*$' "$STATE_FILE"; then
+  state_preferences_mode="honor_preferences"
 fi
 
 if [ "$state_status" = "launch_failed" ] || [ "$state_status" = "already_running" ]; then
@@ -245,6 +254,7 @@ if [ -n "$state_proof_token" ]; then
   query="$query $proof_token_query"
 fi
 startup_event_query="$(logsql_exact_filter "_msg" "app.zmx_startup_reconciliation.completed")"
+preferences_loaded_event_query="$(logsql_exact_filter "_msg" "app.preferences.global.loaded")"
 
 query_logs() {
   local logsql="$1"
@@ -380,6 +390,28 @@ if [ "$startup_diagnostic_action" = "tcc-upgrade-probe" ]; then
       exit 1
     fi
   fi
+fi
+
+if [ "$state_preferences_mode" = "honor_preferences" ]; then
+  preferences_response="$(
+    query_logs \
+      "$query $preferences_loaded_event_query | fields _msg,agentstudio.preferences.global.status,agentstudio.preferences.global.schema_version,agentstudio.preferences.global.observability_enabled,agentstudio.preferences.global.load_elapsed_ms | limit 5"
+  )"
+  if [ -z "$preferences_response" ]; then
+    echo "no global preferences loaded record found in VictoriaLogs for marker $MARKER" >&2
+    exit 1
+  fi
+  required_preferences_fields=(
+    agentstudio.preferences.global.status
+    agentstudio.preferences.global.load_elapsed_ms
+  )
+  for field in "${required_preferences_fields[@]}"; do
+    if ! grep -q "\"$field\":" <<<"$preferences_response"; then
+      echo "global preferences loaded record missing field: $field" >&2
+      echo "$preferences_response" >&2
+      exit 1
+    fi
+  done
 fi
 
 sensitive_fields=(

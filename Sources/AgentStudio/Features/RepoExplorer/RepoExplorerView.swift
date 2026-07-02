@@ -163,14 +163,6 @@ struct RepoExplorerView: View {
         !debouncedQuery.isEmpty
     }
 
-    private var checkoutColorOverrides: [String: String] {
-        Dictionary(
-            uniqueKeysWithValues: sidebarCache.checkoutColors.map { key, value in
-                (key.rawValue, value)
-            }
-        )
-    }
-
     private var worktreeStatusById: [UUID: GitBranchStatus] {
         let factsByWorktreeId = Dictionary(
             uniqueKeysWithValues: sidebarRepos.flatMap(\.worktrees).compactMap { worktree in
@@ -374,10 +366,6 @@ struct RepoExplorerView: View {
                                     target: resolvedWorktreeContext.worktree.id,
                                     targetType: .worktree
                                 )
-                            },
-                            onSetIconColor: { colorHex in
-                                let key = resolvedWorktreeContext.repo.id.uuidString
-                                sidebarCache.setCheckoutColor(colorHex, for: SidebarCheckoutColorKey(key))
                             }
                         )
                         .listRowInsets(
@@ -420,16 +408,13 @@ struct RepoExplorerView: View {
 
     private func colorForCheckout(repo: RepoPresentationItem, in group: RepoPresentationGroup) -> Color {
         let colorHex = RepoPresentationColoring.checkoutColorHex(
-            for: repo, in: group, checkoutColorOverrides: checkoutColorOverrides
+            for: repo, in: group
         )
         return Color(nsColor: NSColor(hex: colorHex) ?? .controlAccentColor)
     }
 
     private func iconForGroup(_ group: RepoPresentationGroup) -> AppEntityIcon {
-        Self.sourceGroupIcon(
-            for: group,
-            checkoutColorOverrides: checkoutColorOverrides
-        )
+        Self.sourceGroupIcon(for: group)
     }
 
     private func isGroupExpanded(_ groupId: String) -> Bool {
@@ -545,24 +530,20 @@ private struct RepoExplorerLoadingRepoRow: View {
 extension RepoExplorerView {
     static func checkoutColorHex(
         for repo: RepoPresentationItem,
-        in group: RepoPresentationGroup,
-        checkoutColorOverrides: [String: String] = [:]
+        in group: RepoPresentationGroup
     ) -> String {
         RepoPresentationColoring.checkoutColorHex(
             for: repo,
-            in: group,
-            checkoutColorOverrides: checkoutColorOverrides
+            in: group
         )
     }
 
     static func sourceGroupIcon(
-        for group: RepoPresentationGroup,
-        checkoutColorOverrides: [String: String] = [:]
+        for group: RepoPresentationGroup
     ) -> AppEntityIcon {
         guard
             let colorHex = RepoPresentationColoring.sourceGroupColorHex(
-                for: group,
-                checkoutColorOverrides: checkoutColorOverrides
+                for: group
             )
         else {
             return .repo

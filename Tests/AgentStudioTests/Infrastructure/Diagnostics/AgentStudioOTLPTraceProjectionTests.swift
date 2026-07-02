@@ -819,7 +819,7 @@ struct AgentStudioOTLPTraceProjectionTests {
 }
 
 extension AgentStudioOTLPProjectedLogRecord {
-    fileprivate func renderedForCanaryAssertions() -> String {
+    func renderedForCanaryAssertions() -> String {
         var components = [
             body,
             resource.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: " "),

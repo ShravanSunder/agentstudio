@@ -139,6 +139,24 @@ extension AppDelegate {
         AtomPerformanceTelemetry.shared.configure(traceRuntime: traceRuntime)
         AtomScope.setUp(atomStore)
         workspaceSQLiteDatastore = makeWorkspaceSQLiteDatastore(traceRuntime: traceRuntime)
+        let workspaceSQLiteSaveCoordinator = workspaceSQLiteDatastore.map { datastore in
+            WorkspaceSQLiteSaveCoordinator(
+                identityAtom: atomStore.workspaceIdentity,
+                windowMemoryAtom: atomStore.workspaceWindowMemory,
+                repositoryTopologyAtom: atomStore.workspaceRepositoryTopology,
+                workspacePaneAtom: atomStore.workspacePane,
+                workspaceTabLayoutAtom: atomStore.workspaceTabLayout,
+                sqliteDatastore: datastore
+            )
+        }
+        repositoryTopologyStore = RepositoryTopologyStore(
+            atom: atomStore.workspaceRepositoryTopology,
+            sqliteDatastore: workspaceSQLiteDatastore,
+            saveCoordinator: workspaceSQLiteSaveCoordinator,
+            recoveryReporter: { [weak self] event in
+                self?.recordPersistenceRecovery(event)
+            }
+        )
         store = WorkspaceStore(
             identityAtom: atomStore.workspaceIdentity,
             windowMemoryAtom: atomStore.workspaceWindowMemory,
@@ -147,6 +165,8 @@ extension AppDelegate {
             tabLayoutAtom: atomStore.workspaceTabLayout,
             mutationCoordinator: atomStore.workspaceMutationCoordinator,
             sqliteDatastore: workspaceSQLiteDatastore,
+            repositoryTopologyStore: repositoryTopologyStore,
+            sqliteSaveCoordinator: workspaceSQLiteSaveCoordinator,
             recoveryReporter: { [weak self] event in
                 self?.recordPersistenceRecovery(event)
             }
@@ -176,7 +196,6 @@ extension AppDelegate {
         )
         workspaceSettingsStore = WorkspaceSettingsStore(
             editorPreferenceAtom: atomStore.editorPreference,
-            sidebarCheckoutColorAtom: atomStore.sidebarCheckoutColor,
             inboxNotificationPrefsAtom: atomStore.inboxNotificationPrefs,
             recoveryReporter: { [weak self] event in
                 self?.recordPersistenceRecovery(event)
@@ -413,6 +432,7 @@ extension AppDelegate {
         // quiet, then immediately persists any stale cache pruning as an explicit boot
         // transaction instead of relying on a debounce side effect.
         repoCacheStore.startObserving()
+        repositoryTopologyStore.startObserving()
         sidebarCacheStore.startObserving()
         uiStateStore.startObserving()
         workspaceSettingsStore.startObserving()
@@ -431,6 +451,10 @@ extension AppDelegate {
         assert(
             repoCacheStore.isAutosaveObservationActive,
             "RepoCacheStore autosave observation must be active after \(WorkspaceBootStep.armPersistenceObservation.rawValue)"
+        )
+        assert(
+            repositoryTopologyStore.isAutosaveObservationActive,
+            "RepositoryTopologyStore autosave observation must be active after \(WorkspaceBootStep.armPersistenceObservation.rawValue)"
         )
         assert(
             sidebarCacheStore.isAutosaveObservationActive,

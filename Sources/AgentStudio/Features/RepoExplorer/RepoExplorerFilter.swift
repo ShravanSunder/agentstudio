@@ -16,16 +16,26 @@ enum RepoExplorerFilter {
         guard !query.isEmpty else { return repos }
 
         return repos.compactMap { repo in
-            if repo.name.localizedCaseInsensitiveContains(query) {
+            if repoMatches(repo, query: query) {
                 return repo
             }
             let matchingWorktrees = repo.worktrees.filter {
-                $0.name.localizedCaseInsensitiveContains(query)
+                worktreeMatches($0, query: query)
             }
             guard !matchingWorktrees.isEmpty else { return nil }
             var filtered = repo
             filtered.worktrees = matchingWorktrees
             return filtered
         }
+    }
+
+    private static func repoMatches(_ repo: RepoPresentationItem, query: String) -> Bool {
+        repo.name.localizedCaseInsensitiveContains(query)
+            || repo.tags.contains { $0.localizedCaseInsensitiveContains(query) }
+    }
+
+    private static func worktreeMatches(_ worktree: Worktree, query: String) -> Bool {
+        worktree.name.localizedCaseInsensitiveContains(query)
+            || worktree.tags.contains { $0.localizedCaseInsensitiveContains(query) }
     }
 }

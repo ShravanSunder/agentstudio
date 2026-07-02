@@ -16,8 +16,7 @@ struct PaneContextFacetsTests {
             parentFolder: "dev",
             organizationName: "askluna",
             origin: "origin",
-            upstream: "upstream/main",
-            tags: ["default"]
+            upstream: "upstream/main"
         )
         let base = PaneContextFacets.empty
 
@@ -32,7 +31,6 @@ struct PaneContextFacetsTests {
         #expect(merged.organizationName == defaults.organizationName)
         #expect(merged.origin == defaults.origin)
         #expect(merged.upstream == defaults.upstream)
-        #expect(merged.tags == defaults.tags)
     }
 
     @Test("fillingNilFields does not overwrite existing non-nil values")
@@ -46,8 +44,7 @@ struct PaneContextFacetsTests {
             parentFolder: "existing-parent",
             organizationName: "existing-org",
             origin: "existing-origin",
-            upstream: "existing/upstream",
-            tags: ["existing"]
+            upstream: "existing/upstream"
         )
         let defaults = PaneContextFacets(
             repoId: UUID(),
@@ -58,8 +55,7 @@ struct PaneContextFacetsTests {
             parentFolder: "default-parent",
             organizationName: "default-org",
             origin: "default-origin",
-            upstream: "default/upstream",
-            tags: ["default"]
+            upstream: "default/upstream"
         )
 
         let merged = existing.fillingNilFields(from: defaults)
@@ -67,16 +63,4 @@ struct PaneContextFacetsTests {
         #expect(merged == existing)
     }
 
-    @Test("fillingNilFields falls back to default tags only when source tags are empty")
-    func fillingNilFieldsTagMergeRules() {
-        let defaults = PaneContextFacets(tags: ["default"])
-        let emptyTags = PaneContextFacets(tags: [])
-        let nonEmptyTags = PaneContextFacets(tags: ["explicit"])
-
-        let mergedWithEmptyTags = emptyTags.fillingNilFields(from: defaults)
-        let mergedWithNonEmptyTags = nonEmptyTags.fillingNilFields(from: defaults)
-
-        #expect(mergedWithEmptyTags.tags == ["default"])
-        #expect(mergedWithNonEmptyTags.tags == ["explicit"])
-    }
 }

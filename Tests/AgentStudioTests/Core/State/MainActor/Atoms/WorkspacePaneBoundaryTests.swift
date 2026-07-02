@@ -24,8 +24,7 @@ struct WorkspacePaneBoundaryTests {
                     parentFolder: "stale parent",
                     organizationName: "stale org",
                     origin: "stale origin",
-                    upstream: "stale upstream",
-                    tags: ["swift"]
+                    upstream: "stale upstream"
                 ),
                 note: "ship it"
             ),
@@ -39,7 +38,6 @@ struct WorkspacePaneBoundaryTests {
         #expect(state.metadata.facets.repoId == repoId)
         #expect(state.metadata.facets.worktreeId == worktreeId)
         #expect(state.metadata.facets.cwd == URL(filePath: "/tmp/agent-studio/Sources"))
-        #expect(state.metadata.facets.tags == ["swift"])
         #expect(state.metadata.facets.paneContextFacets.repoName == nil)
         #expect(state.metadata.facets.paneContextFacets.worktreeName == nil)
         #expect(state.metadata.facets.paneContextFacets.parentFolder == nil)
@@ -134,7 +132,7 @@ struct WorkspacePaneBoundaryTests {
             path: worktreePath,
             isMainWorktree: false
         )
-        let topologyAtom = WorkspaceRepositoryTopologyAtom()
+        let topologyAtom = RepositoryTopologyAtom()
         topologyAtom.hydrate(
             runtimeRepos: [
                 Repo(id: repo.id, name: repo.name, repoPath: repo.repoPath, worktrees: [worktree])
@@ -203,7 +201,7 @@ struct WorkspacePaneBoundaryTests {
             path: worktreePath,
             isMainWorktree: false
         )
-        let topologyAtom = WorkspaceRepositoryTopologyAtom()
+        let topologyAtom = RepositoryTopologyAtom()
         topologyAtom.hydrate(
             runtimeRepos: [
                 Repo(id: repoId, name: "agent-studio", repoPath: repoPath, worktrees: [worktree])
@@ -237,7 +235,7 @@ struct WorkspacePaneBoundaryTests {
         let worktreeId = UUID()
         let repoPath = URL(filePath: "/tmp/project-dev/agent-studio")
         let worktreePath = repoPath.appending(path: "performance")
-        let topologyAtom = WorkspaceRepositoryTopologyAtom()
+        let topologyAtom = RepositoryTopologyAtom()
         topologyAtom.hydrate(
             runtimeRepos: [
                 Repo(

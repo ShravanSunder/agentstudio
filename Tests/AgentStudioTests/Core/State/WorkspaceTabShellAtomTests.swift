@@ -56,6 +56,30 @@ struct WorkspaceTabShellAtomTests {
     }
 
     @Test
+    func setTabColorHex_canonicalizesAndClearsColor() throws {
+        let atom = WorkspaceTabShellAtom()
+        let shell = TabShell(id: UUID(), name: "One")
+        atom.appendTabShell(shell)
+
+        try atom.setTabColorHex("#22cc88", tabId: shell.id)
+        #expect(atom.tabShell(shell.id)?.colorHex == "#22CC88")
+
+        try atom.setTabColorHex(nil, tabId: shell.id)
+        #expect(atom.tabShell(shell.id)?.colorHex == nil)
+    }
+
+    @Test
+    func setTabColorHex_rejectsInvalidColor() {
+        let atom = WorkspaceTabShellAtom()
+        let shell = TabShell(id: UUID(), name: "One")
+        atom.appendTabShell(shell)
+
+        #expect(throws: WorkspaceTabShellAtomError.invalidTabColorHex("22cc88")) {
+            try atom.setTabColorHex("22cc88", tabId: shell.id)
+        }
+    }
+
+    @Test
     func removeTabShell_middleActiveRemoval_activatesLastRemainingTab() {
         let atom = WorkspaceTabShellAtom()
         let first = TabShell(id: UUID(), name: "One")

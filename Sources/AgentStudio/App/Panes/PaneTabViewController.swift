@@ -67,7 +67,6 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         @MainActor (_ id: EditorTargetId, _ path: URL, _ installedTargets: [ExternalEditorTarget]) -> Bool
 
     private static let logger = Logger(subsystem: "com.agentstudio", category: "PaneTabViewController")
-    private static let genericGitHubURL = URL(string: "https://github.com")!
 
     private enum WorkspaceNavigationFocusScope: Equatable {
         case mainRow
@@ -172,6 +171,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     private var suppressedSelectionDrivenRefocus: (tabId: UUID?, paneId: UUID?)?
     private var lastManagementLayerActive = false
     private var managementNavigationScope: WorkspaceNavigationFocusScope = .mainRow
+    private let embedsTabBarInView: Bool
     private lazy var paneFocusExecutor = makePaneFocusExecutor()
 
     // MARK: - Init
@@ -210,7 +210,8 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         arrangementInlineRenameState: ArrangementInlineRenameState = ArrangementInlineRenameState(),
         arrangementPanelPresentation: ArrangementPanelPresentationAtom = atom(\.arrangementPanelPresentation),
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
-        registersAsCommandHandler: Bool = true
+        registersAsCommandHandler: Bool = true,
+        embedsTabBarInView: Bool = true
     ) {
         self.store = store
         self.repoCache = repoCache
@@ -234,6 +235,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         self.arrangementInlineRenameState = arrangementInlineRenameState
         self.arrangementPanelPresentation = arrangementPanelPresentation
         self.registersAsCommandHandler = registersAsCommandHandler
+        self.embedsTabBarInView = embedsTabBarInView
         super.init(nibName: nil, bundle: nil)
         setupNotificationObservers()
     }
@@ -266,7 +268,62 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         }
         containerView.addSubview(terminalContainer)
 
-        // Create custom tab bar AFTER (so it's on top visually)
+        if embedsTabBarInView {
+            let tabBarHostingView = makeTabBarHostingView()
+            tabBarHostingView.translatesAutoresizingMaskIntoConstraints = false
+            tabBarHostingView.wantsLayer = true
+            containerView.addSubview(tabBarHostingView)
+        }
+
+        // Create empty state view
+        let emptyView = createEmptyStateView()
+        emptyView.translatesAutoresizingMaskIntoConstraints = false
+        containerView.addSubview(emptyView)
+        self.emptyStateView = emptyView
+        lastEmptyStateModel = emptyStateModel
+
+        var constraints: [NSLayoutConstraint] = [
+            terminalContainer.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+            terminalContainer.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+            terminalContainer.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
+
+            emptyView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+            emptyView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+            emptyView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
+        ]
+
+        if embedsTabBarInView, let tabBarHostingView {
+            constraints.append(contentsOf: [
+                // Tab bar at top - use safeAreaLayoutGuide to respect titlebar
+                tabBarHostingView.topAnchor.constraint(equalTo: containerView.safeAreaLayoutGuide.topAnchor),
+                tabBarHostingView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+                tabBarHostingView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+                tabBarHostingView.heightAnchor.constraint(equalToConstant: AppStyles.Shell.TabBar.height),
+
+                // Terminal container below tab bar
+                terminalContainer.topAnchor.constraint(equalTo: tabBarHostingView.bottomAnchor),
+
+                // Empty state fills container (respects safe area)
+                emptyView.topAnchor.constraint(equalTo: containerView.safeAreaLayoutGuide.topAnchor),
+            ])
+        } else {
+            constraints.append(contentsOf: [
+                terminalContainer.topAnchor.constraint(equalTo: containerView.topAnchor),
+                emptyView.topAnchor.constraint(equalTo: containerView.topAnchor),
+            ])
+        }
+
+        NSLayoutConstraint.activate(constraints)
+
+        view = containerView
+        updateEmptyState()
+    }
+
+    func makeTabBarHostingView() -> DraggableTabBarHostingView {
+        if let tabBarHostingView {
+            return tabBarHostingView
+        }
+
         let tabBar = CustomTabBar(
             adapter: tabBarAdapter,
             arrangementInlineRenameState: arrangementInlineRenameState,
@@ -285,9 +342,6 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             onAdd: { [weak self] in
                 self?.addNewTab()
             },
-            onOpenGitHub: { [weak self] in
-                self?.openGitHubWebview()
-            },
             onPaneAction: { [weak self] action in
                 self?.dispatchAction(action)
             },
@@ -301,17 +355,17 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             },
             workspaceWindowId: workspaceWindowId
         )
-        tabBarHostingView = DraggableTabBarHostingView(rootView: tabBar)
-        tabBarHostingView.configure(adapter: tabBarAdapter) { [weak self] fromId, toIndex in
+        let hostingView = DraggableTabBarHostingView(rootView: tabBar)
+        hostingView.configure(adapter: tabBarAdapter) { [weak self] fromId, toIndex in
             self?.handleTabReorder(fromId: fromId, toIndex: toIndex)
         }
-        tabBarHostingView.dragPayloadProvider = { [weak self] tabId in
+        hostingView.dragPayloadProvider = { [weak self] tabId in
             self?.createDragPayload(for: tabId)
         }
-        tabBarHostingView.onSelect = { [weak self] tabId in
+        hostingView.onSelect = { [weak self] tabId in
             self?.handlePaneFocusTrigger(.tabClick(PaneTabClickFocusTrigger(targetTabId: tabId)))
         }
-        tabBarHostingView.expandedDrawerParentIdForTab = { [weak self] tabId in
+        hostingView.expandedDrawerParentIdForTab = { [weak self] tabId in
             guard let self else { return nil }
             return DrawerDragOwnershipPolicy.expandedDrawerParentPaneId(
                 tabId: tabId,
@@ -319,42 +373,11 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
                 paneAtom: self.store.paneAtom
             )
         }
-        tabBarHostingView.onAutoDismissDrawerForDrag = { [weak self] _, drawerParentPaneId in
+        hostingView.onAutoDismissDrawerForDrag = { [weak self] _, drawerParentPaneId in
             self?.dispatchAction(.toggleDrawer(paneId: drawerParentPaneId))
         }
-        tabBarHostingView.translatesAutoresizingMaskIntoConstraints = false
-        tabBarHostingView.wantsLayer = true
-        containerView.addSubview(tabBarHostingView)
-
-        // Create empty state view
-        let emptyView = createEmptyStateView()
-        emptyView.translatesAutoresizingMaskIntoConstraints = false
-        containerView.addSubview(emptyView)
-        self.emptyStateView = emptyView
-        lastEmptyStateModel = emptyStateModel
-
-        NSLayoutConstraint.activate([
-            // Tab bar at top - use safeAreaLayoutGuide to respect titlebar
-            tabBarHostingView.topAnchor.constraint(equalTo: containerView.safeAreaLayoutGuide.topAnchor),
-            tabBarHostingView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
-            tabBarHostingView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
-            tabBarHostingView.heightAnchor.constraint(equalToConstant: 36),
-
-            // Terminal container below tab bar
-            terminalContainer.topAnchor.constraint(equalTo: tabBarHostingView.bottomAnchor),
-            terminalContainer.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
-            terminalContainer.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
-            terminalContainer.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
-
-            // Empty state fills container (respects safe area)
-            emptyView.topAnchor.constraint(equalTo: containerView.safeAreaLayoutGuide.topAnchor),
-            emptyView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
-            emptyView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
-            emptyView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor),
-        ])
-
-        view = containerView
-        updateEmptyState()
+        tabBarHostingView = hostingView
+        return hostingView
     }
 
     override func viewDidLoad() {
@@ -1268,7 +1291,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
 
     private func updateEmptyState() {
         let hasTabs = !store.tabLayoutAtom.tabs.isEmpty
-        tabBarHostingView.isHidden = !hasTabs
+        tabBarHostingView.isHidden = embedsTabBarInView && !hasTabs
         terminalContainer.isHidden = !hasTabs
         emptyStateView?.isHidden = hasTabs
     }
@@ -1332,10 +1355,6 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         for target in emptyStateModel.recentTargets {
             openRecentTarget(target)
         }
-    }
-
-    private func openGitHubWebview() {
-        executor.openWebview(url: Self.genericGitHubURL)
     }
 
     private func openGitHubWebview(for paneId: UUID) {

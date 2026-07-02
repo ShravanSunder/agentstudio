@@ -45,6 +45,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var performanceTraceRecorder: AgentStudioPerformanceTraceRecorder!
     var startupTraceRecorder: AgentStudioStartupTraceRecorder!
     var repoCacheStore: RepoCacheStore!
+    var repositoryTopologyStore: RepositoryTopologyStore!
     var sidebarCacheStore: SidebarCacheStore!
     var uiStateStore: UIStateStore!
     var workspaceSettingsStore: WorkspaceSettingsStore!
@@ -683,14 +684,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         viewMenu.addItem(NSMenuItem.separator())
 
         viewMenu.addItem(menuItem(command: .openWebview, action: #selector(openWebviewAction)))
-
-        viewMenu.addItem(NSMenuItem.separator())
-
-        // Full Screen uses ⌃⌘F (not ⇧⌘F) to avoid conflict with Filter Sidebar
-        viewMenu.addItem(
-            NSMenuItem(title: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f")
-        )
-        viewMenu.items.last?.keyEquivalentModifierMask = [.command, .control]
 
         let viewMenuItem = NSMenuItem()
         viewMenuItem.submenu = viewMenu

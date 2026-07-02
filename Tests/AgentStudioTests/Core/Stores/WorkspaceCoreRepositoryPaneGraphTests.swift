@@ -63,8 +63,7 @@ struct WorkspaceCoreRepositoryPaneGraphTests {
                         durableFacets: .init(
                             repoId: repoId,
                             worktreeId: worktreeId,
-                            cwd: URL(fileURLWithPath: "/tmp/agentstudio/pane-graph-repo/Sources"),
-                            tags: ["zeta", "alpha", "alpha"]
+                            cwd: URL(fileURLWithPath: "/tmp/agentstudio/pane-graph-repo/Sources")
                         )
                     ),
                     residency: .pendingUndo(expiresAt: Date(timeIntervalSince1970: 400)),
@@ -84,8 +83,7 @@ struct WorkspaceCoreRepositoryPaneGraphTests {
                         createdAt: Date(timeIntervalSince1970: 301),
                         title: "Child Web",
                         durableFacets: .init(
-                            cwd: URL(fileURLWithPath: "/tmp/agentstudio/floating"),
-                            tags: ["docs"]
+                            cwd: URL(fileURLWithPath: "/tmp/agentstudio/floating")
                         )
                     ),
                     residency: .active,
@@ -94,17 +92,10 @@ struct WorkspaceCoreRepositoryPaneGraphTests {
                 ),
             ]
         )
-        let expectedGraph = WorkspaceCoreRepository.PaneGraphRecord(
-            panes: [
-                paneRecord(graph.panes[0], withDurableTags: ["alpha", "zeta"]),
-                graph.panes[1],
-            ]
-        )
-
         try repository.replacePaneGraph(workspaceId: workspaceId, graph: graph)
         let restoredGraph = try repository.fetchPaneGraph(workspaceId: workspaceId)
 
-        #expect(restoredGraph == expectedGraph)
+        #expect(restoredGraph == graph)
     }
 
     @Test("pane graph routes content variants to their schema-owned tables")
@@ -292,8 +283,7 @@ struct WorkspaceCoreRepositoryPaneGraphTests {
                         durableFacets: .init(
                             repoId: repoId,
                             worktreeId: worktreeId,
-                            cwd: launchDirectory,
-                            tags: ["source"]
+                            cwd: launchDirectory
                         )
                     ),
                     residency: .active,
@@ -401,13 +391,4 @@ struct WorkspaceCoreRepositoryPaneGraphTests {
             updatedAt: Date(timeIntervalSince1970: 500)
         )
     }
-}
-
-private func paneRecord(
-    _ pane: WorkspaceCoreRepository.PaneRecord,
-    withDurableTags tags: [String]
-) -> WorkspaceCoreRepository.PaneRecord {
-    var copy = pane
-    copy.metadata.durableFacets.tags = tags
-    return copy
 }

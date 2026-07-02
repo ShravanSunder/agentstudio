@@ -28,8 +28,11 @@ struct WorkspaceCoreMigrationTests {
         #expect(tableNames.contains("app_workspace_selection"))
         #expect(tableNames.contains("repo"))
         #expect(tableNames.contains("worktree"))
+        #expect(tableNames.contains("repo_tag"))
+        #expect(tableNames.contains("worktree_tag"))
         #expect(tableNames.contains("pane"))
         #expect(tableNames.contains("pane_content_terminal"))
+        #expect(!tableNames.contains("pane_tag"))
         #expect(tableNames.contains("drawer"))
         #expect(tableNames.contains("drawer_pane"))
         #expect(tableNames.contains("tab_shell"))
@@ -54,6 +57,22 @@ struct WorkspaceCoreMigrationTests {
         #expect(columnsByName["staged_at"] != nil)
         #expect(columnsByName["completed_at"] != nil)
         #expect((columnsByName["completed_at"]?["notnull"] as Int?) == 0)
+
+        let repoColumns = try databaseQueue.read { database in
+            try Row.fetchAll(database, sql: "PRAGMA table_info(repo)")
+                .map { row in row["name"] as String }
+        }
+        let worktreeColumns = try databaseQueue.read { database in
+            try Row.fetchAll(database, sql: "PRAGMA table_info(worktree)")
+                .map { row in row["name"] as String }
+        }
+        let tabShellColumns = try databaseQueue.read { database in
+            try Row.fetchAll(database, sql: "PRAGMA table_info(tab_shell)")
+                .map { row in row["name"] as String }
+        }
+        #expect(!repoColumns.contains("color_hex"))
+        #expect(!worktreeColumns.contains("color_hex"))
+        #expect(tabShellColumns.contains("color_hex"))
     }
 
     @Test("migration identifiers are stable and run once")
@@ -78,8 +97,57 @@ struct WorkspaceCoreMigrationTests {
                 "007_stage_workspace_sqlite_snapshot_status",
                 "008_add_zmx_session_id",
                 "009_drop_pane_source_binding",
+                "010_repository_topology_tags_and_tab_color",
             ]
         )
+    }
+
+    @Test("migration 010 moves durable tags to repository topology and adds tab color")
+    func migration010MovesDurableTagsToRepositoryTopologyAndAddsTabColor() throws {
+        let databaseQueue = try SQLiteDatabaseFactory.makeInMemoryQueue()
+
+        try WorkspaceCoreMigrations.migrator.migrate(databaseQueue, upTo: "009_drop_pane_source_binding")
+        let tableNamesBeforeMigration = try databaseQueue.read { database in
+            try String.fetchAll(
+                database,
+                sql: """
+                    SELECT name
+                    FROM sqlite_master
+                    WHERE type = 'table'
+                    ORDER BY name
+                    """
+            )
+        }
+        let tabShellColumnsBeforeMigration = try databaseQueue.read { database in
+            try Row.fetchAll(database, sql: "PRAGMA table_info(tab_shell)")
+                .map { row in row["name"] as String }
+        }
+        #expect(!tableNamesBeforeMigration.contains("repo_tag"))
+        #expect(!tableNamesBeforeMigration.contains("worktree_tag"))
+        #expect(!tabShellColumnsBeforeMigration.contains("color_hex"))
+
+        try WorkspaceCoreMigrations.migrate(databaseQueue)
+
+        let tableNamesAfterMigration = try databaseQueue.read { database in
+            try String.fetchAll(
+                database,
+                sql: """
+                    SELECT name
+                    FROM sqlite_master
+                    WHERE type = 'table'
+                    ORDER BY name
+                    """
+            )
+        }
+        let tabShellColumns = try databaseQueue.read { database in
+            try Row.fetchAll(database, sql: "PRAGMA table_info(tab_shell)")
+                .map { row in row["name"] as String }
+        }
+
+        #expect(!tableNamesAfterMigration.contains("pane_tag"))
+        #expect(tableNamesAfterMigration.contains("repo_tag"))
+        #expect(tableNamesAfterMigration.contains("worktree_tag"))
+        #expect(tabShellColumns.contains("color_hex"))
     }
 
     @Test("migration 009 refits pane source columns as facet columns")
