@@ -26,6 +26,7 @@ export interface UseBridgeReviewContentPrefetchControllerProps {
 	readonly reviewPackage: BridgeReviewPackage | null;
 	readonly selectedContentLoading: boolean;
 	readonly selectedItemId: string | null;
+	readonly visibleOwnedItemIds: ReadonlySet<string>;
 	readonly visibleLoadingItemCount: number;
 }
 
@@ -47,11 +48,15 @@ export function useBridgeReviewContentPrefetchController(
 		reviewPackage,
 		selectedContentLoading,
 		selectedItemId,
+		visibleOwnedItemIds,
 		visibleLoadingItemCount,
 	} = props;
 	const reviewPackageRef = useRef<BridgeReviewPackage | null>(reviewPackage);
 	reviewPackageRef.current = reviewPackage;
+	const visibleOwnedItemIdsRef = useRef<ReadonlySet<string>>(visibleOwnedItemIds);
+	visibleOwnedItemIdsRef.current = visibleOwnedItemIds;
 	const failedItemIdsRef = useRef<Set<string>>(new Set<string>());
+	const attemptedItemIdsRef = useRef<Set<string>>(new Set<string>());
 
 	const packageIdentityKey =
 		reviewPackage === null
@@ -71,6 +76,7 @@ export function useBridgeReviewContentPrefetchController(
 
 	useEffect((): void => {
 		failedItemIdsRef.current = new Set<string>();
+		attemptedItemIdsRef.current = new Set<string>();
 	}, [packageIdentityKey, reviewContentInvalidationVersion]);
 
 	useEffect((): (() => void) | undefined => {
@@ -88,12 +94,17 @@ export function useBridgeReviewContentPrefetchController(
 					reviewPackage: currentReviewPackage,
 					selectedItemId,
 					cachedResourceKeys: new Set(contentRegistry.snapshot().cachedResourceKeys),
-					excludedItemIds: failedItemIdsRef.current,
+					excludedItemIds: new Set([
+						...failedItemIdsRef.current,
+						...attemptedItemIdsRef.current,
+						...visibleOwnedItemIdsRef.current,
+					]),
 				});
 				const nextItemId = candidateItemIds[0];
 				if (nextItemId === undefined) {
 					return;
 				}
+				attemptedItemIdsRef.current.add(nextItemId);
 				// oxlint-disable-next-line no-await-in-loop -- The pump is sequential by contract (reviewContentPrefetchMaxConcurrentLoads = 1): each candidate is re-chosen from live cache state after the previous load settles.
 				const loadResult = await loadReviewItemContentResourcesThroughDemandResult({
 					reviewPackage: currentReviewPackage,

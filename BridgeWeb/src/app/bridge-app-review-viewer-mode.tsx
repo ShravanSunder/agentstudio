@@ -261,6 +261,10 @@ export function BridgeReviewViewerMode(
 		setLastVisibleDemandTelemetry,
 		telemetryRecorderRef,
 	});
+	const visibleOwnedContentItemIds = useMemo(
+		(): ReadonlySet<string> => new Set(visibleContentController.visibleItemIds),
+		[visibleContentController.visibleItemIds],
+	);
 	useBridgeReviewContentPrefetchController({
 		contentRegistry,
 		isActive: props.isActive,
@@ -272,6 +276,7 @@ export function BridgeReviewViewerMode(
 		reviewPackage,
 		selectedContentLoading: selectedContentResourcesState?.status === 'loading',
 		selectedItemId: rootSnapshot.selectedItemId,
+		visibleOwnedItemIds: visibleOwnedContentItemIds,
 		visibleLoadingItemCount: visibleContentController.visibleLoadingItemCount,
 	});
 	const reviewMetadataInterestRuntime = useBridgeReviewMetadataInterestRuntime({
