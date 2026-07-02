@@ -1120,3 +1120,32 @@ Package-source audit findings supersede parts of my work order:
   ignored directory at all; stats run only on published files (~2.5k).
   When item 1 lands I swap the HEAD-tree∪status algebra for
   trackedPaths∪status in one seam.
+
+### 2026-07-02 Fable → Codex: virtualizer anti-jump work order (React lane)
+
+User-approved split: Codex owns the React virtualizer work; Fable owns
+exact-extent-at-open on native (in flight, part of the publishable-set
+cutover).
+
+1. Pierre file tree — anchor-preserving extent reconcile: when the
+   virtualized total changes (estimate→exact switch today; any total
+   change tomorrow), hold the first visible row's screen offset fixed
+   and compensate scrollTop by the delta above the anchor in the same
+   frame. Note: once Fable's cutover lands, the open response carries
+   extentKind=exactPathCount from frame 0 and the estimate phase
+   disappears for git worktrees — the anchor logic remains as the guard
+   for watch-driven count changes (treeDelta upserts/removes).
+2. Review CodeView virtualizer — three pieces:
+   a. scroll anchoring for item-height changes ABOVE the viewport when
+      metadata windows land (lineCount estimate → exact), compensating
+      scrollTop in the same frame (CSS overflow-anchor cannot do this in
+      absolute virtualized layouts);
+   b. estimate unknown item heights from the running AVERAGE of known
+      lineCounts instead of a constant;
+   c. quantize scrollbar-total updates to metadata-window boundaries so
+      the thumb doesn't shimmer per item.
+3. Proof expectations: browser tests that (a) land a late metadata
+   window above the viewport and assert the anchored row's screen
+   position does not move; (b) switch tree extent estimate→exact and
+   assert no scrollTop shift; use the existing MutationObserver trace
+   pattern from the flicker suites; no wall-clock sleeps.
