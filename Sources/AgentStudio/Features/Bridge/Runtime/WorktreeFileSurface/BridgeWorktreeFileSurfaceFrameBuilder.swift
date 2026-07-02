@@ -45,6 +45,7 @@ struct BridgeWorktreeFileDescriptorBuildRequest: Equatable, Sendable {
     let path: String
     let fileId: String
     let contentHandle: String
+    let contentHash: String?
     let sizeBytes: Int
     let isBinary: Bool
     let contentAvailability: BridgeWorktreeFileContentAvailability
@@ -205,7 +206,7 @@ enum BridgeWorktreeFileSurfaceFrameBuilder {
             fileId: request.fileId,
             contentHandle: request.contentHandle,
             contentDescriptor: contentDescriptor,
-            contentHash: nil,
+            contentHash: request.contentHash,
             sourceIdentity: request.source,
             sizeBytes: request.sizeBytes,
             virtualizedExtentKind: request.virtualizedExtentKind,

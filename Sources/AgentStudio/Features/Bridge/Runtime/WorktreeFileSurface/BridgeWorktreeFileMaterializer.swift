@@ -737,6 +737,7 @@ enum BridgeWorktreeFileMaterializer {
                 path: props.relativePath,
                 fileId: String(fileId),
                 contentHandle: String(contentHandle),
+                contentHash: "sha256:\(fileAnalysis.contentHash)",
                 sizeBytes: fileAnalysis.sizeBytes,
                 isBinary: fileAnalysis.isBinary,
                 contentAvailability: fileAnalysis.sizeBytes > AppPolicies.Bridge.contentMaxBytesPerItem

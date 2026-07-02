@@ -85,6 +85,7 @@ struct BridgeWorktreeFileSurfaceTests {
                 path: "Sources/App/View.swift",
                 fileId: "file-view-swift",
                 contentHandle: "content-view-swift-head",
+                contentHash: "sha256:1111111111111111111111111111111111111111111111111111111111111111",
                 sizeBytes: 8192,
                 isBinary: false,
                 contentAvailability: .readable,
@@ -101,6 +102,10 @@ struct BridgeWorktreeFileSurfaceTests {
         #expect(frame.descriptor.sourceIdentity == sourceIdentity)
         #expect(frame.descriptor.path == "Sources/App/View.swift")
         #expect(frame.descriptor.contentHandle == "content-view-swift-head")
+        #expect(
+            frame.descriptor.contentHash
+                == "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+        )
         #expect(frame.descriptor.contentDescriptor.descriptor.resourceKind == "worktree.fileContent")
         #expect(frame.descriptor.contentDescriptor.descriptor.content.expectedBytes == 8192)
         #expect(frame.descriptor.virtualizedExtentKind == .exactLineCount)
@@ -220,6 +225,7 @@ struct BridgeWorktreeFileSurfaceTests {
                 path: "Assets/logo.png",
                 fileId: "file-logo-png",
                 contentHandle: "content-logo-png",
+                contentHash: nil,
                 sizeBytes: 42_000,
                 isBinary: true,
                 contentAvailability: .metadataOnly,
@@ -235,6 +241,7 @@ struct BridgeWorktreeFileSurfaceTests {
         #expect(frame.descriptor.virtualizedExtentKind == .unavailable)
         #expect(frame.descriptor.lineCount == nil)
         #expect(frame.descriptor.estimatedContentHeightPixels == nil)
+        #expect(frame.descriptor.contentHash == nil)
         #expect(frame.descriptor.contentDescriptor.descriptor.content.encoding == .binary)
     }
 
@@ -249,6 +256,7 @@ struct BridgeWorktreeFileSurfaceTests {
                 path: "Logs/huge.log",
                 fileId: "file-huge-log",
                 contentHandle: "content-huge-log-preview",
+                contentHash: "sha256:2222222222222222222222222222222222222222222222222222222222222222",
                 sizeBytes: AppPolicies.Bridge.contentMaxBytesPerItem + 1,
                 isBinary: false,
                 contentAvailability: .readable,
@@ -261,6 +269,10 @@ struct BridgeWorktreeFileSurfaceTests {
         )
 
         #expect(frame.descriptor.virtualizedExtentKind == .previewBounded)
+        #expect(
+            frame.descriptor.contentHash
+                == "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+        )
         #expect(frame.descriptor.sizeBytes == AppPolicies.Bridge.contentMaxBytesPerItem + 1)
         #expect(
             frame.descriptor.contentDescriptor.descriptor.content.maxBytes
@@ -279,6 +291,7 @@ struct BridgeWorktreeFileSurfaceTests {
                 path: "Sources/App/Generated.swift",
                 fileId: "file-generated-swift",
                 contentHandle: "content-generated-swift",
+                contentHash: "sha256:3333333333333333333333333333333333333333333333333333333333333333",
                 sizeBytes: 96_000,
                 isBinary: false,
                 contentAvailability: .readable,
@@ -307,6 +320,7 @@ struct BridgeWorktreeFileSurfaceTests {
                 path: "Sources/App/Private.swift",
                 fileId: "file-private-swift",
                 contentHandle: "content-private-swift",
+                contentHash: nil,
                 sizeBytes: 4096,
                 isBinary: false,
                 contentAvailability: .unreadable,
@@ -326,6 +340,7 @@ struct BridgeWorktreeFileSurfaceTests {
                 path: "Sources/App/MetadataOnly.swift",
                 fileId: "file-metadata-only-swift",
                 contentHandle: "content-metadata-only-swift",
+                contentHash: nil,
                 sizeBytes: 4096,
                 isBinary: false,
                 contentAvailability: .metadataOnly,
@@ -421,6 +436,7 @@ struct BridgeWorktreeFileSurfaceTests {
                     path: "Sources/App/View.swift",
                     fileId: "file-view-swift",
                     contentHandle: "content-view-swift-head",
+                    contentHash: nil,
                     sizeBytes: 8192,
                     isBinary: false,
                     contentAvailability: .readable,
@@ -446,6 +462,7 @@ struct BridgeWorktreeFileSurfaceTests {
                     path: "Sources/App/View.swift",
                     fileId: "file-view-swift",
                     contentHandle: "content-view-swift-head",
+                    contentHash: nil,
                     sizeBytes: 8192,
                     isBinary: false,
                     contentAvailability: .readable,
@@ -471,6 +488,7 @@ struct BridgeWorktreeFileSurfaceTests {
                     path: "Sources/App/View.swift",
                     fileId: "file-view-swift",
                     contentHandle: "content-view-swift-head",
+                    contentHash: nil,
                     sizeBytes: 8192,
                     isBinary: false,
                     contentAvailability: .readable,

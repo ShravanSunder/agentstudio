@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Testing
 import WebKit
@@ -179,6 +180,7 @@ extension WebKitSerializedTests {
             #expect(intakeFrame.sequence == 1)
             #expect(intakeFrame.payload.frameKind == "worktree.fileDescriptor")
             #expect(intakeFrame.payload.descriptor.path == "Sources/App/View.swift")
+            #expect(intakeFrame.payload.descriptor.contentHash == sha256ContentHash(fileText))
             #expect(intakeFrame.payload.descriptor.virtualizedExtentKind == .exactLineCount)
             #expect(intakeFrame.payload.descriptor.lineCount == 2)
             #expect(intakeFrame.payload.descriptor.contentDescriptor.descriptor.resourceKind == "worktree.fileContent")
@@ -486,4 +488,8 @@ extension WebKitSerializedTests {
             fixture.controller.teardown()
         }
     }
+}
+
+private func sha256ContentHash(_ text: String) -> String {
+    "sha256:" + SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
 }
