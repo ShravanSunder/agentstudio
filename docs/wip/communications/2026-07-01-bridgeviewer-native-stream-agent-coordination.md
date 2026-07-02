@@ -109,6 +109,43 @@ entries; if an entry becomes stale, append a correction with the new evidence.
   `oxlint --type-aware` on touched TS passed,
   and `pnpm --dir BridgeWeb exec tsc --noEmit --pretty false` passed.
 
+### 2026-07-01 Codex Swift S4 Current-Worktree Proof Checkpoint
+
+- Took over after Fable quota handoff and commit `8c5d39e2`.
+- Hardened the current-worktree headless proof so manifest completeness is no
+  longer provider-total-circular:
+  expected file set is now a test-owned `FileManager` walk of the project root
+  minus `BridgeWorktreeFileIgnorePolicy` and structural exclusions (`.git`
+  internals, nested worktree roots), compared against emitted non-directory
+  file rows.
+- Provider row totals remain asserted as telemetry consistency only; file-set
+  equality is the independent completeness gate.
+- Artifact fields added:
+  `expectedMetadataFileTotal`, `emittedMetadataFileTotal`,
+  `missingExpectedFilePaths`, `unexpectedPublishedFilePaths`.
+- Reviewer sidekick `019f2083-ee7f-7eb3-8a8e-28bf92ea3ce4` found that
+  demand-interest response windows were still counted toward completeness.
+  Codex accepted the finding: completeness accounting now ignores
+  `worktree-interest-*` tree windows, and a regression proves interest-only
+  rows cannot satisfy the manifest file-set gate.
+- While rerunning the surrounding demand-lane proof, Codex also fixed the
+  scheduler cross-protocol test gate order: the old test opened the worktree
+  idle gate before the review foreground gate, making idle briefly the only
+  dispatchable job.
+- Focused proof with artifact directory:
+  `PROJECT_ROOT="$PWD" AGENTSTUDIO_BRIDGE_HEADLESS_PROOF_DIR="$PWD/tmp/bridge-headless-proof-current-worktree" SWIFT_TEST_TIMEOUT_SECONDS=240 swift test --build-path "$SWIFT_BUILD_DIR" --skip-build --filter 'WebKitSerializedTests.BridgeWorktreeFileSurfaceCurrentWorktreeProofTests'`
+  passed 2 tests / 2 suites.
+- Artifact observed:
+  expected files `2172`, emitted files `2172`, missing `0`, unexpected `0`,
+  row totals `2559/2559/0`, first window `200`.
+- Surrounding Swift bridge proof:
+  `BridgeMetadataLaneSchedulerTests|WebKitSerializedTests.BridgeWorktreeFile|WebKitSerializedTests.BridgeReviewMetadataWindowTransportTests|WebKitSerializedTests.BridgePaneControllerTests`
+  passed 86 tests / 12 suites.
+- Static proof:
+  `swift-format lint` passed on the three touched Swift files,
+  strict `swiftlint` passed on the three touched Swift files,
+  `git diff --check` passed.
+
 ### 2026-07-01 Codex Swift Lane Takeover Follow-Up
 
 - Fable hit quota after `9c398471`; Codex is now the parent controller for the

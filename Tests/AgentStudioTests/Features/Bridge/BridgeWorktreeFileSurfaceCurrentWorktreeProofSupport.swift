@@ -29,11 +29,41 @@ struct BridgeCurrentWorktreeFrameKindProbe: Decodable {
 }
 
 struct BridgeCurrentWorktreeManifestFacts {
+    let expectedFilePaths: Set<String>
     let finalRemainingRowCount: Int
     let firstWindowRowCount: Int
     let laneValues: Set<String>
     let loadedByValues: Set<String>
     let uniquePathCount: Int
+    let uniqueFilePaths: Set<String>
+    var missingExpectedFilePaths: Set<String> {
+        expectedFilePaths.subtracting(uniqueFilePaths)
+    }
+    var unexpectedPublishedFilePaths: Set<String> {
+        uniqueFilePaths.subtracting(expectedFilePaths)
+    }
+}
+
+struct BridgeCurrentWorktreeManifestRowAccumulator {
+    private(set) var filePaths = Set<String>()
+    private(set) var laneValues = Set<String>()
+    private(set) var loadedByValues = Set<String>()
+    private(set) var paths = Set<String>()
+
+    mutating func recordRows(_ rows: [[String: Any]], treeWindowKey: String?) {
+        guard treeWindowKey?.hasPrefix("worktree-interest-") != true else {
+            return
+        }
+        paths.formUnion(rows.compactMap { $0["path"] as? String })
+        filePaths.formUnion(
+            rows.compactMap { row in
+                guard row["isDirectory"] as? Bool == false else { return nil }
+                return row["path"] as? String
+            }
+        )
+        loadedByValues.formUnion(rows.compactMap { $0["loaded_by"] as? String })
+        laneValues.formUnion(rows.compactMap { $0["lane"] as? String })
+    }
 }
 
 struct BridgeCurrentWorktreeDemandLaneFacts: Encodable {
@@ -163,9 +193,13 @@ struct BridgeCurrentWorktreeManifestProofArtifact: Encodable {
     let contentFetch: BridgeCurrentWorktreePhaseTimingFacts
     let contentDemandedPath: String
     let demandLaneFacts: BridgeCurrentWorktreeDemandLaneFacts
+    let expectedMetadataFileTotal: Int
     let expectedMetadataRowTotal: Int
     let emittedMetadataRowTotal: Int
+    let emittedMetadataFileTotal: Int
+    let missingExpectedFilePaths: [String]
     let remainingMetadataRowTotal: Int
+    let unexpectedPublishedFilePaths: [String]
     let uniquePathCount: Int
     let firstWindowRowCount: Int
     let loadedByValues: [String]
@@ -247,9 +281,13 @@ func writeCurrentWorktreeManifestProofArtifact(
         contentFetch: request.contentDemandProof.contentFetch,
         contentDemandedPath: request.contentDemandProof.demandedPath,
         demandLaneFacts: request.demandLaneFacts,
+        expectedMetadataFileTotal: request.manifestFacts.expectedFilePaths.count,
         expectedMetadataRowTotal: expectedTotal,
         emittedMetadataRowTotal: emittedTotal,
+        emittedMetadataFileTotal: request.manifestFacts.uniqueFilePaths.count,
+        missingExpectedFilePaths: request.manifestFacts.missingExpectedFilePaths.sorted(),
         remainingMetadataRowTotal: remainingTotal,
+        unexpectedPublishedFilePaths: request.manifestFacts.unexpectedPublishedFilePaths.sorted(),
         uniquePathCount: request.manifestFacts.uniquePathCount,
         firstWindowRowCount: request.manifestFacts.firstWindowRowCount,
         loadedByValues: request.manifestFacts.loadedByValues.sorted(),

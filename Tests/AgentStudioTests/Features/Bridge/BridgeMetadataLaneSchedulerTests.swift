@@ -134,8 +134,8 @@ struct BridgeMetadataLaneSchedulerTests {
         await scheduler.enqueue(
             makeJob("review-foreground", lane: .foreground, protocolId: "review", recorder: recorder)
         )
-        await scheduler.openGate(protocolId: "worktree-file")
         await scheduler.openGate(protocolId: "review")
+        await scheduler.openGate(protocolId: "worktree-file")
         await scheduler.waitUntilDrained()
 
         let executed = await MainActor.run { recorder.executedLabels }

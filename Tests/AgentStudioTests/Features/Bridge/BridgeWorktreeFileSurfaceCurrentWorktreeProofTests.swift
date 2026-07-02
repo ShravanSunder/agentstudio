@@ -56,7 +56,10 @@ extension WebKitSerializedTests {
             )
             await fixture.controller.worktreeFileMetadataScheduler.waitUntilDrained()
 
-            let manifestFacts = try await currentWorktreeManifestFacts(from: eventCapture)
+            let manifestFacts = try await currentWorktreeManifestFacts(
+                from: eventCapture,
+                projectRoot: projectRoot
+            )
             let demandLaneFacts = try await currentWorktreeDemandLaneFacts(
                 from: await eventCapture.intakeFrames(),
                 laneProbeResults: laneProbeResults.probesByLane
@@ -96,6 +99,39 @@ extension WebKitSerializedTests {
                 )
             )
             try assertCurrentWorktreeBenchmarkArtifactHasDemandLoadingFields(projectRoot: projectRoot)
+        }
+
+        @Test("manifest completeness ignores demand interest tree windows")
+        func manifestCompletenessIgnoresDemandInterestTreeWindows() {
+            var manifestRows = BridgeCurrentWorktreeManifestRowAccumulator()
+            let interestOnlyRows: [[String: Any]] = [
+                [
+                    "path": "Sources/OnlyInDemandInterest.swift",
+                    "isDirectory": false,
+                    "loaded_by": "foreground",
+                    "lane": "foreground",
+                ]
+            ]
+
+            manifestRows.recordRows(
+                interestOnlyRows,
+                treeWindowKey: "worktree-interest-source-1-foreground-10"
+            )
+
+            #expect(manifestRows.paths.isEmpty)
+            #expect(manifestRows.filePaths.isEmpty)
+            #expect(manifestRows.loadedByValues.isEmpty)
+            #expect(manifestRows.laneValues.isEmpty)
+
+            manifestRows.recordRows(
+                interestOnlyRows,
+                treeWindowKey: "worktree-tree-source-1-200"
+            )
+
+            #expect(manifestRows.paths == ["Sources/OnlyInDemandInterest.swift"])
+            #expect(manifestRows.filePaths == ["Sources/OnlyInDemandInterest.swift"])
+            #expect(manifestRows.loadedByValues == ["foreground"])
+            #expect(manifestRows.laneValues == ["foreground"])
         }
 
         private func currentProjectRoot() -> URL {
@@ -208,11 +244,13 @@ extension WebKitSerializedTests {
         }
 
         private func currentWorktreeManifestFacts(
-            from eventCapture: BridgeWorktreeFileSurfaceEventCapture
+            from eventCapture: BridgeWorktreeFileSurfaceEventCapture,
+            projectRoot: URL
         ) async throws -> BridgeCurrentWorktreeManifestFacts {
-            var paths = Set<String>()
-            var loadedByValues = Set<String>()
-            var laneValues = Set<String>()
+            let expectedFilePaths = try await expectedPublishedCurrentWorktreeFilePaths(
+                rootURL: projectRoot
+            )
+            var manifestRows = BridgeCurrentWorktreeManifestRowAccumulator()
             var firstWindowRowCount = 0
             var latestExpectedTotal = 0
             var latestEmittedTotal = 0
@@ -222,36 +260,34 @@ extension WebKitSerializedTests {
                 case "worktree.snapshot":
                     let snapshot = try decodeIntakeEnvelope(intakeFrame, as: BridgeWorktreeSnapshotFrame.self)
                     firstWindowRowCount = snapshot.payload.treeRows.count
-                    try recordRows(
-                        from: intakeFrame,
-                        rowsKey: "treeRows",
-                        paths: &paths,
-                        loadedBy: &loadedByValues,
-                        lanes: &laneValues
+                    let rows = try treeRows(from: intakeFrame, rowsKey: "treeRows")
+                    manifestRows.recordRows(
+                        rows,
+                        treeWindowKey: nil,
                     )
                     latestExpectedTotal = snapshot.payload.treeSizeFacts.pathCount ?? latestExpectedTotal
-                    latestEmittedTotal = max(latestEmittedTotal, paths.count)
+                    latestEmittedTotal = max(latestEmittedTotal, manifestRows.paths.count)
                 case "worktree.treeWindow":
                     let window = try decodeIntakeEnvelope(intakeFrame, as: BridgeWorktreeTreeWindowFrame.self)
-                    try recordRows(
-                        from: intakeFrame,
-                        rowsKey: "rows",
-                        paths: &paths,
-                        loadedBy: &loadedByValues,
-                        lanes: &laneValues
+                    let rows = try treeRows(from: intakeFrame, rowsKey: "rows")
+                    manifestRows.recordRows(
+                        rows,
+                        treeWindowKey: window.payload.projectionIdentity.treeWindowKey,
                     )
                     latestExpectedTotal = window.payload.treeSizeFacts.pathCount ?? latestExpectedTotal
-                    latestEmittedTotal = max(latestEmittedTotal, paths.count)
+                    latestEmittedTotal = max(latestEmittedTotal, manifestRows.paths.count)
                 default:
                     continue
                 }
             }
             return BridgeCurrentWorktreeManifestFacts(
+                expectedFilePaths: expectedFilePaths,
                 finalRemainingRowCount: max(latestExpectedTotal - latestEmittedTotal, 0),
                 firstWindowRowCount: firstWindowRowCount,
-                laneValues: laneValues,
-                loadedByValues: loadedByValues,
-                uniquePathCount: paths.count
+                laneValues: manifestRows.laneValues,
+                loadedByValues: manifestRows.loadedByValues,
+                uniquePathCount: manifestRows.paths.count,
+                uniqueFilePaths: manifestRows.filePaths
             )
         }
 
@@ -282,7 +318,9 @@ extension WebKitSerializedTests {
                     guard let expectedProbe = laneProbeResults[lane],
                         !matchedLanes.contains(lane),
                         rows.count == 1,
-                        rows.first?["path"] as? String == expectedProbe.expectedPath
+                        rows.first?["path"] as? String == expectedProbe.expectedPath,
+                        rowLanes == [expectedProbe.lane],
+                        rowLoadedByValues == [expectedProbe.expectedLoadedBy]
                     else {
                         continue
                     }
@@ -601,27 +639,92 @@ extension WebKitSerializedTests {
             ]
             #expect(expectedTotal == emittedTotal)
             #expect(Int(expectedTotal ?? 0) == manifestFacts.uniquePathCount)
-            #expect(manifestFacts.uniquePathCount > 200)
+            #expect(manifestFacts.expectedFilePaths.isEmpty == false)
+            #expect(manifestFacts.uniqueFilePaths.count == manifestFacts.expectedFilePaths.count)
+            #expect(manifestFacts.missingExpectedFilePaths.isEmpty)
+            #expect(manifestFacts.unexpectedPublishedFilePaths.isEmpty)
+            #expect(
+                manifestFacts.uniquePathCount > AppPolicies.Bridge.worktreeFileTreeMetadataWindowRowLimit
+            )
             #expect(manifestFacts.loadedByValues.isSuperset(of: ["startup_window", "idle"]))
             #expect(manifestFacts.laneValues.isSuperset(of: ["foreground", "idle"]))
-            #expect(manifestFacts.firstWindowRowCount == 200)
+            #expect(
+                manifestFacts.firstWindowRowCount
+                    == AppPolicies.Bridge.worktreeFileTreeMetadataWindowRowLimit
+            )
             #expect(manifestFacts.finalRemainingRowCount == 0)
         }
 
-        private func recordRows(
-            from intakeFrame: String,
-            rowsKey: String,
-            paths: inout Set<String>,
-            loadedBy: inout Set<String>,
-            lanes: inout Set<String>
-        ) throws {
-            let data = try #require(intakeFrame.data(using: .utf8))
-            let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
-            let payload = try #require(object["payload"] as? [String: Any])
-            let rows = try #require(payload[rowsKey] as? [[String: Any]])
-            paths.formUnion(rows.compactMap { $0["path"] as? String })
-            loadedBy.formUnion(rows.compactMap { $0["loaded_by"] as? String })
-            lanes.formUnion(rows.compactMap { $0["lane"] as? String })
+        private func expectedPublishedCurrentWorktreeFilePaths(rootURL: URL) async throws -> Set<String> {
+            let ignorePolicy = await BridgeWorktreeFileIgnorePolicy.load(rootURL: rootURL)
+            var expectedFilePaths = Set<String>()
+            var pendingDirectories = [rootURL.standardizedFileURL]
+
+            while !pendingDirectories.isEmpty {
+                let directoryURL = pendingDirectories.removeFirst()
+                let childURLs = try FileManager.default.contentsOfDirectory(
+                    at: directoryURL,
+                    includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey],
+                    options: []
+                )
+                for childURL in childURLs {
+                    let relativePath = expectedRelativePath(fileURL: childURL, rootURL: rootURL)
+                    guard isExpectedPublishedPath(relativePath, ignorePolicy: ignorePolicy) else {
+                        continue
+                    }
+                    let values = try? childURL.resourceValues(forKeys: [.isRegularFileKey, .isDirectoryKey])
+                    if values?.isRegularFile == true {
+                        expectedFilePaths.insert(relativePath)
+                    } else if values?.isDirectory == true,
+                        !isNestedExpectedWorktreeRoot(childURL, rootURL: rootURL)
+                    {
+                        pendingDirectories.append(childURL)
+                    }
+                }
+            }
+
+            return expectedFilePaths
+        }
+
+        private func isExpectedPublishedPath(
+            _ relativePath: String,
+            ignorePolicy: BridgeWorktreeFileIgnorePolicy
+        ) -> Bool {
+            guard relativePath.isEmpty == false,
+                relativePath != ".",
+                relativePath.hasPrefix("/") == false,
+                relativePath != ".git",
+                relativePath.hasPrefix(".git/") == false
+            else {
+                return false
+            }
+            let pathComponents = relativePath.split(
+                separator: "/",
+                omittingEmptySubsequences: false
+            )
+            guard pathComponents.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." }) else {
+                return false
+            }
+            return !ignorePolicy.isIgnored(relativePath: relativePath)
+        }
+
+        private func isNestedExpectedWorktreeRoot(_ directoryURL: URL, rootURL: URL) -> Bool {
+            let canonicalDirectoryURL = directoryURL.standardizedFileURL.resolvingSymlinksInPath()
+            let canonicalRootURL = rootURL.standardizedFileURL.resolvingSymlinksInPath()
+            guard canonicalDirectoryURL.path != canonicalRootURL.path else {
+                return false
+            }
+            return FileManager.default.fileExists(atPath: canonicalDirectoryURL.appending(path: ".git").path)
+        }
+
+        private func expectedRelativePath(fileURL: URL, rootURL: URL) -> String {
+            let rootPath = rootURL.standardizedFileURL.path
+            let filePath = fileURL.standardizedFileURL.path
+            let prefix = rootPath == "/" ? "/" : rootPath + "/"
+            guard let range = filePath.range(of: prefix, options: [.anchored]) else {
+                return fileURL.lastPathComponent
+            }
+            return String(filePath[range.upperBound...])
         }
 
         private func treeRows(from intakeFrame: String, rowsKey: String) throws -> [[String: Any]] {
@@ -669,10 +772,20 @@ extension WebKitSerializedTests {
             #expect(metadataInterestTiming["sampleCount"] as? Int == Self.demandLaneProofOrder.count)
             #expect(metadataInterestTiming["p95Milliseconds"] != nil)
             #expect(metadataInterestTiming["p99Milliseconds"] != nil)
+            #expect(artifactObject["expectedMetadataFileTotal"] as? Int ?? 0 > 0)
+            #expect(
+                artifactObject["expectedMetadataFileTotal"] as? Int
+                    == artifactObject["emittedMetadataFileTotal"] as? Int
+            )
+            #expect((artifactObject["missingExpectedFilePaths"] as? [String])?.isEmpty == true)
+            #expect((artifactObject["unexpectedPublishedFilePaths"] as? [String])?.isEmpty == true)
             let noStarvationProgress = try #require(
                 artifactObject["noStarvationProgress"] as? [String: Any]
             )
-            #expect(noStarvationProgress["initialEmittedRows"] as? Int == 200)
+            #expect(
+                noStarvationProgress["initialEmittedRows"] as? Int
+                    == AppPolicies.Bridge.worktreeFileTreeMetadataWindowRowLimit
+            )
             #expect(
                 noStarvationProgress["interestRowsBeforeIdleContinuation"] as? Int
                     ?? 0 >= AppPolicies.Bridge.metadataIdleNoStarvationBudget - 1
