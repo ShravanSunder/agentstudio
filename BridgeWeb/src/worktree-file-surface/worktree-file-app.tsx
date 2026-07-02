@@ -23,6 +23,7 @@ import {
 } from './worktree-file-surface-runtime.js';
 import {
 	bridgeFileViewerHasActiveCommentDraft,
+	bridgeFileViewerStaleAutoRefreshCoalesceMilliseconds,
 	shouldAutoRefreshStaleOpenFile,
 } from '../file-viewer/bridge-file-viewer-stale-refresh-policy.js';
 
@@ -291,18 +292,23 @@ export function WorktreeFileApp({
 		setOpenFileState({ status: 'failed', path: state.path, descriptor: state.descriptor });
 	}, []);
 
-	useEffect((): void => {
+	useEffect((): (() => void) | undefined => {
 		if (openFileState.status !== 'stale') {
-			return;
+			return undefined;
 		}
 		if (
 			!shouldAutoRefreshStaleOpenFile({
 				hasActiveCommentDraft: bridgeFileViewerHasActiveCommentDraft,
 			})
 		) {
-			return;
+			return undefined;
 		}
-		void refreshOpenFile(openFileState);
+		const coalesceTimeout = setTimeout((): void => {
+			void refreshOpenFile(openFileState);
+		}, bridgeFileViewerStaleAutoRefreshCoalesceMilliseconds);
+		return (): void => {
+			clearTimeout(coalesceTimeout);
+		};
 	}, [openFileState, refreshOpenFile]);
 
 	const descriptorProjection = useMemo(

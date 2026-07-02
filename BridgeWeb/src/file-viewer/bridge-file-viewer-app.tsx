@@ -25,6 +25,7 @@ import { useBridgeFileViewerStoreBindings } from './use-bridge-file-viewer-store
 import { useBridgeFileViewerVisibleDemandController } from './use-bridge-file-viewer-visible-demand-controller.js';
 import {
 	bridgeFileViewerHasActiveCommentDraft,
+	bridgeFileViewerStaleAutoRefreshCoalesceMilliseconds,
 	shouldAutoRefreshStaleOpenFile,
 } from './bridge-file-viewer-stale-refresh-policy.js';
 export type { BridgeFileViewerRenderState } from './bridge-file-viewer-state.js';
@@ -148,18 +149,23 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 		telemetryTraceContext,
 	});
 
-	useEffect((): void => {
+	useEffect((): (() => void) | undefined => {
 		if (openFileState.status !== 'stale') {
-			return;
+			return undefined;
 		}
 		if (
 			!shouldAutoRefreshStaleOpenFile({
 				hasActiveCommentDraft: bridgeFileViewerHasActiveCommentDraft,
 			})
 		) {
-			return;
+			return undefined;
 		}
-		void refreshOpenFile(openFileState);
+		const coalesceTimeout = setTimeout((): void => {
+			void refreshOpenFile(openFileState);
+		}, bridgeFileViewerStaleAutoRefreshCoalesceMilliseconds);
+		return (): void => {
+			clearTimeout(coalesceTimeout);
+		};
 	}, [openFileState, refreshOpenFile]);
 
 	const requestFileDescriptorFromHost = props.requestFileDescriptor;
