@@ -288,10 +288,12 @@ extension BridgePaneController {
         )
     }
 
-    /// Enqueues the startup snapshot as a foreground job. The snapshot is
-    /// always sequence 0 and must be the first delivered frame of the
-    /// accepted stream; foreground priority plus the closed-until-ready gate
-    /// guarantee that.
+    /// Enqueues the startup snapshot as a foreground job. The snapshot
+    /// reserves its sequence at dispatch inside the serialized drain like
+    /// every other frame, so the wire stays monotonic-from-zero even if a
+    /// status, watch-delta, or early demand job for the accepted generation
+    /// dispatches first; in the normal open flow nothing precedes it and it
+    /// delivers as sequence 0.
     private func dispatchWorktreeFileSurfaceSnapshot(
         rows: [BridgeWorktreeTreeRowMetadata],
         publication: WorktreeFileManifestPublication
@@ -299,43 +301,40 @@ extension BridgePaneController {
         let generation = publication.openedSource.source.subscriptionGeneration
         await enqueueWorktreeFileMetadataJob(lane: .foreground, generation: generation) { [weak self] in
             guard let self else { return true }
-            guard let current = self.activeWorktreeFileSurfaceSource,
-                current.source.subscriptionGeneration == generation,
-                generation == self.nextWorktreeFileSurfaceGeneration
-            else {
-                return true
-            }
             let treePathCount: Int? =
                 if let pathCount = publication.treeExtent.pathCount {
                     max(pathCount, rows.count)
                 } else {
                     nil
                 }
-            let snapshotFrame = BridgeWorktreeFileSurfaceFrameBuilder.snapshot(
-                request: BridgeWorktreeFileSnapshotBuildRequest(
-                    paneId: self.paneId.uuidString,
-                    source: publication.openedSource.source,
-                    requestSelector: publication.requestSelector,
-                    streamId: publication.streamId,
-                    sequence: 0,
-                    treePathCount: treePathCount,
-                    treeEstimatedTotalHeightPixels: publication.treeExtent
-                        .estimatedTotalHeightPixels,
-                    treeWindowStartIndex: 0,
-                    treeWindowRowCount: rows.count,
-                    treeRowHeightPixels: worktreeFileTreeRowHeightPixels,
-                    treeRows: rows,
-                    includeStatusPatch: publication.openedSource.includeStatuses
+            let delivered = await self.deliverWorktreeFileFrameJob(generation: generation) { _, sequence in
+                BridgeWorktreeFileSurfaceFrameBuilder.snapshot(
+                    request: BridgeWorktreeFileSnapshotBuildRequest(
+                        paneId: self.paneId.uuidString,
+                        source: publication.openedSource.source,
+                        requestSelector: publication.requestSelector,
+                        streamId: publication.streamId,
+                        sequence: sequence,
+                        treePathCount: treePathCount,
+                        treeEstimatedTotalHeightPixels: publication.treeExtent
+                            .estimatedTotalHeightPixels,
+                        treeWindowStartIndex: 0,
+                        treeWindowRowCount: rows.count,
+                        treeRowHeightPixels: worktreeFileTreeRowHeightPixels,
+                        treeRows: rows,
+                        includeStatusPatch: publication.openedSource.includeStatuses
+                    )
                 )
-            )
-            let delivered = await self.deliverWorktreeFileIntakeFramesNow([snapshotFrame])
-            await self.recordNativeWorktreeFileOpenToFirstWindowTelemetry(
-                durationMilliseconds: Self.milliseconds(
-                    from: publication.openStartedAt.duration(to: ContinuousClock.now)
-                ),
-                emittedRows: rows.count,
-                expectedTotal: treePathCount
-            )
+            }
+            if delivered {
+                await self.recordNativeWorktreeFileOpenToFirstWindowTelemetry(
+                    durationMilliseconds: Self.milliseconds(
+                        from: publication.openStartedAt.duration(to: ContinuousClock.now)
+                    ),
+                    emittedRows: rows.count,
+                    expectedTotal: treePathCount
+                )
+            }
             return delivered
         }
     }

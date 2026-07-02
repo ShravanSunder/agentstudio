@@ -529,6 +529,11 @@ final class BridgePaneController {
         lastPushed.removeAll()
         isBridgeReady = false
         nextReviewProtocolSequence = 0
+        // Fence in-flight review jobs synchronously: their body guard reads
+        // nextReviewGeneration, so bumping it here prevents a dispatchable
+        // job from delivering between this sync phase and the async gate
+        // close below.
+        nextReviewGeneration = nextReviewGeneration.next()
     }
 
     // MARK: - Bridge Handshake

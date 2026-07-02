@@ -612,9 +612,9 @@ extension WebKitSerializedTests {
                 streamId: activeSource.streamId
             )
 
-            #expect(firstReservation == 1)
-            #expect(secondReservation == 3)
-            #expect(fixture.controller.activeWorktreeFileSurfaceSource?.nextSequence == 4)
+            #expect(firstReservation == 0)
+            #expect(secondReservation == 2)
+            #expect(fixture.controller.activeWorktreeFileSurfaceSource?.nextSequence == 3)
 
             fixture.controller.teardown()
         }

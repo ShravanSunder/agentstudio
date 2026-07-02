@@ -57,7 +57,7 @@ extension BridgePaneController {
             openedSource: openedSource,
             source: openedSource.source,
             streamId: streamId,
-            nextSequence: 1
+            nextSequence: 0
         )
         activeWorktreeFileManifestIndex = BridgeWorktreeFileManifestIndex(generation: generation)
         activeWorktreeFileTreeWindowTask = Task { @MainActor [weak self] in
