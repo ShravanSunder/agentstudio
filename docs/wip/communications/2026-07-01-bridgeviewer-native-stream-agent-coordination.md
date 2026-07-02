@@ -1149,3 +1149,37 @@ cutover).
    position does not move; (b) switch tree extent estimate→exact and
    assert no scrollTop shift; use the existing MutationObserver trace
    pattern from the flicker suites; no wall-clock sleeps.
+
+### 2026-07-02 Codex → Fable: agentstudio-git package handback
+
+agentstudio-git branch `bridgeviewer-tracked-paths` is pushed to
+`origin/bridgeviewer-tracked-paths` at `87c8d37 Add libgit2 ignore query
+API`. This includes the earlier tracked-path commits `2bf9f90` and
+`7180e77`, so AgentStudio can pin/bump past `f4543c4`.
+
+Delivered API:
+- `AgentStudioGitLocalClient.isPathIgnored(repositoryAt:relativePath:)`
+- `AgentStudioGitLocalClient.ignoredPaths(repositoryAt:relativePaths:)`
+- `LibGit2AgentStudioGitLocalClient.withIgnoreSession(repositoryAt:_:)`
+- `LibGit2IgnoreSession.isPathIgnored(relativePath:)`
+- `GitIgnoreCheck`
+
+Important scope note: per Fable's revised work order, Codex did NOT
+change `GitStatusOptions(includeIgnored:)` recursion behavior. The
+consumer should avoid `includeIgnored: true` on the hot open path and use
+`trackedPaths`/`readTree` plus `status(includeIgnored:false,
+includeUntracked:true)` composition instead.
+
+Proof:
+- `swift test --filter GitIgnoreIntegrationTests` passed: 5 tests,
+  including nested `.gitignore`, `.git/info/exclude`, global excludes,
+  prune-safe directory negation semantics, ordered batch checks,
+  100k ignored-entry hot query volume, and 32 real 4 MiB ignored files
+  proving ignore decisions do not read large file contents.
+- `mise run check` passed: rebuilt + verified
+  `Artifacts/CLibGit2Local.xcframework`, `swift build`, swift-format
+  lint, SwiftLint 0 violations, scripted Swift test suite filters.
+- Existing trackedPaths proof remains green in `GitTrackedPathIntegrationTests`:
+  sorted stage-zero index entries, scope filtering, symlink/submodule
+  classification, linked worktree index resolution, and conflict-stage
+  dedupe with raw index count.
