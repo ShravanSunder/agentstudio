@@ -73,6 +73,28 @@ enum BridgeWorktreeFileMaterializer {
         guard isPublishedTreePath(relativePath, ignorePolicy: openedSource.ignorePolicy) else {
             return false
         }
+        return isWithinDemandScope(relativePath, openedSource: openedSource)
+    }
+
+    /// Interest paths are validated for safety and scope only: the manifest
+    /// index is the publication authority for interest (spec: interest is
+    /// index-members-only). Index members include published ancestors of
+    /// force-added files that gitignore RULES alone would misclassify as
+    /// ignored, so the rules check must not gate interest.
+    static func isInterestEligibleDemandPath(
+        _ relativePath: String,
+        openedSource: BridgeWorktreeFileOpenedSource
+    ) -> Bool {
+        guard isSafeDemandPath(relativePath) else {
+            return false
+        }
+        return isWithinDemandScope(relativePath, openedSource: openedSource)
+    }
+
+    private static func isWithinDemandScope(
+        _ relativePath: String,
+        openedSource: BridgeWorktreeFileOpenedSource
+    ) -> Bool {
         let pathScope = openedSource.canonicalPathScope
         guard !pathScope.isEmpty else {
             return true
@@ -133,10 +155,12 @@ enum BridgeWorktreeFileMaterializer {
 
             for relativePath in relativePaths {
                 let fileURL = rootURL.appending(path: relativePath)
-                let values = try? fileURL.resourceValues(
-                    forKeys: [.isDirectoryKey, .isRegularFileKey]
-                )
-                guard values?.isDirectory == true || values?.isRegularFile == true else {
+                // fileExists resolves symlinks, so published symlinked files
+                // refresh as file rows instead of being misclassified as
+                // missing (which would emit a wrong removeRows delta).
+                var isDirectory: ObjCBool = false
+                guard FileManager.default.fileExists(atPath: fileURL.path, isDirectory: &isDirectory)
+                else {
                     missingPaths.insert(relativePath)
                     continue
                 }
@@ -145,7 +169,7 @@ enum BridgeWorktreeFileMaterializer {
                         appendRow(row)
                     }
                 }
-                if values?.isDirectory == true {
+                if isDirectory.boolValue {
                     appendRow(directoryTreeRow(relativePath: relativePath))
                 } else if let row = try? fileTreeRow(fileURL: fileURL, relativePath: relativePath) {
                     appendRow(row)
@@ -595,8 +619,11 @@ enum BridgeWorktreeFileMaterializer {
                 continue
             }
             let fileURL = request.rootURL.appending(path: relativePath)
-            let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey])
-            guard values?.isRegularFile == true else {
+            // fileExists resolves symlinks (same rule as descriptor demand).
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: fileURL.path, isDirectory: &isDirectory),
+                !isDirectory.boolValue
+            else {
                 continue
             }
 
@@ -620,8 +647,12 @@ enum BridgeWorktreeFileMaterializer {
             throw RPCMethodDispatchError.invalidParams("worktree_file.descriptor_path_invalid")
         }
         let fileURL = request.rootURL.appending(path: request.relativePath)
-        let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey])
-        guard values?.isRegularFile == true else {
+        // fileExists resolves symlinks: published symlinked files serve
+        // descriptors and content like any other file row.
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: fileURL.path, isDirectory: &isDirectory),
+            !isDirectory.boolValue
+        else {
             throw RPCMethodDispatchError.invalidParams("worktree_file.descriptor_path_not_file")
         }
         return try materializeFileDescriptor(

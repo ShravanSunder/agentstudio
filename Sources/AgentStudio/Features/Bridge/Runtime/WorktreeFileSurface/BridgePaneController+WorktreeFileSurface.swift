@@ -559,7 +559,7 @@ extension BridgePaneController {
     ) -> Set<String> {
         var seenPaths = Set<String>()
         for path in paths
-        where BridgeWorktreeFileMaterializer.canMaterializeDemandPath(
+        where BridgeWorktreeFileMaterializer.isInterestEligibleDemandPath(
             path,
             openedSource: openedSource
         ) {
