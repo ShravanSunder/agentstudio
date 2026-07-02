@@ -41,6 +41,8 @@ class MainSplitViewController: NSSplitViewController {
 
     private var sidebarHostingController: NSHostingController<AnyView>?
     private var paneTabViewController: PaneTabViewController?
+    private let shellChromeContainerView = NSView()
+    private let shellChromeDragRegionView = ShellChromeDragRegionView()
     private var sidebarFocusTask: Task<Void, Never>?
     private var sidebarWidthRestoreTask: Task<Void, Never>?
     private var shouldExpandSidebarOnLoad = false
@@ -127,6 +129,34 @@ class MainSplitViewController: NSSplitViewController {
         fatalError("init(coder:) not supported")
     }
 
+    override func loadView() {
+        let rootView = NSView()
+        rootView.wantsLayer = true
+
+        shellChromeContainerView.translatesAutoresizingMaskIntoConstraints = false
+        shellChromeContainerView.wantsLayer = true
+        rootView.addSubview(shellChromeContainerView)
+
+        splitView.translatesAutoresizingMaskIntoConstraints = false
+        rootView.addSubview(splitView)
+
+        NSLayoutConstraint.activate([
+            shellChromeContainerView.topAnchor.constraint(equalTo: rootView.topAnchor),
+            shellChromeContainerView.leadingAnchor.constraint(equalTo: rootView.leadingAnchor),
+            shellChromeContainerView.trailingAnchor.constraint(equalTo: rootView.trailingAnchor),
+            shellChromeContainerView.heightAnchor.constraint(
+                equalToConstant: AppStyles.Shell.TabBar.height + AppStyles.Shell.Chrome.tabBarTopInset
+            ),
+
+            splitView.topAnchor.constraint(equalTo: shellChromeContainerView.bottomAnchor),
+            splitView.leadingAnchor.constraint(equalTo: rootView.leadingAnchor),
+            splitView.trailingAnchor.constraint(equalTo: rootView.trailingAnchor),
+            splitView.bottomAnchor.constraint(equalTo: rootView.bottomAnchor),
+        ])
+
+        view = rootView
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
 
@@ -144,9 +174,11 @@ class MainSplitViewController: NSSplitViewController {
             paneInboxPresentation: makePaneInboxPresentation(),
             closeTransitionCoordinator: closeTransitionCoordinator,
             performanceTraceRecorder: performanceTraceRecorder,
-            registersAsCommandHandler: paneTabRegistersAsCommandHandler
+            registersAsCommandHandler: paneTabRegistersAsCommandHandler,
+            embedsTabBarInView: false
         )
         self.paneTabViewController = paneTabVC
+        installShellChrome(paneTabVC.makeTabBarHostingView())
 
         // Configure split view
         splitView.isVertical = true
@@ -199,6 +231,37 @@ class MainSplitViewController: NSSplitViewController {
         }
 
         scheduleSidebarWidthRestore()
+    }
+
+    private func installShellChrome(_ tabBarHostingView: DraggableTabBarHostingView) {
+        tabBarHostingView.translatesAutoresizingMaskIntoConstraints = false
+        tabBarHostingView.wantsLayer = true
+        shellChromeContainerView.addSubview(tabBarHostingView)
+        shellChromeDragRegionView.translatesAutoresizingMaskIntoConstraints = false
+        shellChromeContainerView.addSubview(
+            shellChromeDragRegionView,
+            positioned: .above,
+            relativeTo: tabBarHostingView
+        )
+
+        NSLayoutConstraint.activate([
+            tabBarHostingView.topAnchor.constraint(
+                equalTo: shellChromeContainerView.topAnchor,
+                constant: AppStyles.Shell.Chrome.tabBarTopInset
+            ),
+            tabBarHostingView.leadingAnchor.constraint(
+                equalTo: shellChromeContainerView.leadingAnchor,
+                constant: AppStyles.Shell.Chrome.tabBarLeadingInset
+            ),
+            tabBarHostingView.trailingAnchor.constraint(equalTo: shellChromeContainerView.trailingAnchor),
+            tabBarHostingView.heightAnchor.constraint(equalToConstant: AppStyles.Shell.TabBar.height),
+            shellChromeDragRegionView.topAnchor.constraint(equalTo: shellChromeContainerView.topAnchor),
+            shellChromeDragRegionView.leadingAnchor.constraint(equalTo: shellChromeContainerView.leadingAnchor),
+            shellChromeDragRegionView.trailingAnchor.constraint(equalTo: shellChromeContainerView.trailingAnchor),
+            shellChromeDragRegionView.heightAnchor.constraint(
+                equalToConstant: AppStyles.Shell.Chrome.windowDragRegionHeight
+            ),
+        ])
     }
 
     override func viewDidAppear() {
@@ -411,6 +474,7 @@ class MainSplitViewController: NSSplitViewController {
         }
         guard let sidebarItem = splitViewItems.first, !sidebarItem.isCollapsed else { return }
         sidebarItem.animator().isCollapsed = true
+        uiState.setSidebarCollapsed(true)
         uiState.setSidebarHasFocus(false)
         clearInboxRuntimeEntryStateIfNeeded()
         scheduleSaveSidebarState()
@@ -498,8 +562,8 @@ class MainSplitViewController: NSSplitViewController {
             collapseSidebar()
             return
         }
-        ensureSidebarVisible()
         uiState.setSidebarSurface(.inbox)
+        ensureSidebarVisible()
         if commandBarIsKey {
             inboxSidebarState.markRetargetRequestHandled()
             sidebarFocusTask?.cancel()
@@ -525,8 +589,8 @@ class MainSplitViewController: NSSplitViewController {
         }
         sidebarFocusTask?.cancel()
         shouldFocusSidebarWhenVisible = false
-        ensureSidebarVisible()
         uiState.setSidebarSurface(.repos)
+        ensureSidebarVisible()
     }
 
     func refocusActivePane() {

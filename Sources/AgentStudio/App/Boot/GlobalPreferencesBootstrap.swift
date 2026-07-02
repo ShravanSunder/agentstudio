@@ -52,7 +52,12 @@ enum GlobalPreferencesBootstrap {
                 )
             }
 
-            if let invalidField = invalidPreferenceField(in: data) {
+            switch validatePreferenceFields(in: data) {
+            case .valid:
+                break
+            case .invalidMalformedJSON:
+                return result(.invalidMalformedJSON)
+            case .invalidField(let invalidField):
                 return result(.invalidField(invalidField))
             }
 
@@ -80,19 +85,19 @@ enum GlobalPreferencesBootstrap {
         }
     }
 
-    private static func invalidPreferenceField(in data: Data) -> String? {
+    private static func validatePreferenceFields(in data: Data) -> PreferenceFieldValidationResult {
         guard
             let rootObject = try? JSONSerialization.jsonObject(with: data),
             let root = rootObject as? [String: Any]
-        else { return nil }
+        else { return .invalidMalformedJSON }
 
         let allowedRootKeys: Set<String> = ["schemaVersion", "observability"]
         if let unknownRootKey = root.keys.first(where: { !allowedRootKeys.contains($0) }) {
-            return unknownRootKey
+            return .invalidField(unknownRootKey)
         }
 
         guard let observability = root["observability"] as? [String: Any] else {
-            return nil
+            return .valid
         }
         let allowedObservabilityKeys: Set<String> = [
             "enabled",
@@ -102,10 +107,14 @@ enum GlobalPreferencesBootstrap {
             "otlpEndpoint",
         ]
         if let unknownObservabilityKey = observability.keys.first(where: { !allowedObservabilityKeys.contains($0) }) {
-            return "observability.\(unknownObservabilityKey)"
+            return .invalidField("observability.\(unknownObservabilityKey)")
         }
 
-        return AgentStudioTracePreferenceLayer.invalidSemanticField(in: observability)
+        if let invalidSemanticField = AgentStudioTracePreferenceLayer.invalidSemanticField(in: observability) {
+            return .invalidField(invalidSemanticField)
+        }
+
+        return .valid
     }
 
     private static func preferencesFileExists(at url: URL, fileManager: FileManager) throws -> Bool {
@@ -138,6 +147,12 @@ enum GlobalPreferencesBootstrap {
         let elapsedNanoseconds = DispatchTime.now().uptimeNanoseconds - startedNanoseconds
         return Double(elapsedNanoseconds) / 1_000_000
     }
+}
+
+private enum PreferenceFieldValidationResult {
+    case valid
+    case invalidMalformedJSON
+    case invalidField(String)
 }
 
 struct GlobalPreferencesLoadResult: Equatable, Sendable {

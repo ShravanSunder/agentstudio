@@ -52,21 +52,22 @@ struct WelcomeLauncherArchitectureTests {
         #expect(!source.contains("title: \"Command palette\""))
     }
 
-    @Test("main toolbar includes a command-spec-backed Watch Folder button")
-    func mainToolbarIncludesCommandSpecBackedWatchFolderButton() throws {
+    @Test("top chrome includes a command-spec-backed Watch Folder button")
+    func topChromeIncludesCommandSpecBackedWatchFolderButton() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let source = try String(
             contentsOf: projectRoot.appending(
-                path: "Sources/AgentStudio/App/Windows/MainWindowController.swift"
+                path: "Sources/AgentStudio/App/Panes/TabBar/ShellTabBarControls.swift"
             ),
             encoding: .utf8
         )
 
-        #expect(source.contains(".watchFolder"))
-        #expect(source.contains("commandToolbarButtonItem(for: .watchFolder, action: #selector(watchFolderAction))"))
-        #expect(source.contains("let definition = AppCommandDispatcher.shared.definition(for: command)"))
-        #expect(source.contains("item.applyControlTooltip(definition.controlTooltipRenderValue())"))
-        #expect(source.contains("string: \"  \" + definition.actionSpec.label"))
+        #expect(source.contains("struct WatchFolderTabBarMenu: View"))
+        #expect(source.contains("AppCommandDispatcher.shared.definition(for: .watchFolder)"))
+        #expect(source.contains("AppCommandDispatcher.shared.dispatch(.watchFolder)"))
+        #expect(source.contains("ChromeToolbarButtonLabel("))
+        #expect(source.contains("symbolName: \"folder.badge.plus\""))
+        #expect(source.contains(".help(commandDefinition.controlToolTip)"))
         #expect(!source.contains("\"Watch Folder\""))
     }
 }
