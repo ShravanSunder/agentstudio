@@ -22,6 +22,7 @@ import type {
 } from '../features/worktree-file/models/worktree-file-protocol-models.js';
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import type { BridgeTraceContext } from '../foundation/telemetry/bridge-trace-context.js';
+import { recordBridgeViewerFirstInteractionReady } from '../foundation/telemetry/bridge-viewer-first-interaction.js';
 import { recordBridgeTreeScrollVisibleDemandTelemetrySample } from '../foundation/telemetry/bridge-viewer-telemetry-adapter.js';
 import type {
 	BridgeFileViewerDescriptorProjection,
@@ -66,6 +67,8 @@ export function useBridgeFileViewerPierreTreeRuntime(
 	const sourceIdentityRef = useRef(props.sourceIdentity);
 	const treeRowsRef = useRef(props.descriptorProjection.treeRows);
 	const isSyncingSelectedPathRef = useRef(false);
+	const firstInteractionMountStartedAtRef = useRef(performance.now());
+	const hasRecordedFirstInteractionRef = useRef(false);
 	const paths = props.descriptorProjection.paths;
 	const appliedTreePathsRef = useRef(paths);
 	const initialPreparedInputRef = useRef<ReturnType<typeof prepareFileTreeInput> | null>(null);
@@ -209,6 +212,22 @@ export function useBridgeFileViewerPierreTreeRuntime(
 			scrollElement = pierreFileTreeScrollElementForDemand(model);
 			scrollElement?.addEventListener('scroll', scheduleVisibleFileDemand, { passive: true });
 			publishVisibleFileDemand();
+			// Only anchor time-to-first-interaction once the tree actually has rows painted.
+			// On a large streaming worktree the tree shell mounts before metadata arrives, so
+			// an ungated RAF would fire against an empty tree and understate the metric.
+			if (!hasRecordedFirstInteractionRef.current && paths.length > 0) {
+				hasRecordedFirstInteractionRef.current = true;
+				recordBridgeViewerFirstInteractionReady({
+					viewer: 'file',
+					telemetryRecorder,
+					mountStartedAtPerfNow: firstInteractionMountStartedAtRef.current,
+					visibleItemCount: visibleDescriptorRefsForPierreDemand({
+						fileDescriptorByPath: fileDescriptorByPathRef.current,
+						model,
+					}).length,
+					fallbackTraceContext: telemetryTraceContext,
+				});
+			}
 		});
 		const unsubscribeModel = model.subscribe(scheduleVisibleFileDemand);
 		return (): void => {
@@ -219,7 +238,7 @@ export function useBridgeFileViewerPierreTreeRuntime(
 			scrollElement?.removeEventListener('scroll', scheduleVisibleFileDemand);
 			unsubscribeModel();
 		};
-	}, [model, paths, publishVisibleFileDemand]);
+	}, [model, paths, publishVisibleFileDemand, telemetryRecorder, telemetryTraceContext]);
 
 	useEffect((): void => {
 		if (props.selectedPath === null) {

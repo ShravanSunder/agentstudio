@@ -408,6 +408,10 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 								searchOpen={treeSearchOpen}
 								searchText={treeSearchText}
 								selectedItemId={props.selectedItemId}
+								{...(props.telemetryRecorder === undefined
+									? {}
+									: { telemetryRecorder: props.telemetryRecorder })}
+								telemetryTraceContext={props.telemetryParentTraceContext ?? null}
 							/>
 							{registry.visibleItems.length === 0 ? null : (
 								<div aria-hidden="true" hidden>

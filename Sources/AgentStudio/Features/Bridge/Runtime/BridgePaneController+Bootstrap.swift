@@ -100,13 +100,22 @@ extension BridgePaneController {
         let reviewPaneId = paneId.uuidString
         let reviewStreamId = "review:\(reviewPaneId)"
         let webTelemetryScopes = telemetryScopeGate.browserExposedScopes
-        let telemetryConfig =
-            !webTelemetryScopes.isEmpty
-            ? BridgeTelemetryBootstrapConfig.enabled(
+        let telemetryConfig: BridgeTelemetryBootstrapConfig?
+        if webTelemetryScopes.isEmpty {
+            telemetryConfig = nil
+        } else {
+            // Anchor the cold `time_to_first_interaction` measurement: capture the native
+            // viewer-open wall-clock epoch (pane creation precedes WebView navigation) and a
+            // root trace context, both threaded to the browser via the handshake config.
+            let viewerOpenEpochUnixMillis = Int(Date().timeIntervalSince1970 * 1000)
+            let viewerOpenTraceparent = BridgeTraceContextFactory.live.makeRootContext()?.traceparent
+            telemetryConfig = BridgeTelemetryBootstrapConfig.enabled(
                 scopes: webTelemetryScopes,
-                scenario: BridgeTelemetryBootstrapConfig.packageApplyContentFetchScenario
+                scenario: BridgeTelemetryBootstrapConfig.packageApplyContentFetchScenario,
+                viewerOpenEpochUnixMillis: viewerOpenEpochUnixMillis,
+                viewerOpenTraceparent: viewerOpenTraceparent
             )
-            : nil
+        }
         let script = makeBootstrapScript(
             BridgeBootstrapScriptInput(
                 bridgeNonce: bridgeNonce,

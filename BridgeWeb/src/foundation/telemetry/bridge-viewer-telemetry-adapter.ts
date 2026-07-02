@@ -93,6 +93,15 @@ export interface BridgeTreeScrollVisibleDemandTelemetrySampleProps {
 	readonly visibleItemCount: number;
 }
 
+export interface BridgeViewerFirstInteractionReadyTelemetrySampleProps {
+	readonly durationMilliseconds: number;
+	readonly telemetryRecorder: BridgeTelemetryRecorder;
+	readonly traceContext: BridgeTraceContext | null;
+	readonly variant: 'cold' | 'warm';
+	readonly viewer: 'file' | 'review';
+	readonly visibleItemCount: number;
+}
+
 export interface BridgeWorktreeFileVisibleDemandSettledTelemetrySampleProps {
 	readonly durationMilliseconds: number;
 	readonly enqueueAcceptedCount: number;
@@ -419,6 +428,34 @@ export function recordBridgeTreeScrollVisibleDemandTelemetrySample(
 			booleanAttributes: {},
 		});
 		props.telemetryRecorder.flush();
+	});
+}
+
+export function recordBridgeViewerFirstInteractionReadyTelemetrySample(
+	props: BridgeViewerFirstInteractionReadyTelemetrySampleProps,
+): void {
+	recordWhenEnabled(props.telemetryRecorder, () => {
+		props.telemetryRecorder.record({
+			scope: 'web',
+			name: 'performance.bridge.viewer.time_to_first_interaction',
+			durationMilliseconds: Math.max(0, props.durationMilliseconds),
+			traceContext: props.traceContext,
+			stringAttributes: {
+				'agentstudio.bridge.phase': 'time_to_first_interaction',
+				'agentstudio.bridge.plane': 'data',
+				'agentstudio.bridge.priority': 'hot',
+				'agentstudio.bridge.result': 'success',
+				'agentstudio.bridge.slice': 'content_fetch',
+				'agentstudio.bridge.transport': 'content',
+				'agentstudio.bridge.viewer': props.viewer,
+				'agentstudio.bridge.viewer.ttfi_variant': props.variant,
+			},
+			numericAttributes: {
+				'agentstudio.bridge.visible_item.count': props.visibleItemCount,
+			},
+			booleanAttributes: {},
+		});
+		props.telemetryRecorder.flush({ force: true });
 	});
 }
 

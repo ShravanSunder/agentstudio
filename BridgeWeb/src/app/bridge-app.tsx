@@ -13,6 +13,7 @@ import {
 	createBridgeTelemetryRecorder,
 	type BridgeTelemetryRecorder,
 } from '../foundation/telemetry/bridge-telemetry-recorder.js';
+import { setBridgeViewerNativeOpenAnchor } from '../foundation/telemetry/bridge-viewer-first-interaction.js';
 import type { BridgeMarkdownRenderWorkerClient } from '../review-viewer/workers/markdown/bridge-markdown-render-worker-client.js';
 import type { BridgeReviewProjectionWorkerClient } from '../review-viewer/workers/projection/review-projection-worker-client.js';
 import type { BridgeAppControlProbe } from './bridge-app-control.js';
@@ -159,6 +160,10 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 					methodName: telemetryConfig?.rpcMethodName ?? 'system.bridgeTelemetry',
 				}),
 			);
+			setBridgeViewerNativeOpenAnchor({
+				openEpochUnixMillis: telemetryConfig?.viewerOpenEpochUnixMillis ?? null,
+				traceparent: telemetryConfig?.viewerOpenTraceparent ?? null,
+			});
 		};
 		handshakeSessionRef.current = installBridgePageHandshakeSession(target, {
 			onReady: (): void => {

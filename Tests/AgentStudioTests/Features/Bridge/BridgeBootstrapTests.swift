@@ -132,6 +132,25 @@ final class BridgeBootstrapTests {
     }
 
     @Test
+    func test_handshake_carries_viewer_open_anchor_for_time_to_first_interaction() {
+        let config = BridgeTelemetryBootstrapConfig.enabled(
+            scopes: [.web],
+            scenario: "package_apply_content_fetch_v1",
+            viewerOpenEpochUnixMillis: 1_750_000_000_000,
+            viewerOpenTraceparent: "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
+        )
+        let script = BridgeBootstrap.generateScript(
+            bridgeNonce: "test-nonce",
+            pushNonce: "push-nonce",
+            telemetryConfig: config
+        )
+        #expect(script.contains("viewerOpenEpochUnixMillis"))
+        #expect(script.contains("1750000000000"))
+        #expect(script.contains("viewerOpenTraceparent"))
+        #expect(script.contains("00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"))
+    }
+
+    @Test
     func test_script_publishes_review_frame_authority_attributes() {
         let script = BridgeBootstrap.generateScript(
             bridgeNonce: "test-nonce",

@@ -20,6 +20,9 @@ import {
 } from '../../app/bridge-viewer-tree-theme.js';
 import type { ReviewTreeRowMetadata } from '../../features/review/models/review-protocol-models.js';
 import type { BridgeReviewPackage } from '../../foundation/review-package/bridge-review-package.js';
+import type { BridgeTelemetryRecorder } from '../../foundation/telemetry/bridge-telemetry-recorder.js';
+import type { BridgeTraceContext } from '../../foundation/telemetry/bridge-trace-context.js';
+import { recordBridgeViewerFirstInteractionReady } from '../../foundation/telemetry/bridge-viewer-first-interaction.js';
 import type { BridgeReviewProjectionResult } from '../models/review-projection-models.js';
 import { BridgeTreesController, createBridgeTreesSource } from './bridge-trees-controller.js';
 
@@ -37,6 +40,8 @@ export interface BridgeReviewTreesPanelProps {
 	readonly onSelectItem: (itemId: string) => void;
 	readonly onSearchTextChange?: (searchText: string) => void;
 	readonly onVisibleItemIdsChange?: (itemIds: readonly string[]) => void;
+	readonly telemetryRecorder?: BridgeTelemetryRecorder;
+	readonly telemetryTraceContext?: BridgeTraceContext | null;
 }
 
 export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): ReactElement {
@@ -57,7 +62,11 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 	const onSearchTextChangeRef = useRef(props.onSearchTextChange);
 	onSearchTextChangeRef.current = props.onSearchTextChange;
 	const onVisibleItemIdsChange = props.onVisibleItemIdsChange;
+	const telemetryRecorder = props.telemetryRecorder;
+	const telemetryTraceContext = props.telemetryTraceContext ?? null;
 	const isSyncingClickedSelectionRef = useRef(false);
+	const firstInteractionMountStartedAtRef = useRef(performance.now());
+	const hasRecordedFirstInteractionRef = useRef(false);
 	const searchTextRef = useRef(props.searchText);
 	searchTextRef.current = props.searchText;
 	const onSelectionChange = useCallback((selectedPaths: readonly string[]): void => {
@@ -212,6 +221,20 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 			scrollElement?.addEventListener('scroll', scheduleVisibleItemIds, { passive: true });
 			rowContainer?.addEventListener?.('click', selectClickedFileRow, { capture: true });
 			publishVisibleItemIds();
+			// Only anchor time-to-first-interaction once the tree actually has rows painted.
+			if (!hasRecordedFirstInteractionRef.current && sourceRef.current.orderedPaths.length > 0) {
+				hasRecordedFirstInteractionRef.current = true;
+				recordBridgeViewerFirstInteractionReady({
+					viewer: 'review',
+					telemetryRecorder,
+					mountStartedAtPerfNow: firstInteractionMountStartedAtRef.current,
+					visibleItemCount: visibleReviewTreeItemIds({
+						model,
+						primaryItemIdByTreePath: sourceRef.current.primaryItemIdByTreePath,
+					}).length,
+					fallbackTraceContext: telemetryTraceContext,
+				});
+			}
 		});
 		const unsubscribeModel = model.subscribe(scheduleVisibleItemIds);
 		return (): void => {
@@ -223,7 +246,7 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 			rowContainer?.removeEventListener?.('click', selectClickedFileRow, { capture: true });
 			unsubscribeModel();
 		};
-	}, [model, publishVisibleItemIds]);
+	}, [model, publishVisibleItemIds, telemetryRecorder, telemetryTraceContext]);
 
 	return (
 		<div

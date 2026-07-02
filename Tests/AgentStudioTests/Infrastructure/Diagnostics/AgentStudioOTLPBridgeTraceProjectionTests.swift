@@ -47,6 +47,45 @@ struct AgentStudioOTLPBridgeTraceProjectionTests {
     }
 
     @Test
+    func bridgeProjectionPreservesViewerTimeToFirstInteractionDiagnostics() {
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 512,
+            severityText: .info,
+            body: "performance.bridge.viewer.time_to_first_interaction",
+            traceID: "0af7651916cd43dd8448eb211c80319c",
+            spanID: "b7ad6b7169203331",
+            parentSpanID: "00f067aa0ba902b7",
+            resource: [
+                "service.name": "AgentStudio"
+            ],
+            scope: .init(name: "agentstudio.bridge.performance.web", version: "0.1.0"),
+            attributes: [
+                "agentstudio.bridge.phase": .string("time_to_first_interaction"),
+                "agentstudio.bridge.plane": .string("data"),
+                "agentstudio.bridge.priority": .string("hot"),
+                "agentstudio.bridge.result": .string("success"),
+                "agentstudio.bridge.slice": .string("content_fetch"),
+                "agentstudio.bridge.transport": .string("content"),
+                "agentstudio.bridge.viewer": .string("file"),
+                "agentstudio.bridge.viewer.ttfi_variant": .string("cold"),
+                "agentstudio.bridge.visible_item.count": .int(12),
+                "agentstudio.bridge.item_id": .string("private-item-id"),
+                "agentstudio.performance.elapsed_ms": .double(287.5),
+            ]
+        )
+
+        let projection = AgentStudioOTLPTraceProjection.project(record)
+        let renderedProjection = renderedBridgeProjectionForCanaryAssertions(projection)
+
+        #expect(projection.attributes["agentstudio.bridge.viewer"] == .string("file"))
+        #expect(projection.attributes["agentstudio.bridge.viewer.ttfi_variant"] == .string("cold"))
+        #expect(projection.attributes["agentstudio.performance.elapsed_ms"] == .double(287.5))
+        #expect(projection.attributes["agentstudio.bridge.visible_item.count"] == .int(12))
+        #expect(projection.attributes["agentstudio.bridge.item_id"] == nil)
+        #expect(!renderedProjection.contains("private-item-id"))
+    }
+
+    @Test
     func bridgeProjectionPreservesReviewStartupCountDiagnostics() {
         let reviewReadyRecord = AgentStudioTraceRecord(
             timeUnixNano: 128,

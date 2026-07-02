@@ -36,6 +36,7 @@ extension BridgeTelemetryBatchValidator {
         "performance.bridge.trees.search_filter",
         "performance.bridge.viewer.content_queue",
         "performance.bridge.viewer.content_cache",
+        "performance.bridge.viewer.time_to_first_interaction",
         "performance.bridge.pierre.item_update",
         "performance.bridge.pierre.scroll_target",
         "performance.bridge.pierre.virtualized_range",
@@ -182,6 +183,7 @@ extension BridgeTelemetryBatchValidator {
             "search_filter",
             "selection_commit",
             "selected_content_ready",
+            "time_to_first_interaction",
             "visible_demand_settled",
             "virtualized_range",
             "worktree_file_frame_apply",
@@ -382,6 +384,10 @@ extension BridgeTelemetryBatchValidator {
         "agentstudio.bridge.viewer": [
             "file",
             "review",
+        ],
+        "agentstudio.bridge.viewer.ttfi_variant": [
+            "cold",
+            "warm",
         ],
         "agentstudio.bridge.worker.lane": [
             "none",

@@ -234,6 +234,36 @@ var bridgeViewerTelemetryContractSamples: [BridgeTelemetrySample] {
                 "agentstudio.bridge.worker.task_kind": "markdown_render",
             ]
         ),
+        viewerSample(
+            name: "performance.bridge.viewer.time_to_first_interaction",
+            phase: "time_to_first_interaction",
+            priority: "hot",
+            slice: "content_fetch",
+            transport: "content",
+            extraStrings: [
+                "agentstudio.bridge.result": "success",
+                "agentstudio.bridge.viewer": "file",
+                "agentstudio.bridge.viewer.ttfi_variant": "cold",
+            ],
+            extraNumbers: [
+                "agentstudio.bridge.visible_item.count": 12
+            ]
+        ),
+        viewerSample(
+            name: "performance.bridge.viewer.time_to_first_interaction",
+            phase: "time_to_first_interaction",
+            priority: "hot",
+            slice: "content_fetch",
+            transport: "content",
+            extraStrings: [
+                "agentstudio.bridge.result": "success",
+                "agentstudio.bridge.viewer": "review",
+                "agentstudio.bridge.viewer.ttfi_variant": "warm",
+            ],
+            extraNumbers: [
+                "agentstudio.bridge.visible_item.count": 8
+            ]
+        ),
     ]
 }
 

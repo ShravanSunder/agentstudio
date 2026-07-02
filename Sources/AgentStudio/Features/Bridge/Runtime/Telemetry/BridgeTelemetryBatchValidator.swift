@@ -283,6 +283,8 @@ extension BridgeTelemetryBatchValidator {
             return contentQueueContractMatches(contract)
         case "performance.bridge.viewer.content_cache":
             return contentCacheContractMatches(contract)
+        case "performance.bridge.viewer.time_to_first_interaction":
+            return timeToFirstInteractionContractMatches(contract)
         case "performance.bridge.pierre.item_update":
             return itemUpdateContractMatches(contract)
         case "performance.bridge.pierre.scroll_target":

@@ -91,6 +91,7 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.bridge.tree_path_count_bucket",
         "agentstudio.bridge.visible_row_bucket",
         "agentstudio.bridge.viewer",
+        "agentstudio.bridge.viewer.ttfi_variant",
         "agentstudio.bridge.worker.lane",
         "agentstudio.bridge.worker.task_kind",
         "agentstudio.command.name",
