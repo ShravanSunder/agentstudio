@@ -113,6 +113,7 @@ enum BridgeReviewPackageBuilder {
             mimeType: changedFile.mimeType,
             language: changedFile.language,
             sizeBytes: changedFile.sizeBytes,
+            sizeBytesIsExact: contentHandleSizeBytesIsExact(for: changedFile, role: role),
             isBinary: changedFile.isBinary
         )
     }
@@ -223,6 +224,18 @@ enum BridgeReviewPackageBuilder {
             return changedFile.newContentHash ?? changedFile.oldContentHash ?? "unknown"
         case .diff:
             return "\(changedFile.oldContentHash ?? "none")...\(changedFile.newContentHash ?? "none")"
+        }
+    }
+
+    private static func contentHandleSizeBytesIsExact(
+        for changedFile: BridgeEndpointChangedFile,
+        role: BridgeContentHandle.Role
+    ) -> Bool {
+        switch changedFile.changeKind {
+        case .modified, .renamed:
+            role != .base
+        case .added, .copied, .deleted:
+            true
         }
     }
 

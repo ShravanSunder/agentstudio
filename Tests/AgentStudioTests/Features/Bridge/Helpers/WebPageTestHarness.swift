@@ -6,6 +6,8 @@ import WebKit
 
 @MainActor
 enum WebPageTestHarness {
+    private static var retainedPages: [WebPage] = []
+
     static func makeConfiguration() -> WebPage.Configuration {
         var config = WebPage.Configuration()
         config.websiteDataStore = .nonPersistent()
@@ -27,6 +29,12 @@ enum WebPageTestHarness {
         }
     }
 
+    static func settle(turns: Int = 8) async {
+        for _ in 0..<turns {
+            await Task.yield()
+        }
+    }
+
     private static func teardown(_ page: WebPage, settleTurns: Int) async {
         page.stopLoading()
         if let blankURL = URL(string: "about:blank") {
@@ -38,5 +46,6 @@ enum WebPageTestHarness {
         for _ in 0..<settleTurns {
             await Task.yield()
         }
+        retainedPages.append(page)
     }
 }

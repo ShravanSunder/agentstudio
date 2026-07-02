@@ -14,6 +14,8 @@ enum FilesystemPathDisposition: Sendable, Equatable {
 /// - apply root-level `.gitignore` rules for projection payload suppression
 struct FilesystemPathFilter: Sendable {
     fileprivate static let logger = Logger(subsystem: "com.agentstudio", category: "FilesystemPathFilter")
+    static let empty = Self(ignoredRules: [])
+
     private let ignoredRules: [GitIgnoreRule]
 
     static func load(forRootPath rootPath: URL) -> Self {

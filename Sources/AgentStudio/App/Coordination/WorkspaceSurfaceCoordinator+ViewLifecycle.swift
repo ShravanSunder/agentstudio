@@ -156,7 +156,7 @@ extension WorkspaceSurfaceCoordinator {
             let controller = BridgePaneController(
                 paneId: pane.id,
                 state: state,
-                metadata: pane.metadata,
+                metadata: bridgePaneControllerMetadata(for: pane, state: state),
                 reviewSourceProvider: bridgeReviewSourceProvider(for: pane, state: state),
                 traceRuntime: traceRuntime
             )

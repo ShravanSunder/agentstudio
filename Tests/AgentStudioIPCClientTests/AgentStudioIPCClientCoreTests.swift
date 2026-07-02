@@ -151,58 +151,55 @@ struct AgentStudioIPCClientCoreTests {
     @Test("parses bridge diff commands")
     func parsesBridgeDiffCommands() throws {
         let worktreeId = UUID(uuidString: "00000000-0000-0000-0000-000000000701")!
-        let openInvocation = try AgentStudioIPCClientArguments.parse(
-            ["--socket", "/tmp/app.sock", "bridge-diff-load", worktreeId.uuidString],
-            environment: [:]
+        let openInvocation = try parseIPCInvocation("bridge-diff-load", worktreeId.uuidString)
+        let openFileViewInvocation = try parseIPCInvocation(
+            "bridge-file-view-open",
+            worktreeId.uuidString
         )
-        let refreshInvocation = try AgentStudioIPCClientArguments.parse(
-            ["--socket", "/tmp/app.sock", "bridge-diff-refresh", "pane:2"],
-            environment: [:]
+        let refreshInvocation = try parseIPCInvocation("bridge-diff-refresh", "pane:2")
+        let packageInvocation = try parseIPCInvocation("bridge-diff-get-package", "pane:2")
+        let renderStateInvocation = try parseIPCInvocation("bridge-diff-render-state", "pane:2")
+        let selectInvocation = try parseIPCInvocation(
+            "bridge-diff-select-file",
+            "pane:2",
+            "item-source"
         )
-        let packageInvocation = try AgentStudioIPCClientArguments.parse(
-            ["--socket", "/tmp/app.sock", "bridge-diff-get-package", "pane:2"],
-            environment: [:]
+        let scrollInvocation = try parseIPCInvocation(
+            "bridge-diff-scroll-to-file",
+            "pane:2",
+            "item-source"
         )
-        let renderStateInvocation = try AgentStudioIPCClientArguments.parse(
-            ["--socket", "/tmp/app.sock", "bridge-diff-render-state", "pane:2"],
-            environment: [:]
+        let searchInvocation = try parseIPCInvocation(
+            "bridge-file-tree-search",
+            "pane:2",
+            "BridgePaneController"
         )
-        let selectInvocation = try AgentStudioIPCClientArguments.parse(
-            ["--socket", "/tmp/app.sock", "bridge-diff-select-file", "pane:2", "item-source"],
-            environment: [:]
+        let filterInvocation = try parseIPCInvocation(
+            "bridge-file-tree-set-filter",
+            "pane:2",
+            "modified",
+            "source"
         )
-        let scrollInvocation = try AgentStudioIPCClientArguments.parse(
-            ["--socket", "/tmp/app.sock", "bridge-diff-scroll-to-file", "pane:2", "item-source"],
-            environment: [:]
+        let revealInvocation = try parseIPCInvocation(
+            "bridge-file-tree-reveal-path",
+            "pane:2",
+            "Sources/App/View.swift"
         )
-        let searchInvocation = try AgentStudioIPCClientArguments.parse(
-            ["--socket", "/tmp/app.sock", "bridge-file-tree-search", "pane:2", "BridgePaneController"],
-            environment: [:]
+        let markdownInvocation = try parseIPCInvocation(
+            "bridge-file-view-show-markdown-preview",
+            "pane:2",
+            "item-source"
         )
-        let filterInvocation = try AgentStudioIPCClientArguments.parse(
-            ["--socket", "/tmp/app.sock", "bridge-file-tree-set-filter", "pane:2", "modified", "source"],
-            environment: [:]
-        )
-        let revealInvocation = try AgentStudioIPCClientArguments.parse(
-            ["--socket", "/tmp/app.sock", "bridge-file-tree-reveal-path", "pane:2", "Sources/App/View.swift"],
-            environment: [:]
-        )
-        let markdownInvocation = try AgentStudioIPCClientArguments.parse(
-            ["--socket", "/tmp/app.sock", "bridge-file-view-show-markdown-preview", "pane:2", "item-source"],
-            environment: [:]
-        )
-        let telemetryFlushInvocation = try AgentStudioIPCClientArguments.parse(
-            ["--socket", "/tmp/app.sock", "bridge-telemetry-flush", "pane:2"],
-            environment: [:]
-        )
-        let telemetrySnapshotInvocation = try AgentStudioIPCClientArguments.parse(
-            ["--socket", "/tmp/app.sock", "bridge-telemetry-snapshot", "pane:2"],
-            environment: [:]
-        )
+        let telemetryFlushInvocation = try parseIPCInvocation("bridge-telemetry-flush", "pane:2")
+        let telemetrySnapshotInvocation = try parseIPCInvocation("bridge-telemetry-snapshot", "pane:2")
 
         #expect(
             openInvocation.command
                 == .bridgeDiffLoad(IPCBridgeReviewOpenParams(worktreeId: worktreeId))
+        )
+        #expect(
+            openFileViewInvocation.command
+                == .bridgeFileViewOpen(IPCBridgeFileViewOpenParams(worktreeId: worktreeId))
         )
         #expect(refreshInvocation.command == .bridgeDiffRefresh(IPCBridgeReviewRefreshParams(handle: "pane:2")))
         #expect(packageInvocation.command == .bridgeDiffGetPackage(handle: "pane:2"))
@@ -303,6 +300,28 @@ struct AgentStudioIPCClientCoreTests {
         #expect(params["handle"] == .string("pane:2"))
         #expect(params["gitStatusFilter"] == .string("modified"))
         #expect(params["fileClassFilter"] == .string("source"))
+    }
+
+    @Test("builds bridge file view open request frame")
+    func buildsBridgeFileViewOpenRequestFrame() throws {
+        let worktreeId = UUID(uuidString: "00000000-0000-0000-0000-000000000702")!
+        let client = AgentStudioIPCClient(
+            configuration: AgentStudioIPCClientConfiguration(socketPath: "/tmp/app.sock")
+        )
+
+        let frame = try client.requestFrame(
+            .bridgeFileViewOpen(IPCBridgeFileViewOpenParams(worktreeId: worktreeId)),
+            requestId: 17
+        )
+        let request = try JSONRPCCodec.decodeRequest(frame)
+
+        #expect(request.id == .number(17))
+        #expect(request.method == "bridge.fileView.open")
+        guard case .object(let params)? = request.params else {
+            Issue.record("expected object params")
+            return
+        }
+        #expect(params["worktreeId"] == .string(worktreeId.uuidString))
     }
 
     @Test("builds bridge file view content request frame")
@@ -587,6 +606,13 @@ private func writeMetadata(socketPath: String) throws -> URL {
     let data = Data(#"{"socketPath":"\#(socketPath)","protocol":"agentstudio-ipc-jsonrpc-2"}"#.utf8)
     try data.write(to: url)
     return url
+}
+
+private func parseIPCInvocation(_ arguments: String...) throws -> AgentStudioIPCClientInvocation {
+    try AgentStudioIPCClientArguments.parse(
+        ["--socket", "/tmp/app.sock"] + arguments,
+        environment: [:]
+    )
 }
 
 private func temporarySocketPath() -> String {

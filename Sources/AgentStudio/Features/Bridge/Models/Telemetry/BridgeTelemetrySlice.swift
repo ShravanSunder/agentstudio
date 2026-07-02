@@ -3,7 +3,7 @@ enum BridgeTelemetrySlice: String, CaseIterable, Codable, Equatable, Hashable, S
     case diffFiles = "diff_files"
     case reviewThreads = "review_threads"
     case reviewViewedFiles = "review_viewed_files"
-    case reviewSnapshot = "review_snapshot"
+    case reviewMetadata = "review_metadata"
     case reviewDelta = "review_delta"
     case reviewInvalidation = "review_invalidation"
     case reviewReset = "review_reset"

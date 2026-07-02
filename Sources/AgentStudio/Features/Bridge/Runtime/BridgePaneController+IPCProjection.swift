@@ -7,6 +7,22 @@ private struct BridgePageRenderSnapshot: Decodable {
     let hasEmptyShell: Bool
     let hasReviewShell: Bool
     let sidebarPosition: String?
+    let hasFileShell: Bool?
+    let hasFileTree: Bool?
+    let hasFileCodeView: Bool?
+    let bridgeProtocol: String?
+    let worktreeSourceSpecState: String?
+    let worktreeSourceState: String?
+    let worktreeOpenFileState: String?
+    let worktreeOpenFilePath: String?
+    let worktreeRenderedFilePath: String?
+    let worktreeSelectedDisplayPath: String?
+    let worktreeDescriptorCount: Int?
+    let worktreeTotalDescriptorCount: Int?
+    let worktreeIntakeFrameCount: Int?
+    let worktreeCommandCount: Int?
+    let worktreeOpenSourceCommandCount: Int?
+    let worktreeCodeTextLength: Int?
     let pageErrorCount: Int
     let pageErrorKinds: [String]
     let pageErrorMessages: [String]
@@ -97,7 +113,23 @@ extension BridgePaneController {
                     hasAppRoot: snapshot.hasAppRoot,
                     hasEmptyShell: snapshot.hasEmptyShell,
                     hasReviewShell: snapshot.hasReviewShell,
-                    sidebarPosition: snapshot.sidebarPosition
+                    sidebarPosition: snapshot.sidebarPosition,
+                    hasFileShell: snapshot.hasFileShell,
+                    hasFileTree: snapshot.hasFileTree,
+                    hasFileCodeView: snapshot.hasFileCodeView,
+                    bridgeProtocol: snapshot.bridgeProtocol,
+                    worktreeSourceSpecState: snapshot.worktreeSourceSpecState,
+                    worktreeSourceState: snapshot.worktreeSourceState,
+                    worktreeOpenFileState: snapshot.worktreeOpenFileState,
+                    worktreeOpenFilePath: snapshot.worktreeOpenFilePath,
+                    worktreeRenderedFilePath: snapshot.worktreeRenderedFilePath,
+                    worktreeSelectedDisplayPath: snapshot.worktreeSelectedDisplayPath,
+                    worktreeDescriptorCount: snapshot.worktreeDescriptorCount,
+                    worktreeTotalDescriptorCount: snapshot.worktreeTotalDescriptorCount,
+                    worktreeIntakeFrameCount: snapshot.worktreeIntakeFrameCount,
+                    worktreeCommandCount: snapshot.worktreeCommandCount,
+                    worktreeOpenSourceCommandCount: snapshot.worktreeOpenSourceCommandCount,
+                    worktreeCodeTextLength: snapshot.worktreeCodeTextLength
                 ),
                 diagnostics: IPCBridgeRenderDiagnostics(
                     evaluateSucceeded: true,
@@ -263,6 +295,45 @@ extension BridgePaneController {
             : [];
           const clip = (value, limit) => String(value ?? '').slice(0, limit);
           const reviewShell = document.querySelector('[data-testid="review-viewer-shell"]');
+          const fileShell = document.querySelector('[data-testid="bridge-file-viewer-shell"]');
+          const fileTree = document.querySelector('[data-testid="bridge-file-viewer-pierre-file-tree"]');
+          const fileCodeCanvas = document.querySelector('[data-testid="bridge-file-viewer-code-canvas"]');
+          const fileCodeView = document.querySelector('[data-testid="bridge-file-viewer-code-view"]');
+          const filterCountText =
+            document.querySelector('[data-testid="worktree-file-filter-count"]')?.textContent || '0/0';
+          const worktreeDescriptorCount = Number(filterCountText.split('/')[0] || '0');
+          const worktreeTotalDescriptorCount = Number(filterCountText.split('/')[1] || '0');
+          const intakeProbe = Array.isArray(window.__bridgeIntakeProbe)
+            ? window.__bridgeIntakeProbe
+            : [];
+          const commandProbe = Array.isArray(window.__bridgeCommandProbe)
+            ? window.__bridgeCommandProbe
+            : [];
+          const rawWorktreeSourceSpec =
+            document.documentElement.getAttribute('data-bridge-worktree-file-source-spec');
+          let worktreeSourceSpecState = 'missing';
+          if (rawWorktreeSourceSpec !== null) {
+            try {
+              const parsedSourceSpec = JSON.parse(rawWorktreeSourceSpec);
+              worktreeSourceSpecState =
+                parsedSourceSpec &&
+                typeof parsedSourceSpec === 'object' &&
+                typeof parsedSourceSpec.clientRequestId === 'string' &&
+                typeof parsedSourceSpec.repoId === 'string' &&
+                typeof parsedSourceSpec.worktreeId === 'string' &&
+                typeof parsedSourceSpec.rootPathToken === 'string' &&
+                parsedSourceSpec.freshness === 'live'
+                  ? 'parseable'
+                  : 'invalid_shape';
+            } catch {
+              worktreeSourceSpecState = 'malformed_json';
+            }
+          }
+          const diffContainers = [...document.querySelectorAll('diffs-container')];
+          const codeViewShadowText = diffContainers
+            .map((element) => element.shadowRoot?.textContent || '')
+            .join(' ');
+          const fileCodeText = `${fileCodeCanvas?.textContent || ''} ${codeViewShadowText}`;
           const pageErrorKinds = Array.from(new Set(errorProbe.slice(-8).map((entry) => {
             return clip(entry.kind, 80);
           }).filter((kind) => kind.length > 0)));
@@ -278,6 +349,24 @@ extension BridgePaneController {
             hasEmptyShell: document.querySelector('[data-testid="bridge-review-empty-shell"]') !== null,
             hasReviewShell: reviewShell !== null,
             sidebarPosition: reviewShell?.getAttribute('data-sidebar-position') || null,
+            hasFileShell: fileShell !== null,
+            hasFileTree: fileTree !== null,
+            hasFileCodeView: fileCodeView !== null,
+            bridgeProtocol: document.documentElement.getAttribute('data-bridge-app-protocol') || null,
+            worktreeSourceSpecState,
+            worktreeSourceState: fileShell?.getAttribute('data-worktree-source-state') || null,
+            worktreeOpenFileState: fileCodeCanvas?.getAttribute('data-worktree-open-file-state') || null,
+            worktreeOpenFilePath: fileCodeCanvas?.getAttribute('data-worktree-open-file-path') || null,
+            worktreeRenderedFilePath: fileCodeCanvas?.getAttribute('data-worktree-rendered-file-path') || null,
+            worktreeSelectedDisplayPath: fileShell?.getAttribute('data-selected-display-path') || null,
+            worktreeDescriptorCount,
+            worktreeTotalDescriptorCount,
+            worktreeIntakeFrameCount: intakeProbe.length,
+            worktreeCommandCount: commandProbe.length,
+            worktreeOpenSourceCommandCount: commandProbe.filter((entry) => {
+              return entry?.method === 'worktreeFileSurface.openSourceStream';
+            }).length,
+            worktreeCodeTextLength: fileCodeText.length,
             pageErrorCount: errorProbe.length,
             pageErrorKinds,
             pageErrorMessages

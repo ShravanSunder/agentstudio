@@ -20,6 +20,7 @@ struct BridgePaneState: Codable, Hashable, Sendable {
 ///
 enum BridgePanelKind: String, Codable, Hashable, Sendable {
     case diffViewer
+    case fileViewer
     // Future: .agentDashboard, .prStatus, etc.
 }
 

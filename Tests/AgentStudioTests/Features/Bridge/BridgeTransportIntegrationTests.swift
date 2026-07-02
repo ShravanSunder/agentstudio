@@ -128,7 +128,7 @@ extension WebKitSerializedTests {
                 "isBridgeReady should remain true after repeated handleBridgeReady() calls (idempotent)")
 
             // Cleanup
-            controller.teardown()
+            await teardownBridgeControllerForTest(controller)
         }
 
         /// Verify that `teardown()` resets `isBridgeReady` to false.
@@ -146,6 +146,7 @@ extension WebKitSerializedTests {
 
             // Assert — bridge state is reset
             #expect(!(controller.isBridgeReady), "teardown() should reset isBridgeReady to false")
+            await WebPageTestHarness.settle()
         }
 
         /// Verify that state mutation attempts push transport and updates connection health
@@ -174,7 +175,7 @@ extension WebKitSerializedTests {
             }
             #expect(didObserveTransportFailure, "Expected connection health to reflect transport failure")
 
-            controller.teardown()
+            await teardownBridgeControllerForTest(controller)
         }
 
         /// Verify request responses with IDs are emitted as JSON-RPC response envelopes.
@@ -245,7 +246,7 @@ extension WebKitSerializedTests {
             #expect(response.id == 42)
             #expect(response.result.echoed == "hello")
 
-            controller.teardown()
+            await teardownBridgeControllerForTest(controller)
         }
 
         // MARK: - Test 2: Scheme handler serves app HTML
@@ -259,7 +260,6 @@ extension WebKitSerializedTests {
             let paneId = UUIDv7.generate()
             let state = BridgePaneState(panelKind: .diffViewer, source: nil)
             let controller = BridgePaneController(paneId: paneId, state: state)
-            defer { controller.teardown() }
 
             try await WebPageTestHarness.withManagedPage(controller.page) { page in
                 // Act — load the bundled React app URL
@@ -288,7 +288,7 @@ extension WebKitSerializedTests {
                     "Bridge app JavaScript should boot React and send bridge.ready after index.html loads")
                 _ = try await page.callJavaScript(
                     """
-                    document.title = document.body.innerText.includes('Waiting for review package')
+                    document.title = document.querySelector('[data-testid="bridge-review-empty-shell"]') !== null
                       ? 'AgentStudio Bridge Visible'
                       : 'AgentStudio Bridge Missing Shell'
                     """
@@ -298,6 +298,7 @@ extension WebKitSerializedTests {
                     didRenderEmptyShell,
                     "Bridge app JavaScript should render the visible empty review shell after boot")
             }
+            await teardownBridgeControllerForTest(controller)
         }
 
         @Test
@@ -340,12 +341,6 @@ extension WebKitSerializedTests {
             let snapshotFrame = try makeReviewSnapshotProtocolFrame(
                 package: package,
                 paneId: paneId
-            )
-            try await registerReviewPackageResource(
-                controller: controller,
-                paneId: paneId,
-                package: package,
-                snapshotFrame: snapshotFrame
             )
 
             try await WebPageTestHarness.withManagedPage(controller.page) { page in
@@ -489,6 +484,58 @@ extension WebKitSerializedTests {
         }
 
         @Test
+        func test_sourceBackedInitialReviewLoad_rendersReviewViewerShell() async throws {
+            let paneId = UUIDv7.generate()
+            let state = BridgePaneState(
+                panelKind: .diffViewer,
+                source: .workspace(rootPath: "/tmp/worktree", baseline: .headMinusOne)
+            )
+            let controller = BridgePaneController(
+                paneId: paneId,
+                state: state,
+                metadata: PaneMetadata(
+                    paneId: PaneId(uuid: paneId),
+                    contentType: .diff,
+                    launchDirectory: URL(fileURLWithPath: "/tmp/worktree"),
+                    title: "Bridge Review",
+                    facets: PaneContextFacets(
+                        repoId: BridgeObservabilitySmokeReviewSourceProvider.repoId,
+                        worktreeId: BridgeObservabilitySmokeReviewSourceProvider.worktreeId,
+                        cwd: URL(fileURLWithPath: "/tmp/worktree")
+                    )
+                ),
+                reviewSourceProvider: BridgeObservabilitySmokeReviewSourceProvider()
+            )
+            defer { controller.teardown() }
+
+            try await WebPageTestHarness.withManagedPage(controller.page) { page in
+                controller.loadApp()
+                controller.scheduleInitialReviewPackageLoadIfPossible()
+                try await waitForPageLoad(page)
+                let didCompleteBridgeReadyHandshake = await waitUntil {
+                    controller.isBridgeReady
+                }
+                #expect(
+                    didCompleteBridgeReadyHandshake,
+                    "Bridge app JavaScript should send bridge.ready before initial source-backed review load")
+                try await installPageDiagnosticsProbe(page)
+
+                let didRenderReviewShell = await waitUntil(timeout: .seconds(1)) {
+                    (try? await controller.renderStateForIPC().summary.hasReviewShell) == true
+                }
+                let renderState = try await controller.renderStateForIPC()
+                let pageState = await describeBridgePageState(page)
+                #expect(
+                    didRenderReviewShell,
+                    "Source-backed initial Review load should render from metadata intake: \(pageState)")
+                #expect(renderState.summary.hasReviewShell)
+                #expect(!(renderState.summary.hasEmptyShell))
+                #expect(renderState.diagnostics.evaluateSucceeded)
+                #expect(renderState.diagnostics.pageErrorCount == 0)
+            }
+        }
+
+        @Test
         func test_contentFetch_traceparentHeaderReachesCustomSchemeHandler() async throws {
             guard isTraceparentFetchProofEnabled() else { return }
             let capture = TraceparentHeaderCapture()
@@ -541,12 +588,6 @@ extension WebKitSerializedTests {
             let snapshotFrame = try makeReviewSnapshotProtocolFrame(
                 package: package,
                 paneId: paneId
-            )
-            try await registerReviewPackageResource(
-                controller: controller,
-                paneId: paneId,
-                package: package,
-                snapshotFrame: snapshotFrame
             )
             let baseResourceURLJSON = try #require(
                 String(data: JSONEncoder().encode(baseHandle.resourceUrl), encoding: .utf8))
@@ -816,8 +857,7 @@ private func pageContainsEmptyReviewShell(_ page: WebPage) async -> Bool {
     do {
         let result = try await page.callJavaScript(
             """
-            return document.querySelector('[data-testid="bridge-review-empty-shell"]') !== null &&
-              document.body.innerText.includes('Waiting for review package')
+            return document.querySelector('[data-testid="bridge-review-empty-shell"]') !== null
             """
         )
         return (result as? Bool) == true
@@ -899,6 +939,12 @@ private func installPageDiagnosticsProbe(_ page: WebPage) async throws {
         });
         """
     )
+}
+
+@MainActor
+private func teardownBridgeControllerForTest(_ controller: BridgePaneController) async {
+    controller.teardown()
+    await WebPageTestHarness.settle()
 }
 
 @MainActor

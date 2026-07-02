@@ -11,6 +11,12 @@ struct AgentStudioStartupDiagnosticAction: Equatable, Sendable {
             case crossTabMoveGeometrySmoke = "cross-tab-move-geometry-smoke"
             case ipcTerminalSmoke = "ipc-terminal-smoke"
             case bridgeReviewObservabilitySmoke = "bridge-review-observability-smoke"
+            case bridgeFileViewObservabilitySmoke = "bridge-file-view-observability-smoke"
+            case bridgeFileViewCommandRouteObservabilitySmoke =
+                "bridge-file-view-command-route-observability-smoke"
+            case bridgeFileViewTargetedRouteObservabilitySmoke =
+                "bridge-file-view-targeted-route-observability-smoke"
+            case bridgeReviewToFileViewObservabilitySmoke = "bridge-review-to-file-view-observability-smoke"
         #endif
         case addWatchFolder = "add-watch-folder"
     }
@@ -19,7 +25,10 @@ struct AgentStudioStartupDiagnosticAction: Equatable, Sendable {
 
     var suppressesAutomaticLaunchPaneRestore: Bool {
         #if DEBUG
-            kind == .bridgeReviewObservabilitySmoke
+            kind == .bridgeReviewObservabilitySmoke || kind == .bridgeFileViewObservabilitySmoke
+                || kind == .bridgeFileViewCommandRouteObservabilitySmoke
+                || kind == .bridgeFileViewTargetedRouteObservabilitySmoke
+                || kind == .bridgeReviewToFileViewObservabilitySmoke
         #else
             false
         #endif
@@ -38,6 +47,14 @@ struct AgentStudioStartupDiagnosticAction: Equatable, Sendable {
                 "ipcTerminalSmoke"
             case .bridgeReviewObservabilitySmoke:
                 "bridgeReviewObservabilitySmoke"
+            case .bridgeFileViewObservabilitySmoke:
+                "bridgeFileViewObservabilitySmoke"
+            case .bridgeFileViewCommandRouteObservabilitySmoke:
+                "bridgeFileViewCommandRouteObservabilitySmoke"
+            case .bridgeFileViewTargetedRouteObservabilitySmoke:
+                "bridgeFileViewTargetedRouteObservabilitySmoke"
+            case .bridgeReviewToFileViewObservabilitySmoke:
+                "bridgeReviewToFileViewObservabilitySmoke"
         #endif
         case .addWatchFolder:
             "addWatchFolder"

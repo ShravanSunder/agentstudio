@@ -418,7 +418,7 @@ actor BridgeContentStore {
                 sizeBytes: result.data.count
             )
         }
-        guard result.data.count <= handle.sizeBytes else {
+        guard handle.sizeBytesIsExact == false || result.data.count <= handle.sizeBytes else {
             throw BridgeProviderFailure.oversizedContent(
                 handleId: handle.handleId,
                 sizeBytes: result.data.count
@@ -473,7 +473,7 @@ actor BridgeContentStore {
                 sizeBytes: result.byteCount
             )
         }
-        guard result.byteCount <= handle.sizeBytes else {
+        guard handle.sizeBytesIsExact == false || result.byteCount <= handle.sizeBytes else {
             throw BridgeProviderFailure.oversizedContent(
                 handleId: handle.handleId,
                 sizeBytes: result.byteCount
@@ -778,12 +778,17 @@ actor BridgeContentStore {
 private enum BridgeContentStreamHasher {
     case sha256(SHA256)
     case gitBlobSHA1(Insecure.SHA1)
+    case deferredGitBlobSHA1(Data)
 
     init(handle: BridgeContentHandle) throws {
         switch handle.contentHashAlgorithm.lowercased() {
         case "sha256", "sha-256":
             self = .sha256(SHA256())
         case "git-blob-sha1":
+            guard handle.sizeBytesIsExact else {
+                self = .deferredGitBlobSHA1(Data())
+                return
+            }
             var hasher = Insecure.SHA1()
             hasher.update(data: Data("blob \(handle.sizeBytes)\0".utf8))
             self = .gitBlobSHA1(hasher)
@@ -802,6 +807,9 @@ private enum BridgeContentStreamHasher {
         case .gitBlobSHA1(var hasher):
             hasher.update(data: data)
             self = .gitBlobSHA1(hasher)
+        case .deferredGitBlobSHA1(var bufferedData):
+            bufferedData.append(data)
+            self = .deferredGitBlobSHA1(bufferedData)
         }
     }
 
@@ -815,6 +823,13 @@ private enum BridgeContentStreamHasher {
         case .gitBlobSHA1(let hasher):
             let digest = hasher.finalize()
             self = .gitBlobSHA1(Insecure.SHA1())
+            return digest.map { String(format: "%02x", $0) }.joined()
+        case .deferredGitBlobSHA1(let bufferedData):
+            var hasher = Insecure.SHA1()
+            hasher.update(data: Data("blob \(bufferedData.count)\0".utf8))
+            hasher.update(data: bufferedData)
+            let digest = hasher.finalize()
+            self = .deferredGitBlobSHA1(Data())
             return digest.map { String(format: "%02x", $0) }.joined()
         }
     }
@@ -833,7 +848,10 @@ private final class BridgeContentStreamValidationRecorder: @unchecked Sendable {
 
     init(handle: BridgeContentHandle) throws {
         self.handleId = handle.handleId
-        self.maxByteCount = min(handle.sizeBytes, AppPolicies.Bridge.contentMaxBytesPerItem)
+        self.maxByteCount =
+            handle.sizeBytesIsExact
+            ? min(handle.sizeBytes, AppPolicies.Bridge.contentMaxBytesPerItem)
+            : AppPolicies.Bridge.contentMaxBytesPerItem
         self.hasher = try BridgeContentStreamHasher(handle: handle)
     }
 

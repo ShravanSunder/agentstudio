@@ -136,6 +136,34 @@ struct BridgePushEnvelopeEncoderTests {
         #expect(decodedPayload["path"] as? String == "/private/tmp/leak.swift")
     }
 
+    @Test("encodes nil trace parent span as explicit null for BridgeWeb schema")
+    func encodesNilTraceParentSpanAsExplicitNullForBridgeWebSchema() throws {
+        let traceContext = try BridgeTraceContext(
+            traceId: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            spanId: "bbbbbbbbbbbbbbbb",
+            parentSpanId: nil,
+            sampled: true
+        )
+
+        let frame = try BridgePushEnvelopeEncoder().encodeIntakeFrame(
+            metadata: BridgeIntakeFrameMetadata(
+                kind: .snapshot,
+                streamId: "stream-1",
+                generation: 4,
+                sequence: 9
+            ),
+            payload: Data(#"{"value":true}"#.utf8),
+            traceContext: traceContext
+        )
+
+        let frameData = try #require(frame.data(using: .utf8))
+        let object = try #require(JSONSerialization.jsonObject(with: frameData) as? [String: Any])
+        let decodedTraceContext = try #require(object["__traceContext"] as? [String: Any])
+
+        #expect(decodedTraceContext.keys.contains("parentSpanId"))
+        #expect(decodedTraceContext["parentSpanId"] is NSNull)
+    }
+
     @Test("encodes intake lifecycle frames with schema-compatible shapes")
     func encodesIntakeLifecycleFramesWithSchemaCompatibleShapes() throws {
         let encoder = BridgePushEnvelopeEncoder()

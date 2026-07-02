@@ -197,7 +197,7 @@ extension BridgePaneController: PushTransport {
         await telemetryRecorder.record(
             sample: BridgeTelemetrySample(
                 scope: .webKit,
-                name: "performance.bridge.webkit.package_push",
+                name: "performance.bridge.webkit.push_envelope",
                 durationMilliseconds: durationMilliseconds,
                 traceContext: traceContext,
                 stringAttributes: [
@@ -233,7 +233,8 @@ extension BridgePaneController: PushTransport {
         case "performance.bridge.swift.delta_build":
             .warm
         case "performance.bridge.swift.package_build",
-            "performance.bridge.swift.content_register":
+            "performance.bridge.swift.content_register",
+            "performance.bridge.swift.review_metadata_window_batch":
             .cold
         case "performance.bridge.swift.telemetry_ingest":
             .bestEffort
@@ -252,8 +253,9 @@ extension BridgePaneController: PushTransport {
     private func nativeTelemetrySlice(for name: String) -> BridgeTelemetrySlice {
         switch name {
         case "performance.bridge.swift.package_build",
-            "performance.bridge.swift.content_register":
-            .reviewSnapshot
+            "performance.bridge.swift.content_register",
+            "performance.bridge.swift.review_metadata_window_batch":
+            .reviewMetadata
         case "performance.bridge.swift.delta_build":
             .reviewDelta
         case "performance.bridge.swift.content_load":
@@ -297,7 +299,7 @@ extension BridgePaneController: PushTransport {
             .markdownPreview,
             .workerTask:
             .warm
-        case .reviewSnapshot, .diffFiles, .contentFetch, .unknown:
+        case .reviewMetadata, .diffFiles, .contentFetch, .unknown:
             .cold
         case .telemetryBatch, .telemetryDrop, .telemetryIngest:
             .bestEffort

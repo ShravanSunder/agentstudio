@@ -7,4 +7,11 @@ enum WorktreeFileSurfaceMethods {
 
         static let method = "worktreeFileSurface.openSourceStream"
     }
+
+    enum RequestFileDescriptorMethod: RPCMethod {
+        typealias Params = BridgeWorktreeFileDescriptorRequest
+        typealias Result = RPCNoResponse
+
+        static let method = "worktreeFileSurface.requestFileDescriptor"
+    }
 }

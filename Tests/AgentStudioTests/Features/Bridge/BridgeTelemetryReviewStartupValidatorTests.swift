@@ -6,18 +6,89 @@ import Testing
 @Suite
 struct BridgeTelemetryReviewStartupValidatorTests {
     @Test
-    func validatorAcceptsReviewStartupContentStreamTelemetry() {
+    func validatorAcceptsReviewStartupMetadataAndContentTelemetry() {
         let validator = BridgeTelemetryBatchValidator(
             scopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web])
         )
         let acceptedBatches = [
             batchWithWebSample(
                 WebSampleProps(
+                    name: "performance.bridge.web.review_metadata_apply",
+                    phase: "review_metadata_apply",
+                    plane: "data",
+                    priority: "hot",
+                    slice: "review_metadata",
+                    transport: "intake",
+                    extraStrings: [
+                        "agentstudio.bridge.result": "success",
+                        "agentstudio.bridge.result_reason": "none",
+                    ],
+                    extraNumbers: ["agentstudio.bridge.review.item_count": 527]
+                )
+            ),
+            batchWithWebSample(
+                WebSampleProps(
+                    name: "performance.bridge.web.review_metadata_apply",
+                    phase: "review_metadata_apply",
+                    plane: "data",
+                    priority: "hot",
+                    slice: "review_metadata",
+                    transport: "intake",
+                    extraStrings: [
+                        "agentstudio.bridge.result": "failed",
+                        "agentstudio.bridge.result_reason": "snapshot_materializer_rejected",
+                    ]
+                )
+            ),
+            batchWithWebSample(
+                WebSampleProps(
+                    name: "performance.bridge.web.selected_content_ready",
+                    phase: "selected_content_ready",
+                    plane: "data",
+                    priority: "hot",
+                    slice: "content_fetch",
+                    transport: "content",
+                    extraStrings: [
+                        "agentstudio.bridge.result": "success",
+                        "agentstudio.bridge.result_reason": "none",
+                    ],
+                    extraNumbers: ["agentstudio.bridge.content.resource_count": 2]
+                )
+            ),
+            batchWithWebSample(
+                WebSampleProps(
+                    name: "performance.bridge.web.selection_commit",
+                    phase: "selection_commit",
+                    plane: "data",
+                    priority: "warm",
+                    slice: "review_projection",
+                    transport: "worker",
+                    extraStrings: [
+                        "agentstudio.bridge.result": "success",
+                        "agentstudio.bridge.result_reason": "none",
+                    ]
+                )
+            ),
+        ]
+
+        for batch in acceptedBatches {
+            #expect(validator.validate(batch) == .accepted(batch))
+        }
+    }
+
+    @Test
+    func validatorRejectsLegacyReviewPackageBodyTelemetry() {
+        let validator = BridgeTelemetryBatchValidator(
+            scopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web])
+        )
+        let rejectedBatches = [
+            batchWithWebSample(
+                WebSampleProps(
                     name: "performance.bridge.web.review_package_first_chunk",
                     phase: "review_package_first_chunk",
                     plane: "data",
                     priority: "hot",
-                    slice: "review_snapshot",
+                    slice: "review_metadata",
                     transport: "content",
                     extraStrings: ["agentstudio.bridge.result": "success"],
                     extraNumbers: [
@@ -32,7 +103,7 @@ struct BridgeTelemetryReviewStartupValidatorTests {
                     phase: "review_package_body_load",
                     plane: "data",
                     priority: "hot",
-                    slice: "review_snapshot",
+                    slice: "review_metadata",
                     transport: "content",
                     extraStrings: ["agentstudio.bridge.result": "success"],
                     extraNumbers: [
@@ -43,20 +114,20 @@ struct BridgeTelemetryReviewStartupValidatorTests {
             ),
             batchWithWebSample(
                 WebSampleProps(
-                    name: "performance.bridge.web.selected_content_ready",
-                    phase: "selected_content_ready",
+                    name: "performance.bridge.web.review_package_parse",
+                    phase: "review_package_parse",
                     plane: "data",
                     priority: "hot",
-                    slice: "content_fetch",
+                    slice: "review_metadata",
                     transport: "content",
                     extraStrings: ["agentstudio.bridge.result": "success"],
-                    extraNumbers: ["agentstudio.bridge.content.resource_count": 2]
+                    extraNumbers: ["agentstudio.bridge.content.byte_count": 1_356_525]
                 )
             ),
         ]
 
-        for batch in acceptedBatches {
-            #expect(validator.validate(batch) == .accepted(batch))
+        for batch in rejectedBatches {
+            #expect(validator.validate(batch) == .dropped(.unsafeEventName))
         }
     }
 

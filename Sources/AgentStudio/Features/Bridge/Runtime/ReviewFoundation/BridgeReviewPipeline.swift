@@ -58,25 +58,50 @@ actor BridgeReviewPipeline {
             guard let fileTarget = request.query.fileTarget else {
                 throw BridgeProviderFailure.providerFailed(message: "openFile query requires fileTarget")
             }
-            let descriptor = try await provider.readReviewItemDescriptor(
-                BridgeReviewItemDescriptorRequest(
-                    endpoint: request.headEndpoint,
-                    path: fileTarget,
-                    reviewGeneration: request.reviewGeneration
-                )
-            )
-            package = try BridgeReviewPackageBuilder.buildFromDescriptors(
-                request: BridgeReviewDescriptorPackageBuildRequest(
-                    packageId: request.packageId,
+            let comparison = try await provider.compareEndpoints(
+                BridgeEndpointComparisonRequest(
                     query: request.query,
                     baseEndpoint: request.baseEndpoint,
                     headEndpoint: request.headEndpoint,
-                    descriptors: [descriptor],
-                    checkpointIds: request.checkpointIds,
-                    reviewGeneration: request.reviewGeneration,
-                    generatedAtUnixMilliseconds: request.generatedAtUnixMilliseconds
+                    reviewGeneration: request.reviewGeneration
                 )
             )
+            if let changedFile = BridgeReviewPipeline.changedFile(in: comparison, matching: fileTarget) {
+                package = try BridgeReviewPackageBuilder.build(
+                    request: BridgeReviewPackageBuildRequest(
+                        packageId: request.packageId,
+                        query: request.query,
+                        comparison: BridgeEndpointComparison(
+                            baseEndpoint: comparison.baseEndpoint,
+                            headEndpoint: comparison.headEndpoint,
+                            changedFiles: [changedFile]
+                        ),
+                        checkpointIds: request.checkpointIds,
+                        reviewGeneration: request.reviewGeneration,
+                        generatedAtUnixMilliseconds: request.generatedAtUnixMilliseconds
+                    )
+                )
+            } else {
+                let descriptor = try await provider.readReviewItemDescriptor(
+                    BridgeReviewItemDescriptorRequest(
+                        endpoint: request.headEndpoint,
+                        path: fileTarget,
+                        reviewGeneration: request.reviewGeneration
+                    )
+                )
+                package = try BridgeReviewPackageBuilder.buildFromDescriptors(
+                    request: BridgeReviewDescriptorPackageBuildRequest(
+                        packageId: request.packageId,
+                        query: request.query,
+                        baseEndpoint: request.baseEndpoint,
+                        headEndpoint: request.headEndpoint,
+                        descriptors: [descriptor],
+                        checkpointIds: request.checkpointIds,
+                        reviewGeneration: request.reviewGeneration,
+                        generatedAtUnixMilliseconds: request.generatedAtUnixMilliseconds
+                    )
+                )
+            }
         }
 
         let registeredContentHandles = package.itemsById.values
@@ -87,5 +112,14 @@ actor BridgeReviewPipeline {
             package: package,
             registeredContentHandles: registeredContentHandles
         )
+    }
+
+    private static func changedFile(
+        in comparison: BridgeEndpointComparison,
+        matching fileTarget: String
+    ) -> BridgeEndpointChangedFile? {
+        comparison.changedFiles.first { changedFile in
+            changedFile.path == fileTarget || changedFile.oldPath == fileTarget
+        }
     }
 }

@@ -2,10 +2,13 @@
 set -euo pipefail
 
 LOGS_QUERY_URL="${AI_TOOLS_OBSERVABILITY_LOGS_QUERY_URL:-http://127.0.0.1:9428/select/logsql/query}"
+METRICS_QUERY_URL="${AI_TOOLS_OBSERVABILITY_METRICS_QUERY_URL:-http://127.0.0.1:8428/api/v1/query}"
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 STATE_FILE="${AGENTSTUDIO_OBSERVABILITY_STATE_FILE:-$PROJECT_ROOT/tmp/debug-observability/latest-observability.env}"
 CURL_BIN="${AGENTSTUDIO_CURL_BIN:-/usr/bin/curl}"
 LSOF_BIN="${AGENTSTUDIO_LSOF_BIN:-/usr/sbin/lsof}"
+VERIFY_ATTEMPTS="${AGENTSTUDIO_OBSERVABILITY_VERIFY_ATTEMPTS:-30}"
+VERIFY_RETRY_DELAY_SECONDS="${AGENTSTUDIO_OBSERVABILITY_VERIFY_RETRY_DELAY_SECONDS:-2}"
 
 fail_on_legacy_observability_env() {
   local legacy_prefix="SHRAVAN_""OBSERVABILITY_"
@@ -38,6 +41,7 @@ PY
 }
 
 validate_loopback_url AI_TOOLS_OBSERVABILITY_LOGS_QUERY_URL "$LOGS_QUERY_URL"
+validate_loopback_url AI_TOOLS_OBSERVABILITY_METRICS_QUERY_URL "$METRICS_QUERY_URL"
 
 state_marker=""
 state_proof_token=""
@@ -219,7 +223,21 @@ require_live_debug_process() {
   fi
 }
 
-require_live_debug_process
+allow_completed_diagnostic_exit=false
+if [ "${AGENTSTUDIO_OBSERVABILITY_ALLOW_COMPLETED_EXIT:-0}" = "1" ] &&
+  {
+    [ "$state_startup_diagnostic_action" = "bridge-review-observability-smoke" ] ||
+      [ "$state_startup_diagnostic_action" = "bridge-file-view-observability-smoke" ] ||
+      [ "$state_startup_diagnostic_action" = "bridge-file-view-command-route-observability-smoke" ] ||
+      [ "$state_startup_diagnostic_action" = "bridge-file-view-targeted-route-observability-smoke" ] ||
+      [ "$state_startup_diagnostic_action" = "bridge-review-to-file-view-observability-smoke" ]
+  }; then
+  allow_completed_diagnostic_exit=true
+fi
+
+if [ "$allow_completed_diagnostic_exit" = false ]; then
+  require_live_debug_process
+fi
 
 portable_utc_time() {
   local macos_offset="$1"
@@ -250,6 +268,20 @@ json_truthy_field() {
     grep -q "\"$field\":\"true\"" <<<"$payload"
 }
 
+require_json_fields() {
+  local description="${1:?missing description}"
+  local payload="${2:-}"
+  shift 2
+  local field
+  for field in "$@"; do
+    if ! grep -q "\"$field\":" <<<"$payload"; then
+      echo "$description missing field: $field" >&2
+      echo "$payload" >&2
+      exit 1
+    fi
+  done
+}
+
 QUERY_START="${AGENTSTUDIO_OBSERVABILITY_QUERY_START:-${state_query_start:-$(portable_utc_time -4H '4 hours ago')}}"
 QUERY_END="${AGENTSTUDIO_OBSERVABILITY_QUERY_END:-$(portable_utc_time +5M '5 minutes')}"
 
@@ -269,6 +301,108 @@ query_logs() {
     --data-urlencode "start=$QUERY_START" \
     --data-urlencode "end=$QUERY_END" \
     "$LOGS_QUERY_URL"
+}
+
+query_metrics() {
+  local promql="$1"
+  "$CURL_BIN" --fail --silent --show-error --max-time 5 --get \
+    --data-urlencode "query=$promql" \
+    "$METRICS_QUERY_URL"
+}
+
+metric_value() {
+  local promql="$1"
+  local response
+  response="$(query_metrics "$promql" 2>/dev/null || true)"
+  if [ -z "$response" ]; then
+    printf '0\n'
+    return 0
+  fi
+  /usr/bin/python3 - "$response" <<'PY'
+import json
+import math
+import sys
+
+total = 0.0
+try:
+    payload = json.loads(sys.argv[1])
+    for item in payload["data"]["result"]:
+        value = float(item["value"][1])
+        if math.isfinite(value):
+            total += value
+except Exception:
+    pass
+
+print(int(total) if total.is_integer() else total)
+PY
+}
+
+wait_for_metric_value() {
+  local description="${1:?missing description}"
+  local promql="${2:?missing PromQL query}"
+  local value="0"
+  local attempt=1
+  while [ "$attempt" -le "$VERIFY_ATTEMPTS" ]; do
+    value="$(metric_value "$promql")"
+    if [ "$value" != "0" ] && [ "$value" != "0.0" ]; then
+      printf '%s' "$value"
+      return 0
+    fi
+    if [ "$attempt" -lt "$VERIFY_ATTEMPTS" ]; then
+      sleep "$VERIFY_RETRY_DELAY_SECONDS"
+    fi
+    attempt=$((attempt + 1))
+  done
+  echo "$description" >&2
+  echo "$promql" >&2
+  return 1
+}
+
+bridge_native_metric_label_selector() {
+  local event_name="$1"
+  local phase="$2"
+  local priority="$3"
+  printf 'service.name="AgentStudio",dev.runtime.flavor="debug",agent.proof.marker="%s",event="%s",phase="%s",plane="data",priority="%s",slice="tree_prepare_input"' \
+    "$MARKER" "$event_name" "$phase" "$priority"
+}
+
+require_bridge_file_view_native_metric_percentiles() {
+  local contract event_name phase priority selector count_query p95_query p99_query count p95 p99
+  local required_contracts=(
+    "performance.bridge.native.metadata_open_to_first_window|metadata_open_to_first_window|hot"
+    "performance.bridge.native.metadata_full_manifest_complete|metadata_full_manifest_complete|cold"
+  )
+  for contract in "${required_contracts[@]}"; do
+    IFS='|' read -r event_name phase priority <<<"$contract"
+    selector="$(bridge_native_metric_label_selector "$event_name" "$phase" "$priority")"
+    count_query="sum(agentstudio_performance_events_total{$selector})"
+    p95_query="histogram_quantile(0.95, sum by (le) (agentstudio_performance_event_elapsed_ms_bucket{$selector}))"
+    p99_query="histogram_quantile(0.99, sum by (le) (agentstudio_performance_event_elapsed_ms_bucket{$selector}))"
+    count="$(wait_for_metric_value "Bridge FileView native metric percentile proof missing count for $event_name" "$count_query")"
+    p95="$(wait_for_metric_value "Bridge FileView native metric percentile proof missing p95 for $event_name" "$p95_query")"
+    p99="$(wait_for_metric_value "Bridge FileView native metric percentile proof missing p99 for $event_name" "$p99_query")"
+    echo "Bridge FileView native metric percentile proof $event_name count=$count p95=$p95 p99=$p99"
+  done
+}
+
+wait_for_log_query() {
+  local description="${1:?missing description}"
+  local logsql="${2:?missing LogSQL query}"
+  local response=""
+  local attempt=1
+  while [ "$attempt" -le "$VERIFY_ATTEMPTS" ]; do
+    response="$(query_logs "$logsql")"
+    if [ -n "$response" ]; then
+      printf '%s' "$response"
+      return 0
+    fi
+    if [ "$attempt" -lt "$VERIFY_ATTEMPTS" ]; then
+      sleep "$VERIFY_RETRY_DELAY_SECONDS"
+    fi
+    attempt=$((attempt + 1))
+  done
+  echo "$description" >&2
+  return 1
 }
 
 positive_response="$(query_logs "$query | fields service.name,service.version,dev.runtime.flavor,_msg | limit 20")"
@@ -313,7 +447,11 @@ fi
 startup_diagnostic_action="${AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION:-$state_startup_diagnostic_action}"
 if [ "$startup_diagnostic_action" = "cross-tab-move-geometry-smoke" ] ||
   [ "$startup_diagnostic_action" = "ipc-terminal-smoke" ] ||
-  [ "$startup_diagnostic_action" = "bridge-review-observability-smoke" ]; then
+  [ "$startup_diagnostic_action" = "bridge-review-observability-smoke" ] ||
+  [ "$startup_diagnostic_action" = "bridge-file-view-observability-smoke" ] ||
+  [ "$startup_diagnostic_action" = "bridge-file-view-command-route-observability-smoke" ] ||
+  [ "$startup_diagnostic_action" = "bridge-file-view-targeted-route-observability-smoke" ] ||
+  [ "$startup_diagnostic_action" = "bridge-review-to-file-view-observability-smoke" ]; then
   startup_diagnostic_action_filter="$(
     logsql_exact_filter agentstudio.startup_diagnostic.action "$startup_diagnostic_action"
   )"
@@ -326,19 +464,46 @@ if [ "$startup_diagnostic_action" = "cross-tab-move-geometry-smoke" ] ||
     diagnostic_fields="_msg,agentstudio.startup_diagnostic.action,agentstudio.startup_diagnostic.expected_visible_pane.count,agentstudio.startup_diagnostic.fixture.terminal_view.count,agentstudio.startup_diagnostic.fixture.surface_reference.count,agentstudio.startup_diagnostic.fixture.surface.count,agentstudio.startup_diagnostic.fixture.valid_geometry.count,agentstudio.startup_diagnostic.render_proof.succeeded"
   fi
   if [ "$startup_diagnostic_action" = "bridge-review-observability-smoke" ]; then
-    diagnostic_fields="_msg,agentstudio.startup_diagnostic.action,agentstudio.startup_diagnostic.expected_visible_pane.count,agentstudio.startup_diagnostic.render_proof.succeeded"
+    review_diagnostic_fields="agentstudio.startup_diagnostic.bridge.review_expected_item.count,agentstudio.startup_diagnostic.bridge.review_metadata_item.count,agentstudio.startup_diagnostic.bridge.review_metadata_tree_row.count,agentstudio.startup_diagnostic.bridge.review_metadata.converged"
+    review_diagnostic_fields="$review_diagnostic_fields,agentstudio.startup_diagnostic.bridge.review_tree_scroll_stress.count,agentstudio.startup_diagnostic.bridge.review_tree_scroll_stress.reached_bottom,agentstudio.startup_diagnostic.bridge.review_tree.client_height_px,agentstudio.startup_diagnostic.bridge.review_tree.scroll_height_px"
+    review_diagnostic_fields="$review_diagnostic_fields,agentstudio.startup_diagnostic.bridge.review_tree_click.selected_matches_target,agentstudio.startup_diagnostic.bridge.review_tree_click.selected_content_state,agentstudio.startup_diagnostic.bridge.review_tree_click.selected_materialized.item_type,agentstudio.startup_diagnostic.bridge.review_tree_click.selected_materialized.item_version,agentstudio.startup_diagnostic.bridge.review_tree_click.selected_content_character.count"
+    review_diagnostic_fields="$review_diagnostic_fields,agentstudio.startup_diagnostic.bridge.review_shell.visible,agentstudio.startup_diagnostic.bridge.review_shell.state,agentstudio.startup_diagnostic.bridge.review_canvas.branch,agentstudio.startup_diagnostic.bridge.review_shell.selected_path.visible,agentstudio.startup_diagnostic.bridge.review_shell.selected_content.state,agentstudio.startup_diagnostic.bridge.code_view.visible,agentstudio.startup_diagnostic.bridge.selected_item.visible,agentstudio.startup_diagnostic.bridge.selected_path.visible,agentstudio.startup_diagnostic.bridge.selected_change_kind"
+    review_diagnostic_fields="$review_diagnostic_fields,agentstudio.startup_diagnostic.bridge.selected_demand.failed.count,agentstudio.startup_diagnostic.bridge.selected_demand.deferred.count,agentstudio.startup_diagnostic.bridge.selected_demand.loaded.count,agentstudio.startup_diagnostic.bridge.selected_demand.result.status,agentstudio.startup_diagnostic.bridge.selected_demand.result.reason,agentstudio.startup_diagnostic.bridge.selected_demand.load_failure.kind"
+    review_diagnostic_fields="$review_diagnostic_fields,agentstudio.startup_diagnostic.bridge.selected_content.visible,agentstudio.startup_diagnostic.bridge.selected_content.state,agentstudio.startup_diagnostic.bridge.selected_content.roles,agentstudio.startup_diagnostic.bridge.selected_content.cache_keys_present,agentstudio.startup_diagnostic.bridge.selected_content_role.count,agentstudio.startup_diagnostic.bridge.selected_content_cache_key.count,agentstudio.startup_diagnostic.bridge.selected_content_character.count,agentstudio.startup_diagnostic.bridge.selected_content_line.count"
+    review_diagnostic_fields="$review_diagnostic_fields,agentstudio.startup_diagnostic.bridge.selected_materialized.update_result,agentstudio.startup_diagnostic.bridge.selected_materialized.item_type,agentstudio.startup_diagnostic.bridge.selected_materialized.item_version,agentstudio.startup_diagnostic.bridge.selected_materialized.addition_line.count,agentstudio.startup_diagnostic.bridge.selected_materialized.deletion_line.count,agentstudio.startup_diagnostic.bridge.selected_materialized.file_line.count"
+    review_diagnostic_fields="$review_diagnostic_fields,agentstudio.startup_diagnostic.bridge.modified_click.filter_requested,agentstudio.startup_diagnostic.bridge.modified_click.click_attempt.count,agentstudio.startup_diagnostic.bridge.modified_click.target_found,agentstudio.startup_diagnostic.bridge.modified_click.first_rendered_present,agentstudio.startup_diagnostic.bridge.modified_click.selected_matches_target,agentstudio.startup_diagnostic.bridge.modified_click.shell_selected_matches_target,agentstudio.startup_diagnostic.bridge.modified_click.rendered_row.count,agentstudio.startup_diagnostic.bridge.modified_click.set_filter.status,agentstudio.startup_diagnostic.bridge.modified_click.set_filter.reason"
+    review_diagnostic_fields="$review_diagnostic_fields,agentstudio.startup_diagnostic.bridge.modified_click.selected_change_kind,agentstudio.startup_diagnostic.bridge.modified_click.selected_content_state,agentstudio.startup_diagnostic.bridge.modified_click.selected_content.roles,agentstudio.startup_diagnostic.bridge.modified_click.selected_content.cache_keys_present,agentstudio.startup_diagnostic.bridge.modified_click.selected_materialized.item_type,agentstudio.startup_diagnostic.bridge.modified_click.selected_materialized.item_version,agentstudio.startup_diagnostic.bridge.modified_click.selected_content_character.count"
+    review_diagnostic_fields="$review_diagnostic_fields,agentstudio.startup_diagnostic.bridge.diff_container.count,agentstudio.startup_diagnostic.bridge.code_text.length,agentstudio.startup_diagnostic.bridge.code_shadow_text.length"
+    review_native_fields="agentstudio.startup_diagnostic.bridge.bridge_command.count,agentstudio.startup_diagnostic.bridge.review_intake_ready_command.count,agentstudio.startup_diagnostic.bridge.bridge_response.count,agentstudio.startup_diagnostic.bridge.intake_frame.count,agentstudio.startup_diagnostic.bridge.review_intake_snapshot_frame.count,agentstudio.startup_diagnostic.bridge.review_intake_metadata_window_frame.count,agentstudio.startup_diagnostic.bridge.review_intake.last_frame_kind,agentstudio.startup_diagnostic.bridge.review_intake.last_stream_id_matches"
+    review_worker_fields="agentstudio.startup_diagnostic.bridge.worker_pool.state,agentstudio.startup_diagnostic.bridge.worker_pool.manager_state,agentstudio.startup_diagnostic.bridge.worker_pool.workers_failed,agentstudio.startup_diagnostic.bridge.worker_diagnostic.diff_success_count,agentstudio.startup_diagnostic.bridge.worker_diagnostic.failure_count,agentstudio.startup_diagnostic.bridge.page_issue.count,agentstudio.startup_diagnostic.bridge.page_issue.last_kind,agentstudio.startup_diagnostic.bridge.page_issue.last_class,agentstudio.startup_diagnostic.bridge.page_issue.disallowed.count"
+    diagnostic_fields="_msg,agentstudio.startup_diagnostic.action,agentstudio.startup_diagnostic.expected_visible_pane.count,$review_diagnostic_fields,$review_native_fields,$review_worker_fields,agentstudio.startup_diagnostic.render_proof.succeeded"
   fi
-  diagnostic_command_response="$(query_logs "$diagnostic_query _msg:app.startup_diagnostic_action.command_exercised | fields $diagnostic_fields | limit 5")"
-  if [ -z "$diagnostic_command_response" ]; then
-    echo "startup diagnostic command_exercised record missing for action $startup_diagnostic_action" >&2
-    exit 1
+  if [ "$startup_diagnostic_action" = "bridge-file-view-observability-smoke" ] ||
+    [ "$startup_diagnostic_action" = "bridge-file-view-command-route-observability-smoke" ] ||
+    [ "$startup_diagnostic_action" = "bridge-file-view-targeted-route-observability-smoke" ] ||
+    [ "$startup_diagnostic_action" = "bridge-review-to-file-view-observability-smoke" ]; then
+    file_view_diagnostic_fields="agentstudio.startup_diagnostic.bridge.file_view.shell.visible,agentstudio.startup_diagnostic.bridge.file_view.tree.visible,agentstudio.startup_diagnostic.bridge.file_view.code_view.visible,agentstudio.startup_diagnostic.bridge.file_view.expected_bootstrap.protocol,agentstudio.startup_diagnostic.bridge.file_view.bootstrap.protocol,agentstudio.startup_diagnostic.bridge.file_view.bootstrap.source_spec.state,agentstudio.startup_diagnostic.bridge.file_view.bootstrap.source_spec.length,agentstudio.startup_diagnostic.bridge.file_view.descriptor.count,agentstudio.startup_diagnostic.bridge.file_view.total_descriptor.count,agentstudio.startup_diagnostic.bridge.file_view.tree_extent.kind,agentstudio.startup_diagnostic.bridge.file_view.tree_path.count,agentstudio.startup_diagnostic.bridge.file_view.metadata_tree_row.count,agentstudio.startup_diagnostic.bridge.file_view.metadata_file_row.count,agentstudio.startup_diagnostic.bridge.file_view.source.state,agentstudio.startup_diagnostic.bridge.file_view.open_file.state,agentstudio.startup_diagnostic.bridge.file_view.body_preview.length,agentstudio.startup_diagnostic.bridge.file_view.tree.height_px,agentstudio.startup_diagnostic.bridge.file_view.code_view.width_px,agentstudio.startup_diagnostic.bridge.file_view.code_view.height_px,agentstudio.startup_diagnostic.bridge.file_view.code_text.length,agentstudio.startup_diagnostic.bridge.file_view.bridge_command.count,agentstudio.startup_diagnostic.bridge.file_view.open_source_command.count,agentstudio.startup_diagnostic.bridge.file_view.intake_ready_command.count,agentstudio.startup_diagnostic.bridge.file_view.descriptor_request_command.count,agentstudio.startup_diagnostic.bridge.file_view.bridge_response.count,agentstudio.startup_diagnostic.bridge.file_view.intake_frame.count,agentstudio.startup_diagnostic.bridge.file_view.native_probe.count,agentstudio.startup_diagnostic.bridge.file_view.native_probe.last_reason,agentstudio.startup_diagnostic.bridge.file_view.native_probe.last_receiver_reason,agentstudio.startup_diagnostic.bridge.file_view.native_probe.last_frame_kind,agentstudio.startup_diagnostic.bridge.file_view.native_probe.last_generation,agentstudio.startup_diagnostic.bridge.file_view.native_probe.last_sequence,agentstudio.startup_diagnostic.bridge.file_view.native_probe.last_stream_id_matches"
+    file_view_click_fields="agentstudio.startup_diagnostic.bridge.file_view.click.target_found,agentstudio.startup_diagnostic.bridge.file_view.click.selected_matches,agentstudio.startup_diagnostic.bridge.file_view.click.open_file_matches,agentstudio.startup_diagnostic.bridge.file_view.click.rendered_file_matches,agentstudio.startup_diagnostic.bridge.file_view.click.body_preview.length,agentstudio.startup_diagnostic.bridge.file_view.second_click.target_found,agentstudio.startup_diagnostic.bridge.file_view.second_click.selected_matches,agentstudio.startup_diagnostic.bridge.file_view.second_click.open_file_matches,agentstudio.startup_diagnostic.bridge.file_view.second_click.rendered_file_matches,agentstudio.startup_diagnostic.bridge.file_view.second_click.body_preview.length,agentstudio.startup_diagnostic.bridge.file_view.offscreen_click.target_found,agentstudio.startup_diagnostic.bridge.file_view.offscreen_click.selected_matches,agentstudio.startup_diagnostic.bridge.file_view.offscreen_click.open_file_matches,agentstudio.startup_diagnostic.bridge.file_view.offscreen_click.rendered_file_matches,agentstudio.startup_diagnostic.bridge.file_view.offscreen_click.body_preview.length"
+    file_view_stress_fields="agentstudio.startup_diagnostic.bridge.file_view.mode_switch.count,agentstudio.startup_diagnostic.bridge.file_view.mode_switch.final_file_selected,agentstudio.startup_diagnostic.bridge.file_view.tree_scroll_stress.count,agentstudio.startup_diagnostic.bridge.file_view.tree_scroll_stress.reached_bottom"
+    file_view_worker_fields="agentstudio.startup_diagnostic.bridge.worker_pool.state,agentstudio.startup_diagnostic.bridge.worker_pool.manager_state,agentstudio.startup_diagnostic.bridge.worker_pool.workers_failed,agentstudio.startup_diagnostic.bridge.worker_diagnostic.file_success_count,agentstudio.startup_diagnostic.bridge.worker_diagnostic.failure_count,agentstudio.startup_diagnostic.bridge.page_issue.count,agentstudio.startup_diagnostic.bridge.page_issue.last_kind,agentstudio.startup_diagnostic.bridge.page_issue.last_class,agentstudio.startup_diagnostic.bridge.page_issue.disallowed.count"
+    diagnostic_fields="_msg,agentstudio.startup_diagnostic.action,agentstudio.startup_diagnostic.expected_visible_pane.count,$file_view_diagnostic_fields,$file_view_click_fields,$file_view_stress_fields,$file_view_worker_fields,agentstudio.startup_diagnostic.render_proof.succeeded"
   fi
+  diagnostic_command_response="$(
+    wait_for_log_query \
+      "startup diagnostic command_exercised record missing for action $startup_diagnostic_action" \
+      "$diagnostic_query _msg:app.startup_diagnostic_action.command_exercised | fields $diagnostic_fields | limit 5"
+  )"
 
-  diagnostic_completed_response="$(query_logs "$diagnostic_query _msg:app.startup_diagnostic_action.completed | fields $diagnostic_fields | limit 5")"
+  diagnostic_completed_response="$(
+    wait_for_log_query \
+      "startup diagnostic did not complete successfully for action $startup_diagnostic_action" \
+      "$diagnostic_query _msg:app.startup_diagnostic_action.completed | fields $diagnostic_fields | limit 5" \
+      || true
+  )"
   if [ -z "$diagnostic_completed_response" ]; then
     diagnostic_blocked_response="$(
       query_logs \
-        "$diagnostic_query _msg:app.startup_diagnostic_action.blocked | fields _msg,agentstudio.startup_diagnostic.action,agentstudio.startup_diagnostic.skip_reason,agentstudio.startup_diagnostic.expected_visible_pane.count,agentstudio.startup_diagnostic.fixture.terminal_view.count,agentstudio.startup_diagnostic.fixture.surface_reference.count,agentstudio.startup_diagnostic.fixture.surface.count,agentstudio.startup_diagnostic.fixture.valid_geometry.count,agentstudio.startup_diagnostic.render_proof.succeeded | limit 5"
+        "$diagnostic_query _msg:app.startup_diagnostic_action.blocked | fields $diagnostic_fields,agentstudio.startup_diagnostic.skip_reason | limit 5"
     )"
     diagnostic_skipped_response="$(
       query_logs \
@@ -369,6 +534,38 @@ if [ "$startup_diagnostic_action" = "cross-tab-move-geometry-smoke" ] ||
     fi
     echo "$diagnostic_completed_response" >&2
     exit 1
+  fi
+  if [ "$startup_diagnostic_action" = "bridge-review-observability-smoke" ]; then
+    require_json_fields \
+      "Bridge Review diagnostic native lineage proof" \
+      "$diagnostic_completed_response" \
+      agentstudio.startup_diagnostic.bridge.bridge_command.count \
+      agentstudio.startup_diagnostic.bridge.review_intake_ready_command.count \
+      agentstudio.startup_diagnostic.bridge.bridge_response.count \
+      agentstudio.startup_diagnostic.bridge.intake_frame.count \
+      agentstudio.startup_diagnostic.bridge.review_intake_snapshot_frame.count \
+      agentstudio.startup_diagnostic.bridge.review_intake_metadata_window_frame.count \
+      agentstudio.startup_diagnostic.bridge.review_intake.last_frame_kind \
+      agentstudio.startup_diagnostic.bridge.review_intake.last_stream_id_matches \
+      agentstudio.startup_diagnostic.bridge.page_issue.disallowed.count
+  fi
+  if [ "$startup_diagnostic_action" = "bridge-file-view-observability-smoke" ] ||
+    [ "$startup_diagnostic_action" = "bridge-file-view-command-route-observability-smoke" ] ||
+    [ "$startup_diagnostic_action" = "bridge-file-view-targeted-route-observability-smoke" ] ||
+    [ "$startup_diagnostic_action" = "bridge-review-to-file-view-observability-smoke" ]; then
+    require_json_fields \
+      "Bridge FileView diagnostic native path proof" \
+      "$diagnostic_completed_response" \
+      agentstudio.startup_diagnostic.bridge.file_view.bridge_command.count \
+      agentstudio.startup_diagnostic.bridge.file_view.open_source_command.count \
+      agentstudio.startup_diagnostic.bridge.file_view.intake_ready_command.count \
+      agentstudio.startup_diagnostic.bridge.file_view.descriptor_request_command.count \
+      agentstudio.startup_diagnostic.bridge.file_view.bridge_response.count \
+      agentstudio.startup_diagnostic.bridge.file_view.intake_frame.count \
+      agentstudio.startup_diagnostic.bridge.file_view.native_probe.count \
+      agentstudio.startup_diagnostic.bridge.file_view.native_probe.last_stream_id_matches \
+      agentstudio.startup_diagnostic.bridge.page_issue.disallowed.count
+    require_bridge_file_view_native_metric_percentiles
   fi
 fi
 

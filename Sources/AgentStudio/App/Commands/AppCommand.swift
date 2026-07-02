@@ -100,6 +100,7 @@ enum AppCommand: String, CaseIterable {
     // Webview commands
     case openWebview
     case openBridgeReview
+    case openBridgeFileView
     case signInGitHub
     case signInGoogle
     // Sidebar commands
@@ -287,7 +288,7 @@ struct AppCommandIPCExposure: Equatable, Sendable {
         case .scrollToBottom, .scrollPageUp, .jumpToPreviousPrompt, .jumpToNextPrompt:
             return [.terminalInputWrite]
         case .editPaneNote, .watchFolder, .removeRepo, .openWorktree, .openWorktreeInPane,
-            .openWebview, .openBridgeReview:
+            .openWebview, .openBridgeReview, .openBridgeFileView:
             return [.layoutMutate]
         case .openPaneLocationInBookmarkedEditor, .openPaneLocationInFinder, .openPaneLocationInEditorMenu,
             .copyCurrentPanePath, .signInGitHub, .signInGoogle, .filterSidebar, .showCommandBarEverything,

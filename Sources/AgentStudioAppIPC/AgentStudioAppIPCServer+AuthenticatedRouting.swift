@@ -34,8 +34,8 @@ extension AgentStudioAppIPCServer {
             return try await processLayoutRequest(request)
         case "terminal.status", "terminal.snapshot", "terminal.send", "terminal.wait":
             return try await processRuntimeRequest(request)
-        case "bridge.diff.load", "bridge.diff.refresh", "bridge.diff.getPackage", "bridge.diff.renderState",
-            "bridge.diff.selectFile", "bridge.diff.scrollToFile", "bridge.diff.expandFile",
+        case "bridge.diff.load", "bridge.fileView.open", "bridge.diff.refresh", "bridge.diff.getPackage",
+            "bridge.diff.renderState", "bridge.diff.selectFile", "bridge.diff.scrollToFile", "bridge.diff.expandFile",
             "bridge.diff.collapseFile", "bridge.fileTree.search", "bridge.fileTree.setFilter",
             "bridge.fileTree.revealPath", "bridge.fileView.getContent", "bridge.fileView.showMarkdownPreview",
             "bridge.telemetry.snapshot", "bridge.telemetry.flush":
@@ -181,6 +181,13 @@ extension AgentStudioAppIPCServer {
             let params = try decodeParams(IPCBridgeReviewOpenParams.self, from: request.params)
             let result = try await MainActor.run {
                 try service.ports.bridgePort.openReview(params)
+            }
+            await publishBridgeReviewUpdated(paneId: result.paneId, correlationId: result.correlationId)
+            return try encodeResult(result)
+        case "bridge.fileView.open":
+            let params = try decodeParams(IPCBridgeFileViewOpenParams.self, from: request.params)
+            let result = try await MainActor.run {
+                try service.ports.bridgePort.openFileView(params)
             }
             await publishBridgeReviewUpdated(paneId: result.paneId, correlationId: result.correlationId)
             return try encodeResult(result)

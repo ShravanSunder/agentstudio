@@ -18,14 +18,14 @@ struct BridgeTelemetryIngestorTests {
             samples: [
                 BridgeTelemetrySample(
                     scope: .web,
-                    name: "performance.bridge.web.package_apply",
+                    name: "performance.bridge.web.push_apply",
                     durationMilliseconds: 3,
                     traceContext: nil,
                     stringAttributes: [
                         "agentstudio.bridge.phase": "apply",
                         "agentstudio.bridge.plane": "data",
                         "agentstudio.bridge.priority": "cold",
-                        "agentstudio.bridge.slice": "review_snapshot",
+                        "agentstudio.bridge.slice": "review_metadata",
                         "agentstudio.bridge.transport": "intake",
                     ],
                     numericAttributes: [:],
@@ -69,14 +69,14 @@ struct BridgeTelemetryIngestorTests {
             samples: [
                 BridgeTelemetrySample(
                     scope: .web,
-                    name: "performance.bridge.web.package_apply",
+                    name: "performance.bridge.web.push_apply",
                     durationMilliseconds: 3,
                     traceContext: nil,
                     stringAttributes: [
                         "agentstudio.bridge.phase": "apply",
                         "agentstudio.bridge.plane": "data",
                         "agentstudio.bridge.priority": "cold",
-                        "agentstudio.bridge.slice": "review_snapshot",
+                        "agentstudio.bridge.slice": "review_metadata",
                         "agentstudio.bridge.transport": "intake",
                     ],
                     numericAttributes: [:],
@@ -92,7 +92,7 @@ struct BridgeTelemetryIngestorTests {
         #expect(result == .accepted(sampleCount: 1))
         #expect(
             samples.map(\.name) == [
-                "performance.bridge.web.package_apply",
+                "performance.bridge.web.push_apply",
                 "performance.bridge.swift.telemetry_ingest",
             ])
         #expect(

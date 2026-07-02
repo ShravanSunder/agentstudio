@@ -156,7 +156,7 @@ struct Pane: Codable, Identifiable, Hashable, Sendable {
             return .browser
         case .bridgePanel(let bridgeState):
             switch bridgeState.panelKind {
-            case .diffViewer:
+            case .diffViewer, .fileViewer:
                 return .diff
             }
         case .codeViewer:

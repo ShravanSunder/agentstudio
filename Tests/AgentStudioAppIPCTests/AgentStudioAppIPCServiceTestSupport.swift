@@ -140,6 +140,14 @@ struct FakeBridgePort: AppIPCBridgePort {
         )
     }
 
+    func openFileView(_ params: IPCBridgeFileViewOpenParams) throws -> IPCBridgeFileViewOpenResult {
+        IPCBridgeFileViewOpenResult(
+            paneId: paneId,
+            handle: "pane:\(paneId.uuidString)",
+            correlationId: params.correlationId
+        )
+    }
+
     func refreshReview(_ params: IPCBridgeReviewRefreshParams) async throws -> IPCBridgeReviewRefreshResult {
         IPCBridgeReviewRefreshResult(
             paneId: paneId,

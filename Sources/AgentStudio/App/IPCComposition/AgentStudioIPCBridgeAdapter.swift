@@ -5,6 +5,7 @@ import Foundation
 @MainActor
 protocol AgentStudioIPCBridgeActionExecuting: AnyObject {
     func openBridgeReview(worktreeId: UUID?) -> Pane?
+    func openBridgeFileView(worktreeId: UUID?) -> Pane?
 }
 
 extension WorkspaceActionExecutor: AgentStudioIPCBridgeActionExecuting {}
@@ -30,6 +31,17 @@ struct AgentStudioIPCBridgeAdapter: AppIPCBridgePort, @unchecked Sendable {
             throw AppIPCBridgeError(reason: .targetNotFound)
         }
         return IPCBridgeReviewOpenResult(
+            paneId: pane.id,
+            handle: "pane:\(pane.id.uuidString)",
+            correlationId: params.correlationId
+        )
+    }
+
+    func openFileView(_ params: IPCBridgeFileViewOpenParams) throws -> IPCBridgeFileViewOpenResult {
+        guard let pane = actionExecutor.openBridgeFileView(worktreeId: params.worktreeId) else {
+            throw AppIPCBridgeError(reason: .targetNotFound)
+        }
+        return IPCBridgeFileViewOpenResult(
             paneId: pane.id,
             handle: "pane:\(pane.id.uuidString)",
             correlationId: params.correlationId

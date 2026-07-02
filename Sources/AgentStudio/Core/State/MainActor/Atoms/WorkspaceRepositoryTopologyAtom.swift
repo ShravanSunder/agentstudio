@@ -124,6 +124,38 @@ final class WorkspaceRepositoryTopologyAtom {
         return repo
     }
 
+    @discardableResult
+    func ensureMainWorktree(at path: URL) -> Worktree {
+        let normalizedPath = path.standardizedFileURL
+        let incomingStableKey = StableKey.fromPath(normalizedPath)
+        if let existingIndex = repos.firstIndex(where: {
+            $0.repoPath.standardizedFileURL == normalizedPath || $0.stableKey == incomingStableKey
+        }) {
+            unavailableRepoIds.remove(repos[existingIndex].id)
+            if let mainWorktree = repos[existingIndex].worktrees.first(where: \.isMainWorktree) {
+                return mainWorktree
+            }
+            if let firstWorktree = repos[existingIndex].worktrees.first {
+                return firstWorktree
+            }
+
+            let repairedWorktree = Worktree(
+                repoId: repos[existingIndex].id,
+                name: normalizedPath.lastPathComponent,
+                path: normalizedPath,
+                isMainWorktree: true
+            )
+            repos[existingIndex].name = normalizedPath.lastPathComponent
+            repos[existingIndex].repoPath = normalizedPath
+            repos[existingIndex].worktrees = [repairedWorktree]
+            scheduleWorktreePathIndexRebuild()
+            return repairedWorktree
+        }
+
+        let repo = addRepo(at: normalizedPath)
+        return repo.worktrees[0]
+    }
+
     func removeRepo(_ repoId: UUID) {
         guard repos.contains(where: { $0.id == repoId }) else { return }
         repos.removeAll { $0.id == repoId }

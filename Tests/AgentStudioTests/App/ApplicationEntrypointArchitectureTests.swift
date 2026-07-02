@@ -48,6 +48,8 @@ struct ApplicationEntrypointArchitectureTests {
         let appDelegateURL = projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate.swift")
         let startupDiagnosticsURL = projectRoot.appending(
             path: "Sources/AgentStudio/App/Boot/AppDelegate+StartupDiagnostics.swift")
+        let reviewStartupDiagnosticsURL = projectRoot.appending(
+            path: "Sources/AgentStudio/App/Boot/AppDelegate+BridgeReviewStartupDiagnostics.swift")
         let diagnosticActionURL = projectRoot.appending(
             path: "Sources/AgentStudio/App/Boot/AgentStudioStartupDiagnosticAction.swift")
         let paneTabViewControllerURL = projectRoot.appending(
@@ -55,6 +57,10 @@ struct ApplicationEntrypointArchitectureTests {
 
         let appDelegateSource = try String(contentsOf: appDelegateURL, encoding: .utf8)
         let startupDiagnosticsSource = try String(contentsOf: startupDiagnosticsURL, encoding: .utf8)
+        let reviewStartupDiagnosticsSource = try String(
+            contentsOf: reviewStartupDiagnosticsURL,
+            encoding: .utf8
+        )
         let diagnosticActionSource = try String(contentsOf: diagnosticActionURL, encoding: .utf8)
         let paneTabViewControllerSource = try String(contentsOf: paneTabViewControllerURL, encoding: .utf8)
 
@@ -117,6 +123,7 @@ struct ApplicationEntrypointArchitectureTests {
         try assertBridgeReviewSmokeDiagnosticSuppressesLaunchRestore(
             appDelegateSource: appDelegateSource,
             startupDiagnosticsSource: startupDiagnosticsSource,
+            reviewStartupDiagnosticsSource: reviewStartupDiagnosticsSource,
             diagnosticActionSource: diagnosticActionSource,
             paneTabViewControllerSource: paneTabViewControllerSource
         )
@@ -130,6 +137,7 @@ struct ApplicationEntrypointArchitectureTests {
     private func assertBridgeReviewSmokeDiagnosticSuppressesLaunchRestore(
         appDelegateSource: String,
         startupDiagnosticsSource: String,
+        reviewStartupDiagnosticsSource: String,
         diagnosticActionSource: String,
         paneTabViewControllerSource: String
     ) throws {
@@ -139,40 +147,41 @@ struct ApplicationEntrypointArchitectureTests {
         #expect(appDelegateSource.contains("launchRestoreObservationState.complete()"))
         #expect(paneTabViewControllerSource.contains("suppressesAutomaticLaunchPaneRestore == true"))
         #expect(paneTabViewControllerSource.contains("skipped visible view restore for startup diagnostic"))
+        #expect(startupDiagnosticsSource.contains("runBridgeReviewObservabilitySmokeDiagnostic(action: action)"))
 
         let bridgeDiagnosticIndex = try #require(
-            startupDiagnosticsSource.range(of: "private func runBridgeReviewObservabilitySmokeDiagnostic")?.lowerBound)
+            reviewStartupDiagnosticsSource.range(of: "func runBridgeReviewObservabilitySmokeDiagnostic")?.lowerBound)
         let bridgeDiagnosticEndIndex = try #require(
-            startupDiagnosticsSource.range(
+            reviewStartupDiagnosticsSource.range(
                 of: "private func recordBridgeReviewObservabilitySmokePhase",
-                range: bridgeDiagnosticIndex..<startupDiagnosticsSource.endIndex
+                range: bridgeDiagnosticIndex..<reviewStartupDiagnosticsSource.endIndex
             )?.lowerBound)
         let bridgeDiagnosticKeyWindowIndex = try #require(
-            startupDiagnosticsSource.range(
+            reviewStartupDiagnosticsSource.range(
                 of: "mainWindowController?.window?.makeKeyAndOrderFront(nil)",
-                range: bridgeDiagnosticIndex..<startupDiagnosticsSource.endIndex
+                range: bridgeDiagnosticIndex..<reviewStartupDiagnosticsSource.endIndex
             )?.lowerBound)
         let bridgeDiagnosticActivationWaitIndex = try #require(
-            startupDiagnosticsSource.range(
+            reviewStartupDiagnosticsSource.range(
                 of: "await waitForStartupDiagnosticAppActivation()",
-                range: bridgeDiagnosticIndex..<startupDiagnosticsSource.endIndex
+                range: bridgeDiagnosticIndex..<reviewStartupDiagnosticsSource.endIndex
             )?.lowerBound)
         let bridgeDiagnosticBoundsWaitIndex = try #require(
-            startupDiagnosticsSource.range(
+            reviewStartupDiagnosticsSource.range(
                 of: "recordBridgeReviewObservabilitySmokePhase(\"bounds_wait_started\"",
-                range: bridgeDiagnosticIndex..<startupDiagnosticsSource.endIndex
+                range: bridgeDiagnosticIndex..<reviewStartupDiagnosticsSource.endIndex
             )?.lowerBound)
 
         #expect(bridgeDiagnosticIndex < bridgeDiagnosticKeyWindowIndex)
         #expect(bridgeDiagnosticKeyWindowIndex < bridgeDiagnosticActivationWaitIndex)
         #expect(bridgeDiagnosticActivationWaitIndex < bridgeDiagnosticBoundsWaitIndex)
         #expect(
-            startupDiagnosticsSource.range(
+            reviewStartupDiagnosticsSource.range(
                 of: "workspaceSurfaceCoordinator.restoreVisiblePaneIfNeeded(pane.id",
                 range: bridgeDiagnosticIndex..<bridgeDiagnosticEndIndex
             ) != nil)
         #expect(
-            startupDiagnosticsSource.range(
+            reviewStartupDiagnosticsSource.range(
                 of: "restoreAllViews",
                 range: bridgeDiagnosticIndex..<bridgeDiagnosticEndIndex
             ) == nil)

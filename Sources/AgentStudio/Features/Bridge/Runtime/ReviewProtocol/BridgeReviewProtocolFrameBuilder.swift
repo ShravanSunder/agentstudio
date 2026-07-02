@@ -1,34 +1,4 @@
-import CryptoKit
 import Foundation
-
-struct BridgeReviewProtocolBodyResourceFacts: Equatable, Sendable {
-    let byteCount: Int
-    let integrity: BridgeIntegrityDescriptor
-
-    init(data: Data) {
-        self.byteCount = data.count
-        self.integrity = BridgeIntegrityDescriptor(
-            kind: .wholeHash,
-            algorithm: "sha256",
-            value: "sha256:\(Self.sha256Hex(data))",
-            manifestResourceId: nil
-        )
-    }
-
-    init(byteCount: Int, sha256Hex: String) {
-        self.byteCount = byteCount
-        self.integrity = BridgeIntegrityDescriptor(
-            kind: .wholeHash,
-            algorithm: "sha256",
-            value: "sha256:\(sha256Hex)",
-            manifestResourceId: nil
-        )
-    }
-
-    private static func sha256Hex(_ data: Data) -> String {
-        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
-    }
-}
 
 struct BridgeReviewProtocolSnapshotBuildRequest: Equatable, Sendable {
     let paneId: String
@@ -36,8 +6,29 @@ struct BridgeReviewProtocolSnapshotBuildRequest: Equatable, Sendable {
     let streamId: String
     let sequence: Int
     let package: BridgeReviewPackage
-    var packageBodyFacts: BridgeReviewProtocolBodyResourceFacts?
+    let selectedItemId: String?
+    let visibleItemIds: [String]
     let changesetCluster: BridgeReviewChangesetClusterMetadata?
+
+    init(
+        paneId: String,
+        sourceIdentity: String,
+        streamId: String,
+        sequence: Int,
+        package: BridgeReviewPackage,
+        selectedItemId: String? = nil,
+        visibleItemIds: [String]? = nil,
+        changesetCluster: BridgeReviewChangesetClusterMetadata?
+    ) {
+        self.paneId = paneId
+        self.sourceIdentity = sourceIdentity
+        self.streamId = streamId
+        self.sequence = sequence
+        self.package = package
+        self.selectedItemId = selectedItemId ?? package.orderedItemIds.first
+        self.visibleItemIds = visibleItemIds ?? package.orderedItemIds
+        self.changesetCluster = changesetCluster
+    }
 }
 
 struct BridgeReviewProtocolDeltaBuildRequest: Equatable, Sendable {
@@ -48,7 +39,18 @@ struct BridgeReviewProtocolDeltaBuildRequest: Equatable, Sendable {
     let fromRevision: Int
     let toRevision: Int
     let package: BridgeReviewPackage
-    var operationsBodyFacts: BridgeReviewProtocolBodyResourceFacts?
+    var operations = BridgeReviewDelta.Operations()
+}
+
+struct BridgeReviewProtocolMetadataWindowBuildRequest: Equatable, Sendable {
+    let paneId: String
+    let sourceIdentity: String
+    let streamId: String
+    let sequence: Int
+    let package: BridgeReviewPackage
+    let itemIds: [String]
+    var loadedBy: BridgeReviewMetadataLoadedBy = .idle
+    var lane: BridgeDemandLane = .idle
 }
 
 struct BridgeReviewProtocolResetBuildRequest: Equatable, Sendable {
@@ -57,8 +59,6 @@ struct BridgeReviewProtocolResetBuildRequest: Equatable, Sendable {
     let generation: Int
     let sequence: Int
     let reason: String
-    let packageId: String?
-    let replacementDescriptor: BridgeAttachedResourceDescriptor?
 }
 
 struct BridgeReviewProtocolInvalidationBuildRequest: Equatable, Sendable {
@@ -80,58 +80,111 @@ enum BridgeReviewProtocolFrameBuilder {
     static func snapshot(
         request: BridgeReviewProtocolSnapshotBuildRequest
     ) throws -> BridgeReviewSnapshotFrame {
-        let rootDescriptor = packageRootDescriptor(
+        let reviewItems = metadataItemsForSnapshot(request: request)
+        let contentDescriptors = try contentDescriptors(
+            for: reviewItems,
             paneId: request.paneId,
             sourceIdentity: request.sourceIdentity,
             streamId: request.streamId,
-            package: request.package,
-            bodyFacts: request.packageBodyFacts
+            package: request.package
         )
-        let contentDescriptors = try request.package.itemsById.values
-            .flatMap(\.contentRoles.allHandles)
-            .sorted { left, right in left.handleId < right.handleId }
-            .map { handle in
-                try contentDescriptor(
-                    handle: handle,
-                    paneId: request.paneId,
-                    sourceIdentity: request.sourceIdentity,
-                    streamId: request.streamId,
-                    package: request.package
-                )
-            }
+        let itemMetadata = reviewItems.map {
+            projectionInputItem(for: $0, loadedBy: .startupWindow, lane: .foreground)
+        }
 
         return BridgeReviewSnapshotFrame(
             streamId: request.streamId,
             generation: request.package.reviewGeneration.rawValue,
             sequence: request.sequence,
-            package: BridgeReviewSnapshotPackageIdentity(
+            comparison: BridgeReviewComparisonIdentity(
                 packageId: request.package.packageId,
                 sourceIdentity: request.sourceIdentity,
                 generation: request.package.reviewGeneration.rawValue,
                 revision: request.package.revision,
-                rootDescriptor: rootDescriptor,
+                baseEndpoint: request.package.baseEndpoint,
+                headEndpoint: request.package.headEndpoint,
                 contentDescriptors: contentDescriptors,
                 changesetCluster: request.changesetCluster
-            )
+            ),
+            selectedItemId: request.selectedItemId,
+            visibleItemIds: request.visibleItemIds,
+            itemMetadata: itemMetadata,
+            treeRows: treeRowsMetadata(for: reviewItems, loadedBy: .startupWindow, lane: .foreground),
+            extentFacts: reviewItems.flatMap { extentFacts(for: $0) },
+            summary: request.package.summary
         )
+    }
+
+    static func metadataWindow(
+        request: BridgeReviewProtocolMetadataWindowBuildRequest
+    ) throws -> BridgeReviewMetadataWindowFrame {
+        let reviewItems = metadataItems(itemIds: request.itemIds, package: request.package)
+        let contentDescriptors = try contentDescriptors(
+            for: reviewItems,
+            paneId: request.paneId,
+            sourceIdentity: request.sourceIdentity,
+            streamId: request.streamId,
+            package: request.package
+        )
+
+        return BridgeReviewMetadataWindowFrame(
+            streamId: request.streamId,
+            generation: request.package.reviewGeneration.rawValue,
+            sequence: request.sequence,
+            packageId: request.package.packageId,
+            revision: request.package.revision,
+            itemMetadata: reviewItems.map {
+                projectionInputItem(for: $0, loadedBy: request.loadedBy, lane: request.lane)
+            },
+            treeRows: treeRowsMetadata(for: reviewItems, loadedBy: request.loadedBy, lane: request.lane),
+            extentFacts: reviewItems.flatMap { extentFacts(for: $0) },
+            summary: request.package.summary,
+            contentDescriptors: contentDescriptors
+        )
+    }
+
+    private static func metadataItemsForSnapshot(
+        request: BridgeReviewProtocolSnapshotBuildRequest
+    ) -> [BridgeReviewItemDescriptor] {
+        var includedItemIds = Set(request.visibleItemIds)
+        if let selectedItemId = request.selectedItemId,
+            request.package.itemsById[selectedItemId] != nil
+        {
+            includedItemIds.insert(selectedItemId)
+        }
+        return request.package.orderedItemIds.compactMap { itemId in
+            guard includedItemIds.contains(itemId) else {
+                return nil
+            }
+            return request.package.itemsById[itemId]
+        }
+    }
+
+    private static func metadataItems(
+        itemIds: [String],
+        package: BridgeReviewPackage
+    ) -> [BridgeReviewItemDescriptor] {
+        let includedItemIds: Set<String> = Set(itemIds)
+        return package.orderedItemIds.compactMap { itemId -> BridgeReviewItemDescriptor? in
+            guard includedItemIds.contains(itemId) else { return nil }
+            return package.itemsById[itemId]
+        }
     }
 
     static func delta(
         request: BridgeReviewProtocolDeltaBuildRequest
     ) throws -> BridgeReviewDeltaFrame {
-        let operationsDescriptor = deltaOperationsDescriptor(request: request)
-        let contentDescriptors = try request.package.itemsById.values
-            .flatMap(\.contentRoles.allHandles)
-            .sorted { left, right in left.handleId < right.handleId }
-            .map { handle in
-                try contentDescriptor(
-                    handle: handle,
-                    paneId: request.paneId,
-                    sourceIdentity: request.sourceIdentity,
-                    streamId: request.streamId,
-                    package: request.package
-                )
-            }
+        let deltaItems = deltaMetadataItems(
+            operations: request.operations,
+            package: request.package
+        )
+        let contentDescriptors = try contentDescriptors(
+            for: deltaItems,
+            paneId: request.paneId,
+            sourceIdentity: request.sourceIdentity,
+            streamId: request.streamId,
+            package: request.package
+        )
 
         return BridgeReviewDeltaFrame(
             streamId: request.streamId,
@@ -140,9 +193,34 @@ enum BridgeReviewProtocolFrameBuilder {
             packageId: request.package.packageId,
             fromRevision: request.fromRevision,
             toRevision: request.toRevision,
-            operationsDescriptor: operationsDescriptor,
+            operations: metadataOperations(
+                operations: request.operations,
+                package: request.package
+            ),
+            summary: request.package.summary,
             contentDescriptors: contentDescriptors
         )
+    }
+
+    private static func contentDescriptors(
+        for reviewItems: [BridgeReviewItemDescriptor],
+        paneId: String,
+        sourceIdentity: String,
+        streamId: String,
+        package: BridgeReviewPackage
+    ) throws -> [BridgeAttachedResourceDescriptor] {
+        try reviewItems
+            .flatMap(\.contentRoles.allHandles)
+            .sorted { left, right in left.handleId < right.handleId }
+            .map { handle in
+                try contentDescriptor(
+                    handle: handle,
+                    paneId: paneId,
+                    sourceIdentity: sourceIdentity,
+                    streamId: streamId,
+                    package: package
+                )
+            }
     }
 
     static func reset(request: BridgeReviewProtocolResetBuildRequest) -> BridgeReviewResetFrame {
@@ -151,9 +229,7 @@ enum BridgeReviewProtocolFrameBuilder {
             generation: request.generation,
             sequence: request.sequence,
             reason: request.reason,
-            sourceIdentity: request.sourceIdentity,
-            packageId: request.packageId,
-            replacementDescriptor: request.replacementDescriptor
+            sourceIdentity: request.sourceIdentity
         )
     }
 
@@ -171,83 +247,6 @@ enum BridgeReviewProtocolFrameBuilder {
                 reason: request.reason
             )
         )
-    }
-
-    private static func packageRootDescriptor(
-        paneId: String,
-        sourceIdentity: String,
-        streamId: String,
-        package: BridgeReviewPackage,
-        bodyFacts: BridgeReviewProtocolBodyResourceFacts?
-    ) -> BridgeAttachedResourceDescriptor {
-        let descriptorId =
-            "review-package-\(package.packageId)-\(package.reviewGeneration.rawValue)-\(package.revision)"
-        let resourceUrl =
-            "agentstudio://resource/review/review-package/\(descriptorId)?generation=\(package.reviewGeneration.rawValue)&revision=\(package.revision)"
-        let identity = BridgeResourceIdentity(
-            paneId: paneId,
-            protocolId: "review",
-            sourceId: sourceIdentity,
-            packageId: package.packageId,
-            generation: package.reviewGeneration.rawValue,
-            revision: package.revision,
-            streamId: streamId,
-            cursor: nil
-        )
-        let descriptor = BridgeResourceDescriptor(
-            descriptorId: descriptorId,
-            protocolId: "review",
-            resourceKind: "review-package",
-            resourceUrl: resourceUrl,
-            identity: identity,
-            content: BridgeResourceContentDescriptor(
-                mediaType: "application/json",
-                encoding: .utf8,
-                expectedBytes: bodyFacts?.byteCount,
-                maxBytes: max(bodyFacts?.byteCount ?? AppPolicies.Bridge.ipcMaxResponsePayloadBytes, 1),
-                integrity: bodyFacts?.integrity
-            ),
-            window: nil
-        )
-        return attachedDescriptor(refIdentity: identity, descriptor: descriptor)
-    }
-
-    private static func deltaOperationsDescriptor(
-        request: BridgeReviewProtocolDeltaBuildRequest
-    ) -> BridgeAttachedResourceDescriptor {
-        let package = request.package
-        let descriptorId = "review-delta-\(package.packageId)-\(request.fromRevision)-\(request.toRevision)"
-        let resourceUrl =
-            "agentstudio://resource/review/review-delta/\(descriptorId)?generation=\(package.reviewGeneration.rawValue)&revision=\(request.toRevision)"
-        let identity = BridgeResourceIdentity(
-            paneId: request.paneId,
-            protocolId: "review",
-            sourceId: request.sourceIdentity,
-            packageId: package.packageId,
-            generation: package.reviewGeneration.rawValue,
-            revision: request.toRevision,
-            streamId: request.streamId,
-            cursor: nil
-        )
-        let descriptor = BridgeResourceDescriptor(
-            descriptorId: descriptorId,
-            protocolId: "review",
-            resourceKind: "review-delta",
-            resourceUrl: resourceUrl,
-            identity: identity,
-            content: BridgeResourceContentDescriptor(
-                mediaType: "application/json",
-                encoding: .utf8,
-                expectedBytes: request.operationsBodyFacts?.byteCount,
-                maxBytes: max(
-                    request.operationsBodyFacts?.byteCount ?? AppPolicies.Bridge.ipcMaxResponsePayloadBytes,
-                    1
-                ),
-                integrity: request.operationsBodyFacts?.integrity
-            ),
-            window: nil
-        )
-        return attachedDescriptor(refIdentity: identity, descriptor: descriptor)
     }
 
     private static func contentDescriptor(
@@ -290,8 +289,10 @@ enum BridgeReviewProtocolFrameBuilder {
             content: BridgeResourceContentDescriptor(
                 mediaType: handle.mimeType,
                 encoding: handle.isBinary ? .binary : .utf8,
-                expectedBytes: handle.sizeBytes,
-                maxBytes: max(handle.sizeBytes, 1),
+                expectedBytes: handle.sizeBytesIsExact ? handle.sizeBytes : nil,
+                maxBytes: handle.sizeBytesIsExact
+                    ? max(handle.sizeBytes, 1)
+                    : AppPolicies.Bridge.contentMaxBytesPerItem,
                 integrity: contentIntegrityDescriptor(for: handle)
             ),
             window: nil
@@ -326,5 +327,193 @@ enum BridgeReviewProtocolFrameBuilder {
             ),
             descriptor: descriptor
         )
+    }
+
+    private static func treeRowsMetadata(
+        for items: [BridgeReviewItemDescriptor],
+        loadedBy: BridgeReviewMetadataLoadedBy,
+        lane: BridgeDemandLane
+    ) -> [BridgeReviewTreeRowMetadata] {
+        var rows: [BridgeReviewTreeRowMetadata] = []
+        var seenRowIds: Set<String> = []
+        func appendRow(_ row: BridgeReviewTreeRowMetadata) {
+            guard !seenRowIds.contains(row.rowId) else { return }
+            seenRowIds.insert(row.rowId)
+            rows.append(row)
+        }
+        for item in items {
+            appendAncestorTreeRows(for: path(for: item), loadedBy: loadedBy, lane: lane, appendRow: appendRow)
+            appendRow(treeRowMetadata(for: item, loadedBy: loadedBy, lane: lane))
+        }
+        return rows
+    }
+
+    private static func appendAncestorTreeRows(
+        for path: String,
+        loadedBy: BridgeReviewMetadataLoadedBy,
+        lane: BridgeDemandLane,
+        appendRow: (BridgeReviewTreeRowMetadata) -> Void
+    ) {
+        let components = path.split(separator: "/").map(String.init)
+        guard components.count > 1 else { return }
+        for componentCount in 1..<components.count {
+            let ancestorPath = components.prefix(componentCount).joined(separator: "/")
+            appendRow(directoryTreeRowMetadata(path: ancestorPath, loadedBy: loadedBy, lane: lane))
+        }
+    }
+
+    private static func directoryTreeRowMetadata(
+        path: String,
+        loadedBy: BridgeReviewMetadataLoadedBy,
+        lane: BridgeDemandLane
+    ) -> BridgeReviewTreeRowMetadata {
+        BridgeReviewTreeRowMetadata(
+            rowId: "review-directory:\(path)",
+            itemId: nil,
+            path: path,
+            depth: max(path.split(separator: "/").count - 1, 0),
+            isDirectory: true,
+            loadedBy: loadedBy,
+            lane: lane
+        )
+    }
+
+    private static func treeRowMetadata(
+        for item: BridgeReviewItemDescriptor,
+        loadedBy: BridgeReviewMetadataLoadedBy,
+        lane: BridgeDemandLane
+    ) -> BridgeReviewTreeRowMetadata {
+        let path = path(for: item)
+        return BridgeReviewTreeRowMetadata(
+            rowId: "review-row:\(item.itemId)",
+            itemId: item.itemId,
+            path: path,
+            depth: max(path.split(separator: "/").count - 1, 0),
+            isDirectory: false,
+            loadedBy: loadedBy,
+            lane: lane
+        )
+    }
+
+    private static func path(for item: BridgeReviewItemDescriptor) -> String {
+        item.headPath ?? item.basePath ?? item.itemId
+    }
+
+    private static func extentFacts(for item: BridgeReviewItemDescriptor) -> [BridgeReviewExtentFact] {
+        item.contentRoles.allHandles.map { handle in
+            BridgeReviewExtentFact(
+                itemId: item.itemId,
+                contentRole: handle.role.rawValue,
+                lineCount: lineCount(for: item, contentRole: handle.role)
+            )
+        }
+    }
+
+    private static func lineCount(
+        for item: BridgeReviewItemDescriptor,
+        contentRole: BridgeContentHandle.Role
+    ) -> Int {
+        switch contentRole {
+        case .base:
+            max(item.deletions, 1)
+        case .head, .file:
+            max(item.additions, 1)
+        case .diff:
+            max(item.additions + item.deletions, 1)
+        }
+    }
+
+    private static func projectionInputItem(
+        for item: BridgeReviewItemDescriptor,
+        loadedBy: BridgeReviewMetadataLoadedBy,
+        lane: BridgeDemandLane
+    ) -> BridgeReviewProjectionInputItem {
+        BridgeReviewProjectionInputItem(
+            itemId: item.itemId,
+            basePath: item.basePath,
+            headPath: item.headPath,
+            changeKind: item.changeKind.rawValue,
+            fileClass: item.fileClass.rawValue,
+            language: item.language,
+            extension: item.extension,
+            isHiddenByDefault: item.isHiddenByDefault,
+            reviewPriority: item.reviewPriority.rawValue,
+            reviewState: item.reviewState.rawValue,
+            contentRoles: contentRoleNames(for: item),
+            contentDescriptorIdsByRole: BridgeReviewProjectionContentDescriptorIdsByRole(
+                base: item.contentRoles.base?.handleId,
+                head: item.contentRoles.head?.handleId,
+                diff: item.contentRoles.diff?.handleId,
+                file: item.contentRoles.file?.handleId
+            ),
+            mimeTypes: mimeTypes(for: item),
+            provenance: BridgeReviewProjectionItemProvenance(
+                promptIds: item.provenance.promptIds,
+                agentSessionIds: item.provenance.agentSessionIds,
+                operationIds: item.provenance.operationIds
+            ),
+            loadedBy: loadedBy,
+            lane: lane
+        )
+    }
+
+    private static func contentRoleNames(for item: BridgeReviewItemDescriptor) -> [String] {
+        [
+            item.contentRoles.base?.role.rawValue,
+            item.contentRoles.head?.role.rawValue,
+            item.contentRoles.diff?.role.rawValue,
+            item.contentRoles.file?.role.rawValue,
+        ].compactMap { $0 }
+    }
+
+    private static func mimeTypes(for item: BridgeReviewItemDescriptor) -> [String] {
+        Array(Set(item.contentRoles.allHandles.map(\.mimeType))).sorted()
+    }
+
+    private static func deltaMetadataItems(
+        operations: BridgeReviewDelta.Operations,
+        package: BridgeReviewPackage
+    ) -> [BridgeReviewItemDescriptor] {
+        let itemIds = Set(
+            operations.addItems.map(\.itemId) + operations.updateItems.map(\.itemId)
+        )
+        return package.orderedItemIds.compactMap { itemId in
+            guard itemIds.contains(itemId) else { return nil }
+            return package.itemsById[itemId]
+        }
+    }
+
+    private static func metadataOperations(
+        operations: BridgeReviewDelta.Operations,
+        package: BridgeReviewPackage
+    ) -> [BridgeReviewMetadataOperation] {
+        var metadataOperations: [BridgeReviewMetadataOperation] = []
+        if !operations.addItems.isEmpty {
+            metadataOperations.append(
+                .appendItems(operations.addItems.map { projectionInputItem(for: $0, loadedBy: .delta, lane: .active) }))
+            metadataOperations.append(
+                .upsertTreeRows(treeRowsMetadata(for: operations.addItems, loadedBy: .delta, lane: .active)))
+            metadataOperations.append(.upsertExtentFacts(operations.addItems.flatMap { extentFacts(for: $0) }))
+        }
+        for item in operations.updateItems {
+            metadataOperations.append(
+                .upsertItemMetadata(projectionInputItem(for: item, loadedBy: .delta, lane: .active)))
+            metadataOperations.append(.upsertTreeRows(treeRowsMetadata(for: [item], loadedBy: .delta, lane: .active)))
+            metadataOperations.append(.upsertExtentFacts(extentFacts(for: item)))
+        }
+        if !operations.removeItems.isEmpty {
+            metadataOperations.append(.removeItems(operations.removeItems))
+            metadataOperations.append(
+                .removeTreeRows(rowIds: operations.removeItems.map { "review-row:\($0)" }, paths: nil))
+        }
+        if !operations.moveItems.isEmpty {
+            metadataOperations.append(.replaceItemOrder(operations.moveItems))
+        } else if !operations.addItems.isEmpty || !operations.removeItems.isEmpty {
+            metadataOperations.append(.replaceItemOrder(package.orderedItemIds))
+        }
+        if !operations.invalidateContent.isEmpty {
+            metadataOperations.append(.invalidateContentDescriptors(operations.invalidateContent))
+        }
+        return metadataOperations
     }
 }

@@ -129,6 +129,7 @@ public struct AppIPCBridgeError: Error, Equatable, Sendable {
 @MainActor
 public protocol AppIPCBridgePort: Sendable {
     func openReview(_ params: IPCBridgeReviewOpenParams) throws -> IPCBridgeReviewOpenResult
+    func openFileView(_ params: IPCBridgeFileViewOpenParams) throws -> IPCBridgeFileViewOpenResult
     func refreshReview(_ params: IPCBridgeReviewRefreshParams) async throws -> IPCBridgeReviewRefreshResult
     func getPackage(_ handle: IPCHandle) throws -> IPCBridgeReviewPackageResult
     func renderState(_ handle: IPCHandle) async throws -> IPCBridgeRenderStateResult

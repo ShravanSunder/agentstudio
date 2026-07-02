@@ -89,6 +89,7 @@ public enum AgentStudioIPCClientCommand: Equatable, Sendable {
     case terminalWait(
         handle: String, condition: IPCTerminalWaitCondition, timeoutSeconds: Double, afterSequence: UInt64?)
     case bridgeDiffLoad(IPCBridgeReviewOpenParams)
+    case bridgeFileViewOpen(IPCBridgeFileViewOpenParams)
     case bridgeDiffRefresh(IPCBridgeReviewRefreshParams)
     case bridgeDiffGetPackage(handle: String)
     case bridgeDiffRenderState(handle: String)
@@ -140,6 +141,8 @@ public enum AgentStudioIPCClientCommand: Equatable, Sendable {
             "terminal.wait"
         case .bridgeDiffLoad:
             "bridge.diff.load"
+        case .bridgeFileViewOpen:
+            "bridge.fileView.open"
         case .bridgeDiffRefresh:
             "bridge.diff.refresh"
         case .bridgeDiffGetPackage:
@@ -182,7 +185,7 @@ public enum AgentStudioIPCClientCommand: Equatable, Sendable {
         case .authLogin, .authStatus, .identify, .capabilities, .listWindows, .listWorkspaces, .listPanes,
             .currentPane, .paneSnapshot, .paneFocus, .commandList, .commandExecute, .terminalStatus, .terminalSend,
             .terminalWait,
-            .bridgeDiffLoad, .bridgeDiffRefresh, .bridgeDiffGetPackage, .bridgeDiffRenderState,
+            .bridgeDiffLoad, .bridgeFileViewOpen, .bridgeDiffRefresh, .bridgeDiffGetPackage, .bridgeDiffRenderState,
             .bridgeDiffSelectFile, .bridgeDiffScrollToFile, .bridgeDiffExpandFile, .bridgeDiffCollapseFile,
             .bridgeFileTreeSearch, .bridgeFileTreeSetFilter, .bridgeFileTreeRevealPath, .bridgeFileViewGetContent,
             .bridgeFileViewShowMarkdownPreview, .bridgeTelemetrySnapshot, .bridgeTelemetryFlush, .eventsUnsubscribe:
@@ -227,7 +230,7 @@ public enum AgentStudioIPCClientCommand: Equatable, Sendable {
                 params["afterSequence"] = .number(Double(afterSequence))
             }
             return .object(params)
-        case .bridgeDiffLoad, .bridgeDiffRefresh, .bridgeDiffGetPackage, .bridgeDiffRenderState,
+        case .bridgeDiffLoad, .bridgeFileViewOpen, .bridgeDiffRefresh, .bridgeDiffGetPackage, .bridgeDiffRenderState,
             .bridgeDiffSelectFile, .bridgeDiffScrollToFile, .bridgeDiffExpandFile, .bridgeDiffCollapseFile,
             .bridgeFileTreeSearch, .bridgeFileTreeSetFilter, .bridgeFileTreeRevealPath, .bridgeFileViewGetContent,
             .bridgeFileViewShowMarkdownPreview, .bridgeTelemetrySnapshot, .bridgeTelemetryFlush:
@@ -244,6 +247,8 @@ public enum AgentStudioIPCClientCommand: Equatable, Sendable {
     private func bridgeParams() throws -> JSONValue {
         switch self {
         case .bridgeDiffLoad(let params):
+            return try JSONRPCCodec.encodeJSONValue(params)
+        case .bridgeFileViewOpen(let params):
             return try JSONRPCCodec.encodeJSONValue(params)
         case .bridgeDiffRefresh(let params):
             return try JSONRPCCodec.encodeJSONValue(params)

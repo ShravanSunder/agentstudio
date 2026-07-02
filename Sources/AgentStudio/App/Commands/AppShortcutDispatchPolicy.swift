@@ -93,7 +93,7 @@ enum AppShortcutDispatchPolicy {
             .clearAllInboxNotifications, .showPaneInboxNotifications, .clearPaneInboxNotifications,
             .showWorktreeSidebar, .newFloatingTerminal, .newWindow, .closeWindow,
             .showCommandBarEverything, .showCommandBarCommands, .showCommandBarPanes,
-            .showCommandBarRepos, .openWebview, .openBridgeReview, .signInGitHub, .signInGoogle,
+            .showCommandBarRepos, .openWebview, .openBridgeReview, .openBridgeFileView, .signInGitHub, .signInGoogle,
             .filterSidebar, .openNewTerminalInTab:
             return false
         }

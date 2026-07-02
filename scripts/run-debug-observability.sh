@@ -666,7 +666,11 @@ fi
 startup_diagnostic_action="${AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION:-}"
 if [ -n "${AGENTSTUDIO_TRACE_TAGS:-}" ]; then
   trace_tags="$AGENTSTUDIO_TRACE_TAGS"
-elif [ "$startup_diagnostic_action" = "bridge-review-observability-smoke" ]; then
+elif [ "$startup_diagnostic_action" = "bridge-review-observability-smoke" ] ||
+  [ "$startup_diagnostic_action" = "bridge-file-view-observability-smoke" ] ||
+  [ "$startup_diagnostic_action" = "bridge-file-view-command-route-observability-smoke" ] ||
+  [ "$startup_diagnostic_action" = "bridge-file-view-targeted-route-observability-smoke" ] ||
+  [ "$startup_diagnostic_action" = "bridge-review-to-file-view-observability-smoke" ]; then
   trace_tags="app.startup,bridge.performance.*"
 else
   trace_tags="*"

@@ -180,7 +180,6 @@ extension WebKitSerializedTests {
                     cwdScope: nil,
                     pathScope: [],
                     includeStatuses: true,
-                    includeFileDescriptors: false,
                     includeComments: false,
                     includeAgentComms: false,
                     freshness: .live
@@ -282,7 +281,6 @@ extension WebKitSerializedTests {
                     cwdScope: nil,
                     pathScope: [],
                     includeStatuses: true,
-                    includeFileDescriptors: false,
                     includeComments: false,
                     includeAgentComms: false,
                     freshness: .live
@@ -513,7 +511,6 @@ private func makeCoordinatorWorktreeFileSourceSpec(
         cwdScope: nil,
         pathScope: [],
         includeStatuses: true,
-        includeFileDescriptors: false,
         includeComments: false,
         includeAgentComms: false,
         freshness: .live

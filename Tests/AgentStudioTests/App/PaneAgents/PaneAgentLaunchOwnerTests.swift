@@ -364,6 +364,10 @@ private struct PaneAgentTestBridgePort: AppIPCBridgePort {
         throw AppIPCBridgeError(reason: .targetNotFound)
     }
 
+    func openFileView(_: IPCBridgeFileViewOpenParams) throws -> IPCBridgeFileViewOpenResult {
+        throw AppIPCBridgeError(reason: .targetNotFound)
+    }
+
     func refreshReview(_: IPCBridgeReviewRefreshParams) async throws -> IPCBridgeReviewRefreshResult {
         throw AppIPCBridgeError(reason: .targetNotFound)
     }

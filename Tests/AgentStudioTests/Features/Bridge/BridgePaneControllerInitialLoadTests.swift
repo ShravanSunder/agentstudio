@@ -284,7 +284,40 @@ extension WebKitSerializedTests {
             #expect(await provider.recordedComparisonRequestsCount() == 0)
         }
 
+        @Test("file viewer controller skips initial review package load")
+        func fileViewerControllerSkipsInitialReviewPackageLoad() async {
+            let provider = BridgeReviewSourceProviderFake(
+                comparison: BridgeEndpointComparison(
+                    baseEndpoint: makeBridgeEndpoint(endpointId: "base", kind: .gitRef),
+                    headEndpoint: makeBridgeEndpoint(endpointId: "head", kind: .workingTree),
+                    changedFiles: [
+                        makeBridgeEndpointChangedFile(
+                            fileId: "source",
+                            path: "Sources/App/View.swift",
+                            sizeBytes: 100
+                        )
+                    ]
+                ),
+                contentByHandleId: [:]
+            )
+            let controller = makeController(
+                panelKind: .fileViewer,
+                source: .workspace(rootPath: "/tmp/worktree", baseline: .unstaged),
+                worktreeId: UUIDv7.generate(),
+                provider: provider
+            )
+            defer { controller.teardown() }
+
+            let result = await controller.loadInitialReviewPackageIfPossible(correlationId: nil)
+
+            #expect(result == nil)
+            #expect(controller.paneState.diff.status == .idle)
+            #expect(controller.paneState.diff.packageMetadata == nil)
+            #expect(await provider.recordedComparisonRequestsCount() == 0)
+        }
+
         private func makeController(
+            panelKind: BridgePanelKind = .diffViewer,
             source: BridgePaneSource?,
             repoId: UUID? = nil,
             worktreeId: UUID?,
@@ -292,7 +325,7 @@ extension WebKitSerializedTests {
         ) -> BridgePaneController {
             BridgePaneController(
                 paneId: UUIDv7.generate(),
-                state: BridgePaneState(panelKind: .diffViewer, source: source),
+                state: BridgePaneState(panelKind: panelKind, source: source),
                 metadata: PaneMetadata(
                     contentType: .diff,
                     title: "Bridge Review",

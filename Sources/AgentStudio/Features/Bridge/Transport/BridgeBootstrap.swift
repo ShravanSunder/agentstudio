@@ -22,11 +22,13 @@ enum BridgeBootstrap {
     static func generateScript(
         bridgeNonce: String,
         pushNonce: String,
+        appProtocol: String? = nil,
         reviewPaneId: String? = nil,
         reviewStreamId: String? = nil,
         worktreeFileSourceSpec: BridgeWorktreeFileSurfaceSourceSpec? = nil,
         telemetryConfig: BridgeTelemetryBootstrapConfig? = nil
     ) -> String {
+        let appProtocolJSON = encodedOptionalJSONString(appProtocol)
         let reviewPaneIdJSON = encodedOptionalJSONString(reviewPaneId)
         let reviewStreamIdJSON = encodedOptionalJSONString(reviewStreamId)
         let worktreeFileSourceSpecJSON = encodedWorktreeFileSourceSpecJSON(worktreeFileSourceSpec)
@@ -39,16 +41,18 @@ enum BridgeBootstrap {
 
                 const BRIDGE_NONCE = '\(bridgeNonce)';
                 const PUSH_NONCE = '\(pushNonce)';
+                const APP_PROTOCOL = \(appProtocolJSON);
                 const REVIEW_PANE_ID = \(reviewPaneIdJSON);
                 const REVIEW_STREAM_ID = \(reviewStreamIdJSON);
                 const WORKTREE_FILE_SOURCE_SPEC = \(worktreeFileSourceSpecJSON);
                 const TELEMETRY_CONFIG = \(telemetryConfigJSON);
                 const PENDING_INTAKE_FRAME_JSON = [];
-                const MAX_PENDING_INTAKE_FRAMES = 64;
                 const PAGE_WORLD_ALLOWED_COMMAND_METHODS = new Set([
+                    'bridge.ready',
                     'bridge.intakeReady',
                     'review.markFileViewed',
                     'worktreeFileSurface.openSourceStream',
+                    'worktreeFileSurface.requestFileDescriptor',
                     'system.bridgeTelemetry'
                 ]);
                 const HOST_PUSH_PORTS = new Set();
@@ -94,15 +98,16 @@ enum BridgeBootstrap {
                     }
                 }
 
-                function dispatchIntakeFrameJSON(frameJSON) {
-                    if (PENDING_INTAKE_FRAME_JSON.length >= MAX_PENDING_INTAKE_FRAMES) {
-                        PENDING_INTAKE_FRAME_JSON.shift();
-                    }
-                    PENDING_INTAKE_FRAME_JSON.push(frameJSON);
-                    postHostIntakeFrameJSON(frameJSON);
+                function dispatchPageIntakeFrameJSON(frameJSON) {
                     document.dispatchEvent(new CustomEvent('__bridge_intake_json', {
                         detail: { json: frameJSON, nonce: PUSH_NONCE }
                     }));
+                }
+
+                function dispatchIntakeFrameJSON(frameJSON) {
+                    PENDING_INTAKE_FRAME_JSON.push(frameJSON);
+                    postHostIntakeFrameJSON(frameJSON);
+                    dispatchPageIntakeFrameJSON(frameJSON);
                 }
 
                 // Install bridge internal API in bridge world only.
@@ -249,9 +254,7 @@ enum BridgeBootstrap {
                 document.addEventListener('__bridge_intake_replay_request', function() {
                     for (const frameJSON of PENDING_INTAKE_FRAME_JSON) {
                         postHostIntakeFrameJSON(frameJSON);
-                        document.dispatchEvent(new CustomEvent('__bridge_intake_json', {
-                            detail: { json: frameJSON, nonce: PUSH_NONCE }
-                        }));
+                        dispatchPageIntakeFrameJSON(frameJSON);
                     }
                 });
                 publishHostPushPort();
@@ -262,6 +265,9 @@ enum BridgeBootstrap {
                 if (typeof REVIEW_PANE_ID === 'string' && typeof REVIEW_STREAM_ID === 'string') {
                     document.documentElement.setAttribute('data-bridge-review-pane-id', REVIEW_PANE_ID);
                     document.documentElement.setAttribute('data-bridge-review-stream-id', REVIEW_STREAM_ID);
+                }
+                if (typeof APP_PROTOCOL === 'string') {
+                    document.documentElement.setAttribute('data-bridge-app-protocol', APP_PROTOCOL);
                 }
                 if (WORKTREE_FILE_SOURCE_SPEC !== null) {
                     document.documentElement.setAttribute(

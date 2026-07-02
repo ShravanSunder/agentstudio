@@ -203,19 +203,11 @@ public enum AgentStudioIPCClientArguments {
     ) throws -> AgentStudioIPCClientCommand? {
         switch commandName {
         case "bridge-diff-load":
-            guard remainingArguments.count <= 1 else {
-                throw AgentStudioIPCClientError(reason: .invalidArguments)
-            }
-            let worktreeId: UUID?
-            if let rawWorktreeId = remainingArguments.first {
-                guard let parsedWorktreeId = UUID(uuidString: rawWorktreeId) else {
-                    throw AgentStudioIPCClientError(reason: .invalidArguments)
-                }
-                worktreeId = parsedWorktreeId
-            } else {
-                worktreeId = nil
-            }
+            let worktreeId = try parseOptionalWorktreeId(remainingArguments)
             return .bridgeDiffLoad(IPCBridgeReviewOpenParams(worktreeId: worktreeId))
+        case "bridge-file-view-open":
+            let worktreeId = try parseOptionalWorktreeId(remainingArguments)
+            return .bridgeFileViewOpen(IPCBridgeFileViewOpenParams(worktreeId: worktreeId))
         case "bridge-diff-refresh":
             let values = try requireCount(remainingArguments, 1)
             return .bridgeDiffRefresh(IPCBridgeReviewRefreshParams(handle: values[0]))
@@ -295,6 +287,19 @@ public enum AgentStudioIPCClientArguments {
         default:
             return nil
         }
+    }
+
+    private static func parseOptionalWorktreeId(_ arguments: [String]) throws -> UUID? {
+        guard arguments.count <= 1 else {
+            throw AgentStudioIPCClientError(reason: .invalidArguments)
+        }
+        guard let rawWorktreeId = arguments.first else {
+            return nil
+        }
+        guard let parsedWorktreeId = UUID(uuidString: rawWorktreeId) else {
+            throw AgentStudioIPCClientError(reason: .invalidArguments)
+        }
+        return parsedWorktreeId
     }
 
     @discardableResult

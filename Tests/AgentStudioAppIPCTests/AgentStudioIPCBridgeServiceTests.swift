@@ -41,6 +41,41 @@ struct AgentStudioIPCBridgeServiceTests {
         #expect(result.correlationId == correlationId)
     }
 
+    @Test("debug unsafe no-auth opens Bridge file view")
+    func debugUnsafeNoAuthOpensBridgeFileView() throws {
+        let paneId = UUID()
+        let worktreeId = UUID()
+        let correlationId = UUID()
+        let fixture = try LiveServerFixture(
+            accessMode: .unsafeDebug,
+            channel: .debug,
+            panes: [makePaneSummary(id: paneId, ordinal: 1, contentKind: .bridgePanel)]
+        )
+        defer {
+            fixture.cleanup()
+        }
+        try fixture.server.start()
+
+        let response = try sendRequest(
+            socketPath: fixture.paths.socketURL.path,
+            request: JSONRPCClientRequest(
+                id: .number(64),
+                method: "bridge.fileView.open",
+                params: .object([
+                    "worktreeId": .string(worktreeId.uuidString),
+                    "correlationId": .string(correlationId.uuidString),
+                ])
+            )
+        )
+
+        #expect(response.id == .number(64))
+        #expect(response.error == nil)
+        let result = try decodeResponseResult(IPCBridgeFileViewOpenResult.self, from: response)
+        #expect(result.paneId == paneId)
+        #expect(result.handle == "pane:\(paneId.uuidString)")
+        #expect(result.correlationId == correlationId)
+    }
+
     @Test("debug unsafe no-auth serves Bridge package status and file view descriptor methods")
     func debugUnsafeNoAuthServesBridgePackageStatusAndFileViewDescriptorMethods() throws {
         let paneId = UUID()

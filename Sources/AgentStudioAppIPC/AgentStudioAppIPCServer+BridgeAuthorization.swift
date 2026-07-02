@@ -100,7 +100,7 @@ extension AgentStudioAppIPCServer {
     }
 
     func requireAuthorizedBridgePaneTarget(for request: JSONRPCRequest) async throws {
-        guard request.method != "bridge.diff.load" else {
+        guard request.method != "bridge.diff.load", request.method != "bridge.fileView.open" else {
             return
         }
 

@@ -116,7 +116,7 @@ extension WebKitSerializedTests {
         }
 
         @Test
-        func test_bridgeInternalApplyIntakeFrameJSONReachesPageCarrier() async throws {
+        func test_defaultControllerIntakeDeliveryReachesPageCarrier() async throws {
             let controller = BridgePaneController(
                 paneId: UUIDv7.generate(),
                 state: BridgePaneState(panelKind: .diffViewer, source: nil)
@@ -126,10 +126,47 @@ extension WebKitSerializedTests {
             try await WebPageTestHarness.withManagedPage(controller.page) { page in
                 try await loadPageAndInstallProbe(page, controller: controller)
 
+                let frameJSON = try makeFrame(kind: .snapshot, generation: 1, sequence: 0)
+                let delivered = await controller.deliverIntakeFrame(frameJSON)
+
+                let didObserveSnapshot = await waitUntilCarrierObservation {
+                    await self.probeAcceptedKinds(page).contains("snapshot")
+                }
+                let probeState = await probeDescription(page)
+
+                #expect(delivered, "Expected native intake dispatch to report delivery")
+                #expect(
+                    didObserveSnapshot, "Expected native intake dispatch to reach page carrier: \(probeState)")
+            }
+        }
+
+        @Test
+        func test_latePageCarrierReceivesBufferedIntakeFrameOnReplayRequest() async throws {
+            let controller = BridgePaneController(
+                paneId: UUIDv7.generate(),
+                state: BridgePaneState(panelKind: .diffViewer, source: nil)
+            )
+            defer { controller.teardown() }
+
+            try await WebPageTestHarness.withManagedPage(controller.page) { page in
+                controller.loadApp()
+                try await waitForPageLoad(page)
+                let didCompleteBridgeReadyHandshake = await waitUntil {
+                    controller.isBridgeReady
+                }
+                try #require(didCompleteBridgeReadyHandshake, "Bridge app did not complete ready handshake")
+
                 try await dispatchBridgeInternalIntakeFrame(
                     page,
                     frameJSON: makeFrame(kind: .snapshot, generation: 1, sequence: 0)
                 )
+                try await installIntakeProbe(page, maxFrameBytes: 1024)
+                let didCapturePushNonce = await waitUntil {
+                    await self.probePushNonce(page) == controller.pushNonce
+                }
+                try #require(didCapturePushNonce, "Intake probe did not receive bridge push nonce")
+
+                try await requestIntakeReplay(page)
 
                 let didObserveSnapshot = await waitUntilCarrierObservation {
                     await self.probeAcceptedKinds(page).contains("snapshot")
@@ -137,7 +174,58 @@ extension WebKitSerializedTests {
                 let probeState = await probeDescription(page)
 
                 #expect(
-                    didObserveSnapshot, "Expected bridge-world intake dispatcher to reach page carrier: \(probeState)")
+                    didObserveSnapshot,
+                    "Expected late page carrier to receive buffered intake frame on replay: \(probeState)"
+                )
+            }
+        }
+
+        @Test
+        func test_latePageCarrierReplayKeepsSnapshotWhenManyFramesArriveBeforeListener() async throws {
+            let controller = BridgePaneController(
+                paneId: UUIDv7.generate(),
+                state: BridgePaneState(panelKind: .diffViewer, source: nil)
+            )
+            defer { controller.teardown() }
+
+            try await WebPageTestHarness.withManagedPage(controller.page) { page in
+                controller.loadApp()
+                try await waitForPageLoad(page)
+                let didCompleteBridgeReadyHandshake = await waitUntil {
+                    controller.isBridgeReady
+                }
+                try #require(didCompleteBridgeReadyHandshake, "Bridge app did not complete ready handshake")
+
+                for sequence in 0..<70 {
+                    try await dispatchBridgeInternalIntakeFrame(
+                        page,
+                        frameJSON: makeFrame(
+                            kind: sequence == 0 ? .snapshot : .delta,
+                            generation: 1,
+                            sequence: sequence
+                        )
+                    )
+                }
+                try await installIntakeProbe(page, maxFrameBytes: 1024)
+                let didCapturePushNonce = await waitUntil {
+                    await self.probePushNonce(page) == controller.pushNonce
+                }
+                try #require(didCapturePushNonce, "Intake probe did not receive bridge push nonce")
+
+                try await requestIntakeReplay(page)
+
+                let didObserveFullReplay = await waitUntilCarrierObservation {
+                    await self.probeAcceptedSequences(page).count == 70
+                }
+                let acceptedSequences = await probeAcceptedSequences(page)
+                let probeState = await probeDescription(page)
+
+                #expect(
+                    didObserveFullReplay,
+                    "Expected late replay to preserve all intake frames, including snapshot: \(probeState)"
+                )
+                #expect(acceptedSequences.first == 0)
+                #expect(acceptedSequences.last == 69)
             }
         }
 
@@ -182,6 +270,15 @@ extension WebKitSerializedTests {
                 window.__bridgeInternal.applyIntakeFrameJSON(\(frameLiteral));
                 """,
                 contentWorld: WKContentWorld.world(name: "agentStudioBridge")
+            )
+        }
+
+        private func requestIntakeReplay(_ page: WebPage) async throws {
+            _ = try await page.callJavaScript(
+                """
+                document.dispatchEvent(new CustomEvent('__bridge_intake_replay_request'));
+                """,
+                contentWorld: .page
             )
         }
 
@@ -268,6 +365,27 @@ extension WebKitSerializedTests {
                 page,
                 expression: "(window.__bridgeIntakeProbe?.accepted ?? []).map((entry) => entry.message).filter(Boolean)"
             )
+        }
+
+        private func probeAcceptedSequences(_ page: WebPage) async -> [Int] {
+            do {
+                let result = try await page.callJavaScript(
+                    """
+                    return JSON.stringify((window.__bridgeIntakeProbe?.accepted ?? [])
+                      .map((entry) => entry.sequence)
+                      .filter((value) => typeof value === 'number'))
+                    """,
+                    contentWorld: .page
+                )
+                guard let json = result as? String,
+                    let data = json.data(using: .utf8)
+                else {
+                    return []
+                }
+                return (try? JSONDecoder().decode([Int].self, from: data)) ?? []
+            } catch {
+                return []
+            }
         }
 
         private func probeDropReasons(_ page: WebPage) async -> [String] {

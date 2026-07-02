@@ -71,6 +71,12 @@ final class WorkspaceActionExecutor {
         coordinator.openBridgeReview(worktreeId: worktreeId)
     }
 
+    /// Open a new Bridge file-viewer pane in a new tab.
+    @discardableResult
+    func openBridgeFileView(worktreeId: UUID? = nil) -> Pane? {
+        coordinator.openBridgeFileView(worktreeId: worktreeId)
+    }
+
     @discardableResult
     func openContextualWebviewInPane(
         sourcePaneId: UUID,

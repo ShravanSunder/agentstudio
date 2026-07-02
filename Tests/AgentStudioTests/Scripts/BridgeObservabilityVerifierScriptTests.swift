@@ -3,6 +3,79 @@ import Testing
 
 @Suite("Bridge observability verifier script")
 struct BridgeObservabilityVerifierScriptTests {
+    @Test("verifier accepts selected file materialization with positive file lines")
+    func verifierAcceptsSelectedFileMaterializationWithPositiveFileLines() throws {
+        let fixture = try LauncherScriptFixture()
+        defer { fixture.cleanup() }
+        let stateFile = fixture.url("latest.env")
+        try """
+        AGENTSTUDIO_OBSERVABILITY_STATUS=running
+        AGENTSTUDIO_OBSERVABILITY_MARKER=debug-marker
+        AGENTSTUDIO_OBSERVABILITY_DEBUG_CODE=testcode
+        AGENTSTUDIO_OBSERVABILITY_PID=999999999
+        AGENTSTUDIO_OBSERVABILITY_QUERY_START=2026-06-12T00:00:00Z
+        AGENTSTUDIO_OBSERVABILITY_STARTUP_DIAGNOSTIC_ACTION=bridge-review-observability-smoke
+        AGENTSTUDIO_BRIDGE_OBSERVABILITY_SCENARIO=package_apply_content_fetch_v1
+        """
+        .appending("\n").write(to: stateFile, atomically: true, encoding: .utf8)
+        let diagnosticRecord = """
+            {"_msg":"app.startup_diagnostic_action.completed","agentstudio.startup_diagnostic.action":"bridge-review-observability-smoke","agentstudio.startup_diagnostic.expected_visible_pane.count":1,"agentstudio.startup_diagnostic.bridge.review_expected_item.count":697,"agentstudio.startup_diagnostic.bridge.review_metadata_item.count":697,"agentstudio.startup_diagnostic.bridge.review_metadata_tree_row.count":905,"agentstudio.startup_diagnostic.bridge.review_shell.visible":true,"agentstudio.startup_diagnostic.bridge.review_shell.state":"ready","agentstudio.startup_diagnostic.bridge.code_view.visible":true,"agentstudio.startup_diagnostic.bridge.selected_item.visible":true,"agentstudio.startup_diagnostic.bridge.selected_path.visible":true,"agentstudio.startup_diagnostic.bridge.selected_content.visible":true,"agentstudio.startup_diagnostic.bridge.selected_content.state":"ready","agentstudio.startup_diagnostic.bridge.selected_content_role.count":1,"agentstudio.startup_diagnostic.bridge.selected_content_cache_key.count":1,"agentstudio.startup_diagnostic.bridge.selected_content_character.count":1294,"agentstudio.startup_diagnostic.bridge.selected_content_line.count":0,"agentstudio.startup_diagnostic.bridge.selected_materialized.update_result":"updated","agentstudio.startup_diagnostic.bridge.selected_materialized.item_type":"file","agentstudio.startup_diagnostic.bridge.selected_materialized.item_version":5,"agentstudio.startup_diagnostic.bridge.selected_materialized.addition_line.count":0,"agentstudio.startup_diagnostic.bridge.selected_materialized.deletion_line.count":0,"agentstudio.startup_diagnostic.bridge.selected_materialized.file_line.count":31,"agentstudio.startup_diagnostic.bridge.page_issue.count":0,"agentstudio.startup_diagnostic.bridge.page_issue.disallowed.count":0,"agentstudio.startup_diagnostic.bridge.bridge_command.count":1,"agentstudio.startup_diagnostic.bridge.review_intake_ready_command.count":1,"agentstudio.startup_diagnostic.bridge.bridge_response.count":1,"agentstudio.startup_diagnostic.bridge.intake_frame.count":1,"agentstudio.startup_diagnostic.bridge.review_intake_snapshot_frame.count":1,"agentstudio.startup_diagnostic.bridge.review_intake_metadata_window_frame.count":1,"agentstudio.startup_diagnostic.bridge.review_intake.last_frame_kind":"review.metadataWindow","agentstudio.startup_diagnostic.bridge.review_intake.last_stream_id_matches":true,"agentstudio.startup_diagnostic.bridge.diff_container.count":5,"agentstudio.startup_diagnostic.bridge.code_view.instance.first_item.height_px":44,"agentstudio.startup_diagnostic.bridge.code_view.rendered_item.count":5,"agentstudio.startup_diagnostic.bridge.code_view.rendered_item.type":"file","agentstudio.startup_diagnostic.bridge.code_view.rendered_item.version":5,"agentstudio.startup_diagnostic.bridge.code_view_panel.width_px":2208,"agentstudio.startup_diagnostic.bridge.code_view_panel.height_px":1081,"agentstudio.startup_diagnostic.bridge.diff_container.width_px":2195,"agentstudio.startup_diagnostic.bridge.code_text.length":2243,"agentstudio.startup_diagnostic.bridge.code_shadow_text.length":2222,"agentstudio.startup_diagnostic.bridge.worker_pool.state":"ready","agentstudio.startup_diagnostic.bridge.worker_pool.manager_state":"initialized","agentstudio.startup_diagnostic.bridge.worker_pool.workers_failed":false,"agentstudio.startup_diagnostic.bridge.worker_diagnostic.diff_success_count":3,"agentstudio.startup_diagnostic.bridge.worker_diagnostic.failure_count":0,"agentstudio.startup_diagnostic.render_proof.succeeded":true}
+            """
+        let result = try fixture.runVerifier(
+            scriptPath: "scripts/verify-bridge-observability.sh",
+            stateFile: stateFile,
+            environment: [
+                "AGENTSTUDIO_OBSERVABILITY_ALLOW_COMPLETED_EXIT": "1",
+                "AGENTSTUDIO_OBSERVABILITY_VERIFY_ATTEMPTS": "1",
+                "AGENTSTUDIO_OBSERVABILITY_VERIFY_RETRY_DELAY_SECONDS": "0",
+                "AGENTSTUDIO_CURL_BIN": try fixture.executable(
+                    "curl-bridge-verifier-file-materialization",
+                    """
+                    #!/bin/bash
+                    args="$*"
+                    if [[ "$args" == *"app.zmx_startup_reconciliation.completed"* ]]; then
+                      printf '{"_msg":"app.zmx_startup_reconciliation.completed","agentstudio.zmx.startup.inventory_outcome":"complete","agentstudio.zmx.startup.live_session_count":1,"agentstudio.zmx.startup.hydrated_anchor_count":0,"agentstudio.zmx.startup.protected_session_count":1,"agentstudio.zmx.startup.unresolved_candidate_count":0,"agentstudio.zmx.startup.unmatched_live_session_count":0}\\n'
+                      exit 0
+                    fi
+                    if [[ "$args" == *"app.startup_diagnostic_action.command_exercised"* ]] || [[ "$args" == *"app.startup_diagnostic_action.completed"* ]]; then
+                      printf '%s\\n' '\(diagnosticRecord)'
+                      exit 0
+                    fi
+                    if [[ "$args" == *"api/v1/query"* ]]; then
+                      if [[ "$args" == *"unless"* ]] || [[ "$args" == *"package_push"* ]] || [[ "$args" == *"package_apply"* ]] || [[ "$args" == *"unknown"* ]] || [[ "$args" == *"diff_package_metadata"* ]] || [[ "$args" == *"diff_package_delta"* ]] || [[ "$args" == *"review_delta"* ]] || [[ "$args" == *"review_invalidation"* ]] || [[ "$args" == *"review_reset"* ]] || [[ "$args" == *"review_metadata"* && "$args" == *"push_envelope"* ]] || [[ "$args" == *"review_metadata"* && "$args" == *"push_apply"* && "$args" == *"transport=\\"push\\""* ]] || [[ "$args" == *"review_metadata"* && "$args" == *"first_render"* && "$args" == *"transport=\\"push\\""* ]]; then
+                        printf '{"status":"success","data":{"resultType":"vector","result":[]}}\\n'
+                        exit 0
+                      fi
+                      printf '{"status":"success","data":{"resultType":"vector","result":[{"metric":{},"value":[1780000000,"1"]}]}}\\n'
+                      exit 0
+                    fi
+                    if [[ "$args" == *"agentstudio.bridge.item_id:"* ]] || [[ "$args" == *"agentstudio.bridge.lane:"* ]] || [[ "$args" == *"agentstudio.bridge.tab_id:"* ]] || [[ "$args" == *"agentstudio.bridge.session_id:"* ]] || [[ "$args" == *"agentstudio.bridge.operation_id:"* ]] || [[ "$args" == *"agentstudio.bridge.request_id:"* ]] || [[ "$args" == *"agentstudio.bridge.content_hash:"* ]] || [[ "$args" == *"agentstudio.bridge.checkpoint_id:"* ]] || [[ "$args" == *"agentstudio.bridge.dynamic_key:"* ]] || [[ "$args" == *"agentstudio.bridge.path:"* ]] || [[ "$args" == *"agentstudio.bridge.prompt:"* ]] || [[ "$args" == *"agentstudio.bridge.raw_error:"* ]] || [[ "$args" == *"agentstudio.bridge.payload:"* ]] || [[ "$args" == *"agentstudio.bridge.text:"* ]] || [[ "$args" == *"agentstudio.bridge.output:"* ]] || [[ "$args" == *"agentstudio.bridge.token:"* ]] || [[ "$args" == *"agentstudio.bridge.secret:"* ]]; then
+                      exit 0
+                    fi
+                    if [[ "$args" == *"performance.bridge.webkit.package_push"* ]] || [[ "$args" == *"performance.bridge.web.package_apply"* ]] || [[ "$args" == *"agentstudio.bridge.rpc.method_class:telemetry"* ]] || [[ "$args" == *"span_attr:agentstudio.bridge.rpc.method_class\\":\\"telemetry"* ]] || [[ "$args" == *"performance.bridge.webkit.push_envelope"* && "$args" == *"unknown"* ]] || [[ "$args" == *"performance.bridge.webkit.push_envelope"* && "$args" == *"diff_package_metadata"* ]] || [[ "$args" == *"performance.bridge.webkit.push_envelope"* && "$args" == *"diff_package_delta"* ]] || [[ "$args" == *"performance.bridge.webkit.push_envelope"* && "$args" == *"review_metadata"* ]] || [[ "$args" == *"performance.bridge.webkit.push_envelope"* && "$args" == *"review_delta"* ]] || [[ "$args" == *"performance.bridge.webkit.push_envelope"* && "$args" == *"review_invalidation"* ]] || [[ "$args" == *"performance.bridge.webkit.push_envelope"* && "$args" == *"review_reset"* ]] || [[ "$args" == *"performance.bridge.web.push_apply"* && "$args" == *"diff_package_metadata"* ]] || [[ "$args" == *"performance.bridge.web.push_apply"* && "$args" == *"diff_package_delta"* ]] || [[ "$args" == *"performance.bridge.web.push_apply"* && "$args" == *"review_metadata"* ]] || [[ "$args" == *"performance.bridge.web.push_apply"* && "$args" == *"review_delta"* ]] || [[ "$args" == *"performance.bridge.web.push_apply"* && "$args" == *"review_invalidation"* ]] || [[ "$args" == *"performance.bridge.web.push_apply"* && "$args" == *"review_reset"* ]] || [[ "$args" == *"performance.bridge.web.first_render"* && "$args" == *"diff_package_metadata"* && "$args" == *"push"* ]] || [[ "$args" == *"performance.bridge.web.first_render"* && "$args" == *"review_metadata"* && "$args" == *"push"* ]]; then
+                      exit 0
+                    fi
+                    if [[ "$args" == *"performance.bridge."* ]]; then
+                      printf '{"_msg":"performance.bridge.test","agentstudio.bridge.phase":"test","agentstudio.bridge.plane":"data","agentstudio.bridge.priority":"hot","agentstudio.bridge.slice":"test","agentstudio.bridge.transport":"test","trace_id":"trace","span_id":"span"}\\n'
+                      exit 0
+                    fi
+                    if [[ "$args" == *"span_attr:agent.proof.marker"* ]]; then
+                      printf '{"trace_id":"trace","span_id":"span","span_name":"bridge.test","span_attr:agent.proof.marker":"debug-marker","span_attr:agentstudio.bridge.test.scenario":"package_apply_content_fetch_v1","span_attr:agentstudio.bridge.phase":"test"}\\n'
+                      exit 0
+                    fi
+                    if [[ "$args" == *":*"* ]]; then
+                      exit 0
+                    fi
+                    printf '{"service.name":"AgentStudio","service.version":"0.0.1-debug+testcode","dev.runtime.flavor":"debug","_msg":"app.process.start"}\\n'
+                    exit 0
+                    """
+                ).path,
+            ]
+        )
+
+        #expect(result.exitCode == 0, "stdout: \(result.stdout)\nstderr: \(result.stderr)")
+    }
+
     @Test("verifier covers all bridge telemetry planes with marker-scoped Victoria proof")
     func verifierCoversBridgeTelemetryPlanesWithMarkerScopedVictoriaProof() throws {
         let verifierScript = try String(
@@ -36,23 +109,23 @@ struct BridgeObservabilityVerifierScriptTests {
         #expect(verifierScript.contains("agentstudio.bridge.content_hash"))
         #expect(
             verifierScript.contains(
-                "performance.bridge.webkit.package_push|transport|data|hot|diff_status|push"
+                "performance.bridge.webkit.push_envelope|transport|data|hot|diff_status|push"
             ))
         #expect(
             verifierScript.contains(
-                "performance.bridge.web.intake_frame|intake|data|cold|review_snapshot|intake"
+                "performance.bridge.web.intake_frame|intake|data|cold|review_metadata|intake"
             ))
         #expect(
-            verifierScript.contains(
+            !verifierScript.contains(
                 "performance.bridge.web.intake_frame|intake|data|warm|review_delta|intake"
             ))
         #expect(
             verifierScript.contains(
-                "performance.bridge.web.package_apply|apply|data|cold|review_snapshot|intake"
+                "performance.bridge.web.review_metadata_apply|review_metadata_apply|data|hot|review_metadata|intake"
             ))
         #expect(
             verifierScript.contains(
-                "performance.bridge.web.first_render|render|data|hot|review_snapshot|intake"
+                "performance.bridge.web.first_render|render|data|hot|review_metadata|intake"
             ))
         #expect(
             verifierScript.contains(
@@ -77,15 +150,17 @@ struct BridgeObservabilityVerifierScriptTests {
         #expect(verifierScript.contains("agentstudio.bridge.item_id"))
         #expect(verifierScript.contains("agentstudio.bridge.raw_error"))
         #expect(verifierScript.contains("agentstudio.bridge.prompt"))
-        #expect(verifierScript.contains("missing Bridge broad package_push metric fallback"))
-        #expect(verifierScript.contains("Bridge package_push metric used unknown producer slice"))
-        #expect(verifierScript.contains("Bridge package_push log used unknown producer slice"))
+        #expect(verifierScript.contains("missing Bridge broad push_envelope metric fallback"))
+        #expect(verifierScript.contains("Bridge push_envelope metric used unknown producer slice"))
+        #expect(verifierScript.contains("Bridge push_envelope log used unknown producer slice"))
+        #expect(verifierScript.contains("legacy Bridge package_push metric survived hard cutover"))
+        #expect(verifierScript.contains("legacy Bridge package_apply metric survived hard cutover"))
         #expect(verifierScript.contains("Bridge Review package data still used WebKit push transport"))
         #expect(verifierScript.contains("Bridge Review package data still used web push apply transport"))
         #expect(verifierScript.contains("Bridge Review first render still reported push transport"))
         #expect(
             verifierScript.contains(
-                "event=\"performance.bridge.webkit.package_push\",slice=\"unknown\""
+                "event=\"performance.bridge.webkit.push_envelope\",slice=\"unknown\""
             ))
         #expect(miseConfig.contains("[tasks.verify-bridge-observability]"))
     }

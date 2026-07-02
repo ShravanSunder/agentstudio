@@ -2498,6 +2498,9 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         case .openBridgeReview:
             executor.openBridgeReview()
             return true
+        case .openBridgeFileView:
+            executor.openBridgeFileView()
+            return true
         default:
             return false
         }
@@ -2980,14 +2983,22 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
         target: UUID,
         targetType: SearchItemType
     ) -> Bool {
-        guard command == .openBridgeReview, targetType == .worktree else {
+        guard targetType == .worktree else {
             return false
         }
         guard store.repositoryTopologyAtom.worktree(target) != nil else {
             return false
         }
-        _ = executor.openBridgeReview(worktreeId: target)
-        return true
+        switch command {
+        case .openBridgeReview:
+            _ = executor.openBridgeReview(worktreeId: target)
+            return true
+        case .openBridgeFileView:
+            _ = executor.openBridgeFileView(worktreeId: target)
+            return true
+        default:
+            return false
+        }
     }
 
     func executeExtractPaneToTab(tabId: UUID, paneId: UUID, targetTabIndex: Int?) {
@@ -3013,7 +3024,7 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
             return true
         }
 
-        if command == .openBridgeReview, targetType == .worktree {
+        if command == .openBridgeReview || command == .openBridgeFileView, targetType == .worktree {
             return store.repositoryTopologyAtom.worktree(target) != nil
         }
 

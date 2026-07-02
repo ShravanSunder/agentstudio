@@ -405,7 +405,7 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
             )
         case "permission.request":
             return AuthorizedRequestContext(request: request, target: principal.boundPaneTarget ?? .app)
-        case "bridge.diff.load":
+        case "bridge.diff.load", "bridge.fileView.open":
             return AuthorizedRequestContext(request: request, target: .app)
         case "ui.commandBar.open":
             return AuthorizedRequestContext(request: request, target: .app)

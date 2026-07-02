@@ -62,4 +62,29 @@ enum ReviewMethods {
         typealias Result = RPCNoResponse
         static let method = "review.unmarkFileViewed"
     }
+
+    enum MetadataInterestUpdateMethod: RPCMethod {
+        struct Params: Decodable, Sendable {
+            private enum CodingKeys: String, CodingKey {
+                case protocolId = "protocol"
+                case streamId
+                case generation
+                case itemIds
+                case paths
+                case lane
+                case loadedBy = "loaded_by"
+            }
+
+            let protocolId: String
+            let streamId: String?
+            let generation: Int?
+            let itemIds: [String]?
+            let paths: [String]?
+            let lane: BridgeDemandLane
+            let loadedBy: BridgeReviewMetadataLoadedBy?
+        }
+
+        typealias Result = RPCNoResponse
+        static let method = "bridge.metadata_interest.update"
+    }
 }

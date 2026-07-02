@@ -130,6 +130,7 @@ struct CommandBarUnifiedWorktreeDataSourceTests {
                 "Reveal in Finder",
                 "Open Terminal in New Tab",
                 "Review",
+                "Files",
                 "New pane in current tab",
             ])
         #expect(level.items.contains { $0.group == "Navigate to" && $0.title == "Terminal — main" })

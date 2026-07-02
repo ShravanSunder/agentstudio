@@ -12,7 +12,19 @@ struct ObservabilityDebugBridgeLaunchScriptsTests {
         #expect(script.contains("trace_tags=\"$AGENTSTUDIO_TRACE_TAGS\""))
         #expect(
             script.contains(
-                "elif [ \"$startup_diagnostic_action\" = \"bridge-review-observability-smoke\" ]; then"))
+                "elif [ \"$startup_diagnostic_action\" = \"bridge-review-observability-smoke\" ] ||"))
+        #expect(
+            script.contains(
+                "[ \"$startup_diagnostic_action\" = \"bridge-file-view-observability-smoke\" ] ||"))
+        #expect(
+            script.contains(
+                "[ \"$startup_diagnostic_action\" = \"bridge-file-view-command-route-observability-smoke\" ] ||"))
+        #expect(
+            script.contains(
+                "[ \"$startup_diagnostic_action\" = \"bridge-file-view-targeted-route-observability-smoke\" ] ||"))
+        #expect(
+            script.contains(
+                "[ \"$startup_diagnostic_action\" = \"bridge-review-to-file-view-observability-smoke\" ]; then"))
         #expect(script.contains("trace_tags=\"app.startup,bridge.performance.*\""))
         #expect(script.contains("--env \"AGENTSTUDIO_TRACE_TAGS=$trace_tags\""))
     }

@@ -5,21 +5,49 @@ extension WorkspaceSurfaceCoordinator {
     /// Open a read-only Bridge review pane in a new tab.
     @discardableResult
     func openBridgeReview(worktreeId: UUID? = nil) -> Pane? {
+        openBridgePane(
+            panelKind: .diffViewer,
+            title: "Bridge Review",
+            worktreeId: worktreeId,
+            logName: "Bridge review"
+        )
+    }
+
+    /// Open a Bridge file-viewer pane in a new tab.
+    @discardableResult
+    func openBridgeFileView(worktreeId: UUID? = nil) -> Pane? {
+        openBridgePane(
+            panelKind: .fileViewer,
+            title: "Files",
+            worktreeId: worktreeId,
+            logName: "Bridge file view"
+        )
+    }
+
+    @discardableResult
+    private func openBridgePane(
+        panelKind: BridgePanelKind,
+        title: String,
+        worktreeId: UUID?,
+        logName: String
+    ) -> Pane? {
         let activePane = store.tabLayoutAtom.activeTabId
             .flatMap { store.tabLayoutAtom.tab($0)?.activePaneId }
             .flatMap { store.paneAtom.pane($0) }
         guard let context = bridgeReviewMetadata(from: activePane, worktreeId: worktreeId) else {
             return nil
         }
-        let state = BridgePaneState(panelKind: .diffViewer, source: context.source)
+        let state = BridgePaneState(panelKind: panelKind, source: context.source)
+        var metadata = context.metadata
+        metadata.updateTitle(title)
         let pane = store.paneAtom.createPane(
             content: .bridgePanel(state),
-            metadata: context.metadata
+            metadata: metadata
         )
         viewRegistry.ensureSlot(for: pane.id)
 
         guard createViewForContent(pane: pane) != nil else {
-            Self.logger.error("Bridge review creation failed — rolling back pane \(pane.id)")
+            Self.logger.error("\(logName) creation failed — rolling back pane \(pane.id)")
             store.mutationCoordinator.removePane(pane.id)
             // Safe immediate deletion: creation failed before the pane entered a rendered layout.
             viewRegistry.removeSlot(for: pane.id)
@@ -30,7 +58,7 @@ extension WorkspaceSurfaceCoordinator {
         store.tabLayoutAtom.appendTab(tab)
         store.tabLayoutAtom.setActiveTab(tab.id)
 
-        Self.logger.info("Opened Bridge review pane \(pane.id)")
+        Self.logger.info("Opened \(logName) pane \(pane.id)")
         return pane
     }
 
@@ -81,17 +109,27 @@ extension WorkspaceSurfaceCoordinator {
         }
 
         guard let resolved = resolvedWorktreeContext(for: activePane) else {
-            return (
-                PaneMetadata(
-                    contentType: .diff,
-                    title: "Bridge Review"
-                ),
-                nil
+            guard let onlyRegisteredContext = onlyRegisteredWorktreeContext() else {
+                return nil
+            }
+            return bridgeReviewMetadata(
+                repo: onlyRegisteredContext.repo,
+                worktree: onlyRegisteredContext.worktree,
+                cwd: onlyRegisteredContext.worktree.path
             )
         }
 
         let cwd = activePane?.metadata.cwd ?? resolved.worktree.path
         return bridgeReviewMetadata(repo: resolved.repo, worktree: resolved.worktree, cwd: cwd)
+    }
+
+    private func onlyRegisteredWorktreeContext() -> (repo: Repo, worktree: Worktree)? {
+        let contexts = store.repositoryTopologyAtom.repos.flatMap { repo in
+            repo.worktrees.map { worktree in
+                (repo: repo, worktree: worktree)
+            }
+        }
+        return contexts.count == 1 ? contexts[0] : nil
     }
 
     private func bridgeReviewMetadata(
@@ -118,6 +156,6 @@ extension WorkspaceSurfaceCoordinator {
     }
 
     private func defaultBridgeReviewBaseline(for _: Repo) -> WorkspaceBaseline {
-        .ref(name: "HEAD")
+        .localDefaultBranch(branchName: "main")
     }
 }

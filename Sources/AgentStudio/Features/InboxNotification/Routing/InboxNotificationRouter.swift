@@ -968,6 +968,8 @@ extension InboxNotificationRouter {
             switch state.panelKind {
             case .diffViewer:
                 return "Diff"
+            case .fileViewer:
+                return "Files"
             }
         case .codeViewer:
             return "Code"

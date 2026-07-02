@@ -140,6 +140,7 @@ struct WelcomeSidebarIllustration: View {
                     onOpen: {},
                     onOpenNew: {},
                     onReview: {},
+                    onOpenFiles: {},
                     onOpenInPane: {},
                     onSetIconColor: { _ in }
                 )
@@ -156,6 +157,7 @@ struct WelcomeSidebarIllustration: View {
                     onOpen: {},
                     onOpenNew: {},
                     onReview: {},
+                    onOpenFiles: {},
                     onOpenInPane: {},
                     onSetIconColor: { _ in }
                 )
@@ -172,6 +174,7 @@ struct WelcomeSidebarIllustration: View {
                     onOpen: {},
                     onOpenNew: {},
                     onReview: {},
+                    onOpenFiles: {},
                     onOpenInPane: {},
                     onSetIconColor: { _ in }
                 )
@@ -202,6 +205,7 @@ struct WelcomeSidebarIllustration: View {
                     onOpen: {},
                     onOpenNew: {},
                     onReview: {},
+                    onOpenFiles: {},
                     onOpenInPane: {},
                     onSetIconColor: { _ in }
                 )
@@ -218,6 +222,7 @@ struct WelcomeSidebarIllustration: View {
                     onOpen: {},
                     onOpenNew: {},
                     onReview: {},
+                    onOpenFiles: {},
                     onOpenInPane: {},
                     onSetIconColor: { _ in }
                 )

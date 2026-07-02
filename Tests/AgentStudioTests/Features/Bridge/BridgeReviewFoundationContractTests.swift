@@ -78,6 +78,32 @@ struct BridgeReviewFoundationContractTests {
         try assertRoundTrip(delta)
     }
 
+    @Test("bridge content handle preserves inexact size through codable round trip")
+    func bridgeContentHandlePreservesInexactSizeThroughCodableRoundTrip() throws {
+        let handle = BridgeContentHandle(
+            handleId: "handle-source-base",
+            itemId: "item-source",
+            role: .base,
+            endpointId: "baseline",
+            reviewGeneration: 7,
+            resourceUrl: "agentstudio://resource/review/content/handle-source-base?generation=7",
+            contentHash: bridgeSHA256ContentHash("old source"),
+            contentHashAlgorithm: "sha256",
+            cacheKey: "baseline:item-source:base",
+            mimeType: "text/plain",
+            language: nil,
+            sizeBytes: 12,
+            sizeBytesIsExact: false,
+            isBinary: false
+        )
+
+        let encoded = try JSONEncoder().encode(handle)
+        let decoded = try JSONDecoder().decode(BridgeContentHandle.self, from: encoded)
+
+        #expect(decoded == handle)
+        #expect(decoded.sizeBytesIsExact == false)
+    }
+
     @Test("bridge review package fixture missing generation is rejected")
     func bridgeReviewPackageFixtureMissingGenerationIsRejected() throws {
         let data = try fixtureData(

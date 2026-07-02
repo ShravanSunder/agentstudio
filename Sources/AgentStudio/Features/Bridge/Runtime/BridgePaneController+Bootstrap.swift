@@ -6,6 +6,7 @@ struct BridgeBootstrapScriptInput {
     let pushNonce: String
     let reviewPaneId: String
     let reviewStreamId: String
+    let panelKind: BridgePanelKind
     let worktreeFileSourceSpec: BridgeWorktreeFileSurfaceSourceSpec?
     let telemetryConfig: BridgeTelemetryBootstrapConfig?
     let bridgeWorld: WKContentWorld
@@ -19,7 +20,6 @@ struct BridgeBootstrapArtifacts {
 struct BridgeSchemeHandlerRegistrationInput {
     let paneId: UUID
     let reviewContentStore: BridgeContentStore
-    let reviewResourceStore: BridgeReviewResourceStore
     let worktreeFileResourceStore: BridgeWorktreeFileResourceStore
     let resourceLeaseRegistry: BridgeTransportResourceLeaseRegistry
     let telemetryRecorder: (any BridgePerformanceTraceRecording)?
@@ -35,7 +35,6 @@ extension BridgePaneController {
         config.urlSchemeHandlers[scheme] = BridgeSchemeHandler(
             paneId: input.paneId,
             contentStore: input.reviewContentStore,
-            reviewResourceStore: input.reviewResourceStore,
             worktreeFileResourceStore: input.worktreeFileResourceStore,
             resourceLeaseRegistry: input.resourceLeaseRegistry,
             allowedResourceKindsByProtocol: BridgeResourceProtocolRegistry.reviewViewerAllowedResourceKinds,
@@ -77,6 +76,7 @@ extension BridgePaneController {
             source: BridgeBootstrap.generateScript(
                 bridgeNonce: input.bridgeNonce,
                 pushNonce: input.pushNonce,
+                appProtocol: Self.bridgeAppProtocol(for: input.panelKind),
                 reviewPaneId: input.reviewPaneId,
                 reviewStreamId: input.reviewStreamId,
                 worktreeFileSourceSpec: input.worktreeFileSourceSpec,
@@ -91,7 +91,7 @@ extension BridgePaneController {
     static func makeBootstrapArtifacts(
         paneId: UUID,
         metadata: PaneMetadata,
-        source: BridgePaneSource?,
+        state: BridgePaneState,
         telemetryScopeGate: BridgeTelemetryScopeGate,
         bridgeWorld: WKContentWorld
     ) -> BridgeBootstrapArtifacts {
@@ -113,16 +113,26 @@ extension BridgePaneController {
                 pushNonce: pushNonce,
                 reviewPaneId: reviewPaneId,
                 reviewStreamId: reviewStreamId,
+                panelKind: state.panelKind,
                 worktreeFileSourceSpec: makeWorktreeFileBootstrapSourceSpec(
                     paneId: paneId,
                     metadata: metadata,
-                    source: source
+                    source: state.source
                 ),
                 telemetryConfig: telemetryConfig,
                 bridgeWorld: bridgeWorld
             )
         )
         return BridgeBootstrapArtifacts(pushNonce: pushNonce, script: script)
+    }
+
+    private static func bridgeAppProtocol(for panelKind: BridgePanelKind) -> String {
+        switch panelKind {
+        case .diffViewer:
+            "review"
+        case .fileViewer:
+            "worktree-file"
+        }
     }
 
     static func installInitialUserScripts(
@@ -156,7 +166,6 @@ extension BridgePaneController {
             cwdScope: nil,
             pathScope: [],
             includeStatuses: true,
-            includeFileDescriptors: true,
             includeComments: false,
             includeAgentComms: false,
             freshness: .live

@@ -4,10 +4,45 @@ import Testing
 @testable import AgentStudio
 
 struct BridgeReviewProtocolFrameBuilderTests {
-    @Test("snapshot frame attaches root and content resource descriptors")
-    func snapshotFrameAttachesRootAndContentResourceDescriptors() throws {
+    @Test("native review metadata snapshot intake frame matches BridgeWeb contract fixture")
+    func nativeReviewMetadataSnapshotIntakeFrameMatchesBridgeWebContractFixture() throws {
+        let intakeFrameJSON = try makeReviewMetadataSnapshotIntakeFrameJSON()
+        let intakeFrameData = try #require(intakeFrameJSON.data(using: .utf8))
+        let intakeFrameObject = try #require(
+            JSONSerialization.jsonObject(with: intakeFrameData) as? [String: Any]
+        )
+        let payloadObject = try #require(intakeFrameObject["payload"] as? [String: Any])
+        let comparisonObject = try #require(payloadObject["comparison"] as? [String: Any])
+        let contentDescriptors = try #require(
+            comparisonObject["contentDescriptors"] as? [[String: Any]]
+        )
+        let firstContentDescriptor = try #require(contentDescriptors.first)
+        let descriptor = try #require(firstContentDescriptor["descriptor"] as? [String: Any])
+        let descriptorContent = try #require(descriptor["content"] as? [String: Any])
+
+        #expect(intakeFrameObject["kind"] as? String == "snapshot")
+        #expect(intakeFrameObject["streamId"] as? String == "review:pane-1")
+        #expect(intakeFrameObject["generation"] as? Int == 3)
+        #expect(intakeFrameObject["sequence"] as? Int == 0)
+        #expect(payloadObject["kind"] as? String == "metadataSnapshot")
+        #expect(payloadObject["frameKind"] as? String == "review.metadataSnapshot")
+        #expect(descriptor["protocol"] as? String == "review")
+        #expect(descriptor["resourceKind"] as? String == "content")
+        #expect(descriptorContent["encoding"] as? String == "utf-8")
+
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let fixtureData = try Data(
+            contentsOf: projectRoot.appending(
+                path: "Tests/BridgeContractFixtures/valid/review-metadata-snapshot-intake-frame.json"
+            )
+        )
+        let fixtureObject = try #require(JSONSerialization.jsonObject(with: fixtureData) as? [String: Any])
+        #expect(NSDictionary(dictionary: intakeFrameObject).isEqual(to: fixtureObject))
+    }
+
+    @Test("metadata snapshot frame carries metadata and content descriptors without package body descriptor")
+    func metadataSnapshotFrameCarriesMetadataAndContentDescriptorsWithoutPackageBodyDescriptor() throws {
         let package = try makeReviewPackage()
-        let packageBody = try JSONEncoder().encode(package)
 
         let frame = try BridgeReviewProtocolFrameBuilder.snapshot(
             request: BridgeReviewProtocolSnapshotBuildRequest(
@@ -16,22 +51,51 @@ struct BridgeReviewProtocolFrameBuilderTests {
                 streamId: "stream-1",
                 sequence: 0,
                 package: package,
-                packageBodyFacts: BridgeReviewProtocolBodyResourceFacts(data: packageBody),
                 changesetCluster: nil
             )
         )
 
-        #expect(frame.kind == "snapshot")
-        #expect(frame.frameKind == "review.snapshot")
-        #expect(frame.package.rootDescriptor.descriptor.resourceKind == "review-package")
-        #expect(frame.package.rootDescriptor.descriptor.content.expectedBytes == packageBody.count)
-        #expect(frame.package.rootDescriptor.descriptor.content.maxBytes == packageBody.count)
-        #expect(frame.package.rootDescriptor.descriptor.content.integrity?.kind == .wholeHash)
-        #expect(frame.package.rootDescriptor.descriptor.content.integrity?.algorithm == "sha256")
-        #expect(frame.package.rootDescriptor.descriptor.content.integrity?.value?.hasPrefix("sha256:") == true)
-        #expect(frame.package.rootDescriptor.ref.expectedIdentity.paneId == "pane-1")
-        #expect(frame.package.contentDescriptors.count == 2)
-        let contentDescriptor = try #require(frame.package.contentDescriptors.first)
+        #expect(frame.kind == "metadataSnapshot")
+        #expect(frame.frameKind == "review.metadataSnapshot")
+        #expect(frame.comparison.packageId == package.packageId)
+        #expect(frame.comparison.baseEndpoint == package.baseEndpoint)
+        #expect(frame.comparison.headEndpoint == package.headEndpoint)
+        #expect(frame.comparison.contentDescriptors.count == 2)
+        #expect(frame.selectedItemId == package.orderedItemIds.first)
+        #expect(frame.visibleItemIds == package.orderedItemIds)
+        #expect(frame.itemMetadata.count == package.itemsById.count)
+        #expect(
+            frame.treeRows.map(\.rowId) == [
+                "review-directory:Sources",
+                "review-directory:Sources/App",
+                "review-row:item-source",
+            ]
+        )
+        let metadataItem = try #require(frame.itemMetadata.first)
+        #expect(metadataItem.itemId == "item-source")
+        #expect(metadataItem.contentRoles == ["base", "head"])
+        #expect(
+            frame.extentFacts.map { "\($0.itemId):\($0.contentRole)" } == [
+                "item-source:base",
+                "item-source:head",
+            ]
+        )
+        #expect(metadataItem.contentDescriptorIdsByRole?.base != nil)
+        #expect(metadataItem.contentDescriptorIdsByRole?.head != nil)
+        #expect(metadataItem.mimeTypes == ["text/x-swift"])
+        let treeRow = try #require(frame.treeRows.last)
+        #expect(treeRow.rowId == "review-row:item-source")
+        #expect(treeRow.path == "Sources/App/View.swift")
+        #expect(treeRow.depth == 2)
+        #expect(treeRow.isDirectory == false)
+        let sourceDirectoryRow = try #require(frame.treeRows.first)
+        #expect(sourceDirectoryRow.rowId == "review-directory:Sources")
+        #expect(sourceDirectoryRow.itemId == nil)
+        #expect(sourceDirectoryRow.path == "Sources")
+        #expect(sourceDirectoryRow.depth == 0)
+        #expect(sourceDirectoryRow.isDirectory == true)
+        #expect(frame.extentFacts.allSatisfy { $0.lineCount > 0 })
+        let contentDescriptor = try #require(frame.comparison.contentDescriptors.first)
         #expect(contentDescriptor.descriptor.protocolId == "review")
         #expect(contentDescriptor.descriptor.resourceKind == "content")
         #expect(contentDescriptor.descriptor.identity.revision == nil)
@@ -41,12 +105,38 @@ struct BridgeReviewProtocolFrameBuilderTests {
         let object = try #require(
             JSONSerialization.jsonObject(with: encoded) as? [String: Any]
         )
-        let packageObject = try #require(object["package"] as? [String: Any])
-        #expect(packageObject["contentDescriptors"] != nil)
+        let comparisonObject = try #require(object["comparison"] as? [String: Any])
+        #expect(comparisonObject["rootDescriptor"] == nil)
+        #expect(comparisonObject["contentDescriptors"] != nil)
+        #expect(object["package"] == nil)
+        #expect(object["itemMetadata"] != nil)
+        #expect(object["treeRows"] != nil)
+        let encodedTreeRows = try #require(object["treeRows"] as? [[String: Any]])
+        let encodedTreeRow = try #require(encodedTreeRows.last)
+        #expect(encodedTreeRow["displayName"] == nil)
+        #expect(encodedTreeRow["itemKind"] == nil)
+        #expect(encodedTreeRow["parentPath"] == nil)
+        #expect(encodedTreeRow["isDirectory"] as? Bool == false)
+        let encodedDirectoryRow = try #require(encodedTreeRows.first)
+        #expect(encodedDirectoryRow["itemId"] == nil)
+        #expect(encodedDirectoryRow["path"] as? String == "Sources")
+        #expect(encodedDirectoryRow["isDirectory"] as? Bool == true)
+        let encodedExtentFacts = try #require(object["extentFacts"] as? [[String: Any]])
+        let encodedExtentFact = try #require(encodedExtentFacts.first)
+        #expect(encodedExtentFacts.count == 2)
+        #expect(encodedExtentFact["contentRole"] as? String == "base")
+        let encodedItems = try #require(object["itemMetadata"] as? [[String: Any]])
+        let encodedItem = try #require(encodedItems.first)
+        #expect(encodedItem["itemVersion"] == nil)
+        #expect(encodedItem["contentDescriptorIdsByRole"] != nil)
+        #expect(encodedItem["loaded_by"] as? String == "startup_window")
+        #expect(encodedItem["lane"] as? String == "foreground")
+        #expect(encodedTreeRows.allSatisfy { $0["loaded_by"] as? String == "startup_window" })
+        #expect(encodedTreeRows.allSatisfy { $0["lane"] as? String == "foreground" })
     }
 
-    @Test("snapshot frame can defer root resource body facts")
-    func snapshotFrameCanDeferRootResourceBodyFacts() throws {
+    @Test("metadata snapshot emits extent facts for actual content roles")
+    func metadataSnapshotEmitsExtentFactsForActualContentRoles() throws {
         let package = try makeReviewPackage()
 
         let frame = try BridgeReviewProtocolFrameBuilder.snapshot(
@@ -56,21 +146,108 @@ struct BridgeReviewProtocolFrameBuilderTests {
                 streamId: "stream-1",
                 sequence: 0,
                 package: package,
-                packageBodyFacts: nil,
                 changesetCluster: nil
             )
         )
 
-        #expect(frame.package.rootDescriptor.descriptor.content.mediaType == "application/json")
-        #expect(frame.package.rootDescriptor.descriptor.content.expectedBytes == nil)
-        #expect(frame.package.rootDescriptor.descriptor.content.integrity == nil)
+        let item = try #require(frame.itemMetadata.first)
+        #expect(item.contentRoles == ["base", "head"])
         #expect(
-            frame.package.rootDescriptor.descriptor.content.maxBytes == AppPolicies.Bridge.ipcMaxResponsePayloadBytes)
+            frame.extentFacts.map { "\($0.itemId):\($0.contentRole)" } == [
+                "item-source:base",
+                "item-source:head",
+            ]
+        )
+        #expect(frame.extentFacts.allSatisfy { $0.lineCount > 0 })
+    }
+
+    @Test("metadata snapshot has no package body resource")
+    func metadataSnapshotHasNoPackageBodyResource() throws {
+        let package = try makeReviewPackage()
+
+        let frame = try BridgeReviewProtocolFrameBuilder.snapshot(
+            request: BridgeReviewProtocolSnapshotBuildRequest(
+                paneId: "pane-1",
+                sourceIdentity: "review-source-1",
+                streamId: "stream-1",
+                sequence: 0,
+                package: package,
+                changesetCluster: nil
+            )
+        )
+
+        let encoded = try JSONEncoder().encode(frame)
+        let object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        let comparisonObject = try #require(object["comparison"] as? [String: Any])
+        #expect(comparisonObject["rootDescriptor"] == nil)
+        #expect(frame.comparison.contentDescriptors.allSatisfy { $0.descriptor.resourceKind == "content" })
+    }
+
+    @Test("metadata snapshot encodes nullable projection fields for BridgeWeb schema")
+    func metadataSnapshotEncodesNullableProjectionFieldsForBridgeWebSchema() throws {
+        let package = try makeReviewPackageWithDeletedFile()
+
+        let frame = try BridgeReviewProtocolFrameBuilder.snapshot(
+            request: BridgeReviewProtocolSnapshotBuildRequest(
+                paneId: "pane-1",
+                sourceIdentity: "review-source-1",
+                streamId: "stream-1",
+                sequence: 0,
+                package: package,
+                changesetCluster: nil
+            )
+        )
+
+        let encoded = try JSONEncoder().encode(frame)
+        let object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        let encodedItems = try #require(object["itemMetadata"] as? [[String: Any]])
+        let encodedItem = try #require(encodedItems.first)
+
+        #expect(encodedItem.keys.contains("basePath"))
+        #expect(encodedItem.keys.contains("headPath"))
+        #expect(encodedItem["basePath"] as? String == "Sources/App/Removed.swift")
+        #expect(encodedItem["headPath"] is NSNull)
+    }
+
+    @Test("metadata snapshot encodes null selected item for BridgeWeb schema")
+    func metadataSnapshotEncodesNullSelectedItemForBridgeWebSchema() throws {
+        let package = try makeReviewPackage()
+        let frame = BridgeReviewSnapshotFrame(
+            streamId: "stream-1",
+            generation: package.reviewGeneration.rawValue,
+            sequence: 0,
+            comparison: BridgeReviewComparisonIdentity(
+                packageId: package.packageId,
+                sourceIdentity: "review-source-1",
+                generation: package.reviewGeneration.rawValue,
+                revision: package.revision,
+                baseEndpoint: package.baseEndpoint,
+                headEndpoint: package.headEndpoint,
+                contentDescriptors: [],
+                changesetCluster: nil
+            ),
+            selectedItemId: nil,
+            visibleItemIds: [],
+            itemMetadata: [],
+            treeRows: [],
+            extentFacts: [],
+            summary: package.summary
+        )
+
+        let encoded = try JSONEncoder().encode(frame)
+        let object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        let summaryObject = try #require(object["summary"] as? [String: Any])
+
+        #expect(object.keys.contains("selectedItemId"))
+        #expect(object["selectedItemId"] is NSNull)
+        #expect(summaryObject["filesChanged"] as? Int == package.summary.filesChanged)
     }
 
     @Test("snapshot frame omits browser integrity for non-sha256 host hashes")
     func snapshotFrameOmitsBrowserIntegrityForNonSHA256HostHashes() throws {
         let package = try makeReviewPackageWithHostContentHashAlgorithm()
+        let item = try #require(package.itemsById["item-source"])
+        let headHandle = try #require(item.contentRoles.head)
 
         let frame = try BridgeReviewProtocolFrameBuilder.snapshot(
             request: BridgeReviewProtocolSnapshotBuildRequest(
@@ -84,8 +261,8 @@ struct BridgeReviewProtocolFrameBuilderTests {
         )
 
         let hostVerifiedDescriptor = try #require(
-            frame.package.contentDescriptors.first {
-                $0.ref.descriptorId == "handle-item-source-head"
+            frame.comparison.contentDescriptors.first {
+                $0.ref.descriptorId == headHandle.handleId
             }
         )
         #expect(hostVerifiedDescriptor.descriptor.content.integrity == nil)
@@ -125,8 +302,8 @@ struct BridgeReviewProtocolFrameBuilderTests {
         let object = try #require(
             JSONSerialization.jsonObject(with: encoded) as? [String: Any]
         )
-        let packageObject = try #require(object["package"] as? [String: Any])
-        let clusterObject = try #require(packageObject["changesetCluster"] as? [String: Any])
+        let comparisonObject = try #require(object["comparison"] as? [String: Any])
+        let clusterObject = try #require(comparisonObject["changesetCluster"] as? [String: Any])
 
         #expect(clusterObject["sourceId"] as? String == "review-source-1")
         #expect(clusterObject["algorithm"] as? String == "idleDebounce")
@@ -172,15 +349,15 @@ struct BridgeReviewProtocolFrameBuilderTests {
         )
 
         #expect(object["protocolFrame"] == nil)
-        #expect(object["frameKind"] as? String == "review.snapshot")
-        #expect(object["package"] != nil)
+        #expect(object["frameKind"] as? String == "review.metadataSnapshot")
+        #expect(object["comparison"] != nil)
+        #expect(object["package"] == nil)
     }
 
     @Test("delta protocol frame carries descriptor metadata without push wrapper")
     func deltaProtocolFrameCarriesDescriptorMetadataWithoutPushWrapper() throws {
         let package = try makeReviewPackage()
         let operations = BridgeReviewDelta.Operations()
-        let operationsBody = try JSONEncoder().encode(operations)
         let frame = try BridgeReviewProtocolFrameBuilder.delta(
             request: BridgeReviewProtocolDeltaBuildRequest(
                 paneId: "pane-1",
@@ -190,7 +367,7 @@ struct BridgeReviewProtocolFrameBuilderTests {
                 fromRevision: package.revision - 1,
                 toRevision: package.revision,
                 package: package,
-                operationsBodyFacts: BridgeReviewProtocolBodyResourceFacts(data: operationsBody)
+                operations: operations
             )
         )
         let encoded = try JSONEncoder().encode(BridgeReviewProtocolFrame.delta(frame))
@@ -199,22 +376,17 @@ struct BridgeReviewProtocolFrameBuilderTests {
         )
 
         #expect(object["protocolFrame"] == nil)
-        #expect(object["frameKind"] as? String == "review.delta")
+        #expect(object["frameKind"] as? String == "review.metadataDelta")
         #expect(object["packageId"] as? String == package.packageId)
-        let operationsDescriptor = try #require(object["operationsDescriptor"] as? [String: Any])
-        let descriptor = try #require(operationsDescriptor["descriptor"] as? [String: Any])
-        let content = try #require(descriptor["content"] as? [String: Any])
-        let integrity = try #require(content["integrity"] as? [String: Any])
-        #expect(content["expectedBytes"] as? Int == operationsBody.count)
-        #expect(content["maxBytes"] as? Int == operationsBody.count)
-        #expect(integrity["kind"] as? String == "wholeHash")
-        #expect(integrity["algorithm"] as? String == "sha256")
-        #expect((integrity["value"] as? String)?.hasPrefix("sha256:") == true)
+        #expect(object["operationsDescriptor"] == nil)
+        #expect(object["operations"] != nil)
+        let encodedOperations = try #require(object["operations"] as? [[String: Any]])
+        #expect(encodedOperations.isEmpty)
         #expect(object["contentDescriptors"] != nil)
     }
 
-    @Test("delta frame can defer operations resource body facts")
-    func deltaFrameCanDeferOperationsResourceBodyFacts() throws {
+    @Test("metadata delta carries operations as metadata")
+    func metadataDeltaCarriesOperationsAsMetadata() throws {
         let package = try makeReviewPackage()
 
         let frame = try BridgeReviewProtocolFrameBuilder.delta(
@@ -225,15 +397,106 @@ struct BridgeReviewProtocolFrameBuilderTests {
                 sequence: package.revision,
                 fromRevision: package.revision - 1,
                 toRevision: package.revision,
-                package: package,
-                operationsBodyFacts: nil
+                package: package
             )
         )
 
-        #expect(frame.operationsDescriptor.descriptor.content.mediaType == "application/json")
-        #expect(frame.operationsDescriptor.descriptor.content.expectedBytes == nil)
-        #expect(frame.operationsDescriptor.descriptor.content.integrity == nil)
-        #expect(frame.operationsDescriptor.descriptor.content.maxBytes == AppPolicies.Bridge.ipcMaxResponsePayloadBytes)
+        let encoded = try JSONEncoder().encode(frame)
+        let object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        #expect(object["frameKind"] as? String == "review.metadataDelta")
+        #expect(object["operationsDescriptor"] == nil)
+        let operations = try #require(object["operations"] as? [[String: Any]])
+        #expect(operations.isEmpty)
+    }
+
+    @Test("metadata delta encodes typed operation array")
+    func metadataDeltaEncodesTypedOperationArray() throws {
+        let package = try makeReviewPackage()
+        let item = try #require(package.itemsById["item-source"])
+        let frame = try BridgeReviewProtocolFrameBuilder.delta(
+            request: BridgeReviewProtocolDeltaBuildRequest(
+                paneId: "pane-1",
+                sourceIdentity: package.query.queryId,
+                streamId: "review:pane-1",
+                sequence: package.revision,
+                fromRevision: package.revision - 1,
+                toRevision: package.revision,
+                package: package,
+                operations: BridgeReviewDelta.Operations(
+                    updateItems: [item],
+                    invalidateContent: item.contentRoles.allHandles.map(\.handleId)
+                )
+            )
+        )
+
+        let encoded = try JSONEncoder().encode(frame)
+        let object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        let operations = try #require(object["operations"] as? [[String: Any]])
+
+        #expect(operations.contains { $0["kind"] as? String == "upsertItemMetadata" })
+        #expect(operations.contains { $0["kind"] as? String == "upsertTreeRows" })
+        let extentOperation = try #require(
+            operations.first { $0["kind"] as? String == "upsertExtentFacts" }
+        )
+        let extentFacts = try #require(extentOperation["facts"] as? [[String: Any]])
+        #expect(extentFacts.compactMap { $0["contentRole"] as? String } == ["base", "head"])
+        let invalidation = try #require(
+            operations.first { $0["kind"] as? String == "invalidateContentDescriptors" }
+        )
+        #expect(invalidation["descriptorIds"] as? [String] == item.contentRoles.allHandles.map(\.handleId))
+    }
+
+    @Test("metadata window frame carries item tree extent and content descriptor metadata")
+    func metadataWindowFrameCarriesItemTreeExtentAndContentDescriptorMetadata() throws {
+        let package = try makeReviewPackage()
+
+        let frame = try BridgeReviewProtocolFrameBuilder.metadataWindow(
+            request: BridgeReviewProtocolMetadataWindowBuildRequest(
+                paneId: "pane-1",
+                sourceIdentity: package.query.queryId,
+                streamId: "review:pane-1",
+                sequence: 2,
+                package: package,
+                itemIds: ["item-source"]
+            )
+        )
+
+        #expect(frame.kind == "metadataWindow")
+        #expect(frame.frameKind == "review.metadataWindow")
+        #expect(frame.packageId == package.packageId)
+        #expect(frame.revision == package.revision)
+        #expect(frame.itemMetadata.map(\.itemId) == ["item-source"])
+        #expect(
+            frame.treeRows.map(\.rowId) == [
+                "review-directory:Sources",
+                "review-directory:Sources/App",
+                "review-row:item-source",
+            ]
+        )
+        #expect(
+            frame.extentFacts.map { "\($0.itemId):\($0.contentRole)" } == [
+                "item-source:base",
+                "item-source:head",
+            ]
+        )
+        #expect(frame.contentDescriptors.count == 2)
+
+        let encoded = try JSONEncoder().encode(BridgeReviewProtocolFrame.metadataWindow(frame))
+        let object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+
+        #expect(object["kind"] as? String == "metadataWindow")
+        #expect(object["frameKind"] as? String == "review.metadataWindow")
+        #expect(object["package"] == nil)
+        #expect(object["itemMetadata"] != nil)
+        #expect(object["treeRows"] != nil)
+        #expect(object["extentFacts"] != nil)
+        #expect(object["contentDescriptors"] != nil)
+        let encodedItems = try #require(object["itemMetadata"] as? [[String: Any]])
+        let encodedTreeRows = try #require(object["treeRows"] as? [[String: Any]])
+        #expect(encodedItems.allSatisfy { $0["loaded_by"] as? String == "idle" })
+        #expect(encodedItems.allSatisfy { $0["lane"] as? String == "idle" })
+        #expect(encodedTreeRows.allSatisfy { $0["loaded_by"] as? String == "idle" })
+        #expect(encodedTreeRows.allSatisfy { $0["lane"] as? String == "idle" })
     }
 
     @Test("diff state stores and clears native package facts without protocol frames")
@@ -269,9 +532,7 @@ struct BridgeReviewProtocolFrameBuilderTests {
                 streamId: "review:pane-1",
                 generation: 4,
                 sequence: 5,
-                reason: "authorityChanged",
-                packageId: "package-1",
-                replacementDescriptor: nil
+                reason: "authorityChanged"
             )
         )
         let resetEncoded = try JSONEncoder().encode(BridgeReviewProtocolFrame.reset(resetFrame))
@@ -340,44 +601,28 @@ struct BridgeReviewProtocolFrameBuilderTests {
             JSONSerialization.jsonObject(with: encoded) as? [String: Any]
         )
         #expect(object["protocolFrame"] == nil)
-        let packageObject = try #require(object["package"] as? [String: Any])
-        let clusterObject = try #require(packageObject["changesetCluster"] as? [String: Any])
+        let comparisonObject = try #require(object["comparison"] as? [String: Any])
+        let clusterObject = try #require(comparisonObject["changesetCluster"] as? [String: Any])
         #expect(clusterObject["lifecycle"] as? String == "closed")
         #expect(clusterObject["headCursor"] as? String == "cursor-b")
         #expect(clusterObject["limitations"] as? [String] == ["overflowRecovered"])
     }
 
-    @Test("reset frame carries source identity optional package and replacement descriptor")
-    func resetFrameCarriesSourceIdentityOptionalPackageAndReplacementDescriptor() throws {
-        let package = try makeReviewPackage()
-        let replacementFrame = try BridgeReviewProtocolFrameBuilder.snapshot(
-            request: BridgeReviewProtocolSnapshotBuildRequest(
-                paneId: "pane-1",
-                sourceIdentity: "review-source-1",
-                streamId: "review:pane-1",
-                sequence: package.revision,
-                package: package,
-                changesetCluster: nil
-            )
-        )
-        let replacementDescriptor = replacementFrame.package.rootDescriptor
+    @Test("reset frame carries metadata-only source identity")
+    func resetFrameCarriesMetadataOnlySourceIdentity() throws {
         let frame = BridgeReviewProtocolFrameBuilder.reset(
             request: BridgeReviewProtocolResetBuildRequest(
                 sourceIdentity: "review-source-1",
                 streamId: "review:pane-1",
                 generation: 4,
                 sequence: 5,
-                reason: "authorityChanged",
-                packageId: "package-1",
-                replacementDescriptor: replacementDescriptor
+                reason: "authorityChanged"
             )
         )
 
         #expect(frame.kind == "reset")
         #expect(frame.frameKind == "review.reset")
         #expect(frame.sourceIdentity == "review-source-1")
-        #expect(frame.packageId == "package-1")
-        #expect(frame.replacementDescriptor == replacementDescriptor)
     }
 
     @Test("invalidation frame carries metadata-only invalidation facts")
@@ -424,6 +669,31 @@ struct BridgeReviewProtocolFrameBuilderTests {
                 reviewGeneration: 3,
                 generatedAtUnixMilliseconds: 4
             )
+        )
+    }
+
+    private func makeReviewMetadataSnapshotIntakeFrameJSON() throws -> String {
+        let package = try makeReviewPackage()
+        let frame = try BridgeReviewProtocolFrameBuilder.snapshot(
+            request: BridgeReviewProtocolSnapshotBuildRequest(
+                paneId: "pane-1",
+                sourceIdentity: package.query.queryId,
+                streamId: "review:pane-1",
+                sequence: package.revision,
+                package: package,
+                changesetCluster: package.changesetCluster
+            )
+        )
+        let payload = try JSONEncoder().encode(BridgeReviewProtocolFrame.snapshot(frame))
+        return try BridgePushEnvelopeEncoder().encodeIntakeFrame(
+            metadata: BridgeIntakeFrameMetadata(
+                kind: .snapshot,
+                streamId: frame.streamId,
+                generation: frame.generation,
+                sequence: frame.sequence
+            ),
+            payload: payload,
+            traceContext: nil
         )
     }
 
@@ -491,6 +761,37 @@ struct BridgeReviewProtocolFrameBuilderTests {
             summary: package.summary,
             filterState: package.filterState,
             generatedAtUnixMilliseconds: package.generatedAtUnixMilliseconds
+        )
+    }
+
+    private func makeReviewPackageWithDeletedFile() throws -> BridgeReviewPackage {
+        let baseEndpoint = makeBridgeEndpoint(endpointId: "base", kind: .gitRef)
+        let headEndpoint = makeBridgeEndpoint(endpointId: "head", kind: .workingTree)
+        let comparison = BridgeEndpointComparison(
+            baseEndpoint: baseEndpoint,
+            headEndpoint: headEndpoint,
+            changedFiles: [
+                makeBridgeEndpointChangedFile(
+                    fileId: "removed",
+                    path: "Sources/App/Removed.swift",
+                    sizeBytes: 100,
+                    changeKind: .deleted
+                )
+            ]
+        )
+        let query = makeBridgeReviewQuery(
+            baseEndpointId: baseEndpoint.endpointId,
+            headEndpointId: headEndpoint.endpointId
+        )
+        return try BridgeReviewPackageBuilder.build(
+            request: BridgeReviewPackageBuildRequest(
+                packageId: "package-removed",
+                query: query,
+                comparison: comparison,
+                checkpointIds: [],
+                reviewGeneration: 3,
+                generatedAtUnixMilliseconds: 4
+            )
         )
     }
 

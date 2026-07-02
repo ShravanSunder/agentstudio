@@ -151,6 +151,7 @@ struct RepoExplorerWorktreeRow: View {
     let onOpen: () -> Void
     let onOpenNew: () -> Void
     let onReview: () -> Void
+    let onOpenFiles: () -> Void
     let onOpenInPane: () -> Void
     let onSetIconColor: (String?) -> Void
     static let rowChromePolicy = SidebarRowShell<RepoExplorerWorktreeRowContent>.chromePolicy
@@ -184,6 +185,12 @@ struct RepoExplorerWorktreeRow: View {
                 onReview()
             } label: {
                 menuLabel(actionSpec: AppCommand.openBridgeReview.definition.actionSpec)
+            }
+
+            Button {
+                onOpenFiles()
+            } label: {
+                menuLabel(actionSpec: AppCommand.openBridgeFileView.definition.actionSpec)
             }
 
             Button {

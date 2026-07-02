@@ -30,6 +30,28 @@ public struct IPCBridgeReviewOpenResult: Codable, Equatable, Sendable {
     }
 }
 
+public struct IPCBridgeFileViewOpenParams: Codable, Equatable, Sendable {
+    public let correlationId: UUID?
+    public let worktreeId: UUID?
+
+    public init(correlationId: UUID? = nil, worktreeId: UUID? = nil) {
+        self.correlationId = correlationId
+        self.worktreeId = worktreeId
+    }
+}
+
+public struct IPCBridgeFileViewOpenResult: Codable, Equatable, Sendable {
+    public let paneId: UUID
+    public let handle: String
+    public let correlationId: UUID?
+
+    public init(paneId: UUID, handle: String, correlationId: UUID?) {
+        self.paneId = paneId
+        self.handle = handle
+        self.correlationId = correlationId
+    }
+}
+
 public struct IPCBridgeReviewRefreshParams: Codable, Equatable, Sendable {
     public let handle: String
     public let correlationId: UUID?
@@ -118,19 +140,67 @@ public struct IPCBridgeRenderSummary: Codable, Equatable, Sendable {
     public let hasEmptyShell: Bool
     public let hasReviewShell: Bool
     public let sidebarPosition: String?
+    public let hasFileShell: Bool?
+    public let hasFileTree: Bool?
+    public let hasFileCodeView: Bool?
+    public let bridgeProtocol: String?
+    public let worktreeSourceSpecState: String?
+    public let worktreeSourceState: String?
+    public let worktreeOpenFileState: String?
+    public let worktreeOpenFilePath: String?
+    public let worktreeRenderedFilePath: String?
+    public let worktreeSelectedDisplayPath: String?
+    public let worktreeDescriptorCount: Int?
+    public let worktreeTotalDescriptorCount: Int?
+    public let worktreeIntakeFrameCount: Int?
+    public let worktreeCommandCount: Int?
+    public let worktreeOpenSourceCommandCount: Int?
+    public let worktreeCodeTextLength: Int?
 
     public init(
         pageTitle: String?,
         hasAppRoot: Bool,
         hasEmptyShell: Bool,
         hasReviewShell: Bool,
-        sidebarPosition: String?
+        sidebarPosition: String?,
+        hasFileShell: Bool? = nil,
+        hasFileTree: Bool? = nil,
+        hasFileCodeView: Bool? = nil,
+        bridgeProtocol: String? = nil,
+        worktreeSourceSpecState: String? = nil,
+        worktreeSourceState: String? = nil,
+        worktreeOpenFileState: String? = nil,
+        worktreeOpenFilePath: String? = nil,
+        worktreeRenderedFilePath: String? = nil,
+        worktreeSelectedDisplayPath: String? = nil,
+        worktreeDescriptorCount: Int? = nil,
+        worktreeTotalDescriptorCount: Int? = nil,
+        worktreeIntakeFrameCount: Int? = nil,
+        worktreeCommandCount: Int? = nil,
+        worktreeOpenSourceCommandCount: Int? = nil,
+        worktreeCodeTextLength: Int? = nil
     ) {
         self.pageTitle = pageTitle
         self.hasAppRoot = hasAppRoot
         self.hasEmptyShell = hasEmptyShell
         self.hasReviewShell = hasReviewShell
         self.sidebarPosition = sidebarPosition
+        self.hasFileShell = hasFileShell
+        self.hasFileTree = hasFileTree
+        self.hasFileCodeView = hasFileCodeView
+        self.bridgeProtocol = bridgeProtocol
+        self.worktreeSourceSpecState = worktreeSourceSpecState
+        self.worktreeSourceState = worktreeSourceState
+        self.worktreeOpenFileState = worktreeOpenFileState
+        self.worktreeOpenFilePath = worktreeOpenFilePath
+        self.worktreeRenderedFilePath = worktreeRenderedFilePath
+        self.worktreeSelectedDisplayPath = worktreeSelectedDisplayPath
+        self.worktreeDescriptorCount = worktreeDescriptorCount
+        self.worktreeTotalDescriptorCount = worktreeTotalDescriptorCount
+        self.worktreeIntakeFrameCount = worktreeIntakeFrameCount
+        self.worktreeCommandCount = worktreeCommandCount
+        self.worktreeOpenSourceCommandCount = worktreeOpenSourceCommandCount
+        self.worktreeCodeTextLength = worktreeCodeTextLength
     }
 }
 

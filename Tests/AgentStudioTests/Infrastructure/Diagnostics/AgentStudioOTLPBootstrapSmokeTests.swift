@@ -63,16 +63,16 @@ struct AgentStudioOTLPBootstrapSmokeTests {
         )
         await runtime.record(
             tag: .bridgePerformanceWebKit,
-            body: "performance.bridge.webkit.package_push",
+            body: "performance.bridge.webkit.push_envelope",
             traceID: "11111111111111111111111111111111",
             spanID: "2222222222222222",
             attributes: [
                 "agentstudio.bridge.content.byte_size_bucket": .int(100_000),
                 "agentstudio.bridge.content.line_count_bucket": .int(500),
-                "agentstudio.bridge.phase": .string("package_push"),
+                "agentstudio.bridge.phase": .string("transport"),
                 "agentstudio.bridge.plane": .string("data"),
                 "agentstudio.bridge.priority": .string("cold"),
-                "agentstudio.bridge.slice": .string("review_snapshot"),
+                "agentstudio.bridge.slice": .string("review_metadata"),
                 "agentstudio.bridge.transport": .string("push"),
                 "agentstudio.performance.elapsed_ms": .double(8.5),
             ]
@@ -101,7 +101,7 @@ struct AgentStudioOTLPBootstrapSmokeTests {
         #expect(metricsRequest.bodyContains("performance.git.status"))
         #expect(metricsRequest.bodyContains("agentstudio_performance_event_elapsed_ms"))
         #expect(metricsRequest.bodyContains("agentstudio_performance_git_pending_count"))
-        #expect(metricsRequest.bodyContains("review_snapshot"))
+        #expect(metricsRequest.bodyContains("review_metadata"))
 
         try await assertBridgeOTLPTraceRequests(collector)
     }
@@ -110,7 +110,7 @@ struct AgentStudioOTLPBootstrapSmokeTests {
         let bridgeLogRequest = try #require(
             await collector.waitForRequest(
                 pathSuffix: "/v1/logs",
-                containing: "performance.bridge.webkit.package_push",
+                containing: "performance.bridge.webkit.push_envelope",
                 timeout: .seconds(5)
             )
         )
@@ -119,7 +119,7 @@ struct AgentStudioOTLPBootstrapSmokeTests {
         let bridgeTraceRequest = try #require(
             await collector.waitForRequest(
                 pathSuffix: "/v1/traces",
-                containing: "performance.bridge.webkit.package_push",
+                containing: "performance.bridge.webkit.push_envelope",
                 timeout: .seconds(5)
             )
         )

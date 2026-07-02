@@ -926,6 +926,33 @@ final class AppCommandTests {
     @MainActor
 
     @Test
+    func test_dispatcher_openBridgeFileView_registered() {
+        let def = AppCommandDispatcher.shared.definition(for: .openBridgeFileView)
+        #expect(def.label == "Files")
+        #expect(def.icon == .system(.folder))
+        #expect(def.commandBarGroupName == "Bridge")
+    }
+
+    @MainActor
+
+    @Test
+    func test_dispatcher_openBridgeFileView_noKeyBinding() {
+        let def = AppCommandDispatcher.shared.definition(for: .openBridgeFileView)
+        #expect(def.keyBinding == nil)
+    }
+
+    @MainActor
+
+    @Test
+    func test_dispatcher_openBridgeFileView_appliesToWorktree() {
+        let def = AppCommandDispatcher.shared.definition(for: .openBridgeFileView)
+
+        #expect(def.appliesTo.contains(.worktree))
+    }
+
+    @MainActor
+
+    @Test
     func test_dispatcher_signInGitHub_registered() {
         let def = AppCommandDispatcher.shared.definition(for: .signInGitHub)
         #expect(def.label == "Sign in to GitHub")

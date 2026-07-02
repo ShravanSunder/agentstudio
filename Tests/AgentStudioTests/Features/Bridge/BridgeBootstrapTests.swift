@@ -155,7 +155,6 @@ final class BridgeBootstrapTests {
             cwdScope: nil,
             pathScope: [],
             includeStatuses: true,
-            includeFileDescriptors: true,
             includeComments: false,
             includeAgentComms: false,
             freshness: .live
@@ -164,6 +163,7 @@ final class BridgeBootstrapTests {
         let script = BridgeBootstrap.generateScript(
             bridgeNonce: "test-nonce",
             pushNonce: "push-nonce",
+            appProtocol: "worktree-file",
             worktreeFileSourceSpec: sourceSpec
         )
 
@@ -172,6 +172,32 @@ final class BridgeBootstrapTests {
         #expect(script.contains("11111111-1111-4111-8111-111111111111"))
         #expect(script.contains("22222222-2222-4222-8222-222222222222"))
         #expect(script.contains("root-token"))
+    }
+
+    @Test
+    func test_script_selects_worktree_file_protocol_when_source_spec_is_available() throws {
+        let sourceSpec = BridgeWorktreeFileSurfaceSourceSpec(
+            clientRequestId: "bootstrap-request",
+            repoId: try #require(UUID(uuidString: "11111111-1111-4111-8111-111111111111")),
+            worktreeId: try #require(UUID(uuidString: "22222222-2222-4222-8222-222222222222")),
+            rootPathToken: "root-token",
+            cwdScope: nil,
+            pathScope: [],
+            includeStatuses: true,
+            includeComments: false,
+            includeAgentComms: false,
+            freshness: .live
+        )
+
+        let script = BridgeBootstrap.generateScript(
+            bridgeNonce: "test-nonce",
+            pushNonce: "push-nonce",
+            appProtocol: "worktree-file",
+            worktreeFileSourceSpec: sourceSpec
+        )
+
+        #expect(script.contains("data-bridge-app-protocol"))
+        #expect(script.contains("const APP_PROTOCOL = \"worktree-file\""))
     }
 
     @Test
@@ -201,10 +227,13 @@ final class BridgeBootstrapTests {
     }
 
     @Test
-    func test_applyIntakeFrameJSON_dispatches_string_payload_with_push_nonce() {
+    func test_applyIntakeFrameJSON_buffers_and_dispatches_to_host_port_and_page_event() {
         let script = BridgeBootstrap.generateScript(bridgeNonce: "test-nonce", pushNonce: "push-nonce")
         #expect(script.contains("applyIntakeFrameJSON: function(frameJSON)"))
         #expect(script.contains("dispatchIntakeFrameJSON(frameJSON)"))
+        #expect(script.contains("PENDING_INTAKE_FRAME_JSON.push(frameJSON)"))
+        #expect(script.contains("postHostIntakeFrameJSON(frameJSON)"))
+        #expect(script.contains("dispatchPageIntakeFrameJSON(frameJSON)"))
         #expect(script.contains("__bridge_intake_json"))
         #expect(script.contains("detail: { json: frameJSON, nonce: PUSH_NONCE }"))
     }
@@ -213,11 +242,12 @@ final class BridgeBootstrapTests {
     func test_intake_frame_dispatch_buffers_and_replays_late_listener_frames() {
         let script = BridgeBootstrap.generateScript(bridgeNonce: "test-nonce", pushNonce: "push-nonce")
         #expect(script.contains("const PENDING_INTAKE_FRAME_JSON = []"))
-        #expect(script.contains("const MAX_PENDING_INTAKE_FRAMES = 64"))
         #expect(script.contains("function dispatchIntakeFrameJSON(frameJSON)"))
         #expect(script.contains("PENDING_INTAKE_FRAME_JSON.push(frameJSON)"))
+        #expect(!script.contains("PENDING_INTAKE_FRAME_JSON.shift()"))
         #expect(script.contains("__bridge_intake_replay_request"))
         #expect(script.contains("for (const frameJSON of PENDING_INTAKE_FRAME_JSON)"))
+        #expect(script.contains("dispatchPageIntakeFrameJSON(frameJSON)"))
     }
 
     @Test
@@ -242,6 +272,7 @@ final class BridgeBootstrapTests {
         #expect(script.contains("Rejected __bridge_command: protocol RPC must use bridge world"))
         #expect(script.contains("PAGE_WORLD_ALLOWED_COMMAND_METHODS"))
         #expect(script.contains("'bridge.intakeReady'"))
+        #expect(script.contains("'worktreeFileSurface.requestFileDescriptor'"))
         #expect(script.contains("payload.__bridgeOrigin = 'pageWorldLegacy'"))
         #expect(script.contains("Rejected __bridge_command: method is not allowed from page world"))
     }

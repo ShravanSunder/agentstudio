@@ -50,36 +50,6 @@ func registerContentHandleLeases(
 }
 
 @MainActor
-func registerReviewPackageResource(
-    controller: BridgePaneController,
-    paneId: UUID,
-    package: BridgeReviewPackage,
-    snapshotFrame: BridgeReviewSnapshotFrame
-) async throws {
-    let descriptor = snapshotFrame.package.rootDescriptor.descriptor
-    let resource = try #require(
-        BridgeTransportResourceURL.parse(
-            descriptor.resourceUrl,
-            allowedResourceKindsByProtocol: ["review": Set(["review-package"])]
-        ))
-    let packageBody = try JSONEncoder().encode(package)
-    await controller.reviewResourceStore.register(
-        resource,
-        body: BridgeReviewResourceBody(
-            data: packageBody,
-            mimeType: descriptor.content.mediaType
-        )
-    )
-    await controller.resourceLeaseRegistry.register(
-        resource,
-        paneId: paneId,
-        descriptorId: resource.opaqueId,
-        maxBytes: descriptor.content.maxBytes,
-        expectedRevocationRevision: 0
-    )
-}
-
-@MainActor
 func makeRealDiffContentHandles() -> (
     base: BridgeContentHandle,
     head: BridgeContentHandle

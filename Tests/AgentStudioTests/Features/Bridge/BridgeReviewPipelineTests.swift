@@ -227,8 +227,65 @@ struct BridgeReviewPipelineTests {
         #expect(await provider.recordedTreeReadRequestsCount() == 1)
     }
 
-    @Test("pipeline uses item descriptor reader for open file queries")
-    func pipelineUsesItemDescriptorReaderForOpenFileQueries() async throws {
+    @Test("pipeline uses compare semantics for modified open file queries")
+    func pipelineUsesCompareSemanticsForModifiedOpenFileQueries() async throws {
+        let baseEndpoint = makeBridgeEndpoint(endpointId: "base", kind: .gitRef)
+        let headEndpoint = makeBridgeEndpoint(endpointId: "head", kind: .workingTree)
+        let changedFile = makeBridgeEndpointChangedFile(
+            fileId: "open",
+            path: "Sources/App/Open.swift",
+            sizeBytes: 100,
+            oldContentHash: bridgeSHA256ContentHash("old"),
+            newContentHash: bridgeSHA256ContentHash("new")
+        )
+        let provider = BridgeReviewSourceProviderFake(
+            comparison: BridgeEndpointComparison(
+                baseEndpoint: baseEndpoint,
+                headEndpoint: headEndpoint,
+                changedFiles: [changedFile]
+            ),
+            contentByHandleId: [:],
+            itemDescriptorByPath: [
+                "Sources/App/Open.swift": makeBridgeReviewItemDescriptor(
+                    itemId: "item-open-file",
+                    path: "Sources/App/Open.swift",
+                    fileClass: .source
+                )
+            ]
+        )
+        let pipeline = BridgeReviewPipeline(provider: provider)
+
+        let result = try await pipeline.loadPackage(
+            BridgeReviewPipelineRequest(
+                packageId: "package",
+                query: makeBridgeReviewQuery(
+                    baseEndpointId: baseEndpoint.endpointId,
+                    headEndpointId: headEndpoint.endpointId,
+                    options: BridgeReviewQueryTestOptions(
+                        queryKind: .openFile,
+                        fileTarget: "Sources/App/Open.swift"
+                    )
+                ),
+                baseEndpoint: baseEndpoint,
+                headEndpoint: headEndpoint,
+                checkpointIds: [],
+                reviewGeneration: 5,
+                generatedAtUnixMilliseconds: 6
+            )
+        )
+
+        let item = try #require(result.package.itemsById["item-open"])
+        #expect(result.package.orderedItemIds == ["item-open"])
+        #expect(item.itemKind == .diff)
+        #expect(item.contentRoles.base != nil)
+        #expect(item.contentRoles.head != nil)
+        #expect(item.contentRoles.file == nil)
+        #expect(await provider.recordedComparisonRequestsCount() == 1)
+        #expect(await provider.recordedItemDescriptorRequestsCount() == 0)
+    }
+
+    @Test("pipeline falls back to item descriptor reader for open file queries outside the comparison")
+    func pipelineFallsBackToItemDescriptorReaderForOpenFileQueriesOutsideComparison() async throws {
         let baseEndpoint = makeBridgeEndpoint(endpointId: "base", kind: .gitRef)
         let headEndpoint = makeBridgeEndpoint(endpointId: "head", kind: .workingTree)
         let itemDescriptor = makeBridgeReviewItemDescriptor(
@@ -267,7 +324,7 @@ struct BridgeReviewPipelineTests {
         )
 
         #expect(result.package.orderedItemIds == ["item-open"])
-        #expect(await provider.recordedComparisonRequestsCount() == 0)
+        #expect(await provider.recordedComparisonRequestsCount() == 1)
         #expect(await provider.recordedItemDescriptorRequestsCount() == 1)
     }
 }

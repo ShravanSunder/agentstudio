@@ -314,6 +314,45 @@ struct AgentStudioOTLPBridgeTraceProjectionTests {
     }
 
     @Test
+    func bridgeProjectionPreservesNativeManifestTimingPhases() {
+        let phases = [
+            "metadata_open_to_first_window",
+            "metadata_full_manifest_complete",
+        ]
+
+        for phase in phases {
+            let record = AgentStudioTraceRecord(
+                timeUnixNano: 131,
+                severityText: .info,
+                body: "performance.bridge.native.\(phase)",
+                traceID: nil,
+                spanID: nil,
+                parentSpanID: nil,
+                resource: [
+                    "service.name": "AgentStudio"
+                ],
+                scope: .init(name: "agentstudio.bridge.performance.swift", version: "0.1.0"),
+                attributes: [
+                    "agentstudio.bridge.phase": .string(phase),
+                    "agentstudio.bridge.plane": .string("data"),
+                    "agentstudio.bridge.priority": .string("hot"),
+                    "agentstudio.bridge.slice": .string("tree_prepare_input"),
+                    "agentstudio.bridge.transport": .string("swift"),
+                    "agentstudio.bridge.viewer": .string("file"),
+                    "agentstudio.performance.elapsed_ms": .double(42.5),
+                    "agentstudio.trace.tag": .string("bridge.performance.swift"),
+                ]
+            )
+
+            let projection = AgentStudioOTLPTraceProjection.project(record)
+
+            #expect(projection.attributes["agentstudio.bridge.phase"] == .string(phase))
+            #expect(projection.attributes["agentstudio.bridge.plane"] == .string("data"))
+            #expect(projection.attributes["agentstudio.bridge.slice"] == .string("tree_prepare_input"))
+        }
+    }
+
+    @Test
     func bridgeProjectionPreservesReviewStartupMetadataCounts() {
         let record = AgentStudioTraceRecord(
             timeUnixNano: 131,

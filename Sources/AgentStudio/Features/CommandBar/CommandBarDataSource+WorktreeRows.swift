@@ -297,6 +297,16 @@ extension CommandBarDataSource {
                 action: .dispatchTargeted(.openBridgeReview, target: worktreeId, targetType: .worktree),
                 command: .openBridgeReview
             ),
+            CommandBarItem(
+                id: "wt-files-\(worktreeId.uuidString)",
+                title: AppCommand.openBridgeFileView.definition.label,
+                icon: AppCommand.openBridgeFileView.definition.icon,
+                group: "Open",
+                groupPriority: 0,
+                keywords: ["files", "bridge", "worktree"],
+                action: .dispatchTargeted(.openBridgeFileView, target: worktreeId, targetType: .worktree),
+                command: .openBridgeFileView
+            ),
         ]
 
         if canOpenInCurrentTab {

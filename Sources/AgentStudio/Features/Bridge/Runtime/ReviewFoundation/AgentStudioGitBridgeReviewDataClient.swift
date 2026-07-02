@@ -427,7 +427,7 @@ actor AgentStudioGitBridgeReviewDataClient<LocalClient: AgentStudioGitLocalClien
             guard let chunk, !chunk.isEmpty else { break }
             byteCount += chunk.count
             guard byteCount <= AppPolicies.Bridge.contentMaxBytesPerItem,
-                byteCount <= handle.sizeBytes
+                handle.sizeBytesIsExact == false || byteCount <= handle.sizeBytes
             else {
                 throw BridgeProviderFailure.oversizedContent(
                     handleId: handle.handleId,

@@ -8,105 +8,51 @@ import Testing
 struct BridgeGitReviewSourceProviderTests {
     @Test("AgentStudioGit adapter maps diff metadata and lazily loads Bridge content handles")
     func agentStudioGitAdapterMapsDiffMetadataAndLazilyLoadsBridgeContentHandles() async throws {
-        let repositoryPath = URL(fileURLWithPath: "/tmp/agentstudio-git-adapter-test")
-        let filePath = "Sources/App/View.swift"
-        let baseContent = "old source"
-        let headContent = "new source"
-        let baseEndpoint = makeBridgeEndpoint(endpointId: "abc123", kind: .gitRef)
-        let headEndpoint = makeBridgeEndpoint(endpointId: "working", kind: .workingTree)
-        let gitClient = AgentStudioGitLocalClientFake(
-            diffSnapshot: GitDiffSnapshot(
-                files: [
-                    GitDiffFile(
-                        fileId: "source",
-                        path: filePath,
-                        previousPath: nil,
-                        changeKind: .modified,
-                        oldContentHash: gitBlobSHA1ContentHash(baseContent),
-                        newContentHash: gitBlobSHA1ContentHash(headContent),
-                        contentHashAlgorithm: "git-blob-sha1",
-                        oldMode: nil,
-                        newMode: nil,
-                        additions: 1,
-                        deletions: 1,
-                        isBinary: false,
-                        sizeBytes: Int64(headContent.utf8.count)
-                    )
-                ]
-            ),
-            contentByLocator: [
-                GitContentLocator(target: .commit("abc123"), path: filePath): gitContentPayload(baseContent),
-                GitContentLocator(target: .workingTree, path: filePath): gitContentPayload(headContent),
-            ]
-        )
-        let adapter = AgentStudioGitBridgeReviewDataClient(
-            repositoryPath: repositoryPath,
-            client: gitClient
-        )
-        let provider = BridgeGitReviewSourceProvider(client: adapter)
-        let query = makeBridgeReviewQuery(
-            baseEndpointId: baseEndpoint.endpointId,
-            headEndpointId: headEndpoint.endpointId
-        )
+        let fixture = try await makeLazyContentFixture()
 
-        let comparison = try await provider.compareEndpoints(
-            BridgeEndpointComparisonRequest(
-                query: query,
-                baseEndpoint: baseEndpoint,
-                headEndpoint: headEndpoint,
-                reviewGeneration: 9
-            )
+        #expect(fixture.comparison.changedFiles.first?.path == fixture.filePath)
+        #expect(
+            fixture.comparison.changedFiles.first?.oldContentHash
+                == gitBlobSHA1ContentHash(fixture.baseContent)
         )
-        let package = try BridgeReviewPackageBuilder.build(
-            request: BridgeReviewPackageBuildRequest(
-                packageId: "package",
-                query: query,
-                comparison: comparison,
-                checkpointIds: [],
-                reviewGeneration: 9,
-                generatedAtUnixMilliseconds: 10
-            )
+        #expect(
+            fixture.comparison.changedFiles.first?.newContentHash
+                == gitBlobSHA1ContentHash(fixture.headContent)
         )
-        let item = try #require(package.itemsById["item-source"])
-        let headHandle = try #require(item.contentRoles.head)
-        let contentStore = BridgeContentStore(provider: provider)
-
-        await contentStore.activate(
-            handles: package.itemsById.values.flatMap(\.contentRoles.allHandles),
-            reviewGeneration: 9
-        )
-        let loadedContent = try await contentStore.load(
-            handleId: headHandle.handleId,
-            requestedGeneration: 9
-        )
-
-        #expect(comparison.changedFiles.first?.path == filePath)
-        #expect(comparison.changedFiles.first?.oldContentHash == gitBlobSHA1ContentHash(baseContent))
-        #expect(comparison.changedFiles.first?.newContentHash == gitBlobSHA1ContentHash(headContent))
-        #expect(comparison.changedFiles.first?.contentHashAlgorithm == "git-blob-sha1")
-        #expect(!headHandle.handleId.contains("/"))
+        #expect(fixture.comparison.changedFiles.first?.contentHashAlgorithm == "git-blob-sha1")
+        #expect(!fixture.headHandle.handleId.contains("/"))
         let resource = try #require(
             BridgeTransportResourceURL.parse(
-                headHandle.resourceUrl,
+                fixture.headHandle.resourceUrl,
                 allowedResourceKindsByProtocol: ["review": Set(["content"])]
-            ))
-        #expect(BridgeSchemeHandler.classifyPath(headHandle.resourceUrl) == .leasedContent(resource))
-        #expect(loadedContent.data == Data(headContent.utf8))
-        #expect(loadedContent.contentHash == gitBlobSHA1ContentHash(headContent))
-        #expect(loadedContent.contentHashAlgorithm == "git-blob-sha1")
+            )
+        )
+        #expect(BridgeSchemeHandler.classifyPath(fixture.headHandle.resourceUrl) == .leasedContent(resource))
+        #expect(fixture.loadedBaseContent.data == Data(fixture.baseContent.utf8))
+        #expect(fixture.loadedBaseContent.contentHash == gitBlobSHA1ContentHash(fixture.baseContent))
+        #expect(fixture.loadedBaseContent.contentHashAlgorithm == "git-blob-sha1")
+        #expect(fixture.loadedContent.data == Data(fixture.headContent.utf8))
+        #expect(fixture.loadedContent.contentHash == gitBlobSHA1ContentHash(fixture.headContent))
+        #expect(fixture.loadedContent.contentHashAlgorithm == "git-blob-sha1")
         #expect(
-            await gitClient.recordedDiffRequests() == [
-                GitDiffRequest(repositoryPath: repositoryPath, base: .commit("abc123"), compare: .workingTree)
+            await fixture.gitClient.recordedDiffRequests() == [
+                GitDiffRequest(repositoryPath: fixture.repositoryPath, base: .commit("abc123"), compare: .workingTree)
             ]
         )
         #expect(
-            await gitClient.recordedContentRequests() == [
+            await fixture.gitClient.recordedContentRequests() == [
                 GitContentRequest(
-                    repositoryPath: repositoryPath,
-                    target: .workingTree,
-                    path: filePath,
+                    repositoryPath: fixture.repositoryPath,
+                    target: .commit("abc123"),
+                    path: fixture.filePath,
                     maxSizeBytes: Int64(AppPolicies.Bridge.contentMaxBytesPerItem)
-                )
+                ),
+                GitContentRequest(
+                    repositoryPath: fixture.repositoryPath,
+                    target: .workingTree,
+                    path: fixture.filePath,
+                    maxSizeBytes: Int64(AppPolicies.Bridge.contentMaxBytesPerItem)
+                ),
             ]
         )
     }
@@ -740,9 +686,129 @@ struct BridgeGitReviewSourceProviderTests {
     }
 }
 
-private struct GitContentLocator: Hashable, Sendable {
-    let target: GitDiffTarget
-    let path: String
+private struct GitAdapterLazyContentFixture {
+    let repositoryPath: URL
+    let filePath: String
+    let baseContent: String
+    let headContent: String
+    let gitClient: AgentStudioGitLocalClientFake
+    let comparison: BridgeEndpointComparison
+    let headHandle: BridgeContentHandle
+    let loadedBaseContent: BridgeContentLoadResult
+    let loadedContent: BridgeContentLoadResult
+}
+
+private func makeLazyContentFixture() async throws -> GitAdapterLazyContentFixture {
+    let repositoryPath = URL(fileURLWithPath: "/tmp/agentstudio-git-adapter-test")
+    let filePath = "Sources/App/View.swift"
+    let baseContent = "old source with extra bytes"
+    let headContent = "new source"
+    let baseEndpoint = makeBridgeEndpoint(endpointId: "abc123", kind: .gitRef)
+    let headEndpoint = makeBridgeEndpoint(endpointId: "working", kind: .workingTree)
+    let gitClient = AgentStudioGitLocalClientFake(
+        diffSnapshot: GitDiffSnapshot(
+            files: [
+                GitDiffFile(
+                    fileId: "source",
+                    path: filePath,
+                    previousPath: nil,
+                    changeKind: .modified,
+                    oldContentHash: gitBlobSHA1ContentHash(baseContent),
+                    newContentHash: gitBlobSHA1ContentHash(headContent),
+                    contentHashAlgorithm: "git-blob-sha1",
+                    oldMode: nil,
+                    newMode: nil,
+                    additions: 1,
+                    deletions: 1,
+                    isBinary: false,
+                    sizeBytes: Int64(headContent.utf8.count)
+                )
+            ]
+        ),
+        contentByLocator: [
+            GitContentLocator(target: .commit("abc123"), path: filePath): gitContentPayload(baseContent),
+            GitContentLocator(target: .workingTree, path: filePath): gitContentPayload(headContent),
+        ]
+    )
+    let provider = BridgeGitReviewSourceProvider(
+        client: AgentStudioGitBridgeReviewDataClient(repositoryPath: repositoryPath, client: gitClient)
+    )
+    let query = makeBridgeReviewQuery(
+        baseEndpointId: baseEndpoint.endpointId,
+        headEndpointId: headEndpoint.endpointId
+    )
+    let comparison = try await provider.compareEndpoints(
+        BridgeEndpointComparisonRequest(
+            query: query,
+            baseEndpoint: baseEndpoint,
+            headEndpoint: headEndpoint,
+            reviewGeneration: 9
+        )
+    )
+    let package = try BridgeReviewPackageBuilder.build(
+        request: BridgeReviewPackageBuildRequest(
+            packageId: "package",
+            query: query,
+            comparison: comparison,
+            checkpointIds: [],
+            reviewGeneration: 9,
+            generatedAtUnixMilliseconds: 10
+        )
+    )
+    let item = try #require(package.itemsById["item-source"])
+    let baseHandle = try #require(item.contentRoles.base)
+    let headHandle = try #require(item.contentRoles.head)
+    let contentStore = BridgeContentStore(provider: provider)
+    await contentStore.activate(
+        handles: package.itemsById.values.flatMap(\.contentRoles.allHandles),
+        reviewGeneration: 9
+    )
+    let loadedBaseContent = try await contentStore.load(
+        handleId: baseHandle.handleId,
+        requestedGeneration: 9
+    )
+    let loadedContent = try await contentStore.load(
+        handleId: headHandle.handleId,
+        requestedGeneration: 9
+    )
+    return GitAdapterLazyContentFixture(
+        repositoryPath: repositoryPath,
+        filePath: filePath,
+        baseContent: baseContent,
+        headContent: headContent,
+        gitClient: gitClient,
+        comparison: comparison,
+        headHandle: headHandle,
+        loadedBaseContent: loadedBaseContent,
+        loadedContent: loadedContent
+    )
+}
+
+private func buildPackage(
+    provider: BridgeGitReviewSourceProvider,
+    query: BridgeReviewQuery,
+    baseEndpoint: BridgeSourceEndpoint,
+    headEndpoint: BridgeSourceEndpoint,
+    reviewGeneration: BridgeReviewGeneration
+) async throws -> BridgeReviewPackage {
+    let comparison = try await provider.compareEndpoints(
+        BridgeEndpointComparisonRequest(
+            query: query,
+            baseEndpoint: baseEndpoint,
+            headEndpoint: headEndpoint,
+            reviewGeneration: reviewGeneration
+        )
+    )
+    return try BridgeReviewPackageBuilder.build(
+        request: BridgeReviewPackageBuildRequest(
+            packageId: "package-\(reviewGeneration)",
+            query: query,
+            comparison: comparison,
+            checkpointIds: [],
+            reviewGeneration: reviewGeneration,
+            generatedAtUnixMilliseconds: 10
+        )
+    )
 }
 
 private func gitTreeSnapshot(path: String, oid: String) -> GitTreeSnapshot {
@@ -818,169 +884,4 @@ private func gitBlobSHA1ContentHash(_ content: String) -> String {
     var blobData = Data("blob \(data.count)\0".utf8)
     blobData.append(data)
     return Insecure.SHA1.hash(data: blobData).map { String(format: "%02x", $0) }.joined()
-}
-
-private actor AgentStudioGitLocalClientFake: AgentStudioGitLocalClient {
-    private let diffSnapshot: GitDiffSnapshot
-    private let diffFailure: GitDataPlaneError?
-    private let contentByLocator: [GitContentLocator: GitContentPayload]
-    private let contentFailureByLocator: [GitContentLocator: GitDataPlaneError]
-    private let treeSnapshotByRequest: [GitTreeReadRequest: GitTreeSnapshot]
-    private let treeFailure: GitDataPlaneError?
-    private let statusSnapshot: GitStatusSnapshot?
-    private let statusFailure: GitDataPlaneError?
-    private let statusSnapshotByOptions: [GitStatusOptions: GitStatusSnapshot]
-    private let statusFailureByOptions: [GitStatusOptions: GitDataPlaneError]
-    private var diffRequests: [GitDiffRequest] = []
-    private var contentRequests: [GitContentRequest] = []
-    private var treeRequests: [GitTreeReadRequest] = []
-    private var statusRequests: [(URL, GitStatusOptions)] = []
-
-    init(
-        diffSnapshot: GitDiffSnapshot = GitDiffSnapshot(files: []),
-        diffFailure: GitDataPlaneError? = nil,
-        contentByLocator: [GitContentLocator: GitContentPayload] = [:],
-        contentFailureByLocator: [GitContentLocator: GitDataPlaneError] = [:],
-        treeSnapshotByRequest: [GitTreeReadRequest: GitTreeSnapshot] = [:],
-        treeFailure: GitDataPlaneError? = nil,
-        statusSnapshot: GitStatusSnapshot? = nil,
-        statusFailure: GitDataPlaneError? = nil,
-        statusSnapshotByOptions: [GitStatusOptions: GitStatusSnapshot] = [:],
-        statusFailureByOptions: [GitStatusOptions: GitDataPlaneError] = [:]
-    ) {
-        self.diffSnapshot = diffSnapshot
-        self.diffFailure = diffFailure
-        self.contentByLocator = contentByLocator
-        self.contentFailureByLocator = contentFailureByLocator
-        self.treeSnapshotByRequest = treeSnapshotByRequest
-        self.treeFailure = treeFailure
-        self.statusSnapshot = statusSnapshot
-        self.statusFailure = statusFailure
-        self.statusSnapshotByOptions = statusSnapshotByOptions
-        self.statusFailureByOptions = statusFailureByOptions
-    }
-
-    func repositoryIdentity(for worktreePath: URL) async throws(GitDataPlaneError) -> GitRepositoryIdentity {
-        throw GitDataPlaneError.unsupported(message: "not used")
-    }
-
-    func worktrees(for repositoryPath: URL) async throws(GitDataPlaneError) -> [GitWorktreeSnapshot] {
-        throw GitDataPlaneError.unsupported(message: "not used")
-    }
-
-    func validateWorktree(_ request: GitValidateWorktreeRequest) async throws(GitDataPlaneError)
-        -> GitWorktreeValidation
-    {
-        throw GitDataPlaneError.unsupported(message: "not used")
-    }
-
-    func createWorktree(_ request: GitCreateWorktreeRequest) async throws(GitDataPlaneError)
-        -> GitWorktreeSnapshot
-    {
-        throw GitDataPlaneError.unsupported(message: "not used")
-    }
-
-    func pruneStaleWorktree(_ request: GitPruneStaleWorktreeRequest) async throws(GitDataPlaneError)
-        -> GitWorktreePruneResult
-    {
-        throw GitDataPlaneError.unsupported(message: "not used")
-    }
-
-    func removeWorktree(_ request: GitRemoveWorktreeRequest) async throws(GitDataPlaneError)
-        -> GitWorktreeRemovalResult
-    {
-        throw GitDataPlaneError.unsupported(message: "not used")
-    }
-
-    func lockWorktree(_ request: GitLockWorktreeRequest) async throws(GitDataPlaneError)
-        -> GitWorktreeSnapshot
-    {
-        throw GitDataPlaneError.unsupported(message: "not used")
-    }
-
-    func unlockWorktree(_ request: GitUnlockWorktreeRequest) async throws(GitDataPlaneError)
-        -> GitWorktreeSnapshot
-    {
-        throw GitDataPlaneError.unsupported(message: "not used")
-    }
-
-    func status(for worktreePath: URL, options: GitStatusOptions) async throws(GitDataPlaneError)
-        -> GitStatusSnapshot
-    {
-        statusRequests.append((worktreePath, options))
-        if let optionFailure = statusFailureByOptions[options] {
-            throw optionFailure
-        }
-        if let optionSnapshot = statusSnapshotByOptions[options] {
-            return optionSnapshot
-        }
-        if let statusFailure {
-            throw statusFailure
-        }
-        guard let statusSnapshot else {
-            throw GitDataPlaneError.unsupported(message: "not used")
-        }
-        return statusSnapshot
-    }
-
-    func branches(for repositoryPath: URL) async throws(GitDataPlaneError) -> [GitBranchSnapshot] {
-        throw GitDataPlaneError.unsupported(message: "not used")
-    }
-
-    func resolveRevision(_ request: GitRevisionResolutionRequest) async throws(GitDataPlaneError)
-        -> GitResolvedRevision
-    {
-        throw GitDataPlaneError.unsupported(message: "not used")
-    }
-
-    func readTree(_ request: GitTreeReadRequest) async throws(GitDataPlaneError) -> GitTreeSnapshot {
-        treeRequests.append(request)
-        if let treeFailure {
-            throw treeFailure
-        }
-        guard let treeSnapshot = treeSnapshotByRequest[request] else {
-            throw GitDataPlaneError.unsupported(message: "missing tree for \(request.path ?? "<root>")")
-        }
-        return treeSnapshot
-    }
-
-    func diff(_ request: GitDiffRequest) async throws(GitDataPlaneError) -> GitDiffSnapshot {
-        diffRequests.append(request)
-        if let diffFailure {
-            throw diffFailure
-        }
-        return diffSnapshot
-    }
-
-    func content(_ request: GitContentRequest) async throws(GitDataPlaneError) -> GitContentPayload {
-        contentRequests.append(request)
-        let locator = GitContentLocator(target: request.target, path: request.path)
-        if let failure = contentFailureByLocator[locator] {
-            throw failure
-        }
-        guard let content = contentByLocator[locator] else {
-            throw GitDataPlaneError.unsupported(message: "missing content for \(request.path)")
-        }
-        return content
-    }
-
-    func recordedDiffRequests() -> [GitDiffRequest] {
-        diffRequests
-    }
-
-    func recordedContentRequests() -> [GitContentRequest] {
-        contentRequests
-    }
-
-    func recordedTreeRequests() -> [GitTreeReadRequest] {
-        treeRequests
-    }
-
-    func recordedStatusRequestsCount() -> Int {
-        statusRequests.count
-    }
-
-    func recordedStatusOptions() -> [GitStatusOptions] {
-        statusRequests.map(\.1)
-    }
 }

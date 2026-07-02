@@ -66,8 +66,8 @@ struct WorkspaceActionExecutorTestsQuick {
         #expect(pane?.metadata.cwd == nil)
     }
 
-    @Test("openBridgeReview creates a generic read-only review tab")
-    func openBridgeReview_addsGenericBridgeTabAndRegistersView() {
+    @Test("openBridgeReview without a worktree context does not create a blank Bridge tab")
+    func openBridgeReview_withoutWorktreeContextDoesNotCreateBlankBridgeTab() {
         let harness = makeHarness()
         let store = harness.store
         let viewRegistry = harness.viewRegistry
@@ -77,22 +77,10 @@ struct WorkspaceActionExecutorTestsQuick {
 
         let pane = executor.openBridgeReview()
 
-        #expect(pane != nil)
-        #expect(store.tabs.count == 1)
-        #expect(store.activeTabId == store.tabs[0].id)
-        #expect(viewRegistry.view(for: pane!.id) != nil)
-        #expect(viewRegistry.view(for: pane!.id)?.mountedContentViewForTesting is BridgePaneMountView)
-        guard case .bridgePanel(let state) = pane?.content else {
-            Issue.record("Expected bridge panel content")
-            return
-        }
-        #expect(state.panelKind == .diffViewer)
-        #expect(state.source == nil)
-        #expect(pane?.metadata.title == "Bridge Review")
-        #expect(pane?.metadata.contentType == .diff)
-        #expect(pane?.repoId == nil)
-        #expect(pane?.worktreeId == nil)
-        #expect(pane?.metadata.cwd == nil)
+        #expect(pane == nil)
+        #expect(store.tabs.isEmpty)
+        #expect(store.activeTabId == nil)
+        #expect(viewRegistry.allBridgeViews.isEmpty)
     }
 
     @Test("openBridgeReview inherits active pane worktree context")
@@ -138,7 +126,42 @@ struct WorkspaceActionExecutorTestsQuick {
             return
         }
         #expect(rootPath == worktree.path.path)
-        #expect(baseline == .ref(name: "HEAD"))
+        #expect(baseline == .localDefaultBranch(branchName: "main"))
+    }
+
+    @Test("openBridgeReview falls back to the only registered worktree when no pane has context")
+    func openBridgeReview_usesOnlyRegisteredWorktreeWithoutActivePaneContext() {
+        let harness = makeHarness()
+        let store = harness.store
+        let viewRegistry = harness.viewRegistry
+        let executor = harness.executor
+        let tempDir = harness.tempDir
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let repo = store.addRepo(at: tempDir.appending(path: "repo"))
+        guard let worktree = store.repos.first(where: { $0.id == repo.id })?.worktrees.first else {
+            Issue.record("Expected main worktree")
+            return
+        }
+
+        let pane = executor.openBridgeReview()
+
+        #expect(pane != nil)
+        #expect(pane?.repoId == repo.id)
+        #expect(pane?.worktreeId == worktree.id)
+        #expect(pane?.metadata.cwd == worktree.path)
+        let bridgeView = viewRegistry.view(for: pane!.id)?.mountedContentViewForTesting as? BridgePaneMountView
+        #expect(bridgeView?.controller.runtime.metadata.worktreeId == worktree.id)
+        #expect(bridgeView?.controller.runtime.metadata.repoId == repo.id)
+        #expect(bridgeView?.controller.runtime.metadata.cwd == worktree.path)
+        guard case .bridgePanel(let state) = pane?.content,
+            case .workspace(let rootPath, let baseline) = state.source
+        else {
+            Issue.record("Expected Bridge workspace source")
+            return
+        }
+        #expect(rootPath == worktree.path.path)
+        #expect(baseline == .localDefaultBranch(branchName: "main"))
     }
 
     @Test("openBridgeReview can target a registered worktree without an active source pane")
@@ -175,7 +198,143 @@ struct WorkspaceActionExecutorTestsQuick {
             return
         }
         #expect(rootPath == worktree.path.path)
-        #expect(baseline == .ref(name: "HEAD"))
+        #expect(baseline == .localDefaultBranch(branchName: "main"))
+    }
+
+    @Test("openBridgeFileView can target a registered worktree without an active source pane")
+    func openBridgeFileView_targetsRegisteredWorktree() {
+        let harness = makeHarness()
+        let store = harness.store
+        let viewRegistry = harness.viewRegistry
+        let executor = harness.executor
+        let tempDir = harness.tempDir
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let repo = store.addRepo(at: tempDir.appending(path: "repo"))
+        guard let worktree = store.repos.first(where: { $0.id == repo.id })?.worktrees.first else {
+            Issue.record("Expected main worktree")
+            return
+        }
+
+        let pane = executor.openBridgeFileView(worktreeId: worktree.id)
+
+        #expect(pane != nil)
+        #expect(store.tabs.count == 1)
+        #expect(store.activeTabId == store.tabs[0].id)
+        #expect(pane?.repoId == repo.id)
+        #expect(pane?.worktreeId == worktree.id)
+        #expect(pane?.metadata.cwd == worktree.path)
+        #expect(pane?.metadata.title == "Files")
+        let bridgeView = viewRegistry.view(for: pane!.id)?.mountedContentViewForTesting as? BridgePaneMountView
+        #expect(bridgeView?.controller.runtime.metadata.worktreeId == worktree.id)
+        #expect(bridgeView?.controller.runtime.metadata.repoId == repo.id)
+        #expect(bridgeView?.controller.runtime.metadata.cwd == worktree.path)
+        guard case .bridgePanel(let state) = pane?.content,
+            state.panelKind == .fileViewer,
+            case .workspace(let rootPath, let baseline) = state.source
+        else {
+            Issue.record("Expected Bridge file-viewer workspace source")
+            return
+        }
+        #expect(rootPath == worktree.path.path)
+        #expect(baseline == .localDefaultBranch(branchName: "main"))
+    }
+
+    @Test("openBridgeFileView inherits active pane worktree context")
+    func openBridgeFileView_inheritsActivePaneWorktreeContext() throws {
+        let harness = makeHarness()
+        let store = harness.store
+        let viewRegistry = harness.viewRegistry
+        let executor = harness.executor
+        let tempDir = harness.tempDir
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let repo = store.addRepo(at: tempDir.appending(path: "repo"))
+        let worktree = try #require(
+            store.repos.first(where: { $0.id == repo.id })?.worktrees.first,
+            "Expected main worktree"
+        )
+        let sourcePane = store.createPane(
+            launchDirectory: worktree.path,
+            title: "Source",
+            facets: PaneContextFacets(
+                repoId: repo.id,
+                repoName: repo.name,
+                worktreeId: worktree.id,
+                worktreeName: worktree.name,
+                cwd: worktree.path
+            )
+        )
+        let tab = Tab(paneId: sourcePane.id)
+        store.appendTab(tab)
+        store.setActiveTab(tab.id)
+
+        let pane = try #require(executor.openBridgeFileView())
+
+        #expect(store.tabs.count == 2)
+        #expect(store.activeTabId == store.tabs[1].id)
+        assertFileViewPane(
+            pane,
+            repo: repo,
+            worktree: worktree,
+            viewRegistry: viewRegistry
+        )
+    }
+
+    @Test("openBridgeFileView falls back to the only registered worktree when no pane has context")
+    func openBridgeFileView_usesOnlyRegisteredWorktreeWithoutActivePaneContext() throws {
+        let harness = makeHarness()
+        let store = harness.store
+        let viewRegistry = harness.viewRegistry
+        let executor = harness.executor
+        let tempDir = harness.tempDir
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let repo = store.addRepo(at: tempDir.appending(path: "repo"))
+        let worktree = try #require(
+            store.repos.first(where: { $0.id == repo.id })?.worktrees.first,
+            "Expected main worktree"
+        )
+
+        let pane = try #require(executor.openBridgeFileView())
+
+        assertFileViewPane(
+            pane,
+            repo: repo,
+            worktree: worktree,
+            viewRegistry: viewRegistry
+        )
+    }
+
+    @Test("openBridgeFileView installs Worktree/File bootstrap source spec on mounted controller")
+    func openBridgeFileView_installsWorktreeFileBootstrapSourceSpec() throws {
+        let harness = makeHarness()
+        let store = harness.store
+        let viewRegistry = harness.viewRegistry
+        let executor = harness.executor
+        let tempDir = harness.tempDir
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let repo = store.addRepo(at: tempDir.appending(path: "repo"))
+        let worktree = try #require(
+            store.repos.first(where: { $0.id == repo.id })?.worktrees.first,
+            "Expected main worktree"
+        )
+
+        let pane = try #require(executor.openBridgeFileView(worktreeId: worktree.id))
+        let bridgeView = try #require(
+            viewRegistry.view(for: pane.id)?.mountedContentViewForTesting as? BridgePaneMountView,
+            "Expected mounted Bridge file-viewer view"
+        )
+        let script = bridgeView.controller.bootstrapScriptSourceForTesting
+
+        #expect(script.contains("const APP_PROTOCOL = \"worktree-file\""))
+        #expect(script.contains("data-bridge-app-protocol"))
+        #expect(script.contains("data-bridge-worktree-file-source-spec"))
+        #expect(script.contains(repo.id.uuidString))
+        #expect(script.contains(worktree.id.uuidString))
+        #expect(script.contains(StableKey.fromPath(worktree.path)))
+        #expect(!script.contains("const WORKTREE_FILE_SOURCE_SPEC = null;"))
     }
 
     @Test("openContextualWebviewInPane creates a split browser pane with inherited workspace association")
@@ -333,5 +492,41 @@ struct WorkspaceActionExecutorTestsQuick {
         executor.execute(.expandPane(tabId: tab.id, paneId: paneOne.id))
 
         #expect(viewRegistry.view(for: paneTwo.id) == nil)
+    }
+
+    private func assertFileViewPane(
+        _ pane: Pane,
+        repo: Repo,
+        worktree: Worktree,
+        viewRegistry: ViewRegistry
+    ) {
+        #expect(pane.repoId == repo.id)
+        #expect(pane.worktreeId == worktree.id)
+        #expect(pane.metadata.cwd == worktree.path)
+        #expect(pane.metadata.title == "Files")
+        let bridgeView = viewRegistry.view(for: pane.id)?.mountedContentViewForTesting as? BridgePaneMountView
+        #expect(bridgeView?.controller.runtime.metadata.worktreeId == worktree.id)
+        #expect(bridgeView?.controller.runtime.metadata.repoId == repo.id)
+        #expect(bridgeView?.controller.runtime.metadata.cwd == worktree.path)
+        guard case .bridgePanel(let state) = pane.content,
+            state.panelKind == .fileViewer,
+            case .workspace(let rootPath, let baseline) = state.source
+        else {
+            Issue.record("Expected Bridge file-viewer workspace source")
+            return
+        }
+        #expect(rootPath == worktree.path.path)
+        #expect(baseline == .localDefaultBranch(branchName: "main"))
+        guard let script = bridgeView?.controller.bootstrapScriptSourceForTesting else {
+            Issue.record("Expected mounted Bridge file-viewer bootstrap script")
+            return
+        }
+        #expect(script.contains("const APP_PROTOCOL = \"worktree-file\""))
+        #expect(script.contains("data-bridge-app-protocol"))
+        #expect(script.contains("data-bridge-worktree-file-source-spec"))
+        #expect(script.contains(repo.id.uuidString))
+        #expect(script.contains(worktree.id.uuidString))
+        #expect(script.contains(StableKey.fromPath(worktree.path)))
+        #expect(!script.contains("const WORKTREE_FILE_SOURCE_SPEC = null;"))
     }
 }
