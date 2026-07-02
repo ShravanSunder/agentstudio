@@ -659,3 +659,40 @@ entries; if an entry becomes stale, append a correction with the new evidence.
   (`aria-expanded=true` candidate offset 348 vs expected near 144). The
   programmatic control-event tests passed, so Codex left geometry/test
   infrastructure untouched in this React decomposition checkpoint.
+
+### 2026-07-02 Codex React Lane Selected Content Effect Checkpoint
+
+- Extracted the Review selected-content lifecycle effect into
+  `BridgeWeb/src/app/bridge-app-review-selected-content-controller.ts` as
+  `useBridgeReviewSelectedContentEffect`.
+- The effect now lives beside the selected-content demand controller that owns
+  foreground content load/abort/retry state; `BridgeReviewViewerMode` composes
+  it and no longer owns that layout-effect block directly.
+- Kept user-initiated selection semantics in the mode: `selectReviewItem` and
+  `beginForegroundReviewSelection` still own selection identity, telemetry,
+  cancellation of prior selected demand, and `review.markFileViewed`.
+- Added source-structure guards that the selected-content effect stays in the
+  demand controller module and not the lazy shell; the controller still imports
+  no Pierre modules or shell boundary code.
+- File size checkpoint:
+  `bridge-app-review-viewer-mode.tsx` is now 783 lines;
+  `bridge-app-review-selected-content-controller.ts` is 405 lines;
+  `use-bridge-review-control-event-listeners.ts` is 172 lines.
+- Red proof:
+  `pnpm --dir BridgeWeb exec vitest run src/review-viewer/review-viewer-source-structure.unit.test.ts --reporter verbose`
+  first failed because `useBridgeReviewSelectedContentEffect` was absent.
+- Focused proof:
+  `pnpm --dir BridgeWeb exec vitest run src/review-viewer/review-viewer-source-structure.unit.test.ts src/app/bridge-app-control.unit.test.ts --reporter verbose`
+  passed 9 tests / 2 files.
+- Boundary proof:
+  `pnpm --dir BridgeWeb exec vitest run src/app/bridge-viewer-shared-boundaries.unit.test.ts src/file-viewer/bridge-file-viewer-source-structure.unit.test.ts src/review-viewer/review-viewer-source-structure.unit.test.ts src/review-viewer/shell/review-viewer-shell.integration.test.tsx --reporter verbose`
+  passed 48 tests / 4 files.
+- Browser selected-content proof:
+  `pnpm --dir BridgeWeb exec vitest --config vitest.browser.config.ts run --project integration-browser src/review-viewer/test-support/bridge-viewer-browser.integration.browser.test.tsx -t "clicking a tree row fetches and renders the newly selected file|starts clicked Review foreground content demand before selected path commit|large fixture deep tree selection scrolls the selected file body into the CodeView viewport" --reporter verbose`
+  passed 3 selected tests.
+  `pnpm --dir BridgeWeb exec vitest --config vitest.browser.config.ts run --project integration-browser src/review-viewer/test-support/bridge-viewer-browser.integration-large.browser.test.tsx -t "programmatic file reveal|preview command explicit|stale markdown worker responses|markdown preview restores CodeView" --reporter verbose`
+  passed 4 selected tests.
+- Static proof:
+  touched-file `oxfmt --check` passed, touched-file type-aware `oxlint`
+  passed with no output, and
+  `pnpm --dir BridgeWeb exec tsc --noEmit --pretty false` passed.

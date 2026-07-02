@@ -52,7 +52,10 @@ import {
 	useBridgeReviewResourceExecutor,
 	useBridgeReviewViewerStore,
 } from './bridge-app-review-runtime.js';
-import { useSelectedReviewContentDemandController } from './bridge-app-review-selected-content-controller.js';
+import {
+	useBridgeReviewSelectedContentEffect,
+	useSelectedReviewContentDemandController,
+} from './bridge-app-review-selected-content-controller.js';
 import {
 	clearReviewRefinementsHidingExplicitTarget,
 	itemIdForReviewFileNavigationTarget,
@@ -653,46 +656,12 @@ export function BridgeReviewViewerMode(
 		viewerStore,
 	});
 
-	useLayoutEffect((): (() => void) => {
-		if (!props.isActive) {
-			selectedContentAbortControllerRef.current?.abort();
-			selectedContentAbortControllerRef.current = null;
-			selectedContentActiveLoadKeyRef.current = null;
-			cancelForegroundSelectionRelease();
-			setForegroundSelectedContentKey(null);
-			setLastSelectedDemandTelemetry(null);
-			return (): void => {};
-		}
-		const selectedItemId = rootSnapshotRef.current.selectedItemId;
-		const currentReviewPackage = reviewPackageRef.current;
-		if (currentReviewPackage === null || selectedItemId === null) {
-			setSelectedContentResourcesState(null);
-			cancelForegroundSelectionRelease();
-			setForegroundSelectedContentKey(null);
-			setLastSelectedDemandTelemetry(null);
-			return (): void => {};
-		}
-		const selectedItem = currentReviewPackage.itemsById[selectedItemId];
-		if (selectedItem === undefined) {
-			setSelectedContentResourcesState(null);
-			cancelForegroundSelectionRelease();
-			setForegroundSelectedContentKey(null);
-			setLastSelectedDemandTelemetry(null);
-			return (): void => {};
-		}
-		const selectedContentKey =
-			currentSelectedContentKey ??
-			makeSelectedContentResourcesKey(currentReviewPackage, selectedItemId);
-		return startSelectedReviewContentDemand({
-			itemId: selectedItemId,
-			presentation: selectedItemPresentation,
-			reviewPackage: currentReviewPackage,
-			selectedContentKey,
-		});
-	}, [
+	useBridgeReviewSelectedContentEffect({
 		cancelForegroundSelectionRelease,
-		props.isActive,
 		currentSelectedContentKey,
+		isActive: props.isActive,
+		reviewPackageRef,
+		rootSnapshotRef,
 		selectedContentAbortControllerRef,
 		selectedContentActiveLoadKeyRef,
 		selectedContentRetryVersion,
@@ -701,7 +670,7 @@ export function BridgeReviewViewerMode(
 		setLastSelectedDemandTelemetry,
 		setSelectedContentResourcesState,
 		startSelectedReviewContentDemand,
-	]);
+	});
 
 	useBridgeReviewMarkdownPreviewController({
 		currentReviewPackageTelemetryContextRef,

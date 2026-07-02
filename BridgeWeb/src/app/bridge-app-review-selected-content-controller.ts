@@ -1,5 +1,5 @@
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 
 import type { BridgeDemandScheduler } from '../core/demand/bridge-demand-scheduler.js';
 import type { BridgeResourceExecutor } from '../core/demand/bridge-resource-executor.js';
@@ -16,6 +16,7 @@ import { recordBridgeViewerContentQueueTelemetry } from '../review-viewer/teleme
 import { foregroundSelectionVisibleHydrationReleaseDelayMilliseconds } from './bridge-app-review-runtime.js';
 import {
 	contentResourceCount,
+	makeSelectedContentResourcesKey,
 	scheduleSelectedContentRetry,
 	selectedContentResourcesStateFromDemandLoadResult,
 	shouldStartSelectedReviewContentDemand,
@@ -40,13 +41,15 @@ export interface UseSelectedReviewContentDemandControllerProps {
 
 export interface StartSelectedReviewContentDemandProps {
 	readonly itemId: string;
-	readonly presentation: {
-		readonly kind: 'file';
-		readonly version: BridgeReviewFileNavigationTarget['version'];
-	} | null;
+	readonly presentation: SelectedReviewContentPresentation;
 	readonly reviewPackage: BridgeReviewPackage;
 	readonly selectedContentKey: string;
 }
+
+export type SelectedReviewContentPresentation = {
+	readonly kind: 'file';
+	readonly version: BridgeReviewFileNavigationTarget['version'];
+} | null;
 
 export interface SelectedReviewContentDemandController {
 	readonly cancelForegroundSelectionRelease: () => void;
@@ -75,6 +78,24 @@ export interface SelectedReviewContentDemandController {
 	readonly startSelectedReviewContentDemand: (
 		props: StartSelectedReviewContentDemandProps,
 	) => () => void;
+}
+
+export interface UseBridgeReviewSelectedContentEffectProps {
+	readonly cancelForegroundSelectionRelease: () => void;
+	readonly currentSelectedContentKey: string | null;
+	readonly isActive: boolean;
+	readonly reviewPackageRef: MutableRefObject<BridgeReviewPackage | null>;
+	readonly rootSnapshotRef: MutableRefObject<{ readonly selectedItemId: string | null }>;
+	readonly selectedContentAbortControllerRef: MutableRefObject<AbortController | null>;
+	readonly selectedContentActiveLoadKeyRef: MutableRefObject<string | null>;
+	readonly selectedContentRetryVersion: number;
+	readonly selectedItemPresentation: SelectedReviewContentPresentation;
+	readonly setForegroundSelectedContentKey: (value: string | null) => void;
+	readonly setLastSelectedDemandTelemetry: Dispatch<
+		SetStateAction<ReviewContentDemandTelemetry | null>
+	>;
+	readonly setSelectedContentResourcesState: SelectedReviewContentDemandController['setSelectedContentResourcesState'];
+	readonly startSelectedReviewContentDemand: SelectedReviewContentDemandController['startSelectedReviewContentDemand'];
 }
 
 export function useSelectedReviewContentDemandController(
@@ -289,6 +310,78 @@ export function useSelectedReviewContentDemandController(
 		setSelectedContentResourcesState,
 		startSelectedReviewContentDemand,
 	};
+}
+
+export function useBridgeReviewSelectedContentEffect(
+	props: UseBridgeReviewSelectedContentEffectProps,
+): void {
+	const {
+		cancelForegroundSelectionRelease,
+		currentSelectedContentKey,
+		isActive,
+		reviewPackageRef,
+		rootSnapshotRef,
+		selectedContentAbortControllerRef,
+		selectedContentActiveLoadKeyRef,
+		selectedContentRetryVersion,
+		selectedItemPresentation,
+		setForegroundSelectedContentKey,
+		setLastSelectedDemandTelemetry,
+		setSelectedContentResourcesState,
+		startSelectedReviewContentDemand,
+	} = props;
+
+	useLayoutEffect((): (() => void) => {
+		if (!isActive) {
+			selectedContentAbortControllerRef.current?.abort();
+			selectedContentAbortControllerRef.current = null;
+			selectedContentActiveLoadKeyRef.current = null;
+			cancelForegroundSelectionRelease();
+			setForegroundSelectedContentKey(null);
+			setLastSelectedDemandTelemetry(null);
+			return (): void => {};
+		}
+		const selectedItemId = rootSnapshotRef.current.selectedItemId;
+		const currentReviewPackage = reviewPackageRef.current;
+		if (currentReviewPackage === null || selectedItemId === null) {
+			setSelectedContentResourcesState(null);
+			cancelForegroundSelectionRelease();
+			setForegroundSelectedContentKey(null);
+			setLastSelectedDemandTelemetry(null);
+			return (): void => {};
+		}
+		const selectedItem = currentReviewPackage.itemsById[selectedItemId];
+		if (selectedItem === undefined) {
+			setSelectedContentResourcesState(null);
+			cancelForegroundSelectionRelease();
+			setForegroundSelectedContentKey(null);
+			setLastSelectedDemandTelemetry(null);
+			return (): void => {};
+		}
+		const selectedContentKey =
+			currentSelectedContentKey ??
+			makeSelectedContentResourcesKey(currentReviewPackage, selectedItemId);
+		return startSelectedReviewContentDemand({
+			itemId: selectedItemId,
+			presentation: selectedItemPresentation,
+			reviewPackage: currentReviewPackage,
+			selectedContentKey,
+		});
+	}, [
+		cancelForegroundSelectionRelease,
+		currentSelectedContentKey,
+		isActive,
+		reviewPackageRef,
+		rootSnapshotRef,
+		selectedContentAbortControllerRef,
+		selectedContentActiveLoadKeyRef,
+		selectedContentRetryVersion,
+		selectedItemPresentation,
+		setForegroundSelectedContentKey,
+		setLastSelectedDemandTelemetry,
+		setSelectedContentResourcesState,
+		startSelectedReviewContentDemand,
+	]);
 }
 
 function recordSelectedContentReadyTelemetry(props: {

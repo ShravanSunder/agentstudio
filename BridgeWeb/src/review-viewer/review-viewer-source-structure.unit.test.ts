@@ -15,6 +15,7 @@ describe('Review viewer source structure', () => {
 		expect(modeSource).toContain('useBridgeReviewMetadataInterestRuntime');
 		expect(modeSource).toContain('useBridgeReviewProjectionCoordinator');
 		expect(modeSource).toContain('useVisibleReviewContentHydration');
+		expect(modeSource).toContain('useBridgeReviewSelectedContentEffect');
 		expect(modeSource).toContain('useSelectedReviewContentDemandController');
 		expect(modeSource).toContain('BridgeReviewViewerShellBoundary');
 		expect(modeSource).not.toContain('LazyReviewViewerShell');
@@ -26,6 +27,7 @@ describe('Review viewer source structure', () => {
 		expect(shellBoundarySource).not.toContain('useBridgeReviewMetadataInterestRuntime');
 		expect(shellBoundarySource).not.toContain('useBridgeReviewProjectionCoordinator');
 		expect(shellBoundarySource).not.toContain('useSelectedReviewContentDemandController');
+		expect(shellBoundarySource).not.toContain('useBridgeReviewSelectedContentEffect');
 	});
 
 	test('keeps Review control event listeners in an app-level hook', () => {
@@ -48,6 +50,24 @@ describe('Review viewer source structure', () => {
 		expect(hookSource).not.toContain('AbortController');
 		expect(hookSource).not.toContain('resourceExecutor');
 		expect(hookSource).not.toContain('reviewDemandScheduler');
+	});
+
+	test('keeps selected Review content demand effects in the demand controller module', () => {
+		const modeSource = readSource('../app/bridge-app-review-viewer-mode.tsx');
+		const selectedContentControllerSource = readSource(
+			'../app/bridge-app-review-selected-content-controller.ts',
+		);
+
+		expect(modeSource).toContain('useBridgeReviewSelectedContentEffect');
+		expect(modeSource).not.toContain('useLayoutEffect((): (() => void)');
+		expect(modeSource).not.toContain('return startSelectedReviewContentDemand({');
+
+		expect(selectedContentControllerSource).toContain('useBridgeReviewSelectedContentEffect');
+		expect(selectedContentControllerSource).toContain(
+			'selectedContentAbortControllerRef.current?.abort()',
+		);
+		expect(selectedContentControllerSource).not.toContain('BridgeReviewViewerShellBoundary');
+		expect(selectedContentControllerSource).not.toContain('@pierre/');
 	});
 
 	test('keeps the review store out of content bodies and runtime handles', () => {
