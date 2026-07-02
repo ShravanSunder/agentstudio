@@ -112,7 +112,7 @@ describe('Bridge Pierre tree adapter', () => {
 			'[data-file-tree-virtualized-scroll="true"]',
 		);
 		expect(shadowRoot.querySelectorAll).toHaveBeenCalledWith(
-			'[data-type="item"][data-item-type="file"][data-item-path]',
+			'button[data-item-type="file"][data-item-path],[data-type="item"][data-item-type="file"][data-item-path]',
 		);
 	});
 });
@@ -140,7 +140,21 @@ class RecordingDirectoryHandle implements BridgePierreTreeDirectoryHandle {
 }
 
 class RecordingScrollOwner implements BridgePierreTreeScrollOwner {
+	scrollTop = 0;
+
 	addEventListener(): void {}
+
+	dispatchEvent(): boolean {
+		return true;
+	}
+
+	getBoundingClientRect(): DOMRect {
+		return new DOMRect(0, 0, 100, 100);
+	}
+
+	querySelectorAll(): Iterable<RecordingPierreFileRowElement> {
+		return [];
+	}
 
 	removeEventListener(): void {}
 }
