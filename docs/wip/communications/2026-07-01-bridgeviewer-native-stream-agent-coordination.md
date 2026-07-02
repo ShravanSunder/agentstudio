@@ -561,3 +561,31 @@ entries; if an entry becomes stale, append a correction with the new evidence.
   resolves `repoRootPath` to the `BridgeWeb` directory while fixture constants
   are repo-relative paths beginning with `BridgeWeb/`. Codex left verifier
   infrastructure untouched in this React component checkpoint.
+
+### 2026-07-02 Codex React Lane Shared Control Test-Id Checkpoint
+
+- Removed Review-owned `bridge-review-*` literals from neutral shared rail
+  controls:
+  `BridgeWeb/src/app/bridge-viewer-search-control.tsx` and
+  `BridgeWeb/src/app/bridge-viewer-filter-menu.tsx`.
+- Search control test ids are now caller-owned props; FileView passes
+  `worktree-file-*` ids and Review explicitly passes `bridge-review-*` ids.
+- Filter menu subordinate ids now derive from the caller-owned trigger
+  `testId`; FileView keeps `worktree-file-filter-menu` and its options/active
+  indicator are `worktree-file-filter-menu-*`.
+- Added a shared-boundary guard that fails if neutral search/filter controls
+  regain `bridge-review-*` literals.
+- Focused proof:
+  `pnpm --dir BridgeWeb exec vitest run src/app/bridge-viewer-shared-boundaries.unit.test.ts src/file-viewer/bridge-file-viewer-source-structure.unit.test.ts src/review-viewer/review-viewer-source-structure.unit.test.ts src/review-viewer/shell/review-viewer-shell.integration.test.tsx --reporter verbose`
+  passed 45 tests / 4 files.
+- Browser proof:
+  `pnpm --dir BridgeWeb exec vitest --config vitest.browser.config.ts run --project integration-browser src/file-viewer/bridge-file-viewer-app.browser.test.tsx src/app/bridge-app-native-review-error.browser.test.tsx src/app/bridge-app-lazy-boundary.browser.test.tsx src/app/bridge-viewer-content-header.browser.test.tsx --reporter verbose`
+  passed 64 tests / 4 files.
+- Static proof:
+  `pnpm --dir BridgeWeb exec oxfmt --check src/app/bridge-viewer-search-control.tsx src/app/bridge-viewer-filter-menu.tsx src/app/bridge-viewer-shared-boundaries.unit.test.ts src/file-viewer/bridge-file-viewer-tree-panel.tsx src/review-viewer/shell/review-viewer-shell.tsx src/app/bridge-app-native-review-error.browser.metadata-suite.tsx src/file-viewer/bridge-file-viewer-app.browser.startup-suite.tsx`
+  passed after formatting `bridge-viewer-filter-menu.tsx`; `pnpm --dir BridgeWeb exec tsc --noEmit --pretty false`
+  passed; touched-file type-aware `oxlint` exited 0 with two existing-style
+  `unicorn(consistent-function-scoping)` warnings in
+  `bridge-app-native-review-error.browser.metadata-suite.tsx`.
+- Dev-server proof remains blocked before UI launch by the same verifier
+  root/path issue recorded in the prior checkpoint.

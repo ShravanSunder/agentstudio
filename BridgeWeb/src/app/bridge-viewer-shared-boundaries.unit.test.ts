@@ -33,6 +33,14 @@ describe('BridgeViewer shared component boundaries', () => {
 		expect(reviewViewerShell).not.toContain('data-bridge-shared-rail-toolbar="true"');
 	});
 
+	test('shared rail controls do not bake in Review-owned test ids', async () => {
+		const searchControl = await source('src/app/bridge-viewer-search-control.tsx');
+		const filterMenu = await source('src/app/bridge-viewer-filter-menu.tsx');
+
+		expect(searchControl).not.toContain('bridge-review-');
+		expect(filterMenu).not.toContain('bridge-review-');
+	});
+
 	test('Pierre tree adapter stays neutral from FileView and Review domain modules', async () => {
 		const pierreTreeAdapter = await source('src/app/bridge-pierre-tree-adapter.ts');
 

@@ -443,7 +443,10 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 									isActive={treeSearchOpen}
 									onOpenSearch={(): void => props.onTreeSearchOpen?.()}
 									onSearchModeChange={(mode): void => props.onTreeSearchModeChange?.(mode)}
+									regexToggleTestId="bridge-review-regex-toggle"
 									searchMode={treeSearchMode}
+									searchToggleTestId="bridge-review-search-toggle"
+									testId="bridge-review-search-control"
 								/>
 							</div>,
 						],

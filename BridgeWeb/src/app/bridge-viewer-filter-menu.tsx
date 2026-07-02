@@ -45,6 +45,7 @@ export function BridgeViewerFilterMenu<TValue extends string>(
 	const isDefaultSelection = clearOption !== undefined && props.value === clearOption.value;
 	const menuOptions =
 		props.showDefaultOptionInMenu === false ? props.options.slice(1) : props.options;
+	const testIds = bridgeViewerFilterMenuTestIds(props.testId);
 
 	return (
 		<DropdownMenu>
@@ -63,24 +64,20 @@ export function BridgeViewerFilterMenu<TValue extends string>(
 				title={props.label}
 			>
 				<span className="relative flex min-w-0 items-center truncate">
-					<FilterTriggerGlyph label={props.label} />
+					<FilterTriggerGlyph label={props.label} testId={testIds.triggerGlyph} />
 					{isDefaultSelection ? null : (
 						<span
 							className={cn(
 								'absolute -right-0.5 -top-0.5 size-1.5 rounded-full',
 								'bg-[var(--bridge-focus-border)] shadow-[0_0_0_1px_var(--bridge-surface-bg)]',
 							)}
-							data-testid="bridge-review-filter-active-indicator"
+							data-testid={testIds.activeIndicator}
 						/>
 					)}
 					<span className="sr-only">{selectedLabel}</span>
 				</span>
 				<BridgeViewerIcon className="sr-only">
-					<ChevronDownIcon
-						aria-hidden="true"
-						className="size-3"
-						data-testid="bridge-review-filter-chevron"
-					/>
+					<ChevronDownIcon aria-hidden="true" className="size-3" data-testid={testIds.chevron} />
 				</BridgeViewerIcon>
 			</DropdownMenuTrigger>
 			<DropdownMenuContent
@@ -91,10 +88,10 @@ export function BridgeViewerFilterMenu<TValue extends string>(
 					'text-[var(--bridge-text-secondary)] shadow-[0_24px_68px_rgb(0_0_0_/_0.86)]',
 					'ring-1 ring-[rgb(205_214_244_/_0.16)]',
 				)}
-				data-testid="bridge-review-filter-popover"
+				data-testid={testIds.popover}
 				sideOffset={6}
 			>
-				<header className="px-2 pb-2 pt-1.5" data-testid="bridge-review-filter-popover-header">
+				<header className="px-2 pb-2 pt-1.5" data-testid={testIds.popoverHeader}>
 					<p className="text-[13px] font-medium text-[var(--bridge-text-primary)]">
 						{titleForFilterLabel(props.label)}
 					</p>
@@ -113,7 +110,7 @@ export function BridgeViewerFilterMenu<TValue extends string>(
 								'focus:text-[var(--bridge-text-primary)]',
 								option.value === props.value && 'text-[var(--bridge-text-primary)]',
 							)}
-							data-testid="bridge-review-filter-option"
+							data-testid={testIds.option}
 							key={option.value}
 							onClick={() => props.onChange(option.value)}
 						>
@@ -124,11 +121,11 @@ export function BridgeViewerFilterMenu<TValue extends string>(
 									statusBadgeClassName(option.value),
 								)}
 								aria-hidden="true"
-								data-testid="bridge-review-filter-option-badge"
+								data-testid={testIds.optionBadge}
 							>
 								{option.icon ?? option.label.slice(0, 1)}
 							</span>
-							<span className="min-w-0 truncate" data-testid="bridge-review-filter-option-label">
+							<span className="min-w-0 truncate" data-testid={testIds.optionLabel}>
 								{option.label}
 							</span>
 						</DropdownMenuCheckboxItem>
@@ -141,7 +138,7 @@ export function BridgeViewerFilterMenu<TValue extends string>(
 						'text-[var(--bridge-text-muted)] focus:bg-[var(--bridge-list-hover-bg)]',
 						'focus:text-[var(--bridge-text-primary)] data-disabled:cursor-default data-disabled:opacity-55',
 					)}
-					data-testid="bridge-review-filter-clear"
+					data-testid={testIds.clear}
 					disabled={!canClear}
 					onClick={() => {
 						if (clearOption !== undefined) {
@@ -159,13 +156,16 @@ export function BridgeViewerFilterMenu<TValue extends string>(
 	);
 }
 
-function FilterTriggerGlyph(props: { readonly label: string }): ReactElement {
+function FilterTriggerGlyph(props: {
+	readonly label: string;
+	readonly testId: string;
+}): ReactElement {
 	if (props.label === 'File class filter') {
 		return (
 			<FolderIcon
 				aria-hidden="true"
 				className={cn(bridgeViewerChromeLucideIconClassName, 'text-[var(--bridge-text-secondary)]')}
-				data-testid="bridge-review-filter-trigger-glyph"
+				data-testid={props.testId}
 			/>
 		);
 	}
@@ -173,7 +173,7 @@ function FilterTriggerGlyph(props: { readonly label: string }): ReactElement {
 		<SlidersHorizontalIcon
 			aria-hidden="true"
 			className={cn(bridgeViewerChromeLucideIconClassName, 'text-[var(--bridge-text-secondary)]')}
-			data-testid="bridge-review-filter-trigger-glyph"
+			data-testid={props.testId}
 		/>
 	);
 }
@@ -193,9 +193,35 @@ function descriptionForFilterLabel(label: string): string {
 		return 'Option-click to isolate one status';
 	}
 	if (label === 'File class filter') {
-		return 'Scope the rail without changing the review metadata';
+		return 'Scope the rail without changing metadata';
 	}
-	return 'Filter the visible review files';
+	return 'Filter visible files';
+}
+
+interface BridgeViewerFilterMenuTestIds {
+	readonly activeIndicator: string;
+	readonly chevron: string;
+	readonly clear: string;
+	readonly option: string;
+	readonly optionBadge: string;
+	readonly optionLabel: string;
+	readonly popover: string;
+	readonly popoverHeader: string;
+	readonly triggerGlyph: string;
+}
+
+function bridgeViewerFilterMenuTestIds(testId: string): BridgeViewerFilterMenuTestIds {
+	return {
+		activeIndicator: `${testId}-active-indicator`,
+		chevron: `${testId}-chevron`,
+		clear: `${testId}-clear`,
+		option: `${testId}-option`,
+		optionBadge: `${testId}-option-badge`,
+		optionLabel: `${testId}-option-label`,
+		popover: `${testId}-popover`,
+		popoverHeader: `${testId}-popover-header`,
+		triggerGlyph: `${testId}-trigger-glyph`,
+	};
 }
 
 function statusBadgeClassName(value: string): string {

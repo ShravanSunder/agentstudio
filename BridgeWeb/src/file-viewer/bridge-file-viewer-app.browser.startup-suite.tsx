@@ -178,16 +178,16 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		expect(
 			document.querySelector('[data-testid="bridge-file-viewer-rail-toolbar-trailing"]'),
 		).not.toBeNull();
-		expect(document.querySelector('[data-testid="bridge-review-search-control"]')).not.toBeNull();
-		expect(document.querySelector('[data-testid="bridge-review-search-toggle"]')).not.toBeNull();
-		expect(document.querySelector('[data-testid="bridge-review-regex-toggle"]')).not.toBeNull();
+		expect(document.querySelector('[data-testid="worktree-file-search-control"]')).not.toBeNull();
+		expect(document.querySelector('[data-testid="worktree-file-search-toggle"]')).not.toBeNull();
+		expect(document.querySelector('[data-testid="worktree-file-regex-toggle"]')).not.toBeNull();
 		expect(document.querySelector('[data-testid="worktree-file-filter-menu"]')).not.toBeNull();
 		expect(document.querySelector('[data-testid="worktree-file-search-input"]')).toBeNull();
 		const searchToggle = requireBridgeViewerHTMLElement(
-			document.querySelector('[data-testid="bridge-review-search-toggle"]'),
+			document.querySelector('[data-testid="worktree-file-search-toggle"]'),
 		);
 		const regexToggle = requireBridgeViewerHTMLElement(
-			document.querySelector('[data-testid="bridge-review-regex-toggle"]'),
+			document.querySelector('[data-testid="worktree-file-regex-toggle"]'),
 		);
 		expect(Math.round(searchToggle.getBoundingClientRect().height)).toBe(24);
 		expect(Math.round(regexToggle.getBoundingClientRect().height)).toBe(24);
@@ -263,7 +263,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		).click();
 		await waitForBridgeViewerAnimationFrame();
 		const textFilterOption = [
-			...document.querySelectorAll('[data-testid="bridge-review-filter-option"]'),
+			...document.querySelectorAll('[data-testid="worktree-file-filter-menu-option"]'),
 		]
 			.filter((option): option is HTMLElement => option instanceof HTMLElement)
 			.find((option): boolean => option.textContent?.includes('Text files') ?? false);

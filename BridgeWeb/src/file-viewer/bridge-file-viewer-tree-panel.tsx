@@ -174,7 +174,10 @@ export function BridgeFileViewerTreePanel(props: BridgeFileViewerTreePanelProps)
 									setIsSearchOpen(true);
 									props.onSearchModeChange(searchMode.kind);
 								}}
+								regexToggleTestId="worktree-file-regex-toggle"
 								searchMode={{ kind: props.searchMode }}
+								searchToggleTestId="worktree-file-search-toggle"
+								testId="worktree-file-search-control"
 							/>
 							{props.onOpenReviewComparison === undefined ? null : (
 								<BridgeViewerButton

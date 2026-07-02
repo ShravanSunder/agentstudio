@@ -14,6 +14,9 @@ export interface BridgeViewerSearchControlProps {
 	readonly onOpenSearch: () => void;
 	readonly searchMode?: BridgeViewerSearchMode;
 	readonly onSearchModeChange?: (mode: BridgeViewerSearchMode) => void;
+	readonly regexToggleTestId: string;
+	readonly searchToggleTestId: string;
+	readonly testId: string;
 }
 
 export function BridgeViewerSearchControl(props: BridgeViewerSearchControlProps): ReactElement {
@@ -21,16 +24,13 @@ export function BridgeViewerSearchControl(props: BridgeViewerSearchControlProps)
 	const isRegexMode = searchMode.kind === 'regex';
 
 	return (
-		<div
-			className="relative flex min-w-0 items-center gap-1"
-			data-testid="bridge-review-search-control"
-		>
+		<div className="relative flex min-w-0 items-center gap-1" data-testid={props.testId}>
 			<BridgeViewerButton
 				ariaLabel="Search files"
 				ariaPressed={props.isActive}
 				className={bridgeViewerChromeIconButtonClassName}
 				onClick={props.onOpenSearch}
-				testId="bridge-review-search-toggle"
+				testId={props.searchToggleTestId}
 				title="Search files"
 			>
 				<BridgeViewerIcon>
@@ -44,7 +44,7 @@ export function BridgeViewerSearchControl(props: BridgeViewerSearchControlProps)
 				onClick={(): void => {
 					props.onSearchModeChange?.(isRegexMode ? { kind: 'text' } : { kind: 'regex' });
 				}}
-				testId="bridge-review-regex-toggle"
+				testId={props.regexToggleTestId}
 				title={isRegexMode ? 'Use text search' : 'Use regex search'}
 			>
 				<BridgeViewerIcon>

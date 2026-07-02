@@ -143,7 +143,7 @@ describe('BridgeApp native review intake Browser Mode', () => {
 				'agentstudio://resource/worktree-file/worktree.fileContent/file-frame-stable-content?generation=1&cursor=file-frame-cursor',
 			]);
 			requireBridgeViewerHTMLElement(
-				document.querySelector('[data-testid="bridge-review-search-toggle"]'),
+				document.querySelector('[data-testid="worktree-file-search-toggle"]'),
 			).click();
 			await waitForBridgeViewerAnimationFrame();
 			const fileSearchInput = requireHTMLInputElement(
@@ -156,7 +156,7 @@ describe('BridgeApp native review intake Browser Mode', () => {
 			).click();
 			await waitForBridgeViewerAnimationFrame();
 			const textFilterOption = [
-				...document.querySelectorAll('[data-testid="bridge-review-filter-option"]'),
+				...document.querySelectorAll('[data-testid="worktree-file-filter-menu-option"]'),
 			]
 				.filter((option): option is HTMLElement => option instanceof HTMLElement)
 				.find((option): boolean => option.textContent?.includes('Text files') ?? false);
@@ -167,7 +167,7 @@ describe('BridgeApp native review intake Browser Mode', () => {
 			await waitForBridgeViewerAnimationFrame();
 			expect(fileSearchInput.value).toBe('StableAcrossModes');
 			expect(
-				document.querySelector('[data-testid="bridge-review-filter-active-indicator"]'),
+				document.querySelector('[data-testid="worktree-file-filter-menu-active-indicator"]'),
 			).not.toBeNull();
 
 			requireBridgeViewerHTMLElement(
@@ -292,7 +292,7 @@ describe('BridgeApp native review intake Browser Mode', () => {
 				).value,
 			).toBe('StableAcrossModes');
 			expect(
-				document.querySelector('[data-testid="bridge-review-filter-active-indicator"]'),
+				document.querySelector('[data-testid="worktree-file-filter-menu-active-indicator"]'),
 			).not.toBeNull();
 			expect(loadEvents).toEqual(['worktree-file.load']);
 			expect(fetchedFileResourceUrls).toHaveLength(1);
