@@ -9,6 +9,7 @@ final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         case commandBarItems = "performance.commandbar.items"
         case coordinatorWrite = "performance.coordinator.write"
         case gitAdmission = "performance.git.admission"
+        case gitBackoff = "performance.git.backoff"
         case gitEventPosted = "performance.git.event_posted"
         case gitSnapshotDedup = "performance.git.snapshot_dedup"
         case gitStatusComputed = "performance.git.status"

@@ -159,6 +159,12 @@ struct AgentStudioOTLPPerformanceMetricEvent: Equatable, Sendable {
         {
             dimensions.append(AgentStudioOTLPPerformanceMetricDimension(name: "reason", value: reason))
         }
+        if record.body == "performance.git.backoff",
+            case .string(let reason) = record.attributes["agentstudio.performance.git.backoff.reason"],
+            isSafeDimensionValue(reason)
+        {
+            dimensions.append(AgentStudioOTLPPerformanceMetricDimension(name: "reason", value: reason))
+        }
         if record.body.hasPrefix("performance.bridge.") {
             appendBridgeDimension(
                 name: "agent.proof.marker",

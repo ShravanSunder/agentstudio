@@ -1784,6 +1784,253 @@ struct GitWorkingDirectoryProjectorTests {
         collectionTask.cancel()
     }
 
+    @Test("status timeout opens per-worktree backoff and coalesces changes into one deferred refresh")
+    func statusTimeoutOpensBackoffAndCoalescesDeferredRefresh() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let clock = TestPushClock()
+        let calls = CallCounter()
+        let policy = AppPolicies.GitRefresh.Policy(
+            backgroundStripeCount: 1,
+            statusFailureBackoffBaseDelay: .milliseconds(50),
+            statusFailureBackoffMultiplier: 2,
+            statusFailureBackoffMaxDelay: .seconds(1)
+        )
+        // First compute times out (opens the breaker); the deferred retry succeeds.
+        let provider = StubGitWorkingTreeStatusProvider(resultHandler: { _ in
+            let callNumber = await calls.increment()
+            guard callNumber > 1 else {
+                return .unavailable(GitWorkingTreeStatusUnavailable(reason: .timeout))
+            }
+            return .available(
+                GitWorkingTreeStatus(
+                    summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
+                    branch: "recovered",
+                    origin: nil
+                )
+            )
+        })
+        let actor = GitWorkingDirectoryProjector(
+            bus: bus,
+            gitWorkingTreeProvider: provider,
+            coalescingWindow: .zero,
+            sleepClock: clock,
+            refreshPolicy: policy
+        )
+
+        let observed = ObservedGitEvents()
+        let collectionTask = await startCollection(on: bus, observed: observed)
+        await actor.start()
+
+        let worktreeId = UUID()
+        let rootPath = URL(fileURLWithPath: "/tmp/backoff-coalesce-\(UUID().uuidString)")
+        await bus.post(makeFilesChangedEnvelope(seq: 1, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 1))
+
+        let firstComputeTimedOut = await waitUntil { await calls.value() == 1 }
+        #expect(firstComputeTimedOut)
+        await clock.waitForPendingSleepCount(atLeast: 1)
+
+        // Three changes arrive while the breaker is open. They must not each
+        // trigger a compute; they coalesce into a single deferred refresh.
+        await bus.post(makeFilesChangedEnvelope(seq: 2, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 2))
+        await bus.post(makeFilesChangedEnvelope(seq: 3, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 3))
+        await bus.post(makeFilesChangedEnvelope(seq: 4, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 4))
+        for _ in 0..<300 {
+            await Task.yield()
+        }
+        #expect(await calls.value() == 1)
+        #expect(await observed.snapshotCount(for: worktreeId) == 0)
+
+        // Backoff window expires -> exactly one deferred refresh fires and succeeds.
+        clock.advance(by: .milliseconds(50))
+        let recovered = await waitUntil {
+            await observed.latestSnapshot(for: worktreeId)?.branch == "recovered"
+        }
+        #expect(recovered)
+        #expect(await calls.value() == 2)
+        #expect(await observed.snapshotCount(for: worktreeId) == 1)
+
+        await actor.shutdown()
+        collectionTask.cancel()
+    }
+
+    @Test("repeated status timeout grows per-worktree backoff on the doubling schedule")
+    func repeatedStatusTimeoutGrowsBackoff() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let clock = TestPushClock()
+        let calls = CallCounter()
+        let policy = AppPolicies.GitRefresh.Policy(
+            backgroundStripeCount: 1,
+            statusFailureBackoffBaseDelay: .milliseconds(50),
+            statusFailureBackoffMultiplier: 2,
+            statusFailureBackoffMaxDelay: .seconds(10)
+        )
+        let provider = StubGitWorkingTreeStatusProvider(resultHandler: { _ in
+            _ = await calls.increment()
+            return .unavailable(GitWorkingTreeStatusUnavailable(reason: .timeout))
+        })
+        let actor = GitWorkingDirectoryProjector(
+            bus: bus,
+            gitWorkingTreeProvider: provider,
+            coalescingWindow: .zero,
+            sleepClock: clock,
+            refreshPolicy: policy
+        )
+
+        let observed = ObservedGitEvents()
+        let collectionTask = await startCollection(on: bus, observed: observed)
+        await actor.start()
+
+        let worktreeId = UUID()
+        let rootPath = URL(fileURLWithPath: "/tmp/backoff-grow-\(UUID().uuidString)")
+        await bus.post(makeFilesChangedEnvelope(seq: 1, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 1))
+        #expect(await waitUntil { await calls.value() == 1 })
+        await clock.waitForPendingSleepCount(atLeast: 1)
+
+        // Expire step 1 (50ms) -> the seeded refresh recomputes and times out again.
+        clock.advance(by: .milliseconds(50))
+        #expect(await waitUntil { await calls.value() == 2 })
+        await clock.waitForPendingSleepCount(atLeast: 1)
+
+        // Step 2 must be 100ms: advancing only the base 50ms leaves it closed.
+        clock.advance(by: .milliseconds(50))
+        for _ in 0..<300 {
+            await Task.yield()
+        }
+        #expect(await calls.value() == 2)
+
+        // The remaining 50ms (100ms total) expires step 2 and recomputes.
+        clock.advance(by: .milliseconds(50))
+        #expect(await waitUntil { await calls.value() == 3 })
+
+        await actor.shutdown()
+        collectionTask.cancel()
+    }
+
+    @Test("adaptive coalescing window grows under sustained bursts and decays when quiet")
+    func adaptiveCoalescingWindowGrowsUnderBurst() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let clock = TestPushClock()
+        let calls = CallCounter()
+        let policy = AppPolicies.GitRefresh.Policy(
+            backgroundStripeCount: 1,
+            adaptiveCoalescingMaxWindow: .milliseconds(200)
+        )
+        let provider = StubGitWorkingTreeStatusProvider(resultHandler: { _ in
+            _ = await calls.increment()
+            return .available(
+                GitWorkingTreeStatus(
+                    summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
+                    branch: "main",
+                    origin: nil
+                )
+            )
+        })
+        let actor = GitWorkingDirectoryProjector(
+            bus: bus,
+            gitWorkingTreeProvider: provider,
+            coalescingWindow: .milliseconds(50),
+            sleepClock: clock,
+            refreshPolicy: policy
+        )
+
+        let observed = ObservedGitEvents()
+        let collectionTask = await startCollection(on: bus, observed: observed)
+        await actor.start()
+
+        let worktreeId = UUID()
+        let rootPath = URL(fileURLWithPath: "/tmp/adaptive-\(UUID().uuidString)")
+
+        // Cycle A (productive at base 50ms): a second change arrives during the
+        // window, so the window grows one step to 100ms.
+        await bus.post(makeFilesChangedEnvelope(seq: 1, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 1))
+        await clock.waitForPendingSleepCount(atLeast: 1)
+        await bus.post(makeFilesChangedEnvelope(seq: 2, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 2))
+        clock.advance(by: .milliseconds(50))
+        #expect(await waitUntil { await calls.value() == 1 })
+
+        // Cycle B (quiet at the grown 100ms window): 50ms is not enough.
+        await bus.post(makeFilesChangedEnvelope(seq: 3, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 3))
+        await clock.waitForPendingSleepCount(atLeast: 1)
+        clock.advance(by: .milliseconds(50))
+        for _ in 0..<300 {
+            await Task.yield()
+        }
+        #expect(await calls.value() == 1)
+        clock.advance(by: .milliseconds(50))
+        #expect(await waitUntil { await calls.value() == 2 })
+
+        // Cycle C: the quiet Cycle B decayed the window back to base 50ms.
+        await bus.post(makeFilesChangedEnvelope(seq: 4, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 4))
+        await clock.waitForPendingSleepCount(atLeast: 1)
+        clock.advance(by: .milliseconds(50))
+        #expect(await waitUntil { await calls.value() == 3 })
+
+        await actor.shutdown()
+        collectionTask.cancel()
+    }
+
+    @Test("circuit breaker emits git backoff telemetry on open and close")
+    func circuitBreakerEmitsBackoffTelemetry() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let clock = TestPushClock()
+        let calls = CallCounter()
+        let recorder = GitProjectorTraceRecorderSpy()
+        let policy = AppPolicies.GitRefresh.Policy(
+            backgroundStripeCount: 1,
+            statusFailureBackoffBaseDelay: .milliseconds(50),
+            statusFailureBackoffMaxDelay: .seconds(1)
+        )
+        let provider = StubGitWorkingTreeStatusProvider(resultHandler: { _ in
+            let callNumber = await calls.increment()
+            guard callNumber > 1 else {
+                return .unavailable(GitWorkingTreeStatusUnavailable(reason: .timeout))
+            }
+            return .available(
+                GitWorkingTreeStatus(
+                    summary: GitWorkingTreeSummary(changed: 0, staged: 0, untracked: 0),
+                    branch: "main",
+                    origin: nil
+                )
+            )
+        })
+        let actor = GitWorkingDirectoryProjector(
+            bus: bus,
+            gitWorkingTreeProvider: provider,
+            coalescingWindow: .zero,
+            sleepClock: clock,
+            refreshPolicy: policy,
+            performanceTraceRecorder: recorder
+        )
+
+        let observed = ObservedGitEvents()
+        let collectionTask = await startCollection(on: bus, observed: observed)
+        await actor.start()
+
+        let worktreeId = UUID()
+        let rootPath = URL(fileURLWithPath: "/tmp/backoff-telemetry-\(UUID().uuidString)")
+        await bus.post(makeFilesChangedEnvelope(seq: 1, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 1))
+
+        #expect(await waitUntil { await calls.value() == 1 })
+        await clock.waitForPendingSleepCount(atLeast: 1)
+
+        let openEmitted = await waitUntil { recorder.backoffEvents(open: true).count == 1 }
+        #expect(openEmitted)
+        let openEvent = recorder.backoffEvents(open: true).first
+        #expect(openEvent?.reason == "timeout")
+        #expect(openEvent?.backoffMilliseconds == 50)
+        #expect(openEvent?.attempt == 1)
+
+        // Backoff expiry retries the seeded refresh, which succeeds and closes.
+        clock.advance(by: .milliseconds(50))
+        #expect(await waitUntil { await observed.snapshotCount(for: worktreeId) == 1 })
+        let closeEmitted = await waitUntil { recorder.backoffEvents(open: false).count >= 1 }
+        #expect(closeEmitted)
+        #expect(recorder.backoffEvents(open: false).first?.attempt == 0)
+
+        await actor.shutdown()
+        collectionTask.cancel()
+    }
+
     private func startCollection(
         on bus: EventBus<RuntimeEnvelope>,
         observed: ObservedGitEvents
@@ -2052,5 +2299,69 @@ private actor CallOrderRecorder {
 
     func record(_ label: String) {
         recordedLabels.append(label)
+    }
+}
+
+private final class GitProjectorTraceRecorderSpy: GitProjectorPerformanceRecording, @unchecked Sendable {
+    struct BackoffEvent {
+        let open: Bool
+        let reason: String?
+        let backoffMilliseconds: Double?
+        let attempt: Int?
+    }
+
+    private let lock = NSLock()
+    private var recordedEvents: [(AgentStudioPerformanceTraceRecorder.Event, [String: AgentStudioTraceValue])] = []
+
+    func record(
+        _ event: AgentStudioPerformanceTraceRecorder.Event,
+        attributes: [String: AgentStudioTraceValue]
+    ) {
+        lock.lock()
+        recordedEvents.append((event, attributes))
+        lock.unlock()
+    }
+
+    func recordDuration(
+        _ event: AgentStudioPerformanceTraceRecorder.Event,
+        duration: Duration,
+        attributes: [String: AgentStudioTraceValue]
+    ) {
+        record(event, attributes: attributes)
+    }
+
+    func backoffEvents(open: Bool) -> [BackoffEvent] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedEvents.compactMap { event, attributes in
+            guard event == .gitBackoff else { return nil }
+            guard
+                case .bool(let isOpen)? = attributes["agentstudio.performance.git.backoff_open"],
+                isOpen == open
+            else {
+                return nil
+            }
+            return BackoffEvent(
+                open: isOpen,
+                reason: Self.string(attributes["agentstudio.performance.git.backoff.reason"]),
+                backoffMilliseconds: Self.double(attributes["agentstudio.performance.git.backoff_ms"]),
+                attempt: Self.int(attributes["agentstudio.performance.git.backoff_attempt.count"])
+            )
+        }
+    }
+
+    private static func string(_ value: AgentStudioTraceValue?) -> String? {
+        guard case .string(let stringValue)? = value else { return nil }
+        return stringValue
+    }
+
+    private static func double(_ value: AgentStudioTraceValue?) -> Double? {
+        guard case .double(let doubleValue)? = value else { return nil }
+        return doubleValue
+    }
+
+    private static func int(_ value: AgentStudioTraceValue?) -> Int? {
+        guard case .int(let intValue)? = value else { return nil }
+        return intValue
     }
 }

@@ -90,6 +90,64 @@ struct AgentStudioOTLPPerformanceMetricsTests {
     }
 
     @Test
+    func gitBackoffProjectsBoundedMetricsWithReasonDimension() throws {
+        let record = AgentStudioOTLPProjectedLogRecord(
+            timeUnixNano: 123,
+            severityText: .info,
+            body: "performance.git.backoff",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.git.backoff_open": .bool(true),
+                "agentstudio.performance.git.backoff_ms": .double(500),
+                "agentstudio.performance.git.backoff_attempt.count": .int(3),
+                "agentstudio.performance.git.backoff.reason": .string("timeout"),
+                "agentstudio.performance.git.pending.count": .int(2),
+                "agentstudio.trace.tag": .string("performance"),
+            ]
+        )
+
+        let metricEvent = try #require(AgentStudioOTLPPerformanceMetricEvent(record: record))
+
+        #expect(metricEvent.eventName == "performance.git.backoff")
+        let expectedDimensions = [
+            AgentStudioOTLPPerformanceMetricDimension(name: "event", value: "performance.git.backoff"),
+            AgentStudioOTLPPerformanceMetricDimension(name: "reason", value: "timeout"),
+        ]
+        #expect(metricEvent.dimensions == expectedDimensions)
+        #expect(
+            metricEvent.samples == [
+                AgentStudioOTLPPerformanceMetricSample(
+                    eventName: "performance.git.backoff",
+                    label: "agentstudio_performance_git_backoff_attempt_count",
+                    dimensions: expectedDimensions,
+                    value: 3
+                ),
+                AgentStudioOTLPPerformanceMetricSample(
+                    eventName: "performance.git.backoff",
+                    label: "agentstudio_performance_git_backoff_ms",
+                    dimensions: expectedDimensions,
+                    value: 500
+                ),
+                AgentStudioOTLPPerformanceMetricSample(
+                    eventName: "performance.git.backoff",
+                    label: "agentstudio_performance_git_backoff_open",
+                    dimensions: expectedDimensions,
+                    value: 1
+                ),
+                AgentStudioOTLPPerformanceMetricSample(
+                    eventName: "performance.git.backoff",
+                    label: "agentstudio_performance_git_pending_count",
+                    dimensions: expectedDimensions,
+                    value: 2
+                ),
+            ])
+    }
+
+    @Test
     func atomPerformanceRecordProjectsAtomCounters() throws {
         let record = AgentStudioOTLPProjectedLogRecord(
             timeUnixNano: 456,

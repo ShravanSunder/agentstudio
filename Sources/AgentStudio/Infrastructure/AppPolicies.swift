@@ -48,6 +48,20 @@ enum AppPolicies {
             let suppressedWorktreeTombstoneLimit: Int
             let maxNilStatusRetries: Int
             let nilStatusRetryDelay: Duration
+            /// First backoff step applied when a worktree's status compute times
+            /// out or is rejected for read-capacity. The per-worktree circuit
+            /// breaker doubles this per consecutive failure up to
+            /// `statusFailureBackoffMaxDelay`, coalescing file-change events that
+            /// arrive during the open window into one deferred refresh.
+            let statusFailureBackoffBaseDelay: Duration
+            let statusFailureBackoffMultiplier: Int
+            let statusFailureBackoffMaxDelay: Duration
+            /// Upper bound for the adaptive coalescing window. The base window is
+            /// the projector's constructor `coalescingWindow`; it grows by one
+            /// base step per productive window (more changes arrived while
+            /// waiting) and decays back toward the base when quiet, never
+            /// exceeding this cap.
+            let adaptiveCoalescingMaxWindow: Duration
 
             init(
                 activeCadence: Duration = .seconds(15),
@@ -56,13 +70,21 @@ enum AppPolicies {
                 oldestStaleReservedSlots: Int = 1,
                 suppressedWorktreeTombstoneLimit: Int = 1024,
                 maxNilStatusRetries: Int = 1,
-                nilStatusRetryDelay: Duration = .seconds(5)
+                nilStatusRetryDelay: Duration = .seconds(5),
+                statusFailureBackoffBaseDelay: Duration = .seconds(5),
+                statusFailureBackoffMultiplier: Int = 2,
+                statusFailureBackoffMaxDelay: Duration = .seconds(60),
+                adaptiveCoalescingMaxWindow: Duration = .milliseconds(1000)
             ) {
                 precondition(backgroundStripeCount > 0)
                 precondition(maxConcurrentStatusComputes > 0)
                 precondition(oldestStaleReservedSlots >= 0)
                 precondition(suppressedWorktreeTombstoneLimit > 0)
                 precondition(maxNilStatusRetries >= 0)
+                precondition(statusFailureBackoffBaseDelay > .zero)
+                precondition(statusFailureBackoffMultiplier >= 1)
+                precondition(statusFailureBackoffMaxDelay >= statusFailureBackoffBaseDelay)
+                precondition(adaptiveCoalescingMaxWindow > .zero)
 
                 self.activeCadence = activeCadence
                 self.backgroundStripeCount = backgroundStripeCount
@@ -71,6 +93,29 @@ enum AppPolicies {
                 self.suppressedWorktreeTombstoneLimit = suppressedWorktreeTombstoneLimit
                 self.maxNilStatusRetries = maxNilStatusRetries
                 self.nilStatusRetryDelay = nilStatusRetryDelay
+                self.statusFailureBackoffBaseDelay = statusFailureBackoffBaseDelay
+                self.statusFailureBackoffMultiplier = statusFailureBackoffMultiplier
+                self.statusFailureBackoffMaxDelay = statusFailureBackoffMaxDelay
+                self.adaptiveCoalescingMaxWindow = adaptiveCoalescingMaxWindow
+            }
+
+            /// Exponential per-worktree backoff for status computes that time out
+            /// or hit the read-capacity ceiling. `failureCount` is the number of
+            /// consecutive failures (1 for the first). Each step multiplies by
+            /// `statusFailureBackoffMultiplier`, clamped to
+            /// `statusFailureBackoffMaxDelay`.
+            func statusFailureBackoffDelay(forConsecutiveFailureCount failureCount: Int) -> Duration {
+                guard failureCount > 1 else {
+                    return min(statusFailureBackoffBaseDelay, statusFailureBackoffMaxDelay)
+                }
+                var delay = statusFailureBackoffBaseDelay
+                for _ in 1..<failureCount {
+                    delay = Self.scaled(delay, by: statusFailureBackoffMultiplier)
+                    if delay >= statusFailureBackoffMaxDelay {
+                        return statusFailureBackoffMaxDelay
+                    }
+                }
+                return min(delay, statusFailureBackoffMaxDelay)
             }
 
             var backgroundCadence: Duration {
