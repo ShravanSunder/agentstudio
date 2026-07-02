@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
-import type { WorktreeFileProtocolFrame } from '../features/worktree-file/models/worktree-file-protocol-models.js';
+import type {
+	WorktreeFileDescriptorRequest,
+	WorktreeFileProtocolFrame,
+} from '../features/worktree-file/models/worktree-file-protocol-models.js';
 import {
 	cleanupNativeWorktreeFileBackendBrowserTest,
 	installReadyNativeWorktreeFileBackend,
@@ -177,6 +180,37 @@ describe('Bridge app native Worktree/File backend', () => {
 		});
 		expect(replayRequestCount).toBe(1);
 		document.removeEventListener('__bridge_intake_replay_request', handleIntakeReplayRequest);
+		backend.dispose();
+	});
+
+	test('sends foreground descriptor metadata requests through the native worktree stream', async () => {
+		const { backend, commandDetails } = await installReadyNativeWorktreeFileBackend();
+		const descriptorRequest: WorktreeFileDescriptorRequest = {
+			fileId: 'file-1',
+			lane: 'foreground',
+			path: 'Sources/App/View.swift',
+			rowId: 'row-1',
+			sourceIdentity: makeSourceIdentity(),
+		};
+
+		const descriptorPromise = backend.requestWorktreeFileDescriptor(descriptorRequest);
+
+		await expect
+			.poll(() => commandDetails[2])
+			.toMatchObject({
+				jsonrpc: '2.0',
+				id: 'request-2',
+				method: 'worktreeFileSurface.requestFileDescriptor',
+				__nonce: 'bridge-1',
+				params: descriptorRequest,
+			});
+		document.dispatchEvent(
+			new CustomEvent('__bridge_response', {
+				detail: { id: 'request-2', result: {}, nonce: 'push-1' },
+			}),
+		);
+
+		await expect(descriptorPromise).resolves.toBeUndefined();
 		backend.dispose();
 	});
 

@@ -364,6 +364,13 @@ enum BridgeWorktreeExtentDiagnosticsRejectionReason: String, Codable, Equatable,
     case oversizedContent
 }
 
+/// Typed frame-level demand lineage (spec: performance-demand-lanes.md,
+/// one-lineage-per-frame). Rows never carry duplicated per-row lineage.
+struct BridgeWorktreeFileMetadataLineage: Codable, Equatable, Sendable {
+    let loadedBy: String
+    let lane: String
+}
+
 struct BridgeWorktreeSnapshotFrame: Codable, Equatable, Sendable {
     let kind: String
     let streamId: String
@@ -375,6 +382,7 @@ struct BridgeWorktreeSnapshotFrame: Codable, Equatable, Sendable {
     let treeRows: [BridgeWorktreeTreeRowMetadata]
     let treeSizeFacts: BridgeWorktreeTreeVirtualizedSizeFacts
     let statusPatch: BridgeWorktreeStatusPatch?
+    let metadataLineage: BridgeWorktreeFileMetadataLineage
 
     init(
         streamId: String,
@@ -383,7 +391,8 @@ struct BridgeWorktreeSnapshotFrame: Codable, Equatable, Sendable {
         requestSelector: BridgeWorktreeFileSurfaceSourceSpec?,
         treeRows: [BridgeWorktreeTreeRowMetadata],
         treeSizeFacts: BridgeWorktreeTreeVirtualizedSizeFacts,
-        statusPatch: BridgeWorktreeStatusPatch?
+        statusPatch: BridgeWorktreeStatusPatch?,
+        metadataLineage: BridgeWorktreeFileMetadataLineage
     ) {
         self.kind = "snapshot"
         self.streamId = streamId
@@ -395,6 +404,7 @@ struct BridgeWorktreeSnapshotFrame: Codable, Equatable, Sendable {
         self.treeRows = treeRows
         self.treeSizeFacts = treeSizeFacts
         self.statusPatch = statusPatch
+        self.metadataLineage = metadataLineage
     }
 }
 
@@ -407,13 +417,15 @@ struct BridgeWorktreeTreeWindowFrame: Codable, Equatable, Sendable {
     let projectionIdentity: BridgeWorktreeTreeProjectionIdentity
     let rows: [BridgeWorktreeTreeRowMetadata]
     let treeSizeFacts: BridgeWorktreeTreeVirtualizedSizeFacts
+    let metadataLineage: BridgeWorktreeFileMetadataLineage
 
     init(
         streamId: String,
         sequence: Int,
         projectionIdentity: BridgeWorktreeTreeProjectionIdentity,
         rows: [BridgeWorktreeTreeRowMetadata],
-        treeSizeFacts: BridgeWorktreeTreeVirtualizedSizeFacts
+        treeSizeFacts: BridgeWorktreeTreeVirtualizedSizeFacts,
+        metadataLineage: BridgeWorktreeFileMetadataLineage
     ) {
         self.kind = "delta"
         self.streamId = streamId
@@ -423,6 +435,7 @@ struct BridgeWorktreeTreeWindowFrame: Codable, Equatable, Sendable {
         self.projectionIdentity = projectionIdentity
         self.rows = rows
         self.treeSizeFacts = treeSizeFacts
+        self.metadataLineage = metadataLineage
     }
 }
 

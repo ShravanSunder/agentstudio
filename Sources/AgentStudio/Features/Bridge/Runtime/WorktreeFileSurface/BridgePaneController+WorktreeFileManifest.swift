@@ -259,7 +259,11 @@ extension BridgePaneController {
                         treeWindowStartIndex: batch.startIndex,
                         treeWindowRowCount: batch.rows.count,
                         treeRowHeightPixels: worktreeFileTreeRowHeightPixels,
-                        rows: batch.rows
+                        rows: batch.rows,
+                        metadataLineage: BridgeWorktreeFileMetadataLineage(
+                            loadedBy: "idle",
+                            lane: "idle"
+                        )
                     )
                 )
             }

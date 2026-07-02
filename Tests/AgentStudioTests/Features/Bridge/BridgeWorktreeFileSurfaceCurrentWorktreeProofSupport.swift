@@ -51,7 +51,11 @@ struct BridgeCurrentWorktreeManifestRowAccumulator {
     private(set) var loadedByValues = Set<String>()
     private(set) var paths = Set<String>()
 
-    mutating func recordRows(_ rows: [[String: Any]], treeWindowKey: String?) {
+    mutating func recordRows(
+        _ rows: [[String: Any]],
+        treeWindowKey: String?,
+        metadataLineage: BridgeWorktreeFileMetadataLineage
+    ) {
         guard treeWindowKey?.hasPrefix("worktree-interest-") != true else {
             return
         }
@@ -62,8 +66,10 @@ struct BridgeCurrentWorktreeManifestRowAccumulator {
                 return row["path"] as? String
             }
         )
-        loadedByValues.formUnion(rows.compactMap { $0["loaded_by"] as? String })
-        laneValues.formUnion(rows.compactMap { $0["lane"] as? String })
+        // S2 frame-level lineage: collect one entry per non-interest frame from
+        // the frame's `metadataLineage`. Rows no longer carry per-row lineage.
+        loadedByValues.insert(metadataLineage.loadedBy)
+        laneValues.insert(metadataLineage.lane)
     }
 }
 
@@ -643,4 +649,14 @@ extension WebKitSerializedTests.BridgeWorktreeFileSurfaceCurrentWorktreeProofTes
         Issue.record("Expected metadata frame with source identity")
         throw BridgeProviderFailure.providerFailed(message: "missingSourceIdentity")
     }
+}
+
+func expectedRelativePath(fileURL: URL, rootURL: URL) -> String {
+    let rootPath = rootURL.standardizedFileURL.path
+    let filePath = fileURL.standardizedFileURL.path
+    let prefix = rootPath == "/" ? "/" : rootPath + "/"
+    guard let range = filePath.range(of: prefix, options: [.anchored]) else {
+        return fileURL.lastPathComponent
+    }
+    return String(filePath[range.upperBound...])
 }

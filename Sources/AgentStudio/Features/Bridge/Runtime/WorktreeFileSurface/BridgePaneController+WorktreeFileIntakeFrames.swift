@@ -7,11 +7,6 @@ private struct BridgeWorktreeFileSurfaceFrameIdentity: Decodable {
     let sequence: Int
 }
 
-struct BridgeWorktreeFileMetadataLineage: Sendable {
-    let loadedBy: String
-    let lane: String
-}
-
 /// Emits the scheduler's enqueue-to-dequeue queue-wait and stale-drop facts
 /// through the pane's performance trace recorder. Queue wait is scheduler
 /// instrumentation only — never a request-to-delivered-frame span.
@@ -104,16 +99,12 @@ extension BridgePaneController {
     /// scheduler's responsibility, so no gating or buffering happens here.
     /// Returns false on transport failure after marking connection health.
     func deliverWorktreeFileIntakeFramesNow<Frame: Encodable>(
-        _ frames: [Frame],
-        metadataLineageOverride: BridgeWorktreeFileMetadataLineage? = nil
+        _ frames: [Frame]
     ) async -> Bool {
         let encodedFrames: [String]
         do {
             encodedFrames = try frames.map {
-                try Self.makeWorktreeFileIntakeFrameString(
-                    $0,
-                    metadataLineageOverride: metadataLineageOverride
-                )
+                try Self.makeWorktreeFileIntakeFrameString($0)
             }
         } catch {
             paneState.connection.setHealth(.error)
@@ -148,16 +139,11 @@ extension BridgePaneController {
     }
 
     private nonisolated static func makeWorktreeFileIntakeFrameString<Frame: Encodable>(
-        _ frame: Frame,
-        metadataLineageOverride: BridgeWorktreeFileMetadataLineage? = nil
+        _ frame: Frame
     ) throws -> String {
         let encoder = JSONEncoder()
         let envelopeEncoder = BridgePushEnvelopeEncoder()
-        let rawFrameData = try encoder.encode(frame)
-        let frameData = try worktreeFileFrameDataByAddingMetadataLineage(
-            rawFrameData,
-            metadataLineageOverride: metadataLineageOverride
-        )
+        let frameData = try encoder.encode(frame)
         let object = try JSONDecoder().decode(BridgeWorktreeFileSurfaceFrameIdentity.self, from: frameData)
         guard let kind = BridgeIntakeFrameKind(rawValue: object.kind) else {
             throw BridgePushEnvelopeEncodingError.invalidEnvelopeUTF8
@@ -174,55 +160,4 @@ extension BridgePaneController {
         )
     }
 
-    private nonisolated static func worktreeFileFrameDataByAddingMetadataLineage(
-        _ frameData: Data,
-        metadataLineageOverride: BridgeWorktreeFileMetadataLineage? = nil
-    ) throws -> Data {
-        guard var object = try JSONSerialization.jsonObject(with: frameData) as? [String: Any],
-            let frameKind = object["frameKind"] as? String
-        else {
-            return frameData
-        }
-
-        switch frameKind {
-        case "worktree.snapshot":
-            object["treeRows"] = metadataRowsWithLineage(
-                object["treeRows"],
-                loadedBy: "startup_window",
-                lane: "foreground"
-            )
-        case "worktree.treeWindow":
-            let lineage =
-                metadataLineageOverride
-                ?? BridgeWorktreeFileMetadataLineage(
-                    loadedBy: "idle",
-                    lane: "idle"
-                )
-            object["rows"] = metadataRowsWithLineage(
-                object["rows"],
-                loadedBy: lineage.loadedBy,
-                lane: lineage.lane
-            )
-        default:
-            return frameData
-        }
-
-        return try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
-    }
-
-    private nonisolated static func metadataRowsWithLineage(
-        _ rowsValue: Any?,
-        loadedBy: String,
-        lane: String
-    ) -> [[String: Any]]? {
-        guard let rows = rowsValue as? [[String: Any]] else {
-            return nil
-        }
-        return rows.map { row in
-            var rowWithLineage = row
-            rowWithLineage["loaded_by"] = loadedBy
-            rowWithLineage["lane"] = lane
-            return rowWithLineage
-        }
-    }
 }

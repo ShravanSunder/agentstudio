@@ -70,6 +70,10 @@ export function makeSnapshotFrame(
 		sequence: 4,
 		frameKind: 'worktree.snapshot',
 		source,
+		metadataLineage: {
+			loadedBy: 'startup_window',
+			lane: 'foreground',
+		},
 		treeRows: [
 			{
 				rowId: `row-${source.sourceCursor}`,

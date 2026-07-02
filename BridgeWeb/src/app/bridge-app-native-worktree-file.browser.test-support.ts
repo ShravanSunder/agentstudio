@@ -102,6 +102,10 @@ export function makeSnapshotFrame(): Extract<
 		generation: 1,
 		sequence: 0,
 		source: makeSourceIdentity(),
+		metadataLineage: {
+			loadedBy: 'startup_window',
+			lane: 'foreground',
+		},
 		treeRows: [
 			{
 				rowId: 'row-1',
@@ -111,8 +115,6 @@ export function makeSnapshotFrame(): Extract<
 				depth: 2,
 				isDirectory: false,
 				fileId: 'file-1',
-				loaded_by: 'startup_window',
-				lane: 'foreground',
 			},
 		],
 		treeSizeFacts: {
@@ -227,6 +229,10 @@ export function makeTreeWindowFrame(
 			filterKey: 'all',
 			treeWindowKey: `tree-window-${startIndex}`,
 		},
+		metadataLineage: {
+			loadedBy: 'idle',
+			lane: 'idle',
+		},
 		rows: [
 			{
 				rowId: 'row:Sources/App.swift',
@@ -238,8 +244,6 @@ export function makeTreeWindowFrame(
 				fileId: 'file-1',
 				sizeBytes: 42,
 				lineCount: 2,
-				loaded_by: 'idle',
-				lane: 'idle',
 			},
 		],
 		treeSizeFacts: {

@@ -139,6 +139,10 @@ function makeSnapshotFrame(): WorktreeSnapshotFrame {
 		sequence: 0,
 		frameKind: 'worktree.snapshot',
 		source: makeSourceIdentity(),
+		metadataLineage: {
+			loadedBy: 'startup_window',
+			lane: 'foreground',
+		},
 		treeRows: [
 			{
 				rowId: 'row-1',

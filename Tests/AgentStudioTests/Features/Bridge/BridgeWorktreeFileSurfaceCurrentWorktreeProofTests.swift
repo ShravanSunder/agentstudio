@@ -140,14 +140,14 @@ extension WebKitSerializedTests {
                 [
                     "path": "Sources/OnlyInDemandInterest.swift",
                     "isDirectory": false,
-                    "loaded_by": "foreground",
-                    "lane": "foreground",
                 ]
             ]
+            let lineage = BridgeWorktreeFileMetadataLineage(loadedBy: "foreground", lane: "foreground")
 
             manifestRows.recordRows(
                 interestOnlyRows,
-                treeWindowKey: "worktree-interest-source-1-foreground-10"
+                treeWindowKey: "worktree-interest-source-1-foreground-10",
+                metadataLineage: lineage
             )
 
             #expect(manifestRows.paths.isEmpty)
@@ -157,7 +157,8 @@ extension WebKitSerializedTests {
 
             manifestRows.recordRows(
                 interestOnlyRows,
-                treeWindowKey: "worktree-tree-source-1-200"
+                treeWindowKey: "worktree-tree-source-1-200",
+                metadataLineage: lineage
             )
 
             #expect(manifestRows.paths == ["Sources/OnlyInDemandInterest.swift"])
@@ -296,6 +297,7 @@ extension WebKitSerializedTests {
                     manifestRows.recordRows(
                         rows,
                         treeWindowKey: nil,
+                        metadataLineage: snapshot.payload.metadataLineage
                     )
                     latestExpectedTotal = snapshot.payload.treeSizeFacts.pathCount ?? latestExpectedTotal
                     latestEmittedTotal = max(latestEmittedTotal, manifestRows.paths.count)
@@ -305,6 +307,7 @@ extension WebKitSerializedTests {
                     manifestRows.recordRows(
                         rows,
                         treeWindowKey: window.payload.projectionIdentity.treeWindowKey,
+                        metadataLineage: window.payload.metadataLineage
                     )
                     latestExpectedTotal = window.payload.treeSizeFacts.pathCount ?? latestExpectedTotal
                     latestEmittedTotal = max(latestEmittedTotal, manifestRows.paths.count)
@@ -335,9 +338,8 @@ extension WebKitSerializedTests {
                 guard probe.payload.frameKind == "worktree.treeWindow" else { continue }
                 let window = try decodeIntakeEnvelope(intakeFrame, as: BridgeWorktreeTreeWindowFrame.self)
                 let rows = try treeRows(from: intakeFrame, rowsKey: "rows")
-                let rowLanes = Set(rows.compactMap { $0["lane"] as? String })
-                let rowLoadedByValues = Set(rows.compactMap { $0["loaded_by"] as? String })
-                if rowLanes == ["idle"], rows.count > 1, firstIdleDeliveryIndex == nil {
+                let frameLineage = window.payload.metadataLineage
+                if frameLineage.lane == "idle", rows.count > 1, firstIdleDeliveryIndex == nil {
                     firstIdleDeliveryIndex = deliveryIndex
                 }
                 for lane in Self.demandLaneProofOrder {
@@ -351,13 +353,13 @@ extension WebKitSerializedTests {
                         !matchedLanes.contains(lane),
                         rows.count == 1,
                         rows.first?["path"] as? String == expectedProbe.expectedPath,
-                        rowLanes == [expectedProbe.lane],
-                        rowLoadedByValues == [expectedProbe.expectedLoadedBy]
+                        frameLineage.lane == expectedProbe.lane,
+                        frameLineage.loadedBy == expectedProbe.expectedLoadedBy
                     else {
                         continue
                     }
-                    #expect(rowLanes == [expectedProbe.lane])
-                    #expect(rowLoadedByValues == [expectedProbe.expectedLoadedBy])
+                    #expect(frameLineage.lane == expectedProbe.lane)
+                    #expect(frameLineage.loadedBy == expectedProbe.expectedLoadedBy)
                     matchedProbes.append(
                         BridgeCurrentWorktreeDemandLaneProbe(
                             expectedLoadedBy: expectedProbe.expectedLoadedBy,
@@ -408,15 +410,20 @@ extension WebKitSerializedTests {
             let samples = try requestTimings.map { requestTiming in
                 let deliveryIndex = try #require(
                     deliveryRecords.firstIndex { record in
+                        // Interest windows serve exactly the requested path;
+                        // lineage is frame-level (rows carry none).
                         guard
-                            let rows = optionalTreeRows(from: record.frameJSON, rowsKey: "rows")
+                            let rows = optionalTreeRows(from: record.frameJSON, rowsKey: "rows"),
+                            rows.count == 1,
+                            rows.first?["path"] as? String == requestTiming.expectedPath,
+                            let window = try? decodeIntakeEnvelope(
+                                record.frameJSON,
+                                as: BridgeWorktreeTreeWindowFrame.self
+                            )
                         else {
                             return false
                         }
-                        return rows.contains {
-                            $0["path"] as? String == requestTiming.expectedPath
-                                && $0["lane"] as? String == requestTiming.lane
-                        }
+                        return window.payload.metadataLineage.lane == requestTiming.lane
                     }
                 )
                 let deliveredRecord = deliveryRecords[deliveryIndex]
@@ -596,9 +603,9 @@ extension WebKitSerializedTests {
                     interestRowsBeforeIdleContinuation += rows.count
                     continue
                 }
-                let rowLanes = Set(rows.compactMap { $0["lane"] as? String })
+                let frameLineage = try metadataLineage(from: intakeFrame)
                 if deliveryIndex >= firstIdleContinuationDeliveryIndex,
-                    rowLanes == ["idle"],
+                    frameLineage["lane"] == "idle",
                     rows.count > 1
                 {
                     idleContinuationRowsAfterInterest += rows.count
@@ -749,16 +756,6 @@ extension WebKitSerializedTests {
                 return false
             }
             return FileManager.default.fileExists(atPath: canonicalDirectoryURL.appending(path: ".git").path)
-        }
-
-        private func expectedRelativePath(fileURL: URL, rootURL: URL) -> String {
-            let rootPath = rootURL.standardizedFileURL.path
-            let filePath = fileURL.standardizedFileURL.path
-            let prefix = rootPath == "/" ? "/" : rootPath + "/"
-            guard let range = filePath.range(of: prefix, options: [.anchored]) else {
-                return fileURL.lastPathComponent
-            }
-            return String(filePath[range.upperBound...])
         }
 
         private func treeRows(from intakeFrame: String, rowsKey: String) throws -> [[String: Any]] {

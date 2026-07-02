@@ -195,10 +195,7 @@ extension BridgePaneController {
             let rows = refreshed.rows
             await enqueueWorktreeFileMetadataJob(lane: lane, generation: generation) { [weak self] in
                 guard let self else { return true }
-                return await self.deliverWorktreeFileFrameJob(
-                    generation: generation,
-                    metadataLineageOverride: Self.worktreeMetadataLineage(for: lane)
-                ) { current, sequence in
+                return await self.deliverWorktreeFileFrameJob(generation: generation) { current, sequence in
                     BridgeWorktreeFileSurfaceFrameBuilder.treeWindow(
                         request: BridgeWorktreeTreeWindowBuildRequest(
                             paneId: self.paneId.uuidString,
@@ -213,7 +210,8 @@ extension BridgePaneController {
                             treeWindowStartIndex: nil,
                             treeWindowRowCount: rows.count,
                             treeRowHeightPixels: worktreeFileTreeRowHeightPixels,
-                            rows: rows
+                            rows: rows,
+                            metadataLineage: Self.worktreeMetadataLineage(for: lane)
                         )
                     )
                 }
@@ -244,7 +242,6 @@ extension BridgePaneController {
     /// this closes the enqueue-to-execute race.
     func deliverWorktreeFileFrameJob<Frame: Encodable>(
         generation: Int,
-        metadataLineageOverride: BridgeWorktreeFileMetadataLineage? = nil,
         buildFrame: (BridgeWorktreeFileSurfaceActiveSourceState, Int) -> Frame
     ) async -> Bool {
         guard let current = activeWorktreeFileSurfaceSource,
@@ -263,10 +260,7 @@ extension BridgePaneController {
             return true
         }
         let frame = buildFrame(current, sequence)
-        let delivered = await deliverWorktreeFileIntakeFramesNow(
-            [frame],
-            metadataLineageOverride: metadataLineageOverride
-        )
+        let delivered = await deliverWorktreeFileIntakeFramesNow([frame])
         if !delivered {
             rollbackWorktreeFileSurfaceSequenceReservation(firstSequence: sequence, count: 1)
         }

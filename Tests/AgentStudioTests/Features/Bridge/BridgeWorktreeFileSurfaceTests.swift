@@ -135,7 +135,11 @@ struct BridgeWorktreeFileSurfaceTests {
                 treeWindowStartIndex: 250,
                 treeWindowRowCount: 100,
                 treeRowHeightPixels: 22,
-                rows: []
+                rows: [],
+                metadataLineage: BridgeWorktreeFileMetadataLineage(
+                    loadedBy: "idle",
+                    lane: "idle"
+                )
             )
         )
 
@@ -168,7 +172,11 @@ struct BridgeWorktreeFileSurfaceTests {
                 treeWindowStartIndex: 0,
                 treeWindowRowCount: 100,
                 treeRowHeightPixels: 22,
-                rows: []
+                rows: [],
+                metadataLineage: BridgeWorktreeFileMetadataLineage(
+                    loadedBy: "idle",
+                    lane: "idle"
+                )
             )
         )
 

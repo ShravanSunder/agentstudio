@@ -627,6 +627,10 @@ function makeWorktreeSnapshotFrame(
 		generation: sourceIdentity.subscriptionGeneration,
 		sequence: 0,
 		source: sourceIdentity,
+		metadataLineage: {
+			loadedBy: 'startup_window',
+			lane: 'foreground',
+		},
 		treeRows: [...treeRows],
 	};
 }

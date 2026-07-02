@@ -434,10 +434,13 @@ extension WebKitSerializedTests {
 
             let snapshotRows = try treeRows(from: intakeFrames[0], rowsKey: "treeRows")
             let idleWindowRows = try treeRows(from: intakeFrames[1], rowsKey: "rows")
-            #expect(stringValues(in: snapshotRows, forKey: "loaded_by") == ["startup_window"])
-            #expect(stringValues(in: snapshotRows, forKey: "lane") == ["foreground"])
-            #expect(stringValues(in: idleWindowRows, forKey: "loaded_by") == ["idle"])
-            #expect(stringValues(in: idleWindowRows, forKey: "lane") == ["idle"])
+            #expect(
+                try metadataLineage(from: intakeFrames[0])
+                    == ["loadedBy": "startup_window", "lane": "foreground"]
+            )
+            #expect(try metadataLineage(from: intakeFrames[1]) == ["loadedBy": "idle", "lane": "idle"])
+            #expect(snapshotRows.allSatisfy { $0["loaded_by"] == nil && $0["lane"] == nil })
+            #expect(idleWindowRows.allSatisfy { $0["loaded_by"] == nil && $0["lane"] == nil })
 
             let selectedRow = try #require(snapshotEnvelope.payload.treeRows.first { $0.path == "File-000.swift" })
             try await requestFileDescriptor(
@@ -709,6 +712,16 @@ func treeRows(from intakeFrameJSON: String, rowsKey: String) throws -> [[String:
     let object = try #require(JSONSerialization.jsonObject(with: frameData) as? [String: Any])
     let payload = try #require(object["payload"] as? [String: Any])
     return try #require(payload[rowsKey] as? [[String: Any]])
+}
+
+/// S2 frame-level lineage: `worktree.snapshot` and `worktree.treeWindow`
+/// payloads carry a required `metadataLineage` object (`loadedBy`/`lane`);
+/// tree rows no longer carry per-row lineage.
+func metadataLineage(from intakeFrameJSON: String) throws -> [String: String] {
+    let frameData = try #require(intakeFrameJSON.data(using: .utf8))
+    let object = try #require(JSONSerialization.jsonObject(with: frameData) as? [String: Any])
+    let payload = try #require(object["payload"] as? [String: Any])
+    return try #require(payload["metadataLineage"] as? [String: String])
 }
 
 func stringValues(in rows: [[String: Any]], forKey key: String) -> Set<String> {

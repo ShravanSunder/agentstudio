@@ -1,10 +1,7 @@
 {
   "allowedResourceKindsByProtocol": {
-    "review": ["content", "review-package"],
+    "review": ["content"],
     "worktree-file": [
-      "worktree.treeWindow",
-      "worktree.treeDeltaOperations",
-      "worktree.status",
       "worktree.fileContent",
       "worktree.fileRange"
     ]
@@ -33,18 +30,6 @@
         "generation": 42,
         "cursor": "cursor-42",
         "canonicalUrl": "agentstudio://resource/worktree-file/worktree.fileContent/file-abc?generation=42&cursor=cursor-42"
-      }
-    },
-    {
-      "name": "worktree tree window with generation cursor",
-      "url": "agentstudio://resource/worktree-file/worktree.treeWindow/tree-window-abc?generation=42&cursor=cursor-42",
-      "expected": {
-        "protocol": "worktree-file",
-        "resourceKind": "worktree.treeWindow",
-        "opaqueId": "tree-window-abc",
-        "generation": 42,
-        "cursor": "cursor-42",
-        "canonicalUrl": "agentstudio://resource/worktree-file/worktree.treeWindow/tree-window-abc?generation=42&cursor=cursor-42"
       }
     }
   ],

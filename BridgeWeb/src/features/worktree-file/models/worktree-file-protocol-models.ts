@@ -97,8 +97,13 @@ export const worktreeTreeRowMetadataSchema = z
 		sizeBytes: z.number().int().nonnegative().optional(),
 		lineCount: z.number().int().nonnegative().optional(),
 		changeStatus: z.string().min(1).optional(),
-		loaded_by: worktreeTreeRowLoadedBySchema.optional(),
-		lane: bridgeDemandLaneSchema.optional(),
+	})
+	.strict();
+
+export const worktreeFileMetadataLineageSchema = z
+	.object({
+		loadedBy: worktreeTreeRowLoadedBySchema,
+		lane: bridgeDemandLaneSchema,
 	})
 	.strict();
 
@@ -211,6 +216,7 @@ export const worktreeSnapshotFrameSchema = bridgeIntakeFrameBaseSchema
 		frameKind: z.literal('worktree.snapshot'),
 		source: worktreeFileSurfaceSourceIdentitySchema,
 		requestSelector: worktreeFileSurfaceSourceSpecSchema.optional(),
+		metadataLineage: worktreeFileMetadataLineageSchema,
 		treeRows: z.array(worktreeTreeRowMetadataSchema),
 		treeSizeFacts: worktreeTreeVirtualizedSizeFactsSchema.optional(),
 		statusPatch: worktreeStatusPatchSchema.optional(),
@@ -222,6 +228,7 @@ export const worktreeTreeWindowFrameSchema = bridgeIntakeFrameBaseSchema
 		kind: z.literal('delta'),
 		frameKind: z.literal('worktree.treeWindow'),
 		projectionIdentity: worktreeTreeProjectionIdentitySchema,
+		metadataLineage: worktreeFileMetadataLineageSchema,
 		rows: z.array(worktreeTreeRowMetadataSchema),
 		treeSizeFacts: worktreeTreeVirtualizedSizeFactsSchema.optional(),
 	})
@@ -378,6 +385,7 @@ export type WorktreeTreeVirtualizedSizeFacts = z.infer<
 >;
 export type WorktreeTreeRowLoadedBy = z.infer<typeof worktreeTreeRowLoadedBySchema>;
 export type WorktreeTreeRowMetadata = z.infer<typeof worktreeTreeRowMetadataSchema>;
+export type WorktreeFileMetadataLineage = z.infer<typeof worktreeFileMetadataLineageSchema>;
 export type WorktreeTreeOperation = z.infer<typeof worktreeTreeOperationSchema>;
 export type WorktreeFileDescriptorRequest = z.infer<typeof worktreeFileDescriptorRequestSchema>;
 export type WorktreeFileVirtualizedExtentKind = z.infer<

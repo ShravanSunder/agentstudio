@@ -159,10 +159,13 @@ extension WebKitSerializedTests {
 
             let foregroundRows = try treeRows(from: foregroundWindowFrame, rowsKey: "rows")
             let idleRows = try treeRows(from: idleWindowFrame, rowsKey: "rows")
-            #expect(stringValues(in: foregroundRows, forKey: "loaded_by") == ["foreground"])
-            #expect(stringValues(in: foregroundRows, forKey: "lane") == ["foreground"])
-            #expect(stringValues(in: idleRows, forKey: "loaded_by") == ["idle"])
-            #expect(stringValues(in: idleRows, forKey: "lane") == ["idle"])
+            #expect(
+                try metadataLineage(from: foregroundWindowFrame)
+                    == ["loadedBy": "foreground", "lane": "foreground"]
+            )
+            #expect(try metadataLineage(from: idleWindowFrame) == ["loadedBy": "idle", "lane": "idle"])
+            #expect(foregroundRows.allSatisfy { $0["loaded_by"] == nil && $0["lane"] == nil })
+            #expect(idleRows.allSatisfy { $0["loaded_by"] == nil && $0["lane"] == nil })
 
             fixture.controller.teardown()
         }
@@ -242,12 +245,41 @@ extension WebKitSerializedTests {
                 let frameIndex = try #require(probeIndexByPath[laneExpectation.path])
                 let rows = try treeRows(from: intakeFrames[frameIndex], rowsKey: "rows")
                 #expect(rows.contains { $0["path"] as? String == laneExpectation.path })
-                #expect(stringValues(in: rows, forKey: "loaded_by") == [laneExpectation.loadedBy])
-                #expect(stringValues(in: rows, forKey: "lane") == [laneExpectation.lane])
+                #expect(
+                    try metadataLineage(from: intakeFrames[frameIndex])
+                        == ["loadedBy": laneExpectation.loadedBy, "lane": laneExpectation.lane]
+                )
+                #expect(rows.allSatisfy { $0["loaded_by"] == nil && $0["lane"] == nil })
             }
 
-            let budget = AppPolicies.Bridge.metadataIdleNoStarvationBudget
             let continuationIndex = try #require(continuationWindowIndex)
+            try assertBudgetAwareLaneOrder(
+                probeIndexByPath: probeIndexByPath,
+                continuationIndex: continuationIndex,
+                frameCount: intakeFrames.count
+            )
+
+            let idleContinuationRows = try treeRows(from: intakeFrames[continuationIndex], rowsKey: "rows")
+            #expect(idleContinuationRows.count == 60)
+            #expect(idleContinuationRows.first?["path"] as? String == "File-200.swift")
+            #expect(
+                try metadataLineage(from: intakeFrames[continuationIndex])
+                    == ["loadedBy": "idle", "lane": "idle"]
+            )
+            #expect(idleContinuationRows.allSatisfy { $0["loaded_by"] == nil && $0["lane"] == nil })
+
+            fixture.controller.teardown()
+        }
+
+        /// Budget-aware drain order: snapshot plus budget-1 probes precede the
+        /// idle continuation batch; later probes follow it; the idle probe is
+        /// FIFO-last within the idle lane.
+        private func assertBudgetAwareLaneOrder(
+            probeIndexByPath: [String: Int],
+            continuationIndex: Int,
+            frameCount: Int
+        ) throws {
+            let budget = AppPolicies.Bridge.metadataIdleNoStarvationBudget
             let foregroundIndex = try #require(probeIndexByPath["File-240.swift"])
             let activeIndex = try #require(probeIndexByPath["File-241.swift"])
             let visibleIndex = try #require(probeIndexByPath["File-242.swift"])
@@ -262,15 +294,7 @@ extension WebKitSerializedTests {
             #expect(continuationIndex < speculativeIndex)
             #expect(nearbyIndex < idleProbeIndex)
             #expect(speculativeIndex < idleProbeIndex)
-            #expect(idleProbeIndex == intakeFrames.count - 1)
-
-            let idleContinuationRows = try treeRows(from: intakeFrames[continuationIndex], rowsKey: "rows")
-            #expect(idleContinuationRows.count == 60)
-            #expect(idleContinuationRows.first?["path"] as? String == "File-200.swift")
-            #expect(stringValues(in: idleContinuationRows, forKey: "loaded_by") == ["idle"])
-            #expect(stringValues(in: idleContinuationRows, forKey: "lane") == ["idle"])
-
-            fixture.controller.teardown()
+            #expect(idleProbeIndex == frameCount - 1)
         }
 
         @Test("metadata interest rejects stale Worktree/File stream identity and generation")

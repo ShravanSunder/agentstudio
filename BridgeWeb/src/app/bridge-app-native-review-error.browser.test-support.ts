@@ -210,6 +210,10 @@ export function makeWorktreeFileFramesForFrameTest(
 			sequence: 0,
 			frameKind: 'worktree.snapshot',
 			source: descriptor.sourceIdentity,
+			metadataLineage: {
+				loadedBy: 'startup_window',
+				lane: 'foreground',
+			},
 			treeRows: [
 				{
 					rowId: 'row-stable-across-modes',

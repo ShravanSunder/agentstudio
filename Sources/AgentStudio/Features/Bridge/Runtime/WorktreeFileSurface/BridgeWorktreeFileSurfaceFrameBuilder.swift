@@ -28,6 +28,7 @@ struct BridgeWorktreeTreeWindowBuildRequest: Equatable, Sendable {
     let treeWindowRowCount: Int?
     let treeRowHeightPixels: Double
     let rows: [BridgeWorktreeTreeRowMetadata]
+    let metadataLineage: BridgeWorktreeFileMetadataLineage
 }
 
 enum BridgeWorktreeFileContentAvailability: Equatable, Sendable {
@@ -136,7 +137,11 @@ enum BridgeWorktreeFileSurfaceFrameBuilder {
             requestSelector: request.requestSelector,
             treeRows: request.treeRows,
             treeSizeFacts: treeSizeFacts,
-            statusPatch: statusPatch
+            statusPatch: statusPatch,
+            metadataLineage: BridgeWorktreeFileMetadataLineage(
+                loadedBy: "startup_window",
+                lane: "foreground"
+            )
         )
     }
 
@@ -162,7 +167,8 @@ enum BridgeWorktreeFileSurfaceFrameBuilder {
                 windowStartIndex: request.treeWindowStartIndex,
                 windowRowCount: request.treeWindowRowCount,
                 rowHeightPixels: request.treeRowHeightPixels
-            )
+            ),
+            metadataLineage: request.metadataLineage
         )
     }
 

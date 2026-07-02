@@ -6,6 +6,7 @@ import type {
 import { bridgeAttachedResourceDescriptorSchema } from '../core/models/bridge-resource-descriptor.js';
 import type {
 	WorktreeFileDescriptor,
+	WorktreeFileMetadataLineage,
 	WorktreeFileProtocolFrame,
 	WorktreeFileSurfaceSourceIdentity,
 	WorktreeTreeRowMetadata,
@@ -16,6 +17,16 @@ import {
 } from '../features/worktree-file/models/worktree-file-protocol-models.js';
 
 export type PublishWorktreeFileFrames = (frames: readonly WorktreeFileProtocolFrame[]) => void;
+
+const startupWindowMetadataLineage = {
+	loadedBy: 'startup_window',
+	lane: 'foreground',
+} satisfies WorktreeFileMetadataLineage;
+
+const idleMetadataLineage = {
+	loadedBy: 'idle',
+	lane: 'idle',
+} satisfies WorktreeFileMetadataLineage;
 
 export function makeFrames(
 	...descriptors: readonly WorktreeFileDescriptor[]
@@ -28,6 +39,7 @@ export function makeFrames(
 			sequence: 0,
 			frameKind: 'worktree.snapshot',
 			source: makeSourceIdentity(),
+			metadataLineage: startupWindowMetadataLineage,
 			treeRows: descriptors.map(makeTreeRowFromDescriptor),
 			treeSizeFacts: {
 				extentKind: 'exactPathCount',
@@ -79,6 +91,7 @@ export function makeTreeRowsOnlyFrames(): readonly WorktreeFileProtocolFrame[] {
 			sequence: 0,
 			frameKind: 'worktree.snapshot',
 			source: makeSourceIdentity(),
+			metadataLineage: startupWindowMetadataLineage,
 			treeRows: [
 				makeTreeRow({
 					depth: 0,
@@ -147,6 +160,7 @@ export function makeTreeWindowedSnapshotFrame(props: {
 		sequence: 0,
 		frameKind: 'worktree.snapshot',
 		source: makeSourceIdentity(),
+		metadataLineage: startupWindowMetadataLineage,
 		treeRows: makeFlatFileTreeRows({ count: props.rowCount, startIndex: 0 }),
 		treeSizeFacts: {
 			extentKind: 'exactPathCount',
@@ -178,10 +192,9 @@ export function makeTreeWindowFrame(props: {
 			filterKey: 'all',
 			treeWindowKey: `tree-window-${props.startIndex}`,
 		},
+		metadataLineage: idleMetadataLineage,
 		rows: makeFlatFileTreeRows({
 			count: props.rowCount,
-			loaded_by: 'idle',
-			lane: 'idle',
 			startIndex: props.startIndex,
 		}),
 		treeSizeFacts: {
@@ -196,8 +209,6 @@ export function makeTreeWindowFrame(props: {
 
 export function makeFlatFileTreeRows(props: {
 	readonly count: number;
-	readonly loaded_by?: WorktreeTreeRowMetadata['loaded_by'];
-	readonly lane?: WorktreeTreeRowMetadata['lane'];
 	readonly startIndex: number;
 }): readonly WorktreeTreeRowMetadata[] {
 	return Array.from({ length: props.count }, (_value, index): WorktreeTreeRowMetadata => {
@@ -211,8 +222,6 @@ export function makeFlatFileTreeRows(props: {
 			parentPath: null,
 			path: fileName,
 			sizeBytes: 24,
-			...(props.loaded_by === undefined ? {} : { loaded_by: props.loaded_by }),
-			...(props.lane === undefined ? {} : { lane: props.lane }),
 		});
 	});
 }
@@ -244,6 +253,7 @@ export function makeSnapshotFrame(props: {
 		sequence: props.sequence,
 		frameKind: 'worktree.snapshot',
 		source: props.sourceIdentity,
+		metadataLineage: startupWindowMetadataLineage,
 		treeRows: [
 			makeTreeRow({
 				depth: 0,
@@ -305,8 +315,6 @@ export function makeTreeRow(props: {
 	readonly fileId?: string;
 	readonly isDirectory: boolean;
 	readonly lineCount?: number;
-	readonly loaded_by?: WorktreeTreeRowMetadata['loaded_by'];
-	readonly lane?: WorktreeTreeRowMetadata['lane'];
 	readonly name: string;
 	readonly parentPath: string | null;
 	readonly path: string;
@@ -323,8 +331,6 @@ export function makeTreeRow(props: {
 		...(props.sizeBytes === undefined ? {} : { sizeBytes: props.sizeBytes }),
 		...(props.lineCount === undefined ? {} : { lineCount: props.lineCount }),
 		...(props.changeStatus === undefined ? {} : { changeStatus: props.changeStatus }),
-		loaded_by: props.loaded_by ?? 'startup_window',
-		lane: props.lane ?? 'foreground',
 	};
 }
 
@@ -352,6 +358,10 @@ export function makeResetFrames(
 			sequence: 1,
 			frameKind: 'worktree.snapshot',
 			source: resetSourceIdentity,
+			metadataLineage: {
+				loadedBy: 'reset',
+				lane: 'foreground',
+			},
 			treeRows: replacementDescriptors.map(makeTreeRowFromDescriptor),
 			treeSizeFacts: {
 				extentKind: 'exactPathCount',

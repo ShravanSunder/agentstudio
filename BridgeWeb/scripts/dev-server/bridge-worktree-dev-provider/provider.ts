@@ -429,6 +429,10 @@ function worktreeFileSurfaceFramesForTreeRows(props: {
 		sequence: 0,
 		frameKind: 'worktree.snapshot',
 		source: props.sourceIdentity,
+		metadataLineage: {
+			loadedBy: 'startup_window',
+			lane: 'foreground',
+		},
 		treeRows: [...props.initialTreeRows],
 		treeSizeFacts: props.treeSizeFacts,
 	} satisfies Extract<WorktreeFileProtocolFrame, { readonly frameKind: 'worktree.snapshot' }>;
@@ -476,6 +480,10 @@ function worktreeFileTreeWindowFrames(props: {
 				groupKey: 'none',
 				filterKey: 'all',
 				treeWindowKey,
+			},
+			metadataLineage: {
+				loadedBy: 'idle',
+				lane: 'idle',
 			},
 			rows,
 			treeSizeFacts: exactTreeSizeFacts({

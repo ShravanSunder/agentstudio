@@ -525,6 +525,10 @@ function makeWorktreeSnapshotFrame(props: {
 		sequence: props.sequence,
 		frameKind: 'worktree.snapshot',
 		source: makeWorktreeSourceIdentity(),
+		metadataLineage: {
+			loadedBy: 'startup_window',
+			lane: 'foreground',
+		},
 		treeRows: [makeWorktreeTreeRow(props.path)],
 	};
 }
@@ -546,6 +550,10 @@ function makeWorktreeTreeWindowFrame(props: {
 			groupKey: 'none',
 			filterKey: 'all',
 			treeWindowKey: 'pre-load-window',
+		},
+		metadataLineage: {
+			loadedBy: 'idle',
+			lane: 'idle',
 		},
 		rows: [makeWorktreeTreeRow(props.path)],
 	};

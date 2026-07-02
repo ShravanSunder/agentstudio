@@ -224,6 +224,10 @@ describe('BridgeApp native review intake Browser Mode', () => {
 						filterKey: 'all',
 						treeWindowKey: 'hidden-review-mode-window',
 					},
+					metadataLineage: {
+						loadedBy: 'idle',
+						lane: 'idle',
+					},
 					rows: [
 						{
 							rowId: 'row-hidden-mode-update',
