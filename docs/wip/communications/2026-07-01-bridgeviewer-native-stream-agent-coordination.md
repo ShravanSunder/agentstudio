@@ -452,3 +452,24 @@ entries; if an entry becomes stale, append a correction with the new evidence.
   re-authorizes content, and window replacement evicts the prior materialized
   window length when available. Reducer tests now cover `moveSubtree` with a
   loaded descriptor and shorter `replaceWindow` tail cleanup.
+
+### 2026-07-02 Codex React Lane Review Ownership Guard Checkpoint
+
+- Added Review-side source-structure guardrails to mirror the FileView
+  decomposition guard style before extracting more shared tree runtime.
+- New guard file:
+  `BridgeWeb/src/review-viewer/review-viewer-source-structure.unit.test.ts`.
+- The guards assert:
+  Review data controllers/stores/registries remain in
+  `BridgeReviewViewerMode` outside the lazy visual shell; the shell boundary
+  owns `Suspense`/`LazyReviewViewerShell` only; Review Zustand does not hold
+  content bodies, runtime handles, resource executors, `AbortController`,
+  `CodeViewHandle`, `useFileTree`, or Pierre imports; and Review TS/TSX files
+  stay under the 1k-line guard.
+- Proof:
+  `pnpm --dir BridgeWeb exec vitest run src/review-viewer/review-viewer-source-structure.unit.test.ts --reporter verbose`
+  passed 4/4.
+- Static proof:
+  `pnpm --dir BridgeWeb exec oxfmt --check src/review-viewer/review-viewer-source-structure.unit.test.ts`
+  passed, `pnpm --dir BridgeWeb exec oxlint --type-aware src/review-viewer/review-viewer-source-structure.unit.test.ts`
+  passed, and `pnpm --dir BridgeWeb exec tsc --noEmit --pretty false` passed.
