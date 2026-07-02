@@ -1,12 +1,13 @@
 import { describe, expect, test } from 'vitest';
 
 import { makeFileDescriptor } from './bridge-file-viewer-browser-test-fixtures.js';
-import { descriptorRefsForPierreVisibleFileRows } from './bridge-file-viewer-pierre-visible-demand.js';
 import {
 	appendedOnlyPaths,
+	createBridgeFileViewerTreeSelectionCoordinator,
 	expandAncestorDirectoriesForAppendedPaths,
 	type BridgeFileViewerTreeDirectoryHandle,
-} from './bridge-file-viewer-tree-panel.js';
+} from './bridge-file-viewer-pierre-tree-runtime.js';
+import { descriptorRefsForPierreVisibleFileRows } from './bridge-file-viewer-pierre-visible-demand.js';
 
 describe('BridgeFileViewerTreePanel append behavior', () => {
 	test('detects append-only path growth', () => {
@@ -62,6 +63,37 @@ describe('BridgeFileViewerTreePanel append behavior', () => {
 		});
 
 		expect(directoryByPath.get('Sources/Module19')?.expandCount).toBe(1);
+	});
+});
+
+describe('BridgeFileViewer Pierre tree runtime selection coordination', () => {
+	test('dedupes the click event paired with a Pierre selection change', () => {
+		const openedPaths: string[] = [];
+		const selectionCoordinator = createBridgeFileViewerTreeSelectionCoordinator({
+			openOrRequestPath: (path: string): void => {
+				openedPaths.push(path);
+			},
+		});
+
+		selectionCoordinator.recordPierreSelectionPath('src/ready.ts');
+		selectionCoordinator.handleClickedPath('src/ready.ts');
+
+		expect(openedPaths).toEqual(['src/ready.ts']);
+	});
+
+	test('allows a later metadata-only retry click after deduping the paired click', () => {
+		const requestedPaths: string[] = [];
+		const selectionCoordinator = createBridgeFileViewerTreeSelectionCoordinator({
+			openOrRequestPath: (path: string): void => {
+				requestedPaths.push(path);
+			},
+		});
+
+		selectionCoordinator.recordPierreSelectionPath('src/metadata-only.ts');
+		selectionCoordinator.handleClickedPath('src/metadata-only.ts');
+		selectionCoordinator.handleClickedPath('src/metadata-only.ts');
+
+		expect(requestedPaths).toEqual(['src/metadata-only.ts', 'src/metadata-only.ts']);
 	});
 });
 

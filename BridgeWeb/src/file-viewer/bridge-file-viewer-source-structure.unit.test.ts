@@ -148,7 +148,7 @@ describe('Bridge file viewer source structure', () => {
 		expect(pierreViewportDomOwners).toEqual([]);
 	});
 
-	test('keeps the Pierre visible-demand adapter owned by the tree panel', () => {
+	test('keeps the Pierre visible-demand adapter owned by the tree runtime hook', () => {
 		const fileViewerSources = readFileViewerSourceFiles();
 		const visibleDemandAdapterImporters = fileViewerSources
 			.filter(
@@ -157,7 +157,27 @@ describe('Bridge file viewer source structure', () => {
 			.filter((entry): boolean => entry.source.includes('bridge-file-viewer-pierre-visible-demand'))
 			.map((entry): string => entry.relativePath);
 
-		expect(visibleDemandAdapterImporters).toEqual(['bridge-file-viewer-tree-panel.tsx']);
+		expect(visibleDemandAdapterImporters).toEqual(['bridge-file-viewer-pierre-tree-runtime.ts']);
+	});
+
+	test('keeps Pierre tree runtime effects owned by the tree runtime hook', () => {
+		const fileViewerSources = readFileViewerSourceFiles();
+		const runtimeOwners = treeRuntimeOwnershipNeedles.flatMap((needle): readonly string[] =>
+			fileViewerSources
+				.filter((entry): boolean => entry.source.includes(needle))
+				.map((entry): string => `${needle}: ${entry.relativePath}`),
+		);
+		const treePanelSource = readFileSync(
+			fileURLToPath(new URL('./bridge-file-viewer-tree-panel.tsx', import.meta.url)),
+			'utf8',
+		);
+
+		expect(runtimeOwners).toEqual(
+			treeRuntimeOwnershipNeedles.map(
+				(needle): string => `${needle}: bridge-file-viewer-pierre-tree-runtime.ts`,
+			),
+		);
+		expect(treePanelSource).not.toContain('requestAnimationFrame');
 	});
 
 	test('keeps BridgeWeb TypeScript and TSX files under one thousand lines', () => {
@@ -247,6 +267,18 @@ const excludedSourceDirectoryNames = new Set([
 	'playwright-report',
 	'test-results',
 ]);
+
+const treeRuntimeOwnershipNeedles = [
+	'prepareFileTreeInput',
+	'useFileTree({',
+	'bridgeViewerTreeUnsafeCSS',
+	'bridge-file-viewer-pierre-visible-demand',
+	'recordBridgeTreeScrollVisibleDemandTelemetrySample',
+	'model.resetPaths',
+	'model.batch',
+	'model.subscribe',
+	'model.scrollToPath',
+] as const;
 
 function countSourceLines(source: string): number {
 	if (source.length === 0) {
