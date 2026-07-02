@@ -138,6 +138,65 @@ describe('Bridge viewer CodeView virtualizer anchoring', () => {
 		expect(Math.abs(scrollOwner.scrollTop - scrollTopBeforeMetadataWindow)).toBeLessThanOrEqual(4);
 	});
 
+	test('keeps the first fully-visible item anchored across N idle metadata windows (R1 streaming stability)', async () => {
+		const fixture = makeBridgeViewerBrowserFixture({ fixtureClass: 'large-diffshub' });
+		const backend = installBridgeViewerMockedBackend(fixture);
+
+		render(
+			<BridgeApp
+				codeViewWorkerPoolEnabled={false}
+				fetchContent={backend.fetchContent}
+				markdownWorkerClient={null}
+				projectionWorkerClient={backend.projectionWorkerClient}
+			/>,
+		);
+		await backend.pushMetadata();
+		await waitForBridgeViewerText(fixture.expected.initialText);
+
+		const scrollOwner = await waitForBridgeViewerCodeScrollOwner();
+		scrollOwner.scrollTop = Math.min(scrollOwner.scrollHeight - scrollOwner.clientHeight, 6_000);
+		scrollOwner.dispatchEvent(new Event('scroll', { bubbles: true }));
+		await waitForBridgeViewerScrollIdle(scrollOwner);
+		expect(scrollOwner.scrollTop).toBeGreaterThan(0);
+
+		// I4 USER MOTION ONLY: idle metadata windows must not move the viewport. The
+		// measurable invariant is first-visible-line drift — the anchored header's offset
+		// from the scroll-owner top — not absolute scrollTop, which legitimately shifts as
+		// total height changes (that thumb churn is R2's domain).
+		const anchorBefore = firstFullyVisibleBridgeCodeHeader(scrollOwner);
+		const renderedHeaderCountBefore = browserSupport.bridgeCodeHeaderCollapseButtons().length;
+
+		const windowBatches = idleMetadataWindowBatches({
+			batchCount: 5,
+			reviewPackage: fixture.reviewPackage,
+		});
+		for (const [batchIndex, itemIds] of windowBatches.entries()) {
+			dispatchReviewMetadataWindow({
+				itemIds,
+				reviewPackage: fixture.reviewPackage,
+				sequence: 200 + batchIndex,
+			});
+			// oxlint-disable-next-line no-await-in-loop -- Streaming stability proof must observe each window settle.
+			await waitForBridgeViewerAnimationFrame();
+			// oxlint-disable-next-line no-await-in-loop -- Streaming stability proof must observe each window settle.
+			await waitForBridgeViewerAnimationFrame();
+			const anchorOffsetDuringWindow = bridgeCodeHeaderOffsetForItem({
+				itemId: anchorBefore.itemId,
+				scrollOwner,
+			});
+			expect(anchorOffsetDuringWindow).not.toBeNull();
+			expect(Math.abs((anchorOffsetDuringWindow ?? 0) - anchorBefore.offset)).toBeLessThanOrEqual(
+				2,
+			);
+		}
+
+		// Zero collapsed-region count flicker: the rendered header set stays stable across
+		// windows (no reshuffle re-rendering the visible window).
+		expect(
+			Math.abs(browserSupport.bridgeCodeHeaderCollapseButtons().length - renderedHeaderCountBefore),
+		).toBeLessThanOrEqual(1);
+	});
+
 	test('keeps an upward selection reveal pinned after target content hydrates', async () => {
 		const fixture = makeBridgeViewerBrowserFixture({ fixtureClass: 'large-diffshub' });
 		const upItemId = 'browser-added-source';
@@ -205,6 +264,91 @@ describe('Bridge viewer CodeView virtualizer anchoring', () => {
 		expect(stableOffsetAfterHydration).toBeLessThanOrEqual(4);
 	});
 });
+
+interface FirstFullyVisibleBridgeCodeHeader {
+	readonly itemId: string;
+	readonly offset: number;
+}
+
+function firstFullyVisibleBridgeCodeHeader(
+	scrollOwner: HTMLElement,
+): FirstFullyVisibleBridgeCodeHeader {
+	let best: FirstFullyVisibleBridgeCodeHeader | null = null;
+	for (const collapseButton of browserSupport.bridgeCodeHeaderCollapseButtons()) {
+		const itemId = collapseButton.dataset['bridgeCodeViewItemId'];
+		if (itemId === undefined) {
+			continue;
+		}
+		const offset = browserSupport.bridgeCodeHeaderOffsetFromScrollOwner({
+			collapseButton,
+			scrollOwner,
+		});
+		if (offset < 0) {
+			continue;
+		}
+		if (best === null || offset < best.offset) {
+			best = { itemId, offset };
+		}
+	}
+	if (best === null) {
+		throw new Error(
+			'expected a fully-visible Bridge CodeView header to anchor the streaming proof',
+		);
+	}
+	return best;
+}
+
+function bridgeCodeHeaderOffsetForItem(props: {
+	readonly itemId: string;
+	readonly scrollOwner: HTMLElement;
+}): number | null {
+	for (const collapseButton of browserSupport.bridgeCodeHeaderCollapseButtons()) {
+		if (collapseButton.dataset['bridgeCodeViewItemId'] === props.itemId) {
+			return browserSupport.bridgeCodeHeaderOffsetFromScrollOwner({
+				collapseButton,
+				scrollOwner: props.scrollOwner,
+			});
+		}
+	}
+	return null;
+}
+
+function idleMetadataWindowBatches(props: {
+	readonly batchCount: number;
+	readonly reviewPackage: BridgeReviewPackage;
+}): readonly (readonly string[])[] {
+	const windowSize = 80;
+	const batches: (readonly string[])[] = [];
+	for (let batchIndex = 0; batchIndex < props.batchCount; batchIndex += 1) {
+		const start = batchIndex * windowSize;
+		const itemIds = props.reviewPackage.orderedItemIds.slice(start, start + windowSize);
+		batches.push(
+			itemIds.length > 0 ? itemIds : props.reviewPackage.orderedItemIds.slice(0, windowSize),
+		);
+	}
+	return batches;
+}
+
+async function waitForBridgeViewerScrollIdle(
+	scrollOwner: HTMLElement,
+	stableFrameCount = 10,
+): Promise<void> {
+	let previousScrollTop = scrollOwner.scrollTop;
+	let stableFrames = 0;
+	for (let frameIndex = 0; frameIndex < 120; frameIndex += 1) {
+		// oxlint-disable-next-line no-await-in-loop -- Idle detection must observe sequential animation frames.
+		await waitForBridgeViewerAnimationFrame();
+		if (Math.abs(scrollOwner.scrollTop - previousScrollTop) <= 1) {
+			stableFrames += 1;
+			if (stableFrames >= stableFrameCount) {
+				return;
+			}
+		} else {
+			stableFrames = 0;
+		}
+		previousScrollTop = scrollOwner.scrollTop;
+	}
+}
 
 function revealReviewItem(itemId: string): void {
 	window.dispatchEvent(
