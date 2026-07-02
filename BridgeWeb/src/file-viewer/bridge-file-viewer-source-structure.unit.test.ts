@@ -180,6 +180,24 @@ describe('Bridge file viewer source structure', () => {
 		expect(treePanelSource).not.toContain('requestAnimationFrame');
 	});
 
+	test('keeps File CodeView item shaping out of the visual panel', () => {
+		const codePanelSource = readFileSync(
+			fileURLToPath(new URL('./bridge-file-viewer-code-panel.tsx', import.meta.url)),
+			'utf8',
+		);
+		const codeViewItemOwners = readFileViewerSourceFiles()
+			.filter((entry): boolean =>
+				fileCodeViewItemOwnershipNeedles.some((needle): boolean => entry.source.includes(needle)),
+			)
+			.map((entry): string => entry.relativePath);
+
+		expect(codePanelSource).toContain('bridgeFileViewerCodeViewItemsForPanelState');
+		expect(codePanelSource).not.toContain('contentBodyReservedForSelectedFileExtent');
+		expect(codePanelSource).not.toContain('textPaddedToMinimumRenderedLineCount');
+		expect(codePanelSource).not.toContain('renderedLineCountForPierreFileContent');
+		expect(codeViewItemOwners).toEqual(['bridge-file-viewer-code-view-items.ts']);
+	});
+
 	test('keeps BridgeWeb TypeScript and TSX files under one thousand lines', () => {
 		const bridgeWebSources = readBridgeWebSourceFiles();
 		const oversizedSources = bridgeWebSources
@@ -278,6 +296,13 @@ const treeRuntimeOwnershipNeedles = [
 	'model.batch',
 	'model.subscribe',
 	'model.scrollToPath',
+] as const;
+
+const fileCodeViewItemOwnershipNeedles = [
+	'codeViewPlaceholderItemsForOpenFileState',
+	'contentBodyReservedForSelectedFileExtent',
+	'textPaddedToMinimumRenderedLineCount',
+	'renderedLineCountForPierreFileContent',
 ] as const;
 
 function countSourceLines(source: string): number {
