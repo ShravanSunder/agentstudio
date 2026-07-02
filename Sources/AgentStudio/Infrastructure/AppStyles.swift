@@ -184,8 +184,49 @@ enum AppStyles {
         }
 
         enum TabBar {
-            static let height: CGFloat = 36
+            static let height: CGFloat = 40
+            static let tabPillHeight: CGFloat = 32
+            static let tabPillSpacing: CGFloat = 2
             static let titlebarBackground = NSColor(white: 0.12, alpha: 1.0)
+        }
+
+        enum Chrome {
+            static let tabBarLeadingInset: CGFloat = 80
+            static let tabBarContentLeadingPadding: CGFloat = AppStyles.General.Spacing.loose
+            static let tabBarTopInset: CGFloat = 0
+            static let iconClusterSpacing: CGFloat = AppStyles.General.Spacing.standard
+            static let tabStripLeadingPadding: CGFloat = iconClusterSpacing
+            static let dividerHeight: CGFloat = 18
+            static let dividerHorizontalPadding: CGFloat = 12
+            static let windowDragRegionHeight: CGFloat =
+                AppStyles.Shell.TabBar.height - AppStyles.Shell.TabBar.tabPillHeight
+
+            enum ToolbarButton {
+                static let size: CGFloat = 28
+                static let iconSize: CGFloat = 12
+                static let verticalOffset: CGFloat = 2
+                static let baseFillColor = Color(nsColor: NSColor(hex: "#141416") ?? NSColor(white: 0.08, alpha: 1))
+                static let hoverFillColor = Color(nsColor: NSColor(hex: "#242428") ?? NSColor(white: 0.14, alpha: 1))
+                static let pressedFillColor = hoverFillColor
+                static let iconForegroundColor = Color(
+                    nsColor: NSColor(hex: "#dddddd") ?? NSColor(white: 0.87, alpha: 1))
+                static let hoverIconForegroundColor = Color.white
+                static let selectedFillOpacity: CGFloat = 0.20
+                static let baseStrokeOpacity: CGFloat = AppStyles.General.Stroke.muted
+                static let hoverStrokeColor = Color(nsColor: NSColor(hex: "#dddddd") ?? NSColor(white: 0.87, alpha: 1))
+                static let hoverStrokeOpacity: CGFloat = 0.28
+                static let pressedStrokeColor = hoverStrokeColor
+                static let pressedStrokeOpacity: CGFloat = hoverStrokeOpacity
+                static let selectedStrokeOpacity: CGFloat = 0.30
+                static let badgeOffsetX: CGFloat = 6
+                static let badgeOffsetY: CGFloat = -5
+            }
+        }
+
+        enum Titlebar {
+            static let iconSize: CGFloat = 14
+            static let buttonSize: CGFloat = 28
+            static let buttonSpacing: CGFloat = 4
         }
 
         enum PaneChrome {

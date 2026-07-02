@@ -255,6 +255,8 @@ write_launch_failed_state() {
     write_state_value AGENTSTUDIO_OBSERVABILITY_STARTUP_DIAGNOSTIC_ACTION "${startup_diagnostic_action:-}"
     write_state_value AGENTSTUDIO_OBSERVABILITY_ACTIVATION_MODE "${launch_activation_mode:-unknown}"
     write_state_value AGENTSTUDIO_OBSERVABILITY_IPC_AUTH_MODE "${ipc_auth_mode:-authenticated}"
+    write_state_value AGENTSTUDIO_OBSERVABILITY_TCC_PROBE_REPEAT_COUNT "${tcc_probe_repeat_count:-}"
+    write_state_value AGENTSTUDIO_OBSERVABILITY_TCC_PROBE_INTERVAL_SECONDS "${tcc_probe_interval_seconds:-}"
     write_state_value AGENTSTUDIO_OBSERVABILITY_LOG "${launch_log:-}"
     write_state_value AGENTSTUDIO_OBSERVABILITY_BUILD_PATH "${build_path:-}"
     if [ -n "${preferences_mode:-}" ]; then
@@ -283,6 +285,8 @@ write_running_state() {
     write_state_value AGENTSTUDIO_OBSERVABILITY_STARTUP_DIAGNOSTIC_ACTION "$startup_diagnostic_action"
     write_state_value AGENTSTUDIO_OBSERVABILITY_ACTIVATION_MODE "$launch_activation_mode"
     write_state_value AGENTSTUDIO_OBSERVABILITY_IPC_AUTH_MODE "$ipc_auth_mode"
+    write_state_value AGENTSTUDIO_OBSERVABILITY_TCC_PROBE_REPEAT_COUNT "$tcc_probe_repeat_count"
+    write_state_value AGENTSTUDIO_OBSERVABILITY_TCC_PROBE_INTERVAL_SECONDS "$tcc_probe_interval_seconds"
     write_state_value AGENTSTUDIO_OBSERVABILITY_LOG "$launch_log"
     write_state_value AGENTSTUDIO_OBSERVABILITY_BUILD_PATH "$build_path"
     if [ -n "$preferences_mode" ]; then
@@ -653,6 +657,8 @@ if [ -n "${AGENTSTUDIO_IPC_UNSAFE_NO_AUTH:-}" ]; then
   ipc_auth_mode=unsafe_no_auth
 fi
 launch_activation_mode=unknown
+tcc_probe_repeat_count="${AGENTSTUDIO_TCC_UPGRADE_PROBE_REPEAT_COUNT:-}"
+tcc_probe_interval_seconds="${AGENTSTUDIO_TCC_UPGRADE_PROBE_INTERVAL_SECONDS:-}"
 if ! trace_name_is_safe_path_component "$trace_name"; then
   mkdir -p "$(dirname "$state_file")"
   write_launch_failed_state invalid_trace_name
@@ -736,6 +742,12 @@ fi
 if [ -n "$startup_diagnostic_action" ]; then
   open_env_args+=(--env "AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=$startup_diagnostic_action")
 fi
+if [ -n "$tcc_probe_repeat_count" ]; then
+  open_env_args+=(--env "AGENTSTUDIO_TCC_UPGRADE_PROBE_REPEAT_COUNT=$tcc_probe_repeat_count")
+fi
+if [ -n "$tcc_probe_interval_seconds" ]; then
+  open_env_args+=(--env "AGENTSTUDIO_TCC_UPGRADE_PROBE_INTERVAL_SECONDS=$tcc_probe_interval_seconds")
+fi
 if [ -n "${AGENTSTUDIO_RESTORE_TRACE:-}" ]; then
   open_env_args+=(--env "AGENTSTUDIO_RESTORE_TRACE=$AGENTSTUDIO_RESTORE_TRACE")
 fi
@@ -777,6 +789,12 @@ else
 fi
 if [ -n "$startup_diagnostic_action" ]; then
   direct_launch_env+=("AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=$startup_diagnostic_action")
+fi
+if [ -n "$tcc_probe_repeat_count" ]; then
+  direct_launch_env+=("AGENTSTUDIO_TCC_UPGRADE_PROBE_REPEAT_COUNT=$tcc_probe_repeat_count")
+fi
+if [ -n "$tcc_probe_interval_seconds" ]; then
+  direct_launch_env+=("AGENTSTUDIO_TCC_UPGRADE_PROBE_INTERVAL_SECONDS=$tcc_probe_interval_seconds")
 fi
 if [ -n "${AGENTSTUDIO_RESTORE_TRACE:-}" ]; then
   direct_launch_env+=("AGENTSTUDIO_RESTORE_TRACE=$AGENTSTUDIO_RESTORE_TRACE")

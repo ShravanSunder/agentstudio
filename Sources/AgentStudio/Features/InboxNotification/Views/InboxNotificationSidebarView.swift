@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import SwiftUI
 import os.log
@@ -547,6 +548,8 @@ struct InboxNotificationSidebarView: View {
             }
         case .focusPane(let paneId):
             dispatcher.dispatch(.focusPane, target: paneId, targetType: .pane)
+        case .openFullDiskAccessSettings:
+            NSWorkspace.shared.open(FullDiskAccessSettings.url)
         }
     }
 }
