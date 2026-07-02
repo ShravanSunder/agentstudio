@@ -264,7 +264,6 @@ function reviewItemForChangedFile(props: {
 					endpointId: worktreeReviewBaseEndpointId,
 					itemId,
 					language,
-					packageId: props.packageId,
 					role: 'base',
 				});
 	const head =
@@ -276,14 +275,13 @@ function reviewItemForChangedFile(props: {
 					endpointId: worktreeReviewHeadEndpointId,
 					itemId,
 					language,
-					packageId: props.packageId,
-					role: props.changedFile.baseContent === null ? 'file' : 'head',
+					role: 'head',
 				});
 	const contentLineCountsByRole = contentLineCountsByRoleForChangedFile(props.changedFile);
-	const contentHashAlgorithm = 'sha256';
+	const contentHashAlgorithm = 'git-blob-sha1';
 	return {
 		itemId,
-		itemKind: props.changedFile.baseContent === null ? 'file' : 'diff',
+		itemKind: 'diff',
 		itemVersion: 1,
 		basePath: props.changedFile.baseContent === null ? null : props.changedFile.basePath,
 		headPath: props.changedFile.headContent === null ? null : props.changedFile.headPath,
@@ -302,9 +300,9 @@ function reviewItemForChangedFile(props: {
 		reviewPriority: 'normal',
 		contentRoles: {
 			base,
-			head: head?.role === 'head' ? head : null,
+			head,
 			diff: null,
-			file: head?.role === 'file' ? head : null,
+			file: null,
 		},
 		contentLineCountsByRole,
 		cacheKey: `${base?.cacheKey ?? 'none'}|${head?.cacheKey ?? 'none'}`,
@@ -329,11 +327,7 @@ function contentLineCountsByRoleForChangedFile(
 		lineCounts.base = renderLineCount(changedFile.baseContent);
 	}
 	if (changedFile.headContent !== null) {
-		if (changedFile.baseContent === null) {
-			lineCounts.file = renderLineCount(changedFile.headContent);
-		} else {
-			lineCounts.head = renderLineCount(changedFile.headContent);
-		}
+		lineCounts.head = renderLineCount(changedFile.headContent);
 	}
 	return Object.keys(lineCounts).length === 0 ? undefined : lineCounts;
 }
@@ -344,11 +338,12 @@ function makeContentHandle(props: {
 	readonly endpointId: string;
 	readonly itemId: string;
 	readonly language: string;
-	readonly packageId: string;
-	readonly role: 'base' | 'head' | 'file';
+	readonly role: 'base' | 'head';
 }): BridgeContentHandle {
-	const handleId = `${props.itemId}-${props.role}`;
-	const contentHash = `sha256:${hashText(props.content)}`;
+	const contentHash = gitBlobSha1(props.content);
+	const handleId = `handle-${hashText(
+		`${props.endpointId}:${props.itemId}:${props.role}:${contentHash}`,
+	)}`;
 	props.contentByHandleId.set(handleId, props.content);
 	return {
 		handleId,
@@ -356,9 +351,9 @@ function makeContentHandle(props: {
 		role: props.role,
 		endpointId: props.endpointId,
 		reviewGeneration: worktreeReviewGeneration,
-		resourceUrl: `agentstudio://resource/review/content/${handleId}?generation=${worktreeReviewGeneration}&revision=${worktreeReviewRevision}&cursor=${props.packageId}`,
+		resourceUrl: `agentstudio://resource/review/content/${handleId}?generation=${worktreeReviewGeneration}`,
 		contentHash,
-		contentHashAlgorithm: 'sha256',
+		contentHashAlgorithm: 'git-blob-sha1',
 		cacheKey: `${handleId}:${contentHash}`,
 		mimeType: mimeTypeForLanguage(props.language),
 		language: props.language,
@@ -491,4 +486,12 @@ function byteLength(value: string): number {
 
 function hashText(value: string): string {
 	return createHash('sha256').update(value).digest('hex');
+}
+
+function gitBlobSha1(content: string): string {
+	return createHash('sha1')
+		.update(
+			Buffer.concat([Buffer.from(`blob ${Buffer.byteLength(content)}\0`), Buffer.from(content)]),
+		)
+		.digest('hex');
 }

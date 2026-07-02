@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import { describe, expect, test } from 'vitest';
 
 import type {
@@ -118,8 +120,32 @@ describe('Bridge worktree review dev provider', () => {
 		const modifiedItem = itemByHeadPath(reviewPackage, 'src/app.ts');
 		expect(modifiedItem?.changeKind).toBe('modified');
 		expect(modifiedItem?.itemId).toMatch(/^worktree-review-[a-f0-9]{12}-src-app-ts$/u);
-		expect(modifiedItem?.contentRoles.base?.resourceUrl).toContain(
-			'?generation=1&revision=1&cursor=worktree-review-abc123def456',
+		const modifiedBase = modifiedItem?.contentRoles.base;
+		const modifiedHead = modifiedItem?.contentRoles.head;
+		expect(modifiedBase?.resourceUrl).toBe(
+			`agentstudio://resource/review/content/${modifiedBase?.handleId}?generation=1`,
+		);
+		expect(modifiedBase?.contentHashAlgorithm).toBe('git-blob-sha1');
+		expect(modifiedHead?.contentHashAlgorithm).toBe('git-blob-sha1');
+		expect(modifiedBase?.contentHash).toBe(gitBlobSha1('export const value = 1;\n'));
+		expect(modifiedHead?.contentHash).toBe(
+			gitBlobSha1('export const value = 2;\nexport const next = true;\n'),
+		);
+		expect(modifiedBase?.handleId).toBe(
+			swiftContentHandleId({
+				contentHash: gitBlobSha1('export const value = 1;\n'),
+				endpointId: 'baseline-local-default',
+				itemId: modifiedItem?.itemId ?? '',
+				role: 'base',
+			}),
+		);
+		expect(modifiedHead?.handleId).toBe(
+			swiftContentHandleId({
+				contentHash: gitBlobSha1('export const value = 2;\nexport const next = true;\n'),
+				endpointId: 'working-tree',
+				itemId: modifiedItem?.itemId ?? '',
+				role: 'head',
+			}),
 		);
 		expect(result.contentByHandleId.get(modifiedItem?.contentRoles.base?.handleId ?? '')).toBe(
 			'export const value = 1;\n',
@@ -138,12 +164,14 @@ describe('Bridge worktree review dev provider', () => {
 			{ itemId: modifiedItem?.itemId, contentRole: 'head', lineCount: 2 },
 		]);
 		const addedItem = itemByHeadPath(reviewPackage, 'docs/readme.md');
-		expect(addedItem?.itemKind).toBe('file');
+		expect(addedItem?.itemKind).toBe('diff');
 		expect(addedItem?.contentRoles.base).toBeNull();
-		expect(result.contentByHandleId.get(addedItem?.contentRoles.file?.handleId ?? '')).toBe(
+		expect(addedItem?.contentRoles.file).toBeNull();
+		expect(addedItem?.contentRoles.head?.contentHashAlgorithm).toBe('git-blob-sha1');
+		expect(result.contentByHandleId.get(addedItem?.contentRoles.head?.handleId ?? '')).toBe(
 			'# Docs\n\nNew docs\n',
 		);
-		expect(addedItem?.contentLineCountsByRole).toEqual({ file: 3 });
+		expect(addedItem?.contentLineCountsByRole).toEqual({ head: 3 });
 		const extensionlessItem = itemByHeadPath(reviewPackage, '.gitignore');
 		expect(extensionlessItem?.extension).toBeNull();
 		expect(extensionlessItem?.language).toBe('text');
@@ -294,6 +322,56 @@ describe('Bridge worktree review dev provider', () => {
 
 		expect(projection.orderedItemIds).toHaveLength(120);
 	});
+
+	test('changes head handle identity when the same item content changes', () => {
+		const first = createBridgeWorktreeReviewDevMetadata({
+			baseRef: 'base-sha',
+			snapshot: {
+				fingerprint: 'sameitem1111',
+				changedFiles: [
+					{
+						additions: 1,
+						baseContent: 'export const value = 1;\n',
+						basePath: 'src/app.ts',
+						changeKind: 'modified',
+						deletions: 1,
+						headContent: 'export const value = 2;\n',
+						headPath: 'src/app.ts',
+						path: 'src/app.ts',
+					},
+				],
+			},
+			paneId: 'bridge-worktree-review-dev-pane',
+			streamId: 'review:bridge-worktree-review-dev-pane',
+		});
+		const second = createBridgeWorktreeReviewDevMetadata({
+			baseRef: 'base-sha',
+			snapshot: {
+				fingerprint: 'sameitem2222',
+				changedFiles: [
+					{
+						additions: 1,
+						baseContent: 'export const value = 1;\n',
+						basePath: 'src/app.ts',
+						changeKind: 'modified',
+						deletions: 1,
+						headContent: 'export const value = 3;\n',
+						headPath: 'src/app.ts',
+						path: 'src/app.ts',
+					},
+				],
+			},
+			paneId: 'bridge-worktree-review-dev-pane',
+			streamId: 'review:bridge-worktree-review-dev-pane',
+		});
+		const firstItem = itemByHeadPath(first.reviewMetadataSource, 'src/app.ts');
+		const secondItem = itemByHeadPath(second.reviewMetadataSource, 'src/app.ts');
+
+		expect(firstItem?.itemId).toBe(secondItem?.itemId);
+		expect(firstItem?.contentRoles.head?.handleId).not.toBe(
+			secondItem?.contentRoles.head?.handleId,
+		);
+	});
 });
 
 function itemByHeadPath(
@@ -301,4 +379,23 @@ function itemByHeadPath(
 	path: string,
 ): BridgeReviewItemDescriptor | undefined {
 	return Object.values(reviewPackage.itemsById).find((item) => item.headPath === path);
+}
+
+function gitBlobSha1(content: string): string {
+	return createHash('sha1')
+		.update(
+			Buffer.concat([Buffer.from(`blob ${Buffer.byteLength(content)}\0`), Buffer.from(content)]),
+		)
+		.digest('hex');
+}
+
+function swiftContentHandleId(props: {
+	readonly contentHash: string;
+	readonly endpointId: string;
+	readonly itemId: string;
+	readonly role: 'base' | 'head';
+}): string {
+	return `handle-${createHash('sha256')
+		.update(`${props.endpointId}:${props.itemId}:${props.role}:${props.contentHash}`)
+		.digest('hex')}`;
 }
