@@ -14,6 +14,7 @@ describe('Review viewer source structure', () => {
 		expect(modeSource).toContain('useBridgeReviewIntakeController');
 		expect(modeSource).toContain('useBridgeReviewMetadataInterestRuntime');
 		expect(modeSource).toContain('useBridgeReviewProjectionCoordinator');
+		expect(modeSource).toContain('useBridgeReviewSelectionController');
 		expect(modeSource).toContain('useVisibleReviewContentHydration');
 		expect(modeSource).toContain('useBridgeReviewSelectedContentEffect');
 		expect(modeSource).toContain('useSelectedReviewContentDemandController');
@@ -68,6 +69,30 @@ describe('Review viewer source structure', () => {
 		);
 		expect(selectedContentControllerSource).not.toContain('BridgeReviewViewerShellBoundary');
 		expect(selectedContentControllerSource).not.toContain('@pierre/');
+	});
+
+	test('keeps Review selection orchestration in an app-level controller hook', () => {
+		const modeSource = readSource('../app/bridge-app-review-viewer-mode.tsx');
+		const selectionControllerSource = readSource(
+			'../app/bridge-app-review-selection-controller.ts',
+		);
+
+		expect(modeSource).toContain('useBridgeReviewSelectionController');
+		expect(modeSource).not.toContain('pendingSelectionCommitTelemetryRef');
+		expect(modeSource).not.toContain('lastTelemetryMarkedItemRef');
+		expect(modeSource).not.toContain('review.markFileViewed');
+		expect(modeSource).not.toContain('recordReviewStartupTelemetry({');
+
+		expect(selectionControllerSource).toContain('useBridgeReviewSelectionController');
+		expect(selectionControllerSource).toContain('pendingSelectionCommitTelemetryRef');
+		expect(selectionControllerSource).toContain('lastTelemetryMarkedItemRef');
+		expect(selectionControllerSource).toContain('review.markFileViewed');
+		expect(selectionControllerSource).toContain('recordReviewStartupTelemetry({');
+		expect(selectionControllerSource).not.toContain('BridgeReviewViewerShellBoundary');
+		expect(selectionControllerSource).not.toContain('useBridgeReviewViewerStore');
+		expect(selectionControllerSource).not.toContain('createBridgeReviewProjectionWebWorkerClient');
+		expect(selectionControllerSource).not.toContain('createBridgeMarkdownRenderWebWorkerClient');
+		expect(selectionControllerSource).not.toContain('@pierre/');
 	});
 
 	test('keeps the review store out of content bodies and runtime handles', () => {

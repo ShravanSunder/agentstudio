@@ -1,5 +1,5 @@
 import type { MutableRefObject, ReactElement } from 'react';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from 'zustand';
 
 import type { BridgePageHandshakeSession } from '../bridge/bridge-page-handshake.js';
@@ -32,10 +32,6 @@ import type { BridgeReviewProjectionWorkerClient } from '../review-viewer/worker
 import { createBridgeReviewProjectionWebWorkerClient } from '../review-viewer/workers/projection/review-projection-worker-transport.js';
 import type { BridgeDiffStatusState } from './bridge-app-review-controller.js';
 import {
-	cancelReviewItemDemand,
-	reviewItemDemandCancellationTargetForSelectionChange,
-} from './bridge-app-review-descriptors.js';
-import {
 	readBridgeReviewFrameAuthority,
 	refreshBridgeReviewFrameAuthority,
 	type BridgeReviewFrameAuthority,
@@ -56,6 +52,7 @@ import {
 	useBridgeReviewSelectedContentEffect,
 	useSelectedReviewContentDemandController,
 } from './bridge-app-review-selected-content-controller.js';
+import { useBridgeReviewSelectionController } from './bridge-app-review-selection-controller.js';
 import {
 	clearReviewRefinementsHidingExplicitTarget,
 	itemIdForReviewFileNavigationTarget,
@@ -75,11 +72,7 @@ import {
 import { useBridgeReviewRenderTelemetryController } from './bridge-app-review-telemetry-controller.js';
 import {
 	createChildTraceContext,
-	makeTelemetryMarkedItemKey,
-	makeTelemetryPackageKey,
-	recordReviewStartupTelemetry,
 	type BridgeReviewPackageTelemetryContext,
-	type PendingReviewSelectionCommitTelemetry,
 } from './bridge-app-review-telemetry.js';
 import { BridgeReviewViewerShellBoundary } from './bridge-app-review-viewer-shell-boundary.js';
 import type { BridgeAppProps } from './bridge-app.js';
@@ -148,8 +141,6 @@ export function BridgeReviewViewerMode(
 		useState<SelectedMarkdownPreviewState | null>(null);
 	const [selectedReviewFileTarget, setSelectedReviewFileTarget] =
 		useState<BridgeReviewFileNavigationTarget | null>(null);
-	const [lastSelectionCommitDurationMilliseconds, setLastSelectionCommitDurationMilliseconds] =
-		useState<number | null>(null);
 	const [bridgeReadyEpoch, setBridgeReadyEpoch] = useState(0);
 	const selectedMarkdownPreviewStateRef = useRef<SelectedMarkdownPreviewState | null>(null);
 	selectedMarkdownPreviewStateRef.current = selectedMarkdownPreviewState;
@@ -185,11 +176,7 @@ export function BridgeReviewViewerMode(
 	const reviewPackageTelemetryContextRef = useRef<Map<string, BridgeReviewPackageTelemetryContext>>(
 		new Map(),
 	);
-	const lastTelemetryMarkedItemRef = useRef<string | null>(null);
 	const reviewReadyStartMillisecondsByPackageKeyRef = useRef<Map<string, number>>(new Map());
-	const pendingSelectionCommitTelemetryRef = useRef<PendingReviewSelectionCommitTelemetry | null>(
-		null,
-	);
 	const codeViewControlHandleRef = useRef<BridgeCodeViewControlHandle | null>(null);
 	const reviewPackageRef = useRef<BridgeReviewPackage | null>(null);
 	reviewPackageRef.current = reviewPackage;
@@ -368,137 +355,33 @@ export function BridgeReviewViewerMode(
 		},
 		[telemetryRecorderRef],
 	);
-	const beginForegroundReviewSelection = useCallback(
-		(
-			itemId: string,
-			presentationTarget: BridgeReviewFileNavigationTarget | null = null,
-		): boolean => {
-			const currentReviewPackage = reviewPackageRef.current;
-			if (currentReviewPackage === null || !(itemId in currentReviewPackage.itemsById)) {
-				return false;
-			}
-			const previousSelectedItemId = rootSnapshotRef.current.selectedItemId;
-			const isSelectionChange = previousSelectedItemId !== itemId;
-			const selectedContentKey = makeSelectedContentResourcesKey(currentReviewPackage, itemId);
-			const selectedPresentation = selectedItemPresentationForReviewFileTarget({
-				reviewPackage: currentReviewPackage,
-				selectedItemId: itemId,
-				target: presentationTarget ?? initialReviewFileTarget,
-			});
-			if (isSelectionChange) {
-				pendingSelectionCommitTelemetryRef.current = telemetryRecorderRef.current.isEnabled('web')
-					? {
-							itemId,
-							packageKey: makeTelemetryPackageKey(currentReviewPackage),
-							startedAtMilliseconds: performance.now(),
-							traceContext: createChildTraceContext(
-								currentReviewPackageTelemetryContextRef.current?.traceContext ?? null,
-							),
-						}
-					: null;
-				cancelForegroundSelectionRelease();
-				setForegroundSelectedContentKey(selectedContentKey);
-				selectedContentAbortControllerRef.current?.abort();
-				selectedContentAbortControllerRef.current = null;
-				selectedContentActiveLoadKeyRef.current = null;
-				cancelReviewItemDemand({
-					descriptorRefsByHandleId: reviewContentDescriptorRefsByHandleIdRef.current,
-					item: reviewItemDemandCancellationTargetForSelectionChange({
-						previousSelectedItemId,
-						reviewPackage: currentReviewPackage,
-					}),
-					resourceExecutor,
-					reviewDemandScheduler,
-				});
-				setSelectedContentResourcesState({
-					itemId,
-					contentKey: selectedContentKey,
-					status: 'loading',
-					resources: null,
-				});
-				startSelectedReviewContentDemand({
-					itemId,
-					presentation: selectedPresentation,
-					reviewPackage: currentReviewPackage,
-					selectedContentKey,
-				});
-			}
-			if (presentationTarget !== null || isSelectionChange) {
-				setSelectedReviewFileTarget(presentationTarget);
-			}
-			viewerActions.setSelectedItemId(itemId);
-			viewerActions.setRenderMode({ kind: 'codeView' });
-			return true;
-		},
-		[
-			cancelForegroundSelectionRelease,
-			initialReviewFileTarget,
-			resourceExecutor,
-			reviewDemandScheduler,
-			selectedContentAbortControllerRef,
-			selectedContentActiveLoadKeyRef,
-			setForegroundSelectedContentKey,
-			setSelectedContentResourcesState,
-			startSelectedReviewContentDemand,
-			telemetryRecorderRef,
-			viewerActions,
-		],
-	);
-	const selectReviewItem = useCallback(
-		(
-			itemId: string,
-			presentationTarget: BridgeReviewFileNavigationTarget | null = null,
-		): boolean => {
-			const currentReviewPackage = reviewPackageRef.current;
-			if (
-				!beginForegroundReviewSelection(itemId, presentationTarget) ||
-				currentReviewPackage === null
-			) {
-				return false;
-			}
-			lastTelemetryMarkedItemRef.current = makeTelemetryMarkedItemKey(currentReviewPackage, itemId);
-			rpcClient.sendCommand({
-				method: 'review.markFileViewed',
-				params: { fileId: itemId },
-			});
-			return true;
-		},
-		[beginForegroundReviewSelection, rpcClient],
-	);
-	useLayoutEffect((): void => {
-		const pendingTelemetry = pendingSelectionCommitTelemetryRef.current;
-		if (
-			pendingTelemetry === null ||
-			!props.isActive ||
-			reviewPackage === null ||
-			projection === null ||
-			rootSnapshot.selectedItemId !== pendingTelemetry.itemId
-		) {
-			return;
-		}
-		if (makeTelemetryPackageKey(reviewPackage) !== pendingTelemetry.packageKey) {
-			pendingSelectionCommitTelemetryRef.current = null;
-			return;
-		}
-		pendingSelectionCommitTelemetryRef.current = null;
-		const durationMilliseconds = performance.now() - pendingTelemetry.startedAtMilliseconds;
-		setLastSelectionCommitDurationMilliseconds(Math.max(0, durationMilliseconds));
-		recordReviewStartupTelemetry({
-			telemetryRecorder: telemetryRecorderRef.current,
-			phase: 'selection_commit',
-			slice: 'review_projection',
-			transport: 'worker',
-			traceContext: pendingTelemetry.traceContext,
-			durationMilliseconds,
-			result: 'success',
-		});
-	}, [
+	const {
+		beginForegroundReviewSelection,
+		lastSelectionCommitDurationMilliseconds,
+		selectReviewItem,
+	} = useBridgeReviewSelectionController({
+		cancelForegroundSelectionRelease,
+		currentReviewPackageTelemetryContextRef,
+		initialReviewFileTarget,
+		isActive: props.isActive,
 		projection,
-		props.isActive,
+		resourceExecutor,
+		reviewContentDescriptorRefsByHandleIdRef,
+		reviewDemandScheduler,
 		reviewPackage,
-		rootSnapshot.selectedItemId,
+		reviewPackageRef,
+		rootSnapshot,
+		rootSnapshotRef,
+		rpcClient,
+		selectedContentAbortControllerRef,
+		selectedContentActiveLoadKeyRef,
+		setForegroundSelectedContentKey,
+		setSelectedContentResourcesState,
+		setSelectedReviewFileTarget,
+		startSelectedReviewContentDemand,
 		telemetryRecorderRef,
-	]);
+		viewerActions,
+	});
 	const appliedNavigationCommandRef = useRef<BridgeViewerNavigationCommand | null>(null);
 	useEffect((): void => {
 		if (
@@ -695,26 +578,6 @@ export function BridgeReviewViewerMode(
 		selectedContentResourcesState,
 		telemetryRecorderRef,
 	});
-
-	useEffect((): void => {
-		if (
-			!props.isActive ||
-			reviewPackage === null ||
-			rootSnapshot.selectedItemId === null ||
-			!telemetryRecorderRef.current.isEnabled('web')
-		) {
-			return;
-		}
-		const markedItemKey = makeTelemetryMarkedItemKey(reviewPackage, rootSnapshot.selectedItemId);
-		if (lastTelemetryMarkedItemRef.current === markedItemKey) {
-			return;
-		}
-		lastTelemetryMarkedItemRef.current = markedItemKey;
-		rpcClient.sendCommand({
-			method: 'review.markFileViewed',
-			params: { fileId: rootSnapshot.selectedItemId },
-		});
-	}, [props.isActive, reviewPackage, rootSnapshot.selectedItemId, rpcClient, telemetryRecorderRef]);
 
 	const selectedCanvasLoadingReason = selectedCanvasLoadingReasonForCurrentSelection({
 		selectedContentKey: currentSelectedContentKey,
