@@ -50,6 +50,7 @@ export interface BridgeCodeViewSelectionScrollDiagnostic {
 export const codeViewMaterializationRetryFrameBudget = 30;
 export const codeViewSelectedHeaderPinFrameBudget = 30;
 export const codeViewSelectionScrollRetryFrameBudget = 30;
+export const codeViewVisibleMetadataScrollThrottleMilliseconds = 120;
 export const codeViewVisibleHydrationScrollIdleMilliseconds = 120;
 
 export const initialSelectionScrollDiagnostic: BridgeCodeViewSelectionScrollDiagnostic = {
