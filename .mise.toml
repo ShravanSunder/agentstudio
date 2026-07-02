@@ -179,6 +179,10 @@ run = "pnpm run benchmark:viewer && /bin/bash ../scripts/verify-bridge-viewer-be
 description = "Verify Bridge debug observability events in the shared Victoria stack"
 run = "bash scripts/verify-bridge-observability.sh"
 
+[tasks.verify-bridge-headless-manifest]
+description = "Verify Bridge Worktree/File headless manifest proof artifact"
+run = "/bin/bash scripts/verify-bridge-headless-manifest.sh"
+
 [tasks.doctor-mac]
 description = "Check local macOS prerequisites and known build hazards"
 run = """

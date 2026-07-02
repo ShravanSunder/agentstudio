@@ -146,6 +146,31 @@ entries; if an entry becomes stale, append a correction with the new evidence.
   strict `swiftlint` passed on the three touched Swift files,
   `git diff --check` passed.
 
+### 2026-07-01 Codex Swift S4 Headless Manifest Runner Checkpoint
+
+- Added env-gated `mise run verify-bridge-headless-manifest` backed by
+  `scripts/verify-bridge-headless-manifest.sh`.
+- The script sets `AGENTSTUDIO_BRIDGE_HEADLESS_PROOF_DIR`, uses the shared
+  Swift build-slot helper, runs
+  `WebKitSerializedTests.BridgeWorktreeFileSurfaceCurrentWorktreeProofTests`,
+  then validates `current-worktree-manifest-proof.json`.
+- Validation gates the non-circular artifact fields:
+  positive `expectedMetadataFileTotal`, exact expected/emitted file equality,
+  empty `missingExpectedFilePaths` and `unexpectedPublishedFilePaths`, exact
+  row equality, zero remaining rows, p95/p99 metadata-interest fields, and
+  completed no-starvation progress.
+- Added script tests for bash syntax/task contract, validate-only success, and
+  validate-only rejection of missing expected paths.
+- Proof:
+  `/bin/bash -n scripts/verify-bridge-headless-manifest.sh` passed;
+  validate-only fixture passed;
+  `BridgeHeadlessManifestVerifierScriptTests` passed 3 tests / 1 suite;
+  `mise run verify-bridge-headless-manifest` passed 2 tests / 2 suites and
+  artifact validation.
+- Task artifact observed from the mise run:
+  expected files `2174`, emitted files `2174`, expected/emitted rows
+  `2561/2561`.
+
 ### 2026-07-01 Codex Swift Lane Takeover Follow-Up
 
 - Fable hit quota after `9c398471`; Codex is now the parent controller for the
