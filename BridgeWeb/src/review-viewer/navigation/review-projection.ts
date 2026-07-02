@@ -28,11 +28,21 @@ import {
 export interface BuildBridgeReviewProjectionProps {
 	readonly reviewPackage: BridgeReviewPackage;
 	readonly request: BridgeReviewProjectionRequest;
+	/**
+	 * F5 guided-order freeze: the previously-projected order (item ids). During a streaming
+	 * review, guided ranking keys (reviewState/priority/fileClass) arrive incrementally, which
+	 * would otherwise re-rank already-rendered rows under the reader. When this hint is present,
+	 * guided mode keeps the relative order of items it already contains and only appends newly
+	 * arrived items by rank, so the live list does not reshuffle mid-stream. Normal review is
+	 * already order-stable and ignores the hint.
+	 */
+	readonly stableGuidedOrderHint?: readonly string[];
 }
 
 export interface BuildBridgeReviewProjectionFromInputProps {
 	readonly projectionInput: BridgeReviewProjectionInput;
 	readonly request: BridgeReviewProjectionRequest;
+	readonly stableGuidedOrderHint?: readonly string[];
 }
 
 interface ProjectionVisibility {
@@ -112,6 +122,9 @@ export function buildBridgeReviewProjection(
 	return buildBridgeReviewProjectionFromInput({
 		projectionInput: makeBridgeReviewProjectionInput(props.reviewPackage),
 		request: props.request,
+		...(props.stableGuidedOrderHint === undefined
+			? {}
+			: { stableGuidedOrderHint: props.stableGuidedOrderHint }),
 	});
 }
 
@@ -125,10 +138,11 @@ export function buildBridgeReviewProjectionFromInput(
 	const projectedItems = [
 		...applyProjectionFacets(itemsForMode(baseItems, props.request.mode), props.request.facets),
 	];
+	const stableGuidedOrderRank = stableGuidedOrderRankByItemId(props.stableGuidedOrderHint);
 	// oxlint-disable-next-line unicorn/no-array-sort -- WebKit engines older than Safari 16.4 do not support Array#toSorted.
 	projectedItems.sort(
 		(left: BridgeReviewProjectionInputItem, right: BridgeReviewProjectionInputItem): number =>
-			compareForMode(props.request.mode, left, right),
+			compareForMode(props.request.mode, left, right, stableGuidedOrderRank),
 	);
 	const orderedItemIds = projectedItems.map(
 		(item: BridgeReviewProjectionInputItem): string => item.itemId,
@@ -343,13 +357,46 @@ function facetCountsForItems(
 	return facetCounts;
 }
 
+function stableGuidedOrderRankByItemId(
+	stableGuidedOrderHint: readonly string[] | undefined,
+): ReadonlyMap<string, number> | null {
+	if (stableGuidedOrderHint === undefined || stableGuidedOrderHint.length === 0) {
+		return null;
+	}
+	const rankByItemId = new Map<string, number>();
+	for (const [index, itemId] of stableGuidedOrderHint.entries()) {
+		if (!rankByItemId.has(itemId)) {
+			rankByItemId.set(itemId, index);
+		}
+	}
+	return rankByItemId;
+}
+
 function compareForMode(
 	mode: BridgeReviewProjectionMode,
 	left: BridgeReviewProjectionInputItem,
 	right: BridgeReviewProjectionInputItem,
+	stableGuidedOrderRank: ReadonlyMap<string, number> | null,
 ): number {
 	if (mode.kind !== 'guidedReview') {
 		return 0;
+	}
+
+	if (stableGuidedOrderRank !== null) {
+		// Freeze already-projected rows in their prior order; sort only newly arrived items by
+		// rank and append them after the frozen prefix so streaming metadata cannot reshuffle
+		// what the reader is already looking at.
+		const leftFrozenRank = stableGuidedOrderRank.get(left.itemId);
+		const rightFrozenRank = stableGuidedOrderRank.get(right.itemId);
+		if (leftFrozenRank !== undefined && rightFrozenRank !== undefined) {
+			return leftFrozenRank - rightFrozenRank;
+		}
+		if (leftFrozenRank !== undefined) {
+			return -1;
+		}
+		if (rightFrozenRank !== undefined) {
+			return 1;
+		}
 	}
 
 	return (

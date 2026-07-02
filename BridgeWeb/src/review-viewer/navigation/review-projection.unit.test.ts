@@ -212,6 +212,50 @@ describe('Bridge review projection', () => {
 			}
 		}
 	});
+
+	test('freezes guided order for already-projected rows while streaming flips ranking keys (F5/R7)', () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const guidedRequest: BridgeReviewProjectionRequest = {
+			mode: { kind: 'guidedReview' },
+			facets: [
+				{ kind: 'visibility', includeHidden: true, includeBinary: true, includeLarge: true },
+			],
+		};
+		const initialOrder = buildBridgeReviewProjection({
+			reviewPackage,
+			request: guidedRequest,
+		}).orderedItemIds;
+		expect(initialOrder[0]).toBe('source-high');
+
+		// Streaming metadata flips a ranking key on an already-projected row (source-high becomes
+		// resolved), which drops its guided rank.
+		const sourceHigh = reviewPackage.itemsById['source-high'];
+		if (sourceHigh === undefined) {
+			throw new Error('expected source-high fixture item');
+		}
+		const streamedPackage = {
+			...reviewPackage,
+			itemsById: {
+				...reviewPackage.itemsById,
+				'source-high': { ...sourceHigh, reviewState: 'resolved' as const },
+			},
+		};
+
+		// Without the freeze hint the re-rank reshuffles source-high out of the top row.
+		const reshuffledOrder = buildBridgeReviewProjection({
+			reviewPackage: streamedPackage,
+			request: guidedRequest,
+		}).orderedItemIds;
+		expect(reshuffledOrder[0]).not.toBe('source-high');
+
+		// With the prior order as the stable hint, already-projected rows keep their order.
+		const frozenOrder = buildBridgeReviewProjection({
+			reviewPackage: streamedPackage,
+			request: guidedRequest,
+			stableGuidedOrderHint: initialOrder,
+		}).orderedItemIds;
+		expect(frozenOrder).toEqual(initialOrder);
+	});
 });
 
 function itemWithOmittedLanguageFields(
