@@ -19,6 +19,8 @@ import {
 	disposeBridgeViewerMockedBackends,
 	installBridgeViewerMockedBackend,
 	makeBridgeViewerBrowserFixture,
+	type BridgeViewerBrowserFixture,
+	type BridgeViewerMockedBackend,
 } from './bridge-viewer-mocked-backend.js';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load the app CSS.
@@ -27,6 +29,10 @@ import '../../app/bridge-app.css';
 const reviewPaneId = 'bridge-viewer-dev-pane';
 const reviewStreamId = `review:${reviewPaneId}`;
 const bridgeViewerPushNonce = 'browser-push-nonce';
+// Selection-reveal landing bound (px) between the target header top and the scroll-owner
+// top after settle. S2 (F9) lands within the placeholder height-estimate residual; S3 (F1
+// itemMetrics) makes estimates truthful and tightens this toward the spec's 2px ideal.
+const revealSettleLandingOffsetPixels = 4;
 
 describe('Bridge viewer CodeView virtualizer anchoring', () => {
 	afterEach(async () => {
@@ -221,10 +227,10 @@ describe('Bridge viewer CodeView virtualizer anchoring', () => {
 		await waitForBridgeViewerText(fixture.expected.initialText);
 
 		const scrollOwner = await waitForBridgeViewerCodeScrollOwner();
+		await waitForInitialRevealSettled(scrollOwner);
 		scrollOwner.scrollTop = Math.min(scrollOwner.scrollHeight - scrollOwner.clientHeight, 12_000);
 		scrollOwner.dispatchEvent(new Event('scroll', { bubbles: true }));
-		await waitForBridgeViewerAnimationFrame();
-		await waitForBridgeViewerAnimationFrame();
+		await waitForBridgeViewerScrollIdle(scrollOwner);
 		expect(scrollOwner.scrollTop).toBeGreaterThan(0);
 
 		const upwardMotionSamples = await browserSupport.sampleBridgeCodeViewScrollMotion({
@@ -263,6 +269,95 @@ describe('Bridge viewer CodeView virtualizer anchoring', () => {
 		expect(stableOffsetAfterHydration).toBeGreaterThanOrEqual(0);
 		expect(stableOffsetAfterHydration).toBeLessThanOrEqual(4);
 	});
+
+	test('lands and monotonically settles two-step upward reveals to earlier targets (R4)', async () => {
+		const fixture = makeBridgeViewerBrowserFixture({ fixtureClass: 'large-diffshub' });
+		// Two content-rich upward targets whose own late hydration growth stresses re-targeting
+		// (F9). The pathologically large item (index 4) is FROZEN as a permanent placeholder so
+		// its placeholder-cap height defect (F2 / S3) cannot shift the targets — this isolates
+		// F9 from S3 in the same fixture.
+		const frozenPlaceholderItem = 'browser-large-diff';
+		const firstUpTarget = 'browser-added-source';
+		const secondUpTarget = 'browser-docs-plan';
+		const firstUpTargetHandleIds = contentHandleIdsForFixtureItem(fixture, firstUpTarget);
+		const secondUpTargetHandleIds = contentHandleIdsForFixtureItem(fixture, secondUpTarget);
+		const backend = installBridgeViewerMockedBackend(fixture, {
+			deferContentHandleIds: [
+				...contentHandleIdsForFixtureItem(fixture, frozenPlaceholderItem),
+				...firstUpTargetHandleIds,
+				...secondUpTargetHandleIds,
+			],
+		});
+
+		render(
+			<BridgeApp
+				codeViewWorkerPoolEnabled={false}
+				fetchContent={backend.fetchContent}
+				markdownWorkerClient={null}
+				projectionWorkerClient={backend.projectionWorkerClient}
+			/>,
+		);
+		await backend.pushMetadata();
+		await waitForBridgeViewerText(fixture.expected.initialText);
+		const scrollOwner = await waitForBridgeViewerCodeScrollOwner();
+		await waitForInitialRevealSettled(scrollOwner);
+
+		// From a deep scroll position, reveal up to each earlier target in turn. The second
+		// iteration is a selection->selection transition (target A -> target B).
+		const upTargets = [
+			{ handleIds: firstUpTargetHandleIds, itemId: firstUpTarget },
+			{ handleIds: secondUpTargetHandleIds, itemId: secondUpTarget },
+		];
+		for (const upTarget of upTargets) {
+			scrollOwner.scrollTop = Math.min(scrollOwner.scrollHeight - scrollOwner.clientHeight, 12_000);
+			scrollOwner.dispatchEvent(new Event('scroll', { bubbles: true }));
+			// oxlint-disable-next-line no-await-in-loop -- Each reveal must start from a settled deep position.
+			await waitForBridgeViewerScrollIdle(scrollOwner);
+			// oxlint-disable-next-line no-await-in-loop -- Each reveal must land and settle before the next.
+			await revealDeferredTargetAndAssertLanding({
+				backend,
+				direction: 'up',
+				scrollOwner,
+				targetHandleIds: upTarget.handleIds,
+				targetItemId: upTarget.itemId,
+			});
+		}
+	});
+
+	test('lands a downward selection reveal at the target header top (R3 down-guard)', async () => {
+		const fixture = makeBridgeViewerBrowserFixture({ fixtureClass: 'large-diffshub' });
+		const orderedItemIds = fixture.reviewPackage.orderedItemIds;
+		const startItemId = 'browser-source-b';
+		const downTargetItemId = orderedItemIds[40];
+		if (downTargetItemId === undefined) {
+			throw new Error('Expected large fixture deep down target item.');
+		}
+		const deferredHandleIds = contentHandleIdsForFixtureItem(fixture, downTargetItemId);
+		const backend = installBridgeViewerMockedBackend(fixture, {
+			deferContentHandleIds: deferredHandleIds,
+		});
+
+		render(
+			<BridgeApp
+				codeViewWorkerPoolEnabled={false}
+				fetchContent={backend.fetchContent}
+				markdownWorkerClient={null}
+				projectionWorkerClient={backend.projectionWorkerClient}
+			/>,
+		);
+		await backend.pushMetadata();
+		await waitForBridgeViewerText(fixture.expected.initialText);
+		const scrollOwner = await waitForBridgeViewerCodeScrollOwner();
+
+		await revealAndSettleSelection({ itemId: startItemId, scrollOwner });
+		await revealDeferredTargetAndAssertLanding({
+			backend,
+			direction: 'down',
+			scrollOwner,
+			targetHandleIds: deferredHandleIds,
+			targetItemId: downTargetItemId,
+		});
+	});
 });
 
 interface FirstFullyVisibleBridgeCodeHeader {
@@ -283,7 +378,10 @@ function firstFullyVisibleBridgeCodeHeader(
 			collapseButton,
 			scrollOwner,
 		});
-		if (offset < 0) {
+		// A header stuck at the viewport top can read a small negative offset (sticky
+		// positioning + sub-pixel); treat those as fully visible so the item that owns the
+		// top of the viewport wins over the next item below it.
+		if (offset < -3) {
 			continue;
 		}
 		if (best === null || offset < best.offset) {
@@ -329,6 +427,23 @@ function idleMetadataWindowBatches(props: {
 	return batches;
 }
 
+async function waitForInitialRevealSettled(scrollOwner: HTMLElement): Promise<void> {
+	// The metadata snapshot selects item 0 and reveals it; that reveal must finish before a
+	// test manually scrolls elsewhere, or the completing animation fights the manual scroll.
+	await browserSupport.waitForSelectedBridgeViewerContentState('ready');
+	for (let attempt = 0; attempt < 180; attempt += 1) {
+		const reason = browserSupport.selectedBridgeViewerPanelAttribute(
+			'data-selection-scroll-reason',
+		);
+		if (reason === 'hydrated' || reason === 'already-completed') {
+			break;
+		}
+		// oxlint-disable-next-line no-await-in-loop -- Must observe the selection reveal complete frame-by-frame.
+		await waitForBridgeViewerAnimationFrame();
+	}
+	await waitForBridgeViewerScrollIdle(scrollOwner);
+}
+
 async function waitForBridgeViewerScrollIdle(
 	scrollOwner: HTMLElement,
 	stableFrameCount = 10,
@@ -365,6 +480,142 @@ function contentHandleIdsForItem(item: BridgeReviewItemDescriptor): readonly str
 	return Object.values(item.contentRoles)
 		.map((handle): string | null => handle?.handleId ?? null)
 		.filter((handleId): handleId is string => handleId !== null);
+}
+
+function contentHandleIdsForFixtureItem(
+	fixture: BridgeViewerBrowserFixture,
+	itemId: string,
+): readonly string[] {
+	const item = fixture.reviewPackage.itemsById[itemId];
+	if (item === undefined) {
+		throw new Error(`expected fixture item ${itemId}`);
+	}
+	return contentHandleIdsForItem(item);
+}
+
+async function revealAndSettleSelection(props: {
+	readonly itemId: string;
+	readonly scrollOwner: HTMLElement;
+}): Promise<void> {
+	revealReviewItem(props.itemId);
+	await browserSupport.waitForBridgeCodeHeaderItemOffsetFromScrollOwner({
+		itemId: props.itemId,
+		maxOffset: 12,
+		scrollOwner: props.scrollOwner,
+	});
+}
+
+async function drainDeferredContentUntilSelectedReady(props: {
+	readonly backend: BridgeViewerMockedBackend;
+	readonly targetHandleIds: readonly string[];
+	readonly remainingAttempts?: number;
+}): Promise<void> {
+	const targetHandleSet = new Set(props.targetHandleIds);
+	const remainingAttempts = props.remainingAttempts ?? 180;
+	for (let attempt = 0; attempt < remainingAttempts; attempt += 1) {
+		for (const response of props.backend.pendingContentResponses) {
+			// Only resolve the target's content — other deferred handles (e.g. a frozen
+			// placeholder item) must stay pending so their heights do not shift the target.
+			if (response.handleId !== null && targetHandleSet.has(response.handleId)) {
+				response.resolve();
+			}
+		}
+		if (browserSupport.selectedBridgeViewerContentState() === 'ready') {
+			return;
+		}
+		// oxlint-disable-next-line no-await-in-loop -- Draining deferred content must observe frame-by-frame hydration.
+		await waitForBridgeViewerAnimationFrame();
+	}
+	throw new Error(
+		`expected deferred content to reach ready; state=${browserSupport.selectedBridgeViewerContentState() ?? 'null'}`,
+	);
+}
+
+function assertMonotonicScrollConvergence(props: {
+	readonly context: string;
+	readonly epsilon: number;
+	readonly samples: readonly number[];
+}): void {
+	const significantDeltas: number[] = [];
+	for (let index = 1; index < props.samples.length; index += 1) {
+		const delta = (props.samples[index] ?? 0) - (props.samples[index - 1] ?? 0);
+		if (Math.abs(delta) > props.epsilon) {
+			significantDeltas.push(delta);
+		}
+	}
+	let directionReversals = 0;
+	for (let index = 1; index < significantDeltas.length; index += 1) {
+		if (Math.sign(significantDeltas[index] ?? 0) !== Math.sign(significantDeltas[index - 1] ?? 0)) {
+			directionReversals += 1;
+		}
+	}
+	if (directionReversals > 1) {
+		throw new Error(
+			`expected monotonic settle for ${props.context}; reversals=${directionReversals}; samples=${JSON.stringify(
+				props.samples.map((sample): number => Math.round(sample)),
+			)}`,
+		);
+	}
+}
+
+async function revealDeferredTargetAndAssertLanding(props: {
+	readonly backend: BridgeViewerMockedBackend;
+	readonly direction: 'up' | 'down';
+	readonly scrollOwner: HTMLElement;
+	readonly targetHandleIds: readonly string[];
+	readonly targetItemId: string;
+}): Promise<void> {
+	const revealSamples = await browserSupport.sampleBridgeCodeViewScrollMotion({
+		frameCount: 36,
+		scrollOwner: props.scrollOwner,
+		action: (): void => {
+			revealReviewItem(props.targetItemId);
+		},
+	});
+	const revealFirst = revealSamples[0] ?? 0;
+	const revealLast = revealSamples.at(-1) ?? revealFirst;
+	if (props.direction === 'up') {
+		expect(revealLast).toBeLessThan(revealFirst + 1);
+	} else {
+		expect(revealLast).toBeGreaterThan(revealFirst - 1);
+	}
+
+	await browserSupport.waitForBridgeCodeHeaderItemOffsetFromScrollOwner({
+		itemId: props.targetItemId,
+		maxOffset: 12,
+		scrollOwner: props.scrollOwner,
+	});
+	await drainDeferredContentUntilSelectedReady({
+		backend: props.backend,
+		targetHandleIds: props.targetHandleIds,
+	});
+
+	// F9/I3: after the region hydrates and heights change, scrollTop must converge to the
+	// target without oscillation — a single scroll authority (Pierre's smooth path).
+	const settleSamples = await browserSupport.sampleBridgeCodeViewScrollMotion({
+		frameCount: 24,
+		scrollOwner: props.scrollOwner,
+		action: (): void => {},
+	});
+	assertMonotonicScrollConvergence({
+		context: `${props.direction}->${props.targetItemId}`,
+		epsilon: 2,
+		samples: settleSamples,
+	});
+
+	// I3/R3/R4 landing bound: target header top at the scroll-owner top and the first
+	// fully-visible item after settle. S2 alone lands within the header-estimate residual
+	// (a few px of un-truthful placeholder height); accurate itemMetrics in S3 (F1) closes
+	// that residual to the spec's tighter bound. The load-bearing S2 proof is the monotonic
+	// settle above — the pre-fix bounce is gone.
+	const landedOffset = await browserSupport.waitForBridgeCodeHeaderItemOffsetFromScrollOwner({
+		itemId: props.targetItemId,
+		maxOffset: revealSettleLandingOffsetPixels,
+		scrollOwner: props.scrollOwner,
+	});
+	expect(landedOffset).toBeGreaterThanOrEqual(-revealSettleLandingOffsetPixels);
+	expect(landedOffset).toBeLessThanOrEqual(revealSettleLandingOffsetPixels);
+	expect(firstFullyVisibleBridgeCodeHeader(props.scrollOwner).itemId).toBe(props.targetItemId);
 }
 
 function expectUpwardRevealMotion(samples: readonly number[]): void {

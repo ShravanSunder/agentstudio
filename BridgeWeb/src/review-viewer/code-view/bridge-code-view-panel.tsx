@@ -766,16 +766,13 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 							cancelAnimationFrame(pendingSelectionScrollFrameRef.current);
 							pendingSelectionScrollFrameRef.current = null;
 						}
+						// F9 re-targeting reveal: re-issue Pierre's smooth reveal so it re-resolves the
+						// target's top per frame as the freshly hydrated content changes heights, keeping
+						// Pierre's anchor pinned to the target through the settle window. F4: no competing
+						// app-side DOM pin loop here — Pierre's smooth path is the single scroll authority,
+						// so above-target growth is absorbed without oscillation.
 						scrollToItem(itemId, {
 							behavior: pendingSelectionRevealBehaviorRef.current ?? 'smooth-auto',
-						});
-						scrollToTopTargetItemIdRef.current = itemId;
-						scrollCodeViewHeaderToScrollTopAcrossLayout({
-							handle: codeViewHandle,
-							itemId,
-							isCurrent: (): boolean =>
-								codeViewHandleRef.current === codeViewHandle &&
-								scrollToTopTargetItemIdRef.current === itemId,
 						});
 						pendingPreHydrationSelectionScrollKeyRef.current = null;
 						pendingSmoothSelectionScrollKeyRef.current = selectionScrollKey;
