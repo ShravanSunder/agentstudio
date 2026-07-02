@@ -29,7 +29,7 @@ import {
 	demandCancellationGroupForReviewDescriptorRef,
 	demandCancellationGroupsForReviewDescriptorRef,
 } from '../review-viewer/content/review-content-demand-loader.js';
-import { canonicalContentResourceKey } from '../review-viewer/content/review-content-registry.js';
+import { contentAddressedResourceKey } from '../review-viewer/content/review-content-registry.js';
 import type { BridgeReviewFrameAuthority } from './bridge-app-review-frame-authority.js';
 
 export const bridgeReviewAllowedResourceKindsByProtocol = {
@@ -522,7 +522,10 @@ export function contentResourceKeysForReviewHandleIds(props: {
 				continue;
 			}
 			if (props.handleIds.has(handle.handleId)) {
-				resourceKeys.push(canonicalContentResourceKey(handle));
+				const resourceKey = contentAddressedResourceKey(handle);
+				if (resourceKey !== null) {
+					resourceKeys.push(resourceKey);
+				}
 			}
 		}
 	}

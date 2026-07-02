@@ -2,7 +2,7 @@ import type {
 	BridgeReviewItemDescriptor,
 	BridgeReviewPackage,
 } from '../../foundation/review-package/bridge-review-package.js';
-import { canonicalContentResourceKey } from './review-content-registry.js';
+import { contentAddressedResourceKey } from './review-content-registry.js';
 
 /** Upper bound on items warmed per package: prefetch is a smoothness
  * optimization, not a completeness guarantee, and this bounds worst-case
@@ -94,19 +94,25 @@ function ringOrderedItemIds(orderedItemIds: readonly string[], selectedIndex: nu
 	return ring;
 }
 
+/** An item is a prefetch candidate only while it has at least one cacheable
+ * (non-sentinel) handle missing from the cache. Sentinel-hash handles can
+ * never be cached, so items with none cacheable are skipped outright —
+ * otherwise the pump would reload them forever without converging. */
 function isItemFullyCached(
 	item: BridgeReviewItemDescriptor,
 	cachedResourceKeys: ReadonlySet<string>,
 ): boolean {
-	let handleCount = 0;
 	for (const handle of Object.values(item.contentRoles)) {
 		if (handle === null || handle === undefined) {
 			continue;
 		}
-		handleCount += 1;
-		if (!cachedResourceKeys.has(canonicalContentResourceKey(handle))) {
+		const resourceKey = contentAddressedResourceKey(handle);
+		if (resourceKey === null) {
+			continue;
+		}
+		if (!cachedResourceKeys.has(resourceKey)) {
 			return false;
 		}
 	}
-	return handleCount > 0;
+	return true;
 }

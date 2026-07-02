@@ -12,7 +12,7 @@ import {
 	reviewContentPrefetchCandidateItemIds,
 	shouldRunReviewContentPrefetch,
 } from './review-content-prefetch-policy.js';
-import { canonicalContentResourceKey } from './review-content-registry.js';
+import { contentAddressedResourceKey } from './review-content-registry.js';
 
 function makeMultiItemPackage(itemIds: readonly string[]): BridgeReviewPackage {
 	const basePackage = makeBridgeReviewPackage();
@@ -66,7 +66,10 @@ describe('review content prefetch candidate ordering', () => {
 		const cachedResourceKeys = new Set<string>();
 		for (const handle of Object.values(cachedItem.contentRoles)) {
 			if (handle !== null && handle !== undefined) {
-				cachedResourceKeys.add(canonicalContentResourceKey(handle));
+				const resourceKey = contentAddressedResourceKey(handle);
+				if (resourceKey !== null) {
+					cachedResourceKeys.add(resourceKey);
+				}
 			}
 		}
 

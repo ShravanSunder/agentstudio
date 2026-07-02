@@ -4,6 +4,7 @@ import { makeBridgeContentHandle } from '../../foundation/review-package/bridge-
 import type { BridgeContentHandle } from '../../foundation/review-package/bridge-review-package.js';
 import {
 	canonicalContentResourceKey,
+	contentAddressedResourceKey,
 	createBridgeReviewContentRegistry,
 } from './review-content-registry.js';
 
@@ -375,7 +376,7 @@ describe('review content registry', () => {
 		expect(registry.peekResource(handle)).toBeNull();
 	});
 
-	test('storeResource and peekResource treat identity mismatch as a miss, not an error', () => {
+	test('storeResource and peekResource treat generation mismatch as a miss, not an error', () => {
 		const registry = createBridgeReviewContentRegistry();
 		const handle = makeBridgeContentHandle('item-source', 'head');
 		registry.setActiveIdentity({ packageId: 'pkg', reviewGeneration: 2, revision: 0 });
@@ -383,6 +384,60 @@ describe('review content registry', () => {
 		registry.storeResource({ resource: makeStoredResource(handle, 'stale generation text') });
 
 		expect(registry.peekResource(handle)).toBeNull();
+		expect(registry.snapshot()).toMatchObject({ cachedResourceCount: 0 });
+	});
+
+	test('retains cached content across revision bumps when the content hash is unchanged', () => {
+		const registry = createBridgeReviewContentRegistry();
+		registry.setActiveIdentity({ packageId: 'pkg', reviewGeneration: 1, revision: 1 });
+		const handle = makeBridgeContentHandle('item-source', 'head');
+		registry.storeResource({ resource: makeStoredResource(handle, 'unchanged body') });
+
+		registry.setActiveIdentity({ packageId: 'pkg', reviewGeneration: 1, revision: 2 });
+		const newRevisionHandle = {
+			...handle,
+			resourceUrl:
+				'agentstudio://resource/review/content/handle-item-source-head?generation=1&revision=2',
+		};
+
+		const cachedResource = registry.peekResource(newRevisionHandle);
+		expect(cachedResource?.readText()).toBe('unchanged body');
+		expect(cachedResource?.handle).toBe(newRevisionHandle);
+	});
+
+	test('a changed content hash at a new revision is a miss', () => {
+		const registry = createBridgeReviewContentRegistry();
+		registry.setActiveIdentity({ packageId: 'pkg', reviewGeneration: 1, revision: 1 });
+		const handle = makeBridgeContentHandle('item-source', 'head');
+		registry.storeResource({ resource: makeStoredResource(handle, 'old body') });
+
+		registry.setActiveIdentity({ packageId: 'pkg', reviewGeneration: 1, revision: 2 });
+		const changedHandle = { ...handle, contentHash: 'sha256:item-source:head:changed' };
+
+		expect(registry.peekResource(changedHandle)).toBeNull();
+	});
+
+	test('clears cached content when the generation or package changes', () => {
+		const registry = createBridgeReviewContentRegistry();
+		registry.setActiveIdentity({ packageId: 'pkg', reviewGeneration: 1, revision: 1 });
+		const handle = makeBridgeContentHandle('item-source', 'head');
+		registry.storeResource({ resource: makeStoredResource(handle, 'generation one body') });
+
+		registry.setActiveIdentity({ packageId: 'pkg', reviewGeneration: 2, revision: 1 });
+
+		expect(registry.snapshot()).toMatchObject({ cachedResourceCount: 0 });
+	});
+
+	test('never caches sentinel content hashes', () => {
+		const registry = createBridgeReviewContentRegistry();
+		for (const sentinelHash of ['unknown', 'missing-base', 'none...abc123', '']) {
+			const handle = {
+				...makeBridgeContentHandle('item-source', 'head'),
+				contentHash: sentinelHash,
+			};
+			registry.storeResource({ resource: makeStoredResource(handle, 'uncacheable body') });
+			expect(registry.peekResource(handle)).toBeNull();
+		}
 		expect(registry.snapshot()).toMatchObject({ cachedResourceCount: 0 });
 	});
 
@@ -409,13 +464,23 @@ describe('review content registry', () => {
 		registry.storeResource({ resource: makeStoredResource(firstHandle, 'first') });
 		registry.storeResource({ resource: makeStoredResource(secondHandle, 'second') });
 
-		const evictedCount = registry.evictResourceKeys([canonicalContentResourceKey(firstHandle)]);
+		const evictedCount = registry.evictResourceKeys([
+			requireContentAddressedResourceKey(firstHandle),
+		]);
 
 		expect(evictedCount).toBe(1);
 		expect(registry.peekResource(firstHandle)).toBeNull();
 		expect(registry.peekResource(secondHandle)?.readText()).toBe('second');
 	});
 });
+
+function requireContentAddressedResourceKey(handle: BridgeContentHandle): string {
+	const resourceKey = contentAddressedResourceKey(handle);
+	if (resourceKey === null) {
+		throw new Error('expected a cacheable content hash in fixture');
+	}
+	return resourceKey;
+}
 
 function makeStoredResource(
 	handle: BridgeContentHandle,

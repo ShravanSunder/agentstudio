@@ -69,13 +69,15 @@ export function createBridgeReviewContentRegistry(
 		inFlightByResourceKey.clear();
 	};
 
+	// Revision-only changes retain the cache: entries are keyed by content
+	// hash, so an unchanged file at a new revision is still a valid hit and
+	// a changed file misses by construction. Package/generation changes are
+	// stream epochs and clear everything.
 	const setActiveIdentity = (identity: BridgeReviewContentRegistryIdentity | null): void => {
 		const parsedIdentity =
 			identity === null ? null : bridgeReviewContentRegistryIdentitySchema.parse(identity);
-		if (!registryIdentitiesMatch(activeIdentity, parsedIdentity)) {
+		if (!registryIdentitiesRetainContent(activeIdentity, parsedIdentity)) {
 			clear();
-			activeIdentity = parsedIdentity;
-			return;
 		}
 		activeIdentity = parsedIdentity;
 	};
@@ -83,7 +85,8 @@ export function createBridgeReviewContentRegistry(
 	const load = async (
 		loadProps: LoadBridgeContentResourceProps,
 	): Promise<BridgeLoadedContentResource> => {
-		const resourceKey = canonicalContentResourceKey(loadProps.handle);
+		const inFlightKey = canonicalContentResourceKey(loadProps.handle);
+		const contentKey = contentAddressedResourceKey(loadProps.handle);
 		const identity = activeIdentity;
 		if (identity !== null) {
 			const handleRevision = revisionForHandle(loadProps.handle);
@@ -95,14 +98,16 @@ export function createBridgeReviewContentRegistry(
 			}
 		}
 
-		const cachedEntry = entriesByResourceKey.get(resourceKey);
-		if (cachedEntry !== undefined) {
-			entriesByResourceKey.delete(resourceKey);
-			entriesByResourceKey.set(resourceKey, cachedEntry);
-			return cachedEntry.resource;
+		if (contentKey !== null) {
+			const cachedEntry = entriesByResourceKey.get(contentKey);
+			if (cachedEntry !== undefined) {
+				entriesByResourceKey.delete(contentKey);
+				entriesByResourceKey.set(contentKey, cachedEntry);
+				return resourceForHandle(cachedEntry.resource, loadProps.handle);
+			}
 		}
 
-		const inFlight = inFlightByResourceKey.get(resourceKey);
+		const inFlight = inFlightByResourceKey.get(inFlightKey);
 		if (inFlight !== undefined) {
 			return await inFlight;
 		}
@@ -113,8 +118,8 @@ export function createBridgeReviewContentRegistry(
 				if (requestEpoch !== registryEpoch) {
 					throw new Error('Bridge content registry discarded stale in-flight content');
 				}
-				if (resource.authoritative) {
-					entriesByResourceKey.set(resourceKey, {
+				if (resource.authoritative && contentKey !== null) {
+					entriesByResourceKey.set(contentKey, {
 						generation: loadProps.handle.reviewGeneration,
 						revision: revisionForHandle(loadProps.handle),
 						resource,
@@ -124,22 +129,17 @@ export function createBridgeReviewContentRegistry(
 				return resource;
 			})
 			.finally((): void => {
-				inFlightByResourceKey.delete(resourceKey);
+				inFlightByResourceKey.delete(inFlightKey);
 			});
-		inFlightByResourceKey.set(resourceKey, request);
+		inFlightByResourceKey.set(inFlightKey, request);
 		return await request;
 	};
 
+	// Generation is the only identity gate for cache participation: the
+	// content hash in the key carries per-file freshness across revisions.
 	const matchesActiveIdentity = (handle: BridgeContentHandle): boolean => {
 		const identity = activeIdentity;
-		if (identity === null) {
-			return true;
-		}
-		const handleRevision = revisionForHandle(handle);
-		return (
-			handle.reviewGeneration === identity.reviewGeneration &&
-			(handleRevision === null || handleRevision === identity.revision)
-		);
+		return identity === null || handle.reviewGeneration === identity.reviewGeneration;
 	};
 
 	// Peek/store are opportunistic cache operations: identity mismatch during
@@ -148,14 +148,17 @@ export function createBridgeReviewContentRegistry(
 		if (!matchesActiveIdentity(handle)) {
 			return null;
 		}
-		const resourceKey = canonicalContentResourceKey(handle);
-		const cachedEntry = entriesByResourceKey.get(resourceKey);
+		const contentKey = contentAddressedResourceKey(handle);
+		if (contentKey === null) {
+			return null;
+		}
+		const cachedEntry = entriesByResourceKey.get(contentKey);
 		if (cachedEntry === undefined) {
 			return null;
 		}
-		entriesByResourceKey.delete(resourceKey);
-		entriesByResourceKey.set(resourceKey, cachedEntry);
-		return cachedEntry.resource;
+		entriesByResourceKey.delete(contentKey);
+		entriesByResourceKey.set(contentKey, cachedEntry);
+		return resourceForHandle(cachedEntry.resource, handle);
 	};
 
 	const storeResource = (storeProps: StoreBridgeReviewContentResourceProps): void => {
@@ -166,9 +169,12 @@ export function createBridgeReviewContentRegistry(
 		if (!matchesActiveIdentity(resource.handle)) {
 			return;
 		}
-		const resourceKey = canonicalContentResourceKey(resource.handle);
-		entriesByResourceKey.delete(resourceKey);
-		entriesByResourceKey.set(resourceKey, {
+		const contentKey = contentAddressedResourceKey(resource.handle);
+		if (contentKey === null) {
+			return;
+		}
+		entriesByResourceKey.delete(contentKey);
+		entriesByResourceKey.set(contentKey, {
 			generation: resource.handle.reviewGeneration,
 			revision: revisionForHandle(resource.handle),
 			resource: {
@@ -249,15 +255,49 @@ function revisionForHandle(handle: BridgeContentHandle): number | null {
 	return parsedResourceUrl.revision ?? null;
 }
 
-function registryIdentitiesMatch(
+function registryIdentitiesRetainContent(
 	left: BridgeReviewContentRegistryIdentity | null,
 	right: BridgeReviewContentRegistryIdentity | null,
 ): boolean {
-	return (
-		left?.packageId === right?.packageId &&
-		left?.reviewGeneration === right?.reviewGeneration &&
-		left?.revision === right?.revision
+	return left?.packageId === right?.packageId && left?.reviewGeneration === right?.reviewGeneration;
+}
+
+/** Content-addressed cache key, or null for sentinel hashes the native side
+ * emits when a git OID is unavailable ("unknown", "missing-base", or a diff
+ * composite with a missing side) — those identities are ambiguous between
+ * different dirty states and must never be cached. */
+export function contentAddressedResourceKey(handle: BridgeContentHandle): string | null {
+	if (!isCacheableContentHash(handle.contentHash)) {
+		return null;
+	}
+	return [handle.itemId, handle.role, handle.contentHashAlgorithm, handle.contentHash].join(
+		'\u0000',
 	);
+}
+
+function isCacheableContentHash(contentHash: string): boolean {
+	if (contentHash.length === 0 || contentHash === 'unknown' || contentHash === 'missing-base') {
+		return false;
+	}
+	return !contentHash.includes('none');
+}
+
+/** A cache hit for a new-revision handle re-attaches the requesting handle:
+ * the body is content-identical, but consumers read handle metadata (resource
+ * URLs, revision) from the resource and must see the current identity. */
+function resourceForHandle(
+	resource: BridgeLoadedContentResource,
+	handle: BridgeContentHandle,
+): BridgeLoadedContentResource {
+	if (resource.handle === handle) {
+		return resource;
+	}
+	return {
+		authoritative: resource.authoritative,
+		byteLength: resource.byteLength,
+		handle,
+		readText: (): string => resource.readText(),
+	};
 }
 
 function evictOldEntries(

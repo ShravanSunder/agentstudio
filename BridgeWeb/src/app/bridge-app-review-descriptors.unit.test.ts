@@ -4,7 +4,7 @@ import {
 	makeBridgeContentHandle,
 	makeBridgeReviewPackage,
 } from '../foundation/review-package/bridge-review-package-test-support.js';
-import { canonicalContentResourceKey } from '../review-viewer/content/review-content-registry.js';
+import { contentAddressedResourceKey } from '../review-viewer/content/review-content-registry.js';
 import { contentResourceKeysForReviewHandleIds } from './bridge-app-review-descriptors.js';
 
 describe('content resource keys for review handle ids', () => {
@@ -17,7 +17,7 @@ describe('content resource keys for review handle ids', () => {
 			reviewPackage,
 		});
 
-		expect(resourceKeys).toEqual([canonicalContentResourceKey(headHandle)]);
+		expect(resourceKeys).toEqual([contentAddressedResourceKey(headHandle)]);
 	});
 
 	test('returns every content role key when all handles are invalidated', () => {
