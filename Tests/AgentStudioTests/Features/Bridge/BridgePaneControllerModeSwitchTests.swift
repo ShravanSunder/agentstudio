@@ -196,36 +196,13 @@ extension WebKitSerializedTests {
 
         @Test("file clicks keep working after review load and refresh churn on the same pane")
         func fileDescriptorRequestSurvivesReviewChurnOnSamePane() async throws {
-            let capturedFrames = ModeSwitchFrameCapture()
-            let repoId = UUIDv7.generate()
-            let worktreeId = UUIDv7.generate()
-            let rootURL = try makeWorktreeFixtureDirectory()
+            let fixture = try makeChurnFixture()
+            let controller = fixture.controller
+            let repoId = fixture.repoId
+            let worktreeId = fixture.worktreeId
+            let rootURL = fixture.rootURL
+            let capturedFrames = fixture.capturedFrames
             defer { try? FileManager.default.removeItem(at: rootURL) }
-            try "let value = 1\n"
-                .write(to: rootURL.appending(path: "File.swift"), atomically: true, encoding: .utf8)
-            let provider = makeReviewProvider()
-            let controller = BridgePaneController(
-                paneId: UUIDv7.generate(),
-                state: BridgePaneState(
-                    panelKind: .diffViewer,
-                    source: .workspace(rootPath: rootURL.path, baseline: .headMinusOne)
-                ),
-                metadata: PaneMetadata(
-                    contentType: .diff,
-                    launchDirectory: rootURL,
-                    title: "Bridge Review",
-                    facets: PaneContextFacets(
-                        repoId: repoId,
-                        worktreeId: worktreeId,
-                        worktreeName: "mode-switch-worktree",
-                        cwd: rootURL
-                    )
-                ),
-                reviewSourceProvider: provider,
-                intakeFrameSink: { _, frameJSON, _ in
-                    await capturedFrames.append(frameJSON)
-                }
-            )
             defer { controller.teardown() }
             controller.handleBridgeReady()
 
@@ -353,6 +330,48 @@ extension WebKitSerializedTests {
             return rootURL
         }
 
+        /// Arrange a `.diffViewer` controller over a one-file worktree with a
+        /// review provider and a frame capture — the shared setup shape for the
+        /// coexistence/churn tests. Callers own the rootURL and controller
+        /// teardown defers.
+        private func makeChurnFixture() throws -> ModeSwitchChurnFixture {
+            let capturedFrames = ModeSwitchFrameCapture()
+            let repoId = UUIDv7.generate()
+            let worktreeId = UUIDv7.generate()
+            let rootURL = try makeWorktreeFixtureDirectory()
+            try "let value = 1\n"
+                .write(to: rootURL.appending(path: "File.swift"), atomically: true, encoding: .utf8)
+            let controller = BridgePaneController(
+                paneId: UUIDv7.generate(),
+                state: BridgePaneState(
+                    panelKind: .diffViewer,
+                    source: .workspace(rootPath: rootURL.path, baseline: .headMinusOne)
+                ),
+                metadata: PaneMetadata(
+                    contentType: .diff,
+                    launchDirectory: rootURL,
+                    title: "Bridge Review",
+                    facets: PaneContextFacets(
+                        repoId: repoId,
+                        worktreeId: worktreeId,
+                        worktreeName: "mode-switch-worktree",
+                        cwd: rootURL
+                    )
+                ),
+                reviewSourceProvider: makeReviewProvider(),
+                intakeFrameSink: { _, frameJSON, _ in
+                    await capturedFrames.append(frameJSON)
+                }
+            )
+            return ModeSwitchChurnFixture(
+                controller: controller,
+                rootURL: rootURL,
+                repoId: repoId,
+                worktreeId: worktreeId,
+                capturedFrames: capturedFrames
+            )
+        }
+
         private static func frameKind(of frameJSON: String) -> String? {
             guard let data = frameJSON.data(using: .utf8),
                 let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -375,4 +394,13 @@ private actor ModeSwitchFrameCapture {
     func get() -> [String] {
         frames
     }
+}
+
+@MainActor
+private struct ModeSwitchChurnFixture {
+    let controller: BridgePaneController
+    let rootURL: URL
+    let repoId: UUID
+    let worktreeId: UUID
+    let capturedFrames: ModeSwitchFrameCapture
 }
