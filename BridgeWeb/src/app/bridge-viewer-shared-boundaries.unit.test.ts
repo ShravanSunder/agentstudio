@@ -149,4 +149,29 @@ describe('BridgeViewer shared component boundaries', () => {
 
 		expect(contentHeaderTest).not.toContain('../review-viewer/shell/review-viewer-shell.js');
 	});
+
+	test('shared BridgeViewer visual tokens own scrollbars, borders, and focus rings', async () => {
+		const appCss = await source('src/app/bridge-app.css');
+		const treeTheme = await source('src/app/bridge-viewer-tree-theme.ts');
+		const filterMenu = await source('src/app/bridge-viewer-filter-menu.tsx');
+		const reviewFacetMenu = await source('src/review-viewer/chrome/bridge-review-facet-menu.tsx');
+
+		expect(appCss).toContain('--bridge-border-subtle: var(--border);');
+		expect(appCss).toContain('--bridge-border-opaque: var(--input);');
+		expect(appCss).toContain('--bridge-focus-border: var(--ring);');
+		expect(appCss).toContain('--diffs-focus-border: var(--bridge-focus-border);');
+		expect(appCss).toContain('scrollbar-width: thin;');
+		expect(appCss).toContain('scrollbar-gutter: auto;');
+		expect(appCss).not.toContain('scrollbar-width: none;');
+		expect(appCss).not.toContain(
+			'.bridge-code-view-panel .bridge-code-view-scroll-owner::-webkit-scrollbar',
+		);
+		expect(treeTheme).toContain('scrollbar-color: var(--bridge-scrollbar-thumb)');
+		expect(filterMenu).toContain('border-[var(--bridge-menu-border)]');
+		expect(filterMenu).toContain('ring-[var(--bridge-menu-ring)]');
+		expect(filterMenu).not.toContain('rgb(137_180_250_/_0.28)');
+		expect(reviewFacetMenu).toContain('border-[var(--bridge-menu-border)]');
+		expect(reviewFacetMenu).toContain('ring-[var(--bridge-menu-ring)]');
+		expect(reviewFacetMenu).not.toContain('rgb(137_180_250_/_0.28)');
+	});
 });

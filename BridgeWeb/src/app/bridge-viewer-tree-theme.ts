@@ -74,21 +74,28 @@ export const bridgeViewerTreeUnsafeCSS = `
     padding-inline-end: 2px;
     margin-inline-end: 2px;
     scrollbar-width: thin;
-    scrollbar-color: rgb(205 214 244 / 0.24) transparent;
+    scrollbar-color: var(--bridge-scrollbar-thumb) var(--bridge-scrollbar-track);
   }
 
   [data-file-tree-virtualized-scroll="true"]::-webkit-scrollbar {
-    width: 4px;
-    height: 4px;
+    width: var(--bridge-scrollbar-size);
+    height: var(--bridge-scrollbar-size);
   }
 
   [data-file-tree-virtualized-scroll="true"]::-webkit-scrollbar-track {
-    background: transparent;
+    background: var(--bridge-scrollbar-track);
   }
 
   [data-file-tree-virtualized-scroll="true"]::-webkit-scrollbar-thumb {
+    border: 1px solid transparent;
     border-radius: 999px;
-    background: rgb(205 214 244 / 0.22);
+    background: var(--bridge-scrollbar-thumb);
+    background-clip: content-box;
+  }
+
+  [data-file-tree-virtualized-scroll="true"]::-webkit-scrollbar-thumb:hover {
+    background: var(--bridge-scrollbar-thumb-hover);
+    background-clip: content-box;
   }
 
   [data-file-tree-search-container][data-open='false'] {
@@ -106,7 +113,7 @@ export const bridgeViewerTreeUnsafeCSS = `
   }
 
   [data-file-tree-sticky-overlay-content] {
-    box-shadow: 0 2px 4px -4px rgb(0 0 0 / 90%);
+    box-shadow: var(--bridge-tree-sticky-shadow);
   }
 
   [data-item-type='folder'] {

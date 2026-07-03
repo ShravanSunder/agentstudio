@@ -484,7 +484,7 @@ export function BridgeReviewCanvasLoadingState(props: {
 	return (
 		<div
 			aria-hidden="true"
-			className="pointer-events-none absolute left-8 top-12 z-20 flex w-[min(28rem,calc(100%-4rem))] flex-col gap-2 rounded-md border border-[var(--bridge-border-subtle)] bg-[var(--bridge-surface-bg)]/75 p-3 shadow-[0_18px_48px_rgb(0_0_0_/_0.45)] backdrop-blur"
+			className="pointer-events-none absolute left-8 top-12 z-20 flex w-[min(28rem,calc(100%-4rem))] flex-col gap-2 rounded-md border border-[var(--bridge-border-subtle)] bg-[var(--bridge-surface-bg)]/75 p-3 shadow-[var(--bridge-floating-panel-shadow)] backdrop-blur"
 			data-bridge-review-canvas-loading-reason={props.reason}
 			data-testid="bridge-review-canvas-loading-state"
 		>

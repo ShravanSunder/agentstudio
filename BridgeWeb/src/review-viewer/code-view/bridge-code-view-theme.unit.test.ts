@@ -48,7 +48,16 @@ describe('Bridge CodeView theme', () => {
 		expect(lowerCaseCss).toContain('--bridge-canvas-bg: #1e1e2e;');
 		expect(lowerCaseCss).toContain('--bridge-header-bg: #181825;');
 		expect(lowerCaseCss).toContain('--bridge-surface-bg: #181825;');
-		expect(lowerCaseCss).toContain('--bridge-focus-border: #b4befe;');
+		expect(lowerCaseCss).toContain('--border: rgb(205 214 244 / 0.1);');
+		expect(lowerCaseCss).toContain('--input: rgb(205 214 244 / 0.18);');
+		expect(lowerCaseCss).toContain('--ring: #b4befe;');
+		expect(lowerCaseCss).toContain('--bridge-border-subtle: var(--border);');
+		expect(lowerCaseCss).toContain('--bridge-border-opaque: var(--input);');
+		expect(lowerCaseCss).toContain('--bridge-focus-border: var(--ring);');
+		expect(lowerCaseCss).toContain(
+			'--bridge-code-view-file-separator: var(--bridge-border-opaque);',
+		);
+		expect(lowerCaseCss).toContain('--diffs-focus-border: var(--bridge-focus-border);');
 
 		for (const expectedHexValue of expectedCatppuccinMochaChromeHexValues) {
 			expect(lowerCaseCss).toContain(expectedHexValue);

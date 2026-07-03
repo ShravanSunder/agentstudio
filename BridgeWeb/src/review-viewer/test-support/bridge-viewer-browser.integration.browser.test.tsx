@@ -194,10 +194,8 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		await waitForBridgeViewerText(fixture.expected.addedText);
 		await browserSupport.waitForBridgeViewerRenderedCodeGeometry();
 
-		// A pure added file has no base/diff content role, so the metadata pipeline classifies it
-		// as `itemKind: 'file'` and it hydrates as a whole-file CodeView item (context rows), not a
-		// two-sided diff. Scope to the added file's own body (`renderAddedPanel`) rather than the
-		// first line in DOM order, which belongs to the initial modified file's diff.
+		// Scope to the added file's own body (`renderAddedPanel`) rather than the first line in DOM
+		// order, which belongs to the initial modified file's diff.
 		const addedContentLine = await waitForBridgeCodeViewShadowElement({
 			matchText: 'renderAddedPanel',
 			selector: '[data-line][data-line-type]',
@@ -205,14 +203,22 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		const backgroundColor = getComputedStyle(addedContentLine).backgroundColor;
 
 		expect(addedContentLine.textContent).toContain('renderAddedPanel');
-		expect(addedContentLine.getAttribute('data-line-type')).toBe('context');
-		// The row renders as visible styled code (opaque editor background), proving the added file
-		// hydrated its full content rather than staying a blank/collapsed placeholder row.
+		// Pierre renders a one-sided diff's added lines as `change-addition` (its only added-line
+		// type; `LineTypes` has no bare `addition`). That is the green DiffsHub addition styling,
+		// backed by `--diffs-addition-base`, so it satisfies the whole-file green-rows requirement.
+		expect(addedContentLine.getAttribute('data-line-type')).toBe('change-addition');
 		expect(backgroundColor).not.toBe('rgba(0, 0, 0, 0)');
 		expect(backgroundColor).not.toBe('transparent');
 		expect(
 			browserSupport.selectedBridgeViewerPanelAttribute('data-selected-materialized-item-type'),
-		).toBe('file');
+		).toBe('diff');
+		expect(
+			Number(
+				browserSupport.selectedBridgeViewerPanelAttribute(
+					'data-selected-materialized-addition-line-count',
+				) ?? '0',
+			),
+		).toBeGreaterThan(0);
 		expect(
 			browserSupport.selectedBridgeViewerPanelAttribute(
 				'data-selected-materialized-model-content-state',
@@ -767,14 +773,14 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		await waitForBridgeViewerText(fixture.expected.largeText);
 		const codeScroll = await waitForBridgeViewerCodeScrollOwner();
 		const codeScrollStyle = getComputedStyle(codeScroll);
+		const codeScrollbarStyle = getComputedStyle(codeScroll, '::-webkit-scrollbar');
 
-		// The Review CodeView scroll owner kills the dead scrollbar lane entirely: the more
-		// specific `.bridge-code-view-panel .bridge-code-view-scroll-owner` rule overrides the
-		// shared `.bridge-scrollbar` width to `none` and reserves no gutter, so the compact
-		// overlay matches the DiffsHub surface. The shared token color survives on the element.
-		expect(codeScrollStyle.scrollbarWidth).toBe('none');
+		// The Review CodeView scroll owner uses the shared compact visible scrollbar contract:
+		// a thin overlay scrollbar with no reserved gutter.
+		expect(codeScrollStyle.scrollbarWidth).toBe('thin');
 		expect(codeScrollStyle.scrollbarGutter).toBe('auto');
-		expect(codeScrollStyle.scrollbarColor).toContain('rgba(205, 214, 244, 0.24)');
+		expect(codeScrollbarStyle.width).toBe('6px');
+		expect(codeScrollbarStyle.height).toBe('6px');
 
 		backend.dispose();
 	});

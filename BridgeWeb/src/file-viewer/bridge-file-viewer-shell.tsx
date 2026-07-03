@@ -369,7 +369,7 @@ function BridgeFileViewerStaleNotice({
 }): ReactElement {
 	return (
 		<div
-			className="absolute right-3 top-3 z-10 flex items-center gap-2 rounded-md border border-[var(--bridge-border-opaque)] bg-[var(--bridge-menu-bg)] px-3 py-2 text-xs shadow-lg"
+			className="absolute right-3 top-3 z-10 flex items-center gap-2 rounded-md border border-[var(--bridge-border-opaque)] bg-[var(--bridge-menu-bg)] px-3 py-2 text-xs shadow-[var(--bridge-floating-panel-shadow)]"
 			data-testid="worktree-file-content-stale"
 		>
 			<span>Content changed</span>

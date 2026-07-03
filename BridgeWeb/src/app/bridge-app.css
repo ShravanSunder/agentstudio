@@ -69,9 +69,9 @@
 	--accent: #313244;
 	--accent-foreground: #cdd6f4;
 	--destructive: #f38ba8;
-	--border: rgb(205 214 244 / 0.12);
-	--input: rgb(205 214 244 / 0.12);
-	--ring: #89b4fa;
+	--border: rgb(205 214 244 / 0.1);
+	--input: rgb(205 214 244 / 0.18);
+	--ring: #b4befe;
 	--chart-1: #89b4fa;
 	--chart-2: #a6e3a1;
 	--chart-3: #f9e2af;
@@ -94,20 +94,36 @@
 	--bridge-surface-raised-bg: #313244;
 	--bridge-menu-bg: #252338;
 	--bridge-surface-muted-bg: #313244;
-	--bridge-border-subtle: rgb(205 214 244 / 0.1);
-	--bridge-border-opaque: rgb(205 214 244 / 0.18);
+	--bridge-border-subtle: var(--border);
+	--bridge-border-opaque: var(--input);
 	--bridge-text-primary: #cdd6f4;
 	--bridge-text-secondary: #bac2de;
 	--bridge-text-muted: #6c7086;
 	--bridge-accent: #89b4fa;
 	--bridge-accent-soft: rgb(137 180 250 / 0.16);
-	--bridge-focus-border: #b4befe;
+	--bridge-focus-border: var(--ring);
+	--bridge-focus-ring: rgb(180 190 254 / 0.3);
+	--bridge-focus-dot-shadow: 0 0 0 1px var(--bridge-surface-bg);
+	--bridge-menu-border: color-mix(in srgb, var(--bridge-focus-border) 28%, transparent);
+	--bridge-menu-ring: color-mix(in srgb, var(--bridge-text-primary) 16%, transparent);
+	--bridge-divider-shadow: 0 1px 0 rgb(205 214 244 / 0.06);
+	--bridge-floating-panel-shadow: 0 18px 48px rgb(0 0 0 / 0.45);
+	--bridge-menu-shadow: 0 24px 68px rgb(0 0 0 / 0.86);
+	--bridge-tree-sticky-shadow: 0 2px 4px -4px rgb(0 0 0 / 0.9);
+	--bridge-scrollbar-size: 6px;
+	--bridge-scrollbar-thumb: rgb(205 214 244 / 0.24);
+	--bridge-scrollbar-thumb-hover: rgb(205 214 244 / 0.36);
+	--bridge-scrollbar-track: transparent;
 	--bridge-list-hover-bg: #313244;
 	--bridge-list-selected-bg: #45475a;
 	--bridge-added: #a6e3a1;
 	--bridge-deleted: #f38ba8;
 	--bridge-warning: #f9e2af;
-	--bridge-code-view-file-separator: rgb(205 214 244 / 0.14);
+	--bridge-code-view-file-separator: var(--bridge-border-opaque);
+	--diffs-focus-border: var(--bridge-focus-border);
+	--diffs-focus-ring: var(--bridge-focus-ring);
+	--diffs-border-subtle: var(--bridge-border-subtle);
+	--diffs-border-opaque: var(--bridge-border-opaque);
 	--diffs-foreground: var(--bridge-text-primary);
 	--diffs-background: var(--bridge-canvas-bg);
 	--diffs-ansi-black: #11111b;
@@ -178,22 +194,31 @@ button:disabled,
 
 .bridge-scrollbar {
 	scrollbar-width: thin;
-	scrollbar-color: rgb(205 214 244 / 0.24) transparent;
+	scrollbar-color: var(--bridge-scrollbar-thumb) var(--bridge-scrollbar-track);
+}
+
+.bridge-scrollbar:hover {
+	scrollbar-color: var(--bridge-scrollbar-thumb-hover) var(--bridge-scrollbar-track);
 }
 
 .bridge-scrollbar::-webkit-scrollbar {
-	width: 4px;
-	height: 4px;
+	width: var(--bridge-scrollbar-size);
+	height: var(--bridge-scrollbar-size);
 }
 
 .bridge-scrollbar::-webkit-scrollbar-track {
-	background: transparent;
+	background: var(--bridge-scrollbar-track);
 }
 
 .bridge-scrollbar::-webkit-scrollbar-thumb {
 	border: 1px solid transparent;
 	border-radius: 999px;
-	background: rgb(205 214 244 / 0.22);
+	background: var(--bridge-scrollbar-thumb);
+	background-clip: content-box;
+}
+
+.bridge-scrollbar::-webkit-scrollbar-thumb:hover {
+	background: var(--bridge-scrollbar-thumb-hover);
 	background-clip: content-box;
 }
 
@@ -206,14 +231,8 @@ button:disabled,
 	font-family: var(--font-mono);
 }
 
-.bridge-code-view-panel .bridge-code-view-scroll-owner {
-	scrollbar-width: none;
+.bridge-code-view-scroll-owner {
 	scrollbar-gutter: auto;
-}
-
-.bridge-code-view-panel .bridge-code-view-scroll-owner::-webkit-scrollbar {
-	width: 0;
-	height: 0;
 }
 
 .bridge-code-view-panel diffs-container {

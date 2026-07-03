@@ -69,7 +69,7 @@ export function BridgeViewerFilterMenu<TValue extends string>(
 						<span
 							className={cn(
 								'absolute -right-0.5 -top-0.5 size-1.5 rounded-full',
-								'bg-[var(--bridge-focus-border)] shadow-[0_0_0_1px_var(--bridge-surface-bg)]',
+								'bg-[var(--bridge-focus-border)] shadow-[var(--bridge-focus-dot-shadow)]',
 							)}
 							data-testid={testIds.activeIndicator}
 						/>
@@ -83,10 +83,10 @@ export function BridgeViewerFilterMenu<TValue extends string>(
 			<DropdownMenuContent
 				align="end"
 				className={cn(
-					'z-[80] w-64 rounded-[10px] border border-[rgb(137_180_250_/_0.28)]',
+					'z-[80] w-64 rounded-[10px] border border-[var(--bridge-menu-border)]',
 					'max-h-[min(460px,calc(100vh-96px))] bg-[var(--bridge-menu-bg)] p-2',
-					'text-[var(--bridge-text-secondary)] shadow-[0_24px_68px_rgb(0_0_0_/_0.86)]',
-					'ring-1 ring-[rgb(205_214_244_/_0.16)]',
+					'text-[var(--bridge-text-secondary)] shadow-[var(--bridge-menu-shadow)]',
+					'ring-1 ring-[var(--bridge-menu-ring)]',
 				)}
 				data-testid={testIds.popover}
 				sideOffset={6}
