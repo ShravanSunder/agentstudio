@@ -21,6 +21,22 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
         }
     }
 
+    /// Full reload for an intake-ready announce on an already-loaded pane.
+    /// Bypasses the idle/no-package bootstrap guard on purpose: the announce
+    /// means the browser has no applied snapshot, and re-delivery must carry a
+    /// NEW generation (via the loadDiff reset path) to re-key the receiver.
+    func scheduleReviewPackageReloadForIntakeAnnounce() {
+        guard activeReviewRefreshTask == nil else { return }
+        guard case .workspace = bridgePaneState.source,
+            let worktreeId = runtime.metadata.worktreeId
+        else { return }
+        activeReviewRefreshTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            _ = await self.loadReviewPackage(worktreeId: worktreeId, correlationId: nil)
+            self.activeReviewRefreshTask = nil
+        }
+    }
+
     /// Bootstraps the review package for any workspace-backed Bridge pane, not
     /// only `.diffViewer` panes. A pane hosts both viewer modes in one webview
     /// and the browser can switch into review mode regardless of the pane's

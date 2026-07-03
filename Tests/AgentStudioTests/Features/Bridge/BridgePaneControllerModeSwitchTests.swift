@@ -92,6 +92,7 @@ extension WebKitSerializedTests {
             await controller.handleBridgeIntakeReady(
                 BridgeIntakeReadyMethod.Params(protocolId: "review", streamId: nil)
             )
+            await controller.activeReviewRefreshTask?.value
             await controller.worktreeFileMetadataScheduler.waitUntilDrained()
 
             #expect(controller.paneState.diff.packageMetadata?.query.worktreeId == worktreeId)
@@ -99,6 +100,135 @@ extension WebKitSerializedTests {
             #expect(
                 frames.contains { Self.frameKind(of: $0) == "review.metadataSnapshot" },
                 "A review intake-ready announce must bootstrap and deliver a review snapshot"
+            )
+        }
+
+        @Test("review intake-ready announce on a loaded pane re-delivers a fresh snapshot generation")
+        func reviewIntakeReadyAnnounceOnLoadedPaneRedeliversFreshGeneration() async throws {
+            let capturedFrames = ModeSwitchFrameCapture()
+            let provider = makeReviewProvider()
+            let controller = BridgePaneController(
+                paneId: UUIDv7.generate(),
+                state: BridgePaneState(
+                    panelKind: .fileViewer,
+                    source: .workspace(rootPath: "/tmp/worktree", baseline: .unstaged)
+                ),
+                metadata: PaneMetadata(
+                    contentType: .diff,
+                    title: "Files",
+                    facets: PaneContextFacets(repoId: UUIDv7.generate(), worktreeId: UUIDv7.generate())
+                ),
+                reviewSourceProvider: provider,
+                intakeFrameSink: { _, frameJSON, _ in
+                    await capturedFrames.append(frameJSON)
+                }
+            )
+            defer { controller.teardown() }
+            controller.handleBridgeReady()
+
+            await controller.handleBridgeIntakeReady(
+                BridgeIntakeReadyMethod.Params(protocolId: "review", streamId: nil)
+            )
+            await controller.activeReviewRefreshTask?.value
+            await controller.worktreeFileMetadataScheduler.waitUntilDrained()
+            let framesAfterFirstLoad = await capturedFrames.get()
+            let firstSnapshotCount =
+                framesAfterFirstLoad
+                .filter { Self.frameKind(of: $0) == "review.metadataSnapshot" }.count
+            #expect(firstSnapshotCount == 1)
+
+            // A browser whose review surface lost the snapshot (dropped while
+            // the surface was inactive, sequence gap, fresh receiver) heals by
+            // re-announcing. Native must re-deliver as a HIGHER generation:
+            // only a higher-generation reset can re-key a browser receiver
+            // stuck in resetRequired.
+            await controller.handleBridgeIntakeReady(
+                BridgeIntakeReadyMethod.Params(protocolId: "review", streamId: nil)
+            )
+            await controller.activeReviewRefreshTask?.value
+            await controller.worktreeFileMetadataScheduler.waitUntilDrained()
+
+            let frames = await capturedFrames.get()
+            let resetGenerations = frames.compactMap { Self.frameGeneration(of: $0, kind: "review.reset") }
+            let snapshotGenerations = frames.compactMap {
+                Self.frameGeneration(of: $0, kind: "review.metadataSnapshot")
+            }
+            #expect(
+                resetGenerations.count == 2 && Set(resetGenerations).count == 2,
+                "A re-announce on a loaded pane must re-key the browser with a new reset generation"
+            )
+            #expect(
+                snapshotGenerations.count == 2 && Set(snapshotGenerations).count == 2,
+                "A re-announce on a loaded pane must re-deliver the snapshot under the new generation"
+            )
+        }
+
+        @Test("concurrent review intake-ready announces coalesce into one package load")
+        func concurrentReviewIntakeReadyAnnouncesCoalesceIntoOnePackageLoad() async throws {
+            let capturedFrames = ModeSwitchFrameCapture()
+            let comparisonGate = BridgeComparisonGate()
+            let provider = BridgeReviewSourceProviderFake(
+                comparison: BridgeEndpointComparison(
+                    baseEndpoint: makeBridgeEndpoint(endpointId: "baseline-headMinusOne", kind: .gitRef),
+                    headEndpoint: makeBridgeEndpoint(endpointId: "working-tree", kind: .workingTree),
+                    changedFiles: [
+                        makeBridgeEndpointChangedFile(
+                            fileId: "source",
+                            path: "Sources/App/View.swift",
+                            sizeBytes: 100
+                        )
+                    ]
+                ),
+                contentByHandleId: [:],
+                comparisonGate: comparisonGate
+            )
+            let controller = BridgePaneController(
+                paneId: UUIDv7.generate(),
+                state: BridgePaneState(
+                    panelKind: .fileViewer,
+                    source: .workspace(rootPath: "/tmp/worktree", baseline: .unstaged)
+                ),
+                metadata: PaneMetadata(
+                    contentType: .diff,
+                    title: "Files",
+                    facets: PaneContextFacets(repoId: UUIDv7.generate(), worktreeId: UUIDv7.generate())
+                ),
+                reviewSourceProvider: provider,
+                intakeFrameSink: { _, frameJSON, _ in
+                    await capturedFrames.append(frameJSON)
+                }
+            )
+            defer { controller.teardown() }
+            controller.handleBridgeReady()
+
+            // A mode toggle re-announces intake-ready while the first
+            // announce's package load is still in flight (held at the
+            // comparison gate). The races must coalesce into ONE load: extra
+            // generations orphan the browser's adopted stream and its
+            // snapshots die as stream_mismatch.
+            async let firstAnnounce: Void = controller.handleBridgeIntakeReady(
+                BridgeIntakeReadyMethod.Params(protocolId: "review", streamId: nil)
+            )
+            async let secondAnnounce: Void = controller.handleBridgeIntakeReady(
+                BridgeIntakeReadyMethod.Params(protocolId: "review", streamId: nil)
+            )
+            await comparisonGate.waitForStartedComparisonCount(1)
+            await comparisonGate.releaseAll()
+            _ = await (firstAnnounce, secondAnnounce)
+            await controller.activeReviewRefreshTask?.value
+            await controller.worktreeFileMetadataScheduler.waitUntilDrained()
+
+            let comparisonCount = await provider.recordedComparisonRequestsCount()
+            #expect(
+                comparisonCount == 1,
+                "Racing intake-ready announces must not start a second package load"
+            )
+            let resetFrameCount = (await capturedFrames.get())
+                .filter { Self.frameKind(of: $0) == "review.reset" }
+                .count
+            #expect(
+                resetFrameCount == 1,
+                "One package load must produce exactly one review reset generation"
             )
         }
 
@@ -380,6 +510,17 @@ extension WebKitSerializedTests {
                 return nil
             }
             return payload["frameKind"] as? String
+        }
+
+        private static func frameGeneration(of frameJSON: String, kind: String) -> Int? {
+            guard let data = frameJSON.data(using: .utf8),
+                let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                let payload = object["payload"] as? [String: Any],
+                payload["frameKind"] as? String == kind
+            else {
+                return nil
+            }
+            return payload["generation"] as? Int
         }
     }
 }

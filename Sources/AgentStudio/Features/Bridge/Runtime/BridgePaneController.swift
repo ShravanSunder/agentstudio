@@ -603,12 +603,18 @@ final class BridgePaneController {
         }
         await recordReviewIntakeReadyTelemetry(phase: "accepted")
         await worktreeFileMetadataScheduler.openGate(protocolId: "review")
-        // The review viewer announces intake-ready when its surface mounts or a
-        // mode switch makes it active; bootstrap the review package from that
-        // announce so a switched-in review surface is never left blank. The
-        // load is idempotent (idle + no package), so a re-announce for an
-        // already-loaded pane just reopens the gate above.
-        _ = await loadInitialReviewPackageIfPossible(correlationId: nil)
+        // The review viewer announces intake-ready when its surface mounts or
+        // when an active surface has no applied snapshot. An announce is the
+        // browser declaring "I have no usable review state": a cold pane
+        // bootstraps, and a loaded pane RE-DELIVERS as a fresh generation —
+        // only a higher-generation reset can re-key a receiver that dropped
+        // frames while inactive or is stuck in resetRequired after a gap.
+        // Both paths dedup on the single review refresh task.
+        if paneState.diff.packageMetadata == nil {
+            scheduleInitialReviewPackageLoadIfPossible()
+        } else {
+            scheduleReviewPackageReloadForIntakeAnnounce()
+        }
     }
 
     private func handleWorktreeFileIntakeReady(_ params: BridgeIntakeReadyMethod.Params) async {
