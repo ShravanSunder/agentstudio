@@ -230,6 +230,7 @@ extension WebKitSerializedTests {
             )
 
             #expect(result == .success(commandId: commandId))
+            await controller.worktreeFileMetadataScheduler.waitUntilDrained()
             let capturedFrames = await capturedIntakeFrames.get()
             let snapshotPayload = try #require(
                 capturedFrames.compactMap { frameJSON in

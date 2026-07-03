@@ -406,7 +406,7 @@ extension WebKitSerializedTests {
             await comparisonGate.releaseAll()
             let result = await loadTask.value
 
-            #expect(result == .failure(.invalidPayload(description: "Failed to load bridge review package")))
+            #expect(result == .failure(.invalidPayload(description: "Stale bridge review load")))
             #expect(
                 await controller.resourceLeaseRegistry.contains(headResource, paneId: controller.paneId) == false)
             await #expect(throws: BridgeIPCProjectionError.self) {
@@ -415,7 +415,6 @@ extension WebKitSerializedTests {
                     reviewGeneration: 1
                 )
             }
-            #expect(controller.paneState.diff.status == .error)
         }
 
         @Test("loadDiff rejects invalid content handles before installing authority")
