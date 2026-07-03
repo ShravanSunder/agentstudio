@@ -4,7 +4,8 @@ import Foundation
 /// repeatedly times out is refreshed on an exponential schedule instead of
 /// per file-change event; change events arriving during backoff coalesce
 /// into one deferred refresh at expiry. Split from the projector actor body
-/// to keep it under the type/file length caps.
+/// to keep it under the type/file length caps. Read-capacity contention uses
+/// the separate short retry path below; it is not a breaker input.
 extension GitWorkingDirectoryProjector {
     func deferChangesetIfStatusBackoffOpen(_ changeset: FileChangeset) -> Bool {
         guard openStatusBackoffWorktreeIds.contains(changeset.worktreeId) else { return false }
@@ -22,9 +23,9 @@ extension GitWorkingDirectoryProjector {
     }
 
     /// Opens (or advances) the per-worktree circuit breaker after a status
-    /// compute times out or is rejected for read-capacity. Quiesces the worktree
-    /// by moving any in-flight/pending refresh into a single deferred changeset,
-    /// then schedules an exponentially growing expiry.
+    /// compute times out. Quiesces the worktree by moving any in-flight/pending
+    /// refresh into a single deferred changeset, then schedules an exponentially
+    /// growing expiry.
     func openOrAdvanceStatusBackoff(
         for changeset: FileChangeset,
         reason: GitWorkingTreeStatusUnavailableReason
@@ -92,6 +93,70 @@ extension GitWorkingDirectoryProjector {
             pendingByWorktreeId[worktreeId] = deferredChangeset
             admitPendingWorktrees()
         }
+    }
+
+    func deferChangesetIfCapacityRetryPending(_ changeset: FileChangeset) -> Bool {
+        guard capacityRetryWorktreeIds.contains(changeset.worktreeId) else { return false }
+        coalesceCapacityRetryChangeset(changeset)
+        return true
+    }
+
+    func scheduleCapacityRetry(for changeset: FileChangeset) {
+        guard !isShuttingDown else { return }
+        let worktreeId = changeset.worktreeId
+        capacityRetryWorktreeIds.insert(worktreeId)
+        capacityRetryTasks.removeValue(forKey: worktreeId)?.cancel()
+        coalesceCapacityRetryChangeset(changeset)
+
+        let delay = self.delay
+        let retryDelay = refreshPolicy.capacityRetryDelay(for: worktreeId)
+        capacityRetryTasks[worktreeId] = Task { [weak self, delay, retryDelay] in
+            do {
+                try await delay.wait(retryDelay)
+            } catch is CancellationError {
+                return
+            } catch {
+                Self.logger.warning(
+                    "Unexpected capacity-retry sleep failure for worktree \(worktreeId.uuidString, privacy: .public): \(String(describing: error), privacy: .public)"
+                )
+                return
+            }
+            guard !Task.isCancelled else { return }
+            await self?.expireCapacityRetry(worktreeId: worktreeId)
+        }
+    }
+
+    func expireCapacityRetry(worktreeId: UUID) {
+        capacityRetryTasks.removeValue(forKey: worktreeId)
+        guard capacityRetryWorktreeIds.remove(worktreeId) != nil else { return }
+        guard !isShuttingDown else {
+            pendingByWorktreeId.removeValue(forKey: worktreeId)
+            return
+        }
+        guard !suppressedWorktreeIds.contains(worktreeId) else {
+            pendingByWorktreeId.removeValue(forKey: worktreeId)
+            return
+        }
+        guard let pendingChangeset = pendingByWorktreeId[worktreeId] else { return }
+        guard isCurrent(pendingChangeset) else {
+            pendingByWorktreeId.removeValue(forKey: worktreeId)
+            return
+        }
+        admitPendingWorktrees()
+    }
+
+    func clearCapacityRetryState(worktreeId: UUID) {
+        capacityRetryTasks.removeValue(forKey: worktreeId)?.cancel()
+        capacityRetryWorktreeIds.remove(worktreeId)
+    }
+
+    private func coalesceCapacityRetryChangeset(_ changeset: FileChangeset) {
+        let worktreeId = changeset.worktreeId
+        guard let existing = pendingByWorktreeId[worktreeId] else {
+            pendingByWorktreeId[worktreeId] = changeset
+            return
+        }
+        pendingByWorktreeId[worktreeId] = Self.newerChangeset(existing, changeset)
     }
 
     /// Closes the breaker after a successful compute, clearing the failure count

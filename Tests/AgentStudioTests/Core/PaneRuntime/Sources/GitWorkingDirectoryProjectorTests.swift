@@ -802,6 +802,162 @@ struct GitWorkingDirectoryProjectorTests {
         collectionTask.cancel()
     }
 
+    @Test("active pane pending work gets the reserved admission slot ahead of older background work")
+    func activePanePendingWorkGetsReservedAdmissionSlot() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let callGate = OneByOneStatusGate()
+        let policy = AppPolicies.GitRefresh.Policy(
+            backgroundStripeCount: 1,
+            maxConcurrentStatusComputes: 4,
+            oldestStaleReservedSlots: 1
+        )
+        let provider = StubGitWorkingTreeStatusProvider { rootPath in
+            let label = rootPath.lastPathComponent
+            await callGate.recordAndWait(label)
+            return GitWorkingTreeStatus(
+                summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
+                branch: label,
+                origin: nil
+            )
+        }
+        let actor = GitWorkingDirectoryProjector(
+            bus: bus,
+            gitWorkingTreeProvider: provider,
+            coalescingWindow: .zero,
+            refreshPolicy: policy
+        )
+        await actor.start()
+
+        let runningWorktreeIds = (0..<policy.maxConcurrentStatusComputes).map { _ in UUID() }
+        for (offset, worktreeId) in runningWorktreeIds.enumerated() {
+            await bus.post(
+                makeFilesChangedEnvelope(
+                    seq: UInt64(offset + 1),
+                    worktreeId: worktreeId,
+                    rootPath: URL(fileURLWithPath: "/tmp/foreground-running-\(offset)-\(UUID().uuidString)"),
+                    batchSeq: 1
+                )
+            )
+        }
+        #expect(await waitUntil { await callGate.labels.count == policy.maxConcurrentStatusComputes })
+
+        let olderBackgroundWorktreeId = UUID(uuidString: "FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF")!
+        let activePaneWorktreeId = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+        let youngerBackgroundWorktreeId = UUID(uuidString: "00000000-0000-0000-0000-000000000002")!
+        await actor.setActivePaneWorktree(worktreeId: activePaneWorktreeId)
+        await bus.post(
+            makeFilesChangedEnvelope(
+                seq: 10,
+                worktreeId: olderBackgroundWorktreeId,
+                rootPath: URL(fileURLWithPath: "/tmp/older-background-\(UUID().uuidString)"),
+                batchSeq: 1
+            )
+        )
+        await bus.post(
+            makeFilesChangedEnvelope(
+                seq: 11,
+                worktreeId: activePaneWorktreeId,
+                rootPath: URL(fileURLWithPath: "/tmp/active-pane-\(UUID().uuidString)"),
+                batchSeq: 1
+            )
+        )
+        await bus.post(
+            makeFilesChangedEnvelope(
+                seq: 12,
+                worktreeId: youngerBackgroundWorktreeId,
+                rootPath: URL(fileURLWithPath: "/tmp/younger-background-\(UUID().uuidString)"),
+                batchSeq: 1
+            )
+        )
+
+        for _ in 0..<300 {
+            await Task.yield()
+        }
+        #expect(await callGate.labels.count == policy.maxConcurrentStatusComputes)
+
+        await callGate.releaseFirst(containing: "foreground-running-0")
+        let firstFreedSlotAdmittedOnePendingWorktree = await waitUntil {
+            await callGate.labels.count == policy.maxConcurrentStatusComputes + 1
+        }
+        #expect(firstFreedSlotAdmittedOnePendingWorktree)
+        let labels = await callGate.labels
+        #expect(labels.dropFirst(policy.maxConcurrentStatusComputes).first?.contains("active-pane") == true)
+
+        await callGate.releaseAll()
+        await actor.shutdown()
+    }
+
+    @Test("foreground reservation falls back to oldest stale background when active pane has no pending work")
+    func foregroundReservationFallsBackToOldestStaleBackground() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let callGate = OneByOneStatusGate()
+        let policy = AppPolicies.GitRefresh.Policy(
+            backgroundStripeCount: 1,
+            maxConcurrentStatusComputes: 4,
+            oldestStaleReservedSlots: 1
+        )
+        let provider = StubGitWorkingTreeStatusProvider { rootPath in
+            let label = rootPath.lastPathComponent
+            await callGate.recordAndWait(label)
+            return GitWorkingTreeStatus(
+                summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
+                branch: label,
+                origin: nil
+            )
+        }
+        let actor = GitWorkingDirectoryProjector(
+            bus: bus,
+            gitWorkingTreeProvider: provider,
+            coalescingWindow: .zero,
+            refreshPolicy: policy
+        )
+        await actor.start()
+
+        let runningWorktreeIds = (0..<policy.maxConcurrentStatusComputes).map { _ in UUID() }
+        for (offset, worktreeId) in runningWorktreeIds.enumerated() {
+            await bus.post(
+                makeFilesChangedEnvelope(
+                    seq: UInt64(offset + 1),
+                    worktreeId: worktreeId,
+                    rootPath: URL(fileURLWithPath: "/tmp/fallback-running-\(offset)-\(UUID().uuidString)"),
+                    batchSeq: 1
+                )
+            )
+        }
+        #expect(await waitUntil { await callGate.labels.count == policy.maxConcurrentStatusComputes })
+
+        await actor.setActivePaneWorktree(worktreeId: UUID())
+        let olderBackgroundWorktreeId = UUID(uuidString: "FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF")!
+        let youngerBackgroundWorktreeId = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+        await bus.post(
+            makeFilesChangedEnvelope(
+                seq: 10,
+                worktreeId: olderBackgroundWorktreeId,
+                rootPath: URL(fileURLWithPath: "/tmp/fallback-old-background-\(UUID().uuidString)"),
+                batchSeq: 1
+            )
+        )
+        await bus.post(
+            makeFilesChangedEnvelope(
+                seq: 11,
+                worktreeId: youngerBackgroundWorktreeId,
+                rootPath: URL(fileURLWithPath: "/tmp/fallback-young-background-\(UUID().uuidString)"),
+                batchSeq: 1
+            )
+        )
+
+        await callGate.releaseFirst(containing: "fallback-running-0")
+        let firstFreedSlotAdmittedOnePendingWorktree = await waitUntil {
+            await callGate.labels.count == policy.maxConcurrentStatusComputes + 1
+        }
+        #expect(firstFreedSlotAdmittedOnePendingWorktree)
+        let labels = await callGate.labels
+        #expect(labels.dropFirst(policy.maxConcurrentStatusComputes).first?.contains("fallback-old-background") == true)
+
+        await callGate.releaseAll()
+        await actor.shutdown()
+    }
+
     @Test("periodic refresh admits only the matching background stripe")
     func periodicRefreshAdmitsOnlyMatchingBackgroundStripe() async throws {
         let bus = EventBus<RuntimeEnvelope>()
@@ -1782,6 +1938,175 @@ struct GitWorkingDirectoryProjectorTests {
 
         await actor.shutdown()
         collectionTask.cancel()
+    }
+
+    @Test("capacity exceeded retries after short delay without opening exponential backoff")
+    func capacityExceededRetriesAfterShortDelayWithoutOpeningBackoff() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let clock = TestPushClock()
+        let calls = CallCounter()
+        let recorder = GitProjectorTraceRecorderSpy()
+        let policy = AppPolicies.GitRefresh.Policy(
+            backgroundStripeCount: 1,
+            nilStatusRetryDelay: .seconds(5),
+            statusFailureBackoffBaseDelay: .seconds(5)
+        )
+        let provider = StubGitWorkingTreeStatusProvider(resultHandler: { _ in
+            let callNumber = await calls.increment()
+            guard callNumber > 1 else {
+                return .unavailable(GitWorkingTreeStatusUnavailable(reason: .readCapacityExceeded))
+            }
+            return .available(
+                GitWorkingTreeStatus(
+                    summary: GitWorkingTreeSummary(changed: callNumber, staged: 0, untracked: 0),
+                    branch: "capacity-recovered",
+                    origin: nil
+                )
+            )
+        })
+        let actor = GitWorkingDirectoryProjector(
+            bus: bus,
+            gitWorkingTreeProvider: provider,
+            coalescingWindow: .zero,
+            sleepClock: clock,
+            refreshPolicy: policy,
+            performanceTraceRecorder: recorder
+        )
+
+        let observed = ObservedGitEvents()
+        let collectionTask = await startCollection(on: bus, observed: observed)
+        await actor.start()
+
+        let worktreeId = UUID()
+        let rootPath = URL(fileURLWithPath: "/tmp/capacity-short-retry-\(UUID().uuidString)")
+        await bus.post(makeFilesChangedEnvelope(seq: 1, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 1))
+        #expect(await waitUntil { await calls.value() == 1 })
+        await clock.waitForPendingSleepCount(atLeast: 1)
+
+        await bus.post(makeFilesChangedEnvelope(seq: 2, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 2))
+        for _ in 0..<300 {
+            await Task.yield()
+        }
+        #expect(await calls.value() == 1)
+        #expect(recorder.backoffEvents(open: true).isEmpty)
+
+        clock.advance(by: .milliseconds(499))
+        for _ in 0..<300 {
+            await Task.yield()
+        }
+        #expect(await calls.value() == 1)
+
+        clock.advance(by: .milliseconds(101))
+        let retriedAfterCapacityDelay = await waitUntil {
+            await observed.latestSnapshot(for: worktreeId)?.branch == "capacity-recovered"
+        }
+        #expect(retriedAfterCapacityDelay)
+        #expect(await calls.value() == 2)
+        #expect(recorder.backoffEvents(open: true).isEmpty)
+
+        await actor.shutdown()
+        collectionTask.cancel()
+    }
+
+    @Test("repeated capacity exceeded stays on fixed retry delay while timeout still grows")
+    func repeatedCapacityExceededStaysFixedWhileTimeoutGrows() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let clock = TestPushClock()
+        let calls = CallCounter()
+        let recorder = GitProjectorTraceRecorderSpy()
+        let policy = AppPolicies.GitRefresh.Policy(
+            backgroundStripeCount: 1,
+            statusFailureBackoffBaseDelay: .milliseconds(50),
+            statusFailureBackoffMultiplier: 2,
+            statusFailureBackoffMaxDelay: .seconds(10)
+        )
+        let provider = StubGitWorkingTreeStatusProvider(resultHandler: { _ in
+            let callNumber = await calls.increment()
+            guard callNumber > 3 else {
+                return .unavailable(GitWorkingTreeStatusUnavailable(reason: .readCapacityExceeded))
+            }
+            return .available(
+                GitWorkingTreeStatus(
+                    summary: GitWorkingTreeSummary(changed: callNumber, staged: 0, untracked: 0),
+                    branch: "capacity-recovered",
+                    origin: nil
+                )
+            )
+        })
+        let actor = GitWorkingDirectoryProjector(
+            bus: bus,
+            gitWorkingTreeProvider: provider,
+            coalescingWindow: .zero,
+            sleepClock: clock,
+            refreshPolicy: policy,
+            performanceTraceRecorder: recorder
+        )
+
+        let observed = ObservedGitEvents()
+        let collectionTask = await startCollection(on: bus, observed: observed)
+        await actor.start()
+
+        let worktreeId = UUID()
+        let rootPath = URL(fileURLWithPath: "/tmp/capacity-fixed-retry-\(UUID().uuidString)")
+        await bus.post(makeFilesChangedEnvelope(seq: 1, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 1))
+        #expect(await waitUntil { await calls.value() == 1 })
+        await clock.waitForPendingSleepCount(atLeast: 1)
+
+        for expectedCallCount in 2...3 {
+            clock.advance(by: .milliseconds(600))
+            #expect(await waitUntil { await calls.value() == expectedCallCount })
+            await clock.waitForPendingSleepCount(atLeast: 1)
+        }
+
+        clock.advance(by: .milliseconds(600))
+        let recovered = await waitUntil {
+            await observed.latestSnapshot(for: worktreeId)?.branch == "capacity-recovered"
+        }
+        #expect(recovered)
+        #expect(await calls.value() == 4)
+        #expect(recorder.backoffEvents(open: true).isEmpty)
+
+        await actor.shutdown()
+        collectionTask.cancel()
+
+        let timeoutBus = EventBus<RuntimeEnvelope>()
+        let timeoutClock = TestPushClock()
+        let timeoutCalls = CallCounter()
+        let timeoutProvider = StubGitWorkingTreeStatusProvider(resultHandler: { _ in
+            _ = await timeoutCalls.increment()
+            return .unavailable(GitWorkingTreeStatusUnavailable(reason: .timeout))
+        })
+        let timeoutActor = GitWorkingDirectoryProjector(
+            bus: timeoutBus,
+            gitWorkingTreeProvider: timeoutProvider,
+            coalescingWindow: .zero,
+            sleepClock: timeoutClock,
+            refreshPolicy: policy
+        )
+        await timeoutActor.start()
+
+        let timeoutWorktreeId = UUID()
+        let timeoutRootPath = URL(fileURLWithPath: "/tmp/timeout-still-grows-\(UUID().uuidString)")
+        await timeoutBus.post(
+            makeFilesChangedEnvelope(seq: 1, worktreeId: timeoutWorktreeId, rootPath: timeoutRootPath, batchSeq: 1)
+        )
+        #expect(await waitUntil { await timeoutCalls.value() == 1 })
+        await timeoutClock.waitForPendingSleepCount(atLeast: 1)
+
+        timeoutClock.advance(by: .milliseconds(50))
+        #expect(await waitUntil { await timeoutCalls.value() == 2 })
+        await timeoutClock.waitForPendingSleepCount(atLeast: 1)
+
+        timeoutClock.advance(by: .milliseconds(50))
+        for _ in 0..<300 {
+            await Task.yield()
+        }
+        #expect(await timeoutCalls.value() == 2)
+
+        timeoutClock.advance(by: .milliseconds(50))
+        #expect(await waitUntil { await timeoutCalls.value() == 3 })
+
+        await timeoutActor.shutdown()
     }
 
     @Test("status timeout opens per-worktree backoff and coalesces changes into one deferred refresh")
@@ -2878,6 +3203,44 @@ private actor AsyncGate {
         guard !isOpen else { return }
         isOpen = true
         let continuations = waiters
+        waiters.removeAll(keepingCapacity: false)
+        for continuation in continuations {
+            continuation.resume()
+        }
+    }
+}
+
+private actor OneByOneStatusGate {
+    private struct Waiter {
+        let label: String
+        let continuation: CheckedContinuation<Void, Never>
+    }
+
+    private var recordedLabels: [String] = []
+    private var waiters: [Waiter] = []
+    private var isOpen = false
+
+    var labels: [String] {
+        recordedLabels
+    }
+
+    func recordAndWait(_ label: String) async {
+        recordedLabels.append(label)
+        guard !isOpen else { return }
+        await withCheckedContinuation { continuation in
+            waiters.append(Waiter(label: label, continuation: continuation))
+        }
+    }
+
+    func releaseFirst(containing substring: String) {
+        guard let index = waiters.firstIndex(where: { $0.label.contains(substring) }) else { return }
+        let waiter = waiters.remove(at: index)
+        waiter.continuation.resume()
+    }
+
+    func releaseAll() {
+        isOpen = true
+        let continuations = waiters.map(\.continuation)
         waiters.removeAll(keepingCapacity: false)
         for continuation in continuations {
             continuation.resume()

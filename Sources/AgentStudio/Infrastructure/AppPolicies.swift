@@ -49,13 +49,17 @@ enum AppPolicies {
             let maxNilStatusRetries: Int
             let nilStatusRetryDelay: Duration
             /// First backoff step applied when a worktree's status compute times
-            /// out or is rejected for read-capacity. The per-worktree circuit
-            /// breaker doubles this per consecutive failure up to
-            /// `statusFailureBackoffMaxDelay`, coalescing file-change events that
-            /// arrive during the open window into one deferred refresh.
+            /// out. The per-worktree circuit breaker doubles this per consecutive
+            /// failure up to `statusFailureBackoffMaxDelay`, coalescing file-change
+            /// events that arrive during the open window into one deferred refresh.
             let statusFailureBackoffBaseDelay: Duration
             let statusFailureBackoffMultiplier: Int
             let statusFailureBackoffMaxDelay: Duration
+            /// Short bounded retry window for shared read-capacity contention. This
+            /// is deliberately separate from the failure breaker because a busy
+            /// global pool is not evidence that a worktree is unhealthy.
+            let capacityRetryBaseDelay: Duration
+            let capacityRetryJitterMaxDelay: Duration
             /// Maximum changed-path count a file-change batch may carry and still
             /// be refreshed with a pathspec-scoped status. Beyond this the
             /// projector falls back to a full-worktree status, since a very large
@@ -73,6 +77,8 @@ enum AppPolicies {
                 statusFailureBackoffBaseDelay: Duration = .seconds(5),
                 statusFailureBackoffMultiplier: Int = 2,
                 statusFailureBackoffMaxDelay: Duration = .seconds(60),
+                capacityRetryBaseDelay: Duration = .milliseconds(500),
+                capacityRetryJitterMaxDelay: Duration = .milliseconds(100),
                 maxScopedStatusPathspecCount: Int = 128
             ) {
                 precondition(backgroundStripeCount > 0)
@@ -83,6 +89,8 @@ enum AppPolicies {
                 precondition(statusFailureBackoffBaseDelay > .zero)
                 precondition(statusFailureBackoffMultiplier >= 1)
                 precondition(statusFailureBackoffMaxDelay >= statusFailureBackoffBaseDelay)
+                precondition(capacityRetryBaseDelay > .zero)
+                precondition(capacityRetryJitterMaxDelay >= .zero)
                 precondition(maxScopedStatusPathspecCount > 0)
 
                 self.activeCadence = activeCadence
@@ -95,14 +103,15 @@ enum AppPolicies {
                 self.statusFailureBackoffBaseDelay = statusFailureBackoffBaseDelay
                 self.statusFailureBackoffMultiplier = statusFailureBackoffMultiplier
                 self.statusFailureBackoffMaxDelay = statusFailureBackoffMaxDelay
+                self.capacityRetryBaseDelay = capacityRetryBaseDelay
+                self.capacityRetryJitterMaxDelay = capacityRetryJitterMaxDelay
                 self.maxScopedStatusPathspecCount = maxScopedStatusPathspecCount
             }
 
             /// Exponential per-worktree backoff for status computes that time out
-            /// or hit the read-capacity ceiling. `failureCount` is the number of
-            /// consecutive failures (1 for the first). Each step multiplies by
-            /// `statusFailureBackoffMultiplier`, clamped to
-            /// `statusFailureBackoffMaxDelay`.
+            /// `failureCount` is the number of consecutive failures (1 for the
+            /// first). Each step multiplies by `statusFailureBackoffMultiplier`,
+            /// clamped to `statusFailureBackoffMaxDelay`.
             func statusFailureBackoffDelay(forConsecutiveFailureCount failureCount: Int) -> Duration {
                 guard failureCount > 1 else {
                     return min(statusFailureBackoffBaseDelay, statusFailureBackoffMaxDelay)
@@ -115,6 +124,14 @@ enum AppPolicies {
                     }
                 }
                 return min(delay, statusFailureBackoffMaxDelay)
+            }
+
+            func capacityRetryDelay(for worktreeId: UUID) -> Duration {
+                capacityRetryBaseDelay
+                    + Self.jitterDelay(
+                        maxDelay: capacityRetryJitterMaxDelay,
+                        worktreeId: worktreeId
+                    )
             }
 
             var backgroundCadence: Duration {
@@ -136,6 +153,20 @@ enum AppPolicies {
                     scaledDuration += duration
                 }
                 return scaledDuration
+            }
+
+            private static func jitterDelay(maxDelay: Duration, worktreeId: UUID) -> Duration {
+                let maxNanoseconds = nanoseconds(from: maxDelay)
+                guard maxNanoseconds > 0 else { return .zero }
+                let jitterNanoseconds = Int64(stableHash(for: worktreeId) % UInt64(maxNanoseconds + 1))
+                return .nanoseconds(jitterNanoseconds)
+            }
+
+            private static func nanoseconds(from duration: Duration) -> Int64 {
+                let components = duration.components
+                let seconds = components.seconds.multipliedReportingOverflow(by: 1_000_000_000)
+                guard seconds.overflow == false else { return seconds.partialValue }
+                return seconds.partialValue + components.attoseconds / 1_000_000_000
             }
 
             private static func stableHash(for worktreeId: UUID) -> UInt64 {
