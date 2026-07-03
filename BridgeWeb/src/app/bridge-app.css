@@ -206,6 +206,10 @@ button:disabled,
 	font-family: var(--font-mono);
 }
 
+.bridge-code-view-panel diffs-container {
+	--diffs-scrollbar-gutter-override: 0px;
+}
+
 .bridge-worktree-file-app {
 	--bridge-worktree-file-layout-proof: applied;
 	display: grid;

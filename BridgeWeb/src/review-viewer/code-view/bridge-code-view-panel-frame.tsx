@@ -105,7 +105,7 @@ export function BridgeCodeViewPanelFrame(props: BridgeCodeViewPanelFrameProps): 
 			>
 				<CodeView
 					className={cn(
-						'bridge-code-view-scroll-owner bridge-scrollbar cv-scrollbar relative h-full min-h-0 min-w-0',
+						'bridge-code-view-scroll-owner bridge-scrollbar cv-scrollbar relative h-full min-h-0 w-full min-w-0 max-w-full',
 						'flex-1 overflow-y-auto overflow-x-hidden overscroll-contain',
 						'[overflow-anchor:none] [will-change:scroll-position]',
 						'[&_diffs-container]:overflow-clip [&_diffs-container]:[contain:layout_paint_style]',

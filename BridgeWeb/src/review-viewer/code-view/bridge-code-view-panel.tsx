@@ -63,7 +63,7 @@ export type {
 export type { BridgeCodeViewScrollToItemOptions } from './bridge-code-view-panel-types.js';
 
 const codeViewInstantRevealRetargetEpsilonPixels = 1;
-const codeViewInstantRevealViewportOffsetPixels = 4;
+const codeViewInstantRevealViewportOffsetTolerancePixels = 0;
 const codeViewInstantRevealStableFrameCount = 2;
 const codeViewInstantRevealHydrationRearmWindowMilliseconds = 2_000;
 
@@ -339,7 +339,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 						Math.abs(resolvedItemTop - lastRetargetedItemTop) >
 							codeViewInstantRevealRetargetEpsilonPixels ||
 						targetViewportOffset === null ||
-						Math.abs(targetViewportOffset) > codeViewInstantRevealViewportOffsetPixels;
+						Math.abs(targetViewportOffset) > codeViewInstantRevealViewportOffsetTolerancePixels;
 					if (shouldRetarget) {
 						stableResolvedTopFrameCount = 0;
 						lastRetargetedItemTop = resolvedItemTop ?? null;

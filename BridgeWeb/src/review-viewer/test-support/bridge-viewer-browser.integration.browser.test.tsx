@@ -118,6 +118,67 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		backend.dispose();
 	});
 
+	test('selected CodeView file header sits flush below the viewer toolbar after tree click', async () => {
+		const fixture = makeBridgeViewerBrowserFixture();
+		const backend = installBridgeViewerMockedBackend(fixture);
+
+		render(
+			<BridgeApp
+				codeViewWorkerPoolEnabled={false}
+				fetchContent={backend.fetchContent}
+				markdownWorkerClient={null}
+				projectionWorkerClient={backend.projectionWorkerClient}
+			/>,
+		);
+		await backend.pushMetadata();
+		await waitForBridgeViewerElement('[data-testid="review-viewer-shell"]');
+		const secondButton = await waitForBridgeViewerTreeItemButton(fixture.expected.secondPath);
+		secondButton.click();
+		await waitForBridgeViewerText(fixture.expected.secondText);
+		await browserSupport.waitForBridgeViewerRenderedCodeGeometry();
+		await waitForBridgeViewerAnimationFrame();
+
+		const codeScroll = await waitForBridgeViewerCodeScrollOwner();
+		const selectedHeader = await waitForBridgeCodeViewHeaderForPath(fixture.expected.secondPath);
+		const headerTopGap = Math.round(
+			selectedHeader.getBoundingClientRect().top - codeScroll.getBoundingClientRect().top,
+		);
+
+		expect(headerTopGap).toBe(0);
+
+		backend.dispose();
+	});
+
+	test('CodeView scroll owner extends to the review rail resize boundary', async () => {
+		const fixture = makeBridgeViewerBrowserFixture();
+		const backend = installBridgeViewerMockedBackend(fixture);
+
+		render(
+			<BridgeApp
+				codeViewWorkerPoolEnabled={false}
+				fetchContent={backend.fetchContent}
+				markdownWorkerClient={null}
+				projectionWorkerClient={backend.projectionWorkerClient}
+			/>,
+		);
+		await backend.pushMetadata();
+		await waitForBridgeViewerElement('[data-testid="review-viewer-shell"]');
+		await waitForBridgeViewerText(fixture.expected.initialText);
+		await browserSupport.waitForBridgeViewerRenderedCodeGeometry();
+
+		const codeScroll = await waitForBridgeViewerCodeScrollOwner();
+		const resizeHandle = requireBridgeViewerHTMLElement(
+			document.querySelector('#bridge-review-rail-resize-handle'),
+		);
+		const horizontalGapToRail = Math.round(
+			resizeHandle.getBoundingClientRect().left - codeScroll.getBoundingClientRect().right,
+		);
+
+		expect(horizontalGapToRail).toBe(0);
+
+		backend.dispose();
+	});
+
 	test('emits review startup timing telemetry from mocked metadata push to selected content ready', async () => {
 		const fixture = makeBridgeViewerBrowserFixture();
 		const backend = installBridgeViewerMockedBackend(fixture, {
@@ -1014,3 +1075,36 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		}
 	});
 });
+
+async function waitForBridgeCodeViewHeaderForPath(
+	path: string,
+	remainingAttempts = 180,
+): Promise<HTMLElement> {
+	const header = findBridgeCodeViewHeaderForPath(path);
+	if (header !== null) {
+		return header;
+	}
+	if (remainingAttempts <= 0) {
+		throw new Error(`expected Bridge CodeView header for path ${path}`);
+	}
+	await Promise.resolve();
+	await waitForBridgeViewerAnimationFrame();
+	return await waitForBridgeCodeViewHeaderForPath(path, remainingAttempts - 1);
+}
+
+function findBridgeCodeViewHeaderForPath(path: string): HTMLElement | null {
+	for (const container of document.querySelectorAll('diffs-container')) {
+		const shadowRoot = container.shadowRoot;
+		if (shadowRoot === null) {
+			continue;
+		}
+		const header = [...shadowRoot.querySelectorAll('[data-diffs-header]')].find(
+			(candidate: Element): candidate is HTMLElement =>
+				candidate instanceof HTMLElement && (candidate.textContent ?? '').includes(path),
+		);
+		if (header !== undefined) {
+			return header;
+		}
+	}
+	return null;
+}
