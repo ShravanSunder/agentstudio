@@ -180,7 +180,7 @@ export function bridgeReviewPackageWithMetadataWindow(props: {
 	const windowItemsById = Object.fromEntries(
 		props.windowFrame.itemMetadata.map((item): readonly [string, BridgeReviewItemDescriptor] => [
 			item.itemId,
-			reviewItemWithCarriedContentLineCounts({
+			reviewItemWithCarriedResolvedContent({
 				currentItem: props.reviewPackage.itemsById[item.itemId],
 				nextItem: bridgeReviewItemFromMetadataProjectionItem({
 					contentDescriptorsById,
@@ -219,7 +219,7 @@ export function bridgeReviewPackageWithMetadataSnapshot(props: {
 		Object.entries(props.snapshotPackage.itemsById).map(
 			([itemId, item]): readonly [string, BridgeReviewItemDescriptor] => [
 				itemId,
-				reviewItemWithCarriedContentLineCounts({
+				reviewItemWithCarriedResolvedContent({
 					currentItem: props.reviewPackage.itemsById[itemId],
 					nextItem: item,
 				}),
@@ -288,7 +288,7 @@ export function applyReviewMetadataDeltaToReviewPackage(props: {
 				});
 				itemsById = {
 					...itemsById,
-					[operation.item.itemId]: reviewItemWithCarriedContentLineCounts({
+					[operation.item.itemId]: reviewItemWithCarriedResolvedContent({
 						currentItem,
 						nextItem,
 					}),
@@ -315,7 +315,7 @@ export function applyReviewMetadataDeltaToReviewPackage(props: {
 					});
 					itemsById = {
 						...itemsById,
-						[item.itemId]: reviewItemWithCarriedContentLineCounts({
+						[item.itemId]: reviewItemWithCarriedResolvedContent({
 							currentItem,
 							nextItem,
 						}),
@@ -415,20 +415,56 @@ function extentFactsFromMetadataDelta(
 	return facts;
 }
 
-function reviewItemWithCarriedContentLineCounts(props: {
+function reviewItemWithCarriedResolvedContent(props: {
 	readonly currentItem: BridgeReviewItemDescriptor | undefined;
 	readonly nextItem: BridgeReviewItemDescriptor;
 }): BridgeReviewItemDescriptor {
-	if (
-		props.nextItem.contentLineCountsByRole !== undefined ||
-		props.currentItem?.contentLineCountsByRole === undefined
-	) {
+	const current = props.currentItem;
+	if (current === undefined) {
+		return props.nextItem;
+	}
+	const contentRoles = contentRolesWithCarriedResolvedHandles({
+		currentContentRoles: current.contentRoles,
+		nextContentRoles: props.nextItem.contentRoles,
+	});
+	const shouldCarryLineCounts =
+		props.nextItem.contentLineCountsByRole === undefined &&
+		current.contentLineCountsByRole !== undefined;
+	if (contentRoles === props.nextItem.contentRoles && !shouldCarryLineCounts) {
 		return props.nextItem;
 	}
 	return {
 		...props.nextItem,
-		contentLineCountsByRole: props.currentItem.contentLineCountsByRole,
+		...(shouldCarryLineCounts ? { contentLineCountsByRole: current.contentLineCountsByRole } : {}),
+		contentRoles,
 	};
+}
+
+// A metadata-only re-touch (a delta/window/snapshot frame that re-delivers an item WITHOUT a fresher
+// content descriptor for a role) must NOT null a resolved content handle. Carry the current handle
+// forward per role until a fresher descriptor replaces it. Otherwise the item loses its contentHash
+// and the content-addressed content-validity gate drops already-loaded content (stuck-on-placeholder).
+function contentRolesWithCarriedResolvedHandles(props: {
+	readonly currentContentRoles: BridgeReviewItemDescriptor['contentRoles'];
+	readonly nextContentRoles: BridgeReviewItemDescriptor['contentRoles'];
+}): BridgeReviewItemDescriptor['contentRoles'] {
+	const next = props.nextContentRoles;
+	const current = props.currentContentRoles;
+	const carried = {
+		base: next.base ?? current.base,
+		head: next.head ?? current.head,
+		diff: next.diff ?? current.diff,
+		file: next.file ?? current.file,
+	};
+	if (
+		carried.base === next.base &&
+		carried.head === next.head &&
+		carried.diff === next.diff &&
+		carried.file === next.file
+	) {
+		return next;
+	}
+	return carried;
 }
 
 function reviewItemWithExtentFacts(props: {
