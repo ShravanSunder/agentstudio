@@ -412,6 +412,203 @@ extension WebKitSerializedTests {
             )
         }
 
+        @Test("valid active-file signal suppresses inactive review delivery without consuming review sequence")
+        func validActiveFileSignalSuppressesReviewDelivery() async throws {
+            let fixture = try makeChurnFixture()
+            let controller = fixture.controller
+            let repoId = fixture.repoId
+            let worktreeId = fixture.worktreeId
+            let rootURL = fixture.rootURL
+            let capturedFrames = fixture.capturedFrames
+            defer { try? FileManager.default.removeItem(at: rootURL) }
+            defer { controller.teardown() }
+            controller.handleBridgeReady()
+
+            let outcome = try await controller.handleWorktreeFileSurfaceOpenSourceStream(
+                makeWorktreeFileSourceSpec(
+                    clientRequestId: "active-file-open",
+                    repoId: repoId,
+                    worktreeId: worktreeId,
+                    rootURL: rootURL
+                )
+            )
+            await controller.handleBridgeIntakeReady(
+                BridgeIntakeReadyMethod.Params(
+                    protocolId: "worktree-file",
+                    streamId: outcome.streamId,
+                    generation: outcome.generation
+                )
+            )
+            await controller.activeWorktreeFileTreeWindowTask?.value
+            await controller.worktreeFileMetadataScheduler.waitUntilDrained()
+
+            await controller.handleIncomingRPC(
+                Self.activeViewerModeUpdateJSON(
+                    sessionId: "session-active-file",
+                    sequence: 1,
+                    mode: "file",
+                    protocolId: "worktree-file",
+                    streamId: outcome.streamId,
+                    generation: outcome.generation
+                )
+            )
+
+            await controller.handleBridgeIntakeReady(
+                BridgeIntakeReadyMethod.Params(protocolId: "review", streamId: nil)
+            )
+            await controller.activeReviewRefreshTask?.value
+            await controller.worktreeFileMetadataScheduler.waitUntilDrained()
+
+            let frames = await capturedFrames.get()
+            #expect(
+                !frames.contains { Self.frameKind(of: $0) == "review.metadataSnapshot" },
+                "A valid active-file signal must suppress inactive review delivery"
+            )
+            #expect(
+                controller.nextReviewProtocolSequence == 0,
+                "Suppressed review delivery must return before consuming the review sequence"
+            )
+        }
+
+        @Test("valid active-review signal suppresses inactive worktree production")
+        func validActiveReviewSignalSuppressesWorktreeProduction() async throws {
+            let fixture = try makeChurnFixture()
+            let controller = fixture.controller
+            let repoId = fixture.repoId
+            let worktreeId = fixture.worktreeId
+            let rootURL = fixture.rootURL
+            let capturedFrames = fixture.capturedFrames
+            defer { try? FileManager.default.removeItem(at: rootURL) }
+            defer { controller.teardown() }
+            controller.handleBridgeReady()
+
+            await controller.handleBridgeIntakeReady(
+                BridgeIntakeReadyMethod.Params(protocolId: "review", streamId: nil)
+            )
+            await controller.activeReviewRefreshTask?.value
+            await controller.worktreeFileMetadataScheduler.waitUntilDrained()
+            let reviewGeneration = try #require(controller.paneState.diff.packageMetadata?.reviewGeneration.rawValue)
+            await controller.handleIncomingRPC(
+                Self.activeViewerModeUpdateJSON(
+                    sessionId: "session-active-review",
+                    sequence: 1,
+                    mode: "review",
+                    protocolId: "review",
+                    streamId: controller.reviewProtocolStreamId(),
+                    generation: reviewGeneration
+                )
+            )
+
+            _ = try await controller.handleWorktreeFileSurfaceOpenSourceStream(
+                makeWorktreeFileSourceSpec(
+                    clientRequestId: "inactive-file-open",
+                    repoId: repoId,
+                    worktreeId: worktreeId,
+                    rootURL: rootURL
+                )
+            )
+            await controller.activeWorktreeFileTreeWindowTask?.value
+            await controller.worktreeFileMetadataScheduler.waitUntilDrained()
+
+            let frames = await capturedFrames.get()
+            #expect(
+                !frames.contains { Self.frameKind(of: $0) == "worktree.snapshot" },
+                "A valid active-review signal must suppress inactive worktree initial production"
+            )
+            #expect(
+                !frames.contains { Self.frameKind(of: $0) == "worktree.treeWindow" },
+                "A valid active-review signal must suppress inactive worktree tree-window production"
+            )
+        }
+
+        @Test("stale active-viewer generation signal fails open")
+        func staleActiveViewerGenerationSignalFailsOpen() async throws {
+            let fixture = try makeChurnFixture()
+            let controller = fixture.controller
+            let repoId = fixture.repoId
+            let worktreeId = fixture.worktreeId
+            let rootURL = fixture.rootURL
+            let capturedFrames = fixture.capturedFrames
+            defer { try? FileManager.default.removeItem(at: rootURL) }
+            defer { controller.teardown() }
+            controller.handleBridgeReady()
+
+            let outcome = try await controller.handleWorktreeFileSurfaceOpenSourceStream(
+                makeWorktreeFileSourceSpec(
+                    clientRequestId: "stale-file-open",
+                    repoId: repoId,
+                    worktreeId: worktreeId,
+                    rootURL: rootURL
+                )
+            )
+            await controller.handleIncomingRPC(
+                Self.activeViewerModeUpdateJSON(
+                    sessionId: "session-stale-file",
+                    sequence: 1,
+                    mode: "file",
+                    protocolId: "worktree-file",
+                    streamId: outcome.streamId,
+                    generation: outcome.generation + 1
+                )
+            )
+
+            await controller.handleBridgeIntakeReady(
+                BridgeIntakeReadyMethod.Params(protocolId: "review", streamId: nil)
+            )
+            await controller.activeReviewRefreshTask?.value
+            await controller.worktreeFileMetadataScheduler.waitUntilDrained()
+
+            #expect(
+                (await capturedFrames.get()).contains { Self.frameKind(of: $0) == "review.metadataSnapshot" },
+                "A stale active-source generation must be ignored so review delivery fails open"
+            )
+        }
+
+        @Test("missing active-viewer source fails open")
+        func missingActiveViewerSourceFailsOpen() async throws {
+            let capturedFrames = ModeSwitchFrameCapture()
+            let provider = makeReviewProvider()
+            let controller = BridgePaneController(
+                paneId: UUIDv7.generate(),
+                state: BridgePaneState(
+                    panelKind: .fileViewer,
+                    source: .workspace(rootPath: "/tmp/worktree", baseline: .unstaged)
+                ),
+                metadata: PaneMetadata(
+                    contentType: .diff,
+                    title: "Files",
+                    facets: PaneContextFacets(repoId: UUIDv7.generate(), worktreeId: UUIDv7.generate())
+                ),
+                reviewSourceProvider: provider,
+                intakeFrameSink: { _, frameJSON, _ in
+                    await capturedFrames.append(frameJSON)
+                }
+            )
+            defer { controller.teardown() }
+            controller.handleBridgeReady()
+
+            await controller.handleIncomingRPC(
+                Self.activeViewerModeUpdateJSON(
+                    sessionId: "session-null-source",
+                    sequence: 1,
+                    mode: "file",
+                    protocolId: nil,
+                    streamId: nil,
+                    generation: nil
+                )
+            )
+            await controller.handleBridgeIntakeReady(
+                BridgeIntakeReadyMethod.Params(protocolId: "review", streamId: nil)
+            )
+            await controller.activeReviewRefreshTask?.value
+            await controller.worktreeFileMetadataScheduler.waitUntilDrained()
+
+            #expect(
+                (await capturedFrames.get()).contains { Self.frameKind(of: $0) == "review.metadataSnapshot" },
+                "A null activeSource observation is not a valid gate and must fail open"
+            )
+        }
+
         private static func firstFileRow(
             in frames: [String]
         ) -> (rowId: String, path: String, fileId: String)? {
@@ -500,6 +697,65 @@ extension WebKitSerializedTests {
                 worktreeId: worktreeId,
                 capturedFrames: capturedFrames
             )
+        }
+
+        private func makeWorktreeFileSourceSpec(
+            clientRequestId: String,
+            repoId: UUID,
+            worktreeId: UUID,
+            rootURL: URL
+        ) -> BridgeWorktreeFileSurfaceSourceSpec {
+            BridgeWorktreeFileSurfaceSourceSpec(
+                clientRequestId: clientRequestId,
+                repoId: repoId,
+                worktreeId: worktreeId,
+                rootPathToken: Worktree(
+                    id: worktreeId,
+                    repoId: repoId,
+                    name: "mode-switch-worktree",
+                    path: rootURL
+                ).stableKey,
+                cwdScope: nil,
+                pathScope: [],
+                includeStatuses: true,
+                includeComments: false,
+                includeAgentComms: false,
+                freshness: .live
+            )
+        }
+
+        private static func activeViewerModeUpdateJSON(
+            sessionId: String,
+            sequence: Int,
+            mode: String,
+            protocolId: String?,
+            streamId: String?,
+            generation: Int?
+        ) -> String {
+            let activeSourceJSON: String
+            if let protocolId, let streamId, let generation {
+                activeSourceJSON = """
+                    {
+                      "protocol": "\(protocolId)",
+                      "streamId": "\(streamId)",
+                      "generation": \(generation)
+                    }
+                    """
+            } else {
+                activeSourceJSON = "null"
+            }
+            return """
+                {
+                  "jsonrpc": "2.0",
+                  "method": "bridge.activeViewerMode.update",
+                  "params": {
+                    "sessionId": "\(sessionId)",
+                    "sequence": \(sequence),
+                    "mode": "\(mode)",
+                    "activeSource": \(activeSourceJSON)
+                  }
+                }
+                """
         }
 
         private static func frameKind(of frameJSON: String) -> String? {

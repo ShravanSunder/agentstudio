@@ -4,15 +4,27 @@ import { render } from 'vitest-browser-react';
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode geometry assertions need app CSS.
 import './bridge-app.css';
 import type { WorktreeFileInitialSurface } from '../worktree-file-surface/worktree-file-app.js';
+import { makeSnapshotFrame } from './bridge-app-native-worktree-file.browser.test-support.js';
 import {
 	BridgeAppProtocolRouter,
 	resolveBridgeAppProtocolFromElement,
 } from './bridge-app-protocol-router.js';
 
+interface ActiveViewerModeUpdateDetail {
+	readonly method: 'bridge.activeViewerMode.update';
+	readonly params: {
+		readonly activeSource: unknown;
+		readonly mode: 'file' | 'review';
+		readonly sequence: number;
+		readonly sessionId: string;
+	};
+}
+
 describe('BridgeAppProtocolRouter', () => {
 	afterEach(() => {
 		document.body.replaceChildren();
 		document.documentElement.removeAttribute('data-bridge-app-protocol');
+		document.documentElement.removeAttribute('data-bridge-nonce');
 	});
 
 	test('defaults to Review when no app protocol is declared', async () => {
@@ -144,6 +156,58 @@ describe('BridgeAppProtocolRouter', () => {
 		]);
 	});
 
+	test('emits active viewer mode notifications with monotonic sequence across mode switches', async () => {
+		const commandDetails: unknown[] = [];
+		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
+		document.addEventListener('__bridge_handshake_request', (): void => {
+			document.dispatchEvent(
+				new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-1' } }),
+			);
+		});
+		document.addEventListener('__bridge_command', (event: Event): void => {
+			const detail = extractEventDetail(event);
+			commandDetails.push(detail);
+			if (isBridgeReadyCommand(detail)) {
+				document.dispatchEvent(
+					new CustomEvent('__bridge_response', {
+						detail: { id: detail.id, result: {}, nonce: 'push-1' },
+					}),
+				);
+			}
+		});
+
+		render(
+			<BridgeAppProtocolRouter
+				fileViewerProps={{ loadInitialSurface: loadActiveViewerModeTestSurface }}
+				protocol="worktree-file"
+			/>,
+		);
+
+		await expect
+			.poll(() => activeViewerModeUpdates(commandDetails).some(hasWorktreeFileActiveSource))
+			.toBe(true);
+		requireActiveContextButton('review').click();
+		await expect
+			.poll(() =>
+				activeViewerModeUpdates(commandDetails).some((detail) => detail.params.mode === 'review'),
+			)
+			.toBe(true);
+		requireActiveContextButton('file').click();
+		await expect
+			.poll(
+				() =>
+					activeViewerModeUpdates(commandDetails).filter((detail) => detail.params.mode === 'file')
+						.length,
+			)
+			.toBeGreaterThanOrEqual(2);
+
+		const updates = activeViewerModeUpdates(commandDetails);
+		expect(updates.map((detail) => detail.params.sequence)).toEqual(
+			updates.map((detail) => detail.params.sequence).toSorted((left, right) => left - right),
+		);
+		expect(new Set(updates.map((detail) => detail.params.sessionId)).size).toBe(1);
+	});
+
 	test('parses document protocol metadata with Review as the fail-closed fallback', () => {
 		expect(resolveBridgeAppProtocolFromElement(document.documentElement)).toBe('review');
 		document.documentElement.setAttribute('data-bridge-app-protocol', 'worktree-file');
@@ -196,4 +260,51 @@ function requireActiveContextButton(mode: 'file' | 'review'): HTMLElement {
 			`[data-bridge-viewer-mode-active="true"] [data-testid="bridge-viewer-context-${mode}"]`,
 		),
 	);
+}
+
+async function loadActiveViewerModeTestSurface(): Promise<WorktreeFileInitialSurface> {
+	return {
+		frames: [makeSnapshotFrame({ generation: 7 })],
+	};
+}
+
+function activeViewerModeUpdates(
+	commandDetails: readonly unknown[],
+): ActiveViewerModeUpdateDetail[] {
+	return commandDetails.filter(isActiveViewerModeUpdate);
+}
+
+function isActiveViewerModeUpdate(value: unknown): value is ActiveViewerModeUpdateDetail {
+	return (
+		isRecord(value) &&
+		value['method'] === 'bridge.activeViewerMode.update' &&
+		isRecord(value['params']) &&
+		(value['params']['mode'] === 'file' || value['params']['mode'] === 'review') &&
+		typeof value['params']['sequence'] === 'number' &&
+		typeof value['params']['sessionId'] === 'string'
+	);
+}
+
+function hasWorktreeFileActiveSource(detail: ActiveViewerModeUpdateDetail): boolean {
+	return (
+		detail.params.mode === 'file' &&
+		isRecord(detail.params.activeSource) &&
+		detail.params.activeSource['protocol'] === 'worktree-file' &&
+		detail.params.activeSource['streamId'] === 'worktree-file:pane-1' &&
+		detail.params.activeSource['generation'] === 7
+	);
+}
+
+function isBridgeReadyCommand(
+	value: unknown,
+): value is { readonly id: string; readonly method: 'bridge.ready' } {
+	return isRecord(value) && value['method'] === 'bridge.ready' && typeof value['id'] === 'string';
+}
+
+function extractEventDetail(event: Event): unknown {
+	return event instanceof CustomEvent ? event.detail : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null;
 }

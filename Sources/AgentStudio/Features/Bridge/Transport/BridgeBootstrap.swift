@@ -50,6 +50,7 @@ enum BridgeBootstrap {
                 const PAGE_WORLD_ALLOWED_COMMAND_METHODS = new Set([
                     'bridge.ready',
                     'bridge.intakeReady',
+                    'bridge.activeViewerMode.update',
                     'review.markFileViewed',
                     'worktreeFileSurface.openSourceStream',
                     'worktreeFileSurface.requestFileDescriptor',

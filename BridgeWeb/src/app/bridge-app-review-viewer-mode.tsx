@@ -3,7 +3,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from 'zustand';
 
 import type { BridgePageHandshakeSession } from '../bridge/bridge-page-handshake.js';
-import { createBridgeRPCClient } from '../bridge/bridge-rpc-client.js';
+import {
+	createBridgeRPCClient,
+	type BridgeActiveViewerSource,
+} from '../bridge/bridge-rpc-client.js';
 import type { BridgeDemandScheduler } from '../core/demand/bridge-demand-scheduler.js';
 import type { BridgeDescriptorRef } from '../core/models/bridge-resource-descriptor.js';
 import type { ReviewTreeRowMetadata } from '../features/review/models/review-protocol-models.js';
@@ -73,6 +76,7 @@ export function BridgeReviewViewerMode(
 	props: BridgeAppProps & {
 		readonly handshakeSessionRef: MutableRefObject<BridgePageHandshakeSession | null>;
 		readonly isActive: boolean;
+		readonly onActiveSourceChange: (activeSource: BridgeActiveViewerSource | null) => void;
 		readonly registerBridgeReadyCallback: (callback: () => void) => () => void;
 		readonly telemetryRecorderRef: MutableRefObject<BridgeTelemetryRecorder>;
 		readonly viewerHeaderControls: ReactElement;
@@ -137,6 +141,7 @@ export function BridgeReviewViewerMode(
 	const [isTreeSearchOpen, setIsTreeSearchOpen] = useState(false);
 	const telemetryRecorderRef = props.telemetryRecorderRef;
 	const bridgeHandshakeSessionRef = props.handshakeSessionRef;
+	const onActiveSourceChange = props.onActiveSourceChange;
 	const registerBridgeReadyCallback = props.registerBridgeReadyCallback;
 	const currentReviewPackageTelemetryContextRef =
 		useRef<BridgeReviewPackageTelemetryContext | null>(null);
@@ -177,6 +182,18 @@ export function BridgeReviewViewerMode(
 	rootSnapshotRef.current = rootSnapshot;
 	const [isCodeViewScrollActive, setIsCodeViewScrollActive] = useState(false);
 	const controlProbeSequenceRef = useRef(0);
+	useEffect((): void => {
+		const authority = getReviewFrameAuthority();
+		if (reviewPackage === null || authority === null) {
+			onActiveSourceChange(null);
+			return;
+		}
+		onActiveSourceChange({
+			protocol: 'review',
+			streamId: authority.streamId,
+			generation: reviewPackage.reviewGeneration,
+		});
+	}, [getReviewFrameAuthority, onActiveSourceChange, reviewPackage]);
 	const rpcClient = useMemo(
 		() =>
 			createBridgeRPCClient({

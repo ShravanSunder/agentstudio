@@ -63,6 +63,7 @@ final class BridgePaneController {
     var hasPendingReviewRefresh = false
     var reviewContentAuthorityLifetime = 0
     var nextReviewProtocolSequence = 0
+    var activeViewerModeSignalState = BridgeActiveViewerModeSignalState()
 
     // MARK: - Push Plans
 
@@ -266,6 +267,10 @@ final class BridgePaneController {
         }
         router.register(method: BridgeIntakeReadyMethod.self) { [weak self] params in
             await self?.handleBridgeIntakeReady(params)
+            return nil
+        }
+        router.register(method: BridgeActiveViewerModeUpdateMethod.self) { [weak self] params in
+            self?.handleBridgeActiveViewerModeUpdate(params)
             return nil
         }
     }
@@ -529,6 +534,7 @@ final class BridgePaneController {
         lastPushed.removeAll()
         isBridgeReady = false
         nextReviewProtocolSequence = 0
+        activeViewerModeSignalState = BridgeActiveViewerModeSignalState()
         // Fence in-flight review jobs synchronously: their body guard reads
         // nextReviewGeneration, so bumping it here prevents a dispatchable
         // job from delivering between this sync phase and the async gate

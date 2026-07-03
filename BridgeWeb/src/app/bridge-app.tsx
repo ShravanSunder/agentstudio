@@ -5,7 +5,10 @@ import {
 	type BridgePageHandshakeSession,
 	installBridgePageHandshakeSession,
 } from '../bridge/bridge-page-handshake.js';
-import { createBridgeRPCClient } from '../bridge/bridge-rpc-client.js';
+import {
+	createBridgeRPCClient,
+	type BridgeActiveViewerSource,
+} from '../bridge/bridge-rpc-client.js';
 import { createBridgeTelemetryEventSink } from '../bridge/bridge-telemetry-event-sink.js';
 import type { BridgeFileViewerAppProps } from '../file-viewer/bridge-file-viewer-app.js';
 import type { BridgeContentFetch } from '../foundation/content/content-resource-loader.js';
@@ -87,6 +90,8 @@ type BridgeRememberedNavigationCommands = Record<
 	BridgeViewerNavigationCommand | undefined
 >;
 
+type BridgeActiveViewerSources = Record<BridgeViewerMode, BridgeActiveViewerSource | null>;
+
 function activeViewerStateForBridgeInputs(props: {
 	readonly navigationCommand: BridgeViewerNavigationCommand | undefined;
 	readonly viewerMode: 'file' | 'review' | undefined;
@@ -131,6 +136,12 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 	});
 	const activationPrewarmStateRef = useRef<BridgeViewerActivationPrewarmState>({
 		prewarmedModes: new Set(),
+	});
+	const activeViewerModeSessionIdRef = useRef<string>(createBridgeActiveViewerModeSessionId());
+	const activeViewerModeSequenceRef = useRef(0);
+	const [activeViewerSources, setActiveViewerSources] = useState<BridgeActiveViewerSources>({
+		file: null,
+		review: null,
 	});
 	const telemetryRecorderRef = useRef<BridgeTelemetryRecorder>(createBridgeTelemetryRecorder(null));
 	const telemetryRecorder = useMemo(
@@ -194,6 +205,50 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			telemetryRecorderRef.current = createBridgeTelemetryRecorder(null);
 		};
 	}, [target]);
+	const activeViewerModeRPCClient = useMemo(() => createBridgeRPCClient({ target }), [target]);
+	const reportFileActiveSource = useCallback(
+		(activeSource: BridgeActiveViewerSource | null): void => {
+			setActiveViewerSources((currentSources): BridgeActiveViewerSources => {
+				if (bridgeActiveViewerSourcesEqual(currentSources.file, activeSource)) {
+					return currentSources;
+				}
+				return { ...currentSources, file: activeSource };
+			});
+		},
+		[],
+	);
+	const reportReviewActiveSource = useCallback(
+		(activeSource: BridgeActiveViewerSource | null): void => {
+			setActiveViewerSources((currentSources): BridgeActiveViewerSources => {
+				if (bridgeActiveViewerSourcesEqual(currentSources.review, activeSource)) {
+					return currentSources;
+				}
+				return { ...currentSources, review: activeSource };
+			});
+		},
+		[],
+	);
+	useEffect((): (() => void) => {
+		const activeViewerMode = activeViewerState.viewerMode;
+		const activeSource = activeViewerSources[activeViewerMode];
+		return registerBridgeReadyCallback((): void => {
+			activeViewerModeSequenceRef.current += 1;
+			activeViewerModeRPCClient.sendCommand({
+				method: 'bridge.activeViewerMode.update',
+				params: {
+					sessionId: activeViewerModeSessionIdRef.current,
+					sequence: activeViewerModeSequenceRef.current,
+					mode: activeViewerMode,
+					activeSource,
+				},
+			});
+		});
+	}, [
+		activeViewerModeRPCClient,
+		activeViewerSources,
+		activeViewerState.viewerMode,
+		registerBridgeReadyCallback,
+	]);
 	const [mountedViewerModes, setMountedViewerModes] = useState<ReadonlySet<BridgeViewerMode>>(
 		() => new Set<BridgeViewerMode>(['file', 'review']),
 	);
@@ -267,6 +322,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 					<BridgeFileViewerMode
 						{...props}
 						isActive={activeViewerState.viewerMode === 'file'}
+						onActiveSourceChange={reportFileActiveSource}
 						onActivateNavigationCommand={activateNavigationCommand}
 						registerBridgeReadyCallback={registerBridgeReadyCallback}
 						telemetryRecorder={telemetryRecorder}
@@ -296,6 +352,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 						{...props}
 						handshakeSessionRef={handshakeSessionRef}
 						isActive={activeViewerState.viewerMode === 'review'}
+						onActiveSourceChange={reportReviewActiveSource}
 						registerBridgeReadyCallback={registerBridgeReadyCallback}
 						telemetryRecorderRef={telemetryRecorderRef}
 						viewerHeaderControls={
@@ -312,4 +369,19 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			) : null}
 		</BridgeViewerAppShell>
 	);
+}
+
+function bridgeActiveViewerSourcesEqual(
+	left: BridgeActiveViewerSource | null,
+	right: BridgeActiveViewerSource | null,
+): boolean {
+	return (
+		left?.protocol === right?.protocol &&
+		left?.streamId === right?.streamId &&
+		left?.generation === right?.generation
+	);
+}
+
+function createBridgeActiveViewerModeSessionId(): string {
+	return `active-viewer-${crypto.randomUUID()}`;
 }

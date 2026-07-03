@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
 
+import type { BridgeActiveViewerSource } from '../bridge/bridge-rpc-client.js';
 import type { WorktreeFileDescriptor } from '../features/worktree-file/models/worktree-file-protocol-models.js';
 import {
 	BridgeFileViewerApp,
@@ -19,6 +20,7 @@ export interface BridgeFileViewerModeProps {
 	readonly fileViewerProps?: BridgeFileViewerAppProps;
 	readonly isActive: boolean;
 	readonly navigationCommand?: BridgeViewerNavigationCommand;
+	readonly onActiveSourceChange: (activeSource: BridgeActiveViewerSource | null) => void;
 	readonly onActivateNavigationCommand: (navigationCommand: BridgeViewerNavigationCommand) => void;
 	readonly registerBridgeReadyCallback: (callback: () => void) => () => void;
 	readonly reviewNavigationSource?: Extract<
@@ -31,6 +33,7 @@ export interface BridgeFileViewerModeProps {
 
 export function BridgeFileViewerMode(props: BridgeFileViewerModeProps): ReactElement {
 	const existingOpenReviewComparison = props.fileViewerProps?.onOpenReviewComparison;
+	const onActiveSourceChange = props.onActiveSourceChange;
 	const onActivateNavigationCommand = props.onActivateNavigationCommand;
 	const reviewNavigationSource = props.reviewNavigationSource;
 	const [hasActivatedFileViewerShell, setHasActivatedFileViewerShell] = useState(props.isActive);
@@ -50,14 +53,16 @@ export function BridgeFileViewerMode(props: BridgeFileViewerModeProps): ReactEle
 			return;
 		}
 		fileSurfaceOpenResolvedRef.current = false;
+		onActiveSourceChange(null);
 		setFileSurfaceReopenSignal((signal) => signal + 1);
-	}, []);
+	}, [onActiveSourceChange]);
 	const hasFileViewerFrameSource = props.fileViewerProps !== undefined;
 	const hasActivatedFileViewerController =
 		props.isActive || hasActivatedFileViewerShell || hasFileViewerFrameSource;
 	const controlledFileViewerProps = useBridgeFileViewerFrameControllerProps({
 		enabled: hasActivatedFileViewerController,
 		fileViewerProps: props.fileViewerProps,
+		onSurfaceSourceResolved: onActiveSourceChange,
 		onSurfaceOpenResolved: handleFileSurfaceOpenResolved,
 		reopenSignal: fileSurfaceReopenSignal,
 		waitForBridgeReady: props.registerBridgeReadyCallback,

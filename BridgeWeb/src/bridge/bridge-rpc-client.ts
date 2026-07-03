@@ -7,6 +7,26 @@ import type { BridgeTraceContext } from '../foundation/telemetry/bridge-trace-co
 
 export const bridgeRPCIdSchema = z.union([z.string(), z.number()]);
 
+export const bridgeActiveViewerSourceSchema = z
+	.object({
+		protocol: z.enum(['review', 'worktree-file']),
+		streamId: z.string().min(1),
+		generation: z.number().int().nonnegative(),
+	})
+	.strict();
+
+export const bridgeActiveViewerModeUpdateSchema = z
+	.object({
+		sessionId: z.string().min(1),
+		sequence: z.number().int().positive(),
+		mode: z.enum(['file', 'review']),
+		activeSource: bridgeActiveViewerSourceSchema.nullable(),
+	})
+	.strict();
+
+export type BridgeActiveViewerSource = z.infer<typeof bridgeActiveViewerSourceSchema>;
+export type BridgeActiveViewerModeUpdate = z.infer<typeof bridgeActiveViewerModeUpdateSchema>;
+
 export const bridgeRPCCommandSchema = z.discriminatedUnion('method', [
 	z.object({
 		id: bridgeRPCIdSchema.optional(),
@@ -27,6 +47,11 @@ export const bridgeRPCCommandSchema = z.discriminatedUnion('method', [
 				loaded_by: z.enum(['foreground', 'visible', 'nearby', 'speculative', 'idle']).optional(),
 			})
 			.strict(),
+	}),
+	z.object({
+		id: bridgeRPCIdSchema.optional(),
+		method: z.literal('bridge.activeViewerMode.update'),
+		params: bridgeActiveViewerModeUpdateSchema,
 	}),
 	z.object({
 		id: bridgeRPCIdSchema.optional(),

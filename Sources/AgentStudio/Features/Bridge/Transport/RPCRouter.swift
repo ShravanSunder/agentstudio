@@ -320,7 +320,9 @@ final class RPCRouter {
     }
 
     private static func isPreReadyControlMethod(_ method: String) -> Bool {
-        method == BridgeReadyMethod.method || method == BridgeIntakeReadyMethod.method
+        method == BridgeReadyMethod.method
+            || method == BridgeIntakeReadyMethod.method
+            || method == BridgeActiveViewerModeUpdateMethod.method
     }
 
     private func dispatchBridgeTelemetryBatch(_ request: ParsedRPCRequest) async {

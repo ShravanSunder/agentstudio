@@ -33,6 +33,14 @@ extension BridgePaneController {
         streamId: String,
         generation: Int
     ) async {
+        guard !shouldSuppressWorktreeFileProduction(generation: generation) else {
+            await recordActiveViewerModeSuppression(
+                suppressedProtocolId: "worktree-file",
+                generation: generation,
+                phase: "worktree_file_manifest_prepare"
+            )
+            return
+        }
         let openStartedAt = ContinuousClock.now
         let ignorePolicy = await BridgeWorktreeFileIgnorePolicy.load(rootURL: rootURL)
         let openedSourceWithIgnorePolicy = openedSource.withIgnorePolicy(ignorePolicy)
@@ -64,6 +72,14 @@ extension BridgePaneController {
         }
         activeSource.openedSource = openedSourceWithIgnorePolicy
         activeWorktreeFileSurfaceSource = activeSource
+        guard !shouldSuppressWorktreeFileProduction(generation: generation) else {
+            await recordActiveViewerModeSuppression(
+                suppressedProtocolId: "worktree-file",
+                generation: generation,
+                phase: "worktree_file_manifest_before_register"
+            )
+            return
+        }
         guard let manifestIndex = activeWorktreeFileManifestIndex,
             manifestIndex.generation == generation
         else {

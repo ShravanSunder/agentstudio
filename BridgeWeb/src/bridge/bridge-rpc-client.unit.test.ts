@@ -131,6 +131,53 @@ describe('bridge RPC client', () => {
 		).toBe(false);
 	});
 
+	test('dispatches active viewer mode update notifications', () => {
+		const target = new EventTarget();
+		const sentDetails: unknown[] = [];
+		target.addEventListener('__bridge_command', (event: Event): void => {
+			sentDetails.push(extractEventDetail(event));
+		});
+		const client = createBridgeRPCClient({
+			target,
+			getBridgeNonce: () => 'bridge-nonce',
+			createCommandId: () => 'cmd-active-viewer-mode',
+		});
+
+		const didSend = client.sendCommand({
+			method: 'bridge.activeViewerMode.update',
+			params: {
+				sessionId: 'session-1',
+				sequence: 1,
+				mode: 'file',
+				activeSource: {
+					protocol: 'worktree-file',
+					streamId: 'worktree-file:pane-1',
+					generation: 3,
+				},
+			},
+		});
+
+		expect(didSend).toBe(true);
+		expect(sentDetails).toEqual([
+			{
+				jsonrpc: '2.0',
+				method: 'bridge.activeViewerMode.update',
+				params: {
+					sessionId: 'session-1',
+					sequence: 1,
+					mode: 'file',
+					activeSource: {
+						protocol: 'worktree-file',
+						streamId: 'worktree-file:pane-1',
+						generation: 3,
+					},
+				},
+				__nonce: 'bridge-nonce',
+				__commandId: 'cmd-active-viewer-mode',
+			},
+		]);
+	});
+
 	test('attaches trace context outside params and records generic RPC telemetry', () => {
 		const target = new EventTarget();
 		const sentDetails: unknown[] = [];

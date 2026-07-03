@@ -136,6 +136,14 @@ extension BridgePaneController {
         encodeFrame: @MainActor (Int) async throws -> String?
     ) async -> Bool {
         guard generation == nextReviewGeneration.rawValue else { return true }
+        guard !shouldSuppressReviewProtocolProduction(generation: generation) else {
+            await recordActiveViewerModeSuppression(
+                suppressedProtocolId: "review",
+                generation: generation,
+                phase: "review_delivery"
+            )
+            return true
+        }
         let sequence = consumeNextReviewProtocolSequence()
         do {
             guard let encodedFrame = try await encodeFrame(sequence) else {

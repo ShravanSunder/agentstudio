@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import type { BridgeActiveViewerSource } from '../bridge/bridge-rpc-client.js';
 import type { WorktreeFileProtocolFrame } from '../features/worktree-file/models/worktree-file-protocol-models.js';
 import type { BridgeFileViewerAppProps } from '../file-viewer/bridge-file-viewer-app.js';
 import type {
@@ -20,6 +21,7 @@ interface UseBridgeFileViewerFrameControllerProps {
 	/// the liveness signal so a live healthy stream is NOT re-opened on every
 	/// switch — only a never-resolved (wedged/hung) surface re-opens to recover.
 	readonly onSurfaceOpenResolved?: () => void;
+	readonly onSurfaceSourceResolved?: (activeSource: BridgeActiveViewerSource | null) => void;
 }
 
 interface BridgeFileViewerBufferedSurface {
@@ -39,6 +41,7 @@ export function useBridgeFileViewerFrameControllerProps(
 ): BridgeFileViewerAppProps | undefined {
 	const { enabled, fileViewerProps, onSurfaceOpenResolved, reopenSignal, waitForBridgeReady } =
 		props;
+	const onSurfaceSourceResolved = props.onSurfaceSourceResolved;
 	const fileViewerPropsRef = useRef<BridgeFileViewerAppProps | undefined>(fileViewerProps);
 	const listenersRef = useRef<Set<WorktreeFileFrameSubscriber>>(new Set());
 	const bufferedSurfaceRef = useRef<BridgeFileViewerBufferedSurface>(emptyBufferedSurface);
@@ -124,6 +127,7 @@ export function useBridgeFileViewerFrameControllerProps(
 					};
 					resolveLoadPromise(mergedSurface);
 					setLoadedVersion((version) => version + 1);
+					onSurfaceSourceResolved?.(activeViewerSourceForWorktreeSurface(mergedSurface));
 					onSurfaceOpenResolved?.();
 				})
 				.catch((error: unknown): void => {
@@ -148,6 +152,7 @@ export function useBridgeFileViewerFrameControllerProps(
 		loadInitialFrames,
 		loadInitialSurface,
 		onSurfaceOpenResolved,
+		onSurfaceSourceResolved,
 		// A bumped reopenSignal re-runs this effect, which resets the buffer and
 		// re-issues the surface open — the mode-switch re-announce path.
 		reopenSignal,
@@ -198,4 +203,21 @@ async function loadInitialSurfaceForFileViewerProps(
 		return { frames: await fileViewerProps.loadInitialFrames() };
 	}
 	return { frames: [] };
+}
+
+function activeViewerSourceForWorktreeSurface(
+	surface: WorktreeFileInitialSurface,
+): BridgeActiveViewerSource | null {
+	const identityFrame = surface.frames.find(
+		(frame): boolean =>
+			frame.frameKind === 'worktree.snapshot' || frame.frameKind === 'worktree.reset',
+	);
+	if (identityFrame === undefined) {
+		return null;
+	}
+	return {
+		protocol: 'worktree-file',
+		streamId: identityFrame.streamId,
+		generation: identityFrame.generation,
+	};
 }

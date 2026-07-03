@@ -60,6 +60,17 @@ extension BridgePaneController {
             nextSequence: 0
         )
         activeWorktreeFileManifestIndex = BridgeWorktreeFileManifestIndex(generation: generation)
+        if shouldSuppressWorktreeFileProduction(generation: generation) {
+            await recordActiveViewerModeSuppression(
+                suppressedProtocolId: "worktree-file",
+                generation: generation,
+                phase: "worktree_file_open"
+            )
+            return BridgeWorktreeFileSurfaceOpenSourceOutcome(
+                streamId: streamId,
+                generation: generation
+            )
+        }
         activeWorktreeFileTreeWindowTask = Task { @MainActor [weak self] in
             await self?.prepareInitialWorktreeFileSurfaceMetadata(
                 rootURL: worktree.path,
@@ -165,6 +176,15 @@ extension BridgePaneController {
         else {
             return
         }
+        let generation = activeSource.source.subscriptionGeneration
+        guard !shouldSuppressWorktreeFileProduction(generation: generation) else {
+            await recordActiveViewerModeSuppression(
+                suppressedProtocolId: "worktree-file",
+                generation: generation,
+                phase: "worktree_file_interest"
+            )
+            return
+        }
 
         // Interest is served from the manifest index in O(requested paths):
         // membership comes from the accepted generation manifest (interest is
@@ -189,7 +209,6 @@ extension BridgePaneController {
         }
         await manifestIndex.applyRefreshedRows(refreshed.rows)
         let removedRows = await manifestIndex.removePaths(refreshed.missingPaths)
-        let generation = latestActiveSource.source.subscriptionGeneration
         let lane = params.lane
         if !refreshed.rows.isEmpty {
             let rows = refreshed.rows
@@ -250,6 +269,14 @@ extension BridgePaneController {
         else {
             return true
         }
+        guard !shouldSuppressWorktreeFileProduction(generation: generation) else {
+            await recordActiveViewerModeSuppression(
+                suppressedProtocolId: "worktree-file",
+                generation: generation,
+                phase: "worktree_file_delivery"
+            )
+            return true
+        }
         guard
             let sequence = try? reserveWorktreeFileSurfaceSequenceBlock(
                 count: 1,
@@ -275,6 +302,14 @@ extension BridgePaneController {
             return
         }
         let generation = activeSource.source.subscriptionGeneration
+        guard !shouldSuppressWorktreeFileProduction(generation: generation) else {
+            await recordActiveViewerModeSuppression(
+                suppressedProtocolId: "worktree-file",
+                generation: generation,
+                phase: "worktree_file_status_publish"
+            )
+            return
+        }
         await enqueueWorktreeFileMetadataJob(lane: .active, generation: generation) { [weak self] in
             guard let self else { return true }
             return await self.deliverWorktreeFileFrameJob(generation: generation) { current, sequence in
@@ -295,6 +330,15 @@ extension BridgePaneController {
             return
         }
         guard activeSource.source.subscriptionGeneration == nextWorktreeFileSurfaceGeneration else {
+            return
+        }
+        let generation = activeSource.source.subscriptionGeneration
+        guard !shouldSuppressWorktreeFileProduction(generation: generation) else {
+            await recordActiveViewerModeSuppression(
+                suppressedProtocolId: "worktree-file",
+                generation: generation,
+                phase: "worktree_file_changeset_publish"
+            )
             return
         }
         let scopedChangedPaths = changeset.paths.filter { path in
@@ -346,7 +390,6 @@ extension BridgePaneController {
             latestActiveSource: latestActiveSource,
             rootURL: rootURL
         )
-        let generation = latestActiveSource.source.subscriptionGeneration
         let invalidationFrameCount = scopedChangeset.paths.filter { !Self.isWorktreeFileGitInternalPath($0) }.count
         guard invalidationFrameCount > 0 else {
             if changeset.containsGitInternalChanges {
@@ -386,6 +429,14 @@ extension BridgePaneController {
     ) async {
         await enqueueWorktreeFileMetadataJob(lane: .active, generation: generation) { [weak self] in
             guard let self else { return true }
+            guard !self.shouldSuppressWorktreeFileProduction(generation: generation) else {
+                await self.recordActiveViewerModeSuppression(
+                    suppressedProtocolId: "worktree-file",
+                    generation: generation,
+                    phase: "worktree_file_changeset_delivery"
+                )
+                return true
+            }
             guard let current = self.activeWorktreeFileSurfaceSource,
                 current.source.subscriptionGeneration == generation,
                 generation == self.nextWorktreeFileSurfaceGeneration,

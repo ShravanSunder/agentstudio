@@ -158,6 +158,14 @@ extension BridgePaneController {
         generation: Int,
         work: @escaping @MainActor @Sendable () async -> Bool
     ) async {
+        guard !shouldSuppressWorktreeFileProduction(generation: generation) else {
+            await recordActiveViewerModeSuppression(
+                suppressedProtocolId: "worktree-file",
+                generation: generation,
+                phase: "worktree_file_enqueue"
+            )
+            return
+        }
         await worktreeFileMetadataScheduler.enqueue(
             BridgeMetadataLaneJob(
                 protocolId: "worktree-file",
