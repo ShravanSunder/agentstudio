@@ -759,14 +759,12 @@ describe('BridgeApp review metadata delta materialization', () => {
 		});
 	});
 
-	test('preserves resolved content handles when a metadata delta omits descriptor refs', () => {
+	test('does not preserve stale modified content handles when metadata deltas omit descriptor refs', () => {
 		const reviewPackage = makeBridgeReviewPackage();
 		const currentItem = reviewPackage.itemsById['item-source'];
 		if (currentItem === undefined) {
 			throw new Error('Expected modified source item');
 		}
-		const resolvedBaseHandle = currentItem.contentRoles.base;
-		const resolvedHeadHandle = currentItem.contentRoles.head;
 		const deltaItem = makeReviewProjectionInputItem({
 			itemId: currentItem.itemId,
 			path: currentItem.headPath ?? 'Sources/App/Source.swift',
@@ -787,15 +785,8 @@ describe('BridgeApp review metadata delta materialization', () => {
 			deltaFrame,
 		});
 
-		// A metadata-only re-touch (no fresher descriptor for a role) must NOT null a resolved
-		// content descriptor. The role handles + contentHash carry forward until a fresher descriptor
-		// replaces them, so already-loaded content is not dropped by the content-validity gate.
-		expect(nextReviewPackage?.itemsById['item-source']?.contentRoles.base).toEqual(
-			resolvedBaseHandle,
-		);
-		expect(nextReviewPackage?.itemsById['item-source']?.contentRoles.head).toEqual(
-			resolvedHeadHandle,
-		);
+		expect(nextReviewPackage?.itemsById['item-source']?.contentRoles.base).toBeNull();
+		expect(nextReviewPackage?.itemsById['item-source']?.contentRoles.head).toBeNull();
 	});
 
 	test('applies same-batch extent facts to appended review items', () => {
