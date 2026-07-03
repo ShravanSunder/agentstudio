@@ -391,6 +391,27 @@ R4 BATCHED DELIVERY. A burst of N enrichment facts across M distinct worktrees
    and ≤1 SwiftUI invalidation pass per affected row. *Before:* N synchronous
    per-fact main-actor writes (`:316-400`).
 
+R4a APPLIER SINGULARITY (compile-time). The only sanctioned bridge from a bus
+   subscription to keyed enrichment atom writes is a repo-owned coalescing
+   applier whose per-envelope accumulate step is nonisolated `@Sendable` and
+   whose sole `@MainActor` step takes the coalesced `[WorktreeId: Pending]`
+   batch. *Proof:* a compile-fail fixture where a `@Sendable` accumulate
+   closure calling `RepoCacheAtom.setWorktreeEnrichment` does not build.
+
+R4b DRAIN-WRITE LINT. The architecture linter (`.error`) flags
+   `setWorktreeEnrichment`/`setPullRequestCount` called inside a `for await`
+   bus-drain loop in `Sources/AgentStudio`, except the applier flush and the
+   atom owner. *Proof:* red on `WorkspaceCacheCoordinator` HEAD shape, green
+   after adoption; paired Bad/Good lint fixtures.
+
+R4c POLICY ORTHOGONALITY. The enrichment subscription keeps
+   `.criticalUnbounded` under the EventBus subscriber-policy spec; coalescing
+   applies after delivery in the consumer. No `.coalesced` `BusSubscriberPolicy`
+   case is added — the same subscription carries ordering-sensitive topology
+   facts that must not become last-writer-wins-lossy. *Proof:* a
+   topology-removal burst stays lossless AND an enrichment burst coalesces to
+   M writes in the same run.
+
 R5 DERIVED MEMOIZATION. With input revisions unmoved across repeated body
    evaluations, `repoAndWorktree`/derived recompute count is 0. *Before:*
    fresh-struct-per-access; 27,919 topology lookups.
@@ -415,6 +436,25 @@ R9 BRIDGE INSULATION UNDER STORM. During a synthetic 180-worktree storm,
    stays below a set bound; demand-executor settle latency is unchanged from
    quiet. *Before:* intake-frame encode on MainActor; queue-wait rose to 35ms
    (1,820ms at boot).
+
+R9a INTAKE-FRAME TYPE SEAM (compile-time). The bridge intake-frame transport
+   accepts only a `PreEncodedIntakeFrame` whose sole constructor is an
+   `@concurrent` factory (private memberwise init); raw `String`/`Data` cannot
+   be delivered as an intake frame. *Proof:* compile-fail fixtures for
+   `deliverIntakeFrame("…")` and for the private `init`.
+
+R9b OFF-MAIN BY CONSTRUCTION. Every intake-frame JSON encode runs through that
+   `@concurrent` factory on the cooperative pool (SE-0461: bare
+   `nonisolated async` inherits the caller's actor — the annotation is
+   load-bearing). *Proof:* isolation unit test that the encode executes off
+   MainActor.
+
+R9c INTAKE-ENCODE LINT. The architecture linter (`.error`) flags
+   `JSONEncoder().encode(…)` under `Features/Bridge/Runtime/` outside an
+   `@concurrent` function (push-plan warm/hot encodes under `State/Push/` are
+   an intentional latency tradeoff and out of scope). *Proof:* red on the
+   HEAD encode sites in `ReviewProtocolResources`/`WorktreeFileIntakeFrames`,
+   green after; paired Bad/Good fixtures.
 
 R10 STORM REDUCTION (felt result). A marked live session at 180 worktrees with a
    synthetic committer shows the steady storm baseline and burst peak reduced
