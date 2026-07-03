@@ -6,143 +6,69 @@ import Testing
 @testable import AgentStudio
 
 @MainActor
-@Suite("MainWindowController inbox toolbar button", .serialized)
+@Suite("Top chrome sidebar controls", .serialized)
 struct MainWindowControllerInboxToolbarButtonTests {
     init() {
         installTestAtomRegistryIfNeeded()
     }
 
-    @Test("bell button is installed next to the sidebar controls")
-    func bellButtonIsInstalled() async {
-        await withMainWindowControllerHarness { harness in
-            let worktreeButton =
-                findDescendant(
-                    in: harness.window,
-                    identifier: "worktreeToolbarButton"
-                ) as? NSButton
-            let bellButton =
-                findDescendant(
-                    in: harness.window,
-                    identifier: "inboxToolbarBell"
-                ) as? NSButton
+    @Test("main window delegates top chrome instead of installing native toolbar controls")
+    func mainWindowDelegatesTopChromeInsteadOfInstallingNativeToolbarControls() throws {
+        let source = try sourceFile("Sources/AgentStudio/App/Windows/MainWindowController.swift")
 
-            #expect(worktreeButton != nil)
-            #expect(bellButton != nil)
-            #expect(bellButton?.image?.accessibilityDescription == "Toggle Inbox")
-        }
+        #expect(source.contains("MainSplitViewController owns the shell-spanning top strip."))
+        #expect(!source.contains("\n        setupToolbar()"))
+        #expect(!source.contains("\n        setupTitlebarAccessory()"))
     }
 
-    @Test("titlebar sidebar controls omit search and leave traffic-light padding")
-    func sidebarControlsOmitSearchAndPadFromTrafficLights() async {
-        await withMainWindowControllerHarness { harness in
-            let accessory =
-                findDescendant(
-                    in: harness.window,
-                    identifier: "sidebarToolbarAccessory"
-                ) as? NSStackView
-            let buttons = accessory?.arrangedSubviews.compactMap { $0 as? SidebarToolbarButton } ?? []
+    @Test("top chrome installs worktree and inbox sidebar buttons")
+    func topChromeInstallsWorktreeAndInboxSidebarButtons() throws {
+        let source = try sourceFile("Sources/AgentStudio/App/Panes/TabBar/ShellTabBarControls.swift")
 
-            #expect(accessory != nil)
-            #expect(accessory?.edgeInsets.left == 22)
-            #expect(buttons.map { $0.identifier?.rawValue } == ["worktreeToolbarButton", "inboxToolbarBell"])
-            #expect(buttons.allSatisfy { $0.currentSymbolName != "magnifyingglass" })
-        }
+        #expect(source.contains("struct SidebarSurfaceTabBarControls: View"))
+        #expect(source.contains("command: .showWorktreeSidebar"))
+        #expect(source.contains("symbolName: \"square.stack.3d.down.right\""))
+        #expect(source.contains("selectedSymbolName: \"square.stack.3d.down.right.fill\""))
+        #expect(source.contains("command: .showInboxNotifications"))
+        #expect(source.contains("symbolName: \"bell\""))
+        #expect(source.contains("selectedSymbolName: \"bell.fill\""))
     }
 
-    @Test("titlebar sidebar controls apply typed AppKit tooltips")
-    func sidebarControlsApplyTypedAppKitTooltips() async {
-        await withMainWindowControllerHarness { harness in
-            let worktreeButton =
-                findDescendant(
-                    in: harness.window,
-                    identifier: "worktreeToolbarButton"
-                ) as? NSButton
-            let bellButton =
-                findDescendant(
-                    in: harness.window,
-                    identifier: "inboxToolbarBell"
-                ) as? NSButton
+    @Test("top chrome sidebar buttons use command specs and dispatch through shared commands")
+    func topChromeSidebarButtonsUseCommandSpecsAndDispatchThroughSharedCommands() throws {
+        let source = try sourceFile("Sources/AgentStudio/App/Panes/TabBar/ShellTabBarControls.swift")
 
-            #expect(
-                worktreeButton?.toolTip
-                    == AppCommand.showWorktreeSidebar.definition.controlTooltipRenderValue().text
-            )
-            #expect(
-                bellButton?.toolTip
-                    == AppCommand.showInboxNotifications.definition.controlTooltipRenderValue().text
-            )
-        }
+        #expect(source.contains("AppCommandDispatcher.shared.definition(for: command)"))
+        #expect(source.contains("AppCommandDispatcher.shared.dispatch(command)"))
+        #expect(source.contains(".help(commandDefinition.controlToolTip)"))
     }
 
-    @Test("sidebar toolbar icons track active surface")
-    func sidebarToolbarIconsTrackActiveSurface() async {
-        await withMainWindowControllerHarness { harness in
-            let worktreeButton =
-                findDescendant(
-                    in: harness.window,
-                    identifier: "worktreeToolbarButton"
-                ) as? NSButton
-            let bellButton =
-                findDescendant(
-                    in: harness.window,
-                    identifier: "inboxToolbarBell"
-                ) as? NSButton
+    @Test("top chrome sidebar icons track open active surface")
+    func topChromeSidebarIconsTrackOpenActiveSurface() throws {
+        let source = try sourceFile("Sources/AgentStudio/App/Panes/TabBar/ShellTabBarControls.swift")
 
-            let worktreeToolbarButton = worktreeButton as? SidebarToolbarButton
-            let inboxToolbarButton = bellButton as? SidebarToolbarButton
-
-            #expect(worktreeToolbarButton?.currentSymbolName == "square.stack.3d.down.right.fill")
-            #expect(inboxToolbarButton?.currentSymbolName == "bell")
-
-            harness.atoms.workspaceSidebarState.setSidebarSurface(.inbox)
-
-            await eventually("inbox toolbar icon should become active") {
-                worktreeToolbarButton?.currentSymbolName == "square.stack.3d.down.right"
-                    && inboxToolbarButton?.currentSymbolName == "bell.fill"
-            }
-        }
+        #expect(source.contains("!sidebarState.sidebarCollapsed"))
+        #expect(source.contains("isSelected: isSidebarOpen && sidebarState.sidebarSurface == .repos"))
+        #expect(source.contains("isSelected: isSidebarOpen && sidebarState.sidebarSurface == .inbox"))
     }
 
-    @Test("clicking bell opens inbox surface")
-    func clickingBellOpensInboxSurface() async {
-        await withMainWindowControllerHarness { harness in
-            let bellButton =
-                findDescendant(
-                    in: harness.window,
-                    identifier: "inboxToolbarBell"
-                ) as? NSButton
+    @Test("top chrome inbox badge reads global roll-up count")
+    func topChromeInboxBadgeReadsGlobalRollUpCount() throws {
+        let source = try sourceFile("Sources/AgentStudio/App/Panes/TabBar/ShellTabBarControls.swift")
 
-            bellButton?.performClick(nil)
-
-            await eventually("inbox bell should switch sidebar surface") {
-                harness.atoms.workspaceSidebarState.sidebarSurface == .inbox
-            }
-        }
+        #expect(source.contains("badgeCount: atom(\\.inboxNotification).globalRollUpAlertCount"))
+        #expect(source.contains("badgeText: badgeCount > 0 ? InboxToolbarUnreadBadgeText.text(for: badgeCount) : nil"))
     }
 
-    @Test("bell unread badge tracks global roll-up alert count")
-    func bellUnreadBadgeTracksRollUpAlertCount() async {
-        let inboxAtom = InboxNotificationAtom()
-        await withMainWindowControllerHarness(inboxAtom: inboxAtom) { harness in
-            let badge = findDescendant(
-                in: harness.window,
-                identifier: "inboxToolbarUnreadBadge"
-            )
-            let oldDot = findDescendant(
-                in: harness.window,
-                identifier: "inboxToolbarBellDot"
-            )
+    @Test("watch folder uses the shared top chrome button")
+    func watchFolderUsesSharedTopChromeButton() throws {
+        let source = try sourceFile("Sources/AgentStudio/App/Panes/TabBar/ShellTabBarControls.swift")
 
-            #expect(badge != nil)
-            #expect(oldDot == nil)
-            #expect(badge?.isHidden == true)
-
-            inboxAtom.append(makeRollUpAlertNotification())
-
-            await eventually("inbox bell badge should become visible") {
-                badge?.isHidden == false
-            }
-        }
+        #expect(source.contains("struct WatchFolderTabBarMenu: View"))
+        #expect(source.contains("AppCommandDispatcher.shared.definition(for: .watchFolder)"))
+        #expect(source.contains("AppCommandDispatcher.shared.dispatch(.watchFolder)"))
+        #expect(source.contains("symbolName: \"folder.badge.plus\""))
+        #expect(source.contains("ChromeToolbarButtonLabel("))
     }
 
     @Test("bell unread badge text caps at ninety nine plus")
@@ -173,58 +99,19 @@ struct MainWindowControllerInboxToolbarButtonTests {
         }
     }
 
-    @Test("bell badge sits in the bell icon top trailing corner")
-    func bellBadgeSitsInBellIconTopTrailingCorner() async throws {
-        let inboxAtom = InboxNotificationAtom()
-        try await withMainWindowControllerHarness(inboxAtom: inboxAtom) { harness in
-            let bellButton = try #require(
-                findDescendant(
-                    in: harness.window,
-                    identifier: "inboxToolbarBell"
-                ) as? NSButton
-            )
-            let badge = try #require(
-                findDescendant(
-                    in: harness.window,
-                    identifier: "inboxToolbarUnreadBadge"
-                )
-            )
-            let badgeAnchor = try #require(
-                findDescendant(
-                    in: harness.window,
-                    identifier: "inboxToolbarBadgeAnchor"
-                )
-            )
+    @Test("badge overlay is anchored to the top trailing corner of shared chrome buttons")
+    func badgeOverlayIsAnchoredToTopTrailingCornerOfSharedChromeButtons() throws {
+        let source = try sourceFile("Sources/AgentStudio/SharedComponents/ChromeToolbarButtonLabel.swift")
 
-            inboxAtom.append(makeRollUpAlertNotification())
-
-            await eventually("inbox bell badge should become visible") {
-                badge.isHidden == false
-            }
-
-            let badgeFrame = badge.convert(badge.bounds, to: badgeAnchor)
-            let anchorFrame = badgeAnchor.convert(badgeAnchor.bounds, to: bellButton)
-
-            #expect(anchorFrame.width == AppStyles.Shell.Sidebar.badgeHitboxSize)
-            #expect(anchorFrame.height == AppStyles.Shell.Sidebar.badgeHitboxSize)
-            #expect(badgeFrame.midX > badgeAnchor.bounds.midX)
-            #expect(badgeFrame.midY > badgeAnchor.bounds.midY)
-            #expect(badgeFrame.minX >= badgeAnchor.bounds.midX - 2)
-            #expect(badgeFrame.maxY <= badgeAnchor.bounds.maxY + AppStyles.Shell.Sidebar.badgeOffset + 8)
-        }
+        #expect(source.contains(".overlay(alignment: .topTrailing)"))
+        #expect(source.contains("UnreadCountBadge(text: badgeText)"))
+        #expect(source.contains("AppStyles.Shell.Chrome.ToolbarButton.badgeOffsetX"))
+        #expect(source.contains("AppStyles.Shell.Chrome.ToolbarButton.badgeOffsetY"))
     }
 
-    private func makeRollUpAlertNotification() -> InboxNotification {
-        InboxNotification(
-            id: UUID(),
-            timestamp: Date(timeIntervalSince1970: 100),
-            kind: .approvalRequested,
-            title: "Approval requested",
-            body: nil,
-            source: .global,
-            isRead: false,
-            isDismissedFromPaneInbox: false
-        )
+    private func sourceFile(_ relativePath: String) throws -> String {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        return try String(contentsOf: projectRoot.appending(path: relativePath), encoding: .utf8)
     }
 }
 

@@ -10,7 +10,6 @@ private let workspaceSettingsStoreLogger = Logger(
 @MainActor
 final class WorkspaceSettingsStore {
     private let editorPreferenceAtom: EditorPreferenceAtom
-    private let sidebarCheckoutColorAtom: SidebarCheckoutColorAtom
     private let inboxNotificationPrefsAtom: InboxNotificationPrefsAtom
     private let workspacesDir: URL
     private let legacyPersistor: WorkspacePersistor
@@ -30,7 +29,6 @@ final class WorkspaceSettingsStore {
 
     init(
         editorPreferenceAtom: EditorPreferenceAtom,
-        sidebarCheckoutColorAtom: SidebarCheckoutColorAtom,
         inboxNotificationPrefsAtom: InboxNotificationPrefsAtom,
         workspacesDir: URL = AppDataPaths.workspacesDirectory(),
         legacyPersistor: WorkspacePersistor? = nil,
@@ -40,7 +38,6 @@ final class WorkspaceSettingsStore {
         recoveryReporter: PersistenceRecoveryReporter? = nil
     ) {
         self.editorPreferenceAtom = editorPreferenceAtom
-        self.sidebarCheckoutColorAtom = sidebarCheckoutColorAtom
         self.inboxNotificationPrefsAtom = inboxNotificationPrefsAtom
         self.workspacesDir = workspacesDir
         self.legacyPersistor = legacyPersistor ?? WorkspacePersistor(workspacesDir: workspacesDir)
@@ -109,7 +106,6 @@ final class WorkspaceSettingsStore {
         isObservingSettings = true
         withObservationTracking {
             _ = editorPreferenceAtom.bookmarkedEditorId
-            _ = sidebarCheckoutColorAtom.checkoutColors
             _ = inboxNotificationPrefsAtom.grouping
             _ = inboxNotificationPrefsAtom.sort
             _ = inboxNotificationPrefsAtom.bellEnabled
@@ -161,7 +157,7 @@ final class WorkspaceSettingsStore {
         .init(
             workspaceId: workspaceId,
             editorChooser: .init(bookmarkedEditorId: editorPreferenceAtom.bookmarkedEditorId),
-            sidebar: .init(checkoutColors: sidebarCheckoutColorAtom.checkoutColors),
+            sidebar: .init(),
             notifications: .init(
                 grouping: inboxNotificationPrefsAtom.grouping,
                 sort: inboxNotificationPrefsAtom.sort,
@@ -176,7 +172,6 @@ final class WorkspaceSettingsStore {
 
     private func hydrate(from payload: WorkspaceSettingsPayload) {
         editorPreferenceAtom.hydrate(bookmarkedEditorId: payload.editorChooser.bookmarkedEditorId)
-        sidebarCheckoutColorAtom.hydrate(checkoutColors: payload.sidebar.checkoutColors)
         inboxNotificationPrefsAtom.setGrouping(payload.notifications.grouping)
         inboxNotificationPrefsAtom.setSort(payload.notifications.sort)
         inboxNotificationPrefsAtom.setBellEnabled(payload.notifications.bellEnabled)
@@ -188,7 +183,6 @@ final class WorkspaceSettingsStore {
 
     private func hydrateDefaults() {
         editorPreferenceAtom.clear()
-        sidebarCheckoutColorAtom.clear()
         inboxNotificationPrefsAtom.setGrouping(.byTab)
         inboxNotificationPrefsAtom.setSort(.newestFirst)
         inboxNotificationPrefsAtom.setBellEnabled(false)
@@ -269,12 +263,6 @@ final class WorkspaceSettingsStore {
             uiState.workspaceId == workspaceId
         {
             payload.editorChooser.bookmarkedEditorId = uiState.editorChooserState.bookmarkedEditorId
-            importedAnySlice = true
-        }
-        if case .loaded(let sidebarCache) = legacyPersistor.loadSidebarCache(for: workspaceId),
-            sidebarCache.workspaceId == workspaceId
-        {
-            payload.sidebar.checkoutColors = sidebarCache.checkoutColors
             importedAnySlice = true
         }
         if let legacyNotificationPrefs = loadLegacyNotificationPrefs(for: workspaceId) {
@@ -488,11 +476,7 @@ private struct WorkspaceSettingsPayload: Codable {
     }
 
     struct Sidebar: Codable {
-        var checkoutColors: [SidebarCheckoutColorKey: String]
-
-        init(checkoutColors: [SidebarCheckoutColorKey: String] = [:]) {
-            self.checkoutColors = checkoutColors
-        }
+        init() {}
 
         private enum CodingKeys: String, CodingKey {
             case checkoutColors
@@ -500,20 +484,11 @@ private struct WorkspaceSettingsPayload: Codable {
 
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
-            let rawCheckoutColors = try container.decodeIfPresent([String: String].self, forKey: .checkoutColors) ?? [:]
-            self.checkoutColors = Dictionary(
-                uniqueKeysWithValues: rawCheckoutColors.map { key, value in
-                    (SidebarCheckoutColorKey(key), value)
-                }
-            )
+            _ = try container.decodeIfPresent([String: String].self, forKey: .checkoutColors)
         }
 
         func encode(to encoder: Encoder) throws {
-            var container = encoder.container(keyedBy: CodingKeys.self)
-            try container.encode(
-                Dictionary(uniqueKeysWithValues: checkoutColors.map { key, value in (key.rawValue, value) }),
-                forKey: .checkoutColors
-            )
+            _ = encoder.container(keyedBy: CodingKeys.self)
         }
     }
 

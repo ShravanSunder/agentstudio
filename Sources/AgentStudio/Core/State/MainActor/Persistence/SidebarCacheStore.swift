@@ -197,8 +197,7 @@ final class SidebarCacheStore {
         try persistor.saveSidebarCache(
             .init(
                 workspaceId: workspaceId,
-                expandedGroups: atom.expandedGroups,
-                checkoutColors: [:]
+                expandedGroups: atom.expandedGroups
             )
         )
     }

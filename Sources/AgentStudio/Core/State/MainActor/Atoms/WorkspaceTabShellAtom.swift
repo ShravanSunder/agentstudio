@@ -4,6 +4,11 @@ import os.log
 
 private let workspaceTabShellLogger = Logger(subsystem: "com.agentstudio", category: "WorkspaceTabShellAtom")
 
+enum WorkspaceTabShellAtomError: Error, Equatable {
+    case tabNotFound(UUID)
+    case invalidTabColorHex(String)
+}
+
 @MainActor
 @Observable
 final class WorkspaceTabShellAtom {
@@ -19,7 +24,7 @@ final class WorkspaceTabShellAtom {
     }
 
     func hydrate(persistedTabs: [Tab], activeTabId: UUID?) {
-        tabShells = persistedTabs.map { TabShell(id: $0.id, name: $0.name) }
+        tabShells = persistedTabs.map { TabShell(id: $0.id, name: $0.name, colorHex: $0.colorHex) }
         cursorAtom.hydrate(activeTabId: activeTabId, availableTabIds: tabShells.map(\.id))
     }
 
@@ -90,5 +95,22 @@ final class WorkspaceTabShellAtom {
         }
         guard tabShells[tabIndex].name != Tab.normalizedName(name) else { return }
         tabShells[tabIndex].rename(to: name)
+    }
+
+    func setTabColorHex(_ colorHex: String?, tabId: UUID) throws {
+        guard let tabIndex = tabShells.firstIndex(where: { $0.id == tabId }) else {
+            throw WorkspaceTabShellAtomError.tabNotFound(tabId)
+        }
+        let canonicalColorHex = try colorHex.map(Self.validatedTabColorHex(_:))
+        guard tabShells[tabIndex].colorHex != canonicalColorHex else { return }
+        tabShells[tabIndex].setColorHex(canonicalColorHex)
+    }
+
+    private static func validatedTabColorHex(_ colorHex: String) throws -> String {
+        let canonicalColorHex = colorHex.uppercased()
+        guard canonicalColorHex.range(of: "^#[0-9A-F]{6}$", options: .regularExpression) != nil else {
+            throw WorkspaceTabShellAtomError.invalidTabColorHex(colorHex)
+        }
+        return canonicalColorHex
     }
 }

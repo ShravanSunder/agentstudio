@@ -105,7 +105,8 @@ actor ForgeActor {
     func start() async {
         if subscriptionTask == nil {
             let stream = await runtimeBus.subscribe(
-                bufferingPolicy: .bufferingNewest(subscriptionBufferLimit)
+                policy: .lossyNewest(subscriptionBufferLimit),
+                subscriberName: "ForgeActor"
             )
             subscriptionTask = Task { [weak self] in
                 for await runtimeEnvelope in stream {

@@ -141,8 +141,7 @@ struct WelcomeSidebarIllustration: View {
                     onOpenNew: {},
                     onReview: {},
                     onOpenFiles: {},
-                    onOpenInPane: {},
-                    onSetIconColor: { _ in }
+                    onOpenInPane: {}
                 )
                 .padding(.leading, AppStyles.Shell.Sidebar.groupChildRowLeadingInset)
 
@@ -158,8 +157,7 @@ struct WelcomeSidebarIllustration: View {
                     onOpenNew: {},
                     onReview: {},
                     onOpenFiles: {},
-                    onOpenInPane: {},
-                    onSetIconColor: { _ in }
+                    onOpenInPane: {}
                 )
                 .padding(.leading, AppStyles.Shell.Sidebar.groupChildRowLeadingInset)
 
@@ -175,8 +173,7 @@ struct WelcomeSidebarIllustration: View {
                     onOpenNew: {},
                     onReview: {},
                     onOpenFiles: {},
-                    onOpenInPane: {},
-                    onSetIconColor: { _ in }
+                    onOpenInPane: {}
                 )
                 .padding(.leading, AppStyles.Shell.Sidebar.groupChildRowLeadingInset)
             }
@@ -206,8 +203,7 @@ struct WelcomeSidebarIllustration: View {
                     onOpenNew: {},
                     onReview: {},
                     onOpenFiles: {},
-                    onOpenInPane: {},
-                    onSetIconColor: { _ in }
+                    onOpenInPane: {}
                 )
                 .padding(.leading, AppStyles.Shell.Sidebar.groupChildRowLeadingInset)
 
@@ -223,8 +219,7 @@ struct WelcomeSidebarIllustration: View {
                     onOpenNew: {},
                     onReview: {},
                     onOpenFiles: {},
-                    onOpenInPane: {},
-                    onSetIconColor: { _ in }
+                    onOpenInPane: {}
                 )
                 .padding(.leading, AppStyles.Shell.Sidebar.groupChildRowLeadingInset)
             }

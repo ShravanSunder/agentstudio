@@ -8,7 +8,7 @@ struct RuntimeEnvelopeHarnessTests {
     @Test("topology and worktree envelope helpers preserve typed event families")
     func envelopeHelpersPreserveFamilies() async {
         let harness = EventBusHarness<RuntimeEnvelope>()
-        let subscriber = await harness.makeSubscriber(bufferingPolicy: .unbounded)
+        let subscriber = await harness.makeSubscriber(policy: .criticalUnbounded)
 
         _ = await harness.post(
             RuntimeEnvelopeHarness.topologyEnvelope(

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import SwiftUI
 import os.log
@@ -31,7 +32,7 @@ struct InboxNotificationSidebarView: View {
     let sidebarCache: SidebarCacheState
     let inboxSidebarState: InboxSidebarState
     let workspacePaneAtom: WorkspacePaneAtom
-    let workspaceRepositoryTopologyAtom: WorkspaceRepositoryTopologyAtom
+    let workspaceRepositoryTopologyAtom: RepositoryTopologyAtom
     let repoCache: RepoCacheAtom
     let dispatcher: AppCommandDispatcher
     let onRefocusActivePane: @MainActor @Sendable () -> Void
@@ -54,7 +55,7 @@ struct InboxNotificationSidebarView: View {
         sidebarCache: SidebarCacheState,
         inboxSidebarState: InboxSidebarState,
         workspacePaneAtom: WorkspacePaneAtom,
-        workspaceRepositoryTopologyAtom: WorkspaceRepositoryTopologyAtom,
+        workspaceRepositoryTopologyAtom: RepositoryTopologyAtom,
         repoCache: RepoCacheAtom,
         dispatcher: AppCommandDispatcher,
         onRefocusActivePane: @escaping @MainActor @Sendable () -> Void
@@ -75,8 +76,7 @@ struct InboxNotificationSidebarView: View {
         )
         let initialRepoPresentationByRepoId = Self.repoPresentationByRepoId(
             repos: workspaceRepositoryTopologyAtom.repos,
-            repoEnrichmentByRepoId: initialRepoEnrichmentByRepoId,
-            checkoutColors: sidebarCache.checkoutColors
+            repoEnrichmentByRepoId: initialRepoEnrichmentByRepoId
         )
         let initialKey = InboxNotificationListModelKey(
             notifications: inboxAtom.notifications,
@@ -187,8 +187,7 @@ struct InboxNotificationSidebarView: View {
             repoEnrichmentByRepoId: Self.repoEnrichmentByRepoId(
                 repos: workspaceRepositoryTopologyAtom.repos,
                 repoCache: repoCache
-            ),
-            checkoutColors: sidebarCache.checkoutColors
+            )
         )
     }
 
@@ -255,8 +254,7 @@ struct InboxNotificationSidebarView: View {
 
     static func repoPresentationByRepoId(
         repos: [Repo],
-        repoEnrichmentByRepoId: [UUID: RepoEnrichment],
-        checkoutColors: [SidebarCheckoutColorKey: String]
+        repoEnrichmentByRepoId: [UUID: RepoEnrichment]
     ) -> [UUID: InboxNotificationRepoGroupPresentation] {
         let sidebarRepos = repos.map(RepoPresentationItem.init(repo:))
         let repoMetadataById = RepoPresentationColoring.buildRepoMetadata(
@@ -267,11 +265,6 @@ struct InboxNotificationSidebarView: View {
             repos: sidebarRepos,
             metadataByRepoId: repoMetadataById
         )
-        let checkoutColorOverrides = Dictionary(
-            uniqueKeysWithValues: checkoutColors.map { key, value in
-                (key.rawValue, value)
-            }
-        )
         let originalReposByGroupId = Dictionary(grouping: sidebarRepos) { repo in
             repoMetadataById[repo.id]?.groupKey ?? "path:\(repo.repoPath.standardizedFileURL.path)"
         }
@@ -279,8 +272,7 @@ struct InboxNotificationSidebarView: View {
         var presentationsByRepoId: [UUID: InboxNotificationRepoGroupPresentation] = [:]
         for group in resolvedGroups {
             let sourceGroupAccentColorHex = RepoPresentationColoring.sourceGroupColorHex(
-                for: group,
-                checkoutColorOverrides: checkoutColorOverrides
+                for: group
             )
             for repo in originalReposByGroupId[group.id] ?? group.repos {
                 presentationsByRepoId[repo.id] = InboxNotificationRepoGroupPresentation(
@@ -435,6 +427,8 @@ struct InboxNotificationSidebarView: View {
             }
         case .focusPane(let paneId):
             dispatcher.dispatch(.focusPane, target: paneId, targetType: .pane)
+        case .openFullDiskAccessSettings:
+            NSWorkspace.shared.open(FullDiskAccessSettings.url)
         }
     }
 }

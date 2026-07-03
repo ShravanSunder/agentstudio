@@ -18,7 +18,7 @@ struct SwiftPaneRuntimeTests {
         )
         runtime.transitionToReady()
 
-        let busStream = await paneEventBus.subscribe()
+        let busStream = await paneEventBus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         var busIterator = busStream.makeAsyncIterator()
 
         let openCommandId = UUID()
@@ -123,7 +123,7 @@ struct SwiftPaneRuntimeTests {
 
         try "print(\"after\")\n".write(to: tempFile, atomically: true, encoding: .utf8)
 
-        let busStream = await paneEventBus.subscribe()
+        let busStream = await paneEventBus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         var busIterator = busStream.makeAsyncIterator()
 
         let revertCommandId = UUID()

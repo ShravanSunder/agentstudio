@@ -145,7 +145,7 @@ struct GitWorkingDirectoryProjectorTests {
         )
         await actor.start()
 
-        let stream = await bus.subscribe()
+        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         var iterator = stream.makeAsyncIterator()
 
         let worktreeId = UUID()
@@ -3033,7 +3033,7 @@ struct GitWorkingDirectoryProjectorTests {
         on bus: EventBus<RuntimeEnvelope>,
         observed: ObservedGitEvents
     ) async -> Task<Void, Never> {
-        let stream = await bus.subscribe()
+        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         return Task {
             for await envelope in stream {
                 await observed.record(envelope)

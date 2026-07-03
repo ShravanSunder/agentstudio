@@ -47,7 +47,8 @@ struct TerminalActivityDerivedEventTests {
     @Test("scrollback growth does not emit unseen activity before quiet")
     func scrollbackGrowthDoesNotEmitUnseenActivityBeforeQuiet() async {
         let bus = EventBus<RuntimeEnvelope>()
-        let subscriber = RecordingSubscriber(stream: await bus.subscribe())
+        let subscriber = RecordingSubscriber(
+            subscription: await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function))
         let atom = TerminalActivityAtom(outputBurstThreshold: 30)
         let clock = TestPushClock()
         let router = TerminalActivityRouter(
@@ -78,7 +79,8 @@ struct TerminalActivityDerivedEventTests {
     @Test("scrollback growth emits one settled activity after quiet")
     func scrollbackGrowthEmitsOneSettledActivityAfterQuiet() async throws {
         let bus = EventBus<RuntimeEnvelope>()
-        let subscriber = RecordingSubscriber(stream: await bus.subscribe())
+        let subscriber = RecordingSubscriber(
+            subscription: await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function))
         let atom = TerminalActivityAtom(outputBurstThreshold: 30)
         let clock = TestPushClock()
         let nowMilliseconds = MillisecondBox(2000)
@@ -136,7 +138,8 @@ struct TerminalActivityDerivedEventTests {
     @Test("observing pane before quiet cancels settled activity")
     func observingPaneBeforeQuietCancelsSettledActivity() async {
         let bus = EventBus<RuntimeEnvelope>()
-        let subscriber = RecordingSubscriber(stream: await bus.subscribe())
+        let subscriber = RecordingSubscriber(
+            subscription: await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function))
         let atom = TerminalActivityAtom(outputBurstThreshold: 30)
         let clock = TestPushClock()
         let paneId = PaneId()
@@ -192,7 +195,8 @@ struct TerminalActivityDerivedEventTests {
     @Test("settled activity events use independent monotonic source sequence")
     func settledActivityEventsUseIndependentMonotonicSourceSequence() async {
         let bus = EventBus<RuntimeEnvelope>()
-        let subscriber = RecordingSubscriber(stream: await bus.subscribe())
+        let subscriber = RecordingSubscriber(
+            subscription: await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function))
         let atom = TerminalActivityAtom(outputBurstThreshold: 30)
         let clock = TestPushClock()
         let router = TerminalActivityRouter(

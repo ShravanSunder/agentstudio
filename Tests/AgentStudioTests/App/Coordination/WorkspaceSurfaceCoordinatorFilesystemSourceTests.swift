@@ -153,7 +153,7 @@ struct WorkspaceSurfaceCoordinatorFilesystemSourceTests {
         )
         defer { Task { await coordinator.shutdown() } }
 
-        await source.waitForAssertTopologyCount(atLeast: 2)
+        await coordinator.waitForFilesystemRootsAndActivitySyncIdle()
 
         let operations = await source.operations()
         let topologyAssertions = operations.compactMap(\.assertedTopologyWorktreeIds)
@@ -341,7 +341,7 @@ private struct FilesystemCoordinatorHarness {
     let tempDir: URL
 
     func makeSubscriber() async -> RecordingSubscriber<RuntimeEnvelope> {
-        let stream = await bus.subscribe()
+        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         return RecordingSubscriber(stream: stream)
     }
 

@@ -384,18 +384,16 @@ final class PaneTests {
 
         #expect(metadata.title == "Terminal")
         #expect((metadata.cwd) == nil)
-        #expect(metadata.tags.isEmpty)
     }
 
     @Test
 
-    func test_metadata_codable_roundTrip_withTags() throws {
+    func test_metadata_codable_roundTrip_withFacets() throws {
         let metadata = PaneMetadata(
             launchDirectory: URL(fileURLWithPath: "/tmp"),
             title: "Tagged",
             facets: PaneContextFacets(
-                cwd: URL(fileURLWithPath: "/home/user"),
-                tags: ["focus", "dev"]
+                cwd: URL(fileURLWithPath: "/home/user")
             )
         )
 
@@ -404,7 +402,6 @@ final class PaneTests {
         let decoded = try JSONDecoder().decode(PaneMetadata.self, from: data)
 
         #expect(decoded.title == "Tagged")
-        #expect(decoded.tags == ["focus", "dev"])
         #expect(decoded.cwd == URL(fileURLWithPath: "/home/user"))
     }
 

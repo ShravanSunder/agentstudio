@@ -45,6 +45,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     var performanceTraceRecorder: AgentStudioPerformanceTraceRecorder!
     var startupTraceRecorder: AgentStudioStartupTraceRecorder!
     var repoCacheStore: RepoCacheStore!
+    var repositoryTopologyStore: RepositoryTopologyStore!
     var sidebarCacheStore: SidebarCacheStore!
     var uiStateStore: UIStateStore!
     var workspaceSettingsStore: WorkspaceSettingsStore!
@@ -178,6 +179,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
         RestoreTrace.log("appDidFinishLaunching: end")
         runStartupDiagnosticActionIfRequested()
+        scheduleFullDiskAccessHealthCheck()
     }
 
     isolated deinit {
@@ -693,14 +695,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
         viewMenu.addItem(menuItem(command: .openWebview, action: #selector(openWebviewAction)))
 
-        viewMenu.addItem(NSMenuItem.separator())
-
-        // Full Screen uses ⌃⌘F (not ⇧⌘F) to avoid conflict with Filter Sidebar
-        viewMenu.addItem(
-            NSMenuItem(title: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f")
-        )
-        viewMenu.items.last?.keyEquivalentModifierMask = [.command, .control]
-
         let viewMenuItem = NSMenuItem()
         viewMenuItem.submenu = viewMenu
         mainMenu.addItem(viewMenuItem)
@@ -799,7 +793,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let sidebarExpandTask = Task { @MainActor [weak self] in
             guard let self else { return }
             let normalizedRoot = rootURL.standardizedFileURL.path
-            await PaneRuntimeEventBus.shared.waitForFirst { envelope -> Void? in
+            await PaneRuntimeEventBus.shared.waitForFirst(
+                policy: .lossyNewest(BusSubscriberPolicy.standardLossyBufferLimit),
+                subscriberName: "AppDelegate.folderScanSidebarExpansion"
+            ) { envelope -> Void? in
                 guard case .system(let sys) = envelope,
                     case .topology(let topologyEvent) = sys.event
                 else {

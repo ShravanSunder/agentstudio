@@ -5,7 +5,7 @@ import Foundation
 @MainActor
 extension WorkspaceStore {
     convenience init(
-        catalogAtom: WorkspaceRepositoryTopologyAtom,
+        catalogAtom: RepositoryTopologyAtom,
         graphAtom: WorkspacePaneAtom,
         interactionAtom: WorkspaceTabLayoutAtom,
         persistor: WorkspacePersistor = WorkspacePersistor(),
@@ -45,7 +45,7 @@ extension WorkspaceStore {
     var orphanedPanes: [Pane] { paneAtom.orphanedPanes(excluding: tabLayoutAtom.allPaneIds) }
 
     var graphAtom: WorkspacePaneAtom { paneAtom }
-    var catalogAtom: WorkspaceRepositoryTopologyAtom { repositoryTopologyAtom }
+    var catalogAtom: RepositoryTopologyAtom { repositoryTopologyAtom }
     var interactionAtom: WorkspaceTabLayoutAtom { tabLayoutAtom }
     var tabShellStateAtom: WorkspaceTabShellAtom { tabShellAtom }
     var tabArrangementStateAtom: WorkspaceTabArrangementAtom { tabArrangementAtom }

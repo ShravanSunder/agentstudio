@@ -153,7 +153,6 @@ struct RepoExplorerWorktreeRow: View {
     let onReview: () -> Void
     let onOpenFiles: () -> Void
     let onOpenInPane: () -> Void
-    let onSetIconColor: (String?) -> Void
     static let rowChromePolicy = SidebarRowShell<RepoExplorerWorktreeRowContent>.chromePolicy
 
     @State private var isHovering = false
@@ -233,20 +232,6 @@ struct RepoExplorerWorktreeRow: View {
                 PathActions.copyPath(worktree.path)
             } label: {
                 menuLabel(actionSpec: LocalActionSpec.copyPath.actionSpec)
-            }
-
-            Divider()
-
-            Menu(LocalActionSpec.setIconColorMenu.actionSpec.label) {
-                ForEach(RepoPresentationGrouping.colorPresets, id: \.hex) { preset in
-                    Button(preset.name) {
-                        onSetIconColor(preset.hex)
-                    }
-                }
-                Divider()
-                Button(LocalActionSpec.resetIconColorDefault.actionSpec.label) {
-                    onSetIconColor(nil)
-                }
             }
         }
     }

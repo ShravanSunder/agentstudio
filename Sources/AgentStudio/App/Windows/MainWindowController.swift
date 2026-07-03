@@ -57,6 +57,16 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         window.backgroundColor = AppStyles.Shell.TabBar.titlebarBackground
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
+        window.isMovable = false
+        window.isMovableByWindowBackground = false
+        for buttonType in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+            window.standardWindowButton(buttonType)?.isHidden = false
+            window.standardWindowButton(buttonType)?.isEnabled = true
+        }
+        window.collectionBehavior.remove(.fullScreenPrimary)
+        window.collectionBehavior.remove(.fullScreenAuxiliary)
+        window.collectionBehavior.insert(.fullScreenNone)
+        window.collectionBehavior.insert(.fullScreenDisallowsTiling)
         window.minSize = NSSize(width: 720, height: 600)
         window.isRestorable = false
 
@@ -96,9 +106,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         self.splitViewController = splitVC
         window.contentViewController = splitVC
 
-        // Set up titlebar and toolbar
-        setupTitlebarAccessory()
-        setupToolbar()
+        // MainSplitViewController owns the shell-spanning top strip.
     }
 
     // MARK: - NSWindowDelegate (frame persistence)
@@ -234,12 +242,13 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
 
     private func updateSidebarToolbarIcons() {
         guard let uiState else { return }
+        let sidebarIsOpen = !uiState.sidebarCollapsed
         let worktreeSymbol =
-            uiState.sidebarSurface == .repos
+            sidebarIsOpen && uiState.sidebarSurface == .repos
             ? "square.stack.3d.down.right.fill"
             : "square.stack.3d.down.right"
         let inboxSymbol =
-            uiState.sidebarSurface == .inbox
+            sidebarIsOpen && uiState.sidebarSurface == .inbox
             ? "bell.fill"
             : "bell"
 
@@ -286,6 +295,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         isObservingSidebarSurface = true
         withObservationTracking {
             _ = uiState.sidebarSurface
+            _ = uiState.sidebarCollapsed
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -362,6 +372,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         toolbar.delegate = self
         toolbar.displayMode = .iconOnly
         toolbar.allowsUserCustomization = false
+        toolbar.allowsDisplayModeCustomization = false
         window?.toolbar = toolbar
         window?.toolbarStyle = .unified
     }
@@ -464,27 +475,31 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         item.paletteLabel = definition.actionSpec.label
         item.applyControlTooltip(definition.controlTooltipRenderValue())
 
-        let button = NSButton(
-            title: definition.actionSpec.label,
-            target: self,
-            action: action
-        )
-        button.bezelStyle = .rounded
-        button.bezelColor = .systemTeal
-        button.controlSize = .regular
+        let buttonSize = AppStyles.Shell.Titlebar.buttonSize
+        let button = NSButton(frame: NSRect(x: 0, y: 0, width: buttonSize, height: buttonSize))
+        button.title = ""
+        button.target = self
+        button.action = action
+        button.bezelStyle = .accessoryBarAction
+        button.isBordered = false
+        button.imagePosition = .imageOnly
+        button.applyControlTooltip(definition.controlTooltipRenderValue())
+        button.setAccessibilityLabel(definition.actionSpec.label)
 
         if case .system(let systemName) = definition.actionSpec.icon {
-            button.image = NSImage(
+            let image = NSImage(
                 systemSymbolName: systemName.rawValue,
                 accessibilityDescription: definition.actionSpec.label
             )
+            button.image =
+                image?.withSymbolConfiguration(
+                    NSImage.SymbolConfiguration(
+                        pointSize: AppStyles.Shell.Titlebar.iconSize,
+                        weight: .medium
+                    )
+                ) ?? image
         }
 
-        button.imagePosition = .imageLeading
-        button.attributedTitle = NSAttributedString(
-            string: "  " + definition.actionSpec.label,
-            attributes: [.font: NSFont.systemFont(ofSize: NSFont.systemFontSize)]
-        )
         item.view = button
         return item
     }
@@ -496,8 +511,6 @@ extension MainWindowController: NSToolbarDelegate {
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         [
             .flexibleSpace,
-            .managementLayer,
-            .space,
             .watchFolder,
         ]
     }
@@ -511,16 +524,6 @@ extension MainWindowController: NSToolbarDelegate {
         willBeInsertedIntoToolbar flag: Bool
     ) -> NSToolbarItem? {
         switch itemIdentifier {
-        case .managementLayer:
-            let presentation = AppCommandDispatcher.shared.definition(for: .toggleManagementLayer).actionSpec
-            let item = NSToolbarItem(itemIdentifier: itemIdentifier)
-            item.label = presentation.label
-            item.paletteLabel = presentation.label
-            // SwiftUI hosting for reactive toggle state
-            let hostingView = NSHostingView(rootView: ManagementLayerToolbarButton())
-            hostingView.sizingOptions = .intrinsicContentSize
-            item.view = hostingView
-            return item
         case .watchFolder:
             return commandToolbarButtonItem(for: .watchFolder, action: #selector(watchFolderAction))
 

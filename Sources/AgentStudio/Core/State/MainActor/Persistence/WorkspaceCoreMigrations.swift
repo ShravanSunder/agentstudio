@@ -25,6 +25,7 @@ enum WorkspaceCoreMigrations {
         ("007_stage_workspace_sqlite_snapshot_status", stageWorkspaceSQLiteSnapshotStatusStatements),
         ("008_add_zmx_session_id", addZmxSessionIdStatements),
         ("009_drop_pane_source_binding", dropPaneSourceBindingStatements),
+        ("010_repository_topology_tags_and_tab_color", repositoryTopologyTagsAndTabColorStatements),
     ]
 
     private static func execute(_ statements: [String], on database: Database) throws {
@@ -372,13 +373,6 @@ enum WorkspaceCoreMigrations {
             pane_id TEXT PRIMARY KEY REFERENCES pane(id) ON DELETE CASCADE,
             payload_kind TEXT NOT NULL,
             payload_json TEXT NOT NULL
-        )
-        """,
-        """
-        CREATE TABLE pane_tag (
-            pane_id TEXT NOT NULL REFERENCES pane(id) ON DELETE CASCADE,
-            tag TEXT NOT NULL,
-            PRIMARY KEY(pane_id, tag)
         )
         """,
         """

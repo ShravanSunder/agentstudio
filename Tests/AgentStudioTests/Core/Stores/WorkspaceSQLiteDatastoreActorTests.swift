@@ -21,11 +21,13 @@ struct WorkspaceSQLiteDatastoreActorTests {
             probe: { event in await recorder.record(event) }
         )
 
-        try await datastore.saveWorkspaceSnapshot(
-            .emptyFixture(
-                id: workspaceId,
-                name: "Datastore",
-                updatedAt: Date(timeIntervalSince1970: 2)
+        try await datastore.saveWorkspaceSnapshotBundle(
+            .emptyTopologyFixture(
+                workspace: .emptyFixture(
+                    id: workspaceId,
+                    name: "Datastore",
+                    updatedAt: Date(timeIntervalSince1970: 2)
+                )
             )
         )
 
@@ -47,7 +49,9 @@ struct WorkspaceSQLiteDatastoreActorTests {
             traceRuntime: traceRuntime
         )
 
-        try await datastore.saveWorkspaceSnapshot(.emptyFixture(id: workspaceId, name: "Trace Save"))
+        try await datastore.saveWorkspaceSnapshotBundle(
+            .emptyTopologyFixture(workspace: .emptyFixture(id: workspaceId, name: "Trace Save"))
+        )
         try await traceRuntime.flush()
 
         let contents = try persistenceTraceContents(from: traceRuntime)
@@ -78,8 +82,10 @@ struct WorkspaceSQLiteDatastoreActorTests {
         )
 
         do {
-            try await datastore.saveWorkspaceSnapshot(
-                .snapshotWithArrangementPaneMissingFromTab(workspaceId: workspaceId)
+            try await datastore.saveWorkspaceSnapshotBundle(
+                .emptyTopologyFixture(
+                    workspace: .snapshotWithArrangementPaneMissingFromTab(workspaceId: workspaceId)
+                )
             )
             Issue.record("Expected workspace save validation failure")
         } catch {
@@ -116,7 +122,9 @@ struct WorkspaceSQLiteDatastoreActorTests {
         )
 
         do {
-            try await datastore.saveWorkspaceSnapshot(.emptyFixture(id: workspaceId, name: "Local Open Failure"))
+            try await datastore.saveWorkspaceSnapshotBundle(
+                .emptyTopologyFixture(workspace: .emptyFixture(id: workspaceId, name: "Local Open Failure"))
+            )
             Issue.record("Expected local repository open failure")
         } catch is CocoaError {
         } catch {
@@ -147,7 +155,9 @@ struct WorkspaceSQLiteDatastoreActorTests {
             traceRuntime: traceRuntime
         )
 
-        try await datastore.saveWorkspaceSnapshot(.emptyFixture(id: workspaceId, name: "Trace Cache Warmup"))
+        try await datastore.saveWorkspaceSnapshotBundle(
+            .emptyTopologyFixture(workspace: .emptyFixture(id: workspaceId, name: "Trace Cache Warmup"))
+        )
         try await datastore.saveUIState(
             .init(
                 filterText: "repos",
@@ -181,10 +191,128 @@ struct WorkspaceSQLiteDatastoreActorTests {
             probe: { event in await recorder.record(event) }
         )
 
-        try await datastore.saveWorkspaceSnapshot(.emptyFixture(id: workspaceId, name: "One"))
-        try await datastore.saveWorkspaceSnapshot(.emptyFixture(id: workspaceId, name: "Two"))
+        try await datastore.saveWorkspaceSnapshotBundle(
+            .emptyTopologyFixture(workspace: .emptyFixture(id: workspaceId, name: "One"))
+        )
+        try await datastore.saveWorkspaceSnapshotBundle(
+            .emptyTopologyFixture(workspace: .emptyFixture(id: workspaceId, name: "Two"))
+        )
 
         #expect(await recorder.events.filter { $0 == .localRepositoryOpened(workspaceId, .save) }.count == 1)
+    }
+
+    @Test("workspace snapshot bundle saves are serialized")
+    func workspaceSnapshotBundleSavesAreSerialized() async throws {
+        let workspaceId = UUID()
+        let coreQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
+            label: "AgentStudio.sqlite.datastore.serial-save.core")
+        let localQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
+            label: "AgentStudio.sqlite.datastore.serial-save.local")
+        try WorkspaceCoreMigrations.migrate(coreQueue)
+        try WorkspaceLocalMigrations.migrate(localQueue)
+        let saveGate = DatastoreFirstSaveGate()
+        let datastore = WorkspaceSQLiteDatastore(
+            coreRepository: WorkspaceCoreRepository(databaseWriter: coreQueue),
+            makeLocalRepository: { WorkspaceLocalRepository(workspaceId: $0, databaseWriter: localQueue) },
+            probe: { event in
+                guard event == .saveWorkspaceSnapshot else { return }
+                await saveGate.pauseFirstSave()
+            }
+        )
+
+        let firstSave = Task {
+            try await datastore.saveWorkspaceSnapshotBundle(
+                .emptyFixture(
+                    id: workspaceId,
+                    name: "Older Save",
+                    updatedAt: Date(timeIntervalSince1970: 10)
+                )
+            )
+        }
+        await saveGate.waitUntilFirstSavePaused()
+        let secondSave = Task {
+            try await datastore.saveWorkspaceSnapshotBundle(
+                .emptyFixture(
+                    id: workspaceId,
+                    name: "Newer Save",
+                    updatedAt: Date(timeIntervalSince1970: 20)
+                )
+            )
+        }
+
+        await saveGate.releaseFirstSave()
+        try await firstSave.value
+        try await secondSave.value
+        let loaded = await datastore.loadWorkspaceSnapshot(preferredWorkspaceId: workspaceId)
+
+        guard case .loaded(let snapshot, _) = loaded else {
+            Issue.record("Expected loaded snapshot after serialized saves, got \(loaded)")
+            return
+        }
+        #expect(snapshot.name == "Newer Save")
+        #expect(snapshot.updatedAt == Date(timeIntervalSince1970: 20))
+    }
+
+    @Test("queued workspace snapshot bundle save still runs after previous save failure")
+    func queuedWorkspaceSnapshotBundleSaveStillRunsAfterPreviousSaveFailure() async throws {
+        let workspaceId = UUID()
+        let coreQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
+            label: "AgentStudio.sqlite.datastore.serial-save-failure.core")
+        let localQueue = try SQLiteDatabaseFactory.makeInMemoryQueue(
+            label: "AgentStudio.sqlite.datastore.serial-save-failure.local")
+        try WorkspaceCoreMigrations.migrate(coreQueue)
+        try WorkspaceLocalMigrations.migrate(localQueue)
+        let saveGate = DatastoreFirstSaveGate()
+        let localRepositoryFactory = FailableDatastoreLocalRepositoryFactory(
+            localQueue: localQueue,
+            initialFailureCount: 1
+        )
+        let datastore = WorkspaceSQLiteDatastore(
+            coreRepository: WorkspaceCoreRepository(databaseWriter: coreQueue),
+            makeLocalRepository: { try localRepositoryFactory.make(workspaceId: $0) },
+            probe: { event in
+                guard event == .saveWorkspaceSnapshot else { return }
+                await saveGate.pauseFirstSave()
+            }
+        )
+
+        let firstSave = Task {
+            try await datastore.saveWorkspaceSnapshotBundle(
+                .emptyFixture(
+                    id: workspaceId,
+                    name: "Failing Older Save",
+                    updatedAt: Date(timeIntervalSince1970: 10)
+                )
+            )
+        }
+        await saveGate.waitUntilFirstSavePaused()
+        let secondSave = Task {
+            try await datastore.saveWorkspaceSnapshotBundle(
+                .emptyFixture(
+                    id: workspaceId,
+                    name: "Recovered Newer Save",
+                    updatedAt: Date(timeIntervalSince1970: 20)
+                )
+            )
+        }
+
+        await saveGate.releaseFirstSave()
+        do {
+            try await firstSave.value
+            Issue.record("Expected first queued save to fail")
+        } catch is CocoaError {
+        } catch {
+            Issue.record("Expected CocoaError, got \(error)")
+        }
+        try await secondSave.value
+        let loaded = await datastore.loadWorkspaceSnapshot(preferredWorkspaceId: workspaceId)
+
+        guard case .loaded(let snapshot, _) = loaded else {
+            Issue.record("Expected loaded snapshot after queued failure recovery, got \(loaded)")
+            return
+        }
+        #expect(snapshot.name == "Recovered Newer Save")
+        #expect(snapshot.updatedAt == Date(timeIntervalSince1970: 20))
     }
 
     @Test("local repository is cached by workspace id across production load")
@@ -203,7 +331,9 @@ struct WorkspaceSQLiteDatastoreActorTests {
             probe: { event in await recorder.record(event) }
         )
 
-        try await datastore.saveWorkspaceSnapshot(.emptyFixture(id: workspaceId, name: "Loaded"))
+        try await datastore.saveWorkspaceSnapshotBundle(
+            .emptyTopologyFixture(workspace: .emptyFixture(id: workspaceId, name: "Loaded"))
+        )
         _ = await datastore.loadWorkspaceSnapshot(preferredWorkspaceId: workspaceId)
 
         #expect(await recorder.events.filter { $0 == .localRepositoryOpened(workspaceId, .save) }.count == 1)
@@ -230,7 +360,9 @@ struct WorkspaceSQLiteDatastoreActorTests {
             makeLocalRepository: { WorkspaceLocalRepository(workspaceId: $0, databaseWriter: seedLocalQueue) }
         )
         let updatedAt = Date(timeIntervalSince1970: 3)
-        try seedBackend.save(.emptyFixture(id: workspaceId, name: "Repair", updatedAt: updatedAt))
+        try seedBackend.save(
+            .emptyTopologyFixture(workspace: .emptyFixture(id: workspaceId, name: "Repair", updatedAt: updatedAt))
+        )
         let recorder = DatastoreProbeRecorder()
         let datastore = WorkspaceSQLiteDatastore(
             coreRepository: coreRepository,
@@ -266,7 +398,9 @@ struct WorkspaceSQLiteDatastoreActorTests {
             coreRepository: coreRepository,
             makeLocalRepository: { WorkspaceLocalRepository(workspaceId: $0, databaseWriter: seedLocalQueue) }
         )
-        try seedBackend.save(.emptyFixture(id: workspaceId, name: "Recovered"))
+        try seedBackend.save(
+            .emptyTopologyFixture(workspace: .emptyFixture(id: workspaceId, name: "Recovered"))
+        )
         let datastore = WorkspaceSQLiteDatastore(
             coreRepository: coreRepository,
             makeLocalRepository: { WorkspaceLocalRepository(workspaceId: $0, databaseWriter: repairLocalQueue) },
@@ -304,7 +438,9 @@ struct WorkspaceSQLiteDatastoreActorTests {
         )
 
         #expect(await datastore.inspectWorkspaceRows() == .empty)
-        try await datastore.saveWorkspaceSnapshot(.emptyFixture(id: workspaceId, name: "Status"))
+        try await datastore.saveWorkspaceSnapshotBundle(
+            .emptyTopologyFixture(workspace: .emptyFixture(id: workspaceId, name: "Status"))
+        )
         #expect(await datastore.inspectWorkspaceRows() == .hasWorkspaceRows)
         guard
             case .completed(true, let recoveryEvents) = await datastore.completedSnapshotStatus(
@@ -360,8 +496,8 @@ struct WorkspaceSQLiteDatastoreActorTests {
         )
         do {
             let seedDatastore = factory.makeDatastore()
-            try await seedDatastore.saveWorkspaceSnapshot(
-                .emptyFixture(id: workspaceId, name: "Local Quarantine")
+            try await seedDatastore.saveWorkspaceSnapshotBundle(
+                .emptyTopologyFixture(workspace: .emptyFixture(id: workspaceId, name: "Local Quarantine"))
             )
         }
         try Data("not a sqlite database".utf8).write(to: localSQLiteURL)
@@ -396,8 +532,8 @@ struct WorkspaceSQLiteDatastoreActorTests {
             coreDatabaseURL: coreSQLiteURL,
             localDatabaseURL: { _ in localSQLiteURL }
         )
-        try await seedFactory.makeDatastore().saveWorkspaceSnapshot(
-            .emptyFixture(id: workspaceId, name: "Local Quarantine Trace")
+        try await seedFactory.makeDatastore().saveWorkspaceSnapshotBundle(
+            .emptyTopologyFixture(workspace: .emptyFixture(id: workspaceId, name: "Local Quarantine Trace"))
         )
         try Data("not a sqlite database".utf8).write(to: localSQLiteURL)
         let traceRuntime = makePersistenceTraceRuntime(tags: "persistence.recovery")
@@ -430,14 +566,14 @@ struct WorkspaceSQLiteDatastoreActorTests {
             coreDatabaseURL: coreSQLiteURL,
             localDatabaseURL: { _ in localSQLiteURL }
         )
-        try await factory.makeDatastore().saveWorkspaceSnapshot(
-            .emptyFixture(id: workspaceId, name: "Before Corruption")
+        try await factory.makeDatastore().saveWorkspaceSnapshotBundle(
+            .emptyTopologyFixture(workspace: .emptyFixture(id: workspaceId, name: "Before Corruption"))
         )
         try Data("not a sqlite database".utf8).write(to: localSQLiteURL)
         let saveDatastore = factory.makeDatastore()
 
-        try await saveDatastore.saveWorkspaceSnapshot(
-            .emptyFixture(id: workspaceId, name: "Saved After Quarantine")
+        try await saveDatastore.saveWorkspaceSnapshotBundle(
+            .emptyTopologyFixture(workspace: .emptyFixture(id: workspaceId, name: "Saved After Quarantine"))
         )
         let result = await saveDatastore.loadWorkspaceSnapshot(preferredWorkspaceId: workspaceId)
 
@@ -473,11 +609,13 @@ struct WorkspaceSQLiteDatastoreActorTests {
         )
 
         do {
-            try await failingDatastore.saveWorkspaceSnapshot(
-                .emptyFixture(
-                    id: workspaceId,
-                    name: "Staged For Actor Recovery",
-                    updatedAt: Date(timeIntervalSince1970: 20)
+            try await failingDatastore.saveWorkspaceSnapshotBundle(
+                .emptyTopologyFixture(
+                    workspace: .emptyFixture(
+                        id: workspaceId,
+                        name: "Staged For Actor Recovery",
+                        updatedAt: Date(timeIntervalSince1970: 20)
+                    )
                 )
             )
             Issue.record("Expected local save failure")
@@ -529,11 +667,13 @@ struct WorkspaceSQLiteDatastoreActorTests {
                 )
             }
         )
-        try await completingDatastore.saveWorkspaceSnapshot(
-            .emptyFixture(
-                id: completedWorkspaceId,
-                name: "Completed Workspace",
-                updatedAt: Date(timeIntervalSince1970: 10)
+        try await completingDatastore.saveWorkspaceSnapshotBundle(
+            .emptyTopologyFixture(
+                workspace: .emptyFixture(
+                    id: completedWorkspaceId,
+                    name: "Completed Workspace",
+                    updatedAt: Date(timeIntervalSince1970: 10)
+                )
             )
         )
         let failingDatastore = WorkspaceSQLiteDatastore(
@@ -541,11 +681,13 @@ struct WorkspaceSQLiteDatastoreActorTests {
             makeLocalRepository: { _ in throw CocoaError(.fileNoSuchFile) }
         )
         do {
-            try await failingDatastore.saveWorkspaceSnapshot(
-                .emptyFixture(
-                    id: stagedWorkspaceId,
-                    name: "Active Staged Workspace",
-                    updatedAt: Date(timeIntervalSince1970: 20)
+            try await failingDatastore.saveWorkspaceSnapshotBundle(
+                .emptyTopologyFixture(
+                    workspace: .emptyFixture(
+                        id: stagedWorkspaceId,
+                        name: "Active Staged Workspace",
+                        updatedAt: Date(timeIntervalSince1970: 20)
+                    )
                 )
             )
             Issue.record("Expected local save failure")
@@ -591,7 +733,7 @@ struct WorkspaceSQLiteDatastoreActorTests {
             }
         ).makeDatastore()
         try await datastore.saveImportedLegacySnapshot(
-            .emptyFixture(id: workspaceId, name: "Imported"),
+            .emptyTopologyFixture(workspace: .emptyFixture(id: workspaceId, name: "Imported")),
             sourceStatePath: "legacy/workspace.state.json"
         )
         try await datastore.markLegacyWorkspaceCompanionImportsCompleted(
@@ -610,11 +752,60 @@ struct WorkspaceSQLiteDatastoreActorTests {
     }
 }
 
+private final class FailableDatastoreLocalRepositoryFactory: @unchecked Sendable {
+    private let localQueue: DatabaseWriter
+    private let lock = NSLock()
+    private var remainingFailureCount: Int
+
+    init(localQueue: DatabaseWriter, initialFailureCount: Int) {
+        self.localQueue = localQueue
+        remainingFailureCount = initialFailureCount
+    }
+
+    func make(workspaceId: UUID) throws -> WorkspaceLocalRepository {
+        lock.lock()
+        defer { lock.unlock() }
+        if remainingFailureCount > 0 {
+            remainingFailureCount -= 1
+            throw CocoaError(.fileNoSuchFile)
+        }
+        return WorkspaceLocalRepository(workspaceId: workspaceId, databaseWriter: localQueue)
+    }
+}
+
 private actor DatastoreProbeRecorder {
     private(set) var events: [WorkspaceSQLiteDatastore.ProbeEvent] = []
 
     func record(_ event: WorkspaceSQLiteDatastore.ProbeEvent) {
         events.append(event)
+    }
+}
+
+private actor DatastoreFirstSaveGate {
+    private var pauseContinuation: CheckedContinuation<Void, Never>?
+    private var pausedContinuation: CheckedContinuation<Void, Never>?
+    private var didPause = false
+
+    func pauseFirstSave() async {
+        guard !didPause else { return }
+        didPause = true
+        await withCheckedContinuation { continuation in
+            pauseContinuation = continuation
+            pausedContinuation?.resume()
+            pausedContinuation = nil
+        }
+    }
+
+    func waitUntilFirstSavePaused() async {
+        guard !didPause else { return }
+        await withCheckedContinuation { continuation in
+            pausedContinuation = continuation
+        }
+    }
+
+    func releaseFirstSave() {
+        pauseContinuation?.resume()
+        pauseContinuation = nil
     }
 }
 

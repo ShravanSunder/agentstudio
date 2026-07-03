@@ -20,6 +20,7 @@ struct CIFastLaneWorkflowTests {
         #expect(ciWorkflow.contains("SWIFT_BUILD_DIR: .build-ci"))
         #expect(ciWorkflow.contains("path: .build-ci"))
         #expect(prebuildStep.contains("SWIFT_TEST_TIMEOUT_SECONDS: \"600\""))
+        #expect(prebuildStep.contains("SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS: \"900\""))
         #expect(prebuildStep.contains("run: mise run test-prebuild"))
         #expect(fastLaneStep.contains("SWIFT_TEST_WORKERS: \"4\""))
         #expect(fastLaneStep.contains("SWIFT_TEST_SKIP_PREBUILD: \"1\""))

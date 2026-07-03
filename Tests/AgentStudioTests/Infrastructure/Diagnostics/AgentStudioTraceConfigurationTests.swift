@@ -90,8 +90,17 @@ struct AgentStudioTraceConfigurationTests {
     func tagSelectionSupportsPrefixWildcards() {
         let selection = AgentStudioTraceTag.parseSelection("terminal.*")
 
-        #expect(selection.tags == [.terminalActivity, .terminalSignal, .terminalStartup])
+        #expect(selection.tags == [.terminalActivity, .terminalSignal, .terminalStartup, .terminalTCC])
         #expect(selection.unknownSelectors.isEmpty)
+    }
+
+    @Test
+    func terminalTCCTraceTagParsesAsExplicitOptInLane() {
+        let selection = AgentStudioTraceTag.parseSelection("terminal.tcc")
+
+        #expect(selection.tags == [.terminalTCC])
+        #expect(selection.unknownSelectors.isEmpty)
+        #expect(!AgentStudioTraceConfiguration.safeDefaultTags.contains(.terminalTCC))
     }
 
     @Test
@@ -113,6 +122,7 @@ struct AgentStudioTraceConfigurationTests {
         #expect(terminalSelection.tags.contains(.terminalStartup))
         #expect(terminalSelection.tags.contains(.terminalActivity))
         #expect(terminalSelection.tags.contains(.terminalSignal))
+        #expect(terminalSelection.tags.contains(.terminalTCC))
         #expect(!terminalSelection.tags.contains(.persistenceOperation))
         #expect(appSelection.unknownSelectors.isEmpty)
         #expect(terminalSelection.unknownSelectors.isEmpty)

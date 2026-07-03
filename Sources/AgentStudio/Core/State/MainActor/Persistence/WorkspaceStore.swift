@@ -4,6 +4,10 @@ import os.log
 
 private let workspaceStoreLogger = Logger(subsystem: "com.agentstudio", category: "WorkspaceStore")
 
+enum WorkspaceStoreError: Error {
+    case missingSQLiteSaveCoordinator
+}
+
 /// Main-actor persistence aggregate for the workspace atoms.
 ///
 /// This type owns debounced persistence, restore, and flush. Workspace-domain
@@ -12,7 +16,7 @@ private let workspaceStoreLogger = Logger(subsystem: "com.agentstudio", category
 final class WorkspaceStore {
     let identityAtom: WorkspaceIdentityAtom
     let windowMemoryAtom: WorkspaceWindowMemoryAtom
-    let repositoryTopologyAtom: WorkspaceRepositoryTopologyAtom
+    let repositoryTopologyAtom: RepositoryTopologyAtom
     let paneGraphAtom: WorkspacePaneGraphAtom
     let drawerCursorAtom: WorkspaceDrawerCursorAtom
     let paneAtom: WorkspacePaneAtom
@@ -27,6 +31,8 @@ final class WorkspaceStore {
 
     let persistor: WorkspacePersistor
     private let sqliteDatastore: WorkspaceSQLiteDatastore?
+    private let repositoryTopologyStore: RepositoryTopologyStore?
+    private let sqliteSaveCoordinator: WorkspaceSQLiteSaveCoordinator?
     private let persistDebounceDuration: Duration
     private let delay: AsyncDelay
     let recoveryReporter: PersistenceRecoveryReporter?
@@ -39,7 +45,7 @@ final class WorkspaceStore {
     init(
         identityAtom: WorkspaceIdentityAtom = WorkspaceIdentityAtom(),
         windowMemoryAtom: WorkspaceWindowMemoryAtom = WorkspaceWindowMemoryAtom(),
-        repositoryTopologyAtom: WorkspaceRepositoryTopologyAtom = WorkspaceRepositoryTopologyAtom(),
+        repositoryTopologyAtom: RepositoryTopologyAtom = RepositoryTopologyAtom(),
         paneGraphAtom: WorkspacePaneGraphAtom = WorkspacePaneGraphAtom(),
         drawerCursorAtom: WorkspaceDrawerCursorAtom = WorkspaceDrawerCursorAtom(),
         paneAtom: WorkspacePaneAtom? = nil,
@@ -49,12 +55,20 @@ final class WorkspaceStore {
         mutationCoordinator: WorkspaceMutationCoordinator? = nil,
         persistor: WorkspacePersistor = WorkspacePersistor(),
         sqliteDatastore: WorkspaceSQLiteDatastore? = nil,
+        repositoryTopologyStore: RepositoryTopologyStore? = nil,
+        sqliteSaveCoordinator: WorkspaceSQLiteSaveCoordinator? = nil,
         persistDebounceDuration: Duration = .milliseconds(500),
         clock: (any Clock<Duration> & Sendable)? = nil,
         recoveryReporter: PersistenceRecoveryReporter? = nil
     ) {
         let resolvedTabShellAtom = tabLayoutAtom?.shellAtom ?? tabShellAtom
         let resolvedTabArrangementAtom = tabLayoutAtom?.arrangementAtom ?? tabArrangementAtom
+        let resolvedTabLayoutAtom =
+            tabLayoutAtom
+            ?? WorkspaceTabLayoutAtom(
+                shellAtom: resolvedTabShellAtom,
+                arrangementAtom: resolvedTabArrangementAtom
+            )
         let resolvedPaneAtom =
             paneAtom
             ?? WorkspacePaneAtom(
@@ -74,12 +88,7 @@ final class WorkspaceStore {
         self.tabGraphAtom = resolvedTabArrangementAtom.graphAtom
         self.arrangementCursorAtom = resolvedTabArrangementAtom.cursorAtom
         self.panePresentationAtom = resolvedTabArrangementAtom.presentationAtom
-        self.tabLayoutAtom =
-            tabLayoutAtom
-            ?? WorkspaceTabLayoutAtom(
-                shellAtom: resolvedTabShellAtom,
-                arrangementAtom: resolvedTabArrangementAtom
-            )
+        self.tabLayoutAtom = resolvedTabLayoutAtom
         self.mutationCoordinator =
             mutationCoordinator
             ?? WorkspaceMutationCoordinator(
@@ -88,8 +97,34 @@ final class WorkspaceStore {
                 workspaceTabShellAtom: resolvedTabShellAtom,
                 workspaceTabArrangementAtom: resolvedTabArrangementAtom
             )
+        let resolvedSQLiteSaveCoordinator =
+            sqliteSaveCoordinator
+            ?? sqliteDatastore.map { datastore in
+                WorkspaceSQLiteSaveCoordinator(
+                    identityAtom: identityAtom,
+                    windowMemoryAtom: windowMemoryAtom,
+                    repositoryTopologyAtom: repositoryTopologyAtom,
+                    workspacePaneAtom: resolvedPaneAtom,
+                    workspaceTabLayoutAtom: resolvedTabLayoutAtom,
+                    sqliteDatastore: datastore
+                )
+            }
+        let resolvedRepositoryTopologyStore =
+            repositoryTopologyStore
+            ?? sqliteDatastore.map { datastore in
+                RepositoryTopologyStore(
+                    atom: repositoryTopologyAtom,
+                    sqliteDatastore: datastore,
+                    saveCoordinator: resolvedSQLiteSaveCoordinator,
+                    persistDebounceDuration: persistDebounceDuration,
+                    clock: clock,
+                    recoveryReporter: recoveryReporter
+                )
+            }
         self.persistor = persistor
         self.sqliteDatastore = sqliteDatastore
+        self.repositoryTopologyStore = resolvedRepositoryTopologyStore
+        self.sqliteSaveCoordinator = resolvedSQLiteSaveCoordinator
         self.persistDebounceDuration = persistDebounceDuration
         delay = clock.map(AsyncDelay.clock) ?? .taskSleep
         self.recoveryReporter = recoveryReporter
@@ -271,9 +306,6 @@ final class WorkspaceStore {
             _ = identityAtom.createdAt
             _ = windowMemoryAtom.sidebarWidth
             _ = windowMemoryAtom.windowFrame
-            _ = repositoryTopologyAtom.repos
-            _ = repositoryTopologyAtom.watchedPaths
-            _ = repositoryTopologyAtom.unavailableRepoIds
             _ = paneGraphAtom.paneStates
             _ = drawerCursorAtom.expandedDrawerId
             _ = tabShellAtom.tabShells
@@ -326,19 +358,19 @@ final class WorkspaceStore {
     private func persistNow(shouldReportSaveFailure: Bool = true) async -> WorkspaceStoreFlushOutcome {
         let persistedAt = Date()
         do {
-            if let sqliteDatastore {
+            if sqliteDatastore != nil {
                 prePersistHook?()
-                let snapshotResult = WorkspacePersistenceTransformer.makeLiveSQLiteSnapshotResult(
-                    identityAtom: identityAtom,
-                    windowMemoryAtom: windowMemoryAtom,
-                    repositoryTopologyAtom: repositoryTopologyAtom,
-                    workspacePaneAtom: paneAtom,
-                    workspaceTabLayoutAtom: tabLayoutAtom,
-                    persistedAt: persistedAt
+                guard let sqliteSaveCoordinator else {
+                    throw WorkspaceStoreError.missingSQLiteSaveCoordinator
+                }
+                let saveResult = try await sqliteSaveCoordinator.save(persistedAt: persistedAt)
+                applyLiveSQLiteTabRepairIfNeeded(
+                    WorkspaceLiveSQLiteSnapshotResult(
+                        snapshot: saveResult.bundle.workspace,
+                        repairReport: saveResult.repairReport
+                    )
                 )
-                try await sqliteDatastore.saveWorkspaceSnapshot(snapshotResult.snapshot)
-                applyLiveSQLiteTabRepairIfNeeded(snapshotResult)
-                reportTabMembershipRepairIfNeeded(snapshotResult.repairReport)
+                reportTabMembershipRepairIfNeeded(saveResult.repairReport)
             } else {
                 return persistLegacyJSONSnapshot(persistedAt: persistedAt)
             }
@@ -371,7 +403,8 @@ final class WorkspaceStore {
         switch await sqliteDatastore.loadWorkspaceSnapshot(preferredWorkspaceId: identityAtom.workspaceId) {
         case .loaded(let snapshot, let recoveryEvents):
             let state = WorkspacePersistenceTransformer.persistableState(from: snapshot)
-            let repairReport = hydrateWorkspaceState(state)
+            await repositoryTopologyStore?.restoreAsync(for: snapshot.id)
+            let repairReport = hydrateWorkspaceStateFromSQLite(state)
             workspaceStoreLogger.info(
                 "Restored SQLite workspace '\(state.name)' with \(self.paneAtom.panes.count) pane(s), \(self.tabLayoutAtom.tabs.count) tab(s)"
             )
@@ -390,6 +423,23 @@ final class WorkspaceStore {
     func hydrateWorkspaceState(_ state: WorkspacePersistor.PersistableState) -> WorkspaceTabMembershipRepairReport {
         isRestoringState = true
         let repairReport = WorkspacePersistenceTransformer.hydrate(
+            state,
+            identityAtom: identityAtom,
+            windowMemoryAtom: windowMemoryAtom,
+            repositoryTopologyAtom: repositoryTopologyAtom,
+            workspacePaneAtom: paneAtom,
+            workspaceTabLayoutAtom: tabLayoutAtom
+        )
+        isRestoringState = false
+        return repairReport
+    }
+
+    @discardableResult
+    private func hydrateWorkspaceStateFromSQLite(
+        _ state: WorkspacePersistor.PersistableState
+    ) -> WorkspaceTabMembershipRepairReport {
+        isRestoringState = true
+        let repairReport = WorkspacePersistenceTransformer.hydrateWorkspaceOnly(
             state,
             identityAtom: identityAtom,
             windowMemoryAtom: windowMemoryAtom,

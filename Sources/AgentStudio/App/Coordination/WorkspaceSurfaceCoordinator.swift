@@ -325,8 +325,11 @@ final class WorkspaceSurfaceCoordinator {
         guard paneEventIngressTask == nil else { return }
         paneEventIngressTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            let stream = await self.paneEventBus.subscribe()
-            for await envelope in stream {
+            let subscription = await self.paneEventBus.subscribe(
+                policy: .criticalUnbounded,
+                subscriberName: "WorkspaceSurfaceCoordinator"
+            )
+            for await envelope in subscription {
                 if Task.isCancelled { break }
                 self.runtimeEventReducer.submit(envelope)
             }

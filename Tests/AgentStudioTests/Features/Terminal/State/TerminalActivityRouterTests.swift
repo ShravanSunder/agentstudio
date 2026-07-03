@@ -680,6 +680,9 @@ struct TerminalActivityRouterTests {
                 )
             )
         }
+        await assertEventuallyMain("terminal activity router should consume decreasing scrollbar totals") {
+            atom.snapshot(for: paneId.uuid)?.scrollbarState?.total == 80
+        }
 
         await router.stop()
 

@@ -28,6 +28,7 @@ enum AgentStudioTraceTag: String, CaseIterable, Codable, Sendable {
     case terminalActivity = "terminal.activity"
     case terminalSignal = "terminal.signal"
     case terminalStartup = "terminal.startup"
+    case terminalTCC = "terminal.tcc"
     case uiInteraction = "ui.interaction"
     case uiSurface = "ui.surface"
 

@@ -28,18 +28,81 @@ struct ApplicationEntrypointArchitectureTests {
         let appDelegateSource = try String(contentsOf: appDelegateURL, encoding: .utf8)
         let workspaceBootSource = try String(contentsOf: workspaceBootURL, encoding: .utf8)
 
+        let preferencesBootstrapIndex = try #require(
+            mainSource.range(of: "let globalPreferences = GlobalPreferencesBootstrap.load()")?.lowerBound)
         let traceBootstrapIndex = try #require(
-            mainSource.range(of: "let traceRuntime = AgentStudioTraceRuntime.fromEnvironment()")?.lowerBound)
+            mainSource.range(of: "let traceRuntime = AgentStudioTraceRuntime.fromEnvironment(")?.lowerBound)
+        let preferenceTraceIndex = try #require(
+            mainSource.range(
+                of: "GlobalPreferencesStartupTelemetry.recordLoaded(globalPreferences, recorder: startupTraceRecorder)"
+            )?.lowerBound)
         let ghosttyInitIndex = try #require(mainSource.range(of: "ghostty_init(argc, argv)")?.lowerBound)
         let appDelegateInjectionIndex = try #require(
             mainSource.range(of: "startupTraceRecorder: startupTraceRecorder")?.lowerBound)
 
+        #expect(preferencesBootstrapIndex < traceBootstrapIndex)
+        #expect(traceBootstrapIndex < preferenceTraceIndex)
+        #expect(preferenceTraceIndex < ghosttyInitIndex)
         #expect(traceBootstrapIndex < ghosttyInitIndex)
         #expect(appDelegateInjectionIndex > ghosttyInitIndex)
         #expect(appDelegateSource.contains("startupTraceRecorder: AgentStudioStartupTraceRecorder"))
+        #expect(mainSource.contains("preferenceLayer: globalPreferences.tracePreferenceLayer"))
+        #expect(mainSource.contains("GlobalPreferencesStartupTelemetry.recordLoaded"))
+        #expect(!appDelegateSource.contains("GlobalPreferencesBootstrap.load()"))
         #expect(mainSource.contains("startupTraceRecorder: startupTraceRecorder"))
         #expect(!workspaceBootSource.contains("traceRuntime = .fromEnvironment()"))
         #expect(workspaceBootSource.contains("makeWorkspaceSQLiteDatastore(traceRuntime: traceRuntime)"))
+    }
+
+    @Test("global preferences boot boundary stays separated from diagnostics runtime")
+    func globalPreferencesBootBoundaryStaysSeparatedFromDiagnosticsRuntime() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let diagnosticsPaths = [
+            "Sources/AgentStudio/Infrastructure/Diagnostics/AgentStudioTraceConfiguration.swift",
+            "Sources/AgentStudio/Infrastructure/Diagnostics/AgentStudioTraceRuntime.swift",
+            "Sources/AgentStudio/Infrastructure/Diagnostics/AgentStudioTracePreferenceLayer.swift",
+            "Sources/AgentStudio/Infrastructure/Diagnostics/AgentStudioOTLPTraceProjection.swift",
+        ]
+        let forbiddenDiagnosticsSymbols = [
+            "GlobalPreferencesBootstrap",
+            "GlobalPreferencesPayload",
+            "GlobalObservabilityPreferencesPayload",
+            "GlobalPreferencesStartupTelemetry",
+        ]
+
+        for diagnosticsPath in diagnosticsPaths {
+            let source = try String(
+                contentsOf: projectRoot.appending(path: diagnosticsPath),
+                encoding: .utf8)
+            for symbol in forbiddenDiagnosticsSymbols {
+                #expect(
+                    !source.contains(symbol),
+                    "\(diagnosticsPath) must not reference App/Boot preference type \(symbol)")
+            }
+        }
+
+        let bootPaths = [
+            "Sources/AgentStudio/App/Boot/GlobalPreferencesBootstrap.swift",
+            "Sources/AgentStudio/App/Boot/GlobalPreferencesPayload.swift",
+        ]
+        let forbiddenBootSymbols = [
+            "AgentStudioTraceConfiguration",
+            "AgentStudioTraceRuntime",
+            "AgentStudioOTLPTraceProjection",
+            "AgentStudioOTLPTraceSink",
+            "AgentStudioJSONLTraceWriter",
+        ]
+
+        for bootPath in bootPaths {
+            let source = try String(
+                contentsOf: projectRoot.appending(path: bootPath),
+                encoding: .utf8)
+            for symbol in forbiddenBootSymbols {
+                #expect(
+                    !source.contains(symbol),
+                    "\(bootPath) must not reference diagnostics runtime type \(symbol)")
+            }
+        }
     }
 
     @Test("startup diagnostic trigger is opt in and routes through AppCommandDispatcher")
@@ -129,6 +192,11 @@ struct ApplicationEntrypointArchitectureTests {
         )
         #expect(startupDiagnosticsSource.contains("app.startup_diagnostic_action.command_exercised"))
         #expect(startupDiagnosticsSource.contains("app.startup_diagnostic_action.blocked"))
+        let diagnosticDispatchIndex = try #require(
+            startupDiagnosticsSource.range(of: "app.startup_diagnostic_action.dispatched")?.lowerBound)
+        let firstDiagnosticYieldIndex = try #require(
+            startupDiagnosticsSource.range(of: "await Task.yield()")?.lowerBound)
+        #expect(diagnosticDispatchIndex < firstDiagnosticYieldIndex)
         #expect(!startupDiagnosticsSource.contains("for _ in 0..<80"))
         #expect(diagnosticActionSource.contains("AGENTSTUDIO_STARTUP_WATCH_FOLDER"))
         #expect(!appDelegateSource.contains("AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION"))

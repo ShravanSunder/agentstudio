@@ -235,7 +235,11 @@ write_launch_failed_state() {
     write_state_value AGENTSTUDIO_OBSERVABILITY_QUERY_START "${query_start:-}"
     write_state_value AGENTSTUDIO_OBSERVABILITY_REASON "$reason"
     write_state_value AGENTSTUDIO_OBSERVABILITY_APP "${app_path:-}"
+    write_state_value AGENTSTUDIO_OBSERVABILITY_DATA_DIR "${launch_data_root:-}"
     write_state_value AGENTSTUDIO_OBSERVABILITY_LOG "${launch_log:-}"
+    if [ -n "${preferences_mode:-}" ]; then
+      write_state_value AGENTSTUDIO_OBSERVABILITY_PREFERENCES_MODE "$preferences_mode"
+    fi
   } >"$state_file"
 }
 
@@ -267,6 +271,14 @@ while [ "$#" -gt 0 ]; do
       ;;
   esac
 done
+preferences_mode="${AGENTSTUDIO_OBSERVABILITY_PREFERENCES_MODE:-}"
+if [ -n "$preferences_mode" ] && [ "$preferences_mode" != "honor_preferences" ]; then
+  mkdir -p "$(dirname "$state_file")"
+  write_launch_failed_state invalid_preferences_mode
+  echo "invalid AGENTSTUDIO_OBSERVABILITY_PREFERENCES_MODE: $preferences_mode" >&2
+  echo "observability state: $state_file" >&2
+  exit 2
+fi
 
 if [ -z "$app_path" ]; then
   if [ "$use_latest_local" = true ]; then
@@ -307,6 +319,9 @@ if ! existing_pids="$(running_beta_channel_pids | paste -sd ' ' -)"; then
     write_state_value AGENTSTUDIO_OBSERVABILITY_RUNTIME_FLAVOR beta
     write_state_value AGENTSTUDIO_OBSERVABILITY_REASON duplicate_attribution_failed
     write_state_value AGENTSTUDIO_OBSERVABILITY_APP "$app_path"
+    if [ -n "${preferences_mode:-}" ]; then
+      write_state_value AGENTSTUDIO_OBSERVABILITY_PREFERENCES_MODE "$preferences_mode"
+    fi
   } >"$state_file"
   echo "Unable to verify whether AgentStudio beta is already running." >&2
   echo "Refusing to launch because duplicate beta apps would share data and zmx roots." >&2
@@ -320,6 +335,9 @@ if [ -n "$existing_pids" ]; then
     write_state_value AGENTSTUDIO_OBSERVABILITY_RUNTIME_FLAVOR beta
     write_state_value AGENTSTUDIO_OBSERVABILITY_PID "$existing_pids"
     write_state_value AGENTSTUDIO_OBSERVABILITY_APP "$app_path"
+    if [ -n "${preferences_mode:-}" ]; then
+      write_state_value AGENTSTUDIO_OBSERVABILITY_PREFERENCES_MODE "$preferences_mode"
+    fi
   } >"$state_file"
   echo "AgentStudio beta is already running: PID(s) $existing_pids" >&2
   echo "Quit that beta app before launching another observability run." >&2
@@ -332,6 +350,19 @@ trace_flush="${AGENTSTUDIO_TRACE_FLUSH:-immediate}"
 trace_name="${AGENTSTUDIO_TRACE_NAME:-beta-observability-$(date +%s)-$$}"
 trace_proof_token="$(uuidgen | tr '[:upper:]' '[:lower:]')"
 trace_dir="${AGENTSTUDIO_TRACE_DIR:-$BETA_ARTIFACT_ROOT/traces}"
+startup_diagnostic_action="${AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION:-}"
+tcc_probe_repeat_count="${AGENTSTUDIO_TCC_UPGRADE_PROBE_REPEAT_COUNT:-}"
+tcc_probe_interval_seconds="${AGENTSTUDIO_TCC_UPGRADE_PROBE_INTERVAL_SECONDS:-}"
+if [ "$preferences_mode" = "honor_preferences" ]; then
+  launch_data_root="${AGENTSTUDIO_BETA_DATA_DIR:-}"
+  if [ -z "$launch_data_root" ]; then
+    mkdir -p "$(dirname "$state_file")"
+    write_launch_failed_state missing_beta_preferences_data_dir
+    echo "AGENTSTUDIO_BETA_DATA_DIR is required for preference-honoring beta proof" >&2
+    echo "observability state: $state_file" >&2
+    exit 2
+  fi
+fi
 
 if [ ! -x "$STACK_HELPER" ]; then
   mkdir -p "$(dirname "$state_file")"
@@ -353,6 +384,9 @@ trace_backend=otlp
 otlp_endpoint="$(/usr/bin/env -i HOME="$HOME" PATH="/usr/bin:/bin:/usr/sbin:/sbin" "$STACK_HELPER" collector-url)"
 otlp_protocol=http/protobuf
 echo "launching beta with OTLP collector: $otlp_endpoint"
+if [ "$preferences_mode" = "honor_preferences" ]; then
+  echo "preferences mode: honor_preferences"
+fi
 
 echo "app: $app_path"
 launch_log="${AGENTSTUDIO_OBSERVABILITY_LAUNCH_LOG:-$BETA_ARTIFACT_ROOT/logs/$trace_name.log}"
@@ -369,6 +403,13 @@ query_start="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
   fi
   write_state_value AGENTSTUDIO_OBSERVABILITY_QUERY_START "$query_start"
   write_state_value AGENTSTUDIO_OBSERVABILITY_APP "$app_path"
+  write_state_value AGENTSTUDIO_OBSERVABILITY_STARTUP_DIAGNOSTIC_ACTION "${startup_diagnostic_action:-}"
+  write_state_value AGENTSTUDIO_OBSERVABILITY_TCC_PROBE_REPEAT_COUNT "${tcc_probe_repeat_count:-}"
+  write_state_value AGENTSTUDIO_OBSERVABILITY_TCC_PROBE_INTERVAL_SECONDS "${tcc_probe_interval_seconds:-}"
+  write_state_value AGENTSTUDIO_OBSERVABILITY_DATA_DIR "${launch_data_root:-}"
+  if [ -n "$preferences_mode" ]; then
+    write_state_value AGENTSTUDIO_OBSERVABILITY_PREFERENCES_MODE "$preferences_mode"
+  fi
 } >"$state_file"
 
 clean_open_env=(
@@ -383,15 +424,30 @@ clean_open_env=(
 )
 
 open_env_args=(
+    --env "AGENTSTUDIO_TRACE_NAME=$trace_name" \
+    --env "AGENTSTUDIO_TRACE_PROOF_TOKEN=$trace_proof_token" \
+    --env "AGENTSTUDIO_TRACE_DIR=$trace_dir"
+)
+if [ "$preferences_mode" = "honor_preferences" ]; then
+  open_env_args+=(--env "AGENTSTUDIO_DATA_DIR=$launch_data_root")
+else
+  open_env_args+=(
     --env "AGENTSTUDIO_TRACE_TAGS=$trace_tags" \
     --env "AGENTSTUDIO_TRACE_FLUSH=$trace_flush" \
     --env "AGENTSTUDIO_TRACE_BACKEND=$trace_backend" \
-    --env "AGENTSTUDIO_TRACE_NAME=$trace_name" \
-    --env "AGENTSTUDIO_TRACE_PROOF_TOKEN=$trace_proof_token" \
-    --env "AGENTSTUDIO_TRACE_DIR=$trace_dir" \
     --env "OTEL_EXPORTER_OTLP_ENDPOINT=$otlp_endpoint" \
     --env "OTEL_EXPORTER_OTLP_PROTOCOL=$otlp_protocol"
-)
+  )
+fi
+if [ -n "$startup_diagnostic_action" ]; then
+  open_env_args+=(--env "AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=$startup_diagnostic_action")
+fi
+if [ -n "$tcc_probe_repeat_count" ]; then
+  open_env_args+=(--env "AGENTSTUDIO_TCC_UPGRADE_PROBE_REPEAT_COUNT=$tcc_probe_repeat_count")
+fi
+if [ -n "$tcc_probe_interval_seconds" ]; then
+  open_env_args+=(--env "AGENTSTUDIO_TCC_UPGRADE_PROBE_INTERVAL_SECONDS=$tcc_probe_interval_seconds")
+fi
 
 if [ "$detach" = true ]; then
   if ! open_app "$app_path" "$launch_log" "" "${open_env_args[@]}"; then

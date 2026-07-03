@@ -4,13 +4,13 @@ import Foundation
 struct WorkspacePaneDerived {
     let graphAtom: WorkspacePaneGraphAtom
     let drawerCursorAtom: WorkspaceDrawerCursorAtom
-    let repositoryTopologyAtom: WorkspaceRepositoryTopologyAtom?
+    let repositoryTopologyAtom: RepositoryTopologyAtom?
     let repoEnrichmentCacheAtom: RepoEnrichmentCacheAtom?
 
     init(
         graphAtom: WorkspacePaneGraphAtom,
         drawerCursorAtom: WorkspaceDrawerCursorAtom,
-        repositoryTopologyAtom: WorkspaceRepositoryTopologyAtom? = nil,
+        repositoryTopologyAtom: RepositoryTopologyAtom? = nil,
         repoEnrichmentCacheAtom: RepoEnrichmentCacheAtom? = nil
     ) {
         self.graphAtom = graphAtom

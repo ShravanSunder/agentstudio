@@ -143,6 +143,8 @@ struct ObservabilityLaunchScriptsTests {
                 "launch_log=\"${AGENTSTUDIO_OBSERVABILITY_LAUNCH_LOG:-$BETA_ARTIFACT_ROOT/logs/$trace_name.log}\""))
         #expect(betaScript.contains("--latest-local"))
         #expect(betaScript.contains("missing required --app <AgentStudio Beta.app>"))
+        #expect(betaScript.contains("AGENTSTUDIO_OBSERVABILITY_STARTUP_DIAGNOSTIC_ACTION"))
+        #expect(betaScript.contains("AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION"))
         #expect(betaScript.contains("wait_for_beta_app_pid"))
         #expect(betaScript.contains("write_launch_failed_state otlp_collector_unhealthy"))
         #expect(!debugScript.contains("refusing to launch debug observability from inherited zmx environment"))
@@ -194,6 +196,11 @@ struct ObservabilityLaunchScriptsTests {
         #expect(verifierScript.contains("state_pid"))
         #expect(verifierScript.contains("bundle_release_channel_for_executable"))
         #expect(verifierScript.contains("app.zmx_startup_reconciliation.completed"))
+        #expect(verifierScript.contains("terminal.tcc.access_probe"))
+        #expect(verifierScript.contains("AGENTSTUDIO_OBSERVABILITY_STARTUP_DIAGNOSTIC_ACTION"))
+        #expect(verifierScript.contains("tcc-upgrade-probe"))
+        #expect(verifierScript.contains("agentstudio.tcc.access.result"))
+        #expect(verifierScript.contains("agentstudio.tcc.responsible.kind"))
         #expect(verifierScript.contains("agentstudio.zmx.startup.inventory_outcome"))
         #expect(verifierScript.contains("agentstudio.zmx.startup.protected_session_count"))
         #expect(verifierScript.contains("startup zmx reconciliation inventory was unavailable"))
@@ -279,6 +286,7 @@ struct ObservabilityLaunchScriptsTests {
         AGENTSTUDIO_OBSERVABILITY_MARKER=\(shellEscapedStateValue(marker))
         AGENTSTUDIO_OBSERVABILITY_SERVICE_VERSION=0.0.54-beta.99
         AGENTSTUDIO_OBSERVABILITY_QUERY_START=2026-06-12T00:00:00Z
+        AGENTSTUDIO_OBSERVABILITY_STARTUP_DIAGNOSTIC_ACTION=tcc-upgrade-probe
         AGENTSTUDIO_OBSERVABILITY_PID=\(getpid())
         AGENTSTUDIO_OBSERVABILITY_APP=\(shellEscapedStateValue(betaAppPath))
         """
@@ -303,6 +311,11 @@ struct ObservabilityLaunchScriptsTests {
                     if [[ "$*" == *"app.startup_diagnostic_action."* ]]; then
                       exit 0
                     fi
+                    if [[ "$*" == *"terminal.tcc.access_probe"* ]]; then
+                      printf '{"_msg":"terminal.tcc.access_probe","agentstudio.tcc.phase":"startup_diagnostic","agentstudio.tcc.subject":"shell_child","agentstudio.tcc.access.target":"documents","agentstudio.tcc.access.result":"granted","agentstudio.tcc.responsible.kind":"agentstudio_beta","agentstudio.tcc.command.exit_class":"ok","agentstudio.tcc.probe.sequence":0}\\n'
+                      exit 0
+                    fi
+                    if [[ "$*" == *"terminal.tcc.app_identity_snapshot"* ]]; then printf '{"_msg":"terminal.tcc.app_identity_snapshot","agentstudio.tcc.phase":"startup_diagnostic","agentstudio.tcc.bundle.kind":"beta","agentstudio.tcc.code_identity.kind":"same_disk_identity","agentstudio.tcc.bundle.changed":false,"agentstudio.tcc.bundle.executable.reachable":true,"agentstudio.tcc.probe.sequence":0}\\n'; exit 0; fi
                     if [[ "$*" == *":*"* ]]; then
                       exit 0
                     fi
@@ -330,8 +343,9 @@ struct ObservabilityLaunchScriptsTests {
             "agent.proof.marker:=\"beta marker | fields process.pid\"",
         ].joined(separator: " ")
         #expect(curlArgumentText.contains(expectedTraceQuery))
+        #expect(curlArgumentText.contains("_msg:=\"terminal.tcc.access_probe\""))
+        #expect(curlArgumentText.contains("agentstudio.startup_diagnostic.action:=\"tcc-upgrade-probe\""))
         #expect(!curlArgumentText.contains("agent.proof.marker:beta marker | fields process.pid"))
-        #expect(!curlArgumentText.contains("agentstudio.trace.name"))
     }
 
     @Test("beta observability verifier rejects PID from a different beta bundle path")

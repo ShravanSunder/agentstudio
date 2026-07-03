@@ -124,7 +124,10 @@ struct CoordinationPlaneArchitectureTests {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
         let sourcesRoot = projectRoot.appending(path: "Sources/AgentStudio")
         let allowedFiles: Set<String> = [
-            "Sources/AgentStudio/Features/Terminal/Hosting/TerminalSurfaceScrollView.swift"
+            // RepoExplorerView observes NSView.boundsDidChangeNotification for sidebar-visible worktree
+            // tracking: AppKit scroll-bounds ingress, same class as TerminalSurfaceScrollView.
+            "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView.swift",
+            "Sources/AgentStudio/Features/Terminal/Hosting/TerminalSurfaceScrollView.swift",
         ]
 
         var notificationCenterFiles: Set<String> = []

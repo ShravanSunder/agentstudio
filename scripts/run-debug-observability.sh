@@ -291,8 +291,13 @@ write_launch_failed_state() {
     write_state_value AGENTSTUDIO_OBSERVABILITY_ZMX_DIR "${launch_zmx_dir:-${debug_zmx_dir:-}}"
     write_state_value AGENTSTUDIO_OBSERVABILITY_STARTUP_DIAGNOSTIC_ACTION "${startup_diagnostic_action:-}"
     write_state_value AGENTSTUDIO_OBSERVABILITY_STARTUP_WATCH_FOLDER "${startup_watch_folder:-}"
+    write_state_value AGENTSTUDIO_OBSERVABILITY_TCC_PROBE_REPEAT_COUNT "${tcc_probe_repeat_count:-}"
+    write_state_value AGENTSTUDIO_OBSERVABILITY_TCC_PROBE_INTERVAL_SECONDS "${tcc_probe_interval_seconds:-}"
     write_state_value AGENTSTUDIO_OBSERVABILITY_LOG "${launch_log:-}"
     write_state_value AGENTSTUDIO_OBSERVABILITY_BUILD_PATH "${build_path:-}"
+    if [ -n "${preferences_mode:-}" ]; then
+      write_state_value AGENTSTUDIO_OBSERVABILITY_PREFERENCES_MODE "$preferences_mode"
+    fi
   } >"$state_file"
 }
 
@@ -315,8 +320,13 @@ write_running_state() {
     write_state_value AGENTSTUDIO_OBSERVABILITY_ZMX_DIR "$launch_zmx_dir"
     write_state_value AGENTSTUDIO_OBSERVABILITY_STARTUP_DIAGNOSTIC_ACTION "$startup_diagnostic_action"
     write_state_value AGENTSTUDIO_OBSERVABILITY_STARTUP_WATCH_FOLDER "$startup_watch_folder"
+    write_state_value AGENTSTUDIO_OBSERVABILITY_TCC_PROBE_REPEAT_COUNT "$tcc_probe_repeat_count"
+    write_state_value AGENTSTUDIO_OBSERVABILITY_TCC_PROBE_INTERVAL_SECONDS "$tcc_probe_interval_seconds"
     write_state_value AGENTSTUDIO_OBSERVABILITY_LOG "$launch_log"
     write_state_value AGENTSTUDIO_OBSERVABILITY_BUILD_PATH "$build_path"
+    if [ -n "$preferences_mode" ]; then
+      write_state_value AGENTSTUDIO_OBSERVABILITY_PREFERENCES_MODE "$preferences_mode"
+    fi
   } >"$state_file"
 }
 
@@ -555,6 +565,15 @@ if [ ! -x "$STACK_HELPER" ]; then
   exit 1
 fi
 
+preferences_mode="${AGENTSTUDIO_OBSERVABILITY_PREFERENCES_MODE:-}"
+if [ -n "$preferences_mode" ] && [ "$preferences_mode" != "honor_preferences" ]; then
+  mkdir -p "$(dirname "$state_file")"
+  write_launch_failed_state invalid_preferences_mode
+  echo "invalid AGENTSTUDIO_OBSERVABILITY_PREFERENCES_MODE: $preferences_mode" >&2
+  echo "observability state: $state_file" >&2
+  exit 1
+fi
+
 if ! "$CURL_BIN" --fail --silent --show-error --max-time 2 "$COLLECTOR_HEALTH_URL" >/dev/null; then
   mkdir -p "$(dirname "$state_file")"
   write_launch_failed_state otlp_collector_unhealthy
@@ -575,6 +594,9 @@ then
     write_state_value AGENTSTUDIO_OBSERVABILITY_PID "$existing_state_pid"
     write_state_value AGENTSTUDIO_OBSERVABILITY_DATA_DIR "$debug_root"
     write_state_value AGENTSTUDIO_OBSERVABILITY_ZMX_DIR "$debug_zmx_dir"
+    if [ -n "${preferences_mode:-}" ]; then
+      write_state_value AGENTSTUDIO_OBSERVABILITY_PREFERENCES_MODE "$preferences_mode"
+    fi
   } >"$state_file"
   echo "Agent Studio Debug $debug_code is already running: PID(s) $existing_state_pid" >&2
   echo "Quit that debug app before launching another observability run for this worktree." >&2
@@ -600,6 +622,9 @@ if [ -x "$binary_path" ]; then
       write_state_value AGENTSTUDIO_OBSERVABILITY_EXECUTABLE "$binary_path"
       write_state_value AGENTSTUDIO_OBSERVABILITY_DATA_DIR "$debug_root"
       write_state_value AGENTSTUDIO_OBSERVABILITY_ZMX_DIR "$debug_zmx_dir"
+      if [ -n "${preferences_mode:-}" ]; then
+        write_state_value AGENTSTUDIO_OBSERVABILITY_PREFERENCES_MODE "$preferences_mode"
+      fi
     } >"$state_file"
     echo "Agent Studio Debug $debug_code direct executable is already running: PID(s) $existing_direct_pids" >&2
     echo "Quit that debug app before launching another observability run for this worktree." >&2
@@ -616,6 +641,9 @@ if ! existing_pids="$(running_debug_app_pids "$debug_code" | paste -sd ' ' -)"; 
     write_state_value AGENTSTUDIO_OBSERVABILITY_REASON duplicate_attribution_failed
     write_state_value AGENTSTUDIO_OBSERVABILITY_DATA_DIR "$debug_root"
     write_state_value AGENTSTUDIO_OBSERVABILITY_ZMX_DIR "$debug_zmx_dir"
+    if [ -n "${preferences_mode:-}" ]; then
+      write_state_value AGENTSTUDIO_OBSERVABILITY_PREFERENCES_MODE "$preferences_mode"
+    fi
   } >"$state_file"
   echo "Unable to verify whether Agent Studio Debug $debug_code is already running." >&2
   echo "Refusing to launch because duplicate debug apps would share data and zmx roots." >&2
@@ -631,6 +659,9 @@ if [ -n "$existing_pids" ]; then
     write_state_value AGENTSTUDIO_OBSERVABILITY_PID "$existing_pids"
     write_state_value AGENTSTUDIO_OBSERVABILITY_DATA_DIR "$debug_root"
     write_state_value AGENTSTUDIO_OBSERVABILITY_ZMX_DIR "$debug_zmx_dir"
+    if [ -n "${preferences_mode:-}" ]; then
+      write_state_value AGENTSTUDIO_OBSERVABILITY_PREFERENCES_MODE "$preferences_mode"
+    fi
   } >"$state_file"
   echo "Agent Studio Debug $debug_code is already running: PID(s) $existing_pids" >&2
   echo "Quit that debug app before launching another observability run for this worktree." >&2
@@ -680,6 +711,8 @@ trace_backend=otlp
 trace_name="${AGENTSTUDIO_TRACE_NAME:-debug-observability-$debug_code-$(date +%s)-$$}"
 trace_proof_token="$(uuidgen | tr '[:upper:]' '[:lower:]')"
 startup_watch_folder="${AGENTSTUDIO_STARTUP_WATCH_FOLDER:-}"
+tcc_probe_repeat_count="${AGENTSTUDIO_TCC_UPGRADE_PROBE_REPEAT_COUNT:-}"
+tcc_probe_interval_seconds="${AGENTSTUDIO_TCC_UPGRADE_PROBE_INTERVAL_SECONDS:-}"
 if ! trace_name_is_safe_path_component "$trace_name"; then
   mkdir -p "$(dirname "$state_file")"
   write_launch_failed_state invalid_trace_name
@@ -724,6 +757,9 @@ echo "app: $app_path"
 echo "data root: $launch_data_root"
 echo "zmx dir: $launch_zmx_dir"
 echo "marker: $trace_name"
+if [ "$preferences_mode" = "honor_preferences" ]; then
+  echo "preferences mode: honor_preferences"
+fi
 
 clean_open_env=(
   /usr/bin/env
@@ -742,20 +778,32 @@ open_env_args=(
     --env "AGENTSTUDIO_ZMX_PATH=$launch_zmx_path" \
     --env "AGENTSTUDIO_GHOSTTY_DISABLE_DEFAULT_CONFIG=1" \
     --env "AGENTSTUDIO_GHOSTTY_DISABLE_VSYNC=1" \
+    --env "AGENTSTUDIO_TRACE_NAME=$trace_name" \
+    --env "AGENTSTUDIO_TRACE_PROOF_TOKEN=$trace_proof_token" \
+    --env "AGENTSTUDIO_TRACE_DIR=$trace_dir"
+)
+if [ "$preferences_mode" = "honor_preferences" ]; then
+  :
+else
+  open_env_args+=(
     --env "AGENTSTUDIO_TRACE_TAGS=$trace_tags" \
     --env "AGENTSTUDIO_TRACE_FLUSH=$trace_flush" \
     --env "AGENTSTUDIO_TRACE_BACKEND=$trace_backend" \
-    --env "AGENTSTUDIO_TRACE_NAME=$trace_name" \
-    --env "AGENTSTUDIO_TRACE_PROOF_TOKEN=$trace_proof_token" \
-    --env "AGENTSTUDIO_TRACE_DIR=$trace_dir" \
     --env "OTEL_EXPORTER_OTLP_ENDPOINT=$otlp_endpoint" \
     --env "OTEL_EXPORTER_OTLP_PROTOCOL=$otlp_protocol"
-)
+  )
+fi
 if [ -n "$startup_diagnostic_action" ]; then
   open_env_args+=(--env "AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=$startup_diagnostic_action")
 fi
 if [ -n "$startup_watch_folder" ]; then
   open_env_args+=(--env "AGENTSTUDIO_STARTUP_WATCH_FOLDER=$startup_watch_folder")
+fi
+if [ -n "$tcc_probe_repeat_count" ]; then
+  open_env_args+=(--env "AGENTSTUDIO_TCC_UPGRADE_PROBE_REPEAT_COUNT=$tcc_probe_repeat_count")
+fi
+if [ -n "$tcc_probe_interval_seconds" ]; then
+  open_env_args+=(--env "AGENTSTUDIO_TCC_UPGRADE_PROBE_INTERVAL_SECONDS=$tcc_probe_interval_seconds")
 fi
 if [ -n "${AGENTSTUDIO_RESTORE_TRACE:-}" ]; then
   open_env_args+=(--env "AGENTSTUDIO_RESTORE_TRACE=$AGENTSTUDIO_RESTORE_TRACE")
@@ -781,20 +829,32 @@ direct_launch_env=(
   "AGENTSTUDIO_ZMX_PATH=$launch_zmx_path"
   "AGENTSTUDIO_GHOSTTY_DISABLE_DEFAULT_CONFIG=1"
   "AGENTSTUDIO_GHOSTTY_DISABLE_VSYNC=1"
-  "AGENTSTUDIO_TRACE_TAGS=$trace_tags"
-  "AGENTSTUDIO_TRACE_FLUSH=$trace_flush"
-  "AGENTSTUDIO_TRACE_BACKEND=$trace_backend"
   "AGENTSTUDIO_TRACE_NAME=$trace_name"
   "AGENTSTUDIO_TRACE_PROOF_TOKEN=$trace_proof_token"
   "AGENTSTUDIO_TRACE_DIR=$trace_dir"
-  "OTEL_EXPORTER_OTLP_ENDPOINT=$otlp_endpoint"
-  "OTEL_EXPORTER_OTLP_PROTOCOL=$otlp_protocol"
 )
+if [ "$preferences_mode" = "honor_preferences" ]; then
+  :
+else
+  direct_launch_env+=(
+    "AGENTSTUDIO_TRACE_TAGS=$trace_tags"
+    "AGENTSTUDIO_TRACE_FLUSH=$trace_flush"
+    "AGENTSTUDIO_TRACE_BACKEND=$trace_backend"
+    "OTEL_EXPORTER_OTLP_ENDPOINT=$otlp_endpoint"
+    "OTEL_EXPORTER_OTLP_PROTOCOL=$otlp_protocol"
+  )
+fi
 if [ -n "$startup_diagnostic_action" ]; then
   direct_launch_env+=("AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=$startup_diagnostic_action")
 fi
 if [ -n "$startup_watch_folder" ]; then
   direct_launch_env+=("AGENTSTUDIO_STARTUP_WATCH_FOLDER=$startup_watch_folder")
+fi
+if [ -n "$tcc_probe_repeat_count" ]; then
+  direct_launch_env+=("AGENTSTUDIO_TCC_UPGRADE_PROBE_REPEAT_COUNT=$tcc_probe_repeat_count")
+fi
+if [ -n "$tcc_probe_interval_seconds" ]; then
+  direct_launch_env+=("AGENTSTUDIO_TCC_UPGRADE_PROBE_INTERVAL_SECONDS=$tcc_probe_interval_seconds")
 fi
 if [ -n "${AGENTSTUDIO_RESTORE_TRACE:-}" ]; then
   direct_launch_env+=("AGENTSTUDIO_RESTORE_TRACE=$AGENTSTUDIO_RESTORE_TRACE")

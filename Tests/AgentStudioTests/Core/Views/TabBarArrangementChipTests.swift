@@ -78,42 +78,6 @@ struct TabBarArrangementChipTests {
         #expect(!chip.showsArrangementName)
     }
 
-    @Test("uses pressed fill opacity when isPressed is true")
-    func usesPressedFillOpacityWhenPressed() {
-        let chip = TabBarArrangementChip(
-            index: 2,
-            name: "coding",
-            isHovered: false,
-            isPressed: true,
-            nameMaxWidth: 100
-        )
-        #expect(chip.chipFillOpacity == AppStyles.General.Fill.active)
-    }
-
-    @Test("uses hover fill opacity when hovered and not pressed")
-    func usesHoverFillOpacityWhenHovered() {
-        let chip = TabBarArrangementChip(
-            index: 2,
-            name: "coding",
-            isHovered: true,
-            isPressed: false,
-            nameMaxWidth: 100
-        )
-        #expect(chip.chipFillOpacity == AppStyles.General.Fill.pressed)
-    }
-
-    @Test("uses muted fill opacity when at rest")
-    func usesMutedFillOpacityWhenAtRest() {
-        let chip = TabBarArrangementChip(
-            index: 2,
-            name: "coding",
-            isHovered: false,
-            isPressed: false,
-            nameMaxWidth: 100
-        )
-        #expect(chip.chipFillOpacity == AppStyles.General.Fill.muted)
-    }
-
     @Test("returns 100pt name width when management layer inactive")
     func returnsNarrowNameWidthWhenManagementLayerInactive() {
         #expect(TabBarArrangementChip.nameMaxWidth(isManagementLayerActive: false) == 100)
@@ -122,5 +86,23 @@ struct TabBarArrangementChipTests {
     @Test("returns 200pt name width when management layer active")
     func returnsWideNameWidthWhenManagementLayerActive() {
         #expect(TabBarArrangementChip.nameMaxWidth(isManagementLayerActive: true) == 200)
+    }
+
+    @Test("uses toolbar capsule style contract")
+    func usesToolbarCapsuleStyleContract() {
+        let chip = TabBarArrangementChip(
+            index: nil,
+            name: "Default",
+            isHovered: true,
+            isPressed: true,
+            nameMaxWidth: 100
+        )
+
+        #expect(chip.styleContract.height == AppStyles.Shell.Chrome.ToolbarButton.size)
+        #expect(chip.styleContract.minimumWidth == AppStyles.Shell.Chrome.ToolbarButton.size)
+        #expect(chip.styleContract.iconSize == AppStyles.Shell.Chrome.ToolbarButton.iconSize)
+        #expect(chip.styleContract.isHovered)
+        #expect(chip.styleContract.isPressed)
+        #expect(chip.styleContract.usesToolbarBackground)
     }
 }

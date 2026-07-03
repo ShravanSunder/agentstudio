@@ -12,9 +12,44 @@ Tracing has three separate control surfaces:
 
 | Surface | Env or file | Owns |
 | --- | --- | --- |
+| Global preferences | `<AppDataPaths.rootDirectory()>/preferences.global.json` | App-root scoped default observability posture |
 | Instrumentation selection | `AGENTSTUDIO_TRACE_TAGS` | Which app emitters are enabled |
 | Sink selection | `AGENTSTUDIO_TRACE_BACKEND`, `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_PROTOCOL` | JSONL, OTLP, or both |
 | Proof handoff | `AGENTSTUDIO_OBSERVABILITY_*` state files | Marker, PID, app path, query window, launch status |
+
+`AGENTSTUDIO_DATA_DIR` is only a root locator. It chooses the app data root
+that contains `preferences.global.json`; it is not itself an observability
+setting. Stable, beta, debug, generated debug, and custom app identities keep
+separate roots, so each app identity gets its own global preferences file.
+
+The preference file is loaded by App/Boot before `AgentStudioTraceRuntime` is
+constructed. Diagnostics then resolves effective trace behavior in this order:
+channel defaults, then global preferences, then environment overrides. This
+keeps local prod/beta/debug defaults durable while preserving the existing
+one-launch override contract. `AGENTSTUDIO_TRACE_TAGS=off` still disables
+tracing for that launch, and `AGENTSTUDIO_TRACE_BACKEND`,
+`OTEL_EXPORTER_OTLP_ENDPOINT`, and `OTEL_EXPORTER_OTLP_PROTOCOL` still win over
+the preference file.
+
+The v1 preference schema owns only durable choices:
+
+```json
+{
+  "schemaVersion": 1,
+  "observability": {
+    "enabled": true,
+    "traceTags": "*",
+    "traceBackend": "otlp",
+    "traceFlush": "buffered",
+    "otlpEndpoint": "http://127.0.0.1:4318"
+  }
+}
+```
+
+`observability.enabled` is required. `traceTags`, `traceBackend`, `traceFlush`,
+and `otlpEndpoint` are optional. `otlpEndpoint` must be loopback HTTP when
+present. `otlpProtocol` is intentionally not a persisted preference; protocol
+compatibility remains an environment-only escape hatch.
 
 Do not add one-off environment variables for individual emitters. A new
 instrumentation lane must be represented as an `AgentStudioTraceTag`, or as an
@@ -34,9 +69,11 @@ Bad:
   AGENTSTUDIO_TRACE_ENABLE_REPO_CACHE=1
 ```
 
-The debug and beta observability launchers may pass the standard trace/backend
-variables plus app identity and state-file variables. They must not grow
-feature-specific trace switches.
+The strict debug and beta observability launchers may pass the standard
+trace/backend variables plus app identity and state-file variables. Preference
+proof launchers use sibling scripts and write `preferences.global.json` under an
+isolated proof data root instead of injecting trace-selection variables. Neither
+launcher family may grow feature-specific trace switches.
 
 ## Tag Semantics
 
@@ -53,7 +90,8 @@ proof can opt into `AGENTSTUDIO_TRACE_TAGS=atoms` or `*`.
 
 High-volume or domain-sensitive lanes remain explicit opt-in for ordinary app
 startup. This includes `atoms`, `eventbus`, `terminal.activity`,
-`terminal.signal`, `inbox`, `paneInbox`, and `persistence.snapshot`.
+`terminal.signal`, `terminal.tcc`, `inbox`, `paneInbox`, and
+`persistence.snapshot`.
 
 Terminal signal instrumentation is controlled by the `terminal.signal` tag. It
 captures low-volume Ghostty action/control facts such as desktop notification,
@@ -62,6 +100,29 @@ debounced unseen-activity windows remain under `terminal.activity`. Keep raw
 terminal payloads, pane ids, surface ids, and notification ids JSONL-only; OTLP
 may export only controlled signal class, action name, route result, reason, and
 safe aggregate counters.
+
+TCC upgrade diagnostics are controlled by the `terminal.tcc` tag and the
+explicit startup diagnostic action `tcc-upgrade-probe`. The probe records bundle
+identity classification and shell-child access classification for protected
+folders so beta/debug proof can distinguish grant loss from ordinary startup
+failure. Raw bundle paths, probe paths, responsible executable paths, and TCC
+database client strings must stay JSONL-only; OTLP may export only controlled
+classification enums, booleans, and counts.
+Repeating `tcc-upgrade-probe` runs also emit an app identity snapshot for each
+probe sequence. The snapshot compares the current on-disk app executable
+identity to the startup baseline and exports only controlled classifications
+such as same/different/missing disk identity plus reachability. Raw executable
+paths remain JSONL-only.
+Use `scripts/report-tcc-upgrade-probe-observability.sh` after a marker-scoped
+debug or beta launch to summarize the identity/access rows. The report helper
+is read-only and can require identity discontinuity or access denial, which is
+the proof gate for a Homebrew-style replacement reproduction.
+For the generated-debug reproduction only, use
+`scripts/replace-running-debug-app-for-tcc-probe.sh` to dry-run and, with
+explicit acknowledgement, replace the executable inside the generated
+per-worktree debug app while the monitor is active. The helper refuses beta,
+stable, `/Applications`, and non-generated debug paths; it is not a release or
+Homebrew updater.
 
 Atom instrumentation is controlled by the `atoms` tag. It emits reduced,
 aggregate-safe events such as `performance.atom.read`,
@@ -108,6 +169,17 @@ file is not proof by itself; it is the handoff containing the marker and process
 identity. Verification must query Victoria using the current marker and expected
 resource labels.
 
+Preference-honoring proof writes
+`AGENTSTUDIO_OBSERVABILITY_PREFERENCES_MODE=honor_preferences` in the state
+file. When that flag is present, verifiers must also require the
+`app.preferences.global.loaded` startup event under the current marker. Strict
+env-driven launchers must not write the flag.
+
+State files may include existing proof handoff fields such as marker, PID, app
+path, app identity, launch status, query window, data root, zmx root, and log
+path. They must not include preference file paths, symlink targets, raw JSON,
+parse messages, prompts, payloads, or tool output.
+
 For atom or performance work, proof should include:
 
 ```text
@@ -143,6 +215,8 @@ control surfaces before naming specific events:
 ```text
 instrumentation selection  -> AGENTSTUDIO_TRACE_TAGS
 sink selection             -> AGENTSTUDIO_TRACE_BACKEND + OTLP endpoint/protocol
+global preferences         -> <AppDataPaths.rootDirectory()>/preferences.global.json
+data root locator          -> AGENTSTUDIO_DATA_DIR
 proof identity             -> AGENTSTUDIO_OBSERVABILITY_* state file
                              + marker + launch proof token
 Victoria proof             -> marker/token-scoped logs and metrics queries

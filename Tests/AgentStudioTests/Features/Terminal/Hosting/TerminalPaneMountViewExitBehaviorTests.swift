@@ -102,8 +102,8 @@ struct TerminalPaneMountViewExitBehaviorTests {
         return harness
     }
 
-    private func makeDroppedDeliverySubscriber() async -> AsyncStream<AppEvent> {
-        await AppEventBus.shared.subscribe(bufferingPolicy: .bufferingNewest(0))
+    private func makeDroppedDeliverySubscriber() async -> EventBusSubscription<AppEvent> {
+        await AppEventBus.shared.subscribe(policy: .lossyNewest(0), subscriberName: #function)
     }
 
     private func makeProcessExitMountView(
@@ -168,7 +168,7 @@ struct TerminalPaneMountViewExitBehaviorTests {
     @Test("process termination with dropped delivery restores visible fallback UI")
     func processTermination_withDroppedDelivery_restoresFallbackOverlay() async {
         let baselineSubscriberCount = await stableAppEventBusSubscriberCount()
-        var droppedDeliverySubscriber: AsyncStream<AppEvent>? = await makeDroppedDeliverySubscriber()
+        var droppedDeliverySubscriber: EventBusSubscription<AppEvent>? = await makeDroppedDeliverySubscriber()
         #expect(droppedDeliverySubscriber != nil)
         await waitForAppEventBusSubscriberCount(baselineSubscriberCount + 1)
         let mountView = makeProcessExitMountView()

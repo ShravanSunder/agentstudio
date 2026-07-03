@@ -13,7 +13,10 @@ struct EventBusWaitForFirstTests {
         let harness = EventBusHarness<Int>()
 
         let waitTask = Task {
-            await harness.bus.waitForFirst { value -> String? in
+            await harness.bus.waitForFirst(
+                policy: .lossyNewest(BusSubscriberPolicy.standardLossyBufferLimit),
+                subscriberName: "waitForFirstReturnsMatch"
+            ) { value -> String? in
                 value == 42 ? "found" : nil
             }
         }
@@ -35,7 +38,10 @@ struct EventBusWaitForFirstTests {
         let harness = EventBusHarness<Int>()
 
         let waitTask = Task {
-            await harness.bus.waitForFirst { value -> String? in
+            await harness.bus.waitForFirst(
+                policy: .lossyNewest(BusSubscriberPolicy.standardLossyBufferLimit),
+                subscriberName: "waitForFirstReturnsNilOnCancellation"
+            ) { value -> String? in
                 value == 999 ? "found" : nil
             }
         }
@@ -48,6 +54,7 @@ struct EventBusWaitForFirstTests {
 
         let result = await waitTask.value
         #expect(result == nil)
+        await assertBusDrained(harness.bus)
     }
 
     @Test("extracts and returns typed value")
@@ -55,7 +62,10 @@ struct EventBusWaitForFirstTests {
         let harness = EventBusHarness<Int>()
 
         let waitTask = Task {
-            await harness.bus.waitForFirst { value -> Int? in
+            await harness.bus.waitForFirst(
+                policy: .lossyNewest(BusSubscriberPolicy.standardLossyBufferLimit),
+                subscriberName: "waitForFirstExtractsValue"
+            ) { value -> Int? in
                 value > 10 ? value * 2 : nil
             }
         }
@@ -79,6 +89,8 @@ struct EventBusWaitForFirstTests {
 
         let waitTask = Task {
             await harness.bus.waitForFirst(
+                policy: .lossyNewest(BusSubscriberPolicy.standardLossyBufferLimit),
+                subscriberName: "waitForFirstTimeoutReturnsMatchBeforeDeadline",
                 timeout: .seconds(10)
             ) { value -> String? in
                 value == 42 ? "found" : nil
@@ -101,6 +113,8 @@ struct EventBusWaitForFirstTests {
 
         let waitTask = Task {
             await harness.bus.waitForFirst(
+                policy: .lossyNewest(BusSubscriberPolicy.standardLossyBufferLimit),
+                subscriberName: "waitForFirstTimeoutCancellationReturnsNil",
                 timeout: .seconds(10)
             ) { value -> String? in
                 value == 999 ? "found" : nil
@@ -115,5 +129,6 @@ struct EventBusWaitForFirstTests {
 
         let result = await waitTask.value
         #expect(result == nil)
+        await assertBusDrained(harness.bus)
     }
 }
