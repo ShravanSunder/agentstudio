@@ -18,15 +18,7 @@ describe('Bridge file viewer mode re-open on switch', () => {
 			loadCount += 1;
 			return { frames: [] };
 		};
-		document.addEventListener(
-			'__bridge_handshake_request',
-			(): void => {
-				document.dispatchEvent(
-					new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-reopen-1' } }),
-				);
-			},
-			{ once: true },
-		);
+		installHandshake('push-reopen-1');
 
 		// Start in review mode: the file shell is inactive but the frame
 		// controller still opens its surface once at mount.
@@ -46,7 +38,47 @@ describe('Bridge file viewer mode re-open on switch', () => {
 		clickContext('file');
 		await expect.poll(() => loadCount).toBe(3);
 	});
+
+	test('recovers with a fresh open after a prior surface open wedged (never completed)', async () => {
+		let loadCount = 0;
+		const loadInitialSurface = async (): Promise<WorktreeFileInitialSurface> => {
+			loadCount += 1;
+			// Wedge the FIRST file-activation open so its stream never completes —
+			// mirrors a native open that raced/hung. Recovery must not depend on
+			// the wedged surface ever resolving.
+			if (loadCount === 2) {
+				return await new Promise<WorktreeFileInitialSurface>(() => {});
+			}
+			return { frames: [] };
+		};
+		installHandshake('push-reopen-2');
+
+		render(<BridgeAppProtocolRouter fileViewerProps={{ loadInitialSurface }} protocol="review" />);
+		await expect.poll(() => loadCount).toBe(1);
+
+		// Switch to file: its open hangs forever (wedged surface).
+		clickContext('file');
+		await expect.poll(() => loadCount).toBe(2);
+		await expect.poll(activeViewerMode).toBe('file');
+
+		// Toggle away and back: the re-open announce must fire a fresh open even
+		// though the prior open never completed, so the file view can recover.
+		clickContext('review');
+		await expect.poll(activeViewerMode).toBe('review');
+		clickContext('file');
+		await expect.poll(() => loadCount).toBe(3);
+	});
 });
+
+function installHandshake(pushNonce: string): void {
+	document.addEventListener(
+		'__bridge_handshake_request',
+		(): void => {
+			document.dispatchEvent(new CustomEvent('__bridge_handshake', { detail: { pushNonce } }));
+		},
+		{ once: true },
+	);
+}
 
 function activeViewerMode(): string | null {
 	return (
