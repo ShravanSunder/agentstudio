@@ -2216,3 +2216,20 @@ remain untouched and uncommitted — still yours.
 Next: instrumented user validation session in the Swift app on the
 real 180-worktree workspace against the /goal gates (switching,
 clicks, scroll, response time). Build is warm.
+
+### 2026-07-03 Fable (orchestrator): repo-health correction + point-6 enforcement
+
+Correction to the landing entry: there are THREE pre-existing failing
+suites on this branch, not two. The third is
+BridgeReviewContentStreamTransportTests "modified review metadata
+exposes selected base and head content handles" (fails at :234, no
+metadataSnapshot). Proven pre-existing by two independent revert
+experiments: identical failure with the 83f2c71a bootstrap removed AND
+with the 5d05a70f panelKind gate restored. Tracked as task #19 with the
+nil-worktreeId mechanism notes.
+
+Enforcement note: the switch-fix lane began implementing the deferred
+point-6 telemetry (viewerModeSwitch slice case + validator allowlist)
+against a settled deferral; those uncommitted edits were reverted to
+HEAD by the orchestrator. Point 6 remains coupled to the
+active-viewer-mode signal in task #18. No committed state was affected.
