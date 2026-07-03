@@ -190,7 +190,37 @@ describe('WorktreeFileApp Browser Mode', () => {
 		expect(document.body.textContent).not.toContain('export const value = 2;');
 		expect(document.body.innerHTML).not.toContain('agentstudio://resource');
 	});
+
+	test('a failed initial surface load surfaces a visible error instead of an unhandled rejection', async () => {
+		render(
+			<WorktreeFileApp
+				loadInitialSurface={() => Promise.reject(new Error('native open failed'))}
+			/>,
+		);
+
+		await waitForWorktreeSourceState('failed');
+
+		const provenance = requireBridgeViewerHTMLElement(
+			document.querySelector('[data-testid="worktree-file-provenance"]'),
+		);
+		expect(provenance.textContent).toBe('Source load failed');
+	});
 });
+
+async function waitForWorktreeSourceState(
+	sourceState: 'live' | 'failed',
+	remainingAttempts = 120,
+): Promise<void> {
+	const appRoot = document.querySelector('[data-testid="worktree-file-app"]');
+	if (appRoot?.getAttribute('data-worktree-source-state') === sourceState) {
+		return;
+	}
+	if (remainingAttempts <= 0) {
+		throw new Error(`Expected Worktree/File source state ${sourceState}`);
+	}
+	await waitForBridgeViewerAnimationFrame();
+	await waitForWorktreeSourceState(sourceState, remainingAttempts - 1);
+}
 
 function makeFrames(descriptor: WorktreeFileDescriptor): readonly WorktreeFileProtocolFrame[] {
 	return [

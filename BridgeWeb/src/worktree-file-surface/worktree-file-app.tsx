@@ -16,16 +16,16 @@ import type {
 	WorktreeTreeVirtualizedSizeFacts,
 } from '../features/worktree-file/models/worktree-file-protocol-models.js';
 import {
+	bridgeFileViewerHasActiveCommentDraft,
+	bridgeFileViewerStaleAutoRefreshCoalesceMilliseconds,
+	shouldAutoRefreshStaleOpenFile,
+} from '../file-viewer/bridge-file-viewer-stale-refresh-policy.js';
+import {
 	createWorktreeFileSurfaceRuntime,
 	type WorktreeFileSurfaceRuntime,
 	type WorktreeFileSurfaceRuntimeFetchedResource,
 	type WorktreeFileSurfaceRuntimeFetchResourceProps,
 } from './worktree-file-surface-runtime.js';
-import {
-	bridgeFileViewerHasActiveCommentDraft,
-	bridgeFileViewerStaleAutoRefreshCoalesceMilliseconds,
-	shouldAutoRefreshStaleOpenFile,
-} from '../file-viewer/bridge-file-viewer-stale-refresh-policy.js';
 
 export interface WorktreeFileAppProps {
 	readonly autoOpenInitialFile?: boolean;
@@ -129,6 +129,7 @@ export function WorktreeFileApp({
 	const [searchText, setSearchText] = useState('');
 	const [searchMode, setSearchMode] = useState<'text' | 'regex'>('text');
 	const [filterMode, setFilterMode] = useState<WorktreeFileFilterMode>('all');
+	const [initialSurfaceLoadError, setInitialSurfaceLoadError] = useState<string | null>(null);
 
 	if (runtimeRef.current === null) {
 		runtimeRef.current = createWorktreeFileSurfaceRuntime({
@@ -207,15 +208,27 @@ export function WorktreeFileApp({
 	useEffect((): (() => void) => {
 		let isCancelled = false;
 		const loadFrames = async (): Promise<void> => {
-			const initialSurface =
-				initialFrames !== undefined
-					? { frames: initialFrames }
-					: loadInitialSurface === undefined
-						? { frames: loadInitialFrames === undefined ? [] : await loadInitialFrames() }
-						: await loadInitialSurface();
+			// A hard-failed native open (e.g. during a git-status storm) must
+			// land as a visible surface state, not an unhandled rejection.
+			let initialSurface: WorktreeFileInitialSurface;
+			try {
+				initialSurface =
+					initialFrames !== undefined
+						? { frames: initialFrames }
+						: loadInitialSurface === undefined
+							? { frames: loadInitialFrames === undefined ? [] : await loadInitialFrames() }
+							: await loadInitialSurface();
+			} catch (error) {
+				if (isCancelled) {
+					return;
+				}
+				setInitialSurfaceLoadError(error instanceof Error ? error.message : String(error));
+				return;
+			}
 			if (isCancelled) {
 				return;
 			}
+			setInitialSurfaceLoadError(null);
 			const nextState = applyIncomingFrames(initialSurface.frames, {
 				provenance: initialSurface.provenance ?? null,
 				sourceIdentity: initialSurface.source ?? null,
@@ -341,7 +354,9 @@ export function WorktreeFileApp({
 			className="bridge-worktree-file-app"
 			data-testid="worktree-file-app"
 			{...(renderState.sourceIdentity === null
-				? {}
+				? initialSurfaceLoadError === null
+					? {}
+					: { 'data-worktree-source-state': 'failed' }
 				: {
 						'data-worktree-source-cursor': renderState.sourceIdentity.sourceCursor,
 						'data-worktree-source-id': renderState.sourceIdentity.sourceId,
@@ -411,9 +426,15 @@ export function WorktreeFileApp({
 							? `${descriptorProjection.descriptors.length}/${renderState.descriptors.length}`
 							: 'Invalid regex'}
 					</div>
-					<div className="bridge-worktree-file-provenance" data-testid="worktree-file-provenance">
+					<div
+						className="bridge-worktree-file-provenance"
+						data-testid="worktree-file-provenance"
+						{...(initialSurfaceLoadError === null ? {} : { title: initialSurfaceLoadError })}
+					>
 						{renderState.sourceIdentity === null || renderState.provenance === null
-							? 'Source pending'
+							? initialSurfaceLoadError === null
+								? 'Source pending'
+								: 'Source load failed'
 							: `${renderState.provenance.scenarioName} · ${renderState.sourceIdentity.sourceId}`}
 					</div>
 				</header>
