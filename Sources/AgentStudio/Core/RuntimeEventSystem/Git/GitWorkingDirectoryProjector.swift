@@ -25,6 +25,11 @@ actor GitWorkingDirectoryProjector {
     let refreshPolicy: AppPolicies.GitRefresh.Policy
     private let subscriptionBufferLimit: Int
     let performanceTraceRecorder: (any GitProjectorPerformanceRecording)?
+    /// Cheap filesystem existence check used to quarantine dead-path worktrees at
+    /// admission (see `GitWorkingDirectoryProjector+PathQuarantine`). Injected so
+    /// the projector stays inert in unit tests that register synthetic paths; the
+    /// production composition root wires the live `FileManager` probe.
+    let pathExistenceProbe: @Sendable (URL) -> Bool
 
     private var subscriptionTask: Task<Void, Never>?
     private var periodicRefreshTask: Task<Void, Never>?
@@ -54,6 +59,11 @@ actor GitWorkingDirectoryProjector {
     var openStatusBackoffWorktreeIds: Set<UUID> = []
     var deferredStatusBackoffChangesetByWorktreeId: [UUID: FileChangeset] = [:]
     var statusBackoffTasks: [UUID: Task<Void, Never>] = [:]
+    /// Registered worktrees whose root path has vanished from disk. They are
+    /// skipped at admission and periodic re-enqueue without further stat calls
+    /// until an event-driven re-arm clears the mark
+    /// (see `GitWorkingDirectoryProjector+PathQuarantine`).
+    var quarantinedWorktreeIds: Set<UUID> = []
     private var quiescentWorktreeIds: Set<UUID> = []
     private var periodicRefreshTick: UInt64 = 0
     private var nextEnvelopeSequence: UInt64 = 0
@@ -68,7 +78,8 @@ actor GitWorkingDirectoryProjector {
         sleepClock: (any Clock<Duration> & Sendable)? = nil,
         refreshPolicy: AppPolicies.GitRefresh.Policy = AppPolicies.GitRefresh.defaultPolicy,
         subscriptionBufferLimit: Int = 256,
-        performanceTraceRecorder: (any GitProjectorPerformanceRecording)? = nil
+        performanceTraceRecorder: (any GitProjectorPerformanceRecording)? = nil,
+        pathExistenceProbe: @escaping @Sendable (URL) -> Bool = { _ in true }
     ) {
         self.runtimeBus = bus
         self.gitWorkingTreeProvider = gitWorkingTreeProvider
@@ -79,6 +90,7 @@ actor GitWorkingDirectoryProjector {
         self.refreshPolicy = refreshPolicy
         self.subscriptionBufferLimit = subscriptionBufferLimit
         self.performanceTraceRecorder = performanceTraceRecorder
+        self.pathExistenceProbe = pathExistenceProbe
     }
 
     isolated deinit {
@@ -153,6 +165,7 @@ actor GitWorkingDirectoryProjector {
         statusBackoffFailureCountByWorktreeId.removeAll(keepingCapacity: false)
         openStatusBackoffWorktreeIds.removeAll(keepingCapacity: false)
         deferredStatusBackoffChangesetByWorktreeId.removeAll(keepingCapacity: false)
+        quarantinedWorktreeIds.removeAll(keepingCapacity: false)
         quiescentWorktreeIds.removeAll(keepingCapacity: false)
         pendingByWorktreeId.removeAll(keepingCapacity: false)
         suppressedWorktreeIds.removeAll(keepingCapacity: false)
@@ -212,6 +225,7 @@ actor GitWorkingDirectoryProjector {
                 )
                 return
             }
+            guard admitFileChangeAfterQuarantine(worktreeId: worktreeId, rootPath: changeset.rootPath) else { return }
             repoIdByWorktreeId[worktreeId] = changeset.repoId
             quiescentWorktreeIds.remove(worktreeId)
             guard !deferChangesetIfStatusBackoffOpen(changeset) else { return }
@@ -266,11 +280,14 @@ actor GitWorkingDirectoryProjector {
 
     func admitPendingWorktrees() {
         guard !isShuttingDown else { return }
+        quarantineDeadPathPendingWorktrees()
         let availableSlots = refreshPolicy.maxConcurrentStatusComputes - worktreeTasks.count
         guard availableSlots > 0 else { return }
 
         let eligibleWorktreeIds = pendingByWorktreeId.keys.filter { worktreeId in
-            worktreeTasks[worktreeId] == nil && !suppressedWorktreeIds.contains(worktreeId)
+            worktreeTasks[worktreeId] == nil
+                && !suppressedWorktreeIds.contains(worktreeId)
+                && !quarantinedWorktreeIds.contains(worktreeId)
         }
         guard !eligibleWorktreeIds.isEmpty else { return }
 
@@ -374,6 +391,7 @@ actor GitWorkingDirectoryProjector {
             nilStatusRetryCountByWorktreeId.removeValue(forKey: worktreeId)
             cancelNilStatusRetry(worktreeId: worktreeId)
             clearStatusBackoffState(worktreeId: worktreeId)
+            clearQuarantineState(worktreeId: worktreeId)
             quiescentWorktreeIds.remove(worktreeId)
             worktreeTasks.removeValue(forKey: worktreeId)?.cancel()
             worktreeTaskGenerationByWorktreeId.removeValue(forKey: worktreeId)
@@ -409,6 +427,7 @@ actor GitWorkingDirectoryProjector {
         nilStatusRetryCountByWorktreeId.removeValue(forKey: worktreeId)
         cancelNilStatusRetry(worktreeId: worktreeId)
         clearStatusBackoffState(worktreeId: worktreeId)
+        clearQuarantineState(worktreeId: worktreeId)
         quiescentWorktreeIds.remove(worktreeId)
         nextPeriodicBatchSeqByWorktreeId.removeValue(forKey: worktreeId)
         if !repoIdByWorktreeId.values.contains(repoId) {
@@ -830,6 +849,7 @@ actor GitWorkingDirectoryProjector {
         var enqueuedCount = 0
         for worktreeId in rootPathByWorktreeId.keys.sorted(by: { $0.uuidString < $1.uuidString }) {
             guard !suppressedWorktreeIds.contains(worktreeId) else { continue }
+            guard !quarantinedWorktreeIds.contains(worktreeId) else { continue }
             guard !openStatusBackoffWorktreeIds.contains(worktreeId) else { continue }
             guard pendingByWorktreeId[worktreeId] == nil else { continue }
             guard isPeriodicRefreshDue(worktreeId: worktreeId) else { continue }
@@ -874,27 +894,4 @@ actor GitWorkingDirectoryProjector {
         return refreshPolicy.isBackgroundWorktreeDue(worktreeId, tick: periodicRefreshTick)
     }
 
-    func gitStatusTraceAttributes(
-        for changeset: FileChangeset,
-        unavailable: GitWorkingTreeStatusUnavailable?,
-        scope: GitStatusScope = .full,
-        pathspecCount: Int = 0
-    ) -> [String: AgentStudioTraceValue] {
-        var attributes: [String: AgentStudioTraceValue] = [
-            "agentstudio.performance.git.input_path.count": .int(changeset.paths.count),
-            "agentstudio.performance.git.pending.count": .int(pendingByWorktreeId.count),
-            "agentstudio.performance.git.running.count": .int(worktreeTasks.count),
-            "agentstudio.performance.git.has_git_internal_changes": .bool(changeset.containsGitInternalChanges),
-            "agentstudio.performance.git.suppressed_ignored_path.count": .int(changeset.suppressedIgnoredPathCount),
-            "agentstudio.performance.git.suppressed_git_internal_path.count": .int(
-                changeset.suppressedGitInternalPathCount
-            ),
-            "agentstudio.performance.git.status_scope": .string(scope.traceValue),
-            "agentstudio.performance.git.pathspec.count": .int(pathspecCount),
-        ]
-        if let unavailable {
-            attributes["agentstudio.performance.git.status_unavailable.reason"] = .string(unavailable.reason.rawValue)
-        }
-        return attributes
-    }
 }
