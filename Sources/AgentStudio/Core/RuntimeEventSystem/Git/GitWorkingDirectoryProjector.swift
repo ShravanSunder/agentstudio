@@ -18,7 +18,7 @@ actor GitWorkingDirectoryProjector {
     /// Not `private` so the pathspec-status extension can dispatch scoped and full
     /// status reads (see `GitWorkingDirectoryProjector+PathspecStatus`).
     let gitWorkingTreeProvider: any GitWorkingTreeStatusProvider
-    private let envelopeClock: ContinuousClock
+    let envelopeClock: ContinuousClock
     let coalescingWindow: Duration
     private let periodicRefreshInterval: Duration?
     let delay: AsyncDelay
