@@ -10,6 +10,28 @@ describe('Bridge review intake re-announce on activation', () => {
 		document.body.replaceChildren();
 		document.documentElement.removeAttribute('data-bridge-app-protocol');
 		document.documentElement.removeAttribute('data-bridge-nonce');
+		document.documentElement.removeAttribute('data-bridge-review-pane-id');
+		document.documentElement.removeAttribute('data-bridge-review-stream-id');
+	});
+
+	test('a sequence gap on the live review stream re-announces intake-ready to unwedge resetRequired', async () => {
+		const reviewIntakeReadyCount = installReviewIntakeReadyCounter();
+		const streamId = 'review:bridge-app-test-pane';
+		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
+		document.documentElement.setAttribute('data-bridge-review-pane-id', 'bridge-app-test-pane');
+		document.documentElement.setAttribute('data-bridge-review-stream-id', streamId);
+		installHandshake('push-reannounce-gap');
+
+		render(<BridgeAppProtocolRouter protocol="review" />);
+		await expect.poll(() => reviewIntakeReadyCount.value).toBe(1);
+
+		// A frame dropped mid-stream opens a sequence gap; the receiver locks
+		// into resetRequired and rejects every further same-generation frame —
+		// the surface silently goes stale. Only a higher-generation reset can
+		// re-key it, so the gap must trigger a re-announce.
+		dispatchIntakeFrame({ streamId, generation: 1, sequence: 0 });
+		dispatchIntakeFrame({ streamId, generation: 1, sequence: 7 });
+		await expect.poll(() => reviewIntakeReadyCount.value).toBe(2);
 	});
 
 	test('re-activating a review surface with no applied package re-announces intake-ready', async () => {
@@ -39,6 +61,21 @@ describe('Bridge review intake re-announce on activation', () => {
 		await expect.poll(() => reviewIntakeReadyCount.value).toBe(3);
 	});
 });
+
+function dispatchIntakeFrame(frame: {
+	readonly streamId: string;
+	readonly generation: number;
+	readonly sequence: number;
+}): void {
+	document.dispatchEvent(
+		new CustomEvent('__bridge_intake_json', {
+			detail: {
+				nonce: 'push-reannounce-gap',
+				json: JSON.stringify({ kind: 'delta', payload: {}, ...frame }),
+			},
+		}),
+	);
+}
 
 function installReviewIntakeReadyCounter(): { readonly value: number } {
 	const counter = { value: 0 };

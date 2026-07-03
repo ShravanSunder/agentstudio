@@ -288,6 +288,21 @@ export function useBridgeReviewIntakeController(props: UseBridgeReviewIntakeCont
 			requestReplayOnInstall: false,
 			onDroppedFrame: (drop: BridgeIntakeCarrierDrop): void => {
 				recordReviewIntakeDropTelemetry(telemetryRecorderRef.current, drop);
+				// A sequence gap locks the receiver in resetRequired: every
+				// further same-generation frame is rejected and the surface
+				// silently goes stale (frames dropped while the surface was
+				// inactive are the common cause). Only a higher-generation
+				// reset re-keys it, so re-announce intake-ready — native
+				// re-delivers the package as a fresh generation. Firing on the
+				// gap transition makes this once per wedge episode.
+				if (
+					drop.reason === 'receiver_rejected_frame' &&
+					drop.receiverReason === 'sequence_gap'
+				) {
+					didMarkReviewIntakeReady = false;
+					retryCount = 0;
+					scheduleMarkReviewIntakeReady();
+				}
 			},
 		});
 		const unregisterBridgeReadyCallback = registerBridgeReadyCallback((): void => {
