@@ -1,6 +1,32 @@
 import Foundation
 
 extension BridgeTelemetryBatchValidator {
+    static func worktreeFileIntakeRejectContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+        contract.matches(
+            .init(
+                phase: "intake",
+                plane: .control,
+                priority: .hot,
+                slice: .connectionHealth,
+                transport: "intake",
+                attributeKeys: .init(
+                    additionalStringKeys: [
+                        "agentstudio.bridge.result",
+                        "agentstudio.bridge.result_reason",
+                    ],
+                    numericKeys: [
+                        "agentstudio.bridge.intake.generation",
+                        "agentstudio.bridge.worktree_file.receiver.generation",
+                    ],
+                    booleanKeys: [
+                        "agentstudio.bridge.reopen_signaled",
+                        "agentstudio.bridge.stream_id_matches",
+                    ]
+                )
+            )
+        )
+    }
+
     static func fileOpenReadyContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
         let requiredStringKeys = requiredStringAttributeKeys.union([
             "agentstudio.bridge.content.role",

@@ -298,6 +298,66 @@ export function recordPushDropTelemetry(
 	telemetryRecorder: BridgeTelemetryRecorder,
 	reason: BridgePushDropReason,
 ): void {
+	if (reason === 'stale_push') {
+		recordStalePushDropTelemetry(telemetryRecorder);
+		return;
+	}
+	flushPendingStalePushDropTelemetry(telemetryRecorder);
+	recordPushDropTelemetrySample({
+		droppedCount: 1,
+		reason,
+		telemetryRecorder,
+	});
+	telemetryRecorder.flush({ force: true });
+}
+
+interface PendingStalePushDropTelemetry {
+	count: number;
+	scheduled: boolean;
+}
+
+const pendingStalePushDropTelemetryByRecorder = new WeakMap<
+	BridgeTelemetryRecorder,
+	PendingStalePushDropTelemetry
+>();
+
+function recordStalePushDropTelemetry(telemetryRecorder: BridgeTelemetryRecorder): void {
+	const pending = pendingStalePushDropTelemetryByRecorder.get(telemetryRecorder) ?? {
+		count: 0,
+		scheduled: false,
+	};
+	pending.count += 1;
+	if (!pending.scheduled) {
+		pending.scheduled = true;
+		queueMicrotask((): void => {
+			flushPendingStalePushDropTelemetry(telemetryRecorder);
+		});
+	}
+	pendingStalePushDropTelemetryByRecorder.set(telemetryRecorder, pending);
+}
+
+function flushPendingStalePushDropTelemetry(telemetryRecorder: BridgeTelemetryRecorder): void {
+	const pending = pendingStalePushDropTelemetryByRecorder.get(telemetryRecorder);
+	if (pending === undefined || pending.count === 0) {
+		return;
+	}
+	const droppedCount = pending.count;
+	pending.count = 0;
+	pending.scheduled = false;
+	recordPushDropTelemetrySample({
+		droppedCount,
+		reason: 'stale_push',
+		telemetryRecorder,
+	});
+	telemetryRecorder.flush({ force: true });
+}
+
+function recordPushDropTelemetrySample(props: {
+	readonly droppedCount: number;
+	readonly reason: BridgePushDropReason;
+	readonly telemetryRecorder: BridgeTelemetryRecorder;
+}): void {
+	const { droppedCount, reason, telemetryRecorder } = props;
 	telemetryRecorder.record({
 		scope: 'web',
 		name: 'performance.bridge.web.telemetry_drop',
@@ -312,11 +372,10 @@ export function recordPushDropTelemetry(
 			'agentstudio.bridge.transport': 'rpc',
 		},
 		numericAttributes: {
-			'agentstudio.bridge.telemetry.dropped_count': 1,
+			'agentstudio.bridge.telemetry.dropped_count': droppedCount,
 		},
 		booleanAttributes: {},
 	});
-	telemetryRecorder.flush({ force: true });
 }
 
 export function recordReviewIntakeDropTelemetry(

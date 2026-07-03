@@ -91,17 +91,26 @@ export async function installReadyNativeWorktreeFileBackend(): Promise<{
 	return { backend, commandDetails };
 }
 
-export function makeSnapshotFrame(): Extract<
-	WorktreeFileProtocolFrame,
-	{ readonly frameKind: 'worktree.snapshot' }
-> {
+export function makeSnapshotFrame(
+	props: {
+		readonly generation?: number;
+		readonly sequence?: number;
+		readonly source?: WorktreeFileSurfaceSourceIdentity;
+	} = {},
+): Extract<WorktreeFileProtocolFrame, { readonly frameKind: 'worktree.snapshot' }> {
+	const generation = props.generation ?? 1;
 	return {
 		kind: 'snapshot',
 		frameKind: 'worktree.snapshot',
 		streamId: 'worktree-file:pane-1',
-		generation: 1,
-		sequence: 0,
-		source: makeSourceIdentity(),
+		generation,
+		sequence: props.sequence ?? 0,
+		source:
+			props.source ??
+			makeSourceIdentity({
+				subscriptionGeneration: generation,
+				sourceCursor: `cursor-${generation}`,
+			}),
 		metadataLineage: {
 			loadedBy: 'startup_window',
 			lane: 'foreground',

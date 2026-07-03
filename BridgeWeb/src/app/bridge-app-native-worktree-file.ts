@@ -20,6 +20,10 @@ import {
 	type WorktreeFileDescriptorRequest,
 	type WorktreeFileProtocolFrame,
 } from '../features/worktree-file/models/worktree-file-protocol-models.js';
+import {
+	createBridgeTelemetryRecorder,
+	type BridgeTelemetryRecorder,
+} from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import type {
 	WorktreeFileFrameSubscriber,
 	WorktreeFileFrameSubscriptionDispose,
@@ -30,6 +34,11 @@ import type {
 	WorktreeFileSurfaceRuntimeFetchedResource,
 	WorktreeFileSurfaceRuntimeFetchResourceProps,
 } from '../worktree-file-surface/worktree-file-surface-runtime.js';
+import {
+	createNativeWorktreeFileTelemetrySink,
+	extractNativeWorktreeFileTelemetryConfig,
+	recordNativeWorktreeFileIntakeRejectTelemetry,
+} from './bridge-app-native-worktree-file-telemetry.js';
 
 export interface BridgeAppNativeWorktreeFileBackend {
 	readonly fetchWorktreeFileResource: (
@@ -50,6 +59,7 @@ export interface CreateBridgeAppNativeWorktreeFileBackendProps {
 	readonly fetchResource?: typeof fetch;
 	readonly responseTimeoutMilliseconds?: number;
 	readonly maxFrameBytes?: number;
+	readonly telemetryRecorder?: BridgeTelemetryRecorder;
 }
 
 const nativeWorktreeFileSourceSpecAttribute = 'data-bridge-worktree-file-source-spec';
@@ -84,7 +94,9 @@ interface NativeWorktreeFileProbeEntry {
 	readonly reason: NativeWorktreeFileProbeReason;
 	readonly frameKind?: string;
 	readonly generation?: number;
+	readonly receiverGeneration?: number;
 	readonly receiverReason?: BridgeIntakeReceiveDropReason;
+	readonly reopenSignaled?: boolean;
 	readonly sequence?: number;
 	readonly streamIdMatches?: boolean;
 }
@@ -139,6 +151,12 @@ export function createBridgeAppNativeWorktreeFileBackend(
 	let pushNonce: string | null = null;
 	let disposeIntakeListener: (() => void) | null = null;
 	let initialSurfaceReplayBuffer: InitialWorktreeFileSurfaceReplayBuffer | null = null;
+	let resolvedStreamIdentity: { readonly streamId: string; readonly generation: number } | null =
+		null;
+	let pendingOpenCount = 0;
+	let streamResetRequiredEpisodeKey: string | null = null;
+	let telemetryRecorder = props.telemetryRecorder ?? createBridgeTelemetryRecorder(null);
+	let didConfigureTelemetryRecorder = props.telemetryRecorder !== undefined;
 	let isDisposed = false;
 
 	const publishFrames = (frames: readonly WorktreeFileProtocolFrame[]): void => {
@@ -154,6 +172,36 @@ export function createBridgeAppNativeWorktreeFileBackend(
 		for (const callback of streamResetRequiredCallbacks) {
 			queueMicrotask(callback);
 		}
+	};
+	const signalResolvedStreamResetRequired = (): boolean => {
+		if (resolvedStreamIdentity === null || pendingOpenCount > 0) {
+			return false;
+		}
+		const episodeKey = `${resolvedStreamIdentity.streamId}:generation-${resolvedStreamIdentity.generation}`;
+		if (streamResetRequiredEpisodeKey === episodeKey) {
+			return false;
+		}
+		streamResetRequiredEpisodeKey = episodeKey;
+		notifyWorktreeFileStreamResetRequired();
+		return true;
+	};
+	const signalStreamResetRequiredForReceiverRejection = (
+		receiverReason: BridgeIntakeReceiveDropReason,
+	): boolean => {
+		switch (receiverReason) {
+			case 'sequence_gap':
+				notifyWorktreeFileStreamResetRequired();
+				return true;
+			case 'generation_mismatch':
+			case 'stream_mismatch':
+				return signalResolvedStreamResetRequired();
+			case 'closed':
+			case 'duplicate_sequence':
+			case 'reset_required':
+			case 'stale_sequence':
+				return false;
+		}
+		return assertNever(receiverReason);
 	};
 
 	const installIntakeListener = (streamIdentity: {
@@ -225,10 +273,16 @@ export function createBridgeAppNativeWorktreeFileBackend(
 			maxFrameBytes: props.maxFrameBytes ?? defaultMaxFrameBytes,
 			requestReplayOnInstall: false,
 			onDroppedFrame: (drop: BridgeIntakeCarrierDrop): void => {
-				recordNativeWorktreeFileCarrierDrop(drop);
-				if (drop.reason === 'receiver_rejected_frame' && drop.receiverReason === 'sequence_gap') {
-					notifyWorktreeFileStreamResetRequired();
-				}
+				const receiverGeneration = receiver.state.generation;
+				const reopenSignaled =
+					drop.reason === 'receiver_rejected_frame'
+						? signalStreamResetRequiredForReceiverRejection(drop.receiverReason)
+						: false;
+				recordNativeWorktreeFileCarrierDrop(drop, {
+					receiverGeneration,
+					reopenSignaled,
+					telemetryRecorder,
+				});
 			},
 		});
 		recordNativeWorktreeFileProbe({ reason: 'listener_installed' });
@@ -241,6 +295,20 @@ export function createBridgeAppNativeWorktreeFileBackend(
 			if (typeof nextPushNonce === 'string' && nextPushNonce.length > 0) {
 				pushNonce = nextPushNonce;
 				recordNativeWorktreeFileProbe({ reason: 'handshake_received' });
+			}
+		}
+		if (!didConfigureTelemetryRecorder) {
+			const telemetryConfig = extractNativeWorktreeFileTelemetryConfig(event);
+			if (telemetryConfig !== null) {
+				telemetryRecorder = createBridgeTelemetryRecorder(
+					telemetryConfig,
+					createNativeWorktreeFileTelemetrySink({
+						createRequestId: createNativeWorktreeFileRequestId,
+						methodName: telemetryConfig.rpcMethodName,
+						target,
+					}),
+				);
+				didConfigureTelemetryRecorder = true;
 			}
 		}
 	};
@@ -268,67 +336,77 @@ export function createBridgeAppNativeWorktreeFileBackend(
 			if (isDisposed) {
 				throw new Error('Native Worktree/File backend is disposed');
 			}
-			const requestId = props.createRequestId?.() ?? createNativeWorktreeFileRequestId();
-			const response = await sendNativeWorktreeFileOpenStreamCommand({
-				requestId,
-				sourceSpec: {
-					...sourceSpec,
-					clientRequestId: requestId,
-				},
-				target,
-				timeoutMilliseconds:
-					props.responseTimeoutMilliseconds ?? defaultResponseTimeoutMilliseconds,
-			});
-			const parsedOutcome = worktreeFileSurfaceOpenSourceOutcomeSchema.safeParse(response);
-			if (!parsedOutcome.success) {
-				recordNativeWorktreeFileProbe({
-					reason: 'open_response_parse_failed',
-					streamIdMatches: false,
+			pendingOpenCount += 1;
+			try {
+				const requestId = props.createRequestId?.() ?? createNativeWorktreeFileRequestId();
+				const response = await sendNativeWorktreeFileOpenStreamCommand({
+					requestId,
+					sourceSpec: {
+						...sourceSpec,
+						clientRequestId: requestId,
+					},
+					target,
+					timeoutMilliseconds:
+						props.responseTimeoutMilliseconds ?? defaultResponseTimeoutMilliseconds,
 				});
-				throw new Error('Native Worktree/File open stream returned invalid outcome');
+				const parsedOutcome = worktreeFileSurfaceOpenSourceOutcomeSchema.safeParse(response);
+				if (!parsedOutcome.success) {
+					recordNativeWorktreeFileProbe({
+						reason: 'open_response_parse_failed',
+						streamIdMatches: false,
+					});
+					throw new Error('Native Worktree/File open stream returned invalid outcome');
+				}
+				const outcome = parsedOutcome.data;
+				recordNativeWorktreeFileProbe({
+					reason: 'open_accepted',
+					generation: outcome.generation,
+					streamIdMatches: true,
+				});
+				installIntakeListener({
+					streamId: outcome.streamId,
+					generation: outcome.generation,
+				});
+				initialSurfaceReplayBuffer = {
+					streamId: outcome.streamId,
+					generation: outcome.generation,
+					frames: [],
+				};
+				const snapshotFramePromise = waitForNativeWorktreeSnapshot({
+					generation: outcome.generation,
+					pendingOpenResolvers,
+					streamId: outcome.streamId,
+					target,
+					timeoutMilliseconds:
+						props.responseTimeoutMilliseconds ?? defaultResponseTimeoutMilliseconds,
+				});
+				target.dispatchEvent(new CustomEvent('__bridge_intake_replay_request'));
+				recordNativeWorktreeFileProbe({
+					reason: 'replay_requested',
+					generation: outcome.generation,
+					streamIdMatches: true,
+				});
+				sendNativeBridgeIntakeReadyCommand({
+					generation: outcome.generation,
+					streamId: outcome.streamId,
+					target,
+				});
+				const snapshotFrame = await snapshotFramePromise;
+				const replayedFrames = initialSurfaceReplayBuffer?.frames ?? [];
+				initialSurfaceReplayBuffer = null;
+				resolvedStreamIdentity = {
+					generation: outcome.generation,
+					streamId: outcome.streamId,
+				};
+				streamResetRequiredEpisodeKey = null;
+				return {
+					frames: [snapshotFrame, ...replayedFrames],
+					provenance: nativeWorktreeFileSurfaceProvenance(sourceSpec.rootPathToken),
+					source: snapshotFrame.source,
+				};
+			} finally {
+				pendingOpenCount -= 1;
 			}
-			const outcome = parsedOutcome.data;
-			recordNativeWorktreeFileProbe({
-				reason: 'open_accepted',
-				generation: outcome.generation,
-				streamIdMatches: true,
-			});
-			installIntakeListener({
-				streamId: outcome.streamId,
-				generation: outcome.generation,
-			});
-			initialSurfaceReplayBuffer = {
-				streamId: outcome.streamId,
-				generation: outcome.generation,
-				frames: [],
-			};
-			const snapshotFramePromise = waitForNativeWorktreeSnapshot({
-				generation: outcome.generation,
-				pendingOpenResolvers,
-				streamId: outcome.streamId,
-				target,
-				timeoutMilliseconds:
-					props.responseTimeoutMilliseconds ?? defaultResponseTimeoutMilliseconds,
-			});
-			target.dispatchEvent(new CustomEvent('__bridge_intake_replay_request'));
-			recordNativeWorktreeFileProbe({
-				reason: 'replay_requested',
-				generation: outcome.generation,
-				streamIdMatches: true,
-			});
-			sendNativeBridgeIntakeReadyCommand({
-				generation: outcome.generation,
-				streamId: outcome.streamId,
-				target,
-			});
-			const snapshotFrame = await snapshotFramePromise;
-			const replayedFrames = initialSurfaceReplayBuffer?.frames ?? [];
-			initialSurfaceReplayBuffer = null;
-			return {
-				frames: [snapshotFrame, ...replayedFrames],
-				provenance: nativeWorktreeFileSurfaceProvenance(sourceSpec.rootPathToken),
-				source: snapshotFrame.source,
-			};
 		},
 		requestWorktreeFileDescriptor: async (
 			request: WorktreeFileDescriptorRequest,
@@ -341,13 +419,20 @@ export function createBridgeAppNativeWorktreeFileBackend(
 				throw new Error('Native Worktree/File descriptor request is invalid');
 			}
 			const requestId = props.createRequestId?.() ?? createNativeWorktreeFileRequestId();
-			await sendNativeWorktreeFileDescriptorRequestCommand({
-				request: parsedRequest.data,
-				requestId,
-				target,
-				timeoutMilliseconds:
-					props.responseTimeoutMilliseconds ?? defaultResponseTimeoutMilliseconds,
-			});
+			try {
+				await sendNativeWorktreeFileDescriptorRequestCommand({
+					request: parsedRequest.data,
+					requestId,
+					target,
+					timeoutMilliseconds:
+						props.responseTimeoutMilliseconds ?? defaultResponseTimeoutMilliseconds,
+				});
+			} catch (error) {
+				if (nativeWorktreeFileDescriptorErrorRequiresStreamReset(error)) {
+					signalResolvedStreamResetRequired();
+				}
+				throw error;
+			}
 		},
 		registerWorktreeFileStreamResetRequiredCallback: (callback: () => void): (() => void) => {
 			streamResetRequiredCallbacks.add(callback);
@@ -380,6 +465,8 @@ export function createBridgeAppNativeWorktreeFileBackend(
 			streamResetRequiredCallbacks.clear();
 			pendingFrames.length = 0;
 			initialSurfaceReplayBuffer = null;
+			resolvedStreamIdentity = null;
+			streamResetRequiredEpisodeKey = null;
 		},
 	};
 }
@@ -539,6 +626,16 @@ function nativeWorktreeFileOpenStreamErrorClass(
 		default:
 			return 'jsonrpc_error';
 	}
+}
+
+function nativeWorktreeFileDescriptorErrorRequiresStreamReset(error: unknown): boolean {
+	if (!(error instanceof Error)) {
+		return false;
+	}
+	return (
+		error.message.endsWith('worktree_file.source_identity_mismatch') ||
+		error.message.endsWith('worktree_file.stale_source_generation')
+	);
 }
 
 function sendNativeBridgeIntakeReadyCommand(props: {
@@ -783,7 +880,14 @@ function assertNever(value: never): never {
 	throw new Error(`Unhandled native Worktree/File variant: ${String(value)}`);
 }
 
-function recordNativeWorktreeFileCarrierDrop(drop: BridgeIntakeCarrierDrop): void {
+function recordNativeWorktreeFileCarrierDrop(
+	drop: BridgeIntakeCarrierDrop,
+	context: {
+		readonly receiverGeneration: number;
+		readonly reopenSignaled: boolean;
+		readonly telemetryRecorder: BridgeTelemetryRecorder;
+	},
+): void {
 	switch (drop.reason) {
 		case 'frame_too_large':
 			recordNativeWorktreeFileProbe({ reason: 'drop_frame_too_large' });
@@ -795,10 +899,20 @@ function recordNativeWorktreeFileCarrierDrop(drop: BridgeIntakeCarrierDrop): voi
 			recordNativeWorktreeFileProbe({ reason: 'drop_nonce_mismatch' });
 			return;
 		case 'receiver_rejected_frame':
+			recordNativeWorktreeFileIntakeRejectTelemetry({
+				frameGeneration: drop.frame.generation,
+				reason: drop.receiverReason,
+				receiverGeneration: context.receiverGeneration,
+				reopenSignaled: context.reopenSignaled,
+				streamIdMatches: drop.receiverReason !== 'stream_mismatch',
+				telemetryRecorder: context.telemetryRecorder,
+			});
 			recordNativeWorktreeFileProbe({
 				reason: nativeWorktreeFileProbeReasonForReceiverRejection(drop.receiverReason),
 				generation: drop.frame.generation,
+				receiverGeneration: context.receiverGeneration,
 				receiverReason: drop.receiverReason,
+				reopenSignaled: context.reopenSignaled,
 				sequence: drop.frame.sequence,
 				streamIdMatches: drop.receiverReason !== 'stream_mismatch',
 			});

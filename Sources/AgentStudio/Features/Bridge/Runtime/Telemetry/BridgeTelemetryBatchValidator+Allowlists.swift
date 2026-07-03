@@ -29,6 +29,7 @@ extension BridgeTelemetryBatchValidator {
         "performance.bridge.web.rpc_send",
         "performance.bridge.web.telemetry_drop",
         "performance.bridge.web.visible_demand_settled",
+        "performance.bridge.web.worktree_file_intake_reject",
         "performance.bridge.markdown.render_queue",
         "performance.bridge.markdown.render",
         "performance.bridge.markdown.fallback",
@@ -459,6 +460,7 @@ extension BridgeTelemetryBatchValidator {
         "agentstudio.bridge.worktree_file.tree.current_row.count",
         "agentstudio.bridge.worktree_file.tree.descriptor.count",
         "agentstudio.bridge.worktree_file.tree.incoming_frame.count",
+        "agentstudio.bridge.worktree_file.receiver.generation",
         "agentstudio.bridge.worktree_file.tree.window.row.count",
         "agentstudio.startup_diagnostic.bridge.file_view.descriptor_request_command.count",
         "agentstudio.startup_diagnostic.bridge.file_view.metadata_file_row.count",
@@ -472,6 +474,8 @@ extension BridgeTelemetryBatchValidator {
         "agentstudio.bridge.content.stale",
         "agentstudio.bridge.header_missing",
         "agentstudio.bridge.header_supported",
+        "agentstudio.bridge.reopen_signaled",
         "agentstudio.bridge.selected",
+        "agentstudio.bridge.stream_id_matches",
     ]
 }

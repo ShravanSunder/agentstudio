@@ -4,6 +4,7 @@ enum BridgeTelemetryDropReason: String, CaseIterable, Codable, Equatable, Sendab
     case encodedBatchTooLarge = "encoded_batch_too_large"
     case invalidDuration = "invalid_duration"
     case invalidTraceContext = "invalid_trace_context"
+    case hostPortMessageInvalid = "host_port_message_invalid"
     case missingPushNonce = "missing_push_nonce"
     case pushDecodeFailed = "push_decode_failed"
     case pushNonceMismatch = "push_nonce_mismatch"

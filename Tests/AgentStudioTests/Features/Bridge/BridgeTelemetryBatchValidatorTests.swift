@@ -591,6 +591,7 @@ struct BridgeTelemetryBatchValidatorSafetyTests {
     func dropReasonWireValuesUseSnakeCase() throws {
         #expect(BridgeTelemetryDropReason.queueSaturated.rawValue == "queue_saturated")
         #expect(BridgeTelemetryDropReason.decodingFailed.rawValue == "decoding_failed")
+        #expect(BridgeTelemetryDropReason.hostPortMessageInvalid.rawValue == "host_port_message_invalid")
 
         let decoded = try JSONDecoder().decode(
             BridgeTelemetryDropReason.self,
@@ -598,6 +599,62 @@ struct BridgeTelemetryBatchValidatorSafetyTests {
         )
 
         #expect(decoded == .tooManySamples)
+    }
+
+    @Test
+    func validatorAcceptsHostPortMessageInvalidTelemetryDropReason() {
+        let validator = BridgeTelemetryBatchValidator(
+            scopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web])
+        )
+        let batch = batchWithWebSample(
+            WebSampleProps(
+                name: "performance.bridge.web.telemetry_drop",
+                phase: "dropped",
+                plane: "observability",
+                priority: "best_effort",
+                slice: "telemetry_drop",
+                transport: "rpc",
+                extraStrings: [
+                    "agentstudio.bridge.telemetry.drop_reason": "host_port_message_invalid"
+                ],
+                extraNumbers: [
+                    "agentstudio.bridge.telemetry.dropped_count": 1
+                ]
+            )
+        )
+
+        #expect(validator.validate(batch) == .accepted(batch))
+    }
+
+    @Test
+    func validatorAcceptsWorktreeFileIntakeRejectTelemetry() {
+        let validator = BridgeTelemetryBatchValidator(
+            scopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web])
+        )
+        let batch = batchWithWebSample(
+            WebSampleProps(
+                name: "performance.bridge.web.worktree_file_intake_reject",
+                phase: "intake",
+                plane: "control",
+                priority: "hot",
+                slice: "connection_health",
+                transport: "intake",
+                extraStrings: [
+                    "agentstudio.bridge.result": "dropped",
+                    "agentstudio.bridge.result_reason": "generation_mismatch",
+                ],
+                extraNumbers: [
+                    "agentstudio.bridge.intake.generation": 2,
+                    "agentstudio.bridge.worktree_file.receiver.generation": 1,
+                ],
+                extraBooleans: [
+                    "agentstudio.bridge.reopen_signaled": true,
+                    "agentstudio.bridge.stream_id_matches": true,
+                ]
+            )
+        )
+
+        #expect(validator.validate(batch) == .accepted(batch))
     }
 
     @Test

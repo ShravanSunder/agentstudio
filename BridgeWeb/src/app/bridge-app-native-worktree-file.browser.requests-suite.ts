@@ -172,6 +172,44 @@ describe('Bridge app native Worktree/File backend', () => {
 		backend.dispose();
 	});
 
+	test('signals stream reset when descriptor RPC fails for stale source generation', async () => {
+		const { backend, commandDetails } = await installReadyNativeWorktreeFileBackend();
+		let resetRequiredNotificationCount = 0;
+		const unregisterResetRequiredCallback = backend.registerWorktreeFileStreamResetRequiredCallback(
+			(): void => {
+				resetRequiredNotificationCount += 1;
+			},
+		);
+
+		const requestPromise = backend.requestWorktreeFileDescriptor({
+			sourceIdentity: makeSourceIdentity(),
+			rowId: 'row:src/app.ts',
+			path: 'src/app.ts',
+			fileId: 'file-1',
+			lane: 'foreground',
+		});
+		expect(commandDetails[2]).toMatchObject({
+			id: 'request-2',
+			method: 'worktreeFileSurface.requestFileDescriptor',
+		});
+		document.dispatchEvent(
+			new CustomEvent('__bridge_response', {
+				detail: {
+					id: 'request-2',
+					error: { code: -32_602, message: 'worktree_file.stale_source_generation' },
+					nonce: 'push-1',
+				},
+			}),
+		);
+
+		await expect(requestPromise).rejects.toThrow(
+			'Native Worktree/File descriptor request failed: worktree_file.stale_source_generation',
+		);
+		await expect.poll(() => resetRequiredNotificationCount).toBe(1);
+		unregisterResetRequiredCallback();
+		backend.dispose();
+	});
+
 	test('opens the native source stream without WebCrypto request ids', async () => {
 		const commandDetails: unknown[] = [];
 		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-1');

@@ -255,6 +255,8 @@ extension BridgeTelemetryBatchValidator {
             return rpcSendContractMatches(contract)
         case "performance.bridge.web.telemetry_drop":
             return telemetryDropContractMatches(contract)
+        case "performance.bridge.web.worktree_file_intake_reject":
+            return worktreeFileIntakeRejectContractMatches(contract)
         default:
             return nil
         }
