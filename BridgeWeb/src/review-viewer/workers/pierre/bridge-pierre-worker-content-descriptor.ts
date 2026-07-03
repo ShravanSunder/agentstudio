@@ -1,6 +1,8 @@
 import type { FileContents } from '@pierre/diffs';
 import { z } from 'zod';
 
+import { bridgePierreOptionalHighlightLanguage } from './bridge-pierre-language-normalization.js';
+
 export const bridgePierreContentDescriptorSchema = z
 	.object({
 		contentHash: z.string().min(1),
@@ -59,11 +61,12 @@ export interface BridgePierreWorkerContentDescriptorDatasetTarget {
 export function createBridgePierreContentDescriptorFile(
 	props: CreateBridgePierreContentDescriptorFileProps,
 ): BridgePierreContentDescriptorFile {
+	const normalizedLanguage = bridgePierreOptionalHighlightLanguage(props.lang);
 	const file: BridgePierreContentDescriptorFile = {
 		name: props.name,
 		contents: props.text ?? contentLineSkeleton(props.lineCount),
 		cacheKey: props.cacheKey,
-		...(props.lang === null || props.lang === undefined ? {} : { lang: props.lang }),
+		...(normalizedLanguage === undefined ? {} : { lang: normalizedLanguage }),
 		bridgeContentDescriptor: {
 			contentHash: props.contentHash,
 			contentHashAlgorithm: props.contentHashAlgorithm,
@@ -79,11 +82,12 @@ export function createBridgePierreContentDescriptorFile(
 export function replaceBridgePierreContentDescriptorFileContents(
 	props: ReplaceBridgePierreContentDescriptorFileContentsProps,
 ): FileContents {
+	const normalizedLanguage = bridgePierreOptionalHighlightLanguage(props.file.lang);
 	return {
 		name: props.file.name,
 		contents: props.text,
 		cacheKey: props.file.cacheKey,
-		...(props.file.lang === undefined ? {} : { lang: props.file.lang }),
+		...(normalizedLanguage === undefined ? {} : { lang: normalizedLanguage }),
 	};
 }
 

@@ -1,5 +1,6 @@
 import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
 import type { SupportedLanguages } from '../review-viewer/code-view/bridge-code-view-pierre-types.js';
+import { bridgePierreHighlightLanguageOrPlainText } from '../review-viewer/workers/pierre/bridge-pierre-language-normalization.js';
 import {
 	prewarmBridgePierreWorkerPool,
 	type BridgePierreWorkerPoolPrewarmRequest,
@@ -26,16 +27,6 @@ const bridgePierreStaticPrewarmLanguages: readonly SupportedLanguages[] = [
 	'json',
 	'yaml',
 ] as const;
-
-const bridgePierreStaticPrewarmLanguageSet = new Set<string>(bridgePierreStaticPrewarmLanguages);
-
-const bridgePierrePrewarmLanguageAliasByMetadataValue: Readonly<
-	Record<string, SupportedLanguages>
-> = {
-	md: 'markdown',
-	ts: 'typescript',
-	yml: 'yaml',
-};
 
 export function bridgeViewerActivationPrewarm(props: BridgeViewerActivationPrewarmProps): void {
 	if (props.state.prewarmedModes.has(props.activeViewerMode)) {
@@ -86,13 +77,8 @@ function supportedPrewarmLanguage(language: string | null | undefined): Supporte
 	if (language === null || language === undefined || language.length === 0) {
 		return null;
 	}
-	const normalizedLanguage = language.toLowerCase();
-	return (
-		bridgePierrePrewarmLanguageAliasByMetadataValue[normalizedLanguage] ??
-		(bridgePierreStaticPrewarmLanguageSet.has(normalizedLanguage)
-			? (normalizedLanguage as SupportedLanguages)
-			: null)
-	);
+	const normalizedLanguage = bridgePierreHighlightLanguageOrPlainText(language);
+	return normalizedLanguage === 'text' || normalizedLanguage === 'ansi' ? null : normalizedLanguage;
 }
 
 function staticPrewarmLanguageRank(language: SupportedLanguages): number {

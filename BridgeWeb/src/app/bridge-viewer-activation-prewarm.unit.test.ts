@@ -70,4 +70,46 @@ describe('Bridge viewer activation prewarm', () => {
 			}),
 		).toEqual(['typescript', 'swift', 'markdown']);
 	});
+
+	test('prewarms supported review package languages and skips plaintext fallbacks', () => {
+		const reviewPackage = makeBridgeReviewPackage();
+		const packageJsonItem = {
+			...makeBridgeReviewItem({
+				itemId: 'item-package-json',
+				path: 'package.json',
+			}),
+			language: 'json',
+			extension: 'json',
+		};
+		const miseTomlItem = {
+			...makeBridgeReviewItem({
+				itemId: 'item-mise-toml',
+				path: '.mise.toml',
+			}),
+			fileClass: 'config' as const,
+			language: 'toml',
+			extension: 'toml',
+		};
+		const gitignoreItem = {
+			...makeBridgeReviewItem({
+				itemId: 'item-gitignore',
+				path: '.gitignore',
+			}),
+			fileClass: 'config' as const,
+			language: 'gitignore',
+			extension: '',
+		};
+
+		expect(
+			bridgePierrePrewarmLanguagesForReviewPackage({
+				...reviewPackage,
+				orderedItemIds: ['item-mise-toml', 'item-package-json', 'item-gitignore'],
+				itemsById: {
+					[packageJsonItem.itemId]: packageJsonItem,
+					[miseTomlItem.itemId]: miseTomlItem,
+					[gitignoreItem.itemId]: gitignoreItem,
+				},
+			}),
+		).toEqual(['json', 'toml']);
+	});
 });
