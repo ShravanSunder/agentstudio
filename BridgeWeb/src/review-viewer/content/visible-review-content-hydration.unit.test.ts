@@ -10,6 +10,7 @@ import type { BridgeReviewPackage } from '../../foundation/review-package/bridge
 import {
 	createVisibleReviewContentHydrationResult,
 	normalizeVisibleReviewItemIds,
+	selectedAdjacentReviewItemIds,
 	shouldAbortVisibleContentLoadsForPause,
 	visibleContentHydrationDispatchDelayMilliseconds,
 	visibleContentHydrationConcurrentLoadLimit,
@@ -31,6 +32,12 @@ describe('visible review content hydration', () => {
 		expect(normalizedItemIds).toHaveLength(visibleContentHydrationItemLimit);
 		expect(normalizedItemIds).not.toContain(selectedItemId);
 		expect(normalizedItemIds.slice(0, 4)).toEqual(['item-018', 'item-019', 'item-021', 'item-022']);
+		expect(
+			selectedAdjacentReviewItemIds({
+				reviewPackage,
+				selectedItemId,
+			}),
+		).toEqual(['item-018', 'item-019', 'item-021', 'item-022']);
 	});
 
 	test('keeps visible content warming opportunistic under active visible loads', () => {

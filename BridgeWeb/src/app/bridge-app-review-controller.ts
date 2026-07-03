@@ -13,7 +13,10 @@ import type {
 } from '../features/review/models/review-protocol-models.js';
 import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
-import { demandFreshnessKeyForReviewDescriptorRef } from '../review-viewer/content/review-content-demand-loader.js';
+import {
+	demandFreshnessKeyForReviewDescriptorRef,
+	loadReviewItemContentResourcesThroughDemandResult,
+} from '../review-viewer/content/review-content-demand-loader.js';
 import type { BridgeReviewContentRegistry } from '../review-viewer/content/review-content-registry.js';
 import {
 	cancelReviewDescriptorDemandGroups,
@@ -317,6 +320,14 @@ async function applyReviewProtocolFramePayload(
 		if (nextSelectedItemId === null) {
 			setSelectedItemId(null);
 		} else {
+			promoteInitialReviewItemContentToForeground({
+				contentRegistry,
+				itemId: nextSelectedItemId,
+				resourceExecutor,
+				reviewContentDescriptorRefsByHandleId: reviewContentDescriptorRefsByHandleIdRef.current,
+				reviewDemandScheduler,
+				reviewPackage: packagePayload,
+			});
 			selectInitialReviewItem(nextSelectedItemId);
 		}
 		return;
@@ -538,4 +549,27 @@ function extractDiffStatus(data: unknown): BridgeDiffStatusState | null {
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
 	return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function promoteInitialReviewItemContentToForeground(props: {
+	readonly contentRegistry: BridgeReviewContentRegistry;
+	readonly itemId: string;
+	readonly resourceExecutor: BridgeResourceExecutor<BridgeTextResourceStreamResult>;
+	readonly reviewContentDescriptorRefsByHandleId: ReadonlyMap<string, BridgeDescriptorRef>;
+	readonly reviewDemandScheduler: BridgeDemandScheduler;
+	readonly reviewPackage: BridgeReviewPackage;
+}): void {
+	if (props.reviewPackage.itemsById[props.itemId] === undefined) {
+		return;
+	}
+	void loadReviewItemContentResourcesThroughDemandResult({
+		reviewPackage: props.reviewPackage,
+		itemId: props.itemId,
+		interest: 'selected',
+		resolveDescriptorRef: (handle): BridgeDescriptorRef | null =>
+			props.reviewContentDescriptorRefsByHandleId.get(handle.handleId) ?? null,
+		scheduler: props.reviewDemandScheduler,
+		executor: props.resourceExecutor,
+		contentRegistry: props.contentRegistry,
+	}).catch((): void => {});
 }

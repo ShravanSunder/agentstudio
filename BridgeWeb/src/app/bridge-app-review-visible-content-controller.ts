@@ -12,9 +12,9 @@ import {
 	loadReviewItemContentResourcesThroughDemandResult,
 	type ReviewContentDemandTelemetry,
 } from '../review-viewer/content/review-content-demand-loader.js';
-import type { LoadReviewItemContentResourcesProps } from '../review-viewer/content/review-content-loader.js';
 import type { BridgeReviewContentRegistry } from '../review-viewer/content/review-content-registry.js';
 import {
+	type VisibleReviewContentLoadProps,
 	type VisibleReviewContentLoadResult,
 	useVisibleReviewContentHydration,
 } from '../review-viewer/content/visible-review-content-hydration.js';
@@ -86,13 +86,11 @@ export function useBridgeReviewVisibleContentController(
 		selectedContentResourcesState,
 	});
 	const loadVisibleContentResourcesThroughDemand = useCallback(
-		async (
-			loadProps: LoadReviewItemContentResourcesProps,
-		): Promise<VisibleReviewContentLoadResult> =>
+		async (loadProps: VisibleReviewContentLoadProps): Promise<VisibleReviewContentLoadResult> =>
 			loadReviewItemContentResourcesThroughDemandResult({
 				reviewPackage: loadProps.reviewPackage,
 				itemId: loadProps.itemId,
-				interest: 'visible',
+				interest: loadProps.interest,
 				resolveDescriptorRef: (handle): BridgeDescriptorRef | null =>
 					reviewContentDescriptorRefsByHandleIdRef.current.get(handle.handleId) ?? null,
 				scheduler: reviewDemandScheduler,

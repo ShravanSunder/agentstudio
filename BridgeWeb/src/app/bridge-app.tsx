@@ -42,6 +42,10 @@ export {
 	shouldRetrySelectedReviewContentAfterDescriptorRegistration,
 	shouldStartSelectedReviewContentDemand,
 } from './bridge-app-review-selection-state.js';
+import {
+	bridgeViewerActivationPrewarm,
+	type BridgeViewerActivationPrewarmState,
+} from './bridge-viewer-activation-prewarm.js';
 import { BridgeViewerAppShell } from './bridge-viewer-app-shell.js';
 import { BridgeViewerContextSwitcher } from './bridge-viewer-content-header.js';
 import type {
@@ -125,6 +129,9 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 		review:
 			activeViewerState.viewerMode === 'review' ? activeViewerState.navigationCommand : undefined,
 	});
+	const activationPrewarmStateRef = useRef<BridgeViewerActivationPrewarmState>({
+		prewarmedModes: new Set(),
+	});
 	const telemetryRecorderRef = useRef<BridgeTelemetryRecorder>(createBridgeTelemetryRecorder(null));
 	const telemetryRecorder = useMemo(
 		(): BridgeTelemetryRecorder => ({
@@ -207,6 +214,12 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 		});
 		setActiveViewerState(nextViewerState);
 	}, [incomingNavigationCommand, incomingViewerMode]);
+	useEffect((): void => {
+		bridgeViewerActivationPrewarm({
+			activeViewerMode: activeViewerState.viewerMode,
+			state: activationPrewarmStateRef.current,
+		});
+	}, [activeViewerState.viewerMode]);
 	const activateViewerMode = useCallback((viewerMode: BridgeViewerMode): void => {
 		setMountedViewerModes((currentMountedViewerModes): ReadonlySet<BridgeViewerMode> => {
 			if (currentMountedViewerModes.has(viewerMode)) {

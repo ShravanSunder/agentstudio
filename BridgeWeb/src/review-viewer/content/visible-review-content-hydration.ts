@@ -12,14 +12,26 @@ import {
 } from '../../foundation/telemetry/bridge-trace-context.js';
 import type { BridgeCodeViewContentResources } from '../code-view/bridge-code-view-materialization.js';
 import { recordBridgeViewerContentQueueTelemetry } from '../telemetry/bridge-review-viewer-telemetry.js';
-import type { ReviewContentDemandLoadResult } from './review-content-demand-loader.js';
+import type {
+	ReviewContentDemandInterest,
+	ReviewContentDemandLoadResult,
+} from './review-content-demand-loader.js';
 import type { LoadReviewItemContentResourcesProps } from './review-content-loader.js';
 import type { BridgeReviewContentRegistry } from './review-content-registry.js';
+
+type VisibleReviewContentDemandInterest = Extract<
+	ReviewContentDemandInterest,
+	'nearby' | 'visible'
+>;
+
+export interface VisibleReviewContentLoadProps extends LoadReviewItemContentResourcesProps {
+	readonly interest: VisibleReviewContentDemandInterest;
+}
 
 export interface UseVisibleReviewContentHydrationProps {
 	readonly contentRegistry: BridgeReviewContentRegistry;
 	readonly loadContentResources: (
-		props: LoadReviewItemContentResourcesProps,
+		props: VisibleReviewContentLoadProps,
 	) => Promise<VisibleReviewContentLoadResult>;
 	readonly reviewPackage: BridgeReviewPackage | null;
 	readonly selectedItemId: string | null;
@@ -160,6 +172,12 @@ export function useVisibleReviewContentHydration(
 			return;
 		}
 		const currentReviewPackage = props.reviewPackage;
+		const selectedAdjacentItemIds = new Set(
+			selectedAdjacentReviewItemIds({
+				reviewPackage: currentReviewPackage,
+				selectedItemId: props.selectedItemId,
+			}),
+		);
 		const loadPlans = visibleItemIds.flatMap((itemId): readonly VisibleReviewContentLoadPlan[] => {
 			const item = currentReviewPackage.itemsById[itemId];
 			if (item === undefined) {
@@ -183,7 +201,14 @@ export function useVisibleReviewContentHydration(
 			) {
 				return [];
 			}
-			return [{ contentKey, item, itemId }];
+			return [
+				{
+					contentKey,
+					interest: selectedAdjacentItemIds.has(itemId) ? 'nearby' : 'visible',
+					item,
+					itemId,
+				},
+			];
 		});
 		const visibleLoadingCount = countVisibleContentStatesWithStatus({
 			contentStateByItemId,
@@ -201,6 +226,11 @@ export function useVisibleReviewContentHydration(
 		for (const loadPlan of boundedLoadPlans) {
 			scheduledContentKeysRef.current.add(loadPlan.contentKey);
 		}
+		const dispatchDelayMilliseconds = boundedLoadPlans.every(
+			(loadPlan): boolean => loadPlan.interest === 'nearby',
+		)
+			? 0
+			: visibleContentHydrationDispatchDelayMilliseconds;
 		const dispatchTimeoutId = setTimeout((): void => {
 			setContentStateByItemId(
 				(currentStateByItemId: ReadonlyMap<string, VisibleContentResourcesState>) => {
@@ -222,7 +252,7 @@ export function useVisibleReviewContentHydration(
 					telemetryRecorder: props.telemetryRecorder,
 					parentTraceContext: props.telemetryParentTraceContext,
 					item: loadPlan.item,
-					interest: 'visible',
+					interest: loadPlan.interest,
 				});
 				const traceContext =
 					props.telemetryRecorder.isEnabled('web') && props.telemetryParentTraceContext !== null
@@ -230,6 +260,7 @@ export function useVisibleReviewContentHydration(
 						: null;
 				void loadContentResources({
 					reviewPackage: currentReviewPackage,
+					interest: loadPlan.interest,
 					itemId: loadPlan.itemId,
 					signal: loadAbortController.signal,
 					traceContext,
@@ -319,7 +350,7 @@ export function useVisibleReviewContentHydration(
 						}
 					});
 			}
-		}, visibleContentHydrationDispatchDelayMilliseconds);
+		}, dispatchDelayMilliseconds);
 		const loadAbortControllersByContentKey = loadAbortControllersByContentKeyRef.current;
 		const scheduledContentKeys = scheduledContentKeysRef.current;
 		return (): void => {
@@ -338,6 +369,7 @@ export function useVisibleReviewContentHydration(
 		props.contentInvalidationVersion,
 		loadContentResources,
 		props.reviewPackage,
+		props.selectedItemId,
 		props.telemetryParentTraceContext,
 		props.telemetryRecorder,
 		props.visibleHydrationPaused,
@@ -461,6 +493,7 @@ export function createVisibleReviewContentHydrationResult(props: {
 
 interface VisibleReviewContentLoadPlan {
 	readonly contentKey: string;
+	readonly interest: VisibleReviewContentDemandInterest;
 	readonly item: BridgeReviewItemDescriptor;
 	readonly itemId: string;
 }
@@ -543,6 +576,15 @@ export function normalizeVisibleReviewItemIds(props: {
 		}
 	}
 	return uniqueItemIds;
+}
+
+export function selectedAdjacentReviewItemIds(props: {
+	readonly reviewPackage: BridgeReviewPackage;
+	readonly selectedItemId: string | null;
+}): readonly string[] {
+	return selectedReviewItemNeighborhood(props.reviewPackage, props.selectedItemId).filter(
+		(itemId): boolean => itemId !== props.selectedItemId,
+	);
 }
 
 export function visibleReviewContentLoadPlanCount(props: {
