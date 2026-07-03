@@ -110,6 +110,10 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
         await gitWorkingDirectoryProjector.setActivePaneWorktree(worktreeId: worktreeId)
     }
 
+    func setSidebarVisibleWorktrees(_ worktreeIds: Set<UUID>) async {
+        await gitWorkingDirectoryProjector.setSidebarVisibleWorktrees(worktreeIds)
+    }
+
     func enqueueRawPathsForTesting(worktreeId: UUID, paths: [String]) async {
         await filesystemActor.enqueueRawPaths(worktreeId: worktreeId, paths: paths)
     }

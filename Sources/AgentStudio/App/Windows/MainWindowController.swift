@@ -44,6 +44,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
         inboxSidebarState: InboxSidebarState,
         paneInboxPresenter: PaneInboxNotificationPresenter,
         performanceTraceRecorder: AgentStudioPerformanceTraceRecorder? = nil,
+        onSidebarVisibleWorktreesChanged: @escaping @MainActor @Sendable () -> Void = {},
         closeTransitionCoordinator: PaneCloseTransitionCoordinator = PaneCloseTransitionCoordinator()
     ) {
         let window = NSWindow(
@@ -89,6 +90,7 @@ class MainWindowController: NSWindowController, NSWindowDelegate {
             inboxSidebarState: inboxSidebarState,
             paneInboxPresenter: paneInboxPresenter,
             performanceTraceRecorder: performanceTraceRecorder,
+            onSidebarVisibleWorktreesChanged: onSidebarVisibleWorktreesChanged,
             closeTransitionCoordinator: closeTransitionCoordinator
         )
         self.splitViewController = splitVC

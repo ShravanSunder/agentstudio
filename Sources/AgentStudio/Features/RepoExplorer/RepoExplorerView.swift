@@ -67,6 +67,138 @@ enum RepoExplorerFocusPublisher {
     }
 }
 
+private struct RepoExplorerVisibleRowsBridge: NSViewRepresentable {
+    let entries: [RepoExplorerListEntry]
+    let onVisibleWorktreeIdsChange: @MainActor @Sendable (Set<UUID>) -> Void
+
+    func makeNSView(context: Context) -> RepoExplorerVisibleRowsObserverView {
+        let view = RepoExplorerVisibleRowsObserverView()
+        view.entries = entries
+        view.onVisibleWorktreeIdsChange = onVisibleWorktreeIdsChange
+        return view
+    }
+
+    func updateNSView(_ nsView: RepoExplorerVisibleRowsObserverView, context: Context) {
+        nsView.entries = entries
+        nsView.onVisibleWorktreeIdsChange = onVisibleWorktreeIdsChange
+        nsView.scheduleVisibleRowsReport()
+    }
+
+    static func dismantleNSView(_ nsView: RepoExplorerVisibleRowsObserverView, coordinator: ()) {
+        nsView.stopObservingTable()
+    }
+}
+
+@MainActor
+private final class RepoExplorerVisibleRowsObserverView: NSView {
+    var entries: [RepoExplorerListEntry] = []
+    var onVisibleWorktreeIdsChange: @MainActor @Sendable (Set<UUID>) -> Void = { _ in }
+
+    private weak var observedTableView: NSTableView?
+    private var boundsObserver: NSObjectProtocol?
+    private var reportTask: Task<Void, Never>?
+    private var lastReportedWorktreeIds: Set<UUID> = []
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        scheduleTableResolution()
+    }
+
+    func scheduleVisibleRowsReport() {
+        guard reportTask == nil else { return }
+        reportTask = Task { @MainActor [weak self] in
+            await Task.yield()
+            guard let self else { return }
+            self.reportTask = nil
+            self.reportVisibleWorktrees()
+        }
+    }
+
+    func stopObservingTable() {
+        if let boundsObserver {
+            NotificationCenter.default.removeObserver(boundsObserver)
+            self.boundsObserver = nil
+        }
+        reportTask?.cancel()
+        reportTask = nil
+        observedTableView = nil
+    }
+
+    private func scheduleTableResolution() {
+        Task { @MainActor [weak self] in
+            await Task.yield()
+            self?.resolveTableViewIfNeeded()
+            self?.scheduleVisibleRowsReport()
+        }
+    }
+
+    private func resolveTableViewIfNeeded() {
+        guard window != nil else { return }
+        let tableView = nearestTableView()
+        guard observedTableView !== tableView else { return }
+        stopObservingTable()
+        observedTableView = tableView
+        guard let clipView = tableView?.enclosingScrollView?.contentView else { return }
+        clipView.postsBoundsChangedNotifications = true
+        boundsObserver = NotificationCenter.default.addObserver(
+            forName: NSView.boundsDidChangeNotification,
+            object: clipView,
+            queue: nil
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.scheduleVisibleRowsReport()
+            }
+        }
+    }
+
+    private func nearestTableView() -> NSTableView? {
+        var candidate: NSView? = self
+        while let current = candidate {
+            if let tableView = current as? NSTableView {
+                return tableView
+            }
+            candidate = current.superview
+        }
+        return window?.contentView?.firstDescendant(ofType: NSTableView.self)
+    }
+
+    private func reportVisibleWorktrees() {
+        resolveTableViewIfNeeded()
+        guard let tableView = observedTableView else { return }
+        let visibleRows = tableView.rows(in: tableView.visibleRect)
+        let visibleWorktreeIds = visibleWorktreeIds(in: visibleRows)
+        guard visibleWorktreeIds != lastReportedWorktreeIds else { return }
+        lastReportedWorktreeIds = visibleWorktreeIds
+        onVisibleWorktreeIdsChange(visibleWorktreeIds)
+    }
+
+    private func visibleWorktreeIds(in rowRange: NSRange) -> Set<UUID> {
+        guard rowRange.location != NSNotFound else { return [] }
+        let lowerBound = max(0, rowRange.location)
+        let upperBound = min(entries.count, rowRange.location + rowRange.length)
+        guard lowerBound < upperBound else { return [] }
+
+        return entries[lowerBound..<upperBound].reduce(into: Set<UUID>()) { result, entry in
+            guard case .resolvedWorktreeRow(_, _, let worktreeId) = entry else { return }
+            result.insert(worktreeId)
+        }
+    }
+}
+
+extension NSView {
+    fileprivate func firstDescendant<T>(ofType type: T.Type) -> T? {
+        if let match = self as? T {
+            return match
+        }
+        for subview in subviews {
+            if let match = subview.firstDescendant(ofType: type) {
+                return match
+            }
+        }
+        return nil
+    }
+}
+
 /// Sidebar content grouped by repository identity (worktree family / remote).
 @MainActor
 struct RepoExplorerView: View {
@@ -74,6 +206,7 @@ struct RepoExplorerView: View {
 
     let store: WorkspaceStore
     let onRefocusActivePane: () -> Void
+    let onSidebarVisibleWorktreesChanged: @MainActor @Sendable () -> Void
     let onShowNotificationsForWorktree: (Worktree) -> Void
     let unreadCount: (Worktree) -> Int
     let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
@@ -91,6 +224,10 @@ struct RepoExplorerView: View {
 
     private var sidebarCache: SidebarCacheState {
         atom(\.sidebarCache)
+    }
+
+    private var sidebarVisibleWorktreesRuntime: SidebarVisibleWorktreesRuntimeAtom {
+        atom(\.sidebarVisibleWorktreesRuntime)
     }
 
     @State private var filterText: String = ""
@@ -205,6 +342,7 @@ struct RepoExplorerView: View {
         }
         .onDisappear {
             debounceTask?.cancel()
+            updateSidebarVisibleWorktrees([])
             RepoExplorerFocusPublisher.publish(
                 focusedField: nil,
                 into: uiState
@@ -290,6 +428,9 @@ struct RepoExplorerView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .transition(.opacity.animation(.easeOut(duration: 0.12)))
+        .onAppear {
+            updateSidebarVisibleWorktrees([])
+        }
     }
 
     private var groupList: some View {
@@ -428,7 +569,18 @@ struct RepoExplorerView: View {
             }
         }
         .sidebarSurfaceListStyle(Self.surfaceListPolicy)
+        .background(
+            RepoExplorerVisibleRowsBridge(
+                entries: rowIndex.entries,
+                onVisibleWorktreeIdsChange: updateSidebarVisibleWorktrees
+            )
+        )
         .transition(.opacity.animation(.easeOut(duration: 0.12)))
+    }
+
+    private func updateSidebarVisibleWorktrees(_ worktreeIds: Set<UUID>) {
+        sidebarVisibleWorktreesRuntime.setVisibleWorktreeIds(worktreeIds)
+        onSidebarVisibleWorktreesChanged()
     }
 
     private func colorForCheckout(repo: RepoPresentationItem, in group: RepoPresentationGroup) -> Color {

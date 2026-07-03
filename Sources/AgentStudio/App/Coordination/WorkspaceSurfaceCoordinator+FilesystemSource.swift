@@ -9,6 +9,11 @@ protocol WorkspaceFilesystemSourceManaging: AnyObject, Sendable {
     func assertTopology(_ assertion: FilesystemTopologyAssertion) async
     func setActivity(worktreeId: UUID, isActiveInApp: Bool) async
     func setActivePaneWorktree(worktreeId: UUID?) async
+    func setSidebarVisibleWorktrees(_ worktreeIds: Set<UUID>) async
+}
+
+extension WorkspaceFilesystemSourceManaging {
+    func setSidebarVisibleWorktrees(_: Set<UUID>) async {}
 }
 
 extension FilesystemActor: WorkspaceFilesystemSourceManaging {}
@@ -18,6 +23,7 @@ private struct FilesystemSourceSyncWriteMetrics {
     let registeredCount: Int
     let activityWriteCount: Int
     let activePaneWriteCount: Int
+    let sidebarVisibleWriteCount: Int
     let topologyGeneration: UInt64
     let filesystemSourceDuration: Duration
 }
@@ -220,6 +226,7 @@ extension WorkspaceSurfaceCoordinator {
         let topologyEntries = filesystemProjectionTopologyEntries()
         let paneEntries = filesystemProjectionPaneEntries()
         let activePaneWorktreeId = activePaneWorktree()
+        let sidebarVisibleWorktreeIds = atom(\.sidebarVisibleWorktreesRuntime).visibleWorktreeIds
 
         let indexStart = clock.now
         let syncDiff = await filesystemProjectionIndex.reconcileSourceSync(
@@ -230,7 +237,9 @@ extension WorkspaceSurfaceCoordinator {
                 paneEntries: paneEntries,
                 appliedActivityByWorktreeId: filesystemActivityByWorktreeId,
                 activePaneWorktreeId: activePaneWorktreeId,
-                appliedActivePaneWorktreeId: filesystemLastActivePaneWorktreeId
+                appliedActivePaneWorktreeId: filesystemLastActivePaneWorktreeId,
+                sidebarVisibleWorktreeIds: sidebarVisibleWorktreeIds,
+                appliedSidebarVisibleWorktreeIds: filesystemLastSidebarVisibleWorktreeIds
             )
         )
         let indexDuration = indexStart.duration(to: clock.now)
@@ -259,6 +268,7 @@ extension WorkspaceSurfaceCoordinator {
         filesystemRegisteredContextsByWorktreeId = syncDiff.contextsByWorktreeId
         filesystemActivityByWorktreeId = syncDiff.activityByWorktreeId
         filesystemLastActivePaneWorktreeId = syncDiff.activePaneWorktreeId
+        filesystemLastSidebarVisibleWorktreeIds = syncDiff.sidebarVisibleWorktreeIds
         filesystemAppliedTopologyGeneration = writeMetrics.topologyGeneration
         paneFilesystemProjectionStore.prune(
             validPaneIds: syncDiff.validPaneIds,
@@ -275,6 +285,9 @@ extension WorkspaceSurfaceCoordinator {
                 "agentstudio.performance.coordinator.activity_write.count": .int(writeMetrics.activityWriteCount),
                 "agentstudio.performance.coordinator.active_pane_write.count": .int(
                     writeMetrics.activePaneWriteCount
+                ),
+                "agentstudio.performance.coordinator.sidebar_visible_write.count": .int(
+                    writeMetrics.sidebarVisibleWriteCount
                 ),
                 "agentstudio.performance.coordinator.filesystem_source_elapsed_ms": .double(
                     AgentStudioPerformanceTraceRecorder.milliseconds(from: writeMetrics.filesystemSourceDuration)
@@ -302,6 +315,7 @@ extension WorkspaceSurfaceCoordinator {
         var registeredCount = 0
         var activityWriteCount = 0
         var activePaneWriteCount = 0
+        var sidebarVisibleWriteCount = 0
 
         for worktreeId in syncDiff.unregisterWorktreeIds {
             guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return nil }
@@ -343,6 +357,13 @@ extension WorkspaceSurfaceCoordinator {
             activePaneWriteCount = 1
         }
 
+        if syncDiff.shouldUpdateSidebarVisibleWorktrees {
+            guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return nil }
+            await filesystemSource.setSidebarVisibleWorktrees(syncDiff.sidebarVisibleWorktreeIds)
+            guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return nil }
+            sidebarVisibleWriteCount = 1
+        }
+
         guard continueFilesystemSourceWrites(for: syncDiff.requestGeneration) else { return nil }
         filesystemTopologyAssertionGeneration &+= 1
         let topologyGeneration = filesystemTopologyAssertionGeneration
@@ -359,6 +380,7 @@ extension WorkspaceSurfaceCoordinator {
             registeredCount: registeredCount,
             activityWriteCount: activityWriteCount,
             activePaneWriteCount: activePaneWriteCount,
+            sidebarVisibleWriteCount: sidebarVisibleWriteCount,
             topologyGeneration: topologyGeneration,
             filesystemSourceDuration: sourceStart.duration(to: clock.now)
         )

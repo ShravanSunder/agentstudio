@@ -1108,8 +1108,8 @@ struct GitWorkingDirectoryProjectorTests {
         collectionTask.cancel()
     }
 
-    @Test("active worktree periodic refresh bypasses background stripe")
-    func activeWorktreePeriodicRefreshBypassesBackgroundStripe() async throws {
+    @Test("active pane periodic refresh bypasses background stripe")
+    func activePanePeriodicRefreshBypassesBackgroundStripe() async throws {
         let bus = EventBus<RuntimeEnvelope>()
         let clock = TestPushClock()
         let policy = AppPolicies.GitRefresh.Policy(
@@ -1139,20 +1139,20 @@ struct GitWorkingDirectoryProjectorTests {
         let collectionTask = await startCollection(on: bus, observed: observed)
         await actor.start()
 
-        let activeWorktreeId = worktreeId(forBackgroundStripe: 1, policy: policy)
+        let activePaneWorktreeId = worktreeId(forBackgroundStripe: 1, policy: policy)
         let inactiveWorktreeId = worktreeId(
             forBackgroundStripe: 1,
             policy: policy,
-            excluding: [activeWorktreeId]
+            excluding: [activePaneWorktreeId]
         )
         let inactiveRootPath = URL(fileURLWithPath: "/tmp/inactive-stripe-\(UUID().uuidString)")
         await bus.post(
             makeEnvelope(
                 seq: 1,
-                worktreeId: activeWorktreeId,
+                worktreeId: activePaneWorktreeId,
                 event: .worktreeRegistered(
-                    worktreeId: activeWorktreeId,
-                    repoId: activeWorktreeId,
+                    worktreeId: activePaneWorktreeId,
+                    repoId: activePaneWorktreeId,
                     rootPath: URL(fileURLWithPath: "/tmp/active-stripe-\(UUID().uuidString)")
                 )
             )
@@ -1170,22 +1170,22 @@ struct GitWorkingDirectoryProjectorTests {
         )
 
         let initialSnapshotsArrived = await waitUntil {
-            let activeCount = await observed.snapshotCount(for: activeWorktreeId)
+            let activeCount = await observed.snapshotCount(for: activePaneWorktreeId)
             let inactiveCount = await observed.snapshotCount(for: inactiveWorktreeId)
             return activeCount == 1 && inactiveCount == 1
         }
         #expect(initialSnapshotsArrived)
 
-        await actor.setActivity(worktreeId: activeWorktreeId, isActiveInApp: true)
+        await actor.setActivePaneWorktree(worktreeId: activePaneWorktreeId)
         let activityRefreshArrived = await waitUntil {
-            await observed.snapshotCount(for: activeWorktreeId) == 2
+            await observed.snapshotCount(for: activePaneWorktreeId) == 2
         }
         #expect(activityRefreshArrived)
 
         await clock.waitForPendingSleepCount(atLeast: 1)
         clock.advance(by: policy.activeCadence)
         let activeRefreshedOnNonMatchingBackgroundStripe = await waitUntil {
-            await observed.snapshotCount(for: activeWorktreeId) == 3
+            await observed.snapshotCount(for: activePaneWorktreeId) == 3
         }
         #expect(activeRefreshedOnNonMatchingBackgroundStripe)
         #expect(await observed.snapshotCount(for: inactiveWorktreeId) == 1)

@@ -35,6 +35,7 @@ final class AtomRegistry {
     let arrangementPanelPresentation: ArrangementPanelPresentationAtom
     let workspaceSidebarMemory: WorkspaceSidebarMemoryAtom
     let sidebarFocusRuntime: SidebarFocusRuntimeAtom
+    let sidebarVisibleWorktreesRuntime: SidebarVisibleWorktreesRuntimeAtom
     let workspaceSidebarState: WorkspaceSidebarState
     let managementLayer: ManagementLayerAtom
     let commandBarSurface: CommandBarSurfaceAtom
@@ -74,6 +75,7 @@ final class AtomRegistry {
         arrangementPanelPresentation: ArrangementPanelPresentationAtom = .init(),
         workspaceSidebarMemory: WorkspaceSidebarMemoryAtom = .init(),
         sidebarFocusRuntime: SidebarFocusRuntimeAtom = .init(),
+        sidebarVisibleWorktreesRuntime: SidebarVisibleWorktreesRuntimeAtom = .init(),
         managementLayer: ManagementLayerAtom = .init(),
         commandBarSurface: CommandBarSurfaceAtom = .init(),
         transientKeyboardSurface: TransientKeyboardSurfaceAtom = .init(),
@@ -157,6 +159,7 @@ final class AtomRegistry {
         self.arrangementPanelPresentation = arrangementPanelPresentation
         self.workspaceSidebarMemory = workspaceSidebarMemory
         self.sidebarFocusRuntime = sidebarFocusRuntime
+        self.sidebarVisibleWorktreesRuntime = sidebarVisibleWorktreesRuntime
         self.workspaceSidebarState = WorkspaceSidebarState(
             memoryAtom: workspaceSidebarMemory,
             focusAtom: sidebarFocusRuntime

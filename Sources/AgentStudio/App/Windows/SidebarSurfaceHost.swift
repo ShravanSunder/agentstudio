@@ -15,6 +15,7 @@ struct SidebarSurfaceHost: View {
     let repoCache: RepoCacheAtom
     let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     let onRefocusActivePane: () -> Void
+    let onSidebarVisibleWorktreesChanged: @MainActor @Sendable () -> Void
     let onDismissInbox: @MainActor @Sendable () -> Void
 
     static var surfaceChromePolicy: SidebarSurfaceChromePolicy {
@@ -34,6 +35,7 @@ struct SidebarSurfaceHost: View {
             RepoExplorerView(
                 store: store,
                 onRefocusActivePane: onRefocusActivePane,
+                onSidebarVisibleWorktreesChanged: onSidebarVisibleWorktreesChanged,
                 onShowNotificationsForWorktree: { worktree in
                     Self.showNotifications(
                         for: worktree,

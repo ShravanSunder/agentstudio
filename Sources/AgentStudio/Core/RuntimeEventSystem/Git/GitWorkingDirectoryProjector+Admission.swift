@@ -32,7 +32,7 @@ extension GitWorkingDirectoryProjector {
                 admittedWorktreeIds.append(
                     contentsOf:
                         eligibleWorktreeIds
-                        .filter { priorityKey(for: $0) == 2 }
+                        .filter { priorityKey(for: $0) == 3 }
                         .sorted(by: sortPendingWorktreeByStaleness)
                         .prefix(remainingReservedSlotCount)
                 )
@@ -86,9 +86,12 @@ extension GitWorkingDirectoryProjector {
         if activePaneWorktreeId == worktreeId {
             return 0
         }
-        if activeWorktreeIds.contains(worktreeId) {
+        if sidebarVisibleWorktreeIds.contains(worktreeId) {
             return 1
         }
-        return 2
+        if activeWorktreeIds.contains(worktreeId) {
+            return 2
+        }
+        return 3
     }
 }

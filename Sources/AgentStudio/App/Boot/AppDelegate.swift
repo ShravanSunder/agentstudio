@@ -152,6 +152,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             inboxSidebarState: atomStore.inboxSidebarState,
             paneInboxPresenter: paneInboxNotificationPresenter,
             performanceTraceRecorder: performanceTraceRecorder,
+            onSidebarVisibleWorktreesChanged: { [weak self] in
+                self?.workspaceSurfaceCoordinator.syncFilesystemRootsAndActivity()
+            },
             closeTransitionCoordinator: closeTransitionCoordinator
         )
         mainWindowController?.prepareLaunchMaximizeAndRestore()
@@ -519,6 +522,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
                 inboxSidebarState: atomStore.inboxSidebarState,
                 paneInboxPresenter: paneInboxNotificationPresenter,
                 performanceTraceRecorder: performanceTraceRecorder,
+                onSidebarVisibleWorktreesChanged: { [weak self] in
+                    self?.workspaceSurfaceCoordinator.syncFilesystemRootsAndActivity()
+                },
                 closeTransitionCoordinator: closeTransitionCoordinator
             )
             mainWindowController?.showWindow(nil)

@@ -388,6 +388,7 @@ icons when a sidebar/local action already defines the presentation.
 | `SidebarCacheState` | UI-facing composition surface over sidebar expanded groups + checkout colors | `Core/State/MainActor/Atoms/SidebarCacheState.swift` |
 | `WorkspaceSidebarMemoryAtom` | persisted workspace sidebar shell memory: filter text, filter visibility, collapsed state, active surface | `Core/State/MainActor/Atoms/WorkspaceSidebarState.swift` |
 | `SidebarFocusRuntimeAtom` | runtime-only sidebar focus fact for keyboard-owner derivation | `Core/State/MainActor/Atoms/WorkspaceSidebarState.swift` |
+| `SidebarVisibleWorktreesRuntimeAtom` | runtime-only sidebar visible worktree ids for git enrichment admission | `Core/State/MainActor/Atoms/SidebarVisibleWorktreesRuntimeAtom.swift` |
 | `WorkspaceSidebarState` | UI-facing composition surface over sidebar memory + runtime focus atoms | `Core/State/MainActor/Atoms/WorkspaceSidebarState.swift` |
 | `WorkspaceFocusOwnerAtom` | runtime focus owner for main-pane, empty-drawer, and drawer-pane focus | `Core/State/MainActor/Atoms/WorkspaceFocusOwnerAtom.swift` |
 | `WorkspacePaneFocusDerived` | shared app-wide pane focus reader for command visibility and status UI | `Core/State/MainActor/Atoms/WorkspacePaneFocusDerived.swift` |

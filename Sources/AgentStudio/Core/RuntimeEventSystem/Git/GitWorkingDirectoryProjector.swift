@@ -46,6 +46,7 @@ actor GitWorkingDirectoryProjector {
     private var latestTopologyAssertion: FilesystemTopologyAssertion?
     var activeWorktreeIds: Set<UUID> = []
     var activePaneWorktreeId: UUID?
+    var sidebarVisibleWorktreeIds: Set<UUID> = []
     private var repoIdByWorktreeId: [UUID: UUID] = [:]
     private var lastKnownOriginByRepoId: [UUID: String] = [:]
     private var originResolutionByRepoId: [UUID: GitOriginResolution] = [:]
@@ -185,6 +186,7 @@ actor GitWorkingDirectoryProjector {
         latestTopologyAssertion = nil
         activeWorktreeIds.removeAll(keepingCapacity: false)
         activePaneWorktreeId = nil
+        sidebarVisibleWorktreeIds.removeAll(keepingCapacity: false)
         repoIdByWorktreeId.removeAll(keepingCapacity: false)
         lastKnownOriginByRepoId.removeAll(keepingCapacity: false)
         originResolutionByRepoId.removeAll(keepingCapacity: false)
@@ -291,6 +293,14 @@ actor GitWorkingDirectoryProjector {
         enqueueSyntheticRefreshIfRegistered(worktreeId: worktreeId)
     }
 
+    func setSidebarVisibleWorktrees(_ worktreeIds: Set<UUID>) {
+        let newlyVisibleWorktreeIds = worktreeIds.subtracting(sidebarVisibleWorktreeIds)
+        sidebarVisibleWorktreeIds = worktreeIds
+        for worktreeId in newlyVisibleWorktreeIds.sorted(by: { $0.uuidString < $1.uuidString }) {
+            enqueueSyntheticRefreshIfRegistered(worktreeId: worktreeId)
+        }
+    }
+
     func startDrainTask(worktreeId: UUID) {
         nextWorktreeTaskGeneration &+= 1
         let taskGeneration = nextWorktreeTaskGeneration
@@ -379,6 +389,7 @@ actor GitWorkingDirectoryProjector {
         addSuppressedWorktree(worktreeId)
         pendingByWorktreeId.removeValue(forKey: worktreeId)
         activeWorktreeIds.remove(worktreeId)
+        sidebarVisibleWorktreeIds.remove(worktreeId)
         if activePaneWorktreeId == worktreeId {
             activePaneWorktreeId = nil
         }
@@ -783,7 +794,7 @@ actor GitWorkingDirectoryProjector {
     }
 
     private func isPeriodicRefreshDue(worktreeId: UUID) -> Bool {
-        if activePaneWorktreeId == worktreeId || activeWorktreeIds.contains(worktreeId) {
+        if activePaneWorktreeId == worktreeId || sidebarVisibleWorktreeIds.contains(worktreeId) {
             // The active worktree used to backstop-refresh every tick. Skip the
             // tick while it is quiescent (its last compute found no change and no
             // file-change has arrived since); a real change re-arms the tick.

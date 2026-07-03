@@ -209,7 +209,13 @@ changes.
 
 - **A6 Tier cadences.** `activePane`: event/focus-driven + short self-heal
   (existing focus boost). `visibleInSidebar`: tens of seconds. `openAnywhere`:
-  existing `activeCadence` (15s). `background`: existing striped
+  ADMISSION tier 2 (above background) but the periodic BACKSTOP cadence is
+  reserved for activePane + visibleInSidebar; open-but-hidden worktrees rely
+  on event-driven enqueues plus the background stripe backstop. (Amended
+  2026-07-03 at implementation: an open pane whose worktree has no events has
+  no changing status to poll for, and dropping its 15s backstop is a strict
+  churn reduction — the spec's goal. Revisit only if a hidden pane's status
+  is observed stale after real events.) `background`: existing striped
   `backgroundCadence` (240s / 16 stripes). Reuse the existing periodic-tick +
   stripe machinery (`isBackgroundWorktreeDue`, `AppPolicies.swift:128-131`);
   add the visible tier as a middle cadence.

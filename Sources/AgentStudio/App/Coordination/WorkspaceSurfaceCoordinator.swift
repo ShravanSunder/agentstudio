@@ -68,6 +68,7 @@ final class WorkspaceSurfaceCoordinator {
     var filesystemRegisteredContextsByWorktreeId: [UUID: WorktreeFilesystemContext] = [:]
     var filesystemActivityByWorktreeId: [UUID: Bool] = [:]
     var filesystemLastActivePaneWorktreeId: UUID?
+    var filesystemLastSidebarVisibleWorktreeIds: Set<UUID> = []
     var filesystemTopologyAssertionGeneration: UInt64 = 0
     var filesystemSyncRequestGeneration: UInt64 = 0
     var filesystemProjectionRequestGeneration: UInt64 = 0
