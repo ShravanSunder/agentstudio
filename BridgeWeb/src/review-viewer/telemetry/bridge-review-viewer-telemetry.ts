@@ -12,6 +12,7 @@ import {
 	recordBridgeCodeViewHydrationTelemetrySamples,
 	recordBridgeCodeViewItemMaterializeTelemetrySample,
 	recordBridgeReviewContentDemandTelemetrySample,
+	recordBridgeSelectedContentDroppedTelemetrySample,
 	recordBridgeSelectedContentPaintedTelemetrySample,
 	recordBridgeViewerContentFetchTelemetrySample,
 	recordBridgeProjectionCoordinatorTelemetrySample,
@@ -89,6 +90,12 @@ export interface RecordBridgeSelectedContentPaintedTelemetryProps {
 	readonly clickToPaintMilliseconds: number;
 	readonly frameWaitMilliseconds: number;
 	readonly materializeMilliseconds: number;
+}
+
+export interface RecordBridgeSelectedContentDroppedTelemetryProps {
+	readonly telemetryRecorder: BridgeTelemetryRecorder;
+	readonly traceContext: BridgeTraceContext | null;
+	readonly dropReason: string;
 }
 
 export interface RecordBridgeReviewContentDemandTelemetryProps {
@@ -199,6 +206,17 @@ export function recordBridgeSelectedContentPaintedTelemetry(
 		clickToPaintMilliseconds: props.clickToPaintMilliseconds,
 		frameWaitMilliseconds: props.frameWaitMilliseconds,
 		materializeMilliseconds: props.materializeMilliseconds,
+		viewer: 'review',
+	});
+}
+
+export function recordBridgeSelectedContentDroppedTelemetry(
+	props: RecordBridgeSelectedContentDroppedTelemetryProps,
+): void {
+	recordBridgeSelectedContentDroppedTelemetrySample({
+		telemetryRecorder: props.telemetryRecorder,
+		traceContext: props.traceContext,
+		dropReason: props.dropReason,
 		viewer: 'review',
 	});
 }

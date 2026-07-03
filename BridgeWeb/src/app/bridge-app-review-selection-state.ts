@@ -1,6 +1,7 @@
 import type { Dispatch, SetStateAction } from 'react';
 
 import type {
+	BridgeContentHandle,
 	BridgeReviewItemDescriptor,
 	BridgeReviewPackage,
 } from '../foundation/review-package/bridge-review-package.js';
@@ -95,6 +96,81 @@ export function selectedContentResourcesForCurrentSelection(
 	return props.selectedContentResourcesState.contentKey === selectedContentKey
 		? props.selectedContentResourcesState.resources
 		: null;
+}
+
+export type ReviewContentValidityDropReason =
+	| 'no_selection'
+	| 'valid'
+	| 'generation_rotation'
+	| 'contenthash_change'
+	| 'revision_churn';
+
+interface ReviewContentValidityDropReasonProps {
+	readonly reviewPackage: BridgeReviewPackage | null;
+	readonly selectedItemId: string | null;
+	readonly selectedContentResourcesState: SelectedContentResourcesState | null;
+}
+
+interface ReviewContentValidityRoleHandlePair {
+	readonly currentHandle: BridgeContentHandle | null | undefined;
+	readonly loadedHandle: BridgeContentHandle | undefined;
+}
+
+/**
+ * Classifies WHY selectedContentResourcesForCurrentSelection dropped an already-loaded, ready
+ * SelectedContentResourcesState instead of painting it. The drop itself is detected purely by a
+ * contentKey mismatch (see makeSelectedContentResourcesKey); this classifier re-derives the reason
+ * from the loaded resources' handles vs. the current item's content-role handles so a silently
+ * dropped load can always be attributed to a specific, telemetry-reportable cause.
+ */
+export function reviewContentValidityDropReason(
+	props: ReviewContentValidityDropReasonProps,
+): ReviewContentValidityDropReason {
+	const { reviewPackage, selectedItemId, selectedContentResourcesState } = props;
+	if (
+		reviewPackage === null ||
+		selectedItemId === null ||
+		selectedContentResourcesState === null ||
+		selectedContentResourcesState.itemId !== selectedItemId ||
+		selectedContentResourcesState.status !== 'ready'
+	) {
+		return 'no_selection';
+	}
+	const currentItem = reviewPackage.itemsById[selectedItemId];
+	if (currentItem === undefined) {
+		return 'no_selection';
+	}
+	const currentContentKey = makeSelectedContentResourcesKey(reviewPackage, selectedItemId);
+	if (selectedContentResourcesState.contentKey === currentContentKey) {
+		return 'valid';
+	}
+	const loadedResources = selectedContentResourcesState.resources;
+	const contentRolePairs: readonly ReviewContentValidityRoleHandlePair[] = [
+		{ currentHandle: currentItem.contentRoles.base, loadedHandle: loadedResources?.base?.handle },
+		{ currentHandle: currentItem.contentRoles.head, loadedHandle: loadedResources?.head?.handle },
+		{ currentHandle: currentItem.contentRoles.diff, loadedHandle: loadedResources?.diff?.handle },
+		{ currentHandle: currentItem.contentRoles.file, loadedHandle: loadedResources?.file?.handle },
+	];
+	const hasGenerationRotation = contentRolePairs.some(
+		(pair): boolean =>
+			pair.loadedHandle !== undefined &&
+			pair.loadedHandle.reviewGeneration !== reviewPackage.reviewGeneration,
+	);
+	if (hasGenerationRotation) {
+		return 'generation_rotation';
+	}
+	const hasContentHashChange = contentRolePairs.some(
+		(pair): boolean =>
+			pair.loadedHandle !== undefined &&
+			pair.loadedHandle.contentHash !== pair.currentHandle?.contentHash,
+	);
+	if (hasContentHashChange) {
+		return 'contenthash_change';
+	}
+	// SENTINEL: the key already diverged (checked above) but neither the reviewGeneration nor any
+	// role's contentHash changed. With a content-addressed key this must be unreachable; if it fires,
+	// a revision-stamped field leaked back into makeReviewItemContentResourcesKey.
+	return 'revision_churn';
 }
 
 export function reviewFileTargetForNavigationCommand(

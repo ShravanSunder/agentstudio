@@ -4,6 +4,7 @@ import type { ReviewMaterializerDelta } from '../features/review/materialization
 import { makeBridgeReviewPackage } from '../foundation/review-package/bridge-review-package-test-support.js';
 import {
 	makeSelectedContentResourcesKey,
+	reviewContentValidityDropReason,
 	selectedContentResourcesForCurrentSelection,
 } from './bridge-app-review-selection-state.js';
 import { applyReviewMetadataDeltaToReviewPackage } from './bridge-app.js';
@@ -173,5 +174,198 @@ describe('review content-validity key is content-addressed, not revision-stamped
 				selectedContentResourcesState: loadedState,
 			}),
 		).toBeNull();
+	});
+});
+
+// The gate-drop telemetry contract requires that every drop of an already-loaded, ready
+// SelectedContentResourcesState be attributable to a specific cause. reviewContentValidityDropReason
+// is the pure classifier behind that telemetry: it must never silently return an unlabeled drop.
+describe('reviewContentValidityDropReason classifies why a ready selected-content load was dropped', () => {
+	test('returns no_selection when there is no package, no selection, or no ready loaded state', () => {
+		const reviewPackage = makeBridgeReviewPackage();
+		const readyState = {
+			itemId: 'item-source',
+			contentKey: makeSelectedContentResourcesKey(reviewPackage, 'item-source'),
+			status: 'ready' as const,
+			resources: null,
+		};
+		expect(
+			reviewContentValidityDropReason({
+				reviewPackage: null,
+				selectedItemId: 'item-source',
+				selectedContentResourcesState: readyState,
+			}),
+		).toBe('no_selection');
+		expect(
+			reviewContentValidityDropReason({
+				reviewPackage,
+				selectedItemId: null,
+				selectedContentResourcesState: readyState,
+			}),
+		).toBe('no_selection');
+		expect(
+			reviewContentValidityDropReason({
+				reviewPackage,
+				selectedItemId: 'item-source',
+				selectedContentResourcesState: null,
+			}),
+		).toBe('no_selection');
+		expect(
+			reviewContentValidityDropReason({
+				reviewPackage,
+				selectedItemId: 'item-source',
+				selectedContentResourcesState: { ...readyState, itemId: 'other-item' },
+			}),
+		).toBe('no_selection');
+		expect(
+			reviewContentValidityDropReason({
+				reviewPackage,
+				selectedItemId: 'item-source',
+				selectedContentResourcesState: { ...readyState, status: 'loading' as const },
+			}),
+		).toBe('no_selection');
+		expect(
+			reviewContentValidityDropReason({
+				reviewPackage,
+				selectedItemId: 'missing-item',
+				selectedContentResourcesState: { ...readyState, itemId: 'missing-item' },
+			}),
+		).toBe('no_selection');
+	});
+
+	test('returns valid when the loaded state matches the current content key', () => {
+		const reviewPackage = makeBridgeReviewPackage();
+		const readyState = {
+			itemId: 'item-source',
+			contentKey: makeSelectedContentResourcesKey(reviewPackage, 'item-source'),
+			status: 'ready' as const,
+			resources: null,
+		};
+		expect(
+			reviewContentValidityDropReason({
+				reviewPackage,
+				selectedItemId: 'item-source',
+				selectedContentResourcesState: readyState,
+			}),
+		).toBe('valid');
+	});
+
+	test('returns valid across an extent-fact revision bump (revision churn must not classify as a drop)', () => {
+		const reviewPackage = makeBridgeReviewPackage();
+		const readyState = {
+			itemId: 'item-source',
+			contentKey: makeSelectedContentResourcesKey(reviewPackage, 'item-source'),
+			status: 'ready' as const,
+			resources: null,
+		};
+		const nextReviewPackage = applyReviewMetadataDeltaToReviewPackage({
+			reviewPackage,
+			deltaFrame: extentFactDelta({
+				packageId: reviewPackage.packageId,
+				fromRevision: reviewPackage.revision,
+				facts: [{ itemId: 'item-source', contentRole: 'head', lineCount: 41 }],
+				summary: reviewPackage.summary,
+			}),
+		});
+		if (nextReviewPackage === null) {
+			throw new Error('Expected extent-fact delta to apply');
+		}
+		expect(
+			reviewContentValidityDropReason({
+				reviewPackage: nextReviewPackage,
+				selectedItemId: 'item-source',
+				selectedContentResourcesState: readyState,
+			}),
+		).toBe('valid');
+	});
+
+	test('returns generation_rotation when the review generation rotates', () => {
+		const reviewPackage = makeBridgeReviewPackage();
+		const item = reviewPackage.itemsById['item-source'];
+		const headHandle = item?.contentRoles.head ?? null;
+		if (item === undefined || headHandle === null) {
+			throw new Error('Expected modified item with head handle');
+		}
+		const loadedState = {
+			itemId: 'item-source',
+			contentKey: makeSelectedContentResourcesKey(reviewPackage, 'item-source'),
+			status: 'ready' as const,
+			resources: { head: { handle: headHandle, readText: (): string => 'head body' } },
+		};
+		const rotatedPackage = {
+			...reviewPackage,
+			reviewGeneration: reviewPackage.reviewGeneration + 1,
+		};
+		expect(
+			reviewContentValidityDropReason({
+				reviewPackage: rotatedPackage,
+				selectedItemId: 'item-source',
+				selectedContentResourcesState: loadedState,
+			}),
+		).toBe('generation_rotation');
+	});
+
+	test('returns contenthash_change when a role handle contentHash changes', () => {
+		const reviewPackage = makeBridgeReviewPackage();
+		const item = reviewPackage.itemsById['item-source'];
+		const headHandle = item?.contentRoles.head ?? null;
+		if (item === undefined || headHandle === null) {
+			throw new Error('Expected modified item with head handle');
+		}
+		const loadedState = {
+			itemId: 'item-source',
+			contentKey: makeSelectedContentResourcesKey(reviewPackage, 'item-source'),
+			status: 'ready' as const,
+			resources: { head: { handle: headHandle, readText: (): string => 'head body' } },
+		};
+		const changedPackage = {
+			...reviewPackage,
+			itemsById: {
+				...reviewPackage.itemsById,
+				'item-source': {
+					...item,
+					contentRoles: {
+						...item.contentRoles,
+						head: { ...headHandle, contentHash: `${headHandle.contentHash}:changed` },
+					},
+				},
+			},
+		};
+		expect(
+			reviewContentValidityDropReason({
+				reviewPackage: changedPackage,
+				selectedItemId: 'item-source',
+				selectedContentResourcesState: loadedState,
+			}),
+		).toBe('contenthash_change');
+	});
+
+	test('returns revision_churn as a sentinel when the key diverges without a generation or contentHash change', () => {
+		// This state is deliberately contrived: a well-formed content-addressed key can only diverge
+		// from the current key via a generation rotation or a contentHash change, so this proves the
+		// sentinel fallback still labels the drop instead of silently returning null.
+		const reviewPackage = makeBridgeReviewPackage();
+		const item = reviewPackage.itemsById['item-source'];
+		const baseHandle = item?.contentRoles.base ?? null;
+		const headHandle = item?.contentRoles.head ?? null;
+		if (item === undefined || baseHandle === null || headHandle === null) {
+			throw new Error('Expected modified item with base/head handles');
+		}
+		const staleState = {
+			itemId: 'item-source',
+			contentKey: 'stale-key-not-derived-from-current-handles',
+			status: 'ready' as const,
+			resources: {
+				base: { handle: baseHandle, readText: (): string => 'base body' },
+				head: { handle: headHandle, readText: (): string => 'head body' },
+			},
+		};
+		expect(
+			reviewContentValidityDropReason({
+				reviewPackage,
+				selectedItemId: 'item-source',
+				selectedContentResourcesState: staleState,
+			}),
+		).toBe('revision_churn');
 	});
 });

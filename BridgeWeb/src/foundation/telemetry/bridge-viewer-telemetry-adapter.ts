@@ -154,6 +154,13 @@ export interface BridgeSelectedContentPaintedTelemetrySampleProps {
 	readonly viewer: 'review';
 }
 
+export interface BridgeSelectedContentDroppedTelemetrySampleProps {
+	readonly dropReason: string;
+	readonly telemetryRecorder: BridgeTelemetryRecorder;
+	readonly traceContext: BridgeTraceContext | null;
+	readonly viewer: 'review';
+}
+
 export interface BridgeReviewContentDemandTelemetrySampleProps {
 	readonly activeIntentCount: number;
 	readonly deferredCount: number;
@@ -686,6 +693,32 @@ export function recordBridgeSelectedContentPaintedTelemetrySample(
 			booleanAttributes: {},
 		});
 		props.telemetryRecorder.flush();
+	});
+}
+
+export function recordBridgeSelectedContentDroppedTelemetrySample(
+	props: BridgeSelectedContentDroppedTelemetrySampleProps,
+): void {
+	recordWhenEnabled(props.telemetryRecorder, () => {
+		props.telemetryRecorder.record({
+			scope: 'web',
+			name: 'performance.bridge.web.selected_content_dropped',
+			durationMilliseconds: null,
+			traceContext: props.traceContext,
+			stringAttributes: {
+				'agentstudio.bridge.drop_reason': props.dropReason,
+				'agentstudio.bridge.phase': 'selected_content_dropped',
+				'agentstudio.bridge.plane': 'data',
+				'agentstudio.bridge.priority': 'hot',
+				'agentstudio.bridge.result': 'dropped',
+				'agentstudio.bridge.slice': 'content_fetch',
+				'agentstudio.bridge.transport': 'content',
+				'agentstudio.bridge.viewer': props.viewer,
+			},
+			numericAttributes: {},
+			booleanAttributes: {},
+		});
+		props.telemetryRecorder.flush({ force: true });
 	});
 }
 

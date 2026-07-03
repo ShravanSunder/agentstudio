@@ -22,6 +22,7 @@ import type { BridgeCodeViewControlHandle } from '../review-viewer/code-view/bri
 import type { ReviewContentDemandTelemetry } from '../review-viewer/content/review-content-demand-loader.js';
 import { useBridgeReviewProjectionCoordinator } from '../review-viewer/projections/use-review-projection-coordinator.js';
 import { selectBridgeReviewViewerRootSnapshot } from '../review-viewer/state/review-viewer-store.js';
+import { recordBridgeSelectedContentDroppedTelemetry } from '../review-viewer/telemetry/bridge-review-viewer-telemetry.js';
 import { createBridgeMarkdownRenderWebWorkerClient } from '../review-viewer/workers/markdown/bridge-markdown-render-worker-transport.js';
 import type { BridgeReviewProjectionWorkerClient } from '../review-viewer/workers/projection/review-projection-worker-client.js';
 import { createBridgeReviewProjectionWebWorkerClient } from '../review-viewer/workers/projection/review-projection-worker-transport.js';
@@ -52,6 +53,7 @@ import {
 import { useBridgeReviewSelectionController } from './bridge-app-review-selection-controller.js';
 import {
 	makeSelectedContentResourcesKey,
+	reviewContentValidityDropReason,
 	reviewFileTargetForNavigationCommand,
 	scheduleSelectedContentRetry,
 	selectedCanvasLoadingReasonForCurrentSelection,
@@ -241,6 +243,35 @@ export function BridgeReviewViewerMode(
 		reviewPackage === null || rootSnapshot.selectedItemId === null
 			? null
 			: makeSelectedContentResourcesKey(reviewPackage, rootSnapshot.selectedItemId);
+	const lastReportedSelectedContentDropContentKeyRef = useRef<string | null>(null);
+	useEffect((): void => {
+		const dropReason = reviewContentValidityDropReason({
+			reviewPackage,
+			selectedItemId: rootSnapshot.selectedItemId,
+			selectedContentResourcesState,
+		});
+		if (
+			dropReason === 'no_selection' ||
+			dropReason === 'valid' ||
+			currentSelectedContentKey === null ||
+			lastReportedSelectedContentDropContentKeyRef.current === currentSelectedContentKey
+		) {
+			return;
+		}
+		lastReportedSelectedContentDropContentKeyRef.current = currentSelectedContentKey;
+		recordBridgeSelectedContentDroppedTelemetry({
+			telemetryRecorder: telemetryRecorderRef.current,
+			traceContext: currentReviewPackageTelemetryContextRef.current?.traceContext ?? null,
+			dropReason,
+		});
+	}, [
+		currentReviewPackageTelemetryContextRef,
+		currentSelectedContentKey,
+		reviewPackage,
+		rootSnapshot.selectedItemId,
+		selectedContentResourcesState,
+		telemetryRecorderRef,
+	]);
 	const initialReviewFileTarget = useMemo(
 		() => reviewFileTargetForNavigationCommand(props.navigationCommand),
 		[props.navigationCommand],
