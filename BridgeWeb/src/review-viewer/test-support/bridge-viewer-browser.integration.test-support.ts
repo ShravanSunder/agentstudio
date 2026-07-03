@@ -18,6 +18,8 @@ import type {
 	BridgeViewerMockedBackend,
 } from './bridge-viewer-mocked-backend.js';
 
+export * from './bridge-viewer-browser.integration.browser-test-support.js';
+
 export function isBridgeCommandForItem(detail: unknown, method: string, itemId: string): boolean {
 	if (!isRecord(detail)) {
 		return false;

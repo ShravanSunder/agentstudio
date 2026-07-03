@@ -58,6 +58,10 @@ export interface BridgeCodeViewRenderedItemsSource {
 	readonly getRenderedItems: () => readonly BridgeCodeViewRenderedItemSnapshot[];
 }
 
+export interface BridgeCodeViewRenderedHeaderOffset {
+	readonly offsetPixels: number;
+}
+
 export function nextCodeViewItemForCollapse(props: {
 	readonly collapsed: boolean;
 	readonly currentItem: BridgeCodeViewItem;
@@ -105,6 +109,7 @@ export interface BridgeCodeViewInstantRevealRearmCandidate {
 }
 
 export function shouldRearmCodeViewInstantRevealForMaterialization(props: {
+	readonly isSelectedRevealSettled: boolean;
 	readonly materializedItemIds: readonly string[];
 	readonly nowMilliseconds: number;
 	readonly orderedItemIds: readonly string[];
@@ -116,6 +121,7 @@ export function shouldRearmCodeViewInstantRevealForMaterialization(props: {
 	const recentReveal = props.recentReveal;
 	if (
 		recentReveal === null ||
+		props.isSelectedRevealSettled ||
 		props.selectedItemId === null ||
 		recentReveal.itemId !== props.selectedItemId ||
 		recentReveal.selectionScrollKey !== props.selectionScrollKey
@@ -176,6 +182,98 @@ export function uniqueItemIds(candidateItemIds: readonly string[]): readonly str
 		itemIds.push(itemId);
 	}
 	return itemIds;
+}
+
+export function renderedBridgeCodeViewHeaderOffsetFromScrollOwner(props: {
+	readonly itemId: string;
+	readonly scrollOwner: HTMLElement | undefined;
+}): BridgeCodeViewRenderedHeaderOffset | null {
+	const scrollOwner = props.scrollOwner;
+	if (scrollOwner === undefined) {
+		return null;
+	}
+	const markerElement = bridgeCodeViewRenderedHeaderMarkerElement({
+		itemId: props.itemId,
+		scrollOwner,
+	});
+	const headerElement =
+		markerElement === null ? null : bridgeCodeViewHeaderElementForMarker(markerElement);
+	if (headerElement === null) {
+		return null;
+	}
+	return {
+		offsetPixels:
+			headerElement.getBoundingClientRect().top - scrollOwner.getBoundingClientRect().top,
+	};
+}
+
+function bridgeCodeViewRenderedHeaderMarkerElement(props: {
+	readonly itemId: string;
+	readonly scrollOwner: HTMLElement;
+}): HTMLElement | null {
+	const selector = `[data-bridge-code-view-item-id="${cssEscapeBridgeCodeViewSelectorValue(
+		props.itemId,
+	)}"]`;
+	const searchRoots = uniqueBridgeCodeViewHeaderSearchRoots([
+		props.scrollOwner,
+		parentNodeForBridgeCodeViewRoot(props.scrollOwner.getRootNode()),
+	]);
+	for (const container of searchRoots.flatMap((searchRoot): readonly Element[] => [
+		...searchRoot.querySelectorAll('diffs-container'),
+	])) {
+		if (container.shadowRoot !== null) {
+			searchRoots.push(container.shadowRoot);
+		}
+	}
+	for (const searchRoot of searchRoots) {
+		const markerElement = searchRoot.querySelector(selector);
+		if (markerElement instanceof HTMLElement) {
+			return markerElement;
+		}
+	}
+	return null;
+}
+
+function parentNodeForBridgeCodeViewRoot(rootNode: Node): ParentNode | null {
+	if (
+		rootNode instanceof Document ||
+		rootNode instanceof DocumentFragment ||
+		rootNode instanceof Element
+	) {
+		return rootNode;
+	}
+	return null;
+}
+
+function uniqueBridgeCodeViewHeaderSearchRoots(
+	searchRoots: readonly (ParentNode | null)[],
+): ParentNode[] {
+	const uniqueSearchRoots: ParentNode[] = [];
+	for (const searchRoot of searchRoots) {
+		if (searchRoot === null || uniqueSearchRoots.includes(searchRoot)) {
+			continue;
+		}
+		uniqueSearchRoots.push(searchRoot);
+	}
+	return uniqueSearchRoots;
+}
+
+function bridgeCodeViewHeaderElementForMarker(markerElement: HTMLElement): HTMLElement | null {
+	const lightDomHeader = markerElement.closest<HTMLElement>('[data-diffs-header]');
+	if (lightDomHeader !== null) {
+		return lightDomHeader;
+	}
+	const markerRoot = markerElement.getRootNode();
+	if (!('host' in markerRoot) || !(markerRoot.host instanceof HTMLElement)) {
+		return null;
+	}
+	return markerRoot.host.closest<HTMLElement>('[data-diffs-header]') ?? markerRoot.host;
+}
+
+function cssEscapeBridgeCodeViewSelectorValue(value: string): string {
+	return typeof CSS === 'undefined' || CSS.escape === undefined
+		? value.replaceAll('"', '\\"')
+		: CSS.escape(value);
 }
 
 interface SelectedContentSummary {

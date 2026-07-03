@@ -170,6 +170,7 @@ describe('BridgeCodeViewPanel diagnostics', () => {
 
 		expect(
 			shouldRearmCodeViewInstantRevealForMaterialization({
+				isSelectedRevealSettled: false,
 				materializedItemIds: ['above-target'],
 				nowMilliseconds: 1_300,
 				orderedItemIds: ['above-target', 'selected-target', 'below-target'],
@@ -181,6 +182,7 @@ describe('BridgeCodeViewPanel diagnostics', () => {
 		).toBe(true);
 		expect(
 			shouldRearmCodeViewInstantRevealForMaterialization({
+				isSelectedRevealSettled: false,
 				materializedItemIds: ['below-target'],
 				nowMilliseconds: 1_300,
 				orderedItemIds: ['above-target', 'selected-target', 'below-target'],
@@ -192,8 +194,30 @@ describe('BridgeCodeViewPanel diagnostics', () => {
 		).toBe(false);
 		expect(
 			shouldRearmCodeViewInstantRevealForMaterialization({
+				isSelectedRevealSettled: false,
 				materializedItemIds: ['above-target'],
 				nowMilliseconds: 3_500,
+				orderedItemIds: ['above-target', 'selected-target', 'below-target'],
+				rearmWindowMilliseconds: 2_000,
+				recentReveal,
+				selectedItemId: 'selected-target',
+				selectionScrollKey: 'source:1:selected-target',
+			}),
+		).toBe(false);
+	});
+
+	test('does not re-arm a settled selected reveal when another above-target item materializes', () => {
+		const recentReveal = {
+			itemId: 'selected-target',
+			revealedAtMilliseconds: 1_000,
+			selectionScrollKey: 'source:1:selected-target',
+		};
+
+		expect(
+			shouldRearmCodeViewInstantRevealForMaterialization({
+				isSelectedRevealSettled: true,
+				materializedItemIds: ['above-target'],
+				nowMilliseconds: 1_300,
 				orderedItemIds: ['above-target', 'selected-target', 'below-target'],
 				rearmWindowMilliseconds: 2_000,
 				recentReveal,

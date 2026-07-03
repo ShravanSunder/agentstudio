@@ -20,7 +20,6 @@ import {
 import { BridgeCodeViewPanelFrame } from './bridge-code-view-panel-frame.js';
 import {
 	codeViewHandleHasInstance,
-	collapsedItemIdsWithItemState,
 	controllerForHandle,
 	createBridgeCodeViewHeaderRenderers,
 	emptyMaterializationDiagnostic,
@@ -31,6 +30,7 @@ import {
 	materializationDiagnosticForCodeViewItem,
 	nextCodeViewItemForCollapse,
 	reconcileBridgeCodeViewMetadataItems,
+	renderedBridgeCodeViewHeaderOffsetFromScrollOwner,
 	selectedContentDiagnosticsForPanel,
 	shouldApplyBridgeCodeViewMaterialization,
 	shouldRearmCodeViewInstantRevealForMaterialization,
@@ -53,6 +53,7 @@ import {
 	type BridgeCodeViewSelectionScrollDiagnostic,
 } from './bridge-code-view-panel-types.js';
 import { createBridgeCodeViewVisibleInterestPublisher } from './bridge-code-view-visible-interest-publisher.js';
+import { useBridgeCodeViewCollapseController } from './use-bridge-code-view-collapse-controller.js';
 import { useBridgeCodeViewSelectionScroll } from './use-bridge-code-view-selection-scroll.js';
 
 export { bridgeCodeViewOptions } from './bridge-code-view-options.js';
@@ -70,6 +71,9 @@ export type { BridgeCodeViewScrollToItemOptions } from './bridge-code-view-panel
 
 const codeViewInstantRevealRetargetEpsilonPixels = 1;
 const codeViewInstantRevealViewportOffsetTolerancePixels = 0;
+const codeViewInstantRevealRenderedHeaderOffsetTolerancePixels = 1;
+const codeViewInstantRevealHydrationRearmViewportOffsetTolerancePixels = 4;
+const codeViewInstantRevealExternalScrollAbortThresholdPixels = 240;
 const codeViewInstantRevealStableFrameCount = 2;
 const codeViewInstantRevealHydrationRearmWindowMilliseconds = 2_000;
 
@@ -104,6 +108,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 	const recentInstantSelectionRevealRef = useRef<BridgeCodeViewInstantRevealRearmCandidate | null>(
 		null,
 	);
+	const settledInstantSelectionRevealKeyRef = useRef<string | null>(null);
 	const scrollIdleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const scrollActivityActiveRef = useRef(false);
 	const renderedWindowItemIdsRef = useRef<readonly string[]>([]);
@@ -246,80 +251,33 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		},
 		[sourceKey],
 	);
-	const setItemCollapsed = useCallback(
-		(itemId: string, collapsed: boolean): boolean => {
-			const codeViewHandle = codeViewHandleRef.current;
-			if (codeViewHandle === null) {
-				return false;
-			}
-			if (!codeViewHandleHasInstance(codeViewHandle)) {
-				return false;
-			}
-			const currentItem = codeViewHandle.getItem(itemId);
-			if (currentItem === undefined || !isBridgeCodeViewItem(currentItem)) {
-				return false;
-			}
-			if (currentItem.collapsed === collapsed) {
-				setCollapsedItemIds(
-					(currentIds: ReadonlySet<string>): ReadonlySet<string> =>
-						collapsedItemIdsWithItemState({
-							collapsed,
-							currentIds,
-							itemId,
-						}),
-				);
-				return true;
-			}
-			pendingPreHydrationSelectionScrollKeyRef.current = null;
-			pendingSelectionRevealBehaviorRef.current = null;
-			pendingSmoothSelectionScrollKeyRef.current = null;
-			recentInstantSelectionRevealRef.current = null;
-			const itemDescriptor = reviewItemsById[itemId];
-			const nextItem =
-				itemDescriptor === undefined
-					? ({
-							...currentItem,
-							collapsed,
-							version: (currentItem.version ?? 0) + 1,
-						} satisfies BridgeCodeViewItem)
-					: nextCodeViewItemForCollapse({
-							collapsed,
-							currentItem,
-							itemDescriptor,
-						});
-			const controller = controllerForHandle({
-				handle: codeViewHandle,
-				controllerEntryRef,
-			});
-			// F6: collapse via a single item update and let Pierre's first-visible anchor hold
-			// the viewport. Collapsing only removes body rows below the header, so the header
-			// keeps its position without an app-side DOM anchor. F7: no forced render(true) —
-			// updateItem's queued render coalesces and re-applies Pierre's anchor.
-			controller.applyItemUpdate(nextItem);
-			setCollapsedItemIds(
-				(currentIds: ReadonlySet<string>): ReadonlySet<string> =>
-					collapsedItemIdsWithItemState({
-						collapsed,
-						currentIds,
-						itemId,
-					}),
-			);
-			return true;
-		},
-		[reviewItemsById],
-	);
+	const { setItemCollapsed, toggleItemCollapse } = useBridgeCodeViewCollapseController({
+		codeViewHandleRef,
+		collapsedItemIdsRef,
+		controllerEntryRef,
+		pendingPreHydrationSelectionScrollKeyRef,
+		pendingSelectionRevealBehaviorRef,
+		pendingSmoothSelectionScrollKeyRef,
+		recentInstantSelectionRevealRef,
+		reviewItemsById,
+		setCollapsedItemIds,
+		settledInstantSelectionRevealKeyRef,
+	});
 	const scheduleInstantSelectionRevealRetarget = useCallback(
 		(params: {
 			readonly codeViewHandle: CodeViewHandle<undefined>;
 			readonly itemId: string;
 			readonly selectionScrollKey: string;
+			readonly viewportOffsetTolerancePixels: number;
 		}): void => {
 			if (pendingSelectionScrollFrameRef.current !== null) {
 				cancelAnimationFrame(pendingSelectionScrollFrameRef.current);
 				pendingSelectionScrollFrameRef.current = null;
 			}
+			let didApplyRenderedHeaderCorrection = false;
 			let lastRetargetedItemTop: number | null = null;
 			let stableResolvedTopFrameCount = 0;
+			let committedRevealScrollTop: number | null = null;
 			const scheduleRetargetFrame = (remainingFrameBudget: number): void => {
 				pendingSelectionScrollFrameRef.current = requestAnimationFrame((): void => {
 					pendingSelectionScrollFrameRef.current = null;
@@ -334,6 +292,23 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 					if (codeViewInstance === undefined) {
 						return;
 					}
+					// I2/I4: the reveal owns the viewport only until the user takes over. A user
+					// scroll moves the viewport far from where the reveal last committed it; when
+					// that happens we yield ownership (mark settled/terminal) instead of snapping
+					// the selected item back and fighting the user's scroll.
+					const externalScrollThresholdPixels = Math.max(
+						codeViewInstantRevealExternalScrollAbortThresholdPixels,
+						codeViewInstance.getContainerElement()?.clientHeight ?? 0,
+					);
+					if (
+						committedRevealScrollTop !== null &&
+						Math.abs(codeViewInstance.getScrollTop() - committedRevealScrollTop) >
+							externalScrollThresholdPixels
+					) {
+						recentInstantSelectionRevealRef.current = null;
+						settledInstantSelectionRevealKeyRef.current = params.selectionScrollKey;
+						return;
+					}
 					const resolvedItemTop = codeViewInstance.getTopForItem(params.itemId);
 					const targetViewportOffset =
 						resolvedItemTop === undefined
@@ -345,7 +320,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 						Math.abs(resolvedItemTop - lastRetargetedItemTop) >
 							codeViewInstantRevealRetargetEpsilonPixels ||
 						targetViewportOffset === null ||
-						Math.abs(targetViewportOffset) > codeViewInstantRevealViewportOffsetTolerancePixels;
+						Math.abs(targetViewportOffset) > params.viewportOffsetTolerancePixels;
 					if (shouldRetarget) {
 						stableResolvedTopFrameCount = 0;
 						lastRetargetedItemTop = resolvedItemTop ?? null;
@@ -358,7 +333,44 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 						codeViewInstance.render(true);
 					} else {
 						stableResolvedTopFrameCount += 1;
+						if (stableResolvedTopFrameCount >= codeViewInstantRevealStableFrameCount) {
+							const settledItem = params.codeViewHandle.getItem(params.itemId);
+							const isSettledMaterialized =
+								isBridgeCodeViewItem(settledItem) &&
+								isMaterializedBridgeCodeViewContentState(settledItem.bridgeMetadata.contentState);
+							if (
+								!isSettledMaterialized ||
+								recentInstantSelectionRevealRef.current?.selectionScrollKey !==
+									params.selectionScrollKey
+							) {
+								return;
+							}
+							const renderedHeaderOffset = renderedBridgeCodeViewHeaderOffsetFromScrollOwner({
+								itemId: params.itemId,
+								scrollOwner: codeViewInstance.getContainerElement(),
+							});
+							if (renderedHeaderOffset === null && remainingFrameBudget > 0) {
+								scheduleRetargetFrame(remainingFrameBudget - 1);
+								return;
+							}
+							if (
+								renderedHeaderOffset !== null &&
+								!didApplyRenderedHeaderCorrection &&
+								Math.abs(renderedHeaderOffset.offsetPixels) >
+									codeViewInstantRevealRenderedHeaderOffsetTolerancePixels
+							) {
+								didApplyRenderedHeaderCorrection = true;
+								params.codeViewHandle.scrollTo({
+									type: 'position',
+									position: codeViewInstance.getScrollTop() + renderedHeaderOffset.offsetPixels,
+									behavior: 'instant',
+								});
+							}
+							recentInstantSelectionRevealRef.current = null;
+							settledInstantSelectionRevealKeyRef.current = params.selectionScrollKey;
+						}
 					}
+					committedRevealScrollTop = codeViewInstance.getScrollTop();
 					if (
 						remainingFrameBudget > 0 &&
 						stableResolvedTopFrameCount < codeViewInstantRevealStableFrameCount
@@ -419,12 +431,16 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 			controller.scrollToItem(itemId, scrollBehavior);
 			const selectionScrollKey = `${sourceKey}:${codeViewMountVersion}:${itemId}`;
 			lastSelectionScrollKeyRef.current = selectionScrollKey;
-			if (currentBridgeItem?.bridgeMetadata.contentState === 'hydrated') {
+			if (
+				currentBridgeItem !== null &&
+				isMaterializedBridgeCodeViewContentState(currentBridgeItem.bridgeMetadata.contentState)
+			) {
 				completedSelectionScrollKeyRef.current = selectionScrollKey;
 			}
 			if (scrollBehavior === 'instant') {
 				pendingSmoothSelectionScrollKeyRef.current = null;
 				pendingSelectionRevealBehaviorRef.current = null;
+				settledInstantSelectionRevealKeyRef.current = null;
 				recentInstantSelectionRevealRef.current = {
 					itemId,
 					revealedAtMilliseconds: performance.now(),
@@ -434,38 +450,17 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 					codeViewHandle,
 					itemId,
 					selectionScrollKey,
+					viewportOffsetTolerancePixels: codeViewInstantRevealViewportOffsetTolerancePixels,
 				});
 			} else {
 				pendingSmoothSelectionScrollKeyRef.current = selectionScrollKey;
 				pendingSelectionRevealBehaviorRef.current = scrollBehavior;
 				recentInstantSelectionRevealRef.current = null;
+				settledInstantSelectionRevealKeyRef.current = null;
 			}
 			return true;
 		},
 		[codeViewMountVersion, reviewItemsById, scheduleInstantSelectionRevealRetarget, sourceKey],
-	);
-	const toggleItemCollapse = useCallback(
-		(itemId: string): void => {
-			const codeViewHandle = codeViewHandleRef.current;
-			if (codeViewHandle !== null && !codeViewHandleHasInstance(codeViewHandle)) {
-				return;
-			}
-			const currentItem = codeViewHandle?.getItem(itemId);
-			if (currentItem === undefined || !isBridgeCodeViewItem(currentItem)) {
-				setCollapsedItemIds(
-					(currentIds: ReadonlySet<string>): ReadonlySet<string> =>
-						collapsedItemIdsWithItemState({
-							collapsed: !currentIds.has(itemId),
-							currentIds,
-							itemId,
-						}),
-				);
-				return;
-			}
-			const isCollapsed = collapsedItemIdsRef.current.has(itemId) || currentItem.collapsed === true;
-			setItemCollapsed(itemId, !isCollapsed);
-		},
-		[setItemCollapsed],
 	);
 	useEffect((): (() => void) | undefined => {
 		if (onControlHandleChange === undefined) {
@@ -587,6 +582,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		pendingSelectionRevealBehaviorRef.current = null;
 		pendingSmoothSelectionScrollKeyRef.current = null;
 		recentInstantSelectionRevealRef.current = null;
+		settledInstantSelectionRevealKeyRef.current = null;
 		setMaterializationDiagnostic(emptyMaterializationDiagnostic());
 	}, [sourceKey]);
 
@@ -862,6 +858,8 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 				const selectionScrollKey = `${sourceKey}:${codeViewMountVersion}:${props.selectedItemId}`;
 				if (
 					shouldRearmCodeViewInstantRevealForMaterialization({
+						isSelectedRevealSettled:
+							settledInstantSelectionRevealKeyRef.current === selectionScrollKey,
 						materializedItemIds,
 						nowMilliseconds: performance.now(),
 						orderedItemIds: props.reviewPackage.orderedItemIds,
@@ -875,6 +873,8 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 						codeViewHandle,
 						itemId: props.selectedItemId,
 						selectionScrollKey,
+						viewportOffsetTolerancePixels:
+							codeViewInstantRevealHydrationRearmViewportOffsetTolerancePixels,
 					});
 				}
 			}

@@ -1,10 +1,9 @@
 import { afterEach, describe, expect, test } from 'vitest';
-import { cleanup, render } from 'vitest-browser-react';
+import { cleanup } from 'vitest-browser-react';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load the app CSS.
 import '../../app/bridge-app.css';
 import { reviewPackageForBridgeAppDevFixtureScenario } from '../../app/bridge-app-dev-fixture.js';
-import { BridgeApp } from '../../app/bridge-app.js';
 import type { BridgeTelemetrySample } from '../../foundation/telemetry/bridge-telemetry-event.js';
 import { createBridgePierrePortableBlobWorkerFactory } from '../workers/pierre/bridge-pierre-dev-worker-factory.js';
 import {
@@ -50,14 +49,7 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		const fixture = makeBridgeViewerBrowserFixture();
 		const backend = installBridgeViewerMockedBackend(fixture);
 
-		render(
-			<BridgeApp
-				codeViewWorkerPoolEnabled={false}
-				fetchContent={backend.fetchContent}
-				markdownWorkerClient={null}
-				projectionWorkerClient={backend.projectionWorkerClient}
-			/>,
-		);
+		browserSupport.renderBridgeViewerAppWithMockedBackend({ backend });
 		await backend.pushMetadata();
 		await waitForBridgeViewerElement('[data-testid="review-viewer-shell"]');
 		await waitForBridgeViewerText(fixture.expected.initialPath);
@@ -81,14 +73,7 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		const fixture = makeBridgeViewerBrowserFixture();
 		const backend = installBridgeViewerMockedBackend(fixture);
 
-		render(
-			<BridgeApp
-				codeViewWorkerPoolEnabled={false}
-				fetchContent={backend.fetchContent}
-				markdownWorkerClient={null}
-				projectionWorkerClient={backend.projectionWorkerClient}
-			/>,
-		);
+		browserSupport.renderBridgeViewerAppWithMockedBackend({ backend });
 		await backend.pushMetadata();
 		await waitForBridgeViewerElement('[data-testid="review-viewer-shell"]');
 		await waitForBridgeViewerElement('[data-testid="bridge-review-resizable-rail"]');
@@ -122,14 +107,7 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		const fixture = makeBridgeViewerBrowserFixture();
 		const backend = installBridgeViewerMockedBackend(fixture);
 
-		render(
-			<BridgeApp
-				codeViewWorkerPoolEnabled={false}
-				fetchContent={backend.fetchContent}
-				markdownWorkerClient={null}
-				projectionWorkerClient={backend.projectionWorkerClient}
-			/>,
-		);
+		browserSupport.renderBridgeViewerAppWithMockedBackend({ backend });
 		await backend.pushMetadata();
 		await waitForBridgeViewerElement('[data-testid="review-viewer-shell"]');
 		const secondButton = await waitForBridgeViewerTreeItemButton(fixture.expected.secondPath);
@@ -139,7 +117,9 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		await waitForBridgeViewerAnimationFrame();
 
 		const codeScroll = await waitForBridgeViewerCodeScrollOwner();
-		const selectedHeader = await waitForBridgeCodeViewHeaderForPath(fixture.expected.secondPath);
+		const selectedHeader = await browserSupport.waitForBridgeCodeViewHeaderForPath(
+			fixture.expected.secondPath,
+		);
 		const headerTopGap = Math.round(
 			selectedHeader.getBoundingClientRect().top - codeScroll.getBoundingClientRect().top,
 		);
@@ -153,14 +133,7 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		const fixture = makeBridgeViewerBrowserFixture();
 		const backend = installBridgeViewerMockedBackend(fixture);
 
-		render(
-			<BridgeApp
-				codeViewWorkerPoolEnabled={false}
-				fetchContent={backend.fetchContent}
-				markdownWorkerClient={null}
-				projectionWorkerClient={backend.projectionWorkerClient}
-			/>,
-		);
+		browserSupport.renderBridgeViewerAppWithMockedBackend({ backend });
 		await backend.pushMetadata();
 		await waitForBridgeViewerElement('[data-testid="review-viewer-shell"]');
 		await waitForBridgeViewerText(fixture.expected.initialText);
@@ -192,14 +165,7 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 			},
 		});
 
-		render(
-			<BridgeApp
-				codeViewWorkerPoolEnabled={false}
-				fetchContent={backend.fetchContent}
-				markdownWorkerClient={null}
-				projectionWorkerClient={backend.projectionWorkerClient}
-			/>,
-		);
+		browserSupport.renderBridgeViewerAppWithMockedBackend({ backend });
 		await backend.pushMetadata();
 		await waitForBridgeViewerElement('[data-testid="review-viewer-shell"]');
 		await browserSupport.waitForSelectedBridgeViewerContentState('ready');
@@ -276,14 +242,10 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 				browserSupport.installPierrePackagedWorkerFetchMock();
 
 			try {
-				render(
-					<BridgeApp
-						codeViewWorkerPoolEnabled={true}
-						fetchContent={backend.fetchContent}
-						markdownWorkerClient={null}
-						projectionWorkerClient={backend.projectionWorkerClient}
-					/>,
-				);
+				browserSupport.renderBridgeViewerAppWithMockedBackend({
+					backend,
+					codeViewWorkerPoolEnabled: true,
+				});
 				await backend.pushMetadata();
 				await waitForBridgeViewerElement('[data-testid="review-viewer-shell"]');
 				await waitForBridgeViewerText(fixture.expected.initialText);
@@ -309,14 +271,7 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		const fixture = makeBridgeViewerBrowserFixture();
 		const backend = installBridgeViewerMockedBackend(fixture);
 
-		render(
-			<BridgeApp
-				codeViewWorkerPoolEnabled={false}
-				fetchContent={backend.fetchContent}
-				markdownWorkerClient={null}
-				projectionWorkerClient={backend.projectionWorkerClient}
-			/>,
-		);
+		browserSupport.renderBridgeViewerAppWithMockedBackend({ backend });
 		await backend.pushMetadata();
 		await waitForBridgeViewerText(fixture.expected.initialText);
 
@@ -353,14 +308,7 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 			return await backend.fetchContent(input, init);
 		};
 
-		render(
-			<BridgeApp
-				codeViewWorkerPoolEnabled={false}
-				fetchContent={fetchContent}
-				markdownWorkerClient={null}
-				projectionWorkerClient={backend.projectionWorkerClient}
-			/>,
-		);
+		browserSupport.renderBridgeViewerAppWithMockedBackend({ backend, fetchContent });
 		await backend.pushMetadata();
 		await waitForBridgeViewerText(fixture.expected.initialText);
 		expect(browserSupport.selectedBridgeViewerDisplayPath()).toBe(fixture.expected.initialPath);
@@ -382,14 +330,7 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 			deferContentHandleIds: [fixture.expected.secondHeadHandleId],
 		});
 
-		render(
-			<BridgeApp
-				codeViewWorkerPoolEnabled={false}
-				fetchContent={backend.fetchContent}
-				markdownWorkerClient={null}
-				projectionWorkerClient={backend.projectionWorkerClient}
-			/>,
-		);
+		browserSupport.renderBridgeViewerAppWithMockedBackend({ backend });
 		await backend.pushMetadata();
 		await waitForBridgeViewerText(fixture.expected.initialText);
 
@@ -431,14 +372,7 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		const fixture = makeBridgeViewerBrowserFixture();
 		const backend = installBridgeViewerMockedBackend(fixture);
 
-		render(
-			<BridgeApp
-				codeViewWorkerPoolEnabled={false}
-				fetchContent={backend.fetchContent}
-				markdownWorkerClient={null}
-				projectionWorkerClient={backend.projectionWorkerClient}
-			/>,
-		);
+		browserSupport.renderBridgeViewerAppWithMockedBackend({ backend });
 		await backend.pushMetadata();
 
 		const addedButton = await waitForBridgeViewerTreeItemButton(fixture.expected.addedPath);
@@ -459,14 +393,7 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		const fixture = makeBridgeViewerBrowserFixture({ fixtureClass: 'large-diffshub' });
 		const backend = installBridgeViewerMockedBackend(fixture);
 
-		render(
-			<BridgeApp
-				codeViewWorkerPoolEnabled={false}
-				fetchContent={backend.fetchContent}
-				markdownWorkerClient={null}
-				projectionWorkerClient={backend.projectionWorkerClient}
-			/>,
-		);
+		browserSupport.renderBridgeViewerAppWithMockedBackend({ backend });
 		await backend.pushMetadata();
 		await waitForBridgeViewerText(fixture.expected.initialText);
 		await waitForBridgeViewerAnimationFrame();
@@ -497,14 +424,7 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		const fixture = makeBridgeViewerBrowserFixture();
 		const backend = installBridgeViewerMockedBackend(fixture);
 
-		render(
-			<BridgeApp
-				codeViewWorkerPoolEnabled={false}
-				fetchContent={backend.fetchContent}
-				markdownWorkerClient={null}
-				projectionWorkerClient={backend.projectionWorkerClient}
-			/>,
-		);
+		browserSupport.renderBridgeViewerAppWithMockedBackend({ backend });
 		await backend.pushMetadata();
 
 		const hunkedButton = await waitForBridgeViewerTreeItemButton(fixture.expected.hunkPath);
@@ -523,14 +443,7 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		const fixture = makeBridgeViewerBrowserFixture();
 		const backend = installBridgeViewerMockedBackend(fixture);
 
-		render(
-			<BridgeApp
-				codeViewWorkerPoolEnabled={false}
-				fetchContent={backend.fetchContent}
-				markdownWorkerClient={null}
-				projectionWorkerClient={backend.projectionWorkerClient}
-			/>,
-		);
+		browserSupport.renderBridgeViewerAppWithMockedBackend({ backend });
 		await backend.pushMetadata();
 		await waitForBridgeViewerText(fixture.expected.initialText);
 
@@ -568,14 +481,7 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		const fixture = makeBridgeViewerBrowserFixture({ fixtureClass: 'large-diffshub' });
 		const backend = installBridgeViewerMockedBackend(fixture);
 
-		render(
-			<BridgeApp
-				codeViewWorkerPoolEnabled={false}
-				fetchContent={backend.fetchContent}
-				markdownWorkerClient={null}
-				projectionWorkerClient={backend.projectionWorkerClient}
-			/>,
-		);
+		browserSupport.renderBridgeViewerAppWithMockedBackend({ backend });
 		await backend.pushMetadata();
 		await waitForBridgeViewerText(fixture.expected.initialText);
 
@@ -645,14 +551,7 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		const fixture = makeBridgeViewerBrowserFixture();
 		const backend = installBridgeViewerMockedBackend(fixture);
 
-		render(
-			<BridgeApp
-				codeViewWorkerPoolEnabled={false}
-				fetchContent={backend.fetchContent}
-				markdownWorkerClient={null}
-				projectionWorkerClient={backend.projectionWorkerClient}
-			/>,
-		);
+		browserSupport.renderBridgeViewerAppWithMockedBackend({ backend });
 		await backend.pushMetadata();
 		await waitForBridgeViewerText(fixture.expected.initialText);
 
@@ -682,14 +581,7 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 			latencyProfile: 'small',
 		});
 
-		render(
-			<BridgeApp
-				codeViewWorkerPoolEnabled={false}
-				fetchContent={backend.fetchContent}
-				markdownWorkerClient={null}
-				projectionWorkerClient={backend.projectionWorkerClient}
-			/>,
-		);
+		browserSupport.renderBridgeViewerAppWithMockedBackend({ backend });
 		await backend.pushMetadata();
 		await waitForBridgeViewerText(fixture.expected.initialText);
 
@@ -730,14 +622,7 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 			projectionFailure: true,
 		});
 
-		render(
-			<BridgeApp
-				codeViewWorkerPoolEnabled={false}
-				fetchContent={backend.fetchContent}
-				markdownWorkerClient={null}
-				projectionWorkerClient={backend.projectionWorkerClient}
-			/>,
-		);
+		browserSupport.renderBridgeViewerAppWithMockedBackend({ backend });
 		await backend.pushMetadata();
 		await waitForBridgeViewerText('Review projection unavailable');
 
@@ -751,14 +636,7 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		const fixture = makeBridgeViewerBrowserFixture();
 		const backend = installBridgeViewerMockedBackend(fixture);
 
-		render(
-			<BridgeApp
-				codeViewWorkerPoolEnabled={false}
-				fetchContent={backend.fetchContent}
-				markdownWorkerClient={null}
-				projectionWorkerClient={backend.projectionWorkerClient}
-			/>,
-		);
+		browserSupport.renderBridgeViewerAppWithMockedBackend({ backend });
 		await backend.pushMetadata();
 		await waitForBridgeViewerElement('[data-testid="review-viewer-shell"]');
 
@@ -802,14 +680,7 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		const fixture = makeBridgeViewerBrowserFixture();
 		const backend = installBridgeViewerMockedBackend(fixture);
 
-		render(
-			<BridgeApp
-				codeViewWorkerPoolEnabled={false}
-				fetchContent={backend.fetchContent}
-				markdownWorkerClient={null}
-				projectionWorkerClient={backend.projectionWorkerClient}
-			/>,
-		);
+		browserSupport.renderBridgeViewerAppWithMockedBackend({ backend });
 		await backend.pushMetadata();
 		await waitForBridgeViewerElement('[data-testid="review-viewer-shell"]');
 
@@ -829,14 +700,7 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		const fixture = makeBridgeViewerBrowserFixture();
 		const backend = installBridgeViewerMockedBackend(fixture);
 
-		render(
-			<BridgeApp
-				codeViewWorkerPoolEnabled={false}
-				fetchContent={backend.fetchContent}
-				markdownWorkerClient={null}
-				projectionWorkerClient={backend.projectionWorkerClient}
-			/>,
-		);
+		browserSupport.renderBridgeViewerAppWithMockedBackend({ backend });
 		await backend.pushMetadata();
 		await waitForBridgeViewerText(fixture.expected.initialText);
 		await collapseBridgeViewerTreeFolder('Sources/BridgeViewer');
@@ -858,15 +722,11 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		const workerFactory = createBridgePierrePortableBlobWorkerFactory();
 
 		try {
-			render(
-				<BridgeApp
-					codeViewWorkerPoolEnabled={true}
-					codeViewWorkerFactory={workerFactory.workerFactory}
-					fetchContent={backend.fetchContent}
-					markdownWorkerClient={null}
-					projectionWorkerClient={backend.projectionWorkerClient}
-				/>,
-			);
+			browserSupport.renderBridgeViewerAppWithMockedBackend({
+				backend,
+				codeViewWorkerFactory: workerFactory.workerFactory,
+				codeViewWorkerPoolEnabled: true,
+			});
 			await backend.pushMetadata(
 				reviewPackageForBridgeAppDevFixtureScenario({
 					fixture,
@@ -917,15 +777,11 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		const workerFactory = createBridgePierrePortableBlobWorkerFactory();
 
 		try {
-			render(
-				<BridgeApp
-					codeViewWorkerPoolEnabled={true}
-					codeViewWorkerFactory={workerFactory.workerFactory}
-					fetchContent={backend.fetchContent}
-					markdownWorkerClient={null}
-					projectionWorkerClient={backend.projectionWorkerClient}
-				/>,
-			);
+			browserSupport.renderBridgeViewerAppWithMockedBackend({
+				backend,
+				codeViewWorkerFactory: workerFactory.workerFactory,
+				codeViewWorkerPoolEnabled: true,
+			});
 			await backend.pushMetadata(
 				reviewPackageForBridgeAppDevFixtureScenario({
 					fixture,
@@ -998,15 +854,11 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		const deepExpectedText = "export const fillerbrowser-filler-large-diffshub-292 = 'head';";
 
 		try {
-			render(
-				<BridgeApp
-					codeViewWorkerPoolEnabled={true}
-					codeViewWorkerFactory={workerFactory.workerFactory}
-					fetchContent={backend.fetchContent}
-					markdownWorkerClient={null}
-					projectionWorkerClient={backend.projectionWorkerClient}
-				/>,
-			);
+			browserSupport.renderBridgeViewerAppWithMockedBackend({
+				backend,
+				codeViewWorkerFactory: workerFactory.workerFactory,
+				codeViewWorkerPoolEnabled: true,
+			});
 			await backend.pushMetadata(
 				reviewPackageForBridgeAppDevFixtureScenario({
 					fixture,
@@ -1075,36 +927,3 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		}
 	});
 });
-
-async function waitForBridgeCodeViewHeaderForPath(
-	path: string,
-	remainingAttempts = 180,
-): Promise<HTMLElement> {
-	const header = findBridgeCodeViewHeaderForPath(path);
-	if (header !== null) {
-		return header;
-	}
-	if (remainingAttempts <= 0) {
-		throw new Error(`expected Bridge CodeView header for path ${path}`);
-	}
-	await Promise.resolve();
-	await waitForBridgeViewerAnimationFrame();
-	return await waitForBridgeCodeViewHeaderForPath(path, remainingAttempts - 1);
-}
-
-function findBridgeCodeViewHeaderForPath(path: string): HTMLElement | null {
-	for (const container of document.querySelectorAll('diffs-container')) {
-		const shadowRoot = container.shadowRoot;
-		if (shadowRoot === null) {
-			continue;
-		}
-		const header = [...shadowRoot.querySelectorAll('[data-diffs-header]')].find(
-			(candidate: Element): candidate is HTMLElement =>
-				candidate instanceof HTMLElement && (candidate.textContent ?? '').includes(path),
-		);
-		if (header !== undefined) {
-			return header;
-		}
-	}
-	return null;
-}
