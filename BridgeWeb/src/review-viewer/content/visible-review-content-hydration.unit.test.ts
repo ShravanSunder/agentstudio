@@ -105,6 +105,20 @@ describe('visible review content hydration', () => {
 	test('keeps paused visible loads alive so completed bodies are not refetched after selection churn', () => {
 		expect(shouldAbortVisibleContentLoadsForPause()).toBe(false);
 	});
+
+	test('publishes scheduled visible item ids before they become loading or ready', () => {
+		const result = createVisibleReviewContentHydrationResult({
+			contentStateByItemId: new Map(),
+			resourcesByItemId: new Map(),
+			setVisibleItemIds: (): void => {},
+			visibleHydrationPaused: false,
+			visibleItemIds: ['item-001', 'item-002'],
+		});
+
+		expect(result.visibleItemIds).toEqual(['item-001', 'item-002']);
+		expect(result.visibleLoadingItemCount).toBe(0);
+		expect(result.visibleContentResourcesByItemId.size).toBe(0);
+	});
 });
 
 function makeReviewPackageWithItemCount(itemCount: number): BridgeReviewPackage {

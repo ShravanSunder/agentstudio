@@ -33,6 +33,7 @@ export interface UseVisibleReviewContentHydrationResult {
 	readonly setVisibleItemIds: (itemIds: readonly string[]) => void;
 	readonly visibleContentResourcesByItemId: ReadonlyMap<string, BridgeCodeViewContentResources>;
 	readonly visibleFailedItemIds: ReadonlySet<string>;
+	readonly visibleItemIds: readonly string[];
 	readonly visibleLoadingItemIds: ReadonlySet<string>;
 	readonly visibleLoadingItemCount: number;
 	readonly visibleReadyItemCount: number;
@@ -419,6 +420,7 @@ export function createVisibleReviewContentHydrationResult(props: {
 			setVisibleItemIds: props.setVisibleItemIds,
 			visibleContentResourcesByItemId: new Map<string, BridgeCodeViewContentResources>(),
 			visibleFailedItemIds: new Set<string>(),
+			visibleItemIds: [],
 			visibleLoadingItemIds: new Set<string>(),
 			visibleLoadingItemCount: 0,
 			visibleReadyItemCount: 0,
@@ -450,6 +452,7 @@ export function createVisibleReviewContentHydrationResult(props: {
 		setVisibleItemIds: props.setVisibleItemIds,
 		visibleContentResourcesByItemId,
 		visibleFailedItemIds,
+		visibleItemIds: props.visibleItemIds,
 		visibleLoadingItemIds,
 		visibleLoadingItemCount,
 		visibleReadyItemCount,
