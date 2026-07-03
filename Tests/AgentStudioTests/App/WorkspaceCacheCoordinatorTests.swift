@@ -330,6 +330,86 @@ final class WorkspaceCacheCoordinatorTests {
     }
 
     @Test
+    func startConsuming_coalescesSnapshotChangedBurstBeforeApplyingWorktreeCache() async {
+        let bus = EventBus<RuntimeEnvelope>()
+        let workspaceStore = makeWorkspaceStore()
+        let repoCache = RepoCacheAtom()
+        let clock = TestPushClock()
+        let coordinator = WorkspaceCacheCoordinator(
+            bus: bus,
+            workspaceStore: workspaceStore,
+            repoCache: repoCache,
+            scopeSyncHandler: { _ in },
+            enrichmentApplierFlushInterval: .milliseconds(25),
+            enrichmentApplierClock: clock
+        )
+
+        let repoId = UUID()
+        let worktreeId = UUID()
+        coordinator.startConsuming()
+        await waitForSubscriber(bus: bus)
+
+        await bus.post(
+            .worktree(
+                WorktreeEnvelope.test(
+                    event: .gitWorkingDirectory(
+                        .snapshotChanged(
+                            snapshot: GitWorkingTreeSnapshot(
+                                worktreeId: worktreeId,
+                                repoId: repoId,
+                                rootPath: URL(fileURLWithPath: "/tmp/repo"),
+                                summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
+                                branch: "old"
+                            )
+                        )
+                    ),
+                    repoId: repoId,
+                    worktreeId: worktreeId,
+                    source: .system(.builtin(.gitWorkingDirectoryProjector)),
+                    seq: 1
+                )
+            )
+        )
+        await bus.post(
+            .worktree(
+                WorktreeEnvelope.test(
+                    event: .gitWorkingDirectory(
+                        .snapshotChanged(
+                            snapshot: GitWorkingTreeSnapshot(
+                                worktreeId: worktreeId,
+                                repoId: repoId,
+                                rootPath: URL(fileURLWithPath: "/tmp/repo"),
+                                summary: GitWorkingTreeSummary(changed: 2, staged: 0, untracked: 0),
+                                branch: "new"
+                            )
+                        )
+                    ),
+                    repoId: repoId,
+                    worktreeId: worktreeId,
+                    source: .system(.builtin(.gitWorkingDirectoryProjector)),
+                    seq: 2
+                )
+            )
+        )
+
+        let didScheduleFlush = await waitUntilYielding {
+            clock.pendingSleepCount == 1
+        }
+        #expect(didScheduleFlush)
+        #expect(repoCache.worktreeEnrichmentByWorktreeId[worktreeId] == nil)
+
+        clock.advance(by: .milliseconds(25))
+        let didApplyNewestSnapshot = await eventually("newest snapshot should apply after coalesced flush") {
+            repoCache.worktreeEnrichmentByWorktreeId[worktreeId]?.branch == "new"
+        }
+
+        await coordinator.shutdown()
+
+        #expect(didApplyNewestSnapshot)
+        #expect(repoCache.worktreeEnrichmentByWorktreeId[worktreeId]?.snapshot?.summary.changed == 2)
+    }
+
+    @Test
     func enrichment_branchChanged_preservesExistingSnapshot() {
         let workspaceStore = makeWorkspaceStore()
         let repoCache = RepoCacheAtom()
@@ -616,6 +696,26 @@ final class WorkspaceCacheCoordinatorTests {
         }
         Issue.record("\(description) timed out")
         return false
+    }
+
+    private func waitForSubscriber(bus: EventBus<RuntimeEnvelope>, maxTurns: Int = 50) async {
+        for _ in 0..<maxTurns {
+            if await bus.subscriberCount > 0 { return }
+            await Task.yield()
+        }
+    }
+
+    private func waitUntilYielding(
+        maxTurns: Int = 10_000,
+        condition: @escaping @Sendable () -> Bool
+    ) async -> Bool {
+        for _ in 0..<maxTurns {
+            if condition() {
+                return true
+            }
+            await Task.yield()
+        }
+        return condition()
     }
 }
 
