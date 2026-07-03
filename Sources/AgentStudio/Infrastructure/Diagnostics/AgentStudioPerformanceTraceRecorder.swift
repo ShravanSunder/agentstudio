@@ -11,6 +11,7 @@ final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         case gitAdmission = "performance.git.admission"
         case gitBackoff = "performance.git.backoff"
         case gitEventPosted = "performance.git.event_posted"
+        case gitPathQuarantine = "performance.git.path_quarantine"
         case gitSnapshotDedup = "performance.git.snapshot_dedup"
         case gitStatusComputed = "performance.git.status"
         case gitStatusUnavailable = "performance.git.status_unavailable"

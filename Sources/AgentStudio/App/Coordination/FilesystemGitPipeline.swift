@@ -49,7 +49,8 @@ final class FilesystemGitPipeline: WorkspaceFilesystemSourceManaging, WatchedFol
             periodicRefreshInterval: gitPeriodicRefreshInterval ?? gitRefreshPolicy.activeCadence,
             sleepClock: gitSleepClock,
             refreshPolicy: gitRefreshPolicy,
-            performanceTraceRecorder: performanceTraceRecorder
+            performanceTraceRecorder: performanceTraceRecorder,
+            pathExistenceProbe: GitWorkingDirectoryProjector.liveRootPathProbe
         )
         self.forgeActor = ForgeActor(
             bus: bus,

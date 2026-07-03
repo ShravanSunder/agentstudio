@@ -2487,6 +2487,139 @@ struct GitWorkingDirectoryProjectorTests {
         collectionTask.cancel()
     }
 
+    // MARK: - Dead-path quarantine
+
+    @Test("dead-path worktree is quarantined: no computes across file-change and periodic ticks, one open fact")
+    func deadPathWorktreeIsQuarantinedAcrossFileChangeAndPeriodicTicks() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let clock = TestPushClock()
+        let calls = CallCounter()
+        let recorder = GitProjectorTraceRecorderSpy()
+        let policy = AppPolicies.GitRefresh.Policy(backgroundStripeCount: 1)
+        let provider = StubGitWorkingTreeStatusProvider { _ in
+            _ = await calls.increment()
+            return GitWorkingTreeStatus(
+                summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
+                branch: "main",
+                origin: nil
+            )
+        }
+        let actor = GitWorkingDirectoryProjector(
+            bus: bus,
+            gitWorkingTreeProvider: provider,
+            coalescingWindow: .zero,
+            periodicRefreshInterval: .milliseconds(100),
+            sleepClock: clock,
+            refreshPolicy: policy,
+            performanceTraceRecorder: recorder,
+            pathExistenceProbe: GitWorkingDirectoryProjector.liveRootPathProbe
+        )
+
+        let observed = ObservedGitEvents()
+        let collectionTask = await startCollection(on: bus, observed: observed)
+        await actor.start()
+
+        let worktreeId = UUID()
+        // A path that does not exist on disk: registration must quarantine it.
+        let missingRootPath = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appending(path: "quarantine-missing-\(UUID().uuidString)")
+        await bus.post(
+            makeEnvelope(
+                seq: 1,
+                worktreeId: worktreeId,
+                event: .worktreeRegistered(worktreeId: worktreeId, repoId: worktreeId, rootPath: missingRootPath)
+            )
+        )
+
+        // The registration seed is quarantined at admission: one open fact, no compute.
+        let quarantined = await waitUntil { recorder.quarantineEvents().count == 1 }
+        #expect(quarantined)
+        #expect(recorder.quarantineEvents().first?.quarantined == true)
+        #expect(recorder.quarantineEvents().first?.reason == "path_missing")
+
+        // File-change events on the still-missing path neither compute nor re-emit.
+        for seq in UInt64(2)...4 {
+            await bus.post(
+                makeFilesChangedEnvelope(seq: seq, worktreeId: worktreeId, rootPath: missingRootPath, batchSeq: seq)
+            )
+        }
+
+        // Periodic ticks must skip the quarantined worktree entirely.
+        await clock.waitForPendingSleepCount(atLeast: 1)
+        for _ in 0..<3 {
+            clock.advance(by: .milliseconds(100))
+            for _ in 0..<200 {
+                await Task.yield()
+            }
+        }
+
+        #expect(await calls.value() == 0)
+        #expect(await observed.snapshotCount(for: worktreeId) == 0)
+        #expect(recorder.quarantineEvents().count == 1)
+
+        await actor.shutdown()
+        collectionTask.cancel()
+    }
+
+    @Test("quarantined worktree re-arms and computes when a file-change arrives after its path returns")
+    func quarantinedWorktreeReArmsWhenPathReturns() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let calls = CallCounter()
+        let recorder = GitProjectorTraceRecorderSpy()
+        let provider = StubGitWorkingTreeStatusProvider { _ in
+            _ = await calls.increment()
+            return GitWorkingTreeStatus(
+                summary: GitWorkingTreeSummary(changed: 2, staged: 0, untracked: 0),
+                branch: "rearmed",
+                origin: nil
+            )
+        }
+        let actor = GitWorkingDirectoryProjector(
+            bus: bus,
+            gitWorkingTreeProvider: provider,
+            coalescingWindow: .zero,
+            performanceTraceRecorder: recorder,
+            pathExistenceProbe: GitWorkingDirectoryProjector.liveRootPathProbe
+        )
+
+        let observed = ObservedGitEvents()
+        let collectionTask = await startCollection(on: bus, observed: observed)
+        await actor.start()
+
+        let worktreeId = UUID()
+        let rootPath = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appending(path: "quarantine-rearm-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: rootPath) }
+
+        // Path missing at registration: the worktree is quarantined, no compute.
+        await bus.post(
+            makeEnvelope(
+                seq: 1,
+                worktreeId: worktreeId,
+                event: .worktreeRegistered(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
+            )
+        )
+        let quarantined = await waitUntil { recorder.quarantineEvents().contains { $0.quarantined } }
+        #expect(quarantined)
+        #expect(await calls.value() == 0)
+
+        // The path returns; a file-change re-arms the worktree and it recomputes.
+        try FileManager.default.createDirectory(at: rootPath, withIntermediateDirectories: true)
+        await bus.post(
+            makeFilesChangedEnvelope(seq: 2, worktreeId: worktreeId, rootPath: rootPath, batchSeq: 1)
+        )
+
+        let reArmedSnapshot = await waitUntil {
+            await observed.latestSnapshot(for: worktreeId)?.branch == "rearmed"
+        }
+        #expect(reArmedSnapshot)
+        #expect(await calls.value() == 1)
+        #expect(recorder.quarantineEvents().contains { !$0.quarantined })
+
+        await actor.shutdown()
+        collectionTask.cancel()
+    }
+
     static func modifiedEntry(_ path: String) -> GitWorkingTreeStatusEntry {
         GitWorkingTreeStatusEntry(path: path, hasStagedChange: false, hasUnstagedChange: true, isUntracked: false)
     }
@@ -2801,6 +2934,11 @@ private final class GitProjectorTraceRecorderSpy: GitProjectorPerformanceRecordi
         let attempt: Int?
     }
 
+    struct QuarantineEvent {
+        let quarantined: Bool
+        let reason: String?
+    }
+
     private let lock = NSLock()
     private var recordedEvents: [(AgentStudioPerformanceTraceRecorder.Event, [String: AgentStudioTraceValue])] = []
 
@@ -2837,6 +2975,21 @@ private final class GitProjectorTraceRecorderSpy: GitProjectorPerformanceRecordi
                 reason: Self.string(attributes["agentstudio.performance.git.backoff.reason"]),
                 backoffMilliseconds: Self.double(attributes["agentstudio.performance.git.backoff_ms"]),
                 attempt: Self.int(attributes["agentstudio.performance.git.backoff_attempt.count"])
+            )
+        }
+    }
+
+    func quarantineEvents() -> [QuarantineEvent] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedEvents.compactMap { event, attributes in
+            guard event == .gitPathQuarantine else { return nil }
+            guard case .bool(let quarantined)? = attributes["agentstudio.performance.git.path_quarantined"] else {
+                return nil
+            }
+            return QuarantineEvent(
+                quarantined: quarantined,
+                reason: Self.string(attributes["agentstudio.performance.git.path_quarantine.reason"])
             )
         }
     }
