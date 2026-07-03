@@ -80,6 +80,47 @@ describe('BridgeWeb architecture checker', () => {
 		);
 	});
 
+	test('ignores Pierre strings in assertions while still reporting real imports', async () => {
+		await withFixtureTree(
+			{
+				'src/review-viewer/dependencies/source-structure.guard.unit.test.ts': `
+					import { expect, test } from 'vitest';
+
+					test('guards source boundaries', () => {
+						const source = 'import type { FileTreeNode } from "forbidden";';
+
+						expect(source).not.toContain('@pierre/diffs/dist/');
+						expect(source).not.toContain('@pierre/trees/dist/model/publicTypes');
+					});
+				`,
+				'src/review-viewer/shell/bad-private-import.ts': `
+					import type { FileTreeNode } from '@pierre/trees/dist/model/publicTypes';
+					export type Value = FileTreeNode;
+				`,
+			},
+			async (packageRootPath: string): Promise<void> => {
+				const report = await checkBridgeWebArchitecture({ packageRootPath });
+
+				expect(report.ok).toBe(false);
+				expect(report.violations).not.toEqual(
+					expect.arrayContaining([
+						expect.objectContaining({
+							relativePath: 'src/review-viewer/dependencies/source-structure.guard.unit.test.ts',
+						}),
+					]),
+				);
+				expect(report.violations).toEqual(
+					expect.arrayContaining([
+						expect.objectContaining({
+							ruleId: 'no-private-pierre-imports',
+							relativePath: 'src/review-viewer/shell/bad-private-import.ts',
+						}),
+					]),
+				);
+			},
+		);
+	});
+
 	test('allows public Pierre imports in their owning viewer slices and tests', async () => {
 		await withFixtureTree(
 			{

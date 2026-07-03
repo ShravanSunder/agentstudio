@@ -151,7 +151,6 @@ async function checkSourceFile(
 	checkMaxSourceFileLineCount(context);
 	checkReviewViewerFolderBoundary(context);
 	walkSourceFile(sourceFile, (node: ts.Node): void => {
-		checkStringLiteral(context, node);
 		checkImportSource(context, node);
 		checkWorkerUsage(context, node);
 		checkStateEffects(context, node);
@@ -192,32 +191,30 @@ function walkSourceFile(node: ts.Node, visitNode: (node: ts.Node) => void): void
 	node.forEachChild((childNode: ts.Node): void => walkSourceFile(childNode, visitNode));
 }
 
-function checkStringLiteral(context: SourceContext, node: ts.Node): void {
+function checkPierreImportSource(
+	context: SourceContext,
+	node: ts.Node,
+	rawImportSource: string,
+	importSource: string,
+): void {
 	if (isArchitectureCheckerPath(context.relativePath)) {
 		return;
 	}
 
-	if (!isStringLiteralLike(node)) {
-		return;
-	}
-
-	const text = node.text;
-	const normalizedSpecifier = normalizeImportSpecifier(text);
-
-	if (normalizedSpecifier.startsWith('@pierre/') && !publicPierreExports.has(normalizedSpecifier)) {
+	if (importSource.startsWith('@pierre/') && !publicPierreExports.has(importSource)) {
 		addViolation(context, {
 			ruleId: 'no-private-pierre-imports',
 			node,
-			message: `Pierre import must use a public package export: ${text}`,
+			message: `Pierre import must use a public package export: ${rawImportSource}`,
 		});
 		return;
 	}
 
-	if (isPrivatePierrePath(text)) {
+	if (isPrivatePierrePath(rawImportSource)) {
 		addViolation(context, {
 			ruleId: 'no-private-pierre-imports',
 			node,
-			message: `Pierre import must not reference private package paths: ${text}`,
+			message: `Pierre import must not reference private package paths: ${rawImportSource}`,
 		});
 	}
 }
@@ -225,11 +222,16 @@ function checkStringLiteral(context: SourceContext, node: ts.Node): void {
 function checkImportSource(context: SourceContext, node: ts.Node): void {
 	const rawImportSource = readImportSource(node);
 
-	if (rawImportSource === null || isTestPath(context.relativePath)) {
+	if (rawImportSource === null) {
 		return;
 	}
 
 	const importSource = normalizeImportSpecifier(rawImportSource);
+	checkPierreImportSource(context, node, rawImportSource, importSource);
+
+	if (isTestPath(context.relativePath)) {
+		return;
+	}
 
 	if (isCorePath(context.relativePath) && isAppProtocolOrViewerImport(context, importSource)) {
 		addViolation(context, {
