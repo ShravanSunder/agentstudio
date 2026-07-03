@@ -119,7 +119,7 @@ describe('review content demand loader registry cache', () => {
 		).toBe('loaded head');
 	});
 
-	test('partial cache coverage still performs a full demand load', async () => {
+	test('partial cache coverage fetches only missing roles and merges cached resources', async () => {
 		const registry = createBridgeResourceDescriptorRegistry({
 			allowedResourceKindsByProtocol: { review: new Set(['content']) },
 		});
@@ -165,10 +165,12 @@ describe('review content demand loader registry cache', () => {
 		});
 
 		expect(result).toMatchObject({ status: 'ready' });
-		expect(requestedDescriptorIds.toSorted()).toEqual([
-			'descriptor-handle-item-source-base',
-			'descriptor-handle-item-source-head',
-		]);
+		if (result.status !== 'ready') {
+			throw new Error('expected ready merged content');
+		}
+		expect(result.resources.base?.readText()).toBe('cached base');
+		expect(result.resources.head?.readText()).toBe('fresh head');
+		expect(requestedDescriptorIds).toEqual(['descriptor-handle-item-source-head']);
 	});
 });
 

@@ -61,6 +61,8 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 			}),
 		[props.openFileState, props.renderedFileContent],
 	);
+	const shouldRenderContentState =
+		props.renderedFileContent === null && props.openFileState.status !== 'loading';
 	useLayoutEffect((): void => {
 		const currentPath = props.openFileState.status === 'idle' ? null : props.openFileState.path;
 		const currentRenderedPath = props.renderedFileContent?.path ?? null;
@@ -146,7 +148,7 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 						style={{ height: '100%' }}
 					/>
 				</div>
-				{props.renderedFileContent === null ? (
+				{shouldRenderContentState ? (
 					<div className="pointer-events-none absolute inset-0">
 						<BridgeFileViewerContentState state={props.openFileState} />
 					</div>

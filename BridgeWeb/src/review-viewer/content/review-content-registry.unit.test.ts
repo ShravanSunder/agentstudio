@@ -360,6 +360,25 @@ describe('review content registry', () => {
 		});
 	});
 
+	test('storeResource accepts current Bridge content URLs with cursor identity', () => {
+		const registry = createBridgeReviewContentRegistry();
+		const handle: BridgeContentHandle = {
+			...makeBridgeContentHandle('item-source', 'head'),
+			resourceUrl:
+				'agentstudio://resource/review/content/handle-item-source-head?generation=1&revision=4&cursor=package-1',
+		};
+
+		registry.storeResource({ resource: makeStoredResource(handle, 'cursor scoped body') });
+
+		const cachedResource = registry.peekResource(handle);
+		expect(cachedResource?.readText()).toBe('cursor scoped body');
+		expect(cachedResource?.handle).toBe(handle);
+		expect(registry.snapshot()).toMatchObject({
+			cachedResourceCount: 1,
+			inFlightRequestCount: 0,
+		});
+	});
+
 	test('storeResource ignores non-authoritative resources', () => {
 		const registry = createBridgeReviewContentRegistry();
 		const handle = makeBridgeContentHandle('item-source', 'head');

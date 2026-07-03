@@ -46,12 +46,12 @@ describe('Bridge Trees controller', () => {
 			'Tests/App',
 		]);
 		expect(source.gitStatusEntries).toEqual([
+			{ path: 'docs/plans/2026-bridge-plan.md', status: 'modified' },
 			{ path: 'Sources/App/Core.swift', status: 'modified' },
 			{ path: 'Sources/App/View.swift', status: 'modified' },
-			{ path: 'Tests/App/ViewTests.swift', status: 'modified' },
-			{ path: 'docs/plans/2026-bridge-plan.md', status: 'modified' },
 			{ path: 'Sources/NewName.swift', status: 'renamed' },
 			{ path: 'Sources/Removed.swift', status: 'deleted' },
+			{ path: 'Tests/App/ViewTests.swift', status: 'modified' },
 		]);
 		expect(source.gitStatusEntries).not.toContainEqual({
 			path: 'Sources/App/View.swift',
@@ -87,6 +87,9 @@ describe('Bridge Trees controller', () => {
 		expect(source.primaryItemIdByTreePath).toEqual({
 			'authoritative/streamed/path.swift': itemId,
 		});
+		expect(source.gitStatusEntries).toEqual([
+			{ path: 'authoritative/streamed/path.swift', status: 'modified' },
+		]);
 		expect(source.orderedPaths).not.toContain(projection.orderedPaths[0]);
 	});
 
@@ -478,9 +481,7 @@ describe('Bridge Trees controller', () => {
 		expect((): void => {
 			controller.revealTreePath('src/stale/file.ts');
 		}).not.toThrow();
-		expect(model.scrollToPathCalls).toEqual([
-			{ path: 'src/stale/file.ts', options: undefined },
-		]);
+		expect(model.scrollToPathCalls).toEqual([{ path: 'src/stale/file.ts', options: undefined }]);
 	});
 
 	test('reveals appended paths without expanding the whole large tree', () => {
@@ -719,9 +720,12 @@ function makeDirectoryHandle(props: {
 			expanded = false;
 		}),
 		deselect: vi.fn(),
-		expand: vi.fn(props.expand ?? ((): void => {
-			expanded = true;
-		})),
+		expand: vi.fn(
+			props.expand ??
+				((): void => {
+					expanded = true;
+				}),
+		),
 		focus: vi.fn(),
 		getPath: vi.fn((): string => ''),
 		isDirectory: (): true => true,

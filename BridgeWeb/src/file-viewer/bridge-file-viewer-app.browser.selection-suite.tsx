@@ -6,6 +6,7 @@ import { render } from 'vitest-browser-react';
 import '../app/bridge-app.css';
 import type { BridgeViewerNavigationCommand } from '../app/bridge-viewer-navigation-models.js';
 import type { WorktreeFileDescriptorRequest } from '../features/worktree-file/models/worktree-file-protocol-models.js';
+import type { BridgeTelemetrySample } from '../foundation/telemetry/bridge-telemetry-event.js';
 import {
 	requireBridgeViewerHTMLElement,
 	waitForBridgeViewerAnimationFrame,
@@ -27,6 +28,7 @@ import {
 	fileCanvasRenderedTextOffset,
 	makeDeferredContent,
 	makeGeneratedFileBody,
+	makeTestTelemetryRecorder,
 	openFileBodyPreview,
 	openFilePath,
 	renderedFilePath,
@@ -41,6 +43,7 @@ import {
 	waitForOpenFileBodyPreview,
 	waitForOpenFileState,
 	waitForSelectedDisplayPath,
+	waitForTelemetrySample,
 	waitForVisibleCodeText,
 } from './bridge-file-viewer-browser-test-harness.js';
 
@@ -449,6 +452,8 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			path: 'src/slow.ts',
 		});
 		const deferredContent = makeDeferredContent();
+		const fetchedResourceUrls: string[] = [];
+		const telemetrySamples: BridgeTelemetrySample[] = [];
 		let openSlowFile: (() => void) | null = null;
 
 		function ControlledFileViewer(): ReactElement {
@@ -461,9 +466,13 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			return (
 				<BridgeFileViewerApp
 					codeViewWorkerPoolEnabled={false}
-					fetchResource={() => deferredContent.promise}
+					fetchResource={(props) => {
+						fetchedResourceUrls.push(props.resourceUrl);
+						return deferredContent.promise;
+					}}
 					initialFrames={makeFrames(targetDescriptor)}
 					{...(navigationCommand === undefined ? {} : { navigationCommand })}
+					telemetryRecorder={makeTestTelemetryRecorder(telemetrySamples)}
 				/>
 			);
 		}
@@ -477,16 +486,57 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		expect(document.querySelector('[data-testid="bridge-file-viewer-code-view"]')).toBe(
 			idleViewport,
 		);
+		expect(fetchedResourceUrls).toEqual([
+			'agentstudio://resource/worktree-file/worktree.fileContent/slow-content?generation=1',
+		]);
+		expect(document.querySelector('[data-testid="bridge-file-viewer-content-state"]')).toBeNull();
+		expect(document.body.textContent ?? '').not.toContain('Loading file');
 
 		deferredContent.resolve(
 			makeWorktreeFileSurfaceRuntimeFetchedResource('export const slow = true;\n'),
 		);
 		await waitForOpenFileState('ready');
 		await waitForVisibleCodeText('export const slow = true;');
+		const contentFetchSample = await waitForTelemetrySample({
+			name: 'performance.bridge.web.content_fetch',
+			samples: telemetrySamples,
+		});
+		const fileOpenReadySample = await waitForTelemetrySample({
+			name: 'performance.bridge.web.file_open_ready',
+			samples: telemetrySamples,
+		});
 
 		expect(document.querySelector('[data-testid="bridge-file-viewer-code-view"]')).toBe(
 			idleViewport,
 		);
+		expect(contentFetchSample.stringAttributes).toMatchObject({
+			'agentstudio.bridge.content.role': 'file',
+			'agentstudio.bridge.demand.lane': 'visible',
+			'agentstudio.bridge.phase': 'fetch',
+			'agentstudio.bridge.protocol': 'worktree-file',
+			'agentstudio.bridge.result': 'success',
+			'agentstudio.bridge.viewer': 'file',
+		});
+		expect(contentFetchSample.numericAttributes['agentstudio.bridge.content.byte_length']).toBe(26);
+		expect(fileOpenReadySample.stringAttributes).toMatchObject({
+			'agentstudio.bridge.content.role': 'file',
+			'agentstudio.bridge.demand.lane': 'foreground',
+			'agentstudio.bridge.phase': 'file_open_ready',
+			'agentstudio.bridge.result': 'success',
+			'agentstudio.bridge.viewer': 'file',
+		});
+		expect([
+			'active-preloaded',
+			'cache-hit',
+			'cold-loaded',
+			'idle-preloaded',
+			'nearby-preloaded',
+			'speculative-preloaded',
+			'visible-preloaded',
+		]).toContain(fileOpenReadySample.stringAttributes['agentstudio.bridge.demand.disposition']);
+		expect(
+			fileOpenReadySample.numericAttributes['agentstudio.bridge.demand.request.sequence'],
+		).toBeGreaterThan(0);
 	});
 
 	test('reserves selected file scroll extent from line-count metadata while content loads', async () => {

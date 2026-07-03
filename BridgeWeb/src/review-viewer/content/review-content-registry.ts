@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { parseBridgeResourceUrl } from '../../bridge/bridge-resource-url.js';
+import { parseBridgeCoreResourceUrl } from '../../core/resources/bridge-resource-url.js';
 import {
 	loadBridgeContentResource,
 	type BridgeContentResource,
@@ -53,6 +53,9 @@ interface RegistryEntry {
 }
 
 const defaultMaxEntries = 96;
+const reviewContentResourceKindsByProtocol = {
+	review: new Set(['content']),
+};
 
 export function createBridgeReviewContentRegistry(
 	props: CreateBridgeReviewContentRegistryProps = {},
@@ -234,12 +237,12 @@ function sharedRequestProps(
 }
 
 export function canonicalContentResourceKey(handle: BridgeContentHandle): string {
-	const parsedResourceUrl = parseBridgeResourceUrl(handle.resourceUrl);
-	if (parsedResourceUrl?.kind !== 'content') {
+	const parsedResourceUrl = parseReviewContentResourceUrl(handle.resourceUrl);
+	if (parsedResourceUrl === null) {
 		throw new Error('Bridge content registry requires a content resource URL');
 	}
 	if (
-		parsedResourceUrl.handleId !== handle.handleId ||
+		parsedResourceUrl.opaqueId !== handle.handleId ||
 		parsedResourceUrl.generation !== handle.reviewGeneration
 	) {
 		throw new Error('Bridge content registry resource URL does not match content handle');
@@ -248,11 +251,22 @@ export function canonicalContentResourceKey(handle: BridgeContentHandle): string
 }
 
 function revisionForHandle(handle: BridgeContentHandle): number | null {
-	const parsedResourceUrl = parseBridgeResourceUrl(handle.resourceUrl);
-	if (parsedResourceUrl?.kind !== 'content') {
+	const parsedResourceUrl = parseReviewContentResourceUrl(handle.resourceUrl);
+	if (parsedResourceUrl === null) {
 		throw new Error('Bridge content registry requires a content resource URL');
 	}
 	return parsedResourceUrl.revision ?? null;
+}
+
+function parseReviewContentResourceUrl(
+	resourceUrl: string,
+): ReturnType<typeof parseBridgeCoreResourceUrl> {
+	const parsedResourceUrl = parseBridgeCoreResourceUrl(resourceUrl, {
+		allowedResourceKindsByProtocol: reviewContentResourceKindsByProtocol,
+	});
+	return parsedResourceUrl?.protocol === 'review' && parsedResourceUrl.resourceKind === 'content'
+		? parsedResourceUrl
+		: null;
 }
 
 function registryIdentitiesRetainContent(

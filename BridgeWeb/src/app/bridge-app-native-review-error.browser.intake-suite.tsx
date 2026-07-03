@@ -340,6 +340,102 @@ describe('BridgeApp native review intake Browser Mode', () => {
 		expect(document.body.textContent).not.toContain('Waiting for review metadata');
 	});
 
+	test('traces review metadata loading surface without blanking shared chrome', async () => {
+		const reviewPackage = makeBridgeReviewPackage();
+		const streamId = 'review:bridge-app-test-pane';
+		const snapshotFrame = buildReviewMetadataSnapshotFrame({
+			package: reviewPackage,
+			paneId: 'bridge-app-test-pane',
+			sequence: 1,
+			sourceIdentity: reviewPackage.query.queryId,
+			streamId,
+			selectedItemId: reviewPackage.orderedItemIds[0] ?? null,
+			visibleItemIds: reviewPackage.orderedItemIds.slice(0, 80),
+		});
+		vi.spyOn(globalThis, 'fetch').mockImplementation(async (resource): Promise<Response> => {
+			const resourceUrl =
+				typeof resource === 'string'
+					? resource
+					: resource instanceof URL
+						? resource.toString()
+						: resource.url;
+			return resourceUrl.startsWith('agentstudio://resource/review/content/')
+				? chunkedTextResponse(['struct ReviewTraceView {}\n'])
+				: new Response('unexpected request', { status: 404 });
+		});
+		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
+		document.documentElement.setAttribute('data-bridge-review-pane-id', 'bridge-app-test-pane');
+		document.documentElement.setAttribute('data-bridge-review-stream-id', streamId);
+
+		render(<BridgeApp viewerMode="review" />);
+		await dispatchHostAdmittedReviewIntakeFrame({
+			kind: 'reset',
+			streamId,
+			generation: reviewPackage.reviewGeneration,
+			sequence: 0,
+			payload: {
+				kind: 'reset',
+				streamId,
+				generation: reviewPackage.reviewGeneration,
+				sequence: 0,
+				frameKind: 'review.reset',
+				reason: 'authorityChanged',
+				sourceIdentity: reviewPackage.query.queryId,
+			},
+		});
+		await expect
+			.poll(
+				() =>
+					document.querySelector('[data-testid="bridge-review-metadata-loading-shell"]') !== null,
+			)
+			.toBe(true);
+
+		const traceRecorder = installReviewSurfaceTraceRecorder();
+		try {
+			await dispatchHostAdmittedReviewIntakeFrame({
+				kind: 'snapshot',
+				streamId,
+				generation: reviewPackage.reviewGeneration,
+				sequence: snapshotFrame.sequence,
+				payload: snapshotFrame,
+			});
+
+			await expect
+				.poll(() => document.querySelector('[data-testid="review-viewer-shell"]') !== null)
+				.toBe(true);
+			traceRecorder.record('ready');
+		} finally {
+			traceRecorder.disconnect();
+		}
+
+		expect(traceRecorder.entries).toContainEqual(
+			expect.objectContaining({
+				hasMetadataLoadingShell: true,
+				hasSharedChrome: true,
+			}),
+		);
+		expect(traceRecorder.entries).toContainEqual(
+			expect.objectContaining({
+				hasReviewShell: true,
+				hasSharedChrome: true,
+			}),
+		);
+		expect(traceRecorder.entries).not.toContainEqual(
+			expect.objectContaining({
+				hasEmptyShell: true,
+			}),
+		);
+		expect(
+			traceRecorder.entries.every(
+				(entry) =>
+					entry.hasSharedChrome &&
+					(entry.hasMetadataLoadingShell ||
+						entry.hasProjectionPendingShell ||
+						entry.hasReviewShell),
+			),
+		).toBe(true);
+	});
+
 	test('starts FileView stream when a Review pane switches to Files mode', async () => {
 		const reviewPackage = makeBridgeReviewPackage();
 		const streamId = 'review:bridge-app-test-pane';
@@ -430,3 +526,63 @@ describe('BridgeApp native review intake Browser Mode', () => {
 		}
 	});
 });
+
+interface ReviewSurfaceTraceEntry {
+	readonly phase: string;
+	readonly hasEmptyShell: boolean;
+	readonly hasMetadataLoadingShell: boolean;
+	readonly hasProjectionPendingShell: boolean;
+	readonly hasReviewShell: boolean;
+	readonly hasSharedChrome: boolean;
+}
+
+function installReviewSurfaceTraceRecorder(): {
+	readonly entries: readonly ReviewSurfaceTraceEntry[];
+	readonly disconnect: () => void;
+	readonly record: (phase: string) => void;
+} {
+	const entries: ReviewSurfaceTraceEntry[] = [];
+	let lastSignature = '';
+	const record = (phase: string): void => {
+		const entry = reviewSurfaceTraceEntry(phase);
+		const signature = JSON.stringify(entry);
+		if (signature === lastSignature) {
+			return;
+		}
+		lastSignature = signature;
+		entries.push(entry);
+	};
+	const observer = new MutationObserver((): void => {
+		record('mutation');
+	});
+	observer.observe(document.body, {
+		attributes: true,
+		childList: true,
+		subtree: true,
+	});
+	record('initial');
+	return {
+		entries,
+		disconnect: (): void => {
+			observer.disconnect();
+		},
+		record,
+	};
+}
+
+function reviewSurfaceTraceEntry(phase: string): ReviewSurfaceTraceEntry {
+	const reviewModeHost = document.querySelector('[data-testid="bridge-viewer-mode-host-review"]');
+	return {
+		phase,
+		hasEmptyShell: document.querySelector('[data-testid="bridge-review-empty-shell"]') !== null,
+		hasMetadataLoadingShell:
+			document.querySelector('[data-testid="bridge-review-metadata-loading-shell"]') !== null,
+		hasProjectionPendingShell:
+			document.querySelector('[data-testid="bridge-review-projection-pending-shell"]') !== null,
+		hasReviewShell: document.querySelector('[data-testid="review-viewer-shell"]') !== null,
+		hasSharedChrome:
+			reviewModeHost?.querySelector('[data-testid="bridge-viewer-content-topbar"]') !== null &&
+			reviewModeHost?.querySelector('[data-testid="bridge-viewer-context-switcher"]') !== null &&
+			reviewModeHost?.querySelector('[data-testid="bridge-review-rail-toolbar"]') !== null,
+	};
+}

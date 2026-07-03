@@ -77,9 +77,14 @@ export function createBridgeTreesSource(props: CreateBridgeTreesSourceProps): Br
 		treeRowsSource === null ? props.projection.orderedPaths : treeRowsSource.orderedPaths;
 	const preparedInput = prepareBridgeTreeInput(sourcePaths);
 	const treePaths = preparedInput.paths;
+	const primaryItemIdByTreePath =
+		treeRowsSource === null
+			? props.projection.primaryItemIdByTreePath
+			: treeRowsSource.primaryItemIdByTreePath;
 	const gitStatusEntries = createGitStatusEntries({
+		primaryItemIdByTreePath,
 		reviewPackage: props.reviewPackage,
-		projection: props.projection,
+		treePaths,
 	});
 
 	return {
@@ -97,10 +102,7 @@ export function createBridgeTreesSource(props: CreateBridgeTreesSourceProps): Br
 					: treePaths.length,
 		}),
 		gitStatusEntries,
-		primaryItemIdByTreePath:
-			treeRowsSource === null
-				? props.projection.primaryItemIdByTreePath
-				: treeRowsSource.primaryItemIdByTreePath,
+		primaryItemIdByTreePath,
 		gitStatusSignature: gitStatusSignature(gitStatusEntries),
 	};
 }
@@ -334,11 +336,15 @@ function expandAncestorDirectories(props: {
 	});
 }
 
-function createGitStatusEntries(props: CreateBridgeTreesSourceProps): readonly GitStatusEntry[] {
+function createGitStatusEntries(props: {
+	readonly primaryItemIdByTreePath: Readonly<Record<string, string>>;
+	readonly reviewPackage: BridgeReviewPackage;
+	readonly treePaths: readonly string[];
+}): readonly GitStatusEntry[] {
 	const entries: GitStatusEntry[] = [];
 
-	for (const path of props.projection.orderedPaths) {
-		const itemId = props.projection.primaryItemIdByTreePath[path];
+	for (const path of props.treePaths) {
+		const itemId = props.primaryItemIdByTreePath[path];
 		if (itemId === undefined) {
 			continue;
 		}
