@@ -2233,3 +2233,26 @@ point-6 telemetry (viewerModeSwitch slice case + validator allowlist)
 against a settled deferral; those uncommitted edits were reverted to
 HEAD by the orchestrator. Point 6 remains coupled to the
 active-viewer-mode signal in task #18. No committed state was affected.
+
+### 2026-07-03 Fable (orchestrator): review healing loop LANDED + live-app proven
+
+Announce contract cutover (c1148b0d native + 138677aa browser): an
+intake-ready announce now means "the browser has no usable review
+state" — cold panes bootstrap (deduped), loaded panes re-deliver as a
+FRESH generation (only a higher-generation reset re-keys a receiver
+that dropped frames while inactive or hit a sequence gap), and the
+browser re-announces on review activation only when no package is
+applied. Live-app proof (marker ed7d-1783062191-63286): gen-1 snapshot
+dropped as stream_mismatch (the old bug class) → re-announce → gen-2
+reset+snapshot APPLIED. File surface same run: exact-count tree, clicks
+→ native descriptor requests, open file rendered, scroll to bottom,
+selection survives 5 switches.
+
+Also: BridgePaneControllerRealGitReviewLoadTests (new) runs the review
+load end-to-end through the production provider factory against a real
+git repo. Smoke contract note: AGENTSTUDIO_STARTUP_WATCH_FOLDER must BE
+the repo — ensureMainWorktree registers the folder itself as the
+worktree; a wrapper folder produces a 1-row tree and a failing review
+baseline (this masqueraded as an app defect for three runs). The
+remaining render_proof block is the smoke racing its own toggles
+(allowed context_switch_fetch_aborted), not app behavior.
