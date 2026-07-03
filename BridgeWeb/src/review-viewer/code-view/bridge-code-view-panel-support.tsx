@@ -27,9 +27,6 @@ import {
 	type BridgeCodeViewItem,
 } from './bridge-code-view-materialization.js';
 
-const codeViewStickyPositionScrollOffsetPixels = 0;
-export const codeViewHeaderAnchorRestoreFrameBudget = 30;
-
 export interface BridgeCodeViewMetadataReconcileProps {
 	readonly getCurrentItem: (itemId: string) => CodeViewItem | undefined;
 	readonly metadataItems: readonly BridgeCodeViewItem[];
@@ -51,14 +48,6 @@ export interface BridgeCodeViewMaterializationDiagnostic {
 	readonly deletionLineCount: number;
 	readonly fileLineCount: number;
 	readonly durationMilliseconds: number;
-}
-
-export interface BridgeCodeViewHeaderAnchor {
-	readonly containerElement: HTMLElement;
-	readonly handle: CodeViewHandle<undefined>;
-	readonly itemId: string;
-	readonly offsetFromScrollOwnerTop: number;
-	readonly scrollOwner: HTMLElement;
 }
 
 interface BridgeCodeViewRenderedItemSnapshot {
@@ -101,183 +90,6 @@ export function collapsedItemIdsWithItemState(props: {
 	return nextIds;
 }
 
-export function captureCodeViewHeaderAnchor(props: {
-	readonly handle: CodeViewHandle<undefined>;
-	readonly itemId: string;
-}): BridgeCodeViewHeaderAnchor | null {
-	const instance = props.handle.getInstance();
-	const containerElement =
-		typeof instance?.getContainerElement === 'function' ? instance.getContainerElement() : null;
-	if (!(containerElement instanceof HTMLElement)) {
-		return null;
-	}
-	const scrollOwner = containerElement.closest('.bridge-code-view-scroll-owner');
-	if (!(scrollOwner instanceof HTMLElement)) {
-		return null;
-	}
-	const anchorElement = findCodeViewHeaderAnchorElement({
-		containerElement: scrollOwner,
-		itemId: props.itemId,
-	});
-	if (anchorElement === null) {
-		return null;
-	}
-	return {
-		containerElement,
-		handle: props.handle,
-		itemId: props.itemId,
-		offsetFromScrollOwnerTop:
-			anchorElement.getBoundingClientRect().top - scrollOwner.getBoundingClientRect().top,
-		scrollOwner,
-	};
-}
-
-export function settleCodeViewScrollAtCurrentPosition(handle: CodeViewHandle<undefined>): void {
-	const instance = handle.getInstance();
-	const containerElement =
-		typeof instance?.getContainerElement === 'function' ? instance.getContainerElement() : null;
-	if (!(containerElement instanceof HTMLElement)) {
-		return;
-	}
-	const scrollOwner = containerElement.closest('.bridge-code-view-scroll-owner');
-	if (!(scrollOwner instanceof HTMLElement)) {
-		return;
-	}
-	const targetScrollTop = scrollOwner.scrollTop;
-	handle.scrollTo({
-		type: 'position',
-		position: targetScrollTop + codeViewStickyPositionScrollOffsetPixels,
-		behavior: 'instant',
-	});
-	instance?.render(true);
-	const firstSettledDelta = targetScrollTop - scrollOwner.scrollTop;
-	if (Math.abs(firstSettledDelta) < 1) {
-		return;
-	}
-	handle.scrollTo({
-		type: 'position',
-		position: targetScrollTop + firstSettledDelta + codeViewStickyPositionScrollOffsetPixels,
-		behavior: 'instant',
-	});
-	instance?.render(true);
-	if (Math.abs(scrollOwner.scrollTop - targetScrollTop) >= 1) {
-		scrollOwner.scrollTop = targetScrollTop;
-	}
-}
-
-function restoreCodeViewHeaderAnchor(anchor: BridgeCodeViewHeaderAnchor | null): void {
-	if (anchor === null || !anchor.scrollOwner.isConnected || !anchor.containerElement.isConnected) {
-		return;
-	}
-	const anchorElement = findCodeViewHeaderAnchorElement({
-		containerElement: anchor.scrollOwner,
-		itemId: anchor.itemId,
-	});
-	if (anchorElement === null) {
-		return;
-	}
-	const currentOffset =
-		anchorElement.getBoundingClientRect().top - anchor.scrollOwner.getBoundingClientRect().top;
-	const offsetDelta = currentOffset - anchor.offsetFromScrollOwnerTop;
-	if (Math.abs(offsetDelta) < 1) {
-		return;
-	}
-	scrollCodeViewByLogicalDelta({
-		anchorElement,
-		delta: offsetDelta,
-		handle: anchor.handle,
-	});
-}
-
-interface ScrollCodeViewHeaderToScrollTopAcrossLayoutProps {
-	readonly frameBudget?: number;
-	readonly handle: CodeViewHandle<undefined>;
-	readonly isCurrent: () => boolean;
-	readonly itemId: string;
-}
-
-type CodeViewHeaderPinResult = 'adjusted' | 'missing' | 'settled';
-
-export function scrollCodeViewHeaderToScrollTopAcrossLayout(
-	props: ScrollCodeViewHeaderToScrollTopAcrossLayoutProps,
-): void {
-	if (!props.isCurrent()) {
-		return;
-	}
-	const pinResult = scrollCodeViewHeaderToScrollTop({
-		handle: props.handle,
-		itemId: props.itemId,
-	});
-	const frameBudget = props.frameBudget ?? codeViewHeaderAnchorRestoreFrameBudget;
-	if (!shouldContinueCodeViewHeaderPinLoop({ frameBudget, pinResult })) {
-		return;
-	}
-	requestAnimationFrame((): void => {
-		scrollCodeViewHeaderToScrollTopAcrossLayout({
-			...props,
-			frameBudget: frameBudget - 1,
-		});
-	});
-}
-
-function scrollCodeViewHeaderToScrollTop(props: {
-	readonly handle: CodeViewHandle<undefined>;
-	readonly itemId: string;
-}): CodeViewHeaderPinResult {
-	const instance = props.handle.getInstance();
-	const containerElement =
-		typeof instance?.getContainerElement === 'function' ? instance.getContainerElement() : null;
-	if (instance === undefined || !(containerElement instanceof HTMLElement)) {
-		return 'missing';
-	}
-	const scrollOwner = containerElement.closest('.bridge-code-view-scroll-owner');
-	if (!(scrollOwner instanceof HTMLElement)) {
-		return 'missing';
-	}
-	const anchorElement = findCodeViewHeaderAnchorElement({
-		containerElement: scrollOwner,
-		itemId: props.itemId,
-	});
-	if (anchorElement === null) {
-		return 'missing';
-	}
-	const offsetFromScrollOwnerTop =
-		anchorElement.getBoundingClientRect().top - scrollOwner.getBoundingClientRect().top;
-	if (Math.abs(offsetFromScrollOwnerTop) < 1) {
-		return 'settled';
-	}
-	scrollCodeViewByLogicalDelta({
-		anchorElement,
-		delta: offsetFromScrollOwnerTop + codeViewStickyPositionScrollOffsetPixels,
-		handle: props.handle,
-	});
-	return 'adjusted';
-}
-
-function scrollCodeViewByLogicalDelta(props: {
-	readonly anchorElement: HTMLElement;
-	readonly delta: number;
-	readonly handle: CodeViewHandle<undefined>;
-}): void {
-	const instance = props.handle.getInstance();
-	if (instance === undefined) {
-		return;
-	}
-	const scrollOwner = props.anchorElement.closest('.bridge-code-view-scroll-owner');
-	if (!(scrollOwner instanceof HTMLElement)) {
-		return;
-	}
-	scrollOwner.scrollTop += props.delta;
-	instance.render(true);
-}
-
-export function shouldContinueCodeViewHeaderPinLoop(props: {
-	readonly frameBudget: number;
-	readonly pinResult: CodeViewHeaderPinResult;
-}): boolean {
-	return props.frameBudget > 0 && props.pinResult === 'adjusted';
-}
-
 export function shouldApplyBridgeCodeViewMaterialization(props: {
 	readonly isScrollActive: boolean;
 	readonly itemId: string;
@@ -286,99 +98,44 @@ export function shouldApplyBridgeCodeViewMaterialization(props: {
 	return !props.isScrollActive || props.itemId === props.selectedItemId;
 }
 
-interface RestoreCodeViewHeaderAnchorAcrossLayoutProps {
-	readonly anchor: BridgeCodeViewHeaderAnchor | null;
-	readonly frameBudget?: number;
-	readonly isCurrent: () => boolean;
-}
-
-export function restoreCodeViewHeaderAnchorAcrossLayout(
-	props: RestoreCodeViewHeaderAnchorAcrossLayoutProps,
-): void {
-	if (!props.isCurrent()) {
-		return;
-	}
-	restoreCodeViewHeaderAnchor(props.anchor);
-	const frameBudget = props.frameBudget ?? codeViewHeaderAnchorRestoreFrameBudget;
-	if (frameBudget <= 0 || props.anchor === null) {
-		return;
-	}
-	requestAnimationFrame((): void => {
-		restoreCodeViewHeaderAnchorAcrossLayout({
-			anchor: props.anchor,
-			frameBudget: frameBudget - 1,
-			isCurrent: props.isCurrent,
-		});
-	});
-}
-
-function findCodeViewHeaderAnchorElement(props: {
-	readonly containerElement: HTMLElement;
+export interface BridgeCodeViewInstantRevealRearmCandidate {
 	readonly itemId: string;
-}): HTMLElement | null {
-	const searchRoots: ParentNode[] = [props.containerElement];
-	if (props.containerElement.shadowRoot !== null) {
-		searchRoots.push(props.containerElement.shadowRoot);
-	}
-	for (const diffsContainer of props.containerElement.querySelectorAll<HTMLElement>(
-		'diffs-container',
-	)) {
-		if (diffsContainer.shadowRoot !== null) {
-			searchRoots.push(diffsContainer.shadowRoot);
-		}
-	}
-	const localAnchor = findCodeViewHeaderAnchorElementInRoots({
-		itemId: props.itemId,
-		searchRoots,
-	});
-	if (localAnchor !== null) {
-		return localAnchor;
-	}
-	const globalSearchRoots: ParentNode[] = [document];
-	for (const diffsContainer of document.querySelectorAll<HTMLElement>('diffs-container')) {
-		if (diffsContainer.shadowRoot !== null) {
-			globalSearchRoots.push(diffsContainer.shadowRoot);
-		}
-	}
-	return findCodeViewHeaderAnchorElementInRoots({
-		itemId: props.itemId,
-		searchRoots: globalSearchRoots,
-	});
+	readonly revealedAtMilliseconds: number;
+	readonly selectionScrollKey: string;
 }
 
-function findCodeViewHeaderAnchorElementInRoots(props: {
-	readonly itemId: string;
-	readonly searchRoots: readonly ParentNode[];
-}): HTMLElement | null {
-	for (const searchRoot of props.searchRoots) {
-		for (const candidate of searchRoot.querySelectorAll<HTMLElement>(
-			'[data-bridge-code-view-item-id]',
-		)) {
-			if (candidate.dataset['bridgeCodeViewItemId'] === props.itemId) {
-				return codeViewHeaderAnchorElementForCandidate(candidate);
-			}
+export function shouldRearmCodeViewInstantRevealForMaterialization(props: {
+	readonly materializedItemIds: readonly string[];
+	readonly nowMilliseconds: number;
+	readonly orderedItemIds: readonly string[];
+	readonly rearmWindowMilliseconds: number;
+	readonly recentReveal: BridgeCodeViewInstantRevealRearmCandidate | null;
+	readonly selectedItemId: string | null;
+	readonly selectionScrollKey: string;
+}): boolean {
+	const recentReveal = props.recentReveal;
+	if (
+		recentReveal === null ||
+		props.selectedItemId === null ||
+		recentReveal.itemId !== props.selectedItemId ||
+		recentReveal.selectionScrollKey !== props.selectionScrollKey
+	) {
+		return false;
+	}
+	if (props.nowMilliseconds - recentReveal.revealedAtMilliseconds > props.rearmWindowMilliseconds) {
+		return false;
+	}
+	const selectedItemIndex = props.orderedItemIds.indexOf(props.selectedItemId);
+	if (selectedItemIndex <= 0) {
+		return false;
+	}
+	for (const materializedItemId of props.materializedItemIds) {
+		const materializedItemIndex = props.orderedItemIds.indexOf(materializedItemId);
+		if (materializedItemIndex >= 0 && materializedItemIndex < selectedItemIndex) {
+			return true;
 		}
 	}
-	return null;
-}
-
-function codeViewHeaderAnchorElementForCandidate(candidate: HTMLElement): HTMLElement {
-	const localHeaderElement = candidate.closest<HTMLElement>('[data-diffs-header]');
-	if (localHeaderElement !== null) {
-		return localHeaderElement;
-	}
-	const rootHostElement = shadowRootHostElement(candidate.getRootNode());
-	if (rootHostElement !== null) {
-		return rootHostElement.closest<HTMLElement>('[data-diffs-header]') ?? rootHostElement;
-	}
-	return candidate;
-}
-
-function shadowRootHostElement(root: Node): HTMLElement | null {
-	if (!('host' in root) || !(root.host instanceof HTMLElement)) {
-		return null;
-	}
-	return root.host;
+	return false;
 }
 
 export function selectedContentStateForPanel(props: {

@@ -31,7 +31,6 @@ interface UseBridgeCodeViewSelectionScrollProps {
 	readonly pendingSmoothSelectionScrollKeyRef: MutableRefObject<string | null>;
 	readonly reviewPackage: BridgeReviewPackage;
 	readonly scrollToItem: (itemId: string, options?: BridgeCodeViewScrollToItemOptions) => boolean;
-	readonly scrollToTopTargetItemIdRef: MutableRefObject<string | null>;
 	readonly selectedItemId: string | null;
 	readonly setSelectionScrollDiagnostic: Dispatch<
 		SetStateAction<BridgeCodeViewSelectionScrollDiagnostic>
@@ -55,7 +54,6 @@ export function useBridgeCodeViewSelectionScroll(
 		pendingSmoothSelectionScrollKeyRef,
 		reviewPackage,
 		scrollToItem,
-		scrollToTopTargetItemIdRef,
 		selectedItemId,
 		setSelectionScrollDiagnostic,
 		sourceKey,
@@ -81,9 +79,6 @@ export function useBridgeCodeViewSelectionScroll(
 			initialSelectedItemByViewerKeyRef.current?.sourceKey === sourceKey &&
 			initialSelectedItemByViewerKeyRef.current.selectedItemId === selectedItemId &&
 			initialItems[0]?.id === selectedItemId;
-		if (!shouldUseInitialPlacement) {
-			scrollToTopTargetItemIdRef.current = null;
-		}
 		pendingPreHydrationSelectionScrollKeyRef.current = shouldUseInitialPlacement
 			? null
 			: selectionScrollKey;
@@ -197,7 +192,6 @@ export function useBridgeCodeViewSelectionScroll(
 		pendingSmoothSelectionScrollKeyRef,
 		reviewPackage,
 		scrollToItem,
-		scrollToTopTargetItemIdRef,
 		selectedItemId,
 		setSelectionScrollDiagnostic,
 		sourceKey,

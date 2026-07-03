@@ -408,11 +408,94 @@ describe('Bridge viewer CodeView virtualizer anchoring', () => {
 			targetItemId: downTargetItemId,
 		});
 	});
+
+	test('keeps an upward tree reveal pinned after above-target content hydrates late', async () => {
+		const fixture = makeBridgeViewerBrowserFixture({ fixtureClass: 'large-diffshub' });
+		const aboveTargetItemId = 'browser-large-diff';
+		const targetItemId = 'browser-hunked-diff';
+		const reviewPackage = reviewPackageWithItemLineCounts({
+			itemIds: [aboveTargetItemId],
+			lineCount: 1,
+			reviewPackage: fixture.reviewPackage,
+		});
+		const targetItem = fixture.reviewPackage.itemsById[targetItemId];
+		if (targetItem === undefined) {
+			throw new Error('Expected large fixture tree reveal target item.');
+		}
+		const rawTargetPath = targetItem.headPath ?? targetItem.basePath;
+		if (typeof rawTargetPath !== 'string') {
+			throw new Error('Expected large fixture tree reveal target path.');
+		}
+		const targetPath = rawTargetPath;
+		const aboveTargetHandleIds = contentHandleIdsForFixtureItem(fixture, aboveTargetItemId);
+		const backend = installBridgeViewerMockedBackend(fixture, {
+			deferContentHandleIds: aboveTargetHandleIds,
+		});
+
+		render(
+			<BridgeApp
+				codeViewWorkerPoolEnabled={false}
+				fetchContent={backend.fetchContent}
+				markdownWorkerClient={null}
+				projectionWorkerClient={backend.projectionWorkerClient}
+			/>,
+		);
+		await backend.pushMetadata(reviewPackage);
+		await waitForBridgeViewerText(fixture.expected.initialText);
+
+		const scrollOwner = await waitForBridgeViewerCodeScrollOwner();
+		await waitForInitialRevealSettled(scrollOwner);
+		scrollOwner.scrollTop = Math.min(scrollOwner.scrollHeight - scrollOwner.clientHeight, 12_000);
+		scrollOwner.dispatchEvent(new Event('scroll', { bubbles: true }));
+		await waitForBridgeViewerScrollIdle(scrollOwner);
+		expect(scrollOwner.scrollTop).toBeGreaterThan(0);
+
+		const revealSamples = await sampleTreeRevealLandingFrames({
+			frameCount: 44,
+			scrollOwner,
+			targetItemId,
+			targetPath,
+		});
+
+		assertTargetHeaderStaysPinnedAfterLanding({
+			context: targetItemId,
+			samples: revealSamples,
+		});
+		const scrollHeightBeforeAboveHydration = scrollOwner.scrollHeight;
+		for (const response of backend.pendingContentResponses) {
+			if (response.handleId !== null && aboveTargetHandleIds.includes(response.handleId)) {
+				response.resolve();
+			}
+		}
+		await waitForBridgeCodeScrollHeightChange({
+			previousScrollHeight: scrollHeightBeforeAboveHydration,
+			scrollOwner,
+		});
+		await waitForBridgeViewerScrollIdle(scrollOwner);
+		const targetOffsetAfterAboveHydration =
+			await browserSupport.waitForBridgeCodeHeaderItemOffsetFromScrollOwner({
+				itemId: targetItemId,
+				maxOffset: revealSettleLandingOffsetPixels,
+				scrollOwner,
+			});
+
+		expect(targetOffsetAfterAboveHydration).toBeGreaterThanOrEqual(
+			-revealSettleLandingOffsetPixels,
+		);
+		expect(targetOffsetAfterAboveHydration).toBeLessThanOrEqual(revealSettleLandingOffsetPixels);
+		expect(firstFullyVisibleBridgeCodeHeader(scrollOwner).itemId).toBe(targetItemId);
+	});
 });
 
 interface FirstFullyVisibleBridgeCodeHeader {
 	readonly itemId: string;
 	readonly offset: number;
+}
+
+interface TreeRevealLandingFrameSample {
+	readonly frameIndex: number;
+	readonly headerOffset: number | null;
+	readonly scrollTop: number;
 }
 
 function firstFullyVisibleBridgeCodeHeader(
@@ -515,6 +598,22 @@ async function waitForBridgeViewerScrollIdle(
 	}
 }
 
+async function waitForBridgeCodeScrollHeightChange(props: {
+	readonly previousScrollHeight: number;
+	readonly scrollOwner: HTMLElement;
+}): Promise<void> {
+	for (let frameIndex = 0; frameIndex < 120; frameIndex += 1) {
+		// oxlint-disable-next-line no-await-in-loop -- Late hydration proof must observe the layout shift frame.
+		await waitForBridgeViewerAnimationFrame();
+		if (props.scrollOwner.scrollHeight !== props.previousScrollHeight) {
+			return;
+		}
+	}
+	throw new Error(
+		`expected late above-target hydration to change CodeView scroll height; previous=${props.previousScrollHeight}; current=${props.scrollOwner.scrollHeight}`,
+	);
+}
+
 interface MeasuredBridgeCodeViewLayoutMetrics {
 	readonly headerHeight: number;
 	readonly lineHeight: number;
@@ -560,6 +659,17 @@ function revealReviewItem(itemId: string): void {
 	);
 }
 
+function revealReviewTreePath(path: string): void {
+	window.dispatchEvent(
+		new CustomEvent('__bridge_review_control', {
+			detail: {
+				method: 'bridge.fileTree.revealPath',
+				path,
+			},
+		}),
+	);
+}
+
 function contentHandleIdsForItem(item: BridgeReviewItemDescriptor): readonly string[] {
 	return Object.values(item.contentRoles)
 		.map((handle): string | null => handle?.handleId ?? null)
@@ -587,6 +697,83 @@ async function revealAndSettleSelection(props: {
 		maxOffset: 12,
 		scrollOwner: props.scrollOwner,
 	});
+}
+
+async function sampleTreeRevealLandingFrames(props: {
+	readonly frameCount: number;
+	readonly scrollOwner: HTMLElement;
+	readonly targetItemId: string;
+	readonly targetPath: string;
+}): Promise<readonly TreeRevealLandingFrameSample[]> {
+	const samples: TreeRevealLandingFrameSample[] = [
+		{
+			frameIndex: 0,
+			headerOffset: bridgeCodeHeaderOffsetForItem({
+				itemId: props.targetItemId,
+				scrollOwner: props.scrollOwner,
+			}),
+			scrollTop: props.scrollOwner.scrollTop,
+		},
+	];
+	revealReviewTreePath(props.targetPath);
+	for (let frameIndex = 1; frameIndex <= props.frameCount; frameIndex += 1) {
+		// oxlint-disable-next-line no-await-in-loop -- Post-landing drift proof must sample sequential browser frames.
+		await waitForBridgeViewerAnimationFrame();
+		samples.push({
+			frameIndex,
+			headerOffset: bridgeCodeHeaderOffsetForItem({
+				itemId: props.targetItemId,
+				scrollOwner: props.scrollOwner,
+			}),
+			scrollTop: props.scrollOwner.scrollTop,
+		});
+	}
+	return samples;
+}
+
+function assertTargetHeaderStaysPinnedAfterLanding(props: {
+	readonly context: string;
+	readonly samples: readonly TreeRevealLandingFrameSample[];
+}): void {
+	const landingFrame = props.samples.find(
+		(sample): boolean =>
+			sample.headerOffset !== null &&
+			Math.abs(sample.headerOffset) <= revealSettleLandingOffsetPixels,
+	);
+	if (landingFrame === undefined) {
+		throw new Error(
+			`expected instant reveal to land ${props.context}; samples=${JSON.stringify(
+				props.samples.map(
+					(sample): Record<string, number | null> => ({
+						frameIndex: sample.frameIndex,
+						headerOffset: sample.headerOffset === null ? null : Math.round(sample.headerOffset),
+						scrollTop: Math.round(sample.scrollTop),
+					}),
+				),
+			)}`,
+		);
+	}
+	const postLandingSamples = props.samples.filter(
+		(sample): boolean => sample.frameIndex > landingFrame.frameIndex,
+	);
+	const unpinnedSample = postLandingSamples.find(
+		(sample): boolean =>
+			sample.headerOffset === null ||
+			Math.abs(sample.headerOffset) > revealSettleLandingOffsetPixels,
+	);
+	if (unpinnedSample !== undefined) {
+		throw new Error(
+			`expected target header to stay pinned for ${props.context}; samples=${JSON.stringify(
+				props.samples.map(
+					(sample): Record<string, number | null> => ({
+						frameIndex: sample.frameIndex,
+						headerOffset: sample.headerOffset === null ? null : Math.round(sample.headerOffset),
+						scrollTop: Math.round(sample.scrollTop),
+					}),
+				),
+			)}`,
+		);
+	}
 }
 
 async function drainDeferredContentUntilSelectedReady(props: {
@@ -738,6 +925,31 @@ function reviewPackageWithClampedLineCounts(props: {
 					item,
 					lineCount: props.lineCount,
 				}),
+			],
+		),
+	);
+	return {
+		...props.reviewPackage,
+		itemsById,
+	};
+}
+
+function reviewPackageWithItemLineCounts(props: {
+	readonly itemIds: readonly string[];
+	readonly lineCount: number;
+	readonly reviewPackage: BridgeReviewPackage;
+}): BridgeReviewPackage {
+	const itemIds = new Set(props.itemIds);
+	const itemsById = Object.fromEntries(
+		Object.entries(props.reviewPackage.itemsById).map(
+			([itemId, item]): readonly [string, BridgeReviewItemDescriptor] => [
+				itemId,
+				itemIds.has(itemId)
+					? reviewItemWithClampedLineCounts({
+							item,
+							lineCount: props.lineCount,
+						})
+					: item,
 			],
 		),
 	);

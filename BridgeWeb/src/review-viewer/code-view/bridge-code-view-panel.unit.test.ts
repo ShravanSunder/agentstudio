@@ -13,8 +13,8 @@ import {
 	reconcileBridgeCodeViewMetadataItems,
 	selectedContentSummaryForPanel,
 	shouldApplyBridgeCodeViewMaterialization,
-	shouldContinueCodeViewHeaderPinLoop,
 } from './bridge-code-view-panel.js';
+import { shouldRearmCodeViewInstantRevealForMaterialization } from './bridge-code-view-panel-support.js';
 
 describe('BridgeCodeViewPanel diagnostics', () => {
 	test('keys the mounted Pierre viewer by review source and projection identity', () => {
@@ -134,33 +134,6 @@ describe('BridgeCodeViewPanel diagnostics', () => {
 		expect(readTextCallCount).toBe(0);
 	});
 
-	test('stops selected header pinning once the header is settled', () => {
-		expect(
-			shouldContinueCodeViewHeaderPinLoop({
-				frameBudget: 30,
-				pinResult: 'settled',
-			}),
-		).toBe(false);
-		expect(
-			shouldContinueCodeViewHeaderPinLoop({
-				frameBudget: 30,
-				pinResult: 'adjusted',
-			}),
-		).toBe(true);
-		expect(
-			shouldContinueCodeViewHeaderPinLoop({
-				frameBudget: 0,
-				pinResult: 'missing',
-			}),
-		).toBe(false);
-		expect(
-			shouldContinueCodeViewHeaderPinLoop({
-				frameBudget: 30,
-				pinResult: 'missing',
-			}),
-		).toBe(false);
-	});
-
 	test('blocks non-selected CodeView materialization while review scroll is active', () => {
 		expect(
 			shouldApplyBridgeCodeViewMaterialization({
@@ -183,5 +156,47 @@ describe('BridgeCodeViewPanel diagnostics', () => {
 				selectedItemId: 'selected-item',
 			}),
 		).toBe(true);
+	});
+
+	test('re-arms a recent instant reveal when an above-target item materializes', () => {
+		const recentReveal = {
+			itemId: 'selected-target',
+			revealedAtMilliseconds: 1_000,
+			selectionScrollKey: 'source:1:selected-target',
+		};
+
+		expect(
+			shouldRearmCodeViewInstantRevealForMaterialization({
+				materializedItemIds: ['above-target'],
+				nowMilliseconds: 1_300,
+				orderedItemIds: ['above-target', 'selected-target', 'below-target'],
+				rearmWindowMilliseconds: 2_000,
+				recentReveal,
+				selectedItemId: 'selected-target',
+				selectionScrollKey: 'source:1:selected-target',
+			}),
+		).toBe(true);
+		expect(
+			shouldRearmCodeViewInstantRevealForMaterialization({
+				materializedItemIds: ['below-target'],
+				nowMilliseconds: 1_300,
+				orderedItemIds: ['above-target', 'selected-target', 'below-target'],
+				rearmWindowMilliseconds: 2_000,
+				recentReveal,
+				selectedItemId: 'selected-target',
+				selectionScrollKey: 'source:1:selected-target',
+			}),
+		).toBe(false);
+		expect(
+			shouldRearmCodeViewInstantRevealForMaterialization({
+				materializedItemIds: ['above-target'],
+				nowMilliseconds: 3_500,
+				orderedItemIds: ['above-target', 'selected-target', 'below-target'],
+				rearmWindowMilliseconds: 2_000,
+				recentReveal,
+				selectedItemId: 'selected-target',
+				selectionScrollKey: 'source:1:selected-target',
+			}),
+		).toBe(false);
 	});
 });
