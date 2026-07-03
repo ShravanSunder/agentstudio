@@ -12,7 +12,7 @@ describe('Bridge file viewer mode re-open on switch', () => {
 		document.documentElement.removeAttribute('data-bridge-app-protocol');
 	});
 
-	test('re-issues the worktree-file surface open when the file mode is re-activated', async () => {
+	test('reuses a live healthy stream — no re-open spam on healthy re-activations', async () => {
 		let loadCount = 0;
 		const loadInitialSurface = async (): Promise<WorktreeFileInitialSurface> => {
 			loadCount += 1;
@@ -20,33 +20,30 @@ describe('Bridge file viewer mode re-open on switch', () => {
 		};
 		installHandshake('push-reopen-1');
 
-		// Start in review mode: the file shell is inactive but the frame
-		// controller still opens its surface once at mount.
+		// Start in review mode: the frame controller opens the surface once at
+		// mount and it resolves (a healthy, live stream).
 		render(<BridgeAppProtocolRouter fileViewerProps={{ loadInitialSurface }} protocol="review" />);
 		await expect.poll(() => loadCount).toBe(1);
 
-		// Switch to file: an in-place toggle (no WebView remount). Before the
-		// re-open signal existed the surface never re-opened, so this stayed at 1.
+		// Toggle file↔review repeatedly. A healthy stream is reused, so no
+		// re-open fires — the idempotence guard prevents re-open spam.
 		clickContext('file');
-		await expect.poll(() => loadCount).toBe(2);
 		await expect.poll(activeViewerMode).toBe('file');
-
-		// Toggle away and back: each re-activation re-runs the open announce so a
-		// wedged or stale-identity stream can always recover.
 		clickContext('review');
 		await expect.poll(activeViewerMode).toBe('review');
 		clickContext('file');
-		await expect.poll(() => loadCount).toBe(3);
+		await expect.poll(activeViewerMode).toBe('file');
+		expect(loadCount).toBe(1);
 	});
 
-	test('recovers with a fresh open after a prior surface open wedged (never completed)', async () => {
+	test('recovers a wedged (never-resolved) surface by re-opening on re-activation', async () => {
 		let loadCount = 0;
 		const loadInitialSurface = async (): Promise<WorktreeFileInitialSurface> => {
 			loadCount += 1;
-			// Wedge the FIRST file-activation open so its stream never completes —
-			// mirrors a native open that raced/hung. Recovery must not depend on
-			// the wedged surface ever resolving.
-			if (loadCount === 2) {
+			// Wedge the mount-time open so the surface never resolves — mirrors a
+			// native open that raced/hung. Its liveness signal never fires, so the
+			// switch must re-open to recover.
+			if (loadCount === 1) {
 				return await new Promise<WorktreeFileInitialSurface>(() => {});
 			}
 			return { frames: [] };
@@ -56,17 +53,11 @@ describe('Bridge file viewer mode re-open on switch', () => {
 		render(<BridgeAppProtocolRouter fileViewerProps={{ loadInitialSurface }} protocol="review" />);
 		await expect.poll(() => loadCount).toBe(1);
 
-		// Switch to file: its open hangs forever (wedged surface).
+		// Switch to file: the wedged surface never resolved, so the re-open fires
+		// and recovers with a fresh open (which resolves).
 		clickContext('file');
 		await expect.poll(() => loadCount).toBe(2);
 		await expect.poll(activeViewerMode).toBe('file');
-
-		// Toggle away and back: the re-open announce must fire a fresh open even
-		// though the prior open never completed, so the file view can recover.
-		clickContext('review');
-		await expect.poll(activeViewerMode).toBe('review');
-		clickContext('file');
-		await expect.poll(() => loadCount).toBe(3);
 	});
 });
 

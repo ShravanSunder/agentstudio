@@ -16,6 +16,10 @@ interface UseBridgeFileViewerFrameControllerProps {
 	/// without this the surface would never re-issue `openSourceStream` and a
 	/// wedged (or stale-identity) stream could never recover.
 	readonly reopenSignal?: number;
+	/// Fired once a surface open resolves. The re-activation owner uses this as
+	/// the liveness signal so a live healthy stream is NOT re-opened on every
+	/// switch — only a never-resolved (wedged/hung) surface re-opens to recover.
+	readonly onSurfaceOpenResolved?: () => void;
 }
 
 interface BridgeFileViewerBufferedSurface {
@@ -33,7 +37,8 @@ const emptyBufferedSurface: BridgeFileViewerBufferedSurface = {
 export function useBridgeFileViewerFrameControllerProps(
 	props: UseBridgeFileViewerFrameControllerProps,
 ): BridgeFileViewerAppProps | undefined {
-	const { enabled, fileViewerProps, reopenSignal, waitForBridgeReady } = props;
+	const { enabled, fileViewerProps, onSurfaceOpenResolved, reopenSignal, waitForBridgeReady } =
+		props;
 	const fileViewerPropsRef = useRef<BridgeFileViewerAppProps | undefined>(fileViewerProps);
 	const listenersRef = useRef<Set<WorktreeFileFrameSubscriber>>(new Set());
 	const bufferedSurfaceRef = useRef<BridgeFileViewerBufferedSurface>(emptyBufferedSurface);
@@ -119,6 +124,7 @@ export function useBridgeFileViewerFrameControllerProps(
 					};
 					resolveLoadPromise(mergedSurface);
 					setLoadedVersion((version) => version + 1);
+					onSurfaceOpenResolved?.();
 				})
 				.catch((error: unknown): void => {
 					if (isCancelled) {
@@ -141,6 +147,7 @@ export function useBridgeFileViewerFrameControllerProps(
 		initialFrames,
 		loadInitialFrames,
 		loadInitialSurface,
+		onSurfaceOpenResolved,
 		// A bumped reopenSignal re-runs this effect, which resets the buffer and
 		// re-issues the surface open — the mode-switch re-announce path.
 		reopenSignal,

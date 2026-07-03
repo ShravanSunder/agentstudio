@@ -35,24 +35,34 @@ export function BridgeFileViewerMode(props: BridgeFileViewerModeProps): ReactEle
 	const reviewNavigationSource = props.reviewNavigationSource;
 	const [hasActivatedFileViewerShell, setHasActivatedFileViewerShell] = useState(props.isActive);
 	// The WebView never remounts on a mode switch, so re-running the file
-	// surface open announce requires an explicit signal. Bump it each time the
-	// file shell transitions back to active so the switched-in surface re-opens
-	// exactly like a fresh mount (fixes wedged/stale-identity file streams).
+	// surface open announce requires an explicit signal. Bump it when the file
+	// shell transitions back to active AND the surface has not yet resolved a
+	// healthy open — a live healthy stream is reused (no re-open spam), while a
+	// wedged/hung surface re-opens exactly like a fresh mount to recover.
 	const [fileSurfaceReopenSignal, setFileSurfaceReopenSignal] = useState(0);
 	const wasFileViewerActiveRef = useRef(props.isActive);
+	const fileSurfaceOpenResolvedRef = useRef(false);
+	const handleFileSurfaceOpenResolved = useCallback((): void => {
+		fileSurfaceOpenResolvedRef.current = true;
+	}, []);
 	const hasFileViewerFrameSource = props.fileViewerProps !== undefined;
 	const hasActivatedFileViewerController =
 		props.isActive || hasActivatedFileViewerShell || hasFileViewerFrameSource;
 	const controlledFileViewerProps = useBridgeFileViewerFrameControllerProps({
 		enabled: hasActivatedFileViewerController,
 		fileViewerProps: props.fileViewerProps,
+		onSurfaceOpenResolved: handleFileSurfaceOpenResolved,
 		reopenSignal: fileSurfaceReopenSignal,
 		waitForBridgeReady: props.registerBridgeReadyCallback,
 	});
 	useEffect((): void => {
 		if (props.isActive) {
 			setHasActivatedFileViewerShell(true);
-			if (!wasFileViewerActiveRef.current) {
+			if (!wasFileViewerActiveRef.current && !fileSurfaceOpenResolvedRef.current) {
+				// The prior open never resolved (wedged/hung): re-issue it. If the
+				// re-open also fails to resolve, the ref stays false and the next
+				// activation retries — recovery. A resolved (healthy) stream is
+				// reused instead, so healthy toggles never re-open.
 				setFileSurfaceReopenSignal((signal) => signal + 1);
 			}
 		}
