@@ -839,14 +839,20 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 							result: updateResult,
 							selected: true,
 						});
-						scheduleSelectedContentPaintedTelemetry({
-							telemetryRecorder: props.telemetryRecorder,
-							traceContext: props.telemetryParentTraceContext ?? null,
-							selectionDemandStartedAtMilliseconds:
-								props.selectedContentDemandStartedAtMilliseconds ?? null,
-							materializeMilliseconds,
-							materializationCompletedAtMilliseconds,
-						});
+						// Painted is an honest DOM-change signal: only anchor it when Pierre actually
+						// added or updated the item record. An 'unchanged' apply (version-equal, e.g. a
+						// re-render that withheld or duplicated content) is a legitimate outcome recorded
+						// distinctly by the materialize event above, but it did NOT paint new content.
+						if (updateResult === 'added' || updateResult === 'updated') {
+							scheduleSelectedContentPaintedTelemetry({
+								telemetryRecorder: props.telemetryRecorder,
+								traceContext: props.telemetryParentTraceContext ?? null,
+								selectionDemandStartedAtMilliseconds:
+									props.selectedContentDemandStartedAtMilliseconds ?? null,
+								materializeMilliseconds,
+								materializationCompletedAtMilliseconds,
+							});
+						}
 						recordBridgeCodeViewHydrationTelemetry({
 							telemetryRecorder: props.telemetryRecorder,
 							parentTraceContext: props.telemetryParentTraceContext ?? null,
