@@ -45,5 +45,6 @@ enum ArchitectureRuleRegistry {
         GenericClockSleepRule(),
         TestTaskSleepRule(),
         TooltipSourceRule(),
+        EventBusSubscriberPolicyRule(),
     ]
 }

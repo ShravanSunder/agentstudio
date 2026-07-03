@@ -341,7 +341,7 @@ private struct FilesystemCoordinatorHarness {
     let tempDir: URL
 
     func makeSubscriber() async -> RecordingSubscriber<RuntimeEnvelope> {
-        let stream = await bus.subscribe()
+        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         return RecordingSubscriber(stream: stream)
     }
 

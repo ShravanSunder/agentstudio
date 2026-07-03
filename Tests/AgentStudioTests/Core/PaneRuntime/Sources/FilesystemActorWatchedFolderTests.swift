@@ -35,7 +35,7 @@ struct FilesystemActorWatchedFolderTests {
             args: ["worktree", "add", "-b", "feature/real-scan", linkedWorktreePath.path]
         )
 
-        let stream = await bus.subscribe()
+        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         let summary = await actor.refreshWatchedFolders([watchedFolder])
         let events = await drainTopologyEvents(from: stream, settleTurns: 150)
 
@@ -77,7 +77,7 @@ struct FilesystemActorWatchedFolderTests {
         try FilesystemTestGitRepo.runGit(at: repoPath, args: ["config", "commit.gpgsign", "false"])
         try FileManager.default.createSymbolicLink(atPath: linkedRoot.path, withDestinationPath: realRoot.path)
 
-        let stream = await bus.subscribe()
+        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         let summary = await actor.refreshWatchedFolders([linkedRoot])
         let events = await drainTopologyEvents(from: stream, settleTurns: 150)
 
@@ -121,7 +121,7 @@ struct FilesystemActorWatchedFolderTests {
                 ),
             ]
         ])
-        let initialStream = await bus.subscribe()
+        let initialStream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         let initialSummary = await actor.refreshWatchedFolders([watchedFolder])
         let initialEvents = await drainTopologyEvents(from: initialStream, settleTurns: 50)
 
@@ -141,7 +141,7 @@ struct FilesystemActorWatchedFolderTests {
             ])
         #expect(initialEvents.removed.isEmpty)
 
-        let repeatStream = await bus.subscribe()
+        let repeatStream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         let repeatSummary = await actor.refreshWatchedFolders([watchedFolder])
         let repeatEvents = await drainTopologyEvents(from: repeatStream, settleTurns: 50)
 
@@ -167,7 +167,7 @@ struct FilesystemActorWatchedFolderTests {
                 ),
             ]
         ])
-        let newCloneStream = await bus.subscribe()
+        let newCloneStream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         let newCloneSummary = await actor.refreshWatchedFolders([watchedFolder])
         let newCloneEvents = await drainTopologyEvents(from: newCloneStream, settleTurns: 50)
 
@@ -219,7 +219,7 @@ struct FilesystemActorWatchedFolderTests {
                 )
             ]
         ])
-        let reemitStream = await bus.subscribe()
+        let reemitStream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         let reemitSummary = await actor.refreshWatchedFolders([watchedFolder])
         let reemitEvents = await drainTopologyEvents(from: reemitStream, settleTurns: 50)
 
@@ -260,7 +260,7 @@ struct FilesystemActorWatchedFolderTests {
         _ = await actor.refreshWatchedFolders([watchedFolder])
 
         let syntheticId = try #require(fsClient.registeredWorktreeIds.first)
-        let stream = await bus.subscribe()
+        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
 
         scanner.setGroupedResults([watchedFolder: []])
         fsClient.send(
@@ -299,7 +299,7 @@ struct FilesystemActorWatchedFolderTests {
         _ = await actor.refreshWatchedFolders([watchedFolder])
 
         let syntheticId = try #require(fsClient.registeredWorktreeIds.first)
-        let stream = await bus.subscribe()
+        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
 
         scanner.setGroupedResults([
             watchedFolder: [
@@ -350,7 +350,7 @@ struct FilesystemActorWatchedFolderTests {
         _ = await actor.refreshWatchedFolders([watchedFolder])
 
         await clock.waitForPendingSleepCount(atLeast: 1)
-        let stream = await bus.subscribe()
+        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
 
         scanner.setGroupedResults([watchedFolder: []])
         clock.advance(by: .seconds(300))
@@ -389,7 +389,7 @@ struct FilesystemActorWatchedFolderTests {
             sharedParentFolder: [],
             nestedWatchedFolder: [sharedRepo],
         ])
-        let stillPresentStream = await bus.subscribe()
+        let stillPresentStream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         _ = await actor.refreshWatchedFolders([sharedParentFolder, nestedWatchedFolder])
         let stillPresentEvents = await drainTopologyEvents(from: stillPresentStream, settleTurns: 50)
 
@@ -400,7 +400,7 @@ struct FilesystemActorWatchedFolderTests {
             sharedParentFolder: [],
             nestedWatchedFolder: [],
         ])
-        let removedEverywhereStream = await bus.subscribe()
+        let removedEverywhereStream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         _ = await actor.refreshWatchedFolders([sharedParentFolder, nestedWatchedFolder])
         let removedEverywhereEvents = await drainTopologyEvents(
             from: removedEverywhereStream,
@@ -432,7 +432,7 @@ struct FilesystemActorWatchedFolderTests {
         let syntheticId = fsClient.registeredWorktreeIds.first!
 
         // Subscribe after initial rescan to get a clean baseline
-        let stream = await bus.subscribe()
+        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
 
         // Send a batch with only .gitignore and .github paths — should NOT trigger rescan
         fsClient.send(
@@ -491,7 +491,7 @@ struct FilesystemActorWatchedFolderTests {
         let syntheticId = fsClient.registeredWorktreeIds.last!
 
         // Subscribe after setup
-        let stream = await bus.subscribe()
+        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
 
         // Send a batch to the watched folder synthetic ID with a .git/ path
         fsClient.send(
@@ -564,10 +564,10 @@ struct FilesystemActorWatchedFolderTests {
         }
     }
 
-    private func drainTopologyEvents(
-        from stream: AsyncStream<RuntimeEnvelope>,
+    private func drainTopologyEvents<Events: AsyncSequence & Sendable>(
+        from stream: Events,
         settleTurns: Int
-    ) async -> TopologyEventSet {
+    ) async -> TopologyEventSet where Events.Element == RuntimeEnvelope {
         var events = TopologyEventSet()
         let envelopes = await drainAllEnvelopes(from: stream, settleTurns: settleTurns)
         for envelope in envelopes {
@@ -599,14 +599,18 @@ struct FilesystemActorWatchedFolderTests {
         return events
     }
 
-    private func drainAllEnvelopes(
-        from stream: AsyncStream<RuntimeEnvelope>,
+    private func drainAllEnvelopes<Events: AsyncSequence & Sendable>(
+        from stream: Events,
         settleTurns: Int
-    ) async -> [RuntimeEnvelope] {
+    ) async -> [RuntimeEnvelope] where Events.Element == RuntimeEnvelope {
         let collectTask = Task {
             var results: [RuntimeEnvelope] = []
-            for await envelope in stream {
-                results.append(envelope)
+            do {
+                for try await envelope in stream {
+                    results.append(envelope)
+                }
+            } catch {
+                Issue.record("Unexpected throwing event stream: \(error)")
             }
             return results
         }

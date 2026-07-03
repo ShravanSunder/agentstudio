@@ -10,7 +10,7 @@ struct FilesystemActorTests {
         let bus = EventBus<RuntimeEnvelope>()
         let actor = makeActor(bus: bus)
 
-        let stream = await bus.subscribe()
+        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         var iterator = stream.makeAsyncIterator()
 
         let worktreeId = UUID()
@@ -45,7 +45,7 @@ struct FilesystemActorTests {
         let bus = EventBus<RuntimeEnvelope>()
         let actor = makeActor(bus: bus)
 
-        let stream = await bus.subscribe()
+        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         var iterator = stream.makeAsyncIterator()
 
         let worktreeId = UUID()
@@ -85,7 +85,7 @@ struct FilesystemActorTests {
         await actor.register(worktreeId: parentId, repoId: parentId, rootPath: URL(fileURLWithPath: "/tmp/repo"))
         await actor.register(worktreeId: childId, repoId: childId, rootPath: URL(fileURLWithPath: "/tmp/repo/nested"))
 
-        let stream = await bus.subscribe()
+        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         var iterator = stream.makeAsyncIterator()
 
         await actor.enqueueRawPaths(
@@ -111,7 +111,7 @@ struct FilesystemActorTests {
         await actor.register(worktreeId: parentId, repoId: parentId, rootPath: URL(fileURLWithPath: "/tmp/repo"))
         await actor.register(worktreeId: childId, repoId: childId, rootPath: URL(fileURLWithPath: "/tmp/repo/nested"))
 
-        let stream = await bus.subscribe()
+        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         var iterator = stream.makeAsyncIterator()
 
         await actor.enqueueRawPaths(
@@ -148,7 +148,7 @@ struct FilesystemActorTests {
         await actor.setActivity(worktreeId: sidebarOnlyWorktreeId, isActiveInApp: false)
         await actor.setActivePaneWorktree(worktreeId: activeWorktreeId)
 
-        let stream = await bus.subscribe()
+        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         var iterator = stream.makeAsyncIterator()
 
         await actor.enqueueRawPaths(worktreeId: sidebarOnlyWorktreeId, paths: ["README.md"])
@@ -186,7 +186,7 @@ struct FilesystemActorTests {
         await actor.setActivity(worktreeId: focusedWorktreeId, isActiveInApp: true)
         await actor.setActivePaneWorktree(worktreeId: focusedWorktreeId)
 
-        let stream = await bus.subscribe()
+        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         var iterator = stream.makeAsyncIterator()
 
         // Route all tiers in one ingress call so queue order depends only on priority keys.
@@ -219,7 +219,7 @@ struct FilesystemActorTests {
         await actor.register(
             worktreeId: worktreeId, repoId: worktreeId, rootPath: URL(fileURLWithPath: "/tmp/contract"))
 
-        let stream = await bus.subscribe()
+        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         var iterator = stream.makeAsyncIterator()
 
         await actor.enqueueRawPaths(worktreeId: worktreeId, paths: ["Sources/App.swift"])
@@ -249,7 +249,7 @@ struct FilesystemActorTests {
         await actor.register(
             worktreeId: worktreeId, repoId: worktreeId, rootPath: URL(fileURLWithPath: "/tmp/large-batch"))
 
-        let stream = await bus.subscribe()
+        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         var iterator = stream.makeAsyncIterator()
 
         let batchLimit = FilesystemActor.maxPathsPerFilesChangedEvent
@@ -290,7 +290,7 @@ struct FilesystemActorTests {
         let rootPath = URL(fileURLWithPath: "/tmp/git-internal-\(UUID().uuidString)")
         await actor.register(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
 
-        let stream = await bus.subscribe()
+        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         var iterator = stream.makeAsyncIterator()
 
         await actor.enqueueRawPaths(
@@ -333,7 +333,7 @@ struct FilesystemActorTests {
         let worktreeId = UUID()
         await actor.register(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
 
-        let stream = await bus.subscribe()
+        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         var iterator = stream.makeAsyncIterator()
 
         await actor.enqueueRawPaths(
@@ -369,7 +369,7 @@ struct FilesystemActorTests {
         let worktreeId = UUID()
         await actor.register(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
 
-        let stream = await bus.subscribe()
+        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         var iterator = stream.makeAsyncIterator()
 
         await actor.enqueueRawPaths(
@@ -406,7 +406,7 @@ struct FilesystemActorTests {
         await actor.register(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
 
         let observed = ObservedFilesystemChanges()
-        let stream = await bus.subscribe()
+        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         let collectionTask = Task {
             for await envelope in stream {
                 await observed.record(envelope)
@@ -443,7 +443,7 @@ struct FilesystemActorTests {
         await actor.register(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
 
         let observed = ObservedFilesystemChanges()
-        let stream = await bus.subscribe()
+        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         let collectionTask = Task {
             for await envelope in stream {
                 await observed.record(envelope)
@@ -498,7 +498,7 @@ struct FilesystemActorTests {
         let worktreeId = UUID()
         await actor.register(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
 
-        let stream = await bus.subscribe()
+        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         var iterator = stream.makeAsyncIterator()
 
         try "# no ignore rules\n".write(
@@ -538,7 +538,7 @@ struct FilesystemActorTests {
         await actor.register(worktreeId: worktreeId, repoId: worktreeId, rootPath: rootPath)
 
         let observed = ObservedFilesystemChanges()
-        let stream = await bus.subscribe()
+        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         let collectionTask = Task {
             for await envelope in stream {
                 await observed.record(envelope)
@@ -588,7 +588,7 @@ struct FilesystemActorTests {
         )
 
         let observed = ObservedFilesystemChanges()
-        let stream = await bus.subscribe()
+        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         let collectionTask = Task {
             for await envelope in stream {
                 await observed.record(envelope)
@@ -633,7 +633,7 @@ struct FilesystemActorTests {
         )
 
         let observed = ObservedFilesystemChanges()
-        let stream = await bus.subscribe()
+        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         let collectionTask = Task {
             for await envelope in stream {
                 await observed.record(envelope)
@@ -678,7 +678,7 @@ struct FilesystemActorTests {
         )
 
         let observed = ObservedFilesystemChanges()
-        let stream = await bus.subscribe()
+        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         let collectionTask = Task {
             for await envelope in stream {
                 await observed.record(envelope)
@@ -714,7 +714,7 @@ struct FilesystemActorTests {
         )
 
         let observed = ObservedFilesystemChanges()
-        let stream = await bus.subscribe()
+        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         let collectionTask = Task {
             for await envelope in stream {
                 await observed.record(envelope)

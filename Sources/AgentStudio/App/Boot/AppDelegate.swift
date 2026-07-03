@@ -783,7 +783,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         let sidebarExpandTask = Task { @MainActor [weak self] in
             guard let self else { return }
             let normalizedRoot = rootURL.standardizedFileURL.path
-            await PaneRuntimeEventBus.shared.waitForFirst { envelope -> Void? in
+            await PaneRuntimeEventBus.shared.waitForFirst(
+                policy: .lossyNewest(BusSubscriberPolicy.standardLossyBufferLimit),
+                subscriberName: "AppDelegate.folderScanSidebarExpansion"
+            ) { envelope -> Void? in
                 guard case .system(let sys) = envelope,
                     case .topology(let topologyEvent) = sys.event
                 else {

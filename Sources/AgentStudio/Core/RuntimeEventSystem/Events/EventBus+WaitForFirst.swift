@@ -12,10 +12,12 @@ extension EventBus {
     ///   on match, or nil to continue waiting.
     /// - Returns: The extracted result, or nil if the stream ended without matching.
     func waitForFirst<Result: Sendable>(
+        policy: BusSubscriberPolicy,
+        subscriberName: String,
         _ extract: @Sendable @escaping (Envelope) -> Result?
     ) async -> Result? {
-        let stream = subscribe()
-        for await envelope in stream {
+        let subscription = subscribe(policy: policy, subscriberName: subscriberName)
+        for await envelope in subscription {
             if let result = extract(envelope) {
                 return result
             }
@@ -37,6 +39,8 @@ extension EventBus {
     ///     on match, or nil to continue waiting.
     /// - Returns: The extracted result, or nil if the timeout expired or stream ended.
     func waitForFirst<Result: Sendable>(
+        policy: BusSubscriberPolicy,
+        subscriberName: String,
         timeout: Duration,
         clock: (any Clock<Duration> & Sendable)? = nil,
         _ extract: @Sendable @escaping (Envelope) -> Result?
@@ -44,8 +48,8 @@ extension EventBus {
         let delay = clock.map(AsyncDelay.clock) ?? .taskSleep
         return await withTaskGroup(of: Result?.self) { group in
             group.addTask {
-                let stream = await self.subscribe()
-                for await envelope in stream {
+                let subscription = await self.subscribe(policy: policy, subscriberName: subscriberName)
+                for await envelope in subscription {
                     if let result = extract(envelope) {
                         return result
                     }

@@ -669,7 +669,10 @@ final class TerminalPaneMountView: NSView, PaneMountedContent, SurfaceHealthDele
             let terminationObservation = TerminationDeliveryObservation()
             let paneId = self.paneId
             let acknowledgementTask = Task {
-                let stream = await AppEventBus.shared.subscribe()
+                let stream = await AppEventBus.shared.subscribe(
+                    policy: .criticalUnbounded,
+                    subscriberName: "TerminalPaneMountView.terminationAcknowledgement"
+                )
                 for await event in stream {
                     switch event {
                     case .terminalProcessTerminationHandled(let handledPaneId) where handledPaneId == paneId:

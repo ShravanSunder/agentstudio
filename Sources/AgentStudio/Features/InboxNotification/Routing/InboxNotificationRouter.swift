@@ -183,7 +183,10 @@ final class InboxNotificationRouter {
         }
         observeObservedActivityNotifications()
 
-        let stream = await bus.subscribe()
+        let stream = await bus.subscribe(
+            policy: .criticalUnbounded,
+            subscriberName: "InboxNotificationRouter"
+        )
         busTask = Task { @MainActor [weak self] in
             for await envelope in stream {
                 guard !Task.isCancelled else { return }
