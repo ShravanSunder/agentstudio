@@ -603,6 +603,12 @@ final class BridgePaneController {
         }
         await recordReviewIntakeReadyTelemetry(phase: "accepted")
         await worktreeFileMetadataScheduler.openGate(protocolId: "review")
+        // The review viewer announces intake-ready when its surface mounts or a
+        // mode switch makes it active; bootstrap the review package from that
+        // announce so a switched-in review surface is never left blank. The
+        // load is idempotent (idle + no package), so a re-announce for an
+        // already-loaded pane just reopens the gate above.
+        _ = await loadInitialReviewPackageIfPossible(correlationId: nil)
     }
 
     private func handleWorktreeFileIntakeReady(_ params: BridgeIntakeReadyMethod.Params) async {
