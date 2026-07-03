@@ -156,7 +156,6 @@ describe('Bridge app native Worktree/File backend', () => {
 		if (backend === null) {
 			throw new Error('expected native worktree backend');
 		}
-
 		document.dispatchEvent(
 			new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-1' } }),
 		);
@@ -244,7 +243,6 @@ describe('Bridge app native Worktree/File backend', () => {
 		if (backend === null) {
 			throw new Error('expected native worktree backend');
 		}
-
 		document.dispatchEvent(
 			new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-1' } }),
 		);
@@ -484,6 +482,12 @@ describe('Bridge app native Worktree/File backend', () => {
 		if (backend === null) {
 			throw new Error('expected native worktree backend');
 		}
+		let resetRequiredNotificationCount = 0;
+		const unregisterResetRequiredCallback = backend.registerWorktreeFileStreamResetRequiredCallback(
+			(): void => {
+				resetRequiredNotificationCount += 1;
+			},
+		);
 
 		document.dispatchEvent(
 			new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-1' } }),
@@ -526,6 +530,8 @@ describe('Bridge app native Worktree/File backend', () => {
 				receiverReason: 'sequence_gap',
 				sequence: 3,
 			});
+		await expect.poll(() => resetRequiredNotificationCount).toBe(1);
+		unregisterResetRequiredCallback();
 		backend.dispose();
 	});
 

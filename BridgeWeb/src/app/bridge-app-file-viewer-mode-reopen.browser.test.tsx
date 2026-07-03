@@ -59,6 +59,44 @@ describe('Bridge file viewer mode re-open on switch', () => {
 		await expect.poll(() => loadCount).toBe(2);
 		await expect.poll(activeViewerMode).toBe('file');
 	});
+
+	test('recovers a resolved file surface after a stream sequence gap by re-opening immediately', async () => {
+		let loadCount = 0;
+		let onSurfaceStreamResetRequired: (() => void) | undefined;
+		const loadInitialSurface = async (): Promise<WorktreeFileInitialSurface> => {
+			loadCount += 1;
+			return { frames: [] };
+		};
+		installHandshake('push-reopen-gap');
+
+		render(
+			<BridgeAppProtocolRouter
+				fileViewerProps={{
+					loadInitialSurface,
+					registerSurfaceStreamResetRequiredCallback: (callback): (() => void) => {
+						onSurfaceStreamResetRequired = callback;
+						return (): void => {
+							if (onSurfaceStreamResetRequired === callback) {
+								onSurfaceStreamResetRequired = undefined;
+							}
+						};
+					},
+				}}
+				protocol="review"
+			/>,
+		);
+		await expect.poll(() => loadCount).toBe(1);
+		clickContext('file');
+		await expect.poll(activeViewerMode).toBe('file');
+		clickContext('review');
+		await expect.poll(activeViewerMode).toBe('review');
+
+		onSurfaceStreamResetRequired?.();
+		await expect.poll(() => loadCount).toBe(2);
+
+		clickContext('file');
+		await expect.poll(activeViewerMode).toBe('file');
+	});
 });
 
 function installHandshake(pushNonce: string): void {

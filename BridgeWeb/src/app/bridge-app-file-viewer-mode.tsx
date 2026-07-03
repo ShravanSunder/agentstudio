@@ -45,6 +45,13 @@ export function BridgeFileViewerMode(props: BridgeFileViewerModeProps): ReactEle
 	const handleFileSurfaceOpenResolved = useCallback((): void => {
 		fileSurfaceOpenResolvedRef.current = true;
 	}, []);
+	const handleFileSurfaceStreamResetRequired = useCallback((): void => {
+		if (!fileSurfaceOpenResolvedRef.current) {
+			return;
+		}
+		fileSurfaceOpenResolvedRef.current = false;
+		setFileSurfaceReopenSignal((signal) => signal + 1);
+	}, []);
 	const hasFileViewerFrameSource = props.fileViewerProps !== undefined;
 	const hasActivatedFileViewerController =
 		props.isActive || hasActivatedFileViewerShell || hasFileViewerFrameSource;
@@ -68,6 +75,13 @@ export function BridgeFileViewerMode(props: BridgeFileViewerModeProps): ReactEle
 		}
 		wasFileViewerActiveRef.current = props.isActive;
 	}, [props.isActive]);
+	useEffect((): (() => void) => {
+		return (
+			props.fileViewerProps?.registerSurfaceStreamResetRequiredCallback?.(
+				handleFileSurfaceStreamResetRequired,
+			) ?? ((): void => {})
+		);
+	}, [handleFileSurfaceStreamResetRequired, props.fileViewerProps]);
 	const openReviewComparison = useCallback(
 		(descriptor: WorktreeFileDescriptor): void => {
 			existingOpenReviewComparison?.(descriptor);

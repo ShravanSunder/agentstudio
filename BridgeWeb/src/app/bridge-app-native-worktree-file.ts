@@ -37,6 +37,7 @@ export interface BridgeAppNativeWorktreeFileBackend {
 	) => Promise<WorktreeFileSurfaceRuntimeFetchedResource>;
 	readonly loadWorktreeFileSurface: () => Promise<WorktreeFileInitialSurface>;
 	readonly requestWorktreeFileDescriptor: (request: WorktreeFileDescriptorRequest) => Promise<void>;
+	readonly registerWorktreeFileStreamResetRequiredCallback: (callback: () => void) => () => void;
 	readonly subscribeWorktreeFileFrames: (
 		subscriber: WorktreeFileFrameSubscriber,
 	) => WorktreeFileFrameSubscriptionDispose;
@@ -125,6 +126,7 @@ export function createBridgeAppNativeWorktreeFileBackend(
 	}
 
 	const subscribers = new Set<WorktreeFileFrameSubscriber>();
+	const streamResetRequiredCallbacks = new Set<() => void>();
 	const pendingFrames: WorktreeFileProtocolFrame[] = [];
 	const pendingOpenResolvers = new Set<{
 		readonly streamId: string;
@@ -146,6 +148,11 @@ export function createBridgeAppNativeWorktreeFileBackend(
 		}
 		for (const subscriber of subscribers) {
 			subscriber(frames);
+		}
+	};
+	const notifyWorktreeFileStreamResetRequired = (): void => {
+		for (const callback of streamResetRequiredCallbacks) {
+			queueMicrotask(callback);
 		}
 	};
 
@@ -217,7 +224,12 @@ export function createBridgeAppNativeWorktreeFileBackend(
 			receiver,
 			maxFrameBytes: props.maxFrameBytes ?? defaultMaxFrameBytes,
 			requestReplayOnInstall: false,
-			onDroppedFrame: recordNativeWorktreeFileCarrierDrop,
+			onDroppedFrame: (drop: BridgeIntakeCarrierDrop): void => {
+				recordNativeWorktreeFileCarrierDrop(drop);
+				if (drop.reason === 'receiver_rejected_frame' && drop.receiverReason === 'sequence_gap') {
+					notifyWorktreeFileStreamResetRequired();
+				}
+			},
 		});
 		recordNativeWorktreeFileProbe({ reason: 'listener_installed' });
 	};
@@ -337,6 +349,12 @@ export function createBridgeAppNativeWorktreeFileBackend(
 					props.responseTimeoutMilliseconds ?? defaultResponseTimeoutMilliseconds,
 			});
 		},
+		registerWorktreeFileStreamResetRequiredCallback: (callback: () => void): (() => void) => {
+			streamResetRequiredCallbacks.add(callback);
+			return (): void => {
+				streamResetRequiredCallbacks.delete(callback);
+			};
+		},
 		subscribeWorktreeFileFrames: (
 			subscriber: WorktreeFileFrameSubscriber,
 		): WorktreeFileFrameSubscriptionDispose => {
@@ -359,6 +377,7 @@ export function createBridgeAppNativeWorktreeFileBackend(
 			}
 			pendingOpenResolvers.clear();
 			subscribers.clear();
+			streamResetRequiredCallbacks.clear();
 			pendingFrames.length = 0;
 			initialSurfaceReplayBuffer = null;
 		},
