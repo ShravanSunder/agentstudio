@@ -19,6 +19,7 @@ import {
 } from './bridge-code-view-materialization.js';
 import { BridgeCodeViewPanelFrame } from './bridge-code-view-panel-frame.js';
 import {
+	bridgeCodeViewRenderedHeaderCorrectionTargetPosition,
 	codeViewHandleHasInstance,
 	controllerForHandle,
 	createBridgeCodeViewHeaderRenderers,
@@ -33,6 +34,7 @@ import {
 	renderedBridgeCodeViewHeaderOffsetFromScrollOwner,
 	selectedContentDiagnosticsForPanel,
 	shouldApplyBridgeCodeViewMaterialization,
+	shouldApplyBridgeCodeViewRenderedHeaderCorrection,
 	shouldRearmCodeViewInstantRevealForMaterialization,
 	uniqueItemIds,
 	uniqueRenderedItemIds,
@@ -339,9 +341,8 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 								isBridgeCodeViewItem(settledItem) &&
 								isMaterializedBridgeCodeViewContentState(settledItem.bridgeMetadata.contentState);
 							if (
-								!isSettledMaterialized ||
 								recentInstantSelectionRevealRef.current?.selectionScrollKey !==
-									params.selectionScrollKey
+								params.selectionScrollKey
 							) {
 								return;
 							}
@@ -355,14 +356,20 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 							}
 							if (
 								renderedHeaderOffset !== null &&
-								!didApplyRenderedHeaderCorrection &&
-								Math.abs(renderedHeaderOffset.offsetPixels) >
-									codeViewInstantRevealRenderedHeaderOffsetTolerancePixels
+								shouldApplyBridgeCodeViewRenderedHeaderCorrection({
+									didApplyRenderedHeaderCorrection,
+									isSelectedContentMaterialized: isSettledMaterialized,
+									renderedHeaderOffset,
+									tolerancePixels: codeViewInstantRevealRenderedHeaderOffsetTolerancePixels,
+								})
 							) {
 								didApplyRenderedHeaderCorrection = true;
 								params.codeViewHandle.scrollTo({
 									type: 'position',
-									position: codeViewInstance.getScrollTop() + renderedHeaderOffset.offsetPixels,
+									position: bridgeCodeViewRenderedHeaderCorrectionTargetPosition({
+										currentScrollTop: codeViewInstance.getScrollTop(),
+										renderedHeaderOffset,
+									}),
 									behavior: 'instant',
 								});
 							}

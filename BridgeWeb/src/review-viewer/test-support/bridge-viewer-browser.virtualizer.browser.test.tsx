@@ -446,6 +446,63 @@ describe('Bridge viewer CodeView virtualizer anchoring', () => {
 		);
 	});
 
+	test('lands a cross-region tree reveal when the selected body stays pending', async () => {
+		const fixture = makeBridgeViewerBrowserFixture({ fixtureClass: 'large-diffshub' });
+		const targetItemId = fixture.reviewPackage.orderedItemIds[260];
+		if (targetItemId === undefined) {
+			throw new Error('Expected large fixture cross-region pending target item.');
+		}
+		const targetPath = '.agent_sidecar/review/pin-shift-target.txt';
+		const crossRegionFixture = virtualizerSupport.fixtureWithItemPaths({
+			fixture,
+			pathsByItemId: new Map([[targetItemId, targetPath]]),
+		});
+		const targetHandleIds = virtualizerSupport.contentHandleIdsForFixtureItem(
+			crossRegionFixture,
+			targetItemId,
+		);
+		const backend = installBridgeViewerMockedBackend(crossRegionFixture, {
+			deferContentHandleIds: targetHandleIds,
+		});
+
+		render(
+			<BridgeApp
+				codeViewWorkerPoolEnabled={false}
+				fetchContent={backend.fetchContent}
+				markdownWorkerClient={null}
+				projectionWorkerClient={backend.projectionWorkerClient}
+			/>,
+		);
+		await backend.pushMetadata(crossRegionFixture.reviewPackage);
+		await waitForBridgeViewerText(fixture.expected.initialText);
+
+		const scrollOwner = await waitForBridgeViewerCodeScrollOwner();
+		await virtualizerSupport.waitForInitialRevealSettled(scrollOwner);
+		await virtualizerSupport.revealAndSettleSelection({
+			itemId: 'browser-source-b',
+			scrollOwner,
+		});
+		const revealSamples = await virtualizerSupport.sampleTreeRevealLandingFrames({
+			frameCount: 44,
+			scrollOwner,
+			targetItemId,
+			targetPath,
+		});
+
+		virtualizerSupport.assertTargetHeaderStaysPinnedAfterLanding({
+			context: `${targetItemId} pending body cross-region`,
+			samples: revealSamples,
+		});
+		// The shell owns the `[data-selected-content-state]` attribute the helper reads first in
+		// DOM order; for a selected file whose body never resolves it reports `loading` (the
+		// panel frame's inner `pending` value never wins the querySelector). `loading` is the
+		// faithful proof that the selected body stayed unresolved through the cross-region land.
+		expect(browserSupport.selectedBridgeViewerContentState()).toBe('loading');
+		expect(virtualizerSupport.firstFullyVisibleBridgeCodeHeader(scrollOwner).itemId).toBe(
+			targetItemId,
+		);
+	});
+
 	test('keeps an upward tree reveal pinned after above-target content hydrates late', async () => {
 		const fixture = makeBridgeViewerBrowserFixture({ fixtureClass: 'large-diffshub' });
 		const aboveTargetItemId = 'browser-large-diff';

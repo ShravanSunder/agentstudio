@@ -10,7 +10,11 @@ import type { BridgeTelemetryRecorder } from '../../foundation/telemetry/bridge-
 import { buildBridgeReviewProjection } from '../navigation/review-projection.js';
 import { makeBridgeViewerProjectionFixture } from '../test-support/review-viewer-fixtures.js';
 import { materializeBridgeCodeViewLoadingItem } from './bridge-code-view-materialization.js';
-import { shouldRearmCodeViewInstantRevealForMaterialization } from './bridge-code-view-panel-support.js';
+import {
+	bridgeCodeViewRenderedHeaderCorrectionTargetPosition,
+	shouldApplyBridgeCodeViewRenderedHeaderCorrection,
+	shouldRearmCodeViewInstantRevealForMaterialization,
+} from './bridge-code-view-panel-support.js';
 import {
 	makeBridgeCodeViewSourceKey,
 	reconcileBridgeCodeViewMetadataItems,
@@ -225,6 +229,32 @@ describe('BridgeCodeViewPanel diagnostics', () => {
 				selectionScrollKey: 'source:1:selected-target',
 			}),
 		).toBe(false);
+	});
+
+	test('compensates Pierre position targets for sticky header subtraction', () => {
+		expect(
+			bridgeCodeViewRenderedHeaderCorrectionTargetPosition({
+				currentScrollTop: 1_000,
+				renderedHeaderOffset: {
+					offsetPixels: 24,
+					stickyCompensationPixels: 32,
+				},
+			}),
+		).toBe(1_056);
+	});
+
+	test('allows rendered-header correction while selected content is still pending', () => {
+		expect(
+			shouldApplyBridgeCodeViewRenderedHeaderCorrection({
+				didApplyRenderedHeaderCorrection: false,
+				isSelectedContentMaterialized: false,
+				renderedHeaderOffset: {
+					offsetPixels: 24,
+					stickyCompensationPixels: 32,
+				},
+				tolerancePixels: 1,
+			}),
+		).toBe(true);
 	});
 
 	test('emits selected content painted telemetry on the frame after materialization', () => {

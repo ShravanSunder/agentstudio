@@ -60,6 +60,7 @@ export interface BridgeCodeViewRenderedItemsSource {
 
 export interface BridgeCodeViewRenderedHeaderOffset {
 	readonly offsetPixels: number;
+	readonly stickyCompensationPixels: number;
 }
 
 export function nextCodeViewItemForCollapse(props: {
@@ -204,7 +205,31 @@ export function renderedBridgeCodeViewHeaderOffsetFromScrollOwner(props: {
 	return {
 		offsetPixels:
 			headerElement.getBoundingClientRect().top - scrollOwner.getBoundingClientRect().top,
+		stickyCompensationPixels: headerElement.getBoundingClientRect().height,
 	};
+}
+
+export function shouldApplyBridgeCodeViewRenderedHeaderCorrection(props: {
+	readonly didApplyRenderedHeaderCorrection: boolean;
+	readonly isSelectedContentMaterialized: boolean;
+	readonly renderedHeaderOffset: BridgeCodeViewRenderedHeaderOffset | null;
+	readonly tolerancePixels: number;
+}): boolean {
+	if (props.didApplyRenderedHeaderCorrection || props.renderedHeaderOffset === null) {
+		return false;
+	}
+	return Math.abs(props.renderedHeaderOffset.offsetPixels) > props.tolerancePixels;
+}
+
+export function bridgeCodeViewRenderedHeaderCorrectionTargetPosition(props: {
+	readonly currentScrollTop: number;
+	readonly renderedHeaderOffset: BridgeCodeViewRenderedHeaderOffset;
+}): number {
+	return (
+		props.currentScrollTop +
+		props.renderedHeaderOffset.offsetPixels +
+		props.renderedHeaderOffset.stickyCompensationPixels
+	);
 }
 
 function bridgeCodeViewRenderedHeaderMarkerElement(props: {

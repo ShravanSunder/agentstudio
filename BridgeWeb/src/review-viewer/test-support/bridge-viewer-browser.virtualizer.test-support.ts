@@ -530,6 +530,37 @@ export function fixtureWithWrapHeavyLogicalLines(props: {
 	};
 }
 
+export function fixtureWithItemPaths(props: {
+	readonly fixture: BridgeViewerBrowserFixture;
+	readonly pathsByItemId: ReadonlyMap<string, string>;
+}): BridgeViewerBrowserFixture {
+	const itemsById = Object.fromEntries(
+		Object.entries(props.fixture.reviewPackage.itemsById).map(
+			([itemId, item]): readonly [string, BridgeReviewItemDescriptor] => {
+				const path = props.pathsByItemId.get(itemId);
+				if (path === undefined) {
+					return [itemId, item];
+				}
+				return [
+					itemId,
+					{
+						...item,
+						basePath: item.basePath === null ? null : path,
+						headPath: item.headPath === null ? null : path,
+					},
+				];
+			},
+		),
+	);
+	return {
+		...props.fixture,
+		reviewPackage: {
+			...props.fixture.reviewPackage,
+			itemsById,
+		},
+	};
+}
+
 export function reviewItemWithWrapHeavyLogicalLines(props: {
 	readonly contentByHandleId: Map<string, string>;
 	readonly item: BridgeReviewItemDescriptor;
