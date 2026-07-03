@@ -49,6 +49,7 @@ import {
 
 export interface UseBridgeReviewIntakeControllerProps {
 	readonly target: EventTarget;
+	readonly isActive: boolean;
 	readonly bridgeHandshakeSessionRef: MutableRefObject<BridgePageHandshakeSession | null>;
 	readonly getReviewFrameAuthority: () => BridgeReviewFrameAuthority | null;
 	readonly registerBridgeReadyCallback: (callback: () => void) => () => void;
@@ -89,6 +90,7 @@ export interface UseBridgeReviewIntakeControllerProps {
 export function useBridgeReviewIntakeController(props: UseBridgeReviewIntakeControllerProps): void {
 	const {
 		target,
+		isActive,
 		bridgeHandshakeSessionRef,
 		getReviewFrameAuthority,
 		registerBridgeReadyCallback,
@@ -353,4 +355,20 @@ export function useBridgeReviewIntakeController(props: UseBridgeReviewIntakeCont
 		telemetryRecorderRef,
 		viewerStore,
 	]);
+
+	// A review surface re-activated WITHOUT an applied package lost its
+	// stream: frames dropped while it was inactive, a sequence gap, or a
+	// failed first load. Re-announcing intake-ready makes native re-deliver
+	// the package as a fresh generation (native reloads on an announce for a
+	// loaded pane and bootstraps for a cold one). Healthy re-activations —
+	// package applied — stay silent, so mode toggles cost nothing.
+	useEffect((): void => {
+		if (!isActive || reviewPackageRef.current !== null) {
+			return;
+		}
+		bridgeHandshakeSessionRef.current?.markIntakeReady({
+			protocolId: 'review',
+			streamId: getReviewFrameAuthority()?.streamId ?? null,
+		});
+	}, [bridgeHandshakeSessionRef, getReviewFrameAuthority, isActive, reviewPackageRef]);
 }

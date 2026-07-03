@@ -390,6 +390,7 @@ export function BridgeReviewViewerMode(
 
 	useBridgeReviewIntakeController({
 		target,
+		isActive: props.isActive,
 		bridgeHandshakeSessionRef,
 		getReviewFrameAuthority,
 		registerBridgeReadyCallback,
