@@ -132,6 +132,49 @@ struct AppBootSequenceTests {
         #expect(inboxBootSource.contains("canArchiveLegacyInboxFile"))
     }
 
+    @Test("pre-boot reopen reports missing main-window dependencies without force-unwrapping them")
+    func preBootReopenReportsMainWindowDependencies() throws {
+        let delegate = AppDelegate()
+
+        let missingDependencies = delegate.mainWindowCreationMissingDependencyNames()
+
+        #expect(missingDependencies.contains("store"))
+        #expect(missingDependencies.contains("executor"))
+        #expect(missingDependencies.contains("workspaceSurfaceCoordinator"))
+    }
+
+    @Test("reopen window creation uses resolved dependencies")
+    func reopenWindowCreationUsesResolvedDependencies() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let appDelegateSource = try String(
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/App/Boot/AppDelegate.swift"),
+            encoding: .utf8
+        )
+        let mainWindowCreationSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/App/Boot/AppDelegate+MainWindowCreation.swift"
+            ),
+            encoding: .utf8
+        )
+        let showWindowFunction = try #require(
+            appDelegateSource.range(of: "private func showOrCreateMainWindow()")
+        )
+        let helperFunction = try #require(
+            mainWindowCreationSource.range(of: "func makeMainWindowController")
+        )
+        let terminationFunction = try #require(
+            appDelegateSource.range(of: "func applicationShouldTerminate(_ sender")
+        )
+        let reopenFunctionBody = String(
+            appDelegateSource[showWindowFunction.lowerBound..<terminationFunction.lowerBound]
+        )
+        let helperFunctionBody = String(mainWindowCreationSource[helperFunction.lowerBound...])
+
+        #expect(reopenFunctionBody.contains("mainWindowCreationDependencies(caller:"))
+        #expect(helperFunctionBody.contains("workspaceActionExecutor: dependencies.executor"))
+        #expect(!reopenFunctionBody.contains("workspaceActionExecutor: executor"))
+    }
+
     @Test("legacy inbox archive readiness requires actual materialization proof")
     func legacyInboxArchiveReadinessRequiresActualMaterializationProof() {
         #expect(

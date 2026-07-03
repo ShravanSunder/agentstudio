@@ -202,7 +202,7 @@ struct CoordinationPlaneArchitectureTests {
         #expect(sources.appDelegateWorkspaceBootSource.contains("seedSlotsForRestoredPanes()"))
         if let bootCallRange = sources.appDelegateSource.range(of: "bootWorkspaceServices("),
             let windowCreationRange = sources.appDelegateSource.range(
-                of: "mainWindowController = MainWindowController("
+                of: "mainWindowController = makeMainWindowController("
             ),
             let runtimeBusRange = sources.appDelegateWorkspaceBootSource.range(
                 of: "private func bootEstablishRuntimeBus")

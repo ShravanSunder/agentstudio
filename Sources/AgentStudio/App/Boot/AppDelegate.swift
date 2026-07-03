@@ -139,25 +139,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             phase: "did_finish_launching",
             outcome: "succeeded"
         )
+        guard let dependencies = mainWindowCreationDependencies(caller: "finishLaunchingAfterWorkspaceBoot") else {
+            return
+        }
+
         // Create main window
-        mainWindowController = MainWindowController(
-            store: store,
-            workspaceActionExecutor: executor,
-            runtimeCommandDispatcher: workspaceSurfaceCoordinator,
-            applicationLifecycleMonitor: applicationLifecycleMonitor,
-            appLifecycleStore: appLifecycleStore,
-            tabBarAdapter: tabBarAdapter,
-            viewRegistry: viewRegistry,
-            inboxAtom: atomStore.inboxNotification,
-            inboxPrefsAtom: atomStore.inboxNotificationPrefs,
-            inboxSidebarState: atomStore.inboxSidebarState,
-            paneInboxPresenter: paneInboxNotificationPresenter,
-            performanceTraceRecorder: performanceTraceRecorder,
-            onSidebarVisibleWorktreesChanged: { [weak self] in
-                self?.workspaceSurfaceCoordinator.syncFilesystemRootsAndActivity()
-            },
-            closeTransitionCoordinator: closeTransitionCoordinator
-        )
+        mainWindowController = makeMainWindowController(dependencies: dependencies)
         mainWindowController?.prepareLaunchMaximizeAndRestore()
         mainWindowController?.showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -511,24 +498,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if let window = mainWindowController?.window, window.isVisible {
             window.makeKeyAndOrderFront(nil)
         } else {
-            mainWindowController = MainWindowController(
-                store: store,
-                workspaceActionExecutor: executor,
-                runtimeCommandDispatcher: workspaceSurfaceCoordinator,
-                applicationLifecycleMonitor: applicationLifecycleMonitor,
-                appLifecycleStore: appLifecycleStore,
-                tabBarAdapter: tabBarAdapter,
-                viewRegistry: viewRegistry,
-                inboxAtom: atomStore.inboxNotification,
-                inboxPrefsAtom: atomStore.inboxNotificationPrefs,
-                inboxSidebarState: atomStore.inboxSidebarState,
-                paneInboxPresenter: paneInboxNotificationPresenter,
-                performanceTraceRecorder: performanceTraceRecorder,
-                onSidebarVisibleWorktreesChanged: { [weak self] in
-                    self?.workspaceSurfaceCoordinator.syncFilesystemRootsAndActivity()
-                },
-                closeTransitionCoordinator: closeTransitionCoordinator
-            )
+            guard let dependencies = mainWindowCreationDependencies(caller: "showOrCreateMainWindow") else {
+                return
+            }
+
+            mainWindowController = makeMainWindowController(dependencies: dependencies)
             mainWindowController?.showWindow(nil)
             wireLifecycleConsumers()
         }

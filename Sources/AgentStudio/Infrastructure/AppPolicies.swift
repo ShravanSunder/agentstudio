@@ -9,6 +9,10 @@ enum AppPolicies {
         /// queue and let the app-side queue remain the oldest-shedding layer.
         static let otlpLogMaxQueueSize: Int = 8192
         static let otlpLogMaxExportBatchSize: Int = 1024
+        static let otlpLogScheduleDelay: Duration = .seconds(1)
+        static let otlpTraceScheduleDelay: Duration = .seconds(1)
+        static let otlpMetricsExportInterval: Duration = .seconds(60)
+        static let otlpExportTimeout: Duration = .seconds(30)
     }
 
     enum Bridge {

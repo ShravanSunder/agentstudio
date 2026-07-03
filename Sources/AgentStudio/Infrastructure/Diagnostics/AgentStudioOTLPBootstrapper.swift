@@ -98,23 +98,23 @@ actor AgentStudioOTLPBootstrapper: AgentStudioOTLPBootstrapping {
         configuration.metrics.exporter = .otlp
         configuration.metrics.otlpExporter.endpoint = Self.metricsEndpoint(from: context.endpoint)
         configuration.metrics.otlpExporter.protocol = .httpProtobuf
-        configuration.metrics.exportInterval = .seconds(2)
-        configuration.metrics.exportTimeout = .seconds(2)
+        configuration.metrics.exportInterval = AppPolicies.Diagnostics.otlpMetricsExportInterval
+        configuration.metrics.exportTimeout = AppPolicies.Diagnostics.otlpExportTimeout
         configuration.metrics.valueHistogramBuckets[AgentStudioOTLPPerformanceMetrics.elapsedMetricLabel] =
             AgentStudioOTLPPerformanceMetrics.elapsedHistogramBuckets
         configuration.traces.enabled = true
         configuration.traces.exporter = .otlp
         configuration.traces.otlpExporter.endpoint = Self.tracesEndpoint(from: context.endpoint)
         configuration.traces.otlpExporter.protocol = .httpProtobuf
-        configuration.traces.batchSpanProcessor.scheduleDelay = .milliseconds(200)
-        configuration.traces.batchSpanProcessor.exportTimeout = .seconds(2)
+        configuration.traces.batchSpanProcessor.scheduleDelay = AppPolicies.Diagnostics.otlpTraceScheduleDelay
+        configuration.traces.batchSpanProcessor.exportTimeout = AppPolicies.Diagnostics.otlpExportTimeout
         configuration.logs.enabled = true
         configuration.logs.level = .trace
         configuration.logs.exporter = .otlp
         configuration.logs.otlpExporter.endpoint = Self.logsEndpoint(from: context.endpoint)
         configuration.logs.otlpExporter.protocol = .httpProtobuf
-        configuration.logs.batchLogRecordProcessor.scheduleDelay = .milliseconds(200)
-        configuration.logs.batchLogRecordProcessor.exportTimeout = .seconds(2)
+        configuration.logs.batchLogRecordProcessor.scheduleDelay = AppPolicies.Diagnostics.otlpLogScheduleDelay
+        configuration.logs.batchLogRecordProcessor.exportTimeout = AppPolicies.Diagnostics.otlpExportTimeout
         configuration.logs.batchLogRecordProcessor.maxQueueSize = AppPolicies.Diagnostics.otlpLogMaxQueueSize
         configuration.logs.batchLogRecordProcessor.maxExportBatchSize =
             AppPolicies.Diagnostics.otlpLogMaxExportBatchSize
