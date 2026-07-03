@@ -11,6 +11,11 @@ interface UseBridgeFileViewerFrameControllerProps {
 	readonly enabled: boolean;
 	readonly fileViewerProps: BridgeFileViewerAppProps | undefined;
 	readonly waitForBridgeReady: (callback: () => void) => () => void;
+	/// Bumped when the file surface must re-run its full open announce — a mode
+	/// switch re-activates the file shell but the WebView never remounts, so
+	/// without this the surface would never re-issue `openSourceStream` and a
+	/// wedged (or stale-identity) stream could never recover.
+	readonly reopenSignal?: number;
 }
 
 interface BridgeFileViewerBufferedSurface {
@@ -28,7 +33,7 @@ const emptyBufferedSurface: BridgeFileViewerBufferedSurface = {
 export function useBridgeFileViewerFrameControllerProps(
 	props: UseBridgeFileViewerFrameControllerProps,
 ): BridgeFileViewerAppProps | undefined {
-	const { enabled, fileViewerProps, waitForBridgeReady } = props;
+	const { enabled, fileViewerProps, reopenSignal, waitForBridgeReady } = props;
 	const fileViewerPropsRef = useRef<BridgeFileViewerAppProps | undefined>(fileViewerProps);
 	const listenersRef = useRef<Set<WorktreeFileFrameSubscriber>>(new Set());
 	const bufferedSurfaceRef = useRef<BridgeFileViewerBufferedSurface>(emptyBufferedSurface);
@@ -136,6 +141,9 @@ export function useBridgeFileViewerFrameControllerProps(
 		initialFrames,
 		loadInitialFrames,
 		loadInitialSurface,
+		// A bumped reopenSignal re-runs this effect, which resets the buffer and
+		// re-issues the surface open — the mode-switch re-announce path.
+		reopenSignal,
 		subscribeFrames,
 		waitForBridgeReady,
 	]);

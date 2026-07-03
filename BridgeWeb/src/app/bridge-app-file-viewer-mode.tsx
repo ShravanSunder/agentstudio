@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactElement } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
 
 import type { WorktreeFileDescriptor } from '../features/worktree-file/models/worktree-file-protocol-models.js';
 import {
@@ -34,18 +34,29 @@ export function BridgeFileViewerMode(props: BridgeFileViewerModeProps): ReactEle
 	const onActivateNavigationCommand = props.onActivateNavigationCommand;
 	const reviewNavigationSource = props.reviewNavigationSource;
 	const [hasActivatedFileViewerShell, setHasActivatedFileViewerShell] = useState(props.isActive);
+	// The WebView never remounts on a mode switch, so re-running the file
+	// surface open announce requires an explicit signal. Bump it each time the
+	// file shell transitions back to active so the switched-in surface re-opens
+	// exactly like a fresh mount (fixes wedged/stale-identity file streams).
+	const [fileSurfaceReopenSignal, setFileSurfaceReopenSignal] = useState(0);
+	const wasFileViewerActiveRef = useRef(props.isActive);
 	const hasFileViewerFrameSource = props.fileViewerProps !== undefined;
 	const hasActivatedFileViewerController =
 		props.isActive || hasActivatedFileViewerShell || hasFileViewerFrameSource;
 	const controlledFileViewerProps = useBridgeFileViewerFrameControllerProps({
 		enabled: hasActivatedFileViewerController,
 		fileViewerProps: props.fileViewerProps,
+		reopenSignal: fileSurfaceReopenSignal,
 		waitForBridgeReady: props.registerBridgeReadyCallback,
 	});
 	useEffect((): void => {
 		if (props.isActive) {
 			setHasActivatedFileViewerShell(true);
+			if (!wasFileViewerActiveRef.current) {
+				setFileSurfaceReopenSignal((signal) => signal + 1);
+			}
 		}
+		wasFileViewerActiveRef.current = props.isActive;
 	}, [props.isActive]);
 	const openReviewComparison = useCallback(
 		(descriptor: WorktreeFileDescriptor): void => {
