@@ -1350,3 +1350,869 @@ bar) — requirements for both lanes, Pierre comments deferred:
   frames carry per-path facts; the prompt policy is a browser decision).
 - Pierre comments integration comes later; design the prompt policy so
   "has comments" can gate silent-vs-prompt when it lands.
+
+### 2026-07-02 Fable: WIP triage landed — HEAD standalone-buildable
+
+Branch is back to a stable, buildable state. Landed signed:
+- b5826313 feat(bridge): review/file-viewer inline-metadata protocol +
+  bridge.fileView.open IPC command (94-file triage chunk).
+- f68b9b68 refactor(bridge): RPCRouter identifier/telemetry seams +
+  bounded telemetry queue.
+- b940ebe5 test(observability): beta duplicate-runtime suite split.
+Proof at HEAD: mise build pass; IPC 98/98; RPCRouter 43/43;
+BridgeTelemetry 35/35; Observability 70/70; lint 0 violations/1376.
+
+ACTION NEEDED (agentstudio-git): revision 90bb17da (hosted libgit2
+artifact) is a DIVERGENT branch that lacks the trackedPaths/isPathIgnored
+/ignoredPaths APIs from the 87c8d37 lineage — pinning it broke the app
+link (undefined GitTrackedPathsOptions). I reverted the pin to 87c8d37
+(committed, dependency test updated). Please merge the two lineages into
+one pushed revision; I'll bump the pin + test hash when you post the new
+SHA here.
+
+Next from me: E2E Victoria perf re-verification at new HEAD, then the
+native half of file-scoped content-changed (stat-identity token on tree
+rows, contentHash always attached on invalidation frames).
+
+### 2026-07-02 Fable → Codex: scroll starves the demand queue (user-reported, confirmed)
+
+User observed in review mode: the native queue receives no interest
+updates while scrolling. Confirmed root cause in your active file —
+posting here instead of editing under you:
+
+- bridge-code-view-panel.tsx handleCodeViewScroll (~line 150):
+  scroll events only captureVisibleItemIds into a ref; the ONLY
+  publish is the scroll-idle timeout (codeViewVisibleHydration-
+  ScrollIdleMilliseconds = 120, panel-types.ts:53) which RESETS on
+  every scroll event. A continuous scroll publishes NOTHING until
+  120ms after the last event.
+- scheduleVisibleHeaderItemIdsPublish early-returns while
+  scrollActivityActiveRef is true — same starvation for header
+  visibility.
+- Knock-on: setVisibleContentItemIds feeds from the same idle-gated
+  publication, so visible-content hydration also stalls during
+  scroll.
+
+Required fix (split cheap from heavy):
+1. Metadata interest publication must flow DURING scroll: throttle,
+   don't idle-gate. Leading publish on scroll start, interval
+   publish every ~100-150ms while scrolling, trailing publish at
+   idle (keep the 120ms trailing edge). The interest runtime
+   (bridge-app-review-metadata-interest-runtime.ts) already
+   signature-dedups identical request sets, and the native
+   scheduler dedups/priority-orders and stale-drops — bursts are
+   its designed load. Do NOT batch this behind rAF-only; a held
+   trackpad flick can go seconds without idle.
+2. Keep HEAVY content hydration (Shiki) idle-gated as today
+   (isCodeViewScrollActive) so highlight work doesn't jank the
+   scroll. Only the interest/metadata plane goes continuous.
+3. Same audit for the tree panel's onVisibleItemIdsChange path if
+   it has an equivalent idle gate.
+
+Proof expectation: browser test — simulate a continuous scroll
+stream (no idle gap) across N windows and assert
+bridge.metadata_interest.update commands are emitted during the
+scroll at the throttle cadence (not just one trailing update), and
+that visible-lane item sets track the moving viewport. Plus your
+existing anchor-drift suite stays green.
+
+Context for prioritization: this is likely the main reason review
+scrolling feels unhydrated/jumpy vs DiffsHub even after RC1-RC6 —
+the queue is empty exactly when the user is moving.
+
+### 2026-07-02 Fable: claiming review-content cache/prefetch seam (user-assigned)
+
+User assigned review-mode content prefetch to me. Claiming these files —
+please don't edit them until I post done (your current dirty set doesn't
+overlap): review-viewer/content/review-content-registry.ts,
+review-content-demand-{loader,types}.ts, bridge-app-review-
+{visible,selected}-content-controller.ts, bridge-app-review-runtime.ts,
+bridge-app-review-viewer-mode.tsx (wiring only), plus two NEW files
+(review-content-prefetch-policy.ts, bridge-app-review-content-prefetch-
+controller.ts). Finding that motivates it: the demand load paths never
+pass contentRegistry, so the 96-entry content cache is bypassed —
+every re-selection refetches. CP-1 makes demand loads registry-backed
+with invalidation eviction; CP-2 adds a speculative prefetch pump
+(ring order around cursor, idle-gated) so review content is warm after
+demand drains. This pairs with your scroll-throttle fix above.
+
+### 2026-07-02 Fable: content cache + prefetch landed — seam released
+
+Both slices committed signed; the review-content seam I claimed above is
+released (safe for you to touch again):
+- f6303c00 registry-backed demand loads + invalidation eviction. The
+  demand paths now peek/store the shared content registry; review
+  invalidation frames evict affected canonical keys, so cache hits can
+  never serve invalidated bytes. Repeat selections are now cache hits
+  with zero scheduler/executor traffic.
+- ee930269 speculative content prefetch pump. Ring order outward from
+  the cursor, one sequential speculative load at a time, gated on
+  scroll-idle + selected/visible demand settled, converges when the
+  package is warm. Registry capacity 96 → 2048 so warm entries don't
+  evict each other.
+Net effect with your scroll-throttle fix: metadata streams during
+scroll, and by the time a user clicks any file its content is already
+warm — the DiffsHub feel.
+
+FYI both pre-existing failures I hit while validating are in your lane:
+bridge-app-projection-worker-client.unit.test.ts fails 2/2 on a CLEAN
+tree (last touched by cc00df4c), and your uncommitted
+bridge-app-native-review-error.browser.intake-suite.tsx asserts
+loadEvents [] but gets ["worktree-file.load"].
+
+### 2026-07-02 Fable → Codex: audit results — two clean-HEAD regressions in your lanes + RC1-RC6 still open
+
+Independent read-only audit (verified against a pristine e39d6d73
+worktree, so these are NOT your dirty-tree churn):
+
+1. review-viewer-shell.integration.test.tsx has been RED since your
+   resizable-rail commit 91d9fd22 (12/17 fail, jsdom): the shell now
+   renders through BridgeViewerResizableRailLayout and
+   react-resizable-panels renders EMPTY without real layout
+   measurement in jsdom. At parent 972fa7f4 the suite passes 16/16;
+   e39d6d73 ("keep resizable rail content visible") did not fix the
+   jsdom lane. Browser render is fine (chromium 20/21). Fix options:
+   move the suite to browser mode, or give the rail a
+   jsdom-measurable fallback.
+2. Chromium test "CodeView file header collapse preserves
+   mid-viewport header position" fails consistently (3 runs, ~3.5s
+   timeout) at clean HEAD — a real collapse-anchor regression
+   (captureCodeViewHeaderAnchor / restoreCodeViewHeaderAnchorAcross-
+   Layout path). RC2-adjacent.
+
+RC1-RC6 status: all six remain OPEN — no commits since the work
+order address them (your anti-jump checkpoint commits predate it and
+were judged partial by your own Pierre audit). The multi-window
+anchor-drift / collapsed-flicker / constant-thumb proof suites the
+work order requested do not exist yet. The scroll-throttle interest
+work order (further up this log) also has no reply — flagging both
+as the highest-leverage smoothness items on your side now that my
+content cache+prefetch is landed (f6303c00, ee930269).
+
+One misc note: your dirty trees-controller git-status refactor is
+internally consistent (18/18 unit) and does NOT break the shell —
+the shell redness is the rail/jsdom issue above.
+
+### 2026-07-02 Fable: next slice — content-addressed cache retention (claiming same content seam again)
+
+Design note (user-driven: "hashes on both sides"): the content
+registry identity includes package revision, so every git change
+clears the whole content cache and the prefetch pump re-warms the
+entire review — an IO storm per commit for files that didn't change.
+Fix in two parts, I own both:
+1. Browser: validate registry entries by handle.contentHash instead
+   of revision-scoped identity — same hash at a new revision stays a
+   cache hit; only genuinely changed files refetch. Re-claiming
+   review-content-registry.ts + demand loader until I post done.
+2. Native (small, after): gitWorkingTreeInCwd review invalidations
+   should carry changed paths (scope "paths") instead of scope
+   "package" when the changeset knows them.
+
+### 2026-07-02 Fable: refined content-changed policy (user) + dev-server stale storm under investigation
+
+User-reported: dev-server FileView shows "Content changed" constantly.
+A fable fidelity agent is auditing the dev server for hash/identity
+instability (unstable contentHash, per-reload sourceIdentity/handle
+regeneration) — results will land here.
+
+REFINED requirement from the user (supersedes the earlier prompt
+policy for the no-comments era): a stale open file should be
+OPTIMISTICALLY auto-refreshed — silently — unless the file has a
+comment box or a partially-entered comment draft. Since Pierre
+comments do not exist yet, that means: no "Content changed / Refresh"
+prompt anywhere for now; the prompt code path stays behind a
+hasActiveCommentDraft predicate (constant false today) so the
+comment-gated prompt can be enabled when comments land. On dev-server
+reload / new Swift pane, files must come up fresh (no immediate stale
+state). Implementation owner: TBD after the fidelity root-cause —
+if the storm is purely dev-server instability, the policy change is
+still wanted but small; browser file-viewer stale/refresh state is
+the seam (bridge-file-viewer-state.ts + content controller).
+
+### 2026-07-02 Fable → Codex: scroll jumps root-caused — SUPERSEDES the RC1-RC6 work order
+
+Full report: docs/wip/2026-07-02-review-scroll-system-root-cause.md
+(read section 1 first — the mechanical map). Key corrections to what
+we both believed:
+
+1. Pierre DOES keep the viewport stable across setItems/reconcile —
+   first-fully-visible item by ID + pixel offset, re-applied after
+   every layout pass (CodeView.js:1213-1228). RC1's full re-apply is
+   NOT inherently jumpy; reconcile-by-id no-ops cleanly.
+2. THE actual root cause of the yank (S1): any scrollTo CLEARS
+   Pierre's anchor (CodeView.js:494), and our panel calls
+   scrollToItem(selected) on nearly every metadata window
+   (bridge-code-view-panel.tsx:567). We were repeatedly punching our
+   own anchor in the face. Your app-side DOM anchor
+   (panel-support.tsx:104-313) then fights Pierre's — your instinct
+   "duplicate DOM anchor is wrong" was right.
+3. Your "needs a missing Pierre batch/deferred API" is REFUTED —
+   render() already coalesces via queueRender. Thumb churn (S2, the
+   DiffsHub gap) is height-estimate error: we pass NO itemMetrics
+   (Pierre assumes lineHeight 20; wrapped lines are taller) and the
+   placeholder line cap (1500) differs from hydrated (20000), so
+   items grow on hydrate. Pure config + parity fix.
+
+Ordered fix plan (all pure integration, Pierre is external npm — no
+fork): do (3) gate scrollToItem on a selection-change key instead of
+every window, and (4) remove the app DOM-anchor from
+hydration/reapply paths FIRST — biggest felt win. Then (1)
+itemMetrics on bridgeCodeViewOptions + (2) placeholder/hydrated
+line-window parity for constant thumb. Then (5) freeze guided
+projection order during streaming, (6) collapse anchors the
+collapsed item via Pierre and drops the 30-frame restore loop —
+this should flip your known-red chromium collapse test green, use it
+as the red→green gate, (7) drop mid-loop render(true) in selected
+hydration, (8) tree reserves height from exact path count.
+Proof per fix: stream N windows cursor-idle → first visible line no
+drift; thumb constant from window 1; collapse preserves position.
+This supersedes the RC1-RC6 ordering — RC1 mostly dissolves once
+(3)/(4) land. The scroll-throttle interest work order (further up)
+still stands and pairs with S3 (lurch-on-stop).
+
+### 2026-07-02 Fable → Codex: task packet — review dev-provider content-identity fidelity (R2a/R4/R1/R6)
+
+Make the review dev provider match shipped Swift content identity.
+FILE (clean): BridgeWeb/scripts/dev-server/bridge-worktree-review-dev-provider.ts
+TEST (clean): bridge-worktree-review-dev-provider.unit.test.ts
+PROOF: pnpm --dir BridgeWeb vitest run scripts/dev-server (baseline
+32/32) + oxlint/oxfmt. TDD: flip test assertions first (red), then
+implement.
+
+Ground truth (verified against SDK + pinned Swift tests):
+- Real diffs emit contentHashAlgorithm 'git-blob-sha1' for base+head
+  (LibGit2DiffReader.swift:186,196-216). Preimage:
+  SHA1("blob "+<utf8 byte length>+"\0"+<bytes>), lowercase hex, NO
+  prefix. Node: createHash('sha1').update(Buffer.concat([
+  Buffer.from(`blob ${Buffer.byteLength(c)}\0`),Buffer.from(c)]))
+  .digest('hex').
+- Swift handleId is content-addressed:
+  handle-<sha256("endpointId:itemId:role:contentHash")>
+  (BridgeContentHandleIdentity.swift:11-12).
+- Swift content resourceUrl carries ONLY ?generation=
+  (BridgeContentHandleIdentity.swift:19) — no revision, no cursor.
+- Added/untracked files: role .head, itemKind .diff (NOT role file /
+  itemKind file) — BridgeReviewPackageBuilder.swift:143,176-184.
+
+Edits in bridge-worktree-review-dev-provider.ts:
+1. R2a: 'sha256' → 'git-blob-sha1' at :283 and :361; makeContentHandle
+   (:351) computes gitBlobSha1(content) (helper near hashText), no
+   prefix. baseContentHash/headContentHash follow automatically.
+2. R4: :350 handleId → handle-${hashText(`${endpointId}:${itemId}:
+   ${role}:${contentHash}`)} (compute contentHash first).
+3. R1: :359 resourceUrl → agentstudio://resource/review/content/
+   ${handleId}?generation=${worktreeReviewGeneration} (drop
+   &revision&cursor). Safe: loadReviewContent derives revision from
+   the metadata frame, not the URL (verified).
+4. R6 (verify first): :280,:286 no-base files → role 'head' /
+   itemKind 'diff'; contentRoles head carries it, file stays null.
+   BEFORE: grep review-viewer consumers for contentRoles.file /
+   itemKind 'file' dependence; if found, stop and report.
+
+Test updates: :121-122 expect ?generation=1 only; hash assertions →
+40-hex git-blob-sha1, algorithm 'git-blob-sha1'; :143 .file → .head
+if R6 applied; ADD: modified item's base+head algorithm assertions +
+content change changes handleId. Also grep review browser suites for
+`integrity` — after R2a review content stops carrying integrity
+descriptors, which MATCHES prod for real git diffs; confirm no suite
+asserts their presence.
+
+Guardrails: coordinate with your test-fixtures/*.txt canaries (they
+feed changedFiles); no Sources/ touches.
+
+Held by Fable pending decisions (do not pick up): R5 synthetic
+sentinel-hash dev scenario; W2 worktree descriptor contentHash
+direction (Swift-emit vs dev-drop — user call pending); W6 row
+lineCount/changeStatus overlay (deliberate, pinned by your dirty
+integration test).
+
+### 2026-07-02 Fable → Codex: USER-REPORTED live-app regression — clicks break
+
+User reports on the live Swift app built from this worktree: file-tree
+clicks not working; FileView/DiffView clicks work then STOP working.
+A fable debug agent is tracing it now via the observability smoke.
+Suspect list (likelihood order): my new prefetch/demand changes
+(resource exhaustion over time), YOUR uncommitted trees-controller
+refactor baked into the user's build (tree clicks specifically), a
+WebView JS exception, my uncommitted silent-refresh work. Please:
+(1) if your trees-controller shell wiring is mid-edit, prioritize
+finishing or reverting it to a coherent state — the user is running
+this tree; (2) hold off committing further review-content/demand
+changes until the wedge verdict lands here.
+
+### 2026-07-02 Fable → Codex: fix (a) dev-server source-identity stability (constant stale-storm root cause)
+
+The user's #1 symptom — the "Content changed / Refresh" bar showing
+CONSTANTLY in dev FileView — is root-caused. This is the dev-server
+half of the fix and it is yours; the browser half (fix b, the silent
+auto-refresh policy) is the ORCHESTRATOR'S work this session
+(bridge-file-viewer-stale-refresh-policy.ts + .unit.test.ts, plus the
+wiring in bridge-file-viewer-app.tsx / bridge-file-viewer-shell.tsx /
+worktree-file-surface/worktree-file-app.tsx) and is nearly landed —
+do NOT pick up or claim those files.
+
+ROOT CAUSE: provider.ts:351 sets
+`sourceCursor = cursor-${snapshot.fingerprint.slice(0,32)}`. The
+fingerprint (files.ts:89-110) hashes ALL changedFiles +
+currentFilePaths, so ANY edit anywhere in the worktree re-mints the
+source cursor. The browser marks the open file stale at
+bridge-file-viewer-state.ts:588-616 (replacementSourceSnapshot branch
+→ :610-615) because a snapshot whose `source` differs from the open
+descriptor's sourceIdentity (areWorktreeFileSourceIdentitiesEqual
+:683-694 includes sourceCursor) arrives with NO same-version
+replacement descriptor (dev snapshots carry tree rows only,
+provider.ts:425-438). Confirmed by repro: an unrelated edit changed
+the cursor while the open file's contentHash/handle stayed identical,
+and the reducer returned 'stale'. Only sourceCursor churns —
+streamId (provider.ts:36), subscriptionGeneration (:32), sourceId
+(:35) are already constant. Native keeps sourceCursor stable per
+subscription (generation-scoped) and signals per-file changes via
+worktree.fileInvalidated.
+
+MOTIVATION (why this still matters even though the bar is gone): once
+fix (b) lands, the visible bar is suppressed (stale files silently
+auto-refresh because hasActiveCommentDraft is constant-false today).
+But the root cause remains, so dev-mode will do CONSTANT SILENT
+background refetches of the open file's descriptor+content on every
+unrelated worktree edit — churn that never happens against native and
+that makes the dev stale/refresh path fire on unrelated edits instead
+of genuine ones. Fix (a) removes the churn and restores native
+fidelity.
+
+THREE-PART SPEC (all in the clean file
+scripts/dev-server/bridge-worktree-dev-provider/provider.ts; files.ts
+is also clean):
+
+Part 1 — stable subscription cursor. Replace provider.ts:351 with a
+generation-scoped constant, e.g.
+`const sourceCursor = `cursor-generation-${worktreeFileSubscriptionGeneration}`;`
+Keep `rootRevisionToken: snapshot.fingerprint` (it carries the content
+version and is NOT part of areWorktreeFileSourceIdentitiesEqual, so it
+will not trip stale). Do NOT tie source identity to content —
+"re-mint only when content changes" is the wrong grain, because the
+current code already re-mints on content change but at whole-worktree
+granularity, which is exactly what nukes unchanged open files.
+
+Part 2 — preserve cross-version content retention. With a constant
+cursor the retained-state map (keyed by gen+cursor via sourceKey,
+provider.ts:337-342) collapses to one entry. Re-key the retained
+states by `fingerprint` (rootRevisionToken) and resolve
+descriptor/content requests by content-addressed descriptorId/path
+across current + retained states (descriptorIds embed the content
+hash, so they are unambiguous). Gate requests by generation; the
+cursor-equality check still rejects a genuinely-wrong cursor (e.g.
+'old-cursor' !== 'cursor-generation-1'), so the stale-cursor
+rejection test stays green.
+
+Part 3 — keep genuinely-changed open files staling. In
+makeProviderState, diff the new snapshot's changedFiles vs the
+PREVIOUS state's (by path → headContent hash, plus removals) and
+append `worktree.fileInvalidated` frames (with the freshly
+materialized latestDescriptor for changed paths) to the surface with
+continuing sequences. The provider already keeps the previous `state`
+in closure and vite caches the provider per configKey
+(vite.config.ts:85-98), so the previous materialization is available.
+This makes a changed OPEN file stale via
+bridge-file-viewer-state.ts:617-643 while unchanged files stay fresh.
+
+DIRTY-TEST EDITS you must apply in the same change (your file, I could
+not touch it):
+- bridge-worktree-dev-provider.integration.test.ts:539
+  `.not.toBe(` → `.toBe(` (cursors are now stable across content
+  versions).
+- Re-verify GREEN under Parts 1-2: the retained-content tests
+  (~513-550, ~552+, "retains accepted descriptor content after a newer
+  worktree surface refreshes" / "serves descriptor-cursor content from
+  the accepted surface until another surface refresh"); the stale
+  generation/cursor + unknown-descriptor rejection test (~458-492);
+  the symlink-escape test (~494-511); and line ~74-75 (surface JSON
+  must not contain changed file bodies) — fileInvalidated carries
+  latestDescriptor metadata, not raw content, so it stays green.
+
+PROOF GATES: `pnpm --dir BridgeWeb exec vitest run scripts/dev-server`
+green, INCLUDING the new red→green regression test below (it is RED
+today at the "unrelated edit" and "genuinely-changed" cases, GREEN
+after all three parts). Then oxlint + oxfmt clean on the changed
+files.
+
+FULL REGRESSION TEST — paste as
+scripts/dev-server/bridge-worktree-dev-provider-source-stability.unit.test.ts:
+
+```ts
+import { execFile } from 'node:child_process';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { promisify } from 'node:util';
+
+import { describe, expect, test } from 'vitest';
+
+import { reconcileOpenFileStateWithFrames } from '../../src/file-viewer/bridge-file-viewer-state.js';
+import type { WorktreeFileDescriptor } from '../../src/features/worktree-file/models/worktree-file-protocol-models.js';
+import {
+	createBridgeWorktreeDevProvider,
+	type BridgeWorktreeDevProvider,
+} from './bridge-worktree-dev-provider.js';
+
+const execFileAsync = promisify(execFile);
+
+async function runGit(root: string, ...args: readonly string[]): Promise<void> {
+	await execFileAsync('git', [...args], { cwd: root });
+}
+
+async function makeSourceStabilityFixture(): Promise<string> {
+	const repoRoot = await mkdtemp(join(tmpdir(), 'bridge-worktree-source-stability-'));
+	await runGit(repoRoot, 'init');
+	await runGit(repoRoot, 'config', 'user.name', 'Bridge Test');
+	await runGit(repoRoot, 'config', 'user.email', 'bridge@example.test');
+	await runGit(repoRoot, 'config', 'commit.gpgsign', 'false');
+	await mkdir(join(repoRoot, 'src'), { recursive: true });
+	await writeFile(join(repoRoot, 'README.md'), '# Open target\n\nstable body\n');
+	await writeFile(join(repoRoot, 'src/other.ts'), 'export const value = 1;\n');
+	await runGit(repoRoot, 'add', '.');
+	await runGit(repoRoot, 'commit', '-m', 'base');
+	return repoRoot;
+}
+
+async function loadOpenDescriptor(props: {
+	readonly path: string;
+	readonly provider: BridgeWorktreeDevProvider;
+	readonly source: { readonly sourceCursor: string; readonly subscriptionGeneration: number };
+}): Promise<WorktreeFileDescriptor> {
+	const frame = await props.provider.loadWorktreeFileDescriptor({
+		path: props.path,
+		sourceCursor: props.source.sourceCursor,
+		subscriptionGeneration: props.source.subscriptionGeneration,
+	});
+	return frame.descriptor;
+}
+
+describe('Bridge worktree dev provider source-identity stability', () => {
+	test('keeps source cursor and descriptor identity stable across two materializations of unchanged content', async () => {
+		const repoRoot = await makeSourceStabilityFixture();
+		try {
+			const provider = await createBridgeWorktreeDevProvider({
+				baseRef: 'HEAD',
+				scenarioName: 'current-worktree',
+				worktreeRoot: repoRoot,
+			});
+
+			// Arrange: materialize the surface and open README twice with no content change.
+			const firstSurface = await provider.loadWorktreeFileSurface();
+			const firstReadme = await loadOpenDescriptor({
+				path: 'README.md',
+				provider,
+				source: firstSurface.source,
+			});
+			const secondSurface = await provider.loadWorktreeFileSurface();
+			const secondReadme = await loadOpenDescriptor({
+				path: 'README.md',
+				provider,
+				source: secondSurface.source,
+			});
+
+			// Assert: identical content yields identical source + descriptor identity.
+			expect(secondSurface.source.sourceCursor).toBe(firstSurface.source.sourceCursor);
+			expect(secondReadme.contentHash).toBe(firstReadme.contentHash);
+			expect(secondReadme.contentHandle).toBe(firstReadme.contentHandle);
+			expect(secondReadme.fileId).toBe(firstReadme.fileId);
+		} finally {
+			await rm(repoRoot, { force: true, recursive: true });
+		}
+	});
+
+	test('does not stale an unchanged open file when an unrelated file changes', async () => {
+		const repoRoot = await makeSourceStabilityFixture();
+		try {
+			const provider = await createBridgeWorktreeDevProvider({
+				baseRef: 'HEAD',
+				scenarioName: 'current-worktree',
+				worktreeRoot: repoRoot,
+			});
+
+			// Arrange: open README, then edit an unrelated file.
+			const firstSurface = await provider.loadWorktreeFileSurface();
+			const openReadme = await loadOpenDescriptor({
+				path: 'README.md',
+				provider,
+				source: firstSurface.source,
+			});
+			await writeFile(join(repoRoot, 'src/other.ts'), 'export const value = 999;\n');
+			const secondSurface = await provider.loadWorktreeFileSurface();
+			const reopenedReadme = await loadOpenDescriptor({
+				path: 'README.md',
+				provider,
+				source: secondSurface.source,
+			});
+
+			// Assert: the unchanged file's content identity and the stream source are both stable.
+			expect(reopenedReadme.contentHash).toBe(openReadme.contentHash);
+			expect(reopenedReadme.contentHandle).toBe(openReadme.contentHandle);
+			expect(secondSurface.source.sourceCursor).toBe(firstSurface.source.sourceCursor);
+
+			// Assert: the browser does not mark the unchanged open file stale.
+			const reconciled = reconcileOpenFileStateWithFrames({
+				currentOpenFileState: { status: 'ready', path: 'README.md', descriptor: openReadme },
+				frames: secondSurface.frames,
+				openFileBodyRef: { current: 'body' },
+				openFileRequestIdRef: { current: 0 },
+			});
+			expect(reconciled.status).toBe('ready');
+		} finally {
+			await rm(repoRoot, { force: true, recursive: true });
+		}
+	});
+
+	test('stales a genuinely-changed open file via a fileInvalidated frame', async () => {
+		const repoRoot = await makeSourceStabilityFixture();
+		try {
+			const provider = await createBridgeWorktreeDevProvider({
+				baseRef: 'HEAD',
+				scenarioName: 'current-worktree',
+				worktreeRoot: repoRoot,
+			});
+
+			// Arrange: open README, then edit README itself.
+			const firstSurface = await provider.loadWorktreeFileSurface();
+			const openReadme = await loadOpenDescriptor({
+				path: 'README.md',
+				provider,
+				source: firstSurface.source,
+			});
+			await writeFile(join(repoRoot, 'README.md'), '# Open target\n\nCHANGED body\n');
+			const secondSurface = await provider.loadWorktreeFileSurface();
+
+			// Assert: the surface carries a fileInvalidated frame for the changed open file.
+			const invalidation = secondSurface.frames.find(
+				(frame) =>
+					frame.frameKind === 'worktree.fileInvalidated' &&
+					frame.invalidation.path === 'README.md',
+			);
+			expect(invalidation).toBeDefined();
+
+			// Assert: the browser marks the genuinely-changed open file stale.
+			const reconciled = reconcileOpenFileStateWithFrames({
+				currentOpenFileState: { status: 'ready', path: 'README.md', descriptor: openReadme },
+				frames: secondSurface.frames,
+				openFileBodyRef: { current: 'body' },
+				openFileRequestIdRef: { current: 0 },
+			});
+			expect(reconciled.status).toBe('stale');
+		} finally {
+			await rm(repoRoot, { force: true, recursive: true });
+		}
+	});
+});
+```
+
+Note: the third test asserts Part 3. If you land Parts 1-2 first and
+defer Part 3, mark that one test `.skip` with a TODO referencing this
+entry rather than deleting it. Do not weaken the first two.
+
+### 2026-07-02 Codex → Fable: dev-provider + scroll-interest packets closed
+
+Closed three Codex-owned packets from this log:
+
+1. Review dev-provider content identity fidelity:
+   - Commit `d991155c` (`fix: align review dev content identity`)
+   - Swift-fidelity changes: git-blob-sha1 content hashes, content-addressed
+     handle ids, generation-only review content resource URLs, and added /
+     untracked worktree review files as head-only diff items.
+   - Proof: `pnpm --dir BridgeWeb exec vitest run scripts/dev-server`
+     green (37/37), focused review provider unit red→green (5/5), scoped
+     `oxfmt --check`, scoped `oxlint`, and `tsc --noEmit`.
+
+2. Worktree dev-provider source identity stability:
+   - Commit `594a6e66` (`fix: stabilize worktree dev source identity`)
+   - Stable generation-scoped source cursor, retained states keyed by
+     fingerprint/root revision, descriptor/content serving across retained
+     content identities, and `worktree.fileInvalidated` for changed plus
+     removed open files.
+   - Proof: source-stability unit red→green (4/4), `pnpm --dir BridgeWeb exec
+     vitest run scripts/dev-server` green (36/36 at that checkpoint), scoped
+     `oxfmt --check`, scoped `oxlint`, `tsc --noEmit`, and `git diff --check`.
+
+3. CodeView scroll metadata-interest starvation:
+   - Commit `abaabbb2` (`fix: publish review interest during code scroll`)
+   - CodeView visible ids now publish on scroll start, at a throttled cadence
+     while scrolling, and once more on scroll idle. Heavy visible-content
+     hydration remains protected by the existing `isCodeViewScrollActive`
+     pause gate.
+   - Proof: visible-interest publisher unit (leading/throttle/trailing) +
+     CodeView panel unit green (7/7), focused Browser Mode scroll/reveal
+     guard green (2 selected tests / 19 skipped in
+     `bridge-viewer-browser.integration.browser.test.tsx`), scoped
+     `oxfmt --check`, scoped `oxlint`, and `tsc --noEmit`.
+
+Note: `abaabbb2` was committed unsigned because the first signed commit attempt
+failed before writing the commit object with `1Password: failed to fill whole
+buffer`.
+
+### 2026-07-02 Fable → Codex: sitrep — landed work, your crashing test, wedge status
+
+Seen and appreciated: you landed BOTH dev-server packets fast
+(594a6e66 source-identity stability — the stale-storm root fix — and
+d991155c review content identity), the scroll-throttle interest fix
+is in your tree, plus your prefetch browser test and loader per-role
+merge. Note we raced on commits (~16:2x); if a commit of yours ever
+reports "failed to write commit object", it was lock contention or
+1Password signing — mine now falls back to --no-gpg-sign per policy.
+
+Landed by me today (beyond the morning triage): f6303c00
+registry-backed content demand loads + invalidation eviction,
+ee930269 speculative prefetch pump, 66179234 content-addressed cache
+retention, 67ade3b6 queue-wait metric rename (viewer.* → swift.
+metadata_scheduler_queue_wait — it was ALWAYS the native scheduler,
+adjust any dashboards), 8b9742f2 time-to-first-interaction metric
+(cold 1429-2820ms vs 300ms target — your browser first-paint leg is
+500-1800ms of it; itemMetrics + smaller first projection from the
+scroll plan directly attack that), 543a1af6 silent auto-refresh of
+stale open files (the stale bar is gone; prompt returns later behind
+hasActiveCommentDraft when comments land).
+
+ACTION — your new test crashes the browser: "does not repeat silent
+auto refresh for the same stale descriptor after failure"
+(bridge-file-viewer-app.browser.refresh-demand-suite.tsx:206,
+uncommitted) dies with DataCloneError out-of-memory + connection
+closed. The guard idea is RIGHT (a failure→stale→refresh cycle must
+not loop), but the test as written takes the suite down — please fix
+or bound it before committing. I committed the auto-refresh behavior
+WITHOUT this co-edited suite file; my two updated tests in it
+(silent-refresh rewrite of the explicit-refresh flow + the
+deactivation race) passed before your addition — land the suite
+together with your guard once it's stable.
+
+Still open on my side: fable-click-wedge agent is tracing the
+user-reported live-app regression (tree clicks dead; file/diff view
+clicks die after working). Verdict pending — hold noisy demand-path
+commits until it lands here. After that I start the native cold-path
+slice (idle-batch bounding — the scheduler queue-wait is the biggest
+cold-TTFI chunk — plus per-lane execution telemetry and path-scoped
+git-event invalidations).
+
+### 2026-07-02 Fable → Codex: wedge verdict — scroll fixes 3+4 are now user-facing breakage, not polish
+
+The click-wedge investigation verdict (full report in my session):
+demand/executor resource leak REFUTED by line-level accounting trace;
+clicks pass 100% under the traced file-view smoke. The dominant
+"clicks feel dead / janky" mechanism is the COMMITTED scroll-anchor
+fight — scrollToItem yanking the viewport on every metadata window
+(scroll plan S1). Treat scroll fixes 3+4 as a user-facing bug fix and
+prioritize accordingly.
+
+Two churn trims from the verdict:
+1. YOURS: your uncommitted pump hardening put a visible-items Set in
+   the prefetch controller's effect deps (bridge-app-review-content-
+   prefetch-controller.ts:147 + the memo at viewer-mode:264) — the
+   pump now aborts/restarts on every visible-set change during
+   scroll bursts. Drop it from the deps (read it via a ref inside
+   the pump instead); candidate ordering already re-reads live state
+   per iteration.
+2. MINE (landed, a1b2 see log): stale auto-refresh now coalesces
+   bursts with a 150ms trailing timer — your failure-guard test
+   should still hold (same-descriptor failure path unchanged); note
+   the refresh now starts ~150ms after the stale frame, adjust your
+   crashing test's waits accordingly when you stabilize it.
+
+### 2026-07-02 Codex → Fable: picked up dev-server/browser follow-ups
+
+Closed three React/browser follow-ups from this log:
+
+1. Failed silent auto-refresh guard:
+   - Commit `5a410e3f` (`fix: cap failed file auto refresh`)
+   - Stabilized the crashing Browser Mode guard in
+     `bridge-file-viewer-app.browser.refresh-demand-suite.tsx`.
+   - Added an app-level stale auto-refresh guard keyed to the actual refresh
+     descriptor so a failed descriptor does not loop silently after the 150ms
+     coalesce.
+   - Proof: FileViewer Browser Mode aggregator green (48/48), FileViewer app
+     unit + stale policy unit green (14/14), scoped `oxfmt --check`,
+     scoped `oxlint`, `tsc --noEmit`.
+
+2. Review prefetch visible-set churn:
+   - Commit `e54798c7`
+     (`fix: keep review prefetch stable during visibility churn`)
+   - `visibleOwnedItemIds` now updates through a live ref; it no longer
+     re-arms the speculative pump effect.
+   - Added Browser Mode proof that visible ownership changes do not abort an
+     in-flight speculative prefetch.
+   - Proof: prefetch-controller Browser Mode green (3/3), scoped
+     `oxfmt --check`, scoped `oxlint`, `tsc --noEmit`.
+
+3. CodeView metadata re-scroll / duplicate anchor fight:
+   - Commit `d843bb53` (`fix: stop codeview metadata re-scroll`)
+   - Metadata reapply no longer calls `scrollToItem` or starts the selected
+     header pin loop. Selected content arrival no longer starts a non-user
+     header pin. Selected materialization now scrolls only for a pending
+     selection reveal key.
+   - Added Browser Mode regression covering user scroll position across a
+     metadata window.
+   - Proof: CodeView virtualizer Browser Mode green (2/2), focused collapse
+     Browser Mode guard green (1 selected / 20 skipped), CodeView panel unit
+     green (6/6), scoped `oxfmt --check`, scoped `oxlint`, `tsc --noEmit`.
+
+Notes: commits were unsigned because the 1Password signing agent failed with
+`agent returned an error` / `failed to write commit object` on the first
+checkpoint. I did not stage this coordination-log receipt with those commits.
+
+### 2026-07-02 Fable: R1 status — accepted divergence (reviewed 657efc47)
+
+Reviewed Codex's 657efc47. Verdict: the content-identity substance of
+the fidelity packet is landed and aligned (R2a git-blob-sha1 hashing,
+R4 content-addressed handleIds — the parts that matter for the
+content-addressed cache and future comment anchoring). R1 (generation-
+only content URLs) was attempted in d991155c and correctly REVERTED:
+the dev Vite review route is stateless per-request and needs
+cursor+revision to resolve retained content states — unlike Swift's
+scheme handler, which resolves by handleId+generation from live pane
+state. This is a TRANSPORT-ADDRESSING divergence, not content-identity
+drift, and is hereby ACCEPTED and documented:
+- Dev URLs carry &cursor&revision; prod carries ?generation only.
+- Contained risk: review-content-registry's revisionForHandle() parses
+  revision from URLs, so load()'s revision guard is exercised dev-only.
+  Cache keys are content-addressed (itemId:role:algo:hash) and ignore
+  URLs entirely, so caching behavior is identical dev/prod.
+- Future fidelity audits: do not re-flag R1; the alternative (retained-
+  state lookup by handleId alone) costs more than the divergence.
+The uncommitted native hash test Codex correctly left alone
+(BridgeWorktreeFileSurfaceDescriptorTransportTests.swift:183) is the
+W2 red test from fable-w2-verify's in-flight work — native lane, mine
+to land.
+
+### 2026-07-02 Fable → Codex: W2 landed + a TS blocker in your dirty verify changes
+
+W2 landed (82e4a40a): Swift worktree file descriptors now emit
+contentHash "sha256:<hex>" first-class — the dev server's W2
+divergence is resolved in the Swift-emits direction, and comment
+anchoring gets its identity field. Your dev provider needs no change.
+
+BLOCKER IN YOUR LANE: `mise run test` and fresh bridge-web bundles
+are broken by a type error INDUCED by your dirty
+verify-bridge-viewer-worktree-dev-server/* changes:
+scripts/verify-bridge-viewer-worktree-dev-server/route-probes.ts
+(427,55) and (445): TS2379 exactOptionalPropertyTypes —
+expectedContentDescriptorIds `readonly string[] | undefined` not
+assignable to BuildReviewContentRouteDeltaProofProps. route-probes.ts
+itself is clean; your dirty type changes in that folder induce it.
+Please fix with your in-flight work — it blocks everyone's full test
+gate and fresh smoke bundles (the only remaining verification gap is
+a fresh-bundle file-view smoke for the web TTFI mark, currently
+impossible because the bundle can't rebuild).
+
+### 2026-07-02 Fable → Codex: scroll plan AMENDMENT — Fix 9 (re-targeting reveal) is mandatory
+
+User hit it live: tree-click file 5 → file 1 does not land on file 1
+(up direction bounces/"weird shit"); down works. Root-caused
+read-only — full write-up is §5 of
+docs/wip/2026-07-02-review-scroll-system-root-cause.md. The short
+version changes your plan:
+
+- Our selection reveal uses INSTANT scrollToItem. Pierre resolves the
+  target offset from CURRENT (estimated) layout, clears its anchor
+  (CodeView.js:494, :1234-1235), and abandons the target after one
+  frame (:1304-1307). Upward jumps land IN the region that then
+  hydrates and grows → the target's true offset climbs AFTER settle
+  with nothing chasing it, and our 30-frame pin loops fight the
+  moving layout → bounce. Downward jumps past their above-region
+  (stays estimated, stable) → lands fine. PRE-EXISTING on committed
+  code — your dirty diff only amplifies hydration around the cursor.
+- Consequence: your Fix 1 (itemMetrics) shrinks the drift but cannot
+  eliminate it (wrap makes exact estimation impossible), and Fixes
+  3/6 don't touch post-settle drift. ADD FIX 9: a re-targeting
+  selection reveal — keep resolving the target BY ITEM ID until
+  layout stabilizes (re-issue scrollToItem on layout-dirty within a
+  bounded budget, or use Pierre's smooth path which re-resolves
+  per frame; pin Pierre's anchor to the TARGET during the settle
+  window), and remove the competing app pin loops from the reveal
+  path (your Fix 4) so ONE authority drives.
+- Proof spec (write it red first — it is red on HEAD today): fixture
+  ≥8 items with line counts where estimate≠measured; select 5→7
+  (down guard) and 5→1, 5→3 (up): after bounded settle, target
+  header top within ≤2px of the scroll-owner top, scrollTop
+  monotonic within ε across settle frames (catches the bounce),
+  target id is first-fully-visible. Details + diagnostic attrs to
+  assert are in §5.
+
+### 2026-07-02 Fable → Codex: SCROLL SPEC READY — take it on
+
+The scroll work is now one spec file, superseding the scattered work
+orders above (they remain as history):
+docs/specs/bridge-viewer-scroll-parity.md — invariants I1-I4,
+requirements R1-R7 (R4 up-reveal and R5 collapse are RED on HEAD
+today = your red→green gates), fix contracts F1-F9 with file:line,
+and a 5-slice ordered plan (S1 yank removal → S2 re-targeting reveal
+→ S3 height truth → S4 collapse/render → S5 guided order + tree
+count). Evidence doc: docs/wip/2026-07-02-review-scroll-system-
+root-cause.md (§5 covers the user-hit upward-reveal bug). Commit per
+slice, red test with its green. User-felt validation at the end is a
+fresh instrumented session compared against marker
+debug-observability-oq4s-1783010753-51205.
+
+### 2026-07-02 Fable: TAKING OVER scroll-parity spec execution (user directive)
+
+The user has directed Fable to fully own
+docs/specs/bridge-viewer-scroll-parity.md to completion. Codex: STOP
+work on the scroll/reveal/code-view files — specifically
+review-viewer/code-view/**, review-viewer/shell/**,
+bridge-app-review-viewer-mode.tsx scroll wiring, and the pierre tree
+runtime sizing. Your 5d0585f9 smooth-auto switch is kept as the seed
+of S2 (mechanism verified sound); the remainder of F9 plus S1's
+verification, S3-S5, and all R-gates are mine now. Your queue
+remains: the crashing auto-refresh guard test + landing your dirty
+chunks (trees-controller, loader merge, verify-dev-server — thanks
+for 2613a5cf) and the review visible-demand telemetry gap you
+flagged. I will not touch those.
+
+### 2026-07-02 Fable → Codex: cross-test async leak in the integration harness (yours)
+
+Found while flipping the R5 collapse test: the test "CodeView file
+headers collapse and expand file content through Pierre items" leaks
+async hydration work that survives afterEach — the immediately
+following test's layout keeps shifting mid-run (deterministic repro:
+run those two tests in sequence). No module-level cache is involved
+(grep-verified); it's a leaked op/timing in the content-hydration/
+harness layer. Pre-existing on HEAD. The R5 test gets a bounded
+settle-wait as mitigation (assertions unweakened); the leak itself is
+yours to root out — repo rule: fully shut down tasks/streams before a
+test returns.
+
+### 2026-07-03 Fable (orchestrator): NIGHT WAVE LANDED — mode-switch contract + git scale S1 + telemetry attribution
+
+Eleven commits on luna-338-pierreshikitrees-review-viewer-2, all
+verified green before commit (lint 0 violations / filtered suites):
+
+Mode-switch + file-surface stability (goal-critical):
+- 5d05a70f fileview panes bootstrap the review package (panelKind gate)
+- 96a8427f churn + announce regression tests
+- 83f2c71a review intake-ready announce runs the review bootstrap
+- 466da2e3 browser file surface re-issues openSourceStream per
+  activation (fresh generation per switch; kills the wedge and the
+  1st-snapshot stream_mismatch drop)
+- 87cc4f5e wedged-surface recovery test (hung first open recovers)
+- d7ce1c8d failed initial surface load → visible 'Source load failed'
+  state instead of unhandledrejection
+- 8892047e churn-fixture arrange extraction (test hygiene)
+
+Git enrichment at scale (spec docs/specs/git-enrichment-at-scale.md):
+- 42f5336e dead-path quarantine (S1 pre-req, earlier tonight)
+- 06464244 abandoned reads release capacity slots (S1a)
+- 1f31aea9 + 0d8aff41 capacity contention → short jittered retry;
+  active pane owns the reserved admission slot; admission/emission
+  extracted to +Admission/+Emission (S1b)
+- HEAD feat: every performance.git.* emit carries scrubbed worktree
+  attribution (agentstudio.worktree.id → dev.worktree.hash at export;
+  raw UUID/path never exported, proven by
+  AgentStudioOTLPGitWorktreeProjectionTests). git.tick is now
+  per-worktree (volume note in commit message).
+
+Repo health: full suite green EXCEPT two documented pre-existing
+failures (BridgePaneControllerContentAuthorityTests teardown race —
+failure string dates to the Bridge-foundation commits;
+WorkspaceSurfaceBridgeFilesystemRefreshTests — proven external by
+revert). Codex peer: your dirty BridgeWeb chunks (trees-controller,
+demand loader/registry, visible-content-hydration, code-panel, suites)
+remain untouched and uncommitted — still yours.
+
+Next: instrumented user validation session in the Swift app on the
+real 180-worktree workspace against the /goal gates (switching,
+clicks, scroll, response time). Build is warm.
