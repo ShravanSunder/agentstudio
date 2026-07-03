@@ -351,16 +351,16 @@ struct AgentStudioGitWorkingTreeStatusProviderTests {
         #expect(await tracker.startedCount() == 1)
     }
 
-    @Test("timed out SDK reads across roots respect global detached read limit")
-    func timedOutSDKReadsAcrossRootsRespectGlobalDetachedReadLimit() async throws {
+    @Test("timed out reads release capacity for distinct roots while still gating the same root")
+    func timedOutReadsReleaseCapacityForDistinctRootsWhileStillGatingSameRoot() async throws {
         let firstRootPath = URL(fileURLWithPath: "/tmp/noncooperative-slow-repo-1")
         let secondRootPath = URL(fileURLWithPath: "/tmp/noncooperative-slow-repo-2")
-        let thirdRootPath = URL(fileURLWithPath: "/tmp/noncooperative-slow-repo-3")
+        let recoveredRootPath = URL(fileURLWithPath: "/tmp/recovered-distinct-repo")
         let gate = StatusReadGate()
         let tracker = StatusReadTracker()
         let timeoutScheduler = ManualStatusTimeoutScheduler()
         let activeReadRegistry = AgentStudioGitActiveStatusReadRegistry(maxActiveReadCount: 2)
-        let provider = AgentStudioGitWorkingTreeStatusProvider(
+        let blockingProvider = AgentStudioGitWorkingTreeStatusProvider(
             timeout: .seconds(999),
             timeoutScheduler: timeoutScheduler,
             activeReadRegistry: activeReadRegistry
@@ -372,10 +372,10 @@ struct AgentStudioGitWorkingTreeStatusProviderTests {
         }
 
         let firstRead = Task {
-            await provider.statusResult(for: firstRootPath)
+            await blockingProvider.statusResult(for: firstRootPath)
         }
         let secondRead = Task {
-            await provider.statusResult(for: secondRootPath)
+            await blockingProvider.statusResult(for: secondRootPath)
         }
         await tracker.waitForStartedCount(2)
         await timeoutScheduler.waitUntilScheduledCount(2)
@@ -384,7 +384,19 @@ struct AgentStudioGitWorkingTreeStatusProviderTests {
         let firstResult = await firstRead.value
         let secondResult = await secondRead.value
 
-        let overCapacityResult = await provider.statusResult(for: thirdRootPath)
+        // Both detached reads are still gated (orphaned, draining). Because the caller
+        // abandoned them on timeout, their capacity slots must be released so a distinct
+        // root is admitted rather than starved by the two-slot cap.
+        let recoveredProvider = AgentStudioGitWorkingTreeStatusProvider(
+            activeReadRegistry: activeReadRegistry
+        ) { _, _ in
+            makeSnapshot()
+        }
+        let recoveredResult = await recoveredProvider.statusResult(for: recoveredRootPath)
+
+        // The root in-flight marker is retained until true completion, so a fresh read of
+        // an abandoned root is still rejected as already-in-flight (not started twice).
+        let sameRootResult = await blockingProvider.statusResult(for: firstRootPath)
         let startCountWhileDetachedReadsAreGated = await tracker.startedCount()
 
         await gate.release()
@@ -398,14 +410,52 @@ struct AgentStudioGitWorkingTreeStatusProviderTests {
             Issue.record("expected second result to time out, got \(secondResult)")
             return
         }
-        guard case .unavailable(let overCapacityUnavailable) = overCapacityResult else {
-            Issue.record("expected third result to be unavailable, got \(overCapacityResult)")
+        guard case .available = recoveredResult else {
+            Issue.record("expected distinct root to be admitted after abandonment, got \(recoveredResult)")
+            return
+        }
+        guard case .unavailable(let sameRootUnavailable) = sameRootResult else {
+            Issue.record("expected same-root retry to be unavailable, got \(sameRootResult)")
             return
         }
         #expect(firstUnavailable.reason == .timeout)
         #expect(secondUnavailable.reason == .timeout)
-        #expect(overCapacityUnavailable.reason == .readCapacityExceeded)
+        #expect(sameRootUnavailable.reason == .readAlreadyInFlight)
+        // Only the two blocking reads ran; the same-root retry was gated before starting.
         #expect(startCountWhileDetachedReadsAreGated == 2)
+    }
+
+    @Test("registry releases capacity on abandonment yet gates the root until true completion")
+    func registryReleasesCapacityOnAbandonmentYetGatesRootUntilTrueCompletion() {
+        // Arrange: a two-slot registry with both slots held.
+        let registry = AgentStudioGitActiveStatusReadRegistry(maxActiveReadCount: 2)
+        let first = AgentStudioGitActiveStatusReadKey(URL(fileURLWithPath: "/tmp/registry-first"))
+        let second = AgentStudioGitActiveStatusReadKey(URL(fileURLWithPath: "/tmp/registry-second"))
+        let distinct = AgentStudioGitActiveStatusReadKey(URL(fileURLWithPath: "/tmp/registry-distinct"))
+        let extra = AgentStudioGitActiveStatusReadKey(URL(fileURLWithPath: "/tmp/registry-extra"))
+
+        #expect(registry.start(first) == .started)
+        #expect(registry.start(second) == .started)
+        #expect(registry.start(distinct) == .capacityExceeded)
+
+        // Act: the caller abandons the first read; its detached read is still draining.
+        registry.releaseCapacity(first)
+
+        // Assert: the freed slot admits a distinct root, while the abandoned root stays
+        // gated against a duplicate concurrent read.
+        #expect(registry.start(distinct) == .started)
+        #expect(registry.start(first) == .sameRootAlreadyInFlight)
+
+        // Assert: a redundant release does not over-free — the two awaited slots remain full.
+        registry.releaseCapacity(first)
+        #expect(registry.start(extra) == .capacityExceeded)
+
+        // Act: the orphaned reads truly finish, clearing their root markers and slots.
+        registry.finish(first)
+        registry.finish(distinct)
+
+        // Assert: with the first root's marker cleared and a slot free, it starts fresh.
+        #expect(registry.start(first) == .started)
     }
 
     @Test("successful SDK read leaves root immediately available for another read")
