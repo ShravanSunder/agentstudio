@@ -480,6 +480,12 @@ export function BridgeReviewViewerMode(
 	});
 	const selectedContentLoadingItemId =
 		selectedCanvasLoadingReason === 'content' ? rootSnapshot.selectedItemId : null;
+	const selectedContentDemandStartedAtMilliseconds =
+		selectedContentResourcesState?.status === 'ready' &&
+		selectedContentResourcesState.itemId === rootSnapshot.selectedItemId &&
+		selectedContentResourcesState.contentKey === currentSelectedContentKey
+			? (selectedContentResourcesState.demandStartedAtMilliseconds ?? null)
+			: null;
 	return (
 		<BridgeReviewViewerShellBoundary
 			codeViewWorkerFactory={props.codeViewWorkerFactory}
@@ -506,6 +512,7 @@ export function BridgeReviewViewerMode(
 			reviewTreeRows={reviewTreeRows}
 			rootSnapshot={rootSnapshot}
 			selectedCanvasLoadingReason={selectedCanvasLoadingReason}
+			selectedContentDemandStartedAtMilliseconds={selectedContentDemandStartedAtMilliseconds}
 			selectedContentLoadingItemId={selectedContentLoadingItemId}
 			selectedContentResources={selectedContentResources}
 			selectedContentUnavailablePath={selectedContentUnavailablePathForCurrentSelection({

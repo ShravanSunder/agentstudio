@@ -222,6 +222,8 @@ extension BridgeTelemetryBatchValidator {
         contract: BridgeTelemetryEventContract
     ) -> Bool? {
         switch name {
+        case "performance.bridge.web.code_view_item_materialize":
+            return codeViewItemMaterializeContractMatches(contract)
         case "performance.bridge.web.content_fetch":
             return contentFetchContractMatches(contract)
         case "performance.bridge.web.file_open_ready":
@@ -245,6 +247,10 @@ extension BridgeTelemetryBatchValidator {
             "performance.bridge.web.selection_commit",
             "performance.bridge.web.selected_content_ready":
             return reviewStartupContractMatches(contract)
+        case "performance.bridge.web.review_content_demand":
+            return reviewContentDemandContractMatches(contract)
+        case "performance.bridge.web.selected_content_painted":
+            return selectedContentPaintedContractMatches(contract)
         case "performance.bridge.web.rpc_send":
             return rpcSendContractMatches(contract)
         case "performance.bridge.web.telemetry_drop":

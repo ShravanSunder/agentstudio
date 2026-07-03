@@ -186,6 +186,7 @@ export function useSelectedReviewContentDemandController(
 			selectedContentAbortControllerRef.current = contentAbortController;
 			selectedContentActiveLoadKeyRef.current = selectedContentLoadKey;
 			const selectedContentLoadStarts = selectedContentLoadStartByKeyRef.current;
+			const selectedContentDemandStartedAtMilliseconds = performance.now();
 			setSelectedContentResourcesState(
 				(current: SelectedContentResourcesState | null): SelectedContentResourcesState | null =>
 					current?.contentKey === loadProps.selectedContentKey
@@ -193,13 +194,17 @@ export function useSelectedReviewContentDemandController(
 						: {
 								itemId: loadProps.itemId,
 								contentKey: loadProps.selectedContentKey,
+								demandStartedAtMilliseconds: selectedContentDemandStartedAtMilliseconds,
 								status: 'loading',
 								resources: null,
 							},
 			);
 			const parentTraceContext =
 				currentReviewPackageTelemetryContextRef.current?.traceContext ?? null;
-			selectedContentLoadStarts.set(loadProps.selectedContentKey, performance.now());
+			selectedContentLoadStarts.set(
+				loadProps.selectedContentKey,
+				selectedContentDemandStartedAtMilliseconds,
+			);
 			recordBridgeViewerContentQueueTelemetry({
 				telemetryRecorder: telemetryRecorderRef.current,
 				parentTraceContext,
@@ -235,6 +240,7 @@ export function useSelectedReviewContentDemandController(
 							selectedContentResourcesStateFromDemandLoadResult({
 								itemId: loadProps.itemId,
 								contentKey: loadProps.selectedContentKey,
+								demandStartedAtMilliseconds: loadStartMilliseconds,
 								loadResult,
 							}),
 						);
@@ -264,6 +270,7 @@ export function useSelectedReviewContentDemandController(
 						setSelectedContentResourcesState({
 							itemId: loadProps.itemId,
 							contentKey: loadProps.selectedContentKey,
+							demandStartedAtMilliseconds: null,
 							status: 'failed',
 							resources: null,
 						});

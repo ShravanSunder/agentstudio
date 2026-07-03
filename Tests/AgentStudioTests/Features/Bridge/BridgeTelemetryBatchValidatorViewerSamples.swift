@@ -157,6 +157,64 @@ var bridgeViewerTelemetryContractSamples: [BridgeTelemetrySample] {
             ]
         ),
         viewerSample(
+            name: "performance.bridge.web.code_view_item_materialize",
+            phase: "code_view_item_materialize",
+            priority: "hot",
+            slice: "code_view_item",
+            transport: "swift",
+            extraStrings: [
+                "agentstudio.bridge.content_bytes_bucket": "small",
+                "agentstudio.bridge.item_count_bucket": "small",
+                "agentstudio.bridge.language_class": "swift",
+                "agentstudio.bridge.result": "success",
+                "agentstudio.bridge.viewer": "review",
+            ],
+            extraBooleans: [
+                "agentstudio.bridge.selected": true
+            ]
+        ),
+        viewerSample(
+            name: "performance.bridge.web.selected_content_painted",
+            phase: "selected_content_painted",
+            priority: "hot",
+            slice: "code_view_item",
+            transport: "swift",
+            extraStrings: [
+                "agentstudio.bridge.viewer": "review"
+            ],
+            extraNumbers: [
+                "agentstudio.bridge.selected_content.click_to_paint_ms": 32,
+                "agentstudio.bridge.selected_content.frame_wait_ms": 8,
+                "agentstudio.bridge.selected_content.materialize_ms": 12,
+            ]
+        ),
+        viewerSample(
+            name: "performance.bridge.web.review_content_demand",
+            phase: "review_content_demand",
+            priority: "hot",
+            slice: "content_fetch",
+            transport: "content",
+            extraStrings: [
+                "agentstudio.bridge.content.interest": "selected",
+                "agentstudio.bridge.result": "success",
+                "agentstudio.bridge.result_reason": "none",
+                "agentstudio.bridge.viewer": "review",
+            ],
+            extraNumbers: [
+                "agentstudio.bridge.demand.active.count": 0,
+                "agentstudio.bridge.demand.deferred.count": 0,
+                "agentstudio.bridge.demand.duration_ms": 24,
+                "agentstudio.bridge.demand.failed.count": 0,
+                "agentstudio.bridge.demand.foreground.count": 1,
+                "agentstudio.bridge.demand.idle.count": 0,
+                "agentstudio.bridge.demand.intent.count": 1,
+                "agentstudio.bridge.demand.loaded.count": 1,
+                "agentstudio.bridge.demand.nearby.count": 0,
+                "agentstudio.bridge.demand.speculative.count": 0,
+                "agentstudio.bridge.demand.visible.count": 0,
+            ]
+        ),
+        viewerSample(
             name: "performance.bridge.shiki.highlight",
             phase: "highlight",
             priority: "hot",
@@ -312,7 +370,8 @@ func viewerSample(
     slice: String,
     transport: String,
     extraStrings: [String: String],
-    extraNumbers: [String: Double] = [:]
+    extraNumbers: [String: Double] = [:],
+    extraBooleans: [String: Bool] = [:]
 ) -> BridgeTelemetrySample {
     var stringAttributes = [
         "agentstudio.bridge.phase": phase,
@@ -329,6 +388,6 @@ func viewerSample(
         traceContext: nil,
         stringAttributes: stringAttributes,
         numericAttributes: extraNumbers,
-        booleanAttributes: [:]
+        booleanAttributes: extraBooleans
     )
 }

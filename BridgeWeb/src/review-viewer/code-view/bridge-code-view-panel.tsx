@@ -3,7 +3,13 @@ import type { CodeViewHandle } from '@pierre/diffs/react';
 import type { ReactElement } from 'react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
-import { recordBridgeCodeViewHydrationTelemetry } from '../telemetry/bridge-review-viewer-telemetry.js';
+import type { BridgeTelemetryRecorder } from '../../foundation/telemetry/bridge-telemetry-recorder.js';
+import type { BridgeTraceContext } from '../../foundation/telemetry/bridge-trace-context.js';
+import {
+	recordBridgeCodeViewHydrationTelemetry,
+	recordBridgeCodeViewItemMaterializeTelemetry,
+	recordBridgeSelectedContentPaintedTelemetry,
+} from '../telemetry/bridge-review-viewer-telemetry.js';
 import {
 	createBridgeCodeViewInitialItems,
 	materializeBridgeCodeViewItem,
@@ -779,6 +785,11 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 					continue;
 				}
 				const updateResult = controller.applyItemUpdate(nextMaterializedItem);
+				const materializationCompletedAtMilliseconds = performance.now();
+				const materializeMilliseconds = Math.max(
+					0,
+					materializationCompletedAtMilliseconds - itemMaterializationStartedAt,
+				);
 				didUpdateRenderedItems = true;
 				materializedItemIds.push(itemId);
 				if (itemId === props.selectedItemId) {
@@ -808,13 +819,31 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 					lastSelectionScrollKeyRef.current = selectionScrollKey;
 					setMaterializationDiagnostic(
 						materializationDiagnosticForCodeViewItem({
-							durationMilliseconds: Math.max(0, performance.now() - itemMaterializationStartedAt),
+							durationMilliseconds: materializeMilliseconds,
 							item: nextMaterializedItem,
 							modelItem: isBridgeCodeViewItem(currentModelItem) ? currentModelItem : null,
 							updateResult,
 						}),
 					);
 					if (props.telemetryRecorder !== undefined) {
+						recordBridgeCodeViewItemMaterializeTelemetry({
+							telemetryRecorder: props.telemetryRecorder,
+							parentTraceContext: props.telemetryParentTraceContext ?? null,
+							projection: props.projection,
+							item: selectedItem,
+							resources,
+							durationMilliseconds: materializeMilliseconds,
+							result: updateResult,
+							selected: true,
+						});
+						scheduleSelectedContentPaintedTelemetry({
+							telemetryRecorder: props.telemetryRecorder,
+							traceContext: props.telemetryParentTraceContext ?? null,
+							selectionDemandStartedAtMilliseconds:
+								props.selectedContentDemandStartedAtMilliseconds ?? null,
+							materializeMilliseconds,
+							materializationCompletedAtMilliseconds,
+						});
 						recordBridgeCodeViewHydrationTelemetry({
 							telemetryRecorder: props.telemetryRecorder,
 							parentTraceContext: props.telemetryParentTraceContext ?? null,
@@ -861,6 +890,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		materializationResourceEntries,
 		props.projection,
 		props.reviewPackage,
+		props.selectedContentDemandStartedAtMilliseconds,
 		props.selectedItemId,
 		props.selectedItemPresentation,
 		props.telemetryParentTraceContext,
@@ -911,4 +941,31 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 				: { workerPoolEnabled: props.workerPoolEnabled })}
 		/>
 	);
+}
+
+export function scheduleSelectedContentPaintedTelemetry(props: {
+	readonly telemetryRecorder: BridgeTelemetryRecorder;
+	readonly traceContext: BridgeTraceContext | null;
+	readonly selectionDemandStartedAtMilliseconds: number | null;
+	readonly materializeMilliseconds: number;
+	readonly materializationCompletedAtMilliseconds: number;
+	readonly now?: () => number;
+	readonly requestAnimationFrame?: (callback: FrameRequestCallback) => number;
+}): void {
+	if (props.selectionDemandStartedAtMilliseconds === null) {
+		return;
+	}
+	const selectionDemandStartedAtMilliseconds = props.selectionDemandStartedAtMilliseconds;
+	const now = props.now ?? performance.now.bind(performance);
+	const requestFrame = props.requestAnimationFrame ?? requestAnimationFrame;
+	requestFrame((): void => {
+		const paintedAtMilliseconds = now();
+		recordBridgeSelectedContentPaintedTelemetry({
+			telemetryRecorder: props.telemetryRecorder,
+			traceContext: props.traceContext,
+			clickToPaintMilliseconds: paintedAtMilliseconds - selectionDemandStartedAtMilliseconds,
+			frameWaitMilliseconds: paintedAtMilliseconds - props.materializationCompletedAtMilliseconds,
+			materializeMilliseconds: props.materializeMilliseconds,
+		});
+	});
 }

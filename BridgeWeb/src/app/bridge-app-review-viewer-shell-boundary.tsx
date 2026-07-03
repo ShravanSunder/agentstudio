@@ -55,6 +55,7 @@ export interface BridgeReviewViewerShellBoundaryProps {
 	readonly reviewTreeRows: readonly ReviewTreeRowMetadata[];
 	readonly rootSnapshot: BridgeReviewViewerRootSnapshot;
 	readonly selectedCanvasLoadingReason: BridgeReviewCanvasLoadingReason | null;
+	readonly selectedContentDemandStartedAtMilliseconds: number | null;
 	readonly selectedContentLoadingItemId: string | null;
 	readonly selectedContentResources: BridgeCodeViewContentResources | null;
 	readonly selectedContentUnavailablePath: string | null;
@@ -191,6 +192,7 @@ function reviewViewerShellPropsForBoundary(
 		reviewPackage: props.reviewPackage,
 		reviewTreeRows: props.reviewTreeRows,
 		viewerHeaderControls: props.viewerHeaderControls,
+		selectedContentDemandStartedAtMilliseconds: props.selectedContentDemandStartedAtMilliseconds,
 		selectedContentResources: props.selectedContentResources,
 		selectedContentLoadingItemId: props.selectedContentLoadingItemId,
 		selectedItemPresentation: props.selectedItemPresentation,

@@ -10,12 +10,17 @@ import {
 } from '../../foundation/telemetry/bridge-trace-context.js';
 import {
 	recordBridgeCodeViewHydrationTelemetrySamples,
+	recordBridgeCodeViewItemMaterializeTelemetrySample,
+	recordBridgeReviewContentDemandTelemetrySample,
+	recordBridgeSelectedContentPaintedTelemetrySample,
 	recordBridgeViewerContentFetchTelemetrySample,
 	recordBridgeProjectionCoordinatorTelemetrySample,
 	recordBridgeProjectionBuildTelemetrySample,
 	recordBridgeViewerContentQueueTelemetrySample,
 } from '../../foundation/telemetry/bridge-viewer-telemetry-adapter.js';
+import type { ApplyBridgeCodeViewItemUpdateResult } from '../code-view/bridge-code-view-controller.js';
 import type { BridgeCodeViewContentResources } from '../code-view/bridge-code-view-materialization.js';
+import type { ReviewContentDemandTelemetry } from '../content/review-content-demand-types.js';
 import type {
 	BridgeReviewProjectionMode,
 	BridgeReviewProjectionResult,
@@ -65,6 +70,31 @@ export interface RecordBridgeCodeViewHydrationTelemetryProps {
 	readonly item: BridgeReviewItemDescriptor;
 	readonly resources: BridgeCodeViewContentResources;
 	readonly workerPoolEnabled: boolean;
+}
+
+export interface RecordBridgeCodeViewItemMaterializeTelemetryProps {
+	readonly telemetryRecorder: BridgeTelemetryRecorder;
+	readonly parentTraceContext: BridgeTraceContext | null;
+	readonly projection: BridgeReviewProjectionResult;
+	readonly item: BridgeReviewItemDescriptor;
+	readonly resources: BridgeCodeViewContentResources;
+	readonly durationMilliseconds: number;
+	readonly result: ApplyBridgeCodeViewItemUpdateResult;
+	readonly selected: boolean;
+}
+
+export interface RecordBridgeSelectedContentPaintedTelemetryProps {
+	readonly telemetryRecorder: BridgeTelemetryRecorder;
+	readonly traceContext: BridgeTraceContext | null;
+	readonly clickToPaintMilliseconds: number;
+	readonly frameWaitMilliseconds: number;
+	readonly materializeMilliseconds: number;
+}
+
+export interface RecordBridgeReviewContentDemandTelemetryProps {
+	readonly telemetryRecorder: BridgeTelemetryRecorder;
+	readonly traceContext: BridgeTraceContext | null;
+	readonly telemetry: ReviewContentDemandTelemetry;
 }
 
 type BridgeTelemetryBucket = 'empty' | 'small' | 'medium' | 'large' | 'huge';
@@ -139,6 +169,77 @@ export function recordBridgeCodeViewHydrationTelemetry(
 		languageClass: languageClassForItem(props.item),
 		workerLane: props.workerPoolEnabled ? 'pierre' : 'none',
 	});
+}
+
+export function recordBridgeCodeViewItemMaterializeTelemetry(
+	props: RecordBridgeCodeViewItemMaterializeTelemetryProps,
+): void {
+	if (!props.telemetryRecorder.isEnabled('web')) {
+		return;
+	}
+	recordBridgeCodeViewItemMaterializeTelemetrySample({
+		telemetryRecorder: props.telemetryRecorder,
+		traceContext: childTraceContext(props.parentTraceContext),
+		contentBytesBucket: byteCountBucket(contentByteCountForResources(props.resources)),
+		durationMilliseconds: props.durationMilliseconds,
+		itemCountBucket: countBucket(props.projection.orderedItemIds.length),
+		languageClass: languageClassForItem(props.item),
+		result: props.result,
+		selected: props.selected,
+		viewer: 'review',
+	});
+}
+
+export function recordBridgeSelectedContentPaintedTelemetry(
+	props: RecordBridgeSelectedContentPaintedTelemetryProps,
+): void {
+	recordBridgeSelectedContentPaintedTelemetrySample({
+		telemetryRecorder: props.telemetryRecorder,
+		traceContext: props.traceContext,
+		clickToPaintMilliseconds: props.clickToPaintMilliseconds,
+		frameWaitMilliseconds: props.frameWaitMilliseconds,
+		materializeMilliseconds: props.materializeMilliseconds,
+		viewer: 'review',
+	});
+}
+
+export function recordBridgeReviewContentDemandTelemetry(
+	props: RecordBridgeReviewContentDemandTelemetryProps,
+): void {
+	recordBridgeReviewContentDemandTelemetrySample({
+		telemetryRecorder: props.telemetryRecorder,
+		traceContext: props.traceContext,
+		activeIntentCount: props.telemetry.activeIntentCount,
+		deferredCount: props.telemetry.deferredCount,
+		durationMilliseconds: props.telemetry.durationMilliseconds,
+		failedCount: props.telemetry.failedCount,
+		foregroundIntentCount: props.telemetry.foregroundIntentCount,
+		idleIntentCount: props.telemetry.idleIntentCount,
+		interest: props.telemetry.interest,
+		intentCount: props.telemetry.intentCount,
+		loadedCount: props.telemetry.loadedCount,
+		nearbyIntentCount: props.telemetry.nearbyIntentCount,
+		result: reviewContentDemandResultForTelemetry(props.telemetry),
+		resultReason: props.telemetry.resultReason ?? null,
+		speculativeIntentCount: props.telemetry.speculativeIntentCount,
+		viewer: 'review',
+		visibleIntentCount: props.telemetry.visibleIntentCount,
+	});
+}
+
+function reviewContentDemandResultForTelemetry(
+	telemetry: ReviewContentDemandTelemetry,
+): 'deferred' | 'failed' | 'success' {
+	switch (telemetry.resultStatus) {
+		case undefined:
+		case 'ready':
+			return 'success';
+		case 'deferred':
+			return 'deferred';
+		case 'failed':
+			return 'failed';
+	}
+	return assertNever(telemetry.resultStatus);
 }
 
 function childTraceContext(

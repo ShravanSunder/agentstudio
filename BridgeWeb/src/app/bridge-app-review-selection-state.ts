@@ -23,6 +23,7 @@ export type BridgeReviewFileNavigationTarget = Extract<
 export interface SelectedContentResourcesState {
 	readonly itemId: string;
 	readonly contentKey: string;
+	readonly demandStartedAtMilliseconds?: number | null;
 	readonly status: 'loading' | 'ready' | 'failed';
 	readonly resources: BridgeCodeViewContentResources | null;
 }
@@ -225,12 +226,14 @@ export function selectedContentResourcesStateFromLoadResult(props: {
 export function selectedContentResourcesStateFromDemandLoadResult(props: {
 	readonly itemId: string;
 	readonly contentKey: string;
+	readonly demandStartedAtMilliseconds?: number | null;
 	readonly loadResult: ReviewContentDemandLoadResult;
 }): SelectedContentResourcesState {
 	if (props.loadResult.status === 'ready') {
 		return {
 			itemId: props.itemId,
 			contentKey: props.contentKey,
+			demandStartedAtMilliseconds: props.demandStartedAtMilliseconds ?? null,
 			status: 'ready',
 			resources: props.loadResult.resources,
 		};
@@ -238,6 +241,7 @@ export function selectedContentResourcesStateFromDemandLoadResult(props: {
 	return {
 		itemId: props.itemId,
 		contentKey: props.contentKey,
+		demandStartedAtMilliseconds: props.demandStartedAtMilliseconds ?? null,
 		status: props.loadResult.status === 'deferred' ? 'loading' : 'failed',
 		resources: null,
 	};

@@ -49,6 +49,7 @@ export interface ReviewViewerShellProps {
 	readonly selectedContentLoadingItemId?: string | null;
 	readonly onSelectItem: (itemId: string) => void;
 	readonly selectedContentText?: string | null;
+	readonly selectedContentDemandStartedAtMilliseconds?: number | null;
 	readonly selectedContentResources?: BridgeCodeViewContentResources | null;
 	readonly selectionCommitDurationMilliseconds?: number | null;
 	readonly selectedItemPresentation?: BridgeCodeViewItemPresentation | null;
@@ -340,6 +341,9 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 								<BridgeCodeViewPanel
 									projection={projection}
 									reviewPackage={props.reviewPackage}
+									selectedContentDemandStartedAtMilliseconds={
+										props.selectedContentDemandStartedAtMilliseconds ?? null
+									}
 									selectedContentLoadingItemId={props.selectedContentLoadingItemId ?? null}
 									selectedContentResources={props.selectedContentResources ?? null}
 									selectedItemId={props.selectedItemId}

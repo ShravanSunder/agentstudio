@@ -213,7 +213,31 @@ describe('review content demand loader core', () => {
 				}),
 			]),
 		);
-		expect(telemetryRecorder.flushForces).toEqual([false, false]);
+		const demandSamples = telemetryRecorder.samples.filter(
+			(sample): boolean => sample.name === 'performance.bridge.web.review_content_demand',
+		);
+		expect(demandSamples).toHaveLength(1);
+		expect(demandSamples[0]).toMatchObject({
+			durationMilliseconds: expect.any(Number),
+			stringAttributes: {
+				'agentstudio.bridge.content.interest': 'selected',
+				'agentstudio.bridge.phase': 'review_content_demand',
+				'agentstudio.bridge.plane': 'data',
+				'agentstudio.bridge.priority': 'hot',
+				'agentstudio.bridge.result': 'success',
+				'agentstudio.bridge.result_reason': 'none',
+				'agentstudio.bridge.slice': 'content_fetch',
+				'agentstudio.bridge.transport': 'content',
+				'agentstudio.bridge.viewer': 'review',
+			},
+			numericAttributes: expect.objectContaining({
+				'agentstudio.bridge.demand.deferred.count': 0,
+				'agentstudio.bridge.demand.failed.count': 0,
+				'agentstudio.bridge.demand.intent.count': 2,
+				'agentstudio.bridge.demand.loaded.count': 2,
+			}),
+		});
+		expect(telemetryRecorder.flushForces).toEqual([false, false, false]);
 	});
 
 	test('publishes selected demand pressure telemetry for foreground proof', async () => {

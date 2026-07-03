@@ -4,7 +4,10 @@ import type { BridgeTextResourceStreamResult } from '../../core/resources/bridge
 import type { BridgeContentResource } from '../../foundation/content/content-resource-loader.js';
 import type { BridgeContentRole } from '../../foundation/review-package/bridge-review-package.js';
 import type { BridgeCodeViewContentResources } from '../code-view/bridge-code-view-materialization.js';
-import { recordBridgeViewerContentFetchTelemetry } from '../telemetry/bridge-review-viewer-telemetry.js';
+import {
+	recordBridgeReviewContentDemandTelemetry,
+	recordBridgeViewerContentFetchTelemetry,
+} from '../telemetry/bridge-review-viewer-telemetry.js';
 import {
 	allowsPartialReviewContentDemandResult,
 	assertNever,
@@ -67,18 +70,27 @@ export async function loadReviewItemContentResourcesThroughDemandResult(
 	if (props.signal?.aborted) {
 		return { status: 'deferred', reason: 'aborted' };
 	}
-	// An all-roles registry hit is a pure cache read: no scheduler intents,
-	// no executor traffic, and no demand telemetry sample (nothing was
-	// demanded from the transport).
-	if (props.contentRegistry !== undefined) {
-		const cachedResources = cachedContentResourcesForPlans({
-			contentRegistry: props.contentRegistry,
-			plans,
-		});
-		if (cachedResources !== null) {
-			return { status: 'ready', resources: cachedResources };
-		}
+	const planPartition =
+		props.contentRegistry === undefined
+			? null
+			: partitionDemandPlansByCache({
+					contentRegistry: props.contentRegistry,
+					plans,
+				});
+	const demandPlans = planPartition?.missingPlans ?? plans;
+	// A full registry hit is a pure cache read: no scheduler intents, no
+	// executor traffic, and no demand telemetry sample because nothing was
+	// demanded from the transport.
+	if (demandPlans.length === 0) {
+		return {
+			status: 'ready',
+			resources: planPartition?.cachedResources ?? {},
+		};
 	}
+	const allowsPartialRoleResults = allowsPartialReviewContentDemandResult({
+		interest: props.interest,
+		plans,
+	});
 	const demandAbortController = new AbortController();
 	const abortDemandLoads = (): void => {
 		demandAbortController.abort();
@@ -86,7 +98,7 @@ export async function loadReviewItemContentResourcesThroughDemandResult(
 	props.signal?.addEventListener('abort', abortDemandLoads, { once: true });
 	const intents = intentsForReviewContentDemandPlans({
 		interest: props.interest,
-		plans,
+		plans: demandPlans,
 	});
 	const telemetryBuilder = newReviewContentDemandTelemetryBuilder({
 		itemId: props.itemId,
@@ -102,7 +114,7 @@ export async function loadReviewItemContentResourcesThroughDemandResult(
 		const estimatedBytes = estimatedBytesForDemandIntent({
 			intent,
 			interest: props.interest,
-			plans,
+			plans: demandPlans,
 		});
 		const enqueueResult = props.scheduler.enqueue({
 			intent,
@@ -121,7 +133,15 @@ export async function loadReviewItemContentResourcesThroughDemandResult(
 				result,
 				loadedResults: [],
 			});
-			props.onDemandTelemetry?.(telemetryBuilder.build());
+			const demandTelemetry = telemetryBuilder.build();
+			props.onDemandTelemetry?.(demandTelemetry);
+			if (props.telemetryRecorder !== undefined) {
+				recordBridgeReviewContentDemandTelemetry({
+					telemetryRecorder: props.telemetryRecorder,
+					traceContext: props.traceContext ?? null,
+					telemetry: demandTelemetry,
+				});
+			}
 			return result;
 		}
 		telemetryBuilder.recordAcceptedEnqueue({
@@ -130,15 +150,11 @@ export async function loadReviewItemContentResourcesThroughDemandResult(
 	}
 	telemetryBuilder.recordAfterEnqueue();
 	const executableIntents = dequeueDemandPlansForExecution({
-		plans,
+		plans: demandPlans,
 		dequeueNextMatching: props.scheduler.dequeueNextMatching.bind(props.scheduler),
 	});
 	try {
 		const settledLoadedResults: LoadedReviewContentDemandSettledResult[] = [];
-		const allowsPartialRoleResults = allowsPartialReviewContentDemandResult({
-			interest: props.interest,
-			plans,
-		});
 		const loadedResults = executableIntents.map(async (executableIntent) => {
 			try {
 				const resourceResult = await loadDemandResourceWithTelemetry({
@@ -159,7 +175,7 @@ export async function loadReviewItemContentResourcesThroughDemandResult(
 					estimatedBytes: estimatedBytesForDemandIntent({
 						intent: executableIntent.intent,
 						interest: props.interest,
-						plans,
+						plans: demandPlans,
 					}),
 					result: resourceResult,
 				};
@@ -174,14 +190,14 @@ export async function loadReviewItemContentResourcesThroughDemandResult(
 		const result = allowsPartialRoleResults
 			? await loadAllDemandResources({
 					allowsPartialRoleResults,
-					plans,
+					plans: demandPlans,
 					loadedResults,
 					signal: demandAbortController.signal,
 				})
 			: await Promise.race([
 					loadAllDemandResources({
 						allowsPartialRoleResults,
-						plans,
+						plans: demandPlans,
 						loadedResults,
 						signal: demandAbortController.signal,
 					}),
@@ -193,18 +209,31 @@ export async function loadReviewItemContentResourcesThroughDemandResult(
 		if (!allowsPartialRoleResults && result.status === 'failed') {
 			abortDemandLoads();
 		}
-		if (result.status === 'ready' && props.contentRegistry !== undefined) {
+		const mergedResult = resultWithCachedResources({
+			allowsPartialRoleResults,
+			cachedResources: planPartition?.cachedResources ?? {},
+			result,
+		});
+		if (mergedResult.status === 'ready' && props.contentRegistry !== undefined) {
 			storeContentResourcesInRegistry({
 				contentRegistry: props.contentRegistry,
-				resources: result.resources,
+				resources: mergedResult.resources,
 			});
 		}
 		telemetryBuilder.recordCompletion({
-			result,
+			result: mergedResult,
 			loadedResults: settledLoadedResults,
 		});
-		props.onDemandTelemetry?.(telemetryBuilder.build());
-		return result;
+		const demandTelemetry = telemetryBuilder.build();
+		props.onDemandTelemetry?.(demandTelemetry);
+		if (props.telemetryRecorder !== undefined) {
+			recordBridgeReviewContentDemandTelemetry({
+				telemetryRecorder: props.telemetryRecorder,
+				traceContext: props.traceContext ?? null,
+				telemetry: demandTelemetry,
+			});
+		}
+		return mergedResult;
 	} finally {
 		props.signal?.removeEventListener('abort', abortDemandLoads);
 	}
@@ -356,21 +385,59 @@ function telemetryResultForExecutorResult(
 	return assertNever(result.reason);
 }
 
-/** All-or-nothing peek: partial role coverage falls through to a full demand
- * load so cached and fetched roles never mix stale revisions in one result. */
-function cachedContentResourcesForPlans(props: {
+function partitionDemandPlansByCache(props: {
 	readonly contentRegistry: BridgeReviewContentRegistry;
 	readonly plans: readonly ReviewContentDemandPlan[];
-}): BridgeCodeViewContentResources | null {
+}): {
+	readonly cachedResources: BridgeCodeViewContentResources;
+	readonly missingPlans: readonly ReviewContentDemandPlan[];
+} {
 	const resources: { -readonly [Role in BridgeContentRole]?: BridgeContentResource } = {};
+	const missingPlans: ReviewContentDemandPlan[] = [];
 	for (const plan of props.plans) {
 		const cachedResource = props.contentRegistry.peekResource(plan.handle);
 		if (cachedResource === null) {
-			return null;
+			missingPlans.push(plan);
+			continue;
 		}
 		resources[plan.role] = cachedResource;
 	}
-	return resources;
+	return {
+		cachedResources: resources,
+		missingPlans,
+	};
+}
+
+function resultWithCachedResources(props: {
+	readonly allowsPartialRoleResults: boolean;
+	readonly cachedResources: BridgeCodeViewContentResources;
+	readonly result: ReviewContentDemandLoadResult;
+}): ReviewContentDemandLoadResult {
+	if (props.result.status === 'ready') {
+		return {
+			status: 'ready',
+			resources: {
+				...props.cachedResources,
+				...props.result.resources,
+			},
+		};
+	}
+	if (props.allowsPartialRoleResults && contentResourcesHaveAnyRole(props.cachedResources)) {
+		return {
+			status: 'ready',
+			resources: props.cachedResources,
+		};
+	}
+	return props.result;
+}
+
+function contentResourcesHaveAnyRole(resources: BridgeCodeViewContentResources): boolean {
+	return (
+		resources.base !== undefined ||
+		resources.head !== undefined ||
+		resources.diff !== undefined ||
+		resources.file !== undefined
+	);
 }
 
 function storeContentResourcesInRegistry(props: {

@@ -5,16 +5,19 @@ import {
 	makeBridgeContentHandle,
 	makeBridgeReviewPackage,
 } from '../../foundation/review-package/bridge-review-package-test-support.js';
+import type { BridgeTelemetrySample } from '../../foundation/telemetry/bridge-telemetry-event.js';
+import type { BridgeTelemetryRecorder } from '../../foundation/telemetry/bridge-telemetry-recorder.js';
 import { buildBridgeReviewProjection } from '../navigation/review-projection.js';
 import { makeBridgeViewerProjectionFixture } from '../test-support/review-viewer-fixtures.js';
 import { materializeBridgeCodeViewLoadingItem } from './bridge-code-view-materialization.js';
+import { shouldRearmCodeViewInstantRevealForMaterialization } from './bridge-code-view-panel-support.js';
 import {
 	makeBridgeCodeViewSourceKey,
 	reconcileBridgeCodeViewMetadataItems,
+	scheduleSelectedContentPaintedTelemetry,
 	selectedContentSummaryForPanel,
 	shouldApplyBridgeCodeViewMaterialization,
 } from './bridge-code-view-panel.js';
-import { shouldRearmCodeViewInstantRevealForMaterialization } from './bridge-code-view-panel-support.js';
 
 describe('BridgeCodeViewPanel diagnostics', () => {
 	test('keys the mounted Pierre viewer by review source and projection identity', () => {
@@ -199,4 +202,55 @@ describe('BridgeCodeViewPanel diagnostics', () => {
 			}),
 		).toBe(false);
 	});
+
+	test('emits selected content painted telemetry on the frame after materialization', () => {
+		const samples: BridgeTelemetrySample[] = [];
+		const frameCallbacks: FrameRequestCallback[] = [];
+		const telemetryRecorder = enabledTelemetryRecorder(samples);
+		let nowMilliseconds = 130;
+
+		scheduleSelectedContentPaintedTelemetry({
+			telemetryRecorder,
+			traceContext: null,
+			selectionDemandStartedAtMilliseconds: 100,
+			materializeMilliseconds: 12,
+			materializationCompletedAtMilliseconds: 130,
+			now: (): number => nowMilliseconds,
+			requestAnimationFrame: (callback): number => {
+				frameCallbacks.push(callback);
+				return frameCallbacks.length;
+			},
+		});
+
+		expect(samples).toEqual([]);
+
+		nowMilliseconds = 150;
+		frameCallbacks[0]?.(150);
+
+		expect(samples).toHaveLength(1);
+		expect(samples[0]).toMatchObject({
+			name: 'performance.bridge.web.selected_content_painted',
+			durationMilliseconds: 50,
+			stringAttributes: {
+				'agentstudio.bridge.phase': 'selected_content_painted',
+				'agentstudio.bridge.viewer': 'review',
+			},
+			numericAttributes: {
+				'agentstudio.bridge.selected_content.click_to_paint_ms': 50,
+				'agentstudio.bridge.selected_content.frame_wait_ms': 20,
+				'agentstudio.bridge.selected_content.materialize_ms': 12,
+			},
+		});
+	});
 });
+
+function enabledTelemetryRecorder(samples: BridgeTelemetrySample[]): BridgeTelemetryRecorder {
+	return {
+		isEnabled: (scope): boolean => scope === 'web',
+		record: (sample): void => {
+			samples.push(sample);
+		},
+		measure: <TResult>(props: { readonly operation: () => TResult }): TResult => props.operation(),
+		flush: (): boolean => true,
+	};
+}

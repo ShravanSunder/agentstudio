@@ -13,6 +13,7 @@ export interface BridgeCodeViewPanelProps {
 	readonly reviewPackage: BridgeReviewPackage;
 	readonly projection: BridgeReviewProjectionResult;
 	readonly selectedItemId: string | null;
+	readonly selectedContentDemandStartedAtMilliseconds?: number | null;
 	readonly selectedContentLoadingItemId?: string | null;
 	readonly selectedContentResources?: BridgeCodeViewContentResources | null;
 	readonly selectedItemPresentation?: BridgeCodeViewItemPresentation | null;

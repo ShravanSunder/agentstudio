@@ -133,6 +133,47 @@ export interface BridgeCodeViewHydrationTelemetrySampleProps {
 	readonly workerLane: 'none' | 'pierre';
 }
 
+export interface BridgeCodeViewItemMaterializeTelemetrySampleProps {
+	readonly telemetryRecorder: BridgeTelemetryRecorder;
+	readonly traceContext: BridgeTraceContext | null;
+	readonly contentBytesBucket: 'empty' | 'small' | 'medium' | 'large' | 'huge';
+	readonly durationMilliseconds: number;
+	readonly itemCountBucket: 'empty' | 'small' | 'medium' | 'large' | 'huge';
+	readonly languageClass: 'config' | 'markdown' | 'other' | 'swift' | 'text' | 'typescript';
+	readonly result: 'added' | 'unchanged' | 'updated';
+	readonly selected: boolean;
+	readonly viewer: 'review';
+}
+
+export interface BridgeSelectedContentPaintedTelemetrySampleProps {
+	readonly clickToPaintMilliseconds: number;
+	readonly frameWaitMilliseconds: number;
+	readonly materializeMilliseconds: number;
+	readonly telemetryRecorder: BridgeTelemetryRecorder;
+	readonly traceContext: BridgeTraceContext | null;
+	readonly viewer: 'review';
+}
+
+export interface BridgeReviewContentDemandTelemetrySampleProps {
+	readonly activeIntentCount: number;
+	readonly deferredCount: number;
+	readonly durationMilliseconds: number;
+	readonly failedCount: number;
+	readonly foregroundIntentCount: number;
+	readonly idleIntentCount: number;
+	readonly interest: 'selected' | 'visible' | 'nearby' | 'speculative';
+	readonly intentCount: number;
+	readonly loadedCount: number;
+	readonly nearbyIntentCount: number;
+	readonly result: 'deferred' | 'failed' | 'success';
+	readonly resultReason: string | null;
+	readonly speculativeIntentCount: number;
+	readonly telemetryRecorder: BridgeTelemetryRecorder;
+	readonly traceContext: BridgeTraceContext | null;
+	readonly viewer: 'review';
+	readonly visibleIntentCount: number;
+}
+
 export function recordBridgeProjectionBuildTelemetrySample(
 	props: BridgeProjectionBuildTelemetrySampleProps,
 ): void {
@@ -580,6 +621,110 @@ export function recordBridgeCodeViewHydrationTelemetrySamples(
 			booleanAttributes: {},
 		});
 		props.telemetryRecorder.flush({ force: true });
+	});
+}
+
+export function recordBridgeCodeViewItemMaterializeTelemetrySample(
+	props: BridgeCodeViewItemMaterializeTelemetrySampleProps,
+): void {
+	recordWhenEnabled(props.telemetryRecorder, () => {
+		props.telemetryRecorder.record({
+			scope: 'web',
+			name: 'performance.bridge.web.code_view_item_materialize',
+			durationMilliseconds: Math.max(0, props.durationMilliseconds),
+			traceContext: props.traceContext,
+			stringAttributes: {
+				'agentstudio.bridge.content_bytes_bucket': props.contentBytesBucket,
+				'agentstudio.bridge.item_count_bucket': props.itemCountBucket,
+				'agentstudio.bridge.language_class': props.languageClass,
+				'agentstudio.bridge.phase': 'code_view_item_materialize',
+				'agentstudio.bridge.plane': 'data',
+				'agentstudio.bridge.priority': 'hot',
+				'agentstudio.bridge.result': props.result,
+				'agentstudio.bridge.slice': 'code_view_item',
+				'agentstudio.bridge.transport': 'swift',
+				'agentstudio.bridge.viewer': props.viewer,
+			},
+			numericAttributes: {},
+			booleanAttributes: {
+				'agentstudio.bridge.selected': props.selected,
+			},
+		});
+		props.telemetryRecorder.flush();
+	});
+}
+
+export function recordBridgeSelectedContentPaintedTelemetrySample(
+	props: BridgeSelectedContentPaintedTelemetrySampleProps,
+): void {
+	recordWhenEnabled(props.telemetryRecorder, () => {
+		const clickToPaintMilliseconds = Math.max(0, props.clickToPaintMilliseconds);
+		props.telemetryRecorder.record({
+			scope: 'web',
+			name: 'performance.bridge.web.selected_content_painted',
+			durationMilliseconds: clickToPaintMilliseconds,
+			traceContext: props.traceContext,
+			stringAttributes: {
+				'agentstudio.bridge.phase': 'selected_content_painted',
+				'agentstudio.bridge.plane': 'data',
+				'agentstudio.bridge.priority': 'hot',
+				'agentstudio.bridge.slice': 'code_view_item',
+				'agentstudio.bridge.transport': 'swift',
+				'agentstudio.bridge.viewer': props.viewer,
+			},
+			numericAttributes: {
+				'agentstudio.bridge.selected_content.click_to_paint_ms': clickToPaintMilliseconds,
+				'agentstudio.bridge.selected_content.frame_wait_ms': Math.max(
+					0,
+					props.frameWaitMilliseconds,
+				),
+				'agentstudio.bridge.selected_content.materialize_ms': Math.max(
+					0,
+					props.materializeMilliseconds,
+				),
+			},
+			booleanAttributes: {},
+		});
+		props.telemetryRecorder.flush();
+	});
+}
+
+export function recordBridgeReviewContentDemandTelemetrySample(
+	props: BridgeReviewContentDemandTelemetrySampleProps,
+): void {
+	recordWhenEnabled(props.telemetryRecorder, () => {
+		props.telemetryRecorder.record({
+			scope: 'web',
+			name: 'performance.bridge.web.review_content_demand',
+			durationMilliseconds: Math.max(0, props.durationMilliseconds),
+			traceContext: props.traceContext,
+			stringAttributes: {
+				'agentstudio.bridge.content.interest': props.interest,
+				'agentstudio.bridge.phase': 'review_content_demand',
+				'agentstudio.bridge.plane': 'data',
+				'agentstudio.bridge.priority': 'hot',
+				'agentstudio.bridge.result': props.result,
+				'agentstudio.bridge.result_reason': props.resultReason ?? 'none',
+				'agentstudio.bridge.slice': 'content_fetch',
+				'agentstudio.bridge.transport': 'content',
+				'agentstudio.bridge.viewer': props.viewer,
+			},
+			numericAttributes: {
+				'agentstudio.bridge.demand.active.count': props.activeIntentCount,
+				'agentstudio.bridge.demand.deferred.count': props.deferredCount,
+				'agentstudio.bridge.demand.duration_ms': Math.max(0, props.durationMilliseconds),
+				'agentstudio.bridge.demand.failed.count': props.failedCount,
+				'agentstudio.bridge.demand.foreground.count': props.foregroundIntentCount,
+				'agentstudio.bridge.demand.idle.count': props.idleIntentCount,
+				'agentstudio.bridge.demand.intent.count': props.intentCount,
+				'agentstudio.bridge.demand.loaded.count': props.loadedCount,
+				'agentstudio.bridge.demand.nearby.count': props.nearbyIntentCount,
+				'agentstudio.bridge.demand.speculative.count': props.speculativeIntentCount,
+				'agentstudio.bridge.demand.visible.count': props.visibleIntentCount,
+			},
+			booleanAttributes: {},
+		});
+		props.telemetryRecorder.flush();
 	});
 }
 
