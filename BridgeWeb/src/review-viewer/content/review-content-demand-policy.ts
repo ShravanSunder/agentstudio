@@ -230,7 +230,7 @@ export function allowsPartialReviewContentDemandResult(props: {
 	readonly interest: ReviewContentDemandInterest;
 	readonly plans: readonly ReviewContentDemandPlan[];
 }): boolean {
-	if (props.interest === 'selected' || props.plans.length !== 2) {
+	if (props.plans.length !== 2) {
 		return false;
 	}
 	const roles = new Set(props.plans.map((plan): BridgeContentRole => plan.role));
@@ -276,9 +276,6 @@ function allowsPartialModifiedContentPlans(props: {
 	readonly plannedRoles: readonly BridgeContentRole[];
 	readonly requestedRoles: readonly BridgeContentRole[];
 }): boolean {
-	if (props.interest === 'selected') {
-		return false;
-	}
 	const requestedRoles = new Set(props.requestedRoles);
 	if (requestedRoles.size !== 2 || !requestedRoles.has('base') || !requestedRoles.has('head')) {
 		return false;

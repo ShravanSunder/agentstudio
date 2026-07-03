@@ -55,7 +55,7 @@ describe('review content demand loader pressure and cancellation', () => {
 		expect(fetchCount).toBe(0);
 	});
 
-	test('rejects selected modified diff content when a sibling descriptor ref is missing', async () => {
+	test('loads selected modified diff content for an available side when a sibling descriptor ref is missing', async () => {
 		const registry = createBridgeResourceDescriptorRegistry({
 			allowedResourceKindsByProtocol: { review: new Set(['content']) },
 		});
@@ -92,11 +92,16 @@ describe('review content demand loader pressure and cancellation', () => {
 			executor,
 		});
 
-		expect(result).toEqual({ status: 'failed', reason: 'descriptor_missing' });
-		expect(requestedDescriptorIds).toEqual([]);
+		expect(result).toMatchObject({ status: 'ready' });
+		if (result.status !== 'ready') {
+			throw new Error('expected ready partial modified diff content');
+		}
+		expect(result.resources.base).toBeUndefined();
+		expect(result.resources.head?.readText()).toBe('retained head text');
+		expect(requestedDescriptorIds).toEqual(['descriptor-handle-item-source-head']);
 	});
 
-	test('rejects selected modified diff content when one side fails and the other side loads', async () => {
+	test('loads selected modified diff content when one side fails and the other side loads', async () => {
 		const registry = createBridgeResourceDescriptorRegistry({
 			allowedResourceKindsByProtocol: { review: new Set(['content']) },
 		});
@@ -131,10 +136,15 @@ describe('review content demand loader pressure and cancellation', () => {
 			executor,
 		});
 
-		expect(result).toEqual({ status: 'failed', reason: 'load_failed' });
+		expect(result).toMatchObject({ status: 'ready' });
+		if (result.status !== 'ready') {
+			throw new Error('expected ready partial modified diff content');
+		}
+		expect(result.resources.base?.readText()).toBe('base text');
+		expect(result.resources.head).toBeUndefined();
 	});
 
-	test('records sanitized selected load failure details when one side fails', async () => {
+	test('records sanitized selected load failure details for a partially ready item', async () => {
 		const registry = createBridgeResourceDescriptorRegistry({
 			allowedResourceKindsByProtocol: { review: new Set(['content']) },
 		});
@@ -178,17 +188,22 @@ describe('review content demand loader pressure and cancellation', () => {
 			},
 		});
 
-		expect(result).toEqual({ status: 'failed', reason: 'load_failed' });
+		expect(result).toMatchObject({ status: 'ready' });
+		if (result.status !== 'ready') {
+			throw new Error('expected ready partial modified diff content');
+		}
+		expect(result.resources.base?.readText()).toBe('base text');
 		expect(telemetrySamples).toEqual([
 			expect.objectContaining({
-				resultStatus: 'failed',
-				resultReason: 'load_failed',
+				failedCount: 1,
+				loadedCount: 1,
+				resultStatus: 'ready',
 				resultLoadFailureKind: 'integrity_mismatch',
 			}),
 		]);
 	});
 
-	test('aborts sibling selected modified diff loads when one side fails terminally', async () => {
+	test('keeps sibling selected modified diff loads alive when one side fails terminally', async () => {
 		const registry = createBridgeResourceDescriptorRegistry({
 			allowedResourceKindsByProtocol: { review: new Set(['content']) },
 		});
@@ -228,9 +243,14 @@ describe('review content demand loader pressure and cancellation', () => {
 		});
 		await flushMicrotasks(4);
 
-		expect(result).toEqual({ status: 'failed', reason: 'load_failed' });
+		expect(result).toMatchObject({ status: 'ready' });
+		if (result.status !== 'ready') {
+			throw new Error('expected ready partial modified diff content');
+		}
+		expect(result.resources.base?.readText()).toBe('base text');
+		expect(result.resources.head).toBeUndefined();
 		expect(capturedBaseSignals.length).toBe(1);
-		expect(capturedBaseSignals.every((signal): boolean => signal.aborted)).toBe(true);
+		expect(capturedBaseSignals.every((signal): boolean => signal.aborted)).toBe(false);
 		expect(executor.inFlightCount).toBe(0);
 		expect(executor.inFlightBytes).toBe(0);
 	});
