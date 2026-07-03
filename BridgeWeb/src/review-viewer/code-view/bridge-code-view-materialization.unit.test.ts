@@ -5,6 +5,7 @@ import { makeBridgeReviewItem } from '../../foundation/review-package/bridge-rev
 import type { BridgeReviewItemDescriptor } from '../../foundation/review-package/bridge-review-package.js';
 import { buildBridgeReviewProjection } from '../navigation/review-projection.js';
 import { makeBridgeViewerProjectionFixture } from '../test-support/review-viewer-fixtures.js';
+import { bridgePierreContentDescriptorFileSchema } from '../workers/pierre/bridge-pierre-worker-content-descriptor.js';
 import {
 	createBridgeCodeViewInitialItems,
 	materializeBridgeCodeViewLoadingItem,
@@ -384,6 +385,85 @@ describe('Bridge CodeView materialization', () => {
 			contentRoles: [],
 			itemId: item.itemId,
 		});
+	});
+
+	test('keeps full text for descriptor probe requests before worker fetch is proven', () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const item = reviewPackage.itemsById['source-high'];
+		const headHandle = item?.contentRoles.head;
+		if (item === undefined || headHandle === null || headHandle === undefined) {
+			throw new Error('expected source fixture with head handle');
+		}
+
+		const materialized = materializeBridgeCodeViewItem({
+			item,
+			presentation: { kind: 'file', version: 'head' },
+			resources: {
+				head: makeContentResource(headHandle, 'let value = 2\n'),
+			},
+		});
+
+		if (materialized?.type !== 'file') {
+			throw new Error('expected file materialization');
+		}
+		const parsedFile = bridgePierreContentDescriptorFileSchema.parse(materialized.file);
+		expect(parsedFile.contents).toBe('let value = 2\n');
+		expect(parsedFile.bridgeContentDescriptor).toMatchObject({
+			contentHash: headHandle.contentHash,
+			generation: headHandle.reviewGeneration,
+			resourceUrl: headHandle.resourceUrl,
+		});
+	});
+
+	test('uses a descriptor-only line skeleton after worker fetch is proven', () => {
+		const previousDocument = globalThis.document;
+		Object.defineProperty(globalThis, 'document', {
+			configurable: true,
+			value: {
+				documentElement: {
+					dataset: {
+						bridgePierreWorkerContentFetchProbeResult: 'success',
+					},
+				},
+			},
+		});
+		try {
+			const reviewPackage = makeBridgeViewerProjectionFixture();
+			const item = reviewPackage.itemsById['source-high'];
+			const headHandle = item?.contentRoles.head;
+			if (item === undefined || headHandle === null || headHandle === undefined) {
+				throw new Error('expected source fixture with head handle');
+			}
+
+			const materialized = materializeBridgeCodeViewItem({
+				item: {
+					...item,
+					contentLineCountsByRole: {
+						head: 2,
+					},
+				},
+				presentation: { kind: 'file', version: 'head' },
+				resources: {
+					head: makeContentResource(headHandle, 'let value = 2\n'),
+				},
+			});
+
+			if (materialized?.type !== 'file') {
+				throw new Error('expected file materialization');
+			}
+			const parsedFile = bridgePierreContentDescriptorFileSchema.parse(materialized.file);
+			expect(parsedFile.contents).toBe('\n\n');
+			expect(parsedFile.bridgeContentDescriptor).toMatchObject({
+				contentHash: headHandle.contentHash,
+				generation: headHandle.reviewGeneration,
+				resourceUrl: headHandle.resourceUrl,
+			});
+		} finally {
+			Object.defineProperty(globalThis, 'document', {
+				configurable: true,
+				value: previousDocument,
+			});
+		}
 	});
 
 	test('keeps a diff placeholder as a diff when only one role is loaded', () => {

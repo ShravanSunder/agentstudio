@@ -1,5 +1,10 @@
 import { z } from 'zod';
 
+import {
+	bridgePierreWorkerContentDescriptorSource,
+	writeBridgePierreWorkerContentFetchProbeSnapshotToDataset,
+} from './bridge-pierre-worker-content-descriptor.js';
+
 export interface BridgePierreWorkerDiagnosticDataset {
 	bridgePierreWorkerDiagnosticBootstrapState?: string;
 	bridgePierreWorkerDiagnosticErrorCount?: string;
@@ -19,6 +24,10 @@ export interface BridgePierreWorkerDiagnosticDataset {
 	bridgePierreWorkerDiagnosticLastSuccessIdState?: string;
 	bridgePierreWorkerDiagnosticLastSuccessRequestType?: string;
 	bridgePierreWorkerDiagnosticSuccessCount?: string;
+	bridgePierreWorkerContentFetchProbeFailureCount?: string;
+	bridgePierreWorkerContentFetchProbeFailureReason?: string;
+	bridgePierreWorkerContentFetchProbeResult?: string;
+	bridgePierreWorkerContentFetchProbeSuccessCount?: string;
 }
 
 export interface BridgePierreWorkerDiagnosticDatasetTarget {
@@ -58,7 +67,7 @@ const bridgePierreWorkerDiagnosticEventListenerWrappedWorkers = new WeakSet<Work
 const bridgePierreWorkerDiagnosticPostMessageWrappedWorkers = new WeakSet<Worker>();
 
 export function wrapBridgePierreWorkerSourceWithDiagnostics(workerSource: string): string {
-	return `${bridgePierreWorkerBootstrapDiagnosticSource}\n${workerSource}`;
+	return `${bridgePierreWorkerBootstrapDiagnosticSource}\n${bridgePierreWorkerContentDescriptorSource}\n${workerSource}`;
 }
 
 export function attachBridgePierreWorkerDiagnostics(
@@ -260,6 +269,18 @@ function recordBridgePierreWorkerMessageDiagnostic(props: {
 		if (phase !== null) {
 			dataset.bridgePierreWorkerDiagnosticBootstrapState = phase;
 		}
+		return;
+	}
+
+	if (parsedMessage.data.requestType === 'bridge-worker-content-fetch-probe') {
+		const result = bridgePierreWorkerDiagnosticToken(Reflect.get(parsedMessage.data, 'result'));
+		const failureReason =
+			bridgePierreWorkerDiagnosticToken(Reflect.get(parsedMessage.data, 'failureReason')) ?? '';
+		writeBridgePierreWorkerContentFetchProbeSnapshotToDataset({
+			rootElement: props.rootElement,
+			result: result === 'success' ? 'success' : 'failed',
+			failureReason,
+		});
 		return;
 	}
 

@@ -11,6 +11,10 @@ import type {
 } from '../../foundation/review-package/bridge-review-package.js';
 import type { BridgeReviewProjectionResult } from '../models/review-projection-models.js';
 import { bridgeContentRoleSchema } from '../models/review-projection-models.js';
+import {
+	bridgePierreWorkerContentDescriptorFetchIsEnabled,
+	createBridgePierreContentDescriptorFile,
+} from '../workers/pierre/bridge-pierre-worker-content-descriptor.js';
 
 export const bridgeCodeViewContentStateSchema = z.enum([
 	'placeholder',
@@ -556,30 +560,86 @@ interface CreateFileContentsProps {
 }
 
 function createFileContents(props: CreateFileContentsProps): FileContents {
+	if (props.resource !== null) {
+		const text = props.resource.readText();
+		return createFileContentsForResource({
+			contentWindow: props.contentWindow ?? fullCodeViewContentWindow(),
+			item: props.item,
+			path: props.path,
+			resource: props.resource,
+			text,
+		});
+	}
+
 	const windowedText = windowTextForCodeView({
 		contentWindow: props.contentWindow ?? fullCodeViewContentWindow(),
-		text:
-			props.resource?.readText() ??
-			placeholderTextForLineCount({
-				contentState: props.contentState ?? 'placeholder',
-				lineCount: props.placeholderLineCount ?? null,
-				maxPlaceholderLineCount: placeholderLineCountBudgetForItem(props.item),
-			}),
+		text: placeholderTextForLineCount({
+			contentState: props.contentState ?? 'placeholder',
+			lineCount: props.placeholderLineCount ?? null,
+			maxPlaceholderLineCount: placeholderLineCountBudgetForItem(props.item),
+		}),
 	});
 	return {
 		name: props.path,
 		contents: windowedText.text,
-		cacheKey:
-			props.resource === null
-				? `${props.item.cacheKey}:${props.contentState ?? 'placeholder'}${
-						props.placeholderLineCount === null || props.placeholderLineCount === undefined
-							? ''
-							: `:extent:${props.placeholderLineCount}`
-					}`
-				: windowedText.truncated
-					? `${props.resource.handle.cacheKey}:window:${windowedText.maxLines}`
-					: props.resource.handle.cacheKey,
+		cacheKey: `${props.item.cacheKey}:${props.contentState ?? 'placeholder'}${
+			props.placeholderLineCount === null || props.placeholderLineCount === undefined
+				? ''
+				: `:extent:${props.placeholderLineCount}`
+		}`,
 	};
+}
+
+function createFileContentsForResource(props: {
+	readonly contentWindow: CodeViewContentWindow;
+	readonly item: BridgeReviewItemDescriptor;
+	readonly path: string;
+	readonly resource: BridgeContentResource;
+	readonly text: string;
+}): FileContents {
+	const windowedText = windowTextForCodeView({
+		contentWindow: props.contentWindow,
+		text: props.text,
+	});
+	const cacheKey = windowedText.truncated
+		? `${props.resource.handle.cacheKey}:window:${windowedText.maxLines}`
+		: props.resource.handle.cacheKey;
+	if (windowedText.truncated) {
+		return {
+			name: props.path,
+			contents: windowedText.text,
+			cacheKey,
+			...(props.resource.handle.language === null || props.resource.handle.language === undefined
+				? {}
+				: { lang: props.resource.handle.language }),
+		};
+	}
+	const lineCount = props.item.contentLineCountsByRole?.[props.resource.handle.role] ?? null;
+	if (bridgePierreWorkerContentDescriptorFetchIsEnabled()) {
+		return createBridgePierreContentDescriptorFile({
+			cacheKey,
+			contentHash: props.resource.handle.contentHash,
+			contentHashAlgorithm: props.resource.handle.contentHashAlgorithm,
+			generation: props.resource.handle.reviewGeneration,
+			lang: props.resource.handle.language ?? props.item.language ?? null,
+			lineCount,
+			maxBytes: Math.max(1, props.resource.handle.sizeBytes),
+			name: props.path,
+			resourceUrl: props.resource.handle.resourceUrl,
+		});
+	}
+	return createBridgePierreContentDescriptorFile({
+		cacheKey,
+		contentHash: props.resource.handle.contentHash,
+		contentHashAlgorithm: props.resource.handle.contentHashAlgorithm,
+		generation: props.resource.handle.reviewGeneration,
+		lang: props.resource.handle.language ?? props.item.language ?? null,
+		lineCount,
+		maxBytes: Math.max(1, props.resource.handle.sizeBytes),
+		name: props.path,
+		resourceUrl: props.resource.handle.resourceUrl,
+		text: windowedText.text,
+	});
 }
 
 export function placeholderLineCountBudgetForItem(item: BridgeReviewItemDescriptor): number {
