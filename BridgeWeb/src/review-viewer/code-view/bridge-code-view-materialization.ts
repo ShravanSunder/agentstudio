@@ -112,10 +112,13 @@ export function materializeBridgeCodeViewItem(
 	props: MaterializeBridgeCodeViewItemProps,
 ): BridgeCodeViewItem | null {
 	const { item, resources } = props;
-	if (
-		props.presentation?.kind === 'file' &&
-		!shouldForceOneSidedDiffPresentation({ item, resources })
-	) {
+	// A one-sided change (added/deleted) always renders as a diff (all-addition / all-deletion
+	// rows), even under an explicit file navigation target — there is no meaningful whole-file
+	// "version" to show for it. Resolving the one-sided resources before honoring a file
+	// presentation keeps placeholder/loading/hydrated on the same Pierre `type` for these items,
+	// which CodeView.syncItemRecord requires (it throws on any file<->diff type change for an id).
+	const oneSidedDiffResources = oneSidedDiffResourcesForItem({ item, resources });
+	if (props.presentation?.kind === 'file' && oneSidedDiffResources === null) {
 		const preferredResource = resourceForFilePresentation({
 			resources,
 			version: props.presentation.version,
@@ -128,6 +131,13 @@ export function materializeBridgeCodeViewItem(
 					version: item.itemVersion,
 					contentState: 'hydrated',
 				});
+	}
+
+	if (oneSidedDiffResources !== null) {
+		return createDiffItem({
+			...oneSidedDiffResources,
+			item,
+		});
 	}
 
 	if (
@@ -159,7 +169,7 @@ export function materializeBridgeCodeViewLoadingItem(
 	item: BridgeReviewItemDescriptor,
 	presentation: BridgeCodeViewItemPresentation | null = null,
 ): BridgeCodeViewItem {
-	if (presentation?.kind === 'file') {
+	if (presentation?.kind === 'file' && !itemIsOneSidedChange(item)) {
 		return createFileItem({
 			item,
 			placeholderContentRoles: contentRolesForFilePresentation({
@@ -253,7 +263,7 @@ function createPlaceholderItem(props: {
 	readonly lineCountEstimates: BridgeCodeViewLineCountEstimates;
 	readonly presentation: BridgeCodeViewItemPresentation | null;
 }): BridgeCodeViewItem {
-	if (props.presentation?.kind === 'file') {
+	if (props.presentation?.kind === 'file' && !itemIsOneSidedChange(props.item)) {
 		return createFileItem({
 			item: props.item,
 			lineCountEstimates: props.lineCountEstimates,
@@ -281,7 +291,18 @@ function createPlaceholderItem(props: {
 	});
 }
 
+function itemIsOneSidedChange(item: BridgeReviewItemDescriptor): boolean {
+	return item.changeKind === 'added' || item.changeKind === 'deleted';
+}
+
 function shouldUseDiffPlaceholder(item: BridgeReviewItemDescriptor): boolean {
+	// Added/deleted files render as one-sided diffs (all-addition green rows / all-deletion red
+	// rows), so their placeholder and loading records must be Pierre `diff` records too — even when
+	// the metadata pipeline classifies a pure added/deleted file as `itemKind: 'file'`. Matching the
+	// one-sided hydration path here keeps a single Pierre `type` across the item's whole lifecycle.
+	if (itemIsOneSidedChange(item)) {
+		return true;
+	}
 	return (
 		item.itemKind === 'diff' &&
 		(hasContentHandle(item.contentRoles.base) ||
@@ -402,7 +423,9 @@ function createFileItem(props: CreateFileItemProps): BridgeCodeViewFileItem {
 interface CreateDiffItemProps {
 	readonly item: BridgeReviewItemDescriptor;
 	readonly base: BridgeContentResource | null;
+	readonly basePlaceholderLineCount?: number | null;
 	readonly head: BridgeContentResource | null;
+	readonly headPlaceholderLineCount?: number | null;
 }
 
 function createDiffItem(props: CreateDiffItemProps): BridgeCodeViewDiffItem {
@@ -411,10 +434,11 @@ function createDiffItem(props: CreateDiffItemProps): BridgeCodeViewDiffItem {
 		item: props.item,
 		placeholderLineCount:
 			props.base === null
-				? lineCountForFirstAvailableContentRole({
+				? (props.basePlaceholderLineCount ??
+					lineCountForFirstAvailableContentRole({
 						contentRoles: ['base', 'diff'],
 						item: props.item,
-					})
+					}))
 				: null,
 		resource: props.base,
 		path: props.item.basePath ?? displayPathForItem(props.item),
@@ -425,10 +449,11 @@ function createDiffItem(props: CreateDiffItemProps): BridgeCodeViewDiffItem {
 		item: props.item,
 		placeholderLineCount:
 			props.head === null
-				? lineCountForFirstAvailableContentRole({
+				? (props.headPlaceholderLineCount ??
+					lineCountForFirstAvailableContentRole({
 						contentRoles: ['head', 'file', 'diff'],
 						item: props.item,
-					})
+					}))
 				: null,
 		resource: props.head,
 		path: props.item.headPath ?? displayPathForItem(props.item),
@@ -527,22 +552,23 @@ function loadedDiffContentRoles(props: CreateDiffItemProps): readonly BridgeCont
 	return roles;
 }
 
-function shouldForceOneSidedDiffPresentation(props: {
+function oneSidedDiffResourcesForItem(props: {
 	readonly item: BridgeReviewItemDescriptor;
 	readonly resources: BridgeCodeViewContentResources;
-}): boolean {
-	if (props.item.itemKind !== 'diff') {
-		return false;
-	}
+}): Omit<CreateDiffItemProps, 'item'> | null {
 	switch (props.item.changeKind) {
-		case 'added':
-			return props.resources.head !== undefined || props.resources.file !== undefined;
-		case 'deleted':
-			return props.resources.base !== undefined || props.resources.diff !== undefined;
+		case 'added': {
+			const head = props.resources.head ?? props.resources.file ?? null;
+			return head === null ? null : { base: null, basePlaceholderLineCount: 0, head };
+		}
+		case 'deleted': {
+			const base = props.resources.base ?? props.resources.diff ?? null;
+			return base === null ? null : { base, head: null, headPlaceholderLineCount: 0 };
+		}
 		case 'modified':
 		case 'renamed':
 		case 'copied':
-			return false;
+			return null;
 	}
 	const exhaustiveChangeKind: never = props.item.changeKind;
 	void exhaustiveChangeKind;

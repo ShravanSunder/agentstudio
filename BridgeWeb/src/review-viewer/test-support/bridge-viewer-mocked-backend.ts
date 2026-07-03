@@ -179,6 +179,7 @@ export function makeBridgeViewerBrowserFixture(
 	const addedItem = mockedBackendSupport.makeBrowserFixtureItem({
 		itemId: 'browser-added-source',
 		path: 'Sources/BridgeViewer/NewPanel.ts',
+		itemKind: 'file',
 		changeKind: 'added',
 		fileClass: 'source',
 		language: 'typescript',
@@ -890,4 +891,7 @@ function lineCountForReviewItemContentRole(props: {
 		case 'diff':
 			return Math.max(props.item.additions + props.item.deletions, 1);
 	}
+	const exhaustiveContentRole: never = props.contentRole;
+	void exhaustiveContentRole;
+	throw new Error('Unhandled Bridge review content role');
 }

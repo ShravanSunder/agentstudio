@@ -334,6 +334,7 @@ describe('Bridge CodeView hydrated materialization', () => {
 		const materialized = materializeBridgeCodeViewItem({
 			item: {
 				...item,
+				itemKind: 'file',
 				headPath: 'Sources/NewFeature/AddedFile.ts',
 				fileClass: 'source',
 				extension: 'ts',
@@ -394,6 +395,7 @@ describe('Bridge CodeView hydrated materialization', () => {
 		const materialized = materializeBridgeCodeViewItem({
 			item: {
 				...item,
+				itemKind: 'file',
 				headPath: 'Sources/NewFeature/AddedFile.ts',
 				fileClass: 'source',
 				extension: 'ts',
@@ -438,6 +440,71 @@ describe('Bridge CodeView hydrated materialization', () => {
 			"\treturn 'new file content';\n",
 			'}\n',
 		]);
+	});
+
+	test('keeps a deleted file-target presentation as a one-sided diff so deleted backgrounds can render', () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const item = reviewPackage.itemsById['deleted-source'];
+		const baseHandle = item?.contentRoles.base;
+		if (item === undefined || baseHandle === null || baseHandle === undefined) {
+			throw new Error('expected deleted fixture with base handle');
+		}
+		const sourceText = [
+			'export function removedFeature(): string {',
+			"\treturn 'old';",
+			'}',
+			'',
+		].join('\n');
+
+		const materialized = materializeBridgeCodeViewItem({
+			item: {
+				...item,
+				itemKind: 'file',
+				basePath: 'Sources/OldFeature/RemovedFile.ts',
+				fileClass: 'source',
+				extension: 'ts',
+				language: 'typescript',
+				isHiddenByDefault: false,
+				hiddenReason: null,
+			},
+			presentation: { kind: 'file', version: 'current' },
+			resources: {
+				base: makeContentResource(
+					{
+						...baseHandle,
+						isBinary: false,
+						mimeType: 'text/typescript',
+						language: 'typescript',
+					},
+					sourceText,
+				),
+			},
+		});
+
+		if (materialized?.type !== 'diff') {
+			throw new Error('expected deleted file target to remain diff materialization');
+		}
+
+		expect(materialized.fileDiff.type).toBe('deleted');
+		expect(materialized.fileDiff.hunks).toEqual([
+			expect.objectContaining({
+				additionLines: 0,
+				deletionLines: 3,
+				hunkContent: [
+					expect.objectContaining({
+						type: 'change',
+						additions: 0,
+						deletions: 3,
+					}),
+				],
+			}),
+		]);
+		expect(materialized.fileDiff.deletionLines).toEqual([
+			'export function removedFeature(): string {\n',
+			"\treturn 'old';\n",
+			'}\n',
+		]);
+		expect(materialized.fileDiff.additionLines).toEqual([]);
 	});
 
 	test('hydrates a modified item as a diff when base and head roles are loaded', () => {
