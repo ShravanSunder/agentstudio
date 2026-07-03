@@ -37,6 +37,7 @@ import {
 } from './bridge-code-view-panel-support.js';
 import {
 	codeViewMaterializationRetryFrameBudget,
+	codeViewSelectionScrollRetryFrameBudget,
 	codeViewVisibleHydrationScrollIdleMilliseconds,
 	codeViewVisibleMetadataScrollThrottleMilliseconds,
 	initialSelectionScrollDiagnostic,
@@ -61,6 +62,9 @@ export type {
 	BridgeCodeViewPanelProps,
 } from './bridge-code-view-panel-types.js';
 export type { BridgeCodeViewScrollToItemOptions } from './bridge-code-view-panel-types.js';
+
+const codeViewInstantRevealRetargetEpsilonPixels = 1;
+const codeViewInstantRevealStableFrameCount = 2;
 
 export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactElement {
 	const sourceKey = makeBridgeCodeViewSourceKey(props);
@@ -307,6 +311,63 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		},
 		[reviewItemsById],
 	);
+	const scheduleInstantSelectionRevealRetarget = useCallback(
+		(params: {
+			readonly codeViewHandle: CodeViewHandle<undefined>;
+			readonly itemId: string;
+			readonly selectionScrollKey: string;
+		}): void => {
+			if (pendingSelectionScrollFrameRef.current !== null) {
+				cancelAnimationFrame(pendingSelectionScrollFrameRef.current);
+				pendingSelectionScrollFrameRef.current = null;
+			}
+			let lastRetargetedItemTop: number | null = null;
+			let stableResolvedTopFrameCount = 0;
+			const scheduleRetargetFrame = (remainingFrameBudget: number): void => {
+				pendingSelectionScrollFrameRef.current = requestAnimationFrame((): void => {
+					pendingSelectionScrollFrameRef.current = null;
+					if (
+						codeViewHandleRef.current !== params.codeViewHandle ||
+						lastSelectionScrollKeyRef.current !== params.selectionScrollKey ||
+						params.codeViewHandle.getItem(params.itemId) === undefined
+					) {
+						return;
+					}
+					const codeViewInstance = params.codeViewHandle.getInstance();
+					if (codeViewInstance === undefined) {
+						return;
+					}
+					const resolvedItemTop = codeViewInstance.getTopForItem(params.itemId);
+					const shouldRetarget =
+						resolvedItemTop === undefined ||
+						lastRetargetedItemTop === null ||
+						Math.abs(resolvedItemTop - lastRetargetedItemTop) >
+							codeViewInstantRevealRetargetEpsilonPixels;
+					if (shouldRetarget) {
+						stableResolvedTopFrameCount = 0;
+						lastRetargetedItemTop = resolvedItemTop ?? null;
+						params.codeViewHandle.scrollTo({
+							type: 'item',
+							id: params.itemId,
+							align: 'start',
+							behavior: 'instant',
+						});
+						codeViewInstance.render(true);
+					} else {
+						stableResolvedTopFrameCount += 1;
+					}
+					if (
+						remainingFrameBudget > 0 &&
+						stableResolvedTopFrameCount < codeViewInstantRevealStableFrameCount
+					) {
+						scheduleRetargetFrame(remainingFrameBudget - 1);
+					}
+				});
+			};
+			scheduleRetargetFrame(codeViewSelectionScrollRetryFrameBudget);
+		},
+		[],
+	);
 	const scrollToItem = useCallback(
 		(itemId: string, options: BridgeCodeViewScrollToItemOptions = {}): boolean => {
 			const codeViewHandle = codeViewHandleRef.current;
@@ -352,34 +413,9 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 					return nextIds;
 				});
 			}
-			const measuredItemTop = codeViewHandle.getInstance()?.getTopForItem(itemId);
-			const scrollTopBeforeReveal = codeViewHandle.getInstance()?.getScrollTop();
 			controller.scrollToItem(itemId, scrollBehavior);
-			if (
-				scrollBehavior === 'instant' &&
-				measuredItemTop !== undefined &&
-				scrollTopBeforeReveal !== undefined
-			) {
-				requestAnimationFrame((): void => {
-					if (codeViewHandleRef.current !== codeViewHandle) {
-						return;
-					}
-					const currentInstance = codeViewHandle.getInstance();
-					if (currentInstance === undefined) {
-						return;
-					}
-					if (Math.abs(currentInstance.getScrollTop() - scrollTopBeforeReveal) > 1) {
-						return;
-					}
-					codeViewHandle.scrollTo({
-						type: 'position',
-						position: measuredItemTop,
-						behavior: 'instant',
-					});
-					currentInstance.render(true);
-				});
-			}
 			const selectionScrollKey = `${sourceKey}:${codeViewMountVersion}:${itemId}`;
+			lastSelectionScrollKeyRef.current = selectionScrollKey;
 			if (currentBridgeItem?.bridgeMetadata.contentState === 'hydrated') {
 				completedSelectionScrollKeyRef.current = selectionScrollKey;
 			}
@@ -394,15 +430,19 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 						codeViewHandleRef.current === codeViewHandle &&
 						scrollToTopTargetItemIdRef.current === itemId,
 				});
+				scheduleInstantSelectionRevealRetarget({
+					codeViewHandle,
+					itemId,
+					selectionScrollKey,
+				});
 			} else {
 				pendingSmoothSelectionScrollKeyRef.current = selectionScrollKey;
 				pendingSelectionRevealBehaviorRef.current = scrollBehavior;
 				scrollToTopTargetItemIdRef.current = null;
 			}
-			lastSelectionScrollKeyRef.current = selectionScrollKey;
 			return true;
 		},
-		[codeViewMountVersion, reviewItemsById, sourceKey],
+		[codeViewMountVersion, reviewItemsById, scheduleInstantSelectionRevealRetarget, sourceKey],
 	);
 	const toggleItemCollapse = useCallback(
 		(itemId: string): void => {
@@ -745,8 +785,8 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 				didUpdateRenderedItems = true;
 				if (itemId === props.selectedItemId) {
 					// F7: no mid-loop render(true) — applyItemUpdate's updateItem queues a render
-					// that coalesces the whole hydration batch into one layout pass, and the smooth
-					// reveal below re-resolves the target per frame regardless.
+					// that coalesces the whole hydration batch into one layout pass, and the instant
+					// reveal re-issue below restarts the bounded F9 re-target loop.
 					const currentModelItem = codeViewHandle.getItem(itemId);
 					const selectionScrollKey = `${sourceKey}:${codeViewMountVersion}:${itemId}`;
 					const shouldPreserveSmoothReveal =
@@ -757,13 +797,11 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 							cancelAnimationFrame(pendingSelectionScrollFrameRef.current);
 							pendingSelectionScrollFrameRef.current = null;
 						}
-						// F9 re-targeting reveal: re-issue Pierre's smooth reveal so it re-resolves the
-						// target's top per frame as the freshly hydrated content changes heights, keeping
-						// Pierre's anchor pinned to the target through the settle window. F4: no competing
-						// app-side DOM pin loop here — Pierre's smooth path is the single scroll authority,
-						// so above-target growth is absorbed without oscillation.
+						// F9 re-targeting reveal: re-issue Pierre's instant item reveal so
+						// scrollToItem restarts the bounded per-frame target re-resolution loop as
+						// freshly hydrated content changes heights.
 						scrollToItem(itemId, {
-							behavior: pendingSelectionRevealBehaviorRef.current ?? 'smooth-auto',
+							behavior: pendingSelectionRevealBehaviorRef.current ?? 'instant',
 						});
 						pendingPreHydrationSelectionScrollKeyRef.current = null;
 						pendingSmoothSelectionScrollKeyRef.current = selectionScrollKey;

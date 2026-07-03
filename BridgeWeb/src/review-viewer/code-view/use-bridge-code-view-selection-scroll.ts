@@ -135,7 +135,13 @@ export function useBridgeCodeViewSelectionScroll(
 					});
 					return;
 				}
-				const scrollBehavior: BridgeCodeViewScrollToItemOptions['behavior'] = 'smooth-auto';
+				// Uniform instant reveals (user decision 2026-07-03): Pierre's
+				// 'smooth-auto' animates only within 10 viewport-heights and
+				// teleports beyond, so identical tree clicks produced different
+				// motion. Instant everywhere matches GitHub-style file
+				// navigation; landing precision is held by the R3/R4 gates and
+				// the F9 instant re-target loop in bridge-code-view-panel.
+				const scrollBehavior: BridgeCodeViewScrollToItemOptions['behavior'] = 'instant';
 				const didScroll = scrollToItem(selectedItemId, { behavior: scrollBehavior });
 				if (!didScroll) {
 					if (remainingFrameBudget > 0) {
