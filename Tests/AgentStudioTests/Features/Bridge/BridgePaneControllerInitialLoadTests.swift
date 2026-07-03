@@ -284,8 +284,9 @@ extension WebKitSerializedTests {
             #expect(await provider.recordedComparisonRequestsCount() == 0)
         }
 
-        @Test("file viewer controller skips initial review package load")
-        func fileViewerControllerSkipsInitialReviewPackageLoad() async {
+        @Test("file viewer controller loads its initial review package for a review switch")
+        func fileViewerControllerLoadsInitialReviewPackage() async {
+            let worktreeId = UUIDv7.generate()
             let provider = BridgeReviewSourceProviderFake(
                 comparison: BridgeEndpointComparison(
                     baseEndpoint: makeBridgeEndpoint(endpointId: "base", kind: .gitRef),
@@ -303,17 +304,20 @@ extension WebKitSerializedTests {
             let controller = makeController(
                 panelKind: .fileViewer,
                 source: .workspace(rootPath: "/tmp/worktree", baseline: .unstaged),
-                worktreeId: UUIDv7.generate(),
+                worktreeId: worktreeId,
                 provider: provider
             )
             defer { controller.teardown() }
 
             let result = await controller.loadInitialReviewPackageIfPossible(correlationId: nil)
 
-            #expect(result == nil)
-            #expect(controller.paneState.diff.status == .idle)
-            #expect(controller.paneState.diff.packageMetadata == nil)
-            #expect(await provider.recordedComparisonRequestsCount() == 0)
+            guard case .success = result else {
+                Issue.record("Expected a file-viewer pane to load its review package for a review switch")
+                return
+            }
+            #expect(controller.paneState.diff.status == .ready)
+            #expect(controller.paneState.diff.packageMetadata?.query.worktreeId == worktreeId)
+            #expect(await provider.recordedComparisonRequestsCount() == 1)
         }
 
         private func makeController(

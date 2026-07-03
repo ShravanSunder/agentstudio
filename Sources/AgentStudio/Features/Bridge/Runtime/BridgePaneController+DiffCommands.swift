@@ -21,9 +21,14 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
         }
     }
 
+    /// Bootstraps the review package for any workspace-backed Bridge pane, not
+    /// only `.diffViewer` panes. A pane hosts both viewer modes in one webview
+    /// and the browser can switch into review mode regardless of the pane's
+    /// fixed `panelKind`; the review viewer is intake-only and never requests
+    /// the package itself, so a `.fileViewer` pane that skipped this load would
+    /// show a blank review surface on switch.
     func loadInitialReviewPackageIfPossible(correlationId: UUID?) async -> ActionResult? {
-        guard bridgePaneState.panelKind == .diffViewer,
-            case .workspace = bridgePaneState.source,
+        guard case .workspace = bridgePaneState.source,
             let worktreeId = runtime.metadata.worktreeId,
             paneState.diff.status == .idle,
             paneState.diff.packageMetadata == nil
