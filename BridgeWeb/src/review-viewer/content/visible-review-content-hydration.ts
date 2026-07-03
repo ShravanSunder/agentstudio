@@ -512,22 +512,26 @@ export function makeReviewItemContentResourcesKey(props: {
 	readonly item: BridgeReviewItemDescriptor;
 	readonly reviewPackage: BridgeReviewPackage;
 }): string {
-	const roleKeys = [
+	// Content-addressed content-validity key. reviewGeneration is the staleness authority and
+	// per-role contentHash carries per-file freshness across revisions. This deliberately EXCLUDES
+	// revision, itemVersion, and the revision-stamped item/role cacheKeys: benign metadata
+	// re-delivery (extent facts, path/summary/tree updates that bump revision but not content) must
+	// NOT churn this key, or it would drop already-loaded content and re-arm the loading placeholder.
+	// A genuine contentHash change, a role losing its descriptor ('none'), or a generation rotation
+	// still changes the key and correctly invalidates.
+	const roleContentHashes = [
 		props.item.contentRoles.base,
 		props.item.contentRoles.head,
 		props.item.contentRoles.diff,
 		props.item.contentRoles.file,
 	]
-		.map((handle): string => handle?.cacheKey ?? 'none')
+		.map((handle): string => handle?.contentHash ?? 'none')
 		.join('|');
 	return [
 		props.reviewPackage.packageId,
 		String(props.reviewPackage.reviewGeneration),
-		String(props.reviewPackage.revision),
 		props.item.itemId,
-		String(props.item.itemVersion),
-		props.item.cacheKey,
-		roleKeys,
+		roleContentHashes,
 	].join(':');
 }
 
