@@ -359,7 +359,10 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 	return (
 		<Suspense
 			fallback={
-				<BridgeFileViewerLazyLoadingFrame viewerHeaderControls={props.viewerHeaderControls} />
+				<BridgeFileViewerLazyLoadingFrame
+					isActive={isActive}
+					viewerHeaderControls={props.viewerHeaderControls}
+				/>
 			}
 		>
 			<LazyBridgeFileViewerShell

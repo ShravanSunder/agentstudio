@@ -13,6 +13,7 @@ export interface BridgeViewerResizableRailLayoutProps {
 	readonly contentTestId: string;
 	readonly defaultRailSize?: number;
 	readonly handleTestId: string;
+	readonly isActive?: boolean | undefined;
 	readonly maxRailSize?: number;
 	readonly minRailSize?: number;
 	readonly rail: ReactNode;
@@ -47,6 +48,10 @@ export function BridgeViewerResizableRailLayout(
 		[bridgeViewerResizableContentPanelId, bridgeViewerResizableRightRailPanelId],
 		[contentPanelId, railPanelId],
 	);
+
+	if (props.isActive === false) {
+		return <div data-bridge-viewer-resizable-layout-active="false">{props.content}</div>;
+	}
 
 	return (
 		<ResizablePanelGroup

@@ -7,10 +7,12 @@ import { BridgeViewerRightRailShell } from '../../app/bridge-viewer-right-rail-s
 import { Skeleton } from '../../components/ui/skeleton.js';
 
 export function BridgeReviewEmptyShell(props: {
+	readonly isActive?: boolean | undefined;
 	readonly viewerHeaderControls?: ReactNode;
 }): ReactElement {
 	return (
 		<BridgeReviewFallbackFrame
+			isActive={props.isActive}
 			title="Waiting for review metadata"
 			viewerHeaderControls={props.viewerHeaderControls}
 		>
@@ -31,10 +33,12 @@ export function BridgeReviewEmptyShell(props: {
 }
 
 export function BridgeReviewProjectionPendingShell(props: {
+	readonly isActive?: boolean | undefined;
 	readonly viewerHeaderControls?: ReactNode;
 }): ReactElement {
 	return (
 		<BridgeReviewFallbackFrame
+			isActive={props.isActive}
 			title="Projecting review"
 			viewerHeaderControls={props.viewerHeaderControls}
 		>
@@ -53,10 +57,12 @@ export function BridgeReviewProjectionPendingShell(props: {
 }
 
 export function BridgeReviewProjectionFailedShell(props: {
+	readonly isActive?: boolean | undefined;
 	readonly viewerHeaderControls?: ReactNode;
 }): ReactElement {
 	return (
 		<BridgeReviewFallbackFrame
+			isActive={props.isActive}
 			title="Review projection unavailable"
 			viewerHeaderControls={props.viewerHeaderControls}
 		>
@@ -75,10 +81,12 @@ export function BridgeReviewProjectionFailedShell(props: {
 }
 
 export function BridgeReviewMetadataLoadingShell(props: {
+	readonly isActive?: boolean | undefined;
 	readonly viewerHeaderControls?: ReactNode;
 }): ReactElement {
 	return (
 		<BridgeReviewFallbackFrame
+			isActive={props.isActive}
 			title="Loading review metadata"
 			viewerHeaderControls={props.viewerHeaderControls}
 		>
@@ -98,10 +106,12 @@ export function BridgeReviewMetadataLoadingShell(props: {
 
 export function BridgeReviewMetadataFailedShell(props: {
 	readonly error: string | null;
+	readonly isActive?: boolean | undefined;
 	readonly viewerHeaderControls?: ReactNode;
 }): ReactElement {
 	return (
 		<BridgeReviewFallbackFrame
+			isActive={props.isActive}
 			title="Review metadata unavailable"
 			viewerHeaderControls={props.viewerHeaderControls}
 		>
@@ -123,6 +133,7 @@ export function BridgeReviewMetadataFailedShell(props: {
 
 function BridgeReviewFallbackFrame(props: {
 	readonly children: ReactNode;
+	readonly isActive?: boolean | undefined;
 	readonly title: string;
 	readonly viewerHeaderControls?: ReactNode;
 }): ReactElement {
@@ -133,6 +144,7 @@ function BridgeReviewFallbackFrame(props: {
 		>
 			<BridgeViewerResizableRailLayout
 				autosaveId="bridge-viewer-right-rail"
+				isActive={props.isActive}
 				content={
 					<section className="grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
 						<BridgeViewerContentHeader

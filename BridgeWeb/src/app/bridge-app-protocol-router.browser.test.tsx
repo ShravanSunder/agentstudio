@@ -78,8 +78,27 @@ describe('BridgeAppProtocolRouter', () => {
 		expect(reviewModeHost?.parentElement).toBe(appRoot);
 		expect(reviewModeHost?.getAttribute('data-bridge-viewer-mode-active')).toBe('false');
 		expect(reviewModeHost?.hasAttribute('hidden')).toBe(true);
+		expect(document.querySelectorAll('[data-slot="resizable-panel-group"]')).toHaveLength(1);
 		expect(document.querySelector('[data-testid="bridge-review-empty-shell"]')).not.toBeNull();
 		expect(lazyLoadingFrame?.parentElement).toBe(modeHost);
+		assertSharedResizableRailFallbackGeometry({
+			contentPanelTestId: 'bridge-file-viewer-content-panel',
+			frameTestId: 'bridge-file-viewer-lazy-loading-frame',
+			handleId: 'bridge-file-viewer-rail-resize-handle',
+			railPanelTestId: 'bridge-file-viewer-resizable-rail',
+		});
+		requireActiveContextButton('review').click();
+		await expect.poll(() => appRoot?.getAttribute('data-bridge-viewer-mode')).toBe('review');
+		expect(document.querySelectorAll('[data-slot="resizable-panel-group"]')).toHaveLength(1);
+		assertSharedResizableRailFallbackGeometry({
+			contentPanelTestId: 'bridge-review-content-panel',
+			frameTestId: 'bridge-review-fallback-frame',
+			handleId: 'bridge-review-rail-resize-handle',
+			railPanelTestId: 'bridge-review-resizable-rail',
+		});
+		requireActiveContextButton('file').click();
+		await expect.poll(() => appRoot?.getAttribute('data-bridge-viewer-mode')).toBe('file');
+		expect(document.querySelectorAll('[data-slot="resizable-panel-group"]')).toHaveLength(1);
 		assertSharedResizableRailFallbackGeometry({
 			contentPanelTestId: 'bridge-file-viewer-content-panel',
 			frameTestId: 'bridge-file-viewer-lazy-loading-frame',
@@ -169,4 +188,12 @@ function requireHTMLElement(element: Element | null): HTMLElement {
 		throw new Error('Expected Bridge app browser test element to be an HTMLElement');
 	}
 	return element;
+}
+
+function requireActiveContextButton(mode: 'file' | 'review'): HTMLElement {
+	return requireHTMLElement(
+		document.querySelector(
+			`[data-bridge-viewer-mode-active="true"] [data-testid="bridge-viewer-context-${mode}"]`,
+		),
+	);
 }

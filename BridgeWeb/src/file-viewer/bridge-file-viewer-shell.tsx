@@ -19,6 +19,10 @@ import type {
 	BridgeFileViewerVisibleFileDemandChange,
 } from './bridge-file-viewer-contracts.js';
 import {
+	bridgeFileViewerHasActiveCommentDraft,
+	shouldAutoRefreshStaleOpenFile,
+} from './bridge-file-viewer-stale-refresh-policy.js';
+import {
 	firstSuccessfulDemandLoadResult,
 	worktreeFileDemandFailedCountByLane,
 	worktreeFileDemandFailedCountByReason,
@@ -30,10 +34,6 @@ import {
 	type BridgeFileViewerRenderedOpenFileContent,
 } from './bridge-file-viewer-state.js';
 import { BridgeFileViewerTreePanel } from './bridge-file-viewer-tree-panel.js';
-import {
-	bridgeFileViewerHasActiveCommentDraft,
-	shouldAutoRefreshStaleOpenFile,
-} from './bridge-file-viewer-stale-refresh-policy.js';
 
 interface BridgeFileViewerShellProps {
 	readonly canRefreshOpenFile: boolean;
@@ -293,6 +293,7 @@ export function BridgeFileViewerShell({
 		>
 			<BridgeViewerResizableRailLayout
 				autosaveId="bridge-viewer-right-rail"
+				isActive={isActive}
 				content={
 					<section className="grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)]">
 						<BridgeViewerContentHeader

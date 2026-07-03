@@ -4,6 +4,7 @@ import { BridgeViewerContentHeader } from '../app/bridge-viewer-content-header.j
 import { BridgeViewerResizableRailLayout } from '../app/bridge-viewer-resizable-rail-layout.js';
 
 export function BridgeFileViewerLazyLoadingFrame(props: {
+	readonly isActive?: boolean | undefined;
 	readonly viewerHeaderControls?: ReactNode;
 }): ReactElement {
 	return (
@@ -13,6 +14,7 @@ export function BridgeFileViewerLazyLoadingFrame(props: {
 		>
 			<BridgeViewerResizableRailLayout
 				autosaveId="bridge-viewer-right-rail"
+				isActive={props.isActive}
 				content={
 					<section className="grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
 						<BridgeViewerContentHeader

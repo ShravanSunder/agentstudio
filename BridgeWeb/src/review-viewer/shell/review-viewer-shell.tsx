@@ -73,6 +73,7 @@ export interface ReviewViewerShellProps {
 	readonly onTreeSearchModeChange?: (mode: BridgeReviewSearchMode) => void;
 	readonly onTreeSearchTextChange?: (searchText: string) => void;
 	readonly gitStatusFilter?: BridgeFileChangeKind | 'all';
+	readonly isActive?: boolean;
 	readonly onGitStatusFilterChange?: (status: BridgeFileChangeKind | 'all') => void;
 	readonly fileClassFilter?: BridgeFileClass | 'all';
 	readonly onFileClassFilterChange?: (fileClass: BridgeFileClass | 'all') => void;
@@ -305,6 +306,7 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 		>
 			<BridgeViewerResizableRailLayout
 				autosaveId="bridge-viewer-right-rail"
+				isActive={props.isActive}
 				content={
 					<section
 						aria-label="Selected content"

@@ -109,29 +109,55 @@ export function BridgeReviewViewerShellBoundary(
 	}, [isReviewViewerShellReady, props.isActive, reviewViewerShellKey]);
 
 	if (reviewPackage === null && props.diffStatus.status === 'loading') {
-		return <BridgeReviewMetadataLoadingShell viewerHeaderControls={viewerHeaderControls} />;
+		return (
+			<BridgeReviewMetadataLoadingShell
+				isActive={props.isActive}
+				viewerHeaderControls={viewerHeaderControls}
+			/>
+		);
 	}
 	if (reviewPackage === null && props.diffStatus.status === 'error') {
 		return (
 			<BridgeReviewMetadataFailedShell
 				error={props.diffStatus.error}
+				isActive={props.isActive}
 				viewerHeaderControls={viewerHeaderControls}
 			/>
 		);
 	}
 	if (reviewPackage === null) {
-		return <BridgeReviewEmptyShell viewerHeaderControls={viewerHeaderControls} />;
+		return (
+			<BridgeReviewEmptyShell
+				isActive={props.isActive}
+				viewerHeaderControls={viewerHeaderControls}
+			/>
+		);
 	}
 	if (props.rootSnapshot.projectionStatus === 'failed') {
-		return <BridgeReviewProjectionFailedShell viewerHeaderControls={viewerHeaderControls} />;
+		return (
+			<BridgeReviewProjectionFailedShell
+				isActive={props.isActive}
+				viewerHeaderControls={viewerHeaderControls}
+			/>
+		);
 	}
 	if (projection === null || !isReviewViewerShellReady || !shouldRenderReviewViewerShell) {
-		return <BridgeReviewProjectionPendingShell viewerHeaderControls={viewerHeaderControls} />;
+		return (
+			<BridgeReviewProjectionPendingShell
+				isActive={props.isActive}
+				viewerHeaderControls={viewerHeaderControls}
+			/>
+		);
 	}
 
 	return (
 		<Suspense
-			fallback={<BridgeReviewProjectionPendingShell viewerHeaderControls={viewerHeaderControls} />}
+			fallback={
+				<BridgeReviewProjectionPendingShell
+					isActive={props.isActive}
+					viewerHeaderControls={viewerHeaderControls}
+				/>
+			}
 		>
 			<LazyReviewViewerShell
 				{...reviewViewerShellPropsForBoundary({ ...props, projection, reviewPackage })}
@@ -149,6 +175,7 @@ function reviewViewerShellPropsForBoundary(
 	return {
 		fileClassFilter: props.rootSnapshot.fileClassFilter,
 		gitStatusFilter: props.rootSnapshot.gitStatusFilter,
+		isActive: props.isActive,
 		selectionCommitDurationMilliseconds: props.lastSelectionCommitDurationMilliseconds,
 		onCodeViewControlHandleChange: props.onCodeViewControlHandleChange,
 		onCodeViewScrollActivityChange: props.onCodeViewScrollActivityChange,
