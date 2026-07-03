@@ -26,6 +26,7 @@ import type { BridgeReviewPackageTelemetryContext } from './bridge-app-review-te
 
 const emptyVisibleContentResourcesByItemId: ReadonlyMap<string, BridgeCodeViewContentResources> =
 	new Map<string, BridgeCodeViewContentResources>();
+const emptyVisibleItemIds: readonly string[] = [];
 const emptyVisibleLoadingItemIds: ReadonlySet<string> = new Set<string>();
 
 export interface UseBridgeReviewVisibleContentControllerProps {
@@ -51,6 +52,7 @@ export interface UseBridgeReviewVisibleContentControllerProps {
 export interface BridgeReviewVisibleContentController {
 	readonly setVisibleContentItemIds: (itemIds: readonly string[]) => void;
 	readonly visibleContentResourcesByItemId: ReadonlyMap<string, BridgeCodeViewContentResources>;
+	readonly visibleItemIds: readonly string[];
 	readonly visibleLoadingItemCount: number;
 	readonly visibleLoadingItemIds: ReadonlySet<string>;
 	readonly visibleReadyItemCount: number;
@@ -128,6 +130,9 @@ export function useBridgeReviewVisibleContentController(
 		visibleContentResourcesByItemId: visibleContentHydrationPaused
 			? emptyVisibleContentResourcesByItemId
 			: visibleContentHydration.visibleContentResourcesByItemId,
+		visibleItemIds: visibleContentHydrationPaused
+			? emptyVisibleItemIds
+			: visibleContentHydration.visibleItemIds,
 		visibleLoadingItemCount: visibleContentHydrationPaused
 			? 0
 			: visibleContentHydration.visibleLoadingItemCount,
