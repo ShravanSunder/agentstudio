@@ -281,6 +281,362 @@ per-item lineage facts from accepted frame-level lineage for classification
 and proof. Review's existing per-item wire lineage is an accepted residual
 outside this cutover; changing it belongs to a later review-protocol slice.
 
+## Demand-Lane Recovery And Speculation Contract
+
+This section extends this file because demand priority, queue honesty,
+in-flight cancellation, recovery, and proof metrics are one scheduling
+contract. The parent protocol specs own source identity, app navigation, and
+protocol-specific payload shape; this file owns whether user demand can be
+delayed, silently dropped, or wedged.
+
+Current source anchors:
+
+- Worktree/File protocol identity already carries `streamId` and `generation`
+  in the protocol schema (`worktree-file-surface-protocol.md:444-445`).
+- The browser Worktree/File receiver rejects stream and generation mismatch
+  before accepting frames (`BridgeWeb/src/app/bridge-app-native-worktree-file.ts:741`,
+  `BridgeWeb/src/app/bridge-app-native-worktree-file.ts:775`).
+- The browser heals `sequence_gap` by calling the stream reset callback and now
+  routes resolved `generation_mismatch` / `stream_mismatch` receiver drops
+  through the same reset-required callback path
+  (`BridgeWeb/src/app/bridge-app-native-worktree-file.ts:172`,
+  `BridgeWeb/src/app/bridge-app-native-worktree-file.ts:189`,
+  `BridgeWeb/src/app/bridge-app-native-worktree-file.ts:276`).
+- Native generation rotation increments the accepted generation, closes the
+  gate, cancels the active tree-window task, revokes leases, resets the
+  resource store, and drops stale scheduler jobs
+  (`Sources/AgentStudio/Features/Bridge/Runtime/WorktreeFileSurface/BridgePaneController+WorktreeFileSurface.swift:26`,
+  `Sources/AgentStudio/Features/Bridge/Runtime/WorktreeFileSurface/BridgePaneController+WorktreeFileSurface.swift:51`,
+  `Sources/AgentStudio/Features/Bridge/Runtime/WorktreeFileSurface/BridgePaneController+WorktreeFileSurface.swift:436`,
+  `Sources/AgentStudio/Features/Bridge/Runtime/BridgeMetadataLaneScheduler.swift:137`).
+- The shared BridgeViewer app keeps mounted File and Review mode hosts instead
+  of relying on remount for data-controller liveness
+  (`BridgeWeb/src/app/bridge-app.tsx:257`, `BridgeWeb/src/app/bridge-app.tsx:285`).
+
+Spec boundary / separability map:
+
+```text
+UI stimuli
+  owns: selected/click, viewport, hover, mode-switch intent
+  exposes: demand class and cancellation scope
+
+App demand policy
+  owns: selected/click > visible-metadata > speculative > background
+  exposes: generic lane intents, freshness keys, cancellation groups
+
+Generic schedulers and executors
+  owns: queue order, in-flight pressure, aborts, stale drops, metrics
+  exposes: accepted/rejected/deferred/aborted outcomes
+
+Lineage authority
+  owns: current streamId + generation per protocol
+  exposes: stale/reject classification and recovery action
+
+Recovery controller
+  owns: reset-required -> reopen or unhealthy transition
+  exposes: storm guard and one active reopen per stale episode
+```
+
+### Testable Requirements
+
+R20. The user-demand taxonomy is strict:
+`selected/click > visible-metadata > speculative > background`.
+
+`selected/click` is the only absolute content preemptor. It maps to the
+generic foreground lane and must never queue behind visible, nearby,
+speculative, active background, or idle work. If the executor or scheduler is at
+capacity, selected/click cancels or preempts lower-priority work instead of
+waiting for it. Current web executor code already contains lower-priority
+in-flight preemption (`BridgeWeb/src/core/demand/bridge-resource-executor.ts:228`,
+`BridgeWeb/src/core/demand/bridge-resource-executor.ts:353`) and pending-load
+priority order (`BridgeWeb/src/core/demand/bridge-resource-executor.ts:619`);
+proof must show the same invariant for every File and Review demand entrypoint.
+
+R21. Visible tree work is metadata-only.
+
+Visible tree rows may request metadata interest and descriptor facts needed to
+render identity, status, extent, and availability. They must not fetch content
+bodies merely because a row is visible. This prevents 180-worktree-scale waste:
+large trees can scroll and show status without warming hundreds of file bodies.
+Review visible content hydration is a separate code-view concern and remains
+bounded by its own small content window (`BridgeWeb/src/review-viewer/content/visible-review-content-hydration.ts:61`).
+
+R22. Hover speculation is cancellable.
+
+Tree-row hover may start a speculative descriptor/content warm only for the
+hovered candidate. Hover-out cancels queued and in-flight hover speculation for
+that candidate. Hovering another row cancels prior hover speculation and starts
+only the latest candidate. The current FileViewer code exposes advisory
+descriptor demand (`BridgeWeb/src/file-viewer/use-bridge-file-viewer-descriptor-request-controller.ts:77`),
+but no hover-prefetch producer is present in the current codebase; implementation
+must add this as a cancellable stimulus, not as route-local incidental fetches.
+
+R23. Click changes cancel non-target speculation and promote target work.
+
+Clicking a file or review item cancels every speculative content demand that is
+not needed for the clicked target. If the clicked target already has an in-flight
+speculative load, that work is promoted to selected/click authority instead of
+being duplicated or forced to restart. Current Review selection aborts previous
+selected content and cancels demand for the previous item
+(`BridgeWeb/src/app/bridge-app-review-selection-controller.ts:136`), but the
+promotion rule is a required extension over simple abort/reload behavior.
+
+R24. Generation rotation is atomic cancellation.
+
+When a protocol source generation rotates, all queued and in-flight work bound
+to the old generation is cancelled at the ownership boundary in one lineage
+transition. A stale-drop is acceptable only as the observable completion of that
+cancellation for work that already crossed an async boundary; no old-generation
+work may continue consuming constrained selected/click, visible, or speculative
+slots after the new generation is accepted. No old-generation result may publish
+content, mutate selection state, or reopen the old surface after the new
+generation is accepted. Native queue stale-drop on `acceptGeneration` is
+required evidence
+(`Sources/AgentStudio/Features/Bridge/Runtime/BridgeMetadataLaneScheduler.swift:137`);
+browser content proof must also show executor-level abort or stale completion
+through freshness checks (`BridgeWeb/src/core/demand/bridge-resource-executor.ts:212`,
+`BridgeWeb/src/core/demand/bridge-resource-executor.ts:567`).
+
+R25. Stream staleness has one authority.
+
+For Worktree/File intake, stale means `frame.streamId !== accepted.streamId` or
+`frame.generation !== accepted.generation`, except that a valid reset frame may
+advance the accepted generation according to the protocol receiver
+(`BridgeWeb/src/app/bridge-app-native-worktree-file.ts:749`). Sequence,
+descriptor, resource, and content freshness checks derive from this protocol
+identity; they must not create independent stale definitions.
+
+R26. Every stale/reject path recovers or marks unhealthy.
+
+Any stale/reject path that can leave the user-visible surface unable to accept
+future current frames must do exactly one of:
+
+```text
+reset-required -> reopen accepted source -> fresh stream identity
+mark surface unhealthy -> visible failure / connection-health path
+```
+
+Silent rejection loops are contract violations. This recovery invariant covers:
+
+- receiver sequence gaps: `sequence_gap` moves the receiver to
+  `resetRequired` (`BridgeWeb/src/app/bridge-app-native-worktree-file.ts:789`)
+  and triggers the reset callback
+  (`BridgeWeb/src/app/bridge-app-native-worktree-file.ts:189`);
+- receiver generation or stream mismatch: the receiver currently rejects these
+  as `generation_mismatch` or `stream_mismatch`
+  (`BridgeWeb/src/app/bridge-app-native-worktree-file.ts:741`,
+  `BridgeWeb/src/app/bridge-app-native-worktree-file.ts:775`); implemented
+  browser behavior sends those receiver drops through
+  `signalStreamResetRequiredForReceiverRejection`, which signals the resolved
+  stream's reset-required callback for the 2026-07-03 silent-reject wedge class
+  (`BridgeWeb/src/app/bridge-app-native-worktree-file.ts:189`,
+  `BridgeWeb/src/app/bridge-app-native-worktree-file.ts:276`);
+- DOM detach/remount: mounted File and Review hosts keep controllers alive
+  across mode switches (`BridgeWeb/src/app/bridge-app.tsx:257`,
+  `BridgeWeb/src/app/bridge-app.tsx:285`); reopen uses an explicit
+  `reopenSignal`, not accidental remount
+  (`BridgeWeb/src/app/bridge-file-viewer-frame-controller.ts:14`).
+
+R27. Reopen storm guard.
+
+Only one reopen may be in flight for one stale/reject episode. Additional
+generation/stream mismatch frames observed while that reopen is in flight must
+record an intake reject/drop fact but must not schedule another reopen. The
+implemented browser guard keys the episode by the last resolved
+`streamId:generation` pair, suppresses mismatches while an open is pending as
+rotation noise, and clears the guard after the reopen resolves and installs the
+new accepted identity (`BridgeWeb/src/app/bridge-app-native-worktree-file.ts:177`,
+`BridgeWeb/src/app/bridge-app-native-worktree-file.ts:397`). Browser tests
+already encode this required behavior
+(`BridgeWeb/src/app/bridge-app-native-worktree-file.browser.stream-suite.ts:597`).
+
+R28. Review on-click adjacent-group warming is speculative and bounded.
+
+When a Review item is clicked, the selected item loads as selected/click. The
+small in-viewport group around the clicked item is the required adjacent
+Review-content speculation tier and loads as one bounded batch because review
+order is top-to-bottom. That batch is speculative for priority purposes: it must
+cancel or pause under selected/click pressure and must not be described as
+selected work in telemetry. Current visible Review hydration already includes a
+selected neighborhood (`BridgeWeb/src/review-viewer/content/visible-review-content-hydration.ts:549`)
+and gives adjacent items a `nearby` interest
+(`BridgeWeb/src/review-viewer/content/visible-review-content-hydration.ts:204`).
+The strict requirement is that this adjacent work remains below selected/click
+and never delays the clicked item.
+
+R29. Speculative content landing uses the worker-backed content cache.
+
+Successful speculative content must land in the shared review content registry
+or the equivalent worker highlight/content cache for FileViewer, composing with
+the descriptor-only worker pipeline rather than bypassing it. It must not commit
+directly into selected UI state. Review's registry is LRU-capped
+(`BridgeWeb/src/review-viewer/content/review-content-registry.ts:55`,
+`BridgeWeb/src/review-viewer/content/review-content-registry.ts:317`), clears on
+package/generation change (`BridgeWeb/src/review-viewer/content/review-content-registry.ts:75`),
+and is read before demand enqueue (`BridgeWeb/src/review-viewer/content/review-content-demand-loader.ts:73`).
+
+R30. Speculative in-flight is globally bounded.
+
+Speculative content work is limited to one or two in-flight loads per viewer,
+with one as the default. Review prefetch already declares one concurrent
+speculative load (`BridgeWeb/src/review-viewer/content/review-content-prefetch-policy.ts:17`)
+and the controller pumps sequentially
+(`BridgeWeb/src/app/bridge-app-review-content-prefetch-controller.ts:87`).
+Any FileViewer hover prefetch must use the same 1-2 bound and must share executor
+pressure with selected/click preemption.
+
+R31. Mode switch cancels or demotes inactive demand.
+
+Switching between File and Review keeps mounted shells for memory, but inactive
+foreground demand is not allowed to continue as foreground. In-flight selected
+loads for the inactive mode must abort, stale-drop, or be demoted to a lower
+class that cannot mutate visible active-mode state. The mode hosts are mounted
+but hidden (`BridgeWeb/src/app/bridge-app.tsx:265`,
+`BridgeWeb/src/app/bridge-app.tsx:293`), so proof must distinguish retained
+state from continuing foreground work.
+
+### Demand Class To Implementation Lane Mapping
+
+| Demand class | Strict priority | Generic lane(s) | Content rule | Cancellation rule |
+| --- | ---: | --- | --- | --- |
+| selected/click | 1 | `foreground` | selected body/range bytes and selected metadata | preempts or cancels every lower class |
+| visible-metadata | 2 | `visible` metadata interest | tree/review metadata only; no tree-row content bodies | superseded by viewport generation/range changes |
+| speculative | 3 | `nearby` or `speculative` | hover prefetch, review adjacent group, prediction warming | hover-out, click-elsewhere, generation rotation, pressure |
+| background | 4 | `active` only for already-open explicit refresh; otherwise `idle` | manifest continuation, low-priority warming, non-visible maintenance | generation rotation, inactive-mode demotion, pressure |
+
+Generic scheduler lane names remain implementation vocabulary. Product proof
+must report demand class and generic lane separately where both are present, so
+an implementation cannot relabel a `visible` or `speculative` wait as
+selected/click latency.
+
+### Cancellation Semantics
+
+```text
+hover-out
+  -> cancel hover candidate speculative queue entries
+  -> abort in-flight hover load if no selected/click consumer shares it
+
+hover A -> hover B
+  -> cancel A speculation
+  -> start B only if speculation slots are available
+
+click target already speculative
+  -> promote shared in-flight work to selected/click authority
+  -> continue the existing target work without abort/restart or duplicate fetch
+  -> selected/click telemetry starts at actionability-checked click
+
+click different target
+  -> cancel all other queued and in-flight speculative work
+  -> selected/click enters foreground immediately
+
+generation rotation
+  -> atomically cancel or stale-drop all old-generation queued/in-flight work
+  -> clear old-generation cache entries that are not content-addressed safe
+  -> accept only frames/resources for the new streamId + generation
+```
+
+### Speculation Tiers
+
+Tier S1: tree-row hover prefetch.
+
+Tree hover is the narrowest speculation. It warms one hover target and cancels
+on hover-out or hover-elsewhere. It never widens to the visible tree and never
+fetches every row in the viewport.
+
+Tier S2: Review on-click adjacent-group prefetch.
+
+After the clicked item enters selected/click, the small group around it may warm
+as a batch. Current Review code uses a selected neighborhood of at most two
+before and two after the selected item
+(`BridgeWeb/src/review-viewer/content/visible-review-content-hydration.ts:606`)
+and caps visible hydration concurrency at two
+(`BridgeWeb/src/review-viewer/content/visible-review-content-hydration.ts:62`).
+That behavior may satisfy the first adjacent-group shape only if proof shows it
+never delays the clicked item.
+
+Tier S3: visible-tree metadata.
+
+Visible tree means metadata interest only. It can improve scroll, extent, and
+descriptor readiness. It is not a content prefetch tier.
+
+Speculative cache landing:
+
+```text
+speculative load success
+  -> authoritative content cache / worker highlight cache
+  -> no selected-state commit
+  -> selected/click may later consume as a cache hit
+
+speculative load stale/aborted
+  -> no UI error
+  -> telemetry/drop counter records why
+```
+
+### Scenario Matrix
+
+| Scenario | Trigger | Expected lane behavior | Expected cancellation outcome | Expected recovery outcome | Proof layer |
+| --- | --- | --- | --- | --- | --- |
+| receiver sequence gap | intake frame jumps `nextSequence` | no further same-generation work treated as healthy | pending old sequence work rejected or retained only for retry | reset-required callback fires; reopen or unhealthy, never silent loop | browser + smoke |
+| receiver generation mismatch | current receiver sees future/old generation | stale frame cannot enter any lane | old mismatch episode schedules at most one reopen | reset-required/reopen or unhealthy; no silent-reject wedge | browser + smoke |
+| receiver stream mismatch | current receiver sees foreign streamId | no lane admission | stale frame dropped; current work not poisoned | reset-required/reopen or unhealthy; no cross-stream loop | browser + smoke |
+| DOM detach/remount | mode switch hides active File/Review shell | demand controllers remain mounted statefully | inactive foreground work aborts/demotes | no lost listener wedge; reopenSignal handles unhealthy stream | browser |
+| click during speculation, same target | speculative content for target already pending/in-flight | target promotes to selected/click | do not duplicate; shared work gains selected authority | selected paints; no lower-lane wait counted as selected queue wait | unit + browser |
+| click during speculation, different target | user clicks another file/item | clicked target enters selected/click immediately | all non-target speculation cancelled or preempted | selected paints; cancelled speculation records aborted/deferred | unit + browser |
+| hover then click same target | hover prefetch in flight, then click row | selected/click consumes/promotes target work | hover cancellation group replaced by selected group | selected paints from promoted work, or from a fresh selected fetch when no target speculation exists | unit + browser |
+| hover then hover elsewhere | pointer leaves A and enters B | only B may remain speculative | A queued/in-flight work aborted unless shared by selected | no UI error; A cache only if completed before cancel and still fresh | unit |
+| generation rotation mid-speculative fetch | native accepts new generation while S1/S2 running | old speculative work loses freshness | old queued/in-flight speculative work aborts or stale-drops | no old-generation cache/UI commit; new generation can demand fresh | unit + browser |
+| generation rotation mid-selected fetch | selected/click fetch crosses generation change | selected work fails closed for old generation | old selected fetch aborts/stale-drops; UI shows loading/stale for new identity | no old body paints; surface reopens or marks stale/unhealthy | browser + smoke |
+| reopen storm guard | repeated mismatch frames while reopen pending | no new lanes opened for stale frames | only first mismatch schedules reopen; later mismatches record rejects | second reopen allowed only after prior reopen resolves | browser |
+| descriptor stale rejection | descriptor RPC returns stale generation | descriptor demand not retried in same stale identity | pending selected descriptor clears or waits for reopened identity | reset-required/reopen or unhealthy; no permanent pending click | browser |
+| windowed or oversized content demand | clicked huge/binary/oversized file | selected/click asks for bounded window or unavailable state | speculative and visible content for that file stay off | selected visible state is ready/unavailable, not wedged loading | unit + browser |
+| mode switch with in-flight demands | Files <-> Review while demand active | inactive mode has no foreground work | selected/visible inactive work aborts/demotes; state memory retained | active mode remains responsive; stale completions cannot mutate active UI | browser + smoke |
+| visible tree over large worktree | scroll 180-worktree-scale tree viewport | visible-metadata only | no content bodies scheduled for every visible row | scroll settles with metadata; content demand only after click/spec tier | browser + smoke |
+| review on-click adjacent group | click review item in code view | clicked item selected/click; adjacent group speculative/nearby | adjacent loads pause/cancel under selected pressure | selected paints first; adjacent cache hits may follow | unit + browser |
+| speculation never delays click | executor saturated with speculative loads, then click | selected/click preempts immediately | speculative in-flight/queued loads abort until selected can start | selected queue wait is honest and below budget | unit + browser + smoke |
+
+### Measurement And Honesty
+
+Required telemetry evidence:
+
+- `performance.bridge.web.selected_content_painted` proves selected/click
+  click-to-paint and frame/materialize timing
+  (`BridgeWeb/src/foundation/telemetry/bridge-viewer-telemetry-adapter.ts:657`,
+  `BridgeWeb/src/review-viewer/code-view/bridge-code-view-panel.tsx:952`).
+- `performance.bridge.web.review_content_demand` proves Review demand interest,
+  result, intent counts, lane counts, pressure, stale drops, and load outcomes
+  (`BridgeWeb/src/foundation/telemetry/bridge-viewer-telemetry-adapter.ts:692`,
+  `BridgeWeb/src/review-viewer/content/review-content-demand-types.ts:66`).
+- `performance.bridge.swift.metadata_scheduler_queue_wait` proves native
+  metadata scheduler enqueue-to-dequeue only
+  (`Sources/AgentStudio/Features/Bridge/Runtime/WorktreeFileSurface/BridgePaneController+WorktreeFileIntakeFrames.swift:16`).
+- A required new browser intake-reject event must record
+  `protocol`, `receiverReason`, `generation_relation`, `stream_match`,
+  `reopen_state`, and `recovery_action`. Existing probe/drop recording is
+  debug state (`BridgeWeb/src/app/bridge-app-native-worktree-file.ts:83`), not
+  enough for production proof.
+
+Measurement honesty rules:
+
+- Selected/click latency starts at the actionability-checked click. A cache hit
+  may lower selected latency, but speculative wait before the click must not be
+  counted as selected queue wait.
+- Queue wait means scheduler/executor enqueue-to-dequeue/start. It is not
+  request-to-frame, content fetch duration, WebKit delivery delay, or reopen
+  recovery time.
+- A cancelled speculative load that freed capacity for selected/click must be
+  reported as speculative aborted/deferred, never hidden as success.
+- Intake reject recovery is not optional telemetry. A stale rejection without a
+  matching heal/unhealthy fact is a failing proof artifact even if the final UI
+  later appears healthy.
+
+### Open Decisions And Current Gaps
+
+OD-P1. FileViewer hover prefetch producer.
+
+No current FileViewer hover-prefetch producer was found. The spec requires one
+if hover speculation is implemented; until then, S1 is an unimplemented tier,
+not an implicit visible-tree content prefetch.
+
 ## Required Trace Shape
 
 Trace spans must stitch a user action through the system. Use one run marker
