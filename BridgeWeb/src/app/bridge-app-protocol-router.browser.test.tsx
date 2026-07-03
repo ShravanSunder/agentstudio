@@ -155,6 +155,8 @@ function assertSharedResizableRailFallbackGeometry(props: {
 	const railBox = railPanel.getBoundingClientRect();
 
 	expect(layout.getAttribute('data-panel-group-direction')).toBe('horizontal');
+	expect(contentPanel.id).toBe(props.contentPanelTestId);
+	expect(railPanel.id).toBe(props.railPanelTestId);
 	expect(layoutBox.width).toBeGreaterThan(700);
 	expect(contentBox.width).toBeGreaterThan(railBox.width);
 	expect(handleBox.width).toBeGreaterThanOrEqual(1);

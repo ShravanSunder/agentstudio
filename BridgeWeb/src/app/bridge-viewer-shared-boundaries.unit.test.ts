@@ -59,6 +59,13 @@ describe('BridgeViewer shared component boundaries', () => {
 
 		expect(resizableLayout).toContain('ResizablePanelGroup');
 		expect(resizableLayout).toContain('ResizableHandle');
+		expect(resizableLayout).toContain('bridge-viewer-content-panel');
+		expect(resizableLayout).toContain('bridge-viewer-right-rail-panel');
+		expect(resizableLayout).not.toContain('panelIds: [props.contentTestId, props.railTestId]');
+		expect(resizableLayout).toContain(
+			'panelIds: [bridgeViewerResizableContentPanelId, bridgeViewerResizableRightRailPanelId]',
+		);
+		expect(resizableLayout).toContain('translatePanelLayout');
 		expect(resizableLayout).not.toContain('../file-viewer/');
 		expect(resizableLayout).not.toContain('../review-viewer/');
 		expect(fileViewerShell).toContain('BridgeViewerResizableRailLayout');
@@ -85,12 +92,13 @@ describe('BridgeViewer shared component boundaries', () => {
 
 	test('Pierre tree adapter stays neutral from FileView and Review domain modules', async () => {
 		const pierreTreeAdapter = await source('src/app/bridge-pierre-tree-adapter.ts');
+		const pierrePackageImportPrefix = ['@pierre', '/'].join('');
 
 		expect(pierreTreeAdapter).not.toContain('../file-viewer/');
 		expect(pierreTreeAdapter).not.toContain('../review-viewer/');
 		expect(pierreTreeAdapter).not.toContain('../features/worktree-file/');
 		expect(pierreTreeAdapter).not.toContain('../features/review/');
-		expect(pierreTreeAdapter).not.toContain('@pierre/');
+		expect(pierreTreeAdapter).not.toContain(pierrePackageImportPrefix);
 		expect(pierreTreeAdapter).not.toContain('WorktreeFileDescriptor');
 		expect(pierreTreeAdapter).not.toContain('canFetchWorktreeFileDescriptorContent');
 		expect(pierreTreeAdapter).not.toContain('BridgeReviewPackage');

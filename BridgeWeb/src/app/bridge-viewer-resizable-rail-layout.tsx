@@ -22,6 +22,10 @@ export interface BridgeViewerResizableRailLayoutProps {
 const defaultBridgeViewerRailMinSize = 20;
 const defaultBridgeViewerRailSize = 28;
 const defaultBridgeViewerRailMaxSize = 45;
+const bridgeViewerResizableContentPanelId = 'bridge-viewer-content-panel';
+const bridgeViewerResizableRightRailPanelId = 'bridge-viewer-right-rail-panel';
+
+type BridgeViewerPanelLayout = Record<string, number>;
 
 export function BridgeViewerResizableRailLayout(
 	props: BridgeViewerResizableRailLayoutProps,
@@ -36,15 +40,29 @@ export function BridgeViewerResizableRailLayout(
 	const persistedLayout = useResizablePanelLayout({
 		id: props.autosaveId,
 		onlySaveAfterUserInteractions: true,
-		panelIds: [contentPanelId, railPanelId],
+		panelIds: [bridgeViewerResizableContentPanelId, bridgeViewerResizableRightRailPanelId],
 	});
+	const panelLayout = translatePanelLayout(
+		persistedLayout.defaultLayout,
+		[bridgeViewerResizableContentPanelId, bridgeViewerResizableRightRailPanelId],
+		[contentPanelId, railPanelId],
+	);
 
 	return (
 		<ResizablePanelGroup
 			className="min-h-0 flex-1"
-			defaultLayout={persistedLayout.defaultLayout}
+			defaultLayout={panelLayout}
 			id={groupId}
-			onLayoutChanged={persistedLayout.onLayoutChanged}
+			onLayoutChanged={(layout, meta): void => {
+				const storageLayout = translatePanelLayout(
+					layout,
+					[contentPanelId, railPanelId],
+					[bridgeViewerResizableContentPanelId, bridgeViewerResizableRightRailPanelId],
+				);
+				if (storageLayout !== undefined) {
+					persistedLayout.onLayoutChanged(storageLayout, meta);
+				}
+			}}
 			orientation="horizontal"
 		>
 			<ResizablePanel
@@ -74,4 +92,27 @@ export function BridgeViewerResizableRailLayout(
 			</ResizablePanel>
 		</ResizablePanelGroup>
 	);
+}
+
+function translatePanelLayout(
+	layout: BridgeViewerPanelLayout | undefined,
+	fromPanelIds: readonly [string, string],
+	toPanelIds: readonly [string, string],
+): BridgeViewerPanelLayout | undefined {
+	if (layout === undefined) {
+		return undefined;
+	}
+
+	const [fromContentPanelId, fromRailPanelId] = fromPanelIds;
+	const [toContentPanelId, toRailPanelId] = toPanelIds;
+	const contentPanelSize = layout[fromContentPanelId];
+	const railPanelSize = layout[fromRailPanelId];
+	if (contentPanelSize === undefined || railPanelSize === undefined) {
+		return undefined;
+	}
+
+	return {
+		[toContentPanelId]: contentPanelSize,
+		[toRailPanelId]: railPanelSize,
+	};
 }
