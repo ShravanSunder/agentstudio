@@ -1043,6 +1043,71 @@ struct GitWorkingDirectoryProjectorTests {
         collectionTask.cancel()
     }
 
+    @Test("git status and tick telemetry carry worktree identity for trace attribution")
+    func gitStatusAndTickTelemetryCarryWorktreeIdentity() async throws {
+        let bus = EventBus<RuntimeEnvelope>()
+        let clock = TestPushClock()
+        let recorder = GitProjectorTraceRecorderSpy()
+        let policy = AppPolicies.GitRefresh.Policy(
+            activeCadence: .milliseconds(120),
+            backgroundStripeCount: 1,
+            maxConcurrentStatusComputes: 4
+        )
+        let provider = StubGitWorkingTreeStatusProvider { _ in
+            GitWorkingTreeStatus(
+                summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
+                branch: "main",
+                origin: nil
+            )
+        }
+        let actor = GitWorkingDirectoryProjector(
+            bus: bus,
+            gitWorkingTreeProvider: provider,
+            coalescingWindow: .zero,
+            periodicRefreshInterval: policy.activeCadence,
+            sleepClock: clock,
+            refreshPolicy: policy,
+            performanceTraceRecorder: recorder
+        )
+
+        let observed = ObservedGitEvents()
+        let collectionTask = await startCollection(on: bus, observed: observed)
+        await actor.start()
+
+        let worktreeId = UUID()
+        await bus.post(
+            makeEnvelope(
+                seq: 1,
+                worktreeId: worktreeId,
+                event: .worktreeRegistered(
+                    worktreeId: worktreeId,
+                    repoId: worktreeId,
+                    rootPath: URL(fileURLWithPath: "/tmp/git-telemetry-attribution-\(UUID().uuidString)")
+                )
+            )
+        )
+
+        let statusRecorded = await waitUntil {
+            !recorder.recordedAttributes(for: .gitStatusComputed).isEmpty
+        }
+        #expect(statusRecorded)
+
+        await clock.waitForPendingSleepCount(atLeast: 1)
+        clock.advance(by: .milliseconds(120))
+        let tickRecorded = await waitUntil {
+            !recorder.recordedAttributes(for: .gitTick).isEmpty
+        }
+        #expect(tickRecorded)
+
+        let statusAttributes = try #require(recorder.recordedAttributes(for: .gitStatusComputed).first)
+        let tickAttributes = try #require(recorder.recordedAttributes(for: .gitTick).first)
+        #expect(statusAttributes["agentstudio.worktree.id"] == .string(worktreeId.uuidString))
+        #expect(tickAttributes["agentstudio.worktree.id"] == .string(worktreeId.uuidString))
+
+        await actor.shutdown()
+        collectionTask.cancel()
+    }
+
     @Test("active worktree periodic refresh bypasses background stripe")
     func activeWorktreePeriodicRefreshBypassesBackgroundStripe() async throws {
         let bus = EventBus<RuntimeEnvelope>()
@@ -3354,6 +3419,17 @@ private final class GitProjectorTraceRecorderSpy: GitProjectorPerformanceRecordi
                 quarantined: quarantined,
                 reason: Self.string(attributes["agentstudio.performance.git.path_quarantine.reason"])
             )
+        }
+    }
+
+    func recordedAttributes(
+        for expectedEvent: AgentStudioPerformanceTraceRecorder.Event
+    ) -> [[String: AgentStudioTraceValue]] {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedEvents.compactMap { event, attributes in
+            guard event == expectedEvent else { return nil }
+            return attributes
         }
     }
 

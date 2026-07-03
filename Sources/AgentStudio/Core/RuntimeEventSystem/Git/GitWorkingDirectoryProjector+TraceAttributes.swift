@@ -10,6 +10,7 @@ extension GitWorkingDirectoryProjector {
         pathspecCount: Int = 0
     ) -> [String: AgentStudioTraceValue] {
         var attributes: [String: AgentStudioTraceValue] = [
+            "agentstudio.worktree.id": .string(changeset.worktreeId.uuidString),
             "agentstudio.performance.git.input_path.count": .int(changeset.paths.count),
             "agentstudio.performance.git.pending.count": .int(pendingByWorktreeId.count),
             "agentstudio.performance.git.running.count": .int(worktreeTasks.count),

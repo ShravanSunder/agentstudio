@@ -225,6 +225,7 @@ actor GitWorkingDirectoryProjector {
                 performanceTraceRecorder?.record(
                     .gitSuppressedInputSkipped,
                     attributes: [
+                        "agentstudio.worktree.id": .string(worktreeId.uuidString),
                         "agentstudio.performance.git.input_path.count": .int(changeset.paths.count),
                         "agentstudio.performance.git.suppressed_ignored_path.count": .int(
                             changeset.suppressedIgnoredPathCount
@@ -538,7 +539,8 @@ actor GitWorkingDirectoryProjector {
             performanceTraceRecorder?.record(
                 .gitSnapshotDedup,
                 attributes: [
-                    "agentstudio.performance.git.snapshot_dedup.count": .int(1)
+                    "agentstudio.worktree.id": .string(changeset.worktreeId.uuidString),
+                    "agentstudio.performance.git.snapshot_dedup.count": .int(1),
                 ]
             )
             // Backstop tick suppression: mark the worktree quiescent so its next
@@ -745,7 +747,7 @@ actor GitWorkingDirectoryProjector {
         defer { periodicRefreshTick &+= 1 }
         guard !rootPathByWorktreeId.isEmpty else { return }
 
-        var enqueuedCount = 0
+        var enqueuedWorktreeIds: [UUID] = []
         for worktreeId in rootPathByWorktreeId.keys.sorted(by: { $0.uuidString < $1.uuidString }) {
             guard !suppressedWorktreeIds.contains(worktreeId) else { continue }
             guard !quarantinedWorktreeIds.contains(worktreeId) else { continue }
@@ -769,16 +771,13 @@ actor GitWorkingDirectoryProjector {
                 timestamp: envelopeClock.now,
                 batchSeq: nextBatchSeq
             )
-            enqueuedCount += 1
+            enqueuedWorktreeIds.append(worktreeId)
         }
-        performanceTraceRecorder?.record(
-            .gitTick,
-            attributes: [
-                "agentstudio.performance.git.enqueued.count": .int(enqueuedCount),
-                "agentstudio.performance.git.registered.count": .int(rootPathByWorktreeId.count),
-                "agentstudio.performance.git.pending.count": .int(pendingByWorktreeId.count),
-                "agentstudio.performance.git.tick.count": .int(Int(periodicRefreshTick)),
-            ]
+        recordPeriodicRefreshTickTelemetry(
+            enqueuedWorktreeIds: enqueuedWorktreeIds,
+            registeredCount: rootPathByWorktreeId.count,
+            pendingCount: pendingByWorktreeId.count,
+            tick: periodicRefreshTick
         )
         admitPendingWorktrees()
     }

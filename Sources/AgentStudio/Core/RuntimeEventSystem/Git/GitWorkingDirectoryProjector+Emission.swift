@@ -30,6 +30,7 @@ extension GitWorkingDirectoryProjector {
         performanceTraceRecorder?.record(
             .gitEventPosted,
             attributes: [
+                "agentstudio.worktree.id": .string(worktreeId.uuidString),
                 "agentstudio.performance.git.event_posted.count": .int(1),
                 "agentstudio.performance.git.dropped_subscriber.count": .int(droppedCount),
             ]

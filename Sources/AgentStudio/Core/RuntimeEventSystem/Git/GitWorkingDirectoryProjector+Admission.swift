@@ -55,14 +55,9 @@ extension GitWorkingDirectoryProjector {
             startDrainTask(worktreeId: worktreeId)
         }
         guard !admittedWorktreeIds.isEmpty else { return }
-        performanceTraceRecorder?.record(
-            .gitAdmission,
-            attributes: [
-                "agentstudio.performance.git.admitted.count": .int(admittedWorktreeIds.count),
-                "agentstudio.performance.git.pending.count": .int(pendingByWorktreeId.count),
-                "agentstudio.performance.git.running.count": .int(worktreeTasks.count),
-                "agentstudio.performance.git.available_slot.count": .int(availableSlots),
-            ]
+        recordGitAdmissionTelemetry(
+            admittedWorktreeIds: admittedWorktreeIds,
+            availableSlots: availableSlots
         )
     }
 

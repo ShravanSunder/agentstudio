@@ -41,7 +41,7 @@ extension GitWorkingDirectoryProjector {
     private func quarantineWorktreePath(worktreeId: UUID) {
         guard quarantinedWorktreeIds.insert(worktreeId).inserted else { return }
         pendingByWorktreeId.removeValue(forKey: worktreeId)
-        emitPathQuarantineTelemetry(quarantined: true)
+        emitPathQuarantineTelemetry(worktreeId: worktreeId, quarantined: true)
     }
 
     /// Event-driven re-arm gate for a file-change on a possibly-quarantined
@@ -62,7 +62,7 @@ extension GitWorkingDirectoryProjector {
     /// re-arm path where the path was confirmed to have returned.
     private func clearQuarantineEmittingClose(worktreeId: UUID) {
         guard quarantinedWorktreeIds.remove(worktreeId) != nil else { return }
-        emitPathQuarantineTelemetry(quarantined: false)
+        emitPathQuarantineTelemetry(worktreeId: worktreeId, quarantined: false)
     }
 
     /// Silently drops a quarantine mark for lifecycle transitions (unregistration,
@@ -72,9 +72,10 @@ extension GitWorkingDirectoryProjector {
         quarantinedWorktreeIds.remove(worktreeId)
     }
 
-    private func emitPathQuarantineTelemetry(quarantined: Bool) {
+    private func emitPathQuarantineTelemetry(worktreeId: UUID, quarantined: Bool) {
         guard let performanceTraceRecorder else { return }
         var attributes: [String: AgentStudioTraceValue] = [
+            "agentstudio.worktree.id": .string(worktreeId.uuidString),
             "agentstudio.performance.git.path_quarantined": .bool(quarantined),
             "agentstudio.performance.git.quarantined.count": .int(quarantinedWorktreeIds.count),
             "agentstudio.performance.git.pending.count": .int(pendingByWorktreeId.count),

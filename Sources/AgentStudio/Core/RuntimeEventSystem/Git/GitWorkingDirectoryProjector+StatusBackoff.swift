@@ -47,6 +47,7 @@ extension GitWorkingDirectoryProjector {
 
         let backoffDelay = refreshPolicy.statusFailureBackoffDelay(forConsecutiveFailureCount: failureCount)
         emitStatusBackoffTelemetry(
+            worktreeId: worktreeId,
             open: true,
             reason: reason,
             backoffDelay: backoffDelay,
@@ -167,7 +168,7 @@ extension GitWorkingDirectoryProjector {
         let wasOpen = openStatusBackoffWorktreeIds.remove(worktreeId) != nil
         deferredStatusBackoffChangesetByWorktreeId.removeValue(forKey: worktreeId)
         guard hadFailures || wasOpen else { return }
-        emitStatusBackoffTelemetry(open: false, reason: nil, backoffDelay: .zero, attempt: 0)
+        emitStatusBackoffTelemetry(worktreeId: worktreeId, open: false, reason: nil, backoffDelay: .zero, attempt: 0)
     }
 
     func clearStatusBackoffState(worktreeId: UUID) {
@@ -178,6 +179,7 @@ extension GitWorkingDirectoryProjector {
     }
 
     func emitStatusBackoffTelemetry(
+        worktreeId: UUID,
         open: Bool,
         reason: GitWorkingTreeStatusUnavailableReason?,
         backoffDelay: Duration,
@@ -185,6 +187,7 @@ extension GitWorkingDirectoryProjector {
     ) {
         guard let performanceTraceRecorder else { return }
         var attributes: [String: AgentStudioTraceValue] = [
+            "agentstudio.worktree.id": .string(worktreeId.uuidString),
             "agentstudio.performance.git.backoff_open": .bool(open),
             "agentstudio.performance.git.backoff_ms": .double(
                 AgentStudioPerformanceTraceRecorder.milliseconds(from: backoffDelay)
