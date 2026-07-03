@@ -79,23 +79,21 @@ interface SelectedContentResourcesForCurrentSelectionProps {
 export function selectedContentResourcesForCurrentSelection(
 	props: SelectedContentResourcesForCurrentSelectionProps,
 ): BridgeCodeViewContentResources | null {
-	if (props.reviewPackage === null || props.selectedItemId === null) {
-		return null;
-	}
+	// Content-addressed validity with metadata-only-keep: the loaded resources stay valid while the
+	// per-role contentHash is unchanged OR the current item lost that role's descriptor (metadata-only
+	// re-touch, no fresher content identity). Only a genuine contentHash change or a generation
+	// rotation invalidates. reviewContentValidityDropReason is the single authority; a non-'valid'
+	// result is a real drop and is reported to telemetry so it can never be silent.
 	if (
-		props.selectedContentResourcesState === null ||
-		props.selectedContentResourcesState.itemId !== props.selectedItemId ||
-		props.selectedContentResourcesState.status !== 'ready'
+		reviewContentValidityDropReason({
+			reviewPackage: props.reviewPackage,
+			selectedItemId: props.selectedItemId,
+			selectedContentResourcesState: props.selectedContentResourcesState,
+		}) !== 'valid'
 	) {
 		return null;
 	}
-	const selectedContentKey = makeSelectedContentResourcesKey(
-		props.reviewPackage,
-		props.selectedItemId,
-	);
-	return props.selectedContentResourcesState.contentKey === selectedContentKey
-		? props.selectedContentResourcesState.resources
-		: null;
+	return props.selectedContentResourcesState?.resources ?? null;
 }
 
 export type ReviewContentValidityDropReason =
@@ -159,17 +157,33 @@ export function reviewContentValidityDropReason(
 	if (hasGenerationRotation) {
 		return 'generation_rotation';
 	}
+	// Genuinely newer content invalidates: a role the current item STILL resolves to a handle
+	// (fresher content identity) whose contentHash differs from what we loaded.
 	const hasContentHashChange = contentRolePairs.some(
 		(pair): boolean =>
 			pair.loadedHandle !== undefined &&
-			pair.loadedHandle.contentHash !== pair.currentHandle?.contentHash,
+			pair.currentHandle !== null &&
+			pair.currentHandle !== undefined &&
+			pair.loadedHandle.contentHash !== pair.currentHandle.contentHash,
 	);
 	if (hasContentHashChange) {
 		return 'contenthash_change';
 	}
-	// SENTINEL: the key already diverged (checked above) but neither the reviewGeneration nor any
-	// role's contentHash changed. With a content-addressed key this must be unreachable; if it fires,
-	// a revision-stamped field leaked back into makeReviewItemContentResourcesKey.
+	// Metadata-only-keep: the key diverged only because a metadata re-touch dropped a role's
+	// descriptor (current handle null → no fresher content identity). The loaded content is still
+	// valid — keep it rather than strand the row on a placeholder that can never reload.
+	const hasMetadataOnlyDowngrade = contentRolePairs.some(
+		(pair): boolean =>
+			pair.loadedHandle !== undefined &&
+			(pair.currentHandle === null || pair.currentHandle === undefined),
+	);
+	if (hasMetadataOnlyDowngrade) {
+		return 'valid';
+	}
+	// SENTINEL: the key diverged but reviewGeneration matches, no resolved role's contentHash
+	// changed, and no role was downgraded to metadata-only. Under a content-addressed key this must
+	// be unreachable (only packageId/generation/itemId/role-hashes compose the key); if it fires, a
+	// revision-stamped field leaked back into makeReviewItemContentResourcesKey.
 	return 'revision_churn';
 }
 

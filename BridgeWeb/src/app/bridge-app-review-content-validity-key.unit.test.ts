@@ -175,6 +175,48 @@ describe('review content-validity key is content-addressed, not revision-stamped
 			}),
 		).toBeNull();
 	});
+
+	test('keeps loaded selected content when a metadata re-touch drops the descriptor (metadata-only-keep)', () => {
+		const reviewPackage = makeBridgeReviewPackage();
+		const item = reviewPackage.itemsById['item-source'];
+		const headHandle = item?.contentRoles.head ?? null;
+		if (item === undefined || headHandle === null) {
+			throw new Error('Expected modified item with head handle');
+		}
+		const loadedState = {
+			itemId: 'item-source',
+			contentKey: makeSelectedContentResourcesKey(reviewPackage, 'item-source'),
+			status: 'ready' as const,
+			resources: { head: { handle: headHandle, readText: (): string => 'head body' } },
+		};
+		// A metadata-only re-touch (delta/window/snapshot with no fresher descriptor) downgrades the
+		// item to null role handles. With gate-only defense (intake preservation deferred), the loaded
+		// content must be KEPT — the item has no fresher content identity, and a reload would fail.
+		const downgradedPackage = {
+			...reviewPackage,
+			itemsById: {
+				...reviewPackage.itemsById,
+				'item-source': {
+					...item,
+					contentRoles: { ...item.contentRoles, base: null, head: null },
+				},
+			},
+		};
+		expect(
+			selectedContentResourcesForCurrentSelection({
+				reviewPackage: downgradedPackage,
+				selectedItemId: 'item-source',
+				selectedContentResourcesState: loadedState,
+			}),
+		).not.toBeNull();
+		expect(
+			reviewContentValidityDropReason({
+				reviewPackage: downgradedPackage,
+				selectedItemId: 'item-source',
+				selectedContentResourcesState: loadedState,
+			}),
+		).toBe('valid');
+	});
 });
 
 // The gate-drop telemetry contract requires that every drop of an already-loaded, ready
