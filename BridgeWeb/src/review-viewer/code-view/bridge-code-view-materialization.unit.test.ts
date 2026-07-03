@@ -263,6 +263,97 @@ describe('Bridge CodeView materialization', () => {
 		expect(placeholder.fileDiff.additionLines).toHaveLength(40);
 	});
 
+	test('renders an added placeholder as a one-sided (empty base) diff, ignoring cross-item base estimates', () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const sourceHighItem = reviewPackage.itemsById['source-high'];
+		const sourceNormalItem = reviewPackage.itemsById['source-normal'];
+		if (sourceHighItem === undefined || sourceNormalItem === undefined) {
+			throw new Error('expected source fixture items');
+		}
+		const reviewPackageWithAddedItem = {
+			...reviewPackage,
+			itemsById: {
+				...reviewPackage.itemsById,
+				// A pure added file: no base handle, real head extent, sharing the package with a
+				// modified sibling whose base extent (20) would otherwise leak into this item's base
+				// placeholder via the package-wide average and manufacture phantom context rows.
+				'source-high': {
+					...sourceHighItem,
+					changeKind: 'added' as const,
+					basePath: null,
+					contentRoles: { ...sourceHighItem.contentRoles, base: null },
+					contentLineCountsByRole: { head: 179 },
+				},
+				'source-normal': {
+					...sourceNormalItem,
+					contentLineCountsByRole: { base: 20, head: 40 },
+				},
+			},
+		};
+		const projection = buildBridgeReviewProjection({
+			reviewPackage: reviewPackageWithAddedItem,
+			request: { mode: { kind: 'normalReview' }, facets: [] },
+		});
+		const items = createBridgeCodeViewInitialItems({
+			reviewPackage: reviewPackageWithAddedItem,
+			projection,
+		});
+		const placeholder = items.find(
+			(item: BridgeCodeViewItem): boolean => item.id === 'source-high',
+		);
+		if (placeholder?.type !== 'diff') {
+			throw new Error('expected diff placeholder item');
+		}
+		// Empty base → pure-add diff (no phantom "unmodified"/context rows, no base role).
+		expect(placeholder.fileDiff.type).toBe('new');
+		expect(placeholder.fileDiff.deletionLines).toHaveLength(0);
+		expect(placeholder.bridgeMetadata.contentRoles).not.toContain('base');
+	});
+
+	test('renders a deleted placeholder as a one-sided (empty head) diff, ignoring cross-item head estimates', () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const sourceHighItem = reviewPackage.itemsById['source-high'];
+		const sourceNormalItem = reviewPackage.itemsById['source-normal'];
+		if (sourceHighItem === undefined || sourceNormalItem === undefined) {
+			throw new Error('expected source fixture items');
+		}
+		const reviewPackageWithDeletedItem = {
+			...reviewPackage,
+			itemsById: {
+				...reviewPackage.itemsById,
+				'source-high': {
+					...sourceHighItem,
+					changeKind: 'deleted' as const,
+					headPath: null,
+					contentRoles: { ...sourceHighItem.contentRoles, head: null },
+					contentLineCountsByRole: { base: 179 },
+				},
+				'source-normal': {
+					...sourceNormalItem,
+					contentLineCountsByRole: { base: 20, head: 40 },
+				},
+			},
+		};
+		const projection = buildBridgeReviewProjection({
+			reviewPackage: reviewPackageWithDeletedItem,
+			request: { mode: { kind: 'normalReview' }, facets: [] },
+		});
+		const items = createBridgeCodeViewInitialItems({
+			reviewPackage: reviewPackageWithDeletedItem,
+			projection,
+		});
+		const placeholder = items.find(
+			(item: BridgeCodeViewItem): boolean => item.id === 'source-high',
+		);
+		if (placeholder?.type !== 'diff') {
+			throw new Error('expected diff placeholder item');
+		}
+		// Empty head → pure-delete diff (no phantom context rows, no head role).
+		expect(placeholder.fileDiff.type).toBe('deleted');
+		expect(placeholder.fileDiff.additionLines).toHaveLength(0);
+		expect(placeholder.bridgeMetadata.contentRoles).not.toContain('head');
+	});
+
 	test('reserves streamed line extents in visible loading file-target items', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const item = reviewPackage.itemsById['source-high'];

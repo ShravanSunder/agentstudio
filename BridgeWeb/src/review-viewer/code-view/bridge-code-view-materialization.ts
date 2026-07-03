@@ -325,23 +325,34 @@ function createPlaceholderDiffItem(props: {
 		item: props.item,
 		lineCountEstimates: props.lineCountEstimates,
 	});
+	// One-sided changes must reserve ZERO lines on the absent side, matching
+	// oneSidedDiffResourcesForItem's hydrated path. Otherwise the absent side borrows a
+	// package-wide cross-item line estimate (e.g. a modified sibling's base average) and
+	// parseDiffFromFile matches the two skeletons' shared placeholder lines as phantom
+	// "unmodified" context, then renders the rest as textless addition rows.
 	const emptyBase = createFileContents({
 		item: props.item,
-		placeholderLineCount: lineCountForFirstAvailableContentRole({
-			contentRoles: ['base', 'diff'],
-			item: props.item,
-			lineCountEstimates: props.lineCountEstimates,
-		}),
+		placeholderLineCount:
+			props.item.changeKind === 'added'
+				? 0
+				: lineCountForFirstAvailableContentRole({
+						contentRoles: ['base', 'diff'],
+						item: props.item,
+						lineCountEstimates: props.lineCountEstimates,
+					}),
 		resource: null,
 		path: props.item.basePath ?? displayPathForItem(props.item),
 	});
 	const emptyHead = createFileContents({
 		item: props.item,
-		placeholderLineCount: lineCountForFirstAvailableContentRole({
-			contentRoles: ['head', 'file', 'diff'],
-			item: props.item,
-			lineCountEstimates: props.lineCountEstimates,
-		}),
+		placeholderLineCount:
+			props.item.changeKind === 'deleted'
+				? 0
+				: lineCountForFirstAvailableContentRole({
+						contentRoles: ['head', 'file', 'diff'],
+						item: props.item,
+						lineCountEstimates: props.lineCountEstimates,
+					}),
 		resource: null,
 		path: props.item.headPath ?? displayPathForItem(props.item),
 	});
@@ -579,6 +590,9 @@ function placeholderContentRolesForDiffItem(props: {
 	readonly item: BridgeReviewItemDescriptor;
 	readonly lineCountEstimates?: BridgeCodeViewLineCountEstimates;
 }): readonly BridgeContentRole[] {
+	// Skip the absent side's roles for one-sided changes so a cross-item estimate can't
+	// manufacture a placeholder extent for a side that has no content.
+	const emptySideRoles = emptyDiffSideRolesForItem(props.item);
 	const roles: BridgeContentRole[] = [];
 	for (const role of [
 		'base',
@@ -586,6 +600,9 @@ function placeholderContentRolesForDiffItem(props: {
 		'file',
 		'diff',
 	] as const satisfies readonly BridgeContentRole[]) {
+		if (emptySideRoles.has(role)) {
+			continue;
+		}
 		const lineCount =
 			props.item.contentLineCountsByRole?.[role] ?? props.lineCountEstimates?.lineCountByRole[role];
 		if (lineCount !== null && lineCount !== undefined) {
@@ -593,6 +610,18 @@ function placeholderContentRolesForDiffItem(props: {
 		}
 	}
 	return roles;
+}
+
+function emptyDiffSideRolesForItem(
+	item: BridgeReviewItemDescriptor,
+): ReadonlySet<BridgeContentRole> {
+	if (item.changeKind === 'added') {
+		return new Set<BridgeContentRole>(['base', 'diff']);
+	}
+	if (item.changeKind === 'deleted') {
+		return new Set<BridgeContentRole>(['head', 'file']);
+	}
+	return new Set<BridgeContentRole>();
 }
 
 function loadingPlaceholderLineCountForContentRoles(props: {
