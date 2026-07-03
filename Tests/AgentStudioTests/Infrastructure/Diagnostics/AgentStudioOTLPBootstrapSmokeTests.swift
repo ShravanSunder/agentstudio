@@ -7,6 +7,33 @@ import Testing
 @Suite(.serialized)
 struct AgentStudioOTLPBootstrapSmokeTests {
     @Test
+    func otelConfigurationAppliesExplicitLogBatchBackpressurePolicy() throws {
+        let configuration = try AgentStudioOTLPBootstrapper.otelConfiguration(
+            record: AgentStudioOTLPProjectedLogRecord(
+                timeUnixNano: 123,
+                severityText: .info,
+                body: "runtime.otlp.configuration",
+                traceID: nil,
+                spanID: nil,
+                parentSpanID: nil,
+                resource: ["service.name": "agentstudio-test"],
+                scope: .init(name: "agentstudio-test", version: "test-version"),
+                attributes: [:]
+            ),
+            context: AgentStudioOTLPTraceSinkContext(
+                endpoint: #require(URL(string: "http://127.0.0.1:4318")),
+                otlpProtocol: .httpProtobuf
+            )
+        )
+
+        #expect(configuration.logs.batchLogRecordProcessor.maxQueueSize == AppPolicies.Diagnostics.otlpLogMaxQueueSize)
+        #expect(
+            configuration.logs.batchLogRecordProcessor.maxExportBatchSize
+                == AppPolicies.Diagnostics.otlpLogMaxExportBatchSize
+        )
+    }
+
+    @Test
     func liveOTLPSinkPostsLogRecordToLoopbackHTTPCollector() async throws {
         let collector = try LoopbackOTLPHTTPCollector()
         try await collector.start()

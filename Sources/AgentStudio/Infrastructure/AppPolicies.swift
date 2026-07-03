@@ -4,6 +4,11 @@ import Foundation
 enum AppPolicies {
     enum Diagnostics {
         static let traceEventQueueBufferLimit: Int = 4096
+        /// Downstream swift-otel log batch queue. swift-otel drops newly
+        /// emitted logs once this fills, so keep it above the app trace event
+        /// queue and let the app-side queue remain the oldest-shedding layer.
+        static let otlpLogMaxQueueSize: Int = 8192
+        static let otlpLogMaxExportBatchSize: Int = 1024
     }
 
     enum Bridge {

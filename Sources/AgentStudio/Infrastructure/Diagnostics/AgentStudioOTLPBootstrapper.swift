@@ -89,7 +89,7 @@ actor AgentStudioOTLPBootstrapper: AgentStudioOTLPBootstrapping {
         }
     }
 
-    private static func otelConfiguration(
+    static func otelConfiguration(
         record: AgentStudioOTLPProjectedLogRecord,
         context: AgentStudioOTLPTraceSinkContext
     ) -> OTel.Configuration {
@@ -115,6 +115,9 @@ actor AgentStudioOTLPBootstrapper: AgentStudioOTLPBootstrapping {
         configuration.logs.otlpExporter.protocol = .httpProtobuf
         configuration.logs.batchLogRecordProcessor.scheduleDelay = .milliseconds(200)
         configuration.logs.batchLogRecordProcessor.exportTimeout = .seconds(2)
+        configuration.logs.batchLogRecordProcessor.maxQueueSize = AppPolicies.Diagnostics.otlpLogMaxQueueSize
+        configuration.logs.batchLogRecordProcessor.maxExportBatchSize =
+            AppPolicies.Diagnostics.otlpLogMaxExportBatchSize
         configuration.serviceName = record.resource["service.name"] ?? "agentstudio"
         configuration.resourceAttributes = record.resource.filter { key, _ in
             key != "service.name"
