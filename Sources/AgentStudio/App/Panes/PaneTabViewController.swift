@@ -441,7 +441,10 @@ class PaneTabViewController: NSViewController, NSPopoverDelegate, WorkspaceComma
     private func setupAppNotificationObservers() {
         notificationTasks.append(
             Task { [weak self] in
-                let stream = await AppEventBus.shared.subscribe()
+                let stream = await AppEventBus.shared.subscribe(
+                    policy: .criticalUnbounded,
+                    subscriberName: "PaneTabViewController.terminalTermination"
+                )
                 for await event in stream {
                     guard !Task.isCancelled else { break }
                     switch event {

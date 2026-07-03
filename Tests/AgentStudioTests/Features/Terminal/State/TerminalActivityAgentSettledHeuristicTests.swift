@@ -30,7 +30,8 @@ struct TerminalActivityAgentSettledHeuristicTests {
     @Test("non-agent qualifying output emits blue activity instead of yellow")
     func nonAgentQualifyingOutputEmitsBlueActivityInsteadOfYellow() async {
         let bus = EventBus<RuntimeEnvelope>()
-        let subscriber = RecordingSubscriber(stream: await bus.subscribe())
+        let subscriber = RecordingSubscriber(
+            subscription: await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function))
         let atom = TerminalActivityAtom(outputBurstThreshold: 30)
         let clock = TestPushClock()
         let nowMilliseconds = MillisecondBox(1000)
@@ -76,7 +77,8 @@ struct TerminalActivityAgentSettledHeuristicTests {
     @Test("agent qualifying output promotes yellow after quiet and revokes on later output")
     func agentQualifyingOutputPromotesYellowAfterQuietAndRevokesOnLaterOutput() async {
         let bus = EventBus<RuntimeEnvelope>()
-        let subscriber = RecordingSubscriber(stream: await bus.subscribe())
+        let subscriber = RecordingSubscriber(
+            subscription: await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function))
         let atom = TerminalActivityAtom(outputBurstThreshold: 30)
         let clock = TestPushClock()
         let nowMilliseconds = MillisecondBox(1000)
@@ -129,7 +131,8 @@ struct TerminalActivityAgentSettledHeuristicTests {
     @Test("layout terminal signals do not revoke visible yellow settled attention")
     func layoutTerminalSignalsDoNotRevokeVisibleYellowSettledAttention() async {
         let bus = EventBus<RuntimeEnvelope>()
-        let subscriber = RecordingSubscriber(stream: await bus.subscribe())
+        let subscriber = RecordingSubscriber(
+            subscription: await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function))
         let atom = TerminalActivityAtom(outputBurstThreshold: 30)
         let clock = TestPushClock()
         let nowMilliseconds = MillisecondBox(1000)
@@ -194,7 +197,8 @@ struct TerminalActivityAgentSettledHeuristicTests {
     @Test("later scrollbar observation revokes visible yellow settled attention even without row growth")
     func laterScrollbarObservationRevokesVisibleYellowSettledAttentionEvenWithoutRowGrowth() async {
         let bus = EventBus<RuntimeEnvelope>()
-        let subscriber = RecordingSubscriber(stream: await bus.subscribe())
+        let subscriber = RecordingSubscriber(
+            subscription: await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function))
         let atom = TerminalActivityAtom(outputBurstThreshold: 30)
         let clock = TestPushClock()
         let nowMilliseconds = MillisecondBox(1000)
@@ -247,7 +251,8 @@ struct TerminalActivityAgentSettledHeuristicTests {
     @Test("revoked yellow settled attention does not re-promote until pane is observed")
     func revokedYellowSettledAttentionDoesNotRepromoteUntilPaneIsObserved() async {
         let bus = EventBus<RuntimeEnvelope>()
-        let subscriber = RecordingSubscriber(stream: await bus.subscribe())
+        let subscriber = RecordingSubscriber(
+            subscription: await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function))
         let atom = TerminalActivityAtom(outputBurstThreshold: 30)
         let clock = TestPushClock()
         let nowMilliseconds = MillisecondBox(1000)
@@ -310,7 +315,8 @@ struct TerminalActivityAgentSettledHeuristicTests {
     @Test("observing pane before yellow quiet cancels stale agent-settled promotion")
     func observingPaneBeforeYellowQuietCancelsStaleAgentSettledPromotion() async {
         let bus = EventBus<RuntimeEnvelope>()
-        let subscriber = RecordingSubscriber(stream: await bus.subscribe())
+        let subscriber = RecordingSubscriber(
+            subscription: await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function))
         let atom = TerminalActivityAtom(outputBurstThreshold: 30)
         let clock = TestPushClock()
         let nowMilliseconds = MillisecondBox(1000)

@@ -44,7 +44,7 @@ struct FilesystemGitPipelineIntegrationTests {
         )
         let observed = ObservedFilesystemGitEvents()
 
-        let stream = await bus.subscribe()
+        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         let consumerTask = Task { @MainActor in
             for await envelope in stream {
                 cacheCoordinator.consume(envelope)
@@ -131,7 +131,7 @@ struct FilesystemGitPipelineIntegrationTests {
             repoCache: repoCache,
             scopeSyncHandler: { _ in }
         )
-        let coordinatorStream = await bus.subscribe()
+        let coordinatorStream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         let coordinatorTask = Task { @MainActor in
             for await envelope in coordinatorStream {
                 cacheCoordinator.consume(envelope)
@@ -214,7 +214,7 @@ struct FilesystemGitPipelineIntegrationTests {
             repoCache: repoCache,
             scopeSyncHandler: { _ in }
         )
-        let coordinatorStream = await bus.subscribe()
+        let coordinatorStream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         let coordinatorTask = Task { @MainActor in
             for await envelope in coordinatorStream {
                 cacheCoordinator.consume(envelope)
@@ -312,7 +312,7 @@ struct FilesystemGitPipelineIntegrationTests {
             repoCache: repoCache,
             scopeSyncHandler: { _ in }
         )
-        let coordinatorStream = await bus.subscribe()
+        let coordinatorStream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         let coordinatorTask = Task { @MainActor in
             for await envelope in coordinatorStream {
                 coordinator.consume(envelope)

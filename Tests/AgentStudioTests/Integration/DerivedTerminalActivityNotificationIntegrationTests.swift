@@ -661,7 +661,8 @@ extension DerivedActivityNotificationIntegrationTests {
         let clock = TestPushClock()
         let terminalRouterBox = TerminalRouterBox()
         let paneActivityObservationRecorder = PaneActivityObservationRecorder()
-        let eventRecorder = RecordingSubscriber(stream: await bus.subscribe())
+        let eventRecorder = RecordingSubscriber(
+            subscription: await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function))
         let drawerView: @MainActor (UUID) -> DrawerView? = { parentPaneId in
             guard let drawer = paneAtom.pane(parentPaneId)?.drawer,
                 let tabId = tabLayout.tabContaining(paneId: parentPaneId)?.id

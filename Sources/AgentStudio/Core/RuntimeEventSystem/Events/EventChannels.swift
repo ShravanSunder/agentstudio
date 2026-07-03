@@ -2,6 +2,7 @@ import Foundation
 
 enum PaneRuntimeEventBus {
     static let shared = EventBus<RuntimeEnvelope>(
+        name: "paneRuntime",
         replayConfiguration: .init(
             capacityPerSource: 256,
             sourceKey: { envelope in

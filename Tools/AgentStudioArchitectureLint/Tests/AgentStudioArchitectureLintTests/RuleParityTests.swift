@@ -129,6 +129,38 @@ struct RuleParityTests {
         #expect(externalSourceUnderTestsParentDiagnostics.isEmpty)
     }
 
+    @Test("EventBus subscriber policy rule diagnoses every denied fixture call shape")
+    func eventBusSubscriberPolicyRuleDiagnosesEveryDeniedFixtureCallShape() throws {
+        let eventBusFixture = fixtureRoot()
+            .appendingPathComponent("Bad")
+            .appendingPathComponent("Sources")
+            .appendingPathComponent("AgentStudio")
+            .appendingPathComponent("App")
+            .appendingPathComponent("BadEventBusSubscriberPolicy.swift")
+            .path
+
+        let diagnostics = try lint(files: [eventBusFixture])
+            .filter { $0.ruleID == "agentstudio_eventbus_subscriber_policy_required" }
+
+        #expect(diagnostics.count == 10)
+        #expect(
+            diagnostics.map(\.message).contains(
+                "Production EventBus subscriber call sites must pass an explicit BusSubscriberPolicy"))
+        #expect(
+            diagnostics.map(\.message).contains(
+                "Production EventBus subscriber call sites must use BusSubscriberPolicy, not raw AsyncStream bufferingPolicy"
+            ))
+        #expect(
+            diagnostics.map(\.message).contains(
+                "Production EventBus wait helpers must pass an explicit BusSubscriberPolicy"))
+        #expect(
+            diagnostics.map(\.message).contains(
+                "Production EventBus subscriber helpers must not provide default policy arguments"))
+        #expect(
+            diagnostics.map(\.message).contains(
+                "Production EventBus subscriber helpers must not hide policy behind zero-argument overloads"))
+    }
+
     @Test("tooltip source rule scopes raw help to migrated dense controls")
     func tooltipSourceRuleScopesRawHelpToMigratedDenseControls() {
         let migratedDiagnostics = TooltipSourceRule().validate(

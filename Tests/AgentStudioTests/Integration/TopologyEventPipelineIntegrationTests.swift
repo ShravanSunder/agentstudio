@@ -214,7 +214,7 @@ struct TopologyEventPipelineIntegrationTests {
         try await withTopologyHarness { harness in
             await settleTopologyHarness(harness)
 
-            let subscriber = await harness.bus.subscribe(bufferingPolicy: .unbounded)
+            let subscriber = await harness.bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
             let recorder = RecordingSubscriber(stream: subscriber)
 
             let watchedFolder = URL(fileURLWithPath: "/tmp/topology-fsevent-remove-\(UUID().uuidString)")
@@ -310,7 +310,7 @@ struct TopologyEventPipelineIntegrationTests {
         await withTopologyHarness { harness in
             await settleTopologyHarness(harness)
 
-            let subscriber = await harness.bus.subscribe(bufferingPolicy: .unbounded)
+            let subscriber = await harness.bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
             let recorder = RecordingSubscriber(stream: subscriber)
 
             let folderA = URL(fileURLWithPath: "/tmp/topology-dedup-a-\(UUID().uuidString)")

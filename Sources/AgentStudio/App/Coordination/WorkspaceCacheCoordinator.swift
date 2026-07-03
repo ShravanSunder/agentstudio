@@ -56,8 +56,13 @@ final class WorkspaceCacheCoordinator {
     func startConsuming() {
         guard consumeTask == nil else { return }
         consumeTask = Task { @MainActor [weak self] in
-            guard let stream = await self?.bus.subscribe() else { return }
-            for await envelope in stream {
+            guard
+                let subscription = await self?.bus.subscribe(
+                    policy: .criticalUnbounded,
+                    subscriberName: "WorkspaceCacheCoordinator"
+                )
+            else { return }
+            for await envelope in subscription {
                 if Task.isCancelled { break }
                 self?.consume(envelope)
             }
