@@ -295,10 +295,7 @@ export function useBridgeReviewIntakeController(props: UseBridgeReviewIntakeCont
 				// reset re-keys it, so re-announce intake-ready — native
 				// re-delivers the package as a fresh generation. Firing on the
 				// gap transition makes this once per wedge episode.
-				if (
-					drop.reason === 'receiver_rejected_frame' &&
-					drop.receiverReason === 'sequence_gap'
-				) {
+				if (drop.reason === 'receiver_rejected_frame' && drop.receiverReason === 'sequence_gap') {
 					didMarkReviewIntakeReady = false;
 					retryCount = 0;
 					scheduleMarkReviewIntakeReady();

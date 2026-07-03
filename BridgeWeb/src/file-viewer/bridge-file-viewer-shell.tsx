@@ -293,7 +293,11 @@ export function BridgeFileViewerShell({
 		>
 			<BridgeViewerResizableRailLayout
 				autosaveId="bridge-viewer-right-rail"
-				isActive={isActive}
+				// The loaded file shell keeps its resizable frame mounted across activation so the
+				// open file's CodeView and tree are never remounted when Files goes hidden (the
+				// data plane stays alive and DOM identity is stable). Rail-frame gating is for the
+				// lightweight fallback/loading shells, which carry no real content to preserve.
+				isActive={true}
 				content={
 					<section className="grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)]">
 						<BridgeViewerContentHeader

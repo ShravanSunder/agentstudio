@@ -307,7 +307,10 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 		>
 			<BridgeViewerResizableRailLayout
 				autosaveId="bridge-viewer-right-rail"
-				isActive={props.isActive}
+				// The loaded review shell keeps its resizable frame mounted across activation so the
+				// CodeView/markdown canvas and tree are never remounted when Review goes hidden.
+				// Rail-frame gating stays on the lightweight fallback shells, not real content.
+				isActive={true}
 				content={
 					<section
 						aria-label="Selected content"

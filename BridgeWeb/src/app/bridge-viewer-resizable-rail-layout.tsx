@@ -31,6 +31,40 @@ type BridgeViewerPanelLayout = Record<string, number>;
 export function BridgeViewerResizableRailLayout(
 	props: BridgeViewerResizableRailLayoutProps,
 ): ReactElement {
+	// Gating boundary: only the lightweight fallback/loading shells pass isActive={false} to
+	// drop the resizable-panel-group machinery when hidden. Real loaded shells always render
+	// their panel-group (isActive={true}) and rely on hidden-subtree dormancy — a display:none
+	// subtree does not paint and its ResizeObserver produces no callbacks, so the machinery is
+	// already inert. This keeps loaded content mounted: swapping the panel-group for this grid
+	// would remount props.content, destroying the Pierre CodeView instance and forcing a
+	// re-hydration reload. If a future perf pass needs more, reach for CSS containment
+	// (content-visibility) — never unmount loaded shell content.
+	if (props.isActive === false) {
+		return (
+			<div
+				className="grid h-full min-h-0 flex-1 grid-cols-[minmax(0,1fr)_minmax(240px,28%)] overflow-hidden"
+				data-bridge-viewer-resizable-layout-active="false"
+			>
+				<div className="h-full min-h-0 min-w-0" data-testid={props.contentTestId}>
+					{props.content}
+				</div>
+				<div className="h-full min-h-0 min-w-[240px]" data-testid={props.railTestId}>
+					{props.rail}
+				</div>
+			</div>
+		);
+	}
+
+	return <BridgeViewerResizableRailActiveLayout {...props} />;
+}
+
+// Owns the resizable-panel hooks so the inactive branch above stays hook-free.
+// Toggling `isActive` therefore mounts/unmounts this whole fiber instead of
+// changing the outer component's hook count between renders, which otherwise
+// violates the Rules of Hooks and corrupts React's Offscreen static flags.
+function BridgeViewerResizableRailActiveLayout(
+	props: BridgeViewerResizableRailLayoutProps,
+): ReactElement {
 	const minRailSize = props.minRailSize ?? defaultBridgeViewerRailMinSize;
 	const defaultRailSize = props.defaultRailSize ?? defaultBridgeViewerRailSize;
 	const maxRailSize = props.maxRailSize ?? defaultBridgeViewerRailMaxSize;
@@ -48,10 +82,6 @@ export function BridgeViewerResizableRailLayout(
 		[bridgeViewerResizableContentPanelId, bridgeViewerResizableRightRailPanelId],
 		[contentPanelId, railPanelId],
 	);
-
-	if (props.isActive === false) {
-		return <div data-bridge-viewer-resizable-layout-active="false">{props.content}</div>;
-	}
 
 	return (
 		<ResizablePanelGroup

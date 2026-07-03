@@ -30,6 +30,7 @@ export interface BridgeFileViewerAppProps {
 	readonly loadInitialSurface?: () => Promise<WorktreeFileInitialSurface>;
 	readonly navigationCommand?: BridgeViewerNavigationCommand;
 	readonly onOpenReviewComparison?: (descriptor: WorktreeFileDescriptor) => void;
+	readonly registerSurfaceStreamResetRequiredCallback?: (callback: () => void) => () => void;
 	readonly requestFileDescriptor?: (request: WorktreeFileDescriptorRequest) => Promise<void> | void;
 	readonly subscribeFrames?: WorktreeFileFrameSubscriptionFactory;
 	readonly telemetryRecorder?: BridgeTelemetryRecorder | undefined;
