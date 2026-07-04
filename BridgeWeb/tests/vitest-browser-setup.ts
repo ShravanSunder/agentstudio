@@ -3,6 +3,11 @@ import { cleanup } from 'vitest-browser-react';
 
 import { installBridgeViewerBrowserDomAPIs } from '../src/review-viewer/test-support/bridge-viewer-browser-dom.js';
 
+const reactActEnvironmentGlobal = globalThis as typeof globalThis & {
+	IS_REACT_ACT_ENVIRONMENT?: boolean;
+};
+reactActEnvironmentGlobal.IS_REACT_ACT_ENVIRONMENT = true;
+
 const allowedConsoleErrorSubstrings: readonly string[] = [
 	'flushSync was called from inside a lifecycle method',
 ];

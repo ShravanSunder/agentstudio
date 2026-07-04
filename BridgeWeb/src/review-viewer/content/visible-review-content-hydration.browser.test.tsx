@@ -14,7 +14,10 @@ import {
 	makeBridgeReviewPackage,
 } from '../../foundation/review-package/bridge-review-package-test-support.js';
 import type { BridgeReviewPackage } from '../../foundation/review-package/bridge-review-package.js';
-import { createBridgeReviewContentRegistry } from './review-content-registry.js';
+import {
+	createBridgeReviewContentRegistry,
+	type BridgeReviewContentRegistry,
+} from './review-content-registry.js';
 import {
 	useVisibleReviewContentHydration,
 	visibleContentHydrationDispatchDelayMilliseconds,
@@ -93,6 +96,7 @@ describe('visible review content hydration Browser Mode', () => {
 		vi.useFakeTimers();
 		try {
 			const reviewPackage = makeReviewPackageWithItemCount(4);
+			const contentRegistry = createBridgeReviewContentRegistry();
 			const loadDeferredsByItemId = makeDeferredLoadResults(['item-000', 'item-001']);
 			const loadAttempts: VisibleReviewContentLoadProps[] = [];
 			let setVisibleItemIds: ((itemIds: readonly string[]) => void) | null = null;
@@ -103,11 +107,16 @@ describe('visible review content hydration Browser Mode', () => {
 				const [reportedVisibleItemIds, setReportedVisibleItemIds] = useState<readonly string[]>([]);
 				const [visibleHydrationPaused, setVisibleHydrationPaused] = useState(false);
 				const hydration = useVisibleReviewContentHydration({
-					contentRegistry: createBridgeReviewContentRegistry(),
+					contentRegistry,
 					contentInvalidationVersion: 0,
 					loadContentResources: (props): Promise<VisibleReviewContentLoadResult> => {
 						loadAttempts.push(props);
-						return loadDeferredsByItemId.get(props.itemId)?.promise ?? Promise.resolve(null);
+						const deferredLoad = loadDeferredsByItemId.get(props.itemId);
+						const loadResult = deferredLoad?.promise ?? Promise.resolve(null);
+						return loadResult.then(
+							(result): VisibleReviewContentLoadResult =>
+								storeReadyLoadResultInRegistry({ contentRegistry, loadResult: result }),
+						);
 					},
 					reviewPackage,
 					resolveDescriptorRef: resolveDescriptorRefForTest,
@@ -149,10 +158,22 @@ describe('visible review content hydration Browser Mode', () => {
 			await flushReactWork();
 			await dispatchVisibleHydrationTimers();
 
-			expect(probeReadyCount()).toBe('2');
-			expect(probeResourceItemIds()).toBe('item-000,item-001');
+			expect(contentRegistry.snapshot().cachedResourceCount).toBe(2);
+			expect(visibleHydrationStateProbe()?.deferredItemCount).toBe(2);
+			expect(probeReadyCount()).toBe('0');
+			expect(probeResourceItemIds()).toBe('');
 			expect(visibleHydrationDiscardProbeReadyDiscardCount()).toBe(0);
 
+			await setVisibleHydrationPausedState(setHydrationPaused, false);
+			await flushReactWork();
+			expect(probeReadyCount()).toBe('2');
+			expect(probeResourceItemIds()).toBe('item-000,item-001');
+			expect(loadAttempts.map((loadAttempt): string => loadAttempt.itemId)).toEqual([
+				'item-000',
+				'item-001',
+			]);
+
+			await setVisibleHydrationPausedState(setHydrationPaused, true);
 			await reportVisibleItemIds(setVisibleItemIds, ['item-002', 'item-003']);
 			await dispatchVisibleHydrationTimers();
 			expect(loadAttempts.map((loadAttempt): string => loadAttempt.itemId)).toEqual([
@@ -184,15 +205,18 @@ describe('visible review content hydration Browser Mode', () => {
 				['item-005', 'item-006', 'item-007', 'item-000'],
 			];
 			const finalVisibleItemIds = fastScrollWindows[fastScrollWindows.length - 1] ?? [];
-			const finalUnhydratedItemIds = ['item-006', 'item-007', 'item-000'];
+			const finalMissingItemIds = ['item-006', 'item-007'];
+			const finalCachedReentryItemId = 'item-000';
+			const finalExecutorBackoffItemId = 'item-005';
 			const loadAttempts: VisibleReviewContentLoadProps[] = [];
 			let setVisibleItemIds: ((itemIds: readonly string[]) => void) | null = null;
 
 			expect(revealedItemCount).toBe(8);
-			expect(finalVisibleItemIds.filter((itemId): boolean => itemId !== 'item-005')).toEqual(
-				finalUnhydratedItemIds,
-			);
-			expect(finalUnhydratedItemIds.length).toBeGreaterThanOrEqual(3);
+			expect(finalVisibleItemIds).toEqual([
+				finalExecutorBackoffItemId,
+				...finalMissingItemIds,
+				finalCachedReentryItemId,
+			]);
 
 			function HydrationProbe(): ReactElement {
 				const [reportedVisibleItemIds, setReportedVisibleItemIds] = useState<readonly string[]>([]);
@@ -226,6 +250,7 @@ describe('visible review content hydration Browser Mode', () => {
 				return (
 					<div
 						data-ready-count={String(hydration.visibleReadyItemCount)}
+						data-resource-item-ids={[...hydration.visibleContentResourcesByItemId.keys()].join(',')}
 						data-testid="visible-hydration-probe"
 					/>
 				);
@@ -268,51 +293,30 @@ describe('visible review content hydration Browser Mode', () => {
 			await reportVisibleItemIds(setVisibleItemIds, finalVisibleItemIds);
 			await dispatchVisibleHydrationTimers();
 			resolveDeferredLoads(firstLoadDeferredsByItemId, ['item-004']);
-			await dispatchVisibleHydrationTimers();
+			await dispatchVisibleHydrationTimersUntil((): boolean => {
+				const demandedItemIds = new Set(
+					loadAttempts.map((loadAttempt): string => loadAttempt.itemId),
+				);
+				return finalMissingItemIds.every((itemId): boolean => demandedItemIds.has(itemId));
+			});
 
-			expect(loadAttempts.map((loadAttempt): string => loadAttempt.itemId)).toEqual([
-				'item-000',
-				'item-001',
-				'item-002',
-				'item-003',
-				'item-004',
-				'item-005',
-				'item-006',
-			]);
-
-			await dispatchVisibleHydrationTimers();
-
-			expect(loadAttempts.map((loadAttempt): string => loadAttempt.itemId)).toEqual([
-				'item-000',
-				'item-001',
-				'item-002',
-				'item-003',
-				'item-004',
-				'item-005',
-				'item-006',
-				'item-007',
-			]);
-
-			await dispatchVisibleHydrationTimers();
-
-			expect(loadAttempts.map((loadAttempt): string => loadAttempt.itemId)).toEqual([
-				'item-000',
-				'item-001',
-				'item-002',
-				'item-003',
-				'item-004',
-				'item-005',
-				'item-006',
-				'item-007',
-				'item-000',
-			]);
-			expect(probeReadyCount()).toBe(String(finalUnhydratedItemIds.length));
+			expect(itemLoadAttemptCount(loadAttempts, finalCachedReentryItemId)).toBe(1);
+			expect(itemLoadAttemptCount(loadAttempts, finalExecutorBackoffItemId)).toBe(1);
+			expect(probeReadyCount()).toBe('3');
+			expect(visibleHydrationStateProbe()).toMatchObject({
+				loadingItemCount: 1,
+				readyItemCount: 3,
+				reportedVisibleItemCount: finalVisibleItemIds.length,
+				trackedVisibleItemCount: finalVisibleItemIds.length,
+				truncatedVisibleItemCount: 0,
+				untrackedItemCount: 0,
+			});
 		} finally {
 			vi.useRealTimers();
 		}
 	});
 
-	test('re-arms a final visible item when its aborted load completes after the last demand pass', async () => {
+	test('keeps a final deferred visible item in membership until executor-paced retry paints', async () => {
 		vi.useFakeTimers();
 		try {
 			const reviewPackage = makeReviewPackageWithItemCount(8);
@@ -351,6 +355,7 @@ describe('visible review content hydration Browser Mode', () => {
 				return (
 					<div
 						data-ready-count={String(hydration.visibleReadyItemCount)}
+						data-resource-item-ids={[...hydration.visibleContentResourcesByItemId.keys()].join(',')}
 						data-testid="visible-hydration-probe"
 					/>
 				);
@@ -371,10 +376,15 @@ describe('visible review content hydration Browser Mode', () => {
 
 			firstItem003Load.resolve({ status: 'deferred', reason: 'aborted' });
 			await flushReactWork();
-			await dispatchVisibleHydrationTimers();
+			expect(visibleHydrationStateProbe()).toMatchObject({
+				reportedVisibleItemCount: 1,
+				trackedVisibleItemCount: 1,
+				truncatedVisibleItemCount: 0,
+			});
 
-			expect(itemLoadAttemptCount(loadAttempts, 'item-003')).toBe(2);
+			await dispatchVisibleHydrationTimersUntil((): boolean => probeReadyCount() === '1');
 			expect(probeReadyCount()).toBe('1');
+			expect(probeResourceItemIds()).toBe('item-003');
 		} finally {
 			vi.useRealTimers();
 		}
@@ -416,6 +426,22 @@ async function dispatchVisibleHydrationTimers(): Promise<void> {
 		await vi.advanceTimersByTimeAsync(visibleContentHydrationDispatchDelayMilliseconds);
 	});
 	await flushReactWork();
+}
+
+async function dispatchVisibleHydrationTimersUntil(
+	isSatisfied: () => boolean,
+	maxDispatchCount = 10,
+): Promise<void> {
+	for (let dispatchIndex = 0; dispatchIndex < maxDispatchCount; dispatchIndex += 1) {
+		if (isSatisfied()) {
+			return;
+		}
+		// oxlint-disable-next-line no-await-in-loop -- Demand re-derivation is timer/effect driven.
+		await dispatchVisibleHydrationTimers();
+	}
+	if (!isSatisfied()) {
+		throw new Error('Expected visible hydration condition to settle after timer dispatches.');
+	}
 }
 
 function itemLoadAttemptCount(
@@ -472,10 +498,27 @@ function visibleHydrationDiscardProbeReadyDiscardCount(): number {
 function makeLoadedResources(itemId: string): { readonly head: BridgeContentResource } {
 	return {
 		head: {
+			authoritative: true,
+			byteLength: 64,
 			handle: makeBridgeContentHandle(itemId, 'head'),
 			readText: (): string => `loaded ${itemId}`,
 		},
 	};
+}
+
+function storeReadyLoadResultInRegistry(props: {
+	readonly contentRegistry: BridgeReviewContentRegistry;
+	readonly loadResult: VisibleReviewContentLoadResult;
+}): VisibleReviewContentLoadResult {
+	if (props.loadResult === null || 'status' in props.loadResult) {
+		return props.loadResult;
+	}
+	for (const resource of Object.values(props.loadResult)) {
+		if (resource !== undefined) {
+			props.contentRegistry.storeResource({ resource });
+		}
+	}
+	return props.loadResult;
 }
 
 function resolveDescriptorRefForTest(handle: { readonly handleId: string }): BridgeDescriptorRef {
