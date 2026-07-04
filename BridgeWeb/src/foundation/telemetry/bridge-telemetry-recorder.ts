@@ -111,10 +111,12 @@ function createEnabledBridgeTelemetryRecorder(
 				return true;
 			}
 			const snapshot = buffer.drain();
+			const dropSamples = snapshot.dropCounters.map(makeTelemetryDropSample);
+			if (snapshot.shedRequiredEventCount > 0) {
+				dropSamples.push(makeRequiredEventShedTelemetryDropSample(snapshot.shedRequiredEventCount));
+			}
 			const samples =
-				snapshot.dropCounters.length === 0
-					? snapshot.samples
-					: [...snapshot.samples, ...snapshot.dropCounters.map(makeTelemetryDropSample)];
+				dropSamples.length === 0 ? snapshot.samples : [...snapshot.samples, ...dropSamples];
 			if (samples.length === 0) {
 				return true;
 			}
@@ -162,6 +164,30 @@ function makeTelemetryDropSample(counter: BridgeTelemetryDropCounter): BridgeTel
 		},
 		numericAttributes: {
 			'agentstudio.bridge.telemetry.dropped_count': counter.count,
+		},
+		booleanAttributes: {},
+	};
+}
+
+function makeRequiredEventShedTelemetryDropSample(
+	shedRequiredEventCount: number,
+): BridgeTelemetrySample {
+	return {
+		scope: 'web',
+		name: 'performance.bridge.web.telemetry_drop',
+		durationMilliseconds: null,
+		traceContext: null,
+		stringAttributes: {
+			'agentstudio.bridge.phase': 'dropped',
+			'agentstudio.bridge.plane': 'observability',
+			'agentstudio.bridge.priority': 'best_effort',
+			'agentstudio.bridge.slice': 'telemetry_drop',
+			'agentstudio.bridge.telemetry.drop_reason': 'required_event_shed',
+			'agentstudio.bridge.transport': 'scheme',
+		},
+		numericAttributes: {
+			'agentstudio.bridge.telemetry.dropped_count': shedRequiredEventCount,
+			'agentstudio.bridge.telemetry.required_dropped_count': shedRequiredEventCount,
 		},
 		booleanAttributes: {},
 	};

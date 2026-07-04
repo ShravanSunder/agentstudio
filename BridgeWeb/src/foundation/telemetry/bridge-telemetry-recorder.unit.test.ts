@@ -94,6 +94,54 @@ describe('bridge telemetry recorder', () => {
 		});
 	});
 
+	test('emits required-class shed counters when required samples are dropped', () => {
+		const batches: BridgeTelemetryBatch[] = [];
+		const recorder = createBridgeTelemetryRecorder(
+			{
+				enabledScopes: new Set(['web']),
+				maxSamplesPerBatch: 1,
+				maxEncodedBatchBytes: 16_384,
+				minimumFlushIntervalMilliseconds: 250,
+				rpcMethodName: 'system.bridgeTelemetry',
+				scenario: 'bridge-runtime',
+			},
+			{
+				flush: (batch: BridgeTelemetryBatch): boolean => {
+					batches.push(batch);
+					return true;
+				},
+			},
+		);
+
+		recorder.record(makeSample('performance.bridge.web.rpc_send', 'warm'));
+		recorder.record(makeSample('performance.bridge.web.selection_commit', 'warm'));
+		recorder.flush();
+
+		expect(
+			batches[0]?.samples.map((sample) => ({
+				name: sample.name,
+				reason: sample.stringAttributes['agentstudio.bridge.telemetry.drop_reason'],
+				droppedCount: sample.numericAttributes['agentstudio.bridge.telemetry.dropped_count'],
+			})),
+		).toEqual([
+			{
+				name: 'performance.bridge.web.rpc_send',
+				reason: undefined,
+				droppedCount: undefined,
+			},
+			{
+				name: 'performance.bridge.web.telemetry_drop',
+				reason: 'queue_saturated',
+				droppedCount: 1,
+			},
+			{
+				name: 'performance.bridge.web.telemetry_drop',
+				reason: 'required_event_shed',
+				droppedCount: 1,
+			},
+		]);
+	});
+
 	test('schedules non-forced flushing through idle time', () => {
 		const batches: BridgeTelemetryBatch[] = [];
 		const idleCallbacks: Array<() => void> = [];
@@ -232,7 +280,10 @@ describe('bridge telemetry recorder', () => {
 	});
 });
 
-function makeSample(name: string): {
+function makeSample(
+	name: string,
+	priority = 'unknown',
+): {
 	readonly scope: 'web';
 	readonly name: string;
 	readonly durationMilliseconds: number;
@@ -246,7 +297,7 @@ function makeSample(name: string): {
 		name,
 		durationMilliseconds: 1,
 		traceContext: null,
-		stringAttributes: {},
+		stringAttributes: { 'agentstudio.bridge.priority': priority },
 		numericAttributes: {},
 		booleanAttributes: {},
 	};

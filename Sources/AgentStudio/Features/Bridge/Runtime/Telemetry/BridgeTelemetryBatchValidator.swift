@@ -10,6 +10,11 @@ struct BridgeTelemetryBatchValidationOutcome: Equatable, Sendable {
     let firstRejectedEventName: String?
 }
 
+private struct BridgeTelemetryBatchSequenceValidationFailure: Equatable, Sendable {
+    let reason: BridgeTelemetryDropReason
+    let firstRejectedEventName: String?
+}
+
 struct BridgeTelemetryBatchValidator: Sendable {
     private let scopeGate: BridgeTelemetryScopeGate
     private let decoder: JSONDecoder
@@ -52,8 +57,17 @@ struct BridgeTelemetryBatchValidator: Sendable {
         guard Self.isSafeControlledString(batch.scenario) else {
             return Self.dropped(.unsafeAttribute)
         }
-        if let sequenceDropReason = sequenceState.validateSequence(batch) {
-            return Self.dropped(sequenceDropReason)
+        if let sequenceFailure = sequenceState.validateSequence(batch) {
+            return Self.dropped(
+                sequenceFailure.reason,
+                firstRejectedEventName: sequenceFailure.firstRejectedEventName
+            )
+        }
+        if Self.hasRequiredEventShedCounter(batch) {
+            return Self.dropped(
+                .requiredEventShed,
+                firstRejectedEventName: Self.firstAllowedEventName(in: batch)
+            )
         }
 
         for sample in batch.samples {
@@ -90,7 +104,7 @@ private final class BridgeTelemetryBatchSequenceState: @unchecked Sendable {
     private let lock = NSLock()
     private var lastSequence: Int?
 
-    func validateSequence(_ batch: BridgeTelemetryBatch) -> BridgeTelemetryDropReason? {
+    func validateSequence(_ batch: BridgeTelemetryBatch) -> BridgeTelemetryBatchSequenceValidationFailure? {
         guard let sequence = batch.sequence else {
             return nil
         }
@@ -104,9 +118,18 @@ private final class BridgeTelemetryBatchSequenceState: @unchecked Sendable {
                 lastSequence = max(sequence, previousSequence)
                 return nil
             }
+            if BridgeTelemetryBatchValidator.hasRequiredEventShedCounter(batch) {
+                return BridgeTelemetryBatchSequenceValidationFailure(
+                    reason: .requiredEventShed,
+                    firstRejectedEventName: BridgeTelemetryBatchValidator.firstAllowedEventName(in: batch)
+                )
+            }
             let missingCount = sequence - expectedSequence
             guard Self.hasMatchingDropCounter(batch, missingCount: missingCount) else {
-                return .missingDropCounter
+                return BridgeTelemetryBatchSequenceValidationFailure(
+                    reason: .missingDropCounter,
+                    firstRejectedEventName: BridgeTelemetryBatchValidator.firstAllowedEventName(in: batch)
+                )
             }
             lastSequence = sequence
             return nil
@@ -129,12 +152,29 @@ extension BridgeTelemetryBatchValidator {
 
     private static func dropped(
         _ reason: BridgeTelemetryDropReason,
-        sample: BridgeTelemetrySample? = nil
+        sample: BridgeTelemetrySample? = nil,
+        firstRejectedEventName explicitFirstRejectedEventName: String? = nil
     ) -> BridgeTelemetryBatchValidationOutcome {
         BridgeTelemetryBatchValidationOutcome(
             result: .dropped(reason),
-            firstRejectedEventName: firstRejectedEventName(for: sample)
+            firstRejectedEventName: explicitFirstRejectedEventName ?? firstRejectedEventName(for: sample)
         )
+    }
+
+    fileprivate static func firstAllowedEventName(in batch: BridgeTelemetryBatch) -> String {
+        guard let sample = batch.samples.first else {
+            return unknownRejectedEventName
+        }
+        return firstRejectedEventName(for: sample)
+    }
+
+    fileprivate static func hasRequiredEventShedCounter(_ batch: BridgeTelemetryBatch) -> Bool {
+        batch.samples.contains { sample in
+            sample.name == "performance.bridge.web.telemetry_drop"
+                && sample.stringAttributes["agentstudio.bridge.telemetry.drop_reason"]
+                    == BridgeTelemetryDropReason.requiredEventShed.rawValue
+                && Int(sample.numericAttributes["agentstudio.bridge.telemetry.dropped_count"] ?? 0) > 0
+        }
     }
 
     private static func firstRejectedEventName(for sample: BridgeTelemetrySample?) -> String {

@@ -125,6 +125,25 @@ struct BridgeTelemetryIngestorTests {
     }
 
     @Test
+    func ingestorAttributesSequenceGapsToFirstBatchSampleWhenDropCounterIsMissing() async throws {
+        let recorder = RecordingBridgePerformanceTraceRecorder()
+        let ingestor = BridgeTelemetryIngestor(
+            scopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web]),
+            recorder: recorder
+        )
+        let firstResult = await ingestor.ingest(
+            try JSONEncoder().encode(Self.selectedContentPaintedBatch(sequence: 1, sampleCount: 1))
+        )
+        let rejectedResult = await ingestor.ingest(
+            try JSONEncoder().encode(Self.selectedContentPaintedBatch(sequence: 3, sampleCount: 1))
+        )
+
+        #expect(firstResult == .accepted(sampleCount: 1))
+        #expect(rejectedResult == .dropped(.missingDropCounter))
+        #expect(await recorder.firstRejectedEventNames == ["performance.bridge.web.selected_content_painted"])
+    }
+
+    @Test
     func ingestorRecordsSwiftIngestAccountingWhenSwiftScopeIsEnabled() async throws {
         let recorder = RecordingBridgePerformanceTraceRecorder()
         let ingestor = BridgeTelemetryIngestor(
@@ -264,10 +283,14 @@ struct BridgeTelemetryIngestorTests {
         #expect(await recorder.dropReasons == [.rateLimited])
     }
 
-    private static func selectedContentPaintedBatch(sampleCount: Int) -> BridgeTelemetryBatch {
+    private static func selectedContentPaintedBatch(
+        sequence: Int? = nil,
+        sampleCount: Int
+    ) -> BridgeTelemetryBatch {
         BridgeTelemetryBatch(
             schemaVersion: 1,
             scenario: "package_apply_content_fetch_v1",
+            sequence: sequence,
             samples: (0..<sampleCount).map { _ in Self.selectedContentPaintedSample() }
         )
     }

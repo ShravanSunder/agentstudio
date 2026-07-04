@@ -243,7 +243,7 @@ export function recordIntakeApplyTelemetryForSlice(props: {
 		numericAttributes: {},
 		booleanAttributes: {},
 	});
-	props.telemetryRecorder.flush({ force: true });
+	props.telemetryRecorder.flush();
 }
 
 export function recordReviewStartupTelemetry(props: {
@@ -278,7 +278,7 @@ export function recordReviewStartupTelemetry(props: {
 		numericAttributes: props.numericAttributes ?? {},
 		booleanAttributes: {},
 	});
-	props.telemetryRecorder.flush({ force: true });
+	props.telemetryRecorder.flush();
 }
 
 function priorityForBridgeStartupTelemetryPhase(
@@ -308,7 +308,7 @@ export function recordPushDropTelemetry(
 		reason,
 		telemetryRecorder,
 	});
-	telemetryRecorder.flush({ force: true });
+	telemetryRecorder.flush();
 }
 
 interface PendingStalePushDropTelemetry {
@@ -349,7 +349,7 @@ function flushPendingStalePushDropTelemetry(telemetryRecorder: BridgeTelemetryRe
 		reason: 'stale_push',
 		telemetryRecorder,
 	});
-	telemetryRecorder.flush({ force: true });
+	telemetryRecorder.flush();
 }
 
 function recordPushDropTelemetrySample(props: {
@@ -425,7 +425,7 @@ export function recordReviewIntakeFrameTelemetry(props: {
 		},
 		booleanAttributes: {},
 	});
-	props.telemetryRecorder.flush({ force: true });
+	props.telemetryRecorder.flush();
 }
 
 export function reviewIntakeTelemetrySliceForFrameKind(

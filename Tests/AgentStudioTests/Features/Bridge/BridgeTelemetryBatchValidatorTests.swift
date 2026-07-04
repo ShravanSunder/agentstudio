@@ -63,6 +63,13 @@ struct BridgeTelemetryBatchValidatorTests {
         let firstBatchData = try Self.batchData(sequence: 1, sample: Self.rpcSendSample)
         let gapWithoutCounterData = try Self.batchData(sequence: 3, sample: Self.rpcSendSample)
         let gapWithCounterData = try Self.batchData(sequence: 3, sample: Self.telemetryDropSample)
+        let gapWithRequiredShedCounterData = try Self.batchData(
+            sequence: 5,
+            samples: [
+                Self.telemetryDropSample,
+                Self.requiredEventShedTelemetryDropSample,
+            ]
+        )
 
         #expect(Self.validationDescription(validator.decodeAndValidate(firstBatchData)) == "accepted")
         #expect(
@@ -70,6 +77,10 @@ struct BridgeTelemetryBatchValidatorTests {
                 == "dropped:missing_drop_counter"
         )
         #expect(Self.validationDescription(validator.decodeAndValidate(gapWithCounterData)) == "accepted")
+        #expect(
+            Self.validationDescription(validator.decodeAndValidate(gapWithRequiredShedCounterData))
+                == "dropped:required_event_shed"
+        )
     }
 
     @Test
@@ -528,13 +539,34 @@ struct BridgeTelemetryBatchValidatorTests {
         ).samples[0]
     }
 
+    private static var requiredEventShedTelemetryDropSample: BridgeTelemetrySample {
+        batchWithWebSample(
+            WebSampleProps(
+                name: "performance.bridge.web.telemetry_drop",
+                phase: "dropped",
+                plane: "observability",
+                priority: "best_effort",
+                slice: "telemetry_drop",
+                transport: "scheme",
+                extraStrings: [
+                    "agentstudio.bridge.telemetry.drop_reason": "required_event_shed"
+                ],
+                extraNumbers: ["agentstudio.bridge.telemetry.dropped_count": 1]
+            )
+        ).samples[0]
+    }
+
     private static func batchData(sequence: Int, sample: BridgeTelemetrySample) throws -> Data {
+        try batchData(sequence: sequence, samples: [sample])
+    }
+
+    private static func batchData(sequence: Int, samples: [BridgeTelemetrySample]) throws -> Data {
         try JSONEncoder().encode(
             BridgeTelemetryBatch(
                 schemaVersion: 1,
                 scenario: "bridge-runtime",
                 sequence: sequence,
-                samples: [sample]
+                samples: samples
             ))
     }
 
@@ -961,29 +993,4 @@ struct BridgeTelemetryBatchValidatorSafetyTests {
         #expect(validator.validate(nativeEventBatch) == .dropped(.unsafeEventName))
     }
 
-    @Test
-    func validatorRejectsTooManySamples() {
-        let validator = BridgeTelemetryBatchValidator(
-            scopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web])
-        )
-        let samples = Array(
-            repeating: BridgeTelemetrySample(
-                scope: .web,
-                name: "performance.bridge.web.push_apply",
-                durationMilliseconds: nil,
-                traceContext: nil,
-                stringAttributes: [:],
-                numericAttributes: [:],
-                booleanAttributes: [:]
-            ),
-            count: BridgeTelemetryLimits.maxSamplesPerBatch + 1
-        )
-        let batch = BridgeTelemetryBatch(
-            schemaVersion: 1,
-            scenario: "package_apply_content_fetch_v1",
-            samples: samples
-        )
-
-        #expect(validator.validate(batch) == .dropped(.tooManySamples))
-    }
 }

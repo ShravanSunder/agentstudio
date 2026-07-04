@@ -61,6 +61,12 @@ final class BridgePerformanceTraceRecorder: @unchecked Sendable, BridgePerforman
         if let firstRejectedEventName {
             stringAttributes["agentstudio.bridge.telemetry.first_rejected_event"] = firstRejectedEventName
         }
+        var numericAttributes = [
+            "agentstudio.bridge.telemetry.dropped_count": Double(droppedCount)
+        ]
+        if reason == .requiredEventShed {
+            numericAttributes["agentstudio.bridge.telemetry.required_dropped_count"] = Double(droppedCount)
+        }
         await record(
             sample: BridgeTelemetrySample(
                 scope: .web,
@@ -68,9 +74,7 @@ final class BridgePerformanceTraceRecorder: @unchecked Sendable, BridgePerforman
                 durationMilliseconds: nil,
                 traceContext: nil,
                 stringAttributes: stringAttributes,
-                numericAttributes: [
-                    "agentstudio.bridge.telemetry.dropped_count": Double(droppedCount)
-                ],
+                numericAttributes: numericAttributes,
                 booleanAttributes: [:]
             ),
             receivedAtUnixNano: receivedAtUnixNano

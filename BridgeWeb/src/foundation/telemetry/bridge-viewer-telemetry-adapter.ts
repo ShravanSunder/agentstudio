@@ -1,6 +1,15 @@
 import type { BridgeTelemetryRecorder } from './bridge-telemetry-recorder.js';
 import type { BridgeTraceContext } from './bridge-trace-context.js';
 
+export {
+	recordBridgeTreeAnchorRestoreTelemetrySample,
+	recordBridgeTreeClickToRowHighlightTelemetrySample,
+	recordBridgeTreeHoverToRenderTelemetrySample,
+	recordBridgeTreeScrollFrameGapTelemetrySample,
+	recordBridgeTreeScrollToPathTelemetrySample,
+	recordBridgeTreeVisibleIdsCaptureTelemetrySample,
+} from './bridge-tree-telemetry-adapter.js';
+
 export interface BridgeProjectionBuildTelemetrySampleProps {
 	readonly telemetryRecorder: BridgeTelemetryRecorder;
 	readonly traceContext: BridgeTraceContext | null;

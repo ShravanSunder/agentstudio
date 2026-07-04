@@ -551,6 +551,7 @@ extension BridgeTelemetryBatchValidator {
         "agentstudio.bridge.scroll.frame_gap.over_50ms.count",
         "agentstudio.bridge.scroll.frame_gap.p95_ms",
         "agentstudio.bridge.telemetry.dropped_count",
+        "agentstudio.bridge.telemetry.required_dropped_count",
         "agentstudio.bridge.visible_descriptor.count",
         "agentstudio.bridge.visible_item.count",
         "agentstudio.bridge.visible_publisher.skipped.count",
