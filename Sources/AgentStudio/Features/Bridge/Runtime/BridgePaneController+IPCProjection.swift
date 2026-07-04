@@ -26,6 +26,9 @@ private struct BridgePageRenderSnapshot: Decodable {
     let pageErrorCount: Int
     let pageErrorKinds: [String]
     let pageErrorMessages: [String]
+    let visibleHydrationStateProbe: IPCBridgeVisibleHydrationStateProbe?
+    let visibleHydrationDiscardProbe: IPCBridgeVisibleHydrationDiscardProbe?
+    let frameJankProbe: IPCBridgeFrameJankProbe?
 }
 
 private struct BridgePageControlProbeSnapshot: Decodable {
@@ -129,14 +132,20 @@ extension BridgePaneController {
                     worktreeIntakeFrameCount: snapshot.worktreeIntakeFrameCount,
                     worktreeCommandCount: snapshot.worktreeCommandCount,
                     worktreeOpenSourceCommandCount: snapshot.worktreeOpenSourceCommandCount,
-                    worktreeCodeTextLength: snapshot.worktreeCodeTextLength
+                    worktreeCodeTextLength: snapshot.worktreeCodeTextLength,
+                    visibleHydrationStateProbe: snapshot.visibleHydrationStateProbe,
+                    visibleHydrationDiscardProbe: snapshot.visibleHydrationDiscardProbe,
+                    frameJankProbe: snapshot.frameJankProbe
                 ),
                 diagnostics: IPCBridgeRenderDiagnostics(
                     evaluateSucceeded: true,
                     pageErrorCount: snapshot.pageErrorCount,
                     pageErrorKinds: snapshot.pageErrorKinds,
                     pageErrorMessages: snapshot.pageErrorMessages
-                )
+                ),
+                visibleHydrationStateProbe: snapshot.visibleHydrationStateProbe,
+                visibleHydrationDiscardProbe: snapshot.visibleHydrationDiscardProbe,
+                frameJankProbe: snapshot.frameJankProbe
             )
         } catch {
             return makeRenderStateFailureResult(reason: "render_state_evaluation_failed", detail: "\(error)")
@@ -309,6 +318,73 @@ extension BridgePaneController {
           const commandProbe = Array.isArray(window.__bridgeCommandProbe)
             ? window.__bridgeCommandProbe
             : [];
+          const finiteNumberOrNull = (value) => {
+            const number = Number(value);
+            return Number.isFinite(number) ? number : null;
+          };
+          const finiteIntegerOrNull = (value) => {
+            const number = finiteNumberOrNull(value);
+            return number === null ? null : Math.trunc(number);
+          };
+          const booleanOrNull = (value) => typeof value === 'boolean' ? value : null;
+          const objectOrNull = (value) => {
+            return value && typeof value === 'object' && !Array.isArray(value) ? value : null;
+          };
+          const rawVisibleHydrationStateProbe = objectOrNull(window.__bridgeVisibleHydrationStateProbe);
+          const visibleHydrationStateProbe = rawVisibleHydrationStateProbe === null
+            ? null
+            : {
+                reportedVisibleItemCount: finiteIntegerOrNull(
+                  rawVisibleHydrationStateProbe.reportedVisibleItemCount
+                ),
+                trackedVisibleItemCount: finiteIntegerOrNull(
+                  rawVisibleHydrationStateProbe.trackedVisibleItemCount
+                ),
+                truncatedVisibleItemCount: finiteIntegerOrNull(
+                  rawVisibleHydrationStateProbe.truncatedVisibleItemCount
+                ),
+                untrackedItemCount: finiteIntegerOrNull(rawVisibleHydrationStateProbe.untrackedItemCount),
+                loadingItemCount: finiteIntegerOrNull(rawVisibleHydrationStateProbe.loadingItemCount),
+                readyItemCount: finiteIntegerOrNull(rawVisibleHydrationStateProbe.readyItemCount),
+                failedItemCount: finiteIntegerOrNull(rawVisibleHydrationStateProbe.failedItemCount),
+                deferredItemCount: finiteIntegerOrNull(rawVisibleHydrationStateProbe.deferredItemCount),
+                abortedItemCount: finiteIntegerOrNull(rawVisibleHydrationStateProbe.abortedItemCount),
+                pausedNow: booleanOrNull(rawVisibleHydrationStateProbe.pausedNow)
+              };
+          const rawVisibleHydrationDiscardProbe = objectOrNull(window.__bridgeVisibleHydrationDiscardProbe);
+          const visibleHydrationDiscardProbe = rawVisibleHydrationDiscardProbe === null
+            ? null
+            : {
+                readyResultDiscardCount: finiteIntegerOrNull(
+                  rawVisibleHydrationDiscardProbe.readyResultDiscardCount
+                ),
+                records: Array.isArray(rawVisibleHydrationDiscardProbe.records)
+                  ? rawVisibleHydrationDiscardProbe.records.slice(-20).map((record) => {
+                      const entry = objectOrNull(record) || {};
+                      return {
+                        hadState: booleanOrNull(entry.hadState),
+                        pausedNow: booleanOrNull(entry.pausedNow)
+                      };
+                    })
+                  : []
+              };
+          const rawFrameJankProbe = objectOrNull(window.__bridgeFrameJankProbe);
+          const rawLongTask = objectOrNull(rawFrameJankProbe?.long_task) || {};
+          const rawDroppedFrame = objectOrNull(rawFrameJankProbe?.dropped_frame) || {};
+          const frameJankProbe = rawFrameJankProbe === null
+            ? null
+            : {
+                longTask: {
+                  count: finiteIntegerOrNull(rawLongTask.count),
+                  totalMs: finiteNumberOrNull(rawLongTask.total_ms),
+                  maxMs: finiteNumberOrNull(rawLongTask.max_ms)
+                },
+                droppedFrame: {
+                  count: finiteIntegerOrNull(rawDroppedFrame.count),
+                  worstGapMs: finiteNumberOrNull(rawDroppedFrame.worst_gap_ms)
+                },
+                lastLongTaskAtMs: finiteNumberOrNull(rawFrameJankProbe.last_long_task_at_ms)
+              };
           const rawWorktreeSourceSpec =
             document.documentElement.getAttribute('data-bridge-worktree-file-source-spec');
           let worktreeSourceSpecState = 'missing';
@@ -369,7 +445,10 @@ extension BridgePaneController {
             worktreeCodeTextLength: fileCodeText.length,
             pageErrorCount: errorProbe.length,
             pageErrorKinds,
-            pageErrorMessages
+            pageErrorMessages,
+            visibleHydrationStateProbe,
+            visibleHydrationDiscardProbe,
+            frameJankProbe
           };
         })())
         """

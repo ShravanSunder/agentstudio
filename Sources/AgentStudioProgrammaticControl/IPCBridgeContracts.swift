@@ -122,15 +122,24 @@ public struct IPCBridgeRenderStateResult: Codable, Equatable, Sendable {
     public let paneId: UUID
     public let summary: IPCBridgeRenderSummary
     public let diagnostics: IPCBridgeRenderDiagnostics
+    public let visibleHydrationStateProbe: IPCBridgeVisibleHydrationStateProbe?
+    public let visibleHydrationDiscardProbe: IPCBridgeVisibleHydrationDiscardProbe?
+    public let frameJankProbe: IPCBridgeFrameJankProbe?
 
     public init(
         paneId: UUID,
         summary: IPCBridgeRenderSummary,
-        diagnostics: IPCBridgeRenderDiagnostics
+        diagnostics: IPCBridgeRenderDiagnostics,
+        visibleHydrationStateProbe: IPCBridgeVisibleHydrationStateProbe? = nil,
+        visibleHydrationDiscardProbe: IPCBridgeVisibleHydrationDiscardProbe? = nil,
+        frameJankProbe: IPCBridgeFrameJankProbe? = nil
     ) {
         self.paneId = paneId
         self.summary = summary
         self.diagnostics = diagnostics
+        self.visibleHydrationStateProbe = visibleHydrationStateProbe
+        self.visibleHydrationDiscardProbe = visibleHydrationDiscardProbe
+        self.frameJankProbe = frameJankProbe
     }
 }
 
@@ -156,6 +165,9 @@ public struct IPCBridgeRenderSummary: Codable, Equatable, Sendable {
     public let worktreeCommandCount: Int?
     public let worktreeOpenSourceCommandCount: Int?
     public let worktreeCodeTextLength: Int?
+    public let visibleHydrationStateProbe: IPCBridgeVisibleHydrationStateProbe?
+    public let visibleHydrationDiscardProbe: IPCBridgeVisibleHydrationDiscardProbe?
+    public let frameJankProbe: IPCBridgeFrameJankProbe?
 
     public init(
         pageTitle: String?,
@@ -178,7 +190,10 @@ public struct IPCBridgeRenderSummary: Codable, Equatable, Sendable {
         worktreeIntakeFrameCount: Int? = nil,
         worktreeCommandCount: Int? = nil,
         worktreeOpenSourceCommandCount: Int? = nil,
-        worktreeCodeTextLength: Int? = nil
+        worktreeCodeTextLength: Int? = nil,
+        visibleHydrationStateProbe: IPCBridgeVisibleHydrationStateProbe? = nil,
+        visibleHydrationDiscardProbe: IPCBridgeVisibleHydrationDiscardProbe? = nil,
+        frameJankProbe: IPCBridgeFrameJankProbe? = nil
     ) {
         self.pageTitle = pageTitle
         self.hasAppRoot = hasAppRoot
@@ -201,6 +216,107 @@ public struct IPCBridgeRenderSummary: Codable, Equatable, Sendable {
         self.worktreeCommandCount = worktreeCommandCount
         self.worktreeOpenSourceCommandCount = worktreeOpenSourceCommandCount
         self.worktreeCodeTextLength = worktreeCodeTextLength
+        self.visibleHydrationStateProbe = visibleHydrationStateProbe
+        self.visibleHydrationDiscardProbe = visibleHydrationDiscardProbe
+        self.frameJankProbe = frameJankProbe
+    }
+}
+
+public struct IPCBridgeVisibleHydrationStateProbe: Codable, Equatable, Sendable {
+    public let reportedVisibleItemCount: Int?
+    public let trackedVisibleItemCount: Int?
+    public let truncatedVisibleItemCount: Int?
+    public let untrackedItemCount: Int?
+    public let loadingItemCount: Int?
+    public let readyItemCount: Int?
+    public let failedItemCount: Int?
+    public let deferredItemCount: Int?
+    public let abortedItemCount: Int?
+    public let pausedNow: Bool?
+
+    public init(
+        reportedVisibleItemCount: Int?,
+        trackedVisibleItemCount: Int?,
+        truncatedVisibleItemCount: Int?,
+        untrackedItemCount: Int?,
+        loadingItemCount: Int?,
+        readyItemCount: Int?,
+        failedItemCount: Int?,
+        deferredItemCount: Int?,
+        abortedItemCount: Int?,
+        pausedNow: Bool?
+    ) {
+        self.reportedVisibleItemCount = reportedVisibleItemCount
+        self.trackedVisibleItemCount = trackedVisibleItemCount
+        self.truncatedVisibleItemCount = truncatedVisibleItemCount
+        self.untrackedItemCount = untrackedItemCount
+        self.loadingItemCount = loadingItemCount
+        self.readyItemCount = readyItemCount
+        self.failedItemCount = failedItemCount
+        self.deferredItemCount = deferredItemCount
+        self.abortedItemCount = abortedItemCount
+        self.pausedNow = pausedNow
+    }
+}
+
+public struct IPCBridgeVisibleHydrationDiscardProbe: Codable, Equatable, Sendable {
+    public let readyResultDiscardCount: Int?
+    public let records: [IPCBridgeVisibleHydrationDiscardRecord]
+
+    public init(
+        readyResultDiscardCount: Int?,
+        records: [IPCBridgeVisibleHydrationDiscardRecord]
+    ) {
+        self.readyResultDiscardCount = readyResultDiscardCount
+        self.records = records
+    }
+}
+
+public struct IPCBridgeVisibleHydrationDiscardRecord: Codable, Equatable, Sendable {
+    public let hadState: Bool?
+    public let pausedNow: Bool?
+
+    public init(hadState: Bool?, pausedNow: Bool?) {
+        self.hadState = hadState
+        self.pausedNow = pausedNow
+    }
+}
+
+public struct IPCBridgeFrameJankProbe: Codable, Equatable, Sendable {
+    public let longTask: IPCBridgeFrameJankLongTaskSummary
+    public let droppedFrame: IPCBridgeFrameJankDroppedFrameSummary
+    public let lastLongTaskAtMs: Double?
+
+    public init(
+        longTask: IPCBridgeFrameJankLongTaskSummary,
+        droppedFrame: IPCBridgeFrameJankDroppedFrameSummary,
+        lastLongTaskAtMs: Double?
+    ) {
+        self.longTask = longTask
+        self.droppedFrame = droppedFrame
+        self.lastLongTaskAtMs = lastLongTaskAtMs
+    }
+}
+
+public struct IPCBridgeFrameJankLongTaskSummary: Codable, Equatable, Sendable {
+    public let count: Int?
+    public let totalMs: Double?
+    public let maxMs: Double?
+
+    public init(count: Int?, totalMs: Double?, maxMs: Double?) {
+        self.count = count
+        self.totalMs = totalMs
+        self.maxMs = maxMs
+    }
+}
+
+public struct IPCBridgeFrameJankDroppedFrameSummary: Codable, Equatable, Sendable {
+    public let count: Int?
+    public let worstGapMs: Double?
+
+    public init(count: Int?, worstGapMs: Double?) {
+        self.count = count
+        self.worstGapMs = worstGapMs
     }
 }
 

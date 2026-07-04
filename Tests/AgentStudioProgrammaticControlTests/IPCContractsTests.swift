@@ -133,4 +133,37 @@ struct IPCContractsTests {
         #expect(IPCEventName.allCases.map(\.rawValue).contains("terminal.commandFinished"))
         #expect(!IPCEventName.allCases.map(\.rawValue).contains { $0.hasPrefix("zmx.") })
     }
+
+    @Test("bridge render state keeps diagnostics probes optional for older payloads")
+    func bridgeRenderStateKeepsDiagnosticsProbesOptionalForOlderPayloads() throws {
+        let paneId = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
+        let payload = """
+            {
+              "paneId": "\(paneId.uuidString)",
+              "summary": {
+                "pageTitle": "AgentStudio Bridge",
+                "hasAppRoot": true,
+                "hasEmptyShell": false,
+                "hasReviewShell": true,
+                "sidebarPosition": "right"
+              },
+              "diagnostics": {
+                "evaluateSucceeded": true,
+                "pageErrorCount": 0,
+                "pageErrorKinds": [],
+                "pageErrorMessages": []
+              }
+            }
+            """
+
+        let result = try JSONDecoder().decode(IPCBridgeRenderStateResult.self, from: Data(payload.utf8))
+
+        #expect(result.paneId == paneId)
+        #expect(result.summary.visibleHydrationStateProbe == nil)
+        #expect(result.summary.visibleHydrationDiscardProbe == nil)
+        #expect(result.summary.frameJankProbe == nil)
+        #expect(result.visibleHydrationStateProbe == nil)
+        #expect(result.visibleHydrationDiscardProbe == nil)
+        #expect(result.frameJankProbe == nil)
+    }
 }

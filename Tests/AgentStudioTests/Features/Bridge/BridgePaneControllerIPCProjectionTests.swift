@@ -371,6 +371,95 @@ extension WebKitSerializedTests {
             #expect(encodedPayload.contains("\"items\"") == false)
         }
 
+        @Test("IPC render state maps bridge diagnostics probes and bounds discard records")
+        func ipcRenderState_mapsBridgeDiagnosticsProbesAndBoundsDiscardRecords() async throws {
+            let controller = BridgePaneController(
+                paneId: UUIDv7.generate(),
+                state: BridgePaneState(panelKind: .diffViewer, source: nil)
+            )
+            defer { controller.teardown() }
+
+            try await WebPageTestHarness.withManagedPage(controller.page) { page in
+                _ = try await page.callJavaScript(
+                    """
+                    window.__bridgeVisibleHydrationStateProbe = {
+                      reportedVisibleItemCount: 24,
+                      trackedVisibleItemCount: 12,
+                      truncatedVisibleItemCount: 12,
+                      untrackedItemCount: 3,
+                      loadingItemCount: 4,
+                      readyItemCount: 5,
+                      failedItemCount: 6,
+                      deferredItemCount: 7,
+                      abortedItemCount: 8,
+                      pausedNow: true
+                    };
+                    window.__bridgeVisibleHydrationDiscardProbe = {
+                      readyResultDiscardCount: 25,
+                      records: Array.from({ length: 25 }, (_, index) => ({
+                        hadState: index >= 5,
+                        pausedNow: index % 2 === 0
+                      }))
+                    };
+                    window.__bridgeFrameJankProbe = {
+                      long_task: { count: 2, total_ms: 44.5, max_ms: 30.25 },
+                      dropped_frame: { count: 3, worst_gap_ms: 19.75 },
+                      last_long_task_at_ms: 1234.5
+                    };
+                    """
+                )
+
+                let result = try await controller.renderStateForIPC()
+                let hydrationState = try #require(result.summary.visibleHydrationStateProbe)
+                let discardProbe = try #require(result.summary.visibleHydrationDiscardProbe)
+                let frameJankProbe = try #require(result.summary.frameJankProbe)
+
+                #expect(hydrationState.reportedVisibleItemCount == 24)
+                #expect(hydrationState.trackedVisibleItemCount == 12)
+                #expect(hydrationState.truncatedVisibleItemCount == 12)
+                #expect(hydrationState.untrackedItemCount == 3)
+                #expect(hydrationState.loadingItemCount == 4)
+                #expect(hydrationState.readyItemCount == 5)
+                #expect(hydrationState.failedItemCount == 6)
+                #expect(hydrationState.deferredItemCount == 7)
+                #expect(hydrationState.abortedItemCount == 8)
+                #expect(hydrationState.pausedNow == true)
+                #expect(discardProbe.readyResultDiscardCount == 25)
+                #expect(discardProbe.records.count == 20)
+                #expect(discardProbe.records.allSatisfy { $0.hadState == true })
+                #expect(discardProbe.records.first?.pausedNow == false)
+                #expect(frameJankProbe.longTask.count == 2)
+                #expect(frameJankProbe.longTask.totalMs == 44.5)
+                #expect(frameJankProbe.longTask.maxMs == 30.25)
+                #expect(frameJankProbe.droppedFrame.count == 3)
+                #expect(frameJankProbe.droppedFrame.worstGapMs == 19.75)
+                #expect(frameJankProbe.lastLongTaskAtMs == 1234.5)
+                #expect(result.visibleHydrationStateProbe == hydrationState)
+                #expect(result.visibleHydrationDiscardProbe == discardProbe)
+                #expect(result.frameJankProbe == frameJankProbe)
+            }
+        }
+
+        @Test("IPC render state leaves absent bridge diagnostics probes nil")
+        func ipcRenderState_leavesAbsentBridgeDiagnosticsProbesNil() async throws {
+            let controller = BridgePaneController(
+                paneId: UUIDv7.generate(),
+                state: BridgePaneState(panelKind: .diffViewer, source: nil)
+            )
+            defer { controller.teardown() }
+
+            try await WebPageTestHarness.withManagedPage(controller.page) { _ in
+                let result = try await controller.renderStateForIPC()
+
+                #expect(result.summary.visibleHydrationStateProbe == nil)
+                #expect(result.summary.visibleHydrationDiscardProbe == nil)
+                #expect(result.summary.frameJankProbe == nil)
+                #expect(result.visibleHydrationStateProbe == nil)
+                #expect(result.visibleHydrationDiscardProbe == nil)
+                #expect(result.frameJankProbe == nil)
+            }
+        }
+
         @Test("IPC telemetry snapshot reports package status without exposing samples")
         func ipcTelemetrySnapshot_reportsPackageStatusWithoutExposingSamples() async throws {
             let worktreeId = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
