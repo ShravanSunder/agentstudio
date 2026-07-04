@@ -27,6 +27,8 @@ export interface BridgeWorktreeReviewDevSnapshot {
 
 export interface CreateBridgeWorktreeReviewDevMetadataProps {
 	readonly baseRef: string;
+	readonly reviewGeneration?: number;
+	readonly revision?: number;
 	readonly snapshot: BridgeWorktreeReviewDevSnapshot;
 	readonly paneId: string;
 	readonly streamId: string;
@@ -50,22 +52,56 @@ export interface BridgeWorktreeReviewMetadataRequest {
 	readonly forceRefresh?: boolean;
 }
 
+export interface BridgeWorktreeReviewIdentityRotationRequest {
+	readonly reason?: 'authorityChanged' | 'providerRestart' | 'sourceChanged' | 'subscriptionReset';
+}
+
+export interface BridgeWorktreeReviewIdentityRotationResult {
+	readonly generation: number;
+	readonly reason: NonNullable<BridgeWorktreeReviewIdentityRotationRequest['reason']>;
+	readonly revokedPackageIds: readonly string[];
+	readonly streamId: string;
+}
+
 export interface BridgeWorktreeReviewDevProvider {
+	readonly dispose: () => void;
 	readonly loadReviewContent: (request: BridgeWorktreeReviewContentRequest) => Promise<string>;
 	readonly loadReviewMetadata: (
 		request?: BridgeWorktreeReviewMetadataRequest,
 	) => Promise<BridgeWorktreeReviewDevMetadataResult>;
+	readonly rotateIdentity: (
+		request?: BridgeWorktreeReviewIdentityRotationRequest,
+	) => BridgeWorktreeReviewIdentityRotationResult;
 }
 
 export interface CreateBridgeWorktreeReviewDevProviderOptions {
+	readonly identityRotation?: BridgeWorktreeReviewIdentityRotationOptions;
 	readonly loadSnapshot?: (props: {
 		readonly baseRef: string;
 		readonly worktreeRoot: string;
 	}) => Promise<BridgeWorktreeReviewDevSnapshot>;
 }
 
-const worktreeReviewGeneration = 1;
-const worktreeReviewRevision = 1;
+export interface BridgeWorktreeReviewIdentityRotationOptions {
+	readonly clearInterval?: (handle: BridgeWorktreeReviewIdentityRotationTimerHandle) => void;
+	readonly intervalMilliseconds?: number;
+	readonly setInterval?: (
+		callback: () => void,
+		intervalMilliseconds: number,
+	) => BridgeWorktreeReviewIdentityRotationTimerHandle;
+}
+
+type BridgeWorktreeReviewIdentityRotationTimerHandle = number | ReturnType<typeof setInterval>;
+type BridgeWorktreeReviewMetadataIdentityKey = `${string}:generation-${number}:revision-${number}`;
+type BridgeWorktreeReviewContentHashRole = 'base' | 'diff' | 'file' | 'head';
+type BridgeWorktreeChangedFileHashMetadata = BridgeWorktreeChangedFile & {
+	readonly contentHashAlgorithm?: string;
+	readonly newContentHash?: string | null;
+	readonly oldContentHash?: string | null;
+};
+
+const initialWorktreeReviewGeneration = 1;
+const initialWorktreeReviewRevision = 1;
 const worktreeReviewRepoId = 'dev-worktree-repo';
 const worktreeReviewWorktreeId = 'dev-worktree';
 const worktreeReviewBaseEndpointId = 'baseline-local-default';
@@ -78,27 +114,81 @@ export function createBridgeWorktreeReviewDevProvider(
 ): BridgeWorktreeReviewDevProvider {
 	const loadSnapshot = options.loadSnapshot ?? loadBridgeWorktreeDevSnapshot;
 	const metadataResultsByPackageId = new Map<string, BridgeWorktreeReviewDevMetadataResult>();
+	const metadataResultsByIdentityKey = new Map<
+		BridgeWorktreeReviewMetadataIdentityKey,
+		BridgeWorktreeReviewDevMetadataResult
+	>();
 	let currentMetadataResult: BridgeWorktreeReviewDevMetadataResult | null = null;
+	let currentGeneration = initialWorktreeReviewGeneration;
+	let currentRevision = 0;
+	let streamOrdinal = 1;
+	let identityRotationTimer: BridgeWorktreeReviewIdentityRotationTimerHandle | null = null;
+	const currentStreamId = (): string =>
+		streamOrdinal === 1
+			? 'review:bridge-worktree-review-dev-pane'
+			: `review:bridge-worktree-review-dev-pane:${streamOrdinal}`;
+	const rotateIdentity = (
+		request: BridgeWorktreeReviewIdentityRotationRequest = {},
+	): BridgeWorktreeReviewIdentityRotationResult => {
+		const revokedPackageIds = [...metadataResultsByPackageId.keys()];
+		metadataResultsByPackageId.clear();
+		metadataResultsByIdentityKey.clear();
+		currentMetadataResult = null;
+		currentGeneration += 1;
+		currentRevision = 0;
+		streamOrdinal += 1;
+		return {
+			generation: currentGeneration,
+			reason: request.reason ?? 'authorityChanged',
+			revokedPackageIds,
+			streamId: currentStreamId(),
+		};
+	};
+	const rotationSetInterval = options.identityRotation?.setInterval ?? setInterval;
+	const rotationClearInterval = options.identityRotation?.clearInterval ?? clearInterval;
+	if (options.identityRotation?.intervalMilliseconds !== undefined) {
+		identityRotationTimer = rotationSetInterval(() => {
+			rotateIdentity({ reason: 'authorityChanged' });
+		}, options.identityRotation.intervalMilliseconds);
+	}
 	const loadReviewMetadata = async (
 		request: BridgeWorktreeReviewMetadataRequest = {},
 	): Promise<BridgeWorktreeReviewDevMetadataResult> => {
 		if (currentMetadataResult !== null && request.forceRefresh !== true) {
 			return currentMetadataResult;
 		}
+		currentRevision += 1;
 		currentMetadataResult = await createReviewMetadataResult({
 			baseRef: config.baseRef,
 			loadSnapshot,
+			metadataResultsByIdentityKey,
 			metadataResultsByPackageId,
 			paneId: 'bridge-worktree-review-dev-pane',
-			streamId: 'review:bridge-worktree-review-dev-pane',
+			reviewGeneration: currentGeneration,
+			revision: currentRevision,
+			streamId: currentStreamId(),
 			worktreeRoot: config.worktreeRoot,
 		});
 		return currentMetadataResult;
 	};
 	return {
+		dispose: (): void => {
+			if (identityRotationTimer === null) {
+				return;
+			}
+			rotationClearInterval(identityRotationTimer);
+			identityRotationTimer = null;
+		},
 		loadReviewMetadata,
+		rotateIdentity,
 		loadReviewContent: async (request: BridgeWorktreeReviewContentRequest): Promise<string> => {
-			let metadataResult = metadataResultsByPackageId.get(request.packageId);
+			let metadataResult = metadataResultsByIdentityKey.get(
+				metadataIdentityKey({
+					generation: request.generation,
+					packageId: request.packageId,
+					revision: request.revision,
+				}),
+			);
 			if (metadataResult === undefined) {
 				metadataResult = await loadReviewMetadata();
 			}
@@ -123,8 +213,14 @@ export function createBridgeWorktreeReviewDevProvider(
 async function createReviewMetadataResult(props: {
 	readonly baseRef: string;
 	readonly loadSnapshot: NonNullable<CreateBridgeWorktreeReviewDevProviderOptions['loadSnapshot']>;
+	readonly metadataResultsByIdentityKey: Map<
+		BridgeWorktreeReviewMetadataIdentityKey,
+		BridgeWorktreeReviewDevMetadataResult
+	>;
 	readonly metadataResultsByPackageId: Map<string, BridgeWorktreeReviewDevMetadataResult>;
 	readonly paneId: string;
+	readonly reviewGeneration: number;
+	readonly revision: number;
 	readonly streamId: string;
 	readonly worktreeRoot: string;
 }): Promise<BridgeWorktreeReviewDevMetadataResult> {
@@ -135,10 +231,20 @@ async function createReviewMetadataResult(props: {
 	const result = createBridgeWorktreeReviewDevMetadata({
 		baseRef: props.baseRef,
 		paneId: props.paneId,
+		reviewGeneration: props.reviewGeneration,
+		revision: props.revision,
 		snapshot,
 		streamId: props.streamId,
 	});
 	props.metadataResultsByPackageId.set(result.metadataFrame.comparison.packageId, result);
+	props.metadataResultsByIdentityKey.set(
+		metadataIdentityKey({
+			generation: result.metadataFrame.comparison.generation,
+			packageId: result.metadataFrame.comparison.packageId,
+			revision: result.metadataFrame.comparison.revision,
+		}),
+		result,
+	);
 	return result;
 }
 
@@ -146,6 +252,8 @@ export function createBridgeWorktreeReviewDevMetadata(
 	props: CreateBridgeWorktreeReviewDevMetadataProps,
 ): BridgeWorktreeReviewDevMetadataResult {
 	const packageId = `worktree-review-${props.snapshot.fingerprint.slice(0, 12)}`;
+	const reviewGeneration = props.reviewGeneration ?? initialWorktreeReviewGeneration;
+	const revision = props.revision ?? initialWorktreeReviewRevision;
 	const contentByHandleId = new Map<string, string>();
 	const items = props.snapshot.changedFiles.map(
 		(changedFile): BridgeReviewItemDescriptor =>
@@ -153,6 +261,8 @@ export function createBridgeWorktreeReviewDevMetadata(
 				changedFile,
 				contentByHandleId,
 				packageId,
+				reviewGeneration,
+				revision,
 			}),
 	);
 	assertUniqueItemIds(items);
@@ -162,8 +272,8 @@ export function createBridgeWorktreeReviewDevMetadata(
 	const reviewPackage = bridgeReviewPackageSchema.parse({
 		packageId,
 		schemaVersion: 1,
-		reviewGeneration: worktreeReviewGeneration,
-		revision: worktreeReviewRevision,
+		reviewGeneration,
+		revision,
 		query: {
 			queryId: 'dev-current-worktree-review',
 			queryKind: 'compare',
@@ -250,11 +360,14 @@ function reviewItemForChangedFile(props: {
 	readonly changedFile: BridgeWorktreeChangedFile;
 	readonly contentByHandleId: Map<string, string>;
 	readonly packageId: string;
+	readonly reviewGeneration: number;
+	readonly revision: number;
 }): BridgeReviewItemDescriptor {
 	const itemId = itemIdForChangedFile(props.changedFile);
 	const extension = extensionForPath(props.changedFile.path);
 	const language = languageForExtension(extension);
 	const fileClass = fileClassForPath(props.changedFile.path);
+	const contentHashes = contentHashesForChangedFile(props.changedFile);
 	const base =
 		props.changedFile.baseContent === null
 			? null
@@ -264,8 +377,9 @@ function reviewItemForChangedFile(props: {
 					endpointId: worktreeReviewBaseEndpointId,
 					itemId,
 					language,
-					packageId: props.packageId,
-					revision: worktreeReviewRevision,
+					contentHash: bridgeWorktreeReviewDevContentHashForRole(props.changedFile, 'base'),
+					contentHashAlgorithm: contentHashes.algorithm,
+					reviewGeneration: props.reviewGeneration,
 					role: 'base',
 				});
 	const head =
@@ -277,12 +391,12 @@ function reviewItemForChangedFile(props: {
 					endpointId: worktreeReviewHeadEndpointId,
 					itemId,
 					language,
-					packageId: props.packageId,
-					revision: worktreeReviewRevision,
+					contentHash: bridgeWorktreeReviewDevContentHashForRole(props.changedFile, 'head'),
+					contentHashAlgorithm: contentHashes.algorithm,
+					reviewGeneration: props.reviewGeneration,
 					role: 'head',
 				});
 	const contentLineCountsByRole = contentLineCountsByRoleForChangedFile(props.changedFile);
-	const contentHashAlgorithm = 'git-blob-sha1';
 	return {
 		itemId,
 		itemKind: 'diff',
@@ -294,9 +408,9 @@ function reviewItemForChangedFile(props: {
 		language,
 		extension,
 		sizeBytes: byteLength(props.changedFile.headContent ?? props.changedFile.baseContent ?? ''),
-		baseContentHash: base?.contentHash ?? null,
-		headContentHash: head?.contentHash ?? null,
-		contentHashAlgorithm,
+		baseContentHash: contentHashes.oldContentHash,
+		headContentHash: contentHashes.newContentHash,
+		contentHashAlgorithm: contentHashes.algorithm,
 		additions: props.changedFile.additions,
 		deletions: props.changedFile.deletions,
 		isHiddenByDefault: false,
@@ -339,16 +453,16 @@ function contentLineCountsByRoleForChangedFile(
 function makeContentHandle(props: {
 	readonly content: string;
 	readonly contentByHandleId: Map<string, string>;
+	readonly contentHash: string;
+	readonly contentHashAlgorithm: string;
 	readonly endpointId: string;
 	readonly itemId: string;
 	readonly language: string;
-	readonly packageId: string;
-	readonly revision: number;
+	readonly reviewGeneration: number;
 	readonly role: 'base' | 'head';
 }): BridgeContentHandle {
-	const contentHash = gitBlobSha1(props.content);
 	const handleId = `handle-${hashText(
-		`${props.endpointId}:${props.itemId}:${props.role}:${contentHash}`,
+		`${props.endpointId}:${props.itemId}:${props.role}:${props.contentHash}`,
 	)}`;
 	props.contentByHandleId.set(handleId, props.content);
 	return {
@@ -356,16 +470,62 @@ function makeContentHandle(props: {
 		itemId: props.itemId,
 		role: props.role,
 		endpointId: props.endpointId,
-		reviewGeneration: worktreeReviewGeneration,
-		resourceUrl: `agentstudio://resource/review/content/${handleId}?generation=${worktreeReviewGeneration}&cursor=${encodeURIComponent(props.packageId)}&revision=${props.revision}`,
-		contentHash,
-		contentHashAlgorithm: 'git-blob-sha1',
-		cacheKey: `${handleId}:${contentHash}`,
+		reviewGeneration: props.reviewGeneration,
+		resourceUrl: `agentstudio://resource/review/content/${handleId}?generation=${props.reviewGeneration}`,
+		contentHash: props.contentHash,
+		contentHashAlgorithm: props.contentHashAlgorithm,
+		cacheKey: `${props.endpointId}:${props.itemId}:${props.role}:${props.contentHash}`,
 		mimeType: mimeTypeForLanguage(props.language),
 		language: props.language,
 		sizeBytes: byteLength(props.content),
 		isBinary: false,
 	};
+}
+
+function contentHashesForChangedFile(changedFile: BridgeWorktreeChangedFile): {
+	readonly algorithm: string;
+	readonly newContentHash: string | null;
+	readonly oldContentHash: string | null;
+} {
+	const metadata = changedFile as BridgeWorktreeChangedFileHashMetadata;
+	const oldContentHash =
+		metadata.oldContentHash ??
+		(changedFile.baseContent === null ? null : gitBlobSha1(changedFile.baseContent));
+	const newContentHash =
+		metadata.newContentHash ??
+		(changedFile.headContent === null ? null : gitBlobSha1(changedFile.headContent));
+	return {
+		algorithm: metadata.contentHashAlgorithm ?? 'git-blob-sha1',
+		newContentHash,
+		oldContentHash,
+	};
+}
+
+export function bridgeWorktreeReviewDevContentHashForRole(
+	changedFile: BridgeWorktreeChangedFile,
+	role: BridgeWorktreeReviewContentHashRole,
+): string {
+	const contentHashes = contentHashesForChangedFile(changedFile);
+	switch (role) {
+		case 'base':
+			return contentHashes.oldContentHash ?? 'missing-base';
+		case 'head':
+		case 'file':
+			return contentHashes.newContentHash ?? contentHashes.oldContentHash ?? 'unknown';
+		case 'diff':
+			return `${contentHashes.oldContentHash ?? 'none'}...${contentHashes.newContentHash ?? 'none'}`;
+	}
+	const exhaustiveRole: never = role;
+	void exhaustiveRole;
+	throw new Error('Unhandled Bridge worktree review content hash role');
+}
+
+function metadataIdentityKey(props: {
+	readonly generation: number;
+	readonly packageId: string;
+	readonly revision: number;
+}): BridgeWorktreeReviewMetadataIdentityKey {
+	return `${props.packageId}:generation-${props.generation}:revision-${props.revision}`;
 }
 
 function renderLineCount(content: string): number {

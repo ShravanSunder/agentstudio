@@ -1,17 +1,33 @@
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 
 import { describe, expect, test } from 'vitest';
 
+import { bridgeReviewPackageSchema } from '../../src/foundation/review-package/bridge-review-package-schema.js';
 import type {
 	BridgeReviewItemDescriptor,
 	BridgeReviewPackage,
 } from '../../src/foundation/review-package/bridge-review-package.js';
 import { buildBridgeReviewProjectionFromInput } from '../../src/review-viewer/navigation/review-projection.js';
 import {
+	bridgeWorktreeReviewDevContentHashForRole,
 	createBridgeWorktreeReviewDevProvider,
 	createBridgeWorktreeReviewDevMetadata,
 	type BridgeWorktreeReviewDevSnapshot,
 } from './bridge-worktree-review-dev-provider.js';
+
+type BridgeWorktreeChangedFileWithHashMetadata =
+	BridgeWorktreeReviewDevSnapshot['changedFiles'][number] & {
+		readonly contentHashAlgorithm: string;
+		readonly newContentHash?: string | null;
+		readonly oldContentHash?: string | null;
+	};
+type BridgeWorktreeReviewDevSnapshotWithHashMetadata = Omit<
+	BridgeWorktreeReviewDevSnapshot,
+	'changedFiles'
+> & {
+	readonly changedFiles: readonly BridgeWorktreeChangedFileWithHashMetadata[];
+};
 
 describe('Bridge worktree review dev provider', () => {
 	test('builds review metadata and content map from changed worktree files', () => {
@@ -123,10 +139,10 @@ describe('Bridge worktree review dev provider', () => {
 		const modifiedBase = modifiedItem?.contentRoles.base;
 		const modifiedHead = modifiedItem?.contentRoles.head;
 		expect(modifiedBase?.resourceUrl).toBe(
-			`agentstudio://resource/review/content/${modifiedBase?.handleId}?generation=1&cursor=worktree-review-abc123def456&revision=1`,
+			`agentstudio://resource/review/content/${modifiedBase?.handleId}?generation=1`,
 		);
 		expect(modifiedHead?.resourceUrl).toBe(
-			`agentstudio://resource/review/content/${modifiedHead?.handleId}?generation=1&cursor=worktree-review-abc123def456&revision=1`,
+			`agentstudio://resource/review/content/${modifiedHead?.handleId}?generation=1`,
 		);
 		expect(modifiedBase?.contentHashAlgorithm).toBe('git-blob-sha1');
 		expect(modifiedHead?.contentHashAlgorithm).toBe('git-blob-sha1');
@@ -252,6 +268,288 @@ describe('Bridge worktree review dev provider', () => {
 		);
 		expect(content).toBe('export const value = 2;\n');
 		expect(loadSnapshotCallCount).toBe(2);
+	});
+
+	test('increments package revision on each explicit metadata refresh in the same generation', async () => {
+		let fingerprintIndex = 0;
+		const provider = createBridgeWorktreeReviewDevProvider(
+			{
+				baseRef: 'base-sha',
+				scenarioName: 'current-worktree',
+				worktreeRoot: '/tmp/bridge-review-revision-fixture',
+			},
+			{
+				loadSnapshot: async () => {
+					fingerprintIndex += 1;
+					return {
+						fingerprint: `revision${fingerprintIndex}`,
+						changedFiles: [
+							{
+								additions: 1,
+								baseContent: 'export const value = 1;\n',
+								basePath: 'src/app.ts',
+								changeKind: 'modified',
+								deletions: 1,
+								headContent: `export const value = ${fingerprintIndex + 1};\n`,
+								headPath: 'src/app.ts',
+								path: 'src/app.ts',
+							},
+						],
+					};
+				},
+			},
+		);
+
+		const firstMetadataResult = await provider.loadReviewMetadata({ forceRefresh: true });
+		const secondMetadataResult = await provider.loadReviewMetadata({ forceRefresh: true });
+		const thirdMetadataResult = await provider.loadReviewMetadata({ forceRefresh: true });
+
+		expect(firstMetadataResult.metadataFrame.comparison.revision).toBe(1);
+		expect(secondMetadataResult.metadataFrame.comparison.revision).toBe(2);
+		expect(thirdMetadataResult.metadataFrame.comparison.revision).toBe(3);
+		expect(secondMetadataResult.metadataFrame.generation).toBe(
+			firstMetadataResult.metadataFrame.generation,
+		);
+		expect(thirdMetadataResult.metadataFrame.streamId).toBe(
+			firstMetadataResult.metadataFrame.streamId,
+		);
+	});
+
+	test('rotates review generation and stream id while revoking stale content leases', async () => {
+		const provider = createBridgeWorktreeReviewDevProvider(
+			{
+				baseRef: 'base-sha',
+				scenarioName: 'current-worktree',
+				worktreeRoot: '/tmp/bridge-review-identity-fixture',
+			},
+			{
+				loadSnapshot: async () => ({
+					fingerprint: 'identity12345',
+					changedFiles: [
+						{
+							additions: 1,
+							baseContent: 'export const value = 1;\n',
+							basePath: 'src/app.ts',
+							changeKind: 'modified',
+							deletions: 1,
+							headContent: 'export const value = 2;\n',
+							headPath: 'src/app.ts',
+							path: 'src/app.ts',
+						},
+					],
+				}),
+			},
+		);
+		const firstMetadataResult = await provider.loadReviewMetadata({ forceRefresh: true });
+		const firstItemId = firstMetadataResult.reviewMetadataSource.orderedItemIds[0];
+		const firstItem = firstMetadataResult.reviewMetadataSource.itemsById[firstItemId ?? ''];
+		const firstHeadHandle = firstItem?.contentRoles.head;
+		expect(firstHeadHandle).not.toBeNull();
+
+		const rotation = provider.rotateIdentity({ reason: 'authorityChanged' });
+		const secondMetadataResult = await provider.loadReviewMetadata({ forceRefresh: true });
+
+		expect(rotation.generation).toBe(2);
+		expect(rotation.revokedPackageIds).toEqual([
+			firstMetadataResult.metadataFrame.comparison.packageId,
+		]);
+		expect(secondMetadataResult.metadataFrame.generation).toBe(2);
+		expect(secondMetadataResult.metadataFrame.streamId).not.toBe(
+			firstMetadataResult.metadataFrame.streamId,
+		);
+		expect(secondMetadataResult.metadataFrame.comparison.revision).toBe(1);
+		await expect(
+			provider.loadReviewContent({
+				generation: firstMetadataResult.metadataFrame.comparison.generation,
+				handleId: firstHeadHandle?.handleId ?? '',
+				packageId: firstMetadataResult.metadataFrame.comparison.packageId,
+				revision: firstMetadataResult.metadataFrame.comparison.revision,
+			}),
+		).rejects.toThrow(
+			/does not match loaded metadata|Unknown Bridge worktree review content handle/u,
+		);
+	});
+
+	test('periodic identity rotation is opt-in and revokes the current content cache', async () => {
+		const intervalHandles = new Map<unknown, () => void>();
+		let nextIntervalHandle = 0;
+		const provider = createBridgeWorktreeReviewDevProvider(
+			{
+				baseRef: 'base-sha',
+				scenarioName: 'current-worktree',
+				worktreeRoot: '/tmp/bridge-review-periodic-identity-fixture',
+			},
+			{
+				identityRotation: {
+					intervalMilliseconds: 250,
+					setInterval: (callback) => {
+						nextIntervalHandle += 1;
+						intervalHandles.set(nextIntervalHandle, callback);
+						return nextIntervalHandle;
+					},
+					clearInterval: (handle) => {
+						intervalHandles.delete(handle);
+					},
+				},
+				loadSnapshot: async () => ({
+					fingerprint: 'periodic12345',
+					changedFiles: [
+						{
+							additions: 1,
+							baseContent: null,
+							basePath: null,
+							changeKind: 'added',
+							deletions: 0,
+							headContent: 'export const value = 1;\n',
+							headPath: 'src/app.ts',
+							path: 'src/app.ts',
+						},
+					],
+				}),
+			},
+		);
+		const firstMetadataResult = await provider.loadReviewMetadata({ forceRefresh: true });
+		const intervalCallback = intervalHandles.get(1);
+		expect(intervalCallback).toBeDefined();
+
+		intervalCallback?.();
+		const secondMetadataResult = await provider.loadReviewMetadata({ forceRefresh: true });
+		provider.dispose();
+
+		expect(secondMetadataResult.metadataFrame.generation).toBe(
+			firstMetadataResult.metadataFrame.generation + 1,
+		);
+		expect(secondMetadataResult.metadataFrame.streamId).not.toBe(
+			firstMetadataResult.metadataFrame.streamId,
+		);
+		expect(intervalHandles.size).toBe(0);
+	});
+
+	test('matches Swift review package builder sentinels and content hash algorithm cascade', () => {
+		const snapshot: BridgeWorktreeReviewDevSnapshotWithHashMetadata = {
+			fingerprint: 'hashsentinel1',
+			changedFiles: [
+				{
+					additions: 1,
+					baseContent: null,
+					basePath: null,
+					changeKind: 'added',
+					deletions: 0,
+					headContent: 'added\n',
+					headPath: 'src/added.ts',
+					newContentHash: 'sha256:provided-added',
+					path: 'src/added.ts',
+					contentHashAlgorithm: 'sha256',
+				},
+				{
+					additions: 0,
+					baseContent: 'deleted\n',
+					basePath: 'src/deleted.ts',
+					changeKind: 'deleted',
+					deletions: 1,
+					headContent: null,
+					headPath: null,
+					oldContentHash: 'status-fallback:deleted',
+					path: 'src/deleted.ts',
+					contentHashAlgorithm: 'status-fallback-sha256',
+				},
+				{
+					additions: 1,
+					baseContent: 'base\n',
+					basePath: 'src/modified.ts',
+					changeKind: 'modified',
+					deletions: 1,
+					headContent: 'head\n',
+					headPath: 'src/modified.ts',
+					oldContentHash: 'tree-fs-fallback:base',
+					newContentHash: 'tree-fs-fallback:head',
+					path: 'src/modified.ts',
+					contentHashAlgorithm: 'tree-filesystem-fallback-sha256',
+				},
+			],
+		};
+
+		const result = createBridgeWorktreeReviewDevMetadata({
+			baseRef: 'base-sha',
+			snapshot,
+			paneId: 'bridge-worktree-review-dev-pane',
+			streamId: 'review:bridge-worktree-review-dev-pane',
+		});
+		const addedItem = itemByHeadPath(result.reviewMetadataSource, 'src/added.ts');
+		const deletedItem = itemByBasePath(result.reviewMetadataSource, 'src/deleted.ts');
+		const modifiedItem = itemByHeadPath(result.reviewMetadataSource, 'src/modified.ts');
+
+		expect(addedItem?.baseContentHash).toBeNull();
+		expect(addedItem?.headContentHash).toBe('sha256:provided-added');
+		expect(addedItem?.contentHashAlgorithm).toBe('sha256');
+		expect(addedItem?.contentRoles.head?.contentHash).toBe('sha256:provided-added');
+		expect(addedItem?.contentRoles.head?.contentHashAlgorithm).toBe('sha256');
+		expect(deletedItem?.baseContentHash).toBe('status-fallback:deleted');
+		expect(deletedItem?.headContentHash).toBeNull();
+		expect(deletedItem?.contentHashAlgorithm).toBe('status-fallback-sha256');
+		expect(deletedItem?.contentRoles.base?.contentHash).toBe('status-fallback:deleted');
+		expect(modifiedItem?.contentHashAlgorithm).toBe('tree-filesystem-fallback-sha256');
+		expect(modifiedItem?.cacheKey).toContain('tree-fs-fallback:base');
+		expect(modifiedItem?.cacheKey).toContain('tree-fs-fallback:head');
+		expect(
+			bridgeWorktreeReviewDevContentHashForRole(
+				snapshot.changedFiles[0] ?? failChangedFile(),
+				'base',
+			),
+		).toBe('missing-base');
+		expect(
+			bridgeWorktreeReviewDevContentHashForRole(
+				snapshot.changedFiles[1] ?? failChangedFile(),
+				'diff',
+			),
+		).toBe('status-fallback:deleted...none');
+	});
+
+	test('keeps dev provider review content URLs aligned with the Swift contract fixture', () => {
+		const contractPackage = bridgeReviewPackageSchema.parse(
+			JSON.parse(
+				readFileSync(
+					new URL(
+						'../../../Tests/BridgeContractFixtures/valid/bridge-review-package.json',
+						import.meta.url,
+					),
+					'utf8',
+				),
+			),
+		);
+		const contractHandle = contractPackage.itemsById['item-file-source-1']?.contentRoles.head;
+		if (contractHandle === null || contractHandle === undefined) {
+			throw new Error('Expected Swift contract fixture head handle');
+		}
+		const result = createBridgeWorktreeReviewDevMetadata({
+			baseRef: 'base-sha',
+			snapshot: {
+				fingerprint: 'golden123456',
+				changedFiles: [
+					{
+						additions: 1,
+						baseContent: 'base\n',
+						basePath: 'src/app.ts',
+						changeKind: 'modified',
+						deletions: 1,
+						headContent: 'head\n',
+						headPath: 'src/app.ts',
+						path: 'src/app.ts',
+					},
+				],
+			},
+			paneId: 'bridge-worktree-review-dev-pane',
+			streamId: 'review:bridge-worktree-review-dev-pane',
+		});
+		const generatedHandle = itemByHeadPath(result.reviewMetadataSource, 'src/app.ts')?.contentRoles
+			.head;
+
+		expect(new URL(contractHandle.resourceUrl).search).toBe('?generation=42');
+		expect(generatedHandle?.resourceUrl).toBe(
+			`agentstudio://resource/review/content/${generatedHandle?.handleId}?generation=1`,
+		);
+		expect(new URL(generatedHandle?.resourceUrl ?? '').searchParams.has('cursor')).toBe(false);
+		expect(new URL(generatedHandle?.resourceUrl ?? '').searchParams.has('revision')).toBe(false);
 	});
 
 	test('bounds the initial metadata frame for large worktree reviews', () => {
@@ -382,6 +680,17 @@ function itemByHeadPath(
 	path: string,
 ): BridgeReviewItemDescriptor | undefined {
 	return Object.values(reviewPackage.itemsById).find((item) => item.headPath === path);
+}
+
+function itemByBasePath(
+	reviewPackage: BridgeReviewPackage,
+	path: string,
+): BridgeReviewItemDescriptor | undefined {
+	return Object.values(reviewPackage.itemsById).find((item) => item.basePath === path);
+}
+
+function failChangedFile(): never {
+	throw new Error('Expected changed file fixture');
 }
 
 function gitBlobSha1(content: string): string {

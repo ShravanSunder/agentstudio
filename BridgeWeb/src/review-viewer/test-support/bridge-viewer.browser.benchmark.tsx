@@ -34,6 +34,7 @@ import {
 	type DeferredMarkdownWorkerPendingRequest,
 	markdownResponseForRequest,
 } from './bridge-viewer-markdown-worker-test-client.js';
+import { makeBridgeViewerContentUnavailableFixture } from './bridge-viewer-mocked-backend-retouch-fixtures.js';
 import {
 	type BridgeViewerBrowserFixture,
 	type BridgeViewerBrowserFixtureClass,
@@ -42,7 +43,6 @@ import {
 	disposeBridgeViewerMockedBackends,
 	installBridgeViewerMockedBackend,
 	makeBridgeViewerBrowserFixture,
-	makeBridgeViewerContentUnavailableFixture,
 } from './bridge-viewer-mocked-backend.js';
 
 interface BridgeViewerBrowserPerformanceScenario {

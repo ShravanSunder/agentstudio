@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from 'vitest';
 
 import { makeBridgeReviewProjectionRequest } from '../navigation/review-projection-request.js';
 import { makeBridgeReviewProjectionInput } from '../navigation/review-projection.js';
+import { makeBridgeViewerDescriptorRetouchFixture } from './bridge-viewer-mocked-backend-retouch-fixtures.js';
 import {
 	disposeBridgeViewerMockedBackends,
 	installBridgeViewerMockedBackend,
@@ -341,6 +342,37 @@ describe('bridge viewer mocked backend', () => {
 				status: 'failure',
 				identity: task.identity,
 			}),
+		);
+	});
+
+	test('builds descriptor-bearing retouch fixtures for metadata-only and changed-hash churn', () => {
+		const fixture = makeBridgeViewerDescriptorRetouchFixture();
+		const sourceItemId = fixture.reviewPackage.orderedItemIds[0];
+		if (sourceItemId === undefined) {
+			throw new Error('expected descriptor retouch source item');
+		}
+		const sourceItem = fixture.reviewPackage.itemsById[sourceItemId];
+		const metadataOnlyUpdateItem = fixture.metadataOnlyRetouchDelta.operations.updateItems[0];
+		const changedHashUpdateItem = fixture.changedHashRetouchDelta.operations.updateItems[0];
+
+		expect(metadataOnlyUpdateItem?.itemId).toBe(sourceItemId);
+		expect(changedHashUpdateItem?.itemId).toBe(sourceItemId);
+		expect(fixture.metadataOnlyRetouchDelta.revision).toBe(fixture.reviewPackage.revision + 1);
+		expect(fixture.changedHashRetouchDelta.revision).toBe(fixture.reviewPackage.revision + 2);
+		expect(metadataOnlyUpdateItem?.contentRoles.head?.handleId).toBe(
+			sourceItem?.contentRoles.head?.handleId,
+		);
+		expect(metadataOnlyUpdateItem?.contentRoles.head?.contentHash).toBe(
+			sourceItem?.contentRoles.head?.contentHash,
+		);
+		expect(changedHashUpdateItem?.contentRoles.head?.handleId).not.toBe(
+			sourceItem?.contentRoles.head?.handleId,
+		);
+		expect(changedHashUpdateItem?.contentRoles.head?.contentHash).toBe(
+			fixture.changedHeadContentHash,
+		);
+		expect(fixture.contentByHandleId.get(fixture.changedHeadHandleId)).toContain(
+			fixture.changedHeadText,
 		);
 	});
 });
