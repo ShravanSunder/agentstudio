@@ -11,6 +11,65 @@ struct ChromeToolbarButtonStyleTests {
         #expect(AppStyles.Shell.Chrome.ToolbarButton.iconSize == 12)
     }
 
+    @Test("sidebar nav chrome owns icon and divider spacing")
+    func sidebarNavChromeOwnsIconAndDividerSpacing() throws {
+        let appStylesSource = try sourceFile("Sources/AgentStudio/Infrastructure/AppStyles.swift")
+        let shellControlsSource = try sourceFile("Sources/AgentStudio/App/Panes/TabBar/ShellTabBarControls.swift")
+        let customTabBarSource = try sourceFile("Sources/AgentStudio/App/Panes/TabBar/CustomTabBar.swift")
+
+        #expect(AppStyles.Shell.Chrome.SidebarNav.iconSpacing == AppStyles.Shell.Chrome.iconClusterSpacing)
+        #expect(AppStyles.Shell.Chrome.SidebarNav.dividerLeadingPadding == 14)
+        #expect(AppStyles.Shell.Chrome.SidebarNav.dividerTrailingPadding == 24)
+
+        #expect(appStylesSource.contains("enum SidebarNav"))
+        #expect(shellControlsSource.contains("struct SidebarNavDivider"))
+        #expect(shellControlsSource.contains("AppStyles.Shell.Chrome.SidebarNav.iconSpacing"))
+        #expect(shellControlsSource.contains("AppStyles.Shell.Chrome.SidebarNav.dividerLeadingPadding"))
+        #expect(shellControlsSource.contains("AppStyles.Shell.Chrome.SidebarNav.dividerTrailingPadding"))
+
+        let leadingDividerSection = try section(
+            in: customTabBarSource,
+            from: "case .divider:",
+            to: "case .watchFolder:"
+        )
+        #expect(leadingDividerSection.contains("SidebarNavDivider()"))
+    }
+
+    @Test("top chrome separates circled control and plain toolbar icon spacing")
+    func topChromeSeparatesCircledControlAndPlainToolbarIconSpacing() throws {
+        let appStylesSource = try sourceFile("Sources/AgentStudio/Infrastructure/AppStyles.swift")
+        let customTabBarSource = try sourceFile("Sources/AgentStudio/App/Panes/TabBar/CustomTabBar.swift")
+
+        #expect(AppStyles.Shell.Chrome.circledControlSpacing == 12)
+        #expect(AppStyles.Shell.Chrome.tabStripLeadingPadding == AppStyles.Shell.Chrome.circledControlSpacing)
+        #expect(AppStyles.Shell.Chrome.plainToolbarIconSpacing == 0)
+        #expect(AppStyles.Shell.Chrome.PlainToolbarIcon.buttonSize == 24)
+        #expect(AppStyles.Shell.Chrome.PlainToolbarIcon.iconSize == AppStyles.Shell.Chrome.ToolbarButton.iconSize)
+
+        #expect(appStylesSource.contains("static let circledControlSpacing: CGFloat = 12"))
+        #expect(appStylesSource.contains("static let plainToolbarIconSpacing: CGFloat = 0"))
+        #expect(appStylesSource.contains("enum PlainToolbarIcon"))
+
+        let leadingControlsSection = try section(
+            in: customTabBarSource,
+            from: "private func leadingChromeControl",
+            to: "private func trailingChromeControl"
+        )
+        #expect(leadingControlsSection.contains(".padding(.trailing, AppStyles.Shell.Chrome.circledControlSpacing)"))
+        #expect(!leadingControlsSection.contains(".padding(.trailing, AppStyles.Shell.Chrome.iconClusterSpacing)"))
+
+        let trailingControlsSection = try section(
+            in: customTabBarSource,
+            from: "private func trailingChromeControl",
+            to: "// MARK: - Scroll Navigation"
+        )
+        #expect(trailingControlsSection.contains("buttonSize: AppStyles.Shell.Chrome.PlainToolbarIcon.buttonSize"))
+        #expect(trailingControlsSection.contains(".padding(.trailing, AppStyles.Shell.Chrome.plainToolbarIconSpacing)"))
+        #expect(
+            trailingControlsSection.contains(".padding(.horizontal, AppStyles.Shell.Chrome.plainToolbarIconSpacing)"))
+        #expect(trailingControlsSection.contains(".padding(.trailing, AppStyles.Shell.Chrome.circledControlSpacing)"))
+    }
+
     @Test("circular toolbar controls use the shared AppStyles backed label path")
     func circularToolbarControlsUseSharedLabelPath() throws {
         let sharedLabelSource = try sourceFile("Sources/AgentStudio/SharedComponents/ChromeToolbarButtonLabel.swift")

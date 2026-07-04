@@ -1,13 +1,20 @@
 import SwiftUI
 
 enum SidebarSurfaceBackground: Equatable {
+    case shellChrome
     case windowBackgroundColor
 
-    var color: Color {
+    var nsColor: NSColor {
         switch self {
+        case .shellChrome:
+            return AppStyles.Shell.TabBar.titlebarBackground
         case .windowBackgroundColor:
-            return Color(nsColor: .windowBackgroundColor)
+            return .windowBackgroundColor
         }
+    }
+
+    var color: Color {
+        Color(nsColor: nsColor)
     }
 }
 
@@ -21,7 +28,7 @@ struct SidebarSurfaceChromePolicy: Equatable {
 
     static let repoMatched = Self(
         minimumWidth: AppStyles.Shell.Sidebar.minimumWidth,
-        background: .windowBackgroundColor,
+        background: .shellChrome,
         shadowOpacity: AppStyles.Shell.Sidebar.shadowOpacity,
         shadowRadius: AppStyles.Shell.Sidebar.shadowRadius,
         shadowOffsetX: AppStyles.Shell.Sidebar.shadowOffsetX,

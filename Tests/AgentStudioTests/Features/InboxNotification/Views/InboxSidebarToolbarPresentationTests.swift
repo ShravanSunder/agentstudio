@@ -77,8 +77,8 @@ struct InboxSidebarToolbarPresentationTests {
         #expect(sortTooltipValue.shortcutDisplayText == ShortcutDisplayText(value: InboxSidebarKeyboardHint.toggleSort))
         #expect(sortIcon != .system(.rectangle3GroupFill))
         #expect(InboxSidebarHeader.groupIconName != InboxSidebarHeader.filterIconName)
-        #expect(InboxSidebarRootContainer.surfaceBackground == .windowBackgroundColor)
-        #expect(InboxSidebarContent.surfaceBackground == .windowBackgroundColor)
+        #expect(InboxSidebarRootContainer.surfaceBackground == .shellChrome)
+        #expect(InboxSidebarContent.surfaceBackground == .shellChrome)
         #expect(InboxSidebarContent.rowLeadingInset(isGrouped: false) == 0)
         #expect(
             InboxSidebarContent.rowLeadingInset(isGrouped: true)

@@ -14,6 +14,14 @@ struct SidebarRootViewDependencies {
     let onDismissInbox: @MainActor @Sendable () -> Void
 }
 
+final class ShellSplitView: NSSplitView {
+    override var dividerThickness: CGFloat {
+        0
+    }
+
+    override func drawDivider(in dirtyRect: NSRect) {}
+}
+
 /// Main split view controller with sidebar and terminal content area
 class MainSplitViewController: NSSplitViewController {
     typealias SidebarRootViewBuilder = @MainActor (SidebarRootViewDependencies) -> AnyView
@@ -132,6 +140,7 @@ class MainSplitViewController: NSSplitViewController {
     override func loadView() {
         let rootView = NSView()
         rootView.wantsLayer = true
+        splitView = ShellSplitView()
 
         shellChromeContainerView.translatesAutoresizingMaskIntoConstraints = false
         shellChromeContainerView.wantsLayer = true
@@ -208,7 +217,7 @@ class MainSplitViewController: NSSplitViewController {
         sidebarHosting.sizingOptions = []
         self.sidebarHostingController = sidebarHosting
 
-        let sidebarItem = NSSplitViewItem(sidebarWithViewController: sidebarHosting)
+        let sidebarItem = NSSplitViewItem(viewController: sidebarHosting)
         sidebarItem.minimumThickness = 250
         sidebarItem.maximumThickness = 450
         sidebarItem.canCollapse = true
@@ -414,11 +423,11 @@ class MainSplitViewController: NSSplitViewController {
         let clock = ContinuousClock()
         let toggleStart = clock.now
         let wasCollapsed = isSidebarCollapsed
-        toggleSidebar(nil)
-        // Contract: AppKit flips the split item collapsed flag asynchronously while
-        // processing toggleSidebar(_:). Save on the next turn so UIState observes
-        // the post-toggle truth instead of the stale pre-toggle value.
-        scheduleSaveSidebarState()
+        if wasCollapsed {
+            expandSidebar()
+        } else {
+            collapseSidebar()
+        }
         performanceTraceRecorder?.recordDuration(
             .sidebarToggle,
             duration: toggleStart.duration(to: clock.now),
@@ -449,7 +458,9 @@ class MainSplitViewController: NSSplitViewController {
         }
         guard let sidebarItem = splitViewItems.first, sidebarItem.isCollapsed else { return }
         didApplySidebarWidthAfterLayout = false
-        sidebarItem.animator().isCollapsed = false
+        sidebarItem.isCollapsed = false
+        splitView.adjustSubviews()
+        splitView.layoutSubtreeIfNeeded()
         Task { @MainActor [weak self] in
             await Task.yield()
             self?.applySidebarWidthAfterLayoutIfNeeded()
@@ -473,7 +484,9 @@ class MainSplitViewController: NSSplitViewController {
             return
         }
         guard let sidebarItem = splitViewItems.first, !sidebarItem.isCollapsed else { return }
-        sidebarItem.animator().isCollapsed = true
+        sidebarItem.isCollapsed = true
+        splitView.adjustSubviews()
+        splitView.layoutSubtreeIfNeeded()
         uiState.setSidebarCollapsed(true)
         uiState.setSidebarHasFocus(false)
         clearInboxRuntimeEntryStateIfNeeded()

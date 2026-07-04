@@ -79,6 +79,7 @@ struct RepoExplorerView: View {
     let performanceTraceRecorder: AgentStudioPerformanceTraceRecorder?
     static let focusTargetIdentifier = NSUserInterfaceItemIdentifier("repoExplorerFocusTarget")
     static let surfaceListPolicy = SidebarSurfaceListPolicy.nativeSidebarList
+    static let surfaceBackground = SidebarSurfaceBackground.shellChrome
     static let groupHeaderChromePolicy = SidebarRepoGroupHeader<EmptyView>.chromePolicy
 
     private var repoCache: RepoCacheAtom {
@@ -403,6 +404,8 @@ struct RepoExplorerView: View {
             }
         }
         .sidebarSurfaceListStyle(Self.surfaceListPolicy)
+        .scrollContentBackground(.hidden)
+        .background(Self.surfaceBackground.color)
         .transition(.opacity.animation(.easeOut(duration: 0.12)))
     }
 
