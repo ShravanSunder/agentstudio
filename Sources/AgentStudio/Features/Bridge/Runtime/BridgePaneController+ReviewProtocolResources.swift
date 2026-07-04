@@ -68,11 +68,12 @@ extension BridgePaneController {
         message: String,
         traceContext: BridgeTraceContext?
     ) async {
+        let pushNonce = pushNonce
         await enqueueReviewProtocolEncodedFrameJob(
             lane: .foreground,
             generation: generation
         ) { sequence in
-            try BridgePushEnvelopeEncoder().encodeIntakeFrame(
+            try await PreEncodedIntakeFrame.makeEncodedPayload(
                 metadata: BridgeIntakeFrameMetadata(
                     kind: .error,
                     streamId: streamId,
@@ -81,7 +82,8 @@ extension BridgePaneController {
                     message: message
                 ),
                 payload: Data(),
-                traceContext: traceContext
+                traceContext: traceContext,
+                pushNonce: pushNonce
             )
         }
     }
@@ -96,11 +98,11 @@ extension BridgePaneController {
     ) async {
         await enqueueReviewProtocolEncodedFrameJob(lane: lane, generation: generation) { [weak self] sequence in
             guard let self, let frame = try await buildFrame(sequence) else { return nil }
-            let payload = try JSONEncoder().encode(frame)
-            return try BridgePushEnvelopeEncoder().encodeIntakeFrame(
+            return try await PreEncodedIntakeFrame.make(
                 metadata: Self.reviewIntakeFrameMetadata(for: frame),
-                payload: payload,
-                traceContext: traceContext
+                payload: frame,
+                traceContext: traceContext,
+                pushNonce: self.pushNonce
             )
         }
     }
@@ -108,7 +110,7 @@ extension BridgePaneController {
     func enqueueReviewProtocolEncodedFrameJob(
         lane: BridgeDemandLane,
         generation: Int,
-        encodeFrame: @escaping @MainActor (Int) async throws -> String?
+        encodeFrame: @escaping @MainActor (Int) async throws -> PreEncodedIntakeFrame?
     ) async {
         await worktreeFileMetadataScheduler.enqueue(
             BridgeMetadataLaneJob(
@@ -133,7 +135,7 @@ extension BridgePaneController {
     /// cannot fix them.
     private func deliverReviewProtocolEncodedFrameJob(
         generation: Int,
-        encodeFrame: @MainActor (Int) async throws -> String?
+        encodeFrame: @MainActor (Int) async throws -> PreEncodedIntakeFrame?
     ) async -> Bool {
         guard generation == nextReviewGeneration.rawValue else { return true }
         guard !shouldSuppressReviewProtocolProduction(generation: generation) else {

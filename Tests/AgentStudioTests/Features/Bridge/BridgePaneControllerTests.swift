@@ -839,9 +839,13 @@ extension WebKitSerializedTests {
             #expect(didStartPush)
 
             let intakeTask = Task { @MainActor in
-                await controller.deliverIntakeFrame(
-                    #"{"kind":"snapshot","streamId":"review:test","generation":1,"sequence":0,"payload":{"value":true}}"#
+                let frame = try? await PreEncodedIntakeFrame.makeEnvelope(
+                    envelopeJSON:
+                        #"{"kind":"snapshot","streamId":"review:test","generation":1,"sequence":0,"payload":{"value":true}}"#,
+                    pushNonce: controller.pushNonce
                 )
+                guard let frame else { return false }
+                return await controller.deliverIntakeFrame(frame)
             }
 
             await settleAsyncCallbacks(turns: 20)

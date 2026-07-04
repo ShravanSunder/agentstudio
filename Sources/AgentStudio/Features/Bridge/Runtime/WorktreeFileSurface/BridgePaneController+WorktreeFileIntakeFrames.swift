@@ -29,6 +29,7 @@ struct BridgePaneMetadataSchedulerTelemetryAdapter: BridgeMetadataLaneSchedulerT
                     "agentstudio.bridge.phase": "demand_queue_wait",
                     "agentstudio.bridge.plane": BridgeTelemetryPlane.data.rawValue,
                     "agentstudio.bridge.priority": BridgeTelemetryPriority.hot.rawValue,
+                    "agentstudio.bridge.protocol": protocolId,
                     "agentstudio.bridge.slice": BridgeTelemetrySlice.treePrepareInput.rawValue,
                     "agentstudio.bridge.transport": "swift",
                     "agentstudio.bridge.demand.lane": lane.rawValue,
@@ -59,6 +60,7 @@ struct BridgePaneMetadataSchedulerTelemetryAdapter: BridgeMetadataLaneSchedulerT
                     "agentstudio.bridge.phase": "metadata_scheduler_job_execution",
                     "agentstudio.bridge.plane": BridgeTelemetryPlane.data.rawValue,
                     "agentstudio.bridge.priority": BridgeTelemetryPriority.hot.rawValue,
+                    "agentstudio.bridge.protocol": protocolId,
                     "agentstudio.bridge.slice": BridgeTelemetrySlice.treePrepareInput.rawValue,
                     "agentstudio.bridge.transport": "swift",
                     "agentstudio.bridge.demand.lane": lane.rawValue,
@@ -128,14 +130,23 @@ extension BridgePaneController {
     /// scheduler jobs (and the direct path for reset frames): ordering is the
     /// scheduler's responsibility, so no gating or buffering happens here.
     /// Returns false on transport failure after marking connection health.
-    func deliverWorktreeFileIntakeFramesNow<Frame: Encodable>(
+    func deliverWorktreeFileIntakeFramesNow<Frame: Encodable & Sendable>(
         _ frames: [Frame]
     ) async -> Bool {
-        let encodedFrames: [String]
+        let encodedFrames: [PreEncodedIntakeFrame]
         do {
-            encodedFrames = try frames.map {
-                try Self.makeWorktreeFileIntakeFrameString($0)
+            var preEncodedFrames: [PreEncodedIntakeFrame] = []
+            preEncodedFrames.reserveCapacity(frames.count)
+            for frame in frames {
+                let preEncodedFrame = try await PreEncodedIntakeFrame.make(
+                    payload: frame,
+                    metadataFromPayload: Self.worktreeFileIntakeFrameMetadata,
+                    traceContext: nil,
+                    pushNonce: pushNonce
+                )
+                preEncodedFrames.append(preEncodedFrame)
             }
+            encodedFrames = preEncodedFrames
         } catch {
             paneState.connection.setHealth(.error)
             return false
@@ -176,25 +187,18 @@ extension BridgePaneController {
         )
     }
 
-    private nonisolated static func makeWorktreeFileIntakeFrameString<Frame: Encodable>(
-        _ frame: Frame
-    ) throws -> String {
-        let encoder = JSONEncoder()
-        let envelopeEncoder = BridgePushEnvelopeEncoder()
-        let frameData = try encoder.encode(frame)
+    private nonisolated static func worktreeFileIntakeFrameMetadata(
+        from frameData: Data
+    ) throws -> BridgeIntakeFrameMetadata {
         let object = try JSONDecoder().decode(BridgeWorktreeFileSurfaceFrameIdentity.self, from: frameData)
         guard let kind = BridgeIntakeFrameKind(rawValue: object.kind) else {
             throw BridgePushEnvelopeEncodingError.invalidEnvelopeUTF8
         }
-        return try envelopeEncoder.encodeIntakeFrame(
-            metadata: BridgeIntakeFrameMetadata(
-                kind: kind,
-                streamId: object.streamId,
-                generation: object.generation,
-                sequence: object.sequence
-            ),
-            payload: frameData,
-            traceContext: nil
+        return BridgeIntakeFrameMetadata(
+            kind: kind,
+            streamId: object.streamId,
+            generation: object.generation,
+            sequence: object.sequence
         )
     }
 

@@ -11,6 +11,7 @@ extension BridgeTelemetryBatchValidator {
 
     static let allowedEventNames: Set<String> = [
         "performance.bridge.swift.active_viewer_mode_signal_rejected",
+        "performance.bridge.swift.active_viewer_mode_suppression_catch_up",
         "performance.bridge.web.code_view_item_materialize",
         "performance.bridge.web.content_fetch",
         "performance.bridge.web.first_render",
@@ -162,6 +163,7 @@ extension BridgeTelemetryBatchValidator {
         ],
         "agentstudio.bridge.phase": [
             "accepted",
+            "active_viewer_mode_suppression_catch_up",
             "active_viewer_mode_signal_rejected",
             "apply",
             "content_register",
@@ -463,10 +465,13 @@ extension BridgeTelemetryBatchValidator {
         "agentstudio.bridge.demand.scheduler_queue_wait_ms",
         "agentstudio.bridge.demand.speculative.count",
         "agentstudio.bridge.demand.visible.count",
+        "agentstudio.bridge.generation",
         "agentstudio.bridge.intake.generation",
         "agentstudio.bridge.intake.sequence",
         "agentstudio.bridge.markdown.input_bytes",
         "agentstudio.bridge.markdown.output_bytes",
+        "agentstudio.bridge.mode_gate.catch_up.count",
+        "agentstudio.bridge.mode_gate.suppressed.count",
         "agentstudio.bridge.review.item_count",
         "agentstudio.bridge.source.generation",
         "agentstudio.bridge.selected_content.click_to_paint_ms",

@@ -64,6 +64,8 @@ final class BridgePaneController {
     var reviewContentAuthorityLifetime = 0
     var nextReviewProtocolSequence = 0
     var activeViewerModeSignalState = BridgeActiveViewerModeSignalState()
+    var reviewProtocolDroppedWhileSuppressed = false
+    var worktreeFileDroppedWhileSuppressed = false
 
     // MARK: - Push Plans
 
@@ -78,7 +80,7 @@ final class BridgePaneController {
     private let bridgeWorld = WKContentWorld.world(name: "agentStudioBridge")
     let pushNonce: String
     let pushEnvelopeSink: @MainActor (WebPage, String, String) async throws -> Void
-    let intakeFrameSink: @MainActor (WebPage, String, String) async throws -> Void
+    let intakeFrameSink: @MainActor (WebPage, PreEncodedIntakeFrame) async throws -> Void
     private let userContentController: WKUserContentController
     private let bootstrapScript: WKUserScript
     private var managementScript: WKUserScript
@@ -119,8 +121,9 @@ final class BridgePaneController {
         traceContextFactory: BridgeTraceContextFactory = .live,
         pushEnvelopeSink: @escaping @MainActor (WebPage, String, String) async throws -> Void =
             BridgePaneController.dispatchPushEnvelope,
-        intakeFrameSink: @escaping @MainActor (WebPage, String, String) async throws -> Void =
-            BridgePaneController.dispatchIntakeFrame
+        preEncodedIntakeFrameSink: @escaping @MainActor (WebPage, PreEncodedIntakeFrame) async throws -> Void =
+            BridgePaneController.dispatchIntakeFrame,
+        intakeFrameSink rawIntakeFrameSink: (@MainActor (WebPage, String, String) async throws -> Void)? = nil
     ) {
         self.paneId = paneId
         self.bridgePaneState = state
@@ -182,7 +185,13 @@ final class BridgePaneController {
         )
         self.pushNonce = bootstrapArtifacts.pushNonce
         self.pushEnvelopeSink = pushEnvelopeSink
-        self.intakeFrameSink = intakeFrameSink
+        if let rawIntakeFrameSink {
+            self.intakeFrameSink = { page, frame in
+                try await rawIntakeFrameSink(page, frame.envelopeJSON, frame.pushNonce)
+            }
+        } else {
+            self.intakeFrameSink = preEncodedIntakeFrameSink
+        }
         self.bootstrapScript = bootstrapArtifacts.script
         Self.installInitialUserScripts(
             in: userContentController,
@@ -535,6 +544,8 @@ final class BridgePaneController {
         isBridgeReady = false
         nextReviewProtocolSequence = 0
         activeViewerModeSignalState = BridgeActiveViewerModeSignalState()
+        reviewProtocolDroppedWhileSuppressed = false
+        worktreeFileDroppedWhileSuppressed = false
         // Fence in-flight review jobs synchronously: their body guard reads
         // nextReviewGeneration, so bumping it here prevents a dispatchable
         // job from delivering between this sync phase and the async gate
@@ -609,7 +620,7 @@ final class BridgePaneController {
         }
         await recordReviewIntakeReadyTelemetry(phase: "accepted")
         if let package = paneState.diff.packageMetadata {
-            setActiveViewerModeAcceptedSignalForExplicitReviewRequest(
+            await setActiveViewerModeAcceptedSignalForExplicitReviewRequest(
                 streamId: currentStreamId,
                 generation: package.reviewGeneration.rawValue
             )
@@ -848,15 +859,12 @@ final class BridgePaneController {
 
     private static func dispatchIntakeFrame(
         page: WebPage,
-        frameString: String,
-        pushNonce: String
+        frame: PreEncodedIntakeFrame
     ) async throws {
-        let frameLiteral = try makeJavaScriptStringLiteral(frameString)
-        let nonceLiteral = try makeJavaScriptStringLiteral(pushNonce)
         try await page.callJavaScript(
             """
             document.dispatchEvent(new CustomEvent('__bridge_intake_json', {
-                detail: { json: \(frameLiteral), nonce: \(nonceLiteral) }
+                detail: { json: \(frame.frameJavaScriptLiteral), nonce: \(frame.pushNonceJavaScriptLiteral) }
             }));
             """,
             contentWorld: .page

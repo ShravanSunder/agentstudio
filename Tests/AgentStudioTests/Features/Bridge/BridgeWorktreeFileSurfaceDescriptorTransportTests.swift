@@ -451,6 +451,7 @@ extension WebKitSerializedTests {
                 BridgeIntakeReadyMethod.Params(protocolId: "worktree-file", streamId: response.result.streamId)
             )
             await fixture.controller.activeWorktreeFileTreeWindowTask?.value
+            await fixture.controller.worktreeFileMetadataScheduler.waitUntilDrained()
             let intakeFrames = await eventCapture.intakeFrames()
             let snapshotEnvelope = try decodeIntakeEnvelope(
                 try #require(intakeFrames.first),

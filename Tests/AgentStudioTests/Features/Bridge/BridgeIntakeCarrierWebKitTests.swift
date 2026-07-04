@@ -127,7 +127,11 @@ extension WebKitSerializedTests {
                 try await loadPageAndInstallProbe(page, controller: controller)
 
                 let frameJSON = try makeFrame(kind: .snapshot, generation: 1, sequence: 0)
-                let delivered = await controller.deliverIntakeFrame(frameJSON)
+                let frame = try await PreEncodedIntakeFrame.makeEnvelope(
+                    envelopeJSON: frameJSON,
+                    pushNonce: controller.pushNonce
+                )
+                let delivered = await controller.deliverIntakeFrame(frame)
 
                 let didObserveSnapshot = await waitUntilCarrierObservation {
                     await self.probeAcceptedKinds(page).contains("snapshot")

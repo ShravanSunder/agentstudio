@@ -60,7 +60,7 @@ extension BridgePaneController {
             nextSequence: 0
         )
         activeWorktreeFileManifestIndex = BridgeWorktreeFileManifestIndex(generation: generation)
-        setActiveViewerModeAcceptedSignalForExplicitFileSurfaceRequest(
+        await setActiveViewerModeAcceptedSignalForExplicitFileSurfaceRequest(
             streamId: streamId,
             generation: generation
         )
@@ -120,7 +120,7 @@ extension BridgePaneController {
         guard activeSource.source.subscriptionGeneration == nextWorktreeFileSurfaceGeneration else {
             throw RPCMethodDispatchError.invalidParams("worktree_file.stale_source_generation")
         }
-        setActiveViewerModeAcceptedSignalForExplicitFileSurfaceRequest(
+        await setActiveViewerModeAcceptedSignalForExplicitFileSurfaceRequest(
             streamId: activeSource.streamId,
             generation: activeSource.source.subscriptionGeneration
         )
@@ -256,7 +256,7 @@ extension BridgePaneController {
     /// reserves one sequence, builds the frame, and delivers it. Stale jobs
     /// are consumed silently — the scheduler already generation-gates, and
     /// this closes the enqueue-to-execute race.
-    func deliverWorktreeFileFrameJob<Frame: Encodable>(
+    func deliverWorktreeFileFrameJob<Frame: Encodable & Sendable>(
         generation: Int,
         buildFrame: (BridgeWorktreeFileSurfaceActiveSourceState, Int) -> Frame
     ) async -> Bool {
@@ -496,6 +496,53 @@ extension BridgePaneController {
         // Reset frames deliver directly: they are the lifecycle boundary, and
         // the browser's generation gate stale-drops any queued laggards.
         _ = await deliverWorktreeFileIntakeFramesNow([frame])
+    }
+
+    func scheduleWorktreeFileSurfaceSuppressionCatchUp() {
+        guard let activeSource = activeWorktreeFileSurfaceSource,
+            let rootURL = try? worktreeFileSurfaceRootURL(),
+            let requestSelector = makeWorktreeFileSurfaceCatchUpSourceSpec(
+                activeSource: activeSource,
+                rootURL: rootURL
+            )
+        else {
+            return
+        }
+        activeWorktreeFileTreeWindowTask?.cancel()
+        activeWorktreeFileTreeWindowTask = Task { @MainActor [weak self] in
+            await self?.prepareInitialWorktreeFileSurfaceMetadata(
+                rootURL: rootURL,
+                openedSource: activeSource.openedSource,
+                requestSelector: requestSelector,
+                streamId: activeSource.streamId,
+                generation: activeSource.source.subscriptionGeneration
+            )
+        }
+    }
+
+    private func makeWorktreeFileSurfaceCatchUpSourceSpec(
+        activeSource: BridgeWorktreeFileSurfaceActiveSourceState,
+        rootURL: URL
+    ) -> BridgeWorktreeFileSurfaceSourceSpec? {
+        guard let repoId = UUID(uuidString: activeSource.source.repoId),
+            let worktreeId = UUID(uuidString: activeSource.source.worktreeId)
+        else {
+            return nil
+        }
+        return BridgeWorktreeFileSurfaceSourceSpec(
+            clientRequestId: "suppression-catch-up:\(paneId.uuidString)",
+            repoId: repoId,
+            worktreeId: worktreeId,
+            rootPathToken: activeSource.source.rootRevisionToken ?? StableKey.fromPath(rootURL),
+            cwdScope: activeSource.openedSource.canonicalCwdScope == "."
+                ? nil
+                : activeSource.openedSource.canonicalCwdScope,
+            pathScope: activeSource.openedSource.canonicalPathScope,
+            includeStatuses: activeSource.openedSource.includeStatuses,
+            includeComments: false,
+            includeAgentComms: false,
+            freshness: .live
+        )
     }
 
     private func makeWorktreeFileSurfaceAuthority() throws -> Worktree {

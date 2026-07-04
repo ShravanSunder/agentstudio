@@ -24,10 +24,16 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         // generation.
         await controller.worktreeFileMetadataScheduler.acceptGeneration(0, protocolId: "review")
         await controller.enqueueReviewProtocolEncodedFrameJob(lane: .foreground, generation: 0) { sequence in
-            #"{"kind":"snapshot","sequence":\#(sequence)}"#
+            try await PreEncodedIntakeFrame.makeEnvelope(
+                envelopeJSON: #"{"kind":"snapshot","sequence":\#(sequence)}"#,
+                pushNonce: controller.pushNonce
+            )
         }
         await controller.enqueueReviewProtocolEncodedFrameJob(lane: .foreground, generation: 0) { sequence in
-            #"{"kind":"delta","sequence":\#(sequence)}"#
+            try await PreEncodedIntakeFrame.makeEnvelope(
+                envelopeJSON: #"{"kind":"delta","sequence":\#(sequence)}"#,
+                pushNonce: controller.pushNonce
+            )
         }
 
         controller.handleBridgeReady()

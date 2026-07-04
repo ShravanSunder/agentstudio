@@ -47,13 +47,16 @@ extension BridgePaneController {
             activeSource: activeSource,
             sequenceFloor: params.sequence
         )
+        await runActiveViewerModeSuppressionCatchUpIfNeeded(
+            for: activeViewerModeSignalState.acceptedSignal
+        )
     }
 
     func setActiveViewerModeAcceptedSignalForExplicitFileSurfaceRequest(
         streamId: String,
         generation: Int
-    ) {
-        setActiveViewerModeAcceptedSignalForExplicitRequest(
+    ) async {
+        await setActiveViewerModeAcceptedSignalForExplicitRequest(
             mode: .file,
             activeSource: BridgeActiveViewerSource(
                 protocolId: .worktreeFile,
@@ -66,8 +69,8 @@ extension BridgePaneController {
     func setActiveViewerModeAcceptedSignalForExplicitReviewRequest(
         streamId: String,
         generation: Int
-    ) {
-        setActiveViewerModeAcceptedSignalForExplicitRequest(
+    ) async {
+        await setActiveViewerModeAcceptedSignalForExplicitRequest(
             mode: .review,
             activeSource: BridgeActiveViewerSource(
                 protocolId: .review,
@@ -84,13 +87,16 @@ extension BridgePaneController {
     private func setActiveViewerModeAcceptedSignalForExplicitRequest(
         mode: BridgeActiveViewerMode,
         activeSource: BridgeActiveViewerSource
-    ) {
+    ) async {
         let sequenceFloor = (activeViewerModeSignalState.lastSequence ?? 0) + 1
         activeViewerModeSignalState.lastSequence = sequenceFloor
         activeViewerModeSignalState.acceptedSignal = BridgeActiveViewerModeAcceptedSignal(
             mode: mode,
             activeSource: activeSource,
             sequenceFloor: sequenceFloor
+        )
+        await runActiveViewerModeSuppressionCatchUpIfNeeded(
+            for: activeViewerModeSignalState.acceptedSignal
         )
     }
 
@@ -119,6 +125,7 @@ extension BridgePaneController {
         generation: Int,
         phase: String
     ) async {
+        markDroppedWhileSuppressed(protocolId: suppressedProtocolId)
         guard let telemetryRecorder,
             let acceptedSignal = activeViewerModeSignalState.acceptedSignal
         else {
@@ -143,6 +150,79 @@ extension BridgePaneController {
                 numericAttributes: [
                     "agentstudio.bridge.generation": Double(generation),
                     "agentstudio.bridge.mode_gate.suppressed.count": 1,
+                ],
+                booleanAttributes: [:]
+            ),
+            receivedAtUnixNano: UInt64(Date().timeIntervalSince1970 * 1_000_000_000)
+        )
+    }
+
+    private func markDroppedWhileSuppressed(protocolId: String) {
+        switch protocolId {
+        case "review":
+            reviewProtocolDroppedWhileSuppressed = true
+        case "worktree-file":
+            worktreeFileDroppedWhileSuppressed = true
+        default:
+            return
+        }
+    }
+
+    private func runActiveViewerModeSuppressionCatchUpIfNeeded(
+        for acceptedSignal: BridgeActiveViewerModeAcceptedSignal?
+    ) async {
+        guard let acceptedSignal else { return }
+        switch (acceptedSignal.mode, acceptedSignal.activeSource.protocolId) {
+        case (.review, .review):
+            guard reviewProtocolDroppedWhileSuppressed else { return }
+            reviewProtocolDroppedWhileSuppressed = false
+            await recordActiveViewerModeSuppressionCatchUp(
+                protocolId: "review",
+                mode: acceptedSignal.mode,
+                activeSource: acceptedSignal.activeSource
+            )
+            scheduleReviewPackageReloadForIntakeAnnounce()
+        case (.file, .worktreeFile):
+            guard worktreeFileDroppedWhileSuppressed else { return }
+            worktreeFileDroppedWhileSuppressed = false
+            await recordActiveViewerModeSuppressionCatchUp(
+                protocolId: "worktree-file",
+                mode: acceptedSignal.mode,
+                activeSource: acceptedSignal.activeSource
+            )
+            scheduleWorktreeFileSurfaceSuppressionCatchUp()
+        default:
+            return
+        }
+    }
+
+    private func recordActiveViewerModeSuppressionCatchUp(
+        protocolId: String,
+        mode: BridgeActiveViewerMode,
+        activeSource: BridgeActiveViewerSource
+    ) async {
+        guard let telemetryRecorder else {
+            return
+        }
+        await telemetryRecorder.record(
+            sample: BridgeTelemetrySample(
+                scope: .swift,
+                name: "performance.bridge.swift.active_viewer_mode_suppression_catch_up",
+                durationMilliseconds: nil,
+                traceContext: nil,
+                stringAttributes: [
+                    "agentstudio.bridge.active_source.protocol": activeSource.protocolId.rawValue,
+                    "agentstudio.bridge.active_viewer.mode": mode.rawValue,
+                    "agentstudio.bridge.phase": "active_viewer_mode_suppression_catch_up",
+                    "agentstudio.bridge.plane": BridgeTelemetryPlane.data.rawValue,
+                    "agentstudio.bridge.priority": BridgeTelemetryPriority.warm.rawValue,
+                    "agentstudio.bridge.protocol": protocolId,
+                    "agentstudio.bridge.slice": telemetrySliceForSuppressedProtocol(protocolId).rawValue,
+                    "agentstudio.bridge.transport": "swift",
+                ],
+                numericAttributes: [
+                    "agentstudio.bridge.generation": Double(activeSource.generation),
+                    "agentstudio.bridge.mode_gate.catch_up.count": 1,
                 ],
                 booleanAttributes: [:]
             ),

@@ -79,14 +79,14 @@ extension BridgePaneController: PushTransport {
         await delivery.value
     }
 
-    func deliverIntakeFrame(_ frameJSON: String) async -> Bool {
+    func deliverIntakeFrame(_ frame: PreEncodedIntakeFrame) async -> Bool {
         let result = BridgeDeliveryResult()
         let previousDelivery = bridgeDeliveryTail
         let delivery = Task { @MainActor [weak self] in
             await previousDelivery?.value
             guard let self else { return }
             do {
-                try await self.intakeFrameSink(self.page, frameJSON, self.pushNonce)
+                try await self.intakeFrameSink(self.page, frame)
                 await result.setDelivered()
             } catch {
                 await result.setFailed()
