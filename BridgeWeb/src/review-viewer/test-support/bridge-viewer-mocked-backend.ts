@@ -459,6 +459,70 @@ export function makeBridgeViewerContentUnavailableFixture(): BridgeViewerBrowser
 	};
 }
 
+export interface BridgeViewerContentRevisionFixture extends BridgeViewerBrowserFixture {
+	// A follow-up snapshot that bumps only the package revision (extent-fact / path churn) without
+	// touching any content identity. The content-validity gate must keep already-loaded content.
+	readonly bareRevisionPackage: BridgeReviewPackage;
+	// A follow-up snapshot where the initially selected file's head handle carries a fresher
+	// contentHash and body. The gate must invalidate the loaded content and reload the new body.
+	readonly revisedContentPackage: BridgeReviewPackage;
+	readonly revisedInitialText: string;
+	readonly initialHeadHandleId: string;
+}
+
+// Content-addressed content-validity gate proof surface: the initially selected file (Alpha) can be
+// re-delivered as a benign revision bump (must keep loaded content) or with a genuinely fresher head
+// contentHash (must invalidate + reload). See makeReviewItemContentResourcesKey.
+export function makeBridgeViewerContentRevisionFixture(): BridgeViewerContentRevisionFixture {
+	const fixture = makeBridgeViewerBrowserFixture();
+	const sourceItem = fixture.reviewPackage.itemsById['browser-source-a'];
+	const sourceHeadHandle = sourceItem?.contentRoles.head ?? null;
+	if (sourceItem === undefined || sourceHeadHandle === null) {
+		throw new Error('expected content-revision fixture source item head handle');
+	}
+	const revisedInitialBody = "export const selectedFile = 'alpha head REVISED';\n";
+	const revisedHeadHandleId = `${sourceHeadHandle.handleId}-revised`;
+	const revisedHeadHandle = {
+		...sourceHeadHandle,
+		handleId: revisedHeadHandleId,
+		contentHash: `${sourceHeadHandle.contentHash}:revised`,
+		cacheKey: `${sourceHeadHandle.cacheKey}:revised`,
+		resourceUrl: `agentstudio://resource/review/content/${revisedHeadHandleId}?generation=${sourceHeadHandle.reviewGeneration}`,
+	};
+	const contentByHandleId = new Map(fixture.contentByHandleId);
+	contentByHandleId.set(revisedHeadHandleId, revisedInitialBody);
+	const revisedSourceItem = mockedBackendSupport.reviewItemWithContentSizes({
+		item: {
+			...sourceItem,
+			itemVersion: sourceItem.itemVersion + 1,
+			headContentHash: revisedHeadHandle.contentHash,
+			contentRoles: { ...sourceItem.contentRoles, head: revisedHeadHandle },
+			cacheKey: `${sourceItem.cacheKey}:revised`,
+		},
+		contentByHandleId,
+	});
+	const bareRevisionPackage: BridgeReviewPackage = {
+		...fixture.reviewPackage,
+		revision: fixture.reviewPackage.revision + 1,
+	};
+	const revisedContentPackage: BridgeReviewPackage = {
+		...fixture.reviewPackage,
+		revision: fixture.reviewPackage.revision + 2,
+		itemsById: {
+			...fixture.reviewPackage.itemsById,
+			[revisedSourceItem.itemId]: revisedSourceItem,
+		},
+	};
+	return {
+		...fixture,
+		contentByHandleId,
+		bareRevisionPackage,
+		revisedContentPackage,
+		revisedInitialText: "export const selectedFile = 'alpha head REVISED';",
+		initialHeadHandleId: sourceHeadHandle.handleId,
+	};
+}
+
 export function installBridgeViewerMockedBackend(
 	fixture: BridgeViewerBrowserFixture = makeBridgeViewerBrowserFixture(),
 	options: InstallBridgeViewerMockedBackendOptions = {},

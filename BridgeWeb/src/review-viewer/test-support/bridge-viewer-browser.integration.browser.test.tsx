@@ -27,6 +27,7 @@ import {
 	disposeBridgeViewerMockedBackends,
 	installBridgeViewerMockedBackend,
 	makeBridgeViewerBrowserFixture,
+	makeBridgeViewerContentRevisionFixture,
 	makeBridgeViewerContentUnavailableFixture,
 } from './bridge-viewer-mocked-backend.js';
 describe('Bridge viewer Browser Mode mocked backend', () => {
@@ -400,46 +401,39 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		backend.dispose();
 	});
 
-	test('stale content responses cannot overwrite newer selected content', async () => {
-		const fixture = makeBridgeViewerBrowserFixture();
-		const backend = installBridgeViewerMockedBackend(fixture, {
-			deferContentHandleIds: [fixture.expected.secondHeadHandleId],
-		});
+	test('a bare revision bump keeps selected content while a contentHash change reloads it', async () => {
+		const fixture = makeBridgeViewerContentRevisionFixture();
+		const backend = installBridgeViewerMockedBackend(fixture);
 
 		browserSupport.renderBridgeViewerAppWithMockedBackend({ backend });
 		await backend.pushMetadata();
 		await waitForBridgeViewerText(fixture.expected.initialText);
-
-		const secondButton = await waitForBridgeViewerTreeItemButton(fixture.expected.secondPath);
-		secondButton.click();
-		await browserSupport.waitForPendingContentResponseCount(backend, 1);
-
-		const addedButton = await waitForBridgeViewerTreeItemButton(fixture.expected.addedPath);
-		addedButton.click();
-		await waitForBridgeViewerText(fixture.expected.addedText);
-
-		await waitForBridgeViewerAnimationFrame();
-		await waitForBridgeViewerAnimationFrame();
-		await waitForBridgeViewerAnimationFrame();
-
-		expect(bridgeViewerCodeTextContent()).toContain(fixture.expected.addedText);
-		expect(browserSupport.selectedBridgeViewerDisplayPath()).toBe(fixture.expected.addedPath);
 		expect(browserSupport.selectedBridgeViewerContentState()).toBe('ready');
-		const pendingStaleResponse = backend.pendingContentResponses[0] ?? null;
-		if (pendingStaleResponse !== null) {
-			expect(pendingStaleResponse.handleId).toBe(fixture.expected.secondHeadHandleId);
-			pendingStaleResponse.resolve();
-			await waitForBridgeViewerAnimationFrame();
-			await waitForBridgeViewerAnimationFrame();
-			expect(bridgeViewerCodeTextContent()).toContain(fixture.expected.addedText);
-			expect(browserSupport.selectedBridgeViewerDisplayPath()).toBe(fixture.expected.addedPath);
-			expect(browserSupport.selectedBridgeViewerContentState()).toBe('ready');
-		}
-		expect(
-			backend.requestedUrls.some((url: string): boolean =>
-				url.includes(fixture.expected.secondHeadHandleId),
-			),
-		).toBe(true);
+
+		const initialHeadFetchCount = (): number =>
+			backend.requestedUrls.filter((url: string): boolean =>
+				url.includes(fixture.initialHeadHandleId),
+			).length;
+		const fetchCountBeforeChurn = initialHeadFetchCount();
+		expect(fetchCountBeforeChurn).toBeGreaterThan(0);
+
+		// Benign revision churn (extent facts, path/summary/tree updates streamed continuously in a
+		// busy multi-worktree workspace) bumps the package revision without changing content. The
+		// content-addressed gate must keep the loaded content and must NOT re-arm a fetch.
+		await backend.pushMetadata(fixture.bareRevisionPackage);
+		await waitForBridgeViewerAnimationFrame();
+		await waitForBridgeViewerAnimationFrame();
+		expect(bridgeViewerCodeTextContent()).toContain(fixture.expected.initialText);
+		expect(browserSupport.selectedBridgeViewerContentState()).toBe('ready');
+		expect(initialHeadFetchCount()).toBe(fetchCountBeforeChurn);
+
+		// A genuine contentHash change for the selected file must invalidate the loaded content and
+		// reload the fresher body — the one case that survives content-addressing.
+		await backend.pushMetadata(fixture.revisedContentPackage);
+		await waitForBridgeViewerText(fixture.revisedInitialText);
+		expect(bridgeViewerCodeTextContent()).toContain(fixture.revisedInitialText);
+		expect(bridgeViewerCodeTextContent()).not.toContain(fixture.expected.initialText);
+		expect(browserSupport.selectedBridgeViewerContentState()).toBe('ready');
 
 		backend.dispose();
 	});
