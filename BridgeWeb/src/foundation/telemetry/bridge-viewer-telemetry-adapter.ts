@@ -503,7 +503,7 @@ export function recordBridgeViewerFirstInteractionReadyTelemetrySample(
 			},
 			booleanAttributes: {},
 		});
-		props.telemetryRecorder.flush({ force: true });
+		props.telemetryRecorder.flush();
 	});
 }
 
@@ -627,7 +627,7 @@ export function recordBridgeCodeViewHydrationTelemetrySamples(
 			numericAttributes: {},
 			booleanAttributes: {},
 		});
-		props.telemetryRecorder.flush({ force: true });
+		props.telemetryRecorder.flush();
 	});
 }
 
@@ -692,7 +692,7 @@ export function recordBridgeSelectedContentPaintedTelemetrySample(
 			},
 			booleanAttributes: {},
 		});
-		props.telemetryRecorder.flush({ force: true });
+		props.telemetryRecorder.flush();
 	});
 }
 
@@ -718,7 +718,7 @@ export function recordBridgeSelectedContentDroppedTelemetrySample(
 			numericAttributes: {},
 			booleanAttributes: {},
 		});
-		props.telemetryRecorder.flush({ force: true });
+		props.telemetryRecorder.flush();
 	});
 }
 

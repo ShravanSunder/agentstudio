@@ -41,7 +41,7 @@ export function recordNativeWorktreeFileIntakeRejectTelemetry(props: {
 			'agentstudio.bridge.stream_id_matches': props.streamIdMatches,
 		},
 	});
-	props.telemetryRecorder.flush({ force: true });
+	props.telemetryRecorder.flush();
 }
 
 export function extractNativeWorktreeFileTelemetryConfig(
