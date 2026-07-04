@@ -4,13 +4,16 @@ import Foundation
 
 @MainActor
 struct AgentStudioIPCCommandAdapter: AppIPCCommandPort, @unchecked Sendable {
+    private let workspaceId: UUID
     private let windowLifecycleReader: any WorkspaceWindowLifecycleReading
     private weak var shellCommandHandler: (any ShellCommandHandling)?
 
     init(
+        workspaceId: UUID,
         windowLifecycleReader: any WorkspaceWindowLifecycleReading,
         shellCommandHandler: any ShellCommandHandling
     ) {
+        self.workspaceId = workspaceId
         self.windowLifecycleReader = windowLifecycleReader
         self.shellCommandHandler = shellCommandHandler
     }
@@ -23,6 +26,19 @@ struct AgentStudioIPCCommandAdapter: AppIPCCommandPort, @unchecked Sendable {
                 left.id.rawValue < right.id.rawValue
             }
         return IPCCommandListResult(commands: commands)
+    }
+
+    func requiredPermissionScopes(for command: IPCCommandListEntry) throws -> [IPCPermissionScope] {
+        guard let appCommand = AppCommand(rawValue: command.id.rawValue) else {
+            throw AppIPCCommandError(reason: .unsupportedCommand)
+        }
+        return appCommand.definition.ipcExposure.requiredPrivileges.map { privilege in
+            IPCPermissionScope(
+                privilege: privilege,
+                target: permissionTarget(for: privilege),
+                dataScope: PermissionScopeCanonicalizer.dataScope(for: privilege)
+            )
+        }
     }
 
     func executeCommand(_ params: IPCCommandExecuteParams) throws -> IPCCommandExecuteResult {
@@ -82,4 +98,12 @@ struct AgentStudioIPCCommandAdapter: AppIPCCommandPort, @unchecked Sendable {
         }
     }
 
+    private func permissionTarget(for privilege: IPCPrivilegeClass) -> IPCTargetScope {
+        switch privilege {
+        case .sidebarStateMutate:
+            .workspace(workspaceId)
+        default:
+            .app
+        }
+    }
 }

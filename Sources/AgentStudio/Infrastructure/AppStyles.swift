@@ -194,12 +194,21 @@ enum AppStyles {
             static let tabBarLeadingInset: CGFloat = 80
             static let tabBarContentLeadingPadding: CGFloat = AppStyles.General.Spacing.loose
             static let tabBarTopInset: CGFloat = 0
-            static let iconClusterSpacing: CGFloat = AppStyles.General.Spacing.standard
-            static let tabStripLeadingPadding: CGFloat = iconClusterSpacing
+            static let sidebarSurfaceIconSpacing: CGFloat = AppStyles.General.Spacing.standard
+            static let sidebarDividerLeadingPadding: CGFloat = 14
+            static let sidebarDividerTrailingPadding: CGFloat = 24
+            static let circledControlSpacing: CGFloat = 12
+            static let tabStripLeadingPadding: CGFloat = circledControlSpacing
+            static let plainToolbarIconSpacing: CGFloat = 0
             static let dividerHeight: CGFloat = 18
             static let dividerHorizontalPadding: CGFloat = 12
             static let windowDragRegionHeight: CGFloat =
                 AppStyles.Shell.TabBar.height - AppStyles.Shell.TabBar.tabPillHeight
+
+            enum PlainToolbarIcon {
+                static let buttonSize: CGFloat = 24
+                static let iconSize: CGFloat = AppStyles.Shell.Chrome.ToolbarButton.iconSize
+            }
 
             enum ToolbarButton {
                 static let size: CGFloat = 28

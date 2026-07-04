@@ -263,6 +263,7 @@ final class FakeCommandPort: AppIPCCommandPort, @unchecked Sendable {
     let successfulCommandId: String?
     let stateUnavailableCommandId: String?
     let commands: [IPCCommandListEntry]
+    let requiredPermissionTargetByPrivilege: [IPCPrivilegeClass: IPCTargetScope]
     private let lock = NSLock()
     nonisolated(unsafe) private var receivedExecuteParamsStorage: [IPCCommandExecuteParams] = []
 
@@ -271,13 +272,15 @@ final class FakeCommandPort: AppIPCCommandPort, @unchecked Sendable {
         activeScope: IPCCommandBarScope? = nil,
         successfulCommandId: String? = nil,
         stateUnavailableCommandId: String? = nil,
-        commands: [IPCCommandListEntry] = []
+        commands: [IPCCommandListEntry] = [],
+        requiredPermissionTargetByPrivilege: [IPCPrivilegeClass: IPCTargetScope] = [:]
     ) {
         self.workspaceWindowId = workspaceWindowId
         self.activeScope = activeScope
         self.successfulCommandId = successfulCommandId
         self.stateUnavailableCommandId = stateUnavailableCommandId
         self.commands = commands
+        self.requiredPermissionTargetByPrivilege = requiredPermissionTargetByPrivilege
     }
 
     nonisolated var receivedExecuteParams: [IPCCommandExecuteParams] {
@@ -288,6 +291,16 @@ final class FakeCommandPort: AppIPCCommandPort, @unchecked Sendable {
 
     func listCommands() throws -> IPCCommandListResult {
         IPCCommandListResult(commands: commands)
+    }
+
+    func requiredPermissionScopes(for command: IPCCommandListEntry) throws -> [IPCPermissionScope] {
+        command.requiredPrivileges.map { privilege in
+            IPCPermissionScope(
+                privilege: privilege,
+                target: requiredPermissionTargetByPrivilege[privilege] ?? .app,
+                dataScope: PermissionScopeCanonicalizer.dataScope(for: privilege)
+            )
+        }
     }
 
     func executeCommand(_ params: IPCCommandExecuteParams) throws -> IPCCommandExecuteResult {
@@ -370,6 +383,7 @@ struct LiveServerFixture {
         uiPresentationPort: any AppIPCUIPresentationPort = FakeUIPresentationPort(),
         sidebarPort: any AppIPCSidebarPort = FakeSidebarPort(),
         debugTokenEscrowEnabled: Bool = false,
+        debugTokenEscrowPermissionScopes: [IPCPermissionScope] = [],
         methodContributions: [AppIPCMethodContribution] = []
     ) throws {
         rootURL = URL(
@@ -399,7 +413,8 @@ struct LiveServerFixture {
                 runtimeId: runtimeId,
                 accessMode: accessMode,
                 methodDefinitions: baseDefinitions,
-                debugTokenEscrowEnabled: debugTokenEscrowEnabled
+                debugTokenEscrowEnabled: debugTokenEscrowEnabled,
+                debugTokenEscrowPermissionScopes: debugTokenEscrowPermissionScopes
             ),
             ports: ports,
             methodContributions: methodContributions

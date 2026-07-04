@@ -261,8 +261,8 @@ struct AgentStudioIPCRegistryAuthorizationTests {
         )
     }
 
-    @Test("command discovery is non-debug while command execution requires authenticated automation")
-    func commandDiscoveryIsNonDebugWhileCommandExecutionRequiresAuthenticatedAutomation() throws {
+    @Test("command discovery is non-debug while command execution accepts neutral app command grants")
+    func commandDiscoveryIsNonDebugWhileCommandExecutionAcceptsNeutralAppCommandGrants() throws {
         let registry = try AppIPCMethodRegistry.phaseOne()
         let grantLedger = GrantLedger()
         let service = AuthorizationService(
@@ -297,14 +297,12 @@ struct AgentStudioIPCRegistryAuthorizationTests {
             IPCPermissionScope(privilege: .appCommandExecute, target: .app, dataScope: .unspecified),
             to: spawnedPane.principalId
         )
-        #expect(throws: AuthorizationError.self) {
-            try service.authorize(
-                principal: spawnedPane,
-                methodName: "command.execute",
-                requestedTarget: .app,
-                activePaneId: "pane-1"
-            )
-        }
+        try service.authorize(
+            principal: spawnedPane,
+            methodName: "command.execute",
+            requestedTarget: .app,
+            activePaneId: "pane-1"
+        )
 
         #expect(throws: AuthorizationError.self) {
             try service.authorize(

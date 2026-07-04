@@ -160,14 +160,13 @@ extension AgentStudioAppIPCServer {
             guard let command else {
                 throw AppIPCCommandError(reason: .unsupportedCommand)
             }
-            for privilege in command.requiredPrivileges {
+            let requiredScopes = try await MainActor.run {
+                try service.ports.commandPort.requiredPermissionScopes(for: command)
+            }
+            for scope in requiredScopes {
                 try authorizationService.authorize(
                     principal: principal,
-                    scope: IPCPermissionScope(
-                        privilege: privilege,
-                        target: .app,
-                        dataScope: PermissionScopeCanonicalizer.dataScope(for: privilege)
-                    )
+                    scope: scope
                 )
             }
             let result = try await MainActor.run {

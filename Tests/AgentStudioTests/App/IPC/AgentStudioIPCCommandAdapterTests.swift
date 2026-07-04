@@ -81,6 +81,23 @@ struct AgentStudioIPCCommandAdapterTests {
         }
     }
 
+    @Test("sidebar command mutation permissions resolve to current workspace")
+    func sidebarCommandMutationPermissionsResolveToCurrentWorkspace() throws {
+        let harness = CommandAdapterHarness()
+        let command = AppCommand.setRepoSidebarVisibilityMode.definition.ipcCommandListEntry
+
+        let scopes = try harness.adapter.requiredPermissionScopes(for: command)
+
+        #expect(
+            scopes == [
+                IPCPermissionScope(
+                    privilege: .sidebarStateMutate,
+                    target: .workspace(harness.workspaceStore.identityAtom.workspaceId),
+                    dataScope: .sidebarState
+                )
+            ])
+    }
+
     @Test("public IPC command contracts do not expose tooltip vocabulary")
     func publicIPCCommandContractsDoNotExposeTooltipVocabulary() throws {
         let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
@@ -428,12 +445,15 @@ struct AgentStudioIPCCommandAdapterTests {
 @MainActor
 private struct CommandAdapterHarness {
     let adapter: AgentStudioIPCCommandAdapter
+    let workspaceStore: WorkspaceStore
 
     init(
         windowSnapshot: WorkspaceWindowLifecycleSnapshot = .singleActiveWindow(UUID()),
         shellCommandHandler: RecordingShellCommandHandler = RecordingShellCommandHandler()
     ) {
+        workspaceStore = WorkspaceStore()
         adapter = AgentStudioIPCCommandAdapter(
+            workspaceId: workspaceStore.identityAtom.workspaceId,
             windowLifecycleReader: FakeCommandWorkspaceWindowLifecycleReader(snapshot: windowSnapshot),
             shellCommandHandler: shellCommandHandler
         )

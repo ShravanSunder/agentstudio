@@ -292,6 +292,112 @@ wait_for_required_metric_value() {
   require_metric_value "$key" "$query"
 }
 
+record_required_metric_value() {
+  local key="$1"
+  local query="$2"
+  local value
+  value="$(wait_for_required_metric_value "$key" "$query")"
+  printf '%s\n' "$key" >>"$REQUIRED_METRIC_KEYS_FILE"
+  printf '%s=%s\n' "$key" "$value" >>"$METRIC_VALUES_FILE"
+  eval "$key=\"\$value\""
+}
+
+record_required_metric_count() {
+  local key="$1"
+  local query="$2"
+  local minimum="$3"
+  local value
+  value="$(wait_for_required_metric_count "$key" "$query" "$minimum")"
+  printf '%s\n' "$key" >>"$REQUIRED_METRIC_KEYS_FILE"
+  printf '%s=%s\n' "$key" "$value" >>"$METRIC_VALUES_FILE"
+  eval "$key=\"\$value\""
+}
+
+record_required_metric_series() {
+  local surface="$1"
+  local phase="$2"
+  local group_mode="$3"
+  local trigger="$4"
+  local key_prefix="$5"
+  local minimum_count="$6"
+
+  record_required_metric_value "${key_prefix}_elapsed_ms_p95" \
+    "$(metric_event_elapsed_p95_query "$surface" "$phase" "$group_mode" "$trigger")"
+  record_required_metric_value "${key_prefix}_elapsed_ms_max" \
+    "$(metric_event_elapsed_max_query "$surface" "$phase" "$group_mode" "$trigger")"
+  record_required_metric_count "${key_prefix}_elapsed_ms_count" \
+    "$(metric_event_elapsed_count_query "$surface" "$phase" "$group_mode" "$trigger")" \
+    "$minimum_count"
+}
+
+record_required_sidebar_metric_matrix() {
+  local mode_name
+  local phase
+
+  : >"$REQUIRED_METRIC_KEYS_FILE"
+  : >"$METRIC_VALUES_FILE"
+
+  for mode_name in repo pane tab; do
+    for phase in request_build_mainactor projection_worker row_index mainactor_apply; do
+      record_required_metric_series repo "$phase" "$mode_name" grouping_switch \
+        "repo_${mode_name}_${phase}" 1
+    done
+  done
+
+  for mode_name in tab repo pane none; do
+    for phase in request_build_mainactor projection_worker mainactor_apply; do
+      record_required_metric_series inbox "$phase" "$mode_name" grouping_switch \
+        "inbox_${mode_name}_${phase}" 1
+    done
+  done
+
+  for mode_name in repo inbox; do
+    record_required_metric_series "$mode_name" mainactor_apply not_applicable surface_switch \
+      "surface_switch_${mode_name}_mainactor_apply" 1
+  done
+}
+
+metric_env_value() {
+  local file="$1"
+  local key="$2"
+  awk -F= -v key="$key" '$1 == key { value = substr($0, length($1) + 2) } END { if (value != "") print value }' "$file"
+}
+
+required_metric_keys_line() {
+  tr '\n' ' ' <"$REQUIRED_METRIC_KEYS_FILE" | sed 's/[[:space:]]*$//'
+}
+
+append_required_metric_values() {
+  local output_file="$1"
+  cat "$METRIC_VALUES_FILE" >>"$output_file"
+  printf "required_metric_keys='%s'\n" "$(required_metric_keys_line)" >>"$output_file"
+}
+
+compare_required_metric_matrix() {
+  local compare_values_file="$1"
+  local key
+  local baseline_value
+  local compare_value
+
+  for key in $required_metric_keys; do
+    baseline_value="$(eval "printf '%s' \"\${$key:-}\"")"
+    compare_value="$(metric_env_value "$compare_values_file" "$key")"
+    if [ -z "$baseline_value" ]; then
+      echo "missing baseline required sidebar metric: $key" >&2
+      exit 1
+    fi
+    if [ -z "$compare_value" ]; then
+      echo "missing compare required sidebar metric: $key" >&2
+      exit 1
+    fi
+    case "$key" in
+      *_elapsed_ms_p95 | *_elapsed_ms_max)
+        performance_threshold_check "$key" "$baseline_value" "$compare_value"
+        ;;
+    esac
+  done
+}
+
 run_authenticated_sidebar_ipc_workload() {
   local metadata_path="${1:?missing metadata path}"
   local debug_token_path="${2:?missing debug token path}"
@@ -582,6 +688,8 @@ TRACE_NAME="$(validate_trace_name "${AGENTSTUDIO_TRACE_NAME:-sidebar-performance
 ARTIFACT="$PROOF_ROOT/$TRACE_NAME"
 STATE_FILE="${AGENTSTUDIO_OBSERVABILITY_STATE_FILE:-$ARTIFACT/debug-observability.env}"
 SUMMARY_FILE="$ARTIFACT/summary.txt"
+REQUIRED_METRIC_KEYS_FILE="$ARTIFACT/required-metric-keys.txt"
+METRIC_VALUES_FILE="$ARTIFACT/metric-values.env"
 BASELINE_FILE="$PROOF_ROOT/sidebar-performance-baseline.env"
 mkdir -p "$ARTIFACT" "$(dirname "$STATE_FILE")"
 
@@ -861,6 +969,7 @@ surface_switch_inbox_mainactor_apply_elapsed_ms_count="$(
   wait_for_required_metric_count surface_switch_inbox_mainactor_apply_elapsed_ms_count \
     "$(metric_event_elapsed_count_query inbox mainactor_apply not_applicable surface_switch)" 3
 )"
+record_required_sidebar_metric_matrix
 
 if [ "$mode" = "baseline" ]; then
   {
@@ -898,6 +1007,7 @@ if [ "$mode" = "baseline" ]; then
     echo "surface_switch_inbox_mainactor_apply_elapsed_ms_p95=$surface_switch_inbox_mainactor_apply_elapsed_ms_p95"
     echo "surface_switch_inbox_mainactor_apply_elapsed_ms_max=$surface_switch_inbox_mainactor_apply_elapsed_ms_max"
   } >"$BASELINE_FILE"
+  append_required_metric_values "$BASELINE_FILE"
 fi
 
 if [ "$mode" = "compare" ]; then
@@ -935,8 +1045,10 @@ if [ "$mode" = "compare" ]; then
   compare_surface_switch_repo_mainactor_apply_elapsed_ms_max="$surface_switch_repo_mainactor_apply_elapsed_ms_max"
   compare_surface_switch_inbox_mainactor_apply_elapsed_ms_p95="$surface_switch_inbox_mainactor_apply_elapsed_ms_p95"
   compare_surface_switch_inbox_mainactor_apply_elapsed_ms_max="$surface_switch_inbox_mainactor_apply_elapsed_ms_max"
+  compare_metric_values_file="$METRIC_VALUES_FILE"
   # shellcheck disable=SC1090
   . "$BASELINE_FILE"
+  compare_required_metric_matrix "$compare_metric_values_file"
   performance_threshold_check \
     inbox_projection_worker_elapsed_ms_max \
     "${inbox_projection_worker_elapsed_ms_max:?missing baseline worker elapsed}" \
@@ -1130,4 +1242,5 @@ fi
     echo "baseline_file=$BASELINE_FILE"
   fi
 } >"$SUMMARY_FILE"
+append_required_metric_values "$SUMMARY_FILE"
 echo "sidebar performance workload ok: $SUMMARY_FILE"

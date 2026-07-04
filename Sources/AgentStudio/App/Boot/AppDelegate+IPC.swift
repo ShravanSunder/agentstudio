@@ -26,7 +26,14 @@ extension AppDelegate {
                     runtimeId: runtimeId,
                     accessMode: accessMode,
                     methodDefinitions: ipcComposition.baseDefinitions,
-                    debugTokenEscrowEnabled: Self.appIPCDebugTokenEscrowEnabled()
+                    debugTokenEscrowEnabled: Self.appIPCDebugTokenEscrowEnabled(),
+                    debugTokenEscrowPermissionScopes: [
+                        IPCPermissionScope(
+                            privilege: .sidebarStateMutate,
+                            target: .workspace(store.identityAtom.workspaceId),
+                            dataScope: .sidebarState
+                        )
+                    ]
                 ),
                 ports: AgentStudioAppIPCPorts(
                     queryPort: AgentStudioIPCQueryAdapter(
@@ -49,6 +56,7 @@ extension AppDelegate {
                         commandDispatcher: workspaceSurfaceCoordinator
                     ),
                     commandPort: AgentStudioIPCCommandAdapter(
+                        workspaceId: store.identityAtom.workspaceId,
                         windowLifecycleReader: windowLifecycleReader,
                         shellCommandHandler: self
                     ),

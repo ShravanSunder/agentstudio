@@ -11,6 +11,33 @@ struct ChromeToolbarButtonStyleTests {
         #expect(AppStyles.Shell.Chrome.ToolbarButton.iconSize == 12)
     }
 
+    @Test("chrome spacing separates circled controls from plain toolbar icons")
+    func chromeSpacingSeparatesCircledControlsFromPlainToolbarIcons() throws {
+        let shellControlsSource = try sourceFile("Sources/AgentStudio/App/Panes/TabBar/ShellTabBarControls.swift")
+        let customTabBarSource = try sourceFile("Sources/AgentStudio/App/Panes/TabBar/CustomTabBar.swift")
+
+        #expect(AppStyles.Shell.Chrome.sidebarSurfaceIconSpacing == AppStyles.General.Spacing.standard)
+        #expect(AppStyles.Shell.Chrome.sidebarDividerLeadingPadding == 14)
+        #expect(AppStyles.Shell.Chrome.sidebarDividerTrailingPadding == 24)
+        #expect(AppStyles.Shell.Chrome.circledControlSpacing == 12)
+        #expect(AppStyles.Shell.Chrome.tabStripLeadingPadding == AppStyles.Shell.Chrome.circledControlSpacing)
+        #expect(AppStyles.Shell.Chrome.plainToolbarIconSpacing == 0)
+        #expect(AppStyles.Shell.Chrome.PlainToolbarIcon.buttonSize == 24)
+        #expect(AppStyles.Shell.Chrome.PlainToolbarIcon.iconSize == AppStyles.Shell.Chrome.ToolbarButton.iconSize)
+
+        #expect(shellControlsSource.contains("HStack(spacing: AppStyles.Shell.Chrome.sidebarSurfaceIconSpacing)"))
+        #expect(shellControlsSource.contains("struct SidebarNavDivider"))
+        #expect(shellControlsSource.contains(".padding(.leading, AppStyles.Shell.Chrome.sidebarDividerLeadingPadding)"))
+        #expect(
+            shellControlsSource.contains(".padding(.trailing, AppStyles.Shell.Chrome.sidebarDividerTrailingPadding)"))
+        #expect(customTabBarSource.contains("SidebarNavDivider()"))
+        #expect(customTabBarSource.contains(".padding(.trailing, AppStyles.Shell.Chrome.circledControlSpacing)"))
+        #expect(customTabBarSource.contains("buttonSize: AppStyles.Shell.Chrome.PlainToolbarIcon.buttonSize"))
+        #expect(customTabBarSource.contains(".padding(.trailing, AppStyles.Shell.Chrome.plainToolbarIconSpacing)"))
+        #expect(!shellControlsSource.contains("AppStyles.Shell.Chrome.iconClusterSpacing"))
+        #expect(!customTabBarSource.contains("AppStyles.Shell.Chrome.iconClusterSpacing"))
+    }
+
     @Test("circular toolbar controls use the shared AppStyles backed label path")
     func circularToolbarControlsUseSharedLabelPath() throws {
         let sharedLabelSource = try sourceFile("Sources/AgentStudio/SharedComponents/ChromeToolbarButtonLabel.swift")

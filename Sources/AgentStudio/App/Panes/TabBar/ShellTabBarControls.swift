@@ -10,7 +10,7 @@ struct SidebarSurfaceTabBarControls: View {
     }
 
     var body: some View {
-        HStack(spacing: AppStyles.Shell.Chrome.iconClusterSpacing) {
+        HStack(spacing: AppStyles.Shell.Chrome.sidebarSurfaceIconSpacing) {
             SidebarSurfaceTabBarButton(
                 command: .showWorktreeSidebar,
                 symbolName: "square.stack.3d.down.right",
@@ -89,5 +89,15 @@ struct TabBarDivider: View {
             .fill(Color.white.opacity(AppStyles.General.Fill.hover))
             .frame(width: 1, height: AppStyles.Shell.Chrome.dividerHeight)
             .padding(.horizontal, AppStyles.Shell.Chrome.dividerHorizontalPadding)
+    }
+}
+
+struct SidebarNavDivider: View {
+    var body: some View {
+        Rectangle()
+            .fill(Color.white.opacity(AppStyles.General.Fill.hover))
+            .frame(width: 1, height: AppStyles.Shell.Chrome.dividerHeight)
+            .padding(.leading, AppStyles.Shell.Chrome.sidebarDividerLeadingPadding)
+            .padding(.trailing, AppStyles.Shell.Chrome.sidebarDividerTrailingPadding)
     }
 }

@@ -111,7 +111,20 @@ public struct AppIPCCommandError: Error, Equatable, Sendable {
 @MainActor
 public protocol AppIPCCommandPort: Sendable {
     func listCommands() throws -> IPCCommandListResult
+    func requiredPermissionScopes(for command: IPCCommandListEntry) throws -> [IPCPermissionScope]
     func executeCommand(_ params: IPCCommandExecuteParams) throws -> IPCCommandExecuteResult
+}
+
+extension AppIPCCommandPort {
+    public func requiredPermissionScopes(for command: IPCCommandListEntry) throws -> [IPCPermissionScope] {
+        command.requiredPrivileges.map { privilege in
+            IPCPermissionScope(
+                privilege: privilege,
+                target: .app,
+                dataScope: PermissionScopeCanonicalizer.dataScope(for: privilege)
+            )
+        }
+    }
 }
 
 public protocol AppIPCPermissionApprovalPort: Sendable {
@@ -175,17 +188,20 @@ public struct AgentStudioAppIPCConfiguration: Equatable, Sendable {
     public let accessMode: IPCAccessMode
     public let methodDefinitions: [IPCMethodDefinition]
     public let debugTokenEscrowEnabled: Bool
+    public let debugTokenEscrowPermissionScopes: [IPCPermissionScope]
 
     public init(
         runtimeId: UUID,
         accessMode: IPCAccessMode,
         methodDefinitions: [IPCMethodDefinition],
-        debugTokenEscrowEnabled: Bool = false
+        debugTokenEscrowEnabled: Bool = false,
+        debugTokenEscrowPermissionScopes: [IPCPermissionScope] = []
     ) {
         self.runtimeId = runtimeId
         self.accessMode = accessMode
         self.methodDefinitions = methodDefinitions
         self.debugTokenEscrowEnabled = debugTokenEscrowEnabled
+        self.debugTokenEscrowPermissionScopes = debugTokenEscrowPermissionScopes
     }
 }
 
@@ -220,7 +236,8 @@ public struct AgentStudioAppIPCService: Sendable {
             runtimeId: configuration.runtimeId,
             accessMode: configuration.accessMode,
             methodDefinitions: methodRegistry.definitions,
-            debugTokenEscrowEnabled: configuration.debugTokenEscrowEnabled
+            debugTokenEscrowEnabled: configuration.debugTokenEscrowEnabled,
+            debugTokenEscrowPermissionScopes: configuration.debugTokenEscrowPermissionScopes
         )
         self.ports = ports
         self.eventBroker = eventBroker

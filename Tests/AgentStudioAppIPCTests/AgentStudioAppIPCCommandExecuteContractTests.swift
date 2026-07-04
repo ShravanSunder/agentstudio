@@ -163,6 +163,7 @@ struct AgentStudioAppIPCCommandExecuteContractTests {
 
     @Test("debug token escrow automation can execute sidebar state commands")
     func debugTokenEscrowAutomationCanExecuteSidebarStateCommands() async throws {
+        let workspaceId = UUID()
         let commandPort = FakeCommandPort(
             workspaceWindowId: UUID(),
             activeScope: .commands,
@@ -175,13 +176,18 @@ struct AgentStudioAppIPCCommandExecuteContractTests {
                     targetKinds: [],
                     requiredPrivileges: [.sidebarStateMutate]
                 )
-            ]
+            ],
+            requiredPermissionTargetByPrivilege: [.sidebarStateMutate: .workspace(workspaceId)]
         )
         let fixture = try LiveServerFixture(
             accessMode: .unsafeDebug,
             channel: .debug,
             commandPort: commandPort,
-            debugTokenEscrowEnabled: true
+            debugTokenEscrowEnabled: true,
+            debugTokenEscrowPermissionScopes: [
+                IPCPermissionScope(
+                    privilege: .sidebarStateMutate, target: .workspace(workspaceId), dataScope: .sidebarState)
+            ]
         )
         defer {
             fixture.cleanup()
@@ -201,6 +207,59 @@ struct AgentStudioAppIPCCommandExecuteContractTests {
         let result = try decodeResponseResult(IPCCommandExecuteResult.self, from: response)
         #expect(result.applied)
         #expect(commandPort.receivedExecuteParams.map(\.commandId.rawValue) == ["showWorktreeSidebar"])
+    }
+
+    @Test("command execute requires workspace scoped sidebar mutation privilege")
+    func commandExecuteRequiresWorkspaceScopedSidebarMutationPrivilege() async throws {
+        let workspaceId = UUID()
+        let commandPort = FakeCommandPort(
+            workspaceWindowId: UUID(),
+            activeScope: .commands,
+            successfulCommandId: "setRepoSidebarVisibilityMode",
+            commands: [sidebarCommandEntry("setRepoSidebarVisibilityMode")],
+            requiredPermissionTargetByPrivilege: [.sidebarStateMutate: .workspace(workspaceId)]
+        )
+        let fixture = try LiveServerFixture(
+            accessMode: .unsafeDebug,
+            channel: .debug,
+            commandPort: commandPort
+        )
+        defer {
+            fixture.cleanup()
+        }
+        try fixture.server.start()
+
+        let appScopedResponse = try await sendAuthenticatedAutomationRequest(
+            fixture: fixture,
+            sidebarStateMutateTarget: .app,
+            request: JSONRPCClientRequest(
+                id: .number(76),
+                method: "command.execute",
+                params: .object([
+                    "commandId": .string("setRepoSidebarVisibilityMode"),
+                    "arguments": .object(["mode": .string("favoritesOnly")]),
+                ])
+            )
+        )
+
+        #expect(appScopedResponse.error?.code == -32_002)
+        #expect(commandPort.receivedExecuteParams.isEmpty)
+
+        let workspaceScopedResponse = try await sendAuthenticatedAutomationRequest(
+            fixture: fixture,
+            sidebarStateMutateTarget: .workspace(workspaceId),
+            request: JSONRPCClientRequest(
+                id: .number(77),
+                method: "command.execute",
+                params: .object([
+                    "commandId": .string("setRepoSidebarVisibilityMode"),
+                    "arguments": .object(["mode": .string("favoritesOnly")]),
+                ])
+            )
+        )
+
+        #expect(workspaceScopedResponse.error == nil)
+        #expect(commandPort.receivedExecuteParams.map(\.commandId.rawValue) == ["setRepoSidebarVisibilityMode"])
     }
 
     @Test("command execute rejects wrong typed argument values as validation rejected")
@@ -293,6 +352,7 @@ private func sidebarCommandEntry(_ commandId: String) -> IPCCommandListEntry {
 
 private func sendAuthenticatedAutomationRequest(
     fixture: LiveServerFixture,
+    sidebarStateMutateTarget: IPCTargetScope = .app,
     request: JSONRPCClientRequest
 ) async throws -> JSONRPCResponseMessage {
     let principal = IPCPrincipal(
@@ -307,7 +367,7 @@ private func sendAuthenticatedAutomationRequest(
         to: principal.principalId
     )
     fixture.server.grantLedger.grant(
-        IPCPermissionScope(privilege: .sidebarStateMutate, target: .app, dataScope: .sidebarState),
+        IPCPermissionScope(privilege: .sidebarStateMutate, target: sidebarStateMutateTarget, dataScope: .sidebarState),
         to: principal.principalId
     )
     let token = try fixture.server.principalRegistry.issueSubjectToken(for: principal)

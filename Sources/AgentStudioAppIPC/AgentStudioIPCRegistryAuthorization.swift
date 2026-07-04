@@ -309,7 +309,7 @@ public struct AuthorizationService: Sendable {
             return
         }
 
-        if Self.authenticatedAutomationMethodAllowlist.contains(methodName) {
+        if Self.authenticatedAutomationMethodAllowlist.contains(methodName), methodName != "command.execute" {
             throw AuthorizationError(reason: .unauthorized)
         }
 
