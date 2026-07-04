@@ -35,6 +35,17 @@ enum AppPolicies {
         /// scheme handler. The current contract is strict user-interest
         /// reservation: any selected/visible request pauses background fill.
         static let contentBackgroundFillUserInterestYieldThreshold: Int = 1
+        /// Interactive background fill starts with a tiny burst, then admits
+        /// one background content request per interval until recent user
+        /// interest cools down. The debug-observability-oq4s-1783162673-24877
+        /// session saw 2408 background-interest loads in a few minutes while
+        /// scrolling; one sustained refill per second keeps active-use fill
+        /// near 60/minute, an order-of-magnitude calmer than that session,
+        /// while the idle path remains unpaced for startup pre-warm.
+        static let contentBackgroundFillInteractiveBurstBudget: Int = 12
+        static let contentBackgroundFillInteractiveRefillInterval: Duration = .seconds(1)
+        static let contentBackgroundFillInteractiveRefillBudget: Int = 1
+        static let contentBackgroundFillInteractiveCooldown: Duration = .seconds(2)
         /// Per-lane queued-job cap for the metadata lane scheduler. A pane
         /// whose gate never reopens (wedged or dead WebView) must not grow
         /// its queues without bound from watch-driven producers; on overflow

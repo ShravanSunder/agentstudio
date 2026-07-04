@@ -107,13 +107,43 @@ export function shouldApplyBridgeCodeViewMaterialization(props: {
 export function shouldApplyBridgeCodeViewCurrentWindowMaterialization(props: {
 	readonly currentRenderedItemIds: ReadonlySet<string>;
 	readonly itemId: string;
+	readonly liveRenderedItemIds?: readonly string[];
+	readonly orderedItemIds?: readonly string[];
 	readonly selectedItemId: string | null;
 }): boolean {
-	return props.itemId === props.selectedItemId || props.currentRenderedItemIds.has(props.itemId);
+	if (props.itemId === props.selectedItemId) {
+		return true;
+	}
+	const liveWindowTopIndex = liveRenderedWindowTopIndex({
+		liveRenderedItemIds: props.liveRenderedItemIds,
+		orderedItemIds: props.orderedItemIds,
+	});
+	const itemIndex = props.orderedItemIds?.indexOf(props.itemId) ?? -1;
+	if (liveWindowTopIndex !== null && itemIndex >= 0) {
+		return itemIndex >= liveWindowTopIndex;
+	}
+	return props.currentRenderedItemIds.has(props.itemId);
+}
+
+export function bridgeCodeViewDeferredMaterializationItemIdsReadyForLiveRange(props: {
+	readonly deferredItemIds: ReadonlySet<string>;
+	readonly liveRenderedItemIds: readonly string[];
+	readonly orderedItemIds: readonly string[];
+	readonly selectedItemId: string | null;
+}): readonly string[] {
+	const currentRenderedItemIds = new Set(props.liveRenderedItemIds);
+	return [...props.deferredItemIds].filter((itemId: string): boolean =>
+		shouldApplyBridgeCodeViewCurrentWindowMaterialization({
+			currentRenderedItemIds,
+			itemId,
+			liveRenderedItemIds: props.liveRenderedItemIds,
+			orderedItemIds: props.orderedItemIds,
+			selectedItemId: props.selectedItemId,
+		}),
+	);
 }
 
 export function bridgeCodeViewMaterializationResourceEntriesForPanel(props: {
-	readonly isScrollActive: boolean;
 	readonly selectedContentDemandStartedAtMilliseconds: number | null | undefined;
 	readonly selectedContentResources: BridgeCodeViewContentResources | null | undefined;
 	readonly selectedItemId: string | null;
@@ -123,15 +153,6 @@ export function bridgeCodeViewMaterializationResourceEntriesForPanel(props: {
 }): readonly BridgeCodeViewMaterializationResourceEntry[] {
 	const resourceEntriesByItemId = new Map<string, BridgeCodeViewMaterializationResourceEntry>();
 	for (const [itemId, resources] of props.visibleContentResourcesByItemId ?? []) {
-		if (
-			!shouldApplyBridgeCodeViewMaterialization({
-				isScrollActive: props.isScrollActive,
-				itemId,
-				selectedItemId: props.selectedItemId,
-			})
-		) {
-			continue;
-		}
 		resourceEntriesByItemId.set(itemId, {
 			itemId,
 			resources,
@@ -154,29 +175,14 @@ export function bridgeCodeViewMaterializationResourceEntriesForPanel(props: {
 }
 
 export function bridgeCodeViewLoadingMaterializationItemIdsForPanel(props: {
-	readonly isScrollActive: boolean;
 	readonly materializationResourceEntries: readonly BridgeCodeViewMaterializationResourceEntry[];
 	readonly selectedContentLoadingItemId: string | null | undefined;
-	readonly selectedItemId: string | null;
 	readonly visibleLoadingItemIds: ReadonlySet<string> | undefined;
 }): readonly string[] {
 	const loadedItemIds = new Set(
 		props.materializationResourceEntries.map((entry): string => entry.itemId),
 	);
 	const loadingItemIds = new Set(props.visibleLoadingItemIds ?? []);
-	if (props.isScrollActive) {
-		for (const itemId of loadingItemIds) {
-			if (
-				!shouldApplyBridgeCodeViewMaterialization({
-					isScrollActive: props.isScrollActive,
-					itemId,
-					selectedItemId: props.selectedItemId,
-				})
-			) {
-				loadingItemIds.delete(itemId);
-			}
-		}
-	}
 	if (
 		props.selectedContentLoadingItemId !== undefined &&
 		props.selectedContentLoadingItemId !== null
@@ -184,6 +190,28 @@ export function bridgeCodeViewLoadingMaterializationItemIdsForPanel(props: {
 		loadingItemIds.add(props.selectedContentLoadingItemId);
 	}
 	return [...loadingItemIds].filter((itemId: string): boolean => !loadedItemIds.has(itemId));
+}
+
+function liveRenderedWindowTopIndex(props: {
+	readonly liveRenderedItemIds: readonly string[] | undefined;
+	readonly orderedItemIds: readonly string[] | undefined;
+}): number | null {
+	if (
+		props.liveRenderedItemIds === undefined ||
+		props.liveRenderedItemIds.length === 0 ||
+		props.orderedItemIds === undefined
+	) {
+		return null;
+	}
+	let topIndex: number | null = null;
+	for (const itemId of props.liveRenderedItemIds) {
+		const itemIndex = props.orderedItemIds.indexOf(itemId);
+		if (itemIndex < 0) {
+			continue;
+		}
+		topIndex = topIndex === null ? itemIndex : Math.min(topIndex, itemIndex);
+	}
+	return topIndex;
 }
 
 export interface BridgeCodeViewInstantRevealRearmCandidate {

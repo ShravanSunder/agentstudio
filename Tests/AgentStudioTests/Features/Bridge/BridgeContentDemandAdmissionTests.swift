@@ -101,6 +101,77 @@ final class BridgeContentDemandAdmissionTests {
         #expect(await backgroundWaiter.recordedEventCount() == 1)
     }
 
+    @Test
+    func test_backgroundFillCooldownEnforcesBurstBudget() async {
+        let clock = TestPushClock()
+        let admission = BridgeContentDemandAdmission(clock: clock)
+        await admission.start(.visible)
+        await admission.finish(.visible)
+
+        for _ in 0..<AppPolicies.Bridge.contentBackgroundFillInteractiveBurstBudget {
+            await admission.start(.background)
+        }
+
+        let backgroundWaiter = BridgeContentDemandEventRecorder()
+        let backgroundTask = Task {
+            await admission.start(.background)
+            await backgroundWaiter.recordEvent()
+        }
+        await clock.waitForPendingSleepCount()
+        await Task.yield()
+
+        #expect(await backgroundWaiter.recordedEventCount() == 0)
+
+        clock.advance(by: AppPolicies.Bridge.contentBackgroundFillInteractiveRefillInterval)
+        _ = await backgroundTask.result
+
+        #expect(await backgroundWaiter.recordedEventCount() == 1)
+    }
+
+    @Test
+    func test_backgroundFillCooldownKeepsFillPacedAfterVisibleDemandFinishes() async {
+        let clock = TestPushClock()
+        let admission = BridgeContentDemandAdmission(clock: clock)
+        await admission.start(.visible)
+        await admission.finish(.visible)
+
+        for _ in 0..<AppPolicies.Bridge.contentBackgroundFillInteractiveBurstBudget {
+            await admission.start(.background)
+        }
+
+        let backgroundWaiter = BridgeContentDemandEventRecorder()
+        let backgroundTask = Task {
+            await admission.start(.background)
+            await backgroundWaiter.recordEvent()
+        }
+        await clock.waitForPendingSleepCount()
+        await Task.yield()
+
+        #expect(await backgroundWaiter.recordedEventCount() == 0)
+
+        clock.advance(by: AppPolicies.Bridge.contentBackgroundFillInteractiveCooldown)
+        _ = await backgroundTask.result
+
+        for _ in 0..<(AppPolicies.Bridge.contentBackgroundFillInteractiveBurstBudget + 3) {
+            await admission.start(.background)
+        }
+
+        #expect(await backgroundWaiter.recordedEventCount() == 1)
+        #expect(clock.pendingSleepCount == 0)
+    }
+
+    @Test
+    func test_backgroundFillIdlePathPreservesFullRateAdmission() async {
+        let clock = TestPushClock()
+        let admission = BridgeContentDemandAdmission(clock: clock)
+
+        for _ in 0..<(AppPolicies.Bridge.contentBackgroundFillInteractiveBurstBudget * 2) {
+            await admission.start(.background)
+        }
+
+        #expect(clock.pendingSleepCount == 0)
+    }
+
     private func makeLeasedBridgeSchemeHandler(
         contentStore: BridgeContentStore,
         handle: BridgeContentHandle,

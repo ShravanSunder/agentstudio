@@ -44,23 +44,20 @@ describe('bridge core resource URL parser', () => {
 			opaqueId: 'content-123',
 			generation: 2,
 			revision: 4,
-			canonicalUrl:
-				'agentstudio://resource/review/content/content-123?generation=2&revision=4',
+			canonicalUrl: 'agentstudio://resource/review/content/content-123?generation=2&revision=4',
 		});
 	});
 
 	test('adds content interest to fetch URLs without changing canonical resource identity', () => {
-		const resourceUrl =
-			'agentstudio://resource/review/content/content-123?generation=2&revision=4';
+		const resourceUrl = 'agentstudio://resource/review/content/content-123?generation=2&revision=4';
 
 		expect(bridgeResourceUrlWithContentInterest(resourceUrl, 'selected')).toBe(
 			'agentstudio://resource/review/content/content-123?generation=2&revision=4&interest=selected',
 		);
 		expect(
-			parseBridgeCoreResourceUrl(
-				bridgeResourceUrlWithContentInterest(resourceUrl, 'background'),
-				{ allowedResourceKindsByProtocol },
-			)?.canonicalUrl,
+			parseBridgeCoreResourceUrl(bridgeResourceUrlWithContentInterest(resourceUrl, 'background'), {
+				allowedResourceKindsByProtocol,
+			})?.canonicalUrl,
 		).toBe(resourceUrl);
 	});
 });

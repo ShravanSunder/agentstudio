@@ -23,6 +23,7 @@ import { BridgeCodeViewPanelFrame } from './bridge-code-view-panel-frame.js';
 import {
 	bridgeCodeViewMaterializationResourceEntriesForPanel,
 	bridgeCodeViewLoadingMaterializationItemIdsForPanel,
+	bridgeCodeViewDeferredMaterializationItemIdsReadyForLiveRange,
 	bridgeCodeViewRenderedHeaderCorrectionTargetPosition,
 	codeViewHandleHasInstance,
 	controllerForHandle,
@@ -37,7 +38,6 @@ import {
 	reconcileBridgeCodeViewMetadataItems,
 	renderedBridgeCodeViewHeaderOffsetFromScrollOwner,
 	selectedContentDiagnosticsForPanel,
-	shouldApplyBridgeCodeViewMaterialization,
 	shouldApplyBridgeCodeViewRenderedHeaderCorrection,
 	shouldApplyBridgeCodeViewCurrentWindowMaterialization,
 	shouldRearmCodeViewInstantRevealForMaterialization,
@@ -118,6 +118,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 	const settledInstantSelectionRevealKeyRef = useRef<string | null>(null);
 	const scrollIdleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const scrollActivityActiveRef = useRef(false);
+	const deferredMaterializationItemIdsRef = useRef<Set<string>>(new Set<string>());
 	const renderedWindowItemIdsRef = useRef<readonly string[]>([]);
 	const visibleHeaderItemIdsRef = useRef<ReadonlySet<string>>(new Set<string>());
 	const onScrollActivityChangeRef = useRef(props.onScrollActivityChange);
@@ -133,12 +134,12 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		};
 	}
 	const [codeViewMountVersion, setCodeViewMountVersion] = useState(0);
-	const [isCodeViewScrollActive, setIsCodeViewScrollActive] = useState(false);
 	const [collapsedItemIds, setCollapsedItemIds] = useState<ReadonlySet<string>>(
 		() => new Set<string>(),
 	);
 	const [selectionScrollDiagnostic, setSelectionScrollDiagnostic] =
 		useState<BridgeCodeViewSelectionScrollDiagnostic>(initialSelectionScrollDiagnostic);
+	const [deferredMaterializationFlushVersion, setDeferredMaterializationFlushVersion] = useState(0);
 	const collapsedItemIdsRef = useRef<ReadonlySet<string>>(collapsedItemIds);
 	collapsedItemIdsRef.current = collapsedItemIds;
 	const onControlHandleChange = props.onControlHandleChange;
@@ -167,9 +168,24 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 			}),
 		[publishVisibleHydrationItemIds],
 	);
-	const captureVisibleItemIds = useCallback((source: BridgeCodeViewRenderedItemsSource): void => {
-		renderedWindowItemIdsRef.current = uniqueRenderedItemIds(source.getRenderedItems());
-	}, []);
+	const captureVisibleItemIds = useCallback(
+		(source: BridgeCodeViewRenderedItemsSource): void => {
+			const liveRenderedItemIds = uniqueRenderedItemIds(source.getRenderedItems());
+			renderedWindowItemIdsRef.current = liveRenderedItemIds;
+			const readyItemIds = bridgeCodeViewDeferredMaterializationItemIdsReadyForLiveRange({
+				deferredItemIds: deferredMaterializationItemIdsRef.current,
+				liveRenderedItemIds,
+				orderedItemIds: props.reviewPackage.orderedItemIds,
+				selectedItemId: props.selectedItemId,
+			});
+			if (readyItemIds.length > 0) {
+				setDeferredMaterializationFlushVersion(
+					(currentVersion: number): number => currentVersion + 1,
+				);
+			}
+		},
+		[props.reviewPackage.orderedItemIds, props.selectedItemId],
+	);
 	const publishVisibleItemIds = useCallback(
 		(source: BridgeCodeViewRenderedItemsSource): void => {
 			captureVisibleItemIds(source);
@@ -190,7 +206,6 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 			visibleInterestPublisher.publishDuringScroll();
 			if (!scrollActivityActiveRef.current) {
 				scrollActivityActiveRef.current = true;
-				setIsCodeViewScrollActive(true);
 				onScrollActivityChangeRef.current?.(true);
 			}
 			if (scrollIdleTimeoutRef.current !== null) {
@@ -206,7 +221,6 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 					captureVisibleItemIds(viewer);
 				}
 				scrollActivityActiveRef.current = false;
-				setIsCodeViewScrollActive(false);
 				onScrollActivityChangeRef.current?.(false);
 				visibleInterestPublisher.publishAtScrollIdle();
 			}, codeViewVisibleHydrationScrollIdleMilliseconds);
@@ -257,6 +271,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 			}
 			if (previousHandle !== handle || mountedHandleViewerKeyRef.current !== sourceKey) {
 				mountedHandleViewerKeyRef.current = sourceKey;
+				deferredMaterializationItemIdsRef.current.clear();
 				renderedWindowItemIdsRef.current = [];
 				visibleHeaderItemIdsRef.current = new Set<string>();
 				setCodeViewMountVersion((currentVersion: number): number => currentVersion + 1);
@@ -505,7 +520,6 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 	const materializationResourceEntries = useMemo(
 		(): readonly BridgeCodeViewMaterializationResourceEntry[] =>
 			bridgeCodeViewMaterializationResourceEntriesForPanel({
-				isScrollActive: isCodeViewScrollActive,
 				selectedContentDemandStartedAtMilliseconds:
 					props.selectedContentDemandStartedAtMilliseconds,
 				selectedContentResources: props.selectedContentResources,
@@ -513,7 +527,6 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 				visibleContentResourcesByItemId: props.visibleContentResourcesByItemId,
 			}),
 		[
-			isCodeViewScrollActive,
 			props.selectedContentDemandStartedAtMilliseconds,
 			props.selectedContentResources,
 			props.selectedItemId,
@@ -526,17 +539,13 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 	);
 	const loadingMaterializationItemIds = useMemo((): readonly string[] => {
 		return bridgeCodeViewLoadingMaterializationItemIdsForPanel({
-			isScrollActive: isCodeViewScrollActive,
 			materializationResourceEntries,
 			selectedContentLoadingItemId: props.selectedContentLoadingItemId,
-			selectedItemId: props.selectedItemId,
 			visibleLoadingItemIds: props.visibleLoadingItemIds,
 		});
 	}, [
-		isCodeViewScrollActive,
 		materializationResourceEntries,
 		props.selectedContentLoadingItemId,
-		props.selectedItemId,
 		props.visibleLoadingItemIds,
 	]);
 	const selectedItemIdForMetadataReconcileRef = useRef(props.selectedItemId);
@@ -575,6 +584,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		pendingSmoothSelectionScrollKeyRef.current = null;
 		recentInstantSelectionRevealRef.current = null;
 		settledInstantSelectionRevealKeyRef.current = null;
+		deferredMaterializationItemIdsRef.current.clear();
 		setMaterializationDiagnostic(emptyMaterializationDiagnostic());
 	}, [sourceKey]);
 
@@ -627,9 +637,9 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 			}
 			if (scrollActivityActiveRef.current) {
 				scrollActivityActiveRef.current = false;
-				setIsCodeViewScrollActive(false);
 				onScrollActivityChangeRef.current?.(false);
 			}
+			deferredMaterializationItemIdsRef.current.clear();
 		},
 		[],
 	);
@@ -699,27 +709,23 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 				controllerEntryRef,
 			});
 			let didUpdateRenderedItems = false;
-			const currentRenderedItemIds = new Set(renderedWindowItemIdsRef.current);
+			const liveRenderedItemIds = renderedWindowItemIdsRef.current;
+			const currentRenderedItemIds = new Set(liveRenderedItemIds);
+			const shouldApplyItemMaterialization = (itemId: string): boolean =>
+				shouldApplyBridgeCodeViewCurrentWindowMaterialization({
+					currentRenderedItemIds,
+					itemId,
+					liveRenderedItemIds,
+					orderedItemIds: props.reviewPackage.orderedItemIds,
+					selectedItemId: props.selectedItemId,
+				});
 			const materializedItemIds: string[] = [];
 			for (const itemId of loadingMaterializationItemIds) {
-				if (
-					!shouldApplyBridgeCodeViewMaterialization({
-						isScrollActive: scrollActivityActiveRef.current,
-						itemId,
-						selectedItemId: props.selectedItemId,
-					})
-				) {
+				if (!shouldApplyItemMaterialization(itemId)) {
+					deferredMaterializationItemIdsRef.current.add(itemId);
 					continue;
 				}
-				if (
-					!shouldApplyBridgeCodeViewCurrentWindowMaterialization({
-						currentRenderedItemIds,
-						itemId,
-						selectedItemId: props.selectedItemId,
-					})
-				) {
-					continue;
-				}
+				deferredMaterializationItemIdsRef.current.delete(itemId);
 				const loadingItemDescriptor = props.reviewPackage.itemsById[itemId];
 				if (loadingItemDescriptor === undefined) {
 					continue;
@@ -749,24 +755,11 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 					hasTelemetryRecorder: props.telemetryRecorder !== undefined,
 					didFindMatchingPaintedContent: false,
 				});
-				if (
-					!shouldApplyBridgeCodeViewMaterialization({
-						isScrollActive: scrollActivityActiveRef.current,
-						itemId,
-						selectedItemId: props.selectedItemId,
-					})
-				) {
+				if (!shouldApplyItemMaterialization(itemId)) {
+					deferredMaterializationItemIdsRef.current.add(itemId);
 					continue;
 				}
-				if (
-					!shouldApplyBridgeCodeViewCurrentWindowMaterialization({
-						currentRenderedItemIds,
-						itemId,
-						selectedItemId: props.selectedItemId,
-					})
-				) {
-					continue;
-				}
+				deferredMaterializationItemIdsRef.current.delete(itemId);
 				const selectedItem = props.reviewPackage.itemsById[itemId];
 				if (selectedItem === undefined) {
 					continue;
@@ -933,6 +926,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 	}, [
 		collapsedItemIds,
 		codeViewMountVersion,
+		deferredMaterializationFlushVersion,
 		loadingMaterializationItemIds,
 		materializationResourceEntries,
 		props.projection,
