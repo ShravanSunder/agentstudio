@@ -180,7 +180,7 @@ export function createBridgeResourceExecutor<TContent = unknown>(
 	const now = props.now ?? defaultNow;
 	const deliveryFailureBackoffByInFlightKey = new Map<string, DeliveryFailureBackoffFact>();
 
-	const load = async (
+	const load = (
 		intent: BridgeDemandIntent,
 		options: BridgeResourceExecutorLoadOptions = {},
 	): Promise<BridgeResourceExecutorResult<TContent>> => {
@@ -191,30 +191,39 @@ export function createBridgeResourceExecutor<TContent = unknown>(
 			if (compareDemandIntentPriority(intent, existingLoad.intent) < 0) {
 				existingLoad.intent = intent;
 			}
-			return await existingLoad.promise;
+			return existingLoad.promise;
 		}
 		const existingPendingLoad = pendingByDedupeKey.get(inFlightKey);
 		if (existingPendingLoad !== undefined) {
+			let promotedPendingLoad = existingPendingLoad;
 			if (compareDemandIntentPriority(intent, existingPendingLoad.intent) < 0) {
-				pendingByDedupeKey.set(inFlightKey, {
+				promotedPendingLoad = {
 					...existingPendingLoad,
 					intent,
 					sequence: nextPendingSequence,
-				});
+				};
+				pendingByDedupeKey.set(inFlightKey, promotedPendingLoad);
 				nextPendingSequence += 1;
+				if (promotedPendingLoad.eligibleAtMilliseconds <= now() && isIntentFresh(intent)) {
+					preemptLowerPriorityInFlightLoads({
+						byteBudget: promotedPendingLoad.byteBudget,
+						intent,
+					});
+					pumpPendingLoads();
+				}
 			}
-			return await existingPendingLoad.promise;
+			return promotedPendingLoad.promise;
 		}
 		const descriptor = props.registry.lookup(intent.descriptorRef);
 		if (descriptor === null) {
-			return { ok: false, reason: 'descriptor_missing' };
+			return Promise.resolve({ ok: false, reason: 'descriptor_missing' });
 		}
 		const byteBudget = descriptor.content.expectedBytes ?? descriptor.content.maxBytes;
 		if (byteBudget > props.maxInFlightBytes) {
-			return { ok: false, reason: 'byte_budget_exceeded' };
+			return Promise.resolve({ ok: false, reason: 'byte_budget_exceeded' });
 		}
 		if (!isIntentFresh(intent)) {
-			return { ok: false, reason: 'stale_completion' };
+			return Promise.resolve({ ok: false, reason: 'stale_completion' });
 		}
 		const abortController = new AbortController();
 		const retryEligibleAtMilliseconds = deliveryFailureRetryEligibleAtMilliseconds({
@@ -223,7 +232,7 @@ export function createBridgeResourceExecutor<TContent = unknown>(
 			nowMilliseconds: now(),
 		});
 		if (retryEligibleAtMilliseconds !== null) {
-			return await enqueuePendingLoad({
+			return enqueuePendingLoad({
 				abortController,
 				byteBudget,
 				descriptor,
@@ -236,7 +245,7 @@ export function createBridgeResourceExecutor<TContent = unknown>(
 		}
 		if (canStartLoad(byteBudget)) {
 			const pendingEnteredAtMilliseconds = now();
-			return await startLoad({
+			return startLoad({
 				abortController,
 				byteBudget,
 				descriptor,
@@ -249,7 +258,7 @@ export function createBridgeResourceExecutor<TContent = unknown>(
 		preemptLowerPriorityInFlightLoads({ byteBudget, intent });
 		if (canStartLoad(byteBudget)) {
 			const pendingEnteredAtMilliseconds = now();
-			return await startLoad({
+			return startLoad({
 				abortController,
 				byteBudget,
 				descriptor,
@@ -260,7 +269,7 @@ export function createBridgeResourceExecutor<TContent = unknown>(
 			});
 		}
 		const pendingEnteredAtMilliseconds = now();
-		return await enqueuePendingLoad({
+		return enqueuePendingLoad({
 			abortController,
 			byteBudget,
 			descriptor,
