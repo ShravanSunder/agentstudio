@@ -150,6 +150,25 @@ extension BridgeReviewObservabilitySmokeRenderProof {
         reviewTreeClickSelectedMaterializedItemType = snapshot.reviewTreeClickSelectedMaterializedItemType
         reviewTreeClickSelectedMaterializedItemVersion = snapshot.reviewTreeClickSelectedMaterializedItemVersion
         reviewTreeClickSelectedCharacterCount = snapshot.reviewTreeClickSelectedCharacterCount
+        reviewTreeClickProbeTargetRowPathAtFind = snapshot.reviewTreeClickProbeTargetRowPathAtFind
+        reviewTreeClickProbeTargetRowIdAtFind = snapshot.reviewTreeClickProbeTargetRowIdAtFind
+        reviewTreeClickProbeTargetRowIdAtDispatch = snapshot.reviewTreeClickProbeTargetRowIdAtDispatch
+        reviewTreeClickProbeTargetRowConnectedAtDispatch =
+            snapshot
+            .reviewTreeClickProbeTargetRowConnectedAtDispatch
+        reviewTreeClickProbeTargetRowSameIdAtDispatch = snapshot.reviewTreeClickProbeTargetRowSameIdAtDispatch
+        reviewTreeClickProbeRenderedRowCountAtFind = snapshot.reviewTreeClickProbeRenderedRowCountAtFind
+        reviewTreeClickProbeRenderedRowCountAtDispatch =
+            snapshot
+            .reviewTreeClickProbeRenderedRowCountAtDispatch
+        reviewTreeClickProbeRenderedRowCountDeltaBeforeDispatch =
+            snapshot
+            .reviewTreeClickProbeRenderedRowCountDeltaBeforeDispatch
+        reviewTreeClickProbeDispatchResult = snapshot.reviewTreeClickProbeDispatchResult
+        reviewTreeClickProbeSelectionPollTrace = snapshot.reviewTreeClickProbeSelectionPollTrace
+        reviewTreeClickProbeSelectionPollCount = snapshot.reviewTreeClickProbeSelectionPollCount
+        reviewTreeClickProbeSelectionPollLastIndex = snapshot.reviewTreeClickProbeSelectionPollLastIndex
+        reviewTreeClickProbeSecondClickAttempted = snapshot.reviewTreeClickProbeSecondClickAttempted
         paintedProbeAnchoredDeliveryEntryCount = snapshot.paintedProbeAnchoredDeliveryEntryCount
         paintedProbeAnchoredDeliveryAnchorPresentCount =
             snapshot.paintedProbeAnchoredDeliveryAnchorPresentCount
@@ -214,6 +233,19 @@ struct BridgeReviewObservabilitySmokeRenderSnapshot: Decodable, Equatable {
     let reviewTreeClickSelectedMaterializedItemType: String
     let reviewTreeClickSelectedMaterializedItemVersion: Int
     let reviewTreeClickSelectedCharacterCount: Int
+    let reviewTreeClickProbeTargetRowPathAtFind: String
+    let reviewTreeClickProbeTargetRowIdAtFind: String
+    let reviewTreeClickProbeTargetRowIdAtDispatch: String
+    let reviewTreeClickProbeTargetRowConnectedAtDispatch: Bool
+    let reviewTreeClickProbeTargetRowSameIdAtDispatch: Bool
+    let reviewTreeClickProbeRenderedRowCountAtFind: Int
+    let reviewTreeClickProbeRenderedRowCountAtDispatch: Int
+    let reviewTreeClickProbeRenderedRowCountDeltaBeforeDispatch: Int
+    let reviewTreeClickProbeDispatchResult: String
+    let reviewTreeClickProbeSelectionPollTrace: String
+    let reviewTreeClickProbeSelectionPollCount: Int
+    let reviewTreeClickProbeSelectionPollLastIndex: Int
+    let reviewTreeClickProbeSecondClickAttempted: Bool
     let hasSelectedContentText: Bool
     let selectedContentState: String
     let selectedContentRoleCount: Int
@@ -378,6 +410,19 @@ struct BridgeReviewObservabilitySmokeRenderProof: Equatable {
     var reviewTreeClickSelectedMaterializedItemType: String = "diff"
     var reviewTreeClickSelectedMaterializedItemVersion: Int = 1
     var reviewTreeClickSelectedCharacterCount: Int = 1
+    var reviewTreeClickProbeTargetRowPathAtFind: String = ""
+    var reviewTreeClickProbeTargetRowIdAtFind: String = ""
+    var reviewTreeClickProbeTargetRowIdAtDispatch: String = ""
+    var reviewTreeClickProbeTargetRowConnectedAtDispatch: Bool = false
+    var reviewTreeClickProbeTargetRowSameIdAtDispatch: Bool = false
+    var reviewTreeClickProbeRenderedRowCountAtFind: Int = 0
+    var reviewTreeClickProbeRenderedRowCountAtDispatch: Int = 0
+    var reviewTreeClickProbeRenderedRowCountDeltaBeforeDispatch: Int = 0
+    var reviewTreeClickProbeDispatchResult: String = "missing"
+    var reviewTreeClickProbeSelectionPollTrace: String = ""
+    var reviewTreeClickProbeSelectionPollCount: Int = 0
+    var reviewTreeClickProbeSelectionPollLastIndex: Int = -1
+    var reviewTreeClickProbeSecondClickAttempted: Bool = false
     let hasSelectedContentText: Bool
     let selectedContentState: String
     let selectedContentRoleCount: Int
@@ -653,6 +698,32 @@ struct BridgeReviewObservabilitySmokeRenderProof: Equatable {
                 reviewTreeClickSelectedMaterializedItemVersion),
             "agentstudio.startup_diagnostic.bridge.review_tree_click.selected_content_character.count": .int(
                 reviewTreeClickSelectedCharacterCount),
+            "agentstudio.startup_diagnostic.bridge.review_tree_click.probe.target_row_path_at_find": .string(
+                reviewTreeClickProbeTargetRowPathAtFind),
+            "agentstudio.startup_diagnostic.bridge.review_tree_click.probe.target_row_id_at_find": .string(
+                reviewTreeClickProbeTargetRowIdAtFind),
+            "agentstudio.startup_diagnostic.bridge.review_tree_click.probe.target_row_id_at_dispatch": .string(
+                reviewTreeClickProbeTargetRowIdAtDispatch),
+            "agentstudio.startup_diagnostic.bridge.review_tree_click.probe.target_row_connected_at_dispatch": .bool(
+                reviewTreeClickProbeTargetRowConnectedAtDispatch),
+            "agentstudio.startup_diagnostic.bridge.review_tree_click.probe.target_row_same_id_at_dispatch": .bool(
+                reviewTreeClickProbeTargetRowSameIdAtDispatch),
+            "agentstudio.startup_diagnostic.bridge.review_tree_click.probe.rendered_row_count_at_find": .int(
+                reviewTreeClickProbeRenderedRowCountAtFind),
+            "agentstudio.startup_diagnostic.bridge.review_tree_click.probe.rendered_row_count_at_dispatch": .int(
+                reviewTreeClickProbeRenderedRowCountAtDispatch),
+            "agentstudio.startup_diagnostic.bridge.review_tree_click.probe.rendered_row_count_delta_before_dispatch":
+                .int(reviewTreeClickProbeRenderedRowCountDeltaBeforeDispatch),
+            "agentstudio.startup_diagnostic.bridge.review_tree_click.probe.dispatch_result": .string(
+                reviewTreeClickProbeDispatchResult),
+            "agentstudio.startup_diagnostic.bridge.review_tree_click.probe.selection_poll_trace": .string(
+                reviewTreeClickProbeSelectionPollTrace),
+            "agentstudio.startup_diagnostic.bridge.review_tree_click.probe.selection_poll.count": .int(
+                reviewTreeClickProbeSelectionPollCount),
+            "agentstudio.startup_diagnostic.bridge.review_tree_click.probe.selection_poll.last_index": .int(
+                reviewTreeClickProbeSelectionPollLastIndex),
+            "agentstudio.startup_diagnostic.bridge.review_tree_click.probe.second_click_attempted": .bool(
+                reviewTreeClickProbeSecondClickAttempted),
             "agentstudio.startup_diagnostic.bridge.selected_content.visible": .bool(hasSelectedContentText),
             "agentstudio.startup_diagnostic.bridge.selected_content.state": .string(selectedContentState),
             "agentstudio.startup_diagnostic.bridge.selected_content_role.count": .int(selectedContentRoleCount),
@@ -875,105 +946,4 @@ struct BridgeReviewObservabilitySmokeRenderProof: Equatable {
         ]
     }
 
-    static func unavailable() -> Self {
-        Self(
-            expectedVisiblePaneCount: 1,
-            expectedReviewItemCount: 0,
-            hasReviewShell: false,
-            reviewShellState: "unavailable",
-            hasCodeViewPanel: false,
-            hasSelectedItem: false,
-            hasSelectedDisplayPath: false,
-            reviewMetadataItemCount: 0,
-            reviewMetadataTreeRowCount: 0,
-            hasSelectedContentText: false,
-            selectedContentState: "unavailable",
-            selectedContentRoleCount: 0,
-            selectedContentCacheKeyCount: 0,
-            selectedContentCharacterCount: 0,
-            selectedContentLineCount: 0,
-            selectedMaterializedUpdateResult: "unavailable",
-            selectedMaterializedItemType: "none",
-            selectedMaterializedItemVersion: 0,
-            selectedMaterializedAdditionLineCount: 0,
-            selectedMaterializedDeletionLineCount: 0,
-            selectedMaterializedFileLineCount: 0,
-            pageErrorCount: 0,
-            pageIssueLastKind: "none",
-            pageIssueLastClass: "none",
-            pageIssueDisallowedCount: 0,
-            diffContainerCount: 0,
-            codeLineCount: 0,
-            codeViewPanelWidth: 0,
-            codeViewPanelHeight: 0,
-            firstDiffContainerWidth: 0,
-            firstDiffContainerHeight: 0,
-            codeViewScrollOwnerHeight: 0,
-            codeViewScrollOwnerScrollHeight: 0,
-            codeViewScrollOwnerChildCount: 0,
-            codeViewScrollOwnerFirstChildTag: "unavailable",
-            codeViewInstanceHeight: 0,
-            codeViewInstanceScrollHeight: 0,
-            codeViewInstanceItemCount: 0,
-            codeViewInstanceWindowTop: 0,
-            codeViewInstanceWindowBottom: 0,
-            codeViewInstanceFirstRenderedIndex: -1,
-            codeViewInstanceLastRenderedIndex: -1,
-            codeViewInstanceFirstItemHeight: 0,
-            codeViewInstanceFirstItemTop: 0,
-            codeViewRenderedItemCount: 0,
-            codeViewRenderedItemElementHeight: 0,
-            codeViewRenderedItemElementChildCount: 0,
-            codeViewRenderedItemElementFirstChildTag: "unavailable",
-            codeViewRenderedItemType: "unavailable",
-            codeViewRenderedItemVersion: 0,
-            firstDiffContainerShadowChildCount: 0,
-            firstDiffContainerPreCount: 0,
-            firstDiffContainerOffsetHeight: 0,
-            firstDiffContainerScrollHeight: 0,
-            firstDiffContainerPreHeight: 0,
-            firstDiffContainerPreTextLength: 0,
-            codeLineWithDataLineCount: 0,
-            firstDiffContainerDisplay: "unavailable",
-            workerPoolState: "unavailable",
-            workerPoolManagerState: "unavailable",
-            workerPoolWorkersFailed: false,
-            workerPoolTotalWorkers: 0,
-            workerPoolBusyWorkers: 0,
-            workerPoolQueuedTasks: 0,
-            workerPoolActiveTasks: 0,
-            workerPoolFileCacheSize: 0,
-            workerPoolDiffCacheSize: 0,
-            workerPoolInitializationProbeStage: "unavailable",
-            workerPoolInitializationProbeThemeCount: 0,
-            workerPoolInitializationProbeLanguageCount: 0,
-            workerPoolInitializationProbeFailureReason: "",
-            workerDiagnosticBootstrapState: "unavailable",
-            workerDiagnosticInitializeRequestIdState: "unavailable",
-            workerDiagnosticLastMessageType: "unavailable",
-            workerDiagnosticLastRequestType: "unavailable",
-            workerDiagnosticLastSuccessMatchesInitializeRequest: "unavailable",
-            workerDiagnosticLastSuccessIdState: "unavailable",
-            workerDiagnosticLastSuccessIdPrefix: "none",
-            workerDiagnosticLastSuccessRequestType: "unavailable",
-            workerDiagnosticSuccessCount: 0,
-            workerDiagnosticInitializeSuccessCount: 0,
-            workerDiagnosticDiffSuccessCount: 0,
-            workerDiagnosticFileSuccessCount: 0,
-            workerDiagnosticForwardedMessageCount: 0,
-            workerDiagnosticLastForwardResult: "none",
-            workerDiagnosticErrorCount: 0,
-            workerDiagnosticLastErrorKind: "none",
-            codeTextLength: 0,
-            codeShadowTextLength: 0,
-            bridgeCommandCount: 0,
-            reviewIntakeReadyCommandCount: 0,
-            bridgeResponseCount: 0,
-            intakeFrameCount: 0,
-            reviewIntakeSnapshotFrameCount: 0,
-            reviewIntakeMetadataWindowFrameCount: 0,
-            reviewIntakeLastFrameKind: "none",
-            reviewIntakeLastStreamIdMatches: false
-        )
-    }
 }

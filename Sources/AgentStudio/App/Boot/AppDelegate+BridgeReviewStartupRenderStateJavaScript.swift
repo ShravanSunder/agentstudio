@@ -494,6 +494,66 @@ extension AppDelegate {
               )
                 ? Number(reviewTreeClickProbe.selectedCharacterCount)
                 : 0;
+              const reviewTreeClickProbeClip = (value, maxLength) => String(value ?? '').slice(0, maxLength);
+              const reviewTreeClickProbeString = (name, fallback) =>
+                typeof reviewTreeClickProbe[name] === 'string' ? reviewTreeClickProbe[name] : fallback;
+              const reviewTreeClickProbeNumber = (name, fallback) => {
+                const value = Number(reviewTreeClickProbe[name]);
+                return Number.isFinite(value) ? value : fallback;
+              };
+              const reviewTreeClickRowIdentity = (row) =>
+                row?.getAttribute('data-id') || row?.getAttribute('data-item-id') || row?.id ||
+                row?.getAttribute('data-item-path') || '';
+              let reviewTreeClickProbeTargetRowPathAtFind =
+                reviewTreeClickProbeString('targetRowPathAtFind', '');
+              let reviewTreeClickProbeTargetRowIdAtFind = reviewTreeClickProbeString('targetRowIdAtFind', '');
+              let reviewTreeClickProbeTargetRowIdAtDispatch =
+                reviewTreeClickProbeString('targetRowIdAtDispatch', '');
+              let reviewTreeClickProbeTargetRowConnectedAtDispatch =
+                reviewTreeClickProbe.targetRowConnectedAtDispatch === true;
+              let reviewTreeClickProbeTargetRowSameIdAtDispatch =
+                reviewTreeClickProbe.targetRowSameIdAtDispatch === true;
+              let reviewTreeClickProbeRenderedRowCountAtFind =
+                reviewTreeClickProbeNumber('renderedRowCountAtFind', 0);
+              let reviewTreeClickProbeRenderedRowCountAtDispatch =
+                reviewTreeClickProbeNumber('renderedRowCountAtDispatch', 0);
+              let reviewTreeClickProbeRenderedRowCountDeltaBeforeDispatch =
+                reviewTreeClickProbeNumber('renderedRowCountDeltaBeforeDispatch', 0);
+              let reviewTreeClickProbeDispatchResult = reviewTreeClickProbeString('dispatchResult', 'missing');
+              let reviewTreeClickProbeSelectionPollTrace = reviewTreeClickProbeString('selectionPollTrace', '');
+              let reviewTreeClickProbeSelectionPollCount = reviewTreeClickProbeNumber('selectionPollCount', 0);
+              let reviewTreeClickProbeSelectionPollLastIndex = reviewTreeClickProbeNumber('selectionPollLastIndex', -1);
+              let reviewTreeClickProbeSecondClickAttempted =
+                reviewTreeClickProbe.secondClickAttempted === true || reviewTreeClickAttemptCount > 1;
+              const reviewTreeClickProbeBreadcrumbState = () => ({
+                targetRowPathAtFind: reviewTreeClickProbeTargetRowPathAtFind, targetRowIdAtFind: reviewTreeClickProbeTargetRowIdAtFind,
+                targetRowIdAtDispatch: reviewTreeClickProbeTargetRowIdAtDispatch, targetRowConnectedAtDispatch: reviewTreeClickProbeTargetRowConnectedAtDispatch,
+                targetRowSameIdAtDispatch: reviewTreeClickProbeTargetRowSameIdAtDispatch, renderedRowCountAtFind: reviewTreeClickProbeRenderedRowCountAtFind,
+                renderedRowCountAtDispatch: reviewTreeClickProbeRenderedRowCountAtDispatch, renderedRowCountDeltaBeforeDispatch: reviewTreeClickProbeRenderedRowCountDeltaBeforeDispatch,
+                dispatchResult: reviewTreeClickProbeDispatchResult, selectionPollTrace: reviewTreeClickProbeSelectionPollTrace,
+                selectionPollCount: reviewTreeClickProbeSelectionPollCount, selectionPollLastIndex: reviewTreeClickProbeSelectionPollLastIndex, secondClickAttempted: reviewTreeClickProbeSecondClickAttempted
+              });
+              if (reviewTreeClickTargetPath.length > 0 && reviewTreeClickSelectedPath.length === 0) {
+                const selectionPollIndex = reviewTreeClickProbeSelectionPollCount;
+                const selectionPollEntry =
+                  `${selectionPollIndex}:${reviewTreeClickProbeClip(selectedItemId || 'missing', 80)}`;
+                reviewTreeClickProbeSelectionPollTrace =
+                  reviewTreeClickProbeSelectionPollTrace.length > 0
+                    ? `${reviewTreeClickProbeSelectionPollTrace}|${selectionPollEntry}`
+                    : selectionPollEntry;
+                reviewTreeClickProbeSelectionPollCount += 1;
+                reviewTreeClickProbeSelectionPollLastIndex = selectionPollIndex;
+                window.__bridgeReviewTreeClickProbe = {
+                  ...reviewTreeClickProbe,
+                  currentSelectedPath: reviewTreeClickCurrentSelectedPath,
+                  currentSelectedItemId: reviewTreeClickCurrentSelectedItemId,
+                  shellSelectedPath: reviewTreeClickShellSelectedPath,
+                  selectionPollTrace: reviewTreeClickProbeSelectionPollTrace,
+                  selectionPollCount: reviewTreeClickProbeSelectionPollCount,
+                  selectionPollLastIndex: reviewTreeClickProbeSelectionPollLastIndex,
+                  secondClickAttempted: reviewTreeClickProbeSecondClickAttempted
+                };
+              }
               const reviewTreeClickHasConverged =
                 reviewTreeClickTargetPath.length > 0 &&
                 selectedDisplayPath === reviewTreeClickTargetPath &&
@@ -520,7 +580,8 @@ extension AppDelegate {
                   selectedContentState: reviewTreeClickSelectedContentState,
                   selectedMaterializedItemType: reviewTreeClickSelectedMaterializedItemType,
                   selectedMaterializedItemVersion: reviewTreeClickSelectedMaterializedItemVersion,
-                  selectedCharacterCount: reviewTreeClickSelectedCharacterCount
+                  selectedCharacterCount: reviewTreeClickSelectedCharacterCount,
+                  ...reviewTreeClickProbeBreadcrumbState()
                 };
               }
               if (
@@ -541,26 +602,27 @@ extension AppDelegate {
                     targetRowVisible: reviewTreeClickTargetRowVisible,
                     clickAttemptCount: reviewTreeClickAttemptCount,
                     readyAfterScroll: true,
-                    status: 'awaiting_bottom_scroll_settle'
+                    status: 'awaiting_bottom_scroll_settle',
+                    ...reviewTreeClickProbeBreadcrumbState()
                   };
                 } else {
-                  const reviewTreeButtons = queryRowsIncludingOpenShadowRoots(
-                    reviewTree,
-                    'button[data-item-path][data-item-type="file"]'
-                  );
-                  const reviewTreeRows = (
-                    reviewTreeButtons.length > 0
-                      ? reviewTreeButtons
+                  const reviewTreeFileRows = () => {
+                    const buttons = queryRowsIncludingOpenShadowRoots(
+                      reviewTree,
+                      'button[data-item-path][data-item-type="file"]'
+                    );
+                    const rows = buttons.length > 0
+                      ? buttons
                       : queryRowsIncludingOpenShadowRoots(
                           reviewTree,
                           '[data-type="item"][data-item-type="file"][data-item-path]'
-                        )
-                  ).filter((row) => {
-                    return (
+                        );
+                    return rows.filter((row) =>
                       !row.hasAttribute('data-file-tree-sticky-row') &&
                       !row.hasAttribute('data-item-parked')
                     );
-                  });
+                  };
+                  const reviewTreeRows = reviewTreeFileRows();
                   reviewTreeClickRenderedRowCount = reviewTreeRows.length;
                   const reviewTreeClickTarget =
                     [...reviewTreeRows].reverse().find((row) => {
@@ -580,6 +642,9 @@ extension AppDelegate {
                       : targetRowRect.bottom >= 0 && targetRowRect.top <= window.innerHeight;
                     reviewTreeClickAttemptCount += 1;
                     reviewTreeClickTargetPath = reviewTreeClickTarget.getAttribute('data-item-path') || '';
+                    reviewTreeClickProbeTargetRowPathAtFind = reviewTreeClickTargetPath;
+                    reviewTreeClickProbeTargetRowIdAtFind = reviewTreeClickRowIdentity(reviewTreeClickTarget);
+                    reviewTreeClickProbeRenderedRowCountAtFind = reviewTreeClickRenderedRowCount;
                     window.__bridgeReviewTreeClickProbe = {
                       targetPath: reviewTreeClickTargetPath,
                       currentSelectedPath: reviewTreeClickCurrentSelectedPath,
@@ -590,10 +655,34 @@ extension AppDelegate {
                       targetRowVisible: reviewTreeClickTargetRowVisible,
                       clickAttemptCount: reviewTreeClickAttemptCount,
                       readyAfterScroll: true,
-                      status: 'clicked_after_scroll_settle'
+                      status: 'click_dispatch_pending',
+                      ...reviewTreeClickProbeBreadcrumbState()
                     };
                     reviewTreeClickTarget.scrollIntoView?.({ block: 'nearest' });
+                    const reviewTreeRowsAtDispatch = reviewTreeFileRows();
+                    reviewTreeClickProbeRenderedRowCountAtDispatch = reviewTreeRowsAtDispatch.length;
+                    reviewTreeClickProbeRenderedRowCountDeltaBeforeDispatch =
+                      reviewTreeClickProbeRenderedRowCountAtDispatch - reviewTreeClickProbeRenderedRowCountAtFind;
+                    reviewTreeClickProbeTargetRowConnectedAtDispatch = reviewTreeClickTarget.isConnected === true;
+                    reviewTreeClickProbeTargetRowIdAtDispatch = reviewTreeClickRowIdentity(reviewTreeClickTarget);
+                    reviewTreeClickProbeTargetRowSameIdAtDispatch =
+                      reviewTreeClickProbeTargetRowIdAtFind.length > 0 &&
+                      reviewTreeClickProbeTargetRowIdAtDispatch === reviewTreeClickProbeTargetRowIdAtFind;
                     reviewTreeClickTarget.click();
+                    reviewTreeClickProbeDispatchResult = 'completed';
+                    window.__bridgeReviewTreeClickProbe = {
+                      targetPath: reviewTreeClickTargetPath,
+                      currentSelectedPath: reviewTreeClickCurrentSelectedPath,
+                      currentSelectedItemId: reviewTreeClickCurrentSelectedItemId,
+                      shellSelectedPath: reviewTreeClickShellSelectedPath,
+                      renderedRowCount: reviewTreeClickRenderedRowCount,
+                      targetRowIndex: reviewTreeClickTargetRowIndex,
+                      targetRowVisible: reviewTreeClickTargetRowVisible,
+                      clickAttemptCount: reviewTreeClickAttemptCount,
+                      readyAfterScroll: true,
+                      status: 'clicked_after_scroll_settle',
+                      ...reviewTreeClickProbeBreadcrumbState()
+                    };
                   }
                 }
               }
@@ -750,6 +839,19 @@ extension AppDelegate {
                 reviewTreeClickSelectedMaterializedItemType,
                 reviewTreeClickSelectedMaterializedItemVersion,
                 reviewTreeClickSelectedCharacterCount,
+                reviewTreeClickProbeTargetRowPathAtFind,
+                reviewTreeClickProbeTargetRowIdAtFind,
+                reviewTreeClickProbeTargetRowIdAtDispatch,
+                reviewTreeClickProbeTargetRowConnectedAtDispatch,
+                reviewTreeClickProbeTargetRowSameIdAtDispatch,
+                reviewTreeClickProbeRenderedRowCountAtFind,
+                reviewTreeClickProbeRenderedRowCountAtDispatch,
+                reviewTreeClickProbeRenderedRowCountDeltaBeforeDispatch,
+                reviewTreeClickProbeDispatchResult,
+                reviewTreeClickProbeSelectionPollTrace,
+                reviewTreeClickProbeSelectionPollCount,
+                reviewTreeClickProbeSelectionPollLastIndex,
+                reviewTreeClickProbeSecondClickAttempted,
                 hasSelectedContentText:
                   selectedContentState === 'ready' &&
                   selectedContentRoleCount > 0 &&
