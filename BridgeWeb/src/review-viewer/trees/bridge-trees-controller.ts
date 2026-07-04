@@ -15,6 +15,9 @@ import {
 } from '../../app/bridge-pierre-tree-adapter.js';
 import type { ReviewTreeRowMetadata } from '../../features/review/models/review-protocol-models.js';
 import type { BridgeReviewPackage } from '../../foundation/review-package/bridge-review-package.js';
+import type { BridgeTelemetryRecorder } from '../../foundation/telemetry/bridge-telemetry-recorder.js';
+import type { BridgeTraceContext } from '../../foundation/telemetry/bridge-trace-context.js';
+import { recordBridgeTreeScrollToPathTelemetrySample } from '../../foundation/telemetry/bridge-viewer-telemetry-adapter.js';
 import type { BridgeReviewProjectionResult } from '../models/review-projection-models.js';
 
 export interface BridgeTreesModel {
@@ -63,6 +66,8 @@ export interface PlanBridgeTreesUpdateProps {
 
 export interface BridgeTreesControllerProps {
 	readonly model: BridgeTreesModel;
+	readonly telemetryRecorder?: BridgeTelemetryRecorder | undefined;
+	readonly telemetryTraceContext?: BridgeTraceContext | null | undefined;
 }
 
 const bridgeTreeFullInitialExpansionPathLimit = 500;
@@ -186,9 +191,21 @@ export class BridgeTreesController {
 	readonly #model: BridgeTreesModel;
 	#currentSource: BridgeTreesSource | null = null;
 	#selectedTreePath: string | null = null;
+	#telemetryRecorder: BridgeTelemetryRecorder | undefined;
+	#telemetryTraceContext: BridgeTraceContext | null;
 
 	constructor(props: BridgeTreesControllerProps) {
 		this.#model = props.model;
+		this.#telemetryRecorder = props.telemetryRecorder;
+		this.#telemetryTraceContext = props.telemetryTraceContext ?? null;
+	}
+
+	setTelemetryContext(props: {
+		readonly telemetryRecorder?: BridgeTelemetryRecorder | undefined;
+		readonly telemetryTraceContext?: BridgeTraceContext | null | undefined;
+	}): void {
+		this.#telemetryRecorder = props.telemetryRecorder;
+		this.#telemetryTraceContext = props.telemetryTraceContext ?? null;
 	}
 
 	applySource(source: BridgeTreesSource): BridgeTreesUpdatePlan {
@@ -238,7 +255,12 @@ export class BridgeTreesController {
 			return itemId;
 		}
 		this.revealTreePathAncestors(path);
-		this.#model.scrollToPath(path, { focus: true });
+		this.#scrollToPath({
+			focus: true,
+			options: { focus: true },
+			path,
+			reason: 'selected_path_effect',
+		});
 		this.#selectedTreePath = path;
 		return itemId;
 	}
@@ -261,9 +283,17 @@ export class BridgeTreesController {
 		return itemId;
 	}
 
-	revealTreePath(path: string): void {
+	revealTreePath(
+		path: string,
+		reason: 'append_reveal' | 'search_match' | 'selection_sync' = 'search_match',
+	): void {
 		this.revealTreePathAncestors(path);
-		this.#model.scrollToPath(path);
+		this.#scrollToPath({
+			focus: false,
+			options: undefined,
+			path,
+			reason,
+		});
 	}
 
 	revealFirstSearchMatch(searchText: string): string | null {
@@ -278,7 +308,7 @@ export class BridgeTreesController {
 		if (matchedPath === null) {
 			return null;
 		}
-		this.revealTreePath(matchedPath);
+		this.revealTreePath(matchedPath, 'search_match');
 		return matchedPath;
 	}
 
@@ -307,6 +337,28 @@ export class BridgeTreesController {
 
 	revealTreePathAncestors(path: string): void {
 		expandAncestorDirectories({ model: this.#model, path });
+	}
+
+	#scrollToPath(props: {
+		readonly focus: boolean;
+		readonly options: Parameters<BridgeTreesModel['scrollToPath']>[1];
+		readonly path: string;
+		readonly reason: 'append_reveal' | 'search_match' | 'selected_path_effect' | 'selection_sync';
+	}): void {
+		const startedAt = performance.now();
+		this.#model.scrollToPath(props.path, props.options);
+		if (this.#telemetryRecorder === undefined) {
+			return;
+		}
+		recordBridgeTreeScrollToPathTelemetrySample({
+			durationMilliseconds: performance.now() - startedAt,
+			focus: props.focus,
+			offset: 'none',
+			reason: props.reason,
+			telemetryRecorder: this.#telemetryRecorder,
+			traceContext: this.#telemetryTraceContext,
+			viewer: 'review',
+		});
 	}
 }
 

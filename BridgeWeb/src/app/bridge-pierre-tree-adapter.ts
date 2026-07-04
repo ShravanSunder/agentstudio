@@ -59,10 +59,6 @@ export interface BridgePierreFileRowElement {
 	readonly getAttribute: (name: string) => string | null;
 }
 
-interface BridgePierreMeasuredFileRowElement extends BridgePierreFileRowElement {
-	readonly getBoundingClientRect: () => DOMRect;
-}
-
 export interface BridgePierreTreePathEvent {
 	readonly target?: EventTarget | null;
 	readonly composedPath?: () => readonly unknown[];
@@ -83,12 +79,6 @@ const pierreTreeFileRowSelector =
 	'button[data-item-type="file"][data-item-path],[data-type="item"][data-item-type="file"][data-item-path]';
 const pierreTreeSelectableFileRowSelector =
 	'button[data-item-type="file"][data-item-path],[data-type="item"][data-item-type="file"][data-item-path]';
-
-export interface BridgePierreTreeRowScrollAnchor {
-	readonly offsetFromScrollOwnerTop: number;
-	readonly path: string;
-	readonly scrollOwner: BridgePierreTreeScrollOwner;
-}
 
 export function appendedOnlyPierreTreePaths(props: {
 	readonly nextPaths: readonly string[];
@@ -174,119 +164,6 @@ export function visiblePierreFileRowElementsForModel(
 	return Array.from(
 		pierreTreeRowContainerForModel(model)?.querySelectorAll(pierreTreeFileRowSelector) ?? [],
 	);
-}
-
-export function captureFirstVisiblePierreTreeRowAnchor(
-	model: BridgePierreTreeContainerModel,
-): BridgePierreTreeRowScrollAnchor | null {
-	const scrollOwner = pierreTreeScrollOwnerForModel(model);
-	if (scrollOwner === null) {
-		return null;
-	}
-	const scrollOwnerRect = scrollOwner.getBoundingClientRect();
-	const visibleRows = visiblePierreFileRowElementsForModel(model)
-		.map(
-			(
-				rowElement,
-			): {
-				readonly path: string;
-				readonly rowElement: BridgePierreMeasuredFileRowElement;
-			} | null => {
-				if (!hasGetBoundingClientRect(rowElement)) {
-					return null;
-				}
-				const path = rowElement.getAttribute('data-item-path');
-				if (path === null || path.length === 0) {
-					return null;
-				}
-				const rowRect = rowElement.getBoundingClientRect();
-				if (rowRect.bottom < scrollOwnerRect.top || rowRect.top > scrollOwnerRect.bottom) {
-					return null;
-				}
-				return { path, rowElement };
-			},
-		)
-		.filter(
-			(
-				row,
-			): row is {
-				readonly path: string;
-				readonly rowElement: BridgePierreMeasuredFileRowElement;
-			} => row !== null,
-		)
-		.toSorted(
-			(firstRow, secondRow): number =>
-				firstRow.rowElement.getBoundingClientRect().top -
-				secondRow.rowElement.getBoundingClientRect().top,
-		);
-	const anchorRow = visibleRows[0];
-	if (anchorRow === undefined) {
-		return null;
-	}
-	return {
-		offsetFromScrollOwnerTop:
-			anchorRow.rowElement.getBoundingClientRect().top - scrollOwnerRect.top,
-		path: anchorRow.path,
-		scrollOwner,
-	};
-}
-
-export function restorePierreTreeRowAnchor(anchor: BridgePierreTreeRowScrollAnchor | null): void {
-	if (anchor === null) {
-		return;
-	}
-	const currentAnchorRow = Array.from(
-		anchor.scrollOwner.querySelectorAll(pierreTreeFileRowSelector),
-	)
-		.filter(hasGetAttribute)
-		.filter(hasGetBoundingClientRect)
-		.find((rowElement): boolean => rowElement.getAttribute('data-item-path') === anchor.path);
-	if (currentAnchorRow === undefined) {
-		return;
-	}
-	const currentOffset =
-		currentAnchorRow.getBoundingClientRect().top - anchor.scrollOwner.getBoundingClientRect().top;
-	const offsetDelta = currentOffset - anchor.offsetFromScrollOwnerTop;
-	if (Math.abs(offsetDelta) < 1) {
-		return;
-	}
-	anchor.scrollOwner.scrollTop += offsetDelta;
-	anchor.scrollOwner.dispatchEvent(new Event('scroll', { bubbles: true }));
-}
-
-export function restorePierreTreeRowAnchorFromPathOrder(props: {
-	readonly anchor: BridgePierreTreeRowScrollAnchor | null;
-	readonly nextPaths: readonly string[];
-	readonly previousPaths: readonly string[];
-	readonly rowHeightPixels: number;
-}): void {
-	const anchor = props.anchor;
-	if (anchor === null) {
-		return;
-	}
-	const previousIndex = props.previousPaths.indexOf(anchor.path);
-	const nextIndex = props.nextPaths.indexOf(anchor.path);
-	if (previousIndex < 0 || nextIndex < 0 || previousIndex === nextIndex) {
-		return;
-	}
-	anchor.scrollOwner.scrollTop += (nextIndex - previousIndex) * props.rowHeightPixels;
-	anchor.scrollOwner.dispatchEvent(new Event('scroll', { bubbles: true }));
-}
-
-export function restorePierreTreeRowAnchorAcrossAnimationFrames(props: {
-	readonly anchor: BridgePierreTreeRowScrollAnchor | null;
-	readonly frameBudget: number;
-}): void {
-	restorePierreTreeRowAnchor(props.anchor);
-	if (props.anchor === null || props.frameBudget <= 0) {
-		return;
-	}
-	requestAnimationFrame((): void => {
-		restorePierreTreeRowAnchorAcrossAnimationFrames({
-			anchor: props.anchor,
-			frameBudget: props.frameBudget - 1,
-		});
-	});
 }
 
 export function pierreFilePathFromTreeEvent(event: BridgePierreTreePathEvent): string | null {
@@ -378,14 +255,6 @@ function hasGetAttribute(candidate: unknown): candidate is BridgePierreFileRowEl
 		candidate !== null &&
 		'getAttribute' in candidate &&
 		typeof candidate.getAttribute === 'function'
-	);
-}
-
-function hasGetBoundingClientRect(
-	candidate: BridgePierreFileRowElement,
-): candidate is BridgePierreMeasuredFileRowElement {
-	return (
-		'getBoundingClientRect' in candidate && typeof candidate.getBoundingClientRect === 'function'
 	);
 }
 

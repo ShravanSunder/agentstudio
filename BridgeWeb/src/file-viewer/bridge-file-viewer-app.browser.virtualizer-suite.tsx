@@ -5,6 +5,7 @@ import { cleanup, render } from 'vitest-browser-react';
 import '../app/bridge-app.css';
 import { worktreeFileProtocolFrameSchema } from '../features/worktree-file/models/worktree-file-protocol-models.js';
 import type { WorktreeFileProtocolFrame } from '../features/worktree-file/models/worktree-file-protocol-models.js';
+import type { BridgeTelemetrySample } from '../foundation/telemetry/bridge-telemetry-event.js';
 import {
 	bridgeViewerVisibleTreeItemPaths,
 	findBridgeViewerTreeScrollOwner,
@@ -21,6 +22,7 @@ import {
 } from './bridge-file-viewer-browser-test-fixtures.js';
 import {
 	requireFramePublisher,
+	makeTestTelemetryRecorder,
 	waitForMetadataTreeRowCount,
 	waitForTreeScrollHeightAtLeast,
 } from './bridge-file-viewer-browser-test-harness.js';
@@ -34,6 +36,7 @@ describe('BridgeFileViewerApp virtualizer anchoring', () => {
 
 	test('keeps the first visible tree row anchored when a reset prepends rows above it', async () => {
 		let publishFrames: PublishWorktreeFileFrames | null = null;
+		const telemetrySamples: BridgeTelemetrySample[] = [];
 
 		render(
 			<BridgeFileViewerApp
@@ -45,6 +48,7 @@ describe('BridgeFileViewerApp virtualizer anchoring', () => {
 						publishFrames = null;
 					};
 				}}
+				telemetryRecorder={makeTestTelemetryRecorder(telemetrySamples)}
 			/>,
 		);
 
@@ -76,6 +80,11 @@ describe('BridgeFileViewerApp virtualizer anchoring', () => {
 		});
 
 		expect(scrollOwner.scrollTop).toBeGreaterThan(scrollTopBefore);
+		expect(
+			telemetrySamples.filter(
+				(sample): boolean => sample.name === 'performance.bridge.trees.anchor_restore',
+			),
+		).toEqual([]);
 	});
 });
 

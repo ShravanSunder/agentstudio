@@ -249,6 +249,25 @@ describe('Bridge file viewer source structure', () => {
 		expect(treeRuntimeSource).not.toContain('fileDescriptorByPath,\\n\\t\\tmodel,');
 	});
 
+	test('keeps File View free of app-side Pierre scroll anchor workarounds', () => {
+		const adapterSource = readFileSync(
+			fileURLToPath(new URL('../app/bridge-pierre-tree-adapter.ts', import.meta.url)),
+			'utf8',
+		);
+		const treeRuntimeSource = readFileSync(
+			fileURLToPath(new URL('./bridge-file-viewer-pierre-tree-runtime.ts', import.meta.url)),
+			'utf8',
+		);
+
+		expect(adapterSource).not.toContain('captureFirstVisiblePierreTreeRowAnchor');
+		expect(adapterSource).not.toContain('restorePierreTreeRowAnchor');
+		expect(adapterSource).not.toContain('scrollTop +=');
+		expect(adapterSource).not.toContain("dispatchEvent(new Event('scroll'");
+		expect(treeRuntimeSource).not.toContain('captureFirstVisiblePierreTreeRowAnchor');
+		expect(treeRuntimeSource).not.toContain('restorePierreTreeRowAnchor');
+		expect(treeRuntimeSource).not.toContain('anchor_workaround');
+	});
+
 	test('keeps Pierre tree runtime effects owned by the tree runtime hook', () => {
 		const fileViewerSources = readFileViewerSourceFiles();
 		const runtimeOwners = treeRuntimeOwnershipNeedles.flatMap((needle): readonly string[] =>

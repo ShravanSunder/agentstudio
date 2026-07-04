@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, test } from 'vitest';
 
+import type { BridgeTelemetrySample } from '../../foundation/telemetry/bridge-telemetry-event.js';
+import type {
+	BridgeTelemetryMeasureProps,
+	BridgeTelemetryRecorder,
+} from '../../foundation/telemetry/bridge-telemetry-recorder.js';
 import {
 	applyReviewTreeSelectionFromEvent,
 	createBridgeReviewTreeVisibleItemPublisher,
@@ -85,6 +90,40 @@ describe('BridgeReviewTreesPanel selection dispatch', () => {
 		expect(selectedItemIds).toEqual(['post-scroll-target-item']);
 	});
 
+	test('emits scroll frame gap telemetry once a coalesced visible-id burst settles', () => {
+		const requestedFrames: (() => void)[] = [];
+		const telemetrySamples: BridgeTelemetrySample[] = [];
+		const publisher = createBridgeReviewTreeVisibleItemPublisher({
+			captureVisibleItemIds: () => ['item-visible'],
+			onVisibleItemIdsChange: (): void => {},
+			requestAnimationFrame: (callback: () => void): number => {
+				requestedFrames.push(callback);
+				return requestedFrames.length;
+			},
+			telemetryRecorder: makeCapturingRecorder(telemetrySamples),
+			telemetryTraceContext: null,
+			viewer: 'review',
+		});
+
+		publisher.schedule();
+		publisher.schedule();
+		requestedFrames[0]?.();
+
+		expect(telemetrySamples).toEqual([
+			expect.objectContaining({
+				name: 'performance.bridge.trees.scroll_frame_gap',
+				stringAttributes: expect.objectContaining({
+					'agentstudio.bridge.phase': 'scroll_frame_gap',
+					'agentstudio.bridge.viewer': 'review',
+				}),
+				numericAttributes: expect.objectContaining({
+					'agentstudio.bridge.visible_publisher.skipped.count': 1,
+					'agentstudio.bridge.visible_row.count': 1,
+				}),
+			}),
+		]);
+	});
+
 	test('defers the React selection callback outside the click handler task', async () => {
 		const selectedItemIds: string[] = [];
 		const selectedTreePaths: string[] = [];
@@ -157,4 +196,15 @@ class RecordingReviewTreeRowElement {
 		}
 		return name === 'data-item-path' ? this.path : null;
 	}
+}
+
+function makeCapturingRecorder(samples: BridgeTelemetrySample[]): BridgeTelemetryRecorder {
+	return {
+		flush: (): boolean => true,
+		isEnabled: (): boolean => true,
+		measure: <TResult>(props: BridgeTelemetryMeasureProps<TResult>): TResult => props.operation(),
+		record: (sample: BridgeTelemetrySample): void => {
+			samples.push(sample);
+		},
+	};
 }

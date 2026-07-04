@@ -20,8 +20,14 @@ import type { BridgeReviewPackage } from '../../foundation/review-package/bridge
 import type { BridgeTelemetryRecorder } from '../../foundation/telemetry/bridge-telemetry-recorder.js';
 import type { BridgeTraceContext } from '../../foundation/telemetry/bridge-trace-context.js';
 import { recordBridgeViewerFirstInteractionReady } from '../../foundation/telemetry/bridge-viewer-first-interaction.js';
+import {
+	recordBridgeTreeClickToRowHighlightTelemetrySample,
+	recordBridgeTreeHoverToRenderTelemetrySample,
+	recordBridgeTreeVisibleIdsCaptureTelemetrySample,
+} from '../../foundation/telemetry/bridge-viewer-telemetry-adapter.js';
 import type { BridgeReviewProjectionResult } from '../models/review-projection-models.js';
 import { BridgeTreesController, createBridgeTreesSource } from './bridge-trees-controller.js';
+import { createBridgeReviewTreeVisibleItemPublisher } from './bridge-trees-visible-item-publisher.js';
 
 const preserveInputOrderSort: FileTreeSortComparator = () => 0;
 const bridgeReviewTreeInitialVisibleRowCount = 24;
@@ -46,18 +52,7 @@ declare global {
 	}
 }
 
-export interface BridgeReviewTreeVisibleItemPublisher {
-	readonly cancel: () => void;
-	readonly publishNow: () => void;
-	readonly schedule: () => void;
-}
-
-export interface CreateBridgeReviewTreeVisibleItemPublisherProps {
-	readonly cancelAnimationFrame?: (frameId: number) => void;
-	readonly captureVisibleItemIds: () => readonly string[];
-	readonly onVisibleItemIdsChange: (itemIds: readonly string[]) => void;
-	readonly requestAnimationFrame?: (callback: () => void) => number;
-}
+export { createBridgeReviewTreeVisibleItemPublisher } from './bridge-trees-visible-item-publisher.js';
 
 export interface BridgeReviewTreesPanelProps {
 	readonly reviewPackage: BridgeReviewPackage;
@@ -139,7 +134,20 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 		unsafeCSS: bridgeViewerTreeUnsafeCSS,
 	});
 	const controllerRef = useRef<BridgeTreesController | null>(null);
-	controllerRef.current ??= new BridgeTreesController({ model });
+	controllerRef.current ??= new BridgeTreesController({
+		model,
+		telemetryRecorder,
+		telemetryTraceContext,
+	});
+	controllerRef.current.setTelemetryContext({
+		telemetryRecorder,
+		telemetryTraceContext,
+	});
+	const scrollActiveRef = useRef(false);
+	const hoverMeasurementRef = useRef<{
+		readonly path: string | null;
+		readonly startedAt: number;
+	} | null>(null);
 
 	useEffect((): void => {
 		const updatePlan = controllerRef.current?.applySource(source);
@@ -202,23 +210,92 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 		model.getItem(path)?.select();
 	}, [model, props.projection, props.selectedItemId]);
 
-	const selectClickedFileRow = useCallback((event: Event): void => {
-		applyReviewTreeSelectionFromEvent({
-			event,
-			onSelectItem: (itemId: string): void => {
-				onSelectItemRef.current(itemId);
-			},
-			primaryItemIdByTreePath: sourceRef.current.primaryItemIdByTreePath,
-			selectClickedTreePath: (path: string): string | null => {
-				isSyncingClickedSelectionRef.current = true;
-				try {
-					return controllerRef.current?.selectClickedTreePath(path) ?? null;
-				} finally {
-					isSyncingClickedSelectionRef.current = false;
+	const selectClickedFileRow = useCallback(
+		(event: Event): void => {
+			const startedAt = performance.now();
+			const selection = reviewTreeSelectionForEventTarget({
+				primaryItemIdByTreePath: sourceRef.current.primaryItemIdByTreePath,
+				target: event,
+			});
+			const didSelect = applyReviewTreeSelectionFromEvent({
+				event,
+				onSelectItem: (itemId: string): void => {
+					onSelectItemRef.current(itemId);
+				},
+				primaryItemIdByTreePath: sourceRef.current.primaryItemIdByTreePath,
+				selectClickedTreePath: (path: string): string | null => {
+					isSyncingClickedSelectionRef.current = true;
+					try {
+						return controllerRef.current?.selectClickedTreePath(path) ?? null;
+					} finally {
+						isSyncingClickedSelectionRef.current = false;
+					}
+				},
+			});
+			if (telemetryRecorder === undefined) {
+				return;
+			}
+			requestAnimationFrame((): void => {
+				const rowMounted =
+					selection === null ? false : reviewTreeRowIsMounted({ model, path: selection.path });
+				recordBridgeTreeClickToRowHighlightTelemetrySample({
+					alreadySelected: selection?.itemId === props.selectedItemId,
+					durationMilliseconds: performance.now() - startedAt,
+					result: didSelect && rowMounted ? 'success' : 'failed',
+					scrollActive: scrollActiveRef.current,
+					source: clickSourceForEvent(event),
+					telemetryRecorder,
+					traceContext: telemetryTraceContext,
+					viewer: 'review',
+					visibleItemCount: visibleReviewTreeItemIds({
+						model,
+						primaryItemIdByTreePath: sourceRef.current.primaryItemIdByTreePath,
+					}).length,
+				});
+			});
+		},
+		[model, props.selectedItemId, telemetryRecorder, telemetryTraceContext],
+	);
+
+	const measureHoverToRender = useCallback(
+		(event: Event): void => {
+			if (telemetryRecorder === undefined || hoverMeasurementRef.current !== null) {
+				return;
+			}
+			const selection = reviewTreeSelectionForEventTarget({
+				primaryItemIdByTreePath: sourceRef.current.primaryItemIdByTreePath,
+				target: event,
+			});
+			hoverMeasurementRef.current = {
+				path: selection?.path ?? null,
+				startedAt: performance.now(),
+			};
+			requestAnimationFrame((): void => {
+				const pendingMeasurement = hoverMeasurementRef.current;
+				hoverMeasurementRef.current = null;
+				if (pendingMeasurement === null) {
+					return;
 				}
-			},
-		});
-	}, []);
+				const rowMounted =
+					pendingMeasurement.path === null
+						? false
+						: reviewTreeRowIsMounted({ model, path: pendingMeasurement.path });
+				recordBridgeTreeHoverToRenderTelemetrySample({
+					durationMilliseconds: performance.now() - pendingMeasurement.startedAt,
+					result: rowMounted ? 'success' : 'failed',
+					rowMounted,
+					telemetryRecorder,
+					traceContext: telemetryTraceContext,
+					viewer: 'review',
+					visibleItemCount: visibleReviewTreeItemIds({
+						model,
+						primaryItemIdByTreePath: sourceRef.current.primaryItemIdByTreePath,
+					}).length,
+				});
+			});
+		},
+		[model, telemetryRecorder, telemetryTraceContext],
+	);
 
 	useEffect((): (() => void) => {
 		let scrollElement: BridgePierreTreeScrollOwner | null = null;
@@ -227,12 +304,20 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 				visibleReviewTreeItemIds({
 					model,
 					primaryItemIdByTreePath: sourceRef.current.primaryItemIdByTreePath,
+					telemetryRecorder,
+					telemetryTraceContext,
 				}),
 			onVisibleItemIdsChange: (itemIds): void => {
 				onVisibleItemIdsChange?.(itemIds);
 			},
+			telemetryRecorder,
+			telemetryTraceContext,
+			viewer: 'review',
 		});
-		const scheduleVisibleItemIds = (): void => visibleItemPublisher.schedule();
+		const scheduleVisibleItemIds = (): void => {
+			scrollActiveRef.current = true;
+			visibleItemPublisher.schedule();
+		};
 		const setupFrameId = requestAnimationFrame((): void => {
 			scrollElement = pierreTreeScrollOwnerForModel(model);
 			scrollElement?.addEventListener('scroll', scheduleVisibleItemIds, { passive: true });
@@ -247,6 +332,8 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 					visibleItemCount: visibleReviewTreeItemIds({
 						model,
 						primaryItemIdByTreePath: sourceRef.current.primaryItemIdByTreePath,
+						telemetryRecorder,
+						telemetryTraceContext,
 					}).length,
 					fallbackTraceContext: telemetryTraceContext,
 				});
@@ -267,42 +354,12 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 			className="h-full min-h-0 overflow-hidden bg-[var(--bridge-surface-bg)] text-[var(--bridge-text-secondary)]"
 			data-testid="bridge-review-trees-panel"
 			onClickCapture={(event): void => selectClickedFileRow(event.nativeEvent)}
+			onPointerOverCapture={(event): void => measureHoverToRender(event.nativeEvent)}
+			onPointerMoveCapture={(event): void => measureHoverToRender(event.nativeEvent)}
 		>
 			<FileTree model={model} style={bridgeViewerTreeStyle} />
 		</div>
 	);
-}
-
-export function createBridgeReviewTreeVisibleItemPublisher(
-	props: CreateBridgeReviewTreeVisibleItemPublisherProps,
-): BridgeReviewTreeVisibleItemPublisher {
-	const requestFrame = props.requestAnimationFrame ?? requestAnimationFrame;
-	const cancelFrame =
-		props.cancelAnimationFrame ??
-		(typeof cancelAnimationFrame === 'function' ? cancelAnimationFrame : undefined);
-	let animationFrameId: number | null = null;
-	const publishNow = (): void => {
-		props.onVisibleItemIdsChange(props.captureVisibleItemIds());
-	};
-	return {
-		cancel: (): void => {
-			if (animationFrameId === null) {
-				return;
-			}
-			cancelFrame?.(animationFrameId);
-			animationFrameId = null;
-		},
-		publishNow,
-		schedule: (): void => {
-			if (animationFrameId !== null) {
-				return;
-			}
-			animationFrameId = requestFrame((): void => {
-				animationFrameId = null;
-				publishNow();
-			});
-		},
-	};
 }
 
 export function reviewTreeItemIdForEventTarget(props: {
@@ -398,11 +455,43 @@ export function reviewTreeSelectionForPath(props: {
 function visibleReviewTreeItemIds(props: {
 	readonly model: ReturnType<typeof useFileTree>['model'];
 	readonly primaryItemIdByTreePath: Readonly<Record<string, string>>;
+	readonly telemetryRecorder?: BridgeTelemetryRecorder | undefined;
+	readonly telemetryTraceContext?: BridgeTraceContext | null | undefined;
 }): readonly string[] {
-	return reviewTreeItemIdsForPierreVisibleFileRows({
+	const startedAt = performance.now();
+	const rowElements = visiblePierreFileRowElementsForModel(props.model);
+	const itemIds = reviewTreeItemIdsForPierreVisibleFileRows({
 		primaryItemIdByTreePath: props.primaryItemIdByTreePath,
-		rowElements: visiblePierreFileRowElementsForModel(props.model),
+		rowElements,
 	});
+	if (props.telemetryRecorder !== undefined) {
+		recordBridgeTreeVisibleIdsCaptureTelemetrySample({
+			durationMilliseconds: performance.now() - startedAt,
+			returnedDescriptorCount: 0,
+			returnedItemCount: itemIds.length,
+			rowCount: rowElements.length,
+			telemetryRecorder: props.telemetryRecorder,
+			traceContext: props.telemetryTraceContext ?? null,
+			viewer: 'review',
+		});
+	}
+	return itemIds;
+}
+
+function reviewTreeRowIsMounted(props: {
+	readonly model: ReturnType<typeof useFileTree>['model'];
+	readonly path: string;
+}): boolean {
+	return visiblePierreFileRowElementsForModel(props.model).some(
+		(rowElement): boolean => rowElement.getAttribute('data-item-path') === props.path,
+	);
+}
+
+function clickSourceForEvent(event: Event): 'keyboard' | 'mouse' | 'programmatic' {
+	if (!(event instanceof MouseEvent)) {
+		return 'programmatic';
+	}
+	return event.detail === 0 ? 'keyboard' : 'mouse';
 }
 
 function recordBridgeReviewTreeClickProbeCapture(props: {

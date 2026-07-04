@@ -76,6 +76,18 @@ extension BridgeTelemetryBatchValidator {
             prepareInputContractMatches(contract)
         case "performance.bridge.trees.scroll_visible_demand":
             scrollVisibleDemandContractMatches(contract)
+        case "performance.bridge.trees.click_to_row_highlight":
+            clickToRowHighlightContractMatches(contract)
+        case "performance.bridge.trees.hover_to_render":
+            hoverToRenderContractMatches(contract)
+        case "performance.bridge.trees.scroll_frame_gap":
+            scrollFrameGapContractMatches(contract)
+        case "performance.bridge.trees.anchor_restore":
+            anchorRestoreContractMatches(contract)
+        case "performance.bridge.trees.scroll_to_path":
+            scrollToPathContractMatches(contract)
+        case "performance.bridge.trees.visible_ids_capture":
+            visibleIdsCaptureContractMatches(contract)
         case "performance.bridge.trees.mode_switch":
             modeSwitchContractMatches(contract)
         case "performance.bridge.trees.search_filter":
@@ -521,6 +533,131 @@ extension BridgeTelemetryBatchValidator {
                     "agentstudio.bridge.projection.kind",
                     "agentstudio.bridge.result",
                 ]
+            )
+        )
+    }
+
+    private static func clickToRowHighlightContractMatches(
+        _ contract: BridgeTelemetryEventContract
+    ) -> Bool {
+        contract.matches(
+            treeInstrumentationExpectation(
+                phase: "click_to_row_highlight",
+                additionalStringKeys: [
+                    "agentstudio.bridge.input.source",
+                    "agentstudio.bridge.result",
+                    "agentstudio.bridge.viewer",
+                ],
+                numericKeys: ["agentstudio.bridge.visible_item.count"],
+                booleanKeys: [
+                    "agentstudio.bridge.already_selected",
+                    "agentstudio.bridge.scroll.active",
+                ]
+            )
+        )
+    }
+
+    private static func hoverToRenderContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+        contract.matches(
+            treeInstrumentationExpectation(
+                phase: "hover_to_render",
+                additionalStringKeys: [
+                    "agentstudio.bridge.result",
+                    "agentstudio.bridge.viewer",
+                ],
+                numericKeys: ["agentstudio.bridge.visible_item.count"],
+                booleanKeys: ["agentstudio.bridge.row_mounted"]
+            )
+        )
+    }
+
+    private static func scrollFrameGapContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+        contract.matches(
+            treeInstrumentationExpectation(
+                phase: "scroll_frame_gap",
+                additionalStringKeys: [
+                    "agentstudio.bridge.result",
+                    "agentstudio.bridge.viewer",
+                ],
+                numericKeys: [
+                    "agentstudio.bridge.scroll.frame_gap.max_ms",
+                    "agentstudio.bridge.scroll.frame_gap.over_16ms.count",
+                    "agentstudio.bridge.scroll.frame_gap.over_33ms.count",
+                    "agentstudio.bridge.scroll.frame_gap.over_50ms.count",
+                    "agentstudio.bridge.scroll.frame_gap.p95_ms",
+                    "agentstudio.bridge.visible_publisher.skipped.count",
+                    "agentstudio.bridge.visible_row.count",
+                ]
+            )
+        )
+    }
+
+    private static func anchorRestoreContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+        contract.matches(
+            treeInstrumentationExpectation(
+                phase: "anchor_restore",
+                additionalStringKeys: [
+                    "agentstudio.bridge.anchor_restore.phase",
+                    "agentstudio.bridge.result",
+                    "agentstudio.bridge.viewer",
+                ],
+                numericKeys: [
+                    "agentstudio.bridge.anchor_restore.call.count",
+                    "agentstudio.bridge.anchor_restore.direct_scroll_top_write.count",
+                    "agentstudio.bridge.anchor_restore.synthetic_scroll.count",
+                ]
+            )
+        )
+    }
+
+    private static func scrollToPathContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+        contract.matches(
+            treeInstrumentationExpectation(
+                phase: "scroll_to_path",
+                additionalStringKeys: [
+                    "agentstudio.bridge.result",
+                    "agentstudio.bridge.scroll.offset",
+                    "agentstudio.bridge.scroll.reason",
+                    "agentstudio.bridge.viewer",
+                ],
+                booleanKeys: ["agentstudio.bridge.focus"]
+            )
+        )
+    }
+
+    private static func visibleIdsCaptureContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+        contract.matches(
+            treeInstrumentationExpectation(
+                phase: "visible_ids_capture",
+                additionalStringKeys: [
+                    "agentstudio.bridge.result",
+                    "agentstudio.bridge.viewer",
+                ],
+                numericKeys: [
+                    "agentstudio.bridge.visible_descriptor.count",
+                    "agentstudio.bridge.visible_item.count",
+                    "agentstudio.bridge.visible_row.count",
+                ]
+            )
+        )
+    }
+
+    private static func treeInstrumentationExpectation(
+        phase: String,
+        additionalStringKeys: Set<String>,
+        numericKeys: Set<String> = [],
+        booleanKeys: Set<String> = []
+    ) -> BridgeTelemetryEventExpectation {
+        .init(
+            phase: phase,
+            plane: .data,
+            priority: .hot,
+            slice: .treePrepareInput,
+            transport: "worker",
+            attributeKeys: .init(
+                additionalStringKeys: additionalStringKeys,
+                numericKeys: numericKeys,
+                booleanKeys: booleanKeys
             )
         )
     }
