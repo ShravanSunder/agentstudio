@@ -27,6 +27,17 @@ export interface ApplyBridgeCodeViewItemUpdateOptions {
 
 export type ApplyBridgeCodeViewItemUpdateResult = 'added' | 'updated' | 'unchanged';
 
+// A content render (a real Pierre DOM apply) happens only when an item is newly added or its version
+// changed. An 'unchanged' apply is a version-equal no-op: no DOM swap, no height reflow, and no new
+// paint. The selected_content_painted telemetry and any "did the viewport re-render" decision must
+// gate on this so a benign metadata delta (which re-applies the same-version item) neither paints nor
+// re-renders. This is the single predicate behind that gate — see bridge-code-view-panel.tsx.
+export function bridgeCodeViewApplyResultDidRenderContent(
+	result: ApplyBridgeCodeViewItemUpdateResult,
+): boolean {
+	return result === 'added' || result === 'updated';
+}
+
 export class BridgeCodeViewController {
 	readonly #model: BridgeCodeViewModel;
 

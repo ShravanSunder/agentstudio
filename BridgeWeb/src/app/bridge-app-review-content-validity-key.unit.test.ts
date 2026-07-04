@@ -3,7 +3,12 @@ import { describe, expect, test } from 'vitest';
 import type { ReviewMaterializerDelta } from '../features/review/materialization/review-materializer.js';
 import { makeBridgeReviewPackage } from '../foundation/review-package/bridge-review-package-test-support.js';
 import {
+	BridgeCodeViewController,
+	bridgeCodeViewApplyResultDidRenderContent,
+} from '../review-viewer/code-view/bridge-code-view-controller.js';
+import {
 	type BridgeCodeViewContentResources,
+	type BridgeCodeViewItem,
 	materializeBridgeCodeViewItem,
 } from '../review-viewer/code-view/bridge-code-view-materialization.js';
 import {
@@ -468,5 +473,102 @@ describe('content-addressed key produces zero item re-render on a benign extent-
 		// exact value Pierre compares to decide a DOM swap — is unchanged, so the item is not re-rendered.
 		expect(nextItem.itemVersion).toBe(item.itemVersion);
 		expect(itemAfterDelta.version).toBe(itemBeforeDelta.version);
+	});
+});
+
+// A version-faithful stand-in for Pierre's CodeView model: updateItem swaps (returns true) only when
+// the item's version changes, mirroring CodeView.syncItemRecord (item.version === next.version →
+// return false). This lets the apply result be DERIVED from real materialized versions rather than
+// assumed, so the "painted fires once" proof rests on the same version identity the panel relies on.
+class VersionKeyedCodeViewModel {
+	readonly #itemsById = new Map<string, BridgeCodeViewItem>();
+
+	addItems(items: readonly BridgeCodeViewItem[]): void {
+		for (const item of items) {
+			this.#itemsById.set(item.id, item);
+		}
+	}
+
+	getItem(id: string): BridgeCodeViewItem | undefined {
+		return this.#itemsById.get(id);
+	}
+
+	updateItem(item: BridgeCodeViewItem): boolean {
+		const previous = this.#itemsById.get(item.id);
+		this.#itemsById.set(item.id, item);
+		return previous !== undefined && previous.version !== item.version;
+	}
+
+	updateItemId(): boolean {
+		return true;
+	}
+
+	scrollTo(): void {}
+
+	setSelectedLines(): void {}
+}
+
+// Drift-then-snap acceptance (final form): a click must produce EXACTLY ONE content render. The panel
+// schedules selected_content_painted iff the apply rendered content (bridgeCodeViewApplyResultDidRender
+// Content). This proves that after the initial hydrating apply, a benign extent-fact delta re-applies
+// the same-version item as a no-op ('unchanged'), so no second paint fires — one paint per selection.
+describe('a benign extent-fact delta paints selected content exactly once (no second apply)', () => {
+	test('applies the selected item once, then no-ops the post-delta re-apply, so painted fires once', () => {
+		const reviewPackage = makeBridgeReviewPackage();
+		const item = reviewPackage.itemsById['item-source'];
+		const baseHandle = item?.contentRoles.base ?? null;
+		const headHandle = item?.contentRoles.head ?? null;
+		if (item === undefined || baseHandle === null || headHandle === null) {
+			throw new Error('Expected modified item with base/head handles');
+		}
+		const resources: BridgeCodeViewContentResources = {
+			base: { handle: baseHandle, readText: (): string => 'base body' },
+			head: { handle: headHandle, readText: (): string => 'head body' },
+		};
+		const materializedBeforeDelta = materializeBridgeCodeViewItem({ item, resources });
+		if (materializedBeforeDelta === null) {
+			throw new Error('Expected the loaded item to materialize before the delta');
+		}
+
+		const controller = new BridgeCodeViewController({ model: new VersionKeyedCodeViewModel() });
+		let paintCount = 0;
+		const applyAndCountPaint = (nextItem: BridgeCodeViewItem): void => {
+			if (bridgeCodeViewApplyResultDidRenderContent(controller.applyItemUpdate(nextItem))) {
+				paintCount += 1;
+			}
+		};
+
+		// The click's hydrating apply renders content once.
+		applyAndCountPaint(materializedBeforeDelta);
+		expect(paintCount).toBe(1);
+
+		const nextReviewPackage = applyReviewMetadataDeltaToReviewPackage({
+			reviewPackage,
+			deltaFrame: extentFactDelta({
+				packageId: reviewPackage.packageId,
+				fromRevision: reviewPackage.revision,
+				facts: [
+					{ itemId: 'item-source', contentRole: 'base', lineCount: 31 },
+					{ itemId: 'item-source', contentRole: 'head', lineCount: 42 },
+				],
+				summary: reviewPackage.summary,
+			}),
+		});
+		if (nextReviewPackage === null) {
+			throw new Error('Expected extent-fact delta to apply');
+		}
+		const nextItem = nextReviewPackage.itemsById['item-source'];
+		if (nextItem === undefined) {
+			throw new Error('Expected the item to survive the extent-fact delta');
+		}
+		const materializedAfterDelta = materializeBridgeCodeViewItem({ item: nextItem, resources });
+		if (materializedAfterDelta === null) {
+			throw new Error('Expected the loaded item to materialize after the delta');
+		}
+
+		// The benign delta re-applies the same-version item → Pierre no-ops ('unchanged') → no second
+		// paint. Exactly one content render per selection.
+		applyAndCountPaint(materializedAfterDelta);
+		expect(paintCount).toBe(1);
 	});
 });

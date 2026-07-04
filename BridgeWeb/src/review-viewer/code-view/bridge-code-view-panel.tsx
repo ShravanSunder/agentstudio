@@ -10,6 +10,7 @@ import {
 	recordBridgeCodeViewItemMaterializeTelemetry,
 	recordBridgeSelectedContentPaintedTelemetry,
 } from '../telemetry/bridge-review-viewer-telemetry.js';
+import { bridgeCodeViewApplyResultDidRenderContent } from './bridge-code-view-controller.js';
 import {
 	createBridgeCodeViewInitialItems,
 	materializeBridgeCodeViewItem,
@@ -843,7 +844,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 						// added or updated the item record. An 'unchanged' apply (version-equal, e.g. a
 						// re-render that withheld or duplicated content) is a legitimate outcome recorded
 						// distinctly by the materialize event above, but it did NOT paint new content.
-						if (updateResult === 'added' || updateResult === 'updated') {
+						if (bridgeCodeViewApplyResultDidRenderContent(updateResult)) {
 							scheduleSelectedContentPaintedTelemetry({
 								telemetryRecorder: props.telemetryRecorder,
 								traceContext: props.telemetryParentTraceContext ?? null,
