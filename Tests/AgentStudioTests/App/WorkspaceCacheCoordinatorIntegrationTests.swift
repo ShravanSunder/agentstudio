@@ -426,6 +426,66 @@ final class WorkspaceCacheCoordinatorIntegrationTests {
     }
 
     @Test
+    func topology_repoRemovedBurstBeyondStandardLossyLimitConvergesViaCriticalSubscription() async {
+        let bus = EventBus<RuntimeEnvelope>()
+        let workspaceStore = makeWorkspaceStore()
+        let repoCache = RepoCacheAtom()
+        let coordinator = WorkspaceCacheCoordinator(
+            bus: bus,
+            workspaceStore: workspaceStore,
+            repoCache: repoCache,
+            scopeSyncHandler: { _ in }
+        )
+        await withStartedCoordinator(bus: bus, coordinator: coordinator) {
+            await waitForSubscriber(bus: bus)
+
+            let burstCount = BusSubscriberPolicy.standardLossyBufferLimit + 1
+            let repoPaths = (0..<burstCount).map { index in
+                URL(fileURLWithPath: "/tmp/topology-critical-remove-\(index)")
+            }
+            for repoPath in repoPaths {
+                _ = workspaceStore.addRepo(at: repoPath)
+            }
+            #expect(workspaceStore.repos.count == burstCount)
+
+            let removalBurst = repoPaths.enumerated().map { index, repoPath in
+                RuntimeEnvelope.system(
+                    SystemEnvelope.test(
+                        event: .topology(.repoRemoved(repoPath: repoPath)),
+                        source: .builtin(.filesystemWatcher),
+                        seq: UInt64(index + 1)
+                    )
+                )
+            }
+            let postResult = await bus.post(contentsOf: removalBurst)
+            #expect(postResult.subscriberCount > 0)
+            #expect(postResult.droppedCount == 0)
+
+            let converged = await eventually(
+                "critical subscriber should consume full removal burst",
+                maxTurns: burstCount * 4
+            ) {
+                let diagnostics = await bus.diagnosticsSnapshot()
+                let subscriber = diagnostics.activeSubscribers.first {
+                    $0.subscriberName == "WorkspaceCacheCoordinator"
+                }
+                return subscriber?.consumedCount ?? 0 >= UInt64(burstCount)
+                    && workspaceStore.repos.allSatisfy { workspaceStore.isRepoUnavailable($0.id) }
+            }
+            #expect(converged)
+
+            let diagnostics = await bus.diagnosticsSnapshot()
+            let subscriber = diagnostics.activeSubscribers.first {
+                $0.subscriberName == "WorkspaceCacheCoordinator"
+            }
+            #expect(subscriber?.policy == .criticalUnbounded)
+            #expect(subscriber?.liveDroppedCount == 0)
+            #expect(subscriber?.failureClasses.contains(.criticalDrop) == false)
+            #expect(subscriber?.failureClasses.contains(.criticalPressure) == false)
+        }
+    }
+
+    @Test
     func topology_repoDiscoveredScannedLinkedWorktrees_createsGroupedWorktrees() {
         let workspaceStore = makeWorkspaceStore()
         let repoCache = RepoCacheAtom()

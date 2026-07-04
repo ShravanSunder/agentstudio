@@ -87,7 +87,8 @@ actor GitWorkingDirectoryProjector {
         guard subscriptionTask == nil else { return }
         isShuttingDown = false
         let stream = await runtimeBus.subscribe(
-            bufferingPolicy: .bufferingNewest(subscriptionBufferLimit)
+            policy: .lossyNewest(subscriptionBufferLimit),
+            subscriberName: "GitWorkingDirectoryProjector"
         )
         subscriptionTask = Task { [weak self] in
             for await runtimeEnvelope in stream {

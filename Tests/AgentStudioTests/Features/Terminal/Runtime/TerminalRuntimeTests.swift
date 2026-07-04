@@ -325,7 +325,7 @@ struct TerminalRuntimeTests {
             paneEventBus: paneEventBus
         )
         runtime.transitionToReady()
-        let stream = await paneEventBus.subscribe()
+        let stream = await paneEventBus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         var iterator = stream.makeAsyncIterator()
 
         runtime.handleGhosttyEvent(.readOnlyChanged(true))
@@ -369,7 +369,7 @@ struct TerminalRuntimeTests {
             paneEventBus: paneEventBus
         )
         runtime.transitionToReady()
-        let stream = await paneEventBus.subscribe()
+        let stream = await paneEventBus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         var iterator = stream.makeAsyncIterator()
 
         runtime.handleGhosttyEvent(.promptTitleRequested(scope: .surface))
@@ -564,7 +564,11 @@ struct TerminalRuntimeTests {
         let replay = await runtime.eventsSince(seq: 0)
         #expect(replay.events.isEmpty)
 
-        let busEvent = await paneEventBus.waitForFirst(timeout: .milliseconds(100)) { envelope in
+        let busEvent = await paneEventBus.waitForFirst(
+            policy: .lossyNewest(BusSubscriberPolicy.standardLossyBufferLimit),
+            subscriberName: #function,
+            timeout: .milliseconds(100)
+        ) { envelope in
             envelope
         }
         #expect(busEvent == nil)

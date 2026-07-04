@@ -14,7 +14,7 @@ struct BridgeRuntimeTests {
         )
         runtime.transitionToReady()
 
-        let busStream = await paneEventBus.subscribe()
+        let busStream = await paneEventBus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         var busIterator = busStream.makeAsyncIterator()
         runtime.ingestBridgeEvent(
             .diff(.diffLoaded(stats: DiffStats(filesChanged: 1, insertions: 2, deletions: 0)))

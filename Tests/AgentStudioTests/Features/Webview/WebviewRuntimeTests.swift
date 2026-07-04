@@ -12,7 +12,7 @@ struct WebviewRuntimeTests {
         let runtime = makeRuntime(paneEventBus: paneEventBus)
         runtime.transitionToReady()
 
-        let busStream = await paneEventBus.subscribe()
+        let busStream = await paneEventBus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         var busIterator = busStream.makeAsyncIterator()
         runtime.ingestBrowserEvent(.pageLoaded(url: URL(string: "https://example.com")!))
 

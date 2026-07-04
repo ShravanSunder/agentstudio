@@ -37,6 +37,22 @@ final class RecordingSubscriber<Envelope: Sendable>: @unchecked Sendable {
         }
     }
 
+    init(stream: EventBusSubscription<Envelope>) {
+        task = Task {
+            for await event in stream {
+                await self.buffer.append(event)
+            }
+        }
+    }
+
+    init(subscription: EventBusSubscription<Envelope>) {
+        task = Task {
+            for await event in subscription {
+                await self.buffer.append(event)
+            }
+        }
+    }
+
     func snapshot() async -> [Envelope] {
         await buffer.snapshot()
     }
@@ -67,10 +83,11 @@ struct EventBusHarness<Envelope: Sendable> {
     }
 
     func makeSubscriber(
-        bufferingPolicy: AsyncStream<Envelope>.Continuation.BufferingPolicy = .bufferingNewest(256)
+        policy: BusSubscriberPolicy = .lossyNewest(BusSubscriberPolicy.standardLossyBufferLimit),
+        subscriberName: String = "EventBusHarness"
     ) async -> RecordingSubscriber<Envelope> {
-        let stream = await bus.subscribe(bufferingPolicy: bufferingPolicy)
-        return RecordingSubscriber(stream: stream)
+        let subscription = await bus.subscribe(policy: policy, subscriberName: subscriberName)
+        return RecordingSubscriber(subscription: subscription)
     }
 
     @discardableResult

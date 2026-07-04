@@ -27,7 +27,7 @@ struct ForgeActorTests {
         )
         await actor.start()
 
-        let stream = await bus.subscribe()
+        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         let observeTask = Task {
             for await envelope in stream {
                 await observer.record(envelope)
@@ -98,7 +98,7 @@ struct ForgeActorTests {
         )
         await actor.start()
 
-        let stream = await bus.subscribe()
+        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         let observeTask = Task {
             for await envelope in stream {
                 await observer.record(envelope)
@@ -168,7 +168,7 @@ struct ForgeActorTests {
         )
         await actor.start()
 
-        let stream = await bus.subscribe()
+        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         let observeTask = Task {
             for await envelope in stream {
                 await observer.record(envelope)
@@ -227,7 +227,7 @@ struct ForgeActorTests {
         )
         await actor.start()
 
-        let stream = await bus.subscribe()
+        let stream = await bus.subscribe(policy: .criticalUnbounded, subscriberName: #function)
         let observeTask = Task {
             for await envelope in stream {
                 await observer.record(envelope)

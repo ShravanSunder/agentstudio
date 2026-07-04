@@ -131,7 +131,10 @@ final class TerminalActivityRouter {
     func start() async {
         guard busTask == nil else { return }
 
-        let stream = await bus.subscribe()
+        let stream = await bus.subscribe(
+            policy: .lossyNewest(BusSubscriberPolicy.standardLossyBufferLimit),
+            subscriberName: "TerminalActivityRouter"
+        )
         busTask = Task { @MainActor [weak self] in
             for await envelope in stream {
                 guard !Task.isCancelled else { return }
