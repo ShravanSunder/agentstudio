@@ -93,7 +93,6 @@ export type BridgeReviewCanvasLoadingReason = 'content' | 'markdownPreview';
 export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 	const registry = createBridgeReviewItemRegistry({
 		reviewPackage: props.reviewPackage,
-		selectedItemId: props.selectedItemId,
 	});
 	const projectionMode = props.projectionMode ?? { kind: 'normalReview' };
 	const gitStatusFilter = props.gitStatusFilter ?? 'all';

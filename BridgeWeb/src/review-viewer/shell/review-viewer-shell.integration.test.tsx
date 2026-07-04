@@ -3,7 +3,14 @@ import { describe, expect, test } from 'vitest';
 
 import { BridgeViewerContentHeader } from '../../app/bridge-viewer-content-header.js';
 import { BridgeViewerResizableRailLayout } from '../../app/bridge-viewer-resizable-rail-layout.js';
-import { makeBridgeReviewPackage } from '../../foundation/review-package/bridge-review-package-test-support.js';
+import {
+	readBridgeReviewItemRegistryDiagnostics,
+	resetBridgeReviewItemRegistryDiagnosticsForTests,
+} from '../../foundation/review-package/bridge-review-item-registry.js';
+import {
+	makeBridgeReviewItem,
+	makeBridgeReviewPackage,
+} from '../../foundation/review-package/bridge-review-package-test-support.js';
 import type { BridgeReviewPackage } from '../../foundation/review-package/bridge-review-package.js';
 import { BridgeReviewFacetMenu } from '../chrome/bridge-review-facet-menu.js';
 import { BridgeReviewProjectionMenu } from '../chrome/bridge-review-projection-menu.js';
@@ -14,6 +21,65 @@ import { buildBridgeReviewProjection } from '../navigation/review-projection.js'
 import { BridgeReviewCanvasLoadingState, ReviewViewerShell } from './review-viewer-shell.js';
 
 describe('review viewer shell', () => {
+	test('does not rebuild package registry facts when only selection changes', () => {
+		const reviewPackage = appendedReviewPackageForShell();
+
+		ReviewViewerShell({
+			reviewPackage,
+			projection: projectionForPackage(reviewPackage),
+			selectedItemId: 'item-source',
+			onSelectItem: () => undefined,
+			selectedContentText: null,
+		});
+		resetBridgeReviewItemRegistryDiagnosticsForTests();
+
+		ReviewViewerShell({
+			reviewPackage,
+			projection: projectionForPackage(reviewPackage),
+			selectedItemId: 'item-added',
+			onSelectItem: () => undefined,
+			selectedContentText: null,
+		});
+
+		expect(readBridgeReviewItemRegistryDiagnostics()).toMatchObject({
+			cacheHitCount: 1,
+			fullBuildCount: 0,
+		});
+	});
+
+	test('builds registry facts at most once for repeated renders of one appended package batch', () => {
+		const reviewPackage = makeBridgeReviewPackage();
+		const appendedReviewPackage = appendedReviewPackageForShell(reviewPackage);
+
+		resetBridgeReviewItemRegistryDiagnosticsForTests();
+		ReviewViewerShell({
+			reviewPackage: appendedReviewPackage,
+			projection: projectionForPackage(appendedReviewPackage),
+			selectedItemId: 'item-source',
+			onSelectItem: () => undefined,
+			selectedContentText: null,
+		});
+		ReviewViewerShell({
+			reviewPackage: appendedReviewPackage,
+			projection: projectionForPackage(appendedReviewPackage),
+			selectedItemId: 'item-added',
+			onSelectItem: () => undefined,
+			selectedContentText: null,
+		});
+		ReviewViewerShell({
+			reviewPackage: appendedReviewPackage,
+			projection: projectionForPackage(appendedReviewPackage),
+			selectedItemId: 'item-source',
+			onSelectItem: () => undefined,
+			selectedContentText: null,
+		});
+
+		expect(readBridgeReviewItemRegistryDiagnostics()).toMatchObject({
+			cacheHitCount: 2,
+			fullBuildCount: 1,
+		});
+	});
+
 	test('renders compact rail controls and visible item list without footer stats', () => {
 		const basePackage = makeBridgeReviewPackage();
 		const reviewPackage = {
@@ -570,6 +636,29 @@ describe('review viewer shell', () => {
 		expect(findElementByTestId(element, 'bridge-review-top-header')).toBeNull();
 	});
 });
+
+function appendedReviewPackageForShell(
+	reviewPackage: BridgeReviewPackage = makeBridgeReviewPackage(),
+): BridgeReviewPackage {
+	const addedItem = makeBridgeReviewItem({
+		itemId: 'item-added',
+		path: 'Sources/App/NewPanel.swift',
+	});
+	return {
+		...reviewPackage,
+		revision: reviewPackage.revision + 1,
+		orderedItemIds: [...reviewPackage.orderedItemIds, addedItem.itemId],
+		itemsById: {
+			...reviewPackage.itemsById,
+			[addedItem.itemId]: addedItem,
+		},
+		summary: {
+			...reviewPackage.summary,
+			filesChanged: reviewPackage.summary.filesChanged + 1,
+			visibleFileCount: reviewPackage.summary.visibleFileCount + 1,
+		},
+	};
+}
 
 function collectText(node: ReactNode): string {
 	return collectTextFragments(node).join(' ').replaceAll(/\s+/g, ' ').trim();

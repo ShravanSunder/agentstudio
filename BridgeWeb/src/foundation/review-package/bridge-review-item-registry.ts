@@ -11,23 +11,26 @@ import type {
 
 export interface CreateBridgeReviewItemRegistryProps {
 	readonly reviewPackage: BridgeReviewPackage;
-	readonly selectedItemId: string | null;
+	readonly selectedItemId?: string | null;
 }
 
 export interface BridgeReviewVisiblePriorityFact {
 	readonly itemId: string;
 	readonly pathLabel: string;
 	readonly reviewPriority: BridgeReviewPriority;
-	readonly isSelected: boolean;
 }
 
 export interface BridgeReviewItemRegistry {
 	readonly reviewPackage: BridgeReviewPackage;
-	readonly selectedItemId: string | null;
-	readonly selectedItem: BridgeReviewItemDescriptor | null;
 	readonly orderedItems: readonly BridgeReviewItemDescriptor[];
 	readonly visibleItems: readonly BridgeReviewItemDescriptor[];
 	readonly visiblePriorityFacts: readonly BridgeReviewVisiblePriorityFact[];
+}
+
+export interface BridgeReviewItemRegistryDiagnostics {
+	readonly cacheHitCount: number;
+	readonly fullBuildCount: number;
+	readonly incrementalBuildCount: number;
 }
 
 export type BridgeReviewDeltaRejectionReason =
@@ -46,31 +49,57 @@ export type BridgeReviewItemRegistryDeltaResult =
 			readonly registry: BridgeReviewItemRegistry;
 	  };
 
+const registryCacheByReviewPackage = new WeakMap<BridgeReviewPackage, BridgeReviewItemRegistry>();
+let registryDiagnostics: BridgeReviewItemRegistryDiagnostics = {
+	cacheHitCount: 0,
+	fullBuildCount: 0,
+	incrementalBuildCount: 0,
+};
+
 export function createBridgeReviewItemRegistry(
 	props: CreateBridgeReviewItemRegistryProps,
 ): BridgeReviewItemRegistry {
-	const orderedItems = orderedReviewItems(props.reviewPackage);
-	const selectedItem =
-		props.selectedItemId === null
-			? null
-			: (props.reviewPackage.itemsById[props.selectedItemId] ?? null);
+	const cachedRegistry = registryCacheByReviewPackage.get(props.reviewPackage);
+	if (cachedRegistry !== undefined) {
+		registryDiagnostics = {
+			...registryDiagnostics,
+			cacheHitCount: registryDiagnostics.cacheHitCount + 1,
+		};
+		return cachedRegistry;
+	}
+	const registry = buildBridgeReviewItemRegistry(props.reviewPackage);
+	registryCacheByReviewPackage.set(props.reviewPackage, registry);
+	return registry;
+}
+
+export function readBridgeReviewItemRegistryDiagnostics(): BridgeReviewItemRegistryDiagnostics {
+	return registryDiagnostics;
+}
+
+export function resetBridgeReviewItemRegistryDiagnosticsForTests(): void {
+	registryDiagnostics = {
+		cacheHitCount: 0,
+		fullBuildCount: 0,
+		incrementalBuildCount: 0,
+	};
+}
+
+function buildBridgeReviewItemRegistry(
+	reviewPackage: BridgeReviewPackage,
+): BridgeReviewItemRegistry {
+	registryDiagnostics = {
+		...registryDiagnostics,
+		fullBuildCount: registryDiagnostics.fullBuildCount + 1,
+	};
+	const orderedItems = orderedReviewItems(reviewPackage);
 	const visibleItems = orderedItems.filter((item: BridgeReviewItemDescriptor): boolean =>
-		isReviewItemVisible(props.reviewPackage, item),
+		isReviewItemVisible(reviewPackage, item),
 	);
 	return {
-		reviewPackage: props.reviewPackage,
-		selectedItemId: selectedItem?.itemId ?? null,
-		selectedItem,
+		reviewPackage,
 		orderedItems,
 		visibleItems,
-		visiblePriorityFacts: visibleItems.map(
-			(item: BridgeReviewItemDescriptor): BridgeReviewVisiblePriorityFact => ({
-				itemId: item.itemId,
-				pathLabel: reviewItemPathLabel(item),
-				reviewPriority: item.reviewPriority,
-				isSelected: selectedItem?.itemId === item.itemId,
-			}),
-		),
+		visiblePriorityFacts: visibleItems.map(bridgeReviewVisiblePriorityFact),
 	};
 }
 
@@ -100,11 +129,17 @@ export function applyDeltaToBridgeReviewItemRegistry(
 		};
 	}
 
+	if (canApplyDeltaToRegistryIncrementally(registry, delta)) {
+		return {
+			accepted: true,
+			registry: appendDeltaToBridgeReviewItemRegistry(registry, delta),
+		};
+	}
+
 	return {
 		accepted: true,
 		registry: createBridgeReviewItemRegistry({
 			reviewPackage: applyBridgeReviewDelta(registry.reviewPackage, delta),
-			selectedItemId: registry.selectedItemId,
 		}),
 	};
 }
@@ -164,6 +199,59 @@ function isReviewItemVisible(
 		return false;
 	}
 	return true;
+}
+
+function canApplyDeltaToRegistryIncrementally(
+	registry: BridgeReviewItemRegistry,
+	delta: BridgeReviewDelta,
+): boolean {
+	return (
+		delta.operations.removeItems.length === 0 &&
+		delta.operations.updateItems.length === 0 &&
+		delta.operations.moveItems.length === 0 &&
+		delta.operations.addItems.every(
+			(item: BridgeReviewItemDescriptor): boolean =>
+				registry.reviewPackage.itemsById[item.itemId] === undefined,
+		)
+	);
+}
+
+function appendDeltaToBridgeReviewItemRegistry(
+	registry: BridgeReviewItemRegistry,
+	delta: BridgeReviewDelta,
+): BridgeReviewItemRegistry {
+	registryDiagnostics = {
+		...registryDiagnostics,
+		incrementalBuildCount: registryDiagnostics.incrementalBuildCount + 1,
+	};
+	const reviewPackage = applyBridgeReviewDelta(registry.reviewPackage, delta);
+	const addedItems = delta.operations.addItems.filter((item: BridgeReviewItemDescriptor): boolean =>
+		reviewPackage.orderedItemIds.includes(item.itemId),
+	);
+	const visibleAddedItems = addedItems.filter((item: BridgeReviewItemDescriptor): boolean =>
+		isReviewItemVisible(reviewPackage, item),
+	);
+	const nextRegistry = {
+		reviewPackage,
+		orderedItems: [...registry.orderedItems, ...addedItems],
+		visibleItems: [...registry.visibleItems, ...visibleAddedItems],
+		visiblePriorityFacts: [
+			...registry.visiblePriorityFacts,
+			...visibleAddedItems.map(bridgeReviewVisiblePriorityFact),
+		],
+	};
+	registryCacheByReviewPackage.set(reviewPackage, nextRegistry);
+	return nextRegistry;
+}
+
+function bridgeReviewVisiblePriorityFact(
+	item: BridgeReviewItemDescriptor,
+): BridgeReviewVisiblePriorityFact {
+	return {
+		itemId: item.itemId,
+		pathLabel: reviewItemPathLabel(item),
+		reviewPriority: item.reviewPriority,
+	};
 }
 
 function isIncludedBySet<
