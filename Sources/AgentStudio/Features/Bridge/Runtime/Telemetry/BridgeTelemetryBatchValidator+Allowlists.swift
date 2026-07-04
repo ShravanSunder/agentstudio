@@ -10,6 +10,7 @@ extension BridgeTelemetryBatchValidator {
     ]
 
     static let allowedEventNames: Set<String> = [
+        "performance.bridge.swift.active_viewer_mode_signal_rejected",
         "performance.bridge.web.code_view_item_materialize",
         "performance.bridge.web.content_fetch",
         "performance.bridge.web.first_render",
@@ -49,6 +50,20 @@ extension BridgeTelemetryBatchValidator {
     ]
 
     static let allowedStringValuesByAttributeKey: [String: Set<String>] = [
+        "agentstudio.bridge.active_source.protocol": [
+            "none",
+            "review",
+            "worktree-file",
+        ],
+        "agentstudio.bridge.active_viewer.mode": [
+            "file",
+            "review",
+        ],
+        "agentstudio.bridge.active_viewer.signal_rejection_reason": [
+            "session_reset",
+            "stale_generation",
+            "stale_sequence",
+        ],
         "agentstudio.bridge.cache.result": [
             "cache_hit",
             "provider_load",
@@ -147,6 +162,7 @@ extension BridgeTelemetryBatchValidator {
         ],
         "agentstudio.bridge.phase": [
             "accepted",
+            "active_viewer_mode_signal_rejected",
             "apply",
             "content_register",
             "delta_build",
@@ -416,6 +432,7 @@ extension BridgeTelemetryBatchValidator {
 
     static let allowedNumericAttributeKeys: Set<String> = [
         "agentstudio.bridge.batch.sample_count",
+        "agentstudio.bridge.active_viewer.signal_rejected.count",
         "agentstudio.bridge.content.byte_count",
         "agentstudio.bridge.content.byte_length",
         "agentstudio.bridge.content.byte_size_bucket",

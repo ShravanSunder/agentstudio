@@ -143,6 +143,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 		file: null,
 		review: null,
 	});
+	const [activeViewerSourceSignalRevision, setActiveViewerSourceSignalRevision] = useState(0);
 	const telemetryRecorderRef = useRef<BridgeTelemetryRecorder>(createBridgeTelemetryRecorder(null));
 	const telemetryRecorder = useMemo(
 		(): BridgeTelemetryRecorder => ({
@@ -214,6 +215,9 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 				}
 				return { ...currentSources, file: activeSource };
 			});
+			if (activeSource !== null) {
+				setActiveViewerSourceSignalRevision((revision) => revision + 1);
+			}
 		},
 		[],
 	);
@@ -225,6 +229,9 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 				}
 				return { ...currentSources, review: activeSource };
 			});
+			if (activeSource !== null) {
+				setActiveViewerSourceSignalRevision((revision) => revision + 1);
+			}
 		},
 		[],
 	);
@@ -246,6 +253,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 	}, [
 		activeViewerModeRPCClient,
 		activeViewerSources,
+		activeViewerSourceSignalRevision,
 		activeViewerState.viewerMode,
 		registerBridgeReadyCallback,
 	]);

@@ -2,8 +2,15 @@ import Foundation
 
 @MainActor
 extension BridgePaneController {
-    func handleBridgeActiveViewerModeUpdate(_ params: BridgeActiveViewerModeUpdateMethod.Params) {
+    func handleBridgeActiveViewerModeUpdate(_ params: BridgeActiveViewerModeUpdateMethod.Params) async {
         if activeViewerModeSignalState.sessionId != params.sessionId {
+            if activeViewerModeSignalState.sessionId != nil {
+                await recordActiveViewerModeSignalRejected(
+                    reason: .sessionReset,
+                    mode: params.mode,
+                    activeSource: params.activeSource
+                )
+            }
             activeViewerModeSignalState = BridgeActiveViewerModeSignalState(
                 sessionId: params.sessionId,
                 lastSequence: nil,
@@ -13,20 +20,41 @@ extension BridgePaneController {
         if let lastSequence = activeViewerModeSignalState.lastSequence,
             params.sequence <= lastSequence
         {
+            activeViewerModeSignalState.acceptedSignal = nil
+            await recordActiveViewerModeSignalRejected(
+                reason: .staleSequence,
+                mode: params.mode,
+                activeSource: params.activeSource
+            )
             return
         }
 
         activeViewerModeSignalState.lastSequence = params.sequence
-        guard let activeSource = params.activeSource,
-            isActiveViewerSourceCurrent(activeSource)
-        else {
+        guard let activeSource = params.activeSource else {
             activeViewerModeSignalState.acceptedSignal = nil
+            return
+        }
+        guard isActiveViewerSourceCurrent(activeSource) else {
+            activeViewerModeSignalState.acceptedSignal = nil
+            await recordActiveViewerModeSignalRejected(
+                reason: .staleGeneration,
+                mode: params.mode,
+                activeSource: activeSource
+            )
             return
         }
         activeViewerModeSignalState.acceptedSignal = BridgeActiveViewerModeAcceptedSignal(
             mode: params.mode,
             activeSource: activeSource
         )
+    }
+
+    func clearActiveViewerModeAcceptedSignalForExplicitFileSurfaceRequest() {
+        activeViewerModeSignalState.acceptedSignal = nil
+    }
+
+    func clearActiveViewerModeAcceptedSignalForExplicitReviewRequest() {
+        activeViewerModeSignalState.acceptedSignal = nil
     }
 
     func shouldSuppressReviewProtocolProduction(generation _: Int) -> Bool {
@@ -85,6 +113,39 @@ extension BridgePaneController {
         )
     }
 
+    private func recordActiveViewerModeSignalRejected(
+        reason: BridgeActiveViewerModeSignalRejectionReason,
+        mode: BridgeActiveViewerMode,
+        activeSource: BridgeActiveViewerSource?
+    ) async {
+        guard let telemetryRecorder else {
+            return
+        }
+        await telemetryRecorder.record(
+            sample: BridgeTelemetrySample(
+                scope: .swift,
+                name: "performance.bridge.swift.active_viewer_mode_signal_rejected",
+                durationMilliseconds: nil,
+                traceContext: nil,
+                stringAttributes: [
+                    "agentstudio.bridge.active_source.protocol": activeSource?.protocolId.rawValue ?? "none",
+                    "agentstudio.bridge.active_viewer.mode": mode.rawValue,
+                    "agentstudio.bridge.active_viewer.signal_rejection_reason": reason.rawValue,
+                    "agentstudio.bridge.phase": "active_viewer_mode_signal_rejected",
+                    "agentstudio.bridge.plane": BridgeTelemetryPlane.control.rawValue,
+                    "agentstudio.bridge.priority": BridgeTelemetryPriority.warm.rawValue,
+                    "agentstudio.bridge.slice": BridgeTelemetrySlice.reviewRPC.rawValue,
+                    "agentstudio.bridge.transport": "swift",
+                ],
+                numericAttributes: [
+                    "agentstudio.bridge.active_viewer.signal_rejected.count": 1
+                ],
+                booleanAttributes: [:]
+            ),
+            receivedAtUnixNano: UInt64(Date().timeIntervalSince1970 * 1_000_000_000)
+        )
+    }
+
     private func isActiveViewerSourceCurrent(_ source: BridgeActiveViewerSource) -> Bool {
         switch source.protocolId {
         case .review:
@@ -113,4 +174,10 @@ extension BridgePaneController {
             return .unknown
         }
     }
+}
+
+private enum BridgeActiveViewerModeSignalRejectionReason: String {
+    case staleGeneration = "stale_generation"
+    case staleSequence = "stale_sequence"
+    case sessionReset = "session_reset"
 }

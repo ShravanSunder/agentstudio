@@ -9,6 +9,7 @@ import {
 	BridgeAppProtocolRouter,
 	resolveBridgeAppProtocolFromElement,
 } from './bridge-app-protocol-router.js';
+import { BridgeApp } from './bridge-app.js';
 
 interface ActiveViewerModeUpdateDetail {
 	readonly method: 'bridge.activeViewerMode.update';
@@ -206,6 +207,56 @@ describe('BridgeAppProtocolRouter', () => {
 			updates.map((detail) => detail.params.sequence).toSorted((left, right) => left - right),
 		);
 		expect(new Set(updates.map((detail) => detail.params.sessionId)).size).toBe(1);
+	});
+
+	test('re-emits file active source when a same-identity file surface open resolves', async () => {
+		const commandDetails: unknown[] = [];
+		let loadCount = 0;
+		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
+		document.addEventListener('__bridge_handshake_request', (): void => {
+			document.dispatchEvent(
+				new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-1' } }),
+			);
+		});
+		document.addEventListener('__bridge_command', (event: Event): void => {
+			const detail = extractEventDetail(event);
+			commandDetails.push(detail);
+			if (isBridgeReadyCommand(detail)) {
+				document.dispatchEvent(
+					new CustomEvent('__bridge_response', {
+						detail: { id: detail.id, result: {}, nonce: 'push-1' },
+					}),
+				);
+			}
+		});
+		const loadInitialSurface = async (): Promise<WorktreeFileInitialSurface> => {
+			loadCount += 1;
+			return await loadActiveViewerModeTestSurface();
+		};
+
+		const rendered = render(
+			<BridgeApp fileViewerProps={{ loadInitialSurface }} viewerMode="file" />,
+		);
+		await expect
+			.poll(
+				() => activeViewerModeUpdates(commandDetails).filter(hasWorktreeFileActiveSource).length,
+			)
+			.toBe(1);
+
+		const reloadSameSource = async (): Promise<WorktreeFileInitialSurface> => {
+			loadCount += 1;
+			return await loadActiveViewerModeTestSurface();
+		};
+		rendered.rerender(
+			<BridgeApp fileViewerProps={{ loadInitialSurface: reloadSameSource }} viewerMode="file" />,
+		);
+
+		await expect.poll(() => loadCount).toBe(2);
+		await expect
+			.poll(
+				() => activeViewerModeUpdates(commandDetails).filter(hasWorktreeFileActiveSource).length,
+			)
+			.toBe(2);
 	});
 
 	test('parses document protocol metadata with Review as the fail-closed fallback', () => {

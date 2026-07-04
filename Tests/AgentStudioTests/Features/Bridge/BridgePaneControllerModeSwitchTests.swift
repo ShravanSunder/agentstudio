@@ -4,11 +4,7 @@ import Testing
 @testable import AgentStudio
 
 extension WebKitSerializedTests {
-    /// A Bridge pane hosts BOTH viewer modes in one webview and the browser
-    /// toggles between them (no reload). Native must bootstrap the protocol a
-    /// pane switches INTO regardless of the pane's fixed `panelKind`:
-    /// switching to review must yield a review snapshot; switching to file
-    /// must yield a worktree-file snapshot plus a tree window.
+    /// Native must bootstrap whichever Bridge protocol the shared webview switches into.
     @MainActor
     @Suite(.serialized)
     struct BridgePaneControllerModeSwitchTests {
@@ -412,8 +408,8 @@ extension WebKitSerializedTests {
             )
         }
 
-        @Test("valid active-file signal suppresses inactive review delivery without consuming review sequence")
-        func validActiveFileSignalSuppressesReviewDelivery() async throws {
+        @Test("explicit review intake clears stale file gate and delivers review snapshot")
+        func explicitReviewIntakeClearsStaleFileGateAndDeliversReviewSnapshot() async throws {
             let fixture = try makeChurnFixture()
             let controller = fixture.controller
             let repoId = fixture.repoId
@@ -461,12 +457,12 @@ extension WebKitSerializedTests {
 
             let frames = await capturedFrames.get()
             #expect(
-                !frames.contains { Self.frameKind(of: $0) == "review.metadataSnapshot" },
-                "A valid active-file signal must suppress inactive review delivery"
+                frames.contains { Self.frameKind(of: $0) == "review.metadataSnapshot" },
+                "An explicit review intake announce must not lose to stale accepted file mode"
             )
             #expect(
-                controller.nextReviewProtocolSequence == 0,
-                "Suppressed review delivery must return before consuming the review sequence"
+                controller.nextReviewProtocolSequence > 0,
+                "Explicit review delivery must consume review sequence after clearing stale file mode"
             )
         }
 
@@ -518,6 +514,203 @@ extension WebKitSerializedTests {
             #expect(
                 !frames.contains { Self.frameKind(of: $0) == "worktree.treeWindow" },
                 "A valid active-review signal must suppress inactive worktree tree-window production"
+            )
+        }
+
+        @Test("explicit worktree-file open clears stale review gate and publishes file frames")
+        func explicitWorktreeFileOpenClearsStaleReviewGateAndPublishesFileFrames() async throws {
+            let fixture = try makeChurnFixture()
+            let controller = fixture.controller
+            let repoId = fixture.repoId
+            let worktreeId = fixture.worktreeId
+            let rootURL = fixture.rootURL
+            let capturedFrames = fixture.capturedFrames
+            defer { try? FileManager.default.removeItem(at: rootURL) }
+            defer { controller.teardown() }
+            controller.handleBridgeReady()
+
+            await controller.handleBridgeIntakeReady(
+                BridgeIntakeReadyMethod.Params(protocolId: "review", streamId: nil)
+            )
+            await controller.activeReviewRefreshTask?.value
+            await controller.worktreeFileMetadataScheduler.waitUntilDrained()
+            let reviewGeneration = try #require(controller.paneState.diff.packageMetadata?.reviewGeneration.rawValue)
+            await controller.handleIncomingRPC(
+                Self.activeViewerModeUpdateJSON(
+                    sessionId: "session-stale-review-before-file-open",
+                    sequence: 1,
+                    mode: "review",
+                    protocolId: "review",
+                    streamId: controller.reviewProtocolStreamId(),
+                    generation: reviewGeneration
+                )
+            )
+
+            let outcome = try await controller.handleWorktreeFileSurfaceOpenSourceStream(
+                makeWorktreeFileSourceSpec(
+                    clientRequestId: "explicit-file-open-clears-review-gate",
+                    repoId: repoId,
+                    worktreeId: worktreeId,
+                    rootURL: rootURL
+                )
+            )
+            await controller.activeWorktreeFileTreeWindowTask?.value
+            await controller.handleBridgeIntakeReady(
+                BridgeIntakeReadyMethod.Params(
+                    protocolId: "worktree-file",
+                    streamId: outcome.streamId,
+                    generation: outcome.generation
+                )
+            )
+            await controller.worktreeFileMetadataScheduler.waitUntilDrained()
+
+            let frames = await capturedFrames.get()
+            #expect(
+                frames.contains { Self.frameKind(of: $0) == "worktree.snapshot" },
+                "An explicit Worktree/File open must not lose to a stale accepted review mode"
+            )
+        }
+
+        @Test("stale active-viewer sequence clears accepted state so file production fails open")
+        func staleActiveViewerSequenceClearsAcceptedStateSoFileProductionFailsOpen() async throws {
+            let fixture = try makeChurnFixture()
+            let controller = fixture.controller
+            let repoId = fixture.repoId
+            let worktreeId = fixture.worktreeId
+            let rootURL = fixture.rootURL
+            let capturedFrames = fixture.capturedFrames
+            defer { try? FileManager.default.removeItem(at: rootURL) }
+            defer { controller.teardown() }
+            controller.handleBridgeReady()
+
+            let outcome = try await controller.handleWorktreeFileSurfaceOpenSourceStream(
+                makeWorktreeFileSourceSpec(
+                    clientRequestId: "stale-sequence-open",
+                    repoId: repoId,
+                    worktreeId: worktreeId,
+                    rootURL: rootURL
+                )
+            )
+            await controller.activeWorktreeFileTreeWindowTask?.value
+            await controller.handleBridgeIntakeReady(
+                BridgeIntakeReadyMethod.Params(
+                    protocolId: "worktree-file",
+                    streamId: outcome.streamId,
+                    generation: outcome.generation
+                )
+            )
+            await controller.worktreeFileMetadataScheduler.waitUntilDrained()
+
+            await controller.handleBridgeIntakeReady(
+                BridgeIntakeReadyMethod.Params(protocolId: "review", streamId: nil)
+            )
+            await controller.activeReviewRefreshTask?.value
+            await controller.worktreeFileMetadataScheduler.waitUntilDrained()
+            let reviewGeneration = try #require(controller.paneState.diff.packageMetadata?.reviewGeneration.rawValue)
+            await controller.handleIncomingRPC(
+                Self.activeViewerModeUpdateJSON(
+                    sessionId: "session-stale-sequence",
+                    sequence: 2,
+                    mode: "review",
+                    protocolId: "review",
+                    streamId: controller.reviewProtocolStreamId(),
+                    generation: reviewGeneration
+                )
+            )
+            await controller.handleIncomingRPC(
+                Self.activeViewerModeUpdateJSON(
+                    sessionId: "session-stale-sequence",
+                    sequence: 1,
+                    mode: "file",
+                    protocolId: "worktree-file",
+                    streamId: outcome.streamId,
+                    generation: outcome.generation
+                )
+            )
+
+            try await controller.publishWorktreeFileSurfaceStatus(
+                GitWorkingTreeStatus(
+                    summary: GitWorkingTreeSummary(changed: 1, staged: 0, untracked: 0),
+                    branch: "main",
+                    originResolution: .awaitingResolution
+                )
+            )
+            await controller.worktreeFileMetadataScheduler.waitUntilDrained()
+
+            #expect(
+                (await capturedFrames.get()).contains { Self.frameKind(of: $0) == "worktree.statusPatch" },
+                "A stale rejected mode signal must clear accepted state so later file publish gates fail open"
+            )
+        }
+
+        @Test("explicit file descriptor request clears stale review gate and delivers descriptor frame")
+        func explicitFileDescriptorRequestClearsStaleReviewGateAndDeliversDescriptorFrame() async throws {
+            let fixture = try makeChurnFixture()
+            let controller = fixture.controller
+            let repoId = fixture.repoId
+            let worktreeId = fixture.worktreeId
+            let rootURL = fixture.rootURL
+            let capturedFrames = fixture.capturedFrames
+            defer { try? FileManager.default.removeItem(at: rootURL) }
+            defer { controller.teardown() }
+            controller.handleBridgeReady()
+
+            let outcome = try await controller.handleWorktreeFileSurfaceOpenSourceStream(
+                makeWorktreeFileSourceSpec(
+                    clientRequestId: "descriptor-gate-open",
+                    repoId: repoId,
+                    worktreeId: worktreeId,
+                    rootURL: rootURL
+                )
+            )
+            await controller.activeWorktreeFileTreeWindowTask?.value
+            await controller.handleBridgeIntakeReady(
+                BridgeIntakeReadyMethod.Params(
+                    protocolId: "worktree-file",
+                    streamId: outcome.streamId,
+                    generation: outcome.generation
+                )
+            )
+            await controller.worktreeFileMetadataScheduler.waitUntilDrained()
+            let fileRow = try #require(
+                Self.firstFileRow(in: await capturedFrames.get()),
+                "The worktree-file snapshot must publish at least one file row"
+            )
+
+            await controller.handleBridgeIntakeReady(
+                BridgeIntakeReadyMethod.Params(protocolId: "review", streamId: nil)
+            )
+            await controller.activeReviewRefreshTask?.value
+            await controller.worktreeFileMetadataScheduler.waitUntilDrained()
+            let reviewGeneration = try #require(controller.paneState.diff.packageMetadata?.reviewGeneration.rawValue)
+            await controller.handleIncomingRPC(
+                Self.activeViewerModeUpdateJSON(
+                    sessionId: "session-descriptor-stale-review",
+                    sequence: 1,
+                    mode: "review",
+                    protocolId: "review",
+                    streamId: controller.reviewProtocolStreamId(),
+                    generation: reviewGeneration
+                )
+            )
+
+            let source = try #require(controller.activeWorktreeFileSurfaceSource?.source)
+            _ = try await controller.handleWorktreeFileDescriptorRequest(
+                BridgeWorktreeFileDescriptorRequest(
+                    sourceIdentity: source,
+                    rowId: fileRow.rowId,
+                    path: fileRow.path,
+                    fileId: fileRow.fileId,
+                    lane: .foreground
+                )
+            )
+            await controller.worktreeFileMetadataScheduler.waitUntilDrained()
+
+            #expect(
+                (await capturedFrames.get()).contains {
+                    Self.frameKind(of: $0) == "worktree.fileDescriptor"
+                },
+                "A user-driven descriptor request must clear stale review mode evidence and deliver"
             )
         }
 
@@ -608,176 +801,175 @@ extension WebKitSerializedTests {
                 "A null activeSource observation is not a valid gate and must fail open"
             )
         }
+    }
+}
 
-        private static func firstFileRow(
-            in frames: [String]
-        ) -> (rowId: String, path: String, fileId: String)? {
-            for frameJSON in frames {
-                guard let data = frameJSON.data(using: .utf8),
-                    let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                    let payload = object["payload"] as? [String: Any],
-                    payload["frameKind"] as? String == "worktree.snapshot",
-                    let rows = payload["treeRows"] as? [[String: Any]]
-                else {
-                    continue
-                }
-                for row in rows where row["isDirectory"] as? Bool == false {
-                    if let rowId = row["rowId"] as? String,
-                        let path = row["path"] as? String,
-                        let fileId = row["fileId"] as? String
-                    {
-                        return (rowId: rowId, path: path, fileId: fileId)
-                    }
-                }
-            }
-            return nil
-        }
-
-        private func makeReviewProvider() -> BridgeReviewSourceProviderFake {
-            BridgeReviewSourceProviderFake(
-                comparison: BridgeEndpointComparison(
-                    baseEndpoint: makeBridgeEndpoint(endpointId: "baseline-headMinusOne", kind: .gitRef),
-                    headEndpoint: makeBridgeEndpoint(endpointId: "working-tree", kind: .workingTree),
-                    changedFiles: [
-                        makeBridgeEndpointChangedFile(
-                            fileId: "source",
-                            path: "Sources/App/View.swift",
-                            sizeBytes: 100
-                        )
-                    ]
-                ),
-                contentByHandleId: [:]
-            )
-        }
-
-        private func makeWorktreeFixtureDirectory() throws -> URL {
-            let rootURL = URL(fileURLWithPath: NSTemporaryDirectory())
-                .appending(path: "agentstudio-mode-switch-\(UUIDv7.generate().uuidString)")
-            try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
-            return rootURL
-        }
-
-        /// Arrange a `.diffViewer` controller over a one-file worktree with a
-        /// review provider and a frame capture — the shared setup shape for the
-        /// coexistence/churn tests. Callers own the rootURL and controller
-        /// teardown defers.
-        private func makeChurnFixture() throws -> ModeSwitchChurnFixture {
-            let capturedFrames = ModeSwitchFrameCapture()
-            let repoId = UUIDv7.generate()
-            let worktreeId = UUIDv7.generate()
-            let rootURL = try makeWorktreeFixtureDirectory()
-            try "let value = 1\n"
-                .write(to: rootURL.appending(path: "File.swift"), atomically: true, encoding: .utf8)
-            let controller = BridgePaneController(
-                paneId: UUIDv7.generate(),
-                state: BridgePaneState(
-                    panelKind: .diffViewer,
-                    source: .workspace(rootPath: rootURL.path, baseline: .headMinusOne)
-                ),
-                metadata: PaneMetadata(
-                    contentType: .diff,
-                    launchDirectory: rootURL,
-                    title: "Bridge Review",
-                    facets: PaneContextFacets(
-                        repoId: repoId,
-                        worktreeId: worktreeId,
-                        worktreeName: "mode-switch-worktree",
-                        cwd: rootURL
-                    )
-                ),
-                reviewSourceProvider: makeReviewProvider(),
-                intakeFrameSink: { _, frameJSON, _ in
-                    await capturedFrames.append(frameJSON)
-                }
-            )
-            return ModeSwitchChurnFixture(
-                controller: controller,
-                rootURL: rootURL,
-                repoId: repoId,
-                worktreeId: worktreeId,
-                capturedFrames: capturedFrames
-            )
-        }
-
-        private func makeWorktreeFileSourceSpec(
-            clientRequestId: String,
-            repoId: UUID,
-            worktreeId: UUID,
-            rootURL: URL
-        ) -> BridgeWorktreeFileSurfaceSourceSpec {
-            BridgeWorktreeFileSurfaceSourceSpec(
-                clientRequestId: clientRequestId,
-                repoId: repoId,
-                worktreeId: worktreeId,
-                rootPathToken: Worktree(
-                    id: worktreeId,
-                    repoId: repoId,
-                    name: "mode-switch-worktree",
-                    path: rootURL
-                ).stableKey,
-                cwdScope: nil,
-                pathScope: [],
-                includeStatuses: true,
-                includeComments: false,
-                includeAgentComms: false,
-                freshness: .live
-            )
-        }
-
-        private static func activeViewerModeUpdateJSON(
-            sessionId: String,
-            sequence: Int,
-            mode: String,
-            protocolId: String?,
-            streamId: String?,
-            generation: Int?
-        ) -> String {
-            let activeSourceJSON: String
-            if let protocolId, let streamId, let generation {
-                activeSourceJSON = """
-                    {
-                      "protocol": "\(protocolId)",
-                      "streamId": "\(streamId)",
-                      "generation": \(generation)
-                    }
-                    """
-            } else {
-                activeSourceJSON = "null"
-            }
-            return """
-                {
-                  "jsonrpc": "2.0",
-                  "method": "bridge.activeViewerMode.update",
-                  "params": {
-                    "sessionId": "\(sessionId)",
-                    "sequence": \(sequence),
-                    "mode": "\(mode)",
-                    "activeSource": \(activeSourceJSON)
-                  }
-                }
-                """
-        }
-
-        private static func frameKind(of frameJSON: String) -> String? {
-            guard let data = frameJSON.data(using: .utf8),
-                let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                let payload = object["payload"] as? [String: Any]
-            else {
-                return nil
-            }
-            return payload["frameKind"] as? String
-        }
-
-        private static func frameGeneration(of frameJSON: String, kind: String) -> Int? {
+extension WebKitSerializedTests.BridgePaneControllerModeSwitchTests {
+    private static func firstFileRow(
+        in frames: [String]
+    ) -> (rowId: String, path: String, fileId: String)? {
+        for frameJSON in frames {
             guard let data = frameJSON.data(using: .utf8),
                 let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                 let payload = object["payload"] as? [String: Any],
-                payload["frameKind"] as? String == kind
+                payload["frameKind"] as? String == "worktree.snapshot",
+                let rows = payload["treeRows"] as? [[String: Any]]
             else {
-                return nil
+                continue
             }
-            return payload["generation"] as? Int
+            for row in rows where row["isDirectory"] as? Bool == false {
+                if let rowId = row["rowId"] as? String,
+                    let path = row["path"] as? String,
+                    let fileId = row["fileId"] as? String
+                {
+                    return (rowId: rowId, path: path, fileId: fileId)
+                }
+            }
         }
+        return nil
+    }
+
+    private func makeReviewProvider() -> BridgeReviewSourceProviderFake {
+        BridgeReviewSourceProviderFake(
+            comparison: BridgeEndpointComparison(
+                baseEndpoint: makeBridgeEndpoint(endpointId: "baseline-headMinusOne", kind: .gitRef),
+                headEndpoint: makeBridgeEndpoint(endpointId: "working-tree", kind: .workingTree),
+                changedFiles: [
+                    makeBridgeEndpointChangedFile(
+                        fileId: "source",
+                        path: "Sources/App/View.swift",
+                        sizeBytes: 100
+                    )
+                ]
+            ),
+            contentByHandleId: [:]
+        )
+    }
+
+    private func makeWorktreeFixtureDirectory() throws -> URL {
+        let rootURL = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appending(path: "agentstudio-mode-switch-\(UUIDv7.generate().uuidString)")
+        try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        return rootURL
+    }
+
+    /// Shared setup for coexistence/churn tests; callers own cleanup.
+    private func makeChurnFixture() throws -> ModeSwitchChurnFixture {
+        let capturedFrames = ModeSwitchFrameCapture()
+        let repoId = UUIDv7.generate()
+        let worktreeId = UUIDv7.generate()
+        let rootURL = try makeWorktreeFixtureDirectory()
+        try "let value = 1\n"
+            .write(to: rootURL.appending(path: "File.swift"), atomically: true, encoding: .utf8)
+        let controller = BridgePaneController(
+            paneId: UUIDv7.generate(),
+            state: BridgePaneState(
+                panelKind: .diffViewer,
+                source: .workspace(rootPath: rootURL.path, baseline: .headMinusOne)
+            ),
+            metadata: PaneMetadata(
+                contentType: .diff,
+                launchDirectory: rootURL,
+                title: "Bridge Review",
+                facets: PaneContextFacets(
+                    repoId: repoId,
+                    worktreeId: worktreeId,
+                    worktreeName: "mode-switch-worktree",
+                    cwd: rootURL
+                )
+            ),
+            reviewSourceProvider: makeReviewProvider(),
+            intakeFrameSink: { _, frameJSON, _ in
+                await capturedFrames.append(frameJSON)
+            }
+        )
+        return ModeSwitchChurnFixture(
+            controller: controller,
+            rootURL: rootURL,
+            repoId: repoId,
+            worktreeId: worktreeId,
+            capturedFrames: capturedFrames
+        )
+    }
+
+    private func makeWorktreeFileSourceSpec(
+        clientRequestId: String,
+        repoId: UUID,
+        worktreeId: UUID,
+        rootURL: URL
+    ) -> BridgeWorktreeFileSurfaceSourceSpec {
+        BridgeWorktreeFileSurfaceSourceSpec(
+            clientRequestId: clientRequestId,
+            repoId: repoId,
+            worktreeId: worktreeId,
+            rootPathToken: Worktree(
+                id: worktreeId,
+                repoId: repoId,
+                name: "mode-switch-worktree",
+                path: rootURL
+            ).stableKey,
+            cwdScope: nil,
+            pathScope: [],
+            includeStatuses: true,
+            includeComments: false,
+            includeAgentComms: false,
+            freshness: .live
+        )
+    }
+
+    private static func activeViewerModeUpdateJSON(
+        sessionId: String,
+        sequence: Int,
+        mode: String,
+        protocolId: String?,
+        streamId: String?,
+        generation: Int?
+    ) -> String {
+        let activeSourceJSON: String
+        if let protocolId, let streamId, let generation {
+            activeSourceJSON = """
+                {
+                  "protocol": "\(protocolId)",
+                  "streamId": "\(streamId)",
+                  "generation": \(generation)
+                }
+                """
+        } else {
+            activeSourceJSON = "null"
+        }
+        return """
+            {
+              "jsonrpc": "2.0",
+              "method": "bridge.activeViewerMode.update",
+              "params": {
+                "sessionId": "\(sessionId)",
+                "sequence": \(sequence),
+                "mode": "\(mode)",
+                "activeSource": \(activeSourceJSON)
+              }
+            }
+            """
+    }
+
+    private static func frameKind(of frameJSON: String) -> String? {
+        guard let data = frameJSON.data(using: .utf8),
+            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let payload = object["payload"] as? [String: Any]
+        else {
+            return nil
+        }
+        return payload["frameKind"] as? String
+    }
+
+    private static func frameGeneration(of frameJSON: String, kind: String) -> Int? {
+        guard let data = frameJSON.data(using: .utf8),
+            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let payload = object["payload"] as? [String: Any],
+            payload["frameKind"] as? String == kind
+        else {
+            return nil
+        }
+        return payload["generation"] as? Int
     }
 }
 

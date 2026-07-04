@@ -270,7 +270,7 @@ final class BridgePaneController {
             return nil
         }
         router.register(method: BridgeActiveViewerModeUpdateMethod.self) { [weak self] params in
-            self?.handleBridgeActiveViewerModeUpdate(params)
+            await self?.handleBridgeActiveViewerModeUpdate(params)
             return nil
         }
     }
@@ -608,6 +608,7 @@ final class BridgePaneController {
             return
         }
         await recordReviewIntakeReadyTelemetry(phase: "accepted")
+        clearActiveViewerModeAcceptedSignalForExplicitReviewRequest()
         await worktreeFileMetadataScheduler.openGate(protocolId: "review")
         // The review viewer announces intake-ready when its surface mounts or
         // when an active surface has no applied snapshot. An announce is the
