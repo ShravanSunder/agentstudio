@@ -2,7 +2,12 @@ import Foundation
 
 protocol BridgePerformanceTraceRecording: Sendable {
     func record(sample: BridgeTelemetrySample, receivedAtUnixNano: UInt64) async
-    func recordDrop(reason: BridgeTelemetryDropReason, droppedCount: Int, receivedAtUnixNano: UInt64) async
+    func recordDrop(
+        reason: BridgeTelemetryDropReason,
+        droppedCount: Int,
+        firstRejectedEventName: String?,
+        receivedAtUnixNano: UInt64
+    ) async
     func drain() async throws
 }
 
@@ -39,21 +44,30 @@ final class BridgePerformanceTraceRecorder: @unchecked Sendable, BridgePerforman
         await emit(BridgePerformanceTraceRecord(sample: sample, eventTimeUnixNano: receivedAtUnixNano))
     }
 
-    func recordDrop(reason: BridgeTelemetryDropReason, droppedCount: Int, receivedAtUnixNano: UInt64) async {
+    func recordDrop(
+        reason: BridgeTelemetryDropReason,
+        droppedCount: Int,
+        firstRejectedEventName: String?,
+        receivedAtUnixNano: UInt64
+    ) async {
+        var stringAttributes = [
+            "agentstudio.bridge.phase": "dropped",
+            "agentstudio.bridge.plane": BridgeTelemetryPlane.observability.rawValue,
+            "agentstudio.bridge.priority": BridgeTelemetryPriority.bestEffort.rawValue,
+            "agentstudio.bridge.slice": BridgeTelemetrySlice.telemetryDrop.rawValue,
+            "agentstudio.bridge.telemetry.drop_reason": reason.rawValue,
+            "agentstudio.bridge.transport": "rpc",
+        ]
+        if let firstRejectedEventName {
+            stringAttributes["agentstudio.bridge.telemetry.first_rejected_event"] = firstRejectedEventName
+        }
         await record(
             sample: BridgeTelemetrySample(
                 scope: .web,
                 name: "performance.bridge.web.telemetry_drop",
                 durationMilliseconds: nil,
                 traceContext: nil,
-                stringAttributes: [
-                    "agentstudio.bridge.phase": "dropped",
-                    "agentstudio.bridge.plane": BridgeTelemetryPlane.observability.rawValue,
-                    "agentstudio.bridge.priority": BridgeTelemetryPriority.bestEffort.rawValue,
-                    "agentstudio.bridge.slice": BridgeTelemetrySlice.telemetryDrop.rawValue,
-                    "agentstudio.bridge.telemetry.drop_reason": reason.rawValue,
-                    "agentstudio.bridge.transport": "rpc",
-                ],
+                stringAttributes: stringAttributes,
                 numericAttributes: [
                     "agentstudio.bridge.telemetry.dropped_count": Double(droppedCount)
                 ],

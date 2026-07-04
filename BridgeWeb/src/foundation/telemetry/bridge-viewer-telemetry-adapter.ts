@@ -692,7 +692,7 @@ export function recordBridgeSelectedContentPaintedTelemetrySample(
 			},
 			booleanAttributes: {},
 		});
-		props.telemetryRecorder.flush();
+		props.telemetryRecorder.flush({ force: true });
 	});
 }
 

@@ -344,6 +344,7 @@ private actor SuppressionCatchUpTelemetryRecorder: BridgePerformanceTraceRecordi
     func recordDrop(
         reason _: BridgeTelemetryDropReason,
         droppedCount _: Int,
+        firstRejectedEventName _: String?,
         receivedAtUnixNano _: UInt64
     ) {}
 

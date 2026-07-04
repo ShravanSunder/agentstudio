@@ -24,7 +24,8 @@ actor BridgeTelemetryIngestor {
 
     func ingest(_ data: Data) async -> BridgeTelemetryIngestResult {
         let receivedAtUnixNano = timeUnixNano()
-        switch validator.decodeAndValidate(data) {
+        let validationOutcome = validator.decodeAndValidateWithDetails(data)
+        switch validationOutcome.result {
         case .accepted(let batch):
             for sample in batch.samples {
                 await recorder.record(sample: sample, receivedAtUnixNano: receivedAtUnixNano)
@@ -39,6 +40,7 @@ actor BridgeTelemetryIngestor {
             await recorder.recordDrop(
                 reason: reason,
                 droppedCount: 1,
+                firstRejectedEventName: validationOutcome.firstRejectedEventName,
                 receivedAtUnixNano: receivedAtUnixNano
             )
             await recordIngestTelemetry(

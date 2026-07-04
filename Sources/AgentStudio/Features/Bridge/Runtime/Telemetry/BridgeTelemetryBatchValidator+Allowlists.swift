@@ -26,6 +26,7 @@ extension BridgeTelemetryBatchValidator {
         "performance.bridge.web.review_ready",
         "performance.bridge.web.review_metadata_apply",
         "performance.bridge.web.selection_commit",
+        "performance.bridge.web.selected_content_dropped",
         "performance.bridge.web.selected_content_painted",
         "performance.bridge.web.selected_content_ready",
         "performance.bridge.web.rpc_send",
@@ -107,6 +108,11 @@ extension BridgeTelemetryBatchValidator {
             "refreshed",
             "speculative-preloaded",
             "visible-preloaded",
+        ],
+        "agentstudio.bridge.drop_reason": [
+            "contenthash_change",
+            "generation_rotation",
+            "revision_churn",
         ],
         "agentstudio.bridge.file_size_bucket": [
             "empty",
@@ -207,6 +213,7 @@ extension BridgeTelemetryBatchValidator {
             "scroll_target",
             "search_filter",
             "selection_commit",
+            "selected_content_dropped",
             "selected_content_painted",
             "selected_content_ready",
             "time_to_first_interaction",
@@ -347,6 +354,9 @@ extension BridgeTelemetryBatchValidator {
         "agentstudio.bridge.telemetry.drop_reason": Set(
             BridgeTelemetryDropReason.allCases.map(\.rawValue)
         ),
+        "agentstudio.bridge.telemetry.first_rejected_event": allowedEventNames.union([
+            unknownRejectedEventName
+        ]),
         "agentstudio.bridge.test.scenario": [
             "package_apply_content_fetch_v1"
         ],

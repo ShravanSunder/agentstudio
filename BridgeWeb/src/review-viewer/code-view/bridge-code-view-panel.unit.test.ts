@@ -5,7 +5,11 @@ import {
 	makeBridgeContentHandle,
 	makeBridgeReviewPackage,
 } from '../../foundation/review-package/bridge-review-package-test-support.js';
-import type { BridgeTelemetrySample } from '../../foundation/telemetry/bridge-telemetry-event.js';
+import type {
+	BridgeTelemetryBatch,
+	BridgeTelemetrySample,
+} from '../../foundation/telemetry/bridge-telemetry-event.js';
+import { createBridgeTelemetryRecorder } from '../../foundation/telemetry/bridge-telemetry-recorder.js';
 import type { BridgeTelemetryRecorder } from '../../foundation/telemetry/bridge-telemetry-recorder.js';
 import { buildBridgeReviewProjection } from '../navigation/review-projection.js';
 import { makeBridgeViewerProjectionFixture } from '../test-support/review-viewer-fixtures.js';
@@ -295,6 +299,59 @@ describe('BridgeCodeViewPanel diagnostics', () => {
 				'agentstudio.bridge.selected_content.materialize_ms': 30,
 			},
 		});
+	});
+
+	test('force flushes selected content painted telemetry through recorder burst throttling', () => {
+		const batches: BridgeTelemetryBatch[] = [];
+		const frameCallbacks: FrameRequestCallback[] = [];
+		let nowMilliseconds = 1_000;
+		const telemetryRecorder = createBridgeTelemetryRecorder(
+			{
+				enabledScopes: new Set(['web']),
+				maxSamplesPerBatch: 4,
+				maxEncodedBatchBytes: 16_384,
+				minimumFlushIntervalMilliseconds: 250,
+				rpcMethodName: 'system.bridgeTelemetry',
+				scenario: 'package_apply_content_fetch_v1',
+			},
+			{
+				flush: (batch: BridgeTelemetryBatch): boolean => {
+					batches.push(batch);
+					return true;
+				},
+			},
+			(): number => nowMilliseconds,
+		);
+		telemetryRecorder.record({
+			scope: 'web',
+			name: 'performance.bridge.web.code_view_item_materialize',
+			durationMilliseconds: 12,
+			traceContext: null,
+			stringAttributes: {},
+			numericAttributes: {},
+			booleanAttributes: {},
+		});
+		expect(telemetryRecorder.flush()).toBe(true);
+
+		nowMilliseconds = 1_020;
+		scheduleSelectedContentPaintedTelemetry({
+			telemetryRecorder,
+			traceContext: null,
+			selectionDemandStartedAtMilliseconds: 900,
+			materializationStartedAtMilliseconds: 1_000,
+			materializationCompletedAtMilliseconds: 1_010,
+			now: (): number => nowMilliseconds,
+			requestAnimationFrame: (callback): number => {
+				frameCallbacks.push(callback);
+				return frameCallbacks.length;
+			},
+		});
+		frameCallbacks[0]?.(1_020);
+
+		expect(batches.map((batch) => batch.samples.map((sample) => sample.name))).toEqual([
+			['performance.bridge.web.code_view_item_materialize'],
+			['performance.bridge.web.selected_content_painted'],
+		]);
 	});
 });
 

@@ -21,8 +21,14 @@ final class BridgeSchemeHandlerTests {
         func recordDrop(
             reason: BridgeTelemetryDropReason,
             droppedCount: Int,
+            firstRejectedEventName: String?,
             receivedAtUnixNano: UInt64
-        ) async {}
+        ) async {
+            _ = reason
+            _ = droppedCount
+            _ = firstRejectedEventName
+            _ = receivedAtUnixNano
+        }
 
         func samples() -> [BridgeTelemetrySample] {
             recordedSamples

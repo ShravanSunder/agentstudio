@@ -75,4 +75,23 @@ extension BridgeTelemetryBatchValidator {
             )
         )
     }
+
+    static func selectedContentDroppedContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+        contract.matches(
+            .init(
+                phase: "selected_content_dropped",
+                plane: .data,
+                priority: .hot,
+                slice: .contentFetch,
+                transport: "content",
+                attributeKeys: .init(
+                    additionalStringKeys: [
+                        "agentstudio.bridge.drop_reason",
+                        "agentstudio.bridge.result",
+                        "agentstudio.bridge.viewer",
+                    ]
+                )
+            )
+        )
+    }
 }

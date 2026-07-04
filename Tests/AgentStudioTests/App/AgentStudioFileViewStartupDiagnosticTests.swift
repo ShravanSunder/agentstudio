@@ -131,12 +131,61 @@ struct AgentStudioFileViewStartupDiagnosticTests {
         let proof = BridgeFileViewObservabilitySmokeRenderProof(
             snapshot: makeFileViewSmokeSnapshot(
                 nativeWorktreeProbeLastReason: "drop_parse_failed",
-                nativeWorktreeProbeLastReceiverReason: "generation_mismatch"
+                nativeWorktreeProbeLastReceiverReason: "generation_mismatch",
+                nativeWorktreeProbeFailureDropCount: 1
             ),
             expectedVisiblePaneCount: 1
         )
 
         #expect(!proof.succeeded)
+        #expect(proof.attributes["agentstudio.startup_diagnostic.render_proof.succeeded"] == .bool(false))
+    }
+
+    @Test("Bridge FileView smoke render proof accepts old-generation cleanup drop after final evidence")
+    func smokeRenderProofAcceptsOldGenerationCleanupDropAfterFinalEvidence() {
+        let proof = BridgeFileViewObservabilitySmokeRenderProof(
+            snapshot: makeFileViewSmokeSnapshot(
+                nativeWorktreeProbeLastReason: "drop_identity_mismatch",
+                nativeWorktreeProbeLastReceiverReason: "generation_mismatch",
+                nativeWorktreeProbeLastGeneration: 2,
+                nativeWorktreeProbeLastReceiverGeneration: 3,
+                nativeWorktreeProbeFinalGeneration: 3,
+                nativeWorktreeProbeFinalGenerationFrameEvidenceCount: 2,
+                nativeWorktreeProbeFailureDropCount: 0
+            ),
+            expectedVisiblePaneCount: 1
+        )
+
+        #expect(proof.succeeded)
+        #expect(
+            proof.attributes["agentstudio.startup_diagnostic.bridge.file_view.native_probe.final_generation"]
+                == .int(3))
+        #expect(
+            proof.attributes[
+                "agentstudio.startup_diagnostic.bridge.file_view.native_probe.final_generation_frame_evidence.count"
+            ] == .int(2))
+        #expect(proof.attributes["agentstudio.startup_diagnostic.render_proof.succeeded"] == .bool(true))
+    }
+
+    @Test("Bridge FileView smoke render proof fails on same-generation native intake drop")
+    func smokeRenderProofFailsOnSameGenerationNativeIntakeDrop() {
+        let proof = BridgeFileViewObservabilitySmokeRenderProof(
+            snapshot: makeFileViewSmokeSnapshot(
+                nativeWorktreeProbeLastReason: "drop_identity_mismatch",
+                nativeWorktreeProbeLastReceiverReason: "generation_mismatch",
+                nativeWorktreeProbeLastGeneration: 3,
+                nativeWorktreeProbeLastReceiverGeneration: 3,
+                nativeWorktreeProbeFinalGeneration: 3,
+                nativeWorktreeProbeFinalGenerationFrameEvidenceCount: 2,
+                nativeWorktreeProbeFailureDropCount: 1
+            ),
+            expectedVisiblePaneCount: 1
+        )
+
+        #expect(!proof.succeeded)
+        #expect(
+            proof.attributes["agentstudio.startup_diagnostic.bridge.file_view.native_probe.failure_drop.count"]
+                == .int(1))
         #expect(proof.attributes["agentstudio.startup_diagnostic.render_proof.succeeded"] == .bool(false))
     }
 
@@ -401,6 +450,9 @@ struct AgentStudioFileViewStartupDiagnosticTests {
         #expect(script.contains("__bridgeWorktreeDescriptorRequestCommandProbe"))
         #expect(script.contains("worktreeOpenSourceCommandProbe.filter"))
         #expect(script.contains("worktreeDescriptorRequestCommandProbe.filter"))
+        #expect(script.contains("nativeWorktreeProbeReceiverGeneration"))
+        #expect(script.contains("nativeWorktreeProbeFinalGenerationFrameEvidenceCount"))
+        #expect(script.contains("nativeWorktreeProbeFailureDropCount"))
     }
 
     private func makeFileViewSmokeSnapshot(
@@ -440,9 +492,14 @@ struct AgentStudioFileViewStartupDiagnosticTests {
         nativeWorktreeProbeLastReason: String = "frame_published",
         nativeWorktreeProbeLastReceiverReason: String = "none",
         nativeWorktreeProbeLastFrameKind: String = "worktree.treeWindow",
+        nativeWorktreeProbeLastGeneration: Int = 1,
+        nativeWorktreeProbeLastReceiverGeneration: Int = 1,
         nativeWorktreeProbeLastSequence: Int = 7,
         nativeWorktreeProbeLastStreamIdMatches: Bool = true,
         nativeWorktreeProbeFrameEvidenceCount: Int = 4,
+        nativeWorktreeProbeFinalGeneration: Int = 1,
+        nativeWorktreeProbeFinalGenerationFrameEvidenceCount: Int = 4,
+        nativeWorktreeProbeFailureDropCount: Int = 0,
         pageErrorCount: Int = 0,
         pageIssueLastKind: String = "none",
         pageIssueLastClass: String = "none",
@@ -515,10 +572,14 @@ struct AgentStudioFileViewStartupDiagnosticTests {
             nativeWorktreeProbeLastReason: nativeWorktreeProbeLastReason,
             nativeWorktreeProbeLastReceiverReason: nativeWorktreeProbeLastReceiverReason,
             nativeWorktreeProbeLastFrameKind: nativeWorktreeProbeLastFrameKind,
-            nativeWorktreeProbeLastGeneration: 1,
+            nativeWorktreeProbeLastGeneration: nativeWorktreeProbeLastGeneration,
+            nativeWorktreeProbeLastReceiverGeneration: nativeWorktreeProbeLastReceiverGeneration,
             nativeWorktreeProbeLastSequence: nativeWorktreeProbeLastSequence,
             nativeWorktreeProbeLastStreamIdMatches: nativeWorktreeProbeLastStreamIdMatches,
-            nativeWorktreeProbeFrameEvidenceCount: nativeWorktreeProbeFrameEvidenceCount
+            nativeWorktreeProbeFrameEvidenceCount: nativeWorktreeProbeFrameEvidenceCount,
+            nativeWorktreeProbeFinalGeneration: nativeWorktreeProbeFinalGeneration,
+            nativeWorktreeProbeFinalGenerationFrameEvidenceCount: nativeWorktreeProbeFinalGenerationFrameEvidenceCount,
+            nativeWorktreeProbeFailureDropCount: nativeWorktreeProbeFailureDropCount
         )
     }
 }

@@ -86,6 +86,42 @@ struct AgentStudioOTLPBridgeTraceProjectionTests {
     }
 
     @Test
+    func bridgeProjectionPreservesTelemetryDropFirstRejectedEvent() {
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 513,
+            severityText: .info,
+            body: "performance.bridge.web.telemetry_drop",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: [
+                "service.name": "AgentStudio"
+            ],
+            scope: .init(name: "agentstudio.bridge.performance.web", version: "0.1.0"),
+            attributes: [
+                "agentstudio.bridge.phase": .string("dropped"),
+                "agentstudio.bridge.plane": .string("observability"),
+                "agentstudio.bridge.priority": .string("best_effort"),
+                "agentstudio.bridge.result": .string("dropped"),
+                "agentstudio.bridge.slice": .string("telemetry_drop"),
+                "agentstudio.bridge.telemetry.drop_reason": .string("unsafe_attribute"),
+                "agentstudio.bridge.telemetry.dropped_count": .int(3),
+                "agentstudio.bridge.telemetry.first_rejected_event": .string(
+                    "performance.bridge.web.content_fetch"),
+                "agentstudio.bridge.transport": .string("rpc"),
+                "agentstudio.trace.tag": .string("bridge.performance.web"),
+            ]
+        )
+
+        let projection = AgentStudioOTLPTraceProjection.project(record)
+
+        #expect(
+            projection.attributes["agentstudio.bridge.telemetry.first_rejected_event"]
+                == .string("performance.bridge.web.content_fetch")
+        )
+    }
+
+    @Test
     func bridgeProjectionPreservesReviewStartupCountDiagnostics() {
         let reviewReadyRecord = AgentStudioTraceRecord(
             timeUnixNano: 128,
@@ -521,6 +557,10 @@ struct AgentStudioOTLPBridgeTraceProjectionTests {
                 == .string("worktree.snapshot")
         )
         #expect(attributes["agentstudio.startup_diagnostic.bridge.file_view.native_probe.last_generation"] == .int(1))
+        #expect(
+            attributes["agentstudio.startup_diagnostic.bridge.file_view.native_probe.last_receiver_generation"]
+                == .int(1)
+        )
         #expect(attributes["agentstudio.startup_diagnostic.bridge.file_view.native_probe.last_sequence"] == .int(7))
         #expect(
             attributes["agentstudio.startup_diagnostic.bridge.file_view.native_probe.last_stream_id_matches"]
@@ -529,6 +569,19 @@ struct AgentStudioOTLPBridgeTraceProjectionTests {
         #expect(
             attributes["agentstudio.startup_diagnostic.bridge.file_view.native_probe.frame_evidence.count"]
                 == .int(5)
+        )
+        #expect(
+            attributes["agentstudio.startup_diagnostic.bridge.file_view.native_probe.final_generation"]
+                == .int(1)
+        )
+        #expect(
+            attributes[
+                "agentstudio.startup_diagnostic.bridge.file_view.native_probe.final_generation_frame_evidence.count"
+            ] == .int(5)
+        )
+        #expect(
+            attributes["agentstudio.startup_diagnostic.bridge.file_view.native_probe.failure_drop.count"]
+                == .int(0)
         )
         #expect(
             attributes["agentstudio.startup_diagnostic.bridge.file_view.tree_full_stream.satisfied"] == .bool(true)
@@ -658,15 +711,20 @@ struct AgentStudioOTLPBridgeTraceProjectionTests {
                 "agentstudio.startup_diagnostic.bridge.file_view.mode_switch.count": .int(5),
                 "agentstudio.startup_diagnostic.bridge.file_view.mode_switch.final_file_selected": .bool(true),
                 "agentstudio.startup_diagnostic.bridge.file_view.native_probe.count": .int(4),
+                "agentstudio.startup_diagnostic.bridge.file_view.native_probe.failure_drop.count": .int(0),
+                "agentstudio.startup_diagnostic.bridge.file_view.native_probe.final_generation": .int(1),
+                "agentstudio.startup_diagnostic.bridge.file_view.native_probe.final_generation_frame_evidence.count":
+                    .int(5),
+                "agentstudio.startup_diagnostic.bridge.file_view.native_probe.frame_evidence.count": .int(5),
                 "agentstudio.startup_diagnostic.bridge.file_view.native_probe.last_frame_kind": .string(
                     "worktree.snapshot"),
                 "agentstudio.startup_diagnostic.bridge.file_view.native_probe.last_generation": .int(1),
+                "agentstudio.startup_diagnostic.bridge.file_view.native_probe.last_receiver_generation": .int(1),
                 "agentstudio.startup_diagnostic.bridge.file_view.native_probe.last_sequence": .int(7),
                 "agentstudio.startup_diagnostic.bridge.file_view.native_probe.last_reason": .string(
                     "snapshot_resolved"),
                 "agentstudio.startup_diagnostic.bridge.file_view.native_probe.last_receiver_reason": .string("none"),
                 "agentstudio.startup_diagnostic.bridge.file_view.native_probe.last_stream_id_matches": .bool(true),
-                "agentstudio.startup_diagnostic.bridge.file_view.native_probe.frame_evidence.count": .int(5),
                 "agentstudio.startup_diagnostic.bridge.file_view.open_file.path": .string("Sources/App.swift"),
                 "agentstudio.startup_diagnostic.bridge.file_view.open_file.state": .string("ready"),
                 "agentstudio.startup_diagnostic.bridge.file_view.open_source_command.count": .int(1),

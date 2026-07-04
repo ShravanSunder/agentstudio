@@ -57,6 +57,74 @@ struct BridgeTelemetryIngestorTests {
     }
 
     @Test
+    func ingestorRecordsAllowedFirstRejectedEventNameForUnsafeRejectedBatches() async throws {
+        let recorder = RecordingBridgePerformanceTraceRecorder()
+        let ingestor = BridgeTelemetryIngestor(
+            scopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web]),
+            recorder: recorder
+        )
+        let rejectedSampleName = "performance.bridge.web.selected_content_painted"
+        let batch = BridgeTelemetryBatch(
+            schemaVersion: 1,
+            scenario: "package_apply_content_fetch_v1",
+            samples: [
+                BridgeTelemetrySample(
+                    scope: .web,
+                    name: rejectedSampleName,
+                    durationMilliseconds: 3,
+                    traceContext: nil,
+                    stringAttributes: [
+                        "agentstudio.bridge.phase": "selected_content_painted",
+                        "agentstudio.bridge.plane": "data",
+                        "agentstudio.bridge.priority": "hot",
+                        "agentstudio.bridge.slice": "code_view_item",
+                        "agentstudio.bridge.transport": "swift",
+                        "agentstudio.bridge.viewer": "review",
+                    ],
+                    numericAttributes: [:],
+                    booleanAttributes: [:]
+                )
+            ]
+        )
+
+        let result = await ingestor.ingest(try JSONEncoder().encode(batch))
+
+        #expect(result == .dropped(.unsafeAttribute))
+        #expect(await recorder.dropReasons == [.unsafeAttribute])
+        #expect(await recorder.firstRejectedEventNames == [rejectedSampleName])
+    }
+
+    @Test
+    func ingestorRedactsUnknownFirstRejectedEventNameForUnrecognizedRejectedSamples() async throws {
+        let recorder = RecordingBridgePerformanceTraceRecorder()
+        let ingestor = BridgeTelemetryIngestor(
+            scopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web]),
+            recorder: recorder
+        )
+        let batch = BridgeTelemetryBatch(
+            schemaVersion: 1,
+            scenario: "package_apply_content_fetch_v1",
+            samples: [
+                BridgeTelemetrySample(
+                    scope: .web,
+                    name: "performance.bridge.web.cmd_private_payload",
+                    durationMilliseconds: 3,
+                    traceContext: nil,
+                    stringAttributes: [:],
+                    numericAttributes: [:],
+                    booleanAttributes: [:]
+                )
+            ]
+        )
+
+        let result = await ingestor.ingest(try JSONEncoder().encode(batch))
+
+        #expect(result == .dropped(.unsafeEventName))
+        #expect(await recorder.dropReasons == [.unsafeEventName])
+        #expect(await recorder.firstRejectedEventNames == ["unknown"])
+    }
+
+    @Test
     func ingestorRecordsSwiftIngestAccountingWhenSwiftScopeIsEnabled() async throws {
         let recorder = RecordingBridgePerformanceTraceRecorder()
         let ingestor = BridgeTelemetryIngestor(
@@ -109,13 +177,20 @@ struct BridgeTelemetryIngestorTests {
 private actor RecordingBridgePerformanceTraceRecorder: BridgePerformanceTraceRecording {
     private(set) var samples: [BridgeTelemetrySample] = []
     private(set) var dropReasons: [BridgeTelemetryDropReason] = []
+    private(set) var firstRejectedEventNames: [String?] = []
 
     func record(sample: BridgeTelemetrySample, receivedAtUnixNano: UInt64) async {
         samples.append(sample)
     }
 
-    func recordDrop(reason: BridgeTelemetryDropReason, droppedCount: Int, receivedAtUnixNano: UInt64) async {
+    func recordDrop(
+        reason: BridgeTelemetryDropReason,
+        droppedCount: Int,
+        firstRejectedEventName: String?,
+        receivedAtUnixNano: UInt64
+    ) async {
         dropReasons.append(reason)
+        firstRejectedEventNames.append(firstRejectedEventName)
     }
 
     func drain() async throws {}

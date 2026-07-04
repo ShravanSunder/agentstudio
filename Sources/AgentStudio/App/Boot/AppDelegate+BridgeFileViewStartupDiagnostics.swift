@@ -818,6 +818,46 @@ import Foundation
                   entry?.streamIdMatches === true
                 );
               }).length;
+              const nativeWorktreeProbeGeneration = (entry) => {
+                const generation = Number(entry?.generation || 0);
+                return Number.isFinite(generation) ? generation : 0;
+              };
+              const nativeWorktreeProbeReceiverGeneration = (entry) => {
+                const generation = Number(entry?.receiverGeneration || 0);
+                return Number.isFinite(generation) ? generation : 0;
+              };
+              const nativeWorktreeProbeHasFrameEvidence = (entry) => {
+                return (
+                  clip(entry?.frameKind, 120).length > 0 &&
+                  entry?.streamIdMatches === true
+                );
+              };
+              const nativeWorktreeProbeIsBenignOldGenerationCleanupDrop = (entry) => {
+                return (
+                  clip(entry?.reason, 120).startsWith('drop_') &&
+                  clip(entry?.receiverReason, 120) === 'generation_mismatch' &&
+                  nativeWorktreeProbeReceiverGeneration(entry) > nativeWorktreeProbeGeneration(entry)
+                );
+              };
+              const nativeWorktreeProbeFailureDropCount = nativeWorktreeProbe.filter((entry) => {
+                return (
+                  clip(entry?.reason, 120).startsWith('drop_') &&
+                  !nativeWorktreeProbeIsBenignOldGenerationCleanupDrop(entry)
+                );
+              }).length;
+              const nativeWorktreeProbeFinalGeneration = nativeWorktreeProbe.reduce((maxGeneration, entry) => {
+                return Math.max(
+                  maxGeneration,
+                  nativeWorktreeProbeGeneration(entry),
+                  nativeWorktreeProbeReceiverGeneration(entry)
+                );
+              }, 0);
+              const nativeWorktreeProbeFinalGenerationFrameEvidenceCount = nativeWorktreeProbe.filter((entry) => {
+                return (
+                  nativeWorktreeProbeHasFrameEvidence(entry) &&
+                  nativeWorktreeProbeGeneration(entry) === nativeWorktreeProbeFinalGeneration
+                );
+              }).length;
               const classifyPageIssue = (entry) => {
                 const kind = clip(entry?.kind, 80);
                 const message = clip(entry?.message, 300);
@@ -942,9 +982,13 @@ import Foundation
                 nativeWorktreeProbeLastReceiverReason: clip(lastNativeWorktreeProbeEntry?.receiverReason, 120) || 'none',
                 nativeWorktreeProbeLastFrameKind: clip(lastNativeWorktreeProbeEntry?.frameKind, 120) || 'none',
                 nativeWorktreeProbeLastGeneration: Number(lastNativeWorktreeProbeEntry?.generation || 0),
+                nativeWorktreeProbeLastReceiverGeneration: Number(lastNativeWorktreeProbeEntry?.receiverGeneration || 0),
                 nativeWorktreeProbeLastSequence: Number(lastNativeWorktreeProbeEntry?.sequence || 0),
                 nativeWorktreeProbeLastStreamIdMatches: lastNativeWorktreeProbeEntry?.streamIdMatches === true,
-                nativeWorktreeProbeFrameEvidenceCount
+                nativeWorktreeProbeFrameEvidenceCount,
+                nativeWorktreeProbeFinalGeneration,
+                nativeWorktreeProbeFinalGenerationFrameEvidenceCount,
+                nativeWorktreeProbeFailureDropCount
               };
             })())
             """

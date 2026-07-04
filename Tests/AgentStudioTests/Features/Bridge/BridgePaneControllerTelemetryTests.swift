@@ -153,8 +153,10 @@ private actor BridgeTelemetryRecorderSpy: BridgePerformanceTraceRecording {
     func recordDrop(
         reason: BridgeTelemetryDropReason,
         droppedCount: Int,
+        firstRejectedEventName: String?,
         receivedAtUnixNano: UInt64
     ) async {
+        _ = firstRejectedEventName
         recordedDrops.append(reason)
     }
 

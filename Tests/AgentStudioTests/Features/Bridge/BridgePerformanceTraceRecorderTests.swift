@@ -120,6 +120,7 @@ struct BridgePerformanceTraceRecorderTests {
         await recorder.recordDrop(
             reason: .queueSaturated,
             droppedCount: 3,
+            firstRejectedEventName: nil,
             receivedAtUnixNano: 125
         )
         try await recorder.drain()

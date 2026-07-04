@@ -402,10 +402,12 @@ actor BridgeWorktreeFileCurrentWorktreeTelemetryRecorder: BridgePerformanceTrace
     func recordDrop(
         reason: BridgeTelemetryDropReason,
         droppedCount: Int,
+        firstRejectedEventName: String?,
         receivedAtUnixNano: UInt64
     ) async {
         _ = reason
         _ = droppedCount
+        _ = firstRejectedEventName
         _ = receivedAtUnixNano
     }
 

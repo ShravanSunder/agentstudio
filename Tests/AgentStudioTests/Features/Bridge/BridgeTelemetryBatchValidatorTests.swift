@@ -301,6 +301,30 @@ struct BridgeTelemetryBatchValidatorTests {
     }
 
     @Test
+    func validatorAcceptsSelectedContentDroppedTelemetryContract() {
+        let validator = BridgeTelemetryBatchValidator(
+            scopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web])
+        )
+        let batch = batchWithWebSample(
+            WebSampleProps(
+                name: "performance.bridge.web.selected_content_dropped",
+                phase: "selected_content_dropped",
+                plane: "data",
+                priority: "hot",
+                slice: "content_fetch",
+                transport: "content",
+                extraStrings: [
+                    "agentstudio.bridge.drop_reason": "revision_churn",
+                    "agentstudio.bridge.result": "dropped",
+                    "agentstudio.bridge.viewer": "review",
+                ]
+            )
+        )
+
+        #expect(validator.validate(batch) == .accepted(batch))
+    }
+
+    @Test
     func validatorAcceptsWorktreeFileContentFetchTelemetryWithTimingAttributes() {
         let validator = BridgeTelemetryBatchValidator(
             scopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web])

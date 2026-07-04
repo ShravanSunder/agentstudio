@@ -93,8 +93,14 @@ actor SchedulerPerformanceTelemetryRecorder: BridgePerformanceTraceRecording {
     func recordDrop(
         reason: BridgeTelemetryDropReason,
         droppedCount: Int,
+        firstRejectedEventName: String?,
         receivedAtUnixNano: UInt64
-    ) {}
+    ) {
+        _ = reason
+        _ = droppedCount
+        _ = firstRejectedEventName
+        _ = receivedAtUnixNano
+    }
 
     func drain() async throws {}
 }
