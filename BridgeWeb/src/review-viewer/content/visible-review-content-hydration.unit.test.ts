@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
+import type { BridgeDescriptorRef } from '../../core/models/bridge-resource-descriptor.js';
 import type { BridgeContentResource } from '../../foundation/content/content-resource-loader.js';
 import {
 	makeBridgeContentHandle,
@@ -11,6 +12,7 @@ import type { VisibleContentResourcesState } from './visible-review-content-hydr
 import { deriveVisibleHydrationStateProbe } from './visible-review-content-hydration-support.js';
 import {
 	createVisibleReviewContentHydrationResult,
+	deriveVisibleReviewContentLoadPlans,
 	makeReviewItemContentResourcesKey,
 	normalizeVisibleReviewItemIds,
 	pruneVisibleReviewContentHydrationCaches,
@@ -425,6 +427,76 @@ describe('visible review content hydration', () => {
 			}),
 		).toBe(false);
 	});
+
+	test('keeps failed visible items in reconciler membership for later executor-paced retry', () => {
+		const fixture = makeVisibleContentKeyFixture('item-003');
+
+		const derivedDemand = deriveVisibleReviewContentLoadPlans({
+			contentInvalidationVersion: 0,
+			contentRegistry: { peekResource: () => null },
+			contentStateByItemId: new Map([
+				[
+					'item-003',
+					{
+						contentKey: fixture.contentKey,
+						itemId: 'item-003',
+						status: 'failed',
+					},
+				],
+			]),
+			generation: fixture.reviewPackage.reviewGeneration,
+			paused: false,
+			previousEntries: [],
+			reviewPackage: fixture.reviewPackage,
+			resolveDescriptorRef: () => makeDescriptorRef('item-003-head'),
+			scheduledContentKeys: new Set<string>(),
+			selectedItemId: null,
+			visibleItemIds: ['item-003'],
+		});
+
+		expect(derivedDemand.loadPlans.map((plan) => plan.itemId)).toEqual(['item-003']);
+		expect(derivedDemand.loadPlans.map((plan) => plan.interest)).toEqual(['visible']);
+	});
+
+	test('delegates visible membership to the reconciler with selected dedupe and cache hits', () => {
+		const reviewPackage = makeReviewPackageWithItemCount(8);
+		const selectedItem = reviewPackage.itemsById['item-003'];
+		if (selectedItem === undefined) {
+			throw new Error('Expected selected fixture item.');
+		}
+		const selectedContentKey = [
+			makeReviewItemContentResourcesKey({ item: selectedItem, reviewPackage }),
+			'visibleInvalidation',
+			'0',
+		].join(':');
+
+		const derivedDemand = deriveVisibleReviewContentLoadPlans({
+			contentInvalidationVersion: 0,
+			contentRegistry: {
+				peekResource: (handle) =>
+					handle.itemId === 'item-004'
+						? {
+								authoritative: true,
+								byteLength: 11,
+								handle,
+								readText: (): string => 'cached\n',
+							}
+						: null,
+			},
+			contentStateByItemId: new Map(),
+			generation: reviewPackage.reviewGeneration,
+			paused: false,
+			previousEntries: [],
+			reviewPackage,
+			resolveDescriptorRef: (handle) => makeDescriptorRef(`${handle.itemId}-${handle.role}`),
+			scheduledContentKeys: new Set<string>([selectedContentKey]),
+			selectedItemId: 'item-003',
+			visibleItemIds: ['item-003', 'item-004', 'item-005'],
+		});
+
+		expect(derivedDemand.loadPlans.map((plan) => plan.itemId)).toEqual(['item-005']);
+		expect(derivedDemand.loadPlans.map((plan) => plan.interest)).toEqual(['nearby']);
+	});
 });
 
 function makeReviewPackageWithItemCount(itemCount: number): BridgeReviewPackage {
@@ -473,5 +545,21 @@ function makeVisibleContentKeyFixture(itemId: string): {
 			'0',
 		].join(':'),
 		reviewPackage,
+	};
+}
+
+function makeDescriptorRef(descriptorId: string): BridgeDescriptorRef {
+	return {
+		descriptorId,
+		expectedProtocol: 'review',
+		expectedResourceKind: 'content',
+		expectedIdentity: {
+			paneId: 'pane-1',
+			protocol: 'review',
+			sourceId: 'source-1',
+			packageId: 'package-1',
+			generation: 1,
+			revision: 1,
+		},
 	};
 }

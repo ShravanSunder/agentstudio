@@ -11,6 +11,12 @@ export const bridgeContentDemandExecutionPolicy = {
 	backgroundStartConcurrency: 1,
 	/** Protects visible queue wait; coalescing is per reconciler pass, validated by visible queue-wait p95. */
 	dispatchDelayMilliseconds: 0,
+	/** Paces executor-stage delivery retries after fetch errors; validated by retry/backoff lifecycle tests. */
+	deliveryFailureBackoffInitialMilliseconds: 500,
+	/** Escalates persistent delivery failures without parking membership; validated by retry/backoff lifecycle tests. */
+	deliveryFailureBackoffMultiplier: 4,
+	/** Caps persistent fetch-error retry delay so visible content remains re-derivable; validated by retry/backoff lifecycle tests. */
+	deliveryFailureBackoffMaxMilliseconds: 8_000,
 } as const;
 
 export const bridgeContentDemandMembershipPolicy = {

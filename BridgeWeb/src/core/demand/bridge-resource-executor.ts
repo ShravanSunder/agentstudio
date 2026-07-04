@@ -1,6 +1,7 @@
 import type { BridgeDemandIntent } from '../models/bridge-demand-models.js';
 import type { BridgeResourceDescriptor } from '../models/bridge-resource-descriptor.js';
 import type { BridgeResourceDescriptorRegistry } from '../resources/bridge-resource-registry.js';
+import { bridgeContentDemandExecutionPolicy } from './bridge-content-demand-policy.js';
 
 export interface BridgeResourceExecutorLoadResourceProps {
 	readonly descriptor: BridgeResourceDescriptor;
@@ -146,10 +147,16 @@ interface PendingResourceLoad<TContent> {
 	readonly promise: Promise<BridgeResourceExecutorResult<TContent>>;
 	readonly abortController: AbortController;
 	readonly byteBudget: number;
+	readonly eligibleAtMilliseconds: number;
 	readonly loadOptions: BridgeResourceExecutorLoadOptions;
 	readonly pendingEnteredAtMilliseconds: number;
 	readonly resolve: (result: BridgeResourceExecutorResult<TContent>) => void;
 	readonly sequence: number;
+}
+
+interface DeliveryFailureBackoffFact {
+	readonly attemptCount: number;
+	readonly retryEligibleAtMilliseconds: number;
 }
 
 const demandLaneOrder = [
@@ -169,7 +176,9 @@ export function createBridgeResourceExecutor<TContent = unknown>(
 	let nextPendingSequence = 0;
 	let inFlightBytes = 0;
 	let queuedBytes = 0;
+	let pendingPumpTimer: ReturnType<typeof setTimeout> | null = null;
 	const now = props.now ?? defaultNow;
+	const deliveryFailureBackoffByInFlightKey = new Map<string, DeliveryFailureBackoffFact>();
 
 	const load = async (
 		intent: BridgeDemandIntent,
@@ -208,6 +217,23 @@ export function createBridgeResourceExecutor<TContent = unknown>(
 			return { ok: false, reason: 'stale_completion' };
 		}
 		const abortController = new AbortController();
+		const retryEligibleAtMilliseconds = deliveryFailureRetryEligibleAtMilliseconds({
+			deliveryFailureBackoffByInFlightKey,
+			inFlightKey,
+			nowMilliseconds: now(),
+		});
+		if (retryEligibleAtMilliseconds !== null) {
+			return await enqueuePendingLoad({
+				abortController,
+				byteBudget,
+				descriptor,
+				eligibleAtMilliseconds: retryEligibleAtMilliseconds,
+				inFlightKey,
+				intent,
+				loadOptions: options,
+				pendingEnteredAtMilliseconds: now(),
+			});
+		}
 		if (canStartLoad(byteBudget)) {
 			const pendingEnteredAtMilliseconds = now();
 			return await startLoad({
@@ -234,36 +260,16 @@ export function createBridgeResourceExecutor<TContent = unknown>(
 			});
 		}
 		const pendingEnteredAtMilliseconds = now();
-		let resolvePending: ((result: BridgeResourceExecutorResult<TContent>) => void) | null = null;
-		const promise = new Promise<BridgeResourceExecutorResult<TContent>>((resolve): void => {
-			resolvePending = resolve;
-		});
-		if (resolvePending === null) {
-			throw new Error('Pending Bridge resource load was not initialized.');
-		}
-		pendingByDedupeKey.set(inFlightKey, {
-			intent,
-			descriptor,
-			promise,
+		return await enqueuePendingLoad({
 			abortController,
 			byteBudget,
+			descriptor,
+			eligibleAtMilliseconds: pendingEnteredAtMilliseconds,
+			inFlightKey,
+			intent,
 			loadOptions: options,
 			pendingEnteredAtMilliseconds,
-			resolve: resolvePending,
-			sequence: nextPendingSequence,
 		});
-		queuedBytes += byteBudget;
-		nextPendingSequence += 1;
-		props.onLifecycleEvent?.({
-			byteBudget,
-			intent,
-			kind: 'queued',
-			pendingEnteredAtMilliseconds,
-			queuedBytesAfter: queuedBytes,
-			queuedLoadCountAfter: pendingByDedupeKey.size,
-		});
-		pumpPendingLoads();
-		return await promise;
 	};
 
 	const cancelGroup = (cancellationGroup: string): number => {
@@ -288,6 +294,7 @@ export function createBridgeResourceExecutor<TContent = unknown>(
 			pendingLoad.resolve({ ok: false, reason: 'aborted' });
 			cancelledCount += 1;
 		}
+		schedulePendingPump();
 		return cancelledCount;
 	};
 
@@ -360,6 +367,12 @@ export function createBridgeResourceExecutor<TContent = unknown>(
 		})
 			.then((result): BridgeResourceExecutorResult<TContent> => {
 				const completedAtMilliseconds = now();
+				updateDeliveryFailureBackoff({
+					deliveryFailureBackoffByInFlightKey,
+					inFlightKey: startProps.inFlightKey,
+					nowMilliseconds: completedAtMilliseconds,
+					result,
+				});
 				props.onLifecycleEvent?.({
 					completedAtMilliseconds,
 					inFlightMilliseconds: Math.max(0, completedAtMilliseconds - startedAtMilliseconds),
@@ -402,13 +415,62 @@ export function createBridgeResourceExecutor<TContent = unknown>(
 		return promise;
 	};
 
+	const enqueuePendingLoad = (enqueueProps: {
+		readonly abortController: AbortController;
+		readonly byteBudget: number;
+		readonly descriptor: BridgeResourceDescriptor;
+		readonly eligibleAtMilliseconds: number;
+		readonly inFlightKey: string;
+		readonly intent: BridgeDemandIntent;
+		readonly loadOptions: BridgeResourceExecutorLoadOptions;
+		readonly pendingEnteredAtMilliseconds: number;
+	}): Promise<BridgeResourceExecutorResult<TContent>> => {
+		let resolvePending: ((result: BridgeResourceExecutorResult<TContent>) => void) | null = null;
+		const promise = new Promise<BridgeResourceExecutorResult<TContent>>((resolve): void => {
+			resolvePending = resolve;
+		});
+		if (resolvePending === null) {
+			throw new Error('Pending Bridge resource load was not initialized.');
+		}
+		pendingByDedupeKey.set(enqueueProps.inFlightKey, {
+			intent: enqueueProps.intent,
+			descriptor: enqueueProps.descriptor,
+			promise,
+			abortController: enqueueProps.abortController,
+			byteBudget: enqueueProps.byteBudget,
+			eligibleAtMilliseconds: enqueueProps.eligibleAtMilliseconds,
+			loadOptions: enqueueProps.loadOptions,
+			pendingEnteredAtMilliseconds: enqueueProps.pendingEnteredAtMilliseconds,
+			resolve: resolvePending,
+			sequence: nextPendingSequence,
+		});
+		queuedBytes += enqueueProps.byteBudget;
+		nextPendingSequence += 1;
+		props.onLifecycleEvent?.({
+			byteBudget: enqueueProps.byteBudget,
+			intent: enqueueProps.intent,
+			kind: 'queued',
+			pendingEnteredAtMilliseconds: enqueueProps.pendingEnteredAtMilliseconds,
+			queuedBytesAfter: queuedBytes,
+			queuedLoadCountAfter: pendingByDedupeKey.size,
+		});
+		pumpPendingLoads();
+		return promise;
+	};
+
 	const pumpPendingLoads = (): void => {
+		if (pendingPumpTimer !== null) {
+			clearTimeout(pendingPumpTimer);
+			pendingPumpTimer = null;
+		}
 		while (inFlightByDedupeKey.size < props.maxConcurrentLoads) {
 			const nextPending = nextStartablePendingLoad({
+				nowMilliseconds: now(),
 				pendingLoads: pendingByDedupeKey,
 				availableBytes: props.maxInFlightBytes - inFlightBytes,
 			});
 			if (nextPending === null) {
+				schedulePendingPump();
 				return;
 			}
 			const inFlightKey = makeInFlightKey(nextPending.intent);
@@ -422,6 +484,12 @@ export function createBridgeResourceExecutor<TContent = unknown>(
 				nextPending.resolve({ ok: false, reason: 'stale_completion' });
 				continue;
 			}
+			if (nextPending.eligibleAtMilliseconds > now()) {
+				pendingByDedupeKey.set(inFlightKey, nextPending);
+				queuedBytes += nextPending.byteBudget;
+				schedulePendingPump();
+				return;
+			}
 			void startLoad({
 				abortController: nextPending.abortController,
 				byteBudget: nextPending.byteBudget,
@@ -432,6 +500,25 @@ export function createBridgeResourceExecutor<TContent = unknown>(
 				pendingEnteredAtMilliseconds: nextPending.pendingEnteredAtMilliseconds,
 			}).then(nextPending.resolve);
 		}
+	};
+
+	const schedulePendingPump = (): void => {
+		if (pendingPumpTimer !== null || pendingByDedupeKey.size === 0) {
+			return;
+		}
+		const nextEligibleAtMilliseconds = nextPendingEligibilityMilliseconds({
+			pendingLoads: pendingByDedupeKey,
+			availableBytes: props.maxInFlightBytes - inFlightBytes,
+			nowMilliseconds: now(),
+		});
+		if (nextEligibleAtMilliseconds === null) {
+			return;
+		}
+		const delayMilliseconds = Math.max(0, nextEligibleAtMilliseconds - now());
+		pendingPumpTimer = setTimeout((): void => {
+			pendingPumpTimer = null;
+			pumpPendingLoads();
+		}, delayMilliseconds);
 	};
 
 	return {
@@ -556,15 +643,38 @@ function makeInFlightKey(intent: BridgeDemandIntent): string {
 function nextStartablePendingLoad<TContent>(props: {
 	readonly pendingLoads: ReadonlyMap<string, PendingResourceLoad<TContent>>;
 	readonly availableBytes: number;
+	readonly nowMilliseconds: number;
 }): PendingResourceLoad<TContent> | null {
 	return (
 		Array.from(props.pendingLoads.values())
 			.filter(
 				(pendingLoad: PendingResourceLoad<TContent>): boolean =>
-					pendingLoad.byteBudget <= props.availableBytes,
+					pendingLoad.byteBudget <= props.availableBytes &&
+					pendingLoad.eligibleAtMilliseconds <= props.nowMilliseconds,
 			)
 			.toSorted(comparePendingResourceLoads)[0] ?? null
 	);
+}
+
+function nextPendingEligibilityMilliseconds<TContent>(props: {
+	readonly pendingLoads: ReadonlyMap<string, PendingResourceLoad<TContent>>;
+	readonly availableBytes: number;
+	readonly nowMilliseconds: number;
+}): number | null {
+	let nextEligibleAtMilliseconds: number | null = null;
+	for (const pendingLoad of props.pendingLoads.values()) {
+		if (pendingLoad.byteBudget > props.availableBytes) {
+			continue;
+		}
+		if (pendingLoad.eligibleAtMilliseconds <= props.nowMilliseconds) {
+			return props.nowMilliseconds;
+		}
+		nextEligibleAtMilliseconds =
+			nextEligibleAtMilliseconds === null
+				? pendingLoad.eligibleAtMilliseconds
+				: Math.min(nextEligibleAtMilliseconds, pendingLoad.eligibleAtMilliseconds);
+	}
+	return nextEligibleAtMilliseconds;
 }
 
 function comparePendingResourceLoads<TContent>(
@@ -596,6 +706,55 @@ function executorLifecycleResult<TContent>(
 	result: BridgeResourceExecutorResult<TContent>,
 ): BridgeResourceExecutorLifecycleResult {
 	return result.ok ? 'success' : result.reason;
+}
+
+function deliveryFailureRetryEligibleAtMilliseconds(props: {
+	readonly deliveryFailureBackoffByInFlightKey: ReadonlyMap<string, DeliveryFailureBackoffFact>;
+	readonly inFlightKey: string;
+	readonly nowMilliseconds: number;
+}): number | null {
+	const backoffFact = props.deliveryFailureBackoffByInFlightKey.get(props.inFlightKey);
+	if (
+		backoffFact === undefined ||
+		backoffFact.retryEligibleAtMilliseconds <= props.nowMilliseconds
+	) {
+		return null;
+	}
+	return backoffFact.retryEligibleAtMilliseconds;
+}
+
+function updateDeliveryFailureBackoff<TContent>(props: {
+	readonly deliveryFailureBackoffByInFlightKey: Map<string, DeliveryFailureBackoffFact>;
+	readonly inFlightKey: string;
+	readonly nowMilliseconds: number;
+	readonly result: BridgeResourceExecutorResult<TContent>;
+}): void {
+	if (props.result.ok) {
+		props.deliveryFailureBackoffByInFlightKey.delete(props.inFlightKey);
+		return;
+	}
+	if (props.result.reason !== 'load_failed') {
+		return;
+	}
+	const previousAttemptCount =
+		props.deliveryFailureBackoffByInFlightKey.get(props.inFlightKey)?.attemptCount ?? 0;
+	const attemptCount = previousAttemptCount + 1;
+	props.deliveryFailureBackoffByInFlightKey.set(props.inFlightKey, {
+		attemptCount,
+		retryEligibleAtMilliseconds:
+			props.nowMilliseconds + deliveryFailureBackoffDelayMilliseconds(attemptCount),
+	});
+}
+
+function deliveryFailureBackoffDelayMilliseconds(attemptCount: number): number {
+	const multiplierExponent = Math.max(0, attemptCount - 1);
+	const delayMilliseconds =
+		bridgeContentDemandExecutionPolicy.deliveryFailureBackoffInitialMilliseconds *
+		bridgeContentDemandExecutionPolicy.deliveryFailureBackoffMultiplier ** multiplierExponent;
+	return Math.min(
+		delayMilliseconds,
+		bridgeContentDemandExecutionPolicy.deliveryFailureBackoffMaxMilliseconds,
+	);
 }
 
 function defaultNow(): number {

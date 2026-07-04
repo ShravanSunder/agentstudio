@@ -128,6 +128,8 @@ export function useBridgeReviewVisibleContentController(
 		contentRegistry,
 		loadContentResources: loadVisibleContentResourcesThroughDemand,
 		reviewPackage: isActive ? reviewPackage : null,
+		resolveDescriptorRef: (handle): BridgeDescriptorRef | null =>
+			reviewContentDescriptorRefsByHandleIdRef.current.get(handle.handleId) ?? null,
 		selectedItemId: isActive ? selectedItemId : null,
 		telemetryParentTraceContext:
 			currentReviewPackageTelemetryContextRef.current?.traceContext ?? null,

@@ -6,6 +6,7 @@ import {
 	createDeferred,
 	makeNoopTelemetryRecorder,
 } from '../../app/bridge-app.unit.test-support.js';
+import type { BridgeDescriptorRef } from '../../core/models/bridge-resource-descriptor.js';
 import type { BridgeContentResource } from '../../foundation/content/content-resource-loader.js';
 import {
 	makeBridgeContentHandle,
@@ -44,6 +45,7 @@ describe('visible review content hydration Browser Mode', () => {
 						return Promise.resolve(makeLoadedResources(props.itemId));
 					},
 					reviewPackage,
+					resolveDescriptorRef: resolveDescriptorRefForTest,
 					selectedItemId: null,
 					telemetryParentTraceContext: null,
 					telemetryRecorder: makeNoopTelemetryRecorder(),
@@ -108,6 +110,7 @@ describe('visible review content hydration Browser Mode', () => {
 						return loadDeferredsByItemId.get(props.itemId)?.promise ?? Promise.resolve(null);
 					},
 					reviewPackage,
+					resolveDescriptorRef: resolveDescriptorRefForTest,
 					selectedItemId: null,
 					telemetryParentTraceContext: null,
 					telemetryRecorder: makeNoopTelemetryRecorder(),
@@ -208,6 +211,7 @@ describe('visible review content hydration Browser Mode', () => {
 						return Promise.resolve(makeLoadedResources(props.itemId));
 					},
 					reviewPackage,
+					resolveDescriptorRef: resolveDescriptorRefForTest,
 					selectedItemId: null,
 					telemetryParentTraceContext: null,
 					telemetryRecorder: makeNoopTelemetryRecorder(),
@@ -332,6 +336,7 @@ describe('visible review content hydration Browser Mode', () => {
 						return Promise.resolve(makeLoadedResources(props.itemId));
 					},
 					reviewPackage,
+					resolveDescriptorRef: resolveDescriptorRefForTest,
 					selectedItemId: null,
 					telemetryParentTraceContext: null,
 					telemetryRecorder: makeNoopTelemetryRecorder(),
@@ -469,6 +474,22 @@ function makeLoadedResources(itemId: string): { readonly head: BridgeContentReso
 		head: {
 			handle: makeBridgeContentHandle(itemId, 'head'),
 			readText: (): string => `loaded ${itemId}`,
+		},
+	};
+}
+
+function resolveDescriptorRefForTest(handle: { readonly handleId: string }): BridgeDescriptorRef {
+	return {
+		descriptorId: handle.handleId,
+		expectedProtocol: 'review',
+		expectedResourceKind: 'content',
+		expectedIdentity: {
+			paneId: 'pane-1',
+			protocol: 'review',
+			sourceId: 'source-1',
+			packageId: 'package-1',
+			generation: 1,
+			revision: 1,
 		},
 	};
 }

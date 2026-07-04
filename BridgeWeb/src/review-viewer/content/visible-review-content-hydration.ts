@@ -1,7 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 
+import {
+	reconcileBridgeContentDemand,
+	type BridgeContentDemandCandidate,
+	type BridgeContentDemandPlan,
+	type BridgeContentDemandPlanEntry,
+} from '../../core/demand/bridge-content-demand-reconciler.js';
+import type { BridgeContentDemandRole } from '../../core/models/bridge-demand-models.js';
+import type { BridgeDescriptorRef } from '../../core/models/bridge-resource-descriptor.js';
+import { mapReviewDemandStimulusToContentDemandCandidates } from '../../features/review/demand/review-demand-policy.js';
 import type {
+	BridgeContentHandle,
 	BridgeReviewItemDescriptor,
 	BridgeReviewPackage,
 } from '../../foundation/review-package/bridge-review-package.js';
@@ -16,6 +26,11 @@ import type {
 	ReviewContentDemandInterest,
 	ReviewContentDemandLoadResult,
 } from './review-content-demand-loader.js';
+import {
+	demandFreshnessKeyForReviewDescriptorRef,
+	demandKeysForPlan,
+	demandPlansForReviewItem,
+} from './review-content-demand-policy.js';
 import type { LoadReviewItemContentResourcesProps } from './review-content-loader.js';
 import type { BridgeReviewContentRegistry } from './review-content-registry.js';
 import {
@@ -52,6 +67,7 @@ export interface UseVisibleReviewContentHydrationProps {
 		props: VisibleReviewContentLoadProps,
 	) => Promise<VisibleReviewContentLoadResult>;
 	readonly reviewPackage: BridgeReviewPackage | null;
+	readonly resolveDescriptorRef: (handle: BridgeContentHandle) => BridgeDescriptorRef | null;
 	readonly selectedItemId: string | null;
 	readonly telemetryParentTraceContext: BridgeTraceContext | null;
 	readonly telemetryRecorder: BridgeTelemetryRecorder;
@@ -73,7 +89,6 @@ export interface UseVisibleReviewContentHydrationResult {
 // after finger lift, so dispatch must not add another 64ms tail before visible loads start.
 export const visibleContentHydrationConcurrentLoadLimit = 4;
 export const visibleContentHydrationDispatchDelayMilliseconds = 0;
-const maxVisibleContentDeferredRetries = 1;
 
 export type VisibleReviewContentLoadResult =
 	| ReviewContentDemandLoadResult
@@ -95,7 +110,7 @@ export function useVisibleReviewContentHydration(
 		new Map<string, AbortController>(),
 	);
 	const scheduledContentKeysRef = useRef<Set<string>>(new Set<string>());
-	const deferredRetryCountByContentKeyRef = useRef<Map<string, number>>(new Map());
+	const previousDemandPlanEntriesRef = useRef<readonly BridgeContentDemandPlanEntry[]>([]);
 	const isMountedRef = useRef(true);
 	const loadContentResources = props.loadContentResources;
 
@@ -112,7 +127,7 @@ export function useVisibleReviewContentHydration(
 		reportedVisibleItemIdsRef.current = [];
 		abortVisibleContentLoads(loadAbortControllersByContentKeyRef.current);
 		scheduledContentKeysRef.current.clear();
-		deferredRetryCountByContentKeyRef.current.clear();
+		previousDemandPlanEntriesRef.current = [];
 		setVisibleItemIdsState([]);
 		setContentStateByItemId(new Map<string, VisibleContentResourcesState>());
 		resourcesByItemIdRef.current = new Map<string, BridgeCodeViewContentResources>();
@@ -185,53 +200,31 @@ export function useVisibleReviewContentHydration(
 	);
 
 	useEffect((): (() => void) | void => {
-		if (
-			props.reviewPackage === null ||
-			props.visibleHydrationPaused ||
-			visibleItemIds.length === 0
-		) {
+		if (props.reviewPackage === null) {
 			return;
 		}
 		const currentReviewPackage = props.reviewPackage;
-		const selectedAdjacentItemIds = new Set(
-			selectedAdjacentReviewItemIds({
-				reviewPackage: currentReviewPackage,
-				selectedItemId: props.selectedItemId,
-			}),
-		);
-		const loadPlans = visibleItemIds.flatMap((itemId): readonly VisibleReviewContentLoadPlan[] => {
-			const item = currentReviewPackage.itemsById[itemId];
-			if (item === undefined) {
-				return [];
-			}
-			const contentKey = makeVisibleReviewItemContentResourcesKey({
-				contentInvalidationVersion: props.contentInvalidationVersion,
-				item,
-				reviewPackage: currentReviewPackage,
-			});
-			const currentState = contentStateByItemId.get(itemId);
-			if (
-				scheduledContentKeysRef.current.has(contentKey) ||
-				(currentState?.contentKey === contentKey &&
-					(currentState.status === 'loading' ||
-						currentState.status === 'ready' ||
-						currentState.status === 'failed' ||
-						hasExhaustedDeferredVisibleContentRetries({
-							contentKey,
-							retryCountsByContentKey: deferredRetryCountByContentKeyRef.current,
-							state: currentState,
-						})))
-			) {
-				return [];
-			}
-			return [
-				{
-					contentKey,
-					interest: selectedAdjacentItemIds.has(itemId) ? 'nearby' : 'visible',
-					item,
-					itemId,
-				},
-			];
+		const derivedDemand = deriveVisibleReviewContentLoadPlans({
+			contentInvalidationVersion: props.contentInvalidationVersion,
+			contentRegistry: props.contentRegistry,
+			contentStateByItemId,
+			generation: currentReviewPackage.reviewGeneration,
+			paused: props.visibleHydrationPaused,
+			previousEntries: previousDemandPlanEntriesRef.current,
+			reviewPackage: currentReviewPackage,
+			resolveDescriptorRef: props.resolveDescriptorRef,
+			scheduledContentKeys: scheduledContentKeysRef.current,
+			selectedItemId: props.selectedItemId,
+			visibleItemIds,
+		});
+		previousDemandPlanEntriesRef.current = derivedDemand.reconciledPlan.entries;
+		const loadPlans = derivedDemand.loadPlans.filter((loadPlan): boolean => {
+			const currentState = contentStateByItemId.get(loadPlan.itemId);
+			return !(
+				scheduledContentKeysRef.current.has(loadPlan.contentKey) ||
+				(currentState?.contentKey === loadPlan.contentKey &&
+					(currentState.status === 'loading' || currentState.status === 'ready'))
+			);
 		});
 		const visibleLoadingCount = countVisibleContentStatesWithStatus({
 			contentStateByItemId,
@@ -332,20 +325,10 @@ export function useVisibleReviewContentHydration(
 									return currentStateByItemId;
 								}
 								if (normalizedLoadResult.status === 'ready') {
-									deferredRetryCountByContentKeyRef.current.delete(loadPlan.contentKey);
 									const nextResourcesByItemId = new Map(resourcesByItemIdRef.current);
 									nextResourcesByItemId.delete(loadPlan.itemId);
 									nextResourcesByItemId.set(loadPlan.itemId, normalizedLoadResult.resources);
 									resourcesByItemIdRef.current = nextResourcesByItemId;
-								}
-								if (normalizedLoadResult.status === 'failed') {
-									deferredRetryCountByContentKeyRef.current.delete(loadPlan.contentKey);
-								}
-								if (normalizedLoadResult.status === 'deferred') {
-									recordDeferredVisibleContentRetryDecision({
-										contentKey: loadPlan.contentKey,
-										retryCountsByContentKey: deferredRetryCountByContentKeyRef.current,
-									});
 								}
 								const nextStateByItemId = new Map(currentStateByItemId);
 								nextStateByItemId.set(loadPlan.itemId, {
@@ -417,6 +400,7 @@ export function useVisibleReviewContentHydration(
 		props.contentRegistry,
 		props.contentInvalidationVersion,
 		loadContentResources,
+		props.resolveDescriptorRef,
 		props.reviewPackage,
 		props.selectedItemId,
 		props.telemetryParentTraceContext,
@@ -450,7 +434,6 @@ export function useVisibleReviewContentHydration(
 				scheduledContentKeysRef.current.delete(scheduledContentKey);
 			}
 		}
-		pruneDeferredRetryCountsExcept(deferredRetryCountByContentKeyRef.current, retainedContentKeys);
 		setContentStateByItemId(
 			(currentStateByItemId: ReadonlyMap<string, VisibleContentResourcesState>) => {
 				const pruned = pruneVisibleReviewContentHydrationCaches({
@@ -480,6 +463,213 @@ export function useVisibleReviewContentHydration(
 			}),
 		[contentStateByItemId, props.visibleHydrationPaused, setVisibleItemIds, visibleItemIds],
 	);
+}
+
+export interface DeriveVisibleReviewContentLoadPlansProps {
+	readonly contentInvalidationVersion: number;
+	readonly contentRegistry: Pick<BridgeReviewContentRegistry, 'peekResource'>;
+	readonly contentStateByItemId: ReadonlyMap<string, VisibleContentResourcesState>;
+	readonly generation: number;
+	readonly paused: boolean;
+	readonly previousEntries: readonly BridgeContentDemandPlanEntry[];
+	readonly reviewPackage: BridgeReviewPackage;
+	readonly resolveDescriptorRef: (handle: BridgeContentHandle) => BridgeDescriptorRef | null;
+	readonly scheduledContentKeys: ReadonlySet<string>;
+	readonly selectedItemId: string | null;
+	readonly visibleItemIds: readonly string[];
+}
+
+export interface DerivedVisibleReviewContentLoadPlans {
+	readonly loadPlans: readonly VisibleReviewContentLoadPlan[];
+	readonly reconciledPlan: BridgeContentDemandPlan;
+}
+
+export function deriveVisibleReviewContentLoadPlans(
+	props: DeriveVisibleReviewContentLoadPlansProps,
+): DerivedVisibleReviewContentLoadPlans {
+	const itemContexts = visibleReviewContentDemandItemContexts(props);
+	const demandCandidates: BridgeContentDemandCandidate[] = [];
+	const loadedDedupeKeys = new Set<string>();
+	const inFlightDedupeKeys = new Set<string>();
+	const contextByDedupeKey = new Map<string, VisibleReviewContentDemandItemContext>();
+	for (const itemContext of itemContexts) {
+		const candidateResult = contentDemandCandidatesForItemContext({
+			contentRegistry: props.contentRegistry,
+			itemContext,
+			resolveDescriptorRef: props.resolveDescriptorRef,
+		});
+		for (const loadedDedupeKey of candidateResult.loadedDedupeKeys) {
+			loadedDedupeKeys.add(loadedDedupeKey);
+		}
+		for (const candidate of candidateResult.candidates) {
+			demandCandidates.push(candidate);
+			contextByDedupeKey.set(candidate.intent.dedupeKey, itemContext);
+			if (
+				props.scheduledContentKeys.has(itemContext.contentKey) ||
+				props.contentStateByItemId.get(itemContext.itemId)?.status === 'loading'
+			) {
+				inFlightDedupeKeys.add(candidate.intent.dedupeKey);
+			}
+		}
+	}
+	const reconciledPlan = reconcileBridgeContentDemand({
+		candidates: demandCandidates,
+		generation: props.generation,
+		inFlightDedupeKeys,
+		loadedDedupeKeys,
+		paused: props.paused,
+		previousEntries: props.previousEntries,
+	});
+	const loadPlans = loadPlansForReconciledEntries({
+		contextByDedupeKey,
+		entries: reconciledPlan.entries,
+	});
+	return { loadPlans, reconciledPlan };
+}
+
+interface VisibleReviewContentDemandItemContext {
+	readonly contentKey: string;
+	readonly interest: VisibleReviewContentDemandInterest | 'selected';
+	readonly item: BridgeReviewItemDescriptor;
+	readonly itemId: string;
+}
+
+function visibleReviewContentDemandItemContexts(
+	props: DeriveVisibleReviewContentLoadPlansProps,
+): readonly VisibleReviewContentDemandItemContext[] {
+	const itemContexts: VisibleReviewContentDemandItemContext[] = [];
+	const seenItemIds = new Set<string>();
+	const selectedItem =
+		props.selectedItemId === null ? undefined : props.reviewPackage.itemsById[props.selectedItemId];
+	if (selectedItem !== undefined && props.selectedItemId !== null) {
+		itemContexts.push({
+			contentKey: makeVisibleReviewItemContentResourcesKey({
+				contentInvalidationVersion: props.contentInvalidationVersion,
+				item: selectedItem,
+				reviewPackage: props.reviewPackage,
+			}),
+			interest: 'selected',
+			item: selectedItem,
+			itemId: props.selectedItemId,
+		});
+		seenItemIds.add(props.selectedItemId);
+	}
+	const selectedAdjacentItemIds = new Set(
+		selectedAdjacentReviewItemIds({
+			reviewPackage: props.reviewPackage,
+			selectedItemId: props.selectedItemId,
+		}),
+	);
+	for (const itemId of props.visibleItemIds) {
+		if (seenItemIds.has(itemId)) {
+			continue;
+		}
+		const item = props.reviewPackage.itemsById[itemId];
+		if (item === undefined) {
+			continue;
+		}
+		itemContexts.push({
+			contentKey: makeVisibleReviewItemContentResourcesKey({
+				contentInvalidationVersion: props.contentInvalidationVersion,
+				item,
+				reviewPackage: props.reviewPackage,
+			}),
+			interest: selectedAdjacentItemIds.has(itemId) ? 'nearby' : 'visible',
+			item,
+			itemId,
+		});
+		seenItemIds.add(itemId);
+	}
+	return itemContexts;
+}
+
+function contentDemandCandidatesForItemContext(props: {
+	readonly contentRegistry: Pick<BridgeReviewContentRegistry, 'peekResource'>;
+	readonly itemContext: VisibleReviewContentDemandItemContext;
+	readonly resolveDescriptorRef: (handle: BridgeContentHandle) => BridgeDescriptorRef | null;
+}): {
+	readonly candidates: readonly BridgeContentDemandCandidate[];
+	readonly loadedDedupeKeys: readonly string[];
+} {
+	const plans = demandPlansForReviewItem({
+		item: props.itemContext.item,
+		interest: props.itemContext.interest,
+		presentation: null,
+		resolveDescriptorRef: props.resolveDescriptorRef,
+	});
+	if (plans === null) {
+		return { candidates: [], loadedDedupeKeys: [] };
+	}
+	const candidates: BridgeContentDemandCandidate[] = [];
+	const loadedDedupeKeys: string[] = [];
+	for (const plan of plans) {
+		const planCandidates = mapReviewDemandStimulusToContentDemandCandidates({
+			stimulus: { kind: 'reviewDescriptorInvalidated', descriptorRef: plan.descriptorRef },
+			readContext: {
+				getDescriptorState: () => ({
+					kind: 'valid',
+					freshnessKey: demandFreshnessKeyForReviewDescriptorRef(plan.descriptorRef),
+					needsBodyOrWindow: true,
+				}),
+				getViewInterest: () => ({ kind: props.itemContext.interest }),
+				buildDemandKeys: () => demandKeysForPlan(plan, props.itemContext.interest),
+			},
+		});
+		const cachedResource = props.contentRegistry.peekResource(plan.handle);
+		for (const candidate of planCandidates) {
+			if (cachedResource === null) {
+				candidates.push(candidate);
+				continue;
+			}
+			loadedDedupeKeys.push(candidate.intent.dedupeKey);
+		}
+	}
+	return { candidates, loadedDedupeKeys };
+}
+
+function loadPlansForReconciledEntries(props: {
+	readonly contextByDedupeKey: ReadonlyMap<string, VisibleReviewContentDemandItemContext>;
+	readonly entries: readonly BridgeContentDemandPlanEntry[];
+}): readonly VisibleReviewContentLoadPlan[] {
+	const plannedItemIds = new Set<string>();
+	const loadPlans: VisibleReviewContentLoadPlan[] = [];
+	for (const entry of props.entries) {
+		if (!entry.startEligible) {
+			continue;
+		}
+		const interest = visibleReviewContentDemandInterestForRole(entry.role);
+		if (interest === null) {
+			continue;
+		}
+		const itemContext = props.contextByDedupeKey.get(entry.intent.dedupeKey);
+		if (itemContext === undefined || plannedItemIds.has(itemContext.itemId)) {
+			continue;
+		}
+		plannedItemIds.add(itemContext.itemId);
+		loadPlans.push({
+			contentKey: itemContext.contentKey,
+			interest,
+			item: itemContext.item,
+			itemId: itemContext.itemId,
+		});
+	}
+	return loadPlans;
+}
+
+function visibleReviewContentDemandInterestForRole(
+	role: BridgeContentDemandRole,
+): VisibleReviewContentDemandInterest | null {
+	switch (role) {
+		case 'visible':
+			return 'visible';
+		case 'nearby':
+			return 'nearby';
+		case 'selected':
+		case 'speculative':
+		case 'background':
+			return null;
+	}
+	return null;
 }
 
 export function createVisibleReviewContentHydrationResult(props: {
@@ -757,38 +947,6 @@ function abortVisibleContentLoadsExcept(
 		}
 		loadAbortController.abort();
 		loadAbortControllersByContentKey.delete(contentKey);
-	}
-}
-
-function hasExhaustedDeferredVisibleContentRetries(props: {
-	readonly contentKey: string;
-	readonly retryCountsByContentKey: Map<string, number>;
-	readonly state: VisibleContentResourcesState | undefined;
-}): boolean {
-	return (
-		props.state?.status === 'deferred' &&
-		(props.retryCountsByContentKey.get(props.contentKey) ?? 0) > maxVisibleContentDeferredRetries
-	);
-}
-
-function recordDeferredVisibleContentRetryDecision(props: {
-	readonly contentKey: string;
-	readonly retryCountsByContentKey: Map<string, number>;
-}): boolean {
-	const retryCount = (props.retryCountsByContentKey.get(props.contentKey) ?? 0) + 1;
-	props.retryCountsByContentKey.set(props.contentKey, retryCount);
-	return retryCount <= maxVisibleContentDeferredRetries;
-}
-
-function pruneDeferredRetryCountsExcept(
-	deferredRetryCountsByContentKey: Map<string, number>,
-	retainedContentKeys: ReadonlySet<string>,
-): void {
-	for (const contentKey of deferredRetryCountsByContentKey.keys()) {
-		if (retainedContentKeys.has(contentKey)) {
-			continue;
-		}
-		deferredRetryCountsByContentKey.delete(contentKey);
 	}
 }
 
