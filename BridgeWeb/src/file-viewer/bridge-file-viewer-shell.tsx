@@ -1,5 +1,5 @@
 import { RefreshCwIcon } from 'lucide-react';
-import type { ReactElement, ReactNode } from 'react';
+import { useEffect, type ReactElement, type ReactNode } from 'react';
 
 import { BridgeViewerButton, BridgeViewerIcon } from '../app/bridge-viewer-button.js';
 import { BridgeViewerContentHeader } from '../app/bridge-viewer-content-header.js';
@@ -8,6 +8,7 @@ import type {
 	WorktreeFileDescriptor,
 	WorktreeFileSurfaceSourceIdentity,
 } from '../features/worktree-file/models/worktree-file-protocol-models.js';
+import { startBridgeFrameLivenessProbe } from '../foundation/diagnostics/bridge-frame-liveness-probe.js';
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import type { BridgeTraceContext } from '../foundation/telemetry/bridge-trace-context.js';
 import type { WorktreeFileSurfaceLoadTelemetry } from '../worktree-file-surface/worktree-file-surface-runtime.js';
@@ -112,6 +113,8 @@ export function BridgeFileViewerShell({
 	totalTreeRowCount,
 	viewerHeaderControls,
 }: BridgeFileViewerShellProps): ReactElement {
+	useEffect((): (() => void) => startBridgeFrameLivenessProbe(), []);
+
 	const lastDemandDispatchResult =
 		lastDemandDispatchDebugState.status === 'settled' ? lastDemandDispatchDebugState.result : null;
 	const firstDemandLoadResult =

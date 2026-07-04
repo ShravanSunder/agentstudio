@@ -175,6 +175,8 @@ extension BridgeReviewObservabilitySmokeRenderProof {
         paintedProbeLastReason = snapshot.paintedProbeLastReason
         paintedProbeLastScheduleEarlyReturnReason =
             snapshot.paintedProbeLastScheduleEarlyReturnReason
+        frameLivenessRafAlive = snapshot.frameLivenessRafAlive ?? "unknown"
+        frameLivenessRafFiredLatencyBucket = snapshot.frameLivenessRafFiredLatencyBucket ?? "unknown"
     }
 }
 struct BridgeReviewObservabilitySmokeRenderSnapshot: Decodable, Equatable {
@@ -243,6 +245,8 @@ struct BridgeReviewObservabilitySmokeRenderSnapshot: Decodable, Equatable {
     let paintedProbeLastAnchoredDeliveryHadTelemetryRecorder: Bool
     let paintedProbeLastReason: String
     let paintedProbeLastScheduleEarlyReturnReason: String
+    var frameLivenessRafAlive: String?
+    var frameLivenessRafFiredLatencyBucket: String?
     let pageErrorCount: Int
     let pageIssueLastKind: String
     let pageIssueLastClass: String
@@ -405,6 +409,8 @@ struct BridgeReviewObservabilitySmokeRenderProof: Equatable {
     var paintedProbeLastAnchoredDeliveryHadTelemetryRecorder: Bool = false
     var paintedProbeLastReason: String = "none"
     var paintedProbeLastScheduleEarlyReturnReason: String = "none"
+    var frameLivenessRafAlive: String = "unknown"
+    var frameLivenessRafFiredLatencyBucket: String = "unknown"
     let pageErrorCount: Int
     let pageIssueLastKind: String
     let pageIssueLastClass: String
@@ -705,6 +711,10 @@ struct BridgeReviewObservabilitySmokeRenderProof: Equatable {
                 paintedProbeLastReason),
             "agentstudio.startup_diagnostic.bridge.painted_probe.last_schedule_early_return.reason": .string(
                 paintedProbeLastScheduleEarlyReturnReason),
+            "agentstudio.startup_diagnostic.bridge.frame_liveness.raf_alive": .string(
+                frameLivenessRafAlive),
+            "agentstudio.startup_diagnostic.bridge.frame_liveness.raf_fired_latency.bucket": .string(
+                frameLivenessRafFiredLatencyBucket),
             "agentstudio.startup_diagnostic.bridge.page_issue.count": .int(pageErrorCount),
             "agentstudio.startup_diagnostic.bridge.page_issue.last_kind": .string(pageIssueLastKind),
             "agentstudio.startup_diagnostic.bridge.page_issue.last_class": .string(pageIssueLastClass),

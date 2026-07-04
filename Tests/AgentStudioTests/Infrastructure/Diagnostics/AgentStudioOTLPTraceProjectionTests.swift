@@ -738,6 +738,9 @@ struct AgentStudioOTLPTraceProjectionTests {
             "agentstudio.startup_diagnostic.bridge.modified_click.click_attempt.count": .int(2),
             "agentstudio.startup_diagnostic.bridge.modified_click.target_found": .bool(true),
             "agentstudio.startup_diagnostic.bridge.modified_click.first_rendered_present": .bool(true),
+            "agentstudio.startup_diagnostic.bridge.frame_liveness.raf_alive": .string("false"),
+            "agentstudio.startup_diagnostic.bridge.frame_liveness.raf_fired_latency.bucket": .string(
+                "not_fired"),
             "agentstudio.startup_diagnostic.bridge.modified_click.selected_matches_target": .bool(true),
             "agentstudio.startup_diagnostic.bridge.modified_click.shell_selected_matches_target": .bool(true),
             "agentstudio.startup_diagnostic.bridge.modified_click.rendered_row.count": .int(2),

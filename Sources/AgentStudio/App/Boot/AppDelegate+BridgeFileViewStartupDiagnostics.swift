@@ -780,10 +780,9 @@ import Foundation
                 document.documentElement.getAttribute('data-bridge-pierre-worker-pool-manager-state') || 'missing';
               const workerPoolWorkersFailed =
                 document.documentElement.getAttribute('data-bridge-pierre-worker-pool-workers-failed') === 'true';
-              const workerDiagnosticFileSuccessCount =
-                Number(document.documentElement.getAttribute('data-bridge-pierre-worker-diagnostic-file-success-count') || '0');
-              const workerDiagnosticErrorCount =
-                Number(document.documentElement.getAttribute('data-bridge-pierre-worker-diagnostic-error-count') || '0');
+              const workerDiagnosticFileSuccessCount = Number(document.documentElement.getAttribute('data-bridge-pierre-worker-diagnostic-file-success-count') || '0');
+              const workerDiagnosticErrorCount = Number(document.documentElement.getAttribute('data-bridge-pierre-worker-diagnostic-error-count') || '0');
+              const frameLivenessValue = (key) => typeof (window.__bridgeFrameLivenessProbe || {})[key] === 'string' ? (window.__bridgeFrameLivenessProbe || {})[key] : 'unknown';
               const errorProbe = Array.isArray(window.__bridgeErrorProbe)
                 ? window.__bridgeErrorProbe
                 : [];
@@ -969,6 +968,7 @@ import Foundation
                 workerPoolWorkersFailed,
                 workerDiagnosticFileSuccessCount,
                 workerDiagnosticErrorCount,
+                frameLivenessRafAlive: frameLivenessValue('rafAlive'), frameLivenessRafFiredLatencyBucket: frameLivenessValue('rafFiredLatencyBucket'),
                 pageErrorCount: errorProbe.length,
                 pageIssueLastKind,
                 pageIssueLastClass,

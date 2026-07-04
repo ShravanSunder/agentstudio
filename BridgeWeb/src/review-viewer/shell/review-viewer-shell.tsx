@@ -1,4 +1,4 @@
-import type { ReactElement, ReactNode } from 'react';
+import { useEffect, type ReactElement, type ReactNode } from 'react';
 
 import { BridgeViewerContentHeader } from '../../app/bridge-viewer-content-header.js';
 import { BridgeViewerRailToolbar } from '../../app/bridge-viewer-rail-toolbar.js';
@@ -7,6 +7,7 @@ import { BridgeViewerRightRailShell } from '../../app/bridge-viewer-right-rail-s
 import { BridgeViewerSearchControl } from '../../app/bridge-viewer-search-control.js';
 import { Skeleton } from '../../components/ui/skeleton.js';
 import type { ReviewTreeRowMetadata } from '../../features/review/models/review-protocol-models.js';
+import { startBridgeFrameLivenessProbe } from '../../foundation/diagnostics/bridge-frame-liveness-probe.js';
 import {
 	createBridgeReviewItemRegistry,
 	reviewItemPathLabel,
@@ -90,6 +91,8 @@ export interface ReviewViewerShellProps {
 export type BridgeReviewCanvasLoadingReason = 'content' | 'markdownPreview';
 
 export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
+	useEffect((): (() => void) => startBridgeFrameLivenessProbe(), []);
+
 	const registry = createBridgeReviewItemRegistry({
 		reviewPackage: props.reviewPackage,
 		selectedItemId: props.selectedItemId,

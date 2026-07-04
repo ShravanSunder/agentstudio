@@ -45,6 +45,8 @@ struct BridgeFileViewObservabilitySmokeRenderSnapshot: Decodable, Equatable {
     let workerPoolWorkersFailed: Bool
     let workerDiagnosticFileSuccessCount: Int
     let workerDiagnosticErrorCount: Int
+    var frameLivenessRafAlive: String?
+    var frameLivenessRafFiredLatencyBucket: String?
     let pageErrorCount: Int
     let pageIssueLastKind: String
     let pageIssueLastClass: String
@@ -122,6 +124,8 @@ struct BridgeFileViewObservabilitySmokeRenderProof: Equatable {
     let workerPoolWorkersFailed: Bool
     let workerDiagnosticFileSuccessCount: Int
     let workerDiagnosticErrorCount: Int
+    let frameLivenessRafAlive: String
+    let frameLivenessRafFiredLatencyBucket: String
     let pageErrorCount: Int
     let pageIssueLastKind: String
     let pageIssueLastClass: String
@@ -200,6 +204,8 @@ struct BridgeFileViewObservabilitySmokeRenderProof: Equatable {
         workerPoolWorkersFailed = snapshot.workerPoolWorkersFailed
         workerDiagnosticFileSuccessCount = snapshot.workerDiagnosticFileSuccessCount
         workerDiagnosticErrorCount = snapshot.workerDiagnosticErrorCount
+        frameLivenessRafAlive = snapshot.frameLivenessRafAlive ?? "unknown"
+        frameLivenessRafFiredLatencyBucket = snapshot.frameLivenessRafFiredLatencyBucket ?? "unknown"
         pageErrorCount = snapshot.pageErrorCount
         pageIssueLastKind = snapshot.pageIssueLastKind
         pageIssueLastClass = snapshot.pageIssueLastClass
@@ -428,6 +434,10 @@ struct BridgeFileViewObservabilitySmokeRenderProof: Equatable {
                 workerDiagnosticFileSuccessCount),
             "agentstudio.startup_diagnostic.bridge.worker_diagnostic.failure_count": .int(
                 workerDiagnosticErrorCount),
+            "agentstudio.startup_diagnostic.bridge.frame_liveness.raf_alive": .string(
+                frameLivenessRafAlive),
+            "agentstudio.startup_diagnostic.bridge.frame_liveness.raf_fired_latency.bucket": .string(
+                frameLivenessRafFiredLatencyBucket),
             "agentstudio.startup_diagnostic.bridge.page_issue.count": .int(pageErrorCount),
             "agentstudio.startup_diagnostic.bridge.page_issue.last_kind": .string(pageIssueLastKind),
             "agentstudio.startup_diagnostic.bridge.page_issue.last_class": .string(pageIssueLastClass),

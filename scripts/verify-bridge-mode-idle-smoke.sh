@@ -235,6 +235,30 @@ sys.exit(1)
 PY
 }
 
+first_json_string_field() {
+  local field_name="$1"
+  local payload="$2"
+  local fallback="${3:-unknown}"
+  /usr/bin/python3 - "$field_name" "$payload" "$fallback" <<'PY'
+import json
+import sys
+
+field_name, payload, fallback = sys.argv[1], sys.argv[2], sys.argv[3]
+for line in payload.splitlines():
+    if not line.strip():
+        continue
+    try:
+        record = json.loads(line)
+    except json.JSONDecodeError:
+        continue
+    value = record.get(field_name)
+    if isinstance(value, str) and value:
+        print(value)
+        sys.exit(0)
+print(fallback)
+PY
+}
+
 count_reopen_unsignaled_intake_rejects() {
   local payload="$1"
   /usr/bin/python3 - "$payload" <<'PY'
@@ -293,6 +317,12 @@ fail_assertion() {
   local detail="$2"
   printf 'FAIL %s: %s\n' "$name" "$detail" >&2
   assertion_failures=$((assertion_failures + 1))
+}
+
+skip_assertion() {
+  local name="$1"
+  local detail="$2"
+  printf 'SKIP %s: %s\n' "$name" "$detail"
 }
 
 assert_zero() {
@@ -386,7 +416,28 @@ if [ "$state_status" != "running" ]; then
 fi
 
 require_process_alive "process alive at start"
-"$PROJECT_ROOT/scripts/verify-debug-observability.sh" >/dev/null
+diagnostic_completed_response="$(
+  query_logs "$diagnostic_completed_query | fields _msg,agentstudio.startup_diagnostic.bridge.file_view.mode_switch.count,agentstudio.startup_diagnostic.bridge.file_view.mode_switch.final_file_selected,agentstudio.startup_diagnostic.render_proof.succeeded,agentstudio.startup_diagnostic.bridge.frame_liveness.raf_alive,agentstudio.startup_diagnostic.bridge.frame_liveness.raf_fired_latency.bucket | limit 20"
+)"
+frame_liveness_raf_alive="$(
+  first_json_string_field \
+    "agentstudio.startup_diagnostic.bridge.frame_liveness.raf_alive" \
+    "$diagnostic_completed_response"
+)"
+frame_liveness_raf_fired_latency_bucket="$(
+  first_json_string_field \
+    "agentstudio.startup_diagnostic.bridge.frame_liveness.raf_fired_latency.bucket" \
+    "$diagnostic_completed_response"
+)"
+if [ "$frame_liveness_raf_alive" = "false" ]; then
+  AGENTSTUDIO_BRIDGE_TTFI_RAF_ALIVE=false \
+    "$PROJECT_ROOT/scripts/verify-debug-observability.sh" >/dev/null
+  skip_assertion \
+    "time_to_first_interaction skipped because requestAnimationFrame is not live" \
+    "raf_alive=false"
+else
+  "$PROJECT_ROOT/scripts/verify-debug-observability.sh" >/dev/null
+fi
 
 idle_start_epoch="$(unix_now)"
 idle_query_start="$(utc_now)"
@@ -405,9 +456,6 @@ idle_query_end="$(utc_now)"
 require_process_alive "process alive at end"
 pass_assertion "process alive at end" "pid=$state_pid idle_seconds=$idle_seconds"
 
-diagnostic_completed_response="$(
-  query_logs "$diagnostic_completed_query | fields _msg,agentstudio.startup_diagnostic.bridge.file_view.mode_switch.count,agentstudio.startup_diagnostic.bridge.file_view.mode_switch.final_file_selected,agentstudio.startup_diagnostic.render_proof.succeeded | limit 20"
-)"
 if json_field_at_least \
   "agentstudio.startup_diagnostic.bridge.file_view.mode_switch.count" \
   4 \
@@ -475,6 +523,7 @@ echo "marker=$MARKER"
 echo "query_window=$QUERY_START..$QUERY_END"
 echo "idle_window=$idle_query_start..$idle_query_end"
 echo "idle_minutes=$IDLE_MINUTES idle_seconds=$idle_seconds"
+echo "frame_liveness_raf_alive=$frame_liveness_raf_alive frame_liveness_raf_fired_latency_bucket=$frame_liveness_raf_fired_latency_bucket"
 echo "content_load_idle_count=$idle_content_load_count content_load_idle_rate_per_minute=$idle_content_load_rate ceiling=$IDLE_CONTENT_LOAD_CEILING"
 echo "worktree_file_intake_rejects=$intake_reject_count unhealed=$unhealed_intake_reject_count"
 echo "active_viewer_mode_rejections=$active_viewer_rejection_count invalid_reasons=$invalid_active_viewer_rejection_count"

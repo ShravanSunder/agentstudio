@@ -154,6 +154,8 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.startup_diagnostic.bridge.file_view.source.state",
         "agentstudio.startup_diagnostic.bridge.page_issue.last_class",
         "agentstudio.startup_diagnostic.bridge.page_issue.last_kind",
+        "agentstudio.startup_diagnostic.bridge.frame_liveness.raf_alive",
+        "agentstudio.startup_diagnostic.bridge.frame_liveness.raf_fired_latency.bucket",
         "agentstudio.startup_diagnostic.bridge.painted_probe.last_reason",
         "agentstudio.startup_diagnostic.bridge.painted_probe.last_schedule_early_return.reason",
         "agentstudio.startup_diagnostic.bridge.review_canvas.branch",

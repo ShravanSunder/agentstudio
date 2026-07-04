@@ -253,6 +253,30 @@ else:
 PY
 }
 
+first_json_string_field() {
+  local field_name="$1"
+  local payload="$2"
+  local fallback="${3:-unknown}"
+  /usr/bin/python3 - "$field_name" "$payload" "$fallback" <<'PY'
+import json
+import sys
+
+field_name, payload, fallback = sys.argv[1], sys.argv[2], sys.argv[3]
+for line in payload.splitlines():
+    if not line.strip():
+        continue
+    try:
+        record = json.loads(line)
+    except json.JSONDecodeError:
+        continue
+    value = record.get(field_name)
+    if isinstance(value, str) and value:
+        print(value)
+        sys.exit(0)
+print(fallback)
+PY
+}
+
 assertion_failures=0
 
 pass_assertion() {
@@ -266,6 +290,12 @@ fail_assertion() {
   local detail="$2"
   printf 'FAIL %s: %s\n' "$name" "$detail" >&2
   assertion_failures=$((assertion_failures + 1))
+}
+
+skip_assertion() {
+  local name="$1"
+  local detail="$2"
+  printf 'SKIP %s: %s\n' "$name" "$detail"
 }
 
 assert_equals() {
@@ -362,9 +392,19 @@ AGENTSTUDIO_OBSERVABILITY_ALLOW_COMPLETED_EXIT=1 \
   "$PROJECT_ROOT/scripts/verify-debug-observability.sh" >/dev/null
 
 diagnostic_completed_response="$(
-  query_logs "$diagnostic_completed_query | fields _msg,agentstudio.startup_diagnostic.bridge.review_expected_item.count | limit 20"
+  query_logs "$diagnostic_completed_query | fields _msg,agentstudio.startup_diagnostic.bridge.review_expected_item.count,agentstudio.startup_diagnostic.bridge.frame_liveness.raf_alive,agentstudio.startup_diagnostic.bridge.frame_liveness.raf_fired_latency.bucket | limit 20"
 )"
 diagnostic_completed_count="$(count_payload_records "$diagnostic_completed_response")"
+frame_liveness_raf_alive="$(
+  first_json_string_field \
+    "agentstudio.startup_diagnostic.bridge.frame_liveness.raf_alive" \
+    "$diagnostic_completed_response"
+)"
+frame_liveness_raf_fired_latency_bucket="$(
+  first_json_string_field \
+    "agentstudio.startup_diagnostic.bridge.frame_liveness.raf_fired_latency.bucket" \
+    "$diagnostic_completed_response"
+)"
 review_expected_item_count="$(
   max_numeric_field \
     "agentstudio.startup_diagnostic.bridge.review_expected_item.count" \
@@ -388,8 +428,17 @@ non_stale_telemetry_dropped_total="$(sum_numeric_field "$non_stale_telemetry_dro
 
 assert_gte "startup diagnostic completed at least once" "$diagnostic_completed_count" 1
 assert_gte "diagnostic review_expected_item count present" "$review_expected_item_count" 1
-assert_equals "selected_content_painted fires exactly once per click-anchored selection" "$painted_count" "$CLICK_SELECTIONS"
-assert_equals "selected_content_painted materialize_ms present exactly once per click-anchored selection" "$painted_materialize_ms_count" "$CLICK_SELECTIONS"
+if [ "$frame_liveness_raf_alive" = "false" ]; then
+  skip_assertion \
+    "selected_content_painted skipped because requestAnimationFrame is not live" \
+    "raf_alive=false observed=$painted_count expected=$CLICK_SELECTIONS"
+  skip_assertion \
+    "selected_content_painted materialize_ms skipped because requestAnimationFrame is not live" \
+    "raf_alive=false observed=$painted_materialize_ms_count expected=$CLICK_SELECTIONS"
+else
+  assert_equals "selected_content_painted fires exactly once per click-anchored selection" "$painted_count" "$CLICK_SELECTIONS"
+  assert_equals "selected_content_painted materialize_ms present exactly once per click-anchored selection" "$painted_materialize_ms_count" "$CLICK_SELECTIONS"
+fi
 assert_equals "selection_commit fires exactly once per selection" "$selection_commit_count" "$EXPECTED_SELECTIONS"
 assert_equals "code_view_item_materialize selected items materialize for selection-changing renders" "$materialized_count" "$EXPECTED_SELECTED_MATERIALIZATIONS"
 assert_zero "selected_content_dropped revision_churn count" "$revision_churn_drop_count"
@@ -406,6 +455,7 @@ echo "marker=$MARKER"
 echo "query_window=$QUERY_START..$QUERY_END"
 echo "expected_selections=$EXPECTED_SELECTIONS click_selections=$CLICK_SELECTIONS expected_selected_materializations=$EXPECTED_SELECTED_MATERIALIZATIONS"
 echo "review_expected_item_count=$review_expected_item_count"
+echo "frame_liveness_raf_alive=$frame_liveness_raf_alive frame_liveness_raf_fired_latency_bucket=$frame_liveness_raf_fired_latency_bucket"
 echo "selected_content_painted=$painted_count selected_content_painted_materialize_ms=$painted_materialize_ms_count"
 echo "selection_commit=$selection_commit_count"
 echo "code_view_item_materialize_selected=$materialized_count"

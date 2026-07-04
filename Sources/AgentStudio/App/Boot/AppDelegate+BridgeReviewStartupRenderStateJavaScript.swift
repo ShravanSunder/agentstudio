@@ -106,6 +106,19 @@ extension AppDelegate {
                 typeof paintedProbe.lastScheduleEarlyReturnReason === 'string'
                   ? paintedProbe.lastScheduleEarlyReturnReason
                   : 'none';
+              const frameLivenessProbe =
+                window.__bridgeFrameLivenessProbe &&
+                typeof window.__bridgeFrameLivenessProbe === 'object'
+                  ? window.__bridgeFrameLivenessProbe
+                  : {};
+              const frameLivenessRafAlive =
+                typeof frameLivenessProbe.rafAlive === 'string'
+                  ? frameLivenessProbe.rafAlive
+                  : 'unknown';
+              const frameLivenessRafFiredLatencyBucket =
+                typeof frameLivenessProbe.rafFiredLatencyBucket === 'string'
+                  ? frameLivenessProbe.rafFiredLatencyBucket
+                  : 'unknown';
               const panelRect = codeViewPanel?.getBoundingClientRect();
               const codeViewScrollOwnerRect = codeViewScrollOwner?.getBoundingClientRect();
               const diffContainers = [...document.querySelectorAll('diffs-container')];
@@ -781,6 +794,8 @@ extension AppDelegate {
                 paintedProbeLastAnchoredDeliveryHadTelemetryRecorder,
                 paintedProbeLastReason,
                 paintedProbeLastScheduleEarlyReturnReason,
+                frameLivenessRafAlive,
+                frameLivenessRafFiredLatencyBucket,
                 pageErrorCount: errorProbe.length,
                 pageIssueLastKind,
                 pageIssueLastClass,

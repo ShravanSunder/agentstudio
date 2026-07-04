@@ -30,6 +30,11 @@ struct BridgeFullPyramidSmokeVerifierScriptTests {
         #expect(
             script.contains("selected_content_painted materialize_ms present exactly once per click-anchored selection")
         )
+        #expect(script.contains("agentstudio.startup_diagnostic.bridge.frame_liveness.raf_alive"))
+        #expect(script.contains("skip_assertion"))
+        #expect(script.contains("raf_alive=false"))
+        #expect(script.contains("selected_content_painted skipped because requestAnimationFrame is not live"))
+        #expect(script.contains("frame_liveness_raf_alive=$frame_liveness_raf_alive"))
         #expect(script.contains("agentstudio.bridge.selected_content.materialize_ms:*"))
         #expect(script.contains("performance.bridge.web.selection_commit"))
         #expect(script.contains("performance.bridge.web.selected_content_dropped"))
@@ -73,6 +78,9 @@ struct BridgeFullPyramidSmokeVerifierScriptTests {
         #expect(script.contains("stale_generation"))
         #expect(script.contains("stale_sequence"))
         #expect(script.contains("session_reset"))
+        #expect(script.contains("agentstudio.startup_diagnostic.bridge.frame_liveness.raf_alive"))
+        #expect(script.contains("time_to_first_interaction skipped because requestAnimationFrame is not live"))
+        #expect(script.contains("frame_liveness_raf_alive=$frame_liveness_raf_alive"))
         #expect(script.contains("OTLP exporter alive"))
     }
 
