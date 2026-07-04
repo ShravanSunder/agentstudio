@@ -145,6 +145,165 @@ visible_queue_wait_ms p99 < 64
 Nearby, speculative, and idle are measured but not hard-gated except that they
 must not worsen foreground or visible p95/p99.
 
+## Unified Content Demand Queue (Reconciler Contract)
+
+This section is the single normative contract for CONTENT demand. It
+supersedes every prior content-demand scheduling arrangement (the browser
+demand-scheduler staging buffer, hydration-hook membership/retry logic, the
+review prefetch pump, and per-caller priority decisions). The native metadata
+plane (interest stream, metadata lane scheduler, manifest index) is untouched
+by this section. `BridgeContentDemandAdmission` remains as a native
+transport-layer pacing valve; it is serving-side backpressure, not a demand
+owner.
+
+Ownership: the browser owns content-demand initiative end to end. Native
+serves descriptor-addressed content on request and never originates content
+fill. One queue, one priority order, one owner from intent to painted.
+
+Tier taxonomy (content demand):
+
+```text
+immediate    what must be painted now: the selected item FIRST as a strict
+             preempting sub-rank, then the visible window plus a
+             direction-aware look-ahead margin, ordered by virtualizer index
+nearby       adjacency around selection and viewport (pure derivation)
+speculative  hover and prediction warming (freely droppable)
+background   bounded package prefix warming (~5 windows), browser-pulled,
+             paced, yields to every higher tier
+```
+
+Trace/metric lane projection stays inside the existing bounded vocabulary:
+selected work projects to `foreground`, immediate-viewport work to `visible`,
+nearby to `nearby`, speculative to `speculative`, background to `idle`. The
+`active` lane is retired for content demand (it remains valid metadata-plane
+vocabulary).
+
+### R32. Reconciler is the only membership authority.
+
+Content-demand membership is derived by a pure reconciler over bounded
+inputs: (renderedRange, selection, hover, loadedSet, inFlightSet,
+generation). It runs on every relevant fact change and emits a demand plan
+(enqueue / promote / demote / cancel). Derivation cost is bounded by the
+rendered range and neighborhoods — never an O(package) scan; ordering derives
+from virtualizer indices. Input-keyed pure memoization is permitted; a memo
+may cache, never decide. An item wanted by several tiers is deduplicated to
+its highest role. `reconcile(x) === reconcile(x)` (idempotent, latest-wins).
+The pure per-tier derivation scaffolding in
+`BridgeWeb/src/features/review/demand/review-demand-policy.ts` and
+`BridgeWeb/src/features/worktree-file/demand/worktree-file-demand-policy.ts`
+is the seed of this layer.
+
+### R33. Membership never truncates; concurrency bounds starts only.
+
+The queue holds every member the reconciler placed. Executor concurrency
+limits how many members START, never how many are members. The only admission
+drop reasons are: generation-stale, superseded-by-newer-plan, or cache-hit.
+`concurrency_exceeded` is not a drop reason; executor-side eviction of
+pending members is forbidden. This deletes both existing truncators: the
+hydration-hook item cap (`visibleContentHydrationItemLimit` as a membership
+bound) and the executor's `canQueueUnderPressure` drop
+(`BridgeWeb/src/core/demand/bridge-resource-executor.ts:652`) plus
+`evictLowerPriorityPendingLoads` acting on membership. Overflow pressure is
+expressed as a reconciler demote, never an executor drop. Both truncators
+were live root causes: the item cap silently starved bottom-of-viewport items
+(LUNA-338 survivor bug); the executor drop was wedge class W6.
+
+### R34. No parked demand states exist.
+
+Re-derivation is the only comeback path, and it never needs one: any item
+that is a member and unloaded is (re)demanded every pass until painted.
+Retry-exhaustion fields (`retryAfterVersion`, exhausted markers) are
+forbidden in membership state — the cutover deletes the field so a lingering
+parker fails to compile. All "not-now" state lives at the executor/pacer
+stage as bounded backoff keyed on re-derivable delivery-failure facts; a
+persistently failing item stays a member while its retries pace, preventing
+both the parked-forever wedge and the W3 busy-loop. `loadedSet` means
+content-present-in-cache (content-addressed), never "a demand was issued";
+suppressed or lost deliveries therefore re-demand naturally (cures W4/W5
+catch-up without native re-announce).
+
+### R35. Selected preempts inside the queue, not just at enqueue.
+
+Selected/click is a strict top rank with in-lane preemption authority: if
+executor slots are saturated by immediate-viewport work, the selected item
+preempts a same-lane slot rather than waiting. Lane-then-orderingKey
+comparison alone cannot express this and is insufficient. A click that
+scrolls its target into view classifies the item once, as selected.
+
+### R36. Ready results always land in cache; UI commit is membership-gated.
+
+Cache admission and UI commit are separate gates. A completing fetch that is
+generation-fresh ALWAYS lands in the worker-backed, content-addressed cache
+(R29), even if the item was demoted or left membership mid-flight — a later
+re-entry is then a cache hit. It never mutates selected/visible UI state
+unless the item's role is still current. Only generation-stale results are
+discarded. Cancellation aborts starts and frees slots; it never discards an
+already-completing generation-fresh fetch.
+
+### R37. Generation is an epoch over the whole derivation.
+
+Every demand plan is stamped with the generation it was derived against;
+queue admission rejects intents from superseded generations (R25 authority
+applied at enqueue, not only dispatch). A generation bump is an atomic
+reconciler epoch reset: derived loadedSet/inFlightSet and the content
+registry clear in one transition (R24). Generation facts are never merged
+across epochs.
+
+### R38. Pause gates below-selected starts and re-stamps the clock.
+
+Scroll-activity pause gates load STARTS for immediate-viewport, nearby,
+speculative, and background work; it never gates selected/click, never edits
+membership, never discards results, never clears state. Queue-wait
+measurement re-stamps at pause release (the same idiom as the native
+scheduler's gate-closed re-stamp) so macOS momentum tails (~1-1.5s) are not
+folded into lane budgets.
+
+### R39. Demand rank survives the worker boundary.
+
+The highlight/materialize worker pool dequeues by demand rank (selected
+first) or reserves capacity for selected work. Out-of-order completion
+between equal-rank items is acceptable; selected work delayed behind
+lower-rank highlights saturating the pool is a contract violation.
+
+### R40. Retention floor and byte cache are decoupled tiers.
+
+The count-bounded materialized/paint-ready map retains at least the rendered
+range (collapsed rows hold summary/extent facts, not decoded bodies). The
+byte cache is an LRU whose per-item cap is far below its total
+(`AppPolicies.Bridge` today sets both to 50MB — that equality is a defect
+this contract fixes). Rendered content exceeding the per-item cap renders as
+oversized/unavailable; it never forces cache overflow or unbounded growth.
+
+### Proof seam boundary (honesty contract)
+
+Provable at the pure vitest seam: membership derivation, tier ordering and
+dedupe, cancellation plans, generation epoch reset, promote-not-restart. The
+first required proof is the red scenario that encodes the LUNA-338 survivor:
+drive the visible-content seam with a rendered report larger than any legacy
+cap and assert every reported item is eventually demanded and painted.
+
+NOT provable at that seam, each requiring its named higher layer: paint/queue
+budgets (gated benchmark, VictoriaMetrics, >=100 samples); WebKit delivery
+and cold-cache fetch (native smoke); worker completion order under
+saturation (worker-pool integration test); momentum/pause tails (live
+scripted or manual momentum-scroll session — five prior green-tested fixes
+failed live precisely because this seam cannot reproduce momentum);
+cross-generation atomicity (smoke); cache eviction at scale (soak). Scenario
+tables alone must not close a scroll-correctness claim.
+
+### Cutover deletion set (one change, compile-enforced)
+
+The cutover replaces seams, not leaves, in one changeset: delete the
+demand-scheduler staging buffer (`bridge-demand-scheduler.ts`) and rewire its
+consumers to the reconciler; delete hydration-hook membership/retry/parking
+logic including the `retryAfterVersion` field and membership caps; delete the
+review prefetch pump (`bridge-app-review-content-prefetch-controller.ts`) and
+its policy constants in favor of the reconciler background tier; replace
+`canQueueUnderPressure` with admit-all-members and remove executor pending
+eviction. Keep: the resource executor's in-flight/abort/freshness core, the
+content registry, result-validity and prune helpers, the native metadata
+plane, and `BridgeContentDemandAdmission` as serving-side pacing.
+
 ## Native Metadata Production Scheduler
 
 Demand lanes on the native side are a real scheduler, not frame labels.
@@ -324,8 +483,17 @@ App demand policy
   owns: selected/click > visible-metadata > speculative > background
   exposes: generic lane intents, freshness keys, cancellation groups
 
-Generic schedulers and executors
-  owns: queue order, in-flight pressure, aborts, stale drops, metrics
+Content demand reconciler (browser)
+  owns: content-demand membership, tier order, promote/demote/cancel plans
+  exposes: generation-stamped demand plans (R32-R37)
+
+Resource executor (browser)
+  owns: in-flight pressure, start concurrency, aborts, stale drops,
+        delivery-failure backoff, metrics; never membership (R33/R34)
+  exposes: accepted/started/aborted/stale outcomes
+
+Metadata lane scheduler (native, metadata plane only)
+  owns: metadata queue order, lane budgets, gate/retry, queue-wait metrics
   exposes: accepted/rejected/deferred/aborted outcomes
 
 Lineage authority
@@ -340,17 +508,23 @@ Recovery controller
 ### Testable Requirements
 
 R20. The user-demand taxonomy is strict:
-`selected/click > visible-metadata > speculative > background`.
+`immediate[selected-first] > nearby > speculative > background`
+(content demand; see the Unified Content Demand Queue contract). Visible
+tree METADATA interest remains its own work class per R21 and the metadata
+plane's lane vocabulary.
 
-`selected/click` is the only absolute content preemptor. It maps to the
-generic foreground lane and must never queue behind visible, nearby,
-speculative, active background, or idle work. If the executor or scheduler is at
-capacity, selected/click cancels or preempts lower-priority work instead of
-waiting for it. Current web executor code already contains lower-priority
+`selected/click` is the only absolute content preemptor. It is the strict
+head sub-rank of the immediate lane, projects to the generic foreground
+lane, and must never queue behind viewport, nearby, speculative, or
+background work. If the executor is at capacity, selected/click preempts —
+including same-lane immediate work (R35) — instead of waiting. Current web
+executor code already contains lower-priority
 in-flight preemption (`BridgeWeb/src/core/demand/bridge-resource-executor.ts:228`,
 `BridgeWeb/src/core/demand/bridge-resource-executor.ts:353`) and pending-load
 priority order (`BridgeWeb/src/core/demand/bridge-resource-executor.ts:619`);
-proof must show the same invariant for every File and Review demand entrypoint.
+proof must show the same invariant for every File and Review demand entrypoint,
+and R33 removes the same file's membership truncation
+(`canQueueUnderPressure`) so preemption never masquerades as member drop.
 
 R21. Visible tree work is metadata-only.
 
@@ -478,10 +652,11 @@ and is read before demand enqueue (`BridgeWeb/src/review-viewer/content/review-c
 R30. Speculative in-flight is globally bounded.
 
 Speculative content work is limited to one or two in-flight loads per viewer,
-with one as the default. Review prefetch already declares one concurrent
-speculative load (`BridgeWeb/src/review-viewer/content/review-content-prefetch-policy.ts:17`)
-and the controller pumps sequentially
-(`BridgeWeb/src/app/bridge-app-review-content-prefetch-controller.ts:87`).
+with one as the default. This bound is an executor-stage start limit under
+the unified queue (R33) — enforcement moves from the legacy prefetch pump
+constants (`review-content-prefetch-policy.ts`,
+`bridge-app-review-content-prefetch-controller.ts`, both in the cutover
+deletion set) to the executor's per-tier start caps.
 Any FileViewer hover prefetch must use the same 1-2 bound and must share executor
 pressure with selected/click preemption.
 
@@ -499,10 +674,16 @@ state from continuing foreground work.
 
 | Demand class | Strict priority | Generic lane(s) | Content rule | Cancellation rule |
 | --- | ---: | --- | --- | --- |
-| selected/click | 1 | `foreground` | selected body/range bytes and selected metadata | preempts or cancels every lower class |
-| visible-metadata | 2 | `visible` metadata interest | tree/review metadata only; no tree-row content bodies | superseded by viewport generation/range changes |
-| speculative | 3 | `nearby` or `speculative` | hover prefetch, review adjacent group, prediction warming | hover-out, click-elsewhere, generation rotation, pressure |
-| background | 4 | `active` only for already-open explicit refresh; otherwise `idle` | manifest continuation, low-priority warming, non-visible maintenance | generation rotation, inactive-mode demotion, pressure |
+| immediate: selected/click sub-rank | 1 | `foreground` | selected body/range bytes and selected metadata | preempts every lower class, including same-lane immediate work (R35); never pause-gated (R38) |
+| immediate: viewport + look-ahead | 2 | `visible` | visible window plus direction-aware margin content, virtualizer-index ordered | demoted, never dropped, on range change; membership persists until painted or superseded (R33/R34) |
+| nearby | 3 | `nearby` | selection/viewport adjacency warming | reconciler demote on selection/viewport change, generation rotation |
+| speculative | 4 | `speculative` | hover prefetch, prediction warming | hover-out, click-elsewhere, generation rotation, pressure |
+| background | 5 | `idle` | bounded package-prefix warming (~5 windows), browser-pulled, paced | yields to every higher tier, generation rotation, inactive-mode demotion |
+
+Visible tree METADATA interest keeps its own class on the metadata plane
+(`visible` metadata interest lane, R21); it is not a content-demand tier. The
+`active` lane is retired for content demand and remains metadata-plane
+vocabulary.
 
 Generic scheduler lane names remain implementation vocabulary. Product proof
 must report demand class and generic lane separately where both are present, so
