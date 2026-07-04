@@ -594,9 +594,21 @@ function collectTextFragments(node: ReactNode): readonly string[] {
 		return node.flatMap((child: ReactNode): readonly string[] => collectTextFragments(child));
 	}
 	if (isReactElement(node)) {
-		return collectTextFragments(node.props.children);
+		return collectTextFragments(traversalChildrenForElement(node));
 	}
 	return [];
+}
+
+function traversalChildrenForElement(
+	element: ReactElement<TestElementProps>,
+): readonly ReactNode[] {
+	const children = Array.isArray(element.props.children)
+		? element.props.children
+		: [element.props.children];
+	if (element.type === BridgeViewerResizableRailLayout) {
+		return [...children, element.props.content, element.props.rail];
+	}
+	return children;
 }
 
 interface TestElementProps {
@@ -605,6 +617,7 @@ interface TestElementProps {
 	readonly ariaPressed?: boolean;
 	readonly children?: ReactNode;
 	readonly className?: string;
+	readonly content?: ReactNode;
 	readonly contentTestId?: string;
 	readonly 'data-bridge-shared-rail-toolbar'?: string;
 	readonly 'data-bridge-segmented-control'?: string;
@@ -686,7 +699,7 @@ function findElementByTestId(
 	if (node.props['data-testid'] === testId) {
 		return node;
 	}
-	return findElementByTestId(node.props.children, testId);
+	return findElementByTestId(traversalChildrenForElement(node), testId);
 }
 
 function findElementsByTestId(
@@ -703,7 +716,7 @@ function findElementsByTestId(
 	}
 	return [
 		...(node.props['data-testid'] === testId ? [node] : []),
-		...findElementsByTestId(node.props.children, testId),
+		...findElementsByTestId(traversalChildrenForElement(node), testId),
 	];
 }
 
@@ -719,7 +732,10 @@ function findElementsByType(
 	if (!isReactElement(node)) {
 		return [];
 	}
-	return [...(node.type === type ? [node] : []), ...findElementsByType(node.props.children, type)];
+	return [
+		...(node.type === type ? [node] : []),
+		...findElementsByType(traversalChildrenForElement(node), type),
+	];
 }
 
 function findElementByComponent(
@@ -741,7 +757,7 @@ function findElementByComponent(
 	if (node.type === component) {
 		return node;
 	}
-	return findElementByComponent(node.props.children, component);
+	return findElementByComponent(traversalChildrenForElement(node), component);
 }
 
 function classNameForElement(element: ReactElement<TestElementProps> | null): string {

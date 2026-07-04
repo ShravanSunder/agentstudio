@@ -145,45 +145,26 @@ extension WebKitSerializedTests {
             )
             let paneId = UUIDv7.generate()
             let intakeCapture = BridgeWorktreeFileCoordinatorIntakeCapture()
-            let controller = BridgePaneController(
+            let controller = makeWorktreeFileBridgeController(
+                capture: intakeCapture,
                 paneId: paneId,
-                state: BridgePaneState(
-                    panelKind: .diffViewer,
-                    source: .workspace(rootPath: rootURL.path, baseline: .headMinusOne)
-                ),
-                metadata: PaneMetadata(
-                    paneId: PaneId(uuid: paneId),
-                    contentType: .diff,
-                    launchDirectory: rootURL,
-                    title: "Worktree",
-                    facets: PaneContextFacets(
-                        repoId: repoId,
-                        worktreeId: worktree.id,
-                        worktreeName: worktree.name,
-                        cwd: rootURL
-                    )
-                ),
-                intakeFrameSink: { _, frameJSON, _ in
-                    await intakeCapture.record(frameJSON)
-                }
+                repoId: repoId,
+                rootURL: rootURL,
+                title: "Worktree",
+                worktree: worktree
             )
             let bridgeView = BridgePaneMountView(paneId: paneId, controller: controller)
             coordinator.registerHostedView(mountedView: bridgeView, for: paneId)
             defer { controller.teardown() }
+            controller.handleBridgeReady()
 
-            _ = try await controller.handleWorktreeFileSurfaceOpenSourceStream(
-                BridgeWorktreeFileSurfaceSourceSpec(
-                    clientRequestId: "coordinator-file-change",
-                    repoId: repoId,
-                    worktreeId: worktree.id,
-                    rootPathToken: worktree.stableKey,
-                    cwdScope: nil,
-                    pathScope: [],
-                    includeStatuses: true,
-                    includeComments: false,
-                    includeAgentComms: false,
-                    freshness: .live
-                )
+            try await openCoordinatorWorktreeFileSurface(
+                controller: controller,
+                capture: intakeCapture,
+                clientRequestId: "coordinator-file-change",
+                repoId: repoId,
+                rootPathToken: worktree.stableKey,
+                worktreeId: worktree.id
             )
 
             try "struct View {}\nlet updated = true\n".write(to: fileURL, atomically: true, encoding: .utf8)
@@ -205,9 +186,9 @@ extension WebKitSerializedTests {
             )
 
             await assertEventuallyAsync("Worktree/File change should publish intake invalidation", maxTurns: 200_000) {
-                !(await intakeCapture.frames()).isEmpty
+                await intakeCapture.containsFrameKind("worktree.fileInvalidated")
             }
-            let frameJSON = try #require(await intakeCapture.frames().first)
+            let frameJSON = try #require(await intakeCapture.firstFrame(kind: "worktree.fileInvalidated"))
             let invalidation = try decodeCoordinatorWorktreeFileIntakeFrame(frameJSON)
 
             #expect(invalidation.invalidation.path == "Sources/App/View.swift")
@@ -271,8 +252,9 @@ extension WebKitSerializedTests {
             let bridgeView = BridgePaneMountView(paneId: paneId, controller: controller)
             coordinator.registerHostedView(mountedView: bridgeView, for: paneId)
             defer { controller.teardown() }
+            controller.handleBridgeReady()
 
-            _ = try await controller.handleWorktreeFileSurfaceOpenSourceStream(
+            let openOutcome = try await controller.handleWorktreeFileSurfaceOpenSourceStream(
                 BridgeWorktreeFileSurfaceSourceSpec(
                     clientRequestId: "coordinator-status",
                     repoId: repoId,
@@ -286,6 +268,11 @@ extension WebKitSerializedTests {
                     freshness: .live
                 )
             )
+            await activateCoordinatorWorktreeFileSurface(
+                controller: controller,
+                outcome: openOutcome
+            )
+            await intakeCapture.removeAll()
 
             _ = await paneEventBus.post(
                 RuntimeEnvelopeHarness.gitEnvelope(
@@ -304,9 +291,9 @@ extension WebKitSerializedTests {
             )
 
             await assertEventuallyAsync("Worktree/File status should publish intake patch", maxTurns: 200_000) {
-                !(await intakeCapture.frames()).isEmpty
+                await intakeCapture.containsFrameKind("worktree.statusPatch")
             }
-            let frameJSON = try #require(await intakeCapture.frames().first)
+            let frameJSON = try #require(await intakeCapture.firstFrame(kind: "worktree.statusPatch"))
             let statusPatch = try decodeCoordinatorWorktreeFileStatusPatchFrame(frameJSON)
 
             #expect(statusPatch.patch.staged == 1)
@@ -371,37 +358,30 @@ extension WebKitSerializedTests {
                 title: "Nonmatching",
                 worktree: nonmatchingWorktree
             )
-            coordinator.registerHostedView(
-                mountedView: BridgePaneMountView(paneId: matchingController.paneId, controller: matchingController),
-                for: matchingController.paneId
-            )
-            coordinator.registerHostedView(
-                mountedView: BridgePaneMountView(
-                    paneId: nonmatchingController.paneId,
-                    controller: nonmatchingController
-                ),
-                for: nonmatchingController.paneId
-            )
+            registerWorktreeFileBridgeController(matchingController, coordinator: coordinator)
+            registerWorktreeFileBridgeController(nonmatchingController, coordinator: coordinator)
             defer {
                 matchingController.teardown()
                 nonmatchingController.teardown()
             }
+            matchingController.handleBridgeReady()
+            nonmatchingController.handleBridgeReady()
 
-            _ = try await matchingController.handleWorktreeFileSurfaceOpenSourceStream(
-                makeCoordinatorWorktreeFileSourceSpec(
-                    clientRequestId: "matching",
-                    repoId: repoId,
-                    rootPathToken: matchingWorktree.stableKey,
-                    worktreeId: matchingWorktree.id
-                )
+            try await openCoordinatorWorktreeFileSurface(
+                controller: matchingController,
+                capture: matchingCapture,
+                clientRequestId: "matching",
+                repoId: repoId,
+                rootPathToken: matchingWorktree.stableKey,
+                worktreeId: matchingWorktree.id
             )
-            _ = try await nonmatchingController.handleWorktreeFileSurfaceOpenSourceStream(
-                makeCoordinatorWorktreeFileSourceSpec(
-                    clientRequestId: "nonmatching",
-                    repoId: repoId,
-                    rootPathToken: nonmatchingWorktree.stableKey,
-                    worktreeId: nonmatchingWorktree.id
-                )
+            try await openCoordinatorWorktreeFileSurface(
+                controller: nonmatchingController,
+                capture: nonmatchingCapture,
+                clientRequestId: "nonmatching",
+                repoId: repoId,
+                rootPathToken: nonmatchingWorktree.stableKey,
+                worktreeId: nonmatchingWorktree.id
             )
 
             try "struct View {}\nlet updated = true\n".write(to: fileURL, atomically: true, encoding: .utf8)
@@ -415,7 +395,9 @@ extension WebKitSerializedTests {
             await assertEventuallyAsync(
                 "matching Worktree/File controller should receive both frames", maxTurns: 200_000
             ) {
-                await matchingCapture.count() == 2
+                let hasInvalidation = await matchingCapture.containsFrameKind("worktree.fileInvalidated")
+                let hasStatusPatch = await matchingCapture.containsFrameKind("worktree.statusPatch")
+                return hasInvalidation && hasStatusPatch
             }
 
             #expect(await nonmatchingCapture.frames().isEmpty)
@@ -435,9 +417,29 @@ private actor BridgeWorktreeFileCoordinatorIntakeCapture {
         capturedFrames
     }
 
-    func count() -> Int {
-        capturedFrames.count
+    func removeAll() {
+        capturedFrames.removeAll()
     }
+
+    func containsFrameKind(_ frameKind: String) -> Bool {
+        firstFrame(kind: frameKind) != nil
+    }
+
+    func firstFrame(kind frameKind: String) -> String? {
+        capturedFrames.first { frameJSON in
+            coordinatorWorktreeFileFrameKind(frameJSON) == frameKind
+        }
+    }
+}
+
+private func coordinatorWorktreeFileFrameKind(_ frameJSON: String) -> String? {
+    guard let data = frameJSON.data(using: .utf8),
+        let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+        let payload = object["payload"] as? [String: Any]
+    else {
+        return nil
+    }
+    return payload["frameKind"] as? String
 }
 
 private struct BridgeWorktreeFileCoordinatorIntakeEnvelope<TPayload: Decodable>: Decodable {
@@ -467,13 +469,13 @@ private func decodeCoordinatorWorktreeFileStatusPatchFrame(
 @MainActor
 private func makeWorktreeFileBridgeController(
     capture: BridgeWorktreeFileCoordinatorIntakeCapture,
+    paneId: UUID = UUIDv7.generate(),
     repoId: UUID,
     rootURL: URL,
     title: String,
     worktree: Worktree
 ) -> BridgePaneController {
-    let paneId = UUIDv7.generate()
-    return BridgePaneController(
+    BridgePaneController(
         paneId: paneId,
         state: BridgePaneState(
             panelKind: .diffViewer,
@@ -495,6 +497,41 @@ private func makeWorktreeFileBridgeController(
             await capture.record(frameJSON)
         }
     )
+}
+
+@MainActor
+private func registerWorktreeFileBridgeController(
+    _ controller: BridgePaneController,
+    coordinator: WorkspaceSurfaceCoordinator
+) {
+    coordinator.registerHostedView(
+        mountedView: BridgePaneMountView(paneId: controller.paneId, controller: controller),
+        for: controller.paneId
+    )
+}
+
+@MainActor
+private func openCoordinatorWorktreeFileSurface(
+    controller: BridgePaneController,
+    capture: BridgeWorktreeFileCoordinatorIntakeCapture,
+    clientRequestId: String,
+    repoId: UUID,
+    rootPathToken: String,
+    worktreeId: UUID
+) async throws {
+    let openOutcome = try await controller.handleWorktreeFileSurfaceOpenSourceStream(
+        makeCoordinatorWorktreeFileSourceSpec(
+            clientRequestId: clientRequestId,
+            repoId: repoId,
+            rootPathToken: rootPathToken,
+            worktreeId: worktreeId
+        )
+    )
+    await activateCoordinatorWorktreeFileSurface(
+        controller: controller,
+        outcome: openOutcome
+    )
+    await capture.removeAll()
 }
 
 private func makeCoordinatorWorktreeFileSourceSpec(
@@ -554,6 +591,34 @@ private func postCoordinatorWorktreeFileFilesystemAndGitEvents(
             worktreeId: worktreeId
         )
     )
+}
+
+@MainActor
+private func activateCoordinatorWorktreeFileSurface(
+    controller: BridgePaneController,
+    outcome: BridgeWorktreeFileSurfaceOpenSourceOutcome
+) async {
+    await controller.activeWorktreeFileTreeWindowTask?.value
+    await controller.handleBridgeIntakeReady(
+        BridgeIntakeReadyMethod.Params(
+            protocolId: "worktree-file",
+            streamId: outcome.streamId,
+            generation: outcome.generation
+        )
+    )
+    await controller.handleBridgeActiveViewerModeUpdate(
+        BridgeActiveViewerModeUpdateMethod.Params(
+            sessionId: "coordinator-worktree-file-\(controller.paneId.uuidString)",
+            sequence: 2,
+            mode: .file,
+            activeSource: BridgeActiveViewerSource(
+                protocolId: .worktreeFile,
+                streamId: outcome.streamId,
+                generation: outcome.generation
+            )
+        )
+    )
+    await controller.worktreeFileMetadataScheduler.waitUntilDrained()
 }
 
 @MainActor

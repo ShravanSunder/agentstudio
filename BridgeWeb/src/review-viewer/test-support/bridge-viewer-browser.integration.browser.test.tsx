@@ -24,11 +24,13 @@ import {
 } from './bridge-viewer-browser-dom.js';
 import * as browserSupport from './bridge-viewer-browser.integration.test-support.js';
 import {
+	makeBridgeViewerContentRevisionFixture,
+	makeBridgeViewerContentUnavailableFixture,
+} from './bridge-viewer-mocked-backend-retouch-fixtures.js';
+import {
 	disposeBridgeViewerMockedBackends,
 	installBridgeViewerMockedBackend,
 	makeBridgeViewerBrowserFixture,
-	makeBridgeViewerContentRevisionFixture,
-	makeBridgeViewerContentUnavailableFixture,
 } from './bridge-viewer-mocked-backend.js';
 describe('Bridge viewer Browser Mode mocked backend', () => {
 	afterEach(async () => {
@@ -371,8 +373,19 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 
 	test('starts clicked Review foreground content demand before selected path commit', async () => {
 		const fixture = makeBridgeViewerBrowserFixture();
+		// The speculative content prefetch pump only pauses while the currently
+		// selected item's own content is still loading. Deferring just the
+		// second item's handle lets that pump race ahead of the click and warm
+		// Beta.ts on its own, which would make this test observe the prefetch's
+		// fetchContent call instead of the click's. Deferring the initial
+		// item's handle too keeps the prefetch gate closed for the whole test,
+		// so the click's demand is the only thing that can ever request
+		// Beta.ts's content.
 		const backend = installBridgeViewerMockedBackend(fixture, {
-			deferContentHandleIds: [fixture.expected.secondHeadHandleId],
+			deferContentHandleIds: [
+				fixture.expected.initialHeadHandleId,
+				fixture.expected.secondHeadHandleId,
+			],
 		});
 		const selectedPathsAtSecondContentRequest: string[] = [];
 		const fetchContent: typeof backend.fetchContent = async (input, init): Promise<Response> => {
@@ -387,16 +400,31 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 
 		browserSupport.renderBridgeViewerAppWithMockedBackend({ backend, fetchContent });
 		await backend.pushMetadata();
-		await waitForBridgeViewerText(fixture.expected.initialText);
-		expect(browserSupport.selectedBridgeViewerDisplayPath()).toBe(fixture.expected.initialPath);
+		// The initial file's content is deferred, so its text never renders;
+		// the selection itself (independent of content readiness) is the
+		// signal that the initial demand has committed.
+		await browserSupport.waitForSelectedBridgeViewerDisplayPath(fixture.expected.initialPath);
+		await browserSupport.waitForPendingContentResponseCount(backend, 1);
 
 		const secondButton = await waitForBridgeViewerTreeItemButton(fixture.expected.secondPath);
 		secondButton.click();
-		await browserSupport.waitForPendingContentResponseCount(backend, 1);
+		// Selecting Beta.ts aborts Alpha.ts's still-in-flight foreground load,
+		// which removes its pending response from the backend — so the pending
+		// count dips back to 0 before Beta.ts's own request lands. Wait for
+		// Beta.ts's own pending entry by handle id instead of a raw count.
+		await expect
+			.poll(() =>
+				backend.pendingContentResponses.some(
+					(pendingResponse) => pendingResponse.handleId === fixture.expected.secondHeadHandleId,
+				),
+			)
+			.toBe(true);
 
 		expect(selectedPathsAtSecondContentRequest).toEqual([fixture.expected.initialPath]);
 
-		backend.pendingContentResponses[0]?.resolve();
+		for (const pendingResponse of backend.pendingContentResponses) {
+			pendingResponse.resolve();
+		}
 		await waitForBridgeViewerText(fixture.expected.secondText);
 		backend.dispose();
 	});

@@ -93,8 +93,11 @@ export async function waitForSelectedDisplayPath(expectedPath: string): Promise<
 	await waitForSelectedDisplayPathAttempt({ attempt: 0, expectedPath });
 }
 
-export async function waitForInitialSurfaceState(expectedState: string): Promise<void> {
-	await waitForInitialSurfaceStateAttempt({ attempt: 0, expectedState });
+export async function waitForInitialSurfaceState(
+	expectedState: string,
+	attemptBudget = 60,
+): Promise<void> {
+	await waitForInitialSurfaceStateAttempt({ attempt: 0, attemptBudget, expectedState });
 }
 
 export async function waitForInitialSurfaceLoadCount(props: {
@@ -658,14 +661,16 @@ export async function waitForSelectedDisplayPathAttempt(props: {
 
 export async function waitForInitialSurfaceStateAttempt(props: {
 	readonly attempt: number;
+	readonly attemptBudget?: number;
 	readonly expectedState: string;
 }): Promise<void> {
+	const attemptBudget = props.attemptBudget ?? 60;
 	const shell = document.querySelector('[data-testid="bridge-file-viewer-shell"]');
 	const actualState = shell?.getAttribute('data-worktree-initial-surface-state') ?? null;
 	if (actualState === props.expectedState) {
 		return;
 	}
-	if (props.attempt >= 60) {
+	if (props.attempt >= attemptBudget) {
 		throw new Error(
 			`Expected initial surface state ${props.expectedState}; actual=${actualState ?? 'missing'}`,
 		);
@@ -673,6 +678,7 @@ export async function waitForInitialSurfaceStateAttempt(props: {
 	await waitForBridgeViewerAnimationFrame();
 	await waitForInitialSurfaceStateAttempt({
 		attempt: props.attempt + 1,
+		attemptBudget,
 		expectedState: props.expectedState,
 	});
 }

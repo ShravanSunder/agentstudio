@@ -275,6 +275,8 @@ extension WebKitSerializedTests {
             await controller.handleBridgeIntakeReady(
                 BridgeIntakeReadyMethod.Params(protocolId: "review", streamId: nil)
             )
+            await controller.activeReviewRefreshTask?.value
+            await controller.worktreeFileMetadataScheduler.waitUntilDrained()
 
             let outcome = try await controller.handleWorktreeFileSurfaceOpenSourceStream(
                 BridgeWorktreeFileSurfaceSourceSpec(
@@ -571,8 +573,8 @@ extension WebKitSerializedTests {
             )
         }
 
-        @Test("stale active-viewer sequence clears accepted state so file production fails open")
-        func staleActiveViewerSequenceClearsAcceptedStateSoFileProductionFailsOpen() async throws {
+        @Test("stale active-viewer sequence preserves current accepted review gate")
+        func staleActiveViewerSequencePreservesCurrentAcceptedReviewGate() async throws {
             let fixture = try makeChurnFixture()
             let controller = fixture.controller
             let repoId = fixture.repoId
@@ -638,8 +640,12 @@ extension WebKitSerializedTests {
             await controller.worktreeFileMetadataScheduler.waitUntilDrained()
 
             #expect(
-                (await capturedFrames.get()).contains { Self.frameKind(of: $0) == "worktree.statusPatch" },
-                "A stale rejected mode signal must clear accepted state so later file publish gates fail open"
+                !(await capturedFrames.get()).contains { Self.frameKind(of: $0) == "worktree.statusPatch" },
+                "A stale rejected mode signal must not clear the current accepted review gate"
+            )
+            #expect(
+                controller.shouldSuppressWorktreeFileProduction(generation: outcome.generation),
+                "The accepted review mode should keep suppressing inactive file production"
             )
         }
 
@@ -984,7 +990,6 @@ private actor ModeSwitchFrameCapture {
         frames
     }
 }
-
 @MainActor
 private struct ModeSwitchChurnFixture {
     let controller: BridgePaneController

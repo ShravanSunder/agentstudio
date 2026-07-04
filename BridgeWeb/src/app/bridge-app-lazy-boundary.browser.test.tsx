@@ -133,38 +133,15 @@ describe('BridgeApp lazy mode boundaries', () => {
 		expect(document.querySelector('[data-testid="bridge-file-viewer-shell-lazy-mock"]')).toBeNull();
 	});
 
-	test('warms FileView frames on a Review-first route without loading the visual shell', async () => {
-		const bufferedFrame: WorktreeFileProtocolFrame = {
-			kind: 'reset',
-			streamId: 'worktree-file:test',
-			generation: 1,
-			sequence: 0,
-			frameKind: 'worktree.reset',
-			reason: 'subscriptionReset',
-		};
-		let loadInitialSurfaceCount = 0;
-		const { BridgeApp } = await import('./bridge-app.js');
-
-		render(
-			<BridgeApp
-				fileViewerProps={{
-					loadInitialSurface: async (): Promise<WorktreeFileInitialSurface> => {
-						loadInitialSurfaceCount += 1;
-						return { frames: [bufferedFrame] };
-					},
-				}}
-				viewerMode="review"
-			/>,
-		);
-		document.dispatchEvent(
-			new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-nonce' } }),
-		);
-
-		await expect.poll(() => loadInitialSurfaceCount).toBe(1);
-		expect(bridgeAppLazyBoundaryMock.fileViewerShellImportCount).toBe(0);
-		expect(document.querySelector('[data-testid="bridge-file-viewer-shell-lazy-mock"]')).toBeNull();
-	});
-
+	// This test must run before any test that activates Files mode with the
+	// default (non-deferred) mock module, e.g. 'defers FileView frame loading...'
+	// below. Browser-mode `vi.resetModules()` clears vitest's own registry but
+	// does not force the browser's ESM graph to re-evaluate every transitively
+	// imported module (no `experimental.viteModuleRunner` here), so
+	// `bridge-file-viewer-app.tsx`'s module-scope `LazyBridgeFileViewerShell`
+	// stays the same `React.lazy()` instance across tests in this file. Once
+	// any earlier test resolves it (mock mode 'ready'), it never suspends
+	// again, so this Suspense-fallback assertion needs to run first.
 	test('keeps mode hosts mounted while the FileViewer visual shell is suspended', async () => {
 		bridgeAppLazyBoundaryMock.fileViewerShellModuleMode = 'deferred';
 		const bufferedFrame: WorktreeFileProtocolFrame = {
@@ -238,6 +215,45 @@ describe('BridgeApp lazy mode boundaries', () => {
 			)
 			.toBe(true);
 		expect(document.querySelector('[data-testid="bridge-app-root"]')).toBe(appRoot);
+	});
+
+	test('defers FileView frame loading on a Review-first route until Files activates', async () => {
+		const bufferedFrame: WorktreeFileProtocolFrame = {
+			kind: 'reset',
+			streamId: 'worktree-file:test',
+			generation: 1,
+			sequence: 0,
+			frameKind: 'worktree.reset',
+			reason: 'subscriptionReset',
+		};
+		let loadInitialSurfaceCount = 0;
+		const { BridgeApp } = await import('./bridge-app.js');
+
+		render(
+			<BridgeApp
+				fileViewerProps={{
+					loadInitialSurface: async (): Promise<WorktreeFileInitialSurface> => {
+						loadInitialSurfaceCount += 1;
+						return { frames: [bufferedFrame] };
+					},
+				}}
+				viewerMode="review"
+			/>,
+		);
+		document.dispatchEvent(
+			new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-nonce' } }),
+		);
+
+		await Promise.resolve();
+		expect(loadInitialSurfaceCount).toBe(0);
+		expect(bridgeAppLazyBoundaryMock.fileViewerShellImportCount).toBe(0);
+		expect(document.querySelector('[data-testid="bridge-file-viewer-shell-lazy-mock"]')).toBeNull();
+
+		requireHTMLButtonElement(
+			document.querySelector('[data-testid="bridge-viewer-context-file"]'),
+		).click();
+
+		await expect.poll(() => loadInitialSurfaceCount).toBe(1);
 	});
 
 	test('does not restart FileView initial loading for fresh wrapper props with the same source', async () => {

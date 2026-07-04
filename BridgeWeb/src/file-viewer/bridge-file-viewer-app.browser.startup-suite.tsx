@@ -103,7 +103,13 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			/>,
 		);
 
-		await waitForInitialSurfaceState('failed');
+		// This suite runs BridgeFileViewerApp unmocked, so the shell's real,
+		// non-trivial lazy chunk must actually resolve before its DOM attributes
+		// reflect the failed load. Under full-battery concurrency that dynamic
+		// import can outrun the shared harness's default 60-frame budget even
+		// though the failure state itself commits promptly; a generous budget
+		// keeps this a bounded wait rather than trading away the assertion.
+		await waitForInitialSurfaceState('failed', 240);
 
 		const shell = requireBridgeViewerHTMLElement(
 			document.querySelector('[data-testid="bridge-file-viewer-shell"]'),
