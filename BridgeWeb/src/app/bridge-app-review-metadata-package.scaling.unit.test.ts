@@ -21,6 +21,7 @@ import type {
 import { makeBridgeReviewProjectionInput } from '../review-viewer/navigation/review-projection.js';
 import { makeBrowserFillerItem } from '../review-viewer/test-support/bridge-viewer-mocked-backend-support.js';
 import {
+	createBridgeReviewSelectionInvalidationProbe,
 	applyReviewMetadataDeltaToReviewPackage,
 	bridgeReviewPackageFromMetadataSnapshot,
 	bridgeReviewPackageWithMetadataWindow,
@@ -135,6 +136,20 @@ describe('Bridge review metadata package scaling probe', () => {
 			parseSpy.mockRestore();
 		}
 	}, 120_000);
+
+	test('single selection invalidates selected plus visible delta not package size', () => {
+		const reviewPackage = makeSyntheticReviewPackage(5_000);
+		const probe = createBridgeReviewSelectionInvalidationProbe({
+			reviewPackage,
+			visibleItemIds: reviewPackage.orderedItemIds.slice(10, 34),
+		});
+
+		const result = probe.selectItem(reviewPackage.orderedItemIds[20] ?? '');
+
+		expect(result.packageItemCount).toBe(5_000);
+		expect(result.invalidatedKeyCount).toBeLessThanOrEqual(result.selectedItemCount + 24);
+		expect(result.subscriberNotificationCount).toBeLessThanOrEqual(result.selectedItemCount + 24);
+	});
 });
 
 function runWarmup(): void {

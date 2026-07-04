@@ -22,7 +22,12 @@ import type { BridgeCodeViewContentResources } from '../review-viewer/code-view/
 import type { BridgeCodeViewControlHandle } from '../review-viewer/code-view/bridge-code-view-panel.js';
 import type { ReviewContentDemandTelemetry } from '../review-viewer/content/review-content-demand-loader.js';
 import { useBridgeReviewProjectionCoordinator } from '../review-viewer/projections/use-review-projection-coordinator.js';
-import { selectBridgeReviewViewerRootSnapshot } from '../review-viewer/state/review-viewer-store.js';
+import {
+	bridgeReviewViewerRootSnapshotFromSlices,
+	selectBridgeReviewPanelChromeSlice,
+	selectBridgeReviewSelectionSlice,
+	selectBridgeReviewViewportSlice,
+} from '../review-viewer/state/review-viewer-store.js';
 import { recordBridgeSelectedContentDroppedTelemetry } from '../review-viewer/telemetry/bridge-review-viewer-telemetry.js';
 import { createBridgeMarkdownRenderWebWorkerClient } from '../review-viewer/workers/markdown/bridge-markdown-render-worker-transport.js';
 import type { BridgeReviewProjectionWorkerClient } from '../review-viewer/workers/projection/review-projection-worker-client.js';
@@ -110,10 +115,20 @@ export function BridgeReviewViewerMode(
 		invalidatedFreshnessKeysRef: invalidatedReviewFreshnessKeysRef,
 	});
 	const projection = useStore(viewerStore, (state) => state.projection);
-	const rootSnapshot = useStore(viewerStore, selectBridgeReviewViewerRootSnapshot);
+	const selectionSlice = useStore(viewerStore, selectBridgeReviewSelectionSlice);
+	const viewportSlice = useStore(viewerStore, selectBridgeReviewViewportSlice);
+	const panelChromeSlice = useStore(viewerStore, selectBridgeReviewPanelChromeSlice);
+	const rootSnapshot = useMemo(
+		() =>
+			bridgeReviewViewerRootSnapshotFromSlices({
+				panelChromeSlice,
+				selectionSlice,
+			}),
+		[panelChromeSlice, selectionSlice],
+	);
 	const viewerActions = useStore(viewerStore, (state) => state.actions);
 	const setReviewRenderModeCodeView = useCallback((): void => {
-		if (viewerStore.getState().rootSnapshot.renderMode.kind === 'codeView') {
+		if (viewerStore.getState().panelChromeSlice.renderMode.kind === 'codeView') {
 			return;
 		}
 		viewerActions.setRenderMode({ kind: 'codeView' });
@@ -174,6 +189,8 @@ export function BridgeReviewViewerMode(
 	reviewPackageRef.current = reviewPackage;
 	const projectionRef = useRef(projection);
 	projectionRef.current = projection;
+	const selectionSliceRef = useRef(selectionSlice);
+	selectionSliceRef.current = selectionSlice;
 	const rootSnapshotRef = useRef(rootSnapshot);
 	rootSnapshotRef.current = rootSnapshot;
 	const [isCodeViewScrollActive, setIsCodeViewScrollActive] = useState(false);
@@ -304,6 +321,14 @@ export function BridgeReviewViewerMode(
 		setLastVisibleDemandTelemetry,
 		telemetryRecorderRef,
 	});
+	const setVisibleContentItemIds = visibleContentController.setVisibleContentItemIds;
+	const setReviewVisibleItemIds = useCallback(
+		(itemIds: readonly string[]): void => {
+			setVisibleContentItemIds(itemIds);
+			viewerActions.setMountedItemIds(itemIds);
+		},
+		[setVisibleContentItemIds, viewerActions],
+	);
 	const reviewMetadataInterestRuntime = useBridgeReviewMetadataInterestRuntime({
 		authority: getReviewFrameAuthority(),
 		bridgeReadyEpoch,
@@ -311,7 +336,7 @@ export function BridgeReviewViewerMode(
 		reviewPackage,
 		rpcClient,
 		selectedItemId: rootSnapshot.selectedItemId,
-		setVisibleContentItemIds: visibleContentController.setVisibleContentItemIds,
+		setVisibleContentItemIds: setReviewVisibleItemIds,
 	});
 	useEffect(
 		(): (() => void) =>
@@ -359,15 +384,16 @@ export function BridgeReviewViewerMode(
 	} = useBridgeReviewSelectionController({
 		cancelForegroundSelectionRelease,
 		currentReviewPackageTelemetryContextRef,
+		hasProjection: panelChromeSlice.hasProjection,
 		initialReviewFileTarget,
 		isActive: props.isActive,
-		projection,
 		resourceExecutor,
 		reviewContentDescriptorRefsByHandleIdRef,
 		reviewPackage,
 		reviewPackageRef,
-		rootSnapshot,
-		rootSnapshotRef,
+		selectionSlice,
+		selectionSliceRef,
+		viewportSlice,
 		rpcClient,
 		selectedContentAbortControllerRef,
 		selectedContentActiveLoadKeyRef,

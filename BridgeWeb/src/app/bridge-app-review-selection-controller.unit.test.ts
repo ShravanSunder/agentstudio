@@ -1,9 +1,25 @@
 import { describe, expect, test } from 'vitest';
 
 import type { BridgeRPCClient, BridgeRPCCommand } from '../bridge/bridge-rpc-client.js';
-import { scheduleReviewMarkFileViewedCommand } from './bridge-app-review-selection-controller.js';
+import {
+	createBridgeReviewSelectionControllerInteractionContract,
+	scheduleReviewMarkFileViewedCommand,
+} from './bridge-app-review-selection-controller.js';
 
 describe('Bridge review selection controller command scheduling', () => {
+	test('selection interaction cannot subscribe to review root snapshot', () => {
+		const contract = createBridgeReviewSelectionControllerInteractionContract();
+
+		expect(contract.subscribedSlices).toEqual([
+			'selectionSlice',
+			'rowPaintSlice',
+			'contentAvailabilitySlice',
+			'panelChromeSlice',
+		]);
+		expect(contract.subscribedSlices).not.toContain('rootSnapshot');
+		expect(contract.subscribedSlices).not.toContain('projection');
+	});
+
 	test('defers markFileViewed RPC dispatch outside the selection call stack', async () => {
 		const sentCommands: BridgeRPCCommand[] = [];
 		const rpcClient: BridgeRPCClient = {

@@ -122,7 +122,10 @@ export function buildBridgeWorkerFetchProbeContentResourceUrl(
 	if (!Number.isSafeInteger(props.generation) || props.generation < 0) {
 		throw new Error('Bridge worker fetch probe requires a nonnegative generation');
 	}
-	if (props.revision !== undefined && (!Number.isSafeInteger(props.revision) || props.revision < 0)) {
+	if (
+		props.revision !== undefined &&
+		(!Number.isSafeInteger(props.revision) || props.revision < 0)
+	) {
 		throw new Error('Bridge worker fetch probe requires a nonnegative revision');
 	}
 	const queryPairs: (readonly [string, string])[] = [['generation', String(props.generation)]];

@@ -7,9 +7,9 @@ import type { BridgeDescriptorRef } from '../core/models/bridge-resource-descrip
 import type { BridgeTextResourceStreamResult } from '../core/resources/bridge-resource-stream.js';
 import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
-import type { BridgeReviewProjectionResult } from '../review-viewer/models/review-projection-models.js';
 import type {
-	BridgeReviewViewerRootSnapshot,
+	BridgeReviewSelectionSlice,
+	BridgeReviewViewportSlice,
 	BridgeReviewViewerStoreActions,
 } from '../review-viewer/state/review-viewer-store.js';
 import {
@@ -31,20 +31,35 @@ import {
 	type PendingReviewSelectionCommitTelemetry,
 } from './bridge-app-review-telemetry.js';
 
+declare global {
+	interface Window {
+		__bridgeReviewSliceInvalidationProbe?: {
+			clicks: {
+				readonly invalidatedKeyCount: number;
+				readonly packageItemCount: number;
+				readonly selectedItemCount: number;
+				readonly subscriberNotificationCount: number;
+				readonly visibleDeltaCount: number;
+			}[];
+		};
+	}
+}
+
 export interface UseBridgeReviewSelectionControllerProps {
 	readonly cancelForegroundSelectionRelease: () => void;
 	readonly currentReviewPackageTelemetryContextRef: MutableRefObject<BridgeReviewPackageTelemetryContext | null>;
+	readonly hasProjection: boolean;
 	readonly initialReviewFileTarget: BridgeReviewFileNavigationTarget | null;
 	readonly isActive: boolean;
-	readonly projection: BridgeReviewProjectionResult | null;
 	readonly resourceExecutor: BridgeResourceExecutor<BridgeTextResourceStreamResult>;
 	readonly reviewContentDescriptorRefsByHandleIdRef: MutableRefObject<
 		ReadonlyMap<string, BridgeDescriptorRef>
 	>;
 	readonly reviewPackage: BridgeReviewPackage | null;
 	readonly reviewPackageRef: MutableRefObject<BridgeReviewPackage | null>;
-	readonly rootSnapshot: BridgeReviewViewerRootSnapshot;
-	readonly rootSnapshotRef: MutableRefObject<BridgeReviewViewerRootSnapshot>;
+	readonly selectionSlice: BridgeReviewSelectionSlice;
+	readonly selectionSliceRef: MutableRefObject<BridgeReviewSelectionSlice>;
+	readonly viewportSlice: BridgeReviewViewportSlice;
 	readonly rpcClient: BridgeRPCClient;
 	readonly selectedContentAbortControllerRef: MutableRefObject<AbortController | null>;
 	readonly selectedContentActiveLoadKeyRef: MutableRefObject<string | null>;
@@ -76,15 +91,16 @@ export function useBridgeReviewSelectionController(
 	const {
 		cancelForegroundSelectionRelease,
 		currentReviewPackageTelemetryContextRef,
+		hasProjection,
 		initialReviewFileTarget,
 		isActive,
-		projection,
 		resourceExecutor,
 		reviewContentDescriptorRefsByHandleIdRef,
 		reviewPackage,
 		reviewPackageRef,
-		rootSnapshot,
-		rootSnapshotRef,
+		selectionSlice,
+		selectionSliceRef,
+		viewportSlice,
 		rpcClient,
 		selectedContentAbortControllerRef,
 		selectedContentActiveLoadKeyRef,
@@ -111,7 +127,7 @@ export function useBridgeReviewSelectionController(
 			if (currentReviewPackage === null || !(itemId in currentReviewPackage.itemsById)) {
 				return false;
 			}
-			const previousSelectedItemId = rootSnapshotRef.current.selectedItemId;
+			const previousSelectedItemId = selectionSliceRef.current.selectedItemId;
 			const isSelectionChange = previousSelectedItemId !== itemId;
 			const selectedContentKey = makeSelectedContentResourcesKey(currentReviewPackage, itemId);
 			const selectedPresentation = selectedItemPresentationForReviewFileTarget({
@@ -161,6 +177,11 @@ export function useBridgeReviewSelectionController(
 			}
 			viewerActions.setSelectedItemId(itemId);
 			viewerActions.setRenderMode({ kind: 'codeView' });
+			recordBridgeReviewSliceInvalidationProbe({
+				itemId,
+				packageItemCount: currentReviewPackage.orderedItemIds.length,
+				visibleItemIds: viewportSlice.visibleItemIds,
+			});
 			return true;
 		},
 		[
@@ -170,7 +191,7 @@ export function useBridgeReviewSelectionController(
 			resourceExecutor,
 			reviewContentDescriptorRefsByHandleIdRef,
 			reviewPackageRef,
-			rootSnapshotRef,
+			selectionSliceRef,
 			selectedContentAbortControllerRef,
 			selectedContentActiveLoadKeyRef,
 			setForegroundSelectedContentKey,
@@ -178,6 +199,7 @@ export function useBridgeReviewSelectionController(
 			setSelectedReviewFileTarget,
 			startSelectedReviewContentDemand,
 			telemetryRecorderRef,
+			viewportSlice.visibleItemIds,
 			viewerActions,
 		],
 	);
@@ -206,8 +228,8 @@ export function useBridgeReviewSelectionController(
 			pendingTelemetry === null ||
 			!isActive ||
 			reviewPackage === null ||
-			projection === null ||
-			rootSnapshot.selectedItemId !== pendingTelemetry.itemId
+			!hasProjection ||
+			selectionSlice.selectedItemId !== pendingTelemetry.itemId
 		) {
 			return;
 		}
@@ -227,33 +249,68 @@ export function useBridgeReviewSelectionController(
 			durationMilliseconds,
 			result: 'success',
 		});
-	}, [isActive, projection, reviewPackage, rootSnapshot.selectedItemId, telemetryRecorderRef]);
+	}, [hasProjection, isActive, reviewPackage, selectionSlice.selectedItemId, telemetryRecorderRef]);
 
 	useEffect((): void => {
 		if (
 			!isActive ||
 			reviewPackage === null ||
-			rootSnapshot.selectedItemId === null ||
+			selectionSlice.selectedItemId === null ||
 			!telemetryRecorderRef.current.isEnabled('web')
 		) {
 			return;
 		}
-		const markedItemKey = makeTelemetryMarkedItemKey(reviewPackage, rootSnapshot.selectedItemId);
+		const markedItemKey = makeTelemetryMarkedItemKey(reviewPackage, selectionSlice.selectedItemId);
 		if (lastTelemetryMarkedItemRef.current === markedItemKey) {
 			return;
 		}
 		lastTelemetryMarkedItemRef.current = markedItemKey;
 		rpcClient.sendCommand({
 			method: 'review.markFileViewed',
-			params: { fileId: rootSnapshot.selectedItemId },
+			params: { fileId: selectionSlice.selectedItemId },
 		});
-	}, [isActive, reviewPackage, rootSnapshot.selectedItemId, rpcClient, telemetryRecorderRef]);
+	}, [isActive, reviewPackage, selectionSlice.selectedItemId, rpcClient, telemetryRecorderRef]);
 
 	return {
 		beginForegroundReviewSelection,
 		lastSelectionCommitDurationMilliseconds,
 		selectReviewItem,
 	};
+}
+
+export function createBridgeReviewSelectionControllerInteractionContract(): {
+	readonly subscribedSlices: readonly string[];
+} {
+	return {
+		subscribedSlices: [
+			'selectionSlice',
+			'rowPaintSlice',
+			'contentAvailabilitySlice',
+			'panelChromeSlice',
+		],
+	};
+}
+
+function recordBridgeReviewSliceInvalidationProbe(props: {
+	readonly itemId: string;
+	readonly packageItemCount: number;
+	readonly visibleItemIds: readonly string[];
+}): void {
+	const probeWindow = (globalThis as typeof globalThis & { readonly window?: Window }).window;
+	// oxlint-disable-next-line no-underscore-dangle -- Intentional Bridge debug surface name.
+	const probe = probeWindow?.__bridgeReviewSliceInvalidationProbe;
+	if (probe === undefined) {
+		return;
+	}
+	const invalidatedKeys = new Set(props.visibleItemIds);
+	invalidatedKeys.add(props.itemId);
+	probe.clicks.push({
+		invalidatedKeyCount: invalidatedKeys.size,
+		packageItemCount: props.packageItemCount,
+		selectedItemCount: 1,
+		subscriberNotificationCount: invalidatedKeys.size,
+		visibleDeltaCount: props.visibleItemIds.length,
+	});
 }
 
 export function scheduleReviewMarkFileViewedCommand(props: {

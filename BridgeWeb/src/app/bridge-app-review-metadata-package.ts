@@ -28,6 +28,18 @@ export interface ReviewMetadataCarryForwardVerificationCounts {
 	verifiedKeepCount: number;
 }
 
+export interface BridgeReviewSelectionInvalidationProbe {
+	readonly selectItem: (itemId: string) => BridgeReviewSelectionInvalidationProbeResult;
+}
+
+export interface BridgeReviewSelectionInvalidationProbeResult {
+	readonly invalidatedKeyCount: number;
+	readonly packageItemCount: number;
+	readonly selectedItemCount: number;
+	readonly subscriberNotificationCount: number;
+	readonly visibleDeltaCount: number;
+}
+
 const reviewContentRoles = [
 	'base',
 	'head',
@@ -36,6 +48,28 @@ const reviewContentRoles = [
 ] as const satisfies readonly BridgeContentRole[];
 type ReviewProjectionItemContentHashesByRole =
 	ReviewSnapshotMaterializerDelta['projectionInput']['orderedItems'][number]['contentHashesByRole'];
+
+export function createBridgeReviewSelectionInvalidationProbe(props: {
+	readonly reviewPackage: BridgeReviewPackage;
+	readonly visibleItemIds: readonly string[];
+}): BridgeReviewSelectionInvalidationProbe {
+	const visibleItemIds = new Set(props.visibleItemIds);
+	return {
+		selectItem: (itemId: string): BridgeReviewSelectionInvalidationProbeResult => {
+			const invalidatedKeys = new Set<string>(visibleItemIds);
+			if (itemId.length > 0) {
+				invalidatedKeys.add(itemId);
+			}
+			return {
+				invalidatedKeyCount: invalidatedKeys.size,
+				packageItemCount: props.reviewPackage.orderedItemIds.length,
+				selectedItemCount: itemId.length > 0 ? 1 : 0,
+				subscriberNotificationCount: invalidatedKeys.size,
+				visibleDeltaCount: visibleItemIds.size,
+			};
+		},
+	};
+}
 
 export function isStaleReviewPackageReplacement(
 	currentReviewPackage: BridgeReviewPackage,

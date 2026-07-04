@@ -9,10 +9,53 @@ import { fingerprintBridgeReviewProjectionRequest } from '../workers/projection/
 import {
 	type BridgeReviewViewerStoreState,
 	createBridgeReviewViewerStore,
+	selectBridgeReviewPanelChromeSlice,
+	selectBridgeReviewRowPaintSlice,
+	selectBridgeReviewSelectionSlice,
 	selectBridgeReviewViewerRootSnapshot,
 } from './review-viewer-store.js';
 
 describe('Bridge review viewer Zustand store', () => {
+	test('selection subscribers observe only selection slice and selected row paint slice', () => {
+		const store = createBridgeReviewViewerStore();
+		const selectionUpdates: string[] = [];
+		const firstRowPaintUpdates: string[] = [];
+		const secondRowPaintUpdates: string[] = [];
+		const panelChromeUpdates: string[] = [];
+
+		const unsubscribeSelection = store.subscribe(selectBridgeReviewSelectionSlice, (slice) => {
+			selectionUpdates.push(slice.selectedItemId ?? 'none');
+		});
+		const unsubscribeFirstRow = store.subscribe(
+			selectBridgeReviewRowPaintSlice('source-high'),
+			(slice) => {
+				firstRowPaintUpdates.push(`${slice.itemId}:${slice.isSelected ? 'selected' : 'idle'}`);
+			},
+		);
+		const unsubscribeSecondRow = store.subscribe(
+			selectBridgeReviewRowPaintSlice('docs-plan'),
+			(slice) => {
+				secondRowPaintUpdates.push(`${slice.itemId}:${slice.isSelected ? 'selected' : 'idle'}`);
+			},
+		);
+		const unsubscribePanelChrome = store.subscribe(selectBridgeReviewPanelChromeSlice, (slice) => {
+			panelChromeUpdates.push(slice.renderMode.kind);
+		});
+
+		store.getState().actions.setSelectedItemId('source-high');
+		store.getState().actions.setSelectedItemId('docs-plan');
+
+		expect(selectionUpdates).toEqual(['source-high', 'docs-plan']);
+		expect(firstRowPaintUpdates).toEqual(['source-high:selected', 'source-high:idle']);
+		expect(secondRowPaintUpdates).toEqual(['docs-plan:selected']);
+		expect(panelChromeUpdates).toEqual([]);
+
+		unsubscribeSelection();
+		unsubscribeFirstRow();
+		unsubscribeSecondRow();
+		unsubscribePanelChrome();
+	});
+
 	test('keeps root subscriptions stable for worker stats and content hydration updates', () => {
 		const store = createBridgeReviewViewerStore();
 		let rootRenderCount = 0;
@@ -33,7 +76,7 @@ describe('Bridge review viewer Zustand store', () => {
 
 		expect(rootRenderCount).toBe(0);
 
-		store.getState().actions.setProjectionMode({ kind: 'normalReview' });
+		store.getState().actions.setProjectionMode({ kind: 'guidedReview' });
 
 		expect(rootRenderCount).toBe(1);
 		unsubscribe();

@@ -37,6 +37,7 @@ import {
 	installBridgeViewerMockedBackend,
 	makeBridgeViewerBrowserFixture,
 } from './bridge-viewer-mocked-backend.js';
+
 describe('Bridge viewer Browser Mode mocked backend large and streaming', () => {
 	afterEach(async () => {
 		cleanup();
