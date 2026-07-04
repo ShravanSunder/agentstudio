@@ -52,9 +52,12 @@ The architecture uses these WebKit constraints and gates:
   registered schemes. WebKit TestWebKitAPI `FileSystemAccess.mm` and
   `IndexedDBPersistence.mm` are source-grounded research anchors, not a closed
   production proof for this app. Native WKWebView proof of worker custom-scheme
-  fetch is REQUIRED before cutover. If that proof fails, the plan must either
-  adopt a page-fetch-and-transfer fallback that preserves R44 worker ownership
-  of bytes/cache/retry truth, or stop and revise R44 before implementation.
+  fetch and streamed scheme responses is REQUIRED before cutover. That same gate
+  also gates migration-era main-thread scheme-RPC callers because all
+  JavaScript-to-Swift communication shares the same network-shaped bridge. If
+  worker fetch fails, the plan must either adopt a page-fetch-and-transfer
+  fallback that preserves R44 worker ownership of bytes/cache/retry truth, or
+  stop and revise R44 before implementation.
 - A live `MessagePort` is not entangled with native for ordinary WKWebView page
   content. `MessageChannel` is page-to-worker only for this design.
 - `SharedArrayBuffer` requires cross-origin isolation headers on every scheme
@@ -400,10 +403,14 @@ Server seam:
 Live gates:
 
 - native WKWebView proof remains required for WebKit delivery, worker
-  custom-scheme fetch, run-loop starvation, and end-to-end click/scroll budgets;
-- worker custom-scheme fetch must pass native WKWebView proof before the R44
-  cutover. If it fails, the blocking decision is page-fetch-and-transfer
-  fallback versus R44 redesign; implementation must not assume worker fetch.
+  custom-scheme fetch, streamed scheme responses, migration-era main-thread
+  scheme-RPC calls, run-loop starvation, and end-to-end click/scroll budgets;
+- worker custom-scheme fetch plus streamed responses must pass native WKWebView
+  proof before the R44/R49 cutover. If worker fetch fails, the blocking decision
+  is page-fetch-and-transfer fallback versus R44 redesign; if streamed responses
+  fail, R49's fallback ordering applies. Implementation must not assume worker
+  fetch, streaming, or main-thread scheme-RPC migration until the same native
+  gate passes.
 - Victoria-backed proof remains required for performance samples and telemetry
   admission;
 - existing R32-R40 proof seams remain required and are not replaced
@@ -414,19 +421,46 @@ Live gates:
 ### R49. The topology has exactly three runtime channels.
 
 The local-first worker design has three channels, each with its own contract.
-The server worker named here is the comm worker in R41-R48.
+The server worker named here is the comm worker in R41-R48. The custom-scheme
+fetch bridge is the single network boundary: a network-shaped bridge where every
+JavaScript-to-Swift call after page-load identity bootstrap uses scheme-handler
+RPC, regardless of whether the caller is the server worker or a residual
+main-thread migration path.
 
 | Channel | Contract | Required payload shape |
 | --- | --- | --- |
 | main <-> server worker | `MessageChannel` port owned by the page and server worker, using transferables where payloads can avoid clone cost | typed commands down: `select`, `viewport`, `hover`, `markViewed`, and `mode`; typed slice patches up |
-| server worker <-> Swift | all Swift communication: request/response through `WKURLSchemeHandler` `fetch()`, plus pushes through a long-lived streamed `fetch()` response held open by the worker while native writes frames into the stream | Swift-side request, response, push, content, availability, telemetry, and health frames |
+| JavaScript <-> Swift | all Swift communication from server worker and migration-era main-thread callers: typed scheme-handler `POST` request/response RPC through `WKURLSchemeHandler` `fetch()`, plus subscriptions and pushes through long-lived streamed `fetch()` responses while native writes frames into the stream | Swift-side request, response, push, content, availability, telemetry, command-ack, and health frames |
 | main <-> Pierre workers | Pierre's own API exclusively | transferable paint-ready structs received from the server worker without parsing, plus `bridgeDemandRank` |
 
-The long-lived streamed-response fetch is the decided Swift push mechanism.
-The rejected alternative is `WKScriptMessage` push delivery: those pushes land
-in the page world and would force main into a verbatim-relay role. It is an
-acceptable fallback only if the streamed-response native proof fails, and only
-alongside the existing worker-fetch proof gate.
+The long-lived streamed-response fetch is the decided Swift push mechanism. The
+rejected alternative is `WKScriptMessage` push delivery: those pushes land in the
+page world, force main into a relay role, share the script-message IPC delivery
+lane, and recreate the default-run-loop-mode hazard. It is not a fallback after
+cutover. If streamed-response proof fails, fallback ordering is:
+
+1. keep the scheme-handler boundary and prove page-owned scheme `fetch()` plus
+   transferable relay only as a temporary migration fallback that preserves
+   worker ownership of protocol, cache, retry, and backpressure truth;
+2. if that fallback cannot preserve the ownership contract or native proof, stop
+   and redesign R44/R49 before implementation.
+
+The page-load bootstrap handshake is the sole exemption to scheme-handler RPC.
+It exists only to establish page/view identity before `fetch()` is possible, is
+minimal, one-shot, and must not carry commands, telemetry, content, subscription
+traffic, or push frames.
+
+The `WKScriptMessage` / `__bridge_command` RPC plane is deprecated by this
+contract. Content worlds, nonce listeners, `RPCMessageHandler`, `RPCRouter`, and
+all script-message ingress for ordinary commands are deleted by the final cutover
+unit's compile-enforced deletion set. They must not survive as a parallel path
+beside scheme-handler RPC.
+
+The rationale is one callable carrier from page and workers alike; no
+shared-IPC-queue coupling between telemetry, interactive, content, and push
+traffic because scheme tasks have their own lane; no `kCFRunLoopDefaultMode`
+script-message delivery hazard on the Swift boundary; and one typed contract
+module for the whole browser/native boundary.
 
 On the Pierre edge, main is a courier, never a processor. Main hands Pierre
 transferable paint-ready structs from the server worker and the
@@ -441,17 +475,18 @@ against this module. It owns zod-derived types, the versioned wire format, and
 runtime validation at the worker boundary. A message shape that is not in this
 contract must be a compile error, not an unchecked runtime convention.
 
-Channel [2] shares vocabulary with the Swift-side contracts the way
-`IPCBridgeContracts` does for IPC: one named contract vocabulary crosses the
-Swift/browser boundary, and worker/server implementation code consumes that
-vocabulary instead of inventing local frame shapes. No channel may add ad-hoc
-message shapes.
+Channel [2] shares vocabulary with the Swift-side contracts through one
+scheme-RPC contract module: one named contract vocabulary crosses the
+Swift/browser boundary, and page, worker, and server implementation code consume
+that vocabulary instead of inventing local frame shapes. No channel may add
+ad-hoc message shapes.
 
 ### R51. Forbidden edges are part of the contract.
 
 | Forbidden edge | Reason |
 | --- | --- |
-| main -> Swift | bootstrap handshake only; ordinary Swift traffic must go through the server worker so main cannot become a protocol relay or backpressure owner |
+| main -> Swift through script messages | forbidden after final cutover except the minimal one-shot page-load bootstrap handshake; ordinary commands, telemetry, content, subscriptions, and pushes must use scheme-handler RPC and the script-message RPC plane must be compile-deleted |
+| main -> Swift as protocol/backpressure owner | residual main-thread migration callers may use scheme-handler RPC only as typed client calls; ordinary content, subscriptions, retries, cache, and backpressure ownership still moves through the server worker |
 | server worker -> DOM/render | the worker owns protocol, cache, parse, window, diff, and slice production, but DOM materialization remains main-thread/Pierre-owned |
 | Pierre workers -> any initiator role | Pierre workers are pure compute/apply workers driven through Pierre's API, never demand, fetch, protocol, or Swift initiators |
 | any untyped message anywhere | untyped traffic bypasses the schema source, version fence, validation boundary, and proof seams |
@@ -477,8 +512,8 @@ Boundary notation:
 
 ```text
 main/FE -> server worker     LOCAL-FIRST MessageChannel boundary crossing
-server worker -> Swift       CLIENT/SERVER fetch boundary crossing
-Swift -> server worker       streamed push/content/response crossing
+JavaScript -> Swift          scheme-handler typed POST/stream fetch boundary
+Swift -> JavaScript          streamed push/content/response crossing
 server worker -> main/FE     typed slice publication crossing
 main/FE -> Pierre worker     Pierre API compute/apply boundary crossing
 ```
@@ -488,18 +523,18 @@ main/FE -> Pierre worker     Pierre API compute/apply boundary crossing
 | Trigger | Initiating actor | Boundary crossings | Paint rule | Governing requirements |
 | --- | --- | --- | --- | --- |
 | click cache-hit | user/FE | 0 before content paint; later FE -> server worker intent/fact if needed | frame-1 paints readable selected content from fresh local paint-ready cache | R41, R42, R45, R48, R49 |
-| click cold | user/FE | 0 before frame-1; later FE -> server worker demand fact, server worker -> Swift fetch/subscription, Swift -> server worker content, server worker -> FE slice | frame-1 paints selected identity plus honest loading/availability; selected content applies first within R46 budget when ready | R41, R44, R45, R46, R48, R49, R52 |
+| click cold | user/FE | 0 before frame-1; later FE -> server worker demand fact, server worker -> Swift scheme-RPC fetch/subscription, Swift -> server worker streamed content, server worker -> FE slice | frame-1 paints selected identity plus honest loading/availability; selected content applies first within R46 budget when ready | R41, R44, R45, R46, R48, R49, R52 |
 | scroll momentum | user/FE/Pierre | one rAF-coalesced FE -> server worker viewport fact per frame while moving; main -> Pierre worker through Pierre API only | Pierre scrolls existing DOM immediately; incoming slices that affect viewport are HELD while momentum continues | R41, R45, R46, R48, R49, R51 |
 | scroll settle | FE/Pierre | FE -> server worker settled viewport fact; later server worker -> FE affected slice updates; main -> Pierre worker through Pierre API only | settle frame keeps existing DOM; HELD slices apply by rank after settle inside frame budget | R41, R45, R46, R48, R49, R51 |
 | hover | user/FE | 0 before hover paint; later FE -> server worker hover fact if it changes demand | frame-1 paints local hover/focus chrome only; content demand is speculative and cannot block hover | R41, R42, R45, R49 |
 | expand/collapse | user/FE | 0 before toggle paint; later FE -> server worker expanded/collapsed fact | frame-1 paints local tree shape and placeholders from slices; server worker repairs invalid ids or supplies content deltas later | R41, R42, R45, R46, R49 |
 | mode switch | user/FE app shell | 0 before shell paint; later FE -> server worker activeMode fact | frame-1 paints retained local mode shell/slices; server worker demotes inactive foreground work and repairs availability later | R41, R42, R45, R49 |
-| tab/worktree switch | user/FE app shell | 0 before shell paint; later FE -> server worker selected context fact and server worker -> Swift subscribe/reopen if needed | frame-1 paints retained local shell or honest loading; no visible old-worktree content after identity change | R41, R42, R45, R48, R49 |
-| server push/fact | Swift | Swift -> server worker streamed push; server worker -> FE affected slices only | FE paints only after server worker validates stream/epoch/sequence and publishes O(delta) slice patches | R42, R45, R48, R49, R50 |
-| content-ready | Swift/server worker executor | Swift -> server worker content response; server worker -> FE paint-ready slice | no direct paint from response; server worker validates current epoch and FE applies rank-first within R46 | R42, R44, R46, R48, R49, R52 |
+| tab/worktree switch | user/FE app shell | 0 before shell paint; later FE -> server worker selected context fact and server worker -> Swift scheme-RPC subscribe/reopen if needed | frame-1 paints retained local shell or honest loading; no visible old-worktree content after identity change | R41, R42, R45, R48, R49 |
+| server push/fact | Swift | Swift -> server worker streamed scheme response; server worker -> FE affected slices only | FE paints only after server worker validates stream/epoch/sequence and publishes O(delta) slice patches | R42, R45, R48, R49, R50 |
+| content-ready | Swift/server worker executor | Swift -> server worker streamed content response; server worker -> FE paint-ready slice | no direct paint from response; server worker validates current epoch and FE applies rank-first within R46 | R42, R44, R46, R48, R49, R52 |
 | generation rotation | Swift source plus server worker epoch authority | Swift -> server worker source fact; server worker atomic epoch reset; server worker -> FE reset slices | one paint observes either old epoch before reset or new epoch after reset; never half-old/half-new | R37, R42, R44, R45, R48, R49 |
 | fetch failure | server worker executor/Swift content path | Swift -> server worker failure or server worker local fetch failure; server worker -> FE availability/health slice | selected identity paints explicit retry/unavailable/error state; FE never starts its own retry | R41, R42, R44, R48, R49 |
-| reconnect | server worker transport | server worker -> Swift reopen/subscriptions; Swift -> server worker resync; server worker -> FE health/slice repairs | FE keeps local slices with explicit health/loading; stale incoming results cannot mutate active UI | R42, R44, R45, R48, R49 |
+| reconnect | server worker transport | server worker -> Swift scheme-RPC reopen/subscriptions; Swift -> server worker streamed resync; server worker -> FE health/slice repairs | FE keeps local slices with explicit health/loading; stale incoming results cannot mutate active UI | R42, R44, R45, R48, R49 |
 | telemetry flush | server worker | server worker -> Swift dedicated scheme POST only | no user-visible paint; flush runs idle, byte-capped, drop-oldest with lossless counters | R41, R43, R48, R49 |
 | startup warm-up | FE activation/server worker | FE -> server worker warm-up fact; server worker may prewarm cache/compute and Swift subscriptions | initial shell paints from retained local slices or honest loading; warm-up cannot block first paint | R41, R42, R44, R48, R49 |
 
@@ -539,7 +574,7 @@ frame-1 paint
   ├─► server worker: selected/content-demand fact
   │      validates current workerDerivationEpoch and ranks selected first
   │
-  ├──── server worker ────► Swift: fetch/subscribe if cache miss
+  ├──── server worker ────► Swift: scheme-RPC fetch/subscribe if cache miss
   │                         Swift ────► server worker: content or availability
   │
   ◄─ server worker: selected paint-ready slice
@@ -621,7 +656,7 @@ server worker telemetry buffer
   │  encoded-byte cap, drop-oldest shedding,
   │  lossless counters by event/lane/result/drop reason
   │
-  ├─ interactive command path: never flushes telemetry
+  ├─ scheme-RPC command path: never flushes telemetry
   │
   └─ idle flush
        │
@@ -643,6 +678,9 @@ What stays:
 What dies:
 
 - telemetry on the interactive RPC channel;
+- the `WKScriptMessage` / `__bridge_command` RPC plane after page-load
+  bootstrap, including content-world command listeners, nonce command
+  dispatch, `RPCMessageHandler`, `RPCRouter`, and script-message ingress;
 - FE protocol state: generations, sequences, stream identity, staleness,
   cache-membership truth, retry state, and demand membership truth;
 - root-snapshot render coupling for interaction paths;
@@ -656,6 +694,7 @@ Compile-enforced deletion sets are required per cutover unit:
 | File viewer content protocol | FE raw body/frame package intake, FE generation/sequence/staleness caches for content, FE demand retry/parking fields | FE slices, worker protocol client, native metadata plane |
 | Review viewer content protocol | package-first review body loading, root-snapshot selection render path, review prefetch pump, FE cache-membership truth | FE slices, worker reconciler/cache, native metadata plane |
 | telemetry transport | interactive RPC telemetry send/force-flush path and shared-command queue telemetry | dedicated scheme POST endpoint and worker batching |
+| final browser/native RPC cutover | `WKScriptMessage` / `__bridge_command` ordinary RPC, content-world command listeners, nonce command dispatch, `RPCMessageHandler`, `RPCRouter`, and script-message ingress | minimal one-shot page-load bootstrap; scheme-handler typed POST/stream RPC for all ordinary Swift communication |
 | demand membership | legacy staging buffers, membership caps, pending eviction as membership policy, parked retry versions | worker reconciler membership and executor-stage pacing only |
 
 No old and new path may remain live for the same viewer/protocol surface. Any
