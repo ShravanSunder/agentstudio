@@ -279,6 +279,7 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.bridge.selected_content.frame_wait_ms",
         "agentstudio.bridge.selected_content.materialize_ms",
         "agentstudio.bridge.telemetry.dropped_count",
+        "agentstudio.bridge.telemetry.required_dropped_count",
         "agentstudio.bridge.visible_descriptor.count",
         "agentstudio.bridge.visible_item.count",
         "agentstudio.bridge.visible_publisher.skipped.count",

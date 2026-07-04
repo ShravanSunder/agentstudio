@@ -12,6 +12,7 @@ enum BridgeTelemetryDropReason: String, CaseIterable, Codable, Equatable, Sendab
     case pushNonceMismatch = "push_nonce_mismatch"
     case queueSaturated = "queue_saturated"
     case rateLimited = "rate_limited"
+    case requiredEventShed = "required_event_shed"
     case stalePush = "stale_push"
     case tooManySamples = "too_many_samples"
     case unsafeAttribute = "unsafe_attribute"
