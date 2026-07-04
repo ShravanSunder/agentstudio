@@ -122,4 +122,41 @@ struct TabArrangementValidationTests {
         #expect(Set(validated[0].allPaneIds) == Set([parentPane, drawerPane]))
         #expect(validated[0].arrangements[0].drawerViews[drawerId]?.layout.paneIds == [drawerPane])
     }
+
+    @Test
+    func validate_normalizesScrambledDrawerMembershipToReferencedOrder() {
+        let parentPane = UUID()
+        let firstDrawerPane = UUID()
+        let secondDrawerPane = UUID()
+        let drawerId = UUID()
+        let drawerLayout = DrawerGridLayout(
+            topRow: Layout(paneId: firstDrawerPane)
+                .inserting(
+                    paneId: secondDrawerPane,
+                    at: firstDrawerPane,
+                    direction: .horizontal,
+                    position: .after,
+                    sizingMode: .halveTarget
+                )!)
+        let arrangement = PaneArrangement(
+            name: "Default",
+            isDefault: true,
+            layout: Layout(paneId: parentPane),
+            drawerViews: [
+                drawerId: DrawerView(layout: drawerLayout)
+            ]
+        )
+        let state = TabArrangementState(
+            tabId: UUID(),
+            allPaneIds: [secondDrawerPane, firstDrawerPane, parentPane],
+            arrangements: [arrangement],
+            activeArrangementId: arrangement.id,
+            activePaneId: parentPane,
+            zoomedPaneId: nil
+        )
+
+        let validated = TabArrangementValidation.validating([state])
+
+        #expect(validated[0].allPaneIds == [parentPane, firstDrawerPane, secondDrawerPane])
+    }
 }
