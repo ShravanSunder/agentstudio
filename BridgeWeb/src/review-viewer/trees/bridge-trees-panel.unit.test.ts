@@ -24,7 +24,7 @@ afterEach(() => {
 });
 
 describe('BridgeReviewTreesPanel selection dispatch', () => {
-	test('applies a composed post-scroll host click for the rendered row path', () => {
+	test('applies a composed post-scroll host click for the rendered row path', async () => {
 		const selectedItemIds: string[] = [];
 		const selectedTreePaths: string[] = [];
 		const renderedRow = new RecordingReviewTreeRowElement('src/post-scroll-target.ts');
@@ -49,7 +49,43 @@ describe('BridgeReviewTreesPanel selection dispatch', () => {
 
 		expect(didSelect).toBe(true);
 		expect(selectedTreePaths).toEqual(['src/post-scroll-target.ts']);
+		expect(selectedItemIds).toEqual([]);
+
+		await Promise.resolve();
+
 		expect(selectedItemIds).toEqual(['post-scroll-target-item']);
+	});
+
+	test('defers the React selection callback outside the click handler task', async () => {
+		const selectedItemIds: string[] = [];
+		const selectedTreePaths: string[] = [];
+		const renderedRow = new RecordingReviewTreeRowElement('src/async-target.ts');
+		const postScrollHostClick = new Event('click', { bubbles: true, composed: true });
+		Object.defineProperty(postScrollHostClick, 'composedPath', {
+			value: (): readonly unknown[] => [renderedRow, {}],
+		});
+
+		const didSelect = applyReviewTreeSelectionFromEvent({
+			event: postScrollHostClick,
+			onSelectItem: (itemId: string): void => {
+				selectedItemIds.push(itemId);
+			},
+			primaryItemIdByTreePath: {
+				'src/async-target.ts': 'async-target-item',
+			},
+			selectClickedTreePath: (path: string): string | null => {
+				selectedTreePaths.push(path);
+				return path === 'src/async-target.ts' ? 'async-target-item' : null;
+			},
+		});
+
+		expect(didSelect).toBe(true);
+		expect(selectedTreePaths).toEqual(['src/async-target.ts']);
+		expect(selectedItemIds).toEqual([]);
+
+		await Promise.resolve();
+
+		expect(selectedItemIds).toEqual(['async-target-item']);
 	});
 
 	test('records capture handler and selection command breadcrumbs on the tree click probe', () => {

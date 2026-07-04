@@ -194,10 +194,7 @@ export function useBridgeReviewSelectionController(
 				return false;
 			}
 			lastTelemetryMarkedItemRef.current = makeTelemetryMarkedItemKey(currentReviewPackage, itemId);
-			rpcClient.sendCommand({
-				method: 'review.markFileViewed',
-				params: { fileId: itemId },
-			});
+			scheduleReviewMarkFileViewedCommand({ itemId, rpcClient });
 			return true;
 		},
 		[beginForegroundReviewSelection, reviewPackageRef, rpcClient],
@@ -257,4 +254,16 @@ export function useBridgeReviewSelectionController(
 		lastSelectionCommitDurationMilliseconds,
 		selectReviewItem,
 	};
+}
+
+export function scheduleReviewMarkFileViewedCommand(props: {
+	readonly itemId: string;
+	readonly rpcClient: BridgeRPCClient;
+}): void {
+	queueMicrotask((): void => {
+		props.rpcClient.sendCommand({
+			method: 'review.markFileViewed',
+			params: { fileId: props.itemId },
+		});
+	});
 }

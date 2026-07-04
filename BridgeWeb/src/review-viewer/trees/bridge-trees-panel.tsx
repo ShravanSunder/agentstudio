@@ -2,7 +2,6 @@ import type { FileTreeSortComparator } from '@pierre/trees';
 import { FileTree, useFileTree } from '@pierre/trees/react';
 import type { ReactElement } from 'react';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
-import { flushSync } from 'react-dom';
 
 import {
 	pierreFilePathFromEventTarget,
@@ -205,9 +204,7 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 		applyReviewTreeSelectionFromEvent({
 			event,
 			onSelectItem: (itemId: string): void => {
-				flushSync((): void => {
-					onSelectItemRef.current(itemId);
-				});
+				onSelectItemRef.current(itemId);
 			},
 			primaryItemIdByTreePath: sourceRef.current.primaryItemIdByTreePath,
 			selectClickedTreePath: (path: string): string | null => {
@@ -324,7 +321,7 @@ export function applyReviewTreeSelectionFromEvent(props: {
 	recordBridgeReviewTreeClickProbeSelectionCommandResult(
 		selectedTreePathResult === null ? 'rejected' : 'accepted',
 	);
-	props.onSelectItem(selection.itemId);
+	queueMicrotask((): void => props.onSelectItem(selection.itemId));
 	return true;
 }
 
