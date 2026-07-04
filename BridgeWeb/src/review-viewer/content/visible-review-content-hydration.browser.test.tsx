@@ -293,6 +293,15 @@ describe('visible review content hydration Browser Mode', () => {
 			await reportVisibleItemIds(setVisibleItemIds, finalVisibleItemIds);
 			await dispatchVisibleHydrationTimers();
 			resolveDeferredLoads(firstLoadDeferredsByItemId, ['item-004']);
+			// item-004 is still tracked (not aborted; retention keys off `visibleItemIds`
+			// keep every reviewed item, not just currently visible ones) so this resolve
+			// drives a real `setContentStateByItemId` update. Unlike the earlier
+			// `resolveDeferredLoads` calls above, this one feeds into
+			// `dispatchVisibleHydrationTimersUntil`, whose first loop iteration reads
+			// `isSatisfied()` synchronously before any `act()` is re-entered. Flush the
+			// resulting update here, inside a plain act-wrapped microtask drain, so it
+			// never lands in that pre-loop gap outside any act() scope.
+			await flushReactWork();
 			await dispatchVisibleHydrationTimersUntil((): boolean => {
 				const demandedItemIds = new Set(
 					loadAttempts.map((loadAttempt): string => loadAttempt.itemId),
@@ -428,6 +437,20 @@ async function dispatchVisibleHydrationTimers(): Promise<void> {
 	await flushReactWork();
 }
 
+// The executor's abort-and-sweep retry (`scheduleVisibleHydrationRetry`) is scheduled via
+// `requestAnimationFrame`. Vitest's fake clock only fires a faked `requestAnimationFrame`
+// callback once simulated time crosses the next ~16ms frame boundary, so the 0ms
+// `visibleContentHydrationDispatchDelayMilliseconds` advance in `dispatchVisibleHydrationTimers`
+// never reaches it. Advancing by a full frame lets a pending sweep retry fire.
+const animationFrameAdvanceMilliseconds = 16;
+
+async function dispatchVisibleHydrationAnimationFrame(): Promise<void> {
+	await act(async (): Promise<void> => {
+		await vi.advanceTimersByTimeAsync(animationFrameAdvanceMilliseconds);
+	});
+	await flushReactWork();
+}
+
 async function dispatchVisibleHydrationTimersUntil(
 	isSatisfied: () => boolean,
 	maxDispatchCount = 10,
@@ -438,6 +461,11 @@ async function dispatchVisibleHydrationTimersUntil(
 		}
 		// oxlint-disable-next-line no-await-in-loop -- Demand re-derivation is timer/effect driven.
 		await dispatchVisibleHydrationTimers();
+		if (isSatisfied()) {
+			return;
+		}
+		// oxlint-disable-next-line no-await-in-loop -- Frame-driven retry dispatch must drain sequentially.
+		await dispatchVisibleHydrationAnimationFrame();
 	}
 	if (!isSatisfied()) {
 		throw new Error('Expected visible hydration condition to settle after timer dispatches.');
