@@ -681,6 +681,7 @@ struct BridgeTelemetryBatchValidatorSafetyTests {
     @Test
     func dropReasonWireValuesUseSnakeCase() throws {
         #expect(BridgeTelemetryDropReason.queueSaturated.rawValue == "queue_saturated")
+        #expect(BridgeTelemetryDropReason.rateLimited.rawValue == "rate_limited")
         #expect(BridgeTelemetryDropReason.decodingFailed.rawValue == "decoding_failed")
         #expect(BridgeTelemetryDropReason.hostPortMessageInvalid.rawValue == "host_port_message_invalid")
 

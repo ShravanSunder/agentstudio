@@ -79,6 +79,7 @@ export interface ReviewViewerShellProps {
 	readonly fileClassFilter?: BridgeFileClass | 'all';
 	readonly onFileClassFilterChange?: (fileClass: BridgeFileClass | 'all') => void;
 	readonly onCodeViewControlHandleChange?: (handle: BridgeCodeViewControlHandle | null) => void;
+	readonly onCodeViewExpandedItemDemand?: (itemId: string) => void;
 	readonly onCodeViewScrollActivityChange?: (isActive: boolean) => void;
 	readonly onCodeViewVisibleItemIdsChange?: (itemIds: readonly string[]) => void;
 	readonly onTreeVisibleItemIdsChange?: (itemIds: readonly string[]) => void;
@@ -369,6 +370,11 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 										? {}
 										: {
 												onControlHandleChange: props.onCodeViewControlHandleChange,
+											})}
+									{...(props.onCodeViewExpandedItemDemand === undefined
+										? {}
+										: {
+												onExpandedItemDemand: props.onCodeViewExpandedItemDemand,
 											})}
 									{...(props.onCodeViewScrollActivityChange === undefined
 										? {}

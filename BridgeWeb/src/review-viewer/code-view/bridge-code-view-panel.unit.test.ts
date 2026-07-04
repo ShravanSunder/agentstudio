@@ -24,6 +24,7 @@ import {
 	bridgeCodeViewRenderedHeaderCorrectionTargetPosition,
 	recordBridgeCodeViewItemMaterializeTelemetryForPanel,
 	shouldApplyBridgeCodeViewRenderedHeaderCorrection,
+	shouldRequestForegroundDemandForItemExpansion,
 	shouldRearmCodeViewInstantRevealForMaterialization,
 } from './bridge-code-view-panel-support.js';
 import {
@@ -279,6 +280,27 @@ describe('BridgeCodeViewPanel diagnostics', () => {
 				tolerancePixels: 1,
 			}),
 		).toBe(true);
+	});
+
+	test('requests foreground content demand only for item expansion', () => {
+		expect(
+			shouldRequestForegroundDemandForItemExpansion({
+				nextCollapsed: false,
+				previousCollapsed: true,
+			}),
+		).toBe(true);
+		expect(
+			shouldRequestForegroundDemandForItemExpansion({
+				nextCollapsed: true,
+				previousCollapsed: false,
+			}),
+		).toBe(false);
+		expect(
+			shouldRequestForegroundDemandForItemExpansion({
+				nextCollapsed: false,
+				previousCollapsed: false,
+			}),
+		).toBe(false);
 	});
 
 	test('emits selected content painted telemetry on the frame after materialization', () => {

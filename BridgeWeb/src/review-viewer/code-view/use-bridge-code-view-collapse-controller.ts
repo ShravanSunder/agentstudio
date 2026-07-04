@@ -10,6 +10,7 @@ import {
 	controllerForHandle,
 	isBridgeCodeViewItem,
 	nextCodeViewItemForCollapse,
+	shouldRequestForegroundDemandForItemExpansion,
 	type BridgeCodeViewControllerEntry,
 	type BridgeCodeViewInstantRevealRearmCandidate,
 } from './bridge-code-view-panel-support.js';
@@ -22,6 +23,7 @@ interface UseBridgeCodeViewCollapseControllerProps {
 	readonly pendingSelectionRevealBehaviorRef: MutableRefObject<CodeViewScrollBehavior | null>;
 	readonly pendingSmoothSelectionScrollKeyRef: MutableRefObject<string | null>;
 	readonly recentInstantSelectionRevealRef: MutableRefObject<BridgeCodeViewInstantRevealRearmCandidate | null>;
+	readonly onExpandedItemDemand?: (itemId: string) => void;
 	readonly reviewItemsById: BridgeReviewPackage['itemsById'];
 	readonly setCollapsedItemIds: (
 		updater: (currentIds: ReadonlySet<string>) => ReadonlySet<string>,
@@ -50,6 +52,7 @@ export function useBridgeCodeViewCollapseController(
 		pendingSelectionRevealBehaviorRef,
 		pendingSmoothSelectionScrollKeyRef,
 		recentInstantSelectionRevealRef,
+		onExpandedItemDemand,
 		reviewItemsById,
 		setCollapsedItemIds,
 		settledInstantSelectionRevealKeyRef,
@@ -68,6 +71,12 @@ export function useBridgeCodeViewCollapseController(
 			if (currentItem === undefined || !isBridgeCodeViewItem(currentItem)) {
 				return false;
 			}
+			const previousCollapsed =
+				collapsedItemIdsRef.current.has(itemId) || currentItem.collapsed === true;
+			const shouldRequestExpandedItemDemand = shouldRequestForegroundDemandForItemExpansion({
+				nextCollapsed: collapsed,
+				previousCollapsed,
+			});
 			if (currentItem.collapsed === collapsed) {
 				setCollapsedItemIds(
 					(currentIds: ReadonlySet<string>): ReadonlySet<string> =>
@@ -77,6 +86,9 @@ export function useBridgeCodeViewCollapseController(
 							itemId,
 						}),
 				);
+				if (shouldRequestExpandedItemDemand) {
+					onExpandedItemDemand?.(itemId);
+				}
 				return true;
 			}
 			pendingPreHydrationSelectionScrollKeyRef.current = null;
@@ -114,11 +126,16 @@ export function useBridgeCodeViewCollapseController(
 						itemId,
 					}),
 			);
+			if (shouldRequestExpandedItemDemand) {
+				onExpandedItemDemand?.(itemId);
+			}
 			return true;
 		},
 		[
 			codeViewHandleRef,
+			collapsedItemIdsRef,
 			controllerEntryRef,
+			onExpandedItemDemand,
 			pendingPreHydrationSelectionScrollKeyRef,
 			pendingSelectionRevealBehaviorRef,
 			pendingSmoothSelectionScrollKeyRef,

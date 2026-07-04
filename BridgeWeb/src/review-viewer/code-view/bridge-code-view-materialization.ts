@@ -13,6 +13,10 @@ import type { BridgeReviewProjectionResult } from '../models/review-projection-m
 import { bridgeContentRoleSchema } from '../models/review-projection-models.js';
 import { bridgePierreOptionalHighlightLanguage } from '../workers/pierre/bridge-pierre-language-normalization.js';
 import { createBridgePierreContentDescriptorFile } from '../workers/pierre/bridge-pierre-worker-content-descriptor.js';
+import {
+	createBridgeCodeViewPlaceholderDiffFiles,
+	createBridgeCodeViewPlaceholderFileContents,
+} from './bridge-code-view-placeholder-content.js';
 
 export const bridgeCodeViewContentStateSchema = z.enum([
 	'placeholder',
@@ -240,6 +244,7 @@ function createPlaceholderItem(props: {
 	if (props.presentation?.kind === 'file' && !itemIsOneSidedChange(props.item)) {
 		return createFileItem({
 			item: props.item,
+			placeholderVersion: props.presentation.version,
 			resource: null,
 			version: 0,
 			contentState: 'placeholder',
@@ -252,6 +257,7 @@ function createPlaceholderItem(props: {
 	}
 	return createFileItem({
 		item: props.item,
+		placeholderVersion: 'current',
 		resource: null,
 		version: 0,
 		contentState: 'placeholder',
@@ -287,22 +293,16 @@ function hasContentHandle(
 function createPlaceholderDiffItem(props: {
 	readonly item: BridgeReviewItemDescriptor;
 }): BridgeCodeViewDiffItem {
-	const emptyBase = createFileContents({
+	const placeholderFiles = createBridgeCodeViewPlaceholderDiffFiles({
 		item: props.item,
-		resource: null,
-		path: props.item.basePath ?? displayPathForItem(props.item),
+		basePath: props.item.basePath ?? displayPathForItem(props.item),
+		headPath: props.item.headPath ?? displayPathForItem(props.item),
 	});
-	const emptyHead = createFileContents({
-		item: props.item,
-		resource: null,
-		path: props.item.headPath ?? displayPathForItem(props.item),
-	});
-	const fileDiff = parseDiffFromFile(emptyBase, emptyHead);
+	const fileDiff = parseDiffFromFile(placeholderFiles.base, placeholderFiles.head);
 	return {
 		id: props.item.itemId,
 		type: 'diff',
 		fileDiff,
-		collapsed: true,
 		version: codeViewRenderVersion({
 			contentState: 'placeholder',
 			itemVersion: props.item.itemVersion,
@@ -311,13 +311,15 @@ function createPlaceholderDiffItem(props: {
 			item: props.item,
 			contentState: 'placeholder',
 			contentRoles: [],
-			cacheKey: `${props.item.cacheKey}:placeholder`,
+			cacheKey: `${props.item.cacheKey}:placeholder:${placeholderFiles.lineCount}`,
+			lineCountOverride: placeholderFiles.lineCount,
 		}),
 	};
 }
 
 interface CreateFileItemProps {
 	readonly item: BridgeReviewItemDescriptor;
+	readonly placeholderVersion?: BridgeCodeViewFilePresentationVersion;
 	readonly resource: BridgeContentResource | null;
 	readonly version: number;
 	readonly contentState: BridgeCodeViewItemMetadata['contentState'];
@@ -328,20 +330,29 @@ function createFileItem(props: CreateFileItemProps): BridgeCodeViewFileItem {
 		item: props.item,
 		resource: props.resource,
 	});
-	const file = createFileContents({
-		item: props.item,
-		resource: props.resource,
-		path: displayPathForItem(props.item),
-		contentState: props.contentState,
-		contentWindow,
-	});
+	const placeholderFile =
+		props.contentState === 'placeholder' && props.resource === null
+			? createBridgeCodeViewPlaceholderFileContents({
+					item: props.item,
+					path: displayPathForItem(props.item),
+					version: props.placeholderVersion ?? 'current',
+				})
+			: null;
+	const file =
+		placeholderFile?.file ??
+		createFileContents({
+			item: props.item,
+			resource: props.resource,
+			path: displayPathForItem(props.item),
+			contentState: props.contentState,
+			contentWindow,
+		});
 	const contentState =
 		props.contentState === 'hydrated' && contentWindow.truncated ? 'windowed' : props.contentState;
 	return {
 		id: props.item.itemId,
 		type: 'file',
 		file,
-		...(contentState === 'placeholder' ? { collapsed: true } : {}),
 		version: codeViewRenderVersion({
 			contentState,
 			itemVersion: props.version,
@@ -351,6 +362,7 @@ function createFileItem(props: CreateFileItemProps): BridgeCodeViewFileItem {
 			contentState,
 			contentRoles: props.resource === null ? [] : [props.resource.handle.role],
 			cacheKey: file.cacheKey ?? props.item.cacheKey,
+			...(placeholderFile === null ? {} : { lineCountOverride: placeholderFile.lineCount }),
 		}),
 	};
 }

@@ -556,6 +556,7 @@ export function BridgeReviewViewerMode(
 			onCodeViewControlHandleChange={(handle): void => {
 				codeViewControlHandleRef.current = handle;
 			}}
+			onCodeViewExpandedItemDemand={visibleContentController.requestForegroundItemContent}
 			onCodeViewScrollActivityChange={setIsCodeViewScrollActive}
 			onSelectItem={selectReviewItem}
 			onTreeSearchOpen={(): void => setIsTreeSearchOpen(true)}

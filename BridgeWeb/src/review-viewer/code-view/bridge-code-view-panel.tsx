@@ -4,6 +4,7 @@ import type { ReactElement } from 'react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import { recordBridgeCodeViewHydrationTelemetry } from '../telemetry/bridge-review-viewer-telemetry.js';
+import { scheduleBridgeCodeViewInstantRevealRetarget } from './bridge-code-view-instant-reveal-retarget.js';
 import {
 	createBridgeCodeViewInitialItems,
 	materializeBridgeCodeViewItem,
@@ -20,7 +21,6 @@ import { BridgeCodeViewPanelFrame } from './bridge-code-view-panel-frame.js';
 import {
 	bridgeCodeViewMaterializationResourceEntriesForPanel,
 	bridgeCodeViewLoadingMaterializationItemIdsForPanel,
-	bridgeCodeViewRenderedHeaderCorrectionTargetPosition,
 	codeViewHandleHasInstance,
 	controllerForHandle,
 	createBridgeCodeViewHeaderRenderers,
@@ -33,9 +33,8 @@ import {
 	nextCodeViewItemForCollapse,
 	recordBridgeCodeViewItemMaterializeTelemetryForPanel,
 	reconcileBridgeCodeViewMetadataItems,
-	renderedBridgeCodeViewHeaderOffsetFromScrollOwner,
 	selectedContentDiagnosticsForPanel,
-	shouldApplyBridgeCodeViewRenderedHeaderCorrection,
+	shouldRequestForegroundDemandForItemExpansion,
 	shouldRearmCodeViewInstantRevealForMaterialization,
 	uniqueItemIds,
 	uniqueRenderedItemIds,
@@ -136,6 +135,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 	const collapsedItemIdsRef = useRef<ReadonlySet<string>>(collapsedItemIds);
 	collapsedItemIdsRef.current = collapsedItemIds;
 	const onControlHandleChange = props.onControlHandleChange;
+	const onExpandedItemDemand = props.onExpandedItemDemand;
 	const [materializationDiagnostic, setMaterializationDiagnostic] =
 		useState<BridgeCodeViewMaterializationDiagnostic>(() => emptyMaterializationDiagnostic());
 	const publishVisibleHydrationItemIds = useCallback((): void => {
@@ -264,6 +264,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		pendingSelectionRevealBehaviorRef,
 		pendingSmoothSelectionScrollKeyRef,
 		recentInstantSelectionRevealRef,
+		...(onExpandedItemDemand === undefined ? {} : { onExpandedItemDemand }),
 		reviewItemsById,
 		setCollapsedItemIds,
 		settledInstantSelectionRevealKeyRef,
@@ -275,122 +276,18 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 			readonly selectionScrollKey: string;
 			readonly viewportOffsetTolerancePixels: number;
 		}): void => {
-			if (pendingSelectionScrollFrameRef.current !== null) {
-				cancelAnimationFrame(pendingSelectionScrollFrameRef.current);
-				pendingSelectionScrollFrameRef.current = null;
-			}
-			let didApplyRenderedHeaderCorrection = false;
-			let lastRetargetedItemTop: number | null = null;
-			let stableResolvedTopFrameCount = 0;
-			let committedRevealScrollTop: number | null = null;
-			const scheduleRetargetFrame = (remainingFrameBudget: number): void => {
-				pendingSelectionScrollFrameRef.current = requestAnimationFrame((): void => {
-					pendingSelectionScrollFrameRef.current = null;
-					if (
-						codeViewHandleRef.current !== params.codeViewHandle ||
-						lastSelectionScrollKeyRef.current !== params.selectionScrollKey ||
-						params.codeViewHandle.getItem(params.itemId) === undefined
-					) {
-						return;
-					}
-					const codeViewInstance = params.codeViewHandle.getInstance();
-					if (codeViewInstance === undefined) {
-						return;
-					}
-					// I2/I4: the reveal owns the viewport only until the user takes over. A user
-					// scroll moves the viewport far from where the reveal last committed it; when
-					// that happens we yield ownership (mark settled/terminal) instead of snapping
-					// the selected item back and fighting the user's scroll.
-					const externalScrollThresholdPixels = Math.max(
-						bridgeCodeViewInstantRevealPolicy.externalScrollAbortThresholdPixels,
-						codeViewInstance.getContainerElement()?.clientHeight ?? 0,
-					);
-					if (
-						committedRevealScrollTop !== null &&
-						Math.abs(codeViewInstance.getScrollTop() - committedRevealScrollTop) >
-							externalScrollThresholdPixels
-					) {
-						recentInstantSelectionRevealRef.current = null;
-						settledInstantSelectionRevealKeyRef.current = params.selectionScrollKey;
-						return;
-					}
-					const resolvedItemTop = codeViewInstance.getTopForItem(params.itemId);
-					const targetViewportOffset =
-						resolvedItemTop === undefined
-							? null
-							: resolvedItemTop - codeViewInstance.getScrollTop();
-					const shouldRetarget =
-						resolvedItemTop === undefined ||
-						lastRetargetedItemTop === null ||
-						Math.abs(resolvedItemTop - lastRetargetedItemTop) >
-							bridgeCodeViewInstantRevealPolicy.retargetEpsilonPixels ||
-						targetViewportOffset === null ||
-						Math.abs(targetViewportOffset) > params.viewportOffsetTolerancePixels;
-					if (shouldRetarget) {
-						stableResolvedTopFrameCount = 0;
-						lastRetargetedItemTop = resolvedItemTop ?? null;
-						params.codeViewHandle.scrollTo({
-							type: 'item',
-							id: params.itemId,
-							align: 'start',
-							behavior: 'instant',
-						});
-						codeViewInstance.render(true);
-					} else {
-						stableResolvedTopFrameCount += 1;
-						if (stableResolvedTopFrameCount >= bridgeCodeViewInstantRevealPolicy.stableFrameCount) {
-							const settledItem = params.codeViewHandle.getItem(params.itemId);
-							const isSettledMaterialized =
-								isBridgeCodeViewItem(settledItem) &&
-								isMaterializedBridgeCodeViewContentState(settledItem.bridgeMetadata.contentState);
-							if (
-								recentInstantSelectionRevealRef.current?.selectionScrollKey !==
-								params.selectionScrollKey
-							) {
-								return;
-							}
-							const renderedHeaderOffset = renderedBridgeCodeViewHeaderOffsetFromScrollOwner({
-								itemId: params.itemId,
-								scrollOwner: codeViewInstance.getContainerElement(),
-							});
-							if (renderedHeaderOffset === null && remainingFrameBudget > 0) {
-								scheduleRetargetFrame(remainingFrameBudget - 1);
-								return;
-							}
-							if (
-								renderedHeaderOffset !== null &&
-								shouldApplyBridgeCodeViewRenderedHeaderCorrection({
-									didApplyRenderedHeaderCorrection,
-									isSelectedContentMaterialized: isSettledMaterialized,
-									renderedHeaderOffset,
-									tolerancePixels:
-										bridgeCodeViewInstantRevealPolicy.renderedHeaderOffsetTolerancePixels,
-								})
-							) {
-								didApplyRenderedHeaderCorrection = true;
-								params.codeViewHandle.scrollTo({
-									type: 'position',
-									position: bridgeCodeViewRenderedHeaderCorrectionTargetPosition({
-										currentScrollTop: codeViewInstance.getScrollTop(),
-										renderedHeaderOffset,
-									}),
-									behavior: 'instant',
-								});
-							}
-							recentInstantSelectionRevealRef.current = null;
-							settledInstantSelectionRevealKeyRef.current = params.selectionScrollKey;
-						}
-					}
-					committedRevealScrollTop = codeViewInstance.getScrollTop();
-					if (
-						remainingFrameBudget > 0 &&
-						stableResolvedTopFrameCount < bridgeCodeViewInstantRevealPolicy.stableFrameCount
-					) {
-						scheduleRetargetFrame(remainingFrameBudget - 1);
-					}
-				});
-			};
-			scheduleRetargetFrame(codeViewSelectionScrollRetryFrameBudget);
+			scheduleBridgeCodeViewInstantRevealRetarget({
+				codeViewHandle: params.codeViewHandle,
+				codeViewHandleRef,
+				itemId: params.itemId,
+				lastSelectionScrollKeyRef,
+				pendingSelectionScrollFrameRef,
+				recentInstantSelectionRevealRef,
+				remainingFrameBudget: codeViewSelectionScrollRetryFrameBudget,
+				selectionScrollKey: params.selectionScrollKey,
+				settledInstantSelectionRevealKeyRef,
+				viewportOffsetTolerancePixels: params.viewportOffsetTolerancePixels,
+			});
 		},
 		[],
 	);
@@ -438,6 +335,14 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 					nextIds.delete(itemId);
 					return nextIds;
 				});
+				if (
+					shouldRequestForegroundDemandForItemExpansion({
+						nextCollapsed: false,
+						previousCollapsed: true,
+					})
+				) {
+					onExpandedItemDemand?.(itemId);
+				}
 			}
 			controller.scrollToItem(itemId, scrollBehavior);
 			const selectionScrollKey = `${sourceKey}:${codeViewMountVersion}:${itemId}`;
@@ -472,7 +377,13 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 			}
 			return true;
 		},
-		[codeViewMountVersion, reviewItemsById, scheduleInstantSelectionRevealRetarget, sourceKey],
+		[
+			codeViewMountVersion,
+			onExpandedItemDemand,
+			reviewItemsById,
+			scheduleInstantSelectionRevealRetarget,
+			sourceKey,
+		],
 	);
 	useEffect((): (() => void) | undefined => {
 		if (onControlHandleChange === undefined) {

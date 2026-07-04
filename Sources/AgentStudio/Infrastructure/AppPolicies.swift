@@ -46,6 +46,19 @@ enum AppPolicies {
         static let contentBackgroundFillInteractiveRefillInterval: Duration = .seconds(1)
         static let contentBackgroundFillInteractiveRefillBudget: Int = 1
         static let contentBackgroundFillInteractiveCooldown: Duration = .seconds(2)
+        /// App-side shed point for bridge web telemetry that can scale with
+        /// rendered item count during scroll/paint loops. Low-volume bridge
+        /// telemetry is intentionally not admitted through this limiter; the
+        /// tradeoff is lower per-item fidelity under pressure in exchange for
+        /// keeping OTLP export fail-open for the app.
+        static let telemetryHighVolumeAdmissionWindow: Duration = .seconds(1)
+        static let telemetryHighVolumeAdmissionLimit: Int = 32
+        static let telemetryHighVolumeEventNames: Set<String> = [
+            "performance.bridge.trees.scroll_visible_demand",
+            "performance.bridge.web.code_view_item_materialize",
+            "performance.bridge.web.selected_content_painted",
+            "performance.bridge.web.visible_demand_settled",
+        ]
         /// Per-lane queued-job cap for the metadata lane scheduler. A pane
         /// whose gate never reopens (wedged or dead WebView) must not grow
         /// its queues without bound from watch-driven producers; on overflow

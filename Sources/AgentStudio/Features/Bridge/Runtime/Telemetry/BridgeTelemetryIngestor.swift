@@ -10,6 +10,7 @@ actor BridgeTelemetryIngestor {
     private let recorder: any BridgePerformanceTraceRecording
     private let validator: BridgeTelemetryBatchValidator
     private let timeUnixNano: @Sendable () -> UInt64
+    private var admissionController = BridgeTelemetryAdmissionController()
 
     init(
         scopeGate: BridgeTelemetryScopeGate,
@@ -27,15 +28,27 @@ actor BridgeTelemetryIngestor {
         let validationOutcome = validator.decodeAndValidateWithDetails(data)
         switch validationOutcome.result {
         case .accepted(let batch):
-            for sample in batch.samples {
+            let admissionDecision = admissionController.admit(
+                samples: batch.samples,
+                receivedAtUnixNano: receivedAtUnixNano
+            )
+            for sample in admissionDecision.samples {
                 await recorder.record(sample: sample, receivedAtUnixNano: receivedAtUnixNano)
+            }
+            if admissionDecision.droppedCount > 0 {
+                await recorder.recordDrop(
+                    reason: .rateLimited,
+                    droppedCount: admissionDecision.droppedCount,
+                    firstRejectedEventName: admissionDecision.firstDroppedEventName,
+                    receivedAtUnixNano: receivedAtUnixNano
+                )
             }
             await recordIngestTelemetry(
                 phase: "accepted",
-                sampleCount: batch.samples.count,
+                sampleCount: admissionDecision.samples.count,
                 receivedAtUnixNano: receivedAtUnixNano
             )
-            return .accepted(sampleCount: batch.samples.count)
+            return .accepted(sampleCount: admissionDecision.samples.count)
         case .dropped(let reason):
             await recorder.recordDrop(
                 reason: reason,

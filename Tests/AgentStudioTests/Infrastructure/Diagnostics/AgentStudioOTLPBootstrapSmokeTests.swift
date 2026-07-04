@@ -27,13 +27,16 @@ struct AgentStudioOTLPBootstrapSmokeTests {
         )
 
         #expect(configuration.logs.batchLogRecordProcessor.maxQueueSize == AppPolicies.Diagnostics.otlpLogMaxQueueSize)
+        #expect(configuration.logs.batchLogRecordProcessor.maxQueueSize == 8192)
         #expect(
             configuration.logs.batchLogRecordProcessor.maxExportBatchSize
                 == AppPolicies.Diagnostics.otlpLogMaxExportBatchSize
         )
+        #expect(configuration.logs.batchLogRecordProcessor.maxExportBatchSize == 1024)
         #expect(
             configuration.logs.batchLogRecordProcessor.scheduleDelay == AppPolicies.Diagnostics.otlpLogScheduleDelay
         )
+        #expect(configuration.logs.batchLogRecordProcessor.scheduleDelay == .seconds(1))
         #expect(configuration.logs.batchLogRecordProcessor.exportTimeout == AppPolicies.Diagnostics.otlpExportTimeout)
         #expect(configuration.traces.batchSpanProcessor.scheduleDelay == AppPolicies.Diagnostics.otlpTraceScheduleDelay)
         #expect(configuration.traces.batchSpanProcessor.exportTimeout == AppPolicies.Diagnostics.otlpExportTimeout)

@@ -26,6 +26,7 @@ export interface BridgeCodeViewPanelProps {
 	readonly telemetryRecorder?: BridgeTelemetryRecorder;
 	readonly telemetryParentTraceContext?: BridgeTraceContext | null;
 	readonly onControlHandleChange?: (handle: BridgeCodeViewControlHandle | null) => void;
+	readonly onExpandedItemDemand?: (itemId: string) => void;
 	readonly onScrollActivityChange?: (isActive: boolean) => void;
 	readonly onVisibleItemIdsChange?: (itemIds: readonly string[]) => void;
 }

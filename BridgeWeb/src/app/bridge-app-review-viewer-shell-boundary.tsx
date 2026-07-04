@@ -46,6 +46,7 @@ export interface BridgeReviewViewerShellBoundaryProps {
 	readonly lastSelectionCommitDurationMilliseconds: number | null;
 	readonly lastVisibleDemandTelemetry: ReviewContentDemandTelemetry | null;
 	readonly onCodeViewControlHandleChange: (handle: BridgeCodeViewControlHandle | null) => void;
+	readonly onCodeViewExpandedItemDemand: (itemId: string) => void;
 	readonly onCodeViewScrollActivityChange: (isActive: boolean) => void;
 	readonly onSelectItem: (itemId: string) => void;
 	readonly onTreeSearchOpen: () => void;
@@ -179,6 +180,7 @@ function reviewViewerShellPropsForBoundary(
 		isActive: props.isActive,
 		selectionCommitDurationMilliseconds: props.lastSelectionCommitDurationMilliseconds,
 		onCodeViewControlHandleChange: props.onCodeViewControlHandleChange,
+		onCodeViewExpandedItemDemand: props.onCodeViewExpandedItemDemand,
 		onCodeViewScrollActivityChange: props.onCodeViewScrollActivityChange,
 		onFileClassFilterChange: props.viewerActions.setFileClassFilter,
 		onGitStatusFilterChange: props.viewerActions.setGitStatusFilter,

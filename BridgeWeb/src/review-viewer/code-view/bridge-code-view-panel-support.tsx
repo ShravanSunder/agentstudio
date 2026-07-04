@@ -110,6 +110,13 @@ export function collapsedItemIdsWithItemState(props: {
 	return nextIds;
 }
 
+export function shouldRequestForegroundDemandForItemExpansion(props: {
+	readonly nextCollapsed: boolean;
+	readonly previousCollapsed: boolean;
+}): boolean {
+	return props.previousCollapsed && !props.nextCollapsed;
+}
+
 export function bridgeCodeViewMaterializationResourceEntriesForPanel(props: {
 	readonly selectedContentDemandStartedAtMilliseconds: number | null | undefined;
 	readonly selectedContentResources: BridgeCodeViewContentResources | null | undefined;
