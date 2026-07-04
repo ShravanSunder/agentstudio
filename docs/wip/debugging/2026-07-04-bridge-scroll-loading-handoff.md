@@ -206,3 +206,16 @@ topology storm (emitters with no rate ownership).
    state machine, scenario tables from the demand-lane spec run against the
    real component, hostile mock rules from #41.
 4. Draw it with the user before building (their explicit ask).
+
+## USER DESIGN DIRECTIVE for the unified pipeline (verbatim intent, 2026-07-04)
+
+"What's in screen that has to be loaded is ALWAYS first. An immediate queue
+lane that gets inserted ASAP with what can fit in screen for review etc."
+
+Design translation: an IMMEDIATE lane at the head of the single queue —
+computed from the visible window the instant it changes (what fits on screen),
+inserted ahead of everything, preempting in-flight lower-tier work. Order:
+immediate(viewport) > selected(click) > nearby > speculative > background.
+Viewport membership is recomputed on every range change; items leaving the
+viewport demote, items entering promote — one owner, one ordering, end to end.
+This is the organizing principle for next-session agenda item 2.
