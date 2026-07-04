@@ -439,7 +439,7 @@ export function recordBridgeViewerFileOpenReadyTelemetrySample(
 					props.executorPendingWaitMilliseconds,
 				),
 				...optionalNumericAttribute(
-					'agentstudio.bridge.demand.demand_queue_wait_ms',
+					'agentstudio.bridge.demand.scheduler_queue_wait_ms',
 					props.demandQueueWaitMilliseconds,
 				),
 			},
@@ -557,7 +557,7 @@ export function recordBridgeWorktreeFileVisibleDemandSettledTelemetrySample(
 					props.executorPendingWaitMilliseconds,
 				),
 				...optionalNumericAttribute(
-					'agentstudio.bridge.demand.demand_queue_wait_ms',
+					'agentstudio.bridge.demand.scheduler_queue_wait_ms',
 					props.demandQueueWaitMilliseconds,
 				),
 			},

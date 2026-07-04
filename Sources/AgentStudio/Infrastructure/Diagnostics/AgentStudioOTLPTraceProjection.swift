@@ -62,6 +62,7 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.bridge.content.priority",
         "agentstudio.bridge.content.role",
         "agentstudio.bridge.content_bytes_bucket",
+        "agentstudio.bridge.demand.disposition",
         "agentstudio.bridge.demand.lane",
         "agentstudio.bridge.diff_row_count_bucket",
         "agentstudio.bridge.file_size_bucket",
@@ -205,6 +206,10 @@ enum AgentStudioOTLPTraceProjection {
         "dev.branch.name",
         "terminal.activity.close_reason",
         "terminal.activity.source",
+    ]
+
+    private static let allowedPayloadNamedStringAttributeKeys: Set<String> = [
+        "agentstudio.bridge.tree_path_count_bucket"
     ]
 
     private static let allowedNumericAttributeKeys: Set<String> = [
@@ -660,7 +665,7 @@ enum AgentStudioOTLPTraceProjection {
         switch value {
         case .string(let stringValue):
             guard
-                !isPayloadKey(key),
+                !isPayloadKey(key) || allowedPayloadNamedStringAttributeKeys.contains(key),
                 allowedStringAttributeKeys.contains(key),
                 isSafeControlledString(stringValue),
                 isAllowedControlledStringValue(key: key, value: stringValue)

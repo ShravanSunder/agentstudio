@@ -380,6 +380,7 @@ struct AgentStudioOTLPBridgeTraceProjectionTests {
         let projection = AgentStudioOTLPTraceProjection.project(record)
 
         #expect(projection.attributes["agentstudio.bridge.phase"] == .string("worktree_file_frame_apply"))
+        #expect(projection.attributes["agentstudio.bridge.tree_path_count_bucket"] == .string("large"))
         let currentRowCountKey = "agentstudio.bridge.worktree_file.tree.current_row.count"
         #expect(projection.attributes[currentRowCountKey] == .int(2000))
         #expect(projection.attributes["agentstudio.bridge.worktree_file.tree.descriptor.count"] == .int(8))
