@@ -21,8 +21,11 @@ import {
 	materializeBridgeCodeViewLoadingItem,
 } from './bridge-code-view-materialization.js';
 import {
+	bridgeCodeViewMaterializationEntrySortKey,
 	bridgeCodeViewRenderedHeaderCorrectionTargetPosition,
+	runBridgeCodeViewMaterializationInChunks,
 	recordBridgeCodeViewItemMaterializeTelemetryForPanel,
+	shouldSkipBridgeCodeViewItemMaterializationBeforeWork,
 	shouldApplyBridgeCodeViewRenderedHeaderCorrection,
 	shouldRequestForegroundDemandForItemExpansion,
 	shouldRearmCodeViewInstantRevealForMaterialization,
@@ -188,6 +191,80 @@ describe('BridgeCodeViewPanel diagnostics', () => {
 				'agentstudio.bridge.selected': false,
 			},
 		});
+	});
+
+	test('ranks selected materialization before other ready entries', () => {
+		expect(
+			bridgeCodeViewMaterializationEntrySortKey({ contentDemandRole: 'visible' }),
+		).toBeGreaterThan(bridgeCodeViewMaterializationEntrySortKey({ contentDemandRole: 'selected' }));
+	});
+
+	test('skips unchanged materialized items before reading content resources', () => {
+		const reviewPackage = makeBridgeReviewPackage();
+		const item = reviewPackage.itemsById['item-source'];
+		const headHandle = item?.contentRoles.head ?? null;
+		if (item === undefined || headHandle === null) {
+			throw new Error('Expected modified item with head handle');
+		}
+		let readTextCallCount = 0;
+		const resources: BridgeCodeViewContentResources = {
+			head: {
+				handle: headHandle,
+				readText: (): string => {
+					readTextCallCount += 1;
+					return 'head body';
+				},
+			},
+		};
+		const existingItem = materializeBridgeCodeViewItem({ item, resources });
+		if (existingItem === null) {
+			throw new Error('Expected item to materialize');
+		}
+		readTextCallCount = 0;
+
+		expect(
+			shouldSkipBridgeCodeViewItemMaterializationBeforeWork({
+				collapsed: false,
+				existingItem,
+				item,
+				presentation: null,
+				resources,
+			}),
+		).toBe(true);
+		expect(readTextCallCount).toBe(0);
+	});
+
+	test('runs large materialization sets across multiple event-loop turns', () => {
+		const visitedEntries: number[] = [];
+		const scheduledTurns: Array<() => void> = [];
+		const nowValues = [0, 2, 4, 6, 8, 10, 12];
+
+		runBridgeCodeViewMaterializationInChunks({
+			entries: [0, 1, 2, 3, 4, 5],
+			frameBudgetMilliseconds: 4,
+			isStale: (): boolean => false,
+			now: (): number => nowValues.shift() ?? 12,
+			onComplete: (): void => {
+				visitedEntries.push(99);
+			},
+			runEntry: (entry): void => {
+				visitedEntries.push(entry);
+			},
+			scheduleNextTurn: (callback): void => {
+				scheduledTurns.push(callback);
+			},
+		});
+
+		expect(scheduledTurns).toHaveLength(1);
+		scheduledTurns.shift()?.();
+		expect(visitedEntries).toEqual([0, 1]);
+		expect(scheduledTurns).toHaveLength(1);
+		scheduledTurns.shift()?.();
+		expect(visitedEntries).toEqual([0, 1, 2, 3]);
+		expect(scheduledTurns).toHaveLength(1);
+		scheduledTurns.shift()?.();
+		expect(visitedEntries).toEqual([0, 1, 2, 3, 4, 5, 99]);
+		expect(scheduledTurns).toHaveLength(0);
 	});
 
 	test('re-arms a recent instant reveal when an above-target item materializes', () => {

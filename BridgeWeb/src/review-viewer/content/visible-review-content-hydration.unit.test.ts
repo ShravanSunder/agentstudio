@@ -168,7 +168,6 @@ describe('visible review content hydration', () => {
 			]),
 			resourcesByItemId: new Map([['item-001', { head: loadedResource }]]),
 			setVisibleItemIds: (): void => {},
-			visibleHydrationPaused: true,
 			visibleItemIds: ['item-001', 'item-002'],
 		});
 
@@ -179,6 +178,55 @@ describe('visible review content hydration', () => {
 		expect(result.visibleLoadingItemIds.has('item-002')).toBe(true);
 		expect(result.visibleReadyItemCount).toBe(1);
 		expect(result.visibleLoadingItemCount).toBe(1);
+	});
+
+	test('keeps visible resource map identity when unrelated visible state churns', () => {
+		const readyResource: BridgeContentResource = {
+			handle: makeBridgeContentHandle('item-ready', 'head'),
+			readText: (): string => 'ready content\n',
+		};
+		const readyResources = { head: readyResource };
+		const readyState: VisibleContentResourcesState = {
+			contentKey: 'content:item-ready',
+			itemId: 'item-ready',
+			status: 'ready',
+		};
+		const failedState: VisibleContentResourcesState = {
+			contentKey: 'content:item-failed',
+			itemId: 'item-failed',
+			status: 'failed',
+		};
+		const previousResult = createVisibleReviewContentHydrationResult({
+			contentStateByItemId: new Map([
+				['item-ready', readyState],
+				['item-failed', failedState],
+			]),
+			resourcesByItemId: new Map([['item-ready', readyResources]]),
+			setVisibleItemIds: noopVisibleItemIdsSetter,
+			visibleItemIds: ['item-ready', 'item-failed'],
+		});
+
+		const nextResult = createVisibleReviewContentHydrationResult({
+			contentStateByItemId: new Map([
+				['item-ready', readyState],
+				[
+					'item-failed',
+					{
+						...failedState,
+						contentKey: 'content:item-failed:retry',
+					},
+				],
+			]),
+			previousResult,
+			resourcesByItemId: new Map([['item-ready', readyResources]]),
+			setVisibleItemIds: noopVisibleItemIdsSetter,
+			visibleItemIds: ['item-ready', 'item-failed'],
+		});
+
+		expect(nextResult.visibleContentResourcesByItemId).toBe(
+			previousResult.visibleContentResourcesByItemId,
+		);
+		expect(nextResult.visibleLoadingItemIds).toBe(previousResult.visibleLoadingItemIds);
 	});
 
 	test('keeps paused visible loads alive so completed bodies are not refetched after selection churn', () => {
@@ -291,7 +339,6 @@ describe('visible review content hydration', () => {
 			contentStateByItemId: new Map(),
 			resourcesByItemId: new Map(),
 			setVisibleItemIds: (): void => {},
-			visibleHydrationPaused: false,
 			visibleItemIds: ['item-001', 'item-002'],
 		});
 
@@ -320,7 +367,6 @@ describe('visible review content hydration', () => {
 			contentStateByItemId: recoveredStateByItemId,
 			resourcesByItemId: new Map(),
 			setVisibleItemIds: (): void => {},
-			visibleHydrationPaused: false,
 			visibleItemIds: ['item-001'],
 		});
 
@@ -363,7 +409,6 @@ describe('visible review content hydration', () => {
 			contentStateByItemId: recoveredStateByItemId,
 			resourcesByItemId: new Map(),
 			setVisibleItemIds: (): void => {},
-			visibleHydrationPaused: false,
 			visibleItemIds: ['item-001', 'item-002', 'item-003'],
 		});
 
@@ -525,6 +570,8 @@ function makeReviewPackageWithItemCount(itemCount: number): BridgeReviewPackage 
 		},
 	};
 }
+
+function noopVisibleItemIdsSetter(): void {}
 
 function makeVisibleContentKeyFixture(itemId: string): {
 	readonly contentKey: string;

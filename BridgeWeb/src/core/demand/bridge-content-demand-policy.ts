@@ -17,6 +17,8 @@ export const bridgeContentDemandExecutionPolicy = {
 	deliveryFailureBackoffMultiplier: 4,
 	/** Caps persistent fetch-error retry delay so visible content remains re-derivable; validated by retry/backoff lifecycle tests. */
 	deliveryFailureBackoffMaxMilliseconds: 8_000,
+	/** Half-frame main-thread materialization slice, derived from 60Hz paint budget and validated by chunk/yield tests plus frame-liveness telemetry. */
+	materializationFrameBudgetMilliseconds: 8,
 } as const;
 
 export const bridgeContentDemandMembershipPolicy = {

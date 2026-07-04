@@ -3,6 +3,7 @@ import type { CodeViewHandle } from '@pierre/diffs/react';
 import type { ReactElement } from 'react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
+import { bridgeContentDemandExecutionPolicy } from '../../core/demand/bridge-content-demand-policy.js';
 import { recordBridgeCodeViewHydrationTelemetry } from '../telemetry/bridge-review-viewer-telemetry.js';
 import { scheduleBridgeCodeViewInstantRevealRetarget } from './bridge-code-view-instant-reveal-retarget.js';
 import {
@@ -33,7 +34,9 @@ import {
 	nextCodeViewItemForCollapse,
 	recordBridgeCodeViewItemMaterializeTelemetryForPanel,
 	reconcileBridgeCodeViewMetadataItems,
+	runBridgeCodeViewMaterializationInChunks,
 	selectedContentDiagnosticsForPanel,
+	shouldSkipBridgeCodeViewItemMaterializationBeforeWork,
 	shouldRequestForegroundDemandForItemExpansion,
 	shouldRearmCodeViewInstantRevealForMaterialization,
 	uniqueItemIds,
@@ -505,7 +508,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 				pendingRecoveryRenderFrameRef.current = null;
 			}
 			if (pendingMaterializationFrameRef.current !== null) {
-				cancelAnimationFrame(pendingMaterializationFrameRef.current);
+				clearTimeout(pendingMaterializationFrameRef.current);
 				pendingMaterializationFrameRef.current = null;
 			}
 			if (pendingSelectionScrollFrameRef.current !== null) {
@@ -575,9 +578,15 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		const taskGeneration = materializationTaskGenerationRef.current + 1;
 		materializationTaskGenerationRef.current = taskGeneration;
 		if (pendingMaterializationFrameRef.current !== null) {
-			cancelAnimationFrame(pendingMaterializationFrameRef.current);
+			clearTimeout(pendingMaterializationFrameRef.current);
 			pendingMaterializationFrameRef.current = null;
 		}
+		const scheduleMaterializationTurn = (callback: () => void): void => {
+			pendingMaterializationFrameRef.current = window.setTimeout((): void => {
+				pendingMaterializationFrameRef.current = null;
+				callback();
+			}, 0);
+		};
 		const runMaterialization = (remainingFrameBudget: number): void => {
 			if (materializationTaskGenerationRef.current !== taskGeneration) {
 				return;
@@ -585,8 +594,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 			const codeViewHandle = codeViewHandleRef.current;
 			if (codeViewHandle === null || !codeViewHandleHasInstance(codeViewHandle)) {
 				if (remainingFrameBudget > 0) {
-					pendingMaterializationFrameRef.current = requestAnimationFrame((): void => {
-						pendingMaterializationFrameRef.current = null;
+					scheduleMaterializationTurn((): void => {
 						runMaterialization(remainingFrameBudget - 1);
 					});
 				}
@@ -620,7 +628,38 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 				didUpdateRenderedItems = true;
 				materializedItemIds.push(itemId);
 			}
-			for (const entry of materializationResourceEntries) {
+			const finishMaterialization = (): void => {
+				if (!didUpdateRenderedItems) {
+					return;
+				}
+				if (props.selectedItemId !== null) {
+					const selectionScrollKey = `${sourceKey}:${codeViewMountVersion}:${props.selectedItemId}`;
+					if (
+						shouldRearmCodeViewInstantRevealForMaterialization({
+							isSelectedRevealSettled:
+								settledInstantSelectionRevealKeyRef.current === selectionScrollKey,
+							materializedItemIds,
+							nowMilliseconds: performance.now(),
+							orderedItemIds: props.reviewPackage.orderedItemIds,
+							rearmWindowMilliseconds:
+								bridgeCodeViewInstantRevealPolicy.hydrationRearmWindowMilliseconds,
+							recentReveal: recentInstantSelectionRevealRef.current,
+							selectedItemId: props.selectedItemId,
+							selectionScrollKey,
+						})
+					) {
+						scheduleInstantSelectionRevealRetarget({
+							codeViewHandle,
+							itemId: props.selectedItemId,
+							selectionScrollKey,
+							viewportOffsetTolerancePixels:
+								bridgeCodeViewInstantRevealPolicy.hydrationRearmViewportOffsetTolerancePixels,
+						});
+					}
+				}
+				scheduleCodeViewRecoveryRender();
+			};
+			const materializeReadyEntry = (entry: BridgeCodeViewMaterializationResourceEntry): void => {
 				const { itemId, resources } = entry;
 				recordBridgeSelectedContentPaintedProbeAnchoredDelivery({
 					hasAnchor: entry.selectionDemandStartedAtMilliseconds !== null,
@@ -630,9 +669,45 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 				});
 				const selectedItem = props.reviewPackage.itemsById[itemId];
 				if (selectedItem === undefined) {
-					continue;
+					return;
 				}
 				const itemMaterializationStartedAt = performance.now();
+				const existingItem = codeViewHandle.getItem(itemId);
+				const itemIsCollapsed = collapsedItemIds.has(itemId);
+				if (
+					isBridgeCodeViewItem(existingItem) &&
+					shouldSkipBridgeCodeViewItemMaterializationBeforeWork({
+						collapsed: itemIsCollapsed,
+						existingItem,
+						item: selectedItem,
+						presentation:
+							itemId === props.selectedItemId ? (props.selectedItemPresentation ?? null) : null,
+						resources,
+					})
+				) {
+					if (itemId === props.selectedItemId) {
+						recordBridgeSelectedContentPaintedProbeAlreadyPaintedByHydration();
+					}
+					if (itemId === props.selectedItemId && props.telemetryRecorder !== undefined) {
+						const materializationCompletedAtMilliseconds = performance.now();
+						if (
+							shouldScheduleSelectedContentPaintedTelemetry({
+								didFindMatchingPaintedContent: true,
+								selectionDemandStartedAtMilliseconds: entry.selectionDemandStartedAtMilliseconds,
+								updateResult: 'unchanged',
+							})
+						) {
+							scheduleSelectedContentPaintedTelemetry({
+								telemetryRecorder: props.telemetryRecorder,
+								traceContext: props.telemetryParentTraceContext ?? null,
+								selectionDemandStartedAtMilliseconds: entry.selectionDemandStartedAtMilliseconds,
+								materializationStartedAtMilliseconds: itemMaterializationStartedAt,
+								materializationCompletedAtMilliseconds,
+							});
+						}
+					}
+					return;
+				}
 				const materializedItem = materializeBridgeCodeViewItem({
 					contentDemandRole: entry.contentDemandRole,
 					item: selectedItem,
@@ -641,16 +716,15 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 					resources,
 				});
 				if (materializedItem === null) {
-					continue;
+					return;
 				}
-				const nextMaterializedItem = collapsedItemIds.has(materializedItem.id)
+				const nextMaterializedItem = itemIsCollapsed
 					? ({
 							...materializedItem,
 							collapsed: true,
 							version: (materializedItem.version ?? 0) + 1,
 						} satisfies BridgeCodeViewItem)
 					: materializedItem;
-				const existingItem = codeViewHandle.getItem(itemId);
 				if (
 					existingItem !== undefined &&
 					isBridgeCodeViewItem(existingItem) &&
@@ -679,7 +753,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 							});
 						}
 					}
-					continue;
+					return;
 				}
 				const updateResult = controller.applyItemUpdate(nextMaterializedItem);
 				const materializationCompletedAtMilliseconds = performance.now();
@@ -760,38 +834,23 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 						});
 					}
 				}
-			}
-			if (!didUpdateRenderedItems) {
+			};
+			if (materializationResourceEntries.length === 0) {
+				finishMaterialization();
 				return;
 			}
-			if (props.selectedItemId !== null) {
-				const selectionScrollKey = `${sourceKey}:${codeViewMountVersion}:${props.selectedItemId}`;
-				if (
-					shouldRearmCodeViewInstantRevealForMaterialization({
-						isSelectedRevealSettled:
-							settledInstantSelectionRevealKeyRef.current === selectionScrollKey,
-						materializedItemIds,
-						nowMilliseconds: performance.now(),
-						orderedItemIds: props.reviewPackage.orderedItemIds,
-						rearmWindowMilliseconds:
-							bridgeCodeViewInstantRevealPolicy.hydrationRearmWindowMilliseconds,
-						recentReveal: recentInstantSelectionRevealRef.current,
-						selectedItemId: props.selectedItemId,
-						selectionScrollKey,
-					})
-				) {
-					scheduleInstantSelectionRevealRetarget({
-						codeViewHandle,
-						itemId: props.selectedItemId,
-						selectionScrollKey,
-						viewportOffsetTolerancePixels:
-							bridgeCodeViewInstantRevealPolicy.hydrationRearmViewportOffsetTolerancePixels,
-					});
-				}
-			}
-			scheduleCodeViewRecoveryRender();
+			runBridgeCodeViewMaterializationInChunks({
+				entries: materializationResourceEntries,
+				frameBudgetMilliseconds:
+					bridgeContentDemandExecutionPolicy.materializationFrameBudgetMilliseconds,
+				isStale: (): boolean => materializationTaskGenerationRef.current !== taskGeneration,
+				now: (): number => performance.now(),
+				onComplete: finishMaterialization,
+				runEntry: materializeReadyEntry,
+				scheduleNextTurn: scheduleMaterializationTurn,
+			});
 		};
-		queueMicrotask((): void => {
+		scheduleMaterializationTurn((): void => {
 			runMaterialization(codeViewMaterializationRetryFrameBudget);
 		});
 	}, [

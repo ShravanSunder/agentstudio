@@ -111,6 +111,7 @@ export function useVisibleReviewContentHydration(
 	);
 	const scheduledContentKeysRef = useRef<Set<string>>(new Set<string>());
 	const previousDemandPlanEntriesRef = useRef<readonly BridgeContentDemandPlanEntry[]>([]);
+	const previousHydrationResultRef = useRef<UseVisibleReviewContentHydrationResult | null>(null);
 	const isMountedRef = useRef(true);
 	const loadContentResources = props.loadContentResources;
 
@@ -452,17 +453,17 @@ export function useVisibleReviewContentHydration(
 		);
 	}, [props.contentInvalidationVersion, props.reviewPackage, visibleItemIds]);
 
-	return useMemo(
-		(): UseVisibleReviewContentHydrationResult =>
-			createVisibleReviewContentHydrationResult({
-				contentStateByItemId,
-				resourcesByItemId: resourcesByItemIdRef.current,
-				setVisibleItemIds,
-				visibleHydrationPaused: props.visibleHydrationPaused,
-				visibleItemIds,
-			}),
-		[contentStateByItemId, props.visibleHydrationPaused, setVisibleItemIds, visibleItemIds],
-	);
+	return useMemo((): UseVisibleReviewContentHydrationResult => {
+		const result = createVisibleReviewContentHydrationResult({
+			contentStateByItemId,
+			previousResult: previousHydrationResultRef.current,
+			resourcesByItemId: resourcesByItemIdRef.current,
+			setVisibleItemIds,
+			visibleItemIds,
+		});
+		previousHydrationResultRef.current = result;
+		return result;
+	}, [contentStateByItemId, setVisibleItemIds, visibleItemIds]);
 }
 
 export interface DeriveVisibleReviewContentLoadPlansProps {
@@ -674,21 +675,18 @@ function visibleReviewContentDemandInterestForRole(
 
 export function createVisibleReviewContentHydrationResult(props: {
 	readonly contentStateByItemId: ReadonlyMap<string, VisibleContentResourcesState>;
+	readonly previousResult?: UseVisibleReviewContentHydrationResult | null;
 	readonly resourcesByItemId: ReadonlyMap<string, BridgeCodeViewContentResources>;
 	readonly setVisibleItemIds: (itemIds: readonly string[]) => void;
-	readonly visibleHydrationPaused: boolean;
 	readonly visibleItemIds: readonly string[];
 }): UseVisibleReviewContentHydrationResult {
 	const visibleContentResourcesByItemId = new Map<string, BridgeCodeViewContentResources>();
 	const visibleFailedItemIds = new Set<string>();
 	const visibleLoadingItemIds = new Set<string>();
-	let visibleLoadingItemCount = 0;
-	let visibleReadyItemCount = 0;
 	for (const itemId of props.visibleItemIds) {
 		const currentState = props.contentStateByItemId.get(itemId);
 		if (currentState?.status === 'loading') {
 			visibleLoadingItemIds.add(itemId);
-			visibleLoadingItemCount += 1;
 			continue;
 		}
 		if (currentState?.status === 'failed') {
@@ -697,18 +695,26 @@ export function createVisibleReviewContentHydrationResult(props: {
 		}
 		const resources = props.resourcesByItemId.get(itemId);
 		if (currentState?.status === 'ready' && resources !== undefined) {
-			visibleReadyItemCount += 1;
 			visibleContentResourcesByItemId.set(itemId, resources);
 		}
 	}
+	const previousResult = props.previousResult ?? null;
 	return {
 		setVisibleItemIds: props.setVisibleItemIds,
-		visibleContentResourcesByItemId,
+		visibleContentResourcesByItemId: stableEqualValue(
+			previousResult?.visibleContentResourcesByItemId,
+			visibleContentResourcesByItemId,
+			mapEntriesEqual,
+		),
 		visibleFailedItemIds,
 		visibleItemIds: props.visibleItemIds,
-		visibleLoadingItemIds,
-		visibleLoadingItemCount,
-		visibleReadyItemCount,
+		visibleLoadingItemIds: stableEqualValue(
+			previousResult?.visibleLoadingItemIds,
+			visibleLoadingItemIds,
+			setEntriesEqual,
+		),
+		visibleLoadingItemCount: visibleLoadingItemIds.size,
+		visibleReadyItemCount: visibleContentResourcesByItemId.size,
 	};
 }
 
@@ -872,10 +878,7 @@ export function shouldSweepVisibleContentAfterAbortedLoad(
 	);
 }
 
-export function shouldAbortVisibleContentLoadsForPause(): boolean {
-	return false;
-}
-
+export const shouldAbortVisibleContentLoadsForPause = (): boolean => false;
 function selectedReviewItemNeighborhood(
 	reviewPackage: BridgeReviewPackage,
 	selectedItemId: string | null,
@@ -894,10 +897,9 @@ function selectedReviewItemNeighborhood(
 }
 
 function stringArraysEqual(left: readonly string[], right: readonly string[]): boolean {
-	if (left.length !== right.length) {
-		return false;
-	}
-	return left.every((value, index): boolean => value === right[index]);
+	return (
+		left.length === right.length && left.every((value, index): boolean => value === right[index])
+	);
 }
 
 function countVisibleContentStatesWithStatus(props: {
@@ -906,9 +908,7 @@ function countVisibleContentStatesWithStatus(props: {
 }): number {
 	let stateCount = 0;
 	for (const state of props.contentStateByItemId.values()) {
-		if (state.status === props.status) {
-			stateCount += 1;
-		}
+		stateCount += state.status === props.status ? 1 : 0;
 	}
 	return stateCount;
 }
@@ -926,6 +926,20 @@ function mapEntriesEqual<TKey, TValue>(
 		}
 	}
 	return true;
+}
+
+function stableEqualValue<TValue>(
+	previousValue: TValue | undefined,
+	nextValue: TValue,
+	isEqual: (left: TValue, right: TValue) => boolean,
+): TValue {
+	return previousValue !== undefined && isEqual(previousValue, nextValue)
+		? previousValue
+		: nextValue;
+}
+
+function setEntriesEqual<TValue>(left: ReadonlySet<TValue>, right: ReadonlySet<TValue>): boolean {
+	return left.size === right.size && [...left].every((value): boolean => right.has(value));
 }
 
 function abortVisibleContentLoads(
