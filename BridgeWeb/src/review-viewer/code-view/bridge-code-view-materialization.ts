@@ -2,6 +2,8 @@ import type { CodeViewDiffItem, CodeViewFileItem } from '@pierre/diffs';
 import { parseDiffFromFile, type FileContents } from '@pierre/diffs';
 import { z } from 'zod';
 
+import { demandRankForContentRole } from '../../core/demand/bridge-content-demand-policy.js';
+import type { BridgeContentDemandRole } from '../../core/models/bridge-demand-models.js';
 import type { BridgeContentResource } from '../../foundation/content/content-resource-loader.js';
 import type {
 	BridgeContentHandle,
@@ -48,6 +50,7 @@ export type BridgeCodeViewDiffItem = CodeViewDiffItem & {
 };
 
 export type BridgeCodeViewItem = BridgeCodeViewFileItem | BridgeCodeViewDiffItem;
+type BridgeDemandRankedFileContents = FileContents & { readonly bridgeDemandRank?: number };
 
 export interface BridgeCodeViewContentResources {
 	readonly base?: BridgeContentResource;
@@ -73,6 +76,7 @@ export interface CreateBridgeCodeViewInitialItemsProps {
 }
 
 export interface MaterializeBridgeCodeViewItemProps {
+	readonly contentDemandRole?: BridgeContentDemandRole | undefined;
 	readonly item: BridgeReviewItemDescriptor;
 	readonly presentation?: BridgeCodeViewItemPresentation | null;
 	readonly resources: BridgeCodeViewContentResources;
@@ -121,6 +125,7 @@ export function materializeBridgeCodeViewItem(
 		return preferredResource === null
 			? null
 			: createFileItem({
+					contentDemandRole: props.contentDemandRole,
 					item,
 					resource: preferredResource,
 					version: item.itemVersion,
@@ -131,6 +136,7 @@ export function materializeBridgeCodeViewItem(
 	if (oneSidedDiffResources !== null) {
 		return createDiffItem({
 			...oneSidedDiffResources,
+			contentDemandRole: props.contentDemandRole,
 			item,
 		});
 	}
@@ -140,6 +146,7 @@ export function materializeBridgeCodeViewItem(
 		(resources.base !== undefined || resources.head !== undefined)
 	) {
 		return createDiffItem({
+			contentDemandRole: props.contentDemandRole,
 			item,
 			base: resources.base ?? null,
 			head: resources.head ?? null,
@@ -153,6 +160,7 @@ export function materializeBridgeCodeViewItem(
 	}
 
 	return createFileItem({
+		contentDemandRole: props.contentDemandRole,
 		item,
 		resource: preferredResource,
 		version: item.itemVersion,
@@ -318,6 +326,7 @@ function createPlaceholderDiffItem(props: {
 }
 
 interface CreateFileItemProps {
+	readonly contentDemandRole?: BridgeContentDemandRole | undefined;
 	readonly item: BridgeReviewItemDescriptor;
 	readonly placeholderVersion?: BridgeCodeViewFilePresentationVersion;
 	readonly resource: BridgeContentResource | null;
@@ -346,6 +355,7 @@ function createFileItem(props: CreateFileItemProps): BridgeCodeViewFileItem {
 			path: displayPathForItem(props.item),
 			contentState: props.contentState,
 			contentWindow,
+			contentDemandRole: props.contentDemandRole,
 		});
 	const contentState =
 		props.contentState === 'hydrated' && contentWindow.truncated ? 'windowed' : props.contentState;
@@ -368,6 +378,7 @@ function createFileItem(props: CreateFileItemProps): BridgeCodeViewFileItem {
 }
 
 interface CreateDiffItemProps {
+	readonly contentDemandRole?: BridgeContentDemandRole | undefined;
 	readonly item: BridgeReviewItemDescriptor;
 	readonly base: BridgeContentResource | null;
 	readonly head: BridgeContentResource | null;
@@ -381,6 +392,7 @@ function createDiffItem(props: CreateDiffItemProps): BridgeCodeViewDiffItem {
 		path: props.item.basePath ?? displayPathForItem(props.item),
 		contentState: 'placeholder',
 		contentWindow,
+		contentDemandRole: props.contentDemandRole,
 	});
 	const newFile = createFileContents({
 		item: props.item,
@@ -388,6 +400,7 @@ function createDiffItem(props: CreateDiffItemProps): BridgeCodeViewDiffItem {
 		path: props.item.headPath ?? displayPathForItem(props.item),
 		contentState: 'placeholder',
 		contentWindow,
+		contentDemandRole: props.contentDemandRole,
 	});
 	const fileDiff = parseDiffFromFile(oldFile, newFile);
 	const fallbackLanguage = bridgePierreOptionalHighlightLanguage(
@@ -488,6 +501,7 @@ function oneSidedDiffResourcesForItem(props: {
 }
 
 interface CreateFileContentsProps {
+	readonly contentDemandRole?: BridgeContentDemandRole | undefined;
 	readonly item: BridgeReviewItemDescriptor;
 	readonly missingResourceText?: string;
 	readonly resource: BridgeContentResource | null;
@@ -505,6 +519,7 @@ function createFileContents(props: CreateFileContentsProps): FileContents {
 			path: props.path,
 			resource: props.resource,
 			text,
+			contentDemandRole: props.contentDemandRole,
 		});
 	}
 
@@ -514,14 +529,18 @@ function createFileContents(props: CreateFileContentsProps): FileContents {
 			props.missingResourceText ??
 			(props.contentState === 'loading' ? loadingMissingResourceText : ''),
 	});
-	return {
-		name: props.path,
-		contents: windowedText.text,
-		cacheKey: `${props.item.cacheKey}:${props.contentState ?? 'placeholder'}`,
-	};
+	return fileContentsWithDemandRank({
+		contentDemandRole: props.contentDemandRole,
+		file: {
+			name: props.path,
+			contents: windowedText.text,
+			cacheKey: `${props.item.cacheKey}:${props.contentState ?? 'placeholder'}`,
+		},
+	});
 }
 
 function createFileContentsForResource(props: {
+	readonly contentDemandRole?: BridgeContentDemandRole | undefined;
 	readonly contentWindow: CodeViewContentWindow;
 	readonly item: BridgeReviewItemDescriptor;
 	readonly path: string;
@@ -539,26 +558,45 @@ function createFileContentsForResource(props: {
 		props.resource.handle.language ?? props.item.language,
 	);
 	if (windowedText.truncated) {
-		return {
-			name: props.path,
-			contents: windowedText.text,
-			cacheKey,
-			...(normalizedLanguage === undefined ? {} : { lang: normalizedLanguage }),
-		};
+		return fileContentsWithDemandRank({
+			contentDemandRole: props.contentDemandRole,
+			file: {
+				name: props.path,
+				contents: windowedText.text,
+				cacheKey,
+				...(normalizedLanguage === undefined ? {} : { lang: normalizedLanguage }),
+			},
+		});
 	}
 	const lineCount = props.item.contentLineCountsByRole?.[props.resource.handle.role] ?? null;
-	return createBridgePierreContentDescriptorFile({
-		cacheKey,
-		contentHash: props.resource.handle.contentHash,
-		contentHashAlgorithm: props.resource.handle.contentHashAlgorithm,
-		generation: props.resource.handle.reviewGeneration,
-		lang: normalizedLanguage,
-		lineCount,
-		maxBytes: Math.max(1, props.resource.handle.sizeBytes),
-		name: props.path,
-		resourceUrl: props.resource.handle.resourceUrl,
-		text: windowedText.text,
+	return fileContentsWithDemandRank({
+		contentDemandRole: props.contentDemandRole,
+		file: createBridgePierreContentDescriptorFile({
+			cacheKey,
+			contentHash: props.resource.handle.contentHash,
+			contentHashAlgorithm: props.resource.handle.contentHashAlgorithm,
+			generation: props.resource.handle.reviewGeneration,
+			lang: normalizedLanguage,
+			lineCount,
+			maxBytes: Math.max(1, props.resource.handle.sizeBytes),
+			name: props.path,
+			resourceUrl: props.resource.handle.resourceUrl,
+			text: windowedText.text,
+		}),
 	});
+}
+
+function fileContentsWithDemandRank(props: {
+	readonly contentDemandRole?: BridgeContentDemandRole | undefined;
+	readonly file: FileContents;
+}): BridgeDemandRankedFileContents {
+	if (props.contentDemandRole === undefined) {
+		return props.file;
+	}
+	return {
+		...props.file,
+		bridgeDemandRank: demandRankForContentRole(props.contentDemandRole),
+	};
 }
 
 interface CodeViewContentWindow {

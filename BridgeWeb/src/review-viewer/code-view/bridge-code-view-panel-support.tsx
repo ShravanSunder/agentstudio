@@ -10,6 +10,7 @@ import {
 } from '../../app/bridge-viewer-chrome.js';
 import { cn } from '../../app/class-name.js';
 import { Button } from '../../components/ui/button.js';
+import type { BridgeContentDemandRole } from '../../core/models/bridge-demand-models.js';
 import type {
 	BridgeContentRole,
 	BridgeReviewItemDescriptor,
@@ -17,6 +18,7 @@ import type {
 } from '../../foundation/review-package/bridge-review-package.js';
 import type { BridgeTelemetryRecorder } from '../../foundation/telemetry/bridge-telemetry-recorder.js';
 import type { BridgeTraceContext } from '../../foundation/telemetry/bridge-trace-context.js';
+import { selectedAdjacentReviewItemIds } from '../content/visible-review-content-hydration.js';
 import type { BridgeReviewProjectionResult } from '../models/review-projection-models.js';
 import { recordBridgeCodeViewItemMaterializeTelemetry } from '../telemetry/bridge-review-viewer-telemetry.js';
 import {
@@ -118,6 +120,7 @@ export function shouldRequestForegroundDemandForItemExpansion(props: {
 }
 
 export function bridgeCodeViewMaterializationResourceEntriesForPanel(props: {
+	readonly reviewPackage: BridgeReviewPackage;
 	readonly selectedContentDemandStartedAtMilliseconds: number | null | undefined;
 	readonly selectedContentResources: BridgeCodeViewContentResources | null | undefined;
 	readonly selectedItemId: string | null;
@@ -126,8 +129,18 @@ export function bridgeCodeViewMaterializationResourceEntriesForPanel(props: {
 		| undefined;
 }): readonly BridgeCodeViewMaterializationResourceEntry[] {
 	const resourceEntriesByItemId = new Map<string, BridgeCodeViewMaterializationResourceEntry>();
+	const nearbyItemIds = new Set(
+		selectedAdjacentReviewItemIds({
+			reviewPackage: props.reviewPackage,
+			selectedItemId: props.selectedItemId,
+		}),
+	);
 	for (const [itemId, resources] of props.visibleContentResourcesByItemId ?? []) {
 		resourceEntriesByItemId.set(itemId, {
+			contentDemandRole: bridgeCodeViewVisibleContentDemandRole({
+				itemId,
+				nearbyItemIds,
+			}),
 			itemId,
 			resources,
 			selectionDemandStartedAtMilliseconds: null,
@@ -139,6 +152,7 @@ export function bridgeCodeViewMaterializationResourceEntriesForPanel(props: {
 		props.selectedContentResources !== undefined
 	) {
 		resourceEntriesByItemId.set(props.selectedItemId, {
+			contentDemandRole: 'selected',
 			itemId: props.selectedItemId,
 			resources: props.selectedContentResources,
 			selectionDemandStartedAtMilliseconds:
@@ -146,6 +160,13 @@ export function bridgeCodeViewMaterializationResourceEntriesForPanel(props: {
 		});
 	}
 	return [...resourceEntriesByItemId.values()];
+}
+
+function bridgeCodeViewVisibleContentDemandRole(props: {
+	readonly itemId: string;
+	readonly nearbyItemIds: ReadonlySet<string>;
+}): BridgeContentDemandRole {
+	return props.nearbyItemIds.has(props.itemId) ? 'nearby' : 'visible';
 }
 
 export function recordBridgeCodeViewItemMaterializeTelemetryForPanel(

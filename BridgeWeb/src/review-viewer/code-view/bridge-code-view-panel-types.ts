@@ -1,5 +1,6 @@
 import type { CodeViewScrollBehavior } from '@pierre/diffs';
 
+import type { BridgeContentDemandRole } from '../../core/models/bridge-demand-models.js';
 import type { BridgeReviewPackage } from '../../foundation/review-package/bridge-review-package.js';
 import type { BridgeTelemetryRecorder } from '../../foundation/telemetry/bridge-telemetry-recorder.js';
 import type { BridgeTraceContext } from '../../foundation/telemetry/bridge-trace-context.js';
@@ -50,6 +51,7 @@ export interface BridgeCodeViewSelectionScrollDiagnostic {
 }
 
 export interface BridgeCodeViewMaterializationResourceEntry {
+	readonly contentDemandRole: BridgeContentDemandRole;
 	readonly itemId: string;
 	readonly resources: BridgeCodeViewContentResources;
 	readonly selectionDemandStartedAtMilliseconds: number | null;

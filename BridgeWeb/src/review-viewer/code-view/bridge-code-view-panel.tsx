@@ -408,6 +408,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 	const materializationResourceEntries = useMemo(
 		(): readonly BridgeCodeViewMaterializationResourceEntry[] =>
 			bridgeCodeViewMaterializationResourceEntriesForPanel({
+				reviewPackage: props.reviewPackage,
 				selectedContentDemandStartedAtMilliseconds:
 					props.selectedContentDemandStartedAtMilliseconds,
 				selectedContentResources: props.selectedContentResources,
@@ -415,6 +416,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 				visibleContentResourcesByItemId: props.visibleContentResourcesByItemId,
 			}),
 		[
+			props.reviewPackage,
 			props.selectedContentDemandStartedAtMilliseconds,
 			props.selectedContentResources,
 			props.selectedItemId,
@@ -632,6 +634,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 				}
 				const itemMaterializationStartedAt = performance.now();
 				const materializedItem = materializeBridgeCodeViewItem({
+					contentDemandRole: entry.contentDemandRole,
 					item: selectedItem,
 					presentation:
 						itemId === props.selectedItemId ? (props.selectedItemPresentation ?? null) : null,
