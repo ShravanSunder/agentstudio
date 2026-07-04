@@ -3,6 +3,10 @@ import { describe, expect, test } from 'vitest';
 import type { ReviewMaterializerDelta } from '../features/review/materialization/review-materializer.js';
 import { makeBridgeReviewPackage } from '../foundation/review-package/bridge-review-package-test-support.js';
 import {
+	type BridgeCodeViewContentResources,
+	materializeBridgeCodeViewItem,
+} from '../review-viewer/code-view/bridge-code-view-materialization.js';
+import {
 	makeSelectedContentResourcesKey,
 	reviewContentValidityDropReason,
 	selectedContentResourcesForCurrentSelection,
@@ -409,5 +413,60 @@ describe('reviewContentValidityDropReason classifies why a ready selected-conten
 				selectedContentResourcesState: staleState,
 			}),
 		).toBe('revision_churn');
+	});
+});
+
+// Live drift-then-snap flicker acceptance: content staying is necessary but not sufficient. The
+// visible cycle is a height-reflow re-render, so a post-load extent-fact delta must produce ZERO
+// item re-render. Pierre (CodeView.syncItemRecord) short-circuits when item.version === nextItem
+// .version, and materializeBridgeCodeViewItem stamps version = codeViewRenderVersion(itemVersion,
+// contentState). reviewItemWithExtentFacts preserves itemVersion and the content-addressed gate keeps
+// the item hydrated, so the version is identical and no DOM swap (hence no reflow, no drift) occurs.
+describe('content-addressed key produces zero item re-render on a benign extent-fact delta', () => {
+	test('keeps the materialized Pierre render version identical across a post-load extent-fact delta', () => {
+		const reviewPackage = makeBridgeReviewPackage();
+		const item = reviewPackage.itemsById['item-source'];
+		const baseHandle = item?.contentRoles.base ?? null;
+		const headHandle = item?.contentRoles.head ?? null;
+		if (item === undefined || baseHandle === null || headHandle === null) {
+			throw new Error('Expected modified item with base/head handles');
+		}
+		const resources: BridgeCodeViewContentResources = {
+			base: { handle: baseHandle, readText: (): string => 'base body' },
+			head: { handle: headHandle, readText: (): string => 'head body' },
+		};
+		const itemBeforeDelta = materializeBridgeCodeViewItem({ item, resources });
+		if (itemBeforeDelta === null) {
+			throw new Error('Expected the loaded item to materialize before the delta');
+		}
+
+		const nextReviewPackage = applyReviewMetadataDeltaToReviewPackage({
+			reviewPackage,
+			deltaFrame: extentFactDelta({
+				packageId: reviewPackage.packageId,
+				fromRevision: reviewPackage.revision,
+				facts: [
+					{ itemId: 'item-source', contentRole: 'base', lineCount: 31 },
+					{ itemId: 'item-source', contentRole: 'head', lineCount: 42 },
+				],
+				summary: reviewPackage.summary,
+			}),
+		});
+		if (nextReviewPackage === null) {
+			throw new Error('Expected extent-fact delta to apply');
+		}
+		const nextItem = nextReviewPackage.itemsById['item-source'];
+		if (nextItem === undefined) {
+			throw new Error('Expected the item to survive the extent-fact delta');
+		}
+		const itemAfterDelta = materializeBridgeCodeViewItem({ item: nextItem, resources });
+		if (itemAfterDelta === null) {
+			throw new Error('Expected the loaded item to materialize after the delta');
+		}
+
+		// itemVersion is preserved by the delta (the no-op precondition) and the render version — the
+		// exact value Pierre compares to decide a DOM swap — is unchanged, so the item is not re-rendered.
+		expect(nextItem.itemVersion).toBe(item.itemVersion);
+		expect(itemAfterDelta.version).toBe(itemBeforeDelta.version);
 	});
 });
