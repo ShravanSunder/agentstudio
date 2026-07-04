@@ -30,7 +30,7 @@ struct InboxSidebarRootContainer: View {
     let sections: [InboxNotificationListSection]
     let flashingRowIds: Set<UUID>
     let actions: InboxSidebarActions
-    static let surfaceBackground = SidebarSurfaceBackground.windowBackgroundColor
+    static let surfaceBackground = SidebarSurfaceBackground.shellChrome
 
     var body: some View {
         baseChrome
@@ -475,7 +475,7 @@ struct InboxSidebarContent: View {
     let grouping: InboxNotificationGrouping
     let actions: InboxSidebarActions
     static let surfaceListPolicy = SidebarSurfaceListPolicy.nativeSidebarList
-    static let surfaceBackground = SidebarSurfaceBackground.windowBackgroundColor
+    static let surfaceBackground = SidebarSurfaceBackground.shellChrome
 
     var body: some View {
         if sections.allSatisfy(\.notifications.isEmpty) {

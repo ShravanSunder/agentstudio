@@ -85,6 +85,7 @@ struct RepoExplorerView: View {
     let initialProjectionTrigger: String
     static let focusTargetIdentifier = NSUserInterfaceItemIdentifier("repoExplorerFocusTarget")
     static let surfaceListPolicy = SidebarSurfaceListPolicy.nativeSidebarList
+    static let surfaceBackground = SidebarSurfaceBackground.shellChrome
     static let groupHeaderChromePolicy = SidebarRepoGroupHeader<EmptyView>.chromePolicy
     static let headerLayoutPolicy = SidebarHeaderLayout<EmptyView, EmptyView, EmptyView, EmptyView>.policy
     static let tooltipCoordinateSpaceName = "repoSidebarHeaderTooltips"
@@ -540,6 +541,8 @@ struct RepoExplorerView: View {
             }
         }
         .sidebarSurfaceListStyle(Self.surfaceListPolicy)
+        .scrollContentBackground(.hidden)
+        .background(Self.surfaceBackground.color)
         .transition(.opacity.animation(.easeOut(duration: 0.12)))
     }
 

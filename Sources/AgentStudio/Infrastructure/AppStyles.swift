@@ -84,9 +84,9 @@ enum AppStyles {
     enum Shell {
         enum Sidebar {
             static let minimumWidth: CGFloat = 200
-            static let shadowOpacity: CGFloat = 0.20
-            static let shadowRadius: CGFloat = 4
-            static let shadowOffsetX: CGFloat = 2
+            static let shadowOpacity: CGFloat = 0
+            static let shadowRadius: CGFloat = 0
+            static let shadowOffsetX: CGFloat = 0
             static let shadowOffsetY: CGFloat = 0
             static let rowContentSpacing: CGFloat = 4
             static let rowVerticalInset: CGFloat = 6
@@ -147,10 +147,6 @@ enum AppStyles {
                 static let clearTransitionDuration: Double = 0.10
             }
 
-            enum Header {
-                static let contentPadding: CGFloat = 8
-            }
-
             static let groupChildRowLeadingInset: CGFloat =
                 listRowLeadingInset
                 + AppStyles.General.Typography.textBase
@@ -162,8 +158,6 @@ enum AppStyles {
             static let chipSuccessColor = Color(red: 0.42, green: 0.84, blue: 0.50)
             static let chipWarningColor = Color(red: 0.93, green: 0.71, blue: 0.34)
             static let chipDangerColor = Color(red: 0.93, green: 0.41, blue: 0.41)
-            static let paneGroupIconColor = Color(red: 0.35, green: 0.77, blue: 1.0)
-            static let tabGroupIconColor = Color(red: 0.65, green: 0.55, blue: 0.98)
 
             static let accentPaletteHexes: [String] = [
                 "#F5C451",
@@ -194,16 +188,20 @@ enum AppStyles {
             static let tabBarLeadingInset: CGFloat = 80
             static let tabBarContentLeadingPadding: CGFloat = AppStyles.General.Spacing.loose
             static let tabBarTopInset: CGFloat = 0
-            static let sidebarSurfaceIconSpacing: CGFloat = AppStyles.General.Spacing.standard
-            static let sidebarDividerLeadingPadding: CGFloat = 14
-            static let sidebarDividerTrailingPadding: CGFloat = 24
+            static let iconClusterSpacing: CGFloat = AppStyles.General.Spacing.standard
             static let circledControlSpacing: CGFloat = 12
-            static let tabStripLeadingPadding: CGFloat = circledControlSpacing
+            static let tabStripLeadingPadding: CGFloat = 10
             static let plainToolbarIconSpacing: CGFloat = 0
             static let dividerHeight: CGFloat = 18
             static let dividerHorizontalPadding: CGFloat = 12
             static let windowDragRegionHeight: CGFloat =
                 AppStyles.Shell.TabBar.height - AppStyles.Shell.TabBar.tabPillHeight
+
+            enum SidebarNav {
+                static let iconSpacing: CGFloat = AppStyles.Shell.Chrome.iconClusterSpacing
+                static let dividerLeadingPadding: CGFloat = 14
+                static let dividerTrailingPadding: CGFloat = 24
+            }
 
             enum PlainToolbarIcon {
                 static let buttonSize: CGFloat = 24

@@ -176,6 +176,29 @@ struct WorkspaceMutationCoordinatorTests {
     }
 
     @Test
+    func snapshotForClose_withDrawerChildrenCapturesEachPaneExactlyOnce() throws {
+        let store = WorkspaceStore()
+        let parentPane = makePane(title: "Parent")
+        store.paneAtom.addPane(parentPane)
+        let tab = Tab(paneId: parentPane.id)
+        store.appendTab(tab)
+        let firstDrawerPane = try #require(store.addDrawerPane(to: parentPane.id))
+        let secondDrawerPane = try #require(store.addDrawerPane(to: parentPane.id))
+
+        let snapshot = try #require(store.mutationCoordinator.snapshotForClose(tabId: tab.id))
+
+        let snapshottedPaneIds = snapshot.panes.map(\.id)
+        #expect(
+            snapshottedPaneIds == [
+                parentPane.id,
+                firstDrawerPane.id,
+                secondDrawerPane.id,
+            ]
+        )
+        #expect(Set(snapshottedPaneIds).count == snapshottedPaneIds.count)
+    }
+
+    @Test
     func backgroundPane_removesOwnedDrawerViewsFromVisibleTab() throws {
         let store = WorkspaceStore()
         let anchorPane = makePane(title: "Anchor")

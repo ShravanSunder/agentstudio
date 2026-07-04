@@ -11,6 +11,9 @@ struct SidebarSurfaceConvergenceTests {
     func repoAndInboxSidebarsShareChromeAndListPolicy() {
         #expect(SidebarSurfaceHost.surfaceChromePolicy == SidebarSurfaceChrome<EmptyView>.policy)
         #expect(SidebarSurfaceHost.surfaceChromePolicy == .repoMatched)
+        #expect(RepoExplorerView.surfaceBackground == .shellChrome)
+        #expect(InboxSidebarRootContainer.surfaceBackground == .shellChrome)
+        #expect(InboxSidebarContent.surfaceBackground == .shellChrome)
         #expect(RepoExplorerView.surfaceListPolicy == .nativeSidebarList)
         #expect(InboxSidebarContent.surfaceListPolicy == .nativeSidebarList)
     }
