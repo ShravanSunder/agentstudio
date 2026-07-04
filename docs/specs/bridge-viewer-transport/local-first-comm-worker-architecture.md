@@ -462,6 +462,22 @@ traffic because scheme tasks have their own lane; no `kCFRunLoopDefaultMode`
 script-message delivery hazard on the Swift boundary; and one typed contract
 module for the whole browser/native boundary.
 
+Current script-message RPC inventory and post-migration carriers:
+
+| Current command or lane | Post-migration carrier |
+| --- | --- |
+| `review.markFileViewed` | main -> worker port, then worker scheme-POST |
+| active viewer mode signal | worker port; worker owns mode truth (R42), then scheme-POST |
+| `system.bridgeTelemetry` | replaced; already live as `agentstudio://telemetry/batch` in commit `e009d5fd` |
+| worktree-file telemetry sink | same replacement path as `system.bridgeTelemetry` |
+| page-control/probe commands | unaffected; native -> page `evaluateJavaScript`, not script-message RPC |
+| intake frames | per-unit cutover to worker streamed subscriptions |
+
+No current command irreducibly requires script messages because scheme `fetch()`
+is reachable from both page and worker contexts. Content worlds remain only as
+bootstrap code-isolation machinery, not an ordinary command, telemetry,
+content, subscription, or push transport.
+
 On the Pierre edge, main is a courier, never a processor. Main hands Pierre
 transferable paint-ready structs from the server worker and the
 `bridgeDemandRank`; it must not parse, classify, window, diff, or highlight the
@@ -739,3 +755,11 @@ The research lane marks `kCFRunLoopDefaultMode` delivery and gesture starvation
 as plausible and source-grounded, but still empirical-confirm-required for this
 app. Native proof must measure command/telemetry/content delivery under
 gesture tracking before any final run-loop starvation claim is closed.
+
+OD-LF4. Durable single-writer content cache.
+
+The comm worker's single-writer ownership of protocol/cache truth enables a
+later separate PR for a persistent content cache, likely OPFS or IndexedDB with
+content-addressed keys and generation-epoch invalidation. This increment does
+not need a separate coordination design for durable cache ownership, and durable
+cache implementation remains out of scope here.
