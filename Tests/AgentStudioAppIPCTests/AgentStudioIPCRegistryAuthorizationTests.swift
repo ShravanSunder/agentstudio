@@ -11,7 +11,7 @@ struct AgentStudioIPCRegistryAuthorizationTests {
         let registry = try AppIPCMethodRegistry.phaseOne()
         let forbiddenPrefixes = ["zmx.", "mcp.", "browser.", "webview.", "bridge.", "orchestration."]
 
-        #expect(registry.definitions.count == 35)
+        #expect(registry.definitions.count == 33)
         #expect(registry.definition(named: "pane.snapshot") == nil)
         for definition in registry.definitions {
             #expect(!definition.paramsSchema.name.isEmpty)
@@ -25,18 +25,15 @@ struct AgentStudioIPCRegistryAuthorizationTests {
         #expect(commandList.executionOwner == .queryReader)
 
         let commandExecute = try #require(registry.definition(named: "command.execute"))
-        #expect(commandExecute.privilegeClasses == [.debugUnsafe])
+        #expect(commandExecute.privilegeClasses == [.appCommandExecute])
         #expect(commandExecute.executionOwner == .appCommand)
 
         let commandBarOpen = try #require(registry.definition(named: "ui.commandBar.open"))
         #expect(commandBarOpen.privilegeClasses == [.uiPresent])
         #expect(commandBarOpen.executionOwner == .uiPresentation)
 
-        for methodName in ["sidebar.grouping.set", "sidebar.surface.set"] {
-            let definition = try #require(registry.definition(named: methodName))
-            #expect(definition.privilegeClasses == [.layoutMutate])
-            #expect(definition.executionOwner == .workspaceAction)
-        }
+        #expect(registry.definition(named: "sidebar.grouping.set") == nil)
+        #expect(registry.definition(named: "sidebar.surface.set") == nil)
 
         for methodName in ["sidebar.grouping.get", "sidebar.surface.get"] {
             let definition = try #require(registry.definition(named: methodName))
@@ -264,8 +261,8 @@ struct AgentStudioIPCRegistryAuthorizationTests {
         )
     }
 
-    @Test("command discovery is non-debug while command execution remains unsafe-debug only")
-    func commandDiscoveryIsNonDebugWhileCommandExecutionRemainsUnsafeDebugOnly() throws {
+    @Test("command discovery is non-debug while command execution requires authenticated automation")
+    func commandDiscoveryIsNonDebugWhileCommandExecutionRequiresAuthenticatedAutomation() throws {
         let registry = try AppIPCMethodRegistry.phaseOne()
         let grantLedger = GrantLedger()
         let service = AuthorizationService(
@@ -280,6 +277,13 @@ struct AgentStudioIPCRegistryAuthorizationTests {
             kind: .unsafeDebugClient,
             approvalAuthority: .noApprovalAuthority
         )
+        let automation = IPCPrincipal(
+            principalId: UUID(),
+            runtimeId: UUID(),
+            accessMode: .unsafeDebug,
+            kind: .automationClient,
+            approvalAuthority: .noApprovalAuthority
+        )
         let spawnedPane = makeAuthorizationPrincipal(boundPaneId: "pane-1")
 
         try service.authorize(
@@ -290,7 +294,7 @@ struct AgentStudioIPCRegistryAuthorizationTests {
         )
 
         grantLedger.grant(
-            IPCPermissionScope(privilege: .debugUnsafe, target: .app, dataScope: .unspecified),
+            IPCPermissionScope(privilege: .appCommandExecute, target: .app, dataScope: .unspecified),
             to: spawnedPane.principalId
         )
         #expect(throws: AuthorizationError.self) {
@@ -302,8 +306,17 @@ struct AgentStudioIPCRegistryAuthorizationTests {
             )
         }
 
+        #expect(throws: AuthorizationError.self) {
+            try service.authorize(
+                principal: unsafeDebug,
+                methodName: "command.execute",
+                requestedTarget: .app,
+                activePaneId: nil
+            )
+        }
+
         try service.authorize(
-            principal: unsafeDebug,
+            principal: automation,
             methodName: "command.execute",
             requestedTarget: .app,
             activePaneId: nil

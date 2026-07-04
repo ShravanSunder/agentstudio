@@ -48,7 +48,7 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
     private let listener: UnixSocketListener
     private let methodRegistry: AppIPCMethodRegistry
     private let authenticator: AgentStudioIPCAuthenticator
-    private let authorizationService: AuthorizationService
+    let authorizationService: AuthorizationService
     let permissionBroker: PermissionBroker
     private let peerCredentialProvider: any PeerCredentialProviding
     private let peerCredentialGate: AgentStudioIPCPeerCredentialGate

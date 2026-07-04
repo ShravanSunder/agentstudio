@@ -188,6 +188,10 @@ extension AppDelegate: ShellCommandHandling {
 
     func execute(_ request: AppCommandExecutionRequest) -> AppCommandExecutionOutcome {
         switch (request.command, request.arguments) {
+        case (.showWorktreeSidebar, nil) where request.executionContext == .headlessIPC:
+            return executeHeadlessRepoSidebarCommand()
+        case (.showInboxNotifications, nil) where request.executionContext == .headlessIPC:
+            return executeHeadlessInboxSidebarCommand()
         case (.setRepoSidebarVisibilityMode, .repoSidebarVisibilityMode(let mode)):
             return executeRepoSidebarVisibilityCommand(mode)
         case (.setRepoSidebarSortOrder, .repoSidebarSortOrder(let order)):
@@ -217,6 +221,32 @@ extension AppDelegate: ShellCommandHandling {
             return false
         }
         return true
+    }
+
+    private func executeHeadlessRepoSidebarCommand() -> AppCommandExecutionOutcome {
+        guard let atomStore else { return .stateUnavailable }
+        atomStore.workspaceSidebarState.setSidebarSurface(.repos)
+        mainWindowController?.expandSidebar()
+        guard
+            atomStore.workspaceSidebarState.sidebarSurface == .repos,
+            atomStore.workspaceSidebarState.sidebarCollapsed == false
+        else {
+            return .stateUnavailable
+        }
+        return .applied
+    }
+
+    private func executeHeadlessInboxSidebarCommand() -> AppCommandExecutionOutcome {
+        guard let atomStore else { return .stateUnavailable }
+        atomStore.workspaceSidebarState.setSidebarSurface(.inbox)
+        mainWindowController?.expandSidebar()
+        guard
+            atomStore.workspaceSidebarState.sidebarSurface == .inbox,
+            atomStore.workspaceSidebarState.sidebarCollapsed == false
+        else {
+            return .stateUnavailable
+        }
+        return .applied
     }
 
     private func executeRepoSidebarVisibilityCommand(_ mode: RepoExplorerVisibilityMode) -> AppCommandExecutionOutcome {

@@ -381,11 +381,38 @@ try:
         request_id[0] += 1
         return current
 
-    def set_grouping(surface, mode):
-        require_success(
-            session.request(next_id(), "sidebar.grouping.set", {"surface": surface, "mode": mode}),
-            f"sidebar.grouping.set {surface} {mode}",
+    def execute_sidebar_command(command_id, arguments, label):
+        result = require_success(
+            session.request(
+                next_id(),
+                "command.execute",
+                {
+                    "commandId": command_id,
+                    "targetHandle": None,
+                    "arguments": arguments,
+                },
+            ),
+            label,
         )
+        if result.get("applied") is not True:
+            print(f"{label} did not apply: {result}", file=sys.stderr)
+            sys.exit(1)
+
+    def set_grouping(surface, mode):
+        command_by_grouping = {
+            ("repo", "repo"): "setRepoSidebarGroupingRepo",
+            ("repo", "pane"): "setRepoSidebarGroupingPane",
+            ("repo", "tab"): "setRepoSidebarGroupingTab",
+            ("inbox", "tab"): "setInboxGroupingTab",
+            ("inbox", "repo"): "setInboxGroupingRepo",
+            ("inbox", "pane"): "setInboxGroupingPane",
+            ("inbox", "none"): "setInboxGroupingNone",
+        }
+        command_id = command_by_grouping.get((surface, mode))
+        if command_id is None:
+            print(f"unsupported sidebar grouping command: surface={surface} mode={mode}", file=sys.stderr)
+            sys.exit(1)
+        execute_sidebar_command(command_id, {}, f"command.execute {command_id}")
         result = require_success(
             session.request(next_id(), "sidebar.grouping.get", {"surface": surface}),
             f"sidebar.grouping.get {surface}",
@@ -397,10 +424,15 @@ try:
             time.sleep(step_delay)
 
     def set_surface(surface):
-        require_success(
-            session.request(next_id(), "sidebar.surface.set", {"surface": surface}),
-            f"sidebar.surface.set {surface}",
-        )
+        command_by_surface = {
+            "repo": "showWorktreeSidebar",
+            "inbox": "showInboxNotifications",
+        }
+        command_id = command_by_surface.get(surface)
+        if command_id is None:
+            print(f"unsupported sidebar surface command: surface={surface}", file=sys.stderr)
+            sys.exit(1)
+        execute_sidebar_command(command_id, {}, f"command.execute {command_id}")
         result = require_success(
             session.request(next_id(), "sidebar.surface.get", {}),
             "sidebar.surface.get",

@@ -39,12 +39,17 @@ struct AgentStudioIPCCommandAdapter: AppIPCCommandPort, @unchecked Sendable {
             }
             throw AppIPCCommandError(reason: .requiresParameters)
         }
-        let executionArguments = try executionArguments(
-            command: command,
-            rawArguments: params.arguments,
-            argumentsContainOnlyStrings: params.argumentsContainOnlyStrings,
-            argumentSchema: definition.argumentSchema
-        )
+        let executionArguments: AppCommandExecutionArguments?
+        do {
+            executionArguments = try AppCommandExecutionArguments.commandOwnedArguments(
+                command: command,
+                rawArguments: params.arguments,
+                argumentsContainOnlyStrings: params.argumentsContainOnlyStrings,
+                argumentSchema: definition.argumentSchema
+            )
+        } catch AppCommandArgumentDecodingError.validationRejected {
+            throw AppIPCCommandError(reason: .validationRejected)
+        }
 
         let lifecycle = windowLifecycleReader.snapshot()
         guard
@@ -59,7 +64,8 @@ struct AgentStudioIPCCommandAdapter: AppIPCCommandPort, @unchecked Sendable {
         let outcome = shellCommandHandler.execute(
             AppCommandExecutionRequest(
                 command: command,
-                arguments: executionArguments
+                arguments: executionArguments,
+                executionContext: .headlessIPC
             )
         )
         switch outcome {
@@ -76,71 +82,4 @@ struct AgentStudioIPCCommandAdapter: AppIPCCommandPort, @unchecked Sendable {
         }
     }
 
-    private func executionArguments(
-        command: AppCommand,
-        rawArguments: [String: String],
-        argumentsContainOnlyStrings: Bool,
-        argumentSchema: [IPCCommandArgumentSchema]
-    ) throws -> AppCommandExecutionArguments? {
-        try validate(
-            rawArguments: rawArguments,
-            argumentsContainOnlyStrings: argumentsContainOnlyStrings,
-            against: argumentSchema
-        )
-        switch command {
-        case .setRepoSidebarVisibilityMode:
-            guard
-                let rawMode = rawArguments["mode"],
-                let mode = RepoExplorerVisibilityMode(rawValue: rawMode)
-            else {
-                throw AppIPCCommandError(reason: .validationRejected)
-            }
-            return .repoSidebarVisibilityMode(mode)
-        case .setRepoSidebarSortOrder:
-            guard
-                let rawOrder = rawArguments["order"],
-                let order = RepoExplorerSortOrder(rawValue: rawOrder)
-            else {
-                throw AppIPCCommandError(reason: .validationRejected)
-            }
-            return .repoSidebarSortOrder(order)
-        default:
-            guard rawArguments.isEmpty else {
-                throw AppIPCCommandError(reason: .validationRejected)
-            }
-            return nil
-        }
-    }
-
-    private func validate(
-        rawArguments: [String: String],
-        argumentsContainOnlyStrings: Bool,
-        against argumentSchema: [IPCCommandArgumentSchema]
-    ) throws {
-        guard argumentsContainOnlyStrings else {
-            throw AppIPCCommandError(reason: .validationRejected)
-        }
-        let schemaByName = Dictionary(uniqueKeysWithValues: argumentSchema.map { ($0.name, $0) })
-        guard Set(rawArguments.keys).isSubset(of: Set(schemaByName.keys)) else {
-            throw AppIPCCommandError(reason: .validationRejected)
-        }
-
-        for argument in argumentSchema where argument.isRequired {
-            guard rawArguments[argument.name] != nil else {
-                throw AppIPCCommandError(reason: .validationRejected)
-            }
-        }
-
-        for (name, value) in rawArguments {
-            guard let schema = schemaByName[name] else {
-                throw AppIPCCommandError(reason: .validationRejected)
-            }
-            switch schema.kind {
-            case .stringEnum(let values):
-                guard values.contains(value) else {
-                    throw AppIPCCommandError(reason: .validationRejected)
-                }
-            }
-        }
-    }
 }

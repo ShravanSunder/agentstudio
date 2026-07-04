@@ -20,7 +20,8 @@ extension AppCommand {
             icon: groupingMode.icon,
             helpText: "Group the repo sidebar by \(groupingMode.title.lowercased())",
             commandBarGroupName: "Sidebar",
-            commandBarGroupPriority: CommandBarGroupPriority.window
+            commandBarGroupPriority: CommandBarGroupPriority.window,
+            ipcExposure: .headless(requiredPrivileges: [.sidebarStateMutate])
         )
     }
 
@@ -40,7 +41,7 @@ extension AppCommand {
                     isRequired: true
                 )
             ],
-            ipcExposure: .headless(requiredPrivileges: [.layoutMutate])
+            ipcExposure: .headless(requiredPrivileges: [.sidebarStateMutate])
         )
     }
 
@@ -60,7 +61,7 @@ extension AppCommand {
                     isRequired: true
                 )
             ],
-            ipcExposure: .headless(requiredPrivileges: [.layoutMutate])
+            ipcExposure: .headless(requiredPrivileges: [.sidebarStateMutate])
         )
     }
 
@@ -71,7 +72,8 @@ extension AppCommand {
             icon: grouping.icon,
             helpText: "Group inbox notifications by \(grouping.commandHelpTarget)",
             commandBarGroupName: "Inbox",
-            commandBarGroupPriority: CommandBarGroupPriority.window
+            commandBarGroupPriority: CommandBarGroupPriority.window,
+            ipcExposure: .headless(requiredPrivileges: [.sidebarStateMutate])
         )
     }
 

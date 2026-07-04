@@ -8,11 +8,15 @@ import Testing
 
 @Suite("AgentStudio App IPC sidebar service", .serialized)
 struct AgentStudioAppIPCSidebarServiceTests {
-    @Test("debug token automation can switch sidebar grouping and surface")
-    func debugTokenAutomationCanSwitchSidebarGroupingAndSurface() throws {
+    @Test("debug token automation can read sidebar grouping and surface")
+    func debugTokenAutomationCanReadSidebarGroupingAndSurface() throws {
         let fixture = try LiveServerFixture(
             channel: .debug,
-            sidebarPort: FakeSidebarPort(),
+            sidebarPort: FakeSidebarPort(
+                repoGrouping: .pane,
+                inboxGrouping: .noGrouping,
+                surface: .inbox
+            ),
             debugTokenEscrowEnabled: true
         )
         defer {
@@ -26,68 +30,34 @@ struct AgentStudioAppIPCSidebarServiceTests {
         }
         var reader = TestFrameReader()
 
-        let repoSetResult = try setGrouping(
+        let repoGrouping = try getGrouping(
             connection: connection,
             reader: &reader,
             requestId: 68,
-            surface: .repo,
-            mode: .pane
+            surface: .repo
         )
-        #expect(repoSetResult.surface == .repo)
-        #expect(repoSetResult.mode == .pane)
+        #expect(repoGrouping.surface == .repo)
+        #expect(repoGrouping.mode == .pane)
 
-        let inboxSetResult = try setGrouping(
+        let inboxGrouping = try getGrouping(
             connection: connection,
             reader: &reader,
             requestId: 69,
-            surface: .inbox,
-            mode: .noGrouping
-        )
-        #expect(inboxSetResult.surface == .inbox)
-        #expect(inboxSetResult.mode == .noGrouping)
-
-        let surfaceSetResult = try setSurface(
-            connection: connection,
-            reader: &reader,
-            requestId: 70,
             surface: .inbox
         )
-        #expect(surfaceSetResult.surface == .inbox)
+        #expect(inboxGrouping.surface == .inbox)
+        #expect(inboxGrouping.mode == .noGrouping)
 
         let surfaceGetResult = try getSurface(
             connection: connection,
             reader: &reader,
-            requestId: 71
+            requestId: 70
         )
         #expect(surfaceGetResult.surface == .inbox)
     }
 
-    @Test("debug unsafe no-auth denies sidebar semantic methods")
-    func debugUnsafeNoAuthDeniesSidebarSemanticMethods() throws {
-        let fixture = try LiveServerFixture(accessMode: .unsafeDebug, channel: .debug)
-        defer {
-            fixture.cleanup()
-        }
-        try fixture.server.start()
-
-        let response = try sendRequest(
-            socketPath: fixture.paths.socketURL.path,
-            request: JSONRPCClientRequest(
-                id: .number(72),
-                method: "sidebar.grouping.set",
-                params: try JSONRPCCodec.encodeJSONValue(
-                    IPCSidebarGroupingSetParams(surface: .repo, mode: .tab)
-                )
-            )
-        )
-
-        #expect(response.id == .number(72))
-        #expect(response.error?.code == -32_002)
-        #expect(response.error?.message == "unauthorized")
-    }
-
-    @Test("sidebar rejects repo none grouping before mutation")
-    func sidebarRejectsRepoNoneGroupingBeforeMutation() throws {
+    @Test("removed sidebar write routes are not method registry entries")
+    func removedSidebarWriteRoutesAreNotMethodRegistryEntries() throws {
         let fixture = try LiveServerFixture(
             channel: .debug,
             debugTokenEscrowEnabled: true
@@ -97,40 +67,62 @@ struct AgentStudioAppIPCSidebarServiceTests {
         }
         try fixture.server.start()
 
-        let connection = try authenticatedConnection(for: fixture, tokenRequestId: 73)
+        let connection = try authenticatedConnection(for: fixture, tokenRequestId: 71)
         defer {
             connection.close()
         }
         var reader = TestFrameReader()
 
-        try sendRequest(
-            connection: connection,
-            request: JSONRPCClientRequest(
-                id: .number(74),
-                method: "sidebar.grouping.set",
-                params: try JSONRPCCodec.encodeJSONValue(
-                    IPCSidebarGroupingSetParams(surface: .repo, mode: .noGrouping)
+        for (requestId, method, params) in [
+            (
+                72,
+                "sidebar.grouping.set",
+                JSONValue.object(["surface": .string("repo"), "mode": .string("tab")])
+            ),
+            (
+                73,
+                "sidebar.surface.set",
+                JSONValue.object(["surface": .string("inbox")])
+            ),
+        ] {
+            try sendRequest(
+                connection: connection,
+                request: JSONRPCClientRequest(
+                    id: .number(requestId),
+                    method: method,
+                    params: params
                 )
             )
-        )
-        let rejected = try reader.receiveResponse(connection: connection)
-        #expect(rejected.error?.code == -32_007)
-        #expect(rejected.error?.message == "validation rejected")
+            let response = try reader.receiveResponse(connection: connection)
 
-        try sendRequest(
-            connection: connection,
+            #expect(response.id == .number(requestId))
+            #expect(response.error?.code == -32_603)
+            #expect(response.error?.message == "method not found")
+        }
+    }
+
+    @Test("debug unsafe no-auth denies sidebar read methods")
+    func debugUnsafeNoAuthDeniesSidebarReadMethods() throws {
+        let fixture = try LiveServerFixture(accessMode: .unsafeDebug, channel: .debug)
+        defer {
+            fixture.cleanup()
+        }
+        try fixture.server.start()
+
+        let response = try sendRequest(
+            socketPath: fixture.paths.socketURL.path,
             request: JSONRPCClientRequest(
-                id: .number(75),
+                id: .number(74),
                 method: "sidebar.grouping.get",
                 params: try JSONRPCCodec.encodeJSONValue(
                     IPCSidebarGroupingGetParams(surface: .repo)
                 )
             )
         )
-        let current = try reader.receiveResponse(connection: connection)
-        #expect(current.error == nil)
-        let currentResult = try decodeResponseResult(IPCSidebarGroupingResult.self, from: current)
-        #expect(currentResult.mode == .repo)
+
+        #expect(response.id == .number(74))
+        #expect(response.error?.code == -32_002)
+        #expect(response.error?.message == "unauthorized")
     }
 
     private func authenticatedConnection(
@@ -147,47 +139,25 @@ struct AgentStudioAppIPCSidebarServiceTests {
         return connection
     }
 
-    private func setGrouping(
+    private func getGrouping(
         connection: UnixSocketConnection,
         reader: inout TestFrameReader,
         requestId: Int,
-        surface: IPCSidebarSurface,
-        mode: IPCSidebarGroupingMode
+        surface: IPCSidebarSurface
     ) throws -> IPCSidebarGroupingResult {
         try sendRequest(
             connection: connection,
             request: JSONRPCClientRequest(
                 id: .number(requestId),
-                method: "sidebar.grouping.set",
+                method: "sidebar.grouping.get",
                 params: try JSONRPCCodec.encodeJSONValue(
-                    IPCSidebarGroupingSetParams(surface: surface, mode: mode)
+                    IPCSidebarGroupingGetParams(surface: surface)
                 )
             )
         )
         let response = try reader.receiveResponse(connection: connection)
         #expect(response.error == nil)
         return try decodeResponseResult(IPCSidebarGroupingResult.self, from: response)
-    }
-
-    private func setSurface(
-        connection: UnixSocketConnection,
-        reader: inout TestFrameReader,
-        requestId: Int,
-        surface: IPCSidebarSurface
-    ) throws -> IPCSidebarSurfaceResult {
-        try sendRequest(
-            connection: connection,
-            request: JSONRPCClientRequest(
-                id: .number(requestId),
-                method: "sidebar.surface.set",
-                params: try JSONRPCCodec.encodeJSONValue(
-                    IPCSidebarSurfaceSetParams(surface: surface)
-                )
-            )
-        )
-        let response = try reader.receiveResponse(connection: connection)
-        #expect(response.error == nil)
-        return try decodeResponseResult(IPCSidebarSurfaceResult.self, from: response)
     }
 
     private func getSurface(

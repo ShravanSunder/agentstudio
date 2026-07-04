@@ -18,19 +18,6 @@ struct AgentStudioIPCSidebarAdapter: AppIPCSidebarPort, @unchecked Sendable {
         self.sidebarState = sidebarState
     }
 
-    func setGrouping(_ params: IPCSidebarGroupingSetParams) throws -> IPCSidebarGroupingResult {
-        switch params.surface {
-        case .repo:
-            let groupingMode = try repoGroupingMode(from: params.mode)
-            repoPrefs.setGroupingMode(groupingMode)
-            return IPCSidebarGroupingResult(surface: .repo, mode: params.mode, correlationId: params.correlationId)
-        case .inbox:
-            let grouping = try inboxGrouping(from: params.mode)
-            inboxPrefs.setGrouping(grouping)
-            return IPCSidebarGroupingResult(surface: .inbox, mode: params.mode, correlationId: params.correlationId)
-        }
-    }
-
     func getGrouping(_ params: IPCSidebarGroupingGetParams) throws -> IPCSidebarGroupingResult {
         switch params.surface {
         case .repo:
@@ -40,39 +27,8 @@ struct AgentStudioIPCSidebarAdapter: AppIPCSidebarPort, @unchecked Sendable {
         }
     }
 
-    func setSurface(_ params: IPCSidebarSurfaceSetParams) throws -> IPCSidebarSurfaceResult {
-        sidebarState.setSidebarSurface(sidebarSurface(from: params.surface))
-        return IPCSidebarSurfaceResult(surface: params.surface, correlationId: params.correlationId)
-    }
-
     func getSurface(_: IPCSidebarSurfaceGetParams) throws -> IPCSidebarSurfaceResult {
         IPCSidebarSurfaceResult(surface: sidebarSurface(from: sidebarState.sidebarSurface))
-    }
-
-    private func repoGroupingMode(from mode: IPCSidebarGroupingMode) throws -> RepoExplorerGroupingMode {
-        switch mode {
-        case .repo:
-            return .repo
-        case .pane:
-            return .pane
-        case .tab:
-            return .tab
-        case .noGrouping:
-            throw AppIPCCommandError(reason: .validationRejected)
-        }
-    }
-
-    private func inboxGrouping(from mode: IPCSidebarGroupingMode) throws -> InboxNotificationGrouping {
-        switch mode {
-        case .repo:
-            return .byRepo
-        case .pane:
-            return .byPane
-        case .tab:
-            return .byTab
-        case .noGrouping:
-            return .none
-        }
     }
 
     private func sidebarGroupingMode(from mode: RepoExplorerGroupingMode) -> IPCSidebarGroupingMode {
@@ -96,15 +52,6 @@ struct AgentStudioIPCSidebarAdapter: AppIPCSidebarPort, @unchecked Sendable {
             return .pane
         case .byTab:
             return .tab
-        }
-    }
-
-    private func sidebarSurface(from surface: IPCSidebarSurface) -> SidebarSurface {
-        switch surface {
-        case .repo:
-            return .repos
-        case .inbox:
-            return .inbox
         }
     }
 

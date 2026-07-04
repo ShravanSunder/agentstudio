@@ -450,23 +450,32 @@ try:
         print(f"ui.commandBar.open result missing workspaceWindowId: {command_bar_open}", file=sys.stderr)
         sys.exit(1)
 
-    sidebar_expectations = [
-        (12, "sidebar.surface.set", {"surface": "repo"}, "repo"),
-        (13, "sidebar.grouping.set", {"surface": "repo", "mode": "repo"}, "repo"),
-        (14, "sidebar.grouping.set", {"surface": "repo", "mode": "pane"}, "pane"),
-        (15, "sidebar.grouping.set", {"surface": "repo", "mode": "tab"}, "tab"),
-        (16, "sidebar.surface.set", {"surface": "inbox"}, "inbox"),
-        (17, "sidebar.grouping.set", {"surface": "inbox", "mode": "tab"}, "tab"),
-        (18, "sidebar.grouping.set", {"surface": "inbox", "mode": "repo"}, "repo"),
-        (19, "sidebar.grouping.set", {"surface": "inbox", "mode": "pane"}, "pane"),
-        (20, "sidebar.grouping.set", {"surface": "inbox", "mode": "none"}, "none"),
-    ]
-    for request_id, method, params, expected_value in sidebar_expectations:
-        result = require_success(session.request(request_id, method, params), method)
-        actual_value = result.get("surface") if method == "sidebar.surface.set" else result.get("mode")
-        if actual_value != expected_value:
-            print(f"{method} mismatch: {result}; expected {expected_value}", file=sys.stderr)
+    def execute_sidebar_command(request_id, command_id):
+        result = require_success(
+            session.request(
+                request_id,
+                "command.execute",
+                {"commandId": command_id, "targetHandle": None, "arguments": {}},
+            ),
+            f"command.execute {command_id}",
+        )
+        if result.get("applied") is not True:
+            print(f"{command_id} did not apply: {result}", file=sys.stderr)
             sys.exit(1)
+
+    sidebar_command_expectations = [
+        (12, "showWorktreeSidebar"),
+        (13, "setRepoSidebarGroupingRepo"),
+        (14, "setRepoSidebarGroupingPane"),
+        (15, "setRepoSidebarGroupingTab"),
+        (16, "showInboxNotifications"),
+        (17, "setInboxGroupingTab"),
+        (18, "setInboxGroupingRepo"),
+        (19, "setInboxGroupingPane"),
+        (20, "setInboxGroupingNone"),
+    ]
+    for request_id, command_id in sidebar_command_expectations:
+        execute_sidebar_command(request_id, command_id)
 
     repo_grouping = require_success(
         session.request(21, "sidebar.grouping.get", {"surface": "repo"}),
@@ -493,10 +502,14 @@ try:
         sys.exit(1)
 
     require_error(
-        session.request(24, "sidebar.grouping.set", {"surface": "repo", "mode": "none"}),
-        "sidebar.grouping.set repo none",
-        -32007,
-        "validation rejected",
+        session.request(
+            24,
+            "sidebar.grouping.set",
+            {"surface": "repo", "mode": "none"},
+        ),
+        "sidebar.grouping.set removed route",
+        -32603,
+        "method not found",
     )
 
     print(f"AgentStudio IPC Phase A smoke passed for {canonical_pane_handle}")

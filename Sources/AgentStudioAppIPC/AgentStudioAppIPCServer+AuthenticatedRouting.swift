@@ -29,8 +29,8 @@ extension AgentStudioAppIPCServer {
         case "terminal.status", "terminal.snapshot", "terminal.send", "terminal.wait":
             return try await processRuntimeRequest(request)
         case "command.list", "command.execute", "ui.commandBar.open":
-            return try await processCommandOrUIRequest(request)
-        case "sidebar.grouping.set", "sidebar.grouping.get", "sidebar.surface.set", "sidebar.surface.get":
+            return try await processCommandOrUIRequest(request, principal: principal)
+        case "sidebar.grouping.get", "sidebar.surface.get":
             return try await processSidebarRequest(request)
         case "permission.request", "permission.requestStatus", "permission.grantStatus",
             "permission.pendingApprovals", "permission.resolveRequest":
@@ -139,7 +139,10 @@ extension AgentStudioAppIPCServer {
         return .milliseconds(Int64(timeoutMilliseconds))
     }
 
-    private func processCommandOrUIRequest(_ request: JSONRPCRequest) async throws -> JSONValue {
+    private func processCommandOrUIRequest(
+        _ request: JSONRPCRequest,
+        principal: IPCPrincipal
+    ) async throws -> JSONValue {
         switch request.method {
         case "command.list":
             let result = try await MainActor.run {
@@ -148,6 +151,25 @@ extension AgentStudioAppIPCServer {
             return try encodeResult(result)
         case "command.execute":
             let params = try decodeParams(IPCCommandExecuteParams.self, from: request.params)
+            guard params.targetHandle == nil else {
+                throw AppIPCCommandError(reason: .targetNotFound)
+            }
+            let command = try await MainActor.run {
+                try service.ports.commandPort.listCommands().commands.first { $0.id == params.commandId }
+            }
+            guard let command else {
+                throw AppIPCCommandError(reason: .unsupportedCommand)
+            }
+            for privilege in command.requiredPrivileges {
+                try authorizationService.authorize(
+                    principal: principal,
+                    scope: IPCPermissionScope(
+                        privilege: privilege,
+                        target: .app,
+                        dataScope: PermissionScopeCanonicalizer.dataScope(for: privilege)
+                    )
+                )
+            }
             let result = try await MainActor.run {
                 try service.ports.commandPort.executeCommand(params)
             }
@@ -165,22 +187,10 @@ extension AgentStudioAppIPCServer {
 
     private func processSidebarRequest(_ request: JSONRPCRequest) async throws -> JSONValue {
         switch request.method {
-        case "sidebar.grouping.set":
-            let params = try decodeParams(IPCSidebarGroupingSetParams.self, from: request.params)
-            let result = try await MainActor.run {
-                try service.ports.sidebarPort.setGrouping(params)
-            }
-            return try encodeResult(result)
         case "sidebar.grouping.get":
             let params = try decodeParams(IPCSidebarGroupingGetParams.self, from: request.params)
             let result = try await MainActor.run {
                 try service.ports.sidebarPort.getGrouping(params)
-            }
-            return try encodeResult(result)
-        case "sidebar.surface.set":
-            let params = try decodeParams(IPCSidebarSurfaceSetParams.self, from: request.params)
-            let result = try await MainActor.run {
-                try service.ports.sidebarPort.setSurface(params)
             }
             return try encodeResult(result)
         case "sidebar.surface.get":

@@ -68,6 +68,8 @@ struct RepoExplorerProjectedWorktreeRow: Equatable, Sendable {
 }
 
 enum RepoExplorerProjection {
+    static let placementGroupRowIconColorHex = "#8E8E93"
+
     private struct PlacementEntry {
         let repo: RepoPresentationItem
         let worktree: Worktree
@@ -117,8 +119,7 @@ enum RepoExplorerProjection {
                 repos: filteredResolvedRepos,
                 locationsByWorktreeId: snapshot.paneLocationsByWorktreeId,
                 mode: .pane,
-                sortOrder: snapshot.sortOrder,
-                checkoutColorHexByRepoId: checkoutColorHexByRepoId
+                sortOrder: snapshot.sortOrder
             )
             resolvedGroups = placementProjection.groups
             projectedRowsByGroupId = placementProjection.worktreeRowsByGroupId
@@ -127,8 +128,7 @@ enum RepoExplorerProjection {
                 repos: filteredResolvedRepos,
                 locationsByWorktreeId: snapshot.paneLocationsByWorktreeId,
                 mode: .tab,
-                sortOrder: snapshot.sortOrder,
-                checkoutColorHexByRepoId: checkoutColorHexByRepoId
+                sortOrder: snapshot.sortOrder
             )
             resolvedGroups = placementProjection.groups
             projectedRowsByGroupId = placementProjection.worktreeRowsByGroupId
@@ -265,8 +265,7 @@ enum RepoExplorerProjection {
         repos: [RepoPresentationItem],
         locationsByWorktreeId: [UUID: [WorkspacePaneLocation]],
         mode: RepoExplorerGroupingMode,
-        sortOrder: RepoExplorerSortOrder,
-        checkoutColorHexByRepoId: [UUID: String]
+        sortOrder: RepoExplorerSortOrder
     ) -> (groups: [RepoPresentationGroup], worktreeRowsByGroupId: [String: [RepoExplorerProjectedWorktreeRow]]) {
         let locations = sortedUniqueLocations(locationsByWorktreeId.values.flatMap { $0 })
         let paneOrdinalById = Dictionary(
@@ -340,8 +339,7 @@ enum RepoExplorerProjection {
             }
             projectedRowsByGroupId[groupId] = projectedWorktreeRows(
                 from: entries,
-                groupId: groupId,
-                checkoutColorHexByRepoId: checkoutColorHexByRepoId
+                groupId: groupId
             )
             return RepoPresentationGroup(
                 id: groupId,
@@ -402,8 +400,7 @@ enum RepoExplorerProjection {
 
     private static func projectedWorktreeRows(
         from entries: [PlacementEntry],
-        groupId: String,
-        checkoutColorHexByRepoId: [UUID: String]
+        groupId: String
     ) -> [RepoExplorerProjectedWorktreeRow] {
         entries.map { entry in
             RepoExplorerProjectedWorktreeRow(
@@ -416,8 +413,7 @@ enum RepoExplorerProjection {
                     worktreeId: entry.worktree.id,
                     location: entry.location
                 ),
-                checkoutColorHex: checkoutColorHexByRepoId[entry.repo.id]
-                    ?? RepoPresentationGrouping.automaticPaletteHexes[0],
+                checkoutColorHex: placementGroupRowIconColorHex,
                 placementContext: entry.location.map {
                     RepoExplorerPlacementContext(
                         paneId: $0.paneId,

@@ -705,7 +705,12 @@ extension AppCommand {
                 icon: .system(.bell),
                 helpText: "Show or hide the notification inbox in the sidebar",
                 commandBarGroupName: "Window",
-                commandBarGroupPriority: CommandBarGroupPriority.window
+                commandBarGroupPriority: CommandBarGroupPriority.window,
+                ipcExposure: AppCommandIPCExposure(
+                    executionModes: [.headless, .requiresInteractiveInput],
+                    targetKinds: [],
+                    requiredPrivileges: [.sidebarStateMutate]
+                )
             )
         case .toggleInboxNotificationSort:
             return AppCommandSpec(
@@ -765,7 +770,12 @@ extension AppCommand {
                 icon: .system(.sidebarLeft),
                 helpText: "Show or hide the repo explorer in the sidebar",
                 commandBarGroupName: "Window",
-                commandBarGroupPriority: CommandBarGroupPriority.window
+                commandBarGroupPriority: CommandBarGroupPriority.window,
+                ipcExposure: AppCommandIPCExposure(
+                    executionModes: [.headless, .requiresInteractiveInput],
+                    targetKinds: [],
+                    requiredPrivileges: [.sidebarStateMutate]
+                )
             )
         case .setRepoSidebarGroupingRepo:
             return repoSidebarGroupingDefinition(.repo)
@@ -987,5 +997,4 @@ extension AppCommand {
             commandBarGroupPriority: CommandBarGroupPriority.tab
         )
     }
-
 }

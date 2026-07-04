@@ -37,7 +37,7 @@ struct AppCommandSidebarCommandsTests {
         #expect(definition.isHiddenInCommandBar)
         #expect(definition.ipcExposure.executionModes == [.headless])
         #expect(definition.ipcExposure.targetKinds.isEmpty)
-        #expect(definition.ipcExposure.requiredPrivileges == [.layoutMutate])
+        #expect(definition.ipcExposure.requiredPrivileges == [.sidebarStateMutate])
     }
 
     @Test("dispatcher registers repo sidebar sort order command for headless execution")
@@ -58,6 +58,6 @@ struct AppCommandSidebarCommandsTests {
             ])
         #expect(definition.ipcExposure.executionModes == [.headless])
         #expect(definition.ipcExposure.targetKinds.isEmpty)
-        #expect(definition.ipcExposure.requiredPrivileges == [.layoutMutate])
+        #expect(definition.ipcExposure.requiredPrivileges == [.sidebarStateMutate])
     }
 }

@@ -82,8 +82,8 @@ struct AgentStudioAppIPCCommandExecuteContractTests {
         }
         try fixture.server.start()
 
-        let response = try await sendRequestWithoutBlockingMainActor(
-            socketPath: fixture.paths.socketURL.path,
+        let response = try await sendAuthenticatedAutomationRequest(
+            fixture: fixture,
             request: JSONRPCClientRequest(
                 id: .number(70),
                 method: "command.execute",
@@ -106,23 +106,8 @@ struct AgentStudioAppIPCCommandExecuteContractTests {
             fixture.cleanup()
         }
         try fixture.server.start()
-        let principal = IPCPrincipal(
-            principalId: UUID(),
-            runtimeId: fixture.runtimeId,
-            accessMode: .unsafeDebug,
-            kind: .unsafeDebugClient,
-            approvalAuthority: .noApprovalAuthority
-        )
-        let token = try fixture.server.principalRegistry.issueSubjectToken(for: principal)
-        let connection = try UnixSocketClient.connect(endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path))
-        defer {
-            connection.close()
-        }
-        var reader = TestFrameReader()
-        try await loginWithoutBlockingMainActor(connection: connection, token: token, requestId: 70, reader: &reader)
-
-        try sendRequest(
-            connection: connection,
+        let response = try await sendAuthenticatedAutomationRequest(
+            fixture: fixture,
             request: JSONRPCClientRequest(
                 id: .number(71),
                 method: "command.execute",
@@ -134,7 +119,6 @@ struct AgentStudioAppIPCCommandExecuteContractTests {
                 )
             )
         )
-        let response = try await reader.receiveResponseWithoutBlockingMainActor(connection: connection)
 
         #expect(response.error?.code == -32_004)
         #expect(response.error?.message == "target not found")
@@ -145,7 +129,8 @@ struct AgentStudioAppIPCCommandExecuteContractTests {
         let commandPort = FakeCommandPort(
             workspaceWindowId: UUID(),
             activeScope: .commands,
-            successfulCommandId: "setRepoSidebarVisibilityMode"
+            successfulCommandId: "setRepoSidebarVisibilityMode",
+            commands: [sidebarCommandEntry("setRepoSidebarVisibilityMode")]
         )
         let fixture = try LiveServerFixture(
             accessMode: .unsafeDebug,
@@ -157,8 +142,8 @@ struct AgentStudioAppIPCCommandExecuteContractTests {
         }
         try fixture.server.start()
 
-        let response = try await sendRequestWithoutBlockingMainActor(
-            socketPath: fixture.paths.socketURL.path,
+        let response = try await sendAuthenticatedAutomationRequest(
+            fixture: fixture,
             request: JSONRPCClientRequest(
                 id: .number(72),
                 method: "command.execute",
@@ -181,7 +166,8 @@ struct AgentStudioAppIPCCommandExecuteContractTests {
         let commandPort = FakeCommandPort(
             workspaceWindowId: UUID(),
             activeScope: .commands,
-            successfulCommandId: "setRepoSidebarVisibilityMode"
+            successfulCommandId: "setRepoSidebarVisibilityMode",
+            commands: [sidebarCommandEntry("setRepoSidebarVisibilityMode")]
         )
         let fixture = try LiveServerFixture(
             accessMode: .unsafeDebug,
@@ -193,8 +179,8 @@ struct AgentStudioAppIPCCommandExecuteContractTests {
         }
         try fixture.server.start()
 
-        let response = try await sendRequestWithoutBlockingMainActor(
-            socketPath: fixture.paths.socketURL.path,
+        let response = try await sendAuthenticatedAutomationRequest(
+            fixture: fixture,
             request: JSONRPCClientRequest(
                 id: .number(74),
                 method: "command.execute",
@@ -220,7 +206,8 @@ struct AgentStudioAppIPCCommandExecuteContractTests {
             commandPort: FakeCommandPort(
                 workspaceWindowId: UUID(),
                 activeScope: .commands,
-                stateUnavailableCommandId: "setRepoSidebarVisibilityMode"
+                stateUnavailableCommandId: "setRepoSidebarVisibilityMode",
+                commands: [sidebarCommandEntry("setRepoSidebarVisibilityMode")]
             )
         )
         defer {
@@ -228,8 +215,8 @@ struct AgentStudioAppIPCCommandExecuteContractTests {
         }
         try fixture.server.start()
 
-        let response = try await sendRequestWithoutBlockingMainActor(
-            socketPath: fixture.paths.socketURL.path,
+        let response = try await sendAuthenticatedAutomationRequest(
+            fixture: fixture,
             request: JSONRPCClientRequest(
                 id: .number(73),
                 method: "command.execute",
@@ -243,4 +230,51 @@ struct AgentStudioAppIPCCommandExecuteContractTests {
         #expect(response.error?.code == -32_005)
         #expect(response.error?.message == "state unavailable")
     }
+}
+
+private func sidebarCommandEntry(_ commandId: String) -> IPCCommandListEntry {
+    IPCCommandListEntry(
+        id: IPCCommandIdentifier(rawValue: commandId),
+        title: commandId,
+        executionModes: [.headless],
+        targetKinds: [],
+        requiredPrivileges: [.sidebarStateMutate],
+        argumentSchema: [
+            IPCCommandArgumentSchema(
+                name: "mode",
+                kind: .stringEnum(values: ["all", "favoritesOnly"]),
+                isRequired: true
+            )
+        ]
+    )
+}
+
+private func sendAuthenticatedAutomationRequest(
+    fixture: LiveServerFixture,
+    request: JSONRPCClientRequest
+) async throws -> JSONRPCResponseMessage {
+    let principal = IPCPrincipal(
+        principalId: UUID(),
+        runtimeId: fixture.runtimeId,
+        accessMode: .unsafeDebug,
+        kind: .automationClient,
+        approvalAuthority: .noApprovalAuthority
+    )
+    fixture.server.grantLedger.grant(
+        IPCPermissionScope(privilege: .appCommandExecute, target: .app, dataScope: .unspecified),
+        to: principal.principalId
+    )
+    fixture.server.grantLedger.grant(
+        IPCPermissionScope(privilege: .sidebarStateMutate, target: .app, dataScope: .sidebarState),
+        to: principal.principalId
+    )
+    let token = try fixture.server.principalRegistry.issueSubjectToken(for: principal)
+    let connection = try UnixSocketClient.connect(endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path))
+    defer {
+        connection.close()
+    }
+    var reader = TestFrameReader()
+    try await loginWithoutBlockingMainActor(connection: connection, token: token, requestId: 900, reader: &reader)
+    try sendRequest(connection: connection, request: request)
+    return try await reader.receiveResponseWithoutBlockingMainActor(connection: connection)
 }

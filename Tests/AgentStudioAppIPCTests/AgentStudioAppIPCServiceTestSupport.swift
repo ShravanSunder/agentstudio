@@ -164,23 +164,19 @@ struct FakeLayoutPort: AppIPCLayoutPort {
     }
 }
 
-@MainActor
 final class FakeSidebarPort: AppIPCSidebarPort {
-    private(set) var repoGrouping: IPCSidebarGroupingMode = .repo
-    private(set) var inboxGrouping: IPCSidebarGroupingMode = .tab
-    private(set) var surface: IPCSidebarSurface = .repo
+    let repoGrouping: IPCSidebarGroupingMode
+    let inboxGrouping: IPCSidebarGroupingMode
+    let surface: IPCSidebarSurface
 
-    func setGrouping(_ params: IPCSidebarGroupingSetParams) throws -> IPCSidebarGroupingResult {
-        switch params.surface {
-        case .repo:
-            guard params.mode != .noGrouping else {
-                throw AppIPCCommandError(reason: .validationRejected)
-            }
-            repoGrouping = params.mode
-        case .inbox:
-            inboxGrouping = params.mode
-        }
-        return IPCSidebarGroupingResult(surface: params.surface, mode: params.mode, correlationId: params.correlationId)
+    nonisolated init(
+        repoGrouping: IPCSidebarGroupingMode = .repo,
+        inboxGrouping: IPCSidebarGroupingMode = .tab,
+        surface: IPCSidebarSurface = .repo
+    ) {
+        self.repoGrouping = repoGrouping
+        self.inboxGrouping = inboxGrouping
+        self.surface = surface
     }
 
     func getGrouping(_ params: IPCSidebarGroupingGetParams) throws -> IPCSidebarGroupingResult {
@@ -190,11 +186,6 @@ final class FakeSidebarPort: AppIPCSidebarPort {
         case .inbox:
             return IPCSidebarGroupingResult(surface: .inbox, mode: inboxGrouping)
         }
-    }
-
-    func setSurface(_ params: IPCSidebarSurfaceSetParams) throws -> IPCSidebarSurfaceResult {
-        surface = params.surface
-        return IPCSidebarSurfaceResult(surface: surface, correlationId: params.correlationId)
     }
 
     func getSurface(_: IPCSidebarSurfaceGetParams) throws -> IPCSidebarSurfaceResult {
@@ -271,6 +262,7 @@ final class FakeCommandPort: AppIPCCommandPort, @unchecked Sendable {
     let activeScope: IPCCommandBarScope?
     let successfulCommandId: String?
     let stateUnavailableCommandId: String?
+    let commands: [IPCCommandListEntry]
     private let lock = NSLock()
     nonisolated(unsafe) private var receivedExecuteParamsStorage: [IPCCommandExecuteParams] = []
 
@@ -278,12 +270,14 @@ final class FakeCommandPort: AppIPCCommandPort, @unchecked Sendable {
         workspaceWindowId: UUID? = nil,
         activeScope: IPCCommandBarScope? = nil,
         successfulCommandId: String? = nil,
-        stateUnavailableCommandId: String? = nil
+        stateUnavailableCommandId: String? = nil,
+        commands: [IPCCommandListEntry] = []
     ) {
         self.workspaceWindowId = workspaceWindowId
         self.activeScope = activeScope
         self.successfulCommandId = successfulCommandId
         self.stateUnavailableCommandId = stateUnavailableCommandId
+        self.commands = commands
     }
 
     nonisolated var receivedExecuteParams: [IPCCommandExecuteParams] {
@@ -293,7 +287,7 @@ final class FakeCommandPort: AppIPCCommandPort, @unchecked Sendable {
     }
 
     func listCommands() throws -> IPCCommandListResult {
-        IPCCommandListResult(commands: [])
+        IPCCommandListResult(commands: commands)
     }
 
     func executeCommand(_ params: IPCCommandExecuteParams) throws -> IPCCommandExecuteResult {

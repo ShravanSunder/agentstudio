@@ -40,7 +40,7 @@ struct AgentStudioIPCCommandAdapterTests {
             commandsById[IPCCommandIdentifier(rawValue: AppCommand.setRepoSidebarVisibilityMode.rawValue)])
         #expect(repoVisibility.executionModes == [.headless])
         #expect(repoVisibility.targetKinds.isEmpty)
-        #expect(repoVisibility.requiredPrivileges == [.layoutMutate])
+        #expect(repoVisibility.requiredPrivileges == [.sidebarStateMutate])
         #expect(
             repoVisibility.argumentSchema == [
                 IPCCommandArgumentSchema(
@@ -54,7 +54,7 @@ struct AgentStudioIPCCommandAdapterTests {
             commandsById[IPCCommandIdentifier(rawValue: AppCommand.setRepoSidebarSortOrder.rawValue)])
         #expect(repoSortOrder.executionModes == [.headless])
         #expect(repoSortOrder.targetKinds.isEmpty)
-        #expect(repoSortOrder.requiredPrivileges == [.layoutMutate])
+        #expect(repoSortOrder.requiredPrivileges == [.sidebarStateMutate])
         #expect(
             repoSortOrder.argumentSchema == [
                 IPCCommandArgumentSchema(
@@ -161,11 +161,13 @@ struct AgentStudioIPCCommandAdapterTests {
             shellCommandHandler.handledRequests == [
                 AppCommandExecutionRequest(
                     command: .setRepoSidebarVisibilityMode,
-                    arguments: .repoSidebarVisibilityMode(.favoritesOnly)
+                    arguments: .repoSidebarVisibilityMode(.favoritesOnly),
+                    executionContext: .headlessIPC
                 ),
                 AppCommandExecutionRequest(
                     command: .setRepoSidebarVisibilityMode,
-                    arguments: .repoSidebarVisibilityMode(.all)
+                    arguments: .repoSidebarVisibilityMode(.all),
+                    executionContext: .headlessIPC
                 ),
             ])
     }
@@ -196,11 +198,13 @@ struct AgentStudioIPCCommandAdapterTests {
             shellCommandHandler.handledRequests == [
                 AppCommandExecutionRequest(
                     command: .setRepoSidebarSortOrder,
-                    arguments: .repoSidebarSortOrder(.descending)
+                    arguments: .repoSidebarSortOrder(.descending),
+                    executionContext: .headlessIPC
                 ),
                 AppCommandExecutionRequest(
                     command: .setRepoSidebarSortOrder,
-                    arguments: .repoSidebarSortOrder(.ascending)
+                    arguments: .repoSidebarSortOrder(.ascending),
+                    executionContext: .headlessIPC
                 ),
             ])
     }
@@ -342,7 +346,8 @@ struct AgentStudioIPCCommandAdapterTests {
             shellCommandHandler.handledRequests == [
                 AppCommandExecutionRequest(
                     command: .setRepoSidebarVisibilityMode,
-                    arguments: .repoSidebarVisibilityMode(.favoritesOnly)
+                    arguments: .repoSidebarVisibilityMode(.favoritesOnly),
+                    executionContext: .headlessIPC
                 )
             ])
     }

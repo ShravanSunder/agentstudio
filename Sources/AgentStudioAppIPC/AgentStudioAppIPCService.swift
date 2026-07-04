@@ -138,9 +138,7 @@ public protocol AppIPCUIPresentationPort: Sendable {
 
 @MainActor
 public protocol AppIPCSidebarPort: Sendable {
-    func setGrouping(_ params: IPCSidebarGroupingSetParams) throws -> IPCSidebarGroupingResult
     func getGrouping(_ params: IPCSidebarGroupingGetParams) throws -> IPCSidebarGroupingResult
-    func setSurface(_ params: IPCSidebarSurfaceSetParams) throws -> IPCSidebarSurfaceResult
     func getSurface(_ params: IPCSidebarSurfaceGetParams) throws -> IPCSidebarSurfaceResult
 }
 

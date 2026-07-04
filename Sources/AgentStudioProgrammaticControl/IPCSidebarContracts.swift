@@ -12,18 +12,6 @@ public enum IPCSidebarGroupingMode: String, Codable, Equatable, Sendable {
     case noGrouping = "none"
 }
 
-public struct IPCSidebarGroupingSetParams: Codable, Equatable, Sendable {
-    public let surface: IPCSidebarSurface
-    public let mode: IPCSidebarGroupingMode
-    public let correlationId: UUID?
-
-    public init(surface: IPCSidebarSurface, mode: IPCSidebarGroupingMode, correlationId: UUID? = nil) {
-        self.surface = surface
-        self.mode = mode
-        self.correlationId = correlationId
-    }
-}
-
 public struct IPCSidebarGroupingGetParams: Codable, Equatable, Sendable {
     public let surface: IPCSidebarSurface
 
@@ -40,16 +28,6 @@ public struct IPCSidebarGroupingResult: Codable, Equatable, Sendable {
     public init(surface: IPCSidebarSurface, mode: IPCSidebarGroupingMode, correlationId: UUID? = nil) {
         self.surface = surface
         self.mode = mode
-        self.correlationId = correlationId
-    }
-}
-
-public struct IPCSidebarSurfaceSetParams: Codable, Equatable, Sendable {
-    public let surface: IPCSidebarSurface
-    public let correlationId: UUID?
-
-    public init(surface: IPCSidebarSurface, correlationId: UUID? = nil) {
-        self.surface = surface
         self.correlationId = correlationId
     }
 }
