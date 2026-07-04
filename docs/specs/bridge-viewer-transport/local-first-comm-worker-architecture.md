@@ -309,18 +309,26 @@ R45 bans the verified flat 560ms click floor from root-snapshot world-state
 rendering
 (`tmp/debug-workflows/2026-07-04-agent-studio-luna338-scroll-placeholder-survivor/debug-investigation.md:173`).
 
-### R46. Main-thread apply is a frame-budgeted pump.
+### R46. Main-thread ready-to-visible work is a frame-budgeted pump.
 
 DOM materialization remains on the main thread. That stage is legitimate only
-as a frame-budgeted apply pump:
+as the final step of a frame-budgeted ready-to-visible pump:
 
 - rank-ordered, with selected/current target first;
 - bounded per frame by AppPolicies-backed time and unit-count caps;
 - input-yielding between chunks;
 - resumable without redoing completed units;
-- stale-safe if worker or Swift advances generation while units are pending.
+- stale-safe if worker or Swift advances generation while units are pending;
 - no-starvation bounded for visible non-selected apply work while selected
   churn continues.
+
+The frame budget governs the entire ready-to-visible chain, not only DOM/store
+apply. Promotion of deferred or parked entries after pause release, result-map
+rebuild, resource derivation, unit derivation, and any other per-item
+preparation required before visible apply must enter the same ranked pump and
+spend the same per-frame budget class. A pause release must not bulk-promote all
+ready entries. Selected/current-window entries promote first; remaining deferred
+entries promote in frame-budgeted chunks through the same ranked pump.
 
 The production constants must live in `AppPolicies` or the BridgeWeb policy
 module that mirrors `AppPolicies`; tests and verifiers assert observed behavior
@@ -330,16 +338,23 @@ against those constants, not duplicated literals. Required policy classes:
 | --- | --- | --- |
 | selected apply time/unit cap | execution | selected latency histogram and per-frame applied-unit counter |
 | visible non-selected apply time/unit cap | execution | visible apply progress counter increases under selected churn |
+| deferred promotion time/unit cap | execution | pause release advances selected/current-window first and drains remaining deferred entries across multiple frames |
+| ready-item preparation time/unit cap | execution | result-map rebuild and resource/unit derivation stay inside per-frame budget |
 | stale-drop scan cap | pacing | pending stale units are cleared without monopolizing a frame |
 | no-starvation bound | fairness | at least one visible non-selected apply batch completes within N selected batches, where N is policy-owned |
 
 Applying all ready entries in one microtask, one sync React update, or one
-package-shaped Pierre operation is a contract violation. R46 is the main-thread
-counterpart to R39: rank survives worker completion and survives DOM apply.
+package-shaped Pierre operation is a contract violation. Bulk-promoting parked
+or deferred entries before the pump is the same violation upstream of DOM apply.
+R46 is the main-thread counterpart to R39: rank survives worker completion,
+pause release, ready-item preparation, and DOM apply.
 
 R46 bans the Phase-2 severe-freeze class where synchronous frame/projection work
 and apply work occupied the main thread
 (`tmp/debug-workflows/2026-07-04-agent-studio-luna338-scroll-placeholder-survivor/debug-investigation.md:177`).
+It also bans the live round-5 regression where unbudgeted pause-release
+promotion produced multi-hundred-ms main-thread tasks blocking tree and clicks:
+the budget must sit upstream of the pump, not only at DOM apply.
 
 ### R47. File View projection and pruning obey the same frame contract.
 
@@ -515,6 +530,37 @@ hand-off, then main -> Pierre worker for highlighting and DOM-owned apply, then
 Pierre/main -> DOM. The main hop is bounded to transfer plus the Pierre API
 call because Pierre must be driven from its thread; the no-fork constraint is
 not permission to make main parse, diff, classify, or re-window content.
+
+### R53. Worker messages are transferable-first.
+
+All main <-> server-worker `postMessage` payloads prefer structuredClone
+TRANSFER over copy. Content bytes and large payloads must be represented as
+`Transferable` values, using `ArrayBuffer` over string where feasible. A
+transferred buffer detaches from the sender and becomes unavailable there after
+`postMessage`; no sender or receiver path may rely on an O(bytes) clone to keep
+a second live copy.
+
+`BridgeWorkerContracts` message types must name transfer fields explicitly. A
+message with no transfer fields declares an empty transfer list; a message with
+content bytes, large paint-ready payloads, or persistent-cache payloads declares
+the exact fields that are transferred. Runtime validation must reject a payload
+whose declared transfer fields and values disagree.
+
+```text
+sender owns buffer
+  │
+  ├─► postMessage(payload, transferList)
+  │      transferList fields are named by BridgeWorkerContracts
+  │
+  ├─ sender buffer is detached
+  │
+  └─► receiver owns buffer, with no O(bytes) clone
+```
+
+Boundary instrumentation follows the Constants Annex rule: measure
+serialize/transfer duration per message class, not as one aggregate worker
+number. R53 applies at cutover slice G and to the future persistent-cache PR;
+persistent-cache payloads do not get a copy-based exemption.
 
 ## Action And Event Sequence Contracts
 
