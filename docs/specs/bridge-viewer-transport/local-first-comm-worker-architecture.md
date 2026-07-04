@@ -7,7 +7,8 @@ Constants Annex
 Parent: [performance-demand-lanes.md](performance-demand-lanes.md)
 
 This file defines the next BridgeViewer transport boundary. It does not define
-implementation order.
+implementation order. The boundary is a hard cutover contract: one converted
+viewer/protocol surface has one path, one ownership model, and one proof set.
 
 R32-R40 say the browser owns content-demand initiative. This increment splits
 that browser ownership: the FE render surface owns only local render slices;
@@ -39,7 +40,7 @@ telemetry batching, and Swift synchronization.
 
 ## WebKit Constraints
 
-The architecture assumes these WebKit constraints:
+The architecture uses these WebKit constraints and gates:
 
 - All named `WKScriptMessageHandler` handlers for one `WKWebView` share one IPC
   delivery lane. Splitting command, telemetry, and demand across handler names
@@ -47,10 +48,13 @@ The architecture assumes these WebKit constraints:
 - Message-handler delivery is treated as default-run-loop-mode traffic. Gesture
   tracking may starve it; this starvation remains an empirical-confirm open
   decision, not a settled proof claim.
-- `WKURLSchemeHandler` intercepts worker-initiated `fetch()` for registered
-  schemes. WebKit TestWebKitAPI `FileSystemAccess.mm` and
-  `IndexedDBPersistence.mm` are the source-grounded research anchors for the
-  worker custom-scheme path.
+- `WKURLSchemeHandler` is expected to intercept worker-initiated `fetch()` for
+  registered schemes. WebKit TestWebKitAPI `FileSystemAccess.mm` and
+  `IndexedDBPersistence.mm` are source-grounded research anchors, not a closed
+  production proof for this app. Native WKWebView proof of worker custom-scheme
+  fetch is REQUIRED before cutover. If that proof fails, the plan must either
+  adopt a page-fetch-and-transfer fallback that preserves R44 worker ownership
+  of bytes/cache/retry truth, or stop and revise R44 before implementation.
 - A live `MessagePort` is not entangled with native for ordinary WKWebView page
   content. `MessageChannel` is page-to-worker only for this design.
 - `SharedArrayBuffer` requires cross-origin isolation headers on every scheme
@@ -72,8 +76,8 @@ LOCAL-FIRST message boundary
 
 comm worker
   owns: protocol truth, cache truth, content-demand reconciler, R37 epochs,
-        streamId, generation, sequence, staleness, retries/backoff/pacing,
-        telemetry batching, Swift reconnect resync
+        streamId, workerDerivationEpoch, sequence, staleness,
+        retries/backoff/pacing, telemetry batching, Swift reconnect resync
   exposes: local slice updates to FE; client requests/subscriptions to Swift
   forbidden: relying on FE for protocol truth or on Swift liveness for paint
 
@@ -84,28 +88,50 @@ CLIENT/SERVER transport boundary
                    reset/unhealthy facts
 
 Swift server
-  owns: metadata plane, content scheme handler, BridgeContentDemandAdmission,
-        provider/source authority
+  owns: metadata plane, sourceGeneration/metadata lineage, content scheme
+        handler, BridgeContentDemandAdmission, provider/source authority
   exposes: disposable service endpoint; reconnect rebuilds worker truth
   forbidden: FE-observable server lifetime or UI paint coupling
 ```
 
-## Truth Ownership Table
+## Truth Ownership Tables
 
 Every datum has exactly one truth owner.
 
-| Datum | Truth owner | Readers | Notes |
-| --- | --- | --- | --- |
-| `streamId` | comm worker | FE read-only via diagnostics, Swift request validation | FE does not store it. |
-| `generation` / R37 epoch | comm worker | Swift request validation, worker tests | Collapses today's manually synced generation authorities. |
-| `sequence` | comm worker | Swift server, worker tests | Gaps recover through worker/server resync. |
-| staleness classification | comm worker | FE receives only visible health/render facts | No FE stale predicates. |
-| content-demand membership | comm worker reconciler | executor/cache inside worker | R32 stays authoritative inside the worker. |
-| content bytes / byte cache | comm worker | worker parse/window/diff/highlight | FE never receives raw body text. |
-| paint-ready rows/runs/extents | comm worker produces; FE slice store owns current render copy | components | Transferable payloads; no protocol metadata required by components. |
-| selected row/file/item | FE local slice | comm worker as fact input | Click writes local slice synchronously and sends intent. |
-| telemetry queue | comm worker | Swift telemetry endpoint | Not on interactive RPC. |
-| metadata plane | Swift | comm worker subscriptions | Untouched by this spec. |
+Identity lineage is split into two planes:
+
+| Value | Mint | Validate | Reset | Observe |
+| --- | --- | --- | --- | --- |
+| `sourceGeneration` and metadata lineage | Swift/native provider source authority | Swift rejects stale source requests; worker treats it as source fact, never as worker cache epoch authority | Swift rotates on accepted source change, resets metadata stream/gates, and revokes stale source leases | comm worker subscriptions, server seam, native proof |
+| `workerDerivationEpoch` | comm worker when it accepts a new current sourceGeneration/stream tuple | worker stamps demand plans, cache admission, fetches, and slice publications; Swift may echo/validate only as request freshness metadata | worker atomically clears derived demand membership, in-flight maps, paint-ready cache, retry state, and source-bound slice facts | FE diagnostics, worker tests, Victoria proof |
+
+The metadata plane remains native-owned. The worker epoch is a derived browser
+cache/demand epoch minted from accepted source changes; it is not a replacement
+for native metadata lineage.
+
+Extended truth ownership:
+
+| Datum | Owner | Readers | Write path | Repair path | Inactive-mode behavior |
+| --- | --- | --- | --- | --- | --- |
+| `streamId` | comm worker | FE diagnostics, Swift validation | worker opens/reopens source session | worker/server resync on gap or unhealthy | retained, never FE-writable |
+| `sourceGeneration` / metadata lineage | Swift/native | comm worker, server tests | native accepted-source transition | native reset/reopen or unhealthy | native may continue metadata rules; FE sees no protocol state |
+| `workerDerivationEpoch` | comm worker | FE diagnostics, Swift freshness echo, worker tests | worker accepts sourceGeneration/stream tuple | epoch reset clears derived worker truth | retained per mounted worker; inactive foreground work demotes/aborts |
+| `sequence` | comm worker | Swift server, worker tests | worker request/subscription order | worker/server resync closes gaps | retained, no inactive FE mutation |
+| staleness classification | comm worker | FE health/render slices | worker validates source, stream, epoch, and sequence | reset-required -> reopen or unhealthy | inactive stale results cannot mutate active UI |
+| content-demand membership | comm worker reconciler | worker executor/cache | worker reconciles selected/viewport/hover/cache facts | re-derive every fact change; no parked membership | inactive selected becomes demoted/aborted, not foreground |
+| content bytes / byte cache | comm worker | worker parse/window/diff/highlight | worker `fetch()` from content scheme | retry/backoff or unavailable slice | retained by retention policy; not active foreground |
+| paint-ready rows/runs/extents | comm worker produces; FE slice store owns current render copy | components | transferable worker slice update | stale slice replacement or explicit unavailable/error slice | inactive copies may persist but cannot overwrite active mode |
+| `selected` row/file/item | FE local slice | comm worker as fact input | synchronous click/keyboard local mutation plus intent | worker repair may mark unavailable/stale, never block paint | each mounted viewer retains its local selection memory |
+| `activeMode` | FE app shell | comm worker as demand fact | mode switch updates local shell slice | worker demotes/aborts inactive foreground; shell can re-emit fact | inactive mode retains memory but has no foreground authority |
+| `viewport` / rendered range | FE virtualizer slice | comm worker reconciler | rAF/idle-coalesced viewport publication | next viewport fact supersedes; worker re-derives | inactive viewport may be retained but does not create foreground demand |
+| `expanded` / collapsed rows | FE local slice | comm worker for visible derivation | user toggle writes local UI fact | source reset drops invalid row ids; worker publishes availability repairs | retained per viewer unless source reset invalidates ids |
+| viewed marks | Swift/native viewed-file command authority | FE render slices, comm worker ack tracking | FE sends write intent through worker to Swift | Swift ack or retry/unhealthy; worker emits ack health slice | inactive mode may queue intent only through worker, never direct native write |
+| diff status | Swift/native push plane | FE render slices, comm worker health | native status push through worker | failed push clears dedupe and re-emits or marks unhealthy | retained as last known health; stale status marked explicitly |
+| acks | comm worker | FE health/render slices, Swift request handlers | worker correlates requests/intents to Swift responses | timeout/backoff/retry or unhealthy | inactive acks may settle but cannot update active selection/content |
+| connectionHealth | comm worker | FE health chrome, Swift diagnostics | worker observes handshake, fetch, push, and telemetry failures | reconnect reset, source reopen, or unhealthy slice | inactive mode shows retained health only; no foreground retries |
+| write intents | FE creates; comm worker owns queue/dedupe | Swift command handlers, FE ack slices | local intent -> worker queue -> Swift command | worker retries/backoff or fails visibly; no direct FE->native bypass | inactive writes are demoted/queued by policy or rejected visibly |
+| telemetry queue | comm worker | Swift telemetry endpoint | idle batch to dedicated scheme endpoint | drop counters and proof failure on required loss | inactive samples still carry viewer/mode labels |
+| metadata plane | Swift/native | comm worker subscriptions | native interest stream and provider scheduler | native reset/reopen/unhealthy | untouched by this spec |
 
 ## Requirements
 
@@ -134,10 +160,24 @@ Contract violations:
 R41 extends R35/R39: selected work still ranks first, but selected paint cannot
 wait for the rank machinery to round-trip.
 
+Cold-paint outcomes are part of R41:
+
+| State at click | Required first paint | Forbidden proof claim |
+| --- | --- | --- |
+| paint-ready cache hit for the selected identity | readable selected content window, with stale-safe generation/epoch match | treating a later worker confirmation as the first paint |
+| cache miss for normal content | selected identity, selection chrome, and protocol-free loading/availability placeholder keyed to the new selection | claiming selection highlight alone satisfies click-to-first-visible-content |
+| stale cache hit for a prior identity/epoch | no old content; render the new selected identity plus loading/stale placeholder | painting stale readable content, even briefly |
+| oversized, binary, unavailable, or persistent failure | explicit unavailable/error state keyed to the selected identity | indefinite blank panel, old content, or success percentile sample |
+
+The first-visible-content proof requires readable selected content or an
+explicit selected unavailable/error/loading state from this table. Selection
+highlight alone is only action feedback; it does not satisfy the
+click-to-first-visible-content budget.
+
 ### R42. Every datum has exactly one truth owner.
 
 The worker is the single authority for protocol and cache truth: stream
-identity, R37 generation epochs, sequence, staleness, cache membership,
+identity, R37 `workerDerivationEpoch`, sequence, staleness, cache membership,
 content-demand membership, retry/backoff, and server reconnect state.
 
 FE is the single authority for render slices: selected row/file/item,
@@ -155,6 +195,10 @@ and the cold-review staleness class where Review and Worktree/File carried
 different generation models
 (`docs/wip/2026-07-04-cold-architecture-review-bridge-demand-system.md:89`).
 
+R42 is complete only when the extended truth ownership table above is
+implemented as code ownership. Adding a second writer for any row is a
+contract violation, even if both writers currently agree in tests.
+
 ### R43. Telemetry uses a dedicated transport lane.
 
 Telemetry must use a dedicated `WKURLSchemeHandler` POST endpoint with its own
@@ -168,6 +212,9 @@ Browser/worker telemetry obligations:
 - drop-oldest shedding when the cap is exceeded;
 - no forced flush by interactive commands;
 - no telemetry batch queued ahead of command, content, or paint-critical work.
+- lossless aggregate counters for every shed sample, keyed by event, lane,
+  result, and drop reason;
+- monotonic batch sequence numbers per telemetry stream.
 
 Native telemetry obligations:
 
@@ -180,6 +227,18 @@ R43 bans the verified shared-channel compounding path
 (`tmp/debug-workflows/2026-07-04-agent-studio-luna338-scroll-placeholder-survivor/debug-investigation.md:166`)
 and applies the Constants Annex rule that every cap protects exactly one class
 (`docs/specs/bridge-viewer-transport/performance-demand-lanes.md:315`).
+
+Telemetry proof integrity:
+
+| Condition | Proof rule |
+| --- | --- |
+| required event class shed during a proof run | proof fails; the run may be retained only as exploratory evidence |
+| batch sequence gap | proof fails unless paired with a matching lossless drop counter and an accepted exploratory label |
+| slow click, reject, abort, stale, or unavailable sample shed | proof fails; tail and failure samples are required evidence |
+| optional/debug event shed | allowed only with aggregate counters and explicit lossy-run annotation |
+
+Percentiles can satisfy R41-R48 only from non-lossy required event streams.
+Lossy telemetry runs are debugging aids, not performance proof.
 
 ### R44. Content bytes stream to the worker, not the main thread.
 
@@ -198,12 +257,43 @@ R44 bans the copy-count/load-ceiling class where whole frames and file journeys
 cross too many serialize/validate/copy surfaces
 (`docs/wip/2026-07-04-cold-architecture-review-bridge-demand-system.md:69`).
 
+Worker fetch outcomes:
+
+| Outcome | Worker state | FE slice | Re-demand rule |
+| --- | --- | --- | --- |
+| success, current epoch | bytes enter worker byte cache; parse/window/highlight may continue | paint-ready or availability slice | membership remains until UI commit if still selected/visible |
+| abort from supersession or demotion | in-flight slot frees; no cache write unless completion was already fresh | no error for speculative/nearby; selected may show loading for new identity | reconciler re-derives from current facts |
+| transient failure | executor records delivery-failure fact and bounded backoff | health/loading slice with retry state, no FE-owned retry | worker re-demands from membership after backoff |
+| persistent failure or over-budget | worker records terminal availability for current epoch | explicit unavailable/error slice keyed to selected/visible identity | membership remains worker-owned; retry only after source/fact reset policy |
+| stale sourceGeneration or workerDerivationEpoch | discard result, count stale drop | no stale content; health slice if user-visible | epoch reset/reconnect drives fresh demand |
+| reconnect reset | clear source-bound in-flight/cache memberships as required by epoch reset | connection health/loading slices | worker rebuilds membership from latest FE facts and Swift source |
+
+FE receives render and health slices only. Fetch membership, backoff, retry,
+and re-demand are worker facts; FE must not park or restart content demand.
+
 ### R45. FE render store is sliced.
 
-FE components subscribe to row-, item-, selection-, viewport-, and
-panel-scoped slices. Root-snapshot subscriptions that make one interaction
-rebuild package-shaped state are contract violations. O(package) work inside
-interaction handlers is a contract violation.
+FE components may subscribe only to the allowed interaction slice shapes:
+
+| Slice | Shape | May contain |
+| --- | --- | --- |
+| `selectionSlice` | one selected identity and local action state | selected row/file/item, pending local intent, selection availability |
+| `viewportSlice` | visible range plus bounded delta | rendered ids/range, scroll activity, look-ahead facts |
+| `rowPaintSlice(id)` | one keyed row/item paint model | row chrome, extent, summary, current paint-ready projection |
+| `contentAvailabilitySlice(id)` | one keyed content availability fact | cache hit/loading/unavailable/error/currentness facts |
+| `panelChromeSlice` | bounded panel-level UI state | active mode, health badge, counts, toolbar affordance state |
+
+Whole-package maps, whole ordered arrays, registry snapshots, and package-shaped
+view models are banned from interaction subscribers. A slice named
+"panel-scoped" is not compliant if selecting one item invalidates O(package)
+state.
+
+Root-snapshot subscriptions that make one interaction rebuild package-shaped
+state are contract violations. O(package) work inside interaction handlers is a
+contract violation. Proof must show click invalidation cost is
+O(selected + visible delta), not O(package), using subscriber counts,
+invalidated-key counts, or equivalent instrumentation under large-package
+fixtures.
 
 Review's current root-snapshot subscription and propagation shape is the banned
 class (`BridgeWeb/src/app/bridge-app-review-viewer-mode.tsx:112`,
@@ -222,10 +312,23 @@ DOM materialization remains on the main thread. That stage is legitimate only
 as a frame-budgeted apply pump:
 
 - rank-ordered, with selected/current target first;
-- bounded per frame by time and unit count;
+- bounded per frame by AppPolicies-backed time and unit-count caps;
 - input-yielding between chunks;
 - resumable without redoing completed units;
 - stale-safe if worker or Swift advances generation while units are pending.
+- no-starvation bounded for visible non-selected apply work while selected
+  churn continues.
+
+The production constants must live in `AppPolicies` or the BridgeWeb policy
+module that mirrors `AppPolicies`; tests and verifiers assert observed behavior
+against those constants, not duplicated literals. Required policy classes:
+
+| Budget | Class | Proof |
+| --- | --- | --- |
+| selected apply time/unit cap | execution | selected latency histogram and per-frame applied-unit counter |
+| visible non-selected apply time/unit cap | execution | visible apply progress counter increases under selected churn |
+| stale-drop scan cap | pacing | pending stale units are cleared without monopolizing a frame |
+| no-starvation bound | fairness | at least one visible non-selected apply batch completes within N selected batches, where N is policy-owned |
 
 Applying all ready entries in one microtask, one sync React update, or one
 package-shaped Pierre operation is a contract violation. R46 is the main-thread
@@ -259,13 +362,19 @@ contract.
 
 FE seam:
 
-- tests FE against a fake worker;
+- tests FE against a hostile fake worker;
 - proves synchronous local render reads, optimistic click paint, slice
   subscription boundaries, no protocol state in FE, and frame-budgeted apply
   behavior;
 - cannot prove WebKit IPC delivery, worker/server protocol correctness,
-  Swift admission, worker content fetch, native telemetry decode, or live
-  momentum starvation.
+  Swift admission, worker content fetch, structured-clone/transfer cost,
+  worker bootstrap/prewarm, real worker scheduling, native telemetry decode,
+  payload compatibility, or live momentum starvation.
+
+The FE fake worker must test delayed, reordered, dropped, duplicate, and
+never-resolving replies. A polite synchronous fake worker cannot close R41,
+R45, or R46 because it hides await coupling, ordering bugs, clone cost, and
+cold-cache behavior.
 
 Worker seam:
 
@@ -273,9 +382,9 @@ Worker seam:
   live Swift: out-of-order pushes, stale generations, dropped responses,
   reconnects, oversized telemetry, slow content, persistent fetch failures,
   and backpressure;
-- proves stream/generation/sequence/staleness authority, R32-R40 membership,
-  R34 backoff/pacing, R37 epoch reset, R39 rank into worker pools, R43 telemetry
-  batching/shedding, R44 content streaming, and reconnect resync;
+- proves stream/workerDerivationEpoch/sequence/staleness authority, R32-R40
+  membership, R34 backoff/pacing, R37 epoch reset, R39 rank into worker pools,
+  R43 telemetry batching/shedding, R44 content streaming, and reconnect resync;
 - cannot prove FE paint timing, DOM materialization, WebKit run-loop mode, or
   Swift provider correctness.
 
@@ -292,6 +401,9 @@ Live gates:
 
 - native WKWebView proof remains required for WebKit delivery, worker
   custom-scheme fetch, run-loop starvation, and end-to-end click/scroll budgets;
+- worker custom-scheme fetch must pass native WKWebView proof before the R44
+  cutover. If it fails, the blocking decision is page-fetch-and-transfer
+  fallback versus R44 redesign; implementation must not assume worker fetch.
 - Victoria-backed proof remains required for performance samples and telemetry
   admission;
 - existing R32-R40 proof seams remain required and are not replaced
@@ -316,6 +428,21 @@ What dies:
 - root-snapshot render coupling for interaction paths;
 - package-shaped sync work inside click, selection, scroll, or paint handlers;
 - handler-splitting as a claim of WebKit IPC isolation.
+
+Compile-enforced deletion sets are required per cutover unit:
+
+| Cutover unit | Delete or make unbuildable | Keep only |
+| --- | --- | --- |
+| File viewer content protocol | FE raw body/frame package intake, FE generation/sequence/staleness caches for content, FE demand retry/parking fields | FE slices, worker protocol client, native metadata plane |
+| Review viewer content protocol | package-first review body loading, root-snapshot selection render path, review prefetch pump, FE cache-membership truth | FE slices, worker reconciler/cache, native metadata plane |
+| telemetry transport | interactive RPC telemetry send/force-flush path and shared-command queue telemetry | dedicated scheme POST endpoint and worker batching |
+| demand membership | legacy staging buffers, membership caps, pending eviction as membership policy, parked retry versions | worker reconciler membership and executor-stage pacing only |
+
+No old and new path may remain live for the same viewer/protocol surface. Any
+surface not converted by a cutover unit is explicitly outside R41-R48 proof and
+cannot satisfy the local-first comm-worker contract. Compatibility shims,
+feature flags, or dual readers for one converted surface are contract
+violations unless the old path is compile-dead in that unit.
 
 ## Non-Goals
 
