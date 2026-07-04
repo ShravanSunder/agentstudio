@@ -305,6 +305,16 @@ struct AgentStudioStartupDiagnosticActionTests {
                 == .string("missing"))
     }
 
+    @Test("Bridge smoke diagnostic stages review tree click until after bottom scroll settles")
+    func bridgeSmokeDiagnosticStagesReviewTreeClickUntilAfterBottomScrollSettles() {
+        let probe = AppDelegate.bridgeReviewObservabilitySmokeRenderStateJavaScript
+
+        #expect(probe.contains("reviewTreeClickReadyAfterScroll"))
+        #expect(probe.contains("awaiting_bottom_scroll_settle"))
+        #expect(probe.contains("data-file-tree-sticky-row"))
+        #expect(probe.contains("data-item-parked"))
+    }
+
     @Test("Bridge smoke render proof fails before a modified review item click converges")
     func bridgeSmokeRenderProofFailsBeforeModifiedReviewItemClickConverges() {
         var proof = makeHydratedBridgeSmokeRenderProof(

@@ -425,6 +425,7 @@ extension AppDelegate {
               let reviewTreeClickAttemptCount = Number.isFinite(Number(reviewTreeClickProbe.clickAttemptCount))
                 ? Number(reviewTreeClickProbe.clickAttemptCount)
                 : 0;
+              const reviewTreeClickReadyAfterScroll = reviewTreeClickProbe.readyAfterScroll === true;
               let reviewTreeClickSelectedPath =
                 typeof reviewTreeClickProbe.selectedPath === 'string' ? reviewTreeClickProbe.selectedPath : '';
               let reviewTreeClickSelectedContentState =
@@ -480,50 +481,72 @@ extension AppDelegate {
                 reviewTreeScrollStressCount >= 4 &&
                 reviewTreeScrollTarget !== null
               ) {
-                reviewTreeScrollTarget.scrollTop = reviewTreeScrollTarget.scrollHeight;
-                reviewTreeScrollTarget.dispatchEvent(new Event('scroll', { bubbles: true }));
-                const reviewTreeButtons = queryRowsIncludingOpenShadowRoots(
-                  reviewTree,
-                  'button[data-item-path][data-item-type="file"]'
-                );
-                const reviewTreeRows =
-                  reviewTreeButtons.length > 0
-                    ? reviewTreeButtons
-                    : queryRowsIncludingOpenShadowRoots(
-                        reviewTree,
-                        '[data-type="item"][data-item-type="file"][data-item-path]'
-                      );
-                reviewTreeClickRenderedRowCount = reviewTreeRows.length;
-                const reviewTreeClickTarget =
-                  [...reviewTreeRows].reverse().find((row) => {
-                    const path = row.getAttribute('data-item-path') || '';
-                    return path.length > 0 && path !== selectedDisplayPath;
-                  }) ||
-                  [...reviewTreeRows].reverse().find((row) => {
-                    return (row.getAttribute('data-item-path') || '').length > 0;
-                  }) ||
-                  null;
-                if (reviewTreeClickTarget !== null) {
-                  const targetRowRect = reviewTreeClickTarget.getBoundingClientRect();
-                  const reviewTreeRect = reviewTreeScrollTarget?.getBoundingClientRect?.() || null;
-                  reviewTreeClickTargetRowIndex = reviewTreeRows.indexOf(reviewTreeClickTarget);
-                  reviewTreeClickTargetRowVisible = reviewTreeRect !== null
-                    ? targetRowRect.bottom >= reviewTreeRect.top && targetRowRect.top <= reviewTreeRect.bottom
-                    : targetRowRect.bottom >= 0 && targetRowRect.top <= window.innerHeight;
-                  reviewTreeClickAttemptCount += 1;
-                  reviewTreeClickTargetPath = reviewTreeClickTarget.getAttribute('data-item-path') || '';
+                if (!reviewTreeClickReadyAfterScroll) {
+                  reviewTreeScrollTarget.scrollTop = reviewTreeScrollTarget.scrollHeight;
+                  reviewTreeScrollTarget.dispatchEvent(new Event('scroll', { bubbles: true }));
                   window.__bridgeReviewTreeClickProbe = {
-                    targetPath: reviewTreeClickTargetPath,
                     currentSelectedPath: reviewTreeClickCurrentSelectedPath,
                     currentSelectedItemId: reviewTreeClickCurrentSelectedItemId,
                     shellSelectedPath: reviewTreeClickShellSelectedPath,
                     renderedRowCount: reviewTreeClickRenderedRowCount,
                     targetRowIndex: reviewTreeClickTargetRowIndex,
                     targetRowVisible: reviewTreeClickTargetRowVisible,
-                    clickAttemptCount: reviewTreeClickAttemptCount
+                    clickAttemptCount: reviewTreeClickAttemptCount,
+                    readyAfterScroll: true,
+                    status: 'awaiting_bottom_scroll_settle'
                   };
-                  reviewTreeClickTarget.scrollIntoView?.({ block: 'nearest' });
-                  reviewTreeClickTarget.click();
+                } else {
+                  const reviewTreeButtons = queryRowsIncludingOpenShadowRoots(
+                    reviewTree,
+                    'button[data-item-path][data-item-type="file"]'
+                  );
+                  const reviewTreeRows = (
+                    reviewTreeButtons.length > 0
+                      ? reviewTreeButtons
+                      : queryRowsIncludingOpenShadowRoots(
+                          reviewTree,
+                          '[data-type="item"][data-item-type="file"][data-item-path]'
+                        )
+                  ).filter((row) => {
+                    return (
+                      !row.hasAttribute('data-file-tree-sticky-row') &&
+                      !row.hasAttribute('data-item-parked')
+                    );
+                  });
+                  reviewTreeClickRenderedRowCount = reviewTreeRows.length;
+                  const reviewTreeClickTarget =
+                    [...reviewTreeRows].reverse().find((row) => {
+                      const path = row.getAttribute('data-item-path') || '';
+                      return path.length > 0 && path !== selectedDisplayPath;
+                    }) ||
+                    [...reviewTreeRows].reverse().find((row) => {
+                      return (row.getAttribute('data-item-path') || '').length > 0;
+                    }) ||
+                    null;
+                  if (reviewTreeClickTarget !== null) {
+                    const targetRowRect = reviewTreeClickTarget.getBoundingClientRect();
+                    const reviewTreeRect = reviewTreeScrollTarget?.getBoundingClientRect?.() || null;
+                    reviewTreeClickTargetRowIndex = reviewTreeRows.indexOf(reviewTreeClickTarget);
+                    reviewTreeClickTargetRowVisible = reviewTreeRect !== null
+                      ? targetRowRect.bottom >= reviewTreeRect.top && targetRowRect.top <= reviewTreeRect.bottom
+                      : targetRowRect.bottom >= 0 && targetRowRect.top <= window.innerHeight;
+                    reviewTreeClickAttemptCount += 1;
+                    reviewTreeClickTargetPath = reviewTreeClickTarget.getAttribute('data-item-path') || '';
+                    window.__bridgeReviewTreeClickProbe = {
+                      targetPath: reviewTreeClickTargetPath,
+                      currentSelectedPath: reviewTreeClickCurrentSelectedPath,
+                      currentSelectedItemId: reviewTreeClickCurrentSelectedItemId,
+                      shellSelectedPath: reviewTreeClickShellSelectedPath,
+                      renderedRowCount: reviewTreeClickRenderedRowCount,
+                      targetRowIndex: reviewTreeClickTargetRowIndex,
+                      targetRowVisible: reviewTreeClickTargetRowVisible,
+                      clickAttemptCount: reviewTreeClickAttemptCount,
+                      readyAfterScroll: true,
+                      status: 'clicked_after_scroll_settle'
+                    };
+                    reviewTreeClickTarget.scrollIntoView?.({ block: 'nearest' });
+                    reviewTreeClickTarget.click();
+                  }
                 }
               }
               const errorProbe = Array.isArray(window.__bridgeErrorProbe)

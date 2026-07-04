@@ -812,6 +812,12 @@ import Foundation
                 ? nativeWorktreeProbe[nativeWorktreeProbe.length - 1]
                 : null;
               const clip = (value, limit) => String(value || '').slice(0, limit);
+              const nativeWorktreeProbeFrameEvidenceCount = nativeWorktreeProbe.filter((entry) => {
+                return (
+                  clip(entry?.frameKind, 120).length > 0 &&
+                  entry?.streamIdMatches === true
+                );
+              }).length;
               const classifyPageIssue = (entry) => {
                 const kind = clip(entry?.kind, 80);
                 const message = clip(entry?.message, 300);
@@ -937,7 +943,8 @@ import Foundation
                 nativeWorktreeProbeLastFrameKind: clip(lastNativeWorktreeProbeEntry?.frameKind, 120) || 'none',
                 nativeWorktreeProbeLastGeneration: Number(lastNativeWorktreeProbeEntry?.generation || 0),
                 nativeWorktreeProbeLastSequence: Number(lastNativeWorktreeProbeEntry?.sequence || 0),
-                nativeWorktreeProbeLastStreamIdMatches: lastNativeWorktreeProbeEntry?.streamIdMatches === true
+                nativeWorktreeProbeLastStreamIdMatches: lastNativeWorktreeProbeEntry?.streamIdMatches === true,
+                nativeWorktreeProbeFrameEvidenceCount
               };
             })())
             """

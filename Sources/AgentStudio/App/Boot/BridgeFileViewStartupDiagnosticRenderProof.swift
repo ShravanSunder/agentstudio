@@ -62,6 +62,7 @@ struct BridgeFileViewObservabilitySmokeRenderSnapshot: Decodable, Equatable {
     let nativeWorktreeProbeLastGeneration: Int
     let nativeWorktreeProbeLastSequence: Int
     let nativeWorktreeProbeLastStreamIdMatches: Bool
+    let nativeWorktreeProbeFrameEvidenceCount: Int
 }
 
 struct BridgeFileViewObservabilitySmokeRenderProof: Equatable {
@@ -133,6 +134,7 @@ struct BridgeFileViewObservabilitySmokeRenderProof: Equatable {
     let nativeWorktreeProbeLastGeneration: Int
     let nativeWorktreeProbeLastSequence: Int
     let nativeWorktreeProbeLastStreamIdMatches: Bool
+    let nativeWorktreeProbeFrameEvidenceCount: Int
 
     init(
         snapshot: BridgeFileViewObservabilitySmokeRenderSnapshot,
@@ -204,6 +206,7 @@ struct BridgeFileViewObservabilitySmokeRenderProof: Equatable {
         nativeWorktreeProbeLastGeneration = snapshot.nativeWorktreeProbeLastGeneration
         nativeWorktreeProbeLastSequence = snapshot.nativeWorktreeProbeLastSequence
         nativeWorktreeProbeLastStreamIdMatches = snapshot.nativeWorktreeProbeLastStreamIdMatches
+        nativeWorktreeProbeFrameEvidenceCount = snapshot.nativeWorktreeProbeFrameEvidenceCount
     }
 
     var succeeded: Bool {
@@ -335,7 +338,7 @@ struct BridgeFileViewObservabilitySmokeRenderProof: Equatable {
             && bridgeResponseCount > 0
             && intakeFrameCount > 0
             && nativeWorktreeProbeCount > 0
-            && nativeWorktreeProbeLastFrameKind != "none"
+            && nativeWorktreeProbeFrameEvidenceCount > 0
             && nativeWorktreeProbeLastStreamIdMatches
     }
 
@@ -441,6 +444,8 @@ struct BridgeFileViewObservabilitySmokeRenderProof: Equatable {
                 nativeWorktreeProbeLastSequence),
             "agentstudio.startup_diagnostic.bridge.file_view.native_probe.last_stream_id_matches": .bool(
                 nativeWorktreeProbeLastStreamIdMatches),
+            "agentstudio.startup_diagnostic.bridge.file_view.native_probe.frame_evidence.count": .int(
+                nativeWorktreeProbeFrameEvidenceCount),
             "agentstudio.startup_diagnostic.render_proof.succeeded": .bool(succeeded),
         ]
     }
@@ -513,7 +518,8 @@ extension BridgeFileViewObservabilitySmokeRenderProof {
                 nativeWorktreeProbeLastFrameKind: "none",
                 nativeWorktreeProbeLastGeneration: 0,
                 nativeWorktreeProbeLastSequence: 0,
-                nativeWorktreeProbeLastStreamIdMatches: false
+                nativeWorktreeProbeLastStreamIdMatches: false,
+                nativeWorktreeProbeFrameEvidenceCount: 0
             ),
             expectedVisiblePaneCount: 1
         )

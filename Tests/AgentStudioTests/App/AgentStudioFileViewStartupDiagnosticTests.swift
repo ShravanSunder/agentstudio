@@ -140,6 +140,25 @@ struct AgentStudioFileViewStartupDiagnosticTests {
         #expect(proof.attributes["agentstudio.startup_diagnostic.render_proof.succeeded"] == .bool(false))
     }
 
+    @Test("Bridge FileView smoke render proof accepts a replay request after native frame evidence")
+    func smokeRenderProofAcceptsReplayRequestAfterNativeFrameEvidence() {
+        let proof = BridgeFileViewObservabilitySmokeRenderProof(
+            snapshot: makeFileViewSmokeSnapshot(
+                nativeWorktreeProbeLastReason: "replay_requested",
+                nativeWorktreeProbeLastFrameKind: "none",
+                nativeWorktreeProbeLastSequence: 0,
+                nativeWorktreeProbeFrameEvidenceCount: 5
+            ),
+            expectedVisiblePaneCount: 1
+        )
+
+        #expect(proof.succeeded)
+        #expect(
+            proof.attributes["agentstudio.startup_diagnostic.bridge.file_view.native_probe.frame_evidence.count"]
+                == .int(5))
+        #expect(proof.attributes["agentstudio.startup_diagnostic.render_proof.succeeded"] == .bool(true))
+    }
+
     @Test("Bridge FileView smoke diagnostic JavaScript exercises a visible file click")
     func smokeDiagnosticJavaScriptExercisesVisibleFileClick() {
         let script = AppDelegate.bridgeFileViewObservabilitySmokeRenderStateJavaScript
@@ -423,6 +442,7 @@ struct AgentStudioFileViewStartupDiagnosticTests {
         nativeWorktreeProbeLastFrameKind: String = "worktree.treeWindow",
         nativeWorktreeProbeLastSequence: Int = 7,
         nativeWorktreeProbeLastStreamIdMatches: Bool = true,
+        nativeWorktreeProbeFrameEvidenceCount: Int = 4,
         pageErrorCount: Int = 0,
         pageIssueLastKind: String = "none",
         pageIssueLastClass: String = "none",
@@ -497,7 +517,8 @@ struct AgentStudioFileViewStartupDiagnosticTests {
             nativeWorktreeProbeLastFrameKind: nativeWorktreeProbeLastFrameKind,
             nativeWorktreeProbeLastGeneration: 1,
             nativeWorktreeProbeLastSequence: nativeWorktreeProbeLastSequence,
-            nativeWorktreeProbeLastStreamIdMatches: nativeWorktreeProbeLastStreamIdMatches
+            nativeWorktreeProbeLastStreamIdMatches: nativeWorktreeProbeLastStreamIdMatches,
+            nativeWorktreeProbeFrameEvidenceCount: nativeWorktreeProbeFrameEvidenceCount
         )
     }
 }
