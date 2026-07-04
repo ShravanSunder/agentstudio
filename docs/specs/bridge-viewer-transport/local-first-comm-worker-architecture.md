@@ -409,6 +409,62 @@ Live gates:
 - existing R32-R40 proof seams remain required and are not replaced
   (`docs/specs/bridge-viewer-transport/performance-demand-lanes.md:277`).
 
+## Channel Topology And Typed Contracts
+
+### R49. The topology has exactly three runtime channels.
+
+The local-first worker design has three channels, each with its own contract.
+The server worker named here is the comm worker in R41-R48.
+
+| Channel | Contract | Required payload shape |
+| --- | --- | --- |
+| main <-> server worker | `MessageChannel` port owned by the page and server worker, using transferables where payloads can avoid clone cost | typed commands down: `select`, `viewport`, `hover`, `markViewed`, and `mode`; typed slice patches up |
+| server worker <-> Swift | all Swift communication: request/response through `WKURLSchemeHandler` `fetch()`, plus pushes through a long-lived streamed `fetch()` response held open by the worker while native writes frames into the stream | Swift-side request, response, push, content, availability, telemetry, and health frames |
+| main <-> Pierre workers | Pierre's own API exclusively | transferable paint-ready structs received from the server worker without parsing, plus `bridgeDemandRank` |
+
+The long-lived streamed-response fetch is the decided Swift push mechanism.
+The rejected alternative is `WKScriptMessage` push delivery: those pushes land
+in the page world and would force main into a verbatim-relay role. It is an
+acceptable fallback only if the streamed-response native proof fails, and only
+alongside the existing worker-fetch proof gate.
+
+On the Pierre edge, main is a courier, never a processor. Main hands Pierre
+transferable paint-ready structs from the server worker and the
+`bridgeDemandRank`; it must not parse, classify, window, diff, or highlight the
+content on that edge.
+
+### R50. Channel contracts are typed and constant.
+
+`BridgeWorkerContracts` is the working-name single schema source for channel
+[1], the main <-> server-worker `MessageChannel`. Both endpoints compile
+against this module. It owns zod-derived types, the versioned wire format, and
+runtime validation at the worker boundary. A message shape that is not in this
+contract must be a compile error, not an unchecked runtime convention.
+
+Channel [2] shares vocabulary with the Swift-side contracts the way
+`IPCBridgeContracts` does for IPC: one named contract vocabulary crosses the
+Swift/browser boundary, and worker/server implementation code consumes that
+vocabulary instead of inventing local frame shapes. No channel may add ad-hoc
+message shapes.
+
+### R51. Forbidden edges are part of the contract.
+
+| Forbidden edge | Reason |
+| --- | --- |
+| main -> Swift | bootstrap handshake only; ordinary Swift traffic must go through the server worker so main cannot become a protocol relay or backpressure owner |
+| server worker -> DOM/render | the worker owns protocol, cache, parse, window, diff, and slice production, but DOM materialization remains main-thread/Pierre-owned |
+| Pierre workers -> any initiator role | Pierre workers are pure compute/apply workers driven through Pierre's API, never demand, fetch, protocol, or Swift initiators |
+| any untyped message anywhere | untyped traffic bypasses the schema source, version fence, validation boundary, and proof seams |
+
+### R52. Main is a bounded courier on the content path.
+
+The content path is Swift -> server worker for parse/window/diff and slice
+production, then server worker -> main for a zero-work transferable struct
+hand-off, then main -> Pierre worker for highlighting and DOM-owned apply, then
+Pierre/main -> DOM. The main hop is bounded to transfer plus the Pierre API
+call because Pierre must be driven from its thread; the no-fork constraint is
+not permission to make main parse, diff, classify, or re-window content.
+
 ## Action And Event Sequence Contracts
 
 Every user action and system event must preserve the local-first rule: FE may
@@ -420,31 +476,32 @@ synchronously into a paint.
 Boundary notation:
 
 ```text
-FE -> worker     LOCAL-FIRST message boundary crossing
-worker -> Swift  CLIENT/SERVER transport boundary crossing
-Swift -> worker  server push/subscription/content response crossing
-worker -> FE     worker slice publication crossing
+main/FE -> server worker     LOCAL-FIRST MessageChannel boundary crossing
+server worker -> Swift       CLIENT/SERVER fetch boundary crossing
+Swift -> server worker       streamed push/content/response crossing
+server worker -> main/FE     typed slice publication crossing
+main/FE -> Pierre worker     Pierre API compute/apply boundary crossing
 ```
 
 ### Action/Event Inventory
 
 | Trigger | Initiating actor | Boundary crossings | Paint rule | Governing requirements |
 | --- | --- | --- | --- | --- |
-| click cache-hit | user/FE | 0 before content paint; later FE -> worker intent/fact if needed | frame-1 paints readable selected content from fresh local paint-ready cache | R41, R42, R45, R48 |
-| click cold | user/FE | 0 before frame-1; later FE -> worker demand fact, worker -> Swift fetch/subscription, Swift -> worker content, worker -> FE slice | frame-1 paints selected identity plus honest loading/availability; selected content applies first within R46 budget when ready | R41, R44, R45, R46, R48 |
-| scroll momentum | user/FE/Pierre | one rAF-coalesced FE -> worker viewport fact per frame while moving | Pierre scrolls existing DOM immediately; incoming slices that affect viewport are HELD while momentum continues | R41, R45, R46, R48 |
-| scroll settle | FE/Pierre | FE -> worker settled viewport fact; later worker -> FE affected slice updates | settle frame keeps existing DOM; HELD slices apply by rank after settle inside frame budget | R41, R45, R46, R48 |
-| hover | user/FE | 0 before hover paint; later FE -> worker hover fact if it changes demand | frame-1 paints local hover/focus chrome only; content demand is speculative and cannot block hover | R41, R42, R45 |
-| expand/collapse | user/FE | 0 before toggle paint; later FE -> worker expanded/collapsed fact | frame-1 paints local tree shape and placeholders from slices; worker repairs invalid ids or supplies content deltas later | R41, R42, R45, R46 |
-| mode switch | user/FE app shell | 0 before shell paint; later FE -> worker activeMode fact | frame-1 paints retained local mode shell/slices; worker demotes inactive foreground work and repairs availability later | R41, R42, R45 |
-| tab/worktree switch | user/FE app shell | 0 before shell paint; later FE -> worker selected context fact and worker -> Swift subscribe/reopen if needed | frame-1 paints retained local shell or honest loading; no visible old-worktree content after identity change | R41, R42, R45, R48 |
-| server push/fact | Swift | Swift -> worker subscription push; worker -> FE affected slices only | FE paints only after worker validates stream/epoch/sequence and publishes O(delta) slice patches | R42, R45, R48 |
-| content-ready | Swift/worker executor | Swift -> worker content response; worker -> FE paint-ready slice | no direct paint from response; worker validates current epoch and FE applies rank-first within R46 | R42, R44, R46, R48 |
-| generation rotation | Swift source plus worker epoch authority | Swift -> worker source fact; worker atomic epoch reset; worker -> FE reset slices | one paint observes either old epoch before reset or new epoch after reset; never half-old/half-new | R37, R42, R44, R45, R48 |
-| fetch failure | worker executor/Swift content path | Swift -> worker failure or worker local fetch failure; worker -> FE availability/health slice | selected identity paints explicit retry/unavailable/error state; FE never starts its own retry | R41, R42, R44, R48 |
-| reconnect | worker transport | worker -> Swift reopen/subscriptions; Swift -> worker resync; worker -> FE health/slice repairs | FE keeps local slices with explicit health/loading; stale incoming results cannot mutate active UI | R42, R44, R45, R48 |
-| telemetry flush | comm worker | worker -> Swift dedicated scheme POST only | no user-visible paint; flush runs idle, byte-capped, drop-oldest with lossless counters | R41, R43, R48 |
-| startup warm-up | FE activation/worker | FE -> worker warm-up fact; worker may prewarm cache/compute and Swift subscriptions | initial shell paints from retained local slices or honest loading; warm-up cannot block first paint | R41, R42, R44, R48 |
+| click cache-hit | user/FE | 0 before content paint; later FE -> server worker intent/fact if needed | frame-1 paints readable selected content from fresh local paint-ready cache | R41, R42, R45, R48, R49 |
+| click cold | user/FE | 0 before frame-1; later FE -> server worker demand fact, server worker -> Swift fetch/subscription, Swift -> server worker content, server worker -> FE slice | frame-1 paints selected identity plus honest loading/availability; selected content applies first within R46 budget when ready | R41, R44, R45, R46, R48, R49, R52 |
+| scroll momentum | user/FE/Pierre | one rAF-coalesced FE -> server worker viewport fact per frame while moving; main -> Pierre worker through Pierre API only | Pierre scrolls existing DOM immediately; incoming slices that affect viewport are HELD while momentum continues | R41, R45, R46, R48, R49, R51 |
+| scroll settle | FE/Pierre | FE -> server worker settled viewport fact; later server worker -> FE affected slice updates; main -> Pierre worker through Pierre API only | settle frame keeps existing DOM; HELD slices apply by rank after settle inside frame budget | R41, R45, R46, R48, R49, R51 |
+| hover | user/FE | 0 before hover paint; later FE -> server worker hover fact if it changes demand | frame-1 paints local hover/focus chrome only; content demand is speculative and cannot block hover | R41, R42, R45, R49 |
+| expand/collapse | user/FE | 0 before toggle paint; later FE -> server worker expanded/collapsed fact | frame-1 paints local tree shape and placeholders from slices; server worker repairs invalid ids or supplies content deltas later | R41, R42, R45, R46, R49 |
+| mode switch | user/FE app shell | 0 before shell paint; later FE -> server worker activeMode fact | frame-1 paints retained local mode shell/slices; server worker demotes inactive foreground work and repairs availability later | R41, R42, R45, R49 |
+| tab/worktree switch | user/FE app shell | 0 before shell paint; later FE -> server worker selected context fact and server worker -> Swift subscribe/reopen if needed | frame-1 paints retained local shell or honest loading; no visible old-worktree content after identity change | R41, R42, R45, R48, R49 |
+| server push/fact | Swift | Swift -> server worker streamed push; server worker -> FE affected slices only | FE paints only after server worker validates stream/epoch/sequence and publishes O(delta) slice patches | R42, R45, R48, R49, R50 |
+| content-ready | Swift/server worker executor | Swift -> server worker content response; server worker -> FE paint-ready slice | no direct paint from response; server worker validates current epoch and FE applies rank-first within R46 | R42, R44, R46, R48, R49, R52 |
+| generation rotation | Swift source plus server worker epoch authority | Swift -> server worker source fact; server worker atomic epoch reset; server worker -> FE reset slices | one paint observes either old epoch before reset or new epoch after reset; never half-old/half-new | R37, R42, R44, R45, R48, R49 |
+| fetch failure | server worker executor/Swift content path | Swift -> server worker failure or server worker local fetch failure; server worker -> FE availability/health slice | selected identity paints explicit retry/unavailable/error state; FE never starts its own retry | R41, R42, R44, R48, R49 |
+| reconnect | server worker transport | server worker -> Swift reopen/subscriptions; Swift -> server worker resync; server worker -> FE health/slice repairs | FE keeps local slices with explicit health/loading; stale incoming results cannot mutate active UI | R42, R44, R45, R48, R49 |
+| telemetry flush | server worker | server worker -> Swift dedicated scheme POST only | no user-visible paint; flush runs idle, byte-capped, drop-oldest with lossless counters | R41, R43, R48, R49 |
+| startup warm-up | FE activation/server worker | FE -> server worker warm-up fact; server worker may prewarm cache/compute and Swift subscriptions | initial shell paints from retained local slices or honest loading; warm-up cannot block first paint | R41, R42, R44, R48, R49 |
 
 ### Normative Sequences
 
@@ -461,9 +518,9 @@ FE local click handler
 frame-1 paint
   │  selected chrome + readable selected content
   │
-  ├─► worker (optional fact/intent after paint)
+  ├─► server worker (optional fact/intent after paint)
   │
-  ◄─ worker repair slice only if epoch/staleness later disagrees
+  ◄─ server worker repair slice only if epoch/staleness later disagrees
 ```
 
 Click, cold:
@@ -479,13 +536,13 @@ FE local click handler
 frame-1 paint
   │  selected chrome + honest loading/availability for selected identity
   │
-  ├─► worker: selected/content-demand fact
+  ├─► server worker: selected/content-demand fact
   │      validates current workerDerivationEpoch and ranks selected first
   │
-  ├──── worker ────► Swift: fetch/subscribe if cache miss
-  │                  Swift ────► worker: content or availability
+  ├──── server worker ────► Swift: fetch/subscribe if cache miss
+  │                         Swift ────► server worker: content or availability
   │
-  ◄─ worker: selected paint-ready slice
+  ◄─ server worker: selected paint-ready slice
   │
   ▼
 FE apply pump
@@ -501,15 +558,15 @@ User gesture
 Pierre scrolls existing DOM
   │  no protocol wait, no app-side scrollTop writer
   │
-  ├─► rAF: FE ─► worker viewport fact, at most one per frame
+  ├─► rAF: FE ─► server worker viewport fact, at most one per frame
   │
-  ◄─ worker slice updates that affect moving viewport
+  ◄─ server worker slice updates that affect moving viewport
   │      FE marks affected updates HELD while momentum continues
   │
   ▼
 settle detected by Pierre/FE
   │
-  ├─► worker settled viewport fact
+  ├─► server worker settled viewport fact
   │
   ▼
 FE apply pump
@@ -521,10 +578,10 @@ Server facts, content-ready, fetch failures, and reconnect:
 ```text
 Swift subscription/content plane
   │
-  ├─► worker: push/fact/content/failure/reconnect response
+  ├─► server worker: streamed push/fact/content/failure/reconnect response
   │
   ▼
-comm worker
+server worker
   │  sole authority for streamId, workerDerivationEpoch, sequence, staleness
   │  validates freshness before any FE publication
   │
@@ -541,10 +598,10 @@ Generation rotation:
 ```text
 Swift accepts sourceGeneration change
   │
-  └─► worker source fact
+  └─► server worker source fact
         │
         ▼
-      worker atomic epoch reset
+      server worker atomic epoch reset
         │  mint new workerDerivationEpoch
         │  clear derived demand, in-flight maps, cache memberships,
         │  retry state, stale source-bound slices, and pending applies
@@ -557,10 +614,10 @@ Swift accepts sourceGeneration change
 Telemetry:
 
 ```text
-FE/worker instrumentation samples
+FE/server-worker instrumentation samples
   │
   ▼
-comm worker telemetry buffer
+server worker telemetry buffer
   │  encoded-byte cap, drop-oldest shedding,
   │  lossless counters by event/lane/result/drop reason
   │
