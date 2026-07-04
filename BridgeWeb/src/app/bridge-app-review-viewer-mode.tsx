@@ -191,6 +191,8 @@ export function BridgeReviewViewerMode(
 	projectionRef.current = projection;
 	const selectionSliceRef = useRef(selectionSlice);
 	selectionSliceRef.current = selectionSlice;
+	const viewportSliceRef = useRef(viewportSlice);
+	viewportSliceRef.current = viewportSlice;
 	const rootSnapshotRef = useRef(rootSnapshot);
 	rootSnapshotRef.current = rootSnapshot;
 	const [isCodeViewScrollActive, setIsCodeViewScrollActive] = useState(false);
@@ -393,7 +395,7 @@ export function BridgeReviewViewerMode(
 		reviewPackageRef,
 		selectionSlice,
 		selectionSliceRef,
-		viewportSlice,
+		viewportSliceRef,
 		rpcClient,
 		selectedContentAbortControllerRef,
 		selectedContentActiveLoadKeyRef,

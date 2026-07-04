@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+
 import { describe, expect, test } from 'vitest';
 
 import type { BridgeRPCClient, BridgeRPCCommand } from '../bridge/bridge-rpc-client.js';
@@ -7,6 +9,19 @@ import {
 } from './bridge-app-review-selection-controller.js';
 
 describe('Bridge review selection controller command scheduling', () => {
+	test('foreground selection callback stays stable across viewport visibility churn', () => {
+		const source = readFileSync(
+			new URL('./bridge-app-review-selection-controller.ts', import.meta.url),
+			'utf8',
+		);
+		const callbackSource = source.slice(
+			source.indexOf('const beginForegroundReviewSelection = useCallback'),
+			source.indexOf('const selectReviewItem = useCallback'),
+		);
+
+		expect(callbackSource).not.toContain('viewportSlice.visibleItemIds');
+	});
+
 	test('selection interaction cannot subscribe to review root snapshot', () => {
 		const contract = createBridgeReviewSelectionControllerInteractionContract();
 

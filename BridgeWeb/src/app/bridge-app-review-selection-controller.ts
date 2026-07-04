@@ -59,7 +59,7 @@ export interface UseBridgeReviewSelectionControllerProps {
 	readonly reviewPackageRef: MutableRefObject<BridgeReviewPackage | null>;
 	readonly selectionSlice: BridgeReviewSelectionSlice;
 	readonly selectionSliceRef: MutableRefObject<BridgeReviewSelectionSlice>;
-	readonly viewportSlice: BridgeReviewViewportSlice;
+	readonly viewportSliceRef: MutableRefObject<BridgeReviewViewportSlice>;
 	readonly rpcClient: BridgeRPCClient;
 	readonly selectedContentAbortControllerRef: MutableRefObject<AbortController | null>;
 	readonly selectedContentActiveLoadKeyRef: MutableRefObject<string | null>;
@@ -100,7 +100,7 @@ export function useBridgeReviewSelectionController(
 		reviewPackageRef,
 		selectionSlice,
 		selectionSliceRef,
-		viewportSlice,
+		viewportSliceRef,
 		rpcClient,
 		selectedContentAbortControllerRef,
 		selectedContentActiveLoadKeyRef,
@@ -180,7 +180,7 @@ export function useBridgeReviewSelectionController(
 			recordBridgeReviewSliceInvalidationProbe({
 				itemId,
 				packageItemCount: currentReviewPackage.orderedItemIds.length,
-				visibleItemIds: viewportSlice.visibleItemIds,
+				visibleItemIds: viewportSliceRef.current.visibleItemIds,
 			});
 			return true;
 		},
@@ -199,7 +199,7 @@ export function useBridgeReviewSelectionController(
 			setSelectedReviewFileTarget,
 			startSelectedReviewContentDemand,
 			telemetryRecorderRef,
-			viewportSlice.visibleItemIds,
+			viewportSliceRef,
 			viewerActions,
 		],
 	);
