@@ -178,7 +178,7 @@ describe('bridge RPC client', () => {
 		]);
 	});
 
-	test('attaches trace context outside params and records generic RPC telemetry', () => {
+	test('does not force telemetry flush while sending interactive commands', () => {
 		const target = new EventTarget();
 		const sentDetails: unknown[] = [];
 		const recordedSamples: BridgeTelemetrySample[] = [];
@@ -239,80 +239,17 @@ describe('bridge RPC client', () => {
 		expect(recordedSamples[0]?.stringAttributes).not.toHaveProperty(
 			['agentstudio', 'bridge', 'lane'].join('.'),
 		);
-		expect(flushCount).toBe(1);
-		expect(flushForces).toEqual([true]);
+		expect(flushCount).toBe(0);
+		expect(flushForces).toEqual([]);
 	});
 
-	test('dispatches RPC command when telemetry flush fails', () => {
-		const target = new EventTarget();
-		const sentDetails: unknown[] = [];
-		const recordedSamples: BridgeTelemetrySample[] = [];
-		target.addEventListener('__bridge_command', (event: Event): void => {
-			sentDetails.push(extractEventDetail(event));
-		});
-		const client = createBridgeRPCClient({
-			target,
-			getBridgeNonce: () => 'bridge-nonce',
-			createCommandId: () => 'cmd-fixed',
-			telemetryRecorder: makeRecorder(recordedSamples, (): boolean => false),
-		});
-
-		const didSend = client.sendCommand({
-			method: 'review.markFileViewed',
-			params: { fileId: 'item-source' },
-		});
-
-		expect(didSend).toBe(true);
-		expect(sentDetails).toEqual([
-			{
-				jsonrpc: '2.0',
-				method: 'review.markFileViewed',
-				params: { fileId: 'item-source' },
-				__nonce: 'bridge-nonce',
-				__commandId: 'cmd-fixed',
-			},
-		]);
-		expect(recordedSamples.map((sample: BridgeTelemetrySample): string => sample.name)).toEqual([
-			'performance.bridge.web.rpc_send',
-		]);
-	});
-
-	test('does not attach trace context or record RPC telemetry for telemetry batches', () => {
-		const target = new EventTarget();
-		const sentDetails: unknown[] = [];
-		const recordedSamples: BridgeTelemetrySample[] = [];
-		target.addEventListener('__bridge_command', (event: Event): void => {
-			sentDetails.push(extractEventDetail(event));
-		});
-		const client = createBridgeRPCClient({
-			target,
-			getBridgeNonce: () => 'bridge-nonce',
-			createCommandId: () => 'cmd-fixed',
-			getTraceContext: () => ({
-				traceId: '11111111111111111111111111111111',
-				spanId: '2222222222222222',
-				parentSpanId: null,
-				sampled: true,
-			}),
-			telemetryRecorder: makeRecorder(recordedSamples),
-		});
-
-		const didSend = client.sendCommand({
-			method: 'system.bridgeTelemetry',
-			params: { schemaVersion: 1, scenario: 'bridge-runtime', samples: [] },
-		});
-
-		expect(didSend).toBe(true);
-		expect(sentDetails).toEqual([
-			{
-				jsonrpc: '2.0',
+	test('rejects telemetry batches from the interactive RPC schema', () => {
+		expect(
+			bridgeRPCCommandSchema.safeParse({
 				method: 'system.bridgeTelemetry',
-				params: { schemaVersion: 1, scenario: 'bridge-runtime', samples: [] },
-				__nonce: 'bridge-nonce',
-				__commandId: 'cmd-fixed',
-			},
-		]);
-		expect(recordedSamples).toEqual([]);
+				params: { schemaVersion: 1, scenario: 'bridge-runtime', sequence: 1, samples: [] },
+			}).success,
+		).toBe(false);
 	});
 });
 

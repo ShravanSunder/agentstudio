@@ -51,6 +51,7 @@ describe('bridge telemetry recorder', () => {
 		expect(batches[0]?.samples.map((sample) => sample.name)).toEqual([
 			'performance.bridge.web.first_render',
 		]);
+		expect(batches[0]?.sequence).toBe(1);
 	});
 
 	test('emits drop summaries when the buffer saturates', () => {
@@ -86,8 +87,45 @@ describe('bridge telemetry recorder', () => {
 			'agentstudio.bridge.priority': 'best_effort',
 			'agentstudio.bridge.slice': 'telemetry_drop',
 			'agentstudio.bridge.telemetry.drop_reason': 'queue_saturated',
-			'agentstudio.bridge.transport': 'rpc',
+			'agentstudio.bridge.telemetry.event_name': 'performance.bridge.web.rpc_send',
+			'agentstudio.bridge.telemetry.lane': 'unknown',
+			'agentstudio.bridge.telemetry.result': 'unknown',
+			'agentstudio.bridge.transport': 'scheme',
 		});
+	});
+
+	test('schedules non-forced flushing through idle time', () => {
+		const batches: BridgeTelemetryBatch[] = [];
+		const idleCallbacks: Array<() => void> = [];
+		const recorder = createBridgeTelemetryRecorder(
+			{
+				enabledScopes: new Set(['web']),
+				maxSamplesPerBatch: 4,
+				maxEncodedBatchBytes: 16_384,
+				minimumFlushIntervalMilliseconds: 250,
+				rpcMethodName: 'system.bridgeTelemetry',
+				scenario: 'bridge-runtime',
+			},
+			{
+				flush: (batch: BridgeTelemetryBatch): boolean => {
+					batches.push(batch);
+					return true;
+				},
+			},
+			(): number => 1_000,
+			(callback): void => {
+				idleCallbacks.push(callback);
+			},
+		);
+
+		recorder.record(makeSample('performance.bridge.web.first_render'));
+
+		expect(batches).toEqual([]);
+		expect(idleCallbacks).toHaveLength(1);
+		idleCallbacks[0]?.();
+		expect(batches.map((batch) => batch.samples.map((sample) => sample.name))).toEqual([
+			['performance.bridge.web.first_render'],
+		]);
 	});
 
 	test('throttles burst flushes unless a boundary forces delivery', () => {

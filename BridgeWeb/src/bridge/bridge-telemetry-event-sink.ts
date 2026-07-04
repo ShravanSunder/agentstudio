@@ -3,18 +3,29 @@ import type { BridgeTelemetrySink } from '../foundation/telemetry/bridge-telemet
 import type { BridgeRPCClient } from './bridge-rpc-client.js';
 
 export interface CreateBridgeTelemetryEventSinkProps {
-	readonly rpcClient: BridgeRPCClient;
-	readonly methodName: 'system.bridgeTelemetry';
+	readonly endpointUrl?: string;
+	readonly fetch?: (input: RequestInfo | URL, init?: RequestInit) => boolean | Promise<Response>;
+	readonly methodName?: 'system.bridgeTelemetry';
+	readonly rpcClient?: BridgeRPCClient;
 }
 
 export function createBridgeTelemetryEventSink(
 	props: CreateBridgeTelemetryEventSinkProps,
 ): BridgeTelemetrySink {
+	const endpointUrl = props.endpointUrl ?? 'agentstudio://telemetry/batch';
+	const fetchTelemetry = props.fetch ?? globalThis.fetch.bind(globalThis);
 	return {
-		flush: (batch: BridgeTelemetryBatch): boolean =>
-			props.rpcClient.sendCommand({
-				method: props.methodName,
-				params: batch,
-			}),
+		flush: (batch: BridgeTelemetryBatch): boolean => {
+			try {
+				void fetchTelemetry(endpointUrl, {
+					body: JSON.stringify(batch),
+					headers: { 'Content-Type': 'application/json' },
+					method: 'POST',
+				});
+				return true;
+			} catch {
+				return false;
+			}
+		},
 	};
 }

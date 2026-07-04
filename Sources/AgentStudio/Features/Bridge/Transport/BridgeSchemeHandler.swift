@@ -31,6 +31,7 @@ struct BridgeSchemeHandler: URLSchemeHandler {
     let resourceLeaseRegistry: BridgeTransportResourceLeaseRegistry
     let allowedResourceKindsByProtocol: [String: Set<String>]
     let telemetryRecorder: (any BridgePerformanceTraceRecording)?
+    let telemetryIngestor: (any BridgeTelemetryBatchIngesting)?
     let beforeContentEmission: (@Sendable () async -> Void)?
     let contentDemandAdmission: BridgeContentDemandAdmission
     private static let resourceChunkByteCount = 64 * 1024
@@ -45,6 +46,7 @@ struct BridgeSchemeHandler: URLSchemeHandler {
         allowedResourceKindsByProtocol: [String: Set<String>] =
             BridgeResourceProtocolRegistry.reviewViewerAllowedResourceKinds,
         telemetryRecorder: (any BridgePerformanceTraceRecording)? = nil,
+        telemetryIngestor: (any BridgeTelemetryBatchIngesting)? = nil,
         beforeContentEmission: (@Sendable () async -> Void)? = nil,
         contentDemandAdmission: BridgeContentDemandAdmission = BridgeContentDemandAdmission()
     ) {
@@ -55,6 +57,14 @@ struct BridgeSchemeHandler: URLSchemeHandler {
         self.resourceLeaseRegistry = resourceLeaseRegistry
         self.allowedResourceKindsByProtocol = allowedResourceKindsByProtocol
         self.telemetryRecorder = telemetryRecorder
+        self.telemetryIngestor =
+            telemetryIngestor
+            ?? telemetryRecorder.map {
+                BridgeTelemetryIngestor(
+                    scopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web]),
+                    recorder: $0
+                )
+            }
         self.beforeContentEmission = beforeContentEmission
         self.contentDemandAdmission = contentDemandAdmission
     }
@@ -88,6 +98,10 @@ struct BridgeSchemeHandler: URLSchemeHandler {
             emitOptionsResponse(url: url, classification: classification, continuation: continuation)
             return
         }
+        guard readMethod != .post || classification == .telemetryBatch else {
+            continuation.finish(throwing: BridgeSchemeError.invalidRequest("Unsupported method"))
+            return
+        }
         switch classification {
         case .app(let relativePath):
             startAppAssetReplyTask(
@@ -99,6 +113,13 @@ struct BridgeSchemeHandler: URLSchemeHandler {
         case .leasedContent(let resource):
             startLeasedResourceReplyTask(
                 resource: resource,
+                url: url,
+                request: request,
+                readMethod: readMethod,
+                continuation: continuation
+            )
+        case .telemetryBatch:
+            startTelemetryBatchReplyTask(
                 url: url,
                 request: request,
                 readMethod: readMethod,
@@ -123,7 +144,8 @@ struct BridgeSchemeHandler: URLSchemeHandler {
                 Self.response(
                     url: url,
                     mimeType: "text/plain",
-                    expectedContentLength: 0
+                    expectedContentLength: 0,
+                    allowedMethods: Self.allowedMethods(for: classification)
                 )))
         continuation.finish()
     }
@@ -239,6 +261,8 @@ struct BridgeSchemeHandler: URLSchemeHandler {
         case app(String)
         /// Protocol-scoped content request that must match an active transport lease.
         case leasedContent(BridgeTransportResourceURL)
+        /// Dedicated telemetry ingestion route.
+        case telemetryBatch
         /// Unrecognized or malicious route (e.g. path traversal, wrong host).
         case invalid
     }
@@ -283,6 +307,9 @@ struct BridgeSchemeHandler: URLSchemeHandler {
             guard !relativePath.isEmpty else { return .invalid }
             return .app(relativePath)
 
+        case "telemetry":
+            return path == "/batch" ? .telemetryBatch : .invalid
+
         case "resource":
             guard
                 let resource = BridgeTransportResourceURL.parse(
@@ -303,6 +330,7 @@ struct BridgeSchemeHandler: URLSchemeHandler {
         case get
         case head
         case options
+        case post
     }
 
     private static func expectedContentLength(for handle: BridgeContentHandle) -> Int? {
@@ -337,6 +365,7 @@ struct BridgeSchemeHandler: URLSchemeHandler {
         case "GET": .get
         case "HEAD": .head
         case "OPTIONS": .options
+        case "POST": .post
         default: nil
         }
     }
@@ -350,6 +379,64 @@ struct BridgeSchemeHandler: URLSchemeHandler {
 
     private static func traceparentHeader(from request: URLRequest) -> String? {
         request.value(forHTTPHeaderField: "traceparent")
+    }
+
+    private func startTelemetryBatchReplyTask(
+        url: URL,
+        request: URLRequest,
+        readMethod: BridgeSchemeReadMethod,
+        continuation: AsyncThrowingStream<URLSchemeTaskResult, any Error>.Continuation
+    ) {
+        let task = Task {
+            await emitTelemetryBatch(
+                url: url,
+                request: request,
+                readMethod: readMethod,
+                continuation: continuation
+            )
+        }
+        continuation.onTermination = { _ in
+            task.cancel()
+        }
+    }
+
+    private func emitTelemetryBatch(
+        url: URL,
+        request: URLRequest,
+        readMethod: BridgeSchemeReadMethod,
+        continuation: AsyncThrowingStream<URLSchemeTaskResult, any Error>.Continuation
+    ) async {
+        guard readMethod == .post else {
+            continuation.finish(throwing: BridgeSchemeError.invalidRequest("Unsupported telemetry method"))
+            return
+        }
+        guard request.value(forHTTPHeaderField: "Content-Type")?.lowercased().hasPrefix("application/json") == true
+        else {
+            continuation.finish(throwing: BridgeSchemeError.invalidRequest("Unsupported telemetry content type"))
+            return
+        }
+        guard let body = request.httpBody else {
+            continuation.finish(throwing: BridgeSchemeError.invalidRequest("Missing telemetry body"))
+            return
+        }
+        guard body.count <= BridgeTelemetryLimits.maxEncodedBatchBytes else {
+            continuation.finish(throwing: BridgeSchemeError.invalidRequest("Telemetry body too large"))
+            return
+        }
+        guard let telemetryIngestor else {
+            continuation.finish(throwing: BridgeSchemeError.invalidRoute(Self.invalidRouteReason))
+            return
+        }
+        _ = await telemetryIngestor.ingest(body)
+        continuation.yield(
+            .response(
+                Self.response(
+                    url: url,
+                    mimeType: "application/json",
+                    expectedContentLength: 0,
+                    allowedMethods: Self.allowedMethods(for: .telemetryBatch)
+                )))
+        continuation.finish()
     }
 
     private func emitContent(
@@ -748,14 +835,19 @@ struct BridgeSchemeHandler: URLSchemeHandler {
         return nil
     }
 
+    private static func allowedMethods(for classification: PathType) -> String {
+        classification == .telemetryBatch ? "OPTIONS, POST" : "GET, HEAD, OPTIONS"
+    }
+
     static func response(
         url: URL,
         mimeType: String,
-        expectedContentLength: Int?
+        expectedContentLength: Int?,
+        allowedMethods: String = "GET, HEAD, OPTIONS"
     ) -> URLResponse {
         var headers = [
-            "Access-Control-Allow-Headers": "traceparent",
-            "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, traceparent",
+            "Access-Control-Allow-Methods": allowedMethods,
             "Access-Control-Allow-Origin": "*",
             "Content-Type": mimeType,
         ]

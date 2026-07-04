@@ -21,6 +21,7 @@ export type BridgeTelemetrySample = z.infer<typeof bridgeTelemetrySampleSchema>;
 export const bridgeTelemetryBatchSchema = z.object({
 	schemaVersion: z.literal(1),
 	scenario: z.string().min(1),
+	sequence: z.number().int().positive().optional(),
 	samples: z.array(bridgeTelemetrySampleSchema).readonly(),
 });
 
@@ -28,11 +29,13 @@ export type BridgeTelemetryBatch = z.infer<typeof bridgeTelemetryBatchSchema>;
 
 export function makeBridgeTelemetryBatch(
 	scenario: string,
+	sequence: number,
 	samples: readonly BridgeTelemetrySample[],
 ): BridgeTelemetryBatch {
 	return {
 		schemaVersion: 1,
 		scenario,
+		sequence,
 		samples,
 	};
 }

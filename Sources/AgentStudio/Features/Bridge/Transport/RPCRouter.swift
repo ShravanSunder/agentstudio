@@ -28,7 +28,6 @@ final class RPCRouter {
     private var seenCommandIdRing: [String?]
     private var seenCommandIdWriteIndex = 0
     private var seenCommandIdCount = 0
-    private var telemetryQueue = BridgeTelemetryQueue()
     private let maxCommandIdHistory: Int
 
     // MARK: - Error Callback
@@ -87,18 +86,6 @@ final class RPCRouter {
     /// JSON-RPC requests with an `id` emit direct response envelopes via `onResponse`.
     /// Notifications (no `id`) remain fire-and-forget and do not emit responses.
     func dispatch(json: String, isBridgeReady: Bool) async {
-        if isBridgeTelemetryCandidate(json),
-            json.utf8.count > BridgeTelemetryLimits.maxEncodedBatchBytes
-        {
-            await recordBridgeTelemetryBatch(
-                traceContext: nil,
-                result: .dropped(.encodedBatchTooLarge),
-                durationMilliseconds: nil
-            )
-            await reportError(.invalidParams, "Invalid params", id: nil)
-            return
-        }
-
         let request: ParsedRPCRequest
         do {
             request = try parseRequestEnvelope(from: json)
@@ -326,57 +313,7 @@ final class RPCRouter {
     }
 
     private func dispatchBridgeTelemetryBatch(_ request: ParsedRPCRequest) async {
-        guard let telemetryIngestor else {
-            await reportError(.methodNotFound, "Method not found: \(request.method)", id: request.requestId)
-            return
-        }
-
-        let paramsData: Data
-        do {
-            guard let decodedParamsData = try decodeParamsData(from: request.params) else {
-                await reportError(.invalidParams, "Invalid params", id: request.requestId)
-                return
-            }
-            paramsData = decodedParamsData
-        } catch {
-            await reportError(.invalidParams, "Invalid params", id: request.requestId)
-            return
-        }
-
-        if paramsData.count > BridgeTelemetryLimits.maxEncodedBatchBytes {
-            await recordBridgeTelemetryBatch(
-                traceContext: request.traceContext,
-                result: .dropped(.encodedBatchTooLarge),
-                durationMilliseconds: nil
-            )
-            await reportError(.invalidParams, "Invalid params", id: request.requestId)
-            return
-        }
-
-        let batchPriority = bridgeTelemetryBatchAdmissionPriority(from: paramsData)
-        guard telemetryQueue.admitBatch(priority: batchPriority) == nil else {
-            await recordBridgeTelemetryBatch(
-                traceContext: request.traceContext,
-                result: .dropped(.queueSaturated),
-                durationMilliseconds: nil
-            )
-            await reportError(.invalidParams, "Invalid params", id: request.requestId)
-            return
-        }
-
-        let start = ContinuousClock.now
-        let result = await telemetryIngestor.ingest(paramsData)
-        telemetryQueue.finishBatch()
-        await recordBridgeTelemetryBatch(
-            traceContext: request.traceContext,
-            result: result,
-            durationMilliseconds: Self.milliseconds(from: start.duration(to: ContinuousClock.now))
-        )
-        await emitSuccessResponseIfNeeded(
-            id: request.requestId,
-            resultData: nil,
-            method: request.method
-        )
+        await reportError(.methodNotFound, "Method not found: \(request.method)", id: request.requestId)
     }
 
     private func shouldSkip(commandId: String?) -> Bool {
@@ -646,11 +583,6 @@ final class RPCRouter {
         return try? JSONDecoder().decode(BridgeTraceContext.self, from: data)
     }
 
-    private nonisolated func isBridgeTelemetryCandidate(_ json: String) -> Bool {
-        let compacted = json.filter { !$0.isWhitespace }
-        return compacted.contains(#""method":"\#(SystemMethods.BridgeTelemetryMethod.method)""#)
-    }
-
     private nonisolated func shouldRecordGenericRPCTelemetry(method: String) -> Bool {
         method != BridgeReadyMethod.method && method != SystemMethods.BridgeTelemetryMethod.method
     }
@@ -691,82 +623,6 @@ final class RPCRouter {
             ),
             receivedAtUnixNano: currentTimeUnixNano()
         )
-    }
-
-    private func recordBridgeTelemetryBatch(
-        traceContext: BridgeTraceContext?,
-        result: BridgeTelemetryIngestResult,
-        durationMilliseconds: Double?
-    ) async {
-        let phase: String
-        let sampleCount: Double
-        let dropReason: BridgeTelemetryDropReason?
-        switch result {
-        case .accepted(let acceptedSampleCount):
-            phase = "accepted"
-            sampleCount = Double(acceptedSampleCount)
-            dropReason = nil
-        case .dropped(let reason):
-            phase = "dropped"
-            sampleCount = 0
-            dropReason = reason
-        }
-
-        var stringAttributes = [
-            "agentstudio.bridge.phase": phase,
-            "agentstudio.bridge.plane": BridgeTelemetryPlane.observability.rawValue,
-            "agentstudio.bridge.priority": BridgeTelemetryPriority.bestEffort.rawValue,
-            "agentstudio.bridge.slice": BridgeTelemetrySlice.telemetryBatch.rawValue,
-            "agentstudio.bridge.transport": "rpc",
-        ]
-        if let dropReason {
-            stringAttributes["agentstudio.bridge.telemetry.drop_reason"] = dropReason.rawValue
-        }
-
-        await telemetryRecorder?.record(
-            sample: BridgeTelemetrySample(
-                scope: .webKit,
-                name: "performance.bridge.webkit.telemetry_batch",
-                durationMilliseconds: durationMilliseconds,
-                traceContext: traceContext,
-                stringAttributes: stringAttributes,
-                numericAttributes: ["agentstudio.bridge.batch.sample_count": sampleCount],
-                booleanAttributes: [:]
-            ),
-            receivedAtUnixNano: currentTimeUnixNano()
-        )
-    }
-
-    private nonisolated func bridgeTelemetryBatchAdmissionPriority(from paramsData: Data) -> BridgeTelemetryPriority {
-        guard let batch = try? JSONDecoder().decode(BridgeTelemetryBatch.self, from: paramsData) else {
-            return .bestEffort
-        }
-        return batch.samples
-            .compactMap { sample in
-                sample.stringAttributes["agentstudio.bridge.priority"]
-                    .flatMap(BridgeTelemetryPriority.init(rawValue:))
-            }
-            .reduce(.bestEffort, Self.higherTelemetryAdmissionPriority)
-    }
-
-    private nonisolated static func higherTelemetryAdmissionPriority(
-        _ current: BridgeTelemetryPriority,
-        _ candidate: BridgeTelemetryPriority
-    ) -> BridgeTelemetryPriority {
-        telemetryAdmissionPriorityRank(candidate) > telemetryAdmissionPriorityRank(current) ? candidate : current
-    }
-
-    private nonisolated static func telemetryAdmissionPriorityRank(_ priority: BridgeTelemetryPriority) -> Int {
-        switch priority {
-        case .hot:
-            3
-        case .warm:
-            2
-        case .cold:
-            1
-        case .bestEffort:
-            0
-        }
     }
 
     private nonisolated func currentTimeUnixNano() -> UInt64 {

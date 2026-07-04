@@ -358,9 +358,18 @@ extension BridgeTelemetryBatchValidator {
         "agentstudio.bridge.telemetry.drop_reason": Set(
             BridgeTelemetryDropReason.allCases.map(\.rawValue)
         ),
+        "agentstudio.bridge.telemetry.event_name": allowedEventNames,
         "agentstudio.bridge.telemetry.first_rejected_event": allowedEventNames.union([
             unknownRejectedEventName
         ]),
+        "agentstudio.bridge.telemetry.lane": Set(
+            BridgeTelemetryPriority.allCases.map(\.rawValue)
+        ).union(["unknown"]),
+        "agentstudio.bridge.telemetry.result": [
+            "dropped",
+            "success",
+            "unknown",
+        ],
         "agentstudio.bridge.test.scenario": [
             "package_apply_content_fetch_v1"
         ],
@@ -407,6 +416,7 @@ extension BridgeTelemetryBatchValidator {
             "intake",
             "push",
             "rpc",
+            "scheme",
             "swift",
             "worker",
         ],

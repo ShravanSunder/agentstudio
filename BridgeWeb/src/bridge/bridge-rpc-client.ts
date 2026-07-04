@@ -1,7 +1,6 @@
 import { z } from 'zod';
 
 import { bridgeDemandLaneSchema } from '../core/models/bridge-demand-models.js';
-import { bridgeTelemetryBatchSchema } from '../foundation/telemetry/bridge-telemetry-event.js';
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import type { BridgeTraceContext } from '../foundation/telemetry/bridge-trace-context.js';
 
@@ -53,11 +52,6 @@ export const bridgeRPCCommandSchema = z.discriminatedUnion('method', [
 		method: z.literal('bridge.activeViewerMode.update'),
 		params: bridgeActiveViewerModeUpdateSchema,
 	}),
-	z.object({
-		id: bridgeRPCIdSchema.optional(),
-		method: z.literal('system.bridgeTelemetry'),
-		params: bridgeTelemetryBatchSchema,
-	}),
 ]);
 
 export type BridgeRPCCommand = z.infer<typeof bridgeRPCCommandSchema>;
@@ -88,15 +82,13 @@ export function createBridgeRPCClient(props: CreateBridgeRPCClientProps = {}): B
 			if (bridgeNonce === null) {
 				return false;
 			}
-			const traceContext = shouldAttachTraceContext(validatedCommand)
-				? getTraceContext(validatedCommand)
-				: null;
+			const traceContext = shouldAttachTraceContext() ? getTraceContext(validatedCommand) : null;
 			target.dispatchEvent(
 				new CustomEvent('__bridge_command', {
 					detail: makeCommandDetail(validatedCommand, bridgeNonce, createCommandId(), traceContext),
 				}),
 			);
-			if (shouldRecordRPCTelemetry(validatedCommand)) {
+			if (shouldRecordRPCTelemetry()) {
 				telemetryRecorder?.record({
 					scope: 'web',
 					name: 'performance.bridge.web.rpc_send',
@@ -113,7 +105,6 @@ export function createBridgeRPCClient(props: CreateBridgeRPCClientProps = {}): B
 					numericAttributes: {},
 					booleanAttributes: {},
 				});
-				telemetryRecorder?.flush({ force: true });
 			}
 			return true;
 		},
@@ -137,18 +128,15 @@ function makeCommandDetail(
 	};
 }
 
-function shouldAttachTraceContext(command: BridgeRPCCommand): boolean {
-	return command.method !== 'system.bridgeTelemetry';
+function shouldAttachTraceContext(): boolean {
+	return true;
 }
 
-function shouldRecordRPCTelemetry(command: BridgeRPCCommand): boolean {
-	return command.method !== 'system.bridgeTelemetry';
+function shouldRecordRPCTelemetry(): boolean {
+	return true;
 }
 
-function rpcMethodClass(method: string): 'other' | 'review' | 'telemetry' {
-	if (method === 'system.bridgeTelemetry') {
-		return 'telemetry';
-	}
+function rpcMethodClass(method: string): 'other' | 'review' {
 	if (method.startsWith('review.')) {
 		return 'review';
 	}

@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'vitest';
 
-import { parseBridgeContentResourceUrl, parseBridgeResourceUrl } from './bridge-resource-url.js';
+import {
+	buildBridgeWorkerFetchProbeContentResourceUrl,
+	parseBridgeContentResourceUrl,
+	parseBridgeResourceUrl,
+} from './bridge-resource-url.js';
 
 describe('bridge resource URL', () => {
 	test('parses content handle and generation', () => {
@@ -24,6 +28,20 @@ describe('bridge resource URL', () => {
 			range: { kind: 'whole' },
 			canonicalUrl: 'agentstudio://resource/review/content/handle-1?generation=7&revision=3',
 		});
+	});
+
+	test('builds worker fetch probe URL without raw filesystem path leakage', () => {
+		const resourceUrl = buildBridgeWorkerFetchProbeContentResourceUrl({
+			handleId: 'handle-worker-fetch-probe',
+			generation: 7,
+			revision: 3,
+		});
+
+		expect(resourceUrl).toBe(
+			'agentstudio://resource/review/content/handle-worker-fetch-probe?generation=7&revision=3',
+		);
+		expect(resourceUrl).not.toContain('/Users/example/project');
+		expect(parseBridgeResourceUrl(resourceUrl)?.canonicalUrl).toBe(resourceUrl);
 	});
 
 	test('returns null for malformed resource URL text', () => {

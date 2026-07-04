@@ -35,6 +35,12 @@ export interface BridgeContentResourceUrl {
 	readonly canonicalUrl?: string;
 }
 
+export interface BridgeWorkerFetchProbeContentResourceUrlProps {
+	readonly handleId: string;
+	readonly generation: number;
+	readonly revision?: number;
+}
+
 export interface BridgeParsedContentResourceUrl {
 	readonly kind: 'content';
 	readonly handleId: string;
@@ -105,6 +111,30 @@ export function parseBridgeContentResourceUrl(
 		generation: parsedResourceUrl.generation,
 		...(parsedResourceUrl.revision === undefined ? {} : { revision: parsedResourceUrl.revision }),
 	};
+}
+
+export function buildBridgeWorkerFetchProbeContentResourceUrl(
+	props: BridgeWorkerFetchProbeContentResourceUrlProps,
+): string {
+	if (!isOpaqueResourceId(props.handleId)) {
+		throw new Error('Bridge worker fetch probe requires an opaque content handle id');
+	}
+	if (!Number.isSafeInteger(props.generation) || props.generation < 0) {
+		throw new Error('Bridge worker fetch probe requires a nonnegative generation');
+	}
+	if (props.revision !== undefined && (!Number.isSafeInteger(props.revision) || props.revision < 0)) {
+		throw new Error('Bridge worker fetch probe requires a nonnegative revision');
+	}
+	const queryPairs: (readonly [string, string])[] = [['generation', String(props.generation)]];
+	if (props.revision !== undefined) {
+		queryPairs.push(['revision', String(props.revision)]);
+	}
+	return canonicalResourceUrl({
+		protocolId: 'review',
+		resourceKind: 'content',
+		resourceId: props.handleId,
+		queryPairs,
+	});
 }
 
 function parseUrl(resourceUrl: string): URL | null {

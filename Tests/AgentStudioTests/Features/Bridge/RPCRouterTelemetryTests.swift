@@ -115,7 +115,7 @@ final class RPCRouterTelemetryTests {
     }
 
     @Test
-    func oversized_bridge_telemetry_rpc_records_drop_before_rejection() async {
+    func oversized_bridge_telemetry_rpc_rejects_without_ingest_or_drop_recording() async {
         // Arrange
         let router = RPCRouter()
         let recorder = BridgeTelemetryRecorderSpy()
@@ -139,123 +139,37 @@ final class RPCRouterTelemetryTests {
         )
 
         // Assert
-        #expect(errorCode == -32_602)
+        #expect(errorCode == -32_601)
         #expect(await ingestor.count() == 0)
-        let telemetryBatch = await recorder.samples().first
-        #expect(telemetryBatch?.name == "performance.bridge.webkit.telemetry_batch")
-        #expect(
-            telemetryBatch?.stringAttributes["agentstudio.bridge.telemetry.drop_reason"]
-                == BridgeTelemetryDropReason.encodedBatchTooLarge.rawValue
-        )
-        #expect(telemetryBatch?.stringAttributes["agentstudio.bridge.plane"] == "observability")
-        #expect(telemetryBatch?.stringAttributes["agentstudio.bridge.priority"] == "best_effort")
-        #expect(telemetryBatch?.stringAttributes["agentstudio.bridge.slice"] == "telemetry_batch")
+        #expect(await recorder.samples().isEmpty)
     }
 
     @Test
-    func hot_bridge_telemetry_batch_is_admitted_when_best_effort_batches_are_pending() async throws {
+    func interactiveRPCRejectsProductionBridgeTelemetryBatches() async throws {
         // Arrange
         let router = RPCRouter()
         let recorder = BridgeTelemetryRecorderSpy()
-        let ingestor = BlockingBridgeTelemetryIngestorSpy(blockingFirstBatchCount: 2)
+        let ingestor = BridgeTelemetryIngestorSpy()
         router.telemetryRecorder = recorder
         router.telemetryIngestor = ingestor
-        var errorCodes: [Int] = []
-        router.onError = { code, _, _ in
-            errorCodes.append(code)
-        }
-
-        let firstBestEffortRPC = try Self.makeTelemetryRPC(
-            sampleName: "performance.bridge.web.telemetry_drop",
-            priority: .bestEffort,
-            stringAttributes: Self.telemetryDropStringAttributes(),
-            numericAttributes: ["agentstudio.bridge.telemetry.dropped_count": 1]
-        )
-        let secondBestEffortRPC = try Self.makeTelemetryRPC(
-            sampleName: "performance.bridge.web.telemetry_drop",
-            priority: .bestEffort,
-            stringAttributes: Self.telemetryDropStringAttributes(),
-            numericAttributes: ["agentstudio.bridge.telemetry.dropped_count": 1]
-        )
-        let hotStartupRPC = try Self.makeTelemetryRPC(
-            sampleName: "performance.bridge.web.review_metadata_apply",
-            priority: .hot,
-            stringAttributes: Self.reviewMetadataApplyStringAttributes(),
-            numericAttributes: ["agentstudio.bridge.review.item_count": 12]
-        )
+        var errorCode: Int?
+        router.onError = { code, _, _ in errorCode = code }
 
         // Act
-        async let firstDispatch: Void = router.dispatch(json: firstBestEffortRPC, isBridgeReady: true)
-        async let secondDispatch: Void = router.dispatch(json: secondBestEffortRPC, isBridgeReady: true)
-        await ingestor.waitForIngestCount(2)
-        await router.dispatch(json: hotStartupRPC, isBridgeReady: true)
-        await ingestor.releaseAll()
-        _ = await (firstDispatch, secondDispatch)
+        await router.dispatch(
+            json: try Self.makeTelemetryRPC(
+                sampleName: "performance.bridge.web.telemetry_drop",
+                priority: .bestEffort,
+                stringAttributes: Self.telemetryDropStringAttributes(),
+                numericAttributes: ["agentstudio.bridge.telemetry.dropped_count": 1]
+            ),
+            isBridgeReady: true
+        )
 
         // Assert
-        #expect(errorCodes.isEmpty)
-        #expect(await ingestor.count() == 3)
-        let telemetryBatchSamples = await recorder.samples()
-            .filter { $0.name == "performance.bridge.webkit.telemetry_batch" }
-        #expect(telemetryBatchSamples.count == 3)
-        #expect(
-            telemetryBatchSamples.allSatisfy {
-                $0.stringAttributes["agentstudio.bridge.phase"] == "accepted"
-            }
-        )
-    }
-
-    @Test
-    func warm_control_telemetry_batch_is_admitted_when_best_effort_batches_are_pending() async throws {
-        // Arrange
-        let router = RPCRouter()
-        let recorder = BridgeTelemetryRecorderSpy()
-        let ingestor = BlockingBridgeTelemetryIngestorSpy(blockingFirstBatchCount: 2)
-        router.telemetryRecorder = recorder
-        router.telemetryIngestor = ingestor
-        var errorCodes: [Int] = []
-        router.onError = { code, _, _ in
-            errorCodes.append(code)
-        }
-
-        let firstBestEffortRPC = try Self.makeTelemetryRPC(
-            sampleName: "performance.bridge.web.telemetry_drop",
-            priority: .bestEffort,
-            stringAttributes: Self.telemetryDropStringAttributes(),
-            numericAttributes: ["agentstudio.bridge.telemetry.dropped_count": 1]
-        )
-        let secondBestEffortRPC = try Self.makeTelemetryRPC(
-            sampleName: "performance.bridge.web.telemetry_drop",
-            priority: .bestEffort,
-            stringAttributes: Self.telemetryDropStringAttributes(),
-            numericAttributes: ["agentstudio.bridge.telemetry.dropped_count": 1]
-        )
-        let warmControlRPC = try Self.makeTelemetryRPC(
-            sampleName: "performance.bridge.web.rpc_send",
-            priority: .warm,
-            stringAttributes: Self.rpcSendStringAttributes(),
-            numericAttributes: [:]
-        )
-
-        // Act
-        async let firstDispatch: Void = router.dispatch(json: firstBestEffortRPC, isBridgeReady: true)
-        async let secondDispatch: Void = router.dispatch(json: secondBestEffortRPC, isBridgeReady: true)
-        await ingestor.waitForIngestCount(2)
-        await router.dispatch(json: warmControlRPC, isBridgeReady: true)
-        await ingestor.releaseAll()
-        _ = await (firstDispatch, secondDispatch)
-
-        // Assert
-        #expect(errorCodes.isEmpty)
-        #expect(await ingestor.count() == 3)
-        let telemetryBatchSamples = await recorder.samples()
-            .filter { $0.name == "performance.bridge.webkit.telemetry_batch" }
-        #expect(telemetryBatchSamples.count == 3)
-        #expect(
-            telemetryBatchSamples.allSatisfy {
-                $0.stringAttributes["agentstudio.bridge.phase"] == "accepted"
-            }
-        )
+        #expect(errorCode == -32_601)
+        #expect(await ingestor.count() == 0)
+        #expect(await recorder.samples().isEmpty)
     }
 
     private static func makeTelemetryRPC(

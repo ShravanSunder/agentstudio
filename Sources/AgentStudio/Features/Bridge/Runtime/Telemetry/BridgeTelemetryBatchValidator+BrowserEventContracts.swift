@@ -191,6 +191,24 @@ extension BridgeTelemetryBatchValidator {
                 plane: .observability,
                 priority: .bestEffort,
                 slice: .telemetryDrop,
+                transport: "scheme",
+                attributeKeys: .init(
+                    additionalStringKeys: [
+                        "agentstudio.bridge.telemetry.drop_reason",
+                        "agentstudio.bridge.telemetry.event_name",
+                        "agentstudio.bridge.telemetry.lane",
+                        "agentstudio.bridge.telemetry.result",
+                    ],
+                    numericKeys: ["agentstudio.bridge.telemetry.dropped_count"]
+                )
+            )
+        )
+        let legacyBrowserDropMatches = contract.matches(
+            .init(
+                phase: "dropped",
+                plane: .observability,
+                priority: .bestEffort,
+                slice: .telemetryDrop,
                 transport: "rpc",
                 attributeKeys: .init(
                     additionalStringKeys: ["agentstudio.bridge.telemetry.drop_reason"],
@@ -214,7 +232,7 @@ extension BridgeTelemetryBatchValidator {
                 )
             )
         )
-        return browserDropMatches || validatorDropDetailMatches
+        return browserDropMatches || legacyBrowserDropMatches || validatorDropDetailMatches
     }
 
     private static func markdownRenderQueueContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {

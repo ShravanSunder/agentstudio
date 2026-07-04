@@ -56,6 +56,23 @@ struct BridgeTelemetryBatchValidatorTests {
     }
 
     @Test
+    func sequenceGapRequiresMatchingDropCounter() throws {
+        let validator = BridgeTelemetryBatchValidator(
+            scopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web])
+        )
+        let firstBatchData = try Self.batchData(sequence: 1, sample: Self.rpcSendSample)
+        let gapWithoutCounterData = try Self.batchData(sequence: 3, sample: Self.rpcSendSample)
+        let gapWithCounterData = try Self.batchData(sequence: 3, sample: Self.telemetryDropSample)
+
+        #expect(Self.validationDescription(validator.decodeAndValidate(firstBatchData)) == "accepted")
+        #expect(
+            Self.validationDescription(validator.decodeAndValidate(gapWithoutCounterData))
+                == "dropped:missing_drop_counter"
+        )
+        #expect(Self.validationDescription(validator.decodeAndValidate(gapWithCounterData)) == "accepted")
+    }
+
+    @Test
     func validatorRejectsReviewPackageDataOverPushTransport() {
         let validator = BridgeTelemetryBatchValidator(
             scopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web])
@@ -475,6 +492,59 @@ struct BridgeTelemetryBatchValidatorTests {
         )
 
         #expect(validator.validate(batch) == .accepted(batch))
+    }
+
+    private static var rpcSendSample: BridgeTelemetrySample {
+        batchWithWebSample(
+            WebSampleProps(
+                name: "performance.bridge.web.rpc_send",
+                phase: "send",
+                plane: "control",
+                priority: "warm",
+                slice: "review_rpc",
+                transport: "rpc",
+                extraStrings: ["agentstudio.bridge.rpc.method_class": "review"]
+            )
+        ).samples[0]
+    }
+
+    private static var telemetryDropSample: BridgeTelemetrySample {
+        batchWithWebSample(
+            WebSampleProps(
+                name: "performance.bridge.web.telemetry_drop",
+                phase: "dropped",
+                plane: "observability",
+                priority: "best_effort",
+                slice: "telemetry_drop",
+                transport: "scheme",
+                extraStrings: [
+                    "agentstudio.bridge.telemetry.drop_reason": "encoded_byte_cap",
+                    "agentstudio.bridge.telemetry.event_name": "performance.bridge.web.rpc_send",
+                    "agentstudio.bridge.telemetry.lane": "warm",
+                    "agentstudio.bridge.telemetry.result": "success",
+                ],
+                extraNumbers: ["agentstudio.bridge.telemetry.dropped_count": 1]
+            )
+        ).samples[0]
+    }
+
+    private static func batchData(sequence: Int, sample: BridgeTelemetrySample) throws -> Data {
+        try JSONEncoder().encode(
+            BridgeTelemetryBatch(
+                schemaVersion: 1,
+                scenario: "bridge-runtime",
+                sequence: sequence,
+                samples: [sample]
+            ))
+    }
+
+    private static func validationDescription(_ result: BridgeTelemetryBatchValidationResult) -> String {
+        switch result {
+        case .accepted:
+            "accepted"
+        case .dropped(let reason):
+            "dropped:\(reason.rawValue)"
+        }
     }
 }
 

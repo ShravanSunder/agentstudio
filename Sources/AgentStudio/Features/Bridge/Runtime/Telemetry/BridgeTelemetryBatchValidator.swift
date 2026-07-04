@@ -13,6 +13,7 @@ struct BridgeTelemetryBatchValidationOutcome: Equatable, Sendable {
 struct BridgeTelemetryBatchValidator: Sendable {
     private let scopeGate: BridgeTelemetryScopeGate
     private let decoder: JSONDecoder
+    private let sequenceState = BridgeTelemetryBatchSequenceState()
 
     init(scopeGate: BridgeTelemetryScopeGate, decoder: JSONDecoder = JSONDecoder()) {
         self.scopeGate = scopeGate
@@ -51,6 +52,9 @@ struct BridgeTelemetryBatchValidator: Sendable {
         guard Self.isSafeControlledString(batch.scenario) else {
             return Self.dropped(.unsafeAttribute)
         }
+        if let sequenceDropReason = sequenceState.validateSequence(batch) {
+            return Self.dropped(sequenceDropReason)
+        }
 
         for sample in batch.samples {
             guard sample.scope == .web else {
@@ -79,6 +83,44 @@ struct BridgeTelemetryBatchValidator: Sendable {
             result: .accepted(batch),
             firstRejectedEventName: nil
         )
+    }
+}
+
+private final class BridgeTelemetryBatchSequenceState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var lastSequence: Int?
+
+    func validateSequence(_ batch: BridgeTelemetryBatch) -> BridgeTelemetryDropReason? {
+        guard let sequence = batch.sequence else {
+            return nil
+        }
+        return lock.withLock {
+            guard let previousSequence = lastSequence else {
+                lastSequence = sequence
+                return nil
+            }
+            let expectedSequence = previousSequence + 1
+            guard sequence > expectedSequence else {
+                lastSequence = max(sequence, previousSequence)
+                return nil
+            }
+            let missingCount = sequence - expectedSequence
+            guard Self.hasMatchingDropCounter(batch, missingCount: missingCount) else {
+                return .missingDropCounter
+            }
+            lastSequence = sequence
+            return nil
+        }
+    }
+
+    private static func hasMatchingDropCounter(_ batch: BridgeTelemetryBatch, missingCount: Int) -> Bool {
+        batch.samples.contains { sample in
+            sample.name == "performance.bridge.web.telemetry_drop"
+                && sample.stringAttributes["agentstudio.bridge.telemetry.drop_reason"]
+                    == BridgeTelemetryDropReason.encodedByteCap.rawValue
+                && Int(sample.numericAttributes["agentstudio.bridge.telemetry.dropped_count"] ?? 0)
+                    >= missingCount
+        }
     }
 }
 

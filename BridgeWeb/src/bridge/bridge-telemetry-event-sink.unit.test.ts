@@ -1,36 +1,42 @@
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 
-import type { BridgeRPCCommand } from './bridge-rpc-client.js';
 import { createBridgeTelemetryEventSink } from './bridge-telemetry-event-sink.js';
 
 describe('bridge telemetry event sink', () => {
-	test('flushes batches through the exact system bridge telemetry method', () => {
-		const commands: BridgeRPCCommand[] = [];
+	test('posts telemetry batches to the dedicated scheme endpoint', () => {
+		const sendCommand = vi.fn();
+		const postedBodies: string[] = [];
 		const sink = createBridgeTelemetryEventSink({
-			methodName: 'system.bridgeTelemetry',
-			rpcClient: {
-				sendCommand: (command: BridgeRPCCommand): boolean => {
-					commands.push(command);
-					return true;
-				},
+			endpointUrl: 'agentstudio://telemetry/batch',
+			fetch: (input: RequestInfo | URL, init?: RequestInit): boolean => {
+				expect(input).toBe('agentstudio://telemetry/batch');
+				expect(init?.method).toBe('POST');
+				expect(init?.headers).toEqual({ 'Content-Type': 'application/json' });
+				const body = init?.body;
+				expect(typeof body).toBe('string');
+				if (typeof body !== 'string') {
+					throw new Error('Expected telemetry POST body to be a string');
+				}
+				postedBodies.push(body);
+				return true;
 			},
 		});
 
 		const didFlush = sink.flush({
 			schemaVersion: 1,
 			scenario: 'bridge-runtime',
+			sequence: 1,
 			samples: [],
 		});
 
 		expect(didFlush).toBe(true);
-		expect(commands).toEqual([
+		expect(sendCommand).not.toHaveBeenCalled();
+		expect(postedBodies.map((body) => JSON.parse(body) as unknown)).toEqual([
 			{
-				method: 'system.bridgeTelemetry',
-				params: {
-					schemaVersion: 1,
-					scenario: 'bridge-runtime',
-					samples: [],
-				},
+				schemaVersion: 1,
+				scenario: 'bridge-runtime',
+				sequence: 1,
+				samples: [],
 			},
 		]);
 	});
