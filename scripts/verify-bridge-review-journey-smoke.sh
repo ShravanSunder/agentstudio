@@ -6,6 +6,14 @@ STATE_FILE="${AGENTSTUDIO_OBSERVABILITY_STATE_FILE:-$PROJECT_ROOT/tmp/debug-obse
 LOGS_QUERY_URL="${AI_TOOLS_OBSERVABILITY_LOGS_QUERY_URL:-http://127.0.0.1:9428/select/logsql/query}"
 CURL_BIN="${AGENTSTUDIO_CURL_BIN:-/usr/bin/curl}"
 EXPECTED_SELECTIONS="${AGENTSTUDIO_BRIDGE_REVIEW_JOURNEY_EXPECTED_SELECTIONS:-4}"
+# The diagnostic commits four selections total: initial auto-selection, explicit review-tree click,
+# filter re-selection, and explicit modified-row click. selected_content_painted is click-anchored
+# to foreground demand, and only the two explicit row clicks are honest click anchors.
+CLICK_SELECTIONS="${AGENTSTUDIO_BRIDGE_REVIEW_JOURNEY_CLICK_SELECTIONS:-2}"
+# code_view_item_materialize is tighter than selection_commit here: the initial auto-selected item
+# materializes before its selection_commit event, and the later unchanged re-selection does not
+# render new selected content. The deterministic selected materialization count is therefore 3.
+EXPECTED_SELECTED_MATERIALIZATIONS="${AGENTSTUDIO_BRIDGE_REVIEW_JOURNEY_SELECTED_MATERIALIZATIONS:-3}"
 QUIESCENCE_SECONDS="${AGENTSTUDIO_BRIDGE_REVIEW_JOURNEY_QUIESCENCE_SECONDS:-8}"
 NON_STALE_TELEMETRY_DROP_STORM_THRESHOLD="${AGENTSTUDIO_BRIDGE_NON_STALE_TELEMETRY_DROP_STORM_THRESHOLD:-0}"
 EXPECTED_STARTUP_ACTION="bridge-review-observability-smoke"
@@ -381,10 +389,10 @@ non_stale_telemetry_dropped_total="$(sum_numeric_field "$non_stale_telemetry_dro
 
 assert_gte "startup diagnostic completed at least once" "$diagnostic_completed_count" 1
 assert_gte "diagnostic review_expected_item count present" "$review_expected_item_count" 1
-assert_equals "selected_content_painted fires exactly once per selection" "$painted_count" "$EXPECTED_SELECTIONS"
-assert_equals "selected_content_painted materialize_ms present exactly once per selection" "$painted_materialize_ms_count" "$EXPECTED_SELECTIONS"
+assert_equals "selected_content_painted fires exactly once per click-anchored selection" "$painted_count" "$CLICK_SELECTIONS"
+assert_equals "selected_content_painted materialize_ms present exactly once per click-anchored selection" "$painted_materialize_ms_count" "$CLICK_SELECTIONS"
 assert_equals "selection_commit fires exactly once per selection" "$selection_commit_count" "$EXPECTED_SELECTIONS"
-assert_equals "code_view_item_materialize selected items materialize exactly once per selection" "$materialized_count" "$EXPECTED_SELECTIONS"
+assert_equals "code_view_item_materialize selected items materialize for selection-changing renders" "$materialized_count" "$EXPECTED_SELECTED_MATERIALIZATIONS"
 assert_zero "selected_content_dropped revision_churn count" "$revision_churn_drop_count"
 assert_gte "content_load count is at least explicit selections" "$content_load_count" "$EXPECTED_SELECTIONS"
 # Native content_load fires per content role. The review journey diagnostic
@@ -397,7 +405,7 @@ assert_lte "zero non-stale telemetry_drop storms (dropped total)" "$non_stale_te
 echo "bridge review journey smoke summary:"
 echo "marker=$MARKER"
 echo "query_window=$QUERY_START..$QUERY_END"
-echo "expected_selections=$EXPECTED_SELECTIONS"
+echo "expected_selections=$EXPECTED_SELECTIONS click_selections=$CLICK_SELECTIONS expected_selected_materializations=$EXPECTED_SELECTED_MATERIALIZATIONS"
 echo "review_expected_item_count=$review_expected_item_count"
 echo "selected_content_painted=$painted_count selected_content_painted_materialize_ms=$painted_materialize_ms_count"
 echo "selection_commit=$selection_commit_count"

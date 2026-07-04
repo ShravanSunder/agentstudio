@@ -16,6 +16,7 @@ import { makeBridgeViewerProjectionFixture } from '../test-support/review-viewer
 import { materializeBridgeCodeViewLoadingItem } from './bridge-code-view-materialization.js';
 import {
 	bridgeCodeViewRenderedHeaderCorrectionTargetPosition,
+	shouldApplyBridgeCodeViewMaterializationEntry,
 	shouldApplyBridgeCodeViewRenderedHeaderCorrection,
 	shouldRearmCodeViewInstantRevealForMaterialization,
 } from './bridge-code-view-panel-support.js';
@@ -164,6 +165,45 @@ describe('BridgeCodeViewPanel diagnostics', () => {
 			shouldApplyBridgeCodeViewMaterialization({
 				isScrollActive: false,
 				itemId: 'visible-neighbor',
+				selectedItemId: 'selected-item',
+			}),
+		).toBe(true);
+	});
+
+	test('withholds selected visible hydration until a selected demand anchor or selected resource payload is present', () => {
+		expect(
+			shouldApplyBridgeCodeViewMaterializationEntry({
+				hasSelectedContentDemandAnchor: false,
+				isScrollActive: false,
+				itemId: 'selected-item',
+				selectedContentResourceItemId: null,
+				selectedItemId: 'selected-item',
+			}),
+		).toBe(false);
+		expect(
+			shouldApplyBridgeCodeViewMaterializationEntry({
+				hasSelectedContentDemandAnchor: true,
+				isScrollActive: false,
+				itemId: 'selected-item',
+				selectedContentResourceItemId: null,
+				selectedItemId: 'selected-item',
+			}),
+		).toBe(true);
+		expect(
+			shouldApplyBridgeCodeViewMaterializationEntry({
+				hasSelectedContentDemandAnchor: false,
+				isScrollActive: false,
+				itemId: 'selected-item',
+				selectedContentResourceItemId: 'selected-item',
+				selectedItemId: 'selected-item',
+			}),
+		).toBe(true);
+		expect(
+			shouldApplyBridgeCodeViewMaterializationEntry({
+				hasSelectedContentDemandAnchor: false,
+				isScrollActive: false,
+				itemId: 'visible-neighbor',
+				selectedContentResourceItemId: null,
 				selectedItemId: 'selected-item',
 			}),
 		).toBe(true);

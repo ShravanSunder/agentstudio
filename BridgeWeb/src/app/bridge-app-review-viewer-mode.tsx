@@ -57,6 +57,7 @@ import {
 	reviewFileTargetForNavigationCommand,
 	scheduleSelectedContentRetry,
 	selectedCanvasLoadingReasonForCurrentSelection,
+	selectedContentDemandStartedAtMillisecondsForCurrentSelection,
 	selectedContentResourcesForCurrentSelection,
 	selectedContentUnavailablePathForCurrentSelection,
 	selectedItemPresentationForReviewFileTarget,
@@ -529,11 +530,11 @@ export function BridgeReviewViewerMode(
 	const selectedContentLoadingItemId =
 		selectedCanvasLoadingReason === 'content' ? rootSnapshot.selectedItemId : null;
 	const selectedContentDemandStartedAtMilliseconds =
-		selectedContentResourcesState?.status === 'ready' &&
-		selectedContentResourcesState.itemId === rootSnapshot.selectedItemId &&
-		selectedContentResourcesState.contentKey === currentSelectedContentKey
-			? (selectedContentResourcesState.demandStartedAtMilliseconds ?? null)
-			: null;
+		selectedContentDemandStartedAtMillisecondsForCurrentSelection({
+			reviewPackage,
+			selectedItemId: rootSnapshot.selectedItemId,
+			selectedContentResourcesState,
+		});
 	return (
 		<BridgeReviewViewerShellBoundary
 			codeViewWorkerFactory={props.codeViewWorkerFactory}

@@ -35,6 +35,7 @@ import {
 	renderedBridgeCodeViewHeaderOffsetFromScrollOwner,
 	selectedContentDiagnosticsForPanel,
 	shouldApplyBridgeCodeViewMaterialization,
+	shouldApplyBridgeCodeViewMaterializationEntry,
 	shouldApplyBridgeCodeViewRenderedHeaderCorrection,
 	shouldRearmCodeViewInstantRevealForMaterialization,
 	uniqueItemIds,
@@ -496,11 +497,22 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		BridgeCodeViewContentResources,
 	])[] => {
 		const resourceEntriesByItemId = new Map<string, BridgeCodeViewContentResources>();
+		const selectedContentResourceItemId =
+			props.selectedItemId !== null &&
+			props.selectedContentResources !== null &&
+			props.selectedContentResources !== undefined
+				? props.selectedItemId
+				: null;
+		const hasSelectedContentDemandAnchor =
+			props.selectedContentDemandStartedAtMilliseconds !== null &&
+			props.selectedContentDemandStartedAtMilliseconds !== undefined;
 		for (const [itemId, resources] of props.visibleContentResourcesByItemId ?? []) {
 			if (
-				!shouldApplyBridgeCodeViewMaterialization({
+				!shouldApplyBridgeCodeViewMaterializationEntry({
+					hasSelectedContentDemandAnchor,
 					isScrollActive: isCodeViewScrollActive,
 					itemId,
+					selectedContentResourceItemId,
 					selectedItemId: props.selectedItemId,
 				})
 			) {
@@ -518,6 +530,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		return [...resourceEntriesByItemId.entries()];
 	}, [
 		isCodeViewScrollActive,
+		props.selectedContentDemandStartedAtMilliseconds,
 		props.selectedContentResources,
 		props.selectedItemId,
 		props.visibleContentResourcesByItemId,
