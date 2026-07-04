@@ -1,6 +1,14 @@
-import type { WorkerInitializationRenderOptions, WorkerPoolOptions } from '@pierre/diffs/react';
-import { WorkerPoolContextProvider, useWorkerPool } from '@pierre/diffs/react';
-import { terminateWorkerPoolSingleton } from '@pierre/diffs/worker';
+import type {
+	FileContents,
+	WorkerInitializationRenderOptions,
+	WorkerPoolOptions,
+} from '@pierre/diffs/react';
+import { WorkerPoolContext, useWorkerPool } from '@pierre/diffs/react';
+import {
+	getOrCreateWorkerPoolSingleton,
+	terminateWorkerPoolSingleton,
+	type WorkerPoolManager,
+} from '@pierre/diffs/worker';
 import type { ReactElement, ReactNode } from 'react';
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { z } from 'zod';
@@ -109,6 +117,8 @@ const defaultBridgePierreWorkerKind = 'classicWorker' satisfies BridgePierreWork
 const defaultPoolSize = 3;
 const defaultTotalASTLRUCacheSize = 128;
 const bridgePierreWorkerPoolStatsPollIntervalMilliseconds = 100;
+const bridgePierreUnrankedWorkerTaskRank = Number.MAX_SAFE_INTEGER;
+let bridgePierreWorkerPoolProviderInstanceCount = 0;
 
 export function createBridgePierreWorkerFactory(
 	props: CreateBridgePierreWorkerFactoryProps = {},
@@ -184,6 +194,66 @@ export function createBridgePierreWorkerHighlighterOptions(): WorkerInitializati
 		lineDiffType: 'word',
 		maxLineDiffLength: 1000,
 	};
+}
+
+type BridgePierreDemandRankedFile = FileContents & {
+	readonly bridgeDemandRank?: number;
+};
+
+interface BridgePierreWorkerPoolQueuedTask {
+	readonly id?: number;
+	readonly request?: {
+		readonly file?: BridgePierreDemandRankedFile;
+	};
+}
+
+const bridgePierreRankSchedulerInstalledManagers = new WeakSet<WorkerPoolManager>();
+
+export function bridgePierreDemandRankForWorkerTask(
+	task: BridgePierreWorkerPoolQueuedTask,
+): number {
+	const demandRank = task.request?.file?.bridgeDemandRank;
+	return typeof demandRank === 'number' && Number.isFinite(demandRank)
+		? demandRank
+		: bridgePierreUnrankedWorkerTaskRank;
+}
+
+export function sortBridgePierreWorkerPoolQueuedTasksForDemandRank(
+	queuedTasks: BridgePierreWorkerPoolQueuedTask[],
+): void {
+	queuedTasks.sort((left, right): number => {
+		const demandRankComparison =
+			bridgePierreDemandRankForWorkerTask(left) - bridgePierreDemandRankForWorkerTask(right);
+		if (demandRankComparison !== 0) {
+			return demandRankComparison;
+		}
+		return (
+			(left.id ?? bridgePierreUnrankedWorkerTaskRank) -
+			(right.id ?? bridgePierreUnrankedWorkerTaskRank)
+		);
+	});
+}
+
+export function installBridgePierreWorkerPoolRankScheduler(workerPool: WorkerPoolManager): void {
+	if (bridgePierreRankSchedulerInstalledManagers.has(workerPool)) {
+		return;
+	}
+	const enqueueRenderTask = Reflect.get(workerPool, 'enqueueRenderTask');
+	if (typeof enqueueRenderTask !== 'function') {
+		return;
+	}
+	Reflect.set(
+		workerPool,
+		'enqueueRenderTask',
+		(task: BridgePierreWorkerPoolQueuedTask, instance?: unknown): void => {
+			Reflect.apply(enqueueRenderTask, workerPool, [task, instance]);
+			const queuedTasks = Reflect.get(workerPool, 'queuedTasks');
+			if (Array.isArray(queuedTasks)) {
+				sortBridgePierreWorkerPoolQueuedTasksForDemandRank(queuedTasks);
+			}
+		},
+	);
+	bridgePierreRankSchedulerInstalledManagers.add(workerPool);
 }
 
 export function BridgePierreWorkerPoolProvider(
@@ -303,10 +373,53 @@ export function BridgePierreWorkerPoolProvider(
 	}
 
 	return (
-		<WorkerPoolContextProvider highlighterOptions={highlighterOptions} poolOptions={poolOptions}>
+		<BridgePierreRankedWorkerPoolContextProvider
+			highlighterOptions={highlighterOptions}
+			poolOptions={poolOptions}
+		>
 			<BridgePierreWorkerPoolDiagnostics />
 			<BridgePierreWorkerPoolReadinessGate>{props.children}</BridgePierreWorkerPoolReadinessGate>
-		</WorkerPoolContextProvider>
+		</BridgePierreRankedWorkerPoolContextProvider>
+	);
+}
+
+function BridgePierreRankedWorkerPoolContextProvider(props: {
+	readonly children: ReactNode;
+	readonly highlighterOptions: WorkerInitializationRenderOptions;
+	readonly poolOptions: WorkerPoolOptions;
+}): ReactElement {
+	const [workerPool] = useState((): WorkerPoolManager | undefined => {
+		if (typeof window === 'undefined') {
+			return undefined;
+		}
+		const manager = getOrCreateWorkerPoolSingleton({
+			highlighterOptions: props.highlighterOptions,
+			poolOptions: props.poolOptions,
+		});
+		installBridgePierreWorkerPoolRankScheduler(manager);
+		return manager;
+	});
+
+	useEffect((): (() => void) | void => {
+		if (workerPool === undefined) {
+			return;
+		}
+		bridgePierreWorkerPoolProviderInstanceCount += 1;
+		return (): void => {
+			bridgePierreWorkerPoolProviderInstanceCount -= 1;
+		};
+	}, [workerPool]);
+
+	useEffect((): (() => void) => {
+		return (): void => {
+			if (bridgePierreWorkerPoolProviderInstanceCount === 0) {
+				terminateWorkerPoolSingleton();
+			}
+		};
+	}, []);
+
+	return (
+		<WorkerPoolContext.Provider value={workerPool}>{props.children}</WorkerPoolContext.Provider>
 	);
 }
 
