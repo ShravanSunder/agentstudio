@@ -10,11 +10,39 @@ import {
 import {
 	createBridgeCodeViewInitialItems,
 	materializeBridgeCodeViewItem,
+	materializeBridgeCodeViewLoadingItem,
 	type BridgeCodeViewDiffItem,
 	type BridgeCodeViewItem,
 } from './bridge-code-view-materialization.js';
 
 describe('Bridge CodeView hydrated materialization', () => {
+	test('preserves placeholder height while materialization is skipped before materialize', () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const projection = buildBridgeReviewProjection({
+			reviewPackage,
+			request: { mode: { kind: 'normalReview' }, facets: [] },
+		});
+		const item = reviewPackage.itemsById['source-high'];
+		if (item === undefined) {
+			throw new Error('expected source fixture item');
+		}
+		const placeholder = createBridgeCodeViewInitialItems({ reviewPackage, projection }).find(
+			(candidate): boolean => candidate.id === item.itemId,
+		);
+		if (placeholder === undefined) {
+			throw new Error('expected source fixture placeholder');
+		}
+
+		const loadingItem = materializeBridgeCodeViewLoadingItem(item);
+
+		expect(loadingItem.bridgeMetadata.lineCount).toBe(placeholder.bridgeMetadata.lineCount);
+		if (loadingItem.type === 'file' && placeholder.type === 'file') {
+			expect(countContentLines(loadingItem.file.contents)).toBe(
+				countContentLines(placeholder.file.contents),
+			);
+		}
+	});
+
 	test('keeps full text for descriptor probe requests before worker fetch is proven', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const item = reviewPackage.itemsById['source-high'];
@@ -694,4 +722,8 @@ function makeGeneratedLines(label: 'base' | 'head', lineCount: number): string {
 		const paddedIndex = index.toString().padStart(4, '0');
 		return `export const generatedLine${paddedIndex} = '${label}';`;
 	}).join('\n');
+}
+
+function countContentLines(contents: string): number {
+	return contents.length === 0 ? 0 : contents.split('\n').length - 1;
 }

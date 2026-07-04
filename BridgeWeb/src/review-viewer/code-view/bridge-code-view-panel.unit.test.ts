@@ -20,6 +20,7 @@ import {
 	materializeBridgeCodeViewItem,
 	materializeBridgeCodeViewLoadingItem,
 } from './bridge-code-view-materialization.js';
+import { applyBridgeCodeViewMetadataItems } from './bridge-code-view-metadata-apply.js';
 import {
 	bridgeCodeViewMaterializationEntrySortKey,
 	bridgeCodeViewRenderedHeaderCorrectionTargetPosition,
@@ -134,6 +135,58 @@ describe('BridgeCodeViewPanel diagnostics', () => {
 			selectedOffWindowItem.itemId,
 		]);
 		expect(reconciledItems[1]).toBe(selectedHydratedItem);
+	});
+
+	test('uses append and patch updates for projection deltas and reserves setItems for source reset', () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const sourceItem = reviewPackage.itemsById['source-high'];
+		if (sourceItem === undefined) {
+			throw new Error('expected source fixture item');
+		}
+		const firstItem = materializeBridgeCodeViewLoadingItem(sourceItem);
+		const patchedItem: BridgeCodeViewItem = {
+			...firstItem,
+			version: (firstItem.version ?? 0) + 1,
+		};
+		const appendedItem: BridgeCodeViewItem = {
+			...firstItem,
+			id: 'appended-item',
+			bridgeMetadata: {
+				...firstItem.bridgeMetadata,
+				itemId: 'appended-item',
+			},
+		};
+		const model = new RecordingMetadataApplyModel([firstItem]);
+
+		applyBridgeCodeViewMetadataItems({
+			applyItemUpdate: (item: BridgeCodeViewItem): void => {
+				model.applyItemUpdate(item);
+			},
+			getCurrentItem: (itemId: string) => model.getItem(itemId),
+			items: [patchedItem, appendedItem],
+			setItems: (items: readonly BridgeCodeViewItem[]): void => {
+				model.setItems(items);
+			},
+			sourceReset: false,
+		});
+
+		expect(model.setItemsCalls).toEqual([]);
+		expect(model.appliedItemIds).toEqual([firstItem.id, 'appended-item']);
+
+		applyBridgeCodeViewMetadataItems({
+			applyItemUpdate: (item: BridgeCodeViewItem): void => {
+				model.applyItemUpdate(item);
+			},
+			getCurrentItem: (itemId: string) => model.getItem(itemId),
+			items: [patchedItem],
+			setItems: (items: readonly BridgeCodeViewItem[]): void => {
+				model.setItems(items);
+			},
+			sourceReset: true,
+		});
+
+		expect(model.setItemsCalls).toHaveLength(1);
+		expect(model.setItemsCalls[0]?.map((item) => item.id)).toEqual([firstItem.id]);
 	});
 
 	test('does not read large selected content bodies to build panel summary attributes', () => {
@@ -684,6 +737,35 @@ function readSelectedContentPaintedProbe(): BridgeSelectedContentPaintedProbe {
 function ensureTestWindow(): void {
 	if (typeof window === 'undefined') {
 		vi.stubGlobal('window', {});
+	}
+}
+
+class RecordingMetadataApplyModel {
+	readonly appliedItemIds: string[] = [];
+	readonly setItemsCalls: BridgeCodeViewItem[][] = [];
+	readonly #itemsById = new Map<string, BridgeCodeViewItem>();
+
+	constructor(items: readonly BridgeCodeViewItem[]) {
+		for (const item of items) {
+			this.#itemsById.set(item.id, item);
+		}
+	}
+
+	applyItemUpdate(item: BridgeCodeViewItem): void {
+		this.appliedItemIds.push(item.id);
+		this.#itemsById.set(item.id, item);
+	}
+
+	getItem(itemId: string): BridgeCodeViewItem | undefined {
+		return this.#itemsById.get(itemId);
+	}
+
+	setItems(items: readonly BridgeCodeViewItem[]): void {
+		this.setItemsCalls.push([...items]);
+		this.#itemsById.clear();
+		for (const item of items) {
+			this.#itemsById.set(item.id, item);
+		}
 	}
 }
 

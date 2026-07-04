@@ -12,6 +12,7 @@ import {
 	materializeBridgeCodeViewLoadingItem,
 	type BridgeCodeViewItem,
 } from './bridge-code-view-materialization.js';
+import { applyBridgeCodeViewMetadataItems } from './bridge-code-view-metadata-apply.js';
 import {
 	recordBridgeSelectedContentPaintedProbeAlreadyPaintedByHydration,
 	recordBridgeSelectedContentPaintedProbeAnchoredDelivery,
@@ -109,6 +110,8 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 	const pendingSelectionRevealBehaviorRef = useRef<CodeViewScrollBehavior | null>(null);
 	const pendingSmoothSelectionScrollKeyRef = useRef<string | null>(null);
 	const pendingVisibleHeaderPublishFrameRef = useRef<number | null>(null);
+	const lastMetadataApplySourceKeyRef = useRef<string | null>(null);
+	const lastMetadataApplyMountVersionRef = useRef<number | null>(null);
 	const recentInstantSelectionRevealRef = useRef<BridgeCodeViewInstantRevealRearmCandidate | null>(
 		null,
 	);
@@ -472,6 +475,8 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		controllerEntryRef.current = null;
 		completedSelectionScrollKeyRef.current = null;
 		lastSelectionScrollKeyRef.current = null;
+		lastMetadataApplySourceKeyRef.current = null;
+		lastMetadataApplyMountVersionRef.current = null;
 		pendingPreHydrationSelectionScrollKeyRef.current = null;
 		pendingSelectionRevealBehaviorRef.current = null;
 		pendingSmoothSelectionScrollKeyRef.current = null;
@@ -486,17 +491,34 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		if (codeViewHandle === null || codeViewInstance === undefined) {
 			return;
 		}
-		codeViewInstance.setItems(
-			reconcileBridgeCodeViewMetadataItems({
-				getCurrentItem: (itemId: string): CodeViewItem | undefined =>
-					codeViewHandle.getItem(itemId),
-				metadataItems: initialItems,
-				preserveItemIds:
-					selectedItemIdForMetadataReconcileRef.current === null
-						? []
-						: [selectedItemIdForMetadataReconcileRef.current],
-			}),
-		);
+		const sourceReset =
+			lastMetadataApplySourceKeyRef.current !== sourceKey ||
+			lastMetadataApplyMountVersionRef.current !== codeViewMountVersion;
+		const metadataItems = reconcileBridgeCodeViewMetadataItems({
+			getCurrentItem: (itemId: string): CodeViewItem | undefined => codeViewHandle.getItem(itemId),
+			metadataItems: initialItems,
+			preserveItemIds:
+				selectedItemIdForMetadataReconcileRef.current === null
+					? []
+					: [selectedItemIdForMetadataReconcileRef.current],
+		});
+		const controller = controllerForHandle({
+			handle: codeViewHandle,
+			controllerEntryRef,
+		});
+		applyBridgeCodeViewMetadataItems({
+			applyItemUpdate: (item): void => {
+				controller.applyItemUpdate(item);
+			},
+			getCurrentItem: (itemId: string): CodeViewItem | undefined => codeViewHandle.getItem(itemId),
+			items: metadataItems,
+			setItems: (items): void => {
+				codeViewInstance.setItems(items);
+			},
+			sourceReset,
+		});
+		lastMetadataApplySourceKeyRef.current = sourceKey;
+		lastMetadataApplyMountVersionRef.current = codeViewMountVersion;
 		scheduleCodeViewRecoveryRender();
 	}, [codeViewMountVersion, initialItems, scheduleCodeViewRecoveryRender, sourceKey]);
 

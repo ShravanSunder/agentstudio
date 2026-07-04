@@ -68,6 +68,16 @@ export interface BridgePierreTreePathEvent {
 	readonly composedPath?: () => readonly unknown[];
 }
 
+export interface ApplyBridgePierreItemStreamProps<TItem> {
+	readonly appendItems: (items: readonly TItem[]) => void;
+	readonly getItem: (itemId: string) => unknown;
+	readonly itemId: (item: TItem) => string;
+	readonly items: readonly TItem[];
+	readonly patchItem: (item: TItem) => void;
+	readonly setItems: (items: readonly TItem[]) => void;
+	readonly sourceReset: boolean;
+}
+
 const pierreTreeScrollOwnerSelector = '[data-file-tree-virtualized-scroll="true"]';
 const pierreTreeFileRowSelector =
 	'button[data-item-type="file"][data-item-path],[data-type="item"][data-item-type="file"][data-item-path]';
@@ -93,6 +103,27 @@ export function appendedOnlyPierreTreePaths(props: {
 		}
 	}
 	return props.nextPaths.slice(props.previousPaths.length);
+}
+
+export function applyBridgePierreItemStream<TItem>(
+	props: ApplyBridgePierreItemStreamProps<TItem>,
+): void {
+	if (props.sourceReset) {
+		props.setItems(props.items);
+		return;
+	}
+	const appendedItems: TItem[] = [];
+	for (const item of props.items) {
+		const itemId = props.itemId(item);
+		if (props.getItem(itemId) === undefined) {
+			appendedItems.push(item);
+			continue;
+		}
+		props.patchItem(item);
+	}
+	if (appendedItems.length > 0) {
+		props.appendItems(appendedItems);
+	}
 }
 
 export function expandAncestorDirectoriesForPierreTreePaths(props: {

@@ -433,7 +433,7 @@ describe('Bridge CodeView materialization', () => {
 		});
 	});
 
-	test('ignores streamed line extents in visible loading file-target items', () => {
+	test('preserves streamed line extents in visible loading file-target items', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const item = reviewPackage.itemsById['source-high'];
 		if (item === undefined) {
@@ -456,13 +456,14 @@ describe('Bridge CodeView materialization', () => {
 		expect(loadingItem.bridgeMetadata).toMatchObject({
 			contentState: 'loading',
 			itemId: item.itemId,
-			lineCount: null,
+			lineCount: 37,
 		});
-		expect(loadingItem.file.contents).toContain('Loading content...');
-		expect(loadingItem.file.cacheKey).toBe(`${item.cacheKey}:loading`);
+		expect(countPierreContentLines(loadingItem.file.contents)).toBe(37);
+		expect(loadingItem.file.contents).not.toContain('Loading content...');
+		expect(loadingItem.file.cacheKey).toBe(`${item.cacheKey}:placeholder`);
 	});
 
-	test('does not use file extent facts as the fallback for current file-target loading items', () => {
+	test('uses file extent facts as the fallback for current file-target loading items', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const item = reviewPackage.itemsById['source-high'];
 		if (item === undefined) {
@@ -482,9 +483,10 @@ describe('Bridge CodeView materialization', () => {
 		if (loadingItem.type !== 'file') {
 			throw new Error('expected selected review file target loading item to keep file view');
 		}
-		expect(loadingItem.bridgeMetadata.lineCount).toBe(null);
-		expect(loadingItem.file.contents).toContain('Loading content...');
-		expect(loadingItem.file.cacheKey).toBe(`${item.cacheKey}:loading`);
+		expect(loadingItem.bridgeMetadata.lineCount).toBe(37);
+		expect(countPierreContentLines(loadingItem.file.contents)).toBe(37);
+		expect(loadingItem.file.contents).not.toContain('Loading content...');
+		expect(loadingItem.file.cacheKey).toBe(`${item.cacheKey}:placeholder`);
 	});
 
 	test('does not reserve one-sided loading height from addition and deletion extents', () => {
@@ -517,14 +519,10 @@ describe('Bridge CodeView materialization', () => {
 			throw new Error('expected one-sided diff loading items');
 		}
 		expect(addedLoadingItem.fileDiff.deletionLines).toHaveLength(0);
-		expect(addedLoadingItem.fileDiff.additionLines).toEqual([
-			'Loading content...\n',
-			'Loading syntax view...\n',
-		]);
-		expect(deletedLoadingItem.fileDiff.deletionLines).toEqual([
-			'Loading content...\n',
-			'Loading syntax view...\n',
-		]);
+		expect(addedLoadingItem.fileDiff.additionLines).toHaveLength(17);
+		expect(addedLoadingItem.fileDiff.additionLines).not.toContain('Loading content...\n');
+		expect(deletedLoadingItem.fileDiff.deletionLines).toHaveLength(11);
+		expect(deletedLoadingItem.fileDiff.deletionLines).not.toContain('Loading content...\n');
 		expect(deletedLoadingItem.fileDiff.additionLines).toHaveLength(0);
 	});
 
@@ -540,14 +538,14 @@ describe('Bridge CodeView materialization', () => {
 		if (loadingItem.type !== 'diff') {
 			throw new Error('expected loading item to use one-sided diff view');
 		}
-		expect(loadingItem.fileDiff.additionLines).toContain('Loading content...\n');
-		expect(loadingItem.fileDiff.lang).toBe('text');
+		expect(loadingItem.fileDiff.additionLines.length).toBeGreaterThan(0);
+		expect(loadingItem.fileDiff.additionLines).not.toContain('Loading content...\n');
 		expect(loadingItem.collapsed).toBeUndefined();
 		expect(loadingItem.bridgeMetadata).toMatchObject({
 			contentState: 'loading',
 			contentRoles: [],
 			itemId: item.itemId,
-			lineCount: null,
+			lineCount: 3,
 		});
 	});
 
@@ -563,12 +561,13 @@ describe('Bridge CodeView materialization', () => {
 		if (loadingItem.type !== 'diff') {
 			throw new Error('expected loading item to keep diff view');
 		}
-		expect(loadingItem.fileDiff.additionLines).toContain('Loading content...\n');
-		expect(loadingItem.fileDiff.lang).toBe('text');
+		expect(loadingItem.fileDiff.additionLines.length).toBeGreaterThan(0);
+		expect(loadingItem.fileDiff.additionLines).not.toContain('Loading content...\n');
 		expect(loadingItem.bridgeMetadata).toMatchObject({
 			contentState: 'loading',
 			contentRoles: [],
 			itemId: item.itemId,
+			lineCount: 5,
 		});
 	});
 
@@ -612,9 +611,10 @@ describe('Bridge CodeView materialization', () => {
 			throw new Error('expected a file loading item');
 		}
 
-		expect(loadingItem.bridgeMetadata.lineCount).toBe(null);
-		expect(loadingItem.file.contents).toBe('Loading content...\nLoading syntax view...\n');
-		expect(loadingItem.file.cacheKey).toBe(`${item.cacheKey}:loading`);
+		expect(loadingItem.bridgeMetadata.lineCount).toBe(4000);
+		expect(countPierreContentLines(loadingItem.file.contents)).toBe(4000);
+		expect(loadingItem.file.contents).not.toContain('Loading content...');
+		expect(loadingItem.file.cacheKey).toBe(`${item.cacheKey}:placeholder`);
 	});
 });
 

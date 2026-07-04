@@ -118,7 +118,10 @@ export function pruneVisibleReviewContentHydrationCaches(props: {
 	const retainedReadyEntries: [string, BridgeCodeViewContentResources][] = [];
 	for (const [itemId, resources] of props.resourcesByItemId) {
 		const state = props.contentStateByItemId.get(itemId);
-		if (state?.status !== 'ready' || !props.retainedContentKeys.has(state.contentKey)) {
+		if (
+			(state?.status !== 'ready' && state?.status !== 'deferred') ||
+			!props.retainedContentKeys.has(state.contentKey)
+		) {
 			continue;
 		}
 		if (visibleItemIdSet.has(itemId)) {

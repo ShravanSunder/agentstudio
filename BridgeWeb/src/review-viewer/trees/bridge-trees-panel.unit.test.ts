@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, test } from 'vitest';
 
-import { applyReviewTreeSelectionFromEvent } from './bridge-trees-panel.js';
+import {
+	applyReviewTreeSelectionFromEvent,
+	createBridgeReviewTreeVisibleItemPublisher,
+} from './bridge-trees-panel.js';
 
 const originalWindowDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'window');
 
@@ -24,6 +27,32 @@ afterEach(() => {
 });
 
 describe('BridgeReviewTreesPanel selection dispatch', () => {
+	test('coalesces rendered-window publication to one requestAnimationFrame per scroll burst', () => {
+		const requestedFrames: (() => void)[] = [];
+		const publishedItemIdBatches: string[][] = [];
+		const publisher = createBridgeReviewTreeVisibleItemPublisher({
+			captureVisibleItemIds: () => ['item-visible'],
+			onVisibleItemIdsChange: (itemIds: readonly string[]): void => {
+				publishedItemIdBatches.push([...itemIds]);
+			},
+			requestAnimationFrame: (callback: () => void): number => {
+				requestedFrames.push(callback);
+				return requestedFrames.length;
+			},
+		});
+
+		publisher.schedule();
+		publisher.schedule();
+		publisher.schedule();
+
+		expect(requestedFrames).toHaveLength(1);
+		expect(publishedItemIdBatches).toEqual([]);
+
+		requestedFrames[0]?.();
+
+		expect(publishedItemIdBatches).toEqual([['item-visible']]);
+	});
+
 	test('applies a composed post-scroll host click for the rendered row path', async () => {
 		const selectedItemIds: string[] = [];
 		const selectedTreePaths: string[] = [];

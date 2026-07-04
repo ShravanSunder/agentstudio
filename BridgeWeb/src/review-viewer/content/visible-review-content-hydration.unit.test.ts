@@ -20,7 +20,9 @@ import {
 	selectedAdjacentReviewItemIds,
 	shouldAcceptVisibleReviewContentReadyResult,
 	shouldAbortVisibleContentLoadsForPause,
+	shouldApplyVisibleContentStateImmediately,
 	shouldRearmAbortedVisibleContentLoad,
+	visibleContentStateForAcceptedReadyResult,
 	visibleContentHydrationDispatchDelayMilliseconds,
 	visibleContentHydrationConcurrentLoadLimit,
 	visibleReviewContentLoadPlanCount,
@@ -231,6 +233,54 @@ describe('visible review content hydration', () => {
 
 	test('keeps paused visible loads alive so completed bodies are not refetched after selection churn', () => {
 		expect(shouldAbortVisibleContentLoadsForPause()).toBe(false);
+	});
+
+	test('keeps cache landing immediate while deferring non-selected DOM apply during scroll momentum', () => {
+		const readyState = visibleContentStateForAcceptedReadyResult({
+			contentKey: 'content:item-visible',
+			itemId: 'item-visible',
+			pausedNow: true,
+			selectedItemId: 'item-selected',
+		});
+		const readyResource: BridgeContentResource = {
+			handle: makeBridgeContentHandle('item-visible', 'head'),
+			readText: (): string => 'ready during scroll\n',
+		};
+
+		const result = createVisibleReviewContentHydrationResult({
+			contentStateByItemId: new Map([['item-visible', readyState]]),
+			resourcesByItemId: new Map([['item-visible', { head: readyResource }]]),
+			setVisibleItemIds: noopVisibleItemIdsSetter,
+			visibleItemIds: ['item-visible'],
+		});
+
+		expect(readyState.status).toBe('deferred');
+		expect(result.visibleReadyItemCount).toBe(0);
+		expect(result.visibleContentResourcesByItemId.has('item-visible')).toBe(false);
+	});
+
+	test('delegates scroll apply decisions through extracted hydration helpers', () => {
+		expect(
+			shouldApplyVisibleContentStateImmediately({
+				itemId: 'item-selected',
+				pausedNow: true,
+				selectedItemId: 'item-selected',
+			}),
+		).toBe(true);
+		expect(
+			shouldApplyVisibleContentStateImmediately({
+				itemId: 'item-visible',
+				pausedNow: true,
+				selectedItemId: 'item-selected',
+			}),
+		).toBe(false);
+		expect(
+			shouldApplyVisibleContentStateImmediately({
+				itemId: 'item-visible',
+				pausedNow: false,
+				selectedItemId: 'item-selected',
+			}),
+		).toBe(true);
 	});
 
 	test('accepts ready results when only transient loading state is absent', () => {

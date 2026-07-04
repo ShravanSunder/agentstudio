@@ -2,6 +2,7 @@ import { describe, expect, test, vi } from 'vitest';
 
 import {
 	appendedOnlyPierreTreePaths,
+	applyBridgePierreItemStream,
 	expandAncestorDirectoriesForPierreTreePaths,
 	pierreFilePathFromEventTarget,
 	pierreFilePathFromTreeEvent,
@@ -29,6 +30,48 @@ describe('Bridge Pierre tree adapter', () => {
 		});
 
 		expect(appendedPaths).toBeNull();
+	});
+
+	test('uses append and patch updates for projection deltas and reserves setItems for source reset', () => {
+		const model = new RecordingPierreItemStreamModel<string>(['item-a']);
+
+		applyBridgePierreItemStream({
+			getItem: (itemId: string) => model.getItem(itemId),
+			items: ['item-a', 'item-b'],
+			itemId: (item: string): string => item,
+			patchItem: (item: string): void => {
+				model.patchItem(item);
+			},
+			appendItems: (items: readonly string[]): void => {
+				model.appendItems(items);
+			},
+			setItems: (items: readonly string[]): void => {
+				model.setItems(items);
+			},
+			sourceReset: false,
+		});
+
+		expect(model.setItemsCalls).toEqual([]);
+		expect(model.patchItems).toEqual(['item-a']);
+		expect(model.appendItemBatches).toEqual([['item-b']]);
+
+		applyBridgePierreItemStream({
+			getItem: (itemId: string) => model.getItem(itemId),
+			items: ['item-a'],
+			itemId: (item: string): string => item,
+			patchItem: (item: string): void => {
+				model.patchItem(item);
+			},
+			appendItems: (items: readonly string[]): void => {
+				model.appendItems(items);
+			},
+			setItems: (items: readonly string[]): void => {
+				model.setItems(items);
+			},
+			sourceReset: true,
+		});
+
+		expect(model.setItemsCalls).toEqual([['item-a']]);
 	});
 
 	test('expands ancestor directories through mounted Pierre directory paths', () => {
@@ -182,5 +225,42 @@ class RecordingPierreFileRowElement {
 			return 'file';
 		}
 		return name === 'data-item-path' ? this.path : null;
+	}
+}
+
+class RecordingPierreItemStreamModel<TItem> {
+	readonly appendItemBatches: TItem[][] = [];
+	readonly patchItems: TItem[] = [];
+	readonly setItemsCalls: TItem[][] = [];
+	readonly #itemsById = new Map<string, TItem>();
+
+	constructor(items: readonly TItem[]) {
+		for (const item of items) {
+			this.#itemsById.set(String(item), item);
+		}
+	}
+
+	appendItems(items: readonly TItem[]): void {
+		this.appendItemBatches.push([...items]);
+		for (const item of items) {
+			this.#itemsById.set(String(item), item);
+		}
+	}
+
+	getItem(itemId: string): TItem | undefined {
+		return this.#itemsById.get(itemId);
+	}
+
+	patchItem(item: TItem): void {
+		this.patchItems.push(item);
+		this.#itemsById.set(String(item), item);
+	}
+
+	setItems(items: readonly TItem[]): void {
+		this.setItemsCalls.push([...items]);
+		this.#itemsById.clear();
+		for (const item of items) {
+			this.#itemsById.set(String(item), item);
+		}
 	}
 }

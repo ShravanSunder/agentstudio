@@ -33,18 +33,13 @@ import {
 	type BridgeCodeViewItem,
 	type BridgeCodeViewItemPresentation,
 } from './bridge-code-view-materialization.js';
+import type { BridgeCodeViewMetadataReconcileProps } from './bridge-code-view-metadata-apply.js';
 import type { BridgeCodeViewMaterializationResourceEntry } from './bridge-code-view-panel-types.js';
 
 type BridgeCodeViewFileItemPresentation = Extract<
 	BridgeCodeViewItemPresentation,
 	{ readonly kind: 'file' }
 >;
-
-export interface BridgeCodeViewMetadataReconcileProps {
-	readonly getCurrentItem: (itemId: string) => CodeViewItem | undefined;
-	readonly metadataItems: readonly BridgeCodeViewItem[];
-	readonly preserveItemIds?: readonly string[];
-}
 
 export interface BridgeCodeViewControllerEntry {
 	readonly handle: CodeViewHandle<undefined>;

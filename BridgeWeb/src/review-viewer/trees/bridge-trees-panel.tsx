@@ -46,6 +46,19 @@ declare global {
 	}
 }
 
+export interface BridgeReviewTreeVisibleItemPublisher {
+	readonly cancel: () => void;
+	readonly publishNow: () => void;
+	readonly schedule: () => void;
+}
+
+export interface CreateBridgeReviewTreeVisibleItemPublisherProps {
+	readonly cancelAnimationFrame?: (frameId: number) => void;
+	readonly captureVisibleItemIds: () => readonly string[];
+	readonly onVisibleItemIdsChange: (itemIds: readonly string[]) => void;
+	readonly requestAnimationFrame?: (callback: () => void) => number;
+}
+
 export interface BridgeReviewTreesPanelProps {
 	readonly reviewPackage: BridgeReviewPackage;
 	readonly reviewTreeRows: readonly ReviewTreeRowMetadata[];
@@ -189,17 +202,6 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 		model.getItem(path)?.select();
 	}, [model, props.projection, props.selectedItemId]);
 
-	const publishVisibleItemIds = useCallback((): void => {
-		if (onVisibleItemIdsChange === undefined) {
-			return;
-		}
-		onVisibleItemIdsChange(
-			visibleReviewTreeItemIds({
-				model,
-				primaryItemIdByTreePath: sourceRef.current.primaryItemIdByTreePath,
-			}),
-		);
-	}, [model, onVisibleItemIdsChange]);
 	const selectClickedFileRow = useCallback((event: Event): void => {
 		applyReviewTreeSelectionFromEvent({
 			event,
@@ -220,20 +222,21 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 
 	useEffect((): (() => void) => {
 		let scrollElement: BridgePierreTreeScrollOwner | null = null;
-		let animationFrameId: number | null = null;
-		const scheduleVisibleItemIds = (): void => {
-			if (animationFrameId !== null) {
-				return;
-			}
-			animationFrameId = requestAnimationFrame((): void => {
-				animationFrameId = null;
-				publishVisibleItemIds();
-			});
-		};
+		const visibleItemPublisher = createBridgeReviewTreeVisibleItemPublisher({
+			captureVisibleItemIds: (): readonly string[] =>
+				visibleReviewTreeItemIds({
+					model,
+					primaryItemIdByTreePath: sourceRef.current.primaryItemIdByTreePath,
+				}),
+			onVisibleItemIdsChange: (itemIds): void => {
+				onVisibleItemIdsChange?.(itemIds);
+			},
+		});
+		const scheduleVisibleItemIds = (): void => visibleItemPublisher.schedule();
 		const setupFrameId = requestAnimationFrame((): void => {
 			scrollElement = pierreTreeScrollOwnerForModel(model);
 			scrollElement?.addEventListener('scroll', scheduleVisibleItemIds, { passive: true });
-			publishVisibleItemIds();
+			visibleItemPublisher.publishNow();
 			// Only anchor time-to-first-interaction once the tree actually has rows painted.
 			if (!hasRecordedFirstInteractionRef.current && sourceRef.current.orderedPaths.length > 0) {
 				hasRecordedFirstInteractionRef.current = true;
@@ -252,13 +255,11 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 		const unsubscribeModel = model.subscribe(scheduleVisibleItemIds);
 		return (): void => {
 			cancelAnimationFrame(setupFrameId);
-			if (animationFrameId !== null) {
-				cancelAnimationFrame(animationFrameId);
-			}
+			visibleItemPublisher.cancel();
 			scrollElement?.removeEventListener('scroll', scheduleVisibleItemIds);
 			unsubscribeModel();
 		};
-	}, [model, publishVisibleItemIds, telemetryRecorder, telemetryTraceContext]);
+	}, [model, onVisibleItemIdsChange, telemetryRecorder, telemetryTraceContext]);
 
 	return (
 		<div
@@ -270,6 +271,38 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 			<FileTree model={model} style={bridgeViewerTreeStyle} />
 		</div>
 	);
+}
+
+export function createBridgeReviewTreeVisibleItemPublisher(
+	props: CreateBridgeReviewTreeVisibleItemPublisherProps,
+): BridgeReviewTreeVisibleItemPublisher {
+	const requestFrame = props.requestAnimationFrame ?? requestAnimationFrame;
+	const cancelFrame =
+		props.cancelAnimationFrame ??
+		(typeof cancelAnimationFrame === 'function' ? cancelAnimationFrame : undefined);
+	let animationFrameId: number | null = null;
+	const publishNow = (): void => {
+		props.onVisibleItemIdsChange(props.captureVisibleItemIds());
+	};
+	return {
+		cancel: (): void => {
+			if (animationFrameId === null) {
+				return;
+			}
+			cancelFrame?.(animationFrameId);
+			animationFrameId = null;
+		},
+		publishNow,
+		schedule: (): void => {
+			if (animationFrameId !== null) {
+				return;
+			}
+			animationFrameId = requestFrame((): void => {
+				animationFrameId = null;
+				publishNow();
+			});
+		},
+	};
 }
 
 export function reviewTreeItemIdForEventTarget(props: {

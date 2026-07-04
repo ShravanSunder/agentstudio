@@ -172,76 +172,13 @@ export function materializeBridgeCodeViewLoadingItem(
 	item: BridgeReviewItemDescriptor,
 	presentation: BridgeCodeViewItemPresentation | null = null,
 ): BridgeCodeViewItem {
-	if (presentation?.kind === 'file' && !itemIsOneSidedChange(item)) {
-		return createFileItem({
-			item,
-			resource: null,
-			version: item.itemVersion,
-			contentState: 'loading',
-		});
-	}
-	if (shouldUseDiffPlaceholder(item)) {
-		return createLoadingDiffItem(item);
-	}
-	const file: FileContents = {
-		name: displayPathForItem(item),
-		contents: 'Loading content...\nLoading syntax view...\n',
-		cacheKey: `${item.cacheKey}:loading`,
-		lang: 'text',
-	};
+	const placeholderItem = createPlaceholderItem({ item, presentation });
 	return {
-		id: item.itemId,
-		type: 'file',
-		file,
-		version: codeViewRenderVersion({
+		...placeholderItem,
+		bridgeMetadata: {
+			...placeholderItem.bridgeMetadata,
 			contentState: 'loading',
-			itemVersion: item.itemVersion,
-		}),
-		bridgeMetadata: createMetadata({
-			item,
-			contentState: 'loading',
-			contentRoles: [],
-			cacheKey: file.cacheKey ?? `${item.cacheKey}:loading`,
-		}),
-	};
-}
-
-function createLoadingDiffItem(item: BridgeReviewItemDescriptor): BridgeCodeViewDiffItem {
-	const oldFile: FileContents = {
-		...createFileContents({
-			item,
-			missingResourceText: item.changeKind === 'deleted' ? loadingMissingResourceText : '',
-			resource: null,
-			path: item.basePath ?? displayPathForItem(item),
-			contentState: 'loading',
-		}),
-		lang: 'text',
-	};
-	const newFile: FileContents = {
-		...createFileContents({
-			item,
-			missingResourceText: item.changeKind === 'deleted' ? '' : loadingMissingResourceText,
-			resource: null,
-			path: item.headPath ?? displayPathForItem(item),
-			contentState: 'loading',
-		}),
-		lang: 'text',
-	};
-	const fileDiff = parseDiffFromFile(oldFile, newFile);
-	return {
-		id: item.itemId,
-		type: 'diff',
-		fileDiff,
-		version: codeViewRenderVersion({
-			contentState: 'loading',
-			itemVersion: item.itemVersion,
-		}),
-		bridgeMetadata: createMetadata({
-			item,
-			contentState: 'loading',
-			contentRoles: [],
-			cacheKey: `${item.cacheKey}:loading`,
-		}),
+		},
 	};
 }
 
