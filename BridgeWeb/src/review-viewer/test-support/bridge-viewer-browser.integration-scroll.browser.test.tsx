@@ -15,6 +15,7 @@ import {
 	waitForBridgeViewerTreeItemButton,
 } from './bridge-viewer-browser-dom.js';
 import * as browserSupport from './bridge-viewer-browser.integration.test-support.js';
+import * as virtualizerSupport from './bridge-viewer-browser.virtualizer.test-support.js';
 import {
 	disposeBridgeViewerMockedBackends,
 	installBridgeViewerMockedBackend,
@@ -115,6 +116,7 @@ describe('Bridge viewer Browser Mode large fixture scroll integration', () => {
 						error instanceof Error ? error.message : String(error),
 						`requestedUrls=${JSON.stringify(backend.requestedUrls.slice(0, 8))}`,
 					].join('\n'),
+					{ cause: error },
 				);
 			}
 			await browserSupport.waitForSelectedBridgeViewerContentState('ready');
@@ -239,6 +241,82 @@ describe('Bridge viewer Browser Mode large fixture scroll integration', () => {
 				true,
 			);
 			expect(motionSummary.largeFrameDeltaCount).toBeLessThanOrEqual(1);
+		} finally {
+			await browserSupport.cleanupBridgeViewerReactTreeBeforeExternalWorkerRevoke();
+			workerFactory.revoke();
+			backend.dispose();
+		}
+	});
+
+	test('large fixture mid-scroll hydration keeps off-screen content from shifting the visible item', async () => {
+		const fixture = makeBridgeViewerBrowserFixture({ fixtureClass: 'large-diffshub' });
+		const targetItemId = 'browser-hunked-diff';
+		const aboveViewportItemIds = ['browser-source-b', 'browser-added-source', 'browser-docs-plan'];
+		const deferredHandleIds = aboveViewportItemIds.flatMap((itemId): readonly string[] =>
+			virtualizerSupport.contentHandleIdsForFixtureItem(fixture, itemId),
+		);
+		const targetItem = fixture.reviewPackage.itemsById[targetItemId];
+		const targetPath = targetItem?.headPath ?? targetItem?.basePath;
+		if (targetPath === undefined || targetPath === null) {
+			throw new Error('expected large fixture mid-scroll target path.');
+		}
+		const backend = installBridgeViewerMockedBackend(fixture, {
+			deferContentHandleIds: deferredHandleIds,
+		});
+		const workerFactory = createBridgePierrePortableBlobWorkerFactory();
+
+		try {
+			browserSupport.renderBridgeViewerAppWithMockedBackend({
+				backend,
+				codeViewWorkerFactory: workerFactory.workerFactory,
+				codeViewWorkerPoolEnabled: false,
+			});
+			await backend.pushMetadata();
+			await browserSupport.waitForBridgeViewerTextWithDiagnostics(fixture.expected.initialText);
+
+			const codeScroll = await waitForBridgeViewerCodeScrollOwner();
+			await virtualizerSupport.waitForInitialRevealSettled(codeScroll);
+
+			// Scroll deep into the filler tail (mid-scroll), then reveal a target that sits right
+			// after the deferred items (source-b/added-source/docs-plan); Pierre's overscan mounts
+			// them as off-screen-above placeholders with their content genuinely requested, matching
+			// the proven pattern in bridge-viewer-browser.virtualizer.browser.test.tsx's "does not
+			// chase post-settle non-selected hydration above the selected file".
+			codeScroll.scrollTop = Math.min(codeScroll.scrollHeight - codeScroll.clientHeight, 12_000);
+			codeScroll.dispatchEvent(new Event('scroll', { bubbles: true }));
+			await virtualizerSupport.waitForBridgeViewerScrollIdle(codeScroll);
+			expect(codeScroll.scrollTop).toBeGreaterThan(0);
+
+			virtualizerSupport.revealReviewTreePath(targetPath);
+			await browserSupport.waitForBridgeCodeHeaderItemOffsetFromScrollOwner({
+				itemId: targetItemId,
+				maxOffset: 12,
+				scrollOwner: codeScroll,
+			});
+			await browserSupport.waitForSelectedBridgeViewerContentState('ready');
+			await virtualizerSupport.waitForBridgeViewerScrollIdle(codeScroll);
+			await virtualizerSupport.waitForStableScrollTop(codeScroll);
+
+			const anchorBefore = virtualizerSupport.firstFullyVisibleBridgeCodeHeader(codeScroll);
+			for (const itemId of aboveViewportItemIds) {
+				virtualizerSupport.resolveDeferredContentForItem({
+					backend,
+					itemId,
+					targetHandleIds: virtualizerSupport.contentHandleIdsForFixtureItem(fixture, itemId),
+				});
+				// oxlint-disable-next-line no-await-in-loop -- Each hydration must settle before sampling the next one.
+				await virtualizerSupport.waitForBridgeViewerScrollIdle(codeScroll);
+				const anchorOffset = virtualizerSupport.bridgeCodeHeaderOffsetForItem({
+					itemId: anchorBefore.itemId,
+					scrollOwner: codeScroll,
+				});
+				expect(anchorOffset).not.toBeNull();
+				expect(Math.abs((anchorOffset ?? 0) - anchorBefore.offset), itemId).toBeLessThanOrEqual(2);
+			}
+
+			expect(virtualizerSupport.firstFullyVisibleBridgeCodeHeader(codeScroll).itemId).toBe(
+				anchorBefore.itemId,
+			);
 		} finally {
 			await browserSupport.cleanupBridgeViewerReactTreeBeforeExternalWorkerRevoke();
 			workerFactory.revoke();

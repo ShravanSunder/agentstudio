@@ -74,7 +74,7 @@ describe('Bridge CodeView materialization', () => {
 		]);
 	});
 
-	test('creates collapsed one-sided diff placeholders so unloaded content does not render as blank body rows', () => {
+	test('reserves one-sided diff placeholder height without phantom rows on the absent side', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const projection = buildBridgeReviewProjection({
 			reviewPackage,
@@ -90,9 +90,13 @@ describe('Bridge CodeView materialization', () => {
 			throw new Error('expected deleted-source placeholder diff');
 		}
 		expect(placeholderDiff.bridgeMetadata.contentState).toBe('placeholder');
-		expect(placeholderDiff.fileDiff.deletionLines).toEqual([]);
+		expect(placeholderDiff.fileDiff.deletionLines).toHaveLength(2);
 		expect(placeholderDiff.fileDiff.additionLines).toEqual([]);
-		expect(placeholderDiff.collapsed).toBe(true);
+		expect(placeholderDiff.collapsed).toBeUndefined();
+		expect(placeholderDiff.bridgeMetadata).toMatchObject({
+			contentRoles: ['base'],
+			lineCount: 2,
+		});
 	});
 
 	test('creates a file placeholder for the selected review file-target presentation', () => {
@@ -354,6 +358,72 @@ describe('Bridge CodeView materialization', () => {
 		expect(placeholder.bridgeMetadata.contentRoles).not.toContain('head');
 	});
 
+	test('reserves one-sided placeholder height from addition and deletion extents', () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const sourceHighItem = reviewPackage.itemsById['source-high'];
+		const sourceNormalItem = reviewPackage.itemsById['source-normal'];
+		if (sourceHighItem === undefined || sourceNormalItem === undefined) {
+			throw new Error('expected source fixture items');
+		}
+		const reviewPackageWithOneSidedItems = {
+			...reviewPackage,
+			orderedItemIds: ['source-high', 'source-normal'],
+			itemsById: {
+				'source-high': {
+					...sourceHighItem,
+					additions: 17,
+					basePath: null,
+					changeKind: 'added' as const,
+					contentLineCountsByRole: undefined,
+					contentRoles: { ...sourceHighItem.contentRoles, base: null },
+					deletions: 0,
+				},
+				'source-normal': {
+					...sourceNormalItem,
+					additions: 0,
+					changeKind: 'deleted' as const,
+					contentLineCountsByRole: undefined,
+					contentRoles: { ...sourceNormalItem.contentRoles, head: null },
+					deletions: 11,
+					headPath: null,
+				},
+			},
+		};
+		const projection = buildBridgeReviewProjection({
+			reviewPackage: reviewPackageWithOneSidedItems,
+			request: { mode: { kind: 'normalReview' }, facets: [] },
+		});
+
+		const items = createBridgeCodeViewInitialItems({
+			reviewPackage: reviewPackageWithOneSidedItems,
+			projection,
+		});
+		const addedPlaceholder = items.find(
+			(item: BridgeCodeViewItem): boolean => item.id === 'source-high',
+		);
+		const deletedPlaceholder = items.find(
+			(item: BridgeCodeViewItem): boolean => item.id === 'source-normal',
+		);
+
+		if (addedPlaceholder?.type !== 'diff' || deletedPlaceholder?.type !== 'diff') {
+			throw new Error('expected one-sided diff placeholders');
+		}
+		expect(addedPlaceholder.collapsed).toBeUndefined();
+		expect(addedPlaceholder.fileDiff.deletionLines).toHaveLength(0);
+		expect(addedPlaceholder.fileDiff.additionLines).toHaveLength(17);
+		expect(addedPlaceholder.bridgeMetadata).toMatchObject({
+			contentRoles: ['head'],
+			lineCount: 17,
+		});
+		expect(deletedPlaceholder.collapsed).toBeUndefined();
+		expect(deletedPlaceholder.fileDiff.deletionLines).toHaveLength(11);
+		expect(deletedPlaceholder.fileDiff.additionLines).toHaveLength(0);
+		expect(deletedPlaceholder.bridgeMetadata).toMatchObject({
+			contentRoles: ['base'],
+			lineCount: 11,
+		});
+	});
+
 	test('reserves streamed line extents in visible loading file-target items', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const item = reviewPackage.itemsById['source-high'];
@@ -409,6 +479,41 @@ describe('Bridge CodeView materialization', () => {
 		expect(loadingItem.file.cacheKey).toContain(':loading:extent:37');
 	});
 
+	test('reserves one-sided loading height from addition and deletion extents', () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const sourceHighItem = reviewPackage.itemsById['source-high'];
+		if (sourceHighItem === undefined) {
+			throw new Error('expected source fixture item');
+		}
+
+		const addedLoadingItem = materializeBridgeCodeViewLoadingItem({
+			...sourceHighItem,
+			additions: 17,
+			basePath: null,
+			changeKind: 'added',
+			contentLineCountsByRole: undefined,
+			contentRoles: { ...sourceHighItem.contentRoles, base: null },
+			deletions: 0,
+		});
+		const deletedLoadingItem = materializeBridgeCodeViewLoadingItem({
+			...sourceHighItem,
+			additions: 0,
+			changeKind: 'deleted',
+			contentLineCountsByRole: undefined,
+			contentRoles: { ...sourceHighItem.contentRoles, head: null },
+			deletions: 11,
+			headPath: null,
+		});
+
+		if (addedLoadingItem.type !== 'diff' || deletedLoadingItem.type !== 'diff') {
+			throw new Error('expected one-sided diff loading items');
+		}
+		expect(addedLoadingItem.fileDiff.deletionLines).toHaveLength(0);
+		expect(addedLoadingItem.fileDiff.additionLines).toHaveLength(17);
+		expect(deletedLoadingItem.fileDiff.deletionLines).toHaveLength(11);
+		expect(deletedLoadingItem.fileDiff.additionLines).toHaveLength(0);
+	});
+
 	test('materializes a visible one-sided loading item with non-empty CodeView body text', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const item = reviewPackage.itemsById['hidden-binary'];
@@ -426,8 +531,9 @@ describe('Bridge CodeView materialization', () => {
 		expect(loadingItem.collapsed).toBeUndefined();
 		expect(loadingItem.bridgeMetadata).toMatchObject({
 			contentState: 'loading',
-			contentRoles: [],
+			contentRoles: ['head'],
 			itemId: item.itemId,
+			lineCount: 3,
 		});
 	});
 

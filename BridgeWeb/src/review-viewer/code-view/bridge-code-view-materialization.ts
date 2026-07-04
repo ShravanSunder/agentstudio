@@ -12,10 +12,7 @@ import type {
 import type { BridgeReviewProjectionResult } from '../models/review-projection-models.js';
 import { bridgeContentRoleSchema } from '../models/review-projection-models.js';
 import { bridgePierreOptionalHighlightLanguage } from '../workers/pierre/bridge-pierre-language-normalization.js';
-import {
-	bridgePierreWorkerContentDescriptorFetchIsEnabled,
-	createBridgePierreContentDescriptorFile,
-} from '../workers/pierre/bridge-pierre-worker-content-descriptor.js';
+import { createBridgePierreContentDescriptorFile } from '../workers/pierre/bridge-pierre-worker-content-descriptor.js';
 
 export const bridgeCodeViewContentStateSchema = z.enum([
 	'placeholder',
@@ -215,10 +212,11 @@ function createLoadingDiffItem(item: BridgeReviewItemDescriptor): BridgeCodeView
 	const oldFile: FileContents = {
 		...createFileContents({
 			item,
-			placeholderLineCount: loadingPlaceholderLineCountForContentRoles({
+			placeholderLineCount: lineCountForDiffSidePlaceholder({
 				contentRoles: ['base', 'diff'],
 				fallbackLineCount: null,
 				item,
+				side: 'base',
 			}),
 			resource: null,
 			path: item.basePath ?? displayPathForItem(item),
@@ -229,10 +227,11 @@ function createLoadingDiffItem(item: BridgeReviewItemDescriptor): BridgeCodeView
 	const newFile: FileContents = {
 		...createFileContents({
 			item,
-			placeholderLineCount: loadingPlaceholderLineCountForContentRoles({
+			placeholderLineCount: lineCountForDiffSidePlaceholder({
 				contentRoles: ['head', 'file', 'diff'],
 				fallbackLineCount: 2,
 				item,
+				side: 'head',
 			}),
 			resource: null,
 			path: item.headPath ?? displayPathForItem(item),
@@ -335,10 +334,11 @@ function createPlaceholderDiffItem(props: {
 		placeholderLineCount:
 			props.item.changeKind === 'added'
 				? 0
-				: lineCountForFirstAvailableContentRole({
+				: lineCountForDiffSidePlaceholder({
 						contentRoles: ['base', 'diff'],
 						item: props.item,
 						lineCountEstimates: props.lineCountEstimates,
+						side: 'base',
 					}),
 		resource: null,
 		path: props.item.basePath ?? displayPathForItem(props.item),
@@ -348,10 +348,11 @@ function createPlaceholderDiffItem(props: {
 		placeholderLineCount:
 			props.item.changeKind === 'deleted'
 				? 0
-				: lineCountForFirstAvailableContentRole({
+				: lineCountForDiffSidePlaceholder({
 						contentRoles: ['head', 'file', 'diff'],
 						item: props.item,
 						lineCountEstimates: props.lineCountEstimates,
+						side: 'head',
 					}),
 		resource: null,
 		path: props.item.headPath ?? displayPathForItem(props.item),
@@ -592,7 +593,6 @@ function placeholderContentRolesForDiffItem(props: {
 }): readonly BridgeContentRole[] {
 	// Skip the absent side's roles for one-sided changes so a cross-item estimate can't
 	// manufacture a placeholder extent for a side that has no content.
-	const emptySideRoles = emptyDiffSideRolesForItem(props.item);
 	const roles: BridgeContentRole[] = [];
 	for (const role of [
 		'base',
@@ -600,7 +600,7 @@ function placeholderContentRolesForDiffItem(props: {
 		'file',
 		'diff',
 	] as const satisfies readonly BridgeContentRole[]) {
-		if (emptySideRoles.has(role)) {
+		if (diffRoleIsAbsentForItem(props.item, role)) {
 			continue;
 		}
 		const lineCount =
@@ -609,31 +609,24 @@ function placeholderContentRolesForDiffItem(props: {
 			roles.push(role);
 		}
 	}
+	if (roles.length === 0) {
+		if (props.item.changeKind === 'added' && props.item.additions > 0) {
+			roles.push('head');
+		}
+		if (props.item.changeKind === 'deleted' && props.item.deletions > 0) {
+			roles.push('base');
+		}
+	}
 	return roles;
 }
 
-function emptyDiffSideRolesForItem(
+function diffRoleIsAbsentForItem(
 	item: BridgeReviewItemDescriptor,
-): ReadonlySet<BridgeContentRole> {
-	if (item.changeKind === 'added') {
-		return new Set<BridgeContentRole>(['base', 'diff']);
-	}
-	if (item.changeKind === 'deleted') {
-		return new Set<BridgeContentRole>(['head', 'file']);
-	}
-	return new Set<BridgeContentRole>();
-}
-
-function loadingPlaceholderLineCountForContentRoles(props: {
-	readonly contentRoles: readonly BridgeContentRole[];
-	readonly fallbackLineCount: number | null;
-	readonly item: BridgeReviewItemDescriptor;
-}): number | null {
+	role: BridgeContentRole,
+): boolean {
 	return (
-		lineCountForFirstAvailableContentRole({
-			contentRoles: props.contentRoles,
-			item: props.item,
-		}) ?? props.fallbackLineCount
+		(item.changeKind === 'added' && (role === 'base' || role === 'diff')) ||
+		(item.changeKind === 'deleted' && (role === 'head' || role === 'file'))
 	);
 }
 
@@ -703,20 +696,6 @@ function createFileContentsForResource(props: {
 		};
 	}
 	const lineCount = props.item.contentLineCountsByRole?.[props.resource.handle.role] ?? null;
-	if (bridgePierreWorkerContentDescriptorFetchIsEnabled()) {
-		return createBridgePierreContentDescriptorFile({
-			cacheKey,
-			contentHash: props.resource.handle.contentHash,
-			contentHashAlgorithm: props.resource.handle.contentHashAlgorithm,
-			generation: props.resource.handle.reviewGeneration,
-			lang: normalizedLanguage,
-			lineCount,
-			maxBytes: Math.max(1, props.resource.handle.sizeBytes),
-			name: props.path,
-			resourceUrl: props.resource.handle.resourceUrl,
-			text: windowedText.text,
-		});
-	}
 	return createBridgePierreContentDescriptorFile({
 		cacheKey,
 		contentHash: props.resource.handle.contentHash,
@@ -878,7 +857,7 @@ function createMetadata(props: CreateMetadataProps): BridgeCodeViewItemMetadata 
 function lineCountForFirstAvailableContentRole(props: {
 	readonly contentRoles: readonly BridgeContentRole[];
 	readonly item: BridgeReviewItemDescriptor;
-	readonly lineCountEstimates?: BridgeCodeViewLineCountEstimates;
+	readonly lineCountEstimates?: BridgeCodeViewLineCountEstimates | undefined;
 }): number | null {
 	const lineCountsByRole = props.item.contentLineCountsByRole;
 	for (const role of props.contentRoles) {
@@ -890,6 +869,36 @@ function lineCountForFirstAvailableContentRole(props: {
 	return null;
 }
 
+function lineCountForDiffSidePlaceholder(props: {
+	readonly contentRoles: readonly BridgeContentRole[];
+	readonly fallbackLineCount?: number | null;
+	readonly item: BridgeReviewItemDescriptor;
+	readonly lineCountEstimates?: BridgeCodeViewLineCountEstimates;
+	readonly side: 'base' | 'head';
+}): number | null {
+	const oneSidedLineCount = oneSidedDiffSideLineCount(props.item, props.side);
+	if (
+		(props.item.changeKind === 'added' && props.side === 'base') ||
+		(props.item.changeKind === 'deleted' && props.side === 'head')
+	) {
+		return oneSidedLineCount;
+	}
+	return (
+		lineCountForFirstAvailableContentRole({
+			contentRoles: props.contentRoles,
+			item: props.item,
+		}) ??
+		oneSidedLineCount ??
+		lineCountForFirstAvailableContentRole({
+			contentRoles: props.contentRoles,
+			item: props.item,
+			lineCountEstimates: props.lineCountEstimates,
+		}) ??
+		props.fallbackLineCount ??
+		null
+	);
+}
+
 function lineCountForContentRoles(props: {
 	readonly contentRoles: readonly BridgeContentRole[];
 	readonly item: BridgeReviewItemDescriptor;
@@ -899,7 +908,10 @@ function lineCountForContentRoles(props: {
 	let totalLineCount = 0;
 	let matchedRoleCount = 0;
 	for (const role of props.contentRoles) {
-		const lineCount = lineCountsByRole?.[role] ?? props.lineCountEstimates?.lineCountByRole[role];
+		const lineCount =
+			lineCountsByRole?.[role] ??
+			oneSidedDiffContentRoleLineCount(props.item, role) ??
+			props.lineCountEstimates?.lineCountByRole[role];
 		if (lineCount === null || lineCount === undefined) {
 			continue;
 		}
@@ -907,6 +919,32 @@ function lineCountForContentRoles(props: {
 		matchedRoleCount += 1;
 	}
 	return matchedRoleCount === 0 ? null : totalLineCount;
+}
+
+function oneSidedDiffSideLineCount(
+	item: BridgeReviewItemDescriptor,
+	side: 'base' | 'head',
+): number | null {
+	if (item.changeKind === 'added') {
+		return side === 'base' ? 0 : item.additions;
+	}
+	if (item.changeKind === 'deleted') {
+		return side === 'head' ? 0 : item.deletions;
+	}
+	return null;
+}
+
+function oneSidedDiffContentRoleLineCount(
+	item: BridgeReviewItemDescriptor,
+	role: BridgeContentRole,
+): number | null {
+	if (item.changeKind === 'added' && (role === 'head' || role === 'file')) {
+		return item.additions;
+	}
+	if (item.changeKind === 'deleted' && (role === 'base' || role === 'diff')) {
+		return item.deletions;
+	}
+	return null;
 }
 
 const emptyBridgeCodeViewLineCountEstimates: BridgeCodeViewLineCountEstimates = {
