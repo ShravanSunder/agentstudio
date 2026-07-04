@@ -118,6 +118,41 @@ struct MainSplitViewControllerSidebarStateTests {
         )
     }
 
+    @Test("sidebar view fills the split height below shell chrome")
+    func sidebarViewFillsSplitHeightBelowShellChrome() async throws {
+        try await withUnloadedMainSplitViewControllerHarness(
+            withRepos: true,
+            body: { harness in
+                harness.window.styleMask.insert(.fullSizeContentView)
+                harness.window.titlebarAppearsTransparent = true
+                harness.window.titleVisibility = .hidden
+                harness.window.contentViewController = harness.controller
+                _ = harness.controller.view
+                harness.window.makeKeyAndOrderFront(nil)
+
+                layOutMainSplitViewControllerShell(harness)
+
+                let sidebarView = try #require(harness.controller.splitViewItems.first?.viewController.view)
+                let topGapWithinSplit = harness.controller.splitView.bounds.maxY - sidebarView.frame.maxY
+                #expect(
+                    topGapWithinSplit <= 1,
+                    "sidebar top should align to split top below shell chrome; top gap was \(topGapWithinSplit)"
+                )
+            }
+        )
+    }
+
+    @Test("shell split view does not draw a full-height sidebar divider")
+    func shellSplitViewDoesNotDrawFullHeightSidebarDivider() async {
+        await withMainSplitViewControllerHarness(
+            withRepos: true,
+            body: { harness in
+                #expect(harness.controller.splitView is ShellSplitView)
+                #expect(harness.controller.splitView.dividerThickness == 0)
+            }
+        )
+    }
+
     @Test("showWorktreeSidebar expands a restored collapsed inbox surface back to repos")
     func showWorktreeSidebarExpandsCollapsedInboxSurface() async {
         await withMainSplitViewControllerHarness(
@@ -177,6 +212,14 @@ struct MainSplitViewControllerSidebarStateTests {
         harness.controller.view.frame = NSRect(x: 0, y: 0, width: 1000, height: 700)
         harness.controller.splitView.frame = harness.controller.view.bounds
         harness.controller.view.layoutSubtreeIfNeeded()
+        harness.controller.viewDidLayout()
+    }
+
+    private func layOutMainSplitViewControllerShell(_ harness: MainSplitViewControllerHarness) {
+        harness.window.setContentSize(NSSize(width: 1000, height: 700))
+        harness.controller.view.frame = NSRect(x: 0, y: 0, width: 1000, height: 700)
+        harness.controller.view.layoutSubtreeIfNeeded()
+        harness.controller.splitView.layoutSubtreeIfNeeded()
         harness.controller.viewDidLayout()
     }
 }

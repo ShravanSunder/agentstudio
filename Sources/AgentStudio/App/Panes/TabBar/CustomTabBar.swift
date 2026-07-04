@@ -276,13 +276,13 @@ struct CustomTabBar: View {
         case .sidebarSurfaces:
             SidebarSurfaceTabBarControls()
         case .divider:
-            TabBarDivider()
+            SidebarNavDivider()
         case .watchFolder:
             WatchFolderTabBarMenu()
-                .padding(.trailing, AppStyles.Shell.Chrome.iconClusterSpacing)
+                .padding(.trailing, AppStyles.Shell.Chrome.circledControlSpacing)
         case .managementLayer:
             TabBarManagementLayerButton()
-                .padding(.trailing, AppStyles.Shell.Chrome.iconClusterSpacing)
+                .padding(.trailing, AppStyles.Shell.Chrome.circledControlSpacing)
         case .arrangement:
             TabBarArrangementButton(
                 adapter: adapter,
@@ -294,7 +294,7 @@ struct CustomTabBar: View {
         case .newTab:
             if let onAdd {
                 NewTabButton(onAdd: onAdd, onOpenRepoInTab: onOpenRepoInTab)
-                    .padding(.trailing, AppStyles.Shell.Chrome.iconClusterSpacing)
+                    .padding(.trailing, AppStyles.Shell.Chrome.circledControlSpacing)
             }
         case .tabStrip, .overflowLeft, .overflowRight, .overflowMenu:
             EmptyView()
@@ -313,12 +313,12 @@ struct CustomTabBar: View {
                 ChromeToolbarButtonLabel(
                     symbolName: "chevron.left",
                     isHovered: isOverflowLeftHovered,
-                    buttonSize: AppStyles.Shell.Chrome.ToolbarButton.size,
+                    buttonSize: AppStyles.Shell.Chrome.PlainToolbarIcon.buttonSize,
                     showsBackground: false
                 )
             }
             .buttonStyle(.plain)
-            .padding(.trailing, AppStyles.Shell.Chrome.iconClusterSpacing)
+            .padding(.trailing, AppStyles.Shell.Chrome.plainToolbarIconSpacing)
             .onHover { isOverflowLeftHovered = $0 }
         case .overflowRight:
             Button {
@@ -327,12 +327,12 @@ struct CustomTabBar: View {
                 ChromeToolbarButtonLabel(
                     symbolName: "chevron.right",
                     isHovered: isOverflowRightHovered,
-                    buttonSize: AppStyles.Shell.Chrome.ToolbarButton.size,
+                    buttonSize: AppStyles.Shell.Chrome.PlainToolbarIcon.buttonSize,
                     showsBackground: false
                 )
             }
             .buttonStyle(.plain)
-            .padding(.trailing, AppStyles.Shell.Chrome.iconClusterSpacing)
+            .padding(.trailing, AppStyles.Shell.Chrome.plainToolbarIconSpacing)
             .onHover { isOverflowRightHovered = $0 }
         case .overflowMenu:
             Menu {
@@ -356,14 +356,14 @@ struct CustomTabBar: View {
                     ChromeToolbarButtonLabel(
                         symbolName: "rectangle.stack",
                         isHovered: isOverflowMenuHovered,
-                        buttonSize: AppStyles.Shell.Chrome.ToolbarButton.size,
+                        buttonSize: AppStyles.Shell.Chrome.PlainToolbarIcon.buttonSize,
                         showsBackground: false
                     )
                     Text("\(adapter.tabs.count)")
                         .font(.system(size: AppStyles.General.Typography.textSm, weight: .semibold))
                         .foregroundStyle(.secondary)
                 }
-                .padding(.horizontal, AppStyles.General.Spacing.loose)
+                .padding(.horizontal, AppStyles.Shell.Chrome.plainToolbarIconSpacing)
                 .padding(.vertical, AppStyles.General.Spacing.tight)
                 .contentShape(Capsule())
             }
@@ -374,7 +374,7 @@ struct CustomTabBar: View {
         case .newTab:
             if let onAdd {
                 NewTabButton(onAdd: onAdd, onOpenRepoInTab: onOpenRepoInTab)
-                    .padding(.trailing, AppStyles.Shell.Chrome.iconClusterSpacing)
+                    .padding(.trailing, AppStyles.Shell.Chrome.circledControlSpacing)
             }
         case .sidebarSurfaces, .watchFolder, .managementLayer, .arrangement, .tabStrip:
             EmptyView()
