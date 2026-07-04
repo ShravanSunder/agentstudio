@@ -531,6 +531,14 @@ run = "/bin/bash scripts/verify-beta-observability.sh"
 description = "Verify AgentStudio debug startup records and scrubbed fields in VictoriaLogs"
 run = "/bin/bash scripts/verify-debug-observability.sh"
 
+[tasks.verify-bridge-review-journey-smoke]
+description = "Verify Bridge review file-selection paint stability from marker-scoped VictoriaLogs"
+run = "/bin/bash scripts/verify-bridge-review-journey-smoke.sh"
+
+[tasks.verify-bridge-mode-idle-smoke]
+description = "Verify Bridge review/file mode switching and idle telemetry stability"
+run = "/bin/bash scripts/verify-bridge-mode-idle-smoke.sh"
+
 [tasks.verify-stable-preferences-observability]
 description = "Verify local stable preference-honoring records in VictoriaLogs"
 run = "/bin/bash scripts/verify-stable-preferences-observability.sh"
