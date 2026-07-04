@@ -28,6 +28,25 @@ const preserveInputOrderSort: FileTreeSortComparator = () => 0;
 const bridgeReviewTreeInitialVisibleRowCount = 24;
 const bridgeReviewTreeOverscan = 10;
 
+type BridgeReviewTreeClickProbeSelectionResult = 'accepted' | 'rejected' | 'no_row';
+
+interface BridgeReviewTreeClickProbe {
+	captureHandlerInvokedCount: number;
+	captureHandlerResolvedRowItemId: string;
+	selectionCommandIssuedCount: number;
+	selectionCommandAcceptedCount: number;
+	selectionCommandLastResult: BridgeReviewTreeClickProbeSelectionResult;
+}
+
+type BridgeReviewTreeClickProbeRecord = Partial<BridgeReviewTreeClickProbe> &
+	Record<string, unknown>;
+
+declare global {
+	interface Window {
+		__bridgeReviewTreeClickProbe?: BridgeReviewTreeClickProbeRecord;
+	}
+}
+
 export interface BridgeReviewTreesPanelProps {
 	readonly reviewPackage: BridgeReviewPackage;
 	readonly reviewTreeRows: readonly ReviewTreeRowMetadata[];
@@ -284,9 +303,27 @@ export function applyReviewTreeSelectionFromEvent(props: {
 		target: props.event,
 	});
 	if (selection === null) {
+		recordBridgeReviewTreeClickProbeCapture({
+			itemId: '',
+			result: 'no_row',
+		});
 		return false;
 	}
-	props.selectClickedTreePath(selection.path);
+	recordBridgeReviewTreeClickProbeCapture({
+		itemId: selection.itemId,
+		result: null,
+	});
+	recordBridgeReviewTreeClickProbeSelectionCommandIssued();
+	let selectedTreePathResult: string | null = null;
+	try {
+		selectedTreePathResult = props.selectClickedTreePath(selection.path);
+	} catch (error) {
+		recordBridgeReviewTreeClickProbeSelectionCommandResult('rejected');
+		throw error;
+	}
+	recordBridgeReviewTreeClickProbeSelectionCommandResult(
+		selectedTreePathResult === null ? 'rejected' : 'accepted',
+	);
 	props.onSelectItem(selection.itemId);
 	return true;
 }
@@ -336,6 +373,58 @@ function visibleReviewTreeItemIds(props: {
 		primaryItemIdByTreePath: props.primaryItemIdByTreePath,
 		rowElements: visiblePierreFileRowElementsForModel(props.model),
 	});
+}
+
+function recordBridgeReviewTreeClickProbeCapture(props: {
+	readonly itemId: string;
+	readonly result: BridgeReviewTreeClickProbeSelectionResult | null;
+}): void {
+	const probe = bridgeReviewTreeClickProbe();
+	if (probe === null) {
+		return;
+	}
+	probe.captureHandlerInvokedCount = (probe.captureHandlerInvokedCount ?? 0) + 1;
+	probe.captureHandlerResolvedRowItemId = props.itemId;
+	if (props.result !== null) {
+		probe.selectionCommandLastResult = props.result;
+	}
+}
+
+function recordBridgeReviewTreeClickProbeSelectionCommandIssued(): void {
+	const probe = bridgeReviewTreeClickProbe();
+	if (probe === null) {
+		return;
+	}
+	probe.selectionCommandIssuedCount = (probe.selectionCommandIssuedCount ?? 0) + 1;
+}
+
+function recordBridgeReviewTreeClickProbeSelectionCommandResult(
+	result: BridgeReviewTreeClickProbeSelectionResult,
+): void {
+	const probe = bridgeReviewTreeClickProbe();
+	if (probe === null) {
+		return;
+	}
+	probe.selectionCommandLastResult = result;
+	if (result === 'accepted') {
+		probe.selectionCommandAcceptedCount = (probe.selectionCommandAcceptedCount ?? 0) + 1;
+	}
+}
+
+function bridgeReviewTreeClickProbe(): BridgeReviewTreeClickProbeRecord | null {
+	const probeWindow = (globalThis as typeof globalThis & { readonly window?: Window }).window;
+	if (probeWindow === undefined || typeof probeWindow !== 'object') {
+		return null;
+	}
+	// oxlint-disable-next-line no-underscore-dangle -- Intentional Bridge debug surface name.
+	const probe = (probeWindow.__bridgeReviewTreeClickProbe ??= {
+		captureHandlerInvokedCount: 0,
+		captureHandlerResolvedRowItemId: '',
+		selectionCommandIssuedCount: 0,
+		selectionCommandAcceptedCount: 0,
+		selectionCommandLastResult: 'no_row',
+	});
+	return probe;
 }
 
 export function reviewTreeItemIdsForPierreVisibleFileRows(props: {

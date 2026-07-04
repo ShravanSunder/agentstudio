@@ -19,6 +19,11 @@ extension AgentStudioStartupDiagnosticActionTests {
         proof.reviewTreeClickProbeSelectionPollCount = 2
         proof.reviewTreeClickProbeSelectionPollLastIndex = 1
         proof.reviewTreeClickProbeSecondClickAttempted = false
+        proof.reviewTreeClickProbeHandlerInvokedDelta = 1
+        proof.reviewTreeClickProbeSelectionCommandIssuedDelta = 1
+        proof.reviewTreeClickProbeSelectionCommandAcceptedCount = 1
+        proof.reviewTreeClickProbeSelectionCommandLastResult = "accepted"
+        proof.reviewTreeClickProbeLateSelectedMatches = true
 
         let attributes = proof.attributes
 
@@ -66,6 +71,23 @@ extension AgentStudioStartupDiagnosticActionTests {
         #expect(
             attributes["agentstudio.startup_diagnostic.bridge.review_tree_click.probe.second_click_attempted"]
                 == .bool(false))
+        #expect(
+            attributes["agentstudio.startup_diagnostic.bridge.review_tree_click.probe.handler_invoked_delta"]
+                == .int(1))
+        #expect(
+            attributes[
+                "agentstudio.startup_diagnostic.bridge.review_tree_click.probe.selection_command_issued_delta"
+            ] == .int(1))
+        #expect(
+            attributes[
+                "agentstudio.startup_diagnostic.bridge.review_tree_click.probe.selection_command_accepted.count"
+            ] == .int(1))
+        #expect(
+            attributes["agentstudio.startup_diagnostic.bridge.review_tree_click.probe.selection_command.last_result"]
+                == .string("accepted"))
+        #expect(
+            attributes["agentstudio.startup_diagnostic.bridge.review_tree_click.probe.late_selected_matches"]
+                == .bool(true))
     }
 
     @Test("Bridge smoke render JavaScript captures review tree click probe without timing changes")
@@ -82,6 +104,9 @@ extension AgentStudioStartupDiagnosticActionTests {
         #expect(probe.contains("dispatchResult"))
         #expect(probe.contains("selectionPollTrace"))
         #expect(probe.contains("secondClickAttempted"))
+        #expect(probe.contains("handlerInvokedDelta"))
+        #expect(probe.contains("selectionCommandIssuedDelta"))
+        #expect(probe.contains("lateSelectedMatches"))
         #expect(!probe.contains("setTimeout"))
     }
 }

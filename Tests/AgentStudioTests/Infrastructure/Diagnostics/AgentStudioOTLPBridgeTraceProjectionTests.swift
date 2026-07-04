@@ -489,6 +489,63 @@ struct AgentStudioOTLPBridgeTraceProjectionTests {
     }
 
     @Test
+    func bridgeProjectionPreservesReviewTreeClickProbeHandlerDiagnostics() {
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 132,
+            severityText: .info,
+            body: "app.startup_diagnostic_action.completed",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: [
+                "service.name": "AgentStudio"
+            ],
+            scope: .init(name: "agentstudio.app.startup", version: "0.1.0"),
+            attributes: [
+                "agentstudio.startup_diagnostic.bridge.review_tree_click.probe.handler_invoked_delta": .int(1),
+                "agentstudio.startup_diagnostic.bridge.review_tree_click.probe.selection_command_issued_delta":
+                    .int(1),
+                "agentstudio.startup_diagnostic.bridge.review_tree_click.probe.selection_command_accepted.count":
+                    .int(1),
+                "agentstudio.startup_diagnostic.bridge.review_tree_click.probe.selection_command.last_result":
+                    .string("accepted"),
+                "agentstudio.startup_diagnostic.bridge.review_tree_click.probe.late_selected_matches": .bool(true),
+                "agentstudio.startup_diagnostic.bridge.review_tree_click.probe.capture_handler_row_item_id":
+                    .string("private-item-id"),
+            ]
+        )
+
+        let projection = AgentStudioOTLPTraceProjection.project(record)
+        let renderedProjection = renderedBridgeProjectionForCanaryAssertions(projection)
+
+        #expect(
+            projection.attributes[
+                "agentstudio.startup_diagnostic.bridge.review_tree_click.probe.handler_invoked_delta"
+            ] == .int(1))
+        #expect(
+            projection.attributes[
+                "agentstudio.startup_diagnostic.bridge.review_tree_click.probe.selection_command_issued_delta"
+            ] == .int(1))
+        #expect(
+            projection.attributes[
+                "agentstudio.startup_diagnostic.bridge.review_tree_click.probe.selection_command_accepted.count"
+            ] == .int(1))
+        #expect(
+            projection.attributes[
+                "agentstudio.startup_diagnostic.bridge.review_tree_click.probe.selection_command.last_result"
+            ] == .string("accepted"))
+        #expect(
+            projection.attributes[
+                "agentstudio.startup_diagnostic.bridge.review_tree_click.probe.late_selected_matches"
+            ] == .bool(true))
+        #expect(
+            projection.attributes[
+                "agentstudio.startup_diagnostic.bridge.review_tree_click.probe.capture_handler_row_item_id"
+            ] == nil)
+        #expect(!renderedProjection.contains("private-item-id"))
+    }
+
+    @Test
     func bridgeProjectionPreservesFileViewStartupDiagnosticProofWithoutRawPaths() {
         let projection = AgentStudioOTLPTraceProjection.project(
             makeFileViewStartupDiagnosticProjectionCanaryRecord()

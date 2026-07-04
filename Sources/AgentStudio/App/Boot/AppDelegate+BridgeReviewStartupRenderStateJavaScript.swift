@@ -525,14 +525,7 @@ extension AppDelegate {
               let reviewTreeClickProbeSelectionPollLastIndex = reviewTreeClickProbeNumber('selectionPollLastIndex', -1);
               let reviewTreeClickProbeSecondClickAttempted =
                 reviewTreeClickProbe.secondClickAttempted === true || reviewTreeClickAttemptCount > 1;
-              const reviewTreeClickProbeBreadcrumbState = () => ({
-                targetRowPathAtFind: reviewTreeClickProbeTargetRowPathAtFind, targetRowIdAtFind: reviewTreeClickProbeTargetRowIdAtFind,
-                targetRowIdAtDispatch: reviewTreeClickProbeTargetRowIdAtDispatch, targetRowConnectedAtDispatch: reviewTreeClickProbeTargetRowConnectedAtDispatch,
-                targetRowSameIdAtDispatch: reviewTreeClickProbeTargetRowSameIdAtDispatch, renderedRowCountAtFind: reviewTreeClickProbeRenderedRowCountAtFind,
-                renderedRowCountAtDispatch: reviewTreeClickProbeRenderedRowCountAtDispatch, renderedRowCountDeltaBeforeDispatch: reviewTreeClickProbeRenderedRowCountDeltaBeforeDispatch,
-                dispatchResult: reviewTreeClickProbeDispatchResult, selectionPollTrace: reviewTreeClickProbeSelectionPollTrace,
-                selectionPollCount: reviewTreeClickProbeSelectionPollCount, selectionPollLastIndex: reviewTreeClickProbeSelectionPollLastIndex, secondClickAttempted: reviewTreeClickProbeSecondClickAttempted
-              });
+            \(BridgeReviewStartupTreeClickProbeJavaScript.counterState)
               if (reviewTreeClickTargetPath.length > 0 && reviewTreeClickSelectedPath.length === 0) {
                 const selectionPollIndex = reviewTreeClickProbeSelectionPollCount;
                 const selectionPollEntry =
@@ -668,8 +661,7 @@ extension AppDelegate {
                     reviewTreeClickProbeTargetRowSameIdAtDispatch =
                       reviewTreeClickProbeTargetRowIdAtFind.length > 0 &&
                       reviewTreeClickProbeTargetRowIdAtDispatch === reviewTreeClickProbeTargetRowIdAtFind;
-                    reviewTreeClickTarget.click();
-                    reviewTreeClickProbeDispatchResult = 'completed';
+            \(BridgeReviewStartupTreeClickProbeJavaScript.afterDispatchState)
                     window.__bridgeReviewTreeClickProbe = {
                       targetPath: reviewTreeClickTargetPath,
                       currentSelectedPath: reviewTreeClickCurrentSelectedPath,
@@ -686,6 +678,7 @@ extension AppDelegate {
                   }
                 }
               }
+            \(BridgeReviewStartupTreeClickProbeJavaScript.lateSelectedState)
               const errorProbe = Array.isArray(window.__bridgeErrorProbe)
                 ? window.__bridgeErrorProbe
                 : [];
@@ -852,6 +845,11 @@ extension AppDelegate {
                 reviewTreeClickProbeSelectionPollCount,
                 reviewTreeClickProbeSelectionPollLastIndex,
                 reviewTreeClickProbeSecondClickAttempted,
+                reviewTreeClickProbeHandlerInvokedDelta,
+                reviewTreeClickProbeSelectionCommandIssuedDelta,
+                reviewTreeClickProbeSelectionCommandAcceptedCount,
+                reviewTreeClickProbeSelectionCommandLastResult,
+                reviewTreeClickProbeLateSelectedMatches,
                 hasSelectedContentText:
                   selectedContentState === 'ready' &&
                   selectedContentRoleCount > 0 &&

@@ -169,6 +169,14 @@ extension BridgeReviewObservabilitySmokeRenderProof {
         reviewTreeClickProbeSelectionPollCount = snapshot.reviewTreeClickProbeSelectionPollCount
         reviewTreeClickProbeSelectionPollLastIndex = snapshot.reviewTreeClickProbeSelectionPollLastIndex
         reviewTreeClickProbeSecondClickAttempted = snapshot.reviewTreeClickProbeSecondClickAttempted
+        reviewTreeClickProbeHandlerInvokedDelta = snapshot.reviewTreeClickProbeHandlerInvokedDelta
+        reviewTreeClickProbeSelectionCommandIssuedDelta =
+            snapshot.reviewTreeClickProbeSelectionCommandIssuedDelta
+        reviewTreeClickProbeSelectionCommandAcceptedCount =
+            snapshot.reviewTreeClickProbeSelectionCommandAcceptedCount
+        reviewTreeClickProbeSelectionCommandLastResult =
+            snapshot.reviewTreeClickProbeSelectionCommandLastResult
+        reviewTreeClickProbeLateSelectedMatches = snapshot.reviewTreeClickProbeLateSelectedMatches
         paintedProbeAnchoredDeliveryEntryCount = snapshot.paintedProbeAnchoredDeliveryEntryCount
         paintedProbeAnchoredDeliveryAnchorPresentCount =
             snapshot.paintedProbeAnchoredDeliveryAnchorPresentCount
@@ -246,6 +254,11 @@ struct BridgeReviewObservabilitySmokeRenderSnapshot: Decodable, Equatable {
     let reviewTreeClickProbeSelectionPollCount: Int
     let reviewTreeClickProbeSelectionPollLastIndex: Int
     let reviewTreeClickProbeSecondClickAttempted: Bool
+    let reviewTreeClickProbeHandlerInvokedDelta: Int
+    let reviewTreeClickProbeSelectionCommandIssuedDelta: Int
+    let reviewTreeClickProbeSelectionCommandAcceptedCount: Int
+    let reviewTreeClickProbeSelectionCommandLastResult: String
+    let reviewTreeClickProbeLateSelectedMatches: Bool
     let hasSelectedContentText: Bool
     let selectedContentState: String
     let selectedContentRoleCount: Int
@@ -423,6 +436,11 @@ struct BridgeReviewObservabilitySmokeRenderProof: Equatable {
     var reviewTreeClickProbeSelectionPollCount: Int = 0
     var reviewTreeClickProbeSelectionPollLastIndex: Int = -1
     var reviewTreeClickProbeSecondClickAttempted: Bool = false
+    var reviewTreeClickProbeHandlerInvokedDelta: Int = 0
+    var reviewTreeClickProbeSelectionCommandIssuedDelta: Int = 0
+    var reviewTreeClickProbeSelectionCommandAcceptedCount: Int = 0
+    var reviewTreeClickProbeSelectionCommandLastResult: String = "missing"
+    var reviewTreeClickProbeLateSelectedMatches: Bool = false
     let hasSelectedContentText: Bool
     let selectedContentState: String
     let selectedContentRoleCount: Int
@@ -724,6 +742,16 @@ struct BridgeReviewObservabilitySmokeRenderProof: Equatable {
                 reviewTreeClickProbeSelectionPollLastIndex),
             "agentstudio.startup_diagnostic.bridge.review_tree_click.probe.second_click_attempted": .bool(
                 reviewTreeClickProbeSecondClickAttempted),
+            "agentstudio.startup_diagnostic.bridge.review_tree_click.probe.handler_invoked_delta": .int(
+                reviewTreeClickProbeHandlerInvokedDelta),
+            "agentstudio.startup_diagnostic.bridge.review_tree_click.probe.selection_command_issued_delta": .int(
+                reviewTreeClickProbeSelectionCommandIssuedDelta),
+            "agentstudio.startup_diagnostic.bridge.review_tree_click.probe.selection_command_accepted.count": .int(
+                reviewTreeClickProbeSelectionCommandAcceptedCount),
+            "agentstudio.startup_diagnostic.bridge.review_tree_click.probe.selection_command.last_result": .string(
+                reviewTreeClickProbeSelectionCommandLastResult),
+            "agentstudio.startup_diagnostic.bridge.review_tree_click.probe.late_selected_matches": .bool(
+                reviewTreeClickProbeLateSelectedMatches),
             "agentstudio.startup_diagnostic.bridge.selected_content.visible": .bool(hasSelectedContentText),
             "agentstudio.startup_diagnostic.bridge.selected_content.state": .string(selectedContentState),
             "agentstudio.startup_diagnostic.bridge.selected_content_role.count": .int(selectedContentRoleCount),
