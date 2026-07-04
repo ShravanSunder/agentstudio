@@ -46,13 +46,13 @@ export function createBridgeTelemetryBuffer(
 				return;
 			}
 			samples.push(sample);
+		},
+		drain: (): BridgeTelemetryBufferSnapshot => {
 			shedRequiredEventCount += shedOldestSamplesOverEncodedCap(
 				samples,
 				maxEncodedBatchBytes,
 				dropCounters,
 			);
-		},
-		drain: (): BridgeTelemetryBufferSnapshot => {
 			const counters = [...dropCounters.values()];
 			const snapshot = {
 				samples: [...samples],

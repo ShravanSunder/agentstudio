@@ -78,6 +78,24 @@ export interface BridgeTreeVisibleIdsCaptureTelemetrySampleProps extends BridgeT
 	readonly viewer: BridgeTreeTelemetryViewer;
 }
 
+interface BridgeTreeHoverToRenderBurstState {
+	readonly durationsMilliseconds: number[];
+	readonly key: string;
+	readonly telemetryRecorder: BridgeTelemetryRecorder;
+	readonly traceContext: BridgeTraceContext | null;
+	readonly viewer: BridgeTreeTelemetryViewer;
+	allRowsMounted: boolean;
+	result: BridgeTreeTelemetryResult;
+	timer: ReturnType<typeof setTimeout> | null;
+	visibleItemCount: number;
+}
+
+const bridgeTreeHoverToRenderSettleDelayMilliseconds = 50;
+const bridgeTreeHoverToRenderBurstStateByRecorder = new WeakMap<
+	BridgeTelemetryRecorder,
+	Map<string, BridgeTreeHoverToRenderBurstState>
+>();
+
 export function recordBridgeTreeClickToRowHighlightTelemetrySample(
 	props: BridgeTreeClickToRowHighlightTelemetrySampleProps,
 ): void {
@@ -105,23 +123,22 @@ export function recordBridgeTreeClickToRowHighlightTelemetrySample(
 export function recordBridgeTreeHoverToRenderTelemetrySample(
 	props: BridgeTreeHoverToRenderTelemetrySampleProps,
 ): void {
-	recordBridgeTreeTelemetrySample({
-		telemetryRecorder: props.telemetryRecorder,
-		traceContext: props.traceContext,
-		durationMilliseconds: props.durationMilliseconds,
-		name: 'performance.bridge.trees.hover_to_render',
-		phase: 'hover_to_render',
-		viewer: props.viewer,
-		stringAttributes: {
-			'agentstudio.bridge.result': props.result,
-		},
-		numericAttributes: {
-			'agentstudio.bridge.visible_item.count': props.visibleItemCount,
-		},
-		booleanAttributes: {
-			'agentstudio.bridge.row_mounted': props.rowMounted,
-		},
-	});
+	if (!props.telemetryRecorder.isEnabled('web')) {
+		return;
+	}
+	const burstState = bridgeTreeHoverToRenderBurstStateForProps(props);
+	burstState.durationsMilliseconds.push(Math.max(0, props.durationMilliseconds));
+	burstState.visibleItemCount = Math.max(burstState.visibleItemCount, props.visibleItemCount);
+	burstState.allRowsMounted = burstState.allRowsMounted && props.rowMounted;
+	if (props.result === 'failed') {
+		burstState.result = 'failed';
+	}
+	if (burstState.timer !== null) {
+		clearTimeout(burstState.timer);
+	}
+	burstState.timer = setTimeout((): void => {
+		flushBridgeTreeHoverToRenderBurstState(burstState);
+	}, bridgeTreeHoverToRenderSettleDelayMilliseconds);
 }
 
 export function recordBridgeTreeScrollFrameGapTelemetrySample(
@@ -249,5 +266,87 @@ function recordBridgeTreeTelemetrySample(props: {
 		numericAttributes: props.numericAttributes,
 		booleanAttributes: props.booleanAttributes,
 	});
-	props.telemetryRecorder.flush();
+}
+
+function bridgeTreeHoverToRenderBurstStateForProps(
+	props: BridgeTreeHoverToRenderTelemetrySampleProps,
+): BridgeTreeHoverToRenderBurstState {
+	let stateByKey = bridgeTreeHoverToRenderBurstStateByRecorder.get(props.telemetryRecorder);
+	if (stateByKey === undefined) {
+		stateByKey = new Map();
+		bridgeTreeHoverToRenderBurstStateByRecorder.set(props.telemetryRecorder, stateByKey);
+	}
+	const key = bridgeTreeHoverToRenderBurstKey(props.viewer, props.traceContext);
+	const existingState = stateByKey.get(key);
+	if (existingState !== undefined) {
+		return existingState;
+	}
+	const state: BridgeTreeHoverToRenderBurstState = {
+		durationsMilliseconds: [],
+		key,
+		telemetryRecorder: props.telemetryRecorder,
+		traceContext: props.traceContext,
+		viewer: props.viewer,
+		allRowsMounted: true,
+		result: 'success',
+		timer: null,
+		visibleItemCount: 0,
+	};
+	stateByKey.set(key, state);
+	return state;
+}
+
+function flushBridgeTreeHoverToRenderBurstState(state: BridgeTreeHoverToRenderBurstState): void {
+	const stateByKey = bridgeTreeHoverToRenderBurstStateByRecorder.get(state.telemetryRecorder);
+	stateByKey?.delete(state.key);
+	state.timer = null;
+	if (state.durationsMilliseconds.length === 0) {
+		return;
+	}
+	recordBridgeTreeTelemetrySample({
+		telemetryRecorder: state.telemetryRecorder,
+		traceContext: state.traceContext,
+		durationMilliseconds: maxNumber(state.durationsMilliseconds),
+		name: 'performance.bridge.trees.hover_to_render',
+		phase: 'hover_to_render',
+		viewer: state.viewer,
+		stringAttributes: {
+			'agentstudio.bridge.result': state.result,
+		},
+		numericAttributes: {
+			'agentstudio.bridge.hover_to_render.max_ms': maxNumber(state.durationsMilliseconds),
+			'agentstudio.bridge.hover_to_render.p95_ms': percentileNumber(
+				state.durationsMilliseconds,
+				0.95,
+			),
+			'agentstudio.bridge.hover_to_render.sample.count': state.durationsMilliseconds.length,
+			'agentstudio.bridge.visible_item.count': state.visibleItemCount,
+		},
+		booleanAttributes: {
+			'agentstudio.bridge.row_mounted': state.allRowsMounted,
+		},
+	});
+}
+
+function bridgeTreeHoverToRenderBurstKey(
+	viewer: BridgeTreeTelemetryViewer,
+	traceContext: BridgeTraceContext | null,
+): string {
+	return `${viewer}\u0000${traceContext?.traceId ?? 'none'}\u0000${traceContext?.spanId ?? 'none'}`;
+}
+
+function maxNumber(values: readonly number[]): number {
+	return values.length === 0 ? 0 : Math.max(...values);
+}
+
+function percentileNumber(values: readonly number[], percentile: number): number {
+	if (values.length === 0) {
+		return 0;
+	}
+	const sortedValues = values.toSorted((leftValue, rightValue): number => leftValue - rightValue);
+	const index = Math.min(
+		sortedValues.length - 1,
+		Math.max(0, Math.ceil(sortedValues.length * percentile) - 1),
+	);
+	return sortedValues[index] ?? 0;
 }

@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 
 import { createBridgeTelemetryBuffer } from './bridge-telemetry-buffer.js';
 import type { BridgeTelemetrySample } from './bridge-telemetry-event.js';
@@ -66,6 +66,23 @@ describe('bridge telemetry buffer', () => {
 			},
 		]);
 		expect(telemetrySnapshot.shedRequiredEventCount).toBe(0);
+	});
+
+	test('defers exact encoded byte sizing until drain', () => {
+		const buffer = createBridgeTelemetryBuffer({
+			maxSamplesPerBatch: 16,
+			maxEncodedBatchBytes: 540,
+		});
+		const stringifySpy = vi.spyOn(JSON, 'stringify');
+
+		buffer.add(makeSample('performance.bridge.web.first_render'));
+
+		expect(stringifySpy).not.toHaveBeenCalled();
+
+		buffer.drain();
+
+		expect(stringifySpy).toHaveBeenCalled();
+		stringifySpy.mockRestore();
 	});
 });
 

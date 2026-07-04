@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import type { BridgeTelemetrySample } from './bridge-telemetry-event.js';
 import type {
@@ -17,6 +17,10 @@ import {
 	recordBridgeTreeVisibleIdsCaptureTelemetrySample,
 	recordBridgeViewerFirstInteractionReadyTelemetrySample,
 } from './bridge-viewer-telemetry-adapter.js';
+
+afterEach(() => {
+	vi.useRealTimers();
+});
 
 describe('bridge viewer telemetry adapter flushing', () => {
 	test('uses idle-scheduled flushing for hot interaction samples', () => {
@@ -63,6 +67,85 @@ describe('bridge viewer telemetry adapter flushing', () => {
 		]);
 		expect(recorder.flushForces).toEqual([undefined, undefined, undefined, undefined]);
 	});
+
+	test('does not force-flush tree hot-path samples per record', () => {
+		const recorder = makeCapturingRecorder();
+
+		recordBridgeTreeClickToRowHighlightTelemetrySample({
+			alreadySelected: false,
+			durationMilliseconds: 12,
+			result: 'success',
+			scrollActive: true,
+			source: 'mouse',
+			telemetryRecorder: recorder,
+			traceContext: null,
+			viewer: 'review',
+			visibleItemCount: 18,
+		});
+
+		expect(recorder.samples.map((sample) => sample.name)).toEqual([
+			'performance.bridge.trees.click_to_row_highlight',
+		]);
+		expect(recorder.flushForces).toEqual([]);
+	});
+
+	test('summarizes hover_to_render bursts after settle', async () => {
+		vi.useFakeTimers();
+		const recorder = makeCapturingRecorder();
+
+		recordBridgeTreeHoverToRenderTelemetrySample({
+			durationMilliseconds: 7,
+			result: 'success',
+			rowMounted: true,
+			telemetryRecorder: recorder,
+			traceContext: null,
+			viewer: 'review',
+			visibleItemCount: 14,
+		});
+		recordBridgeTreeHoverToRenderTelemetrySample({
+			durationMilliseconds: 13,
+			result: 'failed',
+			rowMounted: false,
+			telemetryRecorder: recorder,
+			traceContext: null,
+			viewer: 'review',
+			visibleItemCount: 16,
+		});
+		recordBridgeTreeHoverToRenderTelemetrySample({
+			durationMilliseconds: 21,
+			result: 'success',
+			rowMounted: true,
+			telemetryRecorder: recorder,
+			traceContext: null,
+			viewer: 'review',
+			visibleItemCount: 15,
+		});
+
+		expect(recorder.samples).toEqual([]);
+
+		await vi.advanceTimersByTimeAsync(50);
+
+		expect(recorder.samples).toEqual([
+			expect.objectContaining({
+				name: 'performance.bridge.trees.hover_to_render',
+				durationMilliseconds: 21,
+				stringAttributes: expect.objectContaining({
+					'agentstudio.bridge.phase': 'hover_to_render',
+					'agentstudio.bridge.result': 'failed',
+					'agentstudio.bridge.viewer': 'review',
+				}),
+				numericAttributes: {
+					'agentstudio.bridge.hover_to_render.max_ms': 21,
+					'agentstudio.bridge.hover_to_render.p95_ms': 21,
+					'agentstudio.bridge.hover_to_render.sample.count': 3,
+					'agentstudio.bridge.visible_item.count': 16,
+				},
+				booleanAttributes: {
+					'agentstudio.bridge.row_mounted': false,
+				},
+			}),
+		]);
+	});
 });
 
 describe('bridge tree telemetry adapter sample shapes', () => {
@@ -102,7 +185,8 @@ describe('bridge tree telemetry adapter sample shapes', () => {
 		]);
 	});
 
-	test('records hover_to_render with row mount status', () => {
+	test('records hover_to_render summary with row mount status', async () => {
+		vi.useFakeTimers();
 		const recorder = makeCapturingRecorder();
 
 		recordBridgeTreeHoverToRenderTelemetrySample({
@@ -114,6 +198,8 @@ describe('bridge tree telemetry adapter sample shapes', () => {
 			viewer: 'review',
 			visibleItemCount: 14,
 		});
+
+		await vi.advanceTimersByTimeAsync(50);
 
 		expect(recorder.samples[0]).toMatchObject({
 			name: 'performance.bridge.trees.hover_to_render',
@@ -127,6 +213,9 @@ describe('bridge tree telemetry adapter sample shapes', () => {
 				'agentstudio.bridge.viewer': 'review',
 			},
 			numericAttributes: {
+				'agentstudio.bridge.hover_to_render.max_ms': 7,
+				'agentstudio.bridge.hover_to_render.p95_ms': 7,
+				'agentstudio.bridge.hover_to_render.sample.count': 1,
 				'agentstudio.bridge.visible_item.count': 14,
 			},
 			booleanAttributes: {
