@@ -304,6 +304,45 @@ eviction. Keep: the resource executor's in-flight/abort/freshness core, the
 content registry, result-validity and prune helpers, the native metadata
 plane, and `BridgeContentDemandAdmission` as serving-side pacing.
 
+### Constants Annex (first-principles derivations)
+
+Commit `cc00df4c` (2026-07-01) cut `visibleContentHydrationItemLimit`
+from 96 to 12 as bundled performance tuning, applying an execution-class
+number to membership. The live probe measured 38 reported / 12 tracked /
+26 permanently truncated. That defect is the forcing function for this
+annex.
+
+Every constant bounds exactly one class: execution (how much runs at once),
+pacing (retry/backoff/yield), or retention (what stays warm). Membership
+constants do not exist (R33). Every constant ships with the resource it
+protects, its derivation, and the validating histogram or counter. A
+constant without a defensible derivation is deleted.
+
+All content-demand constants live in one BridgeWeb policy module, the
+BridgeWeb analog of `AppPolicies`. The module groups execution, pacing, and
+retention constants as visually separate and type-level distinct policy
+objects, so a bundled performance-tuning commit cannot change constant
+class by editing a nearby number.
+
+| Constant | Class | Value | Derivation | Instrument |
+| --- | --- | --- | --- | --- |
+| membership cap | forbidden | deleted; sanity ceiling 512 may only demote to nearby and count overflow telemetry, never silently truncate | R33: membership is a reconciler fact, not a resource bound | `truncatedVisibleItemCount` structurally zero |
+| immediate-lane start concurrency | execution | 6 | protects executor/worker start pressure; 2x the 3-worker Shiki pool keeps fetch pipelined ahead of highlight | per-lane queue-wait histogram |
+| per-tier start caps | execution | nearby 2, speculative 1, background 1 | protects executor starts; R30 bound plus yield-to-higher rule | lane counts in `review_content_demand` |
+| dispatch delay | execution | 0 forever | protects visible queue wait; coalescing is reconciler-pass/rAF, never wall-clock | visible queue-wait p95 budget (32ms) |
+| look-ahead margin | membership-shape fact input | 2 viewports in scroll direction, 1 behind; default; user-adjustable policy value | covers momentum distance during time-to-ready; static first, velocity-scaled later only with benchmark evidence | post-settle untracked drain time |
+| ready-content retention floor | retention | rendered range plus margin, roughly 3 viewports, count-based | protects paint-ready memory under R40 tier 1; never shares a constant with any demand-side value | re-demand-after-prune counter, approximately zero for on-screen items |
+| `contentMaxBytesPerItem` | retention | 4MB | protects byte cache residency; one item must never evict the world (50MB == total was the live defect); oversized content renders windowed/unavailable | cache eviction telemetry by cause |
+| `contentCacheMaxBytes` | retention | 128MB desktop default; user-adjustable policy value | protects re-entry latency; guarantees at least 32 max-size items resident because re-fetch plus re-highlight costs more than RAM | cache hit ratio on re-entry |
+| background prefix | pacing | min(first 40 files, 25% of byte cache) | protects startup lane pressure and IO; warmth beyond cache capacity is wasted IO and must not compete with immediate | aborted background fetch count; live read showed 40 aborts |
+| deferred retries / parked versions | forbidden | deleted | R34: no parked demand states; executor-stage bounded backoff exists only on delivery-failure facts | retry/backoff counters only at executor stage |
+| selected neighborhood | membership-shape fact input | 2 before + 2 after | UX-derived adjacency; feeds the nearby tier and never competes with viewport membership | nearby tier counts and selected re-entry cache-hit ratio |
+
+R33 forbids membership caps and R40 separates retention from demand; the
+provenance lesson is that bundled performance-tuning commits must not be
+able to change a constant's class, and the single policy-module structure
+enforces that boundary.
+
 ## Native Metadata Production Scheduler
 
 Demand lanes on the native side are a real scheduler, not frame labels.
