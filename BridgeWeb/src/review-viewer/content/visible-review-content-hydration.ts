@@ -18,6 +18,22 @@ import type {
 } from './review-content-demand-loader.js';
 import type { LoadReviewItemContentResourcesProps } from './review-content-loader.js';
 import type { BridgeReviewContentRegistry } from './review-content-registry.js';
+import {
+	pruneVisibleReviewContentHydrationCaches,
+	recordVisibleHydrationReadyResultDiscard,
+	shouldAcceptVisibleReviewContentReadyResult,
+	type VisibleContentResourcesState,
+} from './visible-review-content-hydration-support.js';
+
+export {
+	pruneVisibleReviewContentHydrationCaches,
+	shouldAcceptVisibleReviewContentReadyResult,
+} from './visible-review-content-hydration-support.js';
+export type {
+	BridgeVisibleHydrationDiscardProbe,
+	BridgeVisibleHydrationDiscardProbeRecord,
+	VisibleContentResourcesState,
+} from './visible-review-content-hydration-support.js';
 
 type VisibleReviewContentDemandInterest = Extract<
 	ReviewContentDemandInterest,
@@ -51,16 +67,11 @@ export interface UseVisibleReviewContentHydrationResult {
 	readonly visibleReadyItemCount: number;
 }
 
-export interface VisibleContentResourcesState {
-	readonly contentKey: string;
-	readonly itemId: string;
-	readonly retryAfterVersion?: number;
-	readonly status: 'aborted' | 'deferred' | 'loading' | 'ready' | 'failed';
-}
-
 export const visibleContentHydrationItemLimit = 12;
-export const visibleContentHydrationConcurrentLoadLimit = 2;
-export const visibleContentHydrationDispatchDelayMilliseconds = 64;
+// Live scroll evidence: macOS momentum keeps the Review CodeView scroll-active pause true
+// after finger lift, so dispatch must not add another 64ms tail before visible loads start.
+export const visibleContentHydrationConcurrentLoadLimit = 4;
+export const visibleContentHydrationDispatchDelayMilliseconds = 0;
 const maxVisibleContentDeferredRetries = 1;
 const exhaustedVisibleContentRetryVersion = Number.MAX_SAFE_INTEGER;
 
@@ -149,19 +160,6 @@ export function useVisibleReviewContentHydration(
 			abortVisibleContentLoads(loadAbortControllersByContentKeyRef.current);
 		}
 		scheduledContentKeysRef.current.clear();
-		setContentStateByItemId(
-			(currentStateByItemId: ReadonlyMap<string, VisibleContentResourcesState>) => {
-				const nextStateByItemId = new Map<string, VisibleContentResourcesState>();
-				for (const [itemId, state] of currentStateByItemId) {
-					if (state.status === 'ready' || state.status === 'failed') {
-						nextStateByItemId.set(itemId, state);
-					}
-				}
-				return mapEntriesEqual(currentStateByItemId, nextStateByItemId)
-					? currentStateByItemId
-					: nextStateByItemId;
-			},
-		);
 	}, [props.visibleHydrationPaused]);
 	const [deferredRetryVersion, setDeferredRetryVersion] = useState(0);
 	const deferredRetryScheduledRef = useRef(false);
@@ -309,12 +307,27 @@ export function useVisibleReviewContentHydration(
 						setContentStateByItemId(
 							(currentStateByItemId: ReadonlyMap<string, VisibleContentResourcesState>) => {
 								const currentState = currentStateByItemId.get(loadPlan.itemId);
-								if (currentState?.contentKey !== loadPlan.contentKey) {
+								if (
+									!shouldAcceptVisibleReviewContentReadyResult({
+										contentKey: loadPlan.contentKey,
+										currentState,
+									})
+								) {
+									if (normalizedLoadResult.status === 'ready') {
+										recordVisibleHydrationReadyResultDiscard({
+											hadState: currentState !== undefined,
+											pausedNow: visibleHydrationSnapshotRef.current.visibleHydrationPaused,
+										});
+									}
+									return currentStateByItemId;
+								}
+								if (currentState === undefined && normalizedLoadResult.status !== 'ready') {
 									return currentStateByItemId;
 								}
 								if (normalizedLoadResult.status === 'ready') {
 									deferredRetryCountByContentKeyRef.current.delete(loadPlan.contentKey);
 									const nextResourcesByItemId = new Map(resourcesByItemIdRef.current);
+									nextResourcesByItemId.delete(loadPlan.itemId);
 									nextResourcesByItemId.set(loadPlan.itemId, normalizedLoadResult.resources);
 									resourcesByItemIdRef.current = nextResourcesByItemId;
 								}
@@ -424,10 +437,9 @@ export function useVisibleReviewContentHydration(
 	]);
 
 	useEffect((): void => {
-		const visibleItemIdSet = new Set(visibleItemIds);
 		const retainedContentKeys = new Set<string>();
 		if (props.reviewPackage !== null) {
-			for (const itemId of visibleItemIds) {
+			for (const itemId of props.reviewPackage.orderedItemIds) {
 				const item = props.reviewPackage.itemsById[itemId];
 				if (item !== undefined) {
 					retainedContentKeys.add(
@@ -452,26 +464,21 @@ export function useVisibleReviewContentHydration(
 		pruneDeferredRetryCountsExcept(deferredRetryCountByContentKeyRef.current, retainedContentKeys);
 		setContentStateByItemId(
 			(currentStateByItemId: ReadonlyMap<string, VisibleContentResourcesState>) => {
-				const nextStateByItemId = new Map<string, VisibleContentResourcesState>();
-				for (const [itemId, state] of currentStateByItemId) {
-					if (visibleItemIdSet.has(itemId)) {
-						nextStateByItemId.set(itemId, state);
-					}
+				const pruned = pruneVisibleReviewContentHydrationCaches({
+					contentStateByItemId: currentStateByItemId,
+					maxReadyResourceCount: visibleContentHydrationItemLimit,
+					resourcesByItemId: resourcesByItemIdRef.current,
+					retainedContentKeys,
+					visibleItemIds,
+				});
+				if (!mapEntriesEqual(resourcesByItemIdRef.current, pruned.resourcesByItemId)) {
+					resourcesByItemIdRef.current = pruned.resourcesByItemId;
 				}
-				return mapEntriesEqual(currentStateByItemId, nextStateByItemId)
+				return mapEntriesEqual(currentStateByItemId, pruned.contentStateByItemId)
 					? currentStateByItemId
-					: nextStateByItemId;
+					: pruned.contentStateByItemId;
 			},
 		);
-		const nextResourcesByItemId = new Map<string, BridgeCodeViewContentResources>();
-		for (const [itemId, resources] of resourcesByItemIdRef.current) {
-			if (visibleItemIdSet.has(itemId)) {
-				nextResourcesByItemId.set(itemId, resources);
-			}
-		}
-		if (!mapEntriesEqual(resourcesByItemIdRef.current, nextResourcesByItemId)) {
-			resourcesByItemIdRef.current = nextResourcesByItemId;
-		}
 	}, [props.contentInvalidationVersion, props.reviewPackage, visibleItemIds]);
 
 	return useMemo(
@@ -494,17 +501,6 @@ export function createVisibleReviewContentHydrationResult(props: {
 	readonly visibleHydrationPaused: boolean;
 	readonly visibleItemIds: readonly string[];
 }): UseVisibleReviewContentHydrationResult {
-	if (props.visibleHydrationPaused) {
-		return {
-			setVisibleItemIds: props.setVisibleItemIds,
-			visibleContentResourcesByItemId: new Map<string, BridgeCodeViewContentResources>(),
-			visibleFailedItemIds: new Set<string>(),
-			visibleItemIds: [],
-			visibleLoadingItemIds: new Set<string>(),
-			visibleLoadingItemCount: 0,
-			visibleReadyItemCount: 0,
-		};
-	}
 	const visibleContentResourcesByItemId = new Map<string, BridgeCodeViewContentResources>();
 	const visibleFailedItemIds = new Set<string>();
 	const visibleLoadingItemIds = new Set<string>();

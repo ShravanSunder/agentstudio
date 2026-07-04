@@ -24,11 +24,6 @@ import {
 } from './bridge-app-review-selection-state.js';
 import type { BridgeReviewPackageTelemetryContext } from './bridge-app-review-telemetry.js';
 
-const emptyVisibleContentResourcesByItemId: ReadonlyMap<string, BridgeCodeViewContentResources> =
-	new Map<string, BridgeCodeViewContentResources>();
-const emptyVisibleItemIds: readonly string[] = [];
-const emptyVisibleLoadingItemIds: ReadonlySet<string> = new Set<string>();
-
 export interface UseBridgeReviewVisibleContentControllerProps {
 	readonly contentRegistry: BridgeReviewContentRegistry;
 	readonly currentReviewPackageTelemetryContextRef: MutableRefObject<BridgeReviewPackageTelemetryContext | null>;
@@ -125,20 +120,10 @@ export function useBridgeReviewVisibleContentController(
 
 	return {
 		setVisibleContentItemIds: visibleContentHydration.setVisibleItemIds,
-		visibleContentResourcesByItemId: visibleContentHydrationPaused
-			? emptyVisibleContentResourcesByItemId
-			: visibleContentHydration.visibleContentResourcesByItemId,
-		visibleItemIds: visibleContentHydrationPaused
-			? emptyVisibleItemIds
-			: visibleContentHydration.visibleItemIds,
-		visibleLoadingItemCount: visibleContentHydrationPaused
-			? 0
-			: visibleContentHydration.visibleLoadingItemCount,
-		visibleLoadingItemIds: visibleContentHydrationPaused
-			? emptyVisibleLoadingItemIds
-			: visibleContentHydration.visibleLoadingItemIds,
-		visibleReadyItemCount: visibleContentHydrationPaused
-			? 0
-			: visibleContentHydration.visibleReadyItemCount,
+		visibleContentResourcesByItemId: visibleContentHydration.visibleContentResourcesByItemId,
+		visibleItemIds: visibleContentHydration.visibleItemIds,
+		visibleLoadingItemCount: visibleContentHydration.visibleLoadingItemCount,
+		visibleLoadingItemIds: visibleContentHydration.visibleLoadingItemIds,
+		visibleReadyItemCount: visibleContentHydration.visibleReadyItemCount,
 	};
 }

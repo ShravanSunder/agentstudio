@@ -226,7 +226,7 @@ describe('Bridge CodeView hydrated materialization', () => {
 		expectTypeOf(materialized).toMatchTypeOf<BridgeCodeViewDiffItem>();
 	});
 
-	test('keeps unloaded diff side extents when partially hydrating visible content', () => {
+	test('does not synthesize unloaded diff side extents when partially hydrating visible content', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const item = reviewPackage.itemsById['source-high'];
 		const headHandle = item?.contentRoles.head;
@@ -251,8 +251,7 @@ describe('Bridge CodeView hydrated materialization', () => {
 			throw new Error('expected diff materialization');
 		}
 
-		expect(materialized.fileDiff.deletionLines).toContain('Loading content...\n');
-		expect(materialized.fileDiff.deletionLines).toHaveLength(17);
+		expect(materialized.fileDiff.deletionLines).toEqual([]);
 		expect(materialized.fileDiff.additionLines).toContain('let value = 2\n');
 		expect(materialized.bridgeMetadata).toMatchObject({
 			contentState: 'hydrated',

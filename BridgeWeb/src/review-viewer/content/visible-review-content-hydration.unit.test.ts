@@ -11,8 +11,10 @@ import {
 	createVisibleReviewContentHydrationResult,
 	makeReviewItemContentResourcesKey,
 	normalizeVisibleReviewItemIds,
+	pruneVisibleReviewContentHydrationCaches,
 	recoverAbortedVisibleContentLoadState,
 	selectedAdjacentReviewItemIds,
+	shouldAcceptVisibleReviewContentReadyResult,
 	shouldAbortVisibleContentLoadsForPause,
 	shouldRearmAbortedVisibleContentLoad,
 	visibleContentHydrationDispatchDelayMilliseconds,
@@ -43,8 +45,9 @@ describe('visible review content hydration', () => {
 		).toEqual(['item-018', 'item-019', 'item-021', 'item-022']);
 	});
 
-	test('keeps visible content warming opportunistic under active visible loads', () => {
-		expect(visibleContentHydrationDispatchDelayMilliseconds).toBeGreaterThanOrEqual(32);
+	test('starts visible content warming immediately with bounded scroll-tail concurrency', () => {
+		expect(visibleContentHydrationDispatchDelayMilliseconds).toBe(0);
+		expect(visibleContentHydrationConcurrentLoadLimit).toBe(4);
 		expect(
 			visibleReviewContentLoadPlanCount({
 				loadingCount: 0,
@@ -58,7 +61,7 @@ describe('visible review content hydration', () => {
 				requestedLoadCount: visibleContentHydrationItemLimit,
 				scheduledCount: 0,
 			}),
-		).toBe(1);
+		).toBe(3);
 		expect(
 			visibleReviewContentLoadPlanCount({
 				loadingCount: visibleContentHydrationConcurrentLoadLimit,
@@ -86,10 +89,10 @@ describe('visible review content hydration', () => {
 				requestedLoadCount: finalUnhydratedItemIds.length,
 				scheduledCount: retainedLoadingItemIds.length,
 			}),
-		).toBe(1);
+		).toBe(3);
 	});
 
-	test('publishes no visible lane content while hydration is paused for active scroll', () => {
+	test('continues publishing existing ready and loading visible content while paused', () => {
 		const loadedResource: BridgeContentResource = {
 			handle: makeBridgeContentHandle('item-001', 'head'),
 			readText: (): string => 'ready content\n',
@@ -120,14 +123,118 @@ describe('visible review content hydration', () => {
 			visibleItemIds: ['item-001', 'item-002'],
 		});
 
-		expect(result.visibleContentResourcesByItemId.size).toBe(0);
-		expect(result.visibleLoadingItemIds.size).toBe(0);
-		expect(result.visibleReadyItemCount).toBe(0);
-		expect(result.visibleLoadingItemCount).toBe(0);
+		expect(result.visibleItemIds).toEqual(['item-001', 'item-002']);
+		expect(result.visibleContentResourcesByItemId.get('item-001')).toEqual({
+			head: loadedResource,
+		});
+		expect(result.visibleLoadingItemIds.has('item-002')).toBe(true);
+		expect(result.visibleReadyItemCount).toBe(1);
+		expect(result.visibleLoadingItemCount).toBe(1);
 	});
 
 	test('keeps paused visible loads alive so completed bodies are not refetched after selection churn', () => {
 		expect(shouldAbortVisibleContentLoadsForPause()).toBe(false);
+	});
+
+	test('accepts ready results when only transient loading state is absent', () => {
+		expect(
+			shouldAcceptVisibleReviewContentReadyResult({
+				contentKey: 'content:item-001',
+				currentState: undefined,
+			}),
+		).toBe(true);
+		expect(
+			shouldAcceptVisibleReviewContentReadyResult({
+				contentKey: 'content:item-001',
+				currentState: {
+					contentKey: 'content:item-001',
+					itemId: 'item-001',
+					status: 'loading',
+				},
+			}),
+		).toBe(true);
+		expect(
+			shouldAcceptVisibleReviewContentReadyResult({
+				contentKey: 'content:item-001',
+				currentState: {
+					contentKey: 'content:item-002',
+					itemId: 'item-001',
+					status: 'loading',
+				},
+			}),
+		).toBe(false);
+	});
+
+	test('prunes ready resources by count while keeping recent ready-unapplied content', () => {
+		const oldResource: BridgeContentResource = {
+			handle: makeBridgeContentHandle('item-old-ready', 'head'),
+			readText: (): string => 'old ready\n',
+		};
+		const recentResource: BridgeContentResource = {
+			handle: makeBridgeContentHandle('item-recent-ready', 'head'),
+			readText: (): string => 'recent ready\n',
+		};
+		const visibleResource: BridgeContentResource = {
+			handle: makeBridgeContentHandle('item-visible-ready', 'head'),
+			readText: (): string => 'visible ready\n',
+		};
+
+		const pruned = pruneVisibleReviewContentHydrationCaches({
+			contentStateByItemId: new Map([
+				[
+					'item-old-ready',
+					{
+						contentKey: 'content:item-old-ready',
+						itemId: 'item-old-ready',
+						status: 'ready',
+					},
+				],
+				[
+					'item-recent-ready',
+					{
+						contentKey: 'content:item-recent-ready',
+						itemId: 'item-recent-ready',
+						status: 'ready',
+					},
+				],
+				[
+					'item-visible-ready',
+					{
+						contentKey: 'content:item-visible-ready',
+						itemId: 'item-visible-ready',
+						status: 'ready',
+					},
+				],
+				[
+					'item-visible-loading',
+					{
+						contentKey: 'content:item-visible-loading',
+						itemId: 'item-visible-loading',
+						status: 'loading',
+					},
+				],
+			]),
+			maxReadyResourceCount: 2,
+			resourcesByItemId: new Map([
+				['item-old-ready', { head: oldResource }],
+				['item-recent-ready', { head: recentResource }],
+				['item-visible-ready', { head: visibleResource }],
+			]),
+			retainedContentKeys: new Set([
+				'content:item-old-ready',
+				'content:item-recent-ready',
+				'content:item-visible-ready',
+				'content:item-visible-loading',
+			]),
+			visibleItemIds: ['item-visible-ready', 'item-visible-loading'],
+		});
+
+		expect([...pruned.resourcesByItemId.keys()]).toEqual([
+			'item-visible-ready',
+			'item-recent-ready',
+		]);
+		expect(pruned.contentStateByItemId.has('item-old-ready')).toBe(false);
+		expect(pruned.contentStateByItemId.get('item-visible-loading')?.status).toBe('loading');
 	});
 
 	test('publishes scheduled visible item ids before they become loading or ready', () => {

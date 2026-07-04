@@ -15,7 +15,10 @@ import type {
 	BridgeReviewItemDescriptor,
 	BridgeReviewPackage,
 } from '../../foundation/review-package/bridge-review-package.js';
+import type { BridgeTelemetryRecorder } from '../../foundation/telemetry/bridge-telemetry-recorder.js';
+import type { BridgeTraceContext } from '../../foundation/telemetry/bridge-trace-context.js';
 import type { BridgeReviewProjectionResult } from '../models/review-projection-models.js';
+import { recordBridgeCodeViewItemMaterializeTelemetry } from '../telemetry/bridge-review-viewer-telemetry.js';
 import {
 	BridgeCodeViewController,
 	type ApplyBridgeCodeViewItemUpdateResult,
@@ -49,6 +52,17 @@ export interface BridgeCodeViewMaterializationDiagnostic {
 	readonly deletionLineCount: number;
 	readonly fileLineCount: number;
 	readonly durationMilliseconds: number;
+}
+
+export interface RecordBridgeCodeViewItemMaterializeTelemetryForPanelProps {
+	readonly telemetryRecorder: BridgeTelemetryRecorder;
+	readonly parentTraceContext: BridgeTraceContext | null;
+	readonly projection: BridgeReviewProjectionResult;
+	readonly item: BridgeReviewItemDescriptor;
+	readonly resources: BridgeCodeViewContentResources;
+	readonly durationMilliseconds: number;
+	readonly result: ApplyBridgeCodeViewItemUpdateResult;
+	readonly selectedItemId: string | null;
 }
 
 interface BridgeCodeViewRenderedItemSnapshot {
@@ -96,53 +110,6 @@ export function collapsedItemIdsWithItemState(props: {
 	return nextIds;
 }
 
-export function shouldApplyBridgeCodeViewMaterialization(props: {
-	readonly isScrollActive: boolean;
-	readonly itemId: string;
-	readonly selectedItemId: string | null;
-}): boolean {
-	return !props.isScrollActive || props.itemId === props.selectedItemId;
-}
-
-export function shouldApplyBridgeCodeViewCurrentWindowMaterialization(props: {
-	readonly currentRenderedItemIds: ReadonlySet<string>;
-	readonly itemId: string;
-	readonly liveRenderedItemIds?: readonly string[];
-	readonly orderedItemIds?: readonly string[];
-	readonly selectedItemId: string | null;
-}): boolean {
-	if (props.itemId === props.selectedItemId) {
-		return true;
-	}
-	const liveWindowTopIndex = liveRenderedWindowTopIndex({
-		liveRenderedItemIds: props.liveRenderedItemIds,
-		orderedItemIds: props.orderedItemIds,
-	});
-	const itemIndex = props.orderedItemIds?.indexOf(props.itemId) ?? -1;
-	if (liveWindowTopIndex !== null && itemIndex >= 0) {
-		return itemIndex >= liveWindowTopIndex;
-	}
-	return props.currentRenderedItemIds.has(props.itemId);
-}
-
-export function bridgeCodeViewDeferredMaterializationItemIdsReadyForLiveRange(props: {
-	readonly deferredItemIds: ReadonlySet<string>;
-	readonly liveRenderedItemIds: readonly string[];
-	readonly orderedItemIds: readonly string[];
-	readonly selectedItemId: string | null;
-}): readonly string[] {
-	const currentRenderedItemIds = new Set(props.liveRenderedItemIds);
-	return [...props.deferredItemIds].filter((itemId: string): boolean =>
-		shouldApplyBridgeCodeViewCurrentWindowMaterialization({
-			currentRenderedItemIds,
-			itemId,
-			liveRenderedItemIds: props.liveRenderedItemIds,
-			orderedItemIds: props.orderedItemIds,
-			selectedItemId: props.selectedItemId,
-		}),
-	);
-}
-
 export function bridgeCodeViewMaterializationResourceEntriesForPanel(props: {
 	readonly selectedContentDemandStartedAtMilliseconds: number | null | undefined;
 	readonly selectedContentResources: BridgeCodeViewContentResources | null | undefined;
@@ -174,6 +141,21 @@ export function bridgeCodeViewMaterializationResourceEntriesForPanel(props: {
 	return [...resourceEntriesByItemId.values()];
 }
 
+export function recordBridgeCodeViewItemMaterializeTelemetryForPanel(
+	props: RecordBridgeCodeViewItemMaterializeTelemetryForPanelProps,
+): void {
+	recordBridgeCodeViewItemMaterializeTelemetry({
+		telemetryRecorder: props.telemetryRecorder,
+		parentTraceContext: props.parentTraceContext,
+		projection: props.projection,
+		item: props.item,
+		resources: props.resources,
+		durationMilliseconds: props.durationMilliseconds,
+		result: props.result,
+		selected: props.item.itemId === props.selectedItemId,
+	});
+}
+
 export function bridgeCodeViewLoadingMaterializationItemIdsForPanel(props: {
 	readonly materializationResourceEntries: readonly BridgeCodeViewMaterializationResourceEntry[];
 	readonly selectedContentLoadingItemId: string | null | undefined;
@@ -190,28 +172,6 @@ export function bridgeCodeViewLoadingMaterializationItemIdsForPanel(props: {
 		loadingItemIds.add(props.selectedContentLoadingItemId);
 	}
 	return [...loadingItemIds].filter((itemId: string): boolean => !loadedItemIds.has(itemId));
-}
-
-function liveRenderedWindowTopIndex(props: {
-	readonly liveRenderedItemIds: readonly string[] | undefined;
-	readonly orderedItemIds: readonly string[] | undefined;
-}): number | null {
-	if (
-		props.liveRenderedItemIds === undefined ||
-		props.liveRenderedItemIds.length === 0 ||
-		props.orderedItemIds === undefined
-	) {
-		return null;
-	}
-	let topIndex: number | null = null;
-	for (const itemId of props.liveRenderedItemIds) {
-		const itemIndex = props.orderedItemIds.indexOf(itemId);
-		if (itemIndex < 0) {
-			continue;
-		}
-		topIndex = topIndex === null ? itemIndex : Math.min(topIndex, itemIndex);
-	}
-	return topIndex;
 }
 
 export interface BridgeCodeViewInstantRevealRearmCandidate {

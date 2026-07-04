@@ -3,10 +3,7 @@ import type { CodeViewHandle } from '@pierre/diffs/react';
 import type { ReactElement } from 'react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
-import {
-	recordBridgeCodeViewHydrationTelemetry,
-	recordBridgeCodeViewItemMaterializeTelemetry,
-} from '../telemetry/bridge-review-viewer-telemetry.js';
+import { recordBridgeCodeViewHydrationTelemetry } from '../telemetry/bridge-review-viewer-telemetry.js';
 import {
 	createBridgeCodeViewInitialItems,
 	materializeBridgeCodeViewItem,
@@ -23,7 +20,6 @@ import { BridgeCodeViewPanelFrame } from './bridge-code-view-panel-frame.js';
 import {
 	bridgeCodeViewMaterializationResourceEntriesForPanel,
 	bridgeCodeViewLoadingMaterializationItemIdsForPanel,
-	bridgeCodeViewDeferredMaterializationItemIdsReadyForLiveRange,
 	bridgeCodeViewRenderedHeaderCorrectionTargetPosition,
 	codeViewHandleHasInstance,
 	controllerForHandle,
@@ -35,11 +31,11 @@ import {
 	makeBridgeCodeViewSourceKey,
 	materializationDiagnosticForCodeViewItem,
 	nextCodeViewItemForCollapse,
+	recordBridgeCodeViewItemMaterializeTelemetryForPanel,
 	reconcileBridgeCodeViewMetadataItems,
 	renderedBridgeCodeViewHeaderOffsetFromScrollOwner,
 	selectedContentDiagnosticsForPanel,
 	shouldApplyBridgeCodeViewRenderedHeaderCorrection,
-	shouldApplyBridgeCodeViewCurrentWindowMaterialization,
 	shouldRearmCodeViewInstantRevealForMaterialization,
 	uniqueItemIds,
 	uniqueRenderedItemIds,
@@ -70,7 +66,6 @@ export {
 	makeBridgeCodeViewSourceKey,
 	reconcileBridgeCodeViewMetadataItems,
 	selectedContentSummaryForPanel,
-	shouldApplyBridgeCodeViewMaterialization,
 } from './bridge-code-view-panel-support.js';
 export {
 	recordBridgeSelectedContentPaintedProbeAnchoredDelivery,
@@ -118,7 +113,6 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 	const settledInstantSelectionRevealKeyRef = useRef<string | null>(null);
 	const scrollIdleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const scrollActivityActiveRef = useRef(false);
-	const deferredMaterializationItemIdsRef = useRef<Set<string>>(new Set<string>());
 	const renderedWindowItemIdsRef = useRef<readonly string[]>([]);
 	const visibleHeaderItemIdsRef = useRef<ReadonlySet<string>>(new Set<string>());
 	const onScrollActivityChangeRef = useRef(props.onScrollActivityChange);
@@ -139,7 +133,6 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 	);
 	const [selectionScrollDiagnostic, setSelectionScrollDiagnostic] =
 		useState<BridgeCodeViewSelectionScrollDiagnostic>(initialSelectionScrollDiagnostic);
-	const [deferredMaterializationFlushVersion, setDeferredMaterializationFlushVersion] = useState(0);
 	const collapsedItemIdsRef = useRef<ReadonlySet<string>>(collapsedItemIds);
 	collapsedItemIdsRef.current = collapsedItemIds;
 	const onControlHandleChange = props.onControlHandleChange;
@@ -168,24 +161,9 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 			}),
 		[publishVisibleHydrationItemIds],
 	);
-	const captureVisibleItemIds = useCallback(
-		(source: BridgeCodeViewRenderedItemsSource): void => {
-			const liveRenderedItemIds = uniqueRenderedItemIds(source.getRenderedItems());
-			renderedWindowItemIdsRef.current = liveRenderedItemIds;
-			const readyItemIds = bridgeCodeViewDeferredMaterializationItemIdsReadyForLiveRange({
-				deferredItemIds: deferredMaterializationItemIdsRef.current,
-				liveRenderedItemIds,
-				orderedItemIds: props.reviewPackage.orderedItemIds,
-				selectedItemId: props.selectedItemId,
-			});
-			if (readyItemIds.length > 0) {
-				setDeferredMaterializationFlushVersion(
-					(currentVersion: number): number => currentVersion + 1,
-				);
-			}
-		},
-		[props.reviewPackage.orderedItemIds, props.selectedItemId],
-	);
+	const captureVisibleItemIds = useCallback((source: BridgeCodeViewRenderedItemsSource): void => {
+		renderedWindowItemIdsRef.current = uniqueRenderedItemIds(source.getRenderedItems());
+	}, []);
 	const publishVisibleItemIds = useCallback(
 		(source: BridgeCodeViewRenderedItemsSource): void => {
 			captureVisibleItemIds(source);
@@ -271,7 +249,6 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 			}
 			if (previousHandle !== handle || mountedHandleViewerKeyRef.current !== sourceKey) {
 				mountedHandleViewerKeyRef.current = sourceKey;
-				deferredMaterializationItemIdsRef.current.clear();
 				renderedWindowItemIdsRef.current = [];
 				visibleHeaderItemIdsRef.current = new Set<string>();
 				setCodeViewMountVersion((currentVersion: number): number => currentVersion + 1);
@@ -584,7 +561,6 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		pendingSmoothSelectionScrollKeyRef.current = null;
 		recentInstantSelectionRevealRef.current = null;
 		settledInstantSelectionRevealKeyRef.current = null;
-		deferredMaterializationItemIdsRef.current.clear();
 		setMaterializationDiagnostic(emptyMaterializationDiagnostic());
 	}, [sourceKey]);
 
@@ -639,7 +615,6 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 				scrollActivityActiveRef.current = false;
 				onScrollActivityChangeRef.current?.(false);
 			}
-			deferredMaterializationItemIdsRef.current.clear();
 		},
 		[],
 	);
@@ -709,23 +684,8 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 				controllerEntryRef,
 			});
 			let didUpdateRenderedItems = false;
-			const liveRenderedItemIds = renderedWindowItemIdsRef.current;
-			const currentRenderedItemIds = new Set(liveRenderedItemIds);
-			const shouldApplyItemMaterialization = (itemId: string): boolean =>
-				shouldApplyBridgeCodeViewCurrentWindowMaterialization({
-					currentRenderedItemIds,
-					itemId,
-					liveRenderedItemIds,
-					orderedItemIds: props.reviewPackage.orderedItemIds,
-					selectedItemId: props.selectedItemId,
-				});
 			const materializedItemIds: string[] = [];
 			for (const itemId of loadingMaterializationItemIds) {
-				if (!shouldApplyItemMaterialization(itemId)) {
-					deferredMaterializationItemIdsRef.current.add(itemId);
-					continue;
-				}
-				deferredMaterializationItemIdsRef.current.delete(itemId);
 				const loadingItemDescriptor = props.reviewPackage.itemsById[itemId];
 				if (loadingItemDescriptor === undefined) {
 					continue;
@@ -755,11 +715,6 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 					hasTelemetryRecorder: props.telemetryRecorder !== undefined,
 					didFindMatchingPaintedContent: false,
 				});
-				if (!shouldApplyItemMaterialization(itemId)) {
-					deferredMaterializationItemIdsRef.current.add(itemId);
-					continue;
-				}
-				deferredMaterializationItemIdsRef.current.delete(itemId);
 				const selectedItem = props.reviewPackage.itemsById[itemId];
 				if (selectedItem === undefined) {
 					continue;
@@ -820,6 +775,18 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 				);
 				didUpdateRenderedItems = true;
 				materializedItemIds.push(itemId);
+				if (props.telemetryRecorder !== undefined) {
+					recordBridgeCodeViewItemMaterializeTelemetryForPanel({
+						telemetryRecorder: props.telemetryRecorder,
+						parentTraceContext: props.telemetryParentTraceContext ?? null,
+						projection: props.projection,
+						item: selectedItem,
+						resources,
+						durationMilliseconds: materializeMilliseconds,
+						result: updateResult,
+						selectedItemId: props.selectedItemId,
+					});
+				}
 				if (itemId === props.selectedItemId) {
 					// F7: no mid-loop render(true) — applyItemUpdate's updateItem queues a render
 					// that coalesces the whole hydration batch into one layout pass, and the instant
@@ -854,16 +821,6 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 						}),
 					);
 					if (props.telemetryRecorder !== undefined) {
-						recordBridgeCodeViewItemMaterializeTelemetry({
-							telemetryRecorder: props.telemetryRecorder,
-							parentTraceContext: props.telemetryParentTraceContext ?? null,
-							projection: props.projection,
-							item: selectedItem,
-							resources,
-							durationMilliseconds: materializeMilliseconds,
-							result: updateResult,
-							selected: true,
-						});
 						if (
 							shouldScheduleSelectedContentPaintedTelemetry({
 								didFindMatchingPaintedContent: false,
@@ -926,7 +883,6 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 	}, [
 		collapsedItemIds,
 		codeViewMountVersion,
-		deferredMaterializationFlushVersion,
 		loadingMaterializationItemIds,
 		materializationResourceEntries,
 		props.projection,

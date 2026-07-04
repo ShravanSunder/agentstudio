@@ -22,6 +22,80 @@ import {
 } from './visible-review-content-hydration.js';
 
 describe('visible review content hydration Browser Mode', () => {
+	test('lands multi-item ready results while momentum pause remains active', async () => {
+		vi.useFakeTimers();
+		try {
+			const reviewPackage = makeReviewPackageWithItemCount(4);
+			const loadDeferredsByItemId = makeDeferredLoadResults(['item-000', 'item-001']);
+			const loadAttempts: VisibleReviewContentLoadProps[] = [];
+			let setVisibleItemIds: ((itemIds: readonly string[]) => void) | null = null;
+			let setHydrationPaused: ((paused: boolean) => void) | null = null;
+			resetVisibleHydrationDiscardProbe();
+
+			function HydrationProbe(): ReactElement {
+				const [reportedVisibleItemIds, setReportedVisibleItemIds] = useState<readonly string[]>([]);
+				const [visibleHydrationPaused, setVisibleHydrationPaused] = useState(false);
+				const hydration = useVisibleReviewContentHydration({
+					contentRegistry: createBridgeReviewContentRegistry(),
+					contentInvalidationVersion: 0,
+					loadContentResources: (props): Promise<VisibleReviewContentLoadResult> => {
+						loadAttempts.push(props);
+						return loadDeferredsByItemId.get(props.itemId)?.promise ?? Promise.resolve(null);
+					},
+					reviewPackage,
+					selectedItemId: null,
+					telemetryParentTraceContext: null,
+					telemetryRecorder: makeNoopTelemetryRecorder(),
+					visibleHydrationPaused,
+				});
+				useEffect((): void => {
+					setVisibleItemIds = setReportedVisibleItemIds;
+					setHydrationPaused = setVisibleHydrationPaused;
+				}, []);
+				useEffect((): void => {
+					hydration.setVisibleItemIds(reportedVisibleItemIds);
+				}, [hydration, reportedVisibleItemIds]);
+				return (
+					<div
+						data-loading-count={String(hydration.visibleLoadingItemCount)}
+						data-ready-count={String(hydration.visibleReadyItemCount)}
+						data-resource-item-ids={[...hydration.visibleContentResourcesByItemId.keys()].join(',')}
+						data-testid="visible-hydration-probe"
+					/>
+				);
+			}
+
+			render(<HydrationProbe />);
+			await flushReactWork();
+
+			await reportVisibleItemIds(setVisibleItemIds, ['item-000', 'item-001']);
+			await dispatchVisibleHydrationTimers();
+			expect(loadAttempts.map((loadAttempt): string => loadAttempt.itemId)).toEqual([
+				'item-000',
+				'item-001',
+			]);
+			expect(probeLoadingCount()).toBe('2');
+
+			await setVisibleHydrationPausedState(setHydrationPaused, true);
+			resolveDeferredLoads(loadDeferredsByItemId, ['item-000', 'item-001']);
+			await flushReactWork();
+			await dispatchVisibleHydrationTimers();
+
+			expect(probeReadyCount()).toBe('2');
+			expect(probeResourceItemIds()).toBe('item-000,item-001');
+			expect(visibleHydrationDiscardProbeReadyDiscardCount()).toBe(0);
+
+			await reportVisibleItemIds(setVisibleItemIds, ['item-002', 'item-003']);
+			await dispatchVisibleHydrationTimers();
+			expect(loadAttempts.map((loadAttempt): string => loadAttempt.itemId)).toEqual([
+				'item-000',
+				'item-001',
+			]);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	test('sweeps every final visible item when several fast-scroll aborts settle after demand passes', async () => {
 		vi.useFakeTimers();
 		try {
@@ -249,6 +323,18 @@ async function reportVisibleItemIds(
 	});
 }
 
+async function setVisibleHydrationPausedState(
+	setHydrationPaused: ((paused: boolean) => void) | null,
+	paused: boolean,
+): Promise<void> {
+	if (setHydrationPaused === null) {
+		throw new Error('Expected visible hydration pause setter to be installed.');
+	}
+	await act(async (): Promise<void> => {
+		setHydrationPaused(paused);
+	});
+}
+
 async function flushReactWork(): Promise<void> {
 	await act(async (): Promise<void> => {
 		await Promise.resolve();
@@ -275,6 +361,32 @@ function probeReadyCount(): string | null {
 			.querySelector('[data-testid="visible-hydration-probe"]')
 			?.getAttribute('data-ready-count') ?? null
 	);
+}
+
+function probeLoadingCount(): string | null {
+	return (
+		document
+			.querySelector('[data-testid="visible-hydration-probe"]')
+			?.getAttribute('data-loading-count') ?? null
+	);
+}
+
+function probeResourceItemIds(): string | null {
+	return (
+		document
+			.querySelector('[data-testid="visible-hydration-probe"]')
+			?.getAttribute('data-resource-item-ids') ?? null
+	);
+}
+
+function resetVisibleHydrationDiscardProbe(): void {
+	// oxlint-disable-next-line no-underscore-dangle -- Intentional Bridge debug surface name.
+	delete window.__bridgeVisibleHydrationDiscardProbe;
+}
+
+function visibleHydrationDiscardProbeReadyDiscardCount(): number {
+	// oxlint-disable-next-line no-underscore-dangle -- Intentional Bridge debug surface name.
+	return window.__bridgeVisibleHydrationDiscardProbe?.readyResultDiscardCount ?? 0;
 }
 
 function makeLoadedResources(itemId: string): { readonly head: BridgeContentResource } {

@@ -22,8 +22,8 @@ import {
 } from './bridge-code-view-materialization.js';
 import {
 	bridgeCodeViewRenderedHeaderCorrectionTargetPosition,
+	recordBridgeCodeViewItemMaterializeTelemetryForPanel,
 	shouldApplyBridgeCodeViewRenderedHeaderCorrection,
-	shouldApplyBridgeCodeViewCurrentWindowMaterialization,
 	shouldRearmCodeViewInstantRevealForMaterialization,
 } from './bridge-code-view-panel-support.js';
 import {
@@ -33,7 +33,6 @@ import {
 	reconcileBridgeCodeViewMetadataItems,
 	scheduleSelectedContentPaintedTelemetry,
 	selectedContentSummaryForPanel,
-	shouldApplyBridgeCodeViewMaterialization,
 	shouldScheduleSelectedContentPaintedTelemetry,
 } from './bridge-code-view-panel.js';
 
@@ -155,69 +154,39 @@ describe('BridgeCodeViewPanel diagnostics', () => {
 		expect(readTextCallCount).toBe(0);
 	});
 
-	test('blocks non-selected CodeView materialization while review scroll is active', () => {
-		expect(
-			shouldApplyBridgeCodeViewMaterialization({
-				isScrollActive: true,
-				itemId: 'visible-neighbor',
-				selectedItemId: 'selected-item',
-			}),
-		).toBe(false);
-		expect(
-			shouldApplyBridgeCodeViewMaterialization({
-				isScrollActive: true,
-				itemId: 'selected-item',
-				selectedItemId: 'selected-item',
-			}),
-		).toBe(true);
-		expect(
-			shouldApplyBridgeCodeViewMaterialization({
-				isScrollActive: false,
-				itemId: 'visible-neighbor',
-				selectedItemId: 'selected-item',
-			}),
-		).toBe(true);
-	});
+	test('emits materialize telemetry for visible non-selected item paints', () => {
+		const reviewPackage = makeBridgeReviewPackage();
+		const item = reviewPackage.itemsById['item-source'];
+		const headHandle = item?.contentRoles.head ?? null;
+		if (item === undefined || headHandle === null) {
+			throw new Error('Expected modified item with head handle');
+		}
+		const projection = buildBridgeReviewProjection({
+			reviewPackage,
+			request: { mode: { kind: 'normalReview' }, facets: [] },
+		});
+		const samples: BridgeTelemetrySample[] = [];
 
-	test('defers post-scroll burst materialization outside Pierre current rendered window', () => {
-		const currentRenderedItemIds = new Set(['anchor-visible', 'visible-neighbor']);
-		const burstItemIds = [
-			'stale-above-window',
-			'stale-above-window-2',
-			'anchor-visible',
-			'selected-off-window',
-		];
+		recordBridgeCodeViewItemMaterializeTelemetryForPanel({
+			durationMilliseconds: 8,
+			item,
+			parentTraceContext: null,
+			projection,
+			resources: {
+				head: { handle: headHandle, readText: (): string => 'head body' },
+			},
+			result: 'updated',
+			selectedItemId: 'different-selected-item',
+			telemetryRecorder: enabledTelemetryRecorder(samples),
+		});
 
-		expect(
-			shouldApplyBridgeCodeViewCurrentWindowMaterialization({
-				currentRenderedItemIds,
-				itemId: 'stale-above-window',
-				selectedItemId: 'selected-off-window',
-			}),
-		).toBe(false);
-		expect(
-			shouldApplyBridgeCodeViewCurrentWindowMaterialization({
-				currentRenderedItemIds,
-				itemId: 'visible-neighbor',
-				selectedItemId: 'selected-off-window',
-			}),
-		).toBe(true);
-		expect(
-			shouldApplyBridgeCodeViewCurrentWindowMaterialization({
-				currentRenderedItemIds,
-				itemId: 'selected-off-window',
-				selectedItemId: 'selected-off-window',
-			}),
-		).toBe(true);
-		expect(
-			burstItemIds.filter((itemId: string): boolean =>
-				shouldApplyBridgeCodeViewCurrentWindowMaterialization({
-					currentRenderedItemIds,
-					itemId,
-					selectedItemId: 'selected-off-window',
-				}),
-			),
-		).toEqual(['anchor-visible', 'selected-off-window']);
+		expect(samples).toHaveLength(1);
+		expect(samples[0]).toMatchObject({
+			name: 'performance.bridge.web.code_view_item_materialize',
+			booleanAttributes: {
+				'agentstudio.bridge.selected': false,
+			},
+		});
 	});
 
 	test('re-arms a recent instant reveal when an above-target item materializes', () => {

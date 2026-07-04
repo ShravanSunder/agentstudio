@@ -1,13 +1,10 @@
 import { describe, expect, expectTypeOf, test } from 'vitest';
 
-import { makeBridgeReviewItem } from '../../foundation/review-package/bridge-review-package-test-support.js';
-import type { BridgeReviewItemDescriptor } from '../../foundation/review-package/bridge-review-package.js';
 import { buildBridgeReviewProjection } from '../navigation/review-projection.js';
 import { makeBridgeViewerProjectionFixture } from '../test-support/review-viewer-fixtures.js';
 import {
 	createBridgeCodeViewInitialItems,
 	materializeBridgeCodeViewLoadingItem,
-	placeholderLineCountBudgetForItem,
 	type BridgeCodeViewItem,
 } from './bridge-code-view-materialization.js';
 
@@ -74,7 +71,7 @@ describe('Bridge CodeView materialization', () => {
 		]);
 	});
 
-	test('reserves one-sided diff placeholder height without phantom rows on the absent side', () => {
+	test('creates one-sided diff placeholders without app-side extent rows', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const projection = buildBridgeReviewProjection({
 			reviewPackage,
@@ -90,12 +87,12 @@ describe('Bridge CodeView materialization', () => {
 			throw new Error('expected deleted-source placeholder diff');
 		}
 		expect(placeholderDiff.bridgeMetadata.contentState).toBe('placeholder');
-		expect(placeholderDiff.fileDiff.deletionLines).toHaveLength(2);
+		expect(placeholderDiff.fileDiff.deletionLines).toEqual([]);
 		expect(placeholderDiff.fileDiff.additionLines).toEqual([]);
-		expect(placeholderDiff.collapsed).toBeUndefined();
+		expect(placeholderDiff.collapsed).toBe(true);
 		expect(placeholderDiff.bridgeMetadata).toMatchObject({
-			contentRoles: ['base'],
-			lineCount: 2,
+			contentRoles: [],
+			lineCount: null,
 		});
 	});
 
@@ -125,7 +122,7 @@ describe('Bridge CodeView materialization', () => {
 		expect(placeholder.file.contents).toBe('');
 	});
 
-	test('reserves streamed line extents in unloaded file-target placeholders', () => {
+	test('ignores streamed line extents in unloaded file-target placeholders', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const sourceHighItem = reviewPackage.itemsById['source-high'];
 		if (sourceHighItem === undefined) {
@@ -163,14 +160,13 @@ describe('Bridge CodeView materialization', () => {
 		expect(placeholder.bridgeMetadata).toMatchObject({
 			contentState: 'placeholder',
 			itemId: 'source-high',
-			lineCount: 37,
+			lineCount: null,
 		});
-		expect(placeholder.file.contents.split('\n')).toHaveLength(38);
-		expect(placeholder.file.contents).toContain('Loading content...');
-		expect(placeholder.file.cacheKey).toContain(':placeholder:extent:37');
+		expect(placeholder.file.contents).toBe('');
+		expect(placeholder.file.cacheKey).toBe(`${sourceHighItem.cacheKey}:placeholder`);
 	});
 
-	test('reserves streamed line extents in unloaded diff placeholders', () => {
+	test('ignores streamed line extents in unloaded diff placeholders', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const sourceHighItem = reviewPackage.itemsById['source-high'];
 		if (sourceHighItem === undefined) {
@@ -205,18 +201,18 @@ describe('Bridge CodeView materialization', () => {
 		if (placeholder?.type !== 'diff') {
 			throw new Error('expected diff placeholder item');
 		}
-		expect(placeholder.collapsed).toBeUndefined();
+		expect(placeholder.collapsed).toBe(true);
 		expect(placeholder.bridgeMetadata).toMatchObject({
 			contentState: 'placeholder',
-			contentRoles: ['base', 'head'],
+			contentRoles: [],
 			itemId: 'source-high',
-			lineCount: 36,
+			lineCount: null,
 		});
-		expect(placeholder.fileDiff.deletionLines).toContain('Loading content...\n');
-		expect(placeholder.fileDiff.additionLines).toContain('Loading content...\n');
+		expect(placeholder.fileDiff.deletionLines).toEqual([]);
+		expect(placeholder.fileDiff.additionLines).toEqual([]);
 	});
 
-	test('estimates unloaded diff placeholders from known role line-count averages', () => {
+	test('does not estimate unloaded diff placeholders from known role line-count averages', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const sourceHighItem = reviewPackage.itemsById['source-high'];
 		const sourceNormalItem = reviewPackage.itemsById['source-normal'];
@@ -256,15 +252,15 @@ describe('Bridge CodeView materialization', () => {
 		if (placeholder?.type !== 'diff') {
 			throw new Error('expected diff placeholder item');
 		}
-		expect(placeholder.collapsed).toBeUndefined();
+		expect(placeholder.collapsed).toBe(true);
 		expect(placeholder.bridgeMetadata).toMatchObject({
 			contentState: 'placeholder',
-			contentRoles: ['base', 'head'],
+			contentRoles: [],
 			itemId: 'source-high',
-			lineCount: 60,
+			lineCount: null,
 		});
-		expect(placeholder.fileDiff.deletionLines).toHaveLength(20);
-		expect(placeholder.fileDiff.additionLines).toHaveLength(40);
+		expect(placeholder.fileDiff.deletionLines).toEqual([]);
+		expect(placeholder.fileDiff.additionLines).toEqual([]);
 	});
 
 	test('renders an added placeholder as a one-sided (empty base) diff, ignoring cross-item base estimates', () => {
@@ -309,8 +305,9 @@ describe('Bridge CodeView materialization', () => {
 			throw new Error('expected diff placeholder item');
 		}
 		// Empty base → pure-add diff (no phantom "unmodified"/context rows, no base role).
-		expect(placeholder.fileDiff.type).toBe('new');
+		expect(placeholder.collapsed).toBe(true);
 		expect(placeholder.fileDiff.deletionLines).toHaveLength(0);
+		expect(placeholder.fileDiff.additionLines).toHaveLength(0);
 		expect(placeholder.bridgeMetadata.contentRoles).not.toContain('base');
 	});
 
@@ -353,12 +350,13 @@ describe('Bridge CodeView materialization', () => {
 			throw new Error('expected diff placeholder item');
 		}
 		// Empty head → pure-delete diff (no phantom context rows, no head role).
-		expect(placeholder.fileDiff.type).toBe('deleted');
+		expect(placeholder.collapsed).toBe(true);
+		expect(placeholder.fileDiff.deletionLines).toHaveLength(0);
 		expect(placeholder.fileDiff.additionLines).toHaveLength(0);
 		expect(placeholder.bridgeMetadata.contentRoles).not.toContain('head');
 	});
 
-	test('reserves one-sided placeholder height from addition and deletion extents', () => {
+	test('does not reserve one-sided placeholder height from addition and deletion extents', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const sourceHighItem = reviewPackage.itemsById['source-high'];
 		const sourceNormalItem = reviewPackage.itemsById['source-normal'];
@@ -408,23 +406,23 @@ describe('Bridge CodeView materialization', () => {
 		if (addedPlaceholder?.type !== 'diff' || deletedPlaceholder?.type !== 'diff') {
 			throw new Error('expected one-sided diff placeholders');
 		}
-		expect(addedPlaceholder.collapsed).toBeUndefined();
+		expect(addedPlaceholder.collapsed).toBe(true);
 		expect(addedPlaceholder.fileDiff.deletionLines).toHaveLength(0);
-		expect(addedPlaceholder.fileDiff.additionLines).toHaveLength(17);
+		expect(addedPlaceholder.fileDiff.additionLines).toHaveLength(0);
 		expect(addedPlaceholder.bridgeMetadata).toMatchObject({
-			contentRoles: ['head'],
-			lineCount: 17,
+			contentRoles: [],
+			lineCount: null,
 		});
-		expect(deletedPlaceholder.collapsed).toBeUndefined();
-		expect(deletedPlaceholder.fileDiff.deletionLines).toHaveLength(11);
+		expect(deletedPlaceholder.collapsed).toBe(true);
+		expect(deletedPlaceholder.fileDiff.deletionLines).toHaveLength(0);
 		expect(deletedPlaceholder.fileDiff.additionLines).toHaveLength(0);
 		expect(deletedPlaceholder.bridgeMetadata).toMatchObject({
-			contentRoles: ['base'],
-			lineCount: 11,
+			contentRoles: [],
+			lineCount: null,
 		});
 	});
 
-	test('reserves streamed line extents in visible loading file-target items', () => {
+	test('ignores streamed line extents in visible loading file-target items', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const item = reviewPackage.itemsById['source-high'];
 		if (item === undefined) {
@@ -447,14 +445,13 @@ describe('Bridge CodeView materialization', () => {
 		expect(loadingItem.bridgeMetadata).toMatchObject({
 			contentState: 'loading',
 			itemId: item.itemId,
-			lineCount: 37,
+			lineCount: null,
 		});
-		expect(loadingItem.file.contents.split('\n')).toHaveLength(38);
 		expect(loadingItem.file.contents).toContain('Loading content...');
-		expect(loadingItem.file.cacheKey).toContain(':loading:extent:37');
+		expect(loadingItem.file.cacheKey).toBe(`${item.cacheKey}:loading`);
 	});
 
-	test('uses file extent facts as the fallback for current file-target placeholders', () => {
+	test('does not use file extent facts as the fallback for current file-target loading items', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const item = reviewPackage.itemsById['source-high'];
 		if (item === undefined) {
@@ -474,12 +471,12 @@ describe('Bridge CodeView materialization', () => {
 		if (loadingItem.type !== 'file') {
 			throw new Error('expected selected review file target loading item to keep file view');
 		}
-		expect(loadingItem.bridgeMetadata.lineCount).toBe(37);
-		expect(loadingItem.file.contents.split('\n')).toHaveLength(38);
-		expect(loadingItem.file.cacheKey).toContain(':loading:extent:37');
+		expect(loadingItem.bridgeMetadata.lineCount).toBe(null);
+		expect(loadingItem.file.contents).toContain('Loading content...');
+		expect(loadingItem.file.cacheKey).toBe(`${item.cacheKey}:loading`);
 	});
 
-	test('reserves one-sided loading height from addition and deletion extents', () => {
+	test('does not reserve one-sided loading height from addition and deletion extents', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const sourceHighItem = reviewPackage.itemsById['source-high'];
 		if (sourceHighItem === undefined) {
@@ -509,8 +506,14 @@ describe('Bridge CodeView materialization', () => {
 			throw new Error('expected one-sided diff loading items');
 		}
 		expect(addedLoadingItem.fileDiff.deletionLines).toHaveLength(0);
-		expect(addedLoadingItem.fileDiff.additionLines).toHaveLength(17);
-		expect(deletedLoadingItem.fileDiff.deletionLines).toHaveLength(11);
+		expect(addedLoadingItem.fileDiff.additionLines).toEqual([
+			'Loading content...\n',
+			'Loading syntax view...\n',
+		]);
+		expect(deletedLoadingItem.fileDiff.deletionLines).toEqual([
+			'Loading content...\n',
+			'Loading syntax view...\n',
+		]);
 		expect(deletedLoadingItem.fileDiff.additionLines).toHaveLength(0);
 	});
 
@@ -531,9 +534,9 @@ describe('Bridge CodeView materialization', () => {
 		expect(loadingItem.collapsed).toBeUndefined();
 		expect(loadingItem.bridgeMetadata).toMatchObject({
 			contentState: 'loading',
-			contentRoles: ['head'],
+			contentRoles: [],
 			itemId: item.itemId,
-			lineCount: 3,
+			lineCount: null,
 		});
 	});
 
@@ -580,32 +583,26 @@ describe('Bridge CodeView materialization', () => {
 		});
 	});
 
-	test('reserves a placeholder line budget that matches the hydrated content window (F2)', () => {
-		// A normal file (well under the materialization budget) that hydrates to 4000 lines.
-		const normalItem: BridgeReviewItemDescriptor = {
-			...makeBridgeReviewItem({ itemId: 'big-file', path: 'Sources/App/Big.ts' }),
-			additions: 4000,
-			deletions: 0,
-			contentLineCountsByRole: { head: 4000 },
-		};
-		const placeholder = materializeBridgeCodeViewLoadingItem(normalItem, {
-			kind: 'file',
-			version: 'head',
-		});
-		if (placeholder.type !== 'file') {
-			throw new Error('expected a file placeholder');
+	test('does not reserve placeholder line budgets from hydrated content windows', () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const item = reviewPackage.itemsById['source-high'];
+		if (item === undefined) {
+			throw new Error('expected fixture item');
 		}
-		// Number of reserved rows Pierre will estimate from = newline count of the placeholder.
-		const reservedLineCount = placeholder.file.contents.split('\n').length - 1;
-		// Before F2 the placeholder was capped at 1500 rows while the head hydrates to 4000,
-		// so the item grew ~2.6x on hydrate. Now the placeholder reserves the hydrated count.
-		expect(reservedLineCount).toBeGreaterThan(1500);
-		expect(reservedLineCount).toBeLessThanOrEqual(4000);
+		const loadingItem = materializeBridgeCodeViewLoadingItem(
+			{
+				...item,
+				additions: 4000,
+				contentLineCountsByRole: { head: 4000 },
+			},
+			{ kind: 'file', version: 'head' },
+		);
+		if (loadingItem.type !== 'file') {
+			throw new Error('expected a file loading item');
+		}
 
-		// Budget decision: a normal item reserves the full materialization budget; an item that
-		// hydrates to a bounded window keeps the window cap, so both match hydrated height.
-		expect(placeholderLineCountBudgetForItem(normalItem)).toBe(20_000);
-		const windowedItem: BridgeReviewItemDescriptor = { ...normalItem, additions: 30_000 };
-		expect(placeholderLineCountBudgetForItem(windowedItem)).toBe(1500);
+		expect(loadingItem.bridgeMetadata.lineCount).toBe(null);
+		expect(loadingItem.file.contents).toBe('Loading content...\nLoading syntax view...\n');
+		expect(loadingItem.file.cacheKey).toBe(`${item.cacheKey}:loading`);
 	});
 });
