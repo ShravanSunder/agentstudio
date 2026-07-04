@@ -3,10 +3,28 @@ import { cleanup } from 'vitest-browser-react';
 
 import { installBridgeViewerBrowserDomAPIs } from '../src/review-viewer/test-support/bridge-viewer-browser-dom.js';
 
-const reactActEnvironmentGlobal = globalThis as typeof globalThis & {
-	IS_REACT_ACT_ENVIRONMENT?: boolean;
-};
-reactActEnvironmentGlobal.IS_REACT_ACT_ENVIRONMENT = true;
+// `vitest-browser-react`'s own `render()`/`unmount()` helpers wrap React's
+// root mutation in a private `act()` that sets `IS_REACT_ACT_ENVIRONMENT = true`
+// and then resets it to `false` in a `finally` block once that single call
+// completes (see `vitest-browser-react/dist/chunk-*.js`). Test files also call
+// React's own `act(...)` (imported from `react`) around later updates such as
+// `setVisibleItemIds` or fake-timer flushes; by the time those run, the flag
+// has already been flipped back to `false`, so `react-dom`'s
+// `isConcurrentActEnvironment()` check emits "not configured to support
+// act(...)" even though every mutation is properly act-wrapped. Pin the flag
+// to `true` for the life of the browser test run by intercepting writes,
+// rather than relying on a one-time assignment that a later `render()` call
+// silently undoes.
+Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', {
+	configurable: true,
+	enumerable: true,
+	get: (): boolean => true,
+	set: (): void => {
+		// Ignore writes: vitest-browser-react resets this to `false` after
+		// each of its internal render/unmount calls, which must not disable
+		// the act environment for the rest of the test.
+	},
+});
 
 const allowedConsoleErrorSubstrings: readonly string[] = [
 	'flushSync was called from inside a lifecycle method',
