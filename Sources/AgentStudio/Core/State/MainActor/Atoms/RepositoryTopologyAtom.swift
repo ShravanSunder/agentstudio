@@ -88,13 +88,16 @@ final class RepositoryTopologyAtom {
                 || normalizedCWD.hasPrefix($0.normalizedWorktreePath + "/")
         })
 
-        performanceTraceRecorder?.recordDuration(
-            .repoAndWorktreeLookup,
+        performanceTraceRecorder?.recordRepoAndWorktreeLookup(
             duration: start.duration(to: clock.now),
-            attributes: [
-                "agentstudio.performance.topology.index.count": .int(worktreePathIndex.count),
-                "agentstudio.performance.topology.has_match": .bool(match != nil),
-            ]
+            indexCount: worktreePathIndex.count,
+            hasMatch: match != nil,
+            fact: AgentStudioPerformanceTraceRecorder.TopologyLookupFact(
+                normalizedCWD: normalizedCWD,
+                worktreePathIndexGeneration: worktreePathIndexGeneration,
+                repoId: match?.repo.id,
+                worktreeId: match?.worktree.id
+            )
         )
 
         guard let match else { return nil }

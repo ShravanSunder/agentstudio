@@ -4,6 +4,11 @@ import Foundation
 enum AppPolicies {
     enum Diagnostics {
         static let traceEventQueueBufferLimit: Int = 4096
+        /// Native hot-path performance facts must shed before reaching
+        /// swift-otel. Topology lookup telemetry is informational, so repeated
+        /// derived/UI reads should never be able to saturate the exporter.
+        static let topologyLookupTraceAdmissionWindow: Duration = .seconds(1)
+        static let topologyLookupTraceAdmissionLimit: Int = 32
         /// Downstream swift-otel log batch queue. swift-otel drops newly
         /// emitted logs once this fills, so keep it above the app trace event
         /// queue and let the app-side queue remain the oldest-shedding layer.

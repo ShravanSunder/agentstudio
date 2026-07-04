@@ -1,6 +1,13 @@
 import Foundation
 
 final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
+    struct TopologyLookupFact: Hashable, Sendable {
+        let normalizedCWD: String
+        let worktreePathIndexGeneration: UInt64
+        let repoId: UUID?
+        let worktreeId: UUID?
+    }
+
     enum Event: String, Sendable {
         case atomDerived = "performance.atom.derived"
         case atomMutation = "performance.atom.mutation"
@@ -38,6 +45,8 @@ final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
 
     private let traceRuntime: AgentStudioTraceRuntime?
     private let eventQueue: AgentStudioTraceEventQueue?
+    private let lock = NSLock()
+    private var topologyLookupAdmission = TopologyLookupTraceAdmission()
 
     init(traceRuntime: AgentStudioTraceRuntime?) {
         self.traceRuntime = traceRuntime
@@ -75,6 +84,23 @@ final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         record(event, attributes: mergedAttributes)
     }
 
+    func recordRepoAndWorktreeLookup(
+        duration: Duration,
+        indexCount: Int,
+        hasMatch: Bool,
+        fact: TopologyLookupFact
+    ) {
+        guard shouldRecordTopologyLookup(fact) else { return }
+        recordDuration(
+            .repoAndWorktreeLookup,
+            duration: duration,
+            attributes: [
+                "agentstudio.performance.topology.index.count": .int(indexCount),
+                "agentstudio.performance.topology.has_match": .bool(hasMatch),
+            ]
+        )
+    }
+
     func measure<T>(
         _ event: Event,
         attributes: [String: AgentStudioTraceValue] = [:],
@@ -107,5 +133,57 @@ final class AgentStudioPerformanceTraceRecorder: @unchecked Sendable {
         let secondsMilliseconds = Double(components.seconds) * 1000
         let attosecondsMilliseconds = Double(components.attoseconds) / 1_000_000_000_000_000
         return secondsMilliseconds + attosecondsMilliseconds
+    }
+
+    private func shouldRecordTopologyLookup(_ fact: TopologyLookupFact) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return topologyLookupAdmission.admit(
+            fact,
+            now: ContinuousClock().now,
+            window: AppPolicies.Diagnostics.topologyLookupTraceAdmissionWindow,
+            limit: AppPolicies.Diagnostics.topologyLookupTraceAdmissionLimit
+        )
+    }
+}
+
+private struct TopologyLookupTraceAdmission {
+    private var windowStart: ContinuousClock.Instant?
+    private var admittedInWindow = 0
+    private var emittedFactGeneration: UInt64?
+    private var emittedFacts: Set<AgentStudioPerformanceTraceRecorder.TopologyLookupFact> = []
+
+    mutating func admit(
+        _ fact: AgentStudioPerformanceTraceRecorder.TopologyLookupFact,
+        now: ContinuousClock.Instant,
+        window: Duration,
+        limit: Int
+    ) -> Bool {
+        resetDeduplicationIfNeeded(for: fact)
+        guard !emittedFacts.contains(fact) else { return false }
+        resetWindowIfNeeded(now: now, window: window)
+        guard admittedInWindow < limit else { return false }
+        admittedInWindow += 1
+        emittedFacts.insert(fact)
+        return true
+    }
+
+    private mutating func resetDeduplicationIfNeeded(
+        for fact: AgentStudioPerformanceTraceRecorder.TopologyLookupFact
+    ) {
+        guard emittedFactGeneration != fact.worktreePathIndexGeneration else { return }
+        emittedFactGeneration = fact.worktreePathIndexGeneration
+        emittedFacts.removeAll(keepingCapacity: true)
+    }
+
+    private mutating func resetWindowIfNeeded(now: ContinuousClock.Instant, window: Duration) {
+        guard let windowStart else {
+            self.windowStart = now
+            admittedInWindow = 0
+            return
+        }
+        guard windowStart.duration(to: now) >= window else { return }
+        self.windowStart = now
+        admittedInWindow = 0
     }
 }

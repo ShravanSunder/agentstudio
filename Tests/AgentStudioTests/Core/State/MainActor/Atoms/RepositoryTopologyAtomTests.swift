@@ -6,6 +6,57 @@ import Testing
 @MainActor
 @Suite("RepositoryTopologyAtom")
 struct RepositoryTopologyAtomTests {
+    @Test("repoAndWorktree lookup telemetry emits once for an unchanged topology fact")
+    func repoAndWorktreeLookupTelemetryEmitsOnceForUnchangedTopologyFact() async throws {
+        let atom = RepositoryTopologyAtom()
+        let repoPath = URL(fileURLWithPath: "/tmp/agentstudio-topology-lookup-idempotency")
+        let repo = atom.addRepo(at: repoPath)
+        let worktree = try #require(atom.repo(repo.id)?.worktrees.single)
+        let traceDirectory = temporaryTraceDirectoryURL()
+        let runtime = Self.makePerformanceTraceRuntime(traceDirectory: traceDirectory)
+        let recorder = AgentStudioPerformanceTraceRecorder(traceRuntime: runtime)
+        atom.setPerformanceTraceRecorder(recorder)
+
+        for _ in 0..<64 {
+            #expect(atom.repoAndWorktree(containing: worktree.path)?.worktree.id == worktree.id)
+        }
+        try await recorder.drain()
+
+        let outputFileURL = try #require(runtime.outputFileURL)
+        let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        #expect(Self.countOccurrences(of: "\"body\":\"performance.topology.repo_and_worktree\"", in: contents) == 1)
+    }
+
+    @Test("repoAndWorktree lookup telemetry is bounded for distinct topology facts")
+    func repoAndWorktreeLookupTelemetryIsBoundedForDistinctTopologyFacts() async throws {
+        let atom = RepositoryTopologyAtom()
+        let expectedAdmissionLimit = 32
+        let requestedLookupCount = expectedAdmissionLimit * 2
+        var worktreePaths: [URL] = []
+        worktreePaths.reserveCapacity(requestedLookupCount)
+        for index in 0..<requestedLookupCount {
+            let repo = atom.addRepo(at: URL(fileURLWithPath: "/tmp/agentstudio-topology-lookup-\(index)"))
+            let worktree = try #require(atom.repo(repo.id)?.worktrees.single)
+            worktreePaths.append(worktree.path)
+        }
+        let traceDirectory = temporaryTraceDirectoryURL()
+        let runtime = Self.makePerformanceTraceRuntime(traceDirectory: traceDirectory)
+        let recorder = AgentStudioPerformanceTraceRecorder(traceRuntime: runtime)
+        atom.setPerformanceTraceRecorder(recorder)
+
+        for worktreePath in worktreePaths {
+            #expect(atom.repoAndWorktree(containing: worktreePath) != nil)
+        }
+        try await recorder.drain()
+
+        let outputFileURL = try #require(runtime.outputFileURL)
+        let contents = try String(contentsOf: outputFileURL, encoding: .utf8)
+        #expect(
+            Self.countOccurrences(of: "\"body\":\"performance.topology.repo_and_worktree\"", in: contents)
+                == expectedAdmissionLimit
+        )
+    }
+
     @Test("ensure main worktree repairs an existing path-matched repo with no worktrees")
     func ensureMainWorktreeRepairsExistingRepoWithoutWorktrees() {
         let atom = RepositoryTopologyAtom()
@@ -116,5 +167,28 @@ struct RepositoryTopologyAtomTests {
         )
 
         #expect(atom.worktree(mainWorktree.id)?.tags == ["keep"])
+    }
+
+    private static func makePerformanceTraceRuntime(traceDirectory: URL) -> AgentStudioTraceRuntime {
+        AgentStudioTraceRuntime(
+            configuration: AgentStudioTraceConfiguration.from(environment: [
+                "AGENTSTUDIO_TRACE_BACKEND": "jsonl",
+                "AGENTSTUDIO_TRACE_DIR": traceDirectory.path,
+                "AGENTSTUDIO_TRACE_NAME": "topology-lookup-telemetry",
+                "AGENTSTUDIO_TRACE_TAGS": "performance",
+            ]),
+            processIdentifier: 917,
+            timeUnixNano: { 917 }
+        )
+    }
+
+    private static func countOccurrences(of needle: String, in haystack: String) -> Int {
+        haystack.components(separatedBy: needle).count - 1
+    }
+
+    private func temporaryTraceDirectoryURL() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("agentstudio-topology-lookup-telemetry-tests", isDirectory: true)
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
     }
 }
