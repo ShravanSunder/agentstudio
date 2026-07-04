@@ -255,7 +255,8 @@ export function scheduleSelectedContentPaintedTelemetry(props: {
 			traceContext: props.traceContext,
 			clickToPaintMilliseconds: paintedAtMilliseconds - selectionDemandStartedAtMilliseconds,
 			frameWaitMilliseconds: paintedAtMilliseconds - props.materializationCompletedAtMilliseconds,
-			materializeMilliseconds: paintedAtMilliseconds - props.materializationStartedAtMilliseconds,
+			materializeMilliseconds:
+				props.materializationCompletedAtMilliseconds - props.materializationStartedAtMilliseconds,
 		});
 		recordBridgeSelectedContentPaintedProbeFlushCalled();
 	});

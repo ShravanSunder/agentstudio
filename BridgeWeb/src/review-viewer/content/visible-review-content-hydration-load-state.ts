@@ -1,5 +1,6 @@
 import type { Dispatch, SetStateAction } from 'react';
 
+import { bridgeContentDemandExecutionPolicy } from '../../core/demand/bridge-content-demand-policy.js';
 import type { BridgeReviewPackage } from '../../foundation/review-package/bridge-review-package.js';
 import type { ReviewContentDemandLoadResult } from './review-content-demand-loader.js';
 import { makeVisibleReviewItemContentResourcesKey } from './visible-review-content-hydration-identity.js';
@@ -12,6 +13,12 @@ export interface VisibleReviewContentAbortRearmSnapshot {
 	readonly selectedItemId?: string | null;
 	readonly visibleHydrationPaused: boolean;
 	readonly visibleItemIds: readonly string[];
+}
+
+export interface PromoteDeferredVisibleContentStatesOptions {
+	readonly maxPromotedItemCount?: number;
+	readonly selectedItemId?: string | null;
+	readonly visibleItemIds?: readonly string[];
 }
 
 export function shouldApplyVisibleContentStateImmediately(props: {
@@ -37,21 +44,77 @@ export function visibleContentStateForAcceptedReadyResult(props: {
 
 export function promoteDeferredVisibleContentStates(
 	contentStateByItemId: ReadonlyMap<string, VisibleContentResourcesState>,
+	options: PromoteDeferredVisibleContentStatesOptions = {},
 ): ReadonlyMap<string, VisibleContentResourcesState> {
-	let didPromoteState = false;
+	const promotedItemIds = deferredVisibleContentPromotionItemIds({
+		contentStateByItemId,
+		maxPromotedItemCount:
+			options.maxPromotedItemCount ?? bridgeContentDemandExecutionPolicy.applyPumpMaxUnitsPerFrame,
+		selectedItemId: options.selectedItemId ?? null,
+		visibleItemIds: options.visibleItemIds ?? [],
+	});
+	if (promotedItemIds.length === 0) {
+		return contentStateByItemId;
+	}
 	const nextStateByItemId = new Map(contentStateByItemId);
-	for (const [itemId, state] of contentStateByItemId) {
-		if (state.status !== 'deferred') {
+	for (const itemId of promotedItemIds) {
+		const state = contentStateByItemId.get(itemId);
+		if (state?.status !== 'deferred') {
 			continue;
 		}
-		didPromoteState = true;
 		nextStateByItemId.set(itemId, {
 			contentKey: state.contentKey,
 			itemId,
 			status: 'ready',
 		});
 	}
-	return didPromoteState ? nextStateByItemId : contentStateByItemId;
+	return nextStateByItemId;
+}
+
+export function deferredVisibleContentPromotionItemIds(props: {
+	readonly contentStateByItemId: ReadonlyMap<string, VisibleContentResourcesState>;
+	readonly maxPromotedItemCount?: number;
+	readonly selectedItemId?: string | null;
+	readonly visibleItemIds?: readonly string[];
+}): readonly string[] {
+	const maxPromotedItemCount =
+		props.maxPromotedItemCount ?? bridgeContentDemandExecutionPolicy.applyPumpMaxUnitsPerFrame;
+	if (maxPromotedItemCount <= 0) {
+		return [];
+	}
+	const promotedItemIds: string[] = [];
+	const promotedItemIdSet = new Set<string>();
+	const addDeferredItemId = (itemId: string | null | undefined): void => {
+		if (
+			itemId === null ||
+			itemId === undefined ||
+			promotedItemIdSet.has(itemId) ||
+			promotedItemIds.length >= maxPromotedItemCount
+		) {
+			return;
+		}
+		const state = props.contentStateByItemId.get(itemId);
+		if (state?.status !== 'deferred') {
+			return;
+		}
+		promotedItemIdSet.add(itemId);
+		promotedItemIds.push(itemId);
+	};
+
+	addDeferredItemId(props.selectedItemId ?? null);
+	for (const itemId of props.visibleItemIds ?? []) {
+		if (promotedItemIds.length >= maxPromotedItemCount) {
+			break;
+		}
+		addDeferredItemId(itemId);
+	}
+	for (const itemId of props.contentStateByItemId.keys()) {
+		if (promotedItemIds.length >= maxPromotedItemCount) {
+			break;
+		}
+		addDeferredItemId(itemId);
+	}
+	return promotedItemIds;
 }
 
 export function visibleReviewContentLoadPlanCount(props: {

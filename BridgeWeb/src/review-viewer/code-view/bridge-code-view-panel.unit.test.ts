@@ -469,7 +469,7 @@ describe('BridgeCodeViewPanel diagnostics', () => {
 			numericAttributes: {
 				'agentstudio.bridge.selected_content.click_to_paint_ms': 50,
 				'agentstudio.bridge.selected_content.frame_wait_ms': 20,
-				'agentstudio.bridge.selected_content.materialize_ms': 30,
+				'agentstudio.bridge.selected_content.materialize_ms': 10,
 			},
 		});
 		expect(readSelectedContentPaintedProbe()).toMatchObject({
@@ -601,12 +601,12 @@ describe('BridgeCodeViewPanel diagnostics', () => {
 			numericAttributes: {
 				'agentstudio.bridge.selected_content.click_to_paint_ms': 76,
 				'agentstudio.bridge.selected_content.frame_wait_ms': 16,
-				'agentstudio.bridge.selected_content.materialize_ms': 26,
+				'agentstudio.bridge.selected_content.materialize_ms': 10,
 			},
 		});
 	});
 
-	test('force flushes selected content painted telemetry through recorder burst throttling', () => {
+	test('idle flushes selected content painted telemetry after recorder burst throttling', () => {
 		const batches: BridgeTelemetryBatch[] = [];
 		const frameCallbacks: FrameRequestCallback[] = [];
 		const idleCallbacks: Array<() => void> = [];
@@ -712,7 +712,7 @@ describe('BridgeCodeViewPanel diagnostics', () => {
 			numericAttributes: {
 				'agentstudio.bridge.selected_content.click_to_paint_ms': 80,
 				'agentstudio.bridge.selected_content.frame_wait_ms': 10,
-				'agentstudio.bridge.selected_content.materialize_ms': 15,
+				'agentstudio.bridge.selected_content.materialize_ms': 5,
 			},
 		});
 	});

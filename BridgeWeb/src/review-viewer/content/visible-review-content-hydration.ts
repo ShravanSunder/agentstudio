@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { bridgeContentDemandExecutionPolicy } from '../../core/demand/bridge-content-demand-policy.js';
 import type { BridgeContentDemandPlanEntry } from '../../core/demand/bridge-content-demand-reconciler.js';
 import type { BridgeDescriptorRef } from '../../core/models/bridge-resource-descriptor.js';
+import { runBridgeFrameApplyPump } from '../../core/rendering/bridge-frame-apply-pump.js';
 import type {
 	BridgeContentHandle,
 	BridgeReviewPackage,
@@ -27,6 +29,7 @@ import {
 import {
 	abortVisibleContentLoads,
 	abortVisibleContentLoadsExcept,
+	deferredVisibleContentPromotionItemIds,
 	normalizeVisibleReviewContentLoadResult,
 	promoteDeferredVisibleContentStates,
 	recoverAbortedVisibleContentLoadState,
@@ -136,9 +139,12 @@ export function useVisibleReviewContentHydration(
 	const [contentStateByItemId, setContentStateByItemId] = useState<
 		ReadonlyMap<string, VisibleContentResourcesState>
 	>(() => new Map<string, VisibleContentResourcesState>());
+	const contentStateByItemIdRef =
+		useRef<ReadonlyMap<string, VisibleContentResourcesState>>(contentStateByItemId);
 	const resourcesByItemIdRef = useRef<ReadonlyMap<string, BridgeCodeViewContentResources>>(
 		new Map<string, BridgeCodeViewContentResources>(),
 	);
+	contentStateByItemIdRef.current = contentStateByItemId;
 	const reportedVisibleItemIdsRef = useRef<readonly string[]>([]);
 	const loadAbortControllersByContentKeyRef = useRef<Map<string, AbortController>>(
 		new Map<string, AbortController>(),
@@ -146,8 +152,11 @@ export function useVisibleReviewContentHydration(
 	const scheduledContentKeysRef = useRef<Set<string>>(new Set<string>());
 	const previousDemandPlanEntriesRef = useRef<readonly BridgeContentDemandPlanEntry[]>([]);
 	const previousHydrationResultRef = useRef<UseVisibleReviewContentHydrationResult | null>(null);
+	const deferredPromotionActiveRef = useRef(false);
+	const deferredPromotionGenerationRef = useRef(0);
 	const isMountedRef = useRef(true);
 	const loadContentResources = props.loadContentResources;
+	const [deferredPromotionVersion, setDeferredPromotionVersion] = useState(0);
 
 	const packageIdentityKey =
 		props.reviewPackage === null
@@ -211,15 +220,79 @@ export function useVisibleReviewContentHydration(
 		}
 		scheduledContentKeysRef.current.clear();
 	}, [props.visibleHydrationPaused]);
-	useEffect((): void => {
+	useEffect((): (() => void) | void => {
 		if (props.visibleHydrationPaused) {
+			deferredPromotionGenerationRef.current += 1;
+			deferredPromotionActiveRef.current = false;
 			return;
 		}
-		setContentStateByItemId(
-			(currentStateByItemId: ReadonlyMap<string, VisibleContentResourcesState>) =>
-				promoteDeferredVisibleContentStates(currentStateByItemId),
-		);
-	}, [props.visibleHydrationPaused]);
+		if (deferredPromotionActiveRef.current) {
+			return;
+		}
+		const promotionItemIds = deferredVisibleContentPromotionItemIds({
+			contentStateByItemId,
+			maxPromotedItemCount: bridgeContentDemandExecutionPolicy.applyPumpMaxUnitsPerFrame,
+			selectedItemId: props.selectedItemId,
+			visibleItemIds,
+		});
+		if (promotionItemIds.length === 0) {
+			return;
+		}
+		deferredPromotionActiveRef.current = true;
+		const promotionGeneration = deferredPromotionGenerationRef.current + 1;
+		deferredPromotionGenerationRef.current = promotionGeneration;
+		const visibleItemIdSet = new Set(visibleItemIds);
+		runBridgeFrameApplyPump({
+			frameBudgetMilliseconds: bridgeContentDemandExecutionPolicy.applyPumpFrameBudgetMilliseconds,
+			isStale: (unit): boolean =>
+				deferredPromotionGenerationRef.current !== promotionGeneration ||
+				contentStateByItemIdRef.current.get(unit.id)?.status !== 'deferred',
+			maxUnitsPerFrame: bridgeContentDemandExecutionPolicy.applyPumpMaxUnitsPerFrame,
+			noStarvationSelectedBatchLimit:
+				bridgeContentDemandExecutionPolicy.applyPumpNoStarvationSelectedBatchLimit,
+			now: visibleContentPromotionNow,
+			onDrained: (): void => {
+				if (deferredPromotionGenerationRef.current !== promotionGeneration) {
+					return;
+				}
+				deferredPromotionActiveRef.current = false;
+				setDeferredPromotionVersion((currentVersion): number => currentVersion + 1);
+			},
+			scheduleNextTurn: scheduleVisibleContentPromotionTurn,
+			staleScanLimit: bridgeContentDemandExecutionPolicy.applyPumpStaleScanLimit,
+			units: promotionItemIds.map((itemId) => ({
+				id: itemId,
+				rank:
+					itemId === props.selectedItemId
+						? 'selected'
+						: visibleItemIdSet.has(itemId)
+							? 'visible'
+							: 'background',
+				run: (): void => {
+					setContentStateByItemId(
+						(currentStateByItemId: ReadonlyMap<string, VisibleContentResourcesState>) =>
+							promoteDeferredVisibleContentStates(currentStateByItemId, {
+								maxPromotedItemCount: 1,
+								selectedItemId: itemId,
+								visibleItemIds: [itemId],
+							}),
+					);
+				},
+			})),
+		});
+		return (): void => {
+			if (deferredPromotionGenerationRef.current === promotionGeneration) {
+				deferredPromotionGenerationRef.current += 1;
+				deferredPromotionActiveRef.current = false;
+			}
+		};
+	}, [
+		contentStateByItemId,
+		deferredPromotionVersion,
+		props.selectedItemId,
+		props.visibleHydrationPaused,
+		visibleItemIds,
+	]);
 	const [abortedRearmVersion, setAbortedRearmVersion] = useState(0);
 	const abortedRearmScheduledRef = useRef(false);
 	const visibleHydrationSnapshotRef = useRef<VisibleReviewContentAbortRearmSnapshot>({
@@ -537,4 +610,16 @@ function stringArraysEqual(left: readonly string[], right: readonly string[]): b
 	return (
 		left.length === right.length && left.every((value, index): boolean => value === right[index])
 	);
+}
+
+function scheduleVisibleContentPromotionTurn(callback: () => void): void {
+	if (typeof requestAnimationFrame === 'function') {
+		requestAnimationFrame(callback);
+		return;
+	}
+	setTimeout(callback, 0);
+}
+
+function visibleContentPromotionNow(): number {
+	return typeof performance === 'undefined' ? Date.now() : performance.now();
 }

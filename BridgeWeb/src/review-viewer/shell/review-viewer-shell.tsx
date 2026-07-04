@@ -9,6 +9,7 @@ import { Skeleton } from '../../components/ui/skeleton.js';
 import type { ReviewTreeRowMetadata } from '../../features/review/models/review-protocol-models.js';
 import {
 	createBridgeReviewItemRegistry,
+	type BridgeReviewItemRegistry,
 	reviewItemPathLabel,
 } from '../../foundation/review-package/bridge-review-item-registry.js';
 import type {
@@ -90,10 +91,13 @@ export interface ReviewViewerShellProps {
 
 export type BridgeReviewCanvasLoadingReason = 'content' | 'markdownPreview';
 
+const hiddenVisiblePathTextByRegistry = new WeakMap<BridgeReviewItemRegistry, string>();
+
 export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 	const registry = createBridgeReviewItemRegistry({
 		reviewPackage: props.reviewPackage,
 	});
+	const hiddenVisiblePathText = hiddenVisiblePathTextForRegistry(registry);
 	const projectionMode = props.projectionMode ?? { kind: 'normalReview' };
 	const gitStatusFilter = props.gitStatusFilter ?? 'all';
 	const fileClassFilter = props.fileClassFilter ?? 'all';
@@ -381,7 +385,7 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 							/>
 							{registry.visibleItems.length === 0 ? null : (
 								<div aria-hidden="true" hidden>
-									{registry.visibleItems.map((item) => reviewItemPathLabel(item)).join(' ')}
+									{hiddenVisiblePathText}
 								</div>
 							)}
 						</nav>
@@ -433,6 +437,16 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 			/>
 		</main>
 	);
+}
+
+function hiddenVisiblePathTextForRegistry(registry: BridgeReviewItemRegistry): string {
+	const cachedText = hiddenVisiblePathTextByRegistry.get(registry);
+	if (cachedText !== undefined) {
+		return cachedText;
+	}
+	const text = registry.visibleItems.map((item) => reviewItemPathLabel(item)).join(' ');
+	hiddenVisiblePathTextByRegistry.set(registry, text);
+	return text;
 }
 
 export function BridgeReviewCanvasLoadingState(props: {

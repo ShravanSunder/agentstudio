@@ -120,6 +120,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 	const scrollIdleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const scrollActivityActiveRef = useRef(false);
 	const renderedWindowItemIdsRef = useRef<readonly string[]>([]);
+	const pendingRenderedItemsSourceRef = useRef<BridgeCodeViewRenderedItemsSource | null>(null);
 	const visibleHeaderItemIdsRef = useRef<ReadonlySet<string>>(new Set<string>());
 	const onScrollActivityChangeRef = useRef(props.onScrollActivityChange);
 	onScrollActivityChangeRef.current = props.onScrollActivityChange;
@@ -146,6 +147,13 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 	const [materializationDiagnostic, setMaterializationDiagnostic] =
 		useState<BridgeCodeViewMaterializationDiagnostic>(() => emptyMaterializationDiagnostic());
 	const publishVisibleHydrationItemIds = useCallback((): void => {
+		const pendingRenderedItemsSource = pendingRenderedItemsSourceRef.current;
+		if (pendingRenderedItemsSource !== null) {
+			pendingRenderedItemsSourceRef.current = null;
+			renderedWindowItemIdsRef.current = uniqueRenderedItemIds(
+				pendingRenderedItemsSource.getRenderedItems(),
+			);
+		}
 		const onVisibleItemIdsChange = props.onVisibleItemIdsChange;
 		if (onVisibleItemIdsChange === undefined) {
 			return;
@@ -187,7 +195,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 	}, [publishVisibleItemIds]);
 	const handleCodeViewScroll = useCallback(
 		(_scrollTop: number, viewer: BridgeCodeViewRenderedItemsSource): void => {
-			captureVisibleItemIds(viewer);
+			pendingRenderedItemsSourceRef.current = viewer;
 			visibleInterestPublisher.publishDuringScroll();
 			if (!scrollActivityActiveRef.current) {
 				scrollActivityActiveRef.current = true;
@@ -201,16 +209,16 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 				const codeViewInstance = codeViewHandleRef.current?.getInstance();
 				if (codeViewInstance !== undefined && hasRenderedItemsSource(codeViewInstance)) {
 					codeViewInstance.render(true);
-					captureVisibleItemIds(codeViewInstance);
+					pendingRenderedItemsSourceRef.current = codeViewInstance;
 				} else {
-					captureVisibleItemIds(viewer);
+					pendingRenderedItemsSourceRef.current = viewer;
 				}
 				scrollActivityActiveRef.current = false;
 				onScrollActivityChangeRef.current?.(false);
 				visibleInterestPublisher.publishAtScrollIdle();
 			}, codeViewVisibleHydrationScrollIdleMilliseconds);
 		},
-		[captureVisibleItemIds, visibleInterestPublisher],
+		[visibleInterestPublisher],
 	);
 	const scheduleVisibleHeaderItemIdsPublish = useCallback((): void => {
 		if (scrollActivityActiveRef.current) {
@@ -554,6 +562,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 				scrollActivityActiveRef.current = false;
 				onScrollActivityChangeRef.current?.(false);
 			}
+			pendingRenderedItemsSourceRef.current = null;
 		},
 		[],
 	);

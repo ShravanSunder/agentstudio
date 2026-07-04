@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
+import { bridgeContentDemandExecutionPolicy } from '../../core/demand/bridge-content-demand-policy.js';
 import type { BridgeDescriptorRef } from '../../core/models/bridge-resource-descriptor.js';
 import type { BridgeContentResource } from '../../foundation/content/content-resource-loader.js';
 import {
@@ -8,6 +9,7 @@ import {
 	makeBridgeReviewPackage,
 } from '../../foundation/review-package/bridge-review-package-test-support.js';
 import type { BridgeReviewPackage } from '../../foundation/review-package/bridge-review-package.js';
+import { promoteDeferredVisibleContentStates } from './visible-review-content-hydration-load-state.js';
 import type { VisibleContentResourcesState } from './visible-review-content-hydration-support.js';
 import { deriveVisibleHydrationStateProbe } from './visible-review-content-hydration-support.js';
 import {
@@ -258,6 +260,53 @@ describe('visible review content hydration', () => {
 		expect(readyState.status).toBe('deferred');
 		expect(result.visibleReadyItemCount).toBe(0);
 		expect(result.visibleContentResourcesByItemId.has('item-visible')).toBe(false);
+	});
+
+	test('promotes deferred visible content across policy-sized pause-release ticks with selected first', () => {
+		const currentStateByItemId = new Map<string, VisibleContentResourcesState>(
+			Array.from({ length: 7 }, (_, index): [string, VisibleContentResourcesState] => {
+				const itemId = `item-${String(index).padStart(3, '0')}`;
+				return [
+					itemId,
+					{
+						contentKey: `content:${itemId}`,
+						itemId,
+						status: 'deferred',
+					},
+				];
+			}),
+		);
+
+		const firstTickStateByItemId = promoteDeferredVisibleContentStates(currentStateByItemId, {
+			maxPromotedItemCount: bridgeContentDemandExecutionPolicy.applyPumpMaxUnitsPerFrame,
+			selectedItemId: 'item-005',
+			visibleItemIds: ['item-002', 'item-003'],
+		});
+
+		expect(firstTickStateByItemId.get('item-005')?.status).toBe('ready');
+		expect(firstTickStateByItemId.get('item-001')?.status).toBe('deferred');
+		expect(readyItemIds(firstTickStateByItemId)).toEqual([
+			'item-000',
+			'item-002',
+			'item-003',
+			'item-005',
+		]);
+
+		const secondTickStateByItemId = promoteDeferredVisibleContentStates(firstTickStateByItemId, {
+			maxPromotedItemCount: bridgeContentDemandExecutionPolicy.applyPumpMaxUnitsPerFrame,
+			selectedItemId: 'item-005',
+			visibleItemIds: ['item-002', 'item-003'],
+		});
+
+		expect(readyItemIds(secondTickStateByItemId)).toEqual([
+			'item-000',
+			'item-001',
+			'item-002',
+			'item-003',
+			'item-004',
+			'item-005',
+			'item-006',
+		]);
 	});
 
 	test('delegates scroll apply decisions through extracted hydration helpers', () => {
@@ -652,6 +701,15 @@ function makeReviewPackageWithItemCount(itemCount: number): BridgeReviewPackage 
 }
 
 function noopVisibleItemIdsSetter(): void {}
+
+function readyItemIds(
+	contentStateByItemId: ReadonlyMap<string, VisibleContentResourcesState>,
+): readonly string[] {
+	return [...contentStateByItemId]
+		.filter((entry): boolean => entry[1].status === 'ready')
+		.map((entry): string => entry[0])
+		.toSorted();
+}
 
 function makeVisibleContentKeyFixture(itemId: string): {
 	readonly contentKey: string;
