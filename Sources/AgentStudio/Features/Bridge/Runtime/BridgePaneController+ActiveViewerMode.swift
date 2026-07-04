@@ -20,7 +20,6 @@ extension BridgePaneController {
         if let lastSequence = activeViewerModeSignalState.lastSequence,
             params.sequence <= lastSequence
         {
-            activeViewerModeSignalState.acceptedSignal = nil
             await recordActiveViewerModeSignalRejected(
                 reason: .staleSequence,
                 mode: params.mode,
@@ -45,16 +44,54 @@ extension BridgePaneController {
         }
         activeViewerModeSignalState.acceptedSignal = BridgeActiveViewerModeAcceptedSignal(
             mode: params.mode,
-            activeSource: activeSource
+            activeSource: activeSource,
+            sequenceFloor: params.sequence
         )
     }
 
-    func clearActiveViewerModeAcceptedSignalForExplicitFileSurfaceRequest() {
-        activeViewerModeSignalState.acceptedSignal = nil
+    func setActiveViewerModeAcceptedSignalForExplicitFileSurfaceRequest(
+        streamId: String,
+        generation: Int
+    ) {
+        setActiveViewerModeAcceptedSignalForExplicitRequest(
+            mode: .file,
+            activeSource: BridgeActiveViewerSource(
+                protocolId: .worktreeFile,
+                streamId: streamId,
+                generation: generation
+            )
+        )
+    }
+
+    func setActiveViewerModeAcceptedSignalForExplicitReviewRequest(
+        streamId: String,
+        generation: Int
+    ) {
+        setActiveViewerModeAcceptedSignalForExplicitRequest(
+            mode: .review,
+            activeSource: BridgeActiveViewerSource(
+                protocolId: .review,
+                streamId: streamId,
+                generation: generation
+            )
+        )
     }
 
     func clearActiveViewerModeAcceptedSignalForExplicitReviewRequest() {
         activeViewerModeSignalState.acceptedSignal = nil
+    }
+
+    private func setActiveViewerModeAcceptedSignalForExplicitRequest(
+        mode: BridgeActiveViewerMode,
+        activeSource: BridgeActiveViewerSource
+    ) {
+        let sequenceFloor = (activeViewerModeSignalState.lastSequence ?? 0) + 1
+        activeViewerModeSignalState.lastSequence = sequenceFloor
+        activeViewerModeSignalState.acceptedSignal = BridgeActiveViewerModeAcceptedSignal(
+            mode: mode,
+            activeSource: activeSource,
+            sequenceFloor: sequenceFloor
+        )
     }
 
     func shouldSuppressReviewProtocolProduction(generation _: Int) -> Bool {

@@ -240,4 +240,105 @@ final class RPCRouterActiveViewerModeTests {
         #expect(sample.stringAttributes["agentstudio.bridge.active_viewer.mode"] == "file")
         #expect(sample.stringAttributes["agentstudio.bridge.active_source.protocol"] == "none")
     }
+
+    @Test
+    func explicit_file_open_prevents_in_flight_review_signal_from_reinstalling_suppression() async throws {
+        // Arrange
+        let fixture = try makeControllerFixture()
+        defer { fixture.controller.teardown() }
+        try writeRootScopedDescriptorFixtureFiles(rootURL: fixture.rootURL)
+        let reviewPackage = makeActiveViewerModeReviewPackage(reviewGeneration: 7)
+        fixture.controller.paneState.diff.setPackageMetadata(reviewPackage)
+        await fixture.controller.handleBridgeActiveViewerModeUpdate(
+            BridgeActiveViewerModeUpdateMethod.Params(
+                sessionId: "session-race",
+                sequence: 1,
+                mode: .review,
+                activeSource: BridgeActiveViewerSource(
+                    protocolId: .review,
+                    streamId: fixture.controller.reviewProtocolStreamId(),
+                    generation: reviewPackage.reviewGeneration.rawValue
+                )
+            )
+        )
+
+        // Act
+        let outcome = try await fixture.controller.handleWorktreeFileSurfaceOpenSourceStream(
+            sourceSpec(
+                fixture: fixture,
+                clientRequestId: "request-file-after-review",
+                pathScope: ["Sources"]
+            )
+        )
+        await fixture.controller.handleBridgeActiveViewerModeUpdate(
+            BridgeActiveViewerModeUpdateMethod.Params(
+                sessionId: "session-race",
+                sequence: 2,
+                mode: .review,
+                activeSource: BridgeActiveViewerSource(
+                    protocolId: .review,
+                    streamId: fixture.controller.reviewProtocolStreamId(),
+                    generation: reviewPackage.reviewGeneration.rawValue
+                )
+            )
+        )
+
+        // Assert
+        #expect(
+            fixture.controller.shouldSuppressWorktreeFileProduction(generation: outcome.generation) == false
+        )
+        #expect(fixture.controller.shouldSuppressReviewProtocolProduction(generation: 7) == true)
+    }
+
+    @Test
+    func explicit_file_open_sets_accepted_mode_to_file_with_open_identity() async throws {
+        // Arrange
+        let fixture = try makeControllerFixture()
+        defer { fixture.controller.teardown() }
+        try writeRootScopedDescriptorFixtureFiles(rootURL: fixture.rootURL)
+
+        // Act
+        let outcome = try await fixture.controller.handleWorktreeFileSurfaceOpenSourceStream(
+            sourceSpec(
+                fixture: fixture,
+                clientRequestId: "request-file-accepted-mode",
+                pathScope: ["Sources"]
+            )
+        )
+
+        // Assert
+        let acceptedSignal = try #require(fixture.controller.activeViewerModeSignalState.acceptedSignal)
+        #expect(acceptedSignal.mode == .file)
+        #expect(acceptedSignal.activeSource.protocolId == .worktreeFile)
+        #expect(acceptedSignal.activeSource.streamId == outcome.streamId)
+        #expect(acceptedSignal.activeSource.generation == outcome.generation)
+    }
+}
+
+extension RPCRouterActiveViewerModeTests: BridgeWorktreeFileSurfaceTransportTestHelpers {}
+
+private func makeActiveViewerModeReviewPackage(
+    reviewGeneration: BridgeReviewGeneration
+) -> BridgeReviewPackage {
+    BridgeReviewPackage(
+        packageId: "active-viewer-mode-package",
+        schemaVersion: 1,
+        reviewGeneration: reviewGeneration,
+        revision: 0,
+        query: makeBridgeReviewQuery(),
+        baseEndpoint: makeBridgeEndpoint(endpointId: "base", kind: .gitRef),
+        headEndpoint: makeBridgeEndpoint(endpointId: "head", kind: .workingTree),
+        orderedItemIds: [],
+        itemsById: [:],
+        groups: [],
+        summary: BridgeReviewPackageSummary(
+            filesChanged: 0,
+            additions: 0,
+            deletions: 0,
+            visibleFileCount: 0,
+            hiddenFileCount: 0
+        ),
+        filterState: BridgeViewFilter(),
+        generatedAtUnixMilliseconds: 200
+    )
 }

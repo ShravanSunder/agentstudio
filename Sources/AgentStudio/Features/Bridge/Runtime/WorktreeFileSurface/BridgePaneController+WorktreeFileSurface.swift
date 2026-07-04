@@ -60,18 +60,10 @@ extension BridgePaneController {
             nextSequence: 0
         )
         activeWorktreeFileManifestIndex = BridgeWorktreeFileManifestIndex(generation: generation)
-        clearActiveViewerModeAcceptedSignalForExplicitFileSurfaceRequest()
-        if shouldSuppressWorktreeFileProduction(generation: generation) {
-            await recordActiveViewerModeSuppression(
-                suppressedProtocolId: "worktree-file",
-                generation: generation,
-                phase: "worktree_file_open"
-            )
-            return BridgeWorktreeFileSurfaceOpenSourceOutcome(
-                streamId: streamId,
-                generation: generation
-            )
-        }
+        setActiveViewerModeAcceptedSignalForExplicitFileSurfaceRequest(
+            streamId: streamId,
+            generation: generation
+        )
         activeWorktreeFileTreeWindowTask = Task { @MainActor [weak self] in
             await self?.prepareInitialWorktreeFileSurfaceMetadata(
                 rootURL: worktree.path,
@@ -128,7 +120,10 @@ extension BridgePaneController {
         guard activeSource.source.subscriptionGeneration == nextWorktreeFileSurfaceGeneration else {
             throw RPCMethodDispatchError.invalidParams("worktree_file.stale_source_generation")
         }
-        clearActiveViewerModeAcceptedSignalForExplicitFileSurfaceRequest()
+        setActiveViewerModeAcceptedSignalForExplicitFileSurfaceRequest(
+            streamId: activeSource.streamId,
+            generation: activeSource.source.subscriptionGeneration
+        )
         try await activateWorktreeFileSurfaceLeases([
             materializedDescriptor.frame.descriptor.contentDescriptor.descriptor
         ])

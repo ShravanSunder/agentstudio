@@ -209,6 +209,49 @@ describe('BridgeAppProtocolRouter', () => {
 		expect(new Set(updates.map((detail) => detail.params.sessionId)).size).toBe(1);
 	});
 
+	test('active viewer mode notifications match the committed mode through rapid transitions', async () => {
+		const mismatchedUpdates: ActiveViewerModeUpdateDetail[] = [];
+		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
+		document.addEventListener('__bridge_handshake_request', (): void => {
+			document.dispatchEvent(
+				new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-1' } }),
+			);
+		});
+		document.addEventListener('__bridge_command', (event: Event): void => {
+			const detail = extractEventDetail(event);
+			if (isBridgeReadyCommand(detail)) {
+				document.dispatchEvent(
+					new CustomEvent('__bridge_response', {
+						detail: { id: detail.id, result: {}, nonce: 'push-1' },
+					}),
+				);
+			}
+			if (!isActiveViewerModeUpdate(detail)) {
+				return;
+			}
+			const committedMode = activeViewerMode();
+			if (committedMode !== null && committedMode !== detail.params.mode) {
+				mismatchedUpdates.push(detail);
+			}
+		});
+
+		render(
+			<BridgeAppProtocolRouter
+				fileViewerProps={{ loadInitialSurface: loadActiveViewerModeTestSurface }}
+				protocol="review"
+			/>,
+		);
+		await expect.poll(activeViewerMode).toBe('review');
+
+		requireActiveContextButton('file').click();
+		requireActiveContextButton('review').click();
+		requireActiveContextButton('file').click();
+		await expect.poll(activeViewerMode).toBe('file');
+		await new Promise((resolve) => window.setTimeout(resolve, 0));
+
+		expect(mismatchedUpdates).toEqual([]);
+	});
+
 	test('re-emits file active source when a same-identity file surface open resolves', async () => {
 		const commandDetails: unknown[] = [];
 		let loadCount = 0;
@@ -343,6 +386,14 @@ function hasWorktreeFileActiveSource(detail: ActiveViewerModeUpdateDetail): bool
 		detail.params.activeSource['protocol'] === 'worktree-file' &&
 		detail.params.activeSource['streamId'] === 'worktree-file:pane-1' &&
 		detail.params.activeSource['generation'] === 7
+	);
+}
+
+function activeViewerMode(): string | null {
+	return (
+		document
+			.querySelector('[data-testid="bridge-app-root"]')
+			?.getAttribute('data-bridge-viewer-mode') ?? null
 	);
 }
 

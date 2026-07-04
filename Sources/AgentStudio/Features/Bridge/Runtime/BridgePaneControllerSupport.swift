@@ -61,6 +61,7 @@ enum BridgeActiveViewerModeUpdateMethod: RPCMethod {
 struct BridgeActiveViewerModeAcceptedSignal: Equatable, Sendable {
     let mode: BridgeActiveViewerMode
     let activeSource: BridgeActiveViewerSource
+    let sequenceFloor: Int
 }
 
 struct BridgeActiveViewerModeSignalState: Equatable, Sendable {

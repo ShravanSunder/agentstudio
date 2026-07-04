@@ -60,7 +60,7 @@ describe('Bridge file viewer mode re-open on switch', () => {
 		await expect.poll(activeViewerMode).toBe('file');
 	});
 
-	test('recovers a resolved file surface after a stream sequence gap by re-opening immediately', async () => {
+	test('defers a hidden resolved file surface stream reset until file mode re-activates', async () => {
 		let loadCount = 0;
 		let onSurfaceStreamResetRequired: (() => void) | undefined;
 		const loadInitialSurface = async (): Promise<WorktreeFileInitialSurface> => {
@@ -92,9 +92,11 @@ describe('Bridge file viewer mode re-open on switch', () => {
 		await expect.poll(activeViewerMode).toBe('review');
 
 		onSurfaceStreamResetRequired?.();
-		await expect.poll(() => loadCount).toBe(2);
+		await new Promise((resolve) => window.setTimeout(resolve, 0));
+		expect(loadCount).toBe(1);
 
 		clickContext('file');
+		await expect.poll(() => loadCount).toBe(2);
 		await expect.poll(activeViewerMode).toBe('file');
 	});
 });

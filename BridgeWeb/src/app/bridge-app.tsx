@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 import {
 	type BridgePageHandshakeSession,
@@ -139,10 +139,12 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 	});
 	const activeViewerModeSessionIdRef = useRef<string>(createBridgeActiveViewerModeSessionId());
 	const activeViewerModeSequenceRef = useRef(0);
+	const activeViewerModeRef = useRef<BridgeViewerMode>(activeViewerState.viewerMode);
 	const [activeViewerSources, setActiveViewerSources] = useState<BridgeActiveViewerSources>({
 		file: null,
 		review: null,
 	});
+	const activeViewerSourcesRef = useRef<BridgeActiveViewerSources>(activeViewerSources);
 	const [activeViewerSourceSignalRevision, setActiveViewerSourceSignalRevision] = useState(0);
 	const telemetryRecorderRef = useRef<BridgeTelemetryRecorder>(createBridgeTelemetryRecorder(null));
 	const telemetryRecorder = useMemo(
@@ -207,6 +209,21 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 		};
 	}, [target]);
 	const activeViewerModeRPCClient = useMemo(() => createBridgeRPCClient({ target }), [target]);
+	activeViewerModeRef.current = activeViewerState.viewerMode;
+	activeViewerSourcesRef.current = activeViewerSources;
+	const sendActiveViewerModeUpdate = useCallback((): void => {
+		const activeViewerMode = activeViewerModeRef.current;
+		activeViewerModeSequenceRef.current += 1;
+		activeViewerModeRPCClient.sendCommand({
+			method: 'bridge.activeViewerMode.update',
+			params: {
+				sessionId: activeViewerModeSessionIdRef.current,
+				sequence: activeViewerModeSequenceRef.current,
+				mode: activeViewerMode,
+				activeSource: activeViewerSourcesRef.current[activeViewerMode],
+			},
+		});
+	}, [activeViewerModeRPCClient]);
 	const reportFileActiveSource = useCallback(
 		(activeSource: BridgeActiveViewerSource | null): void => {
 			setActiveViewerSources((currentSources): BridgeActiveViewerSources => {
@@ -235,27 +252,18 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 		},
 		[],
 	);
-	useEffect((): (() => void) => {
-		const activeViewerMode = activeViewerState.viewerMode;
-		const activeSource = activeViewerSources[activeViewerMode];
-		return registerBridgeReadyCallback((): void => {
-			activeViewerModeSequenceRef.current += 1;
-			activeViewerModeRPCClient.sendCommand({
-				method: 'bridge.activeViewerMode.update',
-				params: {
-					sessionId: activeViewerModeSessionIdRef.current,
-					sequence: activeViewerModeSequenceRef.current,
-					mode: activeViewerMode,
-					activeSource,
-				},
-			});
-		});
+	useLayoutEffect((): (() => void) => {
+		if (isBridgeReadyRef.current) {
+			sendActiveViewerModeUpdate();
+			return (): void => {};
+		}
+		return registerBridgeReadyCallback(sendActiveViewerModeUpdate);
 	}, [
-		activeViewerModeRPCClient,
 		activeViewerSources,
 		activeViewerSourceSignalRevision,
 		activeViewerState.viewerMode,
 		registerBridgeReadyCallback,
+		sendActiveViewerModeUpdate,
 	]);
 	const [mountedViewerModes, setMountedViewerModes] = useState<ReadonlySet<BridgeViewerMode>>(
 		() => new Set<BridgeViewerMode>(['file', 'review']),

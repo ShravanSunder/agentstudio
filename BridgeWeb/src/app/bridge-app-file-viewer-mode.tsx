@@ -45,8 +45,10 @@ export function BridgeFileViewerMode(props: BridgeFileViewerModeProps): ReactEle
 	const [fileSurfaceReopenSignal, setFileSurfaceReopenSignal] = useState(0);
 	const wasFileViewerActiveRef = useRef(props.isActive);
 	const fileSurfaceOpenResolvedRef = useRef(false);
+	const pendingFileSurfaceReopenRef = useRef(false);
 	const handleFileSurfaceOpenResolved = useCallback((): void => {
 		fileSurfaceOpenResolvedRef.current = true;
+		pendingFileSurfaceReopenRef.current = false;
 	}, []);
 	const handleFileSurfaceStreamResetRequired = useCallback((): void => {
 		if (!fileSurfaceOpenResolvedRef.current) {
@@ -54,6 +56,10 @@ export function BridgeFileViewerMode(props: BridgeFileViewerModeProps): ReactEle
 		}
 		fileSurfaceOpenResolvedRef.current = false;
 		onActiveSourceChange(null);
+		if (!wasFileViewerActiveRef.current) {
+			pendingFileSurfaceReopenRef.current = true;
+			return;
+		}
 		setFileSurfaceReopenSignal((signal) => signal + 1);
 	}, [onActiveSourceChange]);
 	const hasFileViewerFrameSource = props.fileViewerProps !== undefined;
@@ -70,7 +76,10 @@ export function BridgeFileViewerMode(props: BridgeFileViewerModeProps): ReactEle
 	useEffect((): void => {
 		if (props.isActive) {
 			setHasActivatedFileViewerShell(true);
-			if (!wasFileViewerActiveRef.current && !fileSurfaceOpenResolvedRef.current) {
+			if (pendingFileSurfaceReopenRef.current) {
+				pendingFileSurfaceReopenRef.current = false;
+				setFileSurfaceReopenSignal((signal) => signal + 1);
+			} else if (!wasFileViewerActiveRef.current && !fileSurfaceOpenResolvedRef.current) {
 				// The prior open never resolved (wedged/hung): re-issue it. If the
 				// re-open also fails to resolve, the ref stays false and the next
 				// activation retries — recovery. A resolved (healthy) stream is

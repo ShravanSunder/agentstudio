@@ -608,7 +608,14 @@ final class BridgePaneController {
             return
         }
         await recordReviewIntakeReadyTelemetry(phase: "accepted")
-        clearActiveViewerModeAcceptedSignalForExplicitReviewRequest()
+        if let package = paneState.diff.packageMetadata {
+            setActiveViewerModeAcceptedSignalForExplicitReviewRequest(
+                streamId: currentStreamId,
+                generation: package.reviewGeneration.rawValue
+            )
+        } else {
+            clearActiveViewerModeAcceptedSignalForExplicitReviewRequest()
+        }
         await worktreeFileMetadataScheduler.openGate(protocolId: "review")
         // The review viewer announces intake-ready when its surface mounts or
         // when an active surface has no applied snapshot. An announce is the
