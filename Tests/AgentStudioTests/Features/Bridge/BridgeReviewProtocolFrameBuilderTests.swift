@@ -72,6 +72,7 @@ struct BridgeReviewProtocolFrameBuilderTests {
             ]
         )
         let metadataItem = try #require(frame.itemMetadata.first)
+        let item = try #require(package.itemsById[metadataItem.itemId])
         #expect(metadataItem.itemId == "item-source")
         #expect(metadataItem.contentRoles == ["base", "head"])
         #expect(
@@ -82,6 +83,8 @@ struct BridgeReviewProtocolFrameBuilderTests {
         )
         #expect(metadataItem.contentDescriptorIdsByRole?.base != nil)
         #expect(metadataItem.contentDescriptorIdsByRole?.head != nil)
+        #expect(metadataItem.contentHashesByRole?.base == item.contentRoles.base?.contentHash)
+        #expect(metadataItem.contentHashesByRole?.head == item.contentRoles.head?.contentHash)
         #expect(metadataItem.mimeTypes == ["text/x-swift"])
         let treeRow = try #require(frame.treeRows.last)
         #expect(treeRow.rowId == "review-row:item-source")

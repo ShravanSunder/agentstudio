@@ -446,6 +446,12 @@ enum BridgeReviewProtocolFrameBuilder {
                 diff: item.contentRoles.diff?.handleId,
                 file: item.contentRoles.file?.handleId
             ),
+            contentHashesByRole: BridgeReviewProjectionContentHashesByRole(
+                base: item.contentRoles.base?.contentHash,
+                head: item.contentRoles.head?.contentHash,
+                diff: item.contentRoles.diff?.contentHash,
+                file: item.contentRoles.file?.contentHash
+            ),
             mimeTypes: mimeTypes(for: item),
             provenance: BridgeReviewProjectionItemProvenance(
                 promptIds: item.provenance.promptIds,

@@ -23,6 +23,21 @@ type ReviewWindowMaterializerDelta = Extract<
 	{ readonly kind: 'metadataWindow' }
 >;
 
+export interface ReviewMetadataCarryForwardVerificationCounts {
+	unverifiedKeepCount: number;
+	verifiedDropCount: number;
+	verifiedKeepCount: number;
+}
+
+const reviewContentRoles = [
+	'base',
+	'head',
+	'diff',
+	'file',
+] as const satisfies readonly BridgeContentRole[];
+type ReviewProjectionItemContentHashesByRole =
+	ReviewSnapshotMaterializerDelta['projectionInput']['orderedItems'][number]['contentHashesByRole'];
+
 export function isStaleReviewPackageReplacement(
 	currentReviewPackage: BridgeReviewPackage,
 	nextReviewPackage: BridgeReviewPackage,
@@ -168,6 +183,9 @@ export function bridgeReviewPackageFromMetadataSnapshot(
 export function bridgeReviewPackageWithMetadataWindow(props: {
 	readonly reviewPackage: BridgeReviewPackage;
 	readonly windowFrame: ReviewWindowMaterializerDelta;
+	readonly carryForwardVerificationCounts?:
+		| ReviewMetadataCarryForwardVerificationCounts
+		| undefined;
 }): BridgeReviewPackage {
 	const contentDescriptorsById = new Map(
 		props.windowFrame.contentDescriptors.map(
@@ -191,6 +209,8 @@ export function bridgeReviewPackageWithMetadataWindow(props: {
 						headEndpoint: props.reviewPackage.headEndpoint,
 					},
 				}),
+				carryForwardVerificationCounts: props.carryForwardVerificationCounts,
+				nextContentHashesByRole: item.contentHashesByRole,
 			}),
 		]),
 	);
@@ -214,7 +234,19 @@ export function bridgeReviewPackageWithMetadataWindow(props: {
 export function bridgeReviewPackageWithMetadataSnapshot(props: {
 	readonly reviewPackage: BridgeReviewPackage;
 	readonly snapshotPackage: BridgeReviewPackage;
+	readonly snapshotFrame?: ReviewSnapshotMaterializerDelta;
+	readonly carryForwardVerificationCounts?:
+		| ReviewMetadataCarryForwardVerificationCounts
+		| undefined;
 }): BridgeReviewPackage {
+	const contentHashesByItemId = new Map(
+		props.snapshotFrame?.projectionInput.orderedItems.map(
+			(item): readonly [string, ReviewProjectionItemContentHashesByRole] => [
+				item.itemId,
+				item.contentHashesByRole,
+			],
+		) ?? [],
+	);
 	const snapshotItemsById = Object.fromEntries(
 		Object.entries(props.snapshotPackage.itemsById).map(
 			([itemId, item]): readonly [string, BridgeReviewItemDescriptor] => [
@@ -222,6 +254,8 @@ export function bridgeReviewPackageWithMetadataSnapshot(props: {
 				reviewItemWithCarriedResolvedContent({
 					currentItem: props.reviewPackage.itemsById[itemId],
 					nextItem: item,
+					carryForwardVerificationCounts: props.carryForwardVerificationCounts,
+					nextContentHashesByRole: contentHashesByItemId.get(itemId),
 				}),
 			],
 		),
@@ -249,6 +283,9 @@ export function bridgeReviewPackageWithMetadataSnapshot(props: {
 export function applyReviewMetadataDeltaToReviewPackage(props: {
 	readonly reviewPackage: BridgeReviewPackage;
 	readonly deltaFrame: ReviewDeltaMaterializerDelta;
+	readonly carryForwardVerificationCounts?:
+		| ReviewMetadataCarryForwardVerificationCounts
+		| undefined;
 }): BridgeReviewPackage | null {
 	if (
 		props.reviewPackage.packageId !== props.deltaFrame.packageId ||
@@ -291,6 +328,8 @@ export function applyReviewMetadataDeltaToReviewPackage(props: {
 					[operation.item.itemId]: reviewItemWithCarriedResolvedContent({
 						currentItem,
 						nextItem,
+						carryForwardVerificationCounts: props.carryForwardVerificationCounts,
+						nextContentHashesByRole: operation.item.contentHashesByRole,
 					}),
 				};
 				if (!orderedItemIds.includes(operation.item.itemId)) {
@@ -318,6 +357,8 @@ export function applyReviewMetadataDeltaToReviewPackage(props: {
 						[item.itemId]: reviewItemWithCarriedResolvedContent({
 							currentItem,
 							nextItem,
+							carryForwardVerificationCounts: props.carryForwardVerificationCounts,
+							nextContentHashesByRole: item.contentHashesByRole,
 						}),
 					};
 					if (!orderedItemIds.includes(item.itemId)) {
@@ -418,6 +459,10 @@ function extentFactsFromMetadataDelta(
 function reviewItemWithCarriedResolvedContent(props: {
 	readonly currentItem: BridgeReviewItemDescriptor | undefined;
 	readonly nextItem: BridgeReviewItemDescriptor;
+	readonly nextContentHashesByRole?: ReviewProjectionItemContentHashesByRole | undefined;
+	readonly carryForwardVerificationCounts?:
+		| ReviewMetadataCarryForwardVerificationCounts
+		| undefined;
 }): BridgeReviewItemDescriptor {
 	const current = props.currentItem;
 	if (current === undefined) {
@@ -425,7 +470,9 @@ function reviewItemWithCarriedResolvedContent(props: {
 	}
 	const contentRoles = contentRolesWithCarriedResolvedHandles({
 		currentContentRoles: current.contentRoles,
+		nextContentHashesByRole: props.nextContentHashesByRole,
 		nextContentRoles: props.nextItem.contentRoles,
+		carryForwardVerificationCounts: props.carryForwardVerificationCounts,
 	});
 	const shouldCarryLineCounts =
 		props.nextItem.contentLineCountsByRole === undefined &&
@@ -446,16 +493,32 @@ function reviewItemWithCarriedResolvedContent(props: {
 // and the content-addressed content-validity gate drops already-loaded content (stuck-on-placeholder).
 function contentRolesWithCarriedResolvedHandles(props: {
 	readonly currentContentRoles: BridgeReviewItemDescriptor['contentRoles'];
+	readonly nextContentHashesByRole?: ReviewProjectionItemContentHashesByRole | undefined;
 	readonly nextContentRoles: BridgeReviewItemDescriptor['contentRoles'];
+	readonly carryForwardVerificationCounts?:
+		| ReviewMetadataCarryForwardVerificationCounts
+		| undefined;
 }): BridgeReviewItemDescriptor['contentRoles'] {
 	const next = props.nextContentRoles;
 	const current = props.currentContentRoles;
-	const carried = {
-		base: next.base ?? current.base,
-		head: next.head ?? current.head,
-		diff: next.diff ?? current.diff,
-		file: next.file ?? current.file,
-	};
+	const carried = Object.fromEntries(
+		reviewContentRoles.map(
+			(role): readonly [BridgeContentRole, BridgeContentHandle | null | undefined] => {
+				const nextHandle = next[role];
+				if (nextHandle !== null && nextHandle !== undefined) {
+					return [role, nextHandle];
+				}
+				return [
+					role,
+					verifiedCarriedContentHandle({
+						contentHash: props.nextContentHashesByRole?.[role],
+						currentHandle: current[role],
+						verificationCounts: props.carryForwardVerificationCounts,
+					}),
+				];
+			},
+		),
+	) as BridgeReviewItemDescriptor['contentRoles'];
 	if (
 		carried.base === next.base &&
 		carried.head === next.head &&
@@ -465,6 +528,32 @@ function contentRolesWithCarriedResolvedHandles(props: {
 		return next;
 	}
 	return carried;
+}
+
+function verifiedCarriedContentHandle(props: {
+	readonly contentHash: string | null | undefined;
+	readonly currentHandle: BridgeContentHandle | null | undefined;
+	readonly verificationCounts: ReviewMetadataCarryForwardVerificationCounts | undefined;
+}): BridgeContentHandle | null | undefined {
+	if (props.currentHandle === null || props.currentHandle === undefined) {
+		return props.currentHandle;
+	}
+	if (props.contentHash === null || props.contentHash === undefined) {
+		if (props.verificationCounts !== undefined) {
+			props.verificationCounts.unverifiedKeepCount += 1;
+		}
+		return props.currentHandle;
+	}
+	if (props.contentHash === props.currentHandle.contentHash) {
+		if (props.verificationCounts !== undefined) {
+			props.verificationCounts.verifiedKeepCount += 1;
+		}
+		return props.currentHandle;
+	}
+	if (props.verificationCounts !== undefined) {
+		props.verificationCounts.verifiedDropCount += 1;
+	}
+	return null;
 }
 
 function reviewItemWithExtentFacts(props: {

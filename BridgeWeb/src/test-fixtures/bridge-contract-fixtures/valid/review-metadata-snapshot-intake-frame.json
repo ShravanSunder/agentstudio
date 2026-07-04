@@ -41,6 +41,10 @@
           "head": "handle-50e8f294d1a2af57697f6adcffeb65aea1a7676c1e3f0c71c0c67c59e5274676",
           "base": "handle-1f2f328a9922d61106f801824e8daeafdb6b4682d2a84abef37e581586607a37"
         },
+        "contentHashesByRole": {
+          "head": "sha256:new-source",
+          "base": "sha256:old-source"
+        },
         "headPath": "Sources/App/View.swift",
         "reviewPriority": "normal",
         "language": "swift",

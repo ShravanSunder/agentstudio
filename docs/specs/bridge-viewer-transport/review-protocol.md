@@ -359,9 +359,15 @@ Review subscription binding to the parent continuous event stream:
 - Review intake frames carry metadata/projection materialization: metadata
   snapshots, metadata windows, metadata deltas, rich invalidation detail, resets,
   package/comparison identity, item ids, paths, filenames, tree shape,
-  line/extent facts, selected target, and content descriptor refs. They may
-  attach descriptors for file/diff bodies, but metadata itself streams through
-  intake and is not a replacement for the continuous event stream.
+  line/extent facts, selected target, content descriptor refs, and per-role
+  content hashes. They may attach descriptors for file/diff bodies, but metadata
+  itself streams through intake and is not a replacement for the continuous event
+  stream.
+- If a producer changes an item's content, it MUST deliver a descriptor-bearing
+  frame for that item. Metadata-only re-touch/window/delta frames whose item
+  metadata omits descriptors carry the item's current role `contentHashesByRole`
+  so the browser can verify whether already-materialized content handles are
+  still current.
 - A `bridge.invalidated`, `bridge.gap`, `bridge.reset`, or `bridge.closed` event
   for a Review identity gates the matching Review intake/content work. Old intake
   frames and resource completions must stale-drop unless the provider rebinds the
@@ -517,6 +523,12 @@ Renderer lowering rules:
 - content descriptor changes update metadata and demand state; actual file/diff
   body hydration lowers to `@pierre/diffs` `CodeView.updateItem(...)` with a new
   item version/cache key when content arrives.
+- Metadata-only item frames may preserve already-resolved browser handles only
+  when their role hash is absent for a legacy producer or matches the resolved
+  handle hash. A matching hash is a verified keep. A differing hash means content
+  changed without a descriptor; the browser drops that role to a placeholder and
+  demand policy requests fresh content. Legacy absent-hash keeps are telemetry
+  counted as unverified.
 - The baseline safety contract is package id, generation, ordered stream
   sequence, `fromRevision`, and `toRevision`; a revision gap requires a metadata
   window/reset instead of speculative renderer work.

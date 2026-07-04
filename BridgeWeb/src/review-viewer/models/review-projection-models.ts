@@ -126,6 +126,15 @@ export const bridgeReviewProjectionInputItemSchema = z.object({
 		})
 		.strict()
 		.optional(),
+	contentHashesByRole: z
+		.object({
+			base: z.string().min(1).nullable().optional(),
+			head: z.string().min(1).nullable().optional(),
+			diff: z.string().min(1).nullable().optional(),
+			file: z.string().min(1).nullable().optional(),
+		})
+		.strict()
+		.optional(),
 	mimeTypes: z.array(z.string().min(1)).readonly(),
 	provenance: bridgeReviewProjectionItemProvenanceSchema,
 	loaded_by: z

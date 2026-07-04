@@ -28,6 +28,7 @@ import {
 	bridgeReviewPackageWithMetadataSnapshot,
 	bridgeReviewPackageWithMetadataWindow,
 } from './bridge-app-review-metadata-package.js';
+import type { ReviewMetadataCarryForwardVerificationCounts } from './bridge-app-review-metadata-package.js';
 import {
 	makeNoopTelemetryRecorder,
 	makeReviewAttachedContentDescriptor,
@@ -79,15 +80,59 @@ describe('Bridge review metadata package resolved-content preservation matrix', 
 		test(`${framePath}: omitting descriptor refs preserves resolved role handles and content hashes`, () => {
 			const reviewPackage = makeBridgeReviewPackage();
 			const currentItem = requireTargetReviewItem(reviewPackage);
+			const carryForwardVerificationCounts = makeEmptyCarryForwardVerificationCounts();
 			const nextReviewPackage = applyPreservationFramePath({
 				framePath,
 				reviewPackage,
 				descriptorDelivery: { kind: 'omitted' },
+				carryForwardVerificationCounts,
 			});
 
 			const nextItem = requireTargetReviewItem(nextReviewPackage);
 
 			expectResolvedRoleHandlesToEqualCurrent(nextItem, currentItem);
+			expect(carryForwardVerificationCounts.unverifiedKeepCount).toBe(2);
+		});
+
+		test(`${framePath}: matching descriptor-less role hashes verify carried role handles`, () => {
+			const reviewPackage = makeBridgeReviewPackage();
+			const currentItem = requireTargetReviewItem(reviewPackage);
+			const currentBaseHandle = requireRoleHandle({ item: currentItem, role: 'base' });
+			const currentHeadHandle = requireRoleHandle({ item: currentItem, role: 'head' });
+			const nextReviewPackage = applyPreservationFramePath({
+				framePath,
+				reviewPackage,
+				descriptorDelivery: {
+					kind: 'omitted',
+					contentHashesByRole: {
+						base: currentBaseHandle.contentHash,
+						head: currentHeadHandle.contentHash,
+					},
+				},
+			});
+
+			const nextItem = requireTargetReviewItem(nextReviewPackage);
+
+			expectResolvedRoleHandlesToEqualCurrent(nextItem, currentItem);
+		});
+
+		test(`${framePath}: differing descriptor-less role hashes drop stale carried handles`, () => {
+			const reviewPackage = makeBridgeReviewPackage();
+			const nextReviewPackage = applyPreservationFramePath({
+				framePath,
+				reviewPackage,
+				descriptorDelivery: {
+					kind: 'omitted',
+					contentHashesByRole: {
+						base: 'fixture:changed-base',
+						head: 'fixture:changed-head',
+					},
+				},
+			});
+
+			const nextItem = requireTargetReviewItem(nextReviewPackage);
+
+			expectMetadataOnlyRoleHandles(nextItem);
 		});
 
 		test(`${framePath}: fresher descriptor refs replace carried role handles and content hashes`, () => {
@@ -142,6 +187,9 @@ describe('Bridge review metadata package resolved-content preservation matrix', 
 
 interface OmittedDescriptorDelivery {
 	readonly kind: 'omitted';
+	readonly contentHashesByRole?: Partial<
+		Record<Extract<BridgeContentRole, 'base' | 'head'>, string>
+	>;
 }
 
 interface FreshDescriptorDelivery {
@@ -158,17 +206,22 @@ function applyPreservationFramePath(props: {
 	readonly framePath: PreservationFramePath;
 	readonly reviewPackage: BridgeReviewPackage;
 	readonly descriptorDelivery: DescriptorDelivery;
+	readonly carryForwardVerificationCounts?:
+		| ReviewMetadataCarryForwardVerificationCounts
+		| undefined;
 }): BridgeReviewPackage {
 	switch (props.framePath) {
 		case 'snapshot re-delivery':
 			return applySnapshotRedelivery({
 				reviewPackage: props.reviewPackage,
 				descriptorDelivery: props.descriptorDelivery,
+				carryForwardVerificationCounts: props.carryForwardVerificationCounts,
 			});
 		case 'metadata window':
 			return applyMetadataWindow({
 				reviewPackage: props.reviewPackage,
 				descriptorDelivery: props.descriptorDelivery,
+				carryForwardVerificationCounts: props.carryForwardVerificationCounts,
 			});
 		case 'extent-fact delta':
 			return requireAppliedDeltaPackage({
@@ -190,6 +243,7 @@ function applyPreservationFramePath(props: {
 						}),
 					],
 				}),
+				carryForwardVerificationCounts: props.carryForwardVerificationCounts,
 			});
 		case 'summary delta':
 			return requireAppliedDeltaPackage({
@@ -208,6 +262,7 @@ function applyPreservationFramePath(props: {
 						filesChanged: props.reviewPackage.summary.filesChanged + 1,
 					},
 				}),
+				carryForwardVerificationCounts: props.carryForwardVerificationCounts,
 			});
 		case 'order delta':
 			return requireAppliedDeltaPackage({
@@ -223,6 +278,7 @@ function applyPreservationFramePath(props: {
 						}),
 					],
 				}),
+				carryForwardVerificationCounts: props.carryForwardVerificationCounts,
 			});
 		case 'upsertItemMetadata':
 			return requireAppliedDeltaPackage({
@@ -240,6 +296,7 @@ function applyPreservationFramePath(props: {
 						},
 					],
 				}),
+				carryForwardVerificationCounts: props.carryForwardVerificationCounts,
 			});
 		case 'appendItems-retouch':
 			return requireAppliedDeltaPackage({
@@ -259,6 +316,7 @@ function applyPreservationFramePath(props: {
 						},
 					],
 				}),
+				carryForwardVerificationCounts: props.carryForwardVerificationCounts,
 			});
 	}
 	const exhaustiveFramePath: never = props.framePath;
@@ -268,6 +326,9 @@ function applyPreservationFramePath(props: {
 function applySnapshotRedelivery(props: {
 	readonly reviewPackage: BridgeReviewPackage;
 	readonly descriptorDelivery: DescriptorDelivery;
+	readonly carryForwardVerificationCounts?:
+		| ReviewMetadataCarryForwardVerificationCounts
+		| undefined;
 }): BridgeReviewPackage {
 	const snapshotFrame = makeMetadataSnapshotDelta({
 		reviewPackage: props.reviewPackage,
@@ -279,12 +340,17 @@ function applySnapshotRedelivery(props: {
 	return bridgeReviewPackageWithMetadataSnapshot({
 		reviewPackage: props.reviewPackage,
 		snapshotPackage,
+		snapshotFrame,
+		carryForwardVerificationCounts: props.carryForwardVerificationCounts,
 	});
 }
 
 function applyMetadataWindow(props: {
 	readonly reviewPackage: BridgeReviewPackage;
 	readonly descriptorDelivery: DescriptorDelivery;
+	readonly carryForwardVerificationCounts?:
+		| ReviewMetadataCarryForwardVerificationCounts
+		| undefined;
 }): BridgeReviewPackage {
 	return bridgeReviewPackageWithMetadataWindow({
 		reviewPackage: props.reviewPackage,
@@ -305,12 +371,16 @@ function applyMetadataWindow(props: {
 			registeredContentDescriptorRefs: [],
 			contentDescriptors: contentDescriptorsForDescriptorDelivery(props.descriptorDelivery),
 		},
+		carryForwardVerificationCounts: props.carryForwardVerificationCounts,
 	});
 }
 
 function requireAppliedDeltaPackage(props: {
 	readonly reviewPackage: BridgeReviewPackage;
 	readonly deltaFrame: ReviewDeltaMaterializerDelta;
+	readonly carryForwardVerificationCounts?:
+		| ReviewMetadataCarryForwardVerificationCounts
+		| undefined;
 }): BridgeReviewPackage {
 	const nextReviewPackage = applyReviewMetadataDeltaToReviewPackage(props);
 	if (nextReviewPackage === null) {
@@ -390,7 +460,10 @@ function projectionItemForDescriptorDelivery(props: {
 	if (props.descriptorDelivery.kind === 'fresh') {
 		return props.descriptorDelivery.projectionItem;
 	}
-	return makeProjectionInputItemWithoutDescriptorRefs(props.reviewPackage);
+	return makeProjectionInputItemWithoutDescriptorRefs(
+		props.reviewPackage,
+		props.descriptorDelivery.contentHashesByRole,
+	);
 }
 
 function contentDescriptorsForDescriptorDelivery(
@@ -456,8 +529,12 @@ function makeProjectionInputItemWithDescriptorRefs(props: {
 
 function makeProjectionInputItemWithoutDescriptorRefs(
 	reviewPackage: BridgeReviewPackage,
+	contentHashesByRole?: OmittedDescriptorDelivery['contentHashesByRole'],
 ): BridgeReviewProjectionInputItem {
-	return makeProjectionInputItemBase(reviewPackage);
+	return {
+		...makeProjectionInputItemBase(reviewPackage),
+		...(contentHashesByRole === undefined ? {} : { contentHashesByRole }),
+	} as BridgeReviewProjectionInputItem;
 }
 
 function makeProjectionInputItemBase(
@@ -777,6 +854,14 @@ function expectMetadataOnlyRoleHandles(item: BridgeReviewItemDescriptor): void {
 	expect(item.contentRoles.head).toBeNull();
 	expect(item.contentRoles.diff).toBeNull();
 	expect(item.contentRoles.file).toBeNull();
+}
+
+function makeEmptyCarryForwardVerificationCounts(): ReviewMetadataCarryForwardVerificationCounts {
+	return {
+		unverifiedKeepCount: 0,
+		verifiedDropCount: 0,
+		verifiedKeepCount: 0,
+	};
 }
 
 function targetTreeRow(): ReviewWindowMaterializerDelta['treeRows'][number] {

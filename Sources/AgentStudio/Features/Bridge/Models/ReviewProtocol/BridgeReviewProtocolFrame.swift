@@ -79,6 +79,13 @@ struct BridgeReviewProjectionContentDescriptorIdsByRole: Encodable, Equatable, S
     let file: String?
 }
 
+struct BridgeReviewProjectionContentHashesByRole: Encodable, Equatable, Sendable {
+    let base: String?
+    let head: String?
+    let diff: String?
+    let file: String?
+}
+
 struct BridgeReviewProjectionInputItem: Encodable, Equatable, Sendable {
     let itemId: String
     let basePath: String?
@@ -92,6 +99,7 @@ struct BridgeReviewProjectionInputItem: Encodable, Equatable, Sendable {
     let reviewState: String
     let contentRoles: [String]
     let contentDescriptorIdsByRole: BridgeReviewProjectionContentDescriptorIdsByRole?
+    let contentHashesByRole: BridgeReviewProjectionContentHashesByRole?
     let mimeTypes: [String]
     let provenance: BridgeReviewProjectionItemProvenance
     let loadedBy: BridgeReviewMetadataLoadedBy
@@ -110,6 +118,7 @@ struct BridgeReviewProjectionInputItem: Encodable, Equatable, Sendable {
         case reviewState
         case contentRoles
         case contentDescriptorIdsByRole
+        case contentHashesByRole
         case mimeTypes
         case provenance
         case loadedBy = "loaded_by"
@@ -130,6 +139,7 @@ struct BridgeReviewProjectionInputItem: Encodable, Equatable, Sendable {
         try container.encode(reviewState, forKey: .reviewState)
         try container.encode(contentRoles, forKey: .contentRoles)
         try container.encodeIfPresent(contentDescriptorIdsByRole, forKey: .contentDescriptorIdsByRole)
+        try container.encodeIfPresent(contentHashesByRole, forKey: .contentHashesByRole)
         try container.encode(mimeTypes, forKey: .mimeTypes)
         try container.encode(provenance, forKey: .provenance)
         try container.encode(loadedBy, forKey: .loadedBy)

@@ -314,6 +314,44 @@ describe('review protocol models', () => {
 		expect(semanticDelta.success).toBe(true);
 	});
 
+	test('parses descriptor-less projection role hashes for metadata-only freshness verification', () => {
+		const parsedItem = reviewMetadataDeltaFrameSchema.parse({
+			kind: 'metadataDelta',
+			streamId: 'stream-1',
+			generation: 1,
+			sequence: 2,
+			frameKind: 'review.metadataDelta',
+			packageId: 'package-1',
+			fromRevision: 1,
+			toRevision: 2,
+			operations: [
+				{
+					kind: 'upsertItemMetadata',
+					item: {
+						...makeProjectionInputItem('item-source'),
+						contentDescriptorIdsByRole: {},
+						contentHashesByRole: {
+							base: 'fixture:base-v1',
+							head: 'fixture:head-v1',
+						},
+					},
+				},
+			],
+			summary: makeReviewSummary(),
+		}).operations[0];
+		if (parsedItem === undefined) {
+			throw new Error('Expected parsed metadata operation');
+		}
+
+		if (parsedItem.kind !== 'upsertItemMetadata') {
+			throw new Error('Expected parsed upsertItemMetadata operation');
+		}
+		expect(parsedItem.item.contentHashesByRole).toEqual({
+			base: 'fixture:base-v1',
+			head: 'fixture:head-v1',
+		});
+	});
+
 	test('parses shared demand-lane lineage on review tree rows', () => {
 		const parsedFrame = reviewMetadataSnapshotFrameSchema.parse({
 			kind: 'metadataSnapshot',

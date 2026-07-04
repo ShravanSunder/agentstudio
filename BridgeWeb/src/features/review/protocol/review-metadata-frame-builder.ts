@@ -91,6 +91,7 @@ export function buildReviewMetadataSnapshotFrame(
 			.map((item) => ({
 				...item,
 				contentDescriptorIdsByRole: contentDescriptorIdsByRoleForItem(itemsById[item.itemId]),
+				contentHashesByRole: contentHashesByRoleForItem(itemsById[item.itemId]),
 			})),
 		treeRows: metadataItems.map(reviewItemToTreeRow),
 		extentFacts: metadataItems.flatMap(reviewItemToExtentFacts),
@@ -153,6 +154,9 @@ function metadataDeltaOperationsWithContentDescriptorIds(props: {
 						contentDescriptorIdsByRole: contentDescriptorIdsByRoleForItem(
 							props.package.itemsById[operation.item.itemId],
 						),
+						contentHashesByRole: contentHashesByRoleForItem(
+							props.package.itemsById[operation.item.itemId],
+						),
 					},
 				};
 			case 'appendItems':
@@ -163,6 +167,7 @@ function metadataDeltaOperationsWithContentDescriptorIds(props: {
 						contentDescriptorIdsByRole: contentDescriptorIdsByRoleForItem(
 							props.package.itemsById[item.itemId],
 						),
+						contentHashesByRole: contentHashesByRoleForItem(props.package.itemsById[item.itemId]),
 					})),
 				};
 			case 'removeItems':
@@ -237,6 +242,7 @@ export function buildReviewMetadataWindowFrame(
 			.map((item) => ({
 				...item,
 				contentDescriptorIdsByRole: contentDescriptorIdsByRoleForItem(itemsById[item.itemId]),
+				contentHashesByRole: contentHashesByRoleForItem(itemsById[item.itemId]),
 			})),
 		treeRows: metadataItems.map(reviewItemToTreeRow),
 		extentFacts: metadataItems.flatMap(reviewItemToExtentFacts),
@@ -298,6 +304,17 @@ function contentDescriptorIdsByRoleForItem(
 		head: item?.contentRoles.head?.handleId ?? null,
 		diff: item?.contentRoles.diff?.handleId ?? null,
 		file: item?.contentRoles.file?.handleId ?? null,
+	};
+}
+
+function contentHashesByRoleForItem(
+	item: BridgeReviewItemDescriptor | undefined,
+): ReviewMetadataSnapshotFrame['itemMetadata'][number]['contentHashesByRole'] {
+	return {
+		base: item?.contentRoles.base?.contentHash ?? null,
+		head: item?.contentRoles.head?.contentHash ?? null,
+		diff: item?.contentRoles.diff?.contentHash ?? null,
+		file: item?.contentRoles.file?.contentHash ?? null,
 	};
 }
 

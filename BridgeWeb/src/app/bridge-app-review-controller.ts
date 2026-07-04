@@ -41,6 +41,7 @@ import {
 	mergeReviewTreeRowsByRowId,
 	reviewTreeRowsWithMetadataDelta,
 } from './bridge-app-review-metadata-package.js';
+import type { ReviewMetadataCarryForwardVerificationCounts } from './bridge-app-review-metadata-package.js';
 import {
 	createChildTraceContext,
 	makeTelemetryPackageKey,
@@ -227,10 +228,13 @@ async function applyReviewProtocolFramePayload(
 			currentReviewPackage !== null &&
 			currentReviewPackage.packageId === packagePayload.packageId &&
 			currentReviewPackage.reviewGeneration === packagePayload.reviewGeneration;
+		const carryForwardVerificationCounts = emptyReviewMetadataCarryForwardVerificationCounts();
 		if (shouldMergeSnapshotWithCurrentPackage) {
 			packagePayload = bridgeReviewPackageWithMetadataSnapshot({
 				reviewPackage: currentReviewPackage,
 				snapshotPackage: packagePayload,
+				snapshotFrame,
+				carryForwardVerificationCounts,
 			});
 		}
 
@@ -310,6 +314,7 @@ async function applyReviewProtocolFramePayload(
 			resultReason: 'none',
 			numericAttributes: {
 				'agentstudio.bridge.review.item_count': packagePayload.orderedItemIds.length,
+				...reviewMetadataCarryForwardVerificationNumericAttributes(carryForwardVerificationCounts),
 			},
 		});
 		const currentSelectedItemId = getSelectedItemId();
@@ -347,9 +352,16 @@ async function applyReviewProtocolFramePayload(
 		) {
 			return;
 		}
+		const carryForwardVerificationCounts = emptyReviewMetadataCarryForwardVerificationCounts();
 		const packagePayload = bridgeReviewPackageWithMetadataWindow({
 			reviewPackage: currentReviewPackage,
 			windowFrame,
+			carryForwardVerificationCounts,
+		});
+		recordReviewMetadataCarryForwardVerificationTelemetry({
+			carryForwardVerificationCounts,
+			telemetryContext: props.telemetryContext,
+			telemetryRecorder: props.telemetryRecorder,
 		});
 		reviewContentDescriptorRefsByHandleIdRef.current = new Map([
 			...reviewContentDescriptorRefsByHandleIdRef.current,
@@ -376,14 +388,21 @@ async function applyReviewProtocolFramePayload(
 	});
 	if (deltaFrame !== null) {
 		const currentReviewPackage = reviewPackageRef.current;
+		const carryForwardVerificationCounts = emptyReviewMetadataCarryForwardVerificationCounts();
 		const packagePayload =
 			currentReviewPackage === null
 				? null
 				: applyReviewMetadataDeltaToReviewPackage({
 						deltaFrame,
 						reviewPackage: currentReviewPackage,
+						carryForwardVerificationCounts,
 					});
 		if (packagePayload !== null) {
+			recordReviewMetadataCarryForwardVerificationTelemetry({
+				carryForwardVerificationCounts,
+				telemetryContext: props.telemetryContext,
+				telemetryRecorder: props.telemetryRecorder,
+			});
 			reviewContentDescriptorRefsByHandleIdRef.current = new Map([
 				...reviewContentDescriptorRefsByHandleIdRef.current,
 				...deltaFrame.registeredContentDescriptorRefs.map(
@@ -514,6 +533,54 @@ function failReviewMetadataSnapshotApply(props: {
 		durationMilliseconds: null,
 		result: 'failed',
 		resultReason: reviewMetadataSnapshotApplyFailureResultReason(props.error),
+	});
+}
+
+function emptyReviewMetadataCarryForwardVerificationCounts(): ReviewMetadataCarryForwardVerificationCounts {
+	return {
+		unverifiedKeepCount: 0,
+		verifiedDropCount: 0,
+		verifiedKeepCount: 0,
+	};
+}
+
+function reviewMetadataCarryForwardVerificationNumericAttributes(
+	counts: ReviewMetadataCarryForwardVerificationCounts,
+): Readonly<Record<string, number>> {
+	return {
+		'agentstudio.bridge.review.metadata_carry_forward.unverified_keep.count':
+			counts.unverifiedKeepCount,
+		'agentstudio.bridge.review.metadata_carry_forward.verified_drop.count':
+			counts.verifiedDropCount,
+		'agentstudio.bridge.review.metadata_carry_forward.verified_keep.count':
+			counts.verifiedKeepCount,
+	};
+}
+
+function recordReviewMetadataCarryForwardVerificationTelemetry(props: {
+	readonly carryForwardVerificationCounts: ReviewMetadataCarryForwardVerificationCounts;
+	readonly telemetryContext: BridgeReviewPackageTelemetryContext;
+	readonly telemetryRecorder: BridgeTelemetryRecorder;
+}): void {
+	const totalCount =
+		props.carryForwardVerificationCounts.unverifiedKeepCount +
+		props.carryForwardVerificationCounts.verifiedDropCount +
+		props.carryForwardVerificationCounts.verifiedKeepCount;
+	if (totalCount === 0) {
+		return;
+	}
+	recordReviewStartupTelemetry({
+		telemetryRecorder: props.telemetryRecorder,
+		phase: 'review_metadata_apply',
+		slice: props.telemetryContext.slice,
+		transport: props.telemetryContext.transport,
+		traceContext: createChildTraceContext(props.telemetryContext.traceContext),
+		durationMilliseconds: null,
+		result: 'success',
+		resultReason: 'metadata_carry_forward_verification',
+		numericAttributes: reviewMetadataCarryForwardVerificationNumericAttributes(
+			props.carryForwardVerificationCounts,
+		),
 	});
 }
 
