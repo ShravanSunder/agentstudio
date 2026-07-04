@@ -9,6 +9,8 @@
                   let reviewTreeClickProbeHandlerInvokedDelta = reviewTreeClickProbeNumber('handlerInvokedDelta', 0);
                   let reviewTreeClickProbeSelectionCommandIssuedDelta = reviewTreeClickProbeNumber('selectionCommandIssuedDelta', 0);
                   let reviewTreeClickProbeLateSelectedMatches = reviewTreeClickProbe.lateSelectedMatches === true;
+                  let reviewTreeClickProbePollsToSelectionMatch = reviewTreeClickProbeNumber('pollsToSelectionMatch', -1);
+                  let reviewTreeClickProbeClickToSelectionMs = reviewTreeClickProbeNumber('clickToSelectionMs', -1);
                   const reviewTreeClickProbeBreadcrumbState = () => ({
                     targetRowPathAtFind: reviewTreeClickProbeTargetRowPathAtFind, targetRowIdAtFind: reviewTreeClickProbeTargetRowIdAtFind,
                     targetRowIdAtDispatch: reviewTreeClickProbeTargetRowIdAtDispatch, targetRowConnectedAtDispatch: reviewTreeClickProbeTargetRowConnectedAtDispatch,
@@ -19,8 +21,55 @@
                     captureHandlerInvokedCount: reviewTreeClickProbeCaptureHandlerInvokedCount, captureHandlerResolvedRowItemId: reviewTreeClickProbeCaptureHandlerResolvedRowItemId,
                     selectionCommandIssuedCount: reviewTreeClickProbeSelectionCommandIssuedCount, selectionCommandAcceptedCount: reviewTreeClickProbeSelectionCommandAcceptedCount,
                     selectionCommandLastResult: reviewTreeClickProbeSelectionCommandLastResult, handlerInvokedDelta: reviewTreeClickProbeHandlerInvokedDelta,
-                    selectionCommandIssuedDelta: reviewTreeClickProbeSelectionCommandIssuedDelta, lateSelectedMatches: reviewTreeClickProbeLateSelectedMatches
+                    selectionCommandIssuedDelta: reviewTreeClickProbeSelectionCommandIssuedDelta, lateSelectedMatches: reviewTreeClickProbeLateSelectedMatches,
+                    pollsToSelectionMatch: reviewTreeClickProbePollsToSelectionMatch, clickToSelectionMs: reviewTreeClickProbeClickToSelectionMs
                   });
+            """
+
+        static let selectionPollState = """
+                  const reviewTreeClickProbeSelectionPollBudget = 160;
+                  const reviewTreeClickProbePollCadenceMs = 50;
+                  const reviewTreeClickProbeSelectionMatchesCommit =
+                    reviewTreeClickTargetPath.length > 0 &&
+                    reviewTreeClickProbeCaptureHandlerResolvedRowItemId.length > 0 &&
+                    selectedItemId === reviewTreeClickProbeCaptureHandlerResolvedRowItemId;
+                  if (
+                    reviewTreeClickProbeSelectionMatchesCommit &&
+                    reviewTreeClickProbePollsToSelectionMatch < 0
+                  ) {
+                    reviewTreeClickProbePollsToSelectionMatch = Math.max(0, reviewTreeClickProbeSelectionPollCount);
+                    reviewTreeClickProbeClickToSelectionMs =
+                      reviewTreeClickProbePollsToSelectionMatch * reviewTreeClickProbePollCadenceMs;
+                  }
+                  if (
+                    reviewTreeClickTargetPath.length > 0 &&
+                    reviewTreeClickSelectedPath.length === 0 &&
+                    !reviewTreeClickProbeSelectionMatchesCommit &&
+                    reviewTreeClickProbeSelectionPollCount < reviewTreeClickProbeSelectionPollBudget
+                  ) {
+                    const selectionPollIndex = reviewTreeClickProbeSelectionPollCount;
+                    const selectionPollEntry =
+                      `${selectionPollIndex}:${reviewTreeClickProbeClip(selectedItemId || 'missing', 80)}`;
+                    reviewTreeClickProbeSelectionPollTrace =
+                      reviewTreeClickProbeSelectionPollTrace.length > 0
+                        ? `${reviewTreeClickProbeSelectionPollTrace}|${selectionPollEntry}`
+                        : selectionPollEntry;
+                    reviewTreeClickProbeSelectionPollCount += 1;
+                    reviewTreeClickProbeSelectionPollLastIndex = selectionPollIndex;
+                  }
+                  if (reviewTreeClickTargetPath.length > 0 && reviewTreeClickSelectedPath.length === 0) {
+                    window.__bridgeReviewTreeClickProbe = {
+                      ...reviewTreeClickProbe,
+                      currentSelectedPath: reviewTreeClickCurrentSelectedPath,
+                      currentSelectedItemId: reviewTreeClickCurrentSelectedItemId,
+                      shellSelectedPath: reviewTreeClickShellSelectedPath,
+                      selectionPollTrace: reviewTreeClickProbeSelectionPollTrace,
+                      selectionPollCount: reviewTreeClickProbeSelectionPollCount,
+                      selectionPollLastIndex: reviewTreeClickProbeSelectionPollLastIndex,
+                      secondClickAttempted: reviewTreeClickProbeSecondClickAttempted,
+                      ...reviewTreeClickProbeBreadcrumbState()
+                    };
+                  }
             """
 
         static let afterDispatchState = """

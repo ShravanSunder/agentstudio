@@ -305,6 +305,31 @@ struct AgentStudioStartupDiagnosticActionTests {
                 == .string("missing"))
     }
 
+    @Test("Bridge smoke render proof records late tree click selection latency inside bounded budget")
+    func bridgeSmokeRenderProofRecordsLateTreeClickSelectionLatencyInsideBoundedBudget() {
+        var proof = makeFullyHydratedBridgeSmokeRenderProof()
+        proof.reviewTreeClickProbePollsToSelectionMatch = 42
+        proof.reviewTreeClickProbeClickToSelectionMs = 2100
+
+        #expect(proof.succeeded)
+        assertReviewTreeClickLatencyAttributes(proof, polls: 42, milliseconds: 2100)
+    }
+
+    @Test("Bridge smoke render proof records never matched tree click selection sentinel")
+    func bridgeSmokeRenderProofRecordsNeverMatchedTreeClickSelectionSentinel() {
+        var proof = makeFullyHydratedBridgeSmokeRenderProof()
+        proof.reviewTreeClickSelectedPath = ""
+        proof.reviewTreeClickSelectedContentState = "missing"
+        proof.reviewTreeClickSelectedMaterializedItemType = "missing"
+        proof.reviewTreeClickSelectedMaterializedItemVersion = 0
+        proof.reviewTreeClickSelectedCharacterCount = 0
+        proof.reviewTreeClickProbePollsToSelectionMatch = -1
+        proof.reviewTreeClickProbeClickToSelectionMs = -1
+
+        #expect(!proof.succeeded)
+        assertReviewTreeClickLatencyAttributes(proof, polls: -1, milliseconds: -1)
+    }
+
     @Test("Bridge smoke diagnostic stages review tree click until after bottom scroll settles")
     func bridgeSmokeDiagnosticStagesReviewTreeClickUntilAfterBottomScrollSettles() {
         let probe = AppDelegate.bridgeReviewObservabilitySmokeRenderStateJavaScript
@@ -313,6 +338,16 @@ struct AgentStudioStartupDiagnosticActionTests {
         #expect(probe.contains("awaiting_bottom_scroll_settle"))
         #expect(probe.contains("data-file-tree-sticky-row"))
         #expect(probe.contains("data-item-parked"))
+    }
+
+    @Test("Bridge smoke diagnostic uses bounded expanded tree click selection polling")
+    func bridgeSmokeDiagnosticUsesBoundedExpandedTreeClickSelectionPolling() {
+        let probe = AppDelegate.bridgeReviewObservabilitySmokeRenderStateJavaScript
+
+        #expect(probe.contains("reviewTreeClickProbeSelectionPollBudget = 160"))
+        #expect(probe.contains("reviewTreeClickProbePollCadenceMs = 50"))
+        #expect(probe.contains("pollsToSelectionMatch"))
+        #expect(probe.contains("clickToSelectionMs"))
     }
 
     @Test("Bridge smoke render proof fails before a modified review item click converges")
@@ -848,6 +883,21 @@ private func assertHydratedBridgeContentAttributes(
     #expect(attributes["agentstudio.startup_diagnostic.bridge.selected_materialized.addition_line.count"] == .int(4))
     #expect(attributes["agentstudio.startup_diagnostic.bridge.selected_materialized.deletion_line.count"] == .int(2))
     #expect(attributes["agentstudio.startup_diagnostic.bridge.selected_materialized.file_line.count"] == .int(0))
+}
+
+private func assertReviewTreeClickLatencyAttributes(
+    _ proof: BridgeReviewObservabilitySmokeRenderProof,
+    polls: Int,
+    milliseconds: Int
+) {
+    #expect(
+        proof.attributes[
+            "agentstudio.startup_diagnostic.bridge.review_tree_click.probe.polls_to_selection_match"
+        ] == .int(polls))
+    #expect(
+        proof.attributes[
+            "agentstudio.startup_diagnostic.bridge.review_tree_click.probe.click_to_selection_ms"
+        ] == .int(milliseconds))
 }
 
 private func assertHydratedBridgeGeometryAttributes(

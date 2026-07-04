@@ -526,27 +526,7 @@ extension AppDelegate {
               let reviewTreeClickProbeSecondClickAttempted =
                 reviewTreeClickProbe.secondClickAttempted === true || reviewTreeClickAttemptCount > 1;
             \(BridgeReviewStartupTreeClickProbeJavaScript.counterState)
-              if (reviewTreeClickTargetPath.length > 0 && reviewTreeClickSelectedPath.length === 0) {
-                const selectionPollIndex = reviewTreeClickProbeSelectionPollCount;
-                const selectionPollEntry =
-                  `${selectionPollIndex}:${reviewTreeClickProbeClip(selectedItemId || 'missing', 80)}`;
-                reviewTreeClickProbeSelectionPollTrace =
-                  reviewTreeClickProbeSelectionPollTrace.length > 0
-                    ? `${reviewTreeClickProbeSelectionPollTrace}|${selectionPollEntry}`
-                    : selectionPollEntry;
-                reviewTreeClickProbeSelectionPollCount += 1;
-                reviewTreeClickProbeSelectionPollLastIndex = selectionPollIndex;
-                window.__bridgeReviewTreeClickProbe = {
-                  ...reviewTreeClickProbe,
-                  currentSelectedPath: reviewTreeClickCurrentSelectedPath,
-                  currentSelectedItemId: reviewTreeClickCurrentSelectedItemId,
-                  shellSelectedPath: reviewTreeClickShellSelectedPath,
-                  selectionPollTrace: reviewTreeClickProbeSelectionPollTrace,
-                  selectionPollCount: reviewTreeClickProbeSelectionPollCount,
-                  selectionPollLastIndex: reviewTreeClickProbeSelectionPollLastIndex,
-                  secondClickAttempted: reviewTreeClickProbeSecondClickAttempted
-                };
-              }
+            \(BridgeReviewStartupTreeClickProbeJavaScript.selectionPollState)
               const reviewTreeClickHasConverged =
                 reviewTreeClickTargetPath.length > 0 &&
                 selectedDisplayPath === reviewTreeClickTargetPath &&
@@ -850,6 +830,8 @@ extension AppDelegate {
                 reviewTreeClickProbeSelectionCommandAcceptedCount,
                 reviewTreeClickProbeSelectionCommandLastResult,
                 reviewTreeClickProbeLateSelectedMatches,
+                reviewTreeClickProbePollsToSelectionMatch,
+                reviewTreeClickProbeClickToSelectionMs,
                 hasSelectedContentText:
                   selectedContentState === 'ready' &&
                   selectedContentRoleCount > 0 &&

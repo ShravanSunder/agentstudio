@@ -456,6 +456,8 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.startup_diagnostic.bridge.review_tree_click.probe.handler_invoked_delta",
         "agentstudio.startup_diagnostic.bridge.review_tree_click.probe.selection_command_issued_delta",
         "agentstudio.startup_diagnostic.bridge.review_tree_click.probe.selection_command_accepted.count",
+        "agentstudio.startup_diagnostic.bridge.review_tree_click.probe.polls_to_selection_match",
+        "agentstudio.startup_diagnostic.bridge.review_tree_click.probe.click_to_selection_ms",
         "agentstudio.startup_diagnostic.bridge.modified_click.click_attempt.count",
         "agentstudio.startup_diagnostic.bridge.modified_click.rendered_row.count",
         "agentstudio.startup_diagnostic.bridge.review_tree_click.selected_content_character.count",

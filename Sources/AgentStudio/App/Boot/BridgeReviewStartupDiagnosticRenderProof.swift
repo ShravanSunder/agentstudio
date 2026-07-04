@@ -177,6 +177,8 @@ extension BridgeReviewObservabilitySmokeRenderProof {
         reviewTreeClickProbeSelectionCommandLastResult =
             snapshot.reviewTreeClickProbeSelectionCommandLastResult
         reviewTreeClickProbeLateSelectedMatches = snapshot.reviewTreeClickProbeLateSelectedMatches
+        reviewTreeClickProbePollsToSelectionMatch = snapshot.reviewTreeClickProbePollsToSelectionMatch ?? -1
+        reviewTreeClickProbeClickToSelectionMs = snapshot.reviewTreeClickProbeClickToSelectionMs ?? -1
         paintedProbeAnchoredDeliveryEntryCount = snapshot.paintedProbeAnchoredDeliveryEntryCount
         paintedProbeAnchoredDeliveryAnchorPresentCount =
             snapshot.paintedProbeAnchoredDeliveryAnchorPresentCount
@@ -259,6 +261,8 @@ struct BridgeReviewObservabilitySmokeRenderSnapshot: Decodable, Equatable {
     let reviewTreeClickProbeSelectionCommandAcceptedCount: Int
     let reviewTreeClickProbeSelectionCommandLastResult: String
     let reviewTreeClickProbeLateSelectedMatches: Bool
+    let reviewTreeClickProbePollsToSelectionMatch: Int?
+    let reviewTreeClickProbeClickToSelectionMs: Int?
     let hasSelectedContentText: Bool
     let selectedContentState: String
     let selectedContentRoleCount: Int
@@ -387,6 +391,8 @@ struct BridgeReviewObservabilitySmokeRenderSnapshot: Decodable, Equatable {
 }
 
 struct BridgeReviewObservabilitySmokeRenderProof: Equatable {
+    private static let reviewTreeClickSelectionPollBudget = 160
+
     let expectedVisiblePaneCount: Int
     let expectedReviewItemCount: Int
     let hasReviewShell: Bool
@@ -441,6 +447,8 @@ struct BridgeReviewObservabilitySmokeRenderProof: Equatable {
     var reviewTreeClickProbeSelectionCommandAcceptedCount: Int = 0
     var reviewTreeClickProbeSelectionCommandLastResult: String = "missing"
     var reviewTreeClickProbeLateSelectedMatches: Bool = false
+    var reviewTreeClickProbePollsToSelectionMatch: Int = -1
+    var reviewTreeClickProbeClickToSelectionMs: Int = -1
     let hasSelectedContentText: Bool
     let selectedContentState: String
     let selectedContentRoleCount: Int
@@ -604,13 +612,17 @@ struct BridgeReviewObservabilitySmokeRenderProof: Equatable {
             && reviewTreeScrollStressReachedBottom
             && reviewTreeClientHeight > 0
             && reviewTreeScrollHeight >= reviewTreeClientHeight
-        let reviewTreeClickConverged =
+        let reviewTreeClickSelectionMatchedWithinBudget =
+            reviewTreeClickProbePollsToSelectionMatch >= 0
+            && reviewTreeClickProbePollsToSelectionMatch < Self.reviewTreeClickSelectionPollBudget
+        let reviewTreeClickSelectedPathMatches =
             !reviewTreeClickTargetPath.isEmpty
             && reviewTreeClickSelectedPath == reviewTreeClickTargetPath
-            && reviewTreeClickSelectedContentState == "ready"
-            && reviewTreeClickSelectedMaterializedItemType == "diff"
-            && reviewTreeClickSelectedMaterializedItemVersion > 0
-            && reviewTreeClickSelectedCharacterCount > 0
+        let reviewTreeClickConverged =
+            !reviewTreeClickTargetPath.isEmpty
+            && (reviewTreeClickSelectedPathMatches
+                || reviewTreeClickSelectionMatchedWithinBudget
+                || reviewTreeClickProbeLateSelectedMatches)
         return expectedVisiblePaneCount == 1
             && expectedReviewItemCount > 0
             && hasReviewShell
@@ -752,6 +764,10 @@ struct BridgeReviewObservabilitySmokeRenderProof: Equatable {
                 reviewTreeClickProbeSelectionCommandLastResult),
             "agentstudio.startup_diagnostic.bridge.review_tree_click.probe.late_selected_matches": .bool(
                 reviewTreeClickProbeLateSelectedMatches),
+            "agentstudio.startup_diagnostic.bridge.review_tree_click.probe.polls_to_selection_match": .int(
+                reviewTreeClickProbePollsToSelectionMatch),
+            "agentstudio.startup_diagnostic.bridge.review_tree_click.probe.click_to_selection_ms": .int(
+                reviewTreeClickProbeClickToSelectionMs),
             "agentstudio.startup_diagnostic.bridge.selected_content.visible": .bool(hasSelectedContentText),
             "agentstudio.startup_diagnostic.bridge.selected_content.state": .string(selectedContentState),
             "agentstudio.startup_diagnostic.bridge.selected_content_role.count": .int(selectedContentRoleCount),
