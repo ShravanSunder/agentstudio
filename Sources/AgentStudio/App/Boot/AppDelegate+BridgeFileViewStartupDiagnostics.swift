@@ -808,9 +808,7 @@ import Foundation
               const nativeWorktreeProbe = Array.isArray(window.__bridgeNativeWorktreeFileProbe)
                 ? window.__bridgeNativeWorktreeFileProbe
                 : [];
-              const lastNativeWorktreeProbeEntry = nativeWorktreeProbe.length > 0
-                ? nativeWorktreeProbe[nativeWorktreeProbe.length - 1]
-                : null;
+              const lastNativeWorktreeProbeEntry = nativeWorktreeProbe.length > 0 ? nativeWorktreeProbe[nativeWorktreeProbe.length - 1] : null;
               const clip = (value, limit) => String(value || '').slice(0, limit);
               const nativeWorktreeProbeFrameEvidenceCount = nativeWorktreeProbe.filter((entry) => {
                 return (
@@ -818,14 +816,10 @@ import Foundation
                   entry?.streamIdMatches === true
                 );
               }).length;
-              const nativeWorktreeProbeGeneration = (entry) => {
-                const generation = Number(entry?.generation || 0);
-                return Number.isFinite(generation) ? generation : 0;
-              };
-              const nativeWorktreeProbeReceiverGeneration = (entry) => {
-                const generation = Number(entry?.receiverGeneration || 0);
-                return Number.isFinite(generation) ? generation : 0;
-              };
+              const nativeWorktreeProbeSafeGeneration = (value) => Number.isFinite(Number(value || 0)) ? Number(value || 0) : 0;
+              const nativeWorktreeProbeGeneration = (entry) => nativeWorktreeProbeSafeGeneration(entry?.generation);
+              const nativeWorktreeProbeReceiverGeneration = (entry) => nativeWorktreeProbeSafeGeneration(entry?.receiverGeneration);
+              const nativeWorktreeProbeIsDrop = (entry) => clip(entry?.reason, 120).startsWith('drop_');
               const nativeWorktreeProbeHasFrameEvidence = (entry) => {
                 return (
                   clip(entry?.frameKind, 120).length > 0 &&
@@ -833,7 +827,7 @@ import Foundation
                 );
               };
               const nativeWorktreeProbeIsBenignOldGenerationCleanupDrop = (entry) => (
-                clip(entry?.reason, 120).startsWith('drop_') && clip(entry?.receiverReason, 120) === 'generation_mismatch' &&
+                nativeWorktreeProbeIsDrop(entry) && clip(entry?.receiverReason, 120) === 'generation_mismatch' &&
                 nativeWorktreeProbeReceiverGeneration(entry) > nativeWorktreeProbeGeneration(entry)
               );
               const nativeWorktreeProbeIsBenignReceiverGenerationBucketDrop = (entry) => (
@@ -843,7 +837,7 @@ import Foundation
               );
               const nativeWorktreeProbeBenignReceiverGenerationBucketDropCount = nativeWorktreeProbe.filter(nativeWorktreeProbeIsBenignReceiverGenerationBucketDrop).length;
               const nativeWorktreeProbeFailureDropCount = nativeWorktreeProbe.filter((entry) => (
-                clip(entry?.reason, 120).startsWith('drop_') &&
+                nativeWorktreeProbeIsDrop(entry) &&
                 !nativeWorktreeProbeIsBenignOldGenerationCleanupDrop(entry) &&
                 !nativeWorktreeProbeIsBenignReceiverGenerationBucketDrop(entry)
               )).length;
@@ -860,6 +854,12 @@ import Foundation
                   nativeWorktreeProbeGeneration(entry) === nativeWorktreeProbeFinalGeneration
                 );
               }).length;
+              const nativeWorktreeProbeFinalGenerationFailureDropCount = nativeWorktreeProbe.filter((entry) => (
+                nativeWorktreeProbeIsDrop(entry) &&
+                nativeWorktreeProbeGeneration(entry) === nativeWorktreeProbeFinalGeneration &&
+                nativeWorktreeProbeReceiverGeneration(entry) === nativeWorktreeProbeFinalGeneration &&
+                !nativeWorktreeProbeIsBenignReceiverGenerationBucketDrop(entry)
+              )).length;
               const classifyPageIssue = (entry) => {
                 const kind = clip(entry?.kind, 80);
                 const message = clip(entry?.message, 300);
@@ -991,7 +991,7 @@ import Foundation
                 nativeWorktreeProbeFinalGeneration,
                 nativeWorktreeProbeFinalGenerationFrameEvidenceCount,
                 nativeWorktreeProbeBenignReceiverGenerationBucketDropCount,
-                nativeWorktreeProbeFailureDropCount
+                nativeWorktreeProbeFailureDropCount, nativeWorktreeProbeFinalGenerationFailureDropCount
               };
             })())
             """

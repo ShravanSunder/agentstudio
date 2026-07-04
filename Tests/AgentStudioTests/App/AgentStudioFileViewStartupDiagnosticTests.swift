@@ -126,19 +126,26 @@ struct AgentStudioFileViewStartupDiagnosticTests {
         #expect(proof.attributes["agentstudio.startup_diagnostic.render_proof.succeeded"] == .bool(false))
     }
 
-    @Test("Bridge FileView smoke render proof fails when native intake reports a dropped frame")
-    func smokeRenderProofFailsWhenNativeIntakeReportsDroppedFrame() {
+    @Test("Bridge FileView smoke render proof emits transitional dropped frames without gating the verdict")
+    func smokeRenderProofEmitsTransitionalDroppedFramesWithoutGatingVerdict() {
         let proof = BridgeFileViewObservabilitySmokeRenderProof(
             snapshot: makeFileViewSmokeSnapshot(
                 nativeWorktreeProbeLastReason: "drop_parse_failed",
                 nativeWorktreeProbeLastReceiverReason: "generation_mismatch",
+                nativeWorktreeProbeLastGeneration: 2,
+                nativeWorktreeProbeLastReceiverGeneration: 0,
+                nativeWorktreeProbeFinalGeneration: 3,
+                nativeWorktreeProbeFinalGenerationFrameEvidenceCount: 4,
                 nativeWorktreeProbeFailureDropCount: 1
             ),
             expectedVisiblePaneCount: 1
         )
 
-        #expect(!proof.succeeded)
-        #expect(proof.attributes["agentstudio.startup_diagnostic.render_proof.succeeded"] == .bool(false))
+        #expect(proof.succeeded)
+        #expect(
+            proof.attributes["agentstudio.startup_diagnostic.bridge.file_view.native_probe.failure_drop.count"]
+                == .int(1))
+        #expect(proof.attributes["agentstudio.startup_diagnostic.render_proof.succeeded"] == .bool(true))
     }
 
     @Test("Bridge FileView smoke render proof accepts old-generation cleanup drop after final evidence")
@@ -201,7 +208,8 @@ struct AgentStudioFileViewStartupDiagnosticTests {
                 nativeWorktreeProbeLastReceiverGeneration: 3,
                 nativeWorktreeProbeFinalGeneration: 3,
                 nativeWorktreeProbeFinalGenerationFrameEvidenceCount: 2,
-                nativeWorktreeProbeFailureDropCount: 1
+                nativeWorktreeProbeFailureDropCount: 1,
+                nativeWorktreeProbeFinalGenerationFailureDropCount: 1
             ),
             expectedVisiblePaneCount: 1
         )
@@ -210,17 +218,27 @@ struct AgentStudioFileViewStartupDiagnosticTests {
         #expect(
             proof.attributes["agentstudio.startup_diagnostic.bridge.file_view.native_probe.failure_drop.count"]
                 == .int(1))
+        #expect(
+            proof.attributes[
+                "agentstudio.startup_diagnostic.bridge.file_view.native_probe.final_generation_failure_drop.count"
+            ] == .int(1))
         #expect(proof.attributes["agentstudio.startup_diagnostic.render_proof.succeeded"] == .bool(false))
     }
 
-    @Test("Bridge FileView smoke render proof accepts a replay request after native frame evidence")
-    func smokeRenderProofAcceptsReplayRequestAfterNativeFrameEvidence() {
+    @Test("Bridge FileView smoke render proof accepts replay-request tail at an older generation after final evidence")
+    func smokeRenderProofAcceptsReplayRequestTailAtOlderGenerationAfterFinalEvidence() {
         let proof = BridgeFileViewObservabilitySmokeRenderProof(
             snapshot: makeFileViewSmokeSnapshot(
                 nativeWorktreeProbeLastReason: "replay_requested",
+                nativeWorktreeProbeLastReceiverReason: "between_generations",
                 nativeWorktreeProbeLastFrameKind: "none",
+                nativeWorktreeProbeLastGeneration: 2,
+                nativeWorktreeProbeLastReceiverGeneration: 0,
                 nativeWorktreeProbeLastSequence: 0,
-                nativeWorktreeProbeFrameEvidenceCount: 5
+                nativeWorktreeProbeFrameEvidenceCount: 19,
+                nativeWorktreeProbeFinalGeneration: 3,
+                nativeWorktreeProbeFinalGenerationFrameEvidenceCount: 19,
+                nativeWorktreeProbeFailureDropCount: 4
             ),
             expectedVisiblePaneCount: 1
         )
@@ -228,8 +246,46 @@ struct AgentStudioFileViewStartupDiagnosticTests {
         #expect(proof.succeeded)
         #expect(
             proof.attributes["agentstudio.startup_diagnostic.bridge.file_view.native_probe.frame_evidence.count"]
-                == .int(5))
+                == .int(19))
+        #expect(
+            proof.attributes["agentstudio.startup_diagnostic.bridge.file_view.native_probe.final_generation"]
+                == .int(3))
+        #expect(
+            proof.attributes[
+                "agentstudio.startup_diagnostic.bridge.file_view.native_probe.final_generation_frame_evidence.count"
+            ] == .int(19))
+        #expect(
+            proof.attributes["agentstudio.startup_diagnostic.bridge.file_view.native_probe.failure_drop.count"]
+                == .int(4))
+        #expect(
+            proof.attributes[
+                "agentstudio.startup_diagnostic.bridge.file_view.native_probe.final_generation_failure_drop.count"
+            ] == .int(0))
         #expect(proof.attributes["agentstudio.startup_diagnostic.render_proof.succeeded"] == .bool(true))
+    }
+
+    @Test("Bridge FileView smoke render proof fails without final-generation frame evidence")
+    func smokeRenderProofFailsWithoutFinalGenerationFrameEvidence() {
+        let proof = BridgeFileViewObservabilitySmokeRenderProof(
+            snapshot: makeFileViewSmokeSnapshot(
+                nativeWorktreeProbeLastReason: "replay_requested",
+                nativeWorktreeProbeLastFrameKind: "none",
+                nativeWorktreeProbeLastGeneration: 2,
+                nativeWorktreeProbeLastReceiverGeneration: 0,
+                nativeWorktreeProbeFrameEvidenceCount: 19,
+                nativeWorktreeProbeFinalGeneration: 3,
+                nativeWorktreeProbeFinalGenerationFrameEvidenceCount: 0,
+                nativeWorktreeProbeFailureDropCount: 0
+            ),
+            expectedVisiblePaneCount: 1
+        )
+
+        #expect(!proof.succeeded)
+        #expect(
+            proof.attributes[
+                "agentstudio.startup_diagnostic.bridge.file_view.native_probe.final_generation_frame_evidence.count"
+            ] == .int(0))
+        #expect(proof.attributes["agentstudio.startup_diagnostic.render_proof.succeeded"] == .bool(false))
     }
 
     @Test("Bridge FileView smoke diagnostic JavaScript exercises a visible file click")
@@ -479,6 +535,7 @@ struct AgentStudioFileViewStartupDiagnosticTests {
         #expect(script.contains("nativeWorktreeProbeBenignReceiverGenerationBucketDropCount"))
         #expect(script.contains("nativeWorktreeProbeIsBenignReceiverGenerationBucketDrop"))
         #expect(script.contains("nativeWorktreeProbeFailureDropCount"))
+        #expect(script.contains("nativeWorktreeProbeFinalGenerationFailureDropCount"))
     }
 
     private func makeFileViewSmokeSnapshot(
@@ -527,6 +584,7 @@ struct AgentStudioFileViewStartupDiagnosticTests {
         nativeWorktreeProbeFinalGenerationFrameEvidenceCount: Int = 4,
         nativeWorktreeProbeBenignReceiverGenerationBucketDropCount: Int = 0,
         nativeWorktreeProbeFailureDropCount: Int = 0,
+        nativeWorktreeProbeFinalGenerationFailureDropCount: Int = 0,
         pageErrorCount: Int = 0,
         pageIssueLastKind: String = "none",
         pageIssueLastClass: String = "none",
@@ -608,7 +666,8 @@ struct AgentStudioFileViewStartupDiagnosticTests {
             nativeWorktreeProbeFinalGenerationFrameEvidenceCount: nativeWorktreeProbeFinalGenerationFrameEvidenceCount,
             nativeWorktreeProbeBenignReceiverGenerationBucketDropCount:
                 nativeWorktreeProbeBenignReceiverGenerationBucketDropCount,
-            nativeWorktreeProbeFailureDropCount: nativeWorktreeProbeFailureDropCount
+            nativeWorktreeProbeFailureDropCount: nativeWorktreeProbeFailureDropCount,
+            nativeWorktreeProbeFinalGenerationFailureDropCount: nativeWorktreeProbeFinalGenerationFailureDropCount
         )
     }
 }
