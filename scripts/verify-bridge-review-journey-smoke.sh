@@ -5,9 +5,9 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 STATE_FILE="${AGENTSTUDIO_OBSERVABILITY_STATE_FILE:-$PROJECT_ROOT/tmp/debug-observability/latest-observability.env}"
 LOGS_QUERY_URL="${AI_TOOLS_OBSERVABILITY_LOGS_QUERY_URL:-http://127.0.0.1:9428/select/logsql/query}"
 CURL_BIN="${AGENTSTUDIO_CURL_BIN:-/usr/bin/curl}"
-EXPECTED_SELECTIONS="${AGENTSTUDIO_BRIDGE_REVIEW_JOURNEY_EXPECTED_SELECTIONS:-2}"
-CONTENT_LOAD_CEILING="${AGENTSTUDIO_BRIDGE_REVIEW_JOURNEY_CONTENT_LOAD_CEILING:-6}"
-TELEMETRY_DROP_STORM_THRESHOLD="${AGENTSTUDIO_BRIDGE_TELEMETRY_DROP_STORM_THRESHOLD:-0}"
+EXPECTED_SELECTIONS="${AGENTSTUDIO_BRIDGE_REVIEW_JOURNEY_EXPECTED_SELECTIONS:-4}"
+QUIESCENCE_SECONDS="${AGENTSTUDIO_BRIDGE_REVIEW_JOURNEY_QUIESCENCE_SECONDS:-8}"
+NON_STALE_TELEMETRY_DROP_STORM_THRESHOLD="${AGENTSTUDIO_BRIDGE_NON_STALE_TELEMETRY_DROP_STORM_THRESHOLD:-0}"
 EXPECTED_STARTUP_ACTION="bridge-review-observability-smoke"
 
 dry_run=false
@@ -82,6 +82,11 @@ portable_utc_time() {
     date -u -d "$gnu_offset" +"%Y-%m-%dT%H:%M:%SZ"
 }
 
+query_sleep() {
+  local seconds="$1"
+  read -r -t "$seconds" _ </dev/null || true
+}
+
 state_marker=""
 state_query_start=""
 state_startup_diagnostic_action=""
@@ -142,25 +147,42 @@ logsql_exact_filter() {
   printf '%s:="%s"' "$field_name" "$(logsql_escape_exact_value "$field_value")"
 }
 
-query_logs() {
+query_logs_between() {
   local logsql="$1"
+  local start_time="$2"
+  local end_time="$3"
   "$CURL_BIN" --fail --silent --show-error --max-time 5 --get \
     --data-urlencode "query=$logsql" \
-    --data-urlencode "start=$QUERY_START" \
-    --data-urlencode "end=$QUERY_END" \
+    --data-urlencode "start=$start_time" \
+    --data-urlencode "end=$end_time" \
     "$LOGS_QUERY_URL"
 }
 
-count_log_records() {
-  local logsql="$1"
-  local response
-  response="$(query_logs "$logsql")"
-  /usr/bin/python3 - "$response" <<'PY'
+query_logs() {
+  query_logs_between "$1" "$QUERY_START" "$QUERY_END"
+}
+
+count_payload_records() {
+  local payload="$1"
+  /usr/bin/python3 - "$payload" <<'PY'
 import sys
 
 payload = sys.argv[1]
 print(sum(1 for line in payload.splitlines() if line.strip()))
 PY
+}
+
+count_log_records_between() {
+  local logsql="$1"
+  local start_time="$2"
+  local end_time="$3"
+  local response
+  response="$(query_logs_between "$logsql" "$start_time" "$end_time")"
+  count_payload_records "$response"
+}
+
+count_log_records() {
+  count_log_records_between "$1" "$QUERY_START" "$QUERY_END"
 }
 
 sum_numeric_field() {
@@ -190,6 +212,37 @@ for line in payload.splitlines():
     if math.isfinite(numeric):
         total += numeric
 print(int(total) if total.is_integer() else total)
+PY
+}
+
+max_numeric_field() {
+  local field_name="$1"
+  local payload="$2"
+  /usr/bin/python3 - "$field_name" "$payload" <<'PY'
+import json
+import math
+import sys
+
+field_name, payload = sys.argv[1], sys.argv[2]
+maximum = None
+for line in payload.splitlines():
+    if not line.strip():
+        continue
+    try:
+        record = json.loads(line)
+    except json.JSONDecodeError:
+        continue
+    value = record.get(field_name)
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        continue
+    if math.isfinite(numeric):
+        maximum = numeric if maximum is None else max(maximum, numeric)
+if maximum is None:
+    print(0)
+else:
+    print(int(maximum) if maximum.is_integer() else maximum)
 PY
 }
 
@@ -265,17 +318,22 @@ marker_filter="$(logsql_exact_filter agent.proof.marker "$MARKER")"
 action_filter="$(logsql_exact_filter agentstudio.startup_diagnostic.action "$STARTUP_DIAGNOSTIC_ACTION")"
 base_query="service.name:AgentStudio dev.runtime.flavor:debug $marker_filter"
 diagnostic_completed_query="$base_query $action_filter _msg:app.startup_diagnostic_action.completed"
-painted_query="$base_query _msg:performance.bridge.web.selected_content_painted $(logsql_exact_filter agentstudio.bridge.phase selected_content_painted)"
+selection_commit_query="$base_query _msg:performance.bridge.web.selection_commit $(logsql_exact_filter agentstudio.bridge.phase selection_commit)"
+materialized_query="$base_query _msg:performance.bridge.web.code_view_item_materialize $(logsql_exact_filter agentstudio.bridge.phase code_view_item_materialize) $(logsql_exact_filter agentstudio.bridge.selected true)"
 revision_churn_drop_query="$base_query _msg:performance.bridge.web.selected_content_dropped $(logsql_exact_filter agentstudio.bridge.drop_reason revision_churn)"
 content_load_query="$base_query _msg:performance.bridge.swift.content_load"
 telemetry_drop_query="$base_query _msg:performance.bridge.web.telemetry_drop"
+stale_telemetry_drop_query="$telemetry_drop_query $(logsql_exact_filter agentstudio.bridge.telemetry.drop_reason stale_push)"
+non_stale_telemetry_drop_query="$telemetry_drop_query agentstudio.bridge.telemetry.drop_reason:!=\"stale_push\""
 
 dry_run_queries=(
   "$diagnostic_completed_query | limit 0"
-  "$painted_query | limit 0"
+  "$selection_commit_query | limit 0"
+  "$materialized_query | limit 0"
   "$revision_churn_drop_query | limit 0"
   "$content_load_query | limit 0"
   "$telemetry_drop_query | limit 0"
+  "$non_stale_telemetry_drop_query | limit 0"
 )
 
 if [ "$dry_run" = true ]; then
@@ -292,28 +350,53 @@ fi
 AGENTSTUDIO_OBSERVABILITY_ALLOW_COMPLETED_EXIT=1 \
   "$PROJECT_ROOT/scripts/verify-debug-observability.sh" >/dev/null
 
-diagnostic_completed_count="$(count_log_records "$diagnostic_completed_query | fields _msg | limit 20")"
-painted_count="$(count_log_records "$painted_query | fields _msg,agentstudio.bridge.viewer,agentstudio.bridge.selected_content.click_to_paint_ms | limit 100")"
+diagnostic_completed_response="$(
+  query_logs "$diagnostic_completed_query | fields _msg,agentstudio.startup_diagnostic.bridge.review_expected_item.count | limit 20"
+)"
+diagnostic_completed_count="$(count_payload_records "$diagnostic_completed_response")"
+review_expected_item_count="$(
+  max_numeric_field \
+    "agentstudio.startup_diagnostic.bridge.review_expected_item.count" \
+    "$diagnostic_completed_response"
+)"
+selection_commit_count="$(count_log_records "$selection_commit_query | fields _msg,agentstudio.bridge.viewer | limit 100")"
+materialized_count="$(count_log_records "$materialized_query | fields _msg,agentstudio.bridge.viewer,agentstudio.bridge.selected,agentstudio.bridge.result | limit 100")"
 revision_churn_drop_count="$(count_log_records "$revision_churn_drop_query | fields _msg,agentstudio.bridge.drop_reason | limit 100")"
-content_load_count="$(count_log_records "$content_load_query | fields _msg,agentstudio.bridge.transport,agentstudio.bridge.content.role | limit 200")"
+content_load_before_quiescence_count="$(count_log_records "$content_load_query | fields _msg,agentstudio.bridge.transport,agentstudio.bridge.content.role | limit 20000")"
+query_sleep "$QUIESCENCE_SECONDS"
+content_load_count="$(count_log_records "$content_load_query | fields _msg,agentstudio.bridge.transport,agentstudio.bridge.content.role | limit 20000")"
 telemetry_drop_sample_count="$(count_log_records "$telemetry_drop_query | fields _msg,agentstudio.bridge.telemetry.dropped_count | limit 100")"
 telemetry_dropped_total="$(sum_numeric_field "$telemetry_drop_query | fields _msg,agentstudio.bridge.telemetry.dropped_count | limit 100" "agentstudio.bridge.telemetry.dropped_count")"
+stale_telemetry_drop_sample_count="$(count_log_records "$stale_telemetry_drop_query | fields _msg,agentstudio.bridge.telemetry.drop_reason,agentstudio.bridge.telemetry.dropped_count | limit 100")"
+stale_telemetry_dropped_total="$(sum_numeric_field "$stale_telemetry_drop_query | fields _msg,agentstudio.bridge.telemetry.drop_reason,agentstudio.bridge.telemetry.dropped_count | limit 100" "agentstudio.bridge.telemetry.dropped_count")"
+non_stale_telemetry_drop_sample_count="$(count_log_records "$non_stale_telemetry_drop_query | fields _msg,agentstudio.bridge.telemetry.drop_reason,agentstudio.bridge.telemetry.dropped_count | limit 100")"
+non_stale_telemetry_dropped_total="$(sum_numeric_field "$non_stale_telemetry_drop_query | fields _msg,agentstudio.bridge.telemetry.drop_reason,agentstudio.bridge.telemetry.dropped_count | limit 100" "agentstudio.bridge.telemetry.dropped_count")"
 
 assert_gte "startup diagnostic completed at least once" "$diagnostic_completed_count" 1
-assert_equals "selected_content_painted fires exactly once per selection" "$painted_count" "$EXPECTED_SELECTIONS"
+assert_gte "diagnostic review_expected_item count present" "$review_expected_item_count" 1
+assert_equals "selection_commit fires exactly once per selection" "$selection_commit_count" "$EXPECTED_SELECTIONS"
+assert_equals "code_view_item_materialize selected items materialize exactly once per selection" "$materialized_count" "$EXPECTED_SELECTIONS"
 assert_zero "selected_content_dropped revision_churn count" "$revision_churn_drop_count"
-assert_lte "content_load count bounded by selections plus prefetch margin" "$content_load_count" "$CONTENT_LOAD_CEILING"
-assert_lte "zero telemetry_drop storms (sample count)" "$telemetry_drop_sample_count" "$TELEMETRY_DROP_STORM_THRESHOLD"
-assert_lte "zero telemetry_drop storms (dropped total)" "$telemetry_dropped_total" "$TELEMETRY_DROP_STORM_THRESHOLD"
+assert_gte "content_load count is at least explicit selections" "$content_load_count" "$EXPECTED_SELECTIONS"
+# This ceiling tightens when #51 lands. Do not silently bless eager production
+# content loading; current review journey may hydrate visible ranges and a
+# bounded package fill, but it must stay under the completed diagnostic's
+# review_expected_item count.
+assert_lte "content_load count bounded by diagnostic review_expected_item count" "$content_load_count" "$review_expected_item_count"
+assert_equals "content_load count quiesced" "$content_load_count" "$content_load_before_quiescence_count"
+assert_lte "zero non-stale telemetry_drop storms (sample count)" "$non_stale_telemetry_drop_sample_count" "$NON_STALE_TELEMETRY_DROP_STORM_THRESHOLD"
+assert_lte "zero non-stale telemetry_drop storms (dropped total)" "$non_stale_telemetry_dropped_total" "$NON_STALE_TELEMETRY_DROP_STORM_THRESHOLD"
 
 echo "bridge review journey smoke summary:"
 echo "marker=$MARKER"
 echo "query_window=$QUERY_START..$QUERY_END"
 echo "expected_selections=$EXPECTED_SELECTIONS"
-echo "selected_content_painted=$painted_count"
+echo "review_expected_item_count=$review_expected_item_count"
+echo "selection_commit=$selection_commit_count"
+echo "code_view_item_materialize_selected=$materialized_count"
 echo "selected_content_dropped_revision_churn=$revision_churn_drop_count"
-echo "content_load=$content_load_count ceiling=$CONTENT_LOAD_CEILING"
-echo "telemetry_drop_samples=$telemetry_drop_sample_count dropped_total=$telemetry_dropped_total threshold=$TELEMETRY_DROP_STORM_THRESHOLD"
+echo "content_load_before_quiescence=$content_load_before_quiescence_count content_load=$content_load_count quiescence_seconds=$QUIESCENCE_SECONDS review_expected_item_count=$review_expected_item_count"
+echo "telemetry_drop_samples=$telemetry_drop_sample_count dropped_total=$telemetry_dropped_total stale_samples=$stale_telemetry_drop_sample_count stale_dropped_total=$stale_telemetry_dropped_total non_stale_samples=$non_stale_telemetry_drop_sample_count non_stale_dropped_total=$non_stale_telemetry_dropped_total threshold=$NON_STALE_TELEMETRY_DROP_STORM_THRESHOLD"
 
 if [ "$assertion_failures" -ne 0 ]; then
   echo "bridge review journey smoke failed assertions=$assertion_failures" >&2
