@@ -190,7 +190,7 @@ enum AppStyles {
             static let tabBarTopInset: CGFloat = 0
             static let iconClusterSpacing: CGFloat = AppStyles.General.Spacing.standard
             static let circledControlSpacing: CGFloat = 12
-            static let tabStripLeadingPadding: CGFloat = circledControlSpacing
+            static let tabStripLeadingPadding: CGFloat = 10
             static let plainToolbarIconSpacing: CGFloat = 0
             static let dividerHeight: CGFloat = 18
             static let dividerHorizontalPadding: CGFloat = 12

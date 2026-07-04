@@ -41,12 +41,13 @@ struct ChromeToolbarButtonStyleTests {
         let customTabBarSource = try sourceFile("Sources/AgentStudio/App/Panes/TabBar/CustomTabBar.swift")
 
         #expect(AppStyles.Shell.Chrome.circledControlSpacing == 12)
-        #expect(AppStyles.Shell.Chrome.tabStripLeadingPadding == AppStyles.Shell.Chrome.circledControlSpacing)
+        #expect(AppStyles.Shell.Chrome.tabStripLeadingPadding == 10)
         #expect(AppStyles.Shell.Chrome.plainToolbarIconSpacing == 0)
         #expect(AppStyles.Shell.Chrome.PlainToolbarIcon.buttonSize == 24)
         #expect(AppStyles.Shell.Chrome.PlainToolbarIcon.iconSize == AppStyles.Shell.Chrome.ToolbarButton.iconSize)
 
         #expect(appStylesSource.contains("static let circledControlSpacing: CGFloat = 12"))
+        #expect(appStylesSource.contains("static let tabStripLeadingPadding: CGFloat = 10"))
         #expect(appStylesSource.contains("static let plainToolbarIconSpacing: CGFloat = 0"))
         #expect(appStylesSource.contains("enum PlainToolbarIcon"))
 
