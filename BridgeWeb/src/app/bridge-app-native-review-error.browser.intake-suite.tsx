@@ -49,6 +49,15 @@ describe('BridgeApp native review intake Browser Mode', () => {
 		await waitForBridgeViewerAnimationFrame();
 
 		expect(commands).toEqual([
+			expect.objectContaining({
+				__nonce: 'bridge-nonce',
+				jsonrpc: '2.0',
+				method: 'bridge.activeViewerMode.update',
+				params: expect.objectContaining({
+					mode: 'review',
+					sequence: 1,
+				}),
+			}),
 			{
 				__nonce: 'bridge-nonce',
 				jsonrpc: '2.0',
