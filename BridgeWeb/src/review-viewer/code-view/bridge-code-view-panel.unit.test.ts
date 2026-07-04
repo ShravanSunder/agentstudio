@@ -267,7 +267,7 @@ describe('BridgeCodeViewPanel diagnostics', () => {
 			telemetryRecorder,
 			traceContext: null,
 			selectionDemandStartedAtMilliseconds: 100,
-			materializeMilliseconds: 12,
+			materializationStartedAtMilliseconds: 120,
 			materializationCompletedAtMilliseconds: 130,
 			now: (): number => nowMilliseconds,
 			requestAnimationFrame: (callback): number => {
@@ -292,7 +292,7 @@ describe('BridgeCodeViewPanel diagnostics', () => {
 			numericAttributes: {
 				'agentstudio.bridge.selected_content.click_to_paint_ms': 50,
 				'agentstudio.bridge.selected_content.frame_wait_ms': 20,
-				'agentstudio.bridge.selected_content.materialize_ms': 12,
+				'agentstudio.bridge.selected_content.materialize_ms': 30,
 			},
 		});
 	});

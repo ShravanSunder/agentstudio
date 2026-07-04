@@ -850,7 +850,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 								traceContext: props.telemetryParentTraceContext ?? null,
 								selectionDemandStartedAtMilliseconds:
 									props.selectedContentDemandStartedAtMilliseconds ?? null,
-								materializeMilliseconds,
+								materializationStartedAtMilliseconds: itemMaterializationStartedAt,
 								materializationCompletedAtMilliseconds,
 							});
 						}
@@ -961,7 +961,7 @@ export function scheduleSelectedContentPaintedTelemetry(props: {
 	readonly telemetryRecorder: BridgeTelemetryRecorder;
 	readonly traceContext: BridgeTraceContext | null;
 	readonly selectionDemandStartedAtMilliseconds: number | null;
-	readonly materializeMilliseconds: number;
+	readonly materializationStartedAtMilliseconds: number;
 	readonly materializationCompletedAtMilliseconds: number;
 	readonly now?: () => number;
 	readonly requestAnimationFrame?: (callback: FrameRequestCallback) => number;
@@ -979,7 +979,7 @@ export function scheduleSelectedContentPaintedTelemetry(props: {
 			traceContext: props.traceContext,
 			clickToPaintMilliseconds: paintedAtMilliseconds - selectionDemandStartedAtMilliseconds,
 			frameWaitMilliseconds: paintedAtMilliseconds - props.materializationCompletedAtMilliseconds,
-			materializeMilliseconds: props.materializeMilliseconds,
+			materializeMilliseconds: paintedAtMilliseconds - props.materializationStartedAtMilliseconds,
 		});
 	});
 }
