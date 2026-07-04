@@ -3,7 +3,10 @@ import { describe, expect, expectTypeOf, test } from 'vitest';
 import type { BridgeContentResource } from '../../foundation/content/content-resource-loader.js';
 import { buildBridgeReviewProjection } from '../navigation/review-projection.js';
 import { makeBridgeViewerProjectionFixture } from '../test-support/review-viewer-fixtures.js';
-import { bridgePierreContentDescriptorFileSchema } from '../workers/pierre/bridge-pierre-worker-content-descriptor.js';
+import {
+	bridgePierreContentDescriptorCacheKey,
+	bridgePierreContentDescriptorFileSchema,
+} from '../workers/pierre/bridge-pierre-worker-content-descriptor.js';
 import {
 	createBridgeCodeViewInitialItems,
 	materializeBridgeCodeViewItem,
@@ -633,7 +636,10 @@ describe('Bridge CodeView hydrated materialization', () => {
 			file: {
 				name: 'Sources/App/Core.swift',
 				contents: 'let value = 2\n',
-				cacheKey: headHandle.cacheKey,
+				cacheKey: bridgePierreContentDescriptorCacheKey({
+					contentHash: headHandle.contentHash,
+					contentHashAlgorithm: headHandle.contentHashAlgorithm,
+				}),
 			},
 			bridgeMetadata: {
 				contentState: 'hydrated',

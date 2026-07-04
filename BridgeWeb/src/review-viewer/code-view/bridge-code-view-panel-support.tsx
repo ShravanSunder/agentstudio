@@ -104,6 +104,14 @@ export function shouldApplyBridgeCodeViewMaterialization(props: {
 	return !props.isScrollActive || props.itemId === props.selectedItemId;
 }
 
+export function shouldApplyBridgeCodeViewCurrentWindowMaterialization(props: {
+	readonly currentRenderedItemIds: ReadonlySet<string>;
+	readonly itemId: string;
+	readonly selectedItemId: string | null;
+}): boolean {
+	return props.itemId === props.selectedItemId || props.currentRenderedItemIds.has(props.itemId);
+}
+
 export function bridgeCodeViewMaterializationResourceEntriesForPanel(props: {
 	readonly isScrollActive: boolean;
 	readonly selectedContentDemandStartedAtMilliseconds: number | null | undefined;
@@ -143,6 +151,39 @@ export function bridgeCodeViewMaterializationResourceEntriesForPanel(props: {
 		});
 	}
 	return [...resourceEntriesByItemId.values()];
+}
+
+export function bridgeCodeViewLoadingMaterializationItemIdsForPanel(props: {
+	readonly isScrollActive: boolean;
+	readonly materializationResourceEntries: readonly BridgeCodeViewMaterializationResourceEntry[];
+	readonly selectedContentLoadingItemId: string | null | undefined;
+	readonly selectedItemId: string | null;
+	readonly visibleLoadingItemIds: ReadonlySet<string> | undefined;
+}): readonly string[] {
+	const loadedItemIds = new Set(
+		props.materializationResourceEntries.map((entry): string => entry.itemId),
+	);
+	const loadingItemIds = new Set(props.visibleLoadingItemIds ?? []);
+	if (props.isScrollActive) {
+		for (const itemId of loadingItemIds) {
+			if (
+				!shouldApplyBridgeCodeViewMaterialization({
+					isScrollActive: props.isScrollActive,
+					itemId,
+					selectedItemId: props.selectedItemId,
+				})
+			) {
+				loadingItemIds.delete(itemId);
+			}
+		}
+	}
+	if (
+		props.selectedContentLoadingItemId !== undefined &&
+		props.selectedContentLoadingItemId !== null
+	) {
+		loadingItemIds.add(props.selectedContentLoadingItemId);
+	}
+	return [...loadingItemIds].filter((itemId: string): boolean => !loadedItemIds.has(itemId));
 }
 
 export interface BridgeCodeViewInstantRevealRearmCandidate {

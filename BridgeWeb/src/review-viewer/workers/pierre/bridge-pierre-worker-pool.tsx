@@ -105,7 +105,8 @@ export const bridgePierreDefaultWorkerScriptUrl =
 	'agentstudio://app/workers/pierre-diffs-worker-portable.js';
 const defaultWorkerScriptUrl = bridgePierreDefaultWorkerScriptUrl;
 const defaultBridgePierreWorkerKind = 'classicWorker' satisfies BridgePierreWorkerKind;
-const defaultPoolSize = 2;
+// DiffsHub desktop parity: apps/diffshub/app/_components/WorkerPoolContext.tsx caps at 3.
+const defaultPoolSize = 3;
 const defaultTotalASTLRUCacheSize = 128;
 const bridgePierreWorkerPoolStatsPollIntervalMilliseconds = 100;
 

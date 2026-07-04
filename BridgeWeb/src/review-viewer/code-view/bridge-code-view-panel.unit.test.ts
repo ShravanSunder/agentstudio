@@ -23,6 +23,7 @@ import {
 import {
 	bridgeCodeViewRenderedHeaderCorrectionTargetPosition,
 	shouldApplyBridgeCodeViewRenderedHeaderCorrection,
+	shouldApplyBridgeCodeViewCurrentWindowMaterialization,
 	shouldRearmCodeViewInstantRevealForMaterialization,
 } from './bridge-code-view-panel-support.js';
 import {
@@ -176,6 +177,47 @@ describe('BridgeCodeViewPanel diagnostics', () => {
 				selectedItemId: 'selected-item',
 			}),
 		).toBe(true);
+	});
+
+	test('defers post-scroll burst materialization outside Pierre current rendered window', () => {
+		const currentRenderedItemIds = new Set(['anchor-visible', 'visible-neighbor']);
+		const burstItemIds = [
+			'stale-above-window',
+			'stale-above-window-2',
+			'anchor-visible',
+			'selected-off-window',
+		];
+
+		expect(
+			shouldApplyBridgeCodeViewCurrentWindowMaterialization({
+				currentRenderedItemIds,
+				itemId: 'stale-above-window',
+				selectedItemId: 'selected-off-window',
+			}),
+		).toBe(false);
+		expect(
+			shouldApplyBridgeCodeViewCurrentWindowMaterialization({
+				currentRenderedItemIds,
+				itemId: 'visible-neighbor',
+				selectedItemId: 'selected-off-window',
+			}),
+		).toBe(true);
+		expect(
+			shouldApplyBridgeCodeViewCurrentWindowMaterialization({
+				currentRenderedItemIds,
+				itemId: 'selected-off-window',
+				selectedItemId: 'selected-off-window',
+			}),
+		).toBe(true);
+		expect(
+			burstItemIds.filter((itemId: string): boolean =>
+				shouldApplyBridgeCodeViewCurrentWindowMaterialization({
+					currentRenderedItemIds,
+					itemId,
+					selectedItemId: 'selected-off-window',
+				}),
+			),
+		).toEqual(['anchor-visible', 'selected-off-window']);
 	});
 
 	test('re-arms a recent instant reveal when an above-target item materializes', () => {

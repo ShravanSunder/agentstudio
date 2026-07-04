@@ -1,4 +1,6 @@
-import { describe, expect, test } from 'vitest';
+import type { RenderFileResult } from '@pierre/diffs';
+import { WorkerPoolManager } from '@pierre/diffs/worker';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import {
 	bridgePierreContentDescriptorFileSchema,
@@ -7,6 +9,10 @@ import {
 } from './bridge-pierre-worker-content-descriptor.js';
 
 describe('Bridge Pierre worker content descriptor files', () => {
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
 	test('round trips a descriptor-backed file request with only line skeleton content on the main side', () => {
 		const file = createBridgePierreContentDescriptorFile({
 			cacheKey: 'item-source:head',
@@ -36,7 +42,7 @@ describe('Bridge Pierre worker content descriptor files', () => {
 				'agentstudio://resource/review/content/handle-item-source-head?generation=7&revision=2',
 		});
 		expect(hydratedFile).toEqual({
-			cacheKey: 'item-source:head',
+			cacheKey: 'pierre-content:sha256:sha256:abc123',
 			contents: 'struct Example {}\nlet value = 1\n',
 			name: 'Sources/Example.swift',
 		});
@@ -102,5 +108,56 @@ describe('Bridge Pierre worker content descriptor files', () => {
 					'agentstudio://resource/review/content/handle-item-mise-toml-head?generation=1',
 			}).lang,
 		).toBe('toml');
+	});
+
+	test('uses content-addressed cache keys so metadata-only retouches hit Pierre manager cache', () => {
+		vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback): number => {
+			callback(0);
+			return 1;
+		});
+		vi.stubGlobal('cancelAnimationFrame', (_frameId: number): void => {});
+		const initialFile = createBridgePierreContentDescriptorFile({
+			cacheKey: 'item-source:head:generation-7:revision-2',
+			contentHash: 'sha256:abc123',
+			contentHashAlgorithm: 'sha256',
+			generation: 7,
+			lineCount: 3,
+			maxBytes: 2048,
+			name: 'Sources/Example.swift',
+			resourceUrl:
+				'agentstudio://resource/review/content/handle-item-source-head?generation=7&revision=2',
+		});
+		const retouchedFile = createBridgePierreContentDescriptorFile({
+			cacheKey: 'item-source:head:generation-7:revision-3',
+			contentHash: 'sha256:abc123',
+			contentHashAlgorithm: 'sha256',
+			generation: 7,
+			lineCount: 3,
+			maxBytes: 2048,
+			name: 'Sources/Example.swift',
+			resourceUrl:
+				'agentstudio://resource/review/content/handle-item-source-head?generation=7&revision=3',
+		});
+		const workerPoolManager = new WorkerPoolManager(
+			{
+				poolSize: 0,
+				totalASTLRUCacheSize: 4,
+				workerFactory: (): Worker => {
+					throw new Error('worker should not be constructed for cache lookup test');
+				},
+			},
+			{},
+		);
+		const cachedRenderResult = {
+			result: { code: [], themeStyles: '', baseThemeType: undefined },
+			options: workerPoolManager.getFileRenderOptions(),
+		} satisfies RenderFileResult;
+
+		workerPoolManager.inspectCaches().fileCache.set(initialFile.cacheKey, cachedRenderResult);
+
+		expect(initialFile.cacheKey).toBe('pierre-content:sha256:sha256:abc123');
+		expect(retouchedFile.cacheKey).toBe(initialFile.cacheKey);
+		expect(workerPoolManager.getFileResultCache(retouchedFile)).toBe(cachedRenderResult);
+		expect(workerPoolManager.getStats().fileCacheSize).toBe(1);
 	});
 });

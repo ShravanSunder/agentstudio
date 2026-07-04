@@ -574,6 +574,8 @@ describe('review content demand loader pressure and cancellation', () => {
 			`${freshnessKey}:visible`,
 			`${freshnessKey}:nearby`,
 			`${freshnessKey}:speculative`,
+			// Background is the post-package fill tier and cancels descriptor-wide fill as one group.
+			`${freshnessKey}:background`,
 		]);
 	});
 });

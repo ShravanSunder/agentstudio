@@ -75,6 +75,20 @@ describe('visible review content hydration', () => {
 		).toBe(0);
 	});
 
+	test('keeps a sweep slot open when one retained final-window item is already loading', () => {
+		const retainedLoadingItemIds = ['item-005'];
+		const finalUnhydratedItemIds = ['item-006', 'item-007', 'item-000'];
+
+		expect(finalUnhydratedItemIds).toHaveLength(3);
+		expect(
+			visibleReviewContentLoadPlanCount({
+				loadingCount: retainedLoadingItemIds.length,
+				requestedLoadCount: finalUnhydratedItemIds.length,
+				scheduledCount: retainedLoadingItemIds.length,
+			}),
+		).toBe(1);
+	});
+
 	test('publishes no visible lane content while hydration is paused for active scroll', () => {
 		const loadedResource: BridgeContentResource = {
 			handle: makeBridgeContentHandle('item-001', 'head'),

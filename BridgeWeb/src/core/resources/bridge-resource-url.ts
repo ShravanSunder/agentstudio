@@ -213,7 +213,9 @@ function optionalCursor(value: string | undefined): string | undefined | null {
 	return cursorPattern.test(value) ? value : null;
 }
 
-function optionalContentDemandInterest(value: string | undefined): BridgeContentDemandInterest | undefined | null {
+function optionalContentDemandInterest(
+	value: string | undefined,
+): BridgeContentDemandInterest | undefined | null {
 	if (value === undefined) {
 		return undefined;
 	}

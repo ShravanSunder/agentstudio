@@ -2,7 +2,6 @@ import type { BridgeAttachedResourceDescriptor } from '../core/models/bridge-res
 import type { ReviewMaterializerDelta } from '../features/review/materialization/review-materializer.js';
 import type { ReviewTreeRowMetadata } from '../features/review/models/review-protocol-models.js';
 import { createBridgeReviewItemRegistry } from '../foundation/review-package/bridge-review-item-registry.js';
-import { bridgeReviewPackageSchema } from '../foundation/review-package/bridge-review-package-schema.js';
 import type {
 	BridgeContentHandle,
 	BridgeContentRole,
@@ -75,6 +74,24 @@ export function reviewTreeRowsWithMetadataDelta(props: {
 	readonly deltaFrame: ReviewDeltaMaterializerDelta;
 }): readonly ReviewTreeRowMetadata[] {
 	let rows: readonly ReviewTreeRowMetadata[] = props.current;
+	let mutableRows: ReviewTreeRowMetadata[] | null = null;
+	let rowIndexesById: Map<string, number> | null = null;
+	const ensureMutableRows = (): ReviewTreeRowMetadata[] => {
+		if (mutableRows === null) {
+			mutableRows = [...rows];
+			rows = mutableRows;
+			rowIndexesById = null;
+		}
+		return mutableRows;
+	};
+	const ensureRowIndexesById = (): Map<string, number> => {
+		if (rowIndexesById === null) {
+			rowIndexesById = new Map(
+				rows.map((row, index): readonly [string, number] => [row.rowId, index]),
+			);
+		}
+		return rowIndexesById;
+	};
 	for (const operation of props.deltaFrame.operations) {
 		switch (operation.kind) {
 			case 'appendItems':
@@ -86,12 +103,23 @@ export function reviewTreeRowsWithMetadataDelta(props: {
 			case 'upsertExtentFacts':
 			case 'upsertItemMetadata':
 				break;
-			case 'upsertTreeRows':
-				rows = mergeReviewTreeRowsByRowId({
-					current: rows,
-					nextRows: operation.rows,
-				});
+			case 'upsertTreeRows': {
+				if (operation.rows.length === 0) {
+					break;
+				}
+				const nextRows = ensureMutableRows();
+				const nextRowIndexesById = ensureRowIndexesById();
+				for (const row of operation.rows) {
+					const currentIndex = nextRowIndexesById.get(row.rowId);
+					if (currentIndex === undefined) {
+						nextRowIndexesById.set(row.rowId, nextRows.length);
+						nextRows.push(row);
+					} else {
+						nextRows[currentIndex] = row;
+					}
+				}
 				break;
+			}
 			case 'removeTreeRows': {
 				const removedRowIds = new Set(operation.rowIds ?? []);
 				const removedPaths = new Set(operation.paths ?? []);
@@ -101,11 +129,15 @@ export function reviewTreeRowsWithMetadataDelta(props: {
 							(row): boolean => !removedRowIds.has(row.rowId) && !removedPaths.has(row.path),
 						),
 					);
+					mutableRows = null;
+					rowIndexesById = null;
 				}
 				break;
 			}
 			case 'replaceTreeWindow':
 				rows = operation.rows;
+				mutableRows = null;
+				rowIndexesById = null;
 				break;
 		}
 	}
@@ -150,7 +182,7 @@ export function bridgeReviewPackageFromMetadataSnapshot(
 			],
 		),
 	);
-	return bridgeReviewPackageSchema.parse({
+	const reviewPackage = {
 		packageId: snapshotFrame.packageId,
 		schemaVersion: 1,
 		reviewGeneration: snapshotFrame.generation,
@@ -177,7 +209,8 @@ export function bridgeReviewPackageFromMetadataSnapshot(
 		summary: snapshotFrame.summary,
 		filterState: emptyBridgeReviewViewFilter(),
 		generatedAtUnixMilliseconds: 0,
-	});
+	} satisfies BridgeReviewPackage;
+	return reviewPackage;
 }
 
 export function bridgeReviewPackageWithMetadataWindow(props: {
@@ -220,7 +253,7 @@ export function bridgeReviewPackageWithMetadataWindow(props: {
 			.map((item) => item.itemId)
 			.filter((itemId) => props.reviewPackage.itemsById[itemId] === undefined),
 	];
-	return bridgeReviewPackageSchema.parse({
+	const reviewPackage = {
 		...props.reviewPackage,
 		orderedItemIds,
 		itemsById: {
@@ -228,7 +261,8 @@ export function bridgeReviewPackageWithMetadataWindow(props: {
 			...windowItemsById,
 		},
 		summary: props.windowFrame.summary,
-	});
+	} satisfies BridgeReviewPackage;
+	return reviewPackage;
 }
 
 export function bridgeReviewPackageWithMetadataSnapshot(props: {
@@ -266,7 +300,7 @@ export function bridgeReviewPackageWithMetadataSnapshot(props: {
 			(itemId) => props.reviewPackage.itemsById[itemId] === undefined,
 		),
 	];
-	return bridgeReviewPackageSchema.parse({
+	const reviewPackage = {
 		...props.reviewPackage,
 		baseEndpoint: props.snapshotPackage.baseEndpoint,
 		headEndpoint: props.snapshotPackage.headEndpoint,
@@ -277,7 +311,8 @@ export function bridgeReviewPackageWithMetadataSnapshot(props: {
 			...snapshotItemsById,
 		},
 		summary: props.snapshotPackage.summary,
-	});
+	} satisfies BridgeReviewPackage;
+	return reviewPackage;
 }
 
 export function applyReviewMetadataDeltaToReviewPackage(props: {
@@ -302,12 +337,20 @@ export function applyReviewMetadataDeltaToReviewPackage(props: {
 			],
 		),
 	);
-	let itemsById: Record<string, BridgeReviewItemDescriptor> = {
+	const itemsById: Record<string, BridgeReviewItemDescriptor> = {
 		...props.reviewPackage.itemsById,
 	};
 	let orderedItemIds = [...props.reviewPackage.orderedItemIds];
+	let orderedItemIdSet = new Set(orderedItemIds);
 	let didChange = false;
 	const extentFacts = extentFactsFromMetadataDelta(props.deltaFrame);
+	const appendOrderedItemIdIfMissing = (itemId: string): void => {
+		if (orderedItemIdSet.has(itemId)) {
+			return;
+		}
+		orderedItemIdSet.add(itemId);
+		orderedItemIds.push(itemId);
+	};
 	for (const operation of props.deltaFrame.operations) {
 		switch (operation.kind) {
 			case 'upsertItemMetadata': {
@@ -323,18 +366,13 @@ export function applyReviewMetadataDeltaToReviewPackage(props: {
 						revision: props.deltaFrame.toRevision,
 					},
 				});
-				itemsById = {
-					...itemsById,
-					[operation.item.itemId]: reviewItemWithCarriedResolvedContent({
-						currentItem,
-						nextItem,
-						carryForwardVerificationCounts: props.carryForwardVerificationCounts,
-						nextContentHashesByRole: operation.item.contentHashesByRole,
-					}),
-				};
-				if (!orderedItemIds.includes(operation.item.itemId)) {
-					orderedItemIds = [...orderedItemIds, operation.item.itemId];
-				}
+				itemsById[operation.item.itemId] = reviewItemWithCarriedResolvedContent({
+					currentItem,
+					nextItem,
+					carryForwardVerificationCounts: props.carryForwardVerificationCounts,
+					nextContentHashesByRole: operation.item.contentHashesByRole,
+				});
+				appendOrderedItemIdIfMissing(operation.item.itemId);
 				didChange = true;
 				break;
 			}
@@ -352,18 +390,13 @@ export function applyReviewMetadataDeltaToReviewPackage(props: {
 							revision: props.deltaFrame.toRevision,
 						},
 					});
-					itemsById = {
-						...itemsById,
-						[item.itemId]: reviewItemWithCarriedResolvedContent({
-							currentItem,
-							nextItem,
-							carryForwardVerificationCounts: props.carryForwardVerificationCounts,
-							nextContentHashesByRole: item.contentHashesByRole,
-						}),
-					};
-					if (!orderedItemIds.includes(item.itemId)) {
-						orderedItemIds = [...orderedItemIds, item.itemId];
-					}
+					itemsById[item.itemId] = reviewItemWithCarriedResolvedContent({
+						currentItem,
+						nextItem,
+						carryForwardVerificationCounts: props.carryForwardVerificationCounts,
+						nextContentHashesByRole: item.contentHashesByRole,
+					});
+					appendOrderedItemIdIfMissing(item.itemId);
 				}
 				didChange = operation.items.length > 0 || didChange;
 				break;
@@ -373,9 +406,10 @@ export function applyReviewMetadataDeltaToReviewPackage(props: {
 				if (removedItemIds.size === 0) {
 					break;
 				}
-				itemsById = Object.fromEntries(
-					Object.entries(itemsById).filter(([itemId]) => !removedItemIds.has(itemId)),
-				);
+				for (const itemId of removedItemIds) {
+					delete itemsById[itemId];
+					orderedItemIdSet.delete(itemId);
+				}
 				orderedItemIds = orderedItemIds.filter((itemId) => !removedItemIds.has(itemId));
 				didChange = true;
 				break;
@@ -392,11 +426,12 @@ export function applyReviewMetadataDeltaToReviewPackage(props: {
 					}),
 					...orderedItemIds.filter((itemId) => !seenItemIds.has(itemId)),
 				];
+				orderedItemIdSet = new Set(orderedItemIds);
 				didChange = true;
 				break;
 			}
 			case 'movePathPrefix': {
-				itemsById = reviewItemsByIdWithMovedPathPrefix({
+				applyMovedPathPrefixToReviewItemsById({
 					affectedItemIds: operation.affectedItemIds,
 					fromPath: operation.fromPath,
 					itemsById,
@@ -418,14 +453,11 @@ export function applyReviewMetadataDeltaToReviewPackage(props: {
 					if (currentItem === undefined) {
 						continue;
 					}
-					itemsById = {
-						...itemsById,
-						[fact.itemId]: reviewItemWithExtentFacts({
-							extentFacts,
-							item: currentItem,
-							revision: props.deltaFrame.toRevision,
-						}),
-					};
+					itemsById[fact.itemId] = reviewItemWithExtentFacts({
+						extentFacts,
+						item: currentItem,
+						revision: props.deltaFrame.toRevision,
+					});
 				}
 				didChange = operation.facts.length > 0 || didChange;
 				break;
@@ -435,13 +467,14 @@ export function applyReviewMetadataDeltaToReviewPackage(props: {
 	if (!didChange && props.deltaFrame.toRevision === props.reviewPackage.revision) {
 		return null;
 	}
-	return bridgeReviewPackageSchema.parse({
+	const reviewPackage = {
 		...props.reviewPackage,
 		revision: props.deltaFrame.toRevision,
 		orderedItemIds,
 		itemsById,
 		summary: props.deltaFrame.summary,
-	});
+	} satisfies BridgeReviewPackage;
+	return reviewPackage;
 }
 
 function extentFactsFromMetadataDelta(
@@ -575,21 +608,19 @@ function reviewItemWithExtentFacts(props: {
 	};
 }
 
-function reviewItemsByIdWithMovedPathPrefix(props: {
+function applyMovedPathPrefixToReviewItemsById(props: {
 	readonly affectedItemIds: readonly string[];
 	readonly fromPath: string;
-	readonly itemsById: Readonly<Record<string, BridgeReviewItemDescriptor>>;
+	readonly itemsById: Record<string, BridgeReviewItemDescriptor>;
 	readonly revision: number;
 	readonly toPath: string;
-}): Record<string, BridgeReviewItemDescriptor> {
-	const affectedItemIds = new Set(props.affectedItemIds);
-	const nextItemsById: Record<string, BridgeReviewItemDescriptor> = { ...props.itemsById };
-	for (const itemId of affectedItemIds) {
-		const item = nextItemsById[itemId];
+}): void {
+	for (const itemId of props.affectedItemIds) {
+		const item = props.itemsById[itemId];
 		if (item === undefined) {
 			continue;
 		}
-		nextItemsById[itemId] = {
+		props.itemsById[itemId] = {
 			...item,
 			basePath: pathWithMovedPrefix({
 				fromPath: props.fromPath,
@@ -604,7 +635,6 @@ function reviewItemsByIdWithMovedPathPrefix(props: {
 			cacheKey: `${item.cacheKey}:metadata-delta:${props.revision}`,
 		};
 	}
-	return nextItemsById;
 }
 
 function pathWithMovedPrefix(props: {

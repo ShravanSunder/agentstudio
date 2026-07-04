@@ -9,21 +9,21 @@ import {
 	createBridgeResourceExecutor,
 	type BridgeResourceExecutor,
 } from '../core/demand/bridge-resource-executor.js';
-import type { BridgeDescriptorRef } from '../core/models/bridge-resource-descriptor.js';
 import type { BridgeDemandLane } from '../core/models/bridge-demand-models.js';
+import type { BridgeDescriptorRef } from '../core/models/bridge-resource-descriptor.js';
 import {
 	createBridgeResourceDescriptorRegistry,
 	type BridgeResourceDescriptorRegistry,
 } from '../core/resources/bridge-resource-registry.js';
 import {
-	bridgeResourceUrlWithContentInterest,
-	type BridgeContentDemandInterest,
-} from '../core/resources/bridge-resource-url.js';
-import {
 	bridgeTextResourceLoadErrorKind,
 	readBridgeTextResourceStream,
 	type BridgeTextResourceStreamResult,
 } from '../core/resources/bridge-resource-stream.js';
+import {
+	bridgeResourceUrlWithContentInterest,
+	type BridgeContentDemandInterest,
+} from '../core/resources/bridge-resource-url.js';
 import type { BridgeContentFetch } from '../foundation/content/content-resource-loader.js';
 import type { BridgeCodeViewContentResources } from '../review-viewer/code-view/bridge-code-view-materialization.js';
 import { demandFreshnessKeyForReviewDescriptorRef } from '../review-viewer/content/review-content-demand-loader.js';
@@ -207,10 +207,7 @@ export function useBridgeReviewResourceExecutor(
 	return executorRef.current;
 }
 
-export function contentDemandResourceUrl(
-	resourceUrl: string,
-	lane: BridgeDemandLane,
-): string {
+export function contentDemandResourceUrl(resourceUrl: string, lane: BridgeDemandLane): string {
 	return bridgeResourceUrlWithContentInterest(resourceUrl, contentInterestForDemandLane(lane));
 }
 

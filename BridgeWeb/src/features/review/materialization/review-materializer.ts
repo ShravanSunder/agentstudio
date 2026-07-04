@@ -102,6 +102,17 @@ export function applyReviewProtocolFrame(
 		return { ok: false, reason: 'invalid_frame' };
 	}
 	const frame = parsedFrame.data;
+	return applyValidatedReviewProtocolFrame({
+		frame,
+		paneId: props.paneId,
+		registry: props.registry,
+	});
+}
+
+export function applyValidatedReviewProtocolFrame(
+	props: ApplyReviewProtocolFrameProps,
+): ApplyReviewProtocolFrameResult {
+	const frame = props.frame;
 	switch (frame.frameKind) {
 		case 'review.metadataSnapshot': {
 			const contentRegisterResult = registerContentDescriptorsTransactionally({

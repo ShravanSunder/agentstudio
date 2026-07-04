@@ -385,10 +385,8 @@ export function useVisibleReviewContentHydration(
 						}
 						if (
 							loadWasAborted &&
-							shouldRearmAbortedVisibleContentLoad({
+							shouldSweepVisibleContentAfterAbortedLoad({
 								...visibleHydrationSnapshotRef.current,
-								contentKey: loadPlan.contentKey,
-								itemId: loadPlan.itemId,
 							})
 						) {
 							scheduleVisibleHydrationRetry({
@@ -652,9 +650,11 @@ export function visibleReviewContentLoadPlanCount(props: {
 	readonly requestedLoadCount: number;
 	readonly scheduledCount?: number;
 }): number {
+	const scheduledCount = props.scheduledCount ?? 0;
+	const scheduledButNotLoadingCount = Math.max(0, scheduledCount - props.loadingCount);
 	const availableLoadSlots = Math.max(
 		0,
-		visibleContentHydrationConcurrentLoadLimit - props.loadingCount - (props.scheduledCount ?? 0),
+		visibleContentHydrationConcurrentLoadLimit - props.loadingCount - scheduledButNotLoadingCount,
 	);
 	return Math.min(props.requestedLoadCount, availableLoadSlots);
 }
@@ -700,6 +700,14 @@ export function shouldRearmAbortedVisibleContentLoad(
 			item,
 			reviewPackage: props.reviewPackage,
 		}) === props.contentKey
+	);
+}
+
+export function shouldSweepVisibleContentAfterAbortedLoad(
+	props: VisibleReviewContentAbortRearmSnapshot,
+): boolean {
+	return (
+		!props.visibleHydrationPaused && props.reviewPackage !== null && props.visibleItemIds.length > 0
 	);
 }
 

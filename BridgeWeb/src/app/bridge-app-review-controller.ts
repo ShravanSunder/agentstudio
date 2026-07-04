@@ -6,7 +6,7 @@ import type { BridgeResourceExecutor } from '../core/demand/bridge-resource-exec
 import type { BridgeDescriptorRef } from '../core/models/bridge-resource-descriptor.js';
 import type { BridgeResourceDescriptorRegistry } from '../core/resources/bridge-resource-registry.js';
 import type { BridgeTextResourceStreamResult } from '../core/resources/bridge-resource-stream.js';
-import { applyReviewProtocolFrame } from '../features/review/materialization/review-materializer.js';
+import { applyValidatedReviewProtocolFrame } from '../features/review/materialization/review-materializer.js';
 import type {
 	ReviewProtocolFrame,
 	ReviewTreeRowMetadata,
@@ -433,7 +433,7 @@ async function applyReviewProtocolFramePayload(
 			const materializeResult =
 				reviewFrameAuthority === null
 					? null
-					: applyReviewProtocolFrame({
+					: applyValidatedReviewProtocolFrame({
 							frame: protocolFrame,
 							paneId: reviewFrameAuthority.paneId,
 							registry: descriptorRegistry,
@@ -477,7 +477,7 @@ async function applyReviewProtocolFramePayload(
 			const materializeResult =
 				reviewFrameAuthority === null
 					? null
-					: applyReviewProtocolFrame({
+					: applyValidatedReviewProtocolFrame({
 							frame: protocolFrame,
 							paneId: reviewFrameAuthority.paneId,
 							registry: descriptorRegistry,

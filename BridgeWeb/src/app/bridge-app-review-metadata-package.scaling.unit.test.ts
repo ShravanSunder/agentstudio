@@ -64,6 +64,8 @@ interface DeltaMeasurement {
 
 const metadataWindowSize = 80;
 const metadataScalingItemCounts = [500, 1_000, 2_500, 5_000] as const;
+const maximumFiveThousandItemApplyMilliseconds = 100;
+const maximumThousandItemDeltaMergeMilliseconds = 75;
 const benchmarkPaneId = 'metadata-scaling-pane';
 const benchmarkStreamId = `review:${benchmarkPaneId}`;
 const benchmarkSourceIdentity = 'metadata-scaling-source';
@@ -122,6 +124,12 @@ describe('Bridge review metadata package scaling probe', () => {
 			expect(normalDelta.finalRevision).toBe(normalFiveThousandItemPackage.revision + 1);
 			expect(parseBypassedDelta.finalRevision).toBe(
 				parseBypassedFiveThousandItemPackage.revision + 1,
+			);
+			expect(requiredSequence(normalSequences, 5_000).cumulativeMilliseconds).toBeLessThan(
+				maximumFiveThousandItemApplyMilliseconds,
+			);
+			expect(normalDelta.durationMilliseconds).toBeLessThan(
+				maximumThousandItemDeltaMergeMilliseconds,
 			);
 		} finally {
 			parseSpy.mockRestore();

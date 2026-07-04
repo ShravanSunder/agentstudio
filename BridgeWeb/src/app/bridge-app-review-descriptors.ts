@@ -9,7 +9,7 @@ import type { BridgeResourceDescriptorRegistry } from '../core/resources/bridge-
 import type { BridgeTextResourceStreamResult } from '../core/resources/bridge-resource-stream.js';
 import { parseBridgeCoreResourceUrl } from '../core/resources/bridge-resource-url.js';
 import {
-	applyReviewProtocolFrame,
+	applyValidatedReviewProtocolFrame,
 	type ReviewMaterializerDelta,
 } from '../features/review/materialization/review-materializer.js';
 import type {
@@ -68,7 +68,7 @@ export function materializeReviewProtocolSnapshotFrame(props: {
 	) {
 		return null;
 	}
-	const materializeResult = applyReviewProtocolFrame({
+	const materializeResult = applyValidatedReviewProtocolFrame({
 		frame: props.protocolFrame,
 		paneId: props.reviewFrameAuthority.paneId,
 		registry: props.descriptorRegistry,
@@ -93,7 +93,7 @@ export function materializeReviewProtocolDeltaFrame(props: {
 	) {
 		return null;
 	}
-	const materializeResult = applyReviewProtocolFrame({
+	const materializeResult = applyValidatedReviewProtocolFrame({
 		frame: props.protocolFrame,
 		paneId: props.reviewFrameAuthority.paneId,
 		registry: props.descriptorRegistry,
@@ -118,7 +118,7 @@ export function materializeReviewProtocolWindowFrame(props: {
 	) {
 		return null;
 	}
-	const materializeResult = applyReviewProtocolFrame({
+	const materializeResult = applyValidatedReviewProtocolFrame({
 		frame: props.protocolFrame,
 		paneId: props.reviewFrameAuthority.paneId,
 		registry: props.descriptorRegistry,

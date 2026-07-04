@@ -58,14 +58,24 @@ export interface BridgePierreWorkerContentDescriptorDatasetTarget {
 	readonly dataset: BridgePierreWorkerContentDescriptorDataset;
 }
 
+export function bridgePierreContentDescriptorCacheKey(
+	props: Pick<BridgePierreContentDescriptor, 'contentHash' | 'contentHashAlgorithm'>,
+): string {
+	return ['pierre-content', props.contentHashAlgorithm, props.contentHash].join(':');
+}
+
 export function createBridgePierreContentDescriptorFile(
 	props: CreateBridgePierreContentDescriptorFileProps,
 ): BridgePierreContentDescriptorFile {
 	const normalizedLanguage = bridgePierreOptionalHighlightLanguage(props.lang);
+	const cacheKey = bridgePierreContentDescriptorCacheKey({
+		contentHash: props.contentHash,
+		contentHashAlgorithm: props.contentHashAlgorithm,
+	});
 	const file: BridgePierreContentDescriptorFile = {
 		name: props.name,
 		contents: props.text ?? contentLineSkeleton(props.lineCount),
-		cacheKey: props.cacheKey,
+		cacheKey,
 		...(normalizedLanguage === undefined ? {} : { lang: normalizedLanguage }),
 		bridgeContentDescriptor: {
 			contentHash: props.contentHash,
