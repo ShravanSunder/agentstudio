@@ -1,4 +1,6 @@
+import type { BridgeContentDemandCandidate } from '../../../core/demand/bridge-content-demand-reconciler.js';
 import type {
+	BridgeContentDemandRole,
 	BridgeDemandIntent,
 	BridgeDemandKeys,
 	BridgeDescriptorDemandState,
@@ -21,10 +23,18 @@ export interface MapWorktreeFileDemandStimulusToIntentsProps {
 export function mapWorktreeFileDemandStimulusToIntents(
 	props: MapWorktreeFileDemandStimulusToIntentsProps,
 ): readonly BridgeDemandIntent[] {
+	return mapWorktreeFileDemandStimulusToContentDemandCandidates(props).map(
+		(candidate): BridgeDemandIntent => candidate.intent,
+	);
+}
+
+export function mapWorktreeFileDemandStimulusToContentDemandCandidates(
+	props: MapWorktreeFileDemandStimulusToIntentsProps,
+): readonly BridgeContentDemandCandidate[] {
 	switch (props.stimulus.kind) {
 		case 'fileSelected':
 		case 'explicitRefresh':
-			return intentForDescriptor({
+			return candidatesForDescriptor({
 				descriptorRef: props.stimulus.descriptorRef,
 				forcedInterest: { kind: 'selected' },
 				readContext: props.readContext,
@@ -33,8 +43,8 @@ export function mapWorktreeFileDemandStimulusToIntents(
 			return [];
 		case 'treeViewportChanged':
 			return props.stimulus.descriptorRefs.flatMap(
-				(descriptorRef: BridgeDescriptorRef): readonly BridgeDemandIntent[] =>
-					intentForDescriptor({
+				(descriptorRef: BridgeDescriptorRef): readonly BridgeContentDemandCandidate[] =>
+					candidatesForDescriptor({
 						descriptorRef,
 						forcedInterest: { kind: 'visible' },
 						readContext: props.readContext,
@@ -42,14 +52,14 @@ export function mapWorktreeFileDemandStimulusToIntents(
 			);
 		case 'treeExpanded':
 			return [
-				...intentForDescriptor({
+				...candidatesForDescriptor({
 					descriptorRef: props.stimulus.descriptorRef,
 					forcedInterest: { kind: 'visible' },
 					readContext: props.readContext,
 				}),
 				...(props.stimulus.nearbyDescriptorRefs ?? []).flatMap(
-					(descriptorRef: BridgeDescriptorRef): readonly BridgeDemandIntent[] =>
-						intentForDescriptor({
+					(descriptorRef: BridgeDescriptorRef): readonly BridgeContentDemandCandidate[] =>
+						candidatesForDescriptor({
 							descriptorRef,
 							forcedInterest: { kind: 'nearby' },
 							readContext: props.readContext,
@@ -59,13 +69,13 @@ export function mapWorktreeFileDemandStimulusToIntents(
 		case 'hoverChanged':
 			return props.stimulus.descriptorRef === null
 				? []
-				: intentForDescriptor({
+				: candidatesForDescriptor({
 						descriptorRef: props.stimulus.descriptorRef,
 						forcedInterest: { kind: 'speculative' },
 						readContext: props.readContext,
 					});
 		case 'recentlyUpdatedFile':
-			return intentForDescriptor({
+			return candidatesForDescriptor({
 				descriptorRef: props.stimulus.descriptorRef,
 				forcedInterest:
 					props.stimulus.proximity === 'nearby' ? { kind: 'nearby' } : { kind: 'speculative' },
@@ -77,11 +87,11 @@ export function mapWorktreeFileDemandStimulusToIntents(
 	return assertNever(props.stimulus);
 }
 
-function intentForDescriptor(props: {
+function candidatesForDescriptor(props: {
 	readonly descriptorRef: BridgeDescriptorRef;
 	readonly forcedInterest: BridgeViewInterest;
 	readonly readContext: WorktreeFileDemandReadContext;
-}): readonly BridgeDemandIntent[] {
+}): readonly BridgeContentDemandCandidate[] {
 	const descriptorState = props.readContext.getDescriptorState(props.descriptorRef);
 	if (
 		descriptorState.kind === 'missing' ||
@@ -90,25 +100,48 @@ function intentForDescriptor(props: {
 	) {
 		return [];
 	}
-	const lane = laneForViewInterest(props.forcedInterest);
-	if (lane === null) {
+	const role = contentDemandRoleForViewInterest(props.forcedInterest);
+	if (role === null) {
 		return [];
 	}
 	return [
 		{
-			descriptorRef: props.descriptorRef,
-			lane,
-			...props.readContext.buildDemandKeys(props.descriptorRef),
+			intent: {
+				descriptorRef: props.descriptorRef,
+				lane: laneForContentDemandRole(role),
+				...props.readContext.buildDemandKeys(props.descriptorRef),
+			},
+			role,
 		},
 	];
 }
 
-function laneForViewInterest(viewInterest: BridgeViewInterest): BridgeDemandIntent['lane'] | null {
+function contentDemandRoleForViewInterest(
+	viewInterest: BridgeViewInterest,
+): BridgeContentDemandRole | null {
 	switch (viewInterest.kind) {
 		case 'selected':
-			return 'foreground';
+			return 'selected';
 		case 'open':
-			return 'active';
+			return 'visible';
+		case 'visible':
+			return 'visible';
+		case 'nearby':
+			return 'nearby';
+		case 'speculative':
+			return 'speculative';
+		case 'background':
+			return 'background';
+		case 'none':
+			return null;
+	}
+	return assertNever(viewInterest);
+}
+
+function laneForContentDemandRole(role: BridgeContentDemandRole): BridgeDemandIntent['lane'] {
+	switch (role) {
+		case 'selected':
+			return 'foreground';
 		case 'visible':
 			return 'visible';
 		case 'nearby':
@@ -117,10 +150,8 @@ function laneForViewInterest(viewInterest: BridgeViewInterest): BridgeDemandInte
 			return 'speculative';
 		case 'background':
 			return 'idle';
-		case 'none':
-			return null;
 	}
-	return assertNever(viewInterest);
+	return assertNever(role);
 }
 
 function assertNever(value: never): never {

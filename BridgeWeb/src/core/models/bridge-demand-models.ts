@@ -11,6 +11,14 @@ export const bridgeDemandLaneSchema = z.enum([
 	'idle',
 ]);
 
+export const bridgeContentDemandRoleSchema = z.enum([
+	'selected',
+	'visible',
+	'nearby',
+	'speculative',
+	'background',
+]);
+
 export const bridgeDemandIntentSchema = z
 	.object({
 		descriptorRef: bridgeDescriptorRefSchema,
@@ -66,6 +74,7 @@ export const bridgeDemandKeysSchema = z
 	.strict();
 
 export type BridgeDemandLane = z.infer<typeof bridgeDemandLaneSchema>;
+export type BridgeContentDemandRole = z.infer<typeof bridgeContentDemandRoleSchema>;
 export type BridgeDemandIntent = z.infer<typeof bridgeDemandIntentSchema>;
 export type BridgeDescriptorDemandState = z.infer<typeof bridgeDescriptorDemandStateSchema>;
 export type BridgeViewInterest = z.infer<typeof bridgeViewInterestSchema>;

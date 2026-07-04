@@ -3,6 +3,7 @@ import { describe, expect, test } from 'vitest';
 import {
 	bridgeDemandIntentSchema,
 	bridgeDemandKeysSchema,
+	bridgeContentDemandRoleSchema,
 	bridgeDescriptorDemandStateSchema,
 	bridgeViewInterestSchema,
 } from './bridge-demand-models.js';
@@ -67,6 +68,8 @@ describe('bridge demand models', () => {
 		expect(bridgeViewInterestSchema.parse({ kind: 'selected' })).toEqual({
 			kind: 'selected',
 		});
+		expect(bridgeContentDemandRoleSchema.parse('selected')).toBe('selected');
+		expect(bridgeContentDemandRoleSchema.parse('background')).toBe('background');
 	});
 
 	test('rejects loose scheduling fields and unknown lanes', () => {

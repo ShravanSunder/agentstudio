@@ -22,6 +22,71 @@ import {
 } from './visible-review-content-hydration.js';
 
 describe('visible review content hydration Browser Mode', () => {
+	test('demands and paints every reported visible item beyond the legacy membership cap', async () => {
+		vi.useFakeTimers();
+		try {
+			const reportedVisibleItemIds = Array.from(
+				{ length: 16 },
+				(_, index): string => `item-${String(index).padStart(3, '0')}`,
+			);
+			const reviewPackage = makeReviewPackageWithItemCount(reportedVisibleItemIds.length);
+			const loadAttempts: VisibleReviewContentLoadProps[] = [];
+			let setVisibleItemIds: ((itemIds: readonly string[]) => void) | null = null;
+			resetVisibleHydrationStateProbe();
+
+			function HydrationProbe(): ReactElement {
+				const [reportedItemIds, setReportedItemIds] = useState<readonly string[]>([]);
+				const hydration = useVisibleReviewContentHydration({
+					contentRegistry: createBridgeReviewContentRegistry(),
+					contentInvalidationVersion: 0,
+					loadContentResources: (props): Promise<VisibleReviewContentLoadResult> => {
+						loadAttempts.push(props);
+						return Promise.resolve(makeLoadedResources(props.itemId));
+					},
+					reviewPackage,
+					selectedItemId: null,
+					telemetryParentTraceContext: null,
+					telemetryRecorder: makeNoopTelemetryRecorder(),
+					visibleHydrationPaused: false,
+				});
+				useEffect((): void => {
+					setVisibleItemIds = setReportedItemIds;
+				}, []);
+				useEffect((): void => {
+					hydration.setVisibleItemIds(reportedItemIds);
+				}, [hydration, reportedItemIds]);
+				return (
+					<div
+						data-ready-count={String(hydration.visibleReadyItemCount)}
+						data-resource-item-ids={[...hydration.visibleContentResourcesByItemId.keys()].join(',')}
+						data-testid="visible-hydration-probe"
+					/>
+				);
+			}
+
+			render(<HydrationProbe />);
+			await flushReactWork();
+
+			await reportVisibleItemIds(setVisibleItemIds, reportedVisibleItemIds);
+			for (let index = 0; index < reportedVisibleItemIds.length; index += 1) {
+				// oxlint-disable-next-line no-await-in-loop -- Hydration batches are timer-driven and must drain sequentially.
+				await dispatchVisibleHydrationTimers();
+			}
+
+			expect(visibleHydrationStateProbe()?.reportedVisibleItemCount).toBe(
+				reportedVisibleItemIds.length,
+			);
+			expect(visibleHydrationStateProbe()?.truncatedVisibleItemCount).toBe(0);
+			expect(loadAttempts.map((loadAttempt): string => loadAttempt.itemId)).toEqual(
+				reportedVisibleItemIds,
+			);
+			expect(probeReadyCount()).toBe(String(reportedVisibleItemIds.length));
+			expect(probeResourceItemIds()).toBe(reportedVisibleItemIds.join(','));
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	test('lands multi-item ready results while momentum pause remains active', async () => {
 		vi.useFakeTimers();
 		try {
@@ -382,6 +447,16 @@ function probeResourceItemIds(): string | null {
 function resetVisibleHydrationDiscardProbe(): void {
 	// oxlint-disable-next-line no-underscore-dangle -- Intentional Bridge debug surface name.
 	delete window.__bridgeVisibleHydrationDiscardProbe;
+}
+
+function resetVisibleHydrationStateProbe(): void {
+	// oxlint-disable-next-line no-underscore-dangle -- Intentional Bridge debug surface name.
+	delete window.__bridgeVisibleHydrationStateProbe;
+}
+
+function visibleHydrationStateProbe(): Window['__bridgeVisibleHydrationStateProbe'] {
+	// oxlint-disable-next-line no-underscore-dangle -- Intentional Bridge debug surface name.
+	return window.__bridgeVisibleHydrationStateProbe;
 }
 
 function visibleHydrationDiscardProbeReadyDiscardCount(): number {

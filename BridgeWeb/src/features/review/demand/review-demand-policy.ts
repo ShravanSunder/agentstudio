@@ -1,4 +1,6 @@
+import type { BridgeContentDemandCandidate } from '../../../core/demand/bridge-content-demand-reconciler.js';
 import type {
+	BridgeContentDemandRole,
 	BridgeDemandIntent,
 	BridgeDemandKeys,
 	BridgeDescriptorDemandState,
@@ -21,23 +23,31 @@ export interface MapReviewDemandStimulusToIntentsProps {
 export function mapReviewDemandStimulusToIntents(
 	props: MapReviewDemandStimulusToIntentsProps,
 ): readonly BridgeDemandIntent[] {
+	return mapReviewDemandStimulusToContentDemandCandidates(props).map(
+		(candidate): BridgeDemandIntent => candidate.intent,
+	);
+}
+
+export function mapReviewDemandStimulusToContentDemandCandidates(
+	props: MapReviewDemandStimulusToIntentsProps,
+): readonly BridgeContentDemandCandidate[] {
 	switch (props.stimulus.kind) {
 		case 'reviewItemSelected':
 		case 'reviewExplicitRefresh':
-			return intentForDescriptor({
+			return candidatesForDescriptor({
 				descriptorRef: props.stimulus.descriptorRef,
 				forcedInterest: { kind: 'selected' },
 				readContext: props.readContext,
 			});
 		case 'reviewDescriptorInvalidated':
-			return intentForDescriptor({
+			return candidatesForDescriptor({
 				descriptorRef: props.stimulus.descriptorRef,
 				readContext: props.readContext,
 			});
 		case 'reviewViewportChanged':
 			return props.stimulus.descriptorRefs.flatMap(
-				(descriptorRef: BridgeDescriptorRef): readonly BridgeDemandIntent[] =>
-					intentForDescriptor({
+				(descriptorRef: BridgeDescriptorRef): readonly BridgeContentDemandCandidate[] =>
+					candidatesForDescriptor({
 						descriptorRef,
 						forcedInterest: { kind: 'visible' },
 						readContext: props.readContext,
@@ -46,7 +56,7 @@ export function mapReviewDemandStimulusToIntents(
 		case 'reviewHoverChanged':
 			return props.stimulus.descriptorRef === null
 				? []
-				: intentForDescriptor({
+				: candidatesForDescriptor({
 						descriptorRef: props.stimulus.descriptorRef,
 						forcedInterest: { kind: 'speculative' },
 						readContext: props.readContext,
@@ -57,11 +67,11 @@ export function mapReviewDemandStimulusToIntents(
 	return [];
 }
 
-function intentForDescriptor(props: {
+function candidatesForDescriptor(props: {
 	readonly descriptorRef: BridgeDescriptorRef;
 	readonly forcedInterest?: BridgeViewInterest;
 	readonly readContext: ReviewDemandReadContext;
-}): readonly BridgeDemandIntent[] {
+}): readonly BridgeContentDemandCandidate[] {
 	const descriptorState = props.readContext.getDescriptorState(props.descriptorRef);
 	if (
 		descriptorState.kind === 'missing' ||
@@ -72,25 +82,48 @@ function intentForDescriptor(props: {
 	}
 	const viewInterest =
 		props.forcedInterest ?? props.readContext.getViewInterest(props.descriptorRef);
-	const lane = laneForViewInterest(viewInterest);
-	if (lane === null) {
+	const role = contentDemandRoleForViewInterest(viewInterest);
+	if (role === null) {
 		return [];
 	}
 	return [
 		{
-			descriptorRef: props.descriptorRef,
-			lane,
-			...props.readContext.buildDemandKeys(props.descriptorRef),
+			intent: {
+				descriptorRef: props.descriptorRef,
+				lane: laneForContentDemandRole(role),
+				...props.readContext.buildDemandKeys(props.descriptorRef),
+			},
+			role,
 		},
 	];
 }
 
-function laneForViewInterest(viewInterest: BridgeViewInterest): BridgeDemandIntent['lane'] | null {
+function contentDemandRoleForViewInterest(
+	viewInterest: BridgeViewInterest,
+): BridgeContentDemandRole | null {
 	switch (viewInterest.kind) {
 		case 'selected':
-			return 'foreground';
+			return 'selected';
 		case 'open':
-			return 'active';
+			return 'visible';
+		case 'visible':
+			return 'visible';
+		case 'nearby':
+			return 'nearby';
+		case 'speculative':
+			return 'speculative';
+		case 'background':
+			return 'background';
+		case 'none':
+			return null;
+	}
+	return null;
+}
+
+function laneForContentDemandRole(role: BridgeContentDemandRole): BridgeDemandIntent['lane'] {
+	switch (role) {
+		case 'selected':
+			return 'foreground';
 		case 'visible':
 			return 'visible';
 		case 'nearby':
@@ -99,8 +132,10 @@ function laneForViewInterest(viewInterest: BridgeViewInterest): BridgeDemandInte
 			return 'speculative';
 		case 'background':
 			return 'idle';
-		case 'none':
-			return null;
 	}
-	return null;
+	return assertNever(role);
+}
+
+function assertNever(value: never): never {
+	throw new Error(`Unhandled review demand policy case: ${String(value)}`);
 }

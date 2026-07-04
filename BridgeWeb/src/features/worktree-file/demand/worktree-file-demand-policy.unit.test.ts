@@ -5,7 +5,10 @@ import type {
 	BridgeViewInterest,
 } from '../../../core/models/bridge-demand-models.js';
 import type { BridgeDescriptorRef } from '../../../core/models/bridge-resource-descriptor.js';
-import { mapWorktreeFileDemandStimulusToIntents } from './worktree-file-demand-policy.js';
+import {
+	mapWorktreeFileDemandStimulusToContentDemandCandidates,
+	mapWorktreeFileDemandStimulusToIntents,
+} from './worktree-file-demand-policy.js';
 
 describe('worktree file demand policy', () => {
 	test('maps selected files and explicit refresh to foreground demand', () => {
@@ -154,6 +157,52 @@ describe('worktree file demand policy', () => {
 				readContext,
 			}),
 		).toEqual([]);
+	});
+
+	test('derives content-demand candidates for visible, nearby, speculative, and selected file work', () => {
+		const selectedRef = makeDescriptorRef('selected-file', 'worktree.fileContent');
+		const visibleRef = makeDescriptorRef('visible-file', 'worktree.fileContent');
+		const nearbyRef = makeDescriptorRef('nearby-file', 'worktree.fileContent');
+		const hoverRef = makeDescriptorRef('hover-file', 'worktree.fileContent');
+		const readContext = makeReadContext({
+			descriptorState: {
+				kind: 'valid',
+				freshnessKey: 'file:gen-1',
+				needsBodyOrWindow: true,
+			},
+		});
+
+		const candidates = [
+			...mapWorktreeFileDemandStimulusToContentDemandCandidates({
+				stimulus: { kind: 'fileSelected', descriptorRef: selectedRef },
+				readContext,
+			}),
+			...mapWorktreeFileDemandStimulusToContentDemandCandidates({
+				stimulus: {
+					kind: 'treeExpanded',
+					descriptorRef: visibleRef,
+					nearbyDescriptorRefs: [nearbyRef],
+				},
+				readContext,
+			}),
+			...mapWorktreeFileDemandStimulusToContentDemandCandidates({
+				stimulus: { kind: 'hoverChanged', descriptorRef: hoverRef },
+				readContext,
+			}),
+		];
+
+		expect(candidates.map((candidate) => candidate.role)).toEqual([
+			'selected',
+			'visible',
+			'nearby',
+			'speculative',
+		]);
+		expect(candidates.map((candidate) => candidate.intent.lane)).toEqual([
+			'foreground',
+			'visible',
+			'nearby',
+			'speculative',
+		]);
 	});
 });
 

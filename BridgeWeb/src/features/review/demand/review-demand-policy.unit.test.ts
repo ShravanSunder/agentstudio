@@ -5,7 +5,10 @@ import type {
 	BridgeViewInterest,
 } from '../../../core/models/bridge-demand-models.js';
 import type { BridgeDescriptorRef } from '../../../core/models/bridge-resource-descriptor.js';
-import { mapReviewDemandStimulusToIntents } from './review-demand-policy.js';
+import {
+	mapReviewDemandStimulusToContentDemandCandidates,
+	mapReviewDemandStimulusToIntents,
+} from './review-demand-policy.js';
 
 describe('review demand policy', () => {
 	test('maps selected and explicit refresh review stimuli to foreground demand', () => {
@@ -92,7 +95,7 @@ describe('review demand policy', () => {
 				stimulus: { kind: 'reviewDescriptorInvalidated', descriptorRef: openRef },
 				readContext,
 			})[0]?.lane,
-		).toBe('active');
+		).toBe('visible');
 		expect(
 			mapReviewDemandStimulusToIntents({
 				stimulus: { kind: 'reviewDescriptorInvalidated', descriptorRef: visibleRef },
@@ -153,6 +156,51 @@ describe('review demand policy', () => {
 				readContext,
 			}),
 		).toEqual([]);
+	});
+
+	test('derives content-demand candidates with selected-first roles and no active content lane', () => {
+		const selectedRef = makeDescriptorRef('selected');
+		const visibleRef = makeDescriptorRef('visible');
+		const openRef = makeDescriptorRef('open');
+		const readContext = makeReadContext({
+			descriptorState: {
+				kind: 'valid',
+				freshnessKey: 'descriptor:rev-1',
+				needsBodyOrWindow: true,
+			},
+			viewInterestById: {
+				selected: { kind: 'selected' },
+				visible: { kind: 'visible' },
+				open: { kind: 'open' },
+			},
+		});
+
+		const candidates = [
+			...mapReviewDemandStimulusToContentDemandCandidates({
+				stimulus: { kind: 'reviewItemSelected', descriptorRef: selectedRef },
+				readContext,
+			}),
+			...mapReviewDemandStimulusToContentDemandCandidates({
+				stimulus: { kind: 'reviewViewportChanged', descriptorRefs: [visibleRef] },
+				readContext,
+			}),
+			...mapReviewDemandStimulusToContentDemandCandidates({
+				stimulus: { kind: 'reviewDescriptorInvalidated', descriptorRef: openRef },
+				readContext,
+			}),
+		];
+
+		expect(candidates.map((candidate) => candidate.role)).toEqual([
+			'selected',
+			'visible',
+			'visible',
+		]);
+		expect(candidates.map((candidate) => candidate.intent.lane)).toEqual([
+			'foreground',
+			'visible',
+			'visible',
+		]);
+		expect(candidates.some((candidate) => candidate.intent.lane === 'active')).toBe(false);
 	});
 });
 
