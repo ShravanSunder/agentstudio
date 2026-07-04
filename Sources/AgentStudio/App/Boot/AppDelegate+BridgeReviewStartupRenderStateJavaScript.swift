@@ -71,6 +71,41 @@ extension AppDelegate {
                 selectedMaterializedAdditionLineCount +
                 selectedMaterializedDeletionLineCount +
                 selectedMaterializedFileLineCount;
+              const paintedProbe =
+                window.__bridgeSelectedContentPaintedProbe &&
+                typeof window.__bridgeSelectedContentPaintedProbe === 'object'
+                  ? window.__bridgeSelectedContentPaintedProbe
+                  : {};
+              const paintedProbeAnchoredDeliveryEntryCount =
+                Number(paintedProbe.anchoredDeliveryEntryCount || 0);
+              const paintedProbeAnchoredDeliveryAnchorPresentCount =
+                Number(paintedProbe.anchoredDeliveryAnchorPresentCount || 0);
+              const paintedProbeAnchoredDeliverySelectedMatchCount =
+                Number(paintedProbe.anchoredDeliverySelectedMatchCount || 0);
+              const paintedProbeAnchoredDeliveryTelemetryRecorderPresentCount =
+                Number(paintedProbe.anchoredDeliveryTelemetryRecorderPresentCount || 0);
+              const paintedProbeAlreadyPaintedByHydrationCount =
+                Number(paintedProbe.alreadyPaintedByHydrationCount || 0);
+              const paintedProbeScheduleEnteredCount = Number(paintedProbe.scheduleEnteredCount || 0);
+              const paintedProbeEarlyReturnCount = Number(paintedProbe.earlyReturnCount || 0);
+              const paintedProbeRafScheduledCount = Number(paintedProbe.rafScheduledCount || 0);
+              const paintedProbeRafFiredCount = Number(paintedProbe.rafFiredCount || 0);
+              const paintedProbeGenerationSupersededCount =
+                Number(paintedProbe.generationSupersededCount || 0);
+              const paintedProbeSampleRecordedCount = Number(paintedProbe.sampleRecordedCount || 0);
+              const paintedProbeFlushCalledCount = Number(paintedProbe.flushCalledCount || 0);
+              const paintedProbeLastAnchoredDeliveryHadAnchor =
+                paintedProbe.lastAnchoredDeliveryHadAnchor === true;
+              const paintedProbeLastAnchoredDeliverySelectedMatched =
+                paintedProbe.lastAnchoredDeliverySelectedMatched === true;
+              const paintedProbeLastAnchoredDeliveryHadTelemetryRecorder =
+                paintedProbe.lastAnchoredDeliveryHadTelemetryRecorder === true;
+              const paintedProbeLastReason =
+                typeof paintedProbe.lastReason === 'string' ? paintedProbe.lastReason : 'none';
+              const paintedProbeLastScheduleEarlyReturnReason =
+                typeof paintedProbe.lastScheduleEarlyReturnReason === 'string'
+                  ? paintedProbe.lastScheduleEarlyReturnReason
+                  : 'none';
               const panelRect = codeViewPanel?.getBoundingClientRect();
               const codeViewScrollOwnerRect = codeViewScrollOwner?.getBoundingClientRect();
               const diffContainers = [...document.querySelectorAll('diffs-container')];
@@ -729,6 +764,23 @@ extension AppDelegate {
                 selectedMaterializedAdditionLineCount,
                 selectedMaterializedDeletionLineCount,
                 selectedMaterializedFileLineCount,
+                paintedProbeAnchoredDeliveryEntryCount,
+                paintedProbeAnchoredDeliveryAnchorPresentCount,
+                paintedProbeAnchoredDeliverySelectedMatchCount,
+                paintedProbeAnchoredDeliveryTelemetryRecorderPresentCount,
+                paintedProbeAlreadyPaintedByHydrationCount,
+                paintedProbeScheduleEnteredCount,
+                paintedProbeEarlyReturnCount,
+                paintedProbeRafScheduledCount,
+                paintedProbeRafFiredCount,
+                paintedProbeGenerationSupersededCount,
+                paintedProbeSampleRecordedCount,
+                paintedProbeFlushCalledCount,
+                paintedProbeLastAnchoredDeliveryHadAnchor,
+                paintedProbeLastAnchoredDeliverySelectedMatched,
+                paintedProbeLastAnchoredDeliveryHadTelemetryRecorder,
+                paintedProbeLastReason,
+                paintedProbeLastScheduleEarlyReturnReason,
                 pageErrorCount: errorProbe.length,
                 pageIssueLastKind,
                 pageIssueLastClass,

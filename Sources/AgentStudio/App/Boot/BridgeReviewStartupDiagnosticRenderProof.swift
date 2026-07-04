@@ -150,6 +150,31 @@ extension BridgeReviewObservabilitySmokeRenderProof {
         reviewTreeClickSelectedMaterializedItemType = snapshot.reviewTreeClickSelectedMaterializedItemType
         reviewTreeClickSelectedMaterializedItemVersion = snapshot.reviewTreeClickSelectedMaterializedItemVersion
         reviewTreeClickSelectedCharacterCount = snapshot.reviewTreeClickSelectedCharacterCount
+        paintedProbeAnchoredDeliveryEntryCount = snapshot.paintedProbeAnchoredDeliveryEntryCount
+        paintedProbeAnchoredDeliveryAnchorPresentCount =
+            snapshot.paintedProbeAnchoredDeliveryAnchorPresentCount
+        paintedProbeAnchoredDeliverySelectedMatchCount =
+            snapshot.paintedProbeAnchoredDeliverySelectedMatchCount
+        paintedProbeAnchoredDeliveryTelemetryRecorderPresentCount =
+            snapshot.paintedProbeAnchoredDeliveryTelemetryRecorderPresentCount
+        paintedProbeAlreadyPaintedByHydrationCount =
+            snapshot.paintedProbeAlreadyPaintedByHydrationCount
+        paintedProbeScheduleEnteredCount = snapshot.paintedProbeScheduleEnteredCount
+        paintedProbeEarlyReturnCount = snapshot.paintedProbeEarlyReturnCount
+        paintedProbeRafScheduledCount = snapshot.paintedProbeRafScheduledCount
+        paintedProbeRafFiredCount = snapshot.paintedProbeRafFiredCount
+        paintedProbeGenerationSupersededCount = snapshot.paintedProbeGenerationSupersededCount
+        paintedProbeSampleRecordedCount = snapshot.paintedProbeSampleRecordedCount
+        paintedProbeFlushCalledCount = snapshot.paintedProbeFlushCalledCount
+        paintedProbeLastAnchoredDeliveryHadAnchor =
+            snapshot.paintedProbeLastAnchoredDeliveryHadAnchor
+        paintedProbeLastAnchoredDeliverySelectedMatched =
+            snapshot.paintedProbeLastAnchoredDeliverySelectedMatched
+        paintedProbeLastAnchoredDeliveryHadTelemetryRecorder =
+            snapshot.paintedProbeLastAnchoredDeliveryHadTelemetryRecorder
+        paintedProbeLastReason = snapshot.paintedProbeLastReason
+        paintedProbeLastScheduleEarlyReturnReason =
+            snapshot.paintedProbeLastScheduleEarlyReturnReason
     }
 }
 struct BridgeReviewObservabilitySmokeRenderSnapshot: Decodable, Equatable {
@@ -201,6 +226,23 @@ struct BridgeReviewObservabilitySmokeRenderSnapshot: Decodable, Equatable {
     let selectedMaterializedAdditionLineCount: Int
     let selectedMaterializedDeletionLineCount: Int
     let selectedMaterializedFileLineCount: Int
+    let paintedProbeAnchoredDeliveryEntryCount: Int
+    let paintedProbeAnchoredDeliveryAnchorPresentCount: Int
+    let paintedProbeAnchoredDeliverySelectedMatchCount: Int
+    let paintedProbeAnchoredDeliveryTelemetryRecorderPresentCount: Int
+    let paintedProbeAlreadyPaintedByHydrationCount: Int
+    let paintedProbeScheduleEnteredCount: Int
+    let paintedProbeEarlyReturnCount: Int
+    let paintedProbeRafScheduledCount: Int
+    let paintedProbeRafFiredCount: Int
+    let paintedProbeGenerationSupersededCount: Int
+    let paintedProbeSampleRecordedCount: Int
+    let paintedProbeFlushCalledCount: Int
+    let paintedProbeLastAnchoredDeliveryHadAnchor: Bool
+    let paintedProbeLastAnchoredDeliverySelectedMatched: Bool
+    let paintedProbeLastAnchoredDeliveryHadTelemetryRecorder: Bool
+    let paintedProbeLastReason: String
+    let paintedProbeLastScheduleEarlyReturnReason: String
     let pageErrorCount: Int
     let pageIssueLastKind: String
     let pageIssueLastClass: String
@@ -346,6 +388,23 @@ struct BridgeReviewObservabilitySmokeRenderProof: Equatable {
     let selectedMaterializedAdditionLineCount: Int
     let selectedMaterializedDeletionLineCount: Int
     let selectedMaterializedFileLineCount: Int
+    var paintedProbeAnchoredDeliveryEntryCount: Int = 0
+    var paintedProbeAnchoredDeliveryAnchorPresentCount: Int = 0
+    var paintedProbeAnchoredDeliverySelectedMatchCount: Int = 0
+    var paintedProbeAnchoredDeliveryTelemetryRecorderPresentCount: Int = 0
+    var paintedProbeAlreadyPaintedByHydrationCount: Int = 0
+    var paintedProbeScheduleEnteredCount: Int = 0
+    var paintedProbeEarlyReturnCount: Int = 0
+    var paintedProbeRafScheduledCount: Int = 0
+    var paintedProbeRafFiredCount: Int = 0
+    var paintedProbeGenerationSupersededCount: Int = 0
+    var paintedProbeSampleRecordedCount: Int = 0
+    var paintedProbeFlushCalledCount: Int = 0
+    var paintedProbeLastAnchoredDeliveryHadAnchor: Bool = false
+    var paintedProbeLastAnchoredDeliverySelectedMatched: Bool = false
+    var paintedProbeLastAnchoredDeliveryHadTelemetryRecorder: Bool = false
+    var paintedProbeLastReason: String = "none"
+    var paintedProbeLastScheduleEarlyReturnReason: String = "none"
     let pageErrorCount: Int
     let pageIssueLastKind: String
     let pageIssueLastClass: String
@@ -612,6 +671,40 @@ struct BridgeReviewObservabilitySmokeRenderProof: Equatable {
                 selectedMaterializedDeletionLineCount),
             "agentstudio.startup_diagnostic.bridge.selected_materialized.file_line.count": .int(
                 selectedMaterializedFileLineCount),
+            "agentstudio.startup_diagnostic.bridge.painted_probe.anchored_delivery_entry.count": .int(
+                paintedProbeAnchoredDeliveryEntryCount),
+            "agentstudio.startup_diagnostic.bridge.painted_probe.anchored_delivery_anchor_present.count": .int(
+                paintedProbeAnchoredDeliveryAnchorPresentCount),
+            "agentstudio.startup_diagnostic.bridge.painted_probe.anchored_delivery_selected_match.count": .int(
+                paintedProbeAnchoredDeliverySelectedMatchCount),
+            "agentstudio.startup_diagnostic.bridge.painted_probe.anchored_delivery_recorder_present.count": .int(
+                paintedProbeAnchoredDeliveryTelemetryRecorderPresentCount),
+            "agentstudio.startup_diagnostic.bridge.painted_probe.already_painted_by_hydration.count": .int(
+                paintedProbeAlreadyPaintedByHydrationCount),
+            "agentstudio.startup_diagnostic.bridge.painted_probe.schedule_entered.count": .int(
+                paintedProbeScheduleEnteredCount),
+            "agentstudio.startup_diagnostic.bridge.painted_probe.early_return.count": .int(
+                paintedProbeEarlyReturnCount),
+            "agentstudio.startup_diagnostic.bridge.painted_probe.raf_scheduled.count": .int(
+                paintedProbeRafScheduledCount),
+            "agentstudio.startup_diagnostic.bridge.painted_probe.raf_fired.count": .int(
+                paintedProbeRafFiredCount),
+            "agentstudio.startup_diagnostic.bridge.painted_probe.generation_superseded.count": .int(
+                paintedProbeGenerationSupersededCount),
+            "agentstudio.startup_diagnostic.bridge.painted_probe.sample_recorded.count": .int(
+                paintedProbeSampleRecordedCount),
+            "agentstudio.startup_diagnostic.bridge.painted_probe.flush_called.count": .int(
+                paintedProbeFlushCalledCount),
+            "agentstudio.startup_diagnostic.bridge.painted_probe.last_anchored_delivery.had_anchor": .bool(
+                paintedProbeLastAnchoredDeliveryHadAnchor),
+            "agentstudio.startup_diagnostic.bridge.painted_probe.last_anchored_delivery.selected_matched": .bool(
+                paintedProbeLastAnchoredDeliverySelectedMatched),
+            "agentstudio.startup_diagnostic.bridge.painted_probe.last_anchored_delivery.had_recorder": .bool(
+                paintedProbeLastAnchoredDeliveryHadTelemetryRecorder),
+            "agentstudio.startup_diagnostic.bridge.painted_probe.last_reason": .string(
+                paintedProbeLastReason),
+            "agentstudio.startup_diagnostic.bridge.painted_probe.last_schedule_early_return.reason": .string(
+                paintedProbeLastScheduleEarlyReturnReason),
             "agentstudio.startup_diagnostic.bridge.page_issue.count": .int(pageErrorCount),
             "agentstudio.startup_diagnostic.bridge.page_issue.last_kind": .string(pageIssueLastKind),
             "agentstudio.startup_diagnostic.bridge.page_issue.last_class": .string(pageIssueLastClass),

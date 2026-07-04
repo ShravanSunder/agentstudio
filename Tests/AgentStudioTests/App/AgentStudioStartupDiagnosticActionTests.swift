@@ -454,6 +454,27 @@ struct AgentStudioStartupDiagnosticActionTests {
             proof.attributes["agentstudio.startup_diagnostic.bridge.review_intake_ready_command.count"] == .int(0))
     }
 
+    @Test("Bridge smoke render proof emits selected content painted probe diagnostics")
+    func bridgeSmokeRenderProofEmitsSelectedContentPaintedProbeDiagnostics() {
+        let proof = makeFullyHydratedBridgeSmokeRenderProof()
+
+        #expect(
+            proof.attributes["agentstudio.startup_diagnostic.bridge.painted_probe.schedule_entered.count"]
+                == .int(2))
+        #expect(
+            proof.attributes["agentstudio.startup_diagnostic.bridge.painted_probe.raf_scheduled.count"]
+                == .int(1))
+        #expect(
+            proof.attributes["agentstudio.startup_diagnostic.bridge.painted_probe.sample_recorded.count"]
+                == .int(1))
+        #expect(
+            proof.attributes["agentstudio.startup_diagnostic.bridge.painted_probe.last_reason"]
+                == .string("flush_called"))
+        #expect(
+            proof.attributes["agentstudio.startup_diagnostic.bridge.painted_probe.last_schedule_early_return.reason"]
+                == .string("duplicate_selection_demand"))
+    }
+
     @Test("Bridge smoke render proof fails before selected content is visible")
     func bridgeSmokeRenderProofFailsBeforeSelectedContentIsVisible() {
         let proof = BridgeReviewObservabilitySmokeRenderProof(
@@ -583,6 +604,9 @@ struct AgentStudioStartupDiagnosticActionTests {
         #expect(probe.contains("pageIssueDisallowedCount"))
         #expect(probe.contains("__bridgeCommandProbe"))
         #expect(probe.contains("__bridgeIntakeReadyCommandProbe"))
+        #expect(probe.contains("__bridgeSelectedContentPaintedProbe"))
+        #expect(probe.contains("paintedProbeScheduleEnteredCount"))
+        #expect(probe.contains("paintedProbeLastReason"))
         #expect(probe.contains("__bridgeIntakeProbe"))
         #expect(probe.contains("__bridgeReviewMetadataInterestProbe"))
         #expect(probe.contains("bridge.metadata_interest.update"))

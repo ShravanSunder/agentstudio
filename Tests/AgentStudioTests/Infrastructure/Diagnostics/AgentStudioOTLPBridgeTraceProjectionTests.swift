@@ -446,6 +446,10 @@ struct AgentStudioOTLPBridgeTraceProjectionTests {
                 "agentstudio.startup_diagnostic.bridge.review_metadata_item.count": .int(36),
                 "agentstudio.startup_diagnostic.bridge.review_metadata_tree_row.count": .int(80),
                 "agentstudio.startup_diagnostic.bridge.review_shell.state": .string("projection_pending"),
+                "agentstudio.startup_diagnostic.bridge.painted_probe.schedule_entered.count": .int(2),
+                "agentstudio.startup_diagnostic.bridge.painted_probe.last_reason": .string("flush_called"),
+                "agentstudio.startup_diagnostic.bridge.painted_probe.last_schedule_early_return.reason": .string(
+                    "duplicate_selection_demand"),
                 "agentstudio.startup_diagnostic.pane.id": .string("private-pane-id"),
                 "agentstudio.startup_diagnostic.render_proof.succeeded": .bool(false),
             ]
@@ -466,6 +470,19 @@ struct AgentStudioOTLPBridgeTraceProjectionTests {
         #expect(
             projection.attributes["agentstudio.startup_diagnostic.bridge.review_shell.state"]
                 == .string("projection_pending")
+        )
+        #expect(
+            projection.attributes["agentstudio.startup_diagnostic.bridge.painted_probe.schedule_entered.count"]
+                == .int(2)
+        )
+        #expect(
+            projection.attributes["agentstudio.startup_diagnostic.bridge.painted_probe.last_reason"]
+                == .string("flush_called")
+        )
+        #expect(
+            projection.attributes[
+                "agentstudio.startup_diagnostic.bridge.painted_probe.last_schedule_early_return.reason"
+            ] == .string("duplicate_selection_demand")
         )
         #expect(projection.attributes["agentstudio.startup_diagnostic.pane.id"] == nil)
         #expect(!renderedProjection.contains("private-pane-id"))

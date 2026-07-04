@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 
 import type { BridgeContentResource } from '../../foundation/content/content-resource-loader.js';
 import {
@@ -27,6 +27,8 @@ import {
 } from './bridge-code-view-panel-support.js';
 import {
 	makeBridgeCodeViewSourceKey,
+	type BridgeSelectedContentPaintedProbe,
+	recordBridgeSelectedContentPaintedProbeAnchoredDelivery,
 	reconcileBridgeCodeViewMetadataItems,
 	scheduleSelectedContentPaintedTelemetry,
 	selectedContentSummaryForPanel,
@@ -273,6 +275,7 @@ describe('BridgeCodeViewPanel diagnostics', () => {
 		const frameCallbacks: FrameRequestCallback[] = [];
 		const telemetryRecorder = enabledTelemetryRecorder(samples);
 		let nowMilliseconds = 130;
+		resetSelectedContentPaintedProbe();
 
 		scheduleSelectedContentPaintedTelemetry({
 			telemetryRecorder,
@@ -305,6 +308,76 @@ describe('BridgeCodeViewPanel diagnostics', () => {
 				'agentstudio.bridge.selected_content.frame_wait_ms': 20,
 				'agentstudio.bridge.selected_content.materialize_ms': 30,
 			},
+		});
+		expect(readSelectedContentPaintedProbe()).toMatchObject({
+			scheduleEnteredCount: 1,
+			rafScheduledCount: 1,
+			rafFiredCount: 1,
+			sampleRecordedCount: 1,
+			flushCalledCount: 1,
+			lastReason: 'flush_called',
+			lastScheduleEarlyReturnReason: 'none',
+		});
+	});
+
+	test('records selected content painted probe delivery and scheduler gate counters', () => {
+		const samples: BridgeTelemetrySample[] = [];
+		const frameCallbacks: FrameRequestCallback[] = [];
+		const telemetryRecorder = enabledTelemetryRecorder(samples);
+		let nowMilliseconds = 16;
+		resetSelectedContentPaintedProbe();
+
+		recordBridgeSelectedContentPaintedProbeAnchoredDelivery({
+			hasAnchor: true,
+			isSelectedItem: true,
+			hasTelemetryRecorder: true,
+			didFindMatchingPaintedContent: true,
+		});
+		scheduleSelectedContentPaintedTelemetry({
+			telemetryRecorder,
+			traceContext: null,
+			selectionDemandStartedAtMilliseconds: 10,
+			materializationStartedAtMilliseconds: 12,
+			materializationCompletedAtMilliseconds: 14,
+			now: (): number => nowMilliseconds,
+			requestAnimationFrame: (callback): number => {
+				frameCallbacks.push(callback);
+				return frameCallbacks.length;
+			},
+		});
+		scheduleSelectedContentPaintedTelemetry({
+			telemetryRecorder,
+			traceContext: null,
+			selectionDemandStartedAtMilliseconds: 10,
+			materializationStartedAtMilliseconds: 12,
+			materializationCompletedAtMilliseconds: 14,
+			now: (): number => nowMilliseconds,
+			requestAnimationFrame: (callback): number => {
+				frameCallbacks.push(callback);
+				return frameCallbacks.length;
+			},
+		});
+
+		nowMilliseconds = 20;
+		frameCallbacks[0]?.(20);
+
+		expect(readSelectedContentPaintedProbe()).toMatchObject({
+			anchoredDeliveryEntryCount: 1,
+			anchoredDeliveryAnchorPresentCount: 1,
+			anchoredDeliverySelectedMatchCount: 1,
+			anchoredDeliveryTelemetryRecorderPresentCount: 1,
+			alreadyPaintedByHydrationCount: 1,
+			scheduleEnteredCount: 2,
+			earlyReturnCount: 1,
+			rafScheduledCount: 1,
+			rafFiredCount: 1,
+			sampleRecordedCount: 1,
+			flushCalledCount: 1,
+			lastAnchoredDeliveryHadAnchor: true,
+			lastAnchoredDeliverySelectedMatched: true,
+			lastAnchoredDeliveryHadTelemetryRecorder: true,
+			lastReason: 'flush_called',
+			lastScheduleEarlyReturnReason: 'duplicate_selection_demand',
 		});
 	});
 
@@ -480,6 +553,28 @@ function enabledTelemetryRecorder(samples: BridgeTelemetrySample[]): BridgeTelem
 		measure: <TResult>(props: { readonly operation: () => TResult }): TResult => props.operation(),
 		flush: (): boolean => true,
 	};
+}
+
+function resetSelectedContentPaintedProbe(): void {
+	ensureTestWindow();
+	// oxlint-disable-next-line no-underscore-dangle -- Intentional Bridge debug surface name.
+	window.__bridgeSelectedContentPaintedProbe = undefined;
+}
+
+function readSelectedContentPaintedProbe(): BridgeSelectedContentPaintedProbe {
+	ensureTestWindow();
+	// oxlint-disable-next-line no-underscore-dangle -- Intentional Bridge debug surface name.
+	const probe = window.__bridgeSelectedContentPaintedProbe;
+	if (probe === undefined) {
+		throw new Error('Expected selected content painted probe to be installed.');
+	}
+	return probe;
+}
+
+function ensureTestWindow(): void {
+	if (typeof window === 'undefined') {
+		vi.stubGlobal('window', {});
+	}
 }
 
 class VersionKeyedCodeViewModel {
