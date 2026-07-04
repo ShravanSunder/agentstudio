@@ -1,3 +1,5 @@
+import { act } from 'react';
+
 import type { WorktreeFileDescriptorRequest } from '../features/worktree-file/models/worktree-file-protocol-models.js';
 import type { BridgeTelemetrySample } from '../foundation/telemetry/bridge-telemetry-event.js';
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
@@ -37,6 +39,23 @@ export function requireOpenSlowFile(openSlowFile: (() => void) | null): () => vo
 		throw new Error('Controlled FileViewer did not publish its open callback.');
 	}
 	return openSlowFile;
+}
+
+/**
+ * This app mounts real resizable-panel/tree/code-view chrome (ResizeObserver
+ * and rAF-driven layout settling) and every `waitForXxxAttempt` poll below
+ * advances one real animation frame at a time until its condition holds.
+ * Each tick must open and close its own `act()` scope: wrapping the *entire*
+ * multi-frame recursive poll in a single outer `act()` call instead defers
+ * React's DOM commits until that outer call resolves, so the very condition
+ * being polled for can never become true while the poll is still running.
+ * Advancing one frame per `act()` call lets each tick's update commit to the
+ * DOM before the next check runs.
+ */
+async function actFrame(): Promise<void> {
+	await act(async (): Promise<void> => {
+		await waitForBridgeViewerAnimationFrame();
+	});
 }
 
 export async function waitForOpenFileState(expectedState: string): Promise<void> {
@@ -155,7 +174,7 @@ export async function waitForTelemetrySampleCount(props: {
 			`Expected ${props.count} telemetry samples named ${props.name}; actual=${matchingSamples.length}`,
 		);
 	}
-	await waitForBridgeViewerAnimationFrame();
+	await actFrame();
 	return waitForTelemetrySampleCount({
 		...props,
 		attempt: attempt + 1,
@@ -186,7 +205,7 @@ export async function waitForOpenFileStateAttempt(props: {
 			`Expected open file state ${props.expectedState}; actual=${openFileState() ?? 'missing'}`,
 		);
 	}
-	await waitForBridgeViewerAnimationFrame();
+	await actFrame();
 	await waitForOpenFileStateAttempt({
 		attempt: props.attempt + 1,
 		expectedState: props.expectedState,
@@ -202,7 +221,7 @@ export async function waitForRefreshButtonEnabledAttempt(props: {
 	if (props.attempt >= 60) {
 		throw new Error('Expected Worktree/File refresh button to become enabled.');
 	}
-	await waitForBridgeViewerAnimationFrame();
+	await actFrame();
 	await waitForRefreshButtonEnabledAttempt({ attempt: props.attempt + 1 });
 }
 
@@ -216,7 +235,7 @@ export async function waitForFileCodeViewViewportAttempt(props: {
 	if (props.attempt >= 60) {
 		throw new Error('Expected File CodeView viewport to be mounted.');
 	}
-	await waitForBridgeViewerAnimationFrame();
+	await actFrame();
 	return waitForFileCodeViewViewportAttempt({ attempt: props.attempt + 1 });
 }
 
@@ -230,7 +249,7 @@ export async function waitForFileCodeViewScrollOwnerAttempt(props: {
 	if (props.attempt >= 60) {
 		throw new Error('Expected File CodeView scroll owner to be mounted.');
 	}
-	await waitForBridgeViewerAnimationFrame();
+	await actFrame();
 	return waitForFileCodeViewScrollOwnerAttempt({ attempt: props.attempt + 1 });
 }
 
@@ -246,7 +265,7 @@ export async function waitForFileCodeViewScrollableAttempt(props: {
 			`Expected File CodeView to be scrollable; scrollHeight=${props.scrollOwner.scrollHeight}; clientHeight=${props.scrollOwner.clientHeight}`,
 		);
 	}
-	await waitForBridgeViewerAnimationFrame();
+	await actFrame();
 	await waitForFileCodeViewScrollableAttempt({
 		attempt: props.attempt + 1,
 		scrollOwner: props.scrollOwner,
@@ -332,7 +351,7 @@ export async function waitForOpenFileBodyPreviewAttempt(props: {
 			`Expected open file body preview ${props.expectedText}; actual=${actualPreview ?? 'missing'}`,
 		);
 	}
-	await waitForBridgeViewerAnimationFrame();
+	await actFrame();
 	await waitForOpenFileBodyPreviewAttempt({
 		attempt: props.attempt + 1,
 		expectedText: props.expectedText,
@@ -421,7 +440,7 @@ export async function waitForVisibleCodeTextAttempt(props: {
 			`Expected visible code text ${props.expectedText}; actual=${actualText.slice(0, 300)}`,
 		);
 	}
-	await waitForBridgeViewerAnimationFrame();
+	await actFrame();
 	await waitForVisibleCodeTextAttempt({
 		attempt: props.attempt + 1,
 		expectedText: props.expectedText,
@@ -442,7 +461,7 @@ export async function waitForDemandDispatchStateAttempt(props: {
 			`Expected demand dispatch state ${props.expectedState}; actual=${actualState ?? 'missing'}`,
 		);
 	}
-	await waitForBridgeViewerAnimationFrame();
+	await actFrame();
 	await waitForDemandDispatchStateAttempt({
 		attempt: props.attempt + 1,
 		expectedState: props.expectedState,
@@ -463,7 +482,7 @@ export async function waitForFileViewerActiveStateAttempt(props: {
 			`Expected FileViewer active state ${props.expectedState}; actual=${actualState ?? 'missing'}`,
 		);
 	}
-	await waitForBridgeViewerAnimationFrame();
+	await actFrame();
 	await waitForFileViewerActiveStateAttempt({
 		attempt: props.attempt + 1,
 		expectedState: props.expectedState,
@@ -484,7 +503,7 @@ export async function waitForDemandDispatchLoadedCountAttempt(props: {
 			`Expected demand dispatch loaded count ${props.expectedLoadedCount}; actual=${actualLoadedCount ?? 'missing'}`,
 		);
 	}
-	await waitForBridgeViewerAnimationFrame();
+	await actFrame();
 	await waitForDemandDispatchLoadedCountAttempt({
 		attempt: props.attempt + 1,
 		expectedLoadedCount: props.expectedLoadedCount,
@@ -505,7 +524,7 @@ export async function waitForDemandDispatchFirstLaneAttempt(props: {
 			`Expected demand dispatch first lane ${props.expectedFirstLane}; actual=${actualFirstLane ?? 'missing'}`,
 		);
 	}
-	await waitForBridgeViewerAnimationFrame();
+	await actFrame();
 	await waitForDemandDispatchFirstLaneAttempt({
 		attempt: props.attempt + 1,
 		expectedFirstLane: props.expectedFirstLane,
@@ -544,7 +563,7 @@ export async function waitForRefreshDebugStateAttempt(props: {
 			`Expected refresh debug state ${props.commitState}/${props.result}; actual=${actualCommitState ?? 'missing'}/${actualResult ?? 'missing'}`,
 		);
 	}
-	await waitForBridgeViewerAnimationFrame();
+	await actFrame();
 	await waitForRefreshDebugStateAttempt({
 		...props,
 		attempt: props.attempt + 1,
@@ -568,7 +587,7 @@ export async function waitForDemandDispatchFirstFreshnessKeyContainingAttempt(pr
 			}; actual=${actualFirstFreshnessKey ?? 'missing'}`,
 		);
 	}
-	await waitForBridgeViewerAnimationFrame();
+	await actFrame();
 	await waitForDemandDispatchFirstFreshnessKeyContainingAttempt({
 		attempt: props.attempt + 1,
 		expectedContentHandle: props.expectedContentHandle,
@@ -588,7 +607,7 @@ export async function waitForRecordedFetchCountAttempt(props: {
 			`Expected ${props.expectedCount} fetches; actual=${props.recordedFetches.length}`,
 		);
 	}
-	await waitForBridgeViewerAnimationFrame();
+	await actFrame();
 	await waitForRecordedFetchCountAttempt({
 		attempt: props.attempt + 1,
 		expectedCount: props.expectedCount,
@@ -609,7 +628,7 @@ export async function waitForDescriptorRequestCountAttempt(props: {
 			`Expected ${props.expectedCount} descriptor requests; actual=${props.recordedRequests.length}`,
 		);
 	}
-	await waitForBridgeViewerAnimationFrame();
+	await actFrame();
 	await waitForDescriptorRequestCountAttempt({
 		attempt: props.attempt + 1,
 		expectedCount: props.expectedCount,
@@ -631,7 +650,7 @@ export async function waitForMetadataTreeRowCountAttempt(props: {
 			`Expected metadata tree row count ${props.expectedCount}; actual=${actualCount}`,
 		);
 	}
-	await waitForBridgeViewerAnimationFrame();
+	await actFrame();
 	await waitForMetadataTreeRowCountAttempt({
 		attempt: props.attempt + 1,
 		expectedCount: props.expectedCount,
@@ -652,7 +671,7 @@ export async function waitForSelectedDisplayPathAttempt(props: {
 			`Expected selected display path ${props.expectedPath}; actual=${actualPath ?? 'missing'}`,
 		);
 	}
-	await waitForBridgeViewerAnimationFrame();
+	await actFrame();
 	await waitForSelectedDisplayPathAttempt({
 		attempt: props.attempt + 1,
 		expectedPath: props.expectedPath,
@@ -675,7 +694,7 @@ export async function waitForInitialSurfaceStateAttempt(props: {
 			`Expected initial surface state ${props.expectedState}; actual=${actualState ?? 'missing'}`,
 		);
 	}
-	await waitForBridgeViewerAnimationFrame();
+	await actFrame();
 	await waitForInitialSurfaceStateAttempt({
 		attempt: props.attempt + 1,
 		attemptBudget,
@@ -697,7 +716,7 @@ export async function waitForTreeScrollHeightAtLeast(
 			`Expected tree scrollHeight >= ${minimumScrollHeight}; actual=${actualScrollHeight}`,
 		);
 	}
-	await waitForBridgeViewerAnimationFrame();
+	await actFrame();
 	await waitForTreeScrollHeightAtLeast(minimumScrollHeight, attempt + 1);
 }
 
@@ -715,7 +734,7 @@ export async function waitForInitialSurfaceLoadCountAttempt(props: {
 			`Expected ${props.expectedCount} initial surface loads; actual=${currentLoadCount}`,
 		);
 	}
-	await waitForBridgeViewerAnimationFrame();
+	await actFrame();
 	await waitForInitialSurfaceLoadCountAttempt({
 		attempt: props.attempt + 1,
 		expectedCount: props.expectedCount,
