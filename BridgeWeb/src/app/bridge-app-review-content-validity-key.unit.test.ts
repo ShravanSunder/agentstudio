@@ -14,7 +14,6 @@ import {
 import {
 	makeSelectedContentResourcesKey,
 	reviewContentValidityDropReason,
-	selectedContentDemandStartedAtMillisecondsForCurrentSelection,
 	selectedContentResourcesForCurrentSelection,
 } from './bridge-app-review-selection-state.js';
 import { applyReviewMetadataDeltaToReviewPackage } from './bridge-app.js';
@@ -135,7 +134,6 @@ describe('review content-validity key is content-addressed, not revision-stamped
 		const loadedState = {
 			itemId: 'item-source',
 			contentKey: makeSelectedContentResourcesKey(reviewPackage, 'item-source'),
-			demandStartedAtMilliseconds: 123,
 			status: 'ready' as const,
 			resources: { head: { handle: headHandle, readText: (): string => 'head body' } },
 		};
@@ -171,7 +169,6 @@ describe('review content-validity key is content-addressed, not revision-stamped
 		const loadedState = {
 			itemId: 'item-source',
 			contentKey: makeSelectedContentResourcesKey(reviewPackage, 'item-source'),
-			demandStartedAtMilliseconds: 123,
 			status: 'ready' as const,
 			resources: { head: { handle: headHandle, readText: (): string => 'head body' } },
 		};
@@ -198,7 +195,6 @@ describe('review content-validity key is content-addressed, not revision-stamped
 		const loadedState = {
 			itemId: 'item-source',
 			contentKey: makeSelectedContentResourcesKey(reviewPackage, 'item-source'),
-			demandStartedAtMilliseconds: 123,
 			status: 'ready' as const,
 			resources: { head: { handle: headHandle, readText: (): string => 'head body' } },
 		};
@@ -229,13 +225,6 @@ describe('review content-validity key is content-addressed, not revision-stamped
 				selectedContentResourcesState: loadedState,
 			}),
 		).toBe('valid');
-		expect(
-			selectedContentDemandStartedAtMillisecondsForCurrentSelection({
-				reviewPackage: downgradedPackage,
-				selectedItemId: 'item-source',
-				selectedContentResourcesState: loadedState,
-			}),
-		).toBe(123);
 	});
 });
 

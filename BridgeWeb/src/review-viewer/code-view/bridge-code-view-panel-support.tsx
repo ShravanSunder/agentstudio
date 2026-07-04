@@ -103,27 +103,6 @@ export function shouldApplyBridgeCodeViewMaterialization(props: {
 	return !props.isScrollActive || props.itemId === props.selectedItemId;
 }
 
-export function shouldApplyBridgeCodeViewMaterializationEntry(props: {
-	readonly hasSelectedContentDemandAnchor: boolean;
-	readonly isScrollActive: boolean;
-	readonly itemId: string;
-	readonly selectedContentResourceItemId: string | null;
-	readonly selectedItemId: string | null;
-}): boolean {
-	if (
-		props.itemId === props.selectedItemId &&
-		props.itemId !== props.selectedContentResourceItemId &&
-		!props.hasSelectedContentDemandAnchor
-	) {
-		return false;
-	}
-	return shouldApplyBridgeCodeViewMaterialization({
-		isScrollActive: props.isScrollActive,
-		itemId: props.itemId,
-		selectedItemId: props.selectedItemId,
-	});
-}
-
 export interface BridgeCodeViewInstantRevealRearmCandidate {
 	readonly itemId: string;
 	readonly revealedAtMilliseconds: number;

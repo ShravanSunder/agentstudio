@@ -96,21 +96,6 @@ export function selectedContentResourcesForCurrentSelection(
 	return props.selectedContentResourcesState?.resources ?? null;
 }
 
-export function selectedContentDemandStartedAtMillisecondsForCurrentSelection(
-	props: SelectedContentResourcesForCurrentSelectionProps,
-): number | null {
-	if (
-		reviewContentValidityDropReason({
-			reviewPackage: props.reviewPackage,
-			selectedItemId: props.selectedItemId,
-			selectedContentResourcesState: props.selectedContentResourcesState,
-		}) !== 'valid'
-	) {
-		return null;
-	}
-	return props.selectedContentResourcesState?.demandStartedAtMilliseconds ?? null;
-}
-
 export type ReviewContentValidityDropReason =
 	| 'no_selection'
 	| 'valid'
