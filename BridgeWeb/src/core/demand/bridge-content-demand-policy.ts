@@ -19,6 +19,16 @@ export const bridgeContentDemandExecutionPolicy = {
 	deliveryFailureBackoffMaxMilliseconds: 8_000,
 	/** Half-frame main-thread materialization slice, derived from 60Hz paint budget and validated by chunk/yield tests plus frame-liveness telemetry. */
 	materializationFrameBudgetMilliseconds: 8,
+	/** R46 execution cap for main-thread DOM/Pierre apply; mirrors AppPolicies.Bridge.applyPumpFrameBudgetMilliseconds. */
+	applyPumpFrameBudgetMilliseconds: 8,
+	/** R46 execution unit cap; bounds one apply turn even when individual units are cheap. */
+	applyPumpMaxUnitsPerFrame: 4,
+	/** R46 pacing cap; stale pending units are cleared without monopolizing a frame. */
+	applyPumpStaleScanLimit: 64,
+	/** R46 fairness cap; visible apply must progress after this many selected batches. */
+	applyPumpNoStarvationSelectedBatchLimit: 3,
+	/** R46 selected first-paint window; first selected content apply never parses the whole file. */
+	selectedApplyInitialWindowLineCount: 1_500,
 } as const;
 
 export const bridgeContentDemandMembershipPolicy = {

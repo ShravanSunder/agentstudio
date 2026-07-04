@@ -55,4 +55,44 @@ final class AppPoliciesBridgeTests {
             Issue.record("Expected BridgeProviderFailure, got \(error)")
         }
     }
+
+    @Test("Bridge apply pump policy matches BridgeWeb mirror")
+    func bridgeApplyPumpPolicyMatchesBridgeWebMirror() throws {
+        let mirrorSource = try String(
+            contentsOfFile: "BridgeWeb/src/core/demand/bridge-content-demand-policy.ts",
+            encoding: .utf8
+        )
+        let normalizedMirrorSource = mirrorSource.replacingOccurrences(of: "_", with: "")
+
+        #expect(
+            normalizedMirrorSource
+                .contains(
+                    "applyPumpFrameBudgetMilliseconds: \(AppPolicies.Bridge.applyPumpFrameBudgetMilliseconds)"
+                )
+        )
+        #expect(
+            normalizedMirrorSource
+                .contains(
+                    "applyPumpMaxUnitsPerFrame: \(AppPolicies.Bridge.applyPumpMaxUnitsPerFrame)"
+                )
+        )
+        #expect(
+            normalizedMirrorSource
+                .contains(
+                    "applyPumpStaleScanLimit: \(AppPolicies.Bridge.applyPumpStaleScanLimit)"
+                )
+        )
+        #expect(
+            normalizedMirrorSource
+                .contains(
+                    "applyPumpNoStarvationSelectedBatchLimit: \(AppPolicies.Bridge.applyPumpNoStarvationSelectedBatchLimit)"
+                )
+        )
+        #expect(
+            normalizedMirrorSource
+                .contains(
+                    "selectedApplyInitialWindowLineCount: \(AppPolicies.Bridge.selectedApplyInitialWindowLineCount)"
+                )
+        )
+    }
 }

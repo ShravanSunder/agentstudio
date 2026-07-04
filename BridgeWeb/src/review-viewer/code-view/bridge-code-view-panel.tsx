@@ -10,6 +10,7 @@ import {
 	createBridgeCodeViewInitialItems,
 	materializeBridgeCodeViewItem,
 	materializeBridgeCodeViewLoadingItem,
+	selectedBridgeCodeViewContentWindowLineLimitForItem,
 	type BridgeCodeViewItem,
 } from './bridge-code-view-materialization.js';
 import { applyBridgeCodeViewMetadataItems } from './bridge-code-view-metadata-apply.js';
@@ -732,6 +733,13 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 				}
 				const materializedItem = materializeBridgeCodeViewItem({
 					contentDemandRole: entry.contentDemandRole,
+					contentWindowLineLimit:
+						entry.contentDemandRole === 'selected'
+							? selectedBridgeCodeViewContentWindowLineLimitForItem({
+									item: selectedItem,
+									resources,
+								})
+							: undefined,
 					item: selectedItem,
 					presentation:
 						itemId === props.selectedItemId ? (props.selectedItemPresentation ?? null) : null,
@@ -864,12 +872,17 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 			runBridgeCodeViewMaterializationInChunks({
 				entries: materializationResourceEntries,
 				frameBudgetMilliseconds:
-					bridgeContentDemandExecutionPolicy.materializationFrameBudgetMilliseconds,
+					bridgeContentDemandExecutionPolicy.applyPumpFrameBudgetMilliseconds,
 				isStale: (): boolean => materializationTaskGenerationRef.current !== taskGeneration,
+				maxUnitsPerFrame: bridgeContentDemandExecutionPolicy.applyPumpMaxUnitsPerFrame,
 				now: (): number => performance.now(),
+				noStarvationSelectedBatchLimit:
+					bridgeContentDemandExecutionPolicy.applyPumpNoStarvationSelectedBatchLimit,
 				onComplete: finishMaterialization,
+				rankForEntry: (entry) => entry.contentDemandRole,
 				runEntry: materializeReadyEntry,
 				scheduleNextTurn: scheduleMaterializationTurn,
+				staleScanLimit: bridgeContentDemandExecutionPolicy.applyPumpStaleScanLimit,
 			});
 		};
 		scheduleMaterializationTurn((): void => {

@@ -76,6 +76,14 @@ enum AppPolicies {
         /// drop so the loss is observable, never silent. Recovery is the
         /// normal reset/reopen path, which rebuilds from the manifest.
         static let metadataSchedulerMaxQueuedJobsPerLane: Int = 256
+        /// R46 execution budget for BridgeWeb's main-thread apply pump. The
+        /// BridgeWeb mirror is source-scanned by AppPoliciesBridgeTests because
+        /// this app cannot import TypeScript constants.
+        static let applyPumpFrameBudgetMilliseconds: Int = 8
+        static let applyPumpMaxUnitsPerFrame: Int = 4
+        static let applyPumpStaleScanLimit: Int = 64
+        static let applyPumpNoStarvationSelectedBatchLimit: Int = 3
+        static let selectedApplyInitialWindowLineCount: Int = 1500
     }
 
     enum WorkspacePersistence {

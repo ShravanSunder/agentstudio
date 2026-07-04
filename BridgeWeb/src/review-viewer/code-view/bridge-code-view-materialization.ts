@@ -2,7 +2,10 @@ import type { CodeViewDiffItem, CodeViewFileItem } from '@pierre/diffs';
 import { parseDiffFromFile, type FileContents } from '@pierre/diffs';
 import { z } from 'zod';
 
-import { demandRankForContentRole } from '../../core/demand/bridge-content-demand-policy.js';
+import {
+	bridgeContentDemandExecutionPolicy,
+	demandRankForContentRole,
+} from '../../core/demand/bridge-content-demand-policy.js';
 import type { BridgeContentDemandRole } from '../../core/models/bridge-demand-models.js';
 import type { BridgeContentResource } from '../../foundation/content/content-resource-loader.js';
 import type {
@@ -28,7 +31,9 @@ export const bridgeCodeViewContentStateSchema = z.enum([
 ]);
 
 const fullCodeViewMaterializationLineBudget = 20_000;
-const codeViewContentWindowLineCount = 1_500;
+export const selectedBridgeCodeViewContentWindowLineCount =
+	bridgeContentDemandExecutionPolicy.selectedApplyInitialWindowLineCount;
+const codeViewContentWindowLineCount = selectedBridgeCodeViewContentWindowLineCount;
 
 export const bridgeCodeViewItemMetadataSchema = z.object({
 	itemId: z.string().min(1),
@@ -77,6 +82,7 @@ export interface CreateBridgeCodeViewInitialItemsProps {
 
 export interface MaterializeBridgeCodeViewItemProps {
 	readonly contentDemandRole?: BridgeContentDemandRole | undefined;
+	readonly contentWindowLineLimit?: number | undefined;
 	readonly item: BridgeReviewItemDescriptor;
 	readonly presentation?: BridgeCodeViewItemPresentation | null;
 	readonly resources: BridgeCodeViewContentResources;
@@ -126,6 +132,7 @@ export function materializeBridgeCodeViewItem(
 			? null
 			: createFileItem({
 					contentDemandRole: props.contentDemandRole,
+					contentWindow: codeViewContentWindowForLineLimit(props.contentWindowLineLimit),
 					item,
 					resource: preferredResource,
 					version: item.itemVersion,
@@ -137,6 +144,7 @@ export function materializeBridgeCodeViewItem(
 		return createDiffItem({
 			...oneSidedDiffResources,
 			contentDemandRole: props.contentDemandRole,
+			contentWindow: codeViewContentWindowForLineLimit(props.contentWindowLineLimit),
 			item,
 		});
 	}
@@ -147,6 +155,7 @@ export function materializeBridgeCodeViewItem(
 	) {
 		return createDiffItem({
 			contentDemandRole: props.contentDemandRole,
+			contentWindow: codeViewContentWindowForLineLimit(props.contentWindowLineLimit),
 			item,
 			base: resources.base ?? null,
 			head: resources.head ?? null,
@@ -161,11 +170,25 @@ export function materializeBridgeCodeViewItem(
 
 	return createFileItem({
 		contentDemandRole: props.contentDemandRole,
+		contentWindow: codeViewContentWindowForLineLimit(props.contentWindowLineLimit),
 		item,
 		resource: preferredResource,
 		version: item.itemVersion,
 		contentState: 'hydrated',
 	});
+}
+
+export function selectedBridgeCodeViewContentWindowLineLimitForItem(props: {
+	readonly item: BridgeReviewItemDescriptor;
+	readonly resources: BridgeCodeViewContentResources;
+}): number | undefined {
+	if (
+		maxKnownContentLineCount(props.item) > selectedBridgeCodeViewContentWindowLineCount ||
+		maxKnownContentByteCount(props.resources) > 1_000_000
+	) {
+		return selectedBridgeCodeViewContentWindowLineCount;
+	}
+	return undefined;
 }
 
 export function materializeBridgeCodeViewLoadingItem(
@@ -264,6 +287,7 @@ function createPlaceholderDiffItem(props: {
 
 interface CreateFileItemProps {
 	readonly contentDemandRole?: BridgeContentDemandRole | undefined;
+	readonly contentWindow?: CodeViewContentWindow | undefined;
 	readonly item: BridgeReviewItemDescriptor;
 	readonly placeholderVersion?: BridgeCodeViewFilePresentationVersion;
 	readonly resource: BridgeContentResource | null;
@@ -273,6 +297,7 @@ interface CreateFileItemProps {
 
 function createFileItem(props: CreateFileItemProps): BridgeCodeViewFileItem {
 	const contentWindow = codeViewContentWindowForResource({
+		contentWindow: props.contentWindow,
 		item: props.item,
 		resource: props.resource,
 	});
@@ -316,6 +341,7 @@ function createFileItem(props: CreateFileItemProps): BridgeCodeViewFileItem {
 
 interface CreateDiffItemProps {
 	readonly contentDemandRole?: BridgeContentDemandRole | undefined;
+	readonly contentWindow?: CodeViewContentWindow | undefined;
 	readonly item: BridgeReviewItemDescriptor;
 	readonly base: BridgeContentResource | null;
 	readonly head: BridgeContentResource | null;
@@ -549,6 +575,9 @@ function fullCodeViewContentWindow(): CodeViewContentWindow {
 }
 
 function codeViewContentWindowForDiffItem(props: CreateDiffItemProps): CodeViewContentWindow {
+	if (props.contentWindow !== undefined) {
+		return props.contentWindow;
+	}
 	return shouldUseBoundedCodeViewWindow({
 		item: props.item,
 		resources: [props.base, props.head],
@@ -561,9 +590,13 @@ function codeViewContentWindowForDiffItem(props: CreateDiffItemProps): CodeViewC
 }
 
 function codeViewContentWindowForResource(props: {
+	readonly contentWindow?: CodeViewContentWindow | undefined;
 	readonly item: BridgeReviewItemDescriptor;
 	readonly resource: BridgeContentResource | null;
 }): CodeViewContentWindow {
+	if (props.contentWindow !== undefined) {
+		return props.contentWindow;
+	}
 	return shouldUseBoundedCodeViewWindow({
 		item: props.item,
 		resources: [props.resource],
@@ -573,6 +606,18 @@ function codeViewContentWindowForResource(props: {
 				truncated: true,
 			}
 		: fullCodeViewContentWindow();
+}
+
+function codeViewContentWindowForLineLimit(
+	contentWindowLineLimit: number | undefined,
+): CodeViewContentWindow | undefined {
+	if (contentWindowLineLimit === undefined) {
+		return undefined;
+	}
+	return {
+		maxLines: Math.max(1, Math.floor(contentWindowLineLimit)),
+		truncated: true,
+	};
 }
 
 function shouldUseBoundedCodeViewWindow(props: {
@@ -585,6 +630,26 @@ function shouldUseBoundedCodeViewWindow(props: {
 	}
 	return props.resources.some(
 		(resource): boolean => resource !== null && (resource.handle.sizeBytes ?? 0) > 1_000_000,
+	);
+}
+
+function maxKnownContentLineCount(item: BridgeReviewItemDescriptor): number {
+	const lineCountsByRole = item.contentLineCountsByRole;
+	if (lineCountsByRole === undefined) {
+		return item.additions + item.deletions;
+	}
+	return Math.max(0, ...Object.values(lineCountsByRole).map((lineCount): number => lineCount ?? 0));
+}
+
+function maxKnownContentByteCount(resources: BridgeCodeViewContentResources): number {
+	return Math.max(
+		0,
+		...Object.values(resources).map((resource): number => {
+			if (resource === undefined) {
+				return 0;
+			}
+			return resource.byteLength ?? resource.handle.sizeBytes ?? 0;
+		}),
 	);
 }
 

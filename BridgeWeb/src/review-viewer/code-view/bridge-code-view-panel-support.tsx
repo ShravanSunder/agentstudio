@@ -12,6 +12,10 @@ import { cn } from '../../app/class-name.js';
 import { Button } from '../../components/ui/button.js';
 import { demandRankForContentRole } from '../../core/demand/bridge-content-demand-policy.js';
 import type { BridgeContentDemandRole } from '../../core/models/bridge-demand-models.js';
+import {
+	runBridgeFrameApplyPump,
+	type BridgeFrameApplyUnitRank,
+} from '../../core/rendering/bridge-frame-apply-pump.js';
 import type {
 	BridgeContentRole,
 	BridgeReviewItemDescriptor,
@@ -220,35 +224,37 @@ export function runBridgeCodeViewMaterializationInChunks<TEntry>(props: {
 	readonly entries: readonly TEntry[];
 	readonly frameBudgetMilliseconds: number;
 	readonly isStale: () => boolean;
+	readonly maxUnitsPerFrame?: number | undefined;
 	readonly now: () => number;
+	readonly noStarvationSelectedBatchLimit?: number | undefined;
 	readonly onComplete: () => void;
+	readonly rankForEntry?: (entry: TEntry) => BridgeFrameApplyUnitRank;
 	readonly runEntry: (entry: TEntry) => void;
 	readonly scheduleNextTurn: (callback: () => void) => void;
+	readonly staleScanLimit?: number | undefined;
 }): void {
-	let nextEntryIndex = 0;
-	const runChunk = (): void => {
-		if (props.isStale()) {
-			return;
-		}
-		const chunkStartedAtMilliseconds = props.now();
-		while (nextEntryIndex < props.entries.length) {
-			const [entry] = props.entries.slice(nextEntryIndex, nextEntryIndex + 1);
-			nextEntryIndex += 1;
-			if (entry === undefined) {
-				continue;
+	runBridgeFrameApplyPump({
+		frameBudgetMilliseconds: props.frameBudgetMilliseconds,
+		isStale: (): boolean => props.isStale(),
+		maxUnitsPerFrame: props.maxUnitsPerFrame ?? Number.POSITIVE_INFINITY,
+		noStarvationSelectedBatchLimit:
+			props.noStarvationSelectedBatchLimit ?? Number.POSITIVE_INFINITY,
+		now: props.now,
+		onDrained: (): void => {
+			if (!props.isStale()) {
+				props.onComplete();
 			}
-			props.runEntry(entry);
-			if (
-				nextEntryIndex < props.entries.length &&
-				props.now() - chunkStartedAtMilliseconds >= props.frameBudgetMilliseconds
-			) {
-				props.scheduleNextTurn(runChunk);
-				return;
-			}
-		}
-		props.onComplete();
-	};
-	props.scheduleNextTurn(runChunk);
+		},
+		scheduleNextTurn: props.scheduleNextTurn,
+		staleScanLimit: props.staleScanLimit ?? 0,
+		units: props.entries.map((entry, index) => ({
+			id: String(index),
+			rank: props.rankForEntry?.(entry) ?? 'selected',
+			run: (): void => {
+				props.runEntry(entry);
+			},
+		})),
+	});
 }
 
 function bridgeCodeViewMaterializationContentCacheKeys(props: {
