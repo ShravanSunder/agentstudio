@@ -144,7 +144,6 @@ export function visibleViewportDemandDispatchSatisfied(
 		state.result.intentCount === state.origin.expectedVisibleFileCount &&
 		state.result.loadedCount === state.origin.expectedVisibleFileCount &&
 		state.result.failedCount === 0 &&
-		state.result.schedulerQueuedIntentCountAfter === 0 &&
 		state.result.executorQueuedLoadCountAfter === 0 &&
 		firstLoadResult?.loadTelemetry.lane === 'visible' &&
 		firstLoadResult.loadTelemetry.disposition === 'visible-preloaded'

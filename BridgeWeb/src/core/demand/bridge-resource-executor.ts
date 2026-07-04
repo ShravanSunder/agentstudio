@@ -152,11 +152,6 @@ interface PendingResourceLoad<TContent> {
 	readonly sequence: number;
 }
 
-interface PendingResourceLoadEntry<TContent> {
-	readonly inFlightKey: string;
-	readonly pendingLoad: PendingResourceLoad<TContent>;
-}
-
 const demandLaneOrder = [
 	'foreground',
 	'active',
@@ -238,15 +233,6 @@ export function createBridgeResourceExecutor<TContent = unknown>(
 				pendingEnteredAtMilliseconds,
 			});
 		}
-		if (!canQueueUnderPressure(intent)) {
-			return { ok: false, reason: 'concurrency_exceeded' };
-		}
-		if (!canQueuePendingLoad(byteBudget)) {
-			evictLowerPriorityPendingLoads({ byteBudget, intent });
-		}
-		if (!canQueuePendingLoad(byteBudget)) {
-			return { ok: false, reason: 'concurrency_exceeded' };
-		}
 		const pendingEnteredAtMilliseconds = now();
 		let resolvePending: ((result: BridgeResourceExecutorResult<TContent>) => void) | null = null;
 		const promise = new Promise<BridgeResourceExecutorResult<TContent>>((resolve): void => {
@@ -305,51 +291,6 @@ export function createBridgeResourceExecutor<TContent = unknown>(
 		return cancelledCount;
 	};
 
-	const evictLowerPriorityPendingLoads = (evictProps: {
-		readonly byteBudget: number;
-		readonly intent: BridgeDemandIntent;
-	}): void => {
-		while (!canQueuePendingLoad(evictProps.byteBudget)) {
-			const evictableEntry = lowestPriorityPendingLoadBelow(evictProps.intent);
-			if (evictableEntry === null) {
-				return;
-			}
-			removePendingLoad({
-				inFlightKey: evictableEntry.inFlightKey,
-				pendingLoad: evictableEntry.pendingLoad,
-				reason: 'aborted',
-			});
-		}
-	};
-
-	const lowestPriorityPendingLoadBelow = (
-		intent: BridgeDemandIntent,
-	): PendingResourceLoadEntry<TContent> | null =>
-		Array.from(pendingByDedupeKey.entries())
-			.map(
-				([inFlightKey, pendingLoad]): PendingResourceLoadEntry<TContent> => ({
-					inFlightKey,
-					pendingLoad,
-				}),
-			)
-			.filter((entry): boolean => compareDemandIntentPriority(intent, entry.pendingLoad.intent) < 0)
-			.toSorted(
-				(left, right): number =>
-					compareDemandIntentPriority(right.pendingLoad.intent, left.pendingLoad.intent) ||
-					right.pendingLoad.sequence - left.pendingLoad.sequence,
-			)[0] ?? null;
-
-	const removePendingLoad = (removeProps: {
-		readonly inFlightKey: string;
-		readonly pendingLoad: PendingResourceLoad<TContent>;
-		readonly reason: 'aborted' | 'concurrency_exceeded';
-	}): void => {
-		removeProps.pendingLoad.abortController.abort();
-		pendingByDedupeKey.delete(removeProps.inFlightKey);
-		queuedBytes -= removeProps.pendingLoad.byteBudget;
-		removeProps.pendingLoad.resolve({ ok: false, reason: removeProps.reason });
-	};
-
 	const preemptLowerPriorityInFlightLoads = (preemptProps: {
 		readonly byteBudget: number;
 		readonly intent: BridgeDemandIntent;
@@ -386,10 +327,6 @@ export function createBridgeResourceExecutor<TContent = unknown>(
 	const canStartLoad = (byteBudget: number): boolean =>
 		inFlightByDedupeKey.size < props.maxConcurrentLoads &&
 		inFlightBytes + byteBudget <= props.maxInFlightBytes;
-
-	const canQueuePendingLoad = (byteBudget: number): boolean =>
-		pendingByDedupeKey.size < props.maxQueuedLoads &&
-		queuedBytes + byteBudget <= props.maxQueuedBytes;
 
 	const isIntentFresh = (intent: BridgeDemandIntent): boolean =>
 		(props.isFresh ?? (() => true))(intent);
@@ -642,15 +579,17 @@ function comparePendingResourceLoads<TContent>(
 }
 
 function compareDemandIntentPriority(left: BridgeDemandIntent, right: BridgeDemandIntent): number {
+	const leftDemandRank = left.demandRank ?? Number.MAX_SAFE_INTEGER;
+	const rightDemandRank = right.demandRank ?? Number.MAX_SAFE_INTEGER;
+	const demandRankComparison = leftDemandRank - rightDemandRank;
+	if (demandRankComparison !== 0) {
+		return demandRankComparison;
+	}
 	const laneComparison = demandLaneOrder.indexOf(left.lane) - demandLaneOrder.indexOf(right.lane);
 	if (laneComparison !== 0) {
 		return laneComparison;
 	}
 	return left.orderingKey.localeCompare(right.orderingKey);
-}
-
-function canQueueUnderPressure(intent: BridgeDemandIntent): boolean {
-	return intent.lane === 'foreground' || intent.lane === 'active';
 }
 
 function executorLifecycleResult<TContent>(

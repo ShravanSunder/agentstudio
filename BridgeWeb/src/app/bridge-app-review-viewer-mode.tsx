@@ -7,7 +7,6 @@ import {
 	createBridgeRPCClient,
 	type BridgeActiveViewerSource,
 } from '../bridge/bridge-rpc-client.js';
-import type { BridgeDemandScheduler } from '../core/demand/bridge-demand-scheduler.js';
 import type { BridgeDescriptorRef } from '../core/models/bridge-resource-descriptor.js';
 import type { ReviewTreeRowMetadata } from '../features/review/models/review-protocol-models.js';
 import type { BridgeContentFetch } from '../foundation/content/content-resource-loader.js';
@@ -29,7 +28,6 @@ import { createBridgeMarkdownRenderWebWorkerClient } from '../review-viewer/work
 import type { BridgeReviewProjectionWorkerClient } from '../review-viewer/workers/projection/review-projection-worker-client.js';
 import { createBridgeReviewProjectionWebWorkerClient } from '../review-viewer/workers/projection/review-projection-worker-transport.js';
 import { useBridgeReviewContentIdentityController } from './bridge-app-review-content-identity-controller.js';
-import { useBridgeReviewContentPrefetchController } from './bridge-app-review-content-prefetch-controller.js';
 import type { BridgeDiffStatusState } from './bridge-app-review-controller.js';
 import { useBridgeReviewDemandTelemetryController } from './bridge-app-review-demand-telemetry-controller.js';
 import {
@@ -42,7 +40,6 @@ import { useBridgeReviewMarkdownPreviewController } from './bridge-app-review-ma
 import { useBridgeReviewMetadataInterestRuntime } from './bridge-app-review-metadata-interest-runtime.js';
 import { useBridgeReviewNavigationController } from './bridge-app-review-navigation-controller.js';
 import {
-	createBridgeReviewDemandScheduler,
 	useBridgeResourceDescriptorRegistry,
 	useBridgeReviewContentRegistry,
 	useBridgeReviewResourceExecutor,
@@ -103,11 +100,6 @@ export function BridgeReviewViewerMode(
 		new Map<string, BridgeDescriptorRef>(),
 	);
 	const invalidatedReviewFreshnessKeysRef = useRef<Set<string>>(new Set<string>());
-	const reviewDemandSchedulerRef = useRef<BridgeDemandScheduler | null>(null);
-	if (reviewDemandSchedulerRef.current === null) {
-		reviewDemandSchedulerRef.current = createBridgeReviewDemandScheduler();
-	}
-	const reviewDemandScheduler = reviewDemandSchedulerRef.current;
 	const reviewEnvelopeApplyTailRef = useRef<Promise<void>>(Promise.resolve());
 	const fetchContentRef = useRef<BridgeContentFetch | undefined>(props.fetchContent);
 	fetchContentRef.current = props.fetchContent;
@@ -171,7 +163,6 @@ export function BridgeReviewViewerMode(
 		currentReviewPackageTelemetryContextRef,
 		reviewContentDescriptorRefsByHandleIdRef,
 		resourceExecutor,
-		reviewDemandScheduler,
 		telemetryRecorderRef,
 	});
 	const reviewPackageTelemetryContextRef = useRef<Map<string, BridgeReviewPackageTelemetryContext>>(
@@ -307,30 +298,11 @@ export function BridgeReviewViewerMode(
 		resourceExecutor,
 		reviewContentDescriptorRefsByHandleIdRef,
 		reviewContentInvalidationVersion,
-		reviewDemandScheduler,
 		reviewPackage,
 		selectedContentResourcesState,
 		selectedItemId: rootSnapshot.selectedItemId,
 		setLastVisibleDemandTelemetry,
 		telemetryRecorderRef,
-	});
-	const visibleOwnedContentItemIds = useMemo(
-		(): ReadonlySet<string> => new Set(visibleContentController.visibleItemIds),
-		[visibleContentController.visibleItemIds],
-	);
-	useBridgeReviewContentPrefetchController({
-		contentRegistry,
-		isActive: props.isActive,
-		isCodeViewScrollActive,
-		resourceExecutor,
-		reviewContentDescriptorRefsByHandleIdRef,
-		reviewContentInvalidationVersion,
-		reviewDemandScheduler,
-		reviewPackage,
-		selectedContentLoading: selectedContentResourcesState?.status === 'loading',
-		selectedItemId: rootSnapshot.selectedItemId,
-		visibleOwnedItemIds: visibleOwnedContentItemIds,
-		visibleLoadingItemCount: visibleContentController.visibleLoadingItemCount,
 	});
 	const reviewMetadataInterestRuntime = useBridgeReviewMetadataInterestRuntime({
 		authority: getReviewFrameAuthority(),
@@ -392,7 +364,6 @@ export function BridgeReviewViewerMode(
 		projection,
 		resourceExecutor,
 		reviewContentDescriptorRefsByHandleIdRef,
-		reviewDemandScheduler,
 		reviewPackage,
 		reviewPackageRef,
 		rootSnapshot,
@@ -460,7 +431,6 @@ export function BridgeReviewViewerMode(
 		reviewReadyStartMillisecondsByPackageKeyRef,
 		descriptorRegistry,
 		reviewContentDescriptorRefsByHandleIdRef,
-		reviewDemandScheduler,
 		resourceExecutor,
 		contentRegistry,
 		invalidatedFreshnessKeysRef: invalidatedReviewFreshnessKeysRef,

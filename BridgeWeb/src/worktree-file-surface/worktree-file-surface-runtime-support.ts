@@ -1,9 +1,5 @@
 import { createBridgeBodyRegistry } from '../core/demand/bridge-body-registry.js';
 import type {
-	BridgeDemandScheduler,
-	BridgeDemandSchedulerLifecycleEvent,
-} from '../core/demand/bridge-demand-scheduler.js';
-import type {
 	BridgeResourceExecutor,
 	BridgeResourceExecutorLifecycleEvent,
 } from '../core/demand/bridge-resource-executor.js';
@@ -46,7 +42,7 @@ export interface WorktreeFileSourceLessResetScope {
 export interface WorktreeFileDemandLifecycleTiming {
 	executorInFlightMilliseconds: number | null;
 	executorPendingWaitMilliseconds: number | null;
-	schedulerQueueWaitMilliseconds: number | null;
+	demandQueueWaitMilliseconds: number | null;
 }
 
 const sourceLessResetIdentity = 'source-less-reset';
@@ -241,22 +237,6 @@ export async function settlePreloadLoads(props: {
 	});
 }
 
-export function recordSchedulerLifecycleTiming(props: {
-	readonly event: BridgeDemandSchedulerLifecycleEvent;
-	readonly lifecycleTimingsByDemandKey: Map<string, WorktreeFileDemandLifecycleTiming>;
-}): void {
-	if (props.event.kind !== 'dequeued') {
-		return;
-	}
-	const demandKey = demandLifecycleTimingKey(props.event.intent);
-	const currentTiming = props.lifecycleTimingsByDemandKey.get(demandKey);
-	props.lifecycleTimingsByDemandKey.set(demandKey, {
-		executorInFlightMilliseconds: currentTiming?.executorInFlightMilliseconds ?? null,
-		executorPendingWaitMilliseconds: currentTiming?.executorPendingWaitMilliseconds ?? null,
-		schedulerQueueWaitMilliseconds: props.event.queueWaitMilliseconds,
-	});
-}
-
 export function recordExecutorLifecycleTiming(props: {
 	readonly event: BridgeResourceExecutorLifecycleEvent;
 	readonly lifecycleTimingsByDemandKey: Map<string, WorktreeFileDemandLifecycleTiming>;
@@ -268,21 +248,21 @@ export function recordExecutorLifecycleTiming(props: {
 			props.lifecycleTimingsByDemandKey.set(demandKey, {
 				executorInFlightMilliseconds: currentTiming?.executorInFlightMilliseconds ?? null,
 				executorPendingWaitMilliseconds: currentTiming?.executorPendingWaitMilliseconds ?? null,
-				schedulerQueueWaitMilliseconds: currentTiming?.schedulerQueueWaitMilliseconds ?? null,
+				demandQueueWaitMilliseconds: currentTiming?.demandQueueWaitMilliseconds ?? null,
 			});
 			return;
 		case 'started':
 			props.lifecycleTimingsByDemandKey.set(demandKey, {
 				executorInFlightMilliseconds: currentTiming?.executorInFlightMilliseconds ?? null,
 				executorPendingWaitMilliseconds: props.event.pendingWaitMilliseconds,
-				schedulerQueueWaitMilliseconds: currentTiming?.schedulerQueueWaitMilliseconds ?? null,
+				demandQueueWaitMilliseconds: currentTiming?.demandQueueWaitMilliseconds ?? null,
 			});
 			return;
 		case 'completed':
 			props.lifecycleTimingsByDemandKey.set(demandKey, {
 				executorInFlightMilliseconds: props.event.inFlightMilliseconds,
 				executorPendingWaitMilliseconds: currentTiming?.executorPendingWaitMilliseconds ?? null,
-				schedulerQueueWaitMilliseconds: currentTiming?.schedulerQueueWaitMilliseconds ?? null,
+				demandQueueWaitMilliseconds: currentTiming?.demandQueueWaitMilliseconds ?? null,
 			});
 			return;
 	}
@@ -300,7 +280,7 @@ function takeDemandLifecycleTiming(props: {
 		timing ?? {
 			executorInFlightMilliseconds: null,
 			executorPendingWaitMilliseconds: null,
-			schedulerQueueWaitMilliseconds: null,
+			demandQueueWaitMilliseconds: null,
 		}
 	);
 }
@@ -313,7 +293,6 @@ export async function loadPreloadIntent(props: {
 	readonly bodyRegistry: ReturnType<
 		typeof createBridgeBodyRegistry<WorktreeFileSurfaceRuntimeFetchedResource>
 	>;
-	readonly scheduler: BridgeDemandScheduler;
 	readonly executor: BridgeResourceExecutor<WorktreeFileSurfaceRuntimeFetchedResource>;
 	readonly lifecycleTimingsByDemandKey: Map<string, WorktreeFileDemandLifecycleTiming>;
 	readonly registry: BridgeResourceDescriptorRegistry;
@@ -322,8 +301,6 @@ export async function loadPreloadIntent(props: {
 	readonly preloadDispositionByBodyKey: Map<string, WorktreeFileSurfaceLoadDisposition>;
 	readonly resourceLoadProbe: WorktreeFileSurfaceResourceLoadProbe | undefined;
 }): Promise<WorktreeFileSurfaceDemandDispatchLoadResult> {
-	const queuedIntentCountBefore = props.scheduler.queuedIntentCount;
-	const queuedEstimatedBytesBefore = props.scheduler.queuedEstimatedBytes;
 	const executorInFlightCountBefore = props.executor.inFlightCount;
 	const executorInFlightBytesBefore = props.executor.inFlightBytes;
 	const executorQueuedLoadCountBefore = props.executor.queuedLoadCount;
@@ -416,11 +393,7 @@ export async function loadPreloadIntent(props: {
 		resourceFetchResponseWaitMilliseconds: result.content.timing?.responseWaitMilliseconds ?? null,
 		resourceFirstChunkWaitMilliseconds: result.content.timing?.firstChunkWaitMilliseconds ?? null,
 		resourceStreamReadMilliseconds: result.content.timing?.streamReadMilliseconds ?? null,
-		schedulerQueueWaitMilliseconds: telemetryLifecycleTiming.schedulerQueueWaitMilliseconds,
-		schedulerQueuedEstimatedBytesAfter: props.scheduler.queuedEstimatedBytes,
-		schedulerQueuedEstimatedBytesBefore: queuedEstimatedBytesBefore,
-		schedulerQueuedIntentCountAfter: props.scheduler.queuedIntentCount,
-		schedulerQueuedIntentCountBefore: queuedIntentCountBefore,
+		demandQueueWaitMilliseconds: telemetryLifecycleTiming.demandQueueWaitMilliseconds,
 	} satisfies WorktreeFileSurfaceLoadTelemetry;
 	if (disposition !== 'cache-hit' && props.resourceLoadProbe?.isEnabled() === true) {
 		props.resourceLoadProbe?.record(
@@ -447,7 +420,6 @@ export async function loadStimulus(props: {
 	readonly bodyRegistry: ReturnType<
 		typeof createBridgeBodyRegistry<WorktreeFileSurfaceRuntimeFetchedResource>
 	>;
-	readonly scheduler: BridgeDemandScheduler;
 	readonly executor: BridgeResourceExecutor<WorktreeFileSurfaceRuntimeFetchedResource>;
 	readonly lifecycleTimingsByDemandKey: Map<string, WorktreeFileDemandLifecycleTiming>;
 	readonly now: () => number;
@@ -464,8 +436,6 @@ export async function loadStimulus(props: {
 	readonly stimulusDescriptor: WorktreeFileDescriptor;
 	readonly stimulusKind: 'fileSelected' | 'explicitRefresh';
 }): Promise<WorktreeFileSurfaceLoadResult> {
-	const queuedIntentCountBefore = props.scheduler.queuedIntentCount;
-	const queuedEstimatedBytesBefore = props.scheduler.queuedEstimatedBytes;
 	const executorInFlightCountBefore = props.executor.inFlightCount;
 	const executorInFlightBytesBefore = props.executor.inFlightBytes;
 	const executorQueuedLoadCountBefore = props.executor.queuedLoadCount;
@@ -508,22 +478,8 @@ export async function loadStimulus(props: {
 					: 'source_reset',
 		};
 	}
-	for (const intent of intents) {
-		const estimatedBytes =
-			props.stimulusDescriptor.contentDescriptor.descriptor.content.expectedBytes;
-		const enqueueResult = props.scheduler.enqueue({
-			intent,
-			...(estimatedBytes === undefined ? {} : { estimatedBytes }),
-		});
-		if (!enqueueResult.ok) {
-			return {
-				ok: false,
-				reason: pressureReasonForSchedulerRejection(enqueueResult.reason),
-			};
-		}
-	}
-	const nextIntent = props.scheduler.dequeueNext();
-	if (nextIntent === null) {
+	const nextIntent = intents[0];
+	if (nextIntent === undefined) {
 		return { ok: false, reason: 'no_demand' };
 	}
 	const loadStartedAtMilliseconds = props.now();
@@ -592,11 +548,7 @@ export async function loadStimulus(props: {
 		resourceFetchResponseWaitMilliseconds: result.content.timing?.responseWaitMilliseconds ?? null,
 		resourceFirstChunkWaitMilliseconds: result.content.timing?.firstChunkWaitMilliseconds ?? null,
 		resourceStreamReadMilliseconds: result.content.timing?.streamReadMilliseconds ?? null,
-		schedulerQueueWaitMilliseconds: telemetryLifecycleTiming.schedulerQueueWaitMilliseconds,
-		schedulerQueuedEstimatedBytesAfter: props.scheduler.queuedEstimatedBytes,
-		schedulerQueuedEstimatedBytesBefore: queuedEstimatedBytesBefore,
-		schedulerQueuedIntentCountAfter: props.scheduler.queuedIntentCount,
-		schedulerQueuedIntentCountBefore: queuedIntentCountBefore,
+		demandQueueWaitMilliseconds: telemetryLifecycleTiming.demandQueueWaitMilliseconds,
 	} satisfies WorktreeFileSurfaceLoadTelemetry;
 	if (loadTelemetry.disposition !== 'cache-hit' && props.resourceLoadProbe?.isEnabled() === true) {
 		props.resourceLoadProbe?.record(
@@ -616,18 +568,6 @@ export async function loadStimulus(props: {
 		descriptorId: result.descriptor.descriptorId,
 		loadTelemetry,
 	};
-}
-
-export function pressureReasonForSchedulerRejection(
-	reason: 'lane_queue_full' | 'queued_byte_limit_exceeded',
-): 'byte_budget_exceeded' | 'concurrency_exceeded' {
-	switch (reason) {
-		case 'lane_queue_full':
-			return 'concurrency_exceeded';
-		case 'queued_byte_limit_exceeded':
-			return 'byte_budget_exceeded';
-	}
-	return assertNever(reason);
 }
 
 function loadDispositionForStimulus(props: {
@@ -653,7 +593,7 @@ function lifecycleTimingForLoadTelemetry(props: {
 		executorInFlightMilliseconds:
 			props.timing.executorInFlightMilliseconds ?? props.durationMilliseconds,
 		executorPendingWaitMilliseconds: props.timing.executorPendingWaitMilliseconds ?? 0,
-		schedulerQueueWaitMilliseconds: props.timing.schedulerQueueWaitMilliseconds ?? 0,
+		demandQueueWaitMilliseconds: props.timing.demandQueueWaitMilliseconds ?? 0,
 	};
 }
 
@@ -764,16 +704,13 @@ export function streamConsumerKeyForIntent(intent: BridgeDemandIntent): string {
 export function cancelSourceDemand(props: {
 	readonly executor: BridgeResourceExecutor<WorktreeFileSurfaceRuntimeFetchedResource>;
 	readonly paneId: string;
-	readonly scheduler: BridgeDemandScheduler;
 	readonly source: WorktreeFileSurfaceSourceIdentity;
 }): number {
 	const cancellationGroup = demandCancellationGroupForSource({
 		paneId: props.paneId,
 		source: props.source,
 	});
-	return (
-		props.scheduler.cancelGroup(cancellationGroup) + props.executor.cancelGroup(cancellationGroup)
-	);
+	return props.executor.cancelGroup(cancellationGroup);
 }
 
 export function markSourceOpenSessionsStale(props: {

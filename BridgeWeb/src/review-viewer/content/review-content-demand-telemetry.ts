@@ -1,4 +1,3 @@
-import type { BridgeDemandScheduler } from '../../core/demand/bridge-demand-scheduler.js';
 import type {
 	BridgeResourceExecutor,
 	BridgeResourceExecutorResult,
@@ -18,9 +17,6 @@ import type {
 } from './review-content-demand-types.js';
 
 export interface ReviewContentDemandTelemetryBuilder {
-	recordAcceptedEnqueue(props: { readonly droppedLowerPriorityCount: number }): void;
-	recordRejectedEnqueue(intent: BridgeDemandIntent, estimatedBytes: number): void;
-	recordAfterEnqueue(): void;
 	recordAfterDispatch(): void;
 	recordCompletion(props: {
 		readonly result: ReviewContentDemandLoadResult;
@@ -36,26 +32,17 @@ export function newReviewContentDemandTelemetryBuilder(props: {
 	readonly revision: number;
 	readonly interest: ReviewContentDemandInterest;
 	readonly intents: readonly BridgeDemandIntent[];
-	readonly scheduler: BridgeDemandScheduler;
 	readonly executor: BridgeResourceExecutor<BridgeTextResourceStreamResult>;
 }): ReviewContentDemandTelemetryBuilder {
 	const laneCounts = countDemandIntentsByLane(props.intents);
-	const schedulerQueuedIntentCountBefore = props.scheduler.queuedIntentCount;
-	const schedulerQueuedEstimatedBytesBefore = props.scheduler.queuedEstimatedBytes;
 	const executorInFlightCountBefore = props.executor.inFlightCount;
 	const executorInFlightBytesBefore = props.executor.inFlightBytes;
 	const executorQueuedLoadCountBefore = props.executor.queuedLoadCount;
 	const executorQueuedBytesBefore = props.executor.queuedBytes;
-	let enqueueAcceptedCount = 0;
-	let enqueueRejectedCount = 0;
-	let schedulerQueuedIntentCountAfterEnqueue = schedulerQueuedIntentCountBefore;
-	let schedulerQueuedEstimatedBytesAfterEnqueue = schedulerQueuedEstimatedBytesBefore;
 	let executorInFlightCountAfterDispatch = executorInFlightCountBefore;
 	let executorInFlightBytesAfterDispatch = executorInFlightBytesBefore;
 	let executorQueuedLoadCountAfterDispatch = executorQueuedLoadCountBefore;
 	let executorQueuedBytesAfterDispatch = executorQueuedBytesBefore;
-	let schedulerQueuedIntentCountAfter = schedulerQueuedIntentCountBefore;
-	let schedulerQueuedEstimatedBytesAfter = schedulerQueuedEstimatedBytesBefore;
 	let executorInFlightCountAfter = executorInFlightCountBefore;
 	let executorInFlightBytesAfter = executorInFlightBytesBefore;
 	let executorQueuedLoadCountAfter = executorQueuedLoadCountBefore;
@@ -64,7 +51,7 @@ export function newReviewContentDemandTelemetryBuilder(props: {
 	let deferredCount = 0;
 	let failedCount = 0;
 	let admittedBytes = 0;
-	let droppedIntentCount = 0;
+	const droppedIntentCount = 0;
 	const laneUpgradeCount = 0;
 	let resultReason: ReviewContentDemandResultReason | undefined;
 	let resultStatus: ReviewContentDemandLoadResult['status'] | undefined;
@@ -74,11 +61,6 @@ export function newReviewContentDemandTelemetryBuilder(props: {
 	const deferredEstimatedBytesByLane = emptyDemandLaneByteCounts();
 	const droppedEstimatedBytesByLane = emptyDemandLaneByteCounts();
 	const startedAtMilliseconds = performance.now();
-
-	const recordAfterEnqueue = (): void => {
-		schedulerQueuedIntentCountAfterEnqueue = props.scheduler.queuedIntentCount;
-		schedulerQueuedEstimatedBytesAfterEnqueue = props.scheduler.queuedEstimatedBytes;
-	};
 
 	const recordAfterDispatch = (): void => {
 		executorInFlightCountAfterDispatch = props.executor.inFlightCount;
@@ -135,8 +117,6 @@ export function newReviewContentDemandTelemetryBuilder(props: {
 		if (completionProps.result.status === 'failed' && failedCount === 0) {
 			failedCount = Math.max(1, props.intents.length - loadedCount - deferredCount);
 		}
-		schedulerQueuedIntentCountAfter = props.scheduler.queuedIntentCount;
-		schedulerQueuedEstimatedBytesAfter = props.scheduler.queuedEstimatedBytes;
 		executorInFlightCountAfter = props.executor.inFlightCount;
 		executorInFlightBytesAfter = props.executor.inFlightBytes;
 		executorQueuedLoadCountAfter = props.executor.queuedLoadCount;
@@ -144,16 +124,6 @@ export function newReviewContentDemandTelemetryBuilder(props: {
 	};
 
 	return {
-		recordAcceptedEnqueue(acceptedProps: { readonly droppedLowerPriorityCount: number }): void {
-			enqueueAcceptedCount += 1;
-			droppedIntentCount += acceptedProps.droppedLowerPriorityCount;
-		},
-		recordRejectedEnqueue(intent: BridgeDemandIntent, estimatedBytes: number): void {
-			enqueueRejectedCount += 1;
-			droppedIntentCount += 1;
-			droppedEstimatedBytesByLane[intent.lane] += estimatedBytes;
-		},
-		recordAfterEnqueue,
 		recordAfterDispatch,
 		recordCompletion,
 		build(): ReviewContentDemandTelemetry {
@@ -170,8 +140,6 @@ export function newReviewContentDemandTelemetryBuilder(props: {
 				durationMilliseconds: Math.max(0, performance.now() - startedAtMilliseconds),
 				configuredExecutorMaxConcurrentLoads: props.executor.maxConcurrentLoads,
 				configuredExecutorMaxInFlightBytes: props.executor.maxInFlightBytes,
-				configuredSchedulerMaxQueuedEstimatedBytes: props.scheduler.maxQueuedEstimatedBytes,
-				configuredSchedulerMaxQueuedIntentsPerLane: props.scheduler.maxQueuedIntentsPerLane,
 				intentCount: props.intents.length,
 				foregroundIntentCount: laneCounts.foreground,
 				activeIntentCount: laneCounts.active,
@@ -179,14 +147,6 @@ export function newReviewContentDemandTelemetryBuilder(props: {
 				nearbyIntentCount: laneCounts.nearby,
 				speculativeIntentCount: laneCounts.speculative,
 				idleIntentCount: laneCounts.idle,
-				enqueueAcceptedCount,
-				enqueueRejectedCount,
-				schedulerQueuedIntentCountBefore,
-				schedulerQueuedIntentCountAfterEnqueue,
-				schedulerQueuedIntentCountAfter,
-				schedulerQueuedEstimatedBytesBefore,
-				schedulerQueuedEstimatedBytesAfterEnqueue,
-				schedulerQueuedEstimatedBytesAfter,
 				executorInFlightCountBefore,
 				executorInFlightCountAfterDispatch,
 				executorInFlightCountAfter,
@@ -200,11 +160,6 @@ export function newReviewContentDemandTelemetryBuilder(props: {
 				executorQueuedBytesAfterDispatch,
 				executorQueuedBytesAfter,
 				laneUpgradeCount,
-				maxSchedulerQueuedIntentCount: Math.max(
-					schedulerQueuedIntentCountBefore,
-					schedulerQueuedIntentCountAfterEnqueue,
-					schedulerQueuedIntentCountAfter,
-				),
 				maxExecutorInFlightCount: Math.max(
 					executorInFlightCountBefore,
 					executorInFlightCountAfterDispatch,

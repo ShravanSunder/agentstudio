@@ -1,7 +1,6 @@
 import type { MutableRefObject } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import type { BridgeDemandScheduler } from '../core/demand/bridge-demand-scheduler.js';
 import type { BridgeResourceExecutor } from '../core/demand/bridge-resource-executor.js';
 import type { BridgeDescriptorRef } from '../core/models/bridge-resource-descriptor.js';
 import type { BridgeTextResourceStreamResult } from '../core/resources/bridge-resource-stream.js';
@@ -37,7 +36,6 @@ export interface UseBridgeReviewVisibleContentControllerProps {
 		ReadonlyMap<string, BridgeDescriptorRef>
 	>;
 	readonly reviewContentInvalidationVersion: number;
-	readonly reviewDemandScheduler: BridgeDemandScheduler;
 	readonly reviewPackage: BridgeReviewPackage | null;
 	readonly selectedContentResourcesState: SelectedContentResourcesState | null;
 	readonly selectedItemId: string | null;
@@ -68,7 +66,6 @@ export function useBridgeReviewVisibleContentController(
 		resourceExecutor,
 		reviewContentDescriptorRefsByHandleIdRef,
 		reviewContentInvalidationVersion,
-		reviewDemandScheduler,
 		reviewPackage,
 		selectedContentResourcesState,
 		selectedItemId,
@@ -111,7 +108,6 @@ export function useBridgeReviewVisibleContentController(
 				interest: loadProps.interest,
 				resolveDescriptorRef: (handle): BridgeDescriptorRef | null =>
 					reviewContentDescriptorRefsByHandleIdRef.current.get(handle.handleId) ?? null,
-				scheduler: reviewDemandScheduler,
 				executor: resourceExecutor,
 				contentRegistry,
 				traceContext: loadProps.traceContext ?? null,
@@ -125,7 +121,6 @@ export function useBridgeReviewVisibleContentController(
 			contentRegistry,
 			resourceExecutor,
 			reviewContentDescriptorRefsByHandleIdRef,
-			reviewDemandScheduler,
 			setLastVisibleDemandTelemetry,
 		],
 	);
@@ -206,7 +201,6 @@ export function useBridgeReviewVisibleContentController(
 				interest: 'selected',
 				resolveDescriptorRef: (handle): BridgeDescriptorRef | null =>
 					reviewContentDescriptorRefsByHandleIdRef.current.get(handle.handleId) ?? null,
-				scheduler: reviewDemandScheduler,
 				executor: resourceExecutor,
 				contentRegistry,
 				signal: abortController.signal,
@@ -261,7 +255,6 @@ export function useBridgeReviewVisibleContentController(
 			resourceExecutor,
 			reviewContentDescriptorRefsByHandleIdRef,
 			reviewContentInvalidationVersion,
-			reviewDemandScheduler,
 			reviewPackage,
 			setLastVisibleDemandTelemetry,
 			telemetryRecorderRef,

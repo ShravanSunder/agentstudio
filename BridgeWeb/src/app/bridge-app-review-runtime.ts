@@ -2,9 +2,9 @@ import { useRef } from 'react';
 
 import { createBridgeBodyRegistry } from '../core/demand/bridge-body-registry.js';
 import {
-	createBridgeDemandScheduler,
-	type BridgeDemandScheduler,
-} from '../core/demand/bridge-demand-scheduler.js';
+	bridgeContentDemandExecutionPolicy,
+	bridgeContentDemandRetentionPolicy,
+} from '../core/demand/bridge-content-demand-policy.js';
 import {
 	createBridgeResourceExecutor,
 	type BridgeResourceExecutor,
@@ -27,7 +27,6 @@ import {
 import type { BridgeContentFetch } from '../foundation/content/content-resource-loader.js';
 import type { BridgeCodeViewContentResources } from '../review-viewer/code-view/bridge-code-view-materialization.js';
 import { demandFreshnessKeyForReviewDescriptorRef } from '../review-viewer/content/review-content-demand-loader.js';
-import { reviewContentRegistryPrefetchMaxEntries } from '../review-viewer/content/review-content-prefetch-policy.js';
 import {
 	createBridgeReviewContentRegistry,
 	type BridgeReviewContentRegistry,
@@ -63,16 +62,14 @@ export const bridgeReviewContentDemandByteBudget: BridgeReviewContentDemandByteB
 };
 
 const bridgeReviewBodyRegistryMaxBytes = bridgeReviewContentDemandByteBudget.bodyRegistryMaxBytes;
-const bridgeReviewResourceExecutorMaxConcurrentLoads = 8;
+const bridgeReviewResourceExecutorMaxConcurrentLoads =
+	bridgeContentDemandExecutionPolicy.immediateStartConcurrency;
 const bridgeReviewResourceExecutorMaxInFlightBytes =
 	bridgeReviewContentDemandByteBudget.resourceExecutorMaxInFlightBytes;
 const bridgeReviewResourceExecutorMaxQueuedLoads = 128;
 const bridgeReviewResourceExecutorMaxQueuedBytes =
 	bridgeReviewContentDemandByteBudget.resourceExecutorMaxQueuedBytes;
 export const foregroundSelectionVisibleHydrationReleaseDelayMilliseconds = 180;
-const bridgeReviewDemandMaxQueuedIntentsPerLane = 128;
-const bridgeReviewDemandMaxQueuedEstimatedBytes =
-	bridgeReviewContentDemandByteBudget.demandMaxQueuedEstimatedBytes;
 export const bridgeReviewIntakeMaxFrameBytes = 1024 * 1024;
 export const emptyVisibleContentResourcesByItemId: ReadonlyMap<
 	string,
@@ -91,7 +88,7 @@ export function useBridgeReviewContentRegistry(): BridgeReviewContentRegistry {
 	const registryRef = useRef<BridgeReviewContentRegistry | null>(null);
 	if (registryRef.current === null) {
 		registryRef.current = createBridgeReviewContentRegistry({
-			maxEntries: reviewContentRegistryPrefetchMaxEntries,
+			maxEntries: bridgeContentDemandRetentionPolicy.reviewContentRegistryMaxEntries,
 		});
 	}
 	return registryRef.current;
@@ -231,11 +228,4 @@ function isReviewProtocolBodyDescriptorRef(descriptorRef: BridgeDescriptorRef): 
 	return (
 		descriptorRef.expectedProtocol === 'review' && descriptorRef.expectedResourceKind !== 'content'
 	);
-}
-
-export function createBridgeReviewDemandScheduler(): BridgeDemandScheduler {
-	return createBridgeDemandScheduler({
-		maxQueuedIntentsPerLane: bridgeReviewDemandMaxQueuedIntentsPerLane,
-		maxQueuedEstimatedBytes: bridgeReviewDemandMaxQueuedEstimatedBytes,
-	});
 }

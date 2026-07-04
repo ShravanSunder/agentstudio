@@ -2,6 +2,7 @@ import type {
 	BridgeContentDemandRole,
 	BridgeDemandIntent,
 } from '../models/bridge-demand-models.js';
+import { demandRankForContentRole } from './bridge-content-demand-policy.js';
 
 export interface BridgeContentDemandCandidate {
 	readonly intent: BridgeDemandIntent;
@@ -61,14 +62,6 @@ export interface ReconcileBridgeContentDemandProps {
 	readonly previousEntries: readonly BridgeContentDemandPlanEntry[];
 }
 
-const contentDemandRoleRank: Readonly<Record<BridgeContentDemandRole, number>> = {
-	selected: 0,
-	visible: 1,
-	nearby: 2,
-	speculative: 3,
-	background: 4,
-};
-
 export function reconcileBridgeContentDemand(
 	props: ReconcileBridgeContentDemandProps,
 ): BridgeContentDemandPlan {
@@ -103,7 +96,7 @@ export function reconcileBridgeContentDemand(
 	}
 
 	for (const candidate of candidateByDedupeKey.values()) {
-		const rank = contentDemandRoleRank[candidate.role];
+		const rank = demandRankForContentRole(candidate.role);
 		if (props.loadedDedupeKeys.has(candidate.intent.dedupeKey)) {
 			operations.push({
 				dedupeKey: candidate.intent.dedupeKey,
@@ -114,7 +107,7 @@ export function reconcileBridgeContentDemand(
 		}
 		const previousEntry = previousEntryByDedupeKey.get(candidate.intent.dedupeKey);
 		if (previousEntry !== undefined && previousEntry.generation === props.generation) {
-			const previousRank = contentDemandRoleRank[previousEntry.role];
+			const previousRank = demandRankForContentRole(previousEntry.role);
 			if (rank < previousRank) {
 				operations.push({
 					dedupeKey: candidate.intent.dedupeKey,
@@ -141,7 +134,7 @@ export function reconcileBridgeContentDemand(
 		}
 		entries.push({
 			generation: props.generation,
-			intent: candidate.intent,
+			intent: { ...candidate.intent, demandRank: rank },
 			rank,
 			role: candidate.role,
 			startEligible: candidate.role === 'selected' || !props.paused,
@@ -172,7 +165,7 @@ function compareCandidates(
 	left: BridgeContentDemandCandidate,
 	right: BridgeContentDemandCandidate,
 ): number {
-	const rankComparison = contentDemandRoleRank[left.role] - contentDemandRoleRank[right.role];
+	const rankComparison = demandRankForContentRole(left.role) - demandRankForContentRole(right.role);
 	if (rankComparison !== 0) {
 		return rankComparison;
 	}

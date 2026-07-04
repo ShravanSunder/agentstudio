@@ -2,7 +2,6 @@ import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import type { BridgeRPCClient } from '../bridge/bridge-rpc-client.js';
-import type { BridgeDemandScheduler } from '../core/demand/bridge-demand-scheduler.js';
 import type { BridgeResourceExecutor } from '../core/demand/bridge-resource-executor.js';
 import type { BridgeDescriptorRef } from '../core/models/bridge-resource-descriptor.js';
 import type { BridgeTextResourceStreamResult } from '../core/resources/bridge-resource-stream.js';
@@ -42,7 +41,6 @@ export interface UseBridgeReviewSelectionControllerProps {
 	readonly reviewContentDescriptorRefsByHandleIdRef: MutableRefObject<
 		ReadonlyMap<string, BridgeDescriptorRef>
 	>;
-	readonly reviewDemandScheduler: BridgeDemandScheduler;
 	readonly reviewPackage: BridgeReviewPackage | null;
 	readonly reviewPackageRef: MutableRefObject<BridgeReviewPackage | null>;
 	readonly rootSnapshot: BridgeReviewViewerRootSnapshot;
@@ -83,7 +81,6 @@ export function useBridgeReviewSelectionController(
 		projection,
 		resourceExecutor,
 		reviewContentDescriptorRefsByHandleIdRef,
-		reviewDemandScheduler,
 		reviewPackage,
 		reviewPackageRef,
 		rootSnapshot,
@@ -145,7 +142,6 @@ export function useBridgeReviewSelectionController(
 						reviewPackage: currentReviewPackage,
 					}),
 					resourceExecutor,
-					reviewDemandScheduler,
 				});
 				setSelectedContentResourcesState({
 					itemId,
@@ -173,7 +169,6 @@ export function useBridgeReviewSelectionController(
 			initialReviewFileTarget,
 			resourceExecutor,
 			reviewContentDescriptorRefsByHandleIdRef,
-			reviewDemandScheduler,
 			reviewPackageRef,
 			rootSnapshotRef,
 			selectedContentAbortControllerRef,

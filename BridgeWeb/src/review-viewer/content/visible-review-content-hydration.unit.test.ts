@@ -21,7 +21,6 @@ import {
 	shouldRearmAbortedVisibleContentLoad,
 	visibleContentHydrationDispatchDelayMilliseconds,
 	visibleContentHydrationConcurrentLoadLimit,
-	visibleContentHydrationItemLimit,
 	visibleReviewContentLoadPlanCount,
 } from './visible-review-content-hydration.js';
 
@@ -35,10 +34,7 @@ describe('visible hydration state probe derivation', () => {
 			['item-000', { contentKey: 'k0', itemId: 'item-000', status: 'ready' }],
 			['item-001', { contentKey: 'k1', itemId: 'item-001', status: 'loading' }],
 			['item-002', { contentKey: 'k2', itemId: 'item-002', status: 'failed' }],
-			[
-				'item-003',
-				{ contentKey: 'k3', itemId: 'item-003', retryAfterVersion: 7, status: 'deferred' },
-			],
+			['item-003', { contentKey: 'k3', itemId: 'item-003', status: 'deferred' }],
 			['off-screen', { contentKey: 'k9', itemId: 'off-screen', status: 'ready' }],
 		]);
 
@@ -75,7 +71,7 @@ describe('visible hydration state probe derivation', () => {
 });
 
 describe('visible review content hydration', () => {
-	test('bounds opportunistic visible content warming around the selected item', () => {
+	test('tracks all visible content warming candidates around the selected item', () => {
 		const reviewPackage = makeReviewPackageWithItemCount(40);
 		const selectedItemId = 'item-020';
 
@@ -85,7 +81,7 @@ describe('visible review content hydration', () => {
 			selectedItemId,
 		});
 
-		expect(normalizedItemIds).toHaveLength(visibleContentHydrationItemLimit);
+		expect(normalizedItemIds).toHaveLength(reviewPackage.orderedItemIds.length - 1);
 		expect(normalizedItemIds).not.toContain(selectedItemId);
 		expect(normalizedItemIds.slice(0, 4)).toEqual(['item-018', 'item-019', 'item-021', 'item-022']);
 		expect(
@@ -102,28 +98,28 @@ describe('visible review content hydration', () => {
 		expect(
 			visibleReviewContentLoadPlanCount({
 				loadingCount: 0,
-				requestedLoadCount: visibleContentHydrationItemLimit,
+				requestedLoadCount: 40,
 				scheduledCount: 0,
 			}),
 		).toBe(visibleContentHydrationConcurrentLoadLimit);
 		expect(
 			visibleReviewContentLoadPlanCount({
 				loadingCount: 1,
-				requestedLoadCount: visibleContentHydrationItemLimit,
+				requestedLoadCount: 40,
 				scheduledCount: 0,
 			}),
 		).toBe(3);
 		expect(
 			visibleReviewContentLoadPlanCount({
 				loadingCount: visibleContentHydrationConcurrentLoadLimit,
-				requestedLoadCount: visibleContentHydrationItemLimit,
+				requestedLoadCount: 40,
 				scheduledCount: 0,
 			}),
 		).toBe(0);
 		expect(
 			visibleReviewContentLoadPlanCount({
 				loadingCount: 0,
-				requestedLoadCount: visibleContentHydrationItemLimit,
+				requestedLoadCount: 40,
 				scheduledCount: visibleContentHydrationConcurrentLoadLimit,
 			}),
 		).toBe(0);
@@ -216,7 +212,7 @@ describe('visible review content hydration', () => {
 		).toBe(false);
 	});
 
-	test('prunes ready resources by count while keeping recent ready-unapplied content', () => {
+	test('prunes stale resources while keeping retained ready-unapplied content', () => {
 		const oldResource: BridgeContentResource = {
 			handle: makeBridgeContentHandle('item-old-ready', 'head'),
 			readText: (): string => 'old ready\n',
@@ -265,7 +261,6 @@ describe('visible review content hydration', () => {
 					},
 				],
 			]),
-			maxReadyResourceCount: 2,
 			resourcesByItemId: new Map([
 				['item-old-ready', { head: oldResource }],
 				['item-recent-ready', { head: recentResource }],
@@ -283,8 +278,9 @@ describe('visible review content hydration', () => {
 		expect([...pruned.resourcesByItemId.keys()]).toEqual([
 			'item-visible-ready',
 			'item-recent-ready',
+			'item-old-ready',
 		]);
-		expect(pruned.contentStateByItemId.has('item-old-ready')).toBe(false);
+		expect(pruned.contentStateByItemId.has('item-old-ready')).toBe(true);
 		expect(pruned.contentStateByItemId.get('item-visible-loading')?.status).toBe('loading');
 	});
 

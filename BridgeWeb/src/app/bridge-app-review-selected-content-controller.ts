@@ -1,7 +1,6 @@
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
 import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 
-import type { BridgeDemandScheduler } from '../core/demand/bridge-demand-scheduler.js';
 import type { BridgeResourceExecutor } from '../core/demand/bridge-resource-executor.js';
 import type { BridgeDescriptorRef } from '../core/models/bridge-resource-descriptor.js';
 import type { BridgeTextResourceStreamResult } from '../core/resources/bridge-resource-stream.js';
@@ -37,7 +36,6 @@ export interface UseSelectedReviewContentDemandControllerProps {
 		ReadonlyMap<string, BridgeDescriptorRef>
 	>;
 	readonly resourceExecutor: BridgeResourceExecutor<BridgeTextResourceStreamResult>;
-	readonly reviewDemandScheduler: BridgeDemandScheduler;
 	readonly telemetryRecorderRef: MutableRefObject<BridgeTelemetryRecorder>;
 }
 
@@ -108,7 +106,6 @@ export function useSelectedReviewContentDemandController(
 		currentReviewPackageTelemetryContextRef,
 		reviewContentDescriptorRefsByHandleIdRef,
 		resourceExecutor,
-		reviewDemandScheduler,
 		telemetryRecorderRef,
 	} = props;
 	const [selectedContentResourcesState, setSelectedContentResourcesState] =
@@ -218,7 +215,6 @@ export function useSelectedReviewContentDemandController(
 				presentation: loadProps.presentation,
 				resolveDescriptorRef: (handle): BridgeDescriptorRef | null =>
 					reviewContentDescriptorRefsByHandleIdRef.current.get(handle.handleId) ?? null,
-				scheduler: reviewDemandScheduler,
 				executor: resourceExecutor,
 				contentRegistry,
 				signal: contentAbortController.signal,
@@ -297,7 +293,6 @@ export function useSelectedReviewContentDemandController(
 			scheduleForegroundSelectionRelease,
 			resourceExecutor,
 			reviewContentDescriptorRefsByHandleIdRef,
-			reviewDemandScheduler,
 			setSelectedContentRetryVersion,
 			telemetryRecorderRef,
 		],

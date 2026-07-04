@@ -1,5 +1,5 @@
 import { createBridgeBodyRegistry } from '../core/demand/bridge-body-registry.js';
-import { createBridgeDemandScheduler } from '../core/demand/bridge-demand-scheduler.js';
+import { bridgeContentDemandExecutionPolicy } from '../core/demand/bridge-content-demand-policy.js';
 import { createBridgeResourceExecutor } from '../core/demand/bridge-resource-executor.js';
 import type { BridgeDemandIntent, BridgeDemandLane } from '../core/models/bridge-demand-models.js';
 import type { BridgeResourceDescriptor } from '../core/models/bridge-resource-descriptor.js';
@@ -37,9 +37,7 @@ import {
 	markAllOpenSessionsStale,
 	markOpenSessionsStaleForReplacementSource,
 	markSourceOpenSessionsStale,
-	pressureReasonForSchedulerRejection,
 	recordExecutorLifecycleTiming,
-	recordSchedulerLifecycleTiming,
 	resetDescriptorKeyForBridgeDescriptorRef,
 	resourceWithMutableLoadTiming,
 	settlePreloadLoads,
@@ -146,11 +144,7 @@ export interface WorktreeFileSurfaceLoadTelemetry {
 	readonly resourceFetchResponseWaitMilliseconds: number | null;
 	readonly resourceFirstChunkWaitMilliseconds: number | null;
 	readonly resourceStreamReadMilliseconds: number | null;
-	readonly schedulerQueueWaitMilliseconds: number | null;
-	readonly schedulerQueuedEstimatedBytesAfter: number;
-	readonly schedulerQueuedEstimatedBytesBefore: number;
-	readonly schedulerQueuedIntentCountAfter: number;
-	readonly schedulerQueuedIntentCountBefore: number;
+	readonly demandQueueWaitMilliseconds: number | null;
 }
 
 export type WorktreeFileSurfaceApplyFrameResult =
@@ -244,8 +238,6 @@ export interface WorktreeFileSurfaceDemandDispatchResult {
 	readonly loadedCount: number;
 	readonly failedCount: number;
 	readonly loadResults: readonly WorktreeFileSurfaceDemandDispatchLoadResult[];
-	readonly schedulerQueuedEstimatedBytesAfter: number;
-	readonly schedulerQueuedIntentCountAfter: number;
 	readonly executorInFlightBytesAfter: number;
 	readonly executorInFlightCountAfter: number;
 	readonly executorQueuedBytesAfter: number;
@@ -270,12 +262,11 @@ export interface WorktreeFileSurfaceRuntime {
 }
 
 const worktreeFileBodyRegistryMaxBytes = 24 * 1024 * 1024;
-const worktreeFileResourceExecutorMaxConcurrentLoads = 8;
+const worktreeFileResourceExecutorMaxConcurrentLoads =
+	bridgeContentDemandExecutionPolicy.immediateStartConcurrency;
 const worktreeFileResourceExecutorMaxInFlightBytes = 8 * 1024 * 1024;
 const worktreeFileResourceExecutorMaxQueuedLoads = 128;
 const worktreeFileResourceExecutorMaxQueuedBytes = 8 * 1024 * 1024;
-const worktreeFileDemandMaxQueuedIntentsPerLane = 128;
-const worktreeFileDemandMaxQueuedEstimatedBytes = 8 * 1024 * 1024;
 
 export function createWorktreeFileSurfaceRuntime(
 	props: WorktreeFileSurfaceRuntimeProps,
@@ -310,14 +301,6 @@ export function createWorktreeFileSurfaceRuntime(
 					now: props.resourceLoadProbe.now,
 				};
 	const lifecycleTimingsByDemandKey = new Map<string, WorktreeFileDemandLifecycleTiming>();
-	const scheduler = createBridgeDemandScheduler({
-		maxQueuedIntentsPerLane: worktreeFileDemandMaxQueuedIntentsPerLane,
-		maxQueuedEstimatedBytes: worktreeFileDemandMaxQueuedEstimatedBytes,
-		now,
-		onLifecycleEvent: (event): void => {
-			recordSchedulerLifecycleTiming({ event, lifecycleTimingsByDemandKey });
-		},
-	});
 	const executor = createBridgeResourceExecutor<WorktreeFileSurfaceRuntimeFetchedResource>({
 		registry,
 		maxConcurrentLoads: worktreeFileResourceExecutorMaxConcurrentLoads,
@@ -443,7 +426,6 @@ export function createWorktreeFileSurfaceRuntime(
 						: cancelSourceDemand({
 								executor,
 								paneId: props.paneId,
-								scheduler,
 								source: delta.source,
 							});
 				if (delta.source !== undefined) {
@@ -542,10 +524,9 @@ export function createWorktreeFileSurfaceRuntime(
 			mapWorktreeFileDemandStimulusToIntents({ stimulus, readContext }),
 		);
 		let enqueueAcceptedCount = 0;
-		let enqueueRejectedCount = 0;
+		const enqueueRejectedCount = 0;
 		const loadResults: WorktreeFileSurfaceDemandDispatchLoadResult[] = [];
 		const acceptedBatch: BridgeDemandIntent[] = [];
-		let acceptedBatchSchedulerBytes = 0;
 		let acceptedBatchExecutorBytes = 0;
 		const flushAcceptedBatch = async (): Promise<void> => {
 			if (acceptedBatch.length === 0) {
@@ -556,37 +537,20 @@ export function createWorktreeFileSurfaceRuntime(
 				readonly promise: Promise<WorktreeFileSurfaceDemandDispatchLoadResult>;
 			}[] = [];
 			for (const batchIntent of acceptedBatch.splice(0, acceptedBatch.length)) {
-				const queuedIntent = scheduler.dequeueNextMatching(
-					(candidateIntent): boolean =>
-						candidateIntent.dedupeKey === batchIntent.dedupeKey &&
-						candidateIntent.freshnessKey === batchIntent.freshnessKey,
-				);
-				if (queuedIntent === null) {
-					const descriptor = registry.lookup(batchIntent.descriptorRef);
-					loadResults.push({
-						ok: false,
-						descriptorId: descriptor?.descriptorId ?? null,
-						lane: batchIntent.lane,
-						reason: 'stale_completion',
-					});
-					continue;
-				}
 				pendingPreloadLoads.push({
-					intent: queuedIntent,
+					intent: batchIntent,
 					promise: loadPreloadIntent({
 						bodyRegistry,
 						executor,
-						intent: queuedIntent,
+						intent: batchIntent,
 						lifecycleTimingsByDemandKey,
 						now,
 						preloadDispositionByBodyKey,
 						registry,
 						resourceLoadProbe: props.resourceLoadProbe,
-						scheduler,
 					}),
 				});
 			}
-			acceptedBatchSchedulerBytes = 0;
 			acceptedBatchExecutorBytes = 0;
 			loadResults.push(
 				...(await settlePreloadLoads({
@@ -597,36 +561,17 @@ export function createWorktreeFileSurfaceRuntime(
 		};
 		for (const intent of intents) {
 			const descriptor = registry.lookup(intent.descriptorRef);
-			const schedulerBytes = descriptor?.content.expectedBytes ?? 0;
 			const executorBytes = descriptor?.content.expectedBytes ?? descriptor?.content.maxBytes ?? 0;
 			if (
 				acceptedBatch.length > 0 &&
 				(acceptedBatch.length >= executor.maxConcurrentLoads ||
-					acceptedBatchSchedulerBytes + schedulerBytes > scheduler.maxQueuedEstimatedBytes ||
 					acceptedBatchExecutorBytes + executorBytes > executor.maxInFlightBytes)
 			) {
 				await flushAcceptedBatch();
 			}
-			const enqueueResult = scheduler.enqueue({
-				intent,
-				...(descriptor?.content.expectedBytes === undefined
-					? {}
-					: { estimatedBytes: schedulerBytes }),
-			});
-			if (enqueueResult.ok) {
-				enqueueAcceptedCount += 1;
-				acceptedBatch.push(intent);
-				acceptedBatchSchedulerBytes += schedulerBytes;
-				acceptedBatchExecutorBytes += executorBytes;
-			} else {
-				enqueueRejectedCount += 1;
-				loadResults.push({
-					ok: false,
-					descriptorId: descriptor?.descriptorId ?? null,
-					lane: intent.lane,
-					reason: pressureReasonForSchedulerRejection(enqueueResult.reason),
-				});
-			}
+			enqueueAcceptedCount += 1;
+			acceptedBatch.push(intent);
+			acceptedBatchExecutorBytes += executorBytes;
 		}
 		await flushAcceptedBatch();
 		return {
@@ -637,8 +582,6 @@ export function createWorktreeFileSurfaceRuntime(
 			loadedCount: loadResults.filter((loadResult): boolean => loadResult.ok).length,
 			failedCount: loadResults.filter((loadResult): boolean => !loadResult.ok).length,
 			loadResults,
-			schedulerQueuedEstimatedBytesAfter: scheduler.queuedEstimatedBytes,
-			schedulerQueuedIntentCountAfter: scheduler.queuedIntentCount,
 			executorInFlightBytesAfter: executor.inFlightBytes,
 			executorInFlightCountAfter: executor.inFlightCount,
 			executorQueuedBytesAfter: executor.queuedBytes,
@@ -664,7 +607,6 @@ export function createWorktreeFileSurfaceRuntime(
 		}
 		const loadResult = await loadStimulus({
 			bodyRegistry,
-			scheduler,
 			executor,
 			lifecycleTimingsByDemandKey,
 			now,
@@ -726,7 +668,6 @@ export function createWorktreeFileSurfaceRuntime(
 		}
 		const loadResult = await loadStimulus({
 			bodyRegistry,
-			scheduler,
 			executor,
 			lifecycleTimingsByDemandKey,
 			now,

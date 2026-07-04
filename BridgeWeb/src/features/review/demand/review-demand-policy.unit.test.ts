@@ -33,6 +33,7 @@ describe('review demand policy', () => {
 				lane: 'foreground',
 				orderingKey: 'order:descriptor-1',
 				dedupeKey: 'dedupe:descriptor-1',
+				demandRank: 0,
 				freshnessKey: 'fresh:descriptor-1',
 				cancellationGroup: 'cancel:descriptor-1',
 			},

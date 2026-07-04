@@ -212,11 +212,7 @@ export function registerWorktreeFileSurfaceRuntimeOpenTests(): void {
 				resourceFetchResponseWaitMilliseconds: 2,
 				resourceFirstChunkWaitMilliseconds: 3,
 				resourceStreamReadMilliseconds: 4,
-				schedulerQueueWaitMilliseconds: 0,
-				schedulerQueuedEstimatedBytesAfter: 0,
-				schedulerQueuedEstimatedBytesBefore: 0,
-				schedulerQueuedIntentCountAfter: 0,
-				schedulerQueuedIntentCountBefore: 0,
+				demandQueueWaitMilliseconds: 0,
 			},
 		});
 		expect(cachedLoadResult).toMatchObject({
@@ -230,10 +226,6 @@ export function registerWorktreeFileSurfaceRuntimeOpenTests(): void {
 				resourceFetchResponseWaitMilliseconds: 2,
 				resourceFirstChunkWaitMilliseconds: 3,
 				resourceStreamReadMilliseconds: 4,
-				schedulerQueuedEstimatedBytesAfter: 0,
-				schedulerQueuedEstimatedBytesBefore: 0,
-				schedulerQueuedIntentCountAfter: 0,
-				schedulerQueuedIntentCountBefore: 0,
 			},
 		});
 		expect(fetches).toHaveLength(1);
@@ -329,7 +321,7 @@ export function registerWorktreeFileSurfaceRuntimeOpenTests(): void {
 		]);
 	});
 
-	test('reports scheduler byte pressure before fetching oversized selected files', async () => {
+	test('reports executor byte pressure before fetching oversized selected files', async () => {
 		const descriptor = makeFileDescriptor({
 			descriptorId: 'oversized-content',
 			expectedBytes: 9 * 1024 * 1024,

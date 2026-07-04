@@ -79,7 +79,7 @@ export interface BridgeViewerFileOpenReadyTelemetrySampleProps {
 	readonly resourceStreamReadMilliseconds: number | null;
 	readonly result: 'failed' | 'success';
 	readonly resultReason: string | null;
-	readonly schedulerQueueWaitMilliseconds: number | null;
+	readonly demandQueueWaitMilliseconds: number | null;
 	readonly sourceGeneration: number | null;
 	readonly telemetryRecorder: BridgeTelemetryRecorder;
 	readonly traceContext: BridgeTraceContext | null;
@@ -117,7 +117,7 @@ export interface BridgeWorktreeFileVisibleDemandSettledTelemetrySampleProps {
 	readonly responseWaitMilliseconds: number | null;
 	readonly result: 'failed' | 'success';
 	readonly resultReason: string | null;
-	readonly schedulerQueueWaitMilliseconds: number | null;
+	readonly demandQueueWaitMilliseconds: number | null;
 	readonly streamReadMilliseconds: number | null;
 	readonly telemetryRecorder: BridgeTelemetryRecorder;
 	readonly traceContext: BridgeTraceContext | null;
@@ -439,8 +439,8 @@ export function recordBridgeViewerFileOpenReadyTelemetrySample(
 					props.executorPendingWaitMilliseconds,
 				),
 				...optionalNumericAttribute(
-					'agentstudio.bridge.demand.scheduler_queue_wait_ms',
-					props.schedulerQueueWaitMilliseconds,
+					'agentstudio.bridge.demand.demand_queue_wait_ms',
+					props.demandQueueWaitMilliseconds,
 				),
 			},
 			booleanAttributes: {},
@@ -557,8 +557,8 @@ export function recordBridgeWorktreeFileVisibleDemandSettledTelemetrySample(
 					props.executorPendingWaitMilliseconds,
 				),
 				...optionalNumericAttribute(
-					'agentstudio.bridge.demand.scheduler_queue_wait_ms',
-					props.schedulerQueueWaitMilliseconds,
+					'agentstudio.bridge.demand.demand_queue_wait_ms',
+					props.demandQueueWaitMilliseconds,
 				),
 			},
 			booleanAttributes: {},

@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'vitest';
 
-import { createBridgeDemandScheduler } from '../../core/demand/bridge-demand-scheduler.js';
 import { createBridgeResourceExecutor } from '../../core/demand/bridge-resource-executor.js';
 import type { BridgeDescriptorRef } from '../../core/models/bridge-resource-descriptor.js';
 import { createBridgeResourceDescriptorRegistry } from '../../core/resources/bridge-resource-registry.js';
@@ -34,10 +33,6 @@ describe('review content demand loader pressure and cancellation', () => {
 			itemId: 'item-source',
 			interest: 'selected',
 			resolveDescriptorRef: (): BridgeDescriptorRef | null => null,
-			scheduler: createBridgeDemandScheduler({
-				maxQueuedIntentsPerLane: 8,
-				maxQueuedEstimatedBytes: 4096,
-			}),
 			executor: createBridgeResourceExecutor<BridgeTextResourceStreamResult>({
 				registry,
 				maxConcurrentLoads: 2,
@@ -85,10 +80,6 @@ describe('review content demand loader pressure and cancellation', () => {
 				handle.role === 'base'
 					? null
 					: (registeredDescriptorsByHandleId.get(handle.handleId)?.ref ?? null),
-			scheduler: createBridgeDemandScheduler({
-				maxQueuedIntentsPerLane: 8,
-				maxQueuedEstimatedBytes: 4096,
-			}),
 			executor,
 		});
 
@@ -129,10 +120,6 @@ describe('review content demand loader pressure and cancellation', () => {
 			interest: 'selected',
 			resolveDescriptorRef: (handle: BridgeContentHandle): BridgeDescriptorRef | null =>
 				registeredDescriptorsByHandleId.get(handle.handleId)?.ref ?? null,
-			scheduler: createBridgeDemandScheduler({
-				maxQueuedIntentsPerLane: 8,
-				maxQueuedEstimatedBytes: 4096,
-			}),
 			executor,
 		});
 
@@ -178,10 +165,6 @@ describe('review content demand loader pressure and cancellation', () => {
 			interest: 'selected',
 			resolveDescriptorRef: (handle: BridgeContentHandle): BridgeDescriptorRef | null =>
 				registeredDescriptorsByHandleId.get(handle.handleId)?.ref ?? null,
-			scheduler: createBridgeDemandScheduler({
-				maxQueuedIntentsPerLane: 8,
-				maxQueuedEstimatedBytes: 4096,
-			}),
 			executor,
 			onDemandTelemetry: (sample): void => {
 				telemetrySamples.push(sample);
@@ -235,10 +218,6 @@ describe('review content demand loader pressure and cancellation', () => {
 			interest: 'selected',
 			resolveDescriptorRef: (handle: BridgeContentHandle): BridgeDescriptorRef | null =>
 				registeredDescriptorsByHandleId.get(handle.handleId)?.ref ?? null,
-			scheduler: createBridgeDemandScheduler({
-				maxQueuedIntentsPerLane: 8,
-				maxQueuedEstimatedBytes: 4096,
-			}),
 			executor,
 		});
 		await flushMicrotasks(4);
@@ -284,17 +263,13 @@ describe('review content demand loader pressure and cancellation', () => {
 			interest: 'selected',
 			resolveDescriptorRef: (handle: BridgeContentHandle): BridgeDescriptorRef | null =>
 				registeredDescriptorsByHandleId.get(handle.handleId)?.ref ?? null,
-			scheduler: createBridgeDemandScheduler({
-				maxQueuedIntentsPerLane: 8,
-				maxQueuedEstimatedBytes: 4096,
-			}),
 			executor,
 		});
 
 		expect(result).toEqual({ status: 'failed', reason: 'load_failed' });
 	});
 
-	test('returns deferred instead of terminal null when visible demand hits pressure', async () => {
+	test('queues visible demand behind foreground pressure instead of dropping membership', async () => {
 		const registry = createBridgeResourceDescriptorRegistry({
 			allowedResourceKindsByProtocol: { review: new Set(['content']) },
 		});
@@ -324,10 +299,6 @@ describe('review content demand loader pressure and cancellation', () => {
 				return { content: makeTextStreamResult('visible text'), byteLength: 12 };
 			},
 		});
-		const scheduler = createBridgeDemandScheduler({
-			maxQueuedIntentsPerLane: 8,
-			maxQueuedEstimatedBytes: 4096,
-		});
 		const foregroundLoad = executor.load({
 			descriptorRef: blockingDescriptor.ref,
 			lane: 'foreground',
@@ -337,22 +308,21 @@ describe('review content demand loader pressure and cancellation', () => {
 			cancellationGroup: 'blocking',
 		});
 
-		const result = await loadReviewItemContentResourcesThroughDemandResult({
+		const resultPromise = loadReviewItemContentResourcesThroughDemandResult({
 			reviewPackage,
 			itemId: 'item-source',
 			interest: 'visible',
 			resolveDescriptorRef: (handle: BridgeContentHandle): BridgeDescriptorRef | null =>
 				registeredDescriptorsByHandleId.get(handle.handleId)?.ref ?? null,
-			scheduler,
 			executor,
 		});
 		blockingLoad.resolve({ content: makeTextStreamResult('blocking text'), byteLength: 13 });
 
-		expect(result).toEqual({ status: 'deferred', reason: 'concurrency_exceeded' });
-		await expect(foregroundLoad).resolves.toMatchObject({ ok: true });
+		await foregroundLoad;
+		await expect(resultPromise).resolves.toMatchObject({ status: 'ready' });
 	});
 
-	test('returns deferred and rolls back partial enqueues when scheduler lane rejects a role', async () => {
+	test('loads every visible member instead of rejecting by removed lane caps', async () => {
 		const registry = createBridgeResourceDescriptorRegistry({
 			allowedResourceKindsByProtocol: { review: new Set(['content']) },
 		});
@@ -362,10 +332,6 @@ describe('review content demand loader pressure and cancellation', () => {
 			reviewPackage,
 		});
 		let fetchCount = 0;
-		const scheduler = createBridgeDemandScheduler({
-			maxQueuedIntentsPerLane: 1,
-			maxQueuedEstimatedBytes: 4096,
-		});
 
 		const result = await loadReviewItemContentResourcesThroughDemandResult({
 			reviewPackage,
@@ -373,7 +339,6 @@ describe('review content demand loader pressure and cancellation', () => {
 			interest: 'visible',
 			resolveDescriptorRef: (handle: BridgeContentHandle): BridgeDescriptorRef | null =>
 				registeredDescriptorsByHandleId.get(handle.handleId)?.ref ?? null,
-			scheduler,
 			executor: createBridgeResourceExecutor<BridgeTextResourceStreamResult>({
 				registry,
 				maxConcurrentLoads: 2,
@@ -390,12 +355,11 @@ describe('review content demand loader pressure and cancellation', () => {
 			}),
 		});
 
-		expect(result).toEqual({ status: 'deferred', reason: 'concurrency_exceeded' });
-		expect(fetchCount).toBe(0);
-		expect(scheduler.queuedIntentCount).toBe(0);
+		expect(result).toMatchObject({ status: 'ready' });
+		expect(fetchCount).toBe(2);
 	});
 
-	test('returns byte-budget failure when scheduler rejects a role by queued byte limit', async () => {
+	test('returns byte-budget failure when executor per-load budget rejects a role', async () => {
 		const registry = createBridgeResourceDescriptorRegistry({
 			allowedResourceKindsByProtocol: { review: new Set(['content']) },
 		});
@@ -405,11 +369,6 @@ describe('review content demand loader pressure and cancellation', () => {
 			reviewPackage,
 		});
 		let fetchCount = 0;
-		const pressureSamples: unknown[] = [];
-		const scheduler = createBridgeDemandScheduler({
-			maxQueuedIntentsPerLane: 8,
-			maxQueuedEstimatedBytes: 1024,
-		});
 
 		const result = await loadReviewItemContentResourcesThroughDemandResult({
 			reviewPackage,
@@ -417,11 +376,10 @@ describe('review content demand loader pressure and cancellation', () => {
 			interest: 'visible',
 			resolveDescriptorRef: (handle: BridgeContentHandle): BridgeDescriptorRef | null =>
 				registeredDescriptorsByHandleId.get(handle.handleId)?.ref ?? null,
-			scheduler,
 			executor: createBridgeResourceExecutor<BridgeTextResourceStreamResult>({
 				registry,
 				maxConcurrentLoads: 2,
-				maxInFlightBytes: 4096,
+				maxInFlightBytes: 1024,
 				maxQueuedLoads: 8,
 				maxQueuedBytes: 4096,
 				loadResource: async () => {
@@ -432,21 +390,10 @@ describe('review content demand loader pressure and cancellation', () => {
 					};
 				},
 			}),
-			onDemandTelemetry: (sample: unknown): void => {
-				pressureSamples.push(sample);
-			},
 		});
 
 		expect(result).toEqual({ status: 'failed', reason: 'byte_budget_exceeded' });
 		expect(fetchCount).toBe(0);
-		expect(scheduler.queuedIntentCount).toBe(0);
-		expect(pressureSamples).toEqual([
-			expect.objectContaining({
-				enqueueAcceptedCount: 0,
-				enqueueRejectedCount: 1,
-				droppedEstimatedBytesByLane: expect.objectContaining({ visible: 2048 }),
-			}),
-		]);
 	});
 
 	test('propagates external aborts into executor demand cancellation', async () => {
@@ -480,10 +427,6 @@ describe('review content demand loader pressure and cancellation', () => {
 			interest: 'visible',
 			resolveDescriptorRef: (handle: BridgeContentHandle): BridgeDescriptorRef | null =>
 				registeredDescriptorsByHandleId.get(handle.handleId)?.ref ?? null,
-			scheduler: createBridgeDemandScheduler({
-				maxQueuedIntentsPerLane: 8,
-				maxQueuedEstimatedBytes: 4096,
-			}),
 			executor,
 			signal: abortController.signal,
 		});
@@ -529,10 +472,6 @@ describe('review content demand loader pressure and cancellation', () => {
 			interest: 'selected',
 			resolveDescriptorRef: (handle: BridgeContentHandle): BridgeDescriptorRef | null =>
 				registeredDescriptorsByHandleId.get(handle.handleId)?.ref ?? null,
-			scheduler: createBridgeDemandScheduler({
-				maxQueuedIntentsPerLane: 8,
-				maxQueuedEstimatedBytes: 4096,
-			}),
 			executor,
 			signal: abortController.signal,
 		});

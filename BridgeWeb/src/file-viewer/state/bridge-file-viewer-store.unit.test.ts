@@ -77,11 +77,7 @@ describe('Bridge file viewer Zustand store', () => {
 			resourceFetchResponseWaitMilliseconds: 3,
 			resourceFirstChunkWaitMilliseconds: 4,
 			resourceStreamReadMilliseconds: 5,
-			schedulerQueueWaitMilliseconds: 1,
-			schedulerQueuedEstimatedBytesAfter: 0,
-			schedulerQueuedEstimatedBytesBefore: descriptor.sizeBytes ?? 0,
-			schedulerQueuedIntentCountAfter: 0,
-			schedulerQueuedIntentCountBefore: 1,
+			demandQueueWaitMilliseconds: 1,
 		});
 		store.getState().actions.setLastDemandDispatchDebugState({
 			status: 'failed',

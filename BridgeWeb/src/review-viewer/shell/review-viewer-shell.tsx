@@ -142,12 +142,6 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 			data-review-selected-demand-configured-executor-max-in-flight-bytes={
 				selectedDemandTelemetry?.configuredExecutorMaxInFlightBytes
 			}
-			data-review-selected-demand-configured-scheduler-max-queued-estimated-bytes={
-				selectedDemandTelemetry?.configuredSchedulerMaxQueuedEstimatedBytes
-			}
-			data-review-selected-demand-configured-scheduler-max-queued-intents-per-lane={
-				selectedDemandTelemetry?.configuredSchedulerMaxQueuedIntentsPerLane
-			}
 			data-review-selected-demand-deferred-count={selectedDemandTelemetry?.deferredCount}
 			data-review-selected-demand-deferred-estimated-bytes-by-lane={serializeReviewDemandLaneBytes(
 				selectedDemandTelemetry?.deferredEstimatedBytesByLane,
@@ -157,12 +151,6 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 			)}
 			data-review-selected-demand-dropped-intent-count={selectedDemandTelemetry?.droppedIntentCount}
 			data-review-selected-demand-duration-ms={selectedDemandTelemetry?.durationMilliseconds}
-			data-review-selected-demand-enqueue-accepted-count={
-				selectedDemandTelemetry?.enqueueAcceptedCount
-			}
-			data-review-selected-demand-enqueue-rejected-count={
-				selectedDemandTelemetry?.enqueueRejectedCount
-			}
 			data-review-selected-demand-executor-in-flight-after-dispatch={
 				selectedDemandTelemetry?.executorInFlightCountAfterDispatch
 			}
@@ -195,18 +183,6 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 			data-review-selected-demand-max-executor-queued-load={
 				selectedDemandTelemetry?.maxExecutorQueuedLoadCount
 			}
-			data-review-selected-demand-max-scheduler-queued={
-				selectedDemandTelemetry?.maxSchedulerQueuedIntentCount
-			}
-			data-review-selected-demand-scheduler-queued-after-enqueue={
-				selectedDemandTelemetry?.schedulerQueuedIntentCountAfterEnqueue
-			}
-			data-review-selected-demand-scheduler-queued-after={
-				selectedDemandTelemetry?.schedulerQueuedIntentCountAfter
-			}
-			data-review-selected-demand-scheduler-queued-before={
-				selectedDemandTelemetry?.schedulerQueuedIntentCountBefore
-			}
 			data-review-selected-demand-stale-drop-count={selectedDemandTelemetry?.staleDropCount}
 			data-review-selected-demand-visible-intent-count={selectedDemandTelemetry?.visibleIntentCount}
 			data-review-visible-demand-admitted-bytes={visibleDemandTelemetry?.admittedBytes}
@@ -220,12 +196,6 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 			data-review-visible-demand-configured-executor-max-in-flight-bytes={
 				visibleDemandTelemetry?.configuredExecutorMaxInFlightBytes
 			}
-			data-review-visible-demand-configured-scheduler-max-queued-estimated-bytes={
-				visibleDemandTelemetry?.configuredSchedulerMaxQueuedEstimatedBytes
-			}
-			data-review-visible-demand-configured-scheduler-max-queued-intents-per-lane={
-				visibleDemandTelemetry?.configuredSchedulerMaxQueuedIntentsPerLane
-			}
 			data-review-visible-demand-deferred-count={visibleDemandTelemetry?.deferredCount}
 			data-review-visible-demand-deferred-estimated-bytes-by-lane={serializeReviewDemandLaneBytes(
 				visibleDemandTelemetry?.deferredEstimatedBytesByLane,
@@ -235,12 +205,6 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 			)}
 			data-review-visible-demand-dropped-intent-count={visibleDemandTelemetry?.droppedIntentCount}
 			data-review-visible-demand-duration-ms={visibleDemandTelemetry?.durationMilliseconds}
-			data-review-visible-demand-enqueue-accepted-count={
-				visibleDemandTelemetry?.enqueueAcceptedCount
-			}
-			data-review-visible-demand-enqueue-rejected-count={
-				visibleDemandTelemetry?.enqueueRejectedCount
-			}
 			data-review-visible-demand-executor-in-flight-after-dispatch={
 				visibleDemandTelemetry?.executorInFlightCountAfterDispatch
 			}
@@ -269,18 +233,6 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 			}
 			data-review-visible-demand-max-executor-queued-load={
 				visibleDemandTelemetry?.maxExecutorQueuedLoadCount
-			}
-			data-review-visible-demand-max-scheduler-queued={
-				visibleDemandTelemetry?.maxSchedulerQueuedIntentCount
-			}
-			data-review-visible-demand-scheduler-queued-after-enqueue={
-				visibleDemandTelemetry?.schedulerQueuedIntentCountAfterEnqueue
-			}
-			data-review-visible-demand-scheduler-queued-after={
-				visibleDemandTelemetry?.schedulerQueuedIntentCountAfter
-			}
-			data-review-visible-demand-scheduler-queued-before={
-				visibleDemandTelemetry?.schedulerQueuedIntentCountBefore
 			}
 			data-review-visible-demand-stale-drop-count={visibleDemandTelemetry?.staleDropCount}
 			data-review-visible-demand-visible-intent-count={visibleDemandTelemetry?.visibleIntentCount}

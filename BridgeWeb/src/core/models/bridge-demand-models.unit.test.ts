@@ -28,6 +28,7 @@ describe('bridge demand models', () => {
 			bridgeDemandIntentSchema.parse({
 				descriptorRef,
 				lane: 'foreground',
+				demandRank: 0,
 				orderingKey: '0001',
 				dedupeKey: 'review:descriptor-1',
 				freshnessKey: 'review:descriptor-1:revision-2',
@@ -36,6 +37,7 @@ describe('bridge demand models', () => {
 		).toEqual({
 			descriptorRef,
 			lane: 'foreground',
+			demandRank: 0,
 			orderingKey: '0001',
 			dedupeKey: 'review:descriptor-1',
 			freshnessKey: 'review:descriptor-1:revision-2',
@@ -97,6 +99,7 @@ describe('bridge demand models', () => {
 			bridgeDemandIntentSchema.safeParse({
 				descriptorRef,
 				lane: 'foreground',
+				demandRank: 0,
 				orderingKey: '0001',
 				dedupeKey: 'review:descriptor-1',
 				freshnessKey: 'review:descriptor-1:revision-2',

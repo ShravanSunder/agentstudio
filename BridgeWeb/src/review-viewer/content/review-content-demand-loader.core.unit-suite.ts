@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'vitest';
 
-import { createBridgeDemandScheduler } from '../../core/demand/bridge-demand-scheduler.js';
 import { createBridgeResourceExecutor } from '../../core/demand/bridge-resource-executor.js';
 import type { BridgeDescriptorRef } from '../../core/models/bridge-resource-descriptor.js';
 import { createBridgeResourceDescriptorRegistry } from '../../core/resources/bridge-resource-registry.js';
@@ -18,7 +17,6 @@ import {
 	makeBridgeReviewPackageWithContentRoleBytes,
 	makeTelemetryRecorder,
 	makeTextStreamResult,
-	makeUnrelatedDescriptorRef,
 	registerPackageContentDescriptors,
 	totalRequestCount,
 } from './review-content-demand-loader.test-support.js';
@@ -57,10 +55,6 @@ describe('review content demand loader core', () => {
 			interest: 'selected',
 			resolveDescriptorRef: (handle: BridgeContentHandle): BridgeDescriptorRef | null =>
 				registeredDescriptorsByHandleId.get(handle.handleId)?.ref ?? null,
-			scheduler: createBridgeDemandScheduler({
-				maxQueuedIntentsPerLane: 8,
-				maxQueuedEstimatedBytes: 4096,
-			}),
 			executor,
 		});
 
@@ -104,10 +98,6 @@ describe('review content demand loader core', () => {
 			presentation: { kind: 'file', version: 'current' },
 			resolveDescriptorRef: (handle: BridgeContentHandle): BridgeDescriptorRef | null =>
 				registeredDescriptorsByHandleId.get(handle.handleId)?.ref ?? null,
-			scheduler: createBridgeDemandScheduler({
-				maxQueuedIntentsPerLane: 8,
-				maxQueuedEstimatedBytes: 4096,
-			}),
 			executor,
 		});
 
@@ -148,10 +138,6 @@ describe('review content demand loader core', () => {
 			interest: 'selected',
 			resolveDescriptorRef: (handle: BridgeContentHandle): BridgeDescriptorRef | null =>
 				registeredDescriptorsByHandleId.get(handle.handleId)?.ref ?? null,
-			scheduler: createBridgeDemandScheduler({
-				maxQueuedIntentsPerLane: 8,
-				maxQueuedEstimatedBytes: 4096,
-			}),
 			executor,
 		});
 
@@ -189,10 +175,6 @@ describe('review content demand loader core', () => {
 			interest: 'selected',
 			resolveDescriptorRef: (handle: BridgeContentHandle): BridgeDescriptorRef | null =>
 				registeredDescriptorsByHandleId.get(handle.handleId)?.ref ?? null,
-			scheduler: createBridgeDemandScheduler({
-				maxQueuedIntentsPerLane: 8,
-				maxQueuedEstimatedBytes: 4096,
-			}),
 			executor,
 			telemetryRecorder,
 		});
@@ -268,10 +250,6 @@ describe('review content demand loader core', () => {
 			interest: 'selected',
 			resolveDescriptorRef: (handle: BridgeContentHandle): BridgeDescriptorRef | null =>
 				registeredDescriptorsByHandleId.get(handle.handleId)?.ref ?? null,
-			scheduler: createBridgeDemandScheduler({
-				maxQueuedIntentsPerLane: 8,
-				maxQueuedEstimatedBytes: 4096,
-			}),
 			executor,
 			onDemandTelemetry: (sample: unknown): void => {
 				pressureSamples.push(sample);
@@ -288,69 +266,14 @@ describe('review content demand loader core', () => {
 				interest: 'selected',
 				foregroundIntentCount: 2,
 				visibleIntentCount: 0,
-				enqueueAcceptedCount: 2,
-				enqueueRejectedCount: 0,
 				admittedBytes: 40,
 				deferredCount: 0,
 				failedCount: 0,
 				loadedCount: 2,
 				maxExecutorInFlightCount: 2,
-				maxSchedulerQueuedIntentCount: 2,
-				schedulerQueuedIntentCountAfter: 0,
 				executorInFlightCountAfter: 0,
 			}),
 		]);
-	});
-
-	test('does not dequeue unrelated work from a shared scheduler', async () => {
-		const registry = createBridgeResourceDescriptorRegistry({
-			allowedResourceKindsByProtocol: { review: new Set(['content']) },
-		});
-		const reviewPackage = makeBridgeReviewPackage();
-		const registeredDescriptorsByHandleId = registerPackageContentDescriptors({
-			registry,
-			reviewPackage,
-		});
-		const scheduler = createBridgeDemandScheduler({
-			maxQueuedIntentsPerLane: 8,
-			maxQueuedEstimatedBytes: 4096,
-		});
-		const unrelatedIntent = {
-			descriptorRef: makeUnrelatedDescriptorRef(),
-			lane: 'foreground',
-			orderingKey: '000',
-			dedupeKey: 'unrelated',
-			freshnessKey: 'unrelated:fresh',
-			cancellationGroup: 'review:other-package',
-		} as const;
-		expect(scheduler.enqueue({ intent: unrelatedIntent, estimatedBytes: 1 })).toEqual({
-			ok: true,
-			status: 'queued',
-		});
-		const executor = createBridgeResourceExecutor<BridgeTextResourceStreamResult>({
-			registry,
-			maxConcurrentLoads: 2,
-			maxInFlightBytes: 4096,
-			maxQueuedLoads: 8,
-			maxQueuedBytes: 4096,
-			loadResource: async ({ descriptor }) => ({
-				content: makeTextStreamResult(`${descriptor.descriptorId} text`),
-				byteLength: 20,
-			}),
-		});
-
-		const result = await loadReviewItemContentResourcesThroughDemandResult({
-			reviewPackage,
-			itemId: 'item-source',
-			interest: 'visible',
-			resolveDescriptorRef: (handle: BridgeContentHandle): BridgeDescriptorRef | null =>
-				registeredDescriptorsByHandleId.get(handle.handleId)?.ref ?? null,
-			scheduler,
-			executor,
-		});
-
-		expect(result.status).toBe('ready');
-		expect(scheduler.dequeueNext()).toEqual(unrelatedIntent);
 	});
 
 	test('joins selected demand to visible in-flight descriptor work instead of refetching by interest', async () => {
@@ -361,10 +284,6 @@ describe('review content demand loader core', () => {
 		const registeredDescriptorsByHandleId = registerPackageContentDescriptors({
 			registry,
 			reviewPackage,
-		});
-		const scheduler = createBridgeDemandScheduler({
-			maxQueuedIntentsPerLane: 8,
-			maxQueuedEstimatedBytes: 4096,
 		});
 		const inFlightResultsByDescriptorId = new Map<
 			string,
@@ -401,7 +320,6 @@ describe('review content demand loader core', () => {
 			itemId: 'item-source',
 			interest: 'visible',
 			resolveDescriptorRef,
-			scheduler,
 			executor,
 		});
 		await flushMicrotasks(4);
@@ -412,7 +330,6 @@ describe('review content demand loader core', () => {
 			itemId: 'item-source',
 			interest: 'selected',
 			resolveDescriptorRef,
-			scheduler,
 			executor,
 		});
 		await flushMicrotasks(4);
@@ -438,10 +355,6 @@ describe('review content demand loader core', () => {
 		const registeredDescriptorsByHandleId = registerPackageContentDescriptors({
 			registry,
 			reviewPackage,
-		});
-		const scheduler = createBridgeDemandScheduler({
-			maxQueuedIntentsPerLane: 8,
-			maxQueuedEstimatedBytes: 4096,
 		});
 		const inFlightResultsByDescriptorId = new Map<
 			string,
@@ -479,7 +392,6 @@ describe('review content demand loader core', () => {
 			itemId: 'item-source',
 			interest: 'visible',
 			resolveDescriptorRef,
-			scheduler,
 			executor,
 			signal: visibleAbortController.signal,
 		});
@@ -491,7 +403,6 @@ describe('review content demand loader core', () => {
 			itemId: 'item-source',
 			interest: 'selected',
 			resolveDescriptorRef,
-			scheduler,
 			executor,
 		});
 		await flushMicrotasks(4);
@@ -513,11 +424,11 @@ describe('review content demand loader core', () => {
 		expect(totalRequestCount(requestCountsByDescriptorId)).toBe(2);
 	});
 
-	test('returns byte-budget failure when combined role bytes exceed scheduler queued-byte cap', async () => {
+	test('returns byte-budget failure when a role exceeds executor byte budget', async () => {
 		const registry = createBridgeResourceDescriptorRegistry({
 			allowedResourceKindsByProtocol: { review: new Set(['content']) },
 		});
-		const reviewPackage = makeBridgeReviewPackageWithContentRoleBytes(5 * 1024 * 1024);
+		const reviewPackage = makeBridgeReviewPackageWithContentRoleBytes(9 * 1024 * 1024);
 		const registeredDescriptorsByHandleId = registerPackageContentDescriptors({
 			registry,
 			reviewPackage,
@@ -546,10 +457,6 @@ describe('review content demand loader core', () => {
 			interest: 'visible',
 			resolveDescriptorRef: (handle: BridgeContentHandle): BridgeDescriptorRef | null =>
 				registeredDescriptorsByHandleId.get(handle.handleId)?.ref ?? null,
-			scheduler: createBridgeDemandScheduler({
-				maxQueuedIntentsPerLane: 8,
-				maxQueuedEstimatedBytes: 8 * 1024 * 1024,
-			}),
 			executor,
 		});
 

@@ -69,13 +69,11 @@ export interface UseVisibleReviewContentHydrationResult {
 	readonly visibleReadyItemCount: number;
 }
 
-export const visibleContentHydrationItemLimit = 12;
 // Live scroll evidence: macOS momentum keeps the Review CodeView scroll-active pause true
 // after finger lift, so dispatch must not add another 64ms tail before visible loads start.
 export const visibleContentHydrationConcurrentLoadLimit = 4;
 export const visibleContentHydrationDispatchDelayMilliseconds = 0;
 const maxVisibleContentDeferredRetries = 1;
-const exhaustedVisibleContentRetryVersion = Number.MAX_SAFE_INTEGER;
 
 export type VisibleReviewContentLoadResult =
 	| ReviewContentDemandLoadResult
@@ -163,8 +161,6 @@ export function useVisibleReviewContentHydration(
 		}
 		scheduledContentKeysRef.current.clear();
 	}, [props.visibleHydrationPaused]);
-	const [deferredRetryVersion, setDeferredRetryVersion] = useState(0);
-	const deferredRetryScheduledRef = useRef(false);
 	const [abortedRearmVersion, setAbortedRearmVersion] = useState(0);
 	const abortedRearmScheduledRef = useRef(false);
 	const visibleHydrationSnapshotRef = useRef<VisibleReviewContentAbortRearmSnapshot>({
@@ -220,9 +216,11 @@ export function useVisibleReviewContentHydration(
 					(currentState.status === 'loading' ||
 						currentState.status === 'ready' ||
 						currentState.status === 'failed' ||
-						(currentState.status === 'deferred' &&
-							currentState.retryAfterVersion !== undefined &&
-							currentState.retryAfterVersion > deferredRetryVersion)))
+						hasExhaustedDeferredVisibleContentRetries({
+							contentKey,
+							retryCountsByContentKey: deferredRetryCountByContentKeyRef.current,
+							state: currentState,
+						})))
 			) {
 				return [];
 			}
@@ -313,7 +311,6 @@ export function useVisibleReviewContentHydration(
 							return;
 						}
 						const normalizedLoadResult = normalizeVisibleReviewContentLoadResult(loadResult);
-						let shouldScheduleDeferredRetry = false;
 						setContentStateByItemId(
 							(currentStateByItemId: ReadonlyMap<string, VisibleContentResourcesState>) => {
 								const currentState = currentStateByItemId.get(loadPlan.itemId);
@@ -344,37 +341,21 @@ export function useVisibleReviewContentHydration(
 								if (normalizedLoadResult.status === 'failed') {
 									deferredRetryCountByContentKeyRef.current.delete(loadPlan.contentKey);
 								}
-								const deferredRetryDecision =
-									normalizedLoadResult.status === 'deferred'
-										? nextDeferredVisibleContentRetryDecision({
-												contentKey: loadPlan.contentKey,
-												currentRetryVersion: deferredRetryVersion,
-												retryCountsByContentKey: deferredRetryCountByContentKeyRef.current,
-											})
-										: null;
-								shouldScheduleDeferredRetry = deferredRetryDecision?.kind === 'scheduled';
+								if (normalizedLoadResult.status === 'deferred') {
+									recordDeferredVisibleContentRetryDecision({
+										contentKey: loadPlan.contentKey,
+										retryCountsByContentKey: deferredRetryCountByContentKeyRef.current,
+									});
+								}
 								const nextStateByItemId = new Map(currentStateByItemId);
 								nextStateByItemId.set(loadPlan.itemId, {
 									contentKey: loadPlan.contentKey,
 									itemId: loadPlan.itemId,
-									...(normalizedLoadResult.status === 'deferred'
-										? {
-												retryAfterVersion:
-													deferredRetryDecision?.retryAfterVersion ??
-													exhaustedVisibleContentRetryVersion,
-											}
-										: {}),
 									status: normalizedLoadResult.status,
 								});
 								return nextStateByItemId;
 							},
 						);
-						if (shouldScheduleDeferredRetry) {
-							scheduleVisibleHydrationRetry({
-								scheduledRef: deferredRetryScheduledRef,
-								setRetryVersion: setDeferredRetryVersion,
-							});
-						}
 					})
 					.catch((): void => {
 						if (loadAbortController.signal.aborted) {
@@ -433,8 +414,6 @@ export function useVisibleReviewContentHydration(
 	}, [
 		abortedRearmVersion,
 		contentStateByItemId,
-		deferredRetryVersion,
-		setDeferredRetryVersion,
 		props.contentRegistry,
 		props.contentInvalidationVersion,
 		loadContentResources,
@@ -476,7 +455,6 @@ export function useVisibleReviewContentHydration(
 			(currentStateByItemId: ReadonlyMap<string, VisibleContentResourcesState>) => {
 				const pruned = pruneVisibleReviewContentHydrationCaches({
 					contentStateByItemId: currentStateByItemId,
-					maxReadyResourceCount: visibleContentHydrationItemLimit,
 					resourcesByItemId: resourcesByItemIdRef.current,
 					retainedContentKeys,
 					visibleItemIds,
@@ -558,16 +536,6 @@ interface VisibleReviewContentAbortRearmSnapshot {
 	readonly visibleItemIds: readonly string[];
 }
 
-type DeferredVisibleContentRetryDecision =
-	| {
-			readonly kind: 'scheduled';
-			readonly retryAfterVersion: number;
-	  }
-	| {
-			readonly kind: 'exhausted';
-			readonly retryAfterVersion: number;
-	  };
-
 export function makeReviewItemContentResourcesKey(props: {
 	readonly item: BridgeReviewItemDescriptor;
 	readonly reviewPackage: BridgeReviewPackage;
@@ -635,9 +603,6 @@ export function normalizeVisibleReviewItemIds(props: {
 		}
 		seenItemIds.add(itemId);
 		uniqueItemIds.push(itemId);
-		if (uniqueItemIds.length >= visibleContentHydrationItemLimit) {
-			break;
-		}
 	}
 	return uniqueItemIds;
 }
@@ -795,23 +760,24 @@ function abortVisibleContentLoadsExcept(
 	}
 }
 
-function nextDeferredVisibleContentRetryDecision(props: {
+function hasExhaustedDeferredVisibleContentRetries(props: {
 	readonly contentKey: string;
-	readonly currentRetryVersion: number;
 	readonly retryCountsByContentKey: Map<string, number>;
-}): DeferredVisibleContentRetryDecision {
+	readonly state: VisibleContentResourcesState | undefined;
+}): boolean {
+	return (
+		props.state?.status === 'deferred' &&
+		(props.retryCountsByContentKey.get(props.contentKey) ?? 0) > maxVisibleContentDeferredRetries
+	);
+}
+
+function recordDeferredVisibleContentRetryDecision(props: {
+	readonly contentKey: string;
+	readonly retryCountsByContentKey: Map<string, number>;
+}): boolean {
 	const retryCount = (props.retryCountsByContentKey.get(props.contentKey) ?? 0) + 1;
 	props.retryCountsByContentKey.set(props.contentKey, retryCount);
-	if (retryCount <= maxVisibleContentDeferredRetries) {
-		return {
-			kind: 'scheduled',
-			retryAfterVersion: props.currentRetryVersion + 1,
-		};
-	}
-	return {
-		kind: 'exhausted',
-		retryAfterVersion: exhaustedVisibleContentRetryVersion,
-	};
+	return retryCount <= maxVisibleContentDeferredRetries;
 }
 
 function pruneDeferredRetryCountsExcept(

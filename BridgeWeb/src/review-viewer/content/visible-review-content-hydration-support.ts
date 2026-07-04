@@ -3,7 +3,6 @@ import type { BridgeCodeViewContentResources } from '../code-view/bridge-code-vi
 export interface VisibleContentResourcesState {
 	readonly contentKey: string;
 	readonly itemId: string;
-	readonly retryAfterVersion?: number;
 	readonly status: 'aborted' | 'deferred' | 'loading' | 'ready' | 'failed';
 }
 
@@ -107,7 +106,6 @@ export function shouldAcceptVisibleReviewContentReadyResult(props: {
 
 export function pruneVisibleReviewContentHydrationCaches(props: {
 	readonly contentStateByItemId: ReadonlyMap<string, VisibleContentResourcesState>;
-	readonly maxReadyResourceCount: number;
 	readonly resourcesByItemId: ReadonlyMap<string, BridgeCodeViewContentResources>;
 	readonly retainedContentKeys: ReadonlySet<string>;
 	readonly visibleItemIds: readonly string[];
@@ -134,9 +132,6 @@ export function pruneVisibleReviewContentHydrationCaches(props: {
 		nextResourcesByItemId.set(itemId, resources);
 	}
 	for (const [itemId, resources] of retainedReadyEntries.toReversed()) {
-		if (nextResourcesByItemId.size >= props.maxReadyResourceCount) {
-			break;
-		}
 		nextResourcesByItemId.set(itemId, resources);
 	}
 

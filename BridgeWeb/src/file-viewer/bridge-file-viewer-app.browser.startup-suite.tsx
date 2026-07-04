@@ -796,7 +796,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		);
 		expect(sample.numericAttributes['agentstudio.bridge.source.generation']).toBe(1);
 		expect(
-			sample.numericAttributes['agentstudio.bridge.demand.scheduler_queue_wait_ms'],
+			sample.numericAttributes['agentstudio.bridge.demand.demand_queue_wait_ms'],
 		).toBeGreaterThanOrEqual(0);
 		expect(
 			sample.numericAttributes['agentstudio.bridge.demand.executor_pending_wait_ms'],
@@ -880,7 +880,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			settledSample.numericAttributes['agentstudio.bridge.demand.request.sequence'],
 		).toBeGreaterThan(0);
 		expect(
-			settledSample.numericAttributes['agentstudio.bridge.demand.scheduler_queue_wait_ms'],
+			settledSample.numericAttributes['agentstudio.bridge.demand.demand_queue_wait_ms'],
 		).toBeGreaterThanOrEqual(0);
 	});
 });

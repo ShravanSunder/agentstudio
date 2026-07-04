@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'vitest';
 
-import { createBridgeDemandScheduler } from '../core/demand/bridge-demand-scheduler.js';
 import { createBridgeResourceExecutor } from '../core/demand/bridge-resource-executor.js';
 import type { BridgeAttachedResourceDescriptor } from '../core/models/bridge-resource-descriptor.js';
 import { createBridgeResourceDescriptorRegistry } from '../core/resources/bridge-resource-registry.js';
@@ -708,10 +707,6 @@ function makeReviewProtocolFrameHarness(initialReviewPackage: BridgeReviewPackag
 	const descriptorRegistry = createBridgeResourceDescriptorRegistry({
 		allowedResourceKindsByProtocol: { review: new Set(['content']) },
 	});
-	const reviewDemandScheduler = createBridgeDemandScheduler({
-		maxQueuedIntentsPerLane: 8,
-		maxQueuedEstimatedBytes: 1024 * 1024,
-	});
 	const resourceExecutor = createBridgeResourceExecutor({
 		registry: descriptorRegistry,
 		maxConcurrentLoads: 2,
@@ -763,7 +758,6 @@ function makeReviewProtocolFrameHarness(initialReviewPackage: BridgeReviewPackag
 				reviewReadyStartMillisecondsByPackageKeyRef: { current: new Map() },
 				descriptorRegistry,
 				reviewContentDescriptorRefsByHandleIdRef: { current: new Map() },
-				reviewDemandScheduler,
 				resourceExecutor,
 				contentRegistry: createBridgeReviewContentRegistry(),
 				reviewFrameAuthority,

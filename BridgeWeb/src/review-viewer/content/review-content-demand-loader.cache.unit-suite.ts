@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'vitest';
 
-import { createBridgeDemandScheduler } from '../../core/demand/bridge-demand-scheduler.js';
 import { createBridgeResourceExecutor } from '../../core/demand/bridge-resource-executor.js';
 import type { BridgeDescriptorRef } from '../../core/models/bridge-resource-descriptor.js';
 import { createBridgeResourceDescriptorRegistry } from '../../core/resources/bridge-resource-registry.js';
@@ -39,10 +38,6 @@ describe('review content demand loader registry cache', () => {
 				return { content: makeTextStreamResult('should not fetch'), byteLength: 15 };
 			},
 		});
-		const scheduler = createBridgeDemandScheduler({
-			maxQueuedIntentsPerLane: 8,
-			maxQueuedEstimatedBytes: 4096,
-		});
 		const contentRegistry = createBridgeReviewContentRegistry();
 		contentRegistry.storeResource({
 			resource: makeCachedResource(makeBridgeContentHandle('item-source', 'base'), 'cached base'),
@@ -57,7 +52,6 @@ describe('review content demand loader registry cache', () => {
 			interest: 'selected',
 			resolveDescriptorRef: (handle: BridgeContentHandle): BridgeDescriptorRef | null =>
 				registeredDescriptorsByHandleId.get(handle.handleId)?.ref ?? null,
-			scheduler,
 			executor,
 			contentRegistry,
 		});
@@ -69,7 +63,6 @@ describe('review content demand loader registry cache', () => {
 		expect(result.resources.base?.readText()).toBe('cached base');
 		expect(result.resources.head?.readText()).toBe('cached head');
 		expect(requestedUrls).toEqual([]);
-		expect(scheduler.queuedIntentCount).toBe(0);
 	});
 
 	test('stores loaded role resources into the content registry after a successful demand load', async () => {
@@ -102,10 +95,6 @@ describe('review content demand loader registry cache', () => {
 			interest: 'selected',
 			resolveDescriptorRef: (handle: BridgeContentHandle): BridgeDescriptorRef | null =>
 				registeredDescriptorsByHandleId.get(handle.handleId)?.ref ?? null,
-			scheduler: createBridgeDemandScheduler({
-				maxQueuedIntentsPerLane: 8,
-				maxQueuedEstimatedBytes: 4096,
-			}),
 			executor,
 			contentRegistry,
 		});
@@ -156,10 +145,6 @@ describe('review content demand loader registry cache', () => {
 			interest: 'selected',
 			resolveDescriptorRef: (handle: BridgeContentHandle): BridgeDescriptorRef | null =>
 				registeredDescriptorsByHandleId.get(handle.handleId)?.ref ?? null,
-			scheduler: createBridgeDemandScheduler({
-				maxQueuedIntentsPerLane: 8,
-				maxQueuedEstimatedBytes: 4096,
-			}),
 			executor,
 			contentRegistry,
 		});

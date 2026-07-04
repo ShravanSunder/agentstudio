@@ -1,4 +1,3 @@
-import type { BridgeDemandScheduler } from '../core/demand/bridge-demand-scheduler.js';
 import type { BridgeResourceExecutor } from '../core/demand/bridge-resource-executor.js';
 import type {
 	BridgeAttachedResourceDescriptor,
@@ -534,7 +533,6 @@ export function contentResourceKeysForReviewHandleIds(props: {
 
 export function cancelReviewDescriptorDemandGroups(props: {
 	readonly descriptorRefs: ReadonlyMap<string, BridgeDescriptorRef>;
-	readonly reviewDemandScheduler: BridgeDemandScheduler;
 	readonly resourceExecutor: BridgeResourceExecutor<BridgeTextResourceStreamResult>;
 }): number {
 	let cancelledCount = 0;
@@ -545,7 +543,6 @@ export function cancelReviewDescriptorDemandGroups(props: {
 		}
 	}
 	for (const cancellationGroup of cancellationGroups) {
-		cancelledCount += props.reviewDemandScheduler.cancelGroup(cancellationGroup);
 		cancelledCount += props.resourceExecutor.cancelGroup(cancellationGroup);
 	}
 	return cancelledCount;
@@ -554,7 +551,6 @@ export function cancelReviewDescriptorDemandGroups(props: {
 export function cancelReviewItemDemand(props: {
 	readonly descriptorRefsByHandleId: ReadonlyMap<string, BridgeDescriptorRef>;
 	readonly item: BridgeReviewItemDescriptor | undefined;
-	readonly reviewDemandScheduler: BridgeDemandScheduler;
 	readonly resourceExecutor: BridgeResourceExecutor<BridgeTextResourceStreamResult>;
 }): number {
 	if (props.item === undefined) {
@@ -573,7 +569,6 @@ export function cancelReviewItemDemand(props: {
 		cancellationGroups.add(demandCancellationGroupForReviewDescriptorRef(descriptorRef));
 	}
 	for (const cancellationGroup of cancellationGroups) {
-		cancelledCount += props.reviewDemandScheduler.cancelGroup(cancellationGroup);
 		cancelledCount += props.resourceExecutor.cancelGroup(cancellationGroup);
 	}
 	return cancelledCount;

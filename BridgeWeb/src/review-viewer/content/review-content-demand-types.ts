@@ -1,4 +1,3 @@
-import type { BridgeDemandScheduler } from '../../core/demand/bridge-demand-scheduler.js';
 import type {
 	BridgeResourceExecutorLoadFailureKind,
 	BridgeResourceExecutorResult,
@@ -29,7 +28,6 @@ export interface LoadReviewItemContentResourcesThroughDemandProps {
 	readonly interest: 'selected' | 'visible' | 'nearby' | 'speculative' | 'background';
 	readonly presentation?: BridgeCodeViewItemPresentation | null;
 	readonly resolveDescriptorRef: (handle: BridgeContentHandle) => BridgeDescriptorRef | null;
-	readonly scheduler: BridgeDemandScheduler;
 	readonly executor: BridgeResourceExecutor<BridgeTextResourceStreamResult>;
 	/** Shared review content cache: peeked before enqueueing demand intents
 	 * (an all-roles hit produces zero demand traffic) and populated after
@@ -76,8 +74,6 @@ export interface ReviewContentDemandTelemetry {
 	readonly durationMilliseconds: number;
 	readonly configuredExecutorMaxConcurrentLoads: number;
 	readonly configuredExecutorMaxInFlightBytes: number;
-	readonly configuredSchedulerMaxQueuedEstimatedBytes: number;
-	readonly configuredSchedulerMaxQueuedIntentsPerLane: number;
 	readonly intentCount: number;
 	readonly foregroundIntentCount: number;
 	readonly activeIntentCount: number;
@@ -85,14 +81,6 @@ export interface ReviewContentDemandTelemetry {
 	readonly nearbyIntentCount: number;
 	readonly speculativeIntentCount: number;
 	readonly idleIntentCount: number;
-	readonly enqueueAcceptedCount: number;
-	readonly enqueueRejectedCount: number;
-	readonly schedulerQueuedIntentCountBefore: number;
-	readonly schedulerQueuedIntentCountAfterEnqueue: number;
-	readonly schedulerQueuedIntentCountAfter: number;
-	readonly schedulerQueuedEstimatedBytesBefore: number;
-	readonly schedulerQueuedEstimatedBytesAfterEnqueue: number;
-	readonly schedulerQueuedEstimatedBytesAfter: number;
 	readonly executorInFlightCountBefore: number;
 	readonly executorInFlightCountAfterDispatch: number;
 	readonly executorInFlightCountAfter: number;
@@ -106,7 +94,6 @@ export interface ReviewContentDemandTelemetry {
 	readonly executorQueuedBytesAfterDispatch: number;
 	readonly executorQueuedBytesAfter: number;
 	readonly laneUpgradeCount: number;
-	readonly maxSchedulerQueuedIntentCount: number;
 	readonly maxExecutorInFlightCount: number;
 	readonly maxExecutorQueuedLoadCount: number;
 	readonly admittedBytes: number;

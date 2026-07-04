@@ -1,3 +1,4 @@
+import { demandRankForContentRole } from '../../../core/demand/bridge-content-demand-policy.js';
 import type { BridgeContentDemandCandidate } from '../../../core/demand/bridge-content-demand-reconciler.js';
 import type {
 	BridgeContentDemandRole,
@@ -91,6 +92,7 @@ function candidatesForDescriptor(props: {
 			intent: {
 				descriptorRef: props.descriptorRef,
 				lane: laneForContentDemandRole(role),
+				demandRank: demandRankForContentRole(role),
 				...props.readContext.buildDemandKeys(props.descriptorRef),
 			},
 			role,

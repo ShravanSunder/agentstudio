@@ -71,10 +71,6 @@ export function registerWorktreeFileSurfaceRuntimeResetTests(): void {
 				executorQueuedLoadCountAfter: 0,
 				executorQueuedLoadCountBefore: 0,
 				lane: 'foreground',
-				schedulerQueuedEstimatedBytesAfter: 0,
-				schedulerQueuedEstimatedBytesBefore: 0,
-				schedulerQueuedIntentCountAfter: 0,
-				schedulerQueuedIntentCountBefore: 0,
 			},
 		});
 		expect(fetchedDescriptorIds).toEqual(['file-content-1', 'file-content-2']);

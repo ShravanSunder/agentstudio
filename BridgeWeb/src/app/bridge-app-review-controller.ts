@@ -1,7 +1,6 @@
 import type { Dispatch, SetStateAction } from 'react';
 
 import type { BridgePushEnvelope } from '../bridge/bridge-push-envelope.js';
-import type { BridgeDemandScheduler } from '../core/demand/bridge-demand-scheduler.js';
 import type { BridgeResourceExecutor } from '../core/demand/bridge-resource-executor.js';
 import type { BridgeDescriptorRef } from '../core/models/bridge-resource-descriptor.js';
 import type { BridgeResourceDescriptorRegistry } from '../core/resources/bridge-resource-registry.js';
@@ -86,7 +85,6 @@ interface BridgeReviewProtocolTransportFrameApplyProps {
 	readonly reviewContentDescriptorRefsByHandleIdRef: {
 		current: ReadonlyMap<string, BridgeDescriptorRef>;
 	};
-	readonly reviewDemandScheduler: BridgeDemandScheduler;
 	readonly resourceExecutor: BridgeResourceExecutor<BridgeTextResourceStreamResult>;
 	readonly contentRegistry: BridgeReviewContentRegistry;
 	readonly reviewFrameAuthority: BridgeReviewFrameAuthority | null;
@@ -163,7 +161,6 @@ async function applyReviewProtocolFramePayload(
 		reviewReadyStartMillisecondsByPackageKeyRef,
 		descriptorRegistry,
 		reviewContentDescriptorRefsByHandleIdRef,
-		reviewDemandScheduler,
 		resourceExecutor,
 		contentRegistry,
 		reviewFrameAuthority,
@@ -259,7 +256,6 @@ async function applyReviewProtocolFramePayload(
 		if (shouldMergeSnapshotWithCurrentPackage) {
 			cancelReviewDescriptorDemandGroups({
 				descriptorRefs: materializedFrame.descriptorRefsByHandleId,
-				reviewDemandScheduler,
 				resourceExecutor,
 			});
 			reviewContentDescriptorRefsByHandleIdRef.current = new Map([
@@ -269,7 +265,6 @@ async function applyReviewProtocolFramePayload(
 		} else {
 			cancelReviewDescriptorDemandGroups({
 				descriptorRefs: reviewContentDescriptorRefsByHandleIdRef.current,
-				reviewDemandScheduler,
 				resourceExecutor,
 			});
 			reviewContentDescriptorRefsByHandleIdRef.current = materializedFrame.descriptorRefsByHandleId;
@@ -330,7 +325,6 @@ async function applyReviewProtocolFramePayload(
 				itemId: nextSelectedItemId,
 				resourceExecutor,
 				reviewContentDescriptorRefsByHandleId: reviewContentDescriptorRefsByHandleIdRef.current,
-				reviewDemandScheduler,
 				reviewPackage: packagePayload,
 			});
 			selectInitialReviewItem(nextSelectedItemId);
@@ -446,7 +440,6 @@ async function applyReviewProtocolFramePayload(
 				});
 				cancelReviewDescriptorDemandGroups({
 					descriptorRefs: invalidatedDescriptorRefs,
-					reviewDemandScheduler,
 					resourceExecutor,
 				});
 				if (invalidatedDescriptorRefs.size > 0) {
@@ -487,7 +480,6 @@ async function applyReviewProtocolFramePayload(
 			}
 			cancelReviewDescriptorDemandGroups({
 				descriptorRefs: reviewContentDescriptorRefsByHandleIdRef.current,
-				reviewDemandScheduler,
 				resourceExecutor,
 			});
 			reviewContentDescriptorRefsByHandleIdRef.current = new Map<string, BridgeDescriptorRef>();
@@ -623,7 +615,6 @@ function promoteInitialReviewItemContentToForeground(props: {
 	readonly itemId: string;
 	readonly resourceExecutor: BridgeResourceExecutor<BridgeTextResourceStreamResult>;
 	readonly reviewContentDescriptorRefsByHandleId: ReadonlyMap<string, BridgeDescriptorRef>;
-	readonly reviewDemandScheduler: BridgeDemandScheduler;
 	readonly reviewPackage: BridgeReviewPackage;
 }): void {
 	if (props.reviewPackage.itemsById[props.itemId] === undefined) {
@@ -635,7 +626,6 @@ function promoteInitialReviewItemContentToForeground(props: {
 		interest: 'selected',
 		resolveDescriptorRef: (handle): BridgeDescriptorRef | null =>
 			props.reviewContentDescriptorRefsByHandleId.get(handle.handleId) ?? null,
-		scheduler: props.reviewDemandScheduler,
 		executor: props.resourceExecutor,
 		contentRegistry: props.contentRegistry,
 	}).catch((): void => {});

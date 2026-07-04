@@ -78,7 +78,7 @@ export async function loadReviewItemContentResourcesThroughDemandResult(
 					plans,
 				});
 	const demandPlans = planPartition?.missingPlans ?? plans;
-	// A full registry hit is a pure cache read: no scheduler intents, no
+	// A full registry hit is a pure cache read: no executor traffic and no
 	// executor traffic, and no demand telemetry sample because nothing was
 	// demanded from the transport.
 	if (demandPlans.length === 0) {
@@ -107,51 +107,17 @@ export async function loadReviewItemContentResourcesThroughDemandResult(
 		revision: props.reviewPackage.revision,
 		interest: props.interest,
 		intents,
-		scheduler: props.scheduler,
 		executor: props.executor,
 	});
-	for (const intent of intents) {
-		const estimatedBytes = estimatedBytesForDemandIntent({
-			intent,
-			interest: props.interest,
-			plans: demandPlans,
-		});
-		const enqueueResult = props.scheduler.enqueue({
-			intent,
-			estimatedBytes,
-		});
-		if (!enqueueResult.ok) {
-			telemetryBuilder.recordRejectedEnqueue(intent, estimatedBytes);
-			for (const acceptedIntent of intents.slice(0, intents.indexOf(intent))) {
-				props.scheduler.cancelGroup(acceptedIntent.cancellationGroup);
-			}
-			const result: ReviewContentDemandLoadResult =
-				enqueueResult.reason === 'queued_byte_limit_exceeded'
-					? { status: 'failed', reason: 'byte_budget_exceeded' }
-					: { status: 'deferred', reason: 'concurrency_exceeded' };
-			telemetryBuilder.recordCompletion({
-				result,
-				loadedResults: [],
-			});
-			const demandTelemetry = telemetryBuilder.build();
-			props.onDemandTelemetry?.(demandTelemetry);
-			if (props.telemetryRecorder !== undefined) {
-				recordBridgeReviewContentDemandTelemetry({
-					telemetryRecorder: props.telemetryRecorder,
-					traceContext: props.traceContext ?? null,
-					telemetry: demandTelemetry,
-				});
-			}
-			return result;
+	const executableIntents = intents.map((intent) => {
+		const matchingPlan = demandPlans.find(
+			(plan: ReviewContentDemandPlan): boolean =>
+				plan.descriptorRef.descriptorId === intent.descriptorRef.descriptorId,
+		);
+		if (matchingPlan === undefined) {
+			throw new Error(`Missing demand plan for descriptor ${intent.descriptorRef.descriptorId}`);
 		}
-		telemetryBuilder.recordAcceptedEnqueue({
-			droppedLowerPriorityCount: enqueueResult.droppedLowerPriorityCount ?? 0,
-		});
-	}
-	telemetryBuilder.recordAfterEnqueue();
-	const executableIntents = dequeueDemandPlansForExecution({
-		plans: demandPlans,
-		dequeueNextMatching: props.scheduler.dequeueNextMatching.bind(props.scheduler),
+		return { intent, plan: matchingPlan };
 	});
 	try {
 		const settledLoadedResults: LoadedReviewContentDemandSettledResult[] = [];
@@ -237,43 +203,6 @@ export async function loadReviewItemContentResourcesThroughDemandResult(
 	} finally {
 		props.signal?.removeEventListener('abort', abortDemandLoads);
 	}
-}
-
-function dequeueDemandPlansForExecution(props: {
-	readonly plans: readonly ReviewContentDemandPlan[];
-	readonly dequeueNextMatching: (
-		predicate: (intent: BridgeDemandIntent) => boolean,
-	) => BridgeDemandIntent | null;
-}): {
-	readonly intent: BridgeDemandIntent;
-	readonly plan: ReviewContentDemandPlan;
-}[] {
-	const executableIntents: {
-		readonly intent: BridgeDemandIntent;
-		readonly plan: ReviewContentDemandPlan;
-	}[] = [];
-	let nextIntent = props.dequeueNextMatching((intent): boolean =>
-		props.plans.some(
-			(plan: ReviewContentDemandPlan): boolean =>
-				plan.descriptorRef.descriptorId === intent.descriptorRef.descriptorId,
-		),
-	);
-	while (nextIntent !== null) {
-		const matchingPlan = props.plans.find(
-			(plan: ReviewContentDemandPlan): boolean =>
-				plan.descriptorRef.descriptorId === nextIntent?.descriptorRef.descriptorId,
-		);
-		if (matchingPlan !== undefined) {
-			executableIntents.push({ intent: nextIntent, plan: matchingPlan });
-		}
-		nextIntent = props.dequeueNextMatching((intent): boolean =>
-			props.plans.some(
-				(plan: ReviewContentDemandPlan): boolean =>
-					plan.descriptorRef.descriptorId === intent.descriptorRef.descriptorId,
-			),
-		);
-	}
-	return executableIntents;
 }
 
 async function loadAllDemandResources(props: {

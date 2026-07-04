@@ -23,6 +23,7 @@ export const bridgeDemandIntentSchema = z
 	.object({
 		descriptorRef: bridgeDescriptorRefSchema,
 		lane: bridgeDemandLaneSchema,
+		demandRank: z.number().int().nonnegative().optional(),
 		orderingKey: z.string().min(1),
 		dedupeKey: z.string().min(1),
 		freshnessKey: z.string().min(1),
@@ -66,6 +67,7 @@ export const bridgeViewInterestSchema = z.discriminatedUnion('kind', [
 
 export const bridgeDemandKeysSchema = z
 	.object({
+		demandRank: z.number().int().nonnegative().optional(),
 		orderingKey: z.string().min(1),
 		dedupeKey: z.string().min(1),
 		freshnessKey: z.string().min(1),

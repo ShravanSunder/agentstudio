@@ -168,8 +168,8 @@ export function BridgeFileViewerShell({
 				firstDemandLoadTelemetry?.executorPendingWaitMilliseconds ?? undefined
 			}
 			data-last-demand-dispatch-first-lane={firstDemandLoadTelemetry?.lane}
-			data-last-demand-dispatch-first-scheduler-queue-wait-ms={
-				firstDemandLoadTelemetry?.schedulerQueueWaitMilliseconds ?? undefined
+			data-last-demand-dispatch-first-demand-queue-wait-ms={
+				firstDemandLoadTelemetry?.demandQueueWaitMilliseconds ?? undefined
 			}
 			data-last-demand-dispatch-origin={
 				lastDemandDispatchDebugState.status === 'settled'
@@ -196,12 +196,6 @@ export function BridgeFileViewerShell({
 			}
 			data-last-demand-dispatch-intent-count={lastDemandDispatchResult?.intentCount}
 			data-last-demand-dispatch-loaded-count={lastDemandDispatchResult?.loadedCount}
-			data-last-demand-dispatch-scheduler-queued-after={
-				lastDemandDispatchResult?.schedulerQueuedIntentCountAfter
-			}
-			data-last-demand-dispatch-scheduler-queued-bytes-after={
-				lastDemandDispatchResult?.schedulerQueuedEstimatedBytesAfter
-			}
 			data-last-demand-dispatch-status={lastDemandDispatchDebugState.status}
 			data-last-demand-dispatch-stimulus-count={lastDemandDispatchResult?.stimulusCount}
 			data-worktree-initial-surface-error={
@@ -254,20 +248,8 @@ export function BridgeFileViewerShell({
 			data-last-open-load-resource-stream-read-ms={
 				lastOpenLoadTelemetry?.resourceStreamReadMilliseconds ?? undefined
 			}
-			data-last-open-load-scheduler-queue-wait-ms={
-				lastOpenLoadTelemetry?.schedulerQueueWaitMilliseconds ?? undefined
-			}
-			data-last-open-load-scheduler-queued-bytes-after={
-				lastOpenLoadTelemetry?.schedulerQueuedEstimatedBytesAfter
-			}
-			data-last-open-load-scheduler-queued-bytes-before={
-				lastOpenLoadTelemetry?.schedulerQueuedEstimatedBytesBefore
-			}
-			data-last-open-load-scheduler-queued-after={
-				lastOpenLoadTelemetry?.schedulerQueuedIntentCountAfter
-			}
-			data-last-open-load-scheduler-queued-before={
-				lastOpenLoadTelemetry?.schedulerQueuedIntentCountBefore
+			data-last-open-load-demand-queue-wait-ms={
+				lastOpenLoadTelemetry?.demandQueueWaitMilliseconds ?? undefined
 			}
 			data-worktree-metadata-file-row-count={metadataFileTreeRowCount}
 			data-worktree-metadata-tree-row-count={renderState.treeRows.length}

@@ -1,8 +1,6 @@
 import { describe, expect, test, vi } from 'vitest';
 
-import { createBridgeDemandScheduler } from '../core/demand/bridge-demand-scheduler.js';
 import { createBridgeResourceExecutor } from '../core/demand/bridge-resource-executor.js';
-import type { BridgeDemandLane } from '../core/models/bridge-demand-models.js';
 import { createBridgeResourceDescriptorRegistry } from '../core/resources/bridge-resource-registry.js';
 import type { BridgeTextResourceStreamResult } from '../core/resources/bridge-resource-stream.js';
 import type { ReviewMaterializerDelta } from '../features/review/materialization/review-materializer.js';
@@ -363,15 +361,7 @@ describe('BridgeApp Review content demand byte budget', () => {
 			reviewFrameAuthority,
 			reviewPackage,
 		});
-		const schedulerEvents: Array<{ readonly lane: BridgeDemandLane; readonly kind: string }> = [];
 		const requestedDescriptorIds: string[] = [];
-		const reviewDemandScheduler = createBridgeDemandScheduler({
-			maxQueuedIntentsPerLane: 8,
-			maxQueuedEstimatedBytes: bridgeReviewContentDemandByteBudget.demandMaxQueuedEstimatedBytes,
-			onLifecycleEvent: (event): void => {
-				schedulerEvents.push({ kind: event.kind, lane: event.lane });
-			},
-		});
 		const resourceExecutor = createBridgeResourceExecutor<BridgeTextResourceStreamResult>({
 			registry: descriptorRegistry,
 			maxConcurrentLoads: 2,
@@ -411,7 +401,6 @@ describe('BridgeApp Review content demand byte budget', () => {
 			reviewReadyStartMillisecondsByPackageKeyRef: { current: new Map() },
 			descriptorRegistry,
 			reviewContentDescriptorRefsByHandleIdRef: { current: new Map() },
-			reviewDemandScheduler,
 			resourceExecutor,
 			contentRegistry,
 			reviewFrameAuthority,
@@ -431,12 +420,6 @@ describe('BridgeApp Review content demand byte budget', () => {
 		);
 
 		expect(selectInitialReviewItem).toHaveBeenCalledExactlyOnceWith('item-source');
-		expect(schedulerEvents).toEqual(
-			expect.arrayContaining([
-				{ kind: 'enqueued', lane: 'foreground' },
-				{ kind: 'dequeued', lane: 'foreground' },
-			]),
-		);
 		expect(requestedDescriptorIds.toSorted()).toEqual([baseHandle.handleId, headHandle.handleId]);
 		const currentReviewPackage = currentReviewPackageRef.current;
 		expect(currentReviewPackage?.packageId).toBe(reviewPackage.packageId);
@@ -533,10 +516,6 @@ describe('BridgeApp Review content demand byte budget', () => {
 			itemId: 'item-source',
 			interest: 'selected',
 			resolveDescriptorRef: (handle) => descriptorRefsByHandleId.get(handle.handleId) ?? null,
-			scheduler: createBridgeDemandScheduler({
-				maxQueuedIntentsPerLane: 8,
-				maxQueuedEstimatedBytes: bridgeReviewContentDemandByteBudget.demandMaxQueuedEstimatedBytes,
-			}),
 			executor,
 		});
 		await flushMicrotasks(4);

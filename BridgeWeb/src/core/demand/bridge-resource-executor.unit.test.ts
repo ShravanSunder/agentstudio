@@ -351,7 +351,7 @@ describe('bridge resource executor', () => {
 		]);
 	});
 
-	test('bounds queued foreground pressure instead of growing pending work without limit', async () => {
+	test('admits queued members beyond legacy pending queue caps', async () => {
 		const registry = createRegistry();
 		const blockingDescriptor = makeAttachedDescriptor();
 		const queuedDescriptor = makeAttachedDescriptor({
@@ -384,21 +384,24 @@ describe('bridge resource executor', () => {
 			},
 		});
 
-		const blockingLoad = executor.load(makeIntent(blockingDescriptor.ref));
-		const queuedLoad = executor.load(makeIntent(queuedDescriptor.ref, { lane: 'foreground' }));
-		const rejectedResult = await executor.load(
-			makeIntent(rejectedDescriptor.ref, { lane: 'foreground' }),
+		const blockingLoad = executor.load(
+			makeIntent(blockingDescriptor.ref, {
+				demandRank: 0,
+				orderingKey: '000-blocking-selected-rank',
+			}),
 		);
+		const queuedLoad = executor.load(makeIntent(queuedDescriptor.ref, { lane: 'foreground' }));
+		const admittedLoad = executor.load(makeIntent(rejectedDescriptor.ref, { lane: 'foreground' }));
 		blockingDeferred.resolve({ content: 'blocking-materialized', byteLength: 13 });
 
-		expect(rejectedResult).toEqual({ ok: false, reason: 'concurrency_exceeded' });
 		expect(await blockingLoad).toMatchObject({ ok: true, content: 'blocking-materialized' });
 		expect(await queuedLoad).toMatchObject({ ok: true, content: 'descriptor-2-materialized' });
+		expect(await admittedLoad).toMatchObject({ ok: true, content: 'descriptor-3-materialized' });
 		expect(executor.queuedLoadCount).toBe(0);
 		expect(executor.queuedBytes).toBe(0);
 	});
 
-	test('admits foreground pressure by evicting lower-priority active pending work', async () => {
+	test('does not evict lower-priority pending members when foreground joins', async () => {
 		const registry = createRegistry();
 		const blockingDescriptor = makeAttachedDescriptor();
 		const activeDescriptor = makeAttachedDescriptor({
@@ -431,18 +434,26 @@ describe('bridge resource executor', () => {
 			},
 		});
 
-		const blockingLoad = executor.load(makeIntent(blockingDescriptor.ref));
+		const blockingLoad = executor.load(
+			makeIntent(blockingDescriptor.ref, {
+				demandRank: 0,
+				orderingKey: '000-blocking-selected-rank',
+			}),
+		);
 		const activeLoad = executor.load(makeIntent(activeDescriptor.ref, { lane: 'active' }));
 		const foregroundLoad = executor.load(
 			makeIntent(foregroundDescriptor.ref, { lane: 'foreground' }),
 		);
 		blockingDeferred.resolve({ content: 'blocking-materialized', byteLength: 13 });
 
-		await expect(activeLoad).resolves.toEqual({ ok: false, reason: 'aborted' });
 		expect(await blockingLoad).toMatchObject({ ok: true, content: 'blocking-materialized' });
 		expect(await foregroundLoad).toMatchObject({
 			ok: true,
 			content: 'descriptor-3-materialized',
+		});
+		expect(await activeLoad).toMatchObject({
+			ok: true,
+			content: 'descriptor-2-materialized',
 		});
 		expect(executor.queuedLoadCount).toBe(0);
 		expect(executor.queuedBytes).toBe(0);
@@ -560,7 +571,76 @@ describe('bridge resource executor', () => {
 		});
 	});
 
-	test('keeps visible pressure opportunistic instead of queueing behind active work', async () => {
+	test('orders pending same-lane work by demand rank before ordering key', async () => {
+		const registry = createRegistry();
+		const blockingDescriptor = makeAttachedDescriptor();
+		const visibleForegroundDescriptor = makeAttachedDescriptor({
+			descriptor: {
+				descriptorId: 'descriptor-2',
+				resourceUrl: 'agentstudio://resource/review/content/descriptor-2?generation=1&revision=1',
+			},
+		});
+		const selectedForegroundDescriptor = makeAttachedDescriptor({
+			descriptor: {
+				descriptorId: 'descriptor-3',
+				resourceUrl: 'agentstudio://resource/review/content/descriptor-3?generation=1&revision=1',
+			},
+		});
+		registry.register(blockingDescriptor);
+		registry.register(visibleForegroundDescriptor);
+		registry.register(selectedForegroundDescriptor);
+		const blockingDeferred = createDeferred<BridgeResourceExecutorContent<string>>();
+		const startedDescriptorIds: string[] = [];
+		const executor = createBridgeResourceExecutor<string>({
+			registry,
+			maxConcurrentLoads: 1,
+			maxInFlightBytes: 1024,
+			maxQueuedLoads: 8,
+			maxQueuedBytes: 1024,
+			loadResource: async ({ descriptor }) => {
+				startedDescriptorIds.push(descriptor.descriptorId);
+				if (descriptor.descriptorId === blockingDescriptor.descriptor.descriptorId) {
+					return await blockingDeferred.promise;
+				}
+				return { content: `${descriptor.descriptorId}-materialized`, byteLength: 17 };
+			},
+		});
+
+		const blockingLoad = executor.load(
+			makeIntent(blockingDescriptor.ref, {
+				demandRank: 0,
+				orderingKey: '000-blocking-selected-rank',
+			}),
+		);
+		const visibleSameLaneLoad = executor.load(
+			makeIntent(visibleForegroundDescriptor.ref, {
+				lane: 'foreground',
+				demandRank: 1,
+				orderingKey: '000-visible-before-selected',
+			}),
+		);
+		const selectedSameLaneLoad = executor.load(
+			makeIntent(selectedForegroundDescriptor.ref, {
+				lane: 'foreground',
+				demandRank: 0,
+				orderingKey: '999-selected-after-visible',
+			}),
+		);
+		blockingDeferred.resolve({ content: 'blocking-materialized', byteLength: 13 });
+
+		expect(await blockingLoad).toMatchObject({ ok: true, content: 'blocking-materialized' });
+		expect(await selectedSameLaneLoad).toMatchObject({
+			ok: true,
+			content: 'descriptor-3-materialized',
+		});
+		expect(await visibleSameLaneLoad).toMatchObject({
+			ok: true,
+			content: 'descriptor-2-materialized',
+		});
+		expect(startedDescriptorIds).toEqual(['descriptor-1', 'descriptor-3', 'descriptor-2']);
+	});
+
+	test('queues visible members behind active work instead of dropping membership', async () => {
 		const registry = createRegistry();
 		const firstDescriptor = makeAttachedDescriptor();
 		const secondDescriptor = makeAttachedDescriptor({
@@ -589,14 +669,12 @@ describe('bridge resource executor', () => {
 		});
 
 		const blockingLoad = executor.load(makeIntent(firstDescriptor.ref, { lane: 'foreground' }));
-		const visibleResult = await executor.load(
-			makeIntent(secondDescriptor.ref, { lane: 'visible' }),
-		);
+		const visibleLoad = executor.load(makeIntent(secondDescriptor.ref, { lane: 'visible' }));
 		firstDeferred.resolve({ content: 'blocking-materialized', byteLength: 13 });
 
-		expect(visibleResult).toEqual({ ok: false, reason: 'concurrency_exceeded' });
-		expect(secondFetchCount).toBe(0);
 		expect(await blockingLoad).toMatchObject({ ok: true, content: 'blocking-materialized' });
+		expect(await visibleLoad).toMatchObject({ ok: true, content: 'visible-materialized' });
+		expect(secondFetchCount).toBe(1);
 	});
 
 	test('promotes pending work when a foreground request joins the same freshness', async () => {
@@ -772,6 +850,7 @@ function createRegistry(): ReturnType<typeof createBridgeResourceDescriptorRegis
 
 interface MakeIntentOptions {
 	readonly dedupeKey?: string;
+	readonly demandRank?: number;
 	readonly freshnessKey?: string;
 	readonly lane?: BridgeDemandIntent['lane'];
 	readonly orderingKey?: string;
@@ -781,6 +860,7 @@ function makeIntent(ref: BridgeDescriptorRef, options: MakeIntentOptions = {}): 
 	return {
 		descriptorRef: ref,
 		lane: options.lane ?? 'foreground',
+		...(options.demandRank === undefined ? {} : { demandRank: options.demandRank }),
 		orderingKey: options.orderingKey ?? '001',
 		dedupeKey: options.dedupeKey ?? ref.descriptorId,
 		freshnessKey: options.freshnessKey ?? `${ref.descriptorId}:fresh`,

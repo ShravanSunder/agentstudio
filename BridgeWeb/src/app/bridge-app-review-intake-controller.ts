@@ -6,7 +6,6 @@ import {
 	type BridgePushDropReason,
 	installBridgePushReceiver,
 } from '../bridge/bridge-push-receiver.js';
-import type { BridgeDemandScheduler } from '../core/demand/bridge-demand-scheduler.js';
 import type { BridgeResourceExecutor } from '../core/demand/bridge-resource-executor.js';
 import {
 	installBridgeIntakeEventCarrier,
@@ -76,7 +75,6 @@ export interface UseBridgeReviewIntakeControllerProps {
 	readonly reviewContentDescriptorRefsByHandleIdRef: MutableRefObject<
 		ReadonlyMap<string, BridgeDescriptorRef>
 	>;
-	readonly reviewDemandScheduler: BridgeDemandScheduler;
 	readonly resourceExecutor: BridgeResourceExecutor<BridgeTextResourceStreamResult>;
 	readonly contentRegistry: BridgeReviewContentRegistry;
 	readonly invalidatedFreshnessKeysRef: MutableRefObject<Set<string>>;
@@ -107,7 +105,6 @@ export function useBridgeReviewIntakeController(props: UseBridgeReviewIntakeCont
 		reviewReadyStartMillisecondsByPackageKeyRef,
 		descriptorRegistry,
 		reviewContentDescriptorRefsByHandleIdRef,
-		reviewDemandScheduler,
 		resourceExecutor,
 		contentRegistry,
 		invalidatedFreshnessKeysRef,
@@ -212,7 +209,6 @@ export function useBridgeReviewIntakeController(props: UseBridgeReviewIntakeCont
 						reviewReadyStartMillisecondsByPackageKeyRef,
 						descriptorRegistry,
 						reviewContentDescriptorRefsByHandleIdRef,
-						reviewDemandScheduler,
 						resourceExecutor,
 						contentRegistry,
 						reviewFrameAuthority: getReviewFrameAuthority(),
@@ -352,7 +348,6 @@ export function useBridgeReviewIntakeController(props: UseBridgeReviewIntakeCont
 		registerBridgeReadyCallback,
 		resourceExecutor,
 		reviewContentDescriptorRefsByHandleIdRef,
-		reviewDemandScheduler,
 		reviewEnvelopeApplyTailRef,
 		reviewPackageRef,
 		reviewPackageTelemetryContextRef,

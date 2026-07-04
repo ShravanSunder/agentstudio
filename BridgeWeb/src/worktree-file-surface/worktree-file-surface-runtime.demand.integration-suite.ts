@@ -1,5 +1,6 @@
 import { expect, test } from 'vitest';
 
+import { bridgeContentDemandExecutionPolicy } from '../core/demand/bridge-content-demand-policy.js';
 import type { WorktreeFileDescriptor } from '../features/worktree-file/models/worktree-file-protocol-models.js';
 import {
 	makeDeferred,
@@ -13,7 +14,7 @@ import {
 } from './worktree-file-surface-runtime.js';
 
 export function registerWorktreeFileSurfaceRuntimeDemandTests(): void {
-	test('preloads visible file demand through scheduler without opening file sessions', async () => {
+	test('preloads visible file demand through the unified executor without opening file sessions', async () => {
 		const firstDescriptor = makeFileDescriptor({
 			descriptorId: 'file-content-1',
 			fileId: 'file-1',
@@ -63,7 +64,6 @@ export function registerWorktreeFileSurfaceRuntimeDemandTests(): void {
 			enqueueRejectedCount: 0,
 			loadedCount: 2,
 			failedCount: 0,
-			schedulerQueuedIntentCountAfter: 0,
 			executorInFlightCountAfter: 0,
 			executorQueuedLoadCountAfter: 0,
 			loadResults: [
@@ -81,7 +81,7 @@ export function registerWorktreeFileSurfaceRuntimeDemandTests(): void {
 						resourceFetchResponseWaitMilliseconds: 1,
 						resourceFirstChunkWaitMilliseconds: 2,
 						resourceStreamReadMilliseconds: 3,
-						schedulerQueueWaitMilliseconds: expect.any(Number),
+						demandQueueWaitMilliseconds: expect.any(Number),
 					},
 				},
 				{
@@ -98,7 +98,7 @@ export function registerWorktreeFileSurfaceRuntimeDemandTests(): void {
 						resourceFetchResponseWaitMilliseconds: 1,
 						resourceFirstChunkWaitMilliseconds: 2,
 						resourceStreamReadMilliseconds: 3,
-						schedulerQueueWaitMilliseconds: expect.any(Number),
+						demandQueueWaitMilliseconds: expect.any(Number),
 					},
 				},
 			],
@@ -121,8 +121,8 @@ export function registerWorktreeFileSurfaceRuntimeDemandTests(): void {
 					loadResult.loadTelemetry.executorInFlightMilliseconds >= 0 &&
 					loadResult.loadTelemetry.executorPendingWaitMilliseconds !== null &&
 					loadResult.loadTelemetry.executorPendingWaitMilliseconds >= 0 &&
-					loadResult.loadTelemetry.schedulerQueueWaitMilliseconds !== null &&
-					loadResult.loadTelemetry.schedulerQueueWaitMilliseconds >= 0
+					loadResult.loadTelemetry.demandQueueWaitMilliseconds !== null &&
+					loadResult.loadTelemetry.demandQueueWaitMilliseconds >= 0
 				);
 			}),
 		).toBe(true);
@@ -174,7 +174,6 @@ export function registerWorktreeFileSurfaceRuntimeDemandTests(): void {
 			enqueueRejectedCount: 0,
 			loadedCount: descriptors.length,
 			failedCount: 0,
-			schedulerQueuedIntentCountAfter: 0,
 			executorInFlightCountAfter: 0,
 			executorQueuedLoadCountAfter: 0,
 		});
@@ -237,7 +236,9 @@ export function registerWorktreeFileSurfaceRuntimeDemandTests(): void {
 		]);
 		await Promise.resolve();
 
-		expect(fetchedDescriptorIds).toHaveLength(firstDescriptors.length);
+		expect(fetchedDescriptorIds).toHaveLength(
+			bridgeContentDemandExecutionPolicy.immediateStartConcurrency,
+		);
 		loadGate.resolve();
 		const [firstDispatchResult, secondDispatchResult] = await Promise.all([
 			firstDispatch,
@@ -360,7 +361,7 @@ export function registerWorktreeFileSurfaceRuntimeDemandTests(): void {
 						executorInFlightMilliseconds: expect.any(Number),
 						executorPendingWaitMilliseconds: expect.any(Number),
 						lane: 'visible',
-						schedulerQueueWaitMilliseconds: expect.any(Number),
+						demandQueueWaitMilliseconds: expect.any(Number),
 					},
 				},
 			],
@@ -519,7 +520,6 @@ export function registerWorktreeFileSurfaceRuntimeDemandTests(): void {
 			enqueueRejectedCount: 0,
 			loadedCount: 2,
 			failedCount: 0,
-			schedulerQueuedIntentCountAfter: 0,
 			executorInFlightCountAfter: 0,
 			executorQueuedLoadCountAfter: 0,
 			loadResults: [
@@ -579,8 +579,8 @@ export function registerWorktreeFileSurfaceRuntimeDemandTests(): void {
 		expect(dispatchResult).toMatchObject({
 			stimulusCount: 1,
 			intentCount: 1,
-			enqueueAcceptedCount: 0,
-			enqueueRejectedCount: 1,
+			enqueueAcceptedCount: 1,
+			enqueueRejectedCount: 0,
 			loadedCount: 0,
 			failedCount: 1,
 			loadResults: [
@@ -591,8 +591,6 @@ export function registerWorktreeFileSurfaceRuntimeDemandTests(): void {
 					reason: 'byte_budget_exceeded',
 				},
 			],
-			schedulerQueuedEstimatedBytesAfter: 0,
-			schedulerQueuedIntentCountAfter: 0,
 		});
 		expect(fetchCount).toBe(0);
 	});

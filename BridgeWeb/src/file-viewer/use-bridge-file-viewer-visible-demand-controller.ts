@@ -151,8 +151,7 @@ export function useBridgeFileViewerVisibleDemandController(
 								firstLoadTelemetry?.resourceFetchResponseWaitMilliseconds ?? null,
 							result: result.failedCount === 0 ? 'success' : 'failed',
 							resultReason: result.failedCount === 0 ? null : 'load_failed',
-							schedulerQueueWaitMilliseconds:
-								firstLoadTelemetry?.schedulerQueueWaitMilliseconds ?? null,
+							demandQueueWaitMilliseconds: firstLoadTelemetry?.demandQueueWaitMilliseconds ?? null,
 							streamReadMilliseconds: firstLoadTelemetry?.resourceStreamReadMilliseconds ?? null,
 							telemetryRecorder,
 							traceContext: telemetryTraceContext,
@@ -196,7 +195,7 @@ export function useBridgeFileViewerVisibleDemandController(
 							responseWaitMilliseconds: null,
 							result: 'failed',
 							resultReason: 'load_failed',
-							schedulerQueueWaitMilliseconds: null,
+							demandQueueWaitMilliseconds: null,
 							streamReadMilliseconds: null,
 							telemetryRecorder,
 							traceContext: telemetryTraceContext,
