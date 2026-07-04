@@ -239,6 +239,57 @@ contract; it must not define file-tree metadata production.
    - Proof: Victoria-backed debug app runs for FileView and Review with p95/p99
      reports and screenshots/interaction artifacts.
 
+### 2026-07-01 Spec-Review Amendments (goal 2026-07-01-swift-demand-lane-perf-cutover)
+
+The committed spec revision `2abd4d1e` (4-lane adversarial spec review,
+reduced 2026-07-01) reshapes slice 2 and slice 5 execution. Swift-side work
+runs under goal `2026-07-01-swift-demand-lane-perf-cutover`
+(`tmp/workflow-state/2026-07-01-swift-demand-lane-perf-cutover/details.md`)
+with this slice mapping:
+
+- Goal S1 (first): per-generation manifest index with a single-writer owner
+  off the MainActor; metadata interest served from the index in O(requested
+  paths) — `materializeAllTreeRows`-per-interest is removed; continuation
+  windows read index slices so the worktree is enumerated once per
+  generation; publication policy hard-cut to git-truth only (hidden-dotfile
+  and generated-dependency exclusions removed as bugs; `.git` internals and
+  nested worktree roots remain structural exclusions); repo-specific
+  discovery ordering (`Sources/Tests/BridgeWeb/docs/scripts`) replaced with
+  a deterministic policy-owned order; window-size literal moves to
+  `AppPolicies.Bridge`.
+- Goal S3: generic protocol-agnostic per-pane lane scheduler (worktree-file
+  AND review interest route through it; continuation becomes budgeted
+  idle-lane work; preemption granularity + no-starvation budget as
+  AppPolicies constants; injected clock + continuation step/gate as
+  constructor DI seams; per-lane enqueue-to-dequeue queue-wait emission
+  with structural evidence).
+- Goal S4: honest proof split — always-on compact proof (completeness vs
+  independent expected set = test-owned walk minus libgit2 ignored set,
+  cutting over to agentstudio-git `trackedPaths` when it ships; seeded
+  ignored fixture; typed frame-level lineage decode + negative per-row
+  assertion; measurable contention scenario with straddle-the-injection
+  evidence; observed-behavior==AppPolicies-constant assertions) plus a
+  REQUIRED `mise run verify-bridge-headless-manifest` gated benchmark
+  (>=100 interest samples total, >=50 per hard-gated lane, >=20 content;
+  hard p95/p99 gates; artifact; marker-scoped VictoriaMetrics query).
+  Closing R17.b requires the gated-lane artifact.
+- Goal S2 (LAST, owned end-to-end by this goal): worktree-file typed
+  frame-level lineage wire cutover — Swift frame model, TS/Zod intake
+  schemas, shared bidirectional fixtures, browser/integration tests, per-row
+  JSON rewrite removal, no compatibility shims, one-lineage-per-frame
+  invariant. Review per-item wire lineage is an accepted residual
+  (review-protocol.md 2.1).
+
+Additional plan obligations from review:
+- extend the Swift telemetry phase allowlist with
+  `metadata_window_produce` and `metadata_interest_to_frame`, and add the
+  native content-fetch event name used by the headless proof.
+- no-git-CLI-in-proof enforcement lands as an architecture-lint rule or
+  review-checklist row.
+- foreground descriptor path: whole-file SHA256 before descriptor emission
+  is a click-latency risk (F6); measure in the gated benchmark and split a
+  hash-while-streaming slice if it threatens the click budget.
+
 ### Execution DAG
 
 ```text
@@ -247,14 +298,18 @@ gate 0: re-anchor spec/plan and current code evidence
   +-- slice 1: metadata interest contract
   |
   +-- slice 2: Swift metadata producer scheduler
+  |     (executes as goal S1 manifest index/publication policy, then
+  |      goal S3 generic lane scheduler)
   |
   +-- slice 3: BridgeWeb state split and interest emission
   |
 integration gate: Swift frames + BridgeWeb interest/apply interop
+  |     (goal S2 typed frame-level lineage wire cutover lands here, LAST)
   |
 slice 4: content demand isolation under pressure
   |
 slice 5: native performance/observability proof
+  |     (goal S4 compact proof + REQUIRED gated headless benchmark)
   |
 implementation-review-swarm
 ```
