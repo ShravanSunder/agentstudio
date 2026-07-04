@@ -1,3 +1,4 @@
+import { act } from 'react';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 
@@ -10,10 +11,13 @@ import {
 import { terminateBridgePierreWorkerPoolSingletonForTest } from '../review-viewer/workers/pierre/bridge-pierre-worker-pool.js';
 import type { WorktreeFileInitialSurface } from '../worktree-file-surface/worktree-file-app.js';
 import {
+	actClick,
 	chunkedTextResponse,
 	dispatchHostAdmittedReviewIntakeFrame,
 	dispatchHostDiffStatus,
 	isBridgeTelemetryCommand,
+	pollWithinAct,
+	pollWithinActUntilTruthy,
 } from './bridge-app-native-review-error.browser.test-support.js';
 import { BridgeApp } from './bridge-app.js';
 
@@ -39,14 +43,18 @@ describe('BridgeApp native review intake Browser Mode', () => {
 		document.addEventListener('__bridge_command', handleBridgeCommand);
 
 		render(<BridgeApp />);
-		document.dispatchEvent(
-			new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-nonce' } }),
-		);
-		await Promise.resolve();
+		await act(async (): Promise<void> => {
+			document.dispatchEvent(
+				new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-nonce' } }),
+			);
+			await Promise.resolve();
+		});
 		expect(commands).toEqual([]);
 
-		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
-		await waitForBridgeViewerAnimationFrame();
+		await act(async (): Promise<void> => {
+			document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
+			await waitForBridgeViewerAnimationFrame();
+		});
 
 		expect(commands).toEqual([
 			expect.objectContaining({
@@ -135,12 +143,9 @@ describe('BridgeApp native review intake Browser Mode', () => {
 			},
 		});
 
-		await expect
-			.poll(
-				() =>
-					document.querySelector('[data-testid="bridge-review-metadata-loading-shell"]') !== null,
-			)
-			.toBe(true);
+		await pollWithinActUntilTruthy(() =>
+			document.querySelector('[data-testid="bridge-review-metadata-loading-shell"]'),
+		);
 
 		const reviewModeHost = requireBridgeViewerHTMLElement(
 			document.querySelector('[data-testid="bridge-viewer-mode-host-review"]'),
@@ -341,9 +346,9 @@ describe('BridgeApp native review intake Browser Mode', () => {
 			payload: snapshotFrame,
 		});
 
-		await expect
-			.poll(() => document.querySelector('[data-testid="review-viewer-shell"]') !== null)
-			.toBe(true);
+		await pollWithinActUntilTruthy(() =>
+			document.querySelector('[data-testid="review-viewer-shell"]'),
+		);
 		requireBridgeViewerHTMLElement(document.querySelector('[data-testid="review-viewer-shell"]'));
 		expect(document.querySelector('[data-testid="bridge-review-empty-shell"]')).toBeNull();
 		expect(document.body.textContent).not.toContain('Waiting for review metadata');
@@ -392,12 +397,9 @@ describe('BridgeApp native review intake Browser Mode', () => {
 				sourceIdentity: reviewPackage.query.queryId,
 			},
 		});
-		await expect
-			.poll(
-				() =>
-					document.querySelector('[data-testid="bridge-review-metadata-loading-shell"]') !== null,
-			)
-			.toBe(true);
+		await pollWithinActUntilTruthy(() =>
+			document.querySelector('[data-testid="bridge-review-metadata-loading-shell"]'),
+		);
 
 		const traceRecorder = installReviewSurfaceTraceRecorder();
 		try {
@@ -409,9 +411,9 @@ describe('BridgeApp native review intake Browser Mode', () => {
 				payload: snapshotFrame,
 			});
 
-			await expect
-				.poll(() => document.querySelector('[data-testid="review-viewer-shell"]') !== null)
-				.toBe(true);
+			await pollWithinActUntilTruthy(() =>
+				document.querySelector('[data-testid="review-viewer-shell"]'),
+			);
 			traceRecorder.record('ready');
 		} finally {
 			traceRecorder.disconnect();
@@ -507,16 +509,19 @@ describe('BridgeApp native review intake Browser Mode', () => {
 				sequence: snapshotFrame.sequence,
 				payload: snapshotFrame,
 			});
-			await expect
-				.poll(() => document.querySelector('[data-testid="review-viewer-shell"]') !== null)
-				.toBe(true);
+			await pollWithinActUntilTruthy(() =>
+				document.querySelector('[data-testid="review-viewer-shell"]'),
+			);
 			expect(loadEvents).toEqual([]);
 
-			requireBridgeViewerHTMLElement(
-				document.querySelector('[data-testid="bridge-viewer-context-file"]'),
-			).click();
+			await actClick(
+				requireBridgeViewerHTMLElement(
+					document.querySelector('[data-testid="bridge-viewer-context-file"]'),
+				),
+			);
 
-			await expect.poll(() => loadEvents).toEqual(['worktree-file.load']);
+			await pollWithinAct({ getValue: () => loadEvents, isSatisfied: (value) => value.length > 0 });
+			expect(loadEvents).toEqual(['worktree-file.load']);
 			expect(
 				document
 					.querySelector('[data-testid="bridge-app-root"]')
@@ -527,9 +532,9 @@ describe('BridgeApp native review intake Browser Mode', () => {
 					.querySelector('[data-testid="bridge-viewer-mode-host-file"]')
 					?.getAttribute('data-bridge-viewer-mode-active'),
 			).toBe('true');
-			await expect
-				.poll(() => document.querySelector('[data-testid="bridge-file-viewer-shell"]'))
-				.not.toBeNull();
+			await pollWithinActUntilTruthy(() =>
+				document.querySelector('[data-testid="bridge-file-viewer-shell"]'),
+			);
 		} finally {
 			document.removeEventListener('__bridge_command', handleBridgeCommand);
 		}

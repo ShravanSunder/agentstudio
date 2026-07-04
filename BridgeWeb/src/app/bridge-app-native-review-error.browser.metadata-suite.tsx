@@ -1,3 +1,4 @@
+import { act } from 'react';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 
@@ -21,12 +22,17 @@ import type {
 } from '../worktree-file-surface/worktree-file-app.js';
 import { makeWorktreeFileSurfaceRuntimeFetchedResource } from '../worktree-file-surface/worktree-file-surface-runtime.js';
 import {
+	actClick,
+	actWait,
 	chunkedTextResponse,
 	dispatchHostAdmittedReviewIntakeFrame,
 	isBridgeTelemetryCommand,
 	makeWindowedReviewPackage,
 	makeWorktreeFileDescriptorForFrameTest,
 	makeWorktreeFileFramesForFrameTest,
+	pollWithinAct,
+	pollWithinActUntilEqual,
+	pollWithinActUntilTruthy,
 } from './bridge-app-native-review-error.browser.test-support.js';
 import { BridgeApp } from './bridge-app.js';
 
@@ -122,13 +128,13 @@ describe('BridgeApp native review intake Browser Mode', () => {
 					viewerMode="file"
 				/>,
 			);
-			await expect
-				.poll(() =>
+			await pollWithinAct({
+				getValue: () =>
 					document
 						.querySelector('[data-testid="bridge-file-viewer-code-canvas"]')
 						?.getAttribute('data-worktree-open-file-body-preview'),
-				)
-				.toContain('stableAcrossModes');
+				isSatisfied: (value): boolean => (value ?? '').includes('stableAcrossModes'),
+			});
 			const fileModeHost = requireBridgeViewerHTMLElement(
 				document.querySelector('[data-testid="bridge-viewer-mode-host-file"]'),
 			);
@@ -142,19 +148,23 @@ describe('BridgeApp native review intake Browser Mode', () => {
 			expect(fetchedFileResourceUrls).toEqual([
 				'agentstudio://resource/worktree-file/worktree.fileContent/file-frame-stable-content?generation=1&cursor=file-frame-cursor',
 			]);
-			requireBridgeViewerHTMLElement(
-				document.querySelector('[data-testid="worktree-file-search-toggle"]'),
-			).click();
-			await waitForBridgeViewerAnimationFrame();
+			await actClick(
+				requireBridgeViewerHTMLElement(
+					document.querySelector('[data-testid="worktree-file-search-toggle"]'),
+				),
+			);
+			await actWait(waitForBridgeViewerAnimationFrame);
 			const fileSearchInput = requireHTMLInputElement(
 				document.querySelector('[data-testid="worktree-file-search-input"]'),
 			);
-			setReactInputValue(fileSearchInput, 'StableAcrossModes');
-			await waitForBridgeViewerAnimationFrame();
-			requireBridgeViewerHTMLElement(
-				document.querySelector('[data-testid="worktree-file-filter-menu"]'),
-			).click();
-			await waitForBridgeViewerAnimationFrame();
+			await setReactInputValue(fileSearchInput, 'StableAcrossModes');
+			await actWait(waitForBridgeViewerAnimationFrame);
+			await actClick(
+				requireBridgeViewerHTMLElement(
+					document.querySelector('[data-testid="worktree-file-filter-menu"]'),
+				),
+			);
+			await actWait(waitForBridgeViewerAnimationFrame);
 			const textFilterOption = [
 				...document.querySelectorAll('[data-testid="worktree-file-filter-menu-option"]'),
 			]
@@ -163,23 +173,25 @@ describe('BridgeApp native review intake Browser Mode', () => {
 			if (textFilterOption === undefined) {
 				throw new Error('Expected Worktree/File Text files filter option.');
 			}
-			textFilterOption.click();
-			await waitForBridgeViewerAnimationFrame();
+			await actClick(textFilterOption);
+			await actWait(waitForBridgeViewerAnimationFrame);
 			expect(fileSearchInput.value).toBe('StableAcrossModes');
 			expect(
 				document.querySelector('[data-testid="worktree-file-filter-menu-active-indicator"]'),
 			).not.toBeNull();
 
-			requireBridgeViewerHTMLElement(
-				document.querySelector('[data-testid="bridge-viewer-context-review"]'),
-			).click();
-			await expect
-				.poll(() =>
+			await actClick(
+				requireBridgeViewerHTMLElement(
+					document.querySelector('[data-testid="bridge-viewer-context-review"]'),
+				),
+			);
+			await pollWithinAct({
+				getValue: () =>
 					document
 						.querySelector('[data-testid="bridge-viewer-mode-host-review"]')
 						?.getAttribute('data-bridge-viewer-mode-active'),
-				)
-				.toBe('true');
+				isSatisfied: (value): boolean => value === 'true',
+			});
 			await dispatchHostAdmittedReviewIntakeFrame({
 				kind: 'reset',
 				streamId,
@@ -195,12 +207,9 @@ describe('BridgeApp native review intake Browser Mode', () => {
 					sourceIdentity: reviewPackage.query.queryId,
 				},
 			});
-			await expect
-				.poll(
-					() =>
-						document.querySelector('[data-testid="bridge-review-metadata-loading-shell"]') !== null,
-				)
-				.toBe(true);
+			await pollWithinActUntilTruthy(() =>
+				document.querySelector('[data-testid="bridge-review-metadata-loading-shell"]'),
+			);
 			expect(fileModeHost.getAttribute('data-bridge-viewer-mode-active')).toBe('false');
 			expect(document.querySelector('[data-testid="bridge-file-viewer-shell"]')).toBe(fileShell);
 			expect(document.querySelector('[data-testid="bridge-file-viewer-code-canvas"]')).toBe(
@@ -209,7 +218,7 @@ describe('BridgeApp native review intake Browser Mode', () => {
 			expect(fileCodeCanvas.getAttribute('data-worktree-open-file-body-preview')).toContain(
 				'stableAcrossModes',
 			);
-			requireWorktreeFileFramePublisher(publishWorktreeFileFrames)([
+			await requireWorktreeFileFramePublisher(publishWorktreeFileFrames)([
 				{
 					kind: 'delta',
 					streamId: 'worktree-file:bridge-worktree-dev-pane',
@@ -248,13 +257,13 @@ describe('BridgeApp native review intake Browser Mode', () => {
 					},
 				},
 			]);
-			await expect
-				.poll(() =>
+			await pollWithinAct({
+				getValue: () =>
 					document
 						.querySelector('[data-testid="bridge-file-viewer-shell"]')
 						?.getAttribute('data-worktree-metadata-tree-row-count'),
-				)
-				.toBe('2');
+				isSatisfied: (value): boolean => value === '2',
+			});
 			expect(loadEvents).toEqual(['worktree-file.load']);
 			expect(fetchedFileResourceUrls).toHaveLength(1);
 
@@ -265,9 +274,9 @@ describe('BridgeApp native review intake Browser Mode', () => {
 				sequence: snapshotFrame.sequence,
 				payload: snapshotFrame,
 			});
-			await expect
-				.poll(() => document.querySelector('[data-testid="review-viewer-shell"]') !== null)
-				.toBe(true);
+			await pollWithinActUntilTruthy(() =>
+				document.querySelector('[data-testid="review-viewer-shell"]'),
+			);
 			expect(fileModeHost.getAttribute('data-bridge-viewer-mode-active')).toBe('false');
 			expect(document.querySelector('[data-testid="bridge-file-viewer-shell"]')).toBe(fileShell);
 			expect(document.querySelector('[data-testid="bridge-file-viewer-code-canvas"]')).toBe(
@@ -276,12 +285,15 @@ describe('BridgeApp native review intake Browser Mode', () => {
 			expect(loadEvents).toEqual(['worktree-file.load']);
 			expect(fetchedFileResourceUrls).toHaveLength(1);
 
-			requireBridgeViewerHTMLElement(
-				document.querySelector('[data-testid="bridge-viewer-context-file"]'),
-			).click();
-			await expect
-				.poll(() => fileModeHost.getAttribute('data-bridge-viewer-mode-active'))
-				.toBe('true');
+			await actClick(
+				requireBridgeViewerHTMLElement(
+					document.querySelector('[data-testid="bridge-viewer-context-file"]'),
+				),
+			);
+			await pollWithinAct({
+				getValue: () => fileModeHost.getAttribute('data-bridge-viewer-mode-active'),
+				isSatisfied: (value): boolean => value === 'true',
+			});
 			expect(document.querySelector('[data-testid="bridge-file-viewer-shell"]')).toBe(fileShell);
 			expect(document.querySelector('[data-testid="bridge-file-viewer-code-canvas"]')).toBe(
 				fileCodeCanvas,
@@ -406,9 +418,9 @@ describe('BridgeApp native review intake Browser Mode', () => {
 			payload: inexactSnapshotFrame,
 		});
 
-		await expect
-			.poll(() => document.querySelector('[data-testid="review-viewer-shell"]') !== null)
-			.toBe(true);
+		await pollWithinActUntilTruthy(() =>
+			document.querySelector('[data-testid="review-viewer-shell"]'),
+		);
 		expect(
 			document.querySelector('[data-testid="bridge-review-metadata-failed-shell"]'),
 		).toBeNull();
@@ -494,13 +506,13 @@ describe('BridgeApp native review intake Browser Mode', () => {
 			sequence: snapshotFrame.sequence,
 			payload: snapshotFrame,
 		});
-		await expect
-			.poll(() =>
+		await pollWithinAct({
+			getValue: () =>
 				document
 					.querySelector('[data-testid="review-viewer-shell"]')
 					?.getAttribute('data-selected-display-path'),
-			)
-			.not.toBe(targetHeadPath);
+			isSatisfied: (value): boolean => value !== targetHeadPath,
+		});
 
 		await dispatchHostAdmittedReviewIntakeFrame({
 			kind: 'delta',
@@ -510,23 +522,23 @@ describe('BridgeApp native review intake Browser Mode', () => {
 			payload: metadataWindowFrame,
 		});
 
-		const targetButton = await waitForBridgeViewerTreeItemButton(targetHeadPath);
-		targetButton.click();
+		const targetButton = await actWait(() => waitForBridgeViewerTreeItemButton(targetHeadPath));
+		await actClick(targetButton);
 
-		await expect
-			.poll(() =>
+		await pollWithinActUntilEqual(
+			() =>
 				document
 					.querySelector('[data-testid="review-viewer-shell"]')
 					?.getAttribute('data-selected-display-path'),
-			)
-			.toBe(targetHeadPath);
-		await expect
-			.poll(() =>
+			targetHeadPath,
+		);
+		await pollWithinActUntilEqual(
+			() =>
 				document
 					.querySelector('[data-testid="review-viewer-shell"]')
 					?.getAttribute('data-selected-content-state'),
-			)
-			.toBe('ready');
+			'ready',
+		);
 		expect(fetchedResourceUrls).toContain(targetItem.contentRoles.base.resourceUrl);
 		expect(fetchedResourceUrls).toContain(targetItem.contentRoles.head.resourceUrl);
 	});
@@ -661,20 +673,20 @@ describe('BridgeApp native review intake Browser Mode', () => {
 				sequence: metadataWindowFrame.sequence,
 				payload: metadataWindowFrame,
 			});
-			await expect
-				.poll(() =>
+			await pollWithinActUntilEqual(
+				() =>
 					document
 						.querySelector('[data-testid="review-viewer-shell"]')
 						?.getAttribute('data-selected-display-path'),
-				)
-				.toBe(targetHeadPath);
-			await expect
-				.poll(() =>
+				targetHeadPath,
+			);
+			await pollWithinActUntilEqual(
+				() =>
 					document
 						.querySelector('[data-testid="review-viewer-shell"]')
 						?.getAttribute('data-review-metadata-item-count'),
-				)
-				.toBe('90');
+				'90',
+			);
 
 			await dispatchHostAdmittedReviewIntakeFrame({
 				kind: 'snapshot',
@@ -683,7 +695,7 @@ describe('BridgeApp native review intake Browser Mode', () => {
 				sequence: boundedNextSnapshotFrame.sequence,
 				payload: boundedNextSnapshotFrame,
 			});
-			await waitForBridgeViewerAnimationFrame();
+			await actWait(waitForBridgeViewerAnimationFrame);
 
 			const reviewShell = requireBridgeViewerHTMLElement(
 				document.querySelector('[data-testid="review-viewer-shell"]'),
@@ -829,13 +841,13 @@ describe('BridgeApp native review intake Browser Mode', () => {
 			sequence: snapshotFrame.sequence,
 			payload: snapshotFrame,
 		});
-		await expect
-			.poll(() =>
+		await pollWithinAct({
+			getValue: () =>
 				document
 					.querySelector('[data-testid="review-viewer-shell"]')
 					?.getAttribute('data-selected-display-path'),
-			)
-			.not.toBe(targetHeadPath);
+			isSatisfied: (value): boolean => value !== targetHeadPath,
+		});
 
 		await dispatchHostAdmittedReviewIntakeFrame({
 			kind: 'delta',
@@ -845,24 +857,24 @@ describe('BridgeApp native review intake Browser Mode', () => {
 			payload: deltaFrame,
 		});
 
-		const targetButton = await waitForBridgeViewerTreeItemButton(targetHeadPath);
-		targetButton.click();
+		const targetButton = await actWait(() => waitForBridgeViewerTreeItemButton(targetHeadPath));
+		await actClick(targetButton);
 
-		await expect
-			.poll(() =>
+		await pollWithinActUntilEqual(
+			() =>
 				document
 					.querySelector('[data-testid="review-viewer-shell"]')
 					?.getAttribute('data-selected-display-path'),
-			)
-			.toBe(targetHeadPath);
-		await expect
-			.poll(() =>
+			targetHeadPath,
+		);
+		await pollWithinActUntilEqual(
+			() =>
 				document
 					.querySelector('[data-testid="review-viewer-shell"]')
 					?.getAttribute('data-selected-content-state'),
-			)
-			.toBe('ready');
-		await waitForBridgeViewerText('struct item_001');
+			'ready',
+		);
+		await actWait(() => waitForBridgeViewerText('struct item_001'));
 		expect(fetchedResourceUrls).toContain(deltaItem.contentRoles.base.resourceUrl);
 		expect(fetchedResourceUrls).toContain(deltaItem.contentRoles.head.resourceUrl);
 	});
@@ -936,18 +948,26 @@ function requireHTMLInputElement(element: Element | null): HTMLInputElement {
 	return element;
 }
 
-function setReactInputValue(input: HTMLInputElement, value: string): void {
-	const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
-	descriptor?.set?.call(input, value);
-	input.dispatchEvent(new Event('input', { bubbles: true }));
-	input.dispatchEvent(new Event('change', { bubbles: true }));
+async function setReactInputValue(input: HTMLInputElement, value: string): Promise<void> {
+	await act(async (): Promise<void> => {
+		const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+		descriptor?.set?.call(input, value);
+		input.dispatchEvent(new Event('input', { bubbles: true }));
+		input.dispatchEvent(new Event('change', { bubbles: true }));
+		await Promise.resolve();
+	});
 }
 
 function requireWorktreeFileFramePublisher(
 	publisher: WorktreeFileFrameSubscriber | null,
-): WorktreeFileFrameSubscriber {
+): (frames: Parameters<WorktreeFileFrameSubscriber>[0]) => Promise<void> {
 	if (publisher === null) {
 		throw new Error('Expected Worktree/File frame publisher.');
 	}
-	return publisher;
+	return async (frames): Promise<void> => {
+		await act(async (): Promise<void> => {
+			publisher(frames);
+			await Promise.resolve();
+		});
+	};
 }

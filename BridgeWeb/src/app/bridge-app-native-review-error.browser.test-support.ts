@@ -1,3 +1,5 @@
+import { act } from 'react';
+
 import type { BridgeIntakeFrame } from '../core/models/bridge-intake-frame.js';
 import type {
 	WorktreeFileDescriptor,
@@ -19,21 +21,23 @@ export async function dispatchHostAdmittedReviewIntakeFrame(
 	frame: BridgeIntakeFrame,
 	options: DispatchHostAdmittedReviewIntakeFrameOptions = {},
 ): Promise<void> {
-	document.dispatchEvent(
-		new CustomEvent('__bridge_handshake', {
-			detail: { pushNonce: 'push-nonce', telemetryConfig: options.telemetryConfig },
-		}),
-	);
-	document.dispatchEvent(
-		new CustomEvent('__bridge_intake_json', {
-			detail: {
-				json: JSON.stringify(frame),
-				nonce: 'push-nonce',
-			},
-		}),
-	);
-	await Promise.resolve();
-	await waitForBridgeViewerAnimationFrame();
+	await act(async (): Promise<void> => {
+		document.dispatchEvent(
+			new CustomEvent('__bridge_handshake', {
+				detail: { pushNonce: 'push-nonce', telemetryConfig: options.telemetryConfig },
+			}),
+		);
+		document.dispatchEvent(
+			new CustomEvent('__bridge_intake_json', {
+				detail: {
+					json: JSON.stringify(frame),
+					nonce: 'push-nonce',
+				},
+			}),
+		);
+		await Promise.resolve();
+		await waitForBridgeViewerAnimationFrame();
+	});
 }
 
 export async function dispatchHostDiffStatus(props: {
@@ -42,30 +46,98 @@ export async function dispatchHostDiffStatus(props: {
 	readonly status: 'idle' | 'loading' | 'ready' | 'error';
 	readonly error?: string | null;
 }): Promise<void> {
-	document.dispatchEvent(
-		new CustomEvent('__bridge_push_json', {
-			detail: {
-				json: JSON.stringify({
-					__v: 1,
-					__pushId: `push-${props.epoch}-${props.revision}`,
-					__revision: props.revision,
-					__epoch: props.epoch,
-					store: 'diff',
-					op: 'replace',
-					level: 'hot',
-					slice: 'diff_status',
-					data: {
-						status: props.status,
-						error: props.error ?? null,
-						epoch: props.epoch,
-					},
-				}),
-				nonce: 'push-nonce',
-			},
-		}),
-	);
-	await Promise.resolve();
-	await waitForBridgeViewerAnimationFrame();
+	await act(async (): Promise<void> => {
+		document.dispatchEvent(
+			new CustomEvent('__bridge_push_json', {
+				detail: {
+					json: JSON.stringify({
+						__v: 1,
+						__pushId: `push-${props.epoch}-${props.revision}`,
+						__revision: props.revision,
+						__epoch: props.epoch,
+						store: 'diff',
+						op: 'replace',
+						level: 'hot',
+						slice: 'diff_status',
+						data: {
+							status: props.status,
+							error: props.error ?? null,
+							epoch: props.epoch,
+						},
+					}),
+					nonce: 'push-nonce',
+				},
+			}),
+		);
+		await Promise.resolve();
+		await waitForBridgeViewerAnimationFrame();
+	});
+}
+
+/**
+ * This app mounts real resizable-panel chrome (ResizeObserver-driven layout
+ * settling), review/file surfaces with real code-diff/tree custom elements,
+ * and drives everything through native-shaped CustomEvents rather than direct
+ * prop/state calls. React updates land continuously — after every dispatched
+ * frame, after every click, and from background layout settling in between.
+ * `expect.poll(...)` alone re-checks the DOM on a real-timer interval without
+ * ever opening an `act()` scope, so every one of those updates fires outside
+ * of `act()`. Poll from inside a real-timer act() loop instead, and route
+ * clicks and long-running DOM waits through act() too, so whichever update
+ * lands during the wait is captured.
+ */
+export async function pollWithinAct<TValue>(props: {
+	readonly getValue: () => TValue;
+	readonly isSatisfied: (value: TValue) => boolean;
+	readonly pollIntervalMilliseconds?: number;
+	readonly timeoutMilliseconds?: number;
+}): Promise<TValue> {
+	const timeoutMilliseconds = props.timeoutMilliseconds ?? 5000;
+	const pollIntervalMilliseconds = props.pollIntervalMilliseconds ?? 20;
+	const deadlineMilliseconds = Date.now() + timeoutMilliseconds;
+	// oxlint-disable-next-line no-unreachable-loop -- Bounded poll loop with an early return per iteration.
+	for (;;) {
+		const value = props.getValue();
+		if (props.isSatisfied(value) || Date.now() >= deadlineMilliseconds) {
+			return value;
+		}
+		// oxlint-disable-next-line no-await-in-loop -- Real-time settling (ResizeObserver, rAF, intake round trips) must drain sequentially inside act().
+		await act(async (): Promise<void> => {
+			await new Promise<void>((resolve): void => {
+				setTimeout(resolve, pollIntervalMilliseconds);
+			});
+		});
+	}
+}
+
+export function pollWithinActUntilTruthy<TValue>(getValue: () => TValue): Promise<TValue> {
+	return pollWithinAct({ getValue, isSatisfied: (value): boolean => Boolean(value) });
+}
+
+export function pollWithinActUntilEqual<TValue>(
+	getValue: () => TValue,
+	expectedValue: TValue,
+): Promise<TValue> {
+	return pollWithinAct({ getValue, isSatisfied: (value): boolean => value === expectedValue });
+}
+
+/** Wraps a click so any React updates it triggers are act()-protected. */
+export function actClick(element: { readonly click: () => void }): Promise<void> {
+	return act(async (): Promise<void> => {
+		element.click();
+		await Promise.resolve();
+	});
+}
+
+/**
+ * Wraps an arbitrary async DOM wait (for example one of the recursive
+ * `waitForBridgeViewer*` polling helpers) in act(). React's act-scope
+ * tracking is a global (`ReactSharedInternals.actQueue`), not lexically
+ * scoped, so wrapping the call site here still protects updates that occur
+ * inside the awaited helper's own internal polling loop.
+ */
+export function actWait<TValue>(wait: () => Promise<TValue>): Promise<TValue> {
+	return act(wait);
 }
 
 export function isBridgeTelemetryCommand(value: unknown): value is {
