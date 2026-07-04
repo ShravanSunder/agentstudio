@@ -345,6 +345,7 @@ extension WebKitSerializedTests {
 
             try await WebPageTestHarness.withManagedPage(controller.page) { page in
                 controller.loadApp()
+                controller.scheduleInitialReviewPackageLoadIfPossible()
                 try await waitForPageLoad(page)
                 let didCompleteBridgeReadyHandshake = await waitUntil {
                     controller.isBridgeReady
@@ -510,7 +511,6 @@ extension WebKitSerializedTests {
 
             try await WebPageTestHarness.withManagedPage(controller.page) { page in
                 controller.loadApp()
-                controller.scheduleInitialReviewPackageLoadIfPossible()
                 try await waitForPageLoad(page)
                 let didCompleteBridgeReadyHandshake = await waitUntil {
                     controller.isBridgeReady

@@ -12,7 +12,7 @@ describe('Bridge file viewer mode re-open on switch', () => {
 		document.documentElement.removeAttribute('data-bridge-app-protocol');
 	});
 
-	test('reuses a live healthy stream — no re-open spam on healthy re-activations', async () => {
+	test('defers initial file surface load until a Review-first route activates Files', async () => {
 		let loadCount = 0;
 		const loadInitialSurface = async (): Promise<WorktreeFileInitialSurface> => {
 			loadCount += 1;
@@ -20,15 +20,28 @@ describe('Bridge file viewer mode re-open on switch', () => {
 		};
 		installHandshake('push-reopen-1');
 
-		// Start in review mode: the frame controller opens the surface once at
-		// mount and it resolves (a healthy, live stream).
 		render(<BridgeAppProtocolRouter fileViewerProps={{ loadInitialSurface }} protocol="review" />);
-		await expect.poll(() => loadCount).toBe(1);
+		await new Promise((resolve) => window.setTimeout(resolve, 0));
+		expect(loadCount).toBe(0);
 
-		// Toggle file↔review repeatedly. A healthy stream is reused, so no
-		// re-open fires — the idempotence guard prevents re-open spam.
 		clickContext('file');
 		await expect.poll(activeViewerMode).toBe('file');
+		await expect.poll(() => loadCount).toBe(1);
+	});
+
+	test('reuses a live healthy stream — no re-open spam on healthy re-activations', async () => {
+		let loadCount = 0;
+		const loadInitialSurface = async (): Promise<WorktreeFileInitialSurface> => {
+			loadCount += 1;
+			return { frames: [] };
+		};
+		installHandshake('push-reopen-healthy');
+
+		render(
+			<BridgeAppProtocolRouter fileViewerProps={{ loadInitialSurface }} protocol="worktree-file" />,
+		);
+		await expect.poll(() => loadCount).toBe(1);
+
 		clickContext('review');
 		await expect.poll(activeViewerMode).toBe('review');
 		clickContext('file');
@@ -50,10 +63,15 @@ describe('Bridge file viewer mode re-open on switch', () => {
 		};
 		installHandshake('push-reopen-2');
 
-		render(<BridgeAppProtocolRouter fileViewerProps={{ loadInitialSurface }} protocol="review" />);
+		render(
+			<BridgeAppProtocolRouter fileViewerProps={{ loadInitialSurface }} protocol="worktree-file" />,
+		);
 		await expect.poll(() => loadCount).toBe(1);
 
-		// Switch to file: the wedged surface never resolved, so the re-open fires
+		clickContext('review');
+		await expect.poll(activeViewerMode).toBe('review');
+
+		// Switch back to file: the wedged surface never resolved, so the re-open fires
 		// and recovers with a fresh open (which resolves).
 		clickContext('file');
 		await expect.poll(() => loadCount).toBe(2);
@@ -82,12 +100,10 @@ describe('Bridge file viewer mode re-open on switch', () => {
 						};
 					},
 				}}
-				protocol="review"
+				protocol="worktree-file"
 			/>,
 		);
 		await expect.poll(() => loadCount).toBe(1);
-		clickContext('file');
-		await expect.poll(activeViewerMode).toBe('file');
 		clickContext('review');
 		await expect.poll(activeViewerMode).toBe('review');
 
