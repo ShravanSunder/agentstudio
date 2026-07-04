@@ -88,3 +88,7 @@ build.db
 .fastembed_cache
 build.db-journal
 .superpowers/
+
+# SwiftPM binary-artifact extraction + plugin cache (agentstudio-git CLibGit2Local etc.)
+artifacts/
+plugins/
