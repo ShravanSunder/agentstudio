@@ -403,6 +403,7 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.startup_diagnostic.bridge.file_view.metadata_tree_row.count",
         "agentstudio.startup_diagnostic.bridge.file_view.mode_switch.count",
         "agentstudio.startup_diagnostic.bridge.file_view.native_probe.count",
+        "agentstudio.startup_diagnostic.bridge.file_view.native_probe.frame_evidence.count",
         "agentstudio.startup_diagnostic.bridge.file_view.native_probe.last_generation",
         "agentstudio.startup_diagnostic.bridge.file_view.native_probe.last_sequence",
         "agentstudio.startup_diagnostic.bridge.file_view.open_source_command.count",

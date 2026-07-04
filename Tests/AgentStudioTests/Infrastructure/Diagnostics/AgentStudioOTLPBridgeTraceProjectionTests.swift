@@ -527,6 +527,10 @@ struct AgentStudioOTLPBridgeTraceProjectionTests {
                 == .bool(true)
         )
         #expect(
+            attributes["agentstudio.startup_diagnostic.bridge.file_view.native_probe.frame_evidence.count"]
+                == .int(5)
+        )
+        #expect(
             attributes["agentstudio.startup_diagnostic.bridge.file_view.tree_full_stream.satisfied"] == .bool(true)
         )
         #expect(attributes["agentstudio.startup_diagnostic.bridge.page_issue.last_class"] == .string("none"))
@@ -662,6 +666,7 @@ struct AgentStudioOTLPBridgeTraceProjectionTests {
                     "snapshot_resolved"),
                 "agentstudio.startup_diagnostic.bridge.file_view.native_probe.last_receiver_reason": .string("none"),
                 "agentstudio.startup_diagnostic.bridge.file_view.native_probe.last_stream_id_matches": .bool(true),
+                "agentstudio.startup_diagnostic.bridge.file_view.native_probe.frame_evidence.count": .int(5),
                 "agentstudio.startup_diagnostic.bridge.file_view.open_file.path": .string("Sources/App.swift"),
                 "agentstudio.startup_diagnostic.bridge.file_view.open_file.state": .string("ready"),
                 "agentstudio.startup_diagnostic.bridge.file_view.open_source_command.count": .int(1),
