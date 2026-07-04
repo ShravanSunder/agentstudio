@@ -1,4 +1,3 @@
-import { act } from 'react';
 import { afterEach, describe, expect, test } from 'vitest';
 import { cleanup, render } from 'vitest-browser-react';
 
@@ -22,25 +21,13 @@ import {
 	type PublishWorktreeFileFrames,
 } from './bridge-file-viewer-browser-test-fixtures.js';
 import {
+	actFrame,
+	actUpdate,
 	requireFramePublisher,
 	makeTestTelemetryRecorder,
 	waitForMetadataTreeRowCount,
 	waitForTreeScrollHeightAtLeast,
 } from './bridge-file-viewer-browser-test-harness.js';
-
-/**
- * Advances exactly one real animation frame inside its own `act()` scope.
- * Wrapping a whole multi-frame recursive poll in a single `act()` call
- * instead defers React's DOM commits until that call resolves, so a
- * condition that depends on rAF-driven virtualizer/tree layout can never
- * become true while still inside it. Each tick must open and close its own
- * scope so the update from that tick actually commits before the next check.
- */
-async function actAnimationFrame(): Promise<void> {
-	await act(async (): Promise<void> => {
-		await waitForBridgeViewerAnimationFrame();
-	});
-}
 
 describe('BridgeFileViewerApp virtualizer anchoring', () => {
 	afterEach(async () => {
@@ -70,13 +57,12 @@ describe('BridgeFileViewerApp virtualizer anchoring', () => {
 		await waitForMetadataTreeRowCount(300);
 		await waitForTreeScrollHeightAtLeast(300 * 24);
 		const scrollOwner = requireTreeScrollOwner();
-		await act(async (): Promise<void> => {
+		await actUpdate((): void => {
 			scrollOwner.scrollTo({ top: 150 * 24 });
 			scrollOwner.dispatchEvent(new Event('scroll', { bubbles: true }));
-			await Promise.resolve();
 		});
-		await actAnimationFrame();
-		await actAnimationFrame();
+		await actFrame();
+		await actFrame();
 		await waitForBridgeViewerTreeItemButton('File-150.swift');
 		const anchorPath = requireFirstVisibleTreePath(scrollOwner);
 		const anchorOffsetBefore = requireTreeItemOffsetFromScrollOwner({
@@ -85,9 +71,8 @@ describe('BridgeFileViewerApp virtualizer anchoring', () => {
 		});
 		const scrollTopBefore = scrollOwner.scrollTop;
 
-		await act(async (): Promise<void> => {
+		await actUpdate((): void => {
 			requireFramePublisher(publishFrames)(makeResetWithPrependedRows());
-			await Promise.resolve();
 		});
 
 		await waitForMetadataTreeRowCount(310);
@@ -210,7 +195,7 @@ async function waitForTreeItemOffsetFromScrollOwner(props: {
 			`Expected FileView tree path ${props.path} near offset ${props.expectedOffset}; actual=${currentOffset}; scrollTop=${props.scrollOwner.scrollTop}`,
 		);
 	}
-	await actAnimationFrame();
+	await actFrame();
 	await waitForTreeItemOffsetFromScrollOwner({
 		...props,
 		remainingAttempts: remainingAttempts - 1,

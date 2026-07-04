@@ -5,10 +5,7 @@ import { render } from 'vitest-browser-react';
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load the app CSS.
 import '../app/bridge-app.css';
 import type { WorktreeFileDescriptorRequest } from '../features/worktree-file/models/worktree-file-protocol-models.js';
-import {
-	requireBridgeViewerHTMLElement,
-	waitForBridgeViewerAnimationFrame,
-} from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
+import { requireBridgeViewerHTMLElement } from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
 import { makeWorktreeFileSurfaceRuntimeFetchedResource } from '../worktree-file-surface/worktree-file-surface-runtime.js';
 import { BridgeFileViewerApp } from './bridge-file-viewer-app.js';
 import {
@@ -23,6 +20,8 @@ import {
 	type PublishWorktreeFileFrames,
 } from './bridge-file-viewer-browser-test-fixtures.js';
 import {
+	actFrame,
+	actUpdate,
 	makeDeferredContent,
 	openFileBodyPreview,
 	openFileState,
@@ -96,22 +95,28 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			expectedCount: 2,
 			recordedFetches: fetchedResourceUrls,
 		});
-		oldDeferredContent.resolve(
-			makeWorktreeFileSurfaceRuntimeFetchedResource('export const old = true;\n'),
-		);
+		await actUpdate((): void => {
+			oldDeferredContent.resolve(
+				makeWorktreeFileSurfaceRuntimeFetchedResource('export const old = true;\n'),
+			);
+		});
 		await waitForDemandDispatchFirstFreshnessKeyContaining('old-first-delayed-content');
 		const publishRequiredFrames = requireFramePublisher(publishFrames);
-		publishRequiredFrames(makeResetFrames(newFirstDescriptor, newSecondDescriptor));
+		await actUpdate((): void => {
+			publishRequiredFrames(makeResetFrames(newFirstDescriptor, newSecondDescriptor));
+		});
 		await waitForRecordedFetchCount({
 			expectedCount: 4,
 			recordedFetches: fetchedResourceUrls,
 		});
-		newDeferredContent.resolve(
-			makeWorktreeFileSurfaceRuntimeFetchedResource('export const fresh = true;\n'),
-		);
+		await actUpdate((): void => {
+			newDeferredContent.resolve(
+				makeWorktreeFileSurfaceRuntimeFetchedResource('export const fresh = true;\n'),
+			);
+		});
 		await waitForDemandDispatchLoadedCount('2');
-		await waitForBridgeViewerAnimationFrame();
-		await waitForBridgeViewerAnimationFrame();
+		await actFrame();
+		await actFrame();
 
 		const shell = requireBridgeViewerHTMLElement(
 			document.querySelector('[data-testid="bridge-file-viewer-shell"]'),
@@ -180,7 +185,9 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		await waitForOpenFileState('ready');
 		await waitForVisibleCodeText('export const initial = true;');
 		const publishRequiredFrames = requireFramePublisher(publishFrames);
-		publishRequiredFrames(makeResetFrames(replacementDescriptor));
+		await actUpdate((): void => {
+			publishRequiredFrames(makeResetFrames(replacementDescriptor));
+		});
 		// Stale open files auto-refresh silently (no comment drafts exist yet):
 		// wait on the refreshed content itself, since 'ready' also describes
 		// the pre-reset state and the stale/refreshing states are transient.
@@ -248,7 +255,9 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		await waitForOpenFileState('ready');
 		await waitForVisibleCodeText('failedRefreshInitial');
 		const publishRequiredFrames = requireFramePublisher(publishFrames);
-		publishRequiredFrames(makeResetFrames(replacementDescriptor));
+		await actUpdate((): void => {
+			publishRequiredFrames(makeResetFrames(replacementDescriptor));
+		});
 		await waitForOpenFileState('stale');
 		await waitForRefreshDebugState({
 			commitState: 'skipped',
@@ -331,20 +340,24 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		await waitForOpenFileState('ready');
 		await waitForVisibleCodeText('inactiveRefreshInitial');
 		const publishRequiredFrames = requireFramePublisher(publishFrames);
-		publishRequiredFrames(makeResetFrames(replacementDescriptor));
+		await actUpdate((): void => {
+			publishRequiredFrames(makeResetFrames(replacementDescriptor));
+		});
 		// The stale state auto-refreshes silently; the deferred fetch holds it
 		// in 'refreshing' so deactivation can race the completion.
 		await waitForOpenFileState('refreshing');
-		requireDeactivateFiles(deactivateFiles)();
+		await actUpdate(requireDeactivateFiles(deactivateFiles));
 		await waitForFileViewerActiveState('false');
 
-		deferredRefreshContent.resolve(
-			makeWorktreeFileSurfaceRuntimeFetchedResource(
-				'export const inactiveRefreshReplacement = true;\n',
-			),
-		);
-		await waitForBridgeViewerAnimationFrame();
-		await waitForBridgeViewerAnimationFrame();
+		await actUpdate((): void => {
+			deferredRefreshContent.resolve(
+				makeWorktreeFileSurfaceRuntimeFetchedResource(
+					'export const inactiveRefreshReplacement = true;\n',
+				),
+			);
+		});
+		await actFrame();
+		await actFrame();
 
 		expect(openFileState()).toBe('stale');
 		expect(openFileBodyPreview()).toContain('inactiveRefreshInitial');
@@ -356,7 +369,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		expect(shell.getAttribute('data-file-viewer-active')).toBe('false');
 		expect(shell.getAttribute('data-last-refresh-commit-state')).toBe('ignored');
 
-		requireActivateFiles(activateFiles)();
+		await actUpdate(requireActivateFiles(activateFiles));
 	});
 
 	test('keeps selected file ready when reset metadata carries the same content descriptor', async () => {
@@ -398,10 +411,12 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		await waitForOpenFileState('ready');
 		await waitForVisibleCodeText('export const stable = true;');
 		const publishRequiredFrames = requireFramePublisher(publishFrames);
-		publishRequiredFrames(makeResetFrames(sameContentDescriptor));
+		await actUpdate((): void => {
+			publishRequiredFrames(makeResetFrames(sameContentDescriptor));
+		});
 
-		await waitForBridgeViewerAnimationFrame();
-		await waitForBridgeViewerAnimationFrame();
+		await actFrame();
+		await actFrame();
 		await waitForOpenFileState('ready');
 		await waitForVisibleCodeText('export const stable = true;');
 		expect(openFileState()).toBe('ready');
@@ -450,16 +465,20 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		await waitForOpenFileState('ready');
 		await waitForVisibleCodeText('sourceSnapshotInitial');
 		const publishRequiredFrames = requireFramePublisher(publishFrames);
-		publishRequiredFrames([
-			makeSnapshotFrame({ sequence: 1, sourceIdentity: replacementSourceIdentity }),
-		]);
+		await actUpdate((): void => {
+			publishRequiredFrames([
+				makeSnapshotFrame({ sequence: 1, sourceIdentity: replacementSourceIdentity }),
+			]);
+		});
 
 		await waitForOpenFileState('stale');
 		expect(visibleCodeText()).toContain('sourceSnapshotInitial');
 
-		publishRequiredFrames([
-			...makeFileDescriptorFrame(replacementDescriptor, { generation: 2, sequence: 2 }),
-		]);
+		await actUpdate((): void => {
+			publishRequiredFrames([
+				...makeFileDescriptorFrame(replacementDescriptor, { generation: 2, sequence: 2 }),
+			]);
+		});
 		await waitForVisibleCodeText('sourceSnapshotFresh');
 		const shell = requireBridgeViewerHTMLElement(
 			document.querySelector('[data-testid="bridge-file-viewer-shell"]'),
@@ -519,19 +538,23 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		await waitForOpenFileState('ready');
 		await waitForVisibleCodeText('sourceLessResetInitial');
 		const publishRequiredFrames = requireFramePublisher(publishFrames);
-		publishRequiredFrames(makeSourceLessResetFrames());
+		await actUpdate((): void => {
+			publishRequiredFrames(makeSourceLessResetFrames());
+		});
 
 		await waitForOpenFileState('stale');
-		await waitForBridgeViewerAnimationFrame();
-		await waitForBridgeViewerAnimationFrame();
+		await actFrame();
+		await actFrame();
 		expect(document.querySelector('[data-testid="worktree-file-refresh"]')).toBeNull();
 		expect(descriptorRequests).toEqual([]);
 		expect(visibleCodeText()).toContain('sourceLessResetInitial');
 
-		publishRequiredFrames([
-			makeSnapshotFrame({ sequence: 1, sourceIdentity: resetSourceIdentity }),
-			...makeFileDescriptorFrame(replacementDescriptor, { generation: 2, sequence: 2 }),
-		]);
+		await actUpdate((): void => {
+			publishRequiredFrames([
+				makeSnapshotFrame({ sequence: 1, sourceIdentity: resetSourceIdentity }),
+				...makeFileDescriptorFrame(replacementDescriptor, { generation: 2, sequence: 2 }),
+			]);
+		});
 
 		await waitForOpenFileState('ready');
 		await waitForVisibleCodeText('sourceLessResetFresh');
@@ -575,16 +598,20 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		await waitForOpenFileState('ready');
 		await waitForVisibleCodeText('sourceSnapshotDemandInitial');
 		const publishRequiredFrames = requireFramePublisher(publishFrames);
-		publishRequiredFrames(makeSourceLessResetFrames());
+		await actUpdate((): void => {
+			publishRequiredFrames(makeSourceLessResetFrames());
+		});
 		await waitForOpenFileState('stale');
 		expect(descriptorRequests).toEqual([]);
 
-		publishRequiredFrames([
-			makeSnapshotFrame({ sequence: 1, sourceIdentity: resetSourceIdentity }),
-		]);
+		await actUpdate((): void => {
+			publishRequiredFrames([
+				makeSnapshotFrame({ sequence: 1, sourceIdentity: resetSourceIdentity }),
+			]);
+		});
 
-		await waitForBridgeViewerAnimationFrame();
-		await waitForBridgeViewerAnimationFrame();
+		await actFrame();
+		await actFrame();
 		expect(descriptorRequests).toEqual([
 			expect.objectContaining({
 				fileId: 'file-source-less-reset-target',

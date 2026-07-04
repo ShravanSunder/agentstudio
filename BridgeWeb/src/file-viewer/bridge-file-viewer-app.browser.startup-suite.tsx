@@ -1,5 +1,5 @@
-import { describe, expect, test } from 'vitest';
-import { render } from 'vitest-browser-react';
+import { afterEach, describe, expect, test } from 'vitest';
+import { cleanup, render } from 'vitest-browser-react';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load the app CSS.
 import '../app/bridge-app.css';
@@ -9,10 +9,10 @@ import type { BridgeTelemetrySample } from '../foundation/telemetry/bridge-telem
 import {
 	findBridgeViewerTreeScrollOwner,
 	requireBridgeViewerHTMLElement,
-	waitForBridgeViewerAnimationFrame,
 	waitForBridgeViewerElement,
 	waitForBridgeViewerTreeItemButton,
 } from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
+import { terminateBridgePierreWorkerPoolSingletonForTest } from '../review-viewer/workers/pierre/bridge-pierre-worker-pool.js';
 import type { WorktreeFileInitialSurface } from '../worktree-file-surface/worktree-file-app.js';
 import { makeWorktreeFileSurfaceRuntimeFetchedResource } from '../worktree-file-surface/worktree-file-surface-runtime.js';
 import { BridgeFileViewerApp } from './bridge-file-viewer-app.js';
@@ -29,6 +29,9 @@ import {
 	type PublishWorktreeFileFrames,
 } from './bridge-file-viewer-browser-test-fixtures.js';
 import {
+	actClick,
+	actFrame,
+	actUpdate,
 	makeDeferredInitialSurface,
 	makeTestTelemetryRecorder,
 	openFileBodyPreview,
@@ -49,6 +52,13 @@ import {
 } from './bridge-file-viewer-browser-test-harness.js';
 
 describe('BridgeFileViewerApp Browser Mode', () => {
+	afterEach(async () => {
+		cleanup();
+		await actFrame();
+		document.body.replaceChildren();
+		terminateBridgePierreWorkerPoolSingletonForTest();
+	});
+
 	test('waits for bridge readiness before opening the native Worktree/File source', async () => {
 		const descriptor = makeFileDescriptor({ path: 'src/app.ts' });
 		let loadInitialSurfaceCount = 0;
@@ -78,14 +88,15 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			/>,
 		);
 
-		await waitForBridgeViewerAnimationFrame();
+		await actFrame();
 		expect(loadInitialSurfaceCount).toBe(0);
 		expect(document.querySelector('[data-worktree-file-path="src/app.ts"]')).toBeNull();
-		if (bridgeReadyCallbackState.callback === null) {
+		const bridgeReadyCallback = bridgeReadyCallbackState.callback;
+		if (bridgeReadyCallback === null) {
 			throw new Error('Expected BridgeFileViewerApp to register a bridge-ready callback');
 		}
 
-		bridgeReadyCallbackState.callback();
+		await actUpdate(bridgeReadyCallback);
 		await waitForInitialSurfaceLoadCount({
 			expectedCount: 1,
 			getLoadCount: () => loadInitialSurfaceCount,
@@ -139,21 +150,23 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		});
 
 		rerender(<BridgeFileViewerApp isActive={false} loadInitialSurface={loadInitialSurface} />);
-		initialSurface.resolve({
-			frames: makeFrames(descriptor),
-			provenance: {
-				baseRef: 'native-current-worktree',
-				scenarioName: 'current-worktree',
-				worktreeRootToken: 'root-token',
-			},
-			source: makeSourceIdentity(),
+		await actUpdate((): void => {
+			initialSurface.resolve({
+				frames: makeFrames(descriptor),
+				provenance: {
+					baseRef: 'native-current-worktree',
+					scenarioName: 'current-worktree',
+					worktreeRootToken: 'root-token',
+				},
+				source: makeSourceIdentity(),
+			});
 		});
 
 		await waitForInitialSurfaceState('ready');
 		const treeItemButton = await waitForBridgeViewerTreeItemButton('src/app.ts');
 
 		rerender(<BridgeFileViewerApp isActive={true} loadInitialSurface={loadInitialSurface} />);
-		await waitForBridgeViewerAnimationFrame();
+		await actFrame();
 
 		expect(loadInitialSurfaceCount).toBe(1);
 		expect(treeItemButton.getAttribute('data-item-path')).toBe('src/app.ts');
@@ -201,14 +214,16 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			}),
 		);
 
-		initialSurface.resolve({
-			frames: makeFrames(descriptor),
-			provenance: {
-				baseRef: 'native-current-worktree',
-				scenarioName: 'current-worktree',
-				worktreeRootToken: 'root-token',
-			},
-			source: makeSourceIdentity(),
+		await actUpdate((): void => {
+			initialSurface.resolve({
+				frames: makeFrames(descriptor),
+				provenance: {
+					baseRef: 'native-current-worktree',
+					scenarioName: 'current-worktree',
+					worktreeRootToken: 'root-token',
+				},
+				source: makeSourceIdentity(),
+			});
 		});
 		await waitForInitialSurfaceState('ready');
 		await waitForBridgeViewerTreeItemButton('src/app.ts');
@@ -240,7 +255,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			/>,
 		);
 
-		await waitForBridgeViewerAnimationFrame();
+		await actFrame();
 
 		const toolbar = requireBridgeViewerHTMLElement(
 			document.querySelector('[data-testid="bridge-file-viewer-rail-toolbar"]'),
@@ -278,8 +293,8 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		expect(sourceProvenance.getBoundingClientRect().width).toBeLessThanOrEqual(1);
 		expect(sourceProvenance.getBoundingClientRect().height).toBeLessThanOrEqual(1);
 
-		searchToggle.click();
-		await waitForBridgeViewerAnimationFrame();
+		await actClick(searchToggle);
+		await actFrame();
 
 		const searchInput = requireBridgeViewerHTMLElement(
 			document.querySelector('[data-testid="worktree-file-search-input"]'),
@@ -388,10 +403,12 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		);
 
 		await waitForBridgeViewerTreeItemButton('Sources/AgentStudio/App/AppDelegate.swift');
-		requireBridgeViewerHTMLElement(
-			document.querySelector('[data-testid="worktree-file-filter-menu"]'),
-		).click();
-		await waitForBridgeViewerAnimationFrame();
+		await actClick(
+			requireBridgeViewerHTMLElement(
+				document.querySelector('[data-testid="worktree-file-filter-menu"]'),
+			),
+		);
+		await actFrame();
 		const textFilterOption = [
 			...document.querySelectorAll('[data-testid="worktree-file-filter-menu-option"]'),
 		]
@@ -400,9 +417,9 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		if (textFilterOption === undefined) {
 			throw new Error('Expected Worktree/File Text files filter option.');
 		}
-		textFilterOption.click();
-		await waitForBridgeViewerAnimationFrame();
-		await waitForBridgeViewerAnimationFrame();
+		await actClick(textFilterOption);
+		await actFrame();
+		await actFrame();
 
 		await waitForBridgeViewerTreeItemButton('Sources/AgentStudio/App/AppDelegate.swift');
 		expect(
@@ -445,11 +462,13 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		await waitForOpenFileState('ready');
 		await waitForVisibleCodeText('initiallyOpen');
 
-		requireFramePublisher(publishFrames)([
-			makeTreeWindowFrame({ rowCount: 1, sequence: 2, startIndex: 1, totalPathCount: 2 }),
-		]);
+		await actUpdate((): void => {
+			requireFramePublisher(publishFrames)([
+				makeTreeWindowFrame({ rowCount: 1, sequence: 2, startIndex: 1, totalPathCount: 2 }),
+			]);
+		});
 		const clickedButton = await waitForBridgeViewerTreeItemButton('File-001.swift');
-		clickedButton.click();
+		await actClick(clickedButton);
 
 		await waitForDescriptorRequestCount({
 			expectedCount: 1,
@@ -479,9 +498,11 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 
 		await waitForMetadataTreeRowCount(200);
 		await waitForTreeScrollHeightAtLeast(200 * 24);
-		requireFramePublisher(publishFrames)([
-			makeTreeWindowFrame({ rowCount: 60, sequence: 1, startIndex: 200, totalPathCount: 260 }),
-		]);
+		await actUpdate((): void => {
+			requireFramePublisher(publishFrames)([
+				makeTreeWindowFrame({ rowCount: 60, sequence: 1, startIndex: 200, totalPathCount: 260 }),
+			]);
+		});
 
 		await waitForMetadataTreeRowCount(260);
 		await waitForTreeScrollHeightAtLeast(260 * 24);
@@ -513,36 +534,38 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 
 		await waitForMetadataTreeRowCount(6);
 		await waitForBridgeViewerTreeItemButton('Sources/AgentStudio/App/AppDelegate.swift');
-		requireFramePublisher(publishFrames)([
-			worktreeFileProtocolFrameSchema.parse({
-				kind: 'delta',
-				streamId: 'worktree-file:pane-1',
-				generation: 1,
-				sequence: 1,
-				frameKind: 'worktree.treeDelta',
-				operations: [
-					{
-						op: 'removeRows',
-						rowIds: ['row:Sources/AgentStudio/App/AppDelegate.swift'],
-						paths: ['Sources/AgentStudio/App/AppDelegate.swift'],
-					},
-					{
-						op: 'upsertRows',
-						rows: [
-							makeTreeRow({
-								depth: 4,
-								fileId: 'file-bridge-runtime',
-								isDirectory: false,
-								lineCount: 64,
-								name: 'BridgeRuntime.swift',
-								parentPath: 'Sources/AgentStudio/Features/Bridge',
-								path: 'Sources/AgentStudio/Features/Bridge/BridgeRuntime.swift',
-							}),
-						],
-					},
-				],
-			}),
-		]);
+		await actUpdate((): void => {
+			requireFramePublisher(publishFrames)([
+				worktreeFileProtocolFrameSchema.parse({
+					kind: 'delta',
+					streamId: 'worktree-file:pane-1',
+					generation: 1,
+					sequence: 1,
+					frameKind: 'worktree.treeDelta',
+					operations: [
+						{
+							op: 'removeRows',
+							rowIds: ['row:Sources/AgentStudio/App/AppDelegate.swift'],
+							paths: ['Sources/AgentStudio/App/AppDelegate.swift'],
+						},
+						{
+							op: 'upsertRows',
+							rows: [
+								makeTreeRow({
+									depth: 4,
+									fileId: 'file-bridge-runtime',
+									isDirectory: false,
+									lineCount: 64,
+									name: 'BridgeRuntime.swift',
+									parentPath: 'Sources/AgentStudio/Features/Bridge',
+									path: 'Sources/AgentStudio/Features/Bridge/BridgeRuntime.swift',
+								}),
+							],
+						},
+					],
+				}),
+			]);
+		});
 
 		await waitForMetadataTreeRowCount(5);
 		await waitForBridgeViewerTreeItemButton(
@@ -600,23 +623,27 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 
 		await waitForOpenFileState('ready');
 		await waitForVisibleCodeText('initialWindowSelection');
-		requireFramePublisher(publishFrames)([
-			makeTreeWindowFrame({ rowCount: 60, sequence: 2, startIndex: 200, totalPathCount: 260 }),
-		]);
+		await actUpdate((): void => {
+			requireFramePublisher(publishFrames)([
+				makeTreeWindowFrame({ rowCount: 60, sequence: 2, startIndex: 200, totalPathCount: 260 }),
+			]);
+		});
 		await waitForMetadataTreeRowCount(260);
 		await waitForTreeScrollHeightAtLeast(260 * 24);
 		const treeScrollOwner = findBridgeViewerTreeScrollOwner();
 		if (treeScrollOwner === null) {
 			throw new Error('Expected FileView tree scroll owner for continued window click.');
 		}
-		treeScrollOwner.scrollTo({ top: 250 * 24 });
-		treeScrollOwner.dispatchEvent(new Event('scroll', { bubbles: true }));
-		await waitForBridgeViewerAnimationFrame();
-		await waitForBridgeViewerAnimationFrame();
+		await actUpdate((): void => {
+			treeScrollOwner.scrollTo({ top: 250 * 24 });
+			treeScrollOwner.dispatchEvent(new Event('scroll', { bubbles: true }));
+		});
+		await actFrame();
+		await actFrame();
 
 		const continuedButton = await waitForBridgeViewerTreeItemButton('File-250.swift');
 		expect(document.querySelector('[data-worktree-file-path="ignored-output/log.txt"]')).toBeNull();
-		continuedButton.click();
+		await actClick(continuedButton);
 
 		await waitForDescriptorRequestCount({
 			expectedCount: 1,
@@ -626,9 +653,11 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		expect(openFilePath()).toBe('File-000.swift');
 		expect(openFileBodyPreview()).toContain('initialWindowSelection');
 
-		requireFramePublisher(publishFrames)(
-			makeFileDescriptorFrame(continuedDescriptor, { sequence: 3 }),
-		);
+		await actUpdate((): void => {
+			requireFramePublisher(publishFrames)(
+				makeFileDescriptorFrame(continuedDescriptor, { sequence: 3 }),
+			);
+		});
 		await waitForOpenFileState('ready');
 		await waitForSelectedDisplayPath('File-250.swift');
 		await waitForVisibleCodeText('continuedWindowSelection');
@@ -676,13 +705,15 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		);
 
 		await waitForMetadataTreeRowCount(2);
-		requireFramePublisher(publishFrames)(
-			makeFileInvalidatedFrames({
-				fileId: 'file-deleted',
-				path: 'src/deleted.ts',
-				sequence: 1,
-			}),
-		);
+		await actUpdate((): void => {
+			requireFramePublisher(publishFrames)(
+				makeFileInvalidatedFrames({
+					fileId: 'file-deleted',
+					path: 'src/deleted.ts',
+					sequence: 1,
+				}),
+			);
+		});
 
 		await waitForMetadataTreeRowCount(1);
 		await waitForBridgeViewerTreeItemButton('src/kept.ts');
@@ -726,7 +757,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		const fileButton = await waitForBridgeViewerTreeItemButton(
 			'Sources/AgentStudio/App/AppDelegate.swift',
 		);
-		fileButton.click();
+		await actClick(fileButton);
 
 		await waitForDescriptorRequestCount({
 			expectedCount: 1,
@@ -770,7 +801,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		);
 
 		const fileButton = await waitForBridgeViewerTreeItemButton('src/file-open-ready.ts');
-		fileButton.click();
+		await actClick(fileButton);
 
 		await waitForOpenFileState('ready');
 		await waitForVisibleCodeText('fileOpenReady');
@@ -834,7 +865,9 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		if (treeScrollOwner === null) {
 			throw new Error('Expected FileView tree scroll owner for visible demand telemetry.');
 		}
-		treeScrollOwner.dispatchEvent(new Event('scroll', { bubbles: true }));
+		await actUpdate((): void => {
+			treeScrollOwner.dispatchEvent(new Event('scroll', { bubbles: true }));
+		});
 
 		const sample = await waitForTelemetrySampleCount({
 			count: initialSampleCount + 1,
@@ -945,7 +978,7 @@ async function waitForFileViewerTrace(
 			)}`,
 		);
 	}
-	await waitForBridgeViewerAnimationFrame();
+	await actFrame();
 	await waitForFileViewerTrace(predicate, attempt + 1);
 }
 

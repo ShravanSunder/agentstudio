@@ -4,14 +4,13 @@ import { render } from 'vitest-browser-react';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load the app CSS.
 import '../app/bridge-app.css';
-import {
-	requireBridgeViewerHTMLElement,
-	waitForBridgeViewerAnimationFrame,
-} from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
+import { requireBridgeViewerHTMLElement } from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
 import { makeWorktreeFileSurfaceRuntimeFetchedResource } from '../worktree-file-surface/worktree-file-surface-runtime.js';
 import { BridgeFileViewerApp } from './bridge-file-viewer-app.js';
 import { makeFileDescriptor, makeFrames } from './bridge-file-viewer-browser-test-fixtures.js';
 import {
+	actFrame,
+	actUpdate,
 	makeDeferredContent,
 	openFilePath,
 	openFileState,
@@ -146,13 +145,15 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			recordedFetches: fetchedResourceUrls,
 		});
 		const deactivate = requireDeactivateFiles(deactivateFiles);
-		deactivate();
-		await waitForBridgeViewerAnimationFrame();
-		deferredContent.resolve(
-			makeWorktreeFileSurfaceRuntimeFetchedResource('export const inactiveVisible = true;\n'),
-		);
-		await waitForBridgeViewerAnimationFrame();
-		await waitForBridgeViewerAnimationFrame();
+		await actUpdate(deactivate);
+		await actFrame();
+		await actUpdate((): void => {
+			deferredContent.resolve(
+				makeWorktreeFileSurfaceRuntimeFetchedResource('export const inactiveVisible = true;\n'),
+			);
+		});
+		await actFrame();
+		await actFrame();
 
 		const shell = requireBridgeViewerHTMLElement(
 			document.querySelector('[data-testid="bridge-file-viewer-shell"]'),

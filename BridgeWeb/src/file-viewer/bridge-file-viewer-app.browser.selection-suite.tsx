@@ -1,6 +1,6 @@
 import { useState, type ReactElement } from 'react';
-import { describe, expect, test } from 'vitest';
-import { render } from 'vitest-browser-react';
+import { afterEach, describe, expect, test } from 'vitest';
+import { cleanup, render } from 'vitest-browser-react';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load the app CSS.
 import '../app/bridge-app.css';
@@ -9,9 +9,9 @@ import type { WorktreeFileDescriptorRequest } from '../features/worktree-file/mo
 import type { BridgeTelemetrySample } from '../foundation/telemetry/bridge-telemetry-event.js';
 import {
 	requireBridgeViewerHTMLElement,
-	waitForBridgeViewerAnimationFrame,
 	waitForBridgeViewerTreeItemButton,
 } from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
+import { terminateBridgePierreWorkerPoolSingletonForTest } from '../review-viewer/workers/pierre/bridge-pierre-worker-pool.js';
 import { makeWorktreeFileSurfaceRuntimeFetchedResource } from '../worktree-file-surface/worktree-file-surface-runtime.js';
 import { BridgeFileViewerApp } from './bridge-file-viewer-app.js';
 import {
@@ -25,6 +25,9 @@ import {
 	type PublishWorktreeFileFrames,
 } from './bridge-file-viewer-browser-test-fixtures.js';
 import {
+	actClick,
+	actFrame,
+	actUpdate,
 	fileCanvasRenderedTextOffset,
 	makeDeferredContent,
 	makeGeneratedFileBody,
@@ -48,6 +51,13 @@ import {
 } from './bridge-file-viewer-browser-test-harness.js';
 
 describe('BridgeFileViewerApp Browser Mode', () => {
+	afterEach(async () => {
+		cleanup();
+		await actFrame();
+		document.body.replaceChildren();
+		terminateBridgePierreWorkerPoolSingletonForTest();
+	});
+
 	test('does not advance selected display path until a metadata-only descriptor converges', async () => {
 		const initiallyOpenDescriptor = makeFileDescriptor({
 			contentHandle: 'initial-content',
@@ -92,28 +102,34 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		await waitForVisibleCodeText('initiallyOpen');
 
 		const publishRequiredFrames = requireFramePublisher(publishFrames);
-		publishRequiredFrames([
-			makeTreeWindowFrame({ rowCount: 1, sequence: 2, startIndex: 1, totalPathCount: 3 }),
-		]);
+		await actUpdate((): void => {
+			publishRequiredFrames([
+				makeTreeWindowFrame({ rowCount: 1, sequence: 2, startIndex: 1, totalPathCount: 3 }),
+			]);
+		});
 		const clickedButton = await waitForBridgeViewerTreeItemButton('File-001.swift');
-		clickedButton.click();
+		await actClick(clickedButton);
 		await waitForDescriptorRequestCount({
 			expectedCount: 1,
 			recordedRequests: descriptorRequests,
 		});
 
-		publishRequiredFrames([
-			makeTreeWindowFrame({ rowCount: 1, sequence: 3, startIndex: 2, totalPathCount: 3 }),
-		]);
-		await waitForBridgeViewerAnimationFrame();
-		await waitForBridgeViewerAnimationFrame();
+		await actUpdate((): void => {
+			publishRequiredFrames([
+				makeTreeWindowFrame({ rowCount: 1, sequence: 3, startIndex: 2, totalPathCount: 3 }),
+			]);
+		});
+		await actFrame();
+		await actFrame();
 		expect(selectedDisplayPath()).toBe('File-000.swift');
 		expect(openFilePath()).toBe('File-000.swift');
 		expect(renderedFilePath()).toBe('File-000.swift');
 		expect(openFileBodyPreview()).toContain('initiallyOpen');
 		expect(visibleCodeText()).toContain('export const initiallyOpen = true;');
 
-		publishRequiredFrames(makeFileDescriptorFrame(clickedDescriptor, { sequence: 4 }));
+		await actUpdate((): void => {
+			publishRequiredFrames(makeFileDescriptorFrame(clickedDescriptor, { sequence: 4 }));
+		});
 		await waitForOpenFileState('ready');
 		await waitForSelectedDisplayPath('File-001.swift');
 		await waitForVisibleCodeText('clickedSelection');
@@ -163,18 +179,20 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 
 		await waitForOpenFileState('ready');
 		await waitForVisibleCodeText('initiallyOpen');
-		requireFramePublisher(publishFrames)([
-			makeTreeWindowFrame({ rowCount: 1, sequence: 2, startIndex: 1, totalPathCount: 2 }),
-		]);
+		await actUpdate((): void => {
+			requireFramePublisher(publishFrames)([
+				makeTreeWindowFrame({ rowCount: 1, sequence: 2, startIndex: 1, totalPathCount: 2 }),
+			]);
+		});
 
 		const clickedButton = await waitForBridgeViewerTreeItemButton('File-001.swift');
-		clickedButton.click();
+		await actClick(clickedButton);
 		await waitForDescriptorRequestCount({
 			expectedCount: 1,
 			recordedRequests: descriptorRequests,
 		});
 		await waitForSelectedDisplayPath('File-000.swift');
-		clickedButton.click();
+		await actClick(clickedButton);
 		await waitForDescriptorRequestCount({
 			expectedCount: 2,
 			recordedRequests: descriptorRequests,
@@ -409,8 +427,10 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			/>,
 		);
 
-		await waitForBridgeViewerAnimationFrame();
-		requireFramePublisher(publishFrames)([descriptorFrame]);
+		await actFrame();
+		await actUpdate((): void => {
+			requireFramePublisher(publishFrames)([descriptorFrame]);
+		});
 
 		await waitForOpenFileState('ready');
 
@@ -481,7 +501,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 
 		const idleViewport = await waitForFileCodeViewViewport();
 		const openRequiredSlowFile = requireOpenSlowFile(openSlowFile);
-		openRequiredSlowFile();
+		await actUpdate(openRequiredSlowFile);
 		await waitForOpenFileState('loading');
 		expect(document.querySelector('[data-testid="bridge-file-viewer-code-view"]')).toBe(
 			idleViewport,
@@ -492,9 +512,11 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		expect(document.querySelector('[data-testid="bridge-file-viewer-content-state"]')).toBeNull();
 		expect(document.body.textContent ?? '').not.toContain('Loading file');
 
-		deferredContent.resolve(
-			makeWorktreeFileSurfaceRuntimeFetchedResource('export const slow = true;\n'),
-		);
+		await actUpdate((): void => {
+			deferredContent.resolve(
+				makeWorktreeFileSurfaceRuntimeFetchedResource('export const slow = true;\n'),
+			);
+		});
 		await waitForOpenFileState('ready');
 		await waitForVisibleCodeText('export const slow = true;');
 		const contentFetchSample = await waitForTelemetrySample({
@@ -564,9 +586,11 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 
 		expect(scrollOwner.scrollHeight).toBeGreaterThan(scrollOwner.clientHeight + 32);
 
-		deferredContent.resolve(
-			makeWorktreeFileSurfaceRuntimeFetchedResource('export const largeLoading = true;\n'),
-		);
+		await actUpdate((): void => {
+			deferredContent.resolve(
+				makeWorktreeFileSurfaceRuntimeFetchedResource('export const largeLoading = true;\n'),
+			);
+		});
 	});
 
 	test('keeps the viewport mounted without rendering the previous file while the next file loads', async () => {
@@ -618,7 +642,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		await waitForVisibleCodeText('export const firstRetained = true;');
 		const readyViewport = await waitForFileCodeViewViewport();
 		const openRequiredSecondFile = requireOpenSlowFile(openSecondFile);
-		openRequiredSecondFile();
+		await actUpdate(openRequiredSecondFile);
 
 		await waitForOpenFileState('loading');
 
@@ -628,9 +652,11 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		expect(visibleCodeText()).not.toContain('export const firstRetained = true;');
 		expect(openFileBodyPreview()).toBeNull();
 
-		deferredSecondContent.resolve(
-			makeWorktreeFileSurfaceRuntimeFetchedResource('export const secondSlow = true;\n'),
-		);
+		await actUpdate((): void => {
+			deferredSecondContent.resolve(
+				makeWorktreeFileSurfaceRuntimeFetchedResource('export const secondSlow = true;\n'),
+			);
+		});
 		await waitForOpenFileState('ready');
 		await waitForVisibleCodeText('export const secondSlow = true;');
 
@@ -691,24 +717,28 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		await waitForVisibleCodeText('export const firstRetainedScrollLine001 = true;');
 		const scrollOwner = await waitForFileCodeViewScrollOwner();
 		const openRequiredSecondFile = requireOpenSlowFile(openSecondFile);
-		openRequiredSecondFile();
+		await actUpdate(openRequiredSecondFile);
 
 		await waitForOpenFileState('loading');
 
 		expect(visibleCodeText()).not.toContain('export const firstRetainedScrollLine001 = true;');
 		expect(scrollOwner.scrollHeight).toBeGreaterThan(scrollOwner.clientHeight + 32);
 		const loadingScrollHeight = scrollOwner.scrollHeight;
-		scrollOwner.scrollTop = Math.min(scrollOwner.scrollHeight - scrollOwner.clientHeight, 480);
-		scrollOwner.dispatchEvent(new Event('scroll', { bubbles: true }));
+		await actUpdate((): void => {
+			scrollOwner.scrollTop = Math.min(scrollOwner.scrollHeight - scrollOwner.clientHeight, 480);
+			scrollOwner.dispatchEvent(new Event('scroll', { bubbles: true }));
+		});
 
-		deferredSecondContent.resolve(
-			makeWorktreeFileSurfaceRuntimeFetchedResource(
-				makeGeneratedFileBody('secondLargeRetainedTarget', 575),
-			),
-		);
+		await actUpdate((): void => {
+			deferredSecondContent.resolve(
+				makeWorktreeFileSurfaceRuntimeFetchedResource(
+					makeGeneratedFileBody('secondLargeRetainedTarget', 575),
+				),
+			);
+		});
 		await waitForOpenFileState('ready');
 		await waitForOpenFileBodyPreview('export const secondLargeRetainedTargetLine001 = true;');
-		await waitForBridgeViewerAnimationFrame();
+		await actFrame();
 
 		expect(Math.abs(scrollOwner.scrollHeight - loadingScrollHeight)).toBeLessThanOrEqual(1);
 	});
@@ -762,25 +792,28 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		await waitForVisibleCodeText('export const firstScrolledLine001 = true;');
 		const scrollOwner = await waitForFileCodeViewScrollOwner();
 		await waitForFileCodeViewScrollable(scrollOwner);
-		scrollOwner.scrollTop = 320;
-		scrollOwner.dispatchEvent(new Event('scroll', { bubbles: true }));
-		await waitForBridgeViewerAnimationFrame();
+		await actUpdate((): void => {
+			scrollOwner.scrollTop = 320;
+			scrollOwner.dispatchEvent(new Event('scroll', { bubbles: true }));
+		});
 		expect(scrollOwner.scrollTop).toBeGreaterThan(0);
 
 		const openRequiredSecondFile = requireOpenSlowFile(openSecondFile);
-		openRequiredSecondFile();
+		await actUpdate(openRequiredSecondFile);
 		await waitForOpenFileState('loading');
-		await waitForBridgeViewerAnimationFrame();
-		await waitForBridgeViewerAnimationFrame();
+		await actFrame();
+		await actFrame();
 
 		expect(openFileBodyPreview()).toBeNull();
 
-		deferredSecondContent.resolve(
-			makeWorktreeFileSurfaceRuntimeFetchedResource('export const secondScrollTarget = true;\n'),
-		);
+		await actUpdate((): void => {
+			deferredSecondContent.resolve(
+				makeWorktreeFileSurfaceRuntimeFetchedResource('export const secondScrollTarget = true;\n'),
+			);
+		});
 		await waitForOpenFileState('ready');
 		await waitForVisibleCodeText('export const secondScrollTarget = true;');
-		await waitForBridgeViewerAnimationFrame();
+		await actFrame();
 
 		expect(scrollOwner.scrollTop).toBeLessThanOrEqual(1);
 	});

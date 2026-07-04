@@ -1,6 +1,6 @@
 import { useState, type ReactElement } from 'react';
-import { describe, expect, test } from 'vitest';
-import { render } from 'vitest-browser-react';
+import { afterEach, describe, expect, test } from 'vitest';
+import { cleanup, render } from 'vitest-browser-react';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode must load the app CSS.
 import '../app/bridge-app.css';
@@ -9,9 +9,9 @@ import type { BridgeTelemetrySample } from '../foundation/telemetry/bridge-telem
 import {
 	findBridgeViewerTreeItemButton,
 	requireBridgeViewerHTMLElement,
-	waitForBridgeViewerAnimationFrame,
 	waitForBridgeViewerTreeItemButton,
 } from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
+import { terminateBridgePierreWorkerPoolSingletonForTest } from '../review-viewer/workers/pierre/bridge-pierre-worker-pool.js';
 import type { WorktreeFileInitialSurface } from '../worktree-file-surface/worktree-file-app.js';
 import { makeWorktreeFileSurfaceRuntimeFetchedResource } from '../worktree-file-surface/worktree-file-surface-runtime.js';
 import { BridgeFileViewerApp } from './bridge-file-viewer-app.js';
@@ -28,6 +28,9 @@ import {
 	type PublishWorktreeFileFrames,
 } from './bridge-file-viewer-browser-test-fixtures.js';
 import {
+	actClick,
+	actFrame,
+	actUpdate,
 	makeDeferredContent,
 	makeTestTelemetryRecorder,
 	openFileBodyPreview,
@@ -54,6 +57,13 @@ import {
 } from './bridge-file-viewer-browser-test-harness.js';
 
 describe('BridgeFileViewerApp Browser Mode', () => {
+	afterEach(async () => {
+		cleanup();
+		await actFrame();
+		document.body.replaceChildren();
+		terminateBridgePierreWorkerPoolSingletonForTest();
+	});
+
 	test('recovers a slow foreground navigation open after Files reactivates', async () => {
 		const slowDescriptor = makeFileDescriptor({
 			contentHandle: 'inactive-open-content',
@@ -90,19 +100,22 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		}
 
 		render(<ControlledFileViewer />);
+		await actFrame();
 
 		await waitForOpenFileState('loading');
 		await waitForRecordedFetchCount({
 			expectedCount: 1,
 			recordedFetches: fetchedResourceUrls,
 		});
-		requireDeactivateFiles(deactivateFiles)();
+		await actUpdate(requireDeactivateFiles(deactivateFiles));
 		await waitForFileViewerActiveState('false');
-		firstDeferredContent.resolve(
-			makeWorktreeFileSurfaceRuntimeFetchedResource('export const loadedWhileInactive = true;\n'),
-		);
-		await waitForBridgeViewerAnimationFrame();
-		await waitForBridgeViewerAnimationFrame();
+		await actUpdate((): void => {
+			firstDeferredContent.resolve(
+				makeWorktreeFileSurfaceRuntimeFetchedResource('export const loadedWhileInactive = true;\n'),
+			);
+		});
+		await actFrame();
+		await actFrame();
 
 		const shell = requireBridgeViewerHTMLElement(
 			document.querySelector('[data-testid="bridge-file-viewer-shell"]'),
@@ -115,7 +128,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			telemetrySamples.some((sample) => sample.name === 'performance.bridge.web.file_open_ready'),
 		).toBe(false);
 
-		requireActivateFiles(activateFiles)();
+		await actUpdate(requireActivateFiles(activateFiles));
 		await waitForFileViewerActiveState('true');
 		await waitForOpenFileState('ready');
 		await waitForVisibleCodeText('loadedWhileInactive');
@@ -177,23 +190,27 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		}
 
 		render(<ControlledFileViewer />);
+		await actFrame();
 
 		await waitForOpenFileState('loading');
 		await waitForRecordedFetchCount({
 			expectedCount: 1,
 			recordedFetches: fetchedResourceUrls,
 		});
-		requireDeactivateFiles(deactivateFiles)();
+		await actUpdate(requireDeactivateFiles(deactivateFiles));
 		await waitForFileViewerActiveState('false');
-		if (firstFetchController.reject === null) {
+		const rejectFirstFetch = firstFetchController.reject;
+		if (rejectFirstFetch === null) {
 			throw new Error('Expected first fetch reject callback to be registered.');
 		}
-		firstFetchController.reject(new DOMException('Context switch aborted', 'AbortError'));
-		await waitForBridgeViewerAnimationFrame();
-		await waitForBridgeViewerAnimationFrame();
+		await actUpdate((): void => {
+			rejectFirstFetch(new DOMException('Context switch aborted', 'AbortError'));
+		});
+		await actFrame();
+		await actFrame();
 		expect(openFileState()).toBeNull();
 
-		requireActivateFiles(activateFiles)();
+		await actUpdate(requireActivateFiles(activateFiles));
 		await waitForFileViewerActiveState('true');
 		await waitForBridgeViewerTreeItemButton('src/auto-open-aborted.ts');
 
@@ -249,17 +266,18 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		}
 
 		render(<ControlledFileViewer />);
+		await actFrame();
 
 		await waitForInitialSurfaceLoadCount({
 			expectedCount: 1,
 			getLoadCount: () => loadInitialSurfaceCount,
 		});
-		requireDeactivateFiles(deactivateFiles)();
+		await actUpdate(requireDeactivateFiles(deactivateFiles));
 		await waitForFileViewerActiveState('false');
-		requireActivateFiles(activateFiles)();
+		await actUpdate(requireActivateFiles(activateFiles));
 		await waitForFileViewerActiveState('true');
-		await waitForBridgeViewerAnimationFrame();
-		await waitForBridgeViewerAnimationFrame();
+		await actFrame();
+		await actFrame();
 
 		expect(loadInitialSurfaceCount).toBe(1);
 		await waitForBridgeViewerTreeItemButton('src/file-1.ts');
@@ -317,6 +335,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		}
 
 		render(<ControlledFileViewer />);
+		await actFrame();
 
 		await waitForInitialSurfaceLoadCount({
 			expectedCount: 1,
@@ -327,41 +346,43 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		await waitForBridgeViewerTreeItemButton('src/removed.ts');
 
 		// Hide Files (switch to Review), then push a tree delta while hidden.
-		requireDeactivateFiles(deactivateFiles)();
+		await actUpdate(requireDeactivateFiles(deactivateFiles));
 		await waitForFileViewerActiveState('false');
-		requireFramePublisher(publishFrames)([
-			parseWorktreeFileProtocolFrame({
-				kind: 'delta',
-				streamId: 'worktree-file:pane-1',
-				generation: 1,
-				sequence: 3,
-				frameKind: 'worktree.treeDelta',
-				operations: [
-					{
-						op: 'upsertRows',
-						rows: [
-							makeTreeRow({
-								depth: 1,
-								fileId: 'file-added',
-								isDirectory: false,
-								lineCount: 12,
-								name: 'added.ts',
-								parentPath: 'src',
-								path: 'src/added.ts',
-							}),
-						],
-					},
-					{
-						op: 'removeRows',
-						rowIds: ['row:src/removed.ts'],
-						paths: ['src/removed.ts'],
-					},
-				],
-			}),
-		]);
+		await actUpdate((): void => {
+			requireFramePublisher(publishFrames)([
+				parseWorktreeFileProtocolFrame({
+					kind: 'delta',
+					streamId: 'worktree-file:pane-1',
+					generation: 1,
+					sequence: 3,
+					frameKind: 'worktree.treeDelta',
+					operations: [
+						{
+							op: 'upsertRows',
+							rows: [
+								makeTreeRow({
+									depth: 1,
+									fileId: 'file-added',
+									isDirectory: false,
+									lineCount: 12,
+									name: 'added.ts',
+									parentPath: 'src',
+									path: 'src/added.ts',
+								}),
+							],
+						},
+						{
+							op: 'removeRows',
+							rowIds: ['row:src/removed.ts'],
+							paths: ['src/removed.ts'],
+						},
+					],
+				}),
+			]);
+		});
 
 		// Show Files again (switch back to Review -> Files).
-		requireActivateFiles(activateFiles)();
+		await actUpdate(requireActivateFiles(activateFiles));
 		await waitForFileViewerActiveState('true');
 		await waitForBridgeViewerTreeItemButton('src/added.ts');
 
@@ -419,21 +440,22 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		}
 
 		render(<ControlledFileViewer />);
+		await actFrame();
 
 		await waitForInitialSurfaceLoadCount({
 			expectedCount: 1,
 			getLoadCount: () => loadInitialSurfaceCount,
 		});
-		requireDeactivateFiles(deactivateFiles)();
+		await actUpdate(requireDeactivateFiles(deactivateFiles));
 		await waitForFileViewerActiveState('false');
-		requireActivateFiles(activateFiles)();
+		await actUpdate(requireActivateFiles(activateFiles));
 		await waitForFileViewerActiveState('true');
-		await waitForBridgeViewerAnimationFrame();
-		await waitForBridgeViewerAnimationFrame();
+		await actFrame();
+		await actFrame();
 
 		expect(loadInitialSurfaceCount).toBe(1);
 		const reactivatedFileButton = await waitForBridgeViewerTreeItemButton('src/file-1.ts');
-		reactivatedFileButton.click();
+		await actClick(reactivatedFileButton);
 
 		await waitForOpenFileState('ready');
 		await waitForSelectedDisplayPath('src/file-1.ts');
@@ -505,23 +527,27 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		await waitForOpenFileState('ready');
 		await waitForVisibleCodeText('initiallyOpen');
 		const publishRequiredFrames = requireFramePublisher(publishFrames);
-		publishRequiredFrames([
-			makeTreeWindowFrame({ rowCount: 1, sequence: 2, startIndex: 1, totalPathCount: 2 }),
-		]);
+		await actUpdate((): void => {
+			publishRequiredFrames([
+				makeTreeWindowFrame({ rowCount: 1, sequence: 2, startIndex: 1, totalPathCount: 2 }),
+			]);
+		});
 		const clickedButton = await waitForBridgeViewerTreeItemButton('File-001.swift');
-		clickedButton.click();
+		await actClick(clickedButton);
 		await waitForDescriptorRequestCount({
 			expectedCount: 1,
 			recordedRequests: descriptorRequests,
 		});
 
-		requireDeactivateFiles(deactivateFiles)();
+		await actUpdate(requireDeactivateFiles(deactivateFiles));
 		await waitForFileViewerActiveState('false');
-		requireActivateFiles(activateFiles)();
+		await actUpdate(requireActivateFiles(activateFiles));
 		await waitForFileViewerActiveState('true');
-		publishRequiredFrames(makeFileDescriptorFrame(lateDescriptor, { sequence: 3 }));
-		await waitForBridgeViewerAnimationFrame();
-		await waitForBridgeViewerAnimationFrame();
+		await actUpdate((): void => {
+			publishRequiredFrames(makeFileDescriptorFrame(lateDescriptor, { sequence: 3 }));
+		});
+		await actFrame();
+		await actFrame();
 
 		expect(openFilePath()).toBe('File-000.swift');
 		expect(selectedDisplayPath()).toBe('File-000.swift');
@@ -529,7 +555,7 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		expect(openFileBodyPreview()).toContain('initiallyOpen');
 		expect(visibleCodeText()).not.toContain('lateClickedSelection');
 
-		clickedButton.click();
+		await actClick(clickedButton);
 		await waitForOpenFileState('ready');
 		await waitForSelectedDisplayPath('File-001.swift');
 		await waitForVisibleCodeText('lateClickedSelection');
@@ -573,15 +599,17 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		await waitForOpenFileState('ready');
 		expect(openFilePath()).toBe('src/visible.ts');
 		await waitForDemandDispatchState('settled');
-		window.dispatchEvent(
-			new CustomEvent('bridge-worktree-file-recently-updated', {
-				detail: {
-					path: 'src/recently-updated.ts',
-					proximity: 'nearby',
-					sourceIdentity: 'dev-worktree-source',
-				},
-			}),
-		);
+		await actUpdate((): void => {
+			window.dispatchEvent(
+				new CustomEvent('bridge-worktree-file-recently-updated', {
+					detail: {
+						path: 'src/recently-updated.ts',
+						proximity: 'nearby',
+						sourceIdentity: 'dev-worktree-source',
+					},
+				}),
+			);
+		});
 		await waitForDemandDispatchFirstLane('nearby');
 
 		const shell = requireBridgeViewerHTMLElement(
@@ -644,17 +672,20 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 				}}
 			/>,
 		);
+		await actFrame();
 
 		await waitForBridgeViewerTreeItemButton('Sources/AgentStudio/App/AppDelegate.swift');
-		window.dispatchEvent(
-			new CustomEvent('bridge-worktree-file-recently-updated', {
-				detail: {
-					path: 'Sources/AgentStudio/App/AppDelegate.swift',
-					proximity: 'nearby',
-					sourceIdentity: 'dev-worktree-source',
-				},
-			}),
-		);
+		await actUpdate((): void => {
+			window.dispatchEvent(
+				new CustomEvent('bridge-worktree-file-recently-updated', {
+					detail: {
+						path: 'Sources/AgentStudio/App/AppDelegate.swift',
+						proximity: 'nearby',
+						sourceIdentity: 'dev-worktree-source',
+					},
+				}),
+			);
+		});
 		await waitForDescriptorRequestCount({
 			expectedCount: 1,
 			recordedRequests: descriptorRequests,
@@ -734,17 +765,20 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		}
 
 		render(<ControlledFileViewer />);
+		await actFrame();
 
 		await waitForBridgeViewerTreeItemButton('Sources/AgentStudio/App/AppDelegate.swift');
-		window.dispatchEvent(
-			new CustomEvent('bridge-worktree-file-recently-updated', {
-				detail: {
-					path: 'Sources/AgentStudio/App/AppDelegate.swift',
-					proximity: 'nearby',
-					sourceIdentity: 'dev-worktree-source',
-				},
-			}),
-		);
+		await actUpdate((): void => {
+			window.dispatchEvent(
+				new CustomEvent('bridge-worktree-file-recently-updated', {
+					detail: {
+						path: 'Sources/AgentStudio/App/AppDelegate.swift',
+						proximity: 'nearby',
+						sourceIdentity: 'dev-worktree-source',
+					},
+				}),
+			);
+		});
 		await waitForDescriptorRequestCount({
 			expectedCount: 1,
 			recordedRequests: descriptorRequests,
@@ -753,19 +787,25 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			expectedCount: 1,
 			recordedFetches: fetchedResourceUrls,
 		});
-		requireDeactivateFiles(deactivateFiles)();
+		await actUpdate(requireDeactivateFiles(deactivateFiles));
 		await waitForFileViewerActiveState('false');
-		firstDeferredContent.resolve(
-			makeWorktreeFileSurfaceRuntimeFetchedResource('export const shouldNotBlockVisible = true;\n'),
-		);
-		await waitForBridgeViewerAnimationFrame();
-		await waitForBridgeViewerAnimationFrame();
+		await actUpdate((): void => {
+			firstDeferredContent.resolve(
+				makeWorktreeFileSurfaceRuntimeFetchedResource(
+					'export const shouldNotBlockVisible = true;\n',
+				),
+			);
+		});
+		await actFrame();
+		await actFrame();
 
-		requireActivateFiles(activateFiles)();
+		await actUpdate(requireActivateFiles(activateFiles));
 		await waitForFileViewerActiveState('true');
-		requireFramePublisher(publishFrames)(
-			makeFileDescriptorFrame(replacementDescriptor, { sequence: 2 }),
-		);
+		await actUpdate((): void => {
+			requireFramePublisher(publishFrames)(
+				makeFileDescriptorFrame(replacementDescriptor, { sequence: 2 }),
+			);
+		});
 
 		await waitForRecordedFetchCount({
 			expectedCount: 2,

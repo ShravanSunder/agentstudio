@@ -52,9 +52,30 @@ export function requireOpenSlowFile(openSlowFile: (() => void) | null): () => vo
  * Advancing one frame per `act()` call lets each tick's update commit to the
  * DOM before the next check runs.
  */
-async function actFrame(): Promise<void> {
+export async function actFrame(): Promise<void> {
 	await act(async (): Promise<void> => {
 		await waitForBridgeViewerAnimationFrame();
+	});
+}
+
+/** Wraps a click so any React updates it triggers are act()-protected. */
+export async function actClick(element: { readonly click: () => void }): Promise<void> {
+	await act(async (): Promise<void> => {
+		element.click();
+		await Promise.resolve();
+	});
+}
+
+/**
+ * Wraps a synchronous, state-mutating action (a ref-published setter, a
+ * deferred-promise resolve, a direct frame-publisher call) plus one
+ * microtask drain in act(). Use this for a single discrete action, not a
+ * multi-frame poll — see the `actFrame` note above for why those differ.
+ */
+export async function actUpdate(update: () => void): Promise<void> {
+	await act(async (): Promise<void> => {
+		update();
+		await Promise.resolve();
 	});
 }
 
