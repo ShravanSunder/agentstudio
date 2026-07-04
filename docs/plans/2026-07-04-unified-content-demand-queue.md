@@ -51,7 +51,7 @@ Live code anchors read for planning:
 Planning-lane note: no subagents were spawned because the available subagent
 tool requires explicit delegation permission. The lane analysis is embedded
 here. Reasoning-effort policy for execution lanes: use high effort for slices
-1-5 and medium effort for slice 6 closeout proof.
+1-4 and medium effort for slice 5 closeout proof.
 
 Security context: applicable, bounded. The work touches descriptor-backed
 content fetches and telemetry projection. Do not add raw paths, item ids, URLs,
@@ -63,25 +63,25 @@ and `Sources/AgentStudio/Features/Bridge/Runtime/Telemetry/BridgeTelemetryBatchV
 ## Execution DAG
 
 ```text
-gate 0: re-read spec/debug/audit anchors and confirm no pre-existing target plan
+gate 0: IPC probe prerequisite committed, then re-read spec/debug/audit anchors
   |
 slice 1: red survivor proof against the real visible hydration seam
   |
 slice 2: reconciler and pure derivations, still using the existing executor
   |
-slice 3: unified queue/executor cutover and legacy scheduler deletion
+slice 3: unified queue/executor/background-tier cutover; scheduler and prefetch deletion
   |
-slice 4: background tier integration and prefetch-pump deletion
+slice 4: worker-rank propagation, Shiki/highlight cache proof, R40 Swift cap fix
   |
-slice 5: worker-rank propagation, Shiki/highlight cache proof, R40 Swift cap fix
-  |
-slice 6: cutover cleanup, compile-enforced deletions, live proof and PR gates
+slice 5: cutover cleanup, compile-enforced deletions, live proof and PR gates
 ```
 
 Only narrow test authoring in slice 1 can run in parallel with review-only
-preparation for slice 2. Slices 2-6 must serialize because they touch shared
-BridgeWeb demand types, runtime construction, and tests that should fail at
-compile time if any legacy path remains.
+preparation for slice 2. Slices 2, 3, and 5 must serialize because they touch
+shared BridgeWeb demand types, runtime construction, and tests that should fail
+at compile time if any legacy path remains. Slice 4 worker-rank tests/R40 policy
+work can be drafted after slice 2, but its type merge must integrate after
+slice 3.
 
 ## Four Laws
 
@@ -96,6 +96,32 @@ These laws are the execution shorthand for the R32-R40 contract:
    supersedes them; retry parking and exhausted membership states do not exist.
 4. Landing law: generation-fresh ready results always land in cache, while UI
    commit is gated by current membership/generation.
+
+## Gate 0 - IPC Probe Prerequisite
+
+Objective:
+
+Before execution starts, the IPC render-state probe work must already be
+committed. This plan depends on the fixed IPC projection path for live
+momentum-scroll proof and must not carry that prerequisite as uncommitted
+side-work.
+
+Required committed prerequisite files (SATISFIED by commit `0b382630`):
+
+- `Sources/AgentStudio/Features/Bridge/Runtime/BridgePaneController+IPCProjection.swift`
+- `Sources/AgentStudioProgrammaticControl/IPCBridgeContracts.swift`
+- `Tests/AgentStudioProgrammaticControlTests/IPCContractsTests.swift`
+- `Tests/AgentStudioTests/Features/Bridge/BridgePaneControllerIPCProjectionTests.swift`
+
+Proof command (WebKit-gated suites silently run 0 tests without the
+`WebKitSerializedTests` qualifier — do not use file-name-shaped filters):
+
+```bash
+CI=true mise run test -- --filter "WebKitSerializedTests|IPCContractsTests"
+```
+
+Exit code must be 0 before slice 1 begins. If this gate is not green, stop; do
+not implement a temporary BridgeWeb probe adapter or a second render-state path.
 
 ## Slice 1 - Red Survivor Proof
 
@@ -193,7 +219,7 @@ Dependencies:
 - Depends on slice 1 red proof.
 - Feeds slice 3 queue/executor cutover.
 
-## Slice 3 - Unified Queue/Executor Cutover And Scheduler Deletion
+## Slice 3 - Unified Queue/Executor/Background Cutover And Legacy Deletions
 
 Objective:
 
@@ -205,13 +231,29 @@ or pending load count. F2 selected in-lane preemption must be real: the executor
 comparator must understand selected sub-rank and demand rank, not just
 lane-then-`orderingKey`.
 
+This slice also moves review background warming into the reconciler's background
+tier and deletes the standalone prefetch pump in the same compile-green cutover.
+Do not create a scheduler compatibility adapter, a dormant pump wrapper, or a
+temporary background bridge. Background demand is browser-pulled, bounded to
+roughly five windows, paced/yielding below every higher tier, and shares the
+same membership, generation, loadedSet, backoff, and cancellation rules. F3/R36
+must be explicit: a generation-fresh fetch whose item leaves membership
+mid-flight lands in the registry/cache, does not commit stale UI, and a later
+re-entry is a cache hit.
+
 Files touched:
 
 - DELETE `BridgeWeb/src/core/demand/bridge-demand-scheduler.ts`
 - DELETE `BridgeWeb/src/core/demand/bridge-demand-scheduler.unit.test.ts`
+- DELETE `BridgeWeb/src/app/bridge-app-review-content-prefetch-controller.ts`
+- DELETE `BridgeWeb/src/app/bridge-app-review-content-prefetch-controller.browser.test.tsx`
+- DELETE `BridgeWeb/src/review-viewer/content/review-content-prefetch-policy.ts`
+- DELETE `BridgeWeb/src/review-viewer/content/review-content-prefetch-policy.unit.test.ts`
 - `BridgeWeb/src/core/demand/bridge-resource-executor.ts`
 - `BridgeWeb/src/core/demand/bridge-resource-executor.unit.test.ts`
 - `BridgeWeb/src/core/demand/bridge-demand-runtime.integration.test.ts`
+- `BridgeWeb/src/core/demand/bridge-content-demand-reconciler.ts`
+- `BridgeWeb/src/core/demand/bridge-content-demand-reconciler.unit.test.ts`
 - `BridgeWeb/src/review-viewer/content/review-content-demand-loader.ts`
 - `BridgeWeb/src/review-viewer/content/review-content-demand-loader.core.unit-suite.ts`
 - `BridgeWeb/src/review-viewer/content/review-content-demand-loader.cache.unit-suite.ts`
@@ -233,23 +275,32 @@ Files touched:
 - `BridgeWeb/src/worktree-file-surface/worktree-file-surface-runtime.ts`
 - `BridgeWeb/src/worktree-file-surface/worktree-file-surface-runtime-support.ts`
 - `BridgeWeb/src/worktree-file-surface/worktree-file-surface-runtime.demand.integration-suite.ts`
+- Extraction guard: `BridgeWeb/src/worktree-file-surface/worktree-file-surface-runtime-support.ts`
+  is already over 800 lines and must be measured before/after if touched.
 
 Red-first proof:
 
 ```bash
-pnpm --dir BridgeWeb exec vitest run src/core/demand/bridge-resource-executor.unit.test.ts src/core/demand/bridge-demand-runtime.integration.test.ts src/review-viewer/content/review-content-demand-loader.unit.test.ts src/worktree-file-surface/worktree-file-surface-runtime.demand.integration-suite.ts
+pnpm --dir BridgeWeb exec vitest run src/core/demand/bridge-resource-executor.unit.test.ts src/core/demand/bridge-demand-runtime.integration.test.ts src/core/demand/bridge-content-demand-reconciler.unit.test.ts src/review-viewer/content/review-content-demand-loader.unit.test.ts src/worktree-file-surface/worktree-file-surface-runtime.demand.integration-suite.ts
 ```
 
 Expected failure before implementation: pressure scenarios still return
 `concurrency_exceeded` from queue membership, pending lower-priority members are
 evicted, and selected same-lane preemption is not guaranteed when visible work
-occupies executor slots.
+occupies executor slots. Background candidates are still owned by the pump and
+its policy tests, background is not a reconciler tier, queue-wait re-stamp after
+pause release is absent, and the R36 cache red test is missing or failing: a
+generation-fresh fetch whose item leaves membership mid-flight must land in the
+registry/cache, must not commit stale UI, and a later re-entry must be a cache
+hit.
 
 Green proof:
 
 ```bash
-pnpm --dir BridgeWeb exec vitest run src/core/demand/bridge-resource-executor.unit.test.ts src/core/demand/bridge-demand-runtime.integration.test.ts src/review-viewer/content/review-content-demand-loader.unit.test.ts src/worktree-file-surface/worktree-file-surface-runtime.demand.integration-suite.ts src/app/bridge-app.unit.test.ts src/app/bridge-app-review-metadata-package.preservation.unit.test.ts
+wc -l BridgeWeb/src/worktree-file-surface/worktree-file-surface-runtime-support.ts
+pnpm --dir BridgeWeb exec vitest run src/core/demand/bridge-resource-executor.unit.test.ts src/core/demand/bridge-demand-runtime.integration.test.ts src/core/demand/bridge-content-demand-reconciler.unit.test.ts src/review-viewer/content/review-content-demand-loader.unit.test.ts src/review-viewer/content/review-content-demand-loader.cache.unit-suite.ts src/review-viewer/content/review-content-demand-loader.pressure.unit-suite.ts src/worktree-file-surface/worktree-file-surface-runtime.demand.integration-suite.ts src/app/bridge-app.unit.test.ts src/app/bridge-app-review-metadata-package.preservation.unit.test.ts
 pnpm --dir BridgeWeb exec tsc --noEmit
+wc -l BridgeWeb/src/worktree-file-surface/worktree-file-surface-runtime-support.ts
 ```
 
 Deletes in this slice:
@@ -262,58 +313,6 @@ Deletes in this slice:
 - `evictLowerPriorityPendingLoads` as membership eviction.
 - Executor pending-eviction result paths that report concurrency as a member
   drop.
-
-Dependencies:
-
-- Depends on slice 2 reconciler plans.
-- Blocks slice 4 because the background tier must use the same queue.
-
-## Slice 4 - Background Tier And Prefetch-Pump Deletion
-
-Objective:
-
-Move review background warming into the reconciler's background tier and delete
-the standalone prefetch pump. Background demand is browser-pulled, bounded to
-roughly five windows, paced/yielding below every higher tier, and shares the
-same membership, generation, loadedSet, backoff, and cancellation rules. F3/R36
-must be explicit: cache admission is separate from selected/visible UI commit.
-F5/R37 and F7/R38 must hold for background and pause release too.
-
-Files touched:
-
-- DELETE `BridgeWeb/src/app/bridge-app-review-content-prefetch-controller.ts`
-- DELETE `BridgeWeb/src/app/bridge-app-review-content-prefetch-controller.browser.test.tsx`
-- DELETE `BridgeWeb/src/review-viewer/content/review-content-prefetch-policy.ts`
-- DELETE `BridgeWeb/src/review-viewer/content/review-content-prefetch-policy.unit.test.ts`
-- `BridgeWeb/src/app/bridge-app-review-viewer-mode.tsx`
-- `BridgeWeb/src/app/bridge-app-review-runtime.ts`
-- `BridgeWeb/src/review-viewer/content/review-content-registry.ts`
-- `BridgeWeb/src/review-viewer/content/review-content-demand-loader.ts`
-- `BridgeWeb/src/review-viewer/content/review-content-demand-loader.cache.unit-suite.ts`
-- `BridgeWeb/src/review-viewer/content/review-content-demand-loader.pressure.unit-suite.ts`
-- `BridgeWeb/src/core/demand/bridge-content-demand-reconciler.ts`
-- `BridgeWeb/src/core/demand/bridge-content-demand-reconciler.unit.test.ts`
-
-Red-first proof:
-
-```bash
-pnpm --dir BridgeWeb exec vitest run src/core/demand/bridge-content-demand-reconciler.unit.test.ts src/review-viewer/content/review-content-demand-loader.unit.test.ts
-```
-
-Expected failure before implementation: background candidates are still owned
-by the pump and its policy tests, background is not a reconciler tier, cache
-landing/UI commit split is not directly proven, and queue-wait re-stamp after
-pause release is absent.
-
-Green proof:
-
-```bash
-pnpm --dir BridgeWeb exec vitest run src/core/demand/bridge-content-demand-reconciler.unit.test.ts src/review-viewer/content/review-content-demand-loader.unit.test.ts src/review-viewer/content/review-content-demand-loader.cache.unit-suite.ts src/review-viewer/content/review-content-demand-loader.pressure.unit-suite.ts
-pnpm --dir BridgeWeb exec tsc --noEmit
-```
-
-Deletes in this slice:
-
 - Review content prefetch hook and browser test.
 - Review content prefetch policy constants and unit tests.
 - `reviewContentRegistryPrefetchMaxEntries` import path; replacement capacity
@@ -322,10 +321,10 @@ Deletes in this slice:
 
 Dependencies:
 
-- Depends on slice 3 deletion of the legacy scheduler.
-- Must finish before slice 6 compile-enforced cutover scans.
+- Depends on slice 2 reconciler plans.
+- Must finish before slice 5 compile-enforced cutover scans.
 
-## Slice 5 - Worker Rank, Shiki/Highlight Cache, And R40 AppPolicies
+## Slice 4 - Worker Rank, Shiki/Highlight Cache, And R40 AppPolicies
 
 Objective:
 
@@ -337,6 +336,7 @@ capacity from per-item cap in `AppPolicies.Bridge`.
 Files touched:
 
 - `BridgeWeb/src/review-viewer/workers/pierre/bridge-pierre-worker-pool.tsx`
+- `BridgeWeb/src/review-viewer/workers/pierre/bridge-pierre-worker-pool.rank.unit.test.ts` (new)
 - `BridgeWeb/src/review-viewer/workers/pierre/bridge-pierre-worker-content-descriptor.unit.test.ts`
 - `BridgeWeb/src/review-viewer/workers/pierre/bridge-pierre-worker-initialization-probe.unit.test.ts`
 - `BridgeWeb/src/review-viewer/test-support/bridge-viewer-browser.integration.test-support.ts`
@@ -356,19 +356,21 @@ Files touched:
 Red-first proof:
 
 ```bash
-pnpm --dir BridgeWeb exec vitest run src/review-viewer/workers/pierre/bridge-pierre-worker-content-descriptor.unit.test.ts src/review-viewer/theme/bridge-shiki-runtime.unit.test.ts src/review-viewer/theme/bridge-pierre-bundled-theme-registry.unit.test.ts
+pnpm --dir BridgeWeb exec vitest run src/review-viewer/workers/pierre/bridge-pierre-worker-pool.rank.unit.test.ts src/review-viewer/workers/pierre/bridge-pierre-worker-content-descriptor.unit.test.ts src/review-viewer/theme/bridge-shiki-runtime.unit.test.ts src/review-viewer/theme/bridge-pierre-bundled-theme-registry.unit.test.ts
 mise run test -- --filter BridgeContentDemandAdmission
 ```
 
 Expected failure before implementation: a new worker-pool integration/unit
 scenario demonstrates selected rank can be delayed behind lower-rank
-highlight/materialize work, and the Swift policy assertion fails because
+highlight/materialize work by saturating the pool with lower-rank work,
+submitting selected-rank work, and asserting the selected job dequeues first or
+has reserved capacity. The Swift policy assertion fails because
 `contentMaxBytesPerItem == contentCacheMaxBytes`.
 
 Green proof:
 
 ```bash
-pnpm --dir BridgeWeb exec vitest run src/review-viewer/workers/pierre/bridge-pierre-worker-content-descriptor.unit.test.ts src/review-viewer/workers/pierre/bridge-pierre-worker-initialization-probe.unit.test.ts src/review-viewer/theme/bridge-shiki-runtime.unit.test.ts src/review-viewer/theme/bridge-pierre-bundled-theme-registry.unit.test.ts
+pnpm --dir BridgeWeb exec vitest run src/review-viewer/workers/pierre/bridge-pierre-worker-pool.rank.unit.test.ts src/review-viewer/workers/pierre/bridge-pierre-worker-content-descriptor.unit.test.ts src/review-viewer/workers/pierre/bridge-pierre-worker-initialization-probe.unit.test.ts src/review-viewer/theme/bridge-shiki-runtime.unit.test.ts src/review-viewer/theme/bridge-pierre-bundled-theme-registry.unit.test.ts
 mise run test -- --filter "BridgeContentDemandAdmission|AppPolicies"
 ```
 
@@ -389,7 +391,7 @@ Dependencies:
 - Can begin after slice 2 with a local branch, but must integrate after slice 3
   to avoid divergent demand-rank types.
 
-## Slice 6 - Cutover Cleanup, Live Proof, And PR Gates
+## Slice 5 - Cutover Cleanup, Live Proof, And PR Gates
 
 Objective:
 
@@ -404,6 +406,7 @@ Files touched:
 - `BridgeWeb/src/review-viewer/content/visible-review-content-hydration-support.ts`
 - `BridgeWeb/src/review-viewer/content/visible-review-content-hydration.unit.test.ts`
 - `BridgeWeb/src/review-viewer/content/visible-review-content-hydration.browser.test.tsx`
+- `scripts/verify-bridge-review-momentum-scroll-state-probe.sh` (new required runner)
 - Any remaining import site found by the required source scans below.
 - No product code outside the slice's discovered cleanup set unless a scan
   proves it still imports deleted demand paths.
@@ -422,48 +425,64 @@ the executor must add source scans because the cutover is not compile-enforced.
 Required source scans:
 
 ```bash
-rg -n "BridgeDemandScheduler|createBridgeDemandScheduler|bridge-demand-scheduler|retryAfterVersion|visibleContentHydrationItemLimit|reviewContentPrefetch|useBridgeReviewContentPrefetchController|canQueueUnderPressure|evictLowerPriorityPendingLoads" BridgeWeb/src
+rg --files BridgeWeb/src | rg '(^|/)(bridge-demand-scheduler|bridge-demand-scheduler\.unit\.test|bridge-app-review-content-prefetch-controller|bridge-app-review-content-prefetch-controller\.browser\.test|review-content-prefetch-policy|review-content-prefetch-policy\.unit\.test)\.(ts|tsx)$'
+rg -n "BridgeDemandScheduler|createBridgeDemandScheduler|bridge-demand-scheduler|retryAfterVersion|visibleContentHydrationItemLimit|reviewContentPrefetch|useBridgeReviewContentPrefetchController|canQueueUnderPressure|evictLowerPriorityPendingLoads|configuredScheduler[A-Za-z]*|schedulerQueued[A-Za-z]*|maxSchedulerQueuedIntentCount|droppedLowerPriorityCount" BridgeWeb/src
+pnpm --dir BridgeWeb exec vitest run src/core/demand/bridge-content-demand-reconciler.unit.test.ts
 rg -n "contentMaxBytesPerItem|contentCacheMaxBytes" Sources/AgentStudio/Infrastructure/AppPolicies.swift Tests/AgentStudioTests
 ```
 
-Expected green source-scan result: first command exits 1 with no matches for
+Expected green source-scan result: the deleted-file `rg --files` command exits
+1 with no deleted paths. The legacy-symbol scan exits 1 with no matches for
 deleted symbols except allowed historical text in tests that explicitly assert
-absence. Second command shows both policy constants and a test proving
-per-item cap is lower than total cache cap.
+absence. The reconciler unit suite includes a source/behavior check that new
+content-demand reconciler plans never emit lane `active`; `active` may remain
+only in metadata-plane vocabulary and historical model compatibility. The
+policy scan shows both policy constants and a test proving per-item cap is
+lower than total cache cap.
 
 Green proof:
 
 ```bash
+wc -l BridgeWeb/src/review-viewer/content/visible-review-content-hydration.ts
 pnpm --dir BridgeWeb exec vitest run
 pnpm --dir BridgeWeb exec tsc --noEmit
 pnpm --dir BridgeWeb exec oxlint --type-aware
 pnpm --dir BridgeWeb exec oxfmt --check .
 mise run lint
 mise run test -- --filter "BridgeContentDemandAdmission|AgentStudioOTLP|BridgeTelemetryBatchValidator"
+bash scripts/verify-bridge-review-momentum-scroll-state-probe.sh
+wc -l BridgeWeb/src/review-viewer/content/visible-review-content-hydration.ts
 ```
 
 Live proof gates:
 
 ```bash
 mise run observability:up
-AGENTSTUDIO_IPC_UNSAFE_NO_AUTH=1 AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW=1 AGENTSTUDIO_TRACE_TAGS="app.startup,performance,bridge.performance.*" mise run run-debug-observability -- --detach
+AGENTSTUDIO_IPC_UNSAFE_NO_AUTH=1 AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW=1 AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=bridge-review-observability-smoke AGENTSTUDIO_TRACE_TAGS="app.startup,performance,bridge.performance.*" mise run run-debug-observability -- --detach
 mise run verify-debug-observability
 mise run verify-bridge-review-journey-smoke
+
+# Quit/cleanup the launched Agent Studio Debug app and confirm no matching debug
+# process remains before starting the second diagnostic launch.
+
+AGENTSTUDIO_IPC_UNSAFE_NO_AUTH=1 AGENTSTUDIO_IPC_DEBUG_TOKEN_ESCROW=1 AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=bridge-review-to-file-view-observability-smoke AGENTSTUDIO_TRACE_TAGS="app.startup,performance,bridge.performance.*" mise run run-debug-observability -- --detach
+mise run verify-debug-observability
 mise run verify-bridge-mode-idle-smoke
 ```
 
-Then run a live debug-observability momentum-scroll session in Review mode and
-inspect `window.__bridgeVisibleHydrationStateProbe` through the fixed IPC
-render-state path. Required settled state:
+Then run the required momentum-scroll state runner. The runner must drive a live
+debug-observability Review-mode momentum-scroll session and poll the fixed
+`AgentStudioIPCClient bridge-diff-render-state` path with bounded settle until
+both probe conditions are true:
 
 ```text
 truncatedVisibleItemCount == 0
 untrackedItemCount drains to 0 after settle
 ```
 
-User UX confirmation is required for this slice: the user must confirm that
-fast momentum scroll no longer leaves visible review items stuck as
-placeholders.
+User UX confirmation is additional manual proof, never the only runner. After
+the scripted probe passes, the user must also confirm that fast momentum scroll
+no longer leaves visible review items stuck as placeholders.
 
 Deletes in this slice:
 
@@ -474,38 +493,38 @@ Deletes in this slice:
 
 Dependencies:
 
-- Depends on slices 1-5.
+- Depends on slices 1-4.
 - Final integration gate for the one PR.
 
 ## Requirements / Proof Matrix
 
 | Requirement | Proving slice | Proof command |
 | --- | --- | --- |
-| R20 strict content taxonomy; selected is absolute content preemptor | 2, 3, 5 | `pnpm --dir BridgeWeb exec vitest run src/core/demand/bridge-content-demand-reconciler.unit.test.ts src/core/demand/bridge-resource-executor.unit.test.ts`; worker proof in slice 5 |
-| R21 visible tree work remains metadata-only | 2, 6 | `pnpm --dir BridgeWeb exec vitest run src/features/worktree-file/demand/worktree-file-demand-policy.unit.test.ts`; `mise run verify-bridge-mode-idle-smoke` |
+| R20 strict content taxonomy; selected is absolute content preemptor | 2, 3, 4 | `pnpm --dir BridgeWeb exec vitest run src/core/demand/bridge-content-demand-reconciler.unit.test.ts src/core/demand/bridge-resource-executor.unit.test.ts`; worker proof in slice 4 |
+| R21 visible tree work remains metadata-only | 2, 5 | `pnpm --dir BridgeWeb exec vitest run src/features/worktree-file/demand/worktree-file-demand-policy.unit.test.ts`; `mise run verify-bridge-mode-idle-smoke` |
 | R22 hover speculation is cancellable | 2, 3 | `pnpm --dir BridgeWeb exec vitest run src/core/demand/bridge-content-demand-reconciler.unit.test.ts src/worktree-file-surface/worktree-file-surface-runtime.demand.integration-suite.ts` |
 | R23 click cancels non-target speculation and promotes target work | 2, 3 | `pnpm --dir BridgeWeb exec vitest run src/core/demand/bridge-content-demand-reconciler.unit.test.ts src/core/demand/bridge-resource-executor.unit.test.ts` |
-| R24 generation rotation is atomic cancellation | 2, 3, 6 | `pnpm --dir BridgeWeb exec vitest run src/core/demand/bridge-content-demand-reconciler.unit.test.ts src/review-viewer/content/review-content-demand-loader.unit.test.ts`; smoke gates in slice 6 |
+| R24 generation rotation is atomic cancellation | 2, 3, 5 | `pnpm --dir BridgeWeb exec vitest run src/core/demand/bridge-content-demand-reconciler.unit.test.ts src/review-viewer/content/review-content-demand-loader.unit.test.ts`; smoke gates in slice 5 |
 | R25 one stream staleness authority | 2, 3 | `pnpm --dir BridgeWeb exec vitest run src/review-viewer/content/review-content-demand-loader.unit.test.ts src/worktree-file-surface/worktree-file-surface-runtime.demand.integration-suite.ts` |
-| R26 every stale/reject path recovers or marks unhealthy | 3, 6 | Targeted demand loader/runtime tests plus `mise run verify-bridge-review-journey-smoke` and `mise run verify-bridge-mode-idle-smoke` |
-| R27 reopen storm guard remains intact | 6 | `mise run verify-bridge-mode-idle-smoke`; do not modify native metadata-plane reopen logic in this PR |
-| R28 review adjacent warming is speculative/bounded | 2, 4 | `pnpm --dir BridgeWeb exec vitest run src/core/demand/bridge-content-demand-reconciler.unit.test.ts src/review-viewer/content/review-content-demand-loader.unit.test.ts` |
-| R29 speculative content lands in worker-backed/shared cache | 4, 5 | `pnpm --dir BridgeWeb exec vitest run src/review-viewer/content/review-content-demand-loader.cache.unit-suite.ts src/review-viewer/theme/bridge-shiki-runtime.unit.test.ts` |
-| R30 speculative in-flight globally bounded as executor-stage start limit | 3, 4 | `pnpm --dir BridgeWeb exec vitest run src/core/demand/bridge-resource-executor.unit.test.ts src/review-viewer/content/review-content-demand-loader.pressure.unit-suite.ts` |
-| R31 mode switch cancels or demotes inactive demand | 2, 6 | `pnpm --dir BridgeWeb exec vitest run src/core/demand/bridge-content-demand-reconciler.unit.test.ts`; `mise run verify-bridge-mode-idle-smoke` |
-| R32 reconciler is only membership authority | 2, 6 | Reconciler unit scenario tables; source scan for deleted scheduler/hydration owners |
-| R33 membership never truncates; concurrency bounds starts only | 1, 3, 6 | Red survivor browser test; executor pressure tests; live probe `truncatedVisibleItemCount == 0` |
-| R34 no parked demand states; `retryAfterVersion` deleted | 2, 6 | Reconciler liveness tests; `pnpm --dir BridgeWeb exec tsc --noEmit`; source scan for `retryAfterVersion` |
-| R35 selected preempts inside queue | 2, 3, 5 | Reconciler ordering tests; executor preemption tests; worker rank tests |
-| R36 ready results always land in cache; UI commit membership-gated | 4, 6 | Demand-loader cache tests and live scroll proof |
+| R26 every stale/reject path recovers or marks unhealthy | 3, 5 | Targeted demand loader/runtime tests plus `mise run verify-bridge-review-journey-smoke` and `mise run verify-bridge-mode-idle-smoke` |
+| R27 reopen storm guard remains intact | 5 | `mise run verify-bridge-mode-idle-smoke`; do not modify native metadata-plane reopen logic in this PR |
+| R28 review adjacent warming is speculative/bounded | 2, 3 | `pnpm --dir BridgeWeb exec vitest run src/core/demand/bridge-content-demand-reconciler.unit.test.ts src/review-viewer/content/review-content-demand-loader.unit.test.ts` |
+| R29 speculative content lands in worker-backed/shared cache | 3, 4 | `pnpm --dir BridgeWeb exec vitest run src/review-viewer/content/review-content-demand-loader.cache.unit-suite.ts src/review-viewer/theme/bridge-shiki-runtime.unit.test.ts` |
+| R30 speculative in-flight globally bounded as executor-stage start limit | 3 | `pnpm --dir BridgeWeb exec vitest run src/core/demand/bridge-resource-executor.unit.test.ts src/review-viewer/content/review-content-demand-loader.pressure.unit-suite.ts` |
+| R31 mode switch cancels or demotes inactive demand | 2, 5 | `pnpm --dir BridgeWeb exec vitest run src/core/demand/bridge-content-demand-reconciler.unit.test.ts`; `mise run verify-bridge-mode-idle-smoke` |
+| R32 reconciler is only membership authority | 2, 5 | Reconciler unit scenario tables; source scan for deleted scheduler/hydration owners |
+| R33 membership never truncates; concurrency bounds starts only | 1, 3, 5 | Red survivor browser test; executor pressure tests; live probe `truncatedVisibleItemCount == 0` |
+| R34 no parked demand states; `retryAfterVersion` deleted | 2, 5 | Reconciler liveness tests; `pnpm --dir BridgeWeb exec tsc --noEmit`; source scan for `retryAfterVersion` |
+| R35 selected preempts inside queue | 2, 3, 4 | Reconciler ordering tests; executor preemption tests; worker rank tests |
+| R36 ready results always land in cache; UI commit membership-gated | 3, 5 | Demand-loader cache test explicitly covering generation-fresh fetch, mid-flight membership exit, cache landing without stale UI, and later re-entry cache hit; live scroll proof |
 | R37 generation is an epoch over whole derivation | 2, 3 | Reconciler epoch reset tests and runtime stale/cancel tests |
-| R38 pause gates below-selected starts and re-stamps queue wait | 2, 4, 6 | Reconciler pause scenario table; live momentum-scroll session |
-| R39 rank survives worker boundary | 5 | Worker pool rank integration/unit test and Shiki/highlight cache tests |
-| R40 retention floor and byte cache are decoupled tiers | 5 | `mise run test -- --filter "BridgeContentDemandAdmission|AppPolicies"` |
-| Law 1 membership law | 1, 2, 3, 6 | Red survivor test, reconciler tables, source scans, live probe |
-| Law 2 priority law | 2, 3, 5 | Reconciler, executor, and worker rank tests |
-| Law 3 liveness law | 2, 6 | Reconciler liveness tests, `retryAfterVersion` deletion scan |
-| Law 4 landing law | 4, 6 | Cache/UI split tests and live proof |
+| R38 pause gates below-selected starts and re-stamps queue wait | 2, 3, 5 | Reconciler pause scenario table; live momentum-scroll session |
+| R39 rank survives worker boundary | 4 | Worker pool rank integration/unit test and Shiki/highlight cache tests |
+| R40 retention floor and byte cache are decoupled tiers | 4 | `mise run test -- --filter "BridgeContentDemandAdmission|AppPolicies"` |
+| Law 1 membership law | 1, 2, 3, 5 | Red survivor test, reconciler tables, source scans, live probe |
+| Law 2 priority law | 2, 3, 4 | Reconciler, executor, and worker rank tests |
+| Law 3 liveness law | 2, 5 | Reconciler liveness tests, `retryAfterVersion` deletion scan |
+| Law 4 landing law | 3, 5 | Cache/UI split tests and live proof |
 
 Proof seam honesty:
 
@@ -541,6 +560,10 @@ Line caps:
 - BridgeWeb source-structure cap: keep every TS/TSX file under 1000 lines.
   `visible-review-content-hydration.ts` is already 861 lines, so extraction is
   required if edits would push it near the cap.
+- `worktree-file-surface-runtime-support.ts` is already 915 lines, and slice 3
+  edits it. For every touched TS/TSX file over 800 lines, capture pre/post
+  `wc -l` in the slice proof and extract before growth makes the file a dumping
+  ground.
 - SwiftLint caps remain 1000 file / 800 type / 100 function. Split before
   crossing them.
 
@@ -556,9 +579,12 @@ Parallelization:
 
 - Parallel-safe: slice 1 red-test authoring and read-only worker-rank planning.
 - Parallel-safe after slice 2 stabilizes: worker rank tests can be drafted
-  while slice 3 integrates queue/executor, but the type merge must serialize.
-- Must serialize: slices 2 -> 3 -> 4 -> 6.
-- Swift R40 policy fix in slice 5 can be implemented in parallel with worker
+  while slice 3 integrates queue/executor/background tier, but the type merge
+  must serialize.
+- Must serialize: slices 2 -> 3 -> 5. The merged slice 3 is intentionally
+  larger because TypeScript cannot go green while scheduler deletion and
+  prefetch-pump replacement are split.
+- Swift R40 policy fix in slice 4 can be implemented in parallel with worker
   rank only if no telemetry attribute changes are needed; otherwise serialize
   with the telemetry allowlist writer.
 
@@ -568,17 +594,24 @@ Before the PR is considered ready, these deletions must be true:
 
 - `BridgeWeb/src/core/demand/bridge-demand-scheduler.ts` is deleted.
 - `BridgeWeb/src/core/demand/bridge-demand-scheduler.unit.test.ts` is deleted.
+- `BridgeWeb/src/app/bridge-app-review-content-prefetch-controller.ts` is
+  deleted.
+- `BridgeWeb/src/app/bridge-app-review-content-prefetch-controller.browser.test.tsx`
+  is deleted.
+- `BridgeWeb/src/review-viewer/content/review-content-prefetch-policy.ts` is
+  deleted.
+- `BridgeWeb/src/review-viewer/content/review-content-prefetch-policy.unit.test.ts`
+  is deleted.
 - `BridgeDemandScheduler` and `createBridgeDemandScheduler` do not compile
   anywhere.
+- Scheduler telemetry residue does not compile anywhere:
+  `configuredScheduler*`, `schedulerQueued*`,
+  `maxSchedulerQueuedIntentCount`, and `droppedLowerPriorityCount`.
 - `retryAfterVersion` does not exist in production or test types.
 - `visibleContentHydrationItemLimit` is not used as a membership cap.
 - `canQueueUnderPressure` is deleted.
 - `evictLowerPriorityPendingLoads` is deleted or no longer performs membership
   eviction; prefer deletion.
-- `BridgeWeb/src/app/bridge-app-review-content-prefetch-controller.ts` is
-  deleted.
-- `BridgeWeb/src/review-viewer/content/review-content-prefetch-policy.ts` is
-  deleted.
 - Prefetch pump tests are deleted or rewritten as reconciler background-tier
   tests.
 - `active` is not a content-demand lane emitted by new reconciler plans; it may
@@ -613,17 +646,23 @@ exit codes, and pass/fail counts where available:
 7. Targeted Swift tests pass:
    `mise run test -- --filter "BridgeContentDemandAdmission|AgentStudioOTLP|BridgeTelemetryBatchValidator"`.
 8. Targeted BridgeWeb smoke/behavior tests from the slices pass.
-9. `mise run verify-bridge-review-journey-smoke` passes.
-10. `mise run verify-bridge-mode-idle-smoke` passes.
-11. Live debug-observability momentum-scroll session proves
+9. Two separate diagnostic launches pass: first with
+   `AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=bridge-review-observability-smoke`
+   and `mise run verify-bridge-review-journey-smoke`, then after app
+   quit/cleanup a second launch with
+   `AGENTSTUDIO_STARTUP_DIAGNOSTIC_ACTION=bridge-review-to-file-view-observability-smoke`
+   and `mise run verify-bridge-mode-idle-smoke`.
+10. `bash scripts/verify-bridge-review-momentum-scroll-state-probe.sh` proves
     `window.__bridgeVisibleHydrationStateProbe.truncatedVisibleItemCount == 0`
     and `untrackedItemCount` drains to 0 after settle.
-12. User confirms the Review momentum-scroll UX no longer leaves visible items
+11. User confirms the Review momentum-scroll UX no longer leaves visible items
     stuck as placeholders.
-13. Source scans show no deleted legacy symbols remain.
-14. Every BridgeWeb TS/TSX file remains under 1000 lines; SwiftLint size caps
+12. Source scans show no deleted legacy files, legacy symbols, scheduler
+    telemetry residue, or reconciler-emitted content lane `active` remain.
+13. Every BridgeWeb TS/TSX file remains under 1000 lines; every touched TS/TSX
+    file over 800 lines has pre/post `wc -l` evidence; SwiftLint size caps
     remain green.
-15. If any new telemetry attribute was added, projection and validator tests
+14. If any new telemetry attribute was added, projection and validator tests
     were red-first and then green, and OTLP allowlists scrub unsafe data.
 
 Full-performance closeout is not satisfied by this PR unless the executor also
