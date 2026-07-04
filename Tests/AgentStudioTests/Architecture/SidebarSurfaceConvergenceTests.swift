@@ -62,13 +62,43 @@ struct SidebarSurfaceConvergenceTests {
             contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView.swift"),
             encoding: .utf8
         )
+        let visibilityButtonSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerVisibilityButton.swift"),
+            encoding: .utf8
+        )
 
         #expect(repoSource.contains("} toolbarRow: {"))
+        #expect(repoSource.contains("RepoExplorerVisibilityButton("))
         #expect(repoSource.contains("repoSidebarSortButton"))
         #expect(repoSource.contains("repoSidebarGroupingButton"))
         #expect(repoSource.contains("RepoExplorerGroupingMode.allCases"))
         #expect(repoSource.contains("LocalActionSpec.repoSidebarCurrentOrder.actionSpec"))
         #expect(repoSource.contains("LocalActionSpec.groupRepoExplorerWorktrees.actionSpec"))
+        #expect(visibilityButtonSource.contains("repoSidebarVisibilityButton"))
+        #expect(visibilityButtonSource.contains("LocalActionSpec.toggleRepoSidebarFavoritesOnly"))
         #expect(!repoSource.contains("InboxSidebarToolbarTooltipTarget"))
+    }
+
+    @Test("repo and inbox sort controls share the toolbar sort primitive")
+    func repoAndInboxSortControlsShareToolbarSortPrimitive() throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let repoSource = try String(
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Features/RepoExplorer/RepoExplorerView.swift"),
+            encoding: .utf8
+        )
+        let inboxSource = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/InboxNotification/Views/InboxSidebarComponents.swift"),
+            encoding: .utf8
+        )
+        let sharedSource = try String(
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/SharedComponents/SidebarSortButton.swift"),
+            encoding: .utf8
+        )
+
+        #expect(repoSource.contains("SidebarToolbarSortButton("))
+        #expect(inboxSource.contains("SidebarToolbarSortButton("))
+        #expect(sharedSource.contains("struct SidebarToolbarSortButton"))
     }
 }

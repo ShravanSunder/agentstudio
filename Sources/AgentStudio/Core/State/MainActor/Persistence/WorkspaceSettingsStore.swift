@@ -111,6 +111,7 @@ final class WorkspaceSettingsStore {
             _ = editorPreferenceAtom.bookmarkedEditorId
             _ = repoExplorerSidebarPrefsAtom.groupingMode
             _ = repoExplorerSidebarPrefsAtom.sortOrder
+            _ = repoExplorerSidebarPrefsAtom.repoVisibilityMode
             _ = inboxNotificationPrefsAtom.grouping
             _ = inboxNotificationPrefsAtom.sort
             _ = inboxNotificationPrefsAtom.bellEnabled
@@ -164,7 +165,8 @@ final class WorkspaceSettingsStore {
             editorChooser: .init(bookmarkedEditorId: editorPreferenceAtom.bookmarkedEditorId),
             repoExplorer: .init(
                 groupingMode: repoExplorerSidebarPrefsAtom.groupingMode,
-                sortOrder: repoExplorerSidebarPrefsAtom.sortOrder
+                sortOrder: repoExplorerSidebarPrefsAtom.sortOrder,
+                repoVisibilityMode: repoExplorerSidebarPrefsAtom.repoVisibilityMode
             ),
             sidebar: .init(),
             notifications: .init(
@@ -183,7 +185,8 @@ final class WorkspaceSettingsStore {
         editorPreferenceAtom.hydrate(bookmarkedEditorId: payload.editorChooser.bookmarkedEditorId)
         repoExplorerSidebarPrefsAtom.hydrate(
             groupingMode: payload.repoExplorer.groupingMode,
-            sortOrder: payload.repoExplorer.sortOrder
+            sortOrder: payload.repoExplorer.sortOrder,
+            repoVisibilityMode: payload.repoExplorer.repoVisibilityMode
         )
         inboxNotificationPrefsAtom.setGrouping(payload.notifications.grouping)
         inboxNotificationPrefsAtom.setSort(payload.notifications.sort)
@@ -502,18 +505,22 @@ private struct WorkspaceSettingsPayload: Codable {
     struct RepoExplorer: Codable {
         var groupingMode: RepoExplorerGroupingMode
         var sortOrder: RepoExplorerSortOrder
+        var repoVisibilityMode: RepoExplorerVisibilityMode
 
         init(
             groupingMode: RepoExplorerGroupingMode = .repo,
-            sortOrder: RepoExplorerSortOrder = .default
+            sortOrder: RepoExplorerSortOrder = .default,
+            repoVisibilityMode: RepoExplorerVisibilityMode = .all
         ) {
             self.groupingMode = groupingMode
             self.sortOrder = sortOrder
+            self.repoVisibilityMode = repoVisibilityMode
         }
 
         private enum CodingKeys: String, CodingKey {
             case groupingMode
             case sortOrder
+            case repoVisibilityMode
         }
 
         init(from decoder: Decoder) throws {
@@ -524,6 +531,9 @@ private struct WorkspaceSettingsPayload: Codable {
             self.sortOrder =
                 (try? container.decodeIfPresent(RepoExplorerSortOrder.self, forKey: .sortOrder))
                 ?? .default
+            self.repoVisibilityMode =
+                (try? container.decodeIfPresent(RepoExplorerVisibilityMode.self, forKey: .repoVisibilityMode))
+                ?? .all
         }
     }
 

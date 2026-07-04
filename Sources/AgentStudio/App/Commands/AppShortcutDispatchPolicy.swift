@@ -93,6 +93,7 @@ enum AppShortcutDispatchPolicy {
             .clearAllInboxNotifications, .showPaneInboxNotifications, .clearPaneInboxNotifications,
             .showWorktreeSidebar,
             .setRepoSidebarGroupingRepo, .setRepoSidebarGroupingPane, .setRepoSidebarGroupingTab,
+            .setRepoSidebarVisibilityMode, .setRepoSidebarSortOrder,
             .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane, .setInboxGroupingNone,
             .newFloatingTerminal, .newWindow, .closeWindow,
             .showCommandBarEverything, .showCommandBarCommands, .showCommandBarPanes,

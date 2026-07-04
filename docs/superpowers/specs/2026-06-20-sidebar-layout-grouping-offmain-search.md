@@ -64,6 +64,9 @@ repo rows may keep only the existing automatic generated colors.
    repo/worktree/pane color columns.
 10. Remove repo/worktree manual color UX and keep only automatic generated repo
     colors for current repo row presentation.
+11. Route sidebar state-changing controls that need programmatic proof through
+    app command definitions and generic IPC command execution, with
+    command-specific surface/specifier validation and authorization.
 
 ## Non-Goals
 
@@ -86,6 +89,17 @@ repo rows may keep only the existing automatic generated colors.
 - Do not solve the remaining sidebar issues called out for later work.
 - Do not use visual screenshots as the primary proof for search/projection performance.
 - Do not use unsafe no-auth IPC as the default verification path.
+- Do not add a bespoke `sidebar.filter.*`, `sidebar.sort.*`, or
+  feature-specific IPC method when the operation is already an app command.
+- Do not add command-specific argument decoding switches to the IPC adapter for
+  each new sidebar command.
+- Do not treat `command.execute` as one undifferentiated debug-only authority
+  once a command advertises explicit required privileges in its command spec.
+- Do not add synthetic, random, or test-only product commands just to prove the
+  generic IPC command path.
+- Do not leave obsolete bespoke IPC routes, duplicate command definitions, or
+  feature-specific adapter cruft after a command-shaped sidebar action moves to
+  the generic command path.
 
 ## Shared Layout Boundary
 
@@ -255,10 +269,10 @@ Required behavior:
   favorite state.
 - Favorite must not create a fourth grouping mode. The grouping modes remain
   exactly Repo, Pane, and Tab.
-- Favorite ordering is mode-local: favorited repos sort before non-favorites
-  inside each group, then the selected repo sort order applies within each
-  favorite partition. This makes the tag navigationally useful without changing
-  group identity.
+- Favorite state must not reorder the normal all-repos list. Bookmarking or
+  unbookmarking a repo must not make rows jump in the default visibility mode.
+  The explicit favorite visibility/filter mode is the way to show favorites
+  only.
 - Empty/loading repos may show disabled favorite affordances until they have a
   stable repo id.
 - Existing manual repo icon/checkout color UX must be removed or disabled in
@@ -319,6 +333,134 @@ SharedComponents may render a passed favorite value and invoke a callback, but
 must not read favorite atoms or storage directly. SharedComponents may also
 render a passed tab shell color value, note affordance state, or tag count in
 later UI slices, but must not read SQLite, atoms, or global stores directly.
+
+## Command and IPC Contract
+
+Sidebar controls are UI entry points into the app command system when they
+change app state and need to be testable through programmatic control. The
+command system owns command identity, presentation metadata, argument schema,
+surface/specifier semantics, and execution owner routing. IPC owns transport,
+authentication, authorization, public DTO validation, and forwarding to the
+command system.
+
+The steady-state command path is:
+
+```text
+sidebar UI control / keyboard / command bar / IPC command.execute
+  -> AppCommand identity
+  -> AppCommandSpec
+       declares execution mode, argument schema, target/surface specifiers,
+       required privileges, and presentation metadata
+  -> generic command execution request
+       validates headless execution, argument schema, command-specific
+       surface/specifier rules, and command-specific required privileges
+  -> ShellCommandHandling or WorkspaceCommandHandling owner
+  -> feature/app state owner
+```
+
+Required behavior:
+
+- `command.list` projects all command specs that are IPC-visible, including
+  execution modes, target handle kinds, argument schema, and required
+  privileges.
+- `command.execute` is the generic IPC execution surface for commands marked
+  headless-executable by `AppCommandSpec`.
+- `command.execute` must not mutate atoms, stores, sidebar state, or feature
+  state directly. It forwards a validated command execution request to the same
+  command owner used by keyboard shortcuts, command-bar execution, and UI
+  controls.
+- `command.execute` validation is generic and data-driven from the resolved
+  `AppCommandSpec`. It validates command existence, headless executability,
+  target handle kind, required arguments, unexpected arguments, enum values,
+  surface/specifier shape, and required privileges before dispatch.
+- Public raw IPC arguments are validated against the command's declared
+  `argumentSchema` before any typed command arguments are constructed.
+- Typed argument construction belongs with the command/request contract, not in
+  `AgentStudioIPCCommandAdapter` feature switches. Adding a new
+  argument-bearing command may require adding a command-owned typed argument
+  case or decoder, but it must not require adding feature-specific decoding
+  logic to the IPC adapter.
+- `command.execute` must not rely only on the method-level IPC privilege for
+  authorization. After resolving the `AppCommandSpec`, the app must authorize
+  the command's declared `requiredPrivileges` for the requested target/surface
+  before dispatching.
+- Surface-specific sidebar commands must carry an unambiguous surface through
+  either the command identity or a declared argument/target specifier. IPC
+  validation must reject applying a repo command to the inbox surface or an
+  inbox command to the repo surface.
+- UI presentation remains separate. Commands that open interactive pickers,
+  require user input, or only present the command bar must use explicit UI
+  presentation authority such as `ui.commandBar.open`, not `command.execute`.
+- Existing typed sidebar IPC methods may remain as semantic convenience APIs
+  where already present, but they are not the pattern for new sidebar sort,
+  filter, grouping, favorite, or visibility controls that are command-shaped.
+
+Generic validation shape:
+
+```text
+IPCCommandExecuteParams
+  -> parse command id
+  -> load AppCommandSpec
+  -> require .headless execution mode
+  -> validate target handle kind / declared surface specifier
+  -> validate argument names and values from argumentSchema
+  -> authorize requiredPrivileges for target/surface
+  -> build command-owned typed AppCommandExecutionArguments
+  -> dispatch AppCommandExecutionRequest to the command owner
+```
+
+The IPC adapter may contain the generic schema validator and the bridge to the
+command owner. It must not know that repo visibility uses
+`RepoExplorerVisibilityMode`, repo sort uses `RepoExplorerSortOrder`, or inbox
+grouping uses `InboxNotificationGrouping`; those are command-system concerns.
+
+Implementation proof must use real app commands from the sidebar surfaces, not
+throwaway product commands. If a generic helper needs isolated coverage, test
+the helper directly with local test fixtures or command-owned test doubles that
+do not enter the product command catalog.
+
+Repo sidebar requirements for this slice:
+
+- Repo grouping controls use command specs for Repo, Pane, and Tab grouping.
+- Repo sort order uses a command spec with a typed order argument.
+- Repo favorite visibility/filter mode uses a command spec with a typed mode
+  argument; Favorite remains a filter/view mode, not a grouping mode.
+- Bookmark/favorite row toggles may remain direct feature callbacks for pointer
+  interaction, but any programmatic toggle surface must be modeled as an app
+  command before it is exposed through IPC.
+
+Inbox sidebar requirements for this slice:
+
+- Inbox grouping controls use command specs for the inbox surface.
+- If inbox sort, grouping, or filter controls become programmatically drivable,
+  they must use the same command-spec and generic `command.execute` contract
+  rather than a parallel inbox-specific IPC command family.
+
+Spec boundary / separability map:
+
+```text
+AppCommand / AppCommandSpec
+  owns: command identity, surface/specifier vocabulary, argument schema,
+        required privileges, command presentation metadata
+  exposes: command definition and typed execution request contract
+
+AgentStudioAppIPC
+  owns: IPC method registry, transport auth, grant/authorization checks,
+        public DTO decoding, method dispatch
+  exposes: command.list and command.execute
+
+AgentStudio/App/IPCComposition
+  owns: concrete adapter from IPC command DTOs to app command execution
+  must not own: feature-specific command semantics or atom mutation
+
+ShellCommandHandling / WorkspaceCommandHandling
+  owns: command execution against app/window/sidebar/workspace owners
+  exposes: typed execution outcome
+
+Feature state owners
+  own: repo sidebar state, inbox sidebar state, persistence, projections
+  expose: callbacks/actions invoked by command owners
+```
 
 ## Search and Projection Concurrency
 
@@ -407,13 +549,21 @@ mise run verify-debug-observability
 
 For sidebar performance proof, the later plan should either extend the existing Victoria-backed performance workload or define a sidebar-specific marker-scoped verifier. JSONL may be a local debug artifact, not the default proof path.
 
-IPC may be used for semantic control only if the app exposes a sidebar-safe semantic contract. If not, startup diagnostics or future sidebar-specific IPC should be specified rather than screen-driving the app.
+IPC may be used for semantic control only through sidebar-safe contracts. For
+command-shaped sidebar actions, the preferred contract is `AppCommandSpec`
+discovery through `command.list` and execution through generic
+`command.execute`. Startup diagnostics or future semantic IPC methods are
+reserved for non-command behavior, query/read APIs, or app operations that do
+not fit the command system.
 
 Sidebar IPC proof, if added, must be:
 
 - escrow-authenticated
 - headless
 - app-owned and semantic, not click-coordinate or visual automation
+- command-spec driven for command-shaped actions, including declared argument
+  schema, surface/specifier validation, and command-specific required
+  privileges
 - limited to allowlisted DTOs containing stable ids, enums, booleans, counts, and scrubbed buckets
 - free of notification text, search text, query strings, repo/worktree names, pane/tab display labels, raw paths, prompts, terminal buffers, tokens, and tool output
 - separated from `ui.*` presentation authority when used for background-safe proof
@@ -452,6 +602,7 @@ Trust boundaries:
 - app process to IPC clients
 - app process to local OTLP collector
 - debug proof scripts to the running app
+- generic IPC command execution to command-specific app owners
 
 Required constraints:
 
@@ -460,6 +611,10 @@ Required constraints:
 - sidebar IPC proof must use debug-token escrow and fail closed if `AGENTSTUDIO_IPC_UNSAFE_NO_AUTH` is set
 - debug-token escrow must preserve single-use token consumption and replay-failure semantics
 - unsafe IPC auth bypass remains debug-only, opt-in, and out of scope for sidebar proof
+- `command.execute` must enforce the resolved command spec's required
+  privileges and surface/target specifier rules before dispatch
+- IPC command adapters must not become privileged feature controllers; they
+  validate public DTOs and forward to app command owners
 - state handoff files are not proof; Victoria/log queries are proof
 - shared UI components cannot gain privileged command or IPC semantics
 
@@ -476,7 +631,17 @@ The implementation plan must include:
 - architecture lint coverage for forbidden sleep/timer patterns if new async delay code is added
 - focused UI/presentation tests for shared header layout composition
 - core SQLite metadata migration, repo favorite toggle persistence, and
-  favorite-first ordering inside Repo, Pane, and Tab groups
+  no-row-jump favorite toggling inside normal Repo, Pane, and Tab views
+- command catalog tests proving sidebar command specs expose correct execution
+  modes, argument schema, surface/specifier vocabulary, and required
+  privileges
+- IPC command execution tests proving `command.execute` forwards through the
+  generic command system, rejects invalid arguments/specifiers before mutation,
+  enforces command-specific authorization, and does not require
+  feature-specific adapter switches for new argument-bearing sidebar commands
+- cleanup/architecture tests proving obsolete bespoke sidebar IPC routes,
+  duplicate command definitions, and test-only product commands are absent from
+  the final product surface
 - metrics tests or verifier updates proving sidebar performance events are emitted and scrubbed
 - baseline vs post-change Victoria-backed measurement for inbox search/list projection with pass/fail comparator rules
 - semantic proof that exercises changed sidebar behavior, or an explicit blocked proof lane if no background-safe sidebar driver exists
@@ -496,3 +661,6 @@ The implementation plan must include:
 9. Repo/worktree manual color UX is removed from this slice; keep only existing
    automatic generated repo colors and do not add `repo.color_hex`,
    `worktree.color_hex`, or `pane.color_hex`.
+10. Sidebar commands that need programmatic control use `AppCommandSpec` plus
+    generic `command.execute`; feature-specific IPC routes are not added for
+    command-shaped sort, grouping, favorite, or visibility controls.

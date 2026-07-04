@@ -64,6 +64,10 @@ struct RepoExplorerWorktreeRowContent: View {
         isFavorite ? "Remove favorite" : "Add favorite"
     }
 
+    static func favoriteSystemImageName(isFavorite: Bool) -> String {
+        isFavorite ? "bookmark.fill" : "bookmark"
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: AppStyles.Shell.Sidebar.rowContentSpacing) {
             HStack(spacing: AppStyles.General.Spacing.tight) {
@@ -83,7 +87,7 @@ struct RepoExplorerWorktreeRowContent: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                 Button(action: onToggleFavorite) {
-                    Image(systemName: isFavorite ? "star.fill" : "star")
+                    Image(systemName: Self.favoriteSystemImageName(isFavorite: isFavorite))
                         .font(.system(size: AppStyles.General.Icon.compact, weight: .medium))
                         .foregroundStyle(isFavorite ? iconColor : .secondary)
                         .frame(
@@ -246,7 +250,7 @@ struct RepoExplorerWorktreeRow: View {
             } label: {
                 Label(
                     RepoExplorerWorktreeRowContent.favoriteAccessibilityLabel(isFavorite: isFavorite),
-                    systemImage: isFavorite ? "star.slash" : "star"
+                    systemImage: RepoExplorerWorktreeRowContent.favoriteSystemImageName(isFavorite: isFavorite)
                 )
             }
 

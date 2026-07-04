@@ -5,6 +5,7 @@ import Observation
 final class RepoExplorerSidebarPrefsAtom {
     private(set) var groupingMode: RepoExplorerGroupingMode = .repo
     private(set) var sortOrder: RepoExplorerSortOrder = .default
+    private(set) var repoVisibilityMode: RepoExplorerVisibilityMode = .all
 
     func setGroupingMode(_ groupingMode: RepoExplorerGroupingMode) {
         self.groupingMode = groupingMode
@@ -18,13 +19,23 @@ final class RepoExplorerSidebarPrefsAtom {
         self.sortOrder = sortOrder
     }
 
-    func hydrate(groupingMode: RepoExplorerGroupingMode, sortOrder: RepoExplorerSortOrder) {
+    func setRepoVisibilityMode(_ mode: RepoExplorerVisibilityMode) {
+        repoVisibilityMode = mode
+    }
+
+    func hydrate(
+        groupingMode: RepoExplorerGroupingMode,
+        sortOrder: RepoExplorerSortOrder,
+        repoVisibilityMode: RepoExplorerVisibilityMode
+    ) {
         self.groupingMode = groupingMode
         self.sortOrder = sortOrder
+        self.repoVisibilityMode = repoVisibilityMode
     }
 
     func reset() {
         groupingMode = .repo
         sortOrder = .default
+        repoVisibilityMode = .all
     }
 }

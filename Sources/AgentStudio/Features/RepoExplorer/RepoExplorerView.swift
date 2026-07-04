@@ -6,6 +6,11 @@ enum RepoExplorerFocus: Hashable {
     case filter
 }
 
+private enum RepoSidebarToolbarTooltipTarget: Hashable {
+    case sort
+    case grouping
+}
+
 final class RepoExplorerFocusableView: NSView {
     var onFocusChange: @MainActor (Bool) -> Void = { _ in }
 
@@ -82,6 +87,7 @@ struct RepoExplorerView: View {
     static let surfaceListPolicy = SidebarSurfaceListPolicy.nativeSidebarList
     static let groupHeaderChromePolicy = SidebarRepoGroupHeader<EmptyView>.chromePolicy
     static let headerLayoutPolicy = SidebarHeaderLayout<EmptyView, EmptyView, EmptyView, EmptyView>.policy
+    static let tooltipCoordinateSpaceName = "repoSidebarHeaderTooltips"
 
     init(
         store: WorkspaceStore,
@@ -118,6 +124,8 @@ struct RepoExplorerView: View {
     @State private var filterText: String = ""
     @State private var debouncedQuery: String = ""
     @State private var groupingMenuOpen = false
+    @State private var hoveredTooltipTarget: RepoSidebarToolbarTooltipTarget?
+    @State private var tooltipFrames: [RepoSidebarToolbarTooltipTarget: CGRect] = [:]
     @FocusState private var focusedField: RepoExplorerFocus?
 
     @State private var debounceTask: Task<Void, Never>?
@@ -139,6 +147,7 @@ struct RepoExplorerView: View {
             repoEnrichmentByRepoId: sidebarRepoEnrichmentByRepoId,
             groupingMode: repoExplorerPrefs.groupingMode,
             sortOrder: repoExplorerPrefs.sortOrder,
+            visibilityMode: repoExplorerPrefs.repoVisibilityMode,
             query: debouncedQuery,
             paneLocationsByWorktreeId: atom(\.workspaceLookup).paneLocationsByWorktreeId(
                 workspacePane: store.paneAtom,
@@ -176,20 +185,14 @@ struct RepoExplorerView: View {
             snapshot: sidebarSnapshot,
             expandedGroupIds: Set(sidebarCache.expandedGroups.map(\.rawValue)),
             isFiltering: isFiltering,
-            trigger: initialProjectionTrigger
+            trigger: initialProjectionTrigger,
+            worktreeFactsByWorktreeId: sidebarWorktreeFactsByWorktreeId
         )
     }
 
-    private var worktreeStatusById: [UUID: GitBranchStatus] {
-        let factsByWorktreeId = Dictionary(
-            uniqueKeysWithValues: sidebarRepos.flatMap(\.worktrees).compactMap { worktree in
-                repoCache.worktreeFacts(for: worktree.id).map { (worktree.id, $0) }
-            }
-        )
-        return Self.mergeBranchStatuses(
-            worktreeEnrichmentsByWorktreeId: factsByWorktreeId.compactMapValues { $0.enrichment },
-            pullRequestCountsByWorktreeId: factsByWorktreeId.compactMapValues { $0.pullRequestCount }
-        )
+    private var sidebarWorktreeFactsByWorktreeId: [UUID: RepoWorktreeCacheFacts] {
+        let sidebarWorktreeIds = Set(sidebarRepos.flatMap(\.worktrees).map(\.id))
+        return repoCache.worktreeFactsSnapshot().filter { sidebarWorktreeIds.contains($0.key) }
     }
 
     var body: some View {
@@ -202,8 +205,8 @@ struct RepoExplorerView: View {
 
             filterBar
 
-            if currentProjection.showsNoResults {
-                noResultsView
+            if currentProjection.emptyState != .content {
+                RepoExplorerEmptyStateView(emptyState: currentProjection.emptyState)
             } else {
                 groupList
             }
@@ -294,45 +297,68 @@ struct RepoExplorerView: View {
         } statusRow: {
             EmptyView()
         }
+        .coordinateSpace(name: Self.tooltipCoordinateSpaceName)
+        .onPreferenceChange(HoverTooltipAnchorPreferenceKey<RepoSidebarToolbarTooltipTarget>.self) {
+            tooltipFrames = $0
+        }
+        .overlay(alignment: .topLeading) {
+            GeometryReader { geometryProxy in
+                FloatingHoverTooltipPresenter(
+                    activeTarget: activeTooltipTarget,
+                    anchorFrames: tooltipFrames,
+                    availableWidth: geometryProxy.size.width,
+                    verticalAnchor: .aboveAnchor,
+                    verticalOffset: HoverTooltipPlacement.aboveAnchorVerticalOffset,
+                    tooltipValue: tooltipValue(for:)
+                )
+                .allowsHitTesting(false)
+            }
+        }
         .transition(.move(edge: .top).combined(with: .opacity))
     }
 
     private var repoToolbarRow: some View {
         let sortAction = LocalActionSpec.repoSidebarCurrentOrder.actionSpec
         let groupingAction = LocalActionSpec.groupRepoExplorerWorktrees.actionSpec
+        let isFavoritesOnly = repoExplorerPrefs.repoVisibilityMode == .favoritesOnly
         return HStack(spacing: AppStyles.General.Spacing.standard) {
             Spacer(minLength: 0)
 
-            Button {
-                repoExplorerPrefs.toggleSortOrder()
-            } label: {
-                toolbarIcon(sortAction.icon)
-                    .rotationEffect(.degrees(repoExplorerPrefs.sortOrder == .ascending ? 0 : 180))
-                    .animation(.easeInOut(duration: 0.18), value: repoExplorerPrefs.sortOrder)
+            RepoExplorerVisibilityButton(isFavoritesOnly: isFavoritesOnly) {
+                repoExplorerPrefs.setRepoVisibilityMode(isFavoritesOnly ? .all : .favoritesOnly)
             }
-            .buttonStyle(.borderless)
-            .accessibilityLabel(sortAction.label)
-            .accessibilityIdentifier("repoSidebarSortButton")
-            .controlHelp(
-                sortAction.controlTooltipRenderValue(
+
+            SidebarToolbarSortButton(
+                sortValue: repoExplorerPrefs.sortOrder,
+                isReversed: repoExplorerPrefs.sortOrder == .descending,
+                label: sortAction.label,
+                accessibilityIdentifier: "repoSidebarSortButton",
+                tooltipValue: sortAction.controlTooltipRenderValue(
                     provenance: .localAction(rawValue: "repoSidebarCurrentOrder"),
                     textOverride: "Sort \(repoExplorerPrefs.sortOrder.title.lowercased())"
-                )
+                ),
+                icon: sortAction.icon,
+                tooltipTarget: RepoSidebarToolbarTooltipTarget.sort,
+                tooltipCoordinateSpaceName: Self.tooltipCoordinateSpaceName,
+                frameAccessibilityIdentifier: "repoSidebarSortButtonFrame",
+                onHover: { updateTooltipTarget(.sort, isHovered: $0) },
+                onToggle: repoExplorerPrefs.toggleSortOrder
             )
 
-            Button {
-                groupingMenuOpen.toggle()
-            } label: {
-                toolbarIcon(repoExplorerPrefs.groupingMode.icon)
-            }
-            .buttonStyle(.borderless)
-            .accessibilityLabel(groupingAction.label)
-            .accessibilityIdentifier("repoSidebarGroupingButton")
-            .controlHelp(
-                groupingAction.controlTooltipRenderValue(
+            SidebarToolbarActionButton(
+                label: groupingAction.label,
+                accessibilityIdentifier: "repoSidebarGroupingButton",
+                tooltipValue: groupingAction.controlTooltipRenderValue(
                     provenance: .localAction(rawValue: "groupRepoExplorerWorktrees"),
                     textOverride: "Group"
-                )
+                ),
+                icon: repoExplorerPrefs.groupingMode.icon,
+                tooltipTarget: RepoSidebarToolbarTooltipTarget.grouping,
+                tooltipCoordinateSpaceName: Self.tooltipCoordinateSpaceName,
+                onHover: { updateTooltipTarget(.grouping, isHovered: $0) },
+                action: {
+                    groupingMenuOpen.toggle()
+                }
             )
             .popover(isPresented: $groupingMenuOpen) {
                 VStack(alignment: .leading, spacing: 4) {
@@ -363,29 +389,30 @@ struct RepoExplorerView: View {
         )
     }
 
-    private func toolbarIcon(_ icon: CommandIcon) -> some View {
-        icon.swiftUIImage(size: AppStyles.General.Icon.compact)
-            .frame(
-                width: AppStyles.General.Button.compact,
-                height: AppStyles.General.Button.compact
-            )
-            .foregroundStyle(Color.secondary)
-            .contentShape(Rectangle())
+    private var activeTooltipTarget: RepoSidebarToolbarTooltipTarget? {
+        groupingMenuOpen ? nil : hoveredTooltipTarget
     }
 
-    private var noResultsView: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: AppStyles.General.Typography.text2xl))
-                .foregroundStyle(.secondary)
-                .opacity(0.5)
-
-            Text("No results")
-                .font(.system(size: AppStyles.General.Typography.textSm, weight: .medium))
-                .foregroundStyle(.secondary)
+    private func updateTooltipTarget(_ target: RepoSidebarToolbarTooltipTarget, isHovered: Bool) {
+        withAnimation(.easeInOut(duration: AppStyles.General.Animation.fast)) {
+            hoveredTooltipTarget = isHovered ? target : nil
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .transition(.opacity.animation(.easeOut(duration: 0.12)))
+    }
+
+    private func tooltipValue(for target: RepoSidebarToolbarTooltipTarget) -> ControlTooltipRenderValue? {
+        switch target {
+        case .sort:
+            let sortAction = LocalActionSpec.repoSidebarCurrentOrder.actionSpec
+            return sortAction.controlTooltipRenderValue(
+                provenance: .localAction(rawValue: "repoSidebarCurrentOrder"),
+                textOverride: "Sort \(repoExplorerPrefs.sortOrder.title.lowercased())"
+            )
+        case .grouping:
+            return LocalActionSpec.groupRepoExplorerWorktrees.actionSpec.controlTooltipRenderValue(
+                provenance: .localAction(rawValue: "groupRepoExplorerWorktrees"),
+                textOverride: "Group"
+            )
+        }
     }
 
     private var groupList: some View {
@@ -436,17 +463,18 @@ struct RepoExplorerView: View {
                                 for: resolvedWorktreeContext.worktree,
                                 in: resolvedWorktreeContext.repo
                             ),
-                            branchName: branchName(for: resolvedWorktreeContext.worktree),
+                            branchName: cachedProjectionResult.branchNameByWorktreeId[
+                                resolvedWorktreeContext.worktree.id
+                            ] ?? "detached HEAD",
                             placementText: resolvedWorktreeContext.placementContext?.displayText ?? "",
                             checkoutIconKind: checkoutIconKind(
                                 for: resolvedWorktreeContext.worktree,
                                 in: resolvedWorktreeContext.repo
                             ),
-                            iconColor: colorForCheckout(
-                                repo: resolvedWorktreeContext.repo,
-                                in: resolvedWorktreeContext.group
-                            ),
-                            branchStatus: worktreeStatusById[resolvedWorktreeContext.worktree.id] ?? .unknown,
+                            iconColor: colorForCheckout(hex: resolvedWorktreeContext.checkoutColorHex),
+                            branchStatus: cachedProjectionResult.branchStatusByWorktreeId[
+                                resolvedWorktreeContext.worktree.id
+                            ] ?? .unknown,
                             unreadCount: unreadCount(resolvedWorktreeContext.worktree),
                             isFavorite: resolvedWorktreeContext.repo.isFavorite,
                             onToggleFavorite: {
@@ -515,17 +543,14 @@ struct RepoExplorerView: View {
         .transition(.opacity.animation(.easeOut(duration: 0.12)))
     }
 
-    private func colorForCheckout(repo: RepoPresentationItem, in group: RepoPresentationGroup) -> Color {
-        let colorHex = RepoPresentationColoring.checkoutColorHex(
-            for: repo, in: group
-        )
-        return Color(nsColor: NSColor(hex: colorHex) ?? .controlAccentColor)
+    private func colorForCheckout(hex colorHex: String) -> Color {
+        Color(nsColor: NSColor(hex: colorHex) ?? .controlAccentColor)
     }
 
     private func iconForGroup(_ group: RepoPresentationGroup) -> AppEntityIcon {
-        Self.sourceGroupIcon(
+        Self.groupIcon(
             for: group,
-            groupingMode: repoExplorerPrefs.groupingMode
+            projectionGroupingMode: cachedProjectionResult.snapshot.groupingMode
         )
     }
 
@@ -575,13 +600,6 @@ struct RepoExplorerView: View {
         Self.checkoutIconKind(for: worktree, in: repo)
     }
 
-    private func branchName(for worktree: Worktree) -> String {
-        atom(\.paneDisplay).resolvedBranchName(
-            worktree: worktree,
-            enrichment: repoCache.worktreeEnrichment(for: worktree.id)
-        )
-    }
-
     private func hideFilter() {
         filterText = ""
         debouncedQuery = ""
@@ -599,6 +617,7 @@ struct RepoExplorerView: View {
         let snapshot: RepoExplorerSnapshot
         let expandedGroupIds: Set<String>
         let isFiltering: Bool
+        let worktreeFactsByWorktreeId: [UUID: RepoWorktreeCacheFacts]
     }
 
     private var projectionRequestKey: ProjectionRequestKey {
@@ -606,25 +625,28 @@ struct RepoExplorerView: View {
         return ProjectionRequestKey(
             snapshot: request.snapshot,
             expandedGroupIds: request.expandedGroupIds,
-            isFiltering: request.isFiltering
+            isFiltering: request.isFiltering,
+            worktreeFactsByWorktreeId: request.worktreeFactsByWorktreeId
         )
     }
 
-    private func refreshProjection(force: Bool = false) {
+    private func refreshProjection(force: Bool = false, trigger: String? = nil) {
         let clock = ContinuousClock()
         let requestBuildStart = clock.now
         let request = projectionRequest
         let requestKey = ProjectionRequestKey(
             snapshot: request.snapshot,
             expandedGroupIds: request.expandedGroupIds,
-            isFiltering: request.isFiltering
+            isFiltering: request.isFiltering,
+            worktreeFactsByWorktreeId: request.worktreeFactsByWorktreeId
         )
         if !force,
             let cachedProjectionRequest,
             ProjectionRequestKey(
                 snapshot: cachedProjectionRequest.snapshot,
                 expandedGroupIds: cachedProjectionRequest.expandedGroupIds,
-                isFiltering: cachedProjectionRequest.isFiltering
+                isFiltering: cachedProjectionRequest.isFiltering,
+                worktreeFactsByWorktreeId: cachedProjectionRequest.worktreeFactsByWorktreeId
             ) == requestKey
         {
             return
@@ -642,13 +664,20 @@ struct RepoExplorerView: View {
         }
 
         projectionGeneration += 1
-        let projectionTrigger = sidebarProjectionTrigger(previous: cachedProjectionRequest, next: request)
+        let projectionTrigger =
+            trigger
+            ?? Self.sidebarProjectionTrigger(
+                previous: cachedProjectionRequest,
+                next: request,
+                initialProjectionTrigger: initialProjectionTrigger
+            )
         let generatedRequest = RepoExplorerProjectionRequest(
             generation: projectionGeneration,
             snapshot: request.snapshot,
             expandedGroupIds: request.expandedGroupIds,
             isFiltering: request.isFiltering,
-            trigger: projectionTrigger
+            trigger: projectionTrigger,
+            worktreeFactsByWorktreeId: request.worktreeFactsByWorktreeId
         )
         let requestBuildDuration = requestBuildStart.duration(to: clock.now)
         performanceTraceRecorder?.recordDuration(
@@ -797,27 +826,6 @@ struct RepoExplorerView: View {
         return attributes
     }
 
-    private func sidebarProjectionTrigger(
-        previous: RepoExplorerProjectionRequest?,
-        next: RepoExplorerProjectionRequest
-    ) -> String {
-        guard let previous else {
-            return initialProjectionTrigger == "surface_switch"
-                ? "surface_switch"
-                : (next.snapshot.groupingMode == .repo ? "startup_diagnostic" : "grouping_switch")
-        }
-        if previous.snapshot.groupingMode != next.snapshot.groupingMode {
-            return "grouping_switch"
-        }
-        if previous.snapshot.query != next.snapshot.query {
-            return "search"
-        }
-        if previous.expandedGroupIds != next.expandedGroupIds {
-            return "collapse_toggle"
-        }
-        return "data_refresh"
-    }
-
 }
 
 private struct RepoExplorerLoadingSectionHeaderRow: View {
@@ -864,137 +872,5 @@ private struct RepoExplorerLoadingRepoRow: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .opacity(0.55)
-    }
-}
-
-extension RepoExplorerView {
-    static func checkoutColorHex(
-        for repo: RepoPresentationItem,
-        in group: RepoPresentationGroup
-    ) -> String {
-        RepoPresentationColoring.checkoutColorHex(
-            for: repo,
-            in: group
-        )
-    }
-
-    static func sourceGroupIcon(
-        for group: RepoPresentationGroup,
-        groupingMode: RepoExplorerGroupingMode = .repo
-    ) -> AppEntityIcon {
-        switch groupingMode {
-        case .pane:
-            return .paneGroup
-        case .tab:
-            return .tabGroup
-        case .repo:
-            break
-        }
-
-        guard
-            let colorHex = RepoPresentationColoring.sourceGroupColorHex(
-                for: group
-            )
-        else {
-            return .repo
-        }
-        return .coloredRepo(
-            colorHex: colorHex
-        )
-    }
-
-    static func buildRepoMetadata(
-        repos: [RepoPresentationItem],
-        repoEnrichmentByRepoId: [UUID: RepoEnrichment]
-    ) -> [UUID: RepoIdentityMetadata] {
-        RepoPresentationColoring.buildRepoMetadata(
-            repos: repos,
-            repoEnrichmentByRepoId: repoEnrichmentByRepoId
-        )
-    }
-
-    static func buildListEntries(
-        groups: [RepoPresentationGroup],
-        expandedGroupIds: Set<String>,
-        isFiltering: Bool
-    ) -> [RepoExplorerListEntry] {
-        RepoExplorerRowIndex.buildListEntries(
-            groups: groups,
-            expandedGroupIds: expandedGroupIds,
-            isFiltering: isFiltering
-        )
-    }
-
-    static func projectionFingerprint(for projection: SidebarProjection) -> String {
-        let resolvedGroupsFingerprint = projection.resolvedGroups.map { group in
-            let repoIds = group.repos.map(\.id.uuidString).joined(separator: ",")
-            return "\(group.id):\(repoIds)"
-        }
-        .joined(separator: "|")
-
-        let loadingFingerprint = projection.loadingRepos
-            .map { "\($0.id.uuidString):\($0.name)" }
-            .joined(separator: "|")
-
-        return """
-            resolved[\(resolvedGroupsFingerprint)]\
-            /loading[\(loadingFingerprint)]\
-            /noResults[\(projection.showsNoResults)]
-            """
-    }
-
-    static func projectSidebar(
-        repos: [RepoPresentationItem],
-        repoEnrichmentByRepoId: [UUID: RepoEnrichment],
-        groupingMode: RepoExplorerGroupingMode = .repo,
-        query: String
-    ) -> SidebarProjection {
-        RepoExplorerProjection.project(
-            RepoExplorerSnapshot(
-                repos: repos,
-                repoEnrichmentByRepoId: repoEnrichmentByRepoId,
-                groupingMode: groupingMode,
-                query: query
-            )
-        )
-    }
-
-    static func resolvedRepos(
-        _ repos: [RepoPresentationItem],
-        enrichmentByRepoId: [UUID: RepoEnrichment]
-    ) -> [RepoPresentationItem] {
-        RepoExplorerProjection.resolvedRepos(repos, enrichmentByRepoId: enrichmentByRepoId)
-    }
-
-    static func loadingRepos(
-        _ repos: [RepoPresentationItem],
-        enrichmentByRepoId: [UUID: RepoEnrichment]
-    ) -> [RepoPresentationItem] {
-        RepoExplorerProjection.loadingRepos(repos, enrichmentByRepoId: enrichmentByRepoId)
-    }
-
-    static func primaryRepoForGroup(_ group: RepoPresentationGroup) -> RepoPresentationItem? {
-        RepoPresentationColoring.primaryRepoForSourceGroup(group)
-    }
-
-    static func mergeBranchStatuses(
-        worktreeEnrichmentsByWorktreeId: [UUID: WorktreeEnrichment],
-        pullRequestCountsByWorktreeId: [UUID: Int]
-    ) -> [UUID: GitBranchStatus] {
-        GitBranchStatus.merge(
-            worktreeEnrichmentsByWorktreeId: worktreeEnrichmentsByWorktreeId,
-            pullRequestCountsByWorktreeId: pullRequestCountsByWorktreeId
-        )
-    }
-
-    static func branchStatus(
-        enrichment: WorktreeEnrichment?,
-        pullRequestCount: Int?
-    ) -> GitBranchStatus {
-        GitBranchStatus.status(enrichment: enrichment, pullRequestCount: pullRequestCount)
-    }
-
-    static func sortedWorktrees(for repo: RepoPresentationItem) -> [Worktree] {
-        RepoExplorerRowIndex.sortedWorktrees(for: repo)
     }
 }

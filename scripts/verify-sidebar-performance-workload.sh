@@ -411,8 +411,50 @@ try:
         if step_delay > 0:
             time.sleep(step_delay)
 
+    def set_repo_visibility(mode):
+        result = require_success(
+            session.request(
+                next_id(),
+                "command.execute",
+                {
+                    "commandId": "setRepoSidebarVisibilityMode",
+                    "targetHandle": None,
+                    "arguments": {"mode": mode},
+                },
+            ),
+            f"command.execute setRepoSidebarVisibilityMode {mode}",
+        )
+        if result.get("applied") is not True:
+            print(f"repo visibility command did not apply for {mode}: {result}", file=sys.stderr)
+            sys.exit(1)
+        if step_delay > 0:
+            time.sleep(step_delay)
+
+    def set_repo_sort_order(order):
+        result = require_success(
+            session.request(
+                next_id(),
+                "command.execute",
+                {
+                    "commandId": "setRepoSidebarSortOrder",
+                    "targetHandle": None,
+                    "arguments": {"order": order},
+                },
+            ),
+            f"command.execute setRepoSidebarSortOrder {order}",
+        )
+        if result.get("applied") is not True:
+            print(f"repo sort order command did not apply for {order}: {result}", file=sys.stderr)
+            sys.exit(1)
+        if step_delay > 0:
+            time.sleep(step_delay)
+
     for _ in range(cycles):
         set_surface("repo")
+        set_repo_sort_order("descending")
+        set_repo_sort_order("ascending")
+        set_repo_visibility("favoritesOnly")
+        set_repo_visibility("all")
         set_grouping("repo", "repo")
         set_grouping("repo", "pane")
         set_grouping("repo", "tab")
@@ -643,6 +685,78 @@ repo_pane_projection_worker_elapsed_ms_count="$(
   wait_for_required_metric_count repo_pane_projection_worker_elapsed_ms_count \
     "$(metric_event_elapsed_count_query repo projection_worker pane grouping_switch)" 3
 )"
+repo_visibility_projection_worker_elapsed_ms_p95="$(
+  wait_for_required_metric_value repo_visibility_projection_worker_elapsed_ms_p95 \
+    "$(metric_event_elapsed_p95_query repo projection_worker repo visibility_mode)"
+)"
+repo_visibility_projection_worker_elapsed_ms_max="$(
+  wait_for_required_metric_value repo_visibility_projection_worker_elapsed_ms_max \
+    "$(metric_event_elapsed_max_query repo projection_worker repo visibility_mode)"
+)"
+repo_visibility_projection_worker_elapsed_ms_count="$(
+  wait_for_required_metric_count repo_visibility_projection_worker_elapsed_ms_count \
+    "$(metric_event_elapsed_count_query repo projection_worker repo visibility_mode)" 3
+)"
+repo_visibility_mainactor_apply_elapsed_ms_p95="$(
+  wait_for_required_metric_value repo_visibility_mainactor_apply_elapsed_ms_p95 \
+    "$(metric_event_elapsed_p95_query repo mainactor_apply repo visibility_mode)"
+)"
+repo_visibility_mainactor_apply_elapsed_ms_max="$(
+  wait_for_required_metric_value repo_visibility_mainactor_apply_elapsed_ms_max \
+    "$(metric_event_elapsed_max_query repo mainactor_apply repo visibility_mode)"
+)"
+repo_visibility_mainactor_apply_elapsed_ms_count="$(
+  wait_for_required_metric_count repo_visibility_mainactor_apply_elapsed_ms_count \
+    "$(metric_event_elapsed_count_query repo mainactor_apply repo visibility_mode)" 3
+)"
+repo_sort_projection_worker_elapsed_ms_p95="$(
+  wait_for_required_metric_value repo_sort_projection_worker_elapsed_ms_p95 \
+    "$(metric_event_elapsed_p95_query repo projection_worker repo sort_order)"
+)"
+repo_sort_projection_worker_elapsed_ms_max="$(
+  wait_for_required_metric_value repo_sort_projection_worker_elapsed_ms_max \
+    "$(metric_event_elapsed_max_query repo projection_worker repo sort_order)"
+)"
+repo_sort_projection_worker_elapsed_ms_count="$(
+  wait_for_required_metric_count repo_sort_projection_worker_elapsed_ms_count \
+    "$(metric_event_elapsed_count_query repo projection_worker repo sort_order)" 3
+)"
+repo_sort_mainactor_apply_elapsed_ms_p95="$(
+  wait_for_required_metric_value repo_sort_mainactor_apply_elapsed_ms_p95 \
+    "$(metric_event_elapsed_p95_query repo mainactor_apply repo sort_order)"
+)"
+repo_sort_mainactor_apply_elapsed_ms_max="$(
+  wait_for_required_metric_value repo_sort_mainactor_apply_elapsed_ms_max \
+    "$(metric_event_elapsed_max_query repo mainactor_apply repo sort_order)"
+)"
+repo_sort_mainactor_apply_elapsed_ms_count="$(
+  wait_for_required_metric_count repo_sort_mainactor_apply_elapsed_ms_count \
+    "$(metric_event_elapsed_count_query repo mainactor_apply repo sort_order)" 3
+)"
+repo_sort_request_build_mainactor_elapsed_ms_p95="$(
+  wait_for_required_metric_value repo_sort_request_build_mainactor_elapsed_ms_p95 \
+    "$(metric_event_elapsed_p95_query repo request_build_mainactor repo sort_order)"
+)"
+repo_sort_request_build_mainactor_elapsed_ms_max="$(
+  wait_for_required_metric_value repo_sort_request_build_mainactor_elapsed_ms_max \
+    "$(metric_event_elapsed_max_query repo request_build_mainactor repo sort_order)"
+)"
+repo_sort_request_build_mainactor_elapsed_ms_count="$(
+  wait_for_required_metric_count repo_sort_request_build_mainactor_elapsed_ms_count \
+    "$(metric_event_elapsed_count_query repo request_build_mainactor repo sort_order)" 3
+)"
+repo_sort_row_index_elapsed_ms_p95="$(
+  wait_for_required_metric_value repo_sort_row_index_elapsed_ms_p95 \
+    "$(metric_event_elapsed_p95_query repo row_index repo sort_order)"
+)"
+repo_sort_row_index_elapsed_ms_max="$(
+  wait_for_required_metric_value repo_sort_row_index_elapsed_ms_max \
+    "$(metric_event_elapsed_max_query repo row_index repo sort_order)"
+)"
+repo_sort_row_index_elapsed_ms_count="$(
+  wait_for_required_metric_count repo_sort_row_index_elapsed_ms_count \
+    "$(metric_event_elapsed_count_query repo row_index repo sort_order)" 3
+)"
 repo_tab_mainactor_apply_elapsed_ms_count="$(
   wait_for_required_metric_count repo_tab_mainactor_apply_elapsed_ms_count \
     "$(metric_event_elapsed_count_query repo mainactor_apply tab grouping_switch)" 3
@@ -723,6 +837,18 @@ if [ "$mode" = "baseline" ]; then
     echo "inbox_mainactor_apply_elapsed_ms_max=$apply_elapsed_ms"
     echo "repo_pane_projection_worker_elapsed_ms_p95=$repo_pane_projection_worker_elapsed_ms_p95"
     echo "repo_pane_projection_worker_elapsed_ms_max=$repo_pane_projection_worker_elapsed_ms_max"
+    echo "repo_visibility_projection_worker_elapsed_ms_p95=$repo_visibility_projection_worker_elapsed_ms_p95"
+    echo "repo_visibility_projection_worker_elapsed_ms_max=$repo_visibility_projection_worker_elapsed_ms_max"
+    echo "repo_visibility_mainactor_apply_elapsed_ms_p95=$repo_visibility_mainactor_apply_elapsed_ms_p95"
+    echo "repo_visibility_mainactor_apply_elapsed_ms_max=$repo_visibility_mainactor_apply_elapsed_ms_max"
+    echo "repo_sort_projection_worker_elapsed_ms_p95=$repo_sort_projection_worker_elapsed_ms_p95"
+    echo "repo_sort_projection_worker_elapsed_ms_max=$repo_sort_projection_worker_elapsed_ms_max"
+    echo "repo_sort_mainactor_apply_elapsed_ms_p95=$repo_sort_mainactor_apply_elapsed_ms_p95"
+    echo "repo_sort_mainactor_apply_elapsed_ms_max=$repo_sort_mainactor_apply_elapsed_ms_max"
+    echo "repo_sort_request_build_mainactor_elapsed_ms_p95=$repo_sort_request_build_mainactor_elapsed_ms_p95"
+    echo "repo_sort_request_build_mainactor_elapsed_ms_max=$repo_sort_request_build_mainactor_elapsed_ms_max"
+    echo "repo_sort_row_index_elapsed_ms_p95=$repo_sort_row_index_elapsed_ms_p95"
+    echo "repo_sort_row_index_elapsed_ms_max=$repo_sort_row_index_elapsed_ms_max"
     echo "repo_tab_mainactor_apply_elapsed_ms_p95=$repo_tab_mainactor_apply_elapsed_ms_p95"
     echo "repo_tab_mainactor_apply_elapsed_ms_max=$repo_tab_mainactor_apply_elapsed_ms_max"
     echo "inbox_none_projection_worker_elapsed_ms_p95=$inbox_none_projection_worker_elapsed_ms_p95"
@@ -749,6 +875,18 @@ if [ "$mode" = "compare" ]; then
   fi
   compare_repo_pane_projection_worker_elapsed_ms_p95="$repo_pane_projection_worker_elapsed_ms_p95"
   compare_repo_pane_projection_worker_elapsed_ms_max="$repo_pane_projection_worker_elapsed_ms_max"
+  compare_repo_visibility_projection_worker_elapsed_ms_p95="$repo_visibility_projection_worker_elapsed_ms_p95"
+  compare_repo_visibility_projection_worker_elapsed_ms_max="$repo_visibility_projection_worker_elapsed_ms_max"
+  compare_repo_visibility_mainactor_apply_elapsed_ms_p95="$repo_visibility_mainactor_apply_elapsed_ms_p95"
+  compare_repo_visibility_mainactor_apply_elapsed_ms_max="$repo_visibility_mainactor_apply_elapsed_ms_max"
+  compare_repo_sort_projection_worker_elapsed_ms_p95="$repo_sort_projection_worker_elapsed_ms_p95"
+  compare_repo_sort_projection_worker_elapsed_ms_max="$repo_sort_projection_worker_elapsed_ms_max"
+  compare_repo_sort_mainactor_apply_elapsed_ms_p95="$repo_sort_mainactor_apply_elapsed_ms_p95"
+  compare_repo_sort_mainactor_apply_elapsed_ms_max="$repo_sort_mainactor_apply_elapsed_ms_max"
+  compare_repo_sort_request_build_mainactor_elapsed_ms_p95="$repo_sort_request_build_mainactor_elapsed_ms_p95"
+  compare_repo_sort_request_build_mainactor_elapsed_ms_max="$repo_sort_request_build_mainactor_elapsed_ms_max"
+  compare_repo_sort_row_index_elapsed_ms_p95="$repo_sort_row_index_elapsed_ms_p95"
+  compare_repo_sort_row_index_elapsed_ms_max="$repo_sort_row_index_elapsed_ms_max"
   compare_repo_tab_mainactor_apply_elapsed_ms_p95="$repo_tab_mainactor_apply_elapsed_ms_p95"
   compare_repo_tab_mainactor_apply_elapsed_ms_max="$repo_tab_mainactor_apply_elapsed_ms_max"
   compare_inbox_none_projection_worker_elapsed_ms_p95="$inbox_none_projection_worker_elapsed_ms_p95"
@@ -781,6 +919,42 @@ if [ "$mode" = "compare" ]; then
   performance_threshold_check repo_pane_projection_worker_elapsed_ms_max \
     "${repo_pane_projection_worker_elapsed_ms_max:?missing baseline repo pane worker max}" \
     "$compare_repo_pane_projection_worker_elapsed_ms_max"
+  performance_threshold_check repo_visibility_projection_worker_elapsed_ms_p95 \
+    "${repo_visibility_projection_worker_elapsed_ms_p95:?missing baseline repo visibility worker p95}" \
+    "$compare_repo_visibility_projection_worker_elapsed_ms_p95"
+  performance_threshold_check repo_visibility_projection_worker_elapsed_ms_max \
+    "${repo_visibility_projection_worker_elapsed_ms_max:?missing baseline repo visibility worker max}" \
+    "$compare_repo_visibility_projection_worker_elapsed_ms_max"
+  performance_threshold_check repo_visibility_mainactor_apply_elapsed_ms_p95 \
+    "${repo_visibility_mainactor_apply_elapsed_ms_p95:?missing baseline repo visibility apply p95}" \
+    "$compare_repo_visibility_mainactor_apply_elapsed_ms_p95"
+  performance_threshold_check repo_visibility_mainactor_apply_elapsed_ms_max \
+    "${repo_visibility_mainactor_apply_elapsed_ms_max:?missing baseline repo visibility apply max}" \
+    "$compare_repo_visibility_mainactor_apply_elapsed_ms_max"
+  performance_threshold_check repo_sort_projection_worker_elapsed_ms_p95 \
+    "${repo_sort_projection_worker_elapsed_ms_p95:?missing baseline repo sort worker p95}" \
+    "$compare_repo_sort_projection_worker_elapsed_ms_p95"
+  performance_threshold_check repo_sort_projection_worker_elapsed_ms_max \
+    "${repo_sort_projection_worker_elapsed_ms_max:?missing baseline repo sort worker max}" \
+    "$compare_repo_sort_projection_worker_elapsed_ms_max"
+  performance_threshold_check repo_sort_mainactor_apply_elapsed_ms_p95 \
+    "${repo_sort_mainactor_apply_elapsed_ms_p95:?missing baseline repo sort apply p95}" \
+    "$compare_repo_sort_mainactor_apply_elapsed_ms_p95"
+  performance_threshold_check repo_sort_mainactor_apply_elapsed_ms_max \
+    "${repo_sort_mainactor_apply_elapsed_ms_max:?missing baseline repo sort apply max}" \
+    "$compare_repo_sort_mainactor_apply_elapsed_ms_max"
+  performance_threshold_check repo_sort_request_build_mainactor_elapsed_ms_p95 \
+    "${repo_sort_request_build_mainactor_elapsed_ms_p95:?missing baseline repo sort request-build p95}" \
+    "$compare_repo_sort_request_build_mainactor_elapsed_ms_p95"
+  performance_threshold_check repo_sort_request_build_mainactor_elapsed_ms_max \
+    "${repo_sort_request_build_mainactor_elapsed_ms_max:?missing baseline repo sort request-build max}" \
+    "$compare_repo_sort_request_build_mainactor_elapsed_ms_max"
+  performance_threshold_check repo_sort_row_index_elapsed_ms_p95 \
+    "${repo_sort_row_index_elapsed_ms_p95:?missing baseline repo sort row-index p95}" \
+    "$compare_repo_sort_row_index_elapsed_ms_p95"
+  performance_threshold_check repo_sort_row_index_elapsed_ms_max \
+    "${repo_sort_row_index_elapsed_ms_max:?missing baseline repo sort row-index max}" \
+    "$compare_repo_sort_row_index_elapsed_ms_max"
   performance_threshold_check repo_tab_mainactor_apply_elapsed_ms_p95 \
     "${repo_tab_mainactor_apply_elapsed_ms_p95:?missing baseline repo tab apply p95}" \
     "$compare_repo_tab_mainactor_apply_elapsed_ms_p95"
@@ -831,6 +1005,18 @@ if [ "$mode" = "compare" ]; then
     "$compare_surface_switch_inbox_mainactor_apply_elapsed_ms_max"
   repo_pane_projection_worker_elapsed_ms_p95="$compare_repo_pane_projection_worker_elapsed_ms_p95"
   repo_pane_projection_worker_elapsed_ms_max="$compare_repo_pane_projection_worker_elapsed_ms_max"
+  repo_visibility_projection_worker_elapsed_ms_p95="$compare_repo_visibility_projection_worker_elapsed_ms_p95"
+  repo_visibility_projection_worker_elapsed_ms_max="$compare_repo_visibility_projection_worker_elapsed_ms_max"
+  repo_visibility_mainactor_apply_elapsed_ms_p95="$compare_repo_visibility_mainactor_apply_elapsed_ms_p95"
+  repo_visibility_mainactor_apply_elapsed_ms_max="$compare_repo_visibility_mainactor_apply_elapsed_ms_max"
+  repo_sort_projection_worker_elapsed_ms_p95="$compare_repo_sort_projection_worker_elapsed_ms_p95"
+  repo_sort_projection_worker_elapsed_ms_max="$compare_repo_sort_projection_worker_elapsed_ms_max"
+  repo_sort_mainactor_apply_elapsed_ms_p95="$compare_repo_sort_mainactor_apply_elapsed_ms_p95"
+  repo_sort_mainactor_apply_elapsed_ms_max="$compare_repo_sort_mainactor_apply_elapsed_ms_max"
+  repo_sort_request_build_mainactor_elapsed_ms_p95="$compare_repo_sort_request_build_mainactor_elapsed_ms_p95"
+  repo_sort_request_build_mainactor_elapsed_ms_max="$compare_repo_sort_request_build_mainactor_elapsed_ms_max"
+  repo_sort_row_index_elapsed_ms_p95="$compare_repo_sort_row_index_elapsed_ms_p95"
+  repo_sort_row_index_elapsed_ms_max="$compare_repo_sort_row_index_elapsed_ms_max"
   repo_tab_mainactor_apply_elapsed_ms_p95="$compare_repo_tab_mainactor_apply_elapsed_ms_p95"
   repo_tab_mainactor_apply_elapsed_ms_max="$compare_repo_tab_mainactor_apply_elapsed_ms_max"
   inbox_none_projection_worker_elapsed_ms_p95="$compare_inbox_none_projection_worker_elapsed_ms_p95"
@@ -863,6 +1049,24 @@ fi
   echo "repo_pane_projection_worker_elapsed_ms_p95=$repo_pane_projection_worker_elapsed_ms_p95"
   echo "repo_pane_projection_worker_elapsed_ms_max=$repo_pane_projection_worker_elapsed_ms_max"
   echo "repo_pane_projection_worker_elapsed_ms_count=$repo_pane_projection_worker_elapsed_ms_count"
+  echo "repo_visibility_projection_worker_elapsed_ms_p95=$repo_visibility_projection_worker_elapsed_ms_p95"
+  echo "repo_visibility_projection_worker_elapsed_ms_max=$repo_visibility_projection_worker_elapsed_ms_max"
+  echo "repo_visibility_projection_worker_elapsed_ms_count=$repo_visibility_projection_worker_elapsed_ms_count"
+  echo "repo_visibility_mainactor_apply_elapsed_ms_p95=$repo_visibility_mainactor_apply_elapsed_ms_p95"
+  echo "repo_visibility_mainactor_apply_elapsed_ms_max=$repo_visibility_mainactor_apply_elapsed_ms_max"
+  echo "repo_visibility_mainactor_apply_elapsed_ms_count=$repo_visibility_mainactor_apply_elapsed_ms_count"
+  echo "repo_sort_projection_worker_elapsed_ms_p95=$repo_sort_projection_worker_elapsed_ms_p95"
+  echo "repo_sort_projection_worker_elapsed_ms_max=$repo_sort_projection_worker_elapsed_ms_max"
+  echo "repo_sort_projection_worker_elapsed_ms_count=$repo_sort_projection_worker_elapsed_ms_count"
+  echo "repo_sort_mainactor_apply_elapsed_ms_p95=$repo_sort_mainactor_apply_elapsed_ms_p95"
+  echo "repo_sort_mainactor_apply_elapsed_ms_max=$repo_sort_mainactor_apply_elapsed_ms_max"
+  echo "repo_sort_mainactor_apply_elapsed_ms_count=$repo_sort_mainactor_apply_elapsed_ms_count"
+  echo "repo_sort_request_build_mainactor_elapsed_ms_p95=$repo_sort_request_build_mainactor_elapsed_ms_p95"
+  echo "repo_sort_request_build_mainactor_elapsed_ms_max=$repo_sort_request_build_mainactor_elapsed_ms_max"
+  echo "repo_sort_request_build_mainactor_elapsed_ms_count=$repo_sort_request_build_mainactor_elapsed_ms_count"
+  echo "repo_sort_row_index_elapsed_ms_p95=$repo_sort_row_index_elapsed_ms_p95"
+  echo "repo_sort_row_index_elapsed_ms_max=$repo_sort_row_index_elapsed_ms_max"
+  echo "repo_sort_row_index_elapsed_ms_count=$repo_sort_row_index_elapsed_ms_count"
   echo "repo_tab_mainactor_apply_elapsed_ms_p95=$repo_tab_mainactor_apply_elapsed_ms_p95"
   echo "repo_tab_mainactor_apply_elapsed_ms_max=$repo_tab_mainactor_apply_elapsed_ms_max"
   echo "repo_tab_mainactor_apply_elapsed_ms_count=$repo_tab_mainactor_apply_elapsed_ms_count"
@@ -888,6 +1092,8 @@ fi
   echo "surface_switch_inbox_mainactor_apply_elapsed_ms_max=$surface_switch_inbox_mainactor_apply_elapsed_ms_max"
   echo "surface_switch_inbox_mainactor_apply_elapsed_ms_count=$surface_switch_inbox_mainactor_apply_elapsed_ms_count"
   echo "sidebar_surface_switch.ipc_sequence=repo,inbox,repo,inbox,repo"
+  echo "repo_sort.ipc_sequence=descending,ascending"
+  echo "repo_visibility.ipc_sequence=favoritesOnly,all"
   if [ "$mode" = "baseline" ] || [ "$mode" = "compare" ]; then
     echo "baseline_file=$BASELINE_FILE"
   fi

@@ -877,6 +877,8 @@ extension AgentStudioAppIPCRequestError {
             self = Self(code: -32_007, message: "parameters required")
         case .validationRejected:
             self = Self(code: -32_007, message: "validation rejected")
+        case .stateUnavailable:
+            self = Self(code: -32_005, message: "state unavailable")
         }
     }
 

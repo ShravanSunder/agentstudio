@@ -64,4 +64,70 @@ struct RepoExplorerProjectionWorkerTests {
         #expect(visibleWorktreeIds == [matchingWorktree.id])
         #expect(result.workerDuration > .zero)
     }
+
+    @Test("worker carries visibility mode through snapshot and filters off caller isolation")
+    func workerCarriesVisibilityModeAndFilters() async throws {
+        let normalRepoId = UUID()
+        let favoriteRepoId = UUID()
+        let normalRepo = repo(id: normalRepoId, name: "alpha-normal")
+        let favoriteRepo = repo(id: favoriteRepoId, name: "zeta-favorite", isFavorite: true)
+        let snapshot = RepoExplorerSnapshot(
+            repos: [normalRepo, favoriteRepo],
+            repoEnrichmentByRepoId: [
+                normalRepoId: resolvedRemote(repoId: normalRepoId, displayName: "alpha-normal"),
+                favoriteRepoId: resolvedRemote(repoId: favoriteRepoId, displayName: "zeta-favorite"),
+            ],
+            groupingMode: .repo,
+            sortOrder: .ascending,
+            visibilityMode: .favoritesOnly,
+            query: ""
+        )
+        let request = RepoExplorerProjectionRequest(
+            generation: 4,
+            snapshot: snapshot,
+            expandedGroupIds: [],
+            isFiltering: false,
+            trigger: "visibility-mode"
+        )
+
+        let result = try await RepoExplorerProjectionWorker().project(request)
+
+        #expect(result.generation == 4)
+        #expect(result.snapshot.visibilityMode == .favoritesOnly)
+        #expect(result.projection.resolvedGroups.map(\.repoTitle) == ["zeta-favorite"])
+        #expect(result.projection.resolvedGroups.first?.repos.map(\.id) == [favoriteRepoId])
+        #expect(result.rowIndex.entries.count == 1)
+    }
+
+    private func repo(id: UUID, name: String, isFavorite: Bool = false) -> RepoPresentationItem {
+        RepoPresentationItem(
+            id: id,
+            name: name,
+            repoPath: URL(fileURLWithPath: "/tmp/\(name)"),
+            stableKey: name,
+            isFavorite: isFavorite,
+            worktrees: [
+                Worktree(
+                    repoId: id,
+                    name: "main",
+                    path: URL(fileURLWithPath: "/tmp/\(name)"),
+                    isMainWorktree: true
+                )
+            ]
+        )
+    }
+
+    private func resolvedRemote(repoId: UUID, displayName: String) -> RepoEnrichment {
+        .resolvedRemote(
+            repoId: repoId,
+            raw: RawRepoOrigin(origin: "git@github.com:askluna/\(displayName).git", upstream: nil),
+            identity: RepoIdentity(
+                groupKey: "remote:askluna/\(displayName)",
+                remoteSlug: "askluna/\(displayName)",
+                organizationName: "askluna",
+                displayName: displayName
+            ),
+            updatedAt: Date(timeIntervalSince1970: 0)
+        )
+    }
 }

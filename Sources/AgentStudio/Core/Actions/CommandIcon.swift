@@ -18,6 +18,8 @@ enum SystemSymbol: String, CaseIterable, Equatable, Sendable {
     case arrowUturnBackward = "arrow.uturn.backward"
     case bell = "bell"
     case bellBadge = "bell.badge"
+    case bookmark = "bookmark"
+    case bookmarkFill = "bookmark.fill"
     case checkmarkCircle = "checkmark.circle"
     case chevronDown = "chevron.down"
     case chevronLeft = "chevron.left"

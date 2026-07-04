@@ -438,8 +438,11 @@ enum AgentStudioOTLPTraceProjection {
         case "agentstudio.performance.sidebar.group_mode":
             ["repo", "pane", "tab", "none", "not_applicable"].contains(value)
         case "agentstudio.performance.sidebar.trigger":
-            ["grouping_switch", "surface_switch", "search", "collapse_toggle", "data_refresh", "startup_diagnostic"]
-                .contains(value)
+            [
+                "grouping_switch", "surface_switch", "search", "sort_order", "visibility_mode", "collapse_toggle",
+                "data_refresh", "startup_diagnostic",
+            ]
+            .contains(value)
         default:
             true
         }

@@ -203,25 +203,33 @@ automation is exercising recoverable layout state.
 IPC command methods and UI presentation methods are intentionally separate.
 `command.list` is command discovery. It projects every `AppCommandSpec` into a
 typed IPC list entry with execution modes, target handle kinds, and required
-privilege classes. This keeps the app command catalog as the source of truth:
+privilege classes, and typed argument schemas for commands that accept headless
+arguments. This keeps the app command catalog as the source of truth:
 adding an `AppCommandSpec` creates an IPC-discoverable command contract instead
 of requiring a second hand-written IPC catalog.
 
 `command.execute` is reserved for headless semantic command execution. It must
 not present the command bar, picker UI, sheets, or prompts as an implicit side
 effect. A command-spec row that requires UI presentation or interactive input
-fails closed with a stable `requires presentation` error until a semantic method
-with explicit parameters exists. The current phase-1 headless execution catalog
-is empty; the public command-id wrapper remains open so future command ids and
-version-skewed clients can fail with `unsupported capability` instead of
-parameter-decoding errors.
+fails closed with a stable `requires presentation` or `parameters required`
+error until a semantic method with explicit parameters exists. Commands execute
+only when their `AppCommandSpec` is explicitly marked headless-executable, and
+the adapter validates the typed argument schema from that spec before active
+window lookup or shell-owner dispatch. The initial narrow argument shape is a
+string enum, used by `setRepoSidebarVisibilityMode` with `mode = all |
+favoritesOnly` and `setRepoSidebarSortOrder` with `order = ascending |
+descending`; broader JSON Schema, nested objects, or command-bar selection state
+require a new spec/design pass. The public command-id wrapper remains open so
+future command ids and version-skewed clients can fail with `unsupported
+capability` instead of parameter-decoding errors.
 
 ```
 command.list / command.execute
   -> AgentStudioIPCCommandAdapter
        exposes AppCommandSpec IPC metadata for discovery
        rejects non-headless command specs for command.execute
-  -> future semantic app owner
+       validates typed string-enum arguments
+  -> injected shell/app command owner
   -> AgentStudioProgrammaticControl DTO
 
 ui.commandBar.open
@@ -487,9 +495,12 @@ The current CLI client surface includes query/control verbs for debug proof:
 version-skewed clients get `unsupported capability` instead of parameter decode
 failure, but only allowlisted headless semantic ids may execute. Current
 command-bar-backed rows return `requires presentation`. Direct JSON-RPC clients
-can also call the app-level method registry, including `ui.commandBar.open`,
-`pane.split`, `pane.close`, `drawer.addPane`, and `drawer.toggle`, subject to
-authentication and authorization.
+can pass headless command arguments through the `arguments` object, for example
+`{"commandId":"setRepoSidebarVisibilityMode","arguments":{"mode":"favoritesOnly"}}`
+or `{"commandId":"setRepoSidebarSortOrder","arguments":{"order":"descending"}}`.
+They can also call the app-level method registry, including
+`ui.commandBar.open`, `pane.split`, `pane.close`, `drawer.addPane`, and
+`drawer.toggle`, subject to authentication and authorization.
 
 ## Auth And Permissions
 

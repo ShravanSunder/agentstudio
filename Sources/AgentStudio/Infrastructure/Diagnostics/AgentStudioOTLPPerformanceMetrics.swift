@@ -364,6 +364,8 @@ private enum SidebarMetricTrigger: String {
     case groupingSwitch = "grouping_switch"
     case surfaceSwitch = "surface_switch"
     case search
+    case sortOrder = "sort_order"
+    case visibilityMode = "visibility_mode"
     case collapseToggle = "collapse_toggle"
     case dataRefresh = "data_refresh"
     case startupDiagnostic = "startup_diagnostic"

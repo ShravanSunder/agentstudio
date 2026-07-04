@@ -1,10 +1,24 @@
 import Foundation
 
+enum RepoExplorerEmptyState: Equatable, Sendable {
+    case content
+    case searchNoResults
+    case favoritesOnlyEmpty
+}
+
 struct RepoExplorerSidebarProjection: Equatable, Sendable {
     let resolvedGroups: [RepoPresentationGroup]
     let worktreeRowsByGroupId: [String: [RepoExplorerProjectedWorktreeRow]]
     let loadingRepos: [RepoPresentationItem]
-    let showsNoResults: Bool
+    let emptyState: RepoExplorerEmptyState
+
+    var showsNoResults: Bool {
+        emptyState == .searchNoResults
+    }
+
+    var showsFavoritesEmptyState: Bool {
+        emptyState == .favoritesOnlyEmpty
+    }
 
     init(
         resolvedGroups: [RepoPresentationGroup],
@@ -15,7 +29,19 @@ struct RepoExplorerSidebarProjection: Equatable, Sendable {
         self.resolvedGroups = resolvedGroups
         self.worktreeRowsByGroupId = worktreeRowsByGroupId
         self.loadingRepos = loadingRepos
-        self.showsNoResults = showsNoResults
+        emptyState = showsNoResults ? .searchNoResults : .content
+    }
+
+    init(
+        resolvedGroups: [RepoPresentationGroup],
+        worktreeRowsByGroupId: [String: [RepoExplorerProjectedWorktreeRow]] = [:],
+        loadingRepos: [RepoPresentationItem],
+        emptyState: RepoExplorerEmptyState
+    ) {
+        self.resolvedGroups = resolvedGroups
+        self.worktreeRowsByGroupId = worktreeRowsByGroupId
+        self.loadingRepos = loadingRepos
+        self.emptyState = emptyState
     }
 }
 
@@ -37,6 +63,7 @@ struct RepoExplorerProjectedWorktreeRow: Equatable, Sendable {
     let repo: RepoPresentationItem
     let worktree: Worktree
     let rowId: String
+    let checkoutColorHex: String
     let placementContext: RepoExplorerPlacementContext?
 }
 
@@ -50,15 +77,27 @@ enum RepoExplorerProjection {
     static func project(_ snapshot: RepoExplorerSnapshot) -> RepoExplorerSidebarProjection {
         let resolvedRepos = resolvedRepos(snapshot.repos, enrichmentByRepoId: snapshot.repoEnrichmentSnapshotByRepoId)
         let loadingRepos = loadingRepos(snapshot.repos, enrichmentByRepoId: snapshot.repoEnrichmentSnapshotByRepoId)
-        let filteredResolvedRepos = RepoExplorerFilter.filter(repos: resolvedRepos, query: snapshot.query)
-        let filteredLoadingRepos = filterLoadingRepos(
+        let visibleResolvedRepos = repos(
+            resolvedRepos,
+            matching: snapshot.visibilityMode
+        )
+        let visibleLoadingRepos = repos(
             loadingRepos,
+            matching: snapshot.visibilityMode
+        )
+        let filteredResolvedRepos = RepoExplorerFilter.filter(repos: visibleResolvedRepos, query: snapshot.query)
+        let filteredLoadingRepos = filterLoadingRepos(
+            visibleLoadingRepos,
             query: snapshot.query,
             sortOrder: snapshot.sortOrder
         )
         let repoMetadataById = RepoPresentationColoring.buildRepoMetadata(
             repos: filteredResolvedRepos,
             repoEnrichmentByRepoId: snapshot.repoEnrichmentSnapshotByRepoId
+        )
+        let checkoutColorHexByRepoId = checkoutColorHexByRepoId(
+            repos: filteredResolvedRepos,
+            metadataByRepoId: repoMetadataById
         )
         let resolvedGroups: [RepoPresentationGroup]
         let projectedRowsByGroupId: [String: [RepoExplorerProjectedWorktreeRow]]
@@ -69,13 +108,17 @@ enum RepoExplorerProjection {
                 metadataByRepoId: repoMetadataById,
                 sortOrder: snapshot.sortOrder
             )
-            projectedRowsByGroupId = worktreeRowsByGroupId(from: resolvedGroups)
+            projectedRowsByGroupId = worktreeRowsByGroupId(
+                from: resolvedGroups,
+                checkoutColorHexByRepoId: checkoutColorHexByRepoId
+            )
         case .pane:
             let placementProjection = placementGroups(
                 repos: filteredResolvedRepos,
                 locationsByWorktreeId: snapshot.paneLocationsByWorktreeId,
                 mode: .pane,
-                sortOrder: snapshot.sortOrder
+                sortOrder: snapshot.sortOrder,
+                checkoutColorHexByRepoId: checkoutColorHexByRepoId
             )
             resolvedGroups = placementProjection.groups
             projectedRowsByGroupId = placementProjection.worktreeRowsByGroupId
@@ -84,7 +127,8 @@ enum RepoExplorerProjection {
                 repos: filteredResolvedRepos,
                 locationsByWorktreeId: snapshot.paneLocationsByWorktreeId,
                 mode: .tab,
-                sortOrder: snapshot.sortOrder
+                sortOrder: snapshot.sortOrder,
+                checkoutColorHexByRepoId: checkoutColorHexByRepoId
             )
             resolvedGroups = placementProjection.groups
             projectedRowsByGroupId = placementProjection.worktreeRowsByGroupId
@@ -94,8 +138,58 @@ enum RepoExplorerProjection {
             resolvedGroups: resolvedGroups,
             worktreeRowsByGroupId: projectedRowsByGroupId,
             loadingRepos: filteredLoadingRepos,
-            showsNoResults: !snapshot.query.isEmpty && resolvedGroups.isEmpty && filteredLoadingRepos.isEmpty
+            emptyState: emptyState(
+                snapshot: snapshot,
+                resolvedGroups: resolvedGroups,
+                loadingRepos: filteredLoadingRepos
+            )
         )
+    }
+
+    private static func repos(
+        _ repos: [RepoPresentationItem],
+        matching visibilityMode: RepoExplorerVisibilityMode
+    ) -> [RepoPresentationItem] {
+        switch visibilityMode {
+        case .all:
+            return repos
+        case .favoritesOnly:
+            return repos.filter(\.isFavorite)
+        }
+    }
+
+    private static func emptyState(
+        snapshot: RepoExplorerSnapshot,
+        resolvedGroups: [RepoPresentationGroup],
+        loadingRepos: [RepoPresentationItem]
+    ) -> RepoExplorerEmptyState {
+        guard resolvedGroups.isEmpty && loadingRepos.isEmpty else { return .content }
+        if !snapshot.query.isEmpty {
+            return .searchNoResults
+        }
+        return snapshot.visibilityMode == .favoritesOnly ? .favoritesOnlyEmpty : .content
+    }
+
+    private static func checkoutColorHexByRepoId(
+        repos: [RepoPresentationItem],
+        metadataByRepoId: [UUID: RepoIdentityMetadata]
+    ) -> [UUID: String] {
+        let sourceGroups = RepoPresentationGrouping.buildGroups(
+            repos: repos,
+            metadataByRepoId: metadataByRepoId
+        )
+        return Dictionary(
+            uniqueKeysWithValues: sourceGroups.flatMap { group in
+                group.repos.map { repo in
+                    (
+                        repo.id,
+                        RepoPresentationColoring.checkoutColorHex(
+                            for: repo,
+                            in: group
+                        )
+                    )
+                }
+            })
     }
 
     static func resolvedRepos(
@@ -161,9 +255,6 @@ enum RepoExplorerProjection {
             )
         }
         .sorted { lhs, rhs in
-            if lhs.repos.first?.isFavorite != rhs.repos.first?.isFavorite {
-                return lhs.repos.first?.isFavorite == true
-            }
             let leftTitle = lhs.organizationName.map { "\(lhs.repoTitle)\($0)" } ?? lhs.repoTitle
             let rightTitle = rhs.organizationName.map { "\(rhs.repoTitle)\($0)" } ?? rhs.repoTitle
             return compare(leftTitle, rightTitle, sortOrder: sortOrder)
@@ -174,7 +265,8 @@ enum RepoExplorerProjection {
         repos: [RepoPresentationItem],
         locationsByWorktreeId: [UUID: [WorkspacePaneLocation]],
         mode: RepoExplorerGroupingMode,
-        sortOrder: RepoExplorerSortOrder
+        sortOrder: RepoExplorerSortOrder,
+        checkoutColorHexByRepoId: [UUID: String]
     ) -> (groups: [RepoPresentationGroup], worktreeRowsByGroupId: [String: [RepoExplorerProjectedWorktreeRow]]) {
         let locations = sortedUniqueLocations(locationsByWorktreeId.values.flatMap { $0 })
         let paneOrdinalById = Dictionary(
@@ -246,7 +338,11 @@ enum RepoExplorerProjection {
             guard let label = groupLabelsById[groupId], let entries = entriesByGroupId[groupId], !entries.isEmpty else {
                 return nil
             }
-            projectedRowsByGroupId[groupId] = projectedWorktreeRows(from: entries, groupId: groupId)
+            projectedRowsByGroupId[groupId] = projectedWorktreeRows(
+                from: entries,
+                groupId: groupId,
+                checkoutColorHexByRepoId: checkoutColorHexByRepoId
+            )
             return RepoPresentationGroup(
                 id: groupId,
                 repoTitle: label.title,
@@ -274,7 +370,8 @@ enum RepoExplorerProjection {
     }
 
     private static func worktreeRowsByGroupId(
-        from groups: [RepoPresentationGroup]
+        from groups: [RepoPresentationGroup],
+        checkoutColorHexByRepoId: [UUID: String]
     ) -> [String: [RepoExplorerProjectedWorktreeRow]] {
         Dictionary(
             uniqueKeysWithValues: groups.map { group in
@@ -290,6 +387,11 @@ enum RepoExplorerProjection {
                                 worktreeId: worktree.id,
                                 location: nil
                             ),
+                            checkoutColorHex: checkoutColorHexByRepoId[repo.id]
+                                ?? RepoPresentationColoring.checkoutColorHex(
+                                    for: repo,
+                                    in: group
+                                ),
                             placementContext: nil
                         )
                     }
@@ -300,7 +402,8 @@ enum RepoExplorerProjection {
 
     private static func projectedWorktreeRows(
         from entries: [PlacementEntry],
-        groupId: String
+        groupId: String,
+        checkoutColorHexByRepoId: [UUID: String]
     ) -> [RepoExplorerProjectedWorktreeRow] {
         entries.map { entry in
             RepoExplorerProjectedWorktreeRow(
@@ -313,6 +416,8 @@ enum RepoExplorerProjection {
                     worktreeId: entry.worktree.id,
                     location: entry.location
                 ),
+                checkoutColorHex: checkoutColorHexByRepoId[entry.repo.id]
+                    ?? RepoPresentationGrouping.automaticPaletteHexes[0],
                 placementContext: entry.location.map {
                     RepoExplorerPlacementContext(
                         paneId: $0.paneId,
@@ -341,10 +446,7 @@ enum RepoExplorerProjection {
         sortOrder: RepoExplorerSortOrder
     ) -> [RepoPresentationItem] {
         repos.sorted { lhs, rhs in
-            if lhs.isFavorite != rhs.isFavorite {
-                return lhs.isFavorite
-            }
-            return compare(lhs.name, rhs.name, sortOrder: sortOrder)
+            compare(lhs.name, rhs.name, sortOrder: sortOrder)
         }
     }
 

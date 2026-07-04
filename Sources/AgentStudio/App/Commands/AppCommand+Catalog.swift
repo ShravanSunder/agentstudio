@@ -773,6 +773,10 @@ extension AppCommand {
             return repoSidebarGroupingDefinition(.pane)
         case .setRepoSidebarGroupingTab:
             return repoSidebarGroupingDefinition(.tab)
+        case .setRepoSidebarVisibilityMode:
+            return repoSidebarVisibilityDefinition()
+        case .setRepoSidebarSortOrder:
+            return repoSidebarSortOrderDefinition()
         case .setInboxGroupingTab:
             return inboxGroupingDefinition(.byTab)
         case .setInboxGroupingRepo:

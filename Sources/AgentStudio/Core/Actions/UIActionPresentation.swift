@@ -111,6 +111,7 @@ enum LocalActionSpec {
     case deleteInboxNotifications
     case repoSidebarCurrentOrder
     case groupRepoExplorerWorktrees
+    case toggleRepoSidebarFavoritesOnly(isFavoritesOnly: Bool)
     case cancel
     case add
     case rename
@@ -270,6 +271,14 @@ enum LocalActionSpec {
                 label: "Group Repo Worktrees",
                 helpText: "Group repo worktrees by repo, pane, or tab",
                 icon: .system(.squareStack3dUp)
+            )
+        case .toggleRepoSidebarFavoritesOnly(let isFavoritesOnly):
+            return ActionSpec(
+                label: isFavoritesOnly ? "Show All Repos" : "Show Favorite Repos",
+                helpText: isFavoritesOnly
+                    ? "Showing favorite repos; click to show all repos"
+                    : "Showing all repos; click to show favorite repos",
+                icon: .system(isFavoritesOnly ? .bookmarkFill : .bookmark)
             )
         case .cancel:
             return ActionSpec(label: "Cancel", helpText: "Cancel this action", icon: .system(.xmarkCircle))

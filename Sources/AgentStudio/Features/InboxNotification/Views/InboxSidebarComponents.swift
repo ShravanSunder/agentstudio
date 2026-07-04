@@ -191,7 +191,7 @@ struct InboxSidebarHeader: View {
                 Divider()
                 Button("Delete All", role: .destructive, action: actions.onClearAllHistory)
             } label: {
-                toolbarIcon(deleteInboxAction.icon)
+                SidebarToolbarIcon(icon: deleteInboxAction.icon)
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
@@ -224,80 +224,72 @@ struct InboxSidebarHeader: View {
             HStack(spacing: AppStyles.General.Spacing.standard) {
                 Spacer(minLength: 0)
 
-                Button(action: actions.onToggleSort) {
-                    toolbarIcon(toggleSortSpec.icon)
-                        .rotationEffect(.degrees(sort == .newestFirst ? 0 : 180))
-                        .animation(.easeInOut(duration: 0.18), value: sort)
-                }
-                .buttonStyle(.borderless)
-                .accessibilityLabel(toggleSortSpec.label)
-                .accessibilityIdentifier("inboxSidebarSortButton")
-                .controlHelp(
-                    Self.toolbarTooltipValue(
+                SidebarToolbarSortButton(
+                    sortValue: sort,
+                    isReversed: sort == .oldestFirst,
+                    label: toggleSortSpec.label,
+                    accessibilityIdentifier: "inboxSidebarSortButton",
+                    tooltipValue: Self.toolbarTooltipValue(
                         for: .sort,
                         rowStateFilter: rowStateFilter,
                         contentMode: contentMode
-                    )
-                )
-                .onHover { updateTooltipTarget(.sort, isHovered: $0) }
-                .hoverTooltipAnchor(InboxSidebarToolbarTooltipTarget.sort, in: Self.tooltipCoordinateSpaceName)
-                .background(
-                    AccessibilityLabelBridge(
-                        identifier: "inboxSidebarSortButtonFrame",
-                        label: toggleSortSpec.label,
-                        exposesAccessibility: false
-                    )
+                    ),
+                    icon: toggleSortSpec.icon,
+                    tooltipTarget: InboxSidebarToolbarTooltipTarget.sort,
+                    tooltipCoordinateSpaceName: Self.tooltipCoordinateSpaceName,
+                    frameAccessibilityIdentifier: "inboxSidebarSortButtonFrame",
+                    onHover: { updateTooltipTarget(.sort, isHovered: $0) },
+                    onToggle: actions.onToggleSort
                 )
 
-                Button(action: actions.onToggleRowStateFilter) {
-                    toolbarIcon(rowStateAction.icon, isActive: isUnreadOnly)
-                }
-                .buttonStyle(.borderless)
-                .accessibilityLabel(rowStateAction.label)
-                .accessibilityIdentifier("inboxSidebarRowStateFilterButton")
-                .controlHelp(
-                    Self.toolbarTooltipValue(
+                SidebarToolbarActionButton(
+                    label: rowStateAction.label,
+                    accessibilityIdentifier: "inboxSidebarRowStateFilterButton",
+                    tooltipValue: Self.toolbarTooltipValue(
                         for: .rowState,
                         rowStateFilter: rowStateFilter,
                         contentMode: contentMode
-                    )
+                    ),
+                    icon: rowStateAction.icon,
+                    isActive: isUnreadOnly,
+                    tooltipTarget: InboxSidebarToolbarTooltipTarget.rowState,
+                    tooltipCoordinateSpaceName: Self.tooltipCoordinateSpaceName,
+                    onHover: { updateTooltipTarget(.rowState, isHovered: $0) },
+                    action: actions.onToggleRowStateFilter
                 )
-                .onHover { updateTooltipTarget(.rowState, isHovered: $0) }
-                .hoverTooltipAnchor(InboxSidebarToolbarTooltipTarget.rowState, in: Self.tooltipCoordinateSpaceName)
 
-                Button(action: actions.onCycleContentMode) {
-                    toolbarIcon(contentModeAction.icon, isActive: isAttentionOnly)
-                }
-                .buttonStyle(.borderless)
-                .accessibilityLabel(contentModeAction.label)
-                .accessibilityIdentifier("inboxSidebarContentModeButton")
-                .controlHelp(
-                    Self.toolbarTooltipValue(
+                SidebarToolbarActionButton(
+                    label: contentModeAction.label,
+                    accessibilityIdentifier: "inboxSidebarContentModeButton",
+                    tooltipValue: Self.toolbarTooltipValue(
                         for: .contentMode,
                         rowStateFilter: rowStateFilter,
                         contentMode: contentMode
-                    )
+                    ),
+                    icon: contentModeAction.icon,
+                    isActive: isAttentionOnly,
+                    tooltipTarget: InboxSidebarToolbarTooltipTarget.contentMode,
+                    tooltipCoordinateSpaceName: Self.tooltipCoordinateSpaceName,
+                    onHover: { updateTooltipTarget(.contentMode, isHovered: $0) },
+                    action: actions.onCycleContentMode
                 )
-                .onHover { updateTooltipTarget(.contentMode, isHovered: $0) }
-                .hoverTooltipAnchor(InboxSidebarToolbarTooltipTarget.contentMode, in: Self.tooltipCoordinateSpaceName)
 
-                Button {
-                    groupingMenuOpen.toggle()
-                } label: {
-                    toolbarIcon(grouping.icon)
-                }
-                .buttonStyle(.borderless)
-                .accessibilityLabel(groupingAction.label)
-                .accessibilityIdentifier("inboxSidebarGroupingButton")
-                .controlHelp(
-                    Self.toolbarTooltipValue(
+                SidebarToolbarActionButton(
+                    label: groupingAction.label,
+                    accessibilityIdentifier: "inboxSidebarGroupingButton",
+                    tooltipValue: Self.toolbarTooltipValue(
                         for: .grouping,
                         rowStateFilter: rowStateFilter,
                         contentMode: contentMode
-                    )
+                    ),
+                    icon: grouping.icon,
+                    tooltipTarget: InboxSidebarToolbarTooltipTarget.grouping,
+                    tooltipCoordinateSpaceName: Self.tooltipCoordinateSpaceName,
+                    onHover: { updateTooltipTarget(.grouping, isHovered: $0) },
+                    action: {
+                        groupingMenuOpen.toggle()
+                    }
                 )
-                .onHover { updateTooltipTarget(.grouping, isHovered: $0) }
-                .hoverTooltipAnchor(InboxSidebarToolbarTooltipTarget.grouping, in: Self.tooltipCoordinateSpaceName)
                 .popover(isPresented: $groupingMenuOpen) {
                     VStack(alignment: .leading, spacing: 4) {
                         ForEach(InboxNotificationGrouping.allCases, id: \.self) { candidate in
@@ -451,16 +443,6 @@ struct InboxSidebarHeader: View {
                 shortcutText: InboxSidebarShortcutCatalog.toggleGroupingMenu.displayText
             )
         }
-    }
-
-    private func toolbarIcon(_ icon: CommandIcon, isActive: Bool = false) -> some View {
-        icon.swiftUIImage(size: AppStyles.General.Icon.compact)
-            .frame(
-                width: AppStyles.General.Button.compact,
-                height: AppStyles.General.Button.compact
-            )
-            .foregroundStyle(isActive ? Color.accentColor : Color.secondary)
-            .contentShape(Rectangle())
     }
 
     private func groupingLabel(_ grouping: InboxNotificationGrouping) -> String {

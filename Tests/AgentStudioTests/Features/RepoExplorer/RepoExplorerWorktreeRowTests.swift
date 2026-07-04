@@ -33,6 +33,8 @@ struct RepoExplorerWorktreeRowTests {
         #expect(RepoExplorerWorktreeRowContent.favoriteAccessibilityLabel(isFavorite: true) == "Remove Favorite")
         #expect(RepoExplorerWorktreeRowContent.favoriteHelpText(isFavorite: false) == "Add favorite")
         #expect(RepoExplorerWorktreeRowContent.favoriteHelpText(isFavorite: true) == "Remove favorite")
+        #expect(RepoExplorerWorktreeRowContent.favoriteSystemImageName(isFavorite: false) == "bookmark")
+        #expect(RepoExplorerWorktreeRowContent.favoriteSystemImageName(isFavorite: true) == "bookmark.fill")
     }
 
     @Test("repo explorer remains inbox-feature agnostic")

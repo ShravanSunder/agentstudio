@@ -7,6 +7,7 @@ extension AppDelegate: ShellCommandHandling {
             .showInboxNotifications, .toggleInboxNotificationSort,
             .clearReadInboxNotifications, .clearAllInboxNotifications, .showWorktreeSidebar,
             .setRepoSidebarGroupingRepo, .setRepoSidebarGroupingPane, .setRepoSidebarGroupingTab,
+            .setRepoSidebarVisibilityMode, .setRepoSidebarSortOrder,
             .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane, .setInboxGroupingNone,
             .signInGitHub, .signInGoogle, .newWindow, .closeWindow,
             .showCommandBarEverything, .showCommandBarCommands, .showCommandBarPanes, .showCommandBarRepos:
@@ -77,6 +78,10 @@ extension AppDelegate: ShellCommandHandling {
         case .setRepoSidebarGroupingRepo, .setRepoSidebarGroupingPane, .setRepoSidebarGroupingTab,
             .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane, .setInboxGroupingNone:
             return executeSidebarGroupingCommand(command)
+        case .setRepoSidebarVisibilityMode:
+            return false
+        case .setRepoSidebarSortOrder:
+            return false
         case .newWindow:
             newWindow()
             return true
@@ -171,12 +176,24 @@ extension AppDelegate: ShellCommandHandling {
             .clearReadInboxNotifications, .clearAllInboxNotifications,
             .showPaneInboxNotifications, .clearPaneInboxNotifications, .showWorktreeSidebar,
             .setRepoSidebarGroupingRepo, .setRepoSidebarGroupingPane, .setRepoSidebarGroupingTab,
+            .setRepoSidebarVisibilityMode, .setRepoSidebarSortOrder,
             .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane, .setInboxGroupingNone,
             .newFloatingTerminal, .newWindow, .closeWindow,
             .showCommandBarEverything, .showCommandBarCommands, .showCommandBarPanes, .showCommandBarRepos,
             .openWebview, .openBridgeReview, .signInGitHub, .signInGoogle,
             .filterSidebar, .openNewTerminalInTab:
             return false
+        }
+    }
+
+    func execute(_ request: AppCommandExecutionRequest) -> AppCommandExecutionOutcome {
+        switch (request.command, request.arguments) {
+        case (.setRepoSidebarVisibilityMode, .repoSidebarVisibilityMode(let mode)):
+            return executeRepoSidebarVisibilityCommand(mode)
+        case (.setRepoSidebarSortOrder, .repoSidebarSortOrder(let order)):
+            return executeRepoSidebarSortOrderCommand(order)
+        default:
+            return execute(request.command) ? .applied : .unsupportedCommand
         }
     }
 
@@ -200,5 +217,23 @@ extension AppDelegate: ShellCommandHandling {
             return false
         }
         return true
+    }
+
+    private func executeRepoSidebarVisibilityCommand(_ mode: RepoExplorerVisibilityMode) -> AppCommandExecutionOutcome {
+        guard let atomStore else { return .stateUnavailable }
+        atomStore.repoExplorerSidebarPrefs.setRepoVisibilityMode(mode)
+        guard atomStore.repoExplorerSidebarPrefs.repoVisibilityMode == mode else {
+            return .stateUnavailable
+        }
+        return .applied
+    }
+
+    private func executeRepoSidebarSortOrderCommand(_ order: RepoExplorerSortOrder) -> AppCommandExecutionOutcome {
+        guard let atomStore else { return .stateUnavailable }
+        atomStore.repoExplorerSidebarPrefs.setSortOrder(order)
+        guard atomStore.repoExplorerSidebarPrefs.sortOrder == order else {
+            return .stateUnavailable
+        }
+        return .applied
     }
 }

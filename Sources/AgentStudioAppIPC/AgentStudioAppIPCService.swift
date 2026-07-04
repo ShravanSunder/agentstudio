@@ -98,6 +98,7 @@ public struct AppIPCCommandError: Error, Equatable, Sendable {
         case requiresTarget
         case requiresParameters
         case validationRejected
+        case stateUnavailable
     }
 
     public let reason: Reason

@@ -306,9 +306,83 @@ struct AgentStudioOTLPPerformanceMetricsTests {
     }
 
     @Test
+    func sidebarPerformanceRecordAcceptsVisibilityModeTrigger() throws {
+        let record = AgentStudioOTLPProjectedLogRecord(
+            timeUnixNano: 131,
+            severityText: .info,
+            body: "performance.sidebar.projection",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.elapsed_ms": .double(1.5),
+                "agentstudio.performance.sidebar.surface": .string("repo"),
+                "agentstudio.performance.sidebar.phase": .string("projection_worker"),
+                "agentstudio.performance.sidebar.query_state": .string("empty"),
+                "agentstudio.performance.sidebar.group_mode": .string("repo"),
+                "agentstudio.performance.sidebar.trigger": .string("visibility_mode"),
+                "agentstudio.performance.sidebar.total_worker_elapsed_ms": .double(1.5),
+            ]
+        )
+
+        let metricEvent = try #require(AgentStudioOTLPPerformanceMetricEvent(record: record))
+
+        #expect(
+            metricEvent.dimensions.contains(
+                AgentStudioOTLPPerformanceMetricDimension(name: "trigger", value: "visibility_mode")))
+        #expect(
+            metricEvent.samples.contains(
+                AgentStudioOTLPPerformanceMetricSample(
+                    eventName: "performance.sidebar.projection",
+                    label: "agentstudio_performance_sidebar_total_worker_elapsed_ms",
+                    dimensions: metricEvent.dimensions,
+                    value: 1.5
+                )))
+    }
+
+    @Test
+    func sidebarPerformanceRecordAcceptsSortOrderTrigger() throws {
+        let record = AgentStudioOTLPProjectedLogRecord(
+            timeUnixNano: 132,
+            severityText: .info,
+            body: "performance.sidebar.projection",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: ["service.name": "AgentStudio"],
+            scope: .init(name: "agentstudio.performance", version: "0.1.0"),
+            attributes: [
+                "agentstudio.performance.elapsed_ms": .double(2.25),
+                "agentstudio.performance.sidebar.surface": .string("repo"),
+                "agentstudio.performance.sidebar.phase": .string("projection_worker"),
+                "agentstudio.performance.sidebar.query_state": .string("empty"),
+                "agentstudio.performance.sidebar.group_mode": .string("repo"),
+                "agentstudio.performance.sidebar.trigger": .string("sort_order"),
+                "agentstudio.performance.sidebar.total_worker_elapsed_ms": .double(2.25),
+            ]
+        )
+
+        let metricEvent = try #require(AgentStudioOTLPPerformanceMetricEvent(record: record))
+
+        #expect(
+            metricEvent.dimensions.contains(
+                AgentStudioOTLPPerformanceMetricDimension(name: "trigger", value: "sort_order")))
+        #expect(
+            metricEvent.samples.contains(
+                AgentStudioOTLPPerformanceMetricSample(
+                    eventName: "performance.sidebar.projection",
+                    label: "agentstudio_performance_sidebar_total_worker_elapsed_ms",
+                    dimensions: metricEvent.dimensions,
+                    value: 2.25
+                )))
+    }
+
+    @Test
     func sidebarPerformanceRecordRequiresCompleteControlledTaxonomy() {
         let missingSurface = AgentStudioOTLPProjectedLogRecord(
-            timeUnixNano: 131,
+            timeUnixNano: 132,
             severityText: .info,
             body: "performance.sidebar.projection",
             traceID: nil,
@@ -323,7 +397,7 @@ struct AgentStudioOTLPPerformanceMetricsTests {
             ]
         )
         let invalidPhase = AgentStudioOTLPProjectedLogRecord(
-            timeUnixNano: 132,
+            timeUnixNano: 133,
             severityText: .info,
             body: "performance.sidebar.projection",
             traceID: nil,

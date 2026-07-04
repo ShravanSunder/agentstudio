@@ -49,7 +49,8 @@ extension AppDelegate {
                         commandDispatcher: workspaceSurfaceCoordinator
                     ),
                     commandPort: AgentStudioIPCCommandAdapter(
-                        windowLifecycleReader: windowLifecycleReader
+                        windowLifecycleReader: windowLifecycleReader,
+                        shellCommandHandler: self
                     ),
                     uiPresentationPort: AgentStudioIPCUIPresentationAdapter(presenter: self),
                     sidebarPort: AgentStudioIPCSidebarAdapter(

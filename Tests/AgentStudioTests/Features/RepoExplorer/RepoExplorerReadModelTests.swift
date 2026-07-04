@@ -44,8 +44,8 @@ struct RepoExplorerReadModelTests {
         #expect(projection.resolvedGroups.map(\.repoTitle) == ["agent-browser", "actual-server"])
     }
 
-    @Test("favorites sort before non favorites in repo pane and tab modes")
-    func favoritesSortBeforeNonFavoritesInRepoPaneAndTabModes() {
+    @Test("favorites do not reorder normal repo pane and tab modes")
+    func favoritesDoNotReorderNormalRepoPaneAndTabModes() {
         let normalRepoId = UUID()
         let favoriteRepoId = UUID()
         let normalWorktree = worktree(repoId: normalRepoId, name: "z-normal")
@@ -101,7 +101,8 @@ struct RepoExplorerReadModelTests {
                 repoEnrichmentByRepoId: enrichmentByRepoId,
                 groupingMode: .pane,
                 sortOrder: .ascending,
-                query: ""
+                query: "",
+                paneLocationsByWorktreeId: locationsByWorktreeId
             )
         )
         let tabProjection = RepoExplorerProjection.project(
@@ -115,10 +116,12 @@ struct RepoExplorerReadModelTests {
             )
         )
 
-        #expect(repoProjection.resolvedGroups.map(\.repoTitle) == ["zeta-favorite", "alpha-normal"])
-        #expect(paneProjection.resolvedGroups.first?.id == "pane:inactive")
-        #expect(paneProjection.resolvedGroups.first?.repos.map(\.id) == [favoriteRepoId, normalRepoId])
-        #expect(tabProjection.resolvedGroups.first?.repos.map(\.id) == [favoriteRepoId, normalRepoId])
+        #expect(repoProjection.resolvedGroups.map(\.repoTitle) == ["alpha-normal", "zeta-favorite"])
+        #expect(paneProjection.resolvedGroups.first?.id == "pane:\(firstPaneId.uuidString)")
+        #expect(paneProjection.resolvedGroups.last?.id == "pane:\(secondPaneId.uuidString)")
+        #expect(paneProjection.resolvedGroups.first?.repos.map(\.id) == [normalRepoId])
+        #expect(paneProjection.resolvedGroups.last?.repos.map(\.id) == [favoriteRepoId])
+        #expect(tabProjection.resolvedGroups.first?.repos.map(\.id) == [normalRepoId, favoriteRepoId])
     }
 
     @Test("projection separates resolved and loading repos while preserving filter semantics")
@@ -159,6 +162,160 @@ struct RepoExplorerReadModelTests {
         #expect(projection.resolvedGroups[0].repos[0].worktrees.map(\.name) == ["perf-sidebar"])
         #expect(projection.loadingRepos.isEmpty)
         #expect(projection.showsNoResults == false)
+    }
+
+    @Test("favorites-only visibility filters resolved repos without changing all-mode order")
+    func favoritesOnlyVisibilityFiltersResolvedRepos() {
+        let normalRepoId = UUID()
+        let favoriteRepoId = UUID()
+        let normalRepo = repo(id: normalRepoId, name: "alpha-normal", worktrees: [worktree(repoId: normalRepoId)])
+        let favoriteRepo = repo(
+            id: favoriteRepoId,
+            name: "zeta-favorite",
+            isFavorite: true,
+            worktrees: [worktree(repoId: favoriteRepoId)]
+        )
+        let enrichmentByRepoId = [
+            normalRepoId: resolvedRemote(repoId: normalRepoId, displayName: "alpha-normal"),
+            favoriteRepoId: resolvedRemote(repoId: favoriteRepoId, displayName: "zeta-favorite"),
+        ]
+
+        let allProjection = RepoExplorerProjection.project(
+            RepoExplorerSnapshot(
+                repos: [favoriteRepo, normalRepo],
+                repoEnrichmentByRepoId: enrichmentByRepoId,
+                visibilityMode: .all,
+                query: ""
+            )
+        )
+        let favoritesProjection = RepoExplorerProjection.project(
+            RepoExplorerSnapshot(
+                repos: [favoriteRepo, normalRepo],
+                repoEnrichmentByRepoId: enrichmentByRepoId,
+                visibilityMode: .favoritesOnly,
+                query: ""
+            )
+        )
+
+        #expect(allProjection.resolvedGroups.map(\.repoTitle) == ["alpha-normal", "zeta-favorite"])
+        #expect(favoritesProjection.resolvedGroups.map(\.repoTitle) == ["zeta-favorite"])
+        #expect(favoritesProjection.resolvedGroups.first?.repos.map(\.id) == [favoriteRepoId])
+        #expect(favoritesProjection.emptyState == .content)
+    }
+
+    @Test("favorites-only visibility composes with search and pane grouping")
+    func favoritesOnlyVisibilityComposesWithSearchAndPaneGrouping() {
+        let normalRepoId = UUID()
+        let favoriteRepoId = UUID()
+        let normalRepo = repo(id: normalRepoId, name: "alpha-target", worktrees: [worktree(repoId: normalRepoId)])
+        let favoriteRepo = repo(
+            id: favoriteRepoId,
+            name: "zeta-target",
+            isFavorite: true,
+            worktrees: [worktree(repoId: favoriteRepoId, name: "target-work")]
+        )
+        let favoriteWorktree = favoriteRepo.worktrees[0]
+        let favoritePaneId = UUID()
+        let favoriteTabId = UUID()
+        let enrichmentByRepoId = [
+            normalRepoId: resolvedRemote(repoId: normalRepoId, displayName: "alpha-target"),
+            favoriteRepoId: resolvedRemote(repoId: favoriteRepoId, displayName: "zeta-target"),
+        ]
+
+        let matchingProjection = RepoExplorerProjection.project(
+            RepoExplorerSnapshot(
+                repos: [normalRepo, favoriteRepo],
+                repoEnrichmentByRepoId: enrichmentByRepoId,
+                groupingMode: .pane,
+                visibilityMode: .favoritesOnly,
+                query: "target",
+                paneLocationsByWorktreeId: [
+                    favoriteWorktree.id: [
+                        WorkspacePaneLocation(
+                            paneId: favoritePaneId,
+                            tabId: favoriteTabId,
+                            tabIndex: 0,
+                            paneIndexInTab: 0,
+                            isActiveInTab: true
+                        )
+                    ]
+                ]
+            )
+        )
+        let noMatchProjection = RepoExplorerProjection.project(
+            RepoExplorerSnapshot(
+                repos: [normalRepo, favoriteRepo],
+                repoEnrichmentByRepoId: enrichmentByRepoId,
+                groupingMode: .pane,
+                visibilityMode: .favoritesOnly,
+                query: "missing"
+            )
+        )
+
+        #expect(matchingProjection.resolvedGroups.map(\.id) == ["pane:\(favoritePaneId.uuidString)"])
+        #expect(matchingProjection.resolvedGroups.first?.repos.map(\.id) == [favoriteRepoId])
+        #expect(noMatchProjection.resolvedGroups.isEmpty)
+        #expect(noMatchProjection.emptyState == .searchNoResults)
+    }
+
+    @Test("favorites-only visibility filters loading repos")
+    func favoritesOnlyVisibilityFiltersLoadingRepos() {
+        let normalRepoId = UUID()
+        let favoriteRepoId = UUID()
+        let normalRepo = repo(id: normalRepoId, name: "alpha-loading", worktrees: [worktree(repoId: normalRepoId)])
+        let favoriteRepo = repo(
+            id: favoriteRepoId,
+            name: "zeta-loading",
+            isFavorite: true,
+            worktrees: [worktree(repoId: favoriteRepoId)]
+        )
+        let enrichmentByRepoId = [
+            normalRepoId: RepoEnrichment.awaitingOrigin(repoId: normalRepoId),
+            favoriteRepoId: RepoEnrichment.awaitingOrigin(repoId: favoriteRepoId),
+        ]
+
+        let projection = RepoExplorerProjection.project(
+            RepoExplorerSnapshot(
+                repos: [normalRepo, favoriteRepo],
+                repoEnrichmentByRepoId: enrichmentByRepoId,
+                visibilityMode: .favoritesOnly,
+                query: ""
+            )
+        )
+
+        #expect(projection.resolvedGroups.isEmpty)
+        #expect(projection.loadingRepos.map(\.id) == [favoriteRepoId])
+        #expect(projection.emptyState == .content)
+    }
+
+    @Test("favorites-only empty state is distinct from search no-results")
+    func favoritesOnlyEmptyStateIsDistinctFromSearchNoResults() {
+        let repoId = UUID()
+        let nonFavoriteRepo = repo(id: repoId, name: "alpha-normal", worktrees: [worktree(repoId: repoId)])
+        let enrichmentByRepoId = [repoId: resolvedRemote(repoId: repoId, displayName: "alpha-normal")]
+
+        let emptyFavoritesProjection = RepoExplorerProjection.project(
+            RepoExplorerSnapshot(
+                repos: [nonFavoriteRepo],
+                repoEnrichmentByRepoId: enrichmentByRepoId,
+                visibilityMode: .favoritesOnly,
+                query: ""
+            )
+        )
+        let noResultsProjection = RepoExplorerProjection.project(
+            RepoExplorerSnapshot(
+                repos: [nonFavoriteRepo],
+                repoEnrichmentByRepoId: enrichmentByRepoId,
+                visibilityMode: .favoritesOnly,
+                query: "alpha"
+            )
+        )
+
+        #expect(emptyFavoritesProjection.emptyState == .favoritesOnlyEmpty)
+        #expect(emptyFavoritesProjection.showsFavoritesEmptyState)
+        #expect(emptyFavoritesProjection.showsNoResults == false)
+        #expect(noResultsProjection.emptyState == .searchNoResults)
+        #expect(noResultsProjection.showsNoResults)
     }
 
     @Test("row index resolves worktree rows without walking the rendered groups")
@@ -317,6 +474,71 @@ struct RepoExplorerReadModelTests {
             )?.placementContext?.displayText
         }
         #expect(placementTexts == ["Pane 1", "Pane 2 active"])
+    }
+
+    @Test("pane and tab rows keep source-family checkout colors")
+    func paneAndTabRowsKeepSourceFamilyCheckoutColors() throws {
+        let firstRepoId = UUID()
+        let secondRepoId = UUID()
+        let firstWorktree = worktree(repoId: firstRepoId, name: "first")
+        let secondWorktree = worktree(repoId: secondRepoId, name: "second")
+        let firstRepo = repo(id: firstRepoId, name: "actual-a", worktrees: [firstWorktree])
+        let secondRepo = repo(id: secondRepoId, name: "actual-b", worktrees: [secondWorktree])
+        let paneId = UUID()
+        let tabId = UUID()
+        let enrichmentByRepoId = [
+            firstRepoId: resolvedRemote(repoId: firstRepoId, displayName: "actual"),
+            secondRepoId: resolvedRemote(repoId: secondRepoId, displayName: "actual"),
+        ]
+        let sourceMetadata = RepoPresentationColoring.buildRepoMetadata(
+            repos: [firstRepo, secondRepo],
+            repoEnrichmentByRepoId: enrichmentByRepoId
+        )
+        let sourceGroup = try #require(
+            RepoPresentationGrouping.buildGroups(
+                repos: [firstRepo, secondRepo],
+                metadataByRepoId: sourceMetadata
+            ).first
+        )
+        let expectedSecondRepoColor = RepoPresentationColoring.checkoutColorHex(
+            for: secondRepo,
+            in: sourceGroup
+        )
+        let locationsByWorktreeId = [
+            secondWorktree.id: [
+                WorkspacePaneLocation(
+                    paneId: paneId,
+                    tabId: tabId,
+                    tabIndex: 0,
+                    paneIndexInTab: 0,
+                    isActiveInTab: true
+                )
+            ]
+        ]
+
+        let paneProjection = RepoExplorerProjection.project(
+            RepoExplorerSnapshot(
+                repos: [firstRepo, secondRepo],
+                repoEnrichmentByRepoId: enrichmentByRepoId,
+                groupingMode: .pane,
+                query: "",
+                paneLocationsByWorktreeId: locationsByWorktreeId
+            )
+        )
+        let tabProjection = RepoExplorerProjection.project(
+            RepoExplorerSnapshot(
+                repos: [firstRepo, secondRepo],
+                repoEnrichmentByRepoId: enrichmentByRepoId,
+                groupingMode: .tab,
+                query: "",
+                paneLocationsByWorktreeId: locationsByWorktreeId
+            )
+        )
+
+        let paneRow = try #require(paneProjection.worktreeRowsByGroupId["pane:\(paneId.uuidString)"]?.first)
+        let tabRow = try #require(tabProjection.worktreeRowsByGroupId["tab:\(tabId.uuidString)"]?.first)
+        #expect(paneRow.checkoutColorHex == expectedSecondRepoColor)
+        #expect(tabRow.checkoutColorHex == expectedSecondRepoColor)
     }
 
     private func repo(

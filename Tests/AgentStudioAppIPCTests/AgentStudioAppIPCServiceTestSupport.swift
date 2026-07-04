@@ -266,13 +266,30 @@ struct FakeRuntimePort: AppIPCRuntimePort {
     }
 }
 
-struct FakeCommandPort: AppIPCCommandPort {
+final class FakeCommandPort: AppIPCCommandPort, @unchecked Sendable {
     let workspaceWindowId: UUID?
     let activeScope: IPCCommandBarScope?
+    let successfulCommandId: String?
+    let stateUnavailableCommandId: String?
+    private let lock = NSLock()
+    nonisolated(unsafe) private var receivedExecuteParamsStorage: [IPCCommandExecuteParams] = []
 
-    nonisolated init(workspaceWindowId: UUID? = nil, activeScope: IPCCommandBarScope? = nil) {
+    nonisolated init(
+        workspaceWindowId: UUID? = nil,
+        activeScope: IPCCommandBarScope? = nil,
+        successfulCommandId: String? = nil,
+        stateUnavailableCommandId: String? = nil
+    ) {
         self.workspaceWindowId = workspaceWindowId
         self.activeScope = activeScope
+        self.successfulCommandId = successfulCommandId
+        self.stateUnavailableCommandId = stateUnavailableCommandId
+    }
+
+    nonisolated var receivedExecuteParams: [IPCCommandExecuteParams] {
+        lock.withLock {
+            receivedExecuteParamsStorage
+        }
     }
 
     func listCommands() throws -> IPCCommandListResult {
@@ -280,6 +297,12 @@ struct FakeCommandPort: AppIPCCommandPort {
     }
 
     func executeCommand(_ params: IPCCommandExecuteParams) throws -> IPCCommandExecuteResult {
+        lock.withLock {
+            receivedExecuteParamsStorage.append(params)
+        }
+        guard params.argumentsContainOnlyStrings else {
+            throw AppIPCCommandError(reason: .validationRejected)
+        }
         if params.targetHandle != nil {
             throw AppIPCCommandError(reason: .targetNotFound)
         }
@@ -288,6 +311,16 @@ struct FakeCommandPort: AppIPCCommandPort {
         }
         guard workspaceWindowId != nil, activeScope != nil else {
             throw AppIPCCommandError(reason: .noActiveWindow)
+        }
+        if params.commandId.rawValue == stateUnavailableCommandId {
+            throw AppIPCCommandError(reason: .stateUnavailable)
+        }
+        if params.commandId.rawValue == successfulCommandId {
+            return IPCCommandExecuteResult(
+                commandId: params.commandId,
+                applied: true,
+                targetHandle: params.targetHandle
+            )
         }
         throw AppIPCCommandError(reason: .requiresPresentation)
     }

@@ -265,12 +265,61 @@ try:
     if command_bar_entry.get("title") != "Command Palette":
         print(f"showCommandBarCommands title mismatch: {command_bar_entry}", file=sys.stderr)
         sys.exit(1)
+    repo_visibility_entry = next(
+        (
+            command
+            for command in commands
+            if command.get("id") == "setRepoSidebarVisibilityMode"
+        ),
+        None,
+    )
+    if repo_visibility_entry is None:
+        print("command.list did not include setRepoSidebarVisibilityMode", file=sys.stderr)
+        sys.exit(1)
+    repo_visibility_arguments = repo_visibility_entry.get("argumentSchema", [])
+    if repo_visibility_arguments != [
+        {
+            "name": "mode",
+            "kind": {"type": "stringEnum", "values": ["all", "favoritesOnly"]},
+            "isRequired": True,
+        }
+    ]:
+        print(
+            f"setRepoSidebarVisibilityMode argument schema mismatch: {repo_visibility_entry}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    repo_sort_entry = next(
+        (
+            command
+            for command in commands
+            if command.get("id") == "setRepoSidebarSortOrder"
+        ),
+        None,
+    )
+    if repo_sort_entry is None:
+        print("command.list did not include setRepoSidebarSortOrder", file=sys.stderr)
+        sys.exit(1)
+    repo_sort_arguments = repo_sort_entry.get("argumentSchema", [])
+    if repo_sort_arguments != [
+        {
+            "name": "order",
+            "kind": {"type": "stringEnum", "values": ["ascending", "descending"]},
+            "isRequired": True,
+        }
+    ]:
+        print(
+            f"setRepoSidebarSortOrder argument schema mismatch: {repo_sort_entry}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
     allowed_command_keys = {
         "id",
         "title",
         "executionModes",
         "targetKinds",
         "requiredPrivileges",
+        "argumentSchema",
     }
     for command in commands:
         unexpected_keys = set(command.keys()) - allowed_command_keys
@@ -292,9 +341,103 @@ try:
         "requires presentation",
     )
 
-    command_bar_open = require_success(
+    repo_visibility_favorites = require_success(
         session.request(
             8,
+            "command.execute",
+            {
+                "commandId": "setRepoSidebarVisibilityMode",
+                "targetHandle": None,
+                "arguments": {"mode": "favoritesOnly"},
+            },
+        ),
+        "command.execute setRepoSidebarVisibilityMode favoritesOnly",
+    )
+    if repo_visibility_favorites.get("applied") is not True:
+        print(f"repo visibility favoritesOnly command did not apply: {repo_visibility_favorites}", file=sys.stderr)
+        sys.exit(1)
+
+    repo_visibility_all = require_success(
+        session.request(
+            9,
+            "command.execute",
+            {
+                "commandId": "setRepoSidebarVisibilityMode",
+                "targetHandle": None,
+                "arguments": {"mode": "all"},
+            },
+        ),
+        "command.execute setRepoSidebarVisibilityMode all",
+    )
+    if repo_visibility_all.get("applied") is not True:
+        print(f"repo visibility all command did not apply: {repo_visibility_all}", file=sys.stderr)
+        sys.exit(1)
+
+    require_error(
+        session.request(
+            10,
+            "command.execute",
+            {
+                "commandId": "setRepoSidebarVisibilityMode",
+                "targetHandle": None,
+                "arguments": {"mode": "recent"},
+            },
+        ),
+        "command.execute setRepoSidebarVisibilityMode invalid mode",
+        -32007,
+        "validation rejected",
+    )
+
+    repo_sort_descending = require_success(
+        session.request(
+            101,
+            "command.execute",
+            {
+                "commandId": "setRepoSidebarSortOrder",
+                "targetHandle": None,
+                "arguments": {"order": "descending"},
+            },
+        ),
+        "command.execute setRepoSidebarSortOrder descending",
+    )
+    if repo_sort_descending.get("applied") is not True:
+        print(f"repo sort descending command did not apply: {repo_sort_descending}", file=sys.stderr)
+        sys.exit(1)
+
+    repo_sort_ascending = require_success(
+        session.request(
+            102,
+            "command.execute",
+            {
+                "commandId": "setRepoSidebarSortOrder",
+                "targetHandle": None,
+                "arguments": {"order": "ascending"},
+            },
+        ),
+        "command.execute setRepoSidebarSortOrder ascending",
+    )
+    if repo_sort_ascending.get("applied") is not True:
+        print(f"repo sort ascending command did not apply: {repo_sort_ascending}", file=sys.stderr)
+        sys.exit(1)
+
+    require_error(
+        session.request(
+            103,
+            "command.execute",
+            {
+                "commandId": "setRepoSidebarSortOrder",
+                "targetHandle": None,
+                "arguments": {"order": "currentRepoOrder"},
+            },
+        ),
+        "command.execute setRepoSidebarSortOrder invalid order",
+        -32007,
+        "validation rejected",
+    )
+
+    command_bar_open = require_success(
+        session.request(
+            11,
             "ui.commandBar.open",
             {"scope": "commands"},
         ),
@@ -308,15 +451,15 @@ try:
         sys.exit(1)
 
     sidebar_expectations = [
-        (9, "sidebar.surface.set", {"surface": "repo"}, "repo"),
-        (10, "sidebar.grouping.set", {"surface": "repo", "mode": "repo"}, "repo"),
-        (11, "sidebar.grouping.set", {"surface": "repo", "mode": "pane"}, "pane"),
-        (12, "sidebar.grouping.set", {"surface": "repo", "mode": "tab"}, "tab"),
-        (13, "sidebar.surface.set", {"surface": "inbox"}, "inbox"),
-        (14, "sidebar.grouping.set", {"surface": "inbox", "mode": "tab"}, "tab"),
-        (15, "sidebar.grouping.set", {"surface": "inbox", "mode": "repo"}, "repo"),
-        (16, "sidebar.grouping.set", {"surface": "inbox", "mode": "pane"}, "pane"),
-        (17, "sidebar.grouping.set", {"surface": "inbox", "mode": "none"}, "none"),
+        (12, "sidebar.surface.set", {"surface": "repo"}, "repo"),
+        (13, "sidebar.grouping.set", {"surface": "repo", "mode": "repo"}, "repo"),
+        (14, "sidebar.grouping.set", {"surface": "repo", "mode": "pane"}, "pane"),
+        (15, "sidebar.grouping.set", {"surface": "repo", "mode": "tab"}, "tab"),
+        (16, "sidebar.surface.set", {"surface": "inbox"}, "inbox"),
+        (17, "sidebar.grouping.set", {"surface": "inbox", "mode": "tab"}, "tab"),
+        (18, "sidebar.grouping.set", {"surface": "inbox", "mode": "repo"}, "repo"),
+        (19, "sidebar.grouping.set", {"surface": "inbox", "mode": "pane"}, "pane"),
+        (20, "sidebar.grouping.set", {"surface": "inbox", "mode": "none"}, "none"),
     ]
     for request_id, method, params, expected_value in sidebar_expectations:
         result = require_success(session.request(request_id, method, params), method)
@@ -326,7 +469,7 @@ try:
             sys.exit(1)
 
     repo_grouping = require_success(
-        session.request(18, "sidebar.grouping.get", {"surface": "repo"}),
+        session.request(21, "sidebar.grouping.get", {"surface": "repo"}),
         "sidebar.grouping.get repo",
     )
     if repo_grouping.get("mode") != "tab":
@@ -334,7 +477,7 @@ try:
         sys.exit(1)
 
     inbox_grouping = require_success(
-        session.request(19, "sidebar.grouping.get", {"surface": "inbox"}),
+        session.request(22, "sidebar.grouping.get", {"surface": "inbox"}),
         "sidebar.grouping.get inbox",
     )
     if inbox_grouping.get("mode") != "none":
@@ -342,7 +485,7 @@ try:
         sys.exit(1)
 
     sidebar_surface = require_success(
-        session.request(20, "sidebar.surface.get", {}),
+        session.request(23, "sidebar.surface.get", {}),
         "sidebar.surface.get",
     )
     if sidebar_surface.get("surface") != "inbox":
@@ -350,7 +493,7 @@ try:
         sys.exit(1)
 
     require_error(
-        session.request(21, "sidebar.grouping.set", {"surface": "repo", "mode": "none"}),
+        session.request(24, "sidebar.grouping.set", {"surface": "repo", "mode": "none"}),
         "sidebar.grouping.set repo none",
         -32007,
         "validation rejected",

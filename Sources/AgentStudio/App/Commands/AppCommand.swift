@@ -91,6 +91,8 @@ enum AppCommand: String, CaseIterable {
     case setRepoSidebarGroupingRepo
     case setRepoSidebarGroupingPane
     case setRepoSidebarGroupingTab
+    case setRepoSidebarVisibilityMode
+    case setRepoSidebarSortOrder
     case setInboxGroupingTab
     case setInboxGroupingRepo
     case setInboxGroupingPane
@@ -192,6 +194,7 @@ struct AppCommandSpec {
     let commandBarGroupPriority: Int
     let isHiddenInCommandBar: Bool
     let ipcExposure: AppCommandIPCExposure
+    let argumentSchema: [IPCCommandArgumentSchema]
 
     init(
         command: AppCommand,
@@ -206,6 +209,7 @@ struct AppCommandSpec {
         commandBarGroupName: String = "Commands",
         commandBarGroupPriority: Int = 8,
         isHiddenInCommandBar: Bool = false,
+        argumentSchema: [IPCCommandArgumentSchema] = [],
         ipcExposure: AppCommandIPCExposure? = nil
     ) {
         self.command = command
@@ -220,6 +224,7 @@ struct AppCommandSpec {
         self.commandBarGroupName = commandBarGroupName
         self.commandBarGroupPriority = commandBarGroupPriority
         self.isHiddenInCommandBar = isHiddenInCommandBar
+        self.argumentSchema = argumentSchema
         self.ipcExposure =
             ipcExposure
             ?? AppCommandIPCExposure.defaultInteractive(
@@ -264,6 +269,17 @@ struct AppCommandIPCExposure: Equatable, Sendable {
         )
     }
 
+    static func headless(
+        targetKinds: [IPCHandleKind] = [],
+        requiredPrivileges: [IPCPrivilegeClass]
+    ) -> Self {
+        Self(
+            executionModes: [.headless],
+            targetKinds: targetKinds,
+            requiredPrivileges: requiredPrivileges
+        )
+    }
+
     var commandListEntryIsHeadlessExecutable: Bool {
         executionModes.contains(.headless)
     }
@@ -290,6 +306,7 @@ struct AppCommandIPCExposure: Equatable, Sendable {
             .clearReadInboxNotifications, .clearAllInboxNotifications, .showPaneInboxNotifications,
             .clearPaneInboxNotifications, .showWorktreeSidebar,
             .setRepoSidebarGroupingRepo, .setRepoSidebarGroupingPane, .setRepoSidebarGroupingTab,
+            .setRepoSidebarVisibilityMode, .setRepoSidebarSortOrder,
             .setInboxGroupingTab, .setInboxGroupingRepo, .setInboxGroupingPane, .setInboxGroupingNone,
             .newFloatingTerminal, .newWindow,
             .closeWindow, .openNewTerminalInTab:
@@ -338,6 +355,7 @@ protocol ShellCommandHandling: AnyObject {
     func canExecute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool
     func execute(_ command: AppCommand) -> Bool
     func execute(_ command: AppCommand, target: UUID, targetType: SearchItemType) -> Bool
+    func execute(_ request: AppCommandExecutionRequest) -> AppCommandExecutionOutcome
 
     /// Show the repo/worktree-scoped command bar for discovered checkout actions.
     func showRepoCommandBar()
@@ -347,6 +365,30 @@ protocol ShellCommandHandling: AnyObject {
 
     /// Restore focus to the active pane after transient sidebar/management UI work.
     func refocusActivePane()
+}
+
+struct AppCommandExecutionRequest: Equatable, Sendable {
+    let command: AppCommand
+    let arguments: AppCommandExecutionArguments?
+
+    init(
+        command: AppCommand,
+        arguments: AppCommandExecutionArguments? = nil
+    ) {
+        self.command = command
+        self.arguments = arguments
+    }
+}
+
+enum AppCommandExecutionArguments: Equatable, Sendable {
+    case repoSidebarVisibilityMode(RepoExplorerVisibilityMode)
+    case repoSidebarSortOrder(RepoExplorerSortOrder)
+}
+
+enum AppCommandExecutionOutcome: Equatable, Sendable {
+    case applied
+    case stateUnavailable
+    case unsupportedCommand
 }
 
 @MainActor
@@ -360,6 +402,13 @@ extension WorkspaceCommandHandling {
 extension ShellCommandHandling {
     func canExecute(_ command: AppCommand, target _: UUID, targetType _: SearchItemType) -> Bool {
         canExecute(command)
+    }
+
+    func execute(_ request: AppCommandExecutionRequest) -> AppCommandExecutionOutcome {
+        guard request.arguments == nil else {
+            return .unsupportedCommand
+        }
+        return execute(request.command) ? .applied : .unsupportedCommand
     }
 }
 

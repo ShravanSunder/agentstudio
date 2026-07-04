@@ -53,11 +53,17 @@ enum RepoExplorerSortOrder: String, CaseIterable, Codable, Hashable, Sendable {
     }
 }
 
+enum RepoExplorerVisibilityMode: String, CaseIterable, Codable, Hashable, Sendable {
+    case all
+    case favoritesOnly
+}
+
 struct RepoExplorerSnapshot: Equatable, Sendable {
     let repos: [RepoPresentationItem]
     let repoEnrichmentSnapshotByRepoId: [UUID: RepoEnrichment]
     let groupingMode: RepoExplorerGroupingMode
     let sortOrder: RepoExplorerSortOrder
+    let visibilityMode: RepoExplorerVisibilityMode
     let query: String
     let paneLocationsByWorktreeId: [UUID: [WorkspacePaneLocation]]
 
@@ -66,6 +72,7 @@ struct RepoExplorerSnapshot: Equatable, Sendable {
         repoEnrichmentByRepoId: [UUID: RepoEnrichment],
         groupingMode: RepoExplorerGroupingMode = .repo,
         sortOrder: RepoExplorerSortOrder = .default,
+        visibilityMode: RepoExplorerVisibilityMode = .all,
         query: String,
         paneLocationsByWorktreeId: [UUID: [WorkspacePaneLocation]] = [:]
     ) {
@@ -73,6 +80,7 @@ struct RepoExplorerSnapshot: Equatable, Sendable {
         self.repoEnrichmentSnapshotByRepoId = repoEnrichmentByRepoId
         self.groupingMode = groupingMode
         self.sortOrder = sortOrder
+        self.visibilityMode = visibilityMode
         self.query = query
         self.paneLocationsByWorktreeId = paneLocationsByWorktreeId
     }

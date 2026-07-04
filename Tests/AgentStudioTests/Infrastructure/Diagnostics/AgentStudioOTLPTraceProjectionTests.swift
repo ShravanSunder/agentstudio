@@ -349,7 +349,7 @@ struct AgentStudioOTLPTraceProjectionTests {
     @Test
     func tccDiagnosticProjectionKeepsClassificationsAndDropsRawPaths() {
         let record = AgentStudioTraceRecord(
-            timeUnixNano: 178,
+            timeUnixNano: 179,
             severityText: .warn,
             body: "terminal.tcc.access_probe",
             traceID: nil,

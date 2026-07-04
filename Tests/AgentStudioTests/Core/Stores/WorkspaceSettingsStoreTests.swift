@@ -35,6 +35,7 @@ struct WorkspaceSettingsStoreTests {
         inboxPrefs.setPaneInboxContentMode(.all)
         inboxPrefs.setPaneInboxRowStateFilter(.unreadOnly)
         repoExplorerPrefs.setSortOrder(.descending)
+        repoExplorerPrefs.setRepoVisibilityMode(.favoritesOnly)
 
         try store.flush(for: workspaceId)
 
@@ -50,6 +51,7 @@ struct WorkspaceSettingsStoreTests {
         #expect(restoredEditorPreference.bookmarkedEditorId == "cursor")
         #expect(restoredRepoExplorerPrefs.groupingMode == .tab)
         #expect(restoredRepoExplorerPrefs.sortOrder == .descending)
+        #expect(restoredRepoExplorerPrefs.repoVisibilityMode == .favoritesOnly)
         #expect(restoredInboxPrefs.grouping == .byRepo)
         #expect(restoredInboxPrefs.sort == .oldestFirst)
         #expect(restoredInboxPrefs.bellEnabled)
@@ -73,6 +75,7 @@ struct WorkspaceSettingsStoreTests {
         editorPreference.setBookmarkedEditor("cursor")
         repoExplorerPrefs.setGroupingMode(.pane)
         repoExplorerPrefs.setSortOrder(.descending)
+        repoExplorerPrefs.setRepoVisibilityMode(.favoritesOnly)
         inboxPrefs.setGrouping(.byRepo)
         inboxPrefs.setSort(.oldestFirst)
         inboxPrefs.setBellEnabled(true)
@@ -82,6 +85,7 @@ struct WorkspaceSettingsStoreTests {
         #expect(editorPreference.bookmarkedEditorId == nil)
         #expect(repoExplorerPrefs.groupingMode == .repo)
         #expect(repoExplorerPrefs.sortOrder == .ascending)
+        #expect(repoExplorerPrefs.repoVisibilityMode == .all)
         #expect(inboxPrefs.grouping == .byTab)
         #expect(inboxPrefs.sort == .newestFirst)
         #expect(!inboxPrefs.bellEnabled)
@@ -327,6 +331,32 @@ struct WorkspaceSettingsStoreTests {
     }
 
     @Test
+    func restoreRepoExplorerSettingsMissingVisibilityModeDefaultsToAll() throws {
+        let workspaceId = UUID()
+        let settingsURL = settingsFileURL(for: workspaceId)
+        try Data(
+            """
+            {
+              "schemaVersion": 1,
+              "workspaceId": "\(workspaceId.uuidString)",
+              "repoExplorer": {
+                "groupingMode": "pane",
+                "sortOrder": "descending"
+              }
+            }
+            """.utf8
+        ).write(to: settingsURL, options: .atomic)
+        let repoExplorerPrefs = RepoExplorerSidebarPrefsAtom()
+        repoExplorerPrefs.setRepoVisibilityMode(.favoritesOnly)
+
+        makeStore(repoExplorerPrefs: repoExplorerPrefs).restore(for: workspaceId)
+
+        #expect(repoExplorerPrefs.groupingMode == .pane)
+        #expect(repoExplorerPrefs.sortOrder == .descending)
+        #expect(repoExplorerPrefs.repoVisibilityMode == .all)
+    }
+
+    @Test
     func editorChooserRuntimeStateIsNotWrittenToSettings() throws {
         let workspaceId = UUID()
         let editorPreference = EditorPreferenceAtom()
@@ -470,6 +500,7 @@ struct WorkspaceSettingsStoreTests {
         editorPreference.setBookmarkedEditor("cursor")
         repoExplorerPrefs.setGroupingMode(.pane)
         repoExplorerPrefs.setSortOrder(.descending)
+        repoExplorerPrefs.setRepoVisibilityMode(.favoritesOnly)
         inboxPrefs.setGrouping(.byRepo)
         inboxPrefs.setSort(.oldestFirst)
         inboxPrefs.setBellEnabled(true)
@@ -488,6 +519,7 @@ struct WorkspaceSettingsStoreTests {
         #expect(editorChooser?["bookmarkedEditorId"] as? String == "cursor")
         #expect(repoExplorer?["groupingMode"] as? String == "pane")
         #expect(repoExplorer?["sortOrder"] as? String == "descending")
+        #expect(repoExplorer?["repoVisibilityMode"] as? String == "favoritesOnly")
         #expect(sidebar?["checkoutColors"] == nil)
         #expect(notifications?["grouping"] as? String == "byRepo")
         #expect(notifications?["sort"] as? String == "oldestFirst")

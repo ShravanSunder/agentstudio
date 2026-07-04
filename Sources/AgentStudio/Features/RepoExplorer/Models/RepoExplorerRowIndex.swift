@@ -5,6 +5,7 @@ struct RepoExplorerResolvedWorktreeContext: Sendable {
     let group: RepoPresentationGroup
     let repo: RepoPresentationItem
     let worktree: Worktree
+    let checkoutColorHex: String
     let placementContext: RepoExplorerPlacementContext?
 }
 
@@ -52,6 +53,7 @@ struct RepoExplorerRowIndex: Equatable, Sendable {
             group: group,
             repo: projectedRow.repo,
             worktree: projectedRow.worktree,
+            checkoutColorHex: projectedRow.checkoutColorHex,
             placementContext: projectedRow.placementContext
         )
     }
@@ -128,6 +130,10 @@ struct RepoExplorerRowIndex: Equatable, Sendable {
                             repo: repo,
                             worktree: worktree,
                             rowId: "worktree:\(group.id):\(repo.id.uuidString):\(worktree.id.uuidString):inactive",
+                            checkoutColorHex: RepoPresentationColoring.checkoutColorHex(
+                                for: repo,
+                                in: group
+                            ),
                             placementContext: nil
                         )
                     }
