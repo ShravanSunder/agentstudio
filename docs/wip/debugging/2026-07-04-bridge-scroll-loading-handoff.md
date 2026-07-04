@@ -249,3 +249,30 @@ ONE order, ONE owner from intent to painted.
   relaunching.
 - Unsigned commits (--no-gpg-sign) from 2026-07-04 await re-signing when
   1Password works.
+
+## User refinement (final, at session close): pure per-scenario derivation
+
+The reconciler knows "what must be shown" and that set changes — but each
+scenario's derivation is PURE and must be SPECIFIED explicitly (amend
+docs/specs/bridge-viewer-transport/performance-demand-lanes.md in the design
+step, scenario tables included):
+
+  intent sources                 lane
+  ─────────────────────────────  ─────────────────────────────
+  click            (command)  -> selected
+  scroll/viewport  (fact)     -> immediate (reconciler-derived)
+  adjacency        (derived)  -> nearby   (from selection+viewport, pure)
+  hover            (fact)     -> speculative
+  package fill     (policy)   -> background (paced)
+
+Every tier's membership derivation = pure function over (visibleSet,
+selection, hover, loadedSet, inFlightSet) -> demand plan; scenario tables per
+tier become the durable test surface the user has been asking for. The spec
+already sketches lanes (R20-R31); the design session promotes the reconciler +
+pure derivations + immediate lane into it as the single normative contract.
+
+NOTE at close: the topology-storm lane (task-mr6cod61-yz1gzb) was still
+running with in-flight edits in WorkspaceSurfaceCoordinatorTests.swift (over
+the 1000-line cap mid-edit) and RepositoryTopologyAtomTests.swift — repo lint
+is red from ITS WIP only; committed HEAD is clean. Adopt, verify its red-first
+proof, enforce caps, land.
