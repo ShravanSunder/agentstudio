@@ -13,12 +13,51 @@ extension WebKitSerializedTests {
                 contentsOfFile: "Sources/AgentStudio/App/Boot/AppDelegate+BridgeWorkerFetchStartupDiagnostics.swift",
                 encoding: .utf8
             )
+            let workerSource = try String(
+                contentsOfFile: "BridgeWeb/src/app/diagnostics/bridge-worker-fetch-probe-worker-entry.ts",
+                encoding: .utf8
+            )
 
             #expect(source.contains("new Worker("))
-            #expect(source.contains("fetch(resourceUrl)"))
-            #expect(source.contains("response.body.getReader()"))
-            #expect(source.contains("reader.read()"))
-            #expect(source.contains("holdStreamOpen"))
+            #expect(source.contains("bridgeWorkerFetchSchemeSmokeWorkerScriptURL"))
+            #expect(source.contains("agentstudio://app/assets/bridge-worker-fetch-probe-worker.js"))
+            #expect(source.contains("new Worker(workerScriptUrl, { type: 'module' })"))
+            #expect(workerSource.contains("fetch(request.resourceUrl)"))
+            #expect(workerSource.contains("response.body.getReader()"))
+            #expect(workerSource.contains("reader.read()"))
+            #expect(source.contains("worker_error"))
+            #expect(!source.contains("URL.createObjectURL"))
+            #expect(!source.contains("new Blob([workerSource]"))
+        }
+
+        @Test("startup diagnostic worker probe is packaged as an app asset")
+        func startupDiagnosticWorkerProbeIsPackagedAsAppAsset() throws {
+            let tsdownConfig = try String(
+                contentsOfFile: "BridgeWeb/tsdown.config.ts",
+                encoding: .utf8
+            )
+            let buildScript = try String(
+                contentsOfFile: "BridgeWeb/scripts/build-app-assets.ts",
+                encoding: .utf8
+            )
+
+            #expect(
+                tsdownConfig.contains(
+                    "name: 'bridge-worker-fetch-probe-worker'"
+                ))
+            #expect(
+                tsdownConfig.contains(
+                    "'bridge-worker-fetch-probe-worker':"
+                ))
+            #expect(
+                tsdownConfig.contains(
+                    "'./src/app/diagnostics/bridge-worker-fetch-probe-worker-entry.ts'"
+                ))
+            #expect(buildScript.contains("entrypointName: 'bridge-worker-fetch-probe-worker'"))
+            #expect(
+                FileManager.default.fileExists(
+                    atPath: "BridgeWeb/src/app/diagnostics/bridge-worker-fetch-probe-worker-entry.ts"
+                ))
         }
 
         @Test("startup diagnostic records marker scoped worker fetch proof facts")

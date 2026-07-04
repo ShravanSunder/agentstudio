@@ -75,6 +75,11 @@ const runBuildAppAssets = async (): Promise<void> => {
 		auxiliaryScriptPaths: builtAssets.auxiliaryScripts,
 		entrypointName: 'review-projection-worker',
 	});
+	const workerFetchProbeAssetPath = requiredAuxiliaryScriptPath({
+		auxiliaryScriptPaths: builtAssets.auxiliaryScripts,
+		entrypointName: 'bridge-worker-fetch-probe-worker',
+	});
+	void workerFetchProbeAssetPath;
 	const manifest = await buildAppAssetManifest({
 		appDirectoryPath,
 		mainScriptPath,

@@ -60,4 +60,15 @@ export default defineConfig([
 			codeSplitting: false,
 		},
 	},
+	{
+		...sharedBridgeWebBuildConfig,
+		name: 'bridge-worker-fetch-probe-worker',
+		entry: {
+			'bridge-worker-fetch-probe-worker':
+				'./src/app/diagnostics/bridge-worker-fetch-probe-worker-entry.ts',
+		},
+		outputOptions: {
+			codeSplitting: false,
+		},
+	},
 ]);

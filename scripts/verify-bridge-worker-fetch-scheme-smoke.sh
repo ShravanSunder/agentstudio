@@ -170,6 +170,31 @@ print(count)
 PY
 }
 
+first_json_field() {
+  local field_name="$1"
+  local payload="$2"
+  /usr/bin/python3 - "$field_name" "$payload" <<'PY'
+import json
+import sys
+
+field = sys.argv[1]
+for line in sys.argv[2].splitlines():
+    if not line.strip():
+        continue
+    try:
+        value = json.loads(line).get(field)
+    except json.JSONDecodeError:
+        continue
+    if value is not None:
+        if isinstance(value, bool):
+            print("true" if value else "false")
+            sys.exit(0)
+        print(value)
+        sys.exit(0)
+print("")
+PY
+}
+
 max_numeric_field() {
   local field_name="$1"
   local payload="$2"
@@ -277,8 +302,10 @@ marker_filter="$(logsql_exact_filter agent.proof.marker "$MARKER")"
 action_filter="$(logsql_exact_filter agentstudio.startup_diagnostic.action "$STARTUP_DIAGNOSTIC_ACTION")"
 base_query="service.name:AgentStudio dev.runtime.flavor:debug $marker_filter"
 diagnostic_completed_query="$base_query $action_filter _msg:app.startup_diagnostic_action.completed"
-worker_fetch_fields="agentstudio.startup_diagnostic.bridge.worker_fetch.marker.count,agentstudio.startup_diagnostic.bridge.worker_fetch.content_url.scheme,agentstudio.startup_diagnostic.bridge.worker_fetch.content_resource.kind,agentstudio.startup_diagnostic.bridge.worker_fetch.fetch.succeeded,agentstudio.startup_diagnostic.bridge.worker_fetch.stream.succeeded,agentstudio.startup_diagnostic.bridge.worker_fetch.worker_observed_byte.count,agentstudio.startup_diagnostic.bridge.worker_fetch.stream_first_chunk_byte.count,agentstudio.startup_diagnostic.bridge.worker_fetch.stream_held_open"
+diagnostic_blocked_query="$base_query $action_filter _msg:app.startup_diagnostic_action.blocked"
+worker_fetch_fields="agentstudio.startup_diagnostic.bridge.worker_fetch.marker.count,agentstudio.startup_diagnostic.bridge.worker_fetch.content_url.scheme,agentstudio.startup_diagnostic.bridge.worker_fetch.content_resource.kind,agentstudio.startup_diagnostic.bridge.worker_fetch.fetch.succeeded,agentstudio.startup_diagnostic.bridge.worker_fetch.stream.succeeded,agentstudio.startup_diagnostic.bridge.worker_fetch.worker_observed_byte.count,agentstudio.startup_diagnostic.bridge.worker_fetch.stream_first_chunk_byte.count,agentstudio.startup_diagnostic.bridge.worker_fetch.stream_held_open,agentstudio.startup_diagnostic.bridge.worker_fetch.failure.reason"
 worker_fetch_query="$diagnostic_completed_query agentstudio.startup_diagnostic.bridge.worker_fetch.marker.count:* agentstudio.startup_diagnostic.bridge.worker_fetch.worker_observed_byte.count:* agentstudio.startup_diagnostic.bridge.worker_fetch.stream_first_chunk_byte.count:*"
+worker_fetch_blocked_query="$diagnostic_blocked_query agentstudio.startup_diagnostic.bridge.worker_fetch.failure.reason:*"
 
 if [ "$dry_run" = true ]; then
   echo "dry-run ok: requires worker fetch marker and byte observation"
@@ -286,6 +313,43 @@ if [ "$dry_run" = true ]; then
   echo "startup_action=$STARTUP_DIAGNOSTIC_ACTION"
   echo "query=$worker_fetch_query | fields _msg,$worker_fetch_fields | limit 20"
   exit 0
+fi
+
+worker_fetch_blocked_response="$(query_logs "$worker_fetch_blocked_query | fields _msg,$worker_fetch_fields | limit 20")"
+worker_fetch_blocked_record_count="$(json_record_count "$worker_fetch_blocked_response")"
+if [ "$worker_fetch_blocked_record_count" -gt 0 ]; then
+  blocked_reason="$(
+    first_json_field \
+      "agentstudio.startup_diagnostic.bridge.worker_fetch.failure.reason" \
+      "$worker_fetch_blocked_response"
+  )"
+  blocked_fetch_succeeded="$(
+    first_json_field \
+      "agentstudio.startup_diagnostic.bridge.worker_fetch.fetch.succeeded" \
+      "$worker_fetch_blocked_response"
+  )"
+  blocked_stream_succeeded="$(
+    first_json_field \
+      "agentstudio.startup_diagnostic.bridge.worker_fetch.stream.succeeded" \
+      "$worker_fetch_blocked_response"
+  )"
+  blocked_worker_observed_byte_count="$(
+    max_numeric_field \
+      "agentstudio.startup_diagnostic.bridge.worker_fetch.worker_observed_byte.count" \
+      "$worker_fetch_blocked_response"
+  )"
+  blocked_stream_first_chunk_byte_count="$(
+    max_numeric_field \
+      "agentstudio.startup_diagnostic.bridge.worker_fetch.stream_first_chunk_byte.count" \
+      "$worker_fetch_blocked_response"
+  )"
+  echo "FAILED: bridge worker fetch scheme smoke blocked" >&2
+  echo "failure.reason=${blocked_reason:-<missing>}" >&2
+  echo "fetch.succeeded=${blocked_fetch_succeeded:-<missing>}" >&2
+  echo "stream.succeeded=${blocked_stream_succeeded:-<missing>}" >&2
+  echo "worker_observed_byte.count=$blocked_worker_observed_byte_count" >&2
+  echo "stream_first_chunk_byte.count=$blocked_stream_first_chunk_byte_count" >&2
+  exit 1
 fi
 
 AGENTSTUDIO_OBSERVABILITY_ALLOW_COMPLETED_EXIT=1 \

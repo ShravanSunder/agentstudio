@@ -130,83 +130,116 @@ extension AppDelegate {
             guard let encodedResourceURL = String(bytes: encodedResourceData, encoding: .utf8) else {
                 throw BridgeWorkerFetchSchemeSmokeScriptError.invalidResourceEncoding
             }
-            return """
-                return await (async function() {
-                  const resourceUrl = \(encodedResourceURL);
-                  const workerSource = `
-                    function holdStreamOpen() {
-                      return new Promise(function() {});
-                    }
-                    self.onmessage = async function(event) {
-                      const mode = event.data.mode;
-                      const resourceUrl = event.data.resourceUrl;
-                      try {
-                        const response = await fetch(resourceUrl);
-                        if (mode === 'stream') {
-                          const reader = response.body.getReader();
-                          const firstChunk = await reader.read();
-                          self.postMessage({
-                            mode,
-                            succeeded: response.ok,
-                            status: response.status,
-                            streamFirstChunkByteCount: firstChunk.value ? firstChunk.value.byteLength : 0,
-                            streamHeldOpen: !firstChunk.done
-                          });
-                          await holdStreamOpen();
-                          return;
-                        }
-                        const body = await response.arrayBuffer();
-                        self.postMessage({
-                          mode,
-                          succeeded: response.ok,
-                          status: response.status,
-                          workerObservedByteCount: body.byteLength,
-                          contentUrlScheme: new URL(resourceUrl).protocol.replace(':', ''),
-                          contentResourceKind: 'content'
-                        });
-                      } catch (error) {
-                        self.postMessage({
-                          mode,
-                          succeeded: false,
-                          status: 0,
-                          workerObservedByteCount: 0,
-                          streamFirstChunkByteCount: 0,
-                          streamHeldOpen: false,
-                          contentUrlScheme: 'agentstudio',
-                          contentResourceKind: 'content'
-                        });
-                      }
-                    };
-                  `;
-                  const workerUrl = URL.createObjectURL(
-                    new Blob([workerSource], { type: 'text/javascript' })
-                  );
-                  function runProbe(mode) {
-                    return new Promise(function(resolve) {
-                      const worker = new Worker(workerUrl);
-                      worker.onmessage = function(event) {
-                        worker.terminate();
-                        resolve(event.data);
-                      };
-                      worker.postMessage({ mode, resourceUrl });
-                    });
-                  }
-                  const fetchResult = await runProbe('fetch');
-                  const streamResult = await runProbe('stream');
-                  URL.revokeObjectURL(workerUrl);
-                  return JSON.stringify({
-                    markerCount: 1,
-                    contentUrlScheme: fetchResult.contentUrlScheme || 'agentstudio',
-                    contentResourceKind: fetchResult.contentResourceKind || 'content',
-                    fetchSucceeded: fetchResult.succeeded === true,
-                    streamSucceeded: streamResult.succeeded === true,
-                    workerObservedByteCount: fetchResult.workerObservedByteCount || 0,
-                    streamFirstChunkByteCount: streamResult.streamFirstChunkByteCount || 0,
-                    streamHeldOpen: streamResult.streamHeldOpen === true
-                  });
-                })();
-                """
+            let encodedWorkerScriptData = try JSONEncoder().encode(bridgeWorkerFetchSchemeSmokeWorkerScriptURL)
+            guard let encodedWorkerScriptURL = String(bytes: encodedWorkerScriptData, encoding: .utf8) else {
+                throw BridgeWorkerFetchSchemeSmokeScriptError.invalidWorkerScriptEncoding
+            }
+            return
+                bridgeWorkerFetchSchemeSmokeJavaScriptTemplate
+                .replacingOccurrences(of: "__RESOURCE_URL__", with: encodedResourceURL)
+                .replacingOccurrences(of: "__WORKER_SCRIPT_URL__", with: encodedWorkerScriptURL)
         }
+
+        private static let bridgeWorkerFetchSchemeSmokeJavaScriptTemplate = """
+            return await (async function() {
+              const resourceUrl = __RESOURCE_URL__;
+              const workerScriptUrl = __WORKER_SCRIPT_URL__;
+              function failedProbe(mode, reason) {
+                return {
+                  mode,
+                  succeeded: false,
+                  status: 0,
+                  workerObservedByteCount: 0,
+                  streamFirstChunkByteCount: 0,
+                  streamHeldOpen: false,
+                  contentUrlScheme: 'agentstudio',
+                  contentResourceKind: 'content',
+                  failureReason: reason
+                };
+              }
+              function normalizedProbe(mode, data) {
+                if (!data || typeof data !== 'object') {
+                  return failedProbe(mode, 'worker_invalid_response');
+                }
+                return {
+                  mode,
+                  succeeded: data.succeeded === true,
+                  status: Number.isFinite(data.status) ? data.status : 0,
+                  workerObservedByteCount: data.workerObservedByteCount || 0,
+                  streamFirstChunkByteCount: data.streamFirstChunkByteCount || 0,
+                  streamHeldOpen: data.streamHeldOpen === true,
+                  contentUrlScheme: data.contentUrlScheme || 'agentstudio',
+                  contentResourceKind: data.contentResourceKind || 'content',
+                  failureReason: data.failureReason || 'none'
+                };
+              }
+              function runProbe(mode) {
+                return new Promise(function(resolve) {
+                  let worker = null;
+                  let settled = false;
+                  function finish(data) {
+                    if (settled) {
+                      return;
+                    }
+                    settled = true;
+                    if (worker !== null) {
+                      worker.terminate();
+                    }
+                    resolve(normalizedProbe(mode, data));
+                  }
+                  try {
+                    worker = new Worker(workerScriptUrl, { type: 'module' });
+                  } catch (error) {
+                    resolve(failedProbe(mode, 'worker_constructor_failed'));
+                    return;
+                  }
+                  worker.onmessage = function(event) {
+                    finish(event.data);
+                  };
+                  worker.onerror = function() {
+                    finish(failedProbe(mode, 'worker_error'));
+                  };
+                  try {
+                    worker.postMessage({ mode, resourceUrl });
+                  } catch (error) {
+                    finish(failedProbe(mode, 'worker_post_failed'));
+                  }
+                });
+              }
+              try {
+                const fetchResult = await runProbe('fetch');
+                const streamResult = await runProbe('stream');
+                return JSON.stringify({
+                  markerCount: 1,
+                  contentUrlScheme: fetchResult.contentUrlScheme || 'agentstudio',
+                  contentResourceKind: fetchResult.contentResourceKind || 'content',
+                  fetchSucceeded: fetchResult.succeeded === true,
+                  streamSucceeded: streamResult.succeeded === true,
+                  workerObservedByteCount: fetchResult.workerObservedByteCount || 0,
+                  streamFirstChunkByteCount: streamResult.streamFirstChunkByteCount || 0,
+                  streamHeldOpen: streamResult.streamHeldOpen === true,
+                  failureReason: fetchResult.failureReason !== 'none'
+                    ? fetchResult.failureReason
+                    : streamResult.failureReason
+                });
+              } catch (error) {
+                return JSON.stringify({
+                  markerCount: 1,
+                  contentUrlScheme: 'agentstudio',
+                  contentResourceKind: 'content',
+                  fetchSucceeded: false,
+                  streamSucceeded: false,
+                  workerObservedByteCount: 0,
+                  streamFirstChunkByteCount: 0,
+                  streamHeldOpen: false,
+                  failureReason: 'page_probe_exception'
+                });
+              }
+            })();
+            """
+
+        private static let bridgeWorkerFetchSchemeSmokeWorkerScriptURL =
+            "agentstudio://app/assets/bridge-worker-fetch-probe-worker.js"
 
         private func recordBridgeWorkerFetchSchemeSmokePhase(
             _ phase: String,
@@ -240,14 +273,16 @@ extension AppDelegate {
             proof: BridgeWorkerFetchSchemeSmokeProof
         ) {
             let outcome = proof.succeeded ? "succeeded" : "blocked"
-            startupTraceRecorder.recordAppStartup(
-                "app.startup_diagnostic_action.command_exercised",
-                phase: "startup_diagnostic_action",
-                outcome: outcome,
-                attributes: startupDiagnosticTraceAttributes(for: action).merging(
-                    proof.attributes
-                ) { _, newValue in newValue }
-            )
+            if proof.succeeded {
+                startupTraceRecorder.recordAppStartup(
+                    "app.startup_diagnostic_action.command_exercised",
+                    phase: "startup_diagnostic_action",
+                    outcome: outcome,
+                    attributes: startupDiagnosticTraceAttributes(for: action).merging(
+                        proof.attributes
+                    ) { _, newValue in newValue }
+                )
+            }
             startupTraceRecorder.recordAppStartup(
                 proof.succeeded
                     ? "app.startup_diagnostic_action.completed"
@@ -265,6 +300,7 @@ extension AppDelegate {
 #if DEBUG
     private enum BridgeWorkerFetchSchemeSmokeScriptError: Error {
         case invalidResourceEncoding
+        case invalidWorkerScriptEncoding
     }
 
     private struct BridgeWorkerFetchSchemeSmokeProof: Decodable {
