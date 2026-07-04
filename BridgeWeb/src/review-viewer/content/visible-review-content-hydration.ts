@@ -55,7 +55,7 @@ export interface VisibleContentResourcesState {
 	readonly contentKey: string;
 	readonly itemId: string;
 	readonly retryAfterVersion?: number;
-	readonly status: 'deferred' | 'loading' | 'ready' | 'failed';
+	readonly status: 'aborted' | 'deferred' | 'loading' | 'ready' | 'failed';
 }
 
 export const visibleContentHydrationItemLimit = 12;
@@ -85,6 +85,7 @@ export function useVisibleReviewContentHydration(
 	);
 	const scheduledContentKeysRef = useRef<Set<string>>(new Set<string>());
 	const deferredRetryCountByContentKeyRef = useRef<Map<string, number>>(new Map());
+	const isMountedRef = useRef(true);
 	const loadContentResources = props.loadContentResources;
 
 	const packageIdentityKey =
@@ -132,12 +133,14 @@ export function useVisibleReviewContentHydration(
 		);
 	}, [props.reviewPackage, props.selectedItemId]);
 
-	useEffect(
-		(): (() => void) => () => {
-			abortVisibleContentLoads(loadAbortControllersByContentKeyRef.current);
-		},
-		[],
-	);
+	useEffect((): (() => void) => {
+		isMountedRef.current = true;
+		const loadAbortControllersByContentKey = loadAbortControllersByContentKeyRef.current;
+		return (): void => {
+			isMountedRef.current = false;
+			abortVisibleContentLoads(loadAbortControllersByContentKey);
+		};
+	}, []);
 	useEffect(() => {
 		if (!props.visibleHydrationPaused) {
 			return;
@@ -248,6 +251,22 @@ export function useVisibleReviewContentHydration(
 			for (const loadPlan of boundedLoadPlans) {
 				const loadAbortController = new AbortController();
 				loadAbortControllersByContentKeyRef.current.set(loadPlan.contentKey, loadAbortController);
+				const recoverAbortedLoadState = (): void => {
+					if (!isMountedRef.current) {
+						return;
+					}
+					setContentStateByItemId(
+						(currentStateByItemId: ReadonlyMap<string, VisibleContentResourcesState>) =>
+							recoverAbortedVisibleContentLoadState({
+								contentKey: loadPlan.contentKey,
+								currentStateByItemId,
+								itemId: loadPlan.itemId,
+							}),
+					);
+				};
+				loadAbortController.signal.addEventListener('abort', recoverAbortedLoadState, {
+					once: true,
+				});
 				recordBridgeViewerContentQueueTelemetry({
 					telemetryRecorder: props.telemetryRecorder,
 					parentTraceContext: props.telemetryParentTraceContext,
@@ -341,6 +360,7 @@ export function useVisibleReviewContentHydration(
 						);
 					})
 					.finally((): void => {
+						loadAbortController.signal.removeEventListener('abort', recoverAbortedLoadState);
 						scheduledContentKeysRef.current.delete(loadPlan.contentKey);
 						const currentController = loadAbortControllersByContentKeyRef.current.get(
 							loadPlan.contentKey,
@@ -601,6 +621,24 @@ export function visibleReviewContentLoadPlanCount(props: {
 		visibleContentHydrationConcurrentLoadLimit - props.loadingCount - (props.scheduledCount ?? 0),
 	);
 	return Math.min(props.requestedLoadCount, availableLoadSlots);
+}
+
+export function recoverAbortedVisibleContentLoadState(props: {
+	readonly contentKey: string;
+	readonly currentStateByItemId: ReadonlyMap<string, VisibleContentResourcesState>;
+	readonly itemId: string;
+}): ReadonlyMap<string, VisibleContentResourcesState> {
+	const currentState = props.currentStateByItemId.get(props.itemId);
+	if (currentState?.contentKey !== props.contentKey || currentState.status !== 'loading') {
+		return props.currentStateByItemId;
+	}
+	const nextStateByItemId = new Map(props.currentStateByItemId);
+	nextStateByItemId.set(props.itemId, {
+		contentKey: props.contentKey,
+		itemId: props.itemId,
+		status: 'aborted',
+	});
+	return nextStateByItemId;
 }
 
 export function shouldAbortVisibleContentLoadsForPause(): boolean {

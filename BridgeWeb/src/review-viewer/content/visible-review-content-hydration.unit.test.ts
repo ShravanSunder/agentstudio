@@ -10,6 +10,7 @@ import type { BridgeReviewPackage } from '../../foundation/review-package/bridge
 import {
 	createVisibleReviewContentHydrationResult,
 	normalizeVisibleReviewItemIds,
+	recoverAbortedVisibleContentLoadState,
 	selectedAdjacentReviewItemIds,
 	shouldAbortVisibleContentLoadsForPause,
 	visibleContentHydrationDispatchDelayMilliseconds,
@@ -125,6 +126,84 @@ describe('visible review content hydration', () => {
 		expect(result.visibleItemIds).toEqual(['item-001', 'item-002']);
 		expect(result.visibleLoadingItemCount).toBe(0);
 		expect(result.visibleContentResourcesByItemId.size).toBe(0);
+	});
+
+	test('recovers aborted visible loads so re-entered items can reschedule', () => {
+		const recoveredStateByItemId = recoverAbortedVisibleContentLoadState({
+			contentKey: 'content:item-001',
+			currentStateByItemId: new Map([
+				[
+					'item-001',
+					{
+						contentKey: 'content:item-001',
+						itemId: 'item-001',
+						status: 'loading',
+					},
+				],
+			]),
+			itemId: 'item-001',
+		});
+
+		const result = createVisibleReviewContentHydrationResult({
+			contentStateByItemId: recoveredStateByItemId,
+			resourcesByItemId: new Map(),
+			setVisibleItemIds: (): void => {},
+			visibleHydrationPaused: false,
+			visibleItemIds: ['item-001'],
+		});
+
+		expect(recoveredStateByItemId.get('item-001')?.status).toBe('aborted');
+		expect(result.visibleLoadingItemCount).toBe(0);
+		expect(result.visibleLoadingItemIds.has('item-001')).toBe(false);
+		expect(
+			visibleReviewContentLoadPlanCount({
+				loadingCount: result.visibleLoadingItemCount,
+				requestedLoadCount: 1,
+				scheduledCount: 0,
+			}),
+		).toBe(1);
+	});
+
+	test('aborted visible loads release their concurrency slot for the next visible item', () => {
+		const recoveredStateByItemId = recoverAbortedVisibleContentLoadState({
+			contentKey: 'content:item-001',
+			currentStateByItemId: new Map([
+				[
+					'item-001',
+					{
+						contentKey: 'content:item-001',
+						itemId: 'item-001',
+						status: 'loading',
+					},
+				],
+				[
+					'item-002',
+					{
+						contentKey: 'content:item-002',
+						itemId: 'item-002',
+						status: 'loading',
+					},
+				],
+			]),
+			itemId: 'item-001',
+		});
+		const result = createVisibleReviewContentHydrationResult({
+			contentStateByItemId: recoveredStateByItemId,
+			resourcesByItemId: new Map(),
+			setVisibleItemIds: (): void => {},
+			visibleHydrationPaused: false,
+			visibleItemIds: ['item-001', 'item-002', 'item-003'],
+		});
+
+		expect(result.visibleLoadingItemCount).toBe(1);
+		expect(result.visibleLoadingItemIds.has('item-002')).toBe(true);
+		expect(
+			visibleReviewContentLoadPlanCount({
+				loadingCount: result.visibleLoadingItemCount,
+				requestedLoadCount: 1,
+				scheduledCount: 0,
+			}),
+		).toBe(1);
 	});
 });
 
