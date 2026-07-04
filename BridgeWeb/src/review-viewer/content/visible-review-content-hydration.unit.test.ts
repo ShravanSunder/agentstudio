@@ -9,10 +9,12 @@ import {
 import type { BridgeReviewPackage } from '../../foundation/review-package/bridge-review-package.js';
 import {
 	createVisibleReviewContentHydrationResult,
+	makeReviewItemContentResourcesKey,
 	normalizeVisibleReviewItemIds,
 	recoverAbortedVisibleContentLoadState,
 	selectedAdjacentReviewItemIds,
 	shouldAbortVisibleContentLoadsForPause,
+	shouldRearmAbortedVisibleContentLoad,
 	visibleContentHydrationDispatchDelayMilliseconds,
 	visibleContentHydrationConcurrentLoadLimit,
 	visibleContentHydrationItemLimit,
@@ -205,6 +207,56 @@ describe('visible review content hydration', () => {
 			}),
 		).toBe(1);
 	});
+
+	test('re-arms an aborted visible item after the final demand pass clears in-flight bookkeeping', () => {
+		const fixture = makeVisibleContentKeyFixture('item-003');
+
+		expect(
+			shouldRearmAbortedVisibleContentLoad({
+				contentInvalidationVersion: 0,
+				contentKey: fixture.contentKey,
+				itemId: 'item-003',
+				reviewPackage: fixture.reviewPackage,
+				visibleHydrationPaused: false,
+				visibleItemIds: ['item-003'],
+			}),
+		).toBe(true);
+	});
+
+	test('does not re-arm aborted visible content for superseded or inactive windows', () => {
+		const fixture = makeVisibleContentKeyFixture('item-003');
+
+		expect(
+			shouldRearmAbortedVisibleContentLoad({
+				contentInvalidationVersion: 0,
+				contentKey: fixture.contentKey,
+				itemId: 'item-003',
+				reviewPackage: fixture.reviewPackage,
+				visibleHydrationPaused: false,
+				visibleItemIds: ['item-004'],
+			}),
+		).toBe(false);
+		expect(
+			shouldRearmAbortedVisibleContentLoad({
+				contentInvalidationVersion: 0,
+				contentKey: fixture.contentKey,
+				itemId: 'item-003',
+				reviewPackage: fixture.reviewPackage,
+				visibleHydrationPaused: true,
+				visibleItemIds: ['item-003'],
+			}),
+		).toBe(false);
+		expect(
+			shouldRearmAbortedVisibleContentLoad({
+				contentInvalidationVersion: 1,
+				contentKey: fixture.contentKey,
+				itemId: 'item-003',
+				reviewPackage: fixture.reviewPackage,
+				visibleHydrationPaused: false,
+				visibleItemIds: ['item-003'],
+			}),
+		).toBe(false);
+	});
 });
 
 function makeReviewPackageWithItemCount(itemCount: number): BridgeReviewPackage {
@@ -231,5 +283,27 @@ function makeReviewPackageWithItemCount(itemCount: number): BridgeReviewPackage 
 			filesChanged: itemCount,
 			visibleFileCount: itemCount,
 		},
+	};
+}
+
+function makeVisibleContentKeyFixture(itemId: string): {
+	readonly contentKey: string;
+	readonly reviewPackage: BridgeReviewPackage;
+} {
+	const reviewPackage = makeReviewPackageWithItemCount(8);
+	const item = reviewPackage.itemsById[itemId];
+	if (item === undefined) {
+		throw new Error(`Expected ${itemId} fixture item to exist.`);
+	}
+	return {
+		contentKey: [
+			makeReviewItemContentResourcesKey({
+				item,
+				reviewPackage,
+			}),
+			'visibleInvalidation',
+			'0',
+		].join(':'),
+		reviewPackage,
 	};
 }

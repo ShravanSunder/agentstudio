@@ -165,6 +165,20 @@ export function useVisibleReviewContentHydration(
 	}, [props.visibleHydrationPaused]);
 	const [deferredRetryVersion, setDeferredRetryVersion] = useState(0);
 	const deferredRetryScheduledRef = useRef(false);
+	const [abortedRearmVersion, setAbortedRearmVersion] = useState(0);
+	const abortedRearmScheduledRef = useRef(false);
+	const visibleHydrationSnapshotRef = useRef<VisibleReviewContentAbortRearmSnapshot>({
+		contentInvalidationVersion: props.contentInvalidationVersion,
+		reviewPackage: props.reviewPackage,
+		visibleHydrationPaused: props.visibleHydrationPaused,
+		visibleItemIds,
+	});
+	visibleHydrationSnapshotRef.current = {
+		contentInvalidationVersion: props.contentInvalidationVersion,
+		reviewPackage: props.reviewPackage,
+		visibleHydrationPaused: props.visibleHydrationPaused,
+		visibleItemIds,
+	};
 
 	useEffect((): (() => void) | void => {
 		if (
@@ -335,7 +349,7 @@ export function useVisibleReviewContentHydration(
 						if (shouldScheduleDeferredRetry) {
 							scheduleVisibleHydrationRetry({
 								scheduledRef: deferredRetryScheduledRef,
-								setDeferredRetryVersion,
+								setRetryVersion: setDeferredRetryVersion,
 							});
 						}
 					})
@@ -360,6 +374,7 @@ export function useVisibleReviewContentHydration(
 						);
 					})
 					.finally((): void => {
+						const loadWasAborted = loadAbortController.signal.aborted;
 						loadAbortController.signal.removeEventListener('abort', recoverAbortedLoadState);
 						scheduledContentKeysRef.current.delete(loadPlan.contentKey);
 						const currentController = loadAbortControllersByContentKeyRef.current.get(
@@ -367,6 +382,19 @@ export function useVisibleReviewContentHydration(
 						);
 						if (currentController === loadAbortController) {
 							loadAbortControllersByContentKeyRef.current.delete(loadPlan.contentKey);
+						}
+						if (
+							loadWasAborted &&
+							shouldRearmAbortedVisibleContentLoad({
+								...visibleHydrationSnapshotRef.current,
+								contentKey: loadPlan.contentKey,
+								itemId: loadPlan.itemId,
+							})
+						) {
+							scheduleVisibleHydrationRetry({
+								scheduledRef: abortedRearmScheduledRef,
+								setRetryVersion: setAbortedRearmVersion,
+							});
 						}
 					});
 			}
@@ -382,6 +410,7 @@ export function useVisibleReviewContentHydration(
 			}
 		};
 	}, [
+		abortedRearmVersion,
 		contentStateByItemId,
 		deferredRetryVersion,
 		setDeferredRetryVersion,
@@ -518,6 +547,13 @@ interface VisibleReviewContentLoadPlan {
 	readonly itemId: string;
 }
 
+interface VisibleReviewContentAbortRearmSnapshot {
+	readonly contentInvalidationVersion: number;
+	readonly reviewPackage: BridgeReviewPackage | null;
+	readonly visibleHydrationPaused: boolean;
+	readonly visibleItemIds: readonly string[];
+}
+
 type DeferredVisibleContentRetryDecision =
 	| {
 			readonly kind: 'scheduled';
@@ -639,6 +675,32 @@ export function recoverAbortedVisibleContentLoadState(props: {
 		status: 'aborted',
 	});
 	return nextStateByItemId;
+}
+
+export function shouldRearmAbortedVisibleContentLoad(
+	props: VisibleReviewContentAbortRearmSnapshot & {
+		readonly contentKey: string;
+		readonly itemId: string;
+	},
+): boolean {
+	if (
+		props.visibleHydrationPaused ||
+		props.reviewPackage === null ||
+		!props.visibleItemIds.includes(props.itemId)
+	) {
+		return false;
+	}
+	const item = props.reviewPackage.itemsById[props.itemId];
+	if (item === undefined) {
+		return false;
+	}
+	return (
+		makeVisibleReviewItemContentResourcesKey({
+			contentInvalidationVersion: props.contentInvalidationVersion,
+			item,
+			reviewPackage: props.reviewPackage,
+		}) === props.contentKey
+	);
 }
 
 export function shouldAbortVisibleContentLoadsForPause(): boolean {
@@ -764,7 +826,7 @@ function normalizeVisibleReviewContentLoadResult(
 
 function scheduleVisibleHydrationRetry(props: {
 	readonly scheduledRef: { current: boolean };
-	readonly setDeferredRetryVersion: Dispatch<SetStateAction<number>>;
+	readonly setRetryVersion: Dispatch<SetStateAction<number>>;
 }): void {
 	if (props.scheduledRef.current) {
 		return;
@@ -780,6 +842,6 @@ function scheduleVisibleHydrationRetry(props: {
 				};
 	scheduleRetry((): void => {
 		props.scheduledRef.current = false;
-		props.setDeferredRetryVersion((currentVersion: number): number => currentVersion + 1);
+		props.setRetryVersion((currentVersion: number): number => currentVersion + 1);
 	});
 }
