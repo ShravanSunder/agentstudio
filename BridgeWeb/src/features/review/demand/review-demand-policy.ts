@@ -97,6 +97,8 @@ function laneForViewInterest(viewInterest: BridgeViewInterest): BridgeDemandInte
 			return 'nearby';
 		case 'speculative':
 			return 'speculative';
+		case 'background':
+			return 'idle';
 		case 'none':
 			return null;
 	}

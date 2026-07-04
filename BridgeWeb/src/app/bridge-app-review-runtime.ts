@@ -10,10 +10,15 @@ import {
 	type BridgeResourceExecutor,
 } from '../core/demand/bridge-resource-executor.js';
 import type { BridgeDescriptorRef } from '../core/models/bridge-resource-descriptor.js';
+import type { BridgeDemandLane } from '../core/models/bridge-demand-models.js';
 import {
 	createBridgeResourceDescriptorRegistry,
 	type BridgeResourceDescriptorRegistry,
 } from '../core/resources/bridge-resource-registry.js';
+import {
+	bridgeResourceUrlWithContentInterest,
+	type BridgeContentDemandInterest,
+} from '../core/resources/bridge-resource-url.js';
 import {
 	bridgeTextResourceLoadErrorKind,
 	readBridgeTextResourceStream,
@@ -164,7 +169,10 @@ export function useBridgeReviewResourceExecutor(
 					};
 				}
 				const fetchContent = props.fetchContentRef.current ?? fetch;
-				const response = await fetchContent(descriptor.resourceUrl, { signal });
+				const response = await fetchContent(
+					contentDemandResourceUrl(descriptor.resourceUrl, intent.lane),
+					{ signal },
+				);
 				if (!response.ok) {
 					throw new Error(`Bridge descriptor content request failed: ${response.status}`);
 				}
@@ -197,6 +205,29 @@ export function useBridgeReviewResourceExecutor(
 		});
 	}
 	return executorRef.current;
+}
+
+export function contentDemandResourceUrl(
+	resourceUrl: string,
+	lane: BridgeDemandLane,
+): string {
+	return bridgeResourceUrlWithContentInterest(resourceUrl, contentInterestForDemandLane(lane));
+}
+
+function contentInterestForDemandLane(lane: BridgeDemandLane): BridgeContentDemandInterest {
+	switch (lane) {
+		case 'foreground':
+		case 'active':
+			return 'selected';
+		case 'visible':
+			return 'visible';
+		case 'nearby':
+			return 'nearby';
+		case 'speculative':
+			return 'speculative';
+		case 'idle':
+			return 'background';
+	}
 }
 
 function isReviewProtocolBodyDescriptorRef(descriptorRef: BridgeDescriptorRef): boolean {

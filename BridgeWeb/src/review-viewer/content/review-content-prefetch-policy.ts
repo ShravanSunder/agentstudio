@@ -14,7 +14,7 @@ export const reviewContentPrefetchMaxItemsPerPackage = 512;
  * churn headroom, or prefetched entries evict each other. */
 export const reviewContentRegistryPrefetchMaxEntries = 2048;
 
-/** One in-flight prefetch load at a time: speculative work must never
+/** One in-flight prefetch load at a time: background fill must never
  * contend with selected/visible demand for executor slots. */
 export const reviewContentPrefetchMaxConcurrentLoads = 1;
 

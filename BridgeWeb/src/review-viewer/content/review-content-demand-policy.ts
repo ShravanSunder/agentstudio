@@ -367,6 +367,9 @@ function stimulusForPlan(
 	if (interest === 'speculative') {
 		return { kind: 'reviewHoverChanged', descriptorRef: plan.descriptorRef };
 	}
+	if (interest === 'background') {
+		return { kind: 'reviewDescriptorInvalidated', descriptorRef: plan.descriptorRef };
+	}
 	return { kind: 'reviewDescriptorInvalidated', descriptorRef: plan.descriptorRef };
 }
 
@@ -391,6 +394,7 @@ const reviewContentDemandInterests: readonly ReviewContentDemandInterest[] = [
 	'visible',
 	'nearby',
 	'speculative',
+	'background',
 ];
 
 function demandCancellationGroupForReviewDescriptorRefAndInterest(props: {

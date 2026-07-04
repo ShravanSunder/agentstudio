@@ -35,7 +35,10 @@ export {
 	reviewTreeRowsWithMetadataDelta,
 } from './bridge-app-review-metadata-package.js';
 export type { BridgeReviewContentDemandByteBudget } from './bridge-app-review-runtime.js';
-export { bridgeReviewContentDemandByteBudget } from './bridge-app-review-runtime.js';
+export {
+	bridgeReviewContentDemandByteBudget,
+	contentDemandResourceUrl,
+} from './bridge-app-review-runtime.js';
 export {
 	selectedContentResourcesStateFromDemandLoadResult,
 	selectedContentResourcesStateFromLoadResult,

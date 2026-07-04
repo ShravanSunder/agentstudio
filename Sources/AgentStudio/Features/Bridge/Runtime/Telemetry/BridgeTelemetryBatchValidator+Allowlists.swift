@@ -84,7 +84,9 @@ extension BridgeTelemetryBatchValidator {
             "unknown",
         ],
         "agentstudio.bridge.content.interest": [
+            "background",
             "selected",
+            "unspecified",
             "visible",
             "nearby",
             "speculative",
@@ -123,6 +125,7 @@ extension BridgeTelemetryBatchValidator {
             "unknown",
         ],
         "agentstudio.bridge.content.priority": [
+            "background",
             "nearby",
             "prefetch",
             "selected",

@@ -51,7 +51,7 @@ export interface RecordBridgeViewerContentQueueTelemetryProps {
 	readonly telemetryRecorder: BridgeTelemetryRecorder;
 	readonly parentTraceContext: BridgeTraceContext | null;
 	readonly item: BridgeReviewItemDescriptor;
-	readonly interest: 'selected' | 'visible' | 'nearby' | 'speculative';
+	readonly interest: 'selected' | 'visible' | 'nearby' | 'speculative' | 'background';
 }
 
 export interface RecordBridgeViewerContentFetchTelemetryProps {
@@ -59,7 +59,7 @@ export interface RecordBridgeViewerContentFetchTelemetryProps {
 	readonly traceContext: BridgeTraceContext | null;
 	readonly contentRole: BridgeContentRole | 'unknown';
 	readonly durationMilliseconds: number;
-	readonly interest: 'selected' | 'visible' | 'nearby' | 'speculative';
+	readonly interest: 'selected' | 'visible' | 'nearby' | 'speculative' | 'background';
 	readonly result: 'success' | 'deferred' | 'failed';
 	readonly resultReason: string | null;
 }

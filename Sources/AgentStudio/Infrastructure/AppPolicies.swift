@@ -30,6 +30,11 @@ enum AppPolicies {
         /// dispatch is one idle batch. Provisional until the OD4 profiling
         /// gate graduates it.
         static let metadataIdleNoStarvationBudget: Int = 4
+        /// Background review content fill yields as soon as this many
+        /// selected/visible content requests are pending in the native
+        /// scheme handler. The current contract is strict user-interest
+        /// reservation: any selected/visible request pauses background fill.
+        static let contentBackgroundFillUserInterestYieldThreshold: Int = 1
         /// Per-lane queued-job cap for the metadata lane scheduler. A pane
         /// whose gate never reopens (wedged or dead WebView) must not grow
         /// its queues without bound from watch-driven producers; on overflow

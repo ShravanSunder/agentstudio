@@ -53,6 +53,7 @@ export const bridgeViewInterestSchema = z.discriminatedUnion('kind', [
 	z.object({ kind: z.literal('visible') }).strict(),
 	z.object({ kind: z.literal('nearby') }).strict(),
 	z.object({ kind: z.literal('speculative') }).strict(),
+	z.object({ kind: z.literal('background') }).strict(),
 ]);
 
 export const bridgeDemandKeysSchema = z

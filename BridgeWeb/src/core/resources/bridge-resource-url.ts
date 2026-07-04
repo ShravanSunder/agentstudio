@@ -16,7 +16,14 @@ export interface BridgeCoreResourceUrl {
 	readonly canonicalUrl: string;
 }
 
-type BridgeResourceQueryKey = 'generation' | 'revision' | 'cursor';
+export type BridgeContentDemandInterest =
+	| 'selected'
+	| 'visible'
+	| 'nearby'
+	| 'speculative'
+	| 'background';
+
+type BridgeResourceQueryKey = 'generation' | 'revision' | 'cursor' | 'interest';
 
 const agentStudioResourceProtocol = 'agentstudio:';
 const agentStudioResourceHost = 'resource';
@@ -24,9 +31,17 @@ const allowedQueryKeys: ReadonlySet<string> = new Set<BridgeResourceQueryKey>([
 	'generation',
 	'revision',
 	'cursor',
+	'interest',
 ]);
 const traversalPathPattern = /(?:^|\/)\.\.?(?:\/|$)/u;
 const cursorPattern = /^[A-Za-z0-9._:-]+$/u;
+const bridgeContentDemandInterests = new Set<BridgeContentDemandInterest>([
+	'selected',
+	'visible',
+	'nearby',
+	'speculative',
+	'background',
+]);
 
 export function parseBridgeCoreResourceUrl(
 	resourceUrl: string,
@@ -56,7 +71,8 @@ export function parseBridgeCoreResourceUrl(
 	const generation = optionalNonnegativeInteger(queryValues.generation);
 	const revision = optionalNonnegativeInteger(queryValues.revision);
 	const cursor = optionalCursor(queryValues.cursor);
-	if (generation === null || revision === null || cursor === null) {
+	const interest = optionalContentDemandInterest(queryValues.interest);
+	if (generation === null || revision === null || cursor === null || interest === null) {
 		return null;
 	}
 	return {
@@ -77,6 +93,15 @@ export function parseBridgeCoreResourceUrl(
 			}),
 		),
 	};
+}
+
+export function bridgeResourceUrlWithContentInterest(
+	resourceUrl: string,
+	interest: BridgeContentDemandInterest,
+): string {
+	const parsedUrl = new URL(resourceUrl);
+	parsedUrl.searchParams.set('interest', interest);
+	return parsedUrl.toString();
 }
 
 function parseAgentStudioResourceUrl(resourceUrl: string): URL | null {
@@ -145,6 +170,7 @@ interface BridgeCoreResourceQueryValues {
 	readonly generation: string | undefined;
 	readonly revision: string | undefined;
 	readonly cursor: string | undefined;
+	readonly interest: string | undefined;
 }
 
 function parseResourceQueryValues(parsedUrl: URL): BridgeCoreResourceQueryValues | null {
@@ -152,6 +178,7 @@ function parseResourceQueryValues(parsedUrl: URL): BridgeCoreResourceQueryValues
 		generation: undefined,
 		revision: undefined,
 		cursor: undefined,
+		interest: undefined,
 	};
 	for (const [key, value] of parsedUrl.searchParams.entries()) {
 		if (!isBridgeResourceQueryKey(key)) {
@@ -184,6 +211,15 @@ function optionalCursor(value: string | undefined): string | undefined | null {
 		return undefined;
 	}
 	return cursorPattern.test(value) ? value : null;
+}
+
+function optionalContentDemandInterest(value: string | undefined): BridgeContentDemandInterest | undefined | null {
+	if (value === undefined) {
+		return undefined;
+	}
+	return bridgeContentDemandInterests.has(value as BridgeContentDemandInterest)
+		? (value as BridgeContentDemandInterest)
+		: null;
 }
 
 interface CanonicalBridgeCoreResourceUrlProps {

@@ -26,7 +26,7 @@ export interface BridgeViewerContentQueueTelemetrySampleProps {
 	readonly telemetryRecorder: BridgeTelemetryRecorder;
 	readonly traceContext: BridgeTraceContext | null;
 	readonly contentRole: 'base' | 'head' | 'diff' | 'file' | 'unknown';
-	readonly interest: 'selected' | 'visible' | 'nearby' | 'speculative';
+	readonly interest: 'selected' | 'visible' | 'nearby' | 'speculative' | 'background';
 }
 
 export interface BridgeViewerContentFetchTelemetrySampleProps {
@@ -34,7 +34,7 @@ export interface BridgeViewerContentFetchTelemetrySampleProps {
 	readonly traceContext: BridgeTraceContext | null;
 	readonly contentRole: 'base' | 'head' | 'diff' | 'file' | 'unknown';
 	readonly durationMilliseconds: number;
-	readonly interest: 'selected' | 'visible' | 'nearby' | 'speculative';
+	readonly interest: 'selected' | 'visible' | 'nearby' | 'speculative' | 'background';
 	readonly result: 'success' | 'deferred' | 'failed';
 	readonly resultReason: string | null;
 }
@@ -168,7 +168,7 @@ export interface BridgeReviewContentDemandTelemetrySampleProps {
 	readonly failedCount: number;
 	readonly foregroundIntentCount: number;
 	readonly idleIntentCount: number;
-	readonly interest: 'selected' | 'visible' | 'nearby' | 'speculative';
+	readonly interest: 'selected' | 'visible' | 'nearby' | 'speculative' | 'background';
 	readonly intentCount: number;
 	readonly loadedCount: number;
 	readonly nearbyIntentCount: number;

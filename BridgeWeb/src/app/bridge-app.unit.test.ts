@@ -21,6 +21,7 @@ import { applyReviewProtocolTransportFrame } from './bridge-app-review-controlle
 import {
 	applyReviewMetadataDeltaToReviewPackage,
 	bridgeReviewContentDemandByteBudget,
+	contentDemandResourceUrl,
 	pruneEmptyReviewTreeDirectories,
 	reviewSnapshotDescriptorRefsByHandleIdForPackage,
 	reviewSnapshotFrameDescriptorsMatchPackage,
@@ -552,6 +553,21 @@ describe('BridgeApp Review content demand byte budget', () => {
 			baseHandle.handleId,
 			headHandle.handleId,
 		]);
+	});
+
+	test('decorates native content fetch URLs with demand interest without mutating descriptor identity', () => {
+		const resourceUrl =
+			'agentstudio://resource/review/content/descriptor-handle?generation=1&revision=1';
+
+		expect(contentDemandResourceUrl(resourceUrl, 'foreground')).toBe(
+			'agentstudio://resource/review/content/descriptor-handle?generation=1&revision=1&interest=selected',
+		);
+		expect(contentDemandResourceUrl(resourceUrl, 'visible')).toBe(
+			'agentstudio://resource/review/content/descriptor-handle?generation=1&revision=1&interest=visible',
+		);
+		expect(contentDemandResourceUrl(resourceUrl, 'idle')).toBe(
+			'agentstudio://resource/review/content/descriptor-handle?generation=1&revision=1&interest=background',
+		);
 	});
 });
 

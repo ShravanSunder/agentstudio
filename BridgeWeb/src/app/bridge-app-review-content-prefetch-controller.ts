@@ -30,7 +30,7 @@ export interface UseBridgeReviewContentPrefetchControllerProps {
 	readonly visibleLoadingItemCount: number;
 }
 
-/** Speculative content prefetch pump: once selected and visible demand are
+/** Background content prefetch pump: once selected and visible demand are
  * settled, warms the registry outward from the cursor (ring order) through
  * the same demand loader, one sequential load at a time. Registry peeks make
  * already-warm items free, so the pump converges and stops on its own. */
@@ -109,7 +109,7 @@ export function useBridgeReviewContentPrefetchController(
 				const loadResult = await loadReviewItemContentResourcesThroughDemandResult({
 					reviewPackage: currentReviewPackage,
 					itemId: nextItemId,
-					interest: 'speculative',
+					interest: 'background',
 					resolveDescriptorRef: (handle): BridgeDescriptorRef | null =>
 						reviewContentDescriptorRefsByHandleIdRef.current.get(handle.handleId) ?? null,
 					scheduler: reviewDemandScheduler,

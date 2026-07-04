@@ -36,9 +36,12 @@ struct BridgeTransportResourceURL: Equatable, Sendable {
         let generation = parseOptionalNonnegativeInteger(queryValues["generation"].flatMap { $0 })
         let revision = parseOptionalNonnegativeInteger(queryValues["revision"].flatMap { $0 })
         let cursor = parseOptionalCursor(queryValues["cursor"].flatMap { $0 })
+        let interest = parseOptionalContentDemandInterest(
+            queryValues[BridgeContentDemandInterest.queryKey].flatMap { $0 })
         guard generation != nil || queryValues["generation"] == nil,
             revision != nil || queryValues["revision"] == nil,
-            cursor != nil || queryValues["cursor"] == nil
+            cursor != nil || queryValues["cursor"] == nil,
+            interest != nil || queryValues[BridgeContentDemandInterest.queryKey] == nil
         else {
             return nil
         }
@@ -101,7 +104,7 @@ struct BridgeTransportResourceURL: Equatable, Sendable {
     }
 
     private static func parseQueryValues(_ queryItems: [URLQueryItem]) -> [String: String?]? {
-        let allowedKeys = Set(["generation", "revision", "cursor"])
+        let allowedKeys = Set(["generation", "revision", "cursor", BridgeContentDemandInterest.queryKey])
         var values: [String: String?] = [:]
         for item in queryItems {
             guard allowedKeys.contains(item.name), values[item.name] == nil else {
@@ -133,6 +136,13 @@ struct BridgeTransportResourceURL: Equatable, Sendable {
         }
         let allowedCharacters = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._:-"))
         return value.rangeOfCharacter(from: allowedCharacters.inverted) == nil ? value : nil
+    }
+
+    private static func parseOptionalContentDemandInterest(_ value: String?) -> BridgeContentDemandInterest? {
+        guard let value else {
+            return nil
+        }
+        return BridgeContentDemandInterest.parseQueryValue(value)
     }
 
     private static func canonicalURL(

@@ -26,7 +26,7 @@ import type { BridgeReviewContentRegistry } from './review-content-registry.js';
 export interface LoadReviewItemContentResourcesThroughDemandProps {
 	readonly reviewPackage: BridgeReviewPackage;
 	readonly itemId: string;
-	readonly interest: 'selected' | 'visible' | 'nearby' | 'speculative';
+	readonly interest: 'selected' | 'visible' | 'nearby' | 'speculative' | 'background';
 	readonly presentation?: BridgeCodeViewItemPresentation | null;
 	readonly resolveDescriptorRef: (handle: BridgeContentHandle) => BridgeDescriptorRef | null;
 	readonly scheduler: BridgeDemandScheduler;

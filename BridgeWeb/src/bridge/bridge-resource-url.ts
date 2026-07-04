@@ -175,7 +175,7 @@ function parseContentResource(
 	handleId: string,
 	queryEntries: QueryEntries,
 ): BridgeParsedContentResourceUrl | null {
-	if (!hasOnlyQueryKeys(queryEntries, ['generation', 'revision', 'rangeKind'])) {
+	if (!hasOnlyQueryKeys(queryEntries, ['generation', 'revision', 'rangeKind', 'interest'])) {
 		return null;
 	}
 	const generationText = scalarQueryValue(queryEntries, 'generation');
@@ -193,6 +193,10 @@ function parseContentResource(
 	}
 	const rangeKind = optionalScalarQueryValue(queryEntries, 'rangeKind') ?? 'whole';
 	if (rangeKind !== 'whole') {
+		return null;
+	}
+	const interest = optionalScalarQueryValue(queryEntries, 'interest');
+	if (interest !== null && !isAllowedContentDemandInterest(interest)) {
 		return null;
 	}
 	const queryPairs: (readonly [string, string])[] = [['generation', String(generation)]];
@@ -294,6 +298,16 @@ function isAllowedResourceRoute(protocolId: string, resourceKind: string): boole
 		return resourceKind === 'worktree.fileContent' || resourceKind === 'worktree.fileRange';
 	}
 	return false;
+}
+
+function isAllowedContentDemandInterest(value: string): boolean {
+	return (
+		value === 'selected' ||
+		value === 'visible' ||
+		value === 'nearby' ||
+		value === 'speculative' ||
+		value === 'background'
+	);
 }
 
 interface CanonicalResourceUrlProps {
