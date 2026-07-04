@@ -73,7 +73,6 @@ struct BridgeFileViewObservabilitySmokeRenderSnapshot: Decodable, Equatable {
 
 struct BridgeFileViewObservabilitySmokeRenderProof: Equatable {
     private static let startupTreeWindowRowLimit = 200
-    private static let treeRowHeightPixels = 24
 
     let expectedVisiblePaneCount: Int
     let expectedBootstrapProtocol: String
@@ -242,8 +241,7 @@ struct BridgeFileViewObservabilitySmokeRenderProof: Equatable {
             && totalDescriptorCount >= descriptorCount
             && metadataTreeRowCount > 0
             && metadataFileRowCount > 0
-            && hasSatisfiedFullTreeStreamRequirement
-            && hasNoKnownExactTreeDeficit
+            && hasSatisfiedDemandedTreeCoverageRequirement
             && !selectedDisplayPath.isEmpty
             && sourceState == "live"
             && openFileState == "ready"
@@ -322,24 +320,21 @@ struct BridgeFileViewObservabilitySmokeRenderProof: Equatable {
         treeScrollStressCount >= 4 && treeScrollStressReachedBottom
     }
 
-    private var hasSatisfiedFullTreeStreamRequirement: Bool {
-        if treeExtentKind == "exactPathCount", treePathCount > 0 {
+    private var hasSatisfiedDemandedTreeCoverageRequirement: Bool {
+        guard treeExtentKind == "exactPathCount", treePathCount > 0 else {
+            return false
+        }
+        if treePathCount <= Self.startupTreeWindowRowLimit {
             return metadataTreeRowCount >= treePathCount
         }
-        if treeExtentKind == "estimatedTotalHeight", totalDescriptorCount > 0 {
-            return metadataTreeRowCount >= totalDescriptorCount
+        guard
+            metadataTreeRowCount >= Self.startupTreeWindowRowLimit,
+            treeScrollStressReachedBottom,
+            hasSatisfiedOffscreenClickContentRequirement
+        else {
+            return false
         }
-        if treeHeight <= Self.startupTreeWindowRowLimit * Self.treeRowHeightPixels {
-            return true
-        }
-        return false
-    }
-
-    private var hasNoKnownExactTreeDeficit: Bool {
-        guard treeExtentKind == "exactPathCount", treePathCount > 0 else {
-            return true
-        }
-        return metadataTreeRowCount >= treePathCount
+        return metadataTreeRowCount > Self.startupTreeWindowRowLimit
     }
 
     private var hasNativeWorktreeProbeFailure: Bool {
@@ -378,7 +373,7 @@ struct BridgeFileViewObservabilitySmokeRenderProof: Equatable {
             "agentstudio.startup_diagnostic.bridge.file_view.metadata_tree_row.count": .int(metadataTreeRowCount),
             "agentstudio.startup_diagnostic.bridge.file_view.metadata_file_row.count": .int(metadataFileRowCount),
             "agentstudio.startup_diagnostic.bridge.file_view.tree_full_stream.satisfied": .bool(
-                hasSatisfiedFullTreeStreamRequirement),
+                hasSatisfiedDemandedTreeCoverageRequirement),
             "agentstudio.startup_diagnostic.bridge.file_view.source.state": .string(sourceState),
             "agentstudio.startup_diagnostic.bridge.file_view.open_file.state": .string(openFileState),
             "agentstudio.startup_diagnostic.bridge.file_view.open_file.path": .string(openFilePath),

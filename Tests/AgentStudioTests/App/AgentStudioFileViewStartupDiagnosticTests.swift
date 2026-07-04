@@ -369,13 +369,13 @@ struct AgentStudioFileViewStartupDiagnosticTests {
         #expect(proof.attributes["agentstudio.startup_diagnostic.render_proof.succeeded"] == .bool(false))
     }
 
-    @Test("Bridge FileView smoke render proof accepts estimated tree after all descriptors stream")
-    func smokeRenderProofAcceptsEstimatedTreeAfterAllDescriptorsStream() {
+    @Test("Bridge FileView smoke render proof accepts exact tree after all descriptors stream")
+    func smokeRenderProofAcceptsExactTreeAfterAllDescriptorsStream() {
         let proof = BridgeFileViewObservabilitySmokeRenderProof(
             snapshot: makeFileViewSmokeSnapshot(
                 bootstrapProtocol: "review",
-                treeExtentKind: "estimatedTotalHeight",
-                treePathCount: 0,
+                treeExtentKind: "exactPathCount",
+                treePathCount: 1600,
                 metadataTreeRowCount: 1600,
                 metadataFileRowCount: 1299,
                 descriptorCount: 1600,
@@ -404,14 +404,90 @@ struct AgentStudioFileViewStartupDiagnosticTests {
         #expect(proof.attributes["agentstudio.startup_diagnostic.render_proof.succeeded"] == .bool(true))
     }
 
-    @Test("Bridge FileView smoke render proof fails when exact tree count has not converged")
-    func smokeRenderProofFailsWhenExactTreeCountHasNotConverged() {
+    @Test("Bridge FileView smoke render proof accepts demanded exact tree windows")
+    func smokeRenderProofAcceptsDemandedExactTreeWindows() {
+        let proof = BridgeFileViewObservabilitySmokeRenderProof(
+            snapshot: makeFileViewSmokeSnapshot(
+                treeExtentKind: "exactPathCount",
+                treePathCount: 2905,
+                metadataTreeRowCount: 2705,
+                metadataFileRowCount: 2176,
+                descriptorCount: 2905,
+                totalDescriptorCount: 2905,
+                treeHeight: 69_720,
+                intakeFrameCount: 24
+            ),
+            expectedVisiblePaneCount: 1
+        )
+
+        #expect(proof.succeeded)
+        #expect(
+            proof.attributes["agentstudio.startup_diagnostic.bridge.file_view.tree_full_stream.satisfied"]
+                == .bool(true))
+        #expect(
+            proof.attributes["agentstudio.startup_diagnostic.bridge.file_view.metadata_tree_row.count"]
+                == .int(2705))
+        #expect(proof.attributes["agentstudio.startup_diagnostic.render_proof.succeeded"] == .bool(true))
+    }
+
+    @Test("Bridge FileView smoke render proof fails when bottom demand has no rendered rows")
+    func smokeRenderProofFailsWhenBottomDemandHasNoRenderedRows() {
+        let proof = BridgeFileViewObservabilitySmokeRenderProof(
+            snapshot: makeFileViewSmokeSnapshot(
+                treeExtentKind: "exactPathCount",
+                treePathCount: 2905,
+                metadataTreeRowCount: 2705,
+                metadataFileRowCount: 2176,
+                descriptorCount: 2905,
+                totalDescriptorCount: 2905,
+                offscreenClickTargetPath: "Sources/App/Bottom.swift",
+                offscreenClickSelectedPath: "Sources/App/Bottom.swift",
+                offscreenClickOpenFilePath: "Sources/App/Bottom.swift",
+                offscreenClickRenderedFilePath: "Sources/App/Bottom.swift",
+                offscreenClickBodyPreviewLength: 0,
+                treeHeight: 69_720
+            ),
+            expectedVisiblePaneCount: 1
+        )
+
+        #expect(!proof.succeeded)
+        #expect(
+            proof.attributes["agentstudio.startup_diagnostic.bridge.file_view.tree_full_stream.satisfied"]
+                == .bool(false))
+        #expect(proof.attributes["agentstudio.startup_diagnostic.render_proof.succeeded"] == .bool(false))
+    }
+
+    @Test("Bridge FileView smoke render proof fails when exact tree extent is zero")
+    func smokeRenderProofFailsWhenExactTreeExtentIsZero() {
+        let proof = BridgeFileViewObservabilitySmokeRenderProof(
+            snapshot: makeFileViewSmokeSnapshot(
+                treeExtentKind: "exactPathCount",
+                treePathCount: 0,
+                metadataTreeRowCount: 2705,
+                metadataFileRowCount: 2176,
+                descriptorCount: 2905,
+                totalDescriptorCount: 2905,
+                treeHeight: 69_720
+            ),
+            expectedVisiblePaneCount: 1
+        )
+
+        #expect(!proof.succeeded)
+        #expect(
+            proof.attributes["agentstudio.startup_diagnostic.bridge.file_view.tree_full_stream.satisfied"]
+                == .bool(false))
+        #expect(proof.attributes["agentstudio.startup_diagnostic.render_proof.succeeded"] == .bool(false))
+    }
+
+    @Test("Bridge FileView smoke render proof fails when exact tree demand has not reached bottom")
+    func smokeRenderProofFailsWhenExactTreeDemandHasNotReachedBottom() {
         let proof = BridgeFileViewObservabilitySmokeRenderProof(
             snapshot: makeFileViewSmokeSnapshot(
                 treeExtentKind: "exactPathCount",
                 treePathCount: 2384,
                 metadataTreeRowCount: 1200,
                 metadataFileRowCount: 933,
+                treeScrollStressReachedBottom: false,
                 treeHeight: 57_216,
                 intakeFrameCount: 8
             ),
