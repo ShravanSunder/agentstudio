@@ -409,6 +409,169 @@ Live gates:
 - existing R32-R40 proof seams remain required and are not replaced
   (`docs/specs/bridge-viewer-transport/performance-demand-lanes.md:277`).
 
+## Action And Event Sequence Contracts
+
+Every user action and system event must preserve the local-first rule: FE may
+paint only from local render slices, and worker/native traffic may repair,
+subscribe, fetch, or append facts after that paint. Every arrow crossing a
+boundary is fire-and-forget or a subscription; no arrow may turn around
+synchronously into a paint.
+
+Boundary notation:
+
+```text
+FE -> worker     LOCAL-FIRST message boundary crossing
+worker -> Swift  CLIENT/SERVER transport boundary crossing
+Swift -> worker  server push/subscription/content response crossing
+worker -> FE     worker slice publication crossing
+```
+
+### Action/Event Inventory
+
+| Trigger | Initiating actor | Boundary crossings | Paint rule | Governing requirements |
+| --- | --- | --- | --- | --- |
+| click cache-hit | user/FE | 0 before content paint; later FE -> worker intent/fact if needed | frame-1 paints readable selected content from fresh local paint-ready cache | R41, R42, R45, R48 |
+| click cold | user/FE | 0 before frame-1; later FE -> worker demand fact, worker -> Swift fetch/subscription, Swift -> worker content, worker -> FE slice | frame-1 paints selected identity plus honest loading/availability; selected content applies first within R46 budget when ready | R41, R44, R45, R46, R48 |
+| scroll momentum | user/FE/Pierre | one rAF-coalesced FE -> worker viewport fact per frame while moving | Pierre scrolls existing DOM immediately; incoming slices that affect viewport are HELD while momentum continues | R41, R45, R46, R48 |
+| scroll settle | FE/Pierre | FE -> worker settled viewport fact; later worker -> FE affected slice updates | settle frame keeps existing DOM; HELD slices apply by rank after settle inside frame budget | R41, R45, R46, R48 |
+| hover | user/FE | 0 before hover paint; later FE -> worker hover fact if it changes demand | frame-1 paints local hover/focus chrome only; content demand is speculative and cannot block hover | R41, R42, R45 |
+| expand/collapse | user/FE | 0 before toggle paint; later FE -> worker expanded/collapsed fact | frame-1 paints local tree shape and placeholders from slices; worker repairs invalid ids or supplies content deltas later | R41, R42, R45, R46 |
+| mode switch | user/FE app shell | 0 before shell paint; later FE -> worker activeMode fact | frame-1 paints retained local mode shell/slices; worker demotes inactive foreground work and repairs availability later | R41, R42, R45 |
+| tab/worktree switch | user/FE app shell | 0 before shell paint; later FE -> worker selected context fact and worker -> Swift subscribe/reopen if needed | frame-1 paints retained local shell or honest loading; no visible old-worktree content after identity change | R41, R42, R45, R48 |
+| server push/fact | Swift | Swift -> worker subscription push; worker -> FE affected slices only | FE paints only after worker validates stream/epoch/sequence and publishes O(delta) slice patches | R42, R45, R48 |
+| content-ready | Swift/worker executor | Swift -> worker content response; worker -> FE paint-ready slice | no direct paint from response; worker validates current epoch and FE applies rank-first within R46 | R42, R44, R46, R48 |
+| generation rotation | Swift source plus worker epoch authority | Swift -> worker source fact; worker atomic epoch reset; worker -> FE reset slices | one paint observes either old epoch before reset or new epoch after reset; never half-old/half-new | R37, R42, R44, R45, R48 |
+| fetch failure | worker executor/Swift content path | Swift -> worker failure or worker local fetch failure; worker -> FE availability/health slice | selected identity paints explicit retry/unavailable/error state; FE never starts its own retry | R41, R42, R44, R48 |
+| reconnect | worker transport | worker -> Swift reopen/subscriptions; Swift -> worker resync; worker -> FE health/slice repairs | FE keeps local slices with explicit health/loading; stale incoming results cannot mutate active UI | R42, R44, R45, R48 |
+| telemetry flush | comm worker | worker -> Swift dedicated scheme POST only | no user-visible paint; flush runs idle, byte-capped, drop-oldest with lossless counters | R41, R43, R48 |
+| startup warm-up | FE activation/worker | FE -> worker warm-up fact; worker may prewarm cache/compute and Swift subscriptions | initial shell paints from retained local slices or honest loading; warm-up cannot block first paint | R41, R42, R44, R48 |
+
+### Normative Sequences
+
+Click, cache-hit:
+
+```text
+User
+  │
+  ▼
+FE local click handler
+  │  writes selected identity + reads fresh paint-ready cache
+  │  boundary crossings before readable content: 0
+  ▼
+frame-1 paint
+  │  selected chrome + readable selected content
+  │
+  ├─► worker (optional fact/intent after paint)
+  │
+  ◄─ worker repair slice only if epoch/staleness later disagrees
+```
+
+Click, cold:
+
+```text
+User
+  │
+  ▼
+FE local click handler
+  │  writes selected identity
+  │  boundary crossings before frame-1: 0
+  ▼
+frame-1 paint
+  │  selected chrome + honest loading/availability for selected identity
+  │
+  ├─► worker: selected/content-demand fact
+  │      validates current workerDerivationEpoch and ranks selected first
+  │
+  ├──── worker ────► Swift: fetch/subscribe if cache miss
+  │                  Swift ────► worker: content or availability
+  │
+  ◄─ worker: selected paint-ready slice
+  │
+  ▼
+FE apply pump
+     applies selected unit first within R46 time/unit budget
+```
+
+Scroll momentum and settle:
+
+```text
+User gesture
+  │
+  ▼
+Pierre scrolls existing DOM
+  │  no protocol wait, no app-side scrollTop writer
+  │
+  ├─► rAF: FE ─► worker viewport fact, at most one per frame
+  │
+  ◄─ worker slice updates that affect moving viewport
+  │      FE marks affected updates HELD while momentum continues
+  │
+  ▼
+settle detected by Pierre/FE
+  │
+  ├─► worker settled viewport fact
+  │
+  ▼
+FE apply pump
+     releases HELD slices by rank inside R46 budget
+```
+
+Server facts, content-ready, fetch failures, and reconnect:
+
+```text
+Swift subscription/content plane
+  │
+  ├─► worker: push/fact/content/failure/reconnect response
+  │
+  ▼
+comm worker
+  │  sole authority for streamId, workerDerivationEpoch, sequence, staleness
+  │  validates freshness before any FE publication
+  │
+  ├─ stale: drop/count/repair or reopen, no FE content mutation
+  ├─ failure: publish explicit availability/health slice
+  └─ current: patch only affected slices, O(delta)
+       │
+       └─► FE slice store
+             next render observes local slices only
+```
+
+Generation rotation:
+
+```text
+Swift accepts sourceGeneration change
+  │
+  └─► worker source fact
+        │
+        ▼
+      worker atomic epoch reset
+        │  mint new workerDerivationEpoch
+        │  clear derived demand, in-flight maps, cache memberships,
+        │  retry state, stale source-bound slices, and pending applies
+        │
+        └─► FE reset/availability slices
+              paint is all-old before reset or all-new after reset;
+              half-old/half-new paint is forbidden
+```
+
+Telemetry:
+
+```text
+FE/worker instrumentation samples
+  │
+  ▼
+comm worker telemetry buffer
+  │  encoded-byte cap, drop-oldest shedding,
+  │  lossless counters by event/lane/result/drop reason
+  │
+  ├─ interactive command path: never flushes telemetry
+  │
+  └─ idle flush
+       │
+       └─► Swift dedicated telemetry scheme endpoint
+             not the interactive channel, never ahead of commands
+```
+
 ## Migration Constraints
 
 What stays:
