@@ -558,7 +558,7 @@ function enabledTelemetryRecorder(samples: BridgeTelemetrySample[]): BridgeTelem
 function resetSelectedContentPaintedProbe(): void {
 	ensureTestWindow();
 	// oxlint-disable-next-line no-underscore-dangle -- Intentional Bridge debug surface name.
-	window.__bridgeSelectedContentPaintedProbe = undefined;
+	delete window.__bridgeSelectedContentPaintedProbe;
 }
 
 function readSelectedContentPaintedProbe(): BridgeSelectedContentPaintedProbe {
