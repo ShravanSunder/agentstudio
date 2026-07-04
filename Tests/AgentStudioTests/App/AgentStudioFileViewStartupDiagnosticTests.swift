@@ -167,12 +167,36 @@ struct AgentStudioFileViewStartupDiagnosticTests {
         #expect(proof.attributes["agentstudio.startup_diagnostic.render_proof.succeeded"] == .bool(true))
     }
 
-    @Test("Bridge FileView smoke render proof fails on same-generation native intake drop")
-    func smokeRenderProofFailsOnSameGenerationNativeIntakeDrop() {
+    @Test("Bridge FileView smoke render proof accepts same-generation receiver coarse bucket after final evidence")
+    func smokeRenderProofAcceptsSameGenerationReceiverCoarseBucketAfterFinalEvidence() {
         let proof = BridgeFileViewObservabilitySmokeRenderProof(
             snapshot: makeFileViewSmokeSnapshot(
                 nativeWorktreeProbeLastReason: "drop_identity_mismatch",
                 nativeWorktreeProbeLastReceiverReason: "generation_mismatch",
+                nativeWorktreeProbeLastGeneration: 3,
+                nativeWorktreeProbeLastReceiverGeneration: 3,
+                nativeWorktreeProbeFinalGeneration: 3,
+                nativeWorktreeProbeFinalGenerationFrameEvidenceCount: 2,
+                nativeWorktreeProbeBenignReceiverGenerationBucketDropCount: 1,
+                nativeWorktreeProbeFailureDropCount: 0
+            ),
+            expectedVisiblePaneCount: 1
+        )
+
+        #expect(proof.succeeded)
+        #expect(
+            proof.attributes[
+                "agentstudio.startup_diagnostic.bridge.file_view.native_probe.benign_receiver_generation_bucket_drop.count"
+            ] == .int(1))
+        #expect(proof.attributes["agentstudio.startup_diagnostic.render_proof.succeeded"] == .bool(true))
+    }
+
+    @Test("Bridge FileView smoke render proof fails on same-generation sequence drop")
+    func smokeRenderProofFailsOnSameGenerationSequenceDrop() {
+        let proof = BridgeFileViewObservabilitySmokeRenderProof(
+            snapshot: makeFileViewSmokeSnapshot(
+                nativeWorktreeProbeLastReason: "drop_sequence_gap",
+                nativeWorktreeProbeLastReceiverReason: "sequence_gap",
                 nativeWorktreeProbeLastGeneration: 3,
                 nativeWorktreeProbeLastReceiverGeneration: 3,
                 nativeWorktreeProbeFinalGeneration: 3,
@@ -452,6 +476,8 @@ struct AgentStudioFileViewStartupDiagnosticTests {
         #expect(script.contains("worktreeDescriptorRequestCommandProbe.filter"))
         #expect(script.contains("nativeWorktreeProbeReceiverGeneration"))
         #expect(script.contains("nativeWorktreeProbeFinalGenerationFrameEvidenceCount"))
+        #expect(script.contains("nativeWorktreeProbeBenignReceiverGenerationBucketDropCount"))
+        #expect(script.contains("nativeWorktreeProbeIsBenignReceiverGenerationBucketDrop"))
         #expect(script.contains("nativeWorktreeProbeFailureDropCount"))
     }
 
@@ -499,6 +525,7 @@ struct AgentStudioFileViewStartupDiagnosticTests {
         nativeWorktreeProbeFrameEvidenceCount: Int = 4,
         nativeWorktreeProbeFinalGeneration: Int = 1,
         nativeWorktreeProbeFinalGenerationFrameEvidenceCount: Int = 4,
+        nativeWorktreeProbeBenignReceiverGenerationBucketDropCount: Int = 0,
         nativeWorktreeProbeFailureDropCount: Int = 0,
         pageErrorCount: Int = 0,
         pageIssueLastKind: String = "none",
@@ -579,6 +606,8 @@ struct AgentStudioFileViewStartupDiagnosticTests {
             nativeWorktreeProbeFrameEvidenceCount: nativeWorktreeProbeFrameEvidenceCount,
             nativeWorktreeProbeFinalGeneration: nativeWorktreeProbeFinalGeneration,
             nativeWorktreeProbeFinalGenerationFrameEvidenceCount: nativeWorktreeProbeFinalGenerationFrameEvidenceCount,
+            nativeWorktreeProbeBenignReceiverGenerationBucketDropCount:
+                nativeWorktreeProbeBenignReceiverGenerationBucketDropCount,
             nativeWorktreeProbeFailureDropCount: nativeWorktreeProbeFailureDropCount
         )
     }

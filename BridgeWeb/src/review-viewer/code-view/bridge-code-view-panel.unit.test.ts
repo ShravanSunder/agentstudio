@@ -353,6 +353,53 @@ describe('BridgeCodeViewPanel diagnostics', () => {
 			['performance.bridge.web.selected_content_painted'],
 		]);
 	});
+
+	test('records only the latest selected content paint when rapid selections supersede a pending frame', () => {
+		const samples: BridgeTelemetrySample[] = [];
+		const frameCallbacks: FrameRequestCallback[] = [];
+		const telemetryRecorder = enabledTelemetryRecorder(samples);
+		let nowMilliseconds = 210;
+
+		scheduleSelectedContentPaintedTelemetry({
+			telemetryRecorder,
+			traceContext: null,
+			selectionDemandStartedAtMilliseconds: 100,
+			materializationStartedAtMilliseconds: 180,
+			materializationCompletedAtMilliseconds: 200,
+			now: (): number => nowMilliseconds,
+			requestAnimationFrame: (callback): number => {
+				frameCallbacks.push(callback);
+				return frameCallbacks.length;
+			},
+		});
+		scheduleSelectedContentPaintedTelemetry({
+			telemetryRecorder,
+			traceContext: null,
+			selectionDemandStartedAtMilliseconds: 140,
+			materializationStartedAtMilliseconds: 205,
+			materializationCompletedAtMilliseconds: 210,
+			now: (): number => nowMilliseconds,
+			requestAnimationFrame: (callback): number => {
+				frameCallbacks.push(callback);
+				return frameCallbacks.length;
+			},
+		});
+
+		nowMilliseconds = 220;
+		frameCallbacks[0]?.(220);
+		frameCallbacks[1]?.(220);
+
+		expect(samples).toHaveLength(1);
+		expect(samples[0]).toMatchObject({
+			name: 'performance.bridge.web.selected_content_painted',
+			durationMilliseconds: 80,
+			numericAttributes: {
+				'agentstudio.bridge.selected_content.click_to_paint_ms': 80,
+				'agentstudio.bridge.selected_content.frame_wait_ms': 10,
+				'agentstudio.bridge.selected_content.materialize_ms': 15,
+			},
+		});
+	});
 });
 
 function enabledTelemetryRecorder(samples: BridgeTelemetrySample[]): BridgeTelemetryRecorder {

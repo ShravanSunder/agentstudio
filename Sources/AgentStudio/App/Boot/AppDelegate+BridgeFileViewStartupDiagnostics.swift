@@ -832,19 +832,21 @@ import Foundation
                   entry?.streamIdMatches === true
                 );
               };
-              const nativeWorktreeProbeIsBenignOldGenerationCleanupDrop = (entry) => {
-                return (
-                  clip(entry?.reason, 120).startsWith('drop_') &&
-                  clip(entry?.receiverReason, 120) === 'generation_mismatch' &&
-                  nativeWorktreeProbeReceiverGeneration(entry) > nativeWorktreeProbeGeneration(entry)
-                );
-              };
-              const nativeWorktreeProbeFailureDropCount = nativeWorktreeProbe.filter((entry) => {
-                return (
-                  clip(entry?.reason, 120).startsWith('drop_') &&
-                  !nativeWorktreeProbeIsBenignOldGenerationCleanupDrop(entry)
-                );
-              }).length;
+              const nativeWorktreeProbeIsBenignOldGenerationCleanupDrop = (entry) => (
+                clip(entry?.reason, 120).startsWith('drop_') && clip(entry?.receiverReason, 120) === 'generation_mismatch' &&
+                nativeWorktreeProbeReceiverGeneration(entry) > nativeWorktreeProbeGeneration(entry)
+              );
+              const nativeWorktreeProbeIsBenignReceiverGenerationBucketDrop = (entry) => (
+                clip(entry?.reason, 120) === 'drop_identity_mismatch' && clip(entry?.receiverReason, 120) === 'generation_mismatch' &&
+                entry?.streamIdMatches === true &&
+                nativeWorktreeProbeReceiverGeneration(entry) === nativeWorktreeProbeGeneration(entry)
+              );
+              const nativeWorktreeProbeBenignReceiverGenerationBucketDropCount = nativeWorktreeProbe.filter(nativeWorktreeProbeIsBenignReceiverGenerationBucketDrop).length;
+              const nativeWorktreeProbeFailureDropCount = nativeWorktreeProbe.filter((entry) => (
+                clip(entry?.reason, 120).startsWith('drop_') &&
+                !nativeWorktreeProbeIsBenignOldGenerationCleanupDrop(entry) &&
+                !nativeWorktreeProbeIsBenignReceiverGenerationBucketDrop(entry)
+              )).length;
               const nativeWorktreeProbeFinalGeneration = nativeWorktreeProbe.reduce((maxGeneration, entry) => {
                 return Math.max(
                   maxGeneration,
@@ -988,6 +990,7 @@ import Foundation
                 nativeWorktreeProbeFrameEvidenceCount,
                 nativeWorktreeProbeFinalGeneration,
                 nativeWorktreeProbeFinalGenerationFrameEvidenceCount,
+                nativeWorktreeProbeBenignReceiverGenerationBucketDropCount,
                 nativeWorktreeProbeFailureDropCount
               };
             })())

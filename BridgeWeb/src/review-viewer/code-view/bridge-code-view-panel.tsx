@@ -79,6 +79,7 @@ const codeViewInstantRevealHydrationRearmViewportOffsetTolerancePixels = 4;
 const codeViewInstantRevealExternalScrollAbortThresholdPixels = 240;
 const codeViewInstantRevealStableFrameCount = 2;
 const codeViewInstantRevealHydrationRearmWindowMilliseconds = 2_000;
+const selectedContentPaintedGenerationByRecorder = new WeakMap<BridgeTelemetryRecorder, number>();
 
 export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactElement {
 	const sourceKey = makeBridgeCodeViewSourceKey(props);
@@ -972,7 +973,16 @@ export function scheduleSelectedContentPaintedTelemetry(props: {
 	const selectionDemandStartedAtMilliseconds = props.selectionDemandStartedAtMilliseconds;
 	const now = props.now ?? performance.now.bind(performance);
 	const requestFrame = props.requestAnimationFrame ?? requestAnimationFrame;
+	const paintedGeneration =
+		(selectedContentPaintedGenerationByRecorder.get(props.telemetryRecorder) ?? 0) + 1;
+	selectedContentPaintedGenerationByRecorder.set(props.telemetryRecorder, paintedGeneration);
 	requestFrame((): void => {
+		if (
+			selectedContentPaintedGenerationByRecorder.get(props.telemetryRecorder) !== paintedGeneration
+		) {
+			return;
+		}
+		selectedContentPaintedGenerationByRecorder.delete(props.telemetryRecorder);
 		const paintedAtMilliseconds = now();
 		recordBridgeSelectedContentPaintedTelemetry({
 			telemetryRecorder: props.telemetryRecorder,

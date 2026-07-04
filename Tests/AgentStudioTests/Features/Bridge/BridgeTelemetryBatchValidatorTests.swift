@@ -216,6 +216,73 @@ struct BridgeTelemetryBatchValidatorTests {
     }
 
     @Test
+    func validatorAcceptsCurrentReviewStartupEmitterShapes() {
+        let validator = BridgeTelemetryBatchValidator(
+            scopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web])
+        )
+        let reviewMetadataApplyBatch = batchWithWebSample(
+            WebSampleProps(
+                name: "performance.bridge.web.review_metadata_apply",
+                phase: "review_metadata_apply",
+                plane: "data",
+                priority: "hot",
+                slice: "review_metadata",
+                transport: "intake",
+                extraStrings: [
+                    "agentstudio.bridge.result": "success",
+                    "agentstudio.bridge.result_reason": "none",
+                ],
+                extraNumbers: [
+                    "agentstudio.bridge.review.item_count": 8,
+                    "agentstudio.bridge.review.metadata_carry_forward.unverified_keep.count": 0,
+                    "agentstudio.bridge.review.metadata_carry_forward.verified_drop.count": 0,
+                    "agentstudio.bridge.review.metadata_carry_forward.verified_keep.count": 0,
+                ]
+            )
+        )
+        let reviewReadyBatch = batchWithWebSample(
+            WebSampleProps(
+                name: "performance.bridge.web.review_ready",
+                phase: "review_ready",
+                plane: "data",
+                priority: "hot",
+                slice: "review_projection",
+                transport: "intake",
+                extraStrings: [
+                    "agentstudio.bridge.result": "success",
+                    "agentstudio.bridge.result_reason": "none",
+                ],
+                extraNumbers: [
+                    "agentstudio.bridge.review.item_count": 8
+                ]
+            )
+        )
+        let reviewMetadataCarryForwardBatch = batchWithWebSample(
+            WebSampleProps(
+                name: "performance.bridge.web.review_metadata_apply",
+                phase: "review_metadata_apply",
+                plane: "data",
+                priority: "hot",
+                slice: "review_metadata",
+                transport: "intake",
+                extraStrings: [
+                    "agentstudio.bridge.result": "success",
+                    "agentstudio.bridge.result_reason": "metadata_carry_forward_verification",
+                ],
+                extraNumbers: [
+                    "agentstudio.bridge.review.metadata_carry_forward.unverified_keep.count": 0,
+                    "agentstudio.bridge.review.metadata_carry_forward.verified_drop.count": 1,
+                    "agentstudio.bridge.review.metadata_carry_forward.verified_keep.count": 2,
+                ]
+            )
+        )
+
+        #expect(validator.validate(reviewMetadataApplyBatch) == .accepted(reviewMetadataApplyBatch))
+        #expect(validator.validate(reviewReadyBatch) == .accepted(reviewReadyBatch))
+        #expect(validator.validate(reviewMetadataCarryForwardBatch) == .accepted(reviewMetadataCarryForwardBatch))
+    }
+
+    @Test
     func validatorAcceptsUnknownReviewIntakeDropTelemetry() {
         let validator = BridgeTelemetryBatchValidator(
             scopeGate: BridgeTelemetryScopeGate(enabledScopes: [.web])

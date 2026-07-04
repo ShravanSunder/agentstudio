@@ -271,11 +271,16 @@ extension BridgeTelemetryBatchValidator {
     }
 
     private static func reviewStartupContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+        if contract.phase == "review_metadata_apply" {
+            return reviewMetadataApplyContractMatches(contract)
+        }
+        if contract.phase == "review_ready" {
+            return reviewReadyContractMatches(contract)
+        }
+
         let expectedNumericKeys: Set<String> =
             switch contract.phase {
             case "review_ready":
-                ["agentstudio.bridge.review.item_count"]
-            case "review_metadata_apply" where contract.numericKeys.contains("agentstudio.bridge.review.item_count"):
                 ["agentstudio.bridge.review.item_count"]
             case "selected_content_ready":
                 ["agentstudio.bridge.content.resource_count"]
@@ -299,6 +304,75 @@ extension BridgeTelemetryBatchValidator {
                 )
             )
         )
+    }
+
+    private static func reviewMetadataApplyContractMatches(
+        _ contract: BridgeTelemetryEventContract
+    ) -> Bool {
+        let carryForwardNumericKeys: Set<String> = [
+            "agentstudio.bridge.review.metadata_carry_forward.unverified_keep.count",
+            "agentstudio.bridge.review.metadata_carry_forward.verified_drop.count",
+            "agentstudio.bridge.review.metadata_carry_forward.verified_keep.count",
+        ]
+        let itemCountNumericKeys: Set<String> = [
+            "agentstudio.bridge.review.item_count"
+        ]
+        let snapshotSuccessNumericKeys = carryForwardNumericKeys.union([
+            "agentstudio.bridge.review.item_count"
+        ])
+        let allowedNumericKeySets: Set<Set<String>> = [
+            [],
+            carryForwardNumericKeys,
+            itemCountNumericKeys,
+            snapshotSuccessNumericKeys,
+        ]
+
+        guard allowedNumericKeySets.contains(contract.numericKeys) else {
+            return false
+        }
+
+        return contract.matches(
+            .init(
+                phase: "review_metadata_apply",
+                plane: .data,
+                priority: .hot,
+                slice: .reviewMetadata,
+                transport: "intake",
+                attributeKeys: .init(
+                    additionalStringKeys: [
+                        "agentstudio.bridge.result",
+                        "agentstudio.bridge.result_reason",
+                    ],
+                    numericKeys: contract.numericKeys
+                )
+            )
+        )
+    }
+
+    private static func reviewReadyContractMatches(_ contract: BridgeTelemetryEventContract) -> Bool {
+        let routeMatches =
+            switch (contract.slice, contract.transport) {
+            case (.reviewProjection, "intake"),
+                (.reviewMetadata, "intake"),
+                (.reviewDelta, "intake"),
+                (.reviewInvalidation, "intake"),
+                (.reviewReset, "intake"):
+                true
+            default:
+                false
+            }
+
+        return contract.phase == "review_ready"
+            && contract.plane == .data
+            && contract.priority == .hot
+            && routeMatches
+            && contract.stringKeys
+                == requiredStringAttributeKeys.union([
+                    "agentstudio.bridge.result",
+                    "agentstudio.bridge.result_reason",
+                ])
+            && contract.numericKeys == ["agentstudio.bridge.review.item_count"]
+            && contract.booleanKeys.isEmpty
     }
 
     private static func reviewStartupSlice(for phase: String) -> BridgeTelemetrySlice {

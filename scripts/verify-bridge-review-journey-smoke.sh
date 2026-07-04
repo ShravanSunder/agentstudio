@@ -363,6 +363,7 @@ review_expected_item_count="$(
     "agentstudio.startup_diagnostic.bridge.review_expected_item.count" \
     "$diagnostic_completed_response"
 )"
+content_load_expected_role_ceiling=$((review_expected_item_count * 2))
 selection_commit_count="$(count_log_records "$selection_commit_query | fields _msg,agentstudio.bridge.viewer | limit 100")"
 materialized_count="$(count_log_records "$materialized_query | fields _msg,agentstudio.bridge.viewer,agentstudio.bridge.selected,agentstudio.bridge.result | limit 100")"
 painted_count="$(count_log_records "$painted_query | fields _msg,agentstudio.bridge.viewer,agentstudio.bridge.selected_content.materialize_ms | limit 100")"
@@ -386,11 +387,9 @@ assert_equals "selection_commit fires exactly once per selection" "$selection_co
 assert_equals "code_view_item_materialize selected items materialize exactly once per selection" "$materialized_count" "$EXPECTED_SELECTIONS"
 assert_zero "selected_content_dropped revision_churn count" "$revision_churn_drop_count"
 assert_gte "content_load count is at least explicit selections" "$content_load_count" "$EXPECTED_SELECTIONS"
-# This ceiling tightens when #51 lands. Do not silently bless eager production
-# content loading; current review journey may hydrate visible ranges and a
-# bounded package fill, but it must stay under the completed diagnostic's
-# review_expected_item count.
-assert_lte "content_load count bounded by diagnostic review_expected_item count" "$content_load_count" "$review_expected_item_count"
+# Native content_load fires per content role. The review journey diagnostic
+# expects base/head content, so the ceiling is two role loads per expected item.
+assert_lte "content_load count bounded by diagnostic review_expected_item base/head role count" "$content_load_count" "$content_load_expected_role_ceiling"
 assert_equals "content_load count quiesced" "$content_load_count" "$content_load_before_quiescence_count"
 assert_lte "zero non-stale telemetry_drop storms (sample count)" "$non_stale_telemetry_drop_sample_count" "$NON_STALE_TELEMETRY_DROP_STORM_THRESHOLD"
 assert_lte "zero non-stale telemetry_drop storms (dropped total)" "$non_stale_telemetry_dropped_total" "$NON_STALE_TELEMETRY_DROP_STORM_THRESHOLD"

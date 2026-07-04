@@ -33,7 +33,7 @@ struct BridgeFullPyramidSmokeVerifierScriptTests {
         #expect(script.contains("performance.bridge.swift.content_load"))
         #expect(script.contains("agentstudio.startup_diagnostic.bridge.review_expected_item.count"))
         #expect(script.contains("content_load count is at least explicit selections"))
-        #expect(script.contains("content_load count bounded by diagnostic review_expected_item count"))
+        #expect(script.contains("content_load count bounded by diagnostic review_expected_item base/head role count"))
         #expect(script.contains("content_load count quiesced"))
         #expect(script.contains("AGENTSTUDIO_BRIDGE_REVIEW_JOURNEY_QUIESCENCE_SECONDS"))
         #expect(!script.contains("AGENTSTUDIO_BRIDGE_REVIEW_JOURNEY_CONTENT_LOAD_CEILING"))
