@@ -161,6 +161,48 @@ struct AgentStudioAppIPCCommandExecuteContractTests {
         #expect(commandPort.receivedExecuteParams.map(\.arguments) == [["mode": "favoritesOnly"]])
     }
 
+    @Test("debug token escrow automation can execute sidebar state commands")
+    func debugTokenEscrowAutomationCanExecuteSidebarStateCommands() async throws {
+        let commandPort = FakeCommandPort(
+            workspaceWindowId: UUID(),
+            activeScope: .commands,
+            successfulCommandId: "showWorktreeSidebar",
+            commands: [
+                IPCCommandListEntry(
+                    id: IPCCommandIdentifier(rawValue: "showWorktreeSidebar"),
+                    title: "Show Worktree Sidebar",
+                    executionModes: [.headless],
+                    targetKinds: [],
+                    requiredPrivileges: [.sidebarStateMutate]
+                )
+            ]
+        )
+        let fixture = try LiveServerFixture(
+            accessMode: .unsafeDebug,
+            channel: .debug,
+            commandPort: commandPort,
+            debugTokenEscrowEnabled: true
+        )
+        defer {
+            fixture.cleanup()
+        }
+        try fixture.server.start()
+
+        let response = try await sendDebugEscrowAutomationRequest(
+            fixture: fixture,
+            request: JSONRPCClientRequest(
+                id: .number(75),
+                method: "command.execute",
+                params: .object(["commandId": .string("showWorktreeSidebar")])
+            )
+        )
+
+        #expect(response.error == nil)
+        let result = try decodeResponseResult(IPCCommandExecuteResult.self, from: response)
+        #expect(result.applied)
+        #expect(commandPort.receivedExecuteParams.map(\.commandId.rawValue) == ["showWorktreeSidebar"])
+    }
+
     @Test("command execute rejects wrong typed argument values as validation rejected")
     func commandExecuteRejectsWrongTypedArgumentValuesAsValidationRejected() async throws {
         let commandPort = FakeCommandPort(
@@ -275,6 +317,24 @@ private func sendAuthenticatedAutomationRequest(
     }
     var reader = TestFrameReader()
     try await loginWithoutBlockingMainActor(connection: connection, token: token, requestId: 900, reader: &reader)
+    try sendRequest(connection: connection, request: request)
+    return try await reader.receiveResponseWithoutBlockingMainActor(connection: connection)
+}
+
+private func sendDebugEscrowAutomationRequest(
+    fixture: LiveServerFixture,
+    request: JSONRPCClientRequest
+) async throws -> JSONRPCResponseMessage {
+    let token = AgentStudioIPCSubjectToken(
+        rawValue: try String(contentsOf: fixture.paths.debugTokenURL, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    )
+    let connection = try UnixSocketClient.connect(endpoint: UnixSocketEndpoint(path: fixture.paths.socketURL.path))
+    defer {
+        connection.close()
+    }
+    var reader = TestFrameReader()
+    try await loginWithoutBlockingMainActor(connection: connection, token: token, requestId: 901, reader: &reader)
     try sendRequest(connection: connection, request: request)
     return try await reader.receiveResponseWithoutBlockingMainActor(connection: connection)
 }

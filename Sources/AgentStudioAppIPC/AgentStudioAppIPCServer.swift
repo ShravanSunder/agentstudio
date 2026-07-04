@@ -553,6 +553,10 @@ public final class AgentStudioAppIPCServer: @unchecked Sendable {
             kind: .automationClient,
             approvalAuthority: .noApprovalAuthority
         )
+        grantLedger.grant(
+            IPCPermissionScope(privilege: .sidebarStateMutate, target: .app, dataScope: .sidebarState),
+            to: principal.principalId
+        )
         let token = try principalRegistry.issueSubjectToken(for: principal)
         try AgentStudioIPCFilesystem.writeDebugToken(token, paths: paths)
         debugEscrowLock.withLock {
