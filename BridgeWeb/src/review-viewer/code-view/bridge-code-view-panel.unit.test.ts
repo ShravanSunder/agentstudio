@@ -609,6 +609,7 @@ describe('BridgeCodeViewPanel diagnostics', () => {
 	test('force flushes selected content painted telemetry through recorder burst throttling', () => {
 		const batches: BridgeTelemetryBatch[] = [];
 		const frameCallbacks: FrameRequestCallback[] = [];
+		const idleCallbacks: Array<() => void> = [];
 		let nowMilliseconds = 1_000;
 		const telemetryRecorder = createBridgeTelemetryRecorder(
 			{
@@ -626,6 +627,9 @@ describe('BridgeCodeViewPanel diagnostics', () => {
 				},
 			},
 			(): number => nowMilliseconds,
+			(callback): void => {
+				idleCallbacks.push(callback);
+			},
 		);
 		telemetryRecorder.record({
 			scope: 'web',
@@ -652,6 +656,13 @@ describe('BridgeCodeViewPanel diagnostics', () => {
 			},
 		});
 		frameCallbacks[0]?.(1_020);
+
+		expect(batches.map((batch) => batch.samples.map((sample) => sample.name))).toEqual([
+			['performance.bridge.web.code_view_item_materialize'],
+		]);
+		expect(idleCallbacks).toHaveLength(1);
+		nowMilliseconds = 1_260;
+		idleCallbacks[0]?.();
 
 		expect(batches.map((batch) => batch.samples.map((sample) => sample.name))).toEqual([
 			['performance.bridge.web.code_view_item_materialize'],

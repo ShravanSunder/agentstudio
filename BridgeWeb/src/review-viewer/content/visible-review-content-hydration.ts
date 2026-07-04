@@ -119,6 +119,16 @@ export type VisibleReviewContentLoadResult =
 	| BridgeCodeViewContentResources
 	| null;
 
+export function shouldRetryVisibleContentAfterDeferredLoad(props: {
+	readonly loadResult: ReviewContentDemandLoadResult;
+	readonly snapshot: VisibleReviewContentAbortRearmSnapshot;
+}): boolean {
+	return (
+		props.loadResult.status === 'deferred' &&
+		shouldSweepVisibleContentAfterAbortedLoad(props.snapshot)
+	);
+}
+
 export function useVisibleReviewContentHydration(
 	props: UseVisibleReviewContentHydrationProps,
 ): UseVisibleReviewContentHydrationResult {
@@ -386,6 +396,17 @@ export function useVisibleReviewContentHydration(
 								return nextStateByItemId;
 							},
 						);
+						if (
+							shouldRetryVisibleContentAfterDeferredLoad({
+								loadResult: normalizedLoadResult,
+								snapshot: visibleHydrationSnapshotRef.current,
+							})
+						) {
+							scheduleVisibleHydrationRetry({
+								scheduledRef: abortedRearmScheduledRef,
+								setRetryVersion: setAbortedRearmVersion,
+							});
+						}
 					})
 					.catch((): void => {
 						if (loadAbortController.signal.aborted) {

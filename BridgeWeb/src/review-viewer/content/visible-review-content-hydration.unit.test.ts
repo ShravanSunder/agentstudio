@@ -22,6 +22,7 @@ import {
 	shouldAbortVisibleContentLoadsForPause,
 	shouldApplyVisibleContentStateImmediately,
 	shouldRearmAbortedVisibleContentLoad,
+	shouldRetryVisibleContentAfterDeferredLoad,
 	visibleContentStateForAcceptedReadyResult,
 	visibleContentHydrationDispatchDelayMilliseconds,
 	visibleContentHydrationConcurrentLoadLimit,
@@ -551,6 +552,35 @@ describe('visible review content hydration', () => {
 
 		expect(derivedDemand.loadPlans.map((plan) => plan.itemId)).toEqual(['item-003']);
 		expect(derivedDemand.loadPlans.map((plan) => plan.interest)).toEqual(['visible']);
+	});
+
+	test('schedules executor-paced retry for deferred visible loads while unpaused', () => {
+		const fixture = makeVisibleContentKeyFixture('item-003');
+
+		expect(
+			shouldRetryVisibleContentAfterDeferredLoad({
+				loadResult: { status: 'deferred', reason: 'aborted' },
+				snapshot: {
+					contentInvalidationVersion: 0,
+					reviewPackage: fixture.reviewPackage,
+					selectedItemId: null,
+					visibleHydrationPaused: false,
+					visibleItemIds: ['item-003'],
+				},
+			}),
+		).toBe(true);
+		expect(
+			shouldRetryVisibleContentAfterDeferredLoad({
+				loadResult: { status: 'deferred', reason: 'aborted' },
+				snapshot: {
+					contentInvalidationVersion: 0,
+					reviewPackage: fixture.reviewPackage,
+					selectedItemId: null,
+					visibleHydrationPaused: true,
+					visibleItemIds: ['item-003'],
+				},
+			}),
+		).toBe(false);
 	});
 
 	test('delegates visible membership to the reconciler with selected dedupe and cache hits', () => {
