@@ -17,10 +17,85 @@ export interface BridgeVisibleHydrationDiscardProbe {
 	records: BridgeVisibleHydrationDiscardProbeRecord[];
 }
 
+export interface BridgeVisibleHydrationStateProbe {
+	readonly reportedVisibleItemCount: number;
+	readonly trackedVisibleItemCount: number;
+	readonly truncatedVisibleItemCount: number;
+	readonly untrackedItemCount: number;
+	readonly loadingItemCount: number;
+	readonly readyItemCount: number;
+	readonly failedItemCount: number;
+	readonly deferredItemCount: number;
+	readonly abortedItemCount: number;
+	readonly pausedNow: boolean;
+}
+
 declare global {
 	interface Window {
 		__bridgeVisibleHydrationDiscardProbe?: BridgeVisibleHydrationDiscardProbe;
+		__bridgeVisibleHydrationStateProbe?: BridgeVisibleHydrationStateProbe;
 	}
+}
+
+export function deriveVisibleHydrationStateProbe(props: {
+	readonly contentStateByItemId: ReadonlyMap<string, VisibleContentResourcesState>;
+	readonly pausedNow: boolean;
+	readonly reportedVisibleItemCount: number;
+	readonly trackedVisibleItemIds: readonly string[];
+}): BridgeVisibleHydrationStateProbe {
+	let loadingItemCount = 0;
+	let readyItemCount = 0;
+	let failedItemCount = 0;
+	let deferredItemCount = 0;
+	let abortedItemCount = 0;
+	let untrackedItemCount = 0;
+	for (const itemId of props.trackedVisibleItemIds) {
+		const state = props.contentStateByItemId.get(itemId);
+		switch (state?.status) {
+			case 'loading':
+				loadingItemCount += 1;
+				break;
+			case 'ready':
+				readyItemCount += 1;
+				break;
+			case 'failed':
+				failedItemCount += 1;
+				break;
+			case 'deferred':
+				deferredItemCount += 1;
+				break;
+			case 'aborted':
+				abortedItemCount += 1;
+				break;
+			case undefined:
+				untrackedItemCount += 1;
+				break;
+		}
+	}
+	return {
+		abortedItemCount,
+		deferredItemCount,
+		failedItemCount,
+		loadingItemCount,
+		pausedNow: props.pausedNow,
+		readyItemCount,
+		reportedVisibleItemCount: props.reportedVisibleItemCount,
+		trackedVisibleItemCount: props.trackedVisibleItemIds.length,
+		truncatedVisibleItemCount: Math.max(
+			0,
+			props.reportedVisibleItemCount - props.trackedVisibleItemIds.length,
+		),
+		untrackedItemCount,
+	};
+}
+
+export function publishVisibleHydrationStateProbe(probe: BridgeVisibleHydrationStateProbe): void {
+	const probeWindow = (globalThis as typeof globalThis & { readonly window?: Window }).window;
+	if (probeWindow === undefined || typeof probeWindow !== 'object') {
+		return;
+	}
+	// oxlint-disable-next-line no-underscore-dangle -- Intentional Bridge debug surface name.
+	probeWindow.__bridgeVisibleHydrationStateProbe = probe;
 }
 
 export function shouldAcceptVisibleReviewContentReadyResult(props: {

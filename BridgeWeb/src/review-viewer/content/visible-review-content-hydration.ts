@@ -19,7 +19,9 @@ import type {
 import type { LoadReviewItemContentResourcesProps } from './review-content-loader.js';
 import type { BridgeReviewContentRegistry } from './review-content-registry.js';
 import {
+	deriveVisibleHydrationStateProbe,
 	pruneVisibleReviewContentHydrationCaches,
+	publishVisibleHydrationStateProbe,
 	recordVisibleHydrationReadyResultDiscard,
 	shouldAcceptVisibleReviewContentReadyResult,
 	type VisibleContentResourcesState,
@@ -177,6 +179,14 @@ export function useVisibleReviewContentHydration(
 		visibleHydrationPaused: props.visibleHydrationPaused,
 		visibleItemIds,
 	};
+	publishVisibleHydrationStateProbe(
+		deriveVisibleHydrationStateProbe({
+			contentStateByItemId,
+			pausedNow: props.visibleHydrationPaused,
+			reportedVisibleItemCount: reportedVisibleItemIdsRef.current.length,
+			trackedVisibleItemIds: visibleItemIds,
+		}),
+	);
 
 	useEffect((): (() => void) | void => {
 		if (

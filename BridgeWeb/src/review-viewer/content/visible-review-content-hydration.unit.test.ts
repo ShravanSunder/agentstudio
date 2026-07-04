@@ -7,6 +7,8 @@ import {
 	makeBridgeReviewPackage,
 } from '../../foundation/review-package/bridge-review-package-test-support.js';
 import type { BridgeReviewPackage } from '../../foundation/review-package/bridge-review-package.js';
+import type { VisibleContentResourcesState } from './visible-review-content-hydration-support.js';
+import { deriveVisibleHydrationStateProbe } from './visible-review-content-hydration-support.js';
 import {
 	createVisibleReviewContentHydrationResult,
 	makeReviewItemContentResourcesKey,
@@ -22,6 +24,55 @@ import {
 	visibleContentHydrationItemLimit,
 	visibleReviewContentLoadPlanCount,
 } from './visible-review-content-hydration.js';
+
+describe('visible hydration state probe derivation', () => {
+	test('reports membership truncation between reported and tracked visible sets', () => {
+		const trackedVisibleItemIds = Array.from(
+			{ length: 12 },
+			(_, index): string => `item-${String(index).padStart(3, '0')}`,
+		);
+		const contentStateByItemId = new Map<string, VisibleContentResourcesState>([
+			['item-000', { contentKey: 'k0', itemId: 'item-000', status: 'ready' }],
+			['item-001', { contentKey: 'k1', itemId: 'item-001', status: 'loading' }],
+			['item-002', { contentKey: 'k2', itemId: 'item-002', status: 'failed' }],
+			[
+				'item-003',
+				{ contentKey: 'k3', itemId: 'item-003', retryAfterVersion: 7, status: 'deferred' },
+			],
+			['off-screen', { contentKey: 'k9', itemId: 'off-screen', status: 'ready' }],
+		]);
+
+		const probe = deriveVisibleHydrationStateProbe({
+			contentStateByItemId,
+			pausedNow: true,
+			reportedVisibleItemCount: 20,
+			trackedVisibleItemIds,
+		});
+
+		expect(probe.reportedVisibleItemCount).toBe(20);
+		expect(probe.trackedVisibleItemCount).toBe(12);
+		expect(probe.truncatedVisibleItemCount).toBe(8);
+		expect(probe.readyItemCount).toBe(1);
+		expect(probe.loadingItemCount).toBe(1);
+		expect(probe.failedItemCount).toBe(1);
+		expect(probe.deferredItemCount).toBe(1);
+		expect(probe.untrackedItemCount).toBe(8);
+		expect(probe.pausedNow).toBe(true);
+	});
+
+	test('reports zero truncation when the tracked set covers the report', () => {
+		const probe = deriveVisibleHydrationStateProbe({
+			contentStateByItemId: new Map<string, VisibleContentResourcesState>(),
+			pausedNow: false,
+			reportedVisibleItemCount: 3,
+			trackedVisibleItemIds: ['a', 'b', 'c'],
+		});
+
+		expect(probe.truncatedVisibleItemCount).toBe(0);
+		expect(probe.untrackedItemCount).toBe(3);
+		expect(probe.readyItemCount).toBe(0);
+	});
+});
 
 describe('visible review content hydration', () => {
 	test('bounds opportunistic visible content warming around the selected item', () => {
