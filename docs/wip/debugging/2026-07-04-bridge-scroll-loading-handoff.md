@@ -219,3 +219,33 @@ immediate(viewport) > selected(click) > nearby > speculative > background.
 Viewport membership is recomputed on every range change; items leaving the
 viewport demote, items entering promote — one owner, one ordering, end to end.
 This is the organizing principle for next-session agenda item 2.
+
+## Immediate lane: SYSTEM (reconciler), not command — design recommendation
+
+Question settled with the user at handoff: the immediate viewport lane is fed
+by a RECONCILER, not by commands. Rationale:
+- Viewport is a continuously changing FACT (not a discrete intent); commands
+  fit clicks (F3: explicit actions set state). Fact-as-commands floods planes
+  (see the 32k topology storm).
+- Reconciler shape: pure function (visibleSet, loadedSet, inFlightSet) ->
+  demand plan; emits promotions/demotions into the immediate lane on every
+  visible-range change; latest-wins, idempotent.
+- Wedge-proof by construction: every parked-state bug today (abort-no-rearm,
+  pause-discard, deferred-forever) was a forgotten comeback path. A reconciler
+  has none to forget — visible+unloaded is re-demanded every pass until
+  painted, regardless of what lower layers dropped.
+- Durable tests: ONE pure seam replaces five interacting systems; scenario
+  tables from the demand-lane spec run directly against it.
+Composition: immediate lane <- reconciler (system); selected lane <- click
+commands; nearby/speculative <- policies; background <- paced fill. ONE queue,
+ONE order, ONE owner from intent to painted.
+
+## Handoff-time loose ends
+- Topology-storm lane task-mr6cod61-yz1gzb: adopt it (poll the job file; land
+  red-first result; it also identifies the swift-otel C++ exception path for
+  an upstream report). If already landed, verify via git log.
+- The debug app may be running from the prior session — check
+  tmp/debug-observability/latest-observability.env, kill that PID before
+  relaunching.
+- Unsigned commits (--no-gpg-sign) from 2026-07-04 await re-signing when
+  1Password works.
