@@ -10,7 +10,10 @@ import {
 	recordBridgeCodeViewItemMaterializeTelemetry,
 	recordBridgeSelectedContentPaintedTelemetry,
 } from '../telemetry/bridge-review-viewer-telemetry.js';
-import { bridgeCodeViewApplyResultDidRenderContent } from './bridge-code-view-controller.js';
+import {
+	bridgeCodeViewApplyResultDidRenderContent,
+	type ApplyBridgeCodeViewItemUpdateResult,
+} from './bridge-code-view-controller.js';
 import {
 	createBridgeCodeViewInitialItems,
 	materializeBridgeCodeViewItem,
@@ -80,6 +83,13 @@ const codeViewInstantRevealExternalScrollAbortThresholdPixels = 240;
 const codeViewInstantRevealStableFrameCount = 2;
 const codeViewInstantRevealHydrationRearmWindowMilliseconds = 2_000;
 const selectedContentPaintedGenerationByRecorder = new WeakMap<BridgeTelemetryRecorder, number>();
+const selectedContentPaintedDemandByRecorder = new WeakMap<BridgeTelemetryRecorder, number>();
+
+interface BridgeCodeViewMaterializationResourceEntry {
+	readonly itemId: string;
+	readonly resources: BridgeCodeViewContentResources;
+	readonly selectionDemandStartedAtMilliseconds: number | null;
+}
 
 export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactElement {
 	const sourceKey = makeBridgeCodeViewSourceKey(props);
@@ -491,43 +501,53 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 			}),
 		[collapsedItemIds, handleHeaderVisibilityChange, props.reviewPackage, toggleItemCollapse],
 	);
-	const materializationResourceEntries = useMemo((): readonly (readonly [
-		string,
-		BridgeCodeViewContentResources,
-	])[] => {
-		const resourceEntriesByItemId = new Map<string, BridgeCodeViewContentResources>();
-		for (const [itemId, resources] of props.visibleContentResourcesByItemId ?? []) {
-			if (
-				!shouldApplyBridgeCodeViewMaterialization({
-					isScrollActive: isCodeViewScrollActive,
+	const materializationResourceEntries =
+		useMemo((): readonly BridgeCodeViewMaterializationResourceEntry[] => {
+			const resourceEntriesByItemId = new Map<string, BridgeCodeViewMaterializationResourceEntry>();
+			for (const [itemId, resources] of props.visibleContentResourcesByItemId ?? []) {
+				if (
+					!shouldApplyBridgeCodeViewMaterialization({
+						isScrollActive: isCodeViewScrollActive,
+						itemId,
+						selectedItemId: props.selectedItemId,
+					})
+				) {
+					continue;
+				}
+				resourceEntriesByItemId.set(itemId, {
 					itemId,
-					selectedItemId: props.selectedItemId,
-				})
-			) {
-				continue;
+					resources,
+					selectionDemandStartedAtMilliseconds: null,
+				});
 			}
-			resourceEntriesByItemId.set(itemId, resources);
-		}
-		if (
-			props.selectedItemId !== null &&
-			props.selectedContentResources !== null &&
-			props.selectedContentResources !== undefined
-		) {
-			resourceEntriesByItemId.set(props.selectedItemId, props.selectedContentResources);
-		}
-		return [...resourceEntriesByItemId.entries()];
-	}, [
-		isCodeViewScrollActive,
-		props.selectedContentResources,
-		props.selectedItemId,
-		props.visibleContentResourcesByItemId,
-	]);
+			if (
+				props.selectedItemId !== null &&
+				props.selectedContentResources !== null &&
+				props.selectedContentResources !== undefined
+			) {
+				resourceEntriesByItemId.set(props.selectedItemId, {
+					itemId: props.selectedItemId,
+					resources: props.selectedContentResources,
+					selectionDemandStartedAtMilliseconds:
+						props.selectedContentDemandStartedAtMilliseconds ?? null,
+				});
+			}
+			return [...resourceEntriesByItemId.values()];
+		}, [
+			isCodeViewScrollActive,
+			props.selectedContentDemandStartedAtMilliseconds,
+			props.selectedContentResources,
+			props.selectedItemId,
+			props.visibleContentResourcesByItemId,
+		]);
 	const materializationResourceEntryItemIds = useMemo(
-		(): string => materializationResourceEntries.map(([itemId]): string => itemId).join(','),
+		(): string => materializationResourceEntries.map((entry): string => entry.itemId).join(','),
 		[materializationResourceEntries],
 	);
 	const loadingMaterializationItemIds = useMemo((): readonly string[] => {
-		const loadedItemIds = new Set(materializationResourceEntries.map(([itemId]): string => itemId));
+		const loadedItemIds = new Set(
+			materializationResourceEntries.map((entry): string => entry.itemId),
+		);
 		const loadingItemIds = new Set(props.visibleLoadingItemIds ?? []);
 		if (isCodeViewScrollActive) {
 			for (const itemId of loadingItemIds) {
@@ -748,7 +768,8 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 				didUpdateRenderedItems = true;
 				materializedItemIds.push(itemId);
 			}
-			for (const [itemId, resources] of materializationResourceEntries) {
+			for (const entry of materializationResourceEntries) {
+				const { itemId, resources } = entry;
 				if (
 					!shouldApplyBridgeCodeViewMaterialization({
 						isScrollActive: scrollActivityActiveRef.current,
@@ -787,6 +808,24 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 					existingItem.bridgeMetadata.cacheKey === nextMaterializedItem.bridgeMetadata.cacheKey &&
 					existingItem.collapsed === nextMaterializedItem.collapsed
 				) {
+					if (itemId === props.selectedItemId && props.telemetryRecorder !== undefined) {
+						const materializationCompletedAtMilliseconds = performance.now();
+						if (
+							shouldScheduleSelectedContentPaintedTelemetry({
+								didFindMatchingPaintedContent: true,
+								selectionDemandStartedAtMilliseconds: entry.selectionDemandStartedAtMilliseconds,
+								updateResult: 'unchanged',
+							})
+						) {
+							scheduleSelectedContentPaintedTelemetry({
+								telemetryRecorder: props.telemetryRecorder,
+								traceContext: props.telemetryParentTraceContext ?? null,
+								selectionDemandStartedAtMilliseconds: entry.selectionDemandStartedAtMilliseconds,
+								materializationStartedAtMilliseconds: itemMaterializationStartedAt,
+								materializationCompletedAtMilliseconds,
+							});
+						}
+					}
 					continue;
 				}
 				const updateResult = controller.applyItemUpdate(nextMaterializedItem);
@@ -841,16 +880,17 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 							result: updateResult,
 							selected: true,
 						});
-						// Painted is an honest DOM-change signal: only anchor it when Pierre actually
-						// added or updated the item record. An 'unchanged' apply (version-equal, e.g. a
-						// re-render that withheld or duplicated content) is a legitimate outcome recorded
-						// distinctly by the materialize event above, but it did NOT paint new content.
-						if (bridgeCodeViewApplyResultDidRenderContent(updateResult)) {
+						if (
+							shouldScheduleSelectedContentPaintedTelemetry({
+								didFindMatchingPaintedContent: false,
+								selectionDemandStartedAtMilliseconds: entry.selectionDemandStartedAtMilliseconds,
+								updateResult,
+							})
+						) {
 							scheduleSelectedContentPaintedTelemetry({
 								telemetryRecorder: props.telemetryRecorder,
 								traceContext: props.telemetryParentTraceContext ?? null,
-								selectionDemandStartedAtMilliseconds:
-									props.selectedContentDemandStartedAtMilliseconds ?? null,
+								selectionDemandStartedAtMilliseconds: entry.selectionDemandStartedAtMilliseconds,
 								materializationStartedAtMilliseconds: itemMaterializationStartedAt,
 								materializationCompletedAtMilliseconds,
 							});
@@ -958,6 +998,20 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 	);
 }
 
+export function shouldScheduleSelectedContentPaintedTelemetry(props: {
+	readonly didFindMatchingPaintedContent: boolean;
+	readonly selectionDemandStartedAtMilliseconds: number | null;
+	readonly updateResult: ApplyBridgeCodeViewItemUpdateResult;
+}): boolean {
+	if (props.selectionDemandStartedAtMilliseconds === null) {
+		return false;
+	}
+	return (
+		bridgeCodeViewApplyResultDidRenderContent(props.updateResult) ||
+		props.didFindMatchingPaintedContent
+	);
+}
+
 export function scheduleSelectedContentPaintedTelemetry(props: {
 	readonly telemetryRecorder: BridgeTelemetryRecorder;
 	readonly traceContext: BridgeTraceContext | null;
@@ -971,6 +1025,16 @@ export function scheduleSelectedContentPaintedTelemetry(props: {
 		return;
 	}
 	const selectionDemandStartedAtMilliseconds = props.selectionDemandStartedAtMilliseconds;
+	if (
+		selectedContentPaintedDemandByRecorder.get(props.telemetryRecorder) ===
+		selectionDemandStartedAtMilliseconds
+	) {
+		return;
+	}
+	selectedContentPaintedDemandByRecorder.set(
+		props.telemetryRecorder,
+		selectionDemandStartedAtMilliseconds,
+	);
 	const now = props.now ?? performance.now.bind(performance);
 	const requestFrame = props.requestAnimationFrame ?? requestAnimationFrame;
 	const paintedGeneration =

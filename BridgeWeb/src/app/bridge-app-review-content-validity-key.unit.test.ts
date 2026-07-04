@@ -14,6 +14,7 @@ import {
 import {
 	makeSelectedContentResourcesKey,
 	reviewContentValidityDropReason,
+	selectedContentDemandStartedAtMillisecondsForCurrentSelection,
 	selectedContentResourcesForCurrentSelection,
 } from './bridge-app-review-selection-state.js';
 import { applyReviewMetadataDeltaToReviewPackage } from './bridge-app.js';
@@ -103,6 +104,46 @@ describe('review content-validity key is content-addressed, not revision-stamped
 				selectedContentResourcesState: loadedState,
 			}),
 		).not.toBeNull();
+	});
+
+	test('keeps the selected demand anchor across an extent-fact revision bump (contentHash unchanged)', () => {
+		const reviewPackage = makeBridgeReviewPackage();
+		const item = reviewPackage.itemsById['item-source'];
+		const baseHandle = item?.contentRoles.base ?? null;
+		const headHandle = item?.contentRoles.head ?? null;
+		if (item === undefined || baseHandle === null || headHandle === null) {
+			throw new Error('Expected modified item with base/head handles');
+		}
+		const loadedState = {
+			itemId: 'item-source',
+			contentKey: makeSelectedContentResourcesKey(reviewPackage, 'item-source'),
+			demandStartedAtMilliseconds: 123,
+			status: 'ready' as const,
+			resources: {
+				base: { handle: baseHandle, readText: (): string => 'base body' },
+				head: { handle: headHandle, readText: (): string => 'head body' },
+			},
+		};
+		const nextReviewPackage = applyReviewMetadataDeltaToReviewPackage({
+			reviewPackage,
+			deltaFrame: extentFactDelta({
+				packageId: reviewPackage.packageId,
+				fromRevision: reviewPackage.revision,
+				facts: [{ itemId: 'item-source', contentRole: 'head', lineCount: 41 }],
+				summary: reviewPackage.summary,
+			}),
+		});
+		if (nextReviewPackage === null) {
+			throw new Error('Expected extent-fact delta to apply');
+		}
+
+		expect(
+			selectedContentDemandStartedAtMillisecondsForCurrentSelection({
+				reviewPackage: nextReviewPackage,
+				selectedItemId: 'item-source',
+				selectedContentResourcesState: loadedState,
+			}),
+		).toBe(123);
 	});
 
 	test('keeps the content key stable when a load lands after a revision bump (same contentHash)', () => {

@@ -13,7 +13,13 @@ import { createBridgeTelemetryRecorder } from '../../foundation/telemetry/bridge
 import type { BridgeTelemetryRecorder } from '../../foundation/telemetry/bridge-telemetry-recorder.js';
 import { buildBridgeReviewProjection } from '../navigation/review-projection.js';
 import { makeBridgeViewerProjectionFixture } from '../test-support/review-viewer-fixtures.js';
-import { materializeBridgeCodeViewLoadingItem } from './bridge-code-view-materialization.js';
+import { BridgeCodeViewController } from './bridge-code-view-controller.js';
+import {
+	type BridgeCodeViewContentResources,
+	type BridgeCodeViewItem,
+	materializeBridgeCodeViewItem,
+	materializeBridgeCodeViewLoadingItem,
+} from './bridge-code-view-materialization.js';
 import {
 	bridgeCodeViewRenderedHeaderCorrectionTargetPosition,
 	shouldApplyBridgeCodeViewRenderedHeaderCorrection,
@@ -25,6 +31,7 @@ import {
 	scheduleSelectedContentPaintedTelemetry,
 	selectedContentSummaryForPanel,
 	shouldApplyBridgeCodeViewMaterialization,
+	shouldScheduleSelectedContentPaintedTelemetry,
 } from './bridge-code-view-panel.js';
 
 describe('BridgeCodeViewPanel diagnostics', () => {
@@ -301,6 +308,68 @@ describe('BridgeCodeViewPanel diagnostics', () => {
 		});
 	});
 
+	test('records selected content painted when hydration paints before the selected anchor arrives', () => {
+		const reviewPackage = makeBridgeReviewPackage();
+		const selectedItem = reviewPackage.itemsById['item-source'];
+		const baseHandle = selectedItem?.contentRoles.base ?? null;
+		const headHandle = selectedItem?.contentRoles.head ?? null;
+		if (selectedItem === undefined || baseHandle === null || headHandle === null) {
+			throw new Error('Expected modified item with base/head handles');
+		}
+		const resources: BridgeCodeViewContentResources = {
+			base: { handle: baseHandle, readText: (): string => 'base body' },
+			head: { handle: headHandle, readText: (): string => 'head body' },
+		};
+		const materializedItem = materializeBridgeCodeViewItem({ item: selectedItem, resources });
+		if (materializedItem === null) {
+			throw new Error('Expected selected item to materialize');
+		}
+		const samples: BridgeTelemetrySample[] = [];
+		const frameCallbacks: FrameRequestCallback[] = [];
+		const telemetryRecorder = enabledTelemetryRecorder(samples);
+		const controller = new BridgeCodeViewController({ model: new VersionKeyedCodeViewModel() });
+		let nowMilliseconds = 160;
+
+		const hydrationApplyResult = controller.applyItemUpdate(materializedItem);
+		expect(hydrationApplyResult).toBe('added');
+
+		const anchoredDeliveryApplyResult = controller.applyItemUpdate(materializedItem);
+		expect(anchoredDeliveryApplyResult).toBe('unchanged');
+		if (
+			shouldScheduleSelectedContentPaintedTelemetry({
+				didFindMatchingPaintedContent: true,
+				selectionDemandStartedAtMilliseconds: 100,
+				updateResult: anchoredDeliveryApplyResult,
+			})
+		) {
+			scheduleSelectedContentPaintedTelemetry({
+				telemetryRecorder,
+				traceContext: null,
+				selectionDemandStartedAtMilliseconds: 100,
+				materializationStartedAtMilliseconds: 150,
+				materializationCompletedAtMilliseconds: 160,
+				now: (): number => nowMilliseconds,
+				requestAnimationFrame: (callback): number => {
+					frameCallbacks.push(callback);
+					return frameCallbacks.length;
+				},
+			});
+		}
+
+		nowMilliseconds = 176;
+		frameCallbacks[0]?.(176);
+
+		expect(samples).toHaveLength(1);
+		expect(samples[0]).toMatchObject({
+			name: 'performance.bridge.web.selected_content_painted',
+			numericAttributes: {
+				'agentstudio.bridge.selected_content.click_to_paint_ms': 76,
+				'agentstudio.bridge.selected_content.frame_wait_ms': 16,
+				'agentstudio.bridge.selected_content.materialize_ms': 26,
+			},
+		});
+	});
+
 	test('force flushes selected content painted telemetry through recorder burst throttling', () => {
 		const batches: BridgeTelemetryBatch[] = [];
 		const frameCallbacks: FrameRequestCallback[] = [];
@@ -411,4 +480,32 @@ function enabledTelemetryRecorder(samples: BridgeTelemetrySample[]): BridgeTelem
 		measure: <TResult>(props: { readonly operation: () => TResult }): TResult => props.operation(),
 		flush: (): boolean => true,
 	};
+}
+
+class VersionKeyedCodeViewModel {
+	readonly #itemsById = new Map<string, BridgeCodeViewItem>();
+
+	addItems(items: readonly BridgeCodeViewItem[]): void {
+		for (const item of items) {
+			this.#itemsById.set(item.id, item);
+		}
+	}
+
+	getItem(id: string): BridgeCodeViewItem | undefined {
+		return this.#itemsById.get(id);
+	}
+
+	updateItem(item: BridgeCodeViewItem): boolean {
+		const previousItem = this.#itemsById.get(item.id);
+		this.#itemsById.set(item.id, item);
+		return previousItem !== undefined && previousItem.version !== item.version;
+	}
+
+	updateItemId(): boolean {
+		return true;
+	}
+
+	scrollTo(): void {}
+
+	setSelectedLines(): void {}
 }
