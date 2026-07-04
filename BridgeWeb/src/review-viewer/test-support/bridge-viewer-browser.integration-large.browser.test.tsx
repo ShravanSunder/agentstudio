@@ -111,6 +111,96 @@ describe('Bridge viewer Browser Mode mocked backend large and streaming', () => 
 		}
 	});
 
+	test('post-scroll composed tree row click selects the rendered row during the Pierre scrolling window', async () => {
+		const fixture = makeBridgeViewerBrowserFixture({ fixtureClass: 'large-diffshub' });
+		const backend = installBridgeViewerMockedBackend(fixture);
+		const workerFactory = createBridgePierrePortableBlobWorkerFactory();
+
+		try {
+			render(
+				<BridgeApp
+					codeViewWorkerPoolEnabled={true}
+					codeViewWorkerFactory={workerFactory.workerFactory}
+					fetchContent={backend.fetchContent}
+					markdownWorkerClient={null}
+					projectionWorkerClient={backend.projectionWorkerClient}
+				/>,
+			);
+			await backend.pushMetadata(
+				reviewPackageForBridgeAppDevFixtureScenario({
+					fixture,
+					scenario: 'scroll',
+				}),
+			);
+			await browserSupport.waitForSelectedBridgeViewerDisplayPath(fixture.expected.largePath);
+			await browserSupport.waitForSelectedBridgeViewerContentState('ready');
+			await browserSupport.waitForBridgeViewerTextWithDiagnostics(fixture.expected.largeText);
+
+			const railScroll = await waitForBridgeViewerTreeScrollOwner();
+			railScroll.scrollTop = Math.max(0, railScroll.scrollHeight - railScroll.clientHeight);
+			railScroll.dispatchEvent(new Event('scroll', { bubbles: true }));
+			await waitForBridgeViewerAnimationFrame();
+
+			const fileTreeContainer = document.querySelector('file-tree-container');
+			if (!(fileTreeContainer instanceof HTMLElement) || fileTreeContainer.shadowRoot === null) {
+				throw new Error('expected Bridge viewer file tree host with shadow root');
+			}
+			const fileTreeShadowRoot = fileTreeContainer.shadowRoot;
+			const virtualizedRoot = fileTreeShadowRoot.querySelector(
+				'[data-file-tree-virtualized-root="true"]',
+			);
+			expect(virtualizedRoot?.hasAttribute('data-is-scrolling')).toBe(true);
+
+			const viewport = railScroll.getBoundingClientRect();
+			const clickedButton = [
+				...fileTreeShadowRoot.querySelectorAll('button[data-item-path][data-item-type="file"]'),
+			].find((candidate): candidate is HTMLButtonElement => {
+				if (!(candidate instanceof HTMLButtonElement)) {
+					return false;
+				}
+				const candidateBox = candidate.getBoundingClientRect();
+				return candidateBox.bottom >= viewport.top && candidateBox.top <= viewport.bottom;
+			});
+			if (clickedButton === undefined) {
+				throw new Error('expected visible post-scroll Bridge viewer tree file row');
+			}
+			const clickedPath = clickedButton.dataset['itemPath'];
+			if (clickedPath === undefined || clickedPath === fixture.expected.largePath) {
+				throw new Error(
+					`expected non-selected post-scroll file row, got ${clickedPath ?? 'missing'}`,
+				);
+			}
+
+			const clickEvent = new MouseEvent('click', {
+				bubbles: true,
+				cancelable: true,
+				composed: true,
+			});
+			Object.defineProperty(clickEvent, 'composedPath', {
+				value: (): readonly EventTarget[] => [
+					clickedButton,
+					fileTreeShadowRoot,
+					fileTreeContainer,
+					document.body,
+					document.documentElement,
+					document,
+					window,
+				],
+			});
+			fileTreeContainer.dispatchEvent(clickEvent);
+
+			await browserSupport.waitForSelectedBridgeViewerDisplayPath(clickedPath);
+			await browserSupport.waitForSelectedBridgeViewerContentState('ready');
+			expect(browserSupport.selectedBridgeViewerPanelAttribute('data-selected-display-path')).toBe(
+				clickedPath,
+			);
+		} finally {
+			await browserSupport.cleanupBridgeViewerReactTreeBeforeExternalWorkerRevoke();
+			workerFactory.revoke();
+			backend.dispose();
+		}
+	});
+
 	test('large fixture programmatic file reveal uses bounded CodeView motion', async () => {
 		const fixture = makeBridgeViewerBrowserFixture({ fixtureClass: 'large-diffshub' });
 		const backend = installBridgeViewerMockedBackend(fixture);

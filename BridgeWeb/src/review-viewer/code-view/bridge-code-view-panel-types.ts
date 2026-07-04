@@ -48,10 +48,25 @@ export interface BridgeCodeViewSelectionScrollDiagnostic {
 	readonly remainingFrameBudget: number;
 }
 
+export interface BridgeCodeViewMaterializationResourceEntry {
+	readonly itemId: string;
+	readonly resources: BridgeCodeViewContentResources;
+	readonly selectionDemandStartedAtMilliseconds: number | null;
+}
+
 export const codeViewMaterializationRetryFrameBudget = 30;
 export const codeViewSelectionScrollRetryFrameBudget = 30;
 export const codeViewVisibleMetadataScrollThrottleMilliseconds = 120;
 export const codeViewVisibleHydrationScrollIdleMilliseconds = 120;
+export const bridgeCodeViewInstantRevealPolicy = {
+	externalScrollAbortThresholdPixels: 240,
+	hydrationRearmViewportOffsetTolerancePixels: 4,
+	hydrationRearmWindowMilliseconds: 2_000,
+	renderedHeaderOffsetTolerancePixels: 1,
+	retargetEpsilonPixels: 1,
+	stableFrameCount: 2,
+	viewportOffsetTolerancePixels: 0,
+} as const;
 
 export const initialSelectionScrollDiagnostic: BridgeCodeViewSelectionScrollDiagnostic = {
 	didScroll: false,

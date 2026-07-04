@@ -6,6 +6,7 @@ import {
 	BridgeFileViewerApp,
 	type BridgeFileViewerAppProps,
 } from '../file-viewer/bridge-file-viewer-app.js';
+import { startBridgeFrameLivenessProbe } from '../foundation/diagnostics/bridge-frame-liveness-probe.js';
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import { useBridgeFileViewerFrameControllerProps } from './bridge-file-viewer-frame-controller.js';
 import { bridgeReviewNavigationCommandForWorktreeDescriptor } from './bridge-review-navigation.js';
@@ -47,6 +48,7 @@ export function BridgeFileViewerMode(props: BridgeFileViewerModeProps): ReactEle
 	const fileSurfaceOpenAttemptedRef = useRef(props.isActive);
 	const fileSurfaceOpenResolvedRef = useRef(false);
 	const pendingFileSurfaceReopenRef = useRef(false);
+	useEffect((): (() => void) => startBridgeFrameLivenessProbe(), []);
 	const handleFileSurfaceOpenResolved = useCallback((): void => {
 		fileSurfaceOpenResolvedRef.current = true;
 		pendingFileSurfaceReopenRef.current = false;

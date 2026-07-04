@@ -7,11 +7,9 @@ import { flushSync } from 'react-dom';
 import {
 	pierreFilePathFromEventTarget,
 	pierreFilePathFromTreeEvent,
-	pierreTreeRowContainerForModel,
 	pierreTreeScrollOwnerForModel,
 	visiblePierreFileRowElementsForModel,
 	type BridgePierreFileRowElement,
-	type BridgePierreTreeQueryContainer,
 	type BridgePierreTreeScrollOwner,
 } from '../../app/bridge-pierre-tree-adapter.js';
 import {
@@ -184,10 +182,28 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 			}),
 		);
 	}, [model, onVisibleItemIdsChange]);
+	const selectClickedFileRow = useCallback((event: Event): void => {
+		applyReviewTreeSelectionFromEvent({
+			event,
+			onSelectItem: (itemId: string): void => {
+				flushSync((): void => {
+					onSelectItemRef.current(itemId);
+				});
+			},
+			primaryItemIdByTreePath: sourceRef.current.primaryItemIdByTreePath,
+			selectClickedTreePath: (path: string): string | null => {
+				isSyncingClickedSelectionRef.current = true;
+				try {
+					return controllerRef.current?.selectClickedTreePath(path) ?? null;
+				} finally {
+					isSyncingClickedSelectionRef.current = false;
+				}
+			},
+		});
+	}, []);
 
 	useEffect((): (() => void) => {
 		let scrollElement: BridgePierreTreeScrollOwner | null = null;
-		let rowContainer: BridgePierreTreeQueryContainer | null = null;
 		let animationFrameId: number | null = null;
 		const scheduleVisibleItemIds = (): void => {
 			if (animationFrameId !== null) {
@@ -198,28 +214,9 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 				publishVisibleItemIds();
 			});
 		};
-		const selectClickedFileRow = (event: Event): void => {
-			const selection = reviewTreeSelectionForEventTarget({
-				primaryItemIdByTreePath: sourceRef.current.primaryItemIdByTreePath,
-				target: event,
-			});
-			if (selection !== null) {
-				isSyncingClickedSelectionRef.current = true;
-				try {
-					controllerRef.current?.selectClickedTreePath(selection.path);
-				} finally {
-					isSyncingClickedSelectionRef.current = false;
-				}
-				flushSync((): void => {
-					onSelectItemRef.current(selection.itemId);
-				});
-			}
-		};
 		const setupFrameId = requestAnimationFrame((): void => {
-			rowContainer = pierreTreeRowContainerForModel(model);
 			scrollElement = pierreTreeScrollOwnerForModel(model);
 			scrollElement?.addEventListener('scroll', scheduleVisibleItemIds, { passive: true });
-			rowContainer?.addEventListener?.('click', selectClickedFileRow, { capture: true });
 			publishVisibleItemIds();
 			// Only anchor time-to-first-interaction once the tree actually has rows painted.
 			if (!hasRecordedFirstInteractionRef.current && sourceRef.current.orderedPaths.length > 0) {
@@ -243,7 +240,6 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 				cancelAnimationFrame(animationFrameId);
 			}
 			scrollElement?.removeEventListener('scroll', scheduleVisibleItemIds);
-			rowContainer?.removeEventListener?.('click', selectClickedFileRow, { capture: true });
 			unsubscribeModel();
 		};
 	}, [model, publishVisibleItemIds, telemetryRecorder, telemetryTraceContext]);
@@ -253,6 +249,7 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 			aria-label="Review file tree"
 			className="h-full min-h-0 overflow-hidden bg-[var(--bridge-surface-bg)] text-[var(--bridge-text-secondary)]"
 			data-testid="bridge-review-trees-panel"
+			onClickCapture={(event): void => selectClickedFileRow(event.nativeEvent)}
 		>
 			<FileTree model={model} style={bridgeViewerTreeStyle} />
 		</div>
@@ -274,6 +271,24 @@ export function reviewTreeItemIdForEventTarget(props: {
 export interface ReviewTreeSelection {
 	readonly itemId: string;
 	readonly path: string;
+}
+
+export function applyReviewTreeSelectionFromEvent(props: {
+	readonly event: Event;
+	readonly onSelectItem: (itemId: string) => void;
+	readonly primaryItemIdByTreePath: Readonly<Record<string, string>>;
+	readonly selectClickedTreePath: (path: string) => string | null;
+}): boolean {
+	const selection = reviewTreeSelectionForEventTarget({
+		primaryItemIdByTreePath: props.primaryItemIdByTreePath,
+		target: props.event,
+	});
+	if (selection === null) {
+		return false;
+	}
+	props.selectClickedTreePath(selection.path);
+	props.onSelectItem(selection.itemId);
+	return true;
 }
 
 export function reviewTreeSelectionForEventTarget(props: {

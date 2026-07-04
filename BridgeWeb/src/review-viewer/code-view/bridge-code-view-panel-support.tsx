@@ -26,6 +26,7 @@ import {
 	type BridgeCodeViewContentResources,
 	type BridgeCodeViewItem,
 } from './bridge-code-view-materialization.js';
+import type { BridgeCodeViewMaterializationResourceEntry } from './bridge-code-view-panel-types.js';
 
 export interface BridgeCodeViewMetadataReconcileProps {
 	readonly getCurrentItem: (itemId: string) => CodeViewItem | undefined;
@@ -101,6 +102,47 @@ export function shouldApplyBridgeCodeViewMaterialization(props: {
 	readonly selectedItemId: string | null;
 }): boolean {
 	return !props.isScrollActive || props.itemId === props.selectedItemId;
+}
+
+export function bridgeCodeViewMaterializationResourceEntriesForPanel(props: {
+	readonly isScrollActive: boolean;
+	readonly selectedContentDemandStartedAtMilliseconds: number | null | undefined;
+	readonly selectedContentResources: BridgeCodeViewContentResources | null | undefined;
+	readonly selectedItemId: string | null;
+	readonly visibleContentResourcesByItemId:
+		| ReadonlyMap<string, BridgeCodeViewContentResources>
+		| undefined;
+}): readonly BridgeCodeViewMaterializationResourceEntry[] {
+	const resourceEntriesByItemId = new Map<string, BridgeCodeViewMaterializationResourceEntry>();
+	for (const [itemId, resources] of props.visibleContentResourcesByItemId ?? []) {
+		if (
+			!shouldApplyBridgeCodeViewMaterialization({
+				isScrollActive: props.isScrollActive,
+				itemId,
+				selectedItemId: props.selectedItemId,
+			})
+		) {
+			continue;
+		}
+		resourceEntriesByItemId.set(itemId, {
+			itemId,
+			resources,
+			selectionDemandStartedAtMilliseconds: null,
+		});
+	}
+	if (
+		props.selectedItemId !== null &&
+		props.selectedContentResources !== null &&
+		props.selectedContentResources !== undefined
+	) {
+		resourceEntriesByItemId.set(props.selectedItemId, {
+			itemId: props.selectedItemId,
+			resources: props.selectedContentResources,
+			selectionDemandStartedAtMilliseconds:
+				props.selectedContentDemandStartedAtMilliseconds ?? null,
+		});
+	}
+	return [...resourceEntriesByItemId.values()];
 }
 
 export interface BridgeCodeViewInstantRevealRearmCandidate {

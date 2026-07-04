@@ -81,12 +81,12 @@ describe('Bridge frame liveness probe', () => {
 		expect(frameCallbacks).toHaveLength(1);
 	});
 
-	test('is started by both Bridge viewer shells', () => {
+	test('is started by both Bridge viewer mode owners', () => {
 		expect(
-			readSource(new URL('../../review-viewer/shell/review-viewer-shell.tsx', import.meta.url)),
+			readSource(new URL('../../app/bridge-app-review-viewer-mode.tsx', import.meta.url)),
 		).toContain('startBridgeFrameLivenessProbe');
 		expect(
-			readSource(new URL('../../file-viewer/bridge-file-viewer-shell.tsx', import.meta.url)),
+			readSource(new URL('../../app/bridge-app-file-viewer-mode.tsx', import.meta.url)),
 		).toContain('startBridgeFrameLivenessProbe');
 	});
 });

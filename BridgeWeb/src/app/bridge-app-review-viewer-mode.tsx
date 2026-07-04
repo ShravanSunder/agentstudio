@@ -11,6 +11,7 @@ import type { BridgeDemandScheduler } from '../core/demand/bridge-demand-schedul
 import type { BridgeDescriptorRef } from '../core/models/bridge-resource-descriptor.js';
 import type { ReviewTreeRowMetadata } from '../features/review/models/review-protocol-models.js';
 import type { BridgeContentFetch } from '../foundation/content/content-resource-loader.js';
+import { startBridgeFrameLivenessProbe } from '../foundation/diagnostics/bridge-frame-liveness-probe.js';
 import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
 import type {
 	BridgeTelemetryFlushProps,
@@ -185,6 +186,7 @@ export function BridgeReviewViewerMode(
 	rootSnapshotRef.current = rootSnapshot;
 	const [isCodeViewScrollActive, setIsCodeViewScrollActive] = useState(false);
 	const controlProbeSequenceRef = useRef(0);
+	useEffect((): (() => void) => startBridgeFrameLivenessProbe(), []);
 	useEffect((): void => {
 		const authority = getReviewFrameAuthority();
 		if (reviewPackage === null || authority === null) {
