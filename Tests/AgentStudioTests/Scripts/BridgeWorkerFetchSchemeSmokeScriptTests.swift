@@ -67,7 +67,7 @@ struct BridgeWorkerFetchSchemeSmokeScriptTests {
                     #!/bin/bash
                     args="$*"
                     if [[ "$args" == *"app.startup_diagnostic_action.blocked"* ]]; then
-                      printf '%s\\n' '{"_msg":"app.startup_diagnostic_action.blocked","agentstudio.startup_diagnostic.bridge.worker_fetch.failure.reason":"javascript_probe_failed","agentstudio.startup_diagnostic.bridge.worker_fetch.fetch.succeeded":false,"agentstudio.startup_diagnostic.bridge.worker_fetch.stream.succeeded":false,"agentstudio.startup_diagnostic.bridge.worker_fetch.worker_observed_byte.count":0,"agentstudio.startup_diagnostic.bridge.worker_fetch.stream_first_chunk_byte.count":0}'
+                      printf '%s\\n' '{"_msg":"app.startup_diagnostic_action.blocked","agentstudio.startup_diagnostic.bridge.worker_fetch.failure.reason":"javascript_probe_failed","agentstudio.startup_diagnostic.bridge.worker_fetch.worker_script_fetch.succeeded":false,"agentstudio.startup_diagnostic.bridge.worker_fetch.worker_script_fetch.status":0,"agentstudio.startup_diagnostic.bridge.worker_fetch.fetch.succeeded":false,"agentstudio.startup_diagnostic.bridge.worker_fetch.stream.succeeded":false,"agentstudio.startup_diagnostic.bridge.worker_fetch.worker_observed_byte.count":0,"agentstudio.startup_diagnostic.bridge.worker_fetch.stream_first_chunk_byte.count":0}'
                     fi
                     exit 0
                     """
@@ -77,6 +77,8 @@ struct BridgeWorkerFetchSchemeSmokeScriptTests {
 
         #expect(result.exitCode == 1, "stdout: \(result.stdout)\nstderr: \(result.stderr)")
         #expect(result.stderr.contains("javascript_probe_failed"))
+        #expect(result.stderr.contains("worker_script_fetch.succeeded=false"))
+        #expect(result.stderr.contains("worker_script_fetch.status=0"))
         #expect(result.stderr.contains("fetch.succeeded=false"))
         #expect(result.stderr.contains("stream.succeeded=false"))
     }

@@ -26,6 +26,12 @@ extension WebKitSerializedTests {
             #expect(workerSource.contains("response.body.getReader()"))
             #expect(workerSource.contains("reader.read()"))
             #expect(source.contains("worker_error"))
+            #expect(source.contains("probeWorkerScriptFetch(workerScriptUrl)"))
+            #expect(source.contains("worker.onerror = function(event)"))
+            #expect(source.contains("worker_error:module_load"))
+            #expect(source.contains("worker_script_fetch_failed"))
+            #expect(!source.contains("failureReason: event.message"))
+            #expect(!source.contains("failureReason: error.message"))
             #expect(!source.contains("URL.createObjectURL"))
             #expect(!source.contains("new Blob([workerSource]"))
         }
@@ -69,6 +75,14 @@ extension WebKitSerializedTests {
 
             #expect(source.contains("agentstudio.startup_diagnostic.bridge.worker_fetch.marker.count"))
             #expect(source.contains("agentstudio.startup_diagnostic.bridge.worker_fetch.content_url.scheme"))
+            #expect(
+                source.contains(
+                    "agentstudio.startup_diagnostic.bridge.worker_fetch.worker_script_fetch.succeeded"
+                ))
+            #expect(
+                source.contains(
+                    "agentstudio.startup_diagnostic.bridge.worker_fetch.worker_script_fetch.status"
+                ))
             #expect(source.contains("agentstudio.startup_diagnostic.bridge.worker_fetch.worker_observed_byte.count"))
             #expect(source.contains("agentstudio.startup_diagnostic.bridge.worker_fetch.stream_first_chunk_byte.count"))
             #expect(source.contains("agentstudio.startup_diagnostic.bridge.worker_fetch.stream_held_open"))

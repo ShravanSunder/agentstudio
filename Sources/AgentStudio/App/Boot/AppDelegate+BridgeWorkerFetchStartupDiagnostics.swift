@@ -149,6 +149,8 @@ extension AppDelegate {
                   mode,
                   succeeded: false,
                   status: 0,
+                  workerScriptFetchSucceeded: false,
+                  workerScriptFetchStatus: 0,
                   workerObservedByteCount: 0,
                   streamFirstChunkByteCount: 0,
                   streamHeldOpen: false,
@@ -157,14 +159,40 @@ extension AppDelegate {
                   failureReason: reason
                 };
               }
-              function normalizedProbe(mode, data) {
+              async function probeWorkerScriptFetch(workerScriptUrl) {
+                try {
+                  const response = await fetch(workerScriptUrl, { method: 'GET' });
+                  return {
+                    succeeded: response.ok,
+                    status: Number.isFinite(response.status) ? response.status : 0
+                  };
+                } catch (error) {
+                  return {
+                    succeeded: false,
+                    status: 0
+                  };
+                }
+              }
+              function failedProbeWithWorkerScript(mode, reason, workerScriptProbe) {
+                const failed = failedProbe(mode, reason);
+                failed.workerScriptFetchSucceeded = workerScriptProbe.succeeded === true;
+                failed.workerScriptFetchStatus = Number.isFinite(workerScriptProbe.status)
+                  ? workerScriptProbe.status
+                  : 0;
+                return failed;
+              }
+              function normalizedProbe(mode, data, workerScriptProbe) {
                 if (!data || typeof data !== 'object') {
-                  return failedProbe(mode, 'worker_invalid_response');
+                  return failedProbeWithWorkerScript(mode, 'worker_invalid_response', workerScriptProbe);
                 }
                 return {
                   mode,
                   succeeded: data.succeeded === true,
                   status: Number.isFinite(data.status) ? data.status : 0,
+                  workerScriptFetchSucceeded: workerScriptProbe.succeeded === true,
+                  workerScriptFetchStatus: Number.isFinite(workerScriptProbe.status)
+                    ? workerScriptProbe.status
+                    : 0,
                   workerObservedByteCount: data.workerObservedByteCount || 0,
                   streamFirstChunkByteCount: data.streamFirstChunkByteCount || 0,
                   streamHeldOpen: data.streamHeldOpen === true,
@@ -173,7 +201,7 @@ extension AppDelegate {
                   failureReason: data.failureReason || 'none'
                 };
               }
-              function runProbe(mode) {
+              function runProbe(mode, workerScriptProbe) {
                 return new Promise(function(resolve) {
                   let worker = null;
                   let settled = false;
@@ -185,34 +213,43 @@ extension AppDelegate {
                     if (worker !== null) {
                       worker.terminate();
                     }
-                    resolve(normalizedProbe(mode, data));
+                    resolve(normalizedProbe(mode, data, workerScriptProbe));
+                  }
+                  if (workerScriptProbe.succeeded !== true) {
+                    resolve(failedProbeWithWorkerScript(mode, 'worker_script_fetch_failed', workerScriptProbe));
+                    return;
                   }
                   try {
                     worker = new Worker(workerScriptUrl, { type: 'module' });
                   } catch (error) {
-                    resolve(failedProbe(mode, 'worker_constructor_failed'));
+                    resolve(failedProbeWithWorkerScript(mode, 'worker_constructor_failed', workerScriptProbe));
                     return;
                   }
                   worker.onmessage = function(event) {
                     finish(event.data);
                   };
-                  worker.onerror = function() {
-                    finish(failedProbe(mode, 'worker_error'));
+                  worker.onerror = function(event) {
+                    finish(failedProbeWithWorkerScript(mode, 'worker_error:module_load', workerScriptProbe));
                   };
                   try {
                     worker.postMessage({ mode, resourceUrl });
                   } catch (error) {
-                    finish(failedProbe(mode, 'worker_post_failed'));
+                    finish(failedProbeWithWorkerScript(mode, 'worker_post_failed', workerScriptProbe));
                   }
                 });
               }
               try {
-                const fetchResult = await runProbe('fetch');
-                const streamResult = await runProbe('stream');
+                const workerScriptProbe = await probeWorkerScriptFetch(workerScriptUrl);
+                const fetchResult = await runProbe('fetch', workerScriptProbe);
+                const streamResult = await runProbe('stream', workerScriptProbe);
                 return JSON.stringify({
                   markerCount: 1,
                   contentUrlScheme: fetchResult.contentUrlScheme || 'agentstudio',
                   contentResourceKind: fetchResult.contentResourceKind || 'content',
+                  workerScriptFetchSucceeded: workerScriptProbe.succeeded === true,
+                  workerScriptFetchStatus: Number.isFinite(workerScriptProbe.status)
+                    ? workerScriptProbe.status
+                    : 0,
                   fetchSucceeded: fetchResult.succeeded === true,
                   streamSucceeded: streamResult.succeeded === true,
                   workerObservedByteCount: fetchResult.workerObservedByteCount || 0,
@@ -227,6 +264,8 @@ extension AppDelegate {
                   markerCount: 1,
                   contentUrlScheme: 'agentstudio',
                   contentResourceKind: 'content',
+                  workerScriptFetchSucceeded: false,
+                  workerScriptFetchStatus: 0,
                   fetchSucceeded: false,
                   streamSucceeded: false,
                   workerObservedByteCount: 0,
@@ -307,6 +346,8 @@ extension AppDelegate {
         let markerCount: Int
         let contentUrlScheme: String
         let contentResourceKind: String
+        let workerScriptFetchSucceeded: Bool
+        let workerScriptFetchStatus: Int
         let fetchSucceeded: Bool
         let streamSucceeded: Bool
         let workerObservedByteCount: Int
@@ -315,7 +356,8 @@ extension AppDelegate {
         let failureReason: String?
 
         var succeeded: Bool {
-            fetchSucceeded
+            workerScriptFetchSucceeded
+                && fetchSucceeded
                 && streamSucceeded
                 && workerObservedByteCount > 0
                 && streamFirstChunkByteCount > 0
@@ -328,6 +370,10 @@ extension AppDelegate {
                 "agentstudio.startup_diagnostic.bridge.worker_fetch.content_url.scheme": .string(contentUrlScheme),
                 "agentstudio.startup_diagnostic.bridge.worker_fetch.content_resource.kind": .string(
                     contentResourceKind),
+                "agentstudio.startup_diagnostic.bridge.worker_fetch.worker_script_fetch.succeeded": .bool(
+                    workerScriptFetchSucceeded),
+                "agentstudio.startup_diagnostic.bridge.worker_fetch.worker_script_fetch.status": .int(
+                    workerScriptFetchStatus),
                 "agentstudio.startup_diagnostic.bridge.worker_fetch.fetch.succeeded": .bool(fetchSucceeded),
                 "agentstudio.startup_diagnostic.bridge.worker_fetch.stream.succeeded": .bool(streamSucceeded),
                 "agentstudio.startup_diagnostic.bridge.worker_fetch.worker_observed_byte.count": .int(
@@ -345,6 +391,8 @@ extension AppDelegate {
                 markerCount: 1,
                 contentUrlScheme: "agentstudio",
                 contentResourceKind: "content",
+                workerScriptFetchSucceeded: false,
+                workerScriptFetchStatus: 0,
                 fetchSucceeded: false,
                 streamSucceeded: false,
                 workerObservedByteCount: 0,

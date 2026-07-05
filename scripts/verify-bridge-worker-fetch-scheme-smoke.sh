@@ -303,7 +303,7 @@ action_filter="$(logsql_exact_filter agentstudio.startup_diagnostic.action "$STA
 base_query="service.name:AgentStudio dev.runtime.flavor:debug $marker_filter"
 diagnostic_completed_query="$base_query $action_filter _msg:app.startup_diagnostic_action.completed"
 diagnostic_blocked_query="$base_query $action_filter _msg:app.startup_diagnostic_action.blocked"
-worker_fetch_fields="agentstudio.startup_diagnostic.bridge.worker_fetch.marker.count,agentstudio.startup_diagnostic.bridge.worker_fetch.content_url.scheme,agentstudio.startup_diagnostic.bridge.worker_fetch.content_resource.kind,agentstudio.startup_diagnostic.bridge.worker_fetch.fetch.succeeded,agentstudio.startup_diagnostic.bridge.worker_fetch.stream.succeeded,agentstudio.startup_diagnostic.bridge.worker_fetch.worker_observed_byte.count,agentstudio.startup_diagnostic.bridge.worker_fetch.stream_first_chunk_byte.count,agentstudio.startup_diagnostic.bridge.worker_fetch.stream_held_open,agentstudio.startup_diagnostic.bridge.worker_fetch.failure.reason"
+worker_fetch_fields="agentstudio.startup_diagnostic.bridge.worker_fetch.marker.count,agentstudio.startup_diagnostic.bridge.worker_fetch.content_url.scheme,agentstudio.startup_diagnostic.bridge.worker_fetch.content_resource.kind,agentstudio.startup_diagnostic.bridge.worker_fetch.worker_script_fetch.succeeded,agentstudio.startup_diagnostic.bridge.worker_fetch.worker_script_fetch.status,agentstudio.startup_diagnostic.bridge.worker_fetch.fetch.succeeded,agentstudio.startup_diagnostic.bridge.worker_fetch.stream.succeeded,agentstudio.startup_diagnostic.bridge.worker_fetch.worker_observed_byte.count,agentstudio.startup_diagnostic.bridge.worker_fetch.stream_first_chunk_byte.count,agentstudio.startup_diagnostic.bridge.worker_fetch.stream_held_open,agentstudio.startup_diagnostic.bridge.worker_fetch.failure.reason"
 worker_fetch_query="$diagnostic_completed_query agentstudio.startup_diagnostic.bridge.worker_fetch.marker.count:* agentstudio.startup_diagnostic.bridge.worker_fetch.worker_observed_byte.count:* agentstudio.startup_diagnostic.bridge.worker_fetch.stream_first_chunk_byte.count:*"
 worker_fetch_blocked_query="$diagnostic_blocked_query agentstudio.startup_diagnostic.bridge.worker_fetch.failure.reason:*"
 
@@ -333,6 +333,16 @@ if [ "$worker_fetch_blocked_record_count" -gt 0 ]; then
       "agentstudio.startup_diagnostic.bridge.worker_fetch.stream.succeeded" \
       "$worker_fetch_blocked_response"
   )"
+  blocked_worker_script_fetch_succeeded="$(
+    first_json_field \
+      "agentstudio.startup_diagnostic.bridge.worker_fetch.worker_script_fetch.succeeded" \
+      "$worker_fetch_blocked_response"
+  )"
+  blocked_worker_script_fetch_status="$(
+    max_numeric_field \
+      "agentstudio.startup_diagnostic.bridge.worker_fetch.worker_script_fetch.status" \
+      "$worker_fetch_blocked_response"
+  )"
   blocked_worker_observed_byte_count="$(
     max_numeric_field \
       "agentstudio.startup_diagnostic.bridge.worker_fetch.worker_observed_byte.count" \
@@ -345,6 +355,8 @@ if [ "$worker_fetch_blocked_record_count" -gt 0 ]; then
   )"
   echo "FAILED: bridge worker fetch scheme smoke blocked" >&2
   echo "failure.reason=${blocked_reason:-<missing>}" >&2
+  echo "worker_script_fetch.succeeded=${blocked_worker_script_fetch_succeeded:-<missing>}" >&2
+  echo "worker_script_fetch.status=$blocked_worker_script_fetch_status" >&2
   echo "fetch.succeeded=${blocked_fetch_succeeded:-<missing>}" >&2
   echo "stream.succeeded=${blocked_stream_succeeded:-<missing>}" >&2
   echo "worker_observed_byte.count=$blocked_worker_observed_byte_count" >&2
@@ -377,6 +389,14 @@ assert_string_field \
   "agentstudio.startup_diagnostic.bridge.worker_fetch.content_resource.kind" \
   "content" \
   "$worker_fetch_response"
+assert_true_field \
+  "worker script fetch completed successfully before module worker construction" \
+  "agentstudio.startup_diagnostic.bridge.worker_fetch.worker_script_fetch.succeeded" \
+  "$worker_fetch_response"
+assert_gte \
+  "worker script fetch returned an HTTP status" \
+  "$(max_numeric_field "agentstudio.startup_diagnostic.bridge.worker_fetch.worker_script_fetch.status" "$worker_fetch_response")" \
+  200
 assert_true_field \
   "worker fetch completed successfully" \
   "agentstudio.startup_diagnostic.bridge.worker_fetch.fetch.succeeded" \

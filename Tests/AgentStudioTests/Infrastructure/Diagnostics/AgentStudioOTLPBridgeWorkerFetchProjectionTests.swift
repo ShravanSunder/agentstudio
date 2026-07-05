@@ -26,6 +26,14 @@ extension AgentStudioOTLPBridgeTraceProjectionTests {
         #expect(
             projection.attributes["agentstudio.startup_diagnostic.bridge.worker_fetch.stream_held_open"] == .bool(true))
         #expect(
+            projection.attributes[
+                "agentstudio.startup_diagnostic.bridge.worker_fetch.worker_script_fetch.succeeded"
+            ] == .bool(true))
+        #expect(
+            projection.attributes[
+                "agentstudio.startup_diagnostic.bridge.worker_fetch.worker_script_fetch.status"
+            ] == .int(200))
+        #expect(
             projection.attributes["agentstudio.startup_diagnostic.bridge.worker_fetch.content_url.scheme"]
                 == .string("agentstudio"))
         #expect(
@@ -57,6 +65,8 @@ private func makeWorkerFetchStartupDiagnosticProjectionCanaryRecord() -> AgentSt
             "agentstudio.startup_diagnostic.bridge.worker_fetch.worker_observed_byte.count": .int(21),
             "agentstudio.startup_diagnostic.bridge.worker_fetch.stream_first_chunk_byte.count": .int(21),
             "agentstudio.startup_diagnostic.bridge.worker_fetch.stream_held_open": .bool(true),
+            "agentstudio.startup_diagnostic.bridge.worker_fetch.worker_script_fetch.succeeded": .bool(true),
+            "agentstudio.startup_diagnostic.bridge.worker_fetch.worker_script_fetch.status": .int(200),
             "agentstudio.startup_diagnostic.bridge.worker_fetch.raw_url": .string(
                 "agentstudio://resource/review/content/private?generation=7"),
             "agentstudio.startup_diagnostic.bridge.worker_fetch.raw_path": .string(
