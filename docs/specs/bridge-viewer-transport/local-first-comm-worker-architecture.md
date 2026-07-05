@@ -666,7 +666,9 @@ The Bridge policy exists because TanStack Query's useful web defaults are wrong
 for this boundary: stale queries may refetch on mount, focus, and reconnect, and
 failed queries may retry. Bridge worker RPC already has explicit epoch,
 sequence, reconnect, retry, and staleness rules; duplicating those in the query
-client is a contract violation.
+client is a contract violation. The defaults are grounded in TanStack Query's
+official Important Defaults guide
+(`https://tanstack.com/query/v5/docs/framework/react/guides/important-defaults`).
 
 Search/filter input is not automatically coarse RPC. Text input, selected
 filters, and local preview state are local render intent. FE sends coalesced
