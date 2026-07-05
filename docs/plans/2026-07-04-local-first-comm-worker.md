@@ -3,7 +3,7 @@
 Date: 2026-07-04
 goal_id: 2026-07-04-bridge-scroll-demand-queue
 source_spec: `docs/specs/bridge-viewer-transport/local-first-comm-worker-architecture.md`
-source_commit: `a0075464`
+source_commit: `223b7c47`
 
 > For agentic workers: REQUIRED SUB-SKILL: Use
 > `superpowers:subagent-driven-development` or `superpowers:executing-plans`
@@ -42,18 +42,18 @@ the plan cut protocol/cache/queue/telemetry ownership into the comm worker.
 ## Source Coverage
 
 - `docs/specs/bridge-viewer-transport/local-first-comm-worker-architecture.md`
-  read in full from committed `a0075464`: 1172 lines. Normative anchors include
+  read in full from committed `223b7c47`: 1192 lines. Normative anchors include
   R41-R60 and native live gates; R46 promotion/prep budget line 321; R52
   bounded Pierre courier and `BridgeWorkerPierreRenderJob` line 542; R53
   transferable-first worker messages line 560; R54 worker-local Zustand and
   typed RPC lifecycle boundary line 601; R55 no-async-cache RPC lifecycle policy
-  line 649; R56 `BridgeMainRenderSnapshotStore` line 684; R57 Pierre/Shiki
-  courier budgets line 705; R58 normalized worker-local Zustand / O(delta)
-  thresholds line 741; R59 scheme-RPC trust boundary line 802; R60 worker
-  content-preparation pump line 825; Review/File View transfer mode matrix line
-  905; `Channel Topology And Typed Contracts` line
-  443; `Action And Event Sequence Contracts` line 876; migration constraints
-  line 1040; and compile-enforced deletion sets line 1070. Channel Topology is
+  line 649; R56 `BridgeMainRenderSnapshotStore` line 680; R57 Pierre/Shiki
+  courier budgets line 701; R58 normalized worker-local Zustand / O(delta)
+  thresholds line 744; R59 scheme-RPC trust boundary line 812; R60 worker
+  content-preparation pump line 839; Review/File View transfer mode matrix line
+  923; `Channel Topology And Typed Contracts` line
+  443; `Action And Event Sequence Contracts` line 941; migration constraints
+  line 1105; and compile-enforced deletion sets line 1135. Channel Topology is
   the source
   contract for G: exactly three runtime channels, `BridgeWorkerContracts` as the
   typed main/server-worker schema source, scheme-fetch request/response RPC plus
