@@ -249,7 +249,7 @@ Telemetry proof integrity:
 | slow click, reject, abort, stale, or unavailable sample shed | proof fails; tail and failure samples are required evidence |
 | optional/debug event shed | allowed only with aggregate counters and explicit lossy-run annotation |
 
-Percentiles can satisfy R41-R54 only from non-lossy required event streams.
+Percentiles can satisfy R41-R59 only from non-lossy required event streams.
 Lossy telemetry runs are debugging aids, not performance proof.
 
 ### R44. Content bytes stream to the worker, not the main thread.
@@ -445,7 +445,7 @@ Live gates:
 ### R49. The topology has exactly three runtime channels.
 
 The local-first worker design has three channels, each with its own contract.
-The server worker named here is the comm worker in R41-R54. The custom-scheme
+The server worker named here is the comm worker in R41-R59. The custom-scheme
 fetch bridge is the single network boundary: a network-shaped bridge where every
 JavaScript-to-Swift call after page-load identity bootstrap uses scheme-handler
 RPC, regardless of whether the caller is the server worker or a residual
@@ -631,7 +631,7 @@ Required type families:
 
 | Type family | Runtime | May use | Must contain | Must not contain |
 | --- | --- | --- | --- | --- |
-| `BridgeMainRenderSnapshot` | main/React | non-Zustand render-slice hooks, `useSyncExternalStore`, React state, or equivalent local subscription primitive | selected id, active mode, viewport/range, hover/focus, expanded/collapsed UI intent, panel chrome, `rowPaintSlice(id)`, `contentAvailabilitySlice(id)`, worker health copy | Zustand store, content bytes, byte cache, demand membership, retry/backoff, stream id authority, worker epoch authority, sequence authority, Swift request ownership |
+| `BridgeMainRenderSnapshotStore` | main/React | non-Zustand store with `useSyncExternalStore` React integration | selected id, active mode, viewport/range, hover/focus, expanded/collapsed UI intent, panel chrome, `rowPaintSlice(id)`, `contentAvailabilitySlice(id)`, worker health copy | Zustand store, content bytes, byte cache, demand membership, retry/backoff, stream id authority, worker epoch authority, sequence authority, Swift request ownership, query cache reads |
 | `BridgeCommWorkerStoreState` | comm worker | Zustand vanilla | canonical rows/indexes, byte cache, paint-ready cache, demand membership, in-flight/executor queues, retry/backoff, stream/session/protocol state, worker epoch, telemetry buffer | DOM nodes, React state, component refs, direct Pierre worker initiator state, main-thread query cache objects |
 | `BridgeWorkerMainToServerMessage` | wire DTO | `BridgeWorkerContracts` zod-derived union | `requestId`, wire version, epoch/revision freshness, command/fact kind, cloneable payload, declared transfer fields | store snapshots, functions, class instances, DOM objects, `AbortController`, non-declared buffers |
 | `BridgeWorkerServerToMainMessage` | wire DTO | `BridgeWorkerContracts` zod-derived union | health events, correlated replies, subscription events, slice patches, availability/content events, epoch/sequence freshness, declared transfer fields | canonical worker store, full package snapshots for interaction updates, untyped payloads |
@@ -641,16 +641,195 @@ Required type families:
 | `BridgeSchemeRpcRequest` / `BridgeSchemeRpcResponse` / `BridgeSchemeStreamFrame` | JavaScript <-> Swift scheme boundary | shared browser/native contract vocabulary | method/path/resource kind, request id, stream id, source generation, byte limits, telemetry/drop counters, health/error frames | script-message command payloads, raw paths/content in telemetry, ad-hoc frame shapes |
 | `BridgeWorkerQueryAdapter` | main/React | TanStack Query/mutation | coarse async worker RPC lifecycle for open, refresh, reconnect, search/filter completion, mark-viewed mutation, optimistic update/rollback coordination | high-frequency row patch stream, canonical result cache, byte cache, demand queue, protocol owner |
 | `BridgeWorkerRpcClient` | main/React | typed `MessageChannel` client helper | request id creation, timeout/retry policy for coarse RPC, typed send/receive, transfer-list handoff to worker | store access, direct Swift RPC, render-slice mutation outside patch helpers |
-| `BridgeWorkerPatchApplier` | main/React | non-Zustand helper | R46-budgeted application of `BridgeWorkerSlicePatch` values to `BridgeMainRenderSnapshot` subscriptions | protocol ownership, demand scheduling, unbounded synchronous full-list rebuilds |
+| `BridgeWorkerPatchApplier` | main/React | non-Zustand helper | R46-budgeted application of `BridgeWorkerSlicePatch` values to `BridgeMainRenderSnapshotStore` subscriptions | protocol ownership, demand scheduling, unbounded synchronous full-list rebuilds |
 | `BridgeWorkerTransferListBuilder` | main and worker | shared helper | declared transfer fields, byte counts, clone-vs-transfer mode, detached-after-send assertions | implicit ArrayBuffer payloads or unmeasured large clones |
 | `BridgeCommWorkerCommandHandler` | comm worker | worker-local helper around Zustand store | validate typed commands, update `BridgeCommWorkerStoreState`, enqueue fetch/demand work, publish typed replies/events | DOM/Pierre direct initiator behavior, React state mutation |
+
+### R55. TanStack Query has a Bridge-owned client policy.
+
+TanStack Query is an async RPC/mutation lifecycle adapter, not a freshness,
+retry, polling, or render-data authority. A converted Bridge surface must create
+or receive a `BridgeWorkerQueryClientPolicy` and all Bridge worker queries must
+inherit it. The policy disables library refetch/retry behavior that would create
+a second worker-retry authority:
+
+| Option / rule | Required value |
+| --- | --- |
+| `refetchOnWindowFocus` | `false` |
+| `refetchOnReconnect` | `false`; reconnect is an explicit worker command/event |
+| `refetchOnMount` | `false` for command-completion queries |
+| `retry` / `retryOnMount` | `false` for worker RPC queries; worker owns retry/backoff |
+| `query.data` shape | ack/status/progress envelopes only; no row arrays, content windows, byte buffers, demand membership, or canonical cache entries |
+| invalidation | only through typed worker protocol events, never focus/reconnect/mount freshness heuristics |
+
+The Bridge policy exists because TanStack Query's useful web defaults are wrong
+for this boundary: stale queries may refetch on mount, focus, and reconnect, and
+failed queries may retry. Bridge worker RPC already has explicit epoch,
+sequence, reconnect, retry, and staleness rules; duplicating those in the query
+client is a contract violation.
+
+Search/filter input is not automatically coarse RPC. Text input, selected
+filters, and local preview state are local render intent. FE sends coalesced
+worker facts or an explicit submit command; TanStack Query observes only the
+ack/completion envelope and mutation lifecycle. It must not turn every
+keystroke into an eager query or cache a result list as canonical visible state.
+
+Mutation optimism is also bounded: a TanStack mutation may call
+`BridgeMainRenderSnapshotStore` local-intent helpers for frame-1 chrome and may
+record rollback metadata for the command lifecycle. It must not mutate query
+data as durable visible state. Worker ack/repair remains the only durable result.
+
+### R56. Main render snapshots use one non-Zustand primitive.
+
+OD-LF2 is closed: the FE primitive is `BridgeMainRenderSnapshotStore`, a
+non-Zustand store exposed to React through `useSyncExternalStore`. It has exactly
+two write inputs:
+
+- local intent helpers for synchronous UI facts: selected, hover/focus, viewport
+  range, expanded/collapsed row ids, active mode, and shell chrome; and
+- `BridgeWorkerPatchApplier`, which applies typed worker slice patches inside
+  the R46 frame budget.
+
+Render paths read only from this snapshot store and component props. They do not
+read TanStack Query cache data, comm-worker protocol fields, raw worker messages,
+or legacy Zustand state. The snapshot store contains display copies only; losing
+it may require repainting, but must not lose bytes, demand membership, epochs,
+sequences, retries, stream state, or Swift request state.
+
+Every converted surface has one snapshot primitive. Multiple route-local
+mini-stores, mixed React-state/query-cache render reads, or a compatibility
+bridge from old Zustand into the snapshot store are contract violations.
+
+### R57. Pierre/Shiki ownership and courier budgets are explicit.
+
+The content/render chain is split by work class:
+
+| Stage | Owner | Owns |
+| --- | --- | --- |
+| content identity and demand rank | comm worker | item id, source/worker epoch, content hash/cache key, selected/visible rank, stale-drop identity |
+| window choice and payload class | comm worker | bounded diff/file/text window, language/render metadata, byte/line budget class, transfer descriptor when possible |
+| tokenization/highlighting/render worker execution | Pierre/Shiki worker pool | Shiki tokenization, Pierre render task execution, Pierre internal cache/pool scheduling |
+| courier enqueue and DOM apply | main/React | call Pierre API with `BridgeWorkerPierreRenderJob`, record clone/submit cost, apply DOM through R46 pump |
+
+The comm worker must not pre-tokenize with Shiki and then ask Pierre to tokenize
+again. Main must not parse, window, diff, decode, highlight, or reconstruct a
+Pierre payload. The only sanctioned main-thread content action is
+`BridgeWorkerPierreCourier.enqueue(job)`.
+
+Stock Pierre main -> worker delivery is a measured clone edge unless a
+sanctioned adapter proves transfer-list delivery. Therefore every
+`BridgeWorkerPierreRenderJob` carries a budget class and every converted surface
+must define these policy constants in `AppPolicies` or the BridgeWeb policy
+mirror:
+
+| Policy | Initial ceiling | Derivation / proof |
+| --- | --- | --- |
+| `interactivePierreRenderJobMaxBytes` | <= 512 KiB | stays far below `contentMaxBytesPerItem`; protects click queue wait from stock-Pierre clone cost |
+| `interactivePierreRenderJobMaxWindowLines` | <= 400 lines | first visible content window, not full-file hydration |
+| `pierreCourierCloneSubmitP95Ms` | < 4 ms | at most one quarter of the 16 ms foreground queue-wait p95 budget |
+| `pierreCourierCloneSubmitP99Ms` | < 8 ms | leaves the frame budget available for local chrome and R46 apply |
+
+If a job exceeds byte or line policy, the worker splits into smaller windows,
+publishes a placeholder/unavailable slice for the overflow, or demotes the
+non-selected portion to delayed apply. It must not send an unbounded payload and
+hope the main thread survives. If measured stock-Pierre clone/submit exceeds the
+p95/p99 budget, Slice G is not green until the windowing policy is tightened or a
+transfer-aware Pierre edge adapter lands with proof.
+
+### R58. Worker-local Zustand is normalized and O(delta).
+
+Moving Bridge data Zustand to the comm worker removes main-thread stalls, but it
+does not permit package-shaped worker work. A comm worker is still one
+JavaScript event loop; a 100-500 ms synchronous worker action can delay the
+selected fact, availability repair, content demand, and tree state even while the
+main thread paints local selection chrome.
+
+The worker-local store is normalized:
+
+| Store area | Shape |
+| --- | --- |
+| rows/tree | `rowById`, `orderedIds`, `indexById`, `childrenByParentId` |
+| local facts | `selectedId`, `viewportRange`, `visibleIds`, hover/focus facts |
+| demand/execution | `demandByKey`, `inFlightByKey`, per-lane queues |
+| cache/render | `byteCache`, `paintReadyByItemId`, `availabilityByItemId` |
+
+Forbidden store shape:
+
+```text
+rootSnapshot: { allRows, allContent, allDemand, allStatus }
+setRootSnapshot(newEverything)
+getState() -> send whole state to main
+every click creates new Map(allRows)
+```
+
+It must not use a full `getState()` snapshot as a message payload, update input,
+or render output.
+
+Every hot action has a bounded touch set:
+
+| Action | Allowed touch set | Forbidden work |
+| --- | --- | --- |
+| `applySelectedFact(itemId)` | selected id, previous/next row paint, selected demand entry, selected availability | rebuild all rows, clone all row maps, re-sort full package, recalculate all availability |
+| `applyViewportFact(range)` | viewport range, entering ids, leaving ids, visible demand entries | full ordered-list derivation, full manifest patch |
+| `applyContentReady(itemId, contentKey)` | byte/cache entry for that key, `paintReadyByItemId[itemId]`, `availabilityByItemId[itemId]` | all-content recompute, full paint-ready map publication |
+| `applySourceReset(sourceGeneration)` | epoch swap first, stale membership clear, chunked index/list rebuild behind new epoch | synchronous source reset that blocks selected facts |
+
+The threshold classes are policy-owned stop lines:
+
+| Threshold class | Rule | Proof |
+| --- | --- | --- |
+| worker selected queue wait | selected/click facts satisfy the R32-R40 foreground queue-wait budget: p95 < 16 ms, p99 < 32 ms | lane queue-wait histogram by command class |
+| worker hot task duration | one hot action slice must not consume the selected queue-wait budget; initial cap <= 8 ms | handler-duration histogram and long-task counter |
+| mutation size | one hot action may touch only selected + visible delta entries | touched-key counter per action |
+| patch size | worker publishes bounded delta patches, never full package/list snapshots | patch item/byte counters and source scan |
+| source reset | large reset swaps epoch immediately and rebuilds indexes/lists in chunks | reset chunk progress plus selected-preemption test |
+| payload | large bytes transfer as declared `ArrayBuffer` payloads or split windows, never accidental clone | transfer descriptor validation and clone/transfer duration |
+| derived list | full tree/list derivation is source-reset-only, never scroll/click/hover/content-ready | derivation cause telemetry and unit source scans |
+
+Selected/click command handling is O(selected + visible delta). Viewport and
+hover handling are O(visible delta) or O(1) per coalesced fact. Source reset may
+swap generations atomically, but full-list/index rebuild work must be chunked or
+performed behind a new generation so selected foreground work can preempt it.
+
+The worker message loop publishes queue-wait and handler-duration telemetry by
+lane and command class. A worker-side giant `Map` clone, full list rebuild,
+selector fan-out, or synchronous source reset that delays selected work beyond
+the R32-R40 foreground/visible queue budgets is a contract violation even though
+it no longer blocks the main thread.
+
+### R59. Scheme RPC and worker DTOs are an explicit trust boundary.
+
+The comm worker is not a trusted native peer merely because it runs in this app.
+Every scheme-RPC request, streamed frame, and main/worker DTO is validated at the
+boundary that receives it.
+
+Required trust rules:
+
+- requests carry session identity, source generation or worker epoch as
+  appropriate, stream/request id, and replay/staleness token;
+- stale, replayed, foreign-session, or wrong-epoch frames are rejected before
+  state mutation;
+- methods, paths, resource kinds, and command names are allowlisted before byte
+  decode or expensive validation;
+- byte caps are checked before decode and before telemetry projection;
+- raw file paths, raw content, command payload bodies, errors containing source
+  text, and secret-bearing metadata are scrubbed from telemetry;
+- transfer descriptors are validated against actual payload values and declared
+  byte lengths;
+- hostile worker and hostile server tests cover forged ids, stale epochs,
+  oversized bodies, unknown methods, malformed transfer descriptors, and
+  duplicate/reordered stream frames.
+
+Content-world/script-message RPC is not a fallback for these rules. After the
+one-shot page-load bootstrap exemption, ordinary Swift communication crosses the
+scheme-RPC boundary only.
 
 Canonical data flow:
 
 ```text
 user click / key / hover / scroll
   │
-  ├─► BridgeMainRenderSnapshot hooks
+  ├─► BridgeMainRenderSnapshotStore hooks
   │     synchronous local paint of selected/hover/viewport chrome
   │
   └─► BridgeWorkerMainToServerMessage
@@ -669,7 +848,7 @@ user click / key / hover / scroll
               ArrayBuffer transfer for large payload ownership moves
               │
               ▼
-            BridgeMainRenderSnapshot subscriptions
+            BridgeMainRenderSnapshotStore subscriptions
               R46 frame-budgeted patch apply and low-cost
               Pierre courier enqueue
 ```
@@ -898,7 +1077,7 @@ Compile-enforced deletion sets are required per cutover unit:
 | demand membership | legacy staging buffers, membership caps, pending eviction as membership policy, parked retry versions | worker reconciler membership and executor-stage pacing only |
 
 No old and new path may remain live for the same viewer/protocol surface. Any
-surface not converted by a cutover unit is explicitly outside R41-R54 proof and
+surface not converted by a cutover unit is explicitly outside R41-R59 proof and
 cannot satisfy the local-first comm-worker contract. Compatibility shims,
 feature flags, or dual readers for one converted surface are contract
 violations unless the old path is compile-dead in that unit.
@@ -922,14 +1101,11 @@ a comm worker may coordinate a compute pool. The invariant is unchanged: the FE
 sees one local-first worker contract, and exactly one worker-side authority owns
 protocol truth.
 
-OD-LF2. FE render snapshot primitive.
+OD-LF2. FE render snapshot primitive. CLOSED by R56.
 
-The open choice is the smallest non-Zustand main-thread primitive for
-frame-critical render copies. It may use `useSyncExternalStore`, React state, or
-a typed custom subscription primitive, but it must not import Zustand and must
-not own protocol/cache/demand truth. TanStack Query is not the render snapshot
-primitive; it is required separately for coarse async worker RPC and mutation
-optimism/rollback.
+The FE primitive is `BridgeMainRenderSnapshotStore`: a non-Zustand store exposed
+to React through `useSyncExternalStore`, written only by local intent helpers and
+`BridgeWorkerPatchApplier`.
 
 OD-LF3. WebKit run-loop starvation proof.
 
