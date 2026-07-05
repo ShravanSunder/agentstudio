@@ -16,6 +16,15 @@ export interface CreateBridgeCommWorkerCommandHandlerProps {
 	readonly contentItems: readonly BridgeWorkerReviewContentMetadata[];
 	readonly rows: readonly BridgeCommWorkerRow[];
 	readonly createSequence?: () => number;
+	readonly scheduleSelectedReviewContentReadyPreparation?: (
+		request: BridgeCommWorkerSelectedReviewContentReadyPreparationRequest,
+	) => void;
+}
+
+export interface BridgeCommWorkerSelectedReviewContentReadyPreparationRequest {
+	readonly epoch: number;
+	readonly itemId: string;
+	readonly store: BridgeCommWorkerStore;
 }
 
 export interface BridgeCommWorkerCommandHandler {
@@ -50,6 +59,12 @@ export function createBridgeCommWorkerCommandHandler(
 			return handleBridgeWorkerCommand({
 				createSequence,
 				message,
+				...(props.scheduleSelectedReviewContentReadyPreparation === undefined
+					? {}
+					: {
+							scheduleSelectedReviewContentReadyPreparation:
+								props.scheduleSelectedReviewContentReadyPreparation,
+						}),
 				store,
 			});
 		},
@@ -59,6 +74,9 @@ export function createBridgeCommWorkerCommandHandler(
 interface HandleBridgeWorkerCommandProps {
 	readonly createSequence: () => number;
 	readonly message: BridgeWorkerMainToServerMessage;
+	readonly scheduleSelectedReviewContentReadyPreparation?: (
+		request: BridgeCommWorkerSelectedReviewContentReadyPreparationRequest,
+	) => void;
 	readonly store: BridgeCommWorkerStore;
 }
 
@@ -70,6 +88,12 @@ function handleBridgeWorkerCommand(
 			return handleBridgeWorkerSelectCommand({
 				createSequence: props.createSequence,
 				message: props.message,
+				...(props.scheduleSelectedReviewContentReadyPreparation === undefined
+					? {}
+					: {
+							scheduleSelectedReviewContentReadyPreparation:
+								props.scheduleSelectedReviewContentReadyPreparation,
+						}),
 				store: props.store,
 			});
 		case 'viewport':
@@ -90,6 +114,9 @@ function handleBridgeWorkerCommand(
 interface HandleBridgeWorkerSelectCommandProps {
 	readonly createSequence: () => number;
 	readonly message: BridgeWorkerSelectCommand;
+	readonly scheduleSelectedReviewContentReadyPreparation?: (
+		request: BridgeCommWorkerSelectedReviewContentReadyPreparationRequest,
+	) => void;
 	readonly store: BridgeCommWorkerStore;
 }
 
@@ -104,10 +131,27 @@ function handleBridgeWorkerSelectCommand(
 		epoch: props.message.epoch,
 		sequence: props.createSequence(),
 	});
+	if (shouldScheduleSelectedReviewContentReadyPreparation(props)) {
+		props.scheduleSelectedReviewContentReadyPreparation?.({
+			epoch: props.message.epoch,
+			itemId: props.message.selectedItemId,
+			store: props.store,
+		});
+	}
 	return [
 		...(slicePatch === null ? [] : [slicePatch]),
 		buildBridgeWorkerReadyHealthEvent(props.message.requestId),
 	];
+}
+
+function shouldScheduleSelectedReviewContentReadyPreparation(
+	props: Pick<HandleBridgeWorkerSelectCommandProps, 'message' | 'store'>,
+): boolean {
+	return (
+		props.store.getState().selectedId === props.message.selectedItemId &&
+		props.store.getState().demandByKey.get(props.message.selectedItemId) ===
+			`selected:${props.message.epoch}`
+	);
 }
 
 interface HandleBridgeWorkerViewportCommandProps {

@@ -9,7 +9,14 @@ import {
 	encodeBridgeWorkerSelectCommand,
 	encodeBridgeWorkerViewportCommand,
 } from './bridge-comm-worker-protocol.js';
+import type { BridgeCommWorkerStore } from './bridge-comm-worker-store.js';
 import type { BridgeWorkerReviewContentMetadata } from './bridge-worker-contracts.js';
+
+interface ScheduledSelectedReviewPreparation {
+	readonly epoch: number;
+	readonly itemId: string;
+	readonly store: BridgeCommWorkerStore;
+}
 
 describe('Bridge comm worker command handler', () => {
 	test('select command mutates worker-local store and publishes only typed slice patches', () => {
@@ -83,6 +90,38 @@ describe('Bridge comm worker command handler', () => {
 		expect(messages.map((message) => message.kind)).toEqual(['slicePatch', 'health']);
 		expect(JSON.stringify(messages)).not.toMatch(/pierreRenderJob/i);
 		expect(JSON.stringify(messages)).not.toContain('"state":"ready"');
+	});
+
+	test('select command schedules selected review preparation through an injected hook only after local slice publication', () => {
+		const scheduledPreparations: ScheduledSelectedReviewPreparation[] = [];
+		const handler = createBridgeCommWorkerCommandHandler({
+			contentItems: [makeWorkerReviewContentMetadata('item-1')],
+			rows: [{ id: 'item-1', parentId: null, index: 0 }],
+			createSequence: (): number => 22,
+			scheduleSelectedReviewContentReadyPreparation: (
+				preparation: ScheduledSelectedReviewPreparation,
+			): void => {
+				scheduledPreparations.push(preparation);
+			},
+		});
+
+		const messages = handler.handleMessage(
+			encodeBridgeWorkerSelectCommand({
+				requestId: 'request-select-schedule',
+				epoch: 7,
+				selectedItemId: 'item-1',
+				selectedSource: 'user',
+			}),
+		);
+
+		expect(messages.map((message) => message.kind)).toEqual(['slicePatch', 'health']);
+		expect(JSON.stringify(messages)).not.toMatch(/pierreRenderJob/i);
+		expect(JSON.stringify(messages)).not.toContain('"state":"ready"');
+		expect(scheduledPreparations).toHaveLength(1);
+		expect(scheduledPreparations[0]?.itemId).toBe('item-1');
+		expect(scheduledPreparations[0]?.epoch).toBe(7);
+		expect(scheduledPreparations[0]?.store.getState().selectedId).toBe('item-1');
+		expect(scheduledPreparations[0]?.store.getState().demandByKey.get('item-1')).toBe('selected:7');
 	});
 
 	test('viewport command mutates worker-local store and publishes a typed viewport patch', () => {
@@ -275,10 +314,16 @@ describe('Bridge comm worker command handler', () => {
 	});
 
 	test('select command marks content unavailable when worker metadata is missing', () => {
+		const scheduledPreparations: ScheduledSelectedReviewPreparation[] = [];
 		const handler = createBridgeCommWorkerCommandHandler({
 			contentItems: [],
 			rows: [{ id: 'item-no-metadata', parentId: null, index: 0 }],
 			createSequence: (): number => 14,
+			scheduleSelectedReviewContentReadyPreparation: (
+				preparation: ScheduledSelectedReviewPreparation,
+			): void => {
+				scheduledPreparations.push(preparation);
+			},
 		});
 
 		const messages = handler.handleMessage(
@@ -306,6 +351,7 @@ describe('Bridge comm worker command handler', () => {
 				},
 			],
 		});
+		expect(scheduledPreparations).toEqual([]);
 	});
 });
 
