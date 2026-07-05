@@ -1149,6 +1149,21 @@ cannot satisfy the local-first comm-worker contract. Compatibility shims,
 feature flags, or dual readers for one converted surface are contract
 violations unless the old path is compile-dead in that unit.
 
+Cutover readiness rule:
+
+- A typed worker shell, shared DTO module, lifecycle helper, or snapshot helper is
+  not a converted surface by itself. It is scaffolding until the old owner for
+  that viewer/protocol surface is compile-dead.
+- Dev-server, Vitest Browser, Playwright, or Chrome proof may close FE-seam
+  claims only: local render slices, hostile fake-worker behavior, DOM apply, and
+  browser interaction timing. It cannot close WebKit `agentstudio://` scheme
+  fetch, streamed-response push, native admission, or Swift/source authority.
+- Native debug-app proof remains mandatory for the JavaScript <-> Swift scheme
+  boundary. If source scans still find a live script-message/content-world RPC
+  path, main-thread Bridge data Zustand owner, FE retry/demand owner, or
+  package-first body loader for a converted surface, that surface is unconverted
+  and no R41-R60 performance or ownership claim may be made for it.
+
 ## Non-Goals
 
 - No Pierre fork.

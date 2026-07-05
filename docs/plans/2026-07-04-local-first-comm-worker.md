@@ -1,9 +1,10 @@
 # Local-First Comm Worker Implementation Plan
 
 Date: 2026-07-04
-goal_id: 2026-07-04-bridge-scroll-demand-queue
+goal_id: 2026-07-05-bridge-comm-worker-cutover
 source_spec: `docs/specs/bridge-viewer-transport/local-first-comm-worker-architecture.md`
-source_commit: `223b7c47`
+source_spec_commit: `223b7c47`
+latest_plan_reanchor_commit: `5016e59c`
 
 > For agentic workers: REQUIRED SUB-SKILL: Use
 > `superpowers:subagent-driven-development` or `superpowers:executing-plans`
@@ -109,6 +110,54 @@ prompts, tokens, raw errors, or raw content. New scheme routes must validate
 method, path, byte count, content type, and admission before decode or expensive
 work.
 
+## Current Implementation State - 2026-07-05 Re-Anchor
+
+This section records the implementation gap at goal creation. It is not a proof
+claim; it tells the next executor where to resume.
+
+- Re-anchor HEAD: `5016e59c docs(plan): reanchor worker prep budget spec`.
+- Worktree state at re-anchor: clean.
+- F0 worker-fetch diagnostic scaffolding exists: startup action, verifier task,
+  trace-tag launcher allowance, and probe/verifier tests are present. F1 live
+  native proof is still required before any G cutover may claim worker
+  `agentstudio://` content-byte delivery or streamed-push correctness.
+- G1 is partial, not green as written from scratch. Existing files under
+  `BridgeWeb/src/core/comm-worker/` include `BridgeWorkerContracts`, command
+  encoders, inert client/entry, and hostile-server test support from
+  `939f580b`. Missing required G1 pieces remain: transfer-list builder, bounded
+  `BridgeWorkerPierreRenderJob`, `BridgeWorkerRpcLifecycleStore`,
+  `BridgeMainRenderSnapshotStore`, normalized worker-local store contracts,
+  `WorkerContentPreparationPump`, and the async-cache/source-scan assertion.
+- Existing production Review/File View surfaces still have legacy React/main
+  Zustand and package/root snapshot paths. Those paths are deletion targets, not
+  compatibility layers. The partial G1 shell does not satisfy R41-R60 until the
+  relevant G2-G6 deletion sets are compile-enforced.
+- Current source scans at re-anchor still find React/main Bridge data Zustand in
+  `BridgeWeb/src/app/bridge-app-review-viewer-mode.tsx`,
+  `BridgeWeb/src/review-viewer/state/review-viewer-store.ts`,
+  `BridgeWeb/src/file-viewer/use-bridge-file-viewer-store-bindings.ts`, and
+  `BridgeWeb/src/file-viewer/state/bridge-file-viewer-store.ts`. They find no
+  TanStack Query, SWR, Apollo, or equivalent async-cache primitive in the
+  converted Bridge worker surfaces.
+
+## Fast Proof Loop And Native Proof Split
+
+Use the fastest honest proof loop for each boundary:
+
+- Node/Vitest unit loop: G1 worker contracts, lifecycle helper, snapshot store,
+  transfer-list helper, worker-local store invariants, and content-prep pump.
+- Vitest Browser or Vite/Chrome loop: FE-seam behavior only, including local
+  render slices, tree/file click responsiveness, hostile fake-worker behavior,
+  frame apply, and dev-server fixtures. This loop is allowed to use browser
+  control for speed, but it cannot prove native `WKURLSchemeHandler` delivery.
+- Native debug-observability loop: any `agentstudio://` scheme fetch, streamed
+  response push, native admission, WebKit run-loop, VictoriaMetrics, and
+  end-to-end review/file-viewer smoke proof.
+
+Do not replace one loop with another. Browser proof that a Vite fixture behaves
+well is valuable for FE iteration; it is not F1 and does not unblock G content
+byte cutovers.
+
 Hotfix integration note:
 
 A concurrent hotfix is landing on `HEAD` for CodeView panel/hydration identity
@@ -162,26 +211,36 @@ Required checks:
 
 ```bash
 git status --short
-git show --stat --oneline --decorate=short a67f7ed6 -- docs/specs/bridge-viewer-transport/local-first-comm-worker-architecture.md
-git show a67f7ed6:docs/specs/bridge-viewer-transport/local-first-comm-worker-architecture.md | wc -l
-wc -l docs/plans/2026-07-04-unified-content-demand-queue.md tmp/debug-workflows/2026-07-04-agent-studio-luna338-scroll-placeholder-survivor/debug-investigation.md docs/specs/bridge-viewer-transport/performance-demand-lanes.md
+git log --oneline -8
+git show --stat --oneline --decorate=short 223b7c47 -- docs/specs/bridge-viewer-transport/local-first-comm-worker-architecture.md
+git show 223b7c47:docs/specs/bridge-viewer-transport/local-first-comm-worker-architecture.md | wc -l
+wc -l docs/specs/bridge-viewer-transport/local-first-comm-worker-architecture.md docs/plans/2026-07-04-local-first-comm-worker.md docs/specs/bridge-viewer-transport/performance-demand-lanes.md tmp/review-handoffs/2026-07-04-bridge-start-luna338-demand-queue-redesign/implementation-handoff.md
 git show HEAD:BridgeWeb/src/review-viewer/content/visible-review-content-hydration.ts | wc -l
 git show HEAD:BridgeWeb/src/review-viewer/trees/bridge-trees-panel.tsx | wc -l
 git show HEAD:BridgeWeb/src/file-viewer/bridge-file-viewer-state.ts | wc -l
 git show HEAD:Sources/AgentStudio/Features/Bridge/Transport/RPCRouter.swift | wc -l
+find BridgeWeb/src/core/comm-worker -maxdepth 1 -type f | sort
+rg -n "BridgeWorkerRpcLifecycleStore|BridgeMainRenderSnapshotStore|WorkerContentPreparationPump|BridgeWorkerTransferList|BridgeWorkerPierreRenderJob|bridge-worker-transfer|bridge-worker-pierre-render-job|bridge-worker-content-preparation-pump|bridge-main-render-snapshot|bridge-worker-rpc-lifecycle|bridge-comm-worker-store" BridgeWeb/src/core/comm-worker
 ```
 
 Expected current anchors:
 
 - `git status --short` is clean or every dirty path has a named owner before
   execution starts.
-- `a67f7ed6` is the current committed source for the comm-worker spec.
-- `visible-review-content-hydration.ts` is 985 lines. The first slice that
-  touches it owns split/dissolution work; do not grow it past the cap.
+- `223b7c47` is the latest committed source for the comm-worker spec at this
+  re-anchor. If a later spec commit exists, update this plan before continuing.
+- `visible-review-content-hydration.ts` is 625 lines at the 2026-07-05
+  re-anchor. It already came down from the cap cliff, but any slice that touches
+  it still records pre/post `wc -l` and does not grow it past the cap.
 - `bridge-trees-panel.tsx` lives at
   `BridgeWeb/src/review-viewer/trees/bridge-trees-panel.tsx`, not directly
   under `review-viewer/`.
-- `RPCRouter.swift` remains the current telemetry RPC intake path until A.
+- `RPCRouter.swift` and the script-message RPC plane may still exist before G6;
+  their presence is a deletion target, not an accepted Swift communication path
+  for converted surfaces.
+- `BridgeWeb/src/core/comm-worker/` contains the partial inert shell. Missing G1
+  modules are expected until the G1 resume slice lands; do not recreate or
+  weaken the existing tests to regain an artificial red state.
 
 Stop conditions:
 
@@ -1035,6 +1094,20 @@ types, transfer descriptors, `BridgeWorkerRpcLifecycleStore`,
 `WorkerContentPreparationPump`, and a non-owning client/worker harness. G1
 must not own production protocol/cache/queue/telemetry state and must not claim
 R41-R60 proof. It can compile and unit-test typed messages/helpers only.
+
+Resume status:
+
+- Already present: `bridge-worker-contracts*`, `bridge-comm-worker-protocol*`,
+  `bridge-comm-worker-client*`, `bridge-comm-worker-entry.ts`, and
+  hostile-server test support.
+- Still missing: transfer-list helper/tests, Pierre render-job DTO/tests, RPC
+  lifecycle store/tests, main render snapshot store/tests, normalized
+  worker-local store tests/contracts, content-preparation pump/tests, and the
+  async-cache/source-scan assertion.
+- Resume rule: preserve the existing G1 shell as green baseline, then add the
+  missing tests first and watch only those new assertions fail for missing
+  implementation. Do not rewrite existing green tests merely to manufacture a
+  from-scratch red run.
 
 Red patch first:
 
