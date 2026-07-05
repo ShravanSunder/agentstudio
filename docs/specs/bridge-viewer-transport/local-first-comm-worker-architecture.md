@@ -74,8 +74,9 @@ FE render surface
              awaiting worker/native during paint
 
 LOCAL-FIRST message boundary
-  FE -> worker: facts and intents, never synchronous paint dependencies
-  worker -> FE: transferable paint-ready structures and slice updates
+  FE -> worker: typed RPC facts and intents, never synchronous paint dependencies
+  worker -> FE: typed RPC replies/events, transferable paint-ready structures,
+                and slice updates
 
 comm worker
   owns: protocol truth, cache truth, content-demand reconciler, R37 epochs,
@@ -96,6 +97,13 @@ Swift server
   exposes: disposable service endpoint; reconnect rebuilds worker truth
   forbidden: FE-observable server lifetime or UI paint coupling
 ```
+
+State libraries are boundary-private implementation details. A React/main-thread
+store may exist only as the FE render-slice store. A worker-local store may exist
+only as comm-worker truth. The synchronization boundary is typed RPC/DTO
+messages, not store mirroring: no Zustand snapshot, TanStack Query cache entry,
+store action/function, class instance, DOM object, `AbortController`, or other
+non-cloneable local state shape may cross the worker boundary.
 
 ## Truth Ownership Tables
 
@@ -444,7 +452,7 @@ main-thread migration path.
 
 | Channel | Contract | Required payload shape |
 | --- | --- | --- |
-| main <-> server worker | `MessageChannel` port owned by the page and server worker, using transferables where payloads can avoid clone cost | typed commands down: `select`, `viewport`, `hover`, `markViewed`, and `mode`; typed slice patches up |
+| main <-> server worker | typed RPC/event protocol over a `MessageChannel` port owned by the page and server worker, using transferables where payloads can avoid clone cost | typed commands down: `select`, `viewport`, `hover`, `markViewed`, and `mode`; typed replies/events and slice patches up; no store snapshots |
 | JavaScript <-> Swift | all Swift communication from server worker and migration-era main-thread callers: typed scheme-handler `POST` request/response RPC through `WKURLSchemeHandler` `fetch()`, plus subscriptions and pushes through long-lived streamed `fetch()` responses while native writes frames into the stream | Swift-side request, response, push, content, availability, telemetry, command-ack, and health frames |
 | main <-> Pierre workers | Pierre's own API exclusively | transferable paint-ready structs received from the server worker without parsing, plus `bridgeDemandRank` |
 
@@ -506,6 +514,13 @@ against this module. It owns zod-derived types, the versioned wire format, and
 runtime validation at the worker boundary. A message shape that is not in this
 contract must be a compile error, not an unchecked runtime convention.
 
+The main <-> server-worker channel is typed RPC plus typed events, not a shared
+store. Commands carry `requestId`, epoch/revision freshness, payload DTO, and
+declared transfer fields. Replies/events correlate to the request or stream they
+advance. Fire-and-forget facts are still schema-defined messages with explicit
+freshness semantics; no path may send `store.getState()`, a query-cache value, or
+another runtime store shape as the protocol payload.
+
 Channel [2] shares vocabulary with the Swift-side contracts through one
 scheme-RPC contract module: one named contract vocabulary crosses the
 Swift/browser boundary, and page, worker, and server implementation code consume
@@ -534,17 +549,26 @@ not permission to make main parse, diff, classify, or re-window content.
 ### R53. Worker messages are transferable-first.
 
 All main <-> server-worker `postMessage` payloads prefer structuredClone
-TRANSFER over copy. Content bytes and large payloads must be represented as
-`Transferable` values, using `ArrayBuffer` over string where feasible. A
-transferred buffer detaches from the sender and becomes unavailable there after
-`postMessage`; no sender or receiver path may rely on an O(bytes) clone to keep
-a second live copy.
+TRANSFER over copy when payload size can affect interaction latency. Small
+plain DTOs may use normal structured clone. Content bytes, binary indexes,
+large paint-ready payloads, and any persistent-cache payload must use
+`ArrayBuffer` as the byte representation instead of strings or large object
+graphs.
+
+When ownership moves across the boundary, the sender must include the
+`ArrayBuffer` (or a typed array's underlying `.buffer`) in the transfer list:
+`postMessage(payload, [buffer])` or `structuredClone(payload, { transfer:
+[buffer] })`. A transferred buffer detaches from the sender and becomes
+unavailable there after send. No sender or receiver path may rely on an O(bytes)
+clone to keep a second live copy. If an explicit copy is required for a small or
+retained value, that message must declare clone semantics and be measured under
+the same per-message boundary instrumentation.
 
 `BridgeWorkerContracts` message types must name transfer fields explicitly. A
 message with no transfer fields declares an empty transfer list; a message with
 content bytes, large paint-ready payloads, or persistent-cache payloads declares
-the exact fields that are transferred. Runtime validation must reject a payload
-whose declared transfer fields and values disagree.
+the exact fields that are transferred or explicitly cloned. Runtime validation
+must reject a payload whose declared transfer fields and values disagree.
 
 ```text
 sender owns buffer
@@ -558,9 +582,74 @@ sender owns buffer
 ```
 
 Boundary instrumentation follows the Constants Annex rule: measure
-serialize/transfer duration per message class, not as one aggregate worker
-number. R53 applies at cutover slice G and to the future persistent-cache PR;
-persistent-cache payloads do not get a copy-based exemption.
+serialize/clone/transfer duration and bytes per message class, not as one
+aggregate worker number. R53 applies at cutover slice G and to the future
+persistent-cache PR; persistent-cache payloads do not get a copy-based
+exemption.
+
+### R54. Stores are local; RPC is the boundary.
+
+The architecture may use local stores on both sides, but they are two
+independent stores with disjoint ownership:
+
+- React/main-thread render store: selected item, active mode, viewport/range,
+  hover/focus, expanded/collapsed UI intent, panel chrome, row paint copies, and
+  content availability copies. It exists to paint synchronously and to apply
+  worker slice patches inside the R46 frame budget.
+- Comm-worker store: canonical rows and indexes, content bytes, byte cache,
+  paint-ready cache, demand membership, executor queue, retry/backoff,
+  stream/session/protocol state, worker epoch, telemetry batching, and Swift
+  synchronization truth.
+
+React components must import domain hooks or selectors for render slices, not
+the worker store and not raw protocol state. A main-thread async query/mutation
+library may wrap coarse worker RPC lifecycle such as open source, refresh,
+reconnect, search/filter command completion, or mark-viewed mutation. It must
+not become the high-frequency row/content patch stream, canonical result cache,
+demand queue, byte cache, or protocol owner.
+
+No store snapshot may cross the worker boundary in either direction. The only
+cross-boundary values are `BridgeWorkerContracts` DTOs, scheme-RPC DTOs, and
+declared transfer fields.
+
+Required type families:
+
+| Type family | Runtime | May use | Must contain | Must not contain |
+| --- | --- | --- | --- | --- |
+| `BridgeMainRenderStoreState` | main/React | Zustand, `useSyncExternalStore`, or equivalent local store primitive | selected id, active mode, viewport/range, hover/focus, expanded/collapsed UI intent, panel chrome, `rowPaintSlice(id)`, `contentAvailabilitySlice(id)`, worker health copy | content bytes, byte cache, demand membership, retry/backoff, stream id authority, worker epoch authority, sequence authority, Swift request ownership |
+| `BridgeCommWorkerStoreState` | comm worker | Zustand vanilla, a typed custom store, or equivalent worker-local primitive | canonical rows/indexes, byte cache, paint-ready cache, demand membership, in-flight/executor queues, retry/backoff, stream/session/protocol state, worker epoch, telemetry buffer | DOM nodes, React state, component refs, direct Pierre worker initiator state, main-thread query cache objects |
+| `BridgeWorkerMainToServerMessage` | wire DTO | `BridgeWorkerContracts` zod-derived union | `requestId`, wire version, epoch/revision freshness, command/fact kind, cloneable payload, declared transfer fields | store snapshots, functions, class instances, DOM objects, `AbortController`, non-declared buffers |
+| `BridgeWorkerServerToMainMessage` | wire DTO | `BridgeWorkerContracts` zod-derived union | health events, correlated replies, subscription events, slice patches, availability/content events, epoch/sequence freshness, declared transfer fields | canonical worker store, full package snapshots for interaction updates, untyped payloads |
+| `BridgeWorkerSlicePatch` | wire DTO applied to main render store | typed patch union | target slice, operation, item id when keyed, epoch/sequence, small cloneable render payload or transfer descriptor | protocol/cache truth, raw content bytes unless explicitly declared as transfer/copy payload |
+| `BridgeWorkerTransferDescriptor` | wire metadata | explicit transfer-list helper | message kind, field path, byte length, `transfer` or explicit `clone`, detached-after-send expectation | implicit large payloads, unmeasured clone cost |
+| `BridgeSchemeRpcRequest` / `BridgeSchemeRpcResponse` / `BridgeSchemeStreamFrame` | JavaScript <-> Swift scheme boundary | shared browser/native contract vocabulary | method/path/resource kind, request id, stream id, source generation, byte limits, telemetry/drop counters, health/error frames | script-message command payloads, raw paths/content in telemetry, ad-hoc frame shapes |
+| `BridgeWorkerQueryAdapter` | optional main-thread helper | TanStack Query/mutation or equivalent | coarse async worker RPC lifecycle for open, refresh, reconnect, search/filter completion, mark-viewed mutation | high-frequency row patch stream, canonical result cache, byte cache, demand queue, protocol owner |
+
+Canonical data flow:
+
+```text
+user click / key / hover / scroll
+  │
+  ├─► main render store
+  │     synchronous local paint of selected/hover/viewport chrome
+  │
+  └─► BridgeWorkerMainToServerMessage
+        typed RPC/fact DTO, small structured-clone payload
+        │
+        ▼
+      comm-worker store
+        canonical demand/cache/protocol update
+        │
+        ├─► scheme-RPC fetch/subscribe to Swift when needed
+        │
+        └─► BridgeWorkerServerToMainMessage
+              typed event/reply with slice patches
+              ArrayBuffer transfer for large payload ownership moves
+              │
+              ▼
+            main render store
+              R46 frame-budgeted patch apply
+```
 
 ## Action And Event Sequence Contracts
 
@@ -745,6 +834,11 @@ What dies:
   dispatch, `RPCMessageHandler`, `RPCRouter`, and script-message ingress;
 - FE protocol state: generations, sequences, stream identity, staleness,
   cache-membership truth, retry state, and demand membership truth;
+- main-thread store or query cache as canonical Bridge data/cache/demand owner;
+- cross-boundary store mirroring, `store.getState()` payloads, or query-cache
+  payloads as protocol;
+- TanStack Query or equivalent async cache as the high-frequency row/content
+  patch stream;
 - root-snapshot render coupling for interaction paths;
 - package-shaped sync work inside click, selection, scroll, or paint handlers;
 - handler-splitting as a claim of WebKit IPC isolation.
