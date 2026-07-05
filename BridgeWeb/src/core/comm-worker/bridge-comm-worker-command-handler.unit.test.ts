@@ -64,6 +64,27 @@ describe('Bridge comm worker command handler', () => {
 		expect(JSON.stringify(messages)).not.toMatch(/rowById|orderedIds|rootSnapshot|allRows/i);
 	});
 
+	test('selected review content-ready follow-up is not emitted by the immediate select response', () => {
+		const handler = createBridgeCommWorkerCommandHandler({
+			contentItems: [makeWorkerReviewContentMetadata('item-1')],
+			rows: [{ id: 'item-1', parentId: null, index: 0 }],
+			createSequence: (): number => 21,
+		});
+
+		const messages = handler.handleMessage(
+			encodeBridgeWorkerSelectCommand({
+				requestId: 'request-select-immediate',
+				epoch: 7,
+				selectedItemId: 'item-1',
+				selectedSource: 'user',
+			}),
+		);
+
+		expect(messages.map((message) => message.kind)).toEqual(['slicePatch', 'health']);
+		expect(JSON.stringify(messages)).not.toMatch(/pierreRenderJob/i);
+		expect(JSON.stringify(messages)).not.toContain('"state":"ready"');
+	});
+
 	test('viewport command mutates worker-local store and publishes a typed viewport patch', () => {
 		const handler = createBridgeCommWorkerCommandHandler({
 			contentItems: [],

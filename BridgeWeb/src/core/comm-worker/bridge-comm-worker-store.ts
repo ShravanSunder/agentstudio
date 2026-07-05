@@ -63,6 +63,16 @@ export interface ApplyBridgeCommWorkerContentReadyProps {
 	readonly contentCacheKey: string;
 }
 
+type BridgeCommWorkerTerminalContentAvailabilityState = Extract<
+	BridgeWorkerContentAvailabilityPatchPayload['state'],
+	'failed' | 'unavailable'
+>;
+
+export interface ApplyBridgeCommWorkerContentTerminalAvailabilityProps {
+	readonly itemId: string;
+	readonly state: BridgeCommWorkerTerminalContentAvailabilityState;
+}
+
 export interface TakePendingBridgeCommWorkerSlicePatchEventProps {
 	readonly epoch: number;
 	readonly sequence: number;
@@ -80,6 +90,9 @@ export interface BridgeCommWorkerStore {
 		) => BridgeCommWorkerTouchedResult;
 		readonly applyContentReady: (
 			props: ApplyBridgeCommWorkerContentReadyProps,
+		) => BridgeCommWorkerTouchedResult;
+		readonly applyContentTerminalAvailability: (
+			props: ApplyBridgeCommWorkerContentTerminalAvailabilityProps,
 		) => BridgeCommWorkerTouchedResult;
 		readonly takePendingSlicePatchEvent: (
 			props: TakePendingBridgeCommWorkerSlicePatchEventProps,
@@ -217,6 +230,22 @@ export function createBridgeCommWorkerStore(
 						`paintReady:${fact.itemId}`,
 						`availability:${fact.itemId}`,
 					],
+				};
+			},
+			applyContentTerminalAvailability: (
+				fact: ApplyBridgeCommWorkerContentTerminalAvailabilityProps,
+			): BridgeCommWorkerTouchedResult => {
+				store.setState((state) => ({
+					...writeBridgeWorkerMap(state, 'availabilityByItemId', fact.itemId, fact.state),
+				}));
+				pendingSlicePatches.push({
+					slice: 'contentAvailability',
+					operation: 'upsert',
+					itemId: fact.itemId,
+					payload: { state: fact.state },
+				});
+				return {
+					touchedKeys: [`availability:${fact.itemId}`],
 				};
 			},
 			takePendingSlicePatchEvent: (

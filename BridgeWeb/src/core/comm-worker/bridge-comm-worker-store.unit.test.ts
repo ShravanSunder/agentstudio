@@ -229,6 +229,34 @@ describe('Bridge comm worker store', () => {
 			},
 		]);
 	});
+
+	test('publishes terminal availability for selected content failures', () => {
+		const store = createBridgeCommWorkerStore({
+			contentItems: [makeWorkerReviewContentMetadata('item-1')],
+			rows: [{ id: 'item-1', parentId: null, index: 0 }],
+		});
+
+		store.actions.applySelectedFact({
+			itemId: 'item-1',
+			epoch: 7,
+		});
+		store.actions.takePendingSlicePatchEvent({ epoch: 7, sequence: 14 });
+		const failedResult = store.actions.applyContentTerminalAvailability({
+			itemId: 'item-1',
+			state: 'failed',
+		});
+
+		expect(store.getState().availabilityByItemId.get('item-1')).toBe('failed');
+		expect(failedResult.touchedKeys).toEqual(['availability:item-1']);
+		expect(store.actions.takePendingSlicePatchEvent({ epoch: 7, sequence: 15 })?.patches).toEqual([
+			{
+				slice: 'contentAvailability',
+				operation: 'upsert',
+				itemId: 'item-1',
+				payload: { state: 'failed' },
+			},
+		]);
+	});
 });
 
 function makeWorkerReviewContentMetadata(itemId: string): BridgeWorkerReviewContentMetadata {
