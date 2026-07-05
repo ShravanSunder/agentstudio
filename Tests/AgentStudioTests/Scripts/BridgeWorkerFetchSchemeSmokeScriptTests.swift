@@ -83,6 +83,20 @@ struct BridgeWorkerFetchSchemeSmokeScriptTests {
         #expect(result.stderr.contains("stream.succeeded=false"))
     }
 
+    @Test("worker fetch scheme smoke verifier accepts Victoria numeric and boolean strings")
+    func verifierAcceptsVictoriaNumericAndBooleanStrings() throws {
+        let script = try String(
+            contentsOfFile: "scripts/verify-bridge-worker-fetch-scheme-smoke.sh",
+            encoding: .utf8
+        )
+
+        #expect(script.contains("if isinstance(value, str):"))
+        #expect(script.contains("value = float(value)"))
+        #expect(script.contains("normalized in {\"true\", \"false\"}"))
+        #expect(script.contains("value = normalized == \"true\""))
+        #expect(script.contains("except ValueError:"))
+    }
+
     @Test("worker fetch scheme smoke verifier is wired through mise")
     func verifierIsWiredThroughMise() throws {
         let miseConfig = try String(contentsOfFile: ".mise.toml", encoding: .utf8)

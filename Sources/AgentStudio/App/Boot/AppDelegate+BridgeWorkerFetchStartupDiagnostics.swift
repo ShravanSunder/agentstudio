@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import WebKit
 
 @MainActor
 extension AppDelegate {
@@ -51,6 +52,19 @@ extension AppDelegate {
                 return
             }
 
+            guard
+                await waitForBridgeWorkerFetchSchemeSmokePageReady(
+                    for: bridgeView.controller
+                )
+            else {
+                recordBridgeWorkerFetchSchemeSmokeUnavailable(
+                    action: action,
+                    outcome: "blocked",
+                    reason: "bridge_page_not_ready"
+                )
+                return
+            }
+
             let commandId = UUIDv7.generate()
             let commandResult = await bridgeView.controller.handleDiffCommand(
                 .loadDiff(
@@ -92,6 +106,28 @@ extension AppDelegate {
             recordBridgeWorkerFetchSchemeSmokeResult(action: action, proof: proof)
         }
 
+        private func waitForBridgeWorkerFetchSchemeSmokePageReady(
+            for controller: BridgePaneController
+        ) async -> Bool {
+            let clock = ContinuousClock()
+            let start = clock.now
+            while !Task.isCancelled
+                && start.duration(to: clock.now) < AppPolicies.StartupDiagnostic.ipcTerminalSmokeReadinessTimeout
+            {
+                if controller.page.url?.absoluteString == "agentstudio://app/index.html"
+                    && !controller.page.isLoading
+                    && controller.isBridgeReady
+                {
+                    return true
+                }
+                try? await Task.sleep(nanoseconds: Duration.milliseconds(50).nanosecondsForTaskSleep)
+            }
+
+            return controller.page.url?.absoluteString == "agentstudio://app/index.html"
+                && !controller.page.isLoading
+                && controller.isBridgeReady
+        }
+
         private func bridgeWorkerFetchSchemeSmokeContentResourceURL(
             for controller: BridgePaneController
         ) -> String? {
@@ -111,8 +147,23 @@ extension AppDelegate {
             resourceURL: String,
             controller: BridgePaneController
         ) async -> BridgeWorkerFetchSchemeSmokeProof {
+            let workerSource: String
             do {
-                let script = try Self.bridgeWorkerFetchSchemeSmokeJavaScript(resourceURL: resourceURL)
+                let workerAsset = try await BridgeAppAssetStore().load(
+                    relativePath: Self.bridgeWorkerFetchSchemeSmokeWorkerScriptAssetPath)
+                guard let loadedWorkerSource = String(data: workerAsset.data, encoding: .utf8) else {
+                    return .unavailable(reason: "worker_script_asset_invalid")
+                }
+                workerSource = loadedWorkerSource
+            } catch {
+                return .unavailable(reason: "worker_script_asset_missing")
+            }
+
+            do {
+                let script = try Self.bridgeWorkerFetchSchemeSmokeJavaScript(
+                    resourceURL: resourceURL,
+                    workerSource: workerSource
+                )
                 guard
                     let result = try await controller.page.callJavaScript(script) as? String,
                     let data = result.data(using: .utf8)
@@ -121,11 +172,27 @@ extension AppDelegate {
                 }
                 return try JSONDecoder().decode(BridgeWorkerFetchSchemeSmokeProof.self, from: data)
             } catch {
-                return .unavailable(reason: "javascript_probe_failed")
+                return .unavailable(reason: Self.safeJavaScriptProbeFailureReason(for: error))
             }
         }
 
-        private static func bridgeWorkerFetchSchemeSmokeJavaScript(resourceURL: String) throws -> String {
+        private static func safeJavaScriptProbeFailureReason(for error: any Error) -> String {
+            let nsError = error as NSError
+            let safeDomain: String
+            if nsError.domain == WKError.errorDomain {
+                safeDomain = "wk"
+            } else if nsError.domain == NSCocoaErrorDomain {
+                safeDomain = "cocoa"
+            } else {
+                safeDomain = "other"
+            }
+            return "javascript_probe_failed:\(safeDomain):\(nsError.code)"
+        }
+
+        private static func bridgeWorkerFetchSchemeSmokeJavaScript(
+            resourceURL: String,
+            workerSource: String
+        ) throws -> String {
             let encodedResourceData = try JSONEncoder().encode(resourceURL)
             guard let encodedResourceURL = String(bytes: encodedResourceData, encoding: .utf8) else {
                 throw BridgeWorkerFetchSchemeSmokeScriptError.invalidResourceEncoding
@@ -134,21 +201,28 @@ extension AppDelegate {
             guard let encodedWorkerScriptURL = String(bytes: encodedWorkerScriptData, encoding: .utf8) else {
                 throw BridgeWorkerFetchSchemeSmokeScriptError.invalidWorkerScriptEncoding
             }
+            let encodedWorkerSourceData = try JSONEncoder().encode(workerSource)
+            guard let encodedWorkerSource = String(bytes: encodedWorkerSourceData, encoding: .utf8) else {
+                throw BridgeWorkerFetchSchemeSmokeScriptError.invalidWorkerSourceEncoding
+            }
             return
                 bridgeWorkerFetchSchemeSmokeJavaScriptTemplate
                 .replacingOccurrences(of: "__RESOURCE_URL__", with: encodedResourceURL)
                 .replacingOccurrences(of: "__WORKER_SCRIPT_URL__", with: encodedWorkerScriptURL)
+                .replacingOccurrences(of: "__WORKER_SOURCE__", with: encodedWorkerSource)
         }
 
         private static let bridgeWorkerFetchSchemeSmokeJavaScriptTemplate = """
             return await (async function() {
               const resourceUrl = __RESOURCE_URL__;
               const workerScriptUrl = __WORKER_SCRIPT_URL__;
+              const workerSource = __WORKER_SOURCE__;
               function failedProbe(mode, reason) {
                 return {
                   mode,
                   succeeded: false,
                   status: 0,
+                  workerBootstrapMode: 'unavailable',
                   workerScriptFetchSucceeded: false,
                   workerScriptFetchStatus: 0,
                   workerObservedByteCount: 0,
@@ -189,6 +263,7 @@ extension AppDelegate {
                   mode,
                   succeeded: data.succeeded === true,
                   status: Number.isFinite(data.status) ? data.status : 0,
+                  workerBootstrapMode: data.workerBootstrapMode || 'blob_classic',
                   workerScriptFetchSucceeded: workerScriptProbe.succeeded === true,
                   workerScriptFetchStatus: Number.isFinite(workerScriptProbe.status)
                     ? workerScriptProbe.status
@@ -204,7 +279,19 @@ extension AppDelegate {
               function runProbe(mode, workerScriptProbe) {
                 return new Promise(function(resolve) {
                   let worker = null;
+                  let workerUrl = null;
                   let settled = false;
+                  let timeout = null;
+                  function cleanup() {
+                    if (timeout !== null) {
+                      clearTimeout(timeout);
+                      timeout = null;
+                    }
+                    if (workerUrl !== null) {
+                      URL.revokeObjectURL(workerUrl);
+                      workerUrl = null;
+                    }
+                  }
                   function finish(data) {
                     if (settled) {
                       return;
@@ -213,14 +300,22 @@ extension AppDelegate {
                     if (worker !== null) {
                       worker.terminate();
                     }
+                    cleanup();
                     resolve(normalizedProbe(mode, data, workerScriptProbe));
                   }
                   try {
-                    worker = new Worker(workerScriptUrl, { type: 'module' });
+                    workerUrl = URL.createObjectURL(
+                      new Blob([workerSource], { type: 'application/javascript' })
+                    );
+                    worker = new Worker(workerUrl);
                   } catch (error) {
+                    cleanup();
                     resolve(failedProbeWithWorkerScript(mode, 'worker_constructor_failed', workerScriptProbe));
                     return;
                   }
+                  timeout = setTimeout(function() {
+                    finish(failedProbeWithWorkerScript(mode, 'worker_timeout', workerScriptProbe));
+                  }, 5000);
                   worker.onmessage = function(event) {
                     finish(event.data);
                   };
@@ -242,6 +337,7 @@ extension AppDelegate {
                   markerCount: 1,
                   contentUrlScheme: fetchResult.contentUrlScheme || 'agentstudio',
                   contentResourceKind: fetchResult.contentResourceKind || 'content',
+                  workerBootstrapMode: fetchResult.workerBootstrapMode || 'blob_classic',
                   workerScriptFetchSucceeded: workerScriptProbe.succeeded === true,
                   workerScriptFetchStatus: Number.isFinite(workerScriptProbe.status)
                     ? workerScriptProbe.status
@@ -260,6 +356,7 @@ extension AppDelegate {
                   markerCount: 1,
                   contentUrlScheme: 'agentstudio',
                   contentResourceKind: 'content',
+                  workerBootstrapMode: 'unavailable',
                   workerScriptFetchSucceeded: false,
                   workerScriptFetchStatus: 0,
                   fetchSucceeded: false,
@@ -272,6 +369,9 @@ extension AppDelegate {
               }
             })();
             """
+
+        private static let bridgeWorkerFetchSchemeSmokeWorkerScriptAssetPath =
+            "assets/bridge-worker-fetch-probe-worker.js"
 
         private static let bridgeWorkerFetchSchemeSmokeWorkerScriptURL =
             "agentstudio://app/assets/bridge-worker-fetch-probe-worker.js"
@@ -336,12 +436,14 @@ extension AppDelegate {
     private enum BridgeWorkerFetchSchemeSmokeScriptError: Error {
         case invalidResourceEncoding
         case invalidWorkerScriptEncoding
+        case invalidWorkerSourceEncoding
     }
 
     private struct BridgeWorkerFetchSchemeSmokeProof: Decodable {
         let markerCount: Int
         let contentUrlScheme: String
         let contentResourceKind: String
+        let workerBootstrapMode: String
         let workerScriptFetchSucceeded: Bool
         let workerScriptFetchStatus: Int
         let fetchSucceeded: Bool
@@ -365,6 +467,7 @@ extension AppDelegate {
                 "agentstudio.startup_diagnostic.bridge.worker_fetch.content_url.scheme": .string(contentUrlScheme),
                 "agentstudio.startup_diagnostic.bridge.worker_fetch.content_resource.kind": .string(
                     contentResourceKind),
+                "agentstudio.startup_diagnostic.bridge.worker_fetch.bootstrap.mode": .string(workerBootstrapMode),
                 "agentstudio.startup_diagnostic.bridge.worker_fetch.worker_script_fetch.succeeded": .bool(
                     workerScriptFetchSucceeded),
                 "agentstudio.startup_diagnostic.bridge.worker_fetch.worker_script_fetch.status": .int(
@@ -386,6 +489,7 @@ extension AppDelegate {
                 markerCount: 1,
                 contentUrlScheme: "agentstudio",
                 contentResourceKind: "content",
+                workerBootstrapMode: "unavailable",
                 workerScriptFetchSucceeded: false,
                 workerScriptFetchStatus: 0,
                 fetchSucceeded: false,

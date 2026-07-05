@@ -37,6 +37,9 @@ extension AgentStudioOTLPBridgeTraceProjectionTests {
             projection.attributes["agentstudio.startup_diagnostic.bridge.worker_fetch.content_url.scheme"]
                 == .string("agentstudio"))
         #expect(
+            projection.attributes["agentstudio.startup_diagnostic.bridge.worker_fetch.bootstrap.mode"]
+                == .string("blob_classic"))
+        #expect(
             projection.attributes["agentstudio.startup_diagnostic.bridge.worker_fetch.raw_url"] == nil)
         #expect(
             projection.attributes["agentstudio.startup_diagnostic.bridge.worker_fetch.raw_path"] == nil)
@@ -62,6 +65,7 @@ private func makeWorkerFetchStartupDiagnosticProjectionCanaryRecord() -> AgentSt
             "agentstudio.startup_diagnostic.bridge.worker_fetch.marker.count": .int(1),
             "agentstudio.startup_diagnostic.bridge.worker_fetch.content_url.scheme": .string("agentstudio"),
             "agentstudio.startup_diagnostic.bridge.worker_fetch.content_resource.kind": .string("content"),
+            "agentstudio.startup_diagnostic.bridge.worker_fetch.bootstrap.mode": .string("blob_classic"),
             "agentstudio.startup_diagnostic.bridge.worker_fetch.worker_observed_byte.count": .int(21),
             "agentstudio.startup_diagnostic.bridge.worker_fetch.stream_first_chunk_byte.count": .int(21),
             "agentstudio.startup_diagnostic.bridge.worker_fetch.stream_held_open": .bool(true),

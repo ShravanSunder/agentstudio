@@ -174,6 +174,7 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.startup_diagnostic.bridge.review_shell.state",
         "agentstudio.startup_diagnostic.bridge.worker_fetch.content_resource.kind",
         "agentstudio.startup_diagnostic.bridge.worker_fetch.content_url.scheme",
+        "agentstudio.startup_diagnostic.bridge.worker_fetch.bootstrap.mode",
         "agentstudio.startup_diagnostic.bridge.worker_fetch.failure.reason",
         "agentstudio.startup_diagnostic.bridge.selected_demand.load_failure.kind",
         "agentstudio.startup_diagnostic.bridge.selected_demand.result.reason",

@@ -21,7 +21,8 @@ extension WebKitSerializedTests {
             #expect(source.contains("new Worker("))
             #expect(source.contains("bridgeWorkerFetchSchemeSmokeWorkerScriptURL"))
             #expect(source.contains("agentstudio://app/assets/bridge-worker-fetch-probe-worker.js"))
-            #expect(source.contains("new Worker(workerScriptUrl, { type: 'module' })"))
+            #expect(source.contains("new Worker(workerUrl)"))
+            #expect(!source.contains("new Worker(workerScriptUrl, { type: 'module' })"))
             #expect(workerSource.contains("fetch(request.resourceUrl)"))
             #expect(workerSource.contains("response.body.getReader()"))
             #expect(workerSource.contains("reader.read()"))
@@ -29,11 +30,13 @@ extension WebKitSerializedTests {
             #expect(source.contains("probeWorkerScriptFetch(workerScriptUrl)"))
             #expect(source.contains("worker.onerror = function(event)"))
             #expect(source.contains("worker_error:module_load"))
+            #expect(source.contains("workerBootstrapMode: data.workerBootstrapMode || 'blob_classic'"))
             #expect(!source.contains("worker_script_fetch_failed"))
             #expect(!source.contains("failureReason: event.message"))
             #expect(!source.contains("failureReason: error.message"))
-            #expect(!source.contains("URL.createObjectURL"))
-            #expect(!source.contains("new Blob([workerSource]"))
+            #expect(source.contains("URL.createObjectURL"))
+            #expect(source.contains("URL.revokeObjectURL"))
+            #expect(source.contains("new Blob([workerSource]"))
         }
 
         @Test("startup diagnostic worker probe is packaged as an app asset")
@@ -73,8 +76,14 @@ extension WebKitSerializedTests {
                 encoding: .utf8
             )
 
+            #expect(source.contains("waitForBridgeWorkerFetchSchemeSmokePageReady"))
+            #expect(source.contains("controller.page.url?.absoluteString == \"agentstudio://app/index.html\""))
+            #expect(source.contains("!controller.page.isLoading"))
+            #expect(source.contains("controller.isBridgeReady"))
+            #expect(source.contains("bridge_page_not_ready"))
             #expect(source.contains("agentstudio.startup_diagnostic.bridge.worker_fetch.marker.count"))
             #expect(source.contains("agentstudio.startup_diagnostic.bridge.worker_fetch.content_url.scheme"))
+            #expect(source.contains("agentstudio.startup_diagnostic.bridge.worker_fetch.bootstrap.mode"))
             #expect(
                 source.contains(
                     "agentstudio.startup_diagnostic.bridge.worker_fetch.worker_script_fetch.succeeded"

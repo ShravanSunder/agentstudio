@@ -211,6 +211,11 @@ for line in sys.argv[2].splitlines():
         value = json.loads(line).get(field)
     except json.JSONDecodeError:
         continue
+    if isinstance(value, str):
+        try:
+            value = float(value)
+        except ValueError:
+            continue
     if isinstance(value, (int, float)):
         maximum = max(maximum, int(value))
 print(maximum)
@@ -233,6 +238,10 @@ for line in sys.argv[3].splitlines():
         value = json.loads(line).get(field)
     except json.JSONDecodeError:
         continue
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "false"}:
+            value = normalized == "true"
     if value is expected:
         sys.exit(0)
 sys.exit(1)
@@ -303,7 +312,7 @@ action_filter="$(logsql_exact_filter agentstudio.startup_diagnostic.action "$STA
 base_query="service.name:AgentStudio dev.runtime.flavor:debug $marker_filter"
 diagnostic_completed_query="$base_query $action_filter _msg:app.startup_diagnostic_action.completed"
 diagnostic_blocked_query="$base_query $action_filter _msg:app.startup_diagnostic_action.blocked"
-worker_fetch_fields="agentstudio.startup_diagnostic.bridge.worker_fetch.marker.count,agentstudio.startup_diagnostic.bridge.worker_fetch.content_url.scheme,agentstudio.startup_diagnostic.bridge.worker_fetch.content_resource.kind,agentstudio.startup_diagnostic.bridge.worker_fetch.worker_script_fetch.succeeded,agentstudio.startup_diagnostic.bridge.worker_fetch.worker_script_fetch.status,agentstudio.startup_diagnostic.bridge.worker_fetch.fetch.succeeded,agentstudio.startup_diagnostic.bridge.worker_fetch.stream.succeeded,agentstudio.startup_diagnostic.bridge.worker_fetch.worker_observed_byte.count,agentstudio.startup_diagnostic.bridge.worker_fetch.stream_first_chunk_byte.count,agentstudio.startup_diagnostic.bridge.worker_fetch.stream_held_open,agentstudio.startup_diagnostic.bridge.worker_fetch.failure.reason"
+worker_fetch_fields="agentstudio.startup_diagnostic.bridge.worker_fetch.marker.count,agentstudio.startup_diagnostic.bridge.worker_fetch.content_url.scheme,agentstudio.startup_diagnostic.bridge.worker_fetch.content_resource.kind,agentstudio.startup_diagnostic.bridge.worker_fetch.bootstrap.mode,agentstudio.startup_diagnostic.bridge.worker_fetch.worker_script_fetch.succeeded,agentstudio.startup_diagnostic.bridge.worker_fetch.worker_script_fetch.status,agentstudio.startup_diagnostic.bridge.worker_fetch.fetch.succeeded,agentstudio.startup_diagnostic.bridge.worker_fetch.stream.succeeded,agentstudio.startup_diagnostic.bridge.worker_fetch.worker_observed_byte.count,agentstudio.startup_diagnostic.bridge.worker_fetch.stream_first_chunk_byte.count,agentstudio.startup_diagnostic.bridge.worker_fetch.stream_held_open,agentstudio.startup_diagnostic.bridge.worker_fetch.failure.reason"
 worker_fetch_query="$diagnostic_completed_query agentstudio.startup_diagnostic.bridge.worker_fetch.marker.count:* agentstudio.startup_diagnostic.bridge.worker_fetch.worker_observed_byte.count:* agentstudio.startup_diagnostic.bridge.worker_fetch.stream_first_chunk_byte.count:*"
 worker_fetch_blocked_query="$diagnostic_blocked_query agentstudio.startup_diagnostic.bridge.worker_fetch.failure.reason:*"
 
@@ -404,8 +413,15 @@ assert_true_field \
   "agentstudio.startup_diagnostic.bridge.worker_fetch.stream_held_open" \
   "$worker_fetch_response"
 
+worker_bootstrap_mode="$(
+  first_json_field \
+    "agentstudio.startup_diagnostic.bridge.worker_fetch.bootstrap.mode" \
+    "$worker_fetch_response"
+)"
+
 echo "bridge worker fetch scheme smoke summary:"
 echo "marker=$MARKER"
 echo "query_window=$QUERY_START..$QUERY_END"
+echo "worker_bootstrap_mode=$worker_bootstrap_mode"
 echo "worker_observed_byte_count=$worker_observed_byte_count"
 echo "stream_first_chunk_byte_count=$stream_first_chunk_byte_count"
