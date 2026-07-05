@@ -1,4 +1,9 @@
-import type { BridgeWorkerSlicePatch } from './bridge-worker-contracts.js';
+import type {
+	BridgeWorkerContentAvailabilityPatchPayload,
+	BridgeWorkerPanelChromePatchPayload,
+	BridgeWorkerRowPaintPatchPayload,
+	BridgeWorkerSlicePatch,
+} from './bridge-worker-contracts.js';
 
 export interface BridgeMainSelectionSlice {
 	readonly selectedItemId: string | null;
@@ -14,9 +19,11 @@ export interface BridgeMainViewportSlice {
 export interface BridgeMainRenderSnapshot {
 	readonly selectionSlice: BridgeMainSelectionSlice;
 	readonly viewportSlice: BridgeMainViewportSlice;
-	readonly rowPaintById: Readonly<Record<string, Record<string, unknown>>>;
-	readonly contentAvailabilityById: Readonly<Record<string, Record<string, unknown>>>;
-	readonly panelChromeSlice: Readonly<Record<string, unknown>>;
+	readonly rowPaintById: Readonly<Record<string, BridgeWorkerRowPaintPatchPayload>>;
+	readonly contentAvailabilityById: Readonly<
+		Record<string, BridgeWorkerContentAvailabilityPatchPayload>
+	>;
+	readonly panelChromeSlice: BridgeWorkerPanelChromePatchPayload;
 }
 
 export interface SetBridgeMainLocalSelectionProps {
@@ -107,17 +114,17 @@ export function createBridgeMainRenderSnapshotStore(): BridgeMainRenderSnapshotS
 					return;
 				}
 				case 'rowPaint': {
-					publishKeyedPatch(snapshot, publish, 'rowPaintById', patch);
+					publishRowPaintPatch(snapshot, publish, patch);
 					return;
 				}
 				case 'contentAvailability': {
-					publishKeyedPatch(snapshot, publish, 'contentAvailabilityById', patch);
+					publishContentAvailabilityPatch(snapshot, publish, patch);
 					return;
 				}
 				case 'panelChrome': {
 					publish({
 						...snapshot,
-						panelChromeSlice: patch.payload ?? {},
+						panelChromeSlice: patch.operation === 'upsert' ? patch.payload : {},
 					});
 					return;
 				}
@@ -126,21 +133,24 @@ export function createBridgeMainRenderSnapshotStore(): BridgeMainRenderSnapshotS
 	};
 }
 
-function buildSelectionSliceFromPatch(patch: BridgeWorkerSlicePatch): BridgeMainSelectionSlice {
+function buildSelectionSliceFromPatch(
+	patch: Extract<BridgeWorkerSlicePatch, { slice: 'selection' }>,
+): BridgeMainSelectionSlice {
 	if (patch.operation === 'delete' || patch.operation === 'reset') {
 		return {
 			selectedItemId: null,
 			source: null,
 		};
 	}
-	const selectedItemId = readRequiredStringPatchPayload(patch, 'selectedItemId');
 	return {
-		selectedItemId,
-		source: readOptionalSelectionSourcePatchPayload(patch),
+		selectedItemId: patch.payload.selectedItemId,
+		source: patch.payload.source ?? null,
 	};
 }
 
-function buildViewportSliceFromPatch(patch: BridgeWorkerSlicePatch): BridgeMainViewportSlice {
+function buildViewportSliceFromPatch(
+	patch: Extract<BridgeWorkerSlicePatch, { slice: 'viewport' }>,
+): BridgeMainViewportSlice {
 	if (patch.operation === 'delete' || patch.operation === 'reset') {
 		return {
 			firstVisibleIndex: 0,
@@ -148,73 +158,57 @@ function buildViewportSliceFromPatch(patch: BridgeWorkerSlicePatch): BridgeMainV
 			visibleItemIds: [],
 		};
 	}
-	const visibleItemIds = readRequiredStringArrayPatchPayload(patch, 'visibleItemIds');
 	return {
-		firstVisibleIndex: readRequiredNumberPatchPayload(patch, 'firstVisibleIndex'),
-		lastVisibleIndex: readRequiredNumberPatchPayload(patch, 'lastVisibleIndex'),
-		visibleItemIds,
+		firstVisibleIndex: patch.payload.firstVisibleIndex,
+		lastVisibleIndex: patch.payload.lastVisibleIndex,
+		visibleItemIds: [...patch.payload.visibleItemIds],
 	};
 }
 
-function publishKeyedPatch(
+function publishRowPaintPatch(
 	snapshot: BridgeMainRenderSnapshot,
 	publish: (snapshot: BridgeMainRenderSnapshot) => void,
-	key: 'rowPaintById' | 'contentAvailabilityById',
-	patch: BridgeWorkerSlicePatch,
+	patch: Extract<BridgeWorkerSlicePatch, { slice: 'rowPaint' }>,
 ): void {
-	if (patch.itemId === undefined) {
-		throw new Error(`Bridge worker ${patch.slice} patch requires itemId.`);
+	if (patch.operation === 'reset') {
+		publish({
+			...snapshot,
+			rowPaintById: {},
+		});
+		return;
 	}
-	const nextEntries = { ...snapshot[key] };
+	const nextEntries = { ...snapshot.rowPaintById };
 	if (patch.operation === 'delete') {
 		delete nextEntries[patch.itemId];
 	} else {
-		nextEntries[patch.itemId] = patch.payload ?? {};
+		nextEntries[patch.itemId] = patch.payload;
 	}
 	publish({
 		...snapshot,
-		[key]: nextEntries,
+		rowPaintById: nextEntries,
 	});
 }
 
-function readRequiredStringPatchPayload(patch: BridgeWorkerSlicePatch, key: string): string {
-	const value = patch.payload?.[key];
-	if (typeof value !== 'string') {
-		throw new Error(`Bridge worker ${patch.slice} patch requires string payload.${key}.`);
+function publishContentAvailabilityPatch(
+	snapshot: BridgeMainRenderSnapshot,
+	publish: (snapshot: BridgeMainRenderSnapshot) => void,
+	patch: Extract<BridgeWorkerSlicePatch, { slice: 'contentAvailability' }>,
+): void {
+	if (patch.operation === 'reset') {
+		publish({
+			...snapshot,
+			contentAvailabilityById: {},
+		});
+		return;
 	}
-	return value;
-}
-
-function readOptionalSelectionSourcePatchPayload(
-	patch: BridgeWorkerSlicePatch,
-): BridgeMainSelectionSlice['source'] {
-	const value = patch.payload?.['source'];
-	if (value === undefined) {
-		return null;
+	const nextEntries = { ...snapshot.contentAvailabilityById };
+	if (patch.operation === 'delete') {
+		delete nextEntries[patch.itemId];
+	} else {
+		nextEntries[patch.itemId] = patch.payload;
 	}
-	if (value === 'user' || value === 'keyboard' || value === 'programmatic') {
-		return value;
-	}
-	throw new Error(`Bridge worker selection patch has invalid payload.source.`);
-}
-
-function readRequiredNumberPatchPayload(patch: BridgeWorkerSlicePatch, key: string): number {
-	const value = patch.payload?.[key];
-	if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
-		throw new Error(
-			`Bridge worker ${patch.slice} patch requires nonnegative integer payload.${key}.`,
-		);
-	}
-	return value;
-}
-
-function readRequiredStringArrayPatchPayload(
-	patch: BridgeWorkerSlicePatch,
-	key: string,
-): readonly string[] {
-	const value = patch.payload?.[key];
-	if (!Array.isArray(value) || !value.every((item) => typeof item === 'string')) {
-		throw new Error(`Bridge worker ${patch.slice} patch requires string[] payload.${key}.`);
-	}
-	return [...value];
+	publish({
+		...snapshot,
+		contentAvailabilityById: nextEntries,
+	});
 }

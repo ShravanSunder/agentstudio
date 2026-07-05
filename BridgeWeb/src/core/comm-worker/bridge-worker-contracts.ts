@@ -88,15 +88,181 @@ export type BridgeWorkerModeCommand = z.infer<typeof bridgeWorkerModeCommandSche
 export type BridgeWorkerMainToServerCommand = z.infer<typeof bridgeWorkerMainToServerCommandSchema>;
 export type BridgeWorkerMainToServerMessage = BridgeWorkerMainToServerCommand;
 
-export const bridgeWorkerSlicePatchSchema = z
+const bridgeWorkerSelectionSourceSchema = z.enum(['user', 'keyboard', 'programmatic']);
+
+export const bridgeWorkerSelectionPatchPayloadSchema = z
 	.object({
-		slice: z.enum(['selection', 'viewport', 'rowPaint', 'contentAvailability', 'panelChrome']),
-		operation: z.enum(['reset', 'upsert', 'delete']),
-		itemId: z.string().min(1).optional(),
-		payload: z.record(z.string(), z.unknown()).optional(),
+		selectedItemId: z.string().min(1),
+		source: bridgeWorkerSelectionSourceSchema.nullable().optional(),
 	})
 	.strict();
 
+export const bridgeWorkerViewportPatchPayloadSchema = z
+	.object({
+		firstVisibleIndex: z.number().int().nonnegative(),
+		lastVisibleIndex: z.number().int().nonnegative(),
+		visibleItemIds: z.array(z.string().min(1)).readonly(),
+	})
+	.strict();
+
+export const bridgeWorkerRowPaintPatchPayloadSchema = z
+	.object({
+		contentCacheKey: z.string().min(1).optional(),
+		label: z.string().min(1).optional(),
+		status: z.string().min(1).optional(),
+	})
+	.strict();
+
+export const bridgeWorkerContentAvailabilityPatchPayloadSchema = z
+	.object({
+		state: z.enum(['loading', 'ready', 'failed', 'stale', 'unavailable']),
+	})
+	.strict();
+
+export const bridgeWorkerPanelChromePatchPayloadSchema = z
+	.object({
+		isLoading: z.boolean().optional(),
+		message: z.string().min(1).nullable().optional(),
+	})
+	.strict();
+
+const bridgeWorkerSelectionPatchSchema = z.discriminatedUnion('operation', [
+	z
+		.object({
+			slice: z.literal('selection'),
+			operation: z.literal('upsert'),
+			payload: bridgeWorkerSelectionPatchPayloadSchema,
+		})
+		.strict(),
+	z
+		.object({
+			slice: z.literal('selection'),
+			operation: z.literal('reset'),
+		})
+		.strict(),
+	z
+		.object({
+			slice: z.literal('selection'),
+			operation: z.literal('delete'),
+		})
+		.strict(),
+]);
+
+const bridgeWorkerViewportPatchSchema = z.discriminatedUnion('operation', [
+	z
+		.object({
+			slice: z.literal('viewport'),
+			operation: z.literal('upsert'),
+			payload: bridgeWorkerViewportPatchPayloadSchema,
+		})
+		.strict(),
+	z
+		.object({
+			slice: z.literal('viewport'),
+			operation: z.literal('reset'),
+		})
+		.strict(),
+	z
+		.object({
+			slice: z.literal('viewport'),
+			operation: z.literal('delete'),
+		})
+		.strict(),
+]);
+
+const bridgeWorkerRowPaintPatchSchema = z.discriminatedUnion('operation', [
+	z
+		.object({
+			slice: z.literal('rowPaint'),
+			operation: z.literal('upsert'),
+			itemId: z.string().min(1),
+			payload: bridgeWorkerRowPaintPatchPayloadSchema,
+		})
+		.strict(),
+	z
+		.object({
+			slice: z.literal('rowPaint'),
+			operation: z.literal('delete'),
+			itemId: z.string().min(1),
+		})
+		.strict(),
+	z
+		.object({
+			slice: z.literal('rowPaint'),
+			operation: z.literal('reset'),
+		})
+		.strict(),
+]);
+
+const bridgeWorkerContentAvailabilityPatchSchema = z.discriminatedUnion('operation', [
+	z
+		.object({
+			slice: z.literal('contentAvailability'),
+			operation: z.literal('upsert'),
+			itemId: z.string().min(1),
+			payload: bridgeWorkerContentAvailabilityPatchPayloadSchema,
+		})
+		.strict(),
+	z
+		.object({
+			slice: z.literal('contentAvailability'),
+			operation: z.literal('delete'),
+			itemId: z.string().min(1),
+		})
+		.strict(),
+	z
+		.object({
+			slice: z.literal('contentAvailability'),
+			operation: z.literal('reset'),
+		})
+		.strict(),
+]);
+
+const bridgeWorkerPanelChromePatchSchema = z.discriminatedUnion('operation', [
+	z
+		.object({
+			slice: z.literal('panelChrome'),
+			operation: z.literal('upsert'),
+			payload: bridgeWorkerPanelChromePatchPayloadSchema,
+		})
+		.strict(),
+	z
+		.object({
+			slice: z.literal('panelChrome'),
+			operation: z.literal('reset'),
+		})
+		.strict(),
+	z
+		.object({
+			slice: z.literal('panelChrome'),
+			operation: z.literal('delete'),
+		})
+		.strict(),
+]);
+
+export const bridgeWorkerSlicePatchSchema = z.discriminatedUnion('slice', [
+	bridgeWorkerSelectionPatchSchema,
+	bridgeWorkerViewportPatchSchema,
+	bridgeWorkerRowPaintPatchSchema,
+	bridgeWorkerContentAvailabilityPatchSchema,
+	bridgeWorkerPanelChromePatchSchema,
+]);
+
+export type BridgeWorkerSelectionPatchPayload = z.infer<
+	typeof bridgeWorkerSelectionPatchPayloadSchema
+>;
+export type BridgeWorkerViewportPatchPayload = z.infer<
+	typeof bridgeWorkerViewportPatchPayloadSchema
+>;
+export type BridgeWorkerRowPaintPatchPayload = z.infer<
+	typeof bridgeWorkerRowPaintPatchPayloadSchema
+>;
+export type BridgeWorkerContentAvailabilityPatchPayload = z.infer<
+	typeof bridgeWorkerContentAvailabilityPatchPayloadSchema
+>;
+export type BridgeWorkerPanelChromePatchPayload = z.infer<
+	typeof bridgeWorkerPanelChromePatchPayloadSchema
+>;
 export type BridgeWorkerSlicePatch = z.infer<typeof bridgeWorkerSlicePatchSchema>;
 
 const bridgeWorkerServerToMainBaseSchema = z

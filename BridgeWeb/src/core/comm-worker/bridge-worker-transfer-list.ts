@@ -7,9 +7,20 @@ export interface BridgeWorkerTransferFieldDeclaration {
 	readonly mode: BridgeWorkerTransferMode;
 }
 
-export interface BuildBridgeWorkerTransferListProps {
+export interface BridgeWorkerMessageWithTransferDescriptors {
+	readonly kind: string;
+	readonly transferDescriptors: readonly BridgeWorkerTransferDescriptor[];
+}
+
+export type BridgeWorkerPreparedStructuredMessage<
+	TMessage extends BridgeWorkerMessageWithTransferDescriptors,
+> = Omit<TMessage, 'transferDescriptors'> & {
+	readonly transferDescriptors: readonly BridgeWorkerTransferDescriptor[];
+};
+
+export interface BuildBridgeWorkerTransferListProps<TPayload extends object> {
 	readonly messageKind: string;
-	readonly payload: Record<string, unknown>;
+	readonly payload: TPayload;
 	readonly declaredFields: readonly BridgeWorkerTransferFieldDeclaration[];
 }
 
@@ -18,8 +29,22 @@ export interface BridgeWorkerTransferPlan {
 	readonly transferList: readonly Transferable[];
 }
 
-export function buildBridgeWorkerTransferList(
-	props: BuildBridgeWorkerTransferListProps,
+export interface PrepareBridgeWorkerStructuredMessageProps<
+	TMessage extends BridgeWorkerMessageWithTransferDescriptors,
+> {
+	readonly message: TMessage;
+	readonly declaredFields: readonly BridgeWorkerTransferFieldDeclaration[];
+}
+
+export interface PreparedBridgeWorkerStructuredMessage<
+	TMessage extends BridgeWorkerMessageWithTransferDescriptors,
+> {
+	readonly message: BridgeWorkerPreparedStructuredMessage<TMessage>;
+	readonly transferList: readonly Transferable[];
+}
+
+export function buildBridgeWorkerTransferList<TPayload extends object>(
+	props: BuildBridgeWorkerTransferListProps<TPayload>,
 ): BridgeWorkerTransferPlan {
 	const declaredPaths = new Set(
 		props.declaredFields.map((field) => serializeBridgeWorkerFieldPath(field.fieldPath)),
@@ -57,6 +82,31 @@ export function buildBridgeWorkerTransferList(
 		descriptors,
 		transferList,
 	};
+}
+
+export function prepareBridgeWorkerStructuredMessage<
+	TMessage extends BridgeWorkerMessageWithTransferDescriptors,
+>(
+	props: PrepareBridgeWorkerStructuredMessageProps<TMessage>,
+): PreparedBridgeWorkerStructuredMessage<TMessage> {
+	const transferPlan = buildBridgeWorkerTransferList({
+		messageKind: props.message.kind,
+		payload: props.message,
+		declaredFields: props.declaredFields,
+	});
+	return {
+		message: {
+			...props.message,
+			transferDescriptors: transferPlan.descriptors,
+		},
+		transferList: transferPlan.transferList,
+	};
+}
+
+export function cloneBridgeWorkerStructuredMessage<
+	TMessage extends BridgeWorkerMessageWithTransferDescriptors,
+>(message: TMessage): TMessage {
+	return structuredClone(message);
 }
 
 function serializeBridgeWorkerFieldPath(fieldPath: readonly string[]): string {

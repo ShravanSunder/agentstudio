@@ -110,4 +110,29 @@ describe('BridgeWorkerContracts', () => {
 			}).success,
 		).toBe(false);
 	});
+
+	test('rejects boundary-visible unknown slice patch payloads', () => {
+		const slicePatchEvent = {
+			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+			direction: 'serverWorkerToMain',
+			transferDescriptors: [],
+			kind: 'slicePatch',
+			epoch: 1,
+			sequence: 2,
+			patches: [
+				{
+					slice: 'rowPaint',
+					operation: 'upsert',
+					itemId: 'item-1',
+					payload: {
+						metadata: {
+							nestedUnknownRecord: true,
+						},
+					},
+				},
+			],
+		};
+
+		expect(bridgeWorkerSlicePatchEventSchema.safeParse(slicePatchEvent).success).toBe(false);
+	});
 });

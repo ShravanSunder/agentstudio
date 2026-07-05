@@ -77,25 +77,64 @@ describe('Bridge main render snapshot store', () => {
 		unsubscribe();
 	});
 
-	test('throws instead of silently dropping unsupported selection and viewport payloads', () => {
+	test('applies reset and delete worker patches without app-side payload parsing', () => {
 		const store = createBridgeMainRenderSnapshotStore();
 
-		expect(() =>
-			store.applyWorkerPatch({
-				slice: 'selection',
-				operation: 'upsert',
-				payload: {},
-			}),
-		).toThrow(/selectedItemId/i);
-		expect(() =>
-			store.applyWorkerPatch({
-				slice: 'viewport',
-				operation: 'upsert',
-				payload: {
-					firstVisibleIndex: 0,
-					lastVisibleIndex: 1,
-				},
-			}),
-		).toThrow(/visibleItemIds/i);
+		store.applyWorkerPatch({
+			slice: 'selection',
+			operation: 'upsert',
+			payload: {
+				selectedItemId: 'item-1',
+				source: 'user',
+			},
+		});
+		store.applyWorkerPatch({
+			slice: 'viewport',
+			operation: 'upsert',
+			payload: {
+				firstVisibleIndex: 0,
+				lastVisibleIndex: 1,
+				visibleItemIds: ['item-1', 'item-2'],
+			},
+		});
+		store.applyWorkerPatch({
+			slice: 'rowPaint',
+			operation: 'upsert',
+			itemId: 'item-1',
+			payload: {
+				contentCacheKey: 'pierre-content:item-1',
+			},
+		});
+		store.applyWorkerPatch({
+			slice: 'contentAvailability',
+			operation: 'upsert',
+			itemId: 'item-1',
+			payload: {
+				state: 'ready',
+			},
+		});
+
+		store.applyWorkerPatch({ slice: 'selection', operation: 'delete' });
+		store.applyWorkerPatch({ slice: 'viewport', operation: 'reset' });
+		store.applyWorkerPatch({
+			slice: 'rowPaint',
+			operation: 'delete',
+			itemId: 'item-1',
+		});
+		store.applyWorkerPatch({ slice: 'contentAvailability', operation: 'reset' });
+
+		expect(store.getSnapshot()).toMatchObject({
+			selectionSlice: {
+				selectedItemId: null,
+				source: null,
+			},
+			viewportSlice: {
+				firstVisibleIndex: 0,
+				lastVisibleIndex: 0,
+				visibleItemIds: [],
+			},
+			rowPaintById: {},
+			contentAvailabilityById: {},
+		});
 	});
 });

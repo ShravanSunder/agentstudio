@@ -1,6 +1,11 @@
 import { describe, expect, test } from 'vitest';
 
-import { buildBridgeWorkerTransferList } from './bridge-worker-transfer-list.js';
+import {
+	buildBridgeWorkerTransferList,
+	cloneBridgeWorkerStructuredMessage,
+	prepareBridgeWorkerStructuredMessage,
+	type BridgeWorkerMessageWithTransferDescriptors,
+} from './bridge-worker-transfer-list.js';
 
 describe('Bridge worker transfer list', () => {
 	test('builds declared transfer lists and rejects undeclared ArrayBuffers', () => {
@@ -39,5 +44,43 @@ describe('Bridge worker transfer list', () => {
 				declaredFields: [],
 			}),
 		).toThrow(/undeclared ArrayBuffer/i);
+	});
+
+	test('prepares typed structured-clone messages with declared transfer descriptors', () => {
+		interface TestWorkerMessage extends BridgeWorkerMessageWithTransferDescriptors {
+			readonly kind: 'slicePatch';
+			readonly payload: {
+				readonly bytes: ArrayBuffer;
+				readonly label: string;
+			};
+		}
+
+		const bytes = new ArrayBuffer(8);
+		const message: TestWorkerMessage = {
+			kind: 'slicePatch',
+			transferDescriptors: [],
+			payload: {
+				bytes,
+				label: 'README.md',
+			},
+		};
+
+		const preparedMessage = prepareBridgeWorkerStructuredMessage({
+			message,
+			declaredFields: [{ fieldPath: ['payload', 'bytes'], mode: 'transfer' }],
+		});
+		const clonedMessage = cloneBridgeWorkerStructuredMessage(preparedMessage.message);
+
+		expect(preparedMessage.message.transferDescriptors).toEqual([
+			{
+				messageKind: 'slicePatch',
+				fieldPath: ['payload', 'bytes'],
+				byteLength: 8,
+				mode: 'transfer',
+			},
+		]);
+		expect(preparedMessage.transferList).toEqual([bytes]);
+		expect(clonedMessage.payload.bytes.byteLength).toBe(8);
+		expect(bytes.byteLength).toBe(8);
 	});
 });
