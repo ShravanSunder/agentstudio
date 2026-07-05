@@ -3,6 +3,8 @@ import { createStore, type StoreApi } from 'zustand/vanilla';
 import {
 	BRIDGE_WORKER_WIRE_VERSION,
 	bridgeWorkerSlicePatchEventSchema,
+	type BridgeWorkerContentAvailabilityPatchPayload,
+	type BridgeWorkerReviewContentMetadata,
 	type BridgeWorkerSlicePatch,
 	type BridgeWorkerSlicePatchEvent,
 } from './bridge-worker-contracts.js';
@@ -29,10 +31,15 @@ export interface BridgeCommWorkerStoreState {
 	readonly demandByKey: ReadonlyMap<string, string>;
 	readonly byteCache: ReadonlyMap<string, string>;
 	readonly paintReadyByItemId: ReadonlyMap<string, string>;
-	readonly availabilityByItemId: ReadonlyMap<string, string>;
+	readonly availabilityByItemId: ReadonlyMap<
+		string,
+		BridgeWorkerContentAvailabilityPatchPayload['state']
+	>;
+	readonly contentMetadataByItemId: ReadonlyMap<string, BridgeWorkerReviewContentMetadata>;
 }
 
 export interface CreateBridgeCommWorkerStoreProps {
+	readonly contentItems: readonly BridgeWorkerReviewContentMetadata[];
 	readonly rows: readonly BridgeCommWorkerRow[];
 }
 
@@ -85,7 +92,7 @@ export function createBridgeCommWorkerStore(
 	props: CreateBridgeCommWorkerStoreProps,
 ): BridgeCommWorkerStore {
 	const store = createStore<BridgeCommWorkerStoreState>(() =>
-		buildInitialBridgeCommWorkerStoreState(props.rows),
+		buildInitialBridgeCommWorkerStoreState(props),
 	);
 	const pendingSlicePatches: BridgeWorkerSlicePatch[] = [];
 
@@ -96,12 +103,19 @@ export function createBridgeCommWorkerStore(
 			applySelectedFact: (
 				fact: ApplyBridgeCommWorkerSelectedFactProps,
 			): BridgeCommWorkerTouchedResult => {
+				const contentMetadata = store.getState().contentMetadataByItemId.get(fact.itemId) ?? null;
+				const nextAvailabilityState = contentMetadata === null ? 'unavailable' : 'loading';
 				store.setState((state) => ({
-					...writeBridgeWorkerMap(state, 'availabilityByItemId', fact.itemId, 'loading'),
+					...writeBridgeWorkerMap(
+						state,
+						'availabilityByItemId',
+						fact.itemId,
+						nextAvailabilityState,
+					),
 					selectedId: fact.itemId,
 					demandByKey: buildDemandByKey({
-						selectedId: fact.itemId,
-						selectedDemandValue: `selected:${fact.epoch}`,
+						selectedId: contentMetadata === null ? null : fact.itemId,
+						selectedDemandValue: contentMetadata === null ? null : `selected:${fact.epoch}`,
 						visibleIds: state.visibleIds,
 					}),
 				}));
@@ -115,7 +129,7 @@ export function createBridgeCommWorkerStore(
 						slice: 'contentAvailability',
 						operation: 'upsert',
 						itemId: fact.itemId,
-						payload: { state: 'loading' },
+						payload: { state: nextAvailabilityState },
 					},
 				);
 				return {
@@ -123,6 +137,7 @@ export function createBridgeCommWorkerStore(
 						'selectedId',
 						`rowPaint:${fact.itemId}`,
 						`availability:${fact.itemId}`,
+						`contentMetadata:${fact.itemId}`,
 						`demand:${fact.itemId}`,
 					],
 				};
@@ -226,12 +241,13 @@ export function createBridgeCommWorkerStore(
 }
 
 function buildInitialBridgeCommWorkerStoreState(
-	rows: readonly BridgeCommWorkerRow[],
+	props: CreateBridgeCommWorkerStoreProps,
 ): BridgeCommWorkerStoreState {
 	const rowById = new Map<string, BridgeCommWorkerRow>();
 	const indexById = new Map<string, number>();
 	const childrenByParentId = new Map<string, readonly string[]>();
-	for (const row of rows) {
+	const contentMetadataByItemId = new Map<string, BridgeWorkerReviewContentMetadata>();
+	for (const row of props.rows) {
 		rowById.set(row.id, row);
 		indexById.set(row.id, row.index);
 		if (row.parentId !== null) {
@@ -241,9 +257,12 @@ function buildInitialBridgeCommWorkerStoreState(
 			]);
 		}
 	}
+	for (const contentItem of props.contentItems) {
+		contentMetadataByItemId.set(contentItem.itemId, contentItem);
+	}
 	return {
 		rowById,
-		orderedIds: rows.map((row) => row.id),
+		orderedIds: props.rows.map((row) => row.id),
 		indexById,
 		childrenByParentId,
 		selectedId: null,
@@ -252,7 +271,8 @@ function buildInitialBridgeCommWorkerStoreState(
 		demandByKey: new Map<string, string>(),
 		byteCache: new Map<string, string>(),
 		paintReadyByItemId: new Map<string, string>(),
-		availabilityByItemId: new Map<string, string>(),
+		availabilityByItemId: new Map<string, BridgeWorkerContentAvailabilityPatchPayload['state']>(),
+		contentMetadataByItemId,
 	};
 }
 

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
+import { makeBridgeReviewItem } from '../../foundation/review-package/bridge-review-package-test-support.js';
 import { createBridgeCommWorkerCommandHandler } from './bridge-comm-worker-command-handler.js';
 import {
 	encodeBridgeWorkerHoverCommand,
@@ -8,10 +9,12 @@ import {
 	encodeBridgeWorkerSelectCommand,
 	encodeBridgeWorkerViewportCommand,
 } from './bridge-comm-worker-protocol.js';
+import type { BridgeWorkerReviewContentMetadata } from './bridge-worker-contracts.js';
 
 describe('Bridge comm worker command handler', () => {
 	test('select command mutates worker-local store and publishes only typed slice patches', () => {
 		const handler = createBridgeCommWorkerCommandHandler({
+			contentItems: [makeWorkerReviewContentMetadata('item-2')],
 			rows: [
 				{ id: 'item-1', parentId: null, index: 0 },
 				{ id: 'item-2', parentId: null, index: 1 },
@@ -63,6 +66,7 @@ describe('Bridge comm worker command handler', () => {
 
 	test('viewport command mutates worker-local store and publishes a typed viewport patch', () => {
 		const handler = createBridgeCommWorkerCommandHandler({
+			contentItems: [],
 			rows: [
 				{ id: 'item-1', parentId: null, index: 0 },
 				{ id: 'item-2', parentId: null, index: 1 },
@@ -112,6 +116,7 @@ describe('Bridge comm worker command handler', () => {
 
 	test('unsupported commands return degraded health instead of silent success', () => {
 		const handler = createBridgeCommWorkerCommandHandler({
+			contentItems: [makeWorkerReviewContentMetadata('item-1')],
 			rows: [{ id: 'item-1', parentId: null, index: 0 }],
 		});
 
@@ -179,6 +184,10 @@ describe('Bridge comm worker command handler', () => {
 
 	test('stale and replayed commands are rejected before slice mutation', () => {
 		const handler = createBridgeCommWorkerCommandHandler({
+			contentItems: [
+				makeWorkerReviewContentMetadata('item-1'),
+				makeWorkerReviewContentMetadata('item-2'),
+			],
 			rows: [
 				{ id: 'item-1', parentId: null, index: 0 },
 				{ id: 'item-2', parentId: null, index: 1 },
@@ -243,4 +252,54 @@ describe('Bridge comm worker command handler', () => {
 		]);
 		expect(JSON.stringify([...staleMessages, ...replayMessages])).not.toMatch(/slicePatch/i);
 	});
+
+	test('select command marks content unavailable when worker metadata is missing', () => {
+		const handler = createBridgeCommWorkerCommandHandler({
+			contentItems: [],
+			rows: [{ id: 'item-no-metadata', parentId: null, index: 0 }],
+			createSequence: (): number => 14,
+		});
+
+		const messages = handler.handleMessage(
+			encodeBridgeWorkerSelectCommand({
+				requestId: 'request-no-metadata',
+				epoch: 10,
+				selectedItemId: 'item-no-metadata',
+				selectedSource: 'user',
+			}),
+		);
+
+		expect(messages[0]).toMatchObject({
+			kind: 'slicePatch',
+			patches: [
+				{
+					slice: 'selection',
+					operation: 'upsert',
+					payload: { selectedItemId: 'item-no-metadata' },
+				},
+				{
+					slice: 'contentAvailability',
+					operation: 'upsert',
+					itemId: 'item-no-metadata',
+					payload: { state: 'unavailable' },
+				},
+			],
+		});
+	});
 });
+
+function makeWorkerReviewContentMetadata(itemId: string): BridgeWorkerReviewContentMetadata {
+	const item = makeBridgeReviewItem({
+		itemId,
+		path: `Sources/App/${itemId}.swift`,
+	});
+	return {
+		itemId: item.itemId,
+		path: item.headPath ?? item.basePath ?? item.itemId,
+		language: item.language ?? null,
+		cacheKey: item.cacheKey,
+		sizeBytes: item.sizeBytes,
+		contentRoles: item.contentRoles,
+		contentLineCountsByRole: item.contentLineCountsByRole ?? {},
+	};
+}

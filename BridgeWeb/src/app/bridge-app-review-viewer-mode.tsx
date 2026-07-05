@@ -125,6 +125,7 @@ export function BridgeReviewViewerMode(
 		viewportSliceRef,
 	} = useBridgeReviewRenderSnapshotController({
 		panelChromeSlice,
+		reviewPackage,
 		reviewTreeRows,
 	});
 	const setReviewRenderModeCodeView = useCallback((): void => {

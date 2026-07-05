@@ -1,12 +1,15 @@
 import { describe, expect, expectTypeOf, test } from 'vitest';
 
+import { makeBridgeReviewItem } from '../../foundation/review-package/bridge-review-package-test-support.js';
 import {
 	BRIDGE_WORKER_WIRE_VERSION,
+	bridgeWorkerReviewContentMetadataSchema,
 	bridgeWorkerMainToServerMessageSchema,
 	bridgeWorkerServerToMainMessageSchema,
 	bridgeWorkerSlicePatchEventSchema,
 	parseBridgeWorkerMainToServerMessage,
 	type BridgeWorkerMainToServerMessage,
+	type BridgeWorkerReviewContentMetadata,
 } from './bridge-worker-contracts.js';
 
 describe('BridgeWorkerContracts', () => {
@@ -134,5 +137,35 @@ describe('BridgeWorkerContracts', () => {
 		};
 
 		expect(bridgeWorkerSlicePatchEventSchema.safeParse(slicePatchEvent).success).toBe(false);
+	});
+
+	test('defines strict worker review content metadata without package snapshots', () => {
+		const item = makeBridgeReviewItem({
+			itemId: 'item-worker-metadata',
+			path: 'Sources/App/WorkerMetadata.swift',
+		});
+		const metadata = {
+			itemId: item.itemId,
+			path: item.headPath ?? item.basePath ?? item.itemId,
+			language: item.language ?? null,
+			cacheKey: item.cacheKey,
+			sizeBytes: item.sizeBytes,
+			contentRoles: item.contentRoles,
+			contentLineCountsByRole: item.contentLineCountsByRole ?? {},
+		} satisfies BridgeWorkerReviewContentMetadata;
+
+		expect(bridgeWorkerReviewContentMetadataSchema.parse(metadata)).toEqual(metadata);
+		expect(
+			bridgeWorkerReviewContentMetadataSchema.safeParse({
+				...metadata,
+				itemsById: {},
+			}).success,
+		).toBe(false);
+		expect(
+			bridgeWorkerReviewContentMetadataSchema.safeParse({
+				...metadata,
+				contentRoles: undefined,
+			}).success,
+		).toBe(false);
 	});
 });

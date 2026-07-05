@@ -1,5 +1,9 @@
 import { z } from 'zod';
 
+import {
+	bridgeReviewContentLineCountsByRoleSchema,
+	bridgeReviewContentRolesSchema,
+} from '../../foundation/review-package/bridge-review-package-schema.js';
 import { bridgeWorkerPierreRenderJobSchema } from './bridge-worker-pierre-render-job.js';
 
 export const BRIDGE_WORKER_WIRE_VERSION = 1 as const;
@@ -118,6 +122,18 @@ export const bridgeWorkerRowPaintPatchPayloadSchema = z
 export const bridgeWorkerContentAvailabilityPatchPayloadSchema = z
 	.object({
 		state: z.enum(['loading', 'ready', 'failed', 'stale', 'unavailable']),
+	})
+	.strict();
+
+export const bridgeWorkerReviewContentMetadataSchema = z
+	.object({
+		itemId: z.string().min(1),
+		path: z.string().min(1),
+		language: z.string().nullable(),
+		cacheKey: z.string().min(1),
+		sizeBytes: z.number().int().nonnegative(),
+		contentRoles: bridgeReviewContentRolesSchema,
+		contentLineCountsByRole: bridgeReviewContentLineCountsByRoleSchema,
 	})
 	.strict();
 
@@ -261,6 +277,9 @@ export type BridgeWorkerRowPaintPatchPayload = z.infer<
 >;
 export type BridgeWorkerContentAvailabilityPatchPayload = z.infer<
 	typeof bridgeWorkerContentAvailabilityPatchPayloadSchema
+>;
+export type BridgeWorkerReviewContentMetadata = z.infer<
+	typeof bridgeWorkerReviewContentMetadataSchema
 >;
 export type BridgeWorkerPanelChromePatchPayload = z.infer<
 	typeof bridgeWorkerPanelChromePatchPayloadSchema

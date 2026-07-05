@@ -1,10 +1,14 @@
 import { describe, expect, test } from 'vitest';
 
+import { makeBridgeReviewItem } from '../../foundation/review-package/bridge-review-package-test-support.js';
 import { createBridgeCommWorkerStore } from './bridge-comm-worker-store.js';
+import type { BridgeWorkerReviewContentMetadata } from './bridge-worker-contracts.js';
 
 describe('Bridge comm worker store', () => {
 	test('normalizes worker state and rejects root snapshots getState payloads and package-shaped hot actions', () => {
+		const contentItem = makeWorkerReviewContentMetadata('item-2');
 		const store = createBridgeCommWorkerStore({
+			contentItems: [contentItem],
 			rows: [
 				{ id: 'root', parentId: null, index: 0 },
 				{ id: 'item-1', parentId: 'root', index: 1 },
@@ -32,6 +36,7 @@ describe('Bridge comm worker store', () => {
 		expect(state.orderedIds).toEqual(['root', 'item-1', 'item-2']);
 		expect(state.indexById.get('item-2')).toBe(2);
 		expect(state.childrenByParentId.get('root')).toEqual(['item-1', 'item-2']);
+		expect(state.contentMetadataByItemId.get('item-2')).toEqual(contentItem);
 		expect(Object.fromEntries(state.demandByKey)).toEqual({
 			'item-1': 'visible',
 			'item-2': 'selected:3',
@@ -40,6 +45,7 @@ describe('Bridge comm worker store', () => {
 			'selectedId',
 			'rowPaint:item-2',
 			'availability:item-2',
+			'contentMetadata:item-2',
 			'demand:item-2',
 		]);
 		expect(viewportResult.touchedKeys).toEqual([
@@ -103,6 +109,10 @@ describe('Bridge comm worker store', () => {
 
 	test('keeps raw ids distinct and retires stale selected and viewport demand entries', () => {
 		const store = createBridgeCommWorkerStore({
+			contentItems: [
+				makeWorkerReviewContentMetadata('item-1'),
+				makeWorkerReviewContentMetadata('item:2/path'),
+			],
 			rows: [
 				{ id: 'item-1', parentId: null, index: 0 },
 				{ id: 'item_1', parentId: null, index: 1 },
@@ -141,4 +151,47 @@ describe('Bridge comm worker store', () => {
 			'demand:item:2/path',
 		]);
 	});
+
+	test('marks selected content unavailable when worker metadata is absent', () => {
+		const store = createBridgeCommWorkerStore({
+			contentItems: [],
+			rows: [{ id: 'item-without-content-metadata', parentId: null, index: 0 }],
+		});
+
+		store.actions.applySelectedFact({
+			itemId: 'item-without-content-metadata',
+			epoch: 5,
+		});
+
+		expect(Object.fromEntries(store.getState().demandByKey)).toEqual({});
+		expect(store.actions.takePendingSlicePatchEvent({ epoch: 5, sequence: 12 })?.patches).toEqual([
+			{
+				slice: 'selection',
+				operation: 'upsert',
+				payload: { selectedItemId: 'item-without-content-metadata' },
+			},
+			{
+				slice: 'contentAvailability',
+				operation: 'upsert',
+				itemId: 'item-without-content-metadata',
+				payload: { state: 'unavailable' },
+			},
+		]);
+	});
 });
+
+function makeWorkerReviewContentMetadata(itemId: string): BridgeWorkerReviewContentMetadata {
+	const item = makeBridgeReviewItem({
+		itemId,
+		path: `Sources/App/${itemId}.swift`,
+	});
+	return {
+		itemId: item.itemId,
+		path: item.headPath ?? item.basePath ?? item.itemId,
+		language: item.language ?? null,
+		cacheKey: item.cacheKey,
+		sizeBytes: item.sizeBytes,
+		contentRoles: item.contentRoles,
+		contentLineCountsByRole: item.contentLineCountsByRole ?? {},
+	};
+}

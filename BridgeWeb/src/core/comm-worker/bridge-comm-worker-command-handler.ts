@@ -6,12 +6,14 @@ import {
 } from './bridge-comm-worker-store.js';
 import type {
 	BridgeWorkerMainToServerMessage,
+	BridgeWorkerReviewContentMetadata,
 	BridgeWorkerSelectCommand,
 	BridgeWorkerServerToMainMessage,
 	BridgeWorkerViewportCommand,
 } from './bridge-worker-contracts.js';
 
 export interface CreateBridgeCommWorkerCommandHandlerProps {
+	readonly contentItems: readonly BridgeWorkerReviewContentMetadata[];
 	readonly rows: readonly BridgeCommWorkerRow[];
 	readonly createSequence?: () => number;
 }
@@ -25,7 +27,10 @@ export interface BridgeCommWorkerCommandHandler {
 export function createBridgeCommWorkerCommandHandler(
 	props: CreateBridgeCommWorkerCommandHandlerProps,
 ): BridgeCommWorkerCommandHandler {
-	const store = createBridgeCommWorkerStore({ rows: props.rows });
+	const store = createBridgeCommWorkerStore({
+		contentItems: props.contentItems,
+		rows: props.rows,
+	});
 	const createSequence = props.createSequence ?? createBridgeWorkerSequenceCounter();
 	const seenRequestIds = new Set<string>();
 	let currentEpoch = 0;

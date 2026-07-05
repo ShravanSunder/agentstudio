@@ -10,8 +10,10 @@ import {
 	buildBridgeWorkerPierreRenderJob,
 	type BridgeWorkerPierreRenderJob,
 } from '../core/comm-worker/bridge-worker-pierre-render-job.js';
+import { makeBridgeReviewPackage } from '../foundation/review-package/bridge-review-package-test-support.js';
 import {
 	applyBridgeWorkerMessagesToMainRenderSnapshotStore,
+	bridgeCommWorkerContentItemsFromReviewPackage,
 	createUnsupportedBridgeReviewPierreCourier,
 } from './bridge-app-review-render-snapshot-controller.js';
 
@@ -160,5 +162,23 @@ describe('Bridge app review render snapshot controller', () => {
 			source: 'user',
 		});
 		expect(enqueuedJobs).toEqual([]);
+	});
+
+	test('maps review package items into worker content metadata without package snapshots', () => {
+		const reviewPackage = makeBridgeReviewPackage();
+
+		const contentItems = bridgeCommWorkerContentItemsFromReviewPackage(reviewPackage);
+
+		expect(contentItems).toHaveLength(1);
+		expect(contentItems[0]).toMatchObject({
+			itemId: 'item-source',
+			path: 'Sources/App/View.swift',
+			language: 'swift',
+			cacheKey: 'item-source:base|item-source:head',
+			sizeBytes: 1024,
+		});
+		expect(contentItems[0]?.contentRoles.head?.resourceUrl).toMatch(/^agentstudio:\/\//);
+		expect(JSON.stringify(contentItems)).not.toMatch(/itemsById|orderedItemIds|summary|groups/i);
+		expect(bridgeCommWorkerContentItemsFromReviewPackage(null)).toEqual([]);
 	});
 });

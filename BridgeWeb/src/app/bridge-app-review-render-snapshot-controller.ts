@@ -15,14 +15,20 @@ import {
 } from '../core/comm-worker/bridge-main-render-snapshot-store.js';
 import type {
 	BridgeWorkerContentAvailabilityPatchPayload,
+	BridgeWorkerReviewContentMetadata,
 	BridgeWorkerServerToMainMessage,
 } from '../core/comm-worker/bridge-worker-contracts.js';
+import { bridgeWorkerReviewContentMetadataSchema } from '../core/comm-worker/bridge-worker-contracts.js';
 import {
 	createBridgeWorkerPierreCourier,
 	type BridgeWorkerPierreCourier,
 } from '../core/comm-worker/bridge-worker-pierre-courier.js';
 import type { BridgeWorkerPierreRenderJob } from '../core/comm-worker/bridge-worker-pierre-render-job.js';
 import type { ReviewTreeRowMetadata } from '../features/review/models/review-protocol-models.js';
+import type {
+	BridgeReviewItemDescriptor,
+	BridgeReviewPackage,
+} from '../foundation/review-package/bridge-review-package.js';
 import type {
 	BridgeReviewPanelChromeSlice,
 	BridgeReviewSelectionSlice,
@@ -34,6 +40,7 @@ import { bridgeReviewViewerRootSnapshotFromSlices } from '../review-viewer/state
 export interface UseBridgeReviewRenderSnapshotControllerProps {
 	readonly panelChromeSlice: BridgeReviewPanelChromeSlice;
 	readonly pierreCourier?: BridgeWorkerPierreCourier;
+	readonly reviewPackage: BridgeReviewPackage | null;
 	readonly reviewTreeRows: readonly ReviewTreeRowMetadata[];
 }
 
@@ -83,9 +90,10 @@ export function useBridgeReviewRenderSnapshotController(
 	const commandHandler = useMemo(
 		(): BridgeCommWorkerCommandHandler =>
 			createBridgeCommWorkerCommandHandler({
+				contentItems: bridgeCommWorkerContentItemsFromReviewPackage(props.reviewPackage),
 				rows: bridgeCommWorkerRowsFromReviewTreeRows(props.reviewTreeRows),
 			}),
-		[props.reviewTreeRows],
+		[props.reviewPackage, props.reviewTreeRows],
 	);
 	const pierreCourier = useMemo(
 		(): BridgeWorkerPierreCourier =>
@@ -178,6 +186,37 @@ function bridgeCommWorkerRowsFromReviewTreeRows(
 		parentId: null,
 		index,
 	}));
+}
+
+export function bridgeCommWorkerContentItemsFromReviewPackage(
+	reviewPackage: BridgeReviewPackage | null,
+): readonly BridgeWorkerReviewContentMetadata[] {
+	if (reviewPackage === null) {
+		return [];
+	}
+	return reviewPackage.orderedItemIds.flatMap(
+		(itemId): readonly BridgeWorkerReviewContentMetadata[] => {
+			const item = reviewPackage.itemsById[itemId];
+			if (item === undefined) {
+				return [];
+			}
+			return [bridgeWorkerReviewContentMetadataFromReviewItem(item)];
+		},
+	);
+}
+
+function bridgeWorkerReviewContentMetadataFromReviewItem(
+	item: BridgeReviewItemDescriptor,
+): BridgeWorkerReviewContentMetadata {
+	return bridgeWorkerReviewContentMetadataSchema.parse({
+		itemId: item.itemId,
+		path: item.headPath ?? item.basePath ?? item.itemId,
+		language: item.language ?? null,
+		cacheKey: item.cacheKey,
+		sizeBytes: item.sizeBytes,
+		contentRoles: item.contentRoles,
+		contentLineCountsByRole: item.contentLineCountsByRole ?? {},
+	});
 }
 
 export function applyBridgeWorkerMessagesToMainRenderSnapshotStore(props: {
