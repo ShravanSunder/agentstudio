@@ -5,7 +5,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 
 import { bridgeContentDemandExecutionPolicy } from '../../core/demand/bridge-content-demand-policy.js';
 import { recordBridgeCodeViewHydrationTelemetry } from '../telemetry/bridge-review-viewer-telemetry.js';
-import { scheduleBridgeCodeViewInstantRevealRetarget } from './bridge-code-view-instant-reveal-retarget.js';
+import { scheduleBridgeCodeViewInstantRevealRetargetForPanel } from './bridge-code-view-instant-reveal-retarget.js';
 import {
 	createBridgeCodeViewInitialItems,
 	materializeBridgeCodeViewItem,
@@ -51,7 +51,6 @@ import {
 import {
 	bridgeCodeViewInstantRevealPolicy,
 	codeViewMaterializationRetryFrameBudget,
-	codeViewSelectionScrollRetryFrameBudget,
 	codeViewVisibleHydrationScrollIdleMilliseconds,
 	codeViewVisibleMetadataScrollThrottleMilliseconds,
 	initialSelectionScrollDiagnostic,
@@ -61,6 +60,10 @@ import {
 	type BridgeCodeViewScrollToItemOptions,
 	type BridgeCodeViewSelectionScrollDiagnostic,
 } from './bridge-code-view-panel-types.js';
+import {
+	cancelBridgeCodeViewPendingProgrammaticReveal,
+	createBridgeCodeViewProgrammaticRevealGate,
+} from './bridge-code-view-programmatic-reveal-gate.js';
 import { createBridgeCodeViewVisibleInterestPublisher } from './bridge-code-view-visible-interest-publisher.js';
 import { useBridgeCodeViewCollapseController } from './use-bridge-code-view-collapse-controller.js';
 import { useBridgeCodeViewSelectionScroll } from './use-bridge-code-view-selection-scroll.js';
@@ -117,6 +120,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		null,
 	);
 	const settledInstantSelectionRevealKeyRef = useRef<string | null>(null);
+	const lastProgrammaticRevealItemIdRef = useRef<string | null>(null);
 	const scrollIdleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const scrollActivityActiveRef = useRef(false);
 	const renderedWindowItemIdsRef = useRef<readonly string[]>([]);
@@ -146,6 +150,26 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 	const onExpandedItemDemand = props.onExpandedItemDemand;
 	const [materializationDiagnostic, setMaterializationDiagnostic] =
 		useState<BridgeCodeViewMaterializationDiagnostic>(() => emptyMaterializationDiagnostic());
+	const cancelPendingProgrammaticReveal = useCallback((): void => {
+		cancelBridgeCodeViewPendingProgrammaticReveal({
+			pendingPreHydrationSelectionScrollKeyRef,
+			pendingSelectionRevealBehaviorRef,
+			pendingSelectionScrollFrameRef,
+			pendingSmoothSelectionScrollKeyRef,
+			recentInstantSelectionRevealRef,
+		});
+	}, []);
+	const programmaticRevealGate = useMemo(
+		() =>
+			createBridgeCodeViewProgrammaticRevealGate({
+				isScrollActive: (): boolean => scrollActivityActiveRef.current,
+				lastRevealedItemId: (): string | null => lastProgrammaticRevealItemIdRef.current,
+				onProgrammaticRevealSkipped: (): void => {
+					cancelPendingProgrammaticReveal();
+				},
+			}),
+		[cancelPendingProgrammaticReveal],
+	);
 	const publishVisibleHydrationItemIds = useCallback((): void => {
 		const pendingRenderedItemsSource = pendingRenderedItemsSourceRef.current;
 		if (pendingRenderedItemsSource !== null) {
@@ -199,6 +223,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 			visibleInterestPublisher.publishDuringScroll();
 			if (!scrollActivityActiveRef.current) {
 				scrollActivityActiveRef.current = true;
+				cancelPendingProgrammaticReveal();
 				onScrollActivityChangeRef.current?.(true);
 			}
 			if (scrollIdleTimeoutRef.current !== null) {
@@ -218,7 +243,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 				visibleInterestPublisher.publishAtScrollIdle();
 			}, codeViewVisibleHydrationScrollIdleMilliseconds);
 		},
-		[visibleInterestPublisher],
+		[cancelPendingProgrammaticReveal, visibleInterestPublisher],
 	);
 	const scheduleVisibleHeaderItemIdsPublish = useCallback((): void => {
 		if (scrollActivityActiveRef.current) {
@@ -291,23 +316,31 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 			readonly selectionScrollKey: string;
 			readonly viewportOffsetTolerancePixels: number;
 		}): void => {
-			scheduleBridgeCodeViewInstantRevealRetarget({
+			scheduleBridgeCodeViewInstantRevealRetargetForPanel({
 				codeViewHandle: params.codeViewHandle,
 				codeViewHandleRef,
 				itemId: params.itemId,
 				lastSelectionScrollKeyRef,
 				pendingSelectionScrollFrameRef,
+				programmaticRevealGate,
 				recentInstantSelectionRevealRef,
-				remainingFrameBudget: codeViewSelectionScrollRetryFrameBudget,
 				selectionScrollKey: params.selectionScrollKey,
 				settledInstantSelectionRevealKeyRef,
 				viewportOffsetTolerancePixels: params.viewportOffsetTolerancePixels,
 			});
 		},
-		[],
+		[programmaticRevealGate],
 	);
 	const scrollToItem = useCallback(
 		(itemId: string, options: BridgeCodeViewScrollToItemOptions = {}): boolean => {
+			const revealRequest = {
+				revealIntent: options.revealIntent ?? 'hydration-reissue',
+				targetItemId: itemId,
+			};
+			if (programmaticRevealGate.shouldSkipProgrammaticReveal(revealRequest)) {
+				programmaticRevealGate.onProgrammaticRevealSkipped(revealRequest);
+				return false;
+			}
 			const codeViewHandle = codeViewHandleRef.current;
 			if (codeViewHandle === null) {
 				return false;
@@ -360,6 +393,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 				}
 			}
 			controller.scrollToItem(itemId, scrollBehavior);
+			lastProgrammaticRevealItemIdRef.current = itemId;
 			const selectionScrollKey = `${sourceKey}:${codeViewMountVersion}:${itemId}`;
 			lastSelectionScrollKeyRef.current = selectionScrollKey;
 			if (
@@ -395,6 +429,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		[
 			codeViewMountVersion,
 			onExpandedItemDemand,
+			programmaticRevealGate,
 			reviewItemsById,
 			scheduleInstantSelectionRevealRetarget,
 			sourceKey,
@@ -578,6 +613,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		pendingSelectionRevealBehaviorRef,
 		pendingSelectionScrollFrameRef,
 		pendingSmoothSelectionScrollKeyRef,
+		programmaticRevealGate,
 		reviewPackage: props.reviewPackage,
 		scrollToItem,
 		selectedItemId: props.selectedItemId,
@@ -833,6 +869,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 						// freshly hydrated content changes heights.
 						scrollToItem(itemId, {
 							behavior: pendingSelectionRevealBehaviorRef.current ?? 'instant',
+							revealIntent: 'hydration-reissue',
 						});
 						pendingPreHydrationSelectionScrollKeyRef.current = null;
 						pendingSmoothSelectionScrollKeyRef.current = selectionScrollKey;

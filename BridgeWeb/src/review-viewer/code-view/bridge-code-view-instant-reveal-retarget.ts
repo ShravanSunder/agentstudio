@@ -9,7 +9,14 @@ import {
 	shouldApplyBridgeCodeViewRenderedHeaderCorrection,
 	type BridgeCodeViewInstantRevealRearmCandidate,
 } from './bridge-code-view-panel-support.js';
-import { bridgeCodeViewInstantRevealPolicy } from './bridge-code-view-panel-types.js';
+import {
+	bridgeCodeViewInstantRevealPolicy,
+	codeViewSelectionScrollRetryFrameBudget,
+} from './bridge-code-view-panel-types.js';
+import {
+	skipBridgeCodeViewProgrammaticRevealIfNeeded,
+	type BridgeCodeViewProgrammaticRevealGate,
+} from './bridge-code-view-programmatic-reveal-gate.js';
 
 export interface ScheduleBridgeCodeViewInstantRevealRetargetProps {
 	readonly codeViewHandle: CodeViewHandle<undefined>;
@@ -17,11 +24,46 @@ export interface ScheduleBridgeCodeViewInstantRevealRetargetProps {
 	readonly itemId: string;
 	readonly lastSelectionScrollKeyRef: MutableRefObject<string | null>;
 	readonly pendingSelectionScrollFrameRef: MutableRefObject<number | null>;
+	readonly programmaticRevealGate: BridgeCodeViewProgrammaticRevealGate;
 	readonly recentInstantSelectionRevealRef: MutableRefObject<BridgeCodeViewInstantRevealRearmCandidate | null>;
 	readonly remainingFrameBudget: number;
 	readonly selectionScrollKey: string;
 	readonly settledInstantSelectionRevealKeyRef: MutableRefObject<string | null>;
 	readonly viewportOffsetTolerancePixels: number;
+}
+
+export interface ScheduleBridgeCodeViewInstantRevealRetargetForPanelProps {
+	readonly codeViewHandle: CodeViewHandle<undefined>;
+	readonly codeViewHandleRef: MutableRefObject<CodeViewHandle<undefined> | null>;
+	readonly itemId: string;
+	readonly lastSelectionScrollKeyRef: MutableRefObject<string | null>;
+	readonly pendingSelectionScrollFrameRef: MutableRefObject<number | null>;
+	readonly programmaticRevealGate: BridgeCodeViewProgrammaticRevealGate;
+	readonly recentInstantSelectionRevealRef: MutableRefObject<BridgeCodeViewInstantRevealRearmCandidate | null>;
+	readonly selectionScrollKey: string;
+	readonly settledInstantSelectionRevealKeyRef: MutableRefObject<string | null>;
+	readonly viewportOffsetTolerancePixels: number;
+}
+
+export function scheduleBridgeCodeViewInstantRevealRetargetForPanel(
+	props: ScheduleBridgeCodeViewInstantRevealRetargetForPanelProps,
+): void {
+	if (
+		skipBridgeCodeViewProgrammaticRevealIfNeeded({
+			programmaticRevealGate: props.programmaticRevealGate,
+			recentInstantSelectionRevealRef: props.recentInstantSelectionRevealRef,
+			revealIntent: 'retarget',
+			selectionScrollKey: props.selectionScrollKey,
+			settledInstantSelectionRevealKeyRef: props.settledInstantSelectionRevealKeyRef,
+			targetItemId: props.itemId,
+		})
+	) {
+		return;
+	}
+	scheduleBridgeCodeViewInstantRevealRetarget({
+		...props,
+		remainingFrameBudget: codeViewSelectionScrollRetryFrameBudget,
+	});
 }
 
 export function scheduleBridgeCodeViewInstantRevealRetarget(
@@ -42,6 +84,18 @@ export function scheduleBridgeCodeViewInstantRevealRetarget(
 				props.codeViewHandleRef.current !== props.codeViewHandle ||
 				props.lastSelectionScrollKeyRef.current !== props.selectionScrollKey ||
 				props.codeViewHandle.getItem(props.itemId) === undefined
+			) {
+				return;
+			}
+			if (
+				skipBridgeCodeViewProgrammaticRevealIfNeeded({
+					programmaticRevealGate: props.programmaticRevealGate,
+					recentInstantSelectionRevealRef: props.recentInstantSelectionRevealRef,
+					revealIntent: 'retarget',
+					selectionScrollKey: props.selectionScrollKey,
+					settledInstantSelectionRevealKeyRef: props.settledInstantSelectionRevealKeyRef,
+					targetItemId: props.itemId,
+				})
 			) {
 				return;
 			}

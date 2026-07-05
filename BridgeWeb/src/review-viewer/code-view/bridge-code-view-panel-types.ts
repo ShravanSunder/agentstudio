@@ -9,6 +9,7 @@ import type {
 	BridgeCodeViewContentResources,
 	BridgeCodeViewItemPresentation,
 } from './bridge-code-view-materialization.js';
+import type { BridgeCodeViewProgrammaticRevealIntent } from './bridge-code-view-programmatic-reveal-gate.js';
 
 export interface BridgeCodeViewPanelProps {
 	readonly reviewPackage: BridgeReviewPackage;
@@ -40,6 +41,7 @@ export interface BridgeCodeViewControlHandle {
 export interface BridgeCodeViewScrollToItemOptions {
 	readonly behavior?: CodeViewScrollBehavior;
 	readonly expandIfCollapsed?: boolean;
+	readonly revealIntent?: BridgeCodeViewProgrammaticRevealIntent;
 }
 
 export interface BridgeCodeViewSelectionScrollDiagnostic {

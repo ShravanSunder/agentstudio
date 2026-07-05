@@ -5,6 +5,11 @@ import {
 	applyDeltaToBridgeReviewItemRegistry,
 	createBridgeReviewItemRegistry,
 } from '../../foundation/review-package/bridge-review-item-registry.js';
+import type { BridgeTelemetrySample } from '../../foundation/telemetry/bridge-telemetry-event.js';
+import type {
+	BridgeTelemetryMeasureProps,
+	BridgeTelemetryRecorder,
+} from '../../foundation/telemetry/bridge-telemetry-recorder.js';
 import { buildBridgeReviewProjection } from '../navigation/review-projection.js';
 import { makeBridgeViewerBrowserFixture } from '../test-support/bridge-viewer-mocked-backend.js';
 import { makeBridgeViewerProjectionFixture } from '../test-support/review-viewer-fixtures.js';
@@ -411,9 +416,64 @@ describe('Bridge Trees controller', () => {
 		]);
 	});
 
+	test('guards selected-path scrollToPath while user tree scroll is active', () => {
+		const model = new RecordingTreesModel();
+		const telemetrySamples: BridgeTelemetrySample[] = [];
+		const controller = new BridgeTreesController({
+			model,
+			isProgrammaticScrollActive: () => true,
+			telemetryRecorder: makeCapturingRecorder(telemetrySamples),
+		});
+		const source = makeSource({
+			orderedPaths: ['src/deep/nested/file.ts'],
+			gitStatusEntries: [{ path: 'src/deep/nested/file.ts', status: 'modified' }],
+			primaryItemIdByTreePath: {
+				'src/deep/nested/file.ts': 'deep-file',
+			},
+		});
+
+		controller.applySource(source);
+
+		expect(controller.selectTreePath('src/deep/nested/file.ts')).toBe('deep-file');
+		expect(model.scrollToPathCalls).toEqual([]);
+		expect(telemetrySamples[0]).toMatchObject({
+			name: 'performance.bridge.trees.scroll_to_path',
+			stringAttributes: expect.objectContaining({
+				'agentstudio.bridge.result': 'dropped',
+				'agentstudio.bridge.scroll.offset': 'none',
+				'agentstudio.bridge.scroll.reason': 'selected_path_effect',
+			}),
+			booleanAttributes: {
+				'agentstudio.bridge.focus': true,
+			},
+		});
+	});
+
 	test('selects a clicked tree item through the public tree handle without scrolling', () => {
 		const model = new RecordingTreesModel();
 		const controller = new BridgeTreesController({ model });
+		const source = makeSource({
+			orderedPaths: ['src/clicked.ts'],
+			gitStatusEntries: [{ path: 'src/clicked.ts', status: 'modified' }],
+			primaryItemIdByTreePath: {
+				'src/clicked.ts': 'clicked-file',
+			},
+		});
+		const clickedFile = model.addFile('src/clicked.ts');
+
+		controller.applySource(source);
+
+		expect(controller.selectClickedTreePath('src/clicked.ts')).toBe('clicked-file');
+		expect(clickedFile.select).toHaveBeenCalledTimes(1);
+		expect(model.scrollToPathCalls).toEqual([]);
+	});
+
+	test('keeps clicked tree selection active while user tree scroll is active', () => {
+		const model = new RecordingTreesModel();
+		const controller = new BridgeTreesController({
+			model,
+			isProgrammaticScrollActive: () => true,
+		});
 		const source = makeSource({
 			orderedPaths: ['src/clicked.ts'],
 			gitStatusEntries: [{ path: 'src/clicked.ts', status: 'modified' }],
@@ -453,6 +513,39 @@ describe('Bridge Trees controller', () => {
 		expect(model.scrollToPathCalls).toEqual([
 			{ path: 'src/deep/nested/file.ts', options: undefined },
 		]);
+	});
+
+	test('guards search-match scrollToPath while user tree scroll is active', () => {
+		const model = new RecordingTreesModel();
+		const telemetrySamples: BridgeTelemetrySample[] = [];
+		const controller = new BridgeTreesController({
+			model,
+			isProgrammaticScrollActive: () => true,
+			telemetryRecorder: makeCapturingRecorder(telemetrySamples),
+		});
+		const source = makeSource({
+			orderedPaths: ['src/deep/nested/TargetFile.ts'],
+			gitStatusEntries: [{ path: 'src/deep/nested/TargetFile.ts', status: 'modified' }],
+			primaryItemIdByTreePath: {
+				'src/deep/nested/TargetFile.ts': 'target-file',
+			},
+		});
+
+		controller.applySource(source);
+
+		expect(controller.revealFirstSearchMatch('targetfile')).toBe('src/deep/nested/TargetFile.ts');
+		expect(model.scrollToPathCalls).toEqual([]);
+		expect(telemetrySamples[0]).toMatchObject({
+			name: 'performance.bridge.trees.scroll_to_path',
+			stringAttributes: expect.objectContaining({
+				'agentstudio.bridge.result': 'dropped',
+				'agentstudio.bridge.scroll.offset': 'none',
+				'agentstudio.bridge.scroll.reason': 'search_match',
+			}),
+			booleanAttributes: {
+				'agentstudio.bridge.focus': false,
+			},
+		});
 	});
 
 	test('reveals a tree path without throwing on stale ancestor expansion handles', () => {
@@ -640,6 +733,17 @@ function makeSource(
 		gitStatusSignature: props.gitStatusEntries
 			.map((entry): string => `${entry.path}\u0000${entry.status}`)
 			.join('\n'),
+	};
+}
+
+function makeCapturingRecorder(samples: BridgeTelemetrySample[]): BridgeTelemetryRecorder {
+	return {
+		flush: (): boolean => true,
+		isEnabled: (): boolean => true,
+		measure: <TResult>(props: BridgeTelemetryMeasureProps<TResult>): TResult => props.operation(),
+		record: (sample: BridgeTelemetrySample): void => {
+			samples.push(sample);
+		},
 	};
 }
 

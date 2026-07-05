@@ -12,6 +12,7 @@ import {
 	type BridgeCodeViewScrollToItemOptions,
 	type BridgeCodeViewSelectionScrollDiagnostic,
 } from './bridge-code-view-panel-types.js';
+import type { BridgeCodeViewProgrammaticRevealGate } from './bridge-code-view-programmatic-reveal-gate.js';
 
 interface UseBridgeCodeViewSelectionScrollProps {
 	readonly codeViewHandleRef: MutableRefObject<CodeViewHandle<undefined> | null>;
@@ -29,6 +30,7 @@ interface UseBridgeCodeViewSelectionScrollProps {
 	>;
 	readonly pendingSelectionScrollFrameRef: MutableRefObject<number | null>;
 	readonly pendingSmoothSelectionScrollKeyRef: MutableRefObject<string | null>;
+	readonly programmaticRevealGate: BridgeCodeViewProgrammaticRevealGate;
 	readonly reviewPackage: BridgeReviewPackage;
 	readonly scrollToItem: (itemId: string, options?: BridgeCodeViewScrollToItemOptions) => boolean;
 	readonly selectedItemId: string | null;
@@ -52,6 +54,7 @@ export function useBridgeCodeViewSelectionScroll(
 		pendingSelectionRevealBehaviorRef,
 		pendingSelectionScrollFrameRef,
 		pendingSmoothSelectionScrollKeyRef,
+		programmaticRevealGate,
 		reviewPackage,
 		scrollToItem,
 		selectedItemId,
@@ -75,6 +78,26 @@ export function useBridgeCodeViewSelectionScroll(
 			return;
 		}
 		lastSelectionScrollKeyRef.current = selectionScrollKey;
+		const revealRequest = {
+			revealIntent: 'selection-effect' as const,
+			targetItemId: selectedItemId,
+		};
+		const skipProgrammaticReveal =
+			programmaticRevealGate.shouldSkipProgrammaticReveal(revealRequest);
+		if (skipProgrammaticReveal) {
+			pendingPreHydrationSelectionScrollKeyRef.current = null;
+			pendingSelectionRevealBehaviorRef.current = null;
+			pendingSmoothSelectionScrollKeyRef.current = null;
+			programmaticRevealGate.onProgrammaticRevealSkipped(revealRequest);
+			setSelectionScrollDiagnostic({
+				didScroll: false,
+				itemId: selectedItemId,
+				itemTop: codeViewHandle.getInstance()?.getTopForItem(selectedItemId) ?? 'missing',
+				reason: 'scroll-active',
+				remainingFrameBudget: codeViewSelectionScrollRetryFrameBudget,
+			});
+			return;
+		}
 		const shouldUseInitialPlacement =
 			initialSelectedItemByViewerKeyRef.current?.sourceKey === sourceKey &&
 			initialSelectedItemByViewerKeyRef.current.selectedItemId === selectedItemId &&
@@ -115,6 +138,20 @@ export function useBridgeCodeViewSelectionScroll(
 					});
 					return;
 				}
+				if (programmaticRevealGate.shouldSkipProgrammaticReveal(revealRequest)) {
+					pendingPreHydrationSelectionScrollKeyRef.current = null;
+					pendingSelectionRevealBehaviorRef.current = null;
+					pendingSmoothSelectionScrollKeyRef.current = null;
+					programmaticRevealGate.onProgrammaticRevealSkipped(revealRequest);
+					setSelectionScrollDiagnostic({
+						didScroll: false,
+						itemId: selectedItemId,
+						itemTop: codeViewHandle.getInstance()?.getTopForItem(selectedItemId) ?? 'missing',
+						reason: 'scroll-active',
+						remainingFrameBudget,
+					});
+					return;
+				}
 				if (!codeViewHandleHasInstance(codeViewHandle)) {
 					if (remainingFrameBudget > 0) {
 						scheduleSelectionScrollAttempt(remainingFrameBudget - 1);
@@ -137,7 +174,10 @@ export function useBridgeCodeViewSelectionScroll(
 				// navigation; landing precision is held by the R3/R4 gates and
 				// the F9 instant re-target loop in bridge-code-view-panel.
 				const scrollBehavior: BridgeCodeViewScrollToItemOptions['behavior'] = 'instant';
-				const didScroll = scrollToItem(selectedItemId, { behavior: scrollBehavior });
+				const didScroll = scrollToItem(selectedItemId, {
+					behavior: scrollBehavior,
+					revealIntent: 'selection-effect',
+				});
 				if (!didScroll) {
 					if (remainingFrameBudget > 0) {
 						scheduleSelectionScrollAttempt(remainingFrameBudget - 1);
@@ -190,6 +230,7 @@ export function useBridgeCodeViewSelectionScroll(
 		pendingSelectionRevealBehaviorRef,
 		pendingSelectionScrollFrameRef,
 		pendingSmoothSelectionScrollKeyRef,
+		programmaticRevealGate,
 		reviewPackage,
 		scrollToItem,
 		selectedItemId,

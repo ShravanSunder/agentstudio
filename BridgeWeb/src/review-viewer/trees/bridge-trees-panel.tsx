@@ -32,6 +32,7 @@ import { createBridgeReviewTreeVisibleItemPublisher } from './bridge-trees-visib
 const preserveInputOrderSort: FileTreeSortComparator = () => 0;
 const bridgeReviewTreeInitialVisibleRowCount = 24;
 const bridgeReviewTreeOverscan = 10;
+const bridgeReviewTreeScrollIdleMilliseconds = 120;
 
 type BridgeReviewTreeClickProbeSelectionResult = 'accepted' | 'rejected' | 'no_row';
 
@@ -133,8 +134,11 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 		stickyFolders: true,
 		unsafeCSS: bridgeViewerTreeUnsafeCSS,
 	});
+	const scrollActiveRef = useRef(false);
+	const scrollIdleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const controllerRef = useRef<BridgeTreesController | null>(null);
 	controllerRef.current ??= new BridgeTreesController({
+		isProgrammaticScrollActive: (): boolean => scrollActiveRef.current,
 		model,
 		telemetryRecorder,
 		telemetryTraceContext,
@@ -143,7 +147,6 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 		telemetryRecorder,
 		telemetryTraceContext,
 	});
-	const scrollActiveRef = useRef(false);
 	const hoverMeasurementRef = useRef<{
 		readonly path: string | null;
 		readonly startedAt: number;
@@ -315,12 +318,25 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 			viewer: 'review',
 		});
 		const scheduleVisibleItemIds = (): void => {
+			visibleItemPublisher.schedule();
+		};
+		const markUserScrollActive = (): void => {
 			scrollActiveRef.current = true;
+			if (scrollIdleTimeoutRef.current !== null) {
+				clearTimeout(scrollIdleTimeoutRef.current);
+			}
+			scrollIdleTimeoutRef.current = setTimeout((): void => {
+				scrollIdleTimeoutRef.current = null;
+				scrollActiveRef.current = false;
+			}, bridgeReviewTreeScrollIdleMilliseconds);
+		};
+		const handleTreeScroll = (): void => {
+			markUserScrollActive();
 			visibleItemPublisher.schedule();
 		};
 		const setupFrameId = requestAnimationFrame((): void => {
 			scrollElement = pierreTreeScrollOwnerForModel(model);
-			scrollElement?.addEventListener('scroll', scheduleVisibleItemIds, { passive: true });
+			scrollElement?.addEventListener('scroll', handleTreeScroll, { passive: true });
 			visibleItemPublisher.publishNow();
 			// Only anchor time-to-first-interaction once the tree actually has rows painted.
 			if (!hasRecordedFirstInteractionRef.current && sourceRef.current.orderedPaths.length > 0) {
@@ -343,7 +359,12 @@ export function BridgeReviewTreesPanel(props: BridgeReviewTreesPanelProps): Reac
 		return (): void => {
 			cancelAnimationFrame(setupFrameId);
 			visibleItemPublisher.cancel();
-			scrollElement?.removeEventListener('scroll', scheduleVisibleItemIds);
+			if (scrollIdleTimeoutRef.current !== null) {
+				clearTimeout(scrollIdleTimeoutRef.current);
+				scrollIdleTimeoutRef.current = null;
+			}
+			scrollActiveRef.current = false;
+			scrollElement?.removeEventListener('scroll', handleTreeScroll);
 			unsubscribeModel();
 		};
 	}, [model, onVisibleItemIdsChange, telemetryRecorder, telemetryTraceContext]);
