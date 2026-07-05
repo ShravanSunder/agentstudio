@@ -3,7 +3,7 @@
 Date: 2026-07-04
 goal_id: 2026-07-04-bridge-scroll-demand-queue
 source_spec: `docs/specs/bridge-viewer-transport/local-first-comm-worker-architecture.md`
-source_commit: `a67f7ed6`
+source_commit: `a0075464`
 
 > For agentic workers: REQUIRED SUB-SKILL: Use
 > `superpowers:subagent-driven-development` or `superpowers:executing-plans`
@@ -13,7 +13,7 @@ source_commit: `a67f7ed6`
 
 ## Goal
 
-Operationalize R41-R59 by moving BridgeViewer toward a local-first split:
+Operationalize R41-R60 by moving BridgeViewer toward a local-first split:
 the FE owns only synchronous render slices and frame-budgeted DOM apply, the
 comm worker owns protocol/cache/demand/telemetry truth, and Swift remains the
 metadata/content server. This increment is intentionally split into multiple
@@ -31,8 +31,8 @@ the plan cut protocol/cache/queue/telemetry ownership into the comm worker.
 
 ## Tech Stack
 
-- BridgeWeb React + TypeScript + `@tanstack/react-query` for coarse async
-  worker RPC/mutations, non-Zustand main render snapshots/hooks for
+- BridgeWeb React + TypeScript with typed worker RPC lifecycle stores/hooks for
+  coarse worker RPC/mutations, non-Zustand main render snapshots/hooks for
   frame-critical display copies, worker-local Zustand vanilla for Bridge data
   truth, and Vitest/browser Vitest.
 - Pierre/Shiki workers under `BridgeWeb/src/review-viewer/workers/`.
@@ -42,15 +42,16 @@ the plan cut protocol/cache/queue/telemetry ownership into the comm worker.
 ## Source Coverage
 
 - `docs/specs/bridge-viewer-transport/local-first-comm-worker-architecture.md`
-  read in full from committed `a67f7ed6`: 1125 lines. Normative anchors include
-  R41-R59 and native live gates; R46 promotion/prep budget line 321; R52
+  read in full from committed `a0075464`: 1172 lines. Normative anchors include
+  R41-R60 and native live gates; R46 promotion/prep budget line 321; R52
   bounded Pierre courier and `BridgeWorkerPierreRenderJob` line 542; R53
   transferable-first worker messages line 560; R54 worker-local Zustand and
-  TanStack Query/RPC boundary line 601; R55 Bridge-owned TanStack Query policy
-  line 648; R56 `BridgeMainRenderSnapshotStore` line 684; R57 Pierre/Shiki
+  typed RPC lifecycle boundary line 601; R55 no-async-cache RPC lifecycle policy
+  line 649; R56 `BridgeMainRenderSnapshotStore` line 684; R57 Pierre/Shiki
   courier budgets line 705; R58 normalized worker-local Zustand / O(delta)
-  thresholds line 741; R59 scheme-RPC trust boundary line 802; Review/File View
-  transfer mode matrix line 858; `Channel Topology And Typed Contracts` line
+  thresholds line 741; R59 scheme-RPC trust boundary line 802; R60 worker
+  content-preparation pump line 825; Review/File View transfer mode matrix line
+  905; `Channel Topology And Typed Contracts` line
   443; `Action And Event Sequence Contracts` line 876; migration constraints
   line 1040; and compile-enforced deletion sets line 1070. Channel Topology is
   the source
@@ -71,16 +72,21 @@ the plan cut protocol/cache/queue/telemetry ownership into the comm worker.
   and stock Pierre main -> worker delivery is treated as measured clone unless
   a sanctioned adapter proves transfer-list use. R54-R58 add the concrete
   store/type split: `BridgeMainRenderSnapshotStore` is the single non-Zustand
-  `useSyncExternalStore` main-local render copy, `BridgeCommWorkerStoreState` is
-  normalized worker-local Zustand truth, TanStack Query is required only through
-  `BridgeWorkerQueryClientPolicy` for coarse React worker RPC and mutations, and
-  the boundary carries only typed DTOs plus declared transfer fields. R58 adds
+  `useSyncExternalStore` main-local render copy, `BridgeWorkerRpcLifecycleStore`
+  is the typed non-Zustand request lifecycle surface for coarse worker RPC and
+  optimistic rollback metadata, `BridgeCommWorkerStoreState` is normalized
+  worker-local Zustand truth, and the boundary carries only typed DTOs plus
+  declared transfer fields. R58 adds
   the worker-event-loop stop lines: no full `getState()` snapshots as
   input/output, selected/click paths O(selected + visible delta), source resets
   generation-swap then chunk, and worker queue-wait/handler-duration telemetry
   by lane/command class. R59 makes scheme RPC and worker DTOs a trust boundary
   with replay/staleness rejection, allowlists, byte caps, scrubbing, transfer
-  validation, and hostile tests.
+  validation, and hostile tests. R60 extends the budget upstream to worker
+  content preparation: parse/decode/window/diff/highlight/render-job prep must
+  run through a selected-preemptible `WorkerContentPreparationPump`, split or
+  offload above byte/line ceilings, and prove selected queue-wait while large
+  preparation continues.
 - `docs/plans/2026-07-04-unified-content-demand-queue.md` read in full: 688
   lines, used for Gate 0 shape, slice proof shape, deletion checklist, matrix,
   live gates, and contradiction handling.
@@ -201,7 +207,7 @@ Stop conditions:
    stop before G cutovers.
 8. PR 7a: `bridge-comm-worker-typed-shell` implements G1 only: inert
    `BridgeWorkerContracts` types plus a non-owning client/shell. No production
-   ownership, cache, queue/executor, telemetry transport, or R41-R59 proof
+   ownership, cache, queue/executor, telemetry transport, or R41-R60 proof
    claims.
 9. PR 7b: `bridge-comm-worker-telemetry-cutover` converts telemetry transport
    with compile-dead deletion.
@@ -952,11 +958,13 @@ the typed main <-> server-worker schema; all Swift communication after the
 one-shot page-load bootstrap must use scheme-fetch request/response RPC plus
 long-lived streamed-fetch push; Pierre's own API is the only Pierre edge; and
 the listed forbidden edges are source-scanned. The normative store contract is
-R54-R58: Bridge data Zustand moves fully to the comm worker, normalized and
-O(delta); React/main uses `BridgeWorkerQueryClientPolicy` for coarse async
-worker RPC/mutations; hot display uses `BridgeMainRenderSnapshotStore` only; and
-worker hot actions carry queue-wait, handler-duration, touched-key, patch-size,
-source-reset, payload, and derived-list thresholds. G1 is an inert typed shell
+R54-R60: Bridge data Zustand moves fully to the comm worker, normalized and
+O(delta); React/main uses `BridgeWorkerRpcLifecycleStore` for coarse worker RPC
+request lifecycle and optimistic rollback metadata; hot display uses
+`BridgeMainRenderSnapshotStore` only; worker store hot actions carry queue-wait,
+handler-duration, touched-key, patch-size, source-reset, payload, and
+derived-list thresholds; and worker content preparation uses the
+selected-preemptible `WorkerContentPreparationPump`. G1 is an inert typed shell
 only; production ownership moves only in later cutover units with deletion sets.
 
 Files touched by the shared worker core:
@@ -964,13 +972,13 @@ Files touched by the shared worker core:
 - New comm-worker modules under `BridgeWeb/src/core/comm-worker/`, for example:
   `bridge-comm-worker-entry.ts`, `bridge-comm-worker-client.ts`,
   `bridge-worker-contracts.ts`, `bridge-comm-worker-protocol.ts`,
-  `bridge-worker-rpc-client.ts`, `bridge-worker-query-adapter.ts`,
+  `bridge-worker-rpc-client.ts`, `bridge-worker-rpc-lifecycle-store.ts`,
   `bridge-worker-patch-applier.ts`, `bridge-worker-transfer-list.ts`,
   `bridge-worker-pierre-render-job.ts`, `bridge-worker-pierre-courier.ts`,
-  `bridge-comm-worker-store.ts`, `bridge-comm-worker-command-handler.ts`,
-  `bridge-comm-worker-cache.ts`, `bridge-comm-worker-reconciler.ts`,
-  `bridge-comm-worker-executor.ts`, `bridge-comm-worker-telemetry.ts`, and
-  hostile server test support.
+  `bridge-worker-content-preparation-pump.ts`, `bridge-comm-worker-store.ts`,
+  `bridge-comm-worker-command-handler.ts`, `bridge-comm-worker-cache.ts`,
+  `bridge-comm-worker-reconciler.ts`, `bridge-comm-worker-executor.ts`,
+  `bridge-comm-worker-telemetry.ts`, and hostile server test support.
 - `BridgeWeb/src/core/demand/bridge-content-demand-reconciler.ts`
 - `BridgeWeb/src/core/demand/bridge-resource-executor.ts`
 - `BridgeWeb/src/core/models/bridge-demand-models.ts`
@@ -978,9 +986,8 @@ Files touched by the shared worker core:
 - `BridgeWeb/src/core/resources/bridge-resource-registry.ts`
 - `BridgeWeb/src/bridge/bridge-resource-url.ts`
 - `BridgeWeb/src/foundation/telemetry/bridge-telemetry-*`
-- `BridgeWeb/package.json` and `pnpm-lock.yaml` for the required
-  `@tanstack/react-query` dependency, first introduced in G1 unless an earlier
-  committed slice already added it.
+- `BridgeWeb/package.json` and `pnpm-lock.yaml` only to remove forbidden async
+  cache dependencies if an earlier slice introduced them.
 - `BridgeWeb/src/review-viewer/workers/projection/*` as reference only unless
   shared worker transport helpers are intentionally extracted.
 
@@ -1023,11 +1030,11 @@ Swift/server files:
 Objective:
 
 Create an inert typed shell: `BridgeWorkerContracts`, version fences, validation
-types, transfer descriptors, `BridgeWorkerQueryClientPolicy`,
+types, transfer descriptors, `BridgeWorkerRpcLifecycleStore`,
 `BridgeMainRenderSnapshotStore`, normalized worker-store contracts, the required
-`@tanstack/react-query` dependency, and a non-owning client/worker harness. G1
+`WorkerContentPreparationPump`, and a non-owning client/worker harness. G1
 must not own production protocol/cache/queue/telemetry state and must not claim
-R41-R59 proof. It can compile and unit-test typed messages/helpers only.
+R41-R60 proof. It can compile and unit-test typed messages/helpers only.
 
 Red patch first:
 
@@ -1049,9 +1056,10 @@ red failure is observed.
   `BridgeWeb/src/core/comm-worker/bridge-worker-pierre-render-job.unit.test.ts`
   with `encodes bounded Pierre render jobs with rank cache key and clone budget
   class`.
-- Create `BridgeWeb/src/core/comm-worker/bridge-worker-query-adapter.unit.test.ts`
-  with `sets BridgeWorkerQueryClientPolicy defaults and wraps coarse worker RPC
-  without subscribing to row patch streams`.
+- Create
+  `BridgeWeb/src/core/comm-worker/bridge-worker-rpc-lifecycle-store.unit.test.ts`
+  with `tracks pending ack fail timeout and rollback metadata without caching
+  rows content windows or byte buffers`.
 - Create
   `BridgeWeb/src/core/comm-worker/bridge-main-render-snapshot-store.unit.test.ts`
   with `uses useSyncExternalStore and accepts only local intent plus worker patch
@@ -1060,34 +1068,41 @@ red failure is observed.
   with `normalizes worker state and rejects root snapshots getState payloads and
   package-shaped hot actions`.
 - Create
+  `BridgeWeb/src/core/comm-worker/bridge-worker-content-preparation-pump.unit.test.ts`
+  with `large preparation yields to selected facts and resumes without redoing
+  completed slices`.
+- Create
   `BridgeWeb/src/core/comm-worker/bridge-comm-worker-hostile-server.unit.test.ts`
   with `drops duplicate reorder stale and never resolving replies without FE
   protocol ownership`.
+- Add a source-scan assertion to the G1 suite with `converted Bridge worker
+  surfaces do not import TanStack Query QueryClient useQuery useMutation SWR or
+  equivalent async cache primitives`.
 
 Red-first proof:
 
 ```bash
-pnpm --dir BridgeWeb exec vitest run src/core/comm-worker/bridge-worker-contracts.unit.test.ts src/core/comm-worker/bridge-comm-worker-protocol.unit.test.ts src/core/comm-worker/bridge-comm-worker-client.unit.test.ts src/core/comm-worker/bridge-worker-transfer-list.unit.test.ts src/core/comm-worker/bridge-worker-pierre-render-job.unit.test.ts src/core/comm-worker/bridge-worker-query-adapter.unit.test.ts src/core/comm-worker/bridge-main-render-snapshot-store.unit.test.ts src/core/comm-worker/bridge-comm-worker-store.unit.test.ts src/core/comm-worker/bridge-comm-worker-hostile-server.unit.test.ts
+pnpm --dir BridgeWeb exec vitest run src/core/comm-worker/bridge-worker-contracts.unit.test.ts src/core/comm-worker/bridge-comm-worker-protocol.unit.test.ts src/core/comm-worker/bridge-comm-worker-client.unit.test.ts src/core/comm-worker/bridge-worker-transfer-list.unit.test.ts src/core/comm-worker/bridge-worker-pierre-render-job.unit.test.ts src/core/comm-worker/bridge-worker-rpc-lifecycle-store.unit.test.ts src/core/comm-worker/bridge-main-render-snapshot-store.unit.test.ts src/core/comm-worker/bridge-comm-worker-store.unit.test.ts src/core/comm-worker/bridge-worker-content-preparation-pump.unit.test.ts src/core/comm-worker/bridge-comm-worker-hostile-server.unit.test.ts
 pnpm --dir BridgeWeb exec tsc --noEmit
 ```
 
 Expected failure before implementation: test files compile against missing
 `BridgeWorkerContracts`, transfer-list helpers, `BridgeWorkerPierreRenderJob`,
-`BridgeWorkerQueryClientPolicy`, `BridgeMainRenderSnapshotStore`, normalized
-worker store contracts, TanStack Query adapter, and inert shell modules. The red
-failure is missing typed shell implementation, not hostile-worker production
-ownership.
+`BridgeWorkerRpcLifecycleStore`, `BridgeMainRenderSnapshotStore`, normalized
+worker store contracts, `WorkerContentPreparationPump`, and inert shell modules.
+The red failure is missing typed shell implementation, not hostile-worker
+production ownership.
 
-Green implementation includes adding `@tanstack/react-query` to
-`BridgeWeb/package.json` and the lockfile if the dependency is not already
-present. Do not hand-roll an async cache substitute. The query client policy
-sets `refetchOnWindowFocus`, `refetchOnReconnect`, command-query
-`refetchOnMount`, `retry`, and `retryOnMount` to `false` for Bridge worker RPC.
+Green implementation includes a tiny typed RPC lifecycle store/helper. Do not
+add TanStack Query, SWR, Apollo, or an equivalent async cache. The lifecycle
+store records request ids, command kind, pending/ack/fail/timeout state,
+optimistic intent id, and rollback metadata only; it never caches rows, content
+windows, bytes, demand membership, or canonical Bridge data.
 
 Green proof:
 
 ```bash
-pnpm --dir BridgeWeb exec vitest run src/core/comm-worker/bridge-worker-contracts.unit.test.ts src/core/comm-worker/bridge-comm-worker-protocol.unit.test.ts src/core/comm-worker/bridge-comm-worker-client.unit.test.ts src/core/comm-worker/bridge-worker-transfer-list.unit.test.ts src/core/comm-worker/bridge-worker-pierre-render-job.unit.test.ts src/core/comm-worker/bridge-worker-query-adapter.unit.test.ts src/core/comm-worker/bridge-main-render-snapshot-store.unit.test.ts src/core/comm-worker/bridge-comm-worker-store.unit.test.ts src/core/comm-worker/bridge-comm-worker-hostile-server.unit.test.ts
+pnpm --dir BridgeWeb exec vitest run src/core/comm-worker/bridge-worker-contracts.unit.test.ts src/core/comm-worker/bridge-comm-worker-protocol.unit.test.ts src/core/comm-worker/bridge-comm-worker-client.unit.test.ts src/core/comm-worker/bridge-worker-transfer-list.unit.test.ts src/core/comm-worker/bridge-worker-pierre-render-job.unit.test.ts src/core/comm-worker/bridge-worker-rpc-lifecycle-store.unit.test.ts src/core/comm-worker/bridge-main-render-snapshot-store.unit.test.ts src/core/comm-worker/bridge-comm-worker-store.unit.test.ts src/core/comm-worker/bridge-worker-content-preparation-pump.unit.test.ts src/core/comm-worker/bridge-comm-worker-hostile-server.unit.test.ts
 pnpm --dir BridgeWeb exec tsc --noEmit
 ```
 
@@ -1199,8 +1214,8 @@ Compile-enforced deletion set:
 - FE generation/sequence/staleness/cache-membership truth.
 - FE demand retry/parking fields.
 - Main-thread Review Zustand imports/subscriptions/actions for Bridge viewer
-  data; keep only `BridgeMainRenderSnapshotStore` display copies and TanStack
-  Query coarse worker RPC/mutations.
+  data; keep only `BridgeMainRenderSnapshotStore` display copies and
+  `BridgeWorkerRpcLifecycleStore` coarse worker RPC lifecycle.
 - Main-thread Review parse/window/diff/highlight work before Pierre; keep only
   `BridgeWorkerPierreRenderJob` courier enqueue plus clone/submit telemetry.
 - Review prefetch pump and old cache-membership authority.
@@ -1265,8 +1280,8 @@ Compile-enforced deletion set:
 - FE generation/sequence/staleness caches for File View content.
 - FE retry/parking fields.
 - Main-thread File View Zustand imports/subscriptions/actions for Bridge viewer
-  data; keep only `BridgeMainRenderSnapshotStore` display copies and TanStack
-  Query coarse worker RPC/mutations.
+  data; keep only `BridgeMainRenderSnapshotStore` display copies and
+  `BridgeWorkerRpcLifecycleStore` coarse worker RPC lifecycle.
 - Main-thread File View content loading/decoding/line-window work before
   Pierre; keep only `BridgeWorkerPierreRenderJob` courier enqueue plus
   clone/submit telemetry.
@@ -1421,12 +1436,13 @@ Lane boundary:
 | R48 proof seams match boundaries | A-G | FE hostile fake worker tests; worker hostile mock server tests; Swift recorded worker traffic tests; native WKWebView gates; Victoria proof |
 | R52 bounded Pierre courier | G1, G3/G4 | `BridgeWorkerPierreRenderJob` tests; `BridgeWorkerPierreCourier` tests proving main only wraps/enqueues; source scans against main parse/window/diff/highlight/content loading before Pierre; clone/submit duration telemetry for stock Pierre API |
 | R53 transferable-first worker messages | G1, G3-G6 | `BridgeWorkerTransferListBuilder` tests; `BridgeWorkerContracts` transfer-field validation; Review/File View tests proving small DTOs clone and large ArrayBuffer payloads transfer with sender-detachment assertions; per-message serialize/clone/transfer telemetry |
-| R54 worker-local Zustand plus TanStack Query RPC | G1, G3/G4, G6 | `@tanstack/react-query` dependency and `BridgeWorkerQueryAdapter` tests; worker-local Zustand store tests; Review/File View render-snapshot tests; source scans proving no React/main Bridge data Zustand imports remain in converted surfaces |
-| R55 Bridge-owned QueryClient policy | G1, G3/G4, G6 | `BridgeWorkerQueryClientPolicy` tests proving focus/reconnect/mount refetch and retry are disabled for worker RPC; invalidation only through worker events; source scans proving query data is ack/status only |
-| R56 main render snapshot primitive | G1, G3/G4 | `BridgeMainRenderSnapshotStore` tests using `useSyncExternalStore`; Review/File View render-snapshot tests; source scans proving no route-local mini-stores, query-cache render reads, or Zustand compatibility bridge |
+| R54 worker-local Zustand plus typed RPC lifecycle | G1, G3/G4, G6 | `BridgeWorkerRpcLifecycleStore` tests; worker-local Zustand store tests; Review/File View render-snapshot tests; source scans proving no React/main Bridge data Zustand imports remain in converted surfaces |
+| R55 no async-cache RPC authority | G1, G3/G4, G6 | `BridgeWorkerRpcLifecycleStore` tests proving request lifecycle stores only ack/status/progress/rollback metadata; source scans proving no TanStack Query, QueryClient, useQuery, useMutation, SWR, Apollo, equivalent async cache, row/content cache, or library retry/refetch authority |
+| R56 main render snapshot primitive | G1, G3/G4 | `BridgeMainRenderSnapshotStore` tests using `useSyncExternalStore`; Review/File View render-snapshot tests; source scans proving no route-local mini-stores, async-cache render reads, or Zustand compatibility bridge |
 | R57 Pierre/Shiki courier ownership | G1, G3/G4 | `BridgeWorkerPierreRenderJob` budget tests; `BridgeWorkerPierreCourier` tests; source scans proving no duplicate Shiki preparation in comm worker and no main parse/window/diff/decode/highlight before Pierre |
 | R58 worker store O(delta) thresholds | G1, G3/G4, G5 | Worker-store tests for normalized shape, forbidden `getState` snapshots, selected/viewport/content-ready touch sets, source-reset generation swap + chunking, queue-wait/handler-duration/touched-key/patch-size telemetry |
 | R59 scheme RPC trust boundary | G1, G2/G6 | Hostile worker/server tests for forged ids, stale epochs, oversized bodies, unknown methods, malformed transfer descriptors, duplicate/reordered stream frames; Swift scheme allowlist/byte-cap/scrub tests |
+| R60 worker content-preparation pump | G1, G3/G4, G5 | `WorkerContentPreparationPump` tests proving parse/decode/window/diff/highlight/render-job prep yields by policy cap, selected facts preempt large preparation with queue-wait p95 < 16 ms/p99 < 32 ms, preparation resumes without redoing completed slices, and stale epochs abort |
 | PHASE 2 telemetry shared-channel compounding | A | `bridge-rpc-client` no-force-flush test; dedicated scheme endpoint tests; no-interactive-contention test |
 | PHASE 2 560ms click floor | C, D, live gates | O(selected + visible delta) invalidation proof; apply pump counters; VictoriaMetrics improvement vs 560ms baseline |
 | PHASE 2 severe freezes | D, E, live gates | Apply pump tests; File View chunk/prune tests; Victoria/Momentum proof showing 1.5s choke gone and no severe apply stalls |
@@ -1465,8 +1481,9 @@ execute unless it has a row here.
 | F1 worker-fetch native debug launch | Native proof | `observability:up` is healthy and F0 diagnostic action exists | Worker-originated scheme fetch marker, scheme handler served request, worker-observed byte count | `mise run verify-debug-observability`; `scripts/verify-bridge-worker-fetch-scheme-smoke.sh` | Fail distinctly for collector/action setup noise; block G cutovers on WebKit delivery failure |
 | G streamed-push worker channel | Worker/server cutover | Swift sends push/fact/content/failure/reconnect traffic | Server worker validates stream/epoch/sequence and publishes O(delta) slices | Recorded worker traffic tests and browser slice tests | Fail if main becomes a verbatim Swift relay or any untyped message crosses the channel |
 | G R52/R57 Pierre courier cost | Main -> Pierre courier | A `BridgeWorkerPierreRenderJob` reaches main | Main wraps/enqueues through Pierre only; no main parse/window/diff/highlight/content loading; stock Pierre clone/submit duration p95/p99 and job byte/line ceilings are measured and bounded unless a transfer-aware adapter proves zero-copy | `BridgeWorkerPierreCourier` tests; source scans; boundary telemetry | Fail if main reconstructs unbounded payloads, hides stock Pierre clone cost, duplicates Shiki prep, or claims transfer-list use without adapter proof |
-| G R54/R55/R56 store/RPC ownership | Store cutover | Review/File View converted surfaces publish worker slices or issue coarse worker RPC | React/main has no Bridge data Zustand imports; TanStack Query wraps coarse worker RPC/mutations with Bridge-owned no-refetch/no-retry policy; hot display uses `BridgeMainRenderSnapshotStore`; worker-local Zustand owns canonical data | `BridgeWorkerQueryAdapter` tests; render-snapshot tests; worker store tests; source scan for `zustand`/`useStore`/query-cache render reads in converted surfaces | Fail if Zustand remains live in React/main Bridge data paths, TanStack Query is used for high-frequency row/content patch streams, or query defaults create a second retry/refetch authority |
+| G R54/R55/R56 store/RPC ownership | Store cutover | Review/File View converted surfaces publish worker slices or issue coarse worker RPC | React/main has no Bridge data Zustand imports; typed `BridgeWorkerRpcLifecycleStore` wraps coarse worker RPC/mutations without async-cache retry/refetch/invalidation authority; hot display uses `BridgeMainRenderSnapshotStore`; worker-local Zustand owns canonical data | `BridgeWorkerRpcLifecycleStore` tests; render-snapshot tests; worker store tests; source scan for `zustand`/`useStore`/async-cache render reads in converted surfaces | Fail if Zustand remains live in React/main Bridge data paths, async cache is introduced for Bridge worker RPC or row/content patch streams, or a second retry/refetch authority appears |
 | G R58 worker event-loop starvation | Worker store hot action | Selected, viewport, content-ready, or source-reset fact reaches comm worker | Hot action touches only selected + visible delta; source reset generation-swaps then chunks; selected queue-wait p95 < 16 ms/p99 < 32 ms; handler slices obey policy cap | Worker-store tests; selected-preemption test; worker queue-wait/handler-duration/touched-key/patch-size telemetry | Fail if full maps/lists clone on click/scroll/content-ready, full package patches publish, or selected facts wait behind source reset/background work |
+| G R60 worker content-prep preemption | Worker compute pump | Parse/decode/window/diff/highlight/render-job preparation enters the worker | Preparation runs through `WorkerContentPreparationPump`, yields by policy cap, splits/offloads above byte/line ceilings, selected facts preempt background preparation, and progress resumes without restart | Content-preparation pump tests; large-prep selected-preemption test; worker prep-slice duration, queue-wait, resume-without-redo, and stale-abort telemetry | Fail if any large worker compute task runs unbounded inline, selected facts wait behind background prep, or prep restarts already completed slices after preemption |
 | G R53 transfer mode | Worker boundary | Review/File View sends content, patch, telemetry, or RPC payloads across worker boundaries | Small facts/metadata/window patches structured-clone as bounded DTOs; content bytes stay in worker; large display/binary payloads transfer declared `ArrayBuffer`s | `BridgeWorkerTransferListBuilder` tests; contract validation; per-message boundary telemetry | Fail if undeclared ArrayBuffers cross, large payloads clone by accident, or a sender keeps using a transferred buffer |
 | G final browser/native RPC cutover | Final network-boundary cutover | Any ordinary Swift communication after page-load bootstrap | Scheme-fetch typed POST/stream RPC is the only live Swift communication path; page-load bootstrap remains one-shot only | `BridgeBrowserNativeRPCCutoverSourceScanTests`; source scans for `WKScriptMessage`, `__bridge_command`, `RPCMessageHandler`, `RPCRouter`, and content-world command listeners | Fail if script-message ordinary command, telemetry, content, subscription, push, or ack traffic remains live |
 | Final debug Review smoke | Live debug app | `bridge-review-observability-smoke` launches | Victoria marker verifies launch; Review journey verifier passes | `mise run verify-debug-observability`; `mise run verify-bridge-review-journey-smoke` | Fail if marker is stale, LaunchServices/debug app is already running, or verifier cannot bind to the current marker |
@@ -1531,13 +1548,14 @@ Before the final G browser/native RPC cutover PR is ready:
 - Review prefetch/demand old paths are compile-dead for converted surfaces.
 - Demand membership lives in the comm worker for converted surfaces.
 - Bridge data Zustand lives only in the comm worker for converted surfaces.
-- React/main uses TanStack Query only for coarse worker RPC/mutations, not for
-  row/content patch streams or canonical Bridge data/cache truth.
-- `BridgeWorkerQueryClientPolicy` disables focus/reconnect/mount refetch and
-  retry for Bridge worker RPC; invalidation flows only from worker protocol
-  events.
+- React/main uses `BridgeWorkerRpcLifecycleStore` only for coarse worker
+  RPC/mutations, not for row/content patch streams or canonical Bridge
+  data/cache truth.
+- `BridgeWorkerRpcLifecycleStore` records pending/ack/fail/timeout/progress and
+  rollback metadata only; it has no focus/reconnect/mount refetch, library
+  retry, polling, invalidation, or async-cache authority.
 - React/main hot display uses `BridgeMainRenderSnapshotStore` for converted
-  Review and File View surfaces; render paths do not read query-cache data.
+  Review and File View surfaces; render paths do not read async-cache data.
 - Worker-local Zustand is normalized. No full `getState()` snapshot, root
   snapshot, full map/list clone, full package patch, or package-shaped hot action
   exists on selected/click/scroll/hover/content-ready paths.
@@ -1545,6 +1563,9 @@ Before the final G browser/native RPC cutover PR is ready:
   chunks with selected preemption.
 - Worker queue-wait, handler-duration, touched-key, patch-size, source-reset,
   payload, and derived-list threshold telemetry exists by lane/command class.
+- Worker content preparation is chunked through `WorkerContentPreparationPump`
+  or offloaded above policy byte/line ceilings, and selected facts preempt large
+  preparation with queue-wait p95 < 16 ms/p99 < 32 ms.
 - `BridgeWorkerPierreRenderJob` is prepared by the comm worker with rank,
   cache/content identity, bounded payload class, and clone/submit budget.
 - Main thread only wraps/enqueues `BridgeWorkerPierreRenderJob` through Pierre.
@@ -1569,8 +1590,8 @@ Required source scans:
 rg -n "flush\\(\\{ force: true \\}\\)|system\\.bridgeTelemetry|BridgeTelemetryEventSink|bridgeTelemetryBatchAdmissionPriority" BridgeWeb/src Sources/AgentStudio Tests
 rg -n "streamId|sourceGeneration|generation|sequence|staleness|retryAfterVersion|cacheMembership|demandMembership" BridgeWeb/src/app BridgeWeb/src/review-viewer BridgeWeb/src/file-viewer
 rg -n "from ['\\\"]zustand|createStore\\(|useStore\\(" BridgeWeb/src/app BridgeWeb/src/review-viewer BridgeWeb/src/file-viewer BridgeWeb/src/worktree-file-surface
-rg -n "useQuery\\(|useMutation\\(|QueryClient|@tanstack/react-query" BridgeWeb/src/app BridgeWeb/src/review-viewer BridgeWeb/src/file-viewer BridgeWeb/src/core/comm-worker
-rg -n "refetchOnWindowFocus|refetchOnReconnect|refetchOnMount|retryOnMount|retry:" BridgeWeb/src/app BridgeWeb/src/review-viewer BridgeWeb/src/file-viewer BridgeWeb/src/core/comm-worker
+rg -n "useQuery\\(|useMutation\\(|QueryClient|@tanstack/react-query|from ['\\\"]swr|from ['\\\"]@apollo|ApolloClient" BridgeWeb/src/app BridgeWeb/src/review-viewer BridgeWeb/src/file-viewer BridgeWeb/src/core/comm-worker
+rg -n "refetchOnWindowFocus|refetchOnReconnect|refetchOnMount|retryOnMount|retry:|invalidateQueries|pollInterval|refreshInterval" BridgeWeb/src/app BridgeWeb/src/review-viewer BridgeWeb/src/file-viewer BridgeWeb/src/core/comm-worker
 rg -n "rootSnapshot|setRootSnapshot|getState\\(\\).*postMessage|getState\\(\\).*publish|getState\\(\\).*patch|new Map\\(.*allRows|fullPackage|allRows|allContent|allDemand|allStatus" BridgeWeb/src/core/comm-worker BridgeWeb/src/review-viewer BridgeWeb/src/file-viewer
 rg -n "parseDiffFromFile|renderDiffWithHighlighter|renderFileWithHighlighter|splitFileContents|new TextDecoder|TextDecoder\\(" BridgeWeb/src/app BridgeWeb/src/review-viewer BridgeWeb/src/file-viewer
 rg -n "setItems\\(|applyItemUpdate|getRenderedItems|visibleContentHydrationItemLimit|reviewContentPrefetch|useBridgeReviewContentPrefetchController" BridgeWeb/src
@@ -1588,11 +1609,10 @@ Expected green scan results:
 - Converted React/main Review and File View surfaces have no `zustand` or
   `useStore` matches for Bridge data. Any remaining Zustand match must be
   worker-local, test-only, or outside the converted Bridge data surfaces.
-- TanStack Query matches are limited to `BridgeWorkerQueryAdapter`, provider
-  setup, and coarse worker RPC/mutation hooks. They must not subscribe to or
-  cache high-frequency row/content patch streams. Query policy matches must show
-  Bridge worker RPC disables focus/reconnect/mount refetch and retry, except for
-  tests asserting those defaults.
+- Async-cache matches for TanStack Query, QueryClient, useQuery, useMutation,
+  SWR, Apollo, provider setup, invalidation, polling, or library retry/refetch
+  must be absent from converted Bridge worker surfaces except tests asserting
+  absence. Coarse worker RPC uses `BridgeWorkerRpcLifecycleStore` only.
 - Worker store matches for `getState`, root snapshots, all-row/all-content
   vocabulary, and full-package patch vocabulary must be worker-local, test-only,
   or source-reset-only. They must not appear on click/scroll/hover/content-ready
