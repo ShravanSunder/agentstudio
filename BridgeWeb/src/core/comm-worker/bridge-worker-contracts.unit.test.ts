@@ -3,6 +3,7 @@ import { describe, expect, expectTypeOf, test } from 'vitest';
 import { makeBridgeReviewItem } from '../../foundation/review-package/bridge-review-package-test-support.js';
 import {
 	BRIDGE_WORKER_WIRE_VERSION,
+	bridgeWorkerReviewRenderSemanticsSchema,
 	bridgeWorkerReviewContentRequestDescriptorSchema,
 	bridgeWorkerReviewContentMetadataSchema,
 	bridgeWorkerMainToServerMessageSchema,
@@ -10,6 +11,7 @@ import {
 	bridgeWorkerSlicePatchEventSchema,
 	parseBridgeWorkerMainToServerMessage,
 	type BridgeWorkerMainToServerMessage,
+	type BridgeWorkerReviewRenderSemantics,
 	type BridgeWorkerReviewContentRequestDescriptor,
 	type BridgeWorkerReviewContentMetadata,
 } from './bridge-worker-contracts.js';
@@ -201,6 +203,34 @@ describe('BridgeWorkerContracts', () => {
 			bridgeWorkerReviewContentRequestDescriptorSchema.safeParse({
 				...descriptor,
 				endpointId: 'endpoint-head',
+			}).success,
+		).toBe(false);
+	});
+
+	test('defines strict worker review render semantics without content handles', () => {
+		const item = makeBridgeReviewItem({
+			itemId: 'item-render-semantics',
+			path: 'Sources/App/RenderSemantics.swift',
+		});
+		const semantics = {
+			itemId: item.itemId,
+			itemKind: item.itemKind,
+			changeKind: item.changeKind,
+			displayPath: item.headPath ?? item.basePath ?? item.itemId,
+			basePath: item.basePath ?? null,
+			headPath: item.headPath ?? null,
+			language: item.language ?? null,
+			contentLineCountsByRole: item.contentLineCountsByRole ?? {},
+		} satisfies BridgeWorkerReviewRenderSemantics;
+
+		expect(bridgeWorkerReviewRenderSemanticsSchema.parse(semantics)).toEqual(semantics);
+		expect(JSON.stringify(semantics)).not.toMatch(
+			/"contentRoles"|resourceUrl|handleId|contentHash|endpointId/i,
+		);
+		expect(
+			bridgeWorkerReviewRenderSemanticsSchema.safeParse({
+				...semantics,
+				contentRoles: item.contentRoles,
 			}).success,
 		).toBe(false);
 	});

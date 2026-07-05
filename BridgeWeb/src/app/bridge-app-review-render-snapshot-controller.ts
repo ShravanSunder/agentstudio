@@ -17,11 +17,13 @@ import type {
 	BridgeWorkerContentAvailabilityPatchPayload,
 	BridgeWorkerReviewContentRequestDescriptor,
 	BridgeWorkerReviewContentMetadata,
+	BridgeWorkerReviewRenderSemantics,
 	BridgeWorkerServerToMainMessage,
 } from '../core/comm-worker/bridge-worker-contracts.js';
 import {
 	bridgeWorkerReviewContentRequestDescriptorSchema,
 	bridgeWorkerReviewContentMetadataSchema,
+	bridgeWorkerReviewRenderSemanticsSchema,
 } from '../core/comm-worker/bridge-worker-contracts.js';
 import {
 	createBridgeWorkerPierreCourier,
@@ -228,6 +230,23 @@ export function bridgeCommWorkerContentRequestDescriptorsFromReviewPackage(
 	);
 }
 
+export function bridgeCommWorkerRenderSemanticsFromReviewPackage(
+	reviewPackage: BridgeReviewPackage | null,
+): readonly BridgeWorkerReviewRenderSemantics[] {
+	if (reviewPackage === null) {
+		return [];
+	}
+	return reviewPackage.orderedItemIds.flatMap(
+		(itemId): readonly BridgeWorkerReviewRenderSemantics[] => {
+			const item = reviewPackage.itemsById[itemId];
+			if (item === undefined) {
+				return [];
+			}
+			return [bridgeWorkerReviewRenderSemanticsFromReviewItem(item)];
+		},
+	);
+}
+
 function bridgeWorkerReviewContentMetadataFromReviewItem(
 	item: BridgeReviewItemDescriptor,
 ): BridgeWorkerReviewContentMetadata {
@@ -252,6 +271,21 @@ function availableContentRolesForReviewItem(
 		}
 	}
 	return roles;
+}
+
+function bridgeWorkerReviewRenderSemanticsFromReviewItem(
+	item: BridgeReviewItemDescriptor,
+): BridgeWorkerReviewRenderSemantics {
+	return bridgeWorkerReviewRenderSemanticsSchema.parse({
+		itemId: item.itemId,
+		itemKind: item.itemKind,
+		changeKind: item.changeKind,
+		displayPath: displayPathForReviewItem(item),
+		basePath: item.basePath ?? null,
+		headPath: item.headPath ?? null,
+		language: item.language ?? null,
+		contentLineCountsByRole: item.contentLineCountsByRole ?? {},
+	});
 }
 
 function contentRequestDescriptorsForReviewItem(
@@ -282,6 +316,10 @@ function bridgeWorkerReviewContentRequestDescriptorFromHandle(
 		sizeBytes: handle.sizeBytes,
 		isBinary: handle.isBinary,
 	});
+}
+
+function displayPathForReviewItem(item: BridgeReviewItemDescriptor): string {
+	return item.headPath ?? item.basePath ?? item.itemId;
 }
 
 export function applyBridgeWorkerMessagesToMainRenderSnapshotStore(props: {

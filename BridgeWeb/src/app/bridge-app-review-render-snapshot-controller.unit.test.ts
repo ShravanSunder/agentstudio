@@ -15,6 +15,7 @@ import {
 	applyBridgeWorkerMessagesToMainRenderSnapshotStore,
 	bridgeCommWorkerContentRequestDescriptorsFromReviewPackage,
 	bridgeCommWorkerContentItemsFromReviewPackage,
+	bridgeCommWorkerRenderSemanticsFromReviewPackage,
 	createUnsupportedBridgeReviewPierreCourier,
 } from './bridge-app-review-render-snapshot-controller.js';
 
@@ -205,5 +206,26 @@ describe('Bridge app review render snapshot controller', () => {
 			/itemsById|orderedItemIds|summary|groups|"contentRoles"|endpointId|"cacheKey"|mimeType/i,
 		);
 		expect(bridgeCommWorkerContentRequestDescriptorsFromReviewPackage(null)).toEqual([]);
+	});
+
+	test('maps review package items into worker render semantics without content handles', () => {
+		const reviewPackage = makeBridgeReviewPackage();
+
+		const renderSemantics = bridgeCommWorkerRenderSemanticsFromReviewPackage(reviewPackage);
+
+		expect(renderSemantics).toHaveLength(1);
+		expect(renderSemantics[0]).toMatchObject({
+			itemId: 'item-source',
+			itemKind: 'diff',
+			changeKind: 'modified',
+			displayPath: 'Sources/App/View.swift',
+			basePath: 'Sources/App/View.swift',
+			headPath: 'Sources/App/View.swift',
+			language: 'swift',
+		});
+		expect(JSON.stringify(renderSemantics)).not.toMatch(
+			/itemsById|orderedItemIds|summary|groups|"contentRoles"|resourceUrl|handleId|contentHash|endpointId/i,
+		);
+		expect(bridgeCommWorkerRenderSemanticsFromReviewPackage(null)).toEqual([]);
 	});
 });

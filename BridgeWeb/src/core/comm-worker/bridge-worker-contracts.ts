@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import {
 	bridgeContentRoleSchema,
+	bridgeFileChangeKindSchema,
 	bridgeReviewContentLineCountsByRoleSchema,
 } from '../../foundation/review-package/bridge-review-package-schema.js';
 import { bridgeWorkerPierreRenderJobSchema } from './bridge-worker-pierre-render-job.js';
@@ -152,6 +153,19 @@ export const bridgeWorkerReviewContentRequestDescriptorSchema = z
 	})
 	.strict();
 
+export const bridgeWorkerReviewRenderSemanticsSchema = z
+	.object({
+		itemId: z.string().min(1),
+		itemKind: z.enum(['file', 'diff']),
+		changeKind: bridgeFileChangeKindSchema,
+		displayPath: z.string().min(1),
+		basePath: z.string().min(1).nullable(),
+		headPath: z.string().min(1).nullable(),
+		language: z.string().nullable(),
+		contentLineCountsByRole: bridgeReviewContentLineCountsByRoleSchema,
+	})
+	.strict();
+
 export const bridgeWorkerPanelChromePatchPayloadSchema = z
 	.object({
 		isLoading: z.boolean().optional(),
@@ -298,6 +312,9 @@ export type BridgeWorkerReviewContentMetadata = z.infer<
 >;
 export type BridgeWorkerReviewContentRequestDescriptor = z.infer<
 	typeof bridgeWorkerReviewContentRequestDescriptorSchema
+>;
+export type BridgeWorkerReviewRenderSemantics = z.infer<
+	typeof bridgeWorkerReviewRenderSemanticsSchema
 >;
 export type BridgeWorkerPanelChromePatchPayload = z.infer<
 	typeof bridgeWorkerPanelChromePatchPayloadSchema
