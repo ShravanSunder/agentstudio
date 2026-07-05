@@ -42,6 +42,7 @@ export {
 	contentDemandResourceUrl,
 } from './bridge-app-review-runtime.js';
 export {
+	selectedCanvasLoadingReasonForCurrentSelection,
 	selectedContentResourcesStateFromDemandLoadResult,
 	selectedContentResourcesStateFromLoadResult,
 	selectedContentUnavailablePathForCurrentSelection,

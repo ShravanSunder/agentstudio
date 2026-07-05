@@ -13,7 +13,10 @@ import {
 	createBridgeMainRenderSnapshotStore,
 	type BridgeMainRenderSnapshotStore,
 } from '../core/comm-worker/bridge-main-render-snapshot-store.js';
-import type { BridgeWorkerServerToMainMessage } from '../core/comm-worker/bridge-worker-contracts.js';
+import type {
+	BridgeWorkerContentAvailabilityPatchPayload,
+	BridgeWorkerServerToMainMessage,
+} from '../core/comm-worker/bridge-worker-contracts.js';
 import {
 	createBridgeWorkerPierreCourier,
 	type BridgeWorkerPierreCourier,
@@ -36,6 +39,7 @@ export interface UseBridgeReviewRenderSnapshotControllerProps {
 
 export interface BridgeReviewRenderSnapshotController {
 	readonly rootSnapshot: BridgeReviewViewerRootSnapshot;
+	readonly selectedContentAvailability: BridgeWorkerContentAvailabilityPatchPayload | null;
 	readonly selectionSlice: BridgeReviewSelectionSlice;
 	readonly selectionSliceRef: MutableRefObject<BridgeReviewSelectionSlice>;
 	readonly setReviewViewportItemIds: (itemIds: readonly string[]) => void;
@@ -72,6 +76,10 @@ export function useBridgeReviewRenderSnapshotController(
 			}),
 		[props.panelChromeSlice, selectionSlice],
 	);
+	const selectedContentAvailability =
+		selectionSlice.selectedItemId === null
+			? null
+			: (renderSnapshot.contentAvailabilityById[selectionSlice.selectedItemId] ?? null);
 	const commandHandler = useMemo(
 		(): BridgeCommWorkerCommandHandler =>
 			createBridgeCommWorkerCommandHandler({
@@ -153,6 +161,7 @@ export function useBridgeReviewRenderSnapshotController(
 
 	return {
 		rootSnapshot,
+		selectedContentAvailability,
 		selectionSlice,
 		selectionSliceRef,
 		setReviewViewportItemIds,

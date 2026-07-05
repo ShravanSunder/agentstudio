@@ -117,6 +117,7 @@ export function BridgeReviewViewerMode(
 	const [reviewTreeRows, setReviewTreeRows] = useState<readonly ReviewTreeRowMetadata[]>([]);
 	const {
 		rootSnapshot,
+		selectedContentAvailability,
 		selectionSlice,
 		selectionSliceRef,
 		setReviewViewportItemIds,
@@ -311,7 +312,7 @@ export function BridgeReviewViewerMode(
 		reviewContentDescriptorRefsByHandleIdRef,
 		reviewContentInvalidationVersion,
 		reviewPackage,
-		selectedContentResourcesState,
+		selectedContentAvailability,
 		selectedItemId: rootSnapshot.selectedItemId,
 		setLastVisibleDemandTelemetry,
 		telemetryRecorderRef,
@@ -511,8 +512,8 @@ export function BridgeReviewViewerMode(
 	});
 
 	const selectedCanvasLoadingReason = selectedCanvasLoadingReasonForCurrentSelection({
+		selectedContentAvailability,
 		selectedContentKey: currentSelectedContentKey,
-		selectedContentResourcesState,
 		selectedItemId: rootSnapshot.selectedItemId,
 		selectedMarkdownPreviewState,
 	});
@@ -556,8 +557,8 @@ export function BridgeReviewViewerMode(
 			selectedContentResources={selectedContentResources}
 			selectedContentUnavailablePath={selectedContentUnavailablePathForCurrentSelection({
 				reviewPackage,
+				selectedContentAvailability,
 				selectedItemId: rootSnapshot.selectedItemId,
-				selectedContentResourcesState,
 			})}
 			selectedItemPresentation={selectedItemPresentation}
 			selectedMarkdownPreviewState={selectedMarkdownPreviewState}

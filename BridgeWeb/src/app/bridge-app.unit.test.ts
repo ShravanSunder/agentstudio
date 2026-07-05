@@ -26,6 +26,8 @@ import {
 	reviewTreeRowsWithMetadataDelta,
 	reviewFileTargetForReviewPackagePath,
 	reviewItemDemandCancellationTargetForSelectionChange,
+	selectedCanvasLoadingReasonForCurrentSelection,
+	selectedContentUnavailablePathForCurrentSelection,
 	shouldRetrySelectedReviewContentAfterDescriptorRegistration,
 	shouldStartSelectedReviewContentDemand,
 	shouldPauseVisibleReviewContentHydration,
@@ -87,19 +89,14 @@ describe('BridgeApp selection demand cancellation', () => {
 });
 
 describe('BridgeApp visible review content hydration policy', () => {
-	test('pauses visible warming while selected foreground content is loading', () => {
+	test('pauses visible warming while worker-owned selected availability is loading', () => {
 		expect(
 			shouldPauseVisibleReviewContentHydration({
 				isActive: true,
 				codeViewScrollActive: false,
 				currentSelectedContentKey: 'selected-key',
 				foregroundSelectedContentKey: null,
-				selectedContentResourcesState: {
-					itemId: 'item-selected',
-					contentKey: 'selected-key',
-					status: 'loading',
-					resources: null,
-				},
+				selectedContentAvailability: { state: 'loading' },
 			}),
 		).toBe(true);
 	});
@@ -111,7 +108,7 @@ describe('BridgeApp visible review content hydration policy', () => {
 				codeViewScrollActive: false,
 				currentSelectedContentKey: 'selected-key',
 				foregroundSelectedContentKey: 'selected-key',
-				selectedContentResourcesState: null,
+				selectedContentAvailability: null,
 			}),
 		).toBe(true);
 	});
@@ -123,17 +120,7 @@ describe('BridgeApp visible review content hydration policy', () => {
 				codeViewScrollActive: false,
 				currentSelectedContentKey: 'selected-key',
 				foregroundSelectedContentKey: 'stale-key',
-				selectedContentResourcesState: {
-					itemId: 'item-selected',
-					contentKey: 'selected-key',
-					status: 'ready',
-					resources: {
-						file: {
-							handle: makeBridgeContentHandle('item-selected', 'head'),
-							readText: () => 'ready',
-						},
-					},
-				},
+				selectedContentAvailability: { state: 'ready' },
 			}),
 		).toBe(false);
 	});
@@ -145,7 +132,7 @@ describe('BridgeApp visible review content hydration policy', () => {
 				codeViewScrollActive: false,
 				currentSelectedContentKey: 'selected-key',
 				foregroundSelectedContentKey: null,
-				selectedContentResourcesState: null,
+				selectedContentAvailability: null,
 			}),
 		).toBe(true);
 	});
@@ -157,17 +144,7 @@ describe('BridgeApp visible review content hydration policy', () => {
 				codeViewScrollActive: false,
 				currentSelectedContentKey: 'selected-key',
 				foregroundSelectedContentKey: null,
-				selectedContentResourcesState: {
-					itemId: 'item-selected',
-					contentKey: 'selected-key',
-					status: 'ready',
-					resources: {
-						file: {
-							handle: makeBridgeContentHandle('item-selected', 'head'),
-							readText: () => 'ready',
-						},
-					},
-				},
+				selectedContentAvailability: { state: 'ready' },
 			}),
 		).toBe(false);
 	});
@@ -179,19 +156,45 @@ describe('BridgeApp visible review content hydration policy', () => {
 				codeViewScrollActive: true,
 				currentSelectedContentKey: 'selected-key',
 				foregroundSelectedContentKey: null,
-				selectedContentResourcesState: {
-					itemId: 'item-selected',
-					contentKey: 'selected-key',
-					status: 'ready',
-					resources: {
-						file: {
-							handle: makeBridgeContentHandle('item-selected', 'head'),
-							readText: () => 'ready',
-						},
-					},
-				},
+				selectedContentAvailability: { state: 'ready' },
 			}),
 		).toBe(true);
+	});
+});
+
+describe('BridgeApp selected review availability display policy', () => {
+	test('selected canvas content loading follows worker-owned availability', () => {
+		expect(
+			selectedCanvasLoadingReasonForCurrentSelection({
+				selectedContentAvailability: { state: 'loading' },
+				selectedContentKey: 'selected-key',
+				selectedItemId: 'item-source',
+				selectedMarkdownPreviewState: null,
+			}),
+		).toBe('content');
+	});
+
+	test('selected canvas content loading clears when worker-owned availability is ready', () => {
+		expect(
+			selectedCanvasLoadingReasonForCurrentSelection({
+				selectedContentAvailability: { state: 'ready' },
+				selectedContentKey: 'selected-key',
+				selectedItemId: 'item-source',
+				selectedMarkdownPreviewState: null,
+			}),
+		).toBeNull();
+	});
+
+	test('selected unavailable path follows worker-owned failed availability', () => {
+		const reviewPackage = makeBridgeReviewPackage();
+
+		expect(
+			selectedContentUnavailablePathForCurrentSelection({
+				reviewPackage,
+				selectedContentAvailability: { state: 'failed' },
+				selectedItemId: 'item-source',
+			}),
+		).toBe('Sources/App/View.swift');
 	});
 });
 

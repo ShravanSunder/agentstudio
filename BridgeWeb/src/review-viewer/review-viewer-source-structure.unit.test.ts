@@ -223,6 +223,27 @@ describe('Review viewer source structure', () => {
 		expect(visibleContentControllerSource).not.toContain('@pierre/');
 	});
 
+	test('keeps Review selected display loading on worker availability slices', () => {
+		const modeSource = readSource('../app/bridge-app-review-viewer-mode.tsx');
+		const selectedLoadingSource = modeSource.slice(
+			modeSource.indexOf(
+				'const selectedCanvasLoadingReason = selectedCanvasLoadingReasonForCurrentSelection',
+			),
+			modeSource.indexOf('const selectedContentLoadingItemId'),
+		);
+		const unavailablePathSource = modeSource.slice(
+			modeSource.indexOf(
+				'selectedContentUnavailablePath={selectedContentUnavailablePathForCurrentSelection',
+			),
+			modeSource.indexOf('selectedItemPresentation={selectedItemPresentation}'),
+		);
+
+		expect(selectedLoadingSource).toContain('selectedContentAvailability');
+		expect(selectedLoadingSource).not.toContain('selectedContentResourcesState');
+		expect(unavailablePathSource).toContain('selectedContentAvailability');
+		expect(unavailablePathSource).not.toContain('selectedContentResourcesState');
+	});
+
 	test('keeps the review store out of content bodies and runtime handles', () => {
 		const storeSource = readSource('./state/review-viewer-store.ts');
 

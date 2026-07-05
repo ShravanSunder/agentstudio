@@ -1,6 +1,7 @@
 import type { MutableRefObject } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import type { BridgeWorkerContentAvailabilityPatchPayload } from '../core/comm-worker/bridge-worker-contracts.js';
 import type { BridgeResourceExecutor } from '../core/demand/bridge-resource-executor.js';
 import type { BridgeDescriptorRef } from '../core/models/bridge-resource-descriptor.js';
 import type { BridgeTextResourceStreamResult } from '../core/resources/bridge-resource-stream.js';
@@ -18,10 +19,7 @@ import {
 	type VisibleReviewContentLoadResult,
 	useVisibleReviewContentHydration,
 } from '../review-viewer/content/visible-review-content-hydration.js';
-import {
-	shouldPauseVisibleReviewContentHydration,
-	type SelectedContentResourcesState,
-} from './bridge-app-review-selection-state.js';
+import { shouldPauseVisibleReviewContentHydration } from './bridge-app-review-selection-state.js';
 import type { BridgeReviewPackageTelemetryContext } from './bridge-app-review-telemetry.js';
 
 export interface UseBridgeReviewVisibleContentControllerProps {
@@ -37,7 +35,7 @@ export interface UseBridgeReviewVisibleContentControllerProps {
 	>;
 	readonly reviewContentInvalidationVersion: number;
 	readonly reviewPackage: BridgeReviewPackage | null;
-	readonly selectedContentResourcesState: SelectedContentResourcesState | null;
+	readonly selectedContentAvailability: BridgeWorkerContentAvailabilityPatchPayload | null;
 	readonly selectedItemId: string | null;
 	readonly setLastVisibleDemandTelemetry: (sample: ReviewContentDemandTelemetry) => void;
 	readonly telemetryRecorderRef: MutableRefObject<BridgeTelemetryRecorder>;
@@ -67,7 +65,7 @@ export function useBridgeReviewVisibleContentController(
 		reviewContentDescriptorRefsByHandleIdRef,
 		reviewContentInvalidationVersion,
 		reviewPackage,
-		selectedContentResourcesState,
+		selectedContentAvailability,
 		selectedItemId,
 		setLastVisibleDemandTelemetry,
 		telemetryRecorderRef,
@@ -98,7 +96,7 @@ export function useBridgeReviewVisibleContentController(
 		codeViewScrollActive: isCodeViewScrollActive,
 		currentSelectedContentKey,
 		foregroundSelectedContentKey,
-		selectedContentResourcesState,
+		selectedContentAvailability,
 	});
 	const loadVisibleContentResourcesThroughDemand = useCallback(
 		async (loadProps: VisibleReviewContentLoadProps): Promise<VisibleReviewContentLoadResult> =>

@@ -1,5 +1,6 @@
 import type { Dispatch, SetStateAction } from 'react';
 
+import type { BridgeWorkerContentAvailabilityPatchPayload } from '../core/comm-worker/bridge-worker-contracts.js';
 import type {
 	BridgeContentHandle,
 	BridgeReviewItemDescriptor,
@@ -363,7 +364,7 @@ export interface ShouldPauseVisibleReviewContentHydrationProps {
 	readonly codeViewScrollActive: boolean;
 	readonly currentSelectedContentKey: string | null;
 	readonly foregroundSelectedContentKey: string | null;
-	readonly selectedContentResourcesState: SelectedContentResourcesState | null;
+	readonly selectedContentAvailability: BridgeWorkerContentAvailabilityPatchPayload | null;
 }
 
 export interface ShouldStartSelectedReviewContentDemandProps {
@@ -430,23 +431,16 @@ export function shouldRetrySelectedReviewContentAfterDescriptorRegistration(
 export function shouldPauseVisibleReviewContentHydration(
 	props: ShouldPauseVisibleReviewContentHydrationProps,
 ): boolean {
+	const selectedAvailabilityIsPending =
+		props.selectedContentAvailability === null ||
+		props.selectedContentAvailability.state === 'loading' ||
+		props.selectedContentAvailability.state === 'stale';
 	return (
 		props.codeViewScrollActive ||
 		(props.isActive &&
 			props.currentSelectedContentKey !== null &&
-			props.selectedContentResourcesState === null) ||
-		(props.isActive &&
-			props.currentSelectedContentKey !== null &&
-			props.selectedContentResourcesState !== null &&
-			props.selectedContentResourcesState.contentKey !== props.currentSelectedContentKey) ||
-		(props.isActive &&
-			props.currentSelectedContentKey !== null &&
 			props.foregroundSelectedContentKey === props.currentSelectedContentKey) ||
-		(props.isActive &&
-			props.currentSelectedContentKey !== null &&
-			props.selectedContentResourcesState !== null &&
-			props.selectedContentResourcesState.contentKey === props.currentSelectedContentKey &&
-			props.selectedContentResourcesState.status === 'loading')
+		(props.isActive && props.currentSelectedContentKey !== null && selectedAvailabilityIsPending)
 	);
 }
 
@@ -474,8 +468,8 @@ export function scheduleSelectedContentRetry(props: {
 
 interface SelectedContentUnavailablePathForCurrentSelectionProps {
 	readonly reviewPackage: BridgeReviewPackage | null;
+	readonly selectedContentAvailability: BridgeWorkerContentAvailabilityPatchPayload | null;
 	readonly selectedItemId: string | null;
-	readonly selectedContentResourcesState: SelectedContentResourcesState | null;
 }
 
 export function selectedContentUnavailablePathForCurrentSelection(
@@ -485,15 +479,9 @@ export function selectedContentUnavailablePathForCurrentSelection(
 		return null;
 	}
 	const selectedItem = props.reviewPackage.itemsById[props.selectedItemId];
-	const selectedContentKey = makeSelectedContentResourcesKey(
-		props.reviewPackage,
-		props.selectedItemId,
-	);
 	if (
-		props.selectedContentResourcesState === null ||
-		props.selectedContentResourcesState.itemId !== props.selectedItemId ||
-		props.selectedContentResourcesState.contentKey !== selectedContentKey ||
-		props.selectedContentResourcesState.status !== 'failed'
+		props.selectedContentAvailability?.state !== 'failed' &&
+		props.selectedContentAvailability?.state !== 'unavailable'
 	) {
 		return null;
 	}
@@ -501,9 +489,9 @@ export function selectedContentUnavailablePathForCurrentSelection(
 }
 
 interface SelectedCanvasLoadingReasonForCurrentSelectionProps {
+	readonly selectedContentAvailability: BridgeWorkerContentAvailabilityPatchPayload | null;
 	readonly selectedItemId: string | null;
 	readonly selectedContentKey: string | null;
-	readonly selectedContentResourcesState: SelectedContentResourcesState | null;
 	readonly selectedMarkdownPreviewState: SelectedMarkdownPreviewState | null;
 }
 
@@ -513,12 +501,7 @@ export function selectedCanvasLoadingReasonForCurrentSelection(
 	if (props.selectedItemId === null || props.selectedContentKey === null) {
 		return null;
 	}
-	if (
-		props.selectedContentResourcesState !== null &&
-		props.selectedContentResourcesState.itemId === props.selectedItemId &&
-		props.selectedContentResourcesState.contentKey === props.selectedContentKey &&
-		props.selectedContentResourcesState.status === 'loading'
-	) {
+	if (props.selectedContentAvailability?.state === 'loading') {
 		return 'content';
 	}
 	if (
