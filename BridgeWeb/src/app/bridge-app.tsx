@@ -10,10 +10,12 @@ import {
 	type BridgeActiveViewerSource,
 } from '../bridge/bridge-rpc-client.js';
 import { createBridgeTelemetryEventSink } from '../bridge/bridge-telemetry-event-sink.js';
+import { createBridgeCommWorkerTelemetryClient } from '../core/comm-worker/bridge-comm-worker-telemetry.js';
 import type { BridgeFileViewerAppProps } from '../file-viewer/bridge-file-viewer-app.js';
 import type { BridgeContentFetch } from '../foundation/content/content-resource-loader.js';
 import {
 	createBridgeTelemetryRecorder,
+	createBridgeTelemetryRecorderFromClient,
 	type BridgeTelemetryRecorder,
 } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import { setBridgeViewerNativeOpenAnchor } from '../foundation/telemetry/bridge-viewer-first-interaction.js';
@@ -177,17 +179,23 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 		};
 	}, []);
 	useEffect((): (() => void) => {
-		const rpcClient = createBridgeRPCClient({ target });
 		const configureTelemetryRecorder = (
 			telemetryConfig = handshakeSessionRef.current?.getTelemetryConfig() ?? null,
 		): void => {
-			telemetryRecorderRef.current = createBridgeTelemetryRecorder(
-				telemetryConfig,
-				createBridgeTelemetryEventSink({
-					rpcClient,
-					methodName: telemetryConfig?.rpcMethodName ?? 'system.bridgeTelemetry',
-				}),
-			);
+			if (telemetryConfig === null) {
+				telemetryRecorderRef.current = createBridgeTelemetryRecorder(null);
+			} else {
+				const telemetryClient = createBridgeCommWorkerTelemetryClient({
+					config: telemetryConfig,
+					sink: createBridgeTelemetryEventSink({
+						endpointUrl: telemetryConfig.endpointUrl,
+					}),
+				});
+				telemetryRecorderRef.current = createBridgeTelemetryRecorderFromClient(
+					telemetryConfig,
+					telemetryClient,
+				);
+			}
 			setBridgeViewerNativeOpenAnchor({
 				openEpochUnixMillis: telemetryConfig?.viewerOpenEpochUnixMillis ?? null,
 				traceparent: telemetryConfig?.viewerOpenTraceparent ?? null,

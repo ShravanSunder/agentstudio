@@ -735,7 +735,7 @@ describe('BridgeCodeViewPanel diagnostics', () => {
 				maxSamplesPerBatch: 4,
 				maxEncodedBatchBytes: 16_384,
 				minimumFlushIntervalMilliseconds: 250,
-				rpcMethodName: 'system.bridgeTelemetry',
+				endpointUrl: 'agentstudio://telemetry/batch',
 				scenario: 'package_apply_content_fetch_v1',
 			},
 			{

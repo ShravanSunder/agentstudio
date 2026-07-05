@@ -110,11 +110,6 @@ final class RPCRouter {
             return
         }
 
-        if request.method == SystemMethods.BridgeTelemetryMethod.method {
-            await dispatchBridgeTelemetryBatch(request)
-            return
-        }
-
         if shouldSkip(commandId: request.commandId) {
             return
         }
@@ -310,10 +305,6 @@ final class RPCRouter {
         method == BridgeReadyMethod.method
             || method == BridgeIntakeReadyMethod.method
             || method == BridgeActiveViewerModeUpdateMethod.method
-    }
-
-    private func dispatchBridgeTelemetryBatch(_ request: ParsedRPCRequest) async {
-        await reportError(.methodNotFound, "Method not found: \(request.method)", id: request.requestId)
     }
 
     private func shouldSkip(commandId: String?) -> Bool {
@@ -584,13 +575,10 @@ final class RPCRouter {
     }
 
     private nonisolated func shouldRecordGenericRPCTelemetry(method: String) -> Bool {
-        method != BridgeReadyMethod.method && method != SystemMethods.BridgeTelemetryMethod.method
+        method != BridgeReadyMethod.method
     }
 
     private nonisolated static func rpcMethodClass(_ method: String) -> String {
-        if method == SystemMethods.BridgeTelemetryMethod.method {
-            return "telemetry"
-        }
         if method.hasPrefix("review.") {
             return "review"
         }

@@ -127,7 +127,8 @@ final class BridgeBootstrapTests {
             telemetryConfig: config
         )
         #expect(script.contains("const TELEMETRY_CONFIG ="))
-        #expect(script.contains("system.bridgeTelemetry"))
+        #expect(script.contains(#""endpointUrl":"agentstudio:\/\/telemetry\/batch""#))
+        #expect(!script.contains("system.bridgeTelemetry"))
         #expect(script.contains("telemetryConfig: TELEMETRY_CONFIG"))
     }
 

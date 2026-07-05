@@ -53,8 +53,7 @@ enum BridgeBootstrap {
                     'bridge.activeViewerMode.update',
                     'review.markFileViewed',
                     'worktreeFileSurface.openSourceStream',
-                    'worktreeFileSurface.requestFileDescriptor',
-                    'system.bridgeTelemetry'
+                    'worktreeFileSurface.requestFileDescriptor'
                 ]);
                 const HOST_PUSH_PORTS = new Set();
                 const HOST_INTAKE_PORTS = new Set();

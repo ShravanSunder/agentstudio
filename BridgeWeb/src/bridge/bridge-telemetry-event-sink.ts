@@ -1,12 +1,9 @@
 import type { BridgeTelemetryBatch } from '../foundation/telemetry/bridge-telemetry-event.js';
 import type { BridgeTelemetrySink } from '../foundation/telemetry/bridge-telemetry-sink.js';
-import type { BridgeRPCClient } from './bridge-rpc-client.js';
 
 export interface CreateBridgeTelemetryEventSinkProps {
 	readonly endpointUrl?: string;
 	readonly fetch?: (input: RequestInfo | URL, init?: RequestInit) => boolean | Promise<Response>;
-	readonly methodName?: 'system.bridgeTelemetry';
-	readonly rpcClient?: BridgeRPCClient;
 }
 
 export function createBridgeTelemetryEventSink(

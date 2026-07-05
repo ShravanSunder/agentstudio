@@ -4,6 +4,7 @@ import { render } from 'vitest-browser-react';
 
 import { buildReviewMetadataSnapshotFrame } from '../features/review/protocol/review-metadata-frame-builder.js';
 import { makeBridgeReviewPackage } from '../foundation/review-package/bridge-review-package-test-support.js';
+import type { BridgeTelemetryBatch } from '../foundation/telemetry/bridge-telemetry-event.js';
 import {
 	requireBridgeViewerHTMLElement,
 	waitForBridgeViewerAnimationFrame,
@@ -15,9 +16,10 @@ import {
 	chunkedTextResponse,
 	dispatchHostAdmittedReviewIntakeFrame,
 	dispatchHostDiffStatus,
-	isBridgeTelemetryCommand,
 	pollWithinAct,
 	pollWithinActUntilTruthy,
+	recordBridgeTelemetryBatchFetch,
+	telemetrySamplesFromBatches,
 } from './bridge-app-native-review-error.browser.test-support.js';
 import { BridgeApp } from './bridge-app.js';
 
@@ -198,9 +200,14 @@ describe('BridgeApp native review intake Browser Mode', () => {
 
 	test('renders metadata failure when native review snapshot descriptors are rejected', async () => {
 		const commands: unknown[] = [];
+		const telemetryBatches: BridgeTelemetryBatch[] = [];
 		const handleBridgeCommand = (event: Event): void => {
 			commands.push('detail' in event ? event.detail : null);
 		};
+		vi.spyOn(globalThis, 'fetch').mockImplementation(async (resource, init): Promise<Response> => {
+			const telemetryResponse = recordBridgeTelemetryBatchFetch(resource, init, telemetryBatches);
+			return telemetryResponse ?? new Response('unexpected request', { status: 404 });
+		});
 		document.addEventListener('__bridge_command', handleBridgeCommand);
 		const reviewPackage = makeBridgeReviewPackage();
 		const streamId = 'review:bridge-app-test-pane';
@@ -263,7 +270,7 @@ describe('BridgeApp native review intake Browser Mode', () => {
 					maxSamplesPerBatch: 16,
 					maxEncodedBatchBytes: 65_536,
 					minimumFlushIntervalMilliseconds: 0,
-					rpcMethodName: 'system.bridgeTelemetry',
+					endpointUrl: 'agentstudio://telemetry/batch',
 					scenario: 'metadata_apply_rejected_snapshot_v1',
 				},
 			},
@@ -281,9 +288,7 @@ describe('BridgeApp native review intake Browser Mode', () => {
 		);
 		expect(document.body.textContent).toContain('review_metadata_snapshot_rejected');
 		expect(document.querySelector('[data-testid="bridge-review-empty-shell"]')).toBeNull();
-		expect(
-			commands.filter(isBridgeTelemetryCommand).flatMap((command) => command.params.samples),
-		).toContainEqual(
+		expect(telemetrySamplesFromBatches(telemetryBatches)).toContainEqual(
 			expect.objectContaining({
 				name: 'performance.bridge.web.review_metadata_apply',
 				stringAttributes: expect.objectContaining({

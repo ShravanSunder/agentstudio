@@ -5,7 +5,7 @@ struct BridgeTelemetryBootstrapConfig: Codable, Equatable, Sendable {
     let maxSamplesPerBatch: Int
     let maxEncodedBatchBytes: Int
     let minimumFlushIntervalMilliseconds: Int
-    let rpcMethodName: String
+    let endpointUrl: String
     let scenario: String
     /// Wall-clock epoch (Unix milliseconds) captured natively when the pane's viewer
     /// open began. The browser subtracts this from `Date.now()` at first-interaction to
@@ -26,7 +26,7 @@ struct BridgeTelemetryBootstrapConfig: Codable, Equatable, Sendable {
             maxSamplesPerBatch: BridgeTelemetryLimits.maxSamplesPerBatch,
             maxEncodedBatchBytes: BridgeTelemetryLimits.maxEncodedBatchBytes,
             minimumFlushIntervalMilliseconds: BridgeTelemetryLimits.minimumFlushIntervalMilliseconds,
-            rpcMethodName: "system.bridgeTelemetry",
+            endpointUrl: "agentstudio://telemetry/batch",
             scenario: scenario,
             viewerOpenEpochUnixMillis: viewerOpenEpochUnixMillis,
             viewerOpenTraceparent: viewerOpenTraceparent

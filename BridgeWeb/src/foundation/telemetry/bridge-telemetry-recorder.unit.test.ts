@@ -1,7 +1,11 @@
 import { describe, expect, test } from 'vitest';
 
 import type { BridgeTelemetryBatch } from './bridge-telemetry-event.js';
-import { createBridgeTelemetryRecorder } from './bridge-telemetry-recorder.js';
+import {
+	createBridgeTelemetryRecorder,
+	createBridgeTelemetryRecorderFromClient,
+	type BridgeTelemetryRecorderClient,
+} from './bridge-telemetry-recorder.js';
 
 describe('bridge telemetry recorder', () => {
 	test('records enabled scopes and flushes batches through the sink', () => {
@@ -13,7 +17,7 @@ describe('bridge telemetry recorder', () => {
 				maxSamplesPerBatch: 4,
 				maxEncodedBatchBytes: 16_384,
 				minimumFlushIntervalMilliseconds: 250,
-				rpcMethodName: 'system.bridgeTelemetry',
+				endpointUrl: 'agentstudio://telemetry/batch',
 				scenario: 'bridge-runtime',
 			},
 			{
@@ -62,7 +66,7 @@ describe('bridge telemetry recorder', () => {
 				maxSamplesPerBatch: 1,
 				maxEncodedBatchBytes: 16_384,
 				minimumFlushIntervalMilliseconds: 250,
-				rpcMethodName: 'system.bridgeTelemetry',
+				endpointUrl: 'agentstudio://telemetry/batch',
 				scenario: 'bridge-runtime',
 			},
 			{
@@ -102,7 +106,7 @@ describe('bridge telemetry recorder', () => {
 				maxSamplesPerBatch: 1,
 				maxEncodedBatchBytes: 16_384,
 				minimumFlushIntervalMilliseconds: 250,
-				rpcMethodName: 'system.bridgeTelemetry',
+				endpointUrl: 'agentstudio://telemetry/batch',
 				scenario: 'bridge-runtime',
 			},
 			{
@@ -151,7 +155,7 @@ describe('bridge telemetry recorder', () => {
 				maxSamplesPerBatch: 4,
 				maxEncodedBatchBytes: 16_384,
 				minimumFlushIntervalMilliseconds: 250,
-				rpcMethodName: 'system.bridgeTelemetry',
+				endpointUrl: 'agentstudio://telemetry/batch',
 				scenario: 'bridge-runtime',
 			},
 			{
@@ -185,7 +189,7 @@ describe('bridge telemetry recorder', () => {
 				maxSamplesPerBatch: 4,
 				maxEncodedBatchBytes: 16_384,
 				minimumFlushIntervalMilliseconds: 250,
-				rpcMethodName: 'system.bridgeTelemetry',
+				endpointUrl: 'agentstudio://telemetry/batch',
 				scenario: 'bridge-runtime',
 			},
 			{
@@ -221,7 +225,7 @@ describe('bridge telemetry recorder', () => {
 				maxSamplesPerBatch: 4,
 				maxEncodedBatchBytes: 16_384,
 				minimumFlushIntervalMilliseconds: 250,
-				rpcMethodName: 'system.bridgeTelemetry',
+				endpointUrl: 'agentstudio://telemetry/batch',
 				scenario: 'bridge-runtime',
 			},
 			{
@@ -254,7 +258,7 @@ describe('bridge telemetry recorder', () => {
 				maxSamplesPerBatch: 4,
 				maxEncodedBatchBytes: 16_384,
 				minimumFlushIntervalMilliseconds: 250,
-				rpcMethodName: 'system.bridgeTelemetry',
+				endpointUrl: 'agentstudio://telemetry/batch',
 				scenario: 'bridge-runtime',
 			},
 			{
@@ -277,6 +281,52 @@ describe('bridge telemetry recorder', () => {
 		expect(batches.map((batch) => batch.samples.map((sample) => sample.name))).toEqual([
 			['performance.bridge.web.first_render'],
 		]);
+	});
+
+	test('main recorder hands samples to worker telemetry client without owning flush order', () => {
+		const samples: string[] = [];
+		let flushCount = 0;
+		const client: BridgeTelemetryRecorderClient = {
+			record: (sample): void => {
+				samples.push(sample.name);
+			},
+			flush: (): boolean => {
+				flushCount += 1;
+				return true;
+			},
+		};
+		let now = 10;
+		const recorder = createBridgeTelemetryRecorderFromClient(
+			{
+				enabledScopes: new Set(['web']),
+				endpointUrl: 'agentstudio://telemetry/batch',
+				maxSamplesPerBatch: 4,
+				maxEncodedBatchBytes: 16_384,
+				minimumFlushIntervalMilliseconds: 250,
+				scenario: 'bridge-runtime',
+			},
+			client,
+			(): number => {
+				now += 5;
+				return now;
+			},
+		);
+
+		recorder.record(makeSample('performance.bridge.web.first_render'));
+		recorder.measure({
+			scope: 'web',
+			name: 'performance.bridge.web.selection_commit',
+			traceContext: null,
+			stringAttributes: { 'agentstudio.bridge.phase': 'selection' },
+			operation: (): string => 'ok',
+		});
+
+		expect(samples).toEqual([
+			'performance.bridge.web.first_render',
+			'performance.bridge.web.selection_commit',
+		]);
+		expect(recorder.flush({ force: true })).toBe(true);
+		expect(flushCount).toBe(1);
 	});
 });
 

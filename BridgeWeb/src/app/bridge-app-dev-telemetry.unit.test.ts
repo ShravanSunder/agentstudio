@@ -27,10 +27,10 @@ describe('Bridge app dev telemetry host', () => {
 			{
 				telemetryConfig: {
 					enabledScopes: ['web'],
+					endpointUrl: '/__bridge-dev-telemetry/batch',
 					maxEncodedBatchBytes: 64 * 1024,
 					maxSamplesPerBatch: 128,
 					minimumFlushIntervalMilliseconds: 250,
-					rpcMethodName: 'system.bridgeTelemetry',
 					scenario: 'vite-dev-current-worktree',
 				},
 			},
@@ -39,11 +39,10 @@ describe('Bridge app dev telemetry host', () => {
 		host.dispose();
 	});
 
-	test('forwards system.bridgeTelemetry batches to the Vite telemetry endpoint', () => {
+	test('does not forward script-message telemetry batches after fetch cutover', () => {
 		const target = new EventTarget();
-		const fetchTelemetryBatch = vi.fn((): boolean => true);
+		const fetchTelemetryBatch = vi.spyOn(globalThis, 'fetch');
 		const host = installBridgeAppDevTelemetryHost({
-			fetchTelemetryBatch,
 			scenario: 'vite-dev-current-worktree',
 			target,
 		});
@@ -79,7 +78,7 @@ describe('Bridge app dev telemetry host', () => {
 			}),
 		);
 
-		expect(fetchTelemetryBatch).toHaveBeenCalledWith(telemetryBatch);
+		expect(fetchTelemetryBatch).not.toHaveBeenCalled();
 
 		host.dispose();
 	});
@@ -106,10 +105,10 @@ describe('Bridge app dev telemetry host', () => {
 	test('builds the expected default telemetry config', () => {
 		expect(createBridgeAppDevTelemetryBootstrapConfig('vite-dev-large-diffshub')).toEqual({
 			enabledScopes: ['web'],
+			endpointUrl: '/__bridge-dev-telemetry/batch',
 			maxEncodedBatchBytes: 64 * 1024,
 			maxSamplesPerBatch: 128,
 			minimumFlushIntervalMilliseconds: 250,
-			rpcMethodName: 'system.bridgeTelemetry',
 			scenario: 'vite-dev-large-diffshub',
 		});
 	});

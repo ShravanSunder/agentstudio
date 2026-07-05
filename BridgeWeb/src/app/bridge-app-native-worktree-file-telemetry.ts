@@ -55,30 +55,22 @@ export function extractNativeWorktreeFileTelemetryConfig(
 }
 
 export function createNativeWorktreeFileTelemetrySink(props: {
-	readonly createRequestId: () => string;
-	readonly methodName: BridgeTelemetryBootstrapConfig['rpcMethodName'];
-	readonly target: Document;
+	readonly endpointUrl: BridgeTelemetryBootstrapConfig['endpointUrl'];
+	readonly fetch?: (input: RequestInfo | URL, init?: RequestInit) => boolean | Promise<Response>;
 }): BridgeTelemetrySink {
+	const fetchTelemetry = props.fetch ?? globalThis.fetch.bind(globalThis);
 	return {
 		flush: (batch: BridgeTelemetryBatch): boolean => {
-			const bridgeNonce = props.target.documentElement.getAttribute('data-bridge-nonce');
-			if (bridgeNonce === null || bridgeNonce.length === 0) {
+			try {
+				void fetchTelemetry(props.endpointUrl, {
+					body: JSON.stringify(batch),
+					headers: { 'Content-Type': 'application/json' },
+					method: 'POST',
+				});
+				return true;
+			} catch {
 				return false;
 			}
-			const requestId = props.createRequestId();
-			props.target.dispatchEvent(
-				new CustomEvent('__bridge_command', {
-					detail: {
-						jsonrpc: '2.0',
-						id: requestId,
-						method: props.methodName,
-						params: batch,
-						__nonce: bridgeNonce,
-						__commandId: requestId,
-					},
-				}),
-			);
-			return true;
 		},
 	};
 }

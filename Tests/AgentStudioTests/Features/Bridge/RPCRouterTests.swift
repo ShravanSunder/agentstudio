@@ -357,7 +357,7 @@ final class RPCRouterTests {
     }
 
     @Test
-    func bridge_telemetry_rpc_is_raw_ingested_without_generic_rpc_self_observation() async throws {
+    func bridge_telemetry_rpc_is_method_not_found_without_ingest_or_generic_rpc_self_observation() async throws {
         // Arrange
         let router = RPCRouter()
         let recorder = BridgeTelemetryRecorderSpy()
@@ -390,9 +390,9 @@ final class RPCRouterTests {
         )
 
         // Assert
-        #expect(await ingestor.count() == 1)
+        #expect(await ingestor.count() == 0)
         let sampleNames = await recorder.samples().map(\.name)
-        #expect(sampleNames == ["performance.bridge.webkit.telemetry_batch"])
+        #expect(sampleNames.isEmpty)
     }
 
     @Test

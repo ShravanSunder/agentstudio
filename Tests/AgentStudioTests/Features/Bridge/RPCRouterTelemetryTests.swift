@@ -145,6 +145,23 @@ final class RPCRouterTelemetryTests {
     }
 
     @Test
+    func productionSystemBridgeTelemetryRouteIsCompileDead() async throws {
+        let projectRoot = URL(fileURLWithPath: TestPathResolver.projectRoot(from: #filePath))
+        let systemMethods = try String(
+            contentsOf: projectRoot.appending(
+                path: "Sources/AgentStudio/Features/Bridge/Transport/Methods/SystemMethods.swift"),
+            encoding: .utf8
+        )
+        let routerSource = try String(
+            contentsOf: projectRoot.appending(path: "Sources/AgentStudio/Features/Bridge/Transport/RPCRouter.swift"),
+            encoding: .utf8
+        )
+
+        #expect(!systemMethods.contains("BridgeTelemetryMethod"))
+        #expect(!routerSource.contains("dispatchBridgeTelemetryBatch"))
+    }
+
+    @Test
     func interactiveRPCRejectsProductionBridgeTelemetryBatches() async throws {
         // Arrange
         let router = RPCRouter()

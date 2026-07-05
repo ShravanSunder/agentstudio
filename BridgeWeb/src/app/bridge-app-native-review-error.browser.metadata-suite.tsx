@@ -9,6 +9,7 @@ import {
 } from '../features/review/protocol/review-metadata-frame-builder.js';
 import { makeBridgeReviewPackage } from '../foundation/review-package/bridge-review-package-test-support.js';
 import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
+import type { BridgeTelemetryBatch } from '../foundation/telemetry/bridge-telemetry-event.js';
 import {
 	requireBridgeViewerHTMLElement,
 	waitForBridgeViewerAnimationFrame,
@@ -26,13 +27,14 @@ import {
 	actWait,
 	chunkedTextResponse,
 	dispatchHostAdmittedReviewIntakeFrame,
-	isBridgeTelemetryCommand,
 	makeWindowedReviewPackage,
 	makeWorktreeFileDescriptorForFrameTest,
 	makeWorktreeFileFramesForFrameTest,
 	pollWithinAct,
 	pollWithinActUntilEqual,
 	pollWithinActUntilTruthy,
+	recordBridgeTelemetryBatchFetch,
+	telemetrySamplesFromBatches,
 } from './bridge-app-native-review-error.browser.test-support.js';
 import { BridgeApp } from './bridge-app.js';
 
@@ -447,6 +449,7 @@ describe('BridgeApp native review intake Browser Mode', () => {
 		}
 		const targetHeadPath = targetItem.headPath;
 		const fetchedResourceUrls: string[] = [];
+		const telemetryBatches: BridgeTelemetryBatch[] = [];
 		const snapshotFrame = buildReviewMetadataSnapshotFrame({
 			package: reviewPackage,
 			paneId: 'bridge-app-test-pane',
@@ -464,7 +467,11 @@ describe('BridgeApp native review intake Browser Mode', () => {
 			streamId,
 			itemIds: reviewPackage.orderedItemIds.slice(1, 3),
 		});
-		vi.spyOn(globalThis, 'fetch').mockImplementation(async (resource): Promise<Response> => {
+		vi.spyOn(globalThis, 'fetch').mockImplementation(async (resource, init): Promise<Response> => {
+			const telemetryResponse = recordBridgeTelemetryBatchFetch(resource, init, telemetryBatches);
+			if (telemetryResponse !== null) {
+				return telemetryResponse;
+			}
 			const resourceUrl =
 				typeof resource === 'string'
 					? resource
@@ -545,6 +552,7 @@ describe('BridgeApp native review intake Browser Mode', () => {
 
 	test('keeps last completed review tree when a newer bounded snapshot arrives before its refill window', async () => {
 		const commands: unknown[] = [];
+		const telemetryBatches: BridgeTelemetryBatch[] = [];
 		const handleBridgeCommand = (event: Event): void => {
 			commands.push('detail' in event ? event.detail : null);
 		};
@@ -590,7 +598,11 @@ describe('BridgeApp native review intake Browser Mode', () => {
 			selectedItemId: reviewPackage.orderedItemIds[0] ?? null,
 			visibleItemIds: reviewPackage.orderedItemIds.slice(0, 10),
 		});
-		vi.spyOn(globalThis, 'fetch').mockImplementation(async (resource): Promise<Response> => {
+		vi.spyOn(globalThis, 'fetch').mockImplementation(async (resource, init): Promise<Response> => {
+			const telemetryResponse = recordBridgeTelemetryBatchFetch(resource, init, telemetryBatches);
+			if (telemetryResponse !== null) {
+				return telemetryResponse;
+			}
 			const resourceUrl =
 				typeof resource === 'string'
 					? resource
@@ -654,7 +666,7 @@ describe('BridgeApp native review intake Browser Mode', () => {
 						maxSamplesPerBatch: 32,
 						maxEncodedBatchBytes: 65_536,
 						minimumFlushIntervalMilliseconds: 0,
-						rpcMethodName: 'system.bridgeTelemetry',
+						endpointUrl: 'agentstudio://telemetry/batch',
 						scenario: 'bounded_snapshot_acceptance_v1',
 					},
 				},
@@ -707,9 +719,7 @@ describe('BridgeApp native review intake Browser Mode', () => {
 			expect(reviewShell.getAttribute('data-review-metadata-tree-row-count')).toBe('90');
 			expect(reviewShell.getAttribute('data-selected-display-path')).toBe(targetHeadPath);
 			expect(reviewShell.getAttribute('data-selected-content-state')).toBe('ready');
-			expect(
-				commands.filter(isBridgeTelemetryCommand).flatMap((command) => command.params.samples),
-			).not.toContainEqual(
+			expect(telemetrySamplesFromBatches(telemetryBatches)).not.toContainEqual(
 				expect.objectContaining({
 					name: 'performance.bridge.web.review_metadata_apply',
 					stringAttributes: expect.objectContaining({
@@ -799,7 +809,12 @@ describe('BridgeApp native review intake Browser Mode', () => {
 				},
 			],
 		});
-		vi.spyOn(globalThis, 'fetch').mockImplementation(async (resource): Promise<Response> => {
+		const telemetryBatches: BridgeTelemetryBatch[] = [];
+		vi.spyOn(globalThis, 'fetch').mockImplementation(async (resource, init): Promise<Response> => {
+			const telemetryResponse = recordBridgeTelemetryBatchFetch(resource, init, telemetryBatches);
+			if (telemetryResponse !== null) {
+				return telemetryResponse;
+			}
 			const resourceUrl =
 				typeof resource === 'string'
 					? resource
@@ -881,9 +896,14 @@ describe('BridgeApp native review intake Browser Mode', () => {
 
 	test('emits accepted review intake telemetry when web telemetry is enabled', async () => {
 		const commands: unknown[] = [];
+		const telemetryBatches: BridgeTelemetryBatch[] = [];
 		const handleBridgeCommand = (event: Event): void => {
 			commands.push('detail' in event ? event.detail : null);
 		};
+		vi.spyOn(globalThis, 'fetch').mockImplementation(async (resource, init): Promise<Response> => {
+			const telemetryResponse = recordBridgeTelemetryBatchFetch(resource, init, telemetryBatches);
+			return telemetryResponse ?? new Response('unexpected request', { status: 404 });
+		});
 		document.addEventListener('__bridge_command', handleBridgeCommand);
 		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
 		document.documentElement.setAttribute('data-bridge-review-pane-id', 'bridge-app-test-pane');
@@ -915,14 +935,13 @@ describe('BridgeApp native review intake Browser Mode', () => {
 					maxSamplesPerBatch: 16,
 					maxEncodedBatchBytes: 65_536,
 					minimumFlushIntervalMilliseconds: 0,
-					rpcMethodName: 'system.bridgeTelemetry',
+					endpointUrl: 'agentstudio://telemetry/batch',
 					scenario: 'metadata_apply_content_fetch_v1',
 				},
 			},
 		);
 
-		const telemetryCommand = commands.find(isBridgeTelemetryCommand);
-		expect(telemetryCommand?.params.samples).toContainEqual(
+		expect(telemetrySamplesFromBatches(telemetryBatches)).toContainEqual(
 			expect.objectContaining({
 				name: 'performance.bridge.web.intake_frame',
 				stringAttributes: expect.objectContaining({

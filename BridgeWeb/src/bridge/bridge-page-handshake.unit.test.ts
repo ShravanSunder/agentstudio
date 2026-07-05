@@ -82,10 +82,10 @@ describe('bridge page handshake', () => {
 						pushNonce: 'push-1',
 						telemetryConfig: {
 							enabledScopes: ['web', 'webkit'],
+							endpointUrl: 'agentstudio://telemetry/batch',
 							maxSamplesPerBatch: 64,
 							maxEncodedBatchBytes: 16_384,
 							minimumFlushIntervalMilliseconds: 250,
-							rpcMethodName: 'system.bridgeTelemetry',
 							scenario: 'bridge-runtime',
 						},
 					},
@@ -105,7 +105,7 @@ describe('bridge page handshake', () => {
 		session.uninstall();
 
 		expect(session.getTelemetryConfig()?.enabledScopes.has('web')).toBe(true);
-		expect(session.getTelemetryConfig()?.rpcMethodName).toBe('system.bridgeTelemetry');
+		expect(session.getTelemetryConfig()?.endpointUrl).toBe('agentstudio://telemetry/batch');
 	});
 
 	test('notifies when the first valid telemetry config arrives after install', () => {
@@ -123,10 +123,10 @@ describe('bridge page handshake', () => {
 					pushNonce: 'push-1',
 					telemetryConfig: {
 						enabledScopes: ['web'],
+						endpointUrl: 'agentstudio://telemetry/batch',
 						maxSamplesPerBatch: 8,
 						maxEncodedBatchBytes: 16_384,
 						minimumFlushIntervalMilliseconds: 1,
-						rpcMethodName: 'system.bridgeTelemetry',
 						scenario: 'metadata_apply_content_fetch_v1',
 					},
 				},
@@ -138,10 +138,10 @@ describe('bridge page handshake', () => {
 					pushNonce: 'push-2',
 					telemetryConfig: {
 						enabledScopes: ['web'],
+						endpointUrl: 'agentstudio://telemetry/batch',
 						maxSamplesPerBatch: 8,
 						maxEncodedBatchBytes: 16_384,
 						minimumFlushIntervalMilliseconds: 1,
-						rpcMethodName: 'system.bridgeTelemetry',
 						scenario: 'ignored_later_config',
 					},
 				},

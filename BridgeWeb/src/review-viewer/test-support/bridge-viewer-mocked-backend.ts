@@ -25,6 +25,10 @@ import type {
 	BridgeReviewPackage,
 } from '../../foundation/review-package/bridge-review-package.js';
 import type { BridgeTelemetryBootstrapHandshakeConfig } from '../../foundation/telemetry/bridge-telemetry-bootstrap-config.js';
+import {
+	bridgeTelemetryBatchSchema,
+	type BridgeTelemetryBatch,
+} from '../../foundation/telemetry/bridge-telemetry-event.js';
 import { makeBridgeReviewProjectionInput } from '../navigation/review-projection.js';
 import {
 	createBridgeReviewProjectionWorkerClient,
@@ -81,6 +85,7 @@ export interface BridgeViewerMockedBackend {
 	readonly fetchContent: BridgeContentFetch;
 	readonly projectionWorkerClient: BridgeReviewProjectionWorkerClient;
 	readonly commandDetails: readonly unknown[];
+	readonly telemetryBatches: readonly BridgeTelemetryBatch[];
 	readonly projectionRequests: readonly BridgeReviewProjectionWorkerRequest[];
 	readonly projectionAbortKeys: readonly string[];
 	readonly pendingProjectionResponses: readonly BridgeViewerDeferredProjectionResponse[];
@@ -427,6 +432,7 @@ export function installBridgeViewerMockedBackend(
 	document.documentElement.setAttribute('data-bridge-review-pane-id', bridgeViewerReviewPaneId);
 	document.documentElement.setAttribute('data-bridge-review-stream-id', bridgeViewerReviewStreamId);
 	const commandDetails: unknown[] = [];
+	const telemetryBatches: BridgeTelemetryBatch[] = [];
 	const projectionRequests: BridgeReviewProjectionWorkerRequest[] = [];
 	const projectionAbortKeys: string[] = [];
 	const pendingProjectionResponses: BridgeViewerDeferredProjectionResponse[] = [];
@@ -439,8 +445,37 @@ export function installBridgeViewerMockedBackend(
 	let currentReviewPackage = fixture.reviewPackage;
 	let nextReviewSequence = fixture.reviewPackage.revision;
 	let didReceiveHandshakeRequest = false;
+	const originalFetch = globalThis.fetch.bind(globalThis);
+	const telemetryEndpointUrl =
+		options.telemetryConfig?.endpointUrl ?? 'agentstudio://telemetry/batch';
+	globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+		const requestUrl =
+			typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+		if (requestUrl !== telemetryEndpointUrl) {
+			return await originalFetch(input, init);
+		}
+		const body = typeof init?.body === 'string' ? init.body : null;
+		if (body === null) {
+			return new Response('missing telemetry body', { status: 400 });
+		}
+		const parsedBatch = bridgeTelemetryBatchSchema.safeParse(JSON.parse(body));
+		if (!parsedBatch.success) {
+			return new Response('invalid telemetry body', { status: 400 });
+		}
+		telemetryBatches.push(parsedBatch.data);
+		return new Response(null, { status: 202 });
+	};
 	const commandListener = (event: Event): void => {
-		commandDetails.push('detail' in event ? event.detail : null);
+		const detail = 'detail' in event ? event.detail : null;
+		commandDetails.push(detail);
+		const readyRequestId = bridgeReadyRequestId(detail);
+		if (readyRequestId !== null) {
+			document.dispatchEvent(
+				new CustomEvent('__bridge_response', {
+					detail: { id: readyRequestId, result: null },
+				}),
+			);
+		}
 	};
 	const handshakeRequestListener = (): void => {
 		didReceiveHandshakeRequest = true;
@@ -532,6 +567,7 @@ export function installBridgeViewerMockedBackend(
 		}
 		document.removeEventListener('__bridge_command', commandListener);
 		document.removeEventListener('__bridge_handshake_request', handshakeRequestListener);
+		globalThis.fetch = originalFetch;
 		document.documentElement.removeAttribute('data-bridge-nonce');
 		document.documentElement.removeAttribute('data-bridge-review-pane-id');
 		document.documentElement.removeAttribute('data-bridge-review-stream-id');
@@ -543,6 +579,7 @@ export function installBridgeViewerMockedBackend(
 		reviewPackage: fixture.reviewPackage,
 		projectionWorkerClient,
 		commandDetails,
+		telemetryBatches,
 		projectionRequests,
 		projectionAbortKeys,
 		pendingProjectionResponses,
@@ -854,4 +891,18 @@ function lineCountForReviewItemContentRole(props: {
 	const exhaustiveContentRole: never = props.contentRole;
 	void exhaustiveContentRole;
 	throw new Error('Unhandled Bridge review content role');
+}
+
+function bridgeReadyRequestId(value: unknown): string | number | null {
+	if (
+		typeof value !== 'object' ||
+		value === null ||
+		!('method' in value) ||
+		value.method !== 'bridge.ready' ||
+		!('id' in value)
+	) {
+		return null;
+	}
+	const requestId = value.id;
+	return typeof requestId === 'string' || typeof requestId === 'number' ? requestId : null;
 }

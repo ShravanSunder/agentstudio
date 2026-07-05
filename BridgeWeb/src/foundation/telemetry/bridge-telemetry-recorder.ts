@@ -16,6 +16,11 @@ export interface BridgeTelemetryRecorder {
 	readonly flush: (props?: BridgeTelemetryFlushProps) => boolean;
 }
 
+export interface BridgeTelemetryRecorderClient {
+	readonly record: (sample: BridgeTelemetrySample) => void;
+	readonly flush: () => boolean;
+}
+
 export interface BridgeTelemetryMeasureProps<TResult> {
 	readonly scope: BridgeTelemetryScope;
 	readonly name: string;
@@ -46,6 +51,42 @@ export function createBridgeTelemetryRecorder(
 		maxEncodedBatchBytes: config.maxEncodedBatchBytes,
 	});
 	return createEnabledBridgeTelemetryRecorder(config, buffer, sink, now, scheduleIdleFlush);
+}
+
+export function createBridgeTelemetryRecorderFromClient(
+	config: BridgeTelemetryBootstrapConfig | null,
+	client: BridgeTelemetryRecorderClient,
+	now: () => number = performance.now.bind(performance),
+): BridgeTelemetryRecorder {
+	if (config === null) {
+		return nullBridgeTelemetryRecorder;
+	}
+	return {
+		isEnabled: (scope): boolean => config.enabledScopes.has(scope),
+		record: (sample): void => {
+			if (config.enabledScopes.has(sample.scope)) {
+				client.record(sample);
+			}
+		},
+		measure: <TResult>(props: BridgeTelemetryMeasureProps<TResult>): TResult => {
+			if (!config.enabledScopes.has(props.scope)) {
+				return props.operation();
+			}
+			const start = now();
+			const result = props.operation();
+			client.record({
+				scope: props.scope,
+				name: props.name,
+				durationMilliseconds: Math.max(0, now() - start),
+				traceContext: props.traceContext,
+				stringAttributes: props.stringAttributes,
+				numericAttributes: props.numericAttributes ?? {},
+				booleanAttributes: props.booleanAttributes ?? {},
+			});
+			return result;
+		},
+		flush: (): boolean => client.flush(),
+	};
 }
 
 const nullBridgeTelemetryRecorder: BridgeTelemetryRecorder = {

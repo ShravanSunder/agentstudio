@@ -303,9 +303,7 @@ export function createBridgeAppNativeWorktreeFileBackend(
 				telemetryRecorder = createBridgeTelemetryRecorder(
 					telemetryConfig,
 					createNativeWorktreeFileTelemetrySink({
-						createRequestId: createNativeWorktreeFileRequestId,
-						methodName: telemetryConfig.rpcMethodName,
-						target,
+						endpointUrl: telemetryConfig.endpointUrl,
 					}),
 				);
 				didConfigureTelemetryRecorder = true;

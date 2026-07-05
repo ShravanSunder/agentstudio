@@ -1,9 +1,6 @@
 import { cleanup } from 'vitest-browser-react';
 
-import type {
-	BridgeTelemetryBatch,
-	BridgeTelemetrySample,
-} from '../../foundation/telemetry/bridge-telemetry-event.js';
+import type { BridgeTelemetrySample } from '../../foundation/telemetry/bridge-telemetry-event.js';
 export { installPierrePackagedWorkerFetchMock } from '../workers/pierre/bridge-pierre-dev-worker-factory.js';
 import { terminateBridgePierreWorkerPoolSingletonForTest } from '../workers/pierre/bridge-pierre-worker-pool.js';
 import {
@@ -81,7 +78,7 @@ export async function waitForBridgeTelemetrySamples(
 	requiredNames: readonly string[],
 	remainingAttempts = 180,
 ): Promise<readonly BridgeTelemetrySample[]> {
-	const samples = telemetrySamplesFromCommands(backend.commandDetails);
+	const samples = telemetrySamplesFromBatches(backend.telemetryBatches);
 	const presentNames = new Set(sampleNames(samples));
 	if (requiredNames.every((name: string): boolean => presentNames.has(name))) {
 		return samples;
@@ -110,13 +107,19 @@ export function telemetrySamplesFromCommands(
 	});
 }
 
+export function telemetrySamplesFromBatches(
+	batches: readonly { readonly samples: readonly BridgeTelemetrySample[] }[],
+): readonly BridgeTelemetrySample[] {
+	return batches.flatMap((batch): readonly BridgeTelemetrySample[] => batch.samples);
+}
+
 export function sampleNames(samples: readonly BridgeTelemetrySample[]): readonly string[] {
 	return samples.map((sample: BridgeTelemetrySample): string => sample.name);
 }
 
 export function isBridgeTelemetryCommand(value: unknown): value is {
 	readonly method: 'system.bridgeTelemetry';
-	readonly params: BridgeTelemetryBatch;
+	readonly params: { readonly samples: readonly BridgeTelemetrySample[] };
 } {
 	return (
 		typeof value === 'object' &&

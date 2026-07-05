@@ -239,7 +239,7 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 				maxSamplesPerBatch: 64,
 				maxEncodedBatchBytes: 262_144,
 				minimumFlushIntervalMilliseconds: 0,
-				rpcMethodName: 'system.bridgeTelemetry',
+				endpointUrl: 'agentstudio://telemetry/batch',
 				scenario: 'mocked_review_startup_timing_v1',
 			},
 		});

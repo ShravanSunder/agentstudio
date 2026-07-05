@@ -11,6 +11,11 @@ import {
 	makeBridgeReviewPackage,
 } from '../foundation/review-package/bridge-review-package-test-support.js';
 import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
+import {
+	bridgeTelemetryBatchSchema,
+	type BridgeTelemetryBatch,
+	type BridgeTelemetrySample,
+} from '../foundation/telemetry/bridge-telemetry-event.js';
 import { waitForBridgeViewerAnimationFrame } from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
 
 export interface DispatchHostAdmittedReviewIntakeFrameOptions {
@@ -174,6 +179,35 @@ export function isBridgeTelemetryCommand(value: unknown): value is {
 		'samples' in value.params &&
 		Array.isArray(value.params.samples)
 	);
+}
+
+export function recordBridgeTelemetryBatchFetch(
+	input: RequestInfo | URL,
+	init: RequestInit | undefined,
+	batches: BridgeTelemetryBatch[],
+	endpointUrl = 'agentstudio://telemetry/batch',
+): Response | null {
+	const requestUrl =
+		typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+	if (requestUrl !== endpointUrl) {
+		return null;
+	}
+	const body = typeof init?.body === 'string' ? init.body : null;
+	if (body === null) {
+		return new Response('missing telemetry body', { status: 400 });
+	}
+	const parsedBatch = bridgeTelemetryBatchSchema.safeParse(JSON.parse(body));
+	if (!parsedBatch.success) {
+		return new Response('invalid telemetry body', { status: 400 });
+	}
+	batches.push(parsedBatch.data);
+	return new Response(null, { status: 202 });
+}
+
+export function telemetrySamplesFromBatches(
+	batches: readonly BridgeTelemetryBatch[],
+): readonly BridgeTelemetrySample[] {
+	return batches.flatMap((batch): readonly BridgeTelemetrySample[] => batch.samples);
 }
 
 export function makeWindowedReviewPackage(itemCount: number): BridgeReviewPackage {

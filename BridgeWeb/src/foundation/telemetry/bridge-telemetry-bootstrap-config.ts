@@ -4,10 +4,10 @@ import { type BridgeTelemetryScope, bridgeTelemetryScopeSchema } from './bridge-
 
 export interface BridgeTelemetryBootstrapConfig {
 	readonly enabledScopes: ReadonlySet<BridgeTelemetryScope>;
+	readonly endpointUrl: string;
 	readonly maxSamplesPerBatch: number;
 	readonly maxEncodedBatchBytes: number;
 	readonly minimumFlushIntervalMilliseconds: number;
-	readonly rpcMethodName: 'system.bridgeTelemetry';
 	readonly scenario: string;
 	// Native wall-clock epoch (Unix milliseconds) when the viewer open began. Used as the
 	// cold `time_to_first_interaction` start anchor; absent when telemetry is disabled.
@@ -19,19 +19,19 @@ export interface BridgeTelemetryBootstrapConfig {
 
 export interface BridgeTelemetryBootstrapHandshakeConfig {
 	readonly enabledScopes: readonly BridgeTelemetryScope[];
+	readonly endpointUrl: string;
 	readonly maxSamplesPerBatch: number;
 	readonly maxEncodedBatchBytes: number;
 	readonly minimumFlushIntervalMilliseconds: number;
-	readonly rpcMethodName: 'system.bridgeTelemetry';
 	readonly scenario: string;
 }
 
 const bridgeTelemetryBootstrapConfigSchema = z.object({
 	enabledScopes: z.array(bridgeTelemetryScopeSchema),
+	endpointUrl: z.string().min(1),
 	maxSamplesPerBatch: z.number().int().positive(),
 	maxEncodedBatchBytes: z.number().int().positive(),
 	minimumFlushIntervalMilliseconds: z.number().int().nonnegative(),
-	rpcMethodName: z.literal('system.bridgeTelemetry'),
 	scenario: z.string().min(1),
 	viewerOpenEpochUnixMillis: z.number().int().positive().optional(),
 	viewerOpenTraceparent: z.string().min(1).optional(),
