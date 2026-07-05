@@ -1,3 +1,5 @@
+import type { RenderFileResult } from '@pierre/diffs';
+import { WorkerPoolManager, type FileRendererInstance } from '@pierre/diffs/worker';
 import { describe, expect, test, vi } from 'vitest';
 
 import type { BridgeContentResource } from '../../foundation/content/content-resource-loader.js';
@@ -318,6 +320,122 @@ describe('BridgeCodeViewPanel diagnostics', () => {
 		scheduledTurns.shift()?.();
 		expect(visitedEntries).toEqual([0, 1, 2, 3, 4, 5, 99]);
 		expect(scheduledTurns).toHaveLength(0);
+	});
+
+	test('does not retokenize same content-hash descriptor file on chunked re-exposure', () => {
+		vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback): number => {
+			callback(0);
+			return 1;
+		});
+		vi.stubGlobal('cancelAnimationFrame', (_frameId: number): void => {});
+		try {
+			const reviewPackage = makeBridgeReviewPackage();
+			const item = reviewPackage.itemsById['item-source'];
+			const headHandle = item?.contentRoles.head ?? null;
+			if (item === undefined || headHandle === null) {
+				throw new Error('Expected modified item with head handle');
+			}
+			const model = new VersionKeyedCodeViewModel();
+			const controller = new BridgeCodeViewController({ model });
+			const workerPoolManager = new WorkerPoolManager(
+				{
+					poolSize: 0,
+					totalASTLRUCacheSize: 4,
+					workerFactory: (): Worker => {
+						throw new Error('worker should not be constructed for re-exposure test');
+					},
+				},
+				{},
+			);
+			const highlightSpy = vi.spyOn(workerPoolManager, 'highlightFileAST');
+			const rendererInstance = makeFileRendererInstance('r46-reexposure');
+			let readTextCallCount = 0;
+			const resources: BridgeCodeViewContentResources = {
+				head: {
+					authoritative: true,
+					byteLength: 42,
+					handle: {
+						...headHandle,
+						contentHash: 'sha256:same-r46-content',
+						contentHashAlgorithm: 'sha256',
+						cacheKey: 'item-source:head:revision-46',
+						sizeBytes: 42,
+					},
+					readText: (): string => {
+						readTextCallCount += 1;
+						return 'struct SameR46Content {}\n';
+					},
+				},
+			};
+			const appliedEntries: string[] = [];
+			const skippedEntries: string[] = [];
+			const scheduledTurns: Array<() => void> = [];
+
+			runBridgeCodeViewMaterializationInChunks({
+				entries: ['initial-exposure', 'second-exposure'],
+				frameBudgetMilliseconds: 8,
+				isStale: (): boolean => false,
+				maxUnitsPerFrame: 1,
+				now: (): number => 0,
+				onComplete: (): void => {
+					appliedEntries.push('drained');
+				},
+				rankForEntry: (): 'selected' => 'selected',
+				runEntry: (entry): void => {
+					const existingItem = model.getItem(item.itemId);
+					if (
+						shouldSkipBridgeCodeViewItemMaterializationBeforeWork({
+							collapsed: false,
+							existingItem,
+							item,
+							presentation: { kind: 'file', version: 'head' },
+							resources,
+						})
+					) {
+						skippedEntries.push(entry);
+						return;
+					}
+					const materializedItem = materializeBridgeCodeViewItem({
+						contentDemandRole: 'selected',
+						item,
+						presentation: { kind: 'file', version: 'head' },
+						resources,
+					});
+					if (materializedItem?.type !== 'file') {
+						throw new Error('Expected descriptor-backed file materialization');
+					}
+					const cacheKey = materializedItem.file.cacheKey;
+					if (cacheKey === undefined) {
+						throw new Error('Expected descriptor-backed file cache key');
+					}
+					appliedEntries.push(`${entry}:${controller.applyItemUpdate(materializedItem)}`);
+					workerPoolManager.highlightFileAST(rendererInstance, materializedItem.file);
+					workerPoolManager
+						.inspectCaches()
+						.fileCache.set(cacheKey, cachedRenderFileResultFor(workerPoolManager));
+				},
+				scheduleNextTurn: (callback): void => {
+					scheduledTurns.push(callback);
+				},
+			});
+
+			scheduledTurns.shift()?.();
+			expect(readTextCallCount).toBe(1);
+			expect(highlightSpy).toHaveBeenCalledTimes(1);
+			expect(workerPoolManager.getStats().queuedTasks).toBe(1);
+			scheduledTurns.shift()?.();
+
+			expect(appliedEntries).toEqual(['initial-exposure:added', 'drained']);
+			expect(skippedEntries).toEqual(['second-exposure']);
+			expect(readTextCallCount).toBe(1);
+			expect(highlightSpy).toHaveBeenCalledTimes(1);
+			expect(workerPoolManager.getStats()).toMatchObject({
+				fileCacheSize: 1,
+				queuedTasks: 1,
+			});
+		} finally {
+			vi.unstubAllGlobals();
+		}
 	});
 
 	test('re-arms a recent instant reveal when an above-target item materializes', () => {
@@ -749,6 +867,21 @@ function ensureTestWindow(): void {
 	if (typeof window === 'undefined') {
 		vi.stubGlobal('window', {});
 	}
+}
+
+function makeFileRendererInstance(id: string): FileRendererInstance {
+	return {
+		__id: id,
+		onHighlightSuccess: (): void => {},
+		onHighlightError: (): void => {},
+	};
+}
+
+function cachedRenderFileResultFor(workerPoolManager: WorkerPoolManager): RenderFileResult {
+	return {
+		result: { code: [], themeStyles: '', baseThemeType: undefined },
+		options: workerPoolManager.getFileRenderOptions(),
+	};
 }
 
 class RecordingMetadataApplyModel {

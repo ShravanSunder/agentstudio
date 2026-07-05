@@ -17,7 +17,10 @@ import type {
 import type { BridgeReviewProjectionResult } from '../models/review-projection-models.js';
 import { bridgeContentRoleSchema } from '../models/review-projection-models.js';
 import { bridgePierreOptionalHighlightLanguage } from '../workers/pierre/bridge-pierre-language-normalization.js';
-import { createBridgePierreContentDescriptorFile } from '../workers/pierre/bridge-pierre-worker-content-descriptor.js';
+import {
+	bridgePierreContentDescriptorCacheKey,
+	createBridgePierreContentDescriptorFile,
+} from '../workers/pierre/bridge-pierre-worker-content-descriptor.js';
 import {
 	createBridgeCodeViewPlaceholderDiffFiles,
 	createBridgeCodeViewPlaceholderFileContents,
@@ -176,6 +179,71 @@ export function materializeBridgeCodeViewItem(
 		version: item.itemVersion,
 		contentState: 'hydrated',
 	});
+}
+
+export function bridgeCodeViewMaterializationCacheKeysForItem(
+	props: MaterializeBridgeCodeViewItemProps,
+): readonly string[] {
+	const { item, resources } = props;
+	const contentWindow = codeViewContentWindowForLineLimit(props.contentWindowLineLimit);
+	const oneSidedDiffResources = oneSidedDiffResourcesForItem({ item, resources });
+	if (props.presentation?.kind === 'file' && oneSidedDiffResources === null) {
+		const preferredResource = resourceForFilePresentation({
+			resources,
+			version: props.presentation.version,
+		});
+		return preferredResource === null
+			? []
+			: [
+					bridgeCodeViewContentResourceMaterializationCacheKey({
+						contentWindow: codeViewContentWindowForResource({
+							contentWindow,
+							item,
+							resource: preferredResource,
+						}),
+						resource: preferredResource,
+					}),
+				];
+	}
+
+	if (oneSidedDiffResources !== null) {
+		return [
+			bridgeCodeViewDiffMaterializationCacheKey({
+				...oneSidedDiffResources,
+				contentWindow,
+				item,
+			}),
+		];
+	}
+
+	if (
+		shouldUseDiffPlaceholder(item) &&
+		(resources.base !== undefined || resources.head !== undefined)
+	) {
+		return [
+			bridgeCodeViewDiffMaterializationCacheKey({
+				base: resources.base ?? null,
+				contentWindow,
+				head: resources.head ?? null,
+				item,
+			}),
+		];
+	}
+
+	const preferredResource =
+		resources.head ?? resources.file ?? resources.diff ?? resources.base ?? null;
+	return preferredResource === null
+		? []
+		: [
+				bridgeCodeViewContentResourceMaterializationCacheKey({
+					contentWindow: codeViewContentWindowForResource({
+						contentWindow,
+						item,
+						resource: preferredResource,
+					}),
+					resource: preferredResource,
+				}),
+			];
 }
 
 export function selectedBridgeCodeViewContentWindowLineLimitForItem(props: {
@@ -373,9 +441,7 @@ function createDiffItem(props: CreateDiffItemProps): BridgeCodeViewDiffItem {
 		fileDiff.lang = fallbackLanguage;
 	}
 	const contentState = contentWindow.truncated ? 'windowed' : 'hydrated';
-	const cacheKey = `${oldFile.cacheKey ?? props.base?.handle.cacheKey ?? 'placeholder'}|${
-		newFile.cacheKey ?? props.head?.handle.cacheKey ?? 'placeholder'
-	}`;
+	const cacheKey = bridgeCodeViewDiffMaterializationCacheKey({ ...props, contentWindow });
 	return {
 		id: props.item.itemId,
 		type: 'diff',
@@ -388,9 +454,42 @@ function createDiffItem(props: CreateDiffItemProps): BridgeCodeViewDiffItem {
 			item: props.item,
 			contentState,
 			contentRoles: loadedDiffContentRoles(props),
-			cacheKey: contentWindow.truncated ? `${cacheKey}:window:${contentWindow.maxLines}` : cacheKey,
+			cacheKey,
 		}),
 	};
+}
+
+function bridgeCodeViewDiffMaterializationCacheKey(props: CreateDiffItemProps): string {
+	const contentWindow = codeViewContentWindowForDiffItem(props);
+	const baseCacheKey = bridgeCodeViewFileContentCacheKey({
+		contentState: 'placeholder',
+		contentWindow,
+		item: props.item,
+		resource: props.base,
+	});
+	const headCacheKey = bridgeCodeViewFileContentCacheKey({
+		contentState: 'placeholder',
+		contentWindow,
+		item: props.item,
+		resource: props.head,
+	});
+	const cacheKey = `${baseCacheKey}|${headCacheKey}`;
+	return contentWindow.truncated ? `${cacheKey}:window:${contentWindow.maxLines}` : cacheKey;
+}
+
+function bridgeCodeViewFileContentCacheKey(props: {
+	readonly contentState?: BridgeCodeViewItemMetadata['contentState'];
+	readonly contentWindow: CodeViewContentWindow;
+	readonly item: BridgeReviewItemDescriptor;
+	readonly resource: BridgeContentResource | null;
+}): string {
+	if (props.resource === null) {
+		return `${props.item.cacheKey}:${props.contentState ?? 'placeholder'}`;
+	}
+	return bridgeCodeViewContentResourceMaterializationCacheKey({
+		contentWindow: props.contentWindow,
+		resource: props.resource,
+	});
 }
 
 function resourceForFilePresentation(props: {
@@ -514,9 +613,10 @@ function createFileContentsForResource(props: {
 		contentWindow: props.contentWindow,
 		text: props.text,
 	});
-	const cacheKey = windowedText.truncated
-		? `${props.resource.handle.cacheKey}:window:${windowedText.maxLines}`
-		: props.resource.handle.cacheKey;
+	const cacheKey = bridgeCodeViewContentResourceMaterializationCacheKey({
+		contentWindow: windowedText,
+		resource: props.resource,
+	});
 	const normalizedLanguage = bridgePierreOptionalHighlightLanguage(
 		props.resource.handle.language ?? props.item.language,
 	);
@@ -547,6 +647,19 @@ function createFileContentsForResource(props: {
 			text: windowedText.text,
 		}),
 	});
+}
+
+function bridgeCodeViewContentResourceMaterializationCacheKey(props: {
+	readonly contentWindow: Pick<CodeViewContentWindow, 'maxLines' | 'truncated'>;
+	readonly resource: BridgeContentResource;
+}): string {
+	const cacheKey = bridgePierreContentDescriptorCacheKey({
+		contentHash: props.resource.handle.contentHash,
+		contentHashAlgorithm: props.resource.handle.contentHashAlgorithm,
+	});
+	return props.contentWindow.truncated
+		? `${cacheKey}:window:${props.contentWindow.maxLines}`
+		: cacheKey;
 }
 
 function fileContentsWithDemandRank(props: {

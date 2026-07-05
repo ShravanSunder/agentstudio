@@ -742,10 +742,18 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 				const itemMaterializationStartedAt = performance.now();
 				const existingItem = codeViewHandle.getItem(itemId);
 				const itemIsCollapsed = collapsedItemIds.has(itemId);
+				const contentWindowLineLimit =
+					entry.contentDemandRole === 'selected'
+						? selectedBridgeCodeViewContentWindowLineLimitForItem({
+								item: selectedItem,
+								resources,
+							})
+						: undefined;
 				if (
 					isBridgeCodeViewItem(existingItem) &&
 					shouldSkipBridgeCodeViewItemMaterializationBeforeWork({
 						collapsed: itemIsCollapsed,
+						contentWindowLineLimit,
 						existingItem,
 						item: selectedItem,
 						presentation:
@@ -778,13 +786,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 				}
 				const materializedItem = materializeBridgeCodeViewItem({
 					contentDemandRole: entry.contentDemandRole,
-					contentWindowLineLimit:
-						entry.contentDemandRole === 'selected'
-							? selectedBridgeCodeViewContentWindowLineLimitForItem({
-									item: selectedItem,
-									resources,
-								})
-							: undefined,
+					contentWindowLineLimit,
 					item: selectedItem,
 					presentation:
 						itemId === props.selectedItemId ? (props.selectedItemPresentation ?? null) : null,

@@ -32,6 +32,7 @@ import {
 	type BridgeCodeViewModel,
 } from './bridge-code-view-controller.js';
 import {
+	bridgeCodeViewMaterializationCacheKeysForItem,
 	materializeBridgeCodeViewLoadingItem,
 	type BridgeCodeViewContentResources,
 	type BridgeCodeViewItem,
@@ -39,11 +40,6 @@ import {
 } from './bridge-code-view-materialization.js';
 import type { BridgeCodeViewMetadataReconcileProps } from './bridge-code-view-metadata-apply.js';
 import type { BridgeCodeViewMaterializationResourceEntry } from './bridge-code-view-panel-types.js';
-
-type BridgeCodeViewFileItemPresentation = Extract<
-	BridgeCodeViewItemPresentation,
-	{ readonly kind: 'file' }
->;
 
 export interface BridgeCodeViewControllerEntry {
 	readonly handle: CodeViewHandle<undefined>;
@@ -187,6 +183,7 @@ export function bridgeCodeViewMaterializationEntrySortKey(props: {
 
 export function shouldSkipBridgeCodeViewItemMaterializationBeforeWork(props: {
 	readonly collapsed: boolean;
+	readonly contentWindowLineLimit?: number | undefined;
 	readonly existingItem: BridgeCodeViewItem | undefined;
 	readonly item: BridgeReviewItemDescriptor;
 	readonly presentation: BridgeCodeViewItemPresentation | null;
@@ -199,19 +196,15 @@ export function shouldSkipBridgeCodeViewItemMaterializationBeforeWork(props: {
 	) {
 		return false;
 	}
-	const existingCacheKey = normalizedBridgeCodeViewMaterializationCacheKey(
-		props.existingItem.bridgeMetadata.cacheKey,
-	);
-	const expectedCacheKeys = bridgeCodeViewMaterializationContentCacheKeys({
+	const existingCacheKey = props.existingItem.bridgeMetadata.cacheKey;
+	const expectedCacheKeys = bridgeCodeViewMaterializationCacheKeysForItem({
+		contentWindowLineLimit: props.contentWindowLineLimit,
 		item: props.item,
 		presentation: props.presentation,
 		resources: props.resources,
 	});
 	return (
-		expectedCacheKeys.some(
-			(cacheKey): boolean =>
-				normalizedBridgeCodeViewMaterializationCacheKey(cacheKey) === existingCacheKey,
-		) ||
+		expectedCacheKeys.some((cacheKey): boolean => cacheKey === existingCacheKey) ||
 		bridgeCodeViewDiffMaterializationCacheKeyContainsCurrentIdentity({
 			existingCacheKey,
 			item: props.item,
@@ -255,108 +248,6 @@ export function runBridgeCodeViewMaterializationInChunks<TEntry>(props: {
 			},
 		})),
 	});
-}
-
-function bridgeCodeViewMaterializationContentCacheKeys(props: {
-	readonly item: BridgeReviewItemDescriptor;
-	readonly presentation: BridgeCodeViewItemPresentation | null;
-	readonly resources: BridgeCodeViewContentResources;
-}): readonly string[] {
-	const presentation = props.presentation;
-	if (presentation?.kind === 'file' && !bridgeReviewItemIsOneSidedChange(props.item)) {
-		const cacheKey = resourceCacheKeyForPresentation({ presentation, resources: props.resources });
-		return cacheKey === null ? [] : [cacheKey];
-	}
-	const oneSidedDiffCacheKey = oneSidedDiffContentCacheKey(props);
-	if (oneSidedDiffCacheKey !== null) {
-		return [oneSidedDiffCacheKey];
-	}
-	if (
-		shouldUseBridgeCodeViewDiffContentIdentity(props.item) &&
-		(props.resources.base !== undefined || props.resources.head !== undefined)
-	) {
-		return [
-			diffContentCacheKey({
-				base: props.resources.base ?? null,
-				head: props.resources.head ?? null,
-				item: props.item,
-			}),
-		];
-	}
-	const fileCacheKey =
-		props.resources.head?.handle.cacheKey ??
-		props.resources.file?.handle.cacheKey ??
-		props.resources.diff?.handle.cacheKey ??
-		props.resources.base?.handle.cacheKey ??
-		null;
-	return fileCacheKey === null ? [] : [fileCacheKey];
-}
-
-function resourceCacheKeyForPresentation(props: {
-	readonly presentation: BridgeCodeViewFileItemPresentation;
-	readonly resources: BridgeCodeViewContentResources;
-}): string | null {
-	switch (props.presentation.version) {
-		case 'base':
-			return props.resources.base?.handle.cacheKey ?? null;
-		case 'head':
-			return props.resources.head?.handle.cacheKey ?? props.resources.file?.handle.cacheKey ?? null;
-		case 'current':
-			return (
-				props.resources.head?.handle.cacheKey ??
-				props.resources.file?.handle.cacheKey ??
-				props.resources.base?.handle.cacheKey ??
-				null
-			);
-	}
-	const exhaustiveVersion: never = props.presentation.version;
-	void exhaustiveVersion;
-	throw new Error('Unhandled Bridge CodeView file presentation version');
-}
-
-function oneSidedDiffContentCacheKey(props: {
-	readonly item: BridgeReviewItemDescriptor;
-	readonly resources: BridgeCodeViewContentResources;
-}): string | null {
-	if (props.item.changeKind === 'added') {
-		const head = props.resources.head ?? props.resources.file ?? null;
-		return head === null ? null : diffContentCacheKey({ base: null, head, item: props.item });
-	}
-	if (props.item.changeKind === 'deleted') {
-		const base = props.resources.base ?? props.resources.diff ?? null;
-		return base === null ? null : diffContentCacheKey({ base, head: null, item: props.item });
-	}
-	return null;
-}
-
-function diffContentCacheKey(props: {
-	readonly base: BridgeCodeViewContentResources['base'] | null;
-	readonly head: BridgeCodeViewContentResources['head'] | null;
-	readonly item: BridgeReviewItemDescriptor;
-}): string {
-	return `${props.base?.handle.cacheKey ?? `${props.item.cacheKey}:placeholder`}|${
-		props.head?.handle.cacheKey ?? `${props.item.cacheKey}:placeholder`
-	}`;
-}
-
-function shouldUseBridgeCodeViewDiffContentIdentity(item: BridgeReviewItemDescriptor): boolean {
-	if (bridgeReviewItemIsOneSidedChange(item)) {
-		return true;
-	}
-	return (
-		item.itemKind === 'diff' &&
-		(item.contentRoles.base !== null ||
-			item.contentRoles.head !== null ||
-			item.contentRoles.diff !== null)
-	);
-}
-
-function bridgeReviewItemIsOneSidedChange(item: BridgeReviewItemDescriptor): boolean {
-	return item.changeKind === 'added' || item.changeKind === 'deleted';
-}
-
-function normalizedBridgeCodeViewMaterializationCacheKey(cacheKey: string): string {
-	return cacheKey.replace(/:window:\d+$/u, '');
 }
 
 function bridgeCodeViewDiffMaterializationCacheKeyContainsCurrentIdentity(props: {

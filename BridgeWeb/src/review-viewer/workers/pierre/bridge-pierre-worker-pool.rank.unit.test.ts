@@ -1,6 +1,7 @@
 import type { FileContents } from '@pierre/diffs';
 import { describe, expect, test } from 'vitest';
 
+import { demandRankForContentRole } from '../../../core/demand/bridge-content-demand-policy.js';
 import type { BridgeContentDemandRole } from '../../../core/models/bridge-demand-models.js';
 import type { BridgeContentResource } from '../../../foundation/content/content-resource-loader.js';
 import { makeBridgeReviewItem } from '../../../foundation/review-package/bridge-review-package-test-support.js';
@@ -120,6 +121,55 @@ describe('Bridge Pierre worker pool demand rank', () => {
 		expect(queuedTasks).toEqual([selectedTask, visibleTask, unrankedTask]);
 		expect(bridgePierreDemandRankForWorkerTask(selectedTask)).toBe(0);
 		expect(bridgePierreDemandRankForWorkerTask(unrankedTask)).toBe(Number.MAX_SAFE_INTEGER);
+	});
+
+	test('dequeues every CodeView demand tier in selected-first rank order', () => {
+		const selectedTask = makeWorkerTask({
+			id: 5,
+			file: makeRankedFile({
+				name: 'selected.ts',
+				demandRank: demandRankForContentRole('selected'),
+			}),
+		});
+		const visibleTask = makeWorkerTask({
+			id: 4,
+			file: makeRankedFile({
+				name: 'visible.ts',
+				demandRank: demandRankForContentRole('visible'),
+			}),
+		});
+		const nearbyTask = makeWorkerTask({
+			id: 3,
+			file: makeRankedFile({
+				name: 'nearby.ts',
+				demandRank: demandRankForContentRole('nearby'),
+			}),
+		});
+		const speculativeTask = makeWorkerTask({
+			id: 2,
+			file: makeRankedFile({
+				name: 'speculative.ts',
+				demandRank: demandRankForContentRole('speculative'),
+			}),
+		});
+		const backgroundTask = makeWorkerTask({
+			id: 1,
+			file: makeRankedFile({
+				name: 'background.ts',
+				demandRank: demandRankForContentRole('background'),
+			}),
+		});
+		const queuedTasks = [backgroundTask, speculativeTask, nearbyTask, visibleTask, selectedTask];
+
+		sortBridgePierreWorkerPoolQueuedTasksForDemandRank(queuedTasks);
+
+		expect(queuedTasks).toEqual([
+			selectedTask,
+			visibleTask,
+			nearbyTask,
+			speculativeTask,
+			backgroundTask,
+		]);
 	});
 });
 

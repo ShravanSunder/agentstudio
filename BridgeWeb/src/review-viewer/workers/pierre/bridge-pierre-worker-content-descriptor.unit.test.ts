@@ -1,5 +1,5 @@
 import type { RenderFileResult } from '@pierre/diffs';
-import { WorkerPoolManager } from '@pierre/diffs/worker';
+import { WorkerPoolManager, type FileRendererInstance } from '@pierre/diffs/worker';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import {
@@ -160,4 +160,85 @@ describe('Bridge Pierre worker content descriptor files', () => {
 		expect(workerPoolManager.getFileResultCache(retouchedFile)).toBe(cachedRenderResult);
 		expect(workerPoolManager.getStats().fileCacheSize).toBe(1);
 	});
+
+	test('rehighlights descriptor content after the Pierre AST LRU evicts its cache entry', () => {
+		vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback): number => {
+			callback(0);
+			return 1;
+		});
+		vi.stubGlobal('cancelAnimationFrame', (_frameId: number): void => {});
+		const firstFile = createBridgePierreContentDescriptorFile({
+			cacheKey: 'item-source-a:head:generation-7:revision-2',
+			contentHash: 'sha256:first-content',
+			contentHashAlgorithm: 'sha256',
+			generation: 7,
+			lineCount: 3,
+			maxBytes: 2048,
+			name: 'Sources/First.swift',
+			resourceUrl:
+				'agentstudio://resource/review/content/handle-item-source-a-head?generation=7&revision=2',
+		});
+		const secondFile = createBridgePierreContentDescriptorFile({
+			cacheKey: 'item-source-b:head:generation-7:revision-2',
+			contentHash: 'sha256:second-content',
+			contentHashAlgorithm: 'sha256',
+			generation: 7,
+			lineCount: 3,
+			maxBytes: 2048,
+			name: 'Sources/Second.swift',
+			resourceUrl:
+				'agentstudio://resource/review/content/handle-item-source-b-head?generation=7&revision=2',
+		});
+		const workerPoolManager = new WorkerPoolManager(
+			{
+				poolSize: 0,
+				totalASTLRUCacheSize: 1,
+				workerFactory: (): Worker => {
+					throw new Error('worker should not be constructed for cache eviction test');
+				},
+			},
+			{},
+		);
+		const highlightSpy = vi.spyOn(workerPoolManager, 'highlightFileAST');
+		const firstRendererInstance = makeFileRendererInstance('first-renderer');
+
+		workerPoolManager.highlightFileAST(firstRendererInstance, firstFile);
+		expect(highlightSpy).toHaveBeenCalledTimes(1);
+		expect(workerPoolManager.getStats().queuedTasks).toBe(1);
+
+		workerPoolManager.cleanUpTasks(firstRendererInstance);
+		workerPoolManager
+			.inspectCaches()
+			.fileCache.set(firstFile.cacheKey, cachedRenderFileResultFor(workerPoolManager));
+		workerPoolManager
+			.inspectCaches()
+			.fileCache.set(secondFile.cacheKey, cachedRenderFileResultFor(workerPoolManager));
+
+		expect(workerPoolManager.getStats().fileCacheSize).toBe(1);
+		expect(workerPoolManager.getFileResultCache(firstFile)).toBeUndefined();
+		expect(workerPoolManager.getFileResultCache(secondFile)).toBeDefined();
+
+		workerPoolManager.highlightFileAST(makeFileRendererInstance('first-renderer-again'), firstFile);
+
+		expect(highlightSpy).toHaveBeenCalledTimes(2);
+		expect(workerPoolManager.getStats()).toMatchObject({
+			fileCacheSize: 1,
+			queuedTasks: 1,
+		});
+	});
 });
+
+function makeFileRendererInstance(id: string): FileRendererInstance {
+	return {
+		__id: id,
+		onHighlightSuccess: (): void => {},
+		onHighlightError: (): void => {},
+	};
+}
+
+function cachedRenderFileResultFor(workerPoolManager: WorkerPoolManager): RenderFileResult {
+	return {
+		result: { code: [], themeStyles: '', baseThemeType: undefined },
+		options: workerPoolManager.getFileRenderOptions(),
+	};
+}

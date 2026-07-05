@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'vitest';
 
-import type { BridgeDemandIntent } from '../models/bridge-demand-models.js';
+import type {
+	BridgeContentDemandRole,
+	BridgeDemandIntent,
+} from '../models/bridge-demand-models.js';
 import type {
 	BridgeAttachedResourceDescriptor,
 	BridgeDescriptorRef,
@@ -8,6 +11,10 @@ import type {
 } from '../models/bridge-resource-descriptor.js';
 import { bridgeAttachedResourceDescriptorSchema } from '../models/bridge-resource-descriptor.js';
 import { createBridgeResourceDescriptorRegistry } from '../resources/bridge-resource-registry.js';
+import {
+	bridgeContentDemandExecutionPolicy,
+	demandRankForContentRole,
+} from './bridge-content-demand-policy.js';
 import {
 	createBridgeResourceExecutor,
 	type BridgeResourceExecutorContent,
@@ -640,6 +647,122 @@ describe('bridge resource executor', () => {
 		expect(startedDescriptorIds).toEqual(['descriptor-1', 'descriptor-3', 'descriptor-2']);
 	});
 
+	for (const scenario of [
+		{
+			role: 'nearby',
+			lane: 'nearby',
+			startConcurrency: bridgeContentDemandExecutionPolicy.nearbyStartConcurrency,
+		},
+		{
+			role: 'speculative',
+			lane: 'speculative',
+			startConcurrency: bridgeContentDemandExecutionPolicy.speculativeStartConcurrency,
+		},
+		{
+			role: 'background',
+			lane: 'idle',
+			startConcurrency: bridgeContentDemandExecutionPolicy.backgroundStartConcurrency,
+		},
+	] as const satisfies readonly LowerTierStartCapScenario[]) {
+		test(`caps ${scenario.role} starts at the policy concurrency before draining queued work`, async () => {
+			const registry = createRegistry();
+			const descriptorCount = scenario.startConcurrency + 1;
+			const attachedDescriptors = Array.from(
+				{ length: descriptorCount },
+				(_, descriptorIndex): BridgeAttachedResourceDescriptor =>
+					makeAttachedDescriptor({
+						descriptor: {
+							descriptorId: `${scenario.role}-descriptor-${descriptorIndex + 1}`,
+							resourceUrl: `agentstudio://resource/review/content/${scenario.role}-descriptor-${
+								descriptorIndex + 1
+							}?generation=1&revision=1`,
+						},
+					}),
+			);
+			for (const attachedDescriptor of attachedDescriptors) {
+				registry.register(attachedDescriptor);
+			}
+			const materializationByDescriptorId = new Map<
+				string,
+				Deferred<BridgeResourceExecutorContent<string>>
+			>();
+			for (const attachedDescriptor of attachedDescriptors) {
+				materializationByDescriptorId.set(
+					attachedDescriptor.descriptor.descriptorId,
+					createDeferred<BridgeResourceExecutorContent<string>>(),
+				);
+			}
+			const startedDescriptorIds: string[] = [];
+			const executor = createBridgeResourceExecutor<string>({
+				registry,
+				maxConcurrentLoads: scenario.startConcurrency,
+				maxInFlightBytes: 1024,
+				maxQueuedLoads: descriptorCount,
+				maxQueuedBytes: 1024,
+				loadResource: async ({ descriptor }) => {
+					startedDescriptorIds.push(descriptor.descriptorId);
+					const materialization = materializationByDescriptorId.get(descriptor.descriptorId);
+					if (materialization === undefined) {
+						throw new Error(`missing deferred for ${descriptor.descriptorId}`);
+					}
+					return await materialization.promise;
+				},
+			});
+
+			const loadPromises = attachedDescriptors.map((attachedDescriptor) =>
+				executor.load(
+					makeIntent(attachedDescriptor.ref, {
+						demandRank: demandRankForContentRole(scenario.role),
+						lane: scenario.lane,
+						orderingKey: attachedDescriptor.descriptor.descriptorId,
+					}),
+				),
+			);
+			await Promise.resolve();
+
+			expect(startedDescriptorIds).toEqual(
+				attachedDescriptors
+					.slice(0, scenario.startConcurrency)
+					.map((attachedDescriptor) => attachedDescriptor.descriptor.descriptorId),
+			);
+			expect(executor.queuedLoadCount).toBe(1);
+
+			for (const attachedDescriptor of attachedDescriptors.slice(0, scenario.startConcurrency)) {
+				materializationByDescriptorId.get(attachedDescriptor.descriptor.descriptorId)?.resolve({
+					content: `${attachedDescriptor.descriptor.descriptorId}:materialized`,
+					byteLength: 24,
+				});
+			}
+			await Promise.all(loadPromises.slice(0, scenario.startConcurrency));
+			await Promise.resolve();
+
+			expect(startedDescriptorIds).toEqual(
+				attachedDescriptors.map((attachedDescriptor) => attachedDescriptor.descriptor.descriptorId),
+			);
+			const queuedDescriptor = attachedDescriptors.at(-1);
+			if (queuedDescriptor === undefined) {
+				throw new Error('expected queued descriptor');
+			}
+			materializationByDescriptorId.get(queuedDescriptor.descriptor.descriptorId)?.resolve({
+				content: `${queuedDescriptor.descriptor.descriptorId}:materialized`,
+				byteLength: 24,
+			});
+
+			await expect(Promise.all(loadPromises)).resolves.toEqual(
+				expect.arrayContaining(
+					attachedDescriptors.map((attachedDescriptor) =>
+						expect.objectContaining({
+							ok: true,
+							content: `${attachedDescriptor.descriptor.descriptorId}:materialized`,
+						}),
+					),
+				),
+			);
+			expect(executor.inFlightCount).toBe(0);
+			expect(executor.queuedLoadCount).toBe(0);
+		});
+	}
+
 	test('queues visible members behind active work instead of dropping membership', async () => {
 		const registry = createRegistry();
 		const firstDescriptor = makeAttachedDescriptor();
@@ -846,6 +969,12 @@ function createRegistry(): ReturnType<typeof createBridgeResourceDescriptorRegis
 	return createBridgeResourceDescriptorRegistry({
 		allowedResourceKindsByProtocol: { review: new Set(['content']) },
 	});
+}
+
+interface LowerTierStartCapScenario {
+	readonly role: Extract<BridgeContentDemandRole, 'background' | 'nearby' | 'speculative'>;
+	readonly lane: BridgeDemandIntent['lane'];
+	readonly startConcurrency: number;
 }
 
 interface MakeIntentOptions {
