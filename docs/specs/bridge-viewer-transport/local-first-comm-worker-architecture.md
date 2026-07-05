@@ -727,6 +727,13 @@ mirror:
 | `pierreCourierCloneSubmitP95Ms` | < 4 ms | at most one quarter of the 16 ms foreground queue-wait p95 budget |
 | `pierreCourierCloneSubmitP99Ms` | < 8 ms | leaves the frame budget available for local chrome and R46 apply |
 
+These R57 byte/line ceilings protect the main -> Pierre courier edge and its
+stock-Pierre clone/submit cost. They are a different Constants Annex class from
+R60's worker-inline preparation ceilings, even when their initial values match.
+R57 telemetry is job byte/line size plus main -> Pierre clone/submit duration;
+R60 telemetry is worker prep-slice duration, worker queue wait, and
+split/offload behavior.
+
 If a job exceeds byte or line policy, the worker splits into smaller windows,
 publishes a placeholder/unavailable slice for the overflow, or demotes the
 non-selected portion to delayed apply. It must not send an unbounded payload and
@@ -784,6 +791,13 @@ The threshold classes are policy-owned stop lines:
 | payload | large bytes transfer as declared `ArrayBuffer` payloads or split windows, never accidental clone | transfer descriptor validation and clone/transfer duration |
 | derived list | full tree/list derivation is source-reset-only, never scroll/click/hover/content-ready | derivation cause telemetry and unit source scans |
 
+R58's worker hot-task duration class protects worker-local store mutation
+slices. It is intentionally distinct from R60's content-preparation compute
+slice class; both may start at <= 8 ms, but they have separate owner code and
+separate handler-duration histograms. R58's selected queue-wait SLO is shared by
+all worker work classes, including R60 content preparation; do not define a
+second selected queue-wait budget for worker compute.
+
 Selected/click command handling is O(selected + visible delta). Viewport and
 hover handling are O(visible delta) or O(1) per coalesced fact. Source reset may
 swap generations atomically, but full-list/index rebuild work must be chunked or
@@ -839,15 +853,21 @@ synchronous task; selected preemption is only a valid claim when every
 background/visible compute unit yields before the selected queue-wait budget is
 spent.
 
+Worker-internal component:
+
+| Component | Runtime | Owns | Must not own |
+| --- | --- | --- | --- |
+| `WorkerContentPreparationPump` | comm worker | rank-ordered prep queue, yield points, selected preemption, resumable chunk bookkeeping, stale-epoch aborts, prep-slice telemetry | canonical store state outside `BridgeCommWorkerStoreState`, Pierre/Shiki execution, main render state, Swift protocol authority |
+
 Initial worker compute policy:
 
-| Policy | Initial ceiling | Rule |
-| --- | --- | --- |
-| `workerComputeSliceMaxMs` | <= 8 ms | every synchronous worker compute slice, including parse/window/diff/highlight prep, must yield before this cap |
-| `workerContentPrepInlineMaxBytes` | <= 512 KiB | larger payloads must split windows or offload; this does not override the duration cap |
-| `workerContentPrepInlineMaxLines` | <= 400 lines | larger windows must split or offload before compute begins |
-| `workerSelectedQueueWaitP95Ms` | < 16 ms | selected/click facts must not wait behind background content prep |
-| `workerSelectedQueueWaitP99Ms` | < 32 ms | same budget as R32-R40 foreground queue wait |
+| Policy | Initial ceiling | Constants Annex class | Rule |
+| --- | --- | --- | --- |
+| `workerComputeSliceMaxMs` | <= 8 ms | worker content-preparation compute slice | every synchronous worker compute slice, including parse/window/diff/highlight prep, must yield before this cap |
+| `workerContentPrepInlineMaxBytes` | <= 512 KiB | worker inline preparation payload | larger payloads must split windows or offload; this does not override the duration cap and does not replace R57's main -> Pierre courier byte cap |
+| `workerContentPrepInlineMaxLines` | <= 400 lines | worker inline preparation window | larger windows must split or offload before compute begins and does not replace R57's main -> Pierre courier line cap |
+| R58 worker selected queue-wait p95 | < 16 ms | shared worker selected queue-wait SLO | selected/click facts must not wait behind background content prep |
+| R58 worker selected queue-wait p99 | < 32 ms | shared worker selected queue-wait SLO | same budget as R32-R40 foreground queue wait |
 
 Content preparation above the byte/line ceiling must either:
 
