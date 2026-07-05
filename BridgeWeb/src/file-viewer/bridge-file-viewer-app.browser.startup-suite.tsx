@@ -15,6 +15,12 @@ import {
 import { terminateBridgePierreWorkerPoolSingletonForTest } from '../review-viewer/workers/pierre/bridge-pierre-worker-pool.js';
 import type { WorktreeFileInitialSurface } from '../worktree-file-surface/worktree-file-app.js';
 import { makeWorktreeFileSurfaceRuntimeFetchedResource } from '../worktree-file-surface/worktree-file-surface-runtime.js';
+import {
+	fileViewerPendingCanvasIsVisible,
+	fileViewerUiTraceEntries,
+	startFileViewerUiTrace,
+	waitForFileViewerTrace,
+} from './bridge-file-viewer-app-startup.browser.test-support.js';
 import { BridgeFileViewerApp } from './bridge-file-viewer-app.js';
 import {
 	makeFileDescriptor,
@@ -917,86 +923,3 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		).toBeGreaterThanOrEqual(0);
 	});
 });
-
-interface FileViewerUiTraceEntry {
-	readonly contentStateText: string | null;
-	readonly hasLazyFrame: boolean;
-	readonly hasShell: boolean;
-	readonly initialSurfaceState: string | null;
-	readonly metadataTreeRowCount: string | null;
-	readonly timestampMilliseconds: number;
-	readonly visibleText: string;
-}
-
-declare global {
-	interface Window {
-		bridgeFileViewerUiTrace?: FileViewerUiTraceEntry[];
-	}
-}
-
-function startFileViewerUiTrace(): () => void {
-	window.bridgeFileViewerUiTrace = [];
-	const recordSnapshot = (): void => {
-		const shell = document.querySelector('[data-testid="bridge-file-viewer-shell"]');
-		const contentState = document.querySelector('[data-testid="bridge-file-viewer-content-state"]');
-		window.bridgeFileViewerUiTrace?.push({
-			contentStateText: normalizedText(contentState?.textContent ?? null),
-			hasLazyFrame:
-				document.querySelector('[data-testid="bridge-file-viewer-lazy-loading-frame"]') !== null,
-			hasShell: shell !== null,
-			initialSurfaceState: shell?.getAttribute('data-worktree-initial-surface-state') ?? null,
-			metadataTreeRowCount: shell?.getAttribute('data-worktree-metadata-tree-row-count') ?? null,
-			timestampMilliseconds: performance.now(),
-			visibleText: normalizedText(document.body.textContent ?? '') ?? '',
-		});
-	};
-	recordSnapshot();
-	const observer = new MutationObserver(recordSnapshot);
-	observer.observe(document.body, {
-		attributes: true,
-		childList: true,
-		characterData: true,
-		subtree: true,
-	});
-	return (): void => {
-		observer.disconnect();
-		recordSnapshot();
-	};
-}
-
-async function waitForFileViewerTrace(
-	predicate: (entries: readonly FileViewerUiTraceEntry[]) => boolean,
-	attempt = 0,
-): Promise<void> {
-	if (predicate(fileViewerUiTraceEntries())) {
-		return;
-	}
-	if (attempt >= 60) {
-		throw new Error(
-			`Expected FileView UI trace predicate to pass; entries=${JSON.stringify(
-				fileViewerUiTraceEntries().slice(-5),
-			)}`,
-		);
-	}
-	await actFrame();
-	await waitForFileViewerTrace(predicate, attempt + 1);
-}
-
-function fileViewerUiTraceEntries(): readonly FileViewerUiTraceEntry[] {
-	return window.bridgeFileViewerUiTrace ?? [];
-}
-
-function normalizedText(text: string | null): string | null {
-	if (text === null) {
-		return null;
-	}
-	return text.replace(/\s+/gu, ' ').trim();
-}
-
-function fileViewerPendingCanvasIsVisible(visibleText: string): boolean {
-	return (
-		visibleText.includes('Select a file') ||
-		visibleText.includes('Preparing code viewer') ||
-		visibleText.includes('Code highlighting worker unavailable')
-	);
-}
