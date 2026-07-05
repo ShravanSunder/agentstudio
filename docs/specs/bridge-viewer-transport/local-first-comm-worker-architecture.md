@@ -98,9 +98,10 @@ Swift server
   forbidden: FE-observable server lifetime or UI paint coupling
 ```
 
-State libraries are boundary-private implementation details. A React/main-thread
-store may exist only as the FE render-slice store. A worker-local store may exist
-only as comm-worker truth. The synchronization boundary is typed RPC/DTO
+Zustand is the comm-worker-local data store for Bridge viewer data. React/main
+must not own a Zustand Bridge data store after cutover. React/main uses TanStack
+Query for coarse async worker RPC and non-Zustand render-slice hooks for
+frame-critical display copies. The synchronization boundary is typed RPC/DTO
 messages, not store mirroring: no Zustand snapshot, TanStack Query cache entry,
 store action/function, class instance, DOM object, `AbortController`, or other
 non-cloneable local state shape may cross the worker boundary.
@@ -248,7 +249,7 @@ Telemetry proof integrity:
 | slow click, reject, abort, stale, or unavailable sample shed | proof fails; tail and failure samples are required evidence |
 | optional/debug event shed | allowed only with aggregate counters and explicit lossy-run annotation |
 
-Percentiles can satisfy R41-R48 only from non-lossy required event streams.
+Percentiles can satisfy R41-R54 only from non-lossy required event streams.
 Lossy telemetry runs are debugging aids, not performance proof.
 
 ### R44. Content bytes stream to the worker, not the main thread.
@@ -444,7 +445,7 @@ Live gates:
 ### R49. The topology has exactly three runtime channels.
 
 The local-first worker design has three channels, each with its own contract.
-The server worker named here is the comm worker in R41-R48. The custom-scheme
+The server worker named here is the comm worker in R41-R54. The custom-scheme
 fetch bridge is the single network boundary: a network-shaped bridge where every
 JavaScript-to-Swift call after page-load identity bootstrap uses scheme-handler
 RPC, regardless of whether the caller is the server worker or a residual
@@ -587,26 +588,30 @@ aggregate worker number. R53 applies at cutover slice G and to the future
 persistent-cache PR; persistent-cache payloads do not get a copy-based
 exemption.
 
-### R54. Stores are local; RPC is the boundary.
+### R54. Zustand moves to the comm worker; TanStack Query owns React async RPC.
 
-The architecture may use local stores on both sides, but they are two
-independent stores with disjoint ownership:
+The architecture has one Bridge data store owner: the comm worker. That store is
+implemented as a worker-local Zustand vanilla store unless a later spec replaces
+it with an equivalent typed worker-local primitive. React/main must not create,
+import, subscribe to, or mutate a Zustand store for Bridge viewer data after the
+cutover. Existing main-thread Review/File View Zustand stores are legacy
+deletion targets, not implementation options.
 
-- React/main-thread render store: selected item, active mode, viewport/range,
-  hover/focus, expanded/collapsed UI intent, panel chrome, row paint copies, and
-  content availability copies. It exists to paint synchronously and to apply
-  worker slice patches inside the R46 frame budget.
-- Comm-worker store: canonical rows and indexes, content bytes, byte cache,
-  paint-ready cache, demand membership, executor queue, retry/backoff,
-  stream/session/protocol state, worker epoch, telemetry batching, and Swift
-  synchronization truth.
+React/main has two allowed local surfaces:
 
-React components must import domain hooks or selectors for render slices, not
-the worker store and not raw protocol state. A main-thread async query/mutation
-library may wrap coarse worker RPC lifecycle such as open source, refresh,
-reconnect, search/filter command completion, or mark-viewed mutation. It must
-not become the high-frequency row/content patch stream, canonical result cache,
-demand queue, byte cache, or protocol owner.
+- TanStack Query/Mutation adapters for coarse async worker RPC lifecycle: open
+  source, refresh, reconnect, search/filter command completion, mark-viewed
+  mutation, and mutation optimism/rollback.
+- Non-Zustand render-slice hooks for frame-critical display copies: selected
+  item, active mode, viewport/range, hover/focus, expanded/collapsed UI intent,
+  panel chrome, row paint copies, content availability copies, and worker health
+  copy. This surface exists only to paint synchronously and to apply worker
+  slice patches inside the R46 frame budget.
+
+React components must import domain hooks or selectors, not raw worker protocol
+state and not Zustand. TanStack Query is required for React-side coarse async
+worker RPC. It must not become the high-frequency row/content patch stream,
+canonical result cache, demand queue, byte cache, or protocol owner.
 
 No store snapshot may cross the worker boundary in either direction. The only
 cross-boundary values are `BridgeWorkerContracts` DTOs, scheme-RPC DTOs, and
@@ -616,21 +621,25 @@ Required type families:
 
 | Type family | Runtime | May use | Must contain | Must not contain |
 | --- | --- | --- | --- | --- |
-| `BridgeMainRenderStoreState` | main/React | Zustand, `useSyncExternalStore`, or equivalent local store primitive | selected id, active mode, viewport/range, hover/focus, expanded/collapsed UI intent, panel chrome, `rowPaintSlice(id)`, `contentAvailabilitySlice(id)`, worker health copy | content bytes, byte cache, demand membership, retry/backoff, stream id authority, worker epoch authority, sequence authority, Swift request ownership |
-| `BridgeCommWorkerStoreState` | comm worker | Zustand vanilla, a typed custom store, or equivalent worker-local primitive | canonical rows/indexes, byte cache, paint-ready cache, demand membership, in-flight/executor queues, retry/backoff, stream/session/protocol state, worker epoch, telemetry buffer | DOM nodes, React state, component refs, direct Pierre worker initiator state, main-thread query cache objects |
+| `BridgeMainRenderSnapshot` | main/React | non-Zustand render-slice hooks, `useSyncExternalStore`, React state, or equivalent local subscription primitive | selected id, active mode, viewport/range, hover/focus, expanded/collapsed UI intent, panel chrome, `rowPaintSlice(id)`, `contentAvailabilitySlice(id)`, worker health copy | Zustand store, content bytes, byte cache, demand membership, retry/backoff, stream id authority, worker epoch authority, sequence authority, Swift request ownership |
+| `BridgeCommWorkerStoreState` | comm worker | Zustand vanilla | canonical rows/indexes, byte cache, paint-ready cache, demand membership, in-flight/executor queues, retry/backoff, stream/session/protocol state, worker epoch, telemetry buffer | DOM nodes, React state, component refs, direct Pierre worker initiator state, main-thread query cache objects |
 | `BridgeWorkerMainToServerMessage` | wire DTO | `BridgeWorkerContracts` zod-derived union | `requestId`, wire version, epoch/revision freshness, command/fact kind, cloneable payload, declared transfer fields | store snapshots, functions, class instances, DOM objects, `AbortController`, non-declared buffers |
 | `BridgeWorkerServerToMainMessage` | wire DTO | `BridgeWorkerContracts` zod-derived union | health events, correlated replies, subscription events, slice patches, availability/content events, epoch/sequence freshness, declared transfer fields | canonical worker store, full package snapshots for interaction updates, untyped payloads |
-| `BridgeWorkerSlicePatch` | wire DTO applied to main render store | typed patch union | target slice, operation, item id when keyed, epoch/sequence, small cloneable render payload or transfer descriptor | protocol/cache truth, raw content bytes unless explicitly declared as transfer/copy payload |
+| `BridgeWorkerSlicePatch` | wire DTO applied to main render snapshot | typed patch union | target slice, operation, item id when keyed, epoch/sequence, small cloneable render payload or transfer descriptor | protocol/cache truth, raw content bytes unless explicitly declared as transfer/copy payload |
 | `BridgeWorkerTransferDescriptor` | wire metadata | explicit transfer-list helper | message kind, field path, byte length, `transfer` or explicit `clone`, detached-after-send expectation | implicit large payloads, unmeasured clone cost |
 | `BridgeSchemeRpcRequest` / `BridgeSchemeRpcResponse` / `BridgeSchemeStreamFrame` | JavaScript <-> Swift scheme boundary | shared browser/native contract vocabulary | method/path/resource kind, request id, stream id, source generation, byte limits, telemetry/drop counters, health/error frames | script-message command payloads, raw paths/content in telemetry, ad-hoc frame shapes |
-| `BridgeWorkerQueryAdapter` | optional main-thread helper | TanStack Query/mutation or equivalent | coarse async worker RPC lifecycle for open, refresh, reconnect, search/filter completion, mark-viewed mutation | high-frequency row patch stream, canonical result cache, byte cache, demand queue, protocol owner |
+| `BridgeWorkerQueryAdapter` | main/React | TanStack Query/mutation | coarse async worker RPC lifecycle for open, refresh, reconnect, search/filter completion, mark-viewed mutation, optimistic update/rollback coordination | high-frequency row patch stream, canonical result cache, byte cache, demand queue, protocol owner |
+| `BridgeWorkerRpcClient` | main/React | typed `MessageChannel` client helper | request id creation, timeout/retry policy for coarse RPC, typed send/receive, transfer-list handoff to worker | store access, direct Swift RPC, render-slice mutation outside patch helpers |
+| `BridgeWorkerPatchApplier` | main/React | non-Zustand helper | R46-budgeted application of `BridgeWorkerSlicePatch` values to `BridgeMainRenderSnapshot` subscriptions | protocol ownership, demand scheduling, unbounded synchronous full-list rebuilds |
+| `BridgeWorkerTransferListBuilder` | main and worker | shared helper | declared transfer fields, byte counts, clone-vs-transfer mode, detached-after-send assertions | implicit ArrayBuffer payloads or unmeasured large clones |
+| `BridgeCommWorkerCommandHandler` | comm worker | worker-local helper around Zustand store | validate typed commands, update `BridgeCommWorkerStoreState`, enqueue fetch/demand work, publish typed replies/events | DOM/Pierre direct initiator behavior, React state mutation |
 
 Canonical data flow:
 
 ```text
 user click / key / hover / scroll
   │
-  ├─► main render store
+  ├─► BridgeMainRenderSnapshot hooks
   │     synchronous local paint of selected/hover/viewport chrome
   │
   └─► BridgeWorkerMainToServerMessage
@@ -647,9 +656,25 @@ user click / key / hover / scroll
               ArrayBuffer transfer for large payload ownership moves
               │
               ▼
-            main render store
+            BridgeMainRenderSnapshot subscriptions
               R46 frame-budgeted patch apply
 ```
+
+Transfer mode matrix:
+
+| Surface | Payload class | Boundary | Mode | Rule |
+| --- | --- | --- | --- | --- |
+| Review | select, hover, mode, viewport, mark-viewed facts | main -> comm worker | structured clone DTO | Small ids, hashes, ranges, enums, and revisions; never transfer list. |
+| Review | query/open/refresh/reconnect/search/filter RPC via TanStack Query | main -> comm worker | structured clone DTO | Query key and variables are cloneable DTOs; optimistic state stays in TanStack/render hooks, not in worker payload. |
+| Review | metadata descriptors, availability, row chrome, tree/window patches | comm worker -> main | structured clone DTO | Only bounded visible/window deltas may cross; full-package snapshots are forbidden. |
+| Review | source/diff/content bytes fetched from Swift | Swift -> comm worker | stream/`ArrayBuffer` in worker | Worker consumes `ReadableStream<Uint8Array>`/`arrayBuffer()` and owns the byte cache; main does not receive raw bytes. |
+| Review | large paint-ready runs, line windows, binary preview payloads, persistent-cache payloads | comm worker -> main/Pierre courier | transfer list | Payload uses `ArrayBuffer`; include the buffer in the transfer list when ownership moves. If the worker must retain canonical bytes, send a derived display buffer and measure the copy. |
+| Review | telemetry counters and health/drop summaries | comm worker -> Swift or main | structured clone DTO or scheme POST body | Counters and health summaries are small DTOs; encoded telemetry batches may use `ArrayBuffer` bodies when byte size is material. |
+| File View | open file, select path, expand/collapse, filter/search, viewport facts | main -> comm worker | structured clone DTO | Small path ids/hashes, filter text, row ids, and ranges; never full tree state. |
+| File View | tree metadata, descriptor windows, availability, row paint patches | comm worker -> main | structured clone DTO | Only bounded visible/window deltas may cross; full manifest/list snapshots are forbidden. |
+| File View | file contents fetched from Swift | Swift -> comm worker | stream/`ArrayBuffer` in worker | Worker owns raw file bytes and decoded/cache truth; main receives availability or paint-ready display payload only. |
+| File View | large text windows, syntax/token runs, binary preview bytes, persistent-cache payloads | comm worker -> main/Pierre courier | transfer list | Payload uses `ArrayBuffer`; include transferred buffers explicitly and assert sender detachment. |
+| File View | initial load/progress/worker health | comm worker -> main | structured clone DTO | Progress and health are small render-copy facts; no content bytes or raw manifest snapshot. |
 
 ## Action And Event Sequence Contracts
 
@@ -834,6 +859,8 @@ What dies:
   dispatch, `RPCMessageHandler`, `RPCRouter`, and script-message ingress;
 - FE protocol state: generations, sequences, stream identity, staleness,
   cache-membership truth, retry state, and demand membership truth;
+- React/main-thread Zustand stores for Bridge viewer data in converted Review
+  and File View surfaces;
 - main-thread store or query cache as canonical Bridge data/cache/demand owner;
 - cross-boundary store mirroring, `store.getState()` payloads, or query-cache
   payloads as protocol;
@@ -849,12 +876,13 @@ Compile-enforced deletion sets are required per cutover unit:
 | --- | --- | --- |
 | File viewer content protocol | FE raw body/frame package intake, FE generation/sequence/staleness caches for content, FE demand retry/parking fields | FE slices, worker protocol client, native metadata plane |
 | Review viewer content protocol | package-first review body loading, root-snapshot selection render path, review prefetch pump, FE cache-membership truth | FE slices, worker reconciler/cache, native metadata plane |
+| React Bridge data stores | Review/File View main-thread Zustand store imports, subscriptions, mutations, and action dispatch for Bridge viewer data | TanStack Query adapters for coarse worker RPC; non-Zustand render snapshots/hooks for frame-critical display copies; worker-local Zustand store |
 | telemetry transport | interactive RPC telemetry send/force-flush path and shared-command queue telemetry | dedicated scheme POST endpoint and worker batching |
 | final browser/native RPC cutover | `WKScriptMessage` / `__bridge_command` ordinary RPC, content-world command listeners, nonce command dispatch, `RPCMessageHandler`, `RPCRouter`, and script-message ingress | minimal one-shot page-load bootstrap; scheme-handler typed POST/stream RPC for all ordinary Swift communication |
 | demand membership | legacy staging buffers, membership caps, pending eviction as membership policy, parked retry versions | worker reconciler membership and executor-stage pacing only |
 
 No old and new path may remain live for the same viewer/protocol surface. Any
-surface not converted by a cutover unit is explicitly outside R41-R48 proof and
+surface not converted by a cutover unit is explicitly outside R41-R54 proof and
 cannot satisfy the local-first comm-worker contract. Compatibility shims,
 feature flags, or dual readers for one converted surface are contract
 violations unless the old path is compile-dead in that unit.
@@ -878,16 +906,14 @@ a comm worker may coordinate a compute pool. The invariant is unchanged: the FE
 sees one local-first worker contract, and exactly one worker-side authority owns
 protocol truth.
 
-OD-LF2. FE slice-store library.
+OD-LF2. FE render snapshot primitive.
 
-Zustand slices are the current likely fit because the repo already uses Zustand
-and needs scheduler-owned, main-thread-local render slices. Another store
-library may be selected only if it preserves synchronous local reads,
-fine-grained subscriptions, and no protocol ownership in FE.
-
-React Query is rejected for this boundary because it centers main-thread cache
-ownership and async request state, while this design requires worker-owned
-protocol/cache truth plus FE-owned render slices.
+The open choice is the smallest non-Zustand main-thread primitive for
+frame-critical render copies. It may use `useSyncExternalStore`, React state, or
+a typed custom subscription primitive, but it must not import Zustand and must
+not own protocol/cache/demand truth. TanStack Query is not the render snapshot
+primitive; it is required separately for coarse async worker RPC and mutation
+optimism/rollback.
 
 OD-LF3. WebKit run-loop starvation proof.
 
