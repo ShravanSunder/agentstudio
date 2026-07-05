@@ -1,12 +1,22 @@
-import type { BridgeWorkerReviewRenderSemantics } from './bridge-worker-contracts.js';
+import {
+	BRIDGE_WORKER_WIRE_VERSION,
+	type BridgeWorkerPierreRenderJobEvent,
+	type BridgeWorkerReviewRenderSemantics,
+} from './bridge-worker-contracts.js';
 import {
 	buildBridgeWorkerPierreRenderJob,
 	type BridgeWorkerDemandRank,
 	type BridgeWorkerPierreRenderBudget,
 	type BridgeWorkerPierreRenderJob,
+	type BridgeWorkerPierreRenderPayload,
 	type BridgeWorkerPierreRenderWindow,
 } from './bridge-worker-pierre-render-job.js';
 import type { BridgeWorkerFetchedReviewContentResource } from './bridge-worker-review-content-fetch.js';
+import {
+	prepareBridgeWorkerStructuredMessage,
+	type BridgeWorkerTransferFieldDeclaration,
+	type PreparedBridgeWorkerStructuredMessage,
+} from './bridge-worker-transfer-list.js';
 
 export interface PlanBridgeWorkerReviewPierreRenderJobProps {
 	readonly bridgeDemandRank: BridgeWorkerDemandRank;
@@ -34,6 +44,25 @@ export function planBridgeWorkerReviewPierreRenderJob(
 		return planReviewDiffRenderJob({ ...props, resourcesByRole });
 	}
 	return planReviewFileRenderJob({ ...props, resourcesByRole });
+}
+
+export function prepareBridgeWorkerReviewPierreRenderJobEvent(
+	props: PlanBridgeWorkerReviewPierreRenderJobProps,
+): PreparedBridgeWorkerStructuredMessage<BridgeWorkerPierreRenderJobEvent> | null {
+	const job = planBridgeWorkerReviewPierreRenderJob(props);
+	if (job === null) {
+		return null;
+	}
+	return prepareBridgeWorkerStructuredMessage({
+		message: {
+			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+			direction: 'serverWorkerToMain',
+			transferDescriptors: [],
+			kind: 'pierreRenderJob',
+			job,
+		},
+		declaredFields: transferFieldsForBridgeWorkerPierreRenderPayload(job.payload),
+	});
 }
 
 interface PlanBridgeWorkerReviewRenderJobWithResourcesProps extends PlanBridgeWorkerReviewPierreRenderJobProps {
@@ -217,4 +246,26 @@ function contentHashForNullableResource(
 	resource: BridgeWorkerFetchedReviewContentResource | null,
 ): string {
 	return resource?.contentHash ?? bridgeWorkerEmptyContentIdentity;
+}
+
+function transferFieldsForBridgeWorkerPierreRenderPayload(
+	payload: BridgeWorkerPierreRenderPayload,
+): readonly BridgeWorkerTransferFieldDeclaration[] {
+	switch (payload.kind) {
+		case 'textWindow':
+			return [{ fieldPath: ['job', 'payload', 'textBytes'], mode: 'transfer' }];
+		case 'diffTextWindow': {
+			const declaredFields: BridgeWorkerTransferFieldDeclaration[] = [];
+			if (payload.baseTextBytes !== null) {
+				declaredFields.push({ fieldPath: ['job', 'payload', 'baseTextBytes'], mode: 'transfer' });
+			}
+			if (payload.headTextBytes !== null) {
+				declaredFields.push({ fieldPath: ['job', 'payload', 'headTextBytes'], mode: 'transfer' });
+			}
+			return declaredFields;
+		}
+	}
+	const exhaustivePayload: never = payload;
+	void exhaustivePayload;
+	throw new Error('Unhandled Bridge worker Pierre render payload kind.');
 }

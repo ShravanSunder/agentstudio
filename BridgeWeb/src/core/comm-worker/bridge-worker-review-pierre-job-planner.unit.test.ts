@@ -2,7 +2,10 @@ import { describe, expect, test } from 'vitest';
 
 import type { BridgeWorkerReviewRenderSemantics } from './bridge-worker-contracts.js';
 import type { BridgeWorkerFetchedReviewContentResource } from './bridge-worker-review-content-fetch.js';
-import { planBridgeWorkerReviewPierreRenderJob } from './bridge-worker-review-pierre-job-planner.js';
+import {
+	planBridgeWorkerReviewPierreRenderJob,
+	prepareBridgeWorkerReviewPierreRenderJobEvent,
+} from './bridge-worker-review-pierre-job-planner.js';
 
 describe('Bridge worker review Pierre job planner', () => {
 	test('plans modified review diffs from base and head content windows', () => {
@@ -159,6 +162,159 @@ describe('Bridge worker review Pierre job planner', () => {
 		if (job?.payload.kind === 'textWindow') {
 			expect(job.payload.textBytes).toBe(fileTextBytes);
 		}
+	});
+
+	test('prepares review diff render job events with declared transfer descriptors', () => {
+		const baseTextBytes = new ArrayBuffer(40);
+		const headTextBytes = new ArrayBuffer(64);
+
+		const prepared = prepareBridgeWorkerReviewPierreRenderJobEvent({
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: {
+				className: 'interactive',
+				maxBytes: 512 * 1024,
+				maxWindowLines: 50,
+			},
+			resources: [
+				makeFetchedReviewContentResource({
+					contentHash: 'sha256:item-1:base',
+					lineCount: 120,
+					role: 'base',
+					textBytes: baseTextBytes,
+				}),
+				makeFetchedReviewContentResource({
+					contentHash: 'sha256:item-1:head',
+					language: 'typescript',
+					lineCount: 80,
+					role: 'head',
+					textBytes: headTextBytes,
+				}),
+			],
+			semantics: makeRenderSemantics({
+				contentLineCountsByRole: { base: 120, head: 80 },
+				itemKind: 'diff',
+			}),
+		});
+
+		expect(prepared?.message).toMatchObject({
+			wireVersion: 1,
+			direction: 'serverWorkerToMain',
+			kind: 'pierreRenderJob',
+			job: {
+				itemId: 'item-1',
+				renderKind: 'reviewDiff',
+			},
+			transferDescriptors: [
+				{
+					messageKind: 'pierreRenderJob',
+					fieldPath: ['job', 'payload', 'baseTextBytes'],
+					byteLength: 40,
+					mode: 'transfer',
+				},
+				{
+					messageKind: 'pierreRenderJob',
+					fieldPath: ['job', 'payload', 'headTextBytes'],
+					byteLength: 64,
+					mode: 'transfer',
+				},
+			],
+		});
+		expect(prepared?.transferList).toEqual([baseTextBytes, headTextBytes]);
+	});
+
+	test('prepares one-sided review diff render job events without declaring the missing side', () => {
+		const headTextBytes = new ArrayBuffer(72);
+
+		const prepared = prepareBridgeWorkerReviewPierreRenderJobEvent({
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: {
+				className: 'interactive',
+				maxBytes: 512 * 1024,
+				maxWindowLines: 100,
+			},
+			resources: [
+				makeFetchedReviewContentResource({
+					contentHash: 'sha256:item-1:head',
+					lineCount: 33,
+					role: 'head',
+					textBytes: headTextBytes,
+				}),
+			],
+			semantics: makeRenderSemantics({
+				changeKind: 'added',
+				contentLineCountsByRole: { head: 33 },
+				itemKind: 'file',
+			}),
+		});
+
+		expect(prepared?.message.transferDescriptors).toEqual([
+			{
+				messageKind: 'pierreRenderJob',
+				fieldPath: ['job', 'payload', 'headTextBytes'],
+				byteLength: 72,
+				mode: 'transfer',
+			},
+		]);
+		expect(prepared?.transferList).toEqual([headTextBytes]);
+	});
+
+	test('prepares file text render job events with the text window transfer descriptor', () => {
+		const fileTextBytes = new ArrayBuffer(128);
+
+		const prepared = prepareBridgeWorkerReviewPierreRenderJobEvent({
+			bridgeDemandRank: { lane: 'visible', priority: 10 },
+			budget: {
+				className: 'visible',
+				maxBytes: 512 * 1024,
+				maxWindowLines: 400,
+			},
+			resources: [
+				makeFetchedReviewContentResource({
+					contentHash: 'sha256:item-1:file',
+					language: null,
+					lineCount: 45,
+					role: 'file',
+					textBytes: fileTextBytes,
+				}),
+			],
+			semantics: makeRenderSemantics({
+				contentLineCountsByRole: { file: 45 },
+				itemKind: 'file',
+				language: null,
+			}),
+		});
+
+		expect(prepared?.message.transferDescriptors).toEqual([
+			{
+				messageKind: 'pierreRenderJob',
+				fieldPath: ['job', 'payload', 'textBytes'],
+				byteLength: 128,
+				mode: 'transfer',
+			},
+		]);
+		expect(prepared?.transferList).toEqual([fileTextBytes]);
+	});
+
+	test('does not prepare render job events when the planner has no complete job', () => {
+		const prepared = prepareBridgeWorkerReviewPierreRenderJobEvent({
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: {
+				className: 'interactive',
+				maxBytes: 512 * 1024,
+				maxWindowLines: 50,
+			},
+			resources: [
+				makeFetchedReviewContentResource({
+					role: 'base',
+					textBytes: new ArrayBuffer(32),
+				}),
+			],
+			semantics: makeRenderSemantics({
+				itemKind: 'diff',
+			}),
+		});
+
+		expect(prepared).toBeNull();
 	});
 });
 
