@@ -1,3 +1,4 @@
+import { act } from 'react';
 import { afterEach, describe, expect, test } from 'vitest';
 import { cleanup } from 'vitest-browser-react';
 
@@ -371,16 +372,11 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		backend.dispose();
 	});
 
-	test('starts clicked Review foreground content demand before selected path commit', async () => {
+	test('starts clicked Review foreground content demand after selected path commit', async () => {
 		const fixture = makeBridgeViewerBrowserFixture();
-		// The speculative content prefetch pump only pauses while the currently
-		// selected item's own content is still loading. Deferring just the
-		// second item's handle lets that pump race ahead of the click and warm
-		// Beta.ts on its own, which would make this test observe the prefetch's
-		// fetchContent call instead of the click's. Deferring the initial
-		// item's handle too keeps the prefetch gate closed for the whole test,
-		// so the click's demand is the only thing that can ever request
-		// Beta.ts's content.
+		// Deferring both selected handles keeps speculative hydration out of
+		// the assertion. The request for Beta.ts must observe Beta.ts already
+		// selected, proving click paint was not held behind foreground demand.
 		const backend = installBridgeViewerMockedBackend(fixture, {
 			deferContentHandleIds: [
 				fixture.expected.initialHeadHandleId,
@@ -403,29 +399,47 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		// The initial file's content is deferred, so its text never renders;
 		// the selection itself (independent of content readiness) is the
 		// signal that the initial demand has committed.
-		await browserSupport.waitForSelectedBridgeViewerDisplayPath(fixture.expected.initialPath);
-		await browserSupport.waitForPendingContentResponseCount(backend, 1);
+		await pollWithinAct({
+			getValue: browserSupport.selectedBridgeViewerDisplayPath,
+			isSatisfied: (displayPath) => displayPath === fixture.expected.initialPath,
+		});
+		await pollWithinAct({
+			getValue: () => backend.pendingContentResponses.length,
+			isSatisfied: (pendingCount) => pendingCount >= 1,
+		});
 
 		const secondButton = await waitForBridgeViewerTreeItemButton(fixture.expected.secondPath);
-		secondButton.click();
+		await actClick(secondButton);
+		await pollWithinAct({
+			getValue: browserSupport.selectedBridgeViewerDisplayPath,
+			isSatisfied: (displayPath) => displayPath === fixture.expected.secondPath,
+		});
 		// Selecting Beta.ts aborts Alpha.ts's still-in-flight foreground load,
 		// which removes its pending response from the backend — so the pending
-		// count dips back to 0 before Beta.ts's own request lands. Wait for
-		// Beta.ts's own pending entry by handle id instead of a raw count.
-		await expect
-			.poll(() =>
+		// count dips back to 0 before Beta.ts's own request lands.
+		await pollWithinAct({
+			getValue: () =>
 				backend.pendingContentResponses.some(
 					(pendingResponse) => pendingResponse.handleId === fixture.expected.secondHeadHandleId,
 				),
-			)
-			.toBe(true);
+			isSatisfied: (didRequestSecondContent) => didRequestSecondContent,
+		});
 
-		expect(selectedPathsAtSecondContentRequest).toEqual([fixture.expected.initialPath]);
+		expect(selectedPathsAtSecondContentRequest).toEqual([fixture.expected.secondPath]);
+		const pendingSecondContentResponse = backend.pendingContentResponses.find(
+			(pendingResponse) => pendingResponse.handleId === fixture.expected.secondHeadHandleId,
+		);
+		expect(pendingSecondContentResponse).toBeDefined();
 
-		for (const pendingResponse of backend.pendingContentResponses) {
-			pendingResponse.resolve();
-		}
-		await waitForBridgeViewerText(fixture.expected.secondText);
+		await actUpdate((): void => pendingSecondContentResponse?.resolve());
+		await pollWithinAct({
+			getValue: browserSupport.selectedBridgeViewerContentState,
+			isSatisfied: (contentState) => contentState === 'ready',
+		});
+		await pollWithinAct({
+			getValue: bridgeViewerRenderedTextContent,
+			isSatisfied: (renderedText) => renderedText.includes(fixture.expected.secondText),
+		});
 		backend.dispose();
 	});
 
@@ -940,4 +954,41 @@ function findBridgeCodeViewShadowElement(props: {
 
 function lineCountForBrowserFixtureText(text: string): number {
 	return text.length === 0 ? 0 : text.split('\n').length;
+}
+
+async function actClick(element: { readonly click: () => void }): Promise<void> {
+	await act(async (): Promise<void> => {
+		element.click();
+		await Promise.resolve();
+	});
+}
+
+async function actUpdate(update: () => void): Promise<void> {
+	await act(async (): Promise<void> => {
+		update();
+		await Promise.resolve();
+	});
+}
+
+async function pollWithinAct<TValue>(props: {
+	readonly getValue: () => TValue;
+	readonly isSatisfied: (value: TValue) => boolean;
+	readonly pollIntervalMilliseconds?: number;
+	readonly timeoutMilliseconds?: number;
+}): Promise<TValue> {
+	const timeoutMilliseconds = props.timeoutMilliseconds ?? 5000;
+	const pollIntervalMilliseconds = props.pollIntervalMilliseconds ?? 20;
+	const deadlineMilliseconds = Date.now() + timeoutMilliseconds;
+	for (;;) {
+		const value = props.getValue();
+		if (props.isSatisfied(value) || Date.now() >= deadlineMilliseconds) {
+			return value;
+		}
+		// oxlint-disable-next-line no-await-in-loop -- Browser React updates must settle between real-timer poll ticks.
+		await act(async (): Promise<void> => {
+			await new Promise<void>((resolve): void => {
+				setTimeout(resolve, pollIntervalMilliseconds);
+			});
+		});
+	}
 }

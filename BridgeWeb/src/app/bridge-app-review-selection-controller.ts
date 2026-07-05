@@ -2,9 +2,6 @@ import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import type { BridgeRPCClient } from '../bridge/bridge-rpc-client.js';
-import type { BridgeResourceExecutor } from '../core/demand/bridge-resource-executor.js';
-import type { BridgeDescriptorRef } from '../core/models/bridge-resource-descriptor.js';
-import type { BridgeTextResourceStreamResult } from '../core/resources/bridge-resource-stream.js';
 import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import type {
@@ -12,16 +9,7 @@ import type {
 	BridgeReviewViewportSlice,
 	BridgeReviewViewerStoreActions,
 } from '../review-viewer/state/review-viewer-store.js';
-import {
-	cancelReviewItemDemand,
-	reviewItemDemandCancellationTargetForSelectionChange,
-} from './bridge-app-review-descriptors.js';
-import type { SelectedReviewContentDemandController } from './bridge-app-review-selected-content-controller.js';
-import {
-	makeSelectedContentResourcesKey,
-	selectedItemPresentationForReviewFileTarget,
-	type BridgeReviewFileNavigationTarget,
-} from './bridge-app-review-selection-state.js';
+import type { BridgeReviewFileNavigationTarget } from './bridge-app-review-selection-state.js';
 import {
 	createChildTraceContext,
 	makeTelemetryMarkedItemKey,
@@ -46,29 +34,18 @@ declare global {
 }
 
 export interface UseBridgeReviewSelectionControllerProps {
-	readonly cancelForegroundSelectionRelease: () => void;
 	readonly currentReviewPackageTelemetryContextRef: MutableRefObject<BridgeReviewPackageTelemetryContext | null>;
 	readonly hasProjection: boolean;
-	readonly initialReviewFileTarget: BridgeReviewFileNavigationTarget | null;
 	readonly isActive: boolean;
-	readonly resourceExecutor: BridgeResourceExecutor<BridgeTextResourceStreamResult>;
-	readonly reviewContentDescriptorRefsByHandleIdRef: MutableRefObject<
-		ReadonlyMap<string, BridgeDescriptorRef>
-	>;
 	readonly reviewPackage: BridgeReviewPackage | null;
 	readonly reviewPackageRef: MutableRefObject<BridgeReviewPackage | null>;
 	readonly selectionSlice: BridgeReviewSelectionSlice;
 	readonly selectionSliceRef: MutableRefObject<BridgeReviewSelectionSlice>;
 	readonly viewportSliceRef: MutableRefObject<BridgeReviewViewportSlice>;
 	readonly rpcClient: BridgeRPCClient;
-	readonly selectedContentAbortControllerRef: MutableRefObject<AbortController | null>;
-	readonly selectedContentActiveLoadKeyRef: MutableRefObject<string | null>;
-	readonly setForegroundSelectedContentKey: (value: string | null) => void;
-	readonly setSelectedContentResourcesState: SelectedReviewContentDemandController['setSelectedContentResourcesState'];
 	readonly setSelectedReviewFileTarget: Dispatch<
 		SetStateAction<BridgeReviewFileNavigationTarget | null>
 	>;
-	readonly startSelectedReviewContentDemand: SelectedReviewContentDemandController['startSelectedReviewContentDemand'];
 	readonly telemetryRecorderRef: MutableRefObject<BridgeTelemetryRecorder>;
 	readonly viewerActions: BridgeReviewViewerStoreActions;
 }
@@ -89,25 +66,16 @@ export function useBridgeReviewSelectionController(
 	props: UseBridgeReviewSelectionControllerProps,
 ): BridgeReviewSelectionController {
 	const {
-		cancelForegroundSelectionRelease,
 		currentReviewPackageTelemetryContextRef,
 		hasProjection,
-		initialReviewFileTarget,
 		isActive,
-		resourceExecutor,
-		reviewContentDescriptorRefsByHandleIdRef,
 		reviewPackage,
 		reviewPackageRef,
 		selectionSlice,
 		selectionSliceRef,
 		viewportSliceRef,
 		rpcClient,
-		selectedContentAbortControllerRef,
-		selectedContentActiveLoadKeyRef,
-		setForegroundSelectedContentKey,
-		setSelectedContentResourcesState,
 		setSelectedReviewFileTarget,
-		startSelectedReviewContentDemand,
 		telemetryRecorderRef,
 		viewerActions,
 	} = props;
@@ -129,12 +97,6 @@ export function useBridgeReviewSelectionController(
 			}
 			const previousSelectedItemId = selectionSliceRef.current.selectedItemId;
 			const isSelectionChange = previousSelectedItemId !== itemId;
-			const selectedContentKey = makeSelectedContentResourcesKey(currentReviewPackage, itemId);
-			const selectedPresentation = selectedItemPresentationForReviewFileTarget({
-				reviewPackage: currentReviewPackage,
-				selectedItemId: itemId,
-				target: presentationTarget ?? initialReviewFileTarget,
-			});
 			if (isSelectionChange) {
 				pendingSelectionCommitTelemetryRef.current = telemetryRecorderRef.current.isEnabled('web')
 					? {
@@ -146,31 +108,6 @@ export function useBridgeReviewSelectionController(
 							),
 						}
 					: null;
-				cancelForegroundSelectionRelease();
-				setForegroundSelectedContentKey(selectedContentKey);
-				selectedContentAbortControllerRef.current?.abort();
-				selectedContentAbortControllerRef.current = null;
-				selectedContentActiveLoadKeyRef.current = null;
-				cancelReviewItemDemand({
-					descriptorRefsByHandleId: reviewContentDescriptorRefsByHandleIdRef.current,
-					item: reviewItemDemandCancellationTargetForSelectionChange({
-						previousSelectedItemId,
-						reviewPackage: currentReviewPackage,
-					}),
-					resourceExecutor,
-				});
-				setSelectedContentResourcesState({
-					itemId,
-					contentKey: selectedContentKey,
-					status: 'loading',
-					resources: null,
-				});
-				startSelectedReviewContentDemand({
-					itemId,
-					presentation: selectedPresentation,
-					reviewPackage: currentReviewPackage,
-					selectedContentKey,
-				});
 			}
 			if (presentationTarget !== null || isSelectionChange) {
 				setSelectedReviewFileTarget(presentationTarget);
@@ -185,19 +122,10 @@ export function useBridgeReviewSelectionController(
 			return true;
 		},
 		[
-			cancelForegroundSelectionRelease,
 			currentReviewPackageTelemetryContextRef,
-			initialReviewFileTarget,
-			resourceExecutor,
-			reviewContentDescriptorRefsByHandleIdRef,
 			reviewPackageRef,
 			selectionSliceRef,
-			selectedContentAbortControllerRef,
-			selectedContentActiveLoadKeyRef,
-			setForegroundSelectedContentKey,
-			setSelectedContentResourcesState,
 			setSelectedReviewFileTarget,
-			startSelectedReviewContentDemand,
 			telemetryRecorderRef,
 			viewportSliceRef,
 			viewerActions,

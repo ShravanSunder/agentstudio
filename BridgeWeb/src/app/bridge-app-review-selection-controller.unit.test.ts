@@ -35,6 +35,36 @@ describe('Bridge review selection controller command scheduling', () => {
 		expect(contract.subscribedSlices).not.toContain('projection');
 	});
 
+	test('selection path cannot start FE content retry or parking', () => {
+		const source = readFileSync(
+			new URL('./bridge-app-review-selection-controller.ts', import.meta.url),
+			'utf8',
+		);
+		const callbackSource = source.slice(
+			source.indexOf('const beginForegroundReviewSelection = useCallback'),
+			source.indexOf('const selectReviewItem = useCallback'),
+		);
+
+		expect(callbackSource).not.toMatch(
+			/startSelectedReviewContentDemand|setSelectedContentResourcesState|setForegroundSelectedContentKey|selectedContentAbortControllerRef|selectedContentActiveLoadKeyRef|cancelReviewItemDemand|resourceExecutor/,
+		);
+	});
+
+	test('review mode wiring does not pass content-demand owners into selection controller', () => {
+		const source = readFileSync(
+			new URL('./bridge-app-review-viewer-mode.tsx', import.meta.url),
+			'utf8',
+		);
+		const hookCallSource = source.slice(
+			source.indexOf('const {'),
+			source.indexOf('useBridgeReviewProjectionCoordinator'),
+		);
+
+		expect(hookCallSource).not.toMatch(
+			/cancelForegroundSelectionRelease|resourceExecutor|reviewContentDescriptorRefsByHandleIdRef|selectedContentAbortControllerRef|selectedContentActiveLoadKeyRef|setForegroundSelectedContentKey|setSelectedContentResourcesState|startSelectedReviewContentDemand/,
+		);
+	});
+
 	test('defers markFileViewed RPC dispatch outside the selection call stack', async () => {
 		const sentCommands: BridgeRPCCommand[] = [];
 		const rpcClient: BridgeRPCClient = {
