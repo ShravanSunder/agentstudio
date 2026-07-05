@@ -48,7 +48,6 @@ export {
 	selectedContentUnavailablePathForCurrentSelection,
 	reviewFileTargetForReviewPackagePath,
 	shouldPauseVisibleReviewContentHydration,
-	shouldRetrySelectedReviewContentAfterDescriptorRegistration,
 	shouldStartSelectedReviewContentDemand,
 } from './bridge-app-review-selection-state.js';
 import {

@@ -1,5 +1,3 @@
-import type { Dispatch, SetStateAction } from 'react';
-
 import type { BridgeWorkerContentAvailabilityPatchPayload } from '../core/comm-worker/bridge-worker-contracts.js';
 import type {
 	BridgeContentHandle,
@@ -348,7 +346,7 @@ export function selectedContentResourcesStateFromDemandLoadResult(props: {
 		itemId: props.itemId,
 		contentKey: props.contentKey,
 		demandStartedAtMilliseconds: props.demandStartedAtMilliseconds ?? null,
-		status: props.loadResult.status === 'deferred' ? 'loading' : 'failed',
+		status: 'failed',
 		resources: null,
 	};
 }
@@ -374,14 +372,6 @@ export interface ShouldStartSelectedReviewContentDemandProps {
 	readonly selectedContentLoadKey: string;
 }
 
-export interface ShouldRetrySelectedReviewContentAfterDescriptorRegistrationProps {
-	readonly reviewPackage: BridgeReviewPackage | null;
-	readonly selectedItemId: string | null;
-	readonly registeredDescriptorRefCount: number;
-	readonly selectedContentResourcesState: SelectedContentResourcesState | null;
-	readonly lastSelectedDemandTelemetry: ReviewContentDemandTelemetry | null;
-}
-
 export function shouldStartSelectedReviewContentDemand(
 	props: ShouldStartSelectedReviewContentDemandProps,
 ): boolean {
@@ -392,40 +382,6 @@ export function shouldStartSelectedReviewContentDemand(
 		return false;
 	}
 	return props.activeSelectedContentLoadKey !== props.selectedContentLoadKey;
-}
-
-export function shouldRetrySelectedReviewContentAfterDescriptorRegistration(
-	props: ShouldRetrySelectedReviewContentAfterDescriptorRegistrationProps,
-): boolean {
-	if (
-		props.registeredDescriptorRefCount <= 0 ||
-		props.reviewPackage === null ||
-		props.selectedItemId === null ||
-		props.selectedContentResourcesState === null ||
-		props.lastSelectedDemandTelemetry === null
-	) {
-		return false;
-	}
-	const selectedItem = props.reviewPackage.itemsById[props.selectedItemId];
-	if (selectedItem === undefined) {
-		return false;
-	}
-	const selectedContentKey = makeReviewItemContentResourcesKey({
-		item: selectedItem,
-		reviewPackage: props.reviewPackage,
-	});
-	return (
-		props.selectedContentResourcesState.itemId === props.selectedItemId &&
-		props.selectedContentResourcesState.contentKey === selectedContentKey &&
-		props.selectedContentResourcesState.status === 'failed' &&
-		props.lastSelectedDemandTelemetry.itemId === props.selectedItemId &&
-		props.lastSelectedDemandTelemetry.packageId === props.reviewPackage.packageId &&
-		props.lastSelectedDemandTelemetry.reviewGeneration === props.reviewPackage.reviewGeneration &&
-		props.lastSelectedDemandTelemetry.revision === props.reviewPackage.revision &&
-		props.lastSelectedDemandTelemetry.interest === 'selected' &&
-		props.lastSelectedDemandTelemetry.resultStatus === 'failed' &&
-		props.lastSelectedDemandTelemetry.resultReason === 'descriptor_missing'
-	);
 }
 
 export function shouldPauseVisibleReviewContentHydration(
@@ -442,28 +398,6 @@ export function shouldPauseVisibleReviewContentHydration(
 			props.foregroundSelectedContentKey === props.currentSelectedContentKey) ||
 		(props.isActive && props.currentSelectedContentKey !== null && selectedAvailabilityIsPending)
 	);
-}
-
-export function scheduleSelectedContentRetry(props: {
-	readonly scheduledRef: { current: boolean };
-	readonly setSelectedContentRetryVersion: Dispatch<SetStateAction<number>>;
-}): void {
-	if (props.scheduledRef.current) {
-		return;
-	}
-	props.scheduledRef.current = true;
-	const scheduleRetry =
-		typeof requestAnimationFrame === 'function'
-			? (callback: () => void): void => {
-					requestAnimationFrame(callback);
-				}
-			: (callback: () => void): void => {
-					queueMicrotask(callback);
-				};
-	scheduleRetry((): void => {
-		props.scheduledRef.current = false;
-		props.setSelectedContentRetryVersion((version: number): number => version + 1);
-	});
 }
 
 interface SelectedContentUnavailablePathForCurrentSelectionProps {

@@ -126,6 +126,7 @@ function handleBridgeWorkerSelectCommand(
 	props.store.actions.applySelectedFact({
 		epoch: props.message.epoch,
 		itemId: props.message.selectedItemId,
+		selectedPreparationAvailable: props.scheduleSelectedReviewContentReadyPreparation !== undefined,
 	});
 	const slicePatch = props.store.actions.takePendingSlicePatchEvent({
 		epoch: props.message.epoch,

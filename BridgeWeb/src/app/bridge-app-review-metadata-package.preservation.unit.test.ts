@@ -765,7 +765,6 @@ function makeReviewProtocolFrameHarness(initialReviewPackage: BridgeReviewPackag
 				setReviewContentInvalidationVersion: (update): void => {
 					invalidationVersion = typeof update === 'function' ? update(invalidationVersion) : update;
 				},
-				onReviewContentDescriptorRefsRegistered: (): void => {},
 				telemetryContext: {
 					slice: 'review_metadata',
 					traceContext: null,

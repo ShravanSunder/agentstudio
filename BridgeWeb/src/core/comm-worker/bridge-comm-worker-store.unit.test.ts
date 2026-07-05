@@ -107,6 +107,32 @@ describe('Bridge comm worker store', () => {
 		expect(() => store.actions.buildRootSnapshotPayload()).toThrow(/root snapshots are forbidden/i);
 	});
 
+	test('does not create selected demand or loading availability when selected preparation is absent', () => {
+		const store = createBridgeCommWorkerStore({
+			contentItems: [makeWorkerReviewContentMetadata('item-2')],
+			rows: [{ id: 'item-2', parentId: null, index: 0 }],
+		});
+
+		const selectedResult = store.actions.applySelectedFact({
+			itemId: 'item-2',
+			epoch: 3,
+			selectedPreparationAvailable: false,
+		});
+		const patchEvent = store.actions.takePendingSlicePatchEvent({ epoch: 3, sequence: 9 });
+
+		expect(store.getState().selectedId).toBe('item-2');
+		expect(Object.fromEntries(store.getState().demandByKey)).toEqual({});
+		expect(store.getState().availabilityByItemId.has('item-2')).toBe(false);
+		expect(selectedResult.touchedKeys).toEqual(['selectedId']);
+		expect(patchEvent?.patches).toEqual([
+			{
+				slice: 'selection',
+				operation: 'upsert',
+				payload: { selectedItemId: 'item-2' },
+			},
+		]);
+	});
+
 	test('keeps raw ids distinct and retires stale selected and viewport demand entries', () => {
 		const store = createBridgeCommWorkerStore({
 			contentItems: [

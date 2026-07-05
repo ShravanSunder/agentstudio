@@ -244,6 +244,27 @@ describe('Review viewer source structure', () => {
 		expect(unavailablePathSource).not.toContain('selectedContentResourcesState');
 	});
 
+	test('selected review path does not schedule FE retry after descriptor registration', () => {
+		const forbiddenRetryOwners = [
+			'../app/bridge-app-review-viewer-mode.tsx',
+			'../app/bridge-app-review-selected-content-controller.ts',
+			'../app/bridge-app-review-selection-state.ts',
+		].flatMap((relativePath): string[] => {
+			const source = readSource(relativePath);
+			return [
+				'selectedContentRetryVersion',
+				'selectedContentRetryScheduledRef',
+				'scheduleSelectedContentRetry',
+				'shouldRetrySelectedReviewContentAfterDescriptorRegistration',
+				'retrySelectedContentAfterDescriptorRegistration',
+			]
+				.filter((token): boolean => source.includes(token))
+				.map((token): string => `${relativePath}: ${token}`);
+		});
+
+		expect(forbiddenRetryOwners).toEqual([]);
+	});
+
 	test('keeps the review store out of content bodies and runtime handles', () => {
 		const storeSource = readSource('./state/review-viewer-store.ts');
 

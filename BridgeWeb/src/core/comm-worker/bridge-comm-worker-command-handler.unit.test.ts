@@ -19,7 +19,7 @@ interface ScheduledSelectedReviewPreparation {
 }
 
 describe('Bridge comm worker command handler', () => {
-	test('select command mutates worker-local store and publishes only typed slice patches', () => {
+	test('select command without selected preparation publishes selection without false content loading', () => {
 		const handler = createBridgeCommWorkerCommandHandler({
 			contentItems: [makeWorkerReviewContentMetadata('item-2')],
 			rows: [
@@ -52,12 +52,6 @@ describe('Bridge comm worker command handler', () => {
 					operation: 'upsert',
 					payload: { selectedItemId: 'item-2' },
 				},
-				{
-					slice: 'contentAvailability',
-					operation: 'upsert',
-					itemId: 'item-2',
-					payload: { state: 'loading' },
-				},
 			],
 		});
 		expect(messages[1]).toMatchObject({
@@ -68,6 +62,8 @@ describe('Bridge comm worker command handler', () => {
 			requestId: 'request-select',
 			status: 'ready',
 		});
+		expect(JSON.stringify(messages)).not.toContain('"slice":"contentAvailability"');
+		expect(JSON.stringify(messages)).not.toContain('"state":"loading"');
 		expect(JSON.stringify(messages)).not.toMatch(/rowById|orderedIds|rootSnapshot|allRows/i);
 	});
 

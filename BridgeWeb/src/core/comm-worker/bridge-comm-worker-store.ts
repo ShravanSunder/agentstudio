@@ -26,6 +26,7 @@ export interface BridgeCommWorkerStoreState {
 	readonly indexById: ReadonlyMap<string, number>;
 	readonly childrenByParentId: ReadonlyMap<string, readonly string[]>;
 	readonly selectedId: string | null;
+	readonly selectedDemandEnabled: boolean;
 	readonly viewportRange: BridgeCommWorkerViewportRange | null;
 	readonly visibleIds: readonly string[];
 	readonly demandByKey: ReadonlyMap<string, string>;
@@ -50,6 +51,7 @@ export interface BridgeCommWorkerTouchedResult {
 export interface ApplyBridgeCommWorkerSelectedFactProps {
 	readonly itemId: string;
 	readonly epoch: number;
+	readonly selectedPreparationAvailable?: boolean;
 }
 
 export interface ApplyBridgeCommWorkerViewportFactProps {
@@ -118,42 +120,58 @@ export function createBridgeCommWorkerStore(
 			): BridgeCommWorkerTouchedResult => {
 				const contentMetadata = store.getState().contentMetadataByItemId.get(fact.itemId) ?? null;
 				const isDemandEligible = isDemandEligibleContentMetadata(contentMetadata);
-				const nextAvailabilityState = isDemandEligible ? 'loading' : 'unavailable';
-				store.setState((state) => ({
-					...writeBridgeWorkerMap(
-						state,
-						'availabilityByItemId',
-						fact.itemId,
-						nextAvailabilityState,
-					),
-					selectedId: fact.itemId,
-					demandByKey: buildDemandByKey({
-						contentMetadataByItemId: state.contentMetadataByItemId,
+				const selectedDemandEnabled =
+					isDemandEligible && (fact.selectedPreparationAvailable ?? true);
+				const nextAvailabilityState = selectedDemandEnabled
+					? 'loading'
+					: isDemandEligible
+						? null
+						: 'unavailable';
+				store.setState((state) => {
+					const selectedState = {
+						...state,
+						selectedDemandEnabled,
 						selectedId: fact.itemId,
-						selectedDemandValue: `selected:${fact.epoch}`,
-						visibleIds: state.visibleIds,
-					}),
-				}));
-				pendingSlicePatches.push(
-					{
-						slice: 'selection',
-						operation: 'upsert',
-						payload: { selectedItemId: fact.itemId },
-					},
-					{
+						demandByKey: buildDemandByKey({
+							contentMetadataByItemId: state.contentMetadataByItemId,
+							selectedId: fact.itemId,
+							selectedDemandValue: selectedDemandEnabled ? `selected:${fact.epoch}` : null,
+							visibleIds: state.visibleIds,
+						}),
+					};
+					return nextAvailabilityState === null
+						? selectedState
+						: writeBridgeWorkerMap(
+								selectedState,
+								'availabilityByItemId',
+								fact.itemId,
+								nextAvailabilityState,
+							);
+				});
+				pendingSlicePatches.push({
+					slice: 'selection',
+					operation: 'upsert',
+					payload: { selectedItemId: fact.itemId },
+				});
+				if (nextAvailabilityState !== null) {
+					pendingSlicePatches.push({
 						slice: 'contentAvailability',
 						operation: 'upsert',
 						itemId: fact.itemId,
 						payload: { state: nextAvailabilityState },
-					},
-				);
+					});
+				}
 				return {
 					touchedKeys: [
 						'selectedId',
-						`rowPaint:${fact.itemId}`,
-						`availability:${fact.itemId}`,
-						`contentMetadata:${fact.itemId}`,
-						`demand:${fact.itemId}`,
+						...(nextAvailabilityState === null
+							? []
+							: [
+									`rowPaint:${fact.itemId}`,
+									`availability:${fact.itemId}`,
+									`contentMetadata:${fact.itemId}`,
+								]),
+						...(selectedDemandEnabled ? [`demand:${fact.itemId}`] : []),
 					],
 				};
 			},
@@ -298,6 +316,7 @@ function buildInitialBridgeCommWorkerStoreState(
 		indexById,
 		childrenByParentId,
 		selectedId: null,
+		selectedDemandEnabled: false,
 		viewportRange: null,
 		visibleIds: [],
 		demandByKey: new Map<string, string>(),
@@ -322,9 +341,10 @@ function buildDemandByKey(props: {
 	}
 	if (
 		props.selectedId !== null &&
+		props.selectedDemandValue !== null &&
 		isDemandEligibleContentMetadata(props.contentMetadataByItemId.get(props.selectedId) ?? null)
 	) {
-		demandByKey.set(props.selectedId, props.selectedDemandValue ?? 'selected');
+		demandByKey.set(props.selectedId, props.selectedDemandValue);
 	}
 	return demandByKey;
 }
@@ -342,6 +362,9 @@ function readSelectedDemandValue(state: BridgeCommWorkerStoreState): string | nu
 	const existingValue = state.demandByKey.get(state.selectedId);
 	if (existingValue?.startsWith('selected:') === true) {
 		return existingValue;
+	}
+	if (!state.selectedDemandEnabled) {
+		return null;
 	}
 	return 'selected';
 }

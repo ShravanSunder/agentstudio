@@ -90,7 +90,6 @@ interface BridgeReviewProtocolTransportFrameApplyProps {
 	readonly reviewFrameAuthority: BridgeReviewFrameAuthority | null;
 	readonly invalidatedFreshnessKeysRef: { readonly current: Set<string> };
 	readonly setReviewContentInvalidationVersion: Dispatch<SetStateAction<number>>;
-	readonly onReviewContentDescriptorRefsRegistered: (registeredDescriptorRefCount: number) => void;
 	readonly telemetryContext: BridgeReviewPackageTelemetryContext;
 	readonly telemetryRecorder: BridgeTelemetryRecorder;
 }
@@ -166,7 +165,6 @@ async function applyReviewProtocolFramePayload(
 		reviewFrameAuthority,
 		invalidatedFreshnessKeysRef,
 		setReviewContentInvalidationVersion,
-		onReviewContentDescriptorRefsRegistered,
 	} = props;
 	const protocolFrame = props.protocolFrame;
 	if (
@@ -363,7 +361,6 @@ async function applyReviewProtocolFramePayload(
 				(ref): readonly [string, BridgeDescriptorRef] => [ref.descriptorId, ref],
 			),
 		]);
-		onReviewContentDescriptorRefsRegistered(windowFrame.registeredContentDescriptorRefs.length);
 		reviewPackageRef.current = packagePayload;
 		setReviewTreeRows((current): readonly ReviewTreeRowMetadata[] =>
 			mergeReviewTreeRowsByRowId({
@@ -403,7 +400,6 @@ async function applyReviewProtocolFramePayload(
 					(ref): readonly [string, BridgeDescriptorRef] => [ref.descriptorId, ref],
 				),
 			]);
-			onReviewContentDescriptorRefsRegistered(deltaFrame.registeredContentDescriptorRefs.length);
 			reviewPackageRef.current = packagePayload;
 			setReviewTreeRows((current): readonly ReviewTreeRowMetadata[] =>
 				reviewTreeRowsWithMetadataDelta({

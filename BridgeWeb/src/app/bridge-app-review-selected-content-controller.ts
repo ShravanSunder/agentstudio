@@ -17,7 +17,6 @@ import { foregroundSelectionVisibleHydrationReleaseDelayMilliseconds } from './b
 import {
 	contentResourceCount,
 	makeSelectedContentResourcesKey,
-	scheduleSelectedContentRetry,
 	selectedContentResourcesStateFromDemandLoadResult,
 	shouldStartSelectedReviewContentDemand,
 	type BridgeReviewFileNavigationTarget,
@@ -62,13 +61,10 @@ export interface SelectedReviewContentDemandController {
 	readonly selectedContentActiveLoadKeyRef: MutableRefObject<string | null>;
 	readonly selectedContentResourcesState: SelectedContentResourcesState | null;
 	readonly selectedContentResourcesStateRef: MutableRefObject<SelectedContentResourcesState | null>;
-	readonly selectedContentRetryScheduledRef: MutableRefObject<boolean>;
-	readonly selectedContentRetryVersion: number;
 	readonly setForegroundSelectedContentKey: (value: string | null) => void;
 	readonly setLastSelectedDemandTelemetry: Dispatch<
 		SetStateAction<ReviewContentDemandTelemetry | null>
 	>;
-	readonly setSelectedContentRetryVersion: Dispatch<SetStateAction<number>>;
 	readonly setSelectedContentResourcesState: (
 		value:
 			| SelectedContentResourcesState
@@ -88,7 +84,6 @@ export interface UseBridgeReviewSelectedContentEffectProps {
 	readonly rootSnapshotRef: MutableRefObject<{ readonly selectedItemId: string | null }>;
 	readonly selectedContentAbortControllerRef: MutableRefObject<AbortController | null>;
 	readonly selectedContentActiveLoadKeyRef: MutableRefObject<string | null>;
-	readonly selectedContentRetryVersion: number;
 	readonly selectedItemPresentation: SelectedReviewContentPresentation;
 	readonly setForegroundSelectedContentKey: (value: string | null) => void;
 	readonly setLastSelectedDemandTelemetry: Dispatch<
@@ -144,8 +139,6 @@ export function useSelectedReviewContentDemandController(
 		},
 		[cancelForegroundSelectionRelease],
 	);
-	const [selectedContentRetryVersion, setSelectedContentRetryVersion] = useState(0);
-	const selectedContentRetryScheduledRef = useRef(false);
 	const [lastSelectedDemandTelemetry, setLastSelectedDemandTelemetry] =
 		useState<ReviewContentDemandTelemetry | null>(null);
 	const lastSelectedDemandTelemetryRef = useRef<ReviewContentDemandTelemetry | null>(null);
@@ -249,12 +242,6 @@ export function useSelectedReviewContentDemandController(
 								resourceCount: contentResourceCount(loadResult.resources),
 							});
 						}
-						if (loadResult.status === 'deferred') {
-							scheduleSelectedContentRetry({
-								scheduledRef: selectedContentRetryScheduledRef,
-								setSelectedContentRetryVersion,
-							});
-						}
 					}
 				})
 				.catch((): void => {
@@ -293,7 +280,6 @@ export function useSelectedReviewContentDemandController(
 			scheduleForegroundSelectionRelease,
 			resourceExecutor,
 			reviewContentDescriptorRefsByHandleIdRef,
-			setSelectedContentRetryVersion,
 			telemetryRecorderRef,
 		],
 	);
@@ -309,11 +295,8 @@ export function useSelectedReviewContentDemandController(
 		selectedContentActiveLoadKeyRef,
 		selectedContentResourcesState,
 		selectedContentResourcesStateRef,
-		selectedContentRetryScheduledRef,
-		selectedContentRetryVersion,
 		setForegroundSelectedContentKey,
 		setLastSelectedDemandTelemetry,
-		setSelectedContentRetryVersion,
 		setSelectedContentResourcesState,
 		startSelectedReviewContentDemand,
 	};
@@ -330,7 +313,6 @@ export function useBridgeReviewSelectedContentEffect(
 		rootSnapshotRef,
 		selectedContentAbortControllerRef,
 		selectedContentActiveLoadKeyRef,
-		selectedContentRetryVersion,
 		selectedItemPresentation,
 		setForegroundSelectedContentKey,
 		setLastSelectedDemandTelemetry,
@@ -382,7 +364,6 @@ export function useBridgeReviewSelectedContentEffect(
 		rootSnapshotRef,
 		selectedContentAbortControllerRef,
 		selectedContentActiveLoadKeyRef,
-		selectedContentRetryVersion,
 		selectedItemPresentation,
 		setForegroundSelectedContentKey,
 		setLastSelectedDemandTelemetry,

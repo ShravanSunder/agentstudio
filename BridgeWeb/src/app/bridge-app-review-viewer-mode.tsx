@@ -55,13 +55,11 @@ import {
 	makeSelectedContentResourcesKey,
 	reviewContentValidityDropReason,
 	reviewFileTargetForNavigationCommand,
-	scheduleSelectedContentRetry,
 	selectedCanvasLoadingReasonForCurrentSelection,
 	selectedContentDemandStartedAtMillisecondsForCurrentSelection,
 	selectedContentResourcesForCurrentSelection,
 	selectedContentUnavailablePathForCurrentSelection,
 	selectedItemPresentationForReviewFileTarget,
-	shouldRetrySelectedReviewContentAfterDescriptorRegistration,
 	type BridgeReviewFileNavigationTarget,
 	type SelectedMarkdownPreviewState,
 } from './bridge-app-review-selection-state.js';
@@ -160,16 +158,11 @@ export function BridgeReviewViewerMode(
 		cancelForegroundSelectionRelease,
 		foregroundSelectedContentKey,
 		lastSelectedDemandTelemetry,
-		lastSelectedDemandTelemetryRef,
 		selectedContentAbortControllerRef,
 		selectedContentActiveLoadKeyRef,
 		selectedContentResourcesState,
-		selectedContentResourcesStateRef,
-		selectedContentRetryScheduledRef,
-		selectedContentRetryVersion,
 		setForegroundSelectedContentKey,
 		setLastSelectedDemandTelemetry,
-		setSelectedContentRetryVersion,
 		setSelectedContentResourcesState,
 		startSelectedReviewContentDemand,
 	} = useSelectedReviewContentDemandController({
@@ -344,30 +337,6 @@ export function BridgeReviewViewerMode(
 			}),
 		[props.isActive, registerBridgeReadyCallback],
 	);
-	const retrySelectedContentAfterDescriptorRegistration = useCallback(
-		(registeredDescriptorRefCount: number): void => {
-			if (
-				shouldRetrySelectedReviewContentAfterDescriptorRegistration({
-					reviewPackage: reviewPackageRef.current,
-					selectedItemId: rootSnapshotRef.current.selectedItemId,
-					registeredDescriptorRefCount,
-					selectedContentResourcesState: selectedContentResourcesStateRef.current,
-					lastSelectedDemandTelemetry: lastSelectedDemandTelemetryRef.current,
-				})
-			) {
-				scheduleSelectedContentRetry({
-					scheduledRef: selectedContentRetryScheduledRef,
-					setSelectedContentRetryVersion,
-				});
-			}
-		},
-		[
-			lastSelectedDemandTelemetryRef,
-			selectedContentResourcesStateRef,
-			selectedContentRetryScheduledRef,
-			setSelectedContentRetryVersion,
-		],
-	);
 	const flushTelemetry = useCallback(
 		(flushProps: BridgeTelemetryFlushProps = {}): void => {
 			telemetryRecorderRef.current.flush(flushProps);
@@ -452,7 +421,6 @@ export function BridgeReviewViewerMode(
 		contentRegistry,
 		invalidatedFreshnessKeysRef: invalidatedReviewFreshnessKeysRef,
 		setReviewContentInvalidationVersion,
-		retrySelectedContentAfterDescriptorRegistration,
 		telemetryRecorderRef,
 	});
 	useBridgeReviewControlEventListeners({
@@ -480,7 +448,6 @@ export function BridgeReviewViewerMode(
 		rootSnapshotRef,
 		selectedContentAbortControllerRef,
 		selectedContentActiveLoadKeyRef,
-		selectedContentRetryVersion,
 		selectedItemPresentation,
 		setForegroundSelectedContentKey,
 		setLastSelectedDemandTelemetry,

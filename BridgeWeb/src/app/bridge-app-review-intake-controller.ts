@@ -79,9 +79,6 @@ export interface UseBridgeReviewIntakeControllerProps {
 	readonly contentRegistry: BridgeReviewContentRegistry;
 	readonly invalidatedFreshnessKeysRef: MutableRefObject<Set<string>>;
 	readonly setReviewContentInvalidationVersion: Dispatch<SetStateAction<number>>;
-	readonly retrySelectedContentAfterDescriptorRegistration: (
-		registeredDescriptorRefCount: number,
-	) => void;
 	readonly telemetryRecorderRef: MutableRefObject<BridgeTelemetryRecorder>;
 }
 
@@ -109,7 +106,6 @@ export function useBridgeReviewIntakeController(props: UseBridgeReviewIntakeCont
 		contentRegistry,
 		invalidatedFreshnessKeysRef,
 		setReviewContentInvalidationVersion,
-		retrySelectedContentAfterDescriptorRegistration,
 		telemetryRecorderRef,
 	} = props;
 	useEffect((): (() => void) => {
@@ -219,8 +215,6 @@ export function useBridgeReviewIntakeController(props: UseBridgeReviewIntakeCont
 						reviewFrameAuthority: getReviewFrameAuthority(),
 						invalidatedFreshnessKeysRef,
 						setReviewContentInvalidationVersion,
-						onReviewContentDescriptorRefsRegistered:
-							retrySelectedContentAfterDescriptorRegistration,
 						telemetryContext,
 						telemetryRecorder: telemetryRecorderRef.current,
 					});
@@ -357,7 +351,6 @@ export function useBridgeReviewIntakeController(props: UseBridgeReviewIntakeCont
 		reviewPackageRef,
 		reviewPackageTelemetryContextRef,
 		reviewReadyStartMillisecondsByPackageKeyRef,
-		retrySelectedContentAfterDescriptorRegistration,
 		setDiffStatus,
 		setReviewContentInvalidationVersion,
 		setReviewPackage,

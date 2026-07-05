@@ -13,7 +13,6 @@ import {
 import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
 import { loadReviewItemContentResourcesThroughDemandResult } from '../review-viewer/content/review-content-demand-loader.js';
 import { createBridgeReviewContentRegistry } from '../review-viewer/content/review-content-registry.js';
-import { makeReviewItemContentResourcesKey } from '../review-viewer/content/visible-review-content-hydration.js';
 import { makeBridgeViewerBrowserFixture } from '../review-viewer/test-support/bridge-viewer-mocked-backend.js';
 import { applyReviewProtocolTransportFrame } from './bridge-app-review-controller.js';
 import {
@@ -27,8 +26,8 @@ import {
 	reviewFileTargetForReviewPackagePath,
 	reviewItemDemandCancellationTargetForSelectionChange,
 	selectedCanvasLoadingReasonForCurrentSelection,
+	selectedContentResourcesStateFromDemandLoadResult,
 	selectedContentUnavailablePathForCurrentSelection,
-	shouldRetrySelectedReviewContentAfterDescriptorRegistration,
 	shouldStartSelectedReviewContentDemand,
 	shouldPauseVisibleReviewContentHydration,
 	type BridgeReviewFrameAuthority,
@@ -41,7 +40,6 @@ import {
 	makeReviewAttachedContentDescriptor,
 	makeReviewMetadataSnapshotFrame,
 	makeReviewProjectionInputItem,
-	makeSelectedReviewContentDemandTelemetry,
 	makeTextStreamResult,
 	type Deferred,
 } from './bridge-app.unit.test-support.js';
@@ -259,74 +257,21 @@ describe('BridgeApp selected review content demand policy', () => {
 		).toBe(false);
 	});
 
-	test('retries a selected descriptor-missing failure when metadata registers descriptors', () => {
-		const reviewPackage = makeBridgeReviewPackage();
-		const selectedItem = reviewPackage.itemsById['item-source'];
-		expect(selectedItem).toBeDefined();
-		if (selectedItem === undefined) {
-			return;
-		}
-		const selectedContentKey = makeReviewItemContentResourcesKey({
-			item: selectedItem,
-			reviewPackage,
-		});
-
+	test('does not park selected content loading when old demand returns deferred', () => {
 		expect(
-			shouldRetrySelectedReviewContentAfterDescriptorRegistration({
-				reviewPackage,
-				selectedItemId: 'item-source',
-				registeredDescriptorRefCount: 2,
-				selectedContentResourcesState: {
-					itemId: 'item-source',
-					contentKey: selectedContentKey,
-					status: 'failed',
-					resources: null,
-				},
-				lastSelectedDemandTelemetry: makeSelectedReviewContentDemandTelemetry({
-					itemId: 'item-source',
-					packageId: reviewPackage.packageId,
-					reviewGeneration: reviewPackage.reviewGeneration,
-					revision: reviewPackage.revision,
-					resultStatus: 'failed',
-					resultReason: 'descriptor_missing',
-				}),
+			selectedContentResourcesStateFromDemandLoadResult({
+				itemId: 'item-source',
+				contentKey: 'package-1:1:1:item-source:base-head',
+				demandStartedAtMilliseconds: 42,
+				loadResult: { status: 'deferred', reason: 'aborted' },
 			}),
-		).toBe(true);
-	});
-
-	test('does not retry a selected terminal load failure when metadata registers descriptors', () => {
-		const reviewPackage = makeBridgeReviewPackage();
-		const selectedItem = reviewPackage.itemsById['item-source'];
-		expect(selectedItem).toBeDefined();
-		if (selectedItem === undefined) {
-			return;
-		}
-		const selectedContentKey = makeReviewItemContentResourcesKey({
-			item: selectedItem,
-			reviewPackage,
+		).toEqual({
+			itemId: 'item-source',
+			contentKey: 'package-1:1:1:item-source:base-head',
+			demandStartedAtMilliseconds: 42,
+			status: 'failed',
+			resources: null,
 		});
-
-		expect(
-			shouldRetrySelectedReviewContentAfterDescriptorRegistration({
-				reviewPackage,
-				selectedItemId: 'item-source',
-				registeredDescriptorRefCount: 2,
-				selectedContentResourcesState: {
-					itemId: 'item-source',
-					contentKey: selectedContentKey,
-					status: 'failed',
-					resources: null,
-				},
-				lastSelectedDemandTelemetry: makeSelectedReviewContentDemandTelemetry({
-					itemId: 'item-source',
-					packageId: reviewPackage.packageId,
-					reviewGeneration: reviewPackage.reviewGeneration,
-					revision: reviewPackage.revision,
-					resultStatus: 'failed',
-					resultReason: 'load_failed',
-				}),
-			}),
-		).toBe(false);
 	});
 });
 
@@ -409,7 +354,6 @@ describe('BridgeApp Review content demand byte budget', () => {
 			reviewFrameAuthority,
 			invalidatedFreshnessKeysRef: { current: new Set() },
 			setReviewContentInvalidationVersion: (): void => {},
-			onReviewContentDescriptorRefsRegistered: (): void => {},
 			telemetryContext: {
 				slice: 'review_metadata',
 				traceContext: null,
