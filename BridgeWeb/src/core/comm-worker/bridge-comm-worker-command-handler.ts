@@ -8,6 +8,7 @@ import type {
 	BridgeWorkerMainToServerMessage,
 	BridgeWorkerSelectCommand,
 	BridgeWorkerServerToMainMessage,
+	BridgeWorkerViewportCommand,
 } from './bridge-worker-contracts.js';
 
 export interface CreateBridgeCommWorkerCommandHandlerProps {
@@ -26,14 +27,27 @@ export function createBridgeCommWorkerCommandHandler(
 ): BridgeCommWorkerCommandHandler {
 	const store = createBridgeCommWorkerStore({ rows: props.rows });
 	const createSequence = props.createSequence ?? createBridgeWorkerSequenceCounter();
+	const seenRequestIds = new Set<string>();
+	let currentEpoch = 0;
 
 	return {
-		handleMessage: (message: BridgeWorkerMainToServerMessage) =>
-			handleBridgeWorkerCommand({
+		handleMessage: (message: BridgeWorkerMainToServerMessage) => {
+			const rejection = rejectStaleOrReplayedBridgeWorkerCommand({
+				currentEpoch,
+				message,
+				seenRequestIds,
+			});
+			if (rejection !== null) {
+				return [rejection];
+			}
+			seenRequestIds.add(message.requestId);
+			currentEpoch = Math.max(currentEpoch, message.epoch);
+			return handleBridgeWorkerCommand({
 				createSequence,
 				message,
 				store,
-			}),
+			});
+		},
 	};
 }
 
@@ -54,10 +68,15 @@ function handleBridgeWorkerCommand(
 				store: props.store,
 			});
 		case 'viewport':
+			return handleBridgeWorkerViewportCommand({
+				createSequence: props.createSequence,
+				message: props.message,
+				store: props.store,
+			});
 		case 'hover':
 		case 'markFileViewed':
 		case 'mode':
-			return [buildBridgeWorkerReadyHealthEvent(props.message.requestId)];
+			return [buildBridgeWorkerUnimplementedHealthEvent(props.message)];
 		default:
 			return assertNeverBridgeWorkerCommand(props.message);
 	}
@@ -84,6 +103,78 @@ function handleBridgeWorkerSelectCommand(
 		...(slicePatch === null ? [] : [slicePatch]),
 		buildBridgeWorkerReadyHealthEvent(props.message.requestId),
 	];
+}
+
+interface HandleBridgeWorkerViewportCommandProps {
+	readonly createSequence: () => number;
+	readonly message: BridgeWorkerViewportCommand;
+	readonly store: BridgeCommWorkerStore;
+}
+
+function handleBridgeWorkerViewportCommand(
+	props: HandleBridgeWorkerViewportCommandProps,
+): readonly BridgeWorkerServerToMainMessage[] {
+	props.store.actions.applyViewportFact({
+		firstVisibleIndex: props.message.firstVisibleIndex,
+		lastVisibleIndex: props.message.lastVisibleIndex,
+		visibleItemIds: props.message.visibleItemIds,
+	});
+	const slicePatch = props.store.actions.takePendingSlicePatchEvent({
+		epoch: props.message.epoch,
+		sequence: props.createSequence(),
+	});
+	return [
+		...(slicePatch === null ? [] : [slicePatch]),
+		buildBridgeWorkerReadyHealthEvent(props.message.requestId),
+	];
+}
+
+interface RejectStaleOrReplayedBridgeWorkerCommandProps {
+	readonly currentEpoch: number;
+	readonly message: BridgeWorkerMainToServerMessage;
+	readonly seenRequestIds: ReadonlySet<string>;
+}
+
+function rejectStaleOrReplayedBridgeWorkerCommand(
+	props: RejectStaleOrReplayedBridgeWorkerCommandProps,
+): BridgeWorkerServerToMainMessage | null {
+	if (props.message.epoch < props.currentEpoch) {
+		return buildBridgeWorkerDegradedHealthEvent({
+			message: `Bridge comm worker rejected stale epoch ${props.message.epoch} after ${props.currentEpoch}.`,
+			requestId: props.message.requestId,
+		});
+	}
+	if (props.seenRequestIds.has(props.message.requestId)) {
+		return buildBridgeWorkerDegradedHealthEvent({
+			message: `Bridge comm worker rejected replayed request ${props.message.requestId}.`,
+			requestId: props.message.requestId,
+		});
+	}
+	return null;
+}
+
+function buildBridgeWorkerUnimplementedHealthEvent(
+	message: BridgeWorkerMainToServerMessage,
+): BridgeWorkerServerToMainMessage {
+	return buildBridgeWorkerDegradedHealthEvent({
+		message: `Bridge comm worker command ${message.command} is not implemented.`,
+		requestId: message.requestId,
+	});
+}
+
+function buildBridgeWorkerDegradedHealthEvent(props: {
+	readonly requestId: string;
+	readonly message: string;
+}): BridgeWorkerServerToMainMessage {
+	return {
+		wireVersion: 1,
+		direction: 'serverWorkerToMain',
+		transferDescriptors: [],
+		kind: 'health',
+		requestId: props.requestId,
+		status: 'degraded',
+		message: props.message,
+	};
 }
 
 function createBridgeWorkerSequenceCounter(): () => number {

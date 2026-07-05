@@ -1,7 +1,13 @@
 import { describe, expect, test } from 'vitest';
 
 import { createBridgeCommWorkerCommandHandler } from './bridge-comm-worker-command-handler.js';
-import { encodeBridgeWorkerSelectCommand } from './bridge-comm-worker-protocol.js';
+import {
+	encodeBridgeWorkerHoverCommand,
+	encodeBridgeWorkerMarkFileViewedCommand,
+	encodeBridgeWorkerModeCommand,
+	encodeBridgeWorkerSelectCommand,
+	encodeBridgeWorkerViewportCommand,
+} from './bridge-comm-worker-protocol.js';
 
 describe('Bridge comm worker command handler', () => {
 	test('select command mutates worker-local store and publishes only typed slice patches', () => {
@@ -53,5 +59,188 @@ describe('Bridge comm worker command handler', () => {
 			status: 'ready',
 		});
 		expect(JSON.stringify(messages)).not.toMatch(/rowById|orderedIds|rootSnapshot|allRows/i);
+	});
+
+	test('viewport command mutates worker-local store and publishes a typed viewport patch', () => {
+		const handler = createBridgeCommWorkerCommandHandler({
+			rows: [
+				{ id: 'item-1', parentId: null, index: 0 },
+				{ id: 'item-2', parentId: null, index: 1 },
+				{ id: 'item-3', parentId: null, index: 2 },
+			],
+			createSequence: (): number => 12,
+		});
+
+		const messages = handler.handleMessage(
+			encodeBridgeWorkerViewportCommand({
+				requestId: 'request-viewport',
+				epoch: 8,
+				visibleItemIds: ['item-2', 'item-3'],
+				firstVisibleIndex: 1,
+				lastVisibleIndex: 2,
+				phase: 'settled',
+			}),
+		);
+
+		expect(messages).toHaveLength(2);
+		expect(messages[0]).toMatchObject({
+			wireVersion: 1,
+			direction: 'serverWorkerToMain',
+			transferDescriptors: [],
+			kind: 'slicePatch',
+			epoch: 8,
+			sequence: 12,
+			patches: [
+				{
+					slice: 'viewport',
+					operation: 'upsert',
+					payload: {
+						firstVisibleIndex: 1,
+						lastVisibleIndex: 2,
+						visibleItemIds: ['item-2', 'item-3'],
+					},
+				},
+			],
+		});
+		expect(messages[1]).toMatchObject({
+			kind: 'health',
+			requestId: 'request-viewport',
+			status: 'ready',
+		});
+		expect(JSON.stringify(messages)).not.toMatch(/rowById|orderedIds|rootSnapshot|allRows/i);
+	});
+
+	test('unsupported commands return degraded health instead of silent success', () => {
+		const handler = createBridgeCommWorkerCommandHandler({
+			rows: [{ id: 'item-1', parentId: null, index: 0 }],
+		});
+
+		const commandMessages = [
+			handler.handleMessage(
+				encodeBridgeWorkerHoverCommand({
+					requestId: 'request-hover',
+					epoch: 1,
+					hoveredItemId: 'item-1',
+				}),
+			),
+			handler.handleMessage(
+				encodeBridgeWorkerMarkFileViewedCommand({
+					requestId: 'request-mark-viewed',
+					epoch: 1,
+					filePathHash: 'file-hash',
+					viewedAtSequence: 5,
+				}),
+			),
+			handler.handleMessage(
+				encodeBridgeWorkerModeCommand({
+					requestId: 'request-mode',
+					epoch: 1,
+					mode: 'review',
+				}),
+			),
+		];
+
+		expect(commandMessages).toEqual([
+			[
+				{
+					wireVersion: 1,
+					direction: 'serverWorkerToMain',
+					transferDescriptors: [],
+					kind: 'health',
+					requestId: 'request-hover',
+					status: 'degraded',
+					message: 'Bridge comm worker command hover is not implemented.',
+				},
+			],
+			[
+				{
+					wireVersion: 1,
+					direction: 'serverWorkerToMain',
+					transferDescriptors: [],
+					kind: 'health',
+					requestId: 'request-mark-viewed',
+					status: 'degraded',
+					message: 'Bridge comm worker command markFileViewed is not implemented.',
+				},
+			],
+			[
+				{
+					wireVersion: 1,
+					direction: 'serverWorkerToMain',
+					transferDescriptors: [],
+					kind: 'health',
+					requestId: 'request-mode',
+					status: 'degraded',
+					message: 'Bridge comm worker command mode is not implemented.',
+				},
+			],
+		]);
+	});
+
+	test('stale and replayed commands are rejected before slice mutation', () => {
+		const handler = createBridgeCommWorkerCommandHandler({
+			rows: [
+				{ id: 'item-1', parentId: null, index: 0 },
+				{ id: 'item-2', parentId: null, index: 1 },
+			],
+			createSequence: (): number => 13,
+		});
+
+		expect(
+			handler.handleMessage(
+				encodeBridgeWorkerSelectCommand({
+					requestId: 'request-current',
+					epoch: 9,
+					selectedItemId: 'item-2',
+					selectedSource: 'user',
+				}),
+			)[0],
+		).toMatchObject({
+			kind: 'slicePatch',
+			epoch: 9,
+		});
+
+		const staleMessages = handler.handleMessage(
+			encodeBridgeWorkerSelectCommand({
+				requestId: 'request-stale',
+				epoch: 8,
+				selectedItemId: 'item-1',
+				selectedSource: 'user',
+			}),
+		);
+		const replayMessages = handler.handleMessage(
+			encodeBridgeWorkerViewportCommand({
+				requestId: 'request-current',
+				epoch: 9,
+				visibleItemIds: ['item-1'],
+				firstVisibleIndex: 0,
+				lastVisibleIndex: 0,
+				phase: 'settled',
+			}),
+		);
+
+		expect(staleMessages).toEqual([
+			{
+				wireVersion: 1,
+				direction: 'serverWorkerToMain',
+				transferDescriptors: [],
+				kind: 'health',
+				requestId: 'request-stale',
+				status: 'degraded',
+				message: 'Bridge comm worker rejected stale epoch 8 after 9.',
+			},
+		]);
+		expect(replayMessages).toEqual([
+			{
+				wireVersion: 1,
+				direction: 'serverWorkerToMain',
+				transferDescriptors: [],
+				kind: 'health',
+				requestId: 'request-current',
+				status: 'degraded',
+				message: 'Bridge comm worker rejected replayed request request-current.',
+			},
+		]);
+		expect(JSON.stringify([...staleMessages, ...replayMessages])).not.toMatch(/slicePatch/i);
 	});
 });
