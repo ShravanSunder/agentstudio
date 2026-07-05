@@ -137,6 +137,21 @@ export const bridgeWorkerReviewContentMetadataSchema = z
 	})
 	.strict();
 
+export const bridgeWorkerReviewContentRequestDescriptorSchema = z
+	.object({
+		itemId: z.string().min(1),
+		role: bridgeContentRoleSchema,
+		handleId: z.string().min(1),
+		reviewGeneration: z.number().int().nonnegative(),
+		resourceUrl: z.string().min(1),
+		contentHash: z.string().min(1),
+		contentHashAlgorithm: z.string().min(1),
+		language: z.string().nullable(),
+		sizeBytes: z.number().int().nonnegative(),
+		isBinary: z.boolean(),
+	})
+	.strict();
+
 export const bridgeWorkerPanelChromePatchPayloadSchema = z
 	.object({
 		isLoading: z.boolean().optional(),
@@ -280,6 +295,9 @@ export type BridgeWorkerContentAvailabilityPatchPayload = z.infer<
 >;
 export type BridgeWorkerReviewContentMetadata = z.infer<
 	typeof bridgeWorkerReviewContentMetadataSchema
+>;
+export type BridgeWorkerReviewContentRequestDescriptor = z.infer<
+	typeof bridgeWorkerReviewContentRequestDescriptorSchema
 >;
 export type BridgeWorkerPanelChromePatchPayload = z.infer<
 	typeof bridgeWorkerPanelChromePatchPayloadSchema

@@ -3,12 +3,14 @@ import { describe, expect, expectTypeOf, test } from 'vitest';
 import { makeBridgeReviewItem } from '../../foundation/review-package/bridge-review-package-test-support.js';
 import {
 	BRIDGE_WORKER_WIRE_VERSION,
+	bridgeWorkerReviewContentRequestDescriptorSchema,
 	bridgeWorkerReviewContentMetadataSchema,
 	bridgeWorkerMainToServerMessageSchema,
 	bridgeWorkerServerToMainMessageSchema,
 	bridgeWorkerSlicePatchEventSchema,
 	parseBridgeWorkerMainToServerMessage,
 	type BridgeWorkerMainToServerMessage,
+	type BridgeWorkerReviewContentRequestDescriptor,
 	type BridgeWorkerReviewContentMetadata,
 } from './bridge-worker-contracts.js';
 
@@ -166,6 +168,39 @@ describe('BridgeWorkerContracts', () => {
 			bridgeWorkerReviewContentMetadataSchema.safeParse({
 				...metadata,
 				contentRoles: item.contentRoles,
+			}).success,
+		).toBe(false);
+	});
+
+	test('defines strict worker review content request descriptors separate from metadata', () => {
+		const item = makeBridgeReviewItem({
+			itemId: 'item-worker-content-request',
+			path: 'Sources/App/WorkerContentRequest.swift',
+		});
+		const handle = item.contentRoles.head;
+		expect(handle).not.toBeNull();
+		const descriptor = {
+			itemId: item.itemId,
+			role: 'head',
+			handleId: handle?.handleId ?? 'missing',
+			reviewGeneration: handle?.reviewGeneration ?? 0,
+			resourceUrl: handle?.resourceUrl ?? 'agentstudio://resource/review/content/missing',
+			contentHash: handle?.contentHash ?? 'sha256:missing',
+			contentHashAlgorithm: handle?.contentHashAlgorithm ?? 'fixture-preview',
+			language: handle?.language ?? null,
+			sizeBytes: handle?.sizeBytes ?? 0,
+			isBinary: handle?.isBinary ?? false,
+		} satisfies BridgeWorkerReviewContentRequestDescriptor;
+
+		expect(bridgeWorkerReviewContentRequestDescriptorSchema.parse(descriptor)).toEqual(descriptor);
+		expect(JSON.stringify(descriptor)).not.toMatch(
+			/"contentRoles"|endpointId|itemsById|"cacheKey"|mimeType/i,
+		);
+		expect(descriptor.resourceUrl).toMatch(/^agentstudio:\/\//);
+		expect(
+			bridgeWorkerReviewContentRequestDescriptorSchema.safeParse({
+				...descriptor,
+				endpointId: 'endpoint-head',
 			}).success,
 		).toBe(false);
 	});

@@ -15,10 +15,14 @@ import {
 } from '../core/comm-worker/bridge-main-render-snapshot-store.js';
 import type {
 	BridgeWorkerContentAvailabilityPatchPayload,
+	BridgeWorkerReviewContentRequestDescriptor,
 	BridgeWorkerReviewContentMetadata,
 	BridgeWorkerServerToMainMessage,
 } from '../core/comm-worker/bridge-worker-contracts.js';
-import { bridgeWorkerReviewContentMetadataSchema } from '../core/comm-worker/bridge-worker-contracts.js';
+import {
+	bridgeWorkerReviewContentRequestDescriptorSchema,
+	bridgeWorkerReviewContentMetadataSchema,
+} from '../core/comm-worker/bridge-worker-contracts.js';
 import {
 	createBridgeWorkerPierreCourier,
 	type BridgeWorkerPierreCourier,
@@ -26,6 +30,7 @@ import {
 import type { BridgeWorkerPierreRenderJob } from '../core/comm-worker/bridge-worker-pierre-render-job.js';
 import type { ReviewTreeRowMetadata } from '../features/review/models/review-protocol-models.js';
 import type {
+	BridgeContentHandle,
 	BridgeContentRole,
 	BridgeReviewItemDescriptor,
 	BridgeReviewPackage,
@@ -206,6 +211,23 @@ export function bridgeCommWorkerContentItemsFromReviewPackage(
 	);
 }
 
+export function bridgeCommWorkerContentRequestDescriptorsFromReviewPackage(
+	reviewPackage: BridgeReviewPackage | null,
+): readonly BridgeWorkerReviewContentRequestDescriptor[] {
+	if (reviewPackage === null) {
+		return [];
+	}
+	return reviewPackage.orderedItemIds.flatMap(
+		(itemId): readonly BridgeWorkerReviewContentRequestDescriptor[] => {
+			const item = reviewPackage.itemsById[itemId];
+			if (item === undefined) {
+				return [];
+			}
+			return contentRequestDescriptorsForReviewItem(item);
+		},
+	);
+}
+
 function bridgeWorkerReviewContentMetadataFromReviewItem(
 	item: BridgeReviewItemDescriptor,
 ): BridgeWorkerReviewContentMetadata {
@@ -230,6 +252,36 @@ function availableContentRolesForReviewItem(
 		}
 	}
 	return roles;
+}
+
+function contentRequestDescriptorsForReviewItem(
+	item: BridgeReviewItemDescriptor,
+): readonly BridgeWorkerReviewContentRequestDescriptor[] {
+	const descriptors: BridgeWorkerReviewContentRequestDescriptor[] = [];
+	for (const role of ['base', 'head', 'diff', 'file'] as const) {
+		const handle = item.contentRoles[role] ?? null;
+		if (handle !== null) {
+			descriptors.push(bridgeWorkerReviewContentRequestDescriptorFromHandle(handle));
+		}
+	}
+	return descriptors;
+}
+
+function bridgeWorkerReviewContentRequestDescriptorFromHandle(
+	handle: BridgeContentHandle,
+): BridgeWorkerReviewContentRequestDescriptor {
+	return bridgeWorkerReviewContentRequestDescriptorSchema.parse({
+		itemId: handle.itemId,
+		role: handle.role,
+		handleId: handle.handleId,
+		reviewGeneration: handle.reviewGeneration,
+		resourceUrl: handle.resourceUrl,
+		contentHash: handle.contentHash,
+		contentHashAlgorithm: handle.contentHashAlgorithm,
+		language: handle.language ?? null,
+		sizeBytes: handle.sizeBytes,
+		isBinary: handle.isBinary,
+	});
 }
 
 export function applyBridgeWorkerMessagesToMainRenderSnapshotStore(props: {
