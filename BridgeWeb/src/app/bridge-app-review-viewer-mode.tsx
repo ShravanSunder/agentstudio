@@ -22,12 +22,7 @@ import type { BridgeCodeViewContentResources } from '../review-viewer/code-view/
 import type { BridgeCodeViewControlHandle } from '../review-viewer/code-view/bridge-code-view-panel.js';
 import type { ReviewContentDemandTelemetry } from '../review-viewer/content/review-content-demand-loader.js';
 import { useBridgeReviewProjectionCoordinator } from '../review-viewer/projections/use-review-projection-coordinator.js';
-import {
-	bridgeReviewViewerRootSnapshotFromSlices,
-	selectBridgeReviewPanelChromeSlice,
-	selectBridgeReviewSelectionSlice,
-	selectBridgeReviewViewportSlice,
-} from '../review-viewer/state/review-viewer-store.js';
+import { selectBridgeReviewPanelChromeSlice } from '../review-viewer/state/review-viewer-store.js';
 import { recordBridgeSelectedContentDroppedTelemetry } from '../review-viewer/telemetry/bridge-review-viewer-telemetry.js';
 import { createBridgeMarkdownRenderWebWorkerClient } from '../review-viewer/workers/markdown/bridge-markdown-render-worker-transport.js';
 import type { BridgeReviewProjectionWorkerClient } from '../review-viewer/workers/projection/review-projection-worker-client.js';
@@ -44,6 +39,7 @@ import { useBridgeReviewIntakeController } from './bridge-app-review-intake-cont
 import { useBridgeReviewMarkdownPreviewController } from './bridge-app-review-markdown-preview-controller.js';
 import { useBridgeReviewMetadataInterestRuntime } from './bridge-app-review-metadata-interest-runtime.js';
 import { useBridgeReviewNavigationController } from './bridge-app-review-navigation-controller.js';
+import { useBridgeReviewRenderSnapshotController } from './bridge-app-review-render-snapshot-controller.js';
 import {
 	useBridgeResourceDescriptorRegistry,
 	useBridgeReviewContentRegistry,
@@ -115,26 +111,27 @@ export function BridgeReviewViewerMode(
 		invalidatedFreshnessKeysRef: invalidatedReviewFreshnessKeysRef,
 	});
 	const projection = useStore(viewerStore, (state) => state.projection);
-	const selectionSlice = useStore(viewerStore, selectBridgeReviewSelectionSlice);
-	const viewportSlice = useStore(viewerStore, selectBridgeReviewViewportSlice);
 	const panelChromeSlice = useStore(viewerStore, selectBridgeReviewPanelChromeSlice);
-	const rootSnapshot = useMemo(
-		() =>
-			bridgeReviewViewerRootSnapshotFromSlices({
-				panelChromeSlice,
-				selectionSlice,
-			}),
-		[panelChromeSlice, selectionSlice],
-	);
 	const viewerActions = useStore(viewerStore, (state) => state.actions);
+	const [reviewPackage, setReviewPackage] = useState<BridgeReviewPackage | null>(null);
+	const [reviewTreeRows, setReviewTreeRows] = useState<readonly ReviewTreeRowMetadata[]>([]);
+	const {
+		rootSnapshot,
+		selectionSlice,
+		selectionSliceRef,
+		setReviewViewportItemIds,
+		setSelectedReviewItemId,
+		viewportSliceRef,
+	} = useBridgeReviewRenderSnapshotController({
+		panelChromeSlice,
+		reviewTreeRows,
+	});
 	const setReviewRenderModeCodeView = useCallback((): void => {
 		if (viewerStore.getState().panelChromeSlice.renderMode.kind === 'codeView') {
 			return;
 		}
 		viewerActions.setRenderMode({ kind: 'codeView' });
 	}, [viewerActions, viewerStore]);
-	const [reviewPackage, setReviewPackage] = useState<BridgeReviewPackage | null>(null);
-	const [reviewTreeRows, setReviewTreeRows] = useState<readonly ReviewTreeRowMetadata[]>([]);
 	const [diffStatus, setDiffStatus] = useState<BridgeDiffStatusState>({
 		status: 'idle',
 		error: null,
@@ -189,10 +186,6 @@ export function BridgeReviewViewerMode(
 	reviewPackageRef.current = reviewPackage;
 	const projectionRef = useRef(projection);
 	projectionRef.current = projection;
-	const selectionSliceRef = useRef(selectionSlice);
-	selectionSliceRef.current = selectionSlice;
-	const viewportSliceRef = useRef(viewportSlice);
-	viewportSliceRef.current = viewportSlice;
 	const rootSnapshotRef = useRef(rootSnapshot);
 	rootSnapshotRef.current = rootSnapshot;
 	const [isCodeViewScrollActive, setIsCodeViewScrollActive] = useState(false);
@@ -327,9 +320,9 @@ export function BridgeReviewViewerMode(
 	const setReviewVisibleItemIds = useCallback(
 		(itemIds: readonly string[]): void => {
 			setVisibleContentItemIds(itemIds);
-			viewerActions.setMountedItemIds(itemIds);
+			setReviewViewportItemIds(itemIds);
 		},
-		[setVisibleContentItemIds, viewerActions],
+		[setReviewViewportItemIds, setVisibleContentItemIds],
 	);
 	const reviewMetadataInterestRuntime = useBridgeReviewMetadataInterestRuntime({
 		authority: getReviewFrameAuthority(),
@@ -393,9 +386,10 @@ export function BridgeReviewViewerMode(
 		selectionSliceRef,
 		viewportSliceRef,
 		rpcClient,
+		setReviewRenderModeCodeView,
 		setSelectedReviewFileTarget,
+		setSelectedReviewItemId,
 		telemetryRecorderRef,
-		viewerActions,
 	});
 	useBridgeReviewProjectionCoordinator({
 		store: viewerStore,
@@ -421,7 +415,9 @@ export function BridgeReviewViewerMode(
 		rootSnapshot,
 		selectReviewItem,
 		selectedContentAbortControllerRef,
+		setReviewRenderModeCodeView,
 		setSelectedContentResourcesState,
+		setSelectedReviewItemId,
 		setSelectedMarkdownPreviewState,
 		viewerActions,
 	});
@@ -442,7 +438,7 @@ export function BridgeReviewViewerMode(
 		setReviewPackage,
 		setReviewTreeRows,
 		setDiffStatus,
-		setSelectedItemId: viewerActions.setSelectedItemId,
+		setSelectedItemId: setSelectedReviewItemId,
 		viewerStore,
 		reviewPackageRef,
 		reviewPackageTelemetryContextRef,

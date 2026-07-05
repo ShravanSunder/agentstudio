@@ -50,6 +50,22 @@ describe('Bridge review selection controller command scheduling', () => {
 		);
 	});
 
+	test('selection path commits selected item through the render snapshot callback', () => {
+		const source = readFileSync(
+			new URL('./bridge-app-review-selection-controller.ts', import.meta.url),
+			'utf8',
+		);
+		const callbackSource = source.slice(
+			source.indexOf('const beginForegroundReviewSelection = useCallback'),
+			source.indexOf('const selectReviewItem = useCallback'),
+		);
+
+		expect(callbackSource).toContain('setSelectedReviewItemId(itemId)');
+		expect(callbackSource).toContain('setReviewRenderModeCodeView()');
+		expect(callbackSource).not.toContain('viewerActions.setSelectedItemId');
+		expect(callbackSource).not.toContain('viewerActions.setRenderMode');
+	});
+
 	test('review mode wiring does not pass content-demand owners into selection controller', () => {
 		const source = readFileSync(
 			new URL('./bridge-app-review-viewer-mode.tsx', import.meta.url),

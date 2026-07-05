@@ -7,7 +7,6 @@ import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-tel
 import type {
 	BridgeReviewSelectionSlice,
 	BridgeReviewViewportSlice,
-	BridgeReviewViewerStoreActions,
 } from '../review-viewer/state/review-viewer-store.js';
 import type { BridgeReviewFileNavigationTarget } from './bridge-app-review-selection-state.js';
 import {
@@ -43,11 +42,12 @@ export interface UseBridgeReviewSelectionControllerProps {
 	readonly selectionSliceRef: MutableRefObject<BridgeReviewSelectionSlice>;
 	readonly viewportSliceRef: MutableRefObject<BridgeReviewViewportSlice>;
 	readonly rpcClient: BridgeRPCClient;
+	readonly setReviewRenderModeCodeView: () => void;
 	readonly setSelectedReviewFileTarget: Dispatch<
 		SetStateAction<BridgeReviewFileNavigationTarget | null>
 	>;
+	readonly setSelectedReviewItemId: (itemId: string | null) => void;
 	readonly telemetryRecorderRef: MutableRefObject<BridgeTelemetryRecorder>;
-	readonly viewerActions: BridgeReviewViewerStoreActions;
 }
 
 export interface BridgeReviewSelectionController {
@@ -75,9 +75,10 @@ export function useBridgeReviewSelectionController(
 		selectionSliceRef,
 		viewportSliceRef,
 		rpcClient,
+		setReviewRenderModeCodeView,
 		setSelectedReviewFileTarget,
+		setSelectedReviewItemId,
 		telemetryRecorderRef,
-		viewerActions,
 	} = props;
 	const lastTelemetryMarkedItemRef = useRef<string | null>(null);
 	const pendingSelectionCommitTelemetryRef = useRef<PendingReviewSelectionCommitTelemetry | null>(
@@ -112,8 +113,8 @@ export function useBridgeReviewSelectionController(
 			if (presentationTarget !== null || isSelectionChange) {
 				setSelectedReviewFileTarget(presentationTarget);
 			}
-			viewerActions.setSelectedItemId(itemId);
-			viewerActions.setRenderMode({ kind: 'codeView' });
+			setSelectedReviewItemId(itemId);
+			setReviewRenderModeCodeView();
 			recordBridgeReviewSliceInvalidationProbe({
 				itemId,
 				packageItemCount: currentReviewPackage.orderedItemIds.length,
@@ -125,10 +126,11 @@ export function useBridgeReviewSelectionController(
 			currentReviewPackageTelemetryContextRef,
 			reviewPackageRef,
 			selectionSliceRef,
+			setReviewRenderModeCodeView,
 			setSelectedReviewFileTarget,
+			setSelectedReviewItemId,
 			telemetryRecorderRef,
 			viewportSliceRef,
-			viewerActions,
 		],
 	);
 	const selectReviewItem = useCallback(

@@ -32,7 +32,9 @@ export interface UseBridgeReviewNavigationControllerProps {
 		presentationTarget?: BridgeReviewFileNavigationTarget | null,
 	) => boolean;
 	readonly selectedContentAbortControllerRef: MutableRefObject<AbortController | null>;
+	readonly setReviewRenderModeCodeView: () => void;
 	readonly setSelectedContentResourcesState: SelectedReviewContentDemandController['setSelectedContentResourcesState'];
+	readonly setSelectedReviewItemId: (itemId: string | null) => void;
 	readonly setSelectedMarkdownPreviewState: Dispatch<
 		SetStateAction<SelectedMarkdownPreviewState | null>
 	>;
@@ -52,7 +54,9 @@ export function useBridgeReviewNavigationController(
 		rootSnapshot,
 		selectReviewItem,
 		selectedContentAbortControllerRef,
+		setReviewRenderModeCodeView,
 		setSelectedContentResourcesState,
+		setSelectedReviewItemId,
 		setSelectedMarkdownPreviewState,
 		viewerActions,
 	} = props;
@@ -129,8 +133,8 @@ export function useBridgeReviewNavigationController(
 			selectedContentAbortControllerRef.current?.abort();
 			selectedContentAbortControllerRef.current = null;
 			setSelectedContentResourcesState(null);
-			viewerActions.setSelectedItemId(null);
-			viewerActions.setRenderMode({ kind: 'codeView' });
+			setSelectedReviewItemId(null);
+			setReviewRenderModeCodeView();
 		} else {
 			beginForegroundReviewSelection(nextSelectedItemId);
 		}
@@ -143,8 +147,9 @@ export function useBridgeReviewNavigationController(
 		reviewPackage,
 		rootSnapshot.selectedItemId,
 		selectedContentAbortControllerRef,
+		setReviewRenderModeCodeView,
 		setSelectedContentResourcesState,
+		setSelectedReviewItemId,
 		setSelectedMarkdownPreviewState,
-		viewerActions,
 	]);
 }

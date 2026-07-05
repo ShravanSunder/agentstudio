@@ -98,6 +98,33 @@ describe('Review viewer source structure', () => {
 		expect(selectionControllerSource).not.toContain('@pierre/');
 	});
 
+	test('routes Review selection and viewport display facts through the comm-worker render snapshot seam', () => {
+		const modeSource = readSource('../app/bridge-app-review-viewer-mode.tsx');
+		const renderSnapshotControllerSource = readSource(
+			'../app/bridge-app-review-render-snapshot-controller.ts',
+		);
+
+		expect(modeSource).toContain('useBridgeReviewRenderSnapshotController');
+		expect(modeSource).toContain('setSelectedReviewItemId');
+		expect(modeSource).toContain('setReviewViewportItemIds');
+		expect(modeSource).not.toContain('selectBridgeReviewSelectionSlice');
+		expect(modeSource).not.toContain('selectBridgeReviewViewportSlice');
+		expect(modeSource).not.toContain('viewerActions.setMountedItemIds');
+		expect(renderSnapshotControllerSource).toContain('createBridgeMainRenderSnapshotStore');
+		expect(renderSnapshotControllerSource).toContain('createBridgeCommWorkerCommandHandler');
+		expect(renderSnapshotControllerSource).toContain('useSyncExternalStore');
+		expect(renderSnapshotControllerSource).toContain('encodeBridgeWorkerSelectCommand');
+		expect(renderSnapshotControllerSource).toContain('encodeBridgeWorkerViewportCommand');
+		const viewportSetterSource = renderSnapshotControllerSource.slice(
+			renderSnapshotControllerSource.indexOf('const setReviewViewportItemIds = useCallback'),
+			renderSnapshotControllerSource.indexOf('return {'),
+		);
+		expect(viewportSetterSource).toContain('renderSnapshotStore.setLocalViewport');
+		expect(viewportSetterSource.indexOf('renderSnapshotStore.setLocalViewport')).toBeLessThan(
+			viewportSetterSource.indexOf('publishWorkerMessages'),
+		);
+	});
+
 	test('keeps Review navigation reconciliation in an app-level controller hook', () => {
 		const modeSource = readSource('../app/bridge-app-review-viewer-mode.tsx');
 		const navigationControllerSource = readSource(
