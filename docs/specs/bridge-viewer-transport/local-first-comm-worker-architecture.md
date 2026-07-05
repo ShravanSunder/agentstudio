@@ -455,7 +455,7 @@ main-thread migration path.
 | --- | --- | --- |
 | main <-> server worker | typed RPC/event protocol over a `MessageChannel` port owned by the page and server worker, using transferables where payloads can avoid clone cost | typed commands down: `select`, `viewport`, `hover`, `markViewed`, and `mode`; typed replies/events and slice patches up; no store snapshots |
 | JavaScript <-> Swift | all Swift communication from server worker and migration-era main-thread callers: typed scheme-handler `POST` request/response RPC through `WKURLSchemeHandler` `fetch()`, plus subscriptions and pushes through long-lived streamed `fetch()` responses while native writes frames into the stream | Swift-side request, response, push, content, availability, telemetry, command-ack, and health frames |
-| main <-> Pierre workers | Pierre's own API exclusively | transferable paint-ready structs received from the server worker without parsing, plus `bridgeDemandRank` |
+| main <-> Pierre workers | Pierre's own API exclusively | `BridgeWorkerPierreRenderJob` values received from the server worker without parsing, plus `bridgeDemandRank`; any large payload copy/transfer mode at this edge must be separately measured |
 
 The long-lived streamed-response fetch is the decided Swift push mechanism. The
 rejected alternative is `WKScriptMessage` push delivery: those pushes land in the
@@ -502,10 +502,11 @@ is reachable from both page and worker contexts. Content worlds remain only as
 bootstrap code-isolation machinery, not an ordinary command, telemetry,
 content, subscription, or push transport.
 
-On the Pierre edge, main is a courier, never a processor. Main hands Pierre
-transferable paint-ready structs from the server worker and the
-`bridgeDemandRank`; it must not parse, classify, window, diff, or highlight the
-content on that edge.
+On the Pierre edge, main is a courier, never a processor. Main hands Pierre a
+`BridgeWorkerPierreRenderJob` from the server worker and the `bridgeDemandRank`;
+it must not parse, classify, window, diff, or highlight the content on that
+edge. Main may only wrap the job into the object shape required by Pierre's
+public API and invoke that API.
 
 ### R50. Channel contracts are typed and constant.
 
@@ -541,11 +542,20 @@ ad-hoc message shapes.
 ### R52. Main is a bounded courier on the content path.
 
 The content path is Swift -> server worker for parse/window/diff and slice
-production, then server worker -> main for a zero-work transferable struct
+production, then server worker -> main for a typed `BridgeWorkerPierreRenderJob`
 hand-off, then main -> Pierre worker for highlighting and DOM-owned apply, then
-Pierre/main -> DOM. The main hop is bounded to transfer plus the Pierre API
-call because Pierre must be driven from its thread; the no-fork constraint is
-not permission to make main parse, diff, classify, or re-window content.
+Pierre/main -> DOM. The main hop is bounded to transfer/clone accounting plus
+the Pierre API call because Pierre must be driven from its thread; the no-fork
+constraint is not permission to make main parse, diff, classify, or re-window
+content.
+
+The stock Pierre worker-pool API is not assumed to preserve transfer lists. At
+the time this spec was amended, `@pierre/diffs` `WorkerPoolManager` dispatches
+worker work with `worker.postMessage(task.request)` and no transfer-list
+argument. Therefore G may not claim zero-copy main -> Pierre delivery unless it
+adds a sanctioned courier/adapter that proves transfer-list use. Without that
+adapter, `BridgeWorkerPierreRenderJob` payloads crossing main -> Pierre must be
+bounded, cache-keyed, and instrumented for clone/submit duration.
 
 ### R53. Worker messages are transferable-first.
 
@@ -626,6 +636,7 @@ Required type families:
 | `BridgeWorkerMainToServerMessage` | wire DTO | `BridgeWorkerContracts` zod-derived union | `requestId`, wire version, epoch/revision freshness, command/fact kind, cloneable payload, declared transfer fields | store snapshots, functions, class instances, DOM objects, `AbortController`, non-declared buffers |
 | `BridgeWorkerServerToMainMessage` | wire DTO | `BridgeWorkerContracts` zod-derived union | health events, correlated replies, subscription events, slice patches, availability/content events, epoch/sequence freshness, declared transfer fields | canonical worker store, full package snapshots for interaction updates, untyped payloads |
 | `BridgeWorkerSlicePatch` | wire DTO applied to main render snapshot | typed patch union | target slice, operation, item id when keyed, epoch/sequence, small cloneable render payload or transfer descriptor | protocol/cache truth, raw content bytes unless explicitly declared as transfer/copy payload |
+| `BridgeWorkerPierreRenderJob` | comm worker -> main courier -> Pierre API | `BridgeWorkerContracts` DTO plus a Pierre edge adapter | item id, render kind, content hash/cache key, language/render metadata, `bridgeDemandRank`, bounded Pierre-compatible file/diff payload or transfer descriptor, byte/clone budget class | comm-worker store snapshot, Swift protocol state, functions/classes, DOM objects, main-recomputed text/window/diff, unmeasured unbounded content payload |
 | `BridgeWorkerTransferDescriptor` | wire metadata | explicit transfer-list helper | message kind, field path, byte length, `transfer` or explicit `clone`, detached-after-send expectation | implicit large payloads, unmeasured clone cost |
 | `BridgeSchemeRpcRequest` / `BridgeSchemeRpcResponse` / `BridgeSchemeStreamFrame` | JavaScript <-> Swift scheme boundary | shared browser/native contract vocabulary | method/path/resource kind, request id, stream id, source generation, byte limits, telemetry/drop counters, health/error frames | script-message command payloads, raw paths/content in telemetry, ad-hoc frame shapes |
 | `BridgeWorkerQueryAdapter` | main/React | TanStack Query/mutation | coarse async worker RPC lifecycle for open, refresh, reconnect, search/filter completion, mark-viewed mutation, optimistic update/rollback coordination | high-frequency row patch stream, canonical result cache, byte cache, demand queue, protocol owner |
@@ -648,16 +659,19 @@ user click / key / hover / scroll
         ▼
       comm-worker store
         canonical demand/cache/protocol update
+        async content fetch/decode/window/rank preparation
         │
         ├─► scheme-RPC fetch/subscribe to Swift when needed
         │
         └─► BridgeWorkerServerToMainMessage
-              typed event/reply with slice patches
+              typed event/reply with slice patches and
+              BridgeWorkerPierreRenderJob values
               ArrayBuffer transfer for large payload ownership moves
               │
               ▼
             BridgeMainRenderSnapshot subscriptions
-              R46 frame-budgeted patch apply
+              R46 frame-budgeted patch apply and low-cost
+              Pierre courier enqueue
 ```
 
 Transfer mode matrix:
@@ -669,11 +683,13 @@ Transfer mode matrix:
 | Review | metadata descriptors, availability, row chrome, tree/window patches | comm worker -> main | structured clone DTO | Only bounded visible/window deltas may cross; full-package snapshots are forbidden. |
 | Review | source/diff/content bytes fetched from Swift | Swift -> comm worker | stream/`ArrayBuffer` in worker | Worker consumes `ReadableStream<Uint8Array>`/`arrayBuffer()` and owns the byte cache; main does not receive raw bytes. |
 | Review | large paint-ready runs, line windows, binary preview payloads, persistent-cache payloads | comm worker -> main/Pierre courier | transfer list | Payload uses `ArrayBuffer`; include the buffer in the transfer list when ownership moves. If the worker must retain canonical bytes, send a derived display buffer and measure the copy. |
+| Review | `BridgeWorkerPierreRenderJob` for Shiki/diff rendering | comm worker -> main -> Pierre API | transfer to main when possible; measured bounded clone into stock Pierre unless adapter proves transfer | Comm worker prepares all data/rank needed by Pierre. Main may only enqueue through the Pierre API and record clone/submit cost; no main parse/window/diff/highlight. |
 | Review | telemetry counters and health/drop summaries | comm worker -> Swift or main | structured clone DTO or scheme POST body | Counters and health summaries are small DTOs; encoded telemetry batches may use `ArrayBuffer` bodies when byte size is material. |
 | File View | open file, select path, expand/collapse, filter/search, viewport facts | main -> comm worker | structured clone DTO | Small path ids/hashes, filter text, row ids, and ranges; never full tree state. |
 | File View | tree metadata, descriptor windows, availability, row paint patches | comm worker -> main | structured clone DTO | Only bounded visible/window deltas may cross; full manifest/list snapshots are forbidden. |
 | File View | file contents fetched from Swift | Swift -> comm worker | stream/`ArrayBuffer` in worker | Worker owns raw file bytes and decoded/cache truth; main receives availability or paint-ready display payload only. |
 | File View | large text windows, syntax/token runs, binary preview bytes, persistent-cache payloads | comm worker -> main/Pierre courier | transfer list | Payload uses `ArrayBuffer`; include transferred buffers explicitly and assert sender detachment. |
+| File View | `BridgeWorkerPierreRenderJob` for syntax/text rendering | comm worker -> main -> Pierre API | transfer to main when possible; measured bounded clone into stock Pierre unless adapter proves transfer | Comm worker prepares the render payload and rank. Main may only enqueue through the Pierre API and record clone/submit cost; no main content loading, decoding, or line-window work. |
 | File View | initial load/progress/worker health | comm worker -> main | structured clone DTO | Progress and health are small render-copy facts; no content bytes or raw manifest snapshot. |
 
 ## Action And Event Sequence Contracts
