@@ -25,8 +25,8 @@ describe('Bridge app review render snapshot controller', () => {
 		const job = buildBridgeWorkerPierreRenderJob({
 			itemId: 'item-1',
 			renderKind: 'reviewDiff',
-			contentCacheKey: 'pierre-content:sha256:abc123',
-			contentHash: 'abc123',
+			contentCacheKey: 'pierre-content:sha256:base|pierre-content:sha256:head',
+			contentHash: 'sha256:base+head',
 			language: 'typescript',
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			window: {
@@ -35,8 +35,9 @@ describe('Bridge app review render snapshot controller', () => {
 				totalLineCount: 100,
 			},
 			payload: {
-				kind: 'textWindow',
-				textBytes: new ArrayBuffer(96),
+				kind: 'diffTextWindow',
+				baseTextBytes: new ArrayBuffer(40),
+				headTextBytes: new ArrayBuffer(56),
 			},
 			budget: {
 				className: 'interactive',
@@ -77,8 +78,8 @@ describe('Bridge app review render snapshot controller', () => {
 		const job = buildBridgeWorkerPierreRenderJob({
 			itemId: 'item-unsupported',
 			renderKind: 'reviewDiff',
-			contentCacheKey: 'pierre-content:sha256:unsupported',
-			contentHash: 'unsupported',
+			contentCacheKey: 'pierre-content:sha256:base|pierre-content:sha256:unsupported',
+			contentHash: 'sha256:unsupported',
 			language: 'typescript',
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			window: {
@@ -87,8 +88,9 @@ describe('Bridge app review render snapshot controller', () => {
 				totalLineCount: 80,
 			},
 			payload: {
-				kind: 'textWindow',
-				textBytes: new ArrayBuffer(64),
+				kind: 'diffTextWindow',
+				baseTextBytes: new ArrayBuffer(16),
+				headTextBytes: new ArrayBuffer(48),
 			},
 			budget: {
 				className: 'interactive',

@@ -19,7 +19,7 @@ describe('Bridge worker transfer list browser transport', () => {
 				kind: 'pierreRenderJob',
 				job: buildBridgeWorkerPierreRenderJob({
 					itemId: 'item-1',
-					renderKind: 'reviewDiff',
+					renderKind: 'fileText',
 					contentCacheKey: 'pierre-content:sha256:abc123',
 					contentHash: 'abc123',
 					language: 'typescript',
@@ -68,6 +68,9 @@ describe('Bridge worker transfer list browser transport', () => {
 			],
 		});
 		const message = await receivedMessage;
-		expect(message.job.payload.textBytes.byteLength).toBe(12);
+		expect(message.job.payload.kind).toBe('textWindow');
+		if (message.job.payload.kind === 'textWindow') {
+			expect(message.job.payload.textBytes.byteLength).toBe(12);
+		}
 	});
 });

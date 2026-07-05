@@ -74,7 +74,7 @@ describe('Bridge worker transfer list', () => {
 			kind: 'pierreRenderJob',
 			job: buildBridgeWorkerPierreRenderJob({
 				itemId: 'item-1',
-				renderKind: 'reviewDiff',
+				renderKind: 'fileText',
 				contentCacheKey: 'pierre-content:sha256:abc123',
 				contentHash: 'abc123',
 				language: 'typescript',
@@ -111,8 +111,117 @@ describe('Bridge worker transfer list', () => {
 			},
 		]);
 		expect(preparedMessage.transferList).toEqual([bytes]);
-		expect(clonedMessage.job.payload.textBytes.byteLength).toBe(8);
+		expect(clonedMessage.job.payload.kind).toBe('textWindow');
+		if (clonedMessage.job.payload.kind === 'textWindow') {
+			expect(clonedMessage.job.payload.textBytes.byteLength).toBe(8);
+		}
 		expect(bytes.byteLength).toBe(8);
+	});
+
+	test('prepares review diff jobs with both text window buffers declared for transfer', () => {
+		const baseTextBytes = new ArrayBuffer(11);
+		const headTextBytes = new ArrayBuffer(17);
+		const message: BridgeWorkerPierreRenderJobEvent = {
+			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+			direction: 'serverWorkerToMain',
+			transferDescriptors: [],
+			kind: 'pierreRenderJob',
+			job: buildBridgeWorkerPierreRenderJob({
+				itemId: 'item-diff',
+				renderKind: 'reviewDiff',
+				contentCacheKey: 'pierre-content:sha256:base|pierre-content:sha256:head',
+				contentHash: 'sha256:base+head',
+				language: 'typescript',
+				bridgeDemandRank: { lane: 'selected', priority: 0 },
+				window: {
+					startLine: 1,
+					endLine: 12,
+					totalLineCount: 120,
+				},
+				payload: {
+					kind: 'diffTextWindow',
+					baseTextBytes,
+					headTextBytes,
+				},
+				budget: {
+					className: 'interactive',
+					maxBytes: 1024,
+					maxWindowLines: 50,
+				},
+			}),
+		};
+
+		const preparedMessage = prepareBridgeWorkerStructuredMessage({
+			message,
+			declaredFields: [
+				{ fieldPath: ['job', 'payload', 'baseTextBytes'], mode: 'transfer' },
+				{ fieldPath: ['job', 'payload', 'headTextBytes'], mode: 'transfer' },
+			],
+		});
+
+		expect(preparedMessage.message.transferDescriptors).toEqual([
+			{
+				messageKind: 'pierreRenderJob',
+				fieldPath: ['job', 'payload', 'baseTextBytes'],
+				byteLength: 11,
+				mode: 'transfer',
+			},
+			{
+				messageKind: 'pierreRenderJob',
+				fieldPath: ['job', 'payload', 'headTextBytes'],
+				byteLength: 17,
+				mode: 'transfer',
+			},
+		]);
+		expect(preparedMessage.transferList).toEqual([baseTextBytes, headTextBytes]);
+	});
+
+	test('prepares one-sided review diff jobs with only the present side declared for transfer', () => {
+		const headTextBytes = new ArrayBuffer(19);
+		const message: BridgeWorkerPierreRenderJobEvent = {
+			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+			direction: 'serverWorkerToMain',
+			transferDescriptors: [],
+			kind: 'pierreRenderJob',
+			job: buildBridgeWorkerPierreRenderJob({
+				itemId: 'item-added',
+				renderKind: 'reviewDiff',
+				contentCacheKey: 'pierre-content:empty|pierre-content:sha256:head',
+				contentHash: 'sha256:head',
+				language: 'typescript',
+				bridgeDemandRank: { lane: 'selected', priority: 0 },
+				window: {
+					startLine: 1,
+					endLine: 10,
+					totalLineCount: 10,
+				},
+				payload: {
+					kind: 'diffTextWindow',
+					baseTextBytes: null,
+					headTextBytes,
+				},
+				budget: {
+					className: 'interactive',
+					maxBytes: 1024,
+					maxWindowLines: 50,
+				},
+			}),
+		};
+
+		const preparedMessage = prepareBridgeWorkerStructuredMessage({
+			message,
+			declaredFields: [{ fieldPath: ['job', 'payload', 'headTextBytes'], mode: 'transfer' }],
+		});
+
+		expect(preparedMessage.message.transferDescriptors).toEqual([
+			{
+				messageKind: 'pierreRenderJob',
+				fieldPath: ['job', 'payload', 'headTextBytes'],
+				byteLength: 19,
+				mode: 'transfer',
+			},
+		]);
+		expect(preparedMessage.transferList).toEqual([headTextBytes]);
 	});
 
 	test('does not typecheck synthetic messages outside BridgeWorkerContracts', () => {

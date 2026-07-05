@@ -14,8 +14,8 @@ describe('Bridge worker Pierre courier', () => {
 		const job = buildBridgeWorkerPierreRenderJob({
 			itemId: 'item-1',
 			renderKind: 'reviewDiff',
-			contentCacheKey: 'pierre-content:sha256:abc123',
-			contentHash: 'abc123',
+			contentCacheKey: 'pierre-content:sha256:base|pierre-content:sha256:head',
+			contentHash: 'sha256:base+head',
 			language: 'typescript',
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			window: {
@@ -24,8 +24,9 @@ describe('Bridge worker Pierre courier', () => {
 				totalLineCount: 200,
 			},
 			payload: {
-				kind: 'textWindow',
-				textBytes: new ArrayBuffer(128),
+				kind: 'diffTextWindow',
+				baseTextBytes: new ArrayBuffer(48),
+				headTextBytes: new ArrayBuffer(80),
 			},
 			budget: {
 				className: 'interactive',
