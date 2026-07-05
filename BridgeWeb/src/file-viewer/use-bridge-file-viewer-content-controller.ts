@@ -5,6 +5,7 @@ import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-tel
 import type { BridgeTraceContext } from '../foundation/telemetry/bridge-trace-context.js';
 import { recordBridgeViewerFileOpenReadyTelemetrySample } from '../foundation/telemetry/bridge-viewer-telemetry-adapter.js';
 import type {
+	WorktreeFileSurfaceLoadResult,
 	WorktreeFileSurfaceLoadTelemetry,
 	WorktreeFileSurfaceRuntime,
 } from '../worktree-file-surface/worktree-file-surface-runtime.js';
@@ -42,7 +43,20 @@ interface UseBridgeFileViewerContentControllerProps {
 
 export interface BridgeFileViewerContentController {
 	readonly openFile: (descriptor: WorktreeFileDescriptor) => Promise<void>;
-	readonly refreshOpenFile: (state: BridgeFileViewerOpenState) => Promise<void>;
+	readonly refreshOpenFile: (
+		state: BridgeFileViewerOpenState,
+		options?: BridgeFileViewerRefreshOpenFileOptions,
+	) => Promise<void>;
+}
+
+export interface BridgeFileViewerRefreshOpenFileFailureProps {
+	readonly descriptor: WorktreeFileDescriptor;
+	readonly requestId: number;
+	readonly result: Extract<WorktreeFileSurfaceLoadResult, { readonly ok: false }>;
+}
+
+export interface BridgeFileViewerRefreshOpenFileOptions {
+	readonly onRefreshFailure?: (props: BridgeFileViewerRefreshOpenFileFailureProps) => void;
 }
 
 export function useBridgeFileViewerContentController(
@@ -198,7 +212,10 @@ export function useBridgeFileViewerContentController(
 	);
 
 	const refreshOpenFile = useCallback(
-		async (state: BridgeFileViewerOpenState): Promise<void> => {
+		async (
+			state: BridgeFileViewerOpenState,
+			options: BridgeFileViewerRefreshOpenFileOptions = {},
+		): Promise<void> => {
 			if (!isActiveRef.current) {
 				return;
 			}
@@ -320,6 +337,11 @@ export function useBridgeFileViewerContentController(
 				status: result.reason === 'content_unavailable' ? 'unavailable' : 'stale',
 				path: refreshDescriptor.path,
 				descriptor: refreshDescriptor,
+			});
+			options.onRefreshFailure?.({
+				descriptor: refreshDescriptor,
+				requestId,
+				result,
 			});
 		},
 		[

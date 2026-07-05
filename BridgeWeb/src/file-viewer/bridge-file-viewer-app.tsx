@@ -1,6 +1,9 @@
 import { lazy, Suspense, useEffect, useRef, type ReactElement } from 'react';
 
-import type { WorktreeFileDescriptorRequest } from '../features/worktree-file/models/worktree-file-protocol-models.js';
+import type {
+	WorktreeFileDescriptor,
+	WorktreeFileDescriptorRequest,
+} from '../features/worktree-file/models/worktree-file-protocol-models.js';
 import type { WorktreeFileSurfaceRuntime } from '../worktree-file-surface/worktree-file-surface-runtime.js';
 import type { BridgeFileViewerAppProps } from './bridge-file-viewer-app-props.js';
 import { BridgeFileViewerLazyLoadingFrame } from './bridge-file-viewer-lazy-loading-frame.js';
@@ -182,24 +185,46 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 				descriptor: openFileState.descriptor,
 				renderState: renderStateRef.current,
 			}) ?? openFileState.descriptor;
-		const staleDescriptorKey = `${staleRefreshDescriptor.path}:${staleRefreshDescriptor.contentDescriptor.ref.descriptorId}`;
+		const staleDescriptorKey = staleAutoRefreshDescriptorKey(staleRefreshDescriptor);
+		const setDuplicateStaleAutoRefreshFailureDebugState = (
+			descriptor: WorktreeFileDescriptor,
+			requestId: number,
+		): void => {
+			viewerActions.setRefreshDebugState({
+				commitState: 'skipped',
+				currentRequestId: openFileRequestIdRef.current,
+				descriptorId: descriptor.contentDescriptor.ref.descriptorId,
+				requestId,
+				result: 'duplicate_stale_auto_refresh_failure',
+			});
+		};
+		const recordFailedStaleAutoRefresh = (
+			descriptor: WorktreeFileDescriptor,
+			requestId: number,
+		): void => {
+			staleAutoRefreshGuardRef.current = {
+				descriptorKey: staleAutoRefreshDescriptorKey(descriptor),
+				state: 'failed',
+			};
+			setDuplicateStaleAutoRefreshFailureDebugState(descriptor, requestId);
+		};
 		if (staleAutoRefreshGuardRef.current?.descriptorKey === staleDescriptorKey) {
 			if (staleAutoRefreshGuardRef.current.state !== 'failed') {
 				return;
 			}
-			viewerActions.setRefreshDebugState({
-				commitState: 'skipped',
-				currentRequestId: openFileRequestIdRef.current,
-				descriptorId: staleRefreshDescriptor.contentDescriptor.ref.descriptorId,
-				requestId: openFileRequestIdRef.current,
-				result: 'duplicate_stale_auto_refresh_failure',
-			});
+			recordFailedStaleAutoRefresh(staleRefreshDescriptor, openFileRequestIdRef.current);
 			return;
 		}
 		staleAutoRefreshGuardRef.current = {
 			descriptorKey: staleDescriptorKey,
 			state: 'scheduled',
 		};
+		// The coalesced refresh will move through "refreshing" later; publish
+		// the same-descriptor dedupe marker while the visible open file is still stale.
+		setDuplicateStaleAutoRefreshFailureDebugState(
+			staleRefreshDescriptor,
+			openFileRequestIdRef.current,
+		);
 		staleAutoRefreshTimeoutRef.current = setTimeout((): void => {
 			void (async (): Promise<void> => {
 				staleAutoRefreshTimeoutRef.current = null;
@@ -226,35 +251,15 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 					descriptorKey: staleDescriptorKey,
 					state: 'inFlight',
 				};
-				await refreshOpenFile(openFileState);
-				const currentOpenFileState = openFileStateRef.current;
-				const currentOpenFileRefreshDescriptor =
-					currentOpenFileState.status === 'stale'
-						? (findLatestDescriptorForOpenFile({
-								descriptor: currentOpenFileState.descriptor,
-								renderState: renderStateRef.current,
-							}) ?? currentOpenFileState.descriptor)
-						: null;
+				await refreshOpenFile(currentStateBeforeRefresh, {
+					onRefreshFailure: ({ descriptor, requestId }): void => {
+						recordFailedStaleAutoRefresh(descriptor, requestId);
+					},
+				});
 				if (
-					currentOpenFileState.status === 'stale' &&
-					currentOpenFileRefreshDescriptor !== null &&
-					isActiveRef.current
+					staleAutoRefreshGuardRef.current?.descriptorKey === staleDescriptorKey &&
+					staleAutoRefreshGuardRef.current.state !== 'failed'
 				) {
-					const failedRefreshDescriptorKey = `${currentOpenFileRefreshDescriptor.path}:${currentOpenFileRefreshDescriptor.contentDescriptor.ref.descriptorId}`;
-					staleAutoRefreshGuardRef.current = {
-						descriptorKey: failedRefreshDescriptorKey,
-						state: 'failed',
-					};
-					viewerActions.setRefreshDebugState({
-						commitState: 'skipped',
-						currentRequestId: openFileRequestIdRef.current,
-						descriptorId: currentOpenFileRefreshDescriptor.contentDescriptor.ref.descriptorId,
-						requestId: openFileRequestIdRef.current,
-						result: 'duplicate_stale_auto_refresh_failure',
-					});
-					return;
-				}
-				if (staleAutoRefreshGuardRef.current?.descriptorKey === staleDescriptorKey) {
 					staleAutoRefreshGuardRef.current = null;
 				}
 			})();
@@ -403,4 +408,8 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 			/>
 		</Suspense>
 	);
+}
+
+function staleAutoRefreshDescriptorKey(descriptor: WorktreeFileDescriptor): string {
+	return `${descriptor.path}:${descriptor.contentDescriptor.ref.descriptorId}`;
 }
