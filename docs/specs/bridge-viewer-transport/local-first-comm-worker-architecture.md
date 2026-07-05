@@ -249,7 +249,7 @@ Telemetry proof integrity:
 | slow click, reject, abort, stale, or unavailable sample shed | proof fails; tail and failure samples are required evidence |
 | optional/debug event shed | allowed only with aggregate counters and explicit lossy-run annotation |
 
-Percentiles can satisfy R41-R59 only from non-lossy required event streams.
+Percentiles can satisfy R41-R60 only from non-lossy required event streams.
 Lossy telemetry runs are debugging aids, not performance proof.
 
 ### R44. Content bytes stream to the worker, not the main thread.
@@ -445,7 +445,7 @@ Live gates:
 ### R49. The topology has exactly three runtime channels.
 
 The local-first worker design has three channels, each with its own contract.
-The server worker named here is the comm worker in R41-R59. The custom-scheme
+The server worker named here is the comm worker in R41-R60. The custom-scheme
 fetch bridge is the single network boundary: a network-shaped bridge where every
 JavaScript-to-Swift call after page-load identity bootstrap uses scheme-handler
 RPC, regardless of whether the caller is the server worker or a residual
@@ -826,6 +826,55 @@ Content-world/script-message RPC is not a fallback for these rules. After the
 one-shot page-load bootstrap exemption, ordinary Swift communication crosses the
 scheme-RPC boundary only.
 
+### R60. Worker content preparation is budgeted and preemptible.
+
+R44 moves parse, decode, window selection, diff preparation, highlight
+preparation, cache admission, and render-job preparation off the main thread. It
+does not permit those steps to become one package-shaped synchronous task inside
+the comm worker. The R44 -> R58 seam is explicit: store mutations and content
+preparation share the same worker event loop unless preparation is chunked or
+offloaded, so both work classes must preserve selected preemption.
+
+All worker-side content preparation enters a `WorkerContentPreparationPump`.
+The pump is rank-ordered with selected/current work first, cooperatively yields
+between slices, and records queue-wait plus handler/compute duration by lane,
+work kind, source epoch, and payload class. JavaScript cannot preempt a running
+synchronous task; selected preemption is only a valid claim when every
+background/visible compute unit yields before the selected queue-wait budget is
+spent.
+
+Initial worker compute policy:
+
+| Policy | Initial ceiling | Rule |
+| --- | --- | --- |
+| `workerComputeSliceMaxMs` | <= 8 ms | every synchronous worker compute slice, including parse/window/diff/highlight prep, must yield before this cap |
+| `workerContentPrepInlineMaxBytes` | <= 512 KiB | larger payloads must split windows or offload; this does not override the duration cap |
+| `workerContentPrepInlineMaxLines` | <= 400 lines | larger windows must split or offload before compute begins |
+| `workerSelectedQueueWaitP95Ms` | < 16 ms | selected/click facts must not wait behind background content prep |
+| `workerSelectedQueueWaitP99Ms` | < 32 ms | same budget as R32-R40 foreground queue wait |
+
+Content preparation above the byte/line ceiling must either:
+
+- split into smaller windows and enqueue those windows through the preparation
+  pump;
+- offload to a sanctioned compute/Pierre pool while the comm worker remains the
+  protocol/cache/demand authority; or
+- publish a selected-safe placeholder/unavailable slice and demote non-selected
+  preparation.
+
+Content preparation below the byte/line ceiling is still not automatically safe:
+if measured slice duration exceeds `workerComputeSliceMaxMs`, the next revision
+must chunk, reduce the window, or offload that work before the cutover can claim
+R60. A large diff/file prepare test is mandatory: while an 18k-line-equivalent
+fixture or policy-sized stress fixture is preparing, a selected fact enters the
+worker and its queue wait remains under the selected p95/p99 budget.
+
+OD-LF1 is closed at the ownership level: the comm worker is the single
+protocol/cache/demand authority and owns scheduling decisions. Physical compute
+may run as local pump slices or in a coordinated compute pool, but no
+package-shaped parse/window/diff/highlight preparation may run as one
+synchronous comm-worker task.
+
 Canonical data flow:
 
 ```text
@@ -840,7 +889,7 @@ user click / key / hover / scroll
         ▼
       comm-worker store
         canonical demand/cache/protocol update
-        async content fetch/decode/window/rank preparation
+        WorkerContentPreparationPump for fetch/decode/window/rank prep
         │
         ├─► scheme-RPC fetch/subscribe to Swift when needed
         │
@@ -1079,7 +1128,7 @@ Compile-enforced deletion sets are required per cutover unit:
 | demand membership | legacy staging buffers, membership caps, pending eviction as membership policy, parked retry versions | worker reconciler membership and executor-stage pacing only |
 
 No old and new path may remain live for the same viewer/protocol surface. Any
-surface not converted by a cutover unit is explicitly outside R41-R59 proof and
+surface not converted by a cutover unit is explicitly outside R41-R60 proof and
 cannot satisfy the local-first comm-worker contract. Compatibility shims,
 feature flags, or dual readers for one converted surface are contract
 violations unless the old path is compile-dead in that unit.
@@ -1096,12 +1145,14 @@ violations unless the old path is compile-dead in that unit.
 
 ## Open Decisions
 
-OD-LF1. Worker topology.
+OD-LF1. Worker topology. CLOSED by R60 at the ownership level.
 
-One comm worker may own protocol, cache, telemetry, and lightweight compute, or
-a comm worker may coordinate a compute pool. The invariant is unchanged: the FE
-sees one local-first worker contract, and exactly one worker-side authority owns
-protocol truth.
+The comm worker is the single protocol/cache/demand authority and scheduler. It
+may execute lightweight compute as local `WorkerContentPreparationPump` slices
+or coordinate a compute/Pierre pool for heavier work. The invariant is
+unchanged: FE sees one local-first worker contract, and no package-shaped
+parse/window/diff/highlight preparation may run as one synchronous comm-worker
+task.
 
 OD-LF2. FE render snapshot primitive. CLOSED by R56.
 
