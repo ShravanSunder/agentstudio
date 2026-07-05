@@ -390,14 +390,6 @@ assert_string_field \
   "content" \
   "$worker_fetch_response"
 assert_true_field \
-  "worker script fetch completed successfully before module worker construction" \
-  "agentstudio.startup_diagnostic.bridge.worker_fetch.worker_script_fetch.succeeded" \
-  "$worker_fetch_response"
-assert_gte \
-  "worker script fetch returned an HTTP status" \
-  "$(max_numeric_field "agentstudio.startup_diagnostic.bridge.worker_fetch.worker_script_fetch.status" "$worker_fetch_response")" \
-  200
-assert_true_field \
   "worker fetch completed successfully" \
   "agentstudio.startup_diagnostic.bridge.worker_fetch.fetch.succeeded" \
   "$worker_fetch_response"

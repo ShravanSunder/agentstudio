@@ -29,7 +29,7 @@ extension WebKitSerializedTests {
             #expect(source.contains("probeWorkerScriptFetch(workerScriptUrl)"))
             #expect(source.contains("worker.onerror = function(event)"))
             #expect(source.contains("worker_error:module_load"))
-            #expect(source.contains("worker_script_fetch_failed"))
+            #expect(!source.contains("worker_script_fetch_failed"))
             #expect(!source.contains("failureReason: event.message"))
             #expect(!source.contains("failureReason: error.message"))
             #expect(!source.contains("URL.createObjectURL"))

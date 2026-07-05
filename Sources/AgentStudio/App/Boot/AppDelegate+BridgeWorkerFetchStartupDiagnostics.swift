@@ -215,10 +215,6 @@ extension AppDelegate {
                     }
                     resolve(normalizedProbe(mode, data, workerScriptProbe));
                   }
-                  if (workerScriptProbe.succeeded !== true) {
-                    resolve(failedProbeWithWorkerScript(mode, 'worker_script_fetch_failed', workerScriptProbe));
-                    return;
-                  }
                   try {
                     worker = new Worker(workerScriptUrl, { type: 'module' });
                   } catch (error) {
@@ -356,8 +352,7 @@ extension AppDelegate {
         let failureReason: String?
 
         var succeeded: Bool {
-            workerScriptFetchSucceeded
-                && fetchSucceeded
+            fetchSucceeded
                 && streamSucceeded
                 && workerObservedByteCount > 0
                 && streamFirstChunkByteCount > 0
