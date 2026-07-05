@@ -10,7 +10,10 @@ import {
 	buildBridgeWorkerPierreRenderJob,
 	type BridgeWorkerPierreRenderJob,
 } from '../core/comm-worker/bridge-worker-pierre-render-job.js';
-import { applyBridgeWorkerMessagesToMainRenderSnapshotStore } from './bridge-app-review-render-snapshot-controller.js';
+import {
+	applyBridgeWorkerMessagesToMainRenderSnapshotStore,
+	createUnsupportedBridgeReviewPierreCourier,
+} from './bridge-app-review-render-snapshot-controller.js';
 
 describe('Bridge app review render snapshot controller', () => {
 	test('routes worker Pierre render jobs through the courier instead of dropping them', () => {
@@ -64,6 +67,35 @@ describe('Bridge app review render snapshot controller', () => {
 		});
 
 		expect(enqueuedJobs).toEqual([job]);
+	});
+
+	test('default unsupported courier fails loudly instead of faking enqueue success', () => {
+		const job = buildBridgeWorkerPierreRenderJob({
+			itemId: 'item-unsupported',
+			renderKind: 'reviewDiff',
+			contentCacheKey: 'pierre-content:sha256:unsupported',
+			contentHash: 'unsupported',
+			language: 'typescript',
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			window: {
+				startLine: 1,
+				endLine: 8,
+				totalLineCount: 80,
+			},
+			payload: {
+				kind: 'textWindow',
+				textBytes: new ArrayBuffer(64),
+			},
+			budget: {
+				className: 'interactive',
+				maxBytes: 512 * 1024,
+				maxWindowLines: 400,
+			},
+		});
+
+		expect(() => createUnsupportedBridgeReviewPierreCourier().enqueue(job)).toThrow(
+			/before a Pierre adapter was installed/i,
+		);
 	});
 
 	test('routes only slice patches into the render snapshot store', () => {

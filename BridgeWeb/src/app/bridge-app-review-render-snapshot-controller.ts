@@ -17,7 +17,6 @@ import type { BridgeWorkerServerToMainMessage } from '../core/comm-worker/bridge
 import {
 	createBridgeWorkerPierreCourier,
 	type BridgeWorkerPierreCourier,
-	type BridgeWorkerPierreCourierReceipt,
 } from '../core/comm-worker/bridge-worker-pierre-courier.js';
 import type { BridgeWorkerPierreRenderJob } from '../core/comm-worker/bridge-worker-pierre-render-job.js';
 import type { ReviewTreeRowMetadata } from '../features/review/models/review-protocol-models.js';
@@ -82,10 +81,7 @@ export function useBridgeReviewRenderSnapshotController(
 	);
 	const pierreCourier = useMemo(
 		(): BridgeWorkerPierreCourier =>
-			props.pierreCourier ??
-			createBridgeWorkerPierreCourier({
-				enqueuePierreRenderJob: enqueuePendingBridgeWorkerPierreRenderJob,
-			}),
+			props.pierreCourier ?? createUnsupportedBridgeReviewPierreCourier(),
 		[props.pierreCourier],
 	);
 	const requestSequenceRef = useRef(0);
@@ -199,15 +195,16 @@ export function applyBridgeWorkerMessagesToMainRenderSnapshotStore(props: {
 	}
 }
 
-function enqueuePendingBridgeWorkerPierreRenderJob(
-	job: BridgeWorkerPierreRenderJob,
-): BridgeWorkerPierreCourierReceipt {
-	return {
-		status: 'enqueued',
-		itemId: job.itemId,
-		payloadByteLength: job.payloadByteLength,
-		budgetClass: job.budgetClass,
-	};
+export function createUnsupportedBridgeReviewPierreCourier(): BridgeWorkerPierreCourier {
+	return createBridgeWorkerPierreCourier({
+		enqueuePierreRenderJob: rejectUnsupportedBridgeWorkerPierreRenderJob,
+	});
+}
+
+function rejectUnsupportedBridgeWorkerPierreRenderJob(job: BridgeWorkerPierreRenderJob): never {
+	throw new Error(
+		`Bridge Review received worker Pierre render job ${job.itemId} before a Pierre adapter was installed.`,
+	);
 }
 
 function nextBridgeReviewWorkerRequestId(requestSequenceRef: MutableRefObject<number>): string {
