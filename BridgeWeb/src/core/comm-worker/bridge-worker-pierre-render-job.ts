@@ -1,75 +1,103 @@
-export type BridgeWorkerPierreRenderKind = 'reviewDiff' | 'fileText';
-export type BridgeWorkerPierreBudgetClass = 'interactive' | 'visible' | 'background';
-export type BridgeWorkerDemandLane =
-	| 'selected'
-	| 'visible'
-	| 'nearby'
-	| 'speculative'
-	| 'background';
+import { z } from 'zod';
 
-export interface BridgeWorkerDemandRank {
-	readonly lane: BridgeWorkerDemandLane;
-	readonly priority: number;
-}
+export const bridgeWorkerPierreRenderKindSchema = z.enum(['reviewDiff', 'fileText']);
+export const bridgeWorkerPierreBudgetClassSchema = z.enum(['interactive', 'visible', 'background']);
+export const bridgeWorkerDemandLaneSchema = z.enum([
+	'selected',
+	'visible',
+	'nearby',
+	'speculative',
+	'background',
+]);
 
-export interface BridgeWorkerPierreRenderWindow {
-	readonly startLine: number;
-	readonly endLine: number;
-	readonly totalLineCount: number;
-}
+export const bridgeWorkerDemandRankSchema = z
+	.object({
+		lane: bridgeWorkerDemandLaneSchema,
+		priority: z.number().finite(),
+	})
+	.strict();
 
-export interface BridgeWorkerPierreRenderPayload {
-	readonly kind: 'textWindow';
-	readonly textBytes: ArrayBuffer;
-}
+export const bridgeWorkerPierreRenderWindowSchema = z
+	.object({
+		startLine: z.number().int().nonnegative(),
+		endLine: z.number().int().nonnegative(),
+		totalLineCount: z.number().int().nonnegative(),
+	})
+	.strict();
 
-export interface BridgeWorkerPierreRenderBudget {
-	readonly className: BridgeWorkerPierreBudgetClass;
-	readonly maxBytes: number;
-	readonly maxWindowLines: number;
-}
+export const bridgeWorkerPierreRenderPayloadSchema = z
+	.object({
+		kind: z.literal('textWindow'),
+		textBytes: z.instanceof(ArrayBuffer),
+	})
+	.strict();
 
-export interface BuildBridgeWorkerPierreRenderJobProps {
-	readonly itemId: string;
-	readonly renderKind: BridgeWorkerPierreRenderKind;
-	readonly contentCacheKey: string;
-	readonly contentHash: string;
-	readonly language: string;
-	readonly bridgeDemandRank: BridgeWorkerDemandRank;
-	readonly window: BridgeWorkerPierreRenderWindow;
-	readonly payload: BridgeWorkerPierreRenderPayload;
-	readonly budget: BridgeWorkerPierreRenderBudget;
-}
+export const bridgeWorkerPierreRenderBudgetSchema = z
+	.object({
+		className: bridgeWorkerPierreBudgetClassSchema,
+		maxBytes: z.number().int().nonnegative(),
+		maxWindowLines: z.number().int().nonnegative(),
+	})
+	.strict();
 
-export interface BridgeWorkerPierreRenderJob extends BuildBridgeWorkerPierreRenderJobProps {
-	readonly budgetClass: BridgeWorkerPierreBudgetClass;
-	readonly payloadByteLength: number;
-	readonly windowLineCount: number;
-}
+export const bridgeWorkerPierreRenderJobPropsSchema = z
+	.object({
+		itemId: z.string().min(1),
+		renderKind: bridgeWorkerPierreRenderKindSchema,
+		contentCacheKey: z.string().min(1),
+		contentHash: z.string().min(1),
+		language: z.string().min(1),
+		bridgeDemandRank: bridgeWorkerDemandRankSchema,
+		window: bridgeWorkerPierreRenderWindowSchema,
+		payload: bridgeWorkerPierreRenderPayloadSchema,
+		budget: bridgeWorkerPierreRenderBudgetSchema,
+	})
+	.strict();
+
+export const bridgeWorkerPierreRenderJobSchema = bridgeWorkerPierreRenderJobPropsSchema
+	.extend({
+		budgetClass: bridgeWorkerPierreBudgetClassSchema,
+		payloadByteLength: z.number().int().nonnegative(),
+		windowLineCount: z.number().int().nonnegative(),
+	})
+	.strict();
+
+export type BridgeWorkerPierreRenderKind = z.infer<typeof bridgeWorkerPierreRenderKindSchema>;
+export type BridgeWorkerPierreBudgetClass = z.infer<typeof bridgeWorkerPierreBudgetClassSchema>;
+export type BridgeWorkerDemandLane = z.infer<typeof bridgeWorkerDemandLaneSchema>;
+export type BridgeWorkerDemandRank = z.infer<typeof bridgeWorkerDemandRankSchema>;
+export type BridgeWorkerPierreRenderWindow = z.infer<typeof bridgeWorkerPierreRenderWindowSchema>;
+export type BridgeWorkerPierreRenderPayload = z.infer<typeof bridgeWorkerPierreRenderPayloadSchema>;
+export type BridgeWorkerPierreRenderBudget = z.infer<typeof bridgeWorkerPierreRenderBudgetSchema>;
+export type BuildBridgeWorkerPierreRenderJobProps = z.infer<
+	typeof bridgeWorkerPierreRenderJobPropsSchema
+>;
+export type BridgeWorkerPierreRenderJob = z.infer<typeof bridgeWorkerPierreRenderJobSchema>;
 
 export function buildBridgeWorkerPierreRenderJob(
 	props: BuildBridgeWorkerPierreRenderJobProps,
 ): BridgeWorkerPierreRenderJob {
-	const payloadByteLength = props.payload.textBytes.byteLength;
-	const windowLineCount = props.window.endLine - props.window.startLine + 1;
+	const parsedProps = bridgeWorkerPierreRenderJobPropsSchema.parse(props);
+	const payloadByteLength = parsedProps.payload.textBytes.byteLength;
+	const windowLineCount = parsedProps.window.endLine - parsedProps.window.startLine + 1;
 	if (windowLineCount < 0) {
 		throw new Error('Bridge worker Pierre render job has an invalid line window.');
 	}
-	if (payloadByteLength > props.budget.maxBytes) {
+	if (payloadByteLength > parsedProps.budget.maxBytes) {
 		throw new Error(
-			`Bridge worker Pierre render job exceeds byte budget: ${payloadByteLength} > ${props.budget.maxBytes}.`,
+			`Bridge worker Pierre render job exceeds byte budget: ${payloadByteLength} > ${parsedProps.budget.maxBytes}.`,
 		);
 	}
-	if (windowLineCount > props.budget.maxWindowLines) {
+	if (windowLineCount > parsedProps.budget.maxWindowLines) {
 		throw new Error(
-			`Bridge worker Pierre render job exceeds line budget: ${windowLineCount} > ${props.budget.maxWindowLines}.`,
+			`Bridge worker Pierre render job exceeds line budget: ${windowLineCount} > ${parsedProps.budget.maxWindowLines}.`,
 		);
 	}
 
-	return {
-		...props,
-		budgetClass: props.budget.className,
+	return bridgeWorkerPierreRenderJobSchema.parse({
+		...parsedProps,
+		budgetClass: parsedProps.budget.className,
 		payloadByteLength,
 		windowLineCount,
-	};
+	});
 }

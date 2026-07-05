@@ -1,36 +1,52 @@
 import { describe, expect, test } from 'vitest';
 
 import {
-	prepareBridgeWorkerStructuredMessage,
-	type BridgeWorkerMessageWithTransferDescriptors,
-} from './bridge-worker-transfer-list.js';
+	BRIDGE_WORKER_WIRE_VERSION,
+	type BridgeWorkerPierreRenderJobEvent,
+} from './bridge-worker-contracts.js';
+import { buildBridgeWorkerPierreRenderJob } from './bridge-worker-pierre-render-job.js';
+import { prepareBridgeWorkerStructuredMessage } from './bridge-worker-transfer-list.js';
 
 describe('Bridge worker transfer list browser transport', () => {
 	test('transfers declared ArrayBuffers through browser message channels', async () => {
-		interface TestWorkerMessage extends BridgeWorkerMessageWithTransferDescriptors {
-			readonly kind: 'slicePatch';
-			readonly payload: {
-				readonly bytes: ArrayBuffer;
-			};
-		}
-
 		const channel = new MessageChannel();
 		const bytes = new ArrayBuffer(12);
-		const preparedMessage = prepareBridgeWorkerStructuredMessage<TestWorkerMessage>({
+		const preparedMessage = prepareBridgeWorkerStructuredMessage({
 			message: {
-				kind: 'slicePatch',
+				wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+				direction: 'serverWorkerToMain',
 				transferDescriptors: [],
-				payload: {
-					bytes,
-				},
-			},
-			declaredFields: [{ fieldPath: ['payload', 'bytes'], mode: 'transfer' }],
+				kind: 'pierreRenderJob',
+				job: buildBridgeWorkerPierreRenderJob({
+					itemId: 'item-1',
+					renderKind: 'reviewDiff',
+					contentCacheKey: 'pierre-content:sha256:abc123',
+					contentHash: 'abc123',
+					language: 'typescript',
+					bridgeDemandRank: { lane: 'selected', priority: 0 },
+					window: {
+						startLine: 1,
+						endLine: 20,
+						totalLineCount: 200,
+					},
+					payload: {
+						kind: 'textWindow',
+						textBytes: bytes,
+					},
+					budget: {
+						className: 'interactive',
+						maxBytes: 1024,
+						maxWindowLines: 50,
+					},
+				}),
+			} satisfies BridgeWorkerPierreRenderJobEvent,
+			declaredFields: [{ fieldPath: ['job', 'payload', 'textBytes'], mode: 'transfer' }],
 		});
 
-		const receivedMessage = new Promise<TestWorkerMessage>((resolve) => {
+		const receivedMessage = new Promise<BridgeWorkerPierreRenderJobEvent>((resolve) => {
 			channel.port1.addEventListener(
 				'message',
-				(event: MessageEvent<TestWorkerMessage>): void => {
+				(event: MessageEvent<BridgeWorkerPierreRenderJobEvent>): void => {
 					resolve(event.data);
 				},
 				{ once: true },
@@ -41,17 +57,17 @@ describe('Bridge worker transfer list browser transport', () => {
 
 		expect(bytes.byteLength).toBe(0);
 		await expect(receivedMessage).resolves.toMatchObject({
-			kind: 'slicePatch',
+			kind: 'pierreRenderJob',
 			transferDescriptors: [
 				{
-					messageKind: 'slicePatch',
-					fieldPath: ['payload', 'bytes'],
+					messageKind: 'pierreRenderJob',
+					fieldPath: ['job', 'payload', 'textBytes'],
 					byteLength: 12,
 					mode: 'transfer',
 				},
 			],
 		});
 		const message = await receivedMessage;
-		expect(message.payload.bytes.byteLength).toBe(12);
+		expect(message.job.payload.textBytes.byteLength).toBe(12);
 	});
 });

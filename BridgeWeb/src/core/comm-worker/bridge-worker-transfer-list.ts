@@ -1,4 +1,8 @@
-import type { BridgeWorkerTransferDescriptor } from './bridge-worker-contracts.js';
+import type {
+	BridgeWorkerMainToServerMessage,
+	BridgeWorkerServerToMainMessage,
+	BridgeWorkerTransferDescriptor,
+} from './bridge-worker-contracts.js';
 
 export type BridgeWorkerTransferMode = 'transfer' | 'clone';
 
@@ -7,14 +11,13 @@ export interface BridgeWorkerTransferFieldDeclaration {
 	readonly mode: BridgeWorkerTransferMode;
 }
 
-export interface BridgeWorkerMessageWithTransferDescriptors {
-	readonly kind: string;
-	readonly transferDescriptors: readonly BridgeWorkerTransferDescriptor[];
-}
+export type BridgeWorkerMessageWithTransferDescriptors =
+	| BridgeWorkerMainToServerMessage
+	| BridgeWorkerServerToMainMessage;
 
 export type BridgeWorkerPreparedStructuredMessage<
 	TMessage extends BridgeWorkerMessageWithTransferDescriptors,
-> = Omit<TMessage, 'transferDescriptors'> & {
+> = TMessage & {
 	readonly transferDescriptors: readonly BridgeWorkerTransferDescriptor[];
 };
 
@@ -94,11 +97,12 @@ export function prepareBridgeWorkerStructuredMessage<
 		payload: props.message,
 		declaredFields: props.declaredFields,
 	});
+	const message = {
+		...props.message,
+		transferDescriptors: transferPlan.descriptors,
+	};
 	return {
-		message: {
-			...props.message,
-			transferDescriptors: transferPlan.descriptors,
-		},
+		message,
 		transferList: transferPlan.transferList,
 	};
 }

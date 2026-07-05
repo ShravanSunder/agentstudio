@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { bridgeWorkerPierreRenderJobSchema } from './bridge-worker-pierre-render-job.js';
+
 export const BRIDGE_WORKER_WIRE_VERSION = 1 as const;
 
 const bridgeWorkerRequestIdSchema = z.string().min(1);
@@ -300,15 +302,26 @@ export const bridgeWorkerSubscriptionEventSchema = bridgeWorkerServerToMainBaseS
 	})
 	.strict();
 
+export const bridgeWorkerPierreRenderJobEventSchema = bridgeWorkerServerToMainBaseSchema
+	.extend({
+		kind: z.literal('pierreRenderJob'),
+		job: bridgeWorkerPierreRenderJobSchema,
+	})
+	.strict();
+
 export const bridgeWorkerServerToMainMessageSchema = z.discriminatedUnion('kind', [
 	bridgeWorkerHealthEventSchema,
 	bridgeWorkerSlicePatchEventSchema,
 	bridgeWorkerSubscriptionEventSchema,
+	bridgeWorkerPierreRenderJobEventSchema,
 ]);
 
 export type BridgeWorkerHealthEvent = z.infer<typeof bridgeWorkerHealthEventSchema>;
 export type BridgeWorkerSlicePatchEvent = z.infer<typeof bridgeWorkerSlicePatchEventSchema>;
 export type BridgeWorkerSubscriptionEvent = z.infer<typeof bridgeWorkerSubscriptionEventSchema>;
+export type BridgeWorkerPierreRenderJobEvent = z.infer<
+	typeof bridgeWorkerPierreRenderJobEventSchema
+>;
 export type BridgeWorkerServerToMainMessage = z.infer<typeof bridgeWorkerServerToMainMessageSchema>;
 
 export function parseBridgeWorkerMainToServerMessage(

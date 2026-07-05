@@ -1,11 +1,14 @@
 import { describe, expect, test } from 'vitest';
 
-import { buildBridgeWorkerPierreRenderJob } from './bridge-worker-pierre-render-job.js';
+import {
+	buildBridgeWorkerPierreRenderJob,
+	type BuildBridgeWorkerPierreRenderJobProps,
+} from './bridge-worker-pierre-render-job.js';
 
 describe('Bridge worker Pierre render job', () => {
 	test('encodes bounded Pierre render jobs with rank cache key and clone budget class', () => {
 		const textBytes = new ArrayBuffer(64);
-		const job = buildBridgeWorkerPierreRenderJob({
+		const jobProps = {
 			itemId: 'item-1',
 			renderKind: 'reviewDiff',
 			contentCacheKey: 'pierre-content:sha256:abc123',
@@ -26,7 +29,8 @@ describe('Bridge worker Pierre render job', () => {
 				maxBytes: 512 * 1024,
 				maxWindowLines: 400,
 			},
-		});
+		} satisfies BuildBridgeWorkerPierreRenderJobProps;
+		const job = buildBridgeWorkerPierreRenderJob(jobProps);
 
 		expect(job).toMatchObject({
 			itemId: 'item-1',
@@ -41,7 +45,7 @@ describe('Bridge worker Pierre render job', () => {
 
 		expect(() =>
 			buildBridgeWorkerPierreRenderJob({
-				...job,
+				...jobProps,
 				budget: {
 					className: 'interactive',
 					maxBytes: 32,
