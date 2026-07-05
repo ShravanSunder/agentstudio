@@ -4,9 +4,11 @@ import {
 	bridgeWorkerMainToServerMessageSchema,
 	type BridgeWorkerServerToMainMessage,
 } from './bridge-worker-contracts.js';
+import type { PreparedBridgeWorkerStructuredMessage } from './bridge-worker-transfer-list.js';
 
 export interface BridgeCommWorkerPort {
-	readonly postMessage: (message: BridgeWorkerServerToMainMessage) => void;
+	postMessage(message: BridgeWorkerServerToMainMessage): void;
+	postMessage(message: BridgeWorkerServerToMainMessage, transferList: Transferable[]): void;
 	readonly addEventListener: (
 		type: 'message',
 		listener: (event: MessageEvent<unknown>) => void,
@@ -15,11 +17,19 @@ export interface BridgeCommWorkerPort {
 }
 
 export interface BridgeCommWorkerGlobalScope {
-	readonly postMessage: (message: BridgeWorkerServerToMainMessage) => void;
+	postMessage(message: BridgeWorkerServerToMainMessage): void;
+	postMessage(message: BridgeWorkerServerToMainMessage, transferList: Transferable[]): void;
 	readonly addEventListener: (
 		type: 'message',
 		listener: (event: MessageEvent<unknown>) => void,
 	) => void;
+}
+
+export function postPreparedBridgeCommWorkerMessage(
+	port: BridgeCommWorkerPort,
+	preparedMessage: PreparedBridgeWorkerStructuredMessage<BridgeWorkerServerToMainMessage>,
+): void {
+	port.postMessage(preparedMessage.message, [...preparedMessage.transferList]);
 }
 
 export function registerInertBridgeCommWorkerPortProtocol(port: BridgeCommWorkerPort): void {
@@ -41,15 +51,28 @@ export function registerInertBridgeCommWorkerPortProtocol(port: BridgeCommWorker
 	port.start?.();
 }
 
-export function bootstrapInertBridgeCommWorkerEntry(scope: BridgeCommWorkerGlobalScope): void {
-	registerInertBridgeCommWorkerPortProtocol({
-		postMessage: (message: BridgeWorkerServerToMainMessage): void => {
-			scope.postMessage(message);
+export function createBridgeCommWorkerScopePortAdapter(
+	scope: BridgeCommWorkerGlobalScope,
+): BridgeCommWorkerPort {
+	return {
+		postMessage: (
+			message: BridgeWorkerServerToMainMessage,
+			transferList?: Transferable[],
+		): void => {
+			if (transferList === undefined) {
+				scope.postMessage(message);
+				return;
+			}
+			scope.postMessage(message, transferList);
 		},
 		addEventListener: (type: 'message', listener: (event: MessageEvent<unknown>) => void): void => {
 			scope.addEventListener(type, listener);
 		},
-	});
+	};
+}
+
+export function bootstrapInertBridgeCommWorkerEntry(scope: BridgeCommWorkerGlobalScope): void {
+	registerInertBridgeCommWorkerPortProtocol(createBridgeCommWorkerScopePortAdapter(scope));
 }
 
 declare const self: BridgeCommWorkerGlobalScope | undefined;
