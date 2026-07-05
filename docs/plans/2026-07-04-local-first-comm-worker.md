@@ -3,7 +3,7 @@
 Date: 2026-07-04
 goal_id: 2026-07-04-bridge-scroll-demand-queue
 source_spec: `docs/specs/bridge-viewer-transport/local-first-comm-worker-architecture.md`
-source_commit: `64ec1f67`
+source_commit: `5c02aee6`
 
 > For agentic workers: REQUIRED SUB-SKILL: Use
 > `superpowers:subagent-driven-development` or `superpowers:executing-plans`
@@ -13,7 +13,7 @@ source_commit: `64ec1f67`
 
 ## Goal
 
-Operationalize R41-R48 by moving BridgeViewer toward a local-first split:
+Operationalize R41-R54 by moving BridgeViewer toward a local-first split:
 the FE owns only synchronous render slices and frame-budgeted DOM apply, the
 comm worker owns protocol/cache/demand/telemetry truth, and Swift remains the
 metadata/content server. This increment is intentionally split into multiple
@@ -31,7 +31,10 @@ the plan cut protocol/cache/queue/telemetry ownership into the comm worker.
 
 ## Tech Stack
 
-- BridgeWeb React + TypeScript + Zustand + Vitest/browser Vitest.
+- BridgeWeb React + TypeScript + `@tanstack/react-query` for coarse async
+  worker RPC/mutations, non-Zustand main render snapshots/hooks for
+  frame-critical display copies, worker-local Zustand vanilla for Bridge data
+  truth, and Vitest/browser Vitest.
 - Pierre/Shiki workers under `BridgeWeb/src/review-viewer/workers/`.
 - Swift 6 `Testing`, WebKit `WKURLSchemeHandler`, AgentStudio telemetry
   validator/ingestor, and debug observability/Victoria proof.
@@ -39,20 +42,30 @@ the plan cut protocol/cache/queue/telemetry ownership into the comm worker.
 ## Source Coverage
 
 - `docs/specs/bridge-viewer-transport/local-first-comm-worker-architecture.md`
-  read in full from committed `64ec1f67`: 741 lines. Normative anchors include
-  R41-R48 and native live gates; `Channel Topology And Typed Contracts` lines
-  419-502; `Action And Event Sequence Contracts` lines 503-665; migration
-  constraints and compile-enforced deletion sets lines 667-704. Channel
-  Topology is the source contract for G: exactly three runtime channels,
-  `BridgeWorkerContracts` as the typed main/server-worker schema source,
-  scheme-fetch request/response RPC plus long-lived streamed-fetch push for all
-  Swift communication, Pierre API only on the Pierre edge, and forbidden edges
-  banning main->Swift script-message ordinary traffic, worker->DOM/render,
-  Pierre initiator roles, and untyped messages. The single network boundary
-  amendment in `64ec1f67` also makes page-load bootstrap the only one-shot
-  script-message exemption, deprecates the `WKScriptMessage` /
+  read in full from committed `5c02aee6`: 931 lines. Normative anchors include
+  R41-R54 and native live gates; R46 promotion/prep budget line 321; R53
+  transferable-first worker messages line 550; R54 worker-local Zustand and
+  TanStack Query/RPC boundary line 591; Review/File View transfer mode matrix
+  line 663; `Channel Topology And Typed Contracts` line 443; `Action And Event
+  Sequence Contracts` line 679; migration constraints line 843; and
+  compile-enforced deletion sets line 873. Channel Topology is the source
+  contract for G: exactly three runtime channels, `BridgeWorkerContracts` as the
+  typed main/server-worker schema source, scheme-fetch request/response RPC plus
+  long-lived streamed-fetch push for all Swift communication, Pierre API only on
+  the Pierre edge, and forbidden edges banning main->Swift script-message
+  ordinary traffic, worker->DOM/render, Pierre initiator roles, and untyped
+  messages. The single network boundary keeps page-load bootstrap as the only
+  one-shot script-message exemption, deprecates the `WKScriptMessage` /
   `__bridge_command` RPC plane, and requires that script-message plane to be
-  compile-deleted in the final cutover unit.
+  compile-deleted in the final cutover unit. R53 adds the transferable-first
+  worker-boundary rule: content bytes and large payloads prefer `ArrayBuffer`
+  transfer over clone, `BridgeWorkerContracts` names transfer fields explicitly,
+  and per-message serialize/clone/transfer duration is instrumented. R54 adds
+  the concrete store/type split: `BridgeMainRenderSnapshot` is a non-Zustand
+  main-local render copy only, `BridgeCommWorkerStoreState` is worker-local
+  Zustand truth, TanStack Query is required for coarse React worker RPC and
+  mutations, and the boundary carries only typed DTOs plus declared transfer
+  fields.
 - `docs/plans/2026-07-04-unified-content-demand-queue.md` read in full: 688
   lines, used for Gate 0 shape, slice proof shape, deletion checklist, matrix,
   live gates, and contradiction handling.
@@ -128,8 +141,8 @@ Required checks:
 
 ```bash
 git status --short
-git show --stat --oneline --decorate=short 64ec1f67 -- docs/specs/bridge-viewer-transport/local-first-comm-worker-architecture.md
-git show 64ec1f67:docs/specs/bridge-viewer-transport/local-first-comm-worker-architecture.md | wc -l
+git show --stat --oneline --decorate=short 5c02aee6 -- docs/specs/bridge-viewer-transport/local-first-comm-worker-architecture.md
+git show 5c02aee6:docs/specs/bridge-viewer-transport/local-first-comm-worker-architecture.md | wc -l
 wc -l docs/plans/2026-07-04-unified-content-demand-queue.md tmp/debug-workflows/2026-07-04-agent-studio-luna338-scroll-placeholder-survivor/debug-investigation.md docs/specs/bridge-viewer-transport/performance-demand-lanes.md
 git show HEAD:BridgeWeb/src/review-viewer/content/visible-review-content-hydration.ts | wc -l
 git show HEAD:BridgeWeb/src/review-viewer/trees/bridge-trees-panel.tsx | wc -l
@@ -141,7 +154,7 @@ Expected current anchors:
 
 - `git status --short` is clean or every dirty path has a named owner before
   execution starts.
-- `64ec1f67` is the current committed source for the comm-worker spec.
+- `5c02aee6` is the current committed source for the comm-worker spec.
 - `visible-review-content-hydration.ts` is 985 lines. The first slice that
   touches it owns split/dissolution work; do not grow it past the cap.
 - `bridge-trees-panel.tsx` lives at
@@ -173,7 +186,7 @@ Stop conditions:
    stop before G cutovers.
 8. PR 7a: `bridge-comm-worker-typed-shell` implements G1 only: inert
    `BridgeWorkerContracts` types plus a non-owning client/shell. No production
-   ownership, cache, queue/executor, telemetry transport, or R41-R48 proof
+   ownership, cache, queue/executor, telemetry transport, or R41-R54 proof
    claims.
 9. PR 7b: `bridge-comm-worker-telemetry-cutover` converts telemetry transport
    with compile-dead deletion.
@@ -923,7 +936,10 @@ compile-enforced cutover units. The normative channel contract is the spec's
 the typed main <-> server-worker schema; all Swift communication after the
 one-shot page-load bootstrap must use scheme-fetch request/response RPC plus
 long-lived streamed-fetch push; Pierre's own API is the only Pierre edge; and
-the listed forbidden edges are source-scanned. G1 is an inert typed shell only;
+the listed forbidden edges are source-scanned. The normative store contract is
+R54: Bridge data Zustand moves fully to the comm worker; React/main uses
+TanStack Query only for coarse async worker RPC/mutations and non-Zustand render
+snapshots/hooks for hot display copies. G1 is an inert typed shell only;
 production ownership moves only in later cutover units with deletion sets.
 
 Files touched by the shared worker core:
@@ -931,6 +947,9 @@ Files touched by the shared worker core:
 - New comm-worker modules under `BridgeWeb/src/core/comm-worker/`, for example:
   `bridge-comm-worker-entry.ts`, `bridge-comm-worker-client.ts`,
   `bridge-worker-contracts.ts`, `bridge-comm-worker-protocol.ts`,
+  `bridge-worker-rpc-client.ts`, `bridge-worker-query-adapter.ts`,
+  `bridge-worker-patch-applier.ts`, `bridge-worker-transfer-list.ts`,
+  `bridge-comm-worker-store.ts`, `bridge-comm-worker-command-handler.ts`,
   `bridge-comm-worker-cache.ts`, `bridge-comm-worker-reconciler.ts`,
   `bridge-comm-worker-executor.ts`, `bridge-comm-worker-telemetry.ts`, and
   hostile server test support.
@@ -941,6 +960,9 @@ Files touched by the shared worker core:
 - `BridgeWeb/src/core/resources/bridge-resource-registry.ts`
 - `BridgeWeb/src/bridge/bridge-resource-url.ts`
 - `BridgeWeb/src/foundation/telemetry/bridge-telemetry-*`
+- `BridgeWeb/package.json` and `pnpm-lock.yaml` for the required
+  `@tanstack/react-query` dependency, first introduced in G1 unless an earlier
+  committed slice already added it.
 - `BridgeWeb/src/review-viewer/workers/projection/*` as reference only unless
   shared worker transport helpers are intentionally extracted.
 
@@ -983,9 +1005,10 @@ Swift/server files:
 Objective:
 
 Create an inert typed shell: `BridgeWorkerContracts`, version fences, validation
-types, and a non-owning client/worker harness. G1 must not own production
-protocol/cache/queue/telemetry state and must not claim R41-R48 proof. It can
-compile and unit-test typed messages only.
+types, transfer descriptors, the required `@tanstack/react-query` dependency,
+and a non-owning client/worker harness. G1 must not own production
+protocol/cache/queue/telemetry state and must not claim R41-R54 proof. It can
+compile and unit-test typed messages/helpers only.
 
 Red patch first:
 
@@ -1001,6 +1024,11 @@ red failure is observed.
 - Create `BridgeWeb/src/core/comm-worker/bridge-comm-worker-client.unit.test.ts`
   with `does not issue Swift fetch telemetry or demand side effects from the
   inert shell`.
+- Create `BridgeWeb/src/core/comm-worker/bridge-worker-transfer-list.unit.test.ts`
+  with `builds declared transfer lists and rejects undeclared ArrayBuffers`.
+- Create `BridgeWeb/src/core/comm-worker/bridge-worker-query-adapter.unit.test.ts`
+  with `wraps coarse worker RPC with TanStack Query without subscribing to row
+  patch streams`.
 - Create
   `BridgeWeb/src/core/comm-worker/bridge-comm-worker-hostile-server.unit.test.ts`
   with `drops duplicate reorder stale and never resolving replies without FE
@@ -1009,18 +1037,23 @@ red failure is observed.
 Red-first proof:
 
 ```bash
-pnpm --dir BridgeWeb exec vitest run src/core/comm-worker/bridge-worker-contracts.unit.test.ts src/core/comm-worker/bridge-comm-worker-protocol.unit.test.ts src/core/comm-worker/bridge-comm-worker-client.unit.test.ts src/core/comm-worker/bridge-comm-worker-hostile-server.unit.test.ts
+pnpm --dir BridgeWeb exec vitest run src/core/comm-worker/bridge-worker-contracts.unit.test.ts src/core/comm-worker/bridge-comm-worker-protocol.unit.test.ts src/core/comm-worker/bridge-comm-worker-client.unit.test.ts src/core/comm-worker/bridge-worker-transfer-list.unit.test.ts src/core/comm-worker/bridge-worker-query-adapter.unit.test.ts src/core/comm-worker/bridge-comm-worker-hostile-server.unit.test.ts
 pnpm --dir BridgeWeb exec tsc --noEmit
 ```
 
 Expected failure before implementation: test files compile against missing
-`BridgeWorkerContracts` and inert shell modules. The red failure is missing
-typed shell implementation, not hostile-worker production ownership.
+`BridgeWorkerContracts`, transfer-list helpers, TanStack Query adapter, and
+inert shell modules. The red failure is missing typed shell implementation, not
+hostile-worker production ownership.
+
+Green implementation includes adding `@tanstack/react-query` to
+`BridgeWeb/package.json` and the lockfile if the dependency is not already
+present. Do not hand-roll an async cache substitute.
 
 Green proof:
 
 ```bash
-pnpm --dir BridgeWeb exec vitest run src/core/comm-worker/bridge-worker-contracts.unit.test.ts src/core/comm-worker/bridge-comm-worker-protocol.unit.test.ts src/core/comm-worker/bridge-comm-worker-client.unit.test.ts src/core/comm-worker/bridge-comm-worker-hostile-server.unit.test.ts
+pnpm --dir BridgeWeb exec vitest run src/core/comm-worker/bridge-worker-contracts.unit.test.ts src/core/comm-worker/bridge-comm-worker-protocol.unit.test.ts src/core/comm-worker/bridge-comm-worker-client.unit.test.ts src/core/comm-worker/bridge-worker-transfer-list.unit.test.ts src/core/comm-worker/bridge-worker-query-adapter.unit.test.ts src/core/comm-worker/bridge-comm-worker-hostile-server.unit.test.ts
 pnpm --dir BridgeWeb exec tsc --noEmit
 ```
 
@@ -1088,6 +1121,13 @@ expected failure. Do not edit production until the red failure is observed.
 - In `BridgeWeb/src/review-viewer/state/review-viewer-store.unit.test.ts`, add
   `review FE store rejects generation sequence staleness and cache membership
   truth`.
+- Create
+  `BridgeWeb/src/review-viewer/state/review-viewer-render-snapshot.unit.test.ts`
+  with `review render snapshot is non-Zustand and accepts only worker slice
+  patches`.
+- In `BridgeWeb/src/core/comm-worker/bridge-comm-worker-store.unit.test.ts`,
+  add `worker-local Zustand store owns review rows cache demand and protocol
+  truth`.
 - In `BridgeWeb/src/app/bridge-app-review-selection-controller.unit.test.ts`,
   add `selection path cannot start FE content retry or parking`.
 - In
@@ -1098,18 +1138,19 @@ Red-first proof:
 
 ```bash
 pnpm --dir BridgeWeb exec tsc --noEmit
-pnpm --dir BridgeWeb exec vitest run src/review-viewer/state/review-viewer-store.unit.test.ts src/app/bridge-app-review-selection-controller.unit.test.ts src/review-viewer/content/review-content-demand-loader.unit.test.ts src/review-viewer/content/visible-review-content-hydration.unit.test.ts
+pnpm --dir BridgeWeb exec vitest run src/review-viewer/state/review-viewer-store.unit.test.ts src/review-viewer/state/review-viewer-render-snapshot.unit.test.ts src/core/comm-worker/bridge-comm-worker-store.unit.test.ts src/app/bridge-app-review-selection-controller.unit.test.ts src/review-viewer/content/review-content-demand-loader.unit.test.ts src/review-viewer/content/visible-review-content-hydration.unit.test.ts
 pnpm --dir BridgeWeb exec vitest --config vitest.browser.config.ts run --project integration-browser src/review-viewer/test-support/bridge-viewer-browser.integration.browser.test.tsx src/review-viewer/test-support/bridge-viewer-browser.integration-scroll.browser.test.tsx
 ```
 
 Expected failure before implementation: Review still owns package-first body
 loading, root-snapshot selection render path, prefetch/pump residue, FE
-generation/sequence/staleness/cache membership, or FE content retry/parking.
+generation/sequence/staleness/cache membership, main-thread Review Zustand data
+store state, or FE content retry/parking.
 
 Green proof:
 
 ```bash
-pnpm --dir BridgeWeb exec vitest run src/review-viewer/state/review-viewer-store.unit.test.ts src/app/bridge-app-review-selection-controller.unit.test.ts src/review-viewer/content/review-content-demand-loader.unit.test.ts src/review-viewer/content/visible-review-content-hydration.unit.test.ts src/review-viewer/workers/pierre/bridge-pierre-worker-pool.rank.unit.test.ts
+pnpm --dir BridgeWeb exec vitest run src/review-viewer/state/review-viewer-store.unit.test.ts src/review-viewer/state/review-viewer-render-snapshot.unit.test.ts src/core/comm-worker/bridge-comm-worker-store.unit.test.ts src/app/bridge-app-review-selection-controller.unit.test.ts src/review-viewer/content/review-content-demand-loader.unit.test.ts src/review-viewer/content/visible-review-content-hydration.unit.test.ts src/review-viewer/workers/pierre/bridge-pierre-worker-pool.rank.unit.test.ts
 pnpm --dir BridgeWeb exec vitest --config vitest.browser.config.ts run --project integration-browser src/review-viewer/test-support/bridge-viewer-browser.integration.browser.test.tsx src/review-viewer/test-support/bridge-viewer-browser.integration-scroll.browser.test.tsx src/review-viewer/test-support/bridge-viewer-browser.integration-large.browser.test.tsx
 pnpm --dir BridgeWeb exec tsc --noEmit
 ```
@@ -1119,6 +1160,9 @@ Compile-enforced deletion set:
 - Review package-first body loading for converted surfaces.
 - FE generation/sequence/staleness/cache-membership truth.
 - FE demand retry/parking fields.
+- Main-thread Review Zustand imports/subscriptions/actions for Bridge viewer
+  data; keep only non-Zustand render snapshots/hooks and TanStack Query coarse
+  worker RPC/mutations.
 - Review prefetch pump and old cache-membership authority.
 - Any compatibility shim or feature flag keeping old Review content protocol
   live beside the worker path.
@@ -1138,6 +1182,13 @@ expected failure. Do not edit production until the red failure is observed.
 - In `BridgeWeb/src/file-viewer/state/bridge-file-viewer-store.unit.test.ts`,
   add `file view FE store rejects generation sequence staleness and retry
   ownership`.
+- Create
+  `BridgeWeb/src/file-viewer/state/bridge-file-viewer-render-snapshot.unit.test.ts`
+  with `file view render snapshot is non-Zustand and accepts only worker slice
+  patches`.
+- In `BridgeWeb/src/core/comm-worker/bridge-comm-worker-store.unit.test.ts`,
+  add `worker-local Zustand store owns file metadata content cache demand and
+  protocol truth`.
 - In
   `BridgeWeb/src/worktree-file-surface/worktree-file-surface-runtime.demand.integration-suite.ts`,
   add `file view demand protocol is worker owned for converted surfaces`.
@@ -1148,18 +1199,19 @@ Red-first proof:
 
 ```bash
 pnpm --dir BridgeWeb exec tsc --noEmit
-pnpm --dir BridgeWeb exec vitest run src/file-viewer/bridge-file-viewer-app.unit.test.ts src/file-viewer/state/bridge-file-viewer-store.unit.test.ts src/worktree-file-surface/worktree-file-surface-runtime.demand.integration-suite.ts
+pnpm --dir BridgeWeb exec vitest run src/file-viewer/bridge-file-viewer-app.unit.test.ts src/file-viewer/state/bridge-file-viewer-store.unit.test.ts src/file-viewer/state/bridge-file-viewer-render-snapshot.unit.test.ts src/core/comm-worker/bridge-comm-worker-store.unit.test.ts src/worktree-file-surface/worktree-file-surface-runtime.demand.integration-suite.ts
 pnpm --dir BridgeWeb exec vitest --config vitest.browser.config.ts run --project integration-browser src/file-viewer/bridge-file-viewer-app.browser.test.tsx
 ```
 
 Expected failure before implementation: File View still owns raw body/frame
 package intake, FE generation/sequence/staleness caches for content, FE demand
-retry/parking, or synchronous unbounded frame/projection apply.
+retry/parking, main-thread File View Zustand data store state, or synchronous
+unbounded frame/projection apply.
 
 Green proof:
 
 ```bash
-pnpm --dir BridgeWeb exec vitest run src/file-viewer/bridge-file-viewer-app.unit.test.ts src/file-viewer/state/bridge-file-viewer-store.unit.test.ts src/worktree-file-surface/worktree-file-surface-runtime.demand.integration-suite.ts
+pnpm --dir BridgeWeb exec vitest run src/file-viewer/bridge-file-viewer-app.unit.test.ts src/file-viewer/state/bridge-file-viewer-store.unit.test.ts src/file-viewer/state/bridge-file-viewer-render-snapshot.unit.test.ts src/core/comm-worker/bridge-comm-worker-store.unit.test.ts src/worktree-file-surface/worktree-file-surface-runtime.demand.integration-suite.ts
 pnpm --dir BridgeWeb exec vitest --config vitest.browser.config.ts run --project integration-browser src/file-viewer/bridge-file-viewer-app.browser.test.tsx
 pnpm --dir BridgeWeb exec tsc --noEmit
 ```
@@ -1169,6 +1221,9 @@ Compile-enforced deletion set:
 - FE raw body/frame package intake for File View converted content.
 - FE generation/sequence/staleness caches for File View content.
 - FE retry/parking fields.
+- Main-thread File View Zustand imports/subscriptions/actions for Bridge viewer
+  data; keep only non-Zustand render snapshots/hooks and TanStack Query coarse
+  worker RPC/mutations.
 - Any dual reader for the converted File View protocol surface.
 
 ### G5 - Demand Membership Cutover
@@ -1310,14 +1365,16 @@ Lane boundary:
 
 | Requirement | Slice(s) | Proof commands / evidence |
 | --- | --- | --- |
-| R41 paint paths do not await boundaries | A, B, C, D, G3/G4 | RPC no-force-flush tests; Review browser click/scroll tests; slice-store O(selected + visible delta) proof; apply pump tests; full live click-to-paint Victoria evidence |
+| R41 paint paths do not await boundaries | A, B, C, D, G3/G4 | RPC no-force-flush tests; Review browser click/scroll tests; render-snapshot O(selected + visible delta) proof; apply pump tests; full live click-to-paint Victoria evidence |
 | R42 every datum has one truth owner | C, G1-G6 | FE zero protocol state source scans; inert typed shell tests; per-cutover deletion scans for telemetry transport, Review content protocol, File View content protocol, demand membership, and final browser/native RPC cutover |
 | R43 telemetry dedicated lane | A, G2/G6 | Browser telemetry sink/buffer/recorder tests; worker telemetry tests; `BridgeSchemeHandler` telemetry POST tests; `RPCRouterTelemetryTests` proving old RPC route removed or production-dead |
 | R44 content bytes stream to worker | F1, G3-G6 | Native worker-fetch smoke; Review/File View browser tests showing FE gets paint-ready structures only; server seam recorded worker traffic tests |
-| R45 FE render store sliced | C | Store unit tests; large browser fixture subscriber/invalidation counters bounded by selected + visible delta |
+| R45 FE render snapshots sliced | C, G3/G4 | Non-Zustand render-snapshot unit tests; large browser fixture subscriber/invalidation counters bounded by selected + visible delta |
 | R46 main-thread apply pump | D, B, E | Pump unit tests; policy tests; browser scroll proof; no-starvation/stale-drop counters |
 | R47 File View projection/pruning parity | E, G4 | File View unit/browser tests; O(N^2) prune regression test; chunked/yielding apply counters |
 | R48 proof seams match boundaries | A-G | FE hostile fake worker tests; worker hostile mock server tests; Swift recorded worker traffic tests; native WKWebView gates; Victoria proof |
+| R53 transferable-first worker messages | G1, G3-G6 | `BridgeWorkerTransferListBuilder` tests; `BridgeWorkerContracts` transfer-field validation; Review/File View tests proving small DTOs clone and large ArrayBuffer payloads transfer with sender-detachment assertions; per-message serialize/clone/transfer telemetry |
+| R54 worker-local Zustand plus TanStack Query RPC | G1, G3/G4, G6 | `@tanstack/react-query` dependency and `BridgeWorkerQueryAdapter` tests; worker-local Zustand store tests; Review/File View render-snapshot tests; source scans proving no React/main Bridge data Zustand imports remain in converted surfaces |
 | PHASE 2 telemetry shared-channel compounding | A | `bridge-rpc-client` no-force-flush test; dedicated scheme endpoint tests; no-interactive-contention test |
 | PHASE 2 560ms click floor | C, D, live gates | O(selected + visible delta) invalidation proof; apply pump counters; VictoriaMetrics improvement vs 560ms baseline |
 | PHASE 2 severe freezes | D, E, live gates | Apply pump tests; File View chunk/prune tests; Victoria/Momentum proof showing 1.5s choke gone and no severe apply stalls |
@@ -1355,6 +1412,8 @@ execute unless it has a row here.
 | E File View frame/parity pump | File View frame intake | Large frame/projection/replay/open-file work arrives | Work yields across policy pump ticks and preserves interaction responsiveness | File View unit/browser tests | Fail if any converted File View path performs unbounded synchronous apply/projection |
 | F1 worker-fetch native debug launch | Native proof | `observability:up` is healthy and F0 diagnostic action exists | Worker-originated scheme fetch marker, scheme handler served request, worker-observed byte count | `mise run verify-debug-observability`; `scripts/verify-bridge-worker-fetch-scheme-smoke.sh` | Fail distinctly for collector/action setup noise; block G cutovers on WebKit delivery failure |
 | G streamed-push worker channel | Worker/server cutover | Swift sends push/fact/content/failure/reconnect traffic | Server worker validates stream/epoch/sequence and publishes O(delta) slices | Recorded worker traffic tests and browser slice tests | Fail if main becomes a verbatim Swift relay or any untyped message crosses the channel |
+| G R54 store/RPC ownership | Store cutover | Review/File View converted surfaces publish worker slices or issue coarse worker RPC | React/main has no Bridge data Zustand imports; TanStack Query wraps coarse RPC/mutations; hot display uses non-Zustand render snapshots; worker-local Zustand owns canonical data | `BridgeWorkerQueryAdapter` tests; worker store tests; render-snapshot tests; source scan for `zustand`/`useStore` in converted React surfaces | Fail if Zustand remains live in React/main Bridge data paths or TanStack Query is used for high-frequency row/content patch streams |
+| G R53 transfer mode | Worker boundary | Review/File View sends content, patch, telemetry, or RPC payloads across worker boundaries | Small facts/metadata/window patches structured-clone as bounded DTOs; content bytes stay in worker; large display/binary payloads transfer declared `ArrayBuffer`s | `BridgeWorkerTransferListBuilder` tests; contract validation; per-message boundary telemetry | Fail if undeclared ArrayBuffers cross, large payloads clone by accident, or a sender keeps using a transferred buffer |
 | G final browser/native RPC cutover | Final network-boundary cutover | Any ordinary Swift communication after page-load bootstrap | Scheme-fetch typed POST/stream RPC is the only live Swift communication path; page-load bootstrap remains one-shot only | `BridgeBrowserNativeRPCCutoverSourceScanTests`; source scans for `WKScriptMessage`, `__bridge_command`, `RPCMessageHandler`, `RPCRouter`, and content-world command listeners | Fail if script-message ordinary command, telemetry, content, subscription, push, or ack traffic remains live |
 | Final debug Review smoke | Live debug app | `bridge-review-observability-smoke` launches | Victoria marker verifies launch; Review journey verifier passes | `mise run verify-debug-observability`; `mise run verify-bridge-review-journey-smoke` | Fail if marker is stale, LaunchServices/debug app is already running, or verifier cannot bind to the current marker |
 | Final debug Review-to-File smoke | Live debug app | `bridge-review-to-file-view-observability-smoke` launches | Victoria marker verifies launch; mode-idle verifier passes | `mise run verify-debug-observability`; `mise run verify-bridge-mode-idle-smoke` | Fail if a stale marker or wrong app identity satisfies the gate |
@@ -1417,6 +1476,11 @@ Before the final G browser/native RPC cutover PR is ready:
   staleness cache for converted content.
 - Review prefetch/demand old paths are compile-dead for converted surfaces.
 - Demand membership lives in the comm worker for converted surfaces.
+- Bridge data Zustand lives only in the comm worker for converted surfaces.
+- React/main uses TanStack Query only for coarse worker RPC/mutations, not for
+  row/content patch streams or canonical Bridge data/cache truth.
+- React/main hot display uses non-Zustand render snapshots/hooks for converted
+  Review and File View surfaces.
 - Main thread receives only paint-ready structures, availability facts, health
   facts, and apply units for converted content.
 - `setItems` full rebuild is source-reset-only for Pierre deltas.
@@ -1433,6 +1497,8 @@ Required source scans:
 ```bash
 rg -n "flush\\(\\{ force: true \\}\\)|system\\.bridgeTelemetry|BridgeTelemetryEventSink|bridgeTelemetryBatchAdmissionPriority" BridgeWeb/src Sources/AgentStudio Tests
 rg -n "streamId|sourceGeneration|generation|sequence|staleness|retryAfterVersion|cacheMembership|demandMembership" BridgeWeb/src/app BridgeWeb/src/review-viewer BridgeWeb/src/file-viewer
+rg -n "from ['\\\"]zustand|createStore\\(|useStore\\(" BridgeWeb/src/app BridgeWeb/src/review-viewer BridgeWeb/src/file-viewer BridgeWeb/src/worktree-file-surface
+rg -n "useQuery\\(|useMutation\\(|QueryClient|@tanstack/react-query" BridgeWeb/src/app BridgeWeb/src/review-viewer BridgeWeb/src/file-viewer BridgeWeb/src/core/comm-worker
 rg -n "setItems\\(|applyItemUpdate|getRenderedItems|visibleContentHydrationItemLimit|reviewContentPrefetch|useBridgeReviewContentPrefetchController" BridgeWeb/src
 rg -n "pruneEmptyWorktreeFileTreeDirectories|for \\(const \\[path, treeRow\\].*treeRowsByPath\\)|for \\(const candidate of treeRowsByPath\\.values\\(\\)\\)" BridgeWeb/src/file-viewer
 rg -n "__bridge_command|WKScriptMessage|RPCMessageHandler|BridgeBootstrap|content-world command|bridge-content-world-rpc|RPCRouter" BridgeWeb/src Sources/AgentStudio Tests
@@ -1445,6 +1511,12 @@ Expected green scan results:
   server/worker-owned vocabulary. FE converted surfaces must not own protocol
   truth, and the script-message RPC plane must not carry ordinary Swift
   communication.
+- Converted React/main Review and File View surfaces have no `zustand` or
+  `useStore` matches for Bridge data. Any remaining Zustand match must be
+  worker-local, test-only, or outside the converted Bridge data surfaces.
+- TanStack Query matches are limited to `BridgeWorkerQueryAdapter`, provider
+  setup, and coarse worker RPC/mutation hooks. They must not subscribe to or
+  cache high-frequency row/content patch streams.
 
 ## Explicit Non-Goals
 
