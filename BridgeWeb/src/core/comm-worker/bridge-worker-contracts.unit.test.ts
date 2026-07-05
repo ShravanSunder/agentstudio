@@ -150,11 +150,12 @@ describe('BridgeWorkerContracts', () => {
 			language: item.language ?? null,
 			cacheKey: item.cacheKey,
 			sizeBytes: item.sizeBytes,
+			availableContentRoles: ['base', 'head'],
 			contentLineCountsByRole: item.contentLineCountsByRole ?? {},
 		} satisfies BridgeWorkerReviewContentMetadata;
 
 		expect(bridgeWorkerReviewContentMetadataSchema.parse(metadata)).toEqual(metadata);
-		expect(JSON.stringify(metadata)).not.toMatch(/contentRoles|resourceUrl|endpointId/i);
+		expect(JSON.stringify(metadata)).not.toMatch(/"contentRoles"|resourceUrl|endpointId/i);
 		expect(
 			bridgeWorkerReviewContentMetadataSchema.safeParse({
 				...metadata,

@@ -299,6 +299,7 @@ function makeWorkerReviewContentMetadata(itemId: string): BridgeWorkerReviewCont
 		language: item.language ?? null,
 		cacheKey: item.cacheKey,
 		sizeBytes: item.sizeBytes,
+		availableContentRoles: ['head'],
 		contentLineCountsByRole: item.contentLineCountsByRole ?? {},
 	};
 }

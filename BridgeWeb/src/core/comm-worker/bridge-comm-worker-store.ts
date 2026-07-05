@@ -104,7 +104,8 @@ export function createBridgeCommWorkerStore(
 				fact: ApplyBridgeCommWorkerSelectedFactProps,
 			): BridgeCommWorkerTouchedResult => {
 				const contentMetadata = store.getState().contentMetadataByItemId.get(fact.itemId) ?? null;
-				const nextAvailabilityState = contentMetadata === null ? 'unavailable' : 'loading';
+				const isDemandEligible = isDemandEligibleContentMetadata(contentMetadata);
+				const nextAvailabilityState = isDemandEligible ? 'loading' : 'unavailable';
 				store.setState((state) => ({
 					...writeBridgeWorkerMap(
 						state,
@@ -286,14 +287,23 @@ function buildDemandByKey(props: {
 }): ReadonlyMap<string, string> {
 	const demandByKey = new Map<string, string>();
 	for (const itemId of props.visibleIds) {
-		if (props.contentMetadataByItemId.has(itemId)) {
+		if (isDemandEligibleContentMetadata(props.contentMetadataByItemId.get(itemId) ?? null)) {
 			demandByKey.set(itemId, 'visible');
 		}
 	}
-	if (props.selectedId !== null && props.contentMetadataByItemId.has(props.selectedId)) {
+	if (
+		props.selectedId !== null &&
+		isDemandEligibleContentMetadata(props.contentMetadataByItemId.get(props.selectedId) ?? null)
+	) {
 		demandByKey.set(props.selectedId, props.selectedDemandValue ?? 'selected');
 	}
 	return demandByKey;
+}
+
+function isDemandEligibleContentMetadata(
+	metadata: BridgeWorkerReviewContentMetadata | null,
+): boolean {
+	return metadata !== null && metadata.availableContentRoles.length > 0;
 }
 
 function readSelectedDemandValue(state: BridgeCommWorkerStoreState): string | null {

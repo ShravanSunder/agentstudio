@@ -176,9 +176,10 @@ describe('Bridge app review render snapshot controller', () => {
 			language: 'swift',
 			cacheKey: 'item-source:base|item-source:head',
 			sizeBytes: 1024,
+			availableContentRoles: ['base', 'head'],
 		});
 		expect(JSON.stringify(contentItems)).not.toMatch(
-			/itemsById|orderedItemIds|summary|groups|contentRoles|resourceUrl|endpointId/i,
+			/itemsById|orderedItemIds|summary|groups|"contentRoles"|resourceUrl|endpointId/i,
 		);
 		expect(bridgeCommWorkerContentItemsFromReviewPackage(null)).toEqual([]);
 	});

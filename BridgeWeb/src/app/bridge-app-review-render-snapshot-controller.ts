@@ -26,6 +26,7 @@ import {
 import type { BridgeWorkerPierreRenderJob } from '../core/comm-worker/bridge-worker-pierre-render-job.js';
 import type { ReviewTreeRowMetadata } from '../features/review/models/review-protocol-models.js';
 import type {
+	BridgeContentRole,
 	BridgeReviewItemDescriptor,
 	BridgeReviewPackage,
 } from '../foundation/review-package/bridge-review-package.js';
@@ -214,8 +215,21 @@ function bridgeWorkerReviewContentMetadataFromReviewItem(
 		language: item.language ?? null,
 		cacheKey: item.cacheKey,
 		sizeBytes: item.sizeBytes,
+		availableContentRoles: availableContentRolesForReviewItem(item),
 		contentLineCountsByRole: item.contentLineCountsByRole ?? {},
 	});
+}
+
+function availableContentRolesForReviewItem(
+	item: BridgeReviewItemDescriptor,
+): readonly BridgeContentRole[] {
+	const roles: BridgeContentRole[] = [];
+	for (const role of ['base', 'head', 'diff', 'file'] as const) {
+		if (item.contentRoles[role] !== null && item.contentRoles[role] !== undefined) {
+			roles.push(role);
+		}
+	}
+	return roles;
 }
 
 export function applyBridgeWorkerMessagesToMainRenderSnapshotStore(props: {

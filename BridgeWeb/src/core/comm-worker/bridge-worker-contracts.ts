@@ -1,6 +1,9 @@
 import { z } from 'zod';
 
-import { bridgeReviewContentLineCountsByRoleSchema } from '../../foundation/review-package/bridge-review-package-schema.js';
+import {
+	bridgeContentRoleSchema,
+	bridgeReviewContentLineCountsByRoleSchema,
+} from '../../foundation/review-package/bridge-review-package-schema.js';
 import { bridgeWorkerPierreRenderJobSchema } from './bridge-worker-pierre-render-job.js';
 
 export const BRIDGE_WORKER_WIRE_VERSION = 1 as const;
@@ -129,6 +132,7 @@ export const bridgeWorkerReviewContentMetadataSchema = z
 		language: z.string().nullable(),
 		cacheKey: z.string().min(1),
 		sizeBytes: z.number().int().nonnegative(),
+		availableContentRoles: z.array(bridgeContentRoleSchema).readonly(),
 		contentLineCountsByRole: bridgeReviewContentLineCountsByRoleSchema,
 	})
 	.strict();

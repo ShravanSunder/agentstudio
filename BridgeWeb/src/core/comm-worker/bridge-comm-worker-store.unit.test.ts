@@ -197,6 +197,38 @@ describe('Bridge comm worker store', () => {
 			},
 		]);
 	});
+
+	test('marks selected content unavailable when worker metadata has no content roles', () => {
+		const store = createBridgeCommWorkerStore({
+			contentItems: [
+				{
+					...makeWorkerReviewContentMetadata('metadata-only-item'),
+					availableContentRoles: [],
+				},
+			],
+			rows: [{ id: 'metadata-only-item', parentId: null, index: 0 }],
+		});
+
+		store.actions.applySelectedFact({
+			itemId: 'metadata-only-item',
+			epoch: 6,
+		});
+
+		expect(Object.fromEntries(store.getState().demandByKey)).toEqual({});
+		expect(store.actions.takePendingSlicePatchEvent({ epoch: 6, sequence: 13 })?.patches).toEqual([
+			{
+				slice: 'selection',
+				operation: 'upsert',
+				payload: { selectedItemId: 'metadata-only-item' },
+			},
+			{
+				slice: 'contentAvailability',
+				operation: 'upsert',
+				itemId: 'metadata-only-item',
+				payload: { state: 'unavailable' },
+			},
+		]);
+	});
 });
 
 function makeWorkerReviewContentMetadata(itemId: string): BridgeWorkerReviewContentMetadata {
@@ -210,6 +242,7 @@ function makeWorkerReviewContentMetadata(itemId: string): BridgeWorkerReviewCont
 		language: item.language ?? null,
 		cacheKey: item.cacheKey,
 		sizeBytes: item.sizeBytes,
+		availableContentRoles: ['head'],
 		contentLineCountsByRole: item.contentLineCountsByRole ?? {},
 	};
 }
