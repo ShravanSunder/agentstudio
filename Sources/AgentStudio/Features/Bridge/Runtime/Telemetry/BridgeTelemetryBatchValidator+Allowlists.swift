@@ -188,6 +188,13 @@ extension BridgeTelemetryBatchValidator {
             "mouse",
             "programmatic",
         ],
+        "agentstudio.bridge.package_build.reason": [
+            "fallback_unresolved_head",
+            "filesystem_refresh",
+            "initial_intake",
+            "intake_reannounce",
+            "suppression_catch_up",
+        ],
         "agentstudio.bridge.phase": [
             "accepted",
             "active_viewer_mode_suppression_catch_up",

@@ -157,6 +157,7 @@ extension BridgePaneController {
                 paneState.connection.setHealth(.error)
                 return false
             }
+            reviewProtocolSuppressedDrop = nil
             return true
         } catch {
             rollbackReviewProtocolSequence(from: sequence)

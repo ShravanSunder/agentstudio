@@ -132,7 +132,7 @@ export function useBridgeReviewIntakeController(props: UseBridgeReviewIntakeCont
 			}
 			retryHandle = null;
 		};
-		const markReviewIntakeReady = (): boolean => {
+		const markReviewIntakeReady = (reason: string | null = null): boolean => {
 			if (didMarkReviewIntakeReady) {
 				return true;
 			}
@@ -141,6 +141,7 @@ export function useBridgeReviewIntakeController(props: UseBridgeReviewIntakeCont
 			const didSendIntakeReady =
 				handshakeSession?.markIntakeReady({
 					protocolId: 'review',
+					reason,
 					streamId,
 				}) ?? false;
 			if (!didSendIntakeReady) {
@@ -151,22 +152,26 @@ export function useBridgeReviewIntakeController(props: UseBridgeReviewIntakeCont
 			requestIntakeReplay();
 			return true;
 		};
-		const scheduleMarkReviewIntakeReady = (): void => {
-			if (markReviewIntakeReady() || retryHandle !== null || retryCount >= maxIntakeReadyRetries) {
+		const scheduleMarkReviewIntakeReady = (reason: string | null = null): void => {
+			if (
+				markReviewIntakeReady(reason) ||
+				retryHandle !== null ||
+				retryCount >= maxIntakeReadyRetries
+			) {
 				return;
 			}
 			retryCount += 1;
 			if (typeof requestAnimationFrame === 'function') {
 				const id = requestAnimationFrame((): void => {
 					retryHandle = null;
-					scheduleMarkReviewIntakeReady();
+					scheduleMarkReviewIntakeReady(reason);
 				});
 				retryHandle = { kind: 'animationFrame', id };
 				return;
 			}
 			const id = window.setTimeout((): void => {
 				retryHandle = null;
-				scheduleMarkReviewIntakeReady();
+				scheduleMarkReviewIntakeReady(reason);
 			}, 0);
 			retryHandle = { kind: 'timeout', id };
 		};
@@ -294,7 +299,7 @@ export function useBridgeReviewIntakeController(props: UseBridgeReviewIntakeCont
 				if (drop.reason === 'receiver_rejected_frame' && drop.receiverReason === 'sequence_gap') {
 					didMarkReviewIntakeReady = false;
 					retryCount = 0;
-					scheduleMarkReviewIntakeReady();
+					scheduleMarkReviewIntakeReady('sequence_gap');
 				}
 			},
 		});

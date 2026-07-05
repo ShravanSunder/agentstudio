@@ -61,11 +61,12 @@ final class BridgePaneController {
     var selectedReviewItemId: String?
     var activeReviewRefreshTask: Task<Void, Never>?
     var hasPendingReviewRefresh = false
+    var pendingReviewPackageBuildReasons: Set<BridgeReviewPackageBuildReason> = []
     var reviewContentAuthorityLifetime = 0
     var nextReviewProtocolSequence = 0
     var activeViewerModeSignalState = BridgeActiveViewerModeSignalState()
-    var reviewProtocolDroppedWhileSuppressed = false
-    var worktreeFileDroppedWhileSuppressed = false
+    var reviewProtocolSuppressedDrop: BridgeSuppressedProtocolDrop?
+    var worktreeFileSuppressedDrop: BridgeSuppressedProtocolDrop?
 
     // MARK: - Push Plans
 
@@ -544,8 +545,9 @@ final class BridgePaneController {
         isBridgeReady = false
         nextReviewProtocolSequence = 0
         activeViewerModeSignalState = BridgeActiveViewerModeSignalState()
-        reviewProtocolDroppedWhileSuppressed = false
-        worktreeFileDroppedWhileSuppressed = false
+        reviewProtocolSuppressedDrop = nil
+        worktreeFileSuppressedDrop = nil
+        pendingReviewPackageBuildReasons.removeAll()
         // Fence in-flight review jobs synchronously: their body guard reads
         // nextReviewGeneration, so bumping it here prevents a dispatchable
         // job from delivering between this sync phase and the async gate
@@ -636,9 +638,9 @@ final class BridgePaneController {
         // frames while inactive or is stuck in resetRequired after a gap.
         // Both paths dedup on the single review refresh task.
         if paneState.diff.packageMetadata == nil {
-            scheduleInitialReviewPackageLoadIfPossible()
-        } else {
-            scheduleReviewPackageReloadForIntakeAnnounce()
+            scheduleInitialReviewPackageLoadIfPossible(reason: .initialIntake)
+        } else if params.reason == "sequence_gap" {
+            scheduleReviewPackageReloadForIntakeAnnounce(reason: .intakeReannounce)
         }
     }
 

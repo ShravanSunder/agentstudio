@@ -163,6 +163,70 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         )
     }
 
+    @Test("review intake reannounce without sequence gap does not rebuild an emitted generation")
+    func reviewIntakeReannounceWithoutSequenceGapDoesNotRebuildEmittedGeneration() async throws {
+        let telemetryRecorder = PackageBuildReasonTelemetryRecorder()
+        let baseEndpoint = makeBridgeEndpoint(endpointId: "baseline-headMinusOne", kind: .gitRef)
+        let headEndpoint = makeBridgeEndpoint(endpointId: "working-tree", kind: .workingTree)
+        let provider = BridgeReviewSourceProviderFake(
+            comparison: BridgeEndpointComparison(
+                baseEndpoint: baseEndpoint,
+                headEndpoint: headEndpoint,
+                changedFiles: [
+                    makeBridgeEndpointChangedFile(
+                        fileId: "source",
+                        path: "Sources/App/View.swift",
+                        sizeBytes: 100
+                    )
+                ]
+            ),
+            contentByHandleId: [:]
+        )
+        let controller = BridgePaneController(
+            paneId: UUIDv7.generate(),
+            state: BridgePaneState(
+                panelKind: .diffViewer,
+                source: .workspace(rootPath: "/tmp/worktree", baseline: .headMinusOne)
+            ),
+            metadata: PaneMetadata(
+                contentType: .diff,
+                launchDirectory: URL(fileURLWithPath: "/tmp/worktree"),
+                title: "Bridge Review",
+                facets: PaneContextFacets(
+                    repoId: headEndpoint.repoId,
+                    worktreeId: headEndpoint.worktreeId,
+                    worktreeName: "worktree",
+                    cwd: URL(fileURLWithPath: "/tmp/worktree")
+                )
+            ),
+            reviewSourceProvider: provider,
+            telemetryRecorder: telemetryRecorder,
+            intakeFrameSink: { _, _, _ in }
+        )
+        defer { controller.teardown() }
+        controller.handleBridgeReady()
+
+        await controller.handleBridgeIntakeReady(
+            BridgeIntakeReadyMethod.Params(protocolId: "review", streamId: nil)
+        )
+        await controller.activeReviewRefreshTask?.value
+        let package = try #require(controller.paneState.diff.packageMetadata)
+        #expect(await provider.recordedComparisonRequestsCount() == 1)
+
+        await controller.handleBridgeIntakeReady(
+            BridgeIntakeReadyMethod.Params(
+                protocolId: "review",
+                streamId: controller.reviewProtocolStreamId(),
+                generation: package.reviewGeneration.rawValue
+            )
+        )
+        await controller.activeReviewRefreshTask?.value
+
+        #expect(await provider.recordedComparisonRequestsCount() == 1)
+        let reasons = await telemetryRecorder.packageBuildReasons()
+        #expect(reasons == ["initial_intake"])
+    }
+
     @Test("initial review load streams metadata windows beyond visible startup budget")
     func initialReviewLoadStreamsMetadataWindowsBeyondVisibleStartupBudget() async throws {
         let capturedIntakeFrames = SendableBox<[String]>([])
@@ -829,6 +893,30 @@ extension WebKitSerializedTests.BridgePaneControllerTests {
         #expect(errorFrameObject["sequence"] as? Int == 1)
         #expect(errorFrameObject["message"] as? String == "providerUnavailable")
         #expect(errorFrameObject["payload"] == nil)
+    }
+}
+
+private actor PackageBuildReasonTelemetryRecorder: BridgePerformanceTraceRecording {
+    private var recordedSamples: [BridgeTelemetrySample] = []
+
+    func record(sample: BridgeTelemetrySample, receivedAtUnixNano _: UInt64) {
+        recordedSamples.append(sample)
+    }
+
+    func recordDrop(
+        reason _: BridgeTelemetryDropReason,
+        droppedCount _: Int,
+        firstRejectedEventName _: String?,
+        receivedAtUnixNano _: UInt64
+    ) {}
+
+    func drain() async throws {}
+
+    func packageBuildReasons() -> [String] {
+        recordedSamples.compactMap { sample in
+            guard sample.name == "performance.bridge.swift.package_build" else { return nil }
+            return sample.stringAttributes["agentstudio.bridge.package_build.reason"]
+        }
     }
 }
 

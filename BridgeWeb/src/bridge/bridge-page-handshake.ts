@@ -27,6 +27,7 @@ export interface InstallBridgePageHandshakeSessionProps {
 
 export interface BridgeIntakeReadyProps {
 	readonly protocolId: string;
+	readonly reason?: string | null;
 	readonly streamId?: string | null;
 }
 
@@ -156,6 +157,7 @@ export function installBridgePageHandshakeSession(
 						method: 'bridge.intakeReady',
 						params: {
 							protocolId: intakeReadyProps.protocolId,
+							reason: intakeReadyProps.reason ?? null,
 							streamId: intakeReadyProps.streamId ?? null,
 						},
 					},

@@ -76,6 +76,7 @@ enum AgentStudioOTLPTraceProjection {
         "agentstudio.bridge.item_update.kind",
         "agentstudio.bridge.language_class",
         "agentstudio.bridge.markdown.fallback_reason",
+        "agentstudio.bridge.package_build.reason",
         "agentstudio.bridge.phase",
         "agentstudio.bridge.plane",
         "agentstudio.bridge.priority",

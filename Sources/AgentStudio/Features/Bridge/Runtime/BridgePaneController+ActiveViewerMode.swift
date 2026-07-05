@@ -160,9 +160,17 @@ extension BridgePaneController {
     private func markDroppedWhileSuppressed(protocolId: String) {
         switch protocolId {
         case "review":
-            reviewProtocolDroppedWhileSuppressed = true
+            guard let generation = paneState.diff.packageMetadata?.reviewGeneration.rawValue else { return }
+            reviewProtocolSuppressedDrop = BridgeSuppressedProtocolDrop(
+                generation: generation,
+                nextSequenceAtDrop: nextReviewProtocolSequence
+            )
         case "worktree-file":
-            worktreeFileDroppedWhileSuppressed = true
+            guard let activeSource = activeWorktreeFileSurfaceSource else { return }
+            worktreeFileSuppressedDrop = BridgeSuppressedProtocolDrop(
+                generation: activeSource.source.subscriptionGeneration,
+                nextSequenceAtDrop: activeSource.nextSequence
+            )
         default:
             return
         }
@@ -174,17 +182,23 @@ extension BridgePaneController {
         guard let acceptedSignal else { return }
         switch (acceptedSignal.mode, acceptedSignal.activeSource.protocolId) {
         case (.review, .review):
-            guard reviewProtocolDroppedWhileSuppressed else { return }
-            reviewProtocolDroppedWhileSuppressed = false
+            guard let suppressedDrop = reviewProtocolSuppressedDrop,
+                suppressedDrop.generation == acceptedSignal.activeSource.generation,
+                suppressedDrop.nextSequenceAtDrop == nextReviewProtocolSequence
+            else { return }
+            reviewProtocolSuppressedDrop = nil
             await recordActiveViewerModeSuppressionCatchUp(
                 protocolId: "review",
                 mode: acceptedSignal.mode,
                 activeSource: acceptedSignal.activeSource
             )
-            scheduleReviewPackageReloadForIntakeAnnounce()
+            await redeliverCurrentReviewPackageForSuppressionCatchUp()
         case (.file, .worktreeFile):
-            guard worktreeFileDroppedWhileSuppressed else { return }
-            worktreeFileDroppedWhileSuppressed = false
+            guard let suppressedDrop = worktreeFileSuppressedDrop,
+                suppressedDrop.generation == acceptedSignal.activeSource.generation,
+                suppressedDrop.nextSequenceAtDrop == activeWorktreeFileSurfaceSource?.nextSequence
+            else { return }
+            worktreeFileSuppressedDrop = nil
             await recordActiveViewerModeSuppressionCatchUp(
                 protocolId: "worktree-file",
                 mode: acceptedSignal.mode,
@@ -194,6 +208,19 @@ extension BridgePaneController {
         default:
             return
         }
+    }
+
+    private func redeliverCurrentReviewPackageForSuppressionCatchUp() async {
+        guard let currentPackage = paneState.diff.packageMetadata else {
+            return
+        }
+        await commitReviewPackageLoad(
+            BridgeReviewPackageLoadData(
+                package: currentPackage,
+                delta: paneState.diff.packageDelta
+            ),
+            traceContext: lastReviewPackageTraceContext
+        )
     }
 
     private func recordActiveViewerModeSuppressionCatchUp(

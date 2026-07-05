@@ -12,11 +12,13 @@ enum BridgeIntakeReadyMethod: RPCMethod {
         let protocolId: String
         let streamId: String?
         let generation: Int?
+        let reason: String?
 
-        init(protocolId: String, streamId: String?, generation: Int? = nil) {
+        init(protocolId: String, streamId: String?, generation: Int? = nil, reason: String? = nil) {
             self.protocolId = protocolId
             self.streamId = streamId
             self.generation = generation
+            self.reason = reason
         }
     }
     typealias Result = RPCNoResponse
@@ -68,6 +70,19 @@ struct BridgeActiveViewerModeSignalState: Equatable, Sendable {
     var sessionId: String?
     var lastSequence: Int?
     var acceptedSignal: BridgeActiveViewerModeAcceptedSignal?
+}
+
+enum BridgeReviewPackageBuildReason: String, Sendable {
+    case initialIntake = "initial_intake"
+    case intakeReannounce = "intake_reannounce"
+    case suppressionCatchUp = "suppression_catch_up"
+    case filesystemRefresh = "filesystem_refresh"
+    case fallbackUnresolvedHead = "fallback_unresolved_head"
+}
+
+struct BridgeSuppressedProtocolDrop: Equatable, Sendable {
+    let generation: Int
+    let nextSequenceAtDrop: Int
 }
 
 enum BridgeError: Error, LocalizedError, Sendable {

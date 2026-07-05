@@ -1,9 +1,20 @@
 import { afterEach, describe, expect, test } from 'vitest';
-import { render } from 'vitest-browser-react';
+import { cleanup, render } from 'vitest-browser-react';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode geometry assertions need app CSS.
 import './bridge-app.css';
+import type { BridgeIntakeFrame } from '../core/models/bridge-intake-frame.js';
+import { buildReviewMetadataSnapshotFrame } from '../features/review/protocol/review-metadata-frame-builder.js';
+import { makeBridgeReviewPackage } from '../foundation/review-package/bridge-review-package-test-support.js';
 import type { WorktreeFileInitialSurface } from '../worktree-file-surface/worktree-file-app.js';
+import {
+	actClick,
+	actUpdate,
+	actWait,
+	pollWithinAct,
+	pollWithinActUntilEqual,
+	pollWithinActUntilTruthy,
+} from './bridge-app-native-review-error.browser.test-support.js';
 import { makeSnapshotFrame } from './bridge-app-native-worktree-file.browser.test-support.js';
 import {
 	BridgeAppProtocolRouter,
@@ -21,11 +32,35 @@ interface ActiveViewerModeUpdateDetail {
 	};
 }
 
+// Several tests below register `document` listeners for `__bridge_handshake_request`
+// and `__bridge_command` to simulate the native host's replies. Without explicit
+// removal those listeners outlive their test, so a later test's handshake/command
+// dispatch triggers every earlier test's stale listener too — competing replies
+// with mismatched nonces then race the current test's own handshake session.
+// Route every such registration through this list so `afterEach` can remove them.
+let activeDocumentListeners: readonly {
+	readonly type: string;
+	readonly listener: EventListener;
+}[] = [];
+
+function registerDocumentListener(type: string, listener: EventListener): void {
+	document.addEventListener(type, listener);
+	activeDocumentListeners = [...activeDocumentListeners, { type, listener }];
+}
+
 describe('BridgeAppProtocolRouter', () => {
-	afterEach(() => {
+	afterEach(async () => {
+		cleanup();
+		await actWait(() => new Promise<void>((resolve) => window.setTimeout(resolve, 0)));
+		for (const { type, listener } of activeDocumentListeners) {
+			document.removeEventListener(type, listener);
+		}
+		activeDocumentListeners = [];
 		document.body.replaceChildren();
 		document.documentElement.removeAttribute('data-bridge-app-protocol');
 		document.documentElement.removeAttribute('data-bridge-nonce');
+		document.documentElement.removeAttribute('data-bridge-review-pane-id');
+		document.documentElement.removeAttribute('data-bridge-review-stream-id');
 	});
 
 	test('defaults to Review when no app protocol is declared', async () => {
@@ -100,8 +135,13 @@ describe('BridgeAppProtocolRouter', () => {
 			handleId: 'bridge-file-viewer-rail-resize-handle',
 			railPanelTestId: 'bridge-file-viewer-resizable-rail',
 		});
-		requireActiveContextButton('review').click();
-		await expect.poll(() => appRoot?.getAttribute('data-bridge-viewer-mode')).toBe('review');
+		await actClick(requireActiveContextButton('review'));
+		expect(
+			await pollWithinActUntilEqual(
+				() => appRoot?.getAttribute('data-bridge-viewer-mode'),
+				'review',
+			),
+		).toBe('review');
 		expect(document.querySelectorAll('[data-slot="resizable-panel-group"]')).toHaveLength(1);
 		assertSharedResizableRailFallbackGeometry({
 			contentPanelTestId: 'bridge-review-content-panel',
@@ -109,8 +149,10 @@ describe('BridgeAppProtocolRouter', () => {
 			handleId: 'bridge-review-rail-resize-handle',
 			railPanelTestId: 'bridge-review-resizable-rail',
 		});
-		requireActiveContextButton('file').click();
-		await expect.poll(() => appRoot?.getAttribute('data-bridge-viewer-mode')).toBe('file');
+		await actClick(requireActiveContextButton('file'));
+		expect(
+			await pollWithinActUntilEqual(() => appRoot?.getAttribute('data-bridge-viewer-mode'), 'file'),
+		).toBe('file');
 		expect(document.querySelectorAll('[data-slot="resizable-panel-group"]')).toHaveLength(1);
 		assertSharedResizableRailFallbackGeometry({
 			contentPanelTestId: 'bridge-file-viewer-content-panel',
@@ -149,7 +191,7 @@ describe('BridgeAppProtocolRouter', () => {
 			<BridgeAppProtocolRouter fileViewerProps={{ loadInitialSurface }} protocol="worktree-file" />,
 		);
 
-		await expect.poll(() => eventNames.includes('worktree-file.load')).toBe(true);
+		await pollWithinActUntilTruthy(() => eventNames.includes('worktree-file.load'));
 		expect(eventNames).toEqual([
 			'__bridge_handshake_request',
 			'__bridge_ready',
@@ -160,12 +202,12 @@ describe('BridgeAppProtocolRouter', () => {
 	test('emits active viewer mode notifications with monotonic sequence across mode switches', async () => {
 		const commandDetails: unknown[] = [];
 		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
-		document.addEventListener('__bridge_handshake_request', (): void => {
+		registerDocumentListener('__bridge_handshake_request', (): void => {
 			document.dispatchEvent(
 				new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-1' } }),
 			);
 		});
-		document.addEventListener('__bridge_command', (event: Event): void => {
+		registerDocumentListener('__bridge_command', (event: Event): void => {
 			const detail = extractEventDetail(event);
 			commandDetails.push(detail);
 			if (isBridgeReadyCommand(detail)) {
@@ -184,23 +226,26 @@ describe('BridgeAppProtocolRouter', () => {
 			/>,
 		);
 
-		await expect
-			.poll(() => activeViewerModeUpdates(commandDetails).some(hasWorktreeFileActiveSource))
-			.toBe(true);
-		requireActiveContextButton('review').click();
-		await expect
-			.poll(() =>
+		expect(
+			await pollWithinActUntilTruthy(() =>
+				activeViewerModeUpdates(commandDetails).some(hasWorktreeFileActiveSource),
+			),
+		).toBe(true);
+		await actClick(requireActiveContextButton('review'));
+		expect(
+			await pollWithinActUntilTruthy(() =>
 				activeViewerModeUpdates(commandDetails).some((detail) => detail.params.mode === 'review'),
-			)
-			.toBe(true);
-		requireActiveContextButton('file').click();
-		await expect
-			.poll(
-				() =>
+			),
+		).toBe(true);
+		await actClick(requireActiveContextButton('file'));
+		expect(
+			await pollWithinAct({
+				getValue: () =>
 					activeViewerModeUpdates(commandDetails).filter((detail) => detail.params.mode === 'file')
 						.length,
-			)
-			.toBeGreaterThanOrEqual(2);
+				isSatisfied: (count): boolean => count >= 2,
+			}),
+		).toBeGreaterThanOrEqual(2);
 
 		const updates = activeViewerModeUpdates(commandDetails);
 		expect(updates.map((detail) => detail.params.sequence)).toEqual(
@@ -212,12 +257,12 @@ describe('BridgeAppProtocolRouter', () => {
 	test('active viewer mode notifications match the committed mode through rapid transitions', async () => {
 		const mismatchedUpdates: ActiveViewerModeUpdateDetail[] = [];
 		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
-		document.addEventListener('__bridge_handshake_request', (): void => {
+		registerDocumentListener('__bridge_handshake_request', (): void => {
 			document.dispatchEvent(
 				new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-1' } }),
 			);
 		});
-		document.addEventListener('__bridge_command', (event: Event): void => {
+		registerDocumentListener('__bridge_command', (event: Event): void => {
 			const detail = extractEventDetail(event);
 			if (isBridgeReadyCommand(detail)) {
 				document.dispatchEvent(
@@ -241,27 +286,92 @@ describe('BridgeAppProtocolRouter', () => {
 				protocol="review"
 			/>,
 		);
-		await expect.poll(activeViewerMode).toBe('review');
+		expect(await pollWithinActUntilEqual(activeViewerMode, 'review')).toBe('review');
 
-		requireActiveContextButton('file').click();
-		requireActiveContextButton('review').click();
-		requireActiveContextButton('file').click();
-		await expect.poll(activeViewerMode).toBe('file');
-		await new Promise((resolve) => window.setTimeout(resolve, 0));
+		await actClick(requireActiveContextButton('file'));
+		await actClick(requireActiveContextButton('review'));
+		await actClick(requireActiveContextButton('file'));
+		expect(await pollWithinActUntilEqual(activeViewerMode, 'file')).toBe('file');
+		await actWait(() => new Promise<void>((resolve) => window.setTimeout(resolve, 0)));
 
 		expect(mismatchedUpdates).toEqual([]);
 	});
 
-	test('re-emits file active source when a same-identity file surface open resolves', async () => {
+	test('review active mode waits for current review source and dedupes source identity', async () => {
+		const commandDetails: unknown[] = [];
+		const streamId = 'review:bridge-app-test-pane';
+		const reviewPackage = makeBridgeReviewPackage();
+		const snapshotFrame = buildReviewMetadataSnapshotFrame({
+			package: reviewPackage,
+			paneId: 'bridge-app-test-pane',
+			sourceIdentity: 'bridge-app-test-source',
+			streamId,
+			sequence: 0,
+			selectedItemId: reviewPackage.orderedItemIds[0] ?? null,
+			visibleItemIds: reviewPackage.orderedItemIds,
+		});
+		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
+		document.documentElement.setAttribute('data-bridge-review-pane-id', 'bridge-app-test-pane');
+		document.documentElement.setAttribute('data-bridge-review-stream-id', streamId);
+		registerDocumentListener('__bridge_handshake_request', (): void => {
+			document.dispatchEvent(
+				new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-review-source' } }),
+			);
+		});
+		registerDocumentListener('__bridge_command', (event: Event): void => {
+			const detail = extractEventDetail(event);
+			commandDetails.push(detail);
+			if (isBridgeReadyCommand(detail)) {
+				document.dispatchEvent(
+					new CustomEvent('__bridge_response', {
+						detail: { id: detail.id, result: {}, nonce: 'push-review-source' },
+					}),
+				);
+			}
+		});
+
+		render(<BridgeAppProtocolRouter protocol="review" projectionWorkerClient={null} />);
+		expect(await pollWithinActUntilEqual(activeViewerMode, 'review')).toBe('review');
+		await actWait(() => new Promise<void>((resolve) => window.setTimeout(resolve, 0)));
+		expect(activeViewerModeUpdates(commandDetails)).toHaveLength(0);
+
+		await dispatchIntakeFrame({
+			generation: snapshotFrame.generation,
+			kind: 'snapshot',
+			nonce: 'push-review-source',
+			payload: snapshotFrame,
+			sequence: snapshotFrame.sequence,
+			streamId,
+		});
+		expect(
+			await pollWithinActUntilEqual(
+				() => activeViewerModeUpdates(commandDetails).filter(hasReviewActiveSource).length,
+				1,
+			),
+		).toBe(1);
+
+		await dispatchIntakeFrame({
+			generation: snapshotFrame.generation,
+			kind: 'snapshot',
+			nonce: 'push-review-source',
+			payload: snapshotFrame,
+			sequence: snapshotFrame.sequence + 1,
+			streamId,
+		});
+		await actWait(() => new Promise<void>((resolve) => window.setTimeout(resolve, 0)));
+		expect(activeViewerModeUpdates(commandDetails).filter(hasReviewActiveSource)).toHaveLength(1);
+	});
+
+	test('dedupes file active source when a same-identity file surface open resolves', async () => {
 		const commandDetails: unknown[] = [];
 		let loadCount = 0;
 		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
-		document.addEventListener('__bridge_handshake_request', (): void => {
+		registerDocumentListener('__bridge_handshake_request', (): void => {
 			document.dispatchEvent(
 				new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-1' } }),
 			);
 		});
-		document.addEventListener('__bridge_command', (event: Event): void => {
+		registerDocumentListener('__bridge_command', (event: Event): void => {
 			const detail = extractEventDetail(event);
 			commandDetails.push(detail);
 			if (isBridgeReadyCommand(detail)) {
@@ -280,11 +390,12 @@ describe('BridgeAppProtocolRouter', () => {
 		const rendered = render(
 			<BridgeApp fileViewerProps={{ loadInitialSurface }} viewerMode="file" />,
 		);
-		await expect
-			.poll(
+		expect(
+			await pollWithinActUntilEqual(
 				() => activeViewerModeUpdates(commandDetails).filter(hasWorktreeFileActiveSource).length,
-			)
-			.toBe(1);
+				1,
+			),
+		).toBe(1);
 
 		const reloadSameSource = async (): Promise<WorktreeFileInitialSurface> => {
 			loadCount += 1;
@@ -294,12 +405,13 @@ describe('BridgeAppProtocolRouter', () => {
 			<BridgeApp fileViewerProps={{ loadInitialSurface: reloadSameSource }} viewerMode="file" />,
 		);
 
-		await expect.poll(() => loadCount).toBe(2);
-		await expect
-			.poll(
+		expect(await pollWithinActUntilEqual(() => loadCount, 2)).toBe(2);
+		expect(
+			await pollWithinActUntilEqual(
 				() => activeViewerModeUpdates(commandDetails).filter(hasWorktreeFileActiveSource).length,
-			)
-			.toBe(2);
+				1,
+			),
+		).toBe(1);
 	});
 
 	test('parses document protocol metadata with Review as the fail-closed fallback', () => {
@@ -389,6 +501,16 @@ function hasWorktreeFileActiveSource(detail: ActiveViewerModeUpdateDetail): bool
 	);
 }
 
+function hasReviewActiveSource(detail: ActiveViewerModeUpdateDetail): boolean {
+	return (
+		detail.params.mode === 'review' &&
+		isRecord(detail.params.activeSource) &&
+		detail.params.activeSource['protocol'] === 'review' &&
+		detail.params.activeSource['streamId'] === 'review:bridge-app-test-pane' &&
+		detail.params.activeSource['generation'] === 1
+	);
+}
+
 function activeViewerMode(): string | null {
 	return (
 		document
@@ -405,6 +527,21 @@ function isBridgeReadyCommand(
 
 function extractEventDetail(event: Event): unknown {
 	return event instanceof CustomEvent ? event.detail : null;
+}
+
+async function dispatchIntakeFrame(
+	frame: BridgeIntakeFrame & { readonly nonce: string },
+): Promise<void> {
+	await actUpdate((): void => {
+		document.dispatchEvent(
+			new CustomEvent('__bridge_intake_json', {
+				detail: {
+					nonce: frame.nonce,
+					json: JSON.stringify(frame),
+				},
+			}),
+		);
+	});
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

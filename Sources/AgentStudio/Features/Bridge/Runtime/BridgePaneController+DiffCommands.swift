@@ -13,6 +13,11 @@ struct BridgeReviewPackageLoadData {
 @MainActor
 extension BridgePaneController: BridgeRuntimeCommandHandling {
     func scheduleInitialReviewPackageLoadIfPossible() {
+        scheduleInitialReviewPackageLoadIfPossible(reason: .initialIntake)
+    }
+
+    func scheduleInitialReviewPackageLoadIfPossible(reason: BridgeReviewPackageBuildReason) {
+        pendingReviewPackageBuildReasons.insert(reason)
         guard activeReviewRefreshTask == nil else { return }
         activeReviewRefreshTask = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -26,6 +31,11 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
     /// means the browser has no applied snapshot, and re-delivery must carry a
     /// NEW generation (via the loadDiff reset path) to re-key the receiver.
     func scheduleReviewPackageReloadForIntakeAnnounce() {
+        scheduleReviewPackageReloadForIntakeAnnounce(reason: .intakeReannounce)
+    }
+
+    func scheduleReviewPackageReloadForIntakeAnnounce(reason: BridgeReviewPackageBuildReason) {
+        pendingReviewPackageBuildReasons.insert(reason)
         guard activeReviewRefreshTask == nil else { return }
         guard case .workspace = bridgePaneState.source,
             let worktreeId = runtime.metadata.worktreeId
@@ -107,6 +117,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             let result = try await loadReviewPackageResult(
                 artifact: artifact,
                 reviewGeneration: reset.reviewGeneration,
+                buildReason: consumePendingReviewPackageBuildReason(default: .initialIntake),
                 reviewLoadStage: &reviewLoadStage,
                 packageTraceContext: packageTraceContext
             )
@@ -194,12 +205,14 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
     private func loadReviewPackageResult(
         artifact: DiffArtifact,
         reviewGeneration: BridgeReviewGeneration,
+        buildReason: BridgeReviewPackageBuildReason,
         reviewLoadStage: inout String,
         packageTraceContext: BridgeTraceContext?
     ) async throws -> BridgeReviewPipelineResult {
         let request = makeReviewPipelineRequest(artifact: artifact, reviewGeneration: reviewGeneration)
         let packageBuildStart = ContinuousClock.now
         let result: BridgeReviewPipelineResult
+        var telemetryReason = buildReason
         do {
             reviewLoadStage = "package"
             result = try await reviewPipeline.loadPackage(request)
@@ -217,12 +230,16 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             )
             reviewLoadStage = "packageFallback"
             result = try await reviewPipeline.loadPackage(fallbackRequest)
+            telemetryReason = .fallbackUnresolvedHead
         }
         await recordSwiftTelemetry(
             name: "performance.bridge.swift.package_build",
             phase: "package_build",
             priorityHint: .cold,
             traceContext: packageTraceContext,
+            stringAttributes: [
+                "agentstudio.bridge.package_build.reason": telemetryReason.rawValue
+            ],
             durationMilliseconds: AgentStudioPerformanceTraceRecorder.milliseconds(
                 from: packageBuildStart.duration(to: ContinuousClock.now)
             )
@@ -388,6 +405,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
             }
         }
         hasPendingReviewRefresh = true
+        pendingReviewPackageBuildReasons.insert(.filesystemRefresh)
         if let activeReviewRefreshTask {
             await activeReviewRefreshTask.value
             return
@@ -416,6 +434,7 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
         do {
             let packageTraceContext = makeRootTraceContext()
             let packageBuildStart = ContinuousClock.now
+            let buildReason = consumePendingReviewPackageBuildReason(default: .filesystemRefresh)
             let result = try await reviewPipeline.loadPackage(
                 BridgeReviewPipelineRequest(
                     packageId: currentPackage.packageId,
@@ -432,6 +451,9 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                 phase: "package_build",
                 priorityHint: .cold,
                 traceContext: packageTraceContext,
+                stringAttributes: [
+                    "agentstudio.bridge.package_build.reason": buildReason.rawValue
+                ],
                 durationMilliseconds: AgentStudioPerformanceTraceRecorder.milliseconds(
                     from: packageBuildStart.duration(to: ContinuousClock.now)
                 )
@@ -475,6 +497,21 @@ extension BridgePaneController: BridgeRuntimeCommandHandling {
                 "Skipped bridge review refresh: \(String(describing: error), privacy: .private)"
             )
         }
+    }
+
+    private func consumePendingReviewPackageBuildReason(
+        default defaultReason: BridgeReviewPackageBuildReason
+    ) -> BridgeReviewPackageBuildReason {
+        let reasonPriority: [BridgeReviewPackageBuildReason] = [
+            .fallbackUnresolvedHead,
+            .initialIntake,
+            .intakeReannounce,
+            .suppressionCatchUp,
+            .filesystemRefresh,
+        ]
+        let selected = reasonPriority.first { pendingReviewPackageBuildReasons.contains($0) } ?? defaultReason
+        pendingReviewPackageBuildReasons.removeAll()
+        return selected
     }
 
     private static func diffStats(from summary: BridgeReviewPackageSummary) -> DiffStats {

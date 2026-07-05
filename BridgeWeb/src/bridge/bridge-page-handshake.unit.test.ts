@@ -323,6 +323,7 @@ describe('bridge page handshake', () => {
 				method: 'bridge.intakeReady',
 				params: {
 					protocolId: 'review',
+					reason: null,
 					streamId: 'review:pane-1',
 				},
 			},

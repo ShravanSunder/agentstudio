@@ -6,6 +6,38 @@ import Testing
 @Suite
 struct AgentStudioOTLPBridgeTelemetryProjectionTests {
     @Test
+    func bridgeProjectionPreservesPackageBuildReason() {
+        let record = AgentStudioTraceRecord(
+            timeUnixNano: 515,
+            severityText: .info,
+            body: "performance.bridge.swift.package_build",
+            traceID: nil,
+            spanID: nil,
+            parentSpanID: nil,
+            resource: [
+                "service.name": "AgentStudio"
+            ],
+            scope: .init(name: "agentstudio.bridge.performance.swift", version: "0.1.0"),
+            attributes: [
+                "agentstudio.bridge.package_build.reason": .string("initial_intake"),
+                "agentstudio.bridge.phase": .string("package_build"),
+                "agentstudio.bridge.plane": .string("data"),
+                "agentstudio.bridge.priority": .string("cold"),
+                "agentstudio.bridge.slice": .string("review_metadata"),
+                "agentstudio.bridge.transport": .string("swift"),
+                "agentstudio.trace.tag": .string("bridge.performance.swift"),
+            ]
+        )
+
+        let projection = AgentStudioOTLPTraceProjection.project(record)
+
+        #expect(
+            projection.attributes["agentstudio.bridge.package_build.reason"]
+                == .string("initial_intake")
+        )
+    }
+
+    @Test
     func bridgeProjectionPreservesTelemetryDropAggregateCounterKeys() {
         let record = AgentStudioTraceRecord(
             timeUnixNano: 514,

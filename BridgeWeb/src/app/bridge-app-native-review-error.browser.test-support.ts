@@ -140,6 +140,19 @@ export function actWait<TValue>(wait: () => Promise<TValue>): Promise<TValue> {
 	return act(wait);
 }
 
+/**
+ * Wraps a single discrete, synchronous, state-mutating action (a
+ * `document.dispatchEvent` call, a real-timer settle delay) plus one
+ * microtask drain in act(). Use this for a single-shot action, not a
+ * multi-tick poll — see `pollWithinAct`'s note for why those differ.
+ */
+export async function actUpdate(update: () => void): Promise<void> {
+	await act(async (): Promise<void> => {
+		update();
+		await Promise.resolve();
+	});
+}
+
 export function isBridgeTelemetryCommand(value: unknown): value is {
 	readonly method: 'system.bridgeTelemetry';
 	readonly params: {

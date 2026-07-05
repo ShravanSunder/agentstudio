@@ -156,29 +156,32 @@ extension BridgePaneController: PushTransport {
         phase: String,
         priorityHint: PushLevel,
         traceContext: BridgeTraceContext?,
+        stringAttributes additionalStringAttributes: [String: String] = [:],
         durationMilliseconds: Double?
     ) async {
         guard let telemetryRecorder else {
             return
         }
+        var stringAttributes = [
+            "agentstudio.bridge.phase": phase,
+            "agentstudio.bridge.plane": nativeTelemetryPlane(
+                for: name
+            ).rawValue,
+            "agentstudio.bridge.priority": nativeTelemetryPriority(
+                for: name,
+                fallback: priorityHint
+            ).rawValue,
+            "agentstudio.bridge.slice": nativeTelemetrySlice(for: name).rawValue,
+            "agentstudio.bridge.transport": "swift",
+        ]
+        stringAttributes.merge(additionalStringAttributes) { _, newValue in newValue }
         await telemetryRecorder.record(
             sample: BridgeTelemetrySample(
                 scope: .swift,
                 name: name,
                 durationMilliseconds: durationMilliseconds,
                 traceContext: traceContext,
-                stringAttributes: [
-                    "agentstudio.bridge.phase": phase,
-                    "agentstudio.bridge.plane": nativeTelemetryPlane(
-                        for: name
-                    ).rawValue,
-                    "agentstudio.bridge.priority": nativeTelemetryPriority(
-                        for: name,
-                        fallback: priorityHint
-                    ).rawValue,
-                    "agentstudio.bridge.slice": nativeTelemetrySlice(for: name).rawValue,
-                    "agentstudio.bridge.transport": "swift",
-                ],
+                stringAttributes: stringAttributes,
                 numericAttributes: [:],
                 booleanAttributes: [:]
             ),

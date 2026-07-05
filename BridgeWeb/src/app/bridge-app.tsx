@@ -143,6 +143,10 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 	const activeViewerModeSessionIdRef = useRef<string>(createBridgeActiveViewerModeSessionId());
 	const activeViewerModeSequenceRef = useRef(0);
 	const activeViewerModeRef = useRef<BridgeViewerMode>(activeViewerState.viewerMode);
+	const previousActiveViewerModeRef = useRef<BridgeViewerMode>(activeViewerState.viewerMode);
+	const activeViewerModeActivationRevisionRef = useRef(0);
+	const lastSentActiveViewerModeSignalKeyRef = useRef<string | null>(null);
+	const activeViewerModeSourceSentActivationRevisionsRef = useRef<Set<number>>(new Set());
 	const [activeViewerSources, setActiveViewerSources] = useState<BridgeActiveViewerSources>({
 		file: null,
 		review: null,
@@ -216,6 +220,38 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 	activeViewerSourcesRef.current = activeViewerSources;
 	const sendActiveViewerModeUpdate = useCallback((): void => {
 		const activeViewerMode = activeViewerModeRef.current;
+		const activeSource = activeViewerSourcesRef.current[activeViewerMode];
+		const activationRevision = activeViewerModeActivationRevisionRef.current;
+		if (activeSource === null) {
+			if (
+				activationRevision === 0 ||
+				activeViewerModeSourceSentActivationRevisionsRef.current.has(activationRevision)
+			) {
+				return;
+			}
+			const pendingSignalKey = `${activationRevision}:${activeViewerMode}:pending-source`;
+			if (lastSentActiveViewerModeSignalKeyRef.current === pendingSignalKey) {
+				return;
+			}
+			lastSentActiveViewerModeSignalKeyRef.current = pendingSignalKey;
+			activeViewerModeSequenceRef.current += 1;
+			activeViewerModeRPCClient.sendCommand({
+				method: 'bridge.activeViewerMode.update',
+				params: {
+					sessionId: activeViewerModeSessionIdRef.current,
+					sequence: activeViewerModeSequenceRef.current,
+					mode: activeViewerMode,
+					activeSource: null,
+				},
+			});
+			return;
+		}
+		const signalKey = `${activationRevision}:${activeViewerMode}:${activeSource.protocol}:${activeSource.streamId}:${activeSource.generation}`;
+		if (lastSentActiveViewerModeSignalKeyRef.current === signalKey) {
+			return;
+		}
+		lastSentActiveViewerModeSignalKeyRef.current = signalKey;
+		activeViewerModeSourceSentActivationRevisionsRef.current.add(activationRevision);
 		activeViewerModeSequenceRef.current += 1;
 		activeViewerModeRPCClient.sendCommand({
 			method: 'bridge.activeViewerMode.update',
@@ -223,10 +259,17 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 				sessionId: activeViewerModeSessionIdRef.current,
 				sequence: activeViewerModeSequenceRef.current,
 				mode: activeViewerMode,
-				activeSource: activeViewerSourcesRef.current[activeViewerMode],
+				activeSource,
 			},
 		});
 	}, [activeViewerModeRPCClient]);
+	useLayoutEffect((): void => {
+		if (previousActiveViewerModeRef.current === activeViewerState.viewerMode) {
+			return;
+		}
+		activeViewerModeActivationRevisionRef.current += 1;
+		previousActiveViewerModeRef.current = activeViewerState.viewerMode;
+	}, [activeViewerState.viewerMode]);
 	const reportFileActiveSource = useCallback(
 		(activeSource: BridgeActiveViewerSource | null): void => {
 			setActiveViewerSources((currentSources): BridgeActiveViewerSources => {
