@@ -10,20 +10,26 @@
         "isDirectory": true,
         "path": "Sources",
         "rowId": "review-directory:Sources",
-        "depth": 0
+        "depth": 0,
+        "loaded_by": "startup_window",
+        "lane": "foreground"
       },
       {
         "isDirectory": true,
         "path": "Sources/App",
         "rowId": "review-directory:Sources/App",
-        "depth": 1
+        "depth": 1,
+        "loaded_by": "startup_window",
+        "lane": "foreground"
       },
       {
         "isDirectory": false,
         "path": "Sources/App/View.swift",
         "rowId": "review-row:item-source",
         "depth": 2,
-        "itemId": "item-source"
+        "itemId": "item-source",
+        "loaded_by": "startup_window",
+        "lane": "foreground"
       }
     ],
     "visibleItemIds": [
@@ -61,7 +67,9 @@
           "head"
         ],
         "fileClass": "source",
-        "itemId": "item-source"
+        "itemId": "item-source",
+        "loaded_by": "startup_window",
+        "lane": "foreground"
       }
     ],
     "comparison": {
@@ -103,7 +111,7 @@
             "content": {
               "encoding": "utf-8",
               "mediaType": "text/x-swift",
-              "maxBytes": 52428800,
+              "maxBytes": 4194304,
               "integrity": {
                 "kind": "wholeHash",
                 "algorithm": "sha256",

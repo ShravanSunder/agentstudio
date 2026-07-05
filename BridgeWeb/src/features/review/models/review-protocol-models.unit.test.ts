@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+
 import { describe, expect, test } from 'vitest';
 
 import { bridgeIntakeFrameSchema } from '../../../core/models/bridge-intake-frame.js';
@@ -21,6 +23,20 @@ import {
 } from './review-protocol-models.js';
 
 describe('review protocol models', () => {
+	test('keeps BridgeWeb review metadata snapshot fixture in lockstep with Swift contract fixture', () => {
+		const swiftFixture: unknown = JSON.parse(
+			readFileSync(
+				new URL(
+					'../../../../../Tests/BridgeContractFixtures/valid/review-metadata-snapshot-intake-frame.json',
+					import.meta.url,
+				),
+				'utf8',
+			),
+		);
+
+		expect(reviewMetadataSnapshotIntakeFrameFixture).toEqual(swiftFixture);
+	});
+
 	test('parses Swift native review metadata snapshot intake fixture', () => {
 		const intakeFrame = bridgeIntakeFrameSchema.parse(reviewMetadataSnapshotIntakeFrameFixture);
 		expect(intakeFrame.kind).toBe('snapshot');
