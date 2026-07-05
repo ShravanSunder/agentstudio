@@ -177,8 +177,9 @@ describe('Bridge app review render snapshot controller', () => {
 			cacheKey: 'item-source:base|item-source:head',
 			sizeBytes: 1024,
 		});
-		expect(contentItems[0]?.contentRoles.head?.resourceUrl).toMatch(/^agentstudio:\/\//);
-		expect(JSON.stringify(contentItems)).not.toMatch(/itemsById|orderedItemIds|summary|groups/i);
+		expect(JSON.stringify(contentItems)).not.toMatch(
+			/itemsById|orderedItemIds|summary|groups|contentRoles|resourceUrl|endpointId/i,
+		);
 		expect(bridgeCommWorkerContentItemsFromReviewPackage(null)).toEqual([]);
 	});
 });

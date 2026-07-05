@@ -214,7 +214,6 @@ function bridgeWorkerReviewContentMetadataFromReviewItem(
 		language: item.language ?? null,
 		cacheKey: item.cacheKey,
 		sizeBytes: item.sizeBytes,
-		contentRoles: item.contentRoles,
 		contentLineCountsByRole: item.contentLineCountsByRole ?? {},
 	});
 }

@@ -114,8 +114,9 @@ export function createBridgeCommWorkerStore(
 					),
 					selectedId: fact.itemId,
 					demandByKey: buildDemandByKey({
-						selectedId: contentMetadata === null ? null : fact.itemId,
-						selectedDemandValue: contentMetadata === null ? null : `selected:${fact.epoch}`,
+						contentMetadataByItemId: state.contentMetadataByItemId,
+						selectedId: fact.itemId,
+						selectedDemandValue: `selected:${fact.epoch}`,
 						visibleIds: state.visibleIds,
 					}),
 				}));
@@ -156,6 +157,7 @@ export function createBridgeCommWorkerStore(
 					},
 					visibleIds,
 					demandByKey: buildDemandByKey({
+						contentMetadataByItemId: state.contentMetadataByItemId,
 						selectedId: state.selectedId,
 						selectedDemandValue: readSelectedDemandValue(state),
 						visibleIds,
@@ -277,15 +279,18 @@ function buildInitialBridgeCommWorkerStoreState(
 }
 
 function buildDemandByKey(props: {
+	readonly contentMetadataByItemId: ReadonlyMap<string, BridgeWorkerReviewContentMetadata>;
 	readonly selectedId: string | null;
 	readonly selectedDemandValue: string | null;
 	readonly visibleIds: readonly string[];
 }): ReadonlyMap<string, string> {
 	const demandByKey = new Map<string, string>();
 	for (const itemId of props.visibleIds) {
-		demandByKey.set(itemId, 'visible');
+		if (props.contentMetadataByItemId.has(itemId)) {
+			demandByKey.set(itemId, 'visible');
+		}
 	}
-	if (props.selectedId !== null) {
+	if (props.selectedId !== null && props.contentMetadataByItemId.has(props.selectedId)) {
 		demandByKey.set(props.selectedId, props.selectedDemandValue ?? 'selected');
 	}
 	return demandByKey;

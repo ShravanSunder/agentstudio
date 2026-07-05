@@ -8,7 +8,7 @@ describe('Bridge comm worker store', () => {
 	test('normalizes worker state and rejects root snapshots getState payloads and package-shaped hot actions', () => {
 		const contentItem = makeWorkerReviewContentMetadata('item-2');
 		const store = createBridgeCommWorkerStore({
-			contentItems: [contentItem],
+			contentItems: [makeWorkerReviewContentMetadata('item-1'), contentItem],
 			rows: [
 				{ id: 'root', parentId: null, index: 0 },
 				{ id: 'item-1', parentId: 'root', index: 1 },
@@ -154,16 +154,26 @@ describe('Bridge comm worker store', () => {
 
 	test('marks selected content unavailable when worker metadata is absent', () => {
 		const store = createBridgeCommWorkerStore({
-			contentItems: [],
-			rows: [{ id: 'item-without-content-metadata', parentId: null, index: 0 }],
+			contentItems: [makeWorkerReviewContentMetadata('visible-item')],
+			rows: [
+				{ id: 'item-without-content-metadata', parentId: null, index: 0 },
+				{ id: 'visible-item', parentId: null, index: 1 },
+			],
 		});
 
 		store.actions.applySelectedFact({
 			itemId: 'item-without-content-metadata',
 			epoch: 5,
 		});
+		store.actions.applyViewportFact({
+			visibleItemIds: ['visible-item'],
+			firstVisibleIndex: 1,
+			lastVisibleIndex: 1,
+		});
 
-		expect(Object.fromEntries(store.getState().demandByKey)).toEqual({});
+		expect(Object.fromEntries(store.getState().demandByKey)).toEqual({
+			'visible-item': 'visible',
+		});
 		expect(store.actions.takePendingSlicePatchEvent({ epoch: 5, sequence: 12 })?.patches).toEqual([
 			{
 				slice: 'selection',
@@ -175,6 +185,15 @@ describe('Bridge comm worker store', () => {
 				operation: 'upsert',
 				itemId: 'item-without-content-metadata',
 				payload: { state: 'unavailable' },
+			},
+			{
+				slice: 'viewport',
+				operation: 'upsert',
+				payload: {
+					firstVisibleIndex: 1,
+					lastVisibleIndex: 1,
+					visibleItemIds: ['visible-item'],
+				},
 			},
 		]);
 	});
@@ -191,7 +210,6 @@ function makeWorkerReviewContentMetadata(itemId: string): BridgeWorkerReviewCont
 		language: item.language ?? null,
 		cacheKey: item.cacheKey,
 		sizeBytes: item.sizeBytes,
-		contentRoles: item.contentRoles,
 		contentLineCountsByRole: item.contentLineCountsByRole ?? {},
 	};
 }
