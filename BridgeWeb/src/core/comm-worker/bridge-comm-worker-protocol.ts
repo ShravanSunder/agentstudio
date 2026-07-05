@@ -100,6 +100,7 @@ export function buildBridgeWorkerReadyHealthEvent(requestId?: string): BridgeWor
 	return {
 		wireVersion: BRIDGE_WORKER_WIRE_VERSION,
 		direction: 'serverWorkerToMain',
+		transferDescriptors: [],
 		kind: 'health',
 		...(requestId === undefined ? {} : { requestId }),
 		status: 'ready',
@@ -118,6 +119,7 @@ function bridgeWorkerCommandEnvelope(
 		kind: 'command',
 		requestId: props.requestId,
 		epoch: props.epoch,
+		transferDescriptors: [],
 		command,
 	};
 }

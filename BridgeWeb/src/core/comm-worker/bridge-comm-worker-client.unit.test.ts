@@ -28,10 +28,12 @@ describe('Bridge comm worker client', () => {
 			direction: 'mainToServerWorker',
 			kind: 'command',
 			requestId: 'request-select',
+			transferDescriptors: [],
 		});
 		expect(health).toEqual({
 			wireVersion: 1,
 			direction: 'serverWorkerToMain',
+			transferDescriptors: [],
 			kind: 'health',
 			requestId: 'request-select',
 			status: 'ready',

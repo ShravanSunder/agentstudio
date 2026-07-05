@@ -29,6 +29,7 @@ export function registerInertBridgeCommWorkerPortProtocol(port: BridgeCommWorker
 			port.postMessage({
 				wireVersion: 1,
 				direction: 'serverWorkerToMain',
+				transferDescriptors: [],
 				kind: 'health',
 				status: 'degraded',
 				message: 'Bridge comm worker received invalid message.',

@@ -58,6 +58,7 @@ describe('Bridge comm worker protocol', () => {
 		for (const command of commands) {
 			expect(command.wireVersion).toBe(BRIDGE_WORKER_WIRE_VERSION);
 			expect(command.direction).toBe('mainToServerWorker');
+			expect(command.transferDescriptors).toEqual([]);
 			expect(bridgeWorkerMainToServerMessageSchema.parse(command)).toEqual(command);
 		}
 	});

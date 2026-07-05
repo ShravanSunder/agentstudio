@@ -38,6 +38,7 @@ describe('Bridge comm worker hostile server test support', () => {
 		activeReply.resolve({
 			wireVersion: 1,
 			direction: 'serverWorkerToMain',
+			transferDescriptors: [],
 			kind: 'health',
 			requestId: 'request-2',
 			status: 'ready',
@@ -45,6 +46,7 @@ describe('Bridge comm worker hostile server test support', () => {
 		staleReply.resolve({
 			wireVersion: 1,
 			direction: 'serverWorkerToMain',
+			transferDescriptors: [],
 			kind: 'health',
 			requestId: 'request-1',
 			status: 'ready',
@@ -58,6 +60,7 @@ describe('Bridge comm worker hostile server test support', () => {
 		await expect(firstTask).resolves.toEqual({
 			wireVersion: 1,
 			direction: 'serverWorkerToMain',
+			transferDescriptors: [],
 			kind: 'health',
 			requestId: 'request-1',
 			status: 'ready',

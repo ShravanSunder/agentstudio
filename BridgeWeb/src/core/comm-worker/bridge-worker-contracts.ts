@@ -6,6 +6,17 @@ const bridgeWorkerRequestIdSchema = z.string().min(1);
 const bridgeWorkerEpochSchema = z.number().int().nonnegative();
 const bridgeWorkerSequenceSchema = z.number().int().nonnegative();
 
+export const bridgeWorkerTransferDescriptorSchema = z
+	.object({
+		messageKind: z.string().min(1),
+		fieldPath: z.array(z.string().min(1)).readonly(),
+		byteLength: z.number().int().nonnegative(),
+		mode: z.enum(['transfer', 'clone']),
+	})
+	.strict();
+
+export type BridgeWorkerTransferDescriptor = z.infer<typeof bridgeWorkerTransferDescriptorSchema>;
+
 const bridgeWorkerMainToServerBaseSchema = z
 	.object({
 		wireVersion: z.literal(BRIDGE_WORKER_WIRE_VERSION),
@@ -13,6 +24,7 @@ const bridgeWorkerMainToServerBaseSchema = z
 		kind: z.literal('command'),
 		requestId: bridgeWorkerRequestIdSchema,
 		epoch: bridgeWorkerEpochSchema,
+		transferDescriptors: z.array(bridgeWorkerTransferDescriptorSchema).readonly(),
 	})
 	.strict();
 
@@ -91,6 +103,7 @@ const bridgeWorkerServerToMainBaseSchema = z
 	.object({
 		wireVersion: z.literal(BRIDGE_WORKER_WIRE_VERSION),
 		direction: z.literal('serverWorkerToMain'),
+		transferDescriptors: z.array(bridgeWorkerTransferDescriptorSchema).readonly(),
 	})
 	.strict();
 
