@@ -1,0 +1,132 @@
+import { describe, expect, test } from 'vitest';
+
+import { createBridgeMainRenderSnapshotStore } from '../core/comm-worker/bridge-main-render-snapshot-store.js';
+import type {
+	BridgeWorkerPierreRenderJobEvent,
+	BridgeWorkerServerToMainMessage,
+} from '../core/comm-worker/bridge-worker-contracts.js';
+import type { BridgeWorkerPierreCourier } from '../core/comm-worker/bridge-worker-pierre-courier.js';
+import {
+	buildBridgeWorkerPierreRenderJob,
+	type BridgeWorkerPierreRenderJob,
+} from '../core/comm-worker/bridge-worker-pierre-render-job.js';
+import { applyBridgeWorkerMessagesToMainRenderSnapshotStore } from './bridge-app-review-render-snapshot-controller.js';
+
+describe('Bridge app review render snapshot controller', () => {
+	test('routes worker Pierre render jobs through the courier instead of dropping them', () => {
+		const renderSnapshotStore = createBridgeMainRenderSnapshotStore();
+		const job = buildBridgeWorkerPierreRenderJob({
+			itemId: 'item-1',
+			renderKind: 'reviewDiff',
+			contentCacheKey: 'pierre-content:sha256:abc123',
+			contentHash: 'abc123',
+			language: 'typescript',
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			window: {
+				startLine: 1,
+				endLine: 10,
+				totalLineCount: 100,
+			},
+			payload: {
+				kind: 'textWindow',
+				textBytes: new ArrayBuffer(96),
+			},
+			budget: {
+				className: 'interactive',
+				maxBytes: 512 * 1024,
+				maxWindowLines: 400,
+			},
+		});
+		const event = {
+			wireVersion: 1,
+			direction: 'serverWorkerToMain',
+			transferDescriptors: [],
+			kind: 'pierreRenderJob',
+			job,
+		} satisfies BridgeWorkerPierreRenderJobEvent;
+		const enqueuedJobs: BridgeWorkerPierreRenderJob[] = [];
+		const pierreCourier: BridgeWorkerPierreCourier = {
+			enqueue: (receivedJob: BridgeWorkerPierreRenderJob) => {
+				enqueuedJobs.push(receivedJob);
+				return {
+					status: 'enqueued',
+					itemId: receivedJob.itemId,
+					payloadByteLength: receivedJob.payloadByteLength,
+					budgetClass: receivedJob.budgetClass,
+				};
+			},
+		};
+
+		applyBridgeWorkerMessagesToMainRenderSnapshotStore({
+			messages: [event],
+			pierreCourier,
+			renderSnapshotStore,
+		});
+
+		expect(enqueuedJobs).toEqual([job]);
+	});
+
+	test('routes only slice patches into the render snapshot store', () => {
+		const renderSnapshotStore = createBridgeMainRenderSnapshotStore();
+		const enqueuedJobs: BridgeWorkerPierreRenderJob[] = [];
+		const pierreCourier: BridgeWorkerPierreCourier = {
+			enqueue: (receivedJob: BridgeWorkerPierreRenderJob) => {
+				enqueuedJobs.push(receivedJob);
+				return {
+					status: 'enqueued',
+					itemId: receivedJob.itemId,
+					payloadByteLength: receivedJob.payloadByteLength,
+					budgetClass: receivedJob.budgetClass,
+				};
+			},
+		};
+		const messages = [
+			{
+				wireVersion: 1,
+				direction: 'serverWorkerToMain',
+				transferDescriptors: [],
+				kind: 'health',
+				status: 'ready',
+			},
+			{
+				wireVersion: 1,
+				direction: 'serverWorkerToMain',
+				transferDescriptors: [],
+				kind: 'subscription',
+				requestId: 'request-subscription',
+				subscription: 'reviewContent',
+				status: 'subscribed',
+			},
+			{
+				wireVersion: 1,
+				direction: 'serverWorkerToMain',
+				transferDescriptors: [],
+				kind: 'slicePatch',
+				epoch: 4,
+				sequence: 7,
+				patches: [
+					{
+						slice: 'selection',
+						operation: 'upsert',
+						payload: {
+							selectedItemId: 'item-2',
+							source: 'user',
+						},
+					},
+				],
+			},
+		] satisfies readonly BridgeWorkerServerToMainMessage[];
+
+		applyBridgeWorkerMessagesToMainRenderSnapshotStore({
+			messages,
+			pierreCourier,
+			renderSnapshotStore,
+		});
+
+		expect(renderSnapshotStore.getSnapshot().selectionSlice).toEqual({
+			selectedItemId: 'item-2',
+			source: 'user',
+		});
+		expect(enqueuedJobs).toEqual([]);
+	});
+});

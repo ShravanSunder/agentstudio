@@ -14,6 +14,12 @@ import {
 	type BridgeMainRenderSnapshotStore,
 } from '../core/comm-worker/bridge-main-render-snapshot-store.js';
 import type { BridgeWorkerServerToMainMessage } from '../core/comm-worker/bridge-worker-contracts.js';
+import {
+	createBridgeWorkerPierreCourier,
+	type BridgeWorkerPierreCourier,
+	type BridgeWorkerPierreCourierReceipt,
+} from '../core/comm-worker/bridge-worker-pierre-courier.js';
+import type { BridgeWorkerPierreRenderJob } from '../core/comm-worker/bridge-worker-pierre-render-job.js';
 import type { ReviewTreeRowMetadata } from '../features/review/models/review-protocol-models.js';
 import type {
 	BridgeReviewPanelChromeSlice,
@@ -25,6 +31,7 @@ import { bridgeReviewViewerRootSnapshotFromSlices } from '../review-viewer/state
 
 export interface UseBridgeReviewRenderSnapshotControllerProps {
 	readonly panelChromeSlice: BridgeReviewPanelChromeSlice;
+	readonly pierreCourier?: BridgeWorkerPierreCourier;
 	readonly reviewTreeRows: readonly ReviewTreeRowMetadata[];
 }
 
@@ -73,6 +80,14 @@ export function useBridgeReviewRenderSnapshotController(
 			}),
 		[props.reviewTreeRows],
 	);
+	const pierreCourier = useMemo(
+		(): BridgeWorkerPierreCourier =>
+			props.pierreCourier ??
+			createBridgeWorkerPierreCourier({
+				enqueuePierreRenderJob: enqueuePendingBridgeWorkerPierreRenderJob,
+			}),
+		[props.pierreCourier],
+	);
 	const requestSequenceRef = useRef(0);
 	const workerEpochRef = useRef(0);
 	const selectionSliceRef = useRef(selectionSlice);
@@ -84,10 +99,11 @@ export function useBridgeReviewRenderSnapshotController(
 		(messages: readonly BridgeWorkerServerToMainMessage[]): void => {
 			applyBridgeWorkerMessagesToMainRenderSnapshotStore({
 				messages,
+				pierreCourier,
 				renderSnapshotStore,
 			});
 		},
-		[renderSnapshotStore],
+		[pierreCourier, renderSnapshotStore],
 	);
 	const setSelectedReviewItemId = useCallback(
 		(itemId: string | null): void => {
@@ -159,8 +175,9 @@ function bridgeCommWorkerRowsFromReviewTreeRows(
 	}));
 }
 
-function applyBridgeWorkerMessagesToMainRenderSnapshotStore(props: {
+export function applyBridgeWorkerMessagesToMainRenderSnapshotStore(props: {
 	readonly messages: readonly BridgeWorkerServerToMainMessage[];
+	readonly pierreCourier: BridgeWorkerPierreCourier;
 	readonly renderSnapshotStore: BridgeMainRenderSnapshotStore;
 }): void {
 	for (const message of props.messages) {
@@ -172,12 +189,25 @@ function applyBridgeWorkerMessagesToMainRenderSnapshotStore(props: {
 				break;
 			case 'health':
 			case 'subscription':
+				break;
 			case 'pierreRenderJob':
+				props.pierreCourier.enqueue(message.job);
 				break;
 			default:
 				assertNeverBridgeWorkerServerMessage(message);
 		}
 	}
+}
+
+function enqueuePendingBridgeWorkerPierreRenderJob(
+	job: BridgeWorkerPierreRenderJob,
+): BridgeWorkerPierreCourierReceipt {
+	return {
+		status: 'enqueued',
+		itemId: job.itemId,
+		payloadByteLength: job.payloadByteLength,
+		budgetClass: job.budgetClass,
+	};
 }
 
 function nextBridgeReviewWorkerRequestId(requestSequenceRef: MutableRefObject<number>): string {
