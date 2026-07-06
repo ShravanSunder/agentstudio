@@ -51,6 +51,7 @@ export interface BridgeCommWorkerTouchedResult {
 export interface ApplyBridgeCommWorkerSelectedFactProps {
 	readonly itemId: string;
 	readonly epoch: number;
+	readonly selectedLoadingAvailabilityEnabled?: boolean;
 	readonly selectedPreparationAvailable?: boolean;
 }
 
@@ -122,7 +123,10 @@ export function createBridgeCommWorkerStore(
 				const isDemandEligible = isDemandEligibleContentMetadata(contentMetadata);
 				const selectedDemandEnabled =
 					isDemandEligible && (fact.selectedPreparationAvailable ?? true);
-				const nextAvailabilityState = selectedDemandEnabled
+				const selectedLoadingAvailabilityEnabled =
+					isDemandEligible &&
+					(selectedDemandEnabled || fact.selectedLoadingAvailabilityEnabled === true);
+				const nextAvailabilityState = selectedLoadingAvailabilityEnabled
 					? 'loading'
 					: isDemandEligible
 						? null

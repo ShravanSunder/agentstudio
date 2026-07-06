@@ -16,6 +16,7 @@ export interface CreateBridgeCommWorkerCommandHandlerProps {
 	readonly contentItems: readonly BridgeWorkerReviewContentMetadata[];
 	readonly rows: readonly BridgeCommWorkerRow[];
 	readonly createSequence?: () => number;
+	readonly selectedLoadingAvailabilityEnabled?: boolean;
 	readonly scheduleSelectedReviewContentReadyPreparation?: (
 		request: BridgeCommWorkerSelectedReviewContentReadyPreparationRequest,
 	) => void;
@@ -65,6 +66,9 @@ export function createBridgeCommWorkerCommandHandler(
 							scheduleSelectedReviewContentReadyPreparation:
 								props.scheduleSelectedReviewContentReadyPreparation,
 						}),
+				...(props.selectedLoadingAvailabilityEnabled === undefined
+					? {}
+					: { selectedLoadingAvailabilityEnabled: props.selectedLoadingAvailabilityEnabled }),
 				store,
 			});
 		},
@@ -77,6 +81,7 @@ interface HandleBridgeWorkerCommandProps {
 	readonly scheduleSelectedReviewContentReadyPreparation?: (
 		request: BridgeCommWorkerSelectedReviewContentReadyPreparationRequest,
 	) => void;
+	readonly selectedLoadingAvailabilityEnabled?: boolean;
 	readonly store: BridgeCommWorkerStore;
 }
 
@@ -94,6 +99,9 @@ function handleBridgeWorkerCommand(
 							scheduleSelectedReviewContentReadyPreparation:
 								props.scheduleSelectedReviewContentReadyPreparation,
 						}),
+				...(props.selectedLoadingAvailabilityEnabled === undefined
+					? {}
+					: { selectedLoadingAvailabilityEnabled: props.selectedLoadingAvailabilityEnabled }),
 				store: props.store,
 			});
 		case 'viewport':
@@ -117,6 +125,7 @@ interface HandleBridgeWorkerSelectCommandProps {
 	readonly scheduleSelectedReviewContentReadyPreparation?: (
 		request: BridgeCommWorkerSelectedReviewContentReadyPreparationRequest,
 	) => void;
+	readonly selectedLoadingAvailabilityEnabled?: boolean;
 	readonly store: BridgeCommWorkerStore;
 }
 
@@ -126,6 +135,9 @@ function handleBridgeWorkerSelectCommand(
 	props.store.actions.applySelectedFact({
 		epoch: props.message.epoch,
 		itemId: props.message.selectedItemId,
+		...(props.selectedLoadingAvailabilityEnabled === undefined
+			? {}
+			: { selectedLoadingAvailabilityEnabled: props.selectedLoadingAvailabilityEnabled }),
 		selectedPreparationAvailable: props.scheduleSelectedReviewContentReadyPreparation !== undefined,
 	});
 	const slicePatch = props.store.actions.takePendingSlicePatchEvent({

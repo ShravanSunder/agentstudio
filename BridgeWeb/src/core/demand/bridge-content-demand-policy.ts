@@ -1,3 +1,4 @@
+import type { BridgeWorkerPierreRenderBudget } from '../comm-worker/bridge-worker-pierre-render-job.js';
 import type { BridgeContentDemandRole } from '../models/bridge-demand-models.js';
 
 export const bridgeContentDemandExecutionPolicy = {
@@ -47,6 +48,15 @@ export const bridgeContentDemandRetentionPolicy = {
 	backgroundPrefixMaxFileCount: 40,
 	/** Protects byte-cache pressure; validated by aborted background fetch count. */
 	backgroundPrefixMaxByteCacheFraction: 0.25,
+} as const;
+
+export const bridgeWorkerPierreRenderPolicy = {
+	/** R57 selected courier byte/line ceiling; validated by worker render-job budget tests and clone/submit telemetry. */
+	interactiveRenderBudget: {
+		className: 'interactive',
+		maxBytes: 512 * 1024,
+		maxWindowLines: 400,
+	} satisfies BridgeWorkerPierreRenderBudget,
 } as const;
 
 const contentDemandRoleRank: Readonly<Record<BridgeContentDemandRole, number>> = {

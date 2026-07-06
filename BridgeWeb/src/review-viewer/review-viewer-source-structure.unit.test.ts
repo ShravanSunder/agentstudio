@@ -111,8 +111,13 @@ describe('Review viewer source structure', () => {
 		expect(modeSource).not.toContain('selectBridgeReviewViewportSlice');
 		expect(modeSource).not.toContain('viewerActions.setMountedItemIds');
 		expect(renderSnapshotControllerSource).toContain('createBridgeMainRenderSnapshotStore');
-		expect(renderSnapshotControllerSource).toContain('createBridgeCommWorkerCommandHandler');
+		expect(renderSnapshotControllerSource).toContain('registerBridgeCommWorkerRuntimePortProtocol');
+		expect(renderSnapshotControllerSource).not.toContain('createBridgeCommWorkerCommandHandler');
+		expect(renderSnapshotControllerSource).not.toContain('.handleMessage(');
 		expect(renderSnapshotControllerSource).toContain('useSyncExternalStore');
+		expect(renderSnapshotControllerSource).toContain('bridgeWorkerPierreRenderPolicy');
+		expect(renderSnapshotControllerSource).not.toContain('maxBytes: 512 * 1024');
+		expect(renderSnapshotControllerSource).not.toContain('maxWindowLines: 400');
 		expect(renderSnapshotControllerSource).toContain('encodeBridgeWorkerSelectCommand');
 		expect(renderSnapshotControllerSource).toContain('encodeBridgeWorkerViewportCommand');
 		const viewportSetterSource = renderSnapshotControllerSource.slice(
@@ -120,8 +125,9 @@ describe('Review viewer source structure', () => {
 			renderSnapshotControllerSource.indexOf('return {'),
 		);
 		expect(viewportSetterSource).toContain('renderSnapshotStore.setLocalViewport');
+		expect(viewportSetterSource).toContain('runtimeDispatcher.dispatch');
 		expect(viewportSetterSource.indexOf('renderSnapshotStore.setLocalViewport')).toBeLessThan(
-			viewportSetterSource.indexOf('publishWorkerMessages'),
+			viewportSetterSource.indexOf('runtimeDispatcher.dispatch'),
 		);
 	});
 

@@ -429,6 +429,35 @@ interface SelectedCanvasLoadingReasonForCurrentSelectionProps {
 	readonly selectedMarkdownPreviewState: SelectedMarkdownPreviewState | null;
 }
 
+interface SelectedContentAvailabilityFromLegacySelectedContentStateProps {
+	readonly currentSelectedContentKey: string | null;
+	readonly selectedContentResourcesState: SelectedContentResourcesState | null;
+	readonly selectedItemId: string | null;
+}
+
+export function selectedContentAvailabilityFromLegacySelectedContentState(
+	props: SelectedContentAvailabilityFromLegacySelectedContentStateProps,
+): BridgeWorkerContentAvailabilityPatchPayload | null {
+	if (
+		props.selectedItemId === null ||
+		props.currentSelectedContentKey === null ||
+		props.selectedContentResourcesState === null ||
+		props.selectedContentResourcesState.itemId !== props.selectedItemId ||
+		props.selectedContentResourcesState.contentKey !== props.currentSelectedContentKey
+	) {
+		return null;
+	}
+	switch (props.selectedContentResourcesState.status) {
+		case 'loading':
+			return { state: 'loading' };
+		case 'ready':
+			return { state: 'ready' };
+		case 'failed':
+			return { state: 'failed' };
+	}
+	return null;
+}
+
 export function selectedCanvasLoadingReasonForCurrentSelection(
 	props: SelectedCanvasLoadingReasonForCurrentSelectionProps,
 ): BridgeReviewCanvasLoadingReason | null {

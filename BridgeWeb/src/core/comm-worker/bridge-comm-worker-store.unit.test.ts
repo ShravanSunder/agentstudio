@@ -133,6 +133,46 @@ describe('Bridge comm worker store', () => {
 		]);
 	});
 
+	test('can publish selected loading availability without creating selected demand', () => {
+		const store = createBridgeCommWorkerStore({
+			contentItems: [makeWorkerReviewContentMetadata('item-2')],
+			rows: [{ id: 'item-2', parentId: null, index: 0 }],
+		});
+
+		const selectedResult = store.actions.applySelectedFact({
+			itemId: 'item-2',
+			epoch: 3,
+			selectedPreparationAvailable: false,
+			selectedLoadingAvailabilityEnabled: true,
+		});
+		const patchEvent = store.actions.takePendingSlicePatchEvent({ epoch: 3, sequence: 9 });
+
+		expect(store.getState().selectedId).toBe('item-2');
+		expect(Object.fromEntries(store.getState().demandByKey)).toEqual({});
+		expect(Object.fromEntries(store.getState().availabilityByItemId)).toEqual({
+			'item-2': 'loading',
+		});
+		expect(selectedResult.touchedKeys).toEqual([
+			'selectedId',
+			'rowPaint:item-2',
+			'availability:item-2',
+			'contentMetadata:item-2',
+		]);
+		expect(patchEvent?.patches).toEqual([
+			{
+				slice: 'selection',
+				operation: 'upsert',
+				payload: { selectedItemId: 'item-2' },
+			},
+			{
+				slice: 'contentAvailability',
+				operation: 'upsert',
+				itemId: 'item-2',
+				payload: { state: 'loading' },
+			},
+		]);
+	});
+
 	test('keeps raw ids distinct and retires stale selected and viewport demand entries', () => {
 		const store = createBridgeCommWorkerStore({
 			contentItems: [

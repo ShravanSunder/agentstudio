@@ -55,6 +55,7 @@ import {
 	makeSelectedContentResourcesKey,
 	reviewContentValidityDropReason,
 	reviewFileTargetForNavigationCommand,
+	selectedContentAvailabilityFromLegacySelectedContentState,
 	selectedCanvasLoadingReasonForCurrentSelection,
 	selectedContentDemandStartedAtMillisecondsForCurrentSelection,
 	selectedContentResourcesForCurrentSelection,
@@ -119,6 +120,7 @@ export function BridgeReviewViewerMode(
 		selectionSlice,
 		selectionSliceRef,
 		setReviewViewportItemIds,
+		setSelectedContentAvailability,
 		setSelectedReviewItemId,
 		viewportSliceRef,
 	} = useBridgeReviewRenderSnapshotController({
@@ -246,6 +248,25 @@ export function BridgeReviewViewerMode(
 		reviewPackage === null || rootSnapshot.selectedItemId === null
 			? null
 			: makeSelectedContentResourcesKey(reviewPackage, rootSnapshot.selectedItemId);
+	useEffect((): void => {
+		const availability = selectedContentAvailabilityFromLegacySelectedContentState({
+			currentSelectedContentKey,
+			selectedContentResourcesState,
+			selectedItemId: rootSnapshot.selectedItemId,
+		});
+		if (availability === null || rootSnapshot.selectedItemId === null) {
+			return;
+		}
+		setSelectedContentAvailability({
+			availability,
+			itemId: rootSnapshot.selectedItemId,
+		});
+	}, [
+		currentSelectedContentKey,
+		rootSnapshot.selectedItemId,
+		selectedContentResourcesState,
+		setSelectedContentAvailability,
+	]);
 	const lastReportedSelectedContentDropContentKeyRef = useRef<string | null>(null);
 	useEffect((): void => {
 		const dropReason = reviewContentValidityDropReason({
