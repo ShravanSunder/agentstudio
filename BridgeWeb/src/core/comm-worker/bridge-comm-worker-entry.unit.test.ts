@@ -2,11 +2,14 @@ import { describe, expect, test } from 'vitest';
 
 import {
 	type BridgeCommWorkerPort,
+	bootstrapBridgeCommWorkerEntry,
 	createBridgeCommWorkerScopePortAdapter,
 	postPreparedBridgeCommWorkerMessage,
 	registerInertBridgeCommWorkerPortProtocol,
 } from './bridge-comm-worker-entry.js';
+import { encodeBridgeWorkerSelectCommand } from './bridge-comm-worker-protocol.js';
 import type {
+	BridgeCommWorkerBootstrapRequest,
 	BridgeWorkerReviewRenderSemantics,
 	BridgeWorkerServerToMainMessage,
 } from './bridge-worker-contracts.js';
@@ -187,6 +190,191 @@ describe('Bridge comm worker entry', () => {
 			},
 		]);
 	});
+
+	test('degrades commands received before runtime bootstrap', () => {
+		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+		bootstrapBridgeCommWorkerEntry(dispatch.port);
+
+		dispatch.message(
+			encodeBridgeWorkerSelectCommand({
+				requestId: 'request-before-bootstrap',
+				epoch: 1,
+				selectedItemId: 'item-1',
+				selectedSource: 'user',
+			}),
+		);
+
+		expect(postedMessages).toEqual([
+			{
+				message: {
+					wireVersion: 1,
+					direction: 'serverWorkerToMain',
+					kind: 'health',
+					requestId: 'request-before-bootstrap',
+					status: 'degraded',
+					message: 'Bridge comm worker command received before bootstrap.',
+					transferDescriptors: [],
+				},
+				transferList: undefined,
+			},
+		]);
+	});
+
+	test('bootstraps the runtime protocol before accepting commands', () => {
+		const { dispatch, postedMessages, started } = createRecordingBridgeCommWorkerPort();
+		bootstrapBridgeCommWorkerEntry(dispatch.port);
+
+		dispatch.message(makeBootstrapRequest('bootstrap-request-1'));
+		dispatch.message(
+			encodeBridgeWorkerSelectCommand({
+				requestId: 'request-after-bootstrap',
+				epoch: 2,
+				selectedItemId: 'item-1',
+				selectedSource: 'user',
+			}),
+		);
+
+		expect(started()).toBe(true);
+		expect(postedMessages.map((posted) => posted.message)).toEqual([
+			{
+				wireVersion: 1,
+				direction: 'serverWorkerToMain',
+				kind: 'health',
+				requestId: 'bootstrap-request-1',
+				status: 'ready',
+				transferDescriptors: [],
+			},
+			{
+				wireVersion: 1,
+				direction: 'serverWorkerToMain',
+				kind: 'slicePatch',
+				epoch: 2,
+				sequence: 1,
+				transferDescriptors: [],
+				patches: [
+					{
+						slice: 'selection',
+						operation: 'upsert',
+						payload: {
+							selectedItemId: 'item-1',
+						},
+					},
+					{
+						slice: 'contentAvailability',
+						operation: 'upsert',
+						itemId: 'item-1',
+						payload: {
+							state: 'loading',
+						},
+					},
+				],
+			},
+			{
+				wireVersion: 1,
+				direction: 'serverWorkerToMain',
+				kind: 'health',
+				requestId: 'request-after-bootstrap',
+				status: 'ready',
+				transferDescriptors: [],
+			},
+		]);
+	});
+
+	test('replays commands that arrived before runtime bootstrap', () => {
+		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+		bootstrapBridgeCommWorkerEntry(dispatch.port);
+
+		dispatch.message(
+			encodeBridgeWorkerSelectCommand({
+				requestId: 'request-before-bootstrap',
+				epoch: 3,
+				selectedItemId: 'item-1',
+				selectedSource: 'user',
+			}),
+		);
+		dispatch.message(makeBootstrapRequest('bootstrap-request-1'));
+
+		expect(postedMessages.map((posted) => posted.message)).toEqual([
+			{
+				wireVersion: 1,
+				direction: 'serverWorkerToMain',
+				kind: 'health',
+				requestId: 'request-before-bootstrap',
+				status: 'degraded',
+				message: 'Bridge comm worker command received before bootstrap.',
+				transferDescriptors: [],
+			},
+			{
+				wireVersion: 1,
+				direction: 'serverWorkerToMain',
+				kind: 'health',
+				requestId: 'bootstrap-request-1',
+				status: 'ready',
+				transferDescriptors: [],
+			},
+			{
+				wireVersion: 1,
+				direction: 'serverWorkerToMain',
+				kind: 'slicePatch',
+				epoch: 3,
+				sequence: 1,
+				transferDescriptors: [],
+				patches: [
+					{
+						slice: 'selection',
+						operation: 'upsert',
+						payload: {
+							selectedItemId: 'item-1',
+						},
+					},
+					{
+						slice: 'contentAvailability',
+						operation: 'upsert',
+						itemId: 'item-1',
+						payload: {
+							state: 'loading',
+						},
+					},
+				],
+			},
+			{
+				wireVersion: 1,
+				direction: 'serverWorkerToMain',
+				kind: 'health',
+				requestId: 'request-before-bootstrap',
+				status: 'ready',
+				transferDescriptors: [],
+			},
+		]);
+	});
+
+	test('rejects duplicate bootstrap requests after runtime ownership is installed', () => {
+		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+		bootstrapBridgeCommWorkerEntry(dispatch.port);
+
+		dispatch.message(makeBootstrapRequest('bootstrap-request-1'));
+		dispatch.message(makeBootstrapRequest('bootstrap-request-2'));
+
+		expect(postedMessages.map((posted) => posted.message)).toEqual([
+			{
+				wireVersion: 1,
+				direction: 'serverWorkerToMain',
+				kind: 'health',
+				requestId: 'bootstrap-request-1',
+				status: 'ready',
+				transferDescriptors: [],
+			},
+			{
+				wireVersion: 1,
+				direction: 'serverWorkerToMain',
+				kind: 'health',
+				requestId: 'bootstrap-request-2',
+				status: 'degraded',
+				message: 'Bridge comm worker runtime was already bootstrapped.',
+				transferDescriptors: [],
+			},
+		]);
+	});
 });
 
 function createRecordingBridgeCommWorkerPort(): {
@@ -198,15 +386,12 @@ function createRecordingBridgeCommWorkerPort(): {
 	readonly started: () => boolean;
 } {
 	const postedMessages: PostedBridgeWorkerMessage[] = [];
-	let listener: ((event: MessageEvent<unknown>) => void) | null = null;
+	const eventTarget = new EventTarget();
 	let didStart = false;
 	return {
 		dispatch: {
 			message: (data: unknown): void => {
-				if (listener === null) {
-					throw new Error('Bridge comm worker port listener was not registered.');
-				}
-				listener(new MessageEvent('message', { data }));
+				eventTarget.dispatchEvent(new MessageEvent('message', { data }));
 			},
 			port: {
 				postMessage: (
@@ -220,8 +405,13 @@ function createRecordingBridgeCommWorkerPort(): {
 					nextListener: (event: MessageEvent<unknown>) => void,
 				): void => {
 					expect(type).toBe('message');
-					listener = nextListener;
+					eventTarget.addEventListener(type, (event: Event): void => {
+						if (event instanceof MessageEvent) {
+							nextListener(event);
+						}
+					});
 				},
+				dispatchEvent: (event: Event): boolean => eventTarget.dispatchEvent(event),
 				start: (): void => {
 					didStart = true;
 				},
@@ -261,5 +451,35 @@ function makeFetchedReviewContentResource(props: {
 		language: 'swift',
 		byteLength: props.textBytes.byteLength,
 		textBytes: props.textBytes,
+	};
+}
+
+function makeBootstrapRequest(requestId: string): BridgeCommWorkerBootstrapRequest {
+	return {
+		schemaVersion: 1,
+		method: 'bridgeCommWorker.bootstrap',
+		requestId,
+		runtime: {
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: {
+				className: 'interactive',
+				maxBytes: 512 * 1024,
+				maxWindowLines: 400,
+			},
+			contentItems: [
+				{
+					itemId: 'item-1',
+					path: 'Sources/App/item-1.swift',
+					language: 'swift',
+					cacheKey: 'item-1:base|item-1:head',
+					sizeBytes: 104,
+					availableContentRoles: ['base', 'head'],
+					contentLineCountsByRole: { base: 10, head: 12 },
+				},
+			],
+			contentRequestDescriptors: [],
+			renderSemantics: [],
+			rows: [{ id: 'item-1', parentId: null, index: 0 }],
+		},
 	};
 }

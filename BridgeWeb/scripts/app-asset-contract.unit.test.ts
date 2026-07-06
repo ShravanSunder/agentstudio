@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -377,6 +377,20 @@ describe('app asset contract', () => {
 		]) {
 			expect(() => validateWorkerSourceSelfContained(source)).toThrow(/self-contained/);
 		}
+	});
+
+	test('packages the bridge comm worker as a module worker app asset', async () => {
+		const tsdownSource = await readFile(new URL('./../tsdown.config.ts', import.meta.url), 'utf8');
+		const buildAssetsSource = await readFile(
+			new URL('./build-app-assets.ts', import.meta.url),
+			'utf8',
+		);
+
+		expect(tsdownSource).toContain("name: 'bridge-comm-worker'");
+		expect(tsdownSource).toContain("'./src/core/comm-worker/bridge-comm-worker-entry.ts'");
+		expect(buildAssetsSource).toContain("entrypointName: 'bridge-comm-worker'");
+		expect(buildAssetsSource).toContain("kind: 'bridge-comm-worker'");
+		expect(buildAssetsSource).toContain("workerKind: 'moduleWorker'");
 	});
 
 	test('normalizes Pierre worker optional Shiki WASM sidecar import', () => {

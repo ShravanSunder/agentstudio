@@ -1,21 +1,17 @@
 import type { MutableRefObject } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 
-import type { BridgeCommWorkerPort } from '../core/comm-worker/bridge-comm-worker-entry.js';
 import {
 	encodeBridgeWorkerSelectCommand,
 	encodeBridgeWorkerViewportCommand,
 } from '../core/comm-worker/bridge-comm-worker-protocol.js';
-import {
-	registerBridgeCommWorkerRuntimePortProtocol,
-	type BridgeCommWorkerPreparationDrain,
-} from '../core/comm-worker/bridge-comm-worker-runtime-protocol.js';
 import type { BridgeCommWorkerRow } from '../core/comm-worker/bridge-comm-worker-store.js';
 import {
 	createBridgeMainRenderSnapshotStore,
 	type BridgeMainRenderSnapshotStore,
 } from '../core/comm-worker/bridge-main-render-snapshot-store.js';
 import type {
+	BridgeCommWorkerBootstrapRequest,
 	BridgeWorkerContentAvailabilityPatchPayload,
 	BridgeWorkerMainToServerMessage,
 	BridgeWorkerReviewContentRequestDescriptor,
@@ -24,6 +20,7 @@ import type {
 	BridgeWorkerServerToMainMessage,
 } from '../core/comm-worker/bridge-worker-contracts.js';
 import {
+	bridgeCommWorkerBootstrapRequestSchema,
 	bridgeWorkerReviewContentRequestDescriptorSchema,
 	bridgeWorkerReviewContentMetadataSchema,
 	bridgeWorkerReviewRenderSemanticsSchema,
@@ -37,7 +34,6 @@ import type {
 	BridgeWorkerPierreRenderBudget,
 	BridgeWorkerPierreRenderJob,
 } from '../core/comm-worker/bridge-worker-pierre-render-job.js';
-import type { BridgeWorkerContentFetch } from '../core/comm-worker/bridge-worker-review-content-fetch.js';
 import { bridgeWorkerPierreRenderPolicy } from '../core/demand/bridge-content-demand-policy.js';
 import type { ReviewTreeRowMetadata } from '../features/review/models/review-protocol-models.js';
 import type {
@@ -53,6 +49,10 @@ import type {
 	BridgeReviewViewportSlice,
 } from '../review-viewer/state/review-viewer-store.js';
 import { bridgeReviewViewerRootSnapshotFromSlices } from '../review-viewer/state/review-viewer-store.js';
+import {
+	createBridgeReviewCommWorkerTransportDispatcher,
+	type BridgeReviewCommWorkerTransportDispatcher,
+} from '../review-viewer/workers/shared-rpc/bridge-comm-worker-transport.js';
 
 export interface UseBridgeReviewRenderSnapshotControllerProps {
 	readonly panelChromeSlice: BridgeReviewPanelChromeSlice;
@@ -278,92 +278,55 @@ export interface BridgeReviewRuntimeProtocolDispatcher {
 }
 
 export interface CreateBridgeReviewRuntimeProtocolDispatcherProps {
+	readonly bootstrapRequestId?: string;
 	readonly bridgeDemandRank?: BridgeWorkerDemandRank;
 	readonly budget?: BridgeWorkerPierreRenderBudget;
 	readonly contentItems: readonly BridgeWorkerReviewContentMetadata[];
 	readonly contentRequestDescriptors: readonly BridgeWorkerReviewContentRequestDescriptor[];
-	readonly createSequence?: () => number;
-	readonly fetchContent?: BridgeWorkerContentFetch;
 	readonly maxPreparationSliceMs?: number;
-	readonly now?: () => number;
 	readonly publishWorkerMessages: (messages: readonly BridgeWorkerServerToMainMessage[]) => void;
 	readonly renderSemantics: readonly BridgeWorkerReviewRenderSemantics[];
 	readonly rows: readonly BridgeCommWorkerRow[];
-	readonly schedulePreparationDrain?: (drain: BridgeCommWorkerPreparationDrain) => void;
+	readonly transportFactory?: (props: {
+		readonly bootstrapRequest: BridgeCommWorkerBootstrapRequest;
+		readonly publishWorkerMessages: (messages: readonly BridgeWorkerServerToMainMessage[]) => void;
+	}) => BridgeReviewCommWorkerTransportDispatcher;
 }
 
 export function createBridgeReviewRuntimeProtocolDispatcher(
 	props: CreateBridgeReviewRuntimeProtocolDispatcherProps,
 ): BridgeReviewRuntimeProtocolDispatcher {
-	const runtimePort = createBridgeReviewRuntimeProtocolPort(props.publishWorkerMessages);
-	registerBridgeCommWorkerRuntimePortProtocol(runtimePort.port, {
-		bridgeDemandRank: props.bridgeDemandRank ?? bridgeReviewRuntimeInteractiveDemandRank,
-		budget: props.budget ?? bridgeReviewRuntimeInteractiveBudget,
-		contentItems: props.contentItems,
-		contentRequestDescriptors: props.contentRequestDescriptors,
-		...(props.createSequence === undefined ? {} : { createSequence: props.createSequence }),
-		...(props.fetchContent === undefined ? {} : { fetchContent: props.fetchContent }),
-		...(props.maxPreparationSliceMs === undefined
-			? {}
-			: { maxPreparationSliceMs: props.maxPreparationSliceMs }),
-		...(props.now === undefined ? {} : { now: props.now }),
-		renderSemantics: props.renderSemantics,
-		rows: props.rows,
-		...(props.schedulePreparationDrain === undefined
-			? {}
-			: { schedulePreparationDrain: props.schedulePreparationDrain }),
+	const bootstrapRequest = bridgeCommWorkerBootstrapRequestFromReviewRuntimeProps({
+		...props,
+		requestId: props.bootstrapRequestId ?? 'review-worker-bootstrap',
 	});
-	return {
-		dispatch: runtimePort.dispatch,
-		dispose: runtimePort.dispose,
-	};
+	return (props.transportFactory ?? createBridgeReviewCommWorkerTransportDispatcher)({
+		bootstrapRequest,
+		publishWorkerMessages: props.publishWorkerMessages,
+	});
 }
 
-function createBridgeReviewRuntimeProtocolPort(
-	publishWorkerMessages: (messages: readonly BridgeWorkerServerToMainMessage[]) => void,
-): {
-	readonly dispatch: (message: BridgeWorkerMainToServerMessage) => void;
-	readonly dispose: () => void;
-	readonly port: BridgeCommWorkerPort;
-} {
-	let messageListener: ((event: MessageEvent<unknown>) => void) | null = null;
-	let isActive = true;
-	return {
-		dispatch: (message: BridgeWorkerMainToServerMessage): void => {
-			if (!isActive) {
-				return;
-			}
-			if (messageListener === null) {
-				throw new Error('Bridge Review runtime protocol port was not registered.');
-			}
-			messageListener(new MessageEvent('message', { data: message }));
+export function bridgeCommWorkerBootstrapRequestFromReviewRuntimeProps(
+	props: CreateBridgeReviewRuntimeProtocolDispatcherProps & {
+		readonly requestId: string;
+	},
+): BridgeCommWorkerBootstrapRequest {
+	return bridgeCommWorkerBootstrapRequestSchema.parse({
+		schemaVersion: 1,
+		method: 'bridgeCommWorker.bootstrap',
+		requestId: props.requestId,
+		runtime: {
+			bridgeDemandRank: props.bridgeDemandRank ?? bridgeReviewRuntimeInteractiveDemandRank,
+			budget: props.budget ?? bridgeReviewRuntimeInteractiveBudget,
+			contentItems: props.contentItems,
+			contentRequestDescriptors: props.contentRequestDescriptors,
+			renderSemantics: props.renderSemantics,
+			rows: props.rows,
+			...(props.maxPreparationSliceMs === undefined
+				? {}
+				: { maxPreparationSliceMs: props.maxPreparationSliceMs }),
 		},
-		dispose: (): void => {
-			isActive = false;
-			messageListener = null;
-		},
-		port: {
-			postMessage: (
-				message: BridgeWorkerServerToMainMessage,
-				_transferList?: Transferable[],
-			): void => {
-				if (!isActive) {
-					return;
-				}
-				publishWorkerMessages([message]);
-			},
-			addEventListener: (
-				type: 'message',
-				nextListener: (event: MessageEvent<unknown>) => void,
-			): void => {
-				if (type !== 'message') {
-					return;
-				}
-				messageListener = nextListener;
-			},
-			start: (): void => {},
-		},
-	};
+	});
 }
 
 const bridgeReviewRuntimeInteractiveDemandRank: BridgeWorkerDemandRank = {

@@ -5,7 +5,11 @@ import {
 	bridgeFileChangeKindSchema,
 	bridgeReviewContentLineCountsByRoleSchema,
 } from '../../foundation/review-package/bridge-review-package-schema.js';
-import { bridgeWorkerPierreRenderJobSchema } from './bridge-worker-pierre-render-job.js';
+import {
+	bridgeWorkerDemandRankSchema,
+	bridgeWorkerPierreRenderBudgetSchema,
+	bridgeWorkerPierreRenderJobSchema,
+} from './bridge-worker-pierre-render-job.js';
 
 export const BRIDGE_WORKER_WIRE_VERSION = 1 as const;
 
@@ -166,6 +170,35 @@ export const bridgeWorkerReviewRenderSemanticsSchema = z
 	})
 	.strict();
 
+export const bridgeCommWorkerRowSchema = z
+	.object({
+		id: z.string().min(1),
+		parentId: z.string().min(1).nullable(),
+		index: z.number().int().nonnegative(),
+	})
+	.strict();
+
+export const bridgeCommWorkerBootstrapRequestSchema = z
+	.object({
+		schemaVersion: z.literal(BRIDGE_WORKER_WIRE_VERSION),
+		method: z.literal('bridgeCommWorker.bootstrap'),
+		requestId: bridgeWorkerRequestIdSchema,
+		runtime: z
+			.object({
+				bridgeDemandRank: bridgeWorkerDemandRankSchema,
+				budget: bridgeWorkerPierreRenderBudgetSchema,
+				contentItems: z.array(bridgeWorkerReviewContentMetadataSchema).readonly(),
+				contentRequestDescriptors: z
+					.array(bridgeWorkerReviewContentRequestDescriptorSchema)
+					.readonly(),
+				renderSemantics: z.array(bridgeWorkerReviewRenderSemanticsSchema).readonly(),
+				rows: z.array(bridgeCommWorkerRowSchema).readonly(),
+				maxPreparationSliceMs: z.number().finite().positive().optional(),
+			})
+			.strict(),
+	})
+	.strict();
+
 export const bridgeWorkerPanelChromePatchPayloadSchema = z
 	.object({
 		isLoading: z.boolean().optional(),
@@ -316,6 +349,10 @@ export type BridgeWorkerReviewContentRequestDescriptor = z.infer<
 export type BridgeWorkerReviewRenderSemantics = z.infer<
 	typeof bridgeWorkerReviewRenderSemanticsSchema
 >;
+export type BridgeCommWorkerBootstrapRow = z.infer<typeof bridgeCommWorkerRowSchema>;
+export type BridgeCommWorkerBootstrapRequest = z.infer<
+	typeof bridgeCommWorkerBootstrapRequestSchema
+>;
 export type BridgeWorkerPanelChromePatchPayload = z.infer<
 	typeof bridgeWorkerPanelChromePatchPayloadSchema
 >;
@@ -388,4 +425,10 @@ export function parseBridgeWorkerServerToMainMessage(
 	value: unknown,
 ): BridgeWorkerServerToMainMessage {
 	return bridgeWorkerServerToMainMessageSchema.parse(value);
+}
+
+export function parseBridgeCommWorkerBootstrapRequest(
+	value: unknown,
+): BridgeCommWorkerBootstrapRequest {
+	return bridgeCommWorkerBootstrapRequestSchema.parse(value);
 }

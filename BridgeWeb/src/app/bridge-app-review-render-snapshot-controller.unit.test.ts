@@ -1,10 +1,9 @@
 import { describe, expect, test } from 'vitest';
 
 import { encodeBridgeWorkerSelectCommand } from '../core/comm-worker/bridge-comm-worker-protocol.js';
-import type { BridgeCommWorkerPreparationDrain } from '../core/comm-worker/bridge-comm-worker-runtime-protocol.js';
 import { createBridgeMainRenderSnapshotStore } from '../core/comm-worker/bridge-main-render-snapshot-store.js';
 import type {
-	BridgeWorkerContentAvailabilityPatchPayload,
+	BridgeWorkerMainToServerMessage,
 	BridgeWorkerPierreRenderJobEvent,
 	BridgeWorkerServerToMainMessage,
 } from '../core/comm-worker/bridge-worker-contracts.js';
@@ -16,6 +15,7 @@ import {
 import { makeBridgeReviewPackage } from '../foundation/review-package/bridge-review-package-test-support.js';
 import {
 	applyBridgeWorkerMessagesToMainRenderSnapshotStore,
+	bridgeCommWorkerBootstrapRequestFromReviewRuntimeProps,
 	bridgeCommWorkerContentRequestDescriptorsFromReviewPackage,
 	bridgeCommWorkerContentItemsFromReviewPackage,
 	bridgeCommWorkerRenderSemanticsFromReviewPackage,
@@ -24,26 +24,53 @@ import {
 } from './bridge-app-review-render-snapshot-controller.js';
 
 describe('Bridge app review render snapshot controller', () => {
-	test('dispatches selected review content through the runtime port before Pierre-ready patches', async () => {
+	test('builds a typed bootstrap request for the real comm worker transport', () => {
 		const reviewPackage = makeBridgeReviewPackage();
-		const postedMessages: BridgeWorkerServerToMainMessage[] = [];
-		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
-		const runtimeDispatcher = createBridgeReviewRuntimeProtocolDispatcher({
+
+		const bootstrapRequest = bridgeCommWorkerBootstrapRequestFromReviewRuntimeProps({
+			requestId: 'bootstrap-review-runtime',
 			contentItems: bridgeCommWorkerContentItemsFromReviewPackage(reviewPackage),
 			contentRequestDescriptors:
 				bridgeCommWorkerContentRequestDescriptorsFromReviewPackage(reviewPackage),
-			createSequence: createBridgeWorkerSequenceCounter(41),
-			fetchContent: async (url: string): Promise<Response> => {
-				const responseBody = url.includes('base') ? 'base body' : 'head body';
-				return new Response(responseBody);
-			},
-			publishWorkerMessages: (messages: readonly BridgeWorkerServerToMainMessage[]): void => {
-				postedMessages.push(...messages);
-			},
+			publishWorkerMessages: (): void => {},
 			renderSemantics: bridgeCommWorkerRenderSemanticsFromReviewPackage(reviewPackage),
 			rows: [{ id: 'item-source', parentId: null, index: 0 }],
-			schedulePreparationDrain: (drain: BridgeCommWorkerPreparationDrain): void => {
-				scheduledDrains.push(drain);
+		});
+
+		expect(bootstrapRequest).toMatchObject({
+			schemaVersion: 1,
+			method: 'bridgeCommWorker.bootstrap',
+			requestId: 'bootstrap-review-runtime',
+			runtime: {
+				bridgeDemandRank: { lane: 'selected', priority: 0 },
+				budget: expect.objectContaining({ className: 'interactive' }),
+			},
+		});
+		expect(JSON.stringify(bootstrapRequest)).not.toMatch(
+			/itemsById|orderedItemIds|summary|groups|"contentRoles"|endpointId/i,
+		);
+	});
+
+	test('dispatches selected review commands through the real worker transport seam', () => {
+		const reviewPackage = makeBridgeReviewPackage();
+		const dispatchedMessages: BridgeWorkerMainToServerMessage[] = [];
+		let receivedBootstrapRequestId: string | null = null;
+		const runtimeDispatcher = createBridgeReviewRuntimeProtocolDispatcher({
+			bootstrapRequestId: 'bootstrap-review-runtime',
+			contentItems: bridgeCommWorkerContentItemsFromReviewPackage(reviewPackage),
+			contentRequestDescriptors:
+				bridgeCommWorkerContentRequestDescriptorsFromReviewPackage(reviewPackage),
+			publishWorkerMessages: (): void => {},
+			renderSemantics: bridgeCommWorkerRenderSemanticsFromReviewPackage(reviewPackage),
+			rows: [{ id: 'item-source', parentId: null, index: 0 }],
+			transportFactory: (props) => {
+				receivedBootstrapRequestId = props.bootstrapRequest.requestId;
+				return {
+					dispatch: (message: BridgeWorkerMainToServerMessage): void => {
+						dispatchedMessages.push(message);
+					},
+					dispose: (): void => {},
+				};
 			},
 		});
 
@@ -56,62 +83,40 @@ describe('Bridge app review render snapshot controller', () => {
 			}),
 		);
 
-		expect(scheduledDrains).toHaveLength(1);
-		expect(postedMessages.map((message) => message.kind)).toEqual(['slicePatch', 'health']);
-		expect(selectedAvailabilityStateFromMessage(postedMessages[0])).toBe('loading');
-
-		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
-
-		expect(postedMessages.map((message) => message.kind)).toEqual([
-			'slicePatch',
-			'health',
-			'pierreRenderJob',
-			'slicePatch',
+		expect(receivedBootstrapRequestId).toBe('bootstrap-review-runtime');
+		expect(dispatchedMessages).toEqual([
+			expect.objectContaining({
+				kind: 'command',
+				command: 'select',
+				requestId: 'request-select',
+				selectedItemId: 'item-source',
+			}),
 		]);
-		expect(postedMessages[2]).toMatchObject({
-			kind: 'pierreRenderJob',
-			job: { itemId: 'item-source', renderKind: 'reviewDiff' },
-		});
-		expect(selectedAvailabilityStateFromMessage(postedMessages[3])).toBe('ready');
 	});
 
-	test('retired runtime dispatchers drop stale selected preparation publications', async () => {
+	test('disposes the real worker transport when the runtime dispatcher retires', () => {
 		const reviewPackage = makeBridgeReviewPackage();
-		const postedMessages: BridgeWorkerServerToMainMessage[] = [];
-		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
+		let disposeCount = 0;
 		const runtimeDispatcher = createBridgeReviewRuntimeProtocolDispatcher({
 			contentItems: bridgeCommWorkerContentItemsFromReviewPackage(reviewPackage),
 			contentRequestDescriptors:
 				bridgeCommWorkerContentRequestDescriptorsFromReviewPackage(reviewPackage),
-			createSequence: createBridgeWorkerSequenceCounter(61),
-			fetchContent: async (url: string): Promise<Response> => {
-				const responseBody = url.includes('base') ? 'base body' : 'head body';
-				return new Response(responseBody);
-			},
-			publishWorkerMessages: (messages: readonly BridgeWorkerServerToMainMessage[]): void => {
-				postedMessages.push(...messages);
-			},
+			publishWorkerMessages: (): void => {},
 			renderSemantics: bridgeCommWorkerRenderSemanticsFromReviewPackage(reviewPackage),
 			rows: [{ id: 'item-source', parentId: null, index: 0 }],
-			schedulePreparationDrain: (drain: BridgeCommWorkerPreparationDrain): void => {
-				scheduledDrains.push(drain);
+			transportFactory: () => {
+				return {
+					dispatch: (): void => {},
+					dispose: (): void => {
+						disposeCount += 1;
+					},
+				};
 			},
 		});
 
-		runtimeDispatcher.dispatch(
-			encodeBridgeWorkerSelectCommand({
-				requestId: 'request-select-before-retire',
-				epoch: 11,
-				selectedItemId: 'item-source',
-				selectedSource: 'user',
-			}),
-		);
 		runtimeDispatcher.dispose();
 
-		await assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
-
-		expect(postedMessages.map((message) => message.kind)).toEqual(['slicePatch', 'health']);
-		expect(selectedAvailabilityStateFromMessage(postedMessages[0])).toBe('loading');
+		expect(disposeCount).toBe(1);
 	});
 
 	test('routes worker Pierre render jobs through the courier instead of dropping them', () => {
@@ -328,39 +333,3 @@ describe('Bridge app review render snapshot controller', () => {
 		expect(bridgeCommWorkerRenderSemanticsFromReviewPackage(null)).toEqual([]);
 	});
 });
-
-function createBridgeWorkerSequenceCounter(firstSequence: number): () => number {
-	let nextSequence = firstSequence;
-	return (): number => {
-		const sequence = nextSequence;
-		nextSequence += 1;
-		return sequence;
-	};
-}
-
-function assertBridgeCommWorkerPreparationDrain(
-	drain: BridgeCommWorkerPreparationDrain | undefined,
-): BridgeCommWorkerPreparationDrain {
-	if (drain === undefined) {
-		throw new Error('Expected scheduled bridge comm worker preparation drain.');
-	}
-	return drain;
-}
-
-function selectedAvailabilityStateFromMessage(
-	message: BridgeWorkerServerToMainMessage | undefined,
-): BridgeWorkerContentAvailabilityPatchPayload['state'] | null {
-	if (message?.kind !== 'slicePatch') {
-		return null;
-	}
-	for (const patch of message.patches) {
-		if (
-			patch.slice === 'contentAvailability' &&
-			patch.operation === 'upsert' &&
-			patch.itemId === 'item-source'
-		) {
-			return patch.payload.state;
-		}
-	}
-	return null;
-}

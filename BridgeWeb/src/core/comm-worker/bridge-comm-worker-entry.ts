@@ -1,7 +1,14 @@
 // oxlint-disable unicorn/require-post-message-target-origin -- WorkerGlobalScope.postMessage does not accept a targetOrigin argument.
 import { buildBridgeWorkerReadyHealthEvent } from './bridge-comm-worker-protocol.js';
 import {
+	registerBridgeCommWorkerRuntimePortProtocol,
+	type RegisterBridgeCommWorkerRuntimePortProtocolProps,
+} from './bridge-comm-worker-runtime-protocol.js';
+import {
+	BRIDGE_WORKER_WIRE_VERSION,
+	bridgeCommWorkerBootstrapRequestSchema,
 	bridgeWorkerMainToServerMessageSchema,
+	type BridgeCommWorkerBootstrapRequest,
 	type BridgeWorkerServerToMainMessage,
 } from './bridge-worker-contracts.js';
 import type { PreparedBridgeWorkerStructuredMessage } from './bridge-worker-transfer-list.js';
@@ -13,6 +20,7 @@ export interface BridgeCommWorkerPort {
 		type: 'message',
 		listener: (event: MessageEvent<unknown>) => void,
 	) => void;
+	readonly dispatchEvent?: (event: Event) => boolean;
 	readonly start?: () => void;
 }
 
@@ -23,6 +31,7 @@ export interface BridgeCommWorkerGlobalScope {
 		type: 'message',
 		listener: (event: MessageEvent<unknown>) => void,
 	) => void;
+	readonly dispatchEvent?: (event: Event) => boolean;
 }
 
 export function postPreparedBridgeCommWorkerMessage(
@@ -68,6 +77,11 @@ export function createBridgeCommWorkerScopePortAdapter(
 		addEventListener: (type: 'message', listener: (event: MessageEvent<unknown>) => void): void => {
 			scope.addEventListener(type, listener);
 		},
+		...(scope.dispatchEvent === undefined
+			? {}
+			: {
+					dispatchEvent: (event: Event): boolean => scope.dispatchEvent?.(event) ?? false,
+				}),
 	};
 }
 
@@ -75,8 +89,103 @@ export function bootstrapInertBridgeCommWorkerEntry(scope: BridgeCommWorkerGloba
 	registerInertBridgeCommWorkerPortProtocol(createBridgeCommWorkerScopePortAdapter(scope));
 }
 
+export function bootstrapBridgeCommWorkerEntry(port: BridgeCommWorkerPort): void {
+	let didBootstrapRuntime = false;
+	const pendingMessagesBeforeBootstrap: unknown[] = [];
+
+	port.addEventListener('message', (event: MessageEvent<unknown>): void => {
+		const parsedBootstrap = bridgeCommWorkerBootstrapRequestSchema.safeParse(event.data);
+		if (parsedBootstrap.success) {
+			event.stopImmediatePropagation();
+			if (didBootstrapRuntime) {
+				port.postMessage(
+					buildBridgeWorkerEntryDegradedHealthEvent({
+						requestId: parsedBootstrap.data.requestId,
+						message: 'Bridge comm worker runtime was already bootstrapped.',
+					}),
+				);
+				return;
+			}
+			didBootstrapRuntime = true;
+			registerBridgeCommWorkerRuntimePortProtocol(
+				port,
+				runtimePropsFromBootstrapRequest(parsedBootstrap.data),
+			);
+			port.postMessage(buildBridgeWorkerReadyHealthEvent(parsedBootstrap.data.requestId));
+			for (const pendingMessage of pendingMessagesBeforeBootstrap.splice(
+				0,
+				pendingMessagesBeforeBootstrap.length,
+			)) {
+				dispatchPendingMessageToRuntime(port, pendingMessage);
+			}
+			return;
+		}
+
+		if (didBootstrapRuntime) {
+			return;
+		}
+
+		const parsedCommand = bridgeWorkerMainToServerMessageSchema.safeParse(event.data);
+		if (parsedCommand.success) {
+			pendingMessagesBeforeBootstrap.push(parsedCommand.data);
+			port.postMessage(
+				buildBridgeWorkerEntryDegradedHealthEvent({
+					requestId: parsedCommand.data.requestId,
+					message: 'Bridge comm worker command received before bootstrap.',
+				}),
+			);
+			return;
+		}
+
+		port.postMessage(
+			buildBridgeWorkerEntryDegradedHealthEvent({
+				message: 'Bridge comm worker received invalid bootstrap message.',
+			}),
+		);
+	});
+	port.start?.();
+}
+
+function runtimePropsFromBootstrapRequest(
+	request: BridgeCommWorkerBootstrapRequest,
+): RegisterBridgeCommWorkerRuntimePortProtocolProps {
+	return {
+		bridgeDemandRank: request.runtime.bridgeDemandRank,
+		budget: request.runtime.budget,
+		contentItems: request.runtime.contentItems,
+		contentRequestDescriptors: request.runtime.contentRequestDescriptors,
+		...(request.runtime.maxPreparationSliceMs === undefined
+			? {}
+			: { maxPreparationSliceMs: request.runtime.maxPreparationSliceMs }),
+		renderSemantics: request.runtime.renderSemantics,
+		rows: request.runtime.rows,
+	};
+}
+
+function dispatchPendingMessageToRuntime(port: BridgeCommWorkerPort, data: unknown): void {
+	if (port.dispatchEvent === undefined) {
+		return;
+	}
+	port.dispatchEvent(new MessageEvent('message', { data }));
+}
+
+function buildBridgeWorkerEntryDegradedHealthEvent(props: {
+	readonly requestId?: string;
+	readonly message: string;
+}): BridgeWorkerServerToMainMessage {
+	return {
+		wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+		direction: 'serverWorkerToMain',
+		transferDescriptors: [],
+		kind: 'health',
+		...(props.requestId === undefined ? {} : { requestId: props.requestId }),
+		status: 'degraded',
+		message: props.message,
+	};
+}
+
 declare const self: BridgeCommWorkerGlobalScope | undefined;
 
 if (typeof self !== 'undefined' && typeof self.addEventListener === 'function') {
-	bootstrapInertBridgeCommWorkerEntry(self);
+	bootstrapBridgeCommWorkerEntry(createBridgeCommWorkerScopePortAdapter(self));
 }

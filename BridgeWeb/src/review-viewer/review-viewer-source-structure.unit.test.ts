@@ -111,7 +111,13 @@ describe('Review viewer source structure', () => {
 		expect(modeSource).not.toContain('selectBridgeReviewViewportSlice');
 		expect(modeSource).not.toContain('viewerActions.setMountedItemIds');
 		expect(renderSnapshotControllerSource).toContain('createBridgeMainRenderSnapshotStore');
-		expect(renderSnapshotControllerSource).toContain('registerBridgeCommWorkerRuntimePortProtocol');
+		expect(renderSnapshotControllerSource).toContain(
+			'createBridgeReviewCommWorkerTransportDispatcher',
+		);
+		expect(renderSnapshotControllerSource).not.toContain(
+			'registerBridgeCommWorkerRuntimePortProtocol',
+		);
+		expect(renderSnapshotControllerSource).not.toContain('createBridgeReviewRuntimeProtocolPort');
 		expect(renderSnapshotControllerSource).not.toContain('createBridgeCommWorkerCommandHandler');
 		expect(renderSnapshotControllerSource).not.toContain('.handleMessage(');
 		expect(renderSnapshotControllerSource).toContain('useSyncExternalStore');

@@ -80,6 +80,10 @@ const runBuildAppAssets = async (): Promise<void> => {
 		entrypointName: 'bridge-worker-fetch-probe-worker',
 	});
 	void workerFetchProbeAssetPath;
+	const bridgeCommWorkerAssetPath = requiredAuxiliaryScriptPath({
+		auxiliaryScriptPaths: builtAssets.auxiliaryScripts,
+		entrypointName: 'bridge-comm-worker',
+	});
 	const manifest = await buildAppAssetManifest({
 		appDirectoryPath,
 		mainScriptPath,
@@ -101,6 +105,12 @@ const runBuildAppAssets = async (): Promise<void> => {
 			{
 				kind: 'bridge-review-projection',
 				path: projectionWorkerAssetPath,
+				workerKind: 'moduleWorker',
+				source: 'packagedAppAsset',
+			},
+			{
+				kind: 'bridge-comm-worker',
+				path: bridgeCommWorkerAssetPath,
 				workerKind: 'moduleWorker',
 				source: 'packagedAppAsset',
 			},
