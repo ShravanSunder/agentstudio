@@ -14,6 +14,7 @@ import {
 import type { BridgeReviewPackage } from '../../foundation/review-package/bridge-review-package.js';
 import { BridgeReviewFacetMenu } from '../chrome/bridge-review-facet-menu.js';
 import { BridgeReviewProjectionMenu } from '../chrome/bridge-review-projection-menu.js';
+import { materializeBridgeCodeViewLoadingItem } from '../code-view/bridge-code-view-materialization.js';
 import { BridgeCodeViewPanel } from '../code-view/bridge-code-view-panel.js';
 import type { ReviewContentDemandTelemetry } from '../content/review-content-demand-loader.js';
 import { BridgeMarkdownPreview } from '../markdown/bridge-markdown-preview.js';
@@ -370,6 +371,10 @@ describe('review viewer shell', () => {
 
 	test('exposes selected identity and content readiness from the shell', () => {
 		const reviewPackage = makeBridgeReviewPackage();
+		const selectedItem = reviewPackage.itemsById['item-source'];
+		if (selectedItem === undefined) {
+			throw new Error('expected selected fixture item');
+		}
 		const element = requireTestElement(
 			ReviewViewerShell({
 				reviewPackage,
@@ -377,7 +382,7 @@ describe('review viewer shell', () => {
 				selectedItemId: 'item-source',
 				onSelectItem: () => undefined,
 				selectedContentText: null,
-				selectedContentResources: {},
+				selectedCodeViewItem: materializeBridgeCodeViewLoadingItem(selectedItem),
 			}),
 		);
 		const shell = findElementByTestId(element, 'review-viewer-shell');

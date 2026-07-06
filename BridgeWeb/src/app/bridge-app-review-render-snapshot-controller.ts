@@ -8,6 +8,7 @@ import {
 import type { BridgeCommWorkerRow } from '../core/comm-worker/bridge-comm-worker-store.js';
 import {
 	createBridgeMainRenderSnapshotStore,
+	type BridgeMainCodeViewItem,
 	type BridgeMainRenderSnapshotStore,
 } from '../core/comm-worker/bridge-main-render-snapshot-store.js';
 import type {
@@ -63,6 +64,7 @@ export interface UseBridgeReviewRenderSnapshotControllerProps {
 
 export interface BridgeReviewRenderSnapshotController {
 	readonly rootSnapshot: BridgeReviewViewerRootSnapshot;
+	readonly selectedCodeViewItem: BridgeMainCodeViewItem | null;
 	readonly selectedContentAvailability: BridgeWorkerContentAvailabilityPatchPayload | null;
 	readonly selectionSlice: BridgeReviewSelectionSlice;
 	readonly selectionSliceRef: MutableRefObject<BridgeReviewSelectionSlice>;
@@ -104,6 +106,10 @@ export function useBridgeReviewRenderSnapshotController(
 		selectionSlice.selectedItemId === null
 			? null
 			: (renderSnapshot.contentAvailabilityById[selectionSlice.selectedItemId] ?? null);
+	const selectedCodeViewItem =
+		selectionSlice.selectedItemId === null
+			? null
+			: (renderSnapshot.codeViewItemsById[selectionSlice.selectedItemId] ?? null);
 	const pierreCourier = props.pierreCourier;
 	const requestSequenceRef = useRef(0);
 	const workerEpochRef = useRef(0);
@@ -188,6 +194,7 @@ export function useBridgeReviewRenderSnapshotController(
 	);
 	return {
 		rootSnapshot,
+		selectedCodeViewItem,
 		selectedContentAvailability,
 		selectionSlice,
 		selectionSliceRef,
@@ -416,6 +423,10 @@ export function applyBridgeWorkerMessagesToMainRenderSnapshotStore(props: {
 				break;
 			case 'pierreRenderJob':
 				props.pierreCourier.enqueue(message.job);
+				props.renderSnapshotStore.setWorkerCodeViewItem({
+					itemId: message.job.itemId,
+					item: message.job.payload.item,
+				});
 				break;
 			default:
 				assertNeverBridgeWorkerServerMessage(message);

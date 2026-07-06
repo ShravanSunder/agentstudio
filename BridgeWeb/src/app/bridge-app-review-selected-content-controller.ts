@@ -85,6 +85,7 @@ export interface UseBridgeReviewSelectedContentEffectProps {
 	readonly selectedContentAbortControllerRef: MutableRefObject<AbortController | null>;
 	readonly selectedContentActiveLoadKeyRef: MutableRefObject<string | null>;
 	readonly selectedItemPresentation: SelectedReviewContentPresentation;
+	readonly shouldLoadSelectedContent: boolean;
 	readonly setForegroundSelectedContentKey: (value: string | null) => void;
 	readonly setLastSelectedDemandTelemetry: Dispatch<
 		SetStateAction<ReviewContentDemandTelemetry | null>
@@ -314,6 +315,7 @@ export function useBridgeReviewSelectedContentEffect(
 		selectedContentAbortControllerRef,
 		selectedContentActiveLoadKeyRef,
 		selectedItemPresentation,
+		shouldLoadSelectedContent,
 		setForegroundSelectedContentKey,
 		setLastSelectedDemandTelemetry,
 		setSelectedContentResourcesState,
@@ -321,7 +323,7 @@ export function useBridgeReviewSelectedContentEffect(
 	} = props;
 
 	useLayoutEffect((): (() => void) => {
-		if (!isActive) {
+		if (!isActive || !shouldLoadSelectedContent) {
 			selectedContentAbortControllerRef.current?.abort();
 			selectedContentAbortControllerRef.current = null;
 			selectedContentActiveLoadKeyRef.current = null;
@@ -365,6 +367,7 @@ export function useBridgeReviewSelectedContentEffect(
 		selectedContentAbortControllerRef,
 		selectedContentActiveLoadKeyRef,
 		selectedItemPresentation,
+		shouldLoadSelectedContent,
 		setForegroundSelectedContentKey,
 		setLastSelectedDemandTelemetry,
 		setSelectedContentResourcesState,

@@ -1,6 +1,7 @@
 import type { ReactElement, ReactNode } from 'react';
 import { lazy, Suspense, useEffect, useState } from 'react';
 
+import type { BridgeMainCodeViewItem } from '../core/comm-worker/bridge-main-render-snapshot-store.js';
 import type { ReviewTreeRowMetadata } from '../features/review/models/review-protocol-models.js';
 import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
@@ -56,9 +57,8 @@ export interface BridgeReviewViewerShellBoundaryProps {
 	readonly reviewTreeRows: readonly ReviewTreeRowMetadata[];
 	readonly rootSnapshot: BridgeReviewViewerRootSnapshot;
 	readonly selectedCanvasLoadingReason: BridgeReviewCanvasLoadingReason | null;
-	readonly selectedContentDemandStartedAtMilliseconds: number | null;
+	readonly selectedCodeViewItem: BridgeMainCodeViewItem | null;
 	readonly selectedContentLoadingItemId: string | null;
-	readonly selectedContentResources: BridgeCodeViewContentResources | null;
 	readonly selectedContentUnavailablePath: string | null;
 	readonly selectedItemPresentation: BridgeCodeViewItemPresentation | null;
 	readonly selectedMarkdownPreviewState: SelectedMarkdownPreviewState | null;
@@ -194,8 +194,7 @@ function reviewViewerShellPropsForBoundary(
 		reviewPackage: props.reviewPackage,
 		reviewTreeRows: props.reviewTreeRows,
 		viewerHeaderControls: props.viewerHeaderControls,
-		selectedContentDemandStartedAtMilliseconds: props.selectedContentDemandStartedAtMilliseconds,
-		selectedContentResources: props.selectedContentResources,
+		selectedCodeViewItem: props.selectedCodeViewItem,
 		selectedContentLoadingItemId: props.selectedContentLoadingItemId,
 		selectedItemPresentation: props.selectedItemPresentation,
 		selectedContentUnavailablePath: props.selectedContentUnavailablePath,

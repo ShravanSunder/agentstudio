@@ -10,6 +10,7 @@ import {
 } from '../../app/bridge-viewer-chrome.js';
 import { cn } from '../../app/class-name.js';
 import { Button } from '../../components/ui/button.js';
+import type { BridgeMainCodeViewItem } from '../../core/comm-worker/bridge-main-render-snapshot-store.js';
 import { demandRankForContentRole } from '../../core/demand/bridge-content-demand-policy.js';
 import type { BridgeContentDemandRole } from '../../core/models/bridge-demand-models.js';
 import {
@@ -26,6 +27,7 @@ import type { BridgeTraceContext } from '../../foundation/telemetry/bridge-trace
 import { selectedAdjacentReviewItemIds } from '../content/visible-review-content-hydration.js';
 import type { BridgeReviewProjectionResult } from '../models/review-projection-models.js';
 import { recordBridgeCodeViewItemMaterializeTelemetry } from '../telemetry/bridge-review-viewer-telemetry.js';
+import { bridgePierreOptionalHighlightLanguage } from '../workers/pierre/bridge-pierre-language-normalization.js';
 import {
 	BridgeCodeViewController,
 	type ApplyBridgeCodeViewItemUpdateResult,
@@ -33,6 +35,7 @@ import {
 } from './bridge-code-view-controller.js';
 import {
 	bridgeCodeViewMaterializationCacheKeysForItem,
+	createBridgeCodeViewInitialItems,
 	materializeBridgeCodeViewLoadingItem,
 	type BridgeCodeViewContentResources,
 	type BridgeCodeViewItem,
@@ -123,8 +126,6 @@ export function shouldRequestForegroundDemandForItemExpansion(props: {
 
 export function bridgeCodeViewMaterializationResourceEntriesForPanel(props: {
 	readonly reviewPackage: BridgeReviewPackage;
-	readonly selectedContentDemandStartedAtMilliseconds: number | null | undefined;
-	readonly selectedContentResources: BridgeCodeViewContentResources | null | undefined;
 	readonly selectedItemId: string | null;
 	readonly visibleContentResourcesByItemId:
 		| ReadonlyMap<string, BridgeCodeViewContentResources>
@@ -138,6 +139,9 @@ export function bridgeCodeViewMaterializationResourceEntriesForPanel(props: {
 		}),
 	);
 	for (const [itemId, resources] of props.visibleContentResourcesByItemId ?? []) {
+		if (itemId === props.selectedItemId) {
+			continue;
+		}
 		resourceEntriesByItemId.set(itemId, {
 			contentDemandRole: bridgeCodeViewVisibleContentDemandRole({
 				itemId,
@@ -146,19 +150,6 @@ export function bridgeCodeViewMaterializationResourceEntriesForPanel(props: {
 			itemId,
 			resources,
 			selectionDemandStartedAtMilliseconds: null,
-		});
-	}
-	if (
-		props.selectedItemId !== null &&
-		props.selectedContentResources !== null &&
-		props.selectedContentResources !== undefined
-	) {
-		resourceEntriesByItemId.set(props.selectedItemId, {
-			contentDemandRole: 'selected',
-			itemId: props.selectedItemId,
-			resources: props.selectedContentResources,
-			selectionDemandStartedAtMilliseconds:
-				props.selectedContentDemandStartedAtMilliseconds ?? null,
 		});
 	}
 	return [...resourceEntriesByItemId.values()].toSorted(
@@ -179,6 +170,128 @@ export function bridgeCodeViewMaterializationEntrySortKey(props: {
 	readonly contentDemandRole: BridgeContentDemandRole;
 }): number {
 	return demandRankForContentRole(props.contentDemandRole);
+}
+
+export function createBridgeCodeViewInitialItemsForPanel(props: {
+	readonly projection: BridgeReviewProjectionResult;
+	readonly reviewPackage: BridgeReviewPackage;
+	readonly selectedCodeViewItem: BridgeMainCodeViewItem | null | undefined;
+	readonly selectedItemId: string | null;
+	readonly selectedItemPresentation: BridgeCodeViewItemPresentation | null | undefined;
+}): readonly BridgeCodeViewItem[] {
+	const itemPresentationsByItemId =
+		props.selectedItemId === null ||
+		props.selectedItemPresentation === null ||
+		props.selectedItemPresentation === undefined
+			? undefined
+			: new Map([[props.selectedItemId, props.selectedItemPresentation]]);
+	return bridgeCodeViewInitialItemsWithSelectedCodeViewItem({
+		initialItems: createBridgeCodeViewInitialItems({
+			...(itemPresentationsByItemId === undefined ? {} : { itemPresentationsByItemId }),
+			reviewPackage: props.reviewPackage,
+			projection: props.projection,
+		}),
+		selectedCodeViewItem: bridgeCodeViewItemFromWorkerPreparedItem(props.selectedCodeViewItem),
+		selectedItemId: props.selectedItemId,
+	});
+}
+
+export function bridgeCodeViewInitialItemsWithSelectedCodeViewItem(props: {
+	readonly initialItems: readonly BridgeCodeViewItem[];
+	readonly selectedCodeViewItem: BridgeCodeViewItem | null | undefined;
+	readonly selectedItemId: string | null;
+}): readonly BridgeCodeViewItem[] {
+	const selectedCodeViewItem = props.selectedCodeViewItem;
+	if (
+		props.selectedItemId === null ||
+		selectedCodeViewItem === null ||
+		selectedCodeViewItem === undefined ||
+		selectedCodeViewItem.bridgeMetadata.itemId !== props.selectedItemId
+	) {
+		return props.initialItems;
+	}
+	let didReplaceSelectedItem = false;
+	const nextItems = props.initialItems.map((item): BridgeCodeViewItem => {
+		if (item.id !== props.selectedItemId) {
+			return item;
+		}
+		didReplaceSelectedItem = true;
+		return selectedCodeViewItem;
+	});
+	return didReplaceSelectedItem ? nextItems : [...nextItems, selectedCodeViewItem];
+}
+
+function bridgeCodeViewItemFromWorkerPreparedItem(
+	item: BridgeMainCodeViewItem | null | undefined,
+): BridgeCodeViewItem | null {
+	if (item === null || item === undefined) {
+		return null;
+	}
+	if (item.type === 'file') {
+		const normalizedLanguage = bridgePierreOptionalHighlightLanguage(item.file.lang);
+		return {
+			id: item.id,
+			type: item.type,
+			file: {
+				name: item.file.name,
+				contents: item.file.contents,
+				...(normalizedLanguage === undefined ? {} : { lang: normalizedLanguage }),
+				...(item.file.header === undefined ? {} : { header: item.file.header }),
+				...(item.file.cacheKey === undefined ? {} : { cacheKey: item.file.cacheKey }),
+			},
+			...(item.version === undefined ? {} : { version: item.version }),
+			...(item.collapsed === undefined ? {} : { collapsed: item.collapsed }),
+			bridgeMetadata: item.bridgeMetadata,
+		} satisfies BridgeCodeViewItem;
+	}
+	const normalizedLanguage = bridgePierreOptionalHighlightLanguage(item.fileDiff.lang);
+	return {
+		id: item.id,
+		type: item.type,
+		fileDiff: {
+			name: item.fileDiff.name,
+			...(item.fileDiff.prevName === undefined ? {} : { prevName: item.fileDiff.prevName }),
+			...(normalizedLanguage === undefined ? {} : { lang: normalizedLanguage }),
+			...(item.fileDiff.newObjectId === undefined
+				? {}
+				: { newObjectId: item.fileDiff.newObjectId }),
+			...(item.fileDiff.prevObjectId === undefined
+				? {}
+				: { prevObjectId: item.fileDiff.prevObjectId }),
+			...(item.fileDiff.mode === undefined ? {} : { mode: item.fileDiff.mode }),
+			...(item.fileDiff.prevMode === undefined ? {} : { prevMode: item.fileDiff.prevMode }),
+			type: item.fileDiff.type,
+			hunks: item.fileDiff.hunks.map((hunk) => ({
+				collapsedBefore: hunk.collapsedBefore,
+				additionStart: hunk.additionStart,
+				additionCount: hunk.additionCount,
+				additionLines: hunk.additionLines,
+				additionLineIndex: hunk.additionLineIndex,
+				deletionStart: hunk.deletionStart,
+				deletionCount: hunk.deletionCount,
+				deletionLines: hunk.deletionLines,
+				deletionLineIndex: hunk.deletionLineIndex,
+				hunkContent: hunk.hunkContent.map((content) => ({ ...content })),
+				...(hunk.hunkContext === undefined ? {} : { hunkContext: hunk.hunkContext }),
+				...(hunk.hunkSpecs === undefined ? {} : { hunkSpecs: hunk.hunkSpecs }),
+				splitLineStart: hunk.splitLineStart,
+				splitLineCount: hunk.splitLineCount,
+				unifiedLineStart: hunk.unifiedLineStart,
+				unifiedLineCount: hunk.unifiedLineCount,
+				noEOFCRDeletions: hunk.noEOFCRDeletions,
+				noEOFCRAdditions: hunk.noEOFCRAdditions,
+			})),
+			splitLineCount: item.fileDiff.splitLineCount,
+			unifiedLineCount: item.fileDiff.unifiedLineCount,
+			isPartial: item.fileDiff.isPartial,
+			deletionLines: [...item.fileDiff.deletionLines],
+			additionLines: [...item.fileDiff.additionLines],
+			...(item.fileDiff.cacheKey === undefined ? {} : { cacheKey: item.fileDiff.cacheKey }),
+		},
+		...(item.version === undefined ? {} : { version: item.version }),
+		...(item.collapsed === undefined ? {} : { collapsed: item.collapsed }),
+		bridgeMetadata: item.bridgeMetadata,
+	} satisfies BridgeCodeViewItem;
 }
 
 export function shouldSkipBridgeCodeViewItemMaterializationBeforeWork(props: {
@@ -284,12 +397,17 @@ export function recordBridgeCodeViewItemMaterializeTelemetryForPanel(
 export function bridgeCodeViewLoadingMaterializationItemIdsForPanel(props: {
 	readonly materializationResourceEntries: readonly BridgeCodeViewMaterializationResourceEntry[];
 	readonly selectedContentLoadingItemId: string | null | undefined;
+	readonly selectedItemId: string | null;
 	readonly visibleLoadingItemIds: ReadonlySet<string> | undefined;
 }): readonly string[] {
 	const loadedItemIds = new Set(
 		props.materializationResourceEntries.map((entry): string => entry.itemId),
 	);
-	const loadingItemIds = new Set(props.visibleLoadingItemIds ?? []);
+	const loadingItemIds = new Set(
+		[...(props.visibleLoadingItemIds ?? [])].filter(
+			(itemId: string): boolean => itemId !== props.selectedItemId,
+		),
+	);
 	if (
 		props.selectedContentLoadingItemId !== undefined &&
 		props.selectedContentLoadingItemId !== null
@@ -342,13 +460,13 @@ export function shouldRearmCodeViewInstantRevealForMaterialization(props: {
 }
 
 export function selectedContentStateForPanel(props: {
-	readonly selectedContentResources: BridgeCodeViewContentResources | null | undefined;
+	readonly selectedCodeViewItem: BridgeMainCodeViewItem | null | undefined;
 	readonly selectedItemId: string | null;
 }): 'none' | 'pending' | 'ready' {
 	if (props.selectedItemId === null) {
 		return 'none';
 	}
-	return props.selectedContentResources === null || props.selectedContentResources === undefined
+	return props.selectedCodeViewItem === null || props.selectedCodeViewItem === undefined
 		? 'pending'
 		: 'ready';
 }
@@ -566,24 +684,27 @@ export function selectedContentSummaryForPanel(props: {
 }
 
 export function selectedContentDiagnosticsForPanel(props: {
-	readonly selectedContentResources: BridgeCodeViewContentResources | null | undefined;
+	readonly selectedCodeViewItem: BridgeMainCodeViewItem | null | undefined;
 	readonly selectedItemId: string | null;
 }): SelectedContentDiagnostics {
-	const selectedContentResources = props.selectedContentResources;
+	const selectedCodeViewItem = props.selectedCodeViewItem;
+	const contentRoles = selectedCodeViewItem?.bridgeMetadata.contentRoles ?? [];
 	return {
-		cacheKeys: selectedContentCacheKeysForPanel({ selectedContentResources }),
-		roleCount:
-			selectedContentResources === null || selectedContentResources === undefined
-				? 0
-				: Object.values(selectedContentResources).filter(
-						(resource): boolean => resource !== undefined,
-					).length,
-		roleNames: selectedContentRoleNamesForPanel({ selectedContentResources }),
+		cacheKeys:
+			selectedCodeViewItem === null || selectedCodeViewItem === undefined
+				? ''
+				: selectedCodeViewItem.bridgeMetadata.cacheKey,
+		roleCount: contentRoles.length,
+		roleNames: contentRoles.join(','),
 		state: selectedContentStateForPanel({
-			selectedContentResources,
+			selectedCodeViewItem,
 			selectedItemId: props.selectedItemId,
 		}),
-		summary: selectedContentSummaryForPanel({ selectedContentResources }),
+		summary: {
+			cacheKeyCount: selectedCodeViewItem === null || selectedCodeViewItem === undefined ? 0 : 1,
+			characterCount: 0,
+			lineCount: selectedCodeViewItem?.bridgeMetadata.lineCount ?? 0,
+		},
 	};
 }
 

@@ -4,6 +4,12 @@ import type {
 	BridgeWorkerRowPaintPatchPayload,
 	BridgeWorkerSlicePatch,
 } from './bridge-worker-contracts.js';
+import type {
+	BridgeWorkerCodeViewDiffItem,
+	BridgeWorkerCodeViewFileItem,
+} from './bridge-worker-pierre-render-job.js';
+
+export type BridgeMainCodeViewItem = BridgeWorkerCodeViewFileItem | BridgeWorkerCodeViewDiffItem;
 
 export interface BridgeMainSelectionSlice {
 	readonly selectedItemId: string | null;
@@ -23,6 +29,7 @@ export interface BridgeMainRenderSnapshot {
 	readonly contentAvailabilityById: Readonly<
 		Record<string, BridgeWorkerContentAvailabilityPatchPayload>
 	>;
+	readonly codeViewItemsById: Readonly<Record<string, BridgeMainCodeViewItem>>;
 	readonly panelChromeSlice: BridgeWorkerPanelChromePatchPayload;
 }
 
@@ -43,6 +50,10 @@ export interface BridgeMainRenderSnapshotStore {
 	readonly subscribe: (listener: () => void) => () => void;
 	readonly setLocalSelection: (props: SetBridgeMainLocalSelectionProps) => void;
 	readonly setLocalViewport: (props: SetBridgeMainLocalViewportProps) => void;
+	readonly setWorkerCodeViewItem: (props: {
+		readonly itemId: string;
+		readonly item: BridgeMainCodeViewItem;
+	}) => void;
 	readonly applyWorkerPatch: (patch: BridgeWorkerSlicePatch) => void;
 }
 
@@ -58,6 +69,7 @@ const EMPTY_BRIDGE_MAIN_RENDER_SNAPSHOT: BridgeMainRenderSnapshot = {
 	},
 	rowPaintById: {},
 	contentAvailabilityById: {},
+	codeViewItemsById: {},
 	panelChromeSlice: {},
 };
 
@@ -94,6 +106,15 @@ export function createBridgeMainRenderSnapshotStore(): BridgeMainRenderSnapshotS
 					firstVisibleIndex: props.firstVisibleIndex,
 					lastVisibleIndex: props.lastVisibleIndex,
 					visibleItemIds: [...props.visibleItemIds],
+				},
+			});
+		},
+		setWorkerCodeViewItem: (props): void => {
+			publish({
+				...snapshot,
+				codeViewItemsById: {
+					...snapshot.codeViewItemsById,
+					[props.itemId]: props.item,
 				},
 			});
 		},

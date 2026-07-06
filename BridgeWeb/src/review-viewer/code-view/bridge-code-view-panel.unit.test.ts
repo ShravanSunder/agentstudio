@@ -24,6 +24,8 @@ import {
 } from './bridge-code-view-materialization.js';
 import { applyBridgeCodeViewMetadataItems } from './bridge-code-view-metadata-apply.js';
 import {
+	bridgeCodeViewInitialItemsWithSelectedCodeViewItem,
+	bridgeCodeViewLoadingMaterializationItemIdsForPanel,
 	bridgeCodeViewMaterializationEntrySortKey,
 	bridgeCodeViewRenderedHeaderCorrectionTargetPosition,
 	runBridgeCodeViewMaterializationInChunks,
@@ -137,6 +139,42 @@ describe('BridgeCodeViewPanel diagnostics', () => {
 			selectedOffWindowItem.itemId,
 		]);
 		expect(reconciledItems[1]).toBe(selectedHydratedItem);
+	});
+
+	test('replaces selected metadata placeholder with worker-prepared CodeView item', () => {
+		const reviewPackage = makeBridgeViewerProjectionFixture();
+		const sourceItem = reviewPackage.itemsById['source-high'];
+		if (sourceItem === undefined) {
+			throw new Error('expected source fixture item');
+		}
+		const placeholderItem = materializeBridgeCodeViewLoadingItem(sourceItem);
+		const workerPreparedItem: BridgeCodeViewItem = {
+			...placeholderItem,
+			bridgeMetadata: {
+				...placeholderItem.bridgeMetadata,
+				contentState: 'hydrated',
+			},
+			version: (placeholderItem.version ?? 0) + 1,
+		};
+
+		const nextItems = bridgeCodeViewInitialItemsWithSelectedCodeViewItem({
+			initialItems: [placeholderItem],
+			selectedCodeViewItem: workerPreparedItem,
+			selectedItemId: sourceItem.itemId,
+		});
+
+		expect(nextItems).toEqual([workerPreparedItem]);
+	});
+
+	test('does not materialize selected loading placeholder from visible loading ids', () => {
+		const loadingItemIds = bridgeCodeViewLoadingMaterializationItemIdsForPanel({
+			materializationResourceEntries: [],
+			selectedContentLoadingItemId: null,
+			selectedItemId: 'selected-item',
+			visibleLoadingItemIds: new Set(['selected-item', 'visible-item']),
+		});
+
+		expect(loadingItemIds).toEqual(['visible-item']);
 	});
 
 	test('uses append and patch updates for projection deltas and reserves setItems for source reset', () => {

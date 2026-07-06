@@ -6,6 +6,7 @@ import { BridgeViewerResizableRailLayout } from '../../app/bridge-viewer-resizab
 import { BridgeViewerRightRailShell } from '../../app/bridge-viewer-right-rail-shell.js';
 import { BridgeViewerSearchControl } from '../../app/bridge-viewer-search-control.js';
 import { Skeleton } from '../../components/ui/skeleton.js';
+import type { BridgeMainCodeViewItem } from '../../core/comm-worker/bridge-main-render-snapshot-store.js';
 import type { ReviewTreeRowMetadata } from '../../features/review/models/review-protocol-models.js';
 import {
 	createBridgeReviewItemRegistry,
@@ -50,8 +51,7 @@ export interface ReviewViewerShellProps {
 	readonly selectedContentLoadingItemId?: string | null;
 	readonly onSelectItem: (itemId: string) => void;
 	readonly selectedContentText?: string | null;
-	readonly selectedContentDemandStartedAtMilliseconds?: number | null;
-	readonly selectedContentResources?: BridgeCodeViewContentResources | null;
+	readonly selectedCodeViewItem?: BridgeMainCodeViewItem | null;
 	readonly selectionCommitDurationMilliseconds?: number | null;
 	readonly selectedItemPresentation?: BridgeCodeViewItemPresentation | null;
 	readonly selectedContentUnavailablePath?: string | null;
@@ -119,7 +119,7 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 	});
 	const selectedContentState = selectedContentStateForShell({
 		selectedCanvasLoadingReason: props.selectedCanvasLoadingReason ?? null,
-		selectedContentResources: props.selectedContentResources ?? null,
+		selectedCodeViewItem: props.selectedCodeViewItem ?? null,
 		selectedContentUnavailablePath: props.selectedContentUnavailablePath ?? null,
 		selectedMarkdownPreviewHtml: props.selectedMarkdownPreviewHtml ?? null,
 	});
@@ -300,11 +300,8 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 								<BridgeCodeViewPanel
 									projection={projection}
 									reviewPackage={props.reviewPackage}
-									selectedContentDemandStartedAtMilliseconds={
-										props.selectedContentDemandStartedAtMilliseconds ?? null
-									}
+									selectedCodeViewItem={props.selectedCodeViewItem ?? null}
 									selectedContentLoadingItemId={props.selectedContentLoadingItemId ?? null}
-									selectedContentResources={props.selectedContentResources ?? null}
 									selectedItemId={props.selectedItemId}
 									selectedItemPresentation={props.selectedItemPresentation ?? null}
 									telemetryParentTraceContext={props.telemetryParentTraceContext ?? null}
@@ -530,14 +527,14 @@ function BridgeReviewContentUnavailableState(props: { readonly sourcePath: strin
 
 function selectedContentStateForShell(props: {
 	readonly selectedCanvasLoadingReason: BridgeReviewCanvasLoadingReason | null;
-	readonly selectedContentResources: BridgeCodeViewContentResources | null;
+	readonly selectedCodeViewItem: BridgeMainCodeViewItem | null;
 	readonly selectedContentUnavailablePath: string | null;
 	readonly selectedMarkdownPreviewHtml: string | null;
 }): 'failed' | 'loading' | 'ready' | 'unavailable' {
 	if (props.selectedContentUnavailablePath !== null) {
 		return 'failed';
 	}
-	if (props.selectedMarkdownPreviewHtml !== null || props.selectedContentResources !== null) {
+	if (props.selectedMarkdownPreviewHtml !== null || props.selectedCodeViewItem !== null) {
 		return 'ready';
 	}
 	if (props.selectedCanvasLoadingReason === 'content') {

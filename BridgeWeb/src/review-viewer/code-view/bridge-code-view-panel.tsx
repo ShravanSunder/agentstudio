@@ -7,7 +7,6 @@ import { bridgeContentDemandExecutionPolicy } from '../../core/demand/bridge-con
 import { recordBridgeCodeViewHydrationTelemetry } from '../telemetry/bridge-review-viewer-telemetry.js';
 import { scheduleBridgeCodeViewInstantRevealRetargetForPanel } from './bridge-code-view-instant-reveal-retarget.js';
 import {
-	createBridgeCodeViewInitialItems,
 	materializeBridgeCodeViewItem,
 	materializeBridgeCodeViewLoadingItem,
 	selectedBridgeCodeViewContentWindowLineLimitForItem,
@@ -26,6 +25,7 @@ import {
 	bridgeCodeViewLoadingMaterializationItemIdsForPanel,
 	codeViewHandleHasInstance,
 	controllerForHandle,
+	createBridgeCodeViewInitialItemsForPanel,
 	createBridgeCodeViewHeaderRenderers,
 	emptyMaterializationDiagnostic,
 	hasRenderedItemsSource,
@@ -97,7 +97,7 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 			? null
 			: (props.reviewPackage.itemsById[props.selectedItemId] ?? null);
 	const selectedContentDiagnostics = selectedContentDiagnosticsForPanel({
-		selectedContentResources: props.selectedContentResources,
+		selectedCodeViewItem: props.selectedCodeViewItem,
 		selectedItemId: props.selectedItemId,
 	});
 	const reviewItemsById = props.reviewPackage.itemsById;
@@ -459,19 +459,10 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		(): readonly BridgeCodeViewMaterializationResourceEntry[] =>
 			bridgeCodeViewMaterializationResourceEntriesForPanel({
 				reviewPackage: props.reviewPackage,
-				selectedContentDemandStartedAtMilliseconds:
-					props.selectedContentDemandStartedAtMilliseconds,
-				selectedContentResources: props.selectedContentResources,
 				selectedItemId: props.selectedItemId,
 				visibleContentResourcesByItemId: props.visibleContentResourcesByItemId,
 			}),
-		[
-			props.reviewPackage,
-			props.selectedContentDemandStartedAtMilliseconds,
-			props.selectedContentResources,
-			props.selectedItemId,
-			props.visibleContentResourcesByItemId,
-		],
+		[props.reviewPackage, props.selectedItemId, props.visibleContentResourcesByItemId],
 	);
 	const materializationResourceEntryItemIds = useMemo(
 		(): string => materializationResourceEntries.map((entry): string => entry.itemId).join(','),
@@ -481,28 +472,32 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		return bridgeCodeViewLoadingMaterializationItemIdsForPanel({
 			materializationResourceEntries,
 			selectedContentLoadingItemId: props.selectedContentLoadingItemId,
+			selectedItemId: props.selectedItemId,
 			visibleLoadingItemIds: props.visibleLoadingItemIds,
 		});
 	}, [
 		materializationResourceEntries,
 		props.selectedContentLoadingItemId,
+		props.selectedItemId,
 		props.visibleLoadingItemIds,
 	]);
 	const selectedItemIdForMetadataReconcileRef = useRef(props.selectedItemId);
 	selectedItemIdForMetadataReconcileRef.current = props.selectedItemId;
 	const initialItems = useMemo(() => {
-		const itemPresentationsByItemId =
-			props.selectedItemId === null ||
-			props.selectedItemPresentation === null ||
-			props.selectedItemPresentation === undefined
-				? undefined
-				: new Map([[props.selectedItemId, props.selectedItemPresentation]]);
-		return createBridgeCodeViewInitialItems({
-			...(itemPresentationsByItemId === undefined ? {} : { itemPresentationsByItemId }),
-			reviewPackage: props.reviewPackage,
+		return createBridgeCodeViewInitialItemsForPanel({
 			projection: props.projection,
+			reviewPackage: props.reviewPackage,
+			selectedCodeViewItem: props.selectedCodeViewItem,
+			selectedItemId: props.selectedItemId,
+			selectedItemPresentation: props.selectedItemPresentation,
 		});
-	}, [props.projection, props.reviewPackage, props.selectedItemId, props.selectedItemPresentation]);
+	}, [
+		props.projection,
+		props.reviewPackage,
+		props.selectedCodeViewItem,
+		props.selectedItemId,
+		props.selectedItemPresentation,
+	]);
 
 	const scheduleCodeViewRecoveryRender = useCallback((): void => {
 		if (pendingRecoveryRenderFrameRef.current !== null) {
@@ -943,7 +938,6 @@ export function BridgeCodeViewPanel(props: BridgeCodeViewPanelProps): ReactEleme
 		materializationResourceEntries,
 		props.projection,
 		props.reviewPackage,
-		props.selectedContentDemandStartedAtMilliseconds,
 		props.selectedItemId,
 		props.selectedItemPresentation,
 		props.telemetryParentTraceContext,

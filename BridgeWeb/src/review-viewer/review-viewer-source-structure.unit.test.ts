@@ -273,6 +273,12 @@ describe('Review viewer source structure', () => {
 			'createBridgeMarkdownRenderWebWorkerClient',
 		);
 		expect(visibleContentControllerSource).not.toContain('@pierre/');
+		expect(
+			visibleContentControllerSource.slice(
+				visibleContentControllerSource.indexOf('const requestForegroundItemContent = useCallback'),
+				visibleContentControllerSource.indexOf('const visibleContentResourcesByItemId = useMemo'),
+			),
+		).not.toContain("interest: 'selected'");
 	});
 
 	test('keeps Review selected display loading on worker availability slices', () => {
@@ -294,6 +300,35 @@ describe('Review viewer source structure', () => {
 		expect(selectedLoadingSource).not.toContain('selectedContentResourcesState');
 		expect(unavailablePathSource).toContain('selectedContentAvailability');
 		expect(unavailablePathSource).not.toContain('selectedContentResourcesState');
+	});
+
+	test('selected Review CodeView consumes worker-prepared items without FE selected content resources', () => {
+		const modeSource = readSource('../app/bridge-app-review-viewer-mode.tsx');
+		const shellBoundarySource = readSource('../app/bridge-app-review-viewer-shell-boundary.tsx');
+		const shellSource = readSource('./shell/review-viewer-shell.tsx');
+		const codeViewPanelTypesSource = readSource('./code-view/bridge-code-view-panel-types.ts');
+		const codeViewPanelSource = readSource('./code-view/bridge-code-view-panel.tsx');
+
+		expect(modeSource).toContain('selectedCodeViewItem');
+		expect(modeSource).toContain(
+			"shouldLoadSelectedContent: rootSnapshot.renderMode.kind === 'markdownPreview'",
+		);
+		expect(modeSource).not.toContain('selectedContentResources={selectedContentResources}');
+		expect(shellBoundarySource).toContain('selectedCodeViewItem');
+		expect(shellBoundarySource).not.toContain(
+			'readonly selectedContentResources: BridgeCodeViewContentResources | null;',
+		);
+		expect(shellSource).toContain('selectedCodeViewItem');
+		expect(shellSource).not.toContain(
+			'readonly selectedContentResources?: BridgeCodeViewContentResources | null;',
+		);
+		expect(codeViewPanelTypesSource).toContain('readonly selectedCodeViewItem?');
+		expect(codeViewPanelTypesSource).not.toContain(
+			'readonly selectedContentResources?: BridgeCodeViewContentResources | null;',
+		);
+		expect(codeViewPanelSource).not.toContain(
+			'selectedContentResources: props.selectedContentResources',
+		);
 	});
 
 	test('selected review path does not schedule FE retry after descriptor registration', () => {

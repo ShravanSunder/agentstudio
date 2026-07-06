@@ -1,5 +1,6 @@
 import type { CodeViewScrollBehavior } from '@pierre/diffs';
 
+import type { BridgeMainCodeViewItem } from '../../core/comm-worker/bridge-main-render-snapshot-store.js';
 import type { BridgeContentDemandRole } from '../../core/models/bridge-demand-models.js';
 import type { BridgeReviewPackage } from '../../foundation/review-package/bridge-review-package.js';
 import type { BridgeTelemetryRecorder } from '../../foundation/telemetry/bridge-telemetry-recorder.js';
@@ -15,9 +16,8 @@ export interface BridgeCodeViewPanelProps {
 	readonly reviewPackage: BridgeReviewPackage;
 	readonly projection: BridgeReviewProjectionResult;
 	readonly selectedItemId: string | null;
-	readonly selectedContentDemandStartedAtMilliseconds?: number | null;
+	readonly selectedCodeViewItem?: BridgeMainCodeViewItem | null;
 	readonly selectedContentLoadingItemId?: string | null;
-	readonly selectedContentResources?: BridgeCodeViewContentResources | null;
 	readonly selectedItemPresentation?: BridgeCodeViewItemPresentation | null;
 	readonly visibleContentResourcesByItemId?: ReadonlyMap<string, BridgeCodeViewContentResources>;
 	readonly visibleLoadingItemIds?: ReadonlySet<string>;

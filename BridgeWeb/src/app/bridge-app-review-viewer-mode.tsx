@@ -59,7 +59,6 @@ import {
 	reviewContentValidityDropReason,
 	reviewFileTargetForNavigationCommand,
 	selectedCanvasLoadingReasonForCurrentSelection,
-	selectedContentDemandStartedAtMillisecondsForCurrentSelection,
 	selectedContentResourcesForCurrentSelection,
 	selectedContentUnavailablePathForCurrentSelection,
 	selectedItemPresentationForReviewFileTarget,
@@ -119,6 +118,7 @@ export function BridgeReviewViewerMode(
 	const pierreCourier = useMemo(() => createBridgeReviewWorkerPierreCourier(), []);
 	const {
 		rootSnapshot,
+		selectedCodeViewItem,
 		selectedContentAvailability,
 		selectionSlice,
 		selectionSliceRef,
@@ -454,6 +454,7 @@ export function BridgeReviewViewerMode(
 		selectedContentAbortControllerRef,
 		selectedContentActiveLoadKeyRef,
 		selectedItemPresentation,
+		shouldLoadSelectedContent: rootSnapshot.renderMode.kind === 'markdownPreview',
 		setForegroundSelectedContentKey,
 		setLastSelectedDemandTelemetry,
 		setSelectedContentResourcesState,
@@ -492,12 +493,6 @@ export function BridgeReviewViewerMode(
 	});
 	const selectedContentLoadingItemId =
 		selectedCanvasLoadingReason === 'content' ? rootSnapshot.selectedItemId : null;
-	const selectedContentDemandStartedAtMilliseconds =
-		selectedContentDemandStartedAtMillisecondsForCurrentSelection({
-			reviewPackage,
-			selectedItemId: rootSnapshot.selectedItemId,
-			selectedContentResourcesState,
-		});
 	return (
 		<BridgeReviewViewerShellBoundary
 			codeViewWorkerFactory={props.codeViewWorkerFactory}
@@ -525,9 +520,8 @@ export function BridgeReviewViewerMode(
 			reviewTreeRows={reviewTreeRows}
 			rootSnapshot={rootSnapshot}
 			selectedCanvasLoadingReason={selectedCanvasLoadingReason}
-			selectedContentDemandStartedAtMilliseconds={selectedContentDemandStartedAtMilliseconds}
+			selectedCodeViewItem={selectedCodeViewItem}
 			selectedContentLoadingItemId={selectedContentLoadingItemId}
-			selectedContentResources={selectedContentResources}
 			selectedContentUnavailablePath={selectedContentUnavailablePathForCurrentSelection({
 				reviewPackage,
 				selectedContentAvailability,

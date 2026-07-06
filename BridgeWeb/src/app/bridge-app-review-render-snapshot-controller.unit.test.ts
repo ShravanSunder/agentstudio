@@ -202,6 +202,13 @@ describe('Bridge app review render snapshot controller', () => {
 		});
 
 		expect(enqueuedJobs).toEqual([job]);
+		expect(
+			(
+				renderSnapshotStore.getSnapshot() as {
+					readonly codeViewItemsById?: Readonly<Record<string, unknown>>;
+				}
+			).codeViewItemsById?.['item-1'],
+		).toEqual(job.payload.item);
 	});
 
 	test('review worker courier returns typed receipts for worker Pierre jobs', () => {

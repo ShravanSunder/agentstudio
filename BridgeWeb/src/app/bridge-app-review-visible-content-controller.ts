@@ -161,6 +161,9 @@ export function useBridgeReviewVisibleContentController(
 			if (!isActive || reviewPackage === null) {
 				return false;
 			}
+			if (itemId === selectedItemId) {
+				return false;
+			}
 			const item = reviewPackage.itemsById[itemId];
 			if (item === undefined) {
 				return false;
@@ -198,7 +201,7 @@ export function useBridgeReviewVisibleContentController(
 			void loadReviewItemContentResourcesThroughDemandResult({
 				reviewPackage,
 				itemId,
-				interest: 'selected',
+				interest: 'visible',
 				resolveDescriptorRef: (handle): BridgeDescriptorRef | null =>
 					reviewContentDescriptorRefsByHandleIdRef.current.get(handle.handleId) ?? null,
 				executor: resourceExecutor,
@@ -256,6 +259,7 @@ export function useBridgeReviewVisibleContentController(
 			reviewContentDescriptorRefsByHandleIdRef,
 			reviewContentInvalidationVersion,
 			reviewPackage,
+			selectedItemId,
 			setLastVisibleDemandTelemetry,
 			telemetryRecorderRef,
 		],
