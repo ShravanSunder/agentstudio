@@ -23,6 +23,37 @@ describe('Bridge file viewer store source structure', () => {
 
 		expect(violations).toEqual([]);
 	});
+
+	test('keeps the File View UI store out of render snapshot ownership', () => {
+		const storeSource = readSourceFile('file-viewer/state/bridge-file-viewer-store.ts');
+		const forbiddenRenderSnapshotOwners = [
+			'readonly renderState',
+			'readonly openFileState',
+			'readonly initialSurfaceLoadState',
+			'readonly refreshDebugState',
+			'readonly lastOpenLoadTelemetry',
+			'readonly lastDemandDispatchDebugState',
+			'setRenderState',
+			'setOpenFileState',
+			'setInitialSurfaceLoadState',
+			'setRefreshDebugState',
+			'setLastOpenLoadTelemetry',
+			'setLastDemandDispatchDebugState',
+		].filter((token): boolean => storeSource.includes(token));
+
+		expect(forbiddenRenderSnapshotOwners).toEqual([]);
+	});
+
+	test('does not introduce a File View route-local render snapshot store', () => {
+		const sources = readFileViewerProductionSources();
+		const violations = sources.flatMap(({ relativePath, source }) =>
+			['BridgeFileViewerRenderSnapshotStore', 'createBridgeFileViewerRenderSnapshotStore']
+				.filter((token): boolean => source.includes(token))
+				.map((token): string => `${relativePath}: ${token}`),
+		);
+
+		expect(violations).toEqual([]);
+	});
 });
 
 interface SourceFileEntry {
@@ -41,6 +72,11 @@ function readFileViewerProductionSources(): readonly SourceFileEntry[] {
 		relativeDirectory: 'app',
 	}).filter((entry): boolean => entry.relativePath.includes('file-viewer'));
 	return [...fileViewerSources, ...appFileViewerSources];
+}
+
+function readSourceFile(relativePath: string): string {
+	const sourceDirectory = fileURLToPath(new URL('../', import.meta.url));
+	return readFileSync(join(sourceDirectory, relativePath), 'utf8');
 }
 
 function readSourceFilesInDirectory(props: {

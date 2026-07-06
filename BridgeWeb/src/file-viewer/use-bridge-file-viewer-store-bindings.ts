@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useMemo, useRef, useState } from 'react';
 
 import type { WorktreeFileSurfaceLoadTelemetry } from '../worktree-file-surface/worktree-file-surface-runtime.js';
 import type {
@@ -8,6 +8,7 @@ import type {
 	BridgeFileViewerRefreshDebugState,
 	BridgeFileViewerRenderState,
 } from './bridge-file-viewer-state.js';
+import { emptyRenderState } from './bridge-file-viewer-state.js';
 import {
 	createBridgeFileViewerStore,
 	selectBridgeFileViewerRootSnapshot,
@@ -17,6 +18,30 @@ import {
 	type BridgeFileViewerStoreActions,
 } from './state/bridge-file-viewer-store.js';
 
+export type BridgeFileViewerStoreBindingActions = BridgeFileViewerStoreActions &
+	BridgeFileViewerLegacyDisplayStateActions;
+
+export interface BridgeFileViewerLegacyDisplayStateActions {
+	readonly setRenderState: (renderState: BridgeFileViewerRenderState) => void;
+	readonly setOpenFileState: (
+		openFileState:
+			| BridgeFileViewerOpenState
+			| ((currentOpenFileState: BridgeFileViewerOpenState) => BridgeFileViewerOpenState),
+	) => void;
+	readonly setInitialSurfaceLoadState: (
+		initialSurfaceLoadState: BridgeFileViewerInitialSurfaceLoadState,
+	) => void;
+	readonly setRefreshDebugState: (
+		refreshDebugState: BridgeFileViewerRefreshDebugState | null,
+	) => void;
+	readonly setLastOpenLoadTelemetry: (
+		lastOpenLoadTelemetry: WorktreeFileSurfaceLoadTelemetry | null,
+	) => void;
+	readonly setLastDemandDispatchDebugState: (
+		lastDemandDispatchDebugState: BridgeFileViewerDemandDispatchDebugState,
+	) => void;
+}
+
 export interface BridgeFileViewerStoreBindings {
 	readonly initialSurfaceLoadState: BridgeFileViewerInitialSurfaceLoadState;
 	readonly lastDemandDispatchDebugState: BridgeFileViewerDemandDispatchDebugState;
@@ -25,7 +50,7 @@ export interface BridgeFileViewerStoreBindings {
 	readonly refreshDebugState: BridgeFileViewerRefreshDebugState | null;
 	readonly renderState: BridgeFileViewerRenderState;
 	readonly rootSnapshot: BridgeFileViewerRootSnapshot;
-	readonly viewerActions: BridgeFileViewerStoreActions;
+	readonly viewerActions: BridgeFileViewerStoreBindingActions;
 	readonly viewerStore: BridgeFileViewerStore;
 }
 
@@ -39,27 +64,39 @@ export function useBridgeFileViewerStoreBindings(): BridgeFileViewerStoreBinding
 		viewerStore,
 		selectBridgeFileViewerRootSnapshot,
 	);
-	const viewerActions = useBridgeFileViewerStoreSelector(viewerStore, (state) => state.actions);
-	const renderState = useBridgeFileViewerStoreSelector(viewerStore, (state) => state.renderState);
-	const openFileState = useBridgeFileViewerStoreSelector(
+	const viewerStoreActions = useBridgeFileViewerStoreSelector(
 		viewerStore,
-		(state) => state.openFileState,
+		(state) => state.actions,
 	);
-	const initialSurfaceLoadState = useBridgeFileViewerStoreSelector(
-		viewerStore,
-		(state) => state.initialSurfaceLoadState,
+	const [renderState, setRenderState] = useState<BridgeFileViewerRenderState>(emptyRenderState);
+	const [openFileState, setOpenFileState] = useState<BridgeFileViewerOpenState>({
+		status: 'idle',
+	});
+	const [initialSurfaceLoadState, setInitialSurfaceLoadState] =
+		useState<BridgeFileViewerInitialSurfaceLoadState>({ status: 'idle' });
+	const [refreshDebugState, setRefreshDebugState] =
+		useState<BridgeFileViewerRefreshDebugState | null>(null);
+	const [lastOpenLoadTelemetry, setLastOpenLoadTelemetry] =
+		useState<WorktreeFileSurfaceLoadTelemetry | null>(null);
+	const [lastDemandDispatchDebugState, setLastDemandDispatchDebugState] =
+		useState<BridgeFileViewerDemandDispatchDebugState>({ status: 'idle' });
+	const displayStateActions = useMemo(
+		(): BridgeFileViewerLegacyDisplayStateActions => ({
+			setRenderState,
+			setOpenFileState,
+			setInitialSurfaceLoadState,
+			setRefreshDebugState,
+			setLastOpenLoadTelemetry,
+			setLastDemandDispatchDebugState,
+		}),
+		[],
 	);
-	const refreshDebugState = useBridgeFileViewerStoreSelector(
-		viewerStore,
-		(state) => state.refreshDebugState,
-	);
-	const lastOpenLoadTelemetry = useBridgeFileViewerStoreSelector(
-		viewerStore,
-		(state) => state.lastOpenLoadTelemetry,
-	);
-	const lastDemandDispatchDebugState = useBridgeFileViewerStoreSelector(
-		viewerStore,
-		(state) => state.lastDemandDispatchDebugState,
+	const viewerActions = useMemo(
+		(): BridgeFileViewerStoreBindingActions => ({
+			...displayStateActions,
+			...viewerStoreActions,
+		}),
+		[displayStateActions, viewerStoreActions],
 	);
 
 	return {

@@ -1,18 +1,9 @@
 import { useRef, useSyncExternalStore } from 'react';
 
-import type { WorktreeFileSurfaceLoadTelemetry } from '../../worktree-file-surface/worktree-file-surface-runtime.js';
 import type {
 	BridgeFileViewerFilterMode,
 	BridgeFileViewerSearchMode,
 } from '../bridge-file-viewer-contracts.js';
-import {
-	emptyRenderState,
-	type BridgeFileViewerDemandDispatchDebugState,
-	type BridgeFileViewerInitialSurfaceLoadState,
-	type BridgeFileViewerOpenState,
-	type BridgeFileViewerRefreshDebugState,
-	type BridgeFileViewerRenderState,
-} from '../bridge-file-viewer-state.js';
 
 export interface BridgeFileViewerRootSnapshot {
 	readonly searchText: string;
@@ -21,24 +12,6 @@ export interface BridgeFileViewerRootSnapshot {
 }
 
 export interface BridgeFileViewerStoreActions {
-	readonly setRenderState: (renderState: BridgeFileViewerRenderState) => void;
-	readonly setOpenFileState: (
-		openFileState:
-			| BridgeFileViewerOpenState
-			| ((currentOpenFileState: BridgeFileViewerOpenState) => BridgeFileViewerOpenState),
-	) => void;
-	readonly setInitialSurfaceLoadState: (
-		initialSurfaceLoadState: BridgeFileViewerInitialSurfaceLoadState,
-	) => void;
-	readonly setRefreshDebugState: (
-		refreshDebugState: BridgeFileViewerRefreshDebugState | null,
-	) => void;
-	readonly setLastOpenLoadTelemetry: (
-		lastOpenLoadTelemetry: WorktreeFileSurfaceLoadTelemetry | null,
-	) => void;
-	readonly setLastDemandDispatchDebugState: (
-		lastDemandDispatchDebugState: BridgeFileViewerDemandDispatchDebugState,
-	) => void;
 	readonly setSearchText: (searchText: string) => void;
 	readonly setSearchMode: (searchMode: BridgeFileViewerSearchMode) => void;
 	readonly setFilterMode: (filterMode: BridgeFileViewerFilterMode) => void;
@@ -46,12 +19,6 @@ export interface BridgeFileViewerStoreActions {
 
 export interface BridgeFileViewerStoreState {
 	readonly rootSnapshot: BridgeFileViewerRootSnapshot;
-	readonly renderState: BridgeFileViewerRenderState;
-	readonly openFileState: BridgeFileViewerOpenState;
-	readonly initialSurfaceLoadState: BridgeFileViewerInitialSurfaceLoadState;
-	readonly refreshDebugState: BridgeFileViewerRefreshDebugState | null;
-	readonly lastOpenLoadTelemetry: WorktreeFileSurfaceLoadTelemetry | null;
-	readonly lastDemandDispatchDebugState: BridgeFileViewerDemandDispatchDebugState;
 	readonly actions: BridgeFileViewerStoreActions;
 }
 
@@ -119,41 +86,6 @@ export function createBridgeFileViewerStore(): BridgeFileViewerStore {
 		);
 	};
 	const actions: BridgeFileViewerStoreActions = {
-		setRenderState: (renderState: BridgeFileViewerRenderState): void => {
-			setState({ renderState });
-		},
-		setOpenFileState: (
-			openFileState:
-				| BridgeFileViewerOpenState
-				| ((currentOpenFileState: BridgeFileViewerOpenState) => BridgeFileViewerOpenState),
-		): void => {
-			setState(
-				(currentState): BridgeFileViewerStorePatch => ({
-					openFileState:
-						typeof openFileState === 'function'
-							? openFileState(currentState.openFileState)
-							: openFileState,
-				}),
-			);
-		},
-		setInitialSurfaceLoadState: (
-			initialSurfaceLoadState: BridgeFileViewerInitialSurfaceLoadState,
-		): void => {
-			setState({ initialSurfaceLoadState });
-		},
-		setRefreshDebugState: (refreshDebugState: BridgeFileViewerRefreshDebugState | null): void => {
-			setState({ refreshDebugState });
-		},
-		setLastOpenLoadTelemetry: (
-			lastOpenLoadTelemetry: WorktreeFileSurfaceLoadTelemetry | null,
-		): void => {
-			setState({ lastOpenLoadTelemetry });
-		},
-		setLastDemandDispatchDebugState: (
-			lastDemandDispatchDebugState: BridgeFileViewerDemandDispatchDebugState,
-		): void => {
-			setState({ lastDemandDispatchDebugState });
-		},
 		setSearchText: (searchText: string): void => {
 			replaceRootSnapshot({ searchText });
 		},
@@ -170,12 +102,6 @@ export function createBridgeFileViewerStore(): BridgeFileViewerStore {
 			searchMode: 'text',
 			filterMode: 'all',
 		},
-		renderState: emptyRenderState,
-		openFileState: { status: 'idle' },
-		initialSurfaceLoadState: { status: 'idle' },
-		refreshDebugState: null,
-		lastOpenLoadTelemetry: null,
-		lastDemandDispatchDebugState: { status: 'idle' },
 		actions,
 	};
 	const subscribe = (listener: BridgeFileViewerStoreListener): (() => void) => {
