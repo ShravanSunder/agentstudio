@@ -3,6 +3,8 @@ import {
 	bridgeWorkerHoverCommandSchema,
 	bridgeWorkerMarkFileViewedCommandSchema,
 	bridgeWorkerModeCommandSchema,
+	bridgeWorkerReviewInvalidateCommandSchema,
+	bridgeWorkerReviewSourceUpdateCommandSchema,
 	bridgeWorkerSelectCommandSchema,
 	bridgeWorkerViewportCommandSchema,
 	type BridgeWorkerHealthEvent,
@@ -10,6 +12,8 @@ import {
 	type BridgeWorkerMainToServerCommand,
 	type BridgeWorkerMarkFileViewedCommand,
 	type BridgeWorkerModeCommand,
+	type BridgeWorkerReviewInvalidateCommand,
+	type BridgeWorkerReviewSourceUpdateCommand,
 	type BridgeWorkerSelectCommand,
 	type BridgeWorkerViewportCommand,
 } from './bridge-worker-contracts.js';
@@ -44,6 +48,20 @@ export interface EncodeBridgeWorkerMarkFileViewedCommandProps extends EncodeBrid
 
 export interface EncodeBridgeWorkerModeCommandProps extends EncodeBridgeWorkerCommandBaseProps {
 	readonly mode: BridgeWorkerModeCommand['mode'];
+}
+
+export interface EncodeBridgeWorkerReviewInvalidateCommandProps extends EncodeBridgeWorkerCommandBaseProps {
+	readonly scope: BridgeWorkerReviewInvalidateCommand['scope'];
+	readonly itemIds: readonly string[];
+	readonly pathHints: readonly string[];
+	readonly reason: BridgeWorkerReviewInvalidateCommand['reason'];
+}
+
+export interface EncodeBridgeWorkerReviewSourceUpdateCommandProps extends EncodeBridgeWorkerCommandBaseProps {
+	readonly contentItems: BridgeWorkerReviewSourceUpdateCommand['contentItems'];
+	readonly contentRequestDescriptors: BridgeWorkerReviewSourceUpdateCommand['contentRequestDescriptors'];
+	readonly renderSemantics: BridgeWorkerReviewSourceUpdateCommand['renderSemantics'];
+	readonly rows: BridgeWorkerReviewSourceUpdateCommand['rows'];
 }
 
 export function encodeBridgeWorkerSelectCommand(
@@ -96,6 +114,30 @@ export function encodeBridgeWorkerModeCommand(
 	});
 }
 
+export function encodeBridgeWorkerReviewInvalidateCommand(
+	props: EncodeBridgeWorkerReviewInvalidateCommandProps,
+): BridgeWorkerReviewInvalidateCommand {
+	return bridgeWorkerReviewInvalidateCommandSchema.parse({
+		...bridgeWorkerCommandEnvelope(props, 'reviewInvalidate'),
+		scope: props.scope,
+		itemIds: props.itemIds,
+		pathHints: props.pathHints,
+		reason: props.reason,
+	});
+}
+
+export function encodeBridgeWorkerReviewSourceUpdateCommand(
+	props: EncodeBridgeWorkerReviewSourceUpdateCommandProps,
+): BridgeWorkerReviewSourceUpdateCommand {
+	return bridgeWorkerReviewSourceUpdateCommandSchema.parse({
+		...bridgeWorkerCommandEnvelope(props, 'reviewSourceUpdate'),
+		contentItems: props.contentItems,
+		contentRequestDescriptors: props.contentRequestDescriptors,
+		renderSemantics: props.renderSemantics,
+		rows: props.rows,
+	});
+}
+
 export function buildBridgeWorkerReadyHealthEvent(requestId?: string): BridgeWorkerHealthEvent {
 	return {
 		wireVersion: BRIDGE_WORKER_WIRE_VERSION,
@@ -110,7 +152,10 @@ export function buildBridgeWorkerReadyHealthEvent(requestId?: string): BridgeWor
 function bridgeWorkerCommandEnvelope(
 	props: EncodeBridgeWorkerCommandBaseProps,
 	command: BridgeWorkerCommandName,
-): Omit<BridgeWorkerMainToServerCommand, 'command'> & {
+): Pick<
+	BridgeWorkerMainToServerCommand,
+	'wireVersion' | 'direction' | 'kind' | 'requestId' | 'epoch' | 'transferDescriptors'
+> & {
 	readonly command: BridgeWorkerCommandName;
 } {
 	return {

@@ -6,6 +6,8 @@ import {
 	encodeBridgeWorkerHoverCommand,
 	encodeBridgeWorkerMarkFileViewedCommand,
 	encodeBridgeWorkerModeCommand,
+	encodeBridgeWorkerReviewInvalidateCommand,
+	encodeBridgeWorkerReviewSourceUpdateCommand,
 	encodeBridgeWorkerSelectCommand,
 	encodeBridgeWorkerViewportCommand,
 } from './bridge-comm-worker-protocol.js';
@@ -177,6 +179,138 @@ describe('Bridge comm worker command handler', () => {
 			status: 'ready',
 		});
 		expect(JSON.stringify(messages)).not.toMatch(/rowById|orderedIds|rootSnapshot|allRows/i);
+	});
+
+	test('review invalidation command marks selected content stale and schedules refresh demand', () => {
+		const scheduledPreparations: ScheduledSelectedReviewPreparation[] = [];
+		const handler = createBridgeCommWorkerCommandHandler({
+			contentItems: [makeWorkerReviewContentMetadata('item-1')],
+			rows: [{ id: 'item-1', parentId: null, index: 0 }],
+			createSequence: (): number => 23,
+			scheduleSelectedReviewContentReadyPreparation:
+				pushScheduledSelectedReviewPreparation(scheduledPreparations),
+		});
+		handler.handleMessage(
+			encodeBridgeWorkerSelectCommand({
+				requestId: 'request-select-before-invalidate',
+				epoch: 7,
+				selectedItemId: 'item-1',
+				selectedSource: 'user',
+			}),
+		);
+
+		const messages = handler.handleMessage(
+			encodeBridgeWorkerReviewInvalidateCommand({
+				requestId: 'request-invalidate',
+				epoch: 8,
+				itemIds: ['item-1'],
+				pathHints: [],
+				reason: 'watchEvent',
+				scope: 'items',
+			}),
+		);
+
+		expect(messages[0]).toMatchObject({
+			wireVersion: 1,
+			direction: 'serverWorkerToMain',
+			transferDescriptors: [],
+			kind: 'slicePatch',
+			epoch: 8,
+			sequence: 23,
+			patches: [
+				{
+					slice: 'contentAvailability',
+					operation: 'upsert',
+					itemId: 'item-1',
+					payload: { state: 'stale' },
+				},
+			],
+		});
+		expect(messages[1]).toMatchObject({
+			kind: 'health',
+			requestId: 'request-invalidate',
+			status: 'ready',
+		});
+		expect(scheduledPreparations).toHaveLength(2);
+		expect(scheduledPreparations[1]?.itemId).toBe('item-1');
+		expect(scheduledPreparations[1]?.epoch).toBe(8);
+		expect(scheduledPreparations[1]?.store.getState().demandByKey.get('item-1')).toBe('selected:8');
+	});
+
+	test('review source update preserves worker state so path invalidation deletes stale paint', () => {
+		const scheduledPreparations: ScheduledSelectedReviewPreparation[] = [];
+		const handler = createBridgeCommWorkerCommandHandler({
+			contentItems: [
+				makeWorkerReviewContentMetadata('item-1', {
+					path: 'Sources/App/Before.swift',
+				}),
+			],
+			rows: [{ id: 'item-1', parentId: null, index: 0 }],
+			createSequence: createSequenceFrom([31, 32, 33]),
+			scheduleSelectedReviewContentReadyPreparation:
+				pushScheduledSelectedReviewPreparation(scheduledPreparations),
+		});
+		handler.handleMessage(
+			encodeBridgeWorkerSelectCommand({
+				requestId: 'request-select-before-source-update',
+				epoch: 7,
+				selectedItemId: 'item-1',
+				selectedSource: 'user',
+			}),
+		);
+		const selectedStore = scheduledPreparations[0]?.store;
+		if (selectedStore === undefined) {
+			throw new Error('expected selected preparation store');
+		}
+		selectedStore.actions.applyContentReady({
+			itemId: 'item-1',
+			contentCacheKey: 'pierre-content:sha256:before',
+		});
+		selectedStore.actions.takePendingSlicePatchEvent({ epoch: 7, sequence: 41 });
+
+		handler.handleMessage(
+			encodeBridgeWorkerReviewSourceUpdateCommand({
+				requestId: 'request-source-update',
+				epoch: 8,
+				contentItems: [
+					makeWorkerReviewContentMetadata('item-1', {
+						path: 'Sources/App/After.swift',
+					}),
+				],
+				contentRequestDescriptors: [],
+				renderSemantics: [],
+				rows: [{ id: 'item-1', parentId: null, index: 0 }],
+			}),
+		);
+		const messages = handler.handleMessage(
+			encodeBridgeWorkerReviewInvalidateCommand({
+				requestId: 'request-invalidate-after-source-update',
+				epoch: 9,
+				itemIds: [],
+				pathHints: ['Sources/App/After.swift'],
+				reason: 'watchEvent',
+				scope: 'paths',
+			}),
+		);
+
+		expect(messages[0]).toMatchObject({
+			kind: 'slicePatch',
+			epoch: 9,
+			sequence: 32,
+			patches: [
+				{ slice: 'rowPaint', operation: 'delete', itemId: 'item-1' },
+				{
+					slice: 'contentAvailability',
+					operation: 'upsert',
+					itemId: 'item-1',
+					payload: { state: 'stale' },
+				},
+			],
+		});
+		expect(scheduledPreparations.at(-1)?.epoch).toBe(9);
+		expect(scheduledPreparations.at(-1)?.store.getState().demandByKey.get('item-1')).toBe(
+			'selected:9',
+		);
 	});
 
 	test('unsupported commands return degraded health instead of silent success', () => {
@@ -371,10 +505,25 @@ function ignoreScheduledSelectedReviewPreparation(
 	_preparation: ScheduledSelectedReviewPreparation,
 ): void {}
 
-function makeWorkerReviewContentMetadata(itemId: string): BridgeWorkerReviewContentMetadata {
+function createSequenceFrom(sequences: readonly number[]): () => number {
+	let index = 0;
+	return (): number => {
+		const sequence = sequences[index];
+		if (sequence === undefined) {
+			throw new Error('test sequence exhausted');
+		}
+		index += 1;
+		return sequence;
+	};
+}
+
+function makeWorkerReviewContentMetadata(
+	itemId: string,
+	props: { readonly path?: string } = {},
+): BridgeWorkerReviewContentMetadata {
 	const item = makeBridgeReviewItem({
 		itemId,
-		path: `Sources/App/${itemId}.swift`,
+		path: props.path ?? `Sources/App/${itemId}.swift`,
 	});
 	return {
 		itemId: item.itemId,

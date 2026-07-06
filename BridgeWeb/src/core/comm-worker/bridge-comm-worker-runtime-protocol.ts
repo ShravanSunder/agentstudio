@@ -1,5 +1,6 @@
 import {
 	createBridgeCommWorkerCommandHandler,
+	type BridgeCommWorkerReviewRuntimeSource,
 	type BridgeCommWorkerSelectedReviewContentReadyPreparationRequest,
 } from './bridge-comm-worker-command-handler.js';
 import type { BridgeCommWorkerPort } from './bridge-comm-worker-entry.js';
@@ -57,6 +58,12 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 	const preparationCompletions: Promise<void>[] = [];
 	let drainScheduled = false;
 	let shouldRequestDrainAfterMessage = false;
+	let reviewRuntimeSource: BridgeCommWorkerReviewRuntimeSource = {
+		contentItems: props.contentItems,
+		contentRequestDescriptors: props.contentRequestDescriptors,
+		renderSemantics: props.renderSemantics,
+		rows: props.rows,
+	};
 
 	const drainPreparation: BridgeCommWorkerPreparationDrain = async () => {
 		drainScheduled = false;
@@ -93,13 +100,13 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 			const ticket = enqueueSelectedBridgeWorkerReviewContentReadyPreparation({
 				bridgeDemandRank: props.bridgeDemandRank,
 				budget: props.budget,
-				contentRequestDescriptors: props.contentRequestDescriptors,
+				contentRequestDescriptors: reviewRuntimeSource.contentRequestDescriptors,
 				epoch: request.epoch,
 				...(props.fetchContent === undefined ? {} : { fetchContent: props.fetchContent }),
 				itemId: request.itemId,
 				port,
 				pump,
-				renderSemantics: props.renderSemantics,
+				renderSemantics: reviewRuntimeSource.renderSemantics,
 				requestPreparationDrain,
 				sequence: createSequence(),
 				store: request.store,
@@ -108,6 +115,9 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 				preparationCompletions.push(ticket.completion);
 				shouldRequestDrainAfterMessage = true;
 			}
+		},
+		updateReviewRuntimeSource: (source: BridgeCommWorkerReviewRuntimeSource): void => {
+			reviewRuntimeSource = source;
 		},
 	});
 

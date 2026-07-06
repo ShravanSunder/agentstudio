@@ -435,7 +435,10 @@ export function selectedCanvasLoadingReasonForCurrentSelection(
 	if (props.selectedItemId === null || props.selectedContentKey === null) {
 		return null;
 	}
-	if (props.selectedContentAvailability?.state === 'loading') {
+	if (
+		props.selectedContentAvailability?.state === 'loading' ||
+		props.selectedContentAvailability?.state === 'stale'
+	) {
 		return 'content';
 	}
 	if (

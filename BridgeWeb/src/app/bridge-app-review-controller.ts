@@ -1,23 +1,14 @@
-import type { Dispatch, SetStateAction } from 'react';
-
 import type { BridgePushEnvelope } from '../bridge/bridge-push-envelope.js';
-import type { BridgeResourceExecutor } from '../core/demand/bridge-resource-executor.js';
-import type { BridgeDescriptorRef } from '../core/models/bridge-resource-descriptor.js';
 import type { BridgeResourceDescriptorRegistry } from '../core/resources/bridge-resource-registry.js';
-import type { BridgeTextResourceStreamResult } from '../core/resources/bridge-resource-stream.js';
 import { applyValidatedReviewProtocolFrame } from '../features/review/materialization/review-materializer.js';
 import type {
+	ReviewInvalidationFrame,
 	ReviewProtocolFrame,
 	ReviewTreeRowMetadata,
 } from '../features/review/models/review-protocol-models.js';
 import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
-import { demandFreshnessKeyForReviewDescriptorRef } from '../review-viewer/content/review-content-demand-loader.js';
-import type { BridgeReviewContentRegistry } from '../review-viewer/content/review-content-registry.js';
 import {
-	cancelReviewDescriptorDemandGroups,
-	contentResourceKeysForReviewHandleIds,
-	descriptorRefsForReviewInvalidation,
 	materializeAcceptedReviewSnapshotForPackage,
 	materializeReviewProtocolDeltaFrame,
 	materializeReviewProtocolSnapshotFrame,
@@ -61,9 +52,8 @@ interface BridgeReviewProtocolTransportFrameApplyProps {
 	readonly setReviewPackage: (
 		update: (current: BridgeReviewPackage | null) => BridgeReviewPackage | null,
 	) => void;
-	readonly setReviewTreeRows: (
-		update: (current: readonly ReviewTreeRowMetadata[]) => readonly ReviewTreeRowMetadata[],
-	) => void;
+	readonly getReviewTreeRows: () => readonly ReviewTreeRowMetadata[];
+	readonly setReviewTreeRows: (rows: readonly ReviewTreeRowMetadata[]) => void;
 	readonly setDiffStatus: (
 		update: (current: BridgeDiffStatusState) => BridgeDiffStatusState,
 	) => void;
@@ -79,16 +69,16 @@ interface BridgeReviewProtocolTransportFrameApplyProps {
 		readonly current: Map<string, number>;
 	};
 	readonly descriptorRegistry: BridgeResourceDescriptorRegistry;
-	readonly reviewContentDescriptorRefsByHandleIdRef: {
-		current: ReadonlyMap<string, BridgeDescriptorRef>;
-	};
-	readonly resourceExecutor: BridgeResourceExecutor<BridgeTextResourceStreamResult>;
-	readonly contentRegistry: BridgeReviewContentRegistry;
+	readonly dispatchReviewInvalidation: (frame: ReviewInvalidationFrame) => void;
+	readonly synchronizeReviewWorkerSource: (source: BridgeReviewWorkerSourceSnapshot) => void;
 	readonly reviewFrameAuthority: BridgeReviewFrameAuthority | null;
-	readonly invalidatedFreshnessKeysRef: { readonly current: Set<string> };
-	readonly setReviewContentInvalidationVersion: Dispatch<SetStateAction<number>>;
 	readonly telemetryContext: BridgeReviewPackageTelemetryContext;
 	readonly telemetryRecorder: BridgeTelemetryRecorder;
+}
+
+export interface BridgeReviewWorkerSourceSnapshot {
+	readonly reviewPackage: BridgeReviewPackage | null;
+	readonly reviewTreeRows: readonly ReviewTreeRowMetadata[];
 }
 
 export async function applyReviewProtocolTransportFrame(
@@ -156,12 +146,10 @@ async function applyReviewProtocolFramePayload(
 		currentReviewPackageTelemetryContextRef,
 		reviewReadyStartMillisecondsByPackageKeyRef,
 		descriptorRegistry,
-		reviewContentDescriptorRefsByHandleIdRef,
-		resourceExecutor,
-		contentRegistry,
+		dispatchReviewInvalidation,
+		getReviewTreeRows,
 		reviewFrameAuthority,
-		invalidatedFreshnessKeysRef,
-		setReviewContentInvalidationVersion,
+		synchronizeReviewWorkerSource,
 	} = props;
 	const protocolFrame = props.protocolFrame;
 	if (
@@ -248,27 +236,17 @@ async function applyReviewProtocolFramePayload(
 			});
 			return;
 		}
-		if (shouldMergeSnapshotWithCurrentPackage) {
-			cancelReviewDescriptorDemandGroups({
-				descriptorRefs: materializedFrame.descriptorRefsByHandleId,
-				resourceExecutor,
-			});
-			reviewContentDescriptorRefsByHandleIdRef.current = new Map([
-				...reviewContentDescriptorRefsByHandleIdRef.current,
-				...materializedFrame.descriptorRefsByHandleId,
-			]);
-		} else {
-			cancelReviewDescriptorDemandGroups({
-				descriptorRefs: reviewContentDescriptorRefsByHandleIdRef.current,
-				resourceExecutor,
-			});
-			reviewContentDescriptorRefsByHandleIdRef.current = materializedFrame.descriptorRefsByHandleId;
-		}
 		const telemetryContext = {
 			slice: props.telemetryContext.slice,
 			traceContext: props.telemetryContext.traceContext,
 			transport: props.telemetryContext.transport,
 		};
+		const nextReviewTreeRows = shouldMergeSnapshotWithCurrentPackage
+			? mergeReviewTreeRowsByRowId({
+					current: getReviewTreeRows(),
+					nextRows: snapshotFrame.treeRows,
+				})
+			: snapshotFrame.treeRows;
 		const packageTelemetryKey = makeTelemetryPackageKey(packagePayload);
 		telemetryContextByPackageKey.set(packageTelemetryKey, telemetryContext);
 		reviewReadyStartMillisecondsByPackageKeyRef.current.set(
@@ -277,14 +255,11 @@ async function applyReviewProtocolFramePayload(
 		);
 		currentReviewPackageTelemetryContextRef.current = telemetryContext;
 		reviewPackageRef.current = packagePayload;
-		setReviewTreeRows((current): readonly ReviewTreeRowMetadata[] =>
-			shouldMergeSnapshotWithCurrentPackage
-				? mergeReviewTreeRowsByRowId({
-						current,
-						nextRows: snapshotFrame.treeRows,
-					})
-				: snapshotFrame.treeRows,
-		);
+		synchronizeReviewWorkerSource({
+			reviewPackage: packagePayload,
+			reviewTreeRows: nextReviewTreeRows,
+		});
+		setReviewTreeRows(nextReviewTreeRows);
 		setDiffStatus(
 			(): BridgeDiffStatusState => ({
 				status: 'ready',
@@ -345,19 +320,16 @@ async function applyReviewProtocolFramePayload(
 			telemetryContext: props.telemetryContext,
 			telemetryRecorder: props.telemetryRecorder,
 		});
-		reviewContentDescriptorRefsByHandleIdRef.current = new Map([
-			...reviewContentDescriptorRefsByHandleIdRef.current,
-			...windowFrame.registeredContentDescriptorRefs.map(
-				(ref): readonly [string, BridgeDescriptorRef] => [ref.descriptorId, ref],
-			),
-		]);
 		reviewPackageRef.current = packagePayload;
-		setReviewTreeRows((current): readonly ReviewTreeRowMetadata[] =>
-			mergeReviewTreeRowsByRowId({
-				current,
-				nextRows: windowFrame.treeRows,
-			}),
-		);
+		const nextReviewTreeRows = mergeReviewTreeRowsByRowId({
+			current: getReviewTreeRows(),
+			nextRows: windowFrame.treeRows,
+		});
+		synchronizeReviewWorkerSource({
+			reviewPackage: packagePayload,
+			reviewTreeRows: nextReviewTreeRows,
+		});
+		setReviewTreeRows(nextReviewTreeRows);
 		setReviewPackage((): BridgeReviewPackage => packagePayload);
 		return;
 	}
@@ -384,105 +356,70 @@ async function applyReviewProtocolFramePayload(
 				telemetryContext: props.telemetryContext,
 				telemetryRecorder: props.telemetryRecorder,
 			});
-			reviewContentDescriptorRefsByHandleIdRef.current = new Map([
-				...reviewContentDescriptorRefsByHandleIdRef.current,
-				...deltaFrame.registeredContentDescriptorRefs.map(
-					(ref): readonly [string, BridgeDescriptorRef] => [ref.descriptorId, ref],
-				),
-			]);
 			reviewPackageRef.current = packagePayload;
-			setReviewTreeRows((current): readonly ReviewTreeRowMetadata[] =>
-				reviewTreeRowsWithMetadataDelta({
-					current,
-					deltaFrame,
-				}),
-			);
+			const nextReviewTreeRows = reviewTreeRowsWithMetadataDelta({
+				current: getReviewTreeRows(),
+				deltaFrame,
+			});
+			synchronizeReviewWorkerSource({
+				reviewPackage: packagePayload,
+				reviewTreeRows: nextReviewTreeRows,
+			});
+			setReviewTreeRows(nextReviewTreeRows);
 			setReviewPackage((): BridgeReviewPackage => packagePayload);
 		}
 		return;
 	}
-	{
-		if (
-			protocolFrame?.frameKind === 'review.invalidate' &&
-			reviewInvalidationFrameMatchesCurrentAuthority({
-				frame: protocolFrame,
-				currentReviewPackage: reviewPackageRef.current,
-				reviewFrameAuthority,
-			})
-		) {
-			const materializeResult =
-				reviewFrameAuthority === null
-					? null
-					: applyValidatedReviewProtocolFrame({
-							frame: protocolFrame,
-							paneId: reviewFrameAuthority.paneId,
-							registry: descriptorRegistry,
-						});
-			if (materializeResult?.ok === true && materializeResult.delta.kind === 'invalidate') {
-				const invalidatedDescriptorRefs = descriptorRefsForReviewInvalidation({
-					descriptorRefsByHandleId: reviewContentDescriptorRefsByHandleIdRef.current,
-					invalidation: materializeResult.delta,
-					reviewPackage: reviewPackageRef.current,
-				});
-				cancelReviewDescriptorDemandGroups({
-					descriptorRefs: invalidatedDescriptorRefs,
-					resourceExecutor,
-				});
-				if (invalidatedDescriptorRefs.size > 0) {
-					for (const descriptorRef of invalidatedDescriptorRefs.values()) {
-						invalidatedFreshnessKeysRef.current.add(
-							demandFreshnessKeyForReviewDescriptorRef(descriptorRef),
-						);
-					}
-					contentRegistry.evictResourceKeys(
-						contentResourceKeysForReviewHandleIds({
-							handleIds: new Set(invalidatedDescriptorRefs.keys()),
-							reviewPackage: reviewPackageRef.current,
-						}),
-					);
-					setReviewContentInvalidationVersion((version): number => version + 1);
-				}
-			}
+	if (
+		protocolFrame?.frameKind === 'review.invalidate' &&
+		reviewInvalidationFrameMatchesCurrentAuthority({
+			frame: protocolFrame,
+			currentReviewPackage: reviewPackageRef.current,
+			reviewFrameAuthority,
+		})
+	) {
+		synchronizeReviewWorkerSource({
+			reviewPackage: reviewPackageRef.current,
+			reviewTreeRows: getReviewTreeRows(),
+		});
+		dispatchReviewInvalidation(protocolFrame);
+		return;
+	}
+	if (
+		protocolFrame?.frameKind === 'review.reset' &&
+		reviewResetFrameMatchesCurrentAuthority({
+			frame: protocolFrame,
+			currentReviewPackage: reviewPackageRef.current,
+			reviewFrameAuthority,
+		})
+	) {
+		const materializeResult =
+			reviewFrameAuthority === null
+				? null
+				: applyValidatedReviewProtocolFrame({
+						frame: protocolFrame,
+						paneId: reviewFrameAuthority.paneId,
+						registry: descriptorRegistry,
+					});
+		if (materializeResult?.ok !== true || materializeResult.delta.kind !== 'reset') {
 			return;
 		}
-		if (
-			protocolFrame?.frameKind === 'review.reset' &&
-			reviewResetFrameMatchesCurrentAuthority({
-				frame: protocolFrame,
-				currentReviewPackage: reviewPackageRef.current,
-				reviewFrameAuthority,
-			})
-		) {
-			const materializeResult =
-				reviewFrameAuthority === null
-					? null
-					: applyValidatedReviewProtocolFrame({
-							frame: protocolFrame,
-							paneId: reviewFrameAuthority.paneId,
-							registry: descriptorRegistry,
-						});
-			if (materializeResult?.ok !== true || materializeResult.delta.kind !== 'reset') {
-				return;
-			}
-			cancelReviewDescriptorDemandGroups({
-				descriptorRefs: reviewContentDescriptorRefsByHandleIdRef.current,
-				resourceExecutor,
-			});
-			reviewContentDescriptorRefsByHandleIdRef.current = new Map<string, BridgeDescriptorRef>();
-			reviewPackageRef.current = null;
-			currentReviewPackageTelemetryContextRef.current = null;
-			setReviewTreeRows((): readonly ReviewTreeRowMetadata[] => []);
-			setReviewPackage((): null => null);
-			setSelectedItemId(null);
-			setDiffStatus(
-				(): BridgeDiffStatusState => ({
-					status: 'loading',
-					error: null,
-					epoch: protocolFrame.generation,
-				}),
-			);
-		}
-		return;
+		reviewPackageRef.current = null;
+		currentReviewPackageTelemetryContextRef.current = null;
+		synchronizeReviewWorkerSource({
+			reviewPackage: null,
+			reviewTreeRows: [],
+		});
+		setReviewTreeRows([]);
+		setReviewPackage((): null => null);
+		setSelectedItemId(null);
+		setDiffStatus(
+			(): BridgeDiffStatusState => ({
+				status: 'loading',
+				error: null,
+				epoch: protocolFrame.generation,
+			}),
+		);
 	}
 }
 

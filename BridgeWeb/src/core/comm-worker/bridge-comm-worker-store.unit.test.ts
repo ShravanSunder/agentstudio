@@ -152,6 +152,221 @@ describe('Bridge comm worker store', () => {
 		]);
 	});
 
+	test('invalidates selected and visible review content through worker-owned cache truth', () => {
+		const store = createBridgeCommWorkerStore({
+			contentItems: [
+				makeWorkerReviewContentMetadata('item-selected'),
+				makeWorkerReviewContentMetadata('item-visible'),
+				makeWorkerReviewContentMetadata('item-hidden'),
+			],
+			rows: [
+				{ id: 'item-selected', parentId: null, index: 0 },
+				{ id: 'item-visible', parentId: null, index: 1 },
+				{ id: 'item-hidden', parentId: null, index: 2 },
+			],
+		});
+		store.actions.applySelectedFact({ itemId: 'item-selected', epoch: 1 });
+		store.actions.applyViewportFact({
+			visibleItemIds: ['item-visible'],
+			firstVisibleIndex: 1,
+			lastVisibleIndex: 1,
+		});
+		store.actions.applyContentReady({
+			itemId: 'item-selected',
+			contentCacheKey: 'pierre-content:sha256:selected',
+		});
+		store.actions.applyContentReady({
+			itemId: 'item-visible',
+			contentCacheKey: 'pierre-content:sha256:visible',
+		});
+		store.actions.applyContentReady({
+			itemId: 'item-hidden',
+			contentCacheKey: 'pierre-content:sha256:hidden',
+		});
+		store.actions.takePendingSlicePatchEvent({ epoch: 1, sequence: 1 });
+
+		const result = store.actions.applyReviewInvalidationFact({
+			epoch: 8,
+			itemIds: ['item-selected', 'item-visible'],
+			pathHints: [],
+			reason: 'watchEvent',
+			scope: 'items',
+		});
+		const state = store.getState();
+		const patchEvent = store.actions.takePendingSlicePatchEvent({ epoch: 8, sequence: 2 });
+
+		expect(result.touchedKeys).toEqual([
+			'paintReady:item-selected',
+			'byteCache:pierre-content:sha256:selected',
+			'availability:item-selected',
+			'demand:item-selected',
+			'paintReady:item-visible',
+			'byteCache:pierre-content:sha256:visible',
+			'availability:item-visible',
+			'demand:item-visible',
+		]);
+		expect(Object.fromEntries(state.paintReadyByItemId)).toEqual({
+			'item-hidden': 'pierre-content:sha256:hidden',
+		});
+		expect(Object.fromEntries(state.byteCache)).toEqual({
+			'pierre-content:sha256:hidden': 'item-hidden',
+		});
+		expect(Object.fromEntries(state.availabilityByItemId)).toEqual({
+			'item-selected': 'stale',
+			'item-visible': 'stale',
+			'item-hidden': 'ready',
+		});
+		expect(Object.fromEntries(state.demandByKey)).toEqual({
+			'item-selected': 'selected:8',
+			'item-visible': 'visible',
+		});
+		expect(patchEvent?.patches).toEqual([
+			{ slice: 'rowPaint', operation: 'delete', itemId: 'item-selected' },
+			{
+				slice: 'contentAvailability',
+				operation: 'upsert',
+				itemId: 'item-selected',
+				payload: { state: 'stale' },
+			},
+			{ slice: 'rowPaint', operation: 'delete', itemId: 'item-visible' },
+			{
+				slice: 'contentAvailability',
+				operation: 'upsert',
+				itemId: 'item-visible',
+				payload: { state: 'stale' },
+			},
+		]);
+	});
+
+	test('keeps selected visible and paint-ready state across review source updates before invalidation', () => {
+		const store = createBridgeCommWorkerStore({
+			contentItems: [
+				makeWorkerReviewContentMetadata('item-selected', {
+					path: 'Sources/App/Before.swift',
+				}),
+				makeWorkerReviewContentMetadata('item-visible'),
+			],
+			rows: [
+				{ id: 'item-selected', parentId: null, index: 0 },
+				{ id: 'item-visible', parentId: null, index: 1 },
+			],
+		});
+		store.actions.applySelectedFact({ itemId: 'item-selected', epoch: 1 });
+		store.actions.applyViewportFact({
+			visibleItemIds: ['item-visible'],
+			firstVisibleIndex: 1,
+			lastVisibleIndex: 1,
+		});
+		store.actions.applyContentReady({
+			itemId: 'item-selected',
+			contentCacheKey: 'pierre-content:sha256:selected-before',
+		});
+		store.actions.takePendingSlicePatchEvent({ epoch: 1, sequence: 1 });
+
+		store.actions.applyReviewSourceUpdateFact({
+			contentItems: [
+				makeWorkerReviewContentMetadata('item-selected', {
+					path: 'Sources/App/After.swift',
+				}),
+				makeWorkerReviewContentMetadata('item-visible'),
+			],
+			rows: [
+				{ id: 'item-selected', parentId: null, index: 0 },
+				{ id: 'item-visible', parentId: null, index: 1 },
+			],
+		});
+		const result = store.actions.applyReviewInvalidationFact({
+			epoch: 2,
+			itemIds: [],
+			pathHints: ['Sources/App/After.swift'],
+			reason: 'watchEvent',
+			scope: 'paths',
+		});
+		const patchEvent = store.actions.takePendingSlicePatchEvent({ epoch: 2, sequence: 2 });
+
+		expect(result.touchedKeys).toEqual([
+			'paintReady:item-selected',
+			'byteCache:pierre-content:sha256:selected-before',
+			'availability:item-selected',
+			'demand:item-selected',
+		]);
+		expect(Object.fromEntries(store.getState().paintReadyByItemId)).toEqual({});
+		expect(Object.fromEntries(store.getState().demandByKey)).toEqual({
+			'item-selected': 'selected:2',
+			'item-visible': 'visible',
+		});
+		expect(patchEvent?.patches).toEqual([
+			{ slice: 'rowPaint', operation: 'delete', itemId: 'item-selected' },
+			{
+				slice: 'contentAvailability',
+				operation: 'upsert',
+				itemId: 'item-selected',
+				payload: { state: 'stale' },
+			},
+		]);
+	});
+
+	test('invalidates package and tree-window scopes without requiring fresh metadata', () => {
+		const store = createBridgeCommWorkerStore({
+			contentItems: [makeWorkerReviewContentMetadata('item-selected')],
+			rows: [{ id: 'item-selected', parentId: null, index: 0 }],
+		});
+		store.actions.applySelectedFact({ itemId: 'item-selected', epoch: 1 });
+		store.actions.applyContentReady({
+			itemId: 'item-selected',
+			contentCacheKey: 'pierre-content:sha256:selected',
+		});
+		store.actions.takePendingSlicePatchEvent({ epoch: 1, sequence: 1 });
+		store.actions.applyReviewSourceUpdateFact({
+			contentItems: [],
+			rows: [],
+		});
+
+		store.actions.applyReviewInvalidationFact({
+			epoch: 2,
+			itemIds: [],
+			pathHints: [],
+			reason: 'lineageReplaced',
+			scope: 'package',
+		});
+		const packagePatchEvent = store.actions.takePendingSlicePatchEvent({ epoch: 2, sequence: 2 });
+		store.actions.applyContentReady({
+			itemId: 'item-selected',
+			contentCacheKey: 'pierre-content:sha256:selected-again',
+		});
+		store.actions.takePendingSlicePatchEvent({ epoch: 2, sequence: 3 });
+		store.actions.applyReviewInvalidationFact({
+			epoch: 3,
+			itemIds: [],
+			pathHints: [],
+			reason: 'watchEvent',
+			scope: 'treeWindow',
+		});
+		const treeWindowPatchEvent = store.actions.takePendingSlicePatchEvent({
+			epoch: 3,
+			sequence: 4,
+		});
+
+		expect(packagePatchEvent?.patches).toEqual([
+			{ slice: 'rowPaint', operation: 'delete', itemId: 'item-selected' },
+			{
+				slice: 'contentAvailability',
+				operation: 'upsert',
+				itemId: 'item-selected',
+				payload: { state: 'stale' },
+			},
+		]);
+		expect(treeWindowPatchEvent?.patches).toEqual([
+			{ slice: 'rowPaint', operation: 'delete', itemId: 'item-selected' },
+			{
+				slice: 'contentAvailability',
+				operation: 'upsert',
+				itemId: 'item-selected',
+				payload: { state: 'stale' },
+			},
+		]);
+	});
+
 	test('marks selected content unavailable when worker metadata is absent', () => {
 		const store = createBridgeCommWorkerStore({
 			contentItems: [makeWorkerReviewContentMetadata('visible-item')],
@@ -259,10 +474,13 @@ describe('Bridge comm worker store', () => {
 	});
 });
 
-function makeWorkerReviewContentMetadata(itemId: string): BridgeWorkerReviewContentMetadata {
+function makeWorkerReviewContentMetadata(
+	itemId: string,
+	props: { readonly path?: string } = {},
+): BridgeWorkerReviewContentMetadata {
 	const item = makeBridgeReviewItem({
 		itemId,
-		path: `Sources/App/${itemId}.swift`,
+		path: props.path ?? `Sources/App/${itemId}.swift`,
 	});
 	return {
 		itemId: item.itemId,

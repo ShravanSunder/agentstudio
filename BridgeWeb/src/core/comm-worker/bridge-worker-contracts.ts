@@ -79,25 +79,15 @@ export const bridgeWorkerModeCommandSchema = bridgeWorkerMainToServerBaseSchema
 	})
 	.strict();
 
-export const bridgeWorkerMainToServerCommandSchema = z.discriminatedUnion('command', [
-	bridgeWorkerSelectCommandSchema,
-	bridgeWorkerViewportCommandSchema,
-	bridgeWorkerHoverCommandSchema,
-	bridgeWorkerMarkFileViewedCommandSchema,
-	bridgeWorkerModeCommandSchema,
-]);
-
-export const bridgeWorkerMainToServerMessageSchema = bridgeWorkerMainToServerCommandSchema;
-
-export type BridgeWorkerSelectCommand = z.infer<typeof bridgeWorkerSelectCommandSchema>;
-export type BridgeWorkerViewportCommand = z.infer<typeof bridgeWorkerViewportCommandSchema>;
-export type BridgeWorkerHoverCommand = z.infer<typeof bridgeWorkerHoverCommandSchema>;
-export type BridgeWorkerMarkFileViewedCommand = z.infer<
-	typeof bridgeWorkerMarkFileViewedCommandSchema
->;
-export type BridgeWorkerModeCommand = z.infer<typeof bridgeWorkerModeCommandSchema>;
-export type BridgeWorkerMainToServerCommand = z.infer<typeof bridgeWorkerMainToServerCommandSchema>;
-export type BridgeWorkerMainToServerMessage = BridgeWorkerMainToServerCommand;
+export const bridgeWorkerReviewInvalidateCommandSchema = bridgeWorkerMainToServerBaseSchema
+	.extend({
+		command: z.literal('reviewInvalidate'),
+		scope: z.enum(['package', 'items', 'paths', 'treeWindow']),
+		itemIds: z.array(z.string().min(1)).readonly(),
+		pathHints: z.array(z.string().min(1)).readonly(),
+		reason: z.enum(['sourceChanged', 'watchEvent', 'lineageReplaced', 'unknown']),
+	})
+	.strict();
 
 const bridgeWorkerSelectionSourceSchema = z.enum(['user', 'keyboard', 'programmatic']);
 
@@ -177,6 +167,44 @@ export const bridgeCommWorkerRowSchema = z
 		index: z.number().int().nonnegative(),
 	})
 	.strict();
+
+export const bridgeWorkerReviewSourceUpdateCommandSchema = bridgeWorkerMainToServerBaseSchema
+	.extend({
+		command: z.literal('reviewSourceUpdate'),
+		contentItems: z.array(bridgeWorkerReviewContentMetadataSchema).readonly(),
+		contentRequestDescriptors: z.array(bridgeWorkerReviewContentRequestDescriptorSchema).readonly(),
+		renderSemantics: z.array(bridgeWorkerReviewRenderSemanticsSchema).readonly(),
+		rows: z.array(bridgeCommWorkerRowSchema).readonly(),
+	})
+	.strict();
+
+export const bridgeWorkerMainToServerCommandSchema = z.discriminatedUnion('command', [
+	bridgeWorkerSelectCommandSchema,
+	bridgeWorkerViewportCommandSchema,
+	bridgeWorkerHoverCommandSchema,
+	bridgeWorkerMarkFileViewedCommandSchema,
+	bridgeWorkerModeCommandSchema,
+	bridgeWorkerReviewInvalidateCommandSchema,
+	bridgeWorkerReviewSourceUpdateCommandSchema,
+]);
+
+export const bridgeWorkerMainToServerMessageSchema = bridgeWorkerMainToServerCommandSchema;
+
+export type BridgeWorkerSelectCommand = z.infer<typeof bridgeWorkerSelectCommandSchema>;
+export type BridgeWorkerViewportCommand = z.infer<typeof bridgeWorkerViewportCommandSchema>;
+export type BridgeWorkerHoverCommand = z.infer<typeof bridgeWorkerHoverCommandSchema>;
+export type BridgeWorkerMarkFileViewedCommand = z.infer<
+	typeof bridgeWorkerMarkFileViewedCommandSchema
+>;
+export type BridgeWorkerModeCommand = z.infer<typeof bridgeWorkerModeCommandSchema>;
+export type BridgeWorkerReviewInvalidateCommand = z.infer<
+	typeof bridgeWorkerReviewInvalidateCommandSchema
+>;
+export type BridgeWorkerReviewSourceUpdateCommand = z.infer<
+	typeof bridgeWorkerReviewSourceUpdateCommandSchema
+>;
+export type BridgeWorkerMainToServerCommand = z.infer<typeof bridgeWorkerMainToServerCommandSchema>;
+export type BridgeWorkerMainToServerMessage = BridgeWorkerMainToServerCommand;
 
 export const bridgeCommWorkerBootstrapRequestSchema = z
 	.object({

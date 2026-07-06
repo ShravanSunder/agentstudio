@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'vitest';
 
-import { createBridgeResourceExecutor } from '../core/demand/bridge-resource-executor.js';
 import type { BridgeAttachedResourceDescriptor } from '../core/models/bridge-resource-descriptor.js';
 import { createBridgeResourceDescriptorRegistry } from '../core/resources/bridge-resource-registry.js';
 import type { ReviewMaterializerDelta } from '../features/review/materialization/review-materializer.js';
@@ -16,7 +15,6 @@ import type {
 	BridgeReviewItemDescriptor,
 	BridgeReviewPackage,
 } from '../foundation/review-package/bridge-review-package.js';
-import { createBridgeReviewContentRegistry } from '../review-viewer/content/review-content-registry.js';
 import type { BridgeReviewProjectionInputItem } from '../review-viewer/models/review-projection-models.js';
 import { applyReviewProtocolTransportFrame } from './bridge-app-review-controller.js';
 import type { BridgeDiffStatusState } from './bridge-app-review-controller.js';
@@ -32,7 +30,6 @@ import {
 	makeNoopTelemetryRecorder,
 	makeReviewAttachedContentDescriptor,
 	makeReviewProjectionInputItem,
-	makeTextStreamResult,
 } from './bridge-app.unit.test-support.js';
 
 type ReviewSnapshotMaterializerDelta = Extract<
@@ -707,18 +704,6 @@ function makeReviewProtocolFrameHarness(initialReviewPackage: BridgeReviewPackag
 	const descriptorRegistry = createBridgeResourceDescriptorRegistry({
 		allowedResourceKindsByProtocol: { review: new Set(['content']) },
 	});
-	const resourceExecutor = createBridgeResourceExecutor({
-		registry: descriptorRegistry,
-		maxConcurrentLoads: 2,
-		maxInFlightBytes: 1024 * 1024,
-		maxQueuedLoads: 8,
-		maxQueuedBytes: 1024 * 1024,
-		loadResource: async ({ descriptor }) => ({
-			authoritative: true,
-			content: makeTextStreamResult(`${descriptor.descriptorId} content`),
-			byteLength: 24,
-		}),
-	});
 	const reviewPackageRef: { current: BridgeReviewPackage | null } = {
 		current: initialReviewPackage,
 	};
@@ -730,7 +715,6 @@ function makeReviewProtocolFrameHarness(initialReviewPackage: BridgeReviewPackag
 		epoch: initialReviewPackage.reviewGeneration,
 	};
 	let selectedItemId: string | null = targetItemId;
-	let invalidationVersion = 0;
 	return {
 		applyFrame: async (protocolFrame: ReviewProtocolFrame): Promise<void> => {
 			await applyReviewProtocolTransportFrame({
@@ -738,8 +722,10 @@ function makeReviewProtocolFrameHarness(initialReviewPackage: BridgeReviewPackag
 				setReviewPackage: (update): void => {
 					currentReviewPackage = update(currentReviewPackage);
 				},
-				setReviewTreeRows: (update): void => {
-					currentTreeRows = update(currentTreeRows);
+				getReviewTreeRows: (): readonly ReviewWindowMaterializerDelta['treeRows'][number][] =>
+					currentTreeRows,
+				setReviewTreeRows: (rows): void => {
+					currentTreeRows = rows;
 				},
 				setDiffStatus: (update): void => {
 					diffStatus = update(diffStatus);
@@ -757,14 +743,9 @@ function makeReviewProtocolFrameHarness(initialReviewPackage: BridgeReviewPackag
 				currentReviewPackageTelemetryContextRef: { current: null },
 				reviewReadyStartMillisecondsByPackageKeyRef: { current: new Map() },
 				descriptorRegistry,
-				reviewContentDescriptorRefsByHandleIdRef: { current: new Map() },
-				resourceExecutor,
-				contentRegistry: createBridgeReviewContentRegistry(),
+				dispatchReviewInvalidation: (): void => {},
+				synchronizeReviewWorkerSource: (): void => {},
 				reviewFrameAuthority,
-				invalidatedFreshnessKeysRef: { current: new Set() },
-				setReviewContentInvalidationVersion: (update): void => {
-					invalidationVersion = typeof update === 'function' ? update(invalidationVersion) : update;
-				},
 				telemetryContext: {
 					slice: 'review_metadata',
 					traceContext: null,

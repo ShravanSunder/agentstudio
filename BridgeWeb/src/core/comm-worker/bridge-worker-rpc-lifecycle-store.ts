@@ -1,4 +1,6 @@
-type BridgeWorkerRpcCommand = 'select' | 'viewport' | 'hover' | 'markFileViewed' | 'mode';
+import type { BridgeWorkerMainToServerCommand } from './bridge-worker-contracts.js';
+
+type BridgeWorkerRpcCommand = BridgeWorkerMainToServerCommand['command'];
 type BridgeWorkerRpcRequestState = 'pending' | 'acked' | 'failed' | 'timed_out' | 'superseded';
 
 export interface BridgeWorkerRpcRollbackMetadata {

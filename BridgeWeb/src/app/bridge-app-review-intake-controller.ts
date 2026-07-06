@@ -1,4 +1,4 @@
-import { type Dispatch, type MutableRefObject, type SetStateAction, useEffect } from 'react';
+import { type MutableRefObject, useEffect } from 'react';
 
 import type { BridgePageHandshakeSession } from '../bridge/bridge-page-handshake.js';
 import type { BridgePushEnvelope } from '../bridge/bridge-push-envelope.js';
@@ -6,23 +6,20 @@ import {
 	type BridgePushDropReason,
 	installBridgePushReceiver,
 } from '../bridge/bridge-push-receiver.js';
-import type { BridgeResourceExecutor } from '../core/demand/bridge-resource-executor.js';
 import {
 	installBridgeIntakeEventCarrier,
 	type BridgeIntakeCarrierDrop,
 } from '../core/intake/bridge-intake-carrier.js';
 import type { BridgeIntakeFrame } from '../core/models/bridge-intake-frame.js';
-import type { BridgeDescriptorRef } from '../core/models/bridge-resource-descriptor.js';
 import type { BridgeResourceDescriptorRegistry } from '../core/resources/bridge-resource-registry.js';
-import type { BridgeTextResourceStreamResult } from '../core/resources/bridge-resource-stream.js';
 import type {
+	ReviewInvalidationFrame,
 	ReviewProtocolFrame,
 	ReviewTreeRowMetadata,
 } from '../features/review/models/review-protocol-models.js';
 import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import type { BridgeTraceContext } from '../foundation/telemetry/bridge-trace-context.js';
-import type { BridgeReviewContentRegistry } from '../review-viewer/content/review-content-registry.js';
 import type { BridgeReviewViewerStore } from '../review-viewer/state/review-viewer-store.js';
 import {
 	applyReviewEnvelope,
@@ -57,9 +54,8 @@ export interface UseBridgeReviewIntakeControllerProps {
 	readonly setReviewPackage: (
 		update: (current: BridgeReviewPackage | null) => BridgeReviewPackage | null,
 	) => void;
-	readonly setReviewTreeRows: (
-		update: (current: readonly ReviewTreeRowMetadata[]) => readonly ReviewTreeRowMetadata[],
-	) => void;
+	readonly getReviewTreeRows: () => readonly ReviewTreeRowMetadata[];
+	readonly setReviewTreeRows: (rows: readonly ReviewTreeRowMetadata[]) => void;
 	readonly setDiffStatus: (
 		update: (current: BridgeDiffStatusState) => BridgeDiffStatusState,
 	) => void;
@@ -72,13 +68,11 @@ export interface UseBridgeReviewIntakeControllerProps {
 	readonly currentReviewPackageTelemetryContextRef: MutableRefObject<BridgeReviewPackageTelemetryContext | null>;
 	readonly reviewReadyStartMillisecondsByPackageKeyRef: MutableRefObject<Map<string, number>>;
 	readonly descriptorRegistry: BridgeResourceDescriptorRegistry;
-	readonly reviewContentDescriptorRefsByHandleIdRef: MutableRefObject<
-		ReadonlyMap<string, BridgeDescriptorRef>
-	>;
-	readonly resourceExecutor: BridgeResourceExecutor<BridgeTextResourceStreamResult>;
-	readonly contentRegistry: BridgeReviewContentRegistry;
-	readonly invalidatedFreshnessKeysRef: MutableRefObject<Set<string>>;
-	readonly setReviewContentInvalidationVersion: Dispatch<SetStateAction<number>>;
+	readonly dispatchReviewInvalidation: (frame: ReviewInvalidationFrame) => void;
+	readonly synchronizeReviewWorkerSource: (source: {
+		readonly reviewPackage: BridgeReviewPackage | null;
+		readonly reviewTreeRows: readonly ReviewTreeRowMetadata[];
+	}) => void;
 	readonly telemetryRecorderRef: MutableRefObject<BridgeTelemetryRecorder>;
 }
 
@@ -92,6 +86,7 @@ export function useBridgeReviewIntakeController(props: UseBridgeReviewIntakeCont
 		reviewEnvelopeApplyTailRef,
 		beginForegroundReviewSelection,
 		setReviewPackage,
+		getReviewTreeRows,
 		setReviewTreeRows,
 		setDiffStatus,
 		setSelectedItemId,
@@ -101,11 +96,8 @@ export function useBridgeReviewIntakeController(props: UseBridgeReviewIntakeCont
 		currentReviewPackageTelemetryContextRef,
 		reviewReadyStartMillisecondsByPackageKeyRef,
 		descriptorRegistry,
-		reviewContentDescriptorRefsByHandleIdRef,
-		resourceExecutor,
-		contentRegistry,
-		invalidatedFreshnessKeysRef,
-		setReviewContentInvalidationVersion,
+		dispatchReviewInvalidation,
+		synchronizeReviewWorkerSource,
 		telemetryRecorderRef,
 	} = props;
 	useEffect((): (() => void) => {
@@ -198,6 +190,7 @@ export function useBridgeReviewIntakeController(props: UseBridgeReviewIntakeCont
 					await applyReviewProtocolTransportFrame({
 						protocolFrame,
 						setReviewPackage,
+						getReviewTreeRows,
 						setReviewTreeRows,
 						setDiffStatus,
 						selectInitialReviewItem: beginForegroundReviewSelection,
@@ -209,12 +202,9 @@ export function useBridgeReviewIntakeController(props: UseBridgeReviewIntakeCont
 						currentReviewPackageTelemetryContextRef,
 						reviewReadyStartMillisecondsByPackageKeyRef,
 						descriptorRegistry,
-						reviewContentDescriptorRefsByHandleIdRef,
-						resourceExecutor,
-						contentRegistry,
+						dispatchReviewInvalidation,
+						synchronizeReviewWorkerSource,
 						reviewFrameAuthority: getReviewFrameAuthority(),
-						invalidatedFreshnessKeysRef,
-						setReviewContentInvalidationVersion,
 						telemetryContext,
 						telemetryRecorder: telemetryRecorderRef.current,
 					});
@@ -338,24 +328,22 @@ export function useBridgeReviewIntakeController(props: UseBridgeReviewIntakeCont
 		};
 	}, [
 		descriptorRegistry,
+		dispatchReviewInvalidation,
 		bridgeHandshakeSessionRef,
 		beginForegroundReviewSelection,
-		contentRegistry,
 		currentReviewPackageTelemetryContextRef,
 		getReviewFrameAuthority,
-		invalidatedFreshnessKeysRef,
+		getReviewTreeRows,
 		registerBridgeReadyCallback,
-		resourceExecutor,
-		reviewContentDescriptorRefsByHandleIdRef,
 		reviewEnvelopeApplyTailRef,
 		reviewPackageRef,
 		reviewPackageTelemetryContextRef,
 		reviewReadyStartMillisecondsByPackageKeyRef,
 		setDiffStatus,
-		setReviewContentInvalidationVersion,
 		setReviewPackage,
 		setReviewTreeRows,
 		setSelectedItemId,
+		synchronizeReviewWorkerSource,
 		target,
 		telemetryRecorderRef,
 		viewerStore,

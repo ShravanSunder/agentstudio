@@ -7,9 +7,7 @@ import {
 	createBridgeRPCClient,
 	type BridgeActiveViewerSource,
 } from '../bridge/bridge-rpc-client.js';
-import type { BridgeDescriptorRef } from '../core/models/bridge-resource-descriptor.js';
 import type { ReviewTreeRowMetadata } from '../features/review/models/review-protocol-models.js';
-import type { BridgeContentFetch } from '../foundation/content/content-resource-loader.js';
 import { startBridgeFrameJankProbe } from '../foundation/diagnostics/bridge-frame-jank-probe.js';
 import { startBridgeFrameLivenessProbe } from '../foundation/diagnostics/bridge-frame-liveness-probe.js';
 import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
@@ -25,7 +23,6 @@ import { selectBridgeReviewPanelChromeSlice } from '../review-viewer/state/revie
 import { createBridgeMarkdownRenderWebWorkerClient } from '../review-viewer/workers/markdown/bridge-markdown-render-worker-transport.js';
 import type { BridgeReviewProjectionWorkerClient } from '../review-viewer/workers/projection/review-projection-worker-client.js';
 import { createBridgeReviewProjectionWebWorkerClient } from '../review-viewer/workers/projection/review-projection-worker-transport.js';
-import { useBridgeReviewContentIdentityController } from './bridge-app-review-content-identity-controller.js';
 import type { BridgeDiffStatusState } from './bridge-app-review-controller.js';
 import { useBridgeReviewDemandTelemetryController } from './bridge-app-review-demand-telemetry-controller.js';
 import {
@@ -43,8 +40,6 @@ import {
 } from './bridge-app-review-render-snapshot-controller.js';
 import {
 	useBridgeResourceDescriptorRegistry,
-	useBridgeReviewContentRegistry,
-	useBridgeReviewResourceExecutor,
 	useBridgeReviewViewerStore,
 } from './bridge-app-review-runtime.js';
 import { useBridgeReviewSelectionController } from './bridge-app-review-selection-controller.js';
@@ -86,28 +81,26 @@ export function BridgeReviewViewerMode(
 		[],
 	);
 	const viewerStore = useBridgeReviewViewerStore();
-	const contentRegistry = useBridgeReviewContentRegistry();
 	const descriptorRegistry = useBridgeResourceDescriptorRegistry();
-	const reviewContentDescriptorRefsByHandleIdRef = useRef<ReadonlyMap<string, BridgeDescriptorRef>>(
-		new Map<string, BridgeDescriptorRef>(),
-	);
-	const invalidatedReviewFreshnessKeysRef = useRef<Set<string>>(new Set<string>());
 	const reviewEnvelopeApplyTailRef = useRef<Promise<void>>(Promise.resolve());
-	const fetchContentRef = useRef<BridgeContentFetch | undefined>(props.fetchContent);
-	fetchContentRef.current = props.fetchContent;
-	const resourceExecutor = useBridgeReviewResourceExecutor({
-		descriptorRegistry,
-		descriptorRefsByDescriptorIdRef: reviewContentDescriptorRefsByHandleIdRef,
-		fetchContentRef,
-		invalidatedFreshnessKeysRef: invalidatedReviewFreshnessKeysRef,
-	});
 	const projection = useStore(viewerStore, (state) => state.projection);
 	const panelChromeSlice = useStore(viewerStore, selectBridgeReviewPanelChromeSlice);
 	const viewerActions = useStore(viewerStore, (state) => state.actions);
 	const [reviewPackage, setReviewPackage] = useState<BridgeReviewPackage | null>(null);
-	const [reviewTreeRows, setReviewTreeRows] = useState<readonly ReviewTreeRowMetadata[]>([]);
+	const [reviewTreeRows, setReviewTreeRowsState] = useState<readonly ReviewTreeRowMetadata[]>([]);
+	const reviewTreeRowsRef = useRef<readonly ReviewTreeRowMetadata[]>(reviewTreeRows);
+	reviewTreeRowsRef.current = reviewTreeRows;
+	const setReviewTreeRows = useCallback((rows: readonly ReviewTreeRowMetadata[]): void => {
+		reviewTreeRowsRef.current = rows;
+		setReviewTreeRowsState((): readonly ReviewTreeRowMetadata[] => rows);
+	}, []);
+	const getReviewTreeRows = useCallback(
+		(): readonly ReviewTreeRowMetadata[] => reviewTreeRowsRef.current,
+		[],
+	);
 	const pierreCourier = useMemo(() => createBridgeReviewWorkerPierreCourier(), []);
 	const {
+		invalidateReviewContent,
 		rootSnapshot,
 		selectedCodeViewItem,
 		selectedContentAvailability,
@@ -115,6 +108,7 @@ export function BridgeReviewViewerMode(
 		selectionSliceRef,
 		setReviewViewportItemIds,
 		setSelectedReviewItemId,
+		synchronizeReviewSource,
 		visibleCodeViewItems,
 		viewportSliceRef,
 	} = useBridgeReviewRenderSnapshotController({
@@ -134,7 +128,6 @@ export function BridgeReviewViewerMode(
 		error: null,
 		epoch: 0,
 	});
-	const [, setReviewContentInvalidationVersion] = useState(0);
 	const [lastVisibleDemandTelemetry, setLastVisibleDemandTelemetry] =
 		useState<ReviewContentDemandTelemetry | null>(null);
 	const [selectedMarkdownPreviewState, setSelectedMarkdownPreviewState] =
@@ -315,11 +308,6 @@ export function BridgeReviewViewerMode(
 		viewerActions,
 	});
 
-	useBridgeReviewContentIdentityController({
-		contentRegistry,
-		reviewPackage,
-	});
-
 	useBridgeReviewIntakeController({
 		target,
 		isActive: props.isActive,
@@ -329,6 +317,7 @@ export function BridgeReviewViewerMode(
 		reviewEnvelopeApplyTailRef,
 		beginForegroundReviewSelection,
 		setReviewPackage,
+		getReviewTreeRows,
 		setReviewTreeRows,
 		setDiffStatus,
 		setSelectedItemId: setSelectedReviewItemId,
@@ -338,11 +327,8 @@ export function BridgeReviewViewerMode(
 		currentReviewPackageTelemetryContextRef,
 		reviewReadyStartMillisecondsByPackageKeyRef,
 		descriptorRegistry,
-		reviewContentDescriptorRefsByHandleIdRef,
-		resourceExecutor,
-		contentRegistry,
-		invalidatedFreshnessKeysRef: invalidatedReviewFreshnessKeysRef,
-		setReviewContentInvalidationVersion,
+		dispatchReviewInvalidation: invalidateReviewContent,
+		synchronizeReviewWorkerSource: synchronizeReviewSource,
 		telemetryRecorderRef,
 	});
 	useBridgeReviewControlEventListeners({

@@ -1,7 +1,10 @@
 import { describe, expect, test } from 'vitest';
 
 import type { BridgeCommWorkerPort } from './bridge-comm-worker-entry.js';
-import { encodeBridgeWorkerSelectCommand } from './bridge-comm-worker-protocol.js';
+import {
+	encodeBridgeWorkerReviewSourceUpdateCommand,
+	encodeBridgeWorkerSelectCommand,
+} from './bridge-comm-worker-protocol.js';
 import {
 	registerBridgeCommWorkerRuntimePortProtocol,
 	type BridgeCommWorkerPreparationDrain,
@@ -131,6 +134,75 @@ describe('Bridge comm worker runtime protocol', () => {
 				},
 			],
 		});
+	});
+
+	test('applies source update before first select when the runtime boots empty', () => {
+		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
+		const { dispatch, postedMessages } = createRecordingBridgeCommWorkerPort();
+
+		registerBridgeCommWorkerRuntimePortProtocol(dispatch.port, {
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: {
+				className: 'interactive',
+				maxBytes: 512 * 1024,
+				maxWindowLines: 50,
+			},
+			contentItems: [],
+			contentRequestDescriptors: [],
+			createSequence: createBridgeWorkerSequenceCounter(11),
+			renderSemantics: [],
+			rows: [],
+			schedulePreparationDrain: (drain: BridgeCommWorkerPreparationDrain): void => {
+				scheduledDrains.push(drain);
+			},
+		});
+
+		dispatch.message(
+			encodeBridgeWorkerReviewSourceUpdateCommand({
+				requestId: 'request-source-update',
+				epoch: 1,
+				contentItems: [makeWorkerReviewContentMetadata()],
+				contentRequestDescriptors: [
+					makeContentRequestDescriptor({ role: 'base', text: 'base body' }),
+					makeContentRequestDescriptor({ role: 'head', text: 'head body' }),
+				],
+				renderSemantics: [makeRenderSemantics()],
+				rows: [{ id: 'item-1', parentId: null, index: 0 }],
+			}),
+		);
+		dispatch.message(
+			encodeBridgeWorkerSelectCommand({
+				requestId: 'request-select',
+				epoch: 2,
+				selectedItemId: 'item-1',
+				selectedSource: 'user',
+			}),
+		);
+
+		expect(postedMessages.map((postedMessage) => postedMessage.message.kind)).toEqual([
+			'health',
+			'slicePatch',
+			'health',
+		]);
+		expect(postedMessages[1]?.message).toMatchObject({
+			kind: 'slicePatch',
+			epoch: 2,
+			sequence: 11,
+			patches: [
+				{
+					slice: 'selection',
+					operation: 'upsert',
+					payload: { selectedItemId: 'item-1' },
+				},
+				{
+					slice: 'contentAvailability',
+					operation: 'upsert',
+					itemId: 'item-1',
+					payload: { state: 'loading' },
+				},
+			],
+		});
+		expect(scheduledDrains).toHaveLength(1);
 	});
 });
 

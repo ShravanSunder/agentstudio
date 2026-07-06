@@ -11,7 +11,6 @@ describe('Review viewer source structure', () => {
 
 		expect(modeSource).toContain('useBridgeReviewViewerStore');
 		expect(modeSource).toContain('useBridgeReviewControlEventListeners');
-		expect(modeSource).toContain('useBridgeReviewContentIdentityController');
 		expect(modeSource).toContain('useBridgeReviewIntakeController');
 		expect(modeSource).toContain('useBridgeReviewMetadataInterestRuntime');
 		expect(modeSource).toContain('useBridgeReviewNavigationController');
@@ -84,6 +83,40 @@ describe('Review viewer source structure', () => {
 		expect(forbiddenOwners).toEqual([]);
 	});
 
+	test('cuts Review app runtime away from legacy content registry and resource executor ownership', () => {
+		const forbiddenOwners = [
+			'../app/bridge-app-review-viewer-mode.tsx',
+			'../app/bridge-app-review-runtime.ts',
+			'../app/bridge-app-review-intake-controller.ts',
+			'../app/bridge-app-review-controller.ts',
+			'../app/bridge-app-review-descriptors.ts',
+			'../app/bridge-app-review-content-identity-controller.ts',
+		].flatMap((relativePath): string[] => {
+			const source = readOptionalSource(relativePath);
+			return [
+				'descriptorRefsForReviewInvalidation',
+				'contentResourceKeysForReviewHandleIds',
+				'cancelReviewDescriptorDemandGroups',
+				'cancelReviewItemDemand',
+				'useBridgeReviewContentRegistry',
+				'useBridgeReviewResourceExecutor',
+				'createBridgeReviewContentRegistry',
+				'createBridgeResourceExecutor',
+				'createBridgeBodyRegistry',
+				'BridgeReviewContentRegistry',
+				'BridgeResourceExecutor<BridgeTextResourceStreamResult>',
+				'resourceExecutor,',
+				'contentRegistry,',
+				'invalidatedFreshnessKeysRef',
+				'setReviewContentInvalidationVersion',
+			]
+				.filter((token): boolean => source.includes(token))
+				.map((token): string => `${relativePath}: ${token}`);
+		});
+
+		expect(forbiddenOwners).toEqual([]);
+	});
+
 	test('keeps Review selection orchestration in an app-level controller hook', () => {
 		const modeSource = readSource('../app/bridge-app-review-viewer-mode.tsx');
 		const selectionControllerSource = readSource(
@@ -145,6 +178,28 @@ describe('Review viewer source structure', () => {
 		expect(viewportSetterSource.indexOf('renderSnapshotStore.setLocalViewport')).toBeLessThan(
 			viewportSetterSource.indexOf('runtimeDispatcher.dispatch'),
 		);
+	});
+
+	test('keeps Review comm-worker dispatcher lifetime stable across metadata updates', () => {
+		const renderSnapshotControllerSource = readSource(
+			'../app/bridge-app-review-render-snapshot-controller.ts',
+		);
+		const dispatcherSource = renderSnapshotControllerSource.slice(
+			renderSnapshotControllerSource.indexOf('const runtimeDispatcher = useMemo'),
+			renderSnapshotControllerSource.indexOf('const latestReviewSourceRef'),
+		);
+		const sourceUpdateSource = renderSnapshotControllerSource.slice(
+			renderSnapshotControllerSource.indexOf('const synchronizeReviewSource'),
+			renderSnapshotControllerSource.indexOf('const setSelectedReviewItemId'),
+		);
+
+		expect(renderSnapshotControllerSource).toContain('encodeBridgeWorkerReviewSourceUpdateCommand');
+		expect(dispatcherSource).not.toContain('props.reviewPackage');
+		expect(dispatcherSource).not.toContain('props.reviewTreeRows');
+		expect(sourceUpdateSource).toContain('source.reviewPackage');
+		expect(sourceUpdateSource).toContain('source.reviewTreeRows');
+		expect(sourceUpdateSource).toContain('latestReviewSourceRef.current');
+		expect(sourceUpdateSource).toContain('runtimeDispatcher.dispatch');
 	});
 
 	test('removes the temporary no-courier selected loading shim from Review runtime', () => {
@@ -228,29 +283,12 @@ describe('Review viewer source structure', () => {
 		expect(demandTelemetryControllerSource).not.toContain('@pierre/');
 	});
 
-	test('keeps Review content registry identity in an app-level controller hook', () => {
+	test('deletes Review app-level content registry identity ownership', () => {
 		const modeSource = readSource('../app/bridge-app-review-viewer-mode.tsx');
-		const contentIdentityControllerSource = readSource(
-			'../app/bridge-app-review-content-identity-controller.ts',
-		);
 
-		expect(modeSource).toContain('useBridgeReviewContentIdentityController');
+		expect(sourceFileExists('../app/bridge-app-review-content-identity-controller.ts')).toBe(false);
+		expect(modeSource).not.toContain('useBridgeReviewContentIdentityController');
 		expect(modeSource).not.toContain('contentRegistry.setActiveIdentity');
-
-		expect(contentIdentityControllerSource).toContain('useBridgeReviewContentIdentityController');
-		expect(contentIdentityControllerSource).toContain('contentRegistry.setActiveIdentity');
-		expect(contentIdentityControllerSource).not.toContain('BridgeReviewViewerShellBoundary');
-		expect(contentIdentityControllerSource).not.toContain('useBridgeReviewViewerStore');
-		expect(contentIdentityControllerSource).not.toContain('createBridgeReviewViewerStore');
-		expect(contentIdentityControllerSource).not.toContain('resourceExecutor');
-		expect(contentIdentityControllerSource).not.toContain('reviewDemandScheduler');
-		expect(contentIdentityControllerSource).not.toContain(
-			'createBridgeReviewProjectionWebWorkerClient',
-		);
-		expect(contentIdentityControllerSource).not.toContain(
-			'createBridgeMarkdownRenderWebWorkerClient',
-		);
-		expect(contentIdentityControllerSource).not.toContain('@pierre/');
 	});
 
 	test('cuts Review CodeView away from FE visible content hydration and expanded demand', () => {
@@ -392,9 +430,6 @@ describe('Review viewer source structure', () => {
 		expect(oversizedSources).toEqual([]);
 		expect(
 			readSource('../app/bridge-app-review-demand-telemetry-controller.ts').split('\n').length,
-		).toBeLessThanOrEqual(1000);
-		expect(
-			readSource('../app/bridge-app-review-content-identity-controller.ts').split('\n').length,
 		).toBeLessThanOrEqual(1000);
 	});
 });

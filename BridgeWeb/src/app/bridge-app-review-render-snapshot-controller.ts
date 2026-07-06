@@ -2,6 +2,8 @@ import type { MutableRefObject } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 
 import {
+	encodeBridgeWorkerReviewInvalidateCommand,
+	encodeBridgeWorkerReviewSourceUpdateCommand,
 	encodeBridgeWorkerSelectCommand,
 	encodeBridgeWorkerViewportCommand,
 } from '../core/comm-worker/bridge-comm-worker-protocol.js';
@@ -37,6 +39,7 @@ import type {
 } from '../core/comm-worker/bridge-worker-pierre-render-job.js';
 import { bridgeWorkerPierreRenderPolicy } from '../core/demand/bridge-content-demand-policy.js';
 import type { ReviewTreeRowMetadata } from '../features/review/models/review-protocol-models.js';
+import type { ReviewInvalidationFrame } from '../features/review/models/review-protocol-models.js';
 import type {
 	BridgeContentHandle,
 	BridgeContentRole,
@@ -63,6 +66,7 @@ export interface UseBridgeReviewRenderSnapshotControllerProps {
 }
 
 export interface BridgeReviewRenderSnapshotController {
+	readonly invalidateReviewContent: (frame: ReviewInvalidationFrame) => void;
 	readonly rootSnapshot: BridgeReviewViewerRootSnapshot;
 	readonly selectedCodeViewItem: BridgeMainCodeViewItem | null;
 	readonly selectedContentAvailability: BridgeWorkerContentAvailabilityPatchPayload | null;
@@ -70,8 +74,14 @@ export interface BridgeReviewRenderSnapshotController {
 	readonly selectionSliceRef: MutableRefObject<BridgeReviewSelectionSlice>;
 	readonly setReviewViewportItemIds: (itemIds: readonly string[]) => void;
 	readonly setSelectedReviewItemId: (itemId: string | null) => void;
+	readonly synchronizeReviewSource: (source: BridgeReviewRuntimeSourceSnapshot) => void;
 	readonly visibleCodeViewItems: readonly BridgeMainCodeViewItem[];
 	readonly viewportSliceRef: MutableRefObject<BridgeReviewViewportSlice>;
+}
+
+export interface BridgeReviewRuntimeSourceSnapshot {
+	readonly reviewPackage: BridgeReviewPackage | null;
+	readonly reviewTreeRows: readonly ReviewTreeRowMetadata[];
 }
 
 export function useBridgeReviewRenderSnapshotController(
@@ -142,22 +152,61 @@ export function useBridgeReviewRenderSnapshotController(
 	const runtimeDispatcher = useMemo(
 		(): BridgeReviewRuntimeProtocolDispatcher =>
 			createBridgeReviewRuntimeProtocolDispatcher({
-				contentItems: bridgeCommWorkerContentItemsFromReviewPackage(props.reviewPackage),
-				contentRequestDescriptors: bridgeCommWorkerContentRequestDescriptorsFromReviewPackage(
-					props.reviewPackage,
-				),
+				contentItems: [],
+				contentRequestDescriptors: [],
 				publishWorkerMessages,
-				renderSemantics: bridgeCommWorkerRenderSemanticsFromReviewPackage(props.reviewPackage),
-				rows: bridgeCommWorkerRowsFromReviewTreeRows(props.reviewTreeRows),
+				renderSemantics: [],
+				rows: [],
 			}),
-		[publishWorkerMessages, props.reviewPackage, props.reviewTreeRows],
+		[publishWorkerMessages],
 	);
+	const latestReviewSourceRef = useRef<BridgeReviewRuntimeSourceSnapshot>({
+		reviewPackage: props.reviewPackage,
+		reviewTreeRows: props.reviewTreeRows,
+	});
+	latestReviewSourceRef.current = {
+		reviewPackage: props.reviewPackage,
+		reviewTreeRows: props.reviewTreeRows,
+	};
+	const synchronizedReviewSourceRef = useRef<BridgeReviewRuntimeSourceSnapshot | null>(null);
 	useEffect(
 		(): (() => void) => (): void => {
 			runtimeDispatcher.dispose();
 		},
 		[runtimeDispatcher],
 	);
+	const synchronizeReviewSource = useCallback(
+		(source: BridgeReviewRuntimeSourceSnapshot): void => {
+			latestReviewSourceRef.current = source;
+			const synchronizedSource = synchronizedReviewSourceRef.current;
+			if (
+				synchronizedSource?.reviewPackage === source.reviewPackage &&
+				synchronizedSource.reviewTreeRows === source.reviewTreeRows
+			) {
+				return;
+			}
+			runtimeDispatcher.dispatch(
+				encodeBridgeWorkerReviewSourceUpdateCommand({
+					requestId: nextBridgeReviewWorkerRequestId(requestSequenceRef),
+					epoch: nextBridgeReviewWorkerEpoch(workerEpochRef),
+					contentItems: bridgeCommWorkerContentItemsFromReviewPackage(source.reviewPackage),
+					contentRequestDescriptors: bridgeCommWorkerContentRequestDescriptorsFromReviewPackage(
+						source.reviewPackage,
+					),
+					renderSemantics: bridgeCommWorkerRenderSemanticsFromReviewPackage(source.reviewPackage),
+					rows: bridgeCommWorkerRowsFromReviewTreeRows(source.reviewTreeRows),
+				}),
+			);
+			synchronizedReviewSourceRef.current = source;
+		},
+		[runtimeDispatcher],
+	);
+	const synchronizeLatestReviewSource = useCallback((): void => {
+		synchronizeReviewSource(latestReviewSourceRef.current);
+	}, [synchronizeReviewSource]);
+	useEffect((): void => {
+		synchronizeLatestReviewSource();
+	}, [synchronizeLatestReviewSource, props.reviewPackage, props.reviewTreeRows]);
 	const setSelectedReviewItemId = useCallback(
 		(itemId: string | null): void => {
 			if (itemId === null) {
@@ -167,6 +216,7 @@ export function useBridgeReviewRenderSnapshotController(
 				});
 				return;
 			}
+			synchronizeLatestReviewSource();
 			renderSnapshotStore.setLocalSelection({
 				selectedItemId: itemId,
 				source: 'user',
@@ -180,10 +230,11 @@ export function useBridgeReviewRenderSnapshotController(
 				}),
 			);
 		},
-		[renderSnapshotStore, runtimeDispatcher],
+		[renderSnapshotStore, runtimeDispatcher, synchronizeLatestReviewSource],
 	);
 	const setReviewViewportItemIds = useCallback(
 		(itemIds: readonly string[]): void => {
+			synchronizeLatestReviewSource();
 			const lastVisibleIndex = itemIds.length === 0 ? 0 : itemIds.length - 1;
 			renderSnapshotStore.setLocalViewport({
 				firstVisibleIndex: 0,
@@ -201,9 +252,29 @@ export function useBridgeReviewRenderSnapshotController(
 				}),
 			);
 		},
-		[renderSnapshotStore, runtimeDispatcher],
+		[renderSnapshotStore, runtimeDispatcher, synchronizeLatestReviewSource],
+	);
+	const invalidateReviewContent = useCallback(
+		(frame: ReviewInvalidationFrame): void => {
+			synchronizeLatestReviewSource();
+			runtimeDispatcher.dispatch(
+				encodeBridgeWorkerReviewInvalidateCommand({
+					requestId: nextBridgeReviewWorkerRequestId(requestSequenceRef),
+					epoch: nextBridgeReviewWorkerEpochForGeneration({
+						workerEpochRef,
+						generation: frame.generation,
+					}),
+					scope: frame.invalidation.scope,
+					itemIds: frame.invalidation.itemIds ?? [],
+					pathHints: frame.invalidation.pathHints ?? [],
+					reason: frame.invalidation.reason,
+				}),
+			);
+		},
+		[runtimeDispatcher, synchronizeLatestReviewSource],
 	);
 	return {
+		invalidateReviewContent,
 		rootSnapshot,
 		selectedCodeViewItem,
 		selectedContentAvailability,
@@ -211,6 +282,7 @@ export function useBridgeReviewRenderSnapshotController(
 		selectionSliceRef,
 		setReviewViewportItemIds,
 		setSelectedReviewItemId,
+		synchronizeReviewSource,
 		visibleCodeViewItems,
 		viewportSliceRef,
 	};
@@ -582,6 +654,14 @@ function nextBridgeReviewWorkerRequestId(requestSequenceRef: MutableRefObject<nu
 function nextBridgeReviewWorkerEpoch(workerEpochRef: MutableRefObject<number>): number {
 	workerEpochRef.current += 1;
 	return workerEpochRef.current;
+}
+
+function nextBridgeReviewWorkerEpochForGeneration(props: {
+	readonly workerEpochRef: MutableRefObject<number>;
+	readonly generation: number;
+}): number {
+	props.workerEpochRef.current = Math.max(props.workerEpochRef.current + 1, props.generation);
+	return props.workerEpochRef.current;
 }
 
 function assertNeverBridgeWorkerServerMessage(_message: never): never {

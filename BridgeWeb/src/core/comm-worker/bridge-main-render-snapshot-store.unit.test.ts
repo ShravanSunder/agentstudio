@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'vitest';
 
-import { createBridgeMainRenderSnapshotStore } from './bridge-main-render-snapshot-store.js';
+import {
+	createBridgeMainRenderSnapshotStore,
+	type BridgeMainCodeViewItem,
+} from './bridge-main-render-snapshot-store.js';
 
 describe('Bridge main render snapshot store', () => {
 	test('uses useSyncExternalStore and accepts only local intent plus worker patch writes', () => {
@@ -137,4 +140,59 @@ describe('Bridge main render snapshot store', () => {
 			contentAvailabilityById: {},
 		});
 	});
+
+	test('drops cached CodeView display items when worker row paint invalidates them', () => {
+		const store = createBridgeMainRenderSnapshotStore();
+		const item = makeBridgeMainCodeViewItem('item-1');
+
+		store.setWorkerCodeViewItem({ itemId: 'item-1', item });
+		store.applyWorkerPatch({
+			slice: 'rowPaint',
+			operation: 'upsert',
+			itemId: 'item-1',
+			payload: {
+				contentCacheKey: 'pierre-content:item-1',
+			},
+		});
+
+		expect(store.getSnapshot().codeViewItemsById['item-1']).toBe(item);
+
+		store.applyWorkerPatch({
+			slice: 'rowPaint',
+			operation: 'delete',
+			itemId: 'item-1',
+		});
+
+		expect(store.getSnapshot().codeViewItemsById['item-1']).toBeUndefined();
+
+		store.setWorkerCodeViewItem({ itemId: 'item-1', item });
+		store.applyWorkerPatch({
+			slice: 'rowPaint',
+			operation: 'reset',
+		});
+
+		expect(store.getSnapshot().codeViewItemsById).toEqual({});
+	});
 });
+
+function makeBridgeMainCodeViewItem(itemId: string): BridgeMainCodeViewItem {
+	return {
+		id: itemId,
+		type: 'file',
+		file: {
+			name: 'src/stale.ts',
+			contents: 'export const stale = true;\n',
+			lang: 'typescript',
+			cacheKey: `pierre-content:${itemId}`,
+		},
+		version: 1,
+		bridgeMetadata: {
+			itemId,
+			displayPath: 'src/stale.ts',
+			contentState: 'hydrated',
+			contentRoles: ['file'],
+			cacheKey: `pierre-content:${itemId}`,
+			lineCount: 1,
+		},
+	};
+}

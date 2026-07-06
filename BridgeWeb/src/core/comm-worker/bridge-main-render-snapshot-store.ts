@@ -195,18 +195,22 @@ function publishRowPaintPatch(
 		publish({
 			...snapshot,
 			rowPaintById: {},
+			codeViewItemsById: {},
 		});
 		return;
 	}
 	const nextEntries = { ...snapshot.rowPaintById };
+	const nextCodeViewItemsById = { ...snapshot.codeViewItemsById };
 	if (patch.operation === 'delete') {
 		delete nextEntries[patch.itemId];
+		delete nextCodeViewItemsById[patch.itemId];
 	} else {
 		nextEntries[patch.itemId] = patch.payload;
 	}
 	publish({
 		...snapshot,
 		rowPaintById: nextEntries,
+		codeViewItemsById: nextCodeViewItemsById,
 	});
 }
 

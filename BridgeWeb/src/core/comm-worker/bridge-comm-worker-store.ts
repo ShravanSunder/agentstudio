@@ -74,6 +74,19 @@ export interface ApplyBridgeCommWorkerContentTerminalAvailabilityProps {
 	readonly state: BridgeCommWorkerTerminalContentAvailabilityState;
 }
 
+export interface ApplyBridgeCommWorkerReviewInvalidationFactProps {
+	readonly epoch: number;
+	readonly scope: 'package' | 'items' | 'paths' | 'treeWindow';
+	readonly itemIds: readonly string[];
+	readonly pathHints: readonly string[];
+	readonly reason: 'sourceChanged' | 'watchEvent' | 'lineageReplaced' | 'unknown';
+}
+
+export interface ApplyBridgeCommWorkerReviewSourceUpdateFactProps {
+	readonly contentItems: readonly BridgeWorkerReviewContentMetadata[];
+	readonly rows: readonly BridgeCommWorkerRow[];
+}
+
 export interface TakePendingBridgeCommWorkerSlicePatchEventProps {
 	readonly epoch: number;
 	readonly sequence: number;
@@ -94,6 +107,12 @@ export interface BridgeCommWorkerStore {
 		) => BridgeCommWorkerTouchedResult;
 		readonly applyContentTerminalAvailability: (
 			props: ApplyBridgeCommWorkerContentTerminalAvailabilityProps,
+		) => BridgeCommWorkerTouchedResult;
+		readonly applyReviewInvalidationFact: (
+			props: ApplyBridgeCommWorkerReviewInvalidationFactProps,
+		) => BridgeCommWorkerTouchedResult;
+		readonly applyReviewSourceUpdateFact: (
+			props: ApplyBridgeCommWorkerReviewSourceUpdateFactProps,
 		) => BridgeCommWorkerTouchedResult;
 		readonly takePendingSlicePatchEvent: (
 			props: TakePendingBridgeCommWorkerSlicePatchEventProps,
@@ -260,6 +279,97 @@ export function createBridgeCommWorkerStore(
 					touchedKeys: [`availability:${fact.itemId}`],
 				};
 			},
+			applyReviewInvalidationFact: (
+				fact: ApplyBridgeCommWorkerReviewInvalidationFactProps,
+			): BridgeCommWorkerTouchedResult => {
+				const previousState = store.getState();
+				const invalidatedItemIds = resolveReviewInvalidationItemIds({
+					fact,
+					state: previousState,
+				});
+				const invalidatedItemIdSet = new Set(invalidatedItemIds);
+				const nextByteCache = new Map(previousState.byteCache);
+				const nextPaintReadyByItemId = new Map(previousState.paintReadyByItemId);
+				const nextAvailabilityByItemId = new Map(previousState.availabilityByItemId);
+				const touchedKeys: string[] = [];
+				const nextPatches: BridgeWorkerSlicePatch[] = [];
+
+				for (const itemId of invalidatedItemIds) {
+					const previousContentCacheKey = previousState.paintReadyByItemId.get(itemId);
+					if (previousContentCacheKey !== undefined) {
+						nextPaintReadyByItemId.delete(itemId);
+						nextByteCache.delete(previousContentCacheKey);
+						touchedKeys.push(`paintReady:${itemId}`, `byteCache:${previousContentCacheKey}`);
+						nextPatches.push({
+							slice: 'rowPaint',
+							operation: 'delete',
+							itemId,
+						});
+					}
+					if (
+						previousContentCacheKey !== undefined ||
+						previousState.availabilityByItemId.has(itemId) ||
+						previousState.selectedId === itemId ||
+						previousState.visibleIds.includes(itemId)
+					) {
+						nextAvailabilityByItemId.set(itemId, 'stale');
+						touchedKeys.push(`availability:${itemId}`);
+						nextPatches.push({
+							slice: 'contentAvailability',
+							operation: 'upsert',
+							itemId,
+							payload: { state: 'stale' },
+						});
+					}
+					if (previousState.selectedId === itemId || previousState.visibleIds.includes(itemId)) {
+						touchedKeys.push(`demand:${itemId}`);
+					}
+				}
+
+				const selectedDemandValue =
+					previousState.selectedId !== null && invalidatedItemIdSet.has(previousState.selectedId)
+						? `selected:${fact.epoch}`
+						: readSelectedDemandValue(previousState);
+				store.setState({
+					...previousState,
+					byteCache: nextByteCache,
+					paintReadyByItemId: nextPaintReadyByItemId,
+					availabilityByItemId: nextAvailabilityByItemId,
+					demandByKey: buildDemandByKey({
+						contentMetadataByItemId: previousState.contentMetadataByItemId,
+						selectedId: previousState.selectedId,
+						selectedDemandValue,
+						visibleIds: previousState.visibleIds,
+					}),
+				});
+				pendingSlicePatches.push(...nextPatches);
+				return { touchedKeys };
+			},
+			applyReviewSourceUpdateFact: (
+				fact: ApplyBridgeCommWorkerReviewSourceUpdateFactProps,
+			): BridgeCommWorkerTouchedResult => {
+				const previousState = store.getState();
+				const sourceIndexes = buildBridgeCommWorkerSourceIndexes(fact);
+				store.setState({
+					...previousState,
+					...sourceIndexes,
+					demandByKey: buildDemandByKey({
+						contentMetadataByItemId: sourceIndexes.contentMetadataByItemId,
+						selectedId: previousState.selectedId,
+						selectedDemandValue: readSelectedDemandValue(previousState),
+						visibleIds: previousState.visibleIds,
+					}),
+				});
+				return {
+					touchedKeys: [
+						'sourceRows',
+						'sourceContentMetadata',
+						...Array.from(sourceIndexes.contentMetadataByItemId.keys()).map(
+							(itemId): string => `contentMetadata:${itemId}`,
+						),
+					],
+				};
+			},
 			takePendingSlicePatchEvent: (
 				eventProps: TakePendingBridgeCommWorkerSlicePatchEventProps,
 			): BridgeWorkerSlicePatchEvent | null => {
@@ -287,6 +397,27 @@ export function createBridgeCommWorkerStore(
 function buildInitialBridgeCommWorkerStoreState(
 	props: CreateBridgeCommWorkerStoreProps,
 ): BridgeCommWorkerStoreState {
+	const sourceIndexes = buildBridgeCommWorkerSourceIndexes(props);
+	return {
+		...sourceIndexes,
+		selectedId: null,
+		selectedDemandEnabled: false,
+		viewportRange: null,
+		visibleIds: [],
+		demandByKey: new Map<string, string>(),
+		byteCache: new Map<string, string>(),
+		paintReadyByItemId: new Map<string, string>(),
+		availabilityByItemId: new Map<string, BridgeWorkerContentAvailabilityPatchPayload['state']>(),
+	};
+}
+
+function buildBridgeCommWorkerSourceIndexes(props: {
+	readonly contentItems: readonly BridgeWorkerReviewContentMetadata[];
+	readonly rows: readonly BridgeCommWorkerRow[];
+}): Pick<
+	BridgeCommWorkerStoreState,
+	'rowById' | 'orderedIds' | 'indexById' | 'childrenByParentId' | 'contentMetadataByItemId'
+> {
 	const rowById = new Map<string, BridgeCommWorkerRow>();
 	const indexById = new Map<string, number>();
 	const childrenByParentId = new Map<string, readonly string[]>();
@@ -309,16 +440,38 @@ function buildInitialBridgeCommWorkerStoreState(
 		orderedIds: props.rows.map((row) => row.id),
 		indexById,
 		childrenByParentId,
-		selectedId: null,
-		selectedDemandEnabled: false,
-		viewportRange: null,
-		visibleIds: [],
-		demandByKey: new Map<string, string>(),
-		byteCache: new Map<string, string>(),
-		paintReadyByItemId: new Map<string, string>(),
-		availabilityByItemId: new Map<string, BridgeWorkerContentAvailabilityPatchPayload['state']>(),
 		contentMetadataByItemId,
 	};
+}
+
+function resolveReviewInvalidationItemIds(props: {
+	readonly fact: ApplyBridgeCommWorkerReviewInvalidationFactProps;
+	readonly state: BridgeCommWorkerStoreState;
+}): readonly string[] {
+	const itemIds = new Set<string>();
+	if (props.fact.scope === 'package' || props.fact.scope === 'treeWindow') {
+		for (const itemId of props.state.paintReadyByItemId.keys()) {
+			itemIds.add(itemId);
+		}
+		if (props.state.selectedId !== null) {
+			itemIds.add(props.state.selectedId);
+		}
+		for (const itemId of props.state.visibleIds) {
+			itemIds.add(itemId);
+		}
+	} else {
+		for (const itemId of props.fact.itemIds) {
+			itemIds.add(itemId);
+		}
+	}
+	for (const pathHint of props.fact.pathHints) {
+		for (const metadata of props.state.contentMetadataByItemId.values()) {
+			if (metadata.path === pathHint) {
+				itemIds.add(metadata.itemId);
+			}
+		}
+	}
+	return [...itemIds];
 }
 
 function buildDemandByKey(props: {

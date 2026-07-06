@@ -4,7 +4,10 @@ import { createBridgeResourceExecutor } from '../core/demand/bridge-resource-exe
 import { createBridgeResourceDescriptorRegistry } from '../core/resources/bridge-resource-registry.js';
 import type { BridgeTextResourceStreamResult } from '../core/resources/bridge-resource-stream.js';
 import type { ReviewMaterializerDelta } from '../features/review/materialization/review-materializer.js';
-import type { ReviewTreeRowMetadata } from '../features/review/models/review-protocol-models.js';
+import type {
+	ReviewInvalidationFrame,
+	ReviewTreeRowMetadata,
+} from '../features/review/models/review-protocol-models.js';
 import {
 	makeBridgeContentHandle,
 	makeBridgeReviewItem,
@@ -12,7 +15,6 @@ import {
 } from '../foundation/review-package/bridge-review-package-test-support.js';
 import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
 import { loadReviewItemContentResourcesThroughDemandResult } from '../review-viewer/content/review-content-demand-loader.js';
-import { createBridgeReviewContentRegistry } from '../review-viewer/content/review-content-registry.js';
 import { makeBridgeViewerBrowserFixture } from '../review-viewer/test-support/bridge-viewer-mocked-backend.js';
 import { applyReviewProtocolTransportFrame } from './bridge-app-review-controller.js';
 import {
@@ -171,6 +173,17 @@ describe('BridgeApp selected review availability display policy', () => {
 		).toBe('content');
 	});
 
+	test('selected canvas content loading follows worker-owned stale availability', () => {
+		expect(
+			selectedCanvasLoadingReasonForCurrentSelection({
+				selectedContentAvailability: { state: 'stale' },
+				selectedContentKey: 'selected-key',
+				selectedItemId: 'item-source',
+				selectedMarkdownPreviewState: null,
+			}),
+		).toBe('content');
+	});
+
 	test('selected canvas content loading clears when worker-owned availability is ready', () => {
 		expect(
 			selectedCanvasLoadingReasonForCurrentSelection({
@@ -275,6 +288,83 @@ describe('BridgeApp selected review content demand policy', () => {
 });
 
 describe('BridgeApp Review content demand byte budget', () => {
+	test('routes accepted review invalidation frames to the worker cache owner', async () => {
+		const reviewPackage = makeBridgeReviewPackage();
+		const reviewFrameAuthority: BridgeReviewFrameAuthority = {
+			paneId: 'pane-1',
+			streamId: 'review:pane-1',
+		};
+		const applyEvents: string[] = [];
+		const currentTreeRows: readonly ReviewTreeRowMetadata[] = [
+			{
+				rowId: 'item-source',
+				itemId: 'item-source',
+				path: 'Sources/App/View.swift',
+				depth: 0,
+				isDirectory: false,
+			},
+		];
+		const synchronizedReviewSources: {
+			readonly reviewPackage: BridgeReviewPackage | null;
+			readonly reviewTreeRows: readonly ReviewTreeRowMetadata[];
+		}[] = [];
+		const dispatchReviewInvalidation = vi.fn<(frame: ReviewInvalidationFrame) => void>(() => {
+			applyEvents.push('invalidate');
+		});
+		const invalidationFrame = {
+			kind: 'delta',
+			frameKind: 'review.invalidate',
+			streamId: reviewFrameAuthority.streamId,
+			generation: reviewPackage.reviewGeneration,
+			sequence: 2,
+			invalidation: {
+				scope: 'items',
+				itemIds: ['item-source'],
+				pathHints: [],
+				reason: 'watchEvent',
+			},
+		} satisfies ReviewInvalidationFrame;
+
+		await applyReviewProtocolTransportFrame({
+			protocolFrame: invalidationFrame,
+			setReviewPackage: (): void => {},
+			getReviewTreeRows: (): readonly ReviewTreeRowMetadata[] => currentTreeRows,
+			setReviewTreeRows: (): void => {},
+			setDiffStatus: (): void => {},
+			setSelectedItemId: (): void => {},
+			selectInitialReviewItem: (): boolean => true,
+			getSelectedItemId: (): string | null => null,
+			reviewPackageRef: { current: reviewPackage },
+			telemetryContextByPackageKey: new Map(),
+			currentReviewPackageTelemetryContextRef: { current: null },
+			reviewReadyStartMillisecondsByPackageKeyRef: { current: new Map() },
+			descriptorRegistry: createBridgeResourceDescriptorRegistry({
+				allowedResourceKindsByProtocol: { review: new Set(['content']) },
+			}),
+			dispatchReviewInvalidation,
+			synchronizeReviewWorkerSource: (source): void => {
+				applyEvents.push('source');
+				synchronizedReviewSources.push(source);
+			},
+			reviewFrameAuthority,
+			telemetryContext: {
+				slice: 'review_metadata',
+				traceContext: null,
+				transport: 'intake',
+			},
+			telemetryRecorder: makeNoopTelemetryRecorder(),
+		});
+
+		expect(dispatchReviewInvalidation).toHaveBeenCalledExactlyOnceWith(invalidationFrame);
+		expect(applyEvents).toEqual(['source', 'invalidate']);
+		expect(synchronizedReviewSources).toEqual([
+			{
+				reviewPackage,
+				reviewTreeRows: currentTreeRows,
+			},
+		]);
+	});
+
 	test('selects package-applied initial review item without FE foreground demand', async () => {
 		const reviewPackage = makeBridgeReviewPackage();
 		const reviewFrameAuthority: BridgeReviewFrameAuthority = {
@@ -308,35 +398,27 @@ describe('BridgeApp Review content demand byte budget', () => {
 			reviewFrameAuthority,
 			reviewPackage,
 		});
-		const requestedDescriptorIds: string[] = [];
-		const resourceExecutor = createBridgeResourceExecutor<BridgeTextResourceStreamResult>({
-			registry: descriptorRegistry,
-			maxConcurrentLoads: 2,
-			maxInFlightBytes: bridgeReviewContentDemandByteBudget.resourceExecutorMaxInFlightBytes,
-			maxQueuedLoads: 8,
-			maxQueuedBytes: bridgeReviewContentDemandByteBudget.resourceExecutorMaxQueuedBytes,
-			loadResource: async ({ descriptor }) => {
-				requestedDescriptorIds.push(descriptor.descriptorId);
-				return {
-					authoritative: true,
-					content: makeTextStreamResult(`${descriptor.descriptorId} package apply text`),
-					byteLength: 24,
-				};
-			},
-		});
-		const contentRegistry = createBridgeReviewContentRegistry();
 		const reviewPackageRef: { current: BridgeReviewPackage | null } = { current: null };
 		const currentReviewPackageRef: { current: BridgeReviewPackage | null } = { current: null };
 		let currentTreeRows: readonly ReviewTreeRowMetadata[] = [];
-		const selectInitialReviewItem = vi.fn<(itemId: string) => boolean>(() => true);
+		const applyEvents: string[] = [];
+		const synchronizedReviewSources: {
+			readonly reviewPackage: BridgeReviewPackage | null;
+			readonly reviewTreeRows: readonly ReviewTreeRowMetadata[];
+		}[] = [];
+		const selectInitialReviewItem = vi.fn<(itemId: string) => boolean>(() => {
+			applyEvents.push('select');
+			return true;
+		});
 
 		await applyReviewProtocolTransportFrame({
 			protocolFrame: frame,
 			setReviewPackage: (update): void => {
 				currentReviewPackageRef.current = update(currentReviewPackageRef.current);
 			},
-			setReviewTreeRows: (update): void => {
-				currentTreeRows = update(currentTreeRows);
+			getReviewTreeRows: (): readonly ReviewTreeRowMetadata[] => currentTreeRows,
+			setReviewTreeRows: (rows): void => {
+				currentTreeRows = rows;
 			},
 			setDiffStatus: (): void => {},
 			setSelectedItemId: (): void => {},
@@ -347,12 +429,12 @@ describe('BridgeApp Review content demand byte budget', () => {
 			currentReviewPackageTelemetryContextRef: { current: null },
 			reviewReadyStartMillisecondsByPackageKeyRef: { current: new Map() },
 			descriptorRegistry,
-			reviewContentDescriptorRefsByHandleIdRef: { current: new Map() },
-			resourceExecutor,
-			contentRegistry,
+			dispatchReviewInvalidation: (): void => {},
+			synchronizeReviewWorkerSource: (source): void => {
+				applyEvents.push('source');
+				synchronizedReviewSources.push(source);
+			},
 			reviewFrameAuthority,
-			invalidatedFreshnessKeysRef: { current: new Set() },
-			setReviewContentInvalidationVersion: (): void => {},
 			telemetryContext: {
 				slice: 'review_metadata',
 				traceContext: null,
@@ -362,8 +444,15 @@ describe('BridgeApp Review content demand byte budget', () => {
 		});
 
 		expect(selectInitialReviewItem).toHaveBeenCalledExactlyOnceWith('item-source');
-		expect(requestedDescriptorIds).toEqual([]);
-		expect(contentRegistry.snapshot().cachedResourceCount).toBe(0);
+		expect(applyEvents).toEqual(['source', 'select']);
+		expect(synchronizedReviewSources).toEqual([
+			{
+				reviewPackage: expect.objectContaining({ packageId: reviewPackage.packageId }),
+				reviewTreeRows: expect.arrayContaining([
+					expect.objectContaining({ itemId: 'item-source' }),
+				]),
+			},
+		]);
 		const currentReviewPackage = currentReviewPackageRef.current;
 		expect(currentReviewPackage?.packageId).toBe(reviewPackage.packageId);
 		const appliedItem = currentReviewPackage?.itemsById['item-source'];
@@ -372,8 +461,6 @@ describe('BridgeApp Review content demand byte budget', () => {
 		if (appliedBaseHandle === null || appliedHeadHandle === null) {
 			throw new Error('Expected applied package to include base/head content handles');
 		}
-		expect(contentRegistry.peekResource(appliedBaseHandle)).toBeNull();
-		expect(contentRegistry.peekResource(appliedHeadHandle)).toBeNull();
 		expect(currentTreeRows.length).toBeGreaterThan(0);
 	});
 

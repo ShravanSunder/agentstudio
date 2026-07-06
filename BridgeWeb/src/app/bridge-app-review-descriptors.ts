@@ -1,11 +1,9 @@
-import type { BridgeResourceExecutor } from '../core/demand/bridge-resource-executor.js';
 import type {
 	BridgeAttachedResourceDescriptor,
 	BridgeDescriptorRef,
 	BridgeIdentity,
 } from '../core/models/bridge-resource-descriptor.js';
 import type { BridgeResourceDescriptorRegistry } from '../core/resources/bridge-resource-registry.js';
-import type { BridgeTextResourceStreamResult } from '../core/resources/bridge-resource-stream.js';
 import { parseBridgeCoreResourceUrl } from '../core/resources/bridge-resource-url.js';
 import {
 	applyValidatedReviewProtocolFrame,
@@ -24,11 +22,6 @@ import type {
 	BridgeReviewItemDescriptor,
 	BridgeReviewPackage,
 } from '../foundation/review-package/bridge-review-package.js';
-import {
-	demandCancellationGroupForReviewDescriptorRef,
-	demandCancellationGroupsForReviewDescriptorRef,
-} from '../review-viewer/content/review-content-demand-loader.js';
-import { contentAddressedResourceKey } from '../review-viewer/content/review-content-registry.js';
 import type { BridgeReviewFrameAuthority } from './bridge-app-review-frame-authority.js';
 
 export const bridgeReviewAllowedResourceKindsByProtocol = {
@@ -467,111 +460,6 @@ function deriveReviewContentDescriptorFromHandle(props: {
 		},
 		descriptor,
 	};
-}
-
-export function descriptorRefsForReviewInvalidation(props: {
-	readonly descriptorRefsByHandleId: ReadonlyMap<string, BridgeDescriptorRef>;
-	readonly invalidation: Extract<ReviewMaterializerDelta, { readonly kind: 'invalidate' }>;
-	readonly reviewPackage: BridgeReviewPackage | null;
-}): ReadonlyMap<string, BridgeDescriptorRef> {
-	if (props.reviewPackage === null) {
-		return new Map<string, BridgeDescriptorRef>();
-	}
-	if (props.invalidation.scope === 'package' || props.invalidation.scope === 'treeWindow') {
-		return props.descriptorRefsByHandleId;
-	}
-	const invalidatedItemIds = new Set<string>(props.invalidation.itemIds ?? []);
-	const invalidatedPathHints = new Set<string>(props.invalidation.pathHints ?? []);
-	const descriptorRefsByHandleId = new Map<string, BridgeDescriptorRef>();
-	for (const item of Object.values(props.reviewPackage.itemsById)) {
-		if (
-			!invalidatedItemIds.has(item.itemId) &&
-			!invalidatedPathHints.has(item.headPath ?? '') &&
-			!invalidatedPathHints.has(item.basePath ?? '')
-		) {
-			continue;
-		}
-		for (const handle of Object.values(item.contentRoles)) {
-			if (handle === null || handle === undefined) {
-				continue;
-			}
-			const descriptorRef = props.descriptorRefsByHandleId.get(handle.handleId) ?? null;
-			if (descriptorRef !== null) {
-				descriptorRefsByHandleId.set(handle.handleId, descriptorRef);
-			}
-		}
-	}
-	return descriptorRefsByHandleId;
-}
-
-/** Canonical content-registry keys for the invalidated handles, so cached
- * bodies are evicted in the same pass that marks demand freshness stale —
- * a registry hit must never serve bytes the native side just invalidated. */
-export function contentResourceKeysForReviewHandleIds(props: {
-	readonly handleIds: ReadonlySet<string>;
-	readonly reviewPackage: BridgeReviewPackage | null;
-}): readonly string[] {
-	if (props.reviewPackage === null || props.handleIds.size === 0) {
-		return [];
-	}
-	const resourceKeys: string[] = [];
-	for (const item of Object.values(props.reviewPackage.itemsById)) {
-		for (const handle of Object.values(item.contentRoles)) {
-			if (handle === null || handle === undefined) {
-				continue;
-			}
-			if (props.handleIds.has(handle.handleId)) {
-				const resourceKey = contentAddressedResourceKey(handle);
-				if (resourceKey !== null) {
-					resourceKeys.push(resourceKey);
-				}
-			}
-		}
-	}
-	return resourceKeys;
-}
-
-export function cancelReviewDescriptorDemandGroups(props: {
-	readonly descriptorRefs: ReadonlyMap<string, BridgeDescriptorRef>;
-	readonly resourceExecutor: BridgeResourceExecutor<BridgeTextResourceStreamResult>;
-}): number {
-	let cancelledCount = 0;
-	const cancellationGroups = new Set<string>();
-	for (const descriptorRef of props.descriptorRefs.values()) {
-		for (const cancellationGroup of demandCancellationGroupsForReviewDescriptorRef(descriptorRef)) {
-			cancellationGroups.add(cancellationGroup);
-		}
-	}
-	for (const cancellationGroup of cancellationGroups) {
-		cancelledCount += props.resourceExecutor.cancelGroup(cancellationGroup);
-	}
-	return cancelledCount;
-}
-
-export function cancelReviewItemDemand(props: {
-	readonly descriptorRefsByHandleId: ReadonlyMap<string, BridgeDescriptorRef>;
-	readonly item: BridgeReviewItemDescriptor | undefined;
-	readonly resourceExecutor: BridgeResourceExecutor<BridgeTextResourceStreamResult>;
-}): number {
-	if (props.item === undefined) {
-		return 0;
-	}
-	let cancelledCount = 0;
-	const cancellationGroups = new Set<string>();
-	for (const handle of Object.values(props.item.contentRoles)) {
-		if (handle === null || handle === undefined) {
-			continue;
-		}
-		const descriptorRef = props.descriptorRefsByHandleId.get(handle.handleId);
-		if (descriptorRef === undefined) {
-			continue;
-		}
-		cancellationGroups.add(demandCancellationGroupForReviewDescriptorRef(descriptorRef));
-	}
-	for (const cancellationGroup of cancellationGroups) {
-		cancelledCount += props.resourceExecutor.cancelGroup(cancellationGroup);
-	}
-	return cancelledCount;
 }
 
 export function reviewItemDemandCancellationTargetForSelectionChange(props: {

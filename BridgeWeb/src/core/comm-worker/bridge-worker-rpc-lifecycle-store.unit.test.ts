@@ -3,9 +3,27 @@ import { join } from 'node:path';
 
 import { describe, expect, test } from 'vitest';
 
-import { createBridgeWorkerRpcLifecycleStore } from './bridge-worker-rpc-lifecycle-store.js';
+import type { BridgeWorkerMainToServerCommand } from './bridge-worker-contracts.js';
+import {
+	createBridgeWorkerRpcLifecycleStore,
+	type StartBridgeWorkerRpcRequestProps,
+} from './bridge-worker-rpc-lifecycle-store.js';
+
+type AssertExactCommandUnion<TValue extends true> = TValue;
+type LifecycleCommandMatchesContract =
+	BridgeWorkerMainToServerCommand['command'] extends StartBridgeWorkerRpcRequestProps['command']
+		? StartBridgeWorkerRpcRequestProps['command'] extends BridgeWorkerMainToServerCommand['command']
+			? true
+			: false
+		: false;
 
 describe('Bridge worker RPC lifecycle store', () => {
+	test('derives request command names from the worker contract command surface', () => {
+		const commandContractMatches: AssertExactCommandUnion<LifecycleCommandMatchesContract> = true;
+
+		expect(commandContractMatches).toBe(true);
+	});
+
 	test('tracks pending ack fail timeout and rollback metadata without caching rows content windows or byte buffers', () => {
 		const store = createBridgeWorkerRpcLifecycleStore();
 		const snapshots: readonly unknown[] = [];
