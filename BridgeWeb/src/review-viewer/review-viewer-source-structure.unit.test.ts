@@ -57,6 +57,7 @@ describe('Review viewer source structure', () => {
 	test('cuts selected Review away from FE package-first selected resources', () => {
 		expect(sourceFileExists('../app/bridge-app-review-selected-content-controller.ts')).toBe(false);
 		const forbiddenOwners = [
+			'../app/bridge-app-review-controller.ts',
 			'../app/bridge-app-review-viewer-mode.tsx',
 			'../app/bridge-app-review-selected-content-controller.ts',
 			'../app/bridge-app-review-markdown-preview-controller.ts',

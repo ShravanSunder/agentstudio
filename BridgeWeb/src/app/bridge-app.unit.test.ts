@@ -35,7 +35,6 @@ import {
 import {
 	createDeferred,
 	flushMicrotasks,
-	flushMicrotasksUntil,
 	makeNoopTelemetryRecorder,
 	makeReviewAttachedContentDescriptor,
 	makeReviewMetadataSnapshotFrame,
@@ -276,7 +275,7 @@ describe('BridgeApp selected review content demand policy', () => {
 });
 
 describe('BridgeApp Review content demand byte budget', () => {
-	test('promotes the package-applied initial review item through foreground demand', async () => {
+	test('selects package-applied initial review item without FE foreground demand', async () => {
 		const reviewPackage = makeBridgeReviewPackage();
 		const reviewFrameAuthority: BridgeReviewFrameAuthority = {
 			paneId: 'pane-1',
@@ -361,27 +360,20 @@ describe('BridgeApp Review content demand byte budget', () => {
 			},
 			telemetryRecorder: makeNoopTelemetryRecorder(),
 		});
-		await flushMicrotasksUntil(
-			(): boolean => contentRegistry.snapshot().cachedResourceCount >= 2,
-			20,
-		);
 
 		expect(selectInitialReviewItem).toHaveBeenCalledExactlyOnceWith('item-source');
-		expect(requestedDescriptorIds.toSorted()).toEqual([baseHandle.handleId, headHandle.handleId]);
+		expect(requestedDescriptorIds).toEqual([]);
+		expect(contentRegistry.snapshot().cachedResourceCount).toBe(0);
 		const currentReviewPackage = currentReviewPackageRef.current;
 		expect(currentReviewPackage?.packageId).toBe(reviewPackage.packageId);
 		const appliedItem = currentReviewPackage?.itemsById['item-source'];
 		const appliedBaseHandle = appliedItem?.contentRoles.base ?? null;
 		const appliedHeadHandle = appliedItem?.contentRoles.head ?? null;
 		if (appliedBaseHandle === null || appliedHeadHandle === null) {
-			throw new Error('Expected applied package to include promoted base/head content handles');
+			throw new Error('Expected applied package to include base/head content handles');
 		}
-		expect(contentRegistry.peekResource(appliedBaseHandle)?.readText()).toBe(
-			`${baseHandle.handleId} package apply text`,
-		);
-		expect(contentRegistry.peekResource(appliedHeadHandle)?.readText()).toBe(
-			`${headHandle.handleId} package apply text`,
-		);
+		expect(contentRegistry.peekResource(appliedBaseHandle)).toBeNull();
+		expect(contentRegistry.peekResource(appliedHeadHandle)).toBeNull();
 		expect(currentTreeRows.length).toBeGreaterThan(0);
 	});
 
