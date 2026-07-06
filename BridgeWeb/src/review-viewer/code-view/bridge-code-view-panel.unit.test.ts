@@ -24,15 +24,13 @@ import {
 } from './bridge-code-view-materialization.js';
 import { applyBridgeCodeViewMetadataItems } from './bridge-code-view-metadata-apply.js';
 import {
-	bridgeCodeViewInitialItemsWithSelectedCodeViewItem,
+	bridgeCodeViewInitialItemsWithWorkerPreparedCodeViewItems,
 	bridgeCodeViewLoadingMaterializationItemIdsForPanel,
-	bridgeCodeViewMaterializationEntrySortKey,
 	bridgeCodeViewRenderedHeaderCorrectionTargetPosition,
 	runBridgeCodeViewMaterializationInChunks,
 	recordBridgeCodeViewItemMaterializeTelemetryForPanel,
 	shouldSkipBridgeCodeViewItemMaterializationBeforeWork,
 	shouldApplyBridgeCodeViewRenderedHeaderCorrection,
-	shouldRequestForegroundDemandForItemExpansion,
 	shouldRearmCodeViewInstantRevealForMaterialization,
 } from './bridge-code-view-panel-support.js';
 import {
@@ -157,7 +155,7 @@ describe('BridgeCodeViewPanel diagnostics', () => {
 			version: (placeholderItem.version ?? 0) + 1,
 		};
 
-		const nextItems = bridgeCodeViewInitialItemsWithSelectedCodeViewItem({
+		const nextItems = bridgeCodeViewInitialItemsWithWorkerPreparedCodeViewItems({
 			initialItems: [placeholderItem],
 			selectedCodeViewItem: workerPreparedItem,
 			selectedItemId: sourceItem.itemId,
@@ -166,15 +164,12 @@ describe('BridgeCodeViewPanel diagnostics', () => {
 		expect(nextItems).toEqual([workerPreparedItem]);
 	});
 
-	test('does not materialize selected loading placeholder from visible loading ids', () => {
+	test('materializes only selected loading placeholder from worker availability', () => {
 		const loadingItemIds = bridgeCodeViewLoadingMaterializationItemIdsForPanel({
-			materializationResourceEntries: [],
-			selectedContentLoadingItemId: null,
-			selectedItemId: 'selected-item',
-			visibleLoadingItemIds: new Set(['selected-item', 'visible-item']),
+			selectedContentLoadingItemId: 'selected-item',
 		});
 
-		expect(loadingItemIds).toEqual(['visible-item']);
+		expect(loadingItemIds).toEqual(['selected-item']);
 	});
 
 	test('uses append and patch updates for projection deltas and reserves setItems for source reset', () => {
@@ -284,12 +279,6 @@ describe('BridgeCodeViewPanel diagnostics', () => {
 				'agentstudio.bridge.selected': false,
 			},
 		});
-	});
-
-	test('ranks selected materialization before other ready entries', () => {
-		expect(
-			bridgeCodeViewMaterializationEntrySortKey({ contentDemandRole: 'visible' }),
-		).toBeGreaterThan(bridgeCodeViewMaterializationEntrySortKey({ contentDemandRole: 'selected' }));
 	});
 
 	test('skips unchanged materialized items before reading content resources', () => {
@@ -566,27 +555,6 @@ describe('BridgeCodeViewPanel diagnostics', () => {
 				tolerancePixels: 1,
 			}),
 		).toBe(true);
-	});
-
-	test('requests foreground content demand only for item expansion', () => {
-		expect(
-			shouldRequestForegroundDemandForItemExpansion({
-				nextCollapsed: false,
-				previousCollapsed: true,
-			}),
-		).toBe(true);
-		expect(
-			shouldRequestForegroundDemandForItemExpansion({
-				nextCollapsed: true,
-				previousCollapsed: false,
-			}),
-		).toBe(false);
-		expect(
-			shouldRequestForegroundDemandForItemExpansion({
-				nextCollapsed: false,
-				previousCollapsed: false,
-			}),
-		).toBe(false);
 	});
 
 	test('emits selected content painted telemetry on the frame after materialization', () => {

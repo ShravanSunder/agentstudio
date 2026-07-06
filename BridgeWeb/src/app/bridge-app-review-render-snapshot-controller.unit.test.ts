@@ -27,6 +27,7 @@ import {
 	createBridgeReviewRuntimeProtocolDispatcher,
 	selectedContentAvailabilityForReviewPackage,
 	selectedBridgeCodeViewItemForReviewPackage,
+	visibleBridgeCodeViewItemsForReviewPackage,
 } from './bridge-app-review-render-snapshot-controller.js';
 
 describe('Bridge app review render snapshot controller', () => {
@@ -260,6 +261,52 @@ describe('Bridge app review render snapshot controller', () => {
 				selectedItemId: 'item-source',
 			}),
 		).toBeNull();
+	});
+
+	test('visible CodeView selector keeps fresh non-selected worker-prepared items', () => {
+		const reviewPackage = makeBridgeReviewPackage();
+		const reviewItem = reviewPackage.itemsById['item-source'];
+		const currentHeadHandle = reviewItem?.contentRoles.head;
+		if (reviewItem === undefined || currentHeadHandle === null || currentHeadHandle === undefined) {
+			throw new Error('expected item-source head handle');
+		}
+		const visibleCodeViewItem = makeSelectedCodeViewItem({
+			cacheKey:
+				'pierre-content:fixture-preview:sha256:item-source:base|pierre-content:fixture-preview:sha256:item-source:head',
+		});
+		const changedHeadHandle = {
+			...currentHeadHandle,
+			contentHash: 'sha256:item-source:head:new',
+		};
+		const changedPackage = {
+			...reviewPackage,
+			itemsById: {
+				...reviewPackage.itemsById,
+				'item-source': {
+					...reviewItem,
+					contentRoles: {
+						...reviewItem.contentRoles,
+						head: changedHeadHandle,
+					},
+					headContentHash: changedHeadHandle.contentHash,
+				},
+			},
+		};
+
+		expect(
+			visibleBridgeCodeViewItemsForReviewPackage({
+				codeViewItemsById: { 'item-source': visibleCodeViewItem },
+				reviewPackage,
+				visibleItemIds: ['item-source'],
+			}),
+		).toEqual([visibleCodeViewItem]);
+		expect(
+			visibleBridgeCodeViewItemsForReviewPackage({
+				codeViewItemsById: { 'item-source': visibleCodeViewItem },
+				reviewPackage: changedPackage,
+				visibleItemIds: ['item-source'],
+			}),
+		).toEqual([]);
 	});
 
 	test('selected availability treats stale ready worker content as loading across package rollover', () => {

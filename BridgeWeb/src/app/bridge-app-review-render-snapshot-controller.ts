@@ -70,6 +70,7 @@ export interface BridgeReviewRenderSnapshotController {
 	readonly selectionSliceRef: MutableRefObject<BridgeReviewSelectionSlice>;
 	readonly setReviewViewportItemIds: (itemIds: readonly string[]) => void;
 	readonly setSelectedReviewItemId: (itemId: string | null) => void;
+	readonly visibleCodeViewItems: readonly BridgeMainCodeViewItem[];
 	readonly viewportSliceRef: MutableRefObject<BridgeReviewViewportSlice>;
 }
 
@@ -110,6 +111,11 @@ export function useBridgeReviewRenderSnapshotController(
 		codeViewItemsById: renderSnapshot.codeViewItemsById,
 		reviewPackage: props.reviewPackage,
 		selectedItemId: selectionSlice.selectedItemId,
+	});
+	const visibleCodeViewItems = visibleBridgeCodeViewItemsForReviewPackage({
+		codeViewItemsById: renderSnapshot.codeViewItemsById,
+		reviewPackage: props.reviewPackage,
+		visibleItemIds: viewportSlice.visibleItemIds,
 	});
 	const selectedContentAvailability = selectedContentAvailabilityForReviewPackage({
 		rawAvailability: selectedRawContentAvailability,
@@ -205,8 +211,29 @@ export function useBridgeReviewRenderSnapshotController(
 		selectionSliceRef,
 		setReviewViewportItemIds,
 		setSelectedReviewItemId,
+		visibleCodeViewItems,
 		viewportSliceRef,
 	};
+}
+
+function bridgeCodeViewItemForReviewPackage(props: {
+	readonly codeViewItemsById: Readonly<Record<string, BridgeMainCodeViewItem>>;
+	readonly reviewPackage: BridgeReviewPackage | null;
+	readonly itemId: string | null;
+}): BridgeMainCodeViewItem | null {
+	if (props.reviewPackage === null || props.itemId === null) {
+		return null;
+	}
+	const item = props.reviewPackage.itemsById[props.itemId];
+	const codeViewItem = props.codeViewItemsById[props.itemId];
+	if (
+		item === undefined ||
+		codeViewItem === undefined ||
+		codeViewItem.bridgeMetadata.itemId !== props.itemId
+	) {
+		return null;
+	}
+	return codeViewItemCacheMatchesReviewItem(item, codeViewItem) ? codeViewItem : null;
 }
 
 export function selectedBridgeCodeViewItemForReviewPackage(props: {
@@ -214,19 +241,30 @@ export function selectedBridgeCodeViewItemForReviewPackage(props: {
 	readonly reviewPackage: BridgeReviewPackage | null;
 	readonly selectedItemId: string | null;
 }): BridgeMainCodeViewItem | null {
-	if (props.reviewPackage === null || props.selectedItemId === null) {
-		return null;
+	return bridgeCodeViewItemForReviewPackage({
+		codeViewItemsById: props.codeViewItemsById,
+		itemId: props.selectedItemId,
+		reviewPackage: props.reviewPackage,
+	});
+}
+
+export function visibleBridgeCodeViewItemsForReviewPackage(props: {
+	readonly codeViewItemsById: Readonly<Record<string, BridgeMainCodeViewItem>>;
+	readonly reviewPackage: BridgeReviewPackage | null;
+	readonly visibleItemIds: readonly string[];
+}): readonly BridgeMainCodeViewItem[] {
+	const visibleCodeViewItems: BridgeMainCodeViewItem[] = [];
+	for (const itemId of props.visibleItemIds) {
+		const codeViewItem = bridgeCodeViewItemForReviewPackage({
+			codeViewItemsById: props.codeViewItemsById,
+			itemId,
+			reviewPackage: props.reviewPackage,
+		});
+		if (codeViewItem !== null) {
+			visibleCodeViewItems.push(codeViewItem);
+		}
 	}
-	const item = props.reviewPackage.itemsById[props.selectedItemId];
-	const codeViewItem = props.codeViewItemsById[props.selectedItemId];
-	if (
-		item === undefined ||
-		codeViewItem === undefined ||
-		codeViewItem.bridgeMetadata.itemId !== props.selectedItemId
-	) {
-		return null;
-	}
-	return codeViewItemCacheMatchesReviewItem(item, codeViewItem) ? codeViewItem : null;
+	return visibleCodeViewItems;
 }
 
 export function selectedContentAvailabilityForReviewPackage(props: {

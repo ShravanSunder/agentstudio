@@ -26,10 +26,7 @@ import {
 	type BridgeReviewFacetMenuOption,
 } from '../chrome/bridge-review-facet-menu.js';
 import { BridgeReviewProjectionMenu } from '../chrome/bridge-review-projection-menu.js';
-import type {
-	BridgeCodeViewContentResources,
-	BridgeCodeViewItemPresentation,
-} from '../code-view/bridge-code-view-materialization.js';
+import type { BridgeCodeViewItemPresentation } from '../code-view/bridge-code-view-materialization.js';
 import {
 	BridgeCodeViewPanel,
 	type BridgeCodeViewControlHandle,
@@ -60,10 +57,6 @@ export interface ReviewViewerShellProps {
 	readonly lastVisibleDemandTelemetry?: ReviewContentDemandTelemetry | null;
 	readonly selectedMarkdownPreviewHtml?: string | null;
 	readonly selectedMarkdownPreviewSourcePath?: string | null;
-	readonly visibleContentResourcesByItemId?: ReadonlyMap<string, BridgeCodeViewContentResources>;
-	readonly visibleLoadingItemIds?: ReadonlySet<string>;
-	readonly visibleLoadingItemCount?: number;
-	readonly visibleReadyItemCount?: number;
 	readonly codeViewWorkerPoolEnabled?: boolean;
 	readonly codeViewWorkerFactory?: () => Worker;
 	readonly projectionMode?: BridgeReviewProjectionMode;
@@ -80,12 +73,11 @@ export interface ReviewViewerShellProps {
 	readonly fileClassFilter?: BridgeFileClass | 'all';
 	readonly onFileClassFilterChange?: (fileClass: BridgeFileClass | 'all') => void;
 	readonly onCodeViewControlHandleChange?: (handle: BridgeCodeViewControlHandle | null) => void;
-	readonly onCodeViewExpandedItemDemand?: (itemId: string) => void;
-	readonly onCodeViewScrollActivityChange?: (isActive: boolean) => void;
 	readonly onCodeViewVisibleItemIdsChange?: (itemIds: readonly string[]) => void;
 	readonly onTreeVisibleItemIdsChange?: (itemIds: readonly string[]) => void;
 	readonly telemetryRecorder?: BridgeTelemetryRecorder;
 	readonly telemetryParentTraceContext?: BridgeTraceContext | null;
+	readonly visibleCodeViewItems?: readonly BridgeMainCodeViewItem[];
 	readonly viewerHeaderControls?: ReactNode;
 }
 
@@ -305,16 +297,7 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 									selectedItemId={props.selectedItemId}
 									selectedItemPresentation={props.selectedItemPresentation ?? null}
 									telemetryParentTraceContext={props.telemetryParentTraceContext ?? null}
-									{...(props.visibleLoadingItemIds === undefined
-										? {}
-										: { visibleLoadingItemIds: props.visibleLoadingItemIds })}
-									visibleLoadingItemCount={props.visibleLoadingItemCount ?? 0}
-									visibleReadyItemCount={props.visibleReadyItemCount ?? 0}
-									{...(props.visibleContentResourcesByItemId === undefined
-										? {}
-										: {
-												visibleContentResourcesByItemId: props.visibleContentResourcesByItemId,
-											})}
+									visibleCodeViewItems={props.visibleCodeViewItems ?? []}
 									{...(props.onCodeViewVisibleItemIdsChange === undefined
 										? {}
 										: { onVisibleItemIdsChange: props.onCodeViewVisibleItemIdsChange })}
@@ -322,16 +305,6 @@ export function ReviewViewerShell(props: ReviewViewerShellProps): ReactElement {
 										? {}
 										: {
 												onControlHandleChange: props.onCodeViewControlHandleChange,
-											})}
-									{...(props.onCodeViewExpandedItemDemand === undefined
-										? {}
-										: {
-												onExpandedItemDemand: props.onCodeViewExpandedItemDemand,
-											})}
-									{...(props.onCodeViewScrollActivityChange === undefined
-										? {}
-										: {
-												onScrollActivityChange: props.onCodeViewScrollActivityChange,
 											})}
 									{...(props.codeViewWorkerPoolEnabled === undefined
 										? {}

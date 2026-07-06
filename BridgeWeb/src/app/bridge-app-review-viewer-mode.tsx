@@ -63,7 +63,6 @@ import {
 	type BridgeReviewPackageTelemetryContext,
 } from './bridge-app-review-telemetry.js';
 import { BridgeReviewViewerShellBoundary } from './bridge-app-review-viewer-shell-boundary.js';
-import { useBridgeReviewVisibleContentController } from './bridge-app-review-visible-content-controller.js';
 import type { BridgeAppProps } from './bridge-app.js';
 import { useBridgeReviewControlEventListeners } from './use-bridge-review-control-event-listeners.js';
 
@@ -116,6 +115,7 @@ export function BridgeReviewViewerMode(
 		selectionSliceRef,
 		setReviewViewportItemIds,
 		setSelectedReviewItemId,
+		visibleCodeViewItems,
 		viewportSliceRef,
 	} = useBridgeReviewRenderSnapshotController({
 		panelChromeSlice,
@@ -134,7 +134,7 @@ export function BridgeReviewViewerMode(
 		error: null,
 		epoch: 0,
 	});
-	const [reviewContentInvalidationVersion, setReviewContentInvalidationVersion] = useState(0);
+	const [, setReviewContentInvalidationVersion] = useState(0);
 	const [lastVisibleDemandTelemetry, setLastVisibleDemandTelemetry] =
 		useState<ReviewContentDemandTelemetry | null>(null);
 	const [selectedMarkdownPreviewState, setSelectedMarkdownPreviewState] =
@@ -151,7 +151,6 @@ export function BridgeReviewViewerMode(
 	const registerBridgeReadyCallback = props.registerBridgeReadyCallback;
 	const currentReviewPackageTelemetryContextRef =
 		useRef<BridgeReviewPackageTelemetryContext | null>(null);
-	const foregroundSelectedContentKey: string | null = null;
 	const [lastSelectedDemandTelemetry, setLastSelectedDemandTelemetry] =
 		useState<ReviewContentDemandTelemetry | null>(null);
 	const reviewPackageTelemetryContextRef = useRef<Map<string, BridgeReviewPackageTelemetryContext>>(
@@ -165,7 +164,6 @@ export function BridgeReviewViewerMode(
 	projectionRef.current = projection;
 	const rootSnapshotRef = useRef(rootSnapshot);
 	rootSnapshotRef.current = rootSnapshot;
-	const [isCodeViewScrollActive, setIsCodeViewScrollActive] = useState(false);
 	const controlProbeSequenceRef = useRef(0);
 	useEffect((): (() => void) => startBridgeFrameLivenessProbe(), []);
 	useEffect((): (() => void) => startBridgeFrameJankProbe(), []);
@@ -239,29 +237,11 @@ export function BridgeReviewViewerMode(
 		setLastSelectedDemandTelemetry,
 		setLastVisibleDemandTelemetry,
 	});
-	const visibleContentController = useBridgeReviewVisibleContentController({
-		contentRegistry,
-		currentReviewPackageTelemetryContextRef,
-		currentSelectedContentKey,
-		foregroundSelectedContentKey,
-		isActive: props.isActive,
-		isCodeViewScrollActive,
-		resourceExecutor,
-		reviewContentDescriptorRefsByHandleIdRef,
-		reviewContentInvalidationVersion,
-		reviewPackage,
-		selectedContentAvailability,
-		selectedItemId: rootSnapshot.selectedItemId,
-		setLastVisibleDemandTelemetry,
-		telemetryRecorderRef,
-	});
-	const setVisibleContentItemIds = visibleContentController.setVisibleContentItemIds;
 	const setReviewVisibleItemIds = useCallback(
 		(itemIds: readonly string[]): void => {
-			setVisibleContentItemIds(itemIds);
 			setReviewViewportItemIds(itemIds);
 		},
-		[setReviewViewportItemIds, setVisibleContentItemIds],
+		[setReviewViewportItemIds],
 	);
 	const reviewMetadataInterestRuntime = useBridgeReviewMetadataInterestRuntime({
 		authority: getReviewFrameAuthority(),
@@ -431,8 +411,6 @@ export function BridgeReviewViewerMode(
 			onCodeViewControlHandleChange={(handle): void => {
 				codeViewControlHandleRef.current = handle;
 			}}
-			onCodeViewExpandedItemDemand={visibleContentController.requestForegroundItemContent}
-			onCodeViewScrollActivityChange={setIsCodeViewScrollActive}
 			onSelectItem={selectReviewItem}
 			onTreeSearchOpen={(): void => setIsTreeSearchOpen(true)}
 			projection={projection}
@@ -455,12 +433,9 @@ export function BridgeReviewViewerMode(
 			}
 			telemetryRecorder={telemetryRecorderRef.current}
 			treeSearchOpen={isTreeSearchOpen}
+			visibleCodeViewItems={visibleCodeViewItems}
 			viewerActions={viewerActions}
 			viewerHeaderControls={props.viewerHeaderControls}
-			visibleContentResourcesByItemId={visibleContentController.visibleContentResourcesByItemId}
-			visibleLoadingItemCount={visibleContentController.visibleLoadingItemCount}
-			visibleLoadingItemIds={visibleContentController.visibleLoadingItemIds}
-			visibleReadyItemCount={visibleContentController.visibleReadyItemCount}
 		/>
 	);
 }

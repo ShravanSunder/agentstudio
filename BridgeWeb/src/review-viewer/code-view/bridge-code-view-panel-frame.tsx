@@ -42,8 +42,6 @@ interface BridgeCodeViewPanelFrameProps {
 	readonly selectionScrollDiagnostic: BridgeCodeViewSelectionScrollDiagnostic;
 	readonly setCodeViewHandle: (handle: CodeViewHandle<undefined> | null) => void;
 	readonly sourceKey: string;
-	readonly visibleLoadingItemCount: number;
-	readonly visibleReadyItemCount: number;
 	readonly workerFactory?: () => Worker;
 	readonly workerPoolEnabled?: boolean;
 }
@@ -56,8 +54,6 @@ export function BridgeCodeViewPanelFrame(props: BridgeCodeViewPanelFrameProps): 
 			data-code-view-item-count={props.initialItems.length}
 			data-code-view-rendered-content-resource-count={props.materializationResourceEntryCount}
 			data-code-view-rendered-content-resource-item-ids={props.materializationResourceEntryItemIds}
-			data-code-view-visible-loading-item-count={props.visibleLoadingItemCount}
-			data-code-view-visible-ready-item-count={props.visibleReadyItemCount}
 			data-selected-change-kind={props.selectedChangeKind}
 			data-selected-content-cache-key-count={props.selectedContentCacheKeyCount}
 			data-selected-content-cache-keys={props.selectedContentCacheKeys}

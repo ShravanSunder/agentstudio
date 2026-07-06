@@ -11,8 +11,6 @@ import {
 import { cn } from '../../app/class-name.js';
 import { Button } from '../../components/ui/button.js';
 import type { BridgeMainCodeViewItem } from '../../core/comm-worker/bridge-main-render-snapshot-store.js';
-import { demandRankForContentRole } from '../../core/demand/bridge-content-demand-policy.js';
-import type { BridgeContentDemandRole } from '../../core/models/bridge-demand-models.js';
 import {
 	runBridgeFrameApplyPump,
 	type BridgeFrameApplyUnitRank,
@@ -24,7 +22,6 @@ import type {
 } from '../../foundation/review-package/bridge-review-package.js';
 import type { BridgeTelemetryRecorder } from '../../foundation/telemetry/bridge-telemetry-recorder.js';
 import type { BridgeTraceContext } from '../../foundation/telemetry/bridge-trace-context.js';
-import { selectedAdjacentReviewItemIds } from '../content/visible-review-content-hydration.js';
 import type { BridgeReviewProjectionResult } from '../models/review-projection-models.js';
 import { recordBridgeCodeViewItemMaterializeTelemetry } from '../telemetry/bridge-review-viewer-telemetry.js';
 import { bridgePierreOptionalHighlightLanguage } from '../workers/pierre/bridge-pierre-language-normalization.js';
@@ -42,7 +39,6 @@ import {
 	type BridgeCodeViewItemPresentation,
 } from './bridge-code-view-materialization.js';
 import type { BridgeCodeViewMetadataReconcileProps } from './bridge-code-view-metadata-apply.js';
-import type { BridgeCodeViewMaterializationResourceEntry } from './bridge-code-view-panel-types.js';
 
 export interface BridgeCodeViewControllerEntry {
 	readonly handle: CodeViewHandle<undefined>;
@@ -124,60 +120,13 @@ export function shouldRequestForegroundDemandForItemExpansion(props: {
 	return props.previousCollapsed && !props.nextCollapsed;
 }
 
-export function bridgeCodeViewMaterializationResourceEntriesForPanel(props: {
-	readonly reviewPackage: BridgeReviewPackage;
-	readonly selectedItemId: string | null;
-	readonly visibleContentResourcesByItemId:
-		| ReadonlyMap<string, BridgeCodeViewContentResources>
-		| undefined;
-}): readonly BridgeCodeViewMaterializationResourceEntry[] {
-	const resourceEntriesByItemId = new Map<string, BridgeCodeViewMaterializationResourceEntry>();
-	const nearbyItemIds = new Set(
-		selectedAdjacentReviewItemIds({
-			reviewPackage: props.reviewPackage,
-			selectedItemId: props.selectedItemId,
-		}),
-	);
-	for (const [itemId, resources] of props.visibleContentResourcesByItemId ?? []) {
-		if (itemId === props.selectedItemId) {
-			continue;
-		}
-		resourceEntriesByItemId.set(itemId, {
-			contentDemandRole: bridgeCodeViewVisibleContentDemandRole({
-				itemId,
-				nearbyItemIds,
-			}),
-			itemId,
-			resources,
-			selectionDemandStartedAtMilliseconds: null,
-		});
-	}
-	return [...resourceEntriesByItemId.values()].toSorted(
-		(left, right): number =>
-			bridgeCodeViewMaterializationEntrySortKey(left) -
-			bridgeCodeViewMaterializationEntrySortKey(right),
-	);
-}
-
-function bridgeCodeViewVisibleContentDemandRole(props: {
-	readonly itemId: string;
-	readonly nearbyItemIds: ReadonlySet<string>;
-}): BridgeContentDemandRole {
-	return props.nearbyItemIds.has(props.itemId) ? 'nearby' : 'visible';
-}
-
-export function bridgeCodeViewMaterializationEntrySortKey(props: {
-	readonly contentDemandRole: BridgeContentDemandRole;
-}): number {
-	return demandRankForContentRole(props.contentDemandRole);
-}
-
 export function createBridgeCodeViewInitialItemsForPanel(props: {
 	readonly projection: BridgeReviewProjectionResult;
 	readonly reviewPackage: BridgeReviewPackage;
 	readonly selectedCodeViewItem: BridgeMainCodeViewItem | null | undefined;
 	readonly selectedItemId: string | null;
 	readonly selectedItemPresentation: BridgeCodeViewItemPresentation | null | undefined;
+	readonly visibleCodeViewItems?: readonly BridgeMainCodeViewItem[] | undefined;
 }): readonly BridgeCodeViewItem[] {
 	const itemPresentationsByItemId =
 		props.selectedItemId === null ||
@@ -185,7 +134,7 @@ export function createBridgeCodeViewInitialItemsForPanel(props: {
 		props.selectedItemPresentation === undefined
 			? undefined
 			: new Map([[props.selectedItemId, props.selectedItemPresentation]]);
-	return bridgeCodeViewInitialItemsWithSelectedCodeViewItem({
+	return bridgeCodeViewInitialItemsWithWorkerPreparedCodeViewItems({
 		initialItems: createBridgeCodeViewInitialItems({
 			...(itemPresentationsByItemId === undefined ? {} : { itemPresentationsByItemId }),
 			reviewPackage: props.reviewPackage,
@@ -193,32 +142,52 @@ export function createBridgeCodeViewInitialItemsForPanel(props: {
 		}),
 		selectedCodeViewItem: bridgeCodeViewItemFromWorkerPreparedItem(props.selectedCodeViewItem),
 		selectedItemId: props.selectedItemId,
+		visibleCodeViewItems: (props.visibleCodeViewItems ?? []).flatMap(
+			(item): readonly BridgeCodeViewItem[] => {
+				const codeViewItem = bridgeCodeViewItemFromWorkerPreparedItem(item);
+				return codeViewItem === null ? [] : [codeViewItem];
+			},
+		),
 	});
 }
 
-export function bridgeCodeViewInitialItemsWithSelectedCodeViewItem(props: {
+export function bridgeCodeViewInitialItemsWithWorkerPreparedCodeViewItems(props: {
 	readonly initialItems: readonly BridgeCodeViewItem[];
 	readonly selectedCodeViewItem: BridgeCodeViewItem | null | undefined;
 	readonly selectedItemId: string | null;
+	readonly visibleCodeViewItems?: readonly BridgeCodeViewItem[] | undefined;
 }): readonly BridgeCodeViewItem[] {
+	const workerPreparedItemsByItemId = new Map<string, BridgeCodeViewItem>();
+	for (const visibleCodeViewItem of props.visibleCodeViewItems ?? []) {
+		if (visibleCodeViewItem.bridgeMetadata.itemId === visibleCodeViewItem.id) {
+			workerPreparedItemsByItemId.set(visibleCodeViewItem.id, visibleCodeViewItem);
+		}
+	}
 	const selectedCodeViewItem = props.selectedCodeViewItem;
 	if (
-		props.selectedItemId === null ||
-		selectedCodeViewItem === null ||
-		selectedCodeViewItem === undefined ||
-		selectedCodeViewItem.bridgeMetadata.itemId !== props.selectedItemId
+		props.selectedItemId !== null &&
+		selectedCodeViewItem !== null &&
+		selectedCodeViewItem !== undefined &&
+		selectedCodeViewItem.bridgeMetadata.itemId === props.selectedItemId
 	) {
+		workerPreparedItemsByItemId.set(props.selectedItemId, selectedCodeViewItem);
+	}
+	if (workerPreparedItemsByItemId.size === 0) {
 		return props.initialItems;
 	}
-	let didReplaceSelectedItem = false;
+	const replacedItemIds = new Set<string>();
 	const nextItems = props.initialItems.map((item): BridgeCodeViewItem => {
-		if (item.id !== props.selectedItemId) {
+		const workerPreparedItem = workerPreparedItemsByItemId.get(item.id);
+		if (workerPreparedItem === undefined) {
 			return item;
 		}
-		didReplaceSelectedItem = true;
-		return selectedCodeViewItem;
+		replacedItemIds.add(item.id);
+		return workerPreparedItem;
 	});
-	return didReplaceSelectedItem ? nextItems : [...nextItems, selectedCodeViewItem];
+	const appendedItems = [...workerPreparedItemsByItemId.values()].filter(
+		(item): boolean => !replacedItemIds.has(item.id),
+	);
+	return appendedItems.length === 0 ? nextItems : [...nextItems, ...appendedItems];
 }
 
 function bridgeCodeViewItemFromWorkerPreparedItem(
@@ -395,26 +364,12 @@ export function recordBridgeCodeViewItemMaterializeTelemetryForPanel(
 }
 
 export function bridgeCodeViewLoadingMaterializationItemIdsForPanel(props: {
-	readonly materializationResourceEntries: readonly BridgeCodeViewMaterializationResourceEntry[];
 	readonly selectedContentLoadingItemId: string | null | undefined;
-	readonly selectedItemId: string | null;
-	readonly visibleLoadingItemIds: ReadonlySet<string> | undefined;
 }): readonly string[] {
-	const loadedItemIds = new Set(
-		props.materializationResourceEntries.map((entry): string => entry.itemId),
-	);
-	const loadingItemIds = new Set(
-		[...(props.visibleLoadingItemIds ?? [])].filter(
-			(itemId: string): boolean => itemId !== props.selectedItemId,
-		),
-	);
-	if (
-		props.selectedContentLoadingItemId !== undefined &&
-		props.selectedContentLoadingItemId !== null
-	) {
-		loadingItemIds.add(props.selectedContentLoadingItemId);
-	}
-	return [...loadingItemIds].filter((itemId: string): boolean => !loadedItemIds.has(itemId));
+	return props.selectedContentLoadingItemId === undefined ||
+		props.selectedContentLoadingItemId === null
+		? []
+		: [props.selectedContentLoadingItemId];
 }
 
 export interface BridgeCodeViewInstantRevealRearmCandidate {
@@ -964,12 +919,18 @@ export function reconcileBridgeCodeViewMetadataItems(
 	const reconciledItems = props.metadataItems.map(
 		(metadataItem: BridgeCodeViewItem): BridgeCodeViewItem => {
 			const currentItem = props.getCurrentItem(metadataItem.id);
+			const replacementItem = isBridgeCodeViewItem(currentItem)
+				? bridgeCodeViewMetadataReplacementForCurrentItem({ currentItem, metadataItem })
+				: null;
 			if (
 				!isBridgeCodeViewItem(currentItem) ||
 				currentItem.type !== metadataItem.type ||
 				currentItem.bridgeMetadata.contentState === 'placeholder'
 			) {
 				return metadataItem;
+			}
+			if (replacementItem !== null) {
+				return replacementItem;
 			}
 			return currentItem;
 		},
@@ -990,4 +951,26 @@ export function reconcileBridgeCodeViewMetadataItems(
 		reconciledItemIds.add(currentItem.id);
 	}
 	return reconciledItems;
+}
+
+function bridgeCodeViewMetadataReplacementForCurrentItem(props: {
+	readonly currentItem: BridgeCodeViewItem;
+	readonly metadataItem: BridgeCodeViewItem;
+}): BridgeCodeViewItem | null {
+	if (
+		props.currentItem.type !== props.metadataItem.type ||
+		props.currentItem.bridgeMetadata.contentState !== 'loading' ||
+		!isMaterializedBridgeCodeViewContentState(props.metadataItem.bridgeMetadata.contentState)
+	) {
+		return null;
+	}
+	const currentVersion = props.currentItem.version ?? 0;
+	const metadataVersion = props.metadataItem.version ?? 0;
+	const replacementItem =
+		props.currentItem.collapsed === undefined
+			? props.metadataItem
+			: { ...props.metadataItem, collapsed: props.currentItem.collapsed };
+	return metadataVersion > currentVersion
+		? replacementItem
+		: { ...replacementItem, version: currentVersion + 1 };
 }

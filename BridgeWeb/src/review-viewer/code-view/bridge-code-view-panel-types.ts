@@ -1,15 +1,11 @@
 import type { CodeViewScrollBehavior } from '@pierre/diffs';
 
 import type { BridgeMainCodeViewItem } from '../../core/comm-worker/bridge-main-render-snapshot-store.js';
-import type { BridgeContentDemandRole } from '../../core/models/bridge-demand-models.js';
 import type { BridgeReviewPackage } from '../../foundation/review-package/bridge-review-package.js';
 import type { BridgeTelemetryRecorder } from '../../foundation/telemetry/bridge-telemetry-recorder.js';
 import type { BridgeTraceContext } from '../../foundation/telemetry/bridge-trace-context.js';
 import type { BridgeReviewProjectionResult } from '../models/review-projection-models.js';
-import type {
-	BridgeCodeViewContentResources,
-	BridgeCodeViewItemPresentation,
-} from './bridge-code-view-materialization.js';
+import type { BridgeCodeViewItemPresentation } from './bridge-code-view-materialization.js';
 import type { BridgeCodeViewProgrammaticRevealIntent } from './bridge-code-view-programmatic-reveal-gate.js';
 
 export interface BridgeCodeViewPanelProps {
@@ -19,16 +15,12 @@ export interface BridgeCodeViewPanelProps {
 	readonly selectedCodeViewItem?: BridgeMainCodeViewItem | null;
 	readonly selectedContentLoadingItemId?: string | null;
 	readonly selectedItemPresentation?: BridgeCodeViewItemPresentation | null;
-	readonly visibleContentResourcesByItemId?: ReadonlyMap<string, BridgeCodeViewContentResources>;
-	readonly visibleLoadingItemIds?: ReadonlySet<string>;
-	readonly visibleLoadingItemCount?: number;
-	readonly visibleReadyItemCount?: number;
+	readonly visibleCodeViewItems?: readonly BridgeMainCodeViewItem[];
 	readonly workerPoolEnabled?: boolean;
 	readonly workerFactory?: () => Worker;
 	readonly telemetryRecorder?: BridgeTelemetryRecorder;
 	readonly telemetryParentTraceContext?: BridgeTraceContext | null;
 	readonly onControlHandleChange?: (handle: BridgeCodeViewControlHandle | null) => void;
-	readonly onExpandedItemDemand?: (itemId: string) => void;
 	readonly onScrollActivityChange?: (isActive: boolean) => void;
 	readonly onVisibleItemIdsChange?: (itemIds: readonly string[]) => void;
 }
@@ -50,13 +42,6 @@ export interface BridgeCodeViewSelectionScrollDiagnostic {
 	readonly itemTop: number | 'missing';
 	readonly reason: string;
 	readonly remainingFrameBudget: number;
-}
-
-export interface BridgeCodeViewMaterializationResourceEntry {
-	readonly contentDemandRole: BridgeContentDemandRole;
-	readonly itemId: string;
-	readonly resources: BridgeCodeViewContentResources;
-	readonly selectionDemandStartedAtMilliseconds: number | null;
 }
 
 export const codeViewMaterializationRetryFrameBudget = 30;

@@ -6,10 +6,7 @@ import type { ReviewTreeRowMetadata } from '../features/review/models/review-pro
 import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import type { BridgeTraceContext } from '../foundation/telemetry/bridge-trace-context.js';
-import type {
-	BridgeCodeViewContentResources,
-	BridgeCodeViewItemPresentation,
-} from '../review-viewer/code-view/bridge-code-view-materialization.js';
+import type { BridgeCodeViewItemPresentation } from '../review-viewer/code-view/bridge-code-view-materialization.js';
 import type { BridgeCodeViewControlHandle } from '../review-viewer/code-view/bridge-code-view-panel.js';
 import type { ReviewContentDemandTelemetry } from '../review-viewer/content/review-content-demand-loader.js';
 import type { BridgeReviewProjectionResult } from '../review-viewer/models/review-projection-models.js';
@@ -47,8 +44,6 @@ export interface BridgeReviewViewerShellBoundaryProps {
 	readonly lastSelectionCommitDurationMilliseconds: number | null;
 	readonly lastVisibleDemandTelemetry: ReviewContentDemandTelemetry | null;
 	readonly onCodeViewControlHandleChange: (handle: BridgeCodeViewControlHandle | null) => void;
-	readonly onCodeViewExpandedItemDemand: (itemId: string) => void;
-	readonly onCodeViewScrollActivityChange: (isActive: boolean) => void;
 	readonly onSelectItem: (itemId: string) => void;
 	readonly onTreeSearchOpen: () => void;
 	readonly projection: BridgeReviewProjectionResult | null;
@@ -65,6 +60,7 @@ export interface BridgeReviewViewerShellBoundaryProps {
 	readonly telemetryParentTraceContext: BridgeTraceContext | null;
 	readonly telemetryRecorder: BridgeTelemetryRecorder;
 	readonly treeSearchOpen: boolean;
+	readonly visibleCodeViewItems: readonly BridgeMainCodeViewItem[];
 	readonly viewerActions: Pick<
 		BridgeReviewViewerStoreActions,
 		| 'setFileClassFilter'
@@ -74,10 +70,6 @@ export interface BridgeReviewViewerShellBoundaryProps {
 		| 'setTreeSearchText'
 	>;
 	readonly viewerHeaderControls: ReactNode;
-	readonly visibleContentResourcesByItemId: ReadonlyMap<string, BridgeCodeViewContentResources>;
-	readonly visibleLoadingItemCount: number;
-	readonly visibleLoadingItemIds: ReadonlySet<string>;
-	readonly visibleReadyItemCount: number;
 }
 
 export function BridgeReviewViewerShellBoundary(
@@ -180,8 +172,6 @@ function reviewViewerShellPropsForBoundary(
 		isActive: props.isActive,
 		selectionCommitDurationMilliseconds: props.lastSelectionCommitDurationMilliseconds,
 		onCodeViewControlHandleChange: props.onCodeViewControlHandleChange,
-		onCodeViewExpandedItemDemand: props.onCodeViewExpandedItemDemand,
-		onCodeViewScrollActivityChange: props.onCodeViewScrollActivityChange,
 		onFileClassFilterChange: props.viewerActions.setFileClassFilter,
 		onGitStatusFilterChange: props.viewerActions.setGitStatusFilter,
 		onProjectionModeChange: props.viewerActions.setProjectionMode,
@@ -200,12 +190,9 @@ function reviewViewerShellPropsForBoundary(
 		selectedContentUnavailablePath: props.selectedContentUnavailablePath,
 		selectedCanvasLoadingReason: props.selectedCanvasLoadingReason,
 		selectedItemId: props.rootSnapshot.selectedItemId,
+		visibleCodeViewItems: props.visibleCodeViewItems,
 		lastSelectedDemandTelemetry: props.lastSelectedDemandTelemetry,
 		lastVisibleDemandTelemetry: props.lastVisibleDemandTelemetry,
-		visibleContentResourcesByItemId: props.visibleContentResourcesByItemId,
-		visibleLoadingItemIds: props.visibleLoadingItemIds,
-		visibleLoadingItemCount: props.visibleLoadingItemCount,
-		visibleReadyItemCount: props.visibleReadyItemCount,
 		onCodeViewVisibleItemIdsChange:
 			props.reviewMetadataInterestRuntime.onCodeViewVisibleItemIdsChange,
 		onTreeVisibleItemIdsChange: props.reviewMetadataInterestRuntime.onTreeVisibleItemIdsChange,
