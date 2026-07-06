@@ -56,7 +56,7 @@ import { bridgeReviewViewerRootSnapshotFromSlices } from '../review-viewer/state
 
 export interface UseBridgeReviewRenderSnapshotControllerProps {
 	readonly panelChromeSlice: BridgeReviewPanelChromeSlice;
-	readonly pierreCourier?: BridgeWorkerPierreCourier;
+	readonly pierreCourier: BridgeWorkerPierreCourier;
 	readonly reviewPackage: BridgeReviewPackage | null;
 	readonly reviewTreeRows: readonly ReviewTreeRowMetadata[];
 }
@@ -67,10 +67,6 @@ export interface BridgeReviewRenderSnapshotController {
 	readonly selectionSlice: BridgeReviewSelectionSlice;
 	readonly selectionSliceRef: MutableRefObject<BridgeReviewSelectionSlice>;
 	readonly setReviewViewportItemIds: (itemIds: readonly string[]) => void;
-	readonly setSelectedContentAvailability: (props: {
-		readonly availability: BridgeWorkerContentAvailabilityPatchPayload;
-		readonly itemId: string;
-	}) => void;
 	readonly setSelectedReviewItemId: (itemId: string | null) => void;
 	readonly viewportSliceRef: MutableRefObject<BridgeReviewViewportSlice>;
 }
@@ -108,11 +104,7 @@ export function useBridgeReviewRenderSnapshotController(
 		selectionSlice.selectedItemId === null
 			? null
 			: (renderSnapshot.contentAvailabilityById[selectionSlice.selectedItemId] ?? null);
-	const pierreCourier = useMemo(
-		(): BridgeWorkerPierreCourier =>
-			props.pierreCourier ?? createUnsupportedBridgeReviewPierreCourier(),
-		[props.pierreCourier],
-	);
+	const pierreCourier = props.pierreCourier;
 	const requestSequenceRef = useRef(0);
 	const workerEpochRef = useRef(0);
 	const selectionSliceRef = useRef(selectionSlice);
@@ -140,10 +132,8 @@ export function useBridgeReviewRenderSnapshotController(
 				publishWorkerMessages,
 				renderSemantics: bridgeCommWorkerRenderSemanticsFromReviewPackage(props.reviewPackage),
 				rows: bridgeCommWorkerRowsFromReviewTreeRows(props.reviewTreeRows),
-				selectedContentLoadingAvailabilityEnabled: props.pierreCourier === undefined,
-				selectedContentPreparationEnabled: props.pierreCourier !== undefined,
 			}),
-		[publishWorkerMessages, props.pierreCourier, props.reviewPackage, props.reviewTreeRows],
+		[publishWorkerMessages, props.reviewPackage, props.reviewTreeRows],
 	);
 	useEffect(
 		(): (() => void) => (): void => {
@@ -196,27 +186,12 @@ export function useBridgeReviewRenderSnapshotController(
 		},
 		[renderSnapshotStore, runtimeDispatcher],
 	);
-	const setSelectedContentAvailability = useCallback(
-		(availabilityProps: {
-			readonly availability: BridgeWorkerContentAvailabilityPatchPayload;
-			readonly itemId: string;
-		}): void => {
-			applyLegacySelectedContentAvailabilityToMainRenderSnapshotStore({
-				availability: availabilityProps.availability,
-				itemId: availabilityProps.itemId,
-				renderSnapshotStore,
-			});
-		},
-		[renderSnapshotStore],
-	);
-
 	return {
 		rootSnapshot,
 		selectedContentAvailability,
 		selectionSlice,
 		selectionSliceRef,
 		setReviewViewportItemIds,
-		setSelectedContentAvailability,
 		setSelectedReviewItemId,
 		viewportSliceRef,
 	};
@@ -315,8 +290,6 @@ export interface CreateBridgeReviewRuntimeProtocolDispatcherProps {
 	readonly renderSemantics: readonly BridgeWorkerReviewRenderSemantics[];
 	readonly rows: readonly BridgeCommWorkerRow[];
 	readonly schedulePreparationDrain?: (drain: BridgeCommWorkerPreparationDrain) => void;
-	readonly selectedContentLoadingAvailabilityEnabled?: boolean;
-	readonly selectedContentPreparationEnabled?: boolean;
 }
 
 export function createBridgeReviewRuntimeProtocolDispatcher(
@@ -339,12 +312,6 @@ export function createBridgeReviewRuntimeProtocolDispatcher(
 		...(props.schedulePreparationDrain === undefined
 			? {}
 			: { schedulePreparationDrain: props.schedulePreparationDrain }),
-		selectedContentLoadingAvailabilityEnabled:
-			props.selectedContentLoadingAvailabilityEnabled ??
-			props.selectedContentPreparationEnabled === false,
-		...(props.selectedContentPreparationEnabled === undefined
-			? {}
-			: { selectedContentPreparationEnabled: props.selectedContentPreparationEnabled }),
 	});
 	return {
 		dispatch: runtimePort.dispatch,
@@ -493,29 +460,15 @@ export function applyBridgeWorkerMessagesToMainRenderSnapshotStore(props: {
 	}
 }
 
-export function applyLegacySelectedContentAvailabilityToMainRenderSnapshotStore(props: {
-	readonly availability: BridgeWorkerContentAvailabilityPatchPayload;
-	readonly itemId: string;
-	readonly renderSnapshotStore: BridgeMainRenderSnapshotStore;
-}): void {
-	props.renderSnapshotStore.applyWorkerPatch({
-		slice: 'contentAvailability',
-		operation: 'upsert',
-		itemId: props.itemId,
-		payload: props.availability,
-	});
-}
-
-export function createUnsupportedBridgeReviewPierreCourier(): BridgeWorkerPierreCourier {
+export function createBridgeReviewWorkerPierreCourier(): BridgeWorkerPierreCourier {
 	return createBridgeWorkerPierreCourier({
-		enqueuePierreRenderJob: rejectUnsupportedBridgeWorkerPierreRenderJob,
+		enqueuePierreRenderJob: (job: BridgeWorkerPierreRenderJob) => ({
+			status: 'enqueued',
+			itemId: job.itemId,
+			payloadByteLength: job.payloadByteLength,
+			budgetClass: job.budgetClass,
+		}),
 	});
-}
-
-function rejectUnsupportedBridgeWorkerPierreRenderJob(job: BridgeWorkerPierreRenderJob): never {
-	throw new Error(
-		`Bridge Review received worker Pierre render job ${job.itemId} before a Pierre adapter was installed.`,
-	);
 }
 
 function nextBridgeReviewWorkerRequestId(requestSequenceRef: MutableRefObject<number>): string {

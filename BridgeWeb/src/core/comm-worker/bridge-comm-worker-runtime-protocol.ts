@@ -39,8 +39,6 @@ export interface RegisterBridgeCommWorkerRuntimePortProtocolProps {
 	readonly renderSemantics: readonly BridgeWorkerReviewRenderSemantics[];
 	readonly rows: readonly BridgeCommWorkerRow[];
 	readonly schedulePreparationDrain?: (drain: BridgeCommWorkerPreparationDrain) => void;
-	readonly selectedContentLoadingAvailabilityEnabled?: boolean;
-	readonly selectedContentPreparationEnabled?: boolean;
 }
 
 export function registerBridgeCommWorkerRuntimePortProtocol(
@@ -89,36 +87,27 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 		contentItems: props.contentItems,
 		rows: props.rows,
 		createSequence,
-		...(props.selectedContentLoadingAvailabilityEnabled === undefined
-			? {}
-			: {
-					selectedLoadingAvailabilityEnabled: props.selectedContentLoadingAvailabilityEnabled,
-				}),
-		...((props.selectedContentPreparationEnabled ?? true)
-			? {
-					scheduleSelectedReviewContentReadyPreparation: (
-						request: BridgeCommWorkerSelectedReviewContentReadyPreparationRequest,
-					): void => {
-						const ticket = enqueueSelectedBridgeWorkerReviewContentReadyPreparation({
-							bridgeDemandRank: props.bridgeDemandRank,
-							budget: props.budget,
-							contentRequestDescriptors: props.contentRequestDescriptors,
-							epoch: request.epoch,
-							...(props.fetchContent === undefined ? {} : { fetchContent: props.fetchContent }),
-							itemId: request.itemId,
-							port,
-							pump,
-							renderSemantics: props.renderSemantics,
-							sequence: createSequence(),
-							store: request.store,
-						});
-						if (ticket.enqueued) {
-							preparationCompletions.push(ticket.completion);
-							shouldRequestDrainAfterMessage = true;
-						}
-					},
-				}
-			: {}),
+		scheduleSelectedReviewContentReadyPreparation: (
+			request: BridgeCommWorkerSelectedReviewContentReadyPreparationRequest,
+		): void => {
+			const ticket = enqueueSelectedBridgeWorkerReviewContentReadyPreparation({
+				bridgeDemandRank: props.bridgeDemandRank,
+				budget: props.budget,
+				contentRequestDescriptors: props.contentRequestDescriptors,
+				epoch: request.epoch,
+				...(props.fetchContent === undefined ? {} : { fetchContent: props.fetchContent }),
+				itemId: request.itemId,
+				port,
+				pump,
+				renderSemantics: props.renderSemantics,
+				sequence: createSequence(),
+				store: request.store,
+			});
+			if (ticket.enqueued) {
+				preparationCompletions.push(ticket.completion);
+				shouldRequestDrainAfterMessage = true;
+			}
+		},
 	});
 
 	port.addEventListener('message', (event: MessageEvent<unknown>): void => {

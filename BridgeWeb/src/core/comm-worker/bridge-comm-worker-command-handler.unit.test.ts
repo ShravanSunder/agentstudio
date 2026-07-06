@@ -19,7 +19,8 @@ interface ScheduledSelectedReviewPreparation {
 }
 
 describe('Bridge comm worker command handler', () => {
-	test('select command without selected preparation publishes selection without false content loading', () => {
+	test('select command publishes loading availability and schedules selected preparation', () => {
+		const scheduledPreparations: ScheduledSelectedReviewPreparation[] = [];
 		const handler = createBridgeCommWorkerCommandHandler({
 			contentItems: [makeWorkerReviewContentMetadata('item-2')],
 			rows: [
@@ -27,6 +28,8 @@ describe('Bridge comm worker command handler', () => {
 				{ id: 'item-2', parentId: null, index: 1 },
 			],
 			createSequence: (): number => 11,
+			scheduleSelectedReviewContentReadyPreparation:
+				pushScheduledSelectedReviewPreparation(scheduledPreparations),
 		});
 
 		const messages = handler.handleMessage(
@@ -52,6 +55,12 @@ describe('Bridge comm worker command handler', () => {
 					operation: 'upsert',
 					payload: { selectedItemId: 'item-2' },
 				},
+				{
+					slice: 'contentAvailability',
+					operation: 'upsert',
+					itemId: 'item-2',
+					payload: { state: 'loading' },
+				},
 			],
 		});
 		expect(messages[1]).toMatchObject({
@@ -62,8 +71,9 @@ describe('Bridge comm worker command handler', () => {
 			requestId: 'request-select',
 			status: 'ready',
 		});
-		expect(JSON.stringify(messages)).not.toContain('"slice":"contentAvailability"');
-		expect(JSON.stringify(messages)).not.toContain('"state":"loading"');
+		expect(scheduledPreparations).toHaveLength(1);
+		expect(scheduledPreparations[0]?.itemId).toBe('item-2');
+		expect(scheduledPreparations[0]?.store.getState().demandByKey.get('item-2')).toBe('selected:7');
 		expect(JSON.stringify(messages)).not.toMatch(/rowById|orderedIds|rootSnapshot|allRows/i);
 	});
 
@@ -72,6 +82,7 @@ describe('Bridge comm worker command handler', () => {
 			contentItems: [makeWorkerReviewContentMetadata('item-1')],
 			rows: [{ id: 'item-1', parentId: null, index: 0 }],
 			createSequence: (): number => 21,
+			scheduleSelectedReviewContentReadyPreparation: ignoreScheduledSelectedReviewPreparation,
 		});
 
 		const messages = handler.handleMessage(
@@ -94,11 +105,8 @@ describe('Bridge comm worker command handler', () => {
 			contentItems: [makeWorkerReviewContentMetadata('item-1')],
 			rows: [{ id: 'item-1', parentId: null, index: 0 }],
 			createSequence: (): number => 22,
-			scheduleSelectedReviewContentReadyPreparation: (
-				preparation: ScheduledSelectedReviewPreparation,
-			): void => {
-				scheduledPreparations.push(preparation);
-			},
+			scheduleSelectedReviewContentReadyPreparation:
+				pushScheduledSelectedReviewPreparation(scheduledPreparations),
 		});
 
 		const messages = handler.handleMessage(
@@ -129,6 +137,7 @@ describe('Bridge comm worker command handler', () => {
 				{ id: 'item-3', parentId: null, index: 2 },
 			],
 			createSequence: (): number => 12,
+			scheduleSelectedReviewContentReadyPreparation: ignoreScheduledSelectedReviewPreparation,
 		});
 
 		const messages = handler.handleMessage(
@@ -174,6 +183,7 @@ describe('Bridge comm worker command handler', () => {
 		const handler = createBridgeCommWorkerCommandHandler({
 			contentItems: [makeWorkerReviewContentMetadata('item-1')],
 			rows: [{ id: 'item-1', parentId: null, index: 0 }],
+			scheduleSelectedReviewContentReadyPreparation: ignoreScheduledSelectedReviewPreparation,
 		});
 
 		const commandMessages = [
@@ -249,6 +259,7 @@ describe('Bridge comm worker command handler', () => {
 				{ id: 'item-2', parentId: null, index: 1 },
 			],
 			createSequence: (): number => 13,
+			scheduleSelectedReviewContentReadyPreparation: ignoreScheduledSelectedReviewPreparation,
 		});
 
 		expect(
@@ -315,11 +326,8 @@ describe('Bridge comm worker command handler', () => {
 			contentItems: [],
 			rows: [{ id: 'item-no-metadata', parentId: null, index: 0 }],
 			createSequence: (): number => 14,
-			scheduleSelectedReviewContentReadyPreparation: (
-				preparation: ScheduledSelectedReviewPreparation,
-			): void => {
-				scheduledPreparations.push(preparation);
-			},
+			scheduleSelectedReviewContentReadyPreparation:
+				pushScheduledSelectedReviewPreparation(scheduledPreparations),
 		});
 
 		const messages = handler.handleMessage(
@@ -350,6 +358,18 @@ describe('Bridge comm worker command handler', () => {
 		expect(scheduledPreparations).toEqual([]);
 	});
 });
+
+function pushScheduledSelectedReviewPreparation(
+	target: ScheduledSelectedReviewPreparation[],
+): (preparation: ScheduledSelectedReviewPreparation) => void {
+	return (preparation: ScheduledSelectedReviewPreparation): void => {
+		target.push(preparation);
+	};
+}
+
+function ignoreScheduledSelectedReviewPreparation(
+	_preparation: ScheduledSelectedReviewPreparation,
+): void {}
 
 function makeWorkerReviewContentMetadata(itemId: string): BridgeWorkerReviewContentMetadata {
 	const item = makeBridgeReviewItem({

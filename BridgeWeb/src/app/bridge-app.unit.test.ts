@@ -25,7 +25,6 @@ import {
 	reviewTreeRowsWithMetadataDelta,
 	reviewFileTargetForReviewPackagePath,
 	reviewItemDemandCancellationTargetForSelectionChange,
-	selectedContentAvailabilityFromLegacySelectedContentState,
 	selectedCanvasLoadingReasonForCurrentSelection,
 	selectedContentResourcesStateFromDemandLoadResult,
 	selectedContentUnavailablePathForCurrentSelection,
@@ -162,45 +161,6 @@ describe('BridgeApp visible review content hydration policy', () => {
 });
 
 describe('BridgeApp selected review availability display policy', () => {
-	test('mirrors legacy selected content demand state into worker availability display', () => {
-		expect(
-			selectedContentAvailabilityFromLegacySelectedContentState({
-				currentSelectedContentKey: 'package-1:item-source',
-				selectedContentResourcesState: {
-					itemId: 'item-source',
-					contentKey: 'package-1:item-source',
-					status: 'ready',
-					resources: {},
-				},
-				selectedItemId: 'item-source',
-			}),
-		).toEqual({ state: 'ready' });
-		expect(
-			selectedContentAvailabilityFromLegacySelectedContentState({
-				currentSelectedContentKey: 'package-1:item-source',
-				selectedContentResourcesState: {
-					itemId: 'item-source',
-					contentKey: 'package-1:item-source',
-					status: 'failed',
-					resources: null,
-				},
-				selectedItemId: 'item-source',
-			}),
-		).toEqual({ state: 'failed' });
-		expect(
-			selectedContentAvailabilityFromLegacySelectedContentState({
-				currentSelectedContentKey: 'package-1:item-source',
-				selectedContentResourcesState: {
-					itemId: 'item-source',
-					contentKey: 'stale-key',
-					status: 'ready',
-					resources: {},
-				},
-				selectedItemId: 'item-source',
-			}),
-		).toBeNull();
-	});
-
 	test('selected canvas content loading follows worker-owned availability', () => {
 		expect(
 			selectedCanvasLoadingReasonForCurrentSelection({

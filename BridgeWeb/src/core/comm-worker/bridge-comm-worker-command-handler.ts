@@ -16,8 +16,7 @@ export interface CreateBridgeCommWorkerCommandHandlerProps {
 	readonly contentItems: readonly BridgeWorkerReviewContentMetadata[];
 	readonly rows: readonly BridgeCommWorkerRow[];
 	readonly createSequence?: () => number;
-	readonly selectedLoadingAvailabilityEnabled?: boolean;
-	readonly scheduleSelectedReviewContentReadyPreparation?: (
+	readonly scheduleSelectedReviewContentReadyPreparation: (
 		request: BridgeCommWorkerSelectedReviewContentReadyPreparationRequest,
 	) => void;
 }
@@ -60,15 +59,8 @@ export function createBridgeCommWorkerCommandHandler(
 			return handleBridgeWorkerCommand({
 				createSequence,
 				message,
-				...(props.scheduleSelectedReviewContentReadyPreparation === undefined
-					? {}
-					: {
-							scheduleSelectedReviewContentReadyPreparation:
-								props.scheduleSelectedReviewContentReadyPreparation,
-						}),
-				...(props.selectedLoadingAvailabilityEnabled === undefined
-					? {}
-					: { selectedLoadingAvailabilityEnabled: props.selectedLoadingAvailabilityEnabled }),
+				scheduleSelectedReviewContentReadyPreparation:
+					props.scheduleSelectedReviewContentReadyPreparation,
 				store,
 			});
 		},
@@ -78,10 +70,9 @@ export function createBridgeCommWorkerCommandHandler(
 interface HandleBridgeWorkerCommandProps {
 	readonly createSequence: () => number;
 	readonly message: BridgeWorkerMainToServerMessage;
-	readonly scheduleSelectedReviewContentReadyPreparation?: (
+	readonly scheduleSelectedReviewContentReadyPreparation: (
 		request: BridgeCommWorkerSelectedReviewContentReadyPreparationRequest,
 	) => void;
-	readonly selectedLoadingAvailabilityEnabled?: boolean;
 	readonly store: BridgeCommWorkerStore;
 }
 
@@ -93,15 +84,8 @@ function handleBridgeWorkerCommand(
 			return handleBridgeWorkerSelectCommand({
 				createSequence: props.createSequence,
 				message: props.message,
-				...(props.scheduleSelectedReviewContentReadyPreparation === undefined
-					? {}
-					: {
-							scheduleSelectedReviewContentReadyPreparation:
-								props.scheduleSelectedReviewContentReadyPreparation,
-						}),
-				...(props.selectedLoadingAvailabilityEnabled === undefined
-					? {}
-					: { selectedLoadingAvailabilityEnabled: props.selectedLoadingAvailabilityEnabled }),
+				scheduleSelectedReviewContentReadyPreparation:
+					props.scheduleSelectedReviewContentReadyPreparation,
 				store: props.store,
 			});
 		case 'viewport':
@@ -122,10 +106,9 @@ function handleBridgeWorkerCommand(
 interface HandleBridgeWorkerSelectCommandProps {
 	readonly createSequence: () => number;
 	readonly message: BridgeWorkerSelectCommand;
-	readonly scheduleSelectedReviewContentReadyPreparation?: (
+	readonly scheduleSelectedReviewContentReadyPreparation: (
 		request: BridgeCommWorkerSelectedReviewContentReadyPreparationRequest,
 	) => void;
-	readonly selectedLoadingAvailabilityEnabled?: boolean;
 	readonly store: BridgeCommWorkerStore;
 }
 
@@ -135,17 +118,13 @@ function handleBridgeWorkerSelectCommand(
 	props.store.actions.applySelectedFact({
 		epoch: props.message.epoch,
 		itemId: props.message.selectedItemId,
-		...(props.selectedLoadingAvailabilityEnabled === undefined
-			? {}
-			: { selectedLoadingAvailabilityEnabled: props.selectedLoadingAvailabilityEnabled }),
-		selectedPreparationAvailable: props.scheduleSelectedReviewContentReadyPreparation !== undefined,
 	});
 	const slicePatch = props.store.actions.takePendingSlicePatchEvent({
 		epoch: props.message.epoch,
 		sequence: props.createSequence(),
 	});
 	if (shouldScheduleSelectedReviewContentReadyPreparation(props)) {
-		props.scheduleSelectedReviewContentReadyPreparation?.({
+		props.scheduleSelectedReviewContentReadyPreparation({
 			epoch: props.message.epoch,
 			itemId: props.message.selectedItemId,
 			store: props.store,

@@ -39,7 +39,10 @@ import { useBridgeReviewIntakeController } from './bridge-app-review-intake-cont
 import { useBridgeReviewMarkdownPreviewController } from './bridge-app-review-markdown-preview-controller.js';
 import { useBridgeReviewMetadataInterestRuntime } from './bridge-app-review-metadata-interest-runtime.js';
 import { useBridgeReviewNavigationController } from './bridge-app-review-navigation-controller.js';
-import { useBridgeReviewRenderSnapshotController } from './bridge-app-review-render-snapshot-controller.js';
+import {
+	createBridgeReviewWorkerPierreCourier,
+	useBridgeReviewRenderSnapshotController,
+} from './bridge-app-review-render-snapshot-controller.js';
 import {
 	useBridgeResourceDescriptorRegistry,
 	useBridgeReviewContentRegistry,
@@ -55,7 +58,6 @@ import {
 	makeSelectedContentResourcesKey,
 	reviewContentValidityDropReason,
 	reviewFileTargetForNavigationCommand,
-	selectedContentAvailabilityFromLegacySelectedContentState,
 	selectedCanvasLoadingReasonForCurrentSelection,
 	selectedContentDemandStartedAtMillisecondsForCurrentSelection,
 	selectedContentResourcesForCurrentSelection,
@@ -114,17 +116,18 @@ export function BridgeReviewViewerMode(
 	const viewerActions = useStore(viewerStore, (state) => state.actions);
 	const [reviewPackage, setReviewPackage] = useState<BridgeReviewPackage | null>(null);
 	const [reviewTreeRows, setReviewTreeRows] = useState<readonly ReviewTreeRowMetadata[]>([]);
+	const pierreCourier = useMemo(() => createBridgeReviewWorkerPierreCourier(), []);
 	const {
 		rootSnapshot,
 		selectedContentAvailability,
 		selectionSlice,
 		selectionSliceRef,
 		setReviewViewportItemIds,
-		setSelectedContentAvailability,
 		setSelectedReviewItemId,
 		viewportSliceRef,
 	} = useBridgeReviewRenderSnapshotController({
 		panelChromeSlice,
+		pierreCourier,
 		reviewPackage,
 		reviewTreeRows,
 	});
@@ -248,25 +251,6 @@ export function BridgeReviewViewerMode(
 		reviewPackage === null || rootSnapshot.selectedItemId === null
 			? null
 			: makeSelectedContentResourcesKey(reviewPackage, rootSnapshot.selectedItemId);
-	useEffect((): void => {
-		const availability = selectedContentAvailabilityFromLegacySelectedContentState({
-			currentSelectedContentKey,
-			selectedContentResourcesState,
-			selectedItemId: rootSnapshot.selectedItemId,
-		});
-		if (availability === null || rootSnapshot.selectedItemId === null) {
-			return;
-		}
-		setSelectedContentAvailability({
-			availability,
-			itemId: rootSnapshot.selectedItemId,
-		});
-	}, [
-		currentSelectedContentKey,
-		rootSnapshot.selectedItemId,
-		selectedContentResourcesState,
-		setSelectedContentAvailability,
-	]);
 	const lastReportedSelectedContentDropContentKeyRef = useRef<string | null>(null);
 	useEffect((): void => {
 		const dropReason = reviewContentValidityDropReason({

@@ -131,6 +131,46 @@ describe('Review viewer source structure', () => {
 		);
 	});
 
+	test('removes the temporary no-courier selected loading shim from Review runtime', () => {
+		const bridgeAppSource = readSource('../app/bridge-app.tsx');
+		const modeSource = readSource('../app/bridge-app-review-viewer-mode.tsx');
+		const selectionStateSource = readSource('../app/bridge-app-review-selection-state.ts');
+		const renderSnapshotControllerSource = readSource(
+			'../app/bridge-app-review-render-snapshot-controller.ts',
+		);
+		const runtimeProtocolSource = readSource(
+			'../core/comm-worker/bridge-comm-worker-runtime-protocol.ts',
+		);
+		const commandHandlerSource = readSource(
+			'../core/comm-worker/bridge-comm-worker-command-handler.ts',
+		);
+		const storeSource = readSource('../core/comm-worker/bridge-comm-worker-store.ts');
+		const sourceByOwner = [
+			['bridge-app.tsx', bridgeAppSource],
+			['bridge-app-review-viewer-mode.tsx', modeSource],
+			['bridge-app-review-selection-state.ts', selectionStateSource],
+			['bridge-app-review-render-snapshot-controller.ts', renderSnapshotControllerSource],
+			['bridge-comm-worker-runtime-protocol.ts', runtimeProtocolSource],
+			['bridge-comm-worker-command-handler.ts', commandHandlerSource],
+			['bridge-comm-worker-store.ts', storeSource],
+		] as const;
+		const forbiddenShimOwners = sourceByOwner.flatMap(([owner, source]): string[] =>
+			[
+				'selectedContentAvailabilityFromLegacySelectedContentState',
+				'setSelectedContentAvailability',
+				'applyLegacySelectedContentAvailabilityToMainRenderSnapshotStore',
+				'selectedContentLoadingAvailabilityEnabled',
+				'selectedContentPreparationEnabled',
+				'selectedLoadingAvailabilityEnabled',
+				'selectedPreparationAvailable',
+			]
+				.filter((token): boolean => source.includes(token))
+				.map((token): string => `${owner}: ${token}`),
+		);
+
+		expect(forbiddenShimOwners).toEqual([]);
+	});
+
 	test('keeps Review navigation reconciliation in an app-level controller hook', () => {
 		const modeSource = readSource('../app/bridge-app-review-viewer-mode.tsx');
 		const navigationControllerSource = readSource(

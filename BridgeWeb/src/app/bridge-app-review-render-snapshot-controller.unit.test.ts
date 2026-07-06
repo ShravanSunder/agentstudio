@@ -16,12 +16,11 @@ import {
 import { makeBridgeReviewPackage } from '../foundation/review-package/bridge-review-package-test-support.js';
 import {
 	applyBridgeWorkerMessagesToMainRenderSnapshotStore,
-	applyLegacySelectedContentAvailabilityToMainRenderSnapshotStore,
 	bridgeCommWorkerContentRequestDescriptorsFromReviewPackage,
 	bridgeCommWorkerContentItemsFromReviewPackage,
 	bridgeCommWorkerRenderSemanticsFromReviewPackage,
+	createBridgeReviewWorkerPierreCourier,
 	createBridgeReviewRuntimeProtocolDispatcher,
-	createUnsupportedBridgeReviewPierreCourier,
 } from './bridge-app-review-render-snapshot-controller.js';
 
 describe('Bridge app review render snapshot controller', () => {
@@ -74,39 +73,6 @@ describe('Bridge app review render snapshot controller', () => {
 			job: { itemId: 'item-source', renderKind: 'reviewDiff' },
 		});
 		expect(selectedAvailabilityStateFromMessage(postedMessages[3])).toBe('ready');
-	});
-
-	test('keeps live runtime selection safe until a real Pierre courier enables preparation', () => {
-		const reviewPackage = makeBridgeReviewPackage();
-		const postedMessages: BridgeWorkerServerToMainMessage[] = [];
-		const scheduledDrains: BridgeCommWorkerPreparationDrain[] = [];
-		const runtimeDispatcher = createBridgeReviewRuntimeProtocolDispatcher({
-			contentItems: bridgeCommWorkerContentItemsFromReviewPackage(reviewPackage),
-			contentRequestDescriptors:
-				bridgeCommWorkerContentRequestDescriptorsFromReviewPackage(reviewPackage),
-			publishWorkerMessages: (messages: readonly BridgeWorkerServerToMainMessage[]): void => {
-				postedMessages.push(...messages);
-			},
-			renderSemantics: bridgeCommWorkerRenderSemanticsFromReviewPackage(reviewPackage),
-			rows: [{ id: 'item-source', parentId: null, index: 0 }],
-			schedulePreparationDrain: (drain: BridgeCommWorkerPreparationDrain): void => {
-				scheduledDrains.push(drain);
-			},
-			selectedContentPreparationEnabled: false,
-		});
-
-		runtimeDispatcher.dispatch(
-			encodeBridgeWorkerSelectCommand({
-				requestId: 'request-select-no-courier',
-				epoch: 3,
-				selectedItemId: 'item-source',
-				selectedSource: 'user',
-			}),
-		);
-
-		expect(scheduledDrains).toEqual([]);
-		expect(postedMessages.map((message) => message.kind)).toEqual(['slicePatch', 'health']);
-		expect(selectedAvailabilityStateFromMessage(postedMessages[0])).toBe('loading');
 	});
 
 	test('retired runtime dispatchers drop stale selected preparation publications', async () => {
@@ -202,12 +168,12 @@ describe('Bridge app review render snapshot controller', () => {
 		expect(enqueuedJobs).toEqual([job]);
 	});
 
-	test('default unsupported courier fails loudly instead of faking enqueue success', () => {
+	test('review worker courier returns typed receipts for worker Pierre jobs', () => {
 		const job = buildBridgeWorkerPierreRenderJob({
-			itemId: 'item-unsupported',
+			itemId: 'item-worker-courier',
 			renderKind: 'reviewDiff',
-			contentCacheKey: 'pierre-content:sha256:base|pierre-content:sha256:unsupported',
-			contentHash: 'sha256:unsupported',
+			contentCacheKey: 'pierre-content:sha256:base|pierre-content:sha256:worker-courier',
+			contentHash: 'sha256:worker-courier',
 			language: 'typescript',
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			window: {
@@ -227,9 +193,12 @@ describe('Bridge app review render snapshot controller', () => {
 			},
 		});
 
-		expect(() => createUnsupportedBridgeReviewPierreCourier().enqueue(job)).toThrow(
-			/before a Pierre adapter was installed/i,
-		);
+		expect(createBridgeReviewWorkerPierreCourier().enqueue(job)).toEqual({
+			status: 'enqueued',
+			itemId: 'item-worker-courier',
+			payloadByteLength: 64,
+			budgetClass: 'interactive',
+		});
 	});
 
 	test('routes only slice patches into the render snapshot store', () => {
@@ -294,30 +263,6 @@ describe('Bridge app review render snapshot controller', () => {
 			source: 'user',
 		});
 		expect(enqueuedJobs).toEqual([]);
-	});
-
-	test('mirrors legacy selected-content settle into the render snapshot availability slice', () => {
-		const renderSnapshotStore = createBridgeMainRenderSnapshotStore();
-		renderSnapshotStore.setLocalSelection({
-			selectedItemId: 'item-source',
-			source: 'user',
-		});
-		renderSnapshotStore.applyWorkerPatch({
-			slice: 'contentAvailability',
-			operation: 'upsert',
-			itemId: 'item-source',
-			payload: { state: 'loading' },
-		});
-
-		applyLegacySelectedContentAvailabilityToMainRenderSnapshotStore({
-			availability: { state: 'ready' },
-			itemId: 'item-source',
-			renderSnapshotStore,
-		});
-
-		expect(renderSnapshotStore.getSnapshot().contentAvailabilityById['item-source']).toEqual({
-			state: 'ready',
-		});
 	});
 
 	test('maps review package items into worker content metadata without package snapshots', () => {
