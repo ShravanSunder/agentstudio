@@ -59,7 +59,7 @@ describe('Bridge comm worker review preparation', () => {
 				if (descriptor === undefined) {
 					throw new Error(`Unexpected review content URL ${url}.`);
 				}
-				return new Response(descriptor.text);
+				return makeImmediateTextResponse(descriptor.text);
 			},
 			itemId: 'item-1',
 			port: makePostedMessagePort(postedMessages),
@@ -71,11 +71,98 @@ describe('Bridge comm worker review preparation', () => {
 
 		expect(postedMessages).toEqual([]);
 		const runResult = pump.runUntilBudget();
+		await flushBridgeWorkerPreparationContinuations();
+		const completionRunResult = pump.runUntilBudget();
 		await preparation.completion;
 
-		expect(runResult.completedIds).toEqual([preparation.workId]);
+		expect(runResult.completedIds).toEqual([]);
 		expect(runResult.yielded).toBe(true);
-		expect(executionOrder).toEqual(['selected-fetch', 'selected-fetch', 'background']);
+		expect(completionRunResult.completedIds).toEqual([preparation.workId]);
+		expect(executionOrder).toEqual([
+			'selected-fetch',
+			'selected-fetch',
+			'background',
+			'background',
+		]);
+		expect(postedMessages.map((postedMessage) => postedMessage.message.kind)).toEqual([
+			'pierreRenderJob',
+			'slicePatch',
+		]);
+	});
+
+	test('keeps post-fetch render-job preparation inside a pump continuation', async () => {
+		const postedMessages: PostedBridgeWorkerPreparationMessage[] = [];
+		const fetchResponses = [
+			createDeferredResponse('base content\n'),
+			createDeferredResponse('head content\n'),
+		];
+		const allFetchResponses = [...fetchResponses];
+		const fetchCalls: string[] = [];
+		let drainRequestCount = 0;
+		const pump = createWorkerContentPreparationPump({
+			maxSliceMs: 5,
+			now: () => 0,
+		});
+		const store = createBridgeCommWorkerStore({
+			contentItems: [makeWorkerReviewContentMetadata()],
+			rows: [{ id: 'item-1', parentId: null, index: 0 }],
+		});
+		store.actions.applySelectedFact({ epoch: 7, itemId: 'item-1' });
+		store.actions.takePendingSlicePatchEvent({ epoch: 7, sequence: 11 });
+
+		const preparation = enqueueSelectedBridgeWorkerReviewContentReadyPreparation({
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: {
+				className: 'interactive',
+				maxBytes: 512 * 1024,
+				maxWindowLines: 50,
+			},
+			contentRequestDescriptors: [
+				makeContentRequestDescriptor({ role: 'base', text: 'base content' }),
+				makeContentRequestDescriptor({ role: 'head', text: 'head content' }),
+			],
+			epoch: 7,
+			fetchContent: async (url: string): Promise<Response> => {
+				fetchCalls.push(url);
+				const response = fetchResponses.shift();
+				if (response === undefined) {
+					throw new Error(`Unexpected review content URL ${url}.`);
+				}
+				return response.promise;
+			},
+			itemId: 'item-1',
+			port: makePostedMessagePort(postedMessages),
+			pump,
+			renderSemantics: [makeRenderSemantics()],
+			requestPreparationDrain: () => {
+				drainRequestCount += 1;
+			},
+			sequence: 12,
+			store,
+		});
+
+		const firstRun = pump.runUntilBudget();
+
+		expect(firstRun.completedIds).toEqual([]);
+		expect(fetchCalls).toEqual([
+			'agentstudio://resource/review/content/handle-item-1-base?generation=4',
+			'agentstudio://resource/review/content/handle-item-1-head?generation=4',
+		]);
+		expect(postedMessages).toEqual([]);
+
+		for (const response of allFetchResponses) {
+			response.resolve();
+		}
+		await flushBridgeWorkerPreparationContinuations();
+
+		expect(postedMessages).toEqual([]);
+		expect(drainRequestCount).toBe(1);
+		expect(pump.getPendingWorkIds()).toEqual([preparation.workId]);
+
+		const secondRun = pump.runUntilBudget();
+		await preparation.completion;
+
+		expect(secondRun.completedIds).toEqual([preparation.workId]);
 		expect(postedMessages.map((postedMessage) => postedMessage.message.kind)).toEqual([
 			'pierreRenderJob',
 			'slicePatch',
@@ -121,7 +208,7 @@ describe('Bridge comm worker review preparation', () => {
 				if (descriptor === undefined) {
 					throw new Error(`Unexpected review content URL ${url}.`);
 				}
-				return new Response(descriptor.text);
+				return makeImmediateTextResponse(descriptor.text);
 			},
 			itemId: 'item-1',
 			port: makePostedMessagePort(postedMessages),
@@ -132,14 +219,67 @@ describe('Bridge comm worker review preparation', () => {
 		});
 
 		const runResult = pump.runUntilBudget();
+		await flushBridgeWorkerPreparationContinuations();
+		const completionRunResult = pump.runUntilBudget();
 		await preparation.completion;
 
-		expect(runResult.completedIds).toEqual([preparation.workId]);
+		expect(runResult.completedIds).toEqual([]);
+		expect(completionRunResult.completedIds).toEqual([preparation.workId]);
 		expect(fetchCalls).toEqual([
 			'agentstudio://resource/review/content/handle-item-1-base?generation=4',
 			'agentstudio://resource/review/content/handle-item-1-head?generation=4',
 		]);
 		expect(postedMessages).toEqual([]);
+	});
+
+	test('rejects preparation completion when post-fetch publish throws', async () => {
+		const pump = createWorkerContentPreparationPump({
+			maxSliceMs: 5,
+			now: () => 0,
+		});
+		const store = createBridgeCommWorkerStore({
+			contentItems: [makeWorkerReviewContentMetadata()],
+			rows: [{ id: 'item-1', parentId: null, index: 0 }],
+		});
+		store.actions.applySelectedFact({ epoch: 7, itemId: 'item-1' });
+		store.actions.takePendingSlicePatchEvent({ epoch: 7, sequence: 11 });
+
+		const preparation = enqueueSelectedBridgeWorkerReviewContentReadyPreparation({
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: {
+				className: 'interactive',
+				maxBytes: 1,
+				maxWindowLines: 50,
+			},
+			contentRequestDescriptors: [
+				makeContentRequestDescriptor({ role: 'base', text: 'base content\n' }),
+				makeContentRequestDescriptor({ role: 'head', text: 'head content\n' }),
+			],
+			epoch: 7,
+			fetchContent: async (url: string): Promise<Response> => {
+				const descriptor = descriptorByUrl.get(url);
+				if (descriptor === undefined) {
+					throw new Error(`Unexpected review content URL ${url}.`);
+				}
+				return makeImmediateTextResponse(descriptor.text);
+			},
+			itemId: 'item-1',
+			port: makeThrowingPostedMessagePort(),
+			pump,
+			renderSemantics: [makeRenderSemantics()],
+			sequence: 12,
+			store,
+		});
+		const completionResult = preparation.completion.then(
+			() => null,
+			(error: unknown) => error,
+		);
+
+		pump.runUntilBudget();
+		await flushBridgeWorkerPreparationContinuations();
+		pump.runUntilBudget();
+
+		await expect(completionResult).resolves.toBeInstanceOf(Error);
 	});
 
 	test('skips enqueue when selected content is no longer current or demand eligible', async () => {
@@ -180,6 +320,45 @@ describe('Bridge comm worker review preparation', () => {
 
 const descriptorByUrl = new Map<string, { readonly text: string }>();
 
+interface DeferredResponse {
+	readonly promise: Promise<Response>;
+	readonly resolve: () => void;
+}
+
+function createDeferredResponse(text: string): DeferredResponse {
+	let resolveResponse: (response: Response) => void = noopResolveDeferredResponse;
+	const promise = new Promise<Response>((resolve) => {
+		resolveResponse = resolve;
+	});
+	return {
+		promise,
+		resolve: (): void => {
+			resolveResponse(makeImmediateTextResponse(text));
+		},
+	};
+}
+
+function makeImmediateTextResponse(text: string): Response {
+	const encodedText = new TextEncoder().encode(text);
+	return new Response(
+		new ReadableStream({
+			start: (controller): void => {
+				controller.enqueue(encodedText);
+				controller.close();
+			},
+		}),
+	);
+}
+
+async function flushBridgeWorkerPreparationContinuations(): Promise<void> {
+	await Array.from({ length: 50 }).reduce<Promise<void>>(
+		(previousFlush) => previousFlush.then(() => Promise.resolve()),
+		Promise.resolve(),
+	);
+}
+
+function noopResolveDeferredResponse(_response: Response): void {}
+
 function makePostedMessagePort(
 	postedMessages: PostedBridgeWorkerPreparationMessage[],
 ): BridgeCommWorkerPort {
@@ -189,6 +368,15 @@ function makePostedMessagePort(
 			transferList?: Transferable[],
 		): void => {
 			postedMessages.push({ message, transferList });
+		},
+		addEventListener: (): void => {},
+	};
+}
+
+function makeThrowingPostedMessagePort(): BridgeCommWorkerPort {
+	return {
+		postMessage: (): void => {
+			throw new Error('publish failed');
 		},
 		addEventListener: (): void => {},
 	};

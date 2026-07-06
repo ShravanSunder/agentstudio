@@ -43,7 +43,7 @@ describe('Bridge comm worker runtime protocol', () => {
 				if (descriptor === undefined) {
 					throw new Error(`Unexpected review content URL ${url}.`);
 				}
-				return new Response(descriptor.text);
+				return makeImmediateTextResponse(descriptor.text);
 			},
 			pump: createWorkerContentPreparationPump({
 				maxSliceMs: 8,
@@ -74,24 +74,45 @@ describe('Bridge comm worker runtime protocol', () => {
 		expect(postedMessages[1]?.transferList).toBeUndefined();
 		clockMs += 1;
 
-		const drainResult = await assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
+		const firstDrainCompletion = assertBridgeCommWorkerPreparationDrain(scheduledDrains[0])();
+		await flushBridgeWorkerRuntimeContinuations();
+		expect(scheduledDrains).toHaveLength(2);
+		const secondDrainResult = await assertBridgeCommWorkerPreparationDrain(scheduledDrains[1])();
+		const firstDrainResult = await firstDrainCompletion;
 
-		expect(drainResult.completedIds).toEqual(['review-content-ready:item-1:7:42']);
-		expect(drainResult.yielded).toBe(false);
+		expect(firstDrainResult.completedIds).toEqual([]);
+		expect(firstDrainResult.yielded).toBe(false);
+		expect(secondDrainResult.completedIds).toEqual(['review-content-ready:item-1:7:42']);
+		expect(secondDrainResult.yielded).toBe(false);
 		expect(postedMessages.map((postedMessage) => postedMessage.message.kind)).toEqual([
 			'slicePatch',
 			'health',
 			'pierreRenderJob',
 			'slicePatch',
 		]);
-		expect(postedMessages[2]?.transferList).toHaveLength(2);
+		expect(postedMessages[2]?.transferList).toEqual([]);
 		expect(postedMessages[2]?.message).toMatchObject({
 			kind: 'pierreRenderJob',
 			job: {
 				itemId: 'item-1',
 				renderKind: 'reviewDiff',
+				payload: {
+					kind: 'codeViewDiffItem',
+				},
 			},
 		});
+		const pierreJobMessage = postedMessages[2]?.message;
+		if (pierreJobMessage?.kind !== 'pierreRenderJob') {
+			throw new Error('Expected Pierre render job message.');
+		}
+		expect(pierreJobMessage.transferDescriptors).toEqual([
+			{
+				messageKind: 'pierreRenderJob',
+				fieldPath: ['job', 'payload'],
+				byteLength: pierreJobMessage.job.payloadByteLength,
+				mode: 'clone',
+			},
+		]);
 		expect(postedMessages[3]?.message).toMatchObject({
 			kind: 'slicePatch',
 			epoch: 7,
@@ -169,6 +190,25 @@ function assertBridgeCommWorkerPreparationDrain(
 		throw new Error('Expected scheduled bridge comm worker preparation drain.');
 	}
 	return drain;
+}
+
+async function flushBridgeWorkerRuntimeContinuations(): Promise<void> {
+	await Array.from({ length: 50 }).reduce<Promise<void>>(
+		(previousFlush) => previousFlush.then(() => Promise.resolve()),
+		Promise.resolve(),
+	);
+}
+
+function makeImmediateTextResponse(text: string): Response {
+	const encodedText = new TextEncoder().encode(text);
+	return new Response(
+		new ReadableStream({
+			start: (controller): void => {
+				controller.enqueue(encodedText);
+				controller.close();
+			},
+		}),
+	);
 }
 
 function makeWorkerReviewContentMetadata(): BridgeWorkerReviewContentMetadata {

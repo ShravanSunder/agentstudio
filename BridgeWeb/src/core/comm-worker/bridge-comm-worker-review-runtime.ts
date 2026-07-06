@@ -37,16 +37,36 @@ export interface DispatchSelectedBridgeWorkerReviewContentReadyProps {
 	readonly store: BridgeCommWorkerStore;
 }
 
+export type BridgeWorkerReviewContentReadyFetchResult =
+	| {
+			readonly status: 'ready';
+			readonly resources: readonly BridgeWorkerFetchedReviewContentResource[];
+			readonly semantics: BridgeWorkerReviewRenderSemantics;
+	  }
+	| {
+			readonly status: 'terminal';
+			readonly state: BridgeWorkerTerminalContentAvailabilityState;
+	  }
+	| {
+			readonly status: 'stale';
+	  };
+
 export async function dispatchSelectedBridgeWorkerReviewContentReady(
 	props: DispatchSelectedBridgeWorkerReviewContentReadyProps,
 ): Promise<void> {
+	const fetchResult = await fetchSelectedBridgeWorkerReviewContentReadyResources(props);
+	publishSelectedBridgeWorkerReviewContentReadyFetchResult({ ...props, fetchResult });
+}
+
+export async function fetchSelectedBridgeWorkerReviewContentReadyResources(
+	props: DispatchSelectedBridgeWorkerReviewContentReadyProps,
+): Promise<BridgeWorkerReviewContentReadyFetchResult> {
 	if (!isSelectedReviewContentReadyPreparationCurrent(props)) {
-		return;
+		return { status: 'stale' };
 	}
 	const semantics = props.renderSemantics.find((candidate) => candidate.itemId === props.itemId);
 	if (semantics === undefined) {
-		postSelectedReviewContentTerminalAvailability({ ...props, state: 'unavailable' });
-		return;
+		return { status: 'terminal', state: 'unavailable' };
 	}
 	let resources: readonly BridgeWorkerFetchedReviewContentResource[];
 	try {
@@ -62,7 +82,24 @@ export async function dispatchSelectedBridgeWorkerReviewContentReady(
 			),
 		);
 	} catch {
-		postSelectedReviewContentTerminalAvailability({ ...props, state: 'failed' });
+		return { status: 'terminal', state: 'failed' };
+	}
+	if (!isSelectedReviewContentReadyPreparationCurrent(props)) {
+		return { status: 'stale' };
+	}
+	return { status: 'ready', resources, semantics };
+}
+
+export function publishSelectedBridgeWorkerReviewContentReadyFetchResult(
+	props: DispatchSelectedBridgeWorkerReviewContentReadyProps & {
+		readonly fetchResult: BridgeWorkerReviewContentReadyFetchResult;
+	},
+): void {
+	if (props.fetchResult.status === 'stale') {
+		return;
+	}
+	if (props.fetchResult.status === 'terminal') {
+		postSelectedReviewContentTerminalAvailability({ ...props, state: props.fetchResult.state });
 		return;
 	}
 	if (!isSelectedReviewContentReadyPreparationCurrent(props)) {
@@ -71,8 +108,8 @@ export async function dispatchSelectedBridgeWorkerReviewContentReady(
 	const preparedJobEvent = prepareBridgeWorkerReviewContentRenderJobEvent({
 		bridgeDemandRank: props.bridgeDemandRank,
 		budget: props.budget,
-		resources,
-		semantics,
+		resources: props.fetchResult.resources,
+		semantics: props.fetchResult.semantics,
 	});
 	if (preparedJobEvent === null) {
 		postSelectedReviewContentTerminalAvailability({ ...props, state: 'unavailable' });

@@ -1,3 +1,4 @@
+import { parseDiffFromFile } from '@pierre/diffs';
 import { describe, expect, test } from 'vitest';
 
 import { encodeBridgeWorkerSelectCommand } from '../core/comm-worker/bridge-comm-worker-protocol.js';
@@ -134,9 +135,32 @@ describe('Bridge app review render snapshot controller', () => {
 				totalLineCount: 100,
 			},
 			payload: {
-				kind: 'diffTextWindow',
-				baseTextBytes: new ArrayBuffer(40),
-				headTextBytes: new ArrayBuffer(56),
+				kind: 'codeViewDiffItem',
+				item: {
+					id: 'item-1',
+					type: 'diff',
+					fileDiff: parseDiffFromFile(
+						{
+							name: 'Sources/App.ts',
+							contents: 'export const answer = 41;\n',
+							cacheKey: 'pierre-content:sha256:base',
+						},
+						{
+							name: 'Sources/App.ts',
+							contents: 'export const answer = 42;\n',
+							cacheKey: 'pierre-content:sha256:head',
+						},
+					),
+					version: 2,
+					bridgeMetadata: {
+						itemId: 'item-1',
+						displayPath: 'Sources/App.ts',
+						contentState: 'hydrated',
+						contentRoles: ['base', 'head'],
+						cacheKey: 'pierre-content:sha256:base|pierre-content:sha256:head',
+						lineCount: 2,
+					},
+				},
 			},
 			budget: {
 				className: 'interactive',
@@ -147,7 +171,14 @@ describe('Bridge app review render snapshot controller', () => {
 		const event = {
 			wireVersion: 1,
 			direction: 'serverWorkerToMain',
-			transferDescriptors: [],
+			transferDescriptors: [
+				{
+					messageKind: 'pierreRenderJob',
+					fieldPath: ['job', 'payload'],
+					byteLength: job.payloadByteLength,
+					mode: 'clone',
+				},
+			],
 			kind: 'pierreRenderJob',
 			job,
 		} satisfies BridgeWorkerPierreRenderJobEvent;
@@ -187,9 +218,32 @@ describe('Bridge app review render snapshot controller', () => {
 				totalLineCount: 80,
 			},
 			payload: {
-				kind: 'diffTextWindow',
-				baseTextBytes: new ArrayBuffer(16),
-				headTextBytes: new ArrayBuffer(48),
+				kind: 'codeViewDiffItem',
+				item: {
+					id: 'item-worker-courier',
+					type: 'diff',
+					fileDiff: parseDiffFromFile(
+						{
+							name: 'Sources/App.ts',
+							contents: 'export const answer = 41;\n',
+							cacheKey: 'pierre-content:sha256:base',
+						},
+						{
+							name: 'Sources/App.ts',
+							contents: 'export const answer = 42;\n',
+							cacheKey: 'pierre-content:sha256:worker-courier',
+						},
+					),
+					version: 2,
+					bridgeMetadata: {
+						itemId: 'item-worker-courier',
+						displayPath: 'Sources/App.ts',
+						contentState: 'hydrated',
+						contentRoles: ['base', 'head'],
+						cacheKey: 'pierre-content:sha256:base|pierre-content:sha256:worker-courier',
+						lineCount: 2,
+					},
+				},
 			},
 			budget: {
 				className: 'interactive',
@@ -201,7 +255,7 @@ describe('Bridge app review render snapshot controller', () => {
 		expect(createBridgeReviewWorkerPierreCourier().enqueue(job)).toEqual({
 			status: 'enqueued',
 			itemId: 'item-worker-courier',
-			payloadByteLength: 64,
+			payloadByteLength: job.payloadByteLength,
 			budgetClass: 'interactive',
 		});
 	});

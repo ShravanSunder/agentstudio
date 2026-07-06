@@ -25,24 +25,144 @@ export const bridgeWorkerPierreRenderWindowSchema = z
 	})
 	.strict();
 
-export const bridgeWorkerPierreTextWindowPayloadSchema = z
+const bridgeWorkerCodeViewContentStateSchema = z.enum([
+	'placeholder',
+	'loading',
+	'hydrated',
+	'windowed',
+]);
+
+const bridgeWorkerCodeViewContentRoleSchema = z.enum(['base', 'head', 'diff', 'file']);
+
+const bridgeWorkerPierreFileContentsSchema = z
 	.object({
-		kind: z.literal('textWindow'),
-		textBytes: z.instanceof(ArrayBuffer),
+		name: z.string().min(1),
+		contents: z.string(),
+		lang: z.string().min(1).optional(),
+		header: z.string().optional(),
+		cacheKey: z.string().min(1).optional(),
 	})
 	.strict();
 
-export const bridgeWorkerPierreDiffTextWindowPayloadSchema = z
+const bridgeWorkerPierreContextContentSchema = z
 	.object({
-		kind: z.literal('diffTextWindow'),
-		baseTextBytes: z.instanceof(ArrayBuffer).nullable(),
-		headTextBytes: z.instanceof(ArrayBuffer).nullable(),
+		type: z.literal('context'),
+		lines: z.number().int().nonnegative(),
+		additionLineIndex: z.number().int(),
+		deletionLineIndex: z.number().int(),
+	})
+	.strict();
+
+const bridgeWorkerPierreChangeContentSchema = z
+	.object({
+		type: z.literal('change'),
+		deletions: z.number().int().nonnegative(),
+		deletionLineIndex: z.number().int(),
+		additions: z.number().int().nonnegative(),
+		additionLineIndex: z.number().int(),
+	})
+	.strict();
+
+const bridgeWorkerPierreHunkSchema = z
+	.object({
+		collapsedBefore: z.number().int().nonnegative(),
+		additionStart: z.number().int().nonnegative(),
+		additionCount: z.number().int().nonnegative(),
+		additionLines: z.number().int().nonnegative(),
+		additionLineIndex: z.number().int(),
+		deletionStart: z.number().int().nonnegative(),
+		deletionCount: z.number().int().nonnegative(),
+		deletionLines: z.number().int().nonnegative(),
+		deletionLineIndex: z.number().int(),
+		hunkContent: z
+			.array(
+				z.discriminatedUnion('type', [
+					bridgeWorkerPierreContextContentSchema,
+					bridgeWorkerPierreChangeContentSchema,
+				]),
+			)
+			.readonly(),
+		hunkContext: z.string().optional(),
+		hunkSpecs: z.string().optional(),
+		splitLineStart: z.number().int().nonnegative(),
+		splitLineCount: z.number().int().nonnegative(),
+		unifiedLineStart: z.number().int().nonnegative(),
+		unifiedLineCount: z.number().int().nonnegative(),
+		noEOFCRDeletions: z.boolean(),
+		noEOFCRAdditions: z.boolean(),
+	})
+	.strict();
+
+const bridgeWorkerPierreFileDiffMetadataSchema = z
+	.object({
+		name: z.string().min(1),
+		prevName: z.string().min(1).optional(),
+		lang: z.string().min(1).optional(),
+		newObjectId: z.string().min(1).optional(),
+		prevObjectId: z.string().min(1).optional(),
+		mode: z.string().min(1).optional(),
+		prevMode: z.string().min(1).optional(),
+		type: z.enum(['change', 'rename-pure', 'rename-changed', 'new', 'deleted']),
+		hunks: z.array(bridgeWorkerPierreHunkSchema).readonly(),
+		splitLineCount: z.number().int().nonnegative(),
+		unifiedLineCount: z.number().int().nonnegative(),
+		isPartial: z.boolean(),
+		deletionLines: z.array(z.string()).readonly(),
+		additionLines: z.array(z.string()).readonly(),
+		cacheKey: z.string().min(1).optional(),
+	})
+	.strict();
+
+const bridgeWorkerCodeViewItemMetadataSchema = z
+	.object({
+		itemId: z.string().min(1),
+		displayPath: z.string().min(1),
+		contentState: bridgeWorkerCodeViewContentStateSchema,
+		contentRoles: z.array(bridgeWorkerCodeViewContentRoleSchema).readonly(),
+		cacheKey: z.string().min(1),
+		lineCount: z.number().int().nonnegative().nullable(),
+	})
+	.strict();
+
+export const bridgeWorkerCodeViewFileItemSchema = z
+	.object({
+		id: z.string().min(1),
+		type: z.literal('file'),
+		file: bridgeWorkerPierreFileContentsSchema,
+		version: z.number().int().nonnegative().optional(),
+		collapsed: z.boolean().optional(),
+		bridgeMetadata: bridgeWorkerCodeViewItemMetadataSchema,
+	})
+	.strict();
+
+export const bridgeWorkerCodeViewDiffItemSchema = z
+	.object({
+		id: z.string().min(1),
+		type: z.literal('diff'),
+		fileDiff: bridgeWorkerPierreFileDiffMetadataSchema,
+		version: z.number().int().nonnegative().optional(),
+		collapsed: z.boolean().optional(),
+		bridgeMetadata: bridgeWorkerCodeViewItemMetadataSchema,
+	})
+	.strict();
+
+export const bridgeWorkerPierreCodeViewFileItemPayloadSchema = z
+	.object({
+		kind: z.literal('codeViewFileItem'),
+		item: bridgeWorkerCodeViewFileItemSchema,
+	})
+	.strict();
+
+export const bridgeWorkerPierreCodeViewDiffItemPayloadSchema = z
+	.object({
+		kind: z.literal('codeViewDiffItem'),
+		item: bridgeWorkerCodeViewDiffItemSchema,
 	})
 	.strict();
 
 export const bridgeWorkerPierreRenderPayloadSchema = z.discriminatedUnion('kind', [
-	bridgeWorkerPierreTextWindowPayloadSchema,
-	bridgeWorkerPierreDiffTextWindowPayloadSchema,
+	bridgeWorkerPierreCodeViewFileItemPayloadSchema,
+	bridgeWorkerPierreCodeViewDiffItemPayloadSchema,
 ]);
 
 export const bridgeWorkerPierreRenderBudgetSchema = z
@@ -80,11 +200,13 @@ export type BridgeWorkerPierreBudgetClass = z.infer<typeof bridgeWorkerPierreBud
 export type BridgeWorkerDemandLane = z.infer<typeof bridgeWorkerDemandLaneSchema>;
 export type BridgeWorkerDemandRank = z.infer<typeof bridgeWorkerDemandRankSchema>;
 export type BridgeWorkerPierreRenderWindow = z.infer<typeof bridgeWorkerPierreRenderWindowSchema>;
-export type BridgeWorkerPierreTextWindowPayload = z.infer<
-	typeof bridgeWorkerPierreTextWindowPayloadSchema
+export type BridgeWorkerCodeViewFileItem = z.infer<typeof bridgeWorkerCodeViewFileItemSchema>;
+export type BridgeWorkerCodeViewDiffItem = z.infer<typeof bridgeWorkerCodeViewDiffItemSchema>;
+export type BridgeWorkerPierreCodeViewFileItemPayload = z.infer<
+	typeof bridgeWorkerPierreCodeViewFileItemPayloadSchema
 >;
-export type BridgeWorkerPierreDiffTextWindowPayload = z.infer<
-	typeof bridgeWorkerPierreDiffTextWindowPayloadSchema
+export type BridgeWorkerPierreCodeViewDiffItemPayload = z.infer<
+	typeof bridgeWorkerPierreCodeViewDiffItemPayloadSchema
 >;
 export type BridgeWorkerPierreRenderPayload = z.infer<typeof bridgeWorkerPierreRenderPayloadSchema>;
 export type BridgeWorkerPierreRenderBudget = z.infer<typeof bridgeWorkerPierreRenderBudgetSchema>;
@@ -126,29 +248,40 @@ function assertBridgeWorkerPierreRenderPayloadMatchesKind(
 	props: BuildBridgeWorkerPierreRenderJobProps,
 ): void {
 	if (props.renderKind === 'reviewDiff') {
-		if (props.payload.kind !== 'diffTextWindow') {
-			throw new Error('Bridge worker review diff jobs require a diffTextWindow payload.');
-		}
-		if (props.payload.baseTextBytes === null && props.payload.headTextBytes === null) {
-			throw new Error('Bridge worker review diff jobs require at least one text window side.');
+		if (props.payload.kind !== 'codeViewDiffItem') {
+			throw new Error('Bridge worker review diff jobs require a codeViewDiffItem payload.');
 		}
 		return;
 	}
-	if (props.payload.kind !== 'textWindow') {
-		throw new Error('Bridge worker file text jobs require a textWindow payload.');
+	if (props.payload.kind !== 'codeViewFileItem') {
+		throw new Error('Bridge worker file text jobs require a codeViewFileItem payload.');
 	}
 }
 
-function bridgeWorkerPierreRenderPayloadByteLength(
+export function bridgeWorkerPierreRenderPayloadByteLength(
 	payload: BridgeWorkerPierreRenderPayload,
 ): number {
 	switch (payload.kind) {
-		case 'textWindow':
-			return payload.textBytes.byteLength;
-		case 'diffTextWindow':
-			return (payload.baseTextBytes?.byteLength ?? 0) + (payload.headTextBytes?.byteLength ?? 0);
+		case 'codeViewFileItem':
+			return bridgeWorkerStringByteLength(payload.item.file.contents);
+		case 'codeViewDiffItem':
+			return (
+				bridgeWorkerStringArrayByteLength(payload.item.fileDiff.deletionLines) +
+				bridgeWorkerStringArrayByteLength(payload.item.fileDiff.additionLines)
+			);
 	}
 	const exhaustivePayload: never = payload;
 	void exhaustivePayload;
 	throw new Error('Unhandled Bridge worker Pierre render payload kind.');
+}
+
+function bridgeWorkerStringArrayByteLength(values: readonly string[]): number {
+	return values.reduce(
+		(totalByteLength, value): number => totalByteLength + bridgeWorkerStringByteLength(value),
+		0,
+	);
+}
+
+function bridgeWorkerStringByteLength(value: string): number {
+	return new TextEncoder().encode(value).byteLength;
 }

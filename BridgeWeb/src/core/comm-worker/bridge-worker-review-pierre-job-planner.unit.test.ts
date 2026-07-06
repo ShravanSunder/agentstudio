@@ -8,10 +8,56 @@ import {
 } from './bridge-worker-review-pierre-job-planner.js';
 
 describe('Bridge worker review Pierre job planner', () => {
-	test('plans modified review diffs from base and head content windows', () => {
-		const baseTextBytes = new ArrayBuffer(40);
-		const headTextBytes = new ArrayBuffer(64);
+	test('plans modified review diffs as worker-prepared CodeView items', () => {
+		const job = planBridgeWorkerReviewPierreRenderJob({
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: {
+				className: 'interactive',
+				maxBytes: 512 * 1024,
+				maxWindowLines: 50,
+			},
+			resources: [
+				makeFetchedReviewContentResource({
+					contentHash: 'sha256:item-1:base',
+					lineCount: 2,
+					role: 'base',
+					text: 'export const before = 1;\n',
+				}),
+				makeFetchedReviewContentResource({
+					contentHash: 'sha256:item-1:head',
+					language: 'typescript',
+					lineCount: 2,
+					role: 'head',
+					text: 'export const after = 2;\n',
+				}),
+			],
+			semantics: makeRenderSemantics({
+				contentLineCountsByRole: { base: 2, head: 2 },
+				itemKind: 'diff',
+				language: 'typescript',
+			}),
+		});
 
+		expect(job?.payload.kind).toBe('codeViewDiffItem');
+		if (job?.payload.kind === 'codeViewDiffItem') {
+			expect(job.payload.item).toMatchObject({
+				id: 'item-1',
+				type: 'diff',
+				bridgeMetadata: {
+					contentState: 'hydrated',
+					contentRoles: ['base', 'head'],
+					displayPath: 'Sources/App/View.swift',
+				},
+			});
+			expect(job.payload.item.fileDiff.additionLines).toContain('export const after = 2;\n');
+			expect(job.payload.item.fileDiff.deletionLines).toContain('export const before = 1;\n');
+			expect(job.payload.item.fileDiff.cacheKey).toContain(
+				'pierre-content:fixture-preview:sha256:item-1:head',
+			);
+		}
+	});
+
+	test('plans modified review diffs from base and head content windows', () => {
 		const job = planBridgeWorkerReviewPierreRenderJob({
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			budget: {
@@ -24,14 +70,14 @@ describe('Bridge worker review Pierre job planner', () => {
 					contentHash: 'sha256:item-1:base',
 					lineCount: 120,
 					role: 'base',
-					textBytes: baseTextBytes,
+					text: 'let before = 1;\n',
 				}),
 				makeFetchedReviewContentResource({
 					contentHash: 'sha256:item-1:head',
 					language: 'typescript',
 					lineCount: 80,
 					role: 'head',
-					textBytes: headTextBytes,
+					text: 'let after = 2;\n',
 				}),
 			],
 			semantics: makeRenderSemantics({
@@ -47,7 +93,6 @@ describe('Bridge worker review Pierre job planner', () => {
 				'pierre-content:fixture-preview:sha256:item-1:base|pierre-content:fixture-preview:sha256:item-1:head',
 			contentHash: 'sha256:item-1:base|sha256:item-1:head',
 			language: 'typescript',
-			payloadByteLength: 104,
 			window: {
 				startLine: 1,
 				endLine: 50,
@@ -55,11 +100,86 @@ describe('Bridge worker review Pierre job planner', () => {
 			},
 			windowLineCount: 50,
 		});
-		expect(job?.payload.kind).toBe('diffTextWindow');
-		if (job?.payload.kind === 'diffTextWindow') {
-			expect(job.payload.baseTextBytes).toBe(baseTextBytes);
-			expect(job.payload.headTextBytes).toBe(headTextBytes);
+		expect(job?.payload.kind).toBe('codeViewDiffItem');
+		if (job?.payload.kind === 'codeViewDiffItem') {
+			expect(job.payloadByteLength).toBeGreaterThan(0);
+			expect(job.payload.item.fileDiff.additionLines).toContain('let after = 2;\n');
+			expect(job.payload.item.fileDiff.deletionLines).toContain('let before = 1;\n');
 		}
+	});
+
+	test('windows multiline review diffs before preparing CodeView payloads', () => {
+		const job = planBridgeWorkerReviewPierreRenderJob({
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: {
+				className: 'interactive',
+				maxBytes: 512 * 1024,
+				maxWindowLines: 2,
+			},
+			resources: [
+				makeFetchedReviewContentResource({
+					contentHash: 'sha256:item-1:base',
+					lineCount: 4,
+					role: 'base',
+					text: 'line 1\nline 2\nline 3\nline 4\n',
+				}),
+				makeFetchedReviewContentResource({
+					contentHash: 'sha256:item-1:head',
+					lineCount: 4,
+					role: 'head',
+					text: 'line 1\nline two\nline 3 changed\nline 4 changed\n',
+				}),
+			],
+			semantics: makeRenderSemantics({
+				contentLineCountsByRole: { base: 4, head: 4 },
+				itemKind: 'diff',
+			}),
+		});
+
+		expect(job?.window).toMatchObject({
+			startLine: 1,
+			endLine: 2,
+			totalLineCount: 4,
+		});
+		expect(job?.payload.kind).toBe('codeViewDiffItem');
+		if (job?.payload.kind === 'codeViewDiffItem') {
+			expect(job.payload.item.bridgeMetadata.contentState).toBe('windowed');
+			expect(job.payload.item.fileDiff.additionLines).toContain('line two\n');
+			expect(job.payload.item.fileDiff.additionLines).not.toContain('line 3 changed\n');
+			expect(job.payload.item.fileDiff.deletionLines).toContain('line 2\n');
+			expect(job.payload.item.fileDiff.deletionLines).not.toContain('line 3\n');
+		}
+	});
+
+	test('rejects oversized diff windows before preparing CodeView payloads', () => {
+		const job = planBridgeWorkerReviewPierreRenderJob({
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			budget: {
+				className: 'interactive',
+				maxBytes: 16,
+				maxWindowLines: 2,
+			},
+			resources: [
+				makeFetchedReviewContentResource({
+					contentHash: 'sha256:item-1:base',
+					lineCount: 2,
+					role: 'base',
+					text: 'base line with too many bytes\n',
+				}),
+				makeFetchedReviewContentResource({
+					contentHash: 'sha256:item-1:head',
+					lineCount: 2,
+					role: 'head',
+					text: 'head line with too many bytes\n',
+				}),
+			],
+			semantics: makeRenderSemantics({
+				contentLineCountsByRole: { base: 2, head: 2 },
+				itemKind: 'diff',
+			}),
+		});
+
+		expect(job).toBeNull();
 	});
 
 	test('does not plan modified review diffs until both sides are fetched', () => {
@@ -85,8 +205,6 @@ describe('Bridge worker review Pierre job planner', () => {
 	});
 
 	test('plans one-sided added review diffs from the head side only', () => {
-		const headTextBytes = new ArrayBuffer(72);
-
 		const job = planBridgeWorkerReviewPierreRenderJob({
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			budget: {
@@ -99,7 +217,7 @@ describe('Bridge worker review Pierre job planner', () => {
 					contentHash: 'sha256:item-1:head',
 					lineCount: 33,
 					role: 'head',
-					textBytes: headTextBytes,
+					text: 'let added = true;\n',
 				}),
 			],
 			semantics: makeRenderSemantics({
@@ -114,19 +232,17 @@ describe('Bridge worker review Pierre job planner', () => {
 			contentCacheKey: 'pierre-content:empty|pierre-content:fixture-preview:sha256:item-1:head',
 			contentHash: 'empty|sha256:item-1:head',
 			language: 'swift',
-			payloadByteLength: 72,
 			windowLineCount: 33,
 		});
-		expect(job?.payload.kind).toBe('diffTextWindow');
-		if (job?.payload.kind === 'diffTextWindow') {
-			expect(job.payload.baseTextBytes).toBeNull();
-			expect(job.payload.headTextBytes).toBe(headTextBytes);
+		expect(job?.payload.kind).toBe('codeViewDiffItem');
+		if (job?.payload.kind === 'codeViewDiffItem') {
+			expect(job.payloadByteLength).toBeGreaterThan(0);
+			expect(job.payload.item.fileDiff.additionLines).toContain('let added = true;\n');
+			expect(job.payload.item.bridgeMetadata.contentRoles).toEqual(['head']);
 		}
 	});
 
 	test('plans file text jobs from a single preferred resource and language fallback', () => {
-		const fileTextBytes = new ArrayBuffer(128);
-
 		const job = planBridgeWorkerReviewPierreRenderJob({
 			bridgeDemandRank: { lane: 'visible', priority: 10 },
 			budget: {
@@ -140,7 +256,7 @@ describe('Bridge worker review Pierre job planner', () => {
 					language: null,
 					lineCount: 45,
 					role: 'file',
-					textBytes: fileTextBytes,
+					text: 'plain file content\n',
 				}),
 			],
 			semantics: makeRenderSemantics({
@@ -155,19 +271,79 @@ describe('Bridge worker review Pierre job planner', () => {
 			contentCacheKey: 'pierre-content:fixture-preview:sha256:item-1:file',
 			contentHash: 'sha256:item-1:file',
 			language: 'text',
-			payloadByteLength: 128,
 			windowLineCount: 45,
 		});
-		expect(job?.payload.kind).toBe('textWindow');
-		if (job?.payload.kind === 'textWindow') {
-			expect(job.payload.textBytes).toBe(fileTextBytes);
+		expect(job?.payload.kind).toBe('codeViewFileItem');
+		if (job?.payload.kind === 'codeViewFileItem') {
+			expect(job.payloadByteLength).toBe(
+				new TextEncoder().encode('plain file content\n').byteLength,
+			);
+			expect(job.payload.item.file.contents).toBe('plain file content\n');
+			expect(job.payload.item.bridgeMetadata.contentRoles).toEqual(['file']);
 		}
 	});
 
-	test('prepares review diff render job events with declared transfer descriptors', () => {
-		const baseTextBytes = new ArrayBuffer(40);
-		const headTextBytes = new ArrayBuffer(64);
+	test('windows multiline file text before preparing CodeView payloads', () => {
+		const job = planBridgeWorkerReviewPierreRenderJob({
+			bridgeDemandRank: { lane: 'visible', priority: 10 },
+			budget: {
+				className: 'visible',
+				maxBytes: 512 * 1024,
+				maxWindowLines: 2,
+			},
+			resources: [
+				makeFetchedReviewContentResource({
+					contentHash: 'sha256:item-1:file',
+					lineCount: 4,
+					role: 'file',
+					text: 'file line 1\nfile line 2\nfile line 3\nfile line 4\n',
+				}),
+			],
+			semantics: makeRenderSemantics({
+				contentLineCountsByRole: { file: 4 },
+				itemKind: 'file',
+			}),
+		});
 
+		expect(job?.window).toMatchObject({
+			startLine: 1,
+			endLine: 2,
+			totalLineCount: 4,
+		});
+		expect(job?.payload.kind).toBe('codeViewFileItem');
+		if (job?.payload.kind === 'codeViewFileItem') {
+			expect(job.payload.item.bridgeMetadata.contentState).toBe('windowed');
+			expect(job.payload.item.bridgeMetadata.lineCount).toBe(4);
+			expect(job.payload.item.file.contents).toBe('file line 1\nfile line 2\n');
+		}
+	});
+
+	test('rejects oversized file windows before preparing CodeView payloads', () => {
+		const job = planBridgeWorkerReviewPierreRenderJob({
+			bridgeDemandRank: { lane: 'visible', priority: 10 },
+			budget: {
+				className: 'visible',
+				maxBytes: 16,
+				maxWindowLines: 2,
+			},
+			resources: [
+				makeFetchedReviewContentResource({
+					contentHash: 'sha256:item-1:file',
+					lineCount: 2,
+					role: 'file',
+					text: 'file line with too many bytes\n',
+				}),
+			],
+			semantics: makeRenderSemantics({
+				contentLineCountsByRole: { file: 2 },
+				itemKind: 'file',
+			}),
+		});
+
+		expect(job).toBeNull();
+	});
+
+	test('prepares review diff render job events as structured CodeView payloads', () => {
 		const prepared = prepareBridgeWorkerReviewPierreRenderJobEvent({
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			budget: {
@@ -180,14 +356,14 @@ describe('Bridge worker review Pierre job planner', () => {
 					contentHash: 'sha256:item-1:base',
 					lineCount: 120,
 					role: 'base',
-					textBytes: baseTextBytes,
+					text: 'let before = 1;\n',
 				}),
 				makeFetchedReviewContentResource({
 					contentHash: 'sha256:item-1:head',
 					language: 'typescript',
 					lineCount: 80,
 					role: 'head',
-					textBytes: headTextBytes,
+					text: 'let after = 2;\n',
 				}),
 			],
 			semantics: makeRenderSemantics({
@@ -203,28 +379,23 @@ describe('Bridge worker review Pierre job planner', () => {
 			job: {
 				itemId: 'item-1',
 				renderKind: 'reviewDiff',
+				payload: {
+					kind: 'codeViewDiffItem',
+				},
 			},
-			transferDescriptors: [
-				{
-					messageKind: 'pierreRenderJob',
-					fieldPath: ['job', 'payload', 'baseTextBytes'],
-					byteLength: 40,
-					mode: 'transfer',
-				},
-				{
-					messageKind: 'pierreRenderJob',
-					fieldPath: ['job', 'payload', 'headTextBytes'],
-					byteLength: 64,
-					mode: 'transfer',
-				},
-			],
 		});
-		expect(prepared?.transferList).toEqual([baseTextBytes, headTextBytes]);
+		expect(prepared?.message.transferDescriptors).toEqual([
+			{
+				messageKind: 'pierreRenderJob',
+				fieldPath: ['job', 'payload'],
+				byteLength: prepared?.message.job.payloadByteLength,
+				mode: 'clone',
+			},
+		]);
+		expect(prepared?.transferList).toEqual([]);
 	});
 
-	test('prepares one-sided review diff render job events without declaring the missing side', () => {
-		const headTextBytes = new ArrayBuffer(72);
-
+	test('prepares one-sided review diff render job events with clone descriptors', () => {
 		const prepared = prepareBridgeWorkerReviewPierreRenderJobEvent({
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			budget: {
@@ -237,7 +408,7 @@ describe('Bridge worker review Pierre job planner', () => {
 					contentHash: 'sha256:item-1:head',
 					lineCount: 33,
 					role: 'head',
-					textBytes: headTextBytes,
+					text: 'let added = true;\n',
 				}),
 			],
 			semantics: makeRenderSemantics({
@@ -247,20 +418,19 @@ describe('Bridge worker review Pierre job planner', () => {
 			}),
 		});
 
+		expect(prepared?.message.job.payload.kind).toBe('codeViewDiffItem');
 		expect(prepared?.message.transferDescriptors).toEqual([
 			{
 				messageKind: 'pierreRenderJob',
-				fieldPath: ['job', 'payload', 'headTextBytes'],
-				byteLength: 72,
-				mode: 'transfer',
+				fieldPath: ['job', 'payload'],
+				byteLength: prepared?.message.job.payloadByteLength,
+				mode: 'clone',
 			},
 		]);
-		expect(prepared?.transferList).toEqual([headTextBytes]);
+		expect(prepared?.transferList).toEqual([]);
 	});
 
-	test('prepares file text render job events with the text window transfer descriptor', () => {
-		const fileTextBytes = new ArrayBuffer(128);
-
+	test('prepares file text render job events with clone descriptors', () => {
 		const prepared = prepareBridgeWorkerReviewPierreRenderJobEvent({
 			bridgeDemandRank: { lane: 'visible', priority: 10 },
 			budget: {
@@ -274,7 +444,7 @@ describe('Bridge worker review Pierre job planner', () => {
 					language: null,
 					lineCount: 45,
 					role: 'file',
-					textBytes: fileTextBytes,
+					text: 'plain file content\n',
 				}),
 			],
 			semantics: makeRenderSemantics({
@@ -284,15 +454,16 @@ describe('Bridge worker review Pierre job planner', () => {
 			}),
 		});
 
+		expect(prepared?.message.job.payload.kind).toBe('codeViewFileItem');
 		expect(prepared?.message.transferDescriptors).toEqual([
 			{
 				messageKind: 'pierreRenderJob',
-				fieldPath: ['job', 'payload', 'textBytes'],
-				byteLength: 128,
-				mode: 'transfer',
+				fieldPath: ['job', 'payload'],
+				byteLength: prepared?.message.job.payloadByteLength,
+				mode: 'clone',
 			},
 		]);
-		expect(prepared?.transferList).toEqual([fileTextBytes]);
+		expect(prepared?.transferList).toEqual([]);
 	});
 
 	test('does not prepare render job events when the planner has no complete job', () => {
@@ -339,15 +510,19 @@ function makeFetchedReviewContentResource(props: {
 	readonly language?: string | null;
 	readonly lineCount?: number;
 	readonly role: BridgeWorkerFetchedReviewContentResource['role'];
-	readonly textBytes: ArrayBuffer;
+	readonly text?: string;
+	readonly textBytes?: ArrayBuffer;
 }): BridgeWorkerFetchedReviewContentResource {
+	const text = props.text ?? '';
+	const textBytes = props.textBytes ?? new TextEncoder().encode(text).buffer;
 	return {
 		itemId: 'item-1',
 		role: props.role,
 		contentHash: props.contentHash ?? `sha256:item-1:${props.role}`,
 		contentHashAlgorithm: 'fixture-preview',
 		language: props.language === undefined ? 'swift' : props.language,
-		byteLength: props.textBytes.byteLength,
-		textBytes: props.textBytes,
+		byteLength: textBytes.byteLength,
+		text,
+		textBytes,
 	};
 }

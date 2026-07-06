@@ -12,6 +12,7 @@ export interface BridgeWorkerContentPreparationContext {
 
 export interface BridgeWorkerContentPreparationResult {
 	readonly complete: boolean;
+	readonly continuation?: 'pump' | 'external';
 }
 
 export interface BridgeWorkerContentPreparationWork {
@@ -78,7 +79,7 @@ export function createWorkerContentPreparationPump(
 				});
 				if (result.complete) {
 					completedIds.push(work.id);
-				} else {
+				} else if (result.continuation !== 'external') {
 					enqueueOrPromoteBridgeWorkerPreparationWork(pendingWorkById, work);
 				}
 				if (pendingWorkById.size > 0 && now() - startedAtMs >= props.maxSliceMs) {

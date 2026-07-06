@@ -16,6 +16,7 @@ export interface BridgeWorkerFetchedReviewContentResource {
 	readonly contentHashAlgorithm: string;
 	readonly language: string | null;
 	readonly byteLength: number;
+	readonly text: string;
 	readonly textBytes: ArrayBuffer;
 }
 
@@ -49,6 +50,7 @@ export async function fetchBridgeWorkerReviewContentResource(
 		contentHashAlgorithm: descriptor.contentHashAlgorithm,
 		language: descriptor.language,
 		byteLength: textBytes.byteLength,
+		text,
 		textBytes: textBytes.buffer,
 	};
 }

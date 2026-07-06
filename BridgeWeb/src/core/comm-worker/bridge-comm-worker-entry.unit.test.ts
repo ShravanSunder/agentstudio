@@ -38,7 +38,7 @@ function assertBrowserMessagePortMatchesEntryPort(port: MessagePort): BridgeComm
 }
 
 describe('Bridge comm worker entry', () => {
-	test('posts prepared review content-ready worker messages with transfer lists', () => {
+	test('posts prepared review content-ready worker messages as structured CodeView payloads', () => {
 		const postedMessages: PostedBridgeWorkerMessage[] = [];
 		const port: BridgeCommWorkerPort = {
 			postMessage: (
@@ -49,8 +49,6 @@ describe('Bridge comm worker entry', () => {
 			},
 			addEventListener: (): void => {},
 		};
-		const baseTextBytes = new ArrayBuffer(40);
-		const headTextBytes = new ArrayBuffer(64);
 		const preparedMessage = prepareBridgeWorkerReviewContentRenderJobEvent({
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			budget: {
@@ -62,12 +60,12 @@ describe('Bridge comm worker entry', () => {
 				makeFetchedReviewContentResource({
 					contentHash: 'sha256:item-1:base',
 					role: 'base',
-					textBytes: baseTextBytes,
+					text: 'base content\n',
 				}),
 				makeFetchedReviewContentResource({
 					contentHash: 'sha256:item-1:head',
 					role: 'head',
-					textBytes: headTextBytes,
+					text: 'head content\n',
 				}),
 			],
 			semantics: makeRenderSemantics(),
@@ -81,15 +79,24 @@ describe('Bridge comm worker entry', () => {
 		expect(postedMessages).toEqual([
 			{
 				message: preparedMessage.message,
-				transferList: [baseTextBytes, headTextBytes],
+				transferList: [],
 			},
 		]);
 		expect(postedMessages[0]?.transferList).not.toBe(preparedMessage.transferList);
+		expect(preparedMessage.message.job.payload.kind).toBe('codeViewDiffItem');
+		expect(preparedMessage.message.transferDescriptors).toEqual([
+			{
+				messageKind: 'pierreRenderJob',
+				fieldPath: ['job', 'payload'],
+				byteLength: preparedMessage.message.job.payloadByteLength,
+				mode: 'clone',
+			},
+		]);
 		expect(typeof assertPreparedEntryPostRejectsSyntheticMessages).toBe('function');
 		expect(typeof assertBrowserMessagePortMatchesEntryPort).toBe('function');
 	});
 
-	test('forwards prepared transfer lists through the worker scope adapter', () => {
+	test('forwards structured prepared messages through the worker scope adapter', () => {
 		const postedMessages: PostedBridgeWorkerMessage[] = [];
 		const scope = {
 			postMessage: (
@@ -100,7 +107,6 @@ describe('Bridge comm worker entry', () => {
 			},
 			addEventListener: (): void => {},
 		};
-		const textBytes = new ArrayBuffer(32);
 		const preparedMessage = prepareBridgeWorkerReviewContentRenderJobEvent({
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			budget: {
@@ -112,7 +118,7 @@ describe('Bridge comm worker entry', () => {
 				makeFetchedReviewContentResource({
 					contentHash: 'sha256:item-1:file',
 					role: 'file',
-					textBytes,
+					text: 'file content\n',
 				}),
 			],
 			semantics: makeRenderSemantics({
@@ -133,7 +139,16 @@ describe('Bridge comm worker entry', () => {
 		expect(postedMessages).toEqual([
 			{
 				message: preparedMessage.message,
-				transferList: [textBytes],
+				transferList: [],
+			},
+		]);
+		expect(preparedMessage.message.job.payload.kind).toBe('codeViewFileItem');
+		expect(preparedMessage.message.transferDescriptors).toEqual([
+			{
+				messageKind: 'pierreRenderJob',
+				fieldPath: ['job', 'payload'],
+				byteLength: preparedMessage.message.job.payloadByteLength,
+				mode: 'clone',
 			},
 		]);
 	});
@@ -441,16 +456,18 @@ function makeRenderSemantics(
 function makeFetchedReviewContentResource(props: {
 	readonly contentHash: string;
 	readonly role: BridgeWorkerFetchedReviewContentResource['role'];
-	readonly textBytes: ArrayBuffer;
+	readonly text: string;
 }): BridgeWorkerFetchedReviewContentResource {
+	const textBytes = new TextEncoder().encode(props.text).buffer;
 	return {
 		itemId: 'item-1',
 		role: props.role,
 		contentHash: props.contentHash,
 		contentHashAlgorithm: 'fixture-preview',
 		language: 'swift',
-		byteLength: props.textBytes.byteLength,
-		textBytes: props.textBytes,
+		byteLength: textBytes.byteLength,
+		text: props.text,
+		textBytes,
 	};
 }
 

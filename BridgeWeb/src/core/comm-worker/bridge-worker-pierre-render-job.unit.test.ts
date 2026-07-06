@@ -1,18 +1,92 @@
+import { parseDiffFromFile } from '@pierre/diffs';
 import { describe, expect, test } from 'vitest';
 
 import {
 	buildBridgeWorkerPierreRenderJob,
-	type BuildBridgeWorkerPierreRenderJobProps,
+	bridgeWorkerPierreRenderPayloadSchema,
 } from './bridge-worker-pierre-render-job.js';
 
 describe('Bridge worker Pierre render job', () => {
-	test('encodes bounded Pierre render jobs with rank cache key and clone budget class', () => {
-		const textBytes = new ArrayBuffer(64);
+	test('rejects raw text window payloads at the render-job boundary', () => {
+		expect(
+			bridgeWorkerPierreRenderPayloadSchema.safeParse({
+				kind: 'textWindow',
+				textBytes: new ArrayBuffer(8),
+			}).success,
+		).toBe(false);
+		expect(
+			bridgeWorkerPierreRenderPayloadSchema.safeParse({
+				kind: 'diffTextWindow',
+				baseTextBytes: new ArrayBuffer(8),
+				headTextBytes: new ArrayBuffer(8),
+			}).success,
+		).toBe(false);
+	});
+
+	test('encodes worker-prepared CodeView file items without raw text window payloads', () => {
+		const job = buildBridgeWorkerPierreRenderJob({
+			itemId: 'item-worker-file',
+			renderKind: 'fileText',
+			contentCacheKey: 'pierre-content:sha256:worker-file',
+			contentHash: 'sha256:worker-file',
+			language: 'typescript',
+			bridgeDemandRank: { lane: 'selected', priority: 0 },
+			window: {
+				startLine: 1,
+				endLine: 2,
+				totalLineCount: 2,
+			},
+			payload: {
+				kind: 'codeViewFileItem',
+				item: {
+					id: 'item-worker-file',
+					type: 'file',
+					file: {
+						name: 'Sources/App.ts',
+						contents: 'export const answer = 42;\n',
+						cacheKey: 'pierre-content:sha256:worker-file',
+						lang: 'typescript',
+					},
+					version: 5,
+					bridgeMetadata: {
+						itemId: 'item-worker-file',
+						displayPath: 'Sources/App.ts',
+						contentState: 'hydrated',
+						contentRoles: ['head'],
+						cacheKey: 'pierre-content:sha256:worker-file',
+						lineCount: 1,
+					},
+				},
+			},
+			budget: {
+				className: 'interactive',
+				maxBytes: 512 * 1024,
+				maxWindowLines: 400,
+			},
+		});
+
+		expect(job.payload.kind).toBe('codeViewFileItem');
+		expect(job.payloadByteLength).toBeGreaterThan(0);
+	});
+
+	test('encodes worker-prepared CodeView diff items with rank cache key and clone budget class', () => {
+		const fileDiff = parseDiffFromFile(
+			{
+				name: 'Sources/App.ts',
+				contents: 'export const answer = 41;\n',
+				cacheKey: 'pierre-content:sha256:base',
+			},
+			{
+				name: 'Sources/App.ts',
+				contents: 'export const answer = 42;\n',
+				cacheKey: 'pierre-content:sha256:head',
+			},
+		);
 		const jobProps = {
 			itemId: 'item-1',
-			renderKind: 'fileText',
-			contentCacheKey: 'pierre-content:sha256:abc123',
-			contentHash: 'abc123',
+			renderKind: 'reviewDiff',
+			contentCacheKey: 'pierre-content:sha256:base|pierre-content:sha256:head',
+			contentHash: 'sha256:base|sha256:head',
 			language: 'typescript',
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			window: {
@@ -21,30 +95,40 @@ describe('Bridge worker Pierre render job', () => {
 				totalLineCount: 400,
 			},
 			payload: {
-				kind: 'textWindow',
-				textBytes,
+				kind: 'codeViewDiffItem',
+				item: {
+					id: 'item-1',
+					type: 'diff',
+					fileDiff,
+					version: 2,
+					bridgeMetadata: {
+						itemId: 'item-1',
+						displayPath: 'Sources/App.ts',
+						contentState: 'hydrated',
+						contentRoles: ['base', 'head'],
+						cacheKey: 'pierre-content:sha256:base|pierre-content:sha256:head',
+						lineCount: 2,
+					},
+				},
 			},
 			budget: {
 				className: 'interactive',
 				maxBytes: 512 * 1024,
 				maxWindowLines: 400,
 			},
-		} satisfies BuildBridgeWorkerPierreRenderJobProps;
+		} satisfies Parameters<typeof buildBridgeWorkerPierreRenderJob>[0];
 		const job = buildBridgeWorkerPierreRenderJob(jobProps);
 
 		expect(job).toMatchObject({
 			itemId: 'item-1',
-			renderKind: 'fileText',
-			contentCacheKey: 'pierre-content:sha256:abc123',
+			renderKind: 'reviewDiff',
+			contentCacheKey: 'pierre-content:sha256:base|pierre-content:sha256:head',
 			bridgeDemandRank: { lane: 'selected', priority: 0 },
 			budgetClass: 'interactive',
-			payloadByteLength: 64,
 			windowLineCount: 40,
 		});
-		expect(job.payload.kind).toBe('textWindow');
-		if (job.payload.kind === 'textWindow') {
-			expect(job.payload.textBytes).toBe(textBytes);
-		}
+		expect(job.payload.kind).toBe('codeViewDiffItem');
+		expect(job.payloadByteLength).toBeGreaterThan(0);
 
 		expect(() =>
 			buildBridgeWorkerPierreRenderJob({
@@ -56,47 +140,6 @@ describe('Bridge worker Pierre render job', () => {
 				},
 			}),
 		).toThrow(/exceeds.*byte/i);
-	});
-
-	test('encodes modified review diff jobs with base and head text windows', () => {
-		const baseTextBytes = new ArrayBuffer(48);
-		const headTextBytes = new ArrayBuffer(80);
-
-		const job = buildBridgeWorkerPierreRenderJob({
-			itemId: 'item-diff',
-			renderKind: 'reviewDiff',
-			contentCacheKey: 'pierre-content:sha256:base|pierre-content:sha256:head',
-			contentHash: 'sha256:base+head',
-			language: 'typescript',
-			bridgeDemandRank: { lane: 'selected', priority: 0 },
-			window: {
-				startLine: 1,
-				endLine: 32,
-				totalLineCount: 320,
-			},
-			payload: {
-				kind: 'diffTextWindow',
-				baseTextBytes,
-				headTextBytes,
-			},
-			budget: {
-				className: 'interactive',
-				maxBytes: 512 * 1024,
-				maxWindowLines: 400,
-			},
-		});
-
-		expect(job).toMatchObject({
-			itemId: 'item-diff',
-			renderKind: 'reviewDiff',
-			payloadByteLength: 128,
-			windowLineCount: 32,
-		});
-		expect(job.payload.kind).toBe('diffTextWindow');
-		if (job.payload.kind === 'diffTextWindow') {
-			expect(job.payload.baseTextBytes).toBe(baseTextBytes);
-			expect(job.payload.headTextBytes).toBe(headTextBytes);
-		}
 	});
 
 	test('rejects review diff jobs that try to use a single file text payload', () => {
@@ -114,8 +157,24 @@ describe('Bridge worker Pierre render job', () => {
 					totalLineCount: 200,
 				},
 				payload: {
-					kind: 'textWindow',
-					textBytes: new ArrayBuffer(64),
+					kind: 'codeViewFileItem',
+					item: {
+						id: 'item-bad-diff',
+						type: 'file',
+						file: {
+							name: 'Sources/App.ts',
+							contents: 'export const answer = 42;\n',
+							cacheKey: 'pierre-content:sha256:head',
+						},
+						bridgeMetadata: {
+							itemId: 'item-bad-diff',
+							displayPath: 'Sources/App.ts',
+							contentState: 'hydrated',
+							contentRoles: ['head'],
+							cacheKey: 'pierre-content:sha256:head',
+							lineCount: 1,
+						},
+					},
 				},
 				budget: {
 					className: 'interactive',
@@ -123,41 +182,6 @@ describe('Bridge worker Pierre render job', () => {
 					maxWindowLines: 400,
 				},
 			}),
-		).toThrow(/review diff.*diffTextWindow/i);
-	});
-
-	test('encodes one-sided review diff jobs with exactly one text window side', () => {
-		const headTextBytes = new ArrayBuffer(96);
-
-		const job = buildBridgeWorkerPierreRenderJob({
-			itemId: 'item-added',
-			renderKind: 'reviewDiff',
-			contentCacheKey: 'pierre-content:empty|pierre-content:sha256:head',
-			contentHash: 'sha256:head',
-			language: 'typescript',
-			bridgeDemandRank: { lane: 'selected', priority: 0 },
-			window: {
-				startLine: 1,
-				endLine: 24,
-				totalLineCount: 24,
-			},
-			payload: {
-				kind: 'diffTextWindow',
-				baseTextBytes: null,
-				headTextBytes,
-			},
-			budget: {
-				className: 'interactive',
-				maxBytes: 512 * 1024,
-				maxWindowLines: 400,
-			},
-		});
-
-		expect(job.payloadByteLength).toBe(96);
-		expect(job.payload.kind).toBe('diffTextWindow');
-		if (job.payload.kind === 'diffTextWindow') {
-			expect(job.payload.baseTextBytes).toBeNull();
-			expect(job.payload.headTextBytes).toBe(headTextBytes);
-		}
+		).toThrow(/review diff.*codeViewDiffItem/i);
 	});
 });

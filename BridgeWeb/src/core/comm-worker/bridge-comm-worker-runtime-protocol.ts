@@ -100,6 +100,7 @@ export function registerBridgeCommWorkerRuntimePortProtocol(
 				port,
 				pump,
 				renderSemantics: props.renderSemantics,
+				requestPreparationDrain,
 				sequence: createSequence(),
 				store: request.store,
 			});

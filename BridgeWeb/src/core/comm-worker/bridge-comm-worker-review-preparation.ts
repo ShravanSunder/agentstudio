@@ -1,12 +1,18 @@
 import {
-	dispatchSelectedBridgeWorkerReviewContentReady,
+	fetchSelectedBridgeWorkerReviewContentReadyResources,
 	isSelectedReviewContentReadyPreparationCurrent,
+	publishSelectedBridgeWorkerReviewContentReadyFetchResult,
+	type BridgeWorkerReviewContentReadyFetchResult,
 	type DispatchSelectedBridgeWorkerReviewContentReadyProps,
 } from './bridge-comm-worker-review-runtime.js';
-import type { WorkerContentPreparationPump } from './bridge-worker-content-preparation-pump.js';
+import type {
+	BridgeWorkerContentPreparationWork,
+	WorkerContentPreparationPump,
+} from './bridge-worker-content-preparation-pump.js';
 
 export interface EnqueueSelectedBridgeWorkerReviewContentReadyPreparationProps extends DispatchSelectedBridgeWorkerReviewContentReadyProps {
 	readonly pump: WorkerContentPreparationPump;
+	readonly requestPreparationDrain?: () => void;
 	readonly workId?: string;
 }
 
@@ -21,12 +27,14 @@ export function enqueueSelectedBridgeWorkerReviewContentReadyPreparation(
 ): BridgeWorkerReviewContentReadyPreparationTicket {
 	const { pump, workId = selectedReviewContentReadyWorkId(props), ...dispatchProps } = props;
 	const completion = createBridgeWorkerReviewContentReadyPreparationCompletion();
+	let fetchStarted = false;
+	let fetchResult: BridgeWorkerReviewContentReadyFetchResult | null = null;
 	if (!isSelectedReviewContentReadyPreparationCurrent(dispatchProps)) {
 		completion.resolve();
 		return { completion: completion.promise, enqueued: false, workId };
 	}
 
-	pump.enqueueOrPromote({
+	const work: BridgeWorkerContentPreparationWork = {
 		id: workId,
 		rank: 'selected',
 		runSlice: () => {
@@ -34,13 +42,33 @@ export function enqueueSelectedBridgeWorkerReviewContentReadyPreparation(
 				completion.resolve();
 				return { complete: true };
 			}
-			void dispatchSelectedBridgeWorkerReviewContentReady(dispatchProps).then(
-				completion.resolve,
-				completion.reject,
-			);
+			if (!fetchStarted) {
+				fetchStarted = true;
+				void fetchSelectedBridgeWorkerReviewContentReadyResources(dispatchProps)
+					.then((result) => {
+						fetchResult = result;
+						pump.enqueueOrPromote(work);
+						props.requestPreparationDrain?.();
+					})
+					.catch(completion.reject);
+				return { complete: false, continuation: 'external' };
+			}
+			if (fetchResult === null) {
+				return { complete: false, continuation: 'external' };
+			}
+			try {
+				publishSelectedBridgeWorkerReviewContentReadyFetchResult({
+					...dispatchProps,
+					fetchResult,
+				});
+				completion.resolve();
+			} catch (error) {
+				completion.reject(error);
+			}
 			return { complete: true };
 		},
-	});
+	};
+	pump.enqueueOrPromote(work);
 
 	return { completion: completion.promise, enqueued: true, workId };
 }

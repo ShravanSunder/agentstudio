@@ -83,33 +83,29 @@ describe('Bridge comm worker review runtime', () => {
 				renderKind: 'reviewDiff',
 				contentCacheKey:
 					'pierre-content:fixture-preview:sha256:item-1:base|pierre-content:fixture-preview:sha256:item-1:head',
+				payload: {
+					kind: 'codeViewDiffItem',
+				},
 			},
-			transferDescriptors: [
-				{
-					messageKind: 'pierreRenderJob',
-					fieldPath: ['job', 'payload', 'baseTextBytes'],
-					byteLength: 12,
-					mode: 'transfer',
-				},
-				{
-					messageKind: 'pierreRenderJob',
-					fieldPath: ['job', 'payload', 'headTextBytes'],
-					byteLength: 12,
-					mode: 'transfer',
-				},
-			],
 		});
 		const pierreJobMessage = postedMessages[0]?.message;
 		if (pierreJobMessage?.kind !== 'pierreRenderJob') {
 			throw new Error('Expected Pierre render job message first.');
 		}
-		if (pierreJobMessage.job.payload.kind !== 'diffTextWindow') {
-			throw new Error('Expected diff text window payload.');
-		}
-		expect(postedMessages[0]?.transferList).toEqual([
-			pierreJobMessage.job.payload.baseTextBytes,
-			pierreJobMessage.job.payload.headTextBytes,
+		expect(pierreJobMessage.transferDescriptors).toEqual([
+			{
+				messageKind: 'pierreRenderJob',
+				fieldPath: ['job', 'payload'],
+				byteLength: pierreJobMessage.job.payloadByteLength,
+				mode: 'clone',
+			},
 		]);
+		if (pierreJobMessage.job.payload.kind !== 'codeViewDiffItem') {
+			throw new Error('Expected CodeView diff item payload.');
+		}
+		expect(pierreJobMessage.job.payload.item.fileDiff.additionLines).toContain('head content');
+		expect(pierreJobMessage.job.payload.item.fileDiff.deletionLines).toContain('base content');
+		expect(postedMessages[0]?.transferList).toEqual([]);
 		expect(postedMessages[1]).toEqual({
 			message: {
 				wireVersion: 1,

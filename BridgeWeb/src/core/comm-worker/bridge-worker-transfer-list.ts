@@ -9,6 +9,7 @@ export type BridgeWorkerTransferMode = 'transfer' | 'clone';
 export interface BridgeWorkerTransferFieldDeclaration {
 	readonly fieldPath: readonly string[];
 	readonly mode: BridgeWorkerTransferMode;
+	readonly byteLength?: number;
 }
 
 export type BridgeWorkerMessageWithTransferDescriptors =
@@ -64,19 +65,20 @@ export function buildBridgeWorkerTransferList<TPayload extends object>(
 	const transferList: Transferable[] = [];
 	for (const field of props.declaredFields) {
 		const value = readBridgeWorkerFieldPath(props.payload, field.fieldPath);
-		const buffer = normalizeArrayBuffer(value);
-		if (buffer === null) {
-			throw new Error(
-				`Bridge worker transfer field ${field.fieldPath.join('.')} is not an ArrayBuffer.`,
-			);
-		}
+		const byteLength = bridgeWorkerDeclaredFieldByteLength({ field, value });
 		descriptors.push({
 			messageKind: props.messageKind,
 			fieldPath: [...field.fieldPath],
-			byteLength: buffer.byteLength,
+			byteLength,
 			mode: field.mode,
 		});
 		if (field.mode === 'transfer') {
+			const buffer = normalizeArrayBuffer(value);
+			if (buffer === null) {
+				throw new Error(
+					`Bridge worker transfer field ${field.fieldPath.join('.')} is not an ArrayBuffer.`,
+				);
+			}
 			transferList.push(buffer);
 		}
 	}
@@ -85,6 +87,35 @@ export function buildBridgeWorkerTransferList<TPayload extends object>(
 		descriptors,
 		transferList,
 	};
+}
+
+function bridgeWorkerDeclaredFieldByteLength(props: {
+	readonly field: BridgeWorkerTransferFieldDeclaration;
+	readonly value: unknown;
+}): number {
+	if (props.field.mode === 'clone' && props.value === undefined) {
+		throw new Error(
+			`Bridge worker clone field ${props.field.fieldPath.join('.')} does not resolve.`,
+		);
+	}
+	if (props.field.byteLength !== undefined) {
+		return Math.max(0, Math.floor(props.field.byteLength));
+	}
+	const buffer = normalizeArrayBuffer(props.value);
+	if (buffer !== null) {
+		return buffer.byteLength;
+	}
+	if (typeof props.value === 'string') {
+		return new TextEncoder().encode(props.value).byteLength;
+	}
+	if (props.field.mode === 'clone') {
+		throw new Error(
+			`Bridge worker clone field ${props.field.fieldPath.join('.')} requires a declared byte length.`,
+		);
+	}
+	throw new Error(
+		`Bridge worker transfer field ${props.field.fieldPath.join('.')} is not an ArrayBuffer.`,
+	);
 }
 
 export function prepareBridgeWorkerStructuredMessage<

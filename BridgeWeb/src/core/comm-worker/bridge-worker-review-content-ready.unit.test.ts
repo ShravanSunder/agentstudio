@@ -13,8 +13,6 @@ import {
 
 describe('Bridge worker review content ready', () => {
 	test('prepares review Pierre job events without publishing ready before courier acceptance', () => {
-		const baseTextBytes = new ArrayBuffer(40);
-		const headTextBytes = new ArrayBuffer(64);
 		const store = createBridgeCommWorkerStore({
 			contentItems: [makeWorkerReviewContentMetadata('item-1')],
 			rows: [{ id: 'item-1', parentId: null, index: 0 }],
@@ -31,12 +29,12 @@ describe('Bridge worker review content ready', () => {
 				makeFetchedReviewContentResource({
 					contentHash: 'sha256:item-1:base',
 					role: 'base',
-					textBytes: baseTextBytes,
+					text: 'base content\n',
 				}),
 				makeFetchedReviewContentResource({
 					contentHash: 'sha256:item-1:head',
 					role: 'head',
-					textBytes: headTextBytes,
+					text: 'head content\n',
 				}),
 			],
 			semantics: makeRenderSemantics(),
@@ -51,30 +49,25 @@ describe('Bridge worker review content ready', () => {
 				renderKind: 'reviewDiff',
 				contentCacheKey:
 					'pierre-content:fixture-preview:sha256:item-1:base|pierre-content:fixture-preview:sha256:item-1:head',
+				payload: {
+					kind: 'codeViewDiffItem',
+				},
 			},
-			transferDescriptors: [
-				{
-					messageKind: 'pierreRenderJob',
-					fieldPath: ['job', 'payload', 'baseTextBytes'],
-					byteLength: 40,
-					mode: 'transfer',
-				},
-				{
-					messageKind: 'pierreRenderJob',
-					fieldPath: ['job', 'payload', 'headTextBytes'],
-					byteLength: 64,
-					mode: 'transfer',
-				},
-			],
 		});
-		expect(result?.transferList).toEqual([baseTextBytes, headTextBytes]);
+		expect(result?.message.transferDescriptors).toEqual([
+			{
+				messageKind: 'pierreRenderJob',
+				fieldPath: ['job', 'payload'],
+				byteLength: result?.message.job.payloadByteLength,
+				mode: 'clone',
+			},
+		]);
+		expect(result?.transferList).toEqual([]);
 		expect(store.getState().paintReadyByItemId.has('item-1')).toBe(false);
 		expect(store.actions.takePendingSlicePatchEvent({ epoch: 7, sequence: 12 })).toBeNull();
 	});
 
 	test('commits content-ready slice patches only after the render job is accepted', () => {
-		const baseTextBytes = new ArrayBuffer(40);
-		const headTextBytes = new ArrayBuffer(64);
 		const store = createBridgeCommWorkerStore({
 			contentItems: [makeWorkerReviewContentMetadata('item-1')],
 			rows: [{ id: 'item-1', parentId: null, index: 0 }],
@@ -90,12 +83,12 @@ describe('Bridge worker review content ready', () => {
 				makeFetchedReviewContentResource({
 					contentHash: 'sha256:item-1:base',
 					role: 'base',
-					textBytes: baseTextBytes,
+					text: 'base content\n',
 				}),
 				makeFetchedReviewContentResource({
 					contentHash: 'sha256:item-1:head',
 					role: 'head',
-					textBytes: headTextBytes,
+					text: 'head content\n',
 				}),
 			],
 			semantics: makeRenderSemantics(),
@@ -164,7 +157,7 @@ describe('Bridge worker review content ready', () => {
 				makeFetchedReviewContentResource({
 					contentHash: 'sha256:item-1:base',
 					role: 'base',
-					textBytes: new ArrayBuffer(40),
+					text: 'base content\n',
 				}),
 			],
 			semantics: makeRenderSemantics(),
@@ -207,15 +200,17 @@ function makeRenderSemantics(
 function makeFetchedReviewContentResource(props: {
 	readonly contentHash: string;
 	readonly role: BridgeWorkerFetchedReviewContentResource['role'];
-	readonly textBytes: ArrayBuffer;
+	readonly text: string;
 }): BridgeWorkerFetchedReviewContentResource {
+	const textBytes = new TextEncoder().encode(props.text).buffer;
 	return {
 		itemId: 'item-1',
 		role: props.role,
 		contentHash: props.contentHash,
 		contentHashAlgorithm: 'fixture-preview',
 		language: 'swift',
-		byteLength: props.textBytes.byteLength,
-		textBytes: props.textBytes,
+		byteLength: textBytes.byteLength,
+		text: props.text,
+		textBytes,
 	};
 }

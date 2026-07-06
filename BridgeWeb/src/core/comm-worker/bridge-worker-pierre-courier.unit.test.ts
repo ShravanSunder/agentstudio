@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 
+import { parseDiffFromFile } from '@pierre/diffs';
 import { describe, expect, test } from 'vitest';
 
 import type { BridgeWorkerPierreRenderJobEvent } from './bridge-worker-contracts.js';
@@ -24,9 +25,32 @@ describe('Bridge worker Pierre courier', () => {
 				totalLineCount: 200,
 			},
 			payload: {
-				kind: 'diffTextWindow',
-				baseTextBytes: new ArrayBuffer(48),
-				headTextBytes: new ArrayBuffer(80),
+				kind: 'codeViewDiffItem',
+				item: {
+					id: 'item-1',
+					type: 'diff',
+					fileDiff: parseDiffFromFile(
+						{
+							name: 'Sources/App.ts',
+							contents: 'export const answer = 41;\n',
+							cacheKey: 'pierre-content:sha256:base',
+						},
+						{
+							name: 'Sources/App.ts',
+							contents: 'export const answer = 42;\n',
+							cacheKey: 'pierre-content:sha256:head',
+						},
+					),
+					version: 2,
+					bridgeMetadata: {
+						itemId: 'item-1',
+						displayPath: 'Sources/App.ts',
+						contentState: 'hydrated',
+						contentRoles: ['base', 'head'],
+						cacheKey: 'pierre-content:sha256:base|pierre-content:sha256:head',
+						lineCount: 2,
+					},
+				},
 			},
 			budget: {
 				className: 'interactive',
@@ -59,7 +83,7 @@ describe('Bridge worker Pierre courier', () => {
 		expect(receipt).toEqual({
 			status: 'enqueued',
 			itemId: 'item-1',
-			payloadByteLength: 128,
+			payloadByteLength: job.payloadByteLength,
 			budgetClass: 'interactive',
 		});
 		expect(enqueuedJobs).toEqual([job]);

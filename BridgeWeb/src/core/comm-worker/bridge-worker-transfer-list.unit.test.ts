@@ -65,8 +65,9 @@ describe('Bridge worker transfer list', () => {
 		).toThrow(/undeclared ArrayBuffer/i);
 	});
 
-	test('prepares contract DTOs with declared transfer descriptors', () => {
-		const bytes = new ArrayBuffer(8);
+	test('prepares contract DTOs with declared clone descriptors', () => {
+		const contents = 'export const answer = 42;\n';
+		const cloneByteLength = new TextEncoder().encode(contents).byteLength;
 		const message: BridgeWorkerPierreRenderJobEvent = {
 			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
 			direction: 'serverWorkerToMain',
@@ -81,67 +82,30 @@ describe('Bridge worker transfer list', () => {
 				bridgeDemandRank: { lane: 'selected', priority: 0 },
 				window: {
 					startLine: 1,
-					endLine: 20,
-					totalLineCount: 200,
+					endLine: 2,
+					totalLineCount: 2,
 				},
 				payload: {
-					kind: 'textWindow',
-					textBytes: bytes,
-				},
-				budget: {
-					className: 'interactive',
-					maxBytes: 1024,
-					maxWindowLines: 50,
-				},
-			}),
-		};
-
-		const preparedMessage = prepareBridgeWorkerStructuredMessage({
-			message,
-			declaredFields: [{ fieldPath: ['job', 'payload', 'textBytes'], mode: 'transfer' }],
-		});
-		const clonedMessage = cloneBridgeWorkerStructuredMessage(preparedMessage.message);
-
-		expect(preparedMessage.message.transferDescriptors).toEqual([
-			{
-				messageKind: 'pierreRenderJob',
-				fieldPath: ['job', 'payload', 'textBytes'],
-				byteLength: 8,
-				mode: 'transfer',
-			},
-		]);
-		expect(preparedMessage.transferList).toEqual([bytes]);
-		expect(clonedMessage.job.payload.kind).toBe('textWindow');
-		if (clonedMessage.job.payload.kind === 'textWindow') {
-			expect(clonedMessage.job.payload.textBytes.byteLength).toBe(8);
-		}
-		expect(bytes.byteLength).toBe(8);
-	});
-
-	test('prepares review diff jobs with both text window buffers declared for transfer', () => {
-		const baseTextBytes = new ArrayBuffer(11);
-		const headTextBytes = new ArrayBuffer(17);
-		const message: BridgeWorkerPierreRenderJobEvent = {
-			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
-			direction: 'serverWorkerToMain',
-			transferDescriptors: [],
-			kind: 'pierreRenderJob',
-			job: buildBridgeWorkerPierreRenderJob({
-				itemId: 'item-diff',
-				renderKind: 'reviewDiff',
-				contentCacheKey: 'pierre-content:sha256:base|pierre-content:sha256:head',
-				contentHash: 'sha256:base+head',
-				language: 'typescript',
-				bridgeDemandRank: { lane: 'selected', priority: 0 },
-				window: {
-					startLine: 1,
-					endLine: 12,
-					totalLineCount: 120,
-				},
-				payload: {
-					kind: 'diffTextWindow',
-					baseTextBytes,
-					headTextBytes,
+					kind: 'codeViewFileItem',
+					item: {
+						id: 'item-1',
+						type: 'file',
+						file: {
+							name: 'Sources/App.ts',
+							contents,
+							lang: 'typescript',
+							cacheKey: 'pierre-content:sha256:abc123',
+						},
+						version: 2,
+						bridgeMetadata: {
+							itemId: 'item-1',
+							displayPath: 'Sources/App.ts',
+							contentState: 'hydrated',
+							contentRoles: ['head'],
+							cacheKey: 'pierre-content:sha256:abc123',
+							lineCount: 1,
+						},
+					},
 				},
 				budget: {
 					className: 'interactive',
@@ -154,74 +118,58 @@ describe('Bridge worker transfer list', () => {
 		const preparedMessage = prepareBridgeWorkerStructuredMessage({
 			message,
 			declaredFields: [
-				{ fieldPath: ['job', 'payload', 'baseTextBytes'], mode: 'transfer' },
-				{ fieldPath: ['job', 'payload', 'headTextBytes'], mode: 'transfer' },
+				{ fieldPath: ['job', 'payload'], mode: 'clone', byteLength: cloneByteLength },
 			],
 		});
+		const clonedMessage = cloneBridgeWorkerStructuredMessage(preparedMessage.message);
 
 		expect(preparedMessage.message.transferDescriptors).toEqual([
 			{
 				messageKind: 'pierreRenderJob',
-				fieldPath: ['job', 'payload', 'baseTextBytes'],
-				byteLength: 11,
-				mode: 'transfer',
-			},
-			{
-				messageKind: 'pierreRenderJob',
-				fieldPath: ['job', 'payload', 'headTextBytes'],
-				byteLength: 17,
-				mode: 'transfer',
+				fieldPath: ['job', 'payload'],
+				byteLength: cloneByteLength,
+				mode: 'clone',
 			},
 		]);
-		expect(preparedMessage.transferList).toEqual([baseTextBytes, headTextBytes]);
+		expect(preparedMessage.transferList).toEqual([]);
+		expect(clonedMessage.job.payload.kind).toBe('codeViewFileItem');
+		if (clonedMessage.job.payload.kind === 'codeViewFileItem') {
+			expect(clonedMessage.job.payload.item.file.contents).toBe(contents);
+		}
 	});
 
-	test('prepares one-sided review diff jobs with only the present side declared for transfer', () => {
-		const headTextBytes = new ArrayBuffer(19);
-		const message: BridgeWorkerPierreRenderJobEvent = {
-			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
-			direction: 'serverWorkerToMain',
-			transferDescriptors: [],
-			kind: 'pierreRenderJob',
-			job: buildBridgeWorkerPierreRenderJob({
-				itemId: 'item-added',
-				renderKind: 'reviewDiff',
-				contentCacheKey: 'pierre-content:empty|pierre-content:sha256:head',
-				contentHash: 'sha256:head',
-				language: 'typescript',
-				bridgeDemandRank: { lane: 'selected', priority: 0 },
-				window: {
-					startLine: 1,
-					endLine: 10,
-					totalLineCount: 10,
-				},
-				payload: {
-					kind: 'diffTextWindow',
-					baseTextBytes: null,
-					headTextBytes,
-				},
-				budget: {
-					className: 'interactive',
-					maxBytes: 1024,
-					maxWindowLines: 50,
-				},
-			}),
-		};
-
-		const preparedMessage = prepareBridgeWorkerStructuredMessage({
-			message,
-			declaredFields: [{ fieldPath: ['job', 'payload', 'headTextBytes'], mode: 'transfer' }],
-		});
-
-		expect(preparedMessage.message.transferDescriptors).toEqual([
-			{
+	test('requires explicit byte lengths for cloned object fields', () => {
+		expect(() =>
+			buildBridgeWorkerTransferList({
 				messageKind: 'pierreRenderJob',
-				fieldPath: ['job', 'payload', 'headTextBytes'],
-				byteLength: 19,
-				mode: 'transfer',
-			},
-		]);
-		expect(preparedMessage.transferList).toEqual([headTextBytes]);
+				payload: {
+					job: {
+						payload: {
+							kind: 'codeViewFileItem',
+							itemId: 'item-1',
+						},
+					},
+				},
+				declaredFields: [{ fieldPath: ['job', 'payload'], mode: 'clone' }],
+			}),
+		).toThrow(/clone field.*byte length/i);
+	});
+
+	test('rejects clone descriptors whose field path does not resolve', () => {
+		expect(() =>
+			buildBridgeWorkerTransferList({
+				messageKind: 'pierreRenderJob',
+				payload: {
+					job: {
+						payload: {
+							kind: 'codeViewFileItem',
+							itemId: 'item-1',
+						},
+					},
+				},
+				declaredFields: [{ fieldPath: ['job', 'missingPayload'], mode: 'clone', byteLength: 12 }],
+			}),
+		).toThrow(/clone field.*does not resolve/i);
 	});
 
 	test('does not typecheck synthetic messages outside BridgeWorkerContracts', () => {
