@@ -1310,10 +1310,18 @@ expected failure. Do not edit production until the red failure is observed.
 - In `BridgeWeb/src/file-viewer/state/bridge-file-viewer-store.unit.test.ts`,
   add `file view FE store rejects generation sequence staleness and retry
   ownership`.
-- Create
-  `BridgeWeb/src/file-viewer/state/bridge-file-viewer-render-snapshot.unit.test.ts`
-  with `file view BridgeMainRenderSnapshotStore accepts only local intent and
+- In
+  `BridgeWeb/src/core/comm-worker/bridge-main-render-snapshot-store.unit.test.ts`,
+  add `file view BridgeMainRenderSnapshotStore accepts only local intent and
   worker slice patches`.
+- In
+  `BridgeWeb/src/file-viewer/bridge-file-viewer-store-source-structure.unit.test.ts`,
+  add or keep guards proving File View does not introduce a route-local render
+  snapshot store and that the UI store owns only local search/filter facts.
+- In
+  `BridgeWeb/src/file-viewer/use-bridge-file-viewer-store-bindings.browser.test.tsx`,
+  add or keep browser-hook proof for any temporary legacy display adapter until
+  File View render display fully moves to shared worker slices.
 - In `BridgeWeb/src/core/comm-worker/bridge-worker-pierre-courier.unit.test.ts`,
   add `file view courier enqueues BridgeWorkerPierreRenderJob through Pierre
   without content loading decoding or line-window work on main`.
@@ -1330,7 +1338,8 @@ Red-first proof:
 
 ```bash
 pnpm --dir BridgeWeb exec tsc --noEmit
-pnpm --dir BridgeWeb exec vitest run src/file-viewer/bridge-file-viewer-app.unit.test.ts src/file-viewer/state/bridge-file-viewer-store.unit.test.ts src/file-viewer/state/bridge-file-viewer-render-snapshot.unit.test.ts src/core/comm-worker/bridge-worker-pierre-courier.unit.test.ts src/core/comm-worker/bridge-comm-worker-store.unit.test.ts src/worktree-file-surface/worktree-file-surface-runtime.demand.integration-suite.ts
+pnpm --dir BridgeWeb exec vitest run src/file-viewer/bridge-file-viewer-app.unit.test.ts src/file-viewer/bridge-file-viewer-store-source-structure.unit.test.ts src/file-viewer/state/bridge-file-viewer-store.unit.test.ts src/core/comm-worker/bridge-main-render-snapshot-store.unit.test.ts src/core/comm-worker/bridge-worker-pierre-courier.unit.test.ts src/core/comm-worker/bridge-comm-worker-store.unit.test.ts src/worktree-file-surface/worktree-file-surface-runtime.demand.integration-suite.ts
+pnpm --dir BridgeWeb exec vitest --config vitest.browser.config.ts run --project integration-browser src/file-viewer/use-bridge-file-viewer-store-bindings.browser.test.tsx
 pnpm --dir BridgeWeb exec vitest --config vitest.browser.config.ts run --project integration-browser src/file-viewer/bridge-file-viewer-app.browser.test.tsx
 ```
 
@@ -1342,7 +1351,8 @@ unbounded frame/projection/Pierre payload reconstruction apply.
 Green proof:
 
 ```bash
-pnpm --dir BridgeWeb exec vitest run src/file-viewer/bridge-file-viewer-app.unit.test.ts src/file-viewer/state/bridge-file-viewer-store.unit.test.ts src/file-viewer/state/bridge-file-viewer-render-snapshot.unit.test.ts src/core/comm-worker/bridge-worker-pierre-courier.unit.test.ts src/core/comm-worker/bridge-comm-worker-store.unit.test.ts src/worktree-file-surface/worktree-file-surface-runtime.demand.integration-suite.ts
+pnpm --dir BridgeWeb exec vitest run src/file-viewer/bridge-file-viewer-app.unit.test.ts src/file-viewer/bridge-file-viewer-store-source-structure.unit.test.ts src/file-viewer/state/bridge-file-viewer-store.unit.test.ts src/core/comm-worker/bridge-main-render-snapshot-store.unit.test.ts src/core/comm-worker/bridge-worker-pierre-courier.unit.test.ts src/core/comm-worker/bridge-comm-worker-store.unit.test.ts src/worktree-file-surface/worktree-file-surface-runtime.demand.integration-suite.ts
+pnpm --dir BridgeWeb exec vitest --config vitest.browser.config.ts run --project integration-browser src/file-viewer/use-bridge-file-viewer-store-bindings.browser.test.tsx
 pnpm --dir BridgeWeb exec vitest --config vitest.browser.config.ts run --project integration-browser src/file-viewer/bridge-file-viewer-app.browser.test.tsx
 pnpm --dir BridgeWeb exec tsc --noEmit
 ```
