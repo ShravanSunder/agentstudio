@@ -8,7 +8,7 @@ import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-tel
 import type { BridgeTraceContext } from '../foundation/telemetry/bridge-trace-context.js';
 import type { BridgeCodeViewItemPresentation } from '../review-viewer/code-view/bridge-code-view-materialization.js';
 import type { BridgeCodeViewControlHandle } from '../review-viewer/code-view/bridge-code-view-panel.js';
-import type { ReviewContentDemandTelemetry } from '../review-viewer/content/review-content-demand-loader.js';
+import type { ReviewContentDemandTelemetry } from '../review-viewer/content/review-content-demand-types.js';
 import type { BridgeReviewProjectionResult } from '../review-viewer/models/review-projection-models.js';
 import {
 	BridgeReviewEmptyShell,

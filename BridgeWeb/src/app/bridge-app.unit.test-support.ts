@@ -10,7 +10,7 @@ import type {
 	BridgeTelemetryMeasureProps,
 	BridgeTelemetryRecorder,
 } from '../foundation/telemetry/bridge-telemetry-recorder.js';
-import type { ReviewContentDemandTelemetry } from '../review-viewer/content/review-content-demand-loader.js';
+import type { ReviewContentDemandTelemetry } from '../review-viewer/content/review-content-demand-types.js';
 import type { BridgeReviewProjectionInputItem } from '../review-viewer/models/review-projection-models.js';
 import type { BridgeReviewFrameAuthority } from './bridge-app.js';
 

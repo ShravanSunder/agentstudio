@@ -17,7 +17,7 @@ import type {
 } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import type { BridgeTraceContext } from '../foundation/telemetry/bridge-trace-context.js';
 import type { BridgeCodeViewControlHandle } from '../review-viewer/code-view/bridge-code-view-panel.js';
-import type { ReviewContentDemandTelemetry } from '../review-viewer/content/review-content-demand-loader.js';
+import type { ReviewContentDemandTelemetry } from '../review-viewer/content/review-content-demand-types.js';
 import { useBridgeReviewProjectionCoordinator } from '../review-viewer/projections/use-review-projection-coordinator.js';
 import { selectBridgeReviewPanelChromeSlice } from '../review-viewer/state/review-viewer-store.js';
 import { createBridgeMarkdownRenderWebWorkerClient } from '../review-viewer/workers/markdown/bridge-markdown-render-worker-transport.js';

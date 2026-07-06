@@ -15,7 +15,6 @@ import type {
 } from '../../foundation/review-package/bridge-review-package.js';
 import type { BridgeCodeViewItemPresentation } from '../code-view/bridge-code-view-materialization.js';
 import type {
-	LoadReviewItemContentResourcesThroughDemandProps,
 	ReviewContentDemandInterest,
 	ReviewContentDemandLoadResult,
 	ReviewContentDemandPlan,
@@ -356,7 +355,7 @@ function preferredContentHandle(
 
 function stimulusForPlan(
 	plan: ReviewContentDemandPlan,
-	interest: LoadReviewItemContentResourcesThroughDemandProps['interest'],
+	interest: ReviewContentDemandInterest,
 ): Parameters<typeof mapReviewDemandStimulusToIntents>[0]['stimulus'] {
 	if (interest === 'selected') {
 		return { kind: 'reviewItemSelected', descriptorRef: plan.descriptorRef };

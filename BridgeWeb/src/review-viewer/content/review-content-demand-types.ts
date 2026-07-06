@@ -2,7 +2,6 @@ import type {
 	BridgeResourceExecutorLoadFailureKind,
 	BridgeResourceExecutorResult,
 } from '../../core/demand/bridge-resource-executor.js';
-import type { BridgeResourceExecutor } from '../../core/demand/bridge-resource-executor.js';
 import type {
 	BridgeDemandIntent,
 	BridgeDemandLane,
@@ -12,35 +11,15 @@ import type { BridgeTextResourceStreamResult } from '../../core/resources/bridge
 import type {
 	BridgeContentHandle,
 	BridgeContentRole,
-	BridgeReviewPackage,
 } from '../../foundation/review-package/bridge-review-package.js';
-import type { BridgeTelemetryRecorder } from '../../foundation/telemetry/bridge-telemetry-recorder.js';
-import type { BridgeTraceContext } from '../../foundation/telemetry/bridge-trace-context.js';
-import type {
-	BridgeCodeViewContentResources,
-	BridgeCodeViewItemPresentation,
-} from '../code-view/bridge-code-view-materialization.js';
-import type { BridgeReviewContentRegistry } from './review-content-registry.js';
-
-export interface LoadReviewItemContentResourcesThroughDemandProps {
-	readonly reviewPackage: BridgeReviewPackage;
-	readonly itemId: string;
-	readonly interest: 'selected' | 'visible' | 'nearby' | 'speculative' | 'background';
-	readonly presentation?: BridgeCodeViewItemPresentation | null;
-	readonly resolveDescriptorRef: (handle: BridgeContentHandle) => BridgeDescriptorRef | null;
-	readonly executor: BridgeResourceExecutor<BridgeTextResourceStreamResult>;
-	/** Shared review content cache: peeked before enqueueing demand intents
-	 * (an all-roles hit produces zero demand traffic) and populated after
-	 * every authoritative load so repeat selections become cache hits. */
-	readonly contentRegistry?: BridgeReviewContentRegistry;
-	readonly signal?: AbortSignal;
-	readonly traceContext?: BridgeTraceContext | null;
-	readonly telemetryRecorder?: BridgeTelemetryRecorder;
-	readonly onDemandTelemetry?: (sample: ReviewContentDemandTelemetry) => void;
-}
+import type { BridgeCodeViewContentResources } from '../code-view/bridge-code-view-materialization.js';
 
 export type ReviewContentDemandInterest =
-	LoadReviewItemContentResourcesThroughDemandProps['interest'];
+	| 'selected'
+	| 'visible'
+	| 'nearby'
+	| 'speculative'
+	| 'background';
 
 export type ReviewContentDemandLoadResult =
 	| {

@@ -43,12 +43,8 @@ export {
 } from './bridge-app-review-runtime.js';
 export {
 	selectedCanvasLoadingReasonForCurrentSelection,
-	selectedContentResourcesStateFromDemandLoadResult,
-	selectedContentResourcesStateFromLoadResult,
 	selectedContentUnavailablePathForCurrentSelection,
 	reviewFileTargetForReviewPackagePath,
-	shouldPauseVisibleReviewContentHydration,
-	shouldStartSelectedReviewContentDemand,
 } from './bridge-app-review-selection-state.js';
 import {
 	bridgeViewerActivationPrewarm,

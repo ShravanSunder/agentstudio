@@ -2,7 +2,7 @@ import type { Dispatch, SetStateAction } from 'react';
 import { useEffect } from 'react';
 
 import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
-import type { ReviewContentDemandTelemetry } from '../review-viewer/content/review-content-demand-loader.js';
+import type { ReviewContentDemandTelemetry } from '../review-viewer/content/review-content-demand-types.js';
 import { reviewContentDemandTelemetryForPackage } from './bridge-app-review-selection-state.js';
 
 export interface UseBridgeReviewDemandTelemetryControllerProps {

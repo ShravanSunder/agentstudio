@@ -31,7 +31,7 @@ import {
 	BridgeCodeViewPanel,
 	type BridgeCodeViewControlHandle,
 } from '../code-view/bridge-code-view-panel.js';
-import type { ReviewContentDemandTelemetry } from '../content/review-content-demand-loader.js';
+import type { ReviewContentDemandTelemetry } from '../content/review-content-demand-types.js';
 import { BridgeMarkdownPreview } from '../markdown/bridge-markdown-preview.js';
 import type {
 	BridgeReviewProjectionMode,

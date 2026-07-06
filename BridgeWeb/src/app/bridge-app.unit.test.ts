@@ -1,25 +1,20 @@
 import { describe, expect, test, vi } from 'vitest';
 
-import { createBridgeResourceExecutor } from '../core/demand/bridge-resource-executor.js';
 import { createBridgeResourceDescriptorRegistry } from '../core/resources/bridge-resource-registry.js';
-import type { BridgeTextResourceStreamResult } from '../core/resources/bridge-resource-stream.js';
 import type { ReviewMaterializerDelta } from '../features/review/materialization/review-materializer.js';
 import type {
 	ReviewInvalidationFrame,
 	ReviewTreeRowMetadata,
 } from '../features/review/models/review-protocol-models.js';
 import {
-	makeBridgeContentHandle,
 	makeBridgeReviewItem,
 	makeBridgeReviewPackage,
 } from '../foundation/review-package/bridge-review-package-test-support.js';
 import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
-import { loadReviewItemContentResourcesThroughDemandResult } from '../review-viewer/content/review-content-demand-loader.js';
 import { makeBridgeViewerBrowserFixture } from '../review-viewer/test-support/bridge-viewer-mocked-backend.js';
 import { applyReviewProtocolTransportFrame } from './bridge-app-review-controller.js';
 import {
 	applyReviewMetadataDeltaToReviewPackage,
-	bridgeReviewContentDemandByteBudget,
 	contentDemandResourceUrl,
 	pruneEmptyReviewTreeDirectories,
 	reviewSnapshotDescriptorRefsByHandleIdForPackage,
@@ -28,21 +23,14 @@ import {
 	reviewFileTargetForReviewPackagePath,
 	reviewItemDemandCancellationTargetForSelectionChange,
 	selectedCanvasLoadingReasonForCurrentSelection,
-	selectedContentResourcesStateFromDemandLoadResult,
 	selectedContentUnavailablePathForCurrentSelection,
-	shouldStartSelectedReviewContentDemand,
-	shouldPauseVisibleReviewContentHydration,
 	type BridgeReviewFrameAuthority,
 } from './bridge-app.js';
 import {
-	createDeferred,
-	flushMicrotasks,
 	makeNoopTelemetryRecorder,
 	makeReviewAttachedContentDescriptor,
 	makeReviewMetadataSnapshotFrame,
 	makeReviewProjectionInputItem,
-	makeTextStreamResult,
-	type Deferred,
 } from './bridge-app.unit.test-support.js';
 
 type ReviewDeltaMaterializerDelta = Extract<
@@ -84,80 +72,6 @@ describe('BridgeApp selection demand cancellation', () => {
 		});
 
 		expect(cancellationTarget).toBeUndefined();
-	});
-});
-
-describe('BridgeApp visible review content hydration policy', () => {
-	test('pauses visible warming while worker-owned selected availability is loading', () => {
-		expect(
-			shouldPauseVisibleReviewContentHydration({
-				isActive: true,
-				codeViewScrollActive: false,
-				currentSelectedContentKey: 'selected-key',
-				foregroundSelectedContentKey: null,
-				selectedContentAvailability: { state: 'loading' },
-			}),
-		).toBe(true);
-	});
-
-	test('pauses visible warming immediately during foreground selection transition', () => {
-		expect(
-			shouldPauseVisibleReviewContentHydration({
-				isActive: true,
-				codeViewScrollActive: false,
-				currentSelectedContentKey: 'selected-key',
-				foregroundSelectedContentKey: 'selected-key',
-				selectedContentAvailability: null,
-			}),
-		).toBe(true);
-	});
-
-	test('ignores stale foreground selection transition keys', () => {
-		expect(
-			shouldPauseVisibleReviewContentHydration({
-				isActive: true,
-				codeViewScrollActive: false,
-				currentSelectedContentKey: 'selected-key',
-				foregroundSelectedContentKey: 'stale-key',
-				selectedContentAvailability: { state: 'ready' },
-			}),
-		).toBe(false);
-	});
-
-	test('pauses visible warming while initial selected content state is not yet established', () => {
-		expect(
-			shouldPauseVisibleReviewContentHydration({
-				isActive: true,
-				codeViewScrollActive: false,
-				currentSelectedContentKey: 'selected-key',
-				foregroundSelectedContentKey: null,
-				selectedContentAvailability: null,
-			}),
-		).toBe(true);
-	});
-
-	test('keeps visible warming active when selected foreground content is resolved', () => {
-		expect(
-			shouldPauseVisibleReviewContentHydration({
-				isActive: true,
-				codeViewScrollActive: false,
-				currentSelectedContentKey: 'selected-key',
-				foregroundSelectedContentKey: null,
-				selectedContentAvailability: { state: 'ready' },
-			}),
-		).toBe(false);
-	});
-
-	test('pauses visible warming while the Review CodeView is actively scrolling', () => {
-		expect(
-			shouldPauseVisibleReviewContentHydration({
-				isActive: true,
-				codeViewScrollActive: true,
-				currentSelectedContentKey: 'selected-key',
-				foregroundSelectedContentKey: null,
-				selectedContentAvailability: { state: 'ready' },
-			}),
-		).toBe(true);
 	});
 });
 
@@ -243,46 +157,6 @@ describe('BridgeApp selected review content demand policy', () => {
 			},
 			version: 'current',
 			reviewItemId: 'browser-filler-large-diffshub-292',
-		});
-	});
-
-	test('does not reload ready selected content when only invalidation load key changes', () => {
-		const selectedContentKey = 'package-1:1:1:item-source:base-head';
-
-		expect(
-			shouldStartSelectedReviewContentDemand({
-				activeSelectedContentLoadKey: null,
-				currentSelectedContentResourcesState: {
-					itemId: 'item-source',
-					contentKey: selectedContentKey,
-					status: 'ready',
-					resources: {
-						file: {
-							handle: makeBridgeContentHandle('item-source', 'head'),
-							readText: () => 'ready content',
-						},
-					},
-				},
-				selectedContentKey,
-				selectedContentLoadKey: `${selectedContentKey}:invalidation:2`,
-			}),
-		).toBe(false);
-	});
-
-	test('does not park selected content loading when old demand returns deferred', () => {
-		expect(
-			selectedContentResourcesStateFromDemandLoadResult({
-				itemId: 'item-source',
-				contentKey: 'package-1:1:1:item-source:base-head',
-				demandStartedAtMilliseconds: 42,
-				loadResult: { status: 'deferred', reason: 'aborted' },
-			}),
-		).toEqual({
-			itemId: 'item-source',
-			contentKey: 'package-1:1:1:item-source:base-head',
-			demandStartedAtMilliseconds: 42,
-			status: 'failed',
-			resources: null,
 		});
 	});
 });
@@ -462,102 +336,6 @@ describe('BridgeApp Review content demand byte budget', () => {
 			throw new Error('Expected applied package to include base/head content handles');
 		}
 		expect(currentTreeRows.length).toBeGreaterThan(0);
-	});
-
-	test('starts both selected modified native descriptors within aggregate role budget', async () => {
-		const reviewPackage = makeBridgeReviewPackage();
-		const reviewFrameAuthority: BridgeReviewFrameAuthority = {
-			paneId: 'pane-1',
-			streamId: 'review:pane-1',
-		};
-		const item = reviewPackage.itemsById['item-source'];
-		const baseHandle = item?.contentRoles.base ?? null;
-		const headHandle = item?.contentRoles.head ?? null;
-		if (baseHandle === null || headHandle === null) {
-			throw new Error('Expected fixture review package to include modified base/head content');
-		}
-		const registry = createBridgeResourceDescriptorRegistry({
-			allowedResourceKindsByProtocol: {
-				review: new Set(['content']),
-			},
-		});
-		const contentByteBounds = {
-			expectedBytes: undefined,
-			maxBytes: bridgeReviewContentDemandByteBudget.maxContentBytesPerRole,
-		};
-		const frame = makeReviewMetadataSnapshotFrame({
-			contentDescriptors: [
-				makeReviewAttachedContentDescriptor({
-					handle: baseHandle,
-					reviewFrameAuthority,
-					reviewPackage,
-					contentByteBounds,
-				}),
-				makeReviewAttachedContentDescriptor({
-					handle: headHandle,
-					reviewFrameAuthority,
-					reviewPackage,
-					contentByteBounds,
-				}),
-			],
-			reviewFrameAuthority,
-			reviewPackage,
-		});
-		const descriptorRefsByHandleId = reviewSnapshotDescriptorRefsByHandleIdForPackage({
-			descriptorRegistry: registry,
-			frame,
-			reviewFrameAuthority,
-			reviewPackage,
-		});
-		if (descriptorRefsByHandleId === null) {
-			throw new Error('Expected descriptor refs to register');
-		}
-		const requestedDescriptorIds: string[] = [];
-		const deferredResultsByDescriptorId = new Map<
-			string,
-			Deferred<{
-				readonly content: BridgeTextResourceStreamResult;
-				readonly byteLength: number;
-			}>
-		>();
-		const executor = createBridgeResourceExecutor<BridgeTextResourceStreamResult>({
-			registry,
-			maxConcurrentLoads: 2,
-			maxInFlightBytes: bridgeReviewContentDemandByteBudget.resourceExecutorMaxInFlightBytes,
-			maxQueuedLoads: 8,
-			maxQueuedBytes: bridgeReviewContentDemandByteBudget.resourceExecutorMaxQueuedBytes,
-			loadResource: async ({ descriptor }) => {
-				requestedDescriptorIds.push(descriptor.descriptorId);
-				const deferredResult = createDeferred<{
-					readonly content: BridgeTextResourceStreamResult;
-					readonly byteLength: number;
-				}>();
-				deferredResultsByDescriptorId.set(descriptor.descriptorId, deferredResult);
-				return await deferredResult.promise;
-			},
-		});
-
-		const resultPromise = loadReviewItemContentResourcesThroughDemandResult({
-			reviewPackage,
-			itemId: 'item-source',
-			interest: 'selected',
-			resolveDescriptorRef: (handle) => descriptorRefsByHandleId.get(handle.handleId) ?? null,
-			executor,
-		});
-		await flushMicrotasks(4);
-		const initiallyRequestedDescriptorIds = [...requestedDescriptorIds];
-		for (const [descriptorId, deferredResult] of deferredResultsByDescriptorId) {
-			deferredResult.resolve({
-				content: makeTextStreamResult(`${descriptorId} selected text`),
-				byteLength: 24,
-			});
-		}
-		await expect(resultPromise).resolves.toMatchObject({ status: 'ready' });
-
-		expect(initiallyRequestedDescriptorIds.toSorted()).toEqual([
-			baseHandle.handleId,
-			headHandle.handleId,
-		]);
 	});
 
 	test('decorates native content fetch URLs with demand interest without mutating descriptor identity', () => {

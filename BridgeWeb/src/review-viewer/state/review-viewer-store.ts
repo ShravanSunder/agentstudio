@@ -13,7 +13,12 @@ import type {
 
 export type BridgeReviewProjectionStatus = 'idle' | 'running' | 'ready' | 'failed';
 export type BridgeReviewWorkerLane = 'sync' | 'worker';
-export type BridgeContentHydrationStatusKind = 'idle' | 'queued' | 'loading' | 'ready' | 'failed';
+export type BridgeReviewContentAvailabilityStatusKind =
+	| 'idle'
+	| 'queued'
+	| 'loading'
+	| 'ready'
+	| 'failed';
 
 export interface BridgeReviewViewerRootSnapshot {
 	readonly selectedItemId: string | null;
@@ -42,7 +47,7 @@ export interface BridgeReviewRowPaintSlice {
 
 export interface BridgeReviewContentAvailabilitySlice {
 	readonly itemId: string;
-	readonly status: BridgeContentHydrationStatusKind;
+	readonly status: BridgeReviewContentAvailabilityStatusKind;
 	readonly contentHandleId: string | null;
 }
 
@@ -64,12 +69,6 @@ export interface BridgeReviewWorkerStatus {
 	readonly lastCompletedRequestId: string | null;
 }
 
-export interface BridgeContentHydrationStatus {
-	readonly itemId: string;
-	readonly status: BridgeContentHydrationStatusKind;
-	readonly contentHandleId: string | null;
-}
-
 export interface ApplyProjectionWorkerResultProps {
 	readonly identity: BridgeReviewProjectionRequestIdentity;
 	readonly result: BridgeReviewProjectionResult;
@@ -89,7 +88,6 @@ export interface BridgeReviewViewerStoreActions {
 	readonly failProjectionRequest: (identity: BridgeReviewProjectionRequestIdentity) => boolean;
 	readonly cancelProjectionRequest: (identity: BridgeReviewProjectionRequestIdentity) => boolean;
 	readonly setWorkerStatus: (status: BridgeReviewWorkerStatus) => void;
-	readonly setContentHydrationStatus: (status: BridgeContentHydrationStatus) => void;
 	readonly setMountedItemIds: (itemIds: readonly string[]) => void;
 }
 
@@ -106,7 +104,6 @@ export interface BridgeReviewViewerStoreState {
 	readonly projectionIdentity: BridgeReviewProjectionRequestIdentity | null;
 	readonly activeProjectionRequestIdentity: BridgeReviewProjectionRequestIdentity | null;
 	readonly workerStatus: BridgeReviewWorkerStatus;
-	readonly contentHydrationByItemId: Readonly<Record<string, BridgeContentHydrationStatus>>;
 	readonly mountedItemIds: readonly string[];
 	readonly actions: BridgeReviewViewerStoreActions;
 }
@@ -175,7 +172,6 @@ export function createBridgeReviewViewerStore(): BridgeReviewViewerStore {
 					pendingRequestCount: 0,
 					lastCompletedRequestId: null,
 				},
-				contentHydrationByItemId: {},
 				mountedItemIds: [],
 				actions: {
 					setSelectedItemId: (itemId: string | null): void => {
@@ -301,20 +297,6 @@ export function createBridgeReviewViewerStore(): BridgeReviewViewerStore {
 					},
 					setWorkerStatus: (status: BridgeReviewWorkerStatus): void => {
 						set({ workerStatus: status });
-					},
-					setContentHydrationStatus: (status: BridgeContentHydrationStatus): void => {
-						set(
-							(state: BridgeReviewViewerStoreState): Partial<BridgeReviewViewerStoreState> => ({
-								contentHydrationByItemId: {
-									...state.contentHydrationByItemId,
-									[status.itemId]: status,
-								},
-								contentAvailabilityByItemId: {
-									...state.contentAvailabilityByItemId,
-									[status.itemId]: contentAvailabilitySliceFromStatus(status),
-								},
-							}),
-						);
 					},
 					setMountedItemIds: (itemIds: readonly string[]): void => {
 						set({ mountedItemIds: itemIds, viewportSlice: { visibleItemIds: itemIds } });
@@ -459,16 +441,6 @@ function rowPaintSlicesForSelectionChange(props: {
 		};
 	}
 	return next;
-}
-
-function contentAvailabilitySliceFromStatus(
-	status: BridgeContentHydrationStatus,
-): BridgeReviewContentAvailabilitySlice {
-	return {
-		itemId: status.itemId,
-		status: status.status,
-		contentHandleId: status.contentHandleId,
-	};
 }
 
 function defaultRowPaintSlice(itemId: string): BridgeReviewRowPaintSlice {

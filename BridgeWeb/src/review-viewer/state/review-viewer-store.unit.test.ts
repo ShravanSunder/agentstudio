@@ -56,7 +56,7 @@ describe('Bridge review viewer Zustand store', () => {
 		unsubscribePanelChrome();
 	});
 
-	test('keeps root subscriptions stable for worker stats and content hydration updates', () => {
+	test('keeps root subscriptions stable for worker stats and viewport updates', () => {
 		const store = createBridgeReviewViewerStore();
 		let rootRenderCount = 0;
 		const unsubscribe = store.subscribe(selectBridgeReviewViewerRootSnapshot, () => {
@@ -68,11 +68,7 @@ describe('Bridge review viewer Zustand store', () => {
 			pendingRequestCount: 1,
 			lastCompletedRequestId: null,
 		});
-		store.getState().actions.setContentHydrationStatus({
-			itemId: 'source-high',
-			status: 'loading',
-			contentHandleId: 'handle-source-high',
-		});
+		store.getState().actions.setMountedItemIds(['source-high']);
 
 		expect(rootRenderCount).toBe(0);
 
@@ -206,7 +202,7 @@ describe('Bridge review viewer Zustand store', () => {
 		expect(store.getState().projectionIdentity).toEqual(completedIdentity);
 	});
 
-	test('keeps hydrated bodies and runtime controls out of the Zustand snapshot', () => {
+	test('keeps runtime controls out of the Zustand snapshot', () => {
 		const reviewPackage = makeBridgeViewerProjectionFixture();
 		const projectionInput = makeBridgeReviewProjectionInput(reviewPackage);
 		const projectionRequest = {
@@ -229,20 +225,10 @@ describe('Bridge review viewer Zustand store', () => {
 			result: buildBridgeReviewProjection({ reviewPackage, request: projectionRequest }),
 		});
 		store.getState().actions.setSelectedItemId('source-high');
-		store.getState().actions.setContentHydrationStatus({
-			itemId: 'source-high',
-			status: 'ready',
-			contentHandleId: 'handle-source-high-head',
-		});
 
 		const snapshot = serializableViewerStateForBodyBoundary(store.getState());
 		const snapshotJSON = JSON.stringify(snapshot);
 
-		expect(snapshot.contentHydrationByItemId['source-high']).toEqual({
-			itemId: 'source-high',
-			status: 'ready',
-			contentHandleId: 'handle-source-high-head',
-		});
 		expect(snapshotJSON).not.toContain('large base text');
 		expect(snapshotJSON).not.toContain('large head text');
 		expect(snapshotJSON).not.toContain('agentstudio://resource');

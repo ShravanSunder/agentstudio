@@ -16,7 +16,7 @@ import { BridgeReviewFacetMenu } from '../chrome/bridge-review-facet-menu.js';
 import { BridgeReviewProjectionMenu } from '../chrome/bridge-review-projection-menu.js';
 import { materializeBridgeCodeViewLoadingItem } from '../code-view/bridge-code-view-materialization.js';
 import { BridgeCodeViewPanel } from '../code-view/bridge-code-view-panel.js';
-import type { ReviewContentDemandTelemetry } from '../content/review-content-demand-loader.js';
+import type { ReviewContentDemandTelemetry } from '../content/review-content-demand-types.js';
 import { BridgeMarkdownPreview } from '../markdown/bridge-markdown-preview.js';
 import { buildBridgeReviewProjection } from '../navigation/review-projection.js';
 import { BridgeReviewCanvasLoadingState, ReviewViewerShell } from './review-viewer-shell.js';

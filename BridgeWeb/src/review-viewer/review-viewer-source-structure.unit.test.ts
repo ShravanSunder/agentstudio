@@ -327,6 +327,50 @@ describe('Review viewer source structure', () => {
 		expect(forbiddenLiveTokens).toEqual([]);
 	});
 
+	test('deletes dead Review FE content authority modules after worker render cutover', () => {
+		const selectionStateSource = readSource('../app/bridge-app-review-selection-state.ts');
+		const modeSource = readSource('../app/bridge-app-review-viewer-mode.tsx');
+		const demandTelemetryControllerSource = readSource(
+			'../app/bridge-app-review-demand-telemetry-controller.ts',
+		);
+		const shellBoundarySource = readSource('../app/bridge-app-review-viewer-shell-boundary.tsx');
+		const reviewShellSource = readSource('./shell/review-viewer-shell.tsx');
+		const deletedLegacyFiles = [
+			'./content/visible-review-content-hydration.ts',
+			'./content/visible-review-content-hydration-demand.ts',
+			'./content/visible-review-content-hydration-load-state.ts',
+			'./content/visible-review-content-hydration-result.ts',
+			'./content/visible-review-content-hydration-support.ts',
+			'./content/review-content-demand-loader.ts',
+			'./content/review-content-loader.ts',
+			'./content/review-content-registry.ts',
+		].filter((relativePath): boolean => sourceFileExists(relativePath));
+		const forbiddenLegacyImports = (
+			[
+				['bridge-app-review-selection-state.ts', selectionStateSource],
+				['bridge-app-review-viewer-mode.tsx', modeSource],
+				['bridge-app-review-demand-telemetry-controller.ts', demandTelemetryControllerSource],
+				['bridge-app-review-viewer-shell-boundary.tsx', shellBoundarySource],
+				['review-viewer-shell.tsx', reviewShellSource],
+			] satisfies ReadonlyArray<readonly [string, string]>
+		).flatMap(([owner, source]): string[] =>
+			[
+				'./content/visible-review-content-hydration.js',
+				'../content/review-content-demand-loader.js',
+				'../content/review-content-registry.js',
+				'../content/visible-review-content-hydration.js',
+			]
+				.filter((token): boolean => source.includes(token))
+				.map((token): string => `${owner}: ${token}`),
+		);
+
+		expect(deletedLegacyFiles).toEqual([]);
+		expect(selectionStateSource).toContain(
+			"from '../review-viewer/content/visible-review-content-hydration-identity.js'",
+		);
+		expect(forbiddenLegacyImports).toEqual([]);
+	});
+
 	test('keeps Review selected display loading on worker availability slices', () => {
 		const modeSource = readSource('../app/bridge-app-review-viewer-mode.tsx');
 		const selectedLoadingSource = modeSource.slice(
@@ -406,6 +450,8 @@ describe('Review viewer source structure', () => {
 		expect(storeSource).not.toContain('descriptorRegistry');
 		expect(storeSource).not.toContain('resourceExecutor');
 		expect(storeSource).not.toContain('AbortController');
+		expect(storeSource).not.toContain('contentHydrationByItemId');
+		expect(storeSource).not.toContain('setContentHydrationStatus');
 		expect(storeSource).not.toContain('CodeViewHandle');
 		expect(storeSource).not.toContain('useFileTree');
 		expect(storeSource).not.toContain('@pierre/');
