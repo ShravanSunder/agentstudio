@@ -1,5 +1,4 @@
 import { useRef } from 'react';
-import { useStore } from 'zustand';
 
 import type { WorktreeFileSurfaceLoadTelemetry } from '../worktree-file-surface/worktree-file-surface-runtime.js';
 import type {
@@ -12,6 +11,7 @@ import type {
 import {
 	createBridgeFileViewerStore,
 	selectBridgeFileViewerRootSnapshot,
+	useBridgeFileViewerStoreSelector,
 	type BridgeFileViewerRootSnapshot,
 	type BridgeFileViewerStore,
 	type BridgeFileViewerStoreActions,
@@ -35,14 +35,29 @@ export function useBridgeFileViewerStoreBindings(): BridgeFileViewerStoreBinding
 		storeRef.current = createBridgeFileViewerStore();
 	}
 	const viewerStore = storeRef.current;
-	const rootSnapshot = useStore(viewerStore, selectBridgeFileViewerRootSnapshot);
-	const viewerActions = useStore(viewerStore, (state) => state.actions);
-	const renderState = useStore(viewerStore, (state) => state.renderState);
-	const openFileState = useStore(viewerStore, (state) => state.openFileState);
-	const initialSurfaceLoadState = useStore(viewerStore, (state) => state.initialSurfaceLoadState);
-	const refreshDebugState = useStore(viewerStore, (state) => state.refreshDebugState);
-	const lastOpenLoadTelemetry = useStore(viewerStore, (state) => state.lastOpenLoadTelemetry);
-	const lastDemandDispatchDebugState = useStore(
+	const rootSnapshot = useBridgeFileViewerStoreSelector(
+		viewerStore,
+		selectBridgeFileViewerRootSnapshot,
+	);
+	const viewerActions = useBridgeFileViewerStoreSelector(viewerStore, (state) => state.actions);
+	const renderState = useBridgeFileViewerStoreSelector(viewerStore, (state) => state.renderState);
+	const openFileState = useBridgeFileViewerStoreSelector(
+		viewerStore,
+		(state) => state.openFileState,
+	);
+	const initialSurfaceLoadState = useBridgeFileViewerStoreSelector(
+		viewerStore,
+		(state) => state.initialSurfaceLoadState,
+	);
+	const refreshDebugState = useBridgeFileViewerStoreSelector(
+		viewerStore,
+		(state) => state.refreshDebugState,
+	);
+	const lastOpenLoadTelemetry = useBridgeFileViewerStoreSelector(
+		viewerStore,
+		(state) => state.lastOpenLoadTelemetry,
+	);
+	const lastDemandDispatchDebugState = useBridgeFileViewerStoreSelector(
 		viewerStore,
 		(state) => state.lastDemandDispatchDebugState,
 	);

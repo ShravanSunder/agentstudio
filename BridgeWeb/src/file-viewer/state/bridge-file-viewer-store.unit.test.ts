@@ -1,18 +1,22 @@
 import { describe, expect, test } from 'vitest';
 
 import { makeFileDescriptor } from '../bridge-file-viewer-browser-test-fixtures.js';
-import type { BridgeFileViewerStoreState } from './bridge-file-viewer-store.js';
+import type {
+	BridgeFileViewerStoreActions,
+	BridgeFileViewerStoreState,
+} from './bridge-file-viewer-store.js';
 import {
 	createBridgeFileViewerStore,
+	readBridgeFileViewerStoreSelectorSnapshot,
 	selectBridgeFileViewerRootSnapshot,
 } from './bridge-file-viewer-store.js';
 
-describe('Bridge file viewer Zustand store', () => {
+describe('Bridge file viewer render store', () => {
 	test('keeps root subscriptions stable for render hydration descriptor and open-file updates', () => {
 		const store = createBridgeFileViewerStore();
 		const descriptor = makeFileDescriptor({ path: 'Sources/App.swift' });
 		let rootRenderCount = 0;
-		const unsubscribe = store.subscribe(selectBridgeFileViewerRootSnapshot, () => {
+		const unsubscribe = store.subscribeSelector(selectBridgeFileViewerRootSnapshot, () => {
 			rootRenderCount += 1;
 		});
 
@@ -116,6 +120,61 @@ describe('Bridge file viewer Zustand store', () => {
 		});
 	});
 
+	test('does not notify stable selector subscriptions for unrelated store updates', () => {
+		const store = createBridgeFileViewerStore();
+		const initialActions = store.getState().actions;
+		const rootUpdates: string[] = [];
+		const unsubscribe = store.subscribeSelector(selectBridgeFileViewerRootSnapshot, (slice) => {
+			rootUpdates.push(slice.searchText);
+		});
+
+		store.getState().actions.setInitialSurfaceLoadState({ status: 'ready' });
+		store.getState().actions.setRefreshDebugState(null);
+
+		expect(rootUpdates).toEqual([]);
+
+		store.getState().actions.setSearchText('Sources');
+
+		expect(rootUpdates).toEqual(['Sources']);
+		expect(store.getState().actions).toBe(initialActions);
+		unsubscribe();
+	});
+
+	test('caches hook selector snapshots while store state and selector are unchanged', () => {
+		const store = createBridgeFileViewerStore();
+		const cache = { current: null };
+
+		const firstSnapshot = readBridgeFileViewerStoreSelectorSnapshot(
+			cache,
+			store,
+			selectAllocatingFileViewerStoreSnapshot,
+		);
+		const secondSnapshot = readBridgeFileViewerStoreSelectorSnapshot(
+			cache,
+			store,
+			selectAllocatingFileViewerStoreSnapshot,
+		);
+
+		expect(secondSnapshot).toBe(firstSnapshot);
+		expect(firstSnapshot.actions).toBe(store.getState().actions);
+
+		store.getState().actions.setInitialSurfaceLoadState({ status: 'ready' });
+		const afterStoreChange = readBridgeFileViewerStoreSelectorSnapshot(
+			cache,
+			store,
+			selectAllocatingFileViewerStoreSnapshot,
+		);
+		const repeatedAfterStoreChange = readBridgeFileViewerStoreSelectorSnapshot(
+			cache,
+			store,
+			selectAllocatingFileViewerStoreSnapshot,
+		);
+
+		expect(afterStoreChange).not.toBe(firstSnapshot);
+		expect(afterStoreChange.actions).toBe(firstSnapshot.actions);
+		expect(repeatedAfterStoreChange).toBe(afterStoreChange);
+	});
+
 	test('supports functional open-state transitions for frame reconciliation', () => {
 		const store = createBridgeFileViewerStore();
 		const descriptor = makeFileDescriptor({ path: 'Sources/App.swift' });
@@ -141,7 +200,7 @@ describe('Bridge file viewer Zustand store', () => {
 		});
 	});
 
-	test('keeps file bodies and runtime controls out of the Zustand snapshot', () => {
+	test('keeps file bodies and runtime controls out of the render store snapshot', () => {
 		const store = createBridgeFileViewerStore();
 		const descriptor = makeFileDescriptor({ path: 'Sources/App.swift' });
 
@@ -205,6 +264,16 @@ function serializableViewerStateForBodyBoundary(
 	const { actions, ...snapshot } = state;
 	void actions;
 	return snapshot;
+}
+
+function selectAllocatingFileViewerStoreSnapshot(state: BridgeFileViewerStoreState): {
+	readonly actions: BridgeFileViewerStoreActions;
+	readonly searchText: string;
+} {
+	return {
+		actions: state.actions,
+		searchText: state.rootSnapshot.searchText,
+	};
 }
 
 function containsRuntimeControlObject(value: unknown): boolean {
