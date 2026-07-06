@@ -1,7 +1,7 @@
+import type { BridgeMainCodeViewItem } from '../core/comm-worker/bridge-main-render-snapshot-store.js';
 import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
-import type { BridgeCodeViewContentResources } from '../review-viewer/code-view/bridge-code-view-materialization.js';
 import type { BridgeCodeViewControlHandle } from '../review-viewer/code-view/bridge-code-view-panel.js';
-import { resolveBridgeMarkdownPreviewDecision } from '../review-viewer/markdown/bridge-markdown-render-mode.js';
+import { resolveBridgeMarkdownPreviewDecisionFromCodeViewItem } from '../review-viewer/markdown/bridge-markdown-render-mode.js';
 import type { BridgeReviewProjectionResult } from '../review-viewer/models/review-projection-models.js';
 import type {
 	BridgeReviewViewerRootSnapshot,
@@ -26,7 +26,7 @@ export interface ApplyBridgeAppControlCommandProps {
 		itemId: string,
 		presentationTarget?: BridgeReviewFileNavigationTarget | null,
 	) => boolean;
-	readonly selectedContentResources: BridgeCodeViewContentResources | null;
+	readonly selectedCodeViewItem: BridgeMainCodeViewItem | null;
 	readonly selectedMarkdownPreviewState: SelectedMarkdownPreviewState | null;
 	readonly setTreeSearchOpen: (isOpen: boolean) => void;
 	readonly viewerActions: BridgeReviewViewerStoreActions;
@@ -55,7 +55,7 @@ export function applyBridgeAppControlCommand(
 		projection,
 		reviewPackage,
 		selectReviewItem,
-		selectedContentResources,
+		selectedCodeViewItem,
 		selectedMarkdownPreviewState,
 		viewerActions,
 	} = props;
@@ -133,10 +133,10 @@ export function applyBridgeAppControlCommand(
 				viewerActions.setRenderMode({ kind: 'markdownPreview' });
 				return { status: 'pending', reason: 'preview_selection_pending' };
 			}
-			const decision = resolveBridgeMarkdownPreviewDecision({
+			const decision = resolveBridgeMarkdownPreviewDecisionFromCodeViewItem({
 				reviewPackage,
+				selectedCodeViewItem,
 				selectedItemId: itemId,
-				resources: selectedContentResources,
 			});
 			if (decision.kind === 'codeView') {
 				if (decision.reason === 'contentPending') {

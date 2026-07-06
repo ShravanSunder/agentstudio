@@ -1,10 +1,10 @@
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
 import { useEffect } from 'react';
 
+import type { BridgeMainCodeViewItem } from '../core/comm-worker/bridge-main-render-snapshot-store.js';
 import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
-import type { BridgeCodeViewContentResources } from '../review-viewer/code-view/bridge-code-view-materialization.js';
-import { resolveBridgeMarkdownPreviewDecision } from '../review-viewer/markdown/bridge-markdown-render-mode.js';
+import { resolveBridgeMarkdownPreviewDecisionFromCodeViewItem } from '../review-viewer/markdown/bridge-markdown-render-mode.js';
 import type {
 	BridgeMarkdownRenderWorkerClient,
 	BridgeMarkdownRenderWorkerClientCompletion,
@@ -27,7 +27,7 @@ export interface UseBridgeReviewMarkdownPreviewControllerProps {
 	readonly markdownWorkerClient: BridgeMarkdownRenderWorkerClient | null;
 	readonly renderModeKind: 'codeView' | 'markdownPreview';
 	readonly reviewPackage: BridgeReviewPackage | null;
-	readonly selectedContentResources: BridgeCodeViewContentResources | null;
+	readonly selectedCodeViewItem: BridgeMainCodeViewItem | null;
 	readonly selectedItemId: string | null;
 	readonly selectedMarkdownPreviewStateRef: MutableRefObject<SelectedMarkdownPreviewState | null>;
 	readonly setRenderModeCodeView: () => void;
@@ -46,7 +46,7 @@ export function useBridgeReviewMarkdownPreviewController(
 		markdownWorkerClient,
 		renderModeKind,
 		reviewPackage,
-		selectedContentResources,
+		selectedCodeViewItem,
 		selectedItemId,
 		selectedMarkdownPreviewStateRef,
 		setRenderModeCodeView,
@@ -77,10 +77,10 @@ export function useBridgeReviewMarkdownPreviewController(
 		}
 
 		const selectedContentKey = makeSelectedContentResourcesKey(reviewPackage, selectedItemId);
-		const decision = resolveBridgeMarkdownPreviewDecision({
+		const decision = resolveBridgeMarkdownPreviewDecisionFromCodeViewItem({
 			reviewPackage,
+			selectedCodeViewItem,
 			selectedItemId,
-			resources: selectedContentResources,
 		});
 		const selectedMarkdownPreviewSnapshot = selectedMarkdownPreviewStateRef.current;
 
@@ -226,7 +226,7 @@ export function useBridgeReviewMarkdownPreviewController(
 		markdownWorkerClient,
 		renderModeKind,
 		reviewPackage,
-		selectedContentResources,
+		selectedCodeViewItem,
 		selectedItemId,
 		selectedMarkdownPreviewStateRef,
 		setRenderModeCodeView,

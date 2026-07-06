@@ -1,4 +1,4 @@
-import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
+import type { Dispatch, SetStateAction } from 'react';
 import { useEffect, useRef } from 'react';
 
 import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
@@ -7,7 +7,6 @@ import type {
 	BridgeReviewViewerRootSnapshot,
 	BridgeReviewViewerStoreActions,
 } from '../review-viewer/state/review-viewer-store.js';
-import type { SelectedReviewContentDemandController } from './bridge-app-review-selected-content-controller.js';
 import {
 	clearReviewRefinementsHidingExplicitTarget,
 	itemIdForReviewFileNavigationTarget,
@@ -31,9 +30,7 @@ export interface UseBridgeReviewNavigationControllerProps {
 		itemId: string,
 		presentationTarget?: BridgeReviewFileNavigationTarget | null,
 	) => boolean;
-	readonly selectedContentAbortControllerRef: MutableRefObject<AbortController | null>;
 	readonly setReviewRenderModeCodeView: () => void;
-	readonly setSelectedContentResourcesState: SelectedReviewContentDemandController['setSelectedContentResourcesState'];
 	readonly setSelectedReviewItemId: (itemId: string | null) => void;
 	readonly setSelectedMarkdownPreviewState: Dispatch<
 		SetStateAction<SelectedMarkdownPreviewState | null>
@@ -53,9 +50,7 @@ export function useBridgeReviewNavigationController(
 		reviewPackage,
 		rootSnapshot,
 		selectReviewItem,
-		selectedContentAbortControllerRef,
 		setReviewRenderModeCodeView,
-		setSelectedContentResourcesState,
 		setSelectedReviewItemId,
 		setSelectedMarkdownPreviewState,
 		viewerActions,
@@ -130,9 +125,6 @@ export function useBridgeReviewNavigationController(
 		}
 
 		if (nextSelectedItemId === null) {
-			selectedContentAbortControllerRef.current?.abort();
-			selectedContentAbortControllerRef.current = null;
-			setSelectedContentResourcesState(null);
 			setSelectedReviewItemId(null);
 			setReviewRenderModeCodeView();
 		} else {
@@ -146,9 +138,7 @@ export function useBridgeReviewNavigationController(
 		projection,
 		reviewPackage,
 		rootSnapshot.selectedItemId,
-		selectedContentAbortControllerRef,
 		setReviewRenderModeCodeView,
-		setSelectedContentResourcesState,
 		setSelectedReviewItemId,
 		setSelectedMarkdownPreviewState,
 	]);

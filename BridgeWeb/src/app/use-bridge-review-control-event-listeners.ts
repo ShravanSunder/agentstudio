@@ -1,8 +1,8 @@
 import type { MutableRefObject } from 'react';
 import { useLayoutEffect } from 'react';
 
+import type { BridgeMainCodeViewItem } from '../core/comm-worker/bridge-main-render-snapshot-store.js';
 import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
-import type { BridgeCodeViewContentResources } from '../review-viewer/code-view/bridge-code-view-materialization.js';
 import type { BridgeCodeViewControlHandle } from '../review-viewer/code-view/bridge-code-view-panel.js';
 import type { BridgeReviewProjectionResult } from '../review-viewer/models/review-projection-models.js';
 import type {
@@ -34,7 +34,7 @@ interface UseBridgeReviewControlEventListenersProps {
 	readonly projectionRef: MutableRefObject<BridgeReviewProjectionResult | null>;
 	readonly reviewPackageRef: MutableRefObject<BridgeReviewPackage | null>;
 	readonly rootSnapshotRef: MutableRefObject<BridgeReviewViewerRootSnapshot>;
-	readonly selectedContentResources: BridgeCodeViewContentResources | null;
+	readonly selectedCodeViewItem: BridgeMainCodeViewItem | null;
 	readonly selectedMarkdownPreviewState: SelectedMarkdownPreviewState | null;
 	readonly selectReviewItem: (
 		itemId: string,
@@ -57,7 +57,7 @@ export function useBridgeReviewControlEventListeners(
 		projectionRef,
 		reviewPackageRef,
 		rootSnapshotRef,
-		selectedContentResources,
+		selectedCodeViewItem,
 		selectedMarkdownPreviewState,
 		selectReviewItem,
 		setTreeSearchOpen,
@@ -116,7 +116,7 @@ export function useBridgeReviewControlEventListeners(
 				rootSnapshot: rootSnapshotRef.current,
 				reviewPackage: reviewPackageRef.current,
 				selectReviewItem,
-				selectedContentResources,
+				selectedCodeViewItem,
 				selectedMarkdownPreviewState,
 				setTreeSearchOpen,
 				codeViewControlHandle: codeViewControlHandleRef.current,
@@ -152,7 +152,7 @@ export function useBridgeReviewControlEventListeners(
 		reviewPackageRef,
 		rootSnapshotRef,
 		selectReviewItem,
-		selectedContentResources,
+		selectedCodeViewItem,
 		selectedMarkdownPreviewState,
 		setTreeSearchOpen,
 		target,

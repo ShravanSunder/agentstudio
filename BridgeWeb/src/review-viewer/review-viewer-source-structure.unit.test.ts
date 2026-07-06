@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -19,8 +19,6 @@ describe('Review viewer source structure', () => {
 		expect(modeSource).toContain('useBridgeReviewProjectionCoordinator');
 		expect(modeSource).toContain('useBridgeReviewSelectionController');
 		expect(modeSource).toContain('useBridgeReviewVisibleContentController');
-		expect(modeSource).toContain('useBridgeReviewSelectedContentEffect');
-		expect(modeSource).toContain('useSelectedReviewContentDemandController');
 		expect(modeSource).toContain('BridgeReviewViewerShellBoundary');
 		expect(modeSource).not.toContain('LazyReviewViewerShell');
 		expect(modeSource).not.toContain('<Suspense');
@@ -56,22 +54,33 @@ describe('Review viewer source structure', () => {
 		expect(hookSource).not.toContain('reviewDemandScheduler');
 	});
 
-	test('keeps selected Review content demand effects in the demand controller module', () => {
-		const modeSource = readSource('../app/bridge-app-review-viewer-mode.tsx');
-		const selectedContentControllerSource = readSource(
+	test('cuts selected Review away from FE package-first selected resources', () => {
+		expect(sourceFileExists('../app/bridge-app-review-selected-content-controller.ts')).toBe(false);
+		const forbiddenOwners = [
+			'../app/bridge-app-review-viewer-mode.tsx',
 			'../app/bridge-app-review-selected-content-controller.ts',
-		);
+			'../app/bridge-app-review-markdown-preview-controller.ts',
+			'../app/use-bridge-review-control-event-listeners.ts',
+			'../app/bridge-app-control-commands.ts',
+			'../app/bridge-app-review-telemetry-controller.ts',
+		].flatMap((relativePath): string[] => {
+			const source = readOptionalSource(relativePath);
+			return [
+				'useBridgeReviewSelectedContentEffect',
+				'useSelectedReviewContentDemandController',
+				'startSelectedReviewContentDemand',
+				'selectedContentResourcesForCurrentSelection',
+				'selectedContentResourcesState',
+				'loadReviewItemContentResourcesThroughDemandResult',
+				'readonly selectedContentResources: BridgeCodeViewContentResources | null',
+				'selectedContentResources,',
+				'resources: selectedContentResources',
+			]
+				.filter((token): boolean => source.includes(token))
+				.map((token): string => `${relativePath}: ${token}`);
+		});
 
-		expect(modeSource).toContain('useBridgeReviewSelectedContentEffect');
-		expect(modeSource).not.toContain('useLayoutEffect((): (() => void)');
-		expect(modeSource).not.toContain('return startSelectedReviewContentDemand({');
-
-		expect(selectedContentControllerSource).toContain('useBridgeReviewSelectedContentEffect');
-		expect(selectedContentControllerSource).toContain(
-			'selectedContentAbortControllerRef.current?.abort()',
-		);
-		expect(selectedContentControllerSource).not.toContain('BridgeReviewViewerShellBoundary');
-		expect(selectedContentControllerSource).not.toContain('@pierre/');
+		expect(forbiddenOwners).toEqual([]);
 	});
 
 	test('keeps Review selection orchestration in an app-level controller hook', () => {
@@ -310,9 +319,7 @@ describe('Review viewer source structure', () => {
 		const codeViewPanelSource = readSource('./code-view/bridge-code-view-panel.tsx');
 
 		expect(modeSource).toContain('selectedCodeViewItem');
-		expect(modeSource).toContain(
-			"shouldLoadSelectedContent: rootSnapshot.renderMode.kind === 'markdownPreview'",
-		);
+		expect(modeSource).not.toContain('shouldLoadSelectedContent');
 		expect(modeSource).not.toContain('selectedContentResources={selectedContentResources}');
 		expect(shellBoundarySource).toContain('selectedCodeViewItem');
 		expect(shellBoundarySource).not.toContain(
@@ -337,7 +344,7 @@ describe('Review viewer source structure', () => {
 			'../app/bridge-app-review-selected-content-controller.ts',
 			'../app/bridge-app-review-selection-state.ts',
 		].flatMap((relativePath): string[] => {
-			const source = readSource(relativePath);
+			const source = readOptionalSource(relativePath);
 			return [
 				'selectedContentRetryVersion',
 				'selectedContentRetryScheduledRef',
@@ -398,6 +405,15 @@ describe('Review viewer source structure', () => {
 
 function readSource(relativePath: string): string {
 	return readFileSync(fileURLToPath(new URL(relativePath, import.meta.url)), 'utf8');
+}
+
+function readOptionalSource(relativePath: string): string {
+	const sourcePath = fileURLToPath(new URL(relativePath, import.meta.url));
+	return existsSync(sourcePath) ? readFileSync(sourcePath, 'utf8') : '';
+}
+
+function sourceFileExists(relativePath: string): boolean {
+	return existsSync(fileURLToPath(new URL(relativePath, import.meta.url)));
 }
 
 function readReviewViewerSourceFiles(): readonly {

@@ -18,12 +18,10 @@ import type {
 	BridgeTelemetryRecorder,
 } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import type { BridgeTraceContext } from '../foundation/telemetry/bridge-trace-context.js';
-import type { BridgeCodeViewContentResources } from '../review-viewer/code-view/bridge-code-view-materialization.js';
 import type { BridgeCodeViewControlHandle } from '../review-viewer/code-view/bridge-code-view-panel.js';
 import type { ReviewContentDemandTelemetry } from '../review-viewer/content/review-content-demand-loader.js';
 import { useBridgeReviewProjectionCoordinator } from '../review-viewer/projections/use-review-projection-coordinator.js';
 import { selectBridgeReviewPanelChromeSlice } from '../review-viewer/state/review-viewer-store.js';
-import { recordBridgeSelectedContentDroppedTelemetry } from '../review-viewer/telemetry/bridge-review-viewer-telemetry.js';
 import { createBridgeMarkdownRenderWebWorkerClient } from '../review-viewer/workers/markdown/bridge-markdown-render-worker-transport.js';
 import type { BridgeReviewProjectionWorkerClient } from '../review-viewer/workers/projection/review-projection-worker-client.js';
 import { createBridgeReviewProjectionWebWorkerClient } from '../review-viewer/workers/projection/review-projection-worker-transport.js';
@@ -49,17 +47,11 @@ import {
 	useBridgeReviewResourceExecutor,
 	useBridgeReviewViewerStore,
 } from './bridge-app-review-runtime.js';
-import {
-	useBridgeReviewSelectedContentEffect,
-	useSelectedReviewContentDemandController,
-} from './bridge-app-review-selected-content-controller.js';
 import { useBridgeReviewSelectionController } from './bridge-app-review-selection-controller.js';
 import {
 	makeSelectedContentResourcesKey,
-	reviewContentValidityDropReason,
 	reviewFileTargetForNavigationCommand,
 	selectedCanvasLoadingReasonForCurrentSelection,
-	selectedContentResourcesForCurrentSelection,
 	selectedContentUnavailablePathForCurrentSelection,
 	selectedItemPresentationForReviewFileTarget,
 	type BridgeReviewFileNavigationTarget,
@@ -159,24 +151,9 @@ export function BridgeReviewViewerMode(
 	const registerBridgeReadyCallback = props.registerBridgeReadyCallback;
 	const currentReviewPackageTelemetryContextRef =
 		useRef<BridgeReviewPackageTelemetryContext | null>(null);
-	const {
-		cancelForegroundSelectionRelease,
-		foregroundSelectedContentKey,
-		lastSelectedDemandTelemetry,
-		selectedContentAbortControllerRef,
-		selectedContentActiveLoadKeyRef,
-		selectedContentResourcesState,
-		setForegroundSelectedContentKey,
-		setLastSelectedDemandTelemetry,
-		setSelectedContentResourcesState,
-		startSelectedReviewContentDemand,
-	} = useSelectedReviewContentDemandController({
-		contentRegistry,
-		currentReviewPackageTelemetryContextRef,
-		reviewContentDescriptorRefsByHandleIdRef,
-		resourceExecutor,
-		telemetryRecorderRef,
-	});
+	const foregroundSelectedContentKey: string | null = null;
+	const [lastSelectedDemandTelemetry, setLastSelectedDemandTelemetry] =
+		useState<ReviewContentDemandTelemetry | null>(null);
 	const reviewPackageTelemetryContextRef = useRef<Map<string, BridgeReviewPackageTelemetryContext>>(
 		new Map(),
 	);
@@ -238,48 +215,10 @@ export function BridgeReviewViewerMode(
 		props.markdownWorkerClient === undefined
 			? defaultMarkdownWorkerClient
 			: props.markdownWorkerClient;
-	const selectedContentResources = useMemo(
-		(): BridgeCodeViewContentResources | null =>
-			selectedContentResourcesForCurrentSelection({
-				reviewPackage,
-				selectedItemId: rootSnapshot.selectedItemId,
-				selectedContentResourcesState,
-			}),
-		[reviewPackage, rootSnapshot.selectedItemId, selectedContentResourcesState],
-	);
 	const currentSelectedContentKey =
 		reviewPackage === null || rootSnapshot.selectedItemId === null
 			? null
 			: makeSelectedContentResourcesKey(reviewPackage, rootSnapshot.selectedItemId);
-	const lastReportedSelectedContentDropContentKeyRef = useRef<string | null>(null);
-	useEffect((): void => {
-		const dropReason = reviewContentValidityDropReason({
-			reviewPackage,
-			selectedItemId: rootSnapshot.selectedItemId,
-			selectedContentResourcesState,
-		});
-		if (
-			dropReason === 'no_selection' ||
-			dropReason === 'valid' ||
-			currentSelectedContentKey === null ||
-			lastReportedSelectedContentDropContentKeyRef.current === currentSelectedContentKey
-		) {
-			return;
-		}
-		lastReportedSelectedContentDropContentKeyRef.current = currentSelectedContentKey;
-		recordBridgeSelectedContentDroppedTelemetry({
-			telemetryRecorder: telemetryRecorderRef.current,
-			traceContext: currentReviewPackageTelemetryContextRef.current?.traceContext ?? null,
-			dropReason,
-		});
-	}, [
-		currentReviewPackageTelemetryContextRef,
-		currentSelectedContentKey,
-		reviewPackage,
-		rootSnapshot.selectedItemId,
-		selectedContentResourcesState,
-		telemetryRecorderRef,
-	]);
 	const initialReviewFileTarget = useMemo(
 		() => reviewFileTargetForNavigationCommand(props.navigationCommand),
 		[props.navigationCommand],
@@ -390,9 +329,7 @@ export function BridgeReviewViewerMode(
 		reviewPackage,
 		rootSnapshot,
 		selectReviewItem,
-		selectedContentAbortControllerRef,
 		setReviewRenderModeCodeView,
-		setSelectedContentResourcesState,
 		setSelectedReviewItemId,
 		setSelectedMarkdownPreviewState,
 		viewerActions,
@@ -436,7 +373,7 @@ export function BridgeReviewViewerMode(
 		projectionRef,
 		reviewPackageRef,
 		rootSnapshotRef,
-		selectedContentResources,
+		selectedCodeViewItem,
 		selectedMarkdownPreviewState,
 		selectReviewItem,
 		setTreeSearchOpen: setIsTreeSearchOpen,
@@ -445,29 +382,13 @@ export function BridgeReviewViewerMode(
 		viewerStore,
 	});
 
-	useBridgeReviewSelectedContentEffect({
-		cancelForegroundSelectionRelease,
-		currentSelectedContentKey,
-		isActive: props.isActive,
-		reviewPackageRef,
-		rootSnapshotRef,
-		selectedContentAbortControllerRef,
-		selectedContentActiveLoadKeyRef,
-		selectedItemPresentation,
-		shouldLoadSelectedContent: rootSnapshot.renderMode.kind === 'markdownPreview',
-		setForegroundSelectedContentKey,
-		setLastSelectedDemandTelemetry,
-		setSelectedContentResourcesState,
-		startSelectedReviewContentDemand,
-	});
-
 	useBridgeReviewMarkdownPreviewController({
 		currentReviewPackageTelemetryContextRef,
 		isActive: props.isActive,
 		markdownWorkerClient,
 		renderModeKind: rootSnapshot.renderMode.kind,
 		reviewPackage,
-		selectedContentResources,
+		selectedCodeViewItem,
 		selectedItemId: rootSnapshot.selectedItemId,
 		selectedMarkdownPreviewStateRef,
 		setRenderModeCodeView: setReviewRenderModeCodeView,
@@ -481,7 +402,7 @@ export function BridgeReviewViewerMode(
 		reviewPackage,
 		reviewPackageTelemetryContextRef,
 		reviewReadyStartMillisecondsByPackageKeyRef,
-		selectedContentResourcesState,
+		selectedCodeViewItem,
 		telemetryRecorderRef,
 	});
 

@@ -102,14 +102,19 @@ export function useBridgeReviewRenderSnapshotController(
 			}),
 		[props.panelChromeSlice, selectionSlice],
 	);
-	const selectedContentAvailability =
+	const selectedRawContentAvailability =
 		selectionSlice.selectedItemId === null
 			? null
 			: (renderSnapshot.contentAvailabilityById[selectionSlice.selectedItemId] ?? null);
-	const selectedCodeViewItem =
-		selectionSlice.selectedItemId === null
-			? null
-			: (renderSnapshot.codeViewItemsById[selectionSlice.selectedItemId] ?? null);
+	const selectedCodeViewItem = selectedBridgeCodeViewItemForReviewPackage({
+		codeViewItemsById: renderSnapshot.codeViewItemsById,
+		reviewPackage: props.reviewPackage,
+		selectedItemId: selectionSlice.selectedItemId,
+	});
+	const selectedContentAvailability = selectedContentAvailabilityForReviewPackage({
+		rawAvailability: selectedRawContentAvailability,
+		selectedCodeViewItem,
+	});
 	const pierreCourier = props.pierreCourier;
 	const requestSequenceRef = useRef(0);
 	const workerEpochRef = useRef(0);
@@ -202,6 +207,92 @@ export function useBridgeReviewRenderSnapshotController(
 		setSelectedReviewItemId,
 		viewportSliceRef,
 	};
+}
+
+export function selectedBridgeCodeViewItemForReviewPackage(props: {
+	readonly codeViewItemsById: Readonly<Record<string, BridgeMainCodeViewItem>>;
+	readonly reviewPackage: BridgeReviewPackage | null;
+	readonly selectedItemId: string | null;
+}): BridgeMainCodeViewItem | null {
+	if (props.reviewPackage === null || props.selectedItemId === null) {
+		return null;
+	}
+	const item = props.reviewPackage.itemsById[props.selectedItemId];
+	const codeViewItem = props.codeViewItemsById[props.selectedItemId];
+	if (
+		item === undefined ||
+		codeViewItem === undefined ||
+		codeViewItem.bridgeMetadata.itemId !== props.selectedItemId
+	) {
+		return null;
+	}
+	return codeViewItemCacheMatchesReviewItem(item, codeViewItem) ? codeViewItem : null;
+}
+
+export function selectedContentAvailabilityForReviewPackage(props: {
+	readonly rawAvailability: BridgeWorkerContentAvailabilityPatchPayload | null;
+	readonly selectedCodeViewItem: BridgeMainCodeViewItem | null;
+}): BridgeWorkerContentAvailabilityPatchPayload | null {
+	if (props.rawAvailability?.state !== 'ready') {
+		return props.rawAvailability;
+	}
+	return props.selectedCodeViewItem === null ? { state: 'loading' } : props.rawAvailability;
+}
+
+function codeViewItemCacheMatchesReviewItem(
+	item: BridgeReviewItemDescriptor,
+	codeViewItem: BridgeMainCodeViewItem,
+): boolean {
+	if (codeViewItem.type === 'file') {
+		const role = codeViewItem.bridgeMetadata.contentRoles[0];
+		if (role === undefined) {
+			return false;
+		}
+		const expectedCacheKey = pierreContentCacheKeyForReviewRole(item, role);
+		return expectedCacheKey !== null && codeViewItem.bridgeMetadata.cacheKey === expectedCacheKey;
+	}
+	const roles = codeViewItem.bridgeMetadata.contentRoles;
+	const hasBase = roles.includes('base');
+	const hasHead = roles.includes('head');
+	if (!hasBase && !hasHead) {
+		return false;
+	}
+	const baseCacheKey = hasBase
+		? pierreContentCacheKeyForReviewRole(item, 'base')
+		: 'pierre-content:empty';
+	const headCacheKey = hasHead
+		? pierreContentCacheKeyForReviewRole(item, 'head')
+		: 'pierre-content:empty';
+	if (baseCacheKey === null || headCacheKey === null) {
+		return false;
+	}
+	return codeViewItem.bridgeMetadata.cacheKey === `${baseCacheKey}|${headCacheKey}`;
+}
+
+function pierreContentCacheKeyForReviewRole(
+	item: BridgeReviewItemDescriptor,
+	role: BridgeContentRole,
+): string | null {
+	const handle = reviewContentHandleForRole(item, role);
+	return handle === null
+		? null
+		: `pierre-content:${handle.contentHashAlgorithm}:${handle.contentHash}`;
+}
+
+function reviewContentHandleForRole(
+	item: BridgeReviewItemDescriptor,
+	role: BridgeContentRole,
+): BridgeContentHandle | null {
+	const directHandle = item.contentRoles[role];
+	if (directHandle !== null && directHandle !== undefined) {
+		return directHandle;
+	}
+	return (
+		Object.values(item.contentRoles).find(
+			(handle): handle is BridgeContentHandle =>
+				handle !== null && handle !== undefined && handle.role === role,
+		) ?? null
+	);
 }
 
 function bridgeCommWorkerRowsFromReviewTreeRows(

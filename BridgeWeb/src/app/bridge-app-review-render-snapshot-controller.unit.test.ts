@@ -2,7 +2,10 @@ import { parseDiffFromFile } from '@pierre/diffs';
 import { describe, expect, test } from 'vitest';
 
 import { encodeBridgeWorkerSelectCommand } from '../core/comm-worker/bridge-comm-worker-protocol.js';
-import { createBridgeMainRenderSnapshotStore } from '../core/comm-worker/bridge-main-render-snapshot-store.js';
+import {
+	createBridgeMainRenderSnapshotStore,
+	type BridgeMainCodeViewItem,
+} from '../core/comm-worker/bridge-main-render-snapshot-store.js';
 import type {
 	BridgeWorkerMainToServerMessage,
 	BridgeWorkerPierreRenderJobEvent,
@@ -22,6 +25,8 @@ import {
 	bridgeCommWorkerRenderSemanticsFromReviewPackage,
 	createBridgeReviewWorkerPierreCourier,
 	createBridgeReviewRuntimeProtocolDispatcher,
+	selectedContentAvailabilityForReviewPackage,
+	selectedBridgeCodeViewItemForReviewPackage,
 } from './bridge-app-review-render-snapshot-controller.js';
 
 describe('Bridge app review render snapshot controller', () => {
@@ -211,6 +216,82 @@ describe('Bridge app review render snapshot controller', () => {
 		).toEqual(job.payload.item);
 	});
 
+	test('selected CodeView selector rejects stale same-item package rollover content', () => {
+		const reviewPackage = makeBridgeReviewPackage();
+		const reviewItem = reviewPackage.itemsById['item-source'];
+		const currentHeadHandle = reviewItem?.contentRoles.head;
+		if (reviewItem === undefined || currentHeadHandle === null || currentHeadHandle === undefined) {
+			throw new Error('expected item-source head handle');
+		}
+		const selectedCodeViewItem = makeSelectedCodeViewItem({
+			cacheKey:
+				'pierre-content:fixture-preview:sha256:item-source:base|pierre-content:fixture-preview:sha256:item-source:head',
+		});
+		const changedHeadHandle = {
+			...currentHeadHandle,
+			contentHash: 'sha256:item-source:head:new',
+		};
+		const changedPackage = {
+			...reviewPackage,
+			itemsById: {
+				...reviewPackage.itemsById,
+				'item-source': {
+					...reviewItem,
+					contentRoles: {
+						...reviewItem.contentRoles,
+						head: changedHeadHandle,
+					},
+					headContentHash: changedHeadHandle.contentHash,
+				},
+			},
+		};
+
+		expect(
+			selectedBridgeCodeViewItemForReviewPackage({
+				codeViewItemsById: { 'item-source': selectedCodeViewItem },
+				reviewPackage,
+				selectedItemId: 'item-source',
+			}),
+		).toBe(selectedCodeViewItem);
+		expect(
+			selectedBridgeCodeViewItemForReviewPackage({
+				codeViewItemsById: { 'item-source': selectedCodeViewItem },
+				reviewPackage: changedPackage,
+				selectedItemId: 'item-source',
+			}),
+		).toBeNull();
+	});
+
+	test('selected availability treats stale ready worker content as loading across package rollover', () => {
+		expect(
+			selectedContentAvailabilityForReviewPackage({
+				rawAvailability: { state: 'ready' },
+				selectedCodeViewItem: null,
+			}),
+		).toEqual({ state: 'loading' });
+		expect(
+			selectedContentAvailabilityForReviewPackage({
+				rawAvailability: { state: 'ready' },
+				selectedCodeViewItem: makeSelectedCodeViewItem({
+					cacheKey:
+						'pierre-content:fixture-preview:sha256:item-source:base|pierre-content:fixture-preview:sha256:item-source:head',
+				}),
+			}),
+		).toEqual({ state: 'ready' });
+		expect(
+			selectedContentAvailabilityForReviewPackage({
+				rawAvailability: { state: 'failed' },
+				selectedCodeViewItem: null,
+			}),
+		).toEqual({ state: 'failed' });
+		expect(
+			selectedContentAvailabilityForReviewPackage({
+				rawAvailability: { state: 'unavailable' },
+				selectedCodeViewItem: null,
+			}),
+		).toEqual({ state: 'unavailable' });
+	});
+
 	test('review worker courier returns typed receipts for worker Pierre jobs', () => {
 		const job = buildBridgeWorkerPierreRenderJob({
 			itemId: 'item-worker-courier',
@@ -394,3 +475,33 @@ describe('Bridge app review render snapshot controller', () => {
 		expect(bridgeCommWorkerRenderSemanticsFromReviewPackage(null)).toEqual([]);
 	});
 });
+
+function makeSelectedCodeViewItem(props: { readonly cacheKey: string }): BridgeMainCodeViewItem {
+	const fileDiff = parseDiffFromFile(
+		{
+			name: 'Sources/App/View.swift',
+			contents: 'let before = 1\n',
+			cacheKey: 'pierre-content:fixture-preview:sha256:item-source:base',
+		},
+		{
+			name: 'Sources/App/View.swift',
+			contents: 'let after = 2\n',
+			cacheKey: 'pierre-content:fixture-preview:sha256:item-source:head',
+		},
+	);
+	fileDiff.cacheKey = props.cacheKey;
+	return {
+		id: 'item-source',
+		type: 'diff',
+		fileDiff,
+		version: 2,
+		bridgeMetadata: {
+			itemId: 'item-source',
+			displayPath: 'Sources/App/View.swift',
+			contentState: 'hydrated',
+			contentRoles: ['base', 'head'],
+			cacheKey: props.cacheKey,
+			lineCount: 2,
+		},
+	};
+}

@@ -1,8 +1,8 @@
 import { type MutableRefObject, useEffect, useRef } from 'react';
 
+import type { BridgeMainCodeViewItem } from '../core/comm-worker/bridge-main-render-snapshot-store.js';
 import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
-import type { SelectedContentResourcesState } from './bridge-app-review-selection-state.js';
 import {
 	createChildTraceContext,
 	recordReviewStartupTelemetry,
@@ -17,7 +17,7 @@ export interface UseBridgeReviewRenderTelemetryControllerProps {
 		Map<string, BridgeReviewPackageTelemetryContext>
 	>;
 	readonly reviewReadyStartMillisecondsByPackageKeyRef: MutableRefObject<Map<string, number>>;
-	readonly selectedContentResourcesState: SelectedContentResourcesState | null;
+	readonly selectedCodeViewItem: BridgeMainCodeViewItem | null;
 	readonly telemetryRecorderRef: MutableRefObject<BridgeTelemetryRecorder>;
 }
 
@@ -70,13 +70,13 @@ export function useBridgeReviewRenderTelemetryController(
 			!props.isActive ||
 			props.reviewPackage === null ||
 			!props.hasProjection ||
-			props.selectedContentResourcesState?.status !== 'ready' ||
+			props.selectedCodeViewItem === null ||
 			!props.telemetryRecorderRef.current.isEnabled('web')
 		) {
 			return;
 		}
 		const packageKey = `${props.reviewPackage.packageId}:${props.reviewPackage.reviewGeneration}`;
-		const selectedReadyKey = `${packageKey}:${props.selectedContentResourcesState.itemId}:${props.selectedContentResourcesState.contentKey}`;
+		const selectedReadyKey = `${packageKey}:${props.selectedCodeViewItem.bridgeMetadata.itemId}:${props.selectedCodeViewItem.bridgeMetadata.cacheKey}`;
 		if (lastReviewReadyPackageRef.current === selectedReadyKey) {
 			return;
 		}
@@ -108,7 +108,7 @@ export function useBridgeReviewRenderTelemetryController(
 		props.reviewPackage,
 		props.reviewPackageTelemetryContextRef,
 		props.reviewReadyStartMillisecondsByPackageKeyRef,
-		props.selectedContentResourcesState,
+		props.selectedCodeViewItem,
 		props.telemetryRecorderRef,
 	]);
 }

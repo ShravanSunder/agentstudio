@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
+import type { BridgeMainCodeViewItem } from '../../core/comm-worker/bridge-main-render-snapshot-store.js';
 import type { BridgeContentResource } from '../../foundation/content/content-resource-loader.js';
 import {
 	makeBridgeContentHandle,
@@ -10,7 +11,10 @@ import type {
 	BridgeReviewItemDescriptor,
 	BridgeReviewPackage,
 } from '../../foundation/review-package/bridge-review-package.js';
-import { resolveBridgeMarkdownPreviewDecision } from './bridge-markdown-render-mode.js';
+import {
+	resolveBridgeMarkdownPreviewDecision,
+	resolveBridgeMarkdownPreviewDecisionFromCodeViewItem,
+} from './bridge-markdown-render-mode.js';
 
 describe('bridge markdown render mode', () => {
 	test('previews one-sided added markdown with a valid Bridge content resource URL', () => {
@@ -232,6 +236,119 @@ describe('bridge markdown render mode', () => {
 
 		expect(decision).toEqual({ kind: 'codeView', reason: 'largeContent' });
 	});
+
+	test('previews one-sided worker diff markdown from the available side', () => {
+		const reviewPackage = makePackageWithItem(makeAddedMarkdownItem());
+
+		const decision = resolveBridgeMarkdownPreviewDecisionFromCodeViewItem({
+			reviewPackage,
+			selectedItemId: 'item-plan',
+			selectedCodeViewItem: makeWorkerDiffCodeViewItem({
+				additionLines: ['# Plan', '', 'body'],
+				contentRoles: ['head'],
+			}),
+		});
+
+		expect(decision).toMatchObject({
+			kind: 'preview',
+			source: {
+				itemId: 'item-plan',
+				role: 'head',
+				sourcePath: 'docs/plans/bridge-plan.md',
+				contentCacheKey: 'item-plan:head',
+				contentHash: 'sha256:item-plan:head',
+				markdownText: '# Plan\n\nbody',
+			},
+		});
+	});
+
+	test('previews partial worker diff markdown from the only loaded side', () => {
+		const item = makeAddedMarkdownItem({
+			basePath: 'docs/plans/bridge-plan.md',
+			changeKind: 'modified',
+			contentRoles: {
+				base: makeMarkdownHandle('item-plan', 'base'),
+				head: makeMarkdownHandle('item-plan', 'head'),
+				diff: null,
+				file: null,
+			},
+		});
+		const reviewPackage = makePackageWithItem(item);
+
+		const decision = resolveBridgeMarkdownPreviewDecisionFromCodeViewItem({
+			reviewPackage,
+			selectedItemId: 'item-plan',
+			selectedCodeViewItem: makeWorkerDiffCodeViewItem({
+				additionLines: ['# After'],
+				contentRoles: ['head'],
+			}),
+		});
+
+		expect(decision).toMatchObject({
+			kind: 'preview',
+			source: {
+				itemId: 'item-plan',
+				role: 'head',
+				contentCacheKey: 'item-plan:head',
+				contentHash: 'sha256:item-plan:head',
+				markdownText: '# After',
+			},
+		});
+	});
+
+	test('rejects stale worker-selected items after a same-item package rollover', () => {
+		const originalItem = makeAddedMarkdownItem();
+		const changedHead = {
+			...makeMarkdownHandle('item-plan', 'head'),
+			cacheKey: 'item-plan:head:new',
+			contentHash: 'sha256:item-plan:head:new',
+		};
+		const changedPackage = makePackageWithItem({
+			...originalItem,
+			contentRoles: {
+				...originalItem.contentRoles,
+				head: changedHead,
+			},
+			headContentHash: changedHead.contentHash,
+			cacheKey: changedHead.cacheKey,
+		});
+
+		const decision = resolveBridgeMarkdownPreviewDecisionFromCodeViewItem({
+			reviewPackage: changedPackage,
+			selectedItemId: 'item-plan',
+			selectedCodeViewItem: makeWorkerFileCodeViewItem({
+				cacheKey: 'pierre-content:sha256:sha256:item-plan:head',
+				contents: '# Old plan',
+			}),
+		});
+
+		expect(decision).toEqual({ kind: 'codeView', reason: 'contentPending' });
+	});
+
+	test('uses current package path for same-hash file markdown rollover previews', () => {
+		const currentPackage = makePackageWithItem(
+			makeAddedMarkdownItem({
+				headPath: 'docs/plans/renamed-bridge-plan.md',
+			}),
+		);
+
+		const decision = resolveBridgeMarkdownPreviewDecisionFromCodeViewItem({
+			reviewPackage: currentPackage,
+			selectedItemId: 'item-plan',
+			selectedCodeViewItem: makeWorkerFileCodeViewItem({
+				cacheKey: 'pierre-content:fixture-preview:sha256:item-plan:head',
+				contents: '# Renamed plan',
+			}),
+		});
+
+		expect(decision).toMatchObject({
+			kind: 'preview',
+			source: {
+				sourcePath: 'docs/plans/renamed-bridge-plan.md',
+				markdownText: '# Renamed plan',
+			},
+		});
+	});
 });
 
 function makePackageWithItem(item: BridgeReviewItemDescriptor): BridgeReviewPackage {
@@ -302,5 +419,62 @@ function makeContentResource(handle: BridgeContentHandle, text: string): BridgeC
 	return {
 		handle,
 		readText: (): string => text,
+	};
+}
+
+function makeWorkerFileCodeViewItem(props: {
+	readonly cacheKey?: string;
+	readonly contents: string;
+}): BridgeMainCodeViewItem {
+	const cacheKey = props.cacheKey ?? 'pierre-content:fixture-preview:sha256:item-plan:head';
+	return {
+		id: 'item-plan',
+		type: 'file',
+		file: {
+			name: 'docs/plans/bridge-plan.md',
+			contents: props.contents,
+			lang: 'markdown',
+			cacheKey,
+		},
+		version: 2,
+		bridgeMetadata: {
+			itemId: 'item-plan',
+			displayPath: 'docs/plans/bridge-plan.md',
+			contentState: 'hydrated',
+			contentRoles: ['head'],
+			cacheKey,
+			lineCount: props.contents.split('\n').length,
+		},
+	};
+}
+
+function makeWorkerDiffCodeViewItem(props: {
+	readonly additionLines: readonly string[];
+	readonly contentRoles: readonly ('base' | 'head')[];
+}): BridgeMainCodeViewItem {
+	const cacheKey = 'pierre-content:empty|pierre-content:fixture-preview:sha256:item-plan:head';
+	return {
+		id: 'item-plan',
+		type: 'diff',
+		fileDiff: {
+			name: 'docs/plans/bridge-plan.md',
+			type: 'new',
+			hunks: [],
+			splitLineCount: props.additionLines.length,
+			unifiedLineCount: props.additionLines.length,
+			isPartial: false,
+			deletionLines: [],
+			additionLines: props.additionLines,
+			cacheKey,
+		},
+		version: 2,
+		bridgeMetadata: {
+			itemId: 'item-plan',
+			displayPath: 'docs/plans/bridge-plan.md',
+			contentState: 'hydrated',
+			contentRoles: props.contentRoles,
+			cacheKey,
+			lineCount: props.additionLines.length,
+		},
 	};
 }
