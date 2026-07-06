@@ -5,6 +5,10 @@ import { countFlattenedWorktreeFileTreeRows } from '../features/worktree-file/mo
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import type { BridgeTraceContext } from '../foundation/telemetry/bridge-trace-context.js';
 import { recordBridgeViewerWorktreeFileTreeTelemetrySample } from '../foundation/telemetry/bridge-viewer-telemetry-adapter.js';
+import {
+	bridgeFileViewerSelectedCodeViewItemForPanelState,
+	type BridgeFileViewerSelectedCodeViewItem,
+} from './bridge-file-viewer-code-view-items.js';
 import type {
 	BridgeFileViewerDescriptorProjection,
 	BridgeFileViewerFilterMode,
@@ -44,7 +48,7 @@ export interface BridgeFileViewerShellModel {
 	readonly fileDescriptorByPath: ReadonlyMap<string, WorktreeFileDescriptor>;
 	readonly metadataFileTreeRowCount: number;
 	readonly openFileTotalHeightPixels: number | null;
-	readonly renderedOpenFileContent: BridgeFileViewerRenderedOpenFileContent | null;
+	readonly selectedCodeViewItem: BridgeFileViewerSelectedCodeViewItem | null;
 	readonly totalTreeHeight: {
 		readonly heightPixels: number | null;
 		readonly source: 'providerFacts' | 'localProjection' | null;
@@ -134,6 +138,14 @@ export function useBridgeFileViewerShellModel(
 			props.selectedPath,
 		],
 	);
+	const selectedCodeViewItem = useMemo(
+		(): BridgeFileViewerSelectedCodeViewItem | null =>
+			bridgeFileViewerSelectedCodeViewItemForPanelState({
+				openFileState: props.openFileState,
+				renderedFileContent: renderedOpenFileContent,
+			}),
+		[props.openFileState, renderedOpenFileContent],
+	);
 
 	return {
 		canRefreshOpenFile:
@@ -152,7 +164,7 @@ export function useBridgeFileViewerShellModel(
 			(treeRow): boolean => !treeRow.isDirectory && treeRow.fileId !== undefined,
 		).length,
 		openFileTotalHeightPixels: totalOpenFileHeightForState(props.openFileState),
-		renderedOpenFileContent,
+		selectedCodeViewItem,
 		totalTreeHeight,
 		totalTreeRowCount,
 	};

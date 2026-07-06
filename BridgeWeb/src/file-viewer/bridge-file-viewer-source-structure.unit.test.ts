@@ -306,6 +306,38 @@ describe('Bridge file viewer source structure', () => {
 		expect(codeViewItemOwners).toEqual(['bridge-file-viewer-code-view-items.ts']);
 	});
 
+	test('keeps selected File CodeView display behind a selected item seam', () => {
+		const appSource = readFileSync(
+			fileURLToPath(new URL('./bridge-file-viewer-app.tsx', import.meta.url)),
+			'utf8',
+		);
+		const shellModelSource = readFileSync(
+			fileURLToPath(new URL('./use-bridge-file-viewer-shell-model.ts', import.meta.url)),
+			'utf8',
+		);
+		const shellSource = readFileSync(
+			fileURLToPath(new URL('./bridge-file-viewer-shell.tsx', import.meta.url)),
+			'utf8',
+		);
+		const codePanelSource = readFileSync(
+			fileURLToPath(new URL('./bridge-file-viewer-code-panel.tsx', import.meta.url)),
+			'utf8',
+		);
+		const codeViewItemsSource = readFileSync(
+			fileURLToPath(new URL('./bridge-file-viewer-code-view-items.ts', import.meta.url)),
+			'utf8',
+		);
+
+		expect(shellModelSource).toContain('selectedCodeViewItem');
+		expect(shellSource).toContain('selectedCodeViewItem');
+		expect(codePanelSource).toContain('selectedCodeViewItem');
+		expect(codeViewItemsSource).toContain('bridgeFileViewerSelectedCodeViewItemForPanelState');
+		expect(appSource).toContain('selectedCodeViewItem={shellModel.selectedCodeViewItem}');
+		expect(appSource).not.toContain('renderedOpenFileContent={shellModel.renderedOpenFileContent}');
+		expect(shellSource).not.toContain('renderedOpenFileContent');
+		expect(codePanelSource).not.toContain('renderedFileContent');
+	});
+
 	test('keeps BridgeWeb TypeScript and TSX files under one thousand lines', () => {
 		const bridgeWebSources = readBridgeWebSourceFiles();
 		const oversizedSources = bridgeWebSources

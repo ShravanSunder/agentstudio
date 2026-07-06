@@ -11,7 +11,10 @@ import type {
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import type { BridgeTraceContext } from '../foundation/telemetry/bridge-trace-context.js';
 import type { WorktreeFileSurfaceLoadTelemetry } from '../worktree-file-surface/worktree-file-surface-runtime.js';
-import { BridgeFileViewerCodePanel } from './bridge-file-viewer-code-panel.js';
+import {
+	BridgeFileViewerCodePanel,
+	type BridgeFileViewerSelectedCodeViewItem,
+} from './bridge-file-viewer-code-panel.js';
 import type {
 	BridgeFileViewerDescriptorProjection,
 	BridgeFileViewerFilterMode,
@@ -31,7 +34,6 @@ import {
 	type BridgeFileViewerOpenState,
 	type BridgeFileViewerRefreshDebugState,
 	type BridgeFileViewerRenderState,
-	type BridgeFileViewerRenderedOpenFileContent,
 } from './bridge-file-viewer-state.js';
 import { BridgeFileViewerTreePanel } from './bridge-file-viewer-tree-panel.js';
 
@@ -61,10 +63,10 @@ interface BridgeFileViewerShellProps {
 	readonly openFileTotalHeightPixels: number | null;
 	readonly refreshDebugState: BridgeFileViewerRefreshDebugState | null;
 	readonly refreshOpenFile: (state: BridgeFileViewerOpenState) => Promise<void>;
-	readonly renderedOpenFileContent: BridgeFileViewerRenderedOpenFileContent | null;
 	readonly renderState: BridgeFileViewerRenderState;
 	readonly searchMode: BridgeFileViewerSearchMode;
 	readonly searchText: string;
+	readonly selectedCodeViewItem: BridgeFileViewerSelectedCodeViewItem | null;
 	readonly selectedPath: string | null;
 	readonly sourceIdentity: WorktreeFileSurfaceSourceIdentity | null;
 	readonly telemetryRecorder: BridgeTelemetryRecorder | undefined;
@@ -101,10 +103,10 @@ export function BridgeFileViewerShell({
 	openFileTotalHeightPixels,
 	refreshDebugState,
 	refreshOpenFile,
-	renderedOpenFileContent,
 	renderState,
 	searchMode,
 	searchText,
+	selectedCodeViewItem,
 	selectedPath,
 	telemetryRecorder,
 	telemetryTraceContext,
@@ -289,7 +291,7 @@ export function BridgeFileViewerShell({
 						/>
 						<BridgeFileViewerCodePanel
 							openFileState={openFileState}
-							renderedFileContent={renderedOpenFileContent}
+							selectedCodeViewItem={selectedCodeViewItem}
 							staleNotice={
 								openFileState.status === 'stale' &&
 								!shouldAutoRefreshStaleOpenFile({

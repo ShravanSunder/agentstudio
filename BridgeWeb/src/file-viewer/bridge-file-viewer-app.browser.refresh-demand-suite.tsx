@@ -22,11 +22,14 @@ import {
 import {
 	actFrame,
 	actUpdate,
+	makeGeneratedFileBody,
 	makeDeferredContent,
 	openFileBodyPreview,
 	openFileState,
 	requireActivateFiles,
 	requireDeactivateFiles,
+	waitForFileCodeViewScrollable,
+	waitForFileCodeViewScrollOwner,
 	requireFramePublisher,
 	visibleCodeText,
 	waitForDemandDispatchFirstFreshnessKeyContaining,
@@ -211,6 +214,80 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		expect(shell.getAttribute('data-last-refresh-result')).toBe('ok');
 		expect(shell.getAttribute('data-last-refresh-commit-state')).toBe('committed');
 		expect(shell.getAttribute('data-last-refresh-descriptor-id')).toBe('refresh-content-2');
+	});
+
+	test('restores File CodeView scroll position after a same-path stale auto refresh', async () => {
+		const initialDescriptor = makeFileDescriptor({
+			contentHandle: 'refresh-scroll-content-1',
+			fileId: 'file-refresh-scroll-target',
+			lineCount: 140,
+			path: 'src/refresh-scroll-target.ts',
+		});
+		const resetSourceIdentity = makeSourceIdentity({
+			subscriptionGeneration: 2,
+			sourceCursor: 'cursor-2',
+		});
+		const replacementDescriptor = makeFileDescriptor({
+			contentHandle: 'refresh-scroll-content-2',
+			fileId: 'file-refresh-scroll-target',
+			generation: 2,
+			lineCount: 140,
+			path: 'src/refresh-scroll-target.ts',
+			sourceIdentity: resetSourceIdentity,
+		});
+		let publishFrames: PublishWorktreeFileFrames | null = null;
+
+		render(
+			<div style={{ display: 'grid', height: '360px', overflow: 'hidden', width: '960px' }}>
+				<BridgeFileViewerApp
+					codeViewWorkerPoolEnabled={false}
+					initialFrames={makeFrames(initialDescriptor)}
+					navigationCommand={fileNavigationCommandForPath('src/refresh-scroll-target.ts')}
+					worktreeFileSurfaceTransport={{
+						fetchResource: async (props) =>
+							makeWorktreeFileSurfaceRuntimeFetchedResource(
+								props.resourceUrl.includes('refresh-scroll-content-2')
+									? makeGeneratedFileBody('refreshedScroll', 140)
+									: makeGeneratedFileBody('initialScroll', 140),
+							),
+						subscribeFrames: (handler): (() => void) => {
+							publishFrames = handler;
+							return (): void => {
+								publishFrames = null;
+							};
+						},
+					}}
+				/>
+			</div>,
+		);
+
+		await waitForOpenFileState('ready');
+		await waitForVisibleCodeText('export const initialScrollLine001 = true;');
+		const scrollOwner = await waitForFileCodeViewScrollOwner();
+		await waitForFileCodeViewScrollable(scrollOwner);
+		await actUpdate((): void => {
+			scrollOwner.scrollTop = 320;
+			scrollOwner.dispatchEvent(new Event('scroll', { bubbles: true }));
+		});
+		const scrollTopBeforeRefresh = scrollOwner.scrollTop;
+		expect(scrollTopBeforeRefresh).toBeGreaterThan(0);
+
+		const publishRequiredFrames = requireFramePublisher(publishFrames);
+		await actUpdate((): void => {
+			publishRequiredFrames(makeResetFrames(replacementDescriptor));
+		});
+		await waitForOpenFileState('ready');
+		await waitForRefreshDebugState({
+			commitState: 'committed',
+			result: 'ok',
+		});
+		await waitForOpenFileState('ready');
+		await actFrame();
+		await actFrame();
+
+		expect(openFileBodyPreview()).toContain('export const refreshedScrollLine001 = true;');
+		expect(scrollOwner.scrollTop).toBeGreaterThanOrEqual(scrollTopBeforeRefresh - 1);
+		expect(visibleCodeText()).not.toContain('export const initialScrollLine001 = true;');
 	});
 
 	test('does not repeat silent auto refresh for the same stale descriptor after failure', async () => {

@@ -6,8 +6,8 @@ import { bridgeCodeViewOptions } from '../review-viewer/code-view/bridge-code-vi
 import { BridgePierreWorkerPoolProvider } from '../review-viewer/workers/pierre/bridge-pierre-worker-pool.js';
 import {
 	bridgeFileViewerCodeViewItemsForPanelState,
-	type BridgeFileViewerCodePanelContent,
 	type BridgeFileViewerCodePanelState,
+	type BridgeFileViewerSelectedCodeViewItem,
 } from './bridge-file-viewer-code-view-items.js';
 
 const bridgeFileViewerCodeViewOptions: CodeViewOptions<undefined> = {
@@ -34,13 +34,13 @@ const bridgeFileViewerCodeViewOptions: CodeViewOptions<undefined> = {
 	`,
 };
 
-export type { BridgeFileViewerCodePanelContent, BridgeFileViewerCodePanelState };
+export type { BridgeFileViewerCodePanelState, BridgeFileViewerSelectedCodeViewItem };
 
 export interface BridgeFileViewerCodePanelProps {
 	readonly codeViewWorkerFactory?: () => Worker;
 	readonly codeViewWorkerPoolEnabled?: boolean;
 	readonly openFileState: BridgeFileViewerCodePanelState;
-	readonly renderedFileContent: BridgeFileViewerCodePanelContent | null;
+	readonly selectedCodeViewItem: BridgeFileViewerSelectedCodeViewItem | null;
 	readonly totalHeightPixels: number | null;
 	readonly staleNotice?: ReactElement | null;
 }
@@ -57,15 +57,15 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 		() =>
 			bridgeFileViewerCodeViewItemsForPanelState({
 				openFileState: props.openFileState,
-				renderedFileContent: props.renderedFileContent,
+				selectedCodeViewItem: props.selectedCodeViewItem,
 			}),
-		[props.openFileState, props.renderedFileContent],
+		[props.openFileState, props.selectedCodeViewItem],
 	);
 	const shouldRenderContentState =
-		props.renderedFileContent === null && props.openFileState.status !== 'loading';
+		props.selectedCodeViewItem === null && props.openFileState.status !== 'loading';
 	useLayoutEffect((): void => {
 		const currentPath = props.openFileState.status === 'idle' ? null : props.openFileState.path;
-		const currentRenderedPath = props.renderedFileContent?.path ?? null;
+		const currentRenderedPath = props.selectedCodeViewItem?.bridgeMetadata.displayPath ?? null;
 		const currentStatus = props.openFileState.status;
 		const previousOpenState = previousOpenStateRef.current;
 		const shouldRestoreSameFileScroll =
@@ -104,7 +104,7 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 			});
 		}
 		previousOpenStateRef.current = { path: currentPath, status: currentStatus };
-	}, [props.openFileState, props.renderedFileContent?.path]);
+	}, [props.openFileState, props.selectedCodeViewItem?.bridgeMetadata.displayPath]);
 	return (
 		<section
 			aria-label="Selected file"
@@ -113,8 +113,8 @@ export function BridgeFileViewerCodePanel(props: BridgeFileViewerCodePanelProps)
 			data-pierre-code-view-owner="CodeView.file"
 			data-shiki-rendering="pierre"
 			data-testid="bridge-file-viewer-code-canvas"
-			data-worktree-open-file-body-preview={props.renderedFileContent?.body.slice(0, 160)}
-			data-worktree-rendered-file-path={props.renderedFileContent?.path}
+			data-worktree-open-file-body-preview={props.selectedCodeViewItem?.file.contents.slice(0, 160)}
+			data-worktree-rendered-file-path={props.selectedCodeViewItem?.bridgeMetadata.displayPath}
 			data-worker-backed-highlighting={
 				props.codeViewWorkerPoolEnabled === true ? 'requested' : 'disabled'
 			}

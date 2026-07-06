@@ -2,7 +2,10 @@ import { describe, expect, test } from 'vitest';
 
 import type { WorktreeFileDescriptor } from '../features/worktree-file/models/worktree-file-protocol-models.js';
 import { makeFileDescriptor } from './bridge-file-viewer-browser-test-fixtures.js';
-import { bridgeFileViewerCodeViewItemsForPanelState } from './bridge-file-viewer-code-view-items.js';
+import {
+	bridgeFileViewerCodeViewItemsForPanelState,
+	bridgeFileViewerSelectedCodeViewItemForPanelState,
+} from './bridge-file-viewer-code-view-items.js';
 
 describe('Bridge file viewer CodeView item adapter', () => {
 	test('creates a line-count placeholder item while selected file content loads', () => {
@@ -19,7 +22,7 @@ describe('Bridge file viewer CodeView item adapter', () => {
 				path: descriptor.path,
 				descriptor,
 			},
-			renderedFileContent: null,
+			selectedCodeViewItem: null,
 		});
 
 		expect(items).toEqual([
@@ -33,6 +36,14 @@ describe('Bridge file viewer CodeView item adapter', () => {
 					lang: 'text',
 				},
 				version: 3,
+				bridgeMetadata: {
+					cacheKey: 'content-loading:placeholder:3',
+					contentRoles: ['file'],
+					contentState: 'placeholder',
+					displayPath: 'src/loading.ts',
+					itemId: 'file-loading',
+					lineCount: 3,
+				},
 			},
 		]);
 	});
@@ -45,7 +56,7 @@ describe('Bridge file viewer CodeView item adapter', () => {
 			path: 'src/ready.ts',
 		});
 
-		const items = bridgeFileViewerCodeViewItemsForPanelState({
+		const selectedCodeViewItem = bridgeFileViewerSelectedCodeViewItemForPanelState({
 			openFileState: {
 				status: 'ready',
 				path: descriptor.path,
@@ -58,6 +69,14 @@ describe('Bridge file viewer CodeView item adapter', () => {
 				path: descriptor.path,
 			},
 		});
+		const items = bridgeFileViewerCodeViewItemsForPanelState({
+			openFileState: {
+				status: 'ready',
+				path: descriptor.path,
+				descriptor,
+			},
+			selectedCodeViewItem,
+		});
 
 		expect(items).toEqual([
 			{
@@ -69,6 +88,14 @@ describe('Bridge file viewer CodeView item adapter', () => {
 					cacheKey: 'content-ready:hash-ready',
 				},
 				version: 7,
+				bridgeMetadata: {
+					cacheKey: 'content-ready:hash-ready',
+					contentRoles: ['file'],
+					contentState: 'hydrated',
+					displayPath: 'src/ready.ts',
+					itemId: 'file-ready',
+					lineCount: 2,
+				},
 			},
 		]);
 	});
@@ -80,7 +107,7 @@ describe('Bridge file viewer CodeView item adapter', () => {
 			path: 'src/without-hash.ts',
 		});
 
-		const items = bridgeFileViewerCodeViewItemsForPanelState({
+		const selectedCodeViewItem = bridgeFileViewerSelectedCodeViewItemForPanelState({
 			openFileState: {
 				status: 'ready',
 				path: descriptor.path,
@@ -92,6 +119,14 @@ describe('Bridge file viewer CodeView item adapter', () => {
 				descriptor,
 				path: descriptor.path,
 			},
+		});
+		const items = bridgeFileViewerCodeViewItemsForPanelState({
+			openFileState: {
+				status: 'ready',
+				path: descriptor.path,
+				descriptor,
+			},
+			selectedCodeViewItem,
 		});
 
 		expect(items[0]).toMatchObject({
@@ -118,7 +153,7 @@ describe('Bridge file viewer CodeView item adapter', () => {
 			path: 'src/selected.ts',
 		});
 
-		const items = bridgeFileViewerCodeViewItemsForPanelState({
+		const selectedCodeViewItem = bridgeFileViewerSelectedCodeViewItemForPanelState({
 			openFileState: {
 				status: 'loading',
 				path: selectedDescriptor.path,
@@ -130,6 +165,14 @@ describe('Bridge file viewer CodeView item adapter', () => {
 				descriptor: retainedDescriptor,
 				path: retainedDescriptor.path,
 			},
+		});
+		const items = bridgeFileViewerCodeViewItemsForPanelState({
+			openFileState: {
+				status: 'loading',
+				path: selectedDescriptor.path,
+				descriptor: selectedDescriptor,
+			},
+			selectedCodeViewItem,
 		});
 
 		const item = items[0];

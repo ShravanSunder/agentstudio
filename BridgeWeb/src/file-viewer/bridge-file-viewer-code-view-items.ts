@@ -1,6 +1,7 @@
-import type { CodeViewItem } from '@pierre/diffs';
-
+import type { BridgeWorkerCodeViewFileItem } from '../core/comm-worker/bridge-worker-pierre-render-job.js';
 import type { WorktreeFileDescriptor } from '../features/worktree-file/models/worktree-file-protocol-models.js';
+import type { BridgeCodeViewItem } from '../review-viewer/code-view/bridge-code-view-materialization.js';
+import { bridgePierreOptionalHighlightLanguage } from '../review-viewer/workers/pierre/bridge-pierre-language-normalization.js';
 
 export type BridgeFileViewerCodePanelState =
 	| { readonly status: 'idle' }
@@ -17,12 +18,24 @@ export interface BridgeFileViewerCodePanelContent {
 	readonly path: string;
 }
 
+export type BridgeFileViewerSelectedCodeViewItem = BridgeWorkerCodeViewFileItem;
+
 export function bridgeFileViewerCodeViewItemsForPanelState(props: {
 	readonly openFileState: BridgeFileViewerCodePanelState;
-	readonly renderedFileContent: BridgeFileViewerCodePanelContent | null;
-}): readonly CodeViewItem[] {
-	if (props.renderedFileContent === null) {
+	readonly selectedCodeViewItem: BridgeFileViewerSelectedCodeViewItem | null;
+}): readonly BridgeCodeViewItem[] {
+	if (props.selectedCodeViewItem === null) {
 		return codeViewPlaceholderItemsForOpenFileState(props.openFileState);
+	}
+	return [bridgeFileViewerPierreCodeViewItemFromSelectedItem(props.selectedCodeViewItem)];
+}
+
+export function bridgeFileViewerSelectedCodeViewItemForPanelState(props: {
+	readonly openFileState: BridgeFileViewerCodePanelState;
+	readonly renderedFileContent: BridgeFileViewerCodePanelContent | null;
+}): BridgeFileViewerSelectedCodeViewItem | null {
+	if (props.renderedFileContent === null) {
+		return null;
 	}
 	const content = props.renderedFileContent;
 	const descriptor = content.descriptor;
@@ -30,27 +43,55 @@ export function bridgeFileViewerCodeViewItemsForPanelState(props: {
 		content,
 		openFileState: props.openFileState,
 	});
-	return [
-		{
-			id: `file:${descriptor.fileId}`,
-			type: 'file',
-			file: {
-				name: content.path,
-				contents: reservedContent.body,
-				cacheKey:
-					reservedContent.cacheKeySegment === null
-						? `${descriptor.contentHandle}:${descriptor.contentHash ?? 'unknown'}`
-						: `${descriptor.contentHandle}:${descriptor.contentHash ?? 'unknown'}:${reservedContent.cacheKeySegment}`,
-				...(reservedContent.cacheKeySegment === null ? {} : { lang: 'text' }),
-			},
-			version: content.bodyVersion + reservedContent.versionOffset,
+	const cacheKey =
+		reservedContent.cacheKeySegment === null
+			? `${descriptor.contentHandle}:${descriptor.contentHash ?? 'unknown'}`
+			: `${descriptor.contentHandle}:${descriptor.contentHash ?? 'unknown'}:${reservedContent.cacheKeySegment}`;
+
+	return {
+		id: `file:${descriptor.fileId}`,
+		type: 'file',
+		file: {
+			name: content.path,
+			contents: reservedContent.body,
+			cacheKey,
+			...(reservedContent.cacheKeySegment === null ? {} : { lang: 'text' }),
 		},
-	];
+		version: content.bodyVersion + reservedContent.versionOffset,
+		bridgeMetadata: {
+			cacheKey,
+			contentRoles: ['file'],
+			contentState: reservedContent.cacheKeySegment === null ? 'hydrated' : 'windowed',
+			displayPath: content.path,
+			itemId: descriptor.fileId,
+			lineCount: descriptor.lineCount ?? null,
+		},
+	};
+}
+
+function bridgeFileViewerPierreCodeViewItemFromSelectedItem(
+	item: BridgeFileViewerSelectedCodeViewItem,
+): BridgeCodeViewItem {
+	const normalizedLanguage = bridgePierreOptionalHighlightLanguage(item.file.lang);
+	return {
+		id: item.id,
+		type: item.type,
+		file: {
+			name: item.file.name,
+			contents: item.file.contents,
+			...(normalizedLanguage === undefined ? {} : { lang: normalizedLanguage }),
+			...(item.file.header === undefined ? {} : { header: item.file.header }),
+			...(item.file.cacheKey === undefined ? {} : { cacheKey: item.file.cacheKey }),
+		},
+		...(item.version === undefined ? {} : { version: item.version }),
+		...(item.collapsed === undefined ? {} : { collapsed: item.collapsed }),
+		bridgeMetadata: item.bridgeMetadata,
+	} satisfies BridgeCodeViewItem;
 }
 
 function codeViewPlaceholderItemsForOpenFileState(
 	openFileState: BridgeFileViewerCodePanelState,
-): readonly CodeViewItem[] {
+): readonly BridgeCodeViewItem[] {
 	if (
 		openFileState.status === 'idle' ||
 		openFileState.descriptor.isBinary ||
@@ -74,6 +115,14 @@ function codeViewPlaceholderItemsForOpenFileState(
 				lang: 'text',
 			},
 			version: openFileState.descriptor.lineCount,
+			bridgeMetadata: {
+				cacheKey: `${openFileState.descriptor.contentHandle}:placeholder:${openFileState.descriptor.lineCount}`,
+				contentRoles: ['file'],
+				contentState: 'placeholder',
+				displayPath: openFileState.path,
+				itemId: openFileState.descriptor.fileId,
+				lineCount: openFileState.descriptor.lineCount,
+			},
 		},
 	];
 }
