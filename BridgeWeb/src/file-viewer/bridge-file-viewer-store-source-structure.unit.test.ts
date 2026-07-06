@@ -90,9 +90,21 @@ describe('Bridge file viewer store source structure', () => {
 			'fileViewerProps?.loadInitialSurface',
 			'fileViewerProps?.subscribeFrames',
 		].filter((token): boolean => frameControllerSource.includes(token));
-		const appTransportTokens = ['props.requestFileDescriptor', 'fetchResource,'].filter(
-			(token): boolean => appSource.includes(token),
-		);
+		const migratedAppTransportMembers = [
+			'fetchResource',
+			'loadInitialSurface',
+			'requestFileDescriptor',
+			'subscribeFrames',
+		];
+		const appPropsDestructureMatch = /const\s*\{(?<body>[\s\S]*?)\}\s*=\s*props;/u.exec(appSource);
+		const appPropsDestructureBody = appPropsDestructureMatch?.groups?.['body'] ?? '';
+		const destructuredAppTransportTokens = migratedAppTransportMembers
+			.filter((member): boolean => new RegExp(`\\b${member}\\b`, 'u').test(appPropsDestructureBody))
+			.map((member): string => `props destructure: ${member}`);
+		const directAppTransportTokens = migratedAppTransportMembers
+			.map((member): string => `props.${member}`)
+			.filter((token): boolean => appSource.includes(token));
+		const appTransportTokens = [...destructuredAppTransportTokens, ...directAppTransportTokens];
 
 		expect({
 			appTransportTokens,
