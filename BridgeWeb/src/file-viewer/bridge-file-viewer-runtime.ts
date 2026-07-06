@@ -7,16 +7,17 @@ import {
 } from '../worktree-file-surface/worktree-file-surface-runtime.js';
 import type { BridgeFileViewerAppProps } from './bridge-file-viewer-app.js';
 import { defaultFetchWorktreeFileResource, defaultPaneId } from './bridge-file-viewer-state.js';
+import type { BridgeFileViewerWorktreeFileSurfaceTransport } from './bridge-file-viewer-worktree-file-surface-transport.js';
 
 export function createBridgeFileViewerRuntime(props: {
-	readonly fetchResource: BridgeFileViewerAppProps['fetchResource'];
 	readonly telemetryRecorder: BridgeFileViewerAppProps['telemetryRecorder'];
 	readonly telemetryTraceContext: BridgeFileViewerAppProps['telemetryTraceContext'];
+	readonly worktreeFileResourceFetcher: BridgeFileViewerWorktreeFileSurfaceTransport['fetchResource'];
 }): WorktreeFileSurfaceRuntime {
 	const telemetryRecorder = props.telemetryRecorder;
 	return createWorktreeFileSurfaceRuntime({
 		paneId: defaultPaneId,
-		fetchResource: props.fetchResource ?? defaultFetchWorktreeFileResource,
+		fetchResource: props.worktreeFileResourceFetcher ?? defaultFetchWorktreeFileResource,
 		resourceLoadProbe:
 			telemetryRecorder === undefined
 				? undefined

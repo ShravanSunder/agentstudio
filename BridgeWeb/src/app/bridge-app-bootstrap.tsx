@@ -2,6 +2,7 @@ import { createRoot } from 'react-dom/client';
 
 import { createBridgeAppNativeWorktreeFileBackend } from './bridge-app-native-worktree-file.js';
 import { BridgeAppProtocolRouter } from './bridge-app-protocol-router.js';
+import { createBridgeFileViewerWorktreeFileSurfaceTransport } from './bridge-file-viewer-worktree-file-surface-transport-adapter.js';
 
 // oxlint-disable-next-line import/no-unassigned-import -- The packaged app loads compiled CSS from index.html; this source import keeps dev/build contracts explicit.
 import './bridge-app.css';
@@ -24,12 +25,8 @@ if (rootElement !== null) {
 				: {
 						fileViewerProps: {
 							autoOpenInitialFile: true,
-							fetchResource: nativeWorktreeFileBackend.fetchWorktreeFileResource,
-							loadInitialSurface: nativeWorktreeFileBackend.loadWorktreeFileSurface,
-							registerSurfaceStreamResetRequiredCallback:
-								nativeWorktreeFileBackend.registerWorktreeFileStreamResetRequiredCallback,
-							requestFileDescriptor: nativeWorktreeFileBackend.requestWorktreeFileDescriptor,
-							subscribeFrames: nativeWorktreeFileBackend.subscribeWorktreeFileFrames,
+							worktreeFileSurfaceTransport:
+								createBridgeFileViewerWorktreeFileSurfaceTransport(nativeWorktreeFileBackend),
 						},
 					})}
 		/>,

@@ -49,14 +49,12 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 		autoOpenInitialFile = false,
 		codeViewWorkerFactory,
 		codeViewWorkerPoolEnabled,
-		fetchResource,
 		initialFrames,
 		isActive = true,
 		loadInitialFrames,
-		loadInitialSurface,
 		onOpenReviewComparison,
-		subscribeFrames,
 		waitForBridgeReady,
+		worktreeFileSurfaceTransport,
 	} = props;
 	const runtimeRef = useRef<WorktreeFileSurfaceRuntime | null>(null);
 	const activeVisibleDemandSignatureRef = useRef<string | null>(null);
@@ -107,12 +105,13 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 	openFileStateRef.current = openFileState;
 	const telemetryRecorder = props.telemetryRecorder;
 	const telemetryTraceContext = props.telemetryTraceContext ?? null;
+	const worktreeFileResourceFetcher = worktreeFileSurfaceTransport?.fetchResource;
 
 	if (runtimeRef.current === null) {
 		runtimeRef.current = createBridgeFileViewerRuntime({
-			fetchResource,
 			telemetryRecorder: props.telemetryRecorder,
 			telemetryTraceContext: props.telemetryTraceContext,
+			worktreeFileResourceFetcher,
 		});
 	}
 
@@ -273,7 +272,7 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 		viewerActions,
 	]);
 
-	const requestFileDescriptorFromHost = props.requestFileDescriptor;
+	const requestFileDescriptorFromHost = worktreeFileSurfaceTransport?.requestFileDescriptor;
 	const descriptorRequestController = useBridgeFileViewerDescriptorRequestController({
 		isActiveRef,
 		openFile,
@@ -300,7 +299,7 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 			recentlyUpdatedDemandController.replayPendingDescriptorDemand,
 		initialFrames,
 		loadInitialFrames,
-		loadInitialSurface,
+		loadInitialSurface: worktreeFileSurfaceTransport?.loadInitialSurface,
 		openFileBodyRef,
 		openFileRequestIdRef,
 		openPendingSelectedDescriptor: descriptorRequestController.openPendingSelectedDescriptor,
@@ -309,7 +308,7 @@ export function BridgeFileViewerApp(props: BridgeFileViewerAppProps = {}): React
 		setInitialSurfaceLoadState: viewerActions.setInitialSurfaceLoadState,
 		setOpenFileState: viewerActions.setOpenFileState,
 		setRenderState: viewerActions.setRenderState,
-		subscribeFrames,
+		subscribeFrames: worktreeFileSurfaceTransport?.subscribeFrames,
 		telemetryRecorder,
 		telemetryTraceContext,
 		waitForBridgeReady,

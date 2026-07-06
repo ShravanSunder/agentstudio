@@ -35,6 +35,7 @@ import {
 } from './bridge-app-dev-worktree-review.js';
 import { installBridgeAppDevWorktreeBackend } from './bridge-app-dev-worktree.js';
 import { BridgeAppProtocolRouter } from './bridge-app-protocol-router.js';
+import { createBridgeFileViewerWorktreeFileSurfaceTransport } from './bridge-file-viewer-worktree-file-surface-transport-adapter.js';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Dev server must load the same app CSS as packaged BridgeWeb.
 import './bridge-app.css';
@@ -111,10 +112,8 @@ if (rootElement !== null) {
 				: {
 						fileViewerProps: {
 							autoOpenInitialFile: true,
-							fetchResource: worktreeBackend.fetchWorktreeFileResource,
-							loadInitialSurface: worktreeBackend.loadWorktreeFileSurface,
-							requestFileDescriptor: worktreeBackend.requestWorktreeFileDescriptor,
-							subscribeFrames: worktreeBackend.subscribeWorktreeFileFrames,
+							worktreeFileSurfaceTransport:
+								createBridgeFileViewerWorktreeFileSurfaceTransport(worktreeBackend),
 						},
 					})}
 			{...(workerFactory === null ? {} : { codeViewWorkerFactory: workerFactory.workerFactory })}

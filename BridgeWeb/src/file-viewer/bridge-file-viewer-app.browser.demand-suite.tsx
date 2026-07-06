@@ -35,15 +35,17 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 
 		render(
 			<BridgeFileViewerApp
-				fetchResource={async (props) => {
-					fetchedResourceUrls.push(props.resourceUrl);
-					return makeWorktreeFileSurfaceRuntimeFetchedResource(
-						props.resourceUrl.includes('second-visible-content')
-							? 'export const secondVisible = true;\n'
-							: 'export const firstVisible = true;\n',
-					);
-				}}
 				initialFrames={makeFrames(firstDescriptor, secondDescriptor)}
+				worktreeFileSurfaceTransport={{
+					fetchResource: async (props) => {
+						fetchedResourceUrls.push(props.resourceUrl);
+						return makeWorktreeFileSurfaceRuntimeFetchedResource(
+							props.resourceUrl.includes('second-visible-content')
+								? 'export const secondVisible = true;\n'
+								: 'export const firstVisible = true;\n',
+						);
+					},
+				}}
 			/>,
 		);
 
@@ -89,13 +91,15 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 
 		render(
 			<BridgeFileViewerApp
-				fetchResource={async (props) => {
-					fetchedResourceUrls.push(props.resourceUrl);
-					return makeWorktreeFileSurfaceRuntimeFetchedResource(
-						'export const textVisible = true;\n',
-					);
-				}}
 				initialFrames={makeFrames(textDescriptor, binaryDescriptor, unavailableDescriptor)}
+				worktreeFileSurfaceTransport={{
+					fetchResource: async (props) => {
+						fetchedResourceUrls.push(props.resourceUrl);
+						return makeWorktreeFileSurfaceRuntimeFetchedResource(
+							'export const textVisible = true;\n',
+						);
+					},
+				}}
 			/>,
 		);
 
@@ -128,12 +132,14 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			};
 			return (
 				<BridgeFileViewerApp
-					fetchResource={(props) => {
-						fetchedResourceUrls.push(props.resourceUrl);
-						return deferredContent.promise;
-					}}
 					initialFrames={makeFrames(visibleDescriptor)}
 					isActive={isActive}
+					worktreeFileSurfaceTransport={{
+						fetchResource: (props) => {
+							fetchedResourceUrls.push(props.resourceUrl);
+							return deferredContent.promise;
+						},
+					}}
 				/>
 			);
 		}

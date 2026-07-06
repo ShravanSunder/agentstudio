@@ -52,8 +52,9 @@ export function useBridgeFileViewerFrameControllerProps(
 	fileViewerPropsRef.current = fileViewerProps;
 	const initialFrames = fileViewerProps?.initialFrames;
 	const loadInitialFrames = fileViewerProps?.loadInitialFrames;
-	const loadInitialSurface = fileViewerProps?.loadInitialSurface;
-	const subscribeFrames = fileViewerProps?.subscribeFrames;
+	const worktreeFileSurfaceTransport = fileViewerProps?.worktreeFileSurfaceTransport;
+	const loadInitialSurface = worktreeFileSurfaceTransport?.loadInitialSurface;
+	const subscribeFrames = worktreeFileSurfaceTransport?.subscribeFrames;
 
 	const loadBufferedInitialSurface = useCallback(
 		async (): Promise<WorktreeFileInitialSurface> => await loadPromiseRef.current,
@@ -166,12 +167,15 @@ export function useBridgeFileViewerFrameControllerProps(
 		}
 		const bufferedSurface = bufferedSurfaceRef.current;
 		const hasLoadedSurface = loadedVersion > 1 && bufferedSurface.frames.length > 0;
+		const bufferedWorktreeFileSurfaceTransport = {
+			...fileViewerProps.worktreeFileSurfaceTransport,
+			...(hasLoadedSurface ? {} : { loadInitialSurface: loadBufferedInitialSurface }),
+			subscribeFrames: subscribeBufferedFrames,
+		};
 		return {
 			...fileViewerProps,
-			...(hasLoadedSurface
-				? { initialFrames: bufferedSurface.frames }
-				: { loadInitialSurface: loadBufferedInitialSurface }),
-			subscribeFrames: subscribeBufferedFrames,
+			...(hasLoadedSurface ? { initialFrames: bufferedSurface.frames } : {}),
+			worktreeFileSurfaceTransport: bufferedWorktreeFileSurfaceTransport,
 		};
 	}, [fileViewerProps, loadBufferedInitialSurface, loadedVersion, subscribeBufferedFrames]);
 }
@@ -196,8 +200,9 @@ async function loadInitialSurfaceForFileViewerProps(
 	if (fileViewerProps?.initialFrames !== undefined) {
 		return { frames: fileViewerProps.initialFrames };
 	}
-	if (fileViewerProps?.loadInitialSurface !== undefined) {
-		return await fileViewerProps.loadInitialSurface();
+	const loadInitialSurface = fileViewerProps?.worktreeFileSurfaceTransport?.loadInitialSurface;
+	if (loadInitialSurface !== undefined) {
+		return await loadInitialSurface();
 	}
 	if (fileViewerProps?.loadInitialFrames !== undefined) {
 		return { frames: await fileViewerProps.loadInitialFrames() };

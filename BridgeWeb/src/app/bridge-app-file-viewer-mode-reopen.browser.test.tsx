@@ -4,6 +4,12 @@ import { render } from 'vitest-browser-react';
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode renders need app CSS.
 import './bridge-app.css';
 import type { WorktreeFileInitialSurface } from '../worktree-file-surface/worktree-file-app.js';
+import {
+	actClick,
+	actUpdate,
+	actWait,
+	pollWithinActUntilEqual,
+} from './bridge-app-native-review-error.browser.test-support.js';
 import { BridgeAppProtocolRouter } from './bridge-app-protocol-router.js';
 
 describe('Bridge file viewer mode re-open on switch', () => {
@@ -20,13 +26,18 @@ describe('Bridge file viewer mode re-open on switch', () => {
 		};
 		installHandshake('push-reopen-1');
 
-		render(<BridgeAppProtocolRouter fileViewerProps={{ loadInitialSurface }} protocol="review" />);
-		await new Promise((resolve) => window.setTimeout(resolve, 0));
+		render(
+			<BridgeAppProtocolRouter
+				fileViewerProps={{ worktreeFileSurfaceTransport: { loadInitialSurface } }}
+				protocol="review"
+			/>,
+		);
+		await actWait(() => new Promise<void>((resolve) => window.setTimeout(resolve, 0)));
 		expect(loadCount).toBe(0);
 
-		clickContext('file');
-		await expect.poll(activeViewerMode).toBe('file');
-		await expect.poll(() => loadCount).toBe(1);
+		await clickContext('file');
+		expect(await pollWithinActUntilEqual(activeViewerMode, 'file')).toBe('file');
+		expect(await pollWithinActUntilEqual(() => loadCount, 1)).toBe(1);
 	});
 
 	test('reuses a live healthy stream — no re-open spam on healthy re-activations', async () => {
@@ -38,14 +49,17 @@ describe('Bridge file viewer mode re-open on switch', () => {
 		installHandshake('push-reopen-healthy');
 
 		render(
-			<BridgeAppProtocolRouter fileViewerProps={{ loadInitialSurface }} protocol="worktree-file" />,
+			<BridgeAppProtocolRouter
+				fileViewerProps={{ worktreeFileSurfaceTransport: { loadInitialSurface } }}
+				protocol="worktree-file"
+			/>,
 		);
-		await expect.poll(() => loadCount).toBe(1);
+		expect(await pollWithinActUntilEqual(() => loadCount, 1)).toBe(1);
 
-		clickContext('review');
-		await expect.poll(activeViewerMode).toBe('review');
-		clickContext('file');
-		await expect.poll(activeViewerMode).toBe('file');
+		await clickContext('review');
+		expect(await pollWithinActUntilEqual(activeViewerMode, 'review')).toBe('review');
+		await clickContext('file');
+		expect(await pollWithinActUntilEqual(activeViewerMode, 'file')).toBe('file');
 		expect(loadCount).toBe(1);
 	});
 
@@ -64,18 +78,21 @@ describe('Bridge file viewer mode re-open on switch', () => {
 		installHandshake('push-reopen-2');
 
 		render(
-			<BridgeAppProtocolRouter fileViewerProps={{ loadInitialSurface }} protocol="worktree-file" />,
+			<BridgeAppProtocolRouter
+				fileViewerProps={{ worktreeFileSurfaceTransport: { loadInitialSurface } }}
+				protocol="worktree-file"
+			/>,
 		);
-		await expect.poll(() => loadCount).toBe(1);
+		expect(await pollWithinActUntilEqual(() => loadCount, 1)).toBe(1);
 
-		clickContext('review');
-		await expect.poll(activeViewerMode).toBe('review');
+		await clickContext('review');
+		expect(await pollWithinActUntilEqual(activeViewerMode, 'review')).toBe('review');
 
 		// Switch back to file: the wedged surface never resolved, so the re-open fires
 		// and recovers with a fresh open (which resolves).
-		clickContext('file');
-		await expect.poll(() => loadCount).toBe(2);
-		await expect.poll(activeViewerMode).toBe('file');
+		await clickContext('file');
+		expect(await pollWithinActUntilEqual(() => loadCount, 2)).toBe(2);
+		expect(await pollWithinActUntilEqual(activeViewerMode, 'file')).toBe('file');
 	});
 
 	test('defers a hidden resolved file surface stream reset until file mode re-activates', async () => {
@@ -90,30 +107,34 @@ describe('Bridge file viewer mode re-open on switch', () => {
 		render(
 			<BridgeAppProtocolRouter
 				fileViewerProps={{
-					loadInitialSurface,
-					registerSurfaceStreamResetRequiredCallback: (callback): (() => void) => {
-						onSurfaceStreamResetRequired = callback;
-						return (): void => {
-							if (onSurfaceStreamResetRequired === callback) {
-								onSurfaceStreamResetRequired = undefined;
-							}
-						};
+					worktreeFileSurfaceTransport: {
+						loadInitialSurface,
+						registerSurfaceStreamResetRequiredCallback: (callback): (() => void) => {
+							onSurfaceStreamResetRequired = callback;
+							return (): void => {
+								if (onSurfaceStreamResetRequired === callback) {
+									onSurfaceStreamResetRequired = undefined;
+								}
+							};
+						},
 					},
 				}}
 				protocol="worktree-file"
 			/>,
 		);
-		await expect.poll(() => loadCount).toBe(1);
-		clickContext('review');
-		await expect.poll(activeViewerMode).toBe('review');
+		expect(await pollWithinActUntilEqual(() => loadCount, 1)).toBe(1);
+		await clickContext('review');
+		expect(await pollWithinActUntilEqual(activeViewerMode, 'review')).toBe('review');
 
-		onSurfaceStreamResetRequired?.();
-		await new Promise((resolve) => window.setTimeout(resolve, 0));
+		await actUpdate((): void => {
+			onSurfaceStreamResetRequired?.();
+		});
+		await actWait(() => new Promise<void>((resolve) => window.setTimeout(resolve, 0)));
 		expect(loadCount).toBe(1);
 
-		clickContext('file');
-		await expect.poll(() => loadCount).toBe(2);
-		await expect.poll(activeViewerMode).toBe('file');
+		await clickContext('file');
+		expect(await pollWithinActUntilEqual(() => loadCount, 2)).toBe(2);
+		expect(await pollWithinActUntilEqual(activeViewerMode, 'file')).toBe('file');
 	});
 });
 
@@ -135,12 +156,12 @@ function activeViewerMode(): string | null {
 	);
 }
 
-function clickContext(context: 'file' | 'review'): void {
+async function clickContext(context: 'file' | 'review'): Promise<void> {
 	const button = document.querySelector<HTMLElement>(
 		`[data-testid="bridge-viewer-context-${context}"]`,
 	);
 	if (button === null) {
 		throw new Error(`Missing bridge-viewer-context-${context} button`);
 	}
-	button.click();
+	await actClick(button);
 }

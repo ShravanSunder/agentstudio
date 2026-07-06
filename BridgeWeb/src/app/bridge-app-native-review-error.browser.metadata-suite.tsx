@@ -113,18 +113,20 @@ describe('BridgeApp native review intake Browser Mode', () => {
 				<BridgeApp
 					fileViewerProps={{
 						autoOpenInitialFile: true,
-						fetchResource: async (props) => {
-							fetchedFileResourceUrls.push(props.resourceUrl);
-							return makeWorktreeFileSurfaceRuntimeFetchedResource(
-								'export const stableAcrossModes = true;\n',
-							);
-						},
-						loadInitialSurface,
-						subscribeFrames: (subscriber): (() => void) => {
-							publishWorktreeFileFrames = subscriber;
-							return (): void => {
-								publishWorktreeFileFrames = null;
-							};
+						worktreeFileSurfaceTransport: {
+							fetchResource: async (props) => {
+								fetchedFileResourceUrls.push(props.resourceUrl);
+								return makeWorktreeFileSurfaceRuntimeFetchedResource(
+									'export const stableAcrossModes = true;\n',
+								);
+							},
+							loadInitialSurface,
+							subscribeFrames: (subscriber): (() => void) => {
+								publishWorktreeFileFrames = subscriber;
+								return (): void => {
+									publishWorktreeFileFrames = null;
+								};
+							},
 						},
 					}}
 					viewerMode="file"

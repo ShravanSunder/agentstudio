@@ -5,14 +5,14 @@ import type {
 	WorktreeFileDescriptorRequest,
 } from '../features/worktree-file/models/worktree-file-protocol-models.js';
 import { canFetchWorktreeFileDescriptorContent } from '../features/worktree-file/models/worktree-file-protocol-models.js';
-import type { BridgeFileViewerAppProps } from './bridge-file-viewer-app-props.js';
 import type { BridgeFileViewerRenderState } from './bridge-file-viewer-state.js';
+import type { BridgeFileViewerWorktreeFileSurfaceTransport } from './bridge-file-viewer-worktree-file-surface-transport.js';
 
 interface UseBridgeFileViewerDescriptorRequestControllerProps {
 	readonly isActiveRef: MutableRefObject<boolean>;
 	readonly openFile: (descriptor: WorktreeFileDescriptor) => void | Promise<void>;
 	readonly pendingSelectedDescriptorRequestRef: MutableRefObject<WorktreeFileDescriptorRequest | null>;
-	readonly requestFileDescriptorFromHost: BridgeFileViewerAppProps['requestFileDescriptor'];
+	readonly requestFileDescriptorFromHost: BridgeFileViewerWorktreeFileSurfaceTransport['requestFileDescriptor'];
 }
 
 interface BridgeFileViewerDescriptorRequestController {

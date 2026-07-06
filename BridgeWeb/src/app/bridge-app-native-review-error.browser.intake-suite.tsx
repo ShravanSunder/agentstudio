@@ -491,7 +491,9 @@ describe('BridgeApp native review intake Browser Mode', () => {
 		document.addEventListener('__bridge_command', handleBridgeCommand);
 
 		try {
-			render(<BridgeApp fileViewerProps={{ loadInitialSurface }} />);
+			render(
+				<BridgeApp fileViewerProps={{ worktreeFileSurfaceTransport: { loadInitialSurface } }} />,
+			);
 			await dispatchHostAdmittedReviewIntakeFrame({
 				kind: 'reset',
 				streamId,

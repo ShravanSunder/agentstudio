@@ -54,6 +54,61 @@ describe('Bridge file viewer store source structure', () => {
 
 		expect(violations).toEqual([]);
 	});
+
+	test('keeps native File View transport behind one typed boundary prop', () => {
+		const appPropsSource = readSourceFile('file-viewer/bridge-file-viewer-app-props.ts');
+		const bootstrapSource = readSourceFile('app/bridge-app-bootstrap.tsx');
+		const devBootstrapSource = readSourceFile('app/bridge-app-dev-bootstrap.tsx');
+		const modeSource = readSourceFile('app/bridge-app-file-viewer-mode.tsx');
+		const frameControllerSource = readSourceFile('app/bridge-file-viewer-frame-controller.ts');
+		const appSource = readSourceFile('file-viewer/bridge-file-viewer-app.tsx');
+
+		const propLevelTransportTokens = [
+			'readonly fetchResource?:',
+			'readonly loadInitialSurface?:',
+			'readonly registerSurfaceStreamResetRequiredCallback?:',
+			'readonly requestFileDescriptor?:',
+			'readonly subscribeFrames?:',
+		].filter((token): boolean => appPropsSource.includes(token));
+		const explodedBootstrapTokens = [
+			'nativeWorktreeFileBackend.fetchWorktreeFileResource',
+			'nativeWorktreeFileBackend.loadWorktreeFileSurface',
+			'nativeWorktreeFileBackend.registerWorktreeFileStreamResetRequiredCallback',
+			'nativeWorktreeFileBackend.requestWorktreeFileDescriptor',
+			'nativeWorktreeFileBackend.subscribeWorktreeFileFrames',
+			'worktreeBackend.fetchWorktreeFileResource',
+			'worktreeBackend.loadWorktreeFileSurface',
+			'worktreeBackend.requestWorktreeFileDescriptor',
+			'worktreeBackend.subscribeWorktreeFileFrames',
+		].filter(
+			(token): boolean => bootstrapSource.includes(token) || devBootstrapSource.includes(token),
+		);
+		const fileViewModeTokens = [
+			'props.fileViewerProps?.registerSurfaceStreamResetRequiredCallback',
+		].filter((token): boolean => modeSource.includes(token));
+		const frameControllerTokens = [
+			'fileViewerProps?.loadInitialSurface',
+			'fileViewerProps?.subscribeFrames',
+		].filter((token): boolean => frameControllerSource.includes(token));
+		const appTransportTokens = ['props.requestFileDescriptor', 'fetchResource,'].filter(
+			(token): boolean => appSource.includes(token),
+		);
+
+		expect({
+			appTransportTokens,
+			explodedBootstrapTokens,
+			fileViewModeTokens,
+			frameControllerTokens,
+			propLevelTransportTokens,
+		}).toEqual({
+			appTransportTokens: [],
+			explodedBootstrapTokens: [],
+			fileViewModeTokens: [],
+			frameControllerTokens: [],
+			propLevelTransportTokens: [],
+		});
+		expect(appPropsSource).toContain('readonly worktreeFileSurfaceTransport?:');
+	});
 });
 
 interface SourceFileEntry {

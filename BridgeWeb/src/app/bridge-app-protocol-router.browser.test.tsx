@@ -188,7 +188,10 @@ describe('BridgeAppProtocolRouter', () => {
 		);
 
 		render(
-			<BridgeAppProtocolRouter fileViewerProps={{ loadInitialSurface }} protocol="worktree-file" />,
+			<BridgeAppProtocolRouter
+				fileViewerProps={{ worktreeFileSurfaceTransport: { loadInitialSurface } }}
+				protocol="worktree-file"
+			/>,
 		);
 
 		await pollWithinActUntilTruthy(() => eventNames.includes('worktree-file.load'));
@@ -221,7 +224,11 @@ describe('BridgeAppProtocolRouter', () => {
 
 		render(
 			<BridgeAppProtocolRouter
-				fileViewerProps={{ loadInitialSurface: loadActiveViewerModeTestSurface }}
+				fileViewerProps={{
+					worktreeFileSurfaceTransport: {
+						loadInitialSurface: loadActiveViewerModeTestSurface,
+					},
+				}}
 				protocol="worktree-file"
 			/>,
 		);
@@ -282,7 +289,11 @@ describe('BridgeAppProtocolRouter', () => {
 
 		render(
 			<BridgeAppProtocolRouter
-				fileViewerProps={{ loadInitialSurface: loadActiveViewerModeTestSurface }}
+				fileViewerProps={{
+					worktreeFileSurfaceTransport: {
+						loadInitialSurface: loadActiveViewerModeTestSurface,
+					},
+				}}
 				protocol="review"
 			/>,
 		);
@@ -388,7 +399,10 @@ describe('BridgeAppProtocolRouter', () => {
 		};
 
 		const rendered = render(
-			<BridgeApp fileViewerProps={{ loadInitialSurface }} viewerMode="file" />,
+			<BridgeApp
+				fileViewerProps={{ worktreeFileSurfaceTransport: { loadInitialSurface } }}
+				viewerMode="file"
+			/>,
 		);
 		expect(
 			await pollWithinActUntilEqual(
@@ -402,7 +416,12 @@ describe('BridgeAppProtocolRouter', () => {
 			return await loadActiveViewerModeTestSurface();
 		};
 		rendered.rerender(
-			<BridgeApp fileViewerProps={{ loadInitialSurface: reloadSameSource }} viewerMode="file" />,
+			<BridgeApp
+				fileViewerProps={{
+					worktreeFileSurfaceTransport: { loadInitialSurface: reloadSameSource },
+				}}
+				viewerMode="file"
+			/>,
 		);
 
 		expect(await pollWithinActUntilEqual(() => loadCount, 2)).toBe(2);

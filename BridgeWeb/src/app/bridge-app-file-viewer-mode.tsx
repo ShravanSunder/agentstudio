@@ -100,7 +100,7 @@ export function BridgeFileViewerMode(props: BridgeFileViewerModeProps): ReactEle
 	}, [props.isActive]);
 	useEffect((): (() => void) => {
 		return (
-			props.fileViewerProps?.registerSurfaceStreamResetRequiredCallback?.(
+			props.fileViewerProps?.worktreeFileSurfaceTransport?.registerSurfaceStreamResetRequiredCallback?.(
 				handleFileSurfaceStreamResetRequired,
 			) ?? ((): void => {})
 		);

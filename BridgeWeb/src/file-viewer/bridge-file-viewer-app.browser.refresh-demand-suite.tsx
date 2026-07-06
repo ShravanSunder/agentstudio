@@ -75,18 +75,20 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 
 		render(
 			<BridgeFileViewerApp
-				fetchResource={(props) => {
-					fetchedResourceUrls.push(props.resourceUrl);
-					return props.resourceUrl.includes('old-')
-						? oldDeferredContent.promise
-						: newDeferredContent.promise;
-				}}
 				initialFrames={makeFrames(oldFirstDescriptor, oldSecondDescriptor)}
-				subscribeFrames={(handler): (() => void) => {
-					publishFrames = handler;
-					return (): void => {
-						publishFrames = null;
-					};
+				worktreeFileSurfaceTransport={{
+					fetchResource: (props) => {
+						fetchedResourceUrls.push(props.resourceUrl);
+						return props.resourceUrl.includes('old-')
+							? oldDeferredContent.promise
+							: newDeferredContent.promise;
+					},
+					subscribeFrames: (handler): (() => void) => {
+						publishFrames = handler;
+						return (): void => {
+							publishFrames = null;
+						};
+					},
 				}}
 			/>,
 		);
@@ -163,21 +165,23 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		render(
 			<BridgeFileViewerApp
 				codeViewWorkerPoolEnabled={false}
-				fetchResource={async (props) => {
-					fetchedResourceUrls.push(props.resourceUrl);
-					return makeWorktreeFileSurfaceRuntimeFetchedResource(
-						props.resourceUrl.includes('refresh-content-2')
-							? 'export const refreshed = true;\n'
-							: 'export const initial = true;\n',
-					);
-				}}
 				initialFrames={makeFrames(initialDescriptor)}
 				navigationCommand={fileNavigationCommandForPath('src/refresh-target.ts')}
-				subscribeFrames={(handler): (() => void) => {
-					publishFrames = handler;
-					return (): void => {
-						publishFrames = null;
-					};
+				worktreeFileSurfaceTransport={{
+					fetchResource: async (props) => {
+						fetchedResourceUrls.push(props.resourceUrl);
+						return makeWorktreeFileSurfaceRuntimeFetchedResource(
+							props.resourceUrl.includes('refresh-content-2')
+								? 'export const refreshed = true;\n'
+								: 'export const initial = true;\n',
+						);
+					},
+					subscribeFrames: (handler): (() => void) => {
+						publishFrames = handler;
+						return (): void => {
+							publishFrames = null;
+						};
+					},
 				}}
 			/>,
 		);
@@ -232,22 +236,24 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		render(
 			<BridgeFileViewerApp
 				codeViewWorkerPoolEnabled={false}
-				fetchResource={async (props) => {
-					fetchedResourceUrls.push(props.resourceUrl);
-					if (props.resourceUrl.includes('failed-refresh-content-2')) {
-						throw new Error('failed refresh canary');
-					}
-					return makeWorktreeFileSurfaceRuntimeFetchedResource(
-						'export const failedRefreshInitial = true;\n',
-					);
-				}}
 				initialFrames={makeFrames(initialDescriptor)}
 				navigationCommand={fileNavigationCommandForPath('src/failed-refresh-target.ts')}
-				subscribeFrames={(handler): (() => void) => {
-					publishFrames = handler;
-					return (): void => {
-						publishFrames = null;
-					};
+				worktreeFileSurfaceTransport={{
+					fetchResource: async (props) => {
+						fetchedResourceUrls.push(props.resourceUrl);
+						if (props.resourceUrl.includes('failed-refresh-content-2')) {
+							throw new Error('failed refresh canary');
+						}
+						return makeWorktreeFileSurfaceRuntimeFetchedResource(
+							'export const failedRefreshInitial = true;\n',
+						);
+					},
+					subscribeFrames: (handler): (() => void) => {
+						publishFrames = handler;
+						return (): void => {
+							publishFrames = null;
+						};
+					},
 				}}
 			/>,
 		);
@@ -312,24 +318,26 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			return (
 				<BridgeFileViewerApp
 					codeViewWorkerPoolEnabled={false}
-					fetchResource={(props) => {
-						if (props.resourceUrl.includes('inactive-refresh-content-2')) {
-							return deferredRefreshContent.promise;
-						}
-						return Promise.resolve(
-							makeWorktreeFileSurfaceRuntimeFetchedResource(
-								'export const inactiveRefreshInitial = true;\n',
-							),
-						);
-					}}
 					initialFrames={makeFrames(initialDescriptor)}
 					isActive={isActive}
 					navigationCommand={fileNavigationCommandForPath('src/inactive-refresh-target.ts')}
-					subscribeFrames={(handler): (() => void) => {
-						publishFrames = handler;
-						return (): void => {
-							publishFrames = null;
-						};
+					worktreeFileSurfaceTransport={{
+						fetchResource: (props) => {
+							if (props.resourceUrl.includes('inactive-refresh-content-2')) {
+								return deferredRefreshContent.promise;
+							}
+							return Promise.resolve(
+								makeWorktreeFileSurfaceRuntimeFetchedResource(
+									'export const inactiveRefreshInitial = true;\n',
+								),
+							);
+						},
+						subscribeFrames: (handler): (() => void) => {
+							publishFrames = handler;
+							return (): void => {
+								publishFrames = null;
+							};
+						},
 					}}
 				/>
 			);
@@ -394,16 +402,17 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		render(
 			<BridgeFileViewerApp
 				codeViewWorkerPoolEnabled={false}
-				fetchResource={async () =>
-					makeWorktreeFileSurfaceRuntimeFetchedResource('export const stable = true;\n')
-				}
 				initialFrames={makeFrames(initialDescriptor)}
 				navigationCommand={fileNavigationCommandForPath('src/stable-target.ts')}
-				subscribeFrames={(handler): (() => void) => {
-					publishFrames = handler;
-					return (): void => {
-						publishFrames = null;
-					};
+				worktreeFileSurfaceTransport={{
+					fetchResource: async () =>
+						makeWorktreeFileSurfaceRuntimeFetchedResource('export const stable = true;\n'),
+					subscribeFrames: (handler): (() => void) => {
+						publishFrames = handler;
+						return (): void => {
+							publishFrames = null;
+						};
+					},
 				}}
 			/>,
 		);
@@ -444,20 +453,21 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		render(
 			<BridgeFileViewerApp
 				codeViewWorkerPoolEnabled={false}
-				fetchResource={async (props) =>
-					makeWorktreeFileSurfaceRuntimeFetchedResource(
-						props.resourceUrl.includes('source-snapshot-content-2')
-							? 'export const sourceSnapshotFresh = true;\n'
-							: 'export const sourceSnapshotInitial = true;\n',
-					)
-				}
 				initialFrames={makeFrames(initialDescriptor)}
 				navigationCommand={fileNavigationCommandForPath('src/source-less-reset-target.ts')}
-				subscribeFrames={(handler): (() => void) => {
-					publishFrames = handler;
-					return (): void => {
-						publishFrames = null;
-					};
+				worktreeFileSurfaceTransport={{
+					fetchResource: async (props) =>
+						makeWorktreeFileSurfaceRuntimeFetchedResource(
+							props.resourceUrl.includes('source-snapshot-content-2')
+								? 'export const sourceSnapshotFresh = true;\n'
+								: 'export const sourceSnapshotInitial = true;\n',
+						),
+					subscribeFrames: (handler): (() => void) => {
+						publishFrames = handler;
+						return (): void => {
+							publishFrames = null;
+						};
+					},
 				}}
 			/>,
 		);
@@ -514,23 +524,24 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		render(
 			<BridgeFileViewerApp
 				codeViewWorkerPoolEnabled={false}
-				fetchResource={async (props) =>
-					makeWorktreeFileSurfaceRuntimeFetchedResource(
-						props.resourceUrl.includes('source-less-reset-content-2')
-							? 'export const sourceLessResetFresh = true;\n'
-							: 'export const sourceLessResetInitial = true;\n',
-					)
-				}
 				initialFrames={makeFrames(initialDescriptor)}
 				navigationCommand={fileNavigationCommandForPath('src/source-less-reset-target.ts')}
-				requestFileDescriptor={(request) => {
-					descriptorRequests.push(request);
-				}}
-				subscribeFrames={(handler): (() => void) => {
-					publishFrames = handler;
-					return (): void => {
-						publishFrames = null;
-					};
+				worktreeFileSurfaceTransport={{
+					fetchResource: async (props) =>
+						makeWorktreeFileSurfaceRuntimeFetchedResource(
+							props.resourceUrl.includes('source-less-reset-content-2')
+								? 'export const sourceLessResetFresh = true;\n'
+								: 'export const sourceLessResetInitial = true;\n',
+						),
+					requestFileDescriptor: (request) => {
+						descriptorRequests.push(request);
+					},
+					subscribeFrames: (handler): (() => void) => {
+						publishFrames = handler;
+						return (): void => {
+							publishFrames = null;
+						};
+					},
 				}}
 			/>,
 		);
@@ -576,21 +587,22 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		render(
 			<BridgeFileViewerApp
 				codeViewWorkerPoolEnabled={false}
-				fetchResource={async () =>
-					makeWorktreeFileSurfaceRuntimeFetchedResource(
-						'export const sourceSnapshotDemandInitial = true;\n',
-					)
-				}
 				initialFrames={makeFrames(initialDescriptor)}
 				navigationCommand={fileNavigationCommandForPath('src/source-less-reset-target.ts')}
-				requestFileDescriptor={(request) => {
-					descriptorRequests.push(request);
-				}}
-				subscribeFrames={(handler): (() => void) => {
-					publishFrames = handler;
-					return (): void => {
-						publishFrames = null;
-					};
+				worktreeFileSurfaceTransport={{
+					fetchResource: async () =>
+						makeWorktreeFileSurfaceRuntimeFetchedResource(
+							'export const sourceSnapshotDemandInitial = true;\n',
+						),
+					requestFileDescriptor: (request) => {
+						descriptorRequests.push(request);
+					},
+					subscribeFrames: (handler): (() => void) => {
+						publishFrames = handler;
+						return (): void => {
+							publishFrames = null;
+						};
+					},
 				}}
 			/>,
 		);

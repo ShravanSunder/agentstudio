@@ -17,6 +17,14 @@ import type {
 	WorktreeFileFrameSubscriber,
 	WorktreeFileInitialSurface,
 } from '../worktree-file-surface/worktree-file-app.js';
+import {
+	actClick,
+	actUpdate,
+	actWait,
+	pollWithinAct,
+	pollWithinActUntilEqual,
+	pollWithinActUntilTruthy,
+} from './bridge-app-native-review-error.browser.test-support.js';
 
 const bridgeAppLazyBoundaryMock = vi.hoisted(() => ({
 	fileViewerShellImportCount: 0,
@@ -158,18 +166,21 @@ describe('BridgeApp lazy mode boundaries', () => {
 		render(
 			<BridgeApp
 				fileViewerProps={{
-					loadInitialSurface: async () => {
-						loadInitialSurfaceCount += 1;
-						return { frames: [bufferedFrame] };
+					worktreeFileSurfaceTransport: {
+						loadInitialSurface: async () => {
+							loadInitialSurfaceCount += 1;
+							return { frames: [bufferedFrame] };
+						},
 					},
 				}}
 				viewerMode="review"
 			/>,
 		);
-		document.dispatchEvent(
-			new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-nonce' } }),
-		);
-		await Promise.resolve();
+		await actUpdate((): void => {
+			document.dispatchEvent(
+				new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-nonce' } }),
+			);
+		});
 
 		const appRoot = requireHTMLElement(document.querySelector('[data-testid="bridge-app-root"]'));
 		const reviewModeHost = requireHTMLElement(
@@ -179,14 +190,15 @@ describe('BridgeApp lazy mode boundaries', () => {
 			document.querySelector('[data-testid="bridge-viewer-context-file"]'),
 		);
 
-		fileModeButton.click();
+		await actClick(fileModeButton);
 
-		await expect
-			.poll(
-				() =>
+		expect(
+			await pollWithinAct({
+				getValue: () =>
 					document.querySelector('[data-testid="bridge-file-viewer-lazy-loading-frame"]') !== null,
-			)
-			.toBe(true);
+				isSatisfied: (value): boolean => value,
+			}),
+		).toBe(true);
 
 		const fileModeHost = requireHTMLElement(
 			document.querySelector('[data-testid="bridge-viewer-mode-host-file"]'),
@@ -204,16 +216,24 @@ describe('BridgeApp lazy mode boundaries', () => {
 			fileModeHost,
 		);
 		expect(document.querySelector('[data-testid="bridge-file-viewer-shell-lazy-mock"]')).toBeNull();
-		await expect.poll(() => bridgeAppLazyBoundaryMock.fileViewerShellImportCount).toBe(1);
-		await expect.poll(() => loadInitialSurfaceCount).toBe(1);
+		expect(
+			await pollWithinActUntilEqual(() => bridgeAppLazyBoundaryMock.fileViewerShellImportCount, 1),
+		).toBe(1);
+		expect(await pollWithinActUntilEqual(() => loadInitialSurfaceCount, 1)).toBe(1);
 
-		bridgeAppLazyBoundaryMock.resolveFileViewerShellModule?.();
+		await actWait(async (): Promise<void> => {
+			bridgeAppLazyBoundaryMock.resolveFileViewerShellModule?.();
+			await Promise.resolve();
+			await Promise.resolve();
+		});
 
-		await expect
-			.poll(
-				() => document.querySelector('[data-testid="bridge-file-viewer-shell-lazy-mock"]') !== null,
-			)
-			.toBe(true);
+		expect(
+			await pollWithinAct({
+				getValue: () =>
+					document.querySelector('[data-testid="bridge-file-viewer-shell-lazy-mock"]') !== null,
+				isSatisfied: (value): boolean => value,
+			}),
+		).toBe(true);
 		expect(document.querySelector('[data-testid="bridge-app-root"]')).toBe(appRoot);
 	});
 
@@ -232,28 +252,32 @@ describe('BridgeApp lazy mode boundaries', () => {
 		render(
 			<BridgeApp
 				fileViewerProps={{
-					loadInitialSurface: async (): Promise<WorktreeFileInitialSurface> => {
-						loadInitialSurfaceCount += 1;
-						return { frames: [bufferedFrame] };
+					worktreeFileSurfaceTransport: {
+						loadInitialSurface: async (): Promise<WorktreeFileInitialSurface> => {
+							loadInitialSurfaceCount += 1;
+							return { frames: [bufferedFrame] };
+						},
 					},
 				}}
 				viewerMode="review"
 			/>,
 		);
-		document.dispatchEvent(
-			new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-nonce' } }),
-		);
-
-		await Promise.resolve();
+		await actUpdate((): void => {
+			document.dispatchEvent(
+				new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-nonce' } }),
+			);
+		});
 		expect(loadInitialSurfaceCount).toBe(0);
 		expect(bridgeAppLazyBoundaryMock.fileViewerShellImportCount).toBe(0);
 		expect(document.querySelector('[data-testid="bridge-file-viewer-shell-lazy-mock"]')).toBeNull();
 
-		requireHTMLButtonElement(
-			document.querySelector('[data-testid="bridge-viewer-context-file"]'),
-		).click();
+		await actClick(
+			requireHTMLButtonElement(
+				document.querySelector('[data-testid="bridge-viewer-context-file"]'),
+			),
+		);
 
-		await expect.poll(() => loadInitialSurfaceCount).toBe(1);
+		expect(await pollWithinActUntilEqual(() => loadInitialSurfaceCount, 1)).toBe(1);
 	});
 
 	test('does not restart FileView initial loading for fresh wrapper props with the same source', async () => {
@@ -272,17 +296,29 @@ describe('BridgeApp lazy mode boundaries', () => {
 		};
 		const { BridgeApp } = await import('./bridge-app.js');
 		const { rerender } = render(
-			<BridgeApp fileViewerProps={{ loadInitialSurface }} viewerMode="file" />,
+			<BridgeApp
+				fileViewerProps={{ worktreeFileSurfaceTransport: { loadInitialSurface } }}
+				viewerMode="file"
+			/>,
 		);
 
-		document.dispatchEvent(
-			new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-nonce' } }),
-		);
-		await expect.poll(() => loadInitialSurfaceCount).toBe(1);
+		await actUpdate((): void => {
+			document.dispatchEvent(
+				new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-nonce' } }),
+			);
+		});
+		expect(await pollWithinActUntilEqual(() => loadInitialSurfaceCount, 1)).toBe(1);
 
-		rerender(<BridgeApp fileViewerProps={{ loadInitialSurface }} viewerMode="file" />);
-		await waitForBridgeViewerAnimationFrame();
-		await waitForBridgeViewerAnimationFrame();
+		await actUpdate((): void => {
+			rerender(
+				<BridgeApp
+					fileViewerProps={{ worktreeFileSurfaceTransport: { loadInitialSurface } }}
+					viewerMode="file"
+				/>,
+			);
+		});
+		await actWait(waitForBridgeViewerAnimationFrame);
+		await actWait(waitForBridgeViewerAnimationFrame);
 
 		expect(loadInitialSurfaceCount).toBe(1);
 	});
@@ -308,14 +344,16 @@ describe('BridgeApp lazy mode boundaries', () => {
 			return (): void => {};
 		};
 		const fileViewerProps = {
-			loadInitialSurface: async () => ({
-				frames: await initialSurfacePromise,
-			}),
-			subscribeFrames: (subscriber: WorktreeFileFrameSubscriber): (() => void) => {
-				publishFrame = subscriber;
-				return (): void => {
-					publishFrame = null;
-				};
+			worktreeFileSurfaceTransport: {
+				loadInitialSurface: async () => ({
+					frames: await initialSurfacePromise,
+				}),
+				subscribeFrames: (subscriber: WorktreeFileFrameSubscriber): (() => void) => {
+					publishFrame = subscriber;
+					return (): void => {
+						publishFrame = null;
+					};
+				},
 			},
 		};
 		const ObservedFileViewerController = (): ReactElement => {
@@ -331,10 +369,12 @@ describe('BridgeApp lazy mode boundaries', () => {
 					return;
 				}
 				didStartObservationRef.current = true;
-				void controlledProps?.loadInitialSurface?.().then((surface): void => {
-					setLoadedFrameKinds(surface.frames.map((frame) => frame.frameKind).join(','));
-				});
-				return controlledProps?.subscribeFrames?.((): void => {
+				void controlledProps?.worktreeFileSurfaceTransport
+					?.loadInitialSurface?.()
+					.then((surface): void => {
+						setLoadedFrameKinds(surface.frames.map((frame) => frame.frameKind).join(','));
+					});
+				return controlledProps?.worktreeFileSurfaceTransport?.subscribeFrames?.((): void => {
 					subscriberFrameCount += 1;
 				});
 			}, [controlledProps]);
@@ -344,13 +384,15 @@ describe('BridgeApp lazy mode boundaries', () => {
 			await import('./bridge-file-viewer-frame-controller.js');
 
 		render(<ObservedFileViewerController />);
-		await expect.poll(() => publishFrame !== null).toBe(true);
+		expect(await pollWithinActUntilTruthy(() => publishFrame)).not.toBeNull();
 		const publishReadyFrame = publishFrame as WorktreeFileFrameSubscriber | null;
 		if (publishReadyFrame === null) {
 			throw new Error('Expected FileView frame publisher to be registered.');
 		}
-		publishReadyFrame([preLoadFrame]);
-		await waitForBridgeViewerAnimationFrame();
+		await actUpdate((): void => {
+			publishReadyFrame([preLoadFrame]);
+		});
+		await actWait(waitForBridgeViewerAnimationFrame);
 		expect(subscriberFrameCount).toBe(0);
 
 		const resolveReadyInitialSurface = resolveInitialSurface as
@@ -359,11 +401,16 @@ describe('BridgeApp lazy mode boundaries', () => {
 		if (resolveReadyInitialSurface === null) {
 			throw new Error('Expected FileView initial surface resolver to be registered.');
 		}
-		resolveReadyInitialSurface([baselineFrame]);
+		await actUpdate((): void => {
+			resolveReadyInitialSurface([baselineFrame]);
+		});
 
-		await expect
-			.poll(() => document.querySelector('[data-testid="merged-frame-kinds"]')?.textContent)
-			.toBe('worktree.snapshot,worktree.treeWindow');
+		expect(
+			await pollWithinActUntilEqual(
+				() => document.querySelector('[data-testid="merged-frame-kinds"]')?.textContent,
+				'worktree.snapshot,worktree.treeWindow',
+			),
+		).toBe('worktree.snapshot,worktree.treeWindow');
 		expect(subscriberFrameCount).toBe(0);
 	});
 
@@ -413,22 +460,22 @@ describe('BridgeApp lazy mode boundaries', () => {
 			payload: snapshotFrame,
 		});
 
-		await expect
-			.poll(() =>
+		expect(
+			await pollWithinActUntilTruthy(() =>
 				commandDetails.find(
 					(detail) => isRecord(detail) && detail['method'] === 'bridge.metadata_interest.update',
 				),
-			)
-			.toMatchObject({
-				method: 'bridge.metadata_interest.update',
-				params: {
-					protocol: 'review',
-					streamId,
-					generation: reviewPackage.reviewGeneration,
-					itemIds: [reviewPackage.orderedItemIds[0]],
-					lane: 'foreground',
-				},
-			});
+			),
+		).toMatchObject({
+			method: 'bridge.metadata_interest.update',
+			params: {
+				protocol: 'review',
+				streamId,
+				generation: reviewPackage.reviewGeneration,
+				itemIds: [reviewPackage.orderedItemIds[0]],
+				lane: 'foreground',
+			},
+		});
 	});
 
 	test('does not load the ready Review shell while Review is hidden before first ready activation', async () => {
@@ -450,14 +497,18 @@ describe('BridgeApp lazy mode boundaries', () => {
 
 		render(<BridgeApp viewerMode="review" />);
 
-		requireHTMLButtonElement(
-			document.querySelector('[data-testid="bridge-viewer-context-file"]'),
-		).click();
-		await expect
-			.poll(
-				() => document.querySelector('[data-testid="bridge-file-viewer-shell-lazy-mock"]') !== null,
-			)
-			.toBe(true);
+		await actClick(
+			requireHTMLButtonElement(
+				document.querySelector('[data-testid="bridge-viewer-context-file"]'),
+			),
+		);
+		expect(
+			await pollWithinAct({
+				getValue: () =>
+					document.querySelector('[data-testid="bridge-file-viewer-shell-lazy-mock"]') !== null,
+				isSatisfied: (value): boolean => value,
+			}),
+		).toBe(true);
 		await dispatchHostAdmittedReviewIntakeFrame({
 			kind: 'reset',
 			streamId,
@@ -480,7 +531,9 @@ describe('BridgeApp lazy mode boundaries', () => {
 			sequence: snapshotFrame.sequence,
 			payload: snapshotFrame,
 		});
-		await expect.poll(() => bridgeAppLazyBoundaryMock.projectionApplyCount).toBe(1);
+		expect(
+			await pollWithinActUntilEqual(() => bridgeAppLazyBoundaryMock.projectionApplyCount, 1),
+		).toBe(1);
 
 		const reviewModeHost = requireHTMLElement(
 			document.querySelector('[data-testid="bridge-viewer-mode-host-review"]'),
@@ -534,7 +587,9 @@ describe('BridgeApp lazy mode boundaries', () => {
 			payload: snapshotFrame,
 		});
 
-		await expect.poll(() => bridgeAppLazyBoundaryMock.projectionApplyCount).toBe(1);
+		expect(
+			await pollWithinActUntilEqual(() => bridgeAppLazyBoundaryMock.projectionApplyCount, 1),
+		).toBe(1);
 
 		const reviewModeHost = requireHTMLElement(
 			document.querySelector('[data-testid="bridge-viewer-mode-host-review"]'),
@@ -576,9 +631,11 @@ describe('BridgeApp lazy mode boundaries', () => {
 		// mode switches. Mode switches are driven by the viewerMode prop because the mocked Review
 		// shell does not render the context switcher once the Review projection is active.
 		const fileViewerProps = {
-			loadInitialSurface: async (): Promise<WorktreeFileInitialSurface> => {
-				loadInitialSurfaceCount += 1;
-				return { frames: [bufferedFrame] };
+			worktreeFileSurfaceTransport: {
+				loadInitialSurface: async (): Promise<WorktreeFileInitialSurface> => {
+					loadInitialSurfaceCount += 1;
+					return { frames: [bufferedFrame] };
+				},
 			},
 		};
 
@@ -609,7 +666,9 @@ describe('BridgeApp lazy mode boundaries', () => {
 			sequence: snapshotFrame.sequence,
 			payload: snapshotFrame,
 		});
-		await expect.poll(() => bridgeAppLazyBoundaryMock.projectionApplyCount).toBe(1);
+		expect(
+			await pollWithinActUntilEqual(() => bridgeAppLazyBoundaryMock.projectionApplyCount, 1),
+		).toBe(1);
 
 		const reviewModeHost = requireHTMLElement(
 			document.querySelector('[data-testid="bridge-viewer-mode-host-review"]'),
@@ -617,13 +676,17 @@ describe('BridgeApp lazy mode boundaries', () => {
 		const projectionApplyCountBeforeRoundTrip = bridgeAppLazyBoundaryMock.projectionApplyCount;
 
 		// Switch to Files: the File surface loads its initial surface exactly once.
-		rerender(<BridgeApp fileViewerProps={fileViewerProps} viewerMode="file" />);
-		await expect
-			.poll(
-				() => document.querySelector('[data-testid="bridge-file-viewer-shell-lazy-mock"]') !== null,
-			)
-			.toBe(true);
-		await expect.poll(() => loadInitialSurfaceCount).toBe(1);
+		await actUpdate((): void => {
+			rerender(<BridgeApp fileViewerProps={fileViewerProps} viewerMode="file" />);
+		});
+		expect(
+			await pollWithinAct({
+				getValue: () =>
+					document.querySelector('[data-testid="bridge-file-viewer-shell-lazy-mock"]') !== null,
+				isSatisfied: (value): boolean => value,
+			}),
+		).toBe(true);
+		expect(await pollWithinActUntilEqual(() => loadInitialSurfaceCount, 1)).toBe(1);
 		const fileModeHost = requireHTMLElement(
 			document.querySelector('[data-testid="bridge-viewer-mode-host-file"]'),
 		);
@@ -631,13 +694,18 @@ describe('BridgeApp lazy mode boundaries', () => {
 		expect(fileModeHost.hidden).toBe(false);
 
 		// Switch back to Review.
-		rerender(<BridgeApp fileViewerProps={fileViewerProps} viewerMode="review" />);
-		await expect
-			.poll(() => {
-				const host = document.querySelector('[data-testid="bridge-viewer-mode-host-review"]');
-				return host instanceof HTMLElement && !host.hidden;
-			})
-			.toBe(true);
+		await actUpdate((): void => {
+			rerender(<BridgeApp fileViewerProps={fileViewerProps} viewerMode="review" />);
+		});
+		expect(
+			await pollWithinAct({
+				getValue: () => {
+					const host = document.querySelector('[data-testid="bridge-viewer-mode-host-review"]');
+					return host instanceof HTMLElement && !host.hidden;
+				},
+				isSatisfied: (value): boolean => value,
+			}),
+		).toBe(true);
 
 		// Both mode hosts keep DOM identity across the round trip.
 		expect(document.querySelector('[data-testid="bridge-viewer-mode-host-review"]')).toBe(
@@ -660,18 +728,20 @@ describe('BridgeApp lazy mode boundaries', () => {
 });
 
 async function dispatchHostAdmittedReviewIntakeFrame(frame: BridgeIntakeFrame): Promise<void> {
-	document.dispatchEvent(
-		new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-nonce' } }),
-	);
-	document.dispatchEvent(
-		new CustomEvent('__bridge_intake_json', {
-			detail: {
-				json: JSON.stringify(frame),
-				nonce: 'push-nonce',
-			},
-		}),
-	);
-	await Promise.resolve();
+	await actUpdate((): void => {
+		document.dispatchEvent(
+			new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-nonce' } }),
+		);
+		document.dispatchEvent(
+			new CustomEvent('__bridge_intake_json', {
+				detail: {
+					json: JSON.stringify(frame),
+					nonce: 'push-nonce',
+				},
+			}),
+		);
+	});
+	await actWait(waitForBridgeViewerAnimationFrame);
 }
 
 function makeWorktreeSnapshotFrame(props: {

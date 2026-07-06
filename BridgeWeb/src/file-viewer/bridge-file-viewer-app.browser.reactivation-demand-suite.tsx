@@ -87,14 +87,16 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			return (
 				<BridgeFileViewerApp
 					codeViewWorkerPoolEnabled={false}
-					fetchResource={(props) => {
-						fetchedResourceUrls.push(props.resourceUrl);
-						return firstDeferredContent.promise;
-					}}
 					initialFrames={makeFrames(slowDescriptor)}
 					isActive={isActive}
 					navigationCommand={fileNavigationCommandForPath('src/inactive-open.ts')}
 					telemetryRecorder={makeTestTelemetryRecorder(telemetrySamples)}
+					worktreeFileSurfaceTransport={{
+						fetchResource: (props) => {
+							fetchedResourceUrls.push(props.resourceUrl);
+							return firstDeferredContent.promise;
+						},
+					}}
 				/>
 			);
 		}
@@ -172,19 +174,21 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 				<BridgeFileViewerApp
 					autoOpenInitialFile
 					codeViewWorkerPoolEnabled={false}
-					fetchResource={(props) => {
-						fetchedResourceUrls.push(props.resourceUrl);
-						if (fetchedResourceUrls.length === 1) {
-							return firstFetchPromise;
-						}
-						return Promise.resolve(
-							makeWorktreeFileSurfaceRuntimeFetchedResource(
-								'export const autoOpenRetried = true;\n',
-							),
-						);
-					}}
 					initialFrames={makeFrames(initialDescriptor)}
 					isActive={isActive}
+					worktreeFileSurfaceTransport={{
+						fetchResource: (props) => {
+							fetchedResourceUrls.push(props.resourceUrl);
+							if (fetchedResourceUrls.length === 1) {
+								return firstFetchPromise;
+							}
+							return Promise.resolve(
+								makeWorktreeFileSurfaceRuntimeFetchedResource(
+									'export const autoOpenRetried = true;\n',
+								),
+							);
+						},
+					}}
 				/>
 			);
 		}
@@ -243,23 +247,25 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 				<BridgeFileViewerApp
 					codeViewWorkerPoolEnabled={false}
 					isActive={isActive}
-					loadInitialSurface={async (): Promise<WorktreeFileInitialSurface> => {
-						loadInitialSurfaceCount += 1;
-						return {
-							frames: makeFrames(
-								makeFileDescriptor({
-									contentHandle: `content-${loadInitialSurfaceCount}`,
-									fileId: `file-${loadInitialSurfaceCount}`,
-									path: `src/file-${loadInitialSurfaceCount}.ts`,
-								}),
-							),
-							provenance: {
-								baseRef: 'native-current-worktree',
-								scenarioName: 'current-worktree',
-								worktreeRootToken: 'root-token',
-							},
-							source: makeSourceIdentity({ subscriptionGeneration: loadInitialSurfaceCount }),
-						};
+					worktreeFileSurfaceTransport={{
+						loadInitialSurface: async (): Promise<WorktreeFileInitialSurface> => {
+							loadInitialSurfaceCount += 1;
+							return {
+								frames: makeFrames(
+									makeFileDescriptor({
+										contentHandle: `content-${loadInitialSurfaceCount}`,
+										fileId: `file-${loadInitialSurfaceCount}`,
+										path: `src/file-${loadInitialSurfaceCount}.ts`,
+									}),
+								),
+								provenance: {
+									baseRef: 'native-current-worktree',
+									scenarioName: 'current-worktree',
+									worktreeRootToken: 'root-token',
+								},
+								source: makeSourceIdentity({ subscriptionGeneration: loadInitialSurfaceCount }),
+							};
+						},
 					}}
 				/>
 			);
@@ -301,34 +307,36 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 				<BridgeFileViewerApp
 					codeViewWorkerPoolEnabled={false}
 					isActive={isActive}
-					loadInitialSurface={async (): Promise<WorktreeFileInitialSurface> => {
-						loadInitialSurfaceCount += 1;
-						return {
-							frames: makeFrames(
-								makeFileDescriptor({
-									contentHandle: 'content-existing',
-									fileId: 'file-existing',
-									path: 'src/existing.ts',
-								}),
-								makeFileDescriptor({
-									contentHandle: 'content-removed',
-									fileId: 'file-removed',
-									path: 'src/removed.ts',
-								}),
-							),
-							provenance: {
-								baseRef: 'native-current-worktree',
-								scenarioName: 'current-worktree',
-								worktreeRootToken: 'root-token',
-							},
-							source: makeSourceIdentity(),
-						};
-					}}
-					subscribeFrames={(handler): (() => void) => {
-						publishFrames = handler;
-						return (): void => {
-							publishFrames = null;
-						};
+					worktreeFileSurfaceTransport={{
+						loadInitialSurface: async (): Promise<WorktreeFileInitialSurface> => {
+							loadInitialSurfaceCount += 1;
+							return {
+								frames: makeFrames(
+									makeFileDescriptor({
+										contentHandle: 'content-existing',
+										fileId: 'file-existing',
+										path: 'src/existing.ts',
+									}),
+									makeFileDescriptor({
+										contentHandle: 'content-removed',
+										fileId: 'file-removed',
+										path: 'src/removed.ts',
+									}),
+								),
+								provenance: {
+									baseRef: 'native-current-worktree',
+									scenarioName: 'current-worktree',
+									worktreeRootToken: 'root-token',
+								},
+								source: makeSourceIdentity(),
+							};
+						},
+						subscribeFrames: (handler): (() => void) => {
+							publishFrames = handler;
+							return (): void => {
+								publishFrames = null;
+							};
+						},
 					}}
 				/>
 			);
@@ -408,32 +416,34 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			return (
 				<BridgeFileViewerApp
 					codeViewWorkerPoolEnabled={false}
-					fetchResource={async (props) => {
-						fetchedResourceUrls.push(props.resourceUrl);
-						return makeWorktreeFileSurfaceRuntimeFetchedResource(
-							props.resourceUrl.includes('content-1')
-								? 'export const reactivatedPreservedFile = true;\n'
-								: 'export const initialFile = true;\n',
-						);
-					}}
 					isActive={isActive}
-					loadInitialSurface={async (): Promise<WorktreeFileInitialSurface> => {
-						loadInitialSurfaceCount += 1;
-						return {
-							frames: makeFrames(
-								makeFileDescriptor({
-									contentHandle: `content-${loadInitialSurfaceCount}`,
-									fileId: `file-${loadInitialSurfaceCount}`,
-									path: `src/file-${loadInitialSurfaceCount}.ts`,
-								}),
-							),
-							provenance: {
-								baseRef: 'native-current-worktree',
-								scenarioName: 'current-worktree',
-								worktreeRootToken: 'root-token',
-							},
-							source: makeSourceIdentity({ subscriptionGeneration: loadInitialSurfaceCount }),
-						};
+					worktreeFileSurfaceTransport={{
+						fetchResource: async (props) => {
+							fetchedResourceUrls.push(props.resourceUrl);
+							return makeWorktreeFileSurfaceRuntimeFetchedResource(
+								props.resourceUrl.includes('content-1')
+									? 'export const reactivatedPreservedFile = true;\n'
+									: 'export const initialFile = true;\n',
+							);
+						},
+						loadInitialSurface: async (): Promise<WorktreeFileInitialSurface> => {
+							loadInitialSurfaceCount += 1;
+							return {
+								frames: makeFrames(
+									makeFileDescriptor({
+										contentHandle: `content-${loadInitialSurfaceCount}`,
+										fileId: `file-${loadInitialSurfaceCount}`,
+										path: `src/file-${loadInitialSurfaceCount}.ts`,
+									}),
+								),
+								provenance: {
+									baseRef: 'native-current-worktree',
+									scenarioName: 'current-worktree',
+									worktreeRootToken: 'root-token',
+								},
+								source: makeSourceIdentity({ subscriptionGeneration: loadInitialSurfaceCount }),
+							};
+						},
 					}}
 				/>
 			);
@@ -499,24 +509,26 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 				<BridgeFileViewerApp
 					autoOpenInitialFile
 					codeViewWorkerPoolEnabled={false}
-					fetchResource={async (props) => {
-						fetchedResourceUrls.push(props.resourceUrl);
-						return makeWorktreeFileSurfaceRuntimeFetchedResource(
-							props.resourceUrl.includes('late-clicked-content')
-								? 'export const lateClickedSelection = true;\n'
-								: 'export const initiallyOpen = true;\n',
-						);
-					}}
 					initialFrames={makeFrames(initiallyOpenDescriptor)}
 					isActive={isActive}
-					requestFileDescriptor={(request) => {
-						descriptorRequests.push(request);
-					}}
-					subscribeFrames={(handler): (() => void) => {
-						publishFrames = handler;
-						return (): void => {
-							publishFrames = null;
-						};
+					worktreeFileSurfaceTransport={{
+						fetchResource: async (props) => {
+							fetchedResourceUrls.push(props.resourceUrl);
+							return makeWorktreeFileSurfaceRuntimeFetchedResource(
+								props.resourceUrl.includes('late-clicked-content')
+									? 'export const lateClickedSelection = true;\n'
+									: 'export const initiallyOpen = true;\n',
+							);
+						},
+						requestFileDescriptor: (request) => {
+							descriptorRequests.push(request);
+						},
+						subscribeFrames: (handler): (() => void) => {
+							publishFrames = handler;
+							return (): void => {
+								publishFrames = null;
+							};
+						},
 					}}
 				/>
 			);
@@ -583,16 +595,18 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		render(
 			<BridgeFileViewerApp
 				autoOpenInitialFile={true}
-				fetchResource={async (props) => {
-					fetchedResourceUrls.push(props.resourceUrl);
-					return makeWorktreeFileSurfaceRuntimeFetchedResource(
-						props.resourceUrl.includes('recently-updated-content')
-							? 'export const recentlyUpdated = true;\n'
-							: 'export const visible = true;\n',
-					);
-				}}
 				initialFrames={makeFrames(visibleDescriptor, updatedDescriptor)}
 				navigationCommand={fileNavigationCommandForPath('src/visible.ts')}
+				worktreeFileSurfaceTransport={{
+					fetchResource: async (props) => {
+						fetchedResourceUrls.push(props.resourceUrl);
+						return makeWorktreeFileSurfaceRuntimeFetchedResource(
+							props.resourceUrl.includes('recently-updated-content')
+								? 'export const recentlyUpdated = true;\n'
+								: 'export const visible = true;\n',
+						);
+					},
+				}}
 			/>,
 		);
 
@@ -652,23 +666,25 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 		render(
 			<BridgeFileViewerApp
 				codeViewWorkerPoolEnabled={false}
-				fetchResource={async (props) => {
-					fetchedResourceUrls.push(props.resourceUrl);
-					return makeWorktreeFileSurfaceRuntimeFetchedResource(
-						'export const recentlyUpdatedMetadataOnly = true;\n',
-					);
-				}}
 				initialFrames={makeTreeRowsOnlyFrames()}
-				requestFileDescriptor={(request) => {
-					descriptorRequests.push(request);
-					const publishRequiredFrames = requireFramePublisher(publishFrames);
-					publishRequiredFrames(makeFileDescriptorFrame(updatedDescriptor, { sequence: 1 }));
-				}}
-				subscribeFrames={(handler): (() => void) => {
-					publishFrames = handler;
-					return (): void => {
-						publishFrames = null;
-					};
+				worktreeFileSurfaceTransport={{
+					fetchResource: async (props) => {
+						fetchedResourceUrls.push(props.resourceUrl);
+						return makeWorktreeFileSurfaceRuntimeFetchedResource(
+							'export const recentlyUpdatedMetadataOnly = true;\n',
+						);
+					},
+					requestFileDescriptor: (request) => {
+						descriptorRequests.push(request);
+						const publishRequiredFrames = requireFramePublisher(publishFrames);
+						publishRequiredFrames(makeFileDescriptorFrame(updatedDescriptor, { sequence: 1 }));
+					},
+					subscribeFrames: (handler): (() => void) => {
+						publishFrames = handler;
+						return (): void => {
+							publishFrames = null;
+						};
+					},
 				}}
 			/>,
 		);
@@ -736,29 +752,31 @@ describe('BridgeFileViewerApp Browser Mode', () => {
 			return (
 				<BridgeFileViewerApp
 					codeViewWorkerPoolEnabled={false}
-					fetchResource={(props) => {
-						fetchedResourceUrls.push(props.resourceUrl);
-						if (props.resourceUrl.includes('recently-updated-inactive-content')) {
-							return firstDeferredContent.promise;
-						}
-						return Promise.resolve(
-							makeWorktreeFileSurfaceRuntimeFetchedResource(
-								'export const visibleAfterReactivate = true;\n',
-							),
-						);
-					}}
 					initialFrames={makeTreeRowsOnlyFrames()}
 					isActive={isActive}
-					requestFileDescriptor={(request) => {
-						descriptorRequests.push(request);
-						const publishRequiredFrames = requireFramePublisher(publishFrames);
-						publishRequiredFrames(makeFileDescriptorFrame(firstDescriptor, { sequence: 1 }));
-					}}
-					subscribeFrames={(handler): (() => void) => {
-						publishFrames = handler;
-						return (): void => {
-							publishFrames = null;
-						};
+					worktreeFileSurfaceTransport={{
+						fetchResource: (props) => {
+							fetchedResourceUrls.push(props.resourceUrl);
+							if (props.resourceUrl.includes('recently-updated-inactive-content')) {
+								return firstDeferredContent.promise;
+							}
+							return Promise.resolve(
+								makeWorktreeFileSurfaceRuntimeFetchedResource(
+									'export const visibleAfterReactivate = true;\n',
+								),
+							);
+						},
+						requestFileDescriptor: (request) => {
+							descriptorRequests.push(request);
+							const publishRequiredFrames = requireFramePublisher(publishFrames);
+							publishRequiredFrames(makeFileDescriptorFrame(firstDescriptor, { sequence: 1 }));
+						},
+						subscribeFrames: (handler): (() => void) => {
+							publishFrames = handler;
+							return (): void => {
+								publishFrames = null;
+							};
+						},
 					}}
 				/>
 			);

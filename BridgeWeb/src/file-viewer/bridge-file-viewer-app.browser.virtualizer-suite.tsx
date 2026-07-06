@@ -44,13 +44,15 @@ describe('BridgeFileViewerApp virtualizer anchoring', () => {
 			<BridgeFileViewerApp
 				codeViewWorkerPoolEnabled={false}
 				initialFrames={[makeTreeWindowedSnapshotFrame({ rowCount: 300, totalPathCount: 300 })]}
-				subscribeFrames={(handler): (() => void) => {
-					publishFrames = handler;
-					return (): void => {
-						publishFrames = null;
-					};
-				}}
 				telemetryRecorder={makeTestTelemetryRecorder(telemetrySamples)}
+				worktreeFileSurfaceTransport={{
+					subscribeFrames: (handler): (() => void) => {
+						publishFrames = handler;
+						return (): void => {
+							publishFrames = null;
+						};
+					},
+				}}
 			/>,
 		);
 
