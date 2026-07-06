@@ -1,5 +1,4 @@
-import { subscribeWithSelector } from 'zustand/middleware';
-import { createStore, type Mutate, type StoreApi } from 'zustand/vanilla';
+import { useRef, useSyncExternalStore } from 'react';
 
 import type {
 	BridgeReviewFilterState,
@@ -108,10 +107,37 @@ export interface BridgeReviewViewerStoreState {
 	readonly actions: BridgeReviewViewerStoreActions;
 }
 
-export type BridgeReviewViewerStore = Mutate<
-	StoreApi<BridgeReviewViewerStoreState>,
-	[['zustand/subscribeWithSelector', never]]
->;
+export type BridgeReviewViewerStoreListener = () => void;
+
+export interface BridgeReviewViewerStore {
+	readonly getState: () => BridgeReviewViewerStoreState;
+	readonly subscribe: (listener: BridgeReviewViewerStoreListener) => () => void;
+	readonly subscribeSelector: <TSelected>(
+		selector: (state: BridgeReviewViewerStoreState) => TSelected,
+		listener: (slice: TSelected, previousSlice: TSelected) => void,
+	) => () => void;
+}
+
+type BridgeReviewViewerStorePatch = Partial<BridgeReviewViewerStoreState>;
+
+type BridgeReviewViewerStorePatchInput =
+	| BridgeReviewViewerStorePatch
+	| ((state: BridgeReviewViewerStoreState) => BridgeReviewViewerStorePatch);
+
+interface BridgeReviewViewerStoreSelectorSubscription {
+	readonly notifyIfChanged: (state: BridgeReviewViewerStoreState) => void;
+}
+
+interface BridgeReviewViewerStoreSelectorSnapshotCache<TSelected> {
+	readonly selector: (state: BridgeReviewViewerStoreState) => TSelected;
+	readonly slice: TSelected;
+	readonly state: BridgeReviewViewerStoreState;
+	readonly store: BridgeReviewViewerStore;
+}
+
+interface BridgeReviewViewerStoreSelectorSnapshotCacheRef<TSelected> {
+	current: BridgeReviewViewerStoreSelectorSnapshotCache<TSelected> | null;
+}
 
 const defaultProjectionMode: BridgeReviewProjectionMode = { kind: 'normalReview' };
 const defaultRenderMode: BridgeReviewRenderMode = { kind: 'codeView' };
@@ -136,175 +162,254 @@ const defaultContentAvailabilitySliceByItemId = new Map<
 >();
 
 export function createBridgeReviewViewerStore(): BridgeReviewViewerStore {
-	return createStore<BridgeReviewViewerStoreState>()(
-		subscribeWithSelector((set, get): BridgeReviewViewerStoreState => {
-			const replacePanelChromeSlice = (patch: Partial<BridgeReviewPanelChromeSlice>): void => {
-				set((state: BridgeReviewViewerStoreState): Partial<BridgeReviewViewerStoreState> => {
-					const nextPanelChromeSlice = { ...state.panelChromeSlice, ...patch };
-					if (panelChromeSlicesEqual(state.panelChromeSlice, nextPanelChromeSlice)) {
-						return {};
-					}
-					return {
-						panelChromeSlice: nextPanelChromeSlice,
-						rootSnapshot: rootSnapshotFromSlices({
-							panelChromeSlice: nextPanelChromeSlice,
-							selectionSlice: state.selectionSlice,
-						}),
-					};
-				});
-			};
-
+	let state: BridgeReviewViewerStoreState;
+	const listeners = new Set<BridgeReviewViewerStoreListener>();
+	const selectorSubscriptions = new Set<BridgeReviewViewerStoreSelectorSubscription>();
+	const getState = (): BridgeReviewViewerStoreState => state;
+	const notify = (): void => {
+		for (const listener of listeners) {
+			listener();
+		}
+		for (const subscription of selectorSubscriptions) {
+			subscription.notifyIfChanged(state);
+		}
+	};
+	const setState = (patchInput: BridgeReviewViewerStorePatchInput): void => {
+		const patch = typeof patchInput === 'function' ? patchInput(state) : patchInput;
+		if (Object.keys(patch).length === 0) {
+			return;
+		}
+		state = { ...state, ...patch };
+		notify();
+	};
+	const replacePanelChromeSlice = (patch: Partial<BridgeReviewPanelChromeSlice>): void => {
+		setState((currentState): BridgeReviewViewerStorePatch => {
+			const nextPanelChromeSlice = { ...currentState.panelChromeSlice, ...patch };
+			if (panelChromeSlicesEqual(currentState.panelChromeSlice, nextPanelChromeSlice)) {
+				return {};
+			}
 			return {
+				panelChromeSlice: nextPanelChromeSlice,
 				rootSnapshot: rootSnapshotFromSlices({
-					panelChromeSlice: defaultPanelChromeSlice,
-					selectionSlice: defaultSelectionSlice,
+					panelChromeSlice: nextPanelChromeSlice,
+					selectionSlice: currentState.selectionSlice,
 				}),
-				selectionSlice: defaultSelectionSlice,
-				viewportSlice: defaultViewportSlice,
-				rowPaintByItemId: {},
-				contentAvailabilityByItemId: {},
-				panelChromeSlice: defaultPanelChromeSlice,
-				projection: null,
-				projectionIdentity: null,
+			};
+		});
+	};
+	const actions: BridgeReviewViewerStoreActions = {
+		setSelectedItemId: (itemId: string | null): void => {
+			setState((currentState): BridgeReviewViewerStorePatch => {
+				if (currentState.selectionSlice.selectedItemId === itemId) {
+					return {};
+				}
+				const nextSelectionSlice = { selectedItemId: itemId };
+				return {
+					selectionSlice: nextSelectionSlice,
+					rowPaintByItemId: rowPaintSlicesForSelectionChange({
+						nextSelectedItemId: itemId,
+						previous: currentState.rowPaintByItemId,
+						previousSelectedItemId: currentState.selectionSlice.selectedItemId,
+					}),
+					rootSnapshot: rootSnapshotFromSlices({
+						panelChromeSlice: currentState.panelChromeSlice,
+						selectionSlice: nextSelectionSlice,
+					}),
+				};
+			});
+		},
+		setProjectionMode: (mode: BridgeReviewProjectionMode): void => {
+			replacePanelChromeSlice({ projectionMode: mode });
+		},
+		setProjectionFacets: (facets: readonly BridgeReviewProjectionFacet[]): void => {
+			replacePanelChromeSlice({ facets });
+		},
+		setTreeSearchText: (searchText: string): void => {
+			replacePanelChromeSlice({ treeSearchText: searchText });
+		},
+		setTreeSearchMode: (searchMode: BridgeReviewSearchMode): void => {
+			replacePanelChromeSlice({ treeSearchMode: searchMode });
+		},
+		setGitStatusFilter: (status: BridgeReviewFilterState['gitStatusFilter']): void => {
+			replacePanelChromeSlice({ gitStatusFilter: status });
+		},
+		setFileClassFilter: (fileClass: BridgeReviewFilterState['fileClassFilter']): void => {
+			replacePanelChromeSlice({ fileClassFilter: fileClass });
+		},
+		setRenderMode: (renderMode: BridgeReviewRenderMode): void => {
+			replacePanelChromeSlice({ renderMode });
+		},
+		startProjectionRequest: (identity: BridgeReviewProjectionRequestIdentity): void => {
+			const keepCurrentProjection = projectionIdentityMatchesReviewStream(
+				getState().projectionIdentity,
+				identity,
+			);
+			setState({
+				activeProjectionRequestIdentity: identity,
+				...(keepCurrentProjection
+					? {}
+					: {
+							projection: null,
+							projectionIdentity: null,
+						}),
+			});
+			replacePanelChromeSlice({
+				projectionStatus: 'running',
+				...(keepCurrentProjection ? {} : { hasProjection: false }),
+			});
+		},
+		applyProjectionWorkerResult: (props: ApplyProjectionWorkerResultProps): boolean => {
+			const activeIdentity = getState().activeProjectionRequestIdentity;
+			if (!requestIdentitiesMatch(activeIdentity, props.identity)) {
+				return false;
+			}
+			const nextPanelChromeSlice: BridgeReviewPanelChromeSlice = {
+				...getState().panelChromeSlice,
+				hasProjection: true,
+				projectionStatus: 'ready',
+			};
+			setState({
+				activeProjectionRequestIdentity: null,
+				projection: props.result,
+				projectionIdentity: props.identity,
+				panelChromeSlice: nextPanelChromeSlice,
+				rootSnapshot: rootSnapshotFromSlices({
+					panelChromeSlice: nextPanelChromeSlice,
+					selectionSlice: getState().selectionSlice,
+				}),
+				workerStatus: {
+					...getState().workerStatus,
+					pendingRequestCount: Math.max(0, getState().workerStatus.pendingRequestCount - 1),
+					lastCompletedRequestId: props.identity.requestId,
+				},
+			});
+			return true;
+		},
+		failProjectionRequest: (identity: BridgeReviewProjectionRequestIdentity): boolean => {
+			const activeIdentity = getState().activeProjectionRequestIdentity;
+			if (!requestIdentitiesMatch(activeIdentity, identity)) {
+				return false;
+			}
+			setState({
 				activeProjectionRequestIdentity: null,
 				workerStatus: {
-					lane: 'sync',
-					pendingRequestCount: 0,
-					lastCompletedRequestId: null,
+					...getState().workerStatus,
+					pendingRequestCount: Math.max(0, getState().workerStatus.pendingRequestCount - 1),
+					lastCompletedRequestId: identity.requestId,
 				},
-				mountedItemIds: [],
-				actions: {
-					setSelectedItemId: (itemId: string | null): void => {
-						set((state: BridgeReviewViewerStoreState): Partial<BridgeReviewViewerStoreState> => {
-							if (state.selectionSlice.selectedItemId === itemId) {
-								return {};
-							}
-							const nextSelectionSlice = { selectedItemId: itemId };
-							return {
-								selectionSlice: nextSelectionSlice,
-								rowPaintByItemId: rowPaintSlicesForSelectionChange({
-									nextSelectedItemId: itemId,
-									previous: state.rowPaintByItemId,
-									previousSelectedItemId: state.selectionSlice.selectedItemId,
-								}),
-								rootSnapshot: rootSnapshotFromSlices({
-									panelChromeSlice: state.panelChromeSlice,
-									selectionSlice: nextSelectionSlice,
-								}),
-							};
-						});
-					},
-					setProjectionMode: (mode: BridgeReviewProjectionMode): void => {
-						replacePanelChromeSlice({ projectionMode: mode });
-					},
-					setProjectionFacets: (facets: readonly BridgeReviewProjectionFacet[]): void => {
-						replacePanelChromeSlice({ facets });
-					},
-					setTreeSearchText: (searchText: string): void => {
-						replacePanelChromeSlice({ treeSearchText: searchText });
-					},
-					setTreeSearchMode: (searchMode: BridgeReviewSearchMode): void => {
-						replacePanelChromeSlice({ treeSearchMode: searchMode });
-					},
-					setGitStatusFilter: (status: BridgeReviewFilterState['gitStatusFilter']): void => {
-						replacePanelChromeSlice({ gitStatusFilter: status });
-					},
-					setFileClassFilter: (fileClass: BridgeReviewFilterState['fileClassFilter']): void => {
-						replacePanelChromeSlice({ fileClassFilter: fileClass });
-					},
-					setRenderMode: (renderMode: BridgeReviewRenderMode): void => {
-						replacePanelChromeSlice({ renderMode });
-					},
-					startProjectionRequest: (identity: BridgeReviewProjectionRequestIdentity): void => {
-						const keepCurrentProjection = projectionIdentityMatchesReviewStream(
-							get().projectionIdentity,
-							identity,
-						);
-						set({
-							activeProjectionRequestIdentity: identity,
-							...(keepCurrentProjection
-								? {}
-								: {
-										projection: null,
-										projectionIdentity: null,
-									}),
-						});
-						replacePanelChromeSlice({
-							projectionStatus: 'running',
-							...(keepCurrentProjection ? {} : { hasProjection: false }),
-						});
-					},
-					applyProjectionWorkerResult: (props: ApplyProjectionWorkerResultProps): boolean => {
-						const activeIdentity = get().activeProjectionRequestIdentity;
-						if (!requestIdentitiesMatch(activeIdentity, props.identity)) {
-							return false;
-						}
-						set({
-							activeProjectionRequestIdentity: null,
-							projection: props.result,
-							projectionIdentity: props.identity,
-							panelChromeSlice: {
-								...get().panelChromeSlice,
-								hasProjection: true,
-								projectionStatus: 'ready',
-							},
-							rootSnapshot: rootSnapshotFromSlices({
-								panelChromeSlice: {
-									...get().panelChromeSlice,
-									hasProjection: true,
-									projectionStatus: 'ready',
-								},
-								selectionSlice: get().selectionSlice,
-							}),
-							workerStatus: {
-								...get().workerStatus,
-								pendingRequestCount: Math.max(0, get().workerStatus.pendingRequestCount - 1),
-								lastCompletedRequestId: props.identity.requestId,
-							},
-						});
-						return true;
-					},
-					failProjectionRequest: (identity: BridgeReviewProjectionRequestIdentity): boolean => {
-						const activeIdentity = get().activeProjectionRequestIdentity;
-						if (!requestIdentitiesMatch(activeIdentity, identity)) {
-							return false;
-						}
-						set({
-							activeProjectionRequestIdentity: null,
-							workerStatus: {
-								...get().workerStatus,
-								pendingRequestCount: Math.max(0, get().workerStatus.pendingRequestCount - 1),
-								lastCompletedRequestId: identity.requestId,
-							},
-						});
-						replacePanelChromeSlice({ projectionStatus: 'failed' });
-						return true;
-					},
-					cancelProjectionRequest: (identity: BridgeReviewProjectionRequestIdentity): boolean => {
-						const activeIdentity = get().activeProjectionRequestIdentity;
-						if (!requestIdentitiesMatch(activeIdentity, identity)) {
-							return false;
-						}
-						set({
-							activeProjectionRequestIdentity: null,
-							workerStatus: {
-								...get().workerStatus,
-								pendingRequestCount: Math.max(0, get().workerStatus.pendingRequestCount - 1),
-							},
-						});
-						replacePanelChromeSlice({ projectionStatus: 'idle' });
-						return true;
-					},
-					setWorkerStatus: (status: BridgeReviewWorkerStatus): void => {
-						set({ workerStatus: status });
-					},
-					setMountedItemIds: (itemIds: readonly string[]): void => {
-						set({ mountedItemIds: itemIds, viewportSlice: { visibleItemIds: itemIds } });
-					},
+			});
+			replacePanelChromeSlice({ projectionStatus: 'failed' });
+			return true;
+		},
+		cancelProjectionRequest: (identity: BridgeReviewProjectionRequestIdentity): boolean => {
+			const activeIdentity = getState().activeProjectionRequestIdentity;
+			if (!requestIdentitiesMatch(activeIdentity, identity)) {
+				return false;
+			}
+			setState({
+				activeProjectionRequestIdentity: null,
+				workerStatus: {
+					...getState().workerStatus,
+					pendingRequestCount: Math.max(0, getState().workerStatus.pendingRequestCount - 1),
 				},
-			};
+			});
+			replacePanelChromeSlice({ projectionStatus: 'idle' });
+			return true;
+		},
+		setWorkerStatus: (status: BridgeReviewWorkerStatus): void => {
+			setState({ workerStatus: status });
+		},
+		setMountedItemIds: (itemIds: readonly string[]): void => {
+			setState({ mountedItemIds: itemIds, viewportSlice: { visibleItemIds: itemIds } });
+		},
+	};
+	state = {
+		rootSnapshot: rootSnapshotFromSlices({
+			panelChromeSlice: defaultPanelChromeSlice,
+			selectionSlice: defaultSelectionSlice,
 		}),
+		selectionSlice: defaultSelectionSlice,
+		viewportSlice: defaultViewportSlice,
+		rowPaintByItemId: {},
+		contentAvailabilityByItemId: {},
+		panelChromeSlice: defaultPanelChromeSlice,
+		projection: null,
+		projectionIdentity: null,
+		activeProjectionRequestIdentity: null,
+		workerStatus: {
+			lane: 'sync',
+			pendingRequestCount: 0,
+			lastCompletedRequestId: null,
+		},
+		mountedItemIds: [],
+		actions,
+	};
+	const subscribe = (listener: BridgeReviewViewerStoreListener): (() => void) => {
+		listeners.add(listener);
+		return (): void => {
+			listeners.delete(listener);
+		};
+	};
+	const subscribeSelector = <TSelected>(
+		selector: (state: BridgeReviewViewerStoreState) => TSelected,
+		listener: (slice: TSelected, previousSlice: TSelected) => void,
+	): (() => void) => {
+		let currentSlice = selector(state);
+		const subscription: BridgeReviewViewerStoreSelectorSubscription = {
+			notifyIfChanged: (nextState: BridgeReviewViewerStoreState): void => {
+				const nextSlice = selector(nextState);
+				if (Object.is(nextSlice, currentSlice)) {
+					return;
+				}
+				const previousSlice = currentSlice;
+				currentSlice = nextSlice;
+				listener(nextSlice, previousSlice);
+			},
+		};
+		selectorSubscriptions.add(subscription);
+		return (): void => {
+			selectorSubscriptions.delete(subscription);
+		};
+	};
+	return {
+		getState,
+		subscribe,
+		subscribeSelector,
+	};
+}
+
+export function useBridgeReviewViewerStoreSelector<TSelected>(
+	store: BridgeReviewViewerStore,
+	selector: (state: BridgeReviewViewerStoreState) => TSelected,
+): TSelected {
+	const snapshotCacheRef = useRef<BridgeReviewViewerStoreSelectorSnapshotCache<TSelected> | null>(
+		null,
 	);
+	return useSyncExternalStore(
+		(listener): (() => void) => store.subscribe(listener),
+		(): TSelected => readBridgeReviewViewerStoreSelectorSnapshot(snapshotCacheRef, store, selector),
+		(): TSelected => readBridgeReviewViewerStoreSelectorSnapshot(snapshotCacheRef, store, selector),
+	);
+}
+
+export function readBridgeReviewViewerStoreSelectorSnapshot<TSelected>(
+	cacheRef: BridgeReviewViewerStoreSelectorSnapshotCacheRef<TSelected>,
+	store: BridgeReviewViewerStore,
+	selector: (state: BridgeReviewViewerStoreState) => TSelected,
+): TSelected {
+	const nextState = store.getState();
+	const cached = cacheRef.current;
+	if (cached?.store === store && cached.selector === selector && cached.state === nextState) {
+		return cached.slice;
+	}
+	const nextSlice = selector(nextState);
+	cacheRef.current = {
+		selector,
+		slice: nextSlice,
+		state: nextState,
+		store,
+	};
+	return nextSlice;
 }
 
 export function selectBridgeReviewViewerRootSnapshot(

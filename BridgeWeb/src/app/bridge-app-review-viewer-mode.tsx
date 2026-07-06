@@ -1,6 +1,5 @@
 import type { MutableRefObject, ReactElement } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useStore } from 'zustand';
 
 import type { BridgePageHandshakeSession } from '../bridge/bridge-page-handshake.js';
 import {
@@ -19,7 +18,10 @@ import type { BridgeTraceContext } from '../foundation/telemetry/bridge-trace-co
 import type { BridgeCodeViewControlHandle } from '../review-viewer/code-view/bridge-code-view-panel.js';
 import type { ReviewContentDemandTelemetry } from '../review-viewer/content/review-content-demand-types.js';
 import { useBridgeReviewProjectionCoordinator } from '../review-viewer/projections/use-review-projection-coordinator.js';
-import { selectBridgeReviewPanelChromeSlice } from '../review-viewer/state/review-viewer-store.js';
+import {
+	selectBridgeReviewPanelChromeSlice,
+	useBridgeReviewViewerStoreSelector,
+} from '../review-viewer/state/review-viewer-store.js';
 import { createBridgeMarkdownRenderWebWorkerClient } from '../review-viewer/workers/markdown/bridge-markdown-render-worker-transport.js';
 import type { BridgeReviewProjectionWorkerClient } from '../review-viewer/workers/projection/review-projection-worker-client.js';
 import { createBridgeReviewProjectionWebWorkerClient } from '../review-viewer/workers/projection/review-projection-worker-transport.js';
@@ -83,9 +85,12 @@ export function BridgeReviewViewerMode(
 	const viewerStore = useBridgeReviewViewerStore();
 	const descriptorRegistry = useBridgeResourceDescriptorRegistry();
 	const reviewEnvelopeApplyTailRef = useRef<Promise<void>>(Promise.resolve());
-	const projection = useStore(viewerStore, (state) => state.projection);
-	const panelChromeSlice = useStore(viewerStore, selectBridgeReviewPanelChromeSlice);
-	const viewerActions = useStore(viewerStore, (state) => state.actions);
+	const projection = useBridgeReviewViewerStoreSelector(viewerStore, (state) => state.projection);
+	const panelChromeSlice = useBridgeReviewViewerStoreSelector(
+		viewerStore,
+		selectBridgeReviewPanelChromeSlice,
+	);
+	const viewerActions = useBridgeReviewViewerStoreSelector(viewerStore, (state) => state.actions);
 	const [reviewPackage, setReviewPackage] = useState<BridgeReviewPackage | null>(null);
 	const [reviewTreeRows, setReviewTreeRowsState] = useState<readonly ReviewTreeRowMetadata[]>([]);
 	const reviewTreeRowsRef = useRef<readonly ReviewTreeRowMetadata[]>(reviewTreeRows);

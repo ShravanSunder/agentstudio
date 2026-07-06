@@ -9,13 +9,14 @@ import { fingerprintBridgeReviewProjectionRequest } from '../workers/projection/
 import {
 	type BridgeReviewViewerStoreState,
 	createBridgeReviewViewerStore,
+	readBridgeReviewViewerStoreSelectorSnapshot,
 	selectBridgeReviewPanelChromeSlice,
 	selectBridgeReviewRowPaintSlice,
 	selectBridgeReviewSelectionSlice,
 	selectBridgeReviewViewerRootSnapshot,
 } from './review-viewer-store.js';
 
-describe('Bridge review viewer Zustand store', () => {
+describe('Bridge review viewer render store', () => {
 	test('selection subscribers observe only selection slice and selected row paint slice', () => {
 		const store = createBridgeReviewViewerStore();
 		const selectionUpdates: string[] = [];
@@ -23,24 +24,30 @@ describe('Bridge review viewer Zustand store', () => {
 		const secondRowPaintUpdates: string[] = [];
 		const panelChromeUpdates: string[] = [];
 
-		const unsubscribeSelection = store.subscribe(selectBridgeReviewSelectionSlice, (slice) => {
-			selectionUpdates.push(slice.selectedItemId ?? 'none');
-		});
-		const unsubscribeFirstRow = store.subscribe(
+		const unsubscribeSelection = store.subscribeSelector(
+			selectBridgeReviewSelectionSlice,
+			(slice) => {
+				selectionUpdates.push(slice.selectedItemId ?? 'none');
+			},
+		);
+		const unsubscribeFirstRow = store.subscribeSelector(
 			selectBridgeReviewRowPaintSlice('source-high'),
 			(slice) => {
 				firstRowPaintUpdates.push(`${slice.itemId}:${slice.isSelected ? 'selected' : 'idle'}`);
 			},
 		);
-		const unsubscribeSecondRow = store.subscribe(
+		const unsubscribeSecondRow = store.subscribeSelector(
 			selectBridgeReviewRowPaintSlice('docs-plan'),
 			(slice) => {
 				secondRowPaintUpdates.push(`${slice.itemId}:${slice.isSelected ? 'selected' : 'idle'}`);
 			},
 		);
-		const unsubscribePanelChrome = store.subscribe(selectBridgeReviewPanelChromeSlice, (slice) => {
-			panelChromeUpdates.push(slice.renderMode.kind);
-		});
+		const unsubscribePanelChrome = store.subscribeSelector(
+			selectBridgeReviewPanelChromeSlice,
+			(slice) => {
+				panelChromeUpdates.push(slice.renderMode.kind);
+			},
+		);
 
 		store.getState().actions.setSelectedItemId('source-high');
 		store.getState().actions.setSelectedItemId('docs-plan');
@@ -59,7 +66,7 @@ describe('Bridge review viewer Zustand store', () => {
 	test('keeps root subscriptions stable for worker stats and viewport updates', () => {
 		const store = createBridgeReviewViewerStore();
 		let rootRenderCount = 0;
-		const unsubscribe = store.subscribe(selectBridgeReviewViewerRootSnapshot, () => {
+		const unsubscribe = store.subscribeSelector(selectBridgeReviewViewerRootSnapshot, () => {
 			rootRenderCount += 1;
 		});
 
@@ -76,6 +83,69 @@ describe('Bridge review viewer Zustand store', () => {
 
 		expect(rootRenderCount).toBe(1);
 		unsubscribe();
+	});
+
+	test('does not notify stable selector subscriptions for unrelated store updates', () => {
+		const store = createBridgeReviewViewerStore();
+		const initialActions = store.getState().actions;
+		const updates: string[] = [];
+		const unsubscribe = store.subscribeSelector(selectBridgeReviewSelectionSlice, (slice) => {
+			updates.push(slice.selectedItemId ?? 'none');
+		});
+
+		store.getState().actions.setWorkerStatus({
+			lane: 'worker',
+			pendingRequestCount: 1,
+			lastCompletedRequestId: null,
+		});
+		store.getState().actions.setMountedItemIds(['source-high']);
+
+		expect(updates).toEqual([]);
+
+		store.getState().actions.setSelectedItemId('source-high');
+
+		expect(updates).toEqual(['source-high']);
+		expect(store.getState().actions).toBe(initialActions);
+		unsubscribe();
+	});
+
+	test('caches hook selector snapshots while store state and selector are unchanged', () => {
+		const store = createBridgeReviewViewerStore();
+		const cache = { current: null };
+
+		const firstSnapshot = readBridgeReviewViewerStoreSelectorSnapshot(
+			cache,
+			store,
+			selectAllocatingReviewStoreSnapshot,
+		);
+		const secondSnapshot = readBridgeReviewViewerStoreSelectorSnapshot(
+			cache,
+			store,
+			selectAllocatingReviewStoreSnapshot,
+		);
+
+		expect(secondSnapshot).toBe(firstSnapshot);
+		expect(firstSnapshot.actions).toBe(store.getState().actions);
+
+		store.getState().actions.setWorkerStatus({
+			lane: 'worker',
+			pendingRequestCount: 1,
+			lastCompletedRequestId: null,
+		});
+		const afterStoreChange = readBridgeReviewViewerStoreSelectorSnapshot(
+			cache,
+			store,
+			selectAllocatingReviewStoreSnapshot,
+		);
+		const repeatedAfterStoreChange = readBridgeReviewViewerStoreSelectorSnapshot(
+			cache,
+			store,
+			selectAllocatingReviewStoreSnapshot,
+		);
+
+		expect(afterStoreChange).not.toBe(firstSnapshot);
+		expect(afterStoreChange.actions).toBe(firstSnapshot.actions);
+		expect(repeatedAfterStoreChange).toBe(afterStoreChange);
 	});
 
 	test('owns viewer search filter and render-mode state as pure state transitions', () => {
@@ -242,6 +312,16 @@ function serializableViewerStateForBodyBoundary(
 	const { actions, ...snapshot } = state;
 	void actions;
 	return snapshot;
+}
+
+function selectAllocatingReviewStoreSnapshot(state: BridgeReviewViewerStoreState): {
+	readonly actions: unknown;
+	readonly selectedItemId: string | null;
+} {
+	return {
+		actions: state.actions,
+		selectedItemId: state.selectionSlice.selectedItemId,
+	};
 }
 
 function containsRuntimeControlObject(value: unknown): boolean {

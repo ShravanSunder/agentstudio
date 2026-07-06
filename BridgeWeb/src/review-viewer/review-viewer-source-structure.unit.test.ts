@@ -31,6 +31,25 @@ describe('Review viewer source structure', () => {
 		expect(shellBoundarySource).not.toContain('useBridgeReviewSelectedContentEffect');
 	});
 
+	test('keeps Review mode off direct Zustand subscriptions after render-snapshot cutover', () => {
+		const forbiddenTokens = [
+			"from 'zustand",
+			'from "zustand',
+			'useStore(',
+			'useStoreWithEqualityFn(',
+			'createStore(',
+			'createWithEqualityFn(',
+			'subscribeWithSelector',
+		];
+		const violations = readReviewMainThreadProductionSources().flatMap((entry): readonly string[] =>
+			forbiddenTokens
+				.filter((token): boolean => entry.source.includes(token))
+				.map((token): string => `${entry.relativePath}: ${token}`),
+		);
+
+		expect(violations).toEqual([]);
+	});
+
 	test('keeps Review control event listeners in an app-level hook', () => {
 		const modeSource = readSource('../app/bridge-app-review-viewer-mode.tsx');
 		const hookSource = readSource('../app/use-bridge-review-control-event-listeners.ts');
@@ -493,6 +512,34 @@ function sourceFileExists(relativePath: string): boolean {
 	return existsSync(fileURLToPath(new URL(relativePath, import.meta.url)));
 }
 
+function readReviewMainThreadProductionSources(): readonly {
+	readonly relativePath: string;
+	readonly source: string;
+}[] {
+	const appRootPath = fileURLToPath(new URL('../app/', import.meta.url));
+	const reviewRootPath = fileURLToPath(new URL('./', import.meta.url));
+	const appSources = readSourceTextEntries(appRootPath, '../app').filter(
+		(entry): boolean =>
+			entry.relativePath.startsWith('../app/bridge-app-review-') ||
+			entry.relativePath.startsWith('../app/use-bridge-review-'),
+	);
+	const reviewSources = readSourceTextEntries(reviewRootPath, '.').filter((entry): boolean =>
+		isReviewViewerMainThreadProductionSource(entry.relativePath),
+	);
+	return [...appSources, ...reviewSources];
+}
+
+function isReviewViewerMainThreadProductionSource(relativePath: string): boolean {
+	if (
+		relativePath.includes('.test.') ||
+		relativePath.startsWith('test-support/') ||
+		relativePath.startsWith('workers/')
+	) {
+		return false;
+	}
+	return true;
+}
+
 function readReviewViewerSourceFiles(): readonly {
 	readonly lineCount: number;
 	readonly relativePath: string;
@@ -518,6 +565,28 @@ function readSourceEntries(
 			{
 				relativePath,
 				lineCount: readFileSync(absolutePath, 'utf8').split('\n').length,
+			},
+		];
+	});
+}
+
+function readSourceTextEntries(
+	absoluteDirectoryPath: string,
+	relativeDirectoryPath: string,
+): readonly { readonly relativePath: string; readonly source: string }[] {
+	return readdirSync(absoluteDirectoryPath, { withFileTypes: true }).flatMap((entry) => {
+		const relativePath = join(relativeDirectoryPath, entry.name);
+		const absolutePath = join(absoluteDirectoryPath, entry.name);
+		if (entry.isDirectory()) {
+			return readSourceTextEntries(absolutePath, relativePath);
+		}
+		if (!entry.isFile() || (!entry.name.endsWith('.ts') && !entry.name.endsWith('.tsx'))) {
+			return [];
+		}
+		return [
+			{
+				relativePath,
+				source: readFileSync(absolutePath, 'utf8'),
 			},
 		];
 	});
