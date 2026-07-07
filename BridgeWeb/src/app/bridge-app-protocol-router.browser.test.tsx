@@ -1,8 +1,9 @@
-import { afterEach, describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 import { cleanup, render } from 'vitest-browser-react';
 
 // oxlint-disable-next-line import/no-unassigned-import -- Browser Mode geometry assertions need app CSS.
 import './bridge-app.css';
+import type { BridgeRPCCommand } from '../bridge/bridge-rpc-client.js';
 import type { BridgeIntakeFrame } from '../core/models/bridge-intake-frame.js';
 import { buildReviewMetadataSnapshotFrame } from '../features/review/protocol/review-metadata-frame-builder.js';
 import { makeBridgeReviewPackage } from '../foundation/review-package/bridge-review-package-test-support.js';
@@ -11,9 +12,11 @@ import {
 	actClick,
 	actUpdate,
 	actWait,
+	installBridgeReadyHandshake,
 	pollWithinAct,
 	pollWithinActUntilEqual,
 	pollWithinActUntilTruthy,
+	recordBridgeSchemeRPCFetch,
 } from './bridge-app-native-review-error.browser.test-support.js';
 import { makeSnapshotFrame } from './bridge-app-native-worktree-file.browser.test-support.js';
 import {
@@ -22,45 +25,30 @@ import {
 } from './bridge-app-protocol-router.js';
 import { BridgeApp } from './bridge-app.js';
 
-interface ActiveViewerModeUpdateDetail {
-	readonly method: 'bridge.activeViewerMode.update';
-	readonly params: {
-		readonly activeSource: unknown;
-		readonly mode: 'file' | 'review';
-		readonly sequence: number;
-		readonly sessionId: string;
-	};
-}
+type ActiveViewerModeUpdateDetail = Extract<
+	BridgeRPCCommand,
+	{ readonly method: 'bridge.activeViewerMode.update' }
+>;
 
-// Several tests below register `document` listeners for `__bridge_handshake_request`
-// and `__bridge_command` to simulate the native host's replies. Without explicit
-// removal those listeners outlive their test, so a later test's handshake/command
-// dispatch triggers every earlier test's stale listener too — competing replies
-// with mismatched nonces then race the current test's own handshake session.
-// Route every such registration through this list so `afterEach` can remove them.
-let activeDocumentListeners: readonly {
-	readonly type: string;
-	readonly listener: EventListener;
-}[] = [];
+let activeDisposers: readonly (() => void)[] = [];
 
-function registerDocumentListener(type: string, listener: EventListener): void {
-	document.addEventListener(type, listener);
-	activeDocumentListeners = [...activeDocumentListeners, { type, listener }];
+function registerDisposer(dispose: () => void): void {
+	activeDisposers = [...activeDisposers, dispose];
 }
 
 describe('BridgeAppProtocolRouter', () => {
 	afterEach(async () => {
 		cleanup();
 		await actWait(() => new Promise<void>((resolve) => window.setTimeout(resolve, 0)));
-		for (const { type, listener } of activeDocumentListeners) {
-			document.removeEventListener(type, listener);
+		for (const dispose of activeDisposers) {
+			dispose();
 		}
-		activeDocumentListeners = [];
+		activeDisposers = [];
 		document.body.replaceChildren();
 		document.documentElement.removeAttribute('data-bridge-app-protocol');
-		document.documentElement.removeAttribute('data-bridge-nonce');
 		document.documentElement.removeAttribute('data-bridge-review-pane-id');
 		document.documentElement.removeAttribute('data-bridge-review-stream-id');
+		vi.restoreAllMocks();
 	});
 
 	test('defaults to Review when no app protocol is declared', async () => {
@@ -171,8 +159,23 @@ describe('BridgeAppProtocolRouter', () => {
 		};
 		document.addEventListener(
 			'__bridge_ready',
-			(): void => {
+			(event): void => {
 				eventNames.push('__bridge_ready');
+				const detail = event instanceof CustomEvent ? event.detail : null;
+				const requestId =
+					typeof detail === 'object' &&
+					detail !== null &&
+					'requestId' in detail &&
+					typeof detail.requestId === 'string'
+						? detail.requestId
+						: null;
+				if (requestId !== null) {
+					document.dispatchEvent(
+						new CustomEvent('__bridge_ready_ack', {
+							detail: { jsonrpc: '2.0', id: requestId, result: null },
+						}),
+					);
+				}
 			},
 			{ once: true },
 		);
@@ -203,23 +206,13 @@ describe('BridgeAppProtocolRouter', () => {
 	});
 
 	test('emits active viewer mode notifications with monotonic sequence across mode switches', async () => {
-		const commandDetails: unknown[] = [];
-		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
-		registerDocumentListener('__bridge_handshake_request', (): void => {
-			document.dispatchEvent(
-				new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-1' } }),
+		const commandDetails: BridgeRPCCommand[] = [];
+		registerDisposer(installBridgeReadyHandshake({ pushNonce: 'push-1' }).dispose);
+		vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init): Promise<Response> => {
+			return (
+				recordBridgeSchemeRPCFetch(input, init, commandDetails) ??
+				new Response('unexpected request', { status: 404 })
 			);
-		});
-		registerDocumentListener('__bridge_command', (event: Event): void => {
-			const detail = extractEventDetail(event);
-			commandDetails.push(detail);
-			if (isBridgeReadyCommand(detail)) {
-				document.dispatchEvent(
-					new CustomEvent('__bridge_response', {
-						detail: { id: detail.id, result: {}, nonce: 'push-1' },
-					}),
-				);
-			}
 		});
 
 		render(
@@ -261,30 +254,57 @@ describe('BridgeAppProtocolRouter', () => {
 		expect(new Set(updates.map((detail) => detail.params.sessionId)).size).toBe(1);
 	});
 
-	test('active viewer mode notifications match the committed mode through rapid transitions', async () => {
-		const mismatchedUpdates: ActiveViewerModeUpdateDetail[] = [];
-		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
-		registerDocumentListener('__bridge_handshake_request', (): void => {
-			document.dispatchEvent(
-				new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-1' } }),
+	test('continues active viewer mode notifications for late sources after bridge-ready error', async () => {
+		const commandDetails: BridgeRPCCommand[] = [];
+		registerDisposer(
+			installBridgeReadyHandshake({
+				pushNonce: 'push-ready-error',
+				readyErrorMessage: 'ready acknowledgement failed',
+			}).dispose,
+		);
+		vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init): Promise<Response> => {
+			return (
+				recordBridgeSchemeRPCFetch(input, init, commandDetails) ??
+				new Response('unexpected request', { status: 404 })
 			);
 		});
-		registerDocumentListener('__bridge_command', (event: Event): void => {
-			const detail = extractEventDetail(event);
-			if (isBridgeReadyCommand(detail)) {
-				document.dispatchEvent(
-					new CustomEvent('__bridge_response', {
-						detail: { id: detail.id, result: {}, nonce: 'push-1' },
-					}),
-				);
+
+		render(
+			<BridgeAppProtocolRouter
+				fileViewerProps={{
+					worktreeFileSurfaceTransport: {
+						loadInitialSurface: loadActiveViewerModeTestSurface,
+					},
+				}}
+				protocol="worktree-file"
+			/>,
+		);
+
+		expect(
+			await pollWithinActUntilTruthy(() =>
+				activeViewerModeUpdates(commandDetails).some(hasWorktreeFileActiveSource),
+			),
+		).toBe(true);
+	});
+
+	test('active viewer mode notifications match the committed mode through rapid transitions', async () => {
+		const commandDetails: BridgeRPCCommand[] = [];
+		const mismatchedUpdates: ActiveViewerModeUpdateDetail[] = [];
+		registerDisposer(installBridgeReadyHandshake({ pushNonce: 'push-1' }).dispose);
+		vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init): Promise<Response> => {
+			const response = recordBridgeSchemeRPCFetch(input, init, commandDetails);
+			if (response === null) {
+				return new Response('unexpected request', { status: 404 });
 			}
+			const detail = commandDetails.at(-1);
 			if (!isActiveViewerModeUpdate(detail)) {
-				return;
+				return response;
 			}
 			const committedMode = activeViewerMode();
 			if (committedMode !== null && committedMode !== detail.params.mode) {
 				mismatchedUpdates.push(detail);
 			}
+			return response;
 		});
 
 		render(
@@ -309,7 +329,7 @@ describe('BridgeAppProtocolRouter', () => {
 	});
 
 	test('review active mode waits for current review source and dedupes source identity', async () => {
-		const commandDetails: unknown[] = [];
+		const commandDetails: BridgeRPCCommand[] = [];
 		const streamId = 'review:bridge-app-test-pane';
 		const reviewPackage = makeBridgeReviewPackage();
 		const snapshotFrame = buildReviewMetadataSnapshotFrame({
@@ -321,24 +341,14 @@ describe('BridgeAppProtocolRouter', () => {
 			selectedItemId: reviewPackage.orderedItemIds[0] ?? null,
 			visibleItemIds: reviewPackage.orderedItemIds,
 		});
-		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
 		document.documentElement.setAttribute('data-bridge-review-pane-id', 'bridge-app-test-pane');
 		document.documentElement.setAttribute('data-bridge-review-stream-id', streamId);
-		registerDocumentListener('__bridge_handshake_request', (): void => {
-			document.dispatchEvent(
-				new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-review-source' } }),
+		registerDisposer(installBridgeReadyHandshake({ pushNonce: 'push-review-source' }).dispose);
+		vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init): Promise<Response> => {
+			return (
+				recordBridgeSchemeRPCFetch(input, init, commandDetails) ??
+				new Response('unexpected request', { status: 404 })
 			);
-		});
-		registerDocumentListener('__bridge_command', (event: Event): void => {
-			const detail = extractEventDetail(event);
-			commandDetails.push(detail);
-			if (isBridgeReadyCommand(detail)) {
-				document.dispatchEvent(
-					new CustomEvent('__bridge_response', {
-						detail: { id: detail.id, result: {}, nonce: 'push-review-source' },
-					}),
-				);
-			}
 		});
 
 		render(<BridgeAppProtocolRouter protocol="review" projectionWorkerClient={null} />);
@@ -374,24 +384,14 @@ describe('BridgeAppProtocolRouter', () => {
 	});
 
 	test('dedupes file active source when a same-identity file surface open resolves', async () => {
-		const commandDetails: unknown[] = [];
+		const commandDetails: BridgeRPCCommand[] = [];
 		let loadCount = 0;
-		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
-		registerDocumentListener('__bridge_handshake_request', (): void => {
-			document.dispatchEvent(
-				new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-1' } }),
+		registerDisposer(installBridgeReadyHandshake({ pushNonce: 'push-1' }).dispose);
+		vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init): Promise<Response> => {
+			return (
+				recordBridgeSchemeRPCFetch(input, init, commandDetails) ??
+				new Response('unexpected request', { status: 404 })
 			);
-		});
-		registerDocumentListener('__bridge_command', (event: Event): void => {
-			const detail = extractEventDetail(event);
-			commandDetails.push(detail);
-			if (isBridgeReadyCommand(detail)) {
-				document.dispatchEvent(
-					new CustomEvent('__bridge_response', {
-						detail: { id: detail.id, result: {}, nonce: 'push-1' },
-					}),
-				);
-			}
 		});
 		const loadInitialSurface = async (): Promise<WorktreeFileInitialSurface> => {
 			loadCount += 1;
@@ -494,7 +494,7 @@ async function loadActiveViewerModeTestSurface(): Promise<WorktreeFileInitialSur
 }
 
 function activeViewerModeUpdates(
-	commandDetails: readonly unknown[],
+	commandDetails: readonly BridgeRPCCommand[],
 ): ActiveViewerModeUpdateDetail[] {
 	return commandDetails.filter(isActiveViewerModeUpdate);
 }
@@ -536,16 +536,6 @@ function activeViewerMode(): string | null {
 			.querySelector('[data-testid="bridge-app-root"]')
 			?.getAttribute('data-bridge-viewer-mode') ?? null
 	);
-}
-
-function isBridgeReadyCommand(
-	value: unknown,
-): value is { readonly id: string; readonly method: 'bridge.ready' } {
-	return isRecord(value) && value['method'] === 'bridge.ready' && typeof value['id'] === 'string';
-}
-
-function extractEventDetail(event: Event): unknown {
-	return event instanceof CustomEvent ? event.detail : null;
 }
 
 async function dispatchIntakeFrame(

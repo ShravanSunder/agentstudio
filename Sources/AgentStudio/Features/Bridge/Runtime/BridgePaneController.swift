@@ -9,12 +9,11 @@ private let bridgeControllerLogger = Logger(subsystem: "com.agentstudio", catego
 ///
 /// Each bridge pane gets its own `WebPage.Configuration` with:
 /// - Non-persistent data store (no cookies/history needed for internal panels)
-/// - `RPCMessageHandler` in a dedicated bridge content world (isolated from page scripts)
+/// - `BridgeReadyMessageHandler` in a dedicated bridge content world for one-shot ready bootstrap
 /// - Bootstrap `WKUserScript` injected at document start in the bridge world
 /// - `BridgeSchemeHandler` registered for the `agentstudio://` custom URL scheme
 ///
-/// The controller owns the `RPCRouter` that dispatches incoming JSON-RPC messages
-/// from the bridge world to registered handlers. Push plans are started
+/// The controller owns the `RPCRouter` used by scheme RPC. Push plans are started
 /// only after the `bridge.ready` handshake completes.
 ///
 /// Unlike `WebviewPaneController` which uses a shared static configuration,
@@ -37,6 +36,7 @@ final class BridgePaneController {
     /// No state pushes or commands are allowed before this becomes `true`.
     /// Gated and idempotent — once set, subsequent `bridge.ready` messages are ignored.
     private(set) var isBridgeReady = false
+    let schemeRPCDispatcher = BridgeSchemeRPCDispatcher()
 
     // MARK: - Runtime Hooks
 
@@ -162,17 +162,17 @@ final class BridgePaneController {
         self.isContentInteractionEnabled = !blockInteraction
 
         // Per-pane configuration — NOT shared (unlike WebviewPaneController.sharedConfiguration).
-        // Each bridge pane needs its own userContentController for message handler and bootstrap script
+        // Each bridge pane needs its own userContentController for ready bootstrap and script
         // registration, and its own urlSchemeHandlers for the agentstudio:// scheme.
         var config = WebPage.Configuration()
         config.websiteDataStore = .nonPersistent()
         self.userContentController = config.userContentController
 
-        // Register message handler in bridge content world only.
-        // Page world scripts cannot access this handler — content world isolation enforced by WebKit.
-        let messageHandler = RPCMessageHandler()
+        // Register only the bridge.ready bootstrap handler in the bridge content world.
+        // Ordinary browser/native RPC uses the agentstudio://rpc/command scheme route.
+        let readyMessageHandler = BridgeReadyMessageHandler()
         userContentController.add(
-            messageHandler,
+            readyMessageHandler,
             contentWorld: bridgeWorld,
             name: "rpc"
         )
@@ -207,7 +207,8 @@ final class BridgePaneController {
                 reviewContentStore: reviewContentStore,
                 worktreeFileResourceStore: worktreeFileResourceStore,
                 resourceLeaseRegistry: resourceLeaseRegistry,
-                telemetryRecorder: resolvedTelemetryRecorder
+                telemetryRecorder: resolvedTelemetryRecorder,
+                rpcDispatcher: schemeRPCDispatcher
             )
         )
 
@@ -221,10 +222,13 @@ final class BridgePaneController {
         self.router = RPCRouter()
         configureRouter(
             router,
-            messageHandler: messageHandler,
+            readyMessageHandler: readyMessageHandler,
             telemetryRecorder: resolvedTelemetryRecorder,
             telemetryIngestor: resolvedTelemetryIngestor
         )
+        schemeRPCDispatcher.handler = { [weak self] json in
+            await self?.handleIncomingSchemeRPC(json)
+        }
 
         onRuntimeEvent = { [weak self] event, commandId, correlationId in
             self?.runtime.ingestBridgeEvent(event, commandId: commandId, correlationId: correlationId)
@@ -239,7 +243,7 @@ final class BridgePaneController {
 
     private func configureRouter(
         _ router: RPCRouter,
-        messageHandler: RPCMessageHandler,
+        readyMessageHandler: BridgeReadyMessageHandler,
         telemetryRecorder: (any BridgePerformanceTraceRecording)?,
         telemetryIngestor: (any BridgeTelemetryBatchIngesting)?
     ) {
@@ -257,16 +261,31 @@ final class BridgePaneController {
         router.onCommandAck = { [weak self] ack in
             self?.handleRuntimeCommandAck(ack)
         }
-        router.onResponse = { [weak self] responseJSON in
-            await self?.emitRPCResponse(responseJSON)
-        }
         router.onSuccessResponseDelivered = { [weak self] method in
             await self?.handleRPCSuccessResponseDelivered(method: method)
         }
 
-        // Wire message handler → router: validated JSON from postMessage is dispatched to handlers.
-        messageHandler.onValidJSON = { [weak self] json in
-            await self?.handleIncomingRPC(json)
+        // Wire the one-shot ready handler directly. All other browser/native RPC uses scheme fetch.
+        readyMessageHandler.onReadyRequest = { [weak self] readyMessage in
+            guard let self else { return }
+            switch readyMessage {
+            case .ready(let requestId):
+                if handleBridgeReady() {
+                    await emitBridgeReadyAcknowledgement(id: requestId, result: nil, error: nil)
+                } else {
+                    await emitBridgeReadyAcknowledgement(
+                        id: requestId,
+                        result: nil,
+                        error: (code: -32_000, message: "bridge.ready failed")
+                    )
+                }
+            case .invalid(let id, let message):
+                await emitBridgeReadyAcknowledgement(
+                    id: id,
+                    result: nil,
+                    error: (code: -32_600, message: message)
+                )
+            }
         }
 
         // Register bridge.ready handler — the ONLY trigger for starting push plans.
@@ -276,8 +295,15 @@ final class BridgePaneController {
             return nil
         }
         router.register(method: BridgeIntakeReadyMethod.self) { [weak self] params in
-            await self?.handleBridgeIntakeReady(params)
-            return nil
+            let result =
+                await self?.handleBridgeIntakeReadyResult(params)
+                ?? .rejected("bridge.intake_ready.controller_missing")
+            switch result {
+            case .accepted:
+                return nil
+            case .rejected(let reason):
+                throw RPCMethodDispatchError.invalidParams(reason)
+            }
         }
         router.register(method: BridgeActiveViewerModeUpdateMethod.self) { [weak self] params in
             await self?.handleBridgeActiveViewerModeUpdate(params)
@@ -565,14 +591,15 @@ final class BridgePaneController {
     ///
     /// `internal` (not `private`) for testability — allows integration tests to
     /// invoke the handshake directly without routing through WebKit message handlers.
-    func handleBridgeReady() {
-        guard !isBridgeReady else { return }
+    @discardableResult
+    func handleBridgeReady() -> Bool {
+        guard !isBridgeReady else { return true }
         if runtime.lifecycle == .created {
             guard runtime.transitionToReady() else {
                 bridgeControllerLogger.error(
                     "Bridge ready handshake failed runtime transition for pane \(self.paneId.uuidString, privacy: .public)"
                 )
-                return
+                return false
             }
         } else if runtime.lifecycle != .ready {
             bridgeControllerLogger.error(
@@ -581,7 +608,7 @@ final class BridgePaneController {
                 runtime lifecycle \(String(describing: self.runtime.lifecycle), privacy: .public)
                 """
             )
-            return
+            return false
         }
         isBridgeReady = true
 
@@ -594,21 +621,26 @@ final class BridgePaneController {
         reviewPushPlan?.start()
         connectionPushPlan?.start()
         agentPushPlan?.start()
+        return true
     }
 
     func handleBridgeIntakeReady(_ params: BridgeIntakeReadyMethod.Params) async {
+        _ = await handleBridgeIntakeReadyResult(params)
+    }
+
+    func handleBridgeIntakeReadyResult(_ params: BridgeIntakeReadyMethod.Params) async -> BridgeIntakeReadyResult {
         switch params.protocolId {
         case "review":
-            await handleReviewIntakeReady(params)
+            return await handleReviewIntakeReady(params)
         case "worktree-file":
-            await handleWorktreeFileIntakeReady(params)
+            return await handleWorktreeFileIntakeReady(params)
         default:
             await recordReviewIntakeReadyTelemetry(phase: "dropped")
-            return
+            return .rejected("bridge.intake_ready.unsupported_protocol")
         }
     }
 
-    private func handleReviewIntakeReady(_ params: BridgeIntakeReadyMethod.Params) async {
+    private func handleReviewIntakeReady(_ params: BridgeIntakeReadyMethod.Params) async -> BridgeIntakeReadyResult {
         let currentStreamId = reviewProtocolStreamId()
         guard params.streamId == nil || params.streamId == currentStreamId else {
             bridgeControllerLogger.warning(
@@ -618,7 +650,7 @@ final class BridgePaneController {
                 """
             )
             await recordReviewIntakeReadyTelemetry(phase: "dropped")
-            return
+            return .rejected("review.intake_ready.stale_stream")
         }
         await recordReviewIntakeReadyTelemetry(phase: "accepted")
         if let package = paneState.diff.packageMetadata {
@@ -642,14 +674,17 @@ final class BridgePaneController {
         } else if params.reason == "sequence_gap" {
             scheduleReviewPackageReloadForIntakeAnnounce(reason: .intakeReannounce)
         }
+        return .accepted
     }
 
-    private func handleWorktreeFileIntakeReady(_ params: BridgeIntakeReadyMethod.Params) async {
+    private func handleWorktreeFileIntakeReady(_ params: BridgeIntakeReadyMethod.Params) async
+        -> BridgeIntakeReadyResult
+    {
         guard let activeSource = activeWorktreeFileSurfaceSource else {
             bridgeControllerLogger.warning(
                 "[Bridge] Worktree/File intake ready ignored without active source pane=\(self.paneId.uuidString, privacy: .public)"
             )
-            return
+            return .rejected("worktree_file.intake_ready.no_active_source")
         }
         guard params.streamId == nil || params.streamId == activeSource.streamId else {
             bridgeControllerLogger.warning(
@@ -658,7 +693,7 @@ final class BridgePaneController {
                 stream \(String(describing: params.streamId), privacy: .public) does not match \(activeSource.streamId, privacy: .public)
                 """
             )
-            return
+            return .rejected("worktree_file.intake_ready.stale_stream")
         }
         guard params.generation == nil || params.generation == activeSource.source.subscriptionGeneration else {
             bridgeControllerLogger.warning(
@@ -668,9 +703,10 @@ final class BridgePaneController {
                 \(activeSource.source.subscriptionGeneration, privacy: .public)
                 """
             )
-            return
+            return .rejected("worktree_file.intake_ready.stale_generation")
         }
         await worktreeFileMetadataScheduler.openGate(protocolId: "worktree-file")
+        return .accepted
     }
 
     // MARK: - Test/entrypoint utility
@@ -680,6 +716,91 @@ final class BridgePaneController {
     /// Separated for tests and command-handler reuse.
     func handleIncomingRPC(_ json: String) async {
         await router.dispatch(json: json, isBridgeReady: isBridgeReady)
+    }
+
+    func handleIncomingSchemeRPC(_ json: String) async -> String? {
+        if let rejection = Self.schemeRPCBootstrapOnlyRejection(for: json) {
+            bridgeControllerLogger.warning(
+                "[BridgePaneController] rejected bridge.ready over scheme RPC for pane \(self.paneId.uuidString, privacy: .public)"
+            )
+            return rejection.responseJSON
+        }
+        return await router.dispatchForSchemeRPC(json: json, isBridgeReady: isBridgeReady)
+    }
+
+    private struct SchemeRPCBootstrapOnlyRejection: Sendable {
+        let responseJSON: String?
+    }
+
+    private nonisolated static func schemeRPCBootstrapOnlyRejection(for json: String)
+        -> SchemeRPCBootstrapOnlyRejection?
+    {
+        guard let data = json.data(using: .utf8),
+            let object = try? JSONSerialization.jsonObject(with: data),
+            let dictionary = object as? [String: Any],
+            dictionary["method"] as? String == BridgeReadyMethod.method
+        else {
+            return nil
+        }
+
+        guard dictionary.keys.contains("id") else {
+            return SchemeRPCBootstrapOnlyRejection(
+                responseJSON: makeSchemeRPCErrorResponse(
+                    id: NSNull(),
+                    code: -32_600,
+                    message: "Invalid request"
+                )
+            )
+        }
+        guard let responseID = schemeRPCResponseIDValue(from: dictionary["id"]) else {
+            return SchemeRPCBootstrapOnlyRejection(
+                responseJSON: makeSchemeRPCErrorResponse(
+                    id: NSNull(),
+                    code: -32_600,
+                    message: "Invalid request: invalid id"
+                )
+            )
+        }
+        return SchemeRPCBootstrapOnlyRejection(
+            responseJSON: makeSchemeRPCErrorResponse(
+                id: responseID,
+                code: -32_601,
+                message: "bridge.ready is bootstrap-only"
+            )
+        )
+    }
+
+    private nonisolated static func makeSchemeRPCErrorResponse(id: Any, code: Int, message: String) -> String? {
+        let envelope: [String: Any] = [
+            "jsonrpc": "2.0",
+            "id": id,
+            "error": [
+                "code": code,
+                "message": message,
+            ],
+        ]
+        guard JSONSerialization.isValidJSONObject(envelope),
+            let data = try? JSONSerialization.data(withJSONObject: envelope, options: [.sortedKeys])
+        else {
+            return nil
+        }
+        return String(data: data, encoding: .utf8)
+    }
+
+    private nonisolated static func schemeRPCResponseIDValue(from id: Any?) -> Any? {
+        guard let id else {
+            return nil
+        }
+        if let string = id as? String {
+            return string
+        }
+        if let number = id as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID() {
+            return number
+        }
+        if id is NSNull {
+            return NSNull()
+        }
+        return nil
     }
 
     private func handleRPCSuccessResponseDelivered(method: String) async {
@@ -721,101 +842,61 @@ final class BridgePaneController {
         onRuntimeEvent?(event, commandId, correlationId)
     }
 
-    // MARK: - Push Plan Factories
-
-    private func makeDiffPushPlan() -> PushPlan<DiffState> {
-        PushPlan(
-            state: paneState.diff,
-            transport: self,
-            revisions: revisionClock,
-            epoch: { [paneState] in paneState.diff.epoch },
-            slices: {
-                Slice("diffStatus", telemetrySlice: .diffStatus, store: .diff, level: .hot) { state in
-                    DiffStatusSlice(status: state.status, error: state.error, epoch: state.epoch)
-                }
-                EntitySlice(
-                    "diffFiles", telemetrySlice: .diffFiles, store: .diff, level: .cold,
-                    capture: { state in state.files },
-                    version: { file in file.version },
-                    keyToString: { $0 }
-                )
-            }
-        )
-    }
-
-    private func makeReviewPushPlan() -> PushPlan<ReviewState> {
-        PushPlan(
-            state: paneState.review,
-            transport: self,
-            revisions: revisionClock,
-            // Review epoch tracks diff epoch until review data has its own
-            // version timeline separate from diffs.
-            epoch: { [paneState] in paneState.diff.epoch },
-            slices: {
-                EntitySlice(
-                    "reviewThreads", telemetrySlice: .reviewThreads, store: .review, level: .warm,
-                    capture: { state in state.threads },
-                    version: { thread in thread.version },
-                    keyToString: { $0.uuidString }
-                )
-                Slice(
-                    "reviewViewedFiles",
-                    telemetrySlice: .reviewViewedFiles,
-                    store: .review,
-                    level: .warm
-                ) { state in
-                    state.viewedFiles.sorted()
-                }
-            }
-        )
-    }
-
-    private func makeConnectionPushPlan() -> PushPlan<PaneDomainState> {
-        PushPlan(
-            state: paneState,
-            transport: self,
-            revisions: revisionClock,
-            epoch: { 0 },
-            slices: {
-                Slice("connectionHealth", telemetrySlice: .connectionHealth, store: .connection, level: .hot) { state in
-                    ConnectionSlice(health: state.connection.health, latencyMs: state.connection.latencyMs)
-                }
-            }
-        )
-    }
-
-    private func makeAgentPushPlan() -> PushPlan<PaneDomainState> {
-        PushPlan(
-            state: paneState,
-            transport: self,
-            revisions: revisionClock,
-            epoch: { 0 },
-            slices: {
-                Slice("commandAcks", telemetrySlice: .commandAcks, store: .agent, level: .warm) { state in
-                    state.commandAcks
-                }
-            }
-        )
-    }
-
-    private func handleRuntimeCommandAck(_ ack: CommandAck) {
-        onRuntimeCommandAck?(ack)
-    }
-
-    private func emitRPCResponse(_ responseJSON: String) async {
+    private func emitBridgeReadyAcknowledgement(
+        id: String?,
+        result: Any?,
+        error: (code: Int, message: String)?
+    ) async {
+        guard
+            let responseJSON = Self.makeBridgeReadyAcknowledgementJSON(
+                id: id,
+                result: result,
+                error: error
+            )
+        else {
+            bridgeControllerLogger.warning("[Bridge] ready acknowledgement encoding failed")
+            paneState.connection.setHealth(.error)
+            return
+        }
         do {
             try await page.callJavaScript(
                 """
-                const payload = JSON.parse(json);
-                window.__bridgeInternal.response(payload.id, payload.result, payload.error);
+                document.dispatchEvent(new CustomEvent('__bridge_ready_ack', {
+                    detail: JSON.parse(json)
+                }));
                 """,
                 arguments: ["json": responseJSON],
                 contentWorld: bridgeWorld
             )
         } catch {
-            bridgeControllerLogger.warning("[Bridge] JS response transport failed: \(error)")
+            bridgeControllerLogger.warning("[Bridge] ready acknowledgement transport failed: \(error)")
             paneState.connection.setHealth(.error)
         }
+    }
+
+    private nonisolated static func makeBridgeReadyAcknowledgementJSON(
+        id: String?,
+        result: Any?,
+        error: (code: Int, message: String)?
+    ) -> String? {
+        var envelope: [String: Any] = [
+            "jsonrpc": "2.0",
+            "id": id ?? NSNull(),
+        ]
+        if let error {
+            envelope["error"] = [
+                "code": error.code,
+                "message": error.message,
+            ]
+        } else {
+            envelope["result"] = result ?? NSNull()
+        }
+        guard JSONSerialization.isValidJSONObject(envelope),
+            let data = try? JSONSerialization.data(withJSONObject: envelope, options: [.sortedKeys])
+        else {
+            return nil
+        }
+        return String(data: data, encoding: .utf8)
     }
 
     private static func makeDefaultRuntimeMetadata(

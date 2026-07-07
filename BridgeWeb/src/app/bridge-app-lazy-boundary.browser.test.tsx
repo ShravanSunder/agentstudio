@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactElement } from 'react';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 
+import type { BridgeRPCCommand } from '../bridge/bridge-rpc-client.js';
 import type { BridgeIntakeFrame } from '../core/models/bridge-intake-frame.js';
 import { buildReviewMetadataSnapshotFrame } from '../features/review/protocol/review-metadata-frame-builder.js';
 import type {
@@ -24,6 +25,7 @@ import {
 	pollWithinAct,
 	pollWithinActUntilEqual,
 	pollWithinActUntilTruthy,
+	recordBridgeSchemeRPCFetch,
 } from './bridge-app-native-review-error.browser.test-support.js';
 
 const bridgeAppLazyBoundaryMock = vi.hoisted(() => ({
@@ -111,17 +113,23 @@ vi.mock('../review-viewer/shell/review-viewer-shell.js', () => {
 });
 
 describe('BridgeApp lazy mode boundaries', () => {
-	afterEach(() => {
-		document.body.replaceChildren();
+	afterEach(async () => {
+		const resolveFileViewerShellModule = bridgeAppLazyBoundaryMock.resolveFileViewerShellModule;
+		bridgeAppLazyBoundaryMock.resolveFileViewerShellModule = null;
+		if (resolveFileViewerShellModule !== null) {
+			await actWait(async (): Promise<void> => {
+				resolveFileViewerShellModule();
+				await Promise.resolve();
+				await waitForBridgeViewerAnimationFrame();
+			});
+		}
 		document.documentElement.removeAttribute('data-bridge-app-protocol');
 		bridgeAppLazyBoundaryMock.fileViewerShellImportCount = 0;
 		bridgeAppLazyBoundaryMock.fileViewerShellModuleMode = 'ready';
 		bridgeAppLazyBoundaryMock.projectionApplyCount = 0;
 		bridgeAppLazyBoundaryMock.reviewViewerShellImportCount = 0;
-		bridgeAppLazyBoundaryMock.resolveFileViewerShellModule?.();
-		bridgeAppLazyBoundaryMock.resolveFileViewerShellModule = null;
-		vi.resetModules();
-		document.documentElement.removeAttribute('data-bridge-nonce');
+		vi.restoreAllMocks();
+		document.body.replaceChildren();
 		document.documentElement.removeAttribute('data-bridge-review-pane-id');
 		document.documentElement.removeAttribute('data-bridge-review-stream-id');
 	});
@@ -271,11 +279,14 @@ describe('BridgeApp lazy mode boundaries', () => {
 		expect(bridgeAppLazyBoundaryMock.fileViewerShellImportCount).toBe(0);
 		expect(document.querySelector('[data-testid="bridge-file-viewer-shell-lazy-mock"]')).toBeNull();
 
-		await actClick(
-			requireHTMLButtonElement(
-				document.querySelector('[data-testid="bridge-viewer-context-file"]'),
-			),
+		const fileModeButton = requireHTMLButtonElement(
+			document.querySelector('[data-testid="bridge-viewer-context-file"]'),
 		);
+		await actWait(async (): Promise<void> => {
+			fileModeButton.click();
+			await Promise.resolve();
+			await waitForBridgeViewerAnimationFrame();
+		});
 
 		expect(await pollWithinActUntilEqual(() => loadInitialSurfaceCount, 1)).toBe(1);
 	});
@@ -415,7 +426,7 @@ describe('BridgeApp lazy mode boundaries', () => {
 	});
 
 	test('sends Review metadata interest from the mode controller after native intake', async () => {
-		const commandDetails: unknown[] = [];
+		const commandDetails: BridgeRPCCommand[] = [];
 		const reviewPackage = makeBridgeReviewPackage();
 		const streamId = 'review:bridge-app-test-pane';
 		const snapshotFrame = buildReviewMetadataSnapshotFrame({
@@ -427,11 +438,13 @@ describe('BridgeApp lazy mode boundaries', () => {
 			selectedItemId: reviewPackage.orderedItemIds[0] ?? null,
 			visibleItemIds: reviewPackage.orderedItemIds,
 		});
-		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
 		document.documentElement.setAttribute('data-bridge-review-pane-id', 'bridge-app-test-pane');
 		document.documentElement.setAttribute('data-bridge-review-stream-id', streamId);
-		document.addEventListener('__bridge_command', (event: Event): void => {
-			commandDetails.push('detail' in event ? event.detail : null);
+		vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init): Promise<Response> => {
+			return (
+				recordBridgeSchemeRPCFetch(input, init, commandDetails) ??
+				new Response('unexpected request', { status: 404 })
+			);
 		});
 		const { BridgeApp } = await import('./bridge-app.js');
 
@@ -476,6 +489,13 @@ describe('BridgeApp lazy mode boundaries', () => {
 				lane: 'foreground',
 			},
 		});
+		expect(
+			await pollWithinAct({
+				getValue: () =>
+					document.querySelector('[data-testid="review-viewer-shell-lazy-mock"]') !== null,
+				isSatisfied: (value): boolean => value,
+			}),
+		).toBe(true);
 	});
 
 	test('does not load the ready Review shell while Review is hidden before first ready activation', async () => {
@@ -490,18 +510,20 @@ describe('BridgeApp lazy mode boundaries', () => {
 			selectedItemId: reviewPackage.orderedItemIds[0] ?? null,
 			visibleItemIds: reviewPackage.orderedItemIds,
 		});
-		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
 		document.documentElement.setAttribute('data-bridge-review-pane-id', 'bridge-app-test-pane');
 		document.documentElement.setAttribute('data-bridge-review-stream-id', streamId);
 		const { BridgeApp } = await import('./bridge-app.js');
 
 		render(<BridgeApp viewerMode="review" />);
 
-		await actClick(
-			requireHTMLButtonElement(
-				document.querySelector('[data-testid="bridge-viewer-context-file"]'),
-			),
+		const fileModeButton = requireHTMLButtonElement(
+			document.querySelector('[data-testid="bridge-viewer-context-file"]'),
 		);
+		await actWait(async (): Promise<void> => {
+			fileModeButton.click();
+			await Promise.resolve();
+			await waitForBridgeViewerAnimationFrame();
+		});
 		expect(
 			await pollWithinAct({
 				getValue: () =>
@@ -509,6 +531,16 @@ describe('BridgeApp lazy mode boundaries', () => {
 				isSatisfied: (value): boolean => value,
 			}),
 		).toBe(true);
+		expect(
+			await pollWithinAct({
+				getValue: () =>
+					requireHTMLElement(
+						document.querySelector('[data-testid="bridge-viewer-mode-host-review"]'),
+					).hidden,
+				isSatisfied: (value): boolean => value,
+			}),
+		).toBe(true);
+		bridgeAppLazyBoundaryMock.reviewViewerShellImportCount = 0;
 		await dispatchHostAdmittedReviewIntakeFrame({
 			kind: 'reset',
 			streamId,
@@ -557,7 +589,6 @@ describe('BridgeApp lazy mode boundaries', () => {
 			selectedItemId: reviewPackage.orderedItemIds[0] ?? null,
 			visibleItemIds: reviewPackage.orderedItemIds,
 		});
-		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
 		document.documentElement.setAttribute('data-bridge-review-pane-id', 'bridge-app-test-pane');
 		document.documentElement.setAttribute('data-bridge-review-stream-id', streamId);
 		const { BridgeApp } = await import('./bridge-app.js');
@@ -622,8 +653,8 @@ describe('BridgeApp lazy mode boundaries', () => {
 			reason: 'subscriptionReset',
 		};
 		let loadInitialSurfaceCount = 0;
-		// No data-bridge-nonce: the file frame controller waits on bridge-ready, and an
-		// unanswered bridge.ready RPC (which a command nonce would require) would never resolve.
+		// No bridge-ready acknowledgement: the file frame controller waits on bridge-ready, and
+		// an unanswered ready request would never resolve.
 		document.documentElement.setAttribute('data-bridge-review-pane-id', 'bridge-app-test-pane');
 		document.documentElement.setAttribute('data-bridge-review-stream-id', streamId);
 		const { BridgeApp } = await import('./bridge-app.js');

@@ -1,5 +1,14 @@
 import { act } from 'react';
 
+import { bridgeRPCCommandSchema, type BridgeRPCCommand } from '../bridge/bridge-rpc-client.js';
+import type { BridgeCommWorkerPort } from '../core/comm-worker/bridge-comm-worker-entry.js';
+import { buildBridgeWorkerReadyHealthEvent } from '../core/comm-worker/bridge-comm-worker-protocol.js';
+import {
+	registerBridgeCommWorkerRuntimePortProtocol,
+	type BridgeCommWorkerPreparationDrain,
+} from '../core/comm-worker/bridge-comm-worker-runtime-protocol.js';
+import type { BridgeWorkerServerToMainMessage } from '../core/comm-worker/bridge-worker-contracts.js';
+import type { BridgeWorkerContentFetch } from '../core/comm-worker/bridge-worker-review-content-fetch.js';
 import type { BridgeIntakeFrame } from '../core/models/bridge-intake-frame.js';
 import type {
 	WorktreeFileDescriptor,
@@ -17,6 +26,8 @@ import {
 	type BridgeTelemetrySample,
 } from '../foundation/telemetry/bridge-telemetry-event.js';
 import { waitForBridgeViewerAnimationFrame } from '../review-viewer/test-support/bridge-viewer-browser-dom.js';
+import type { BridgeReviewCommWorkerTransportDispatcher } from '../review-viewer/workers/shared-rpc/bridge-comm-worker-transport.js';
+import type { CreateBridgeReviewRuntimeProtocolDispatcherProps } from './bridge-app-review-render-snapshot-controller.js';
 
 export interface DispatchHostAdmittedReviewIntakeFrameOptions {
 	readonly telemetryConfig?: unknown;
@@ -27,6 +38,28 @@ export async function dispatchHostAdmittedReviewIntakeFrame(
 	options: DispatchHostAdmittedReviewIntakeFrameOptions = {},
 ): Promise<void> {
 	await act(async (): Promise<void> => {
+		const handleReady = (event: Event): void => {
+			if (!('detail' in event)) {
+				return;
+			}
+			const detail = event.detail;
+			const requestId =
+				typeof detail === 'object' &&
+				detail !== null &&
+				'requestId' in detail &&
+				typeof detail.requestId === 'string'
+					? detail.requestId
+					: null;
+			if (requestId === null) {
+				return;
+			}
+			document.dispatchEvent(
+				new CustomEvent('__bridge_ready_ack', {
+					detail: { jsonrpc: '2.0', id: requestId, result: null },
+				}),
+			);
+		};
+		document.addEventListener('__bridge_ready', handleReady, { once: true });
 		document.dispatchEvent(
 			new CustomEvent('__bridge_handshake', {
 				detail: { pushNonce: 'push-nonce', telemetryConfig: options.telemetryConfig },
@@ -43,6 +76,66 @@ export async function dispatchHostAdmittedReviewIntakeFrame(
 		await Promise.resolve();
 		await waitForBridgeViewerAnimationFrame();
 	});
+}
+
+export interface InstalledBridgeReadyHandshake {
+	readonly dispose: () => void;
+}
+
+export function installBridgeReadyHandshake(
+	props: {
+		readonly pushNonce?: string;
+		readonly readyErrorMessage?: string;
+		readonly telemetryConfig?: unknown;
+	} = {},
+): InstalledBridgeReadyHandshake {
+	const pushNonce = props.pushNonce ?? 'push-nonce';
+	const handleBridgeHandshakeRequest = (): void => {
+		document.dispatchEvent(
+			new CustomEvent('__bridge_handshake', {
+				detail: { pushNonce, telemetryConfig: props.telemetryConfig },
+			}),
+		);
+	};
+	const handleBridgeReady = (event: Event): void => {
+		if (!('detail' in event)) {
+			return;
+		}
+		const detail = event.detail;
+		if (
+			typeof detail !== 'object' ||
+			detail === null ||
+			!('requestId' in detail) ||
+			typeof detail.requestId !== 'string'
+		) {
+			return;
+		}
+		if (props.readyErrorMessage !== undefined) {
+			document.dispatchEvent(
+				new CustomEvent('__bridge_ready_ack', {
+					detail: {
+						jsonrpc: '2.0',
+						id: detail.requestId,
+						error: { code: -32_000, message: props.readyErrorMessage },
+					},
+				}),
+			);
+			return;
+		}
+		document.dispatchEvent(
+			new CustomEvent('__bridge_ready_ack', {
+				detail: { jsonrpc: '2.0', id: detail.requestId, result: null },
+			}),
+		);
+	};
+	document.addEventListener('__bridge_handshake_request', handleBridgeHandshakeRequest);
+	document.addEventListener('__bridge_ready', handleBridgeReady);
+	return {
+		dispose: (): void => {
+			document.removeEventListener('__bridge_handshake_request', handleBridgeHandshakeRequest);
+			document.removeEventListener('__bridge_ready', handleBridgeReady);
+		},
+	};
 }
 
 export async function dispatchHostDiffStatus(props: {
@@ -204,6 +297,35 @@ export function recordBridgeTelemetryBatchFetch(
 	return new Response(null, { status: 202 });
 }
 
+export function recordBridgeSchemeRPCFetch(
+	input: RequestInfo | URL,
+	init: RequestInit | undefined,
+	commands: BridgeRPCCommand[],
+	endpointUrl = 'agentstudio://rpc/command',
+): Response | null {
+	const requestUrl =
+		typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+	if (requestUrl !== endpointUrl) {
+		return null;
+	}
+	const body = typeof init?.body === 'string' ? init.body : null;
+	if (body === null) {
+		return new Response('missing RPC body', { status: 400 });
+	}
+	const parsedCommand = bridgeRPCCommandSchema.safeParse(JSON.parse(body));
+	if (!parsedCommand.success) {
+		return new Response('invalid RPC body', { status: 400 });
+	}
+	const command = parsedCommand.data;
+	commands.push(command);
+	const responseId = command.id ?? null;
+	return responseId === null
+		? new Response(null, { status: 202 })
+		: new Response(JSON.stringify({ jsonrpc: '2.0', id: responseId, result: null }), {
+				status: 200,
+			});
+}
+
 export function telemetrySamplesFromBatches(
 	batches: readonly BridgeTelemetryBatch[],
 ): readonly BridgeTelemetrySample[] {
@@ -254,6 +376,93 @@ export function chunkedTextResponse(chunks: readonly string[]): Response {
 			},
 		},
 	);
+}
+
+export interface InProcessBridgeReviewWorkerTransportFactoryOptions {
+	readonly fetchContent?: BridgeWorkerContentFetch;
+}
+
+export type InProcessBridgeReviewWorkerTransportFactory = NonNullable<
+	CreateBridgeReviewRuntimeProtocolDispatcherProps['transportFactory']
+>;
+
+export function createInProcessBridgeReviewWorkerTransportFactory(
+	options: InProcessBridgeReviewWorkerTransportFactoryOptions = {},
+): InProcessBridgeReviewWorkerTransportFactory {
+	return ({
+		bootstrapRequest,
+		publishWorkerMessages,
+	}): BridgeReviewCommWorkerTransportDispatcher => {
+		let listener: ((event: MessageEvent<unknown>) => void) | null = null;
+		let isDisposed = false;
+		const publishWorkerMessage = (message: BridgeWorkerServerToMainMessage): void => {
+			if (!isDisposed) {
+				publishWorkerMessages([message]);
+			}
+		};
+		const publishDegradedHealth = (message: string): void => {
+			publishWorkerMessage({
+				wireVersion: 1,
+				direction: 'serverWorkerToMain',
+				transferDescriptors: [],
+				kind: 'health',
+				requestId: bootstrapRequest.requestId,
+				status: 'degraded',
+				message,
+			});
+		};
+		const schedulePreparationDrain = (drain: BridgeCommWorkerPreparationDrain): void => {
+			queueMicrotask((): void => {
+				void drain().catch((): void => {
+					publishDegradedHealth('In-process bridge comm worker preparation drain failed.');
+				});
+			});
+		};
+		const port: BridgeCommWorkerPort = {
+			postMessage: (message: BridgeWorkerServerToMainMessage): void => {
+				publishWorkerMessage(message);
+			},
+			addEventListener: (
+				type: 'message',
+				nextListener: (event: MessageEvent<unknown>) => void,
+			): void => {
+				if (type === 'message') {
+					listener = nextListener;
+				}
+			},
+			start: (): void => {},
+		};
+		registerBridgeCommWorkerRuntimePortProtocol(port, {
+			bridgeDemandRank: bootstrapRequest.runtime.bridgeDemandRank,
+			budget: bootstrapRequest.runtime.budget,
+			contentItems: bootstrapRequest.runtime.contentItems,
+			contentRequestDescriptors: bootstrapRequest.runtime.contentRequestDescriptors,
+			renderSemantics: bootstrapRequest.runtime.renderSemantics,
+			rows: bootstrapRequest.runtime.rows,
+			schedulePreparationDrain,
+			...(bootstrapRequest.runtime.maxPreparationSliceMs === undefined
+				? {}
+				: { maxPreparationSliceMs: bootstrapRequest.runtime.maxPreparationSliceMs }),
+			...(options.fetchContent === undefined ? {} : { fetchContent: options.fetchContent }),
+		});
+		publishWorkerMessages([buildBridgeWorkerReadyHealthEvent(bootstrapRequest.requestId)]);
+		return {
+			dispatch: (message): void => {
+				if (isDisposed) {
+					return;
+				}
+				if (listener === null) {
+					publishDegradedHealth('In-process bridge comm worker dispatch before listener.');
+					return;
+				}
+				listener(new MessageEvent('message', { data: message }));
+			},
+			dispose: (): void => {
+				isDisposed = true;
+				listener = null;
+			},
+		};
+	};
 }
 
 export function makeWorktreeFileSourceIdentityForFrameTest(): WorktreeFileSurfaceSourceIdentity {

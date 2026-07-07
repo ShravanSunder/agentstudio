@@ -72,6 +72,11 @@ struct BridgeActiveViewerModeSignalState: Equatable, Sendable {
     var acceptedSignal: BridgeActiveViewerModeAcceptedSignal?
 }
 
+enum BridgeIntakeReadyResult: Equatable, Sendable {
+    case accepted
+    case rejected(String)
+}
+
 enum BridgeReviewPackageBuildReason: String, Sendable {
     case initialIntake = "initial_intake"
     case intakeReannounce = "intake_reannounce"

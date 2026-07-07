@@ -13,7 +13,6 @@ describe('bridge viewer mocked backend', () => {
 	afterEach(() => {
 		disposeBridgeViewerMockedBackends();
 		document.body.replaceChildren();
-		document.documentElement.removeAttribute('data-bridge-nonce');
 	});
 
 	test('builds distinct small medium and large fixtures with metadata ledgers', () => {
@@ -173,19 +172,27 @@ describe('bridge viewer mocked backend', () => {
 		);
 	});
 
-	test('records semantic command payloads sent through the Bridge command event', () => {
+	test('records semantic command payloads sent through the Bridge scheme RPC endpoint', async () => {
 		const backend = installBridgeViewerMockedBackend();
 		const commandDetail = {
+			id: 'mock-command-1',
+			jsonrpc: '2.0',
 			method: 'review.markFileViewed',
 			params: { itemId: 'browser-source-a' },
 		};
 
-		document.dispatchEvent(
-			new CustomEvent('__bridge_command', {
-				detail: commandDetail,
-			}),
-		);
+		const response = await fetch('agentstudio://rpc/command', {
+			body: JSON.stringify(commandDetail),
+			headers: { 'Content-Type': 'application/json' },
+			method: 'POST',
+		});
 
+		expect(response.status).toBe(200);
+		await expect(response.json()).resolves.toEqual({
+			jsonrpc: '2.0',
+			id: 'mock-command-1',
+			result: null,
+		});
 		expect(backend.commandDetails).toEqual([commandDetail]);
 	});
 

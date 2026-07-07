@@ -6,8 +6,7 @@ import Testing
 /// Tests for RPCRouter dispatch, error handling, batch rejection, and commandId dedup.
 ///
 /// The RPC router is the command channel entry point (design doc §5.1, §9.2).
-/// React sends JSON-RPC 2.0 notifications via postMessage → bridge world →
-/// RPCMessageHandler → RPCRouter. The router dispatches to registered handlers,
+/// Scheme RPC and ready-bootstrap JSON flow into RPCRouter. The router dispatches to registered handlers,
 /// deduplicates by __commandId (sliding window of 100), and rejects batch requests.
 /// Error codes follow JSON-RPC 2.0 standard (§5.3).
 @MainActor

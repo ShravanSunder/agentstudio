@@ -34,6 +34,55 @@ import WebKit
                 if (input instanceof URL) { return input.href; }
                 return input?.url ?? String(input);
               };
+              const recordRPCCommand = (body) => {
+                let payload = null;
+                if (typeof body === 'string') {
+                  try {
+                    payload = JSON.parse(body);
+                  } catch {
+                    payload = null;
+                  }
+                }
+                const commandEntry = {
+                  hasDetail: payload !== null,
+                  method: clip(payload?.method, 120),
+                  protocolId: clip(payload?.params?.protocolId, 120),
+                  streamId: clip(payload?.params?.streamId, 160),
+                  hasNonce: false,
+                  hasCommandId: typeof payload?.__commandId === 'string' || typeof payload?.id === 'string'
+                };
+                pushBounded(window.__bridgeCommandProbe, commandEntry);
+                if (commandEntry.method === 'bridge.intakeReady') {
+                  pushBounded(window.__bridgeIntakeReadyCommandProbe, commandEntry);
+                }
+                if (commandEntry.method === 'worktreeFileSurface.openSourceStream') {
+                  pushBounded(window.__bridgeWorktreeOpenSourceCommandProbe, commandEntry);
+                }
+                if (commandEntry.method === 'worktreeFileSurface.requestFileDescriptor') {
+                  pushBounded(window.__bridgeWorktreeDescriptorRequestCommandProbe, commandEntry);
+                }
+                return commandEntry;
+              };
+              const recordRPCResponse = (response, commandEntry) => {
+                const responseEntry = {
+                  hasDetail: true,
+                  method: commandEntry?.method || '',
+                  status: Number(response?.status || 0),
+                  hasResult: false,
+                  hasError: false
+                };
+                try {
+                  response.clone().json().then((payload) => {
+                    responseEntry.hasResult = payload?.result !== undefined;
+                    responseEntry.hasError = payload?.error !== undefined;
+                    pushBounded(window.__bridgeResponseProbe, responseEntry);
+                  }).catch(() => {
+                    pushBounded(window.__bridgeResponseProbe, responseEntry);
+                  });
+                } catch {
+                  pushBounded(window.__bridgeResponseProbe, responseEntry);
+                }
+              };
               window.addEventListener('error', (event) => {
                 pushBounded(window.__bridgeErrorProbe, {
                   kind: 'error',
@@ -52,7 +101,15 @@ import WebKit
                 const originalFetch = window.fetch.bind(window);
                 window.fetch = (input, init) => {
                   const url = requestLabel(input);
-                  return originalFetch(input, init).catch((error) => {
+                  const rpcCommandEntry = url === 'agentstudio://rpc/command'
+                    ? recordRPCCommand(init?.body)
+                    : null;
+                  return originalFetch(input, init).then((response) => {
+                    if (rpcCommandEntry !== null) {
+                      recordRPCResponse(response, rpcCommandEntry);
+                    }
+                    return response;
+                  }).catch((error) => {
                     pushBounded(window.__bridgeErrorProbe, {
                       kind: 'fetch_error',
                       message: clip(url + ': ' + (error?.message ?? error), 300),
@@ -72,33 +129,6 @@ import WebKit
                   nonceLength: typeof event.detail?.nonce === 'string'
                     ? event.detail.nonce.length
                     : -1
-                });
-              });
-              document.addEventListener('__bridge_command', (event) => {
-                const commandEntry = {
-                  hasDetail: Boolean(event.detail),
-                  method: clip(event.detail?.method, 120),
-                  protocolId: clip(event.detail?.params?.protocolId, 120),
-                  streamId: clip(event.detail?.params?.streamId, 160),
-                  hasNonce: typeof event.detail?.__nonce === 'string',
-                  hasCommandId: typeof event.detail?.__commandId === 'string'
-                };
-                pushBounded(window.__bridgeCommandProbe, commandEntry);
-                if (commandEntry.method === 'bridge.intakeReady') {
-                  pushBounded(window.__bridgeIntakeReadyCommandProbe, commandEntry);
-                }
-                if (commandEntry.method === 'worktreeFileSurface.openSourceStream') {
-                  pushBounded(window.__bridgeWorktreeOpenSourceCommandProbe, commandEntry);
-                }
-                if (commandEntry.method === 'worktreeFileSurface.requestFileDescriptor') {
-                  pushBounded(window.__bridgeWorktreeDescriptorRequestCommandProbe, commandEntry);
-                }
-              });
-              document.addEventListener('__bridge_response', (event) => {
-                pushBounded(window.__bridgeResponseProbe, {
-                  hasDetail: Boolean(event.detail),
-                  hasResult: event.detail?.result !== undefined,
-                  hasError: event.detail?.error !== undefined
                 });
               });
               document.addEventListener('__bridge_intake_json', (event) => {

@@ -2594,3 +2594,98 @@ counts before claiming a gate.
   or handler-duration telemetry, Review browser UX closure, G6 ordinary
   script-message RPC deletion, native scroll/click budgets, zero-copy Pierre
   delivery, or full R44/R54/R57/R60 proof.
+
+## 2026-07-07 - G6 Browser-Native RPC Hard Cutover Checkpoint
+
+- Commit under repair:
+  `d3d6f350 fix(bridge): refresh ready file view descriptors in worker`.
+- Scope:
+  Browser/native ordinary Bridge RPC command dispatch has been cut from the old
+  content-world script-message path to scheme RPC. The old
+  `bridge-content-world-rpc` TypeScript helper, native `RPCMessageHandler`, and
+  privileged-ingress tests are removed. The one remaining production direct
+  `webkit.messageHandlers.rpc.postMessage` use is the one-shot page-load
+  `bridge.ready` bootstrap path in `BridgeBootstrap.swift`; scheme RPC rejects
+  `bridge.ready` as bootstrap-only. Review app tests now inject an in-process
+  comm-worker runtime transport instead of reusing the old native script-message
+  path, and the Review intake controller retains selection from the live
+  selection slice rather than stale root snapshot state.
+- Red/green evidence:
+  The focused BridgeWeb node pair was red after adding hardening tests:
+  malformed ready ACK `{ id }` was accepted, and
+  `sendBridgeRPCRequest` threw `ReferenceError: window is not defined` in a
+  worker-like runtime. After the production fixes, the focused node pair passed.
+  The native cutover source scan was red before the dedicated direct privileged
+  relay scan allowlist; after the allowlist was narrowed to bootstrap/test/spike
+  files, the source-scan Swift test passed. During final proof, the native
+  review browser aggregate also caught one stale expectation that asserted the
+  schema-parsed command still contained wire-only `jsonrpc`; the recorder keeps
+  the Zod-parsed `BridgeRPCCommand`, while RPC client unit tests own the wire
+  envelope proof. The browser aggregate passed after aligning that assertion.
+  The final hardening red proof also failed as intended for non-empty/extra
+  `bridge.ready` params and source-scan blind spots for alternate RPC spellings
+  (`messageHandlers["rpc"]`, optional chaining, and local aliases). The green
+  proof passes after strict bootstrap payload validation and broader source
+  scanning. `BridgePaneController` push-plan factories were extracted into
+  `BridgePaneController+PushPlans.swift` so the cutover stays under SwiftLint
+  file/type limits.
+- Fresh controller proof:
+  `CI=true pnpm -C BridgeWeb exec vitest --config
+  vitest.browser.config.ts run --project integration-browser
+  src/app/bridge-app-protocol-router.browser.test.tsx
+  src/app/bridge-app-review-intake-reannounce.browser.test.tsx
+  src/review-viewer/test-support/bridge-viewer-mocked-backend.browser.test.ts
+  src/app/bridge-app-lazy-boundary.browser.test.tsx --reporter dot` passed
+  4 files / 33 tests.
+  `CI=true pnpm -C BridgeWeb exec vitest --config
+  vitest.browser.config.ts run --project integration-browser
+  src/app/bridge-app-native-review-error.browser.test.tsx --reporter dot`
+  initially failed on the stale typed-command `jsonrpc` assertion, then passed
+  1 file / 14 tests after the assertion was aligned with the schema-parsed
+  command recorder.
+  `pnpm -C BridgeWeb exec vitest run
+  src/bridge/bridge-page-handshake.unit.test.ts
+  src/bridge/bridge-rpc-client.unit.test.ts
+  src/app/bridge-app-dev-telemetry.unit.test.ts
+  src/app/bridge-app-dev-worktree-review.unit.test.ts --reporter dot` passed
+  4 files / 33 tests.
+  `pnpm -C BridgeWeb exec tsc --noEmit --pretty false` passed.
+  `pnpm -C BridgeWeb exec oxlint --type-aware` exited 0 with warnings only.
+  `pnpm -C BridgeWeb exec oxfmt --check .` passed.
+  `git diff --check` passed.
+  `swift test --filter
+  'BridgeReadyMessageHandlerTests|BridgeBrowserNativeRPCCutoverSourceScanTests'`
+  was red for strict bootstrap params/alternate scan spellings, then passed 7
+  Swift Testing tests / 2 suites after the hardening fix.
+  `swift test --filter
+  'BridgePaneControllerSchemeRPCTests|BridgeReadyMessageHandlerTests|BridgeSchemeHandlerRPCTests'`
+  passed 10 Swift Testing tests / 3 suites.
+  `SWIFT_TEST_TIMEOUT_SECONDS=300 SWIFT_TEST_PREBUILD_TIMEOUT_SECONDS=300
+  mise run test -- --filter "BridgeBrowserNativeRPCCutoverSourceScanTests"`
+  passed 2 Swift Testing tests / 1 suite against packaged BridgeWeb assets.
+  `swift test --filter
+  'BridgeTransportIntegrationTests.test_schemeRPCBridgeReadyIsRejectedAsBootstrapOnly'`
+  passed 1 Swift Testing test in 2 suites.
+  `mise run lint` passed after the push-plan extraction: swift-format OK,
+  SwiftLint 0 violations in 1469 files, architecture lint OK, and release script
+  verification passed.
+- Source scans:
+  `rg -n
+  "__bridge_command|__bridge_response|data-bridge-nonce|bridge-content-world-rpc|RPCMessageHandler|PAGE_WORLD_ALLOWED_COMMAND_METHODS|sendCommandJSON|content world command|messageHandlers\\.rpc\\.postMessage|messageHandlers\\[[\\\"']rpc[\\\"']\\]|messageHandlers\\?\\.rpc|\\.rpc\\.postMessage"
+  BridgeWeb/src Sources/AgentStudio Tests/AgentStudioTests` reports only
+  expected bootstrap, negative/source-scan test, and WebKit spike hits. No
+  unexpected product live ordinary command path remains.
+- Sidekick evidence:
+  Gibbs found three accepted G6 hardening issues before this final sweep:
+  ready ACK schema validation, worker-safe timers, and a source-scan blind spot
+  for direct privileged relays. All three were fixed and independently
+  controller-verified with the proof above. Turing then found two additional P2
+  hardening gaps: bootstrap payload shape accepted extra/non-empty params, and
+  the source scan missed alternate script-message spellings. Both findings were
+  accepted, fixed, and controller-verified with the red/green proof above.
+- Known proof boundary:
+  This is the G6 browser/native ordinary RPC hard-cutover checkpoint. It does
+  not claim native/manual UX closure, Review scroll/click budget closure,
+  Victoria/debug smoke closure, F1 worker-fetch live proof, slice-G worker data
+  migration completion beyond this RPC cutover, PR readiness, or full goal
+  completion.

@@ -84,7 +84,7 @@ private struct TraceparentCaptureSchemeHandler: URLSchemeHandler {
 /// Integration tests for the BridgePaneController's assembled transport pipeline.
 ///
 /// These tests verify that the controller's components (WebPage, BridgeSchemeHandler,
-/// RPCMessageHandler, RPCRouter, BridgeBootstrap) work together correctly:
+/// BridgeReadyMessageHandler, RPCRouter, BridgeBootstrap) work together correctly:
 ///
 /// 1. Bridge.ready handshake gating — `isBridgeReady` transitions and idempotency (§4.5)
 /// 2. Scheme handler serves HTML — `loadApp()` loads content from `agentstudio://app/index.html`
@@ -945,6 +945,12 @@ private func installPageDiagnosticsProbe(_ page: WebPage) async throws {
 private func teardownBridgeControllerForTest(_ controller: BridgePaneController) async {
     controller.teardown()
     await WebPageTestHarness.settle()
+}
+
+private func parseJSONObject(_ json: String) throws -> [String: Any] {
+    let data = try #require(json.data(using: .utf8))
+    let object = try JSONSerialization.jsonObject(with: data)
+    return try #require(object as? [String: Any])
 }
 
 @MainActor

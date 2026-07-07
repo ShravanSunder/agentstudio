@@ -41,7 +41,6 @@ describe('Bridge viewer Browser Mode mocked backend', () => {
 		await waitForBridgeViewerAnimationFrame();
 		disposeBridgeViewerMockedBackends();
 		document.body.replaceChildren();
-		document.documentElement.removeAttribute('data-bridge-nonce');
 		document.documentElement.removeAttribute('data-bridge-review-pane-id');
 		document.documentElement.removeAttribute('data-bridge-review-stream-id');
 		delete window.bridgeReviewControlProbe;

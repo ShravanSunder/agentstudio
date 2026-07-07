@@ -140,12 +140,22 @@ export function useBridgeReviewMetadataInterestRuntime(
 			return;
 		}
 		lastRequestSignatureRef.current = requestSignature;
-		for (const request of requests) {
-			sendReviewMetadataInterestRequest({
-				request,
-				rpcClient,
-			});
-		}
+		void Promise.all(
+			requests.map(
+				(request): Promise<boolean> =>
+					sendReviewMetadataInterestRequest({
+						request,
+						rpcClient,
+					}),
+			),
+		).then((results): void => {
+			if (
+				results.some((didSend): boolean => !didSend) &&
+				lastRequestSignatureRef.current === requestSignature
+			) {
+				lastRequestSignatureRef.current = null;
+			}
+		});
 	}, [bridgeReadyEpoch, requests, rpcClient]);
 
 	const onCodeViewVisibleItemIdsChange = useCallback(
@@ -219,7 +229,7 @@ export function reviewMetadataInterestSurfaceIdentityKeyForViewState(props: {
 function sendReviewMetadataInterestRequest(props: {
 	readonly request: ReviewMetadataInterestRequest;
 	readonly rpcClient: BridgeRPCClient;
-}): void {
+}): Promise<boolean> {
 	const command: BridgeRPCCommand = {
 		method: 'bridge.metadata_interest.update',
 		params: {
@@ -227,5 +237,5 @@ function sendReviewMetadataInterestRequest(props: {
 			itemIds: [...props.request.itemIds],
 		},
 	};
-	props.rpcClient.sendCommand(command);
+	return props.rpcClient.sendCommandAndWait(command);
 }

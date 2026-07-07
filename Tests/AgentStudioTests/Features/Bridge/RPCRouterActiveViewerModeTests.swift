@@ -98,7 +98,7 @@ extension WebKitSerializedTests {
         }
 
         @Test
-        func test_page_world_active_viewer_mode_update_is_allowed() async throws {
+        func test_active_viewer_mode_update_is_allowed() async throws {
             // Arrange
             let router = RPCRouter()
             let receivedParams = SendableBox<BridgeActiveViewerModeUpdateMethod.Params?>(nil)
@@ -115,7 +115,6 @@ extension WebKitSerializedTests {
                     {
                       "jsonrpc": "2.0",
                       "method": "bridge.activeViewerMode.update",
-                      "__bridgeOrigin": "pageWorldLegacy",
                       "params": {
                         "sessionId": "session-1",
                         "sequence": 2,

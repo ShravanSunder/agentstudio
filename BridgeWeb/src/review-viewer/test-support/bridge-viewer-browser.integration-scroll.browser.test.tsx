@@ -30,7 +30,6 @@ describe('Bridge viewer Browser Mode large fixture scroll integration', () => {
 		await waitForBridgeViewerAnimationFrame();
 		disposeBridgeViewerMockedBackends();
 		document.body.replaceChildren();
-		document.documentElement.removeAttribute('data-bridge-nonce');
 		document.documentElement.removeAttribute('data-bridge-review-pane-id');
 		document.documentElement.removeAttribute('data-bridge-review-stream-id');
 		delete window.bridgeReviewControlProbe;

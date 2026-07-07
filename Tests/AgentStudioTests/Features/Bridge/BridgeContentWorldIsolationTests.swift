@@ -13,7 +13,7 @@ extension WebKitSerializedTests {
         }
 
         @Test
-        func test_contentWorldIsolationAndPrivilegedProtocolRPC() async throws {
+        func test_contentWorldIsolationAndReadyBootstrapOnlyScriptMessageRPC() async throws {
             let bridgeWorld = WKContentWorld.world(name: "agentStudioBridgeProtocolRPCTest")
             let pageProbe = ContentWorldIsolationMessageHandler()
             let rpcRecorder = ContentWorldIsolationMessageHandler()
@@ -91,21 +91,18 @@ extension WebKitSerializedTests {
 
                 _ = try await page.callJavaScript(
                     """
-                    window.__bridgeInternal.sendCommandJSON(JSON.stringify({
-                      jsonrpc: '2.0',
-                      id: 'bridge-protocol-rpc',
-                      protocol: 'review',
-                      method: 'stream.open',
-                      params: {}
+                    document.dispatchEvent(new CustomEvent('__bridge_ready', {
+                      detail: { requestId: 'bridge-ready-test' }
                     }));
-                    """,
-                    contentWorld: bridgeWorld
+                    """
                 )
 
-                let didReceiveBridgeWorldRPC = await waitForMessageCount(rpcRecorder, atLeast: 1)
-                #expect(didReceiveBridgeWorldRPC, "Expected bridge-world protocol RPC to reach Swift")
+                let didReceiveBridgeReadyRPC = await waitForMessageCount(rpcRecorder, atLeast: 1)
+                #expect(didReceiveBridgeReadyRPC, "Expected one-shot bridge.ready bootstrap to reach Swift")
                 #expect(rpcRecorder.receivedMessages.count == 1)
-                #expect((rpcRecorder.receivedMessages.first as? String)?.contains("bridge-protocol-rpc") == true)
+                #expect((rpcRecorder.receivedMessages.first as? String)?.contains("bridge.ready") == true)
+                #expect((rpcRecorder.receivedMessages.first as? String)?.contains("bridge-ready-test") == true)
+                #expect((rpcRecorder.receivedMessages.first as? String)?.contains("bridge-protocol-rpc") != true)
             }
         }
 

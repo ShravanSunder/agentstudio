@@ -23,6 +23,7 @@ struct BridgeSchemeHandlerRegistrationInput {
     let worktreeFileResourceStore: BridgeWorktreeFileResourceStore
     let resourceLeaseRegistry: BridgeTransportResourceLeaseRegistry
     let telemetryRecorder: (any BridgePerformanceTraceRecording)?
+    let rpcDispatcher: BridgeSchemeRPCDispatcher
 }
 
 @MainActor
@@ -38,7 +39,8 @@ extension BridgePaneController {
             worktreeFileResourceStore: input.worktreeFileResourceStore,
             resourceLeaseRegistry: input.resourceLeaseRegistry,
             allowedResourceKindsByProtocol: BridgeResourceProtocolRegistry.reviewViewerAllowedResourceKinds,
-            telemetryRecorder: input.telemetryRecorder
+            telemetryRecorder: input.telemetryRecorder,
+            rpcDispatcher: input.rpcDispatcher
         )
     }
 

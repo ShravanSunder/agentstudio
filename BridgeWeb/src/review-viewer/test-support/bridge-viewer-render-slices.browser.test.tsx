@@ -39,7 +39,6 @@ describe('Bridge viewer review render slices', () => {
 		await waitForBridgeViewerAnimationFrame();
 		disposeBridgeViewerMockedBackends();
 		document.body.replaceChildren();
-		document.documentElement.removeAttribute('data-bridge-nonce');
 		document.documentElement.removeAttribute('data-bridge-review-pane-id');
 		document.documentElement.removeAttribute('data-bridge-review-stream-id');
 		// oxlint-disable-next-line no-underscore-dangle -- Intentional Bridge debug surface name.

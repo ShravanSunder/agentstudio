@@ -24,6 +24,7 @@ import type { BridgeMarkdownRenderWorkerClient } from '../review-viewer/workers/
 import type { BridgeReviewProjectionWorkerClient } from '../review-viewer/workers/projection/review-projection-worker-client.js';
 import type { BridgeAppControlProbe } from './bridge-app-control.js';
 import { BridgeFileViewerMode } from './bridge-app-file-viewer-mode.js';
+import type { CreateBridgeReviewRuntimeProtocolDispatcherProps } from './bridge-app-review-render-snapshot-controller.js';
 import { BridgeReviewViewerMode } from './bridge-app-review-viewer-mode.js';
 export { bridgeReviewNavigationCommandForWorktreeDescriptor } from './bridge-review-navigation.js';
 export {
@@ -65,6 +66,7 @@ export interface BridgeAppProps {
 	readonly markdownWorkerClient?: BridgeMarkdownRenderWorkerClient | null;
 	readonly codeViewWorkerPoolEnabled?: boolean;
 	readonly codeViewWorkerFactory?: () => Worker;
+	readonly reviewWorkerTransportFactory?: CreateBridgeReviewRuntimeProtocolDispatcherProps['transportFactory'];
 	readonly viewerMode?: 'file' | 'review';
 	readonly fileViewerProps?: BridgeFileViewerAppProps;
 	readonly navigationCommand?: BridgeViewerNavigationCommand;
@@ -167,11 +169,12 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 	const [telemetryConfig, setTelemetryConfig] = useState<BridgeTelemetryBootstrapConfig | null>(
 		null,
 	);
+	const isBridgeReadyGateOpenRef = useRef(false);
 	const isBridgeReadyRef = useRef(false);
 	const bridgeReadyCallbacksRef = useRef<Set<() => void>>(new Set());
 	const registerBridgeReadyCallback = useCallback((callback: () => void): (() => void) => {
 		bridgeReadyCallbacksRef.current.add(callback);
-		if (isBridgeReadyRef.current) {
+		if (isBridgeReadyGateOpenRef.current) {
 			queueMicrotask(callback);
 		}
 		return (): void => {
@@ -205,8 +208,20 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 		handshakeSessionRef.current = installBridgePageHandshakeSession(target, {
 			onReady: (): void => {
 				isBridgeReadyRef.current = true;
+				isBridgeReadyGateOpenRef.current = true;
 				queueMicrotask((): void => {
 					if (!isBridgeReadyRef.current) {
+						return;
+					}
+					for (const callback of bridgeReadyCallbacksRef.current) {
+						callback();
+					}
+				});
+			},
+			onReadyError: (): void => {
+				isBridgeReadyGateOpenRef.current = true;
+				queueMicrotask((): void => {
+					if (isBridgeReadyRef.current) {
 						return;
 					}
 					for (const callback of bridgeReadyCallbacksRef.current) {
@@ -221,6 +236,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			handshakeSessionRef.current?.uninstall();
 			handshakeSessionRef.current = null;
 			isBridgeReadyRef.current = false;
+			isBridgeReadyGateOpenRef.current = false;
 			setTelemetryConfig(null);
 			telemetryRecorderRef.current = createBridgeTelemetryRecorder(null);
 		};
@@ -245,15 +261,21 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 			}
 			lastSentActiveViewerModeSignalKeyRef.current = pendingSignalKey;
 			activeViewerModeSequenceRef.current += 1;
-			activeViewerModeRPCClient.sendCommand({
-				method: 'bridge.activeViewerMode.update',
-				params: {
-					sessionId: activeViewerModeSessionIdRef.current,
-					sequence: activeViewerModeSequenceRef.current,
-					mode: activeViewerMode,
-					activeSource: null,
-				},
-			});
+			void activeViewerModeRPCClient
+				.sendCommandAndWait({
+					method: 'bridge.activeViewerMode.update',
+					params: {
+						sessionId: activeViewerModeSessionIdRef.current,
+						sequence: activeViewerModeSequenceRef.current,
+						mode: activeViewerMode,
+						activeSource: null,
+					},
+				})
+				.then((didSend): void => {
+					if (!didSend && lastSentActiveViewerModeSignalKeyRef.current === pendingSignalKey) {
+						lastSentActiveViewerModeSignalKeyRef.current = null;
+					}
+				});
 			return;
 		}
 		const signalKey = `${activationRevision}:${activeViewerMode}:${activeSource.protocol}:${activeSource.streamId}:${activeSource.generation}`;
@@ -263,15 +285,23 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 		lastSentActiveViewerModeSignalKeyRef.current = signalKey;
 		activeViewerModeSourceSentActivationRevisionsRef.current.add(activationRevision);
 		activeViewerModeSequenceRef.current += 1;
-		activeViewerModeRPCClient.sendCommand({
-			method: 'bridge.activeViewerMode.update',
-			params: {
-				sessionId: activeViewerModeSessionIdRef.current,
-				sequence: activeViewerModeSequenceRef.current,
-				mode: activeViewerMode,
-				activeSource,
-			},
-		});
+		void activeViewerModeRPCClient
+			.sendCommandAndWait({
+				method: 'bridge.activeViewerMode.update',
+				params: {
+					sessionId: activeViewerModeSessionIdRef.current,
+					sequence: activeViewerModeSequenceRef.current,
+					mode: activeViewerMode,
+					activeSource,
+				},
+			})
+			.then((didSend): void => {
+				if (didSend || lastSentActiveViewerModeSignalKeyRef.current !== signalKey) {
+					return;
+				}
+				lastSentActiveViewerModeSignalKeyRef.current = null;
+				activeViewerModeSourceSentActivationRevisionsRef.current.delete(activationRevision);
+			});
 	}, [activeViewerModeRPCClient]);
 	useLayoutEffect((): void => {
 		if (previousActiveViewerModeRef.current === activeViewerState.viewerMode) {
@@ -309,7 +339,7 @@ export function BridgeApp(props: BridgeAppProps = {}): ReactElement {
 		[],
 	);
 	useLayoutEffect((): (() => void) => {
-		if (isBridgeReadyRef.current) {
+		if (isBridgeReadyGateOpenRef.current) {
 			sendActiveViewerModeUpdate();
 			return (): void => {};
 		}

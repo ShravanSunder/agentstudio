@@ -1,4 +1,4 @@
-import { type MutableRefObject, useEffect } from 'react';
+import { type MutableRefObject, useEffect, useRef } from 'react';
 
 import type { BridgePageHandshakeSession } from '../bridge/bridge-page-handshake.js';
 import type { BridgePushEnvelope } from '../bridge/bridge-push-envelope.js';
@@ -20,7 +20,7 @@ import type {
 import type { BridgeReviewPackage } from '../foundation/review-package/bridge-review-package.js';
 import type { BridgeTelemetryRecorder } from '../foundation/telemetry/bridge-telemetry-recorder.js';
 import type { BridgeTraceContext } from '../foundation/telemetry/bridge-trace-context.js';
-import type { BridgeReviewViewerStore } from '../review-viewer/state/review-viewer-store.js';
+import type { BridgeReviewSelectionSlice } from '../review-viewer/state/review-viewer-store.js';
 import {
 	applyReviewEnvelope,
 	applyReviewProtocolTransportFrame,
@@ -60,7 +60,7 @@ export interface UseBridgeReviewIntakeControllerProps {
 		update: (current: BridgeDiffStatusState) => BridgeDiffStatusState,
 	) => void;
 	readonly setSelectedItemId: (itemId: string | null) => void;
-	readonly viewerStore: BridgeReviewViewerStore;
+	readonly selectionSliceRef: MutableRefObject<BridgeReviewSelectionSlice>;
 	readonly reviewPackageRef: MutableRefObject<BridgeReviewPackage | null>;
 	readonly reviewPackageTelemetryContextRef: MutableRefObject<
 		Map<string, BridgeReviewPackageTelemetryContext>
@@ -90,7 +90,7 @@ export function useBridgeReviewIntakeController(props: UseBridgeReviewIntakeCont
 		setReviewTreeRows,
 		setDiffStatus,
 		setSelectedItemId,
-		viewerStore,
+		selectionSliceRef,
 		reviewPackageRef,
 		reviewPackageTelemetryContextRef,
 		currentReviewPackageTelemetryContextRef,
@@ -100,8 +100,10 @@ export function useBridgeReviewIntakeController(props: UseBridgeReviewIntakeCont
 		synchronizeReviewWorkerSource,
 		telemetryRecorderRef,
 	} = props;
+	const requestReviewIntakeReadyRef = useRef<(() => void) | null>(null);
 	useEffect((): (() => void) => {
 		let didMarkReviewIntakeReady = false;
+		let isMarkingReviewIntakeReady = false;
 		let retryCount = 0;
 		let retryHandle: { readonly kind: 'animationFrame' | 'timeout'; readonly id: number } | null =
 			null;
@@ -120,32 +122,8 @@ export function useBridgeReviewIntakeController(props: UseBridgeReviewIntakeCont
 			}
 			retryHandle = null;
 		};
-		const markReviewIntakeReady = (reason: string | null = null): boolean => {
-			if (didMarkReviewIntakeReady) {
-				return true;
-			}
-			const handshakeSession = bridgeHandshakeSessionRef.current;
-			const streamId = getReviewFrameAuthority()?.streamId ?? null;
-			const didSendIntakeReady =
-				handshakeSession?.markIntakeReady({
-					protocolId: 'review',
-					reason,
-					streamId,
-				}) ?? false;
-			if (!didSendIntakeReady) {
-				return false;
-			}
-			didMarkReviewIntakeReady = true;
-			clearScheduledIntakeReadyRetry();
-			requestIntakeReplay();
-			return true;
-		};
-		const scheduleMarkReviewIntakeReady = (reason: string | null = null): void => {
-			if (
-				markReviewIntakeReady(reason) ||
-				retryHandle !== null ||
-				retryCount >= maxIntakeReadyRetries
-			) {
+		const scheduleIntakeReadyRetry = (reason: string | null): void => {
+			if (retryHandle !== null || retryCount >= maxIntakeReadyRetries) {
 				return;
 			}
 			retryCount += 1;
@@ -163,6 +141,49 @@ export function useBridgeReviewIntakeController(props: UseBridgeReviewIntakeCont
 			}, 0);
 			retryHandle = { kind: 'timeout', id };
 		};
+		const markReviewIntakeReady = async (reason: string | null = null): Promise<boolean> => {
+			if (didMarkReviewIntakeReady || isMarkingReviewIntakeReady) {
+				return true;
+			}
+			const handshakeSession = bridgeHandshakeSessionRef.current;
+			if (handshakeSession === null) {
+				return false;
+			}
+			const streamId = getReviewFrameAuthority()?.streamId ?? null;
+			isMarkingReviewIntakeReady = true;
+			const didSendIntakeReady = await handshakeSession
+				.markIntakeReady({
+					protocolId: 'review',
+					reason,
+					streamId,
+				})
+				.finally((): void => {
+					isMarkingReviewIntakeReady = false;
+				});
+			if (!didSendIntakeReady) {
+				return false;
+			}
+			didMarkReviewIntakeReady = true;
+			clearScheduledIntakeReadyRetry();
+			requestIntakeReplay();
+			return true;
+		};
+		const scheduleMarkReviewIntakeReady = (reason: string | null = null): void => {
+			if (didMarkReviewIntakeReady || isMarkingReviewIntakeReady) {
+				return;
+			}
+			void markReviewIntakeReady(reason).then((didMark): void => {
+				if (!didMark) {
+					scheduleIntakeReadyRetry(reason);
+				}
+			});
+		};
+		const requestReviewIntakeReady = (): void => {
+			didMarkReviewIntakeReady = false;
+			retryCount = 0;
+			scheduleMarkReviewIntakeReady();
+		};
+		requestReviewIntakeReadyRef.current = requestReviewIntakeReady;
 		const documentElement = typeof document === 'undefined' ? null : document.documentElement;
 		const reviewIntakeReadyObserver =
 			documentElement === null || typeof MutationObserver === 'undefined'
@@ -173,11 +194,7 @@ export function useBridgeReviewIntakeController(props: UseBridgeReviewIntakeCont
 					});
 		if (reviewIntakeReadyObserver !== null && documentElement !== null) {
 			reviewIntakeReadyObserver.observe(documentElement, {
-				attributeFilter: [
-					'data-bridge-nonce',
-					bridgeReviewPaneIdAttribute,
-					bridgeReviewStreamIdAttribute,
-				],
+				attributeFilter: [bridgeReviewPaneIdAttribute, bridgeReviewStreamIdAttribute],
 			});
 		}
 		const enqueueReviewProtocolFrame = (
@@ -195,8 +212,7 @@ export function useBridgeReviewIntakeController(props: UseBridgeReviewIntakeCont
 						setDiffStatus,
 						selectInitialReviewItem: beginForegroundReviewSelection,
 						setSelectedItemId,
-						getSelectedItemId: (): string | null =>
-							viewerStore.getState().rootSnapshot.selectedItemId,
+						getSelectedItemId: (): string | null => selectionSliceRef.current.selectedItemId,
 						reviewPackageRef,
 						telemetryContextByPackageKey: reviewPackageTelemetryContextRef.current,
 						currentReviewPackageTelemetryContextRef,
@@ -320,6 +336,9 @@ export function useBridgeReviewIntakeController(props: UseBridgeReviewIntakeCont
 			},
 		});
 		return (): void => {
+			if (requestReviewIntakeReadyRef.current === requestReviewIntakeReady) {
+				requestReviewIntakeReadyRef.current = null;
+			}
 			clearScheduledIntakeReadyRetry();
 			reviewIntakeReadyObserver?.disconnect();
 			uninstallIntakeCarrier();
@@ -343,10 +362,10 @@ export function useBridgeReviewIntakeController(props: UseBridgeReviewIntakeCont
 		setReviewPackage,
 		setReviewTreeRows,
 		setSelectedItemId,
+		selectionSliceRef,
 		synchronizeReviewWorkerSource,
 		target,
 		telemetryRecorderRef,
-		viewerStore,
 	]);
 
 	// A review surface re-activated WITHOUT an applied package lost its
@@ -359,9 +378,6 @@ export function useBridgeReviewIntakeController(props: UseBridgeReviewIntakeCont
 		if (!isActive || reviewPackageRef.current !== null) {
 			return;
 		}
-		bridgeHandshakeSessionRef.current?.markIntakeReady({
-			protocolId: 'review',
-			streamId: getReviewFrameAuthority()?.streamId ?? null,
-		});
-	}, [bridgeHandshakeSessionRef, getReviewFrameAuthority, isActive, reviewPackageRef]);
+		requestReviewIntakeReadyRef.current?.();
+	}, [isActive, reviewPackageRef]);
 }

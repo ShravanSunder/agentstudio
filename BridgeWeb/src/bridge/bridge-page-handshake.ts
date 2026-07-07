@@ -4,6 +4,11 @@ import {
 	decodeBridgeTelemetryBootstrapConfig,
 	type BridgeTelemetryBootstrapConfig,
 } from '../foundation/telemetry/bridge-telemetry-bootstrap-config.js';
+import {
+	bridgeRPCErrorPayloadSchema,
+	bridgeRPCIdSchema,
+	createBridgeRPCClient,
+} from './bridge-rpc-client.js';
 
 type BridgeHandshakeTarget = Pick<
 	EventTarget,
@@ -13,39 +18,49 @@ type BridgeHandshakeTarget = Pick<
 export interface BridgePageHandshakeSession {
 	readonly getPushNonce: () => string | null;
 	readonly getTelemetryConfig: () => BridgeTelemetryBootstrapConfig | null;
-	readonly markIntakeReady: (props: BridgeIntakeReadyProps) => boolean;
+	readonly markIntakeReady: (props: BridgeIntakeReadyProps) => Promise<boolean>;
 	readonly uninstall: () => void;
 }
 
+export interface BridgePageReadyError {
+	readonly kind: 'ack_error' | 'ack_timeout';
+	readonly message: string;
+	readonly requestId: string;
+}
+
 export interface InstallBridgePageHandshakeSessionProps {
-	readonly getBridgeCommandNonce?: () => string | null;
+	readonly endpointUrl?: string;
+	readonly fetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> | Response;
+	readonly onReadyError?: (error: BridgePageReadyError) => void;
 	readonly onTelemetryConfig?: (telemetryConfig: BridgeTelemetryBootstrapConfig) => void;
 	readonly onReady?: () => void;
-	readonly onReadyError?: (error: Error) => void;
-	readonly readyResponseTimeoutMilliseconds?: number;
+	readonly readyAcknowledgementTimeoutMilliseconds?: number;
 }
 
 export interface BridgeIntakeReadyProps {
-	readonly protocolId: string;
+	readonly protocolId: 'review' | 'worktree-file';
 	readonly reason?: string | null;
 	readonly streamId?: string | null;
 }
 
-const bridgeReadyRPCErrorSchema = z
-	.object({
-		code: z.number().int(),
-		message: z.string().min(1),
-	})
-	.strict();
-const bridgeReadyRPCResponseSchema = z
-	.object({
-		jsonrpc: z.literal('2.0').optional(),
-		id: z.union([z.string(), z.number()]),
-		result: z.unknown().optional(),
-		error: bridgeReadyRPCErrorSchema.optional(),
-	})
-	.passthrough();
-const defaultReadyResponseTimeoutMilliseconds = 10_000;
+const bridgeReadyAcknowledgementSchema = z
+	.union([
+		z
+			.object({
+				jsonrpc: z.literal('2.0'),
+				id: bridgeRPCIdSchema,
+				result: z.unknown(),
+			})
+			.strict(),
+		z
+			.object({
+				jsonrpc: z.literal('2.0'),
+				id: bridgeRPCIdSchema,
+				error: bridgeRPCErrorPayloadSchema,
+			})
+			.strict(),
+	])
+	.readonly();
 
 export function installBridgePageHandshake(target: BridgeHandshakeTarget = document): () => void {
 	return installBridgePageHandshakeSession(target).uninstall;
@@ -59,7 +74,56 @@ export function installBridgePageHandshakeSession(
 	let isInstalled = true;
 	let pushNonce: string | null = null;
 	let telemetryConfig: BridgeTelemetryBootstrapConfig | null = null;
-	let disposeBridgeReadyResponseListener: (() => void) | null = null;
+	let readyRequestId: string | null = null;
+	let didResolveReadyRequest = false;
+	let readyAcknowledgementTimeout: ReturnType<typeof globalThis.setTimeout> | null = null;
+	const rpcClient = createBridgeRPCClient({
+		endpointUrl: props.endpointUrl,
+		fetch: props.fetch,
+	});
+	const readyAcknowledgementTimeoutMilliseconds =
+		props.readyAcknowledgementTimeoutMilliseconds ?? 5000;
+
+	const clearReadyAcknowledgementTimeout = (): void => {
+		if (readyAcknowledgementTimeout === null) {
+			return;
+		}
+		globalThis.clearTimeout(readyAcknowledgementTimeout);
+		readyAcknowledgementTimeout = null;
+	};
+
+	const failReadyRequest = (error: BridgePageReadyError): void => {
+		if (didResolveReadyRequest) {
+			return;
+		}
+		didResolveReadyRequest = true;
+		clearReadyAcknowledgementTimeout();
+		props.onReadyError?.(error);
+	};
+
+	const handleReadyAcknowledgement = (event: Event): void => {
+		if (readyRequestId === null || didResolveReadyRequest || !('detail' in event)) {
+			return;
+		}
+		const parsedAcknowledgement = bridgeReadyAcknowledgementSchema.safeParse(event.detail);
+		if (!parsedAcknowledgement.success) {
+			return;
+		}
+		const acknowledgement = parsedAcknowledgement.data;
+		if (String(acknowledgement.id) !== readyRequestId || 'error' in acknowledgement) {
+			if (String(acknowledgement.id) === readyRequestId && 'error' in acknowledgement) {
+				failReadyRequest({
+					kind: 'ack_error',
+					message: acknowledgement.error.message,
+					requestId: readyRequestId,
+				});
+			}
+			return;
+		}
+		didResolveReadyRequest = true;
+		clearReadyAcknowledgementTimeout();
+		props.onReady?.();
+	};
 
 	const handleHandshake = (event: Event): void => {
 		if (pushNonce === null) {
@@ -77,98 +141,51 @@ export function installBridgePageHandshakeSession(
 		}
 
 		didSendReady = true;
+		readyRequestId = createBridgeReadyRequestId();
 		queueMicrotask((): void => {
-			if (isInstalled) {
-				target.dispatchEvent(new CustomEvent('__bridge_ready'));
-				const bridgeNonce = (props.getBridgeCommandNonce ?? readBridgeCommandNonce)();
-				if (bridgeNonce === null) {
-					props.onReady?.();
-					return;
-				}
-				const requestId = createBridgeReadyRequestId();
-				const timeoutId = setTimeout((): void => {
-					disposeBridgeReadyResponseListener?.();
-					disposeBridgeReadyResponseListener = null;
-					if (isInstalled) {
-						props.onReadyError?.(new Error('Bridge ready command timed out'));
-					}
-				}, props.readyResponseTimeoutMilliseconds ?? defaultReadyResponseTimeoutMilliseconds);
-				const handleBridgeReadyResponse = (responseEvent: Event): void => {
-					const detail = 'detail' in responseEvent ? responseEvent.detail : null;
-					const parsedResponse = bridgeReadyRPCResponseSchema.safeParse(detail);
-					if (!parsedResponse.success || String(parsedResponse.data.id) !== requestId) {
-						return;
-					}
-					disposeBridgeReadyResponseListener?.();
-					disposeBridgeReadyResponseListener = null;
-					clearTimeout(timeoutId);
-					if (parsedResponse.data.error !== undefined) {
-						if (isInstalled) {
-							props.onReadyError?.(
-								new Error(`Bridge ready command failed: ${parsedResponse.data.error.message}`),
-							);
-						}
-						return;
-					}
-					if (isInstalled) {
-						props.onReady?.();
-					}
-				};
-				target.addEventListener('__bridge_response', handleBridgeReadyResponse);
-				disposeBridgeReadyResponseListener = (): void => {
-					clearTimeout(timeoutId);
-					target.removeEventListener('__bridge_response', handleBridgeReadyResponse);
-				};
-				target.dispatchEvent(
-					new CustomEvent('__bridge_command', {
-						detail: {
-							__nonce: bridgeNonce,
-							__commandId: requestId,
-							jsonrpc: '2.0',
-							id: requestId,
-							method: 'bridge.ready',
-							params: {},
-						},
-					}),
-				);
+			if (!isInstalled || readyRequestId === null) {
+				return;
 			}
+			const requestId = readyRequestId;
+			readyAcknowledgementTimeout = globalThis.setTimeout((): void => {
+				failReadyRequest({
+					kind: 'ack_timeout',
+					message: 'Bridge ready acknowledgement timed out',
+					requestId,
+				});
+			}, readyAcknowledgementTimeoutMilliseconds);
+			target.dispatchEvent(
+				new CustomEvent('__bridge_ready', {
+					detail: { requestId },
+				}),
+			);
 		});
 	};
 
+	target.addEventListener('__bridge_ready_ack', handleReadyAcknowledgement);
 	target.addEventListener('__bridge_handshake', handleHandshake);
 	target.dispatchEvent(new CustomEvent('__bridge_handshake_request'));
 
 	return {
 		getPushNonce: (): string | null => pushNonce,
 		getTelemetryConfig: (): BridgeTelemetryBootstrapConfig | null => telemetryConfig,
-		markIntakeReady: (intakeReadyProps: BridgeIntakeReadyProps): boolean => {
+		markIntakeReady: async (intakeReadyProps: BridgeIntakeReadyProps): Promise<boolean> => {
 			if (pushNonce === null) {
 				return false;
 			}
-			const bridgeNonce = (props.getBridgeCommandNonce ?? readBridgeCommandNonce)();
-			if (bridgeNonce === null) {
-				return false;
-			}
-			target.dispatchEvent(
-				new CustomEvent('__bridge_command', {
-					detail: {
-						__nonce: bridgeNonce,
-						jsonrpc: '2.0',
-						method: 'bridge.intakeReady',
-						params: {
-							protocolId: intakeReadyProps.protocolId,
-							reason: intakeReadyProps.reason ?? null,
-							streamId: intakeReadyProps.streamId ?? null,
-						},
-					},
-				}),
-			);
-			return true;
+			return await rpcClient.sendCommandAndWait({
+				method: 'bridge.intakeReady',
+				params: {
+					protocolId: intakeReadyProps.protocolId,
+					reason: intakeReadyProps.reason ?? null,
+					streamId: intakeReadyProps.streamId ?? null,
+				},
+			});
 		},
 		uninstall: (): void => {
 			isInstalled = false;
-			disposeBridgeReadyResponseListener?.();
-			disposeBridgeReadyResponseListener = null;
+			clearReadyAcknowledgementTimeout();
+			target.removeEventListener('__bridge_ready_ack', handleReadyAcknowledgement);
 			target.removeEventListener('__bridge_handshake', handleHandshake);
 		},
 	};
@@ -202,10 +219,4 @@ function extractTelemetryConfig(event: Event): BridgeTelemetryBootstrapConfig | 
 		return null;
 	}
 	return decodeBridgeTelemetryBootstrapConfig(detail.telemetryConfig);
-}
-
-function readBridgeCommandNonce(): string | null {
-	return typeof document === 'undefined'
-		? null
-		: document.documentElement.getAttribute('data-bridge-nonce');
 }

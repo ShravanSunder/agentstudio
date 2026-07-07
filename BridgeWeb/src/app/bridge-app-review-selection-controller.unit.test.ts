@@ -88,6 +88,10 @@ describe('Bridge review selection controller command scheduling', () => {
 				sentCommands.push(command);
 				return true;
 			},
+			sendCommandAndWait: async (command: BridgeRPCCommand): Promise<boolean> => {
+				sentCommands.push(command);
+				return true;
+			},
 		};
 
 		scheduleReviewMarkFileViewedCommand({

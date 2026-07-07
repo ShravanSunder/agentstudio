@@ -6,9 +6,8 @@ import Testing
 /// Tests for BridgeBootstrap JavaScript generator.
 ///
 /// The bootstrap script runs at document start in the bridge content world.
-/// It installs `window.__bridgeInternal` with relay functions, listens for
-/// commands from page world with nonce validation, handles the bridge.ready
-/// handshake, and dispatches push events to page world.
+/// It installs `window.__bridgeInternal` with relay functions, handles the one-shot
+/// bridge.ready bootstrap, and dispatches push events to page world.
 @Suite(.serialized)
 final class BridgeBootstrapTests {
 
@@ -20,22 +19,23 @@ final class BridgeBootstrapTests {
         #expect(script.contains("window.__bridgeInternal"), "Bootstrap must install __bridgeInternal in bridge world")
     }
 
-    // MARK: - Command Listener
+    // MARK: - Command Relay Cutover
 
     @Test
-    func test_script_contains_command_listener() {
+    func test_script_does_not_install_page_world_command_listener() {
         let script = BridgeBootstrap.generateScript(bridgeNonce: "test-nonce", pushNonce: "push-nonce")
         #expect(
-            script.contains("__bridge_command"),
-            "Bootstrap must listen for __bridge_command CustomEvents from page world")
+            !script.contains("__bridge_command"),
+            "Bootstrap must not relay ordinary browser-to-native commands through page-world script messages")
     }
 
-    // MARK: - Nonce Validation
+    // MARK: - Push Nonce
 
     @Test
-    func test_script_contains_nonce_validation() {
+    func test_script_contains_push_nonce_for_intake_and_push_validation() {
         let script = BridgeBootstrap.generateScript(bridgeNonce: "test-nonce", pushNonce: "push-nonce")
-        #expect(script.contains("test-nonce"), "Bootstrap must embed bridge nonce for command validation")
+        #expect(script.contains("push-nonce"), "Bootstrap must embed push nonce for push/intake validation")
+        #expect(!script.contains("test-nonce"), "Bootstrap must not embed command nonce for script-message RPC")
     }
 
     // MARK: - Push Relay
@@ -283,18 +283,15 @@ final class BridgeBootstrapTests {
     }
 
     @Test
-    func test_protocolRPC_uses_bridgeWorld_internal_sender_not_pageWorldCommandRelay() {
+    func test_protocolRPC_has_no_bootstrap_script_message_relay() {
         let script = BridgeBootstrap.generateScript(bridgeNonce: "test-nonce", pushNonce: "push-nonce")
 
-        #expect(script.contains("sendCommandJSON: function(commandJSON)"))
-        #expect(script.contains("window.webkit.messageHandlers.rpc.postMessage(commandJSON)"))
-        #expect(script.contains("payload.protocol !== undefined"))
-        #expect(script.contains("Rejected __bridge_command: protocol RPC must use bridge world"))
-        #expect(script.contains("PAGE_WORLD_ALLOWED_COMMAND_METHODS"))
-        #expect(script.contains("'bridge.intakeReady'"))
-        #expect(script.contains("'bridge.activeViewerMode.update'"))
-        #expect(script.contains("'worktreeFileSurface.requestFileDescriptor'"))
-        #expect(script.contains("payload.__bridgeOrigin = 'pageWorldLegacy'"))
-        #expect(script.contains("Rejected __bridge_command: method is not allowed from page world"))
+        #expect(!script.contains("sendCommandJSON: function(commandJSON)"))
+        #expect(!script.contains("__bridge_response"))
+        #expect(!script.contains("PAGE_WORLD_ALLOWED_COMMAND_METHODS"))
+        #expect(!script.contains("'bridge.intakeReady'"))
+        #expect(!script.contains("'bridge.activeViewerMode.update'"))
+        #expect(!script.contains("'worktreeFileSurface.requestFileDescriptor'"))
+        #expect(!script.contains("pageWorldLegacy"))
     }
 }

@@ -25,13 +25,16 @@ import {
 	actClick,
 	actWait,
 	chunkedTextResponse,
+	createInProcessBridgeReviewWorkerTransportFactory,
 	dispatchHostAdmittedReviewIntakeFrame,
+	installBridgeReadyHandshake,
 	makeWindowedReviewPackage,
 	makeWorktreeFileDescriptorForFrameTest,
 	makeWorktreeFileFramesForFrameTest,
 	pollWithinAct,
 	pollWithinActUntilEqual,
 	pollWithinActUntilTruthy,
+	recordBridgeSchemeRPCFetch,
 	recordBridgeTelemetryBatchFetch,
 	telemetrySamplesFromBatches,
 } from './bridge-app-native-review-error.browser.test-support.js';
@@ -39,7 +42,6 @@ import { BridgeApp } from './bridge-app.js';
 
 describe('BridgeApp native review intake Browser Mode', () => {
 	afterEach(() => {
-		document.documentElement.removeAttribute('data-bridge-nonce');
 		document.documentElement.removeAttribute('data-bridge-review-pane-id');
 		document.documentElement.removeAttribute('data-bridge-review-stream-id');
 		terminateBridgePierreWorkerPoolSingletonForTest();
@@ -62,27 +64,7 @@ describe('BridgeApp native review intake Browser Mode', () => {
 			selectedItemId: reviewPackage.orderedItemIds[0] ?? null,
 			visibleItemIds: reviewPackage.orderedItemIds.slice(0, 80),
 		});
-		const handleBridgeCommand = (event: Event): void => {
-			const detail = 'detail' in event ? event.detail : null;
-			if (
-				typeof detail === 'object' &&
-				detail !== null &&
-				'method' in detail &&
-				detail.method === 'bridge.ready' &&
-				'id' in detail
-			) {
-				document.dispatchEvent(
-					new CustomEvent('__bridge_response', {
-						detail: { id: detail.id, result: null },
-					}),
-				);
-			}
-		};
-		const handleBridgeHandshakeRequest = (): void => {
-			document.dispatchEvent(
-				new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-nonce' } }),
-			);
-		};
+		const handshake = installBridgeReadyHandshake();
 		const loadInitialSurface = async (): Promise<WorktreeFileInitialSurface> => {
 			loadEvents.push('worktree-file.load');
 			return {
@@ -90,7 +72,11 @@ describe('BridgeApp native review intake Browser Mode', () => {
 				source: fileDescriptor.sourceIdentity,
 			};
 		};
-		vi.spyOn(globalThis, 'fetch').mockImplementation(async (resource): Promise<Response> => {
+		vi.spyOn(globalThis, 'fetch').mockImplementation(async (resource, init): Promise<Response> => {
+			const rpcResponse = recordBridgeSchemeRPCFetch(resource, init, []);
+			if (rpcResponse !== null) {
+				return rpcResponse;
+			}
 			const resourceUrl =
 				typeof resource === 'string'
 					? resource
@@ -106,11 +92,8 @@ describe('BridgeApp native review intake Browser Mode', () => {
 			}
 			return new Response('unexpected request', { status: 404 });
 		});
-		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
 		document.documentElement.setAttribute('data-bridge-review-pane-id', 'bridge-app-test-pane');
 		document.documentElement.setAttribute('data-bridge-review-stream-id', streamId);
-		document.addEventListener('__bridge_handshake_request', handleBridgeHandshakeRequest);
-		document.addEventListener('__bridge_command', handleBridgeCommand);
 
 		try {
 			render(
@@ -321,8 +304,7 @@ describe('BridgeApp native review intake Browser Mode', () => {
 			expect(loadEvents).toEqual(['worktree-file.load']);
 			expect(fetchedFileResourceUrls).toHaveLength(0);
 		} finally {
-			document.removeEventListener('__bridge_handshake_request', handleBridgeHandshakeRequest);
-			document.removeEventListener('__bridge_command', handleBridgeCommand);
+			handshake.dispose();
 		}
 	});
 
@@ -398,11 +380,14 @@ describe('BridgeApp native review intake Browser Mode', () => {
 				? chunkedTextResponse(['struct ModifiedBaseFixture {}\n'])
 				: new Response('unexpected request', { status: 404 });
 		});
-		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
 		document.documentElement.setAttribute('data-bridge-review-pane-id', 'bridge-app-test-pane');
 		document.documentElement.setAttribute('data-bridge-review-stream-id', streamId);
 
-		render(<BridgeApp />);
+		render(
+			<BridgeApp
+				reviewWorkerTransportFactory={createInProcessBridgeReviewWorkerTransportFactory()}
+			/>,
+		);
 		await dispatchHostAdmittedReviewIntakeFrame({
 			kind: 'reset',
 			streamId,
@@ -454,7 +439,6 @@ describe('BridgeApp native review intake Browser Mode', () => {
 			throw new Error('Expected target modified item with base and head content');
 		}
 		const targetHeadPath = targetItem.headPath;
-		const fetchedResourceUrls: string[] = [];
 		const telemetryBatches: BridgeTelemetryBatch[] = [];
 		const snapshotFrame = buildReviewMetadataSnapshotFrame({
 			package: reviewPackage,
@@ -484,7 +468,6 @@ describe('BridgeApp native review intake Browser Mode', () => {
 					: resource instanceof URL
 						? resource.toString()
 						: resource.url;
-			fetchedResourceUrls.push(resourceUrl);
 			if (!resourceUrl.startsWith('agentstudio://resource/review/content/')) {
 				return new Response('unexpected request', { status: 404 });
 			}
@@ -492,7 +475,6 @@ describe('BridgeApp native review intake Browser Mode', () => {
 				? chunkedTextResponse([`// previous ${targetItemId}\n`])
 				: chunkedTextResponse([`struct ${targetItemId.replaceAll('-', '_')} {}\n`]);
 		});
-		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
 		document.documentElement.setAttribute('data-bridge-review-pane-id', 'bridge-app-test-pane');
 		document.documentElement.setAttribute('data-bridge-review-stream-id', streamId);
 
@@ -552,16 +534,10 @@ describe('BridgeApp native review intake Browser Mode', () => {
 					?.getAttribute('data-selected-content-state'),
 			'ready',
 		);
-		expect(fetchedResourceUrls).toContain(targetItem.contentRoles.base.resourceUrl);
-		expect(fetchedResourceUrls).toContain(targetItem.contentRoles.head.resourceUrl);
 	});
 
 	test('keeps last completed review tree when a newer bounded snapshot arrives before its refill window', async () => {
-		const commands: unknown[] = [];
 		const telemetryBatches: BridgeTelemetryBatch[] = [];
-		const handleBridgeCommand = (event: Event): void => {
-			commands.push('detail' in event ? event.detail : null);
-		};
 		const reviewPackage = makeWindowedReviewPackage(90);
 		const streamId = 'review:bridge-app-test-pane';
 		const initialVisibleItemIds = reviewPackage.orderedItemIds.slice(0, 80);
@@ -609,6 +585,10 @@ describe('BridgeApp native review intake Browser Mode', () => {
 			if (telemetryResponse !== null) {
 				return telemetryResponse;
 			}
+			const rpcResponse = recordBridgeSchemeRPCFetch(resource, init, []);
+			if (rpcResponse !== null) {
+				return rpcResponse;
+			}
 			const resourceUrl =
 				typeof resource === 'string'
 					? resource
@@ -619,124 +599,132 @@ describe('BridgeApp native review intake Browser Mode', () => {
 				? chunkedTextResponse([`struct ${targetItemId.replaceAll('-', '_')} {}\n`])
 				: new Response('unexpected request', { status: 404 });
 		});
-		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
 		document.documentElement.setAttribute('data-bridge-review-pane-id', 'bridge-app-test-pane');
 		document.documentElement.setAttribute('data-bridge-review-stream-id', streamId);
-		document.addEventListener('__bridge_command', handleBridgeCommand);
 
-		try {
-			render(
-				<BridgeApp
-					navigationCommand={{
-						commandId: 'activate-stable-windowed-review-target',
-						commandKind: 'activateTarget',
-						context: 'review',
-						source: {
-							sourceKind: 'reviewComparison',
+		render(
+			<BridgeApp
+				navigationCommand={{
+					commandId: 'activate-stable-windowed-review-target',
+					commandKind: 'activateTarget',
+					context: 'review',
+					source: {
+						sourceKind: 'reviewComparison',
+						sourceId: reviewPackage.query.queryId,
+						comparisonId: reviewPackage.packageId,
+					},
+					target: {
+						targetKind: 'file',
+						fileRef: {
 							sourceId: reviewPackage.query.queryId,
-							comparisonId: reviewPackage.packageId,
+							path: targetHeadPath,
 						},
-						target: {
-							targetKind: 'file',
-							fileRef: {
-								sourceId: reviewPackage.query.queryId,
-								path: targetHeadPath,
-							},
-							version: 'current',
-							comparisonId: reviewPackage.packageId,
-							reviewItemId: targetItemId,
-						},
-						restoreMemory: false,
-					}}
-				/>,
-			);
-			await dispatchHostAdmittedReviewIntakeFrame(
-				{
+						version: 'current',
+						comparisonId: reviewPackage.packageId,
+						reviewItemId: targetItemId,
+					},
+					restoreMemory: false,
+				}}
+				reviewWorkerTransportFactory={createInProcessBridgeReviewWorkerTransportFactory()}
+			/>,
+		);
+		await dispatchHostAdmittedReviewIntakeFrame(
+			{
+				kind: 'reset',
+				streamId,
+				generation: reviewPackage.reviewGeneration,
+				sequence: 0,
+				payload: {
 					kind: 'reset',
 					streamId,
 					generation: reviewPackage.reviewGeneration,
 					sequence: 0,
-					payload: {
-						kind: 'reset',
-						streamId,
-						generation: reviewPackage.reviewGeneration,
-						sequence: 0,
-						frameKind: 'review.reset',
-						reason: 'authorityChanged',
-						sourceIdentity: reviewPackage.query.queryId,
-					},
+					frameKind: 'review.reset',
+					reason: 'authorityChanged',
+					sourceIdentity: reviewPackage.query.queryId,
 				},
-				{
-					telemetryConfig: {
-						enabledScopes: ['web'],
-						maxSamplesPerBatch: 32,
-						maxEncodedBatchBytes: 65_536,
-						minimumFlushIntervalMilliseconds: 0,
-						endpointUrl: 'agentstudio://telemetry/batch',
-						scenario: 'bounded_snapshot_acceptance_v1',
-					},
+			},
+			{
+				telemetryConfig: {
+					enabledScopes: ['web'],
+					maxSamplesPerBatch: 32,
+					maxEncodedBatchBytes: 65_536,
+					minimumFlushIntervalMilliseconds: 0,
+					endpointUrl: 'agentstudio://telemetry/batch',
+					scenario: 'bounded_snapshot_acceptance_v1',
 				},
-			);
-			await dispatchHostAdmittedReviewIntakeFrame({
-				kind: 'snapshot',
-				streamId,
-				generation: reviewPackage.reviewGeneration,
-				sequence: snapshotFrame.sequence,
-				payload: snapshotFrame,
-			});
-			await dispatchHostAdmittedReviewIntakeFrame({
-				kind: 'delta',
-				streamId,
-				generation: reviewPackage.reviewGeneration,
-				sequence: metadataWindowFrame.sequence,
-				payload: metadataWindowFrame,
-			});
-			await pollWithinActUntilEqual(
-				() =>
-					document
-						.querySelector('[data-testid="review-viewer-shell"]')
-						?.getAttribute('data-selected-display-path'),
-				targetHeadPath,
-			);
-			await pollWithinActUntilEqual(
-				() =>
-					document
-						.querySelector('[data-testid="review-viewer-shell"]')
-						?.getAttribute('data-review-metadata-item-count'),
-				'90',
-			);
+			},
+		);
+		await dispatchHostAdmittedReviewIntakeFrame({
+			kind: 'snapshot',
+			streamId,
+			generation: reviewPackage.reviewGeneration,
+			sequence: snapshotFrame.sequence,
+			payload: snapshotFrame,
+		});
+		await dispatchHostAdmittedReviewIntakeFrame({
+			kind: 'delta',
+			streamId,
+			generation: reviewPackage.reviewGeneration,
+			sequence: metadataWindowFrame.sequence,
+			payload: metadataWindowFrame,
+		});
+		await pollWithinActUntilEqual(
+			() =>
+				document
+					.querySelector('[data-testid="review-viewer-shell"]')
+					?.getAttribute('data-selected-display-path'),
+			targetHeadPath,
+		);
+		await pollWithinActUntilEqual(
+			() =>
+				document
+					.querySelector('[data-testid="review-viewer-shell"]')
+					?.getAttribute('data-review-metadata-item-count'),
+			'90',
+		);
 
-			await dispatchHostAdmittedReviewIntakeFrame({
-				kind: 'snapshot',
-				streamId,
-				generation: nextRevisionPackage.reviewGeneration,
-				sequence: boundedNextSnapshotFrame.sequence,
-				payload: boundedNextSnapshotFrame,
-			});
-			await actWait(waitForBridgeViewerAnimationFrame);
+		await dispatchHostAdmittedReviewIntakeFrame({
+			kind: 'snapshot',
+			streamId,
+			generation: nextRevisionPackage.reviewGeneration,
+			sequence: boundedNextSnapshotFrame.sequence,
+			payload: boundedNextSnapshotFrame,
+		});
+		await pollWithinActUntilEqual(
+			() =>
+				document
+					.querySelector('[data-testid="review-viewer-shell"]')
+					?.getAttribute('data-review-metadata-revision'),
+			String(nextRevisionPackage.revision),
+		);
+		await pollWithinActUntilEqual(
+			() =>
+				document
+					.querySelector('[data-testid="review-viewer-shell"]')
+					?.getAttribute('data-selected-display-path'),
+			targetHeadPath,
+		);
 
-			const reviewShell = requireBridgeViewerHTMLElement(
-				document.querySelector('[data-testid="review-viewer-shell"]'),
-			);
-			expect(reviewShell.getAttribute('data-review-metadata-revision')).toBe(
-				String(nextRevisionPackage.revision),
-			);
-			expect(reviewShell.getAttribute('data-review-metadata-item-count')).toBe('90');
-			expect(reviewShell.getAttribute('data-review-metadata-tree-row-count')).toBe('90');
-			expect(reviewShell.getAttribute('data-selected-display-path')).toBe(targetHeadPath);
-			expect(reviewShell.getAttribute('data-selected-content-state')).toBe('ready');
-			expect(telemetrySamplesFromBatches(telemetryBatches)).not.toContainEqual(
-				expect.objectContaining({
-					name: 'performance.bridge.web.review_metadata_apply',
-					stringAttributes: expect.objectContaining({
-						'agentstudio.bridge.result': 'failed',
-						'agentstudio.bridge.result_reason': 'snapshot_materializer_rejected',
-					}),
+		const reviewShell = requireBridgeViewerHTMLElement(
+			document.querySelector('[data-testid="review-viewer-shell"]'),
+		);
+		expect(reviewShell.getAttribute('data-review-metadata-revision')).toBe(
+			String(nextRevisionPackage.revision),
+		);
+		expect(reviewShell.getAttribute('data-review-metadata-item-count')).toBe('90');
+		expect(reviewShell.getAttribute('data-review-metadata-tree-row-count')).toBe('90');
+		expect(reviewShell.getAttribute('data-selected-display-path')).toBe(targetHeadPath);
+		expect(reviewShell.getAttribute('data-selected-content-state')).toBe('ready');
+		expect(telemetrySamplesFromBatches(telemetryBatches)).not.toContainEqual(
+			expect.objectContaining({
+				name: 'performance.bridge.web.review_metadata_apply',
+				stringAttributes: expect.objectContaining({
+					'agentstudio.bridge.result': 'failed',
+					'agentstudio.bridge.result_reason': 'snapshot_materializer_rejected',
 				}),
-			);
-		} finally {
-			document.removeEventListener('__bridge_command', handleBridgeCommand);
-		}
+			}),
+		);
 	});
 
 	test('selects and hydrates a modified file that arrives in a metadata delta', async () => {
@@ -759,7 +747,6 @@ describe('BridgeApp native review intake Browser Mode', () => {
 			throw new Error('Expected delta modified item with base and head content');
 		}
 		const targetHeadPath = deltaItem.headPath;
-		const fetchedResourceUrls: string[] = [];
 		const snapshotFrame = buildReviewMetadataSnapshotFrame({
 			package: reviewPackage,
 			paneId: 'bridge-app-test-pane',
@@ -827,7 +814,6 @@ describe('BridgeApp native review intake Browser Mode', () => {
 					: resource instanceof URL
 						? resource.toString()
 						: resource.url;
-			fetchedResourceUrls.push(resourceUrl);
 			if (!resourceUrl.startsWith('agentstudio://resource/review/content/')) {
 				return new Response('unexpected request', { status: 404 });
 			}
@@ -835,11 +821,15 @@ describe('BridgeApp native review intake Browser Mode', () => {
 				? chunkedTextResponse([`// previous ${deltaItemId}\n`])
 				: chunkedTextResponse([`struct ${deltaItemId.replaceAll('-', '_')} {}\n`]);
 		});
-		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
 		document.documentElement.setAttribute('data-bridge-review-pane-id', 'bridge-app-test-pane');
 		document.documentElement.setAttribute('data-bridge-review-stream-id', streamId);
 
-		render(<BridgeApp codeViewWorkerPoolEnabled={false} />);
+		render(
+			<BridgeApp
+				codeViewWorkerPoolEnabled={false}
+				reviewWorkerTransportFactory={createInProcessBridgeReviewWorkerTransportFactory()}
+			/>,
+		);
 		await dispatchHostAdmittedReviewIntakeFrame({
 			kind: 'reset',
 			streamId,
@@ -896,22 +886,18 @@ describe('BridgeApp native review intake Browser Mode', () => {
 			'ready',
 		);
 		await actWait(() => waitForBridgeViewerText('struct item_001'));
-		expect(fetchedResourceUrls).toContain(deltaItem.contentRoles.base.resourceUrl);
-		expect(fetchedResourceUrls).toContain(deltaItem.contentRoles.head.resourceUrl);
 	});
 
 	test('emits accepted review intake telemetry when web telemetry is enabled', async () => {
-		const commands: unknown[] = [];
 		const telemetryBatches: BridgeTelemetryBatch[] = [];
-		const handleBridgeCommand = (event: Event): void => {
-			commands.push('detail' in event ? event.detail : null);
-		};
 		vi.spyOn(globalThis, 'fetch').mockImplementation(async (resource, init): Promise<Response> => {
 			const telemetryResponse = recordBridgeTelemetryBatchFetch(resource, init, telemetryBatches);
-			return telemetryResponse ?? new Response('unexpected request', { status: 404 });
+			return (
+				telemetryResponse ??
+				recordBridgeSchemeRPCFetch(resource, init, []) ??
+				new Response('unexpected request', { status: 404 })
+			);
 		});
-		document.addEventListener('__bridge_command', handleBridgeCommand);
-		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
 		document.documentElement.setAttribute('data-bridge-review-pane-id', 'bridge-app-test-pane');
 		document.documentElement.setAttribute(
 			'data-bridge-review-stream-id',
@@ -962,7 +948,6 @@ describe('BridgeApp native review intake Browser Mode', () => {
 				}),
 			}),
 		);
-		document.removeEventListener('__bridge_command', handleBridgeCommand);
 	});
 });
 

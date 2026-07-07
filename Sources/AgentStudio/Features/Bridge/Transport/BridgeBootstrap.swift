@@ -4,18 +4,17 @@ import Foundation
 ///
 /// This script runs at document start in the bridge world (not page world).
 /// It installs `window.__bridgeInternal` with relay functions for state pushes,
-/// listens for commands from page world with nonce validation, and handles the
-/// bridge.ready handshake.
+/// and handles the page-load `bridge.ready` bootstrap handshake.
 ///
-/// Implements handshake, nonce validation, and bootstrap injection for bridge runtime.
+/// Implements push/intake bootstrap injection for bridge runtime.
 enum BridgeBootstrap {
 
     // swiftlint:disable function_body_length
     /// Generate the bootstrap JavaScript for a bridge pane.
     ///
     /// - Parameters:
-    ///   - bridgeNonce: Nonce for validating commands from page world.
-    ///     Page world must include this nonce in `__bridge_command` events.
+    ///   - bridgeNonce: Deprecated bootstrap input kept until the caller artifact shape is removed.
+    ///     Ordinary browser-to-native commands use the `agentstudio://rpc/command` scheme.
     ///   - pushNonce: Nonce sent to page world in handshake for push event validation.
     ///     Page world uses this to verify incoming `__bridge_push` events.
     /// - Returns: JavaScript source string to inject as WKUserScript in bridge content world.
@@ -39,7 +38,6 @@ enum BridgeBootstrap {
             (function() {
                 'use strict';
 
-                const BRIDGE_NONCE = '\(bridgeNonce)';
                 const PUSH_NONCE = '\(pushNonce)';
                 const APP_PROTOCOL = \(appProtocolJSON);
                 const REVIEW_PANE_ID = \(reviewPaneIdJSON);
@@ -47,14 +45,6 @@ enum BridgeBootstrap {
                 const WORKTREE_FILE_SOURCE_SPEC = \(worktreeFileSourceSpecJSON);
                 const TELEMETRY_CONFIG = \(telemetryConfigJSON);
                 const PENDING_INTAKE_FRAME_JSON = [];
-                const PAGE_WORLD_ALLOWED_COMMAND_METHODS = new Set([
-                    'bridge.ready',
-                    'bridge.intakeReady',
-                    'bridge.activeViewerMode.update',
-                    'review.markFileViewed',
-                    'worktreeFileSurface.openSourceStream',
-                    'worktreeFileSurface.requestFileDescriptor'
-                ]);
                 const HOST_PUSH_PORTS = new Set();
                 const HOST_INTAKE_PORTS = new Set();
 
@@ -172,61 +162,25 @@ enum BridgeBootstrap {
                     applyIntakeFrameJSON: function(frameJSON) {
                         dispatchIntakeFrameJSON(frameJSON);
                     },
-                    sendCommandJSON: function(commandJSON) {
-                        if (typeof commandJSON !== 'string' || commandJSON.length === 0) {
-                            console.warn('[BridgeInternal] sendCommandJSON: commandJSON must be a non-empty string');
-                            return;
-                        }
-                        window.webkit.messageHandlers.rpc.postMessage(commandJSON);
-                    },
                     appendAgentEvents: function(events) {
                         document.dispatchEvent(new CustomEvent('__bridge_agent', {
                             detail: { events: events, nonce: PUSH_NONCE }
                         }));
-                    },
-                    response: function(id, result, error) {
-                        document.dispatchEvent(new CustomEvent('__bridge_response', {
-                            detail: { id: id, result: result, error: error, nonce: PUSH_NONCE }
-                        }));
                     }
                 };
 
-                // Listen for commands from page world — validate nonce before forwarding to Swift.
-                // Page world sends { jsonrpc, method, params, __nonce }.
-                // Bridge world validates __nonce, strips it, and forwards the rest as stringified JSON.
-                document.addEventListener('__bridge_command', function(event) {
-                    const detail = event.detail;
-                    if (!detail) {
-                        console.warn('[BridgeBootstrap] Rejected __bridge_command: missing event detail');
-                        return;
-                    }
-                    if (!detail.__nonce) {
-                        console.warn('[BridgeBootstrap] Rejected __bridge_command: missing nonce');
-                        return;
-                    }
-                    if (detail.__nonce !== BRIDGE_NONCE) {
-                        console.warn('[BridgeBootstrap] Rejected __bridge_command: invalid nonce');
-                        return;
-                    }
-                    // Strip nonce before forwarding to Swift
-                    const { __nonce, ...payload } = detail;
-                    if (payload.protocol !== undefined) {
-                        console.warn('[BridgeBootstrap] Rejected __bridge_command: protocol RPC must use bridge world');
-                        return;
-                    }
-                    if (typeof payload.method !== 'string' || !PAGE_WORLD_ALLOWED_COMMAND_METHODS.has(payload.method)) {
-                        console.warn('[BridgeBootstrap] Rejected __bridge_command: method is not allowed from page world');
-                        return;
-                    }
-                    payload.__bridgeOrigin = 'pageWorldLegacy';
-                    window.webkit.messageHandlers.rpc.postMessage(JSON.stringify(payload));
-                });
-
                 // Listen for bridge.ready from page world
                 document.addEventListener('__bridge_ready', function(event) {
+                    const requestId = event && event.detail && typeof event.detail.requestId === 'string'
+                        ? event.detail.requestId
+                        : null;
+                    if (requestId === null || requestId.length === 0) {
+                        console.warn('[BridgeBootstrap] Rejected bridge.ready: missing request id');
+                        return;
+                    }
                     // Relay to Swift — this triggers push plan start
                     window.webkit.messageHandlers.rpc.postMessage(
-                        JSON.stringify({ jsonrpc: '2.0', method: 'bridge.ready', params: {} })
+                        JSON.stringify({ jsonrpc: '2.0', id: requestId, method: 'bridge.ready', params: {} })
                     );
                 });
 
@@ -260,8 +214,6 @@ enum BridgeBootstrap {
                 publishHostPushPort();
                 publishHostIntakePort();
 
-                // Set nonce attribute on documentElement for page world command sender
-                document.documentElement.setAttribute('data-bridge-nonce', BRIDGE_NONCE);
                 if (typeof REVIEW_PANE_ID === 'string' && typeof REVIEW_STREAM_ID === 'string') {
                     document.documentElement.setAttribute('data-bridge-review-pane-id', REVIEW_PANE_ID);
                     document.documentElement.setAttribute('data-bridge-review-stream-id', REVIEW_STREAM_ID);

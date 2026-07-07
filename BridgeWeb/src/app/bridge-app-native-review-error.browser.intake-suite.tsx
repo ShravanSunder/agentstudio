@@ -2,6 +2,7 @@ import { act } from 'react';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import { render } from 'vitest-browser-react';
 
+import type { BridgeRPCCommand } from '../bridge/bridge-rpc-client.js';
 import { buildReviewMetadataSnapshotFrame } from '../features/review/protocol/review-metadata-frame-builder.js';
 import { makeBridgeReviewPackage } from '../foundation/review-package/bridge-review-package-test-support.js';
 import type { BridgeTelemetryBatch } from '../foundation/telemetry/bridge-telemetry-event.js';
@@ -16,8 +17,10 @@ import {
 	chunkedTextResponse,
 	dispatchHostAdmittedReviewIntakeFrame,
 	dispatchHostDiffStatus,
+	installBridgeReadyHandshake,
 	pollWithinAct,
 	pollWithinActUntilTruthy,
+	recordBridgeSchemeRPCFetch,
 	recordBridgeTelemetryBatchFetch,
 	telemetrySamplesFromBatches,
 } from './bridge-app-native-review-error.browser.test-support.js';
@@ -25,64 +28,49 @@ import { BridgeApp } from './bridge-app.js';
 
 describe('BridgeApp native review intake Browser Mode', () => {
 	afterEach(() => {
-		document.documentElement.removeAttribute('data-bridge-nonce');
 		document.documentElement.removeAttribute('data-bridge-review-pane-id');
 		document.documentElement.removeAttribute('data-bridge-review-stream-id');
 		terminateBridgePierreWorkerPoolSingletonForTest();
 		vi.restoreAllMocks();
 	});
 
-	test('marks review intake ready after the command nonce arrives', async () => {
-		const commands: unknown[] = [];
+	test('marks review intake ready through scheme RPC after bridge ready', async () => {
+		const commands: BridgeRPCCommand[] = [];
+		const handshake = installBridgeReadyHandshake();
+		vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init): Promise<Response> => {
+			return (
+				recordBridgeSchemeRPCFetch(input, init, commands) ??
+				new Response('unexpected request', { status: 404 })
+			);
+		});
 		document.documentElement.setAttribute('data-bridge-review-pane-id', 'bridge-app-test-pane');
 		document.documentElement.setAttribute(
 			'data-bridge-review-stream-id',
 			'review:bridge-app-test-pane',
 		);
-		const handleBridgeCommand = (event: Event): void => {
-			commands.push('detail' in event ? event.detail : null);
-		};
-		document.addEventListener('__bridge_command', handleBridgeCommand);
 
-		render(<BridgeApp />);
-		await act(async (): Promise<void> => {
-			document.dispatchEvent(
-				new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-nonce' } }),
-			);
-			await Promise.resolve();
-		});
-		expect(commands).toEqual([]);
+		try {
+			render(<BridgeApp />);
+			await act(async (): Promise<void> => {
+				await waitForBridgeViewerAnimationFrame();
+			});
 
-		await act(async (): Promise<void> => {
-			document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
-			await waitForBridgeViewerAnimationFrame();
-		});
-
-		expect(commands).toEqual([
-			expect.objectContaining({
-				__nonce: 'bridge-nonce',
-				jsonrpc: '2.0',
-				method: 'bridge.activeViewerMode.update',
-				params: expect.objectContaining({
-					mode: 'review',
-					sequence: 1,
+			expect(commands).toEqual([
+				expect.objectContaining({
+					method: 'bridge.intakeReady',
+					params: {
+						protocolId: 'review',
+						reason: null,
+						streamId: 'review:bridge-app-test-pane',
+					},
 				}),
-			}),
-			{
-				__nonce: 'bridge-nonce',
-				jsonrpc: '2.0',
-				method: 'bridge.intakeReady',
-				params: {
-					protocolId: 'review',
-					streamId: 'review:bridge-app-test-pane',
-				},
-			},
-		]);
-		document.removeEventListener('__bridge_command', handleBridgeCommand);
+			]);
+		} finally {
+			handshake.dispose();
+		}
 	});
 
 	test('renders package failure when native review intake publishes an error frame', async () => {
-		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
 		document.documentElement.setAttribute('data-bridge-review-pane-id', 'bridge-app-test-pane');
 		document.documentElement.setAttribute(
 			'data-bridge-review-stream-id',
@@ -124,7 +112,6 @@ describe('BridgeApp native review intake Browser Mode', () => {
 
 	test('keeps shared review frame chrome visible while review metadata is loading', async () => {
 		const streamId = 'review:bridge-app-test-pane';
-		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
 		document.documentElement.setAttribute('data-bridge-review-pane-id', 'bridge-app-test-pane');
 		document.documentElement.setAttribute('data-bridge-review-stream-id', streamId);
 
@@ -165,7 +152,6 @@ describe('BridgeApp native review intake Browser Mode', () => {
 
 	test('keeps loading shell when diff status is ready before streamed review metadata applies', async () => {
 		const streamId = 'review:bridge-app-test-pane';
-		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
 		document.documentElement.setAttribute('data-bridge-review-pane-id', 'bridge-app-test-pane');
 		document.documentElement.setAttribute('data-bridge-review-stream-id', streamId);
 
@@ -199,16 +185,15 @@ describe('BridgeApp native review intake Browser Mode', () => {
 	});
 
 	test('renders metadata failure when native review snapshot descriptors are rejected', async () => {
-		const commands: unknown[] = [];
 		const telemetryBatches: BridgeTelemetryBatch[] = [];
-		const handleBridgeCommand = (event: Event): void => {
-			commands.push('detail' in event ? event.detail : null);
-		};
 		vi.spyOn(globalThis, 'fetch').mockImplementation(async (resource, init): Promise<Response> => {
 			const telemetryResponse = recordBridgeTelemetryBatchFetch(resource, init, telemetryBatches);
-			return telemetryResponse ?? new Response('unexpected request', { status: 404 });
+			return (
+				telemetryResponse ??
+				recordBridgeSchemeRPCFetch(resource, init, []) ??
+				new Response('unexpected request', { status: 404 })
+			);
 		});
-		document.addEventListener('__bridge_command', handleBridgeCommand);
 		const reviewPackage = makeBridgeReviewPackage();
 		const streamId = 'review:bridge-app-test-pane';
 		const snapshotFrame = buildReviewMetadataSnapshotFrame({
@@ -243,7 +228,6 @@ describe('BridgeApp native review intake Browser Mode', () => {
 				],
 			},
 		};
-		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
 		document.documentElement.setAttribute('data-bridge-review-pane-id', 'bridge-app-test-pane');
 		document.documentElement.setAttribute('data-bridge-review-stream-id', streamId);
 
@@ -297,7 +281,6 @@ describe('BridgeApp native review intake Browser Mode', () => {
 				}),
 			}),
 		);
-		document.removeEventListener('__bridge_command', handleBridgeCommand);
 	});
 
 	test('renders the review shell when native review intake publishes streamed metadata', async () => {
@@ -323,7 +306,6 @@ describe('BridgeApp native review intake Browser Mode', () => {
 				? chunkedTextResponse(['struct FixtureView {}\n'])
 				: new Response('unexpected request', { status: 404 });
 		});
-		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
 		document.documentElement.setAttribute('data-bridge-review-pane-id', 'bridge-app-test-pane');
 		document.documentElement.setAttribute('data-bridge-review-stream-id', streamId);
 
@@ -382,7 +364,6 @@ describe('BridgeApp native review intake Browser Mode', () => {
 				? chunkedTextResponse(['struct ReviewTraceView {}\n'])
 				: new Response('unexpected request', { status: 404 });
 		});
-		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
 		document.documentElement.setAttribute('data-bridge-review-pane-id', 'bridge-app-test-pane');
 		document.documentElement.setAttribute('data-bridge-review-stream-id', streamId);
 
@@ -456,22 +437,7 @@ describe('BridgeApp native review intake Browser Mode', () => {
 		const reviewPackage = makeBridgeReviewPackage();
 		const streamId = 'review:bridge-app-test-pane';
 		const loadEvents: string[] = [];
-		const handleBridgeCommand = (event: Event): void => {
-			const detail = 'detail' in event ? event.detail : null;
-			if (
-				typeof detail === 'object' &&
-				detail !== null &&
-				'method' in detail &&
-				detail.method === 'bridge.ready' &&
-				'id' in detail
-			) {
-				document.dispatchEvent(
-					new CustomEvent('__bridge_response', {
-						detail: { id: detail.id, result: null },
-					}),
-				);
-			}
-		};
+		const handshake = installBridgeReadyHandshake();
 		const snapshotFrame = buildReviewMetadataSnapshotFrame({
 			package: reviewPackage,
 			paneId: 'bridge-app-test-pane',
@@ -485,10 +451,8 @@ describe('BridgeApp native review intake Browser Mode', () => {
 			loadEvents.push('worktree-file.load');
 			return { frames: [] };
 		};
-		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-nonce');
 		document.documentElement.setAttribute('data-bridge-review-pane-id', 'bridge-app-test-pane');
 		document.documentElement.setAttribute('data-bridge-review-stream-id', streamId);
-		document.addEventListener('__bridge_command', handleBridgeCommand);
 
 		try {
 			render(
@@ -543,7 +507,7 @@ describe('BridgeApp native review intake Browser Mode', () => {
 				document.querySelector('[data-testid="bridge-file-viewer-shell"]'),
 			);
 		} finally {
-			document.removeEventListener('__bridge_command', handleBridgeCommand);
+			handshake.dispose();
 		}
 	});
 });

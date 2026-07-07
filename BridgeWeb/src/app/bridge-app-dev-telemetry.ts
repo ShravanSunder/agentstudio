@@ -39,34 +39,14 @@ export function installBridgeAppDevTelemetryHost(
 			}),
 		);
 	};
-	const handleBridgeCommand = (event: Event): void => {
-		const detail = 'detail' in event ? event.detail : null;
-		if (isRecord(detail) && detail['method'] === 'bridge.ready') {
-			const requestId = detail['id'];
-			if (typeof requestId === 'string' || typeof requestId === 'number') {
-				target.dispatchEvent(
-					new CustomEvent('__bridge_response', {
-						detail: { id: requestId, result: null },
-					}),
-				);
-			}
-			return;
-		}
-	};
 	if (props.respondToHandshakeRequests ?? true) {
 		target.addEventListener('__bridge_handshake_request', handleHandshakeRequest);
 	}
-	target.addEventListener('__bridge_command', handleBridgeCommand);
 	return {
 		dispose: (): void => {
 			if (props.respondToHandshakeRequests ?? true) {
 				target.removeEventListener('__bridge_handshake_request', handleHandshakeRequest);
 			}
-			target.removeEventListener('__bridge_command', handleBridgeCommand);
 		},
 	};
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === 'object' && value !== null;
 }

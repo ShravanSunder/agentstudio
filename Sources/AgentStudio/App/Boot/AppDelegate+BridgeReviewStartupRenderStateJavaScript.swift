@@ -750,32 +750,42 @@ extension AppDelegate {
                 reviewGeneration >= 0 &&
                 selectedItemId.length > 0
               ) {
-                const bridgeNonce = document.documentElement.getAttribute('data-bridge-nonce') || '';
-                if (bridgeNonce.length > 0) {
-                  const commandId = `startup-review-metadata-interest-${Date.now().toString(36)}`;
+                const commandId = `startup-review-metadata-interest-${Date.now().toString(36)}`;
+                window.__bridgeReviewMetadataInterestProbe = {
+                  commandId,
+                  itemId: selectedItemId,
+                  streamId: reviewStreamId,
+                  status: 'requested'
+                };
+                fetch('agentstudio://rpc/command', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    __commandId: commandId,
+                    id: commandId,
+                    jsonrpc: '2.0',
+                    method: 'bridge.metadata_interest.update',
+                    params: {
+                      protocol: 'review',
+                      streamId: reviewStreamId,
+                      generation: reviewGeneration,
+                      itemIds: [selectedItemId],
+                      lane: 'foreground'
+                    }
+                  })
+                }).then((response) => {
                   window.__bridgeReviewMetadataInterestProbe = {
-                    commandId,
-                    itemId: selectedItemId,
-                    streamId: reviewStreamId
+                    ...(window.__bridgeReviewMetadataInterestProbe || {}),
+                    httpStatus: response.status,
+                    status: response.ok ? 'response' : 'http_error'
                   };
-                  document.dispatchEvent(
-                    new CustomEvent('__bridge_command', {
-                      detail: {
-                        __commandId: commandId,
-                        __nonce: bridgeNonce,
-                        jsonrpc: '2.0',
-                        method: 'bridge.metadata_interest.update',
-                        params: {
-                          protocol: 'review',
-                          streamId: reviewStreamId,
-                          generation: reviewGeneration,
-                          itemIds: [selectedItemId],
-                          lane: 'foreground'
-                        }
-                      }
-                    })
-                  );
-                }
+                }).catch((error) => {
+                  window.__bridgeReviewMetadataInterestProbe = {
+                    ...(window.__bridgeReviewMetadataInterestProbe || {}),
+                    error: String(error?.message ?? error),
+                    status: 'fetch_error'
+                  };
+                });
               }
               return {
                 hasReviewShell: reviewShell !== null,

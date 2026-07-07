@@ -6,6 +6,8 @@ import type {
 } from '../features/worktree-file/models/worktree-file-protocol-models.js';
 import {
 	cleanupNativeWorktreeFileBackendBrowserTest,
+	commandIdFromUnknownCommand,
+	createNativeWorktreeFileRPCFetchHarness,
 	installReadyNativeWorktreeFileBackend,
 	makeFileDescriptorFrame,
 	makeIntakeEnvelope,
@@ -22,8 +24,8 @@ describe('Bridge app native Worktree/File backend', () => {
 	});
 
 	test('opens the native source stream and publishes response plus intake frames', async () => {
-		const commandDetails: unknown[] = [];
-		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-1');
+		const rpcFetch = createNativeWorktreeFileRPCFetchHarness();
+		const commandDetails = rpcFetch.commandDetails;
 		document.documentElement.setAttribute(
 			'data-bridge-worktree-file-source-spec',
 			JSON.stringify({
@@ -37,11 +39,9 @@ describe('Bridge app native Worktree/File backend', () => {
 				freshness: 'live',
 			}),
 		);
-		document.addEventListener('__bridge_command', (event: Event): void => {
-			commandDetails.push('detail' in event ? event.detail : null);
-		});
 		const backend = createBridgeAppNativeWorktreeFileBackend({
 			createRequestId: () => 'request-1',
+			fetchRPC: rpcFetch.fetch,
 			target: document,
 		});
 		if (backend === null) {
@@ -60,7 +60,6 @@ describe('Bridge app native Worktree/File backend', () => {
 			jsonrpc: '2.0',
 			id: 'request-1',
 			method: 'worktreeFileSurface.openSourceStream',
-			__nonce: 'bridge-1',
 			params: {
 				clientRequestId: 'request-1',
 				repoId: '11111111-1111-4111-8111-111111111111',
@@ -70,11 +69,6 @@ describe('Bridge app native Worktree/File backend', () => {
 			},
 		});
 
-		document.dispatchEvent(
-			new CustomEvent('__bridge_response', {
-				detail: { id: 'request-1', result: makeOpenSourceOutcome(), nonce: 'push-1' },
-			}),
-		);
 		await expect
 			.poll(() => commandDetails[1])
 			.toMatchObject({
@@ -85,7 +79,6 @@ describe('Bridge app native Worktree/File backend', () => {
 					protocolId: 'worktree-file',
 					streamId: 'worktree-file:pane-1',
 				},
-				__nonce: 'bridge-1',
 			});
 		document.dispatchEvent(
 			new CustomEvent('__bridge_intake_json', {
@@ -116,9 +109,8 @@ describe('Bridge app native Worktree/File backend', () => {
 	});
 
 	test('requests buffered intake replay after the native stream identity is known', async () => {
-		const commandDetails: unknown[] = [];
+		const rpcFetch = createNativeWorktreeFileRPCFetchHarness();
 		let replayRequestCount = 0;
-		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-1');
 		document.documentElement.setAttribute(
 			'data-bridge-worktree-file-source-spec',
 			JSON.stringify({
@@ -132,9 +124,6 @@ describe('Bridge app native Worktree/File backend', () => {
 				freshness: 'live',
 			}),
 		);
-		document.addEventListener('__bridge_command', (event: Event): void => {
-			commandDetails.push('detail' in event ? event.detail : null);
-		});
 		const handleIntakeReplayRequest = (): void => {
 			replayRequestCount += 1;
 			document.dispatchEvent(
@@ -149,6 +138,7 @@ describe('Bridge app native Worktree/File backend', () => {
 		document.addEventListener('__bridge_intake_replay_request', handleIntakeReplayRequest);
 		const backend = createBridgeAppNativeWorktreeFileBackend({
 			createRequestId: () => 'request-1',
+			fetchRPC: rpcFetch.fetch,
 			target: document,
 		});
 		if (backend === null) {
@@ -163,16 +153,11 @@ describe('Bridge app native Worktree/File backend', () => {
 			}),
 		);
 		const surfacePromise = backend.loadWorktreeFileSurface();
-		document.dispatchEvent(
-			new CustomEvent('__bridge_response', {
-				detail: { id: 'request-1', result: makeOpenSourceOutcome(), nonce: 'push-1' },
-			}),
-		);
 
 		await expect(surfacePromise).resolves.toMatchObject({
 			source: makeSourceIdentity(),
 		});
-		expect(commandDetails[1]).toMatchObject({
+		expect(rpcFetch.commandDetails[1]).toMatchObject({
 			method: 'bridge.intakeReady',
 		});
 		expect(replayRequestCount).toBe(1);
@@ -198,23 +183,25 @@ describe('Bridge app native Worktree/File backend', () => {
 				jsonrpc: '2.0',
 				id: 'request-2',
 				method: 'worktreeFileSurface.requestFileDescriptor',
-				__nonce: 'bridge-1',
 				params: descriptorRequest,
 			});
-		document.dispatchEvent(
-			new CustomEvent('__bridge_response', {
-				detail: { id: 'request-2', result: {}, nonce: 'push-1' },
-			}),
-		);
 
 		await expect(descriptorPromise).resolves.toBeUndefined();
 		backend.dispose();
 	});
 
 	test('uses generation-specific intake-ready command ids across repeated opens', async () => {
-		const commandDetails: unknown[] = [];
+		const rpcFetch = createNativeWorktreeFileRPCFetchHarness({
+			openSourceStreamResponse: (command) => ({
+				id: commandIdFromUnknownCommand(command),
+				result: {
+					...makeOpenSourceOutcome(),
+					generation: commandIdFromUnknownCommand(command) === 'request-2' ? 2 : 1,
+				},
+			}),
+		});
+		const commandDetails = rpcFetch.commandDetails;
 		let requestSequence = 0;
-		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-1');
 		document.documentElement.setAttribute(
 			'data-bridge-worktree-file-source-spec',
 			JSON.stringify({
@@ -228,14 +215,12 @@ describe('Bridge app native Worktree/File backend', () => {
 				freshness: 'live',
 			}),
 		);
-		document.addEventListener('__bridge_command', (event: Event): void => {
-			commandDetails.push('detail' in event ? event.detail : null);
-		});
 		const backend = createBridgeAppNativeWorktreeFileBackend({
 			createRequestId: () => {
 				requestSequence += 1;
 				return `request-${requestSequence}`;
 			},
+			fetchRPC: rpcFetch.fetch,
 			target: document,
 		});
 		if (backend === null) {
@@ -245,24 +230,10 @@ describe('Bridge app native Worktree/File backend', () => {
 			new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-1' } }),
 		);
 		const firstSurfacePromise = backend.loadWorktreeFileSurface().catch(() => null);
-		document.dispatchEvent(
-			new CustomEvent('__bridge_response', {
-				detail: { id: 'request-1', result: makeOpenSourceOutcome(), nonce: 'push-1' },
-			}),
-		);
 		await expect
 			.poll(() => commandDetails[1])
 			.toMatchObject({ __commandId: 'worktree-file:pane-1:generation-1:intake-ready' });
 		const secondSurfacePromise = backend.loadWorktreeFileSurface().catch(() => null);
-		document.dispatchEvent(
-			new CustomEvent('__bridge_response', {
-				detail: {
-					id: 'request-2',
-					result: { ...makeOpenSourceOutcome(), generation: 2 },
-					nonce: 'push-1',
-				},
-			}),
-		);
 		await expect
 			.poll(() => commandDetails[3])
 			.toMatchObject({ __commandId: 'worktree-file:pane-1:generation-2:intake-ready' });
@@ -274,8 +245,8 @@ describe('Bridge app native Worktree/File backend', () => {
 
 	test('keeps waiting for a late initial snapshot instead of permanently blanking FileView', async () => {
 		vi.useFakeTimers();
-		const commandDetails: unknown[] = [];
-		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-1');
+		const rpcFetch = createNativeWorktreeFileRPCFetchHarness();
+		const commandDetails = rpcFetch.commandDetails;
 		document.documentElement.setAttribute(
 			'data-bridge-worktree-file-source-spec',
 			JSON.stringify({
@@ -289,11 +260,9 @@ describe('Bridge app native Worktree/File backend', () => {
 				freshness: 'live',
 			}),
 		);
-		document.addEventListener('__bridge_command', (event: Event): void => {
-			commandDetails.push('detail' in event ? event.detail : null);
-		});
 		const backend = createBridgeAppNativeWorktreeFileBackend({
 			createRequestId: () => 'request-1',
+			fetchRPC: rpcFetch.fetch,
 			responseTimeoutMilliseconds: 5,
 			target: document,
 		});
@@ -305,11 +274,6 @@ describe('Bridge app native Worktree/File backend', () => {
 			new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-1' } }),
 		);
 		const surfacePromise = backend.loadWorktreeFileSurface();
-		document.dispatchEvent(
-			new CustomEvent('__bridge_response', {
-				detail: { id: 'request-1', result: makeOpenSourceOutcome(), nonce: 'push-1' },
-			}),
-		);
 		await expect
 			.poll(() => commandDetails[1])
 			.toMatchObject({
@@ -329,8 +293,18 @@ describe('Bridge app native Worktree/File backend', () => {
 	});
 
 	test('records invalid native open outcome responses before rejecting the surface load', async () => {
-		const commandDetails: unknown[] = [];
-		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-1');
+		const rpcFetch = createNativeWorktreeFileRPCFetchHarness({
+			openSourceStreamResponse: (command) => ({
+				id: commandIdFromUnknownCommand(command),
+				result: {
+					status: 'accepted',
+					protocol: 'review',
+					streamId: 'worktree-file:pane-1',
+					generation: 1,
+				},
+			}),
+		});
+		const commandDetails = rpcFetch.commandDetails;
 		document.documentElement.setAttribute(
 			'data-bridge-worktree-file-source-spec',
 			JSON.stringify({
@@ -344,11 +318,9 @@ describe('Bridge app native Worktree/File backend', () => {
 				freshness: 'live',
 			}),
 		);
-		document.addEventListener('__bridge_command', (event: Event): void => {
-			commandDetails.push('detail' in event ? event.detail : null);
-		});
 		const backend = createBridgeAppNativeWorktreeFileBackend({
 			createRequestId: () => 'request-1',
+			fetchRPC: rpcFetch.fetch,
 			target: document,
 		});
 		if (backend === null) {
@@ -359,20 +331,6 @@ describe('Bridge app native Worktree/File backend', () => {
 			new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-1' } }),
 		);
 		const surfacePromise = backend.loadWorktreeFileSurface();
-		document.dispatchEvent(
-			new CustomEvent('__bridge_response', {
-				detail: {
-					id: 'request-1',
-					result: {
-						status: 'accepted',
-						protocol: 'review',
-						streamId: 'worktree-file:pane-1',
-						generation: 1,
-					},
-					nonce: 'push-1',
-				},
-			}),
-		);
 
 		await expect(surfacePromise).rejects.toThrow(
 			'Native Worktree/File open stream returned invalid outcome',
@@ -390,8 +348,8 @@ describe('Bridge app native Worktree/File backend', () => {
 	});
 
 	test('keeps replayed tree windows with the initial surface while snapshot is resolving', async () => {
-		const commandDetails: unknown[] = [];
-		document.documentElement.setAttribute('data-bridge-nonce', 'bridge-1');
+		const rpcFetch = createNativeWorktreeFileRPCFetchHarness();
+		const commandDetails = rpcFetch.commandDetails;
 		document.documentElement.setAttribute(
 			'data-bridge-worktree-file-source-spec',
 			JSON.stringify({
@@ -405,11 +363,9 @@ describe('Bridge app native Worktree/File backend', () => {
 				freshness: 'live',
 			}),
 		);
-		document.addEventListener('__bridge_command', (event: Event): void => {
-			commandDetails.push('detail' in event ? event.detail : null);
-		});
 		const backend = createBridgeAppNativeWorktreeFileBackend({
 			createRequestId: () => 'request-1',
+			fetchRPC: rpcFetch.fetch,
 			target: document,
 		});
 		if (backend === null) {
@@ -424,11 +380,6 @@ describe('Bridge app native Worktree/File backend', () => {
 			new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-1' } }),
 		);
 		const surfacePromise = backend.loadWorktreeFileSurface();
-		document.dispatchEvent(
-			new CustomEvent('__bridge_response', {
-				detail: { id: 'request-1', result: makeOpenSourceOutcome(), nonce: 'push-1' },
-			}),
-		);
 		await expect
 			.poll(() => commandDetails[1])
 			.toMatchObject({

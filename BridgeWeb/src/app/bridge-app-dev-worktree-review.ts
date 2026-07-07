@@ -23,8 +23,6 @@ const worktreeReviewMetadataEndpoint = '/__bridge-worktree/review-metadata';
 const worktreeReviewContentEndpointPrefix = '/__bridge-worktree/review-content/';
 const bridgeWorktreeReviewPaneId = 'bridge-worktree-review-dev-pane';
 const bridgeWorktreeReviewStreamId = `review:${bridgeWorktreeReviewPaneId}`;
-const bridgeWorktreeReviewCommandNonce = 'bridge-worktree-review-dev-command';
-const bridgeCommandNonceAttribute = 'data-bridge-nonce';
 const bridgeReviewPaneIdAttribute = 'data-bridge-review-pane-id';
 const bridgeReviewStreamIdAttribute = 'data-bridge-review-stream-id';
 const bridgeWorktreeReviewAllowedResourceKindsByProtocol = {
@@ -42,13 +40,8 @@ export function installBridgeAppDevWorktreeReviewBackend(
 	props: InstallBridgeAppDevWorktreeReviewBackendProps = {},
 ): BridgeAppDevWorktreeReviewBackend {
 	const forwardedSearchParams = bridgeWorktreeReviewForwardedSearchParams(window.location.search);
-	const previousCommandNonce = document.documentElement.getAttribute(bridgeCommandNonceAttribute);
 	const previousPaneId = document.documentElement.getAttribute(bridgeReviewPaneIdAttribute);
 	const previousStreamId = document.documentElement.getAttribute(bridgeReviewStreamIdAttribute);
-	document.documentElement.setAttribute(
-		bridgeCommandNonceAttribute,
-		bridgeWorktreeReviewCommandNonce,
-	);
 	document.documentElement.setAttribute(bridgeReviewPaneIdAttribute, bridgeWorktreeReviewPaneId);
 	document.documentElement.setAttribute(
 		bridgeReviewStreamIdAttribute,
@@ -88,7 +81,6 @@ export function installBridgeAppDevWorktreeReviewBackend(
 		(): void => {
 			document.removeEventListener('__bridge_handshake_request', handleHandshakeRequest);
 			document.removeEventListener('__bridge_intake_replay_request', handleIntakeReplayRequest);
-			restoreDocumentElementAttribute(bridgeCommandNonceAttribute, previousCommandNonce);
 			restoreDocumentElementAttribute(bridgeReviewPaneIdAttribute, previousPaneId);
 			restoreDocumentElementAttribute(bridgeReviewStreamIdAttribute, previousStreamId);
 		},

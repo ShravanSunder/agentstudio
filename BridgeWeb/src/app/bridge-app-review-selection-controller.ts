@@ -146,7 +146,18 @@ export function useBridgeReviewSelectionController(
 				return false;
 			}
 			lastTelemetryMarkedItemRef.current = makeTelemetryMarkedItemKey(currentReviewPackage, itemId);
-			scheduleReviewMarkFileViewedCommand({ itemId, rpcClient });
+			scheduleReviewMarkFileViewedCommand({
+				itemId,
+				onDeliveryFailure: (): void => {
+					if (
+						lastTelemetryMarkedItemRef.current ===
+						makeTelemetryMarkedItemKey(currentReviewPackage, itemId)
+					) {
+						lastTelemetryMarkedItemRef.current = null;
+					}
+				},
+				rpcClient,
+			});
 			return true;
 		},
 		[beginForegroundReviewSelection, reviewPackageRef, rpcClient],
@@ -195,10 +206,16 @@ export function useBridgeReviewSelectionController(
 			return;
 		}
 		lastTelemetryMarkedItemRef.current = markedItemKey;
-		rpcClient.sendCommand({
-			method: 'review.markFileViewed',
-			params: { fileId: selectionSlice.selectedItemId },
-		});
+		void rpcClient
+			.sendCommandAndWait({
+				method: 'review.markFileViewed',
+				params: { fileId: selectionSlice.selectedItemId },
+			})
+			.then((didSend): void => {
+				if (!didSend && lastTelemetryMarkedItemRef.current === markedItemKey) {
+					lastTelemetryMarkedItemRef.current = null;
+				}
+			});
 	}, [isActive, reviewPackage, selectionSlice.selectedItemId, rpcClient, telemetryRecorderRef]);
 
 	return {
@@ -245,12 +262,19 @@ function recordBridgeReviewSliceInvalidationProbe(props: {
 
 export function scheduleReviewMarkFileViewedCommand(props: {
 	readonly itemId: string;
+	readonly onDeliveryFailure?: () => void;
 	readonly rpcClient: BridgeRPCClient;
 }): void {
 	queueMicrotask((): void => {
-		props.rpcClient.sendCommand({
-			method: 'review.markFileViewed',
-			params: { fileId: props.itemId },
-		});
+		void props.rpcClient
+			.sendCommandAndWait({
+				method: 'review.markFileViewed',
+				params: { fileId: props.itemId },
+			})
+			.then((didSend): void => {
+				if (!didSend) {
+					props.onDeliveryFailure?.();
+				}
+			});
 	});
 }

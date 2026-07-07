@@ -21,6 +21,10 @@ describe('Bridge review metadata interest runtime', () => {
 				commandDetails.push(command);
 				return sendAccepted;
 			},
+			sendCommandAndWait: async (command): Promise<boolean> => {
+				commandDetails.push(command);
+				return sendAccepted;
+			},
 		};
 		const reviewPackage = makeReviewPackageWithIdentity({
 			itemIds: ['item-a', 'item-b'],
@@ -54,6 +58,10 @@ describe('Bridge review metadata interest runtime', () => {
 		const visibleContentItemIdsCalls: string[][] = [];
 		const rpcClient: BridgeRPCClient = {
 			sendCommand: (command): boolean => {
+				commandDetails.push(command);
+				return true;
+			},
+			sendCommandAndWait: async (command): Promise<boolean> => {
 				commandDetails.push(command);
 				return true;
 			},
@@ -122,6 +130,10 @@ describe('Bridge review metadata interest runtime', () => {
 		const commandDetails: BridgeRPCCommand[] = [];
 		const rpcClient: BridgeRPCClient = {
 			sendCommand: (command): boolean => {
+				commandDetails.push(command);
+				return true;
+			},
+			sendCommandAndWait: async (command): Promise<boolean> => {
 				commandDetails.push(command);
 				return true;
 			},

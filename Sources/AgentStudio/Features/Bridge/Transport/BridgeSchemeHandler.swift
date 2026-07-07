@@ -6,7 +6,8 @@ import WebKit
 /// Routes:
 /// - `agentstudio://app/*` — bundled React app assets (HTML, JS, CSS)
 /// - `agentstudio://resource/<protocol>/<kind>/<opaqueId>?generation=<n>` — leased resources on demand
-struct BridgeSchemeHandler: URLSchemeHandler {
+/// - `agentstudio://rpc/command` — typed JSON-RPC request/response command POSTs
+struct BridgeSchemeHandler: URLSchemeHandler, Sendable {
     private struct BridgeSchemeContentEmissionRequest {
         let handleId: String
         let generation: BridgeReviewGeneration
@@ -32,6 +33,7 @@ struct BridgeSchemeHandler: URLSchemeHandler {
     let allowedResourceKindsByProtocol: [String: Set<String>]
     let telemetryRecorder: (any BridgePerformanceTraceRecording)?
     let telemetryIngestor: (any BridgeTelemetryBatchIngesting)?
+    let rpcDispatcher: (any BridgeSchemeRPCDispatching)?
     let beforeContentEmission: (@Sendable () async -> Void)?
     let contentDemandAdmission: BridgeContentDemandAdmission
     private static let resourceChunkByteCount = 64 * 1024
@@ -47,6 +49,7 @@ struct BridgeSchemeHandler: URLSchemeHandler {
             BridgeResourceProtocolRegistry.reviewViewerAllowedResourceKinds,
         telemetryRecorder: (any BridgePerformanceTraceRecording)? = nil,
         telemetryIngestor: (any BridgeTelemetryBatchIngesting)? = nil,
+        rpcDispatcher: (any BridgeSchemeRPCDispatching)? = nil,
         beforeContentEmission: (@Sendable () async -> Void)? = nil,
         contentDemandAdmission: BridgeContentDemandAdmission = BridgeContentDemandAdmission()
     ) {
@@ -65,6 +68,7 @@ struct BridgeSchemeHandler: URLSchemeHandler {
                     recorder: $0
                 )
             }
+        self.rpcDispatcher = rpcDispatcher
         self.beforeContentEmission = beforeContentEmission
         self.contentDemandAdmission = contentDemandAdmission
     }
@@ -98,7 +102,7 @@ struct BridgeSchemeHandler: URLSchemeHandler {
             emitOptionsResponse(url: url, classification: classification, continuation: continuation)
             return
         }
-        guard readMethod != .post || classification == .telemetryBatch else {
+        guard readMethod != .post || classification.supportsPostRequests else {
             continuation.finish(throwing: BridgeSchemeError.invalidRequest("Unsupported method"))
             return
         }
@@ -120,6 +124,13 @@ struct BridgeSchemeHandler: URLSchemeHandler {
             )
         case .telemetryBatch:
             startTelemetryBatchReplyTask(
+                url: url,
+                request: request,
+                readMethod: readMethod,
+                continuation: continuation
+            )
+        case .rpcCommand:
+            startRPCCommandReplyTask(
                 url: url,
                 request: request,
                 readMethod: readMethod,
@@ -263,6 +274,8 @@ struct BridgeSchemeHandler: URLSchemeHandler {
         case leasedContent(BridgeTransportResourceURL)
         /// Dedicated telemetry ingestion route.
         case telemetryBatch
+        /// Dedicated JSON-RPC command route.
+        case rpcCommand
         /// Unrecognized or malicious route (e.g. path traversal, wrong host).
         case invalid
     }
@@ -310,6 +323,9 @@ struct BridgeSchemeHandler: URLSchemeHandler {
         case "telemetry":
             return path == "/batch" ? .telemetryBatch : .invalid
 
+        case "rpc":
+            return path == "/command" ? .rpcCommand : .invalid
+
         case "resource":
             guard
                 let resource = BridgeTransportResourceURL.parse(
@@ -326,59 +342,11 @@ struct BridgeSchemeHandler: URLSchemeHandler {
         }
     }
 
-    private enum BridgeSchemeReadMethod {
+    enum BridgeSchemeReadMethod {
         case get
         case head
         case options
         case post
-    }
-
-    private static func expectedContentLength(for handle: BridgeContentHandle) -> Int? {
-        handle.sizeBytesIsExact ? handle.sizeBytes : nil
-    }
-
-    private static func byteSizeBucket(for byteSize: Int) -> Int {
-        guard byteSize > 0 else {
-            return 0
-        }
-        var bucket = 1024
-        while bucket < byteSize, bucket < 64 * 1024 * 1024 {
-            bucket *= 2
-        }
-        return bucket
-    }
-
-    private static func isBinaryMimeType(_ mimeType: String) -> Bool {
-        if mimeType.hasPrefix("text/") {
-            return false
-        }
-        switch mimeType {
-        case "application/json", "application/javascript", "application/xml", "image/svg+xml":
-            return false
-        default:
-            return true
-        }
-    }
-
-    private static func readMethod(from httpMethod: String?) -> BridgeSchemeReadMethod? {
-        switch httpMethod?.uppercased() ?? "GET" {
-        case "GET": .get
-        case "HEAD": .head
-        case "OPTIONS": .options
-        case "POST": .post
-        default: nil
-        }
-    }
-
-    private static func traceContext(from request: URLRequest) -> BridgeTraceContext? {
-        guard let traceparent = traceparentHeader(from: request) else {
-            return nil
-        }
-        return try? BridgeTraceContext.parseTraceparent(traceparent)
-    }
-
-    private static func traceparentHeader(from request: URLRequest) -> String? {
-        request.value(forHTTPHeaderField: "traceparent")
     }
 
     private func startTelemetryBatchReplyTask(
@@ -835,8 +803,8 @@ struct BridgeSchemeHandler: URLSchemeHandler {
         return nil
     }
 
-    private static func allowedMethods(for classification: PathType) -> String {
-        classification == .telemetryBatch ? "OPTIONS, POST" : "GET, HEAD, OPTIONS"
+    static func allowedMethods(for classification: PathType) -> String {
+        classification.supportsPostRequests ? "OPTIONS, POST" : "GET, HEAD, OPTIONS"
     }
 
     static func response(
@@ -869,6 +837,56 @@ struct BridgeSchemeHandler: URLSchemeHandler {
                 expectedContentLength: expectedContentLength ?? -1,
                 textEncodingName: textEncodingName(for: mimeType)
             )
+    }
+}
+
+extension BridgeSchemeHandler {
+    fileprivate static func expectedContentLength(for handle: BridgeContentHandle) -> Int? {
+        handle.sizeBytesIsExact ? handle.sizeBytes : nil
+    }
+
+    fileprivate static func byteSizeBucket(for byteSize: Int) -> Int {
+        guard byteSize > 0 else {
+            return 0
+        }
+        var bucket = 1024
+        while bucket < byteSize, bucket < 64 * 1024 * 1024 {
+            bucket *= 2
+        }
+        return bucket
+    }
+
+    fileprivate static func isBinaryMimeType(_ mimeType: String) -> Bool {
+        if mimeType.hasPrefix("text/") {
+            return false
+        }
+        switch mimeType {
+        case "application/json", "application/javascript", "application/xml", "image/svg+xml":
+            return false
+        default:
+            return true
+        }
+    }
+
+    fileprivate static func readMethod(from httpMethod: String?) -> BridgeSchemeReadMethod? {
+        switch httpMethod?.uppercased() ?? "GET" {
+        case "GET": .get
+        case "HEAD": .head
+        case "OPTIONS": .options
+        case "POST": .post
+        default: nil
+        }
+    }
+
+    fileprivate static func traceContext(from request: URLRequest) -> BridgeTraceContext? {
+        guard let traceparent = traceparentHeader(from: request) else {
+            return nil
+        }
+        return try? BridgeTraceContext.parseTraceparent(traceparent)
+    }
+
+    fileprivate static func traceparentHeader(from request: URLRequest) -> String? {
+        request.value(forHTTPHeaderField: "traceparent")
     }
 }
 

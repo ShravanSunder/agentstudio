@@ -153,9 +153,16 @@ export interface BridgeViewerBrowserFixture {
 }
 
 const bridgeViewerPushNonce = 'browser-push-nonce';
-const bridgeViewerCommandNonce = 'browser-command-nonce';
 const bridgeViewerReviewPaneId = 'bridge-viewer-dev-pane';
 const bridgeViewerReviewStreamId = `review:${bridgeViewerReviewPaneId}`;
+const bridgeViewerAllowedSchemeRPCMethods = new Set([
+	'bridge.activeViewerMode.update',
+	'bridge.intakeReady',
+	'bridge.metadata_interest.update',
+	'review.markFileViewed',
+	'worktreeFileSurface.openSourceStream',
+	'worktreeFileSurface.requestFileDescriptor',
+]);
 
 export function makeBridgeViewerBrowserFixture(
 	props: {
@@ -424,11 +431,43 @@ export function makeBridgeViewerBrowserFixture(
 	};
 }
 
+function bridgeViewerSchemeRPCResponse(commandDetail: Record<string, unknown>): Response {
+	const responseId =
+		typeof commandDetail['id'] === 'string' || typeof commandDetail['id'] === 'number'
+			? commandDetail['id']
+			: null;
+	const method = typeof commandDetail['method'] === 'string' ? commandDetail['method'] : null;
+	if (method !== null && bridgeViewerAllowedSchemeRPCMethods.has(method)) {
+		return responseId === null
+			? new Response(null, { status: 202 })
+			: new Response(JSON.stringify({ jsonrpc: '2.0', id: responseId, result: null }), {
+					status: 200,
+				});
+	}
+	if (responseId === null) {
+		return new Response(null, { status: 202 });
+	}
+	const message =
+		method === 'bridge.ready'
+			? 'bridge.ready is bootstrap-only'
+			: `Method not found: ${method ?? 'unknown'}`;
+	return new Response(
+		JSON.stringify({
+			jsonrpc: '2.0',
+			id: responseId,
+			error: {
+				code: -32_601,
+				message,
+			},
+		}),
+		{ status: 200 },
+	);
+}
+
 export function installBridgeViewerMockedBackend(
 	fixture: BridgeViewerBrowserFixture = makeBridgeViewerBrowserFixture(),
 	options: InstallBridgeViewerMockedBackendOptions = {},
 ): BridgeViewerMockedBackend {
-	document.documentElement.setAttribute('data-bridge-nonce', bridgeViewerCommandNonce);
 	document.documentElement.setAttribute('data-bridge-review-pane-id', bridgeViewerReviewPaneId);
 	document.documentElement.setAttribute('data-bridge-review-stream-id', bridgeViewerReviewStreamId);
 	const commandDetails: unknown[] = [];
@@ -451,6 +490,15 @@ export function installBridgeViewerMockedBackend(
 	globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
 		const requestUrl =
 			typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+		if (requestUrl === 'agentstudio://rpc/command') {
+			const body = typeof init?.body === 'string' ? init.body : null;
+			if (body === null) {
+				return new Response('missing RPC body', { status: 400 });
+			}
+			const commandDetail = JSON.parse(body) as Record<string, unknown>;
+			commandDetails.push(commandDetail);
+			return bridgeViewerSchemeRPCResponse(commandDetail);
+		}
 		if (requestUrl !== telemetryEndpointUrl) {
 			return await originalFetch(input, init);
 		}
@@ -465,17 +513,16 @@ export function installBridgeViewerMockedBackend(
 		telemetryBatches.push(parsedBatch.data);
 		return new Response(null, { status: 202 });
 	};
-	const commandListener = (event: Event): void => {
-		const detail = 'detail' in event ? event.detail : null;
-		commandDetails.push(detail);
-		const readyRequestId = bridgeReadyRequestId(detail);
-		if (readyRequestId !== null) {
-			document.dispatchEvent(
-				new CustomEvent('__bridge_response', {
-					detail: { id: readyRequestId, result: null },
-				}),
-			);
+	const readyListener = (event: Event): void => {
+		const requestId = bridgeReadyRequestId(event);
+		if (requestId === null) {
+			return;
 		}
+		document.dispatchEvent(
+			new CustomEvent('__bridge_ready_ack', {
+				detail: { jsonrpc: '2.0', id: requestId, result: null },
+			}),
+		);
 	};
 	const handshakeRequestListener = (): void => {
 		didReceiveHandshakeRequest = true;
@@ -490,7 +537,7 @@ export function installBridgeViewerMockedBackend(
 			}),
 		);
 	};
-	document.addEventListener('__bridge_command', commandListener);
+	document.addEventListener('__bridge_ready', readyListener);
 	document.addEventListener('__bridge_handshake_request', handshakeRequestListener);
 	const projectionWorkerClient = createBridgeReviewProjectionWorkerClient({
 		createRequestId: (): string => `browser-projection-${projectionRequests.length + 1}`,
@@ -565,10 +612,9 @@ export function installBridgeViewerMockedBackend(
 		while (pendingContentResponses.length > 0) {
 			pendingContentResponses.shift()?.resolve();
 		}
-		document.removeEventListener('__bridge_command', commandListener);
+		document.removeEventListener('__bridge_ready', readyListener);
 		document.removeEventListener('__bridge_handshake_request', handshakeRequestListener);
 		globalThis.fetch = originalFetch;
-		document.documentElement.removeAttribute('data-bridge-nonce');
 		document.documentElement.removeAttribute('data-bridge-review-pane-id');
 		document.documentElement.removeAttribute('data-bridge-review-stream-id');
 		activeMockedBackendDisposers.delete(dispose);
@@ -893,16 +939,19 @@ function lineCountForReviewItemContentRole(props: {
 	throw new Error('Unhandled Bridge review content role');
 }
 
-function bridgeReadyRequestId(value: unknown): string | number | null {
+function bridgeReadyRequestId(event: Event): string | null {
+	if (!('detail' in event)) {
+		return null;
+	}
+	const value = event.detail;
 	if (
 		typeof value !== 'object' ||
 		value === null ||
-		!('method' in value) ||
-		value.method !== 'bridge.ready' ||
-		!('id' in value)
+		!('requestId' in value) ||
+		typeof value.requestId !== 'string' ||
+		value.requestId.length === 0
 	) {
 		return null;
 	}
-	const requestId = value.id;
-	return typeof requestId === 'string' || typeof requestId === 'number' ? requestId : null;
+	return value.requestId;
 }

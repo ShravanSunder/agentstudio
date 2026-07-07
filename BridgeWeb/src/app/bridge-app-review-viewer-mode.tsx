@@ -124,6 +124,9 @@ export function BridgeReviewViewerMode(
 		reviewPackage,
 		reviewTreeRows,
 		telemetryConfig: props.telemetryConfig,
+		...(props.reviewWorkerTransportFactory === undefined
+			? {}
+			: { transportFactory: props.reviewWorkerTransportFactory }),
 	});
 	const setReviewRenderModeCodeView = useCallback((): void => {
 		if (viewerStore.getState().panelChromeSlice.renderMode.kind === 'codeView') {
@@ -329,7 +332,7 @@ export function BridgeReviewViewerMode(
 		setReviewTreeRows,
 		setDiffStatus,
 		setSelectedItemId: setSelectedReviewItemId,
-		viewerStore,
+		selectionSliceRef,
 		reviewPackageRef,
 		reviewPackageTelemetryContextRef,
 		currentReviewPackageTelemetryContextRef,

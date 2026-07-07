@@ -86,27 +86,42 @@ final class RPCRouter {
     /// JSON-RPC requests with an `id` emit direct response envelopes via `onResponse`.
     /// Notifications (no `id`) remain fire-and-forget and do not emit responses.
     func dispatch(json: String, isBridgeReady: Bool) async {
+        await dispatch(json: json, isBridgeReady: isBridgeReady, responseSink: nil)
+    }
+
+    func dispatchForSchemeRPC(json: String, isBridgeReady: Bool) async -> String? {
+        var responseJSON: String?
+        await dispatch(json: json, isBridgeReady: isBridgeReady) { response in
+            responseJSON = response
+        }
+        return responseJSON
+    }
+
+    private func dispatch(
+        json: String,
+        isBridgeReady: Bool,
+        responseSink: ((String) async -> Void)?
+    ) async {
         let request: ParsedRPCRequest
         do {
             request = try parseRequestEnvelope(from: json)
         } catch let parseError as RequestEnvelopeParseError {
-            await reportError(parseError.code, parseError.message, id: parseError.id)
+            await reportError(parseError.code, parseError.message, id: parseError.id, responseSink: responseSink)
             return
         } catch {
             rpcRouterLogger.error("RPC parse failed: \(self.errorMessage(from: error), privacy: .private)")
-            await reportError(.parseError, "Parse error", id: .null)
+            await reportError(.parseError, "Parse error", id: .null, responseSink: responseSink)
             return
         }
 
         guard isBridgeReady || Self.isPreReadyControlMethod(request.method) else {
             rpcRouterLogger.info("[RPCRouter] dropped pre-ready command: \(request.method)")
-            await reportError(.bridgeNotReady, "Bridge not ready: \(request.method)", id: request.requestId)
-            return
-        }
-
-        guard !Self.isRejectedPageWorldPrivilegedMethod(request) else {
             await reportError(
-                .invalidRequest, "Invalid request: privileged method requires bridge world", id: request.requestId)
+                .bridgeNotReady,
+                "Bridge not ready: \(request.method)",
+                id: request.requestId,
+                responseSink: responseSink
+            )
             return
         }
 
@@ -115,7 +130,12 @@ final class RPCRouter {
         }
 
         guard let handler = handlers[request.method] else {
-            await reportError(.methodNotFound, "Method not found: \(request.method)", id: request.requestId)
+            await reportError(
+                .methodNotFound,
+                "Method not found: \(request.method)",
+                id: request.requestId,
+                responseSink: responseSink
+            )
             return
         }
 
@@ -144,7 +164,8 @@ final class RPCRouter {
             await emitSuccessResponseIfNeeded(
                 id: request.requestId,
                 resultData: resultData,
-                method: request.method
+                method: request.method,
+                responseSink: responseSink
             )
             if shouldRecordRPC {
                 await recordGenericRPCTelemetry(
@@ -166,7 +187,7 @@ final class RPCRouter {
                 status: CommandAck.Status.rejected,
                 reason: dispatchErrorMessage
             )
-            await reportError(rpcErrorCode, dispatchErrorMessage, id: request.requestId)
+            await reportError(rpcErrorCode, dispatchErrorMessage, id: request.requestId, responseSink: responseSink)
             if shouldRecordRPC {
                 await recordGenericRPCTelemetry(
                     name: "performance.bridge.webkit.rpc_response",
@@ -197,7 +218,6 @@ final class RPCRouter {
         let requestId: RPCIdentifier?
         let method: String
         let commandId: String?
-        let bridgeOrigin: String?
         let traceContext: BridgeTraceContext?
         let params: JSONRPCValue?
     }
@@ -269,36 +289,15 @@ final class RPCRouter {
         } else {
             commandId = nil
         }
-        let bridgeOrigin: String?
-        if case .string(let rawBridgeOrigin)? = dict["__bridgeOrigin"] {
-            bridgeOrigin = rawBridgeOrigin
-        } else {
-            bridgeOrigin = nil
-        }
         let traceContext = parseTraceContext(dict["__traceContext"])
 
         return ParsedRPCRequest(
             requestId: requestId,
             method: method,
             commandId: commandId,
-            bridgeOrigin: bridgeOrigin,
             traceContext: traceContext,
             params: dict["params"]
         )
-    }
-
-    private nonisolated static func isRejectedPageWorldPrivilegedMethod(_ request: ParsedRPCRequest) -> Bool {
-        guard request.bridgeOrigin == "pageWorldLegacy" else {
-            return false
-        }
-        return isPrivilegedProtocolMethod(request.method)
-    }
-
-    private nonisolated static func isPrivilegedProtocolMethod(_ method: String) -> Bool {
-        method.hasSuffix(".openStream")
-            || method.hasSuffix(".refreshStream")
-            || method.hasSuffix(".cancelStream")
-            || method.hasSuffix(".resetStream")
     }
 
     private static func isPreReadyControlMethod(_ method: String) -> Bool {
@@ -432,22 +431,33 @@ final class RPCRouter {
         )
     }
 
-    private func reportError(_ code: RPCErrorCode, _ message: String, id: RPCIdentifier?) async {
+    private func reportError(
+        _ code: RPCErrorCode,
+        _ message: String,
+        id: RPCIdentifier?,
+        responseSink: ((String) async -> Void)?
+    ) async {
         onError(code.rawValue, message, id)
-        await emitErrorResponseIfNeeded(id: id, code: code.rawValue, message: message)
+        await emitErrorResponseIfNeeded(
+            id: id,
+            code: code.rawValue,
+            message: message,
+            responseSink: responseSink
+        )
     }
 
     private func emitSuccessResponseIfNeeded(
         id: RPCIdentifier?,
         resultData: Data?,
-        method: String
+        method: String,
+        responseSink: ((String) async -> Void)?
     ) async {
         guard let id else {
             return
         }
         do {
             let responseJSON = try makeSuccessResponseJSON(id: id, resultData: resultData)
-            await onResponse(responseJSON)
+            await deliverResponse(responseJSON, responseSink: responseSink)
             await onSuccessResponseDelivered(method)
         } catch {
             let message = "Internal error: failed to encode response: \(self.errorMessage(from: error))"
@@ -458,7 +468,7 @@ final class RPCRouter {
                     code: RPCErrorCode.internalError.rawValue,
                     message: message
                 )
-                await onResponse(fallback)
+                await deliverResponse(fallback, responseSink: responseSink)
             } catch {
                 rpcRouterLogger.error(
                     "RPC success response and fallback error encoding both failed id=\(String(describing: id)): \(self.errorMessage(from: error))"
@@ -467,13 +477,18 @@ final class RPCRouter {
         }
     }
 
-    private func emitErrorResponseIfNeeded(id: RPCIdentifier?, code: Int, message: String) async {
+    private func emitErrorResponseIfNeeded(
+        id: RPCIdentifier?,
+        code: Int,
+        message: String,
+        responseSink: ((String) async -> Void)?
+    ) async {
         guard let id else {
             return
         }
         do {
             let responseJSON = try makeErrorResponseJSON(id: id, code: code, message: message)
-            await onResponse(responseJSON)
+            await deliverResponse(responseJSON, responseSink: responseSink)
         } catch {
             let fallbackMessage = "Internal error: failed to encode error response: \(self.errorMessage(from: error))"
             rpcRouterLogger.error(
@@ -481,6 +496,14 @@ final class RPCRouter {
             )
             onError(RPCErrorCode.internalError.rawValue, fallbackMessage, id)
         }
+    }
+
+    private func deliverResponse(_ responseJSON: String, responseSink: ((String) async -> Void)?) async {
+        if let responseSink {
+            await responseSink(responseJSON)
+            return
+        }
+        await onResponse(responseJSON)
     }
 
     private func makeSuccessResponseJSON(id: RPCIdentifier, resultData: Data?) throws -> String {

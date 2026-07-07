@@ -49,7 +49,6 @@ export async function finishPerformanceSample(props: {
 	await Promise.resolve();
 	await waitForBridgeViewerAnimationFrame();
 	document.body.replaceChildren();
-	document.documentElement.removeAttribute('data-bridge-nonce');
 	delete window.bridgeReviewControlProbe;
 	return {
 		durationMilliseconds: props.durationMilliseconds,

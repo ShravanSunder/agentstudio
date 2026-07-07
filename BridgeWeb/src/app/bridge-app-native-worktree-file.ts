@@ -1,6 +1,12 @@
 import { z } from 'zod';
 
 import {
+	BridgeRPCRequestTimeoutError,
+	BridgeRPCResponseError,
+	sendBridgeRPCRequest,
+	type BridgeRPCFetch,
+} from '../bridge/bridge-rpc-client.js';
+import {
 	installBridgeIntakeEventCarrier,
 	type BridgeIntakeCarrierDrop,
 } from '../core/intake/bridge-intake-carrier.js';
@@ -57,6 +63,8 @@ export interface CreateBridgeAppNativeWorktreeFileBackendProps {
 	readonly target?: Document;
 	readonly createRequestId?: () => string;
 	readonly fetchResource?: typeof fetch;
+	readonly fetchRPC?: BridgeRPCFetch;
+	readonly rpcEndpointUrl?: string;
 	readonly responseTimeoutMilliseconds?: number;
 	readonly maxFrameBytes?: number;
 	readonly telemetryRecorder?: BridgeTelemetryRecorder;
@@ -113,19 +121,6 @@ declare global {
 	}
 }
 
-const bridgeRPCErrorPayloadSchema = z
-	.object({
-		code: z.number().int(),
-		message: z.string(),
-	})
-	.passthrough();
-const bridgeRPCResponseSchema = z
-	.object({
-		id: z.union([z.string(), z.number()]),
-		result: z.unknown().optional(),
-		error: bridgeRPCErrorPayloadSchema.optional(),
-	})
-	.passthrough();
 const bridgeRPCNoResponseResultSchema = z.object({}).strict();
 
 export function createBridgeAppNativeWorktreeFileBackend(
@@ -158,7 +153,6 @@ export function createBridgeAppNativeWorktreeFileBackend(
 	let telemetryRecorder = props.telemetryRecorder ?? createBridgeTelemetryRecorder(null);
 	let didConfigureTelemetryRecorder = props.telemetryRecorder !== undefined;
 	let isDisposed = false;
-
 	const publishFrames = (frames: readonly WorktreeFileProtocolFrame[]): void => {
 		if (subscribers.size === 0) {
 			pendingFrames.push(...frames);
@@ -338,12 +332,13 @@ export function createBridgeAppNativeWorktreeFileBackend(
 			try {
 				const requestId = props.createRequestId?.() ?? createNativeWorktreeFileRequestId();
 				const response = await sendNativeWorktreeFileOpenStreamCommand({
+					endpointUrl: props.rpcEndpointUrl,
+					fetchRPC: props.fetchRPC,
 					requestId,
 					sourceSpec: {
 						...sourceSpec,
 						clientRequestId: requestId,
 					},
-					target,
 					timeoutMilliseconds:
 						props.responseTimeoutMilliseconds ?? defaultResponseTimeoutMilliseconds,
 				});
@@ -384,10 +379,13 @@ export function createBridgeAppNativeWorktreeFileBackend(
 					generation: outcome.generation,
 					streamIdMatches: true,
 				});
-				sendNativeBridgeIntakeReadyCommand({
+				await sendNativeBridgeIntakeReadyCommand({
+					endpointUrl: props.rpcEndpointUrl,
+					fetchRPC: props.fetchRPC,
 					generation: outcome.generation,
 					streamId: outcome.streamId,
-					target,
+					timeoutMilliseconds:
+						props.responseTimeoutMilliseconds ?? defaultResponseTimeoutMilliseconds,
 				});
 				const snapshotFrame = await snapshotFramePromise;
 				const replayedFrames = initialSurfaceReplayBuffer?.frames ?? [];
@@ -419,9 +417,10 @@ export function createBridgeAppNativeWorktreeFileBackend(
 			const requestId = props.createRequestId?.() ?? createNativeWorktreeFileRequestId();
 			try {
 				await sendNativeWorktreeFileDescriptorRequestCommand({
+					endpointUrl: props.rpcEndpointUrl,
+					fetchRPC: props.fetchRPC,
 					request: parsedRequest.data,
 					requestId,
-					target,
 					timeoutMilliseconds:
 						props.responseTimeoutMilliseconds ?? defaultResponseTimeoutMilliseconds,
 				});
@@ -489,122 +488,81 @@ function readNativeWorktreeFileSourceSpec(
 }
 
 async function sendNativeWorktreeFileOpenStreamCommand(props: {
+	readonly endpointUrl: string | undefined;
+	readonly fetchRPC: BridgeRPCFetch | undefined;
 	readonly requestId: string;
 	readonly sourceSpec: z.infer<typeof worktreeFileSurfaceSourceSpecSchema>;
-	readonly target: Document;
 	readonly timeoutMilliseconds: number;
 }): Promise<unknown> {
-	const bridgeNonce = props.target.documentElement.getAttribute('data-bridge-nonce');
-	if (bridgeNonce === null || bridgeNonce.length === 0) {
-		throw new Error('Native Worktree/File command nonce is unavailable');
-	}
-	return await new Promise((resolve, reject): void => {
-		const timeoutId = window.setTimeout((): void => {
-			cleanup();
+	try {
+		const result = await sendBridgeRPCRequest({
+			command: {
+				id: props.requestId,
+				method: nativeWorktreeFileOpenSourceStreamMethod,
+				params: props.sourceSpec,
+			},
+			endpointUrl: props.endpointUrl,
+			fetch: props.fetchRPC,
+			timeoutMilliseconds: props.timeoutMilliseconds,
+		});
+		recordNativeWorktreeFileProbe({ reason: 'open_response_received' });
+		return result;
+	} catch (error) {
+		if (error instanceof BridgeRPCRequestTimeoutError) {
 			recordNativeWorktreeFileProbe({ reason: 'open_response_timeout' });
-			reject(new Error('Native Worktree/File open stream timed out'));
-		}, props.timeoutMilliseconds);
-		const handleResponse = (event: Event): void => {
-			const detail = extractEventDetail(event);
-			const parsedResponse = bridgeRPCResponseSchema.safeParse(detail);
-			if (!parsedResponse.success || String(parsedResponse.data.id) !== props.requestId) {
-				return;
-			}
-			cleanup();
-			recordNativeWorktreeFileProbe({ reason: 'open_response_received' });
-			if (parsedResponse.data.error !== undefined) {
-				recordNativeWorktreeFileProbe({ reason: 'open_response_error' });
-				reject(
-					new Error(
-						`Native Worktree/File open stream failed: ${nativeWorktreeFileOpenStreamErrorClass(parsedResponse.data.error)}`,
-					),
-				);
-				return;
-			}
-			resolve(parsedResponse.data.result);
-		};
-		const cleanup = (): void => {
-			window.clearTimeout(timeoutId);
-			props.target.removeEventListener('__bridge_response', handleResponse);
-		};
-		props.target.addEventListener('__bridge_response', handleResponse);
-		props.target.dispatchEvent(
-			new CustomEvent('__bridge_command', {
-				detail: {
-					jsonrpc: '2.0',
-					id: props.requestId,
-					method: nativeWorktreeFileOpenSourceStreamMethod,
-					params: props.sourceSpec,
-					__nonce: bridgeNonce,
-					__commandId: props.requestId,
-				},
-			}),
-		);
-	});
+			throw new Error('Native Worktree/File open stream timed out', { cause: error });
+		}
+		if (error instanceof BridgeRPCResponseError) {
+			recordNativeWorktreeFileProbe({ reason: 'open_response_error' });
+			throw new Error(
+				`Native Worktree/File open stream failed: ${nativeWorktreeFileOpenStreamErrorClass(error)}`,
+				{ cause: error },
+			);
+		}
+		throw error;
+	}
 }
 
 async function sendNativeWorktreeFileDescriptorRequestCommand(props: {
+	readonly endpointUrl: string | undefined;
+	readonly fetchRPC: BridgeRPCFetch | undefined;
 	readonly request: WorktreeFileDescriptorRequest;
 	readonly requestId: string;
-	readonly target: Document;
 	readonly timeoutMilliseconds: number;
 }): Promise<void> {
-	const bridgeNonce = props.target.documentElement.getAttribute('data-bridge-nonce');
-	if (bridgeNonce === null || bridgeNonce.length === 0) {
-		throw new Error('Native Worktree/File command nonce is unavailable');
+	try {
+		const result = await sendBridgeRPCRequest({
+			command: {
+				id: props.requestId,
+				method: nativeWorktreeFileRequestDescriptorMethod,
+				params: props.request,
+			},
+			endpointUrl: props.endpointUrl,
+			fetch: props.fetchRPC,
+			timeoutMilliseconds: props.timeoutMilliseconds,
+		});
+		const parsedAck = bridgeRPCNoResponseResultSchema.safeParse(result);
+		if (!parsedAck.success) {
+			throw new Error('Native Worktree/File descriptor request returned invalid acknowledgement');
+		}
+	} catch (error) {
+		if (error instanceof BridgeRPCRequestTimeoutError) {
+			throw new Error('Native Worktree/File descriptor request timed out', { cause: error });
+		}
+		if (error instanceof BridgeRPCResponseError) {
+			throw new Error(
+				`Native Worktree/File descriptor request failed: ${nativeWorktreeFileOpenStreamErrorClass(error)}`,
+				{ cause: error },
+			);
+		}
+		throw error;
 	}
-	await new Promise<void>((resolve, reject): void => {
-		const timeoutId = window.setTimeout((): void => {
-			cleanup();
-			reject(new Error('Native Worktree/File descriptor request timed out'));
-		}, props.timeoutMilliseconds);
-		const handleResponse = (event: Event): void => {
-			const detail = extractEventDetail(event);
-			const parsedResponse = bridgeRPCResponseSchema.safeParse(detail);
-			if (!parsedResponse.success || String(parsedResponse.data.id) !== props.requestId) {
-				return;
-			}
-			cleanup();
-			if (parsedResponse.data.error !== undefined) {
-				reject(
-					new Error(
-						`Native Worktree/File descriptor request failed: ${nativeWorktreeFileOpenStreamErrorClass(parsedResponse.data.error)}`,
-					),
-				);
-				return;
-			}
-			const parsedAck = bridgeRPCNoResponseResultSchema.safeParse(parsedResponse.data.result);
-			if (!parsedAck.success) {
-				reject(
-					new Error('Native Worktree/File descriptor request returned invalid acknowledgement'),
-				);
-				return;
-			}
-			resolve();
-		};
-		const cleanup = (): void => {
-			window.clearTimeout(timeoutId);
-			props.target.removeEventListener('__bridge_response', handleResponse);
-		};
-		props.target.addEventListener('__bridge_response', handleResponse);
-		props.target.dispatchEvent(
-			new CustomEvent('__bridge_command', {
-				detail: {
-					jsonrpc: '2.0',
-					id: props.requestId,
-					method: nativeWorktreeFileRequestDescriptorMethod,
-					params: props.request,
-					__nonce: bridgeNonce,
-					__commandId: props.requestId,
-				},
-			}),
-		);
-	});
 }
 
-function nativeWorktreeFileOpenStreamErrorClass(
-	error: z.infer<typeof bridgeRPCErrorPayloadSchema>,
-): string {
+function nativeWorktreeFileOpenStreamErrorClass(error: {
+	readonly code: number;
+	readonly message: string;
+}): string {
 	if (/^worktree_file\.[a-z0-9_.-]+$/u.test(error.message)) {
 		return error.message;
 	}
@@ -636,30 +594,39 @@ function nativeWorktreeFileDescriptorErrorRequiresStreamReset(error: unknown): b
 	);
 }
 
-function sendNativeBridgeIntakeReadyCommand(props: {
+async function sendNativeBridgeIntakeReadyCommand(props: {
+	readonly endpointUrl: string | undefined;
+	readonly fetchRPC: BridgeRPCFetch | undefined;
 	readonly generation: number;
 	readonly streamId: string;
-	readonly target: Document;
-}): void {
-	const bridgeNonce = props.target.documentElement.getAttribute('data-bridge-nonce');
-	if (bridgeNonce === null || bridgeNonce.length === 0) {
-		throw new Error('Native Worktree/File command nonce is unavailable');
-	}
-	props.target.dispatchEvent(
-		new CustomEvent('__bridge_command', {
-			detail: {
-				jsonrpc: '2.0',
+	readonly timeoutMilliseconds: number;
+}): Promise<void> {
+	try {
+		await sendBridgeRPCRequest({
+			command: {
+				id: `${props.streamId}:generation-${props.generation}:intake-ready`,
 				method: bridgeIntakeReadyMethod,
 				params: {
 					generation: props.generation,
 					protocolId: 'worktree-file',
 					streamId: props.streamId,
 				},
-				__nonce: bridgeNonce,
-				__commandId: `${props.streamId}:generation-${props.generation}:intake-ready`,
 			},
-		}),
-	);
+			endpointUrl: props.endpointUrl,
+			fetch: props.fetchRPC,
+			timeoutMilliseconds: props.timeoutMilliseconds,
+		});
+	} catch (error) {
+		if (error instanceof BridgeRPCRequestTimeoutError) {
+			throw new Error('Native Worktree/File intake-ready command timed out', { cause: error });
+		}
+		if (error instanceof BridgeRPCResponseError) {
+			throw new Error(`Native Worktree/File intake-ready command failed: ${error.rpcMessage}`, {
+				cause: error,
+			});
+		}
+		throw error;
+	}
 }
 
 function waitForNativeWorktreeSnapshot(props: {

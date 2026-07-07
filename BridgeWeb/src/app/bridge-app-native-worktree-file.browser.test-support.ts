@@ -17,6 +17,54 @@ export function cleanupNativeWorktreeFileBackendBrowserTest(): void {
 	delete window.__bridgeNativeWorktreeFileProbe;
 }
 
+export interface NativeWorktreeFileRPCFetchHarness {
+	readonly commandDetails: unknown[];
+	readonly fetch: typeof fetch;
+}
+
+export interface NativeWorktreeFileRPCFetchHarnessOptions {
+	readonly openSourceStreamResponse?: (command: unknown) => unknown;
+	readonly requestFileDescriptorResponse?: (command: unknown) => unknown;
+}
+
+export function createNativeWorktreeFileRPCFetchHarness(
+	options: NativeWorktreeFileRPCFetchHarnessOptions = {},
+): NativeWorktreeFileRPCFetchHarness {
+	const commandDetails: unknown[] = [];
+	return {
+		commandDetails,
+		fetch: (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+			expect(input).toBe('agentstudio://rpc/command');
+			expect(init?.method).toBe('POST');
+			const command = decodeNativeWorktreeFileRPCCommand(init);
+			commandDetails.push(command);
+			const requestId = rpcRequestId(command);
+			const method = rpcMethod(command);
+			if (method === 'worktreeFileSurface.openSourceStream') {
+				return Promise.resolve(
+					Response.json(
+						options.openSourceStreamResponse?.(command) ?? {
+							id: requestId,
+							result: makeOpenSourceOutcome(),
+						},
+					),
+				);
+			}
+			if (method === 'worktreeFileSurface.requestFileDescriptor') {
+				return Promise.resolve(
+					Response.json(
+						options.requestFileDescriptorResponse?.(command) ?? {
+							id: requestId,
+							result: {},
+						},
+					),
+				);
+			}
+			return Promise.resolve(Response.json({ id: requestId, result: {} }));
+		},
+	};
+}
+
 export function makeSourceIdentity(
 	props: { readonly subscriptionGeneration?: number; readonly sourceCursor?: string } = {},
 ): WorktreeFileSurfaceSourceIdentity {
@@ -30,12 +78,13 @@ export function makeSourceIdentity(
 	};
 }
 
-export async function installReadyNativeWorktreeFileBackend(): Promise<{
+export async function installReadyNativeWorktreeFileBackend(
+	options: NativeWorktreeFileRPCFetchHarnessOptions = {},
+): Promise<{
 	readonly backend: BridgeAppNativeWorktreeFileBackend;
 	readonly commandDetails: unknown[];
 }> {
-	const commandDetails: unknown[] = [];
-	document.documentElement.setAttribute('data-bridge-nonce', 'bridge-1');
+	const rpcFetch = createNativeWorktreeFileRPCFetchHarness(options);
 	document.documentElement.setAttribute(
 		'data-bridge-worktree-file-source-spec',
 		JSON.stringify({
@@ -49,9 +98,6 @@ export async function installReadyNativeWorktreeFileBackend(): Promise<{
 			freshness: 'live',
 		}),
 	);
-	document.addEventListener('__bridge_command', (event: Event): void => {
-		commandDetails.push('detail' in event ? event.detail : null);
-	});
 	const backend = createBridgeAppNativeWorktreeFileBackend({
 		createRequestId: (() => {
 			let sequence = 0;
@@ -60,6 +106,7 @@ export async function installReadyNativeWorktreeFileBackend(): Promise<{
 				return `request-${sequence}`;
 			};
 		})(),
+		fetchRPC: rpcFetch.fetch,
 		target: document,
 	});
 	if (backend === null) {
@@ -70,13 +117,8 @@ export async function installReadyNativeWorktreeFileBackend(): Promise<{
 		new CustomEvent('__bridge_handshake', { detail: { pushNonce: 'push-1' } }),
 	);
 	const surfacePromise = backend.loadWorktreeFileSurface();
-	document.dispatchEvent(
-		new CustomEvent('__bridge_response', {
-			detail: { id: 'request-1', result: makeOpenSourceOutcome(), nonce: 'push-1' },
-		}),
-	);
 	await expect
-		.poll(() => commandDetails[1])
+		.poll(() => rpcFetch.commandDetails[1])
 		.toMatchObject({
 			method: 'bridge.intakeReady',
 		});
@@ -88,7 +130,7 @@ export async function installReadyNativeWorktreeFileBackend(): Promise<{
 	await expect(surfacePromise).resolves.toMatchObject({
 		source: makeSourceIdentity(),
 	});
-	return { backend, commandDetails };
+	return { backend, commandDetails: rpcFetch.commandDetails };
 }
 
 export function makeSnapshotFrame(
@@ -158,6 +200,34 @@ export function commandIdFromUnknownCommand(command: unknown): string {
 		throw new Error('expected command with string id');
 	}
 	return command.id;
+}
+
+function decodeNativeWorktreeFileRPCCommand(init: RequestInit | undefined): unknown {
+	const body = init?.body;
+	if (typeof body !== 'string') {
+		throw new Error('expected string RPC request body');
+	}
+	return JSON.parse(body);
+}
+
+function rpcRequestId(command: unknown): string | number | null {
+	if (typeof command === 'object' && command !== null && 'id' in command) {
+		const id = command.id;
+		if (typeof id === 'string' || typeof id === 'number') {
+			return id;
+		}
+	}
+	return null;
+}
+
+function rpcMethod(command: unknown): string | null {
+	if (typeof command === 'object' && command !== null && 'method' in command) {
+		const method = command.method;
+		if (typeof method === 'string') {
+			return method;
+		}
+	}
+	return null;
 }
 
 export function requireMessagePort(port: MessagePort | null): MessagePort {
