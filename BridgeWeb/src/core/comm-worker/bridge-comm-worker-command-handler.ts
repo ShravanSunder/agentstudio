@@ -5,6 +5,9 @@ import {
 	type BridgeCommWorkerStore,
 } from './bridge-comm-worker-store.js';
 import type {
+	BridgeWorkerFileViewContentMetadata,
+	BridgeWorkerFileViewContentRequestDescriptor,
+	BridgeWorkerFileViewSourceUpdateCommand,
 	BridgeWorkerMainToServerMessage,
 	BridgeWorkerReviewContentMetadata,
 	BridgeWorkerReviewContentRequestDescriptor,
@@ -23,6 +26,12 @@ export interface BridgeCommWorkerReviewRuntimeSource {
 	readonly rows: readonly BridgeCommWorkerRow[];
 }
 
+export interface BridgeCommWorkerFileViewRuntimeSource {
+	readonly contentItems: readonly BridgeWorkerFileViewContentMetadata[];
+	readonly contentRequestDescriptors: readonly BridgeWorkerFileViewContentRequestDescriptor[];
+	readonly rows: readonly BridgeCommWorkerRow[];
+}
+
 export interface CreateBridgeCommWorkerCommandHandlerProps {
 	readonly contentItems: readonly BridgeWorkerReviewContentMetadata[];
 	readonly rows: readonly BridgeCommWorkerRow[];
@@ -31,6 +40,7 @@ export interface CreateBridgeCommWorkerCommandHandlerProps {
 		request: BridgeCommWorkerSelectedReviewContentReadyPreparationRequest,
 	) => void;
 	readonly updateReviewRuntimeSource?: (source: BridgeCommWorkerReviewRuntimeSource) => void;
+	readonly updateFileViewRuntimeSource?: (source: BridgeCommWorkerFileViewRuntimeSource) => void;
 }
 
 export interface BridgeCommWorkerSelectedReviewContentReadyPreparationRequest {
@@ -77,6 +87,9 @@ export function createBridgeCommWorkerCommandHandler(
 				...(props.updateReviewRuntimeSource === undefined
 					? {}
 					: { updateReviewRuntimeSource: props.updateReviewRuntimeSource }),
+				...(props.updateFileViewRuntimeSource === undefined
+					? {}
+					: { updateFileViewRuntimeSource: props.updateFileViewRuntimeSource }),
 			});
 		},
 	};
@@ -90,6 +103,7 @@ interface HandleBridgeWorkerCommandProps {
 	) => void;
 	readonly store: BridgeCommWorkerStore;
 	readonly updateReviewRuntimeSource?: (source: BridgeCommWorkerReviewRuntimeSource) => void;
+	readonly updateFileViewRuntimeSource?: (source: BridgeCommWorkerFileViewRuntimeSource) => void;
 }
 
 function handleBridgeWorkerCommand(
@@ -126,6 +140,15 @@ function handleBridgeWorkerCommand(
 					? {}
 					: { updateReviewRuntimeSource: props.updateReviewRuntimeSource }),
 			});
+		case 'fileViewSourceUpdate':
+			return handleBridgeWorkerFileViewSourceUpdateCommand({
+				createSequence: props.createSequence,
+				message: props.message,
+				store: props.store,
+				...(props.updateFileViewRuntimeSource === undefined
+					? {}
+					: { updateFileViewRuntimeSource: props.updateFileViewRuntimeSource }),
+			});
 		case 'hover':
 		case 'markFileViewed':
 		case 'mode':
@@ -133,6 +156,35 @@ function handleBridgeWorkerCommand(
 		default:
 			return assertNeverBridgeWorkerCommand(props.message);
 	}
+}
+
+interface HandleBridgeWorkerFileViewSourceUpdateCommandProps {
+	readonly createSequence: () => number;
+	readonly message: BridgeWorkerFileViewSourceUpdateCommand;
+	readonly store: BridgeCommWorkerStore;
+	readonly updateFileViewRuntimeSource?: (source: BridgeCommWorkerFileViewRuntimeSource) => void;
+}
+
+function handleBridgeWorkerFileViewSourceUpdateCommand(
+	props: HandleBridgeWorkerFileViewSourceUpdateCommandProps,
+): readonly BridgeWorkerServerToMainMessage[] {
+	props.store.actions.applyFileViewSourceUpdateFact({
+		contentItems: props.message.contentItems,
+		rows: props.message.rows,
+	});
+	props.updateFileViewRuntimeSource?.({
+		contentItems: props.message.contentItems,
+		contentRequestDescriptors: props.message.contentRequestDescriptors,
+		rows: props.message.rows,
+	});
+	const slicePatch = props.store.actions.takePendingSlicePatchEvent({
+		epoch: props.message.epoch,
+		sequence: props.createSequence(),
+	});
+	return [
+		...(slicePatch === null ? [] : [slicePatch]),
+		buildBridgeWorkerReadyHealthEvent(props.message.requestId),
+	];
 }
 
 interface HandleBridgeWorkerReviewSourceUpdateCommandProps {

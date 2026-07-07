@@ -4,6 +4,9 @@ import { makeBridgeReviewItem } from '../../foundation/review-package/bridge-rev
 import {
 	BRIDGE_WORKER_WIRE_VERSION,
 	bridgeWorkerReviewRenderSemanticsSchema,
+	bridgeWorkerFileViewContentMetadataSchema,
+	bridgeWorkerFileViewContentRequestDescriptorSchema,
+	bridgeWorkerFileViewSourceUpdateCommandSchema,
 	bridgeWorkerReviewContentRequestDescriptorSchema,
 	bridgeWorkerReviewContentMetadataSchema,
 	bridgeWorkerMainToServerMessageSchema,
@@ -12,6 +15,8 @@ import {
 	parseBridgeWorkerMainToServerMessage,
 	type BridgeWorkerMainToServerMessage,
 	type BridgeWorkerReviewRenderSemantics,
+	type BridgeWorkerFileViewContentMetadata,
+	type BridgeWorkerFileViewContentRequestDescriptor,
 	type BridgeWorkerReviewContentRequestDescriptor,
 	type BridgeWorkerReviewContentMetadata,
 } from './bridge-worker-contracts.js';
@@ -234,4 +239,227 @@ describe('BridgeWorkerContracts', () => {
 			}).success,
 		).toBe(false);
 	});
+
+	test('defines strict worker File View metadata separate from content request descriptors', () => {
+		const metadata = {
+			itemId: 'file-1',
+			path: 'Sources/App/FileView.swift',
+			language: 'swift',
+			cacheKey: 'file-view:sha256:file-1',
+			sizeBytes: 128,
+			contentHandle: 'handle-file-1',
+			descriptorId: 'descriptor-file-1',
+			contentHash: 'sha256:file-1',
+			virtualizedExtentKind: 'exactLineCount',
+			lineCount: 7,
+			isBinary: false,
+			canFetchContent: true,
+		} satisfies BridgeWorkerFileViewContentMetadata;
+		const descriptor = {
+			itemId: metadata.itemId,
+			path: metadata.path,
+			handleId: metadata.contentHandle,
+			descriptorId: metadata.descriptorId,
+			resourceKind: 'worktree.fileContent',
+			resourceUrl:
+				'agentstudio://resource/worktree-file/worktree.fileContent/descriptor-file-1?generation=3',
+			contentHash: metadata.contentHash,
+			contentHashAlgorithm: 'sha256',
+			language: metadata.language,
+			sizeBytes: metadata.sizeBytes,
+			maxBytes: 4096,
+			isBinary: metadata.isBinary,
+		} satisfies BridgeWorkerFileViewContentRequestDescriptor;
+
+		expect(bridgeWorkerFileViewContentMetadataSchema.parse(metadata)).toEqual(metadata);
+		expect(bridgeWorkerFileViewContentRequestDescriptorSchema.parse(descriptor)).toEqual(
+			descriptor,
+		);
+		expect(JSON.stringify(metadata)).not.toMatch(/resourceUrl|contents|text|body/i);
+		expect(descriptor.resourceUrl).toMatch(/^agentstudio:\/\//);
+		expect(
+			bridgeWorkerFileViewContentMetadataSchema.safeParse({
+				...metadata,
+				resourceUrl: descriptor.resourceUrl,
+			}).success,
+		).toBe(false);
+		expect(
+			bridgeWorkerFileViewContentRequestDescriptorSchema.safeParse({
+				...descriptor,
+				contents: 'print("main must not receive this")',
+			}).success,
+		).toBe(false);
+	});
+
+	test('encodes File View source updates without raw tree snapshots or content bytes', () => {
+		const command = {
+			wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+			direction: 'mainToServerWorker',
+			kind: 'command',
+			command: 'fileViewSourceUpdate',
+			requestId: 'request-file-view-source',
+			epoch: 6,
+			transferDescriptors: [],
+			contentItems: [
+				{
+					itemId: 'file-1',
+					path: 'Sources/App/FileView.swift',
+					language: 'swift',
+					cacheKey: 'file-view:sha256:file-1',
+					sizeBytes: 128,
+					contentHandle: 'handle-file-1',
+					descriptorId: 'descriptor-file-1',
+					contentHash: 'sha256:file-1',
+					virtualizedExtentKind: 'exactLineCount',
+					lineCount: 7,
+					isBinary: false,
+					canFetchContent: true,
+				},
+			],
+			contentRequestDescriptors: [
+				{
+					itemId: 'file-1',
+					path: 'Sources/App/FileView.swift',
+					handleId: 'handle-file-1',
+					descriptorId: 'descriptor-file-1',
+					resourceKind: 'worktree.fileContent',
+					resourceUrl:
+						'agentstudio://resource/worktree-file/worktree.fileContent/descriptor-file-1?generation=3',
+					contentHash: 'sha256:file-1',
+					contentHashAlgorithm: 'sha256',
+					language: 'swift',
+					sizeBytes: 128,
+					maxBytes: 4096,
+					isBinary: false,
+				},
+			],
+			rows: [{ id: 'file-1', parentId: null, index: 0 }],
+		};
+
+		expect(bridgeWorkerFileViewSourceUpdateCommandSchema.parse(command)).toEqual(command);
+		expect(bridgeWorkerMainToServerMessageSchema.parse(command)).toEqual(command);
+		expect(JSON.stringify(command.contentItems)).not.toMatch(/resourceUrl|contents|body/i);
+		expect(
+			bridgeWorkerFileViewSourceUpdateCommandSchema.safeParse({
+				...command,
+				rootSnapshot: { allRows: [] },
+			}).success,
+		).toBe(false);
+	});
+
+	test('rejects File View source updates with unsafe or mismatched request descriptors', () => {
+		const command = makeBridgeWorkerFileViewSourceUpdateCommand();
+
+		expect(
+			bridgeWorkerFileViewSourceUpdateCommandSchema.safeParse({
+				...command,
+				contentRequestDescriptors: [
+					{
+						...command.contentRequestDescriptors[0],
+						resourceUrl: 'https://example.test/file.swift',
+					},
+				],
+			}).success,
+		).toBe(false);
+		expect(
+			bridgeWorkerFileViewSourceUpdateCommandSchema.safeParse({
+				...command,
+				contentRequestDescriptors: [
+					{
+						...command.contentRequestDescriptors[0],
+						path: 'Sources/App/Other.swift',
+					},
+				],
+			}).success,
+		).toBe(false);
+		expect(
+			bridgeWorkerFileViewSourceUpdateCommandSchema.safeParse({
+				...command,
+				contentRequestDescriptors: [
+					{
+						...command.contentRequestDescriptors[0],
+						resourceUrl:
+							'agentstudio://resource/worktree-file/worktree.fileContent/descriptor-other?generation=3',
+					},
+				],
+			}).success,
+		).toBe(false);
+		expect(
+			bridgeWorkerFileViewSourceUpdateCommandSchema.safeParse({
+				...command,
+				contentRequestDescriptors: [],
+			}).success,
+		).toBe(false);
+		expect(
+			bridgeWorkerFileViewSourceUpdateCommandSchema.safeParse({
+				...command,
+				contentRequestDescriptors: [
+					command.contentRequestDescriptors[0],
+					{
+						...command.contentRequestDescriptors[0],
+						descriptorId: 'descriptor-file-1-copy',
+						resourceUrl:
+							'agentstudio://resource/worktree-file/worktree.fileContent/descriptor-file-1-copy?generation=3',
+					},
+				],
+			}).success,
+		).toBe(false);
+	});
 });
+
+function makeBridgeWorkerFileViewSourceUpdateCommand(): {
+	readonly wireVersion: typeof BRIDGE_WORKER_WIRE_VERSION;
+	readonly direction: 'mainToServerWorker';
+	readonly kind: 'command';
+	readonly command: 'fileViewSourceUpdate';
+	readonly requestId: string;
+	readonly epoch: number;
+	readonly transferDescriptors: readonly [];
+	readonly contentItems: readonly BridgeWorkerFileViewContentMetadata[];
+	readonly contentRequestDescriptors: readonly BridgeWorkerFileViewContentRequestDescriptor[];
+	readonly rows: readonly [{ readonly id: string; readonly parentId: null; readonly index: 0 }];
+} {
+	return {
+		wireVersion: BRIDGE_WORKER_WIRE_VERSION,
+		direction: 'mainToServerWorker',
+		kind: 'command',
+		command: 'fileViewSourceUpdate',
+		requestId: 'request-file-view-source',
+		epoch: 6,
+		transferDescriptors: [],
+		contentItems: [
+			{
+				itemId: 'file-1',
+				path: 'Sources/App/FileView.swift',
+				language: 'swift',
+				cacheKey: 'file-view:sha256:file-1',
+				sizeBytes: 128,
+				contentHandle: 'handle-file-1',
+				descriptorId: 'descriptor-file-1',
+				contentHash: 'sha256:file-1',
+				virtualizedExtentKind: 'exactLineCount',
+				lineCount: 7,
+				isBinary: false,
+				canFetchContent: true,
+			},
+		],
+		contentRequestDescriptors: [
+			{
+				itemId: 'file-1',
+				path: 'Sources/App/FileView.swift',
+				handleId: 'handle-file-1',
+				descriptorId: 'descriptor-file-1',
+				resourceKind: 'worktree.fileContent',
+				resourceUrl:
+					'agentstudio://resource/worktree-file/worktree.fileContent/descriptor-file-1?generation=3',
+				contentHash: 'sha256:file-1',
+				contentHashAlgorithm: 'sha256',
+				language: 'swift',
+				sizeBytes: 128,
+				maxBytes: 4096,
+				isBinary: false,
+			},
+		],
+		rows: [{ id: 'file-1', parentId: null, index: 0 }],
+	};
+}

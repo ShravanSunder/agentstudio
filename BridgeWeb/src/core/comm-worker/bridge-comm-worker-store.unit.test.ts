@@ -2,7 +2,10 @@ import { describe, expect, test } from 'vitest';
 
 import { makeBridgeReviewItem } from '../../foundation/review-package/bridge-review-package-test-support.js';
 import { createBridgeCommWorkerStore } from './bridge-comm-worker-store.js';
-import type { BridgeWorkerReviewContentMetadata } from './bridge-worker-contracts.js';
+import type {
+	BridgeWorkerFileViewContentMetadata,
+	BridgeWorkerReviewContentMetadata,
+} from './bridge-worker-contracts.js';
 
 describe('Bridge comm worker store', () => {
 	test('normalizes worker state and rejects root snapshots getState payloads and package-shaped hot actions', () => {
@@ -149,6 +152,27 @@ describe('Bridge comm worker store', () => {
 			'demand:item-1',
 			'demand:item_1',
 			'demand:item:2/path',
+		]);
+	});
+
+	test('does not churn availability state for viewport facts with no unavailable content', () => {
+		const store = createBridgeCommWorkerStore({
+			contentItems: [makeWorkerReviewContentMetadata('item-1')],
+			rows: [{ id: 'item-1', parentId: null, index: 0 }],
+		});
+
+		const previousAvailabilityByItemId = store.getState().availabilityByItemId;
+		const viewportResult = store.actions.applyViewportFact({
+			visibleItemIds: ['item-1'],
+			firstVisibleIndex: 0,
+			lastVisibleIndex: 0,
+		});
+
+		expect(store.getState().availabilityByItemId).toBe(previousAvailabilityByItemId);
+		expect(viewportResult.touchedKeys).toEqual([
+			'viewportRange',
+			'visibleIds:item-1',
+			'demand:item-1',
 		]);
 	});
 
@@ -472,6 +496,143 @@ describe('Bridge comm worker store', () => {
 			},
 		]);
 	});
+
+	test('worker-local store owns file metadata content cache demand and protocol truth', () => {
+		const fileContentMetadata = makeWorkerFileViewContentMetadata('file-text');
+		const binaryMetadata = makeWorkerFileViewContentMetadata('file-binary', {
+			canFetchContent: false,
+			isBinary: true,
+		});
+		const store = createBridgeCommWorkerStore({
+			contentItems: [fileContentMetadata, binaryMetadata],
+			rows: [
+				{ id: 'file-text', parentId: null, index: 0 },
+				{ id: 'file-binary', parentId: null, index: 1 },
+			],
+		});
+
+		store.actions.applySelectedFact({ itemId: 'file-text', epoch: 4 });
+		store.actions.applyViewportFact({
+			visibleItemIds: ['file-text', 'file-binary'],
+			firstVisibleIndex: 0,
+			lastVisibleIndex: 1,
+		});
+		store.actions.applyContentReady({
+			itemId: 'file-text',
+			contentCacheKey: fileContentMetadata.cacheKey,
+		});
+		const firstPatchEvent = store.actions.takePendingSlicePatchEvent({ epoch: 4, sequence: 1 });
+		const sourceUpdateResult = store.actions.applyFileViewSourceUpdateFact({
+			contentItems: [
+				makeWorkerFileViewContentMetadata('file-text', {
+					path: 'Sources/App/FileViewRenamed.swift',
+				}),
+			],
+			rows: [{ id: 'file-text', parentId: null, index: 0 }],
+		});
+		const nextState = store.getState();
+
+		expect(Object.fromEntries(nextState.contentMetadataByItemId)).toEqual({
+			'file-text': makeWorkerFileViewContentMetadata('file-text', {
+				path: 'Sources/App/FileViewRenamed.swift',
+			}),
+		});
+		expect(Object.fromEntries(nextState.demandByKey)).toEqual({
+			'file-text': 'selected:4',
+		});
+		expect(firstPatchEvent?.patches).toContainEqual({
+			slice: 'contentAvailability',
+			operation: 'upsert',
+			itemId: 'file-binary',
+			payload: { state: 'unavailable' },
+		});
+		expect(sourceUpdateResult.touchedKeys).toEqual([
+			'sourceRows',
+			'sourceContentMetadata',
+			'contentMetadata:file-text',
+		]);
+		expect(JSON.stringify(firstPatchEvent)).not.toMatch(/contentHandle|resourceUrl|contents|body/i);
+	});
+
+	test('file view source updates repair selected unavailable content into loading demand', () => {
+		const store = createBridgeCommWorkerStore({
+			contentItems: [],
+			rows: [{ id: 'file-1', parentId: null, index: 0 }],
+		});
+		store.actions.applySelectedFact({ itemId: 'file-1', epoch: 9 });
+		store.actions.takePendingSlicePatchEvent({ epoch: 9, sequence: 1 });
+
+		const sourceUpdateResult = store.actions.applyFileViewSourceUpdateFact({
+			contentItems: [makeWorkerFileViewContentMetadata('file-1')],
+			rows: [{ id: 'file-1', parentId: null, index: 0 }],
+		});
+
+		expect(store.getState().availabilityByItemId.get('file-1')).toBe('loading');
+		expect(Object.fromEntries(store.getState().demandByKey)).toEqual({
+			'file-1': 'selected',
+		});
+		expect(sourceUpdateResult.touchedKeys).toEqual([
+			'sourceRows',
+			'sourceContentMetadata',
+			'contentMetadata:file-1',
+			'availability:file-1',
+			'demand:file-1',
+		]);
+		expect(store.actions.takePendingSlicePatchEvent({ epoch: 10, sequence: 2 })?.patches).toEqual([
+			{
+				slice: 'contentAvailability',
+				operation: 'upsert',
+				itemId: 'file-1',
+				payload: { state: 'loading' },
+			},
+		]);
+	});
+
+	test('file view source updates remove ready paint when content becomes unavailable', () => {
+		const store = createBridgeCommWorkerStore({
+			contentItems: [makeWorkerFileViewContentMetadata('file-1')],
+			rows: [{ id: 'file-1', parentId: null, index: 0 }],
+		});
+		store.actions.applySelectedFact({ itemId: 'file-1', epoch: 11 });
+		store.actions.applyContentReady({
+			itemId: 'file-1',
+			contentCacheKey: 'file-view:sha256:file-1',
+		});
+		store.actions.takePendingSlicePatchEvent({ epoch: 11, sequence: 1 });
+
+		const sourceUpdateResult = store.actions.applyFileViewSourceUpdateFact({
+			contentItems: [
+				makeWorkerFileViewContentMetadata('file-1', {
+					canFetchContent: false,
+					isBinary: true,
+				}),
+			],
+			rows: [{ id: 'file-1', parentId: null, index: 0 }],
+		});
+
+		expect(store.getState().paintReadyByItemId.has('file-1')).toBe(false);
+		expect(store.getState().byteCache.has('file-view:sha256:file-1')).toBe(false);
+		expect(store.getState().availabilityByItemId.get('file-1')).toBe('unavailable');
+		expect(Object.fromEntries(store.getState().demandByKey)).toEqual({});
+		expect(sourceUpdateResult.touchedKeys).toEqual([
+			'sourceRows',
+			'sourceContentMetadata',
+			'contentMetadata:file-1',
+			'paintReady:file-1',
+			'byteCache:file-view:sha256:file-1',
+			'availability:file-1',
+			'demand:file-1',
+		]);
+		expect(store.actions.takePendingSlicePatchEvent({ epoch: 12, sequence: 2 })?.patches).toEqual([
+			{ slice: 'rowPaint', operation: 'delete', itemId: 'file-1' },
+			{
+				slice: 'contentAvailability',
+				operation: 'upsert',
+				itemId: 'file-1',
+				payload: { state: 'unavailable' },
+			},
+		]);
+	});
 });
 
 function makeWorkerReviewContentMetadata(
@@ -490,5 +651,29 @@ function makeWorkerReviewContentMetadata(
 		sizeBytes: item.sizeBytes,
 		availableContentRoles: ['head'],
 		contentLineCountsByRole: item.contentLineCountsByRole ?? {},
+	};
+}
+
+function makeWorkerFileViewContentMetadata(
+	itemId: string,
+	props: {
+		readonly canFetchContent?: boolean;
+		readonly isBinary?: boolean;
+		readonly path?: string;
+	} = {},
+): BridgeWorkerFileViewContentMetadata {
+	return {
+		itemId,
+		path: props.path ?? `Sources/App/${itemId}.swift`,
+		language: 'swift',
+		cacheKey: `file-view:sha256:${itemId}`,
+		sizeBytes: 128,
+		contentHandle: `handle-${itemId}`,
+		descriptorId: `descriptor-${itemId}`,
+		contentHash: `sha256:${itemId}`,
+		virtualizedExtentKind: 'exactLineCount',
+		lineCount: 7,
+		isBinary: props.isBinary ?? false,
+		canFetchContent: props.canFetchContent ?? true,
 	};
 }

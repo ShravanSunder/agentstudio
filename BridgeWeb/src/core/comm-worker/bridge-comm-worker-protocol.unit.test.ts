@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 
 import {
+	encodeBridgeWorkerFileViewSourceUpdateCommand,
 	encodeBridgeWorkerHoverCommand,
 	encodeBridgeWorkerMarkFileViewedCommand,
 	encodeBridgeWorkerModeCommand,
@@ -61,5 +62,53 @@ describe('Bridge comm worker protocol', () => {
 			expect(command.transferDescriptors).toEqual([]);
 			expect(bridgeWorkerMainToServerMessageSchema.parse(command)).toEqual(command);
 		}
+	});
+
+	test('encodes File View source updates through BridgeWorkerContracts', () => {
+		const command = encodeBridgeWorkerFileViewSourceUpdateCommand({
+			requestId: 'request-file-view-source',
+			epoch: 4,
+			contentItems: [
+				{
+					itemId: 'file-1',
+					path: 'Sources/App/FileView.swift',
+					language: 'swift',
+					cacheKey: 'file-view:sha256:file-1',
+					sizeBytes: 128,
+					contentHandle: 'handle-file-1',
+					descriptorId: 'descriptor-file-1',
+					contentHash: 'sha256:file-1',
+					virtualizedExtentKind: 'exactLineCount',
+					lineCount: 7,
+					isBinary: false,
+					canFetchContent: true,
+				},
+			],
+			contentRequestDescriptors: [
+				{
+					itemId: 'file-1',
+					path: 'Sources/App/FileView.swift',
+					handleId: 'handle-file-1',
+					descriptorId: 'descriptor-file-1',
+					resourceKind: 'worktree.fileContent',
+					resourceUrl:
+						'agentstudio://resource/worktree-file/worktree.fileContent/descriptor-file-1?generation=3',
+					contentHash: 'sha256:file-1',
+					contentHashAlgorithm: 'sha256',
+					language: 'swift',
+					sizeBytes: 128,
+					maxBytes: 4096,
+					isBinary: false,
+				},
+			],
+			rows: [{ id: 'file-1', parentId: null, index: 0 }],
+		});
+
+		expect(command.command).toBe('fileViewSourceUpdate');
+		expect(command.wireVersion).toBe(BRIDGE_WORKER_WIRE_VERSION);
+		expect(command.direction).toBe('mainToServerWorker');
+		expect(command.transferDescriptors).toEqual([]);
+		expect(bridgeWorkerMainToServerMessageSchema.parse(command)).toEqual(command);
+		expect(JSON.stringify(command.contentItems)).not.toMatch(/resourceUrl|contents|body/i);
 	});
 });

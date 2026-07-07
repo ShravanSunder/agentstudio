@@ -1,5 +1,6 @@
 import {
 	BRIDGE_WORKER_WIRE_VERSION,
+	bridgeWorkerFileViewSourceUpdateCommandSchema,
 	bridgeWorkerHoverCommandSchema,
 	bridgeWorkerMarkFileViewedCommandSchema,
 	bridgeWorkerModeCommandSchema,
@@ -8,6 +9,7 @@ import {
 	bridgeWorkerSelectCommandSchema,
 	bridgeWorkerViewportCommandSchema,
 	type BridgeWorkerHealthEvent,
+	type BridgeWorkerFileViewSourceUpdateCommand,
 	type BridgeWorkerHoverCommand,
 	type BridgeWorkerMainToServerCommand,
 	type BridgeWorkerMarkFileViewedCommand,
@@ -62,6 +64,12 @@ export interface EncodeBridgeWorkerReviewSourceUpdateCommandProps extends Encode
 	readonly contentRequestDescriptors: BridgeWorkerReviewSourceUpdateCommand['contentRequestDescriptors'];
 	readonly renderSemantics: BridgeWorkerReviewSourceUpdateCommand['renderSemantics'];
 	readonly rows: BridgeWorkerReviewSourceUpdateCommand['rows'];
+}
+
+export interface EncodeBridgeWorkerFileViewSourceUpdateCommandProps extends EncodeBridgeWorkerCommandBaseProps {
+	readonly contentItems: BridgeWorkerFileViewSourceUpdateCommand['contentItems'];
+	readonly contentRequestDescriptors: BridgeWorkerFileViewSourceUpdateCommand['contentRequestDescriptors'];
+	readonly rows: BridgeWorkerFileViewSourceUpdateCommand['rows'];
 }
 
 export function encodeBridgeWorkerSelectCommand(
@@ -134,6 +142,17 @@ export function encodeBridgeWorkerReviewSourceUpdateCommand(
 		contentItems: props.contentItems,
 		contentRequestDescriptors: props.contentRequestDescriptors,
 		renderSemantics: props.renderSemantics,
+		rows: props.rows,
+	});
+}
+
+export function encodeBridgeWorkerFileViewSourceUpdateCommand(
+	props: EncodeBridgeWorkerFileViewSourceUpdateCommandProps,
+): BridgeWorkerFileViewSourceUpdateCommand {
+	return bridgeWorkerFileViewSourceUpdateCommandSchema.parse({
+		...bridgeWorkerCommandEnvelope(props, 'fileViewSourceUpdate'),
+		contentItems: props.contentItems,
+		contentRequestDescriptors: props.contentRequestDescriptors,
 		rows: props.rows,
 	});
 }

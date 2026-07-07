@@ -1,6 +1,10 @@
 import { z } from 'zod';
 
 import {
+	worktreeFileSurfaceResourceKindSchema,
+	worktreeFileVirtualizedExtentKindSchema,
+} from '../../features/worktree-file/models/worktree-file-protocol-models.js';
+import {
 	bridgeContentRoleSchema,
 	bridgeFileChangeKindSchema,
 	bridgeReviewContentLineCountsByRoleSchema,
@@ -160,6 +164,43 @@ export const bridgeWorkerReviewRenderSemanticsSchema = z
 	})
 	.strict();
 
+export const bridgeWorkerFileViewContentMetadataSchema = z
+	.object({
+		itemId: z.string().min(1),
+		path: z.string().min(1),
+		language: z.string().nullable(),
+		cacheKey: z.string().min(1),
+		sizeBytes: z.number().int().nonnegative(),
+		contentHandle: z.string().min(1),
+		descriptorId: z.string().min(1),
+		contentHash: z.string().min(1).optional(),
+		virtualizedExtentKind: worktreeFileVirtualizedExtentKindSchema,
+		lineCount: z.number().int().nonnegative().optional(),
+		isBinary: z.boolean(),
+		canFetchContent: z.boolean(),
+	})
+	.strict();
+
+export const bridgeWorkerFileViewContentRequestDescriptorSchema = z
+	.object({
+		itemId: z.string().min(1),
+		path: z.string().min(1),
+		handleId: z.string().min(1),
+		descriptorId: z.string().min(1),
+		resourceKind: worktreeFileSurfaceResourceKindSchema,
+		resourceUrl: z.string().min(1).refine(isBridgeWorkerFileViewContentResourceUrl, {
+			message:
+				'File View content request descriptors must use the AgentStudio file-content scheme URL.',
+		}),
+		contentHash: z.string().min(1).optional(),
+		contentHashAlgorithm: z.string().min(1).optional(),
+		language: z.string().nullable(),
+		sizeBytes: z.number().int().nonnegative(),
+		maxBytes: z.number().int().positive(),
+		isBinary: z.boolean(),
+	})
+	.strict();
+
 export const bridgeCommWorkerRowSchema = z
 	.object({
 		id: z.string().min(1),
@@ -178,7 +219,27 @@ export const bridgeWorkerReviewSourceUpdateCommandSchema = bridgeWorkerMainToSer
 	})
 	.strict();
 
-export const bridgeWorkerMainToServerCommandSchema = z.discriminatedUnion('command', [
+const bridgeWorkerFileViewSourceUpdateCommandBaseSchema = bridgeWorkerMainToServerBaseSchema
+	.extend({
+		command: z.literal('fileViewSourceUpdate'),
+		contentItems: z.array(bridgeWorkerFileViewContentMetadataSchema).readonly(),
+		contentRequestDescriptors: z
+			.array(bridgeWorkerFileViewContentRequestDescriptorSchema)
+			.readonly(),
+		rows: z.array(bridgeCommWorkerRowSchema).readonly(),
+	})
+	.strict();
+
+type BridgeWorkerFileViewSourceUpdateCommandDraft = z.infer<
+	typeof bridgeWorkerFileViewSourceUpdateCommandBaseSchema
+>;
+
+export const bridgeWorkerFileViewSourceUpdateCommandSchema =
+	bridgeWorkerFileViewSourceUpdateCommandBaseSchema.superRefine(
+		validateBridgeWorkerFileViewSourceUpdateCommand,
+	);
+
+const bridgeWorkerMainToServerCommandBaseSchema = z.discriminatedUnion('command', [
 	bridgeWorkerSelectCommandSchema,
 	bridgeWorkerViewportCommandSchema,
 	bridgeWorkerHoverCommandSchema,
@@ -186,9 +247,123 @@ export const bridgeWorkerMainToServerCommandSchema = z.discriminatedUnion('comma
 	bridgeWorkerModeCommandSchema,
 	bridgeWorkerReviewInvalidateCommandSchema,
 	bridgeWorkerReviewSourceUpdateCommandSchema,
+	bridgeWorkerFileViewSourceUpdateCommandBaseSchema,
 ]);
 
+export const bridgeWorkerMainToServerCommandSchema =
+	bridgeWorkerMainToServerCommandBaseSchema.superRefine((command, context) => {
+		if (command.command === 'fileViewSourceUpdate') {
+			validateBridgeWorkerFileViewSourceUpdateCommand(command, context);
+		}
+	});
+
 export const bridgeWorkerMainToServerMessageSchema = bridgeWorkerMainToServerCommandSchema;
+
+function isBridgeWorkerFileViewContentResourceUrl(resourceUrl: string): boolean {
+	return parseBridgeWorkerFileViewContentResourceDescriptorId(resourceUrl) !== null;
+}
+
+function validateBridgeWorkerFileViewSourceUpdateCommand(
+	command: BridgeWorkerFileViewSourceUpdateCommandDraft,
+	context: z.RefinementCtx,
+): void {
+	const metadataByItemId = new Map(
+		command.contentItems.map((contentItem) => [contentItem.itemId, contentItem]),
+	);
+	const descriptorsByItemId = new Map<
+		string,
+		BridgeWorkerFileViewSourceUpdateCommandDraft['contentRequestDescriptors']
+	>();
+	for (const descriptor of command.contentRequestDescriptors) {
+		descriptorsByItemId.set(descriptor.itemId, [
+			...(descriptorsByItemId.get(descriptor.itemId) ?? []),
+			descriptor,
+		]);
+		if (!metadataByItemId.has(descriptor.itemId)) {
+			context.addIssue({
+				code: z.ZodIssueCode.custom,
+				message: `File View descriptor ${descriptor.itemId} has no matching metadata item.`,
+				path: ['contentRequestDescriptors'],
+			});
+		}
+	}
+	for (const contentItem of command.contentItems) {
+		const descriptors = descriptorsByItemId.get(contentItem.itemId) ?? [];
+		if (contentItem.canFetchContent && descriptors.length !== 1) {
+			context.addIssue({
+				code: z.ZodIssueCode.custom,
+				message: `Fetchable File View item ${contentItem.itemId} must have exactly one request descriptor.`,
+				path: ['contentRequestDescriptors'],
+			});
+			continue;
+		}
+		if (!contentItem.canFetchContent && descriptors.length !== 0) {
+			context.addIssue({
+				code: z.ZodIssueCode.custom,
+				message: `Non-fetchable File View item ${contentItem.itemId} must not have request descriptors.`,
+				path: ['contentRequestDescriptors'],
+			});
+			continue;
+		}
+		const descriptor = descriptors[0];
+		if (descriptor === undefined) {
+			continue;
+		}
+		validateBridgeWorkerFileViewDescriptorMatchesMetadata({
+			contentItem,
+			context,
+			descriptor,
+		});
+	}
+}
+
+function validateBridgeWorkerFileViewDescriptorMatchesMetadata(props: {
+	readonly contentItem: BridgeWorkerFileViewSourceUpdateCommandDraft['contentItems'][number];
+	readonly context: z.RefinementCtx;
+	readonly descriptor: BridgeWorkerFileViewSourceUpdateCommandDraft['contentRequestDescriptors'][number];
+}): void {
+	const mismatchedFields = [
+		props.descriptor.path === props.contentItem.path ? null : 'path',
+		props.descriptor.handleId === props.contentItem.contentHandle ? null : 'handleId',
+		props.descriptor.descriptorId === props.contentItem.descriptorId ? null : 'descriptorId',
+		parseBridgeWorkerFileViewContentResourceDescriptorId(props.descriptor.resourceUrl) ===
+		props.descriptor.descriptorId
+			? null
+			: 'resourceUrl',
+		props.descriptor.contentHash === props.contentItem.contentHash ? null : 'contentHash',
+		props.descriptor.language === props.contentItem.language ? null : 'language',
+		props.descriptor.sizeBytes === props.contentItem.sizeBytes ? null : 'sizeBytes',
+		props.descriptor.isBinary === props.contentItem.isBinary ? null : 'isBinary',
+	].filter((fieldName): fieldName is string => fieldName !== null);
+	if (mismatchedFields.length === 0) {
+		return;
+	}
+	props.context.addIssue({
+		code: z.ZodIssueCode.custom,
+		message: `File View descriptor ${props.descriptor.itemId} does not match metadata fields: ${mismatchedFields.join(', ')}.`,
+		path: ['contentRequestDescriptors'],
+	});
+}
+
+function parseBridgeWorkerFileViewContentResourceDescriptorId(resourceUrl: string): string | null {
+	try {
+		const url = new URL(resourceUrl);
+		if (url.protocol !== 'agentstudio:' || url.hostname !== 'resource' || url.pathname === '') {
+			return null;
+		}
+		const pathSegments = url.pathname.split('/').filter((segment) => segment.length > 0);
+		if (
+			pathSegments[0] !== 'worktree-file' ||
+			pathSegments[1] !== 'worktree.fileContent' ||
+			pathSegments.length !== 3
+		) {
+			return null;
+		}
+		return decodeURIComponent(pathSegments[2] ?? '');
+	} catch {
+		return null;
+	}
+}
 
 export type BridgeWorkerSelectCommand = z.infer<typeof bridgeWorkerSelectCommandSchema>;
 export type BridgeWorkerViewportCommand = z.infer<typeof bridgeWorkerViewportCommandSchema>;
@@ -202,6 +377,9 @@ export type BridgeWorkerReviewInvalidateCommand = z.infer<
 >;
 export type BridgeWorkerReviewSourceUpdateCommand = z.infer<
 	typeof bridgeWorkerReviewSourceUpdateCommandSchema
+>;
+export type BridgeWorkerFileViewSourceUpdateCommand = z.infer<
+	typeof bridgeWorkerFileViewSourceUpdateCommandSchema
 >;
 export type BridgeWorkerMainToServerCommand = z.infer<typeof bridgeWorkerMainToServerCommandSchema>;
 export type BridgeWorkerMainToServerMessage = BridgeWorkerMainToServerCommand;
@@ -377,6 +555,15 @@ export type BridgeWorkerReviewContentRequestDescriptor = z.infer<
 export type BridgeWorkerReviewRenderSemantics = z.infer<
 	typeof bridgeWorkerReviewRenderSemanticsSchema
 >;
+export type BridgeWorkerFileViewContentMetadata = z.infer<
+	typeof bridgeWorkerFileViewContentMetadataSchema
+>;
+export type BridgeWorkerFileViewContentRequestDescriptor = z.infer<
+	typeof bridgeWorkerFileViewContentRequestDescriptorSchema
+>;
+export type BridgeWorkerContentMetadata =
+	| BridgeWorkerFileViewContentMetadata
+	| BridgeWorkerReviewContentMetadata;
 export type BridgeCommWorkerBootstrapRow = z.infer<typeof bridgeCommWorkerRowSchema>;
 export type BridgeCommWorkerBootstrapRequest = z.infer<
 	typeof bridgeCommWorkerBootstrapRequestSchema

@@ -3,6 +3,7 @@ import { describe, expect, test } from 'vitest';
 import { makeBridgeReviewItem } from '../../foundation/review-package/bridge-review-package-test-support.js';
 import { createBridgeCommWorkerCommandHandler } from './bridge-comm-worker-command-handler.js';
 import {
+	encodeBridgeWorkerFileViewSourceUpdateCommand,
 	encodeBridgeWorkerHoverCommand,
 	encodeBridgeWorkerMarkFileViewedCommand,
 	encodeBridgeWorkerModeCommand,
@@ -12,7 +13,10 @@ import {
 	encodeBridgeWorkerViewportCommand,
 } from './bridge-comm-worker-protocol.js';
 import type { BridgeCommWorkerStore } from './bridge-comm-worker-store.js';
-import type { BridgeWorkerReviewContentMetadata } from './bridge-worker-contracts.js';
+import type {
+	BridgeWorkerFileViewContentMetadata,
+	BridgeWorkerReviewContentMetadata,
+} from './bridge-worker-contracts.js';
 
 interface ScheduledSelectedReviewPreparation {
 	readonly epoch: number;
@@ -491,6 +495,121 @@ describe('Bridge comm worker command handler', () => {
 		});
 		expect(scheduledPreparations).toEqual([]);
 	});
+
+	test('file view source update command installs worker-local metadata without raw content', () => {
+		const receivedSources: {
+			readonly contentItems: readonly BridgeWorkerFileViewContentMetadata[];
+			readonly contentRequestDescriptors: readonly { readonly resourceUrl: string }[];
+		}[] = [];
+		const handler = createBridgeCommWorkerCommandHandler({
+			contentItems: [],
+			rows: [],
+			createSequence: (): number => 31,
+			scheduleSelectedReviewContentReadyPreparation: ignoreScheduledSelectedReviewPreparation,
+			updateFileViewRuntimeSource: (source): void => {
+				receivedSources.push(source);
+			},
+		});
+
+		const messages = handler.handleMessage(
+			encodeBridgeWorkerFileViewSourceUpdateCommand({
+				requestId: 'request-file-source',
+				epoch: 6,
+				contentItems: [makeWorkerFileViewContentMetadata('file-1')],
+				contentRequestDescriptors: [
+					{
+						itemId: 'file-1',
+						path: 'Sources/App/file-1.swift',
+						handleId: 'handle-file-1',
+						descriptorId: 'descriptor-file-1',
+						resourceKind: 'worktree.fileContent',
+						resourceUrl:
+							'agentstudio://resource/worktree-file/worktree.fileContent/descriptor-file-1?generation=6',
+						contentHash: 'sha256:file-1',
+						contentHashAlgorithm: 'sha256',
+						language: 'swift',
+						sizeBytes: 128,
+						maxBytes: 4096,
+						isBinary: false,
+					},
+				],
+				rows: [{ id: 'file-1', parentId: null, index: 0 }],
+			}),
+		);
+
+		expect(messages).toEqual([
+			{
+				wireVersion: 1,
+				direction: 'serverWorkerToMain',
+				transferDescriptors: [],
+				kind: 'health',
+				requestId: 'request-file-source',
+				status: 'ready',
+			},
+		]);
+		expect(receivedSources[0]?.contentItems).toEqual([makeWorkerFileViewContentMetadata('file-1')]);
+		expect(receivedSources[0]?.contentRequestDescriptors[0]?.resourceUrl).toMatch(
+			/^agentstudio:\/\//,
+		);
+		expect(JSON.stringify(receivedSources[0]?.contentItems)).not.toMatch(
+			/resourceUrl|contents|body/i,
+		);
+		expect(JSON.stringify(receivedSources)).not.toMatch(/contents|body/i);
+	});
+
+	test('file view source update command publishes availability repairs before health ack', () => {
+		const handler = createBridgeCommWorkerCommandHandler({
+			contentItems: [],
+			rows: [{ id: 'file-1', parentId: null, index: 0 }],
+			createSequence: createSequenceFrom([41, 42]),
+			scheduleSelectedReviewContentReadyPreparation: ignoreScheduledSelectedReviewPreparation,
+		});
+		handler.handleMessage(
+			encodeBridgeWorkerSelectCommand({
+				requestId: 'request-select-before-file-metadata',
+				epoch: 1,
+				selectedItemId: 'file-1',
+				selectedSource: 'user',
+			}),
+		);
+
+		const messages = handler.handleMessage(
+			encodeBridgeWorkerFileViewSourceUpdateCommand({
+				requestId: 'request-file-source',
+				epoch: 2,
+				contentItems: [makeWorkerFileViewContentMetadata('file-1')],
+				contentRequestDescriptors: [makeWorkerFileViewContentRequestDescriptor('file-1', 2)],
+				rows: [{ id: 'file-1', parentId: null, index: 0 }],
+			}),
+		);
+
+		expect(messages).toEqual([
+			{
+				wireVersion: 1,
+				direction: 'serverWorkerToMain',
+				transferDescriptors: [],
+				kind: 'slicePatch',
+				epoch: 2,
+				sequence: 42,
+				patches: [
+					{
+						slice: 'contentAvailability',
+						operation: 'upsert',
+						itemId: 'file-1',
+						payload: { state: 'loading' },
+					},
+				],
+			},
+			{
+				wireVersion: 1,
+				direction: 'serverWorkerToMain',
+				transferDescriptors: [],
+				kind: 'health',
+				requestId: 'request-file-source',
+				status: 'ready',
+			},
+		]);
+	});
 });
 
 function pushScheduledSelectedReviewPreparation(
@@ -533,5 +652,55 @@ function makeWorkerReviewContentMetadata(
 		sizeBytes: item.sizeBytes,
 		availableContentRoles: ['head'],
 		contentLineCountsByRole: item.contentLineCountsByRole ?? {},
+	};
+}
+
+function makeWorkerFileViewContentMetadata(itemId: string): BridgeWorkerFileViewContentMetadata {
+	return {
+		itemId,
+		path: `Sources/App/${itemId}.swift`,
+		language: 'swift',
+		cacheKey: `file-view:sha256:${itemId}`,
+		sizeBytes: 128,
+		contentHandle: `handle-${itemId}`,
+		descriptorId: `descriptor-${itemId}`,
+		contentHash: `sha256:${itemId}`,
+		virtualizedExtentKind: 'exactLineCount',
+		lineCount: 7,
+		isBinary: false,
+		canFetchContent: true,
+	};
+}
+
+function makeWorkerFileViewContentRequestDescriptor(
+	itemId: string,
+	generation: number,
+): {
+	readonly itemId: string;
+	readonly path: string;
+	readonly handleId: string;
+	readonly descriptorId: string;
+	readonly resourceKind: 'worktree.fileContent';
+	readonly resourceUrl: string;
+	readonly contentHash: string;
+	readonly contentHashAlgorithm: string;
+	readonly language: string;
+	readonly sizeBytes: number;
+	readonly maxBytes: number;
+	readonly isBinary: boolean;
+} {
+	return {
+		itemId,
+		path: `Sources/App/${itemId}.swift`,
+		handleId: `handle-${itemId}`,
+		descriptorId: `descriptor-${itemId}`,
+		resourceKind: 'worktree.fileContent',
+		resourceUrl: `agentstudio://resource/worktree-file/worktree.fileContent/descriptor-${itemId}?generation=${generation}`,
+		contentHash: `sha256:${itemId}`,
+		contentHashAlgorithm: 'sha256',
+		language: 'swift',
+		sizeBytes: 128,
+		maxBytes: 4096,
+		isBinary: false,
 	};
 }

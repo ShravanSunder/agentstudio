@@ -1,9 +1,12 @@
 import { createStore, type StoreApi } from 'zustand/vanilla';
 
+import { applyBridgeCommWorkerFileViewSourceUpdateFact } from './bridge-comm-worker-file-view-source-update.js';
 import {
 	BRIDGE_WORKER_WIRE_VERSION,
 	bridgeWorkerSlicePatchEventSchema,
+	type BridgeWorkerContentMetadata,
 	type BridgeWorkerContentAvailabilityPatchPayload,
+	type BridgeWorkerFileViewContentMetadata,
 	type BridgeWorkerReviewContentMetadata,
 	type BridgeWorkerSlicePatch,
 	type BridgeWorkerSlicePatchEvent,
@@ -36,11 +39,11 @@ export interface BridgeCommWorkerStoreState {
 		string,
 		BridgeWorkerContentAvailabilityPatchPayload['state']
 	>;
-	readonly contentMetadataByItemId: ReadonlyMap<string, BridgeWorkerReviewContentMetadata>;
+	readonly contentMetadataByItemId: ReadonlyMap<string, BridgeWorkerContentMetadata>;
 }
 
 export interface CreateBridgeCommWorkerStoreProps {
-	readonly contentItems: readonly BridgeWorkerReviewContentMetadata[];
+	readonly contentItems: readonly BridgeWorkerContentMetadata[];
 	readonly rows: readonly BridgeCommWorkerRow[];
 }
 
@@ -87,6 +90,11 @@ export interface ApplyBridgeCommWorkerReviewSourceUpdateFactProps {
 	readonly rows: readonly BridgeCommWorkerRow[];
 }
 
+export interface ApplyBridgeCommWorkerFileViewSourceUpdateFactProps {
+	readonly contentItems: readonly BridgeWorkerFileViewContentMetadata[];
+	readonly rows: readonly BridgeCommWorkerRow[];
+}
+
 export interface TakePendingBridgeCommWorkerSlicePatchEventProps {
 	readonly epoch: number;
 	readonly sequence: number;
@@ -113,6 +121,9 @@ export interface BridgeCommWorkerStore {
 		) => BridgeCommWorkerTouchedResult;
 		readonly applyReviewSourceUpdateFact: (
 			props: ApplyBridgeCommWorkerReviewSourceUpdateFactProps,
+		) => BridgeCommWorkerTouchedResult;
+		readonly applyFileViewSourceUpdateFact: (
+			props: ApplyBridgeCommWorkerFileViewSourceUpdateFactProps,
 		) => BridgeCommWorkerTouchedResult;
 		readonly takePendingSlicePatchEvent: (
 			props: TakePendingBridgeCommWorkerSlicePatchEventProps,
@@ -194,6 +205,22 @@ export function createBridgeCommWorkerStore(
 				const previousState = store.getState();
 				const visibleIds = [...fact.visibleItemIds];
 				const visibleDeltaIds = findChangedIds(previousState.visibleIds, visibleIds);
+				const unavailableVisibleIds = visibleIds.filter((itemId) => {
+					const metadata = previousState.contentMetadataByItemId.get(itemId) ?? null;
+					return (
+						metadata !== null &&
+						!isDemandEligibleContentMetadata(metadata) &&
+						previousState.availabilityByItemId.get(itemId) !== 'unavailable'
+					);
+				});
+				let nextAvailabilityByItemId = previousState.availabilityByItemId;
+				if (unavailableVisibleIds.length > 0) {
+					const unavailableAvailabilityByItemId = new Map(previousState.availabilityByItemId);
+					for (const itemId of unavailableVisibleIds) {
+						unavailableAvailabilityByItemId.set(itemId, 'unavailable');
+					}
+					nextAvailabilityByItemId = unavailableAvailabilityByItemId;
+				}
 				store.setState((state) => ({
 					...state,
 					viewportRange: {
@@ -201,6 +228,7 @@ export function createBridgeCommWorkerStore(
 						lastVisibleIndex: fact.lastVisibleIndex,
 					},
 					visibleIds,
+					availabilityByItemId: nextAvailabilityByItemId,
 					demandByKey: buildDemandByKey({
 						contentMetadataByItemId: state.contentMetadataByItemId,
 						selectedId: state.selectedId,
@@ -217,11 +245,20 @@ export function createBridgeCommWorkerStore(
 						visibleItemIds: visibleIds,
 					},
 				});
+				for (const itemId of unavailableVisibleIds) {
+					pendingSlicePatches.push({
+						slice: 'contentAvailability',
+						operation: 'upsert',
+						itemId,
+						payload: { state: 'unavailable' },
+					});
+				}
 				return {
 					touchedKeys: [
 						'viewportRange',
 						...visibleDeltaIds.map((itemId) => `visibleIds:${itemId}`),
 						...visibleDeltaIds.map((itemId) => `demand:${itemId}`),
+						...unavailableVisibleIds.map((itemId) => `availability:${itemId}`),
 					],
 				};
 			},
@@ -348,27 +385,21 @@ export function createBridgeCommWorkerStore(
 			applyReviewSourceUpdateFact: (
 				fact: ApplyBridgeCommWorkerReviewSourceUpdateFactProps,
 			): BridgeCommWorkerTouchedResult => {
-				const previousState = store.getState();
-				const sourceIndexes = buildBridgeCommWorkerSourceIndexes(fact);
-				store.setState({
-					...previousState,
-					...sourceIndexes,
-					demandByKey: buildDemandByKey({
-						contentMetadataByItemId: sourceIndexes.contentMetadataByItemId,
-						selectedId: previousState.selectedId,
-						selectedDemandValue: readSelectedDemandValue(previousState),
-						visibleIds: previousState.visibleIds,
-					}),
+				return applyBridgeCommWorkerSourceUpdateFact({
+					contentItems: fact.contentItems,
+					rows: fact.rows,
+					store,
 				});
-				return {
-					touchedKeys: [
-						'sourceRows',
-						'sourceContentMetadata',
-						...Array.from(sourceIndexes.contentMetadataByItemId.keys()).map(
-							(itemId): string => `contentMetadata:${itemId}`,
-						),
-					],
-				};
+			},
+			applyFileViewSourceUpdateFact: (
+				fact: ApplyBridgeCommWorkerFileViewSourceUpdateFactProps,
+			): BridgeCommWorkerTouchedResult => {
+				return applyBridgeCommWorkerFileViewSourceUpdateFact({
+					contentItems: fact.contentItems,
+					pendingSlicePatches,
+					rows: fact.rows,
+					store,
+				});
 			},
 			takePendingSlicePatchEvent: (
 				eventProps: TakePendingBridgeCommWorkerSlicePatchEventProps,
@@ -394,6 +425,34 @@ export function createBridgeCommWorkerStore(
 	};
 }
 
+function applyBridgeCommWorkerSourceUpdateFact(props: {
+	readonly contentItems: readonly BridgeWorkerContentMetadata[];
+	readonly rows: readonly BridgeCommWorkerRow[];
+	readonly store: StoreApi<BridgeCommWorkerStoreState>;
+}): BridgeCommWorkerTouchedResult {
+	const previousState = props.store.getState();
+	const sourceIndexes = buildBridgeCommWorkerSourceIndexes(props);
+	props.store.setState({
+		...previousState,
+		...sourceIndexes,
+		demandByKey: buildDemandByKey({
+			contentMetadataByItemId: sourceIndexes.contentMetadataByItemId,
+			selectedId: previousState.selectedId,
+			selectedDemandValue: readSelectedDemandValue(previousState),
+			visibleIds: previousState.visibleIds,
+		}),
+	});
+	return {
+		touchedKeys: [
+			'sourceRows',
+			'sourceContentMetadata',
+			...Array.from(sourceIndexes.contentMetadataByItemId.keys()).map(
+				(itemId): string => `contentMetadata:${itemId}`,
+			),
+		],
+	};
+}
+
 function buildInitialBridgeCommWorkerStoreState(
 	props: CreateBridgeCommWorkerStoreProps,
 ): BridgeCommWorkerStoreState {
@@ -412,7 +471,7 @@ function buildInitialBridgeCommWorkerStoreState(
 }
 
 function buildBridgeCommWorkerSourceIndexes(props: {
-	readonly contentItems: readonly BridgeWorkerReviewContentMetadata[];
+	readonly contentItems: readonly BridgeWorkerContentMetadata[];
 	readonly rows: readonly BridgeCommWorkerRow[];
 }): Pick<
 	BridgeCommWorkerStoreState,
@@ -421,7 +480,7 @@ function buildBridgeCommWorkerSourceIndexes(props: {
 	const rowById = new Map<string, BridgeCommWorkerRow>();
 	const indexById = new Map<string, number>();
 	const childrenByParentId = new Map<string, readonly string[]>();
-	const contentMetadataByItemId = new Map<string, BridgeWorkerReviewContentMetadata>();
+	const contentMetadataByItemId = new Map<string, BridgeWorkerContentMetadata>();
 	for (const row of props.rows) {
 		rowById.set(row.id, row);
 		indexById.set(row.id, row.index);
@@ -475,7 +534,7 @@ function resolveReviewInvalidationItemIds(props: {
 }
 
 function buildDemandByKey(props: {
-	readonly contentMetadataByItemId: ReadonlyMap<string, BridgeWorkerReviewContentMetadata>;
+	readonly contentMetadataByItemId: ReadonlyMap<string, BridgeWorkerContentMetadata>;
 	readonly selectedId: string | null;
 	readonly selectedDemandValue: string | null;
 	readonly visibleIds: readonly string[];
@@ -496,10 +555,14 @@ function buildDemandByKey(props: {
 	return demandByKey;
 }
 
-function isDemandEligibleContentMetadata(
-	metadata: BridgeWorkerReviewContentMetadata | null,
-): boolean {
-	return metadata !== null && metadata.availableContentRoles.length > 0;
+function isDemandEligibleContentMetadata(metadata: BridgeWorkerContentMetadata | null): boolean {
+	if (metadata === null) {
+		return false;
+	}
+	if ('availableContentRoles' in metadata) {
+		return metadata.availableContentRoles.length > 0;
+	}
+	return metadata.canFetchContent;
 }
 
 function readSelectedDemandValue(state: BridgeCommWorkerStoreState): string | null {
