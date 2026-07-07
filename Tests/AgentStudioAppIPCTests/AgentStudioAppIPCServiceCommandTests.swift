@@ -20,9 +20,9 @@ struct AgentStudioAppIPCServiceCommandTests {
                     IPCCommandListEntry(
                         id: commandId,
                         title: "Show Commands",
-                        executionModes: [.headless],
+                        executionModes: [.uiPresentation],
                         targetKinds: [],
-                        requiredPrivileges: []
+                        requiredPrivileges: [.uiPresent]
                     )
                 ]
             ),
@@ -40,6 +40,8 @@ struct AgentStudioAppIPCServiceCommandTests {
         #expect(list.error == nil)
         let listResult = try decodeResponseResult(IPCCommandListResult.self, from: list)
         #expect(listResult.commands.map(\.id) == [commandId])
+        #expect(listResult.commands.first?.executionModes == [.uiPresentation])
+        #expect(listResult.commands.first?.requiredPrivileges == [.uiPresent])
 
         let unsafeConnection = try await authenticatedConnection(
             fixture: fixture,
@@ -52,7 +54,7 @@ struct AgentStudioAppIPCServiceCommandTests {
         let unsafeExecute = try await executeCommand(
             connection: unsafeConnection.connection,
             reader: unsafeConnection,
-            requestId: 68,
+            requestId: 69,
             commandId: commandId
         )
         #expect(unsafeExecute.error?.code == -32_002)
@@ -61,34 +63,51 @@ struct AgentStudioAppIPCServiceCommandTests {
         let automationConnection = try await authenticatedConnection(
             fixture: fixture,
             kind: .automationClient,
-            requestId: 69,
-            grantedScopes: [
-                IPCPermissionScope(privilege: .appCommandExecute, target: .app, dataScope: .unspecified)
-            ]
+            requestId: 70
         )
         defer {
             automationConnection.connection.close()
         }
-        let automationExecute = try await executeCommand(
+        let automationWithoutUIPresentExecute = try await executeCommand(
             connection: automationConnection.connection,
             reader: automationConnection,
-            requestId: 69,
+            requestId: 71,
             commandId: commandId
         )
-        #expect(automationExecute.error?.code == -32_003)
-        #expect(automationExecute.error?.message == "requires presentation")
+        #expect(automationWithoutUIPresentExecute.error?.code == -32_002)
+        #expect(automationWithoutUIPresentExecute.error?.message == "unauthorized")
+
+        let presentationConnection = try await authenticatedConnection(
+            fixture: fixture,
+            kind: .automationClient,
+            requestId: 72,
+            grantedScopes: [
+                IPCPermissionScope(privilege: .uiPresent, target: .app, dataScope: .uiSurface)
+            ]
+        )
+        defer {
+            presentationConnection.connection.close()
+        }
+        let presentationExecute = try await executeCommand(
+            connection: presentationConnection.connection,
+            reader: presentationConnection,
+            requestId: 73,
+            commandId: commandId
+        )
+        #expect(presentationExecute.error?.code == -32_003)
+        #expect(presentationExecute.error?.message == "requires presentation")
 
         try sendRequest(
             connection: unsafeConnection.connection,
             request: JSONRPCClientRequest(
-                id: .number(70),
+                id: .number(74),
                 method: "ui.commandBar.open",
                 params: try JSONRPCCodec.encodeJSONValue(
                     IPCCommandBarOpenParams(scope: .commands, correlationId: nil)
                 )
             )
         )
-        let open = try await unsafeConnection.receiveResponse()
+        let open = try await unsafeConnection.receiveResponse(expectedRequestId: 74)
         #expect(open.error == nil)
         let openResult = try decodeResponseResult(IPCCommandBarOpenResult.self, from: open)
         #expect(openResult.workspaceWindowId == windowId)
@@ -147,8 +166,10 @@ private final class AuthenticatedIPCConnection {
         self.reader = reader
     }
 
-    func receiveResponse() async throws -> JSONRPCResponseMessage {
-        try await reader.receiveResponseWithoutBlockingMainActor(connection: connection)
+    func receiveResponse(expectedRequestId: Int) async throws -> JSONRPCResponseMessage {
+        let response = try await reader.receiveResponseWithoutBlockingMainActor(connection: connection)
+        #expect(response.id == .number(expectedRequestId))
+        return response
     }
 }
 
@@ -194,5 +215,5 @@ private func executeCommand(
             )
         )
     )
-    return try await reader.receiveResponse()
+    return try await reader.receiveResponse(expectedRequestId: requestId)
 }
